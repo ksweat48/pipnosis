@@ -4,12 +4,13 @@
  * ALL trade closures MUST go through this coordinator.
  * DO NOT update goal_session_trades.status to 'closed' directly elsewhere.
  *
- * This ensures:
- * - Balance is ALWAYS updated correctly
- * - P&L is calculated using SSOT functions
- * - Notifications are sent consistently
- * - Goal achievement is checked properly
- * - No orphaned or inconsistent trade states
+ * AUTHORITY: This coordinator is the SOLE authority for trade closures.
+ * - positionService.closePosition() must delegate here
+ * - position-monitor must delegate here
+ * - trade-lifecycle-manager must NOT close trades directly
+ *
+ * FAIL-HARD POLICY: No silent fallbacks. If RPC fails, operation fails.
+ * Emergency recovery requires explicit emergencyRecoveryMode flag.
  */
 
 import { supabase } from '../../lib/supabase';
@@ -23,6 +24,7 @@ export type CloseReason =
   | 'take_profit'
   | 'manual'
   | 'goal_achieved'
+  | 'goal_met'
   | 'session_timeout'
   | 'force_close'
   | 'weekend_shutdown'
@@ -36,6 +38,7 @@ export interface CloseTradeRequest {
   userId: string;
   goalSessionId: string;
   forceClose?: boolean;
+  emergencyRecoveryMode?: boolean;
 }
 
 export interface CloseTradeResult {
@@ -46,6 +49,8 @@ export interface CloseTradeResult {
   closeReason?: CloseReason;
   error?: string;
   goalAchieved?: boolean;
+  auditId?: string;
+  usedEmergencyRecovery?: boolean;
 }
 
 interface TradeData {
@@ -56,6 +61,7 @@ interface TradeData {
   stop_loss: number;
   take_profit: number;
   position_size: number;
+  lot_size?: number;
   status: string;
   user_id: string;
   goal_session_id: string;
@@ -63,6 +69,21 @@ interface TradeData {
 
 class TradeClosureCoordinator {
   private closureLocks = new Map<string, boolean>();
+  private static isInCoordinatorContext = false;
+
+  static assertCoordinatorContext(operation: string): void {
+    if (!TradeClosureCoordinator.isInCoordinatorContext) {
+      console.error(`[AUTHORITY VIOLATION] ${operation} called outside coordinator context`);
+    }
+  }
+
+  static markCoordinatorEntry(): void {
+    TradeClosureCoordinator.isInCoordinatorContext = true;
+  }
+
+  static markCoordinatorExit(): void {
+    TradeClosureCoordinator.isInCoordinatorContext = false;
+  }
 
   async closeTrade(request: CloseTradeRequest): Promise<CloseTradeResult> {
     if (this.closureLocks.get(request.tradeId)) {
@@ -74,6 +95,7 @@ class TradeClosureCoordinator {
     }
 
     this.closureLocks.set(request.tradeId, true);
+    TradeClosureCoordinator.markCoordinatorEntry();
 
     try {
       const { data: trade, error: fetchError } = await supabase
@@ -93,6 +115,7 @@ class TradeClosureCoordinator {
       const tradeData = trade as TradeData;
 
       if (tradeData.status === 'closed') {
+        console.log(`[TradeClosureCoordinator] Trade ${request.tradeId} already closed, skipping`);
         return {
           success: true,
           tradeId: request.tradeId,
@@ -104,40 +127,43 @@ class TradeClosureCoordinator {
         return {
           success: false,
           tradeId: request.tradeId,
-          error: `Cannot close trade with status: ${tradeData.status}`,
+          error: `Cannot close trade with status: ${tradeData.status}. Use forceClose if needed.`,
         };
       }
 
+      const lotSize = tradeData.lot_size || tradeData.position_size;
       const pnl = calculatePnL(
         tradeData.direction,
         tradeData.entry_price,
         request.currentPrice,
-        tradeData.position_size,
+        lotSize,
         tradeData.symbol
       );
 
-      const { error: rpcError } = await supabase.rpc('close_goal_session_trade', {
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('close_goal_session_trade', {
         p_trade_id: request.tradeId,
-        p_exit_price: request.currentPrice,
+        p_close_price: request.currentPrice,
         p_close_reason: request.closeReason,
-        p_user_id: request.userId,
         p_goal_session_id: request.goalSessionId,
         p_force_close: request.forceClose || false,
       });
 
       if (rpcError) {
-        console.error(`[TradeClosureCoordinator] RPC error:`, rpcError);
+        console.error(`[TradeClosureCoordinator] RPC FAILED:`, rpcError);
 
-        if (request.forceClose) {
-          return await this.fallbackDirectClose(request, tradeData, pnl);
+        if (request.emergencyRecoveryMode) {
+          console.error(`[TradeClosureCoordinator] EMERGENCY RECOVERY MODE ACTIVATED`);
+          return await this.emergencyRecoveryClose(request, tradeData, pnl);
         }
 
         return {
           success: false,
           tradeId: request.tradeId,
-          error: rpcError.message,
+          error: `RPC failed: ${rpcError.message}. Use emergencyRecoveryMode if stuck.`,
         };
       }
+
+      await this.logToAudit(request, tradeData, pnl, 'coordinator');
 
       const notificationType = this.getNotificationType(request.closeReason);
       await notificationCoordinator.send({
@@ -172,15 +198,19 @@ class TradeClosureCoordinator {
       };
     } finally {
       this.closureLocks.delete(request.tradeId);
+      TradeClosureCoordinator.markCoordinatorExit();
     }
   }
 
-  private async fallbackDirectClose(
+  private async emergencyRecoveryClose(
     request: CloseTradeRequest,
     trade: TradeData,
     pnl: number
   ): Promise<CloseTradeResult> {
-    console.warn(`[TradeClosureCoordinator] Using fallback direct close for trade ${request.tradeId}`);
+    console.error(`[TradeClosureCoordinator] ⚠️ EMERGENCY DIRECT CLOSE for trade ${request.tradeId}`);
+    console.error(`[TradeClosureCoordinator] This bypasses RPC - manual reconciliation may be needed`);
+
+    await this.logToAudit(request, trade, pnl, 'emergency');
 
     const { error: updateError } = await supabase
       .from('goal_session_trades')
@@ -194,28 +224,48 @@ class TradeClosureCoordinator {
       .eq('id', request.tradeId);
 
     if (updateError) {
+      console.error(`[TradeClosureCoordinator] EMERGENCY CLOSE FAILED:`, updateError);
       return {
         success: false,
         tradeId: request.tradeId,
-        error: `Fallback close failed: ${updateError.message}`,
+        error: `Emergency close failed: ${updateError.message}`,
+        usedEmergencyRecovery: true,
       };
     }
 
-    const { data: balance } = await supabase
-      .from('token_balance')
-      .select('balance')
-      .eq('user_id', request.userId)
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('account_balance')
+      .eq('id', request.userId)
       .maybeSingle();
 
-    if (balance) {
+    if (profile) {
+      const newBalance = (profile.account_balance || 10000) + pnl;
       await supabase
-        .from('token_balance')
+        .from('user_profiles')
         .update({
-          balance: balance.balance + pnl,
+          account_balance: newBalance,
           updated_at: new Date().toISOString(),
         })
-        .eq('user_id', request.userId);
+        .eq('id', request.userId);
+
+      console.log(`[TradeClosureCoordinator] Emergency balance update: ${profile.account_balance} + ${pnl} = ${newBalance}`);
     }
+
+    await notificationCoordinator.send({
+      userId: request.userId,
+      type: 'system_alert',
+      title: 'Trade Closed (Emergency Recovery)',
+      message: `${trade.symbol} was closed using emergency recovery. P&L: $${pnl.toFixed(2)}. Please verify your balance.`,
+      tradeId: request.tradeId,
+      sessionId: request.goalSessionId,
+      priority: 'critical',
+      metadata: {
+        emergencyRecovery: true,
+        symbol: trade.symbol,
+        pnl,
+      },
+    });
 
     return {
       success: true,
@@ -223,21 +273,52 @@ class TradeClosureCoordinator {
       pnl,
       closePrice: request.currentPrice,
       closeReason: request.closeReason,
+      usedEmergencyRecovery: true,
     };
+  }
+
+  private async logToAudit(
+    request: CloseTradeRequest,
+    trade: TradeData,
+    pnl: number,
+    source: 'coordinator' | 'emergency'
+  ): Promise<void> {
+    try {
+      await supabase.rpc('log_coordinator_closure', {
+        p_trade_id: request.tradeId,
+        p_user_id: request.userId,
+        p_goal_session_id: request.goalSessionId,
+        p_old_status: trade.status,
+        p_close_reason: request.closeReason,
+        p_entry_price: trade.entry_price,
+        p_exit_price: request.currentPrice,
+        p_calculated_pnl: pnl,
+        p_lot_size: trade.lot_size || trade.position_size,
+        p_symbol: trade.symbol,
+        p_direction: trade.direction,
+        p_closure_source: source,
+        p_closure_method: source === 'emergency'
+          ? 'tradeClosureCoordinator.emergencyRecoveryClose'
+          : 'tradeClosureCoordinator.closeTrade',
+      });
+    } catch (error) {
+      console.error(`[TradeClosureCoordinator] Failed to log audit:`, error);
+    }
   }
 
   private async checkGoalAfterClose(userId: string, sessionId: string) {
     const { data: session } = await supabase
       .from('goal_sessions')
-      .select('goal_amount, cumulative_profit, status')
+      .select('goal_amount, target_value, cumulative_profit, status')
       .eq('id', sessionId)
       .maybeSingle();
 
     if (!session || session.status === 'goal_achieved') return null;
 
-    const goalAmount = typeof session.goal_amount === 'object'
-      ? (session.goal_amount as Record<string, number>).amount
-      : session.goal_amount;
+    const goalAmount = session.target_value
+      || (typeof session.goal_amount === 'object'
+        ? (session.goal_amount as Record<string, number>).amount
+        : session.goal_amount);
 
     return await goalAchievementCoordinator.checkAndProcessGoalAchievement({
       sessionId,
@@ -273,6 +354,7 @@ class TradeClosureCoordinator {
       case 'take_profit':
         return 'take_profit_hit';
       case 'goal_achieved':
+      case 'goal_met':
         return 'goal_achieved';
       default:
         return 'trade_closed';
@@ -286,6 +368,7 @@ class TradeClosureCoordinator {
       case 'take_profit':
         return 'Take Profit Hit!';
       case 'goal_achieved':
+      case 'goal_met':
         return 'Goal Achieved!';
       case 'manual':
         return pnl >= 0 ? 'Trade Closed in Profit' : 'Trade Closed';
@@ -307,13 +390,19 @@ class TradeClosureCoordinator {
       case 'take_profit':
         return `${symbol} reached take profit! Result: ${pnlStr}`;
       case 'goal_achieved':
+      case 'goal_met':
         return `${symbol} closed at goal achievement. Result: ${pnlStr}`;
       default:
         return `${symbol} closed. Result: ${pnlStr}`;
     }
   }
 
-  async forceCloseAllTrades(sessionId: string, userId: string, reason: CloseReason): Promise<CloseTradeResult[]> {
+  async forceCloseAllTrades(
+    sessionId: string,
+    userId: string,
+    reason: CloseReason,
+    emergencyRecoveryMode: boolean = false
+  ): Promise<CloseTradeResult[]> {
     const { data: openTrades, error } = await supabase
       .from('goal_session_trades')
       .select('id, symbol')
@@ -345,12 +434,31 @@ class TradeClosureCoordinator {
           userId,
           goalSessionId: sessionId,
           forceClose: true,
+          emergencyRecoveryMode,
         });
         results.push(result);
+      } else {
+        console.error(`[TradeClosureCoordinator] No price data for ${trade.symbol}, cannot close trade ${trade.id}`);
+        results.push({
+          success: false,
+          tradeId: trade.id,
+          error: `No price data available for ${trade.symbol}`,
+        });
       }
     }
 
     return results;
+  }
+
+  async getTradeForClosure(tradeId: string): Promise<TradeData | null> {
+    const { data, error } = await supabase
+      .from('goal_session_trades')
+      .select('*')
+      .eq('id', tradeId)
+      .maybeSingle();
+
+    if (error || !data) return null;
+    return data as TradeData;
   }
 }
 

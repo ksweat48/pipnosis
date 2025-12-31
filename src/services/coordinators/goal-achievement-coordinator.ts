@@ -105,7 +105,7 @@ class GoalAchievementCoordinator {
       const { data: existingAchievement } = await supabase
         .from('goal_achievements')
         .select('id')
-        .eq('session_id', context.sessionId)
+        .eq('goal_session_id', context.sessionId)
         .maybeSingle();
 
       if (existingAchievement) {
@@ -145,12 +145,11 @@ class GoalAchievementCoordinator {
 
       const achievementData = {
         user_id: context.userId,
-        session_id: context.sessionId,
+        goal_session_id: context.sessionId,
         achieved_at: new Date().toISOString(),
+        achieved_pnl: finalPnL,
+        target_amount: goalAmount,
         final_pnl: finalPnL,
-        goal_target: goalAmount,
-        overshoot_amount: Math.max(0, finalPnL - goalAmount),
-        risk_mode: sessionData.risk_mode || 'medium',
       };
 
       const { data: achievement, error: achievementError } = await supabase

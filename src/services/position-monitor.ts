@@ -1,15 +1,15 @@
 import { supabase } from '@/lib/supabase';
-import { positionService } from './position-service';
 import { globalPollingCoordinator } from './global-polling-coordinator';
 import { logger, LogCategory, LogLevel } from '@/lib/logger';
 import type { GoalSessionTrade } from '@/types/position';
 import { calculatePnL } from '@/types/position';
 import { prodLogger } from '@/lib/production-logger';
 import { midTradeTriggerDetector } from './mid-trade-trigger-detector';
-import type { MarketConditions, GoalContext } from './mid-trade-trigger-detector';
-import { priceCoordinator } from './coordinators/price-coordinator';
-import { tradeClosureCoordinator } from './coordinators/trade-closure-coordinator';
+import type { MarketConditions } from './mid-trade-trigger-detector';
+import { tradeClosureCoordinator, type CloseReason } from './coordinators/trade-closure-coordinator';
 import { goalAchievementCoordinator } from './coordinators/goal-achievement-coordinator';
+import { notificationCoordinator } from './coordinators/notification-coordinator';
+import { goalSessionStateMachine } from './coordinators/goal-session-state-machine';
 import { TIME_MS } from '@/config/time-constants';
 
 logger.setCategoryLevel(LogCategory.POSITION_MONITOR, LogLevel.ERROR);
@@ -305,20 +305,19 @@ class PositionMonitorService {
         console.error(`[PositionMonitor] ❌ CRITICAL: No price data for ${position.symbol} from ANY source!`);
         console.error(`[PositionMonitor] This position cannot be monitored for SL/TP!`);
 
-        // Create alert notification
-        await supabase.from('goal_notifications').insert({
-          goal_session_id: position.goal_session_id,
-          user_id: position.user_id,
+        await notificationCoordinator.send({
+          userId: position.user_id,
           type: 'system_alert',
-          priority: 'urgent',
-          title: '⚠️ Price Data Unavailable',
+          title: 'Price Data Unavailable',
           message: `Cannot monitor ${position.symbol} - no price data available. Position may not close at SL/TP automatically!`,
+          tradeId: position.id,
+          sessionId: position.goal_session_id,
+          priority: 'critical',
           metadata: {
             trade_id: position.id,
             symbol: position.symbol,
             issue: 'no_price_data'
           },
-          channels: ['in_app']
         });
 
         return;
@@ -469,60 +468,50 @@ class PositionMonitorService {
     // Check for mid-trade triggers (drawdown alerts, etc.)
     await this.checkMidTradeTriggers(position, actualCurrentPrice, pnl);
 
-    // CRITICAL: Check if goal is reached FIRST (before SL/TP check)
+    // CRITICAL: Check if goal is reached using COORDINATOR (single authority)
     let shouldCloseForGoal = false;
     if (position.goal_session_id) {
       const { data: goalSession } = await supabase
         .from('goal_sessions')
-        .select('target_value, auto_close_on_goal, goal_achieved_at')
+        .select('target_value, auto_close_on_goal, goal_achieved_at, cumulative_profit')
         .eq('id', position.goal_session_id)
         .maybeSingle();
 
-      if (goalSession && !goalSession.goal_achieved_at && pnl >= goalSession.target_value) {
+      if (goalSession && !goalSession.goal_achieved_at) {
         // SAFETY CHECK: Never trigger goal achievement on negative P&L
-        // This prevents a bug where sign inversion could cause false goal triggers
-        if (pnl < 0) {
-          console.error(`[PositionMonitor] ⚠️ PREVENTED FALSE GOAL TRIGGER: P&L is ${pnl.toFixed(2)} (NEGATIVE) but checked >= ${goalSession.target_value}. This indicates a bug in P&L calculation!`);
+        if (pnl < 0 && pnl >= goalSession.target_value) {
+          console.error(`[PositionMonitor] PREVENTED FALSE GOAL TRIGGER: Negative P&L ${pnl.toFixed(2)}`);
           return;
         }
 
-        console.log(`[PositionMonitor] 🎯 GOAL REACHED! Target: $${goalSession.target_value}, Current P&L: $${pnl.toFixed(2)}`);
+        // DELEGATE to goalAchievementCoordinator - single authority for goal detection
+        const goalResult = await goalAchievementCoordinator.checkAndProcessGoalAchievement(
+          {
+            sessionId: position.goal_session_id,
+            userId: user.id,
+            targetAmount: goalSession.target_value,
+            currentCumulativePnL: goalSession.cumulative_profit || 0,
+          },
+          pnl // Pass current unrealized P&L
+        );
 
-        // Mark goal as met (even if auto-close is disabled, we track this)
-        await supabase
-          .from('goal_session_trades')
-          .update({
-            goal_met_at: new Date().toISOString(),
-            goal_met_price: actualCurrentPrice,
-            unrealized_goal_achievement: true
-          })
-          .eq('id', position.id);
+        if (goalResult.achieved) {
+          console.log(`[PositionMonitor] Goal achieved via coordinator. Achievement ID: ${goalResult.achievementId}`);
 
-        await supabase
-          .from('goal_sessions')
-          .update({
-            goal_achieved_at: new Date().toISOString(),
-            goal_achieved_pnl: pnl
-          })
-          .eq('id', position.goal_session_id);
+          // Mark trade with goal achievement info
+          await supabase
+            .from('goal_session_trades')
+            .update({
+              goal_met_at: new Date().toISOString(),
+              goal_met_price: actualCurrentPrice,
+              unrealized_goal_achievement: true
+            })
+            .eq('id', position.id);
 
-        // Create permanent achievement record
-        await supabase.from('goal_achievements').insert({
-          user_id: user.id,
-          goal_session_id: position.goal_session_id,
-          achieved_pnl: pnl,
-          target_amount: goalSession.target_value,
-          trade_id: position.id,
-          symbol: position.symbol,
-          entry_price: position.entry_price,
-          current_price_at_achievement: actualCurrentPrice,
-          take_profit: position.take_profit,
-          stop_loss_before: position.stop_loss
-        });
-
-        if (goalSession.auto_close_on_goal !== false) {
-          console.log(`[PositionMonitor] Auto-close enabled - closing position at goal`);
-          shouldCloseForGoal = true;
+          if (goalSession.auto_close_on_goal !== false) {
+            console.log(`[PositionMonitor] Auto-close enabled - closing position at goal`);
+            shouldCloseForGoal = true;
+          }
         }
       }
     }
@@ -800,20 +789,20 @@ class PositionMonitorService {
             }
           });
 
-          await supabase.from('goal_notifications').insert({
-            goal_session_id: position.goal_session_id,
-            user_id: position.user_id,
+          await notificationCoordinator.send({
+            userId: position.user_id,
             type: 'mid_trade_alert',
-            priority: priority,
             title: `Trade Alert: ${position.symbol}`,
             message: alertMessage,
+            tradeId: position.id,
+            sessionId: position.goal_session_id,
+            priority: priority === 'urgent' ? 'critical' : priority as 'low' | 'medium' | 'high',
             metadata: {
               trade_id: position.id,
               symbol: position.symbol,
               trigger_type: triggerType,
               current_pnl: currentPnl
             },
-            channels: ['in_app']
           });
 
           console.log(`[PositionMonitor] 🔔 Mid-trade trigger fired: ${triggerType} for ${position.symbol}`);
@@ -830,15 +819,19 @@ class PositionMonitorService {
     reason: 'stop_loss' | 'take_profit' | 'goal_met'
   ) {
     try {
-      // Use the secure RPC function to close
-      // CRITICAL: Pass userId and goalSessionId so journal entries get created
-      const result = await positionService.closePosition(
-        position.id,
-        closePrice,
-        reason,
-        position.user_id,
-        position.goal_session_id
-      );
+      // AUTHORITY: All closures go through tradeClosureCoordinator
+      // The coordinator handles: RPC call, P&L calculation, balance update,
+      // notification sending, goal checking, and session status updates
+      const closeReason: CloseReason = reason === 'goal_met' ? 'goal_achieved' : reason;
+
+      const result = await tradeClosureCoordinator.closeTrade({
+        tradeId: position.id,
+        currentPrice: closePrice,
+        closeReason,
+        userId: position.user_id,
+        goalSessionId: position.goal_session_id,
+        forceClose: false,
+      });
 
       if (result.success && result.pnl !== undefined) {
         const displayReason = reason === 'stop_loss' ? 'SL' : reason === 'take_profit' ? 'TP' : 'GOAL MET';
@@ -848,78 +841,32 @@ class PositionMonitorService {
           result.pnl
         );
 
-        // Send notification for all close types
-        const notificationConfig = {
-          goal_met: {
-            type: 'goal_achieved' as const,
-            priority: 'urgent' as const,
-            title: '🎯 Goal Achieved!',
-            message: `Your goal has been reached! Trade closed at $${result.pnl.toFixed(2)} profit.`
-          },
-          take_profit: {
-            type: 'trade_closed' as const,
-            priority: 'high' as const,
-            title: '✅ Take Profit Hit!',
-            message: `Trade on ${position.symbol} closed at take profit. Profit: $${result.pnl.toFixed(2)}`
-          },
-          stop_loss: {
-            type: 'trade_closed' as const,
-            priority: 'urgent' as const,
-            title: '⚠️ Stop Loss Hit',
-            message: `Trade on ${position.symbol} closed at stop loss. Loss: $${result.pnl.toFixed(2)}`
+        // Insert AI conversation message for FloatingMessageCenter
+        const conversationMessage = reason === 'stop_loss'
+          ? `Stop loss was hit on ${position.symbol}. The trade closed at ${closePrice.toFixed(5)} with a loss of $${Math.abs(result.pnl).toFixed(2)}. This is a normal part of trading - we protected our capital by exiting at our predetermined risk level.`
+          : reason === 'take_profit'
+          ? `Excellent! Take profit was hit on ${position.symbol}. The trade closed at ${closePrice.toFixed(5)} with a profit of $${result.pnl.toFixed(2)}. The market moved as predicted and we successfully captured our target.`
+          : `Outstanding! Your goal has been achieved! The ${position.symbol} trade reached your target profit of $${result.pnl.toFixed(2)}. Well done on this successful trade.`;
+
+        await supabase.from('goal_ai_conversations').insert({
+          goal_session_id: position.goal_session_id,
+          user_id: position.user_id,
+          role: 'ai',
+          content: conversationMessage,
+          conversation_type: 'trade_closure',
+          trade_id: position.id,
+          metadata: {
+            close_reason: reason,
+            symbol: position.symbol,
+            pnl: result.pnl,
+            entry_price: position.entry_price,
+            exit_price: closePrice
           }
-        };
+        });
 
-        const config = notificationConfig[reason];
-        if (config) {
-          // Insert notification for in-app alerts
-          await supabase.from('goal_notifications').insert({
-            goal_session_id: position.goal_session_id,
-            user_id: position.user_id,
-            type: config.type,
-            priority: config.priority,
-            title: config.title,
-            message: config.message,
-            metadata: {
-              trade_id: position.id,
-              symbol: position.symbol,
-              direction: position.direction,
-              entry_price: position.entry_price,
-              exit_price: closePrice,
-              profit_loss: result.pnl,
-              close_reason: reason
-            },
-            channels: ['in_app']
-          });
+        console.log(`[PositionMonitor] Created AI conversation message for ${reason} on ${position.symbol}`);
 
-          // ALSO insert AI conversation message so it appears in FloatingMessageCenter
-          const conversationMessage = reason === 'stop_loss'
-            ? `Stop loss was hit on ${position.symbol}. The trade closed at ${closePrice.toFixed(5)} with a loss of $${Math.abs(result.pnl).toFixed(2)}. This is a normal part of trading - we protected our capital by exiting at our predetermined risk level.`
-            : reason === 'take_profit'
-            ? `Excellent! Take profit was hit on ${position.symbol}. The trade closed at ${closePrice.toFixed(5)} with a profit of $${result.pnl.toFixed(2)}. The market moved as predicted and we successfully captured our target.`
-            : `Outstanding! Your goal has been achieved! The ${position.symbol} trade reached your target profit of $${result.pnl.toFixed(2)}. Well done on this successful trade.`;
-
-          await supabase.from('goal_ai_conversations').insert({
-            goal_session_id: position.goal_session_id,
-            user_id: position.user_id,
-            role: 'ai',
-            content: conversationMessage,
-            conversation_type: 'trade_closure',
-            trade_id: position.id,
-            metadata: {
-              close_reason: reason,
-              symbol: position.symbol,
-              pnl: result.pnl,
-              entry_price: position.entry_price,
-              exit_price: closePrice
-            }
-          });
-
-          console.log(`[PositionMonitor] ✅ Created AI conversation message for ${reason} on ${position.symbol}`);
-        }
-
-        // CRITICAL: Create persistent modal that will show even if user is away
-        // Calculate cumulative progress for session
+        // Create persistent modal for user
         const { data: closedTrades } = await supabase
           .from('goal_session_trades')
           .select('profit_loss')
@@ -939,12 +886,9 @@ class PositionMonitorService {
           .select('id', { count: 'exact' })
           .eq('goal_session_id', position.goal_session_id);
 
-        // Import and use modal queue manager
         const { modalQueueManager } = await import('./modal-queue-manager');
-
         const modalType = reason === 'goal_met' ? 'goal_achieved' : 'trade_closed';
 
-        // Create persistent modal
         await modalQueueManager.createPendingModal(
           position.user_id,
           position.goal_session_id,
@@ -963,10 +907,18 @@ class PositionMonitorService {
           }
         );
 
-        console.log(`[PositionMonitor] ✅ Created persistent modal for ${reason} on ${position.symbol}`);
+        console.log(`[PositionMonitor] Created persistent modal for ${reason} on ${position.symbol}`);
+
+        // Goal achievement is already handled by coordinator
+        if (result.goalAchieved) {
+          console.log(`[PositionMonitor] Goal achievement processed by coordinator`);
+        }
+      } else if (!result.success) {
+        console.error(`[PositionMonitor] Coordinator closure failed: ${result.error}`);
       }
 
-      // Update goal session status if no more open trades
+      // Clear mid-trade notifications if no open trades remain
+      // (Session status transition is handled by coordinator)
       const { data: otherTrades } = await supabase
         .from('goal_session_trades')
         .select('id')
@@ -974,16 +926,6 @@ class PositionMonitorService {
         .eq('status', 'open');
 
       if (!otherTrades || otherTrades.length === 0) {
-        // Database trigger handles soft_closing → expired and in_trade → scanning
-        // Only override status here if goal was achieved
-        if (reason === 'goal_met') {
-          await supabase
-            .from('goal_sessions')
-            .update({ status: 'goal_achieved' })
-            .eq('id', position.goal_session_id);
-        }
-
-        // Clear mid-trade notifications when session completes
         const { midTradeNotificationQueue } = await import('./mid-trade-notification-queue');
         await midTradeNotificationQueue.clearSessionNotifications(position.goal_session_id);
       }
