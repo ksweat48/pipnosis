@@ -60,16 +60,24 @@ export function ServerSidePollingMonitor() {
 
       setStats(statsData);
 
-      const serverSideSource = statsData.find(s => s.source === 'netlify_continuous_collector');
+      // Check for any hybrid sources (hybrid_metaapi, hybrid_finnhub, hybrid_kraken)
+      const hybridSources = statsData.filter(s => s.source.startsWith('hybrid_'));
+
+      // Find the most recent hybrid source update
+      const mostRecentHybrid = hybridSources.length > 0
+        ? hybridSources.reduce((latest, current) =>
+            current.ageSeconds < latest.ageSeconds ? current : latest
+          )
+        : null;
 
       const health: FunctionHealthStatus[] = [
         {
-          name: 'continuous-price-collector',
-          isHealthy: serverSideSource ? serverSideSource.ageSeconds < 120 : false,
-          lastExecution: serverSideSource?.lastTimestamp || null,
-          ageSeconds: serverSideSource?.ageSeconds || -1,
-          status: serverSideSource
-            ? (serverSideSource.ageSeconds < 120 ? 'active' : serverSideSource.ageSeconds < 300 ? 'stale' : 'dead')
+          name: 'hybrid-price-collector',
+          isHealthy: mostRecentHybrid ? mostRecentHybrid.ageSeconds < 120 : false,
+          lastExecution: mostRecentHybrid?.lastTimestamp || null,
+          ageSeconds: mostRecentHybrid?.ageSeconds || -1,
+          status: mostRecentHybrid
+            ? (mostRecentHybrid.ageSeconds < 120 ? 'active' : mostRecentHybrid.ageSeconds < 300 ? 'stale' : 'dead')
             : 'unknown'
         }
       ];
@@ -194,6 +202,43 @@ export function ServerSidePollingMonitor() {
                   </div>
                 </div>
 
+                {func.status === 'active' && stats.filter(s => s.source.startsWith('hybrid_')).length > 0 && (
+                  <>
+                    <div className="mt-3 p-3 bg-green-500/10 border border-green-500/20 rounded">
+                      <p className="text-sm text-green-400 font-medium mb-2">
+                        Active data sources:
+                      </p>
+                      <div className="text-xs text-green-300 space-y-1">
+                        {stats.filter(s => s.source.startsWith('hybrid_')).map(s => (
+                          <div key={s.source} className="flex justify-between">
+                            <span>• {s.source.replace('hybrid_', '').toUpperCase()}</span>
+                            <span>{s.count} updates, {s.ageSeconds}s ago</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {(() => {
+                      const hybridStats = stats.filter(s => s.source.startsWith('hybrid_'));
+                      const totalUpdates = hybridStats.reduce((sum, s) => sum + s.count, 0);
+                      const finnhubUpdates = hybridStats.find(s => s.source === 'hybrid_finnhub')?.count || 0;
+                      const finnhubPercent = totalUpdates > 0 ? (finnhubUpdates / totalUpdates) * 100 : 0;
+
+                      if (finnhubPercent > 20) {
+                        return (
+                          <div className="mt-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded">
+                            <p className="text-sm text-yellow-400">
+                              ⚠️ Finnhub fallback is being used for {finnhubPercent.toFixed(1)}% of updates.
+                              MetaAPI may be experiencing issues.
+                            </p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </>
+                )}
+
                 {func.status === 'unknown' && (
                   <div className="mt-3 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded">
                     <p className="text-sm text-yellow-400">
@@ -271,9 +316,15 @@ export function ServerSidePollingMonitor() {
 
         <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
           <p className="text-sm text-blue-300">
-            <strong>Expected Behavior:</strong> If the page is closed, the "netlify_continuous_collector"
-            source should continue adding data every minute. If you only see browser-based sources,
-            the scheduled function is not running.
+            <strong>Expected Behavior:</strong> The hybrid price collector should add data every minute from multiple sources:
+          </p>
+          <ul className="mt-2 text-xs text-blue-200 space-y-1">
+            <li>• <strong>hybrid_metaapi</strong> - Forex and indices (XAUUSD, US30, EURUSD, etc.)</li>
+            <li>• <strong>hybrid_kraken</strong> - Crypto 24/7 (BTCUSD, ETHUSD)</li>
+            <li>• <strong>hybrid_finnhub</strong> - Fallback for forex if MetaAPI fails</li>
+          </ul>
+          <p className="text-sm text-blue-300 mt-2">
+            If you only see browser-based sources or no data at all, the scheduled function is not running.
           </p>
         </div>
       </div>
