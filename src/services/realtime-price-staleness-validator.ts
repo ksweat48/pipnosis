@@ -20,9 +20,9 @@ export class RealtimePriceStalenessValidator {
     try {
       const { data, error } = await supabase
         .from('realtime_prices')
-        .select('bid, updated_at')
+        .select('bid, created_at')
         .eq('symbol', symbol)
-        .order('updated_at', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(1)
         .single();
 
@@ -48,7 +48,7 @@ export class RealtimePriceStalenessValidator {
         };
       }
 
-      const priceTimestamp = new Date(data.updated_at).getTime();
+      const priceTimestamp = new Date(data.created_at).getTime();
       const ageSeconds = Math.floor((Date.now() - priceTimestamp) / 1000);
 
       if (ageSeconds > MAX_PRICE_AGE_SECONDS) {
@@ -141,8 +141,8 @@ export class RealtimePriceStalenessValidator {
     try {
       const { data, error } = await supabase
         .from('realtime_prices')
-        .select('symbol, updated_at')
-        .order('updated_at', { ascending: true })
+        .select('symbol, created_at')
+        .order('created_at', { ascending: true })
         .limit(1)
         .single();
 
@@ -150,7 +150,7 @@ export class RealtimePriceStalenessValidator {
         return null;
       }
 
-      const priceTimestamp = new Date(data.updated_at).getTime();
+      const priceTimestamp = new Date(data.created_at).getTime();
       const ageSeconds = Math.floor((Date.now() - priceTimestamp) / 1000);
 
       return {
