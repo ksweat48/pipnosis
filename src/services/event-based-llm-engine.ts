@@ -345,11 +345,14 @@ class EventBasedLLMEngine {
       : marketState.price - (marketState.atr * 2.5);
 
     // Call Alpha + Omega
+    // PRIORITY 3 FIX: Pass userId to makeTradeDecision for proper tracking
     const decision = await alphaOmegaOrchestrator.makeTradeDecision(
       fullMarketState,
       this.traderScore!,
       proposedSL,
-      proposedTP
+      proposedTP,
+      undefined, // No goal context in backtest mode
+      this.userId || undefined
     );
 
     if (decision.action === 'NO_TRADE') {

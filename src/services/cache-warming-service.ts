@@ -130,11 +130,14 @@ class CacheWarmingService {
     };
 
     const startTime = Date.now();
+    // PRIORITY 3 FIX: Pass userId (undefined for system cache warming)
     await alphaOmegaOrchestrator.makeTradeDecision(
       marketState,
       mockTraderScore,
       proposedSL,
-      proposedTP
+      proposedTP,
+      undefined, // No goal context in cache warming
+      undefined  // No userId for system-level cache warming
     );
     const durationMs = Date.now() - startTime;
 

@@ -40,6 +40,8 @@ export interface ExecutionContext {
   timeframe: string;
   signalPrice?: number;
   currentPrice?: number;
+  signalTimestamp?: number; // Unix timestamp when signal was generated
+  currentTimestamp?: number; // Unix timestamp when current price was fetched
   omegaVotes?: Map<string, CachedOmegaIntelligence>;
   alphaInsight?: AlphaStrategicInsight;
 }
@@ -47,6 +49,37 @@ export interface ExecutionContext {
 export type RefreshCallback = () => Promise<void>;
 
 export class TradeExecutionFreshnessGate {
+  /**
+   * PRE-CHECK: Quick validation before expensive LLM calls
+   * Checks price staleness only to fail fast before wasting money
+   */
+  async preCheckFreshness(symbol: string): Promise<{ shouldProceed: boolean; reason?: string }> {
+    logger.info(
+      LogCategory.AI_TRADING,
+      `[Freshness Gate] 🔍 Pre-check for ${symbol} before Omega calls`
+    );
+
+    // Only check realtime price staleness (fast, cheap check)
+    const priceValidation = await realtimePriceStalenessValidator.validatePriceFreshness(symbol);
+
+    if (priceValidation.shouldBlockTrading) {
+      logger.error(
+        LogCategory.AI_TRADING,
+        `[Freshness Gate] 🚫 PRE-CHECK FAILED: ${priceValidation.reason}`
+      );
+      return {
+        shouldProceed: false,
+        reason: `Price data stale: ${priceValidation.reason}`
+      };
+    }
+
+    logger.info(
+      LogCategory.AI_TRADING,
+      `[Freshness Gate] ✅ Pre-check PASSED - proceeding with Omega calls`
+    );
+    return { shouldProceed: true };
+  }
+
   /**
    * P0 CIRCUIT BREAKER: Validate all freshness requirements before execution
    */

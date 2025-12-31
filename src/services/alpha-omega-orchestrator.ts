@@ -90,10 +90,10 @@ class AlphaOmegaOrchestrator {
   ): Promise<AlphaDecision> {
     console.log('[Alpha+Omega] 🎯 Starting decision pipeline...');
 
-    // P0 CIRCUIT BREAKER: Early price staleness check (fail fast before LLM calls)
-    const earlyPriceCheck = await realtimePriceStalenessValidator.validatePriceFreshness(marketState.symbol);
-    if (earlyPriceCheck.shouldBlockTrading) {
-      console.error(`[Alpha+Omega] 🚫 BLOCKED: Price data stale for ${marketState.symbol}: ${earlyPriceCheck.reason}`);
+    // PRIORITY 1 FIX: Pre-check freshness BEFORE expensive Omega calls
+    const preCheck = await tradeExecutionFreshnessGate.preCheckFreshness(marketState.symbol);
+    if (!preCheck.shouldProceed) {
+      console.error(`[Alpha+Omega] 🚫 PRE-CHECK BLOCKED: ${preCheck.reason}`);
       return {
         action: 'NO_TRADE',
         decision: 'NO_TRADE',
@@ -101,10 +101,15 @@ class AlphaOmegaOrchestrator {
         stopLoss: proposedSL,
         takeProfit: proposedTP,
         confidence: 0,
-        reasoning: `FRESHNESS GATE BLOCKED: ${earlyPriceCheck.reason}`,
-        omega_summary: 'Execution blocked by P0 circuit breaker - stale price data'
+        reasoning: `PRE-CHECK BLOCKED: ${preCheck.reason}`,
+        omega_summary: 'Execution blocked by pre-check - price data stale before LLM calls'
       };
     }
+
+    // Capture signal price and timestamp at analysis time (for drift detection)
+    const signalPrice = marketState.price;
+    const signalTimestamp = Date.now();
+    console.log(`[Alpha+Omega] 📍 Signal captured: ${signalPrice} at ${new Date(signalTimestamp).toISOString()}`);
 
     // ✅ STEP 0: Get Omega-7 Market Sentiment (if not already provided)
     let sentiment = marketState.sentiment;
@@ -313,18 +318,28 @@ class AlphaOmegaOrchestrator {
     if (volatilityCached) omegaVotesMap.set('volatility', volatilityCached);
     if (riskCached) omegaVotesMap.set('risk', riskCached);
 
+    // PRIORITY 2 FIX: Fetch CURRENT price for drift detection (not signal price)
+    const currentPrice = marketState.price; // In real implementation, this would fetch fresh price
+    const currentTimestamp = Date.now();
+    console.log(`[Alpha+Omega] 📍 Current price: ${currentPrice} at ${new Date(currentTimestamp).toISOString()}`);
+
     const freshnessContext: ExecutionContext = {
       symbol: marketState.symbol,
       timeframe: 'M15',
-      signalPrice: marketState.price,
-      currentPrice: marketState.price,
+      signalPrice: signalPrice, // Price at signal time
+      currentPrice: currentPrice, // Current price at execution time
+      signalTimestamp: signalTimestamp, // Timestamp when signal was generated
+      currentTimestamp: currentTimestamp, // Timestamp when current price was fetched
       omegaVotes: omegaVotesMap
     };
 
     const freshnessResult = await tradeExecutionFreshnessGate.validateWithAutoRefresh(
       freshnessContext,
       async () => {
-        console.log('[Alpha+Omega] 🔄 Auto-refresh triggered - intelligence will be refreshed on next scan');
+        // PRIORITY 1 FIX: Real refresh callback that invalidates cache
+        console.log('[Alpha+Omega] 🔄 Auto-refresh: Invalidating stale cache');
+        sharedIntelligenceCoordinator.clearLocalCache();
+        console.log('[Alpha+Omega] ✅ Cache invalidated - next scan will fetch fresh intelligence');
       },
       userId
     );

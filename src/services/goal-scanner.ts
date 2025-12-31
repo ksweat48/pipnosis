@@ -173,7 +173,7 @@ class GoalScanner {
       console.log(`[Goal Scanner] 🔍 Scanning ${symbolsToScan.length} symbols...`);
 
       for (const symbol of symbolsToScan) {
-        const scanResult = await this.scanSymbol(symbol, session.data);
+        const scanResult = await this.scanSymbol(symbol, session.data, userId);
         results.push(scanResult);
       }
 
@@ -240,7 +240,7 @@ class GoalScanner {
     }
   }
 
-  async scanSymbol(symbol: string, sessionConfig: SessionConfig): Promise<ScanResult> {
+  async scanSymbol(symbol: string, sessionConfig: SessionConfig, userId: string): Promise<ScanResult> {
     try {
       const { data: candles } = await supabase
         .from('forex_candles')
@@ -265,7 +265,7 @@ class GoalScanner {
         };
       }
 
-      const setup = await this.detectSetup(symbol, candles, sessionConfig);
+      const setup = await this.detectSetup(symbol, candles, sessionConfig, userId);
 
       return setup;
     } catch (error) {
@@ -285,7 +285,7 @@ class GoalScanner {
     }
   }
 
-  async detectSetup(symbol: string, candles: any[], sessionConfig: SessionConfig): Promise<ScanResult> {
+  async detectSetup(symbol: string, candles: any[], sessionConfig: SessionConfig, userId: string): Promise<ScanResult> {
     const recentCandles = candles.slice(0, 50).reverse();
     const prices = recentCandles.map(c => c.close);
     const currentPrice = prices[prices.length - 1];
@@ -354,12 +354,14 @@ class GoalScanner {
       const proposedSL = currentPrice - (atr * 1.8);
       const proposedTP = currentPrice + (atr * 3.0);
 
+      // PRIORITY 3 FIX: Pass userId to makeTradeDecision for proper tracking
       const alphaDecision = await alphaOmegaOrchestrator.makeTradeDecision(
         marketState,
         mockTraderScore,
         proposedSL,
         proposedTP,
-        sessionConfig.goal_context
+        sessionConfig.goal_context,
+        userId
       );
 
       const hasValidSetup = (alphaDecision.action === 'BUY' || alphaDecision.action === 'SELL') &&
