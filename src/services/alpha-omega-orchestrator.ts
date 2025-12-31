@@ -31,6 +31,8 @@ import type { AdversarialSignal } from './adversarial-detector';
 import { sentimentCoordinator } from './sentiment-coordinator';
 import type { AggregatedSentiment } from './sentiment-aggregator';
 import { sharedIntelligenceCoordinator, type CachedOmegaIntelligence } from './shared-intelligence-coordinator';
+import { tradeExecutionFreshnessGate, type ExecutionContext } from './trade-execution-freshness-gate';
+import { realtimePriceStalenessValidator } from './realtime-price-staleness-validator';
 
 export interface FullMarketState {
   symbol: string;
@@ -83,9 +85,26 @@ class AlphaOmegaOrchestrator {
     traderScore: TraderScore,
     proposedSL: number,
     proposedTP: number,
-    goalContext?: import('../brains/coordinator-alpha').GoalContext
+    goalContext?: import('../brains/coordinator-alpha').GoalContext,
+    userId?: string
   ): Promise<AlphaDecision> {
     console.log('[Alpha+Omega] 🎯 Starting decision pipeline...');
+
+    // P0 CIRCUIT BREAKER: Early price staleness check (fail fast before LLM calls)
+    const earlyPriceCheck = await realtimePriceStalenessValidator.validatePriceFreshness(marketState.symbol);
+    if (earlyPriceCheck.shouldBlockTrading) {
+      console.error(`[Alpha+Omega] 🚫 BLOCKED: Price data stale for ${marketState.symbol}: ${earlyPriceCheck.reason}`);
+      return {
+        action: 'NO_TRADE',
+        decision: 'NO_TRADE',
+        entry: marketState.price,
+        stopLoss: proposedSL,
+        takeProfit: proposedTP,
+        confidence: 0,
+        reasoning: `FRESHNESS GATE BLOCKED: ${earlyPriceCheck.reason}`,
+        omega_summary: 'Execution blocked by P0 circuit breaker - stale price data'
+      };
+    }
 
     // ✅ STEP 0: Get Omega-7 Market Sentiment (if not already provided)
     let sentiment = marketState.sentiment;
@@ -285,6 +304,52 @@ class AlphaOmegaOrchestrator {
       omega8: omega8Vote
     });
 
+    // P0 CIRCUIT BREAKER: Full freshness gate validation with analytics logging
+    const omegaVotesMap = new Map<string, CachedOmegaIntelligence>();
+    if (trendCached) omegaVotesMap.set('trend', trendCached);
+    if (scalperCached) omegaVotesMap.set('scalper', scalperCached);
+    if (confirmationCached) omegaVotesMap.set('confirmation', confirmationCached);
+    if (reversalCached) omegaVotesMap.set('reversal', reversalCached);
+    if (volatilityCached) omegaVotesMap.set('volatility', volatilityCached);
+    if (riskCached) omegaVotesMap.set('risk', riskCached);
+
+    const freshnessContext: ExecutionContext = {
+      symbol: marketState.symbol,
+      timeframe: 'M15',
+      signalPrice: marketState.price,
+      currentPrice: marketState.price,
+      omegaVotes: omegaVotesMap
+    };
+
+    const freshnessResult = await tradeExecutionFreshnessGate.validateWithAutoRefresh(
+      freshnessContext,
+      async () => {
+        console.log('[Alpha+Omega] 🔄 Auto-refresh triggered - intelligence will be refreshed on next scan');
+      },
+      userId
+    );
+
+    if (!freshnessResult.canExecute) {
+      console.error(`[Alpha+Omega] 🚫 BLOCKED: Freshness gate failed for ${marketState.symbol}`);
+      freshnessResult.blockingReasons.forEach((reason, i) => {
+        console.error(`  ${i + 1}. ${reason}`);
+      });
+      return {
+        action: 'NO_TRADE',
+        decision: 'NO_TRADE',
+        entry: marketState.price,
+        stopLoss: proposedSL,
+        takeProfit: proposedTP,
+        confidence: 0,
+        reasoning: `FRESHNESS GATE BLOCKED: ${freshnessResult.blockingReasons.join('; ')}`,
+        omega_summary: `Execution blocked by P0 circuit breaker - stale intelligence${freshnessResult.wasAutoRefreshed ? ' (auto-refresh attempted)' : ''}`
+      };
+    }
+
+    if (freshnessResult.wasAutoRefreshed) {
+      console.log('[Alpha+Omega] ⚡ Freshness gate passed after auto-refresh');
+    }
+
     // ✅ DETECT Omega conflicts but DON'T BLOCK (Alpha has final authority)
     const conflictCheck = this.detectOmegaConflicts({
       trend: trendVote,
@@ -383,7 +448,8 @@ class AlphaOmegaOrchestrator {
           traderScore,
           proposedSL,
           proposedTP,
-          goalContext
+          goalContext,
+          userId
         );
 
         return {
