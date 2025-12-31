@@ -67,7 +67,15 @@ interface CacheMetrics {
 export function AdminDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<AdminTab>('overview');
+
+  // Initialize active tab from URL hash or default to 'overview'
+  const getInitialTab = (): AdminTab => {
+    const hash = window.location.hash.slice(1); // Remove '#'
+    const validTabs: AdminTab[] = ['overview', 'data', 'cache', 'api-usage', 'settings', 'users', 'feedback', 'push-notifications'];
+    return validTabs.includes(hash as AdminTab) ? (hash as AdminTab) : 'overview';
+  };
+
+  const [activeTab, setActiveTab] = useState<AdminTab>(getInitialTab());
   const [aiMetrics, setAIMetrics] = useState<AIMetrics | null>(null);
   const [cacheMetrics, setCacheMetrics] = useState<CacheMetrics | null>(null);
   const [loading, setLoading] = useState(true);
@@ -81,6 +89,12 @@ export function AdminDashboard() {
     },
     enabled: true
   });
+
+  // Update URL hash when tab changes
+  const handleTabChange = (tab: AdminTab) => {
+    setActiveTab(tab);
+    window.location.hash = tab;
+  };
 
   useEffect(() => {
     if (user) {
@@ -301,7 +315,7 @@ export function AdminDashboard() {
 
         <div className="flex gap-1.5 sm:gap-2 mb-4 md:mb-6 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-gray-900">
           <button
-            onClick={() => setActiveTab('overview')}
+            onClick={() => handleTabChange('overview')}
             className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
               activeTab === 'overview'
                 ? 'bg-blue-600 text-white'
@@ -313,7 +327,7 @@ export function AdminDashboard() {
             <span className="xs:hidden">AI</span>
           </button>
           <button
-            onClick={() => setActiveTab('users')}
+            onClick={() => handleTabChange('users')}
             className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
               activeTab === 'users'
                 ? 'bg-amber-600 text-white'
@@ -324,7 +338,7 @@ export function AdminDashboard() {
             Users
           </button>
           <button
-            onClick={() => setActiveTab('data')}
+            onClick={() => handleTabChange('data')}
             className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
               activeTab === 'data'
                 ? 'bg-emerald-600 text-white'
@@ -336,7 +350,7 @@ export function AdminDashboard() {
             <span className="xs:hidden">Data</span>
           </button>
           <button
-            onClick={() => setActiveTab('api-usage')}
+            onClick={() => handleTabChange('api-usage')}
             className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
               activeTab === 'api-usage'
                 ? 'bg-emerald-600 text-white'
@@ -348,7 +362,7 @@ export function AdminDashboard() {
             <span className="xs:hidden">API</span>
           </button>
           <button
-            onClick={() => setActiveTab('cache')}
+            onClick={() => handleTabChange('cache')}
             className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
               activeTab === 'cache'
                 ? 'bg-cyan-600 text-white'
@@ -360,7 +374,7 @@ export function AdminDashboard() {
             <span className="sm:hidden">Cache</span>
           </button>
           <button
-            onClick={() => setActiveTab('feedback')}
+            onClick={() => handleTabChange('feedback')}
             className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 relative text-xs sm:text-sm ${
               activeTab === 'feedback'
                 ? 'bg-purple-600 text-white'
@@ -376,7 +390,7 @@ export function AdminDashboard() {
             )}
           </button>
           <button
-            onClick={() => setActiveTab('push-notifications')}
+            onClick={() => handleTabChange('push-notifications')}
             className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
               activeTab === 'push-notifications'
                 ? 'bg-blue-600 text-white'
@@ -522,7 +536,7 @@ export function AdminDashboard() {
                         </div>
                       </div>
                       <button
-                        onClick={() => setActiveTab('cache')}
+                        onClick={() => handleTabChange('cache')}
                         className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg font-medium transition-all flex items-center gap-2"
                       >
                         View Details
@@ -575,21 +589,21 @@ export function AdminDashboard() {
                   description="Monitor three-tier LLM cache performance and savings"
                   icon={Layers}
                   color="cyan"
-                  onClick={() => setActiveTab('cache')}
+                  onClick={() => handleTabChange('cache')}
                 />
                 <QuickActionCard
                   title="API Usage & KPIs"
                   description="Monitor API usage and performance metrics"
                   icon={BarChart3}
                   color="emerald"
-                  onClick={() => setActiveTab('api-usage')}
+                  onClick={() => handleTabChange('api-usage')}
                 />
                 <QuickActionCard
                   title="Data Management"
                   description="Manage historical data and backfills"
                   icon={Database}
                   color="blue"
-                  onClick={() => setActiveTab('data')}
+                  onClick={() => handleTabChange('data')}
                 />
                 <QuickActionCard
                   title="Backtest Lab"
