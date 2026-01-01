@@ -42,14 +42,21 @@ export function TradePage() {
 
   // Fetch open trades for current symbol and display TP/SL lines on chart
   useEffect(() => {
+    // Clear stale trade lines immediately when symbol changes
+    setTradeLines({});
+
     const fetchOpenTrades = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+        if (!user) {
+          setTradeLines({});
+          return;
+        }
 
         const { data: trades, error } = await supabase
           .from('goal_session_trades')
           .select('entry_price, stop_loss, take_profit')
+          .eq('user_id', user.id)
           .eq('symbol', selectedSymbol)
           .in('status', ['open', 'pending'])
           .order('opened_at', { ascending: false })
@@ -79,7 +86,7 @@ export function TradePage() {
 
     fetchOpenTrades();
 
-    // Subscribe to real-time updates for goal_session_trades
+    // Subscribe to real-time updates for goal_session_trades (user_id filter handled by RLS)
     const channel = supabase
       .channel('goal_session_trades_updates')
       .on(
