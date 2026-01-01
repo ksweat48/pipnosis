@@ -29,6 +29,7 @@ import { postTradeAnalyzer } from './post-trade-analyzer';
 import { scanningStateMachine } from './scanning-state-machine';
 import { hasAnyOpenMarket, isSymbolMarketOpen } from '../utils/marketHours';
 import { weekendProtectionService } from './weekend-protection-service';
+import { marketScheduleService } from './market-schedule-service';
 import { goalIntelligenceClassifier, GoalClassification } from './goal-intelligence-classifier';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
@@ -482,12 +483,20 @@ class GoalSessionLiveEngine {
           console.log(`[MULTI-SYMBOL] Markets open: ${openMarketSymbols.length}/${watchlist.length}`);
         }
 
-        // Send user-facing message explaining market status
         const cryptoOnly = openMarketSymbols.every(s => ['BTCUSD', 'ETHUSD'].includes(s));
 
         let marketMessage = '';
         if (cryptoOnly && closedSymbols.length > 0) {
-          marketMessage = `📊 Forex markets closed for weekend. Scanning crypto markets only (${openMarketSymbols.join(', ')}). Note: Crypto has wider spreads and higher volatility during forex closed hours.`;
+          const marketStatus = await marketScheduleService.getMarketStatus();
+          const holiday = await marketScheduleService.isHoliday();
+
+          if (marketStatus.status === 'holiday' && holiday) {
+            marketMessage = `📊 Forex markets closed for ${holiday.name}. Scanning crypto markets only (${openMarketSymbols.join(', ')}). Note: Crypto has wider spreads and higher volatility.`;
+          } else if (marketStatus.status === 'early_close' && holiday) {
+            marketMessage = `📊 Forex markets closed early - ${holiday.name}. Scanning crypto markets only (${openMarketSymbols.join(', ')}). Note: Crypto has wider spreads and higher volatility.`;
+          } else {
+            marketMessage = `📊 Forex markets closed for weekend. Scanning crypto markets only (${openMarketSymbols.join(', ')}). Note: Crypto has wider spreads and higher volatility during forex closed hours.`;
+          }
         } else if (closedSymbols.length > 0) {
           marketMessage = `📊 Scanning ${openMarketSymbols.length} open markets. ${closedSymbols.length} symbols temporarily unavailable (${closedSymbols.join(', ')}).`;
         }

@@ -166,9 +166,28 @@ class WeekendProtectionService {
     };
   }
 
-  async canOpenNewTrade(symbol?: string): Promise<{ allowed: boolean; reason?: string }> {
+  async canOpenNewTrade(symbol?: string): Promise<{ allowed: boolean; reason?: string; holidayName?: string }> {
     if (symbol && is24HourSymbol(symbol)) {
       return { allowed: true };
+    }
+
+    const marketStatus = await marketScheduleService.getMarketStatus();
+
+    if (marketStatus.status === 'holiday') {
+      const holiday = await marketScheduleService.isHoliday();
+      return {
+        allowed: false,
+        reason: marketStatus.reason || `Market closed for ${holiday?.name || 'holiday'}`,
+        holidayName: holiday?.name
+      };
+    }
+
+    if (marketStatus.status === 'early_close') {
+      return {
+        allowed: false,
+        reason: marketStatus.reason || 'Market closed early for holiday',
+        holidayName: (await marketScheduleService.isHoliday())?.name
+      };
     }
 
     const status = await this.getWeekendStatus();
@@ -508,10 +527,30 @@ class WeekendProtectionService {
     message: string;
     hoursUntilClose?: number;
     minutesUntilClose?: number;
+    holidayName?: string;
   }> {
+    const marketStatus = await marketScheduleService.getMarketStatus();
+
+    if (marketStatus.status === 'holiday') {
+      const holiday = await marketScheduleService.isHoliday();
+      return {
+        isActive: true,
+        message: `Forex closed for ${holiday?.name || 'holiday'} (Crypto 24/7)`,
+        holidayName: holiday?.name
+      };
+    }
+
+    if (marketStatus.status === 'early_close') {
+      const holiday = await marketScheduleService.isHoliday();
+      return {
+        isActive: true,
+        message: `Forex closed early - ${holiday?.name || 'Holiday'} (Crypto 24/7)`,
+        holidayName: holiday?.name
+      };
+    }
+
     const status = await this.getWeekendStatus();
 
-    // During weekend
     if (status.isWeekend) {
       return {
         isActive: true,
@@ -519,7 +558,6 @@ class WeekendProtectionService {
       };
     }
 
-    // Systems shut down
     if (SCANNING_DISABLED || LLM_API_DISABLED) {
       return {
         isActive: true,
@@ -527,7 +565,6 @@ class WeekendProtectionService {
       };
     }
 
-    // Friday warnings
     if (status.isFriday && status.shouldWarnUser) {
       const hours = Math.floor(status.hoursUntilClose);
       const minutes = Math.floor(status.minutesUntilClose % 60);
