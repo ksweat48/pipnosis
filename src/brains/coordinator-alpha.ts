@@ -87,6 +87,28 @@ import { alphaRevisionHandler } from '../services/alpha-revision-handler';
 import type { Omega9Constraints } from '../types/omega9-constraints';
 import { getRecommendedConsensusCount, calculateConsensusStrengthModifier, getConsensusDescription } from '../services/omega-consensus-advisory';
 import { tradeExecutionFreshnessGate } from '../services/trade-execution-freshness-gate';
+import { tradeFeasibilityResolver } from '../services/trade-feasibility-resolver';
+import type { AssetClass } from '../types/trade-feasibility-resolver.types';
+import { isCrypto, isIndex, isXAUUSD } from '../utils/currencyHelpers';
+
+/**
+ * Helper: Determine asset class from symbol
+ */
+function getAssetClass(symbol: string): AssetClass {
+  if (isCrypto(symbol)) return 'CRYPTO';
+  if (isIndex(symbol)) return 'INDEX';
+  if (isXAUUSD(symbol)) return 'METAL';
+  return 'FOREX';
+}
+
+/**
+ * Helper: Map risk mode to trade style
+ */
+function riskModeToTradeStyle(riskMode: 'low' | 'medium' | 'high'): 'SCALP' | 'INTRADAY' | 'SWING' {
+  if (riskMode === 'high') return 'SCALP';
+  if (riskMode === 'medium') return 'INTRADAY';
+  return 'SWING';
+}
 
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;
@@ -521,7 +543,98 @@ class AlphaCoordinatorBrain {
       console.log(`[Alpha Coordinator] 🎯 Stop-Loss Anchor Calculated: ${stopLossAnchor.stopLossPrice.toFixed(5)} (${stopLossAnchor.stopLossPips.toFixed(1)} pips, ${stopLossAnchor.atrMultiplier.toFixed(2)}x ATR)`);
     }
 
+    // ✅ FEASIBILITY RESOLVER (SSOT) - Runs BEFORE constraint generation
+    // Validates if requested style/risk is feasible given current market conditions
+    let feasibilityResult = null;
+    let resolvedPlan = null;
+
+    if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED' && consensus.direction !== 'WAIT') {
+      const assetClass = getAssetClass(marketContext.symbol);
+      const requestedStyle = riskModeToTradeStyle(riskMode);
+      const atrPercent = (marketContext.atr / marketContext.price) * 100;
+
+      console.log(`[Alpha Coordinator] 🔍 Feasibility Check: ${requestedStyle} style with ${riskMode.toUpperCase()} risk on ${assetClass}`);
+      console.log(`[Alpha Coordinator] 📊 Market ATR: ${marketContext.atr.toFixed(5)} (${atrPercent.toFixed(3)}%)`);
+
+      feasibilityResult = tradeFeasibilityResolver.resolve({
+        symbol: marketContext.symbol,
+        assetClass,
+        requestedStyle,
+        requestedRiskMode: riskMode.toUpperCase() as 'LOW' | 'MEDIUM' | 'HIGH',
+        price: marketContext.price,
+        atrAbs: marketContext.atr,
+        atrPercent,
+        goalContext: goalContext ? {
+          targetProfitUsd: goalContext.remainingGoal,
+          maxTrades: 5,
+          timeHorizon: 'TODAY'
+        } : undefined,
+        policy: {
+          minRR: 1.0,
+          maxTpAtrMultiple: 12,
+          minSlPercentByAssetRisk: {
+            'CRYPTO:HIGH': 0.50,
+            'CRYPTO:MEDIUM': 1.00,
+            'CRYPTO:LOW': 2.00,
+            'FOREX:HIGH': 0.05,
+            'FOREX:MEDIUM': 0.08,
+            'FOREX:LOW': 0.12,
+            'METAL:HIGH': 0.15,
+            'METAL:MEDIUM': 0.25,
+            'METAL:LOW': 0.40,
+            'INDEX:HIGH': 0.10,
+            'INDEX:MEDIUM': 0.15,
+            'INDEX:LOW': 0.25
+          },
+          allowAutoDowngradeRisk: true,
+          allowAutoSwitchStyle: true,
+          allowBoundedSlRelaxation: true
+        }
+      });
+
+      console.log(`[Alpha Coordinator] ✅ Feasibility Status: ${feasibilityResult.status}`);
+      console.log(`[Alpha Coordinator] 💬 ${feasibilityResult.userMessage}`);
+
+      if (feasibilityResult.status === 'NO_TRADE') {
+        console.warn('[Alpha Coordinator] ⛔ Trade blocked by feasibility resolver');
+        console.warn(`[Alpha Coordinator] Blockers: ${feasibilityResult.blockers?.map(b => b.detail).join('; ')}`);
+
+        // Return NO_TRADE decision with explanation
+        return {
+          action: 'NO_TRADE',
+          entry: marketContext.price,
+          stopLoss: 0,
+          takeProfit: 0,
+          confidence: 0,
+          reasoning: feasibilityResult.userMessage,
+          tradeQuality: 'POOR',
+          adjustments: feasibilityResult.adjustments,
+          constraints: null,
+          hasConflict: false,
+          omega9Result: null,
+          conflictResolution: null,
+          riskPercentage: 0,
+          positionSize: 0,
+          rrRatio: 0,
+          estimatedDurationMinutes: 0,
+          entryIntentClassification: null,
+          stopLossAnchor: null,
+          takeProfitCalculation: null
+        };
+      }
+
+      if (feasibilityResult.status === 'ADJUSTED') {
+        console.log('[Alpha Coordinator] ⚙️ Auto-adjustments applied:');
+        feasibilityResult.adjustments.forEach(adj => {
+          console.log(`  • ${adj.field}: ${adj.from} → ${adj.to} (${adj.reason})`);
+        });
+      }
+
+      resolvedPlan = feasibilityResult.plan;
+    }
+
     // Generate Omega-9 constraints (constraint-first approach)
+    // Now receives resolved plan from feasibility resolver
     let omega9Constraints: Omega9Constraints | null = null;
     let constraintsText = '';
     if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED' && consensus.direction !== 'WAIT') {
@@ -538,7 +651,12 @@ class AlphaCoordinatorBrain {
         currentSession,
         sessionTimeRemainingMinutes: sessionTimeRemaining,
         volatilityRegime: marketContext.volatility as 'low' | 'medium' | 'high',
-        proposedStopLoss: stopLossAnchor?.stopLossPrice
+        proposedStopLoss: stopLossAnchor?.stopLossPrice,
+        resolvedPlan: resolvedPlan ? {
+          slMinPercent: resolvedPlan.sl.minPercent,
+          tpMaxAtrMultiple: resolvedPlan.tp.maxAtrMultiple,
+          minRR: resolvedPlan.rr.min
+        } : undefined
       });
 
       constraintsText = omega9ConstraintProvider.formatConstraintsForPrompt(omega9Constraints);

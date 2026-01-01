@@ -26,6 +26,7 @@ class Omega9ConstraintProvider {
    * Generate comprehensive constraints for Alpha to work within
    *
    * This runs BEFORE Alpha makes a decision, providing clear boundaries
+   * Accepts optional resolved plan from feasibility resolver (SSOT)
    */
   generateConstraints(input: Omega9ConstraintInput): Omega9Constraints {
     const {
@@ -37,7 +38,8 @@ class Omega9ConstraintProvider {
       currentSession,
       sessionTimeRemainingMinutes,
       volatilityRegime,
-      proposedStopLoss
+      proposedStopLoss,
+      resolvedPlan
     } = input;
 
     // Calculate professional stop-loss ranges
@@ -50,9 +52,11 @@ class Omega9ConstraintProvider {
       marketVolatility: volatilityRegime
     });
 
-    // Simple ATR-based maximum TP (no session time restrictions)
-    // This provides a reasonable upper bound without artificial constraints
-    const maxTakeProfitPips = atr * 12; // 12x ATR as a sensible maximum
+    // Use resolved plan constraints if provided (from feasibility resolver)
+    // Otherwise fall back to default logic
+    const maxTakeProfitPips = resolvedPlan?.tpMaxAtrMultiple
+      ? atr * resolvedPlan.tpMaxAtrMultiple
+      : atr * 12; // 12x ATR as default
 
     // Determine the SL we'll use for R:R calculations
     // If Alpha already proposed an SL, use that; otherwise use recommended
@@ -60,9 +64,11 @@ class Omega9ConstraintProvider {
       ? calculatePipDistance(symbol, entry, proposedStopLoss)
       : stopLossCalc.stopLossPips;
 
-    // Calculate MINIMUM TP for R:R ≥ 1.0
-    // This is the critical constraint that prevents the "0.99 R:R block" problem
-    const idealMinTakeProfitPips = referenceSLPips * 1.0; // Exactly 1:1 minimum
+    // Use resolved minimum R:R if provided, otherwise default to 1.0
+    const minRiskReward = resolvedPlan?.minRR ?? 1.0;
+
+    // Calculate MINIMUM TP for the resolved minimum R:R
+    const idealMinTakeProfitPips = referenceSLPips * minRiskReward;
     const targetTakeProfitPips = referenceSLPips * 1.5; // Professional target
     const optimalTakeProfitPips = Math.min(referenceSLPips * 2.0, maxTakeProfitPips); // Elite target, capped by maximum
 
@@ -73,28 +79,11 @@ class Omega9ConstraintProvider {
     // Build constraint violations (empty initially, used for validation later)
     const violations: ConstraintViolation[] = [];
 
-    // CRITICAL: Check if 1:1 R:R is even possible given the maximum TP
-    // This prevents impossible constraint ranges (minTP > maxTP)
-    let minTakeProfitPips = idealMinTakeProfitPips;
-    let minRiskReward = 1.0;
-    let constraintFeasibilityWarning = '';
-
-    if (idealMinTakeProfitPips > maxTakeProfitPips) {
-      // INFEASIBLE: SL too wide for the maximum TP - 1:1 R:R is impossible
-      minTakeProfitPips = maxTakeProfitPips; // Cap minimum to maximum
-      minRiskReward = maxTakeProfitPips / referenceSLPips; // Actual achievable R:R
-      constraintFeasibilityWarning = `⚠️ CONSTRAINT INFEASIBILITY: SL ${referenceSLPips.toFixed(1)} pips requires ${idealMinTakeProfitPips.toFixed(1)} pips TP for 1:1 R:R, but maximum is ${maxTakeProfitPips.toFixed(1)} pips. Maximum achievable R:R is ${minRiskReward.toFixed(2)}:1`;
-
-      console.warn('[Omega-9 Constraints] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.warn('[Omega-9 Constraints] ⚠️ INFEASIBLE SETUP DETECTED:');
-      console.warn(`[Omega-9 Constraints] • SL: ${referenceSLPips.toFixed(1)} pips`);
-      console.warn(`[Omega-9 Constraints] • TP Maximum: ${maxTakeProfitPips.toFixed(1)} pips`);
-      console.warn(`[Omega-9 Constraints] • Minimum 1:1 R:R needs: ${idealMinTakeProfitPips.toFixed(1)} pips`);
-      console.warn(`[Omega-9 Constraints] • Maximum achievable R:R: ${minRiskReward.toFixed(2)}:1`);
-      console.warn('[Omega-9 Constraints] • This setup cannot achieve professional 1:1 R:R minimum');
-      console.warn('[Omega-9 Constraints] • Recommendation: NO_TRADE or tighten SL');
-      console.warn('[Omega-9 Constraints] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    }
+    // Set minimum TP (no infeasibility check - that's handled by feasibility resolver)
+    const minTakeProfitPips = Math.min(idealMinTakeProfitPips, maxTakeProfitPips);
+    const constraintFeasibilityWarning = resolvedPlan
+      ? '✅ Constraints validated by feasibility resolver'
+      : '';
 
     const constraints: Omega9Constraints = {
       // Stop-Loss Constraints
@@ -224,33 +213,8 @@ class Omega9ConstraintProvider {
     const tpPips = calculatePipDistance(symbol, decision.entry, decision.takeProfit);
     const rr = slPips > 0 ? tpPips / slPips : 0;
 
-    // Check if constraints themselves are infeasible (minRiskReward < 1.0)
-    // This means even the maximum TP can't achieve 1:1 R:R
-    if (constraints.minRiskReward < 1.0) {
-      corrections.push(`Trade infeasible: Maximum achievable R:R is ${constraints.minRiskReward.toFixed(2)}:1 (below 1:1 professional minimum)`);
-      corrections.push(`SL ${slPips.toFixed(1)} pips too wide for TP maximum ${constraints.maxTakeProfitPips.toFixed(1)} pips`);
-      corrections.push(`Recommendation: NO_TRADE or tighten SL to ≤ ${constraints.maxTakeProfitPips.toFixed(1)} pips`);
-      return {
-        corrected: false,
-        infeasible: true,
-        corrections
-      };
-    }
-
-    // Check if TP maximum makes 1:1 R:R impossible for this specific SL
-    const minTPForRR = slPips * 1.0;
-    if (minTPForRR > constraints.maxTakeProfitPips) {
-      // INFEASIBLE: SL too wide for maximum - cannot achieve 1:1 R:R
-      const actualRR = constraints.maxTakeProfitPips / slPips;
-      corrections.push(`Trade infeasible: SL ${slPips.toFixed(1)} pips requires ${minTPForRR.toFixed(1)} pips TP for 1:1 R:R`);
-      corrections.push(`TP maximum is ${constraints.maxTakeProfitPips.toFixed(1)} pips, maximum R:R is ${actualRR.toFixed(2)}:1`);
-      corrections.push(`Recommendation: NO_TRADE or tighten SL to ≤ ${constraints.maxTakeProfitPips.toFixed(1)} pips`);
-      return {
-        corrected: false,
-        infeasible: true,
-        corrections
-      };
-    }
+    // Note: Infeasibility checks are now handled by the feasibility resolver (SSOT)
+    // If we reach this point, constraints should be feasible
 
     // Auto-correct TP maximum violation first (sanity check constraint)
     if (tpPips > constraints.maxTakeProfitPips) {

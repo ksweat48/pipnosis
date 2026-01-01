@@ -53,6 +53,14 @@ export interface Omega9ConstraintInput {
   sessionTimeRemainingMinutes: number;
   volatilityRegime: 'low' | 'medium' | 'high';
   proposedStopLoss?: number;  // Optional: if Alpha already has SL in mind
+
+  // Optional: Resolved plan from feasibility resolver (SSOT)
+  // If provided, Omega-9 uses these constraint targets instead of calculating them
+  resolvedPlan?: {
+    slMinPercent?: number;      // Override SL floor from feasibility resolver
+    tpMaxAtrMultiple?: number;  // Override TP ceiling from feasibility resolver
+    minRR?: number;             // Override minimum R:R from feasibility resolver
+  };
 }
 
 export interface AlphaRevisionRequest {
