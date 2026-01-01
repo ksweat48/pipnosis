@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { pollingConfigService } from './polling-config-service';
 
 class DbHealthMonitor {
   private intervalId: NodeJS.Timeout | null = null;
@@ -258,22 +259,33 @@ class SystemMonitoringService {
   }
 
   getRateLimitStats(): RateLimitStats {
-    // Import here to avoid circular dependencies
-    const { pollingConfigService } = require('./polling-config-service');
+    try {
+      const usage = pollingConfigService.getCreditUsage();
+      const stats = pollingConfigService.getUsageStats();
 
-    const usage = pollingConfigService.getCreditUsage();
-    const stats = pollingConfigService.getUsageStats();
-
-    return {
-      current_usage_percentage: usage.percentage,
-      credits_used: usage.used,
-      credits_limit: usage.limit,
-      calls_per_second: stats.callsPerSecond,
-      projected_usage_percentage: stats.projectedUsage,
-      is_throttling: pollingConfigService.shouldThrottle(),
-      is_approaching_limit: pollingConfigService.isApproachingLimit(),
-      calls_remaining: usage.callsRemaining
-    };
+      return {
+        current_usage_percentage: usage.percentage,
+        credits_used: usage.used,
+        credits_limit: usage.limit,
+        calls_per_second: stats.callsPerSecond,
+        projected_usage_percentage: stats.projectedUsage,
+        is_throttling: pollingConfigService.shouldThrottle(),
+        is_approaching_limit: pollingConfigService.isApproachingLimit(),
+        calls_remaining: usage.callsRemaining
+      };
+    } catch (error) {
+      console.error('[SystemMonitoringService] Error getting rate limit stats:', error);
+      return {
+        current_usage_percentage: 0,
+        credits_used: 0,
+        credits_limit: 100,
+        calls_per_second: 0,
+        projected_usage_percentage: 0,
+        is_throttling: false,
+        is_approaching_limit: false,
+        calls_remaining: 100
+      };
+    }
   }
 }
 
