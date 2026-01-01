@@ -161,26 +161,20 @@ export const adminUserService = {
     // Calculate offset
     const offset = (page - 1) * pageSize;
 
-    // First, get total count (with search filter if applicable)
-    let countQuery = supabase
-      .from('user_profiles')
-      .select('id', { count: 'exact', head: true });
-
-    if (searchEmail) {
-      countQuery = countQuery.ilike('email', `%${searchEmail}%`);
-    }
-
-    const { count: totalUsers, error: countError } = await countQuery;
+    // Get total count using RPC function with SECURITY DEFINER (bypasses RLS)
+    const { data: countData, error: countError } = await supabase.rpc('admin_count_users', {
+      search_email: searchEmail || null,
+    });
 
     if (countError) {
       console.error('Error counting users:', countError);
       throw new Error(countError.message);
     }
 
-    const totalCount = totalUsers || 0;
+    const totalCount = Number(countData) || 0;
     const totalPages = Math.ceil(totalCount / pageSize);
 
-    // Then get paginated data using existing RPC function
+    // Get paginated data using existing RPC function
     const { data, error } = await supabase.rpc('admin_get_all_users_paginated', {
       search_email: searchEmail || null,
       page_size: pageSize,
