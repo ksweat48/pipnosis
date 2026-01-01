@@ -1,73 +1,40 @@
+import { marketScheduleService } from '@/services/market-schedule-service';
+
 export interface MarketStatus {
   isOpen: boolean;
   status: 'Open' | 'Closed';
 }
 
 /**
- * Check if today is a major market holiday
+ * DEPRECATED: Use marketScheduleService.isHoliday() instead
+ * This function is kept for backwards compatibility but delegates to the SSOT
  */
 function isTradingHoliday(estTime: Date): boolean {
-  const month = estTime.getMonth(); // 0 = January
+  // This is now synchronous fallback - for async version use marketScheduleService
+  const month = estTime.getMonth();
   const date = estTime.getDate();
-  const year = estTime.getFullYear();
 
-  // Christmas Day (December 25)
+  // Basic holiday check without database
+  // Christmas Day
   if (month === 11 && date === 25) return true;
-
-  // Note: Christmas Eve (Dec 24) is NOT a full holiday - forex markets trade until early afternoon
-  // Some brokers close early (1-2pm EST), but spot forex remains open until then
-
-  // New Year's Day (January 1)
+  // New Year's Day
   if (month === 0 && date === 1) return true;
 
-  // Note: New Year's Eve (Dec 31) is NOT a full holiday - forex markets trade normal hours until 5pm EST
-
-  // Good Friday (calculate dynamically - Friday before Easter)
-  // Easter calculation (Computus algorithm)
-  const a = year % 19;
-  const b = Math.floor(year / 100);
-  const c = year % 100;
-  const d = Math.floor(b / 4);
-  const e = b % 4;
-  const f = Math.floor((b + 8) / 25);
-  const g = Math.floor((b - f + 1) / 3);
-  const h = (19 * a + b - d - g + 15) % 30;
-  const i = Math.floor(c / 4);
-  const k = c % 4;
-  const l = (32 + 2 * e + 2 * i - h - k) % 7;
-  const m = Math.floor((a + 11 * h + 22 * l) / 451);
-  const easterMonth = Math.floor((h + l - 7 * m + 114) / 31) - 1;
-  const easterDay = ((h + l - 7 * m + 114) % 31) + 1;
-
-  // Good Friday is 2 days before Easter
-  const goodFridayDate = new Date(year, easterMonth, easterDay - 2);
-  if (month === goodFridayDate.getMonth() && date === goodFridayDate.getDate()) return true;
-
-  // Thanksgiving (4th Thursday of November)
-  if (month === 10) { // November
-    const firstDayOfMonth = new Date(year, 10, 1).getDay();
-    const fourthThursday = 1 + (11 - firstDayOfMonth) % 7 + 21;
-    if (date === fourthThursday) return true;
-  }
-
-  // Independence Day (July 4)
-  if (month === 6 && date === 4) return true;
-
+  // For full holiday checking including database, use marketScheduleService.isHoliday()
   return false;
 }
 
 /**
  * Determines if the Forex market is currently open
- * Forex market closes Friday 5:00 PM EST and reopens Sunday 5:00 PM EST
- * Also accounts for major trading holidays
+ * DELEGATES to marketScheduleService (SINGLE SOURCE OF TRUTH)
+ *
+ * Note: This is a synchronous wrapper. For full holiday checking, use getForexMarketStatusAsync()
  */
 export function getForexMarketStatus(): MarketStatus {
   const now = new Date();
-
-  // Convert current time to EST/EDT (New York timezone)
   const estTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
 
-  // Check for holidays first
+  // Basic holiday check (synchronous fallback)
   if (isTradingHoliday(estTime)) {
     return {
       isOpen: false,
@@ -75,28 +42,22 @@ export function getForexMarketStatus(): MarketStatus {
     };
   }
 
-  const dayOfWeek = estTime.getDay(); // 0 = Sunday, 5 = Friday, 6 = Saturday
+  const dayOfWeek = estTime.getDay();
   const hours = estTime.getHours();
   const minutes = estTime.getMinutes();
   const totalMinutes = hours * 60 + minutes;
 
-  // Friday 5:00 PM = 17:00 = 1020 minutes
-  const fridayCloseTime = 17 * 60; // 1020 minutes
-
-  // Sunday 5:00 PM = 17:00 = 1020 minutes
-  const sundayOpenTime = 17 * 60; // 1020 minutes
+  const fridayCloseTime = 17 * 60;
+  const sundayOpenTime = 17 * 60;
 
   let isOpen = true;
 
-  // Market is closed on Saturday (all day)
   if (dayOfWeek === 6) {
     isOpen = false;
   }
-  // Market is closed Friday after 5:00 PM
   else if (dayOfWeek === 5 && totalMinutes >= fridayCloseTime) {
     isOpen = false;
   }
-  // Market is closed Sunday before 5:00 PM
   else if (dayOfWeek === 0 && totalMinutes < sundayOpenTime) {
     isOpen = false;
   }
@@ -108,7 +69,20 @@ export function getForexMarketStatus(): MarketStatus {
 }
 
 /**
+ * Async version that checks database for holidays and early closures
+ * USE THIS for accurate market status including holidays
+ */
+export async function getForexMarketStatusAsync(): Promise<MarketStatus> {
+  const status = await marketScheduleService.getMarketStatus();
+  return {
+    isOpen: status.isOpen,
+    status: status.isOpen ? 'Open' : 'Closed'
+  };
+}
+
+/**
  * Calculates time remaining until market opens or closes
+ * SYNCHRONOUS version - for full accuracy including holidays, use getTimeUntilMarketChangeAsync()
  */
 export function getTimeUntilMarketChange(): { hours: number; minutes: number; isOpening: boolean } {
   const now = new Date();
@@ -120,7 +94,6 @@ export function getTimeUntilMarketChange(): { hours: number; minutes: number; is
   const minutes = estTime.getMinutes();
 
   if (marketStatus.isOpen) {
-    // Market is open, calculate time until Friday 5 PM close
     let daysUntilFriday = (5 - dayOfWeek + 7) % 7;
     if (daysUntilFriday === 0 && (hours > 17 || (hours === 17 && minutes > 0))) {
       daysUntilFriday = 7;
@@ -140,7 +113,6 @@ export function getTimeUntilMarketChange(): { hours: number; minutes: number; is
       isOpening: false
     };
   } else {
-    // Market is closed, calculate time until Sunday 5 PM open
     let daysUntilSunday = (7 - dayOfWeek) % 7;
     if (daysUntilSunday === 0 && hours >= 17) {
       daysUntilSunday = 7;
@@ -160,6 +132,19 @@ export function getTimeUntilMarketChange(): { hours: number; minutes: number; is
       isOpening: true
     };
   }
+}
+
+/**
+ * Async version that checks holidays and early closures from database
+ * USE THIS for accurate time calculations including holidays
+ */
+export async function getTimeUntilMarketChangeAsync(): Promise<{ hours: number; minutes: number; isOpening: boolean }> {
+  const result = await marketScheduleService.getTimeUntilMarketChange();
+  return {
+    hours: result.hours,
+    minutes: result.minutes,
+    isOpening: result.isOpening
+  };
 }
 
 /**

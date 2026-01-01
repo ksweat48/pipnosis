@@ -1,6 +1,7 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { fetchKrakenTicker } from './_shared/kraken-client';
+import { isForexMarketOpen } from './_shared/market-hours-checker';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -31,28 +32,14 @@ function isCryptoSymbol(symbol: string): boolean {
   return CRYPTO_PAIRS.includes(symbol.toUpperCase());
 }
 
-function isForexMarketOpen(): boolean {
-  const now = new Date();
-  const estTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const dayOfWeek = estTime.getDay();
-  const hours = estTime.getHours();
-  const minutes = estTime.getMinutes();
-  const totalMinutes = hours * 60 + minutes;
-  const fridayCloseTime = 17 * 60;
-  const sundayOpenTime = 17 * 60;
+// Note: isForexMarketOpen is now imported from market-hours-checker (SSOT)
 
-  if (dayOfWeek === 6) return false;
-  if (dayOfWeek === 5 && totalMinutes >= fridayCloseTime) return false;
-  if (dayOfWeek === 0 && totalMinutes < sundayOpenTime) return false;
-
-  return true;
-}
-
-function shouldCollectSymbol(symbol: string): boolean {
+async function shouldCollectSymbol(symbol: string): Promise<boolean> {
   if (isCryptoSymbol(symbol)) {
     return true;
   }
-  return isForexMarketOpen();
+  // DELEGATE to centralized market hours checker - includes holiday checking
+  return await isForexMarketOpen();
 }
 
 const ACTIVE_SYMBOLS = ALL_TRADING_PAIRS;
@@ -183,8 +170,15 @@ export const handler: Handler = async (event, context) => {
   const executionId = `exec_${Date.now()}`;
   const metaApiAccountId = getWorkingMetaApiAccount();
 
-  const forexOpen = isForexMarketOpen();
-  const symbolsToCollect = ACTIVE_SYMBOLS.filter(shouldCollectSymbol);
+  const forexOpen = await isForexMarketOpen();
+
+  // Filter symbols asynchronously
+  const symbolsToCollect: string[] = [];
+  for (const symbol of ACTIVE_SYMBOLS) {
+    if (await shouldCollectSymbol(symbol)) {
+      symbolsToCollect.push(symbol);
+    }
+  }
 
   console.log(`[PriceCollector:${executionId}] 🚀 Starting continuous price collection...`);
   console.log(`[PriceCollector:${executionId}] Using MetaAPI Account: ${metaApiAccountId.slice(0, 8)}...`);
@@ -234,15 +228,20 @@ export const handler: Handler = async (event, context) => {
       }
 
       // Collect all symbols in parallel for this tick (filter by market hours)
-      const symbolsToCollect = ACTIVE_SYMBOLS.filter(shouldCollectSymbol);
+      const currentSymbolsToCollect: string[] = [];
+      for (const symbol of ACTIVE_SYMBOLS) {
+        if (await shouldCollectSymbol(symbol)) {
+          currentSymbolsToCollect.push(symbol);
+        }
+      }
 
-      if (symbolsToCollect.length === 0) {
+      if (currentSymbolsToCollect.length === 0) {
         console.log(`[PriceCollector:${executionId}] No markets open - skipping collection`);
         break;
       }
 
       const results = await Promise.allSettled(
-        symbolsToCollect.map(async (symbol) => {
+        currentSymbolsToCollect.map(async (symbol) => {
           const priceData = await fetchPrice(symbol, metaApiAccountId);
           if (priceData) {
             const saved = await savePriceToDatabase(priceData);

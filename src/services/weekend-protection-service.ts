@@ -22,6 +22,7 @@ import { logger, LogCategory } from '@/lib/logger';
 import { globalToastManager } from './global-toast-manager';
 import { notificationManager } from './notification-manager';
 import { is24HourSymbol } from '@/utils/marketHours';
+import { marketScheduleService } from './market-schedule-service';
 
 // Global shutdown flags
 let SCANNING_DISABLED = false;
@@ -122,68 +123,36 @@ class WeekendProtectionService {
     logger.info(LogCategory.POSITION_MONITOR, '✅ Systems re-enabled for market open');
   }
 
-  getWeekendStatus(): WeekendStatus {
+  async getWeekendStatus(): Promise<WeekendStatus> {
     const now = new Date();
 
-    // Convert UTC to EST/EDT properly (EST is UTC-5, EDT is UTC-4)
-    // Forex market: Opens Sunday 5 PM EST, Closes Friday 5 PM EST
-    const utcHours = now.getUTCHours();
-    const utcDay = now.getUTCDay();
-    const utcMinutes = now.getUTCMinutes();
+    // DELEGATE to market schedule service - SINGLE SOURCE OF TRUTH
+    const marketStatus = await marketScheduleService.getMarketStatus(now);
+    const timeUntilChange = await marketScheduleService.getTimeUntilMarketChange();
 
-    // EST offset (simplified - assumes EST/UTC-5 for now)
-    // TODO: Add proper DST detection if needed
-    const EST_OFFSET = 5;
-
-    // Calculate EST hours and day
-    let estHours = utcHours - EST_OFFSET;
-    let estDay = utcDay;
-
-    // Handle day rollover when crossing midnight
-    if (estHours < 0) {
-      estHours += 24;
-      estDay = (utcDay - 1 + 7) % 7;
-    }
-
-    // Market hours in EST:
-    // - Opens: Sunday 5:00 PM EST (22:00 UTC Sunday)
-    // - Closes: Friday 5:00 PM EST (22:00 UTC Friday)
-
-    // Check if currently weekend (Saturday OR Sunday before 5 PM EST)
-    const isSaturday = estDay === 6;
-    const isSundayBeforeOpen = estDay === 0 && estHours < 17;
-    const isWeekend = isSaturday || isSundayBeforeOpen;
-
-    const isFriday = estDay === 5;
-
-    // Calculate when market closes this week (Friday 5 PM EST)
-    const marketClosesAt = new Date(now);
-    if (estDay <= 5) {
-      // Move to Friday 5 PM EST (22:00 UTC)
-      const daysUntilFriday = 5 - estDay;
-      marketClosesAt.setUTCDate(now.getUTCDate() + daysUntilFriday);
-      marketClosesAt.setUTCHours(22, 0, 0, 0); // 5 PM EST = 22:00 UTC
-    } else {
-      // Already weekend, market closes next Friday
-      const daysUntilNextFriday = (5 + 7 - estDay) % 7;
-      marketClosesAt.setUTCDate(now.getUTCDate() + daysUntilNextFriday);
-      marketClosesAt.setUTCHours(22, 0, 0, 0);
-    }
+    const estTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const dayOfWeek = estTime.getDay();
+    const isFriday = dayOfWeek === 5;
+    const isWeekend = !marketStatus.isOpen && (dayOfWeek === 6 || (dayOfWeek === 0 && estTime.getHours() < 17));
 
     // Calculate shutdown time (5 minutes before market close)
-    const shutdownAt = new Date(marketClosesAt);
+    const shutdownAt = new Date(timeUntilChange.changeTime);
     shutdownAt.setMinutes(shutdownAt.getMinutes() - this.SHUTDOWN_MINUTES_BEFORE);
 
-    // Calculate time until close
-    const msUntilClose = marketClosesAt.getTime() - now.getTime();
-    const hoursUntilClose = msUntilClose / (1000 * 60 * 60);
-    const minutesUntilClose = msUntilClose / (1000 * 60);
+    const hoursUntilClose = timeUntilChange.hours;
+    const minutesUntilClose = timeUntilChange.minutes;
 
-    // SIMPLE LOGIC: Shutdown at 5 minutes before close on Friday
-    const shouldShutdown = isFriday && now >= shutdownAt && now < marketClosesAt;
+    // Shutdown logic: trigger 5 minutes before market close
+    const shouldShutdown = !timeUntilChange.isOpening &&
+                          isFriday &&
+                          now >= shutdownAt &&
+                          now < timeUntilChange.changeTime;
 
     // Send warnings at specific intervals (3h, 1h, 30min)
-    const shouldWarnUser = isFriday && hoursUntilClose <= 3 && hoursUntilClose > 0;
+    const shouldWarnUser = !timeUntilChange.isOpening &&
+                          isFriday &&
+                          hoursUntilClose <= 3 &&
+                          hoursUntilClose > 0;
 
     return {
       isWeekend,
@@ -192,17 +161,17 @@ class WeekendProtectionService {
       minutesUntilClose,
       shouldShutdown,
       shouldWarnUser,
-      marketClosesAt,
+      marketClosesAt: timeUntilChange.changeTime,
       shutdownAt
     };
   }
 
-  canOpenNewTrade(symbol?: string): { allowed: boolean; reason?: string } {
+  async canOpenNewTrade(symbol?: string): Promise<{ allowed: boolean; reason?: string }> {
     if (symbol && is24HourSymbol(symbol)) {
       return { allowed: true };
     }
 
-    const status = this.getWeekendStatus();
+    const status = await this.getWeekendStatus();
 
     if (status.isWeekend) {
       return {
@@ -223,7 +192,7 @@ class WeekendProtectionService {
 
   private async checkWeekendProtection(): Promise<void> {
     try {
-      const status = this.getWeekendStatus();
+      const status = await this.getWeekendStatus();
 
       // Reset flags on market reopen (Sunday evening 5 PM EST)
       const now = new Date();
@@ -534,13 +503,13 @@ class WeekendProtectionService {
   }
 
 
-  getStatusForDisplay(): {
+  async getStatusForDisplay(): Promise<{
     isActive: boolean;
     message: string;
     hoursUntilClose?: number;
     minutesUntilClose?: number;
-  } {
-    const status = this.getWeekendStatus();
+  }> {
+    const status = await this.getWeekendStatus();
 
     // During weekend
     if (status.isWeekend) {
