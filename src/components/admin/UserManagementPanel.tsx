@@ -61,7 +61,7 @@ export const UserManagementPanel: React.FC = () => {
       }
       return count;
     }, 0);
-  }, [allUsers]);
+  }, [users]);
 
   const handleAction = (action: string, userId: string, email: string) => {
     setSelectedUserId(userId);
