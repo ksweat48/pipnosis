@@ -502,9 +502,9 @@ class GoalSessionLiveEngine {
 
       // Check weekend protection - pass first open market symbol to allow crypto trading 24/7
       // If we have any open market symbols (already filtered above), check if we can trade them
-      const canTrade = openMarketSymbols.length > 0
+      const canTrade = await (openMarketSymbols.length > 0
         ? weekendProtectionService.canOpenNewTrade(openMarketSymbols[0])
-        : weekendProtectionService.canOpenNewTrade();
+        : weekendProtectionService.canOpenNewTrade());
 
       if (!canTrade.allowed) {
         console.log('%c[MULTI-SYMBOL] 🛑 Trading DISABLED - ' + canTrade.reason, 'color: #ff0000; font-weight: bold');
