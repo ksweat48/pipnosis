@@ -20,10 +20,17 @@ export const handler: Handler = async (event, context) => {
   console.log('[Netlify Emergency Recovery] Starting emergency position recovery check...');
 
   try {
-    const supabaseUrl = process.env.VITE_SUPABASE_URL;
-    const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+    // Check for both VITE_ prefixed (build-time) and non-prefixed (runtime) environment variables
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('[Netlify Emergency Recovery] Missing env vars. Available:', {
+        hasSupabaseUrl: !!process.env.SUPABASE_URL,
+        hasViteSupabaseUrl: !!process.env.VITE_SUPABASE_URL,
+        hasSupabaseAnonKey: !!process.env.SUPABASE_ANON_KEY,
+        hasViteSupabaseAnonKey: !!process.env.VITE_SUPABASE_ANON_KEY
+      });
       throw new Error('Missing Supabase credentials');
     }
 

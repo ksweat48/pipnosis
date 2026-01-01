@@ -13,7 +13,8 @@ import { createClient } from '@supabase/supabase-js';
 import { createFinnhubClient } from './_shared/finnhub-client';
 import { fetchKrakenTicker } from './_shared/kraken-client';
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL!;
+// Netlify functions use non-prefixed env vars, fallback to VITE_ for compatibility
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const metaApiToken = process.env.METAAPI_TOKEN!;
 const metaApiRegion = process.env.METAAPI_REGION || 'london';
