@@ -173,7 +173,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
       // Market just closed - freeze time range (ONLY for forex, crypto never closes)
       if (wasOpen && !isNowOpen && isMountedRef.current && chartRef.current && !newSymbolStatus.is24Hour) {
-        console.log(`[Chart] 🔒 ${symbol} market closed - freezing time range`);
+        if (import.meta.env.DEV) {
+          console.log(`[Chart] ${symbol} market closed - freezing range`);
+        }
         try {
           const timeScale = chartRef.current.timeScale();
           const currentRange = timeScale.getVisibleLogicalRange();
@@ -188,7 +190,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
       // Market just opened - resume real-time scrolling (ONLY for forex, crypto never stopped)
       if (!wasOpen && isNowOpen && isMountedRef.current && chartRef.current && !newSymbolStatus.is24Hour) {
-        console.log(`[Chart] 🔓 ${symbol} market opened - resuming updates`);
+        if (import.meta.env.DEV) {
+          console.log(`[Chart] ${symbol} market opened`);
+        }
         try {
           chartRef.current.timeScale().scrollToRealTime();
         } catch (error) {
@@ -208,8 +212,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   useEffect(() => {
     const handleVisibilityChange = async () => {
       if (document.hidden) {
-        console.log('[Chart] 🙈 Tab hidden - pausing live tick rendering');
-        console.log('[Chart] 💾 DB polling continues (reduced frequency)');
         // Cancel any pending render frames
         if (renderFrameRef.current) {
           cancelAnimationFrame(renderFrameRef.current);
@@ -218,8 +220,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         // Reduce polling frequency when tab is hidden
         chartCandlePoller.pause();
       } else {
-        console.log('[Chart] 👁️ Tab visible - resuming full hybrid mode');
-        console.log('[Chart] 🔄 Reconstructing current candle from latest data...');
 
         // Resume polling FIRST so the system is ready
         chartCandlePoller.resume();
@@ -232,11 +232,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
             const now = new Date();
             const hoursAway = (now.getTime() - lastKnownDate.getTime()) / (1000 * 60 * 60);
 
-            console.log(`[Chart] User was away for ${hoursAway.toFixed(1)} hours`);
 
             // If user was away for more than 5 minutes, fetch all missed candles
             if (hoursAway > (5 / 60)) {
-              console.log('[Chart] 🔄 Fetching missed candles from database...');
 
               // Fetch candles from the last known time until now
               const lookbackHours = Math.min(Math.ceil(hoursAway) + 1, 24); // Cap at 24 hours
@@ -246,7 +244,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
               const newCandles = allCandles.filter(c => c.time > lastKnownTime);
 
               if (newCandles.length > 0) {
-                console.log(`[Chart] 🆕 Found ${newCandles.length} candles created while away`);
+                if (import.meta.env.DEV) {
+                  console.log(`[Chart] Found ${newCandles.length} missed candles`);
+                }
 
                 // Add new candles to historical data
                 historicalCandlesRef.current = [...historicalCandlesRef.current, ...newCandles];
@@ -271,14 +271,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                   setPriceChange(((latestCandle.close - firstCandle.open) / firstCandle.open) * 100);
                 }
 
-                console.log(`[Chart] ✓ Chart updated with all missed candles`);
-              } else {
-                console.log('[Chart] No new candles found (user was away during same candle period)');
               }
 
               // CRITICAL FIX: Reconstruct current candle after catchup
               const lastHistoricalTime = historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time;
-              console.log('[Chart] 🔄 Reconstructing current candle from database ticks...');
 
               try {
                 const reconstruction = await currentCandleReconstructor.reconstructCurrentCandle(
@@ -288,7 +284,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                 );
 
                 if (reconstruction.wasReconstructed && reconstruction.candle) {
-                  console.log(`[Chart] ✅ Current candle reconstructed from ${reconstruction.tickCount} ticks`);
+                  if (import.meta.env.DEV) {
+                    console.log(`[Chart] Reconstructed from ${reconstruction.tickCount} ticks`);
+                  }
 
                   const safeCurrentCandle: CandleData = {
                     time: Number(reconstruction.candle.time),
@@ -318,7 +316,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                 currentCandleRef.current = null;
               }
             } else {
-              console.log('[Chart] User was only away briefly, no catchup needed');
 
               // Still reconstruct current candle even for brief absences
               if (historicalCandlesRef.current.length > 0) {
@@ -369,8 +366,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           await chartCandlePoller.forceRefresh(symbol, timeframe);
         }
 
-        console.log('[Chart] 📡 Live tick rendering resumed');
-        console.log('[Chart] 💾 DB polling resumed at full frequency');
       }
     };
 
@@ -387,8 +382,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       const { symbol: filledSymbol, timeframe: filledTimeframe, result } = customEvent.detail;
 
       if (filledSymbol === symbol && filledTimeframe === timeframe && result.candlesInserted > 0) {
-        console.log(`[Chart] 🎉 Gap backfill completed: ${result.candlesInserted} candles added`);
-        console.log(`[Chart] 🔄 Refreshing chart to show new candles...`);
+        if (import.meta.env.DEV) {
+          console.log(`[Chart] Gap backfill: ${result.candlesInserted} candles added`);
+        }
 
         await handleChartRefresh();
       }
@@ -409,7 +405,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
     const containerWidth = chartContainerRef.current.clientWidth;
     const containerHeight = chartContainerRef.current.clientHeight;
-    console.log('[Chart] Creating chart with dimensions:', { width: containerWidth, height: containerHeight });
 
     if (containerWidth === 0 || containerHeight === 0) {
       console.warn('[Chart] Container dimensions are 0, chart may not display properly');
@@ -725,12 +720,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     // CRITICAL FIX: Check if market is open before processing tick
     // BUT ALWAYS allow 24/7 symbols (crypto) to process ticks regardless of isOpen state
     if (!symbolMarketStatus.isOpen && !symbolMarketStatus.is24Hour) {
-      console.log(`[Chart][${symbol}] ⏸️ Market closed - rejecting tick (not 24/7)`);
       return;
     }
 
     // DEBUG: Log successful tick processing
-    console.log(`[Chart][${symbol}] ✅ Processing tick: ${tick.midPrice.toFixed(5)} (isOpen: ${symbolMarketStatus.isOpen}, is24Hour: ${symbolMarketStatus.is24Hour})`);
 
     const now = Date.now();
     if (now - lastTickUpdateRef.current < 16) {
@@ -743,7 +736,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     }
 
     renderFrameRef.current = requestAnimationFrame(() => {
-      console.log(`[Chart][${symbol}] 🎬 Tick callback executing - processing tick at ${tick.midPrice.toFixed(5)}`);
 
       const price = tick.midPrice;
       const timestampMs = new Date(tick.timestamp).getTime();
@@ -756,7 +748,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         ? historicalCandlesRef.current[historicalCandlesRef.current.length - 1].time
         : 0;
 
-      console.log(`[Chart][${symbol}] 🔍 Tick validation: candleTime=${candleTimeSeconds}, lastHistorical=${lastHistoricalTime}, current=${currentCandleRef.current?.time || 'none'}`);
 
       // FIX: Changed from <= to < so ticks for the CURRENT forming candle aren't rejected
       // The forming candle matches lastHistoricalTime, so we need to allow it
@@ -778,7 +769,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         return;
       }
 
-      console.log(`[Chart][${symbol}] ✅ Tick passed all validation checks!`);
 
       if (!currentCandleRef.current || currentCandleRef.current.startTime !== candleTime) {
         currentCandleRef.current = {
@@ -789,13 +779,11 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           close: price,
           startTime: candleTime
         };
-        console.log(`[Chart][${symbol}] 🆕 New forming candle started at ${new Date(candleTime).toLocaleTimeString()} with price ${price.toFixed(5)}`);
       } else {
         const oldClose = currentCandleRef.current.close;
         currentCandleRef.current.high = Math.max(currentCandleRef.current.high, price);
         currentCandleRef.current.low = Math.min(currentCandleRef.current.low, price);
         currentCandleRef.current.close = price;
-        console.log(`[Chart][${symbol}] 🔄 Updating forming candle: close ${oldClose.toFixed(5)} → ${price.toFixed(5)}`);
       }
 
       try {

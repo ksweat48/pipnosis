@@ -460,10 +460,9 @@ class GoalSessionLiveEngine {
 
     try {
       // 🔍 AGGRESSIVE LOGGING: Entry point
-      console.log('%c[MULTI-SYMBOL] 🚀 ENTERED processMultiSymbolCycle', 'color: #00ff00; font-weight: bold; font-size: 16px');
-      console.log('[MULTI-SYMBOL] Watchlist:', watchlist);
-      console.log('[MULTI-SYMBOL] Open trades:', this.openTrades.length);
-      console.log('[MULTI-SYMBOL] Max concurrent:', this.config.maxConcurrentTrades);
+      if (import.meta.env.DEV) {
+        console.log('[MULTI-SYMBOL] Watchlist:', watchlist, 'Open:', this.openTrades.length);
+      }
 
       // CRYPTO FIX: Check if ANY market is open BEFORE any LLM calls (crypto trades 24/7)
       const anyMarketOpen = hasAnyOpenMarket(watchlist);
@@ -479,8 +478,9 @@ class GoalSessionLiveEngine {
       const closedSymbols = watchlist.filter(symbol => !isSymbolMarketOpen(symbol));
 
       if (openMarketSymbols.length < watchlist.length) {
-        console.log(`[MULTI-SYMBOL] 📊 Market filtering: ${openMarketSymbols.length}/${watchlist.length} symbols have open markets`);
-        console.log('[MULTI-SYMBOL] Open:', openMarketSymbols.join(', '));
+        if (import.meta.env.DEV) {
+          console.log(`[MULTI-SYMBOL] Markets open: ${openMarketSymbols.length}/${watchlist.length}`);
+        }
 
         // Send user-facing message explaining market status
         const cryptoOnly = openMarketSymbols.every(s => ['BTCUSD', 'ETHUSD'].includes(s));
@@ -493,7 +493,9 @@ class GoalSessionLiveEngine {
         }
 
         if (marketMessage) {
-          console.log(`[MULTI-SYMBOL] 📢 Sending market status message to user: ${marketMessage}`);
+          if (import.meta.env.DEV) {
+            console.log(`[MULTI-SYMBOL] Market status: ${marketMessage}`);
+          }
           await this.sendAIMessage(marketMessage);
         }
       }
@@ -511,7 +513,6 @@ class GoalSessionLiveEngine {
         return;
       }
 
-      console.log('%c[MULTI-SYMBOL] ✅ Market is OPEN - Proceeding with scan', 'color: #00ff00; font-weight: bold');
 
       // CRITICAL: Verify with DB before expensive operations (prevents memory desync bugs)
       const { data: verifyTrades } = await supabase
@@ -554,7 +555,6 @@ class GoalSessionLiveEngine {
         return;
       }
 
-      console.log('%c[MULTI-SYMBOL] ✅ Snapshots valid - continuing', 'color: #4caf50; font-weight: bold');
       logger.debug(LogCategory.AI_TRADING, `✅ ${snapshotResult.tradeableSymbols.length}/${snapshotResult.snapshots.length} symbols tradeable`);
 
       if (snapshotResult.blockedSymbols.size > 0) {
@@ -564,7 +564,6 @@ class GoalSessionLiveEngine {
       }
 
       const tradeableSnapshots = snapshotResult.snapshots.filter(s => s.tradeable);
-      console.log('[MULTI-SYMBOL] Tradeable snapshots:', tradeableSnapshots.length);
 
       if (tradeableSnapshots.length === 0) {
         console.log('%c[MULTI-SYMBOL] 🚫 No tradeable opportunities', 'color: #ff9800; font-weight: bold');
@@ -577,7 +576,9 @@ class GoalSessionLiveEngine {
         return;
       }
 
-      console.log('%c[MULTI-SYMBOL] ✅ Found ' + tradeableSnapshots.length + ' tradeable symbols', 'color: #4caf50; font-weight: bold');
+      if (import.meta.env.DEV) {
+        console.log(`[MULTI-SYMBOL] Tradeable: ${tradeableSnapshots.length}`);
+      }
 
       const marketStates: FullMarketState[] = tradeableSnapshots.map(snapshot => ({
         symbol: snapshot.symbol,
@@ -664,21 +665,14 @@ class GoalSessionLiveEngine {
         riskPercent: getRiskPercentage(this.config.riskMode)
       };
 
-      console.log('%c[GOAL CONTEXT] 🎯 Calculated:', 'color: #ff6b6b; font-weight: bold');
-      console.log(`  Balance: $${goalContext.currentBalance.toFixed(2)}`);
-      console.log(`  Target: +$${goalContext.targetGoal.toFixed(2)}`);
-      console.log(`  Progress: $${goalContext.currentProgress.toFixed(2)}`);
-      console.log(`  Remaining: $${goalContext.remainingGoal.toFixed(2)} (${goalContext.goalPercentage.toFixed(3)}%)`);
-      console.log(`  Estimated Pips Needed: ~${goalContext.pipsNeededEstimate.toFixed(0)}`);
+      if (import.meta.env.DEV) {
+        console.log(`[GOAL] Balance: $${goalContext.currentBalance.toFixed(2)}, Remaining: $${goalContext.remainingGoal.toFixed(2)} (${goalContext.goalPercentage.toFixed(1)}%)`);
+      }
 
       logger.debug(LogCategory.AI_TRADING, `🧠 Running Omega Council for ${marketStates.length} symbols...`);
-      console.log('%c[MULTI-SYMBOL] 🧠 Preparing to call AI Orchestrator', 'color: #9c27b0; font-weight: bold; font-size: 18px');
-      console.log('[MULTI-SYMBOL] Market States:', marketStates.length);
-      console.log('[MULTI-SYMBOL] Trader Score:', traderScore);
-      console.log('[MULTI-SYMBOL] User ID:', this.config.userId);
-      console.log('[MULTI-SYMBOL] Goal Context:', goalContext);
-
-      console.log('%c[MULTI-SYMBOL] 🚀 CALLING CONTEXT-AWARE COUNCIL MANAGER...', 'color: #ff0000; font-weight: bold; font-size: 20px; background: yellow');
+      if (import.meta.env.DEV) {
+        console.log(`[MULTI-SYMBOL] AI Orchestrator: ${marketStates.length} markets`);
+      }
       const orchestratorStartTime = Date.now();
 
       // Validate required parameters
@@ -703,17 +697,9 @@ class GoalSessionLiveEngine {
       const omegaDecisions = councilResult.decisions;
 
       const orchestratorDuration = Date.now() - orchestratorStartTime;
-      console.log(`%c[MULTI-SYMBOL] ✅ COUNCIL RETURNED in ${orchestratorDuration}ms (Mode: ${councilResult.mode})`, 'color: #4caf50; font-weight: bold; font-size: 18px');
-
-      if (councilResult.mode === 'alpha_scout') {
-        console.log(`%c💰 COST SAVED! Alpha Scout Cycle ${councilResult.scout_cycles}: ${councilResult.improvement_score}% improvement`, 'color: #4caf50; font-weight: bold');
-        console.log(`[Alpha Scout] ${councilResult.reasoning}`);
-      } else {
-        console.log('%c[Full Council] Complete Omega Council evaluation', 'color: #2196f3; font-weight: bold');
+      if (import.meta.env.DEV) {
+        console.log(`[MULTI-SYMBOL] Council: ${councilResult.mode} mode, ${omegaDecisions.size} decisions in ${orchestratorDuration}ms`);
       }
-
-      console.log('[MULTI-SYMBOL] Decisions received:', omegaDecisions.size);
-      console.log('[MULTI-SYMBOL] Decision details:', Array.from(omegaDecisions.entries()));
 
       const bestSymbolResult = bestSymbolSelector.selectBestSymbol(
         tradeableSnapshots,
@@ -805,13 +791,9 @@ class GoalSessionLiveEngine {
       const expectedProfitAtAlphaTP = alphaTPPips * dollarPerPipAtLotSize;
       const progressPercent = (expectedProfitAtAlphaTP / goalContext.remainingGoal) * 100;
 
-      console.log(`[Goal Session] 🎯 MARKET-BASED TRADE EXECUTION:`);
-      console.log(`  Position Size: ${goalAwareSizing.lotSize.toFixed(3)} lots (${this.config.riskMode} risk)`);
-      console.log(`  Alpha's TP: ${decision.takeProfit.toFixed(5)} (${alphaTPPips.toFixed(1)} pips - MARKET REALISTIC)`);
-      console.log(`  Expected Profit: $${expectedProfitAtAlphaTP.toFixed(2)} (${progressPercent.toFixed(0)}% of $${goalContext.remainingGoal.toFixed(2)} remaining)`);
-      console.log(`  Goal Progress: Trade ${goalAwareSizing.estimatedTradesNeeded === 1 ? '1 of 1' : `1 of ~${goalAwareSizing.estimatedTradesNeeded}`}`);
-      console.log(`  Feasibility: ${goalAwareSizing.goalFeasibility}`);
-      console.log(`  Strategy: ${goalAwareSizing.reasoning}`);
+      if (import.meta.env.DEV) {
+        console.log(`[Trade] ${decision.symbol} ${goalAwareSizing.lotSize.toFixed(3)} lots, TP: ${alphaTPPips.toFixed(1)}p ($${expectedProfitAtAlphaTP.toFixed(2)})`);
+      }
 
       // ✅ FIX 5: Hard feasibility gate - abort if trade not feasible
       if (!goalAwareSizing.feasible) {
@@ -848,12 +830,9 @@ class GoalSessionLiveEngine {
       const calculatedRisk = stopPips * dollarPerPipCalc;
       const maxSafeRisk = this.config.initialBalance * 0.05; // 5% absolute maximum
 
-      console.log('%c[PRE-EXECUTION VALIDATION]', 'color: #ff9800; font-weight: bold; font-size: 14px');
-      console.log(`  Position Size: ${calculatedLotSize.toFixed(3)} lots`);
-      console.log(`  Stop Loss Distance: ${stopPips.toFixed(1)} pips`);
-      console.log(`  Dollar Per Pip: $${dollarPerPipCalc.toFixed(2)}`);
-      console.log(`  Calculated Risk: $${calculatedRisk.toFixed(2)}`);
-      console.log(`  Max Safe Risk: $${maxSafeRisk.toFixed(2)}`);
+      if (import.meta.env.DEV) {
+        console.log(`[Validation] Risk: $${calculatedRisk.toFixed(2)}/$${maxSafeRisk.toFixed(2)}, ${stopPips.toFixed(1)}p`);
+      }
 
       if (calculatedRisk > maxSafeRisk) {
         console.error('%c🚨 EXECUTION BLOCKED: RISK TOO HIGH!', 'color: #ff0000; font-weight: bold; font-size: 16px');
@@ -872,7 +851,6 @@ class GoalSessionLiveEngine {
           `Reduced to ${calculatedLotSize.toFixed(2)} lots for safe risk of ~$${maxSafeRisk.toFixed(2)}.`
         );
       } else {
-        console.log('%c✅ Position size validated - safe to execute', 'color: #4caf50; font-weight: bold');
       }
 
       const trade: SimulatedTrade = {
@@ -1089,19 +1067,11 @@ class GoalSessionLiveEngine {
 
     try {
       // 🚨 EMERGENCY DIAGNOSTICS
-      console.log('%c[AUTONOMOUS ENGINE] 🔍 Cycle starting...', 'color: #10b981; font-weight: bold; font-size: 14px');
-      console.log('[AUTONOMOUS ENGINE] Session ID:', this.activeSession);
-      console.log('[AUTONOMOUS ENGINE] Open Trades:', this.openTrades.length);
-      console.log('[AUTONOMOUS ENGINE] Max Concurrent:', this.config.maxConcurrentTrades);
-      console.log('[AUTONOMOUS ENGINE] Allow New Trades:', this.allowNewTrades);
+      if (import.meta.env.DEV) {
+        console.log(`[AUTONOMOUS] Cycle: ${this.openTrades.length}/${this.config.maxConcurrentTrades} trades`);
+      }
 
       // 🔍 DEFENSIVE: Log trade array contents for desync detection
-      if (this.openTrades.length > 0) {
-        console.log('%c[AUTONOMOUS ENGINE] 📊 Current Trade Array:', 'color: #9c27b0; font-weight: bold');
-        this.openTrades.forEach((trade, idx) => {
-          console.log(`  [${idx}] ${trade.symbol} ${trade.direction.toUpperCase()} | ID: ${trade.id.substring(0, 8)} | Status: ${trade.outcome}`);
-        });
-      }
 
       // CHECK: Is session awaiting user continuation?
       const { data: sessionCheck } = await supabase
@@ -1110,7 +1080,6 @@ class GoalSessionLiveEngine {
         .eq('id', this.activeSession)
         .single();
 
-      console.log('[AUTONOMOUS ENGINE] Awaiting continuation?', sessionCheck?.awaiting_user_continuation);
 
       if (sessionCheck?.awaiting_user_continuation) {
         logger.debug(LogCategory.AI_TRADING, '⏸️ Awaiting user continuation - not scanning for new trades');
@@ -1135,17 +1104,8 @@ class GoalSessionLiveEngine {
 
       if (!scanState.allowed) {
         logger.debug(LogCategory.AI_TRADING, `⏸️ Scanning blocked by state machine: ${scanState.reason}`);
-        console.log('%c[AUTONOMOUS ENGINE] ⏸️ SCAN BLOCKED: ' + scanState.message, 'color: #f59e0b; font-weight: bold');
-        console.log(`[AUTONOMOUS ENGINE] Status: ${scanState.status}`);
-
-        if (scanState.nextScanAt) {
-          console.log(`[AUTONOMOUS ENGINE] Next scan allowed at: ${scanState.nextScanAt}`);
-        }
-        if (scanState.cooldownEndsAt) {
-          console.log(`[AUTONOMOUS ENGINE] Cooldown ends at: ${scanState.cooldownEndsAt}`);
-        }
-        if (scanState.lockdownEndsAt) {
-          console.log(`[AUTONOMOUS ENGINE] Lockdown ends at: ${scanState.lockdownEndsAt}`);
+        if (import.meta.env.DEV) {
+          console.log(`[AUTONOMOUS] Scan blocked: ${scanState.message}`);
         }
 
         // Still monitor open positions during cooldown/lockdown
@@ -1154,8 +1114,6 @@ class GoalSessionLiveEngine {
       }
 
       // ✅ Scanning allowed - proceed with market evaluation
-      console.log('%c[AUTONOMOUS ENGINE] ✅ Scan permission GRANTED', 'color: #10b981; font-weight: bold');
-      console.log(`[AUTONOMOUS ENGINE] Session ${scanState.sessionNumber}/2 - ${scanState.scansRemaining} scans remaining`);
 
       // 🚨 CRITICAL: Sync with database before checking max trades
       // Prevents memory desync from losing track of open positions
@@ -1258,8 +1216,6 @@ class GoalSessionLiveEngine {
       const watchlist = this.config.watchlist || getDefaultWatchlist();
       const useMultiSymbolMode = watchlist.length > 1;
 
-      console.log('[AUTONOMOUS ENGINE] Watchlist:', watchlist);
-      console.log('[AUTONOMOUS ENGINE] Multi-symbol mode?', useMultiSymbolMode);
 
       if (useMultiSymbolMode) {
         // Double-check before expensive multi-symbol scan (use DB count as already verified above)

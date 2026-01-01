@@ -23,6 +23,11 @@ export enum ProductionLogCategory {
 
 class ProductionLogger {
   private enabled = true;
+  private isDev: boolean;
+
+  constructor() {
+    this.isDev = typeof import.meta !== 'undefined' && import.meta.env?.DEV === true;
+  }
 
   /**
    * Always log errors
@@ -57,10 +62,10 @@ class ProductionLogger {
   }
 
   /**
-   * Log chart interactions
+   * Log chart interactions (only in dev)
    */
   chart(action: string, details?: any) {
-    if (!this.enabled) return;
+    if (!this.enabled || !this.isDev) return;
     console.log(
       `%c[CHART] ${action}`,
       'color: #8b5cf6',
@@ -81,6 +86,15 @@ class ProductionLogger {
       `%c[POSITION] ${action} ${symbol}${pnlText}`,
       `color: ${color}; font-weight: bold`
     );
+  }
+
+  /**
+   * Development-only logging
+   */
+  dev(...args: any[]) {
+    if (this.isDev) {
+      console.log(...args);
+    }
   }
 
   /**
