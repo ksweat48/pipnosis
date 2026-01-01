@@ -19,7 +19,6 @@ import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
 import { multiSymbolScanner } from './multi-symbol-scanner';
 import { multiSymbolSnapshotBuilder, type SymbolSnapshot } from './multi-symbol-snapshot-builder';
 import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orchestrator';
-import { contextAwareCouncilManager } from './context-aware-council-manager';
 import { bestSymbolSelector } from './best-symbol-selector';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
@@ -684,17 +683,11 @@ class GoalSessionLiveEngine {
       }
       const orchestratorStartTime = Date.now();
 
-      // Validate required parameters
-      if (!this.config.goalSessionId) {
-        throw new Error('[Goal Session Live Engine] Goal session ID is required for council evaluation');
-      }
-
-      // Use Context-Aware Council Manager (Alpha Scout + Full Council)
-      const councilResultPromise = contextAwareCouncilManager.evaluateSymbols(
-        this.config.userId,
-        this.config.goalSessionId,
+      // Run Full Omega Council (Alpha Scout system removed for simplicity)
+      const councilPromise = alphaOmegaOrchestrator.evaluateMultipleSymbols(
         marketStates,
         traderScore,
+        this.config.userId,
         goalContext
       );
 
@@ -702,12 +695,11 @@ class GoalSessionLiveEngine {
         setTimeout(() => reject(new Error('Council timeout after 60s')), 60000);
       });
 
-      const councilResult = await Promise.race([councilResultPromise, timeoutPromise]);
-      const omegaDecisions = councilResult.decisions;
+      const omegaDecisions = await Promise.race([councilPromise, timeoutPromise]);
 
       const orchestratorDuration = Date.now() - orchestratorStartTime;
       if (import.meta.env.DEV) {
-        console.log(`[MULTI-SYMBOL] Council: ${councilResult.mode} mode, ${omegaDecisions.size} decisions in ${orchestratorDuration}ms`);
+        console.log(`[MULTI-SYMBOL] Full Council: ${omegaDecisions.size} decisions in ${orchestratorDuration}ms`);
       }
 
       const bestSymbolResult = bestSymbolSelector.selectBestSymbol(
