@@ -10,9 +10,11 @@
 # - Function timeouts must accommodate cold starts (min 26 seconds for scheduled)
 #
 # PROTECTED FUNCTIONS:
-# - continuous-price-collector: Collects live prices every minute
-# - continuous-candle-aggregator: Aggregates candles every 5 minutes
-# - fill-candle-gaps: Fills missing data every 5 minutes
+# - hybrid-price-collector: Collects live prices every minute
+# - continuous-candle-aggregator: Aggregates candles every 2 minutes
+# - automatic-gap-filler: Fills missing data every 3 minutes
+# - autonomous-goal-monitor: Monitors active goal sessions every minute
+# - emergency-position-recovery: Safety net for stuck positions every minute
 #
 # See: docs/CRITICAL_SYSTEMS.md for details
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -32,17 +34,8 @@
 [functions."get-live-price"]
   timeout = 10
 
-[functions."finnhub-import"]
-  timeout = 120
-
-[functions."twelve-data-import"]
-  timeout = 120
-
-[functions."verify-metaapi-connection"]
-  timeout = 10
-
-[functions."refresh-candles"]
-  timeout = 600
+[functions."openai-chat"]
+  timeout = 26
 
 [functions."scheduled-refresh"]
   timeout = 600
@@ -83,16 +76,6 @@
 [functions."automatic-gap-filler"]
   timeout = 120  # 2 minutes to detect and fill gaps
   schedule = "*/3 * * * *"  # 🚨 Every 3 minutes (offset from aggregator) - prevents overlap
-
-[functions."polling-health"]
-  timeout = 10
-
-[functions."openai-chat"]
-  timeout = 26
-
-# 📊 BOOTSTRAP FUNCTION: One-time data population using Twelve Data API
-[functions."twelve-data-bootstrap"]
-  timeout = 120
 
 # 📊 COMPREHENSIVE BACKFILL: Backfill all timeframes for new currency pairs
 [functions."backfill-all-timeframes-new-pairs"]
