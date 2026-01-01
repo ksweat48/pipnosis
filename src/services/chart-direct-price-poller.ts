@@ -30,6 +30,8 @@ import { priceValidationService } from './price-validation-service';
 import { isSymbolMarketOpen, hasAnyOpenMarket } from '@/utils/marketHours';
 import { shouldDisableMetaAPI } from '@/lib/environment';
 import { circuitBreakerService } from './circuit-breaker-service';
+import { webSocketPriceManager, WebSocketTickData } from './websocket-price-manager';
+import { isWebSocketEnabled } from '@/config/websocket-config';
 
 // CRITICAL: Optimized polling intervals for market characteristics
 const CRYPTO_POLL_INTERVAL = 1000;  // 1000ms (1 second) - faster for 24/7 markets
@@ -61,10 +63,11 @@ type StatusUpdateCallback = (status: PollerStatus) => void;
 
 interface PollerStatus {
   isActive: boolean;
-  source: 'metaapi' | 'database' | 'offline';
+  source: 'metaapi' | 'database' | 'offline' | 'websocket';
   lastUpdate: Date | null;
   updateCount: number;
   errorCount: number;
+  webSocketActive: boolean;
 }
 
 class ChartDirectPricePoller {
@@ -78,8 +81,11 @@ class ChartDirectPricePoller {
     source: 'offline',
     lastUpdate: null,
     updateCount: 0,
-    errorCount: 0
+    errorCount: 0,
+    webSocketActive: false
   };
+
+  private webSocketUnsubscribers: Map<string, () => void> = new Map();
 
   private options: PollerOptions = {
     interval: FOREX_POLL_INTERVAL, // Default to forex interval, will adjust dynamically
@@ -118,27 +124,63 @@ class ChartDirectPricePoller {
 
   addSymbol(symbol: string): void {
     this.trackedSymbols.add(symbol);
-    // Initialize listener set for this symbol if it doesn't exist
     if (!this.priceListeners.has(symbol)) {
       this.priceListeners.set(symbol, new Set());
     }
 
-    // Recalculate polling interval when symbols change
     this.updatePollingInterval();
+    this.subscribeToWebSocket(symbol);
 
-    logger.debug(LogCategory.CHART, `📊 Tracking ${symbol} (${this.trackedSymbols.size} total)`);
+    logger.debug(LogCategory.CHART, `Tracking ${symbol} (${this.trackedSymbols.size} total)`);
+  }
+
+  private subscribeToWebSocket(symbol: string): void {
+    if (!isWebSocketEnabled()) return;
+    if (this.webSocketUnsubscribers.has(symbol)) return;
+
+    const unsubscribe = webSocketPriceManager.onTick(symbol, (tick: WebSocketTickData) => {
+      const livePrice: LivePrice = {
+        symbol: tick.symbol,
+        bid: tick.bid,
+        ask: tick.ask,
+        timestamp: tick.timestamp.toISOString(),
+        midPrice: tick.mid,
+        source: tick.source
+      };
+
+      const bidValid = priceValidationService.validatePrice(symbol, tick.bid);
+      const askValid = priceValidationService.validatePrice(symbol, tick.ask);
+
+      if (!bidValid.isValid || !askValid.isValid) {
+        logger.error(LogCategory.CHART, `[WebSocket] Rejected invalid price for ${symbol}`);
+        return;
+      }
+
+      this.status.webSocketActive = true;
+      this.processPrices([livePrice]);
+    });
+
+    this.webSocketUnsubscribers.set(symbol, unsubscribe);
+    logger.debug(LogCategory.CHART, `[${symbol}] Subscribed to WebSocket updates`);
+  }
+
+  private unsubscribeFromWebSocket(symbol: string): void {
+    const unsubscribe = this.webSocketUnsubscribers.get(symbol);
+    if (unsubscribe) {
+      unsubscribe();
+      this.webSocketUnsubscribers.delete(symbol);
+      logger.debug(LogCategory.CHART, `[${symbol}] Unsubscribed from WebSocket updates`);
+    }
   }
 
   removeSymbol(symbol: string): void {
     this.trackedSymbols.delete(symbol);
     this.lastPriceCache.delete(symbol);
-    // Clean up listeners for this symbol
     this.priceListeners.delete(symbol);
-
-    // Recalculate polling interval when symbols change
+    this.unsubscribeFromWebSocket(symbol);
     this.updatePollingInterval();
 
-    logger.debug(LogCategory.CHART, `📊 Stopped tracking ${symbol} (${this.trackedSymbols.size} remaining)`);
+    logger.debug(LogCategory.CHART, `Stopped tracking ${symbol} (${this.trackedSymbols.size} remaining)`);
   }
 
   // CRITICAL FIX: Accept symbol parameter to register listener for specific symbol only
@@ -208,17 +250,21 @@ class ChartDirectPricePoller {
       return;
     }
 
-    logger.info(LogCategory.CHART, `🚀 Starting direct price polling - 3s (unified for all markets)`);
+    logger.info(LogCategory.CHART, 'Starting direct price polling');
 
     this.status.isActive = true;
     this.status.errorCount = 0;
     this.options.enabled = true;
+
+    if (isWebSocketEnabled()) {
+      webSocketPriceManager.start();
+      for (const symbol of this.trackedSymbols) {
+        this.subscribeToWebSocket(symbol);
+      }
+    }
+
     this.notifyStatusUpdate();
-
-    // Immediate first poll
     await this.poll();
-
-    // Start interval with current interval setting
     this.pollInterval = setInterval(() => this.poll(), this.currentInterval);
   }
 
@@ -227,25 +273,39 @@ class ChartDirectPricePoller {
       return;
     }
 
-    logger.info(LogCategory.CHART, '⏸️ Pausing price polling');
+    logger.info(LogCategory.CHART, 'Pausing price polling');
 
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
       this.pollInterval = null;
     }
 
+    if (isWebSocketEnabled()) {
+      webSocketPriceManager.pause();
+    }
+
     this.status.isActive = false;
+    this.status.webSocketActive = false;
     this.notifyStatusUpdate();
   }
 
   stop(): void {
-    logger.info(LogCategory.CHART, '⏹️ Stopping price polling');
+    logger.info(LogCategory.CHART, 'Stopping price polling');
 
     this.pause();
     this.options.enabled = false;
     this.trackedSymbols.clear();
     this.lastPriceCache.clear();
     this.status.source = 'offline';
+
+    for (const symbol of this.webSocketUnsubscribers.keys()) {
+      this.unsubscribeFromWebSocket(symbol);
+    }
+
+    if (isWebSocketEnabled()) {
+      webSocketPriceManager.stop();
+    }
+
     this.notifyStatusUpdate();
   }
 

@@ -40,6 +40,7 @@ import {
 import { UserManagementPanel } from '@/components/admin/UserManagementPanel';
 import { UserFeedbackPanel } from '@/components/admin/UserFeedbackPanel';
 import { PushNotificationTester } from '@/components/admin/PushNotificationTester';
+import { WebSocketStatusPanel } from '@/components/admin/WebSocketStatusPanel';
 import { userFeedbackService } from '@/services/user-feedback-service';
 
 type AdminTab = 'overview' | 'data' | 'cache' | 'api-usage' | 'settings' | 'users' | 'feedback' | 'push-notifications';
@@ -645,8 +646,9 @@ export function AdminDashboard() {
 
         {activeTab === 'data' && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <ServerSidePollingMonitor />
+              <WebSocketStatusPanel />
             </div>
             <div className="grid grid-cols-1 gap-6">
               <CandleAggregatorStatus />
