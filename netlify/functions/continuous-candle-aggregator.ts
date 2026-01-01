@@ -779,6 +779,36 @@ export const handler: Handler = async (event, context) => {
   const startTime = Date.now();
 
   try {
+    // SMART SCHEDULING: Check market hours and filter symbols accordingly
+    const now = new Date();
+    const isForexMarketOpen = isMarketOpenAtTime(now);
+
+    // Filter symbols based on market hours
+    let symbolsToProcess = ACTIVE_SYMBOLS;
+    if (!isForexMarketOpen) {
+      // Forex market closed - only process crypto symbols
+      symbolsToProcess = CRYPTO_SYMBOLS;
+      console.log(`[CandleAggregator] 🌙 Forex market closed - processing only crypto: ${symbolsToProcess.join(', ')}`);
+    } else {
+      console.log(`[CandleAggregator] 🌅 Forex market open - processing all symbols`);
+    }
+
+    // Early exit if no symbols to process
+    if (symbolsToProcess.length === 0) {
+      console.log('[CandleAggregator] ℹ️ No symbols to process at this time');
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          success: true,
+          candlesCreated: 0,
+          symbolsProcessed: 0,
+          message: 'No symbols to process - market closed',
+          timestamp: new Date().toISOString()
+        })
+      };
+    }
+
     // OPTIMIZATION: Determine which timeframes to process this run
     const timeframesToProcess = getTimeframesToProcess();
 
@@ -789,10 +819,10 @@ export const handler: Handler = async (event, context) => {
     let symbolsTimedOut = 0;
     const symbolResults: Record<string, { candles: number; timedOut: boolean; error?: string }> = {};
 
-    console.log(`[CandleAggregator] Starting loop for ${ACTIVE_SYMBOLS.length} symbols: ${ACTIVE_SYMBOLS.join(', ')}`);
+    console.log(`[CandleAggregator] Starting loop for ${symbolsToProcess.length} symbols: ${symbolsToProcess.join(', ')}`);
 
-    for (const symbol of ACTIVE_SYMBOLS) {
-      console.log(`[CandleAggregator] ▶️ Processing symbol ${symbolsProcessed + 1}/${ACTIVE_SYMBOLS.length}: ${symbol}`);
+    for (const symbol of symbolsToProcess) {
+      console.log(`[CandleAggregator] ▶️ Processing symbol ${symbolsProcessed + 1}/${symbolsToProcess.length}: ${symbol}`);
 
       // Check if we're approaching global function timeout (9 symbols * 12s = 108s max)
       const elapsedMs = Date.now() - startTime;
@@ -827,11 +857,11 @@ export const handler: Handler = async (event, context) => {
       }
     }
 
-    console.log(`[CandleAggregator] Loop completed. Processed ${symbolsProcessed}/${ACTIVE_SYMBOLS.length} symbols`);
+    console.log(`[CandleAggregator] Loop completed. Processed ${symbolsProcessed}/${symbolsToProcess.length} symbols`);
 
     const duration = Date.now() - startTime;
     console.log(`[CandleAggregator] ✅ Completed in ${duration}ms: ${totalCandlesCreated} candles created`);
-    console.log(`[CandleAggregator] Symbols: ${symbolsProcessed}/${ACTIVE_SYMBOLS.length} processed, ${symbolsTimedOut} timed out`);
+    console.log(`[CandleAggregator] Symbols: ${symbolsProcessed}/${symbolsToProcess.length} processed, ${symbolsTimedOut} timed out`);
 
     return {
       statusCode: 200,
@@ -841,7 +871,8 @@ export const handler: Handler = async (event, context) => {
         candlesCreated: totalCandlesCreated,
         symbolsProcessed,
         symbolsTimedOut,
-        totalSymbols: ACTIVE_SYMBOLS.length,
+        totalSymbols: symbolsToProcess.length,
+        isForexMarketOpen,
         timeframesProcessed: timeframesToProcess,
         durationMs: duration,
         symbolResults,

@@ -23,9 +23,19 @@ import { adminUserService } from './admin-user-service';
  * - Debouncing: Batch multiple changes within 1 second window
  */
 
+interface PaginationState {
+  currentPage: number;
+  pageSize: number;
+  totalUsers: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
 interface AdminDashboardData {
   users: any[];
   platformKPIs: any | null;
+  pagination: PaginationState;
   lastUpdate: Date;
   connectionStatus: 'connected' | 'disconnected' | 'reconnecting';
   refreshCount: number;
@@ -42,9 +52,21 @@ class AdminDataCoordinator {
   private throttleTimeout: NodeJS.Timeout | null = null;
   private debounceTimeout: NodeJS.Timeout | null = null;
 
+  private currentPage: number = 1;
+  private pageSize: number = 20;
+  private searchTerm: string = '';
+
   private data: AdminDashboardData = {
     users: [],
     platformKPIs: null,
+    pagination: {
+      currentPage: 1,
+      pageSize: 20,
+      totalUsers: 0,
+      totalPages: 0,
+      hasNextPage: false,
+      hasPreviousPage: false,
+    },
     lastUpdate: new Date(),
     connectionStatus: 'disconnected',
     refreshCount: 0,
@@ -159,6 +181,60 @@ class AdminDataCoordinator {
   isDataStale(): boolean {
     const age = Date.now() - this.data.lastUpdate.getTime();
     return age > this.STALE_THRESHOLD_MS;
+  }
+
+  /**
+   * Set current page and refresh
+   */
+  async setPage(page: number): Promise<void> {
+    if (page < 1 || (this.data.pagination.totalPages > 0 && page > this.data.pagination.totalPages)) {
+      console.warn('[AdminCoordinator] Invalid page number:', page);
+      return;
+    }
+
+    this.currentPage = page;
+    await this.refreshData();
+  }
+
+  /**
+   * Set page size and refresh (resets to page 1)
+   */
+  async setPageSize(pageSize: number): Promise<void> {
+    if (pageSize < 1 || pageSize > 100) {
+      console.warn('[AdminCoordinator] Invalid page size:', pageSize);
+      return;
+    }
+
+    this.pageSize = pageSize;
+    this.currentPage = 1; // Reset to first page when changing page size
+    await this.refreshData();
+  }
+
+  /**
+   * Set search term and refresh (resets to page 1)
+   */
+  async setSearchTerm(searchTerm: string): Promise<void> {
+    this.searchTerm = searchTerm;
+    this.currentPage = 1; // Reset to first page when searching
+    await this.refreshData();
+  }
+
+  /**
+   * Go to next page
+   */
+  async nextPage(): Promise<void> {
+    if (this.data.pagination.hasNextPage) {
+      await this.setPage(this.currentPage + 1);
+    }
+  }
+
+  /**
+   * Go to previous page
+   */
+  async previousPage(): Promise<void> {
+    if (this.data.pagination.hasPreviousPage) {
+      await this.setPage(this.currentPage - 1);
+    }
   }
 
   /**
@@ -369,17 +445,26 @@ class AdminDataCoordinator {
     this.lastRefreshTime = Date.now();
 
     try {
-      console.log('[AdminCoordinator] Refreshing admin data...');
+      console.log('[AdminCoordinator] Refreshing admin data...', {
+        page: this.currentPage,
+        pageSize: this.pageSize,
+        searchTerm: this.searchTerm,
+      });
 
-      // Fetch both users and KPIs in parallel
+      // Fetch both paginated users and KPIs in parallel
       const [usersResult, kpisResult] = await Promise.allSettled([
-        adminUserService.getAllUsers(undefined, 100),
+        adminUserService.getAllUsersPaginated(
+          this.currentPage,
+          this.pageSize,
+          this.searchTerm || undefined
+        ),
         adminUserService.getPlatformKPIs(),
       ]);
 
       // Update data
       if (usersResult.status === 'fulfilled') {
-        this.data.users = usersResult.value;
+        this.data.users = usersResult.value.users;
+        this.data.pagination = usersResult.value.pagination;
       } else {
         console.error('[AdminCoordinator] Error fetching users:', usersResult.reason);
       }
@@ -398,6 +483,9 @@ class AdminDataCoordinator {
 
       console.log('[AdminCoordinator] Data refreshed successfully', {
         usersCount: this.data.users.length,
+        currentPage: this.data.pagination.currentPage,
+        totalPages: this.data.pagination.totalPages,
+        totalUsers: this.data.pagination.totalUsers,
         refreshCount: this.data.refreshCount,
       });
     } catch (error) {

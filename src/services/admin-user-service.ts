@@ -124,6 +124,20 @@ export interface PlatformKPIs {
   overall_win_rate: number;
 }
 
+export interface PaginationMetadata {
+  currentPage: number;
+  pageSize: number;
+  totalUsers: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+export interface PaginatedUsersResult {
+  users: AdminUser[];
+  pagination: PaginationMetadata;
+}
+
 export const adminUserService = {
   async getAllUsers(searchEmail?: string, limit: number = 100): Promise<AdminUser[]> {
     const { data, error } = await supabase.rpc('admin_get_all_users', {
@@ -137,6 +151,58 @@ export const adminUserService = {
     }
 
     return data || [];
+  },
+
+  async getAllUsersPaginated(
+    page: number = 1,
+    pageSize: number = 20,
+    searchEmail?: string
+  ): Promise<PaginatedUsersResult> {
+    // Calculate offset
+    const offset = (page - 1) * pageSize;
+
+    // First, get total count (with search filter if applicable)
+    let countQuery = supabase
+      .from('user_profiles')
+      .select('id', { count: 'exact', head: true });
+
+    if (searchEmail) {
+      countQuery = countQuery.ilike('email', `%${searchEmail}%`);
+    }
+
+    const { count: totalUsers, error: countError } = await countQuery;
+
+    if (countError) {
+      console.error('Error counting users:', countError);
+      throw new Error(countError.message);
+    }
+
+    const totalCount = totalUsers || 0;
+    const totalPages = Math.ceil(totalCount / pageSize);
+
+    // Then get paginated data using existing RPC function
+    const { data, error } = await supabase.rpc('admin_get_all_users_paginated', {
+      search_email: searchEmail || null,
+      page_size: pageSize,
+      page_offset: offset,
+    });
+
+    if (error) {
+      console.error('Error fetching paginated users:', error);
+      throw new Error(error.message);
+    }
+
+    return {
+      users: data || [],
+      pagination: {
+        currentPage: page,
+        pageSize,
+        totalUsers: totalCount,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    };
   },
 
   async getUserDetails(userId: string): Promise<UserDetails> {

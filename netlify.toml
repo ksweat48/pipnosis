@@ -60,11 +60,12 @@
   timeout = 26
   schedule = "* * * * *"
 
-# 🚨 CRITICAL: Candle aggregation (runs every 5 minutes)
+# 🚨 CRITICAL: Candle aggregation (runs every 2 minutes)
 # BREAKTHROUGH: Now includes ATR-based wick reconstruction for better chart quality
+# SMART SCHEDULING: Matches 2x faster frontend polling, includes market-hours detection
 [functions."continuous-candle-aggregator"]
   timeout = 120  # Increased to 120s to handle aggregation for all timeframes
-  schedule = "*/5 * * * *"  # 🚨 5-field format ONLY - DO NOT add seconds field
+  schedule = "*/2 * * * *"  # 🚨 Every 2 minutes (was 5) - matches doubled polling speed
 
 # 🤖 AUTONOMOUS: Goal session autonomous monitor (runs every minute)
 [functions."autonomous-goal-monitor"]
@@ -77,10 +78,11 @@
   timeout = 30
   schedule = "* * * * *"  # 🚨 5-field format ONLY - final safety net for stuck positions
 
-# 🔧 AUTOMATIC GAP FILLER: Detects and fills gaps every 5 minutes
+# 🔧 AUTOMATIC GAP FILLER: Detects and fills gaps every 3 minutes
+# SMART SCHEDULING: Offset by 1 minute from aggregator to prevent overlap
 [functions."automatic-gap-filler"]
   timeout = 120  # 2 minutes to detect and fill gaps
-  schedule = "*/5 * * * *"  # 🚨 5-field format ONLY - runs every 5 minutes
+  schedule = "*/3 * * * *"  # 🚨 Every 3 minutes (offset from aggregator) - prevents overlap
 
 [functions."polling-health"]
   timeout = 10

@@ -6,8 +6,14 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-const ACTIVE_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100', 'SPX500', 'BTCUSD', 'ETHUSD'];
+const FOREX_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100', 'SPX500'];
+const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'];
+const ACTIVE_SYMBOLS = [...FOREX_SYMBOLS, ...CRYPTO_SYMBOLS];
 const TIMEFRAMES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
+
+function isCryptoSymbol(symbol: string): boolean {
+  return CRYPTO_SYMBOLS.includes(symbol.toUpperCase());
+}
 
 // CRITICAL: All timeframes now look back only 24 hours (fillable window)
 const FILLABLE_HOURS = 24;
@@ -378,6 +384,35 @@ export const handler: Handler = async (event, context) => {
   console.log(`[AutoGapFiller] Data sources: realtime_prices (24h) + forex_candles`);
   const startTime = Date.now();
 
+  // SMART SCHEDULING: Check market hours and filter symbols accordingly
+  const now = new Date();
+  const isForexMarketOpen = isMarketOpenAt(now);
+
+  // Filter symbols based on market hours
+  let symbolsToProcess = ACTIVE_SYMBOLS;
+  if (!isForexMarketOpen) {
+    // Forex market closed - only process crypto symbols
+    symbolsToProcess = CRYPTO_SYMBOLS;
+    console.log(`[AutoGapFiller] 🌙 Forex market closed - processing only crypto: ${symbolsToProcess.join(', ')}`);
+  } else {
+    console.log(`[AutoGapFiller] 🌅 Forex market open - processing all symbols`);
+  }
+
+  // Early exit if no symbols to process
+  if (symbolsToProcess.length === 0) {
+    console.log('[AutoGapFiller] ℹ️ No symbols to process at this time');
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        success: true,
+        totalCandlesFilled: 0,
+        message: 'No symbols to process - market closed',
+        timestamp: new Date().toISOString()
+      })
+    };
+  }
+
   const stats: GapFillStats = {
     totalGapsDetected: 0,
     gapsSkippedTooOld: 0,
@@ -396,7 +431,15 @@ export const handler: Handler = async (event, context) => {
     // Prioritize M1 and M5 since they're most critical and most likely to have gaps
     const prioritizedTimeframes = ['M1', 'M5', ...TIMEFRAMES.filter(t => t !== 'M1' && t !== 'M5')];
 
-    for (const symbol of ACTIVE_SYMBOLS) {
+    // EXECUTION GUARD: Track start time and add 90-second limit
+    const executionDeadline = startTime + 90000; // 90 seconds max execution
+
+    for (const symbol of symbolsToProcess) {
+      // Check if approaching execution deadline
+      if (Date.now() > executionDeadline) {
+        console.log(`[AutoGapFiller] ⚠️ Approaching execution deadline, stopping before ${symbol}`);
+        break;
+      }
       for (const timeframe of prioritizedTimeframes) {
         const key = `${symbol}_${timeframe}`;
 
@@ -437,6 +480,8 @@ export const handler: Handler = async (event, context) => {
         success: true,
         stats,
         totalCandlesFilled,
+        symbolsProcessed: symbolsToProcess.length,
+        isForexMarketOpen,
         durationMs: duration,
         results,
         timestamp: new Date().toISOString()

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, MoreVertical, User, DollarSign, RefreshCw, Eye, Copy, Clock, AlertTriangle, Users as UsersIcon, Activity, TrendingUp, Target } from 'lucide-react';
+import { Search, MoreVertical, User, DollarSign, RefreshCw, Eye, Copy, Clock, AlertTriangle, Users as UsersIcon, Activity, TrendingUp, Target, ChevronLeft, ChevronRight } from 'lucide-react';
 import { adminUserService } from '../../services/admin-user-service';
 import { useAdminDashboard } from '../../hooks/useAdminDashboard';
 import { useToast } from '../../hooks/useToast';
@@ -9,27 +9,53 @@ import { ResetSessionDialog } from './ResetSessionDialog';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 
 export const UserManagementPanel: React.FC = () => {
-  const { users: allUsers, platformKPIs, loading, refreshing, error, refresh, isStale, lastUpdate } = useAdminDashboard();
-  const [searchTerm, setSearchTerm] = useState('');
+  const {
+    users,
+    platformKPIs,
+    pagination,
+    loading,
+    refreshing,
+    error,
+    refresh,
+    isStale,
+    lastUpdate,
+    setPage,
+    setPageSize,
+    setSearchTerm: updateSearchTerm,
+    nextPage,
+    previousPage,
+  } = useAdminDashboard();
+  const [localSearchTerm, setLocalSearchTerm] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showCreditsDialog, setShowCreditsDialog] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [forceClosing, setForceClosing] = useState(false);
+  const [searchDebounce, setSearchDebounce] = useState<NodeJS.Timeout | null>(null);
   const { showToast } = useToast();
   const { showConfirm } = useConfirmDialog();
 
-  // Filter users by search term
-  const users = useMemo(() => {
-    if (!searchTerm) return allUsers;
-    const term = searchTerm.toLowerCase();
-    return allUsers.filter(user => user.email.toLowerCase().includes(term));
-  }, [allUsers, searchTerm]);
+  // Handle search with debouncing (500ms delay)
+  const handleSearchChange = (value: string) => {
+    setLocalSearchTerm(value);
+
+    // Clear existing timeout
+    if (searchDebounce) {
+      clearTimeout(searchDebounce);
+    }
+
+    // Set new timeout
+    const timeout = setTimeout(() => {
+      updateSearchTerm(value);
+    }, 500);
+
+    setSearchDebounce(timeout);
+  };
 
   // Count stuck sessions
   const stuckSessionsCount = useMemo(() => {
-    return allUsers.reduce((count, user) => {
+    return users.reduce((count, user) => {
       if (user.scanning_duration_minutes && user.scanning_duration_minutes > 20) {
         return count + user.scanning_sessions;
       }
@@ -260,10 +286,15 @@ export const UserManagementPanel: React.FC = () => {
         <input
           type="text"
           placeholder="Search by email..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
+          value={localSearchTerm}
+          onChange={(e) => handleSearchChange(e.target.value)}
           className="w-full pl-10 pr-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-amber-500"
         />
+        {localSearchTerm && (
+          <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-xs text-gray-500">
+            Searching...
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -284,12 +315,13 @@ export const UserManagementPanel: React.FC = () => {
         </div>
       ) : users.length === 0 ? (
         <div className="text-center py-12 text-gray-400">
-          {searchTerm ? 'No users match your search' : 'No users found'}
+          {localSearchTerm ? 'No users match your search' : 'No users found'}
         </div>
       ) : (
-        <div className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
+        <>
+          <div className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
               <thead className="bg-gray-900 border-b border-gray-700">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
@@ -521,6 +553,113 @@ export const UserManagementPanel: React.FC = () => {
             </table>
           </div>
         </div>
+
+        {/* Pagination Controls */}
+        <div className="flex items-center justify-between px-4 py-3 bg-gray-800 border border-t-0 border-gray-700 rounded-b-lg">
+          <div className="flex items-center gap-4">
+            <div className="text-sm text-gray-400">
+              Showing <span className="font-semibold text-white">{pagination.totalUsers === 0 ? 0 : (pagination.currentPage - 1) * pagination.pageSize + 1}</span> to{' '}
+              <span className="font-semibold text-white">{Math.min(pagination.currentPage * pagination.pageSize, pagination.totalUsers)}</span> of{' '}
+              <span className="font-semibold text-white">{pagination.totalUsers}</span> users
+            </div>
+            <div className="flex items-center gap-2">
+              <label htmlFor="pageSize" className="text-sm text-gray-400">
+                Per page:
+              </label>
+              <select
+                id="pageSize"
+                value={pagination.pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-sm focus:outline-none focus:border-amber-500"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={previousPage}
+              disabled={!pagination.hasPreviousPage || refreshing}
+              className="px-3 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:cursor-not-allowed text-white rounded transition-colors flex items-center gap-1 text-sm"
+            >
+              <ChevronLeft size={16} />
+              Previous
+            </button>
+
+            <div className="flex items-center gap-1">
+              {pagination.totalPages > 0 && (
+                <>
+                  {pagination.currentPage > 2 && (
+                    <>
+                      <button
+                        onClick={() => setPage(1)}
+                        className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors text-sm"
+                      >
+                        1
+                      </button>
+                      {pagination.currentPage > 3 && (
+                        <span className="px-2 text-gray-500">...</span>
+                      )}
+                    </>
+                  )}
+
+                  {pagination.currentPage > 1 && (
+                    <button
+                      onClick={() => setPage(pagination.currentPage - 1)}
+                      className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors text-sm"
+                    >
+                      {pagination.currentPage - 1}
+                    </button>
+                  )}
+
+                  <button
+                    className="px-3 py-1 bg-amber-600 text-white rounded font-semibold text-sm"
+                    disabled
+                  >
+                    {pagination.currentPage}
+                  </button>
+
+                  {pagination.currentPage < pagination.totalPages && (
+                    <button
+                      onClick={() => setPage(pagination.currentPage + 1)}
+                      className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors text-sm"
+                    >
+                      {pagination.currentPage + 1}
+                    </button>
+                  )}
+
+                  {pagination.currentPage < pagination.totalPages - 1 && (
+                    <>
+                      {pagination.currentPage < pagination.totalPages - 2 && (
+                        <span className="px-2 text-gray-500">...</span>
+                      )}
+                      <button
+                        onClick={() => setPage(pagination.totalPages)}
+                        className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors text-sm"
+                      >
+                        {pagination.totalPages}
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+
+            <button
+              onClick={nextPage}
+              disabled={!pagination.hasNextPage || refreshing}
+              className="px-3 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:cursor-not-allowed text-white rounded transition-colors flex items-center gap-1 text-sm"
+            >
+              Next
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      </>
       )}
 
       {showDetailsModal && selectedUserId && (
