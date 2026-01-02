@@ -225,12 +225,12 @@ class TradeLifecycleManager {
       if (trade.goal_session_id) {
         const { data: goalSession } = await supabase
           .from('goal_sessions')
-          .select('target_value, starting_balance, goal_achieved_at, user_id, auto_execute, auto_close_on_goal, cumulative_profit')
+          .select('target_value, starting_balance, goal_achieved_at, user_id, auto_execute, auto_close_on_goal, current_progress')
           .eq('id', trade.goal_session_id)
           .maybeSingle();
 
         if (goalSession && !goalSession.goal_achieved_at) {
-          const cumulativeProfit = goalSession.cumulative_profit || await this.getCumulativeProfit(trade.goal_session_id);
+          const cumulativeProfit = goalSession.current_progress || await this.getCumulativeProfit(trade.goal_session_id);
           const totalProgress = cumulativeProfit + unrealizedPnL;
 
           if (totalProgress >= goalSession.target_value) {

@@ -24,7 +24,18 @@ export interface GoalSession {
   risk_mode: string;
   status: string;
   starting_balance: number;
+  /**
+   * SINGLE SOURCE OF TRUTH: Realized profit in dollars.
+   * This is the authoritative field for tracking profit progress.
+   * Always use this field for profit calculations and queries.
+   * @see progress_percentage - derived from this value
+   */
   current_progress: number;
+  /**
+   * Derived percentage calculated as (current_progress / target_value * 100).
+   * This is NOT a source of truth - it's calculated from current_progress.
+   * Do not update this directly; update current_progress instead.
+   */
   progress_percentage: number;
   scan_interval_minutes: number;
   auto_execute: boolean;

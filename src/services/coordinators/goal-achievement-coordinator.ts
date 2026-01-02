@@ -226,7 +226,7 @@ class GoalAchievementCoordinator {
   async getSessionProgress(sessionId: string): Promise<GoalCheckResult | null> {
     const { data: session, error } = await supabase
       .from('goal_sessions')
-      .select('id, user_id, goal_amount, cumulative_profit')
+      .select('id, user_id, goal_amount, current_progress')
       .eq('id', sessionId)
       .maybeSingle();
 
@@ -236,7 +236,7 @@ class GoalAchievementCoordinator {
       ? (session.goal_amount as Record<string, number>).amount
       : session.goal_amount;
 
-    const progress = session.cumulative_profit || 0;
+    const progress = session.current_progress || 0;
     const progressPercent = (progress / goalAmount) * 100;
 
     return {

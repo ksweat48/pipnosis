@@ -473,7 +473,7 @@ class PositionMonitorService {
     if (position.goal_session_id) {
       const { data: goalSession } = await supabase
         .from('goal_sessions')
-        .select('target_value, auto_close_on_goal, goal_achieved_at, cumulative_profit')
+        .select('target_value, auto_close_on_goal, goal_achieved_at, current_progress')
         .eq('id', position.goal_session_id)
         .maybeSingle();
 
@@ -490,7 +490,7 @@ class PositionMonitorService {
             sessionId: position.goal_session_id,
             userId: user.id,
             targetAmount: goalSession.target_value,
-            currentCumulativePnL: goalSession.cumulative_profit || 0,
+            currentCumulativePnL: goalSession.current_progress || 0,
           },
           pnl // Pass current unrealized P&L
         );

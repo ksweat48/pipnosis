@@ -309,7 +309,7 @@ class TradeClosureCoordinator {
   private async checkGoalAfterClose(userId: string, sessionId: string) {
     const { data: session } = await supabase
       .from('goal_sessions')
-      .select('goal_amount, target_value, cumulative_profit, status')
+      .select('goal_amount, target_value, current_progress, status')
       .eq('id', sessionId)
       .maybeSingle();
 
@@ -324,7 +324,7 @@ class TradeClosureCoordinator {
       sessionId,
       userId,
       targetAmount: goalAmount,
-      currentCumulativePnL: session.cumulative_profit || 0,
+      currentCumulativePnL: session.current_progress || 0,
     });
   }
 
