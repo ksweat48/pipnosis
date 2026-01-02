@@ -72,6 +72,54 @@ interface CurrentCandle {
   startTime: number;
 }
 
+// Helper function to format prices based on symbol type and screen size
+function formatPrice(price: number, symbol: string, isMobile: boolean = false): string {
+  const isCrypto = ['BTCUSD', 'ETHUSD'].includes(symbol);
+  const isGold = symbol === 'XAUUSD';
+
+  if (isMobile) {
+    // Mobile: Use compact formatting
+    if (isCrypto) {
+      // BTC/ETH: Show 2 decimals with K suffix if over 1000
+      if (price >= 10000) {
+        return `${(price / 1000).toFixed(2)}K`;
+      }
+      return price.toFixed(2);
+    } else if (isGold) {
+      // Gold: Show 2 decimals
+      return price.toFixed(2);
+    } else {
+      // Forex: Show 4-5 decimals with comma separators
+      return price.toLocaleString('en-US', {
+        minimumFractionDigits: 4,
+        maximumFractionDigits: 5
+      });
+    }
+  } else {
+    // Desktop: Use full precision
+    if (isCrypto) {
+      return price.toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    } else if (isGold) {
+      return price.toFixed(2);
+    } else {
+      return price.toFixed(5);
+    }
+  }
+}
+
+// Helper to format spread
+function formatSpread(spread: number, symbol: string, isMobile: boolean = false): string {
+  const isCrypto = ['BTCUSD', 'ETHUSD'].includes(symbol);
+
+  if (isMobile && isCrypto && spread >= 10) {
+    return spread.toFixed(1);
+  }
+  return spread.toFixed(isCrypto ? 2 : 5);
+}
+
 export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecuted, onPriceUpdate }: MarketChartProps) {
   // CRITICAL: Validate and track current symbol to reject cross-contaminated updates
   const validationResult = validateSymbol(symbol);
@@ -2035,23 +2083,23 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           {currentPrice && (
             <div className="flex items-center gap-2 sm:gap-4">
               {/* Mobile: Price stacked vertically */}
-              <div className="flex sm:hidden flex-col items-end">
+              <div className="flex sm:hidden flex-col items-end gap-1">
                 {bidPrice && askPrice ? (
                   <>
-                    <div className="flex items-center gap-2 text-xs">
+                    <div className="flex items-center gap-1.5 text-xs">
                       <div className="flex flex-col items-end">
-                        <span className="text-[10px] text-orange-400 font-medium">BID</span>
-                        <span className="text-orange-400 font-bold">{bidPrice.toFixed(5)}</span>
+                        <span className="text-[9px] text-orange-400 font-medium uppercase tracking-wide">Bid</span>
+                        <span className="text-orange-400 font-bold text-sm">{formatPrice(bidPrice, symbol, true)}</span>
                       </div>
-                      <div className="text-gray-500">/</div>
+                      <div className="text-gray-600 text-sm">/</div>
                       <div className="flex flex-col items-start">
-                        <span className="text-[10px] text-cyan-400 font-medium">ASK</span>
-                        <span className="text-cyan-400 font-bold">{askPrice.toFixed(5)}</span>
+                        <span className="text-[9px] text-cyan-400 font-medium uppercase tracking-wide">Ask</span>
+                        <span className="text-cyan-400 font-bold text-sm">{formatPrice(askPrice, symbol, true)}</span>
                       </div>
                     </div>
                     {spread !== null && (
-                      <div className="text-[10px] text-gray-400 mt-0.5">
-                        Spread: {spread.toFixed(5)}
+                      <div className="text-[9px] text-gray-500">
+                        Spread: {formatSpread(spread, symbol, true)}
                       </div>
                     )}
                   </>
@@ -2061,7 +2109,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                       ? (priceChange >= 0 ? 'text-emerald-400 scale-105' : 'text-red-400 scale-105')
                       : 'text-white scale-100'
                   }`}>
-                    {currentPrice.toFixed(5)}
+                    {formatPrice(currentPrice, symbol, true)}
                   </div>
                 )}
                 <div className={`text-xs flex items-center gap-0.5 ${
@@ -2072,7 +2120,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                 </div>
                 {/* Crypto source badge - mobile */}
                 {cryptoDataSource && ['BTCUSD', 'ETHUSD'].includes(symbol) && (
-                  <div className="text-[10px] text-gray-400 mt-0.5">
+                  <div className="text-[9px] text-gray-500 px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20">
                     {cryptoDataSource.replace('-live', '').toUpperCase()}
                   </div>
                 )}
@@ -2087,7 +2135,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                       <span className={`text-xl font-bold text-orange-400 transition-all duration-500 ease-out ${
                         priceUpdateFlash ? 'scale-105' : 'scale-100'
                       }`}>
-                        {bidPrice.toFixed(5)}
+                        {formatPrice(bidPrice, symbol, false)}
                       </span>
                     </div>
                     <div className="text-2xl text-gray-600 font-light">/</div>
@@ -2096,13 +2144,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                       <span className={`text-xl font-bold text-cyan-400 transition-all duration-500 ease-out ${
                         priceUpdateFlash ? 'scale-105' : 'scale-100'
                       }`}>
-                        {askPrice.toFixed(5)}
+                        {formatPrice(askPrice, symbol, false)}
                       </span>
                     </div>
                     {spread !== null && (
                       <div className="ml-2 px-2 py-1 rounded bg-gray-800/50 border border-gray-700">
                         <div className="text-[10px] text-gray-400">SPREAD</div>
-                        <div className="text-sm text-white font-medium">{spread.toFixed(5)}</div>
+                        <div className="text-sm text-white font-medium">{formatSpread(spread, symbol, false)}</div>
                       </div>
                     )}
                   </div>
@@ -2112,7 +2160,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                       ? (priceChange >= 0 ? 'text-emerald-400 scale-105' : 'text-red-400 scale-105')
                       : 'text-white scale-100'
                   }`}>
-                    {currentPrice.toFixed(5)}
+                    {formatPrice(currentPrice, symbol, false)}
                   </div>
                 )}
                 <div className="flex flex-col items-start gap-0.5">
@@ -2203,9 +2251,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         <div className="relative h-full">
           <div ref={chartContainerRef} className="rounded-lg overflow-hidden h-full" />
 
-          {/* BID/ASK Legend - Top Right */}
+          {/* BID/ASK Legend - Top Right - Hidden on mobile to prevent chart blocking */}
           {bidPrice && askPrice && (
-            <div className="absolute top-2 right-2 z-20 pointer-events-none">
+            <div className="hidden sm:block absolute top-2 right-2 z-20 pointer-events-none">
               <div className="bg-gray-900/90 backdrop-blur-sm border border-gray-800/50 rounded px-2 py-1.5 shadow-lg">
                 <div className="text-[10px] text-gray-400 font-medium mb-1">PRICE LINES</div>
                 <div className="space-y-0.5">
