@@ -26,6 +26,8 @@ class PositionMonitorService {
   private maxRetries = 3;
   private lastMidTradeCheck: Map<string, number> = new Map();
   private midTradeCheckInterval = 60000; // Check every 60 seconds per trade
+  private lastStaleWarning: Map<string, number> = new Map(); // Throttle stale price warnings
+  private staleWarningThrottle = 300000; // Only warn every 5 minutes
 
   start() {
     if (this.isRunning) return;
@@ -262,19 +264,25 @@ class PositionMonitorService {
           priceSource = 'realtime_prices';
           console.log(`[PositionMonitor] ${position.symbol}: Using realtime_prices (${ageMinutes.toFixed(1)}m old)`);
         } else {
-          console.warn(`[PositionMonitor] ${position.symbol}: realtime_prices stale (${ageMinutes.toFixed(1)}m old), trying fallback`);
+          // Throttle stale warnings to once every 5 minutes per symbol
+          const now = Date.now();
+          const lastWarning = this.lastStaleWarning.get(position.symbol) || 0;
+          if (now - lastWarning > this.staleWarningThrottle) {
+            console.warn(`[PositionMonitor] ${position.symbol}: realtime_prices stale (${ageMinutes.toFixed(1)}m old), trying fallback`);
+            this.lastStaleWarning.set(position.symbol, now);
+          }
         }
       } else if (realtimeError) {
         console.warn(`[PositionMonitor] ${position.symbol}: realtime_prices error:`, realtimeError);
       }
 
-      // SOURCE 2: forex_candles table (5m close price)
+      // SOURCE 2: forex_candles table (M5 close price)
       if (!currentPrice) {
         const { data: candleData, error: candleError } = await supabase
           .from('forex_candles')
           .select('close, high, low')
           .eq('symbol', position.symbol)
-          .eq('timeframe', '5m')
+          .eq('timeframe', 'M5')
           .order('open_time', { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -288,7 +296,9 @@ class PositionMonitorService {
           bid = currentPrice - spread / 2;
           ask = currentPrice + spread / 2;
           priceSource = 'forex_candles';
-          console.log(`[PositionMonitor] ${position.symbol}: Using forex_candles fallback`);
+          console.log(`[PositionMonitor] ${position.symbol}: Using forex_candles M5 fallback`);
+        } else if (candleError) {
+          console.warn(`[PositionMonitor] ${position.symbol}: forex_candles fallback error:`, candleError.message);
         }
       }
 
@@ -298,7 +308,14 @@ class PositionMonitorService {
         bid = currentPrice;
         ask = currentPrice;
         priceSource = 'position_cache';
-        console.warn(`[PositionMonitor] ${position.symbol}: Using cached price (STALE WARNING)`);
+
+        // Throttle cached price warnings to once every 5 minutes per symbol
+        const now = Date.now();
+        const lastWarning = this.lastStaleWarning.get(`${position.symbol}_cache`) || 0;
+        if (now - lastWarning > this.staleWarningThrottle) {
+          console.warn(`[PositionMonitor] ${position.symbol}: Using cached price (STALE WARNING - all sources exhausted)`);
+          this.lastStaleWarning.set(`${position.symbol}_cache`, now);
+        }
       }
 
       if (!currentPrice || !bid || !ask) {

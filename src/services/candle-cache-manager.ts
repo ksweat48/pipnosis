@@ -286,7 +286,8 @@ class CandleCacheManager {
   }
 
   async invalidateSymbolTimeframe(symbol: string, timeframe: string): Promise<void> {
-    console.log(`[CandleCache] 🗑️ Invalidating cache for ${symbol} ${timeframe}`);
+    // Silenced: This happens frequently during normal operation
+    // console.log(`[CandleCache] 🗑️ Invalidating cache for ${symbol} ${timeframe}`);
     await this.clearCache(symbol, timeframe);
   }
 
@@ -332,9 +333,10 @@ class CandleCacheManager {
         },
         async (payload) => {
           const { symbol, timeframe, candle_time } = payload.new as any;
-          console.log(
-            `[CandleCache] 🔄 Real-time invalidation: ${symbol} ${timeframe} at ${candle_time}`
-          );
+          // Silenced: This happens frequently during normal operation
+          // console.log(
+          //   `[CandleCache] 🔄 Real-time invalidation: ${symbol} ${timeframe} at ${candle_time}`
+          // );
 
           // Invalidate cache immediately
           await this.invalidateSymbolTimeframe(symbol, timeframe);

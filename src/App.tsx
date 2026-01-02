@@ -115,7 +115,10 @@ const AppRoutes: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
-    console.log('[App] Setting up global event listeners for user:', user.id);
+    // Only log in development to reduce console noise
+    if (import.meta.env.DEV) {
+      console.log('[App] Setting up global event listeners for user:', user.id);
+    }
 
     // Check for pending modals on app load
     const checkPendingModals = async () => {
