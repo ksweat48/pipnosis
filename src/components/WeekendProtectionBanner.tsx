@@ -60,25 +60,25 @@ export function WeekendProtectionBanner() {
   const getIcon = () => {
     // Holiday icon
     if (status.holidayName || status.message.includes('holiday') || status.message.includes('Holiday')) {
-      return <Calendar className="w-4 h-4" />;
+      return <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4" />;
     }
     // System shutdown icon
     if (status.message.includes('paused') || status.message.includes('Shutdown')) {
-      return <Shield className="w-4 h-4" />;
+      return <Shield className="w-3.5 h-3.5 sm:w-4 sm:h-4" />;
     }
     // Imminent closure icon
     if (status.message.includes('closes in') || status.message.includes('close in')) {
-      return <Clock className="w-4 h-4" />;
+      return <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />;
     }
     // Default warning icon
-    return <AlertTriangle className="w-4 h-4" />;
+    return <AlertTriangle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />;
   };
 
   return (
-    <div className={`${getSeverityStyle()} border text-white px-3 py-1.5 shadow-md`}>
-      <div className="max-w-7xl mx-auto flex items-center justify-center gap-2">
-        {getIcon()}
-        <span className="text-sm font-semibold">{status.message}</span>
+    <div className={`${getSeverityStyle()} border text-white px-2 sm:px-3 py-1.5 shadow-md`}>
+      <div className="max-w-7xl mx-auto flex items-center justify-center gap-1.5 sm:gap-2">
+        <span className="flex-shrink-0">{getIcon()}</span>
+        <span className="text-xs sm:text-sm font-semibold whitespace-nowrap truncate">{status.message}</span>
       </div>
     </div>
   );
