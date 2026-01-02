@@ -2054,9 +2054,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
   return (
     <div className="h-full flex flex-col relative">
-      <div className="flex-shrink-0 pt-6 pb-6">
-        <div className="flex items-center justify-between gap-2">
-          {/* Selectors */}
+      <div className="flex-shrink-0 pt-6 pb-3">
+        {/* Top row: Selectors and Refresh button */}
+        <div className="flex items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-1.5 sm:gap-3">
             <select
               value={symbol}
@@ -2079,82 +2079,116 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
             </select>
           </div>
 
-          {/* Price section - responsive for all screen sizes */}
-          {currentPrice && (
-            <div className="flex items-center gap-2 sm:gap-4">
-              {/* Mobile: Price stacked vertically */}
-              <div className="flex sm:hidden flex-col items-end gap-1">
-                {bidPrice && askPrice ? (
-                  <>
-                    <div className="flex items-center gap-1.5 text-xs">
-                      <div className="flex flex-col items-end">
-                        <span className="text-[9px] text-orange-400 font-medium uppercase tracking-wide">Bid</span>
-                        <span className="text-orange-400 font-bold text-sm">{formatPrice(bidPrice, symbol, true)}</span>
-                      </div>
-                      <div className="text-gray-600 text-sm">/</div>
-                      <div className="flex flex-col items-start">
-                        <span className="text-[9px] text-cyan-400 font-medium uppercase tracking-wide">Ask</span>
-                        <span className="text-cyan-400 font-bold text-sm">{formatPrice(askPrice, symbol, true)}</span>
-                      </div>
-                    </div>
-                    {spread !== null && (
-                      <div className="text-[9px] text-gray-500">
-                        Spread: {formatSpread(spread, symbol, true)}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className={`text-base font-bold transition-all duration-500 ease-out ${
-                    priceUpdateFlash
-                      ? (priceChange >= 0 ? 'text-emerald-400 scale-105' : 'text-red-400 scale-105')
-                      : 'text-white scale-100'
-                  }`}>
-                    {formatPrice(currentPrice, symbol, true)}
-                  </div>
-                )}
-                <div className={`text-xs flex items-center gap-0.5 ${
-                  priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
-                }`}>
-                  <Activity size={10} />
-                  {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
-                </div>
-                {/* Crypto source badge - mobile */}
-                {cryptoDataSource && ['BTCUSD', 'ETHUSD'].includes(symbol) && (
-                  <div className="text-[9px] text-gray-500 px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20">
-                    {cryptoDataSource.replace('-live', '').toUpperCase()}
-                  </div>
-                )}
-              </div>
+          {/* Refresh button */}
+          <button
+            onClick={handleChartRefresh}
+            disabled={isRefreshing}
+            className={`p-1.5 sm:p-2 rounded-lg transition-all ${
+              isRefreshing
+                ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed'
+                : 'bg-gray-800 hover:bg-gray-700 text-white border border-gray-700 hover:border-gray-600'
+            }`}
+            title="Refresh chart data"
+          >
+            <RefreshCw
+              size={14}
+              className={isRefreshing ? 'animate-spin' : ''}
+            />
+          </button>
+        </div>
 
-              {/* Desktop: Price horizontal */}
-              <div className="hidden sm:flex items-center gap-3">
-                {bidPrice && askPrice ? (
-                  <div className="flex items-center gap-3">
-                    <div className="flex flex-col items-end">
-                      <span className="text-xs text-orange-400 font-medium">BID</span>
-                      <span className={`text-xl font-bold text-orange-400 transition-all duration-500 ease-out ${
-                        priceUpdateFlash ? 'scale-105' : 'scale-100'
-                      }`}>
-                        {formatPrice(bidPrice, symbol, false)}
-                      </span>
+        {/* BID/ASK/Spread row - Centered below selectors */}
+        {currentPrice && (
+          <div className="flex justify-center mb-3">
+            {/* Mobile: Horizontal inline layout */}
+            <div className="flex sm:hidden items-center gap-2 text-xs">
+              {bidPrice && askPrice ? (
+                <>
+                  <div className="flex items-center gap-1">
+                    <span className="text-orange-400 font-medium uppercase text-[10px]">Bid</span>
+                    <span className="text-orange-400 font-bold">{formatPrice(bidPrice, symbol, true)}</span>
+                  </div>
+                  <div className="text-gray-600">/</div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-cyan-400 font-medium uppercase text-[10px]">Ask</span>
+                    <span className="text-cyan-400 font-bold">{formatPrice(askPrice, symbol, true)}</span>
+                  </div>
+                  {spread !== null && (
+                    <>
+                      <div className="text-gray-600">•</div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-gray-400 text-[10px]">Spread</span>
+                        <span className="text-gray-300 font-medium">{formatSpread(spread, symbol, true)}</span>
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
+                <div className={`font-bold transition-all duration-500 ease-out ${
+                  priceUpdateFlash
+                    ? (priceChange >= 0 ? 'text-emerald-400 scale-105' : 'text-red-400 scale-105')
+                    : 'text-white scale-100'
+                }`}>
+                  {formatPrice(currentPrice, symbol, true)}
+                  <span className={`ml-2 text-[10px] ${
+                    priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
+                  }`}>
+                    {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
+                  </span>
+                </div>
+              )}
+              {/* Crypto source badge - mobile */}
+              {cryptoDataSource && ['BTCUSD', 'ETHUSD'].includes(symbol) && (
+                <div className="text-[9px] text-gray-500 px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20">
+                  {cryptoDataSource.replace('-live', '').toUpperCase()}
+                </div>
+              )}
+            </div>
+
+            {/* Desktop: Horizontal layout */}
+            <div className="hidden sm:flex items-center gap-4">
+              {bidPrice && askPrice ? (
+                <>
+                  <div className="flex flex-col items-center">
+                    <span className="text-xs text-orange-400 font-medium">BID</span>
+                    <span className={`text-xl font-bold text-orange-400 transition-all duration-500 ease-out ${
+                      priceUpdateFlash ? 'scale-105' : 'scale-100'
+                    }`}>
+                      {formatPrice(bidPrice, symbol, false)}
+                    </span>
+                  </div>
+                  <div className="text-2xl text-gray-600 font-light">/</div>
+                  <div className="flex flex-col items-center">
+                    <span className="text-xs text-cyan-400 font-medium">ASK</span>
+                    <span className={`text-xl font-bold text-cyan-400 transition-all duration-500 ease-out ${
+                      priceUpdateFlash ? 'scale-105' : 'scale-100'
+                    }`}>
+                      {formatPrice(askPrice, symbol, false)}
+                    </span>
+                  </div>
+                  {spread !== null && (
+                    <div className="ml-2 px-3 py-1.5 rounded bg-gray-800/50 border border-gray-700">
+                      <div className="text-[10px] text-gray-400 text-center">SPREAD</div>
+                      <div className="text-sm text-white font-medium">{formatSpread(spread, symbol, false)}</div>
                     </div>
-                    <div className="text-2xl text-gray-600 font-light">/</div>
-                    <div className="flex flex-col items-start">
-                      <span className="text-xs text-cyan-400 font-medium">ASK</span>
-                      <span className={`text-xl font-bold text-cyan-400 transition-all duration-500 ease-out ${
-                        priceUpdateFlash ? 'scale-105' : 'scale-100'
-                      }`}>
-                        {formatPrice(askPrice, symbol, false)}
-                      </span>
+                  )}
+                  <div className="flex flex-col items-start gap-0.5">
+                    <div className={`text-sm flex items-center gap-1 ${
+                      priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
+                    }`}>
+                      <Activity size={14} />
+                      {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
                     </div>
-                    {spread !== null && (
-                      <div className="ml-2 px-2 py-1 rounded bg-gray-800/50 border border-gray-700">
-                        <div className="text-[10px] text-gray-400">SPREAD</div>
-                        <div className="text-sm text-white font-medium">{formatSpread(spread, symbol, false)}</div>
+                    {/* Crypto source badge - desktop */}
+                    {cryptoDataSource && ['BTCUSD', 'ETHUSD'].includes(symbol) && (
+                      <div className="px-2 py-0.5 rounded text-[10px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                        {cryptoDataSource.replace('-live', '').toUpperCase()}
                       </div>
                     )}
                   </div>
-                ) : (
+                </>
+              ) : (
+                <div className="flex items-center gap-3">
                   <div className={`text-2xl font-bold transition-all duration-500 ease-out ${
                     priceUpdateFlash
                       ? (priceChange >= 0 ? 'text-emerald-400 scale-105' : 'text-red-400 scale-105')
@@ -2162,8 +2196,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                   }`}>
                     {formatPrice(currentPrice, symbol, false)}
                   </div>
-                )}
-                <div className="flex flex-col items-start gap-0.5">
                   <div className={`text-sm flex items-center gap-1 ${
                     priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
                   }`}>
@@ -2177,27 +2209,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
                     </div>
                   )}
                 </div>
-              </div>
-
-              {/* Refresh button */}
-              <button
-                onClick={handleChartRefresh}
-                disabled={isRefreshing}
-                className={`p-1.5 sm:p-2 rounded-lg transition-all ${
-                  isRefreshing
-                    ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed'
-                    : 'bg-gray-800 hover:bg-gray-700 text-white border border-gray-700 hover:border-gray-600'
-                }`}
-                title="Refresh chart data"
-              >
-                <RefreshCw
-                  size={14}
-                  className={isRefreshing ? 'animate-spin' : ''}
-                />
-              </button>
+              )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {dataQualityWarning && (
