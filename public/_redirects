@@ -1,4 +1,17 @@
 # Netlify redirects file
 
+# Don't redirect assets - serve them directly
+/assets/*    200
+/*.js        200
+/*.css       200
+/*.png       200
+/*.jpg       200
+/*.svg       200
+/*.woff      200
+/*.woff2     200
+/manifest.json  200
+/robots.txt     200
+/sitemap.xml    200
+
 # SPA fallback - catch all remaining routes and serve index.html
 /*    /index.html   200
