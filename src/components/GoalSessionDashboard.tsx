@@ -1176,7 +1176,7 @@ export const GoalSessionDashboard: React.FC = () => {
             <div className="relative bg-gray-800/50 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50 group-hover:border-emerald-500/30 transition-all duration-300">
               <div className="text-sm text-gray-400 mb-1">Completion</div>
               <div className="text-2xl font-bold text-emerald-400">
-                {progress?.session?.progress_percentage ? progress.session.progress_percentage.toFixed(1) : '0.0'}%
+                {calculateLiveProgressPercentage().toFixed(1)}%
               </div>
             </div>
           </div>
