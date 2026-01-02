@@ -14,6 +14,7 @@ import { Timeframe } from '@/services/chart-preferences';
 import { CandleData } from '@/services/candle-data-service';
 import { logger, LogCategory } from '@/lib/logger';
 import { getDisplayLimit } from '@/utils/timeframe-candle-limits';
+import { candleQualityEnhancer } from '@/services/candle-quality-enhancer';
 
 interface UseOptimizedCandlesOptions {
   symbol: string;
@@ -62,22 +63,30 @@ export function useOptimizedCandles({
       if (cached.length > 0) {
         const completed = cached.filter(c => !(c as any).isComplete === false);
         const forming = cached.find(c => (c as any).isComplete === false) || null;
-        setCandles(completed);
+
+        // Enhance candles before displaying
+        const enhanced = await candleQualityEnhancer.enhanceCandles(completed, symbol, timeframe);
+
+        setCandles(enhanced.candles);
         setFormingCandle(forming);
         setLastUpdate(new Date());
         setIsLoading(false);
-        logger.debug(LogCategory.CHART_POLLER, `Loaded ${cached.length} cached candles for ${symbol} ${timeframe}`);
+        logger.debug(LogCategory.CHART_POLLER, `Loaded ${cached.length} cached candles for ${symbol} ${timeframe} (enhanced: ${enhanced.stats.gapsFilled} gaps, ${enhanced.stats.wicksReconstructed} wicks)`);
         return;
       }
 
       // Fetch from database if not cached - use dynamic limit per timeframe
       const limit = getDisplayLimit(timeframe);
       const historical = await optimizedCandleManager.getHistoricalCandles(symbol, timeframe, limit);
-      setCandles(historical);
+
+      // Enhance candles before displaying
+      const enhanced = await candleQualityEnhancer.enhanceCandles(historical, symbol, timeframe);
+
+      setCandles(enhanced.candles);
       setLastUpdate(new Date());
       setIsLoading(false);
 
-      logger.info(LogCategory.CHART_POLLER, `Loaded ${historical.length}/${limit} historical candles for ${symbol} ${timeframe}`);
+      logger.info(LogCategory.CHART_POLLER, `Loaded ${enhanced.candles.length}/${limit} historical candles for ${symbol} ${timeframe} (enhanced: ${enhanced.stats.gapsFilled} gaps, ${enhanced.stats.wicksReconstructed} wicks)`);
     } catch (err) {
       logger.error(LogCategory.CHART_POLLER, 'Error loading historical data:', err);
       setError(err instanceof Error ? err.message : 'Failed to load candle data');
@@ -86,22 +95,44 @@ export function useOptimizedCandles({
   }, [symbol, timeframe]);
 
   // Handle candle updates from manager
-  const handleCandleUpdate = useCallback((update: any) => {
-    const { candle } = update;
+  const handleCandleUpdate = useCallback(async (update: any) => {
+    const { candle, symbol: updateSymbol, timeframe: updateTimeframe } = update;
     const isComplete = (candle as any).isComplete !== false;
 
     if (isComplete) {
-      // New completed candle
+      // New completed candle - enhance before adding
       setCandles(prev => {
         // Check if candle already exists
         const exists = prev.some(c => c.time === candle.time);
+        let updatedCandles: CandleData[];
+
         if (exists) {
           // Update existing
-          return prev.map(c => c.time === candle.time ? candle : c);
+          updatedCandles = prev.map(c => c.time === candle.time ? candle : c);
         } else {
           // Add new
-          return [...prev, candle].sort((a, b) => a.time - b.time);
+          updatedCandles = [...prev, candle].sort((a, b) => a.time - b.time);
         }
+
+        // Enhance in background (async, won't block state update)
+        candleQualityEnhancer.enhanceCandles(
+          updatedCandles,
+          updateSymbol || currentSymbolRef.current,
+          updateTimeframe || currentTimeframeRef.current,
+          { useCache: true }
+        ).then(enhanced => {
+          // Update with enhanced candles if they've changed
+          if (enhanced.stats.gapsFilled > 0 || enhanced.stats.wicksReconstructed > 0) {
+            setCandles(enhanced.candles);
+            logger.debug(LogCategory.CHART_POLLER,
+              `Enhanced candles after update (gaps: ${enhanced.stats.gapsFilled}, wicks: ${enhanced.stats.wicksReconstructed})`
+            );
+          }
+        }).catch(err => {
+          logger.warn(LogCategory.CHART_POLLER, 'Background enhancement failed:', err);
+        });
+
+        return updatedCandles;
       });
 
       // Clear forming candle if it matches
@@ -112,9 +143,9 @@ export function useOptimizedCandles({
         return prev;
       });
 
-      logger.debug(LogCategory.CHART_POLLER, `Completed candle received: ${update.symbol} @ ${new Date(candle.time * 1000).toISOString()}`);
+      logger.debug(LogCategory.CHART_POLLER, `Completed candle received: ${updateSymbol} @ ${new Date(candle.time * 1000).toISOString()}`);
     } else {
-      // Update forming candle
+      // Update forming candle (already enhanced by current-candle-reconstructor)
       setFormingCandle(candle);
     }
 

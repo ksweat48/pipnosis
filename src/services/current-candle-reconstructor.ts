@@ -21,6 +21,7 @@ import {
 } from '@/services/candle-data-service';
 import { Timeframe } from '@/services/chart-preferences';
 import { logger, LogCategory } from '@/lib/logger';
+import { reconstructCandle } from '@/services/wick-reconstruction-service';
 
 export interface ReconstructionResult {
   candle: CandleData | null;
@@ -231,17 +232,55 @@ class CurrentCandleReconstructor {
         };
       }
 
+      // ENHANCEMENT: Apply wick reconstruction for better visual quality
+      // Uses cached ATR data (no performance hit after first call)
+      let finalCandle = reconstructedCandle;
+
+      try {
+        const candleWithMetadata = {
+          ...reconstructedCandle,
+          symbol,
+          timeframe,
+          open_time: new Date(reconstructedCandle.time * 1000).toISOString()
+        };
+
+        const enhanced = await reconstructCandle(candleWithMetadata);
+
+        if (enhanced.reconstructed) {
+          // Strip metadata, keep only OHLC
+          finalCandle = {
+            time: enhanced.time,
+            open: enhanced.open,
+            high: enhanced.high,
+            low: enhanced.low,
+            close: enhanced.close,
+            volume: enhanced.volume
+          };
+
+          logger.debug(
+            LogCategory.CHART_POLLER,
+            `[CandleReconstructor] Enhanced forming candle with realistic wicks`
+          );
+        }
+      } catch (error) {
+        logger.warn(
+          LogCategory.CHART_POLLER,
+          `[CandleReconstructor] Wick enhancement failed, using original:`,
+          error
+        );
+      }
+
       logger.debug(
         LogCategory.CHART_POLLER,
         `[CandleReconstructor] ✅ Successfully reconstructed candle:`
       );
       logger.debug(
         LogCategory.CHART_POLLER,
-        `  Time: ${new Date(reconstructedCandle.time * 1000).toISOString()}`
+        `  Time: ${new Date(finalCandle.time * 1000).toISOString()}`
       );
       logger.debug(
         LogCategory.CHART_POLLER,
-        `  OHLC: ${reconstructedCandle.open.toFixed(5)} / ${reconstructedCandle.high.toFixed(5)} / ${reconstructedCandle.low.toFixed(5)} / ${reconstructedCandle.close.toFixed(5)}`
+        `  OHLC: ${finalCandle.open.toFixed(5)} / ${finalCandle.high.toFixed(5)} / ${finalCandle.low.toFixed(5)} / ${finalCandle.close.toFixed(5)}`
       );
       logger.debug(
         LogCategory.CHART_POLLER,
@@ -249,7 +288,7 @@ class CurrentCandleReconstructor {
       );
 
       return {
-        candle: reconstructedCandle,
+        candle: finalCandle,
         tickCount: currentPeriodTicks.length,
         timeRange: {
           start: new Date(firstTick.broker_time || firstTick.created_at),

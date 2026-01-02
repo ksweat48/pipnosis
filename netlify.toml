@@ -71,11 +71,12 @@
   timeout = 30
   schedule = "* * * * *"  # 🚨 5-field format ONLY - final safety net for stuck positions
 
-# 🔧 AUTOMATIC GAP FILLER: Detects and fills gaps every 3 minutes
-# SMART SCHEDULING: Offset by 1 minute from aggregator to prevent overlap
+# 🔧 AUTOMATIC GAP FILLER: Detects and fills gaps every 1 minute
+# OPTIMIZED: Client-side filler handles 0-5min gaps, backend catches anything missed
+# Works with realtime gap detector for comprehensive coverage
 [functions."automatic-gap-filler"]
   timeout = 120  # 2 minutes to detect and fill gaps
-  schedule = "*/3 * * * *"  # 🚨 Every 3 minutes (offset from aggregator) - prevents overlap
+  schedule = "* * * * *"  # 🚨 Every 1 minute - comprehensive backend coverage
 
 # 📊 COMPREHENSIVE BACKFILL: Backfill all timeframes for new currency pairs
 [functions."backfill-all-timeframes-new-pairs"]

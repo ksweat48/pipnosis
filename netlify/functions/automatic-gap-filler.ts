@@ -119,7 +119,9 @@ async function detectGapsForSymbol(symbol: string, timeframe: string): Promise<G
 
   const gaps: GapInfo[] = [];
   const intervalMs = TIMEFRAME_SECONDS[timeframe] * 1000;
-  const gapThreshold = intervalMs * 2.5;
+  // OPTIMIZED: Reduced from 2.5x to 1.5x to detect smaller gaps more aggressively
+  // Client-side filler handles immediate gaps, backend ensures nothing is missed
+  const gapThreshold = intervalMs * 1.5;
 
   for (let i = 1; i < candles.length; i++) {
     const prevTime = new Date(candles[i - 1].open_time);
