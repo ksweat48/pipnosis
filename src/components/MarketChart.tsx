@@ -98,8 +98,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     watchedLevel?: any;
     earlyExitLevel?: any;
   }>({});
+  const bidLineRef = useRef<any>(null);
+  const askLineRef = useRef<any>(null);
 
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+  const [bidPrice, setBidPrice] = useState<number | null>(null);
+  const [askPrice, setAskPrice] = useState<number | null>(null);
+  const [spread, setSpread] = useState<number | null>(null);
   const [priceChange, setPriceChange] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState<{ loaded: number; total: number } | null>(null);
@@ -829,6 +834,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         console.log(`[Chart][${symbol}] ✅ Chart updated successfully with live tick!`);
 
         setCurrentPrice(price);
+        setBidPrice(tick.bid);
+        setAskPrice(tick.ask);
+        setSpread(tick.ask - tick.bid);
         setLastUpdate(new Date());
         setIsLive(true);
         setUpdateCount(prev => prev + 1);
@@ -1660,6 +1668,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           timestamp: price.timestamp,
           midPrice: price.midPrice
         });
+
+        // Update bid/ask prices for display
+        setBidPrice(price.bid);
+        setAskPrice(price.ask);
+        setSpread(price.ask - price.bid);
+
         setMarketStatus('live');
       }
     }) : () => {};
@@ -1883,6 +1897,55 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     };
   }, [tradeLines]);
 
+  // BID/ASK Price Lines Effect
+  useEffect(() => {
+    if (!chartRef.current || !candlestickSeriesRef.current) return;
+
+    // Remove existing bid/ask lines
+    if (bidLineRef.current) {
+      candlestickSeriesRef.current.removePriceLine(bidLineRef.current);
+      bidLineRef.current = null;
+    }
+    if (askLineRef.current) {
+      candlestickSeriesRef.current.removePriceLine(askLineRef.current);
+      askLineRef.current = null;
+    }
+
+    // Create new bid/ask lines if we have prices
+    if (bidPrice !== null && askPrice !== null) {
+      // BID Line (red/orange - price you SELL at or close LONG at)
+      bidLineRef.current = candlestickSeriesRef.current.createPriceLine({
+        price: bidPrice,
+        color: '#f97316', // Orange
+        lineWidth: 2,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: 'BID',
+      });
+
+      // ASK Line (blue/cyan - price you BUY at or close SHORT at)
+      askLineRef.current = candlestickSeriesRef.current.createPriceLine({
+        price: askPrice,
+        color: '#06b6d4', // Cyan
+        lineWidth: 2,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: 'ASK',
+      });
+    }
+
+    return () => {
+      if (candlestickSeriesRef.current) {
+        if (bidLineRef.current) {
+          candlestickSeriesRef.current.removePriceLine(bidLineRef.current);
+        }
+        if (askLineRef.current) {
+          candlestickSeriesRef.current.removePriceLine(askLineRef.current);
+        }
+      }
+    };
+  }, [bidPrice, askPrice]);
+
   const FOREX_PAIRS = [
     'XAUUSD', 'US30', 'NAS100', 'SPX500',
     'EURUSD', 'GBPUSD', 'USDJPY',
@@ -1973,13 +2036,34 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
             <div className="flex items-center gap-2 sm:gap-4">
               {/* Mobile: Price stacked vertically */}
               <div className="flex sm:hidden flex-col items-end">
-                <div className={`text-base font-bold transition-all duration-500 ease-out ${
-                  priceUpdateFlash
-                    ? (priceChange >= 0 ? 'text-emerald-400 scale-105' : 'text-red-400 scale-105')
-                    : 'text-white scale-100'
-                }`}>
-                  {currentPrice.toFixed(5)}
-                </div>
+                {bidPrice && askPrice ? (
+                  <>
+                    <div className="flex items-center gap-2 text-xs">
+                      <div className="flex flex-col items-end">
+                        <span className="text-[10px] text-orange-400 font-medium">BID</span>
+                        <span className="text-orange-400 font-bold">{bidPrice.toFixed(5)}</span>
+                      </div>
+                      <div className="text-gray-500">/</div>
+                      <div className="flex flex-col items-start">
+                        <span className="text-[10px] text-cyan-400 font-medium">ASK</span>
+                        <span className="text-cyan-400 font-bold">{askPrice.toFixed(5)}</span>
+                      </div>
+                    </div>
+                    {spread !== null && (
+                      <div className="text-[10px] text-gray-400 mt-0.5">
+                        Spread: {spread.toFixed(5)}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className={`text-base font-bold transition-all duration-500 ease-out ${
+                    priceUpdateFlash
+                      ? (priceChange >= 0 ? 'text-emerald-400 scale-105' : 'text-red-400 scale-105')
+                      : 'text-white scale-100'
+                  }`}>
+                    {currentPrice.toFixed(5)}
+                  </div>
+                )}
                 <div className={`text-xs flex items-center gap-0.5 ${
                   priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
                 }`}>
@@ -1996,13 +2080,41 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
               {/* Desktop: Price horizontal */}
               <div className="hidden sm:flex items-center gap-3">
-                <div className={`text-2xl font-bold transition-all duration-500 ease-out ${
-                  priceUpdateFlash
-                    ? (priceChange >= 0 ? 'text-emerald-400 scale-105' : 'text-red-400 scale-105')
-                    : 'text-white scale-100'
-                }`}>
-                  {currentPrice.toFixed(5)}
-                </div>
+                {bidPrice && askPrice ? (
+                  <div className="flex items-center gap-3">
+                    <div className="flex flex-col items-end">
+                      <span className="text-xs text-orange-400 font-medium">BID</span>
+                      <span className={`text-xl font-bold text-orange-400 transition-all duration-500 ease-out ${
+                        priceUpdateFlash ? 'scale-105' : 'scale-100'
+                      }`}>
+                        {bidPrice.toFixed(5)}
+                      </span>
+                    </div>
+                    <div className="text-2xl text-gray-600 font-light">/</div>
+                    <div className="flex flex-col items-start">
+                      <span className="text-xs text-cyan-400 font-medium">ASK</span>
+                      <span className={`text-xl font-bold text-cyan-400 transition-all duration-500 ease-out ${
+                        priceUpdateFlash ? 'scale-105' : 'scale-100'
+                      }`}>
+                        {askPrice.toFixed(5)}
+                      </span>
+                    </div>
+                    {spread !== null && (
+                      <div className="ml-2 px-2 py-1 rounded bg-gray-800/50 border border-gray-700">
+                        <div className="text-[10px] text-gray-400">SPREAD</div>
+                        <div className="text-sm text-white font-medium">{spread.toFixed(5)}</div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className={`text-2xl font-bold transition-all duration-500 ease-out ${
+                    priceUpdateFlash
+                      ? (priceChange >= 0 ? 'text-emerald-400 scale-105' : 'text-red-400 scale-105')
+                      : 'text-white scale-100'
+                  }`}>
+                    {currentPrice.toFixed(5)}
+                  </div>
+                )}
                 <div className="flex flex-col items-start gap-0.5">
                   <div className={`text-sm flex items-center gap-1 ${
                     priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
@@ -2090,6 +2202,27 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
         <div className="relative h-full">
           <div ref={chartContainerRef} className="rounded-lg overflow-hidden h-full" />
+
+          {/* BID/ASK Legend - Top Right */}
+          {bidPrice && askPrice && (
+            <div className="absolute top-2 right-2 z-20 pointer-events-none">
+              <div className="bg-gray-900/90 backdrop-blur-sm border border-gray-800/50 rounded px-2 py-1.5 shadow-lg">
+                <div className="text-[10px] text-gray-400 font-medium mb-1">PRICE LINES</div>
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-3 h-0.5 bg-orange-500 border-dashed" style={{ borderTop: '2px dashed #f97316' }}></div>
+                    <span className="text-[10px] text-orange-400 font-medium">BID</span>
+                    <span className="text-[9px] text-gray-500">Close LONG</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-3 h-0.5 bg-cyan-500 border-dashed" style={{ borderTop: '2px dashed #06b6d4' }}></div>
+                    <span className="text-[10px] text-cyan-400 font-medium">ASK</span>
+                    <span className="text-[9px] text-gray-500">Close SHORT</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Status Overlay - Bottom Left */}
           <div className="absolute bottom-2 left-2 z-20 pointer-events-none">
