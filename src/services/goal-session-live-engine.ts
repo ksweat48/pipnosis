@@ -691,11 +691,31 @@ class GoalSessionLiveEngine {
         goalContext
       );
 
+      // INCREASED TIMEOUT: 180s for multi-symbol evaluation (9 symbols * ~20s average)
+      // Previous 60s timeout was too aggressive and caused premature failures
       const timeoutPromise = new Promise<any>((_, reject) => {
-        setTimeout(() => reject(new Error('Council timeout after 60s')), 60000);
+        setTimeout(() => reject(new Error('Council timeout after 180s')), 180000);
       });
 
-      const omegaDecisions = await Promise.race([councilPromise, timeoutPromise]);
+      let omegaDecisions: Map<string, any>;
+      try {
+        omegaDecisions = await Promise.race([councilPromise, timeoutPromise]);
+      } catch (error) {
+        // If timeout occurs, log detailed diagnostic info
+        logger.error(LogCategory.AI_TRADING, 'Omega Council evaluation timed out', {
+          symbolCount: marketStates.length,
+          elapsed: Date.now() - orchestratorStartTime,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+
+        // Send user notification about timeout
+        await this.sendAIMessage(
+          `⚠️ Market analysis timed out after 3 minutes while evaluating ${marketStates.length} symbols. ` +
+          `This may indicate LLM rate limiting or network issues. Skipping this scan cycle.`
+        );
+
+        return; // Skip this scanning cycle
+      }
 
       const orchestratorDuration = Date.now() - orchestratorStartTime;
       if (import.meta.env.DEV) {

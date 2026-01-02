@@ -275,7 +275,7 @@ class PositionMonitorService {
           .select('close, high, low')
           .eq('symbol', position.symbol)
           .eq('timeframe', '5m')
-          .order('timestamp', { ascending: false })
+          .order('open_time', { ascending: false })
           .limit(1)
           .maybeSingle();
 
