@@ -15,15 +15,6 @@ export function Header() {
   const [showNotificationPanel, setShowNotificationPanel] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
 
-  // AGGRESSIVE DEBUGGING
-  console.log('🔴 HEADER RENDER:', {
-    user: !!user,
-    balance,
-    totalPnL,
-    timestamp: new Date().toLocaleTimeString(),
-    windowWidth: typeof window !== 'undefined' ? window.innerWidth : 'N/A'
-  });
-
   useEffect(() => {
     const handleBadgeUpdate = (count: number) => {
       setUnviewedCount(count);
@@ -44,7 +35,7 @@ export function Header() {
     const loadCurrentSession = async () => {
       if (!user?.id) return;
 
-      const { data, error } = await import('@/lib/supabase').then(m => m.supabase)
+      const { data } = await import('@/lib/supabase').then(m => m.supabase)
         .from('goal_sessions')
         .select('id')
         .eq('user_id', user.id)
@@ -52,13 +43,9 @@ export function Header() {
         .order('created_at', { ascending: false })
         .limit(1);
 
-      console.log('[Header] Active session query:', { data, error, hasData: !!data, count: data?.length });
-
       if (data && data.length > 0) {
-        console.log('[Header] Setting currentSessionId to:', data[0].id);
         setCurrentSessionId(data[0].id);
       } else {
-        console.log('[Header] No active session found - currentSessionId will be null');
         setCurrentSessionId(null);
       }
     };
@@ -66,46 +53,8 @@ export function Header() {
     loadCurrentSession();
   }, [user?.id]);
 
-  // Force render on mobile - check if element exists
-  useEffect(() => {
-    const checkElement = () => {
-      const mobileContainer = document.querySelector('.flex.sm\\:hidden');
-      console.log('🔍 Mobile container found:', !!mobileContainer);
-      if (mobileContainer) {
-        console.log('📏 Container dimensions:', {
-          width: mobileContainer.clientWidth,
-          height: mobileContainer.clientHeight,
-          visible: window.getComputedStyle(mobileContainer).display !== 'none'
-        });
-      }
-    };
-    checkElement();
-    setTimeout(checkElement, 1000);
-  }, []);
-
   return (
     <header className="bg-gray-900/50 backdrop-blur-sm border-b border-gray-800">
-      {/* ALWAYS VISIBLE TEST ELEMENT */}
-      <div style={{
-        position: 'fixed',
-        top: '80px',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        backgroundColor: '#ff00ff',
-        color: '#fff',
-        padding: '10px 20px',
-        zIndex: 99999,
-        fontSize: '14px',
-        fontWeight: 'bold',
-        border: '3px solid #00ff00',
-        borderRadius: '8px',
-        textAlign: 'center'
-      }}>
-        TEST VISIBLE<br/>
-        B: ${balance} | P: ${totalPnL.toFixed(2)}<br/>
-        W: {typeof window !== 'undefined' ? window.innerWidth : 'N/A'}px
-      </div>
-
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
         <div className="flex flex-col gap-2 sm:gap-3">
           {/* Mobile: Icon - Balance - User Menu Layout */}
@@ -115,64 +64,13 @@ export function Header() {
               <span className="text-white font-bold text-lg">P</span>
             </div>
 
-            {/* Center: Balance with P&L - ULTRA VISIBLE DEBUG VERSION */}
-            <div style={{
-              position: 'relative',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flex: '1 1 auto',
-              width: '150px',
-              minWidth: '150px',
-              maxWidth: '150px',
-              height: '60px',
-              minHeight: '60px',
-              padding: '8px',
-              backgroundColor: '#ff0000',
-              borderRadius: '8px',
-              border: '4px solid #00ff00',
-              zIndex: 9999,
-              boxShadow: '0 0 20px rgba(255,0,0,0.8)'
-            }}>
-              <div style={{
-                fontSize: '20px',
-                fontWeight: '900',
-                color: '#ffffff',
-                lineHeight: '1.2',
-                textAlign: 'center',
-                textShadow: '0 0 10px #000',
-                WebkitTextFillColor: '#ffffff',
-                opacity: 1,
-                position: 'relative',
-                zIndex: 10000
-              }}>
+            {/* Center: Balance with P&L */}
+            <div className="flex flex-col items-center justify-center flex-1 bg-gray-800/80 rounded-lg px-3 py-2 min-w-0">
+              <div className="text-lg font-bold text-white leading-tight">
                 ${typeof balance === 'number' ? balance.toFixed(0) : '10000'}
               </div>
-              <div style={{
-                fontSize: '14px',
-                fontWeight: '700',
-                color: '#ffff00',
-                lineHeight: '1.2',
-                textAlign: 'center',
-                marginTop: '4px',
-                textShadow: '0 0 10px #000',
-                WebkitTextFillColor: '#ffff00',
-                opacity: 1,
-                position: 'relative',
-                zIndex: 10000
-              }}>
+              <div className={`text-sm font-semibold leading-tight ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                 {totalPnL >= 0 ? '+' : ''}${typeof totalPnL === 'number' ? Math.abs(totalPnL).toFixed(2) : '0.00'}
-              </div>
-              <div style={{
-                fontSize: '8px',
-                color: '#ffffff',
-                position: 'absolute',
-                bottom: '2px',
-                right: '4px',
-                opacity: 0.7
-              }}>
-                DEBUG
               </div>
             </div>
 
