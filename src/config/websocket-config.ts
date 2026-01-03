@@ -12,11 +12,11 @@ export const WEBSOCKET_CONFIG = {
     url: 'wss://ws.kraken.com/v2',
     symbols: ['BTCUSD', 'ETHUSD'],
     symbolMap: {
-      'BTCUSD': 'XBT/USD',
+      'BTCUSD': 'BTC/USD',  // v2 API uses BTC/USD, not XBT/USD
       'ETHUSD': 'ETH/USD',
     } as Record<string, string>,
     reverseSymbolMap: {
-      'XBT/USD': 'BTCUSD',
+      'BTC/USD': 'BTCUSD',  // v2 API uses BTC/USD, not XBT/USD
       'ETH/USD': 'ETHUSD',
     } as Record<string, string>,
     reconnectDelayMs: 1000,
