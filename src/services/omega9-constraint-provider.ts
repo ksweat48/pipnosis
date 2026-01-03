@@ -27,6 +27,11 @@ class Omega9ConstraintProvider {
    *
    * This runs BEFORE Alpha makes a decision, providing clear boundaries
    * Accepts optional resolved plan from feasibility resolver (SSOT)
+   *
+   * CRITICAL: Session-time constraints apply differently based on trade style:
+   * - SCALP: Session-time caps TP (trades must complete within current session)
+   * - INTRADAY: Session-time is advisory only (trades may extend beyond session)
+   * - SWING: Session-time ignored (multi-session trades)
    */
   generateConstraints(input: Omega9ConstraintInput): Omega9Constraints {
     const {
@@ -35,6 +40,7 @@ class Omega9ConstraintProvider {
       direction,
       atr,
       riskMode,
+      tradeStyle,
       currentSession,
       sessionTimeRemainingMinutes,
       volatilityRegime,
@@ -52,11 +58,42 @@ class Omega9ConstraintProvider {
       marketVolatility: volatilityRegime
     });
 
-    // Use resolved plan constraints if provided (from feasibility resolver)
-    // Otherwise fall back to default logic
-    const maxTakeProfitPips = resolvedPlan?.tpMaxAtrMultiple
+    // Calculate feasible travel distance (used for all styles, applied differently)
+    const volatilityPerHour = this.estimateVolatilityPerHour(atr, volatilityRegime, currentSession);
+    const feasibleTravelPips = (sessionTimeRemainingMinutes / 60) * volatilityPerHour * 0.8; // 80% safety factor
+
+    // Base TP maximum from ATR
+    const atrBasedMaxTP = resolvedPlan?.tpMaxAtrMultiple
       ? atr * resolvedPlan.tpMaxAtrMultiple
       : atr * 12; // 12x ATR as default
+
+    // Apply session-time constraints based on trade style
+    let maxTakeProfitPips: number;
+    let sessionConstraintMode: 'BLOCKING' | 'ADVISORY' | 'NONE';
+    let tpReasoningSuffix = '';
+
+    if (tradeStyle === 'SCALP') {
+      // SCALP: Session-time BLOCKS - trade must complete within current session
+      maxTakeProfitPips = Math.min(atrBasedMaxTP, feasibleTravelPips);
+      sessionConstraintMode = 'BLOCKING';
+
+      if (feasibleTravelPips < atrBasedMaxTP) {
+        tpReasoningSuffix = ` | ⚠️ SCALP trades limited by session time: ${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min remaining`;
+      }
+    } else if (tradeStyle === 'INTRADAY') {
+      // INTRADAY: Session-time ADVISORY - trade may extend beyond current session
+      maxTakeProfitPips = atrBasedMaxTP; // No session cap
+      sessionConstraintMode = 'ADVISORY';
+
+      if (atrBasedMaxTP > feasibleTravelPips) {
+        tpReasoningSuffix = ` | ℹ️ INTRADAY trade may extend beyond current session (${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min, target ${atrBasedMaxTP.toFixed(1)} pips)`;
+      }
+    } else {
+      // SWING: Session-time NONE - multi-session trade
+      maxTakeProfitPips = atrBasedMaxTP; // No session cap
+      sessionConstraintMode = 'NONE';
+      tpReasoningSuffix = ' | SWING trade - session timing not applicable';
+    }
 
     // Determine the SL we'll use for R:R calculations
     // If Alpha already proposed an SL, use that; otherwise use recommended
@@ -72,10 +109,6 @@ class Omega9ConstraintProvider {
     const targetTakeProfitPips = referenceSLPips * 1.5; // Professional target
     const optimalTakeProfitPips = Math.min(referenceSLPips * 2.0, maxTakeProfitPips); // Elite target, capped by maximum
 
-    // Calculate feasible travel distance
-    const volatilityPerHour = this.estimateVolatilityPerHour(atr, volatilityRegime, currentSession);
-    const feasibleTravelPips = (sessionTimeRemainingMinutes / 60) * volatilityPerHour * 0.8; // 80% safety factor
-
     // Build constraint violations (empty initially, used for validation later)
     const violations: ConstraintViolation[] = [];
 
@@ -84,6 +117,10 @@ class Omega9ConstraintProvider {
     const constraintFeasibilityWarning = resolvedPlan
       ? '✅ Constraints validated by feasibility resolver'
       : '';
+
+    // Build take-profit reasoning with style-aware session context
+    const baseTpReasoning = `Minimum: ${minTakeProfitPips.toFixed(1)} pips (R:R ≥ ${minRiskReward.toFixed(1)}:1). Target: ${targetTakeProfitPips.toFixed(1)} pips (R:R ≥ 1.5:1). Maximum: ${maxTakeProfitPips.toFixed(1)} pips (12x ATR)`;
+    const fullTpReasoning = constraintFeasibilityWarning || (baseTpReasoning + tpReasoningSuffix);
 
     const constraints: Omega9Constraints = {
       // Stop-Loss Constraints
@@ -96,7 +133,7 @@ class Omega9ConstraintProvider {
       minTakeProfitPips,
       maxTakeProfitPips,
       recommendedTakeProfitPips: Math.min(targetTakeProfitPips, maxTakeProfitPips),
-      takeProfitReasoning: constraintFeasibilityWarning || `Minimum: ${minTakeProfitPips.toFixed(1)} pips (R:R ≥ ${minRiskReward.toFixed(1)}:1). Target: ${targetTakeProfitPips.toFixed(1)} pips (R:R ≥ 1.5:1). Maximum: ${maxTakeProfitPips.toFixed(1)} pips (12x ATR)`,
+      takeProfitReasoning: fullTpReasoning,
 
       // Risk:Reward Constraints
       minRiskReward,
@@ -107,16 +144,17 @@ class Omega9ConstraintProvider {
       sessionTimeRemaining: sessionTimeRemainingMinutes,
       volatilityPerHour,
       feasibleTravelPips,
+      sessionConstraintMode,
 
       violations
     };
 
     console.log('[Omega-9 Constraints] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`[Omega-9 Constraints] Symbol: ${symbol} | Direction: ${direction} | Risk Mode: ${riskMode.toUpperCase()}`);
+    console.log(`[Omega-9 Constraints] Symbol: ${symbol} | Direction: ${direction} | Style: ${tradeStyle} | Risk: ${riskMode.toUpperCase()}`);
     console.log(`[Omega-9 Constraints] Stop-Loss Range: ${constraints.minStopLossPips.toFixed(1)} - ${constraints.maxStopLossPips.toFixed(1)} pips (recommended: ${constraints.recommendedStopLossPips.toFixed(1)})`);
     console.log(`[Omega-9 Constraints] Take-Profit Range: ${constraints.minTakeProfitPips.toFixed(1)} - ${constraints.maxTakeProfitPips.toFixed(1)} pips (recommended: ${constraints.recommendedTakeProfitPips.toFixed(1)})`);
     console.log(`[Omega-9 Constraints] R:R Requirements: Min ${constraints.minRiskReward}:1 | Target ${constraints.targetRiskReward}:1 | Optimal ${constraints.optimalRiskReward}:1`);
-    console.log(`[Omega-9 Constraints] Session: ${currentSession} (${sessionTimeRemainingMinutes}min remaining) | Feasible travel: ${feasibleTravelPips.toFixed(1)} pips`);
+    console.log(`[Omega-9 Constraints] Session: ${currentSession} (${sessionTimeRemainingMinutes}min remaining) | Feasible travel: ${feasibleTravelPips.toFixed(1)} pips | Mode: ${sessionConstraintMode}`);
     console.log('[Omega-9 Constraints] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     return constraints;

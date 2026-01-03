@@ -31,6 +31,7 @@ export interface Omega9Constraints {
   sessionTimeRemaining: number; // Minutes
   volatilityPerHour: number;    // Expected pips/hour
   feasibleTravelPips: number;   // Max realistic TP distance
+  sessionConstraintMode: 'BLOCKING' | 'ADVISORY' | 'NONE'; // How session constraints are applied
 
   // Constraint Violations (for learning)
   violations: ConstraintViolation[];
@@ -43,12 +44,15 @@ export interface ConstraintViolation {
   suggestedFix?: string;
 }
 
+export type TradeStyle = 'SCALP' | 'INTRADAY' | 'SWING';
+
 export interface Omega9ConstraintInput {
   symbol: string;
   entry: number;
   direction: 'BUY' | 'SELL';
   atr: number;
   riskMode: 'low' | 'medium' | 'high';
+  tradeStyle: TradeStyle;  // CRITICAL: Determines session constraint behavior
   currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed';
   sessionTimeRemainingMinutes: number;
   volatilityRegime: 'low' | 'medium' | 'high';

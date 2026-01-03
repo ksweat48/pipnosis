@@ -88,8 +88,9 @@ import type { Omega9Constraints } from '../types/omega9-constraints';
 import { getRecommendedConsensusCount, calculateConsensusStrengthModifier, getConsensusDescription } from '../services/omega-consensus-advisory';
 import { tradeExecutionFreshnessGate } from '../services/trade-execution-freshness-gate';
 import { tradeFeasibilityResolver } from '../services/trade-feasibility-resolver';
-import type { AssetClass } from '../types/trade-feasibility-resolver.types';
+import type { AssetClass, TradeStyle as FeasibilityTradeStyle } from '../types/trade-feasibility-resolver.types';
 import { isCrypto, isIndex, isXAUUSD } from '../utils/currencyHelpers';
+import { calculateSessionContext } from '../utils/marketHours';
 
 /**
  * Helper: Determine asset class from symbol
@@ -103,6 +104,9 @@ function getAssetClass(symbol: string): AssetClass {
 
 /**
  * Helper: Map risk mode to trade style
+ * HIGH risk = SCALP (fast, within-session trades)
+ * MEDIUM risk = INTRADAY (may extend beyond session, complete same day)
+ * LOW risk = SWING (multi-session trades)
  */
 function riskModeToTradeStyle(riskMode: 'low' | 'medium' | 'high'): 'SCALP' | 'INTRADAY' | 'SWING' {
   if (riskMode === 'high') return 'SCALP';
@@ -638,9 +642,12 @@ class AlphaCoordinatorBrain {
     let omega9Constraints: Omega9Constraints | null = null;
     let constraintsText = '';
     if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED' && consensus.direction !== 'WAIT') {
-      // Keep session context for Omega-9 constraints (but NOT for TP ceiling enforcement)
-      const currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed' = 'london'; // Simplified - not enforcing session-based limits
-      const sessionTimeRemaining = 240; // 4 hours default - generous window for trading
+      // Calculate actual current session context (NO hardcoded values)
+      const sessionContext = calculateSessionContext();
+      console.log(`[Alpha Coordinator] 📅 Session Context: ${sessionContext.sessionName} (${sessionContext.sessionTimeRemainingMinutes}min remaining)`);
+
+      // Get trade style from resolved plan (determined by feasibility resolver)
+      const tradeStyle = resolvedPlan?.style || riskModeToTradeStyle(riskMode);
 
       omega9Constraints = omega9ConstraintProvider.generateConstraints({
         symbol: marketContext.symbol,
@@ -648,8 +655,9 @@ class AlphaCoordinatorBrain {
         direction: consensus.direction as 'BUY' | 'SELL',
         atr: marketContext.atr,
         riskMode,
-        currentSession,
-        sessionTimeRemainingMinutes: sessionTimeRemaining,
+        tradeStyle,  // CRITICAL: Pass trade style for session constraint behavior
+        currentSession: sessionContext.currentSession,
+        sessionTimeRemainingMinutes: sessionContext.sessionTimeRemainingMinutes,
         volatilityRegime: marketContext.volatility as 'low' | 'medium' | 'high',
         proposedStopLoss: stopLossAnchor?.stopLossPrice,
         resolvedPlan: resolvedPlan ? {
