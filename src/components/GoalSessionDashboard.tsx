@@ -976,31 +976,32 @@ export const GoalSessionDashboard: React.FC = () => {
         <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-xl opacity-20 group-hover:opacity-30 transition duration-300 blur" />
 
         <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl rounded-xl p-6 border border-gray-700/50 shadow-2xl">
-          <div className="flex items-start justify-between mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
             <div className="flex items-center gap-3">
-              <div className="relative">
+              <div className="relative hidden sm:block">
                 <div className={`absolute inset-0 rounded-xl blur opacity-50 ${getStatusColor(activeSession.status).replace('text-', 'bg-')}`} />
                 <div className={`relative p-3 bg-gradient-to-br from-gray-700 to-gray-800 rounded-xl ${getStatusColor(activeSession.status)} shadow-lg`}>
                   {getStatusIcon(activeSession.status)}
                 </div>
               </div>
               <div>
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                  Active Goal Session
-                  <Sparkles className="w-4 h-4 text-emerald-400 animate-pulse" />
+                <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                  <span className="sm:hidden">Active session</span>
+                  <span className="hidden sm:inline">Active Goal Session</span>
+                  <Sparkles className="w-4 h-4 text-emerald-400 animate-pulse hidden sm:inline-flex" />
                 </h3>
-                <p className="text-sm text-gray-400 capitalize">{activeSession.status.replace('_', ' ')}</p>
+                <p className="text-sm text-gray-400 capitalize hidden sm:block">{activeSession.status.replace('_', ' ')}</p>
                 {scanStatus.message && (
-                  <p className="text-xs text-gray-500 mt-1">{scanStatus.message}</p>
+                  <p className="text-xs text-gray-500 mt-1 hidden sm:block">{scanStatus.message}</p>
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
               {sessionHealth?.is_stuck && sessionHealth?.can_unstick && (
                 <button
                   onClick={handleUnstickSession}
                   disabled={unstickLoading}
-                  className="px-4 py-2 bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-500 hover:to-orange-600 rounded-xl text-sm font-semibold text-white transition-all duration-300 flex items-center gap-2 shadow-lg hover:shadow-orange-500/25 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full sm:w-auto px-4 py-3 sm:py-2 bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-500 hover:to-orange-600 rounded-xl text-sm font-semibold text-white transition-all duration-300 flex items-center justify-center gap-2 shadow-lg hover:shadow-orange-500/25 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                   title={`Session stuck: ${sessionHealth.stuck_reason}`}
                 >
                   <Wrench className="w-4 h-4" />
@@ -1009,7 +1010,7 @@ export const GoalSessionDashboard: React.FC = () => {
               )}
               <button
                 onClick={handleStopSession}
-                className="px-4 py-2 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 rounded-xl text-sm font-semibold text-white transition-all duration-300 flex items-center gap-2 shadow-lg hover:shadow-red-500/25 hover:scale-105 active:scale-95"
+                className="w-full sm:w-auto px-4 py-3 sm:py-2 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 rounded-xl text-sm font-semibold text-white transition-all duration-300 flex items-center justify-center gap-2 shadow-lg hover:shadow-red-500/25 hover:scale-105 active:scale-95"
               >
                 <Pause className="w-4 h-4" />
                 Stop Session
