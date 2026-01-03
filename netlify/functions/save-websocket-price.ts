@@ -144,21 +144,37 @@ export const handler: Handler = async (event) => {
       created_at: new Date().toISOString(),
     }));
 
+    console.log(`[SaveWSPrice] Attempting to insert ${records.length} price records`);
+    console.log(`[SaveWSPrice] Symbols: ${records.map(r => r.symbol).join(', ')}`);
+
     const { error } = await supabase
       .from('realtime_prices')
       .insert(records);
 
     if (error) {
-      console.error('[SaveWSPrice] Database error:', error.message);
+      console.error('[SaveWSPrice] Database error:', {
+        message: error.message,
+        code: (error as any).code,
+        details: (error as any).details,
+        hint: (error as any).hint,
+        recordCount: records.length,
+        symbols: records.map(r => r.symbol).join(', ')
+      });
+
       return {
         statusCode: 500,
         headers: corsHeaders,
         body: JSON.stringify({
           error: 'Database error',
           message: error.message,
+          code: (error as any).code,
+          details: (error as any).details,
+          hint: (error as any).hint,
         }),
       };
     }
+
+    console.log(`[SaveWSPrice] Successfully inserted ${records.length} price records`);
 
     return {
       statusCode: 200,
