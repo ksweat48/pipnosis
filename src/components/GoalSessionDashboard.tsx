@@ -426,6 +426,26 @@ export const GoalSessionDashboard: React.FC = () => {
     return `${diffMins}m`;
   };
 
+  const formatTradingPrice = (symbol: string, price: number): string => {
+    const normalized = symbol.toUpperCase();
+
+    if (normalized.includes('BTC') || normalized.includes('ETH')) {
+      return price.toFixed(1);
+    }
+    if (normalized.includes('XAU') || normalized.includes('GOLD')) {
+      return price.toFixed(1);
+    }
+    if (normalized.includes('US30') || normalized.includes('NAS') ||
+        normalized.includes('SPX') || normalized.includes('DJI')) {
+      return price.toFixed(1);
+    }
+    if (normalized.includes('JPY')) {
+      return price.toFixed(3);
+    }
+
+    return price.toFixed(5);
+  };
+
   const handleContinuationResponse = async (response: 'continue' | 'stop') => {
     if (!activeSession || !user) return;
 
@@ -1017,49 +1037,10 @@ export const GoalSessionDashboard: React.FC = () => {
           </div>
         )}
 
-        {/* Server-Side Status Indicator */}
-        {activeSession.serverHeartbeat && (
-          <div className="mb-4 p-3 bg-green-900/20 border border-green-500/30 rounded-lg">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Cloud className="w-4 h-4 text-green-400 animate-pulse" />
-                <span className="text-sm font-medium text-green-400">Running Autonomously in Cloud</span>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-gray-400">
-                <Wifi className="w-3 h-3" />
-                <span>Last check: {formatTimeAgo(activeSession.serverHeartbeat)}</span>
-              </div>
-            </div>
-            <p className="text-xs text-gray-400 mt-2">
-              This session continues running even when you close this window.
-              View from any device!
-            </p>
-          </div>
-        )}
-
         {openTrades.length > 0 && (
           <div className="mb-4 relative group">
             <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl opacity-30 blur animate-pulse" />
             <div className="relative bg-gradient-to-br from-blue-900/40 to-cyan-900/40 border border-blue-500/50 rounded-xl p-4">
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-blue-500/20 rounded-lg">
-                    <Eye className="w-5 h-5 text-blue-400 animate-pulse" />
-                  </div>
-                  <div>
-                    <div className="text-base font-bold text-white flex items-center gap-2">
-                      TRADE {openTrades.length}/{activeSession.config.maxConcurrentTrades || 1} OPEN
-                      <span className="px-2 py-0.5 bg-blue-500/30 rounded text-xs font-semibold text-blue-300">
-                        MONITORING MODE
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-400 mt-1">
-                      New trade scanning paused - monitoring open position
-                    </p>
-                  </div>
-                </div>
-              </div>
-
               {openTrades.map((trade, index) => {
                 const isLong = trade.direction === 'buy';
 
@@ -1076,70 +1057,77 @@ export const GoalSessionDashboard: React.FC = () => {
                 const currentPnL = calculateCurrentPnL(trade);
 
                 return (
-                  <div key={trade.id} className="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
-                    <div className="flex items-start justify-between gap-3 mb-3">
+                  <div key={trade.id} className="space-y-4">
+                    {/* Header with Symbol and Actions */}
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-2xl md:text-xl font-bold text-white">{trade.symbol}</div>
+                        <div className={`text-sm font-semibold ${isLong ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {trade.direction.toUpperCase()} • {(trade.lot_size || trade.position_size || 0).toFixed(2)} lots
+                        </div>
+                      </div>
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => navigate(`/trade?symbol=${trade.symbol}`)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 rounded-lg text-xs font-semibold text-white transition-all duration-200 shadow-lg hover:shadow-blue-500/25 hover:scale-105 active:scale-95"
+                          className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 rounded-lg text-xs font-semibold text-white transition-all duration-200 shadow-lg hover:shadow-blue-500/25 hover:scale-105 active:scale-95"
                         >
-                          <BarChart3 className="w-3.5 h-3.5" />
-                          View Chart
+                          <BarChart3 className="w-4 h-4" />
+                          <span className="hidden sm:inline">View Chart</span>
                         </button>
                         <button
                           onClick={() => handleManualClose(trade)}
                           disabled={closingPosition === trade.id}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 rounded-lg text-xs font-semibold text-white transition-all duration-200 shadow-lg hover:shadow-red-500/25 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 rounded-lg text-xs font-semibold text-white transition-all duration-200 shadow-lg hover:shadow-red-500/25 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          <StopCircle className="w-3.5 h-3.5" />
-                          {closingPosition === trade.id ? 'Closing...' : 'Close Position'}
+                          <StopCircle className="w-4 h-4" />
+                          <span className="hidden sm:inline">{closingPosition === trade.id ? 'Closing...' : 'Close'}</span>
                         </button>
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                      <div>
-                        <div className="text-xs text-gray-500 mb-1">Symbol</div>
-                        <div className="text-sm font-semibold text-white">{trade.symbol}</div>
-                        <div className={`text-xs font-medium ${isLong ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {trade.direction.toUpperCase()}
+
+                    {/* Mobile-Optimized Trading Levels */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {/* Entry Price */}
+                      <div className="bg-gray-800/70 rounded-lg p-4 border border-gray-700/50">
+                        <div className="text-xs font-medium text-gray-400 mb-2">Entry</div>
+                        <div className="text-3xl sm:text-2xl md:text-xl font-bold text-white font-mono tracking-tight">
+                          {formatTradingPrice(trade.symbol, trade.entry_price)}
                         </div>
                       </div>
 
-                      <div>
-                        <div className="text-xs text-gray-500 mb-1">Lot Size</div>
-                        <div className="text-sm font-semibold text-blue-300">
-                          {(trade.lot_size || trade.position_size || 0).toFixed(2)}
-                        </div>
-                        <div className="text-xs text-gray-500">lots</div>
-                      </div>
-
-                      <div>
-                        <div className="text-xs text-gray-500 mb-1">Entry Price</div>
-                        <div className="text-sm font-mono text-gray-300">
-                          {trade.entry_price.toFixed(5)}
+                      {/* Stop Loss */}
+                      <div className="bg-gradient-to-br from-red-900/20 to-orange-900/20 rounded-lg p-4 border border-red-500/30">
+                        <div className="text-xs font-medium text-red-300 mb-2">Stop Loss</div>
+                        <div className="text-3xl sm:text-2xl md:text-xl font-bold text-red-400 font-mono tracking-tight">
+                          {formatTradingPrice(trade.symbol, trade.stop_loss)}
                         </div>
                       </div>
 
-                      <div>
-                        <div className="text-xs text-gray-500 mb-1 flex items-center gap-1">
-                          Current P&L
+                      {/* Take Profit */}
+                      <div className="bg-gradient-to-br from-emerald-900/20 to-green-900/20 rounded-lg p-4 border border-emerald-500/30">
+                        <div className="text-xs font-medium text-emerald-300 mb-2">Take Profit</div>
+                        <div className="text-3xl sm:text-2xl md:text-xl font-bold text-emerald-400 font-mono tracking-tight">
+                          {formatTradingPrice(trade.symbol, trade.take_profit)}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Current P&L */}
+                    <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-400">Current P&L</span>
                           {livePrice && (
                             <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" title="Live price feed active" />
                           )}
                         </div>
-                        <div className={`text-sm font-semibold ${currentPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {currentPnL >= 0 ? '+' : ''}${currentPnL.toFixed(2)}
-                        </div>
-                        <div className={`text-xs ${pips >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {pips >= 0 ? '+' : ''}{pips.toFixed(1)} pips
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="text-xs text-gray-500 mb-1">Targets</div>
-                        <div className="text-xs text-gray-300">
-                          <div>TP: {trade.take_profit.toFixed(5)}</div>
-                          <div>SL: {trade.stop_loss.toFixed(5)}</div>
+                        <div className="text-right">
+                          <div className={`text-lg font-bold ${currentPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {currentPnL >= 0 ? '+' : ''}${currentPnL.toFixed(2)}
+                          </div>
+                          <div className={`text-xs ${pips >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {pips >= 0 ? '+' : ''}{pips.toFixed(1)} pips
+                          </div>
                         </div>
                       </div>
                     </div>
