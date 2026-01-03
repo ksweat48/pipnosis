@@ -46,6 +46,8 @@ class KrakenWebSocketClient {
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private reconnectDelay = WEBSOCKET_CONFIG.kraken.reconnectDelayMs;
   private isIntentionallyClosed = false;
+  private pendingSubscription: NodeJS.Timeout | null = null;
+  private readonly MAX_SUBSCRIPTION_RETRIES = 3;
 
   private status: KrakenConnectionStatus = {
     connected: false,
@@ -110,7 +112,21 @@ class KrakenWebSocketClient {
     }
   }
 
-  private subscribeToSymbols(): void {
+  private subscribeToSymbols(retryAttempt = 0): void {
+    if (!this.isReadyToSend()) {
+      if (retryAttempt < this.MAX_SUBSCRIPTION_RETRIES) {
+        logger.warn(LogCategory.PRICE, `[KrakenWS] WebSocket not ready, retrying subscription (attempt ${retryAttempt + 1}/${this.MAX_SUBSCRIPTION_RETRIES})`);
+        this.pendingSubscription = setTimeout(() => {
+          this.subscribeToSymbols(retryAttempt + 1);
+        }, 100 * Math.pow(2, retryAttempt));
+        return;
+      } else {
+        logger.error(LogCategory.PRICE, '[KrakenWS] Failed to subscribe after max retries');
+        this.status.errorCount++;
+        return;
+      }
+    }
+
     const krakenSymbols = WEBSOCKET_CONFIG.kraken.symbols
       .map(s => getKrakenSymbol(s))
       .filter((s): s is string => s !== null);
@@ -120,7 +136,6 @@ class KrakenWebSocketClient {
       return;
     }
 
-    // Kraken v1 API subscription format
     const subscribeMessage = {
       event: 'subscribe',
       pair: krakenSymbols,
@@ -129,8 +144,16 @@ class KrakenWebSocketClient {
       },
     };
 
-    logger.info(LogCategory.PRICE, `[KrakenWS] Subscribing to: ${krakenSymbols.join(', ')}`);
-    this.ws?.send(JSON.stringify(subscribeMessage));
+    try {
+      logger.info(LogCategory.PRICE, `[KrakenWS] Subscribing to: ${krakenSymbols.join(', ')}`);
+      this.ws!.send(JSON.stringify(subscribeMessage));
+    } catch (error) {
+      logger.error(LogCategory.PRICE, '[KrakenWS] Failed to send subscription:', error);
+      this.status.errorCount++;
+      if (retryAttempt < this.MAX_SUBSCRIPTION_RETRIES) {
+        this.subscribeToSymbols(retryAttempt + 1);
+      }
+    }
   }
 
   private handleMessage(data: string): void {
@@ -266,6 +289,11 @@ class KrakenWebSocketClient {
       this.reconnectTimeout = null;
     }
 
+    if (this.pendingSubscription) {
+      clearTimeout(this.pendingSubscription);
+      this.pendingSubscription = null;
+    }
+
     this.stopHeartbeat();
 
     if (this.ws) {
@@ -302,6 +330,10 @@ class KrakenWebSocketClient {
 
   getStatus(): KrakenConnectionStatus {
     return { ...this.status };
+  }
+
+  private isReadyToSend(): boolean {
+    return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
   }
 
   isConnected(): boolean {
