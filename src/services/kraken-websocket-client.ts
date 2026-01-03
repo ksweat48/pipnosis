@@ -1,8 +1,8 @@
 /**
  * Kraken WebSocket Client
  *
- * Connects to Kraken WebSocket v2 API for real-time crypto price feeds.
- * Provides 10-100 ticks per second for BTC and ETH.
+ * Connects to Kraken WebSocket v1 API for real-time crypto price feeds.
+ * Provides real-time bid/ask updates for BTC and ETH.
  */
 
 import { logger, LogCategory } from '@/lib/logger';
@@ -30,36 +30,13 @@ export interface KrakenConnectionStatus {
   reconnectAttempts: number;
 }
 
-interface KrakenTickerMessage {
-  channel: 'ticker';
-  type: 'snapshot' | 'update';
-  data: Array<{
-    symbol: string;
-    bid: number;
-    bid_qty: number;
-    ask: number;
-    ask_qty: number;
-    last: number;
-    volume: number;
-    vwap: number;
-    low: number;
-    high: number;
-    change: number;
-    change_pct: number;
-  }>;
-}
-
-interface KrakenSubscribeResponse {
-  method: 'subscribe';
-  result: {
-    channel: string;
-    symbol: string;
-    snapshot: boolean;
-  };
-  success: boolean;
-  time_in: string;
-  time_out: string;
-}
+// Kraken v1 API: Ticker data format [channelID, tickerData, "ticker", "PAIR"]
+// tickerData structure:
+// a: [ask_price, ask_whole_lot_volume, ask_lot_volume]
+// b: [bid_price, bid_whole_lot_volume, bid_lot_volume]
+// c: [last_price, last_volume]
+// v: [volume_today, volume_24h]
+// etc.
 
 class KrakenWebSocketClient {
   private ws: WebSocket | null = null;
@@ -143,13 +120,12 @@ class KrakenWebSocketClient {
       return;
     }
 
+    // Kraken v1 API subscription format
     const subscribeMessage = {
-      method: 'subscribe',
-      params: {
-        channel: 'ticker',
-        symbol: krakenSymbols,
-        event_trigger: 'trades',
-        snapshot: true,
+      event: 'subscribe',
+      pair: krakenSymbols,
+      subscription: {
+        name: 'ticker',
       },
     };
 
@@ -161,9 +137,9 @@ class KrakenWebSocketClient {
     try {
       const message = JSON.parse(data);
 
-      if (message.method === 'subscribe' && message.success) {
-        const response = message as KrakenSubscribeResponse;
-        const platformSymbol = getPlatformSymbol(response.result.symbol);
+      // v1 API: Handle subscription confirmations (object format)
+      if (message.event === 'subscriptionStatus' && message.status === 'subscribed') {
+        const platformSymbol = getPlatformSymbol(message.pair);
         if (platformSymbol && !this.status.subscribedSymbols.includes(platformSymbol)) {
           this.status.subscribedSymbols.push(platformSymbol);
           logger.info(LogCategory.PRICE, `[KrakenWS] Subscribed to ${platformSymbol}`);
@@ -172,18 +148,26 @@ class KrakenWebSocketClient {
         return;
       }
 
-      if (message.channel === 'ticker' && message.data) {
-        const tickerMessage = message as KrakenTickerMessage;
-        this.processTickerData(tickerMessage);
+      // v1 API: Handle heartbeat
+      if (message.event === 'heartbeat') {
         return;
       }
 
-      if (message.channel === 'heartbeat') {
+      // v1 API: Handle system status
+      if (message.event === 'systemStatus') {
+        logger.debug(LogCategory.PRICE, `[KrakenWS] System status: ${message.status}`);
         return;
       }
 
-      if (message.error) {
-        logger.error(LogCategory.PRICE, '[KrakenWS] Error message:', message.error);
+      // v1 API: Ticker data comes in array format [channelID, data, "ticker", "PAIR"]
+      if (Array.isArray(message) && message[2] === 'ticker') {
+        this.processV1TickerData(message);
+        return;
+      }
+
+      // Handle errors
+      if (message.errorMessage) {
+        logger.error(LogCategory.PRICE, '[KrakenWS] Error:', message.errorMessage);
         this.status.errorCount++;
         this.notifyStatusChange();
       }
@@ -192,43 +176,60 @@ class KrakenWebSocketClient {
     }
   }
 
-  private processTickerData(message: KrakenTickerMessage): void {
-    for (const ticker of message.data) {
-      const platformSymbol = getPlatformSymbol(ticker.symbol);
-      if (!platformSymbol) {
-        continue;
-      }
+  private processV1TickerData(message: unknown[]): void {
+    // message format: [channelID, data, "ticker", "PAIR"]
+    const tickerData = message[1] as {
+      a: [string, string, string];  // ask [price, whole lot volume, lot volume]
+      b: [string, string, string];  // bid [price, whole lot volume, lot volume]
+      c: [string, string];           // last trade [price, volume]
+      v: [string, string];           // volume [today, 24h]
+      h?: [string, string];          // high [today, 24h]
+      l?: [string, string];          // low [today, 24h]
+    };
+    const krakenPair = message[3] as string;
 
-      const tickData: KrakenTickData = {
-        symbol: platformSymbol,
-        bid: ticker.bid,
-        ask: ticker.ask,
-        last: ticker.last,
-        volume: ticker.volume,
-        timestamp: new Date(),
-        source: 'kraken-ws',
-      };
-
-      this.status.tickCount++;
-      this.status.lastTickTime = tickData.timestamp;
-
-      this.tickCallbacks.forEach(callback => {
-        try {
-          callback(tickData);
-        } catch (error) {
-          logger.error(LogCategory.PRICE, '[KrakenWS] Tick callback error:', error);
-        }
-      });
+    const platformSymbol = getPlatformSymbol(krakenPair);
+    if (!platformSymbol) {
+      return;
     }
+
+    const bid = parseFloat(tickerData.b[0]);
+    const ask = parseFloat(tickerData.a[0]);
+    const last = parseFloat(tickerData.c[0]);
+    const volume = parseFloat(tickerData.v[0]);
+
+    // Validate parsed numbers
+    if (isNaN(bid) || isNaN(ask) || isNaN(last)) {
+      logger.warn(LogCategory.PRICE, `[KrakenWS] Invalid ticker data for ${platformSymbol}`);
+      return;
+    }
+
+    const tickData: KrakenTickData = {
+      symbol: platformSymbol,
+      bid,
+      ask,
+      last,
+      volume,
+      timestamp: new Date(),
+      source: 'kraken-ws',
+    };
+
+    this.status.tickCount++;
+    this.status.lastTickTime = tickData.timestamp;
+
+    this.tickCallbacks.forEach(callback => {
+      try {
+        callback(tickData);
+      } catch (error) {
+        logger.error(LogCategory.PRICE, '[KrakenWS] Tick callback error:', error);
+      }
+    });
   }
 
   private startHeartbeat(): void {
+    // Kraken v1 API sends automatic heartbeats - no need to ping
+    // Keep the heartbeat interval for monitoring connection health
     this.stopHeartbeat();
-    this.heartbeatInterval = setInterval(() => {
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ method: 'ping' }));
-      }
-    }, WEBSOCKET_CONFIG.kraken.heartbeatIntervalMs);
   }
 
   private stopHeartbeat(): void {

@@ -9,14 +9,14 @@ export const WEBSOCKET_CONFIG = {
   enabled: import.meta.env.VITE_ENABLE_BROWSER_WEBSOCKET === 'true',
 
   kraken: {
-    url: 'wss://ws.kraken.com/v2',
+    url: 'wss://ws.kraken.com',  // v1 public API (stable)
     symbols: ['BTCUSD', 'ETHUSD'],
     symbolMap: {
-      'BTCUSD': 'BTC/USD',  // v2 API uses BTC/USD, not XBT/USD
+      'BTCUSD': 'XBT/USD',  // v1 API uses XBT/USD for Bitcoin
       'ETHUSD': 'ETH/USD',
     } as Record<string, string>,
     reverseSymbolMap: {
-      'BTC/USD': 'BTCUSD',  // v2 API uses BTC/USD, not XBT/USD
+      'XBT/USD': 'BTCUSD',  // v1 API uses XBT/USD for Bitcoin
       'ETH/USD': 'ETHUSD',
     } as Record<string, string>,
     reconnectDelayMs: 1000,

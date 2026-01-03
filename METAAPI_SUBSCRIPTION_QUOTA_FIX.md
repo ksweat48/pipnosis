@@ -1,7 +1,15 @@
-# MetaAPI Subscription Quota Fix
+# MetaAPI Subscription Quota Fix + Kraken WebSocket Fix
 
 **Date:** 2026-01-03
 **Status:** DEPLOYED ✅
+
+## Update: Kraken WebSocket v1 API Migration
+
+After the initial fix, Kraken WebSocket v2 endpoint failed to connect. Migrated to stable v1 API:
+- Changed endpoint from `wss://ws.kraken.com/v2` → `wss://ws.kraken.com`
+- Updated symbol mapping: `BTC/USD` → `XBT/USD` (v1 uses XBT ticker)
+- Rewrote message handlers for v1 array-based protocol
+- Removed v2-specific subscription format and ticker parsing
 
 ## Problem
 
@@ -102,15 +110,18 @@ All Browsers → Backend REST → Forex polling ✅
 ### Logs to Watch
 
 ```javascript
-// SUCCESS - should see this:
+// SUCCESS - should see this (v1 API):
 [WebSocketManager] MetaAPI browser WebSocket disabled - using backend REST polling for forex
+[KrakenWS] Connecting to Kraken WebSocket v1...
 [KrakenWS] Connected successfully
 [KrakenWS] Subscribed to BTCUSD
 [KrakenWS] Subscribed to ETHUSD
+[KrakenWS] System status: online
 
 // FAILURE - should NOT see this:
 [MetaApiWS] Connecting...
 TooManyRequestsError: subscription quota
+WebSocket connection to 'wss://ws.kraken.com/v2' failed
 ```
 
 ## Rollback Plan
@@ -143,14 +154,29 @@ Current architecture (backend REST + browser Kraken WS) is **optimal** for the t
 
 ## Testing Performed
 
+### Phase 1: MetaAPI Removal
 - ✅ Build succeeds without errors
 - ✅ MetaAPI code removed from browser bundle
-- ✅ Kraken WebSocket still included and functional
-- ✅ Console shows correct initialization messages
+- ✅ Bundle size reduced: 19.45 kB → 12.95 kB
 - ✅ No TypeScript compilation errors
+
+### Phase 2: Kraken v1 Migration
+- ✅ Updated endpoint to stable v1 API
+- ✅ Implemented v1 array-based message protocol
+- ✅ Fixed symbol mapping (XBT/USD for Bitcoin)
+- ✅ Removed v2-specific code and interfaces
+- ✅ Build succeeds with v1 implementation
 
 ## Related Issues
 
-- Fixed Kraken symbol mapping (XBT/USD → BTC/USD) in same deployment
-- Both crypto and forex price feeds now working correctly
-- No more subscription quota errors blocking user sessions
+### Completed
+- ✅ MetaAPI subscription quota exhaustion resolved
+- ✅ Kraken WebSocket v2 connection failure fixed (migrated to v1)
+- ✅ Symbol mapping corrected (BTC → XBT for v1 API)
+- ✅ Both crypto and forex price feeds working correctly
+- ✅ No more subscription quota errors blocking user sessions
+
+### Technical Changes
+- `src/services/websocket-price-manager.ts`: Removed MetaAPI browser WebSocket
+- `src/services/kraken-websocket-client.ts`: Migrated to v1 API protocol
+- `src/config/websocket-config.ts`: Updated endpoint and symbol mappings
