@@ -8,6 +8,7 @@ import { GoalSessionDashboard } from '@/components/GoalSessionDashboard';
 import { AchievementsHallOfFame } from '@/components/AchievementsHallOfFame';
 import { PendingContinuationModalHandler } from '@/components/PendingContinuationModalHandler';
 import { useAuth } from '@/hooks/useAuth';
+import { smartGoalSessionManager } from '@/services/smart-goal-session-manager';
 import { Target, Trophy } from 'lucide-react';
 
 type TabType = 'start' | 'achievements';
@@ -24,6 +25,7 @@ export function AITradePage() {
     const saved = localStorage.getItem('ai-trade-tab');
     return (saved as TabType) || 'start';
   });
+  const [hasActiveSession, setHasActiveSession] = useState(false);
 
   const pullToRefresh = usePullToRefresh({
     onRefresh: async () => {
@@ -49,6 +51,32 @@ export function AITradePage() {
       window.removeEventListener('switch-to-achievements-tab', handleSwitchToAchievements);
     };
   }, []);
+
+  // Check for active session and poll for changes
+  useEffect(() => {
+    const checkActiveSession = async () => {
+      if (!user) {
+        setHasActiveSession(false);
+        return;
+      }
+
+      try {
+        const activeSession = await smartGoalSessionManager.getActiveSession(user.id);
+        setHasActiveSession(!!activeSession);
+      } catch (error) {
+        console.error('[AITradePage] Error checking active session:', error);
+        setHasActiveSession(false);
+      }
+    };
+
+    checkActiveSession();
+
+    const pollInterval = setInterval(checkActiveSession, 3000);
+
+    return () => {
+      clearInterval(pollInterval);
+    };
+  }, [user]);
 
   return (
     <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 relative" ref={pullToRefresh.containerRef}>
@@ -96,12 +124,16 @@ export function AITradePage() {
 
         <div className="space-y-6">
           {activeTab === 'start' ? (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="lg:col-span-1">
-                <SmartGoalPanel />
-              </div>
+            <div className={`grid gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500 ${
+              hasActiveSession ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-3'
+            }`}>
+              {!hasActiveSession && (
+                <div className="lg:col-span-1 animate-in fade-in slide-in-from-left duration-300">
+                  <SmartGoalPanel />
+                </div>
+              )}
 
-              <div className="lg:col-span-2">
+              <div className={`${hasActiveSession ? '' : 'lg:col-span-2'} animate-in fade-in slide-in-from-right duration-300`}>
                 <GoalSessionDashboard />
               </div>
             </div>
