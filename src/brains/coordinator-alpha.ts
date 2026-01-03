@@ -1407,16 +1407,74 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
 
       if (decision.action !== 'NO_TRADE' && decision.action !== 'WAIT') {
         try {
+          // Extract recent candles and calculate VWAP for entry quality analysis
+          let recentCandles: Array<{
+            open: number;
+            high: number;
+            low: number;
+            close: number;
+            timestamp: number;
+          }> | undefined = undefined;
+          let vwap: number | undefined = undefined;
+
+          if (fullCandles && fullCandles.length > 0) {
+            // Take last 10 candles for analysis
+            const candleSlice = fullCandles.slice(-10);
+
+            // Convert to entry quality format
+            recentCandles = candleSlice.map((c: any) => ({
+              open: c.open || c.o || 0,
+              high: c.high || c.h || 0,
+              low: c.low || c.l || 0,
+              close: c.close || c.c || 0,
+              timestamp: c.timestamp || c.time || Date.now()
+            }));
+
+            // Calculate VWAP from recent candles (volume-weighted average price)
+            // If volume not available, use typical price average as approximation
+            let sumTypicalPrice = 0;
+            let sumVolume = 0;
+
+            for (const candle of candleSlice) {
+              const typicalPrice = ((candle.high || candle.h || 0) + (candle.low || candle.l || 0) + (candle.close || candle.c || 0)) / 3;
+              const volume = candle.volume || candle.v || 1; // Default to 1 if no volume
+              sumTypicalPrice += typicalPrice * volume;
+              sumVolume += volume;
+            }
+
+            vwap = sumVolume > 0 ? sumTypicalPrice / sumVolume : undefined;
+
+            if (vwap) {
+              console.log(`[Alpha Coordinator] 📊 Calculated VWAP: ${vwap.toFixed(5)} from ${candleSlice.length} candles`);
+            }
+          }
+
+          // Classify entry intent with quality rules
           const entryIntent = EntryIntentClassifier.classifyEntryIntent(
             decision,
             marketContext,
             votes,
-            undefined
+            vwap,
+            recentCandles
           );
 
           if (entryIntent) {
             decision.entry_intent = entryIntent;
             console.log(`[Alpha Coordinator] 🎯 Entry intent: ${entryIntent.intent_type} (${entryIntent.urgency})`);
+
+            // Log entry quality violations
+            if (entryIntent.quality_violations && entryIntent.quality_violations.length > 0) {
+              console.log(`[Alpha Coordinator] 🛡️ Entry Quality Assessment:`);
+              entryIntent.quality_violations.forEach(violation => {
+                const emoji = violation.severity === 'BLOCK' ? '🚫' : violation.severity === 'WARN' ? '⚠️' : '📉';
+                console.log(`[Alpha Coordinator]   ${emoji} ${violation.rule}: ${violation.reason}`);
+                console.log(`[Alpha Coordinator]      → Suggested: ${violation.suggestedAction}`);
+              });
+
+              if (entryIntent.adjusted_by_quality_rules) {
+                console.log(`[Alpha Coordinator] ✅ Entry parameters adjusted by quality rules`);
+              }
+            }
           }
         } catch (error) {
           console.error('[Alpha Coordinator] Failed to classify entry intent:', error);
