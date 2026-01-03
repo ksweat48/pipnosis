@@ -10,13 +10,23 @@ import type {
 } from '../types/entry';
 import { logger } from '../lib/logger';
 import { getSessionAdjustedTimeout, getCurrentMarketSession } from '../utils/marketHours';
-import { calculatePipDistance, isIndex } from '../utils/currencyHelpers';
+import { calculatePipDistance } from '../utils/currencyHelpers';
+import {
+  calculateConfidenceAwareChaseThreshold,
+  calculateTimeoutProgress,
+  calculateDistanceToZone,
+  isPriceInZone,
+  extractConfidenceFromIntent,
+  getMaxWaitSeconds,
+  calculateMonitoringDuration,
+  getRelaxationThresholds
+} from '../utils/entry-validation-helpers';
 
 export class EntryPlannerService {
   private static readonly VWAP_TOLERANCE_PIPS = 2;
   private static readonly SUPPORT_RESISTANCE_TOLERANCE_PIPS = 3;
   private static readonly MOMENTUM_CANDLE_COUNT = 2;
-  private static readonly CHASE_THRESHOLD_PIPS = 30; // Default for medium confidence
+  // REMOVED: CHASE_THRESHOLD_PIPS - now in SSOT entry-validation-helpers.ts
 
   static async createEntryIntent(
     userId: string,
@@ -84,9 +94,9 @@ export class EntryPlannerService {
     const intentType = intent.intent_type;
     const conditions: EntryConditions = {};
 
-    const maxWaitSeconds = (intent as any).max_wait_seconds || intent.timeout_minutes * 60;
-    const elapsedSeconds = Math.floor((Date.now() - new Date(intent.created_at).getTime()) / 1000);
-    const timeoutProgress = Math.min(1.0, elapsedSeconds / maxWaitSeconds);
+    // SSOT: Use centralized timeout progress calculation
+    const maxWaitSeconds = getMaxWaitSeconds(intent);
+    const timeoutProgress = calculateTimeoutProgress(intent.created_at, maxWaitSeconds);
 
     const invalidationCheck = this.checkInvalidationPrice(intent, currentPrice);
     if (invalidationCheck.should_cancel) {
@@ -175,10 +185,16 @@ export class EntryPlannerService {
     conditions: EntryConditions,
     timeoutProgress: number
   ): EntryValidationResult {
-    const distanceToPips = this.calculateDistanceToZone(currentPrice, intent);
+    // SSOT: Use centralized distance and chase threshold calculations
+    const distanceToPips = calculateDistanceToZone(
+      currentPrice,
+      intent.entry_zone_min,
+      intent.entry_zone_max,
+      intent.symbol
+    );
 
-    // CONFIDENCE-AWARE CHASE THRESHOLD: Higher confidence = more chase room
-    const effectiveThreshold = this.getConfidenceAwareChaseThreshold(intent, intent.symbol);
+    const confidence = extractConfidenceFromIntent(intent);
+    const effectiveThreshold = calculateConfidenceAwareChaseThreshold(confidence, intent.symbol);
 
     // IMMEDIATE MOMENTUM: Confidence-scaled chase logic
     if (Math.abs(distanceToPips) > effectiveThreshold) {
@@ -207,16 +223,14 @@ export class EntryPlannerService {
   Threshold: ${effectiveThreshold} pips
   ✅ Within threshold`);
 
-    // Check how long we've been monitoring
-    const monitoringDuration = Date.now() - new Date(intent.created_at).getTime();
-    const monitoringSeconds = monitoringDuration / 1000;
+    // SSOT: Use centralized monitoring duration calculation
+    const monitoringSeconds = calculateMonitoringDuration(intent.created_at);
 
     conditions.momentum_sustained = this.checkMomentumSustained(candleData, intent.direction);
     conditions.volume_confirmation = this.checkVolumeConfirmation(candleData);
 
-    // CONFIDENCE-AWARE PROGRESSIVE RELAXATION
-    const marketContext = intent.market_context as any;
-    const confidence = marketContext?.confidence || 60;
+    // SSOT: Use centralized confidence-aware progressive relaxation
+    const thresholds = getRelaxationThresholds(confidence);
 
     // High confidence (70%+): Relax faster (don't miss the trade)
     // Medium confidence (60-69%): Standard relaxation
@@ -224,7 +238,7 @@ export class EntryPlannerService {
 
     if (confidence >= 70) {
       // HIGH CONFIDENCE: Execute with partial confirmation early
-      if (timeoutProgress < 0.4) {
+      if (timeoutProgress < thresholds.earlyConfirmationThreshold) {
         // First 40%: Require either momentum OR volume
         if (conditions.momentum_sustained || conditions.volume_confirmation) {
           return {
@@ -238,7 +252,7 @@ export class EntryPlannerService {
         }
       } else {
         // After 40%: Execute if in zone (trust the conviction)
-        const inZone = this.isPriceInZone(currentPrice, intent);
+        const inZone = isPriceInZone(currentPrice, intent.entry_zone_min, intent.entry_zone_max);
         if (inZone) {
           return {
             is_valid: true,
@@ -252,7 +266,7 @@ export class EntryPlannerService {
       }
     } else if (confidence >= 60) {
       // MEDIUM CONFIDENCE: Standard relaxation
-      if (timeoutProgress < 0.25) {
+      if (timeoutProgress < thresholds.earlyConfirmationThreshold) {
         // First 25%: Require both conditions
         if (conditions.momentum_sustained && conditions.volume_confirmation) {
           return {
@@ -264,7 +278,7 @@ export class EntryPlannerService {
             message: 'Momentum confirmed (full). Executing entry.'
           };
         }
-      } else if (timeoutProgress < 0.6) {
+      } else if (timeoutProgress < thresholds.standardConfirmationThreshold) {
         // 25-60%: Require either condition
         if (conditions.momentum_sustained || conditions.volume_confirmation) {
           return {
@@ -278,7 +292,7 @@ export class EntryPlannerService {
         }
       } else {
         // After 60%: Execute if in zone
-        const inZone = this.isPriceInZone(currentPrice, intent);
+        const inZone = isPriceInZone(currentPrice, intent.entry_zone_min, intent.entry_zone_max);
         if (inZone) {
           return {
             is_valid: true,
@@ -292,7 +306,7 @@ export class EntryPlannerService {
       }
     } else {
       // LOW CONFIDENCE: Strict requirements
-      if (timeoutProgress < 0.7) {
+      if (timeoutProgress < thresholds.urgencyThreshold) {
         // First 70%: Require both conditions
         if (conditions.momentum_sustained && conditions.volume_confirmation) {
           return {
@@ -306,7 +320,7 @@ export class EntryPlannerService {
         }
       } else {
         // After 70%: Require at least one condition + in zone
-        const inZone = this.isPriceInZone(currentPrice, intent);
+        const inZone = isPriceInZone(currentPrice, intent.entry_zone_min, intent.entry_zone_max);
         if (inZone && (conditions.momentum_sustained || conditions.volume_confirmation)) {
           return {
             is_valid: true,
@@ -358,10 +372,16 @@ export class EntryPlannerService {
     conditions.vwap_touch = distanceToVWAP <= this.VWAP_TOLERANCE_PIPS;
 
     if (!conditions.vwap_touch) {
-      const distanceToPips = this.calculateDistanceToZone(currentPrice, intent);
+      // SSOT: Use centralized distance calculation
+      const distanceToPips = calculateDistanceToZone(
+        currentPrice,
+        intent.entry_zone_min,
+        intent.entry_zone_max,
+        intent.symbol
+      );
 
       if (timeoutProgress >= 0.8) {
-        const inZone = this.isPriceInZone(currentPrice, intent);
+        const inZone = isPriceInZone(currentPrice, intent.entry_zone_min, intent.entry_zone_max);
         if (inZone) {
           return {
             is_valid: true,
@@ -425,12 +445,19 @@ export class EntryPlannerService {
     conditions: EntryConditions,
     timeoutProgress: number
   ): EntryValidationResult {
-    const inZone = this.isPriceInZone(currentPrice, intent);
+    // SSOT: Use centralized zone and distance calculations
+    const inZone = isPriceInZone(currentPrice, intent.entry_zone_min, intent.entry_zone_max);
     conditions.support_resistance_hold = inZone;
 
     if (!inZone) {
-      const distanceToPips = this.calculateDistanceToZone(currentPrice, intent);
-      const effectiveThreshold = this.getConfidenceAwareChaseThreshold(intent, intent.symbol);
+      const distanceToPips = calculateDistanceToZone(
+        currentPrice,
+        intent.entry_zone_min,
+        intent.entry_zone_max,
+        intent.symbol
+      );
+      const confidence = extractConfidenceFromIntent(intent);
+      const effectiveThreshold = calculateConfidenceAwareChaseThreshold(confidence, intent.symbol);
 
       if (Math.abs(distanceToPips) > effectiveThreshold) {
         logger.warn(`[Entry Monitor] ${intent.symbol} too far from support: ${Math.abs(distanceToPips).toFixed(1)} pips (threshold: ${effectiveThreshold})`);
@@ -515,7 +542,8 @@ export class EntryPlannerService {
       };
     }
 
-    const inRetestZone = this.isPriceInZone(currentPrice, intent);
+    // SSOT: Use centralized zone check
+    const inRetestZone = isPriceInZone(currentPrice, intent.entry_zone_min, intent.entry_zone_max);
     conditions.retest_hold = inRetestZone;
 
     if (hasBreakout && inRetestZone) {
@@ -561,11 +589,17 @@ export class EntryPlannerService {
     conditions: EntryConditions,
     timeoutProgress: number
   ): EntryValidationResult {
-    const inZone = this.isPriceInZone(currentPrice, intent);
+    // SSOT: Use centralized zone and distance calculations
+    const inZone = isPriceInZone(currentPrice, intent.entry_zone_min, intent.entry_zone_max);
     conditions.range_boundary_reached = inZone;
 
     if (!inZone) {
-      const distanceToPips = this.calculateDistanceToZone(currentPrice, intent);
+      const distanceToPips = calculateDistanceToZone(
+        currentPrice,
+        intent.entry_zone_min,
+        intent.entry_zone_max,
+        intent.symbol
+      );
       return {
         is_valid: true,
         conditions_met: conditions,
@@ -617,11 +651,17 @@ export class EntryPlannerService {
     conditions: EntryConditions,
     timeoutProgress: number
   ): EntryValidationResult {
-    const inZone = this.isPriceInZone(currentPrice, intent);
+    // SSOT: Use centralized zone and distance calculations
+    const inZone = isPriceInZone(currentPrice, intent.entry_zone_min, intent.entry_zone_max);
     conditions.retest_hold = inZone;
 
     if (!inZone) {
-      const distanceToPips = this.calculateDistanceToZone(currentPrice, intent);
+      const distanceToPips = calculateDistanceToZone(
+        currentPrice,
+        intent.entry_zone_min,
+        intent.entry_zone_max,
+        intent.symbol
+      );
       return {
         is_valid: true,
         conditions_met: conditions,
@@ -666,52 +706,10 @@ export class EntryPlannerService {
     };
   }
 
-  /**
-   * Calculate confidence-aware chase threshold
-   * High confidence = larger threshold (don't miss the trade)
-   * Low confidence = smaller threshold (quick cancel if price runs)
-   */
-  private static getConfidenceAwareChaseThreshold(intent: EntryIntent, symbol: string): number {
-    const marketContext = intent.market_context as any;
-    const confidence = marketContext?.confidence || 60;
-
-    // Base threshold for symbol type
-    const baseThreshold = isIndex(symbol) ? 100 : this.CHASE_THRESHOLD_PIPS;
-
-    // High confidence (70%+): Allow more chase room
-    if (confidence >= 70) {
-      return baseThreshold * 1.5; // 45 pips for forex, 150 for indices
-    }
-
-    // Medium confidence (60-69%): Standard threshold
-    if (confidence >= 60) {
-      return baseThreshold; // 30 pips for forex, 100 for indices
-    }
-
-    // Low confidence (50-59%): Tight threshold
-    return baseThreshold * 0.5; // 15 pips for forex, 50 for indices
-  }
-
-  private static isPriceInZone(price: number, intent: EntryIntent): boolean {
-    return price >= intent.entry_zone_min && price <= intent.entry_zone_max;
-  }
-
-  private static calculateDistanceToZone(price: number, intent: EntryIntent): number {
-    if (this.isPriceInZone(price, intent)) {
-      return 0;
-    }
-
-    // Use symbol-aware pip calculation instead of hardcoded * 10000
-    const distanceToMin = calculatePipDistance(intent.symbol, price, intent.entry_zone_min);
-    const distanceToMax = calculatePipDistance(intent.symbol, price, intent.entry_zone_max);
-
-    // Return the closest distance with proper sign (+ if above zone, - if below)
-    if (distanceToMin < distanceToMax) {
-      return price > intent.entry_zone_min ? distanceToMin : -distanceToMin;
-    } else {
-      return price > intent.entry_zone_max ? distanceToMax : -distanceToMax;
-    }
-  }
+  // REMOVED: Moved to SSOT entry-validation-helpers.ts
+  // - getConfidenceAwareChaseThreshold() -> calculateConfidenceAwareChaseThreshold()
+  // - isPriceInZone() -> isPriceInZone()
+  // - calculateDistanceToZone() -> calculateDistanceToZone()
 
   private static checkMomentumSustained(candleData: any, direction: string): boolean {
     if (!candleData || !candleData.candles || candleData.candles.length < this.MOMENTUM_CANDLE_COUNT) {
