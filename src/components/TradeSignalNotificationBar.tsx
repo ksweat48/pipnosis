@@ -15,6 +15,10 @@ interface TradeSignalData {
   executionUrgency?: number;
   expectedProfit?: number;
   riskReward?: number;
+  // Dual TP system
+  tp1?: number;
+  tp2?: number;
+  tp1Confidence?: number;
 }
 
 interface TradeSignalNotificationBarProps {
@@ -162,7 +166,17 @@ export function TradeSignalNotificationBar({
                   </span>
                   <span className="text-sm">Entry: {signal.entryPrice.toFixed(5)}</span>
                   <span className="text-sm">SL: {signal.stopLoss.toFixed(5)}</span>
-                  <span className="text-sm">TP: {signal.takeProfit.toFixed(5)}</span>
+                  {signal.tp1 && signal.tp2 ? (
+                    <>
+                      <span className="text-sm text-cyan-300 font-semibold">
+                        TP1: {signal.tp1.toFixed(5)}
+                        {signal.tp1Confidence && <span className="text-xs ml-1">({signal.tp1Confidence}%)</span>}
+                      </span>
+                      <span className="text-sm text-emerald-300 font-semibold">TP2: {signal.tp2.toFixed(5)}</span>
+                    </>
+                  ) : (
+                    <span className="text-sm">TP: {signal.takeProfit.toFixed(5)}</span>
+                  )}
                   {signal.riskReward && (
                     <span className="text-sm font-semibold">R:R 1:{signal.riskReward.toFixed(2)}</span>
                   )}

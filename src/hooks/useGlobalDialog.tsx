@@ -148,6 +148,9 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
           expectedProfit={currentDialog.data.expectedProfit}
           riskReward={currentDialog.data.riskReward}
           autoExecuted={currentDialog.data.autoExecuted}
+          tp1={currentDialog.data.tp1}
+          tp2={currentDialog.data.tp2}
+          tp1Confidence={currentDialog.data.tp1Confidence}
           onDismiss={closeDialog}
         />
       )}

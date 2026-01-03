@@ -28,6 +28,12 @@ export interface TradeSignal {
   reasoning: string;
   riskReward: number;
   expectedProfit: number;
+  // Dual TP system
+  tp1Price?: number;
+  tp2Price?: number;
+  tp1Confidence?: number;
+  tp1Reasoning?: string;
+  tp2Reasoning?: string;
   // Playbook tracking context
   regimeSnapshot?: any;
   adversarialState?: any;
@@ -588,7 +594,13 @@ class TradeExecutionEngine {
       risk_dollars: finalRiskDollars,
       ai_confidence: signal.confidence,
       ai_reasoning: signal.reasoning,
-      ai_strategy_used: signal.setupType
+      ai_strategy_used: signal.setupType,
+      // Dual TP system
+      tp1_price: signal.tp1Price || null,
+      tp2_price: signal.tp2Price || null,
+      tp1_confidence: signal.tp1Confidence || null,
+      tp1_reasoning: signal.tp1Reasoning || null,
+      tp2_reasoning: signal.tp2Reasoning || null
     };
 
     console.log('[Trade Execution] Inserting trade with data:', {
@@ -704,13 +716,23 @@ class TradeExecutionEngine {
       .update({ status: 'in_trade' })
       .eq('id', signal.sessionId);
 
+    // Build TP message based on whether dual TP system is used
+    const tpMessage = trade.tp1_price && trade.tp2_price
+      ? `TP1 (Conservative): ${trade.tp1_price.toFixed(5)}${trade.tp1_confidence ? ` (${trade.tp1_confidence}% likely)` : ''}, TP2 (Full): ${trade.tp2_price.toFixed(5)}`
+      : `Take Profit: ${adjustedTP.toFixed(5)}`;
+
     await goalSessionManager.addAIMessage(
       signal.sessionId,
       userId,
-      `Trade executed on ${signal.symbol}! ${signal.direction.toUpperCase()} at ${actualEntryPrice.toFixed(5)}. ${signal.setupType} setup with ${signal.confidence}% confidence. Stop Loss: ${adjustedSL.toFixed(5)}, Take Profit: ${adjustedTP.toFixed(5)}. Expected R:R = ${signal.riskReward.toFixed(2)}:1 ($${signal.expectedProfit.toFixed(2)})`,
+      `Trade executed on ${signal.symbol}! ${signal.direction.toUpperCase()} at ${actualEntryPrice.toFixed(5)}. ${signal.setupType} setup with ${signal.confidence}% confidence. Stop Loss: ${adjustedSL.toFixed(5)}, ${tpMessage}. Expected R:R = ${signal.riskReward.toFixed(2)}:1 ($${signal.expectedProfit.toFixed(2)})`,
       { signal, trade, actualEntryPrice, adjustedSL, adjustedTP },
       'encouraging'
     );
+
+    // Build notification message with dual TP info
+    const notificationTpMessage = trade.tp1_price && trade.tp2_price
+      ? `TP1: ${trade.tp1_price.toFixed(5)}, TP2: ${trade.tp2_price.toFixed(5)}`
+      : `TP: ${adjustedTP.toFixed(5)}`;
 
     const { error: notificationError } = await supabase.from('goal_notifications').insert({
       goal_session_id: signal.sessionId,
@@ -718,7 +740,7 @@ class TradeExecutionEngine {
       type: 'trade_entry',
       priority: 'urgent',
       title: `Trade Executed: ${signal.symbol}`,
-      message: `${signal.direction.toUpperCase()} trade opened at ${actualEntryPrice.toFixed(5)}. SL: ${adjustedSL.toFixed(5)}, TP: ${adjustedTP.toFixed(5)}. Expected R:R = ${signal.riskReward.toFixed(2)}:1`,
+      message: `${signal.direction.toUpperCase()} trade opened at ${actualEntryPrice.toFixed(5)}. SL: ${adjustedSL.toFixed(5)}, ${notificationTpMessage}. Expected R:R = ${signal.riskReward.toFixed(2)}:1`,
       metadata: {
         signal,
         tradeId: trade.id,
@@ -731,7 +753,10 @@ class TradeExecutionEngine {
           lot_size: signal.positionSize,
           confidence: signal.confidence,
           setup_type: signal.setupType,
-          price_shift_pips: totalPriceShift
+          price_shift_pips: totalPriceShift,
+          tp1_price: trade.tp1_price || null,
+          tp2_price: trade.tp2_price || null,
+          tp1_confidence: trade.tp1_confidence || null
         }
       },
       channels: ['in_app']
@@ -759,7 +784,11 @@ class TradeExecutionEngine {
       expectedProfit: signal.expectedProfit,
       riskReward: signal.riskReward,
       autoExecuted: true,
-      goal_session_id: signal.sessionId
+      goal_session_id: signal.sessionId,
+      // Dual TP system from created trade
+      tp1: trade.tp1_price || undefined,
+      tp2: trade.tp2_price || undefined,
+      tp1Confidence: trade.tp1_confidence || undefined
     }, signal.confidence >= 85 ? 'urgent' : signal.confidence >= 75 ? 'high' : 'medium');
 
     return {

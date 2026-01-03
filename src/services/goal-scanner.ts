@@ -53,6 +53,12 @@ export interface TradeSignal {
   reasoning: string;
   riskReward: number;
   expectedProfit: number;
+  // Dual TP system
+  tp1Price?: number;
+  tp2Price?: number;
+  tp1Confidence?: number;
+  tp1Reasoning?: string;
+  tp2Reasoning?: string;
 }
 
 class GoalScanner {

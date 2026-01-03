@@ -17,6 +17,10 @@ interface TradeEntryModalProps {
   riskReward?: number;
   onDismiss: () => void;
   autoExecuted?: boolean;
+  // Dual TP system
+  tp1?: number;
+  tp2?: number;
+  tp1Confidence?: number;
 }
 
 export const TradeEntryModal: React.FC<TradeEntryModalProps> = ({
@@ -34,7 +38,10 @@ export const TradeEntryModal: React.FC<TradeEntryModalProps> = ({
   expectedProfit,
   riskReward,
   onDismiss,
-  autoExecuted = true
+  autoExecuted = true,
+  tp1,
+  tp2,
+  tp1Confidence
 }) => {
   const [countdown, setCountdown] = useState(30);
 
@@ -151,26 +158,59 @@ export const TradeEntryModal: React.FC<TradeEntryModalProps> = ({
               </div>
 
               {/* Price levels */}
-              <div className="grid grid-cols-3 gap-4">
-                <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700/30">
-                  <div className="text-xs text-gray-400 mb-1">Entry Price</div>
-                  <div className="text-lg font-mono font-bold text-white">{entryPrice.toFixed(5)}</div>
-                </div>
-                <div className="bg-red-900/20 rounded-lg p-3 border border-red-500/30">
-                  <div className="text-xs text-red-400 mb-1 flex items-center gap-1">
-                    <AlertTriangle className="w-3 h-3" />
-                    Stop Loss
+              {tp1 && tp2 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700/30">
+                    <div className="text-xs text-gray-400 mb-1">Entry Price</div>
+                    <div className="text-lg font-mono font-bold text-white">{entryPrice.toFixed(5)}</div>
                   </div>
-                  <div className="text-lg font-mono font-bold text-red-400">{stopLoss.toFixed(5)}</div>
-                </div>
-                <div className="bg-emerald-900/20 rounded-lg p-3 border border-emerald-500/30">
-                  <div className="text-xs text-emerald-400 mb-1 flex items-center gap-1">
-                    <Target className="w-3 h-3" />
-                    Take Profit
+                  <div className="bg-red-900/20 rounded-lg p-3 border border-red-500/30">
+                    <div className="text-xs text-red-400 mb-1 flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" />
+                      Stop Loss
+                    </div>
+                    <div className="text-lg font-mono font-bold text-red-400">{stopLoss.toFixed(5)}</div>
                   </div>
-                  <div className="text-lg font-mono font-bold text-emerald-400">{takeProfit.toFixed(5)}</div>
+                  <div className="bg-cyan-900/20 rounded-lg p-3 border border-cyan-500/30">
+                    <div className="text-xs text-cyan-400 mb-1 flex items-center gap-1">
+                      <Target className="w-3 h-3" />
+                      TP1 (Conservative)
+                    </div>
+                    <div className="text-lg font-mono font-bold text-cyan-400">{tp1.toFixed(5)}</div>
+                    {tp1Confidence && (
+                      <div className="text-xs text-cyan-300 mt-1">{tp1Confidence}% likely</div>
+                    )}
+                  </div>
+                  <div className="bg-emerald-900/20 rounded-lg p-3 border border-emerald-500/30">
+                    <div className="text-xs text-emerald-400 mb-1 flex items-center gap-1">
+                      <Target className="w-3 h-3" />
+                      TP2 (Full Target)
+                    </div>
+                    <div className="text-lg font-mono font-bold text-emerald-400">{tp2.toFixed(5)}</div>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700/30">
+                    <div className="text-xs text-gray-400 mb-1">Entry Price</div>
+                    <div className="text-lg font-mono font-bold text-white">{entryPrice.toFixed(5)}</div>
+                  </div>
+                  <div className="bg-red-900/20 rounded-lg p-3 border border-red-500/30">
+                    <div className="text-xs text-red-400 mb-1 flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" />
+                      Stop Loss
+                    </div>
+                    <div className="text-lg font-mono font-bold text-red-400">{stopLoss.toFixed(5)}</div>
+                  </div>
+                  <div className="bg-emerald-900/20 rounded-lg p-3 border border-emerald-500/30">
+                    <div className="text-xs text-emerald-400 mb-1 flex items-center gap-1">
+                      <Target className="w-3 h-3" />
+                      Take Profit
+                    </div>
+                    <div className="text-lg font-mono font-bold text-emerald-400">{takeProfit.toFixed(5)}</div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Position Info */}
