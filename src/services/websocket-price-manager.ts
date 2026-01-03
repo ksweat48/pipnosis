@@ -14,7 +14,6 @@
 import { logger, LogCategory } from '@/lib/logger';
 import { isWebSocketEnabled, isCryptoSymbol, WEBSOCKET_CONFIG } from '@/config/websocket-config';
 import { krakenWebSocketClient, KrakenTickData } from './kraken-websocket-client';
-import { metaApiWebSocketClient, MetaApiTickData } from './metaapi-websocket-client';
 
 export interface WebSocketTickData {
   symbol: string;
@@ -71,9 +70,7 @@ class WebSocketPriceManager {
   };
 
   private krakenUnsubscribe: (() => void) | null = null;
-  private metaapiUnsubscribe: (() => void) | null = null;
   private krakenStatusUnsubscribe: (() => void) | null = null;
-  private metaapiStatusUnsubscribe: (() => void) | null = null;
 
   constructor() {
     this.setupVisibilityDetection();
@@ -125,8 +122,10 @@ class WebSocketPriceManager {
     this.startPersistenceLoop();
     this.startTickCounter();
 
+    // Only connect to Kraken (crypto) - MetaAPI browser WebSocket disabled to prevent subscription quota exhaustion
+    // Forex symbols use backend REST polling instead
     krakenWebSocketClient.connect();
-    metaApiWebSocketClient.connect();
+    logger.info(LogCategory.PRICE, '[WebSocketManager] MetaAPI browser WebSocket disabled - using backend REST polling for forex');
 
     this.notifyStatusChange();
   }
@@ -144,17 +143,7 @@ class WebSocketPriceManager {
       });
     });
 
-    this.metaapiUnsubscribe = metaApiWebSocketClient.onTick((tick: MetaApiTickData) => {
-      this.handleTick({
-        symbol: tick.symbol,
-        bid: tick.bid,
-        ask: tick.ask,
-        mid: (tick.bid + tick.ask) / 2,
-        spread: tick.ask - tick.bid,
-        timestamp: tick.timestamp,
-        source: 'metaapi-ws',
-      });
-    });
+    // MetaAPI browser WebSocket disabled - forex symbols use backend REST polling
   }
 
   private setupStatusListeners(): void {
@@ -163,10 +152,8 @@ class WebSocketPriceManager {
       this.notifyStatusChange();
     });
 
-    this.metaapiStatusUnsubscribe = metaApiWebSocketClient.onStatusChange((metaapiStatus) => {
-      this.status.metaapiConnected = metaapiStatus.connected && metaapiStatus.synchronized;
-      this.notifyStatusChange();
-    });
+    // MetaAPI browser WebSocket disabled - status always false
+    this.status.metaapiConnected = false;
   }
 
   private handleTick(tick: WebSocketTickData): void {
@@ -253,7 +240,7 @@ class WebSocketPriceManager {
     this.isRunning = false;
 
     krakenWebSocketClient.disconnect();
-    metaApiWebSocketClient.disconnect();
+    // MetaAPI browser WebSocket not used - no need to disconnect
 
     this.cleanupListeners();
     this.stopPersistenceLoop();
@@ -273,18 +260,11 @@ class WebSocketPriceManager {
       this.krakenUnsubscribe();
       this.krakenUnsubscribe = null;
     }
-    if (this.metaapiUnsubscribe) {
-      this.metaapiUnsubscribe();
-      this.metaapiUnsubscribe = null;
-    }
     if (this.krakenStatusUnsubscribe) {
       this.krakenStatusUnsubscribe();
       this.krakenStatusUnsubscribe = null;
     }
-    if (this.metaapiStatusUnsubscribe) {
-      this.metaapiStatusUnsubscribe();
-      this.metaapiStatusUnsubscribe = null;
-    }
+    // MetaAPI listeners not used
   }
 
   private stopPersistenceLoop(): void {
@@ -346,19 +326,22 @@ class WebSocketPriceManager {
 
   isConnected(symbol?: string): boolean {
     if (!symbol) {
-      return this.status.krakenConnected || this.status.metaapiConnected;
+      return this.status.krakenConnected;
     }
 
+    // Only crypto symbols use browser WebSocket (Kraken)
+    // Forex symbols use backend REST polling
     if (isCryptoSymbol(symbol)) {
       return this.status.krakenConnected;
     }
 
-    return this.status.metaapiConnected;
+    return false; // Forex symbols don't use browser WebSocket
   }
 
   getSourceForSymbol(symbol: string): 'kraken-ws' | 'metaapi-ws' | null {
     if (!this.isConnected(symbol)) return null;
-    return isCryptoSymbol(symbol) ? 'kraken-ws' : 'metaapi-ws';
+    // Only crypto uses browser WebSocket (Kraken), forex uses backend REST polling
+    return isCryptoSymbol(symbol) ? 'kraken-ws' : null;
   }
 }
 
