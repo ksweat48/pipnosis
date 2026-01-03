@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { TRADE_CONSTRAINTS } from '../config/trade-constraints';
 
 export interface KellyInputs {
   winRate: number; // 0-1 (e.g., 0.55 for 55%)
@@ -17,13 +18,20 @@ export interface KellySizingResult {
   reasoning: string;
   kellyMultiplier: number; // How many times Kelly we're using
   edgeStrength: 'negative' | 'weak' | 'moderate' | 'strong';
+  advisory?: {
+    level: 'INFO' | 'WARNING' | 'CRITICAL';
+    message: string;
+    suggestion: string;
+  };
 }
 
 class KellyCriterionSizer {
-  private readonly FRACTIONAL_KELLY = 0.25; // Use 25% of Kelly for safety
-  private readonly MIN_WIN_RATE = 0.35; // Minimum win rate to trade
-  private readonly MIN_EDGE = 0.01; // Minimum edge (1%)
-  private readonly MAX_RISK_PER_TRADE = 0.05; // UPDATED: Max 5% for aggressive mode (was 2%)
+  // Pull constants from centralized config
+  private readonly FRACTIONAL_KELLY = TRADE_CONSTRAINTS.positionSizing.kelly.fractionalMultiplier;
+  private readonly MIN_WIN_RATE_ADVISORY = TRADE_CONSTRAINTS.positionSizing.kelly.minWinRateAdvisory;
+  private readonly MIN_EDGE_ADVISORY = TRADE_CONSTRAINTS.positionSizing.kelly.minEdgeAdvisory;
+  private readonly MAX_RISK_PER_TRADE = TRADE_CONSTRAINTS.positionSizing.kelly.maxRiskCap;
+  private readonly MIN_LOT_SIZE = TRADE_CONSTRAINTS.positionSizing.kelly.minLotSize;
 
   calculateOptimalSize(inputs: KellyInputs): KellySizingResult {
     const { winRate, avgWinPips, avgLossPips, currentBalance, symbol, userId } = inputs;
@@ -56,21 +64,39 @@ class KellyCriterionSizer {
       edgeStrength = 'strong';
     }
 
-    // Safety checks
-    if (winRate < this.MIN_WIN_RATE) {
-      return this.rejectTrade(
-        'Win rate too low',
-        `Win rate of ${(winRate * 100).toFixed(1)}% is below minimum ${(this.MIN_WIN_RATE * 100).toFixed(0)}%`,
-        edgeStrength
-      );
+    // ADVISORY checks (no longer block trades)
+    let advisory: KellySizingResult['advisory'] | undefined;
+
+    if (winRate < this.MIN_WIN_RATE_ADVISORY) {
+      advisory = {
+        level: 'WARNING',
+        message: `Win rate ${(winRate * 100).toFixed(1)}% below professional standard ${(this.MIN_WIN_RATE_ADVISORY * 100).toFixed(0)}%`,
+        suggestion: 'Use minimum sizing or paper trade until consistency improves'
+      };
+    } else if (fullKelly <= 0 || edgePercent < this.MIN_EDGE_ADVISORY) {
+      advisory = {
+        level: 'CRITICAL',
+        message: `Kelly criterion indicates negative or minimal edge. Edge: ${(edgePercent * 100).toFixed(2)}%`,
+        suggestion: 'Strongly consider NO_TRADE or reduce to minimum lot size'
+      };
     }
 
-    if (fullKelly <= 0 || edgePercent < this.MIN_EDGE) {
-      return this.rejectTrade(
-        'No positive edge',
-        `Kelly criterion indicates no edge. Edge: ${(edgePercent * 100).toFixed(2)}%`,
-        edgeStrength
-      );
+    // If advisory triggered, use minimum lot size instead of zero
+    if (advisory) {
+      const minRiskAmount = currentBalance * 0.005; // 0.5% minimum risk
+      const pipValue = this.getPipValue(symbol);
+      const minLotSize = this.MIN_LOT_SIZE;
+
+      return {
+        optimalFraction: fullKelly <= 0 ? 0 : fullKelly,
+        conservativeFraction: 0.005, // 0.5% minimum risk
+        recommendedLotSize: minLotSize,
+        riskAmount: minLotSize * avgLossPips * pipValue,
+        reasoning: `⚠️ ADVISORY: ${advisory.message}. Using minimum lot size ${minLotSize}. RR: ${rewardRiskRatio.toFixed(2)}:1. Win rate: ${(winRate * 100).toFixed(1)}%. ${advisory.suggestion}`,
+        kellyMultiplier: this.FRACTIONAL_KELLY,
+        edgeStrength,
+        advisory
+      };
     }
 
     // Apply fractional Kelly for safety
@@ -112,17 +138,6 @@ class KellyCriterionSizer {
     };
   }
 
-  private rejectTrade(reason: string, details: string, edgeStrength: 'negative' | 'weak' | 'moderate' | 'strong'): KellySizingResult {
-    return {
-      optimalFraction: 0,
-      conservativeFraction: 0,
-      recommendedLotSize: 0,
-      riskAmount: 0,
-      reasoning: `❌ TRADE REJECTED: ${reason}. ${details}`,
-      kellyMultiplier: 0,
-      edgeStrength
-    };
-  }
 
   private getPipValue(symbol: string): number {
     // Standard pip values for common pairs (per standard lot)

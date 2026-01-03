@@ -6,11 +6,17 @@
  *
  * Runs BEFORE Omega-9 constraint generation to prevent deadlock scenarios.
  *
+ * AUTHORITY MODEL (Post-Refactor):
+ * - ATR% gates are ADVISORY (quality heuristics, not mathematical blocks)
+ * - Spread validation is HARD (mathematical impossibility)
+ * - Data staleness is HARD (safety)
+ * - RR infeasibility is ADVISORY unless spread makes it mathematically impossible
+ * - Alpha has final authority on all ADVISORY constraints
+ *
  * Philosophy:
- * - ATR% gates determine if a style is valid
- * - RR math validates if constraints can coexist
- * - Auto-adjustments stay within safe bounds
- * - Transparent explanations for all decisions
+ * - Heuristics guide intelligence
+ * - Safety and physics enforce reality
+ * - Alpha decides, constraints advise
  */
 
 import type {
@@ -23,6 +29,11 @@ import type {
   AdjustmentReason
 } from '../types/trade-feasibility-resolver.types';
 import { logger, LogCategory } from '../lib/logger';
+import {
+  TRADE_CONSTRAINTS,
+  getAtrGate,
+  getSlFloor
+} from '../config/trade-constraints';
 
 export interface ITradeFeasibilityResolver {
   resolve(input: FeasibilityInput): FeasibilityResult;
@@ -30,30 +41,9 @@ export interface ITradeFeasibilityResolver {
 
 class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
   /**
-   * ATR% thresholds for style validity (asset-class aware)
+   * ATR% thresholds moved to centralized config (TRADE_CONSTRAINTS)
+   * These are now ADVISORY quality gates, not blocking constraints
    */
-  private readonly ATR_GATES = {
-    CRYPTO: {
-      SCALP: 0.20,      // 0.20% minimum for crypto scalping
-      INTRADAY: 0.10,   // 0.10% minimum for crypto intraday
-      SWING: 0.05       // 0.05% minimum for crypto swing
-    },
-    FOREX: {
-      SCALP: 0.05,      // 0.05% minimum for forex scalping
-      INTRADAY: 0.03,   // 0.03% minimum for forex intraday
-      SWING: 0.02       // 0.02% minimum for forex swing
-    },
-    METAL: {
-      SCALP: 0.08,      // Metals have moderate volatility
-      INTRADAY: 0.05,
-      SWING: 0.03
-    },
-    INDEX: {
-      SCALP: 0.06,
-      INTRADAY: 0.04,
-      SWING: 0.02
-    }
-  };
 
   /**
    * Main resolver entry point
@@ -82,7 +72,7 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
       blockers.push(spreadCheck.blocker);
     }
 
-    // Step 3: Validate style against ATR% gates
+    // Step 3: Validate style against ATR% gates (ADVISORY ONLY)
     let resolvedStyle = input.requestedStyle;
     let resolvedRiskMode = input.requestedRiskMode;
 
@@ -93,7 +83,7 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
     );
 
     if (!styleValid) {
-      // Try auto-switching to less aggressive style
+      // ADVISORY: Suggest auto-switching to less aggressive style
       const switchResult = this.autoSwitchStyle(
         input.assetClass,
         resolvedStyle,
@@ -101,7 +91,8 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
         input.policy.allowAutoSwitchStyle
       );
 
-      if (switchResult.newStyle) {
+      if (switchResult.newStyle && input.policy.allowAutoSwitchStyle) {
+        // Auto-switch enabled - adjust to better style
         adjustments.push({
           field: 'style',
           from: resolvedStyle,
@@ -109,12 +100,25 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
           reason: 'LOW_VOLATILITY_FOR_STYLE'
         });
         resolvedStyle = switchResult.newStyle;
+        logger.info(
+          LogCategory.AI_TRADING,
+          `[Feasibility Resolver] ADVISORY: Auto-switched ${input.requestedStyle} → ${switchResult.newStyle} due to low ATR ${input.atrPercent.toFixed(2)}%`
+        );
       } else {
-        // Style switch not possible/allowed - may need to block
-        blockers.push({
+        // No auto-switch - add advisory warning but DO NOT BLOCK
+        const gate = getAtrGate(input.assetClass, resolvedStyle);
+        adjustments.push({
+          field: 'style',
+          from: resolvedStyle,
+          to: resolvedStyle, // No change
           reason: 'LOW_VOLATILITY_FOR_STYLE',
-          detail: switchResult.blockMessage || `${resolvedStyle} requires ATR >= ${this.getAtrGate(input.assetClass, resolvedStyle).toFixed(2)}%, current: ${input.atrPercent.toFixed(2)}%`
+          advisory: true,
+          detail: `⚠️ ADVISORY: ${resolvedStyle} typically requires ATR >= ${(gate * 100).toFixed(2)}%, current: ${(input.atrPercent * 100).toFixed(2)}%. Consider INTRADAY or SWING for current volatility. Alpha may proceed with justification.`
         });
+        logger.warn(
+          LogCategory.AI_TRADING,
+          `[Feasibility Resolver] ADVISORY WARNING: ${resolvedStyle} below optimal ATR gate (${(gate * 100).toFixed(2)}% vs ${(input.atrPercent * 100).toFixed(2)}%). Proceeding with advisory.`
+        );
       }
     }
 
@@ -146,9 +150,7 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
       resolvedStyle = cascadeResult.style;
       resolvedRiskMode = cascadeResult.riskMode;
 
-      if (cascadeResult.blocker) {
-        blockers.push(cascadeResult.blocker);
-      } else if (cascadeResult.finalSlMinPercent && cascadeResult.finalRR) {
+      if (cascadeResult.finalSlMinPercent && cascadeResult.finalRR) {
         // Cascade succeeded - update final constraints
         const finalPlan = this.buildResolvedPlan(
           resolvedStyle,
@@ -172,10 +174,24 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
             spreadImpact: spreadCheck.impactPercent
           }
         );
+      } else {
+        // Cascade couldn't achieve target RR - add ADVISORY warning but proceed
+        adjustments.push({
+          field: 'rr',
+          from: rrAchievable,
+          to: rrAchievable,
+          reason: 'RR_BELOW_TARGET',
+          advisory: true,
+          detail: `⚠️ ADVISORY: R:R ${rrAchievable.toFixed(2)}:1 below professional target ${input.policy.minRR}:1. TP ceiling ${tpCeilingPercent.toFixed(2)}% / SL floor ${slMinPercent.toFixed(2)}%. Alpha may proceed with explicit justification.`
+        });
+        logger.warn(
+          LogCategory.AI_TRADING,
+          `[Feasibility Resolver] ADVISORY: RR ${rrAchievable.toFixed(2)}:1 below target ${input.policy.minRR}:1. Proceeding with Alpha's discretion.`
+        );
       }
     }
 
-    // Step 6: Handle blockers
+    // Step 6: Handle HARD blockers only (spread, data staleness)
     if (blockers.length > 0 || spreadCheck.blocker) {
       const allBlockers = [...blockers];
       if (spreadCheck.blocker) {
@@ -189,7 +205,7 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
         blockers: allBlockers,
         tryAlternatives: {
           betterVolatilityNeeded: true,
-          suggestedMinAtrPercent: this.getAtrGate(input.assetClass, 'INTRADAY')
+          suggestedMinAtrPercent: getAtrGate(input.assetClass, 'INTRADAY')
         },
         diagnostics: {
           requestedStyleValid: styleValid,
@@ -230,66 +246,42 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
   }
 
   /**
-   * Check if requested style is valid for current ATR%
+   * Check if requested style meets ADVISORY ATR% threshold
    */
   private isStyleValid(
     assetClass: FeasibilityInput['assetClass'],
     style: TradeStyle,
     atrPercent: number
   ): boolean {
-    const gate = this.getAtrGate(assetClass, style);
+    const gate = getAtrGate(assetClass, style);
     return atrPercent >= gate;
   }
 
   /**
-   * Get ATR% gate for a given asset class and style
-   */
-  private getAtrGate(
-    assetClass: FeasibilityInput['assetClass'],
-    style: TradeStyle
-  ): number {
-    return this.ATR_GATES[assetClass]?.[style] || 0.05;
-  }
-
-  /**
-   * Get minimum SL percentage for asset class + risk mode
+   * Get minimum SL percentage for asset class + risk mode (ADVISORY)
+   * Uses centralized configuration
    */
   private getSlMinPercent(
     assetClass: FeasibilityInput['assetClass'],
     riskMode: RiskMode
   ): number {
-    // Default SL floors by asset class and risk mode
-    const SL_FLOORS: Record<string, number> = {
-      'CRYPTO:HIGH': 0.50,
-      'CRYPTO:MEDIUM': 1.00,
-      'CRYPTO:LOW': 2.00,
-      'FOREX:HIGH': 0.05,
-      'FOREX:MEDIUM': 0.08,
-      'FOREX:LOW': 0.12,
-      'METAL:HIGH': 0.15,
-      'METAL:MEDIUM': 0.25,
-      'METAL:LOW': 0.40,
-      'INDEX:HIGH': 0.10,
-      'INDEX:MEDIUM': 0.15,
-      'INDEX:LOW': 0.25
-    };
-
-    return SL_FLOORS[`${assetClass}:${riskMode}`] || 0.50;
+    return getSlFloor(assetClass, riskMode);
   }
 
   /**
-   * Auto-switch style if current style is invalid
+   * Auto-switch style if current style is below ADVISORY threshold
+   * Returns suggestion, does not enforce
    */
   private autoSwitchStyle(
     assetClass: FeasibilityInput['assetClass'],
     currentStyle: TradeStyle,
     atrPercent: number,
     allowAutoSwitch: boolean
-  ): { newStyle: TradeStyle | null; blockMessage?: string } {
+  ): { newStyle: TradeStyle | null; advisoryMessage?: string } {
     if (!allowAutoSwitch) {
       return {
         newStyle: null,
-        blockMessage: `Style switching disabled. ${currentStyle} requires higher volatility.`
+        advisoryMessage: `Style switching disabled. ${currentStyle} below recommended ATR threshold.`
       };
     }
 
@@ -302,15 +294,16 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
       if (this.isStyleValid(assetClass, candidateStyle, atrPercent)) {
         logger.info(
           LogCategory.AI_TRADING,
-          `[Feasibility Resolver] Auto-switched: ${currentStyle} → ${candidateStyle}`
+          `[Feasibility Resolver] Auto-switch suggestion: ${currentStyle} → ${candidateStyle}`
         );
         return { newStyle: candidateStyle };
       }
     }
 
+    const swingGate = getAtrGate(assetClass, 'SWING');
     return {
       newStyle: null,
-      blockMessage: `Even SWING style requires ATR >= ${this.getAtrGate(assetClass, 'SWING').toFixed(2)}%, current: ${atrPercent.toFixed(2)}%`
+      advisoryMessage: `Even SWING style advisory threshold is ATR >= ${(swingGate * 100).toFixed(2)}%, current: ${(atrPercent * 100).toFixed(2)}%`
     };
   }
 
@@ -329,7 +322,7 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
     riskMode: RiskMode;
     finalSlMinPercent?: number;
     finalRR?: number;
-    blocker?: { reason: AdjustmentReason; detail: string };
+    advisory?: string;
   } {
     // Try 1: Downgrade risk mode (reduces SL floor)
     if (input.policy.allowAutoDowngradeRisk) {
@@ -398,14 +391,12 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
       }
     }
 
-    // All adjustments failed - return blocker
+    // All adjustments failed - return advisory (NOT blocker)
+    const maxRR = ((input.atrPercent * tpMaxMultiple) / currentSlMin).toFixed(2);
     return {
       style: currentStyle,
       riskMode: currentRiskMode,
-      blocker: {
-        reason: 'RR_INFEASIBLE',
-        detail: `Cannot achieve ${input.policy.minRR}:1 R:R. TP ceiling ${(input.atrPercent * tpMaxMultiple).toFixed(2)}% too low for SL floor ${currentSlMin.toFixed(2)}%. Maximum R:R: ${((input.atrPercent * tpMaxMultiple) / currentSlMin).toFixed(2)}:1`
-      }
+      advisory: `⚠️ ADVISORY: Cannot achieve professional target ${input.policy.minRR}:1 R:R. TP ceiling ${(input.atrPercent * tpMaxMultiple).toFixed(2)}% / SL floor ${currentSlMin.toFixed(2)}% yields maximum R:R ${maxRR}:1. Alpha may proceed with lower R:R if setup quality justifies it.`
     };
   }
 

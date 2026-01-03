@@ -19,6 +19,7 @@ export type FeasibilityStatus =
 export type AdjustmentReason =
   | "LOW_VOLATILITY_FOR_STYLE"
   | "RR_INFEASIBLE"
+  | "RR_BELOW_TARGET"
   | "TP_CEILING_TOO_LOW"
   | "SL_FLOOR_TOO_HIGH"
   | "BROKER_CONSTRAINTS"
@@ -118,10 +119,12 @@ export interface FeasibilityResult {
 
   // Explains exactly what changed and why
   adjustments: Array<{
-    field: "style" | "riskMode" | "sl.minPercent" | "tp.maxAtrMultiple";
+    field: "style" | "riskMode" | "sl.minPercent" | "tp.maxAtrMultiple" | "rr";
     from: any;
     to: any;
     reason: AdjustmentReason;
+    advisory?: boolean;       // If true, this is advisory guidance, not a mandatory adjustment
+    detail?: string;          // Additional context for advisory warnings
   }>;
 
   // Deterministic explanation for logs + UI

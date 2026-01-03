@@ -126,13 +126,10 @@ class ProfessionalRiskManager {
 
     const kelly = kellyCriterionSizer.calculateOptimalSize(kellyInputs);
 
-    if (kelly.recommendedLotSize === 0) {
-      return this.buildRejectionResponse(
-        'KELLY CRITERION REJECTION',
-        kelly.reasoning,
-        ['Strategy has no positive edge', 'Do not take this trade'],
-        { kelly, winRateRR }
-      );
+    // Kelly now returns advisory warnings instead of blocking (minimum lot size with warnings)
+    if (kelly.advisory) {
+      criticalWarnings.push(`⚠️ Kelly: ${kelly.advisory.message}`);
+      recommendations.push(kelly.advisory.suggestion);
     }
 
     // Step 5: EV Gating
@@ -155,16 +152,12 @@ class ProfessionalRiskManager {
 
     const evGate = evGatingSystem.evaluateTrade(evGateInputs);
 
-    if (!evGate.approved) {
-      return this.buildRejectionResponse(
-        'NEGATIVE EXPECTED VALUE',
-        evGate.reasoning,
-        evGate.recommendations,
-        { kelly, evGate, marketCondition, winRateRR }
-      );
-    }
-
-    if (evGate.confidenceLevel === 'low' || evGate.confidenceLevel === 'very-low') {
+    // EV Gate is now always approved (advisory mode)
+    // Provide warnings based on confidence level
+    if (evGate.confidenceLevel === 'very-low') {
+      criticalWarnings.push('⚠️ CRITICAL: Negative expected value - strongly consider NO_TRADE');
+      recommendations.push(...evGate.recommendations);
+    } else if (evGate.confidenceLevel === 'low') {
       criticalWarnings.push('⚠️ Low expected value - marginal trade');
       recommendations.push(...evGate.recommendations);
     }
@@ -194,10 +187,11 @@ class ProfessionalRiskManager {
 
     const correlation = await correlationRiskManager.checkCorrelationRisk(correlationInputs);
 
+    // Correlation is advisory - provide warnings but don't block
     if (!correlation.approved) {
-      criticalWarnings.push('⚠️ CORRELATION RISK TOO HIGH');
+      criticalWarnings.push('⚠️ ADVISORY: Correlation risk elevated - consider reducing position size');
       criticalWarnings.push(...correlation.warnings);
-      approved = false;
+      // Don't set approved = false - this is advisory only
     }
 
     // Step 8: Progressive risk scaling

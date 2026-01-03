@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { TRADE_CONSTRAINTS } from '../config/trade-constraints';
 
 export interface EVGateInputs {
   winRate: number; // 0-1
@@ -12,7 +13,7 @@ export interface EVGateInputs {
 }
 
 export interface EVGateResult {
-  approved: boolean;
+  approved: boolean; // Now ALWAYS true (advisory mode)
   expectedValue: number; // In pips per trade
   expectedValueMoney: number; // In account currency
   confidenceLevel: 'high' | 'medium' | 'low' | 'very-low';
@@ -22,9 +23,10 @@ export interface EVGateResult {
 }
 
 class EVGatingSystem {
-  private readonly MIN_EV_THRESHOLD = 0; // Must be positive EV
-  private readonly MIN_EV_COMFORTABLE = 5; // 5 pips minimum for "good" trades
-  private readonly MIN_EV_EXCELLENT = 10; // 10+ pips for "excellent" trades
+  // Pull constants from centralized config
+  private readonly MIN_EV_THRESHOLD = TRADE_CONSTRAINTS.positionSizing.expectedValue.threshold; // 0 = breakeven (advisory)
+  private readonly MIN_EV_COMFORTABLE = TRADE_CONSTRAINTS.positionSizing.expectedValue.minComfortable; // 5 pips
+  private readonly MIN_EV_EXCELLENT = TRADE_CONSTRAINTS.positionSizing.expectedValue.minExcellent; // 10 pips
 
   evaluateTrade(inputs: EVGateInputs): EVGateResult {
     const { winRate, avgWinPips, avgLossPips, proposedLotSize, symbol, marketCondition, sessionQuality } = inputs;
@@ -81,13 +83,14 @@ class EVGatingSystem {
       confidenceLevel = 'very-low';
     }
 
-    // Gate decision
-    const approved = adjustedEV > this.MIN_EV_THRESHOLD;
+    // ADVISORY MODE: Always approve, but provide strong warnings for negative EV
+    const approved = true; // ALWAYS true - Alpha has final authority
 
     // Generate reasoning
     let reasoning = '';
-    if (approved) {
-      reasoning = `✅ TRADE APPROVED: Positive EV of ${adjustedEV.toFixed(2)} pips per trade. `;
+    if (adjustedEV > this.MIN_EV_THRESHOLD) {
+      // Positive EV
+      reasoning = `✅ Positive EV of ${adjustedEV.toFixed(2)} pips per trade. `;
       if (adjustedEV >= this.MIN_EV_EXCELLENT) {
         reasoning += 'Excellent trade opportunity! ';
       } else if (adjustedEV >= this.MIN_EV_COMFORTABLE) {
@@ -96,8 +99,9 @@ class EVGatingSystem {
         reasoning += 'Marginal EV - proceed with caution. ';
       }
     } else {
-      reasoning = `❌ TRADE REJECTED: Negative EV of ${adjustedEV.toFixed(2)} pips per trade. `;
-      reasoning += `This trade is expected to lose money over time. `;
+      // Negative or zero EV - CRITICAL ADVISORY
+      reasoning = `⚠️ ADVISORY: Negative EV of ${adjustedEV.toFixed(2)} pips per trade. `;
+      reasoning += `This trade is expected to lose money over time. Strongly consider NO_TRADE unless high-confidence setup justifies override. `;
     }
 
     reasoning += `Win rate: ${(winRate * 100).toFixed(1)}% (need ${(minWinRateNeeded * 100).toFixed(1)}% to break even). `;
@@ -106,10 +110,13 @@ class EVGatingSystem {
     // Generate recommendations
     const recommendations: string[] = [];
 
-    if (!approved) {
+    if (adjustedEV <= this.MIN_EV_THRESHOLD) {
+      // Negative EV - critical advisory
+      recommendations.push(`⚠️ CRITICAL: Negative expected value`);
       recommendations.push(`Increase win rate to at least ${(minWinRateNeeded * 100).toFixed(0)}%`);
       recommendations.push(`Improve RR ratio to at least ${(1 / winRate - 1).toFixed(2)}:1`);
-      recommendations.push('Wait for better setup with clearer edge');
+      recommendations.push('Strongly recommend waiting for better setup with clearer edge');
+      recommendations.push('If proceeding, use minimum lot size');
     } else if (confidenceLevel === 'low') {
       recommendations.push('Consider waiting for higher EV setup');
       recommendations.push('Reduce position size due to marginal edge');
