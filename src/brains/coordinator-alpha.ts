@@ -1056,7 +1056,16 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
 
       const content = response.choices[0]?.message?.content || '{}';
 
-      let decision = this.parseDecision(content, marketContext.price, marketContext.atr, marketContext.symbol, stopLossAnchor);
+      let decision = this.parseDecision(
+        content,
+        marketContext.price,
+        marketContext.atr,
+        marketContext.symbol,
+        stopLossAnchor,
+        liquidityZones,
+        fullCandles,
+        marketContext
+      );
 
       // CONSTRAINT-FIRST VALIDATION (Phase 1: Check violations, Phase 2: Revision loop, Phase 3: Auto-correction)
       if (decision.action !== 'NO_TRADE' && decision.action !== 'WAIT' && omega9Constraints) {
@@ -1799,7 +1808,10 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
     currentPrice: number,
     atr: number,
     symbol: string,
-    stopLossAnchor: StopLossCalculation | null = null
+    stopLossAnchor: StopLossCalculation | null = null,
+    liquidityZones: LiquidityZone[] = [],
+    fullCandles: any[] = [],
+    marketContext?: MarketContext
   ): AlphaDecision {
     try {
       const cleaned = response
@@ -1948,9 +1960,9 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
             entryPrice: entry,
             stopLoss,
             direction: isBuy ? 'long' : 'short',
-            atr: marketContext.atr,
-            atr20: marketContext.atr20,
-            atr100: marketContext.atr100,
+            atr: marketContext?.atr || atr,
+            atr20: marketContext?.atr20,
+            atr100: marketContext?.atr100,
             liquidityZones,
             recentCandles: fullCandles.slice(-50), // Last 50 candles for momentum
             rsi: fullCandles[fullCandles.length - 1]?.rsi,
