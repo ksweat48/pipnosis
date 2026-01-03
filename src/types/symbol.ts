@@ -191,14 +191,29 @@ export function getSymbolCategory(symbol: ValidatedSymbol): SymbolCategory {
   return 'forex';
 }
 
+/**
+ * @deprecated DO NOT USE - Query via assetClassifier.isCrypto() or assetClassifier.getSymbolsByCategory('crypto')
+ * This constant violates SSOT principles. Use the symbol-registry as the single source of truth.
+ * Hardcoded arrays lead to bugs when adding new symbols.
+ */
 export const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'] as const;
 export type CryptoSymbol = typeof CRYPTO_SYMBOLS[number];
 
+/**
+ * @deprecated Use assetClassifier.isCrypto(symbol) instead
+ * This function hardcodes crypto symbols instead of querying the registry.
+ */
 export function isCryptoSymbol(symbol: string): boolean {
+  console.warn('[DEPRECATED] isCryptoSymbol() is deprecated - use assetClassifier.isCrypto() instead');
   return CRYPTO_SYMBOLS.includes(symbol.toUpperCase() as CryptoSymbol);
 }
 
+/**
+ * @deprecated Use assetClassifier.is24HourMarket(symbol) instead
+ * This function hardcodes 24/7 symbols instead of querying the registry.
+ */
 export function is24HourSymbol(symbol: string): boolean {
+  console.warn('[DEPRECATED] is24HourSymbol() is deprecated - use assetClassifier.is24HourMarket() instead');
   return isCryptoSymbol(symbol);
 }
 

@@ -12,7 +12,15 @@
  * - Volatility Regime (ATR, wicks, spread)
  * - Trend & Structure (EMA alignment, market phase)
  * - Safety Flags (avoid_trading, risk reduction)
+ *
+ * SSOT COMPLIANCE:
+ * - Session constraints delegated to sessionConstraintCoordinator
+ * - Asset classification delegated to assetClassifier
+ * - NO hardcoded symbol checks - all queries go through coordinators
  */
+
+import { sessionConstraintCoordinator } from './session-constraint-coordinator';
+import { assetClassifier } from './asset-classifier';
 
 export interface Candle {
   open: number;
@@ -275,11 +283,10 @@ class RegimeOracle {
    * UPDATED: Dead zone is now a RISK MODIFIER, not a trade blocker.
    * Alpha has final authority - no rule-based system may block trades.
    *
-   * Symbol-specific session profiles:
-   * - EURUSD/GBPUSD: True dead zone 21:00-00:00 UTC
-   * - XAUUSD: Semi-active in all sessions
-   * - USDJPY: ACTIVE after 23:00 UTC (Tokyo session)
-   * - US30: Low volume after NY close
+   * SSOT COMPLIANCE:
+   * - Session weight delegated to sessionConstraintCoordinator
+   * - 24/7 markets automatically exempt from session logic
+   * - NO hardcoded symbol checks
    */
   private computeSafetyFlags(
     time: TimeRegime,
@@ -299,14 +306,24 @@ class RegimeOracle {
     if (time.is_dead_zone) {
       deadZoneActive = true;
 
-      // Get symbol-specific session weight
+      // Get symbol-specific session weight via coordinator (SSOT)
       if (symbol && timestamp) {
-        sessionWeight = this.getSymbolSessionWeight(symbol, timestamp.getUTCHours());
-        riskFactor = Math.min(riskFactor, sessionWeight);
+        // Check if this symbol requires session constraints
+        if (sessionConstraintCoordinator.shouldApplySessionWeight(symbol)) {
+          sessionWeight = sessionConstraintCoordinator.getSessionWeight({
+            symbol,
+            hour: timestamp.getUTCHours(),
+            session: time.session
+          });
+          riskFactor = Math.min(riskFactor, sessionWeight);
 
-        if (sessionWeight < 1.0) {
-          isHighRisk = true;
-          reason = reason || `Low liquidity period (${(sessionWeight * 100).toFixed(0)}% confidence)`;
+          if (sessionWeight < 1.0) {
+            isHighRisk = true;
+            reason = reason || `Low liquidity period (${(sessionWeight * 100).toFixed(0)}% confidence)`;
+          }
+        } else {
+          // 24/7 market - no session penalty
+          console.log(`[Regime Oracle] ${symbol} is 24/7 market - no dead zone penalty applied`);
         }
       } else {
         // Default dead zone penalty if symbol not provided
@@ -375,38 +392,20 @@ class RegimeOracle {
   }
 
   /**
-   * Get symbol-specific session weight
-   * Different symbols have different activity levels during various sessions
+   * DEPRECATED: Get symbol-specific session weight
+   *
+   * This method has been moved to sessionConstraintCoordinator (SSOT).
+   * Kept for backward compatibility during transition.
+   *
+   * @deprecated Use sessionConstraintCoordinator.getSessionWeight() instead
    */
   private getSymbolSessionWeight(symbol: string, hour: number): number {
-    switch(symbol) {
-      case 'EURUSD':
-      case 'GBPUSD':
-        // European pairs - true dead zone during NY close
-        if (hour >= 21 || hour < 0) return 0.55;  // 21:00-00:00 UTC: 45% reduction
-        if (hour < 7) return 0.75;                 // 00:00-07:00 UTC (Asian): 25% reduction
-        return 1.0;
-
-      case 'XAUUSD':
-        // Gold - semi-active in all sessions
-        if (hour >= 21 || hour < 0) return 0.85;  // Still trades but lower liquidity
-        return 1.0;
-
-      case 'USDJPY':
-        // Japanese Yen - ACTIVE after 23:00 UTC (Tokyo session starts)
-        if (hour >= 23 || hour < 7) return 1.0;   // Tokyo active hours - NO penalty!
-        return 0.9;                                // Slightly reduced outside Tokyo
-
-      case 'US30':
-        // US30 - low volume after NY close
-        if (hour >= 21 || hour < 1) return 0.70;  // 30% reduction
-        return 1.0;
-
-      default:
-        // Unknown symbol - apply moderate dead zone penalty
-        if (hour >= 21 || hour < 0) return 0.70;
-        return 1.0;
-    }
+    console.warn('[Regime Oracle] getSymbolSessionWeight is DEPRECATED - use sessionConstraintCoordinator.getSessionWeight()');
+    return sessionConstraintCoordinator.getSessionWeight({
+      symbol,
+      hour,
+      session: hour >= 13 && hour < 21 ? 'ny' : hour >= 8 && hour < 16 ? 'london' : hour < 8 ? 'asian' : 'dead'
+    });
   }
 
   /**

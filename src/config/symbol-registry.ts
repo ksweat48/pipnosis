@@ -468,7 +468,14 @@ export function is24HourMarket(symbol: string): boolean {
 
 export const ALL_SYMBOLS = Object.keys(SYMBOL_REGISTRY);
 export const FOREX_SYMBOLS = getSymbolsByCategory('forex');
+
+/**
+ * @deprecated DO NOT USE directly - Query via assetClassifier.getSymbolsByCategory('crypto')
+ * This constant is kept for backward compatibility but should not be used in new code.
+ * Use the SSOT: assetClassifier service for all asset classification queries.
+ */
 export const CRYPTO_SYMBOLS = getSymbolsByCategory('crypto');
+
 export const INDEX_SYMBOLS = getSymbolsByCategory('index');
 export const METAL_SYMBOLS = getSymbolsByCategory('metal');
 export const ENERGY_SYMBOLS = getSymbolsByCategory('energy');

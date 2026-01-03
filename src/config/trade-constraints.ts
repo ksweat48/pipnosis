@@ -121,9 +121,10 @@ export const TRADE_CONSTRAINTS = {
     applyHardConstraintsTo: ['SCALP'] as TradeStyle[],  // Only SCALP has hard session limits
     applyAdvisoryTo: ['INTRADAY'] as TradeStyle[],      // INTRADAY gets advisory warnings
     ignoreFor: ['SWING'] as TradeStyle[],               // SWING ignores session boundaries
+    exemptMarketSchedules: ['24/7'] as const,           // 24/7 markets (crypto) ignore ALL session constraints
     feasibilityFactor: 0.8,                             // Use 80% of session time for feasibility
     authority: 'ADVISORY' as ConstraintAuthority,
-    description: 'Session time management - SCALP constrained, INTRADAY advisory, SWING unconstrained'
+    description: 'Session time management - SCALP constrained, INTRADAY advisory, SWING unconstrained. 24/7 markets (crypto) ALWAYS exempt.'
   },
 
   safetyZones: {

@@ -2,6 +2,10 @@
  * Services Index - Export all service modules
  */
 
+// SSOT Infrastructure - Single Source of Truth for Asset and Session Logic
+export * from './asset-classifier';
+export * from './session-constraint-coordinator';
+
 // Autonomous Pipnosis Alpha Services
 export * from './ai-identity';
 export * from './reward-engine';

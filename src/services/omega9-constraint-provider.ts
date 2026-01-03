@@ -11,10 +11,17 @@
  * This separates:
  * 1. Constraint Generation (this service) - runs BEFORE Alpha decides
  * 2. Catastrophic Validation (Omega-9) - runs AFTER Alpha decides
+ *
+ * SSOT COMPLIANCE:
+ * - Session constraints delegated to sessionConstraintCoordinator
+ * - Asset classification delegated to assetClassifier
+ * - NO hardcoded symbol checks - all queries go through coordinators
  */
 
 import { calculatePipDistance } from '../utils/currencyHelpers';
 import { riskAwareStopCalculator } from './risk-aware-stop-calculator';
+import { sessionConstraintCoordinator } from './session-constraint-coordinator';
+import { assetClassifier } from './asset-classifier';
 import type {
   Omega9Constraints,
   Omega9ConstraintInput,
@@ -59,7 +66,8 @@ class Omega9ConstraintProvider {
     });
 
     // Calculate feasible travel distance (used for all styles, applied differently)
-    const volatilityPerHour = this.estimateVolatilityPerHour(atr, volatilityRegime, currentSession);
+    // SSOT: volatility calculation delegates to session constraint coordinator
+    const volatilityPerHour = this.estimateVolatilityPerHour(symbol, atr, volatilityRegime, currentSession);
     const feasibleTravelPips = (sessionTimeRemainingMinutes / 60) * volatilityPerHour * 0.8; // 80% safety factor
 
     // Base TP maximum from ATR
@@ -67,32 +75,46 @@ class Omega9ConstraintProvider {
       ? atr * resolvedPlan.tpMaxAtrMultiple
       : atr * 12; // 12x ATR as default
 
-    // Apply session-time constraints based on trade style
+    // SSOT: Get session constraint policy from coordinator
+    const sessionConstraintPolicy = sessionConstraintCoordinator.getSessionConstraintPolicy(symbol, tradeStyle);
+
+    // Apply session-time constraints based on policy
     let maxTakeProfitPips: number;
     let sessionConstraintMode: 'BLOCKING' | 'ADVISORY' | 'NONE';
     let tpReasoningSuffix = '';
 
-    if (tradeStyle === 'SCALP') {
-      // SCALP: Session-time BLOCKS - trade must complete within current session
-      maxTakeProfitPips = Math.min(atrBasedMaxTP, feasibleTravelPips);
-      sessionConstraintMode = 'BLOCKING';
+    switch (sessionConstraintPolicy) {
+      case 'ENFORCED':
+        // SCALP or forex-hours: Session-time BLOCKS - trade must complete within current session
+        maxTakeProfitPips = Math.min(atrBasedMaxTP, feasibleTravelPips);
+        sessionConstraintMode = 'BLOCKING';
 
-      if (feasibleTravelPips < atrBasedMaxTP) {
-        tpReasoningSuffix = ` | ⚠️ SCALP trades limited by session time: ${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min remaining`;
-      }
-    } else if (tradeStyle === 'INTRADAY') {
-      // INTRADAY: Session-time ADVISORY - trade may extend beyond current session
-      maxTakeProfitPips = atrBasedMaxTP; // No session cap
-      sessionConstraintMode = 'ADVISORY';
+        if (feasibleTravelPips < atrBasedMaxTP) {
+          tpReasoningSuffix = ` | ⚠️ ${tradeStyle} trades limited by session time: ${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min remaining`;
+        }
+        break;
 
-      if (atrBasedMaxTP > feasibleTravelPips) {
-        tpReasoningSuffix = ` | ℹ️ INTRADAY trade may extend beyond current session (${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min, target ${atrBasedMaxTP.toFixed(1)} pips)`;
-      }
-    } else {
-      // SWING: Session-time NONE - multi-session trade
-      maxTakeProfitPips = atrBasedMaxTP; // No session cap
-      sessionConstraintMode = 'NONE';
-      tpReasoningSuffix = ' | SWING trade - session timing not applicable';
+      case 'ADVISORY':
+        // INTRADAY: Session-time ADVISORY - trade may extend beyond current session
+        maxTakeProfitPips = atrBasedMaxTP; // No session cap
+        sessionConstraintMode = 'ADVISORY';
+
+        if (atrBasedMaxTP > feasibleTravelPips) {
+          tpReasoningSuffix = ` | ℹ️ ${tradeStyle} trade may extend beyond current session (${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min, target ${atrBasedMaxTP.toFixed(1)} pips)`;
+        }
+        break;
+
+      case 'NONE':
+        // SWING or 24/7 market: Session-time NONE - no session constraints
+        maxTakeProfitPips = atrBasedMaxTP; // No session cap
+        sessionConstraintMode = 'NONE';
+
+        if (assetClassifier.is24HourMarket(symbol)) {
+          tpReasoningSuffix = ` | 24/7 market - no session constraints`;
+        } else {
+          tpReasoningSuffix = ` | ${tradeStyle} trade - session timing not applicable`;
+        }
+        break;
     }
 
     // Determine the SL we'll use for R:R calculations
@@ -369,8 +391,13 @@ This is CONSTRAINT-FIRST trading: boundaries are transparent, you optimize withi
 
   /**
    * Estimate volatility per hour based on ATR and market conditions
+   *
+   * SSOT COMPLIANCE:
+   * - Session volatility multipliers delegated to sessionConstraintCoordinator
+   * - 24/7 markets automatically get constant volatility profile
    */
   private estimateVolatilityPerHour(
+    symbol: string,
     atr: number,
     volatilityRegime: 'low' | 'medium' | 'high',
     currentSession: string
@@ -385,12 +412,14 @@ This is CONSTRAINT-FIRST trading: boundaries are transparent, you optimize withi
       baseVolatility *= 0.7;
     }
 
-    // Adjust for session (higher during London/NY, lower during Asian)
-    if (currentSession === 'london' || currentSession === 'ny' || currentSession === 'overlap') {
-      baseVolatility *= 1.2;
-    } else if (currentSession === 'asian' || currentSession === 'sydney') {
-      baseVolatility *= 0.8;
-    }
+    // SSOT: Get session volatility multiplier from coordinator
+    // This automatically handles 24/7 markets vs forex-hours markets
+    const sessionMultiplier = sessionConstraintCoordinator.getSessionVolatilityMultiplier(
+      symbol,
+      currentSession as 'asian' | 'london' | 'ny' | 'overlap' | 'sydney' | 'dead'
+    );
+
+    baseVolatility *= sessionMultiplier;
 
     return baseVolatility;
   }
