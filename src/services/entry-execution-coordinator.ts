@@ -129,6 +129,13 @@ export class EntryExecutionCoordinator {
         logger.info(`Adjusted: SL=${adjustedStopLoss.toFixed(5)}, TP=${adjustedTakeProfit.toFixed(5)}`);
       }
 
+      // Extract TP1/TP2 values from Alpha decision (if available)
+      const tp1Price = marketContext?.tp1Price || null;
+      const tp1Confidence = marketContext?.tp1Confidence || null;
+      const tp1Reasoning = marketContext?.tp1Reasoning || null;
+      const tp2Price = marketContext?.tp2Price || adjustedTakeProfit;
+      const tp2Reasoning = marketContext?.tp2Reasoning || null;
+
       const tradeData = {
         user_id: intent.user_id,
         session_id: intent.session_id,
@@ -136,7 +143,12 @@ export class EntryExecutionCoordinator {
         direction: intent.direction,
         entry_price: actualEntryPrice,
         stop_loss: adjustedStopLoss,
-        take_profit: adjustedTakeProfit,
+        take_profit: adjustedTakeProfit, // Legacy field for backward compatibility
+        tp1_price: tp1Price,
+        tp1_confidence: tp1Confidence,
+        tp1_reasoning: tp1Reasoning,
+        tp2_price: tp2Price,
+        tp2_reasoning: tp2Reasoning,
         status: 'open',
         confidence: marketContext?.confidence || 70,
         reasoning: intent.alpha_reasoning,

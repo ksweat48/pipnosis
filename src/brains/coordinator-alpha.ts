@@ -80,6 +80,7 @@ import { dailyNarrativeBuilder, type DailyNarrative } from '../services/daily-na
 import { multiSymbolRanker, type SymbolScore } from '../services/multi-symbol-ranker';
 import { riskAwareStopCalculator, type StopLossCalculation } from '../services/risk-aware-stop-calculator';
 import { eliteProfitTargetCalculator, type LiquidityZone, type TPCalculationResult } from '../services/profit-target-calculator';
+import { tp1ProbabilityCalculator, type TP1Result } from '../services/tp1-probability-calculator';
 import { calculatePipDistance } from '../utils/currencyHelpers';
 import { EntryIntentClassifier } from '../services/entry-intent-classifier';
 import { omega9ConstraintProvider } from '../services/omega9-constraint-provider';
@@ -159,7 +160,12 @@ export interface AlphaDecision {
   decision: 'BUY' | 'SELL' | 'NO_TRADE' | 'WAIT';
   entry: number;
   stopLoss: number;
-  takeProfit: number;
+  takeProfit: number; // Legacy field - maps to tp2Price
+  tp1Price?: number | null; // Conservative high-probability target (80%+ likely)
+  tp1Confidence?: number; // 0-100 probability score for TP1
+  tp1Reasoning?: string; // Alpha's explanation for TP1 placement
+  tp2Price?: number; // Full profit target (standard TP)
+  tp2Reasoning?: string; // Alpha's explanation for TP2 placement
   confidence: number;
   reasoning: string;
   omega_summary: string;
@@ -1929,11 +1935,50 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
 
       console.log(`[Alpha Decision] Stop: ${slPips.toFixed(1)} pips | TP: ${tpPips.toFixed(1)} pips | R:R: ${rr.toFixed(2)}:1`);
 
+      // Calculate TP1 (conservative high-probability target) and TP2 (full target)
+      let tp1Result: TP1Result | null = null;
+      let tp2Price = takeProfit; // TP2 is the standard TP from LLM
+      let tp2Reasoning = `Full profit target at ${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1 R:R)`;
+
+      // Only calculate TP1 if we have liquidity zones and full candle data
+      if (liquidityZones.length > 0 && fullCandles && fullCandles.length > 0) {
+        try {
+          tp1Result = tp1ProbabilityCalculator.calculateTP1({
+            symbol,
+            entryPrice: entry,
+            stopLoss,
+            direction: isBuy ? 'long' : 'short',
+            atr: marketContext.atr,
+            atr20: marketContext.atr20,
+            atr100: marketContext.atr100,
+            liquidityZones,
+            recentCandles: fullCandles.slice(-50), // Last 50 candles for momentum
+            rsi: fullCandles[fullCandles.length - 1]?.rsi,
+            ema20: fullCandles[fullCandles.length - 1]?.ema20,
+            ema50: fullCandles[fullCandles.length - 1]?.ema50
+          });
+
+          if (tp1Result.feasible && tp1Result.tp1Price) {
+            console.log(`[Alpha TP1/TP2] TP1 calculated: ${tp1Result.tp1Price.toFixed(5)} (${tp1Result.tp1Confidence}% confidence)`);
+            console.log(`[Alpha TP1/TP2] ${tp1Result.tp1Reasoning}`);
+          } else {
+            console.log(`[Alpha TP1/TP2] No high-probability TP1 available: ${tp1Result.tp1Reasoning}`);
+          }
+        } catch (error) {
+          console.error('[Alpha TP1/TP2] Error calculating TP1:', error);
+        }
+      }
+
       return {
         action,
         entry,
         stopLoss,
-        takeProfit,
+        takeProfit, // Legacy field for backward compatibility
+        tp1Price: tp1Result?.feasible ? tp1Result.tp1Price : null,
+        tp1Confidence: tp1Result?.tp1Confidence || null,
+        tp1Reasoning: tp1Result?.tp1Reasoning || null,
+        tp2Price,
+        tp2Reasoning,
         confidence: Math.round(Math.min(100, Math.max(0, parsed.confidence || 0))),
         reasoning: parsed.reasoning || 'No reasoning provided',
         omega_summary: ''

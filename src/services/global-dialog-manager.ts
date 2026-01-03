@@ -2,7 +2,7 @@ import TinyEmitter from 'tiny-emitter';
 import { modalNotificationBridge } from './modal-notification-bridge';
 import { supabase } from '../lib/supabase';
 
-export type DialogType = 'goal_achieved' | 'trade_closed' | 'trade_signal' | 'trade_entry';
+export type DialogType = 'goal_achieved' | 'trade_closed' | 'trade_signal' | 'trade_entry' | 'tp1_hit';
 
 export interface DialogData {
   type: DialogType;
@@ -52,6 +52,10 @@ class GlobalDialogManager {
 
   showTradeEntry(data: any, priority: 'low' | 'medium' | 'high' | 'urgent' = 'urgent') {
     this.showDialog('trade_entry', data, priority);
+  }
+
+  showTP1HitDialog(data: any, priority: 'low' | 'medium' | 'high' | 'urgent' = 'urgent') {
+    this.showDialog('tp1_hit', data, priority);
   }
 
   closeDialog() {
