@@ -55,7 +55,9 @@ interface MarketChartProps {
   tradeLines?: {
     entry?: number;
     stopLoss?: number;
-    takeProfit?: number;
+    takeProfit?: number; // Legacy support - will be shown as TP2 if tp1/tp2 not provided
+    tp1?: number; // Conservative high-probability target
+    tp2?: number; // Full profit target
     watchedLevel?: number;
     earlyExitLevel?: number;
   };
@@ -142,7 +144,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const tradeLineRefs = useRef<{
     entry?: any;
     stopLoss?: any;
-    takeProfit?: any;
+    takeProfit?: any; // Legacy
+    tp1?: any; // Conservative target
+    tp2?: any; // Full target
     watchedLevel?: any;
     earlyExitLevel?: any;
   }>({});
@@ -1844,6 +1848,14 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.takeProfit);
       tradeLineRefs.current.takeProfit = undefined;
     }
+    if (tradeLineRefs.current.tp1) {
+      candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.tp1);
+      tradeLineRefs.current.tp1 = undefined;
+    }
+    if (tradeLineRefs.current.tp2) {
+      candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.tp2);
+      tradeLineRefs.current.tp2 = undefined;
+    }
     if (tradeLineRefs.current.watchedLevel) {
       candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.watchedLevel);
       tradeLineRefs.current.watchedLevel = undefined;
@@ -1853,16 +1865,24 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       tradeLineRefs.current.earlyExitLevel = undefined;
     }
 
-    const { entry, stopLoss, takeProfit, watchedLevel, earlyExitLevel } = tradeLines;
+    const { entry, stopLoss, takeProfit, tp1, tp2, watchedLevel, earlyExitLevel } = tradeLines;
+
+    // Determine which TP values to use: prefer tp1/tp2, fallback to legacy takeProfit
+    const useTP1 = tp1 !== undefined && tp1 !== null;
+    const useTP2 = tp2 !== undefined && tp2 !== null;
+    const useLegacyTP = !useTP1 && !useTP2 && takeProfit !== undefined && takeProfit !== null;
 
     console.log(`%c[Chart Lines] Creating trade lines for ${symbol}`, 'color: #00aaff; font-weight: bold');
     console.log(`  Entry Price: ${entry?.toFixed(5) || 'none'}`);
     console.log(`  Stop Loss:   ${stopLoss?.toFixed(5) || 'none'}`);
-    console.log(`  Take Profit: ${takeProfit?.toFixed(5) || 'none'}`);
+    console.log(`  TP1 (Conservative): ${tp1?.toFixed(5) || 'none'}`);
+    console.log(`  TP2 (Full Target): ${tp2?.toFixed(5) || 'none'}`);
+    console.log(`  Legacy Take Profit: ${takeProfit?.toFixed(5) || 'none'}`);
 
-    if (entry && stopLoss && takeProfit) {
+    if (entry && stopLoss && (tp2 || takeProfit)) {
       const slDistance = Math.abs(entry - stopLoss);
-      const tpDistance = Math.abs(entry - takeProfit);
+      const fullTP = tp2 || takeProfit;
+      const tpDistance = Math.abs(entry - fullTP);
       const chartRR = tpDistance / slDistance;
       console.log(`  Chart calculated R:R: 1:${chartRR.toFixed(2)}`);
       console.log(`  SL Distance: ${slDistance.toFixed(5)} (${(slDistance / 0.00001).toFixed(1)} pips for standard pairs)`);
@@ -1891,7 +1911,32 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       });
     }
 
-    if (takeProfit) {
+    // Draw TP1 line (Conservative target) - cyan color
+    if (useTP1) {
+      tradeLineRefs.current.tp1 = candlestickSeriesRef.current.createPriceLine({
+        price: tp1,
+        color: '#06b6d4', // cyan-500
+        lineWidth: 2,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: 'TP1',
+      });
+    }
+
+    // Draw TP2 line (Full target) - emerald color
+    if (useTP2) {
+      tradeLineRefs.current.tp2 = candlestickSeriesRef.current.createPriceLine({
+        price: tp2,
+        color: '#10b981', // emerald-500
+        lineWidth: 2,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: 'TP2',
+      });
+    }
+
+    // Legacy single TP (for backward compatibility)
+    if (useLegacyTP) {
       tradeLineRefs.current.takeProfit = candlestickSeriesRef.current.createPriceLine({
         price: takeProfit,
         color: '#10b981',
@@ -1934,6 +1979,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         }
         if (tradeLineRefs.current.takeProfit) {
           candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.takeProfit);
+        }
+        if (tradeLineRefs.current.tp1) {
+          candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.tp1);
+        }
+        if (tradeLineRefs.current.tp2) {
+          candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.tp2);
         }
         if (tradeLineRefs.current.watchedLevel) {
           candlestickSeriesRef.current.removePriceLine(tradeLineRefs.current.watchedLevel);

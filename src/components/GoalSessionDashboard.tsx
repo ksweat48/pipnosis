@@ -1086,29 +1086,50 @@ export const GoalSessionDashboard: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Mobile-Optimized Trading Levels */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* Mobile-Optimized Trading Levels - Dual TP System */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                       {/* Entry Price */}
-                      <div className="bg-gray-800/70 rounded-lg p-4 border border-gray-700/50">
+                      <div className="bg-gray-800/70 rounded-lg p-3 sm:p-4 border border-gray-700/50">
                         <div className="text-xs font-medium text-gray-400 mb-2">Entry</div>
-                        <div className="text-3xl sm:text-2xl md:text-xl font-bold text-white font-mono tracking-tight">
+                        <div className="text-2xl sm:text-xl md:text-lg font-bold text-white font-mono tracking-tight">
                           {formatTradingPrice(trade.symbol, trade.entry_price)}
                         </div>
                       </div>
 
                       {/* Stop Loss */}
-                      <div className="bg-gradient-to-br from-red-900/20 to-orange-900/20 rounded-lg p-4 border border-red-500/30">
+                      <div className="bg-gradient-to-br from-red-900/20 to-orange-900/20 rounded-lg p-3 sm:p-4 border border-red-500/30">
                         <div className="text-xs font-medium text-red-300 mb-2">Stop Loss</div>
-                        <div className="text-3xl sm:text-2xl md:text-xl font-bold text-red-400 font-mono tracking-tight">
+                        <div className="text-2xl sm:text-xl md:text-lg font-bold text-red-400 font-mono tracking-tight">
                           {formatTradingPrice(trade.symbol, trade.stop_loss)}
                         </div>
                       </div>
 
-                      {/* Take Profit */}
-                      <div className="bg-gradient-to-br from-emerald-900/20 to-green-900/20 rounded-lg p-4 border border-emerald-500/30">
-                        <div className="text-xs font-medium text-emerald-300 mb-2">Take Profit</div>
-                        <div className="text-3xl sm:text-2xl md:text-xl font-bold text-emerald-400 font-mono tracking-tight">
-                          {formatTradingPrice(trade.symbol, trade.take_profit)}
+                      {/* TP1 - Conservative Target */}
+                      <div className={`bg-gradient-to-br from-cyan-900/20 to-blue-900/20 rounded-lg p-3 sm:p-4 border ${trade.tp1_hit ? 'border-cyan-400/70 shadow-lg shadow-cyan-500/20' : 'border-cyan-500/30'}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-medium text-cyan-300">TP1</span>
+                          {trade.tp1_confidence && (
+                            <span className="text-xs text-cyan-400 font-semibold">{Math.round(trade.tp1_confidence)}%</span>
+                          )}
+                          {trade.tp1_hit && (
+                            <span className="text-xs text-cyan-400 font-bold">✓ HIT</span>
+                          )}
+                        </div>
+                        <div className="text-2xl sm:text-xl md:text-lg font-bold text-cyan-400 font-mono tracking-tight">
+                          {trade.tp1_price ? formatTradingPrice(trade.symbol, trade.tp1_price) : 'N/A'}
+                        </div>
+                      </div>
+
+                      {/* TP2 - Full Target */}
+                      <div className={`bg-gradient-to-br from-emerald-900/20 to-green-900/20 rounded-lg p-3 sm:p-4 border ${trade.tp2_hit ? 'border-emerald-400/70 shadow-lg shadow-emerald-500/20' : 'border-emerald-500/30'}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-medium text-emerald-300">TP2</span>
+                          {trade.tp2_hit && (
+                            <span className="text-xs text-emerald-400 font-bold">✓ HIT</span>
+                          )}
+                        </div>
+                        <div className="text-2xl sm:text-xl md:text-lg font-bold text-emerald-400 font-mono tracking-tight">
+                          {trade.tp2_price ? formatTradingPrice(trade.symbol, trade.tp2_price) : formatTradingPrice(trade.symbol, trade.take_profit)}
                         </div>
                       </div>
                     </div>

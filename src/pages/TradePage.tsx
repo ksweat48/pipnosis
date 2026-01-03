@@ -16,6 +16,8 @@ export function TradePage() {
     entry?: number;
     stopLoss?: number;
     takeProfit?: number;
+    tp1?: number;
+    tp2?: number;
   }>({});
 
   // Handle symbol change with persistence
@@ -55,7 +57,7 @@ export function TradePage() {
 
         const { data: trades, error } = await supabase
           .from('goal_session_trades')
-          .select('entry_price, stop_loss, take_profit')
+          .select('entry_price, stop_loss, take_profit, tp1_price, tp2_price')
           .eq('user_id', user.id)
           .eq('symbol', selectedSymbol)
           .in('status', ['open', 'pending'])
@@ -73,7 +75,9 @@ export function TradePage() {
           setTradeLines({
             entry: parseFloat(trades.entry_price),
             stopLoss: parseFloat(trades.stop_loss),
-            takeProfit: parseFloat(trades.take_profit)
+            takeProfit: parseFloat(trades.take_profit),
+            tp1: trades.tp1_price ? parseFloat(trades.tp1_price) : undefined,
+            tp2: trades.tp2_price ? parseFloat(trades.tp2_price) : undefined
           });
         } else {
           setTradeLines({});
