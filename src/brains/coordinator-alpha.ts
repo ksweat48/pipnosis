@@ -70,6 +70,7 @@ import { llmTokenTracker } from '../services/llm-token-tracker';
 import { globalIntelligenceProvider } from '../services/global-intelligence-provider';
 import { professionalRiskManager } from '../services/professional-risk-manager';
 import { alphaIntelligenceAggregator, type AlphaIntelligenceSnapshot } from '../services/alpha-intelligence-aggregator';
+import type { ATRValue } from '../types/atr';
 import { supabase } from '../lib/supabase';
 import type { AdversarialSignal } from '../services/adversarial-detector';
 import type { RegimeSnapshot } from '../services/regime-oracle';
@@ -131,12 +132,15 @@ export interface MarketContext {
   volatility: string;  // low/med/high
   price: number;
   /**
-   * Average True Range in PRICE UNITS (not pips)
+   * Average True Range with explicit timeframe tracking
+   * Now uses typed ATRValue for SSOT compliance
+   * See /src/types/atr.ts for details
+   *
    * ⚠️ Always stored as price difference - convert to pips using: atrPips = atr / pipValue
    */
-  atr: number;
-  atr20?: number;      // Short-term ATR in PRICE UNITS for volatility regime detection
-  atr100?: number;     // Long-term ATR in PRICE UNITS for volatility regime detection
+  atr: number | ATRValue; // Accept both during migration period
+  atr20?: number | ATRValue;  // Short-term ATR (typically M5 or M15) for volatility regime detection
+  atr100?: number | ATRValue; // Long-term ATR (typically H1 or H4) for volatility regime detection
 }
 
 export interface GoalContext {
@@ -209,6 +213,36 @@ export interface AlphaDecision {
   }>;
 }
 
+/**
+ * Helper: Extract ATR value from MarketContext (supports both legacy number and typed ATRValue)
+ */
+function extractATRValue(atr: number | ATRValue | undefined): number {
+  if (atr === undefined) return 0;
+  return typeof atr === 'number' ? atr : atr.value;
+}
+
+/**
+ * Helper: Extract ATR timeframe from MarketContext (if available)
+ */
+function extractATRTimeframe(atr: number | ATRValue | undefined): string | undefined {
+  if (atr === undefined || typeof atr === 'number') return undefined;
+  return atr.timeframe;
+}
+
+/**
+ * Helper: Log ATR usage with timeframe info
+ */
+function logATRUsage(context: string, atr: number | ATRValue | undefined): void {
+  const value = extractATRValue(atr);
+  const timeframe = extractATRTimeframe(atr);
+
+  if (timeframe) {
+    console.log(`[Alpha Coordinator] ${context}: ${value.toFixed(5)} (${timeframe})`);
+  } else {
+    console.warn(`[Alpha Coordinator] ${context}: ${value.toFixed(5)} (legacy raw ATR - update to typed ATRValue)`);
+  }
+}
+
 class AlphaCoordinatorBrain {
   /**
    * Calculate Omega confidence spread (standard deviation)
@@ -258,8 +292,12 @@ class AlphaCoordinatorBrain {
     ratio: number;
     recommendation: string;
   } {
+    // Extract ATR values (support both legacy number and typed ATRValue)
+    const atr20Value = extractATRValue(marketContext.atr20);
+    const atr100Value = extractATRValue(marketContext.atr100);
+
     // If we don't have ATR20/ATR100, return stable
-    if (!marketContext.atr20 || !marketContext.atr100) {
+    if (!atr20Value || !atr100Value) {
       return {
         regime: 'stable',
         ratio: 1.0,
@@ -267,7 +305,14 @@ class AlphaCoordinatorBrain {
       };
     }
 
-    const ratio = marketContext.atr20 / marketContext.atr100;
+    const ratio = atr20Value / atr100Value;
+
+    // Log timeframe info for debugging
+    const atr20Timeframe = extractATRTimeframe(marketContext.atr20);
+    const atr100Timeframe = extractATRTimeframe(marketContext.atr100);
+    if (atr20Timeframe && atr100Timeframe) {
+      console.log(`[Alpha Volatility Regime] ATR20 (${atr20Timeframe}): ${atr20Value.toFixed(5)} | ATR100 (${atr100Timeframe}): ${atr100Value.toFixed(5)} | Ratio: ${ratio.toFixed(2)}`);
+    }
 
     // Expanding: ATR20 > ATR100 by 15%+
     if (ratio > 1.15) {
@@ -409,7 +454,7 @@ class AlphaCoordinatorBrain {
           direction: consensus.direction === 'BUY' ? 'long' : 'short',
           currentBalance: goalContext.currentBalance,
           baseRiskPercent: 0.01,
-          currentATR: marketContext.atr,
+          currentATR: extractATRValue(marketContext.atr), // Extract value for compatibility
           goalSessionId: undefined
         });
         riskAssessment = preliminaryAssessment;
@@ -468,7 +513,7 @@ class AlphaCoordinatorBrain {
     let riskProfileText = '';
     if (goalContext && goalContext.hasGoal) {
       const riskPercent = goalContext.riskPercent || 5;
-      const recentATR = marketContext.atr || 60;
+      const recentATR = extractATRValue(marketContext.atr) || 60; // Extract value with fallback
 
       // Add comprehensive risk profile strategy (riskMode already declared at function scope)
       riskProfileText = formatRiskProfileForLLM(riskMode);
@@ -552,12 +597,16 @@ class AlphaCoordinatorBrain {
       const direction = consensus.direction === 'BUY' ? 'buy' : 'sell';
 
       // riskMode already declared at function scope
+      // Extract ATR value for stop loss calculation
+      const atrForStopLoss = extractATRValue(marketContext.atr);
+      logATRUsage('Stop-Loss calculation', marketContext.atr);
+
       stopLossAnchor = riskAwareStopCalculator.calculateStopLoss({
         symbol: marketContext.symbol,
         entryPrice,
         direction,
         riskMode,
-        atr: marketContext.atr,
+        atr: atrForStopLoss, // Pass raw value for backward compatibility
         marketVolatility: marketVolatilityLevel
       });
 
@@ -572,10 +621,14 @@ class AlphaCoordinatorBrain {
     if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED' && consensus.direction !== 'WAIT') {
       const assetClass = getAssetClass(marketContext.symbol);
       const requestedStyle = riskModeToTradeStyle(riskMode);
-      const atrPercent = (marketContext.atr / marketContext.price) * 100;
+
+      // Extract ATR value for feasibility check
+      const atrValue = extractATRValue(marketContext.atr);
+      const atrPercent = (atrValue / marketContext.price) * 100;
+      logATRUsage('Feasibility check', marketContext.atr);
 
       console.log(`[Alpha Coordinator] 🔍 Feasibility Check: ${requestedStyle} style with ${riskMode.toUpperCase()} risk on ${assetClass}`);
-      console.log(`[Alpha Coordinator] 📊 Market ATR: ${marketContext.atr.toFixed(5)} (${atrPercent.toFixed(3)}%)`);
+      console.log(`[Alpha Coordinator] 📊 Market ATR: ${atrValue.toFixed(5)} (${atrPercent.toFixed(3)}%)`);
 
       feasibilityResult = tradeFeasibilityResolver.resolve({
         symbol: marketContext.symbol,
@@ -583,7 +636,7 @@ class AlphaCoordinatorBrain {
         requestedStyle,
         requestedRiskMode: riskMode.toUpperCase() as 'LOW' | 'MEDIUM' | 'HIGH',
         price: marketContext.price,
-        atrAbs: marketContext.atr,
+        atrAbs: atrValue, // Use already extracted atrValue from above
         atrPercent,
         goalContext: goalContext ? {
           targetProfitUsd: goalContext.remainingGoal,

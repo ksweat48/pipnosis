@@ -17,6 +17,7 @@
 import { VOLATILITY_PATIENCE_CONFIG } from '../config/volatility-aware-patience-config';
 import { productionLogger } from '../lib/production-logger';
 import type { EEGAction, EEGRejectionReason } from '../types/entry';
+import type { ATRValue } from '../types/atr';
 
 export interface EEGPrecheckInput {
   symbol: string;
@@ -24,7 +25,12 @@ export interface EEGPrecheckInput {
   entryPrice: number;
   direction: 'long' | 'short';
   estimatedTTF: number;
-  currentATR: number;
+  /**
+   * Average True Range with explicit timeframe tracking
+   * Now uses typed ATRValue for SSOT compliance
+   * See /src/types/atr.ts for details
+   */
+  currentATR: number | ATRValue; // Accept both during migration period
   sessionId: string;
 }
 
@@ -47,14 +53,30 @@ export class ExecutionEligibilityGatePrecheck {
   private config = VOLATILITY_PATIENCE_CONFIG.eeg;
 
   async runPrecheck(input: EEGPrecheckInput): Promise<EEGPrecheckResult> {
-    const { symbol, currentPrice, entryPrice, direction, estimatedTTF, currentATR, sessionId } = input;
+    const { symbol, currentPrice, entryPrice, direction, estimatedTTF, currentATR: atrInput, sessionId } = input;
 
-    productionLogger.info('[EEG-Precheck] Running precheck', {
-      symbol,
-      ttf: estimatedTTF,
-      atr: currentATR,
-      sessionId
-    });
+    // Extract ATR value (support both legacy number and typed ATRValue)
+    const currentATR = typeof atrInput === 'number' ? atrInput : atrInput.value;
+    const atrTimeframe = typeof atrInput === 'number' ? undefined : atrInput.timeframe;
+
+    // Log timeframe for debugging
+    if (atrTimeframe) {
+      productionLogger.info('[EEG-Precheck] Running precheck', {
+        symbol,
+        ttf: estimatedTTF,
+        atr: currentATR,
+        atrTimeframe,
+        sessionId
+      });
+    } else {
+      productionLogger.info('[EEG-Precheck] Running precheck', {
+        symbol,
+        ttf: estimatedTTF,
+        atr: currentATR,
+        sessionId
+      });
+      productionLogger.warn('[EEG-Precheck] Using legacy raw ATR - update caller to typed ATRValue');
+    }
 
     const distanceFromEntry = Math.abs(currentPrice - entryPrice);
     const distanceInATRs = currentATR > 0 ? distanceFromEntry / currentATR : 999;

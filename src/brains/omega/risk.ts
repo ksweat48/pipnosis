@@ -18,12 +18,18 @@
 import { openAIClient } from '../../services/openai-client';
 import { llmTokenTracker } from '../../services/llm-token-tracker';
 import type { OmegaVote } from './trend';
+import type { ATRValue } from '../../types/atr';
 
 export interface RiskSnapshot {
   p: number;        // price
   proposed_sl: number;  // proposed stop loss
   proposed_tp: number;  // proposed take profit
-  atr: number;      // atr
+  /**
+   * Average True Range with explicit timeframe tracking
+   * Now uses typed ATRValue for SSOT compliance
+   * See /src/types/atr.ts for details
+   */
+  atr: number | ATRValue; // Accept both during migration period
   sup: number[];    // nearby support
   res: number[];    // nearby resistance
   vol: string;      // volatility

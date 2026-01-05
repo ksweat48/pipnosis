@@ -45,6 +45,7 @@ import { calculatePipDistance } from '../utils/currencyHelpers';
 import { getSymbolConfig } from '../config/symbol-registry';
 import { logger } from '../lib/logger';
 import { VOLATILITY_PATIENCE_CONFIG } from '../config/volatility-aware-patience-config';
+import type { ATRValue } from '../types/atr';
 
 export type EntryQualificationStatus =
   | 'ACCEPT_ENTRY'          // Good timing, execute immediately
@@ -76,7 +77,12 @@ export interface EntryQualificationInput {
   // Market conditions
   currentSpreadPips: number;
   averageSpreadPips: number;
-  atr: number;
+  /**
+   * Average True Range with explicit timeframe tracking
+   * Now uses typed ATRValue for SSOT compliance
+   * See /src/types/atr.ts for details
+   */
+  atr: number | ATRValue; // Accept both during migration period
 }
 
 export interface M5Candle {
@@ -481,9 +487,20 @@ class EntryQualificationEngine {
     blocks: EntryQualificationBlock[]
   ): void {
     const config = VOLATILITY_PATIENCE_CONFIG.eqe.chaseDetection;
-    const { m5Candles, atr, direction } = input;
+    const { m5Candles, atr: atrInput, direction } = input;
 
     if (m5Candles.length < config.lookbackCandles) return;
+
+    // Extract ATR value (support both legacy number and typed ATRValue)
+    const atr = typeof atrInput === 'number' ? atrInput : atrInput.value;
+    const atrTimeframe = typeof atrInput === 'number' ? undefined : atrInput.timeframe;
+
+    // Log timeframe for debugging
+    if (atrTimeframe) {
+      logger.debug(`[EQE] Chase detection using ${atrTimeframe} ATR: ${atr.toFixed(5)}`);
+    } else {
+      logger.warn('[EQE] Chase detection using legacy raw ATR - update caller to typed ATRValue');
+    }
 
     const recentCandles = m5Candles.slice(-config.lookbackCandles);
     const totalMove = Math.abs(recentCandles[recentCandles.length - 1].close - recentCandles[0].open);
@@ -555,7 +572,16 @@ class EntryQualificationEngine {
     blocks: EntryQualificationBlock[]
   ): void {
     const config = VOLATILITY_PATIENCE_CONFIG.eqe.vwapDistanceLimits;
-    const { entryPrice, m5VWAP, atr } = input;
+    const { entryPrice, m5VWAP, atr: atrInput } = input;
+
+    // Extract ATR value (support both legacy number and typed ATRValue)
+    const atr = typeof atrInput === 'number' ? atrInput : atrInput.value;
+    const atrTimeframe = typeof atrInput === 'number' ? undefined : atrInput.timeframe;
+
+    // Log timeframe for debugging
+    if (atrTimeframe) {
+      logger.debug(`[EQE] VWAP distance check using ${atrTimeframe} ATR: ${atr.toFixed(5)}`);
+    }
 
     const distanceFromVWAP = Math.abs(entryPrice - m5VWAP);
     const maxAllowedDistance = atr * config.maxDistanceFromVWAP;
