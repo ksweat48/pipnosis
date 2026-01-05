@@ -163,9 +163,9 @@ class KellyCriterionSizer {
     totalTrades: number;
   }> {
     try {
-      // Query goal_trades for historical performance
+      // Query goal_session_trades for historical performance
       let query = supabase
-        .from('goal_trades')
+        .from('goal_session_trades')
         .select('status, entry_price, exit_price, direction, stop_loss, take_profit')
         .eq('user_id', userId)
         .in('status', ['win', 'loss']);

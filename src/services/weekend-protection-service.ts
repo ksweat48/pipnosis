@@ -399,7 +399,7 @@ class WeekendProtectionService {
   private async closeAllOpenTrades(): Promise<number> {
     try {
       const { data: trades } = await supabase
-        .from('goal_trades')
+        .from('goal_session_trades')
         .select('*')
         .eq('status', 'open');
 
@@ -447,7 +447,7 @@ class WeekendProtectionService {
 
           // Close the trade
           await supabase
-            .from('goal_trades')
+            .from('goal_session_trades')
             .update({
               status: 'closed',
               exit_price: closePrice,

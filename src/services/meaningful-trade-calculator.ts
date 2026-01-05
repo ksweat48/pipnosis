@@ -43,10 +43,10 @@ export class MeaningfulTradeCalculator {
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
       const { data: recentWins, error } = await supabase
-        .from('goal_trades')
-        .select('profit')
+        .from('goal_session_trades')
+        .select('profit_loss')
         .eq('user_id', userId)
-        .gt('profit', 0)
+        .gt('profit_loss', 0)
         .gte('closed_at', thirtyDaysAgo.toISOString())
         .order('closed_at', { ascending: false })
         .limit(20);
@@ -60,7 +60,7 @@ export class MeaningfulTradeCalculator {
       }
 
       const avgProfit =
-        recentWins.reduce((sum, trade) => sum + (trade.profit || 0), 0) /
+        recentWins.reduce((sum, trade) => sum + (trade.profit_loss || 0), 0) /
         recentWins.length;
 
       const historicalFloor =

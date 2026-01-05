@@ -181,7 +181,7 @@ class ProgressiveRiskScaling {
   ): Promise<Array<{ result: 'win' | 'loss'; pnl: number }>> {
     try {
       let query = supabase
-        .from('goal_trades')
+        .from('goal_session_trades')
         .select('status, pnl')
         .eq('user_id', userId)
         .in('status', ['win', 'loss'])

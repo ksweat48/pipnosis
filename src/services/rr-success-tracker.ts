@@ -27,7 +27,7 @@ class RRSuccessTracker {
   async getRRPerformanceMatrix(userId: string, symbol?: string): Promise<RRBucket[]> {
     try {
       let query = supabase
-        .from('goal_trades')
+        .from('goal_session_trades')
         .select('*')
         .eq('user_id', userId)
         .in('status', ['closed', 'tp_hit', 'sl_hit']);
@@ -129,7 +129,7 @@ class RRSuccessTracker {
   async getSLWidthAnalysis(userId: string, symbol?: string): Promise<SLWidthAnalysis[]> {
     try {
       let query = supabase
-        .from('goal_trades')
+        .from('goal_session_trades')
         .select('*')
         .eq('user_id', userId)
         .in('status', ['closed', 'tp_hit', 'sl_hit']);

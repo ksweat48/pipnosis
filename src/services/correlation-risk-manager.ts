@@ -220,7 +220,7 @@ class CorrelationRiskManager {
   }>> {
     try {
       let query = supabase
-        .from('goal_trades')
+        .from('goal_session_trades')
         .select('symbol, direction, lot_size')
         .eq('user_id', userId)
         .eq('status', 'open');

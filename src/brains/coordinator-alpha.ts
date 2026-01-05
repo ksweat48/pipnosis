@@ -484,7 +484,7 @@ class AlphaCoordinatorBrain {
     if (userId) {
       try {
         const { data: recentTrades } = await supabase
-          .from('goal_trades')
+          .from('goal_session_trades')
           .select('symbol, direction, pnl_result, close_reason, created_at')
           .eq('user_id', userId)
           .order('created_at', { ascending: false })

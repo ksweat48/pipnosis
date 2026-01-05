@@ -327,7 +327,7 @@ export class AlphaLearningFeedbackService {
     try {
       // Get recent trades for this user/symbol combination
       const { data: recentTrades } = await supabase
-        .from('goal_trades')
+        .from('goal_session_trades')
         .select('*')
         .eq('user_id', outcome.userId)
         .eq('symbol', outcome.symbol)
