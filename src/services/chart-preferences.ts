@@ -67,7 +67,7 @@ export function normalizeTimeframeToDb(timeframe: string): string {
     '1d': 'D1'
   };
 
-  return conversionMap[timeframe] || conversionMap[upper] || 'M15';
+  return conversionMap[timeframe] || conversionMap[upper] || 'H1';
 }
 
 interface IndicatorVisibility {
@@ -128,7 +128,7 @@ class ChartPreferencesService {
   }
 
   getTimeframe(symbol: string): Timeframe {
-    return this.preferences[symbol] || 'M5';
+    return this.preferences[symbol] || 'H1';
   }
 
   setTimeframe(symbol: string, timeframe: Timeframe): void {

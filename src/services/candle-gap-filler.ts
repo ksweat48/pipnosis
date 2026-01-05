@@ -151,7 +151,7 @@ class CandleGapFillerService {
         low: price,
         close: price,
         symbol: prevCandle.symbol || 'UNKNOWN',
-        timeframe: prevCandle.timeframe || 'M5'
+        timeframe: prevCandle.timeframe || 'H1'
       };
     } else if (this.options.interpolationMethod === 'linear') {
       // Linear interpolation between prev close and next open
@@ -171,7 +171,7 @@ class CandleGapFillerService {
         low: Math.min(interpolatedPrice, low),
         close: interpolatedPrice,
         symbol: prevCandle.symbol || 'UNKNOWN',
-        timeframe: prevCandle.timeframe || 'M5'
+        timeframe: prevCandle.timeframe || 'H1'
       };
     }
 

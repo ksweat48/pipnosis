@@ -16,7 +16,7 @@ const TIMEFRAMES: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
 
 export default function OptimizedCandleTestPage() {
   const [selectedSymbol, setSelectedSymbol] = useState<string>('EURUSD');
-  const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('M5');
+  const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('H1');
   const [multiTabTest, setMultiTabTest] = useState(false);
 
   const pullToRefresh = usePullToRefresh({
