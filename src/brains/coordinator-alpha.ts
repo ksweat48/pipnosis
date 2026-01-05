@@ -723,7 +723,7 @@ class AlphaCoordinatorBrain {
         symbol: marketContext.symbol,
         entry: marketContext.price,
         direction: consensus.direction as 'BUY' | 'SELL',
-        atr: marketContext.atr,
+        atr: extractATRValue(marketContext.atr),
         riskMode,
         tradeStyle,  // CRITICAL: Pass trade style for session constraint behavior
         currentSession: sessionContext.currentSession,
@@ -755,7 +755,7 @@ You are expected to place stops that give the trade room to breathe while invali
 
 STOP-LOSS ANCHOR (DEFAULT POSITIONING)
 You are provided a professionally calculated stop-loss anchor based on:
-• Current ATR: ${marketContext.atr.toFixed(5)} (${(marketContext.atr * 10000).toFixed(1)} pips)
+• Current ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${(extractATRValue(marketContext.atr) * 10000).toFixed(1)} pips)
 • Volatility regime: ${marketVolatilityLevel.toUpperCase()}
 • Risk mode: ${riskMode.toUpperCase()} (${stopLossAnchor.reasoning})
 • Instrument behavior: ${marketContext.symbol}
@@ -1123,7 +1123,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
       let decision = this.parseDecision(
         content,
         marketContext.price,
-        marketContext.atr,
+        extractATRValue(marketContext.atr),
         marketContext.symbol,
         stopLossAnchor,
         liquidityZones,
@@ -1421,7 +1421,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
         const tpDistancePips = calculatePipDistance(marketContext.symbol, decision.entry, decision.takeProfit);
         // CRITICAL FIX: Convert ATR from price value to pips
         const pipInfo = getCurrencyPipInfo(marketContext.symbol);
-        const atrPips = marketContext.atr / pipInfo.pipValue;
+        const atrPips = extractATRValue(marketContext.atr) / pipInfo.pipValue;
 
         // Determine current session
         const hour = new Date().getUTCHours();
@@ -1810,7 +1810,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
     const parts: string[] = [];
 
     parts.push(`Market: ${marketContext.symbol} | ${marketContext.regime} | ${marketContext.volatility} vol`);
-    parts.push(`Price: ${marketContext.price} | ATR: ${marketContext.atr}`);
+    parts.push(`Price: ${marketContext.price} | ATR: ${extractATRValue(marketContext.atr)}`);
     parts.push(`Trader: ${traderScore.confidence_level} (Score: ${traderScore.current_score}, Win Rate: ${(traderScore.win_rate * 100).toFixed(1)}%)`);
 
     if (platformIntelligence) {
