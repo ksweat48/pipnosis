@@ -7,6 +7,7 @@ export default function GetAppPage() {
   const [platform, setPlatform] = useState<'ios' | 'android' | 'desktop'>('desktop');
   const [isIosSafari, setIsIosSafari] = useState(false);
   const [showInstructionsHighlight, setShowInstructionsHighlight] = useState(false);
+  const [showScrollArrow, setShowScrollArrow] = useState(false);
   const instructionsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -56,9 +57,29 @@ export default function GetAppPage() {
     if (deferredPrompt) {
       await handleInstallClick();
     } else {
+      const message = platform === 'ios'
+        ? 'Scroll down for iPhone installation steps'
+        : platform === 'android'
+        ? 'Scroll down for Android installation steps'
+        : 'Scroll down for manual installation steps';
+
+      const tempToast = document.createElement('div');
+      tempToast.className = 'fixed top-24 left-1/2 transform -translate-x-1/2 bg-emerald-600 text-white px-6 py-3 rounded-lg shadow-2xl z-50 font-semibold animate-bounce';
+      tempToast.textContent = message;
+      document.body.appendChild(tempToast);
+
+      setTimeout(() => {
+        tempToast.remove();
+      }, 3000);
+
+      setShowScrollArrow(true);
       setShowInstructionsHighlight(true);
       instructionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setTimeout(() => setShowInstructionsHighlight(false), 3000);
+
+      setTimeout(() => {
+        setShowInstructionsHighlight(false);
+        setShowScrollArrow(false);
+      }, 3000);
     }
   };
 
@@ -91,17 +112,29 @@ export default function GetAppPage() {
               {platform === 'android' && <Download size={32} />}
               {platform === 'desktop' && <Download size={32} />}
               <span>
-                {platform === 'ios' && 'Add to Home Screen'}
-                {platform === 'android' && 'Download for Android'}
-                {platform === 'desktop' && 'Install App'}
+                {deferredPrompt ? (
+                  platform === 'ios' ? 'Add to Home Screen' :
+                  platform === 'android' ? 'Install Now' :
+                  'Install App'
+                ) : (
+                  'View Installation Steps'
+                )}
               </span>
             </button>
             {!deferredPrompt && (
               <p className="text-center text-gray-400 text-sm mt-3">
                 {platform === 'ios'
-                  ? 'Tap to see installation instructions'
-                  : 'Tap to see how to install manually'}
+                  ? 'Follow the simple Safari installation steps below'
+                  : platform === 'android'
+                  ? 'See step-by-step installation guide below'
+                  : 'See manual installation instructions below'}
               </p>
+            )}
+            {showScrollArrow && (
+              <div className="text-center mt-6 animate-bounce">
+                <ArrowDown className="text-emerald-400 mx-auto" size={48} />
+                <p className="text-emerald-400 font-bold text-lg mt-2">Scroll Down</p>
+              </div>
             )}
           </div>
         )}
