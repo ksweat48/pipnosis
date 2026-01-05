@@ -3,6 +3,9 @@
  *
  * Fetches and builds market snapshots for multiple symbols in parallel.
  * Includes indicators, regime analysis, adversarial detection, and structure levels.
+ *
+ * CRITICAL FIX: Now uses H1 timeframe (not M5) for ATR consistency
+ * See: /docs/ATR_TIMEFRAME_SSOT_FIX.md for details on the M5→H1 bug
  */
 
 import { supabase } from '../lib/supabase';
@@ -12,6 +15,7 @@ import { regimeOracle, type RegimeSnapshot } from './regime-oracle';
 import { adversarialDetector, type AdversarialSignal } from './adversarial-detector';
 import { computeOmegaSensors, type OmegaSensors } from './omega-sensors';
 import { logger } from '../lib/logger';
+import { createATRValue, validateATRConsistency, type ATRValue } from '../types/atr';
 
 /**
  * Market snapshot for a single symbol
@@ -26,15 +30,16 @@ export interface SymbolSnapshot {
   rsi: number;
   stochRsi: number;
   /**
-   * Average True Range in PRICE UNITS (not pips)
-   * ⚠️ IMPORTANT: This is stored as a price difference (e.g., 0.04370 for USDJPY)
-   * To convert to pips: atrPips = atr / getCurrencyPipInfo(symbol).pipValue
-   * Example conversions:
-   * - USDJPY: 0.04370 price → 4.37 pips (÷ 0.01)
-   * - EURUSD: 0.00045 price → 4.5 pips (÷ 0.0001)
-   * - XAUUSD: 2.50 price → 25 pips (÷ 0.1)
+   * Average True Range with EXPLICIT timeframe tracking
+   *
+   * CRITICAL: This is now a typed ATRValue (not raw number)
+   * - Contains: value (price units), timeframe, period
+   * - Enforces SSOT: timeframe cannot be ambiguous
+   * - Validates consistency: ATR must match candle structure
+   *
+   * See /src/types/atr.ts for official ATR contract
    */
-  atr: number;
+  atr: ATRValue;
   vwap: number;
   trend: string;
   trendScore: number;
@@ -104,12 +109,21 @@ class MultiSymbolSnapshotBuilder {
   }
 
   private async buildSingleSnapshot(symbol: string): Promise<SymbolSnapshot> {
-    // CRITICAL FIX: Query for both timeframe formats (M5 and 5m) to handle database variations
+    /**
+     * CRITICAL FIX (2025-01): Changed from M5 to H1 timeframe
+     *
+     * BUG: Was querying ['M5', '5m'] but module declares TIMEFRAME = 'H1'
+     * IMPACT: ATR was underestimated by 10-20x (M5 ATR ~1-3 pips vs H1 ATR ~40-80 pips)
+     * CONSEQUENCE: Trades blocked incorrectly ("dead market", stop too wide, TTF explodes)
+     *
+     * ROOT CAUSE: SSOT violation - code claimed H1, data was M5
+     * FIX: Query H1 data to match declared timeframe
+     */
     const { data: candles, error } = await supabase
       .from('forex_candles')
       .select('*')
       .eq('symbol', symbol)
-      .in('timeframe', ['M5', '5m']) // Query both formats
+      .in('timeframe', ['H1', '1h']) // Query both H1 formats (uppercase and lowercase)
       .order('open_time', { ascending: false })
       .limit(this.CANDLE_LOOKBACK);
 
@@ -145,14 +159,40 @@ class MultiSymbolSnapshotBuilder {
     const stochRsi = calculateStochRSI(closes, 14);
 
     const atrResults = calculateATR(candlesWithTime, 14);
-    const atr = atrResults.length > 0 ? atrResults[atrResults.length - 1].value : 0.001;
+    const atrRawValue = atrResults.length > 0 ? atrResults[atrResults.length - 1].value : 0.001;
+
+    // Create typed ATR with explicit timeframe tracking (SSOT compliance)
+    const atr = createATRValue(atrRawValue, this.TIMEFRAME, 14);
+
+    // Validate ATR consistency against candle structure (relative validation)
+    const atrValidation = validateATRConsistency(
+      atr,
+      sortedCandles.map(c => ({ high: c.high, low: c.low })),
+      symbol
+    );
+
+    if (!atrValidation.valid) {
+      console.error(`[Multi-Symbol] ATR validation failed for ${symbol}:`, atrValidation.errors);
+      atrValidation.errors.forEach(err => logger.error(`  ${err}`));
+    }
+
+    if (atrValidation.warnings.length > 0) {
+      console.warn(`[Multi-Symbol] ATR validation warnings for ${symbol}:`, atrValidation.warnings);
+    }
+
+    console.log(
+      `[Multi-Symbol] ${symbol} ATR: ${atr.value.toFixed(5)} (${atr.timeframe}, ${atr.period}-period)` +
+      (atrValidation.metadata.avgCandleRange
+        ? ` | Avg candle range: ${atrValidation.metadata.avgCandleRange.toFixed(5)} (${atrValidation.metadata.deviationMultiple?.toFixed(2)}x)`
+        : '')
+    );
 
     const vwapResults = calculateVWAP(candlesWithTime);
     const vwap = vwapResults.length > 0 ? vwapResults[vwapResults.length - 1].value : price;
 
     const trendScore = this.calculateTrendScore(price, ema20, ema50, ema200);
     const trend = this.determineTrend(trendScore);
-    const volatility = this.categorizeVolatility(atr, price);
+    const volatility = this.categorizeVolatility(atr.value, price);
     const momentum = this.calculateMomentum(closes);
 
     const swingHigh = Math.max(...highs.slice(-20));
@@ -169,7 +209,7 @@ class MultiSymbolSnapshotBuilder {
       ema50,
       ema200,
       rsi,
-      atr,
+      atr: atr.value, // Extract raw value for legacy interfaces
       vwap,
       swingHigh,
       swingLow

@@ -3,15 +3,21 @@
  *
  * Calculates appropriate stop loss widths based on:
  * - Risk mode strategy (aggressive = tight stops, conservative = wide stops)
- * - ATR (Average True Range)
+ * - ATR (Average True Range) with EXPLICIT timeframe tracking
  * - Symbol type (forex, metals, indices)
  * - Market volatility
  *
  * CRITICAL: Stop width is a STRATEGY characteristic, not just risk management
+ *
+ * ATR SSOT COMPLIANCE:
+ * - Accepts typed ATRValue with explicit timeframe
+ * - Validates timeframe matches expected context (H1 for strategic stops)
+ * - Logs ATR source for transparency
  */
 
 import { getRiskStrategyProfile, getStopLossMultiplierRange, getTypicalStopPipsRange } from '../config/risk-strategy-profiles';
 import { getCurrencyPipInfo, isXAUUSD, isJPYPair, isIndex, isCrypto } from '../utils/currencyHelpers';
+import { type ATRValue, type ATRTimeframe } from '../types/atr';
 
 export interface StopLossCalculation {
   stopLossPips: number;
@@ -21,6 +27,7 @@ export interface StopLossCalculation {
   withinProfileRange: boolean;
   profileMinPips: number;
   profileMaxPips: number;
+  atrTimeframe?: ATRTimeframe; // Track which timeframe ATR was from
 }
 
 export interface StopCalculatorInputs {
@@ -28,7 +35,7 @@ export interface StopCalculatorInputs {
   entryPrice: number;
   direction: 'buy' | 'sell';
   riskMode: 'low' | 'medium' | 'high';
-  atr: number; // Average True Range in price units
+  atr: number | ATRValue; // Accepts both for backward compatibility during migration
   marketVolatility?: 'low' | 'normal' | 'high';
 }
 
@@ -37,7 +44,23 @@ class RiskAwareStopCalculator {
    * Calculate appropriate stop loss based on risk profile and market conditions
    */
   calculateStopLoss(inputs: StopCalculatorInputs): StopLossCalculation {
-    const { symbol, entryPrice, direction, riskMode, atr, marketVolatility = 'normal' } = inputs;
+    const { symbol, entryPrice, direction, riskMode, marketVolatility = 'normal' } = inputs;
+
+    // Extract ATR value and timeframe (handle both typed and legacy formats)
+    const atrValue = typeof inputs.atr === 'number' ? inputs.atr : inputs.atr.value;
+    const atrTimeframe = typeof inputs.atr === 'number' ? undefined : inputs.atr.timeframe;
+
+    if (typeof inputs.atr !== 'number') {
+      console.log(`[Stop Calculator] Using ${inputs.atr.timeframe} ATR (${inputs.atr.period}-period)`);
+
+      // Warn if not using expected timeframe for strategic stops
+      if (inputs.atr.timeframe !== 'H1') {
+        console.warn(
+          `[Stop Calculator] ⚠️ Using ${inputs.atr.timeframe} ATR for stop calculation. ` +
+          `Strategic stops typically use H1 ATR. This may result in suboptimal stop widths.`
+        );
+      }
+    }
 
     // CRYPTO SPECIAL HANDLING: Use percentage-based stops instead of pip-based
     if (isCrypto(symbol)) {
@@ -50,12 +73,12 @@ class RiskAwareStopCalculator {
     const typicalPipsRange = getTypicalStopPipsRange(riskMode);
 
     console.log(`[Stop Calculator] ${symbol} ${riskMode.toUpperCase()} mode:`);
-    console.log(`  ATR: ${atr.toFixed(5)} | Profile: ${profile.tradingStyle}`);
+    console.log(`  ATR: ${atrValue.toFixed(5)}${atrTimeframe ? ` (${atrTimeframe})` : ''} | Profile: ${profile.tradingStyle}`);
     console.log(`  ATR Multiplier Range: ${atrMultiplierRange.min}x - ${atrMultiplierRange.max}x`);
     console.log(`  Typical Pips Range: ${typicalPipsRange.min} - ${typicalPipsRange.max}`);
 
     // Calculate ATR in pips
-    const atrPips = atr / pipInfo.pipValue;
+    const atrPips = atrValue / pipInfo.pipValue;
     console.log(`  ATR in pips: ${atrPips.toFixed(1)}`);
 
     // Determine ATR multiplier based on volatility and risk mode
@@ -115,7 +138,8 @@ class RiskAwareStopCalculator {
       reasoning,
       withinProfileRange,
       profileMinPips: minPips,
-      profileMaxPips: maxPips
+      profileMaxPips: maxPips,
+      atrTimeframe
     };
   }
 
@@ -124,7 +148,11 @@ class RiskAwareStopCalculator {
    * This prevents microscopic stops like $20 on $90k BTC
    */
   private calculateCryptoStopLoss(inputs: StopCalculatorInputs): StopLossCalculation {
-    const { symbol, entryPrice, direction, riskMode, atr, marketVolatility = 'normal' } = inputs;
+    const { symbol, entryPrice, direction, riskMode, marketVolatility = 'normal' } = inputs;
+
+    // Extract ATR value and timeframe
+    const atrValue = typeof inputs.atr === 'number' ? inputs.atr : inputs.atr.value;
+    const atrTimeframe = typeof inputs.atr === 'number' ? undefined : inputs.atr.timeframe;
 
     const profile = getRiskStrategyProfile(riskMode);
 
@@ -155,11 +183,11 @@ class RiskAwareStopCalculator {
     // Calculate stop percentage
     let stopPercent: number;
 
-    if (atr && atr > 0) {
+    if (atrValue && atrValue > 0) {
       // ATR-based: Convert ATR to percentage and scale
-      const atrPercent = (atr / entryPrice) * 100;
+      const atrPercent = (atrValue / entryPrice) * 100;
       stopPercent = atrPercent * 1.5; // Scale ATR by 1.5x
-      console.log(`  ATR: $${atr.toFixed(2)} (${atrPercent.toFixed(2)}%)`);
+      console.log(`  ATR: $${atrValue.toFixed(2)} (${atrPercent.toFixed(2)}%)${atrTimeframe ? ` [${atrTimeframe}]` : ''}`);
       console.log(`  ATR-based stop: ${stopPercent.toFixed(2)}%`);
     } else {
       // No ATR: Use middle of range
@@ -218,11 +246,12 @@ class RiskAwareStopCalculator {
     return {
       stopLossPips,
       stopLossPrice,
-      atrMultiplier: stopPercent / ((atr / entryPrice) * 100), // Back-calculate for compatibility
+      atrMultiplier: atrValue > 0 ? stopPercent / ((atrValue / entryPrice) * 100) : 1.5, // Back-calculate for compatibility
       reasoning,
       withinProfileRange,
       profileMinPips: (entryPrice * minPercent / 100) / pipInfo.pipValue,
-      profileMaxPips: (entryPrice * maxPercent / 100) / pipInfo.pipValue
+      profileMaxPips: (entryPrice * maxPercent / 100) / pipInfo.pipValue,
+      atrTimeframe
     };
   }
 
