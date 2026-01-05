@@ -18,7 +18,7 @@
  * - NO hardcoded symbol checks - all queries go through coordinators
  */
 
-import { calculatePipDistance } from '../utils/currencyHelpers';
+import { calculatePipDistance, getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { riskAwareStopCalculator } from './risk-aware-stop-calculator';
 import { sessionConstraintCoordinator } from './session-constraint-coordinator';
 import { assetClassifier } from './asset-classifier';
@@ -39,6 +39,8 @@ class Omega9ConstraintProvider {
    * - SCALP: Session-time caps TP (trades must complete within current session)
    * - INTRADAY: Session-time is advisory only (trades may extend beyond session)
    * - SWING: Session-time ignored (multi-session trades)
+   *
+   * CRITICAL FIX: Now includes pre-flight feasibility checks to detect impossible constraints
    */
   generateConstraints(input: Omega9ConstraintInput): Omega9Constraints {
     const {
@@ -171,12 +173,37 @@ class Omega9ConstraintProvider {
       violations
     };
 
+    // CRITICAL PRE-FLIGHT FEASIBILITY CHECK
+    // Detect mathematically impossible constraint scenarios
+    const isInfeasible = constraints.minTakeProfitPips > constraints.maxTakeProfitPips;
+    const maxAchievableRR = constraints.maxTakeProfitPips / referenceSLPips;
+
+    if (isInfeasible) {
+      console.error('[Omega-9 Constraints] ❌ INFEASIBLE CONSTRAINTS DETECTED');
+      console.error(`[Omega-9 Constraints] Min TP: ${constraints.minTakeProfitPips.toFixed(1)} pips > Max TP: ${constraints.maxTakeProfitPips.toFixed(1)} pips`);
+      console.error(`[Omega-9 Constraints] Required R:R: ${minRiskReward.toFixed(2)}:1 | Max Achievable: ${maxAchievableRR.toFixed(2)}:1`);
+      console.error(`[Omega-9 Constraints] Root cause: Session constraint (${feasibleTravelPips.toFixed(1)} pips) too restrictive for ${tradeStyle} style`);
+
+      // Add infeasibility violation
+      constraints.violations.push({
+        type: 'INFEASIBLE_SETUP',
+        severity: 'ERROR',
+        message: `Constraints impossible: Min TP ${constraints.minTakeProfitPips.toFixed(1)} > Max TP ${constraints.maxTakeProfitPips.toFixed(1)} pips`,
+        suggestedFix: `STRONG RECOMMENDATION: NO_TRADE. Alternatively: 1) Tighten SL to ${constraints.maxTakeProfitPips.toFixed(1)} pips, or 2) Accept reduced R:R ${maxAchievableRR.toFixed(2)}:1`
+      });
+    }
+
     console.log('[Omega-9 Constraints] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`[Omega-9 Constraints] Symbol: ${symbol} | Direction: ${direction} | Style: ${tradeStyle} | Risk: ${riskMode.toUpperCase()}`);
     console.log(`[Omega-9 Constraints] Stop-Loss Range: ${constraints.minStopLossPips.toFixed(1)} - ${constraints.maxStopLossPips.toFixed(1)} pips (recommended: ${constraints.recommendedStopLossPips.toFixed(1)})`);
     console.log(`[Omega-9 Constraints] Take-Profit Range: ${constraints.minTakeProfitPips.toFixed(1)} - ${constraints.maxTakeProfitPips.toFixed(1)} pips (recommended: ${constraints.recommendedTakeProfitPips.toFixed(1)})`);
     console.log(`[Omega-9 Constraints] R:R Requirements: Min ${constraints.minRiskReward}:1 | Target ${constraints.targetRiskReward}:1 | Optimal ${constraints.optimalRiskReward}:1`);
     console.log(`[Omega-9 Constraints] Session: ${currentSession} (${sessionTimeRemainingMinutes}min remaining) | Feasible travel: ${feasibleTravelPips.toFixed(1)} pips | Mode: ${sessionConstraintMode}`);
+
+    if (isInfeasible) {
+      console.error(`[Omega-9 Constraints] ⚠️ INFEASIBLE: Constraints conflict - Max achievable R:R is ${maxAchievableRR.toFixed(2)}:1 (need ${minRiskReward.toFixed(2)}:1)`);
+    }
+
     console.log('[Omega-9 Constraints] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     return constraints;
@@ -392,6 +419,8 @@ This is CONSTRAINT-FIRST trading: boundaries are transparent, you optimize withi
   /**
    * Estimate volatility per hour based on ATR and market conditions
    *
+   * CRITICAL FIX: ATR is in PRICE UNITS, need to convert to PIPS for calculations
+   *
    * SSOT COMPLIANCE:
    * - Session volatility multipliers delegated to sessionConstraintCoordinator
    * - 24/7 markets automatically get constant volatility profile
@@ -402,13 +431,22 @@ This is CONSTRAINT-FIRST trading: boundaries are transparent, you optimize withi
     volatilityRegime: 'low' | 'medium' | 'high',
     currentSession: string
   ): number {
+    // Convert ATR from price units to pips first
+    const pipInfo = getCurrencyPipInfo(symbol);
+    const atrInPips = atr / pipInfo.pipValue;
+
+    console.log(`[Omega-9 Volatility] ${symbol}: ATR ${atr.toFixed(6)} (${atrInPips.toFixed(2)} pips)`);
+
     // Base: ATR * 1.5 (assuming ATR is 24hr, we want hourly rate)
-    let baseVolatility = atr * 1.5;
+    let baseVolatility = atrInPips * 1.5;
 
     // Adjust for volatility regime
+    let regimeMultiplier = 1.0;
     if (volatilityRegime === 'high') {
+      regimeMultiplier = 1.3;
       baseVolatility *= 1.3;
     } else if (volatilityRegime === 'low') {
+      regimeMultiplier = 0.7;
       baseVolatility *= 0.7;
     }
 
@@ -420,6 +458,15 @@ This is CONSTRAINT-FIRST trading: boundaries are transparent, you optimize withi
     );
 
     baseVolatility *= sessionMultiplier;
+
+    // Apply minimum floor of 5 pips/hour to prevent zero feasible travel
+    const minimumVolatility = 5.0;
+    if (baseVolatility < minimumVolatility) {
+      console.warn(`[Omega-9 Volatility] ${symbol}: Calculated volatility ${baseVolatility.toFixed(2)} pips/hour below minimum ${minimumVolatility} - using floor`);
+      baseVolatility = minimumVolatility;
+    }
+
+    console.log(`[Omega-9 Volatility] ${symbol}: Base ${(atrInPips * 1.5).toFixed(1)} → Regime ${regimeMultiplier}x → Session ${sessionMultiplier}x → Final ${baseVolatility.toFixed(1)} pips/hour`);
 
     return baseVolatility;
   }

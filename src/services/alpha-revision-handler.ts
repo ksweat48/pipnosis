@@ -259,15 +259,63 @@ If you choose NOT to revise (revised: false), your original decision will procee
         };
       }
 
+      // CRITICAL VALIDATION: Detect invalid revision scenarios
+      const revisedDecision = parsed.revisedDecision;
+
+      // Check 1: TP must not equal Entry (R:R 0.0:1 is invalid)
+      if (Math.abs(revisedDecision.takeProfit - revisedDecision.entry) < 0.000001) {
+        console.error('[Alpha Revision] ❌ INVALID REVISION: TP equals Entry price (R:R 0.0:1)');
+        console.error('[Alpha Revision] This indicates infeasible constraints - rejecting revision');
+        return {
+          revised: false
+        };
+      }
+
+      // Check 2: SL must not equal Entry (invalid stop placement)
+      if (Math.abs(revisedDecision.stopLoss - revisedDecision.entry) < 0.000001) {
+        console.error('[Alpha Revision] ❌ INVALID REVISION: SL equals Entry price');
+        console.error('[Alpha Revision] This indicates infeasible constraints - rejecting revision');
+        return {
+          revised: false
+        };
+      }
+
+      // Check 3: TP and SL must be on opposite sides of Entry
+      const isBuy = revisedDecision.action === 'BUY';
+      const tpValid = isBuy ? revisedDecision.takeProfit > revisedDecision.entry : revisedDecision.takeProfit < revisedDecision.entry;
+      const slValid = isBuy ? revisedDecision.stopLoss < revisedDecision.entry : revisedDecision.stopLoss > revisedDecision.entry;
+
+      if (!tpValid || !slValid) {
+        console.error('[Alpha Revision] ❌ INVALID REVISION: TP/SL on wrong side of entry');
+        console.error(`[Alpha Revision] Direction: ${revisedDecision.action}, Entry: ${revisedDecision.entry}, TP: ${revisedDecision.takeProfit}, SL: ${revisedDecision.stopLoss}`);
+        return {
+          revised: false
+        };
+      }
+
+      // Check 4: Minimum viable distance (at least 0.1 pips for any pair)
+      const tpDistance = Math.abs(revisedDecision.takeProfit - revisedDecision.entry);
+      const slDistance = Math.abs(revisedDecision.stopLoss - revisedDecision.entry);
+      const minDistance = 0.00001; // Minimum 0.1 pips in price terms
+
+      if (tpDistance < minDistance || slDistance < minDistance) {
+        console.error('[Alpha Revision] ❌ INVALID REVISION: TP or SL too close to entry (< 0.1 pips)');
+        return {
+          revised: false
+        };
+      }
+
+      console.log('[Alpha Revision] ✅ Revision validation passed');
+
       return {
         revised: true,
         revisedDecision: {
-          action: parsed.revisedDecision.action,
-          entry: parsed.revisedDecision.entry,
-          stopLoss: parsed.revisedDecision.stopLoss,
-          takeProfit: parsed.revisedDecision.takeProfit,
-          confidence: Math.min(100, Math.max(0, parsed.revisedDecision.confidence)),
-          reasoning: parsed.revisedDecision.reasoning || parsed.revisionReasoning || 'Revised based on constraints'
+          action: revisedDecision.action,
+          entry: revisedDecision.entry,
+          stopLoss: revisedDecision.stopLoss,
+          takeProfit: revisedDecision.takeProfit,
+          confidence: Math.min(100, Math.max(0, revisedDecision.confidence)),
+          reasoning: revisedDecision.reasoning || parsed.revisionReasoning || 'Revised based on constraints'
         },
         revisionReasoning: parsed.revisionReasoning,
         acceptedConstraints: Array.isArray(parsed.acceptedConstraints) ? parsed.acceptedConstraints : []

@@ -13,6 +13,7 @@
  */
 
 export type SafetyZone = 'GREEN' | 'YELLOW' | 'ORANGE' | 'RED';
+export type TradeStyle = 'SCALP' | 'INTRADAY' | 'SWING';
 
 export interface SafetyZoneConfig {
   zone: SafetyZone;
@@ -24,44 +25,69 @@ export interface SafetyZoneConfig {
   description: string;
 }
 
-export const SAFETY_ZONES: SafetyZoneConfig[] = [
-  {
-    zone: 'GREEN',
-    min_rr_ratio: 1.5,
-    min_tp_distance_atr: 5.0,
-    min_trade_duration_seconds: 0,
-    allow_alpha_override: true,
-    requires_explicit_reasoning: false,
-    description: 'Optimal trading conditions - Full Alpha authority'
-  },
-  {
-    zone: 'YELLOW',
-    min_rr_ratio: 1.0,
-    min_tp_distance_atr: 3.0,
-    min_trade_duration_seconds: 60,
-    allow_alpha_override: true,
-    requires_explicit_reasoning: false,
-    description: 'Suboptimal conditions - Alpha can proceed with warning'
-  },
-  {
-    zone: 'ORANGE',
-    min_rr_ratio: 0.5,
-    min_tp_distance_atr: 2.0,
-    min_trade_duration_seconds: 120,
-    allow_alpha_override: true,
-    requires_explicit_reasoning: true,
-    description: 'Risky conditions - Alpha must provide explicit override reasoning'
-  },
-  {
-    zone: 'RED',
-    min_rr_ratio: 0.3,
-    min_tp_distance_atr: 1.0,
-    min_trade_duration_seconds: 300,
-    allow_alpha_override: false,
-    requires_explicit_reasoning: false,
-    description: 'HARD BLOCK - Mathematical survival limits, even Alpha cannot override'
+/**
+ * Get safety zones dynamically adjusted for trade style
+ * CRITICAL FIX: RED ZONE thresholds now vary by trade style
+ *
+ * SCALP: 0.2:1 minimum (fast, high-frequency)
+ * INTRADAY: 0.3:1 minimum (standard)
+ * SWING: 0.5:1 minimum (patient, higher targets)
+ */
+export function getSafetyZones(tradeStyle: TradeStyle = 'INTRADAY'): SafetyZoneConfig[] {
+  // Adjust RED ZONE threshold based on trade style
+  let redZoneMinRR = 0.3; // Default INTRADAY
+  let redZoneMinTPAtr = 1.0;
+
+  if (tradeStyle === 'SCALP') {
+    redZoneMinRR = 0.2; // Scalp: Lower minimum for fast trades
+    redZoneMinTPAtr = 0.8;
+  } else if (tradeStyle === 'SWING') {
+    redZoneMinRR = 0.5; // Swing: Higher minimum for patient trades
+    redZoneMinTPAtr = 1.5;
   }
-];
+
+  return [
+    {
+      zone: 'GREEN',
+      min_rr_ratio: 1.5,
+      min_tp_distance_atr: 5.0,
+      min_trade_duration_seconds: 0,
+      allow_alpha_override: true,
+      requires_explicit_reasoning: false,
+      description: 'Optimal trading conditions - Full Alpha authority'
+    },
+    {
+      zone: 'YELLOW',
+      min_rr_ratio: 1.0,
+      min_tp_distance_atr: 3.0,
+      min_trade_duration_seconds: 60,
+      allow_alpha_override: true,
+      requires_explicit_reasoning: false,
+      description: 'Suboptimal conditions - Alpha can proceed with warning'
+    },
+    {
+      zone: 'ORANGE',
+      min_rr_ratio: 0.5,
+      min_tp_distance_atr: 2.0,
+      min_trade_duration_seconds: 120,
+      allow_alpha_override: true,
+      requires_explicit_reasoning: true,
+      description: 'Risky conditions - Alpha must provide explicit override reasoning'
+    },
+    {
+      zone: 'RED',
+      min_rr_ratio: redZoneMinRR,
+      min_tp_distance_atr: redZoneMinTPAtr,
+      min_trade_duration_seconds: 300,
+      allow_alpha_override: false,
+      requires_explicit_reasoning: false,
+      description: `HARD BLOCK - ${tradeStyle} survival limits (R:R ≥ ${redZoneMinRR}:1)`
+    }
+  ];
+}
+
+// Backwards compatibility: default SAFETY_ZONES (INTRADAY style)
+export const SAFETY_ZONES = getSafetyZones('INTRADAY');
 
 export interface SafetyViolation {
   zone: SafetyZone;
@@ -86,6 +112,7 @@ export interface SafetyEvaluation {
 export class AlphaSafetyZoneEvaluator {
   /**
    * Evaluate trade safety based on R:R ratio, TP distance, and trade characteristics
+   * CRITICAL FIX: Now accepts tradeStyle for dynamic RED ZONE thresholds
    */
   evaluateTrade(params: {
     rrRatio: number;
@@ -94,15 +121,20 @@ export class AlphaSafetyZoneEvaluator {
     atr: number;
     symbol: string;
     estimatedDurationSeconds?: number;
+    tradeStyle?: TradeStyle;
   }): SafetyEvaluation {
-    const { rrRatio, tpDistancePips, atr, estimatedDurationSeconds = 0 } = params;
+    const { rrRatio, tpDistancePips, atr, estimatedDurationSeconds = 0, tradeStyle = 'INTRADAY' } = params;
+
+    // Get style-specific safety zones
+    const safetyZones = getSafetyZones(tradeStyle);
+    console.log(`[Alpha Safety] Evaluating ${tradeStyle} trade: R:R ${rrRatio.toFixed(2)}:1, RED zone minimum: ${safetyZones[3].min_rr_ratio}:1`);
 
     const tpDistanceATR = tpDistancePips / (atr || 1);
     const violations: SafetyViolation[] = [];
     let currentZone: SafetyZone = 'GREEN';
 
-    for (let i = SAFETY_ZONES.length - 1; i >= 0; i--) {
-      const zone = SAFETY_ZONES[i];
+    for (let i = safetyZones.length - 1; i >= 0; i--) {
+      const zone = safetyZones[i];
 
       if (rrRatio < zone.min_rr_ratio) {
         violations.push({
@@ -148,7 +180,7 @@ export class AlphaSafetyZoneEvaluator {
       }
     }
 
-    const zoneConfig = SAFETY_ZONES.find(z => z.zone === currentZone)!;
+    const zoneConfig = safetyZones.find(z => z.zone === currentZone)!;
     const isSafe = violations.length === 0;
     const canProceed = isSafe || (violations.length > 0 && violations.every(v => v.allow_override));
 

@@ -1018,42 +1018,62 @@ class AlphaOmegaOrchestrator {
       (buyVotes.length >= 5 && sellVotes.length === 1) ||
       (sellVotes.length >= 5 && buyVotes.length === 1);
 
-    // HARD BLOCK CONDITIONS:
+    // HARD CONFLICT CONDITIONS (ADVISORY - NO LONGER BLOCKING):
     // 1. At least 2 Omegas disagree in direction
     // 2. Their disagreement confidence >= 70%
     // 3. They are from conflicting domains
     // 4. NOT in aggressive mode with overwhelming majority
-    const hardBlockCondition1 = highConfBuyVotes.length >= 1 && highConfSellVotes.length >= 1;
-    const hardBlockCondition2 = hardBlockCondition1; // Already filtered for >= 70%
-    const hardBlockCondition3 = hasConflictingDomains;
-    const hardBlockCondition4 = !(isAggressiveMode && hasOverwhelmingMajority);
+    const hardConflictCondition1 = highConfBuyVotes.length >= 1 && highConfSellVotes.length >= 1;
+    const hardConflictCondition2 = hardConflictCondition1; // Already filtered for >= 70%
+    const hardConflictCondition3 = hasConflictingDomains;
+    const hardConflictCondition4 = !(isAggressiveMode && hasOverwhelmingMajority);
 
-    if (hardBlockCondition1 && hardBlockCondition2 && hardBlockCondition3 && hardBlockCondition4) {
-      console.log('[Omega Conflict] HARD BLOCK: Conflicting high-confidence signals from opposing domains');
+    if (hardConflictCondition1 && hardConflictCondition2 && hardConflictCondition3 && hardConflictCondition4) {
+      // CRITICAL FIX: HARD conflicts now use confidence penalties instead of blocking
+      // This allows Alpha to make the final decision with strong advisory input
+      const majorityDirection = buyVotes.length > sellVotes.length ? 'BUY' : 'SELL';
+      const majorityCount = Math.max(buyVotes.length, sellVotes.length);
+      const minorityCount = Math.min(buyVotes.length, sellVotes.length);
+
+      // Calculate penalty based on conflict severity
+      let penalty = 0.5; // Default 50% penalty for HARD conflict
+
+      // If there's a clear majority (3+ vs 1-2), reduce penalty
+      if (majorityCount >= 3 && minorityCount <= 2) {
+        penalty = 0.65; // 35% penalty when clear majority exists
+        console.log(`[Omega Conflict] HARD conflict with ${majorityCount}v${minorityCount} majority - applying reduced penalty`);
+      } else {
+        console.log(`[Omega Conflict] HARD conflict (${majorityCount}v${minorityCount}) - applying strong advisory penalty`);
+      }
+
+      console.log(`[Omega Conflict] ⚠️ HIGH SEVERITY: Conflicting high-confidence signals from opposing domains`);
+      console.log(`[Omega Conflict] ${description}`);
+      console.log(`[Omega Conflict] Recommended: Follow ${majorityDirection} majority with ${penalty}x confidence (${(penalty * 100).toFixed(0)}%)`);
+
       return {
         hasConflict: true,
         conflictType: 'HARD',
         severity: 'HIGH',
         conflictDescription: description,
-        confidencePenalty: 0.0 // Will block, so penalty doesn't matter
+        confidencePenalty: penalty // Apply penalty instead of blocking
       };
     }
 
-    // AGGRESSIVE MODE OVERRIDE: Downgrade HARD to SOFT when overwhelming majority exists
-    if (isAggressiveMode && hasOverwhelmingMajority && hardBlockCondition1 && hardBlockCondition2 && hardBlockCondition3) {
+    // AGGRESSIVE MODE OVERRIDE: Further reduce penalty when overwhelming majority exists
+    if (isAggressiveMode && hasOverwhelmingMajority && hardConflictCondition1 && hardConflictCondition2 && hardConflictCondition3) {
       const majorityDirection = buyVotes.length > sellVotes.length ? 'BUY' : 'SELL';
       const majorityCount = Math.max(buyVotes.length, sellVotes.length);
       const minorityCount = Math.min(buyVotes.length, sellVotes.length);
 
-      console.log(`[Omega Conflict] 🔥 AGGRESSIVE MODE OVERRIDE: ${majorityCount} vs ${minorityCount} - Taking ${majorityDirection} with reduced confidence`);
-      console.log('[Omega Conflict] Personality: AGGRESSIVE | Score: ' + traderScore.score + ' | Respecting majority consensus');
+      console.log(`[Omega Conflict] 🔥 AGGRESSIVE MODE OVERRIDE: ${majorityCount} vs ${minorityCount} - Taking ${majorityDirection} with minimal penalty`);
+      console.log('[Omega Conflict] Personality: AGGRESSIVE | Score: ' + traderScore.score + ' | Respecting overwhelming majority');
 
       return {
         hasConflict: true,
         conflictType: 'SOFT',
         severity: 'MEDIUM',
         conflictDescription: `${description} (Aggressive: Following ${majorityCount}-vote majority)`,
-        confidencePenalty: 0.85 // -15% penalty for aggressive override
+        confidencePenalty: 0.85 // -15% penalty for aggressive override with overwhelming majority
       };
     }
 
