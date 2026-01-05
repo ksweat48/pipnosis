@@ -48,15 +48,14 @@ export class AlphaDownshiftEvaluator {
 
       const elapsedMs = Date.now() - startTime;
 
-      await llmTokenTracker.trackTokenUsage({
-        userId,
-        brainName: 'Alpha_Downshift_Evaluator',
-        contextType: 'downshift_evaluation',
+      await llmTokenTracker.logUsage({
+        brainName: 'Alpha',
+        model: 'gpt-4o-mini',
         promptTokens: response.usage?.prompt_tokens || 0,
         completionTokens: response.usage?.completion_tokens || 0,
         totalTokens: response.usage?.total_tokens || 0,
-        model: 'gpt-4o-mini',
-        latencyMs: elapsedMs,
+        contextType: 'alpha_coordination',
+        userId,
         sessionId,
       });
 

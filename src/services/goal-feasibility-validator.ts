@@ -167,7 +167,7 @@ class GoalFeasibilityValidator {
   }> {
     try {
       const { data: trades, error } = await supabase
-        .from('goal_trades')
+        .from('goal_session_trades')
         .select('status, pnl, created_at')
         .eq('user_id', userId)
         .in('status', ['win', 'loss'])
