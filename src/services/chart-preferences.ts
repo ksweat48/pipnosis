@@ -1,73 +1,27 @@
 import { supabase } from '@/lib/supabase';
-
-type Timeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1';
-type DbTimeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1';
+import {
+  type Timeframe,
+  formatTimeframeForDb,
+  normalizeTimeframe,
+  TIMEFRAME_MINUTES,
+  TIMEFRAME_POLL_INTERVALS,
+  TIMEFRAME_LIMITS,
+} from '@/config/timeframe-hierarchy';
 
 interface ChartPreferences {
   [symbol: string]: Timeframe;
 }
 
 export function appTimeframeToDb(timeframe: Timeframe): string {
-  // Database uses UPPERCASE format: M1, M5, H1, etc. (same as app format)
-  // Ensure timeframe is uppercase to handle any legacy lowercase variants
-  return timeframe.toUpperCase();
+  return formatTimeframeForDb(timeframe);
 }
 
 export function dbTimeframeToApp(dbTimeframe: string): Timeframe {
-  // Database format is the same as app format (both uppercase)
-  // Support legacy lowercase formats by converting to uppercase
-  const normalized = dbTimeframe.toUpperCase();
-
-  // Validate and return
-  const validTimeframes: Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
-  if (validTimeframes.includes(normalized as Timeframe)) {
-    return normalized as Timeframe;
-  }
-
-  // Handle legacy numeric-first formats (1m, 5m, 1h, etc.)
-  const legacyMapping: Record<string, Timeframe> = {
-    '1M': 'M1',
-    '5M': 'M5',
-    '15M': 'M15',
-    '30M': 'M30',
-    '1H': 'H1',
-    '4H': 'H4',
-    '1D': 'D1',
-    '1W': 'W1'
-  };
-
-  return legacyMapping[normalized] || 'M1';
+  return normalizeTimeframe(dbTimeframe);
 }
 
 export function normalizeTimeframeToDb(timeframe: string): string {
-  const upper = timeframe.toUpperCase();
-
-  // Already in correct format (M1, M5, M15, etc.)
-  const validTimeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
-  if (validTimeframes.includes(upper)) {
-    return upper;
-  }
-
-  // Convert from shorthand format (1m, 5m, 15m, 1h, etc.) to MetaTrader format (M1, M5, M15, H1, etc.)
-  const conversionMap: Record<string, string> = {
-    '1M': 'M1',
-    '5M': 'M5',
-    '15M': 'M15',
-    '30M': 'M30',
-    '1H': 'H1',
-    '4H': 'H4',
-    '1D': 'D1',
-    // Support lowercase variants
-    '1m': 'M1',
-    '5m': 'M5',
-    '15m': 'M15',
-    '30m': 'M30',
-    '1h': 'H1',
-    '4h': 'H4',
-    '1d': 'D1'
-  };
-
-  return conversionMap[timeframe] || conversionMap[upper] || 'H1';
+  return formatTimeframeForDb(normalizeTimeframe(timeframe));
 }
 
 interface IndicatorVisibility {
@@ -146,42 +100,15 @@ class ChartPreferencesService {
   }
 
   getTimeframeMinutes(timeframe: Timeframe): number {
-    const timeframeMap: Record<Timeframe, number> = {
-      'M1': 1,
-      'M5': 5,
-      'M15': 15,
-      'M30': 30,
-      'H1': 60,
-      'H4': 240,
-      'D1': 1440
-    };
-    return timeframeMap[timeframe];
+    return TIMEFRAME_MINUTES[timeframe];
   }
 
   getDataLimit(timeframe: Timeframe): number {
-    const limitMap: Record<Timeframe, number> = {
-      'M1': 500,
-      'M5': 500,
-      'M15': 500,
-      'M30': 500,
-      'H1': 500,
-      'H4': 500,
-      'D1': 365
-    };
-    return limitMap[timeframe];
+    return TIMEFRAME_LIMITS[timeframe].displayLimit;
   }
 
   getPollInterval(timeframe: Timeframe): number {
-    const intervalMap: Record<Timeframe, number> = {
-      'M1': 5000,
-      'M5': 15000,
-      'M15': 30000,
-      'M30': 60000,
-      'H1': 120000,
-      'H4': 240000,
-      'D1': 600000
-    };
-    return intervalMap[timeframe];
+    return TIMEFRAME_POLL_INTERVALS[timeframe];
   }
 
   private loadIndicatorPreferencesFromLocalStorage(): void {

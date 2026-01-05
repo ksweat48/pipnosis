@@ -1,7 +1,17 @@
 import { supabase } from '@/lib/supabase';
-import { Timeframe, appTimeframeToDb } from '@/services/chart-preferences';
-import { normalizeTimestamp, getCurrentCandleStart, getLastCompletedCandleStart, isTimestampAligned } from '@/utils/timestampNormalizer';
-import { isMarketOpenAt, getLastMarketCloseTime, getTimeframeLookbackHours } from '@/utils/marketHours';
+import {
+  type Timeframe,
+  formatTimeframeForDb,
+  TIMEFRAME_MINUTES,
+  normalizeTimestampToTimeframe,
+  getCurrentCandleStart,
+  isTimestampAligned,
+} from '@/config/timeframe-hierarchy';
+import { isMarketOpenAt, getTimeframeLookbackHours } from '@/utils/marketHours';
+
+function appTimeframeToDb(timeframe: Timeframe): string {
+  return formatTimeframeForDb(timeframe);
+}
 
 export interface CandleData {
   time: number;
@@ -24,16 +34,6 @@ export interface CandleValidationResult {
   reason?: string;
   priceDeviation?: number;
 }
-
-const TIMEFRAME_MINUTES_MAP: Record<Timeframe, number> = {
-  M1: 1,
-  M5: 5,
-  M15: 15,
-  M30: 30,
-  H1: 60,
-  H4: 240,
-  D1: 1440,
-};
 
 const MAX_PRICE_DEVIATION_PERCENT = 10;
 
@@ -245,7 +245,7 @@ function filterCandlesByMarketHours(candles: CandleData[], symbol: string): Cand
 }
 
 export function getTimeframeMinutes(timeframe: Timeframe): number {
-  return TIMEFRAME_MINUTES_MAP[timeframe] || 15;
+  return TIMEFRAME_MINUTES[timeframe] || 15;
 }
 
 export function validateCandleAgainstHistorical(
@@ -541,12 +541,11 @@ export function aggregatePricesToCurrentCandle(
   const latestPrice = prices[prices.length - 1];
   const latestTimestampUtc = parseUtcTimestamp(latestPrice.broker_time || latestPrice.created_at);
 
-  // CRITICAL: Use centralized timestamp normalization
-  const currentCandleTimeSeconds = normalizeTimestamp(latestTimestampUtc, timeframe);
+  const currentCandleTimeSeconds = normalizeTimestampToTimeframe(latestTimestampUtc, timeframe);
 
   const relevantPrices = prices.filter((price) => {
     const timestampUtc = parseUtcTimestamp(price.broker_time || price.created_at);
-    const candleTimeSeconds = normalizeTimestamp(timestampUtc, timeframe);
+    const candleTimeSeconds = normalizeTimestampToTimeframe(timestampUtc, timeframe);
     return candleTimeSeconds === currentCandleTimeSeconds;
   });
 
