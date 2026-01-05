@@ -32,12 +32,16 @@ class PositionMonitorService {
   start() {
     if (this.isRunning) return;
 
-    logger.debug(LogCategory.POSITION_MONITOR, ' Starting position monitor service with adaptive polling');
+    logger.debug(LogCategory.POSITION_MONITOR, '🚀 Starting position monitor service with high-frequency polling');
     this.isRunning = true;
 
     this.monitorPositions();
-    this.criticalPositionIntervalId = setInterval(() => this.monitorCriticalPositions(), 2000);
-    this.normalPositionIntervalId = setInterval(() => this.monitorNormalPositions(), 3000);
+    // CRITICAL: Reduced intervals for immediate SL/TP detection
+    // Critical positions (near SL/TP): 250ms polling for sub-second response
+    // Normal positions: 1000ms polling (still 3x faster than before)
+    this.criticalPositionIntervalId = setInterval(() => this.monitorCriticalPositions(), 250);
+    this.normalPositionIntervalId = setInterval(() => this.monitorNormalPositions(), 1000);
+    console.log('[PositionMonitor] ⚡ High-frequency monitoring enabled: Critical=250ms, Normal=1000ms');
   }
 
   stop() {
@@ -100,11 +104,25 @@ class PositionMonitorService {
       const distanceToTP = Math.abs(currentPrice - position.take_profit);
       const priceRange = Math.abs(position.take_profit - position.stop_loss);
 
-      const isNearSLorTP = (distanceToSL / priceRange < 0.15) || (distanceToTP / priceRange < 0.15);
+      // CRITICAL: Expanded critical zone to 30% (was 15%) for earlier high-frequency monitoring
+      // This gives more time for sub-second response when approaching SL/TP
+      const isNearSLorTP = (distanceToSL / priceRange < 0.30) || (distanceToTP / priceRange < 0.30);
 
       if (isNearSLorTP) {
         newCriticalSymbols.add(position.symbol);
+        console.log(`[PositionMonitor] ⚠️ ${position.symbol} marked CRITICAL: ${((distanceToSL / priceRange) * 100).toFixed(1)}% from SL`);
       }
+    }
+
+    // Log changes in critical symbols
+    const added = [...newCriticalSymbols].filter(s => !this.criticalSymbols.has(s));
+    const removed = [...this.criticalSymbols].filter(s => !newCriticalSymbols.has(s));
+
+    if (added.length > 0) {
+      console.log(`[PositionMonitor] 🔴 NEW CRITICAL: ${added.join(', ')} → 250ms polling`);
+    }
+    if (removed.length > 0) {
+      console.log(`[PositionMonitor] 🟢 NO LONGER CRITICAL: ${removed.join(', ')} → 1000ms polling`);
     }
 
     this.criticalSymbols = newCriticalSymbols;
@@ -255,25 +273,32 @@ class PositionMonitorService {
 
       if (realtimeData && !realtimeError) {
         const ageMinutes = (Date.now() - new Date(realtimeData.created_at).getTime()) / 1000 / 60;
+        const ageSeconds = ageMinutes * 60;
 
-        // Only use if less than 5 minutes old
-        if (ageMinutes < 5) {
+        // CRITICAL: Reduced freshness threshold to 2 minutes (was 5) for tighter SL/TP monitoring
+        // For positions with critical status, we need fresh data
+        if (ageMinutes < 2) {
           bid = parseFloat(realtimeData.bid);
           ask = parseFloat(realtimeData.ask);
           currentPrice = position.direction === 'buy' ? bid : ask;
           priceSource = 'realtime_prices';
-          console.log(`[PositionMonitor] ${position.symbol}: Using realtime_prices (${ageMinutes.toFixed(1)}m old)`);
+
+          // Only log for critical positions or if very fresh
+          if (this.criticalSymbols.has(position.symbol) || ageSeconds < 10) {
+            console.log(`[PositionMonitor] ${position.symbol}: Using realtime_prices (${ageSeconds.toFixed(1)}s old)`);
+          }
         } else {
           // Throttle stale warnings to once every 5 minutes per symbol
           const now = Date.now();
           const lastWarning = this.lastStaleWarning.get(position.symbol) || 0;
           if (now - lastWarning > this.staleWarningThrottle) {
-            console.warn(`[PositionMonitor] ${position.symbol}: realtime_prices stale (${ageMinutes.toFixed(1)}m old), trying fallback`);
+            console.error(`[PositionMonitor] ⚠️ STALE PRICE DATA for ${position.symbol}: ${ageMinutes.toFixed(1)} minutes old (threshold: 2min)`);
+            console.error(`[PositionMonitor] This may delay SL/TP closure! Trying fallback sources...`);
             this.lastStaleWarning.set(position.symbol, now);
           }
         }
       } else if (realtimeError) {
-        console.warn(`[PositionMonitor] ${position.symbol}: realtime_prices error:`, realtimeError);
+        console.error(`[PositionMonitor] ❌ ${position.symbol}: realtime_prices query error:`, realtimeError.message);
       }
 
       // SOURCE 2: forex_candles table (M5 close price)
@@ -546,9 +571,25 @@ class PositionMonitorService {
       ? actualCurrentPrice >= position.take_profit
       : actualCurrentPrice <= position.take_profit;
 
+    // CRITICAL: Log SL/TP checks for debugging and transparency
+    if (this.criticalSymbols.has(position.symbol) || shouldCloseAtStopLoss || shouldCloseAtTakeProfit) {
+      console.log(`[PositionMonitor] SL/TP Check for ${position.symbol}:`, {
+        direction: position.direction,
+        currentPrice: actualCurrentPrice.toFixed(5),
+        stopLoss: position.stop_loss.toFixed(5),
+        takeProfit: position.take_profit.toFixed(5),
+        shouldCloseAtSL: shouldCloseAtStopLoss,
+        shouldCloseAtTP: shouldCloseAtTakeProfit,
+        priceSource,
+        critical: this.criticalSymbols.has(position.symbol)
+      });
+    }
+
     if (shouldCloseAtStopLoss) {
+      console.log(`[PositionMonitor] 🛑 STOP LOSS TRIGGERED for ${position.symbol} at ${actualCurrentPrice.toFixed(5)}`);
       await this.autoClosePosition(position, actualCurrentPrice, 'stop_loss');
     } else if (shouldCloseAtTakeProfit) {
+      console.log(`[PositionMonitor] 🎯 TAKE PROFIT TRIGGERED for ${position.symbol} at ${actualCurrentPrice.toFixed(5)}`);
       await this.autoClosePosition(position, actualCurrentPrice, 'take_profit');
     }
   }

@@ -163,12 +163,21 @@ if (typeof window !== 'undefined') {
   // Start position monitoring only when needed
   setTimeout(async () => {
     try {
-      const [{ positionMonitorService }, { tradeLifecycleManager }] = await Promise.all([
+      const [{ positionMonitorService }, { tradeLifecycleManager }, { realtimeSLTPMonitor }] = await Promise.all([
         import('@/services/position-monitor'),
-        import('@/services/trade-lifecycle-manager')
+        import('@/services/trade-lifecycle-manager'),
+        import('@/services/realtime-sltp-monitor')
       ]);
       positionMonitorService.start();
       tradeLifecycleManager.startMonitoring(5000);
+
+      // CRITICAL: Start event-driven SL/TP monitor for immediate closure detection
+      realtimeSLTPMonitor.start();
+      console.log('[Init] ⚡ Dual SL/TP monitoring enabled: Polling (250ms-1s) + Event-driven (real-time)');
+
+      // Start SL/TP diagnostic monitoring
+      const { sltpDiagnosticService } = await import('@/services/sltp-diagnostic-service');
+      sltpDiagnosticService.startDiagnostics();
     } catch (error) {
       console.log('[Init] Deferred monitoring services:', error);
     }
@@ -215,6 +224,13 @@ if (typeof window !== 'undefined') {
     }
   };
   console.log('💡 Modal stuck? Run clearAllModals() to clear all notifications');
+
+  // SL/TP health check utility
+  (window as any).checkSLTPHealth = async () => {
+    const { sltpDiagnosticService } = await import('@/services/sltp-diagnostic-service');
+    return await sltpDiagnosticService.runManualCheck();
+  };
+  console.log('💡 Check SL/TP monitoring: Run checkSLTPHealth() for health report');
 }
 
 window.addEventListener('unhandledrejection', (event) => {
