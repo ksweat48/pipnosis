@@ -100,22 +100,20 @@ class Omega9HallucinationBrain {
       };
     }
 
-    const onlyVoteConflicts = localValidation.flags.every(f =>
-      f.includes('VOTE_SPLIT') ||
-      f.includes('MAJORITY_NO_TRADE') ||
+    const onlyAdvisoryFlags = localValidation.flags.every(f =>
       f.includes('ADVISORY') ||
       f.includes('YELLOW_ZONE') ||
       f.includes('ORANGE_ZONE')
     );
 
-    if (safetyZone === 'GREEN' && onlyVoteConflicts) {
-      console.log('[Omega-9] ✅ GREEN zone with vote conflicts - trusting Alpha decision (skipping LLM)');
-      console.log('[Omega-9] Alpha has already resolved conflicts via weighted consensus');
+    if (safetyZone === 'GREEN' && onlyAdvisoryFlags) {
+      console.log('[Omega-9] ✅ GREEN zone with advisory flags only - trusting Alpha decision (skipping LLM)');
+      console.log('[Omega-9] Alpha has final authority on strategic decisions');
       return localValidation;
     }
 
-    if (safetyZone === 'YELLOW' && onlyVoteConflicts) {
-      console.log('[Omega-9] ⚡ YELLOW zone with vote conflicts - trusting Alpha decision (skipping LLM)');
+    if (safetyZone === 'YELLOW' && onlyAdvisoryFlags) {
+      console.log('[Omega-9] ⚡ YELLOW zone with advisory flags only - trusting Alpha decision (skipping LLM)');
       return localValidation;
     }
 
@@ -126,6 +124,9 @@ class Omega9HallucinationBrain {
   /**
    * Perform local mathematical and logical validation without LLM
    * Includes GRADUATED SAFETY ZONE enforcement
+   *
+   * SCOPE: Mathematical safety ONLY - no directional consensus validation
+   * Alpha has final authority on direction, timing, and strategic decisions
    */
   private performLocalValidation(input: Omega9Input): Omega9ValidationResult {
     const flags: string[] = [];
@@ -148,6 +149,7 @@ class Omega9HallucinationBrain {
     const sl = alphaDecision.stopLoss;
     const tp = alphaDecision.takeProfit;
 
+    // MATHEMATICAL VALIDATION: Stop Loss positioning
     if (isBuy && sl >= entry) {
       flags.push('SL_POSITION_ERROR_BUY');
     }
@@ -155,6 +157,7 @@ class Omega9HallucinationBrain {
       flags.push('SL_POSITION_ERROR_SELL');
     }
 
+    // MATHEMATICAL VALIDATION: Take Profit positioning
     if (isBuy && tp <= entry) {
       flags.push('TP_POSITION_ERROR_BUY');
     }
@@ -162,6 +165,7 @@ class Omega9HallucinationBrain {
       flags.push('TP_POSITION_ERROR_SELL');
     }
 
+    // MATHEMATICAL VALIDATION: Zero distance check
     if (sl === entry || tp === entry) {
       flags.push('ZERO_DISTANCE_ERROR');
     }
@@ -179,10 +183,8 @@ class Omega9HallucinationBrain {
       // Auto-correction happens in coordinator-alpha via constraint provider
     }
 
-    const voteConflicts = this.detectVoteConflicts(omegaVotes);
-    if (voteConflicts.length > 0) {
-      flags.push(...voteConflicts);
-    }
+    // REMOVED: Vote conflict detection - Alpha has final authority on direction
+    // Omega-9's role is MATHEMATICAL SAFETY ONLY, not strategic direction validation
 
     const slDistancePips = calculatePipDistance(marketContext.symbol, alphaDecision.entry, alphaDecision.stopLoss);
     const tpDistancePips = calculatePipDistance(marketContext.symbol, alphaDecision.entry, alphaDecision.takeProfit);
@@ -264,35 +266,12 @@ class Omega9HallucinationBrain {
   }
 
   /**
-   * Detect conflicts in Omega votes
+   * REMOVED: Vote conflict detection
+   *
+   * Omega-9's role is MATHEMATICAL SAFETY ONLY, not strategic direction validation.
+   * Alpha has final authority on direction synthesis from Omega votes.
+   * Vote conflicts are Alpha's responsibility to resolve via weighted consensus.
    */
-  private detectVoteConflicts(votes: Omega9Input['omegaVotes']): string[] {
-    const flags: string[] = [];
-
-    const activeVotes = Object.entries(votes)
-      .filter(([_, vote]) => vote !== null)
-      .map(([name, vote]) => ({ name, vote: (vote as OmegaVote).vote }));
-
-    if (activeVotes.length < 3) {
-      return flags;
-    }
-
-    const buyCount = activeVotes.filter(v => v.vote === 'BUY').length;
-    const sellCount = activeVotes.filter(v => v.vote === 'SELL').length;
-    const noTradeCount = activeVotes.filter(v => v.vote === 'NO_TRADE').length;
-
-    if (buyCount > 0 && sellCount > 0) {
-      if (Math.abs(buyCount - sellCount) <= 1) {
-        flags.push(`VOTE_SPLIT_${buyCount}BUY_${sellCount}SELL`);
-      }
-    }
-
-    if (noTradeCount > activeVotes.length / 2) {
-      flags.push('MAJORITY_NO_TRADE');
-    }
-
-    return flags;
-  }
 
   /**
    * Attempt to repair fixable issues
@@ -355,15 +334,21 @@ class Omega9HallucinationBrain {
 
   /**
    * Request LLM validation for complex scenarios
+   * SCOPE: Mathematical safety only - no directional override
    */
   private async llmValidation(input: Omega9Input, localFlags: string[]): Promise<Omega9ValidationResult> {
-    const prompt = `Validation:
+    const prompt = `Validation (Mathematical Safety Only):
 Decision: ${input.alphaDecision.action} @ ${input.alphaDecision.entry}
 SL: ${input.alphaDecision.stopLoss}, TP: ${input.alphaDecision.takeProfit}
-Votes: ${JSON.stringify(input.omegaVotes)}
 LocalFlags: ${localFlags.join(', ')}
 
-Check: direction logic, vote conflicts, impossible scenarios.
+SCOPE: Check ONLY mathematical correctness and impossible scenarios:
+- SL/TP on correct side of entry
+- No zero-distance stops
+- No catastrophic positioning errors
+
+DO NOT validate directional consensus or vote conflicts - Alpha has final authority on direction.
+
 Can this be repaired or must it be blocked?
 
 Return JSON only:
@@ -380,7 +365,7 @@ Return JSON only:
         [
           {
             role: 'system',
-            content: 'You are Omega9, hallucination defense. Catch impossible logic. Return JSON only.'
+            content: 'You are Omega-9, mathematical safety validator. Your ONLY role is catching catastrophic mathematical errors (SL/TP wrong side, zero distances, impossible positioning). Alpha has final authority on direction and strategy. Return JSON only.'
           },
           {
             role: 'user',

@@ -1325,7 +1325,16 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
 
       // Omega-9 validation (final safety check) - skip for WAIT since we're not executing yet
       if (decision.action !== 'NO_TRADE' && decision.action !== 'WAIT') {
-        console.log('[Alpha Coordinator] 🛡️ Running Omega-9 validation...');
+        console.log('[Alpha Coordinator] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('[Alpha Coordinator] 📋 ALPHA\'S DECISION (Before Omega-9):');
+        console.log(`[Alpha Coordinator]   Action: ${decision.action}`);
+        console.log(`[Alpha Coordinator]   Entry: ${decision.entry.toFixed(5)}`);
+        console.log(`[Alpha Coordinator]   Stop Loss: ${decision.stopLoss.toFixed(5)}`);
+        console.log(`[Alpha Coordinator]   Take Profit: ${decision.takeProfit.toFixed(5)}`);
+        console.log(`[Alpha Coordinator]   Confidence: ${decision.confidence}%`);
+        console.log(`[Alpha Coordinator]   R:R Ratio: ${(Math.abs(decision.takeProfit - decision.entry) / Math.abs(decision.entry - decision.stopLoss)).toFixed(2)}`);
+        console.log('[Alpha Coordinator] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('[Alpha Coordinator] 🛡️ Running Omega-9 validation (Mathematical Safety Only)...');
 
         const omega9Input: Omega9Input = {
           alphaDecision: decision,
@@ -1351,8 +1360,12 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
 
         // Check for RED ZONE hard block - CANNOT BE OVERRIDDEN
         if (validation.safety_zone === 'RED' && !validation.pass) {
-          console.log('[Alpha Coordinator] 🚨 RED ZONE HARD BLOCK - Trade cannot proceed');
-          console.log('[Alpha Coordinator] ❌ Omega-9 HARD BLOCKED:', validation.reasoning);
+          console.log('[Alpha Coordinator] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.log('[Alpha Coordinator] 🚨 OMEGA-9 RED ZONE HARD BLOCK');
+          console.log('[Alpha Coordinator] ❌ Alpha\'s decision was BLOCKED by Omega-9');
+          console.log(`[Alpha Coordinator] ❌ Reason: ${validation.reasoning}`);
+          console.log('[Alpha Coordinator] ❌ This trade violates mathematical survival limits');
+          console.log('[Alpha Coordinator] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
           return {
             action: 'NO_TRADE',
             decision: 'NO_TRADE',
@@ -1360,7 +1373,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
             stopLoss: marketContext.price,
             takeProfit: marketContext.price,
             confidence: 0,
-            reasoning: `🚨 RED ZONE HARD BLOCK: ${validation.reasoning}. This trade violates mathematical survival limits.`,
+            reasoning: `🚨 OMEGA-9 VETO (RED ZONE): ${validation.reasoning}. Alpha's decision blocked due to mathematical survival violation.`,
             omega_summary: decision.omega_summary,
             omega8_liquidity_bias: decision.omega8_liquidity_bias,
             omega8_direction_support: decision.omega8_direction_support,
@@ -1370,7 +1383,11 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
 
         // Check for other validation failures
         if (!validation.pass) {
-          console.log('[Alpha Coordinator] ❌ Omega-9 BLOCKED trade:', validation.reasoning);
+          console.log('[Alpha Coordinator] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.log('[Alpha Coordinator] ❌ OMEGA-9 BLOCKED TRADE');
+          console.log('[Alpha Coordinator] ❌ Alpha\'s decision was BLOCKED by Omega-9');
+          console.log(`[Alpha Coordinator] ❌ Reason: ${validation.reasoning}`);
+          console.log('[Alpha Coordinator] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
           return {
             action: 'NO_TRADE',
             decision: 'NO_TRADE',
@@ -1378,7 +1395,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
             stopLoss: marketContext.price,
             takeProfit: marketContext.price,
             confidence: 0,
-            reasoning: `Omega-9 block: ${validation.reasoning}`,
+            reasoning: `❌ OMEGA-9 VETO: ${validation.reasoning}. Alpha's decision blocked due to mathematical safety violation.`,
             omega_summary: decision.omega_summary,
             omega8_liquidity_bias: decision.omega8_liquidity_bias,
             omega8_direction_support: decision.omega8_direction_support,
@@ -1389,29 +1406,53 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
         // Log safety zone status
         if (validation.safety_zone) {
           const zoneEmoji = validation.safety_zone === 'GREEN' ? '✅' : validation.safety_zone === 'YELLOW' ? '⚡' : validation.safety_zone === 'ORANGE' ? '⚠️' : '🚨';
+          console.log('[Alpha Coordinator] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.log(`[Alpha Coordinator] ${zoneEmoji} OMEGA-9 VALIDATION RESULT`);
           console.log(`[Alpha Coordinator] ${zoneEmoji} Safety Zone: ${validation.safety_zone} | Safety Score: ${validation.safety_evaluation?.safety_score || 0}/100`);
 
-          if (validation.safety_zone === 'ORANGE') {
-            console.log('[Alpha Coordinator] ⚠️ ORANGE ZONE: Trade allowed but requires Alpha override reasoning');
+          if (validation.safety_zone === 'GREEN') {
+            console.log('[Alpha Coordinator] ✅ Alpha\'s decision APPROVED by Omega-9 (no modifications)');
+          } else if (validation.safety_zone === 'ORANGE') {
+            console.log('[Alpha Coordinator] ⚠️ ORANGE ZONE: Alpha\'s decision APPROVED with advisory caution');
+            console.log('[Alpha Coordinator] ⚠️ Trade requires Alpha override reasoning');
           } else if (validation.safety_zone === 'YELLOW') {
-            console.log('[Alpha Coordinator] ⚡ YELLOW ZONE: Suboptimal conditions detected, proceeding with caution');
+            console.log('[Alpha Coordinator] ⚡ YELLOW ZONE: Alpha\'s decision APPROVED with advisory warning');
+            console.log('[Alpha Coordinator] ⚡ Suboptimal conditions detected, proceeding with caution');
           }
+          console.log('[Alpha Coordinator] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         }
 
-        // Apply Omega-9 corrections if provided
+        // Apply Omega-9 corrections if provided (Mathematical repairs only)
+        const hasCorrections = validation.corrections.sl !== null || validation.corrections.tp !== null;
+        if (hasCorrections) {
+          console.log('[Alpha Coordinator] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.log('[Alpha Coordinator] 🔧 OMEGA-9 APPLIED MATHEMATICAL CORRECTIONS');
+          console.log('[Alpha Coordinator] (Catastrophic positioning error detected and repaired)');
+        }
+
         if (validation.corrections.sl !== null) {
-          console.log(`[Alpha Coordinator] 🔧 Omega-9 corrected SL: ${decision.stopLoss} → ${validation.corrections.sl}`);
+          console.log(`[Alpha Coordinator] 🔧 Stop Loss: ${decision.stopLoss.toFixed(5)} → ${validation.corrections.sl.toFixed(5)}`);
           decision.stopLoss = validation.corrections.sl;
         }
         if (validation.corrections.tp !== null) {
-          console.log(`[Alpha Coordinator] 🔧 Omega-9 corrected TP: ${decision.takeProfit} → ${validation.corrections.tp}`);
+          console.log(`[Alpha Coordinator] 🔧 Take Profit: ${decision.takeProfit.toFixed(5)} → ${validation.corrections.tp.toFixed(5)}`);
           decision.takeProfit = validation.corrections.tp;
         }
 
-        // Apply confidence adjustment
-        decision.confidence = Math.max(0, Math.min(100, decision.confidence + validation.confidence_adjustment));
+        if (hasCorrections) {
+          console.log('[Alpha Coordinator] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        }
 
-        console.log('[Alpha Coordinator] ✅ Omega-9 validation passed');
+        // Apply confidence adjustment
+        if (validation.confidence_adjustment !== 0) {
+          const oldConfidence = decision.confidence;
+          decision.confidence = Math.max(0, Math.min(100, decision.confidence + validation.confidence_adjustment));
+          console.log(`[Alpha Coordinator] 📊 Confidence adjusted: ${oldConfidence}% → ${decision.confidence}% (${validation.confidence_adjustment > 0 ? '+' : ''}${validation.confidence_adjustment}%)`);
+        }
+
+        if (!hasCorrections) {
+          console.log('[Alpha Coordinator] ✅ Omega-9 validation passed (no modifications to Alpha\'s decision)');
+        }
       }
 
       // Time-to-Fill validation (CRITICAL FOR INTRADAY FOCUS) - skip for WAIT

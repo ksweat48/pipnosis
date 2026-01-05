@@ -4,6 +4,12 @@
 
 This document outlines the mission-critical systems that power Pipnosis's real-time trading functionality. These systems have been carefully tuned and tested. Any modifications to these components must be reviewed and approved before deployment.
 
+## 📚 Related Architecture Documents
+
+- **Alpha Authority:** [ALPHA_FINAL_AUTHORITY_ARCHITECTURE.md](./ALPHA_FINAL_AUTHORITY_ARCHITECTURE.md) - Decision-making authority and Omega-9 scope
+- **Cron Jobs:** [ARCHITECTURE_DECISION.md](./ARCHITECTURE_DECISION.md) - Why Supabase cron is permanently disabled
+- **Protection Systems:** [PROTECTION_SYSTEM_GUIDE.md](./PROTECTION_SYSTEM_GUIDE.md) - Two-layer protection architecture
+
 ---
 
 ## 🎯 Critical Systems Overview
