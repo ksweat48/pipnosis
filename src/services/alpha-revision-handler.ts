@@ -223,12 +223,35 @@ If you choose NOT to revise (revised: false), your original decision will procee
    */
   private parseRevisionResponse(response: string): AlphaRevisionResponse {
     try {
-      const cleaned = response
+      let cleaned = response
         .replace(/```json\n?/g, '')
         .replace(/```\n?/g, '')
         .trim();
 
-      const parsed = JSON.parse(cleaned);
+      // Try to extract JSON if response contains extra text
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleaned = jsonMatch[0];
+      }
+
+      // Attempt to fix common JSON issues
+      // 1. Unterminated strings - try to close them
+      let parsed;
+      try {
+        parsed = JSON.parse(cleaned);
+      } catch (firstError) {
+        // If parsing fails, try to fix unterminated strings by adding closing quote and braces
+        const fixAttempt = cleaned.replace(/("[^"]*?)$/g, '$1"}');
+        try {
+          parsed = JSON.parse(fixAttempt);
+          console.warn('[Alpha Revision] Fixed malformed JSON with string termination');
+        } catch (secondError) {
+          // Log raw response for debugging
+          console.error('[Alpha Revision] Failed to parse even after fix attempt');
+          console.error('[Alpha Revision] Raw response (first 500 chars):', response.substring(0, 500));
+          throw firstError; // Throw original error
+        }
+      }
 
       if (!parsed.revised) {
         return {
