@@ -626,32 +626,11 @@ export function calculateGoalAwareLotSize(
     console.log(`  Calculated Safe Lot: ${clampedSafeLot.toFixed(3)}`);
     console.log(`  Broker Min Lot: ${minLotSize}`);
 
-    // ✅ FIX 4: Feasibility gate - if safe lot < broker min, REJECT trade
     if (clampedSafeLot < minLotSize) {
-      console.error('%c🚫 TRADE NOT FEASIBLE - Safe lot below broker minimum', 'color: #ff0000; font-weight: bold; font-size: 18px');
-
-      const minGoalContribution = riskMode === 'high' ? 0.05 : riskMode === 'medium' ? 0.03 : 0.02;
-      const expectedProfitAtMin = commonMovePips * calculateDollarPerPip(symbol, minLotSize);
-
-      return {
-        lotSize: minLotSize,
-        expectedProfitAtCommonMove: expectedProfitAtMin,
-        remainingGoal,
-        estimatedTradesNeeded: Math.ceil(remainingGoal / expectedProfitAtMin),
-        reasoning: `This goal is not feasible for ${symbol} under current risk limits and stop distance.`,
-        goalFeasibility: 'unrealistic',
-        feasible: false,
-        infeasibilityReason: 'GOAL_NOT_FEASIBLE_AT_CURRENT_RISK',
-        alternatives: [
-          'Increase allowed risk percentage',
-          'Choose different instrument with tighter spreads',
-          'Wait for setup with tighter stop loss',
-          'Reduce goal aggressiveness'
-        ]
-      };
+      console.warn('[Goal-Aware Sizing] Safe lot below broker min - using min lot (Execution Gate will evaluate)');
+      clampedSafeLot = minLotSize;
     }
 
-    // Safe lot is valid - recalculate with it
     actualLotSize = clampedSafeLot;
     const newDollarPerPip = calculateDollarPerPip(symbol, actualLotSize);
     const newExpectedProfit = commonMovePips * newDollarPerPip;
@@ -672,33 +651,13 @@ export function calculateGoalAwareLotSize(
     };
   }
 
-  // ✅ FIX 3 & 4: Additional feasibility checks
   const minGoalContribution = riskMode === 'high' ? 0.05 : riskMode === 'medium' ? 0.03 : 0.02;
-  const progressPercentage = expectedProfitAtCommonMove / remainingGoal;
+  const progressPercentage = remainingGoal > 0 ? expectedProfitAtCommonMove / remainingGoal : 1;
 
-  // Guard against absurd trade counts
   if (estimatedTradesNeeded > 50) {
-    console.error('%c🚫 TRADE REJECTED - Unrealistic trade count', 'color: #ff0000; font-weight: bold');
-
-    return {
-      lotSize: actualLotSize,
-      expectedProfitAtCommonMove,
-      remainingGoal,
-      estimatedTradesNeeded,
-      reasoning: `This goal requires ${estimatedTradesNeeded} trades for ${symbol}, which is not feasible.`,
-      goalFeasibility: 'unrealistic',
-      feasible: false,
-      infeasibilityReason: 'TOO_MANY_TRADES_REQUIRED',
-      alternatives: [
-        'Reduce goal amount to realistic level',
-        'Increase position size if risk allows',
-        'Choose more volatile instrument',
-        'Break goal into smaller milestones'
-      ]
-    };
+    console.warn(`[Goal-Aware Sizing] High trade count (${estimatedTradesNeeded}) - Execution Gate will evaluate`);
   }
 
-  // Check if single trade contribution is meaningful
   if (progressPercentage < minGoalContribution && goalFeasibility === 'multiple_trades') {
     console.warn(`  ⚠️ Low goal contribution: ${(progressPercentage * 100).toFixed(1)}% < ${(minGoalContribution * 100)}% minimum`);
   }

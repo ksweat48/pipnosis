@@ -30,6 +30,9 @@ import { hasAnyOpenMarket, isSymbolMarketOpen } from '../utils/marketHours';
 import { weekendProtectionService } from './weekend-protection-service';
 import { marketScheduleService } from './market-schedule-service';
 import { goalIntelligenceClassifier, GoalClassification } from './goal-intelligence-classifier';
+import { executionEligibilityGate, type ExecutionEligibilityInput } from './execution-eligibility-gate';
+import { timeToFillCalculator } from './time-to-fill-calculator';
+import type { TradingMode } from '../config/execution-eligibility';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
@@ -806,7 +809,6 @@ class GoalSessionLiveEngine {
         this.config.riskMode
       );
 
-      // Calculate expected profit at Alpha's market-based TP
       const alphaTPPips = calculatePipDistance(selectedSymbol, decision.entry, decision.takeProfit);
       const dollarPerPipAtLotSize = calculateDollarPerPip(selectedSymbol, goalAwareSizing.lotSize);
       const expectedProfitAtAlphaTP = alphaTPPips * dollarPerPipAtLotSize;
@@ -816,22 +818,54 @@ class GoalSessionLiveEngine {
         console.log(`[Trade] ${decision.symbol} ${goalAwareSizing.lotSize.toFixed(3)} lots, TP: ${alphaTPPips.toFixed(1)}p ($${expectedProfitAtAlphaTP.toFixed(2)})`);
       }
 
-      // ✅ FIX 5: Hard feasibility gate - abort if trade not feasible
-      if (!goalAwareSizing.feasible) {
-        console.error('%c🚫 TRADE EXECUTION ABORTED - NOT FEASIBLE', 'color: #ff0000; font-weight: bold; font-size: 18px');
-        console.error(`  Reason: ${goalAwareSizing.infeasibilityReason}`);
+      const hour = new Date().getUTCHours();
+      let currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed';
+      if (hour >= 8 && hour < 12) currentSession = 'london';
+      else if (hour >= 13 && hour < 17) currentSession = 'ny';
+      else if (hour >= 12 && hour < 13) currentSession = 'overlap';
+      else if (hour >= 0 && hour < 8) currentSession = 'asian';
+      else if ((hour >= 22 && hour < 24) || (hour >= 0 && hour < 1)) currentSession = 'sydney';
+      else currentSession = 'closed';
 
-        const alternativesText = goalAwareSizing.alternatives
-          ? '\n\nAlternatives:\n• ' + goalAwareSizing.alternatives.join('\n• ')
-          : '';
+      const atrPips = snapshot.atr || 10;
+      const timeToFillResult = timeToFillCalculator.calculate({
+        tpDistancePips: alphaTPPips,
+        atrPips,
+        currentSession,
+        symbol: selectedSymbol
+      });
 
-        await this.sendAIMessage(
-          `🚫 Trade execution blocked - not feasible\n\n` +
-          `${goalAwareSizing.reasoning}${alternativesText}`
-        );
+      const pipInfo = getCurrencyPipInfo(selectedSymbol);
+      const spreadPips = (snapshot.spread || 0) / pipInfo.pipValue;
+      const tradingMode: TradingMode = 'INTRADAY';
 
-        // Skip this scanning cycle
+      const gateInput: ExecutionEligibilityInput = {
+        symbol: selectedSymbol,
+        direction: decision.action.toLowerCase() as 'buy' | 'sell',
+        entryPrice: decision.entry,
+        stopLoss: decision.stopLoss,
+        takeProfit: decision.takeProfit,
+        lotSize: goalAwareSizing.lotSize,
+        expectedProfitUSD: expectedProfitAtAlphaTP,
+        estimatedTradesRequired: goalAwareSizing.estimatedTradesNeeded,
+        remainingGoal: goalContext.remainingGoal,
+        accountBalance: this.config.initialBalance,
+        currentATR: atrPips * pipInfo.pipValue,
+        spreadPips,
+        timeToFillResult,
+        tradingMode
+      };
+
+      const eligibilityResult = executionEligibilityGate.evaluate(gateInput);
+
+      if (eligibilityResult.status === 'BLOCK_EXECUTION') {
+        const userMessage = executionEligibilityGate.formatBlockMessageForUser(eligibilityResult);
+        await this.sendAIMessage(userMessage);
         return;
+      }
+
+      if (eligibilityResult.status === 'CONVERT_TO_ENTRY_INTENT' && eligibilityResult.entryIntentSuggestion) {
+        console.log('[Goal Session] Converting to entry intent:', eligibilityResult.entryIntentSuggestion.reason);
       }
 
       let calculatedLotSize = goalAwareSizing.lotSize;

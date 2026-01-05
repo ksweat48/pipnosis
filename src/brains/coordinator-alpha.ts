@@ -1383,20 +1383,14 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
         console.log(`[Alpha Coordinator] ⏱️  Expected fill: ${timeToFill.expectedMinutes}min (${timeToFill.viability})`);
         console.log(`[Alpha Coordinator] ⏱️  ${timeToFill.reasoning}`);
 
-        // ADVISORY WARNING: >6 hours (no longer hard-blocks, Alpha can override)
+        decision.reasoning += ` [Expected fill: ${timeToFill.expectedMinutes}min - ${timeToFill.viability}]`;
+
         if (timeToFill.recommendedAction === 'REJECT') {
-          console.log('[Alpha Coordinator] ⚠️ TIME-TO-FILL CAUTION: Trade exceeds typical intraday duration');
-          decision.confidence = Math.max(0, decision.confidence - 15);
-          decision.reasoning += ` [Time-to-Fill Advisory: ${timeToFill.reasoning} - Alpha may override if high conviction]`;
-        }
-        // WARNING: 4-6 hours (reduce confidence moderately)
-        else if (timeToFill.recommendedAction === 'CAUTION') {
-          console.log('[Alpha Coordinator] ⚠️ TIME-TO-FILL WARNING: Trade approaching extended duration');
-          decision.confidence = Math.max(0, decision.confidence - 10);
-          decision.reasoning += ` [Time-to-Fill Warning: ${timeToFill.reasoning}]`;
+          console.log('[Alpha Coordinator] ⚠️ TIME-TO-FILL: Execution Eligibility Gate will evaluate');
+        } else if (timeToFill.recommendedAction === 'CAUTION') {
+          console.log('[Alpha Coordinator] ⚠️ TIME-TO-FILL WARNING: Approaching extended duration');
         } else if (timeToFill.viability === 'OPTIMAL') {
           console.log('[Alpha Coordinator] ✅ TIME-TO-FILL OPTIMAL: Perfect for intraday');
-          decision.reasoning += ` [Expected fill: ${timeToFill.expectedMinutes}min]`;
         }
       }
 
