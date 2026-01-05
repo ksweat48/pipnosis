@@ -57,29 +57,51 @@ export default function GetAppPage() {
     if (deferredPrompt) {
       await handleInstallClick();
     } else {
-      const message = platform === 'ios'
-        ? 'Scroll down for iPhone installation steps'
-        : platform === 'android'
-        ? 'Scroll down for Android installation steps'
-        : 'Scroll down for manual installation steps';
+      // Different behavior for Android vs iOS
+      if (platform === 'android') {
+        // Android: Show toast to use Chrome menu
+        const message = 'Tap the 3 dots (⋮) in Chrome > "Add to Home screen"';
 
-      const tempToast = document.createElement('div');
-      tempToast.className = 'fixed top-24 left-1/2 transform -translate-x-1/2 bg-emerald-600 text-white px-6 py-3 rounded-lg shadow-2xl z-50 font-semibold animate-bounce';
-      tempToast.textContent = message;
-      document.body.appendChild(tempToast);
+        const tempToast = document.createElement('div');
+        tempToast.className = 'fixed top-24 left-1/2 transform -translate-x-1/2 bg-emerald-600 text-white px-6 py-3 rounded-lg shadow-2xl z-50 font-semibold text-center max-w-xs';
+        tempToast.textContent = message;
+        document.body.appendChild(tempToast);
 
-      setTimeout(() => {
-        tempToast.remove();
-      }, 3000);
+        setTimeout(() => {
+          tempToast.remove();
+        }, 4000);
 
-      setShowScrollArrow(true);
-      setShowInstructionsHighlight(true);
-      instructionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // Scroll to instructions for more details
+        setShowInstructionsHighlight(true);
+        instructionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-      setTimeout(() => {
-        setShowInstructionsHighlight(false);
-        setShowScrollArrow(false);
-      }, 3000);
+        setTimeout(() => {
+          setShowInstructionsHighlight(false);
+        }, 3000);
+      } else {
+        // iOS: Show scroll instructions
+        const message = platform === 'ios'
+          ? 'Scroll down for iPhone installation steps'
+          : 'Scroll down for manual installation steps';
+
+        const tempToast = document.createElement('div');
+        tempToast.className = 'fixed top-24 left-1/2 transform -translate-x-1/2 bg-emerald-600 text-white px-6 py-3 rounded-lg shadow-2xl z-50 font-semibold animate-bounce';
+        tempToast.textContent = message;
+        document.body.appendChild(tempToast);
+
+        setTimeout(() => {
+          tempToast.remove();
+        }, 3000);
+
+        setShowScrollArrow(true);
+        setShowInstructionsHighlight(true);
+        instructionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        setTimeout(() => {
+          setShowInstructionsHighlight(false);
+          setShowScrollArrow(false);
+        }, 3000);
+      }
     }
   };
 
@@ -117,7 +139,7 @@ export default function GetAppPage() {
                   platform === 'android' ? 'Install Now' :
                   'Install App'
                 ) : (
-                  'View Installation Steps'
+                  platform === 'android' ? 'Download App' : 'View Installation Steps'
                 )}
               </span>
             </button>
@@ -126,7 +148,7 @@ export default function GetAppPage() {
                 {platform === 'ios'
                   ? 'Follow the simple Safari installation steps below'
                   : platform === 'android'
-                  ? 'See step-by-step installation guide below'
+                  ? 'Use Chrome menu or see instructions below'
                   : 'See manual installation instructions below'}
               </p>
             )}
