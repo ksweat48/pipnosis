@@ -1035,15 +1035,23 @@ class AlphaOmegaOrchestrator {
       const majorityCount = Math.max(buyVotes.length, sellVotes.length);
       const minorityCount = Math.min(buyVotes.length, sellVotes.length);
 
-      // Calculate penalty based on conflict severity
-      let penalty = 0.5; // Default 50% penalty for HARD conflict
+      // Calculate penalty based on conflict severity (REFINED for fairness)
+      let penalty = 0.75; // Base: 25% penalty for HARD conflict
 
-      // If there's a clear majority (3+ vs 1-2), reduce penalty
-      if (majorityCount >= 3 && minorityCount <= 2) {
-        penalty = 0.65; // 35% penalty when clear majority exists
-        console.log(`[Omega Conflict] HARD conflict with ${majorityCount}v${minorityCount} majority - applying reduced penalty`);
-      } else {
-        console.log(`[Omega Conflict] HARD conflict (${majorityCount}v${minorityCount}) - applying strong advisory penalty`);
+      // Equal split (2v2 or 3v3) - signals Alpha's arbitration is needed, but not fatal
+      if (majorityCount === minorityCount) {
+        penalty = 0.85; // 15% penalty for equal split - let Alpha decide
+        console.log(`[Omega Conflict] HARD conflict - EQUAL SPLIT (${majorityCount}v${minorityCount}) - Alpha arbitration needed (${((1 - penalty) * 100).toFixed(0)}% penalty)`);
+      }
+      // Clear majority (3+ vs 1-2) - minimal penalty
+      else if (majorityCount >= 3 && minorityCount <= 2) {
+        penalty = 0.90; // 10% penalty when clear majority exists
+        console.log(`[Omega Conflict] HARD conflict with ${majorityCount}v${minorityCount} majority - applying minimal penalty (${((1 - penalty) * 100).toFixed(0)}% penalty)`);
+      }
+      // Slight majority (3v2, 2v1) - moderate penalty
+      else {
+        penalty = 0.75; // 25% penalty for slight majority
+        console.log(`[Omega Conflict] HARD conflict (${majorityCount}v${minorityCount}) - applying moderate penalty (${((1 - penalty) * 100).toFixed(0)}% penalty)`);
       }
 
       console.log(`[Omega Conflict] ⚠️ HIGH SEVERITY: Conflicting high-confidence signals from opposing domains`);
