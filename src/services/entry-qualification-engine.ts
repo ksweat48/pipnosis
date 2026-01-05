@@ -44,6 +44,7 @@
 import { calculatePipDistance } from '../utils/currencyHelpers';
 import { getSymbolConfig } from '../config/symbol-registry';
 import { logger } from '../lib/logger';
+import { VOLATILITY_PATIENCE_CONFIG } from '../config/volatility-aware-patience-config';
 
 export type EntryQualificationStatus =
   | 'ACCEPT_ENTRY'          // Good timing, execute immediately
@@ -132,6 +133,17 @@ class EntryQualificationEngine {
     this.checkRangePosition(input, metrics, blocks);
     this.checkFalseBreakout(input, blocks);
     this.checkVolumeConfirmation(input, metrics, blocks);
+
+    // New stricter checks (Volatility-Aware Patience System)
+    if (VOLATILITY_PATIENCE_CONFIG.eqe.chaseDetection.enabled) {
+      this.checkChaseDetection(input, blocks);
+    }
+    if (VOLATILITY_PATIENCE_CONFIG.eqe.exhaustionDetection.enabled) {
+      this.checkExhaustionDetection(input, blocks);
+    }
+    if (VOLATILITY_PATIENCE_CONFIG.eqe.vwapDistanceLimits.enabled) {
+      this.checkVWAPDistanceLimits(input, blocks);
+    }
 
     // If any hard blocks, REJECT immediately
     if (blocks.length > 0) {
@@ -455,6 +467,105 @@ class EntryQualificationEngine {
         message: `Spread elevated (${currentSpreadPips.toFixed(1)} pips vs ${averageSpreadPips.toFixed(1)} avg, ${spreadRatio.toFixed(1)}x)`,
         severity: 'ADVISORY',
         suggestion: 'Consider waiting for spread to normalize'
+      });
+    }
+  }
+
+  /**
+   * NEW STRICTER CHECK: Chase Detection
+   * Block entries after strong impulse moves (> 0.8x ATR)
+   * Action: WAIT_FOR_PULLBACK
+   */
+  private checkChaseDetection(
+    input: EntryQualificationInput,
+    blocks: EntryQualificationBlock[]
+  ): void {
+    const config = VOLATILITY_PATIENCE_CONFIG.eqe.chaseDetection;
+    const { m5Candles, atr, direction } = input;
+
+    if (m5Candles.length < config.lookbackCandles) return;
+
+    const recentCandles = m5Candles.slice(-config.lookbackCandles);
+    const totalMove = Math.abs(recentCandles[recentCandles.length - 1].close - recentCandles[0].open);
+    const impulseMoveThreshold = atr * config.impulseMoveThreshold;
+
+    const isImpulseMove = totalMove > impulseMoveThreshold;
+    const moveWithDirection = (direction === 'BUY' && recentCandles[recentCandles.length - 1].close > recentCandles[0].open) ||
+                               (direction === 'SELL' && recentCandles[recentCandles.length - 1].close < recentCandles[0].open);
+
+    if (isImpulseMove && moveWithDirection) {
+      blocks.push({
+        code: 'CHASING_IMPULSE',
+        message: `Chasing impulse move (${totalMove.toFixed(5)} over ${config.lookbackCandles} candles, ${(totalMove/atr).toFixed(2)}x ATR)`,
+        severity: 'HARD_BLOCK',
+        suggestion: `Wait for pullback to VWAP or support/resistance before entering. Action: ${config.action}`
+      });
+    }
+  }
+
+  /**
+   * NEW STRICTER CHECK: Exhaustion Detection
+   * Block entries on large-body candles closing near extremes
+   * Action: WAIT_FOR_CONFIRMATION
+   */
+  private checkExhaustionDetection(
+    input: EntryQualificationInput,
+    blocks: EntryQualificationBlock[]
+  ): void {
+    const config = VOLATILITY_PATIENCE_CONFIG.eqe.exhaustionDetection;
+    const { m5Candles, direction } = input;
+
+    if (m5Candles.length === 0) return;
+
+    const lastCandle = m5Candles[m5Candles.length - 1];
+    const range = lastCandle.high - lastCandle.low;
+    const body = Math.abs(lastCandle.close - lastCandle.open);
+
+    if (range === 0) return;
+
+    const bodyRatio = body / range;
+    const isLargeBody = bodyRatio > config.largeBodyThreshold;
+
+    let closeNearExtreme = false;
+    if (direction === 'BUY') {
+      const distanceFromHigh = (lastCandle.high - lastCandle.close) / range;
+      closeNearExtreme = distanceFromHigh < config.closeNearExtremeThreshold;
+    } else {
+      const distanceFromLow = (lastCandle.close - lastCandle.low) / range;
+      closeNearExtreme = distanceFromLow < config.closeNearExtremeThreshold;
+    }
+
+    if (isLargeBody && closeNearExtreme) {
+      blocks.push({
+        code: 'EXHAUSTION_CANDLE',
+        message: `Exhaustion detected: Large body (${(bodyRatio*100).toFixed(0)}%) closing near ${direction === 'BUY' ? 'high' : 'low'}`,
+        severity: 'HARD_BLOCK',
+        suggestion: `Wait for confirmation candle before entering. Action: ${config.action}`
+      });
+    }
+  }
+
+  /**
+   * NEW STRICTER CHECK: VWAP Distance Limits
+   * Block entries too far from VWAP (> 1.2x ATR)
+   * Action: WAIT_FOR_PULLBACK
+   */
+  private checkVWAPDistanceLimits(
+    input: EntryQualificationInput,
+    blocks: EntryQualificationBlock[]
+  ): void {
+    const config = VOLATILITY_PATIENCE_CONFIG.eqe.vwapDistanceLimits;
+    const { entryPrice, m5VWAP, atr } = input;
+
+    const distanceFromVWAP = Math.abs(entryPrice - m5VWAP);
+    const maxAllowedDistance = atr * config.maxDistanceFromVWAP;
+
+    if (distanceFromVWAP > maxAllowedDistance) {
+      blocks.push({
+        code: 'TOO_FAR_FROM_VWAP',
+        message: `Entry too far from M5 VWAP (${distanceFromVWAP.toFixed(5)} vs max ${maxAllowedDistance.toFixed(5)}, ${(distanceFromVWAP/atr).toFixed(2)}x ATR)`,
+        severity: 'HARD_BLOCK',
+        suggestion: `Wait for price to return closer to VWAP before entering. Action: ${config.action}`
       });
     }
   }

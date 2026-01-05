@@ -23,9 +23,13 @@
 import { entryQualificationEngine, type EntryQualificationInput, type EntryQualificationResult } from './entry-qualification-engine';
 import { m5MicrostructureProvider, type M5Microstructure } from './m5-microstructure-provider';
 import { executionEligibilityGate, type ExecutionEligibilityInput, type ExecutionEligibilityResult } from './execution-eligibility-gate';
+import { eegPrecheck, type EEGPrecheckInput } from './execution-eligibility-gate-precheck';
 import { EntryExecutionCoordinator } from './entry-execution-coordinator';
 import { logger } from '../lib/logger';
+import { productionLogger } from '../lib/production-logger';
 import type { AlphaDecision } from '../brains/coordinator-alpha';
+import { v4 as uuidv4 } from 'uuid';
+import { supabase } from '../lib/supabase';
 
 export interface EntryQualifiedExecutionInput {
   // Alpha decision
@@ -51,11 +55,13 @@ export interface EntryQualifiedExecutionInput {
 }
 
 export type ExecutionFlowStatus =
-  | 'EXECUTED_IMMEDIATELY'      // Trade executed right away
-  | 'ENTRY_INTENT_CREATED'      // Monitoring for better entry
-  | 'REJECTED_POOR_TIMING'      // Entry timing too poor, converted to NO_TRADE
-  | 'REJECTED_POOR_ECONOMICS'   // Economics blocked execution
-  | 'BYPASSED_NO_M5_DATA';      // M5 data unavailable, executed anyway (degraded mode)
+  | 'EXECUTED_IMMEDIATELY'          // Trade executed right away
+  | 'ENTRY_INTENT_CREATED'          // Monitoring for better entry
+  | 'VOLATILITY_WAIT_CREATED'       // Waiting for volatility pickup
+  | 'REJECTED_POOR_TIMING'          // Entry timing too poor, converted to NO_TRADE
+  | 'REJECTED_POOR_ECONOMICS'       // Economics blocked execution
+  | 'REJECTED_TTF_EXCESSIVE'        // TTF exceeds Tier 4 threshold
+  | 'BYPASSED_NO_M5_DATA';          // M5 data unavailable, executed anyway (degraded mode)
 
 export interface ExecutionFlowResult {
   status: ExecutionFlowStatus;
@@ -200,6 +206,69 @@ class EntryQualifiedExecutionFlow {
       };
     }
 
+    // Step 5.5: Run EEG Precheck (fail-fast economic validation)
+    const precheckInput: EEGPrecheckInput = {
+      symbol,
+      currentPrice,
+      entryPrice: decision.entry,
+      direction: decision.action === 'BUY' ? 'long' : 'short',
+      estimatedTTF: executionEligibilityInput.metrics.timeToFillMinutes,
+      currentATR: m5Data.atr,
+      sessionId
+    };
+
+    const precheckResult = await eegPrecheck.runPrecheck(precheckInput);
+    await eegPrecheck.logPrecheckDecision(precheckResult, sessionId);
+
+    // Handle precheck hard blocks
+    if (precheckResult.action === 'HARD_BLOCK') {
+      productionLogger.error('[Entry Qualified Flow] EEG Precheck hard block', {
+        symbol,
+        reason: precheckResult.rejectionReason,
+        message: precheckResult.message
+      });
+
+      return {
+        status: 'REJECTED_TTF_EXCESSIVE',
+        entryQualification: qualificationResult,
+        message: `❌ ${precheckResult.message}`,
+        shouldConvertToNoTrade: true
+      };
+    }
+
+    // Handle volatility wait conversion
+    if (precheckResult.action === 'CONVERT_TO_VOLATILITY_WAIT' && precheckResult.shouldCreateVolatilityIntent) {
+      productionLogger.info('[Entry Qualified Flow] Converting to volatility wait intent', {
+        symbol,
+        tier: precheckResult.ttfTier,
+        ttf: precheckResult.metadata.ttfMinutes
+      });
+
+      const volatilityIntentId = await this.createVolatilityWaitIntent({
+        userId,
+        sessionId,
+        symbol,
+        direction: decision.action === 'BUY' ? 'long' : 'short',
+        originalTTF: precheckResult.metadata.ttfMinutes,
+        targetATR: precheckResult.metadata.atrValue * 1.5,
+        currentATR: precheckResult.metadata.atrValue,
+        alphaReasoning: decision.reasoning
+      });
+
+      return {
+        status: 'VOLATILITY_WAIT_CREATED',
+        entryQualification: qualificationResult,
+        intentId: volatilityIntentId,
+        message: `⏰ Trade paused: ${precheckResult.message}\nWaiting for volatility to increase before entry.`,
+        shouldConvertToNoTrade: false
+      };
+    }
+
+    // Handle Tier 2 advisory (marginal but acceptable)
+    if (precheckResult.action === 'EXECUTE_WITH_ADVISORY') {
+      logger.warn(`[Entry Qualified Flow] ⚠️ ${symbol} executing in Tier 2 (marginal window): ${precheckResult.message}`);
+    }
+
     // Step 6: Entry qualification passed - check execution eligibility
     const eligibilityResult = executionEligibilityGate.evaluate(executionEligibilityInput);
 
@@ -280,11 +349,17 @@ class EntryQualifiedExecutionFlow {
       case 'ENTRY_INTENT_CREATED':
         return `⏳ Entry intent created\n${result.message}\nMonitoring for optimal entry conditions.`;
 
+      case 'VOLATILITY_WAIT_CREATED':
+        return `⏰ Volatility wait created\n${result.message}`;
+
       case 'REJECTED_POOR_TIMING':
         return `❌ Trade rejected (poor timing)\n${result.message}\nRecommendation: Wait for better market conditions.`;
 
       case 'REJECTED_POOR_ECONOMICS':
         return `❌ Trade blocked (economics)\n${result.message}`;
+
+      case 'REJECTED_TTF_EXCESSIVE':
+        return `❌ Trade blocked (TTF too high)\n${result.message}`;
 
       case 'BYPASSED_NO_M5_DATA':
         return `⚠️ Executed without M5 qualification\n${result.message}`;
@@ -292,6 +367,53 @@ class EntryQualifiedExecutionFlow {
       default:
         return result.message;
     }
+  }
+
+  /**
+   * Helper: Create volatility wait intent in database
+   */
+  private async createVolatilityWaitIntent(params: {
+    userId: string;
+    sessionId: string;
+    symbol: string;
+    direction: 'long' | 'short';
+    originalTTF: number;
+    targetATR: number;
+    currentATR: number;
+    alphaReasoning?: string;
+  }): Promise<string> {
+    const intentId = uuidv4();
+
+    const { error } = await supabase.from('volatility_wait_intents').insert({
+      id: intentId,
+      user_id: params.userId,
+      session_id: params.sessionId,
+      symbol: params.symbol,
+      direction: params.direction,
+      original_ttf_minutes: params.originalTTF,
+      target_atr: params.targetATR,
+      current_atr: params.currentATR,
+      max_wait_hours: 4,
+      recheck_interval_minutes: 15,
+      status: 'waiting',
+      alpha_reasoning: params.alphaReasoning
+    });
+
+    if (error) {
+      productionLogger.error('[Entry Qualified Flow] Failed to create volatility wait intent', {
+        error: error.message,
+        symbol: params.symbol
+      });
+      throw new Error(`Failed to create volatility wait intent: ${error.message}`);
+    }
+
+    productionLogger.info('[Entry Qualified Flow] Volatility wait intent created', {
+      intentId,
+      symbol: params.symbol,
+      ttf: params.originalTTF
+    });
+
+    return intentId;
   }
 }
 

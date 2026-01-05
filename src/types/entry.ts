@@ -4,7 +4,8 @@ export type EntryIntentType =
   | 'pullback_to_support'
   | 'break_and_retest'
   | 'range_extreme'
-  | 'retest_structure';
+  | 'retest_structure'
+  | 'wait_for_volatility';
 
 export type EntryUrgencyLevel = 'HIGH' | 'MEDIUM' | 'LOW';
 
@@ -147,4 +148,40 @@ export interface EntryMetrics {
   average_time_to_entry: number;
   success_rate_by_urgency: Record<EntryUrgencyLevel, number>;
   success_rate_by_intent_type: Record<EntryIntentType, number>;
+}
+
+export type EQERejectionReason =
+  | 'CHASING_IMPULSE_MOVE'
+  | 'EXHAUSTION_DETECTED'
+  | 'TOO_FAR_FROM_VWAP'
+  | 'FAILED_MICROSTRUCTURE';
+
+export type EEGRejectionReason =
+  | 'TTF_EXCEEDS_TIER4'
+  | 'INSUFFICIENT_ATR'
+  | 'ENTRY_TOO_FAR_FROM_PRICE'
+  | 'FAILED_ECONOMIC_PRECHECK';
+
+export type EEGAction =
+  | 'EXECUTE_IMMEDIATELY'
+  | 'EXECUTE_WITH_ADVISORY'
+  | 'CONVERT_TO_VOLATILITY_WAIT'
+  | 'HARD_BLOCK';
+
+export interface VolatilityWaitIntent {
+  id: string;
+  session_id: string;
+  user_id: string;
+  symbol: string;
+  direction: 'long' | 'short';
+  original_ttf_minutes: number;
+  target_atr: number;
+  current_atr: number;
+  wait_start: string;
+  max_wait_hours: number;
+  recheck_interval_minutes: number;
+  status: 'waiting' | 'conditions_met' | 'expired' | 'canceled';
+  alpha_reasoning?: string;
+  created_at: string;
+  resolved_at?: string;
 }
