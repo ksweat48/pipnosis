@@ -26,9 +26,8 @@ export class AlphaDownshiftEvaluator {
     const startTime = Date.now();
 
     try {
-      const response = await openAIClient.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
+      const response = await openAIClient.chat(
+        [
           {
             role: 'system',
             content: this.getSystemPrompt(),
@@ -38,9 +37,14 @@ export class AlphaDownshiftEvaluator {
             content: prompt,
           },
         ],
-        temperature: 0.3,
-        max_tokens: 500,
-      });
+        {
+          model: 'gpt-4o-mini',
+          temperature: 0.3,
+          max_tokens: 500,
+          requestType: 'downshift_evaluation',
+          endpoint: 'alpha-downshift-evaluator',
+        }
+      );
 
       const elapsedMs = Date.now() - startTime;
 

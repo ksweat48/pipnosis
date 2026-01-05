@@ -348,11 +348,10 @@ export class GoalFeasibilityResolver {
     sessionId: string
   ): Promise<number> {
     try {
-      const oneHourAgo = new Date();
-      oneHourAgo.setHours(oneHourAgo.getHours() - 1);
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
       const { count, error } = await supabase
-        .from('goal_trades')
+        .from('goal_session_trades')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', userId)
         .eq('session_id', sessionId)
