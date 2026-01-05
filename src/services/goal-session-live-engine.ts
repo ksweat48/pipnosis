@@ -34,6 +34,9 @@ import { executionEligibilityGate, type ExecutionEligibilityInput } from './exec
 import { timeToFillCalculator } from './time-to-fill-calculator';
 import type { TradingMode } from '../config/execution-eligibility';
 import { executionStyleResolver } from './execution-style-resolver';
+import { GoalFeasibilityResolver } from './goal-feasibility-resolver';
+import { AlphaDownshiftEvaluator } from './alpha-downshift-evaluator';
+import type { DownshiftProposal } from '../types/goal-feasibility';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
@@ -874,14 +877,117 @@ class GoalSessionLiveEngine {
         console.log(`[Style Resolution] ${styleResolution.originalStyle} → ${styleResolution.executionMode}${styleResolution.advisory ? ': ' + styleResolution.advisory : ''}`);
       }
 
+      // 🎯 GOAL FEASIBILITY CHECK - Prevents forcing trades in low volatility / unrealistic goals
+      console.log('%c[Goal Feasibility] 🔍 Analyzing goal feasibility before execution...', 'color: #3b82f6; font-weight: bold');
+
+      const { typicalATR, dailyATR } = await this.calculateHistoricalATR(selectedSymbol);
+      const currentATRValue = snapshot.atr;
+
+      const feasibilityInput = {
+        userId: this.config.userId,
+        sessionId: this.activeSession!,
+        goalAmount: goalContext.targetGoal,
+        currentProgress: goalContext.currentProgress,
+        accountBalance: goalContext.currentBalance,
+        symbol: selectedSymbol,
+        currentATR: currentATRValue,
+        typicalATR,
+        dailyATR,
+        currentSpread: snapshot.spread,
+        currentPrice: decision.entry,
+      };
+
+      const feasibilityResult = await GoalFeasibilityResolver.analyzeFeasibility(feasibilityInput);
+
+      // Handle BLOCK tier - Goal exceeds safe limits
+      if (!feasibilityResult.feasible && feasibilityResult.tier === 'BLOCK_WITH_ALTERNATIVES') {
+        console.log('%c[Goal Feasibility] 🚫 BLOCKED - Goal not feasible', 'color: #ef4444; font-weight: bold');
+        await this.sendAIMessage(
+          `🚫 Goal Not Feasible\n\n` +
+          `${feasibilityResult.blockReason}\n\n` +
+          `💡 Suggestions:\n${feasibilityResult.alternativeSuggestions?.map(s => `  • ${s}`).join('\n') || ''}`
+        );
+        return;
+      }
+
+      // Handle WAIT tier - Market too quiet or opportunity not meaningful
+      if (!feasibilityResult.feasible && feasibilityResult.tier === 'WAIT_FOR_VOLATILITY') {
+        console.log('%c[Goal Feasibility] ⏸️ WAITING - Conditions not optimal', 'color: #f59e0b; font-weight: bold');
+        await this.sendAIMessage(`⏸️ ${feasibilityResult.waitReason}`);
+        return;
+      }
+
+      // Handle DOWNSHIFT tier - Goal needs adjustment, Alpha must re-confirm
+      let downshiftedProposal: DownshiftProposal | undefined;
+      let adjustedTakeProfit = decision.takeProfit;
+      let adjustedExpectedProfit = expectedProfitAtAlphaTP;
+
+      if (feasibilityResult.feasible && feasibilityResult.proposal) {
+        console.log('%c[Goal Feasibility] 📊 Downshift proposal detected - Requesting Alpha confirmation...', 'color: #8b5cf6; font-weight: bold');
+
+        downshiftedProposal = feasibilityResult.proposal;
+
+        const alphaEvaluation = await AlphaDownshiftEvaluator.evaluateDownshiftProposal(
+          downshiftedProposal,
+          this.config.userId,
+          this.activeSession!
+        );
+
+        if (alphaEvaluation.decision === 'REJECT') {
+          console.log('%c[Goal Feasibility] ❌ Alpha REJECTED downshift proposal', 'color: #ef4444; font-weight: bold');
+          await this.sendAIMessage(
+            `❌ Trade Rejected by Alpha\n\n` +
+            `Proposed adjusted goal: $${downshiftedProposal.adjustedGoal.toFixed(2)} (${(downshiftedProposal.retentionPercent * 100).toFixed(0)}% of original)\n\n` +
+            `Alpha's reasoning: ${alphaEvaluation.reasoning}`
+          );
+          return;
+        }
+
+        if (alphaEvaluation.decision === 'WAIT') {
+          console.log('%c[Goal Feasibility] ⏳ Alpha chose to WAIT for better conditions', 'color: #f59e0b; font-weight: bold');
+          await this.sendAIMessage(
+            `⏳ Waiting for Better Conditions\n\n` +
+            `Alpha's reasoning: ${alphaEvaluation.reasoning}`
+          );
+          return;
+        }
+
+        // AFFIRM - Alpha approved the downshift
+        console.log('%c[Goal Feasibility] ✅ Alpha AFFIRMED downshift - Adjusting trade parameters', 'color: #10b981; font-weight: bold');
+
+        adjustedExpectedProfit = downshiftedProposal.adjustedGoal;
+
+        // Recalculate take profit based on adjusted expected profit
+        const pipInfo = getCurrencyPipInfo(selectedSymbol);
+        const dollarPerPip = calculateDollarPerPip(selectedSymbol, goalAwareSizing.lotSize);
+        const adjustedTPPips = adjustedExpectedProfit / dollarPerPip;
+
+        if (decision.action === 'BUY') {
+          adjustedTakeProfit = decision.entry + (adjustedTPPips * pipInfo.pipValue);
+        } else {
+          adjustedTakeProfit = decision.entry - (adjustedTPPips * pipInfo.pipValue);
+        }
+
+        await this.sendAIMessage(
+          `✅ Goal Adapted - Alpha Approved\n\n` +
+          `📊 Original goal: $${downshiftedProposal.originalGoal.toFixed(2)}\n` +
+          `📈 Adjusted goal: $${downshiftedProposal.adjustedGoal.toFixed(2)}\n` +
+          `📉 Retention: ${(downshiftedProposal.retentionPercent * 100).toFixed(0)}%\n\n` +
+          `${alphaEvaluation.reasoning}\n\n` +
+          `Reasons for adjustment:\n${downshiftedProposal.reasonsForDownshift.map(r => `  • ${r}`).join('\n')}`
+        );
+      } else if (feasibilityResult.feasible) {
+        console.log('%c[Goal Feasibility] ✅ Goal is feasible without adjustments', 'color: #10b981; font-weight: bold');
+      }
+
       const gateInput: ExecutionEligibilityInput = {
         symbol: selectedSymbol,
         direction: decision.action.toLowerCase() as 'buy' | 'sell',
         entryPrice: decision.entry,
         stopLoss: decision.stopLoss,
-        takeProfit: decision.takeProfit,
+        takeProfit: adjustedTakeProfit,
         lotSize: goalAwareSizing.lotSize,
-        expectedProfitUSD: expectedProfitAtAlphaTP,
+        expectedProfitUSD: adjustedExpectedProfit,
         estimatedTradesRequired: goalAwareSizing.estimatedTradesNeeded,
         remainingGoal: goalContext.remainingGoal,
         accountBalance: this.config.initialBalance,
@@ -908,7 +1014,8 @@ class GoalSessionLiveEngine {
       // Build comprehensive reasoning that explains the trade plan
       const tradeReasoningAddendum = `\n\n💰 GOAL PROGRESS CONTEXT:\n` +
         `Remaining to Goal: $${goalContext.remainingGoal.toFixed(2)}\n` +
-        `This Trade Target: $${expectedProfitAtAlphaTP.toFixed(2)} (${progressPercent.toFixed(0)}% progress)\n` +
+        `This Trade Target: $${adjustedExpectedProfit.toFixed(2)} (${((adjustedExpectedProfit / goalContext.remainingGoal) * 100).toFixed(0)}% progress)\n` +
+        `${downshiftedProposal ? `🔄 Goal Adjusted: ${(downshiftedProposal.retentionPercent * 100).toFixed(0)}% retention (Alpha approved)\n` : ''}` +
         `${goalAwareSizing.estimatedTradesNeeded > 1 ?
           `Multi-Trade Strategy: Estimated ${goalAwareSizing.estimatedTradesNeeded} trades needed at realistic market-based TPs` :
           `Single-Trade Strategy: Goal achievable in this trade if TP is reached`}\n` +
@@ -951,7 +1058,7 @@ class GoalSessionLiveEngine {
         entryTime: new Date(),
         entryPrice: decision.entry,
         stopLoss: decision.stopLoss,
-        takeProfit: decision.takeProfit, // ✅ CRITICAL FIX: Use Alpha's market-based TP, NOT goal-based TP
+        takeProfit: adjustedTakeProfit, // ✅ Uses adjusted TP if goal was downshifted
         positionSize: calculatedLotSize,
         confidence: decision.confidence,
         reasoning: decision.reasoning + tradeReasoningAddendum, // Include goal progress context
@@ -987,7 +1094,7 @@ class GoalSessionLiveEngine {
           direction: trade.direction,
           entryPrice: trade.entryPrice,
           stopLoss: trade.stopLoss,
-          takeProfit: trade.takeProfit,
+          takeProfit: adjustedTakeProfit,
           positionSize: trade.positionSize,
           confidence: trade.confidence,
           setupType: trade.triggerType,
@@ -1019,6 +1126,33 @@ class GoalSessionLiveEngine {
         this.openTrades.push(trade);
         logger.debug(LogCategory.AI_TRADING, `Trade ${this.openTrades.length}/${this.config.maxConcurrentTrades} added with DB ID: ${trade.id}`);
         logger.info(LogCategory.AI_TRADING, `✅ Trade executed: ${selectedSymbol} ${trade.direction} @ ${trade.entryPrice} (confidence: ${trade.confidence}%)`);
+
+        // Track goal feasibility decision for analytics
+        if (downshiftedProposal) {
+          try {
+            await supabase.from('goal_feasibility_tracking').insert({
+              user_id: this.config.userId,
+              session_id: this.activeSession!,
+              trade_id: trade.id,
+              original_goal: downshiftedProposal.originalGoal,
+              adjusted_goal: downshiftedProposal.adjustedGoal,
+              retention_percent: downshiftedProposal.retentionPercent,
+              reasons_for_downshift: downshiftedProposal.reasonsForDownshift,
+              alpha_affirmed: true,
+              market_context: {
+                symbol: selectedSymbol,
+                currentATR: currentATRValue,
+                typicalATR,
+                dailyATR,
+                spread: snapshot.spread,
+                volatilityContext: feasibilityResult.volatilityContext
+              }
+            });
+            logger.debug(LogCategory.AI_TRADING, '📊 Feasibility tracking recorded');
+          } catch (error) {
+            logger.error(LogCategory.AI_TRADING, 'Failed to record feasibility tracking', { error });
+          }
+        }
 
         // Increment trade counter in database
         try {
@@ -3239,6 +3373,45 @@ Keep response under 100 words, educational tone.`;
       });
     } catch (error) {
       console.error('[Goal Live Engine] Failed to log trade monitoring conversation:', error);
+    }
+  }
+
+  /**
+   * Calculate historical ATR for goal feasibility analysis
+   * Returns median ATR from last 20 candles for stable baseline
+   */
+  private async calculateHistoricalATR(symbol: string): Promise<{ typicalATR: number; dailyATR: number }> {
+    try {
+      const { data: candles, error } = await supabase
+        .from('forex_candles')
+        .select('high, low, close, open')
+        .eq('symbol', symbol)
+        .order('open_time', { ascending: false })
+        .limit(20);
+
+      if (error || !candles || candles.length < 10) {
+        console.warn(`[Historical ATR] Insufficient data for ${symbol}, using fallback`);
+        const pipInfo = getCurrencyPipInfo(symbol);
+        const fallbackATR = pipInfo.pipValue * 10;
+        return { typicalATR: fallbackATR, dailyATR: fallbackATR * 24 };
+      }
+
+      const atrValues = candles.map(c => Math.max(
+        Math.abs(c.high - c.low),
+        Math.abs(c.high - c.close),
+        Math.abs(c.low - c.close)
+      ));
+
+      atrValues.sort((a, b) => a - b);
+      const medianATR = atrValues[Math.floor(atrValues.length / 2)];
+      const dailyATR = medianATR * 24;
+
+      return { typicalATR: medianATR, dailyATR };
+    } catch (error) {
+      console.error(`[Historical ATR] Error calculating for ${symbol}:`, error);
+      const pipInfo = getCurrencyPipInfo(symbol);
+      const fallbackATR = pipInfo.pipValue * 10;
+      return { typicalATR: fallbackATR, dailyATR: fallbackATR * 24 };
     }
   }
 
