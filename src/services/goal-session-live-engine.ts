@@ -828,16 +828,19 @@ class GoalSessionLiveEngine {
       else if ((hour >= 22 && hour < 24) || (hour >= 0 && hour < 1)) currentSession = 'sydney';
       else currentSession = 'closed';
 
-      const atrPips = snapshot.atr || 10;
+      // ✅ CRITICAL FIX: Convert ATR from price units to pips
+      // snapshot.atr is in price units (e.g., 0.04370 for USDJPY)
+      // Must convert to pips before passing to timeToFillCalculator
+      const pipInfo = getCurrencyPipInfo(selectedSymbol);
+      const atrPips = (snapshot.atr || (10 * pipInfo.pipValue)) / pipInfo.pipValue;
+      const spreadPips = (snapshot.spread || 0) / pipInfo.pipValue;
+
       const timeToFillResult = timeToFillCalculator.calculate({
         tpDistancePips: alphaTPPips,
         atrPips,
         currentSession,
         symbol: selectedSymbol
       });
-
-      const pipInfo = getCurrencyPipInfo(selectedSymbol);
-      const spreadPips = (snapshot.spread || 0) / pipInfo.pipValue;
 
       // Resolve Alpha's style intent to executable trading mode
       const atrPercent = snapshot.atr / snapshot.price;

@@ -13,14 +13,27 @@ import { adversarialDetector, type AdversarialSignal } from './adversarial-detec
 import { computeOmegaSensors, type OmegaSensors } from './omega-sensors';
 import { logger } from '../lib/logger';
 
+/**
+ * Market snapshot for a single symbol
+ * Contains technical indicators, structure analysis, and regime detection
+ */
 export interface SymbolSnapshot {
   symbol: string;
-  price: number;
+  price: number; // Current market price in quote currency units
   ema20: number;
   ema50: number;
   ema200: number;
   rsi: number;
   stochRsi: number;
+  /**
+   * Average True Range in PRICE UNITS (not pips)
+   * ⚠️ IMPORTANT: This is stored as a price difference (e.g., 0.04370 for USDJPY)
+   * To convert to pips: atrPips = atr / getCurrencyPipInfo(symbol).pipValue
+   * Example conversions:
+   * - USDJPY: 0.04370 price → 4.37 pips (÷ 0.01)
+   * - EURUSD: 0.00045 price → 4.5 pips (÷ 0.0001)
+   * - XAUUSD: 2.50 price → 25 pips (÷ 0.1)
+   */
   atr: number;
   vwap: number;
   trend: string;

@@ -58,6 +58,10 @@ export interface MarketContext {
   ema50: number;
   ema200: number;
   rsi: number;
+  /**
+   * Average True Range in PRICE UNITS (not pips)
+   * ⚠️ Always stored as price difference - convert to pips using: atrPips = atr / pipValue
+   */
   atr: number;
   trend_strength?: number;
   indicators?: any;

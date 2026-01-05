@@ -11,6 +11,12 @@
  * - Blocks trades that would take >6 hours
  * - Warns on trades >4 hours
  * - Targets 20min-2hr sweet spot
+ *
+ * ⚠️ UNIT REQUIREMENTS:
+ * - All inputs MUST be in PIPS, not price units
+ * - ATR is typically stored in price units (e.g., 0.04370 for USDJPY)
+ * - ALWAYS convert ATR to pips before calling: atrPips = atrPrice / pipValue
+ * - Use calculateFromPrice() helper to avoid manual conversion errors
  */
 
 export interface TimeToFillResult {
@@ -22,9 +28,25 @@ export interface TimeToFillResult {
   recommendedAction: 'TAKE' | 'CAUTION' | 'REJECT';
 }
 
+/**
+ * Input for time-to-fill calculation
+ * ⚠️ ALL VALUES MUST BE IN PIPS
+ */
 export interface TimeToFillInput {
   tpDistancePips: number;
-  atrPips: number;
+  atrPips: number; // ⚠️ MUST BE IN PIPS, not price units
+  currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed';
+  symbol: string;
+  volatilityMultiplier?: number;
+}
+
+/**
+ * Alternative input accepting ATR in price units
+ * This is the RECOMMENDED way to call the calculator to avoid unit conversion errors
+ */
+export interface TimeToFillPriceInput {
+  tpDistancePips: number;
+  atrPrice: number; // ATR in price units (e.g., 0.04370 for USDJPY)
   currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed';
   symbol: string;
   volatilityMultiplier?: number;
@@ -53,6 +75,37 @@ class TimeToFillCalculator {
   private readonly ACCEPTABLE_MAX = 4.0;
   private readonly WARNING_MAX = 6.0;
 
+  /**
+   * Calculate time-to-fill from ATR in price units (RECOMMENDED)
+   * This method handles the price-to-pip conversion internally to prevent errors
+   *
+   * @param input - Input with ATR in price units (e.g., 0.04370 for USDJPY)
+   * @returns TimeToFillResult with expected duration and viability
+   */
+  calculateFromPrice(input: TimeToFillPriceInput): TimeToFillResult {
+    const { atrPrice, symbol, ...rest } = input;
+
+    // Convert ATR from price units to pips using the symbol's pip value
+    const pipValue = TimeToFillCalculator.getPipFactor(symbol);
+    const atrPips = atrPrice / pipValue;
+
+    // Validate conversion - detect if wrong units were passed
+    if (atrPips > 1000) {
+      console.warn(`[TimeToFill] Suspicious ATR: ${atrPips} pips for ${symbol}. Check if price units were passed correctly.`);
+    }
+
+    return this.calculate({
+      ...rest,
+      symbol,
+      atrPips
+    });
+  }
+
+  /**
+   * Calculate time-to-fill from ATR already in pips
+   * ⚠️ WARNING: Ensure atrPips is actually in pips, not price units
+   * Consider using calculateFromPrice() instead to avoid conversion errors
+   */
   calculate(input: TimeToFillInput): TimeToFillResult {
     const {
       tpDistancePips,
@@ -65,12 +118,26 @@ class TimeToFillCalculator {
     const safeTpPips = Math.max(0.01, Math.abs(tpDistancePips));
     const safeAtrPips = Math.max(0.01, Math.abs(atrPips));
 
-    if (safeTpPips < 0.01 || safeAtrPips < 0.01) {
+    // ✅ UNIT VALIDATION: Detect if price units were passed instead of pips
+    // ATR < 0.1 pips is suspicious - likely means price units were passed
+    if (safeAtrPips < 0.1) {
+      console.error(`[TimeToFill] ⚠️ UNIT ERROR: ATR=${safeAtrPips} pips is suspiciously small for ${symbol}. Did you pass price units instead of pips? Use calculateFromPrice() instead.`);
       return {
         expectedHours: 999,
         expectedMinutes: 59940,
         viability: 'UNREALISTIC',
-        reasoning: 'Invalid input: TP distance or ATR is too small (<0.01 pips)',
+        reasoning: `Unit validation failed: ATR=${safeAtrPips.toFixed(4)} pips is too small (likely price units passed instead of pips)`,
+        confidence: 0,
+        recommendedAction: 'REJECT'
+      };
+    }
+
+    if (safeTpPips < 0.01) {
+      return {
+        expectedHours: 999,
+        expectedMinutes: 59940,
+        viability: 'UNREALISTIC',
+        reasoning: 'Invalid input: TP distance is too small (<0.01 pips)',
         confidence: 0,
         recommendedAction: 'REJECT'
       };

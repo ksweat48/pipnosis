@@ -130,9 +130,13 @@ export interface MarketContext {
   regime: string;      // bull/bear/side
   volatility: string;  // low/med/high
   price: number;
+  /**
+   * Average True Range in PRICE UNITS (not pips)
+   * ⚠️ Always stored as price difference - convert to pips using: atrPips = atr / pipValue
+   */
   atr: number;
-  atr20?: number;      // Short-term ATR for volatility regime detection
-  atr100?: number;     // Long-term ATR for volatility regime detection
+  atr20?: number;      // Short-term ATR in PRICE UNITS for volatility regime detection
+  atr100?: number;     // Long-term ATR in PRICE UNITS for volatility regime detection
 }
 
 export interface GoalContext {
