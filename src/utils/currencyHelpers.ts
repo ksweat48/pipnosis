@@ -542,6 +542,36 @@ export function calculateGoalAwareLotSize(
 
   console.log(`  Required Lot Size for ${optimalPips} pips: ${requiredLotSizeForOptimal.toFixed(3)}`);
 
+  // 🚨 CRITICAL VALIDATION: Detect position sizing disasters
+  // If commonMovePips is suspiciously low (< 5 pips), the asset profile is misconfigured
+  if (commonMovePips < 5) {
+    console.error('%c🚨 POSITION SIZING ERROR: Asset profile misconfigured!', 'color: #ff0000; font-weight: bold; font-size: 16px');
+    console.error(`  Common move = ${commonMovePips.toFixed(2)} ${assetProfile.commonMove.unit}`);
+    console.error(`  This is too small - asset profiles must use POINTS/PIPS, not ATR multipliers`);
+    console.error(`  Symbol: ${symbol}, Category: ${pipInfo.symbolType}`);
+    console.error(`  Using fallback: typicalSessionMove = ${typicalSessionMove} points`);
+
+    // Use symbol-specific session move as fallback
+    const fallbackOptimalPips = typicalSessionMove;
+    const fallbackRequiredLotSize = remainingGoal / (fallbackOptimalPips * dollarPerPipAtOneLot);
+    console.error(`  Fallback Required Lot Size: ${fallbackRequiredLotSize.toFixed(3)} lots`);
+
+    return {
+      lotSize: Math.min(0.01, fallbackRequiredLotSize),
+      expectedProfitAtCommonMove: 0,
+      remainingGoal,
+      estimatedTradesNeeded: 999,
+      reasoning: `🚨 Position sizing failed - asset profile misconfigured for ${symbol}. Please fix ${assetProfile.commonMove.unit} values in asset-class-risk-profiles.ts`,
+      goalFeasibility: 'unrealistic',
+      feasible: false,
+      infeasibilityReason: 'Asset profile configuration error - common move values too small',
+      alternatives: [
+        `Update ${symbol} asset profile to use actual pip/point values`,
+        'Contact support to fix position sizing configuration'
+      ]
+    };
+  }
+
   // Cap at max risk-based position size
   let actualLotSize = Math.min(requiredLotSizeForOptimal, maxPositionSize);
 
@@ -611,9 +641,24 @@ export function calculateGoalAwareLotSize(
 
   // ✅ FIX 1: Max Safe Lot Calculation (NOT min lot fallback)
   if (expectedRisk > maxRiskAllowed) {
+    const riskRatio = expectedRisk / maxRiskAllowed;
+    const riskPercentOfBalance = (expectedRisk / accountBalance) * 100;
+
     console.error('%c🚨 RISK EXCEEDS CAP - CALCULATING MAX SAFE LOT', 'color: #ff9800; font-weight: bold; font-size: 16px');
-    console.error(`  Expected Risk: $${expectedRisk.toFixed(2)}`);
-    console.error(`  Max Allowed: $${maxRiskAllowed.toFixed(2)}`);
+    console.error(`  Expected Risk: $${expectedRisk.toFixed(2)} (${riskPercentOfBalance.toFixed(1)}% of balance)`);
+    console.error(`  Max Allowed: $${maxRiskAllowed.toFixed(2)} (5% cap)`);
+    console.error(`  Risk Ratio: ${riskRatio.toFixed(2)}x over limit`);
+    console.error(`  Original Lot Size: ${formatLotSize(actualLotSize)}`);
+
+    // 🚨 CRITICAL WARNING: If risk is more than 10x over limit, something is seriously wrong
+    if (riskRatio > 10) {
+      console.error('%c⚠️ EXTREME POSITION SIZING ERROR DETECTED!', 'color: #ff0000; font-weight: bold; font-size: 18px; background: yellow; padding: 4px');
+      console.error(`  Position would risk ${riskRatio.toFixed(1)}x more than allowed!`);
+      console.error(`  This indicates a configuration error in:`);
+      console.error(`    - Asset profile commonMove values (check asset-class-risk-profiles.ts)`);
+      console.error(`    - Symbol pip/point values (check symbol-registry.ts)`);
+      console.error(`    - Position sizing calculation logic`);
+    }
 
     // Calculate maximum safe lot size
     const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot;

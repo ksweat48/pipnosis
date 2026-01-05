@@ -146,15 +146,15 @@ const CRYPTO_PROFILE: AssetClassRiskProfile = {
   displayName: 'Cryptocurrencies (BTC, ETH)',
 
   typicalStopRange: {
-    min: 1.0,
-    max: 2.0,
-    unit: 'atr'
+    min: 200,
+    max: 500,
+    unit: 'points'
   },
 
   commonMove: {
-    min: 0.5,
-    max: 1.0,
-    unit: 'atr'
+    min: 300,
+    max: 800,
+    unit: 'points'
   },
 
   sessionMoveBudget: {
