@@ -62,15 +62,15 @@ class TimeToFillCalculator {
       volatilityMultiplier = 1.0
     } = input;
 
-    const safeTpPips = Math.max(0.1, Math.abs(tpDistancePips));
-    const safeAtrPips = Math.max(0.1, Math.abs(atrPips));
+    const safeTpPips = Math.max(0.01, Math.abs(tpDistancePips));
+    const safeAtrPips = Math.max(0.01, Math.abs(atrPips));
 
-    if (safeTpPips < 0.1 || safeAtrPips < 0.1) {
+    if (safeTpPips < 0.01 || safeAtrPips < 0.01) {
       return {
         expectedHours: 999,
         expectedMinutes: 59940,
         viability: 'UNREALISTIC',
-        reasoning: 'Invalid input: TP distance or ATR is effectively zero',
+        reasoning: 'Invalid input: TP distance or ATR is too small (<0.01 pips)',
         confidence: 0,
         recommendedAction: 'REJECT'
       };

@@ -81,7 +81,7 @@ import { multiSymbolRanker, type SymbolScore } from '../services/multi-symbol-ra
 import { riskAwareStopCalculator, type StopLossCalculation } from '../services/risk-aware-stop-calculator';
 import { eliteProfitTargetCalculator, type LiquidityZone, type TPCalculationResult } from '../services/profit-target-calculator';
 import { tp1ProbabilityCalculator, type TP1Result } from '../services/tp1-probability-calculator';
-import { calculatePipDistance } from '../utils/currencyHelpers';
+import { calculatePipDistance, getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { EntryIntentClassifier } from '../services/entry-intent-classifier';
 import { omega9ConstraintProvider } from '../services/omega9-constraint-provider';
 import { alphaRevisionHandler } from '../services/alpha-revision-handler';
@@ -1362,7 +1362,9 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
         console.log('[Alpha Coordinator] ⏱️  Running Time-to-Fill validation...');
 
         const tpDistancePips = calculatePipDistance(marketContext.symbol, decision.entry, decision.takeProfit);
-        const atrPips = marketContext.atr;
+        // CRITICAL FIX: Convert ATR from price value to pips
+        const pipInfo = getCurrencyPipInfo(marketContext.symbol);
+        const atrPips = marketContext.atr / pipInfo.pipValue;
 
         // Determine current session
         const hour = new Date().getUTCHours();
