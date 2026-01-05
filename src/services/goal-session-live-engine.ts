@@ -835,6 +835,14 @@ class GoalSessionLiveEngine {
       const atrPips = (snapshot.atr || (10 * pipInfo.pipValue)) / pipInfo.pipValue;
       const spreadPips = (snapshot.spread || 0) / pipInfo.pipValue;
 
+      // DEBUG: Log ATR conversion
+      console.log(`[ATR DEBUG] ${selectedSymbol}:`, {
+        snapshotAtr: snapshot.atr,
+        pipValue: pipInfo.pipValue,
+        atrPips,
+        reconvertedATR: atrPips * pipInfo.pipValue
+      });
+
       const timeToFillResult = timeToFillCalculator.calculate({
         tpDistancePips: alphaTPPips,
         atrPips,

@@ -127,6 +127,15 @@ class ExecutionEligibilityGate {
       input.currentATR
     );
 
+    // DEBUG: Log ATR calculations
+    console.log(`[ELIGIBILITY GATE ATR DEBUG] ${input.symbol}:`, {
+      currentATR: input.currentATR,
+      entryPrice: input.entryPrice,
+      stopLoss: input.stopLoss,
+      slDistance: Math.abs(input.entryPrice - input.stopLoss),
+      slAtrMultiple
+    });
+
     const spreadCostUSD = calculateSpreadCostUSD(
       input.symbol,
       input.spreadPips,
