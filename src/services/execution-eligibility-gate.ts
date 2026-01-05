@@ -209,12 +209,10 @@ class ExecutionEligibilityGate {
         timeToFillResult.expectedMinutes > hardBlockMinutes) {
       reasons.push({
         code: 'TIME_TO_FILL_EXCEEDED',
-        message: `Expected fill time ${this.formatMinutes(timeToFillResult.expectedMinutes)} exceeds ${tradingMode} limit of ${this.formatMinutes(hardBlockMinutes)}`,
+        message: `Expected fill time ${this.formatMinutes(timeToFillResult.expectedMinutes)} exceeds intraday limit of ${this.formatMinutes(hardBlockMinutes)}`,
         metric: `${timeToFillResult.expectedMinutes.toFixed(0)} minutes`,
-        threshold: `${hardBlockMinutes} minutes (${tradingMode})`,
-        suggestion: tradingMode === 'INTRADAY'
-          ? 'Consider tighter TP, wait for higher volatility session, or switch to SWING mode'
-          : 'TP is unrealistic even for swing trading - reduce target distance'
+        threshold: `${hardBlockMinutes} minutes (INTRADAY)`,
+        suggestion: 'This trade structure exceeds intraday physics. Options: tighter TP, wait for higher volatility session, or reduce goal target to make smaller trades feasible'
       });
     }
   }
@@ -280,10 +278,10 @@ class ExecutionEligibilityGate {
     if (slAtrMultiple > slAtrCap && slAtrMultiple > 0) {
       reasons.push({
         code: 'SL_TOO_WIDE_FOR_STYLE',
-        message: `Stop loss at ${slAtrMultiple.toFixed(1)}x ATR exceeds ${input.tradingMode} cap of ${slAtrCap.toFixed(1)}x for ${assetClass}`,
+        message: `Stop loss at ${slAtrMultiple.toFixed(1)}x ATR exceeds intraday cap of ${slAtrCap.toFixed(1)}x for ${assetClass}`,
         metric: `${slAtrMultiple.toFixed(2)}x ATR`,
-        threshold: `${slAtrCap.toFixed(1)}x ATR (${assetClass} ${input.tradingMode})`,
-        suggestion: 'Tighten stop loss or switch to SWING mode for wider stops'
+        threshold: `${slAtrCap.toFixed(1)}x ATR (${assetClass} INTRADAY)`,
+        suggestion: 'Stop loss is too wide for intraday execution. Options: tighten stop loss placement, wait for lower volatility conditions, or select less volatile instrument'
       });
     }
   }

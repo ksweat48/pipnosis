@@ -113,7 +113,7 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
           to: resolvedStyle, // No change
           reason: 'LOW_VOLATILITY_FOR_STYLE',
           advisory: true,
-          detail: `⚠️ ADVISORY: ${resolvedStyle} typically requires ATR >= ${(gate * 100).toFixed(2)}%, current: ${(input.atrPercent * 100).toFixed(2)}%. Consider INTRADAY or SWING for current volatility. Alpha may proceed with justification.`
+          detail: `⚠️ ADVISORY: ${resolvedStyle} typically requires ATR >= ${(gate * 100).toFixed(2)}%, current: ${(input.atrPercent * 100).toFixed(2)}%. Consider INTRADAY for current volatility. Alpha may proceed with justification.`
         });
         logger.warn(
           LogCategory.AI_TRADING,
@@ -285,8 +285,8 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
       };
     }
 
-    // Try cascade: SCALP → INTRADAY → SWING
-    const cascade: TradeStyle[] = ['SCALP', 'INTRADAY', 'SWING'];
+    // Try cascade: SCALP → INTRADAY (No SWING - Pipnosis is intraday-only)
+    const cascade: TradeStyle[] = ['SCALP', 'INTRADAY'];
     const currentIndex = cascade.indexOf(currentStyle);
 
     for (let i = currentIndex + 1; i < cascade.length; i++) {
@@ -300,10 +300,10 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
       }
     }
 
-    const swingGate = getAtrGate(assetClass, 'SWING');
+    const intradayGate = getAtrGate(assetClass, 'INTRADAY');
     return {
       newStyle: null,
-      advisoryMessage: `Even SWING style advisory threshold is ATR >= ${(swingGate * 100).toFixed(2)}%, current: ${(atrPercent * 100).toFixed(2)}%`
+      advisoryMessage: `Even INTRADAY style requires ATR >= ${(intradayGate * 100).toFixed(2)}%, current: ${(atrPercent * 100).toFixed(2)}%. Market volatility too low for execution.`
     };
   }
 

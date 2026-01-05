@@ -33,6 +33,7 @@ import { goalIntelligenceClassifier, GoalClassification } from './goal-intellige
 import { executionEligibilityGate, type ExecutionEligibilityInput } from './execution-eligibility-gate';
 import { timeToFillCalculator } from './time-to-fill-calculator';
 import type { TradingMode } from '../config/execution-eligibility';
+import { executionStyleResolver } from './execution-style-resolver';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
@@ -837,7 +838,30 @@ class GoalSessionLiveEngine {
 
       const pipInfo = getCurrencyPipInfo(selectedSymbol);
       const spreadPips = (snapshot.spread || 0) / pipInfo.pipValue;
-      const tradingMode: TradingMode = 'INTRADAY';
+
+      // Resolve Alpha's style intent to executable trading mode
+      const atrPercent = snapshot.atr / snapshot.price;
+      const sessionTypeMap: Record<string, 'asian' | 'london' | 'nyse'> = {
+        'london': 'london',
+        'ny': 'nyse',
+        'overlap': 'london',
+        'asian': 'asian',
+        'sydney': 'asian',
+        'closed': 'asian'
+      };
+
+      const styleResolution = executionStyleResolver.resolve({
+        requestedStyle: decision.resolvedStyle || 'INTRADAY',
+        riskMode: goalContext.riskMode?.toUpperCase() as 'LOW' | 'MEDIUM' | 'HIGH',
+        atrPercent,
+        sessionType: sessionTypeMap[currentSession]
+      });
+
+      const tradingMode: TradingMode = styleResolution.executionMode;
+
+      if (styleResolution.wasDowngraded) {
+        console.log(`[Style Resolution] ${styleResolution.originalStyle} → ${styleResolution.executionMode}${styleResolution.advisory ? ': ' + styleResolution.advisory : ''}`);
+      }
 
       const gateInput: ExecutionEligibilityInput = {
         symbol: selectedSymbol,

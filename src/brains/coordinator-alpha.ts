@@ -177,6 +177,7 @@ export interface AlphaDecision {
   symbol?: string;
   timestamp?: Date;
   risk_pct?: number;
+  resolvedStyle?: 'SCALP' | 'INTRADAY' | 'SWING';
   goal_context?: GoalContext;
   override?: AlphaOverride;
   intelligence_snapshot?: Partial<AlphaIntelligenceSnapshot>;
