@@ -9,6 +9,7 @@
  */
 
 import type { RegimeSnapshot } from './regime-oracle';
+import { safeExtractATRValue, type ATRValue } from '../types/atr';
 
 export interface AdversarialSignal {
   is_adversarial: boolean;
@@ -31,7 +32,7 @@ export interface MarketState {
   ema20: number;
   ema50: number;
   ema200?: number;
-  atr: number;
+  atr: number | ATRValue;
   rsi: number;
   vwap?: number;
   swingHigh?: number;
@@ -71,6 +72,12 @@ class AdversarialDetector {
       return this.createCleanSignal();
     }
 
+    const atrValue = safeExtractATRValue(marketState.atr, 'AdversarialDetector.evaluate');
+    const normalizedState: MarketState & { atr: number } = {
+      ...marketState,
+      atr: atrValue
+    };
+
     const patterns: string[] = [];
     let suspicion_score = 0;
 
@@ -82,7 +89,7 @@ class AdversarialDetector {
     const stopRunPatterns = this.detectStopRuns(
       recentCandles,
       candleAnalyses,
-      marketState
+      normalizedState
     );
     patterns.push(...stopRunPatterns);
     suspicion_score += stopRunPatterns.length * 20;
@@ -90,7 +97,7 @@ class AdversarialDetector {
     // B) FAKE BREAKOUT DETECTION
     const fakeBreakoutPatterns = this.detectFakeBreakouts(
       recentCandles,
-      marketState
+      normalizedState
     );
     patterns.push(...fakeBreakoutPatterns);
     suspicion_score += fakeBreakoutPatterns.length * 20;
@@ -115,9 +122,9 @@ class AdversarialDetector {
     }
 
     // E) SPREAD SPIKE DETECTION (if available)
-    if (marketState.spread !== undefined) {
-      const spreadAvg = marketState.atr * 0.1; // Estimate
-      if (marketState.spread > spreadAvg * 2) {
+    if (normalizedState.spread !== undefined) {
+      const spreadAvg = normalizedState.atr * 0.1; // Estimate
+      if (normalizedState.spread > spreadAvg * 2) {
         patterns.push('spread_spike');
         suspicion_score += 15;
       }
@@ -137,7 +144,7 @@ class AdversarialDetector {
       patterns,
       recentCandles,
       candleAnalyses,
-      marketState,
+      normalizedState,
       avgCandleRange
     );
 

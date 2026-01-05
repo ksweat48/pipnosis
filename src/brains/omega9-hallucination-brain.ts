@@ -28,6 +28,7 @@ import type { AlphaDecision } from './coordinator-alpha';
 import { llmTokenTracker } from '../services/llm-token-tracker';
 import { alphaSafetyZoneEvaluator, type SafetyEvaluation } from '../config/alpha-safety-zones';
 import { calculatePipDistance } from '../utils/currencyHelpers';
+import { safeExtractATRValue, type ATRValue } from '../types/atr';
 
 export interface Omega9Input {
   alphaDecision: AlphaDecision;
@@ -41,7 +42,7 @@ export interface Omega9Input {
   };
   marketContext: {
     price: number;
-    atr: number;
+    atr: number | ATRValue;
     symbol: string;
   };
   safetyRules: {
@@ -186,11 +187,13 @@ class Omega9HallucinationBrain {
     const slDistancePips = calculatePipDistance(marketContext.symbol, alphaDecision.entry, alphaDecision.stopLoss);
     const tpDistancePips = calculatePipDistance(marketContext.symbol, alphaDecision.entry, alphaDecision.takeProfit);
 
+    const atrValue = safeExtractATRValue(marketContext.atr, 'Omega9.performLocalValidation');
+
     const safetyEval = alphaSafetyZoneEvaluator.evaluateTrade({
       rrRatio: rr,
       tpDistancePips: tpDistancePips,
       slDistancePips: slDistancePips,
-      atr: marketContext.atr,
+      atr: atrValue,
       symbol: marketContext.symbol,
       estimatedDurationSeconds: 0
     });
@@ -304,22 +307,24 @@ class Omega9HallucinationBrain {
     let sl = alphaDecision.stopLoss;
     let tp = alphaDecision.takeProfit;
 
+    const atrValue = safeExtractATRValue(marketContext.atr, 'Omega9.attemptRepair');
+
     if (flags.includes('SL_POSITION_ERROR_BUY') && isBuy) {
-      sl = entry - marketContext.atr * 1.5;
+      sl = entry - atrValue * 1.5;
       corrections.sl = sl;
       console.log(`[Omega-9] 🔧 Corrected BUY SL: ${alphaDecision.stopLoss} → ${sl}`);
     } else if (flags.includes('SL_POSITION_ERROR_SELL') && !isBuy) {
-      sl = entry + marketContext.atr * 1.5;
+      sl = entry + atrValue * 1.5;
       corrections.sl = sl;
       console.log(`[Omega-9] 🔧 Corrected SELL SL: ${alphaDecision.stopLoss} → ${sl}`);
     }
 
     if (flags.includes('TP_POSITION_ERROR_BUY') && isBuy) {
-      tp = entry + marketContext.atr * 2.5;
+      tp = entry + atrValue * 2.5;
       corrections.tp = tp;
       console.log(`[Omega-9] 🔧 Corrected BUY TP: ${alphaDecision.takeProfit} → ${tp}`);
     } else if (flags.includes('TP_POSITION_ERROR_SELL') && !isBuy) {
-      tp = entry - marketContext.atr * 2.5;
+      tp = entry - atrValue * 2.5;
       corrections.tp = tp;
       console.log(`[Omega-9] 🔧 Corrected SELL TP: ${alphaDecision.takeProfit} → ${tp}`);
     }

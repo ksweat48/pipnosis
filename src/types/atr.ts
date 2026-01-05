@@ -277,3 +277,228 @@ export function formatATR(atr: ATRValue, pipValue: number): string {
   const atrPips = atr.value / pipValue;
   return `${atr.value.toFixed(5)} (${atrPips.toFixed(1)} pips) [${atr.timeframe}, ${atr.period}-period]`;
 }
+
+/**
+ * Environment-aware validation configuration
+ * - Development: Strict errors that throw immediately
+ * - Production: Resilient logging without crashes
+ */
+const isProduction = typeof window !== 'undefined'
+  ? window.location?.hostname !== 'localhost'
+  : process.env.NODE_ENV === 'production';
+
+const isStrictValidation = !isProduction || process.env.STRICT_TYPE_VALIDATION === 'true';
+
+/**
+ * ATR Type Validation Error - thrown only in strict mode
+ */
+export class ATRTypeError extends Error {
+  constructor(
+    public readonly context: string,
+    public readonly expected: string,
+    public readonly received: string,
+    public readonly severity: 'error' | 'warning' = 'error'
+  ) {
+    super(`[ATR Type Error] ${context}: Expected ${expected}, received ${received}`);
+    this.name = 'ATRTypeError';
+  }
+}
+
+/**
+ * Log ATR validation issue with appropriate severity
+ * In production: logs warning but continues
+ * In development: throws error
+ */
+function handleATRValidationIssue(
+  context: string,
+  message: string,
+  severity: 'error' | 'warning' = 'error'
+): void {
+  const fullMessage = `[ATR SSOT] ${context}: ${message}`;
+
+  if (isStrictValidation && severity === 'error') {
+    throw new ATRTypeError(context, 'typed ATRValue', 'raw number or undefined', severity);
+  }
+
+  if (severity === 'error') {
+    console.error(fullMessage);
+  } else {
+    console.warn(fullMessage);
+  }
+}
+
+/**
+ * Safely extract ATR value from mixed input (number | ATRValue | undefined)
+ * SSOT-compliant: warns about legacy usage, returns safe default
+ */
+export function safeExtractATRValue(
+  atr: number | ATRValue | undefined,
+  context: string,
+  fallbackValue: number = 0
+): number {
+  if (atr === undefined) {
+    handleATRValidationIssue(context, 'ATR is undefined, using fallback', 'warning');
+    return fallbackValue;
+  }
+
+  if (typeof atr === 'number') {
+    handleATRValidationIssue(
+      context,
+      `Legacy raw number ATR (${atr}) - migrate to typed ATRValue`,
+      'warning'
+    );
+    return atr;
+  }
+
+  if (!isValidATRValue(atr)) {
+    handleATRValidationIssue(context, `Malformed ATRValue object: ${JSON.stringify(atr)}`, 'error');
+    return fallbackValue;
+  }
+
+  return atr.value;
+}
+
+/**
+ * Safely extract ATR timeframe from mixed input
+ * Returns undefined for legacy raw numbers
+ */
+export function safeExtractATRTimeframe(
+  atr: number | ATRValue | undefined,
+  context: string
+): ATRTimeframe | undefined {
+  if (atr === undefined || typeof atr === 'number') {
+    return undefined;
+  }
+
+  if (!isValidATRValue(atr)) {
+    handleATRValidationIssue(context, 'Malformed ATRValue - cannot extract timeframe', 'warning');
+    return undefined;
+  }
+
+  return atr.timeframe;
+}
+
+/**
+ * Type guard to check if value is a valid ATRValue
+ */
+export function isValidATRValue(value: unknown): value is ATRValue {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const obj = value as Record<string, unknown>;
+
+  return (
+    typeof obj.value === 'number' &&
+    typeof obj.timeframe === 'string' &&
+    ['M5', 'M15', 'H1', 'H4', 'D1'].includes(obj.timeframe) &&
+    typeof obj.period === 'number' &&
+    obj.unit === 'price' &&
+    obj.calculatedAt instanceof Date
+  );
+}
+
+/**
+ * Type guard with relaxed Date check (for JSON deserialization)
+ */
+export function isATRValueLike(value: unknown): value is ATRValue {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const obj = value as Record<string, unknown>;
+
+  return (
+    typeof obj.value === 'number' &&
+    typeof obj.timeframe === 'string' &&
+    ['M5', 'M15', 'H1', 'H4', 'D1'].includes(obj.timeframe) &&
+    typeof obj.period === 'number' &&
+    obj.unit === 'price'
+  );
+}
+
+/**
+ * Coerce mixed ATR input to typed ATRValue
+ * Use when you MUST have a typed ATRValue (e.g., for storage or strict APIs)
+ */
+export function coerceToATRValue(
+  atr: number | ATRValue | undefined,
+  assumedTimeframe: ATRTimeframe,
+  context: string,
+  period: number = 14
+): ATRValue | null {
+  if (atr === undefined) {
+    handleATRValidationIssue(context, 'Cannot coerce undefined ATR', 'error');
+    return null;
+  }
+
+  if (typeof atr === 'number') {
+    handleATRValidationIssue(
+      context,
+      `Coercing legacy ATR (${atr}) to ${assumedTimeframe} - caller should migrate`,
+      'warning'
+    );
+    return createATRValue(atr, assumedTimeframe, period);
+  }
+
+  if (isATRValueLike(atr)) {
+    if (!(atr.calculatedAt instanceof Date)) {
+      return {
+        ...atr,
+        calculatedAt: new Date(atr.calculatedAt as unknown as string | number)
+      };
+    }
+    return atr;
+  }
+
+  handleATRValidationIssue(context, `Invalid ATR structure: ${JSON.stringify(atr)}`, 'error');
+  return null;
+}
+
+/**
+ * Assert ATR has expected timeframe (environment-aware)
+ * In production: logs warning and continues
+ * In development: throws error
+ */
+export function assertATRTimeframe(
+  atr: number | ATRValue | undefined,
+  expectedTimeframe: ATRTimeframe,
+  context: string
+): void {
+  if (atr === undefined) {
+    handleATRValidationIssue(context, `ATR undefined, expected ${expectedTimeframe}`, 'warning');
+    return;
+  }
+
+  if (typeof atr === 'number') {
+    handleATRValidationIssue(
+      context,
+      `Cannot verify timeframe on raw number ATR (expected ${expectedTimeframe})`,
+      'warning'
+    );
+    return;
+  }
+
+  if (atr.timeframe !== expectedTimeframe) {
+    handleATRValidationIssue(
+      context,
+      `Timeframe mismatch: expected ${expectedTimeframe}, got ${atr.timeframe}`,
+      'error'
+    );
+  }
+}
+
+/**
+ * Get validation mode status for debugging
+ */
+export function getATRValidationMode(): {
+  isProduction: boolean;
+  isStrict: boolean;
+  mode: string;
+} {
+  return {
+    isProduction,
+    isStrict: isStrictValidation,
+    mode: isStrictValidation ? 'STRICT (throws errors)' : 'RESILIENT (logs warnings)'
+  };
+}
