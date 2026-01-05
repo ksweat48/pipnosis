@@ -10,9 +10,9 @@
  *
  * IMPORTANT: This Omega is ADVISORY ONLY
  * - It provides risk warnings and quality scores
- * - It does NOT vote NO_TRADE (that would veto the council)
+ * - It CAN vote NO_TRADE for genuine risk concerns (Alpha decides final action)
  * - Alpha uses its risk_score to adjust confidence
- * - Only CATASTROPHIC violations (R:R < 0.5:1) trigger a block
+ * - CATASTROPHIC violations (R:R < 0.5:1) strongly recommend NO_TRADE
  */
 
 import { openAIClient } from '../../services/openai-client';
@@ -46,7 +46,7 @@ class OmegaRiskBrain {
     const prompt = `Risk Assessment (ADVISORY):
 ${JSON.stringify(snapshot)}
 
-Evaluate the risk quality. You are ADVISORY - do not veto, just assess.
+Evaluate the risk quality. You are ADVISORY - Alpha has final decision authority.
 Focus: SL placement quality, R/R ratio, ATR alignment.
 
 Rate risk_score 0-100:
@@ -56,12 +56,16 @@ Rate risk_score 0-100:
 - 20-39: High risk (strong warnings)
 - 0-19: Catastrophic risk (R:R < 0.5:1 or SL in liquidity zone)
 
-If direction is provided, vote WITH that direction but adjust confidence based on risk.
-Only flag is_catastrophic=true for truly dangerous setups (R:R < 0.5:1).
+Vote options:
+- If direction is provided AND risk is acceptable: vote WITH that direction, adjust confidence based on risk
+- If risk_score < 20 (catastrophic): vote NO_TRADE with is_catastrophic=true
+- If risk_score 20-39 (high risk): you MAY vote NO_TRADE if risk is genuinely unacceptable
+
+Alpha will receive your vote and make the final call.
 
 Return JSON only:
 {
-  "vote": "BUY|SELL",
+  "vote": "BUY|SELL|NO_TRADE",
   "confidence": 0-100,
   "risk_score": 0-100,
   "warnings": ["warning1", "warning2"],
@@ -74,7 +78,7 @@ Return JSON only:
         [
           {
             role: 'system',
-            content: 'You are OmegaRisk, an ADVISORY risk specialist. You assess risk quality but do NOT veto trades. Only flag catastrophic for R:R < 0.5:1. Return JSON only.'
+            content: 'You are OmegaRisk, an ADVISORY risk specialist. Assess risk quality. You CAN vote NO_TRADE for genuinely dangerous setups, but Alpha makes the final decision. Flag is_catastrophic=true for R:R < 0.5:1 or SL in obvious liquidity zone. Return JSON only.'
           },
           {
             role: 'user',
@@ -135,9 +139,14 @@ Return JSON only:
 
       const parsed = JSON.parse(cleaned);
 
-      let vote = parsed.vote || fallbackDirection || 'BUY';
-      if (vote === 'NO_TRADE') {
+      let vote: 'BUY' | 'SELL' | 'NO_TRADE' = parsed.vote || fallbackDirection || 'BUY';
+
+      if (!['BUY', 'SELL', 'NO_TRADE'].includes(vote)) {
         vote = fallbackDirection || 'BUY';
+      }
+
+      if (vote === 'NO_TRADE') {
+        console.log(`[Omega-6 Risk] NO_TRADE vote preserved - Alpha will decide final action`);
       }
 
       return {

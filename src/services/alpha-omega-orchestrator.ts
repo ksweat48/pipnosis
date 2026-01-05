@@ -33,6 +33,19 @@ import type { AggregatedSentiment } from './sentiment-aggregator';
 import { sharedIntelligenceCoordinator, type CachedOmegaIntelligence } from './shared-intelligence-coordinator';
 import { tradeExecutionFreshnessGate, type ExecutionContext } from './trade-execution-freshness-gate';
 import { realtimePriceStalenessValidator } from './realtime-price-staleness-validator';
+import { getMTFConfig, type Timeframe, type RiskMode } from '../config/timeframe-hierarchy';
+
+export interface ConfidencePenalty {
+  source: string;
+  multiplier: number;
+  reason: string;
+}
+
+export interface ConfidencePenaltyResult {
+  appliedPenalty: ConfidencePenalty;
+  allProposedPenalties: ConfidencePenalty[];
+  finalMultiplier: number;
+}
 
 export interface FullMarketState {
   symbol: string;
@@ -111,6 +124,12 @@ class AlphaOmegaOrchestrator {
     const signalTimestamp = Date.now();
     console.log(`[Alpha+Omega] 📍 Signal captured: ${signalPrice} at ${new Date(signalTimestamp).toISOString()}`);
 
+    // SSOT: Get dynamic timeframe based on risk mode (no more hardcoded M15)
+    const riskMode: RiskMode = goalContext?.riskMode || 'medium';
+    const mtfConfig = getMTFConfig(riskMode);
+    const entryTimeframe: Timeframe = mtfConfig.entryTimeframe;
+    console.log(`[Alpha+Omega] 📊 Risk Mode: ${riskMode.toUpperCase()} → Entry Timeframe: ${entryTimeframe}`);
+
     // ✅ STEP 0: Get Omega-7 Market Sentiment (if not already provided)
     let sentiment = marketState.sentiment;
     if (!sentiment) {
@@ -136,7 +155,7 @@ class AlphaOmegaOrchestrator {
     const reversalSnap = this.buildReversalSnapshot(marketState);
     const volatilitySnap = this.buildVolatilitySnapshot(marketState);
     const riskSnap = this.buildRiskSnapshot(marketState, proposedSL, proposedTP, 3);
-    const omega8Snap = this.buildOmega8HybridSnapshot(marketState);
+    const omega8Snap = this.buildOmega8HybridSnapshot(marketState, entryTimeframe);
 
     console.log('[Alpha+Omega] 🔮 Calling Omega Council (parallel with 3-tier cache)...');
     const startTime = Date.now();
@@ -154,7 +173,7 @@ class AlphaOmegaOrchestrator {
     ] = await Promise.all([
       sharedIntelligenceCoordinator.getOmegaIntelligence(
         marketState.symbol,
-        'M15',
+        entryTimeframe,
         'trend',
         marketState.recentCandles,
         async () => {
@@ -173,7 +192,7 @@ class AlphaOmegaOrchestrator {
 
       sharedIntelligenceCoordinator.getOmegaIntelligence(
         marketState.symbol,
-        'M15',
+        entryTimeframe,
         'scalper',
         marketState.recentCandles,
         async () => {
@@ -192,7 +211,7 @@ class AlphaOmegaOrchestrator {
 
       sharedIntelligenceCoordinator.getOmegaIntelligence(
         marketState.symbol,
-        'M15',
+        entryTimeframe,
         'confirmation',
         marketState.recentCandles,
         async () => {
@@ -211,7 +230,7 @@ class AlphaOmegaOrchestrator {
 
       sharedIntelligenceCoordinator.getOmegaIntelligence(
         marketState.symbol,
-        'M15',
+        entryTimeframe,
         'reversal',
         marketState.recentCandles,
         async () => {
@@ -230,7 +249,7 @@ class AlphaOmegaOrchestrator {
 
       sharedIntelligenceCoordinator.getOmegaIntelligence(
         marketState.symbol,
-        'M15',
+        entryTimeframe,
         'volatility',
         marketState.recentCandles,
         async () => {
@@ -249,7 +268,7 @@ class AlphaOmegaOrchestrator {
 
       sharedIntelligenceCoordinator.getOmegaIntelligence(
         marketState.symbol,
-        'M15',
+        entryTimeframe,
         'risk',
         marketState.recentCandles,
         async () => {
@@ -325,7 +344,7 @@ class AlphaOmegaOrchestrator {
 
     const freshnessContext: ExecutionContext = {
       symbol: marketState.symbol,
-      timeframe: 'M15',
+      timeframe: entryTimeframe,
       signalPrice: signalPrice, // Price at signal time
       currentPrice: currentPrice, // Current price at execution time
       signalTimestamp: signalTimestamp, // Timestamp when signal was generated
@@ -336,7 +355,6 @@ class AlphaOmegaOrchestrator {
     const freshnessResult = await tradeExecutionFreshnessGate.validateWithAutoRefresh(
       freshnessContext,
       async () => {
-        // PRIORITY 1 FIX: Real refresh callback that invalidates cache
         console.log('[Alpha+Omega] 🔄 Auto-refresh: Invalidating stale cache');
         sharedIntelligenceCoordinator.clearLocalCache();
         console.log('[Alpha+Omega] ✅ Cache invalidated - next scan will fetch fresh intelligence');
@@ -344,8 +362,11 @@ class AlphaOmegaOrchestrator {
       userId
     );
 
-    if (!freshnessResult.canExecute) {
-      console.error(`[Alpha+Omega] 🚫 BLOCKED: Freshness gate failed for ${marketState.symbol}`);
+    const freshnessAdvisory = freshnessResult.advisory;
+
+    if (freshnessAdvisory?.overallSeverity === 'CRITICAL') {
+      console.error(`[Alpha+Omega] 🚫 CRITICAL: Freshness severely degraded for ${marketState.symbol}`);
+      console.error(`[Alpha+Omega] Advisory: ${freshnessAdvisory.advisoryMessage}`);
       freshnessResult.blockingReasons.forEach((reason, i) => {
         console.error(`  ${i + 1}. ${reason}`);
       });
@@ -356,9 +377,14 @@ class AlphaOmegaOrchestrator {
         stopLoss: proposedSL,
         takeProfit: proposedTP,
         confidence: 0,
-        reasoning: `FRESHNESS GATE BLOCKED: ${freshnessResult.blockingReasons.join('; ')}`,
-        omega_summary: `Execution blocked by P0 circuit breaker - stale intelligence${freshnessResult.wasAutoRefreshed ? ' (auto-refresh attempted)' : ''}`
+        reasoning: `FRESHNESS CRITICAL: ${freshnessAdvisory.advisoryMessage}`,
+        omega_summary: `Execution blocked by CRITICAL freshness severity${freshnessResult.wasAutoRefreshed ? ' (auto-refresh attempted)' : ''}`
       };
+    }
+
+    if (freshnessAdvisory?.overallSeverity === 'WARNING') {
+      console.warn(`[Alpha+Omega] ⚠️ WARNING: ${freshnessAdvisory.advisoryMessage}`);
+      console.warn(`[Alpha+Omega] Confidence reduction advisory: -${freshnessAdvisory.confidenceReduction}%`);
     }
 
     if (freshnessResult.wasAutoRefreshed) {
@@ -394,6 +420,14 @@ class AlphaOmegaOrchestrator {
       console.warn('[Alpha+Omega] Alpha will consider this input in final decision');
     }
 
+    // ✅ WORST-CASE WINS: Calculate single unified confidence penalty
+    const confidencePenaltyResult = this.collectConfidencePenalties(
+      conflictCheck,
+      freshnessAdvisory || undefined,
+      marketState.adversarial,
+      marketState.regime
+    );
+
     // Build market context for Alpha
     const marketContext: MarketContext = {
       symbol: marketState.symbol,
@@ -427,11 +461,27 @@ class AlphaOmegaOrchestrator {
     const alphaTime = Date.now() - alphaStart;
     const totalTime = Date.now() - startTime;
 
+    const originalConfidence = decision.confidence;
+    const adjustedConfidence = Math.round(originalConfidence * confidencePenaltyResult.finalMultiplier);
+
     console.log(`[Alpha+Omega] ⚡ Alpha decision complete (${alphaTime}ms)`);
     console.log(`[Alpha+Omega] 📊 Total pipeline: ${totalTime}ms`);
-    console.log(`[Alpha+Omega] 🎯 Alpha decided: ${decision.action} @ ${decision.confidence}%`);
+    console.log(`[Alpha+Omega] 🎯 Alpha decided: ${decision.action} @ ${originalConfidence}%`);
 
-    return decision;
+    if (confidencePenaltyResult.finalMultiplier < 1.0) {
+      console.log(`[Alpha+Omega] 📉 Confidence adjusted: ${originalConfidence}% → ${adjustedConfidence}% (${confidencePenaltyResult.appliedPenalty.source})`);
+    }
+
+    return {
+      ...decision,
+      confidence: adjustedConfidence,
+      confidenceAdjustments: confidencePenaltyResult.allProposedPenalties.map(p => ({
+        source: p.source,
+        proposedMultiplier: p.multiplier,
+        wasApplied: p === confidencePenaltyResult.appliedPenalty,
+        reason: p.reason
+      }))
+    };
   }
 
   /**
@@ -817,7 +867,7 @@ class AlphaOmegaOrchestrator {
   /**
    * Build snapshot for Omega-8 Hybrid OrderFlow
    */
-  private buildOmega8HybridSnapshot(state: FullMarketState): Omega8MarketSnapshot {
+  private buildOmega8HybridSnapshot(state: FullMarketState, timeframe: Timeframe = 'M15'): Omega8MarketSnapshot {
     const candles = state.recentCandles.slice(-30).map(c => ({
       time: c.time || Date.now(),
       open: c.open || c[0],
@@ -833,7 +883,7 @@ class AlphaOmegaOrchestrator {
 
     return {
       symbol: state.symbol,
-      timeframe: 'M15',
+      timeframe,
       price: state.price,
       atr: state.atr,
       candles,
@@ -897,12 +947,11 @@ class AlphaOmegaOrchestrator {
     const isHighScore = traderScore.score >= 80;
     const isAggressiveMode = isAggressive && isHighScore;
 
-    // Define conflicting domain pairs
+    // Define conflicting domain pairs (Swing Omega removed)
     const conflictingDomains: Record<string, string[]> = {
-      'Trend': ['Swing', 'OrderFlow'],
-      'Swing': ['Trend', 'Reversal', 'OrderFlow'],
-      'OrderFlow': ['Trend', 'Swing', 'Reversal'],
-      'Reversal': ['Swing', 'OrderFlow'],
+      'Trend': ['OrderFlow', 'Reversal'],
+      'OrderFlow': ['Trend', 'Reversal'],
+      'Reversal': ['Trend', 'OrderFlow'],
       'Scalper': [] // Scalper can disagree with anyone without being critical
     };
 
@@ -914,9 +963,6 @@ class AlphaOmegaOrchestrator {
     }
     if (votes.scalper && (votes.scalper.vote === 'BUY' || votes.scalper.vote === 'SELL')) {
       allVotes.push({ brain: 'Scalper', direction: votes.scalper.vote, confidence: votes.scalper.confidence, domain: 'Scalper' });
-    }
-    if (votes.swing && (votes.swing.vote === 'BUY' || votes.swing.vote === 'SELL')) {
-      allVotes.push({ brain: 'Swing', direction: votes.swing.vote, confidence: votes.swing.confidence, domain: 'Swing' });
     }
     if (votes.reversal && (votes.reversal.vote === 'BUY' || votes.reversal.vote === 'SELL')) {
       allVotes.push({ brain: 'Reversal', direction: votes.reversal.vote, confidence: votes.reversal.confidence, domain: 'Reversal' });
@@ -1054,11 +1100,103 @@ class AlphaOmegaOrchestrator {
     };
   }
 
+  /**
+   * WORST-CASE WINS: Apply only the single worst confidence penalty
+   * Prevents multiplicative stacking that leads to hidden confidence drops
+   */
+  private calculateWorstCasePenalty(penalties: ConfidencePenalty[]): ConfidencePenaltyResult {
+    const validPenalties = penalties.filter(p => p.multiplier < 1.0);
+
+    if (validPenalties.length === 0) {
+      const noPenalty: ConfidencePenalty = {
+        source: 'none',
+        multiplier: 1.0,
+        reason: 'No penalties applied'
+      };
+      return {
+        appliedPenalty: noPenalty,
+        allProposedPenalties: penalties,
+        finalMultiplier: 1.0
+      };
+    }
+
+    const worstPenalty = validPenalties.reduce((worst, current) =>
+      current.multiplier < worst.multiplier ? current : worst
+    );
+
+    console.log(`[Alpha+Omega] 📊 CONFIDENCE PENALTIES (worst-case wins):`);
+    penalties.forEach(p => {
+      const marker = p === worstPenalty ? '→ APPLIED' : '  (not applied)';
+      const pctReduction = ((1 - p.multiplier) * 100).toFixed(1);
+      console.log(`  ${marker} ${p.source}: ${p.multiplier.toFixed(2)}x (-${pctReduction}%) - ${p.reason}`);
+    });
+    console.log(`[Alpha+Omega] 🎯 Final multiplier: ${worstPenalty.multiplier.toFixed(2)}x from ${worstPenalty.source}`);
+
+    return {
+      appliedPenalty: worstPenalty,
+      allProposedPenalties: penalties,
+      finalMultiplier: worstPenalty.multiplier
+    };
+  }
+
+  /**
+   * Collect all confidence penalties from various sources
+   */
+  collectConfidencePenalties(
+    conflictCheck: { confidencePenalty: number; conflictDescription: string },
+    freshnessAdvisory?: { confidenceReduction: number; overallSeverity: string },
+    adversarialSignal?: AdversarialSignal,
+    regimeSnapshot?: RegimeSnapshot
+  ): ConfidencePenaltyResult {
+    const penalties: ConfidencePenalty[] = [];
+
+    if (conflictCheck.confidencePenalty < 1.0) {
+      penalties.push({
+        source: 'Omega Conflict',
+        multiplier: conflictCheck.confidencePenalty,
+        reason: conflictCheck.conflictDescription
+      });
+    }
+
+    if (freshnessAdvisory && freshnessAdvisory.confidenceReduction > 0) {
+      const multiplier = 1 - (freshnessAdvisory.confidenceReduction / 100);
+      penalties.push({
+        source: 'Freshness Advisory',
+        multiplier,
+        reason: `${freshnessAdvisory.overallSeverity} severity data staleness`
+      });
+    }
+
+    if (adversarialSignal && adversarialSignal.is_adversarial) {
+      let multiplier = 1.0;
+      if (adversarialSignal.level === 'severe') multiplier = 0.5;
+      else if (adversarialSignal.level === 'moderate') multiplier = 0.7;
+      else if (adversarialSignal.level === 'mild') multiplier = 0.85;
+
+      if (multiplier < 1.0) {
+        penalties.push({
+          source: 'Adversarial Detector',
+          multiplier,
+          reason: `${adversarialSignal.level} manipulation detected: ${adversarialSignal.notes}`
+        });
+      }
+    }
+
+    if (regimeSnapshot && regimeSnapshot.risk_reduction_factor < 1.0) {
+      penalties.push({
+        source: 'Regime Oracle',
+        multiplier: regimeSnapshot.risk_reduction_factor,
+        reason: `Market regime risk: ${regimeSnapshot.volatility_score}% volatility, ${regimeSnapshot.is_high_risk_regime ? 'high risk' : 'normal'}`
+      });
+    }
+
+    return this.calculateWorstCasePenalty(penalties);
+  }
+
   private logOmegaVotes(votes: OmegaCouncilVotes): void {
     console.log('[Omega Council Votes]:');
     console.log(`  Trend:      ${votes.trend?.vote || 'N/A'} @ ${votes.trend?.confidence || 0}% - ${votes.trend?.reasoning || ''}`);
     console.log(`  Scalper:    ${votes.scalper?.vote || 'N/A'} @ ${votes.scalper?.confidence || 0}% - ${votes.scalper?.reasoning || ''}`);
-    console.log(`  Swing:      ${votes.swing?.vote || 'N/A'} @ ${votes.swing?.confidence || 0}% - ${votes.swing?.reasoning || ''}`);
     console.log(`  Reversal:   ${votes.reversal?.vote || 'N/A'} @ ${votes.reversal?.confidence || 0}% - ${votes.reversal?.reasoning || ''}`);
     console.log(`  Volatility: ${votes.volatility?.vote || 'N/A'} @ ${votes.volatility?.confidence || 0}% - ${votes.volatility?.reasoning || ''}`);
     console.log(`  Risk:       ${votes.risk?.vote || 'N/A'} @ ${votes.risk?.confidence || 0}% - ${votes.risk?.reasoning || ''}`);

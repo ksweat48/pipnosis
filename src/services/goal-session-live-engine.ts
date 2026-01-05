@@ -2445,11 +2445,11 @@ This learning will carry forward to improve future sessions!
 
         if (decision && decision.omega_votes) {
           const votes = decision.omega_votes;
-          const buyVotes = [votes.trend, votes.scalper, votes.swing, votes.reversal, votes.volatility, votes.omega8]
+          const buyVotes = [votes.trend, votes.scalper, votes.reversal, votes.volatility, votes.omega8]
             .filter(v => v?.vote === 'BUY').length;
-          const sellVotes = [votes.trend, votes.scalper, votes.swing, votes.reversal, votes.volatility, votes.omega8]
+          const sellVotes = [votes.trend, votes.scalper, votes.reversal, votes.volatility, votes.omega8]
             .filter(v => v?.vote === 'SELL').length;
-          const noTrade = 7 - buyVotes - sellVotes;
+          const noTrade = 6 - buyVotes - sellVotes;
 
           parts.push(`⚠️ ${symbol}: Alpha declined - ${decision.reasoning}`);
           parts.push(`   → Omega Council: ${buyVotes} BUY, ${sellVotes} SELL, ${noTrade} NO_TRADE`);

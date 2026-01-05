@@ -20,6 +20,31 @@ import type { CachedOmegaIntelligence, AlphaStrategicInsight } from './shared-in
 import { FreshnessBlockCategory, type BlockMetadata } from '../types/freshness-block';
 import { freshnessBlockLogger } from './freshness-block-logger';
 
+export type FreshnessSeverity = 'INFO' | 'WARNING' | 'CRITICAL';
+
+export interface FreshnessSeverityResult {
+  severity: FreshnessSeverity;
+  ageSeconds: number;
+  maxAgeForInfo: number;
+  maxAgeForWarning: number;
+  maxAgeForCritical: number;
+  description: string;
+}
+
+export interface FreshnessAdvisory {
+  overallSeverity: FreshnessSeverity;
+  canExecute: boolean;
+  shouldReduceConfidence: boolean;
+  confidenceReduction: number;
+  advisoryMessage: string;
+  detailedChecks: {
+    omegaFreshness?: FreshnessSeverityResult;
+    alphaFreshness?: FreshnessSeverityResult;
+    priceDrift?: FreshnessSeverityResult;
+    priceStaleness?: FreshnessSeverityResult;
+  };
+}
+
 export interface FreshnessGateResult {
   canExecute: boolean;
   blockingReasons: string[];
@@ -33,6 +58,7 @@ export interface FreshnessGateResult {
   wasAutoRefreshed?: boolean;
   blockCategories?: FreshnessBlockCategory[];
   blockMetadata?: BlockMetadata[];
+  advisory?: FreshnessAdvisory;
 }
 
 export interface ExecutionContext {
@@ -48,7 +74,154 @@ export interface ExecutionContext {
 
 export type RefreshCallback = () => Promise<void>;
 
+const SEVERITY_THRESHOLDS = {
+  omega: {
+    infoMaxAge: 30,
+    warningMaxAge: 90,
+    criticalMaxAge: 180
+  },
+  alpha: {
+    infoMaxAge: 60,
+    warningMaxAge: 120,
+    criticalMaxAge: 300
+  },
+  price: {
+    infoMaxAge: 15,
+    warningMaxAge: 45,
+    criticalMaxAge: 90
+  },
+  drift: {
+    infoMaxPips: 3,
+    warningMaxPips: 8,
+    criticalMaxPips: 15
+  }
+};
+
 export class TradeExecutionFreshnessGate {
+  private calculateAgeSeverity(
+    ageSeconds: number,
+    thresholds: { infoMaxAge: number; warningMaxAge: number; criticalMaxAge: number },
+    label: string
+  ): FreshnessSeverityResult {
+    if (ageSeconds <= thresholds.infoMaxAge) {
+      return {
+        severity: 'INFO',
+        ageSeconds,
+        maxAgeForInfo: thresholds.infoMaxAge,
+        maxAgeForWarning: thresholds.warningMaxAge,
+        maxAgeForCritical: thresholds.criticalMaxAge,
+        description: `${label}: Fresh (${ageSeconds}s)`
+      };
+    } else if (ageSeconds <= thresholds.warningMaxAge) {
+      return {
+        severity: 'WARNING',
+        ageSeconds,
+        maxAgeForInfo: thresholds.infoMaxAge,
+        maxAgeForWarning: thresholds.warningMaxAge,
+        maxAgeForCritical: thresholds.criticalMaxAge,
+        description: `${label}: Moderately stale (${ageSeconds}s) - consider refreshing`
+      };
+    } else {
+      return {
+        severity: 'CRITICAL',
+        ageSeconds,
+        maxAgeForInfo: thresholds.infoMaxAge,
+        maxAgeForWarning: thresholds.warningMaxAge,
+        maxAgeForCritical: thresholds.criticalMaxAge,
+        description: `${label}: Critically stale (${ageSeconds}s) - strongly recommend NO_TRADE`
+      };
+    }
+  }
+
+  private combineSevertities(severities: FreshnessSeverity[]): FreshnessSeverity {
+    if (severities.includes('CRITICAL')) return 'CRITICAL';
+    if (severities.includes('WARNING')) return 'WARNING';
+    return 'INFO';
+  }
+
+  private calculateConfidenceReduction(severity: FreshnessSeverity): number {
+    switch (severity) {
+      case 'INFO': return 0;
+      case 'WARNING': return 10;
+      case 'CRITICAL': return 25;
+    }
+  }
+
+  generateAdvisory(context: ExecutionContext, validationResults: any): FreshnessAdvisory {
+    const detailedChecks: FreshnessAdvisory['detailedChecks'] = {};
+    const severities: FreshnessSeverity[] = [];
+
+    if (validationResults.omegaFreshness) {
+      const age = validationResults.omegaFreshness.ageSeconds || 0;
+      const result = this.calculateAgeSeverity(age, SEVERITY_THRESHOLDS.omega, 'Omega Intelligence');
+      detailedChecks.omegaFreshness = result;
+      severities.push(result.severity);
+    }
+
+    if (validationResults.alphaFreshness) {
+      const age = validationResults.alphaFreshness.ageSeconds || 0;
+      const result = this.calculateAgeSeverity(age, SEVERITY_THRESHOLDS.alpha, 'Alpha Intelligence');
+      detailedChecks.alphaFreshness = result;
+      severities.push(result.severity);
+    }
+
+    if (validationResults.priceStaleness) {
+      const age = validationResults.priceStaleness.ageSeconds || 0;
+      const result = this.calculateAgeSeverity(age, SEVERITY_THRESHOLDS.price, 'Realtime Price');
+      detailedChecks.priceStaleness = result;
+      severities.push(result.severity);
+    }
+
+    if (validationResults.priceDrift) {
+      const driftPips = validationResults.priceDrift.driftPips || 0;
+      let severity: FreshnessSeverity = 'INFO';
+      let description = `Price Drift: ${driftPips.toFixed(1)} pips - acceptable`;
+
+      if (driftPips > SEVERITY_THRESHOLDS.drift.criticalMaxPips) {
+        severity = 'CRITICAL';
+        description = `Price Drift: ${driftPips.toFixed(1)} pips - excessive drift, strongly recommend NO_TRADE`;
+      } else if (driftPips > SEVERITY_THRESHOLDS.drift.warningMaxPips) {
+        severity = 'WARNING';
+        description = `Price Drift: ${driftPips.toFixed(1)} pips - moderate drift, consider re-evaluation`;
+      }
+
+      detailedChecks.priceDrift = {
+        severity,
+        ageSeconds: 0,
+        maxAgeForInfo: SEVERITY_THRESHOLDS.drift.infoMaxPips,
+        maxAgeForWarning: SEVERITY_THRESHOLDS.drift.warningMaxPips,
+        maxAgeForCritical: SEVERITY_THRESHOLDS.drift.criticalMaxPips,
+        description
+      };
+      severities.push(severity);
+    }
+
+    const overallSeverity = this.combineSevertities(severities);
+    const confidenceReduction = this.calculateConfidenceReduction(overallSeverity);
+
+    let advisoryMessage = '';
+    switch (overallSeverity) {
+      case 'INFO':
+        advisoryMessage = 'All data fresh - proceed normally';
+        break;
+      case 'WARNING':
+        advisoryMessage = 'Some data moderately stale - Alpha should factor this into confidence';
+        break;
+      case 'CRITICAL':
+        advisoryMessage = 'Critical staleness detected - Alpha should strongly consider NO_TRADE';
+        break;
+    }
+
+    return {
+      overallSeverity,
+      canExecute: overallSeverity !== 'CRITICAL',
+      shouldReduceConfidence: overallSeverity === 'WARNING',
+      confidenceReduction,
+      advisoryMessage,
+      detailedChecks
+    };
+  }
+
   /**
    * PRE-CHECK: Quick validation before expensive LLM calls
    * Checks price staleness only to fail fast before wasting money
@@ -197,13 +370,21 @@ export class TradeExecutionFreshnessGate {
       );
     }
 
+    const advisory = this.generateAdvisory(context, validationResults);
+
+    logger.info(
+      LogCategory.AI_TRADING,
+      `[Freshness Gate] Advisory: ${advisory.overallSeverity} - ${advisory.advisoryMessage}`
+    );
+
     return {
       canExecute,
       blockingReasons,
       warnings,
       validationResults,
       blockCategories,
-      blockMetadata
+      blockMetadata,
+      advisory
     };
   }
 

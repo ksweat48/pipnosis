@@ -196,6 +196,12 @@ export interface AlphaDecision {
     wait_reasoning: string;
     expected_wait_minutes?: number;
   };
+  confidenceAdjustments?: Array<{
+    source: string;
+    proposedMultiplier: number;
+    wasApplied: boolean;
+    reason: string;
+  }>;
 }
 
 class AlphaCoordinatorBrain {
