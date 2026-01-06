@@ -1,33 +1,25 @@
 /**
- * Sentiment Aggregator + Weighting Engine
+ * Market Context Aggregator (Deterministic)
  *
- * Combines sentiment from multiple reliable API sources:
- * - Finnhub: 35% (professional financial news, no CORS issues)
- * - FMP: 35% (financial market headlines, 250 calls/day)
- * - Fear & Greed: 20% (sentiment gauge, no key required)
- * - CoinGecko: 10% (risk appetite indicator, 30 calls/min)
+ * Provides sentiment-like market context from pure price action analysis.
+ * Replaces LLM-based sentiment system with zero-cost regime analysis.
  *
- * Note: Reddit removed due to unreliable JSON feeds and rate limiting.
- * All sources use proper APIs to avoid CORS issues.
+ * Sources (all deterministic, zero external APIs):
+ * - Regime Oracle: Session timing, volatility, structure
+ * - Volatility Engine: ATR expansion/compression, wick risk
+ * - Structure Analyzer: Trend strength, market bias
  *
- * NOW INTEGRATED WITH 3-TIER CACHE SYSTEM:
- * - Uses omega_market_intelligence table (brain_name: 'sentiment')
- * - Platform-wide cache sharing across all users
- * - 15-minute TTL for sentiment data
+ * INTEGRATED WITH 3-TIER CACHE SYSTEM:
+ * - Uses omega_market_intelligence table (brain_name: 'market_context')
+ * - Per-symbol cache sharing across all users
+ * - 15-minute TTL for market context data
  */
 
 import { supabase } from '@/lib/supabase';
-import { omegaSentimentBrain, SentimentInput, SentimentOutput } from '@/brains/omega-sentiment-brain';
+import { marketContextBrain, type MarketContextInput, type MarketContextOutput } from '@/brains/omega7-market-context';
+import type { Candle, MarketState } from '@/services/regime-oracle';
 
-interface SourceWeights {
-  finnhub: number;
-  fmp: number;
-  reddit: number;
-  feargreed: number;
-  coingecko: number;
-}
-
-interface AggregatedSentiment {
+export interface AggregatedSentiment {
   sentiment: 'risk_on' | 'risk_off' | 'mixed';
   usd_strength: 'strong' | 'weak' | 'neutral';
   volatility: 'high' | 'medium' | 'low';
@@ -39,210 +31,130 @@ interface AggregatedSentiment {
   sources_used: string[];
 }
 
-class SentimentAggregator {
-  private readonly WEIGHTS: SourceWeights = {
-    finnhub: 0.35,
-    fmp: 0.35,
-    reddit: 0.00,
-    feargreed: 0.20,
-    coingecko: 0.10
-  };
-
+class MarketContextAggregator {
   private readonly CACHE_DURATION_MINUTES = 15;
-  private readonly SENTIMENT_CACHE_KEY = 'GLOBAL_MARKET_SENTIMENT';
-  private cachedSentiment: AggregatedSentiment | null = null;
-  private cacheExpiry: Date | null = null;
+  private cachedContext: Map<string, { context: AggregatedSentiment; expiry: Date }> = new Map();
 
   private cacheStats = {
     hits: 0,
-    misses: 0,
-    lastCost: 0
+    misses: 0
   };
 
-  async getAggregatedSentiment(input: SentimentInput): Promise<AggregatedSentiment> {
-    if (this.isCacheValid()) {
+  async getAggregatedSentiment(
+    symbol: string,
+    candles: Candle[],
+    marketState: MarketState,
+    timestamp: Date = new Date()
+  ): Promise<AggregatedSentiment> {
+    const cacheKey = this.buildCacheKey(symbol, marketState.atr);
+
+    if (this.isMemoryCacheValid(cacheKey)) {
       this.cacheStats.hits++;
-      console.log(`[SentimentAgg] ⚡ Memory cache HIT (${this.cacheStats.hits} hits, saved ~$0.00014)`);
-      return this.cachedSentiment!;
+      const cached = this.cachedContext.get(cacheKey)!;
+      console.log(`[MarketContext] ⚡ Memory cache HIT for ${symbol} (${this.cacheStats.hits} hits)`);
+      return cached.context;
     }
 
-    const dbCached = await this.getFromThreeTierCache();
+    const dbCached = await this.getFromThreeTierCache(symbol, marketState.atr);
     if (dbCached) {
       this.cacheStats.hits++;
-      this.cachedSentiment = dbCached.sentiment;
-      this.cacheExpiry = new Date(Date.now() + this.CACHE_DURATION_MINUTES * 60 * 1000);
-      console.log(`[SentimentAgg] ⚡ 3-Tier cache HIT (age: ${dbCached.ageSeconds}s, saved ~$0.00014)`);
-      await this.logCacheStat('hit', dbCached.ageSeconds);
-      return dbCached.sentiment;
+      this.cachedContext.set(cacheKey, {
+        context: dbCached.context,
+        expiry: new Date(Date.now() + this.CACHE_DURATION_MINUTES * 60 * 1000)
+      });
+      console.log(`[MarketContext] ⚡ 3-Tier cache HIT for ${symbol} (age: ${dbCached.ageSeconds}s)`);
+      await this.logCacheStat('hit', dbCached.ageSeconds, symbol);
+      return dbCached.context;
     }
 
     this.cacheStats.misses++;
-    console.log(`[SentimentAgg] 🔄 Cache MISS - Generating fresh analysis...`);
-    await this.logCacheStat('miss', 0);
+    console.log(`[MarketContext] 🔄 Cache MISS for ${symbol} - Generating fresh analysis...`);
+    await this.logCacheStat('miss', 0, symbol);
 
-    const sentiment = await this.generateFreshSentiment(input);
-    this.cachedSentiment = sentiment;
-    this.cacheExpiry = new Date(Date.now() + this.CACHE_DURATION_MINUTES * 60 * 1000);
-    await this.saveToThreeTierCache(sentiment);
-    await this.saveToDatabase(sentiment);
+    const context = this.generateFreshContext(symbol, candles, marketState, timestamp);
+
+    this.cachedContext.set(cacheKey, {
+      context,
+      expiry: new Date(Date.now() + this.CACHE_DURATION_MINUTES * 60 * 1000)
+    });
+
+    await this.saveToThreeTierCache(symbol, context, marketState.atr);
 
     const hitRate = this.cacheStats.hits / (this.cacheStats.hits + this.cacheStats.misses) * 100;
-    console.log(`[SentimentAgg] 📊 Cache stats: ${hitRate.toFixed(0)}% hit rate (${this.cacheStats.hits}/${this.cacheStats.hits + this.cacheStats.misses})`);
+    console.log(`[MarketContext] 📊 Cache stats: ${hitRate.toFixed(0)}% hit rate (${this.cacheStats.hits}/${this.cacheStats.hits + this.cacheStats.misses})`);
 
-    return sentiment;
+    return context;
   }
 
   /**
-   * Generate fresh sentiment from Omega-7
+   * Generate fresh market context from deterministic regime analysis
    */
-  private async generateFreshSentiment(input: SentimentInput): Promise<AggregatedSentiment> {
-    const sourcesUsed: string[] = [];
+  private generateFreshContext(
+    symbol: string,
+    candles: Candle[],
+    marketState: MarketState,
+    timestamp: Date
+  ): AggregatedSentiment {
+    const input: MarketContextInput = {
+      symbol,
+      candles,
+      marketState,
+      timestamp
+    };
 
-    if (input.finnhubNews.length > 0) sourcesUsed.push('finnhub');
-    if (input.fmpNews.length > 0) sourcesUsed.push('fmp');
-    if (input.redditSignals.length > 0) sourcesUsed.push('reddit');
-    if (input.fearGreedSignals.length > 0) sourcesUsed.push('feargreed');
-    if (input.coinGeckoTrending.length > 0) sourcesUsed.push('coingecko');
-
-    // Call Omega-7 for analysis
-    const rawSentiment = await omegaSentimentBrain.evaluateSentiment(input);
-
-    // Apply source weighting to confidence
-    const weightedConfidence = this.calculateWeightedConfidence(rawSentiment.confidence, sourcesUsed);
+    const context = marketContextBrain.evaluateContext(input);
 
     return {
-      sentiment: rawSentiment.sentiment,
-      usd_strength: rawSentiment.usd_strength,
-      volatility: rawSentiment.volatility,
-      bias: rawSentiment.bias,
-      confidence: weightedConfidence,
-      warnings: rawSentiment.warnings,
-      summary: rawSentiment.summary,
-      timestamp: new Date(),
-      sources_used: sourcesUsed
+      sentiment: context.sentiment,
+      usd_strength: context.usd_strength,
+      volatility: context.volatility,
+      bias: context.bias,
+      confidence: context.confidence,
+      warnings: context.warnings,
+      summary: context.summary,
+      timestamp: context.timestamp,
+      sources_used: context.sources_used
     };
   }
 
   /**
-   * Calculate weighted confidence based on sources available
-   *
-   * Examples:
-   * - All 4 sources (100%): confidence unchanged
-   * - Finnhub + FMP only (70%): confidence * 0.7
-   * - Fear & Greed + CoinGecko only (30%): confidence * 0.3
+   * Build cache key from symbol and ATR bucket
    */
-  private calculateWeightedConfidence(baseConfidence: number, sourcesUsed: string[]): number {
-    let totalWeight = 0;
-
-    sourcesUsed.forEach(source => {
-      switch (source) {
-        case 'finnhub':
-          totalWeight += this.WEIGHTS.finnhub;
-          break;
-        case 'fmp':
-          totalWeight += this.WEIGHTS.fmp;
-          break;
-        case 'reddit':
-          totalWeight += this.WEIGHTS.reddit;
-          break;
-        case 'feargreed':
-          totalWeight += this.WEIGHTS.feargreed;
-          break;
-        case 'coingecko':
-          totalWeight += this.WEIGHTS.coingecko;
-          break;
-      }
-    });
-
-    // Adjust confidence by available source weight
-    // If all sources available (totalWeight = 1.0), no adjustment
-    // If only some sources (e.g., 0.7), reduce confidence proportionally
-    const adjustedConfidence = Math.round(baseConfidence * totalWeight);
-
-    // Log warning if confidence significantly reduced
-    if (totalWeight < 0.5) {
-      console.warn(`[SentimentAgg] ⚠️ LOW DATA QUALITY: Only ${(totalWeight * 100).toFixed(0)}% of sentiment sources available. Confidence reduced to ${adjustedConfidence}%`);
-    } else if (totalWeight < 0.8) {
-      console.log(`[SentimentAgg] ⚡ Degraded sentiment data: ${(totalWeight * 100).toFixed(0)}% of sources available`);
-    }
-
-    return Math.max(1, Math.min(100, adjustedConfidence));
+  private buildCacheKey(symbol: string, atr: number): string {
+    const atrBucket = Math.floor(atr * 1000) / 1000;
+    return `${symbol}_ATR${atrBucket}`;
   }
 
   /**
-   * Check if memory cache is still valid
+   * Check if memory cache is still valid for this symbol
    */
-  private isCacheValid(): boolean {
-    if (!this.cachedSentiment || !this.cacheExpiry) {
+  private isMemoryCacheValid(cacheKey: string): boolean {
+    const cached = this.cachedContext.get(cacheKey);
+    if (!cached) {
       return false;
     }
 
-    return Date.now() < this.cacheExpiry.getTime();
+    return Date.now() < cached.expiry.getTime();
   }
 
   /**
-   * Get cached sentiment from database
+   * Get market context from 3-tier omega_market_intelligence cache
+   * Platform-wide per-symbol cache (users share context for same symbol+ATR)
    */
-  private async getFromDatabase(): Promise<AggregatedSentiment | null> {
+  private async getFromThreeTierCache(
+    symbol: string,
+    atr: number
+  ): Promise<{ context: AggregatedSentiment; ageSeconds: number } | null> {
     try {
-      const cutoff = new Date(Date.now() - this.CACHE_DURATION_MINUTES * 60 * 1000);
+      const atrBucket = Math.floor(atr * 1000) / 1000;
+      const marketStateHash = `MC_${symbol}_ATR${atrBucket}`;
 
-      const { data, error } = await supabase
-        .from('market_sentiment_cache')
-        .select('sentiment_json, created_at')
-        .gte('created_at', cutoff.toISOString())
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (error || !data) {
-        return null;
-      }
-
-      const sentiment = data.sentiment_json as AggregatedSentiment;
-      sentiment.timestamp = new Date(data.created_at);
-
-      return sentiment;
-
-    } catch (error) {
-      console.error('[SentimentAgg] Failed to get from database:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Save sentiment to database (legacy table)
-   */
-  private async saveToDatabase(sentiment: AggregatedSentiment): Promise<void> {
-    try {
-      const { error } = await supabase
-        .from('market_sentiment_cache')
-        .insert({
-          sentiment_json: sentiment,
-          created_at: sentiment.timestamp.toISOString()
-        });
-
-      if (error) {
-        console.error('[SentimentAgg] Failed to save to database:', error);
-      }
-
-    } catch (error) {
-      console.error('[SentimentAgg] Database save error:', error);
-    }
-  }
-
-  /**
-   * Get sentiment from 3-tier omega_market_intelligence cache
-   * This is platform-wide (all users share the same sentiment analysis)
-   */
-  private async getFromThreeTierCache(): Promise<{ sentiment: AggregatedSentiment; ageSeconds: number } | null> {
-    try {
       const { data, error } = await supabase
         .rpc('get_omega_intelligence', {
-          p_symbol: 'GLOBAL',
-          p_timeframe: 'SENTIMENT',
-          p_brain_name: 'sentiment',
-          p_market_state_hash: this.SENTIMENT_CACHE_KEY
+          p_symbol: symbol,
+          p_timeframe: 'M15',
+          p_brain_name: 'market_context',
+          p_market_state_hash: marketStateHash
         });
 
       if (error || !data || data.length === 0) {
@@ -256,7 +168,7 @@ class SentimentAggregator {
         return null;
       }
 
-      const sentiment: AggregatedSentiment = {
+      const context: AggregatedSentiment = {
         sentiment: rawSnapshot.sentiment,
         usd_strength: rawSnapshot.usd_strength,
         volatility: rawSnapshot.volatility,
@@ -269,22 +181,29 @@ class SentimentAggregator {
       };
 
       return {
-        sentiment,
+        context,
         ageSeconds: cached.cache_age_seconds
       };
     } catch (error) {
-      console.warn('[SentimentAgg] 3-tier cache lookup failed:', error);
+      console.warn('[MarketContext] 3-tier cache lookup failed:', error);
       return null;
     }
   }
 
   /**
-   * Save sentiment to 3-tier omega_market_intelligence cache
+   * Save market context to 3-tier omega_market_intelligence cache
    */
-  private async saveToThreeTierCache(sentiment: AggregatedSentiment): Promise<void> {
+  private async saveToThreeTierCache(
+    symbol: string,
+    context: AggregatedSentiment,
+    atr: number
+  ): Promise<void> {
     try {
       const ttlMinutes = this.CACHE_DURATION_MINUTES;
       const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000);
+
+      const atrBucket = Math.floor(atr * 1000);
+      const marketStateHash = `MC_${symbol}_ATR${Math.floor(atr * 1000) / 1000}`;
 
       const voteMapping: Record<string, string> = {
         'risk_on': 'BUY',
@@ -293,81 +212,87 @@ class SentimentAggregator {
       };
 
       await supabase.from('omega_market_intelligence').upsert({
-        symbol: 'GLOBAL',
-        timeframe: 'SENTIMENT',
-        brain_name: 'sentiment',
-        atr_price_bucket: 0,
-        market_state_hash: this.SENTIMENT_CACHE_KEY,
-        vote: voteMapping[sentiment.sentiment] || 'NEUTRAL',
-        confidence: sentiment.confidence,
-        reasoning: sentiment.summary,
-        key_factors: sentiment.warnings,
+        symbol: symbol,
+        timeframe: 'M15',
+        brain_name: 'market_context',
+        atr_price_bucket: atrBucket,
+        market_state_hash: marketStateHash,
+        vote: voteMapping[context.sentiment] || 'NEUTRAL',
+        confidence: context.confidence,
+        reasoning: context.summary,
+        key_factors: context.warnings,
         raw_snapshot: {
-          sentiment: sentiment.sentiment,
-          usd_strength: sentiment.usd_strength,
-          volatility: sentiment.volatility,
-          bias: sentiment.bias,
-          warnings: sentiment.warnings,
-          sources_used: sentiment.sources_used
+          sentiment: context.sentiment,
+          usd_strength: context.usd_strength,
+          volatility: context.volatility,
+          bias: context.bias,
+          warnings: context.warnings,
+          sources_used: context.sources_used
         },
         expires_at: expiresAt.toISOString()
       }, {
         onConflict: 'symbol,timeframe,brain_name,market_state_hash'
       });
 
-      console.log(`[SentimentAgg] ✅ Saved to 3-tier cache (TTL: ${ttlMinutes}min)`);
+      console.log(`[MarketContext] ✅ Saved to 3-tier cache for ${symbol} (TTL: ${ttlMinutes}min)`);
     } catch (error) {
-      console.warn('[SentimentAgg] Failed to save to 3-tier cache:', error);
+      console.warn('[MarketContext] Failed to save to 3-tier cache:', error);
     }
   }
 
   /**
    * Log cache statistics to cache_stats_log
    */
-  private async logCacheStat(hitOrMiss: 'hit' | 'miss', cacheAgeSeconds: number): Promise<void> {
+  private async logCacheStat(hitOrMiss: 'hit' | 'miss', cacheAgeSeconds: number, symbol: string): Promise<void> {
     try {
       await supabase.from('cache_stats_log').insert({
         cache_tier: 'omega',
-        symbol: 'GLOBAL',
-        timeframe: 'SENTIMENT',
+        symbol: symbol,
+        timeframe: 'M15',
         event_type: 'lookup',
         hit_or_miss: hitOrMiss,
         cache_age_seconds: cacheAgeSeconds,
-        llm_calls_saved: hitOrMiss === 'hit' ? 1 : 0
+        llm_calls_saved: 0
       });
     } catch {
     }
   }
 
   /**
-   * Force refresh sentiment (bypasses cache)
+   * Force refresh market context (bypasses cache)
    */
-  async forceRefresh(input: SentimentInput): Promise<AggregatedSentiment> {
-    this.cachedSentiment = null;
-    this.cacheExpiry = null;
-    return await this.getAggregatedSentiment(input);
+  async forceRefresh(
+    symbol: string,
+    candles: Candle[],
+    marketState: MarketState,
+    timestamp: Date = new Date()
+  ): Promise<AggregatedSentiment> {
+    const cacheKey = this.buildCacheKey(symbol, marketState.atr);
+    this.cachedContext.delete(cacheKey);
+    return await this.getAggregatedSentiment(symbol, candles, marketState, timestamp);
   }
 
   /**
    * Clear cache (useful for testing)
    */
   clearCache(): void {
-    this.cachedSentiment = null;
-    this.cacheExpiry = null;
+    this.cachedContext.clear();
   }
 
   /**
-   * Get sentiment trend (compare current vs previous)
+   * Get market context trend for specific symbol (compare current vs previous)
    */
-  async getSentimentTrend(): Promise<{
+  async getSentimentTrend(symbol: string): Promise<{
     current: AggregatedSentiment | null;
     previous: AggregatedSentiment | null;
     direction: 'improving' | 'worsening' | 'stable' | 'unknown';
   }> {
     try {
       const { data, error } = await supabase
-        .from('market_sentiment_cache')
-        .select('sentiment_json, created_at')
+        .from('omega_market_intelligence')
+        .select('raw_snapshot, created_at, confidence, reasoning')
+        .eq('symbol', symbol)
+        .eq('brain_name', 'market_context')
         .order('created_at', { ascending: false })
         .limit(2);
 
@@ -375,12 +300,12 @@ class SentimentAggregator {
         return { current: null, previous: null, direction: 'unknown' };
       }
 
-      const current = data[0].sentiment_json as AggregatedSentiment;
-      const previous = data.length > 1 ? (data[1].sentiment_json as AggregatedSentiment) : null;
+      const current = this.extractSentimentFromCache(data[0]);
+      const previous = data.length > 1 ? this.extractSentimentFromCache(data[1]) : null;
 
       let direction: 'improving' | 'worsening' | 'stable' | 'unknown' = 'unknown';
 
-      if (previous) {
+      if (previous && current) {
         const currentScore = this.sentimentToScore(current.sentiment);
         const previousScore = this.sentimentToScore(previous.sentiment);
 
@@ -396,9 +321,27 @@ class SentimentAggregator {
       return { current, previous, direction };
 
     } catch (error) {
-      console.error('[SentimentAgg] Failed to get trend:', error);
+      console.error('[MarketContext] Failed to get trend:', error);
       return { current: null, previous: null, direction: 'unknown' };
     }
+  }
+
+  /**
+   * Extract AggregatedSentiment from cache record
+   */
+  private extractSentimentFromCache(record: any): AggregatedSentiment {
+    const rawSnapshot = record.raw_snapshot;
+    return {
+      sentiment: rawSnapshot.sentiment,
+      usd_strength: rawSnapshot.usd_strength,
+      volatility: rawSnapshot.volatility,
+      bias: rawSnapshot.bias || 'neutral',
+      confidence: record.confidence,
+      warnings: rawSnapshot.warnings || [],
+      summary: record.reasoning || '',
+      timestamp: new Date(record.created_at),
+      sources_used: rawSnapshot.sources_used || []
+    };
   }
 
   /**
@@ -416,5 +359,5 @@ class SentimentAggregator {
   }
 }
 
-export const sentimentAggregator = new SentimentAggregator();
+export const sentimentAggregator = new MarketContextAggregator();
 export type { AggregatedSentiment };

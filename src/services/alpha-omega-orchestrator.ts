@@ -130,21 +130,26 @@ class AlphaOmegaOrchestrator {
     const entryTimeframe: Timeframe = mtfConfig.entryTimeframe;
     console.log(`[Alpha+Omega] 📊 Risk Mode: ${riskMode.toUpperCase()} → Entry Timeframe: ${entryTimeframe}`);
 
-    // ✅ STEP 0: Get Omega-7 Market Sentiment (if not already provided)
+    // ✅ STEP 0: Get Market Context from Regime Analysis (if not already provided)
     let sentiment = marketState.sentiment;
     if (!sentiment) {
       try {
-        console.log('[Alpha+Omega] 🔮 Fetching Omega-7 sentiment...');
-        sentiment = await sentimentCoordinator.getCurrentSentiment();
+        console.log('[Alpha+Omega] 🔮 Analyzing market context...');
+        sentiment = await sentimentCoordinator.getCurrentSentiment(
+          marketState.symbol,
+          marketState.recentCandles,
+          marketState,
+          new Date(signalTimestamp)
+        );
         if (sentiment) {
-          console.log(`[Alpha+Omega] ✅ Omega-7: ${sentiment.sentiment.toUpperCase()} | USD: ${sentiment.usd_strength} | Vol: ${sentiment.volatility} | Confidence: ${sentiment.confidence}%`);
-          console.log(`[Alpha+Omega] 📰 Sentiment: ${sentiment.summary}`);
+          console.log(`[Alpha+Omega] ✅ Market Context: ${sentiment.sentiment.toUpperCase()} | USD: ${sentiment.usd_strength} | Vol: ${sentiment.volatility} | Confidence: ${sentiment.confidence}%`);
+          console.log(`[Alpha+Omega] 📊 Context: ${sentiment.summary}`);
           marketState.sentiment = sentiment; // Add to market state for Omegas
         } else {
-          console.warn('[Alpha+Omega] ⚠️ Omega-7 sentiment unavailable - proceeding without');
+          console.warn('[Alpha+Omega] ⚠️ Market context unavailable - proceeding without');
         }
       } catch (error) {
-        console.warn('[Alpha+Omega] ⚠️ Omega-7 failed:', error);
+        console.warn('[Alpha+Omega] ⚠️ Market context analysis failed:', error);
       }
     }
 

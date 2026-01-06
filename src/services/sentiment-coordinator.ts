@@ -1,67 +1,79 @@
 /**
- * Sentiment Coordinator
+ * Market Context Coordinator
  *
- * Master orchestrator for Omega-7 sentiment system.
+ * Master orchestrator for deterministic market context system.
  * Coordinates:
- * - Scraping from 5 free sources
- * - Sentiment aggregation and weighting
- * - LLM analysis via Omega-7
- * - Trade plan modifications
- * - Mid-trade sentiment override
+ * - Market regime analysis from price action
+ * - Volatility and structure classification
+ * - Session-aware risk assessment
+ * - Trade plan modifications based on market context
+ * - Mid-trade context evaluation
  */
 
-import { sentimentScrapers } from './sentiment-scrapers';
-import { sentimentAggregator, AggregatedSentiment } from './sentiment-aggregator';
-import { sentimentRiskModifiers, TradePlan, ModifiedTradePlan } from './sentiment-risk-modifiers';
+import { sentimentAggregator, type AggregatedSentiment } from './sentiment-aggregator';
+import { sentimentRiskModifiers, type TradePlan, type ModifiedTradePlan } from './sentiment-risk-modifiers';
+import type { Candle, MarketState } from './regime-oracle';
 
 class SentimentCoordinator {
   private isRunning: boolean = false;
   private lastUpdate: Date | null = null;
 
   /**
-   * Get current sentiment (from cache or fresh)
+   * Get current market context (from cache or fresh deterministic analysis)
    */
-  async getCurrentSentiment(): Promise<AggregatedSentiment | null> {
+  async getCurrentSentiment(
+    symbol: string,
+    candles: Candle[],
+    marketState: MarketState,
+    timestamp: Date = new Date()
+  ): Promise<AggregatedSentiment | null> {
     try {
-      // Scrape all sources
-      const scrapedData = await sentimentScrapers.scrapeAll();
-
-      // Aggregate and analyze
-      const sentiment = await sentimentAggregator.getAggregatedSentiment(scrapedData);
+      const context = await sentimentAggregator.getAggregatedSentiment(
+        symbol,
+        candles,
+        marketState,
+        timestamp
+      );
 
       this.lastUpdate = new Date();
 
-      return sentiment;
+      return context;
 
     } catch (error) {
-      console.error('[SentimentCoord] Failed to get sentiment:', error);
+      console.error('[MarketContext] Failed to get market context:', error);
       return null;
     }
   }
 
   /**
-   * Apply sentiment to trade plan (called before trade execution)
+   * Apply market context to trade plan (called before trade execution)
    */
-  async applyToTradePlan(plan: TradePlan): Promise<ModifiedTradePlan> {
+  async applyToTradePlan(
+    plan: TradePlan,
+    symbol: string,
+    candles: Candle[],
+    marketState: MarketState,
+    timestamp?: Date
+  ): Promise<ModifiedTradePlan> {
     try {
-      const sentiment = await this.getCurrentSentiment();
+      const context = await this.getCurrentSentiment(symbol, candles, marketState, timestamp);
 
-      if (!sentiment) {
-        console.warn('[SentimentCoord] No sentiment available - using original plan');
+      if (!context) {
+        console.warn('[MarketContext] No context available - using original plan');
         return {
           ...plan,
           original_risk_pct: plan.risk_pct,
           original_sl: plan.stopLoss,
           original_tp: plan.takeProfit,
           sentiment_applied: false,
-          modifications: ['Sentiment unavailable']
+          modifications: ['Market context unavailable']
         };
       }
 
       // Check if trade should be blocked
-      const blockCheck = sentimentRiskModifiers.shouldBlockTrade(sentiment, plan);
+      const blockCheck = sentimentRiskModifiers.shouldBlockTrade(context, plan);
       if (blockCheck.block) {
-        console.warn('[SentimentCoord] Trade blocked:', blockCheck.reason);
+        console.warn('[MarketContext] Trade blocked:', blockCheck.reason);
         return {
           ...plan,
           action: 'NO_TRADE',
@@ -74,9 +86,9 @@ class SentimentCoordinator {
       }
 
       // Apply modifiers
-      const modified = sentimentRiskModifiers.applyModifiers(plan, sentiment);
+      const modified = sentimentRiskModifiers.applyModifiers(plan, context);
 
-      console.log('[SentimentCoord] Plan modified:', {
+      console.log('[MarketContext] Plan modified:', {
         original_risk: plan.risk_pct.toFixed(2),
         modified_risk: modified.risk_pct.toFixed(2),
         modifications: modified.modifications.length
@@ -85,7 +97,7 @@ class SentimentCoordinator {
       return modified;
 
     } catch (error) {
-      console.error('[SentimentCoord] Failed to apply sentiment:', error);
+      console.error('[MarketContext] Failed to apply context:', error);
 
       // Return unmodified plan on error
       return {
@@ -94,22 +106,22 @@ class SentimentCoordinator {
         original_sl: plan.stopLoss,
         original_tp: plan.takeProfit,
         sentiment_applied: false,
-        modifications: ['Error applying sentiment']
+        modifications: ['Error applying market context']
       };
     }
   }
 
   /**
-   * Get sentiment for mid-trade evaluation
+   * Get market context for mid-trade evaluation
    */
-  async getSentimentForMidTrade(): Promise<{
+  async getSentimentForMidTrade(symbol: string): Promise<{
     current: AggregatedSentiment | null;
     previous: AggregatedSentiment | null;
     hasFlipped: boolean;
     direction: 'improving' | 'worsening' | 'stable' | 'unknown';
   }> {
     try {
-      const trend = await sentimentAggregator.getSentimentTrend();
+      const trend = await sentimentAggregator.getSentimentTrend(symbol);
 
       const hasFlipped = this.detectSentimentFlip(trend.current, trend.previous);
 
@@ -121,7 +133,7 @@ class SentimentCoordinator {
       };
 
     } catch (error) {
-      console.error('[SentimentCoord] Failed to get mid-trade sentiment:', error);
+      console.error('[MarketContext] Failed to get mid-trade context:', error);
       return {
         current: null,
         previous: null,
@@ -185,14 +197,18 @@ class SentimentCoordinator {
   }
 
   /**
-   * Force refresh sentiment (bypasses cache)
+   * Force refresh market context (bypasses cache)
    */
-  async forceRefresh(): Promise<AggregatedSentiment | null> {
+  async forceRefresh(
+    symbol: string,
+    candles: Candle[],
+    marketState: MarketState,
+    timestamp?: Date
+  ): Promise<AggregatedSentiment | null> {
     try {
-      sentimentAggregator.clearCache();
-      return await this.getCurrentSentiment();
+      return await sentimentAggregator.forceRefresh(symbol, candles, marketState, timestamp);
     } catch (error) {
-      console.error('[SentimentCoord] Force refresh failed:', error);
+      console.error('[MarketContext] Force refresh failed:', error);
       return null;
     }
   }
