@@ -16,8 +16,9 @@
 import { supabase } from '../lib/supabase';
 import { computeOmegaSensors, type OmegaSensors, type Candle } from './omega-sensors';
 import { getMTFConfig, type Timeframe, type RiskMode } from '../config/timeframe-hierarchy';
-import type { RegimeSnapshot } from './regime-oracle';
-import type { AdversarialSignal } from './adversarial-detector';
+import { regimeOracle, type RegimeSnapshot } from './regime-oracle';
+import { adversarialDetector, type AdversarialSignal } from './adversarial-detector';
+import { createATRValue, type ATRValue, type ATRTimeframe } from '../types/atr';
 import type { AggregatedSentiment } from './sentiment-aggregator';
 
 export interface MarketSnapshotData {
@@ -36,7 +37,7 @@ export interface MarketSnapshotData {
   ema200: number;
   rsi: number;
   stochRsi: number;
-  atr: number;
+  atr: ATRValue;
   vwap: number;
 
   // Derived Analysis
@@ -53,9 +54,13 @@ export interface MarketSnapshotData {
 
   // Advanced Indicators (computed once)
   omegaSensors: OmegaSensors;
-  regime?: RegimeSnapshot;
-  adversarial?: AdversarialSignal;
+  regime: RegimeSnapshot;
+  adversarial: AdversarialSignal;
   sentiment?: AggregatedSentiment;
+
+  // Tradeability Assessment
+  tradeable: boolean;
+  blockReason?: string;
 
   // Metadata
   snapshotHash: string;
@@ -179,7 +184,7 @@ class MarketSnapshotCache {
     }
 
     // Step 2: Compute technical indicators (ONCE)
-    const indicators = this.computeIndicators(candles);
+    const indicators = this.computeIndicators(candles, timeframe);
 
     // Step 3: Compute OmegaSensors (ONCE)
     const omegaSensors = computeOmegaSensors(
@@ -187,7 +192,7 @@ class MarketSnapshotCache {
       indicators.rsi,
       indicators.macd,
       indicators.macdSignal,
-      indicators.atr,
+      indicators.atr.value,
       indicators.vwap
     );
 
@@ -203,6 +208,49 @@ class MarketSnapshotCache {
     const currentPrice = candles[candles.length - 1].close;
     const snapshotHash = generateSnapshotHash(candles);
 
+    // Step 7: Evaluate regime (time-of-day, session, volatility, structure)
+    const latestCandle = candles[candles.length - 1];
+    const timestamp = latestCandle.open_time || new Date();
+    const marketState = {
+      price: currentPrice,
+      ema20: indicators.ema20,
+      ema50: indicators.ema50,
+      ema200: indicators.ema200,
+      rsi: indicators.rsi,
+      atr: indicators.atr.value,
+      vwap: indicators.vwap,
+      recentCandles: candles.slice(-20)
+    };
+
+    const regime = regimeOracle.evaluate(marketState, timestamp, candles, symbol);
+
+    // Step 8: Evaluate adversarial patterns (stop runs, manipulation)
+    const adversarial = adversarialDetector.evaluate(
+      {
+        ...marketState,
+        atr: indicators.atr,
+        swingHigh,
+        swingLow
+      },
+      candles.slice(-20),
+      regime
+    );
+
+    // Step 9: Determine tradeability based on regime and adversarial signals
+    let tradeable = true;
+    let blockReason: string | undefined = undefined;
+
+    // Block if regime says avoid trading
+    if (regime.avoid_trading) {
+      tradeable = false;
+      blockReason = `Blocked by regime: ${regime.reason || 'unfavorable conditions'}`;
+    }
+    // Block if adversarial detector recommends avoiding
+    else if (adversarial.recommended_action === 'avoid') {
+      tradeable = false;
+      blockReason = `Adversarial pattern detected: ${adversarial.notes}`;
+    }
+
     const snapshot: MarketSnapshotData = {
       symbol,
       timeframe,
@@ -211,18 +259,23 @@ class MarketSnapshotCache {
       candles,
       ...indicators,
       omegaSensors,
+      regime,
+      adversarial,
       structure,
       support,
       resistance,
       swingHigh,
       swingLow,
+      tradeable,
+      blockReason,
       snapshotHash,
       createdAt: Date.now()
     };
 
     console.log(`[SnapshotCache] ✅ Snapshot built: ${symbol}@${timeframe}`);
-    console.log(`  Price: ${currentPrice.toFixed(5)} | ATR: ${indicators.atr.toFixed(5)}`);
+    console.log(`  Price: ${currentPrice.toFixed(5)} | ATR: ${indicators.atr.value.toFixed(5)}`);
     console.log(`  Trend: ${indicators.trend} | Volatility: ${indicators.volatility}`);
+    console.log(`  Tradeable: ${tradeable ? '✅ YES' : '❌ NO'}${blockReason ? ` (${blockReason})` : ''}`);
     console.log(`  Hash: ${snapshotHash}`);
 
     return snapshot;
@@ -269,13 +322,13 @@ class MarketSnapshotCache {
   /**
    * Compute all technical indicators
    */
-  private computeIndicators(candles: Candle[]): {
+  private computeIndicators(candles: Candle[], timeframe: Timeframe): {
     ema20: number;
     ema50: number;
     ema200: number;
     rsi: number;
     stochRsi: number;
-    atr: number;
+    atr: ATRValue;
     vwap: number;
     macd: number;
     macdSignal: number;
@@ -290,13 +343,14 @@ class MarketSnapshotCache {
     const ema200 = this.calculateEMA(closes, 200);
     const rsi = this.calculateRSI(closes, 14);
     const stochRsi = this.calculateStochRSI(closes, 14);
-    const atr = this.calculateATR(candles);
+    const atrRaw = this.calculateATR(candles);
+    const atr = createATRValue(atrRaw, timeframe as ATRTimeframe, 14);
     const vwap = this.calculateVWAP(candles.slice(-20));
     const { macd, signal } = this.calculateMACD(closes);
 
     const currentPrice = closes[closes.length - 1];
     const trend = this.determineTrend(currentPrice, ema20, ema50, ema200);
-    const volatility = this.determineVolatility(atr, currentPrice);
+    const volatility = this.determineVolatility(atr.value, currentPrice);
     const momentum = this.calculateMomentum(closes);
 
     return {
