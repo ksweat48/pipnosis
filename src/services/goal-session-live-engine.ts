@@ -1241,7 +1241,7 @@ class GoalSessionLiveEngine {
         logger.error(LogCategory.AI_TRADING, `❌ Trade execution failed: ${executionResult.message}`);
       }
 
-      const selectionSummary = bestSymbolResult.allEvaluations
+      const selectionSummary = (bestSymbolResult.allEvaluations || [])
         .slice(0, 3)
         .map((e, i) => `${i + 1}. ${e.symbol} (${e.overallScore.toFixed(1)})`)
         .join('\n');
