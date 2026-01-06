@@ -42,6 +42,7 @@ export interface MarketSnapshotData {
 
   // Derived Analysis
   trend: string;
+  trendScore: number; // Numeric strength: -100 (strong bear) to +100 (strong bull)
   volatility: string;
   momentum: number;
   support: number[];
@@ -333,6 +334,7 @@ class MarketSnapshotCache {
     macd: number;
     macdSignal: number;
     trend: string;
+    trendScore: number;
     volatility: string;
     momentum: number;
   } {
@@ -349,9 +351,10 @@ class MarketSnapshotCache {
     const { macd, signal } = this.calculateMACD(closes);
 
     const currentPrice = closes[closes.length - 1];
-    const trend = this.determineTrend(currentPrice, ema20, ema50, ema200);
-    const volatility = this.determineVolatility(atr.value, currentPrice);
     const momentum = this.calculateMomentum(closes);
+    const trend = this.determineTrend(currentPrice, ema20, ema50, ema200);
+    const trendScore = this.calculateTrendScore(currentPrice, ema20, ema50, ema200, momentum);
+    const volatility = this.determineVolatility(atr.value, currentPrice);
 
     return {
       ema20,
@@ -364,6 +367,7 @@ class MarketSnapshotCache {
       macd,
       macdSignal: signal,
       trend,
+      trendScore,
       volatility,
       momentum
     };
@@ -458,6 +462,50 @@ class MarketSnapshotCache {
     if (price > ema20 && ema20 > ema50 && ema50 > ema200) return 'bull';
     if (price < ema20 && ema20 < ema50 && ema50 < ema200) return 'bear';
     return 'sideways';
+  }
+
+  /**
+   * Calculate numeric trend strength score
+   * Returns: -100 (strong bearish) to +100 (strong bullish)
+   */
+  private calculateTrendScore(
+    price: number,
+    ema20: number,
+    ema50: number,
+    ema200: number,
+    momentum: number
+  ): number {
+    let score = 0;
+
+    // EMA alignment (base score: -60 to +60)
+    if (price > ema20 && ema20 > ema50 && ema50 > ema200) {
+      // Perfect bullish stack
+      score = 60;
+    } else if (price < ema20 && ema20 < ema50 && ema50 < ema200) {
+      // Perfect bearish stack
+      score = -60;
+    } else {
+      // Partial alignment or mixed
+      let partialScore = 0;
+      if (price > ema20) partialScore += 15;
+      else if (price < ema20) partialScore -= 15;
+
+      if (ema20 > ema50) partialScore += 15;
+      else if (ema20 < ema50) partialScore -= 15;
+
+      if (ema50 > ema200) partialScore += 15;
+      else if (ema50 < ema200) partialScore -= 15;
+
+      score = partialScore;
+    }
+
+    // Add momentum component (-40 to +40)
+    // momentum is already in percentage form from calculateMomentum
+    const momentumScore = Math.max(-40, Math.min(40, momentum * 4));
+    score += momentumScore;
+
+    // Clamp final score to [-100, 100]
+    return Math.max(-100, Math.min(100, Math.round(score)));
   }
 
   private determineVolatility(atr: number, price: number): string {

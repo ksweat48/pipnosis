@@ -107,8 +107,14 @@ class BestSymbolSelector {
 
     score += decision.confidence * 0.4;
 
-    const trendWeight = Math.abs(snapshot.trendScore) / 10;
-    score += trendWeight * 20;
+    // Safety check: handle undefined/NaN trendScore
+    const trendScore = snapshot.trendScore ?? 0;
+    if (!isNaN(trendScore)) {
+      const trendWeight = Math.abs(trendScore) / 10;
+      score += trendWeight * 20;
+    } else {
+      console.warn(`[Best Symbol Selector] ⚠️ ${snapshot.symbol}: trendScore is NaN, defaulting to 0`);
+    }
 
     if (snapshot.volatility === 'medium') {
       score += 15;
@@ -156,7 +162,12 @@ class BestSymbolSelector {
     const reasons: string[] = [];
 
     reasons.push(`Omega confidence ${decision.confidence}%`);
-    reasons.push(`Trend: ${snapshot.trend} (score: ${snapshot.trendScore})`);
+
+    // Safety check for trendScore display
+    const trendScore = snapshot.trendScore ?? 0;
+    const trendScoreDisplay = !isNaN(trendScore) ? trendScore.toFixed(0) : 'N/A';
+    reasons.push(`Trend: ${snapshot.trend} (score: ${trendScoreDisplay})`);
+
     reasons.push(`Volatility: ${snapshot.volatility}`);
     reasons.push(`Session: ${snapshot.regime.session}`);
 
