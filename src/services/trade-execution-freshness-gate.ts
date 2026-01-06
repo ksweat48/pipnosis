@@ -15,7 +15,7 @@
 import { logger, LogCategory } from '../lib/logger';
 import { intelligenceFreshnessValidator, type IntelligenceData } from './intelligence-freshness-validator';
 import { priceDriftDetector } from './price-drift-detector';
-import { realtimePriceStalenessValidator } from './realtime-price-staleness-validator';
+import { priceCoordinator } from './coordinators/price-coordinator';
 import type { CachedOmegaIntelligence, AlphaStrategicInsight } from './shared-intelligence-coordinator';
 import { FreshnessBlockCategory, type BlockMetadata } from '../types/freshness-block';
 import { freshnessBlockLogger } from './freshness-block-logger';
@@ -232,23 +232,24 @@ export class TradeExecutionFreshnessGate {
       `[Freshness Gate] 🔍 Pre-check for ${symbol} before Omega calls`
     );
 
-    // Only check realtime price staleness (fast, cheap check)
-    const priceValidation = await realtimePriceStalenessValidator.validatePriceFreshness(symbol);
+    // Check price freshness using Price Coordinator (SSOT for all price data)
+    const priceValidation = await priceCoordinator.validatePriceFreshness(symbol);
 
     if (priceValidation.shouldBlockTrading) {
+      const reason = priceValidation.warning || 'Price data unavailable or critically stale';
       logger.error(
         LogCategory.AI_TRADING,
-        `[Freshness Gate] 🚫 PRE-CHECK FAILED: ${priceValidation.reason}`
+        `[Freshness Gate] 🚫 PRE-CHECK FAILED: ${reason} (age: ${priceValidation.ageSeconds}s)`
       );
       return {
         shouldProceed: false,
-        reason: `Price data stale: ${priceValidation.reason}`
+        reason: `Price data stale: ${reason}`
       };
     }
 
     logger.info(
       LogCategory.AI_TRADING,
-      `[Freshness Gate] ✅ Pre-check PASSED - proceeding with Omega calls`
+      `[Freshness Gate] ✅ Pre-check PASSED - price age: ${priceValidation.ageSeconds}s`
     );
     return { shouldProceed: true };
   }
@@ -335,21 +336,30 @@ export class TradeExecutionFreshnessGate {
       }
     }
 
-    // Layer 4: Validate Realtime Price Freshness
-    const priceValidation = await realtimePriceStalenessValidator.validatePriceFreshness(
-      context.symbol
-    );
+    // Layer 4: Validate Price Freshness (using Price Coordinator SSOT)
+    const priceValidation = await priceCoordinator.validatePriceFreshness(context.symbol);
 
-    validationResults.priceStaleness = priceValidation;
+    validationResults.priceStaleness = {
+      isValid: priceValidation.isValid,
+      ageSeconds: priceValidation.ageSeconds,
+      maxAgeSeconds: 120,
+      shouldBlockTrading: priceValidation.shouldBlockTrading
+    };
 
     if (priceValidation.shouldBlockTrading) {
-      blockingReasons.push(`Realtime Price: ${priceValidation.reason}`);
-      if (priceValidation.blockCategory) {
-        blockCategories.push(priceValidation.blockCategory);
-      }
-      if (priceValidation.blockMetadata) {
-        blockMetadata.push(priceValidation.blockMetadata);
-      }
+      const reason = priceValidation.warning || 'Price data unavailable';
+      blockingReasons.push(`Price Freshness: ${reason} (age: ${priceValidation.ageSeconds}s)`);
+
+      const blockCat = priceValidation.ageSeconds === Infinity
+        ? FreshnessBlockCategory.BLOCK_NO_PRICE_DATA
+        : FreshnessBlockCategory.BLOCK_STALE_PRICE_FEED;
+
+      blockCategories.push(blockCat);
+      blockMetadata.push({
+        symbol: context.symbol,
+        ageSeconds: priceValidation.ageSeconds,
+        maxAgeSeconds: 120
+      });
     }
 
     // Final Decision
@@ -569,11 +579,18 @@ export class TradeExecutionFreshnessGate {
    * Validate price staleness before any trading activity
    */
   async validatePriceDataAvailability(symbols: string[]): Promise<Map<string, boolean>> {
-    const results = await realtimePriceStalenessValidator.validateMultipleSymbols(symbols);
     const availability = new Map<string, boolean>();
 
-    for (const [symbol, result] of results.entries()) {
-      availability.set(symbol, !result.shouldBlockTrading);
+    // Validate each symbol's price freshness using Price Coordinator
+    const validations = await Promise.all(
+      symbols.map(async (symbol) => {
+        const result = await priceCoordinator.validatePriceFreshness(symbol);
+        return { symbol, shouldBlock: result.shouldBlockTrading };
+      })
+    );
+
+    for (const { symbol, shouldBlock } of validations) {
+      availability.set(symbol, !shouldBlock);
     }
 
     return availability;

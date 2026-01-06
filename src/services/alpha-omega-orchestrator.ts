@@ -33,7 +33,6 @@ import type { AggregatedSentiment } from './sentiment-aggregator';
 import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator-refactored';
 import type { MarketSnapshotData } from './market-snapshot-cache';
 import { tradeExecutionFreshnessGate, type ExecutionContext } from './trade-execution-freshness-gate';
-import { realtimePriceStalenessValidator } from './realtime-price-staleness-validator';
 import { getMTFConfig, type Timeframe, type RiskMode } from '../config/timeframe-hierarchy';
 
 export interface ConfidencePenalty {
