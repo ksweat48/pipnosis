@@ -612,7 +612,7 @@ class RegimeOracle {
    * Helper: Assess structure quality
    */
   private assessStructureQuality(candles: Candle[]): 'clean' | 'choppy' {
-    if (candles.length < 20) return 'choppy';
+    if (!candles || candles.length < 20) return 'choppy';
 
     const recent = candles.slice(-20);
     let directionChanges = 0;

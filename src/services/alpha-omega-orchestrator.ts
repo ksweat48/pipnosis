@@ -360,6 +360,15 @@ class AlphaOmegaOrchestrator {
     const snapshotAge = Date.now() - snapshot.createdAt;
     const snapshotAgeSeconds = Math.round(snapshotAge / 1000);
 
+    // Create freshness advisory for confidence penalty system
+    let freshnessAdvisory: { confidenceReduction: number; overallSeverity: string } | null = null;
+    if (snapshotAgeSeconds > 30) {
+      const confidenceReduction = Math.min(50, Math.round((snapshotAgeSeconds - 30) * 1.5));
+      const overallSeverity = snapshotAgeSeconds > 60 ? 'high' : snapshotAgeSeconds > 45 ? 'medium' : 'low';
+      freshnessAdvisory = { confidenceReduction, overallSeverity };
+      console.warn(`[Alpha+Omega] ⚠️ Snapshot staleness: ${snapshotAgeSeconds}s old (${overallSeverity} severity, -${confidenceReduction}% confidence)`);
+    }
+
     if (snapshotAgeSeconds > 60) {
       console.warn(`[Alpha+Omega] ⚠️ Snapshot is ${snapshotAgeSeconds}s old - may need refresh`);
       // Invalidate and refetch if too old
