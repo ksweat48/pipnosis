@@ -655,20 +655,29 @@ class GoalSessionLiveEngine {
       const remainingGoal = targetGoal - currentProgress;
       const goalPercentage = (remainingGoal / this.config.initialBalance) * 100;
 
-      // Calculate realistic pip estimate based on actual risk-based position sizing
-      // Use typical values: 30 pip stop loss for forex, assume EURUSD-like for estimation
+      // ✅ GOAL FEASIBILITY ESTIMATION ONLY - NOT REAL TRADE PRICES
+      // ⚠️ CRITICAL: These dummy prices are for goal estimation ONLY
+      // They should NEVER be used in actual trade execution
+      // Real trades use actual market prices from snapshot data
+      //
+      // Purpose: Estimate "how many pips needed" to reach goal
+      // Method: Use EURUSD as reference standard (most liquid forex pair)
+      // Assumption: 30 pip stop, typical risk-based position size
+      //
+      // This provides context for Alpha's decision-making, but Alpha ALWAYS
+      // uses real market prices, real symbol data, and real opportunity analysis
       const riskPercent = getRiskPercentage(this.config.riskMode);
-      const typicalStopLossPips = 30;
-      const typicalEntryPrice = 1.1000; // EURUSD-like for calculation
-      const typicalStopLoss = typicalEntryPrice - (typicalStopLossPips * 0.0001);
+      const ESTIMATION_REFERENCE_STOP_PIPS = 30;  // Typical forex stop
+      const ESTIMATION_REFERENCE_ENTRY = 1.1000;   // EURUSD-like (ESTIMATION ONLY)
+      const ESTIMATION_REFERENCE_STOP = ESTIMATION_REFERENCE_ENTRY - (ESTIMATION_REFERENCE_STOP_PIPS * 0.0001);
 
       // Calculate expected lot size using our actual risk formula
       const estimatedLotSize = calculatePositionSize(
-        'EURUSD',
+        'EURUSD',  // Reference symbol for estimation
         this.config.initialBalance,
         riskPercent,
-        typicalEntryPrice,
-        typicalStopLoss
+        ESTIMATION_REFERENCE_ENTRY,  // NOT REAL PRICE - estimation only
+        ESTIMATION_REFERENCE_STOP     // NOT REAL PRICE - estimation only
       );
 
       // Calculate dollar per pip for this lot size

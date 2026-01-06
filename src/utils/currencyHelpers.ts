@@ -260,6 +260,44 @@ export function calculateDollarPerPip(
 }
 
 /**
+ * Validate that entry price matches expected range for symbol
+ * Catches dummy price contamination bugs early
+ */
+function validatePriceMatchesSymbol(symbol: string, entryPrice: number): void {
+  const normalized = symbol.toUpperCase();
+
+  // Define expected price ranges for each asset class
+  const priceRanges: Record<string, { min: number; max: number; description: string }> = {
+    'EURUSD': { min: 0.95, max: 1.40, description: 'Forex major' },
+    'GBPUSD': { min: 1.10, max: 1.50, description: 'Forex major' },
+    'USDJPY': { min: 100, max: 160, description: 'JPY pair' },
+    'AUDUSD': { min: 0.55, max: 0.90, description: 'Forex major' },
+    'NZDUSD': { min: 0.50, max: 0.80, description: 'Forex major' },
+    'USDCAD': { min: 1.20, max: 1.50, description: 'Forex major' },
+    'XAUUSD': { min: 1500, max: 5000, description: 'Gold' },
+    'XAGUSD': { min: 15, max: 50, description: 'Silver' },
+    'BTCUSD': { min: 15000, max: 150000, description: 'Bitcoin' },
+    'ETHUSD': { min: 500, max: 10000, description: 'Ethereum' },
+    'US30': { min: 25000, max: 60000, description: 'Dow Jones' },
+    'NAS100': { min: 10000, max: 30000, description: 'Nasdaq' },
+    'SPX500': { min: 3000, max: 8000, description: 'S&P 500' }
+  };
+
+  const range = priceRanges[normalized];
+
+  if (range && (entryPrice < range.min || entryPrice > range.max)) {
+    throw new Error(
+      `🚨 PRICE/SYMBOL MISMATCH DETECTED!\n` +
+      `  Symbol: ${symbol} (${range.description})\n` +
+      `  Entry Price: ${entryPrice}\n` +
+      `  Expected Range: ${range.min} - ${range.max}\n` +
+      `  This indicates dummy test prices are contaminating real trade execution.\n` +
+      `  Check goal feasibility estimation logic for leaks into trade execution.`
+    );
+  }
+}
+
+/**
  * Calculate position size based on risk amount and stop loss distance
  * THIS IS THE CORRECT FORMULA - USE THIS EVERYWHERE
  *
@@ -275,6 +313,9 @@ export function calculatePositionSize(
   const pipInfo = getCurrencyPipInfo(symbol);
   const riskAmount = accountBalance * (riskPercentage / 100);
 
+  // 🛡️ DEFENSIVE GUARD: Catch price/symbol mismatches early (prevents dummy price contamination)
+  validatePriceMatchesSymbol(symbol, entryPrice);
+
   console.log(`%c[Position Sizing PRE-CHECK] ${symbol}`, 'color: #ffaa00; font-weight: bold');
   console.log(`  Entry: ${entryPrice}, SL: ${stopLoss}`);
   console.log(`  Risk %: ${riskPercentage}%, Balance: $${accountBalance.toFixed(2)}`);
@@ -285,7 +326,7 @@ export function calculatePositionSize(
     entryPrice,
     stopLoss,
     direction,
-    pipInfo.pipMultiplier
+    pipInfo.pipValue  // CRITICAL FIX: Pass pipValue, not pipMultiplier
   );
 
   if (!validation.valid) {

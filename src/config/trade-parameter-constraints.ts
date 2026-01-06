@@ -103,14 +103,17 @@ export function validateStopLossDistance(
   entryPrice: number,
   stopLossPrice: number,
   direction: 'LONG' | 'SHORT',
-  pipMultiplier: number,
+  pipValue: number,
   atr?: ATRValue,
   currentSpread?: number
 ): StopLossValidationResult {
   const constraint = getMinStopLossConstraint(symbol);
   const violations: string[] = [];
 
-  const actualDistancePips = Math.abs((entryPrice - stopLossPrice) * pipMultiplier);
+  // CRITICAL FIX: Use division by pipValue, not multiplication by pipMultiplier
+  // For EURUSD: (1.1 - 1.097) / 0.0001 = 30 pips (CORRECT)
+  // Was: (1.1 - 1.097) * 1 = 0.003 pips (WRONG - caused "0.0 pips below minimum" errors)
+  const actualDistancePips = Math.abs((entryPrice - stopLossPrice) / pipValue);
 
   if (actualDistancePips === 0) {
     violations.push('Stop loss equals entry price (zero distance)');
@@ -132,7 +135,8 @@ export function validateStopLossDistance(
   }
 
   if (atr && actualDistancePips > 0) {
-    const atrPips = atr.pipValue || (atr.value * pipMultiplier);
+    // Convert ATR value to pips using same formula as actualDistancePips
+    const atrPips = atr.pipValue || (atr.value / pipValue);
     const atrMultiple = actualDistancePips / atrPips;
     if (atrMultiple < constraint.minAtrMultiple) {
       violations.push(
@@ -163,9 +167,10 @@ export function validateTakeProfitDistance(
   entryPrice: number,
   takeProfitPrice: number,
   direction: 'LONG' | 'SHORT',
-  pipMultiplier: number
+  pipValue: number
 ): { valid: boolean; reason?: string } {
-  const actualDistancePips = Math.abs((takeProfitPrice - entryPrice) * pipMultiplier);
+  // CRITICAL FIX: Use division by pipValue, not multiplication by pipMultiplier
+  const actualDistancePips = Math.abs((takeProfitPrice - entryPrice) / pipValue);
 
   if (actualDistancePips === 0) {
     return { valid: false, reason: 'Take profit equals entry price (zero distance)' };
