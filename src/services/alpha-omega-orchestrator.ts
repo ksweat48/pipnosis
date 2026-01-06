@@ -510,6 +510,28 @@ class AlphaOmegaOrchestrator {
 
     const evaluationPromises = marketStates.map(async (marketState) => {
       try {
+        console.log(`%c[Alpha+Omega Pre-Check] ${marketState.symbol}`, 'color: #00aaff; font-weight: bold');
+        console.log(`  Price: ${marketState.price}, ATR: ${marketState.atr}`);
+
+        if (!marketState.atr || marketState.atr <= 0) {
+          console.error(`%c🚨 INVALID ATR for ${marketState.symbol}`, 'color: #ff0000; font-weight: bold');
+          console.error(`  ATR value: ${marketState.atr}`);
+          console.error(`  Cannot calculate stop loss with zero/invalid ATR`);
+          return {
+            symbol: marketState.symbol,
+            decision: {
+              action: 'NO_TRADE' as const,
+              decision: 'NO_TRADE' as const,
+              entry: marketState.price,
+              stopLoss: marketState.price,
+              takeProfit: marketState.price,
+              confidence: 0,
+              reasoning: `Invalid ATR (${marketState.atr}) - cannot calculate stop loss`,
+              omega_summary: 'SKIP: Invalid ATR data'
+            }
+          };
+        }
+
         // Calculate dynamic stop loss based on volatility regime
         const { stopLossMultiplier, takeProfitMultiplier } = this.calculateDynamicMultipliers(marketState);
 
@@ -518,7 +540,12 @@ class AlphaOmegaOrchestrator {
         const proposedSL = marketState.price - (marketState.atr * stopLossMultiplier);
         const proposedTP = marketState.price + (marketState.atr * takeProfitMultiplier);
 
-        console.log(`[Alpha+Omega] Dynamic SL/TP for ${marketState.symbol}: ${stopLossMultiplier.toFixed(2)}x / ${takeProfitMultiplier.toFixed(2)}x ATR`);
+        const slDistancePips = Math.abs(marketState.price - proposedSL) / (marketState.pipMultiplier || 0.0001);
+
+        console.log(`[Alpha+Omega] Dynamic SL/TP for ${marketState.symbol}:`);
+        console.log(`  Multipliers: ${stopLossMultiplier.toFixed(2)}x SL / ${takeProfitMultiplier.toFixed(2)}x TP`);
+        console.log(`  Proposed SL: ${proposedSL.toFixed(5)} (${slDistancePips.toFixed(1)} pips from entry)`);
+        console.log(`  Proposed TP: ${proposedTP.toFixed(5)}`);
 
         const decision = await this.makeTradeDecision(
           marketState,

@@ -18,6 +18,7 @@ import type { ATRValue } from '../types/atr';
 import { safeExtractATRValue } from '../types/atr';
 import { calculatePipDistance } from '../utils/currencyHelpers';
 import { RISK_GATE_THRESHOLDS } from '../config/omega-thresholds';
+import { validateRiskPercentForMode, PLATFORM_ABSOLUTE_RISK_CAP, type RiskMode } from '../config/risk-mode-policy';
 
 export interface RiskGateInput {
   symbol: string;
@@ -28,6 +29,7 @@ export interface RiskGateInput {
   atr: number | ATRValue;
   accountBalance: number;
   riskPercent: number;
+  riskMode?: RiskMode;
   existingExposure?: number;
 }
 
@@ -168,13 +170,24 @@ class RiskPreflightGate {
       riskScore -= 15;
     }
 
-    if (input.riskPercent > RISK_GATE_THRESHOLDS.MAX_RISK_PERCENT) {
+    if (input.riskMode) {
+      const riskValidation = validateRiskPercentForMode(input.riskPercent, input.riskMode);
+      if (!riskValidation.valid) {
+        violations.push({
+          type: 'BLOCKING',
+          code: 'RISK_PCT_POLICY_VIOLATION',
+          message: riskValidation.reason!,
+          value: input.riskPercent
+        });
+        riskScore -= 30;
+      }
+    } else if (input.riskPercent > PLATFORM_ABSOLUTE_RISK_CAP) {
       violations.push({
         type: 'BLOCKING',
         code: 'RISK_PCT_TOO_HIGH',
-        message: `Risk ${input.riskPercent}% exceeds maximum ${RISK_GATE_THRESHOLDS.MAX_RISK_PERCENT}%`,
+        message: `Risk ${input.riskPercent}% exceeds platform cap ${PLATFORM_ABSOLUTE_RISK_CAP}%`,
         value: input.riskPercent,
-        threshold: RISK_GATE_THRESHOLDS.MAX_RISK_PERCENT
+        threshold: PLATFORM_ABSOLUTE_RISK_CAP
       });
       riskScore -= 30;
     }
@@ -244,10 +257,16 @@ class RiskPreflightGate {
       reasons.push(`TP adjusted for ${RISK_GATE_THRESHOLDS.MIN_RR_RATIO}:1 R:R`);
     }
 
-    const riskViolation = violations.find(v => v.code === 'RISK_PCT_TOO_HIGH');
-    if (riskViolation) {
-      adjustments.suggestedRiskPct = RISK_GATE_THRESHOLDS.MAX_RISK_PERCENT;
-      reasons.push(`Risk capped at ${RISK_GATE_THRESHOLDS.MAX_RISK_PERCENT}%`);
+    const riskViolation = violations.find(v => v.code === 'RISK_PCT_POLICY_VIOLATION' || v.code === 'RISK_PCT_TOO_HIGH');
+    if (riskViolation && input.riskMode) {
+      const policy = validateRiskPercentForMode(input.riskPercent, input.riskMode);
+      if (!policy.valid) {
+        adjustments.suggestedRiskPct = PLATFORM_ABSOLUTE_RISK_CAP;
+        reasons.push(`Risk capped at platform limit ${PLATFORM_ABSOLUTE_RISK_CAP}%`);
+      }
+    } else if (riskViolation) {
+      adjustments.suggestedRiskPct = PLATFORM_ABSOLUTE_RISK_CAP;
+      reasons.push(`Risk capped at ${PLATFORM_ABSOLUTE_RISK_CAP}%`);
     }
 
     if (reasons.length === 0) {

@@ -1,28 +1,36 @@
 /**
  * CENTRALIZED RISK CONFIGURATION
  *
+ * IMPORTANT: This file now uses the policy-driven risk system from risk-mode-policy.ts
+ * Risk modes define policy envelopes (min-max ranges), not just single values.
+ *
  * These risk percentages are used across:
  * - AI Goal Parser (user-facing messages)
  * - Goal Scanner (actual trade execution)
  * - Goal Session Manager (session configuration)
- *
- * DO NOT modify these values without updating documentation
  */
 
+import { getRiskPolicyForMode, type RiskMode as PolicyRiskMode } from './risk-mode-policy';
+
 export const RISK_PERCENTAGES = {
-  low: 3,      // Conservative: 3% per trade
-  medium: 5,   // Moderate: 5% per trade
-  high: 10,    // Aggressive: 10% per trade
+  low: 2,      // Conservative: 2% per trade (policy allows 1-3%)
+  medium: 3,   // Moderate: 3% per trade (policy allows 2-5%)
+  high: 5,     // Aggressive: 5% per trade (policy allows 3-10%)
 } as const;
 
 export type RiskMode = keyof typeof RISK_PERCENTAGES;
 
 /**
  * Get the risk percentage for a given risk mode
+ * Uses the policy system's default values
  */
 export function getRiskPercentage(riskMode: RiskMode | string): number {
-  const mode = riskMode as RiskMode;
-  return RISK_PERCENTAGES[mode] || RISK_PERCENTAGES.medium;
+  const normalizedMode = (riskMode?.toLowerCase() || 'medium') as 'low' | 'medium' | 'high';
+
+  const policyMode = normalizedMode.toUpperCase() as PolicyRiskMode;
+  const policy = getRiskPolicyForMode(policyMode);
+
+  return policy.defaultPercent;
 }
 
 /**

@@ -9,6 +9,7 @@ import { getRiskPercentage } from '../config/risk-levels';
 import { getRiskStrategyProfile } from '../config/risk-strategy-profiles';
 import { getSymbolConfig } from '../config/symbol-registry';
 import { getAssetClassRiskProfile } from '../config/asset-class-risk-profiles';
+import { validateStopLossDistance } from '../config/trade-parameter-constraints';
 
 export interface CurrencyPipInfo {
   pipValue: number;
@@ -274,17 +275,60 @@ export function calculatePositionSize(
   const pipInfo = getCurrencyPipInfo(symbol);
   const riskAmount = accountBalance * (riskPercentage / 100);
 
-  // Calculate stop distance in pips
-  const stopDistancePips = calculatePipDistance(symbol, entryPrice, stopLoss);
+  console.log(`%c[Position Sizing PRE-CHECK] ${symbol}`, 'color: #ffaa00; font-weight: bold');
+  console.log(`  Entry: ${entryPrice}, SL: ${stopLoss}`);
+  console.log(`  Risk %: ${riskPercentage}%, Balance: $${accountBalance.toFixed(2)}`);
 
+  const direction = stopLoss < entryPrice ? 'LONG' : 'SHORT';
+  const validation = validateStopLossDistance(
+    symbol,
+    entryPrice,
+    stopLoss,
+    direction,
+    pipInfo.pipMultiplier
+  );
+
+  if (!validation.valid) {
+    console.error('%c🚨 INVALID TRADE PARAMETERS - CANNOT SIZE POSITION', 'color: #ff0000; font-weight: bold; font-size: 14px');
+    console.error(`  Symbol: ${symbol}`);
+    console.error(`  Entry: ${entryPrice}`);
+    console.error(`  Stop Loss: ${stopLoss}`);
+    console.error(`  Direction: ${direction}`);
+    console.error(`  Actual Distance: ${validation.actualDistancePips.toFixed(2)} pips`);
+    console.error(`  Violations:`);
+    validation.violations.forEach(v => console.error(`    - ${v}`));
+    console.error(`  Constraint: ${validation.constraint.reason}`);
+    console.error(`  Min Required: ${validation.constraint.minPips} pips`);
+
+    throw new Error(`Invalid SL/Entry: ${validation.violations.join('; ')}`);
+  }
+
+  console.log(`  ✅ SL validation passed: ${validation.actualDistancePips.toFixed(2)} pips`);
+
+  // Calculate stop distance in pips
+  const stopDistancePips = validation.actualDistancePips;
+
+  // Assertion guards (defensive programming, not business logic)
   if (stopDistancePips <= 0) {
-    console.error(`[Position Sizing] Invalid stop distance: ${stopDistancePips} pips`);
-    return 0.01; // Minimum position
+    throw new Error(`ASSERTION FAILED: stopDistancePips must be > 0 (got ${stopDistancePips})`);
+  }
+
+  if (riskPercentage <= 0 || riskPercentage > 15) {
+    throw new Error(`ASSERTION FAILED: riskPercentage must be 0-15% (got ${riskPercentage}%)`);
+  }
+
+  if (accountBalance <= 0) {
+    throw new Error(`ASSERTION FAILED: accountBalance must be > 0 (got ${accountBalance})`);
   }
 
   // Calculate position size using SINGLE SOURCE OF TRUTH
   // Formula: Position Size = Risk Amount / (Stop Distance × Dollar Per Pip at 0.01 lot)
   const dollarPerPipAt001Lot = calculateDollarPerPip(symbol, 0.01);
+
+  if (dollarPerPipAt001Lot <= 0) {
+    throw new Error(`ASSERTION FAILED: dollarPerPipAt001Lot must be > 0 (got ${dollarPerPipAt001Lot})`);
+  }
+
   let positionSize = riskAmount / (stopDistancePips * dollarPerPipAt001Lot);
 
   // Clamp to reasonable ranges
