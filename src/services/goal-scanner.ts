@@ -1,7 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { forecastEngine, MarketConditions } from './forecast-engine';
 import { goalSessionManager } from './goal-session-manager';
-import { tradeExecutionEngine } from './trade-execution-engine';
+import { tradeExecutionEngine, type TradeSignal } from './trade-execution-engine';
 import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
 import { calculatePositionSize, getCurrencyPipInfo, calculatePipDistance, calculateDollarPerPip } from '../utils/currencyHelpers';
 import { getPositionSizeMultiplier } from '../config/risk-levels';
@@ -39,28 +39,13 @@ export interface ScanResult {
   reasoning?: string;
   marketConditions: MarketConditions;
   alphaDecision?: any;
+  // SSOT Snapshot metadata (Issue #2 fix)
+  snapshotTimestamp?: number;
+  snapshotPrice?: number;
+  snapshotHash?: string;
 }
 
-export interface TradeSignal {
-  sessionId: string;
-  symbol: string;
-  direction: 'buy' | 'sell';
-  entryPrice: number;
-  stopLoss: number;
-  takeProfit: number;
-  positionSize: number;
-  confidence: number;
-  setupType: string;
-  reasoning: string;
-  riskReward: number;
-  expectedProfit: number;
-  // Dual TP system
-  tp1Price?: number;
-  tp2Price?: number;
-  tp1Confidence?: number;
-  tp1Reasoning?: string;
-  tp2Reasoning?: string;
-}
+// TradeSignal is imported from trade-execution-engine.ts (SSOT)
 
 class GoalScanner {
   async scanMarket(sessionId: string, userId: string): Promise<ScanResult[]> {
@@ -335,17 +320,8 @@ class GoalScanner {
     console.log(`[Goal Scanner] ✅ ${symbol}: Passed basic filter - calling Alpha-Omega...`);
 
     try {
-      // Scout state check (uses same coordinator)
-      const scoutState = await sharedIntelligenceCoordinator.getScoutState(symbol, 'M15');
-      if (scoutState && !scoutState.shouldReconvene && scoutState.cacheAgeSeconds < 300) {
-        console.log(`[Goal Scanner] ⚡ ${symbol}: Scout says no opportunity (cache age: ${scoutState.cacheAgeSeconds}s)`);
-        return {
-          symbol,
-          hasValidSetup: false,
-          reasoning: `Scout: ${scoutState.marketSummary}`,
-          marketConditions,
-        };
-      }
+      // PHASE 4 REMOVED: Scout check eliminated - no longer needed with SSOT snapshot caching
+      // Scout was redundant: snapshot cache already provides instant reuse of market analysis
 
       // ✅ Build FullMarketState from snapshot (NOT manual calculations)
       const marketState = this.snapshotToMarketState(snapshot);
@@ -395,6 +371,10 @@ class GoalScanner {
         reasoning: alphaDecision.reasoning,
         marketConditions,
         alphaDecision,
+        // SSOT Snapshot metadata (Issue #2 fix)
+        snapshotTimestamp: snapshot.createdAt,
+        snapshotPrice: snapshot.price,
+        snapshotHash: snapshot.snapshotHash,
       };
     } catch (error) {
       console.error(`[Goal Scanner] Alpha-Omega error for ${symbol}:`, error);
@@ -801,6 +781,10 @@ class GoalScanner {
         reasoning: scanResult.reasoning!,
         riskReward,
         expectedProfit: Math.abs(expectedProfit),
+        // SSOT Snapshot metadata (Issue #2 fix) - passed from scanResult
+        snapshotTimestamp: scanResult.snapshotTimestamp || Date.now(),
+        snapshotPrice: scanResult.snapshotPrice || scanResult.entry!,
+        snapshotHash: scanResult.snapshotHash || '',
       },
       alphaDecision: scanResult.alphaDecision,
     };

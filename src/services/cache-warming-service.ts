@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orchestrator';
-import { globalScoutRunner } from './global-scout-runner';
+// SCOUT REMOVED: No longer needed with SSOT snapshot caching
+// import { globalScoutRunner } from './global-scout-runner';
 import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator';
 import { DEFAULT_WATCHLIST } from '../config/watchlist';
 import { computeOmegaSensors, OmegaSensors } from './omega-sensors';
@@ -55,8 +56,9 @@ class CacheWarmingService {
     const failures: string[] = [];
 
     try {
-      console.log('[CacheWarming] Running global scout first...');
-      await globalScoutRunner.runGlobalScout(symbols, timeframe);
+      // SCOUT REMOVED: Scout system eliminated - SSOT snapshot caching provides same benefits
+      // console.log('[CacheWarming] Running global scout first...');
+      // await globalScoutRunner.runGlobalScout(symbols, timeframe);
 
       for (const symbol of symbols) {
         const symbolStart = Date.now();

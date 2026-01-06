@@ -37,6 +37,10 @@ export interface TradeSignal {
   // Playbook tracking context
   regimeSnapshot?: any;
   adversarialState?: any;
+  // SSOT Snapshot metadata (Issue #2 fix)
+  snapshotTimestamp: number;  // When snapshot was created
+  snapshotPrice: number;      // Price at snapshot time
+  snapshotHash: string;       // Hash for validation
 }
 
 export interface TradeExecutionResult {
@@ -235,6 +239,18 @@ class TradeExecutionEngine {
   }
 
   async validateSignal(signal: TradeSignal, session: any): Promise<{ valid: boolean; reason?: string }> {
+    // PRIORITY FIX (Issue #2): Validate snapshot age BEFORE execution
+    const snapshotAge = Date.now() - signal.snapshotTimestamp;
+    const MAX_SNAPSHOT_AGE = 30000; // 30 seconds
+
+    if (snapshotAge > MAX_SNAPSHOT_AGE) {
+      console.warn(`[Trade Execution] ⚠️ Snapshot too old (${Math.round(snapshotAge / 1000)}s > 30s)`);
+      return {
+        valid: false,
+        reason: `Snapshot expired (${Math.round(snapshotAge / 1000)}s old). Please rescan market.`
+      };
+    }
+
     if (signal.confidence < 50) {
       return { valid: false, reason: 'Confidence too low' };
     }

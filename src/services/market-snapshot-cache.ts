@@ -69,17 +69,23 @@ interface CachedSnapshot {
 
 /**
  * TTL Configuration based on timeframe
+ * ISSUE #4 FIX: Increased TTLs for better cache hit rates
+ * - M5: 5s → 10s (2x)
+ * - M15: 30s → 60s (2x)
+ * - H1: 2min → 5min (2.5x)
+ * - H4: 5min → 10min (2x)
+ * - D: 10min → 15min (1.5x)
  */
 function getTTLForTimeframe(timeframe: Timeframe): number {
   const ttls: Record<Timeframe, number> = {
-    'M5': 5000,      // 5 seconds (fast-moving)
-    'M15': 30000,    // 30 seconds (medium)
-    'H1': 120000,    // 2 minutes (slow)
-    'H4': 300000,    // 5 minutes (very slow)
-    'D': 600000      // 10 minutes (daily)
+    'M5': 10000,     // 10 seconds (was 5s)
+    'M15': 60000,    // 1 minute (was 30s)
+    'H1': 300000,    // 5 minutes (was 2min)
+    'H4': 600000,    // 10 minutes (was 5min)
+    'D': 900000      // 15 minutes (was 10min)
   };
 
-  return ttls[timeframe] || 30000; // Default: 30s
+  return ttls[timeframe] || 60000; // Default: 1 minute (was 30s)
 }
 
 /**
