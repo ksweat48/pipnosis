@@ -16,10 +16,10 @@
 import { openAIClient } from '../services/openai-client';
 import { omegaTrend } from './omega/trend';
 import { omegaVolatility } from './omega/volatility';
-import { omegaRisk } from './omega/risk';
 import { omegaConfirmation } from './omega/confirmation';
+import { omegaReversal } from './omega/reversal';
 import { sentimentCoordinator } from '../services/sentiment-coordinator';
-import type { OmegaVote } from './omega/trend';
+import type { OmegaVote } from '../types/omega-vote';
 import type { TraderScore } from '../services/ai-identity';
 import { llmTokenTracker } from '../services/llm-token-tracker';
 import { tradeContextRetriever, type TradeContext } from '../services/trade-context-retriever';
@@ -462,49 +462,47 @@ Return JSON:
   ): Promise<MidTradeDecision> {
     console.log(`[MidTrade Emergency] ${snapshot.sym}: EMERGENCY @ ${snapshot.dd.toFixed(0)}% DD - Calling Omega Council`);
 
-    // Call critical Omegas in parallel
-    const [trendVote, volVote, riskVote, confirmationVote] = await Promise.all([
-      omegaTrend.evaluate({
-        p: snapshot.p,
-        e20: snapshot.e20,
-        e50: snapshot.e50,
-        e200: snapshot.e50, // Approximation
-        mom: 0, // Not critical for mid-trade
-        tr: snapshot.tr,
-        vol: snapshot.vol
-      }).catch(() => null),
+    // Call critical Omegas in parallel (all deterministic, no await needed for individual calls)
+    const trendVote = omegaTrend.evaluate({
+      p: snapshot.p,
+      e20: snapshot.e20,
+      e50: snapshot.e50,
+      e200: snapshot.e50,
+      mom: 0,
+      tr: snapshot.tr,
+      vol: snapshot.vol
+    });
 
-      omegaVolatility.evaluate({
-        atr: snapshot.atr,
-        atr_avg: snapshot.atr,
-        vol: snapshot.vol,
-        c: [], // Not needed for mid-trade
-        wick_ratio: 0
-      }).catch(() => null),
+    const volVote = omegaVolatility.evaluate({
+      atr: snapshot.atr,
+      atr_avg: snapshot.atr,
+      vol: snapshot.vol,
+      c: [],
+      wick_ratio: 0
+    });
 
-      omegaRisk.evaluate({
-        p: snapshot.p,
-        proposed_sl: snapshot.sl,
-        proposed_tp: snapshot.tp,
-        atr: snapshot.atr,
-        sup: [],
-        res: [],
-        vol: snapshot.vol,
-        risk_pct: snapshot.risk_pct
-      }).catch(() => null),
+    const reversalVote = omegaReversal.evaluate({
+      p: snapshot.p,
+      rsi: snapshot.rsi,
+      st: 50,
+      mom: 0,
+      e20: snapshot.e20,
+      e50: snapshot.e50,
+      tr: snapshot.tr,
+      vol: snapshot.vol
+    });
 
-      omegaConfirmation.evaluate({
-        p: snapshot.p,
-        sup: [],
-        res: [],
-        sw: { h: snapshot.p, l: snapshot.sl },
-        str: snapshot.structure ? 'check' : 'unknown',
-        tr: snapshot.tr
-      }).catch(() => null)
-    ]);
+    const confirmationVote = omegaConfirmation.evaluate({
+      p: snapshot.p,
+      sup: [],
+      res: [],
+      sw: { h: snapshot.p, l: snapshot.sl },
+      str: snapshot.structure ? 'check' : 'unknown',
+      tr: snapshot.tr
+    });
 
     // Count votes
-    const votes = [trendVote, volVote, riskVote, confirmationVote].filter(v => v !== null) as OmegaVote[];
+    const votes = [trendVote, volVote, reversalVote, confirmationVote].filter(v => v !== null) as OmegaVote[];
     const exitVotes = votes.filter(v => v.vote === 'NO_TRADE' || v.vote !== snapshot.dir.toUpperCase()).length;
     const holdVotes = votes.filter(v => v.vote === snapshot.dir.toUpperCase()).length;
 
@@ -517,7 +515,7 @@ ${JSON.stringify(snapshot)}
 Omega Council Votes:
 Trend: ${trendVote?.vote || 'N/A'} (${trendVote?.confidence || 0}%) - ${trendVote?.reasoning || ''}
 Volatility: ${volVote?.vote || 'N/A'} (${volVote?.confidence || 0}%) - ${volVote?.reasoning || ''}
-Risk: ${riskVote?.vote || 'N/A'} (${riskVote?.confidence || 0}%) - ${riskVote?.reasoning || ''}
+Reversal: ${reversalVote?.vote || 'N/A'} (${reversalVote?.confidence || 0}%) - ${reversalVote?.reasoning || ''}
 Confirmation: ${confirmationVote?.vote || 'N/A'} (${confirmationVote?.confidence || 0}%) - ${confirmationVote?.reasoning || ''}
 
 Vote Count: ${exitVotes} favor EXIT, ${holdVotes} favor HOLD

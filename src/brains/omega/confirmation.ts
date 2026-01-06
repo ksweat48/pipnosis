@@ -1,5 +1,5 @@
 /**
- * Omega Confirmation - Intraday Setup Confirmation Specialist
+ * Omega-3 Confirmation - DETERMINISTIC Intraday Setup Confirmation Specialist
  *
  * Specializes in:
  * - Multi-timeframe alignment for intraday trades
@@ -7,128 +7,174 @@
  * - Support and resistance confluences
  * - Pullback structure validation
  * - Trade setup confirmation for 20min-2hr durations
+ *
+ * FULLY DETERMINISTIC - NO LLM CALLS
  */
 
-import { openAIClient } from '../../services/openai-client';
-import { llmTokenTracker } from '../../services/llm-token-tracker';
-import type { OmegaVote } from './trend';
+import type { OmegaVote } from '../../types/omega-vote';
+import type { OmegaSensors } from '../../services/omega-sensors';
+import { calculateATRDistance } from '../../lib/technical-math/atr';
+import { CONFIRMATION_THRESHOLDS } from '../../config/omega-thresholds';
 
 export interface ConfirmationSnapshot {
-  p: number;       // price
-  sup: number[];   // support levels
-  res: number[];   // resistance levels
-  sw: { h: number; l: number }; // swing high/low
-  str: string;     // structure: hh/hl/ll/lh
-  tr: string;      // trend
-  mtf?: string;    // multi-timeframe alignment
-  pullback?: boolean; // is this a pullback entry
+  p: number;
+  sup: number[];
+  res: number[];
+  sw: { h: number; l: number };
+  str: string;
+  tr: string;
+  mtf?: string;
+  pullback?: boolean;
+  sensors?: OmegaSensors;
+  atr?: number;
 }
 
 class OmegaConfirmationBrain {
-  /**
-   * Evaluate intraday trade setup confirmation
-   *
-   * FOCUS: Confirming that a trade setup has proper structure for INTRADAY execution
-   * - Does price have clear support/resistance for quick moves?
-   * - Is structure aligned for fast price action?
-   * - Are we confirming trend continuation or reversal?
-   */
-  async evaluate(snapshot: ConfirmationSnapshot): Promise<OmegaVote> {
-    const prompt = `Intraday Confirmation Analysis:
-${JSON.stringify(snapshot)}
+  evaluate(snapshot: ConfirmationSnapshot): OmegaVote {
+    const { p, sup, res, str, tr, mtf, pullback, sensors, atr = 1 } = snapshot;
 
-You are confirming INTRADAY setups (target duration: 20min-2hr).
+    let score = 0;
+    const factors: string[] = [];
+    let candidateDirection: 'BUY' | 'SELL' | null = null;
 
-Evaluate:
-1. Does price have clear support/resistance for quick reaction?
-2. Is structure aligned for immediate directional move?
-3. Is this a confirmed pullback or breakout for intraday execution?
-4. Multi-timeframe alignment (if provided)?
+    const nearestSupport = sup.length > 0 ? Math.max(...sup.filter(s => s < p)) : 0;
+    const nearestResistance = res.length > 0 ? Math.min(...res.filter(r => r > p)) : 0;
 
-Vote: BUY (strong intraday bullish confirmation), SELL (strong intraday bearish confirmation), NO_TRADE (unclear/needs more confirmation).
+    const distToSupport = nearestSupport > 0 ? calculateATRDistance(p, nearestSupport, atr) : Infinity;
+    const distToResistance = nearestResistance > 0 ? calculateATRDistance(p, nearestResistance, atr) : Infinity;
 
-IMPORTANT: We're looking for CONFIRMATION of immediate moves, not swing setups.
-
-Return JSON only:
-{
-  "vote": "BUY|SELL|NO_TRADE",
-  "confidence": 0-100,
-  "reasoning": "brief 1-line explanation focused on INTRADAY confirmation"
-}`;
-
-    try {
-      const response = await openAIClient.chat(
-        [
-          {
-            role: 'system',
-            content: 'You are OmegaConfirmation, an intraday trade confirmation specialist. You validate that setups have proper structure for quick 20min-2hr moves. Return JSON only.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        {
-          model: 'gpt-4o-mini',
-          temperature: 0.3,
-          max_tokens: 100,
-          requestType: 'omega_confirmation_vote',
-          endpoint: 'omega-confirmation'
-        }
-      );
-
-      // Track token usage
-      await llmTokenTracker.logUsage({
-        brainName: 'Omega-3',
-        model: 'gpt-4o-mini',
-        promptTokens: response.usage?.prompt_tokens || 0,
-        completionTokens: response.usage?.completion_tokens || 0,
-        totalTokens: response.usage?.total_tokens || 0,
-        contextType: 'omega_confirmation_vote',
-        userId: undefined,
-        sessionId: undefined
-      });
-
-      const content = response.choices[0]?.message?.content || '{}';
-      const vote = this.parseVote(content);
-
-      // Log vote for transparency
-      console.log(`[Omega-3 Confirmation] Vote: ${vote.vote} | Confidence: ${vote.confidence}% | Reasoning: ${vote.reasoning}`);
-
-      return vote;
-    } catch (error) {
-      console.error('[Omega-3 Confirmation] LLM call failed:', error);
-      return {
-        vote: 'NO_TRADE',
-        confidence: 0,
-        reasoning: 'Analysis failed'
-      };
+    if (distToSupport < CONFIRMATION_THRESHOLDS.SR_PROXIMITY_ATR && distToSupport < distToResistance) {
+      score += 20;
+      candidateDirection = 'BUY';
+      factors.push(`NEAR_SUPPORT(${distToSupport.toFixed(2)}ATR)`);
+    } else if (distToResistance < CONFIRMATION_THRESHOLDS.SR_PROXIMITY_ATR && distToResistance < distToSupport) {
+      score += 20;
+      candidateDirection = 'SELL';
+      factors.push(`NEAR_RESISTANCE(${distToResistance.toFixed(2)}ATR)`);
     }
-  }
 
-  private parseVote(response: string): OmegaVote {
-    try {
-      const cleaned = response
-        .replace(/```json\n?/g, '')
-        .replace(/```\n?/g, '')
-        .trim();
-
-      const parsed = JSON.parse(cleaned);
-
-      return {
-        vote: parsed.vote || 'NO_TRADE',
-        confidence: Math.min(100, Math.max(0, parsed.confidence || 0)),
-        reasoning: parsed.reasoning || 'No reasoning provided'
-      };
-    } catch (error) {
-      console.error('[Omega-3 Confirmation] ❌ Parse error:', error);
-      console.error('[Omega-3 Confirmation] Raw response:', response.substring(0, 200));
-      return {
-        vote: 'NO_TRADE',
-        confidence: 0,
-        reasoning: 'Parse failed'
-      };
+    const structurePattern = str.toLowerCase();
+    if (structurePattern === 'hh' || structurePattern === 'hh_hl') {
+      if (!candidateDirection) candidateDirection = 'BUY';
+      if (candidateDirection === 'BUY') {
+        score += 25;
+        factors.push('STRUCTURE_HH_HL');
+      } else {
+        score -= 15;
+        factors.push('STRUCTURE_VS_SELL');
+      }
+    } else if (structurePattern === 'll' || structurePattern === 'll_lh') {
+      if (!candidateDirection) candidateDirection = 'SELL';
+      if (candidateDirection === 'SELL') {
+        score += 25;
+        factors.push('STRUCTURE_LL_LH');
+      } else {
+        score -= 15;
+        factors.push('STRUCTURE_VS_BUY');
+      }
     }
+
+    if (sensors) {
+      if (sensors.bos === 'bull' && candidateDirection === 'BUY') {
+        score += 15;
+        factors.push('BOS_CONFIRMS_BUY');
+      } else if (sensors.bos === 'bear' && candidateDirection === 'SELL') {
+        score += 15;
+        factors.push('BOS_CONFIRMS_SELL');
+      } else if (sensors.bos !== 'none') {
+        score -= 10;
+        factors.push('BOS_CONFLICT');
+      }
+
+      if (sensors.sh === 1 && candidateDirection === 'SELL') {
+        score += 10;
+        factors.push('SWING_HIGH_SELL');
+      } else if (sensors.sl === 1 && candidateDirection === 'BUY') {
+        score += 10;
+        factors.push('SWING_LOW_BUY');
+      }
+
+      if (sensors.mic.msr === 'above' && candidateDirection === 'SELL') {
+        score += 8;
+        factors.push('ABOVE_MICRO_SR');
+      } else if (sensors.mic.msr === 'below' && candidateDirection === 'BUY') {
+        score += 8;
+        factors.push('BELOW_MICRO_SR');
+      }
+    }
+
+    if (mtf) {
+      const mtfLower = mtf.toLowerCase();
+      if ((mtfLower.includes('bull') || mtfLower.includes('up')) && candidateDirection === 'BUY') {
+        score += CONFIRMATION_THRESHOLDS.MTF_ALIGNMENT_BONUS;
+        factors.push('MTF_ALIGNED_BUY');
+      } else if ((mtfLower.includes('bear') || mtfLower.includes('down')) && candidateDirection === 'SELL') {
+        score += CONFIRMATION_THRESHOLDS.MTF_ALIGNMENT_BONUS;
+        factors.push('MTF_ALIGNED_SELL');
+      } else if (mtfLower.includes('bull') || mtfLower.includes('bear')) {
+        score -= 10;
+        factors.push('MTF_CONFLICT');
+      }
+    }
+
+    if (pullback) {
+      score += CONFIRMATION_THRESHOLDS.PULLBACK_BONUS;
+      factors.push('PULLBACK_ENTRY');
+    }
+
+    const trendLower = tr.toLowerCase();
+    if (trendLower === 'bull' && candidateDirection === 'BUY') {
+      score += 10;
+      factors.push('TREND_ALIGNED');
+    } else if (trendLower === 'bear' && candidateDirection === 'SELL') {
+      score += 10;
+      factors.push('TREND_ALIGNED');
+    } else if (trendLower === 'bull' || trendLower === 'bear') {
+      score -= 5;
+    }
+
+    let vote: 'BUY' | 'SELL' | 'NO_TRADE';
+    let confidence: number;
+
+    if (!candidateDirection) {
+      vote = 'NO_TRADE';
+      confidence = 30;
+      factors.push('NO_SETUP');
+    } else if (score >= 35) {
+      vote = candidateDirection;
+      confidence = Math.min(90, 55 + score * 0.8);
+    } else if (score >= 15) {
+      vote = candidateDirection;
+      confidence = Math.min(70, 45 + score);
+    } else {
+      vote = 'NO_TRADE';
+      confidence = Math.max(25, 35 - Math.abs(score));
+      factors.push('WEAK_CONFIRMATION');
+    }
+
+    if (vote !== 'NO_TRADE' && confidence < CONFIRMATION_THRESHOLDS.MIN_CONFIDENCE_FOR_TRADE) {
+      vote = 'NO_TRADE';
+      factors.push('BELOW_MIN_CONF');
+    }
+
+    const evidence = [
+      `SUP_DIST=${distToSupport === Infinity ? 'N/A' : distToSupport.toFixed(2) + 'ATR'}`,
+      `RES_DIST=${distToResistance === Infinity ? 'N/A' : distToResistance.toFixed(2) + 'ATR'}`,
+      `STR=${str}`,
+      `TREND=${tr}`
+    ].join('|');
+
+    const reasoning = `[DET] ${vote} @ ${confidence}% | ${factors.slice(0, 4).join(', ')}`;
+
+    console.log(`[Omega-3 Confirmation] [DET] Vote: ${vote} | Confidence: ${confidence}% | Factors: ${factors.join(', ')}`);
+
+    return {
+      vote,
+      confidence: Math.round(confidence),
+      reasoning,
+      evidence,
+      keyFactors: factors
+    };
   }
 }
 

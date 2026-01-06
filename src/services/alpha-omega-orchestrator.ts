@@ -19,7 +19,7 @@ import { omegaScalper, type ScalperSnapshot } from '../brains/omega/scalper';
 import { omegaConfirmation, type ConfirmationSnapshot } from '../brains/omega/confirmation';
 import { omegaReversal, type ReversalSnapshot } from '../brains/omega/reversal';
 import { omegaVolatility, type VolatilitySnapshot } from '../brains/omega/volatility';
-import { omegaRisk, type RiskSnapshot } from '../brains/omega/risk';
+import { riskPreflightGate, type RiskPreflightInput } from './risk-preflight-gate';
 import { omega8Hybrid, type Omega8MarketSnapshot } from '../brains/omega8-hybrid-orderflow';
 import { alphaCoordinator, type OmegaCouncilVotes, type MarketContext, type AlphaDecision } from '../brains/coordinator-alpha';
 import { midTradeMonitor, type MidTradeSnapshot, type MidTradeDecision } from '../brains/midtrade-monitor';
@@ -154,8 +154,39 @@ class AlphaOmegaOrchestrator {
     const confirmationSnap = this.buildConfirmationSnapshot(marketState);
     const reversalSnap = this.buildReversalSnapshot(marketState);
     const volatilitySnap = this.buildVolatilitySnapshot(marketState);
-    const riskSnap = this.buildRiskSnapshot(marketState, proposedSL, proposedTP, 3);
     const omega8Snap = this.buildOmega8HybridSnapshot(marketState, entryTimeframe);
+
+    // Risk is now a PRE-FLIGHT GATE (not a voting Omega)
+    // Check risk constraints BEFORE expensive Omega calls
+    const riskPreflightInput: RiskPreflightInput = {
+      symbol: marketState.symbol,
+      entry: marketState.price,
+      stopLoss: proposedSL,
+      takeProfit: proposedTP,
+      atr: marketState.atr,
+      accountBalance: 10000, // Will be provided by caller in real implementation
+      riskPercentage: 2,
+      volatility: marketState.volatility,
+      existingPositions: []
+    };
+    const riskCheck = riskPreflightGate.validate(riskPreflightInput);
+    if (!riskCheck.pass) {
+      console.error(`[Alpha+Omega] 🚫 RISK PRE-FLIGHT BLOCKED: ${riskCheck.reason}`);
+      return {
+        action: 'NO_TRADE',
+        decision: 'NO_TRADE',
+        entry: marketState.price,
+        stopLoss: proposedSL,
+        takeProfit: proposedTP,
+        confidence: 0,
+        reasoning: `RISK GATE BLOCKED: ${riskCheck.reason}`,
+        omega_summary: `Risk pre-flight failed: ${riskCheck.violations.join(', ')}`
+      };
+    }
+    console.log(`[Alpha+Omega] ✅ Risk pre-flight passed (R:R ${riskCheck.rrRatio?.toFixed(2) || 'N/A'})`);
+    if (riskCheck.warnings.length > 0) {
+      console.warn(`[Alpha+Omega] ⚠️ Risk warnings: ${riskCheck.warnings.join(', ')}`);
+    }
 
     console.log('[Alpha+Omega] 🔮 Calling Omega Council (parallel with 3-tier cache)...');
     const startTime = Date.now();
@@ -168,7 +199,6 @@ class AlphaOmegaOrchestrator {
       confirmationCached,
       reversalCached,
       volatilityCached,
-      riskCached,
       omega8Vote
     ] = await Promise.all([
       sharedIntelligenceCoordinator.getOmegaIntelligence(
@@ -177,12 +207,12 @@ class AlphaOmegaOrchestrator {
         'trend',
         marketState.recentCandles,
         async () => {
-          const result = await omegaTrend.evaluate(trendSnap);
+          const result = omegaTrend.evaluate(trendSnap);
           return {
             vote: result.vote,
             confidence: result.confidence,
             reasoning: result.reasoning,
-            keyFactors: []
+            keyFactors: result.keyFactors || []
           };
         }
       ).catch(err => {
@@ -196,12 +226,12 @@ class AlphaOmegaOrchestrator {
         'scalper',
         marketState.recentCandles,
         async () => {
-          const result = await omegaScalper.evaluate(scalperSnap);
+          const result = omegaScalper.evaluate(scalperSnap);
           return {
             vote: result.vote,
             confidence: result.confidence,
             reasoning: result.reasoning,
-            keyFactors: []
+            keyFactors: result.keyFactors || []
           };
         }
       ).catch(err => {
@@ -215,12 +245,12 @@ class AlphaOmegaOrchestrator {
         'confirmation',
         marketState.recentCandles,
         async () => {
-          const result = await omegaConfirmation.evaluate(confirmationSnap);
+          const result = omegaConfirmation.evaluate(confirmationSnap);
           return {
             vote: result.vote,
             confidence: result.confidence,
             reasoning: result.reasoning,
-            keyFactors: []
+            keyFactors: result.keyFactors || []
           };
         }
       ).catch(err => {
@@ -234,12 +264,12 @@ class AlphaOmegaOrchestrator {
         'reversal',
         marketState.recentCandles,
         async () => {
-          const result = await omegaReversal.evaluate(reversalSnap);
+          const result = omegaReversal.evaluate(reversalSnap);
           return {
             vote: result.vote,
             confidence: result.confidence,
             reasoning: result.reasoning,
-            keyFactors: []
+            keyFactors: result.keyFactors || []
           };
         }
       ).catch(err => {
@@ -253,35 +283,16 @@ class AlphaOmegaOrchestrator {
         'volatility',
         marketState.recentCandles,
         async () => {
-          const result = await omegaVolatility.evaluate(volatilitySnap);
+          const result = omegaVolatility.evaluate(volatilitySnap);
           return {
             vote: result.vote,
             confidence: result.confidence,
             reasoning: result.reasoning,
-            keyFactors: []
+            keyFactors: result.keyFactors || []
           };
         }
       ).catch(err => {
         console.warn('[Omega Volatility] Failed:', err.message);
-        return null;
-      }),
-
-      sharedIntelligenceCoordinator.getOmegaIntelligence(
-        marketState.symbol,
-        entryTimeframe,
-        'risk',
-        marketState.recentCandles,
-        async () => {
-          const result = await omegaRisk.evaluate(riskSnap);
-          return {
-            vote: result.vote,
-            confidence: result.confidence,
-            reasoning: result.reasoning,
-            keyFactors: result.warnings || []
-          };
-        }
-      ).catch(err => {
-        console.warn('[Omega Risk] Failed:', err.message);
         return null;
       }),
 
@@ -291,7 +302,7 @@ class AlphaOmegaOrchestrator {
       })
     ]);
 
-    const cachedResults = [trendCached, scalperCached, confirmationCached, reversalCached, volatilityCached, riskCached];
+    const cachedResults = [trendCached, scalperCached, confirmationCached, reversalCached, volatilityCached];
     cachedResults.forEach(r => {
       if (r?.fromCache) {
         cacheHits++;
@@ -307,7 +318,6 @@ class AlphaOmegaOrchestrator {
     const confirmationVote = confirmationCached ? confirmationCached.vote : null;
     const reversalVote = reversalCached ? reversalCached.vote : null;
     const volatilityVote = volatilityCached ? volatilityCached.vote : null;
-    const riskVote = riskCached ? riskCached.vote : null;
 
     const omegaTime = Date.now() - startTime;
     const hitRate = cachedResults.length > 0 ? (cacheHits / cachedResults.length * 100).toFixed(0) : '0';
@@ -317,14 +327,14 @@ class AlphaOmegaOrchestrator {
     console.log(`[Alpha+Omega] ✅ Omega Council complete (${omegaTime}ms)`);
     console.log(`[Alpha+Omega] ⚡ Cache: ${cacheHits}/${cachedResults.length} hits (${hitRate}%) | Saved: ~$${estimatedSavings.toFixed(4)} | Total: ~$${this.cacheStats.totalSaved.toFixed(4)}`);
 
-    // Log Omega votes
+    // Log Omega votes (Risk is now a pre-flight gate, not a voting Omega)
     this.logOmegaVotes({
       trend: trendVote,
       scalper: scalperVote,
       confirmation: confirmationVote,
       reversal: reversalVote,
       volatility: volatilityVote,
-      risk: riskVote,
+      risk: null, // Risk is now a pre-flight gate
       omega8: omega8Vote
     });
 
@@ -335,7 +345,6 @@ class AlphaOmegaOrchestrator {
     if (confirmationCached) omegaVotesMap.set('confirmation', confirmationCached);
     if (reversalCached) omegaVotesMap.set('reversal', reversalCached);
     if (volatilityCached) omegaVotesMap.set('volatility', volatilityCached);
-    if (riskCached) omegaVotesMap.set('risk', riskCached);
 
     // PRIORITY 2 FIX: Fetch CURRENT price for drift detection (not signal price)
     const currentPrice = marketState.price; // In real implementation, this would fetch fresh price
@@ -398,7 +407,7 @@ class AlphaOmegaOrchestrator {
       confirmation: confirmationVote,
       reversal: reversalVote,
       volatility: volatilityVote,
-      risk: riskVote,
+      risk: null, // Risk is now a pre-flight gate
       omega8: omega8Vote
     }, traderScore);
 
@@ -410,15 +419,8 @@ class AlphaOmegaOrchestrator {
       console.warn(`[Alpha+Omega] Alpha has final authority to override`);
     }
 
-    // ✅ NEW: Risk Omega is ADVISORY, not blocking
-    // Log Risk concerns but let Alpha decide final action
-    if (!riskVote) {
-      console.warn('[Alpha+Omega] ⚠️ Risk Omega failed - proceeding with caution');
-    } else if (riskVote.vote === 'NO_TRADE' && riskVote.confidence >= 70) {
-      console.warn('[Alpha+Omega] ⚠️ Risk Omega concerns (advisory only):');
-      console.warn(`[Alpha+Omega] Risk reasoning: ${riskVote.reasoning}`);
-      console.warn('[Alpha+Omega] Alpha will consider this input in final decision');
-    }
+    // Risk is now handled by pre-flight gate (already validated above)
+    // Risk warnings are surfaced earlier in the pipeline
 
     // ✅ WORST-CASE WINS: Calculate single unified confidence penalty
     const confidencePenaltyResult = this.collectConfidencePenalties(
@@ -448,7 +450,7 @@ class AlphaOmegaOrchestrator {
         confirmation: confirmationVote,
         reversal: reversalVote,
         volatility: volatilityVote,
-        risk: riskVote,
+        risk: null, // Risk is now a pre-flight gate
         omega8: omega8Vote
       },
       marketContext,
@@ -828,41 +830,6 @@ class AlphaOmegaOrchestrator {
     return base;
   }
 
-  /**
-   * Build snapshot for Omega Risk
-   */
-  private buildRiskSnapshot(
-    state: FullMarketState,
-    proposedSL: number,
-    proposedTP: number,
-    riskPct: number
-  ): RiskSnapshot {
-    const base: RiskSnapshot = {
-      p: state.price,
-      proposed_sl: proposedSL,
-      proposed_tp: proposedTP,
-      atr: state.atr,
-      sup: state.support,
-      res: state.resistance,
-      vol: state.volatility,
-      risk_pct: riskPct
-    };
-
-    // Add regime data if available
-    if (state.regime) {
-      return {
-        ...base,
-        regime: {
-          volatility_score: state.regime.volatility_score,
-          is_high_risk_regime: state.regime.is_high_risk_regime,
-          risk_reduction_factor: state.regime.risk_reduction_factor
-        },
-        adv: state.adversarial ? { lvl: state.adversarial.level, score: state.adversarial.suspicion_score } : undefined
-      } as any;
-    }
-
-    return base;
-  }
 
   /**
    * Build snapshot for Omega-8 Hybrid OrderFlow

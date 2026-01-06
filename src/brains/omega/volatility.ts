@@ -1,5 +1,5 @@
 /**
- * Omega Volatility - ATR & Liquidity Specialist
+ * Omega-5 Volatility - DETERMINISTIC ATR & Liquidity Specialist
  *
  * Specializes in:
  * - ATR spikes and compression
@@ -7,112 +7,155 @@
  * - Liquidity pockets
  * - Price action smoothness
  * - Erratic movement detection
+ *
+ * FULLY DETERMINISTIC - NO LLM CALLS
  */
 
-import { openAIClient } from '../../services/openai-client';
-import { llmTokenTracker } from '../../services/llm-token-tracker';
-import type { OmegaVote } from './trend';
+import type { OmegaVote } from '../../types/omega-vote';
+import type { OmegaSensors } from '../../services/omega-sensors';
+import { analyzeATR, formatATREvidence } from '../../lib/technical-math/atr';
+import { analyzeCandleMetrics } from '../../lib/technical-math/candle';
+import { VOLATILITY_THRESHOLDS } from '../../config/omega-thresholds';
 
 export interface VolatilitySnapshot {
-  atr: number;      // current atr
-  atr_avg: number;  // average atr (20 periods)
-  vol: string;      // volatility state
-  c: number[][];    // last 5 candles [o,h,l,c]
-  wick_ratio: number; // avg wick/body ratio
+  atr: number;
+  atr_avg: number;
+  vol: string;
+  c: number[][];
+  wick_ratio: number;
+  sensors?: OmegaSensors;
 }
 
 class OmegaVolatilityBrain {
-  /**
-   * Evaluate volatility conditions for trading
-   */
-  async evaluate(snapshot: VolatilitySnapshot): Promise<OmegaVote> {
-    const prompt = `Volatility Analysis:
-${JSON.stringify(snapshot)}
+  evaluate(snapshot: VolatilitySnapshot): OmegaVote {
+    const { atr, atr_avg, vol, c, wick_ratio, sensors } = snapshot;
 
-Evaluate volatility and price action quality.
-Focus: ATR vs average, candle smoothness, erratic behavior.
-Vote: BUY (clean volatility), SELL (clean volatility), NO_TRADE (erratic/too volatile).
+    const atrAnalysis = analyzeATR(atr, atr_avg);
 
-Return JSON only:
-{
-  "vote": "BUY|SELL|NO_TRADE",
-  "confidence": 0-100,
-  "reasoning": "brief 1-line explanation"
-}`;
+    let score = 0;
+    const factors: string[] = [];
 
-    try {
-      const response = await openAIClient.chat(
-        [
-          {
-            role: 'system',
-            content: 'You are OmegaVolatility, a volatility specialist. Return JSON only.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        {
-          model: 'gpt-4o-mini',
-          temperature: 0.3,
-          max_tokens: 100,
-          requestType: 'omega_volatility_vote',
-          endpoint: 'omega-volatility'
+    if (atrAnalysis.regime === 'NORMAL') {
+      score += 25;
+      factors.push('ATR_NORMAL');
+    } else if (atrAnalysis.regime === 'COMPRESSION') {
+      score += 15;
+      factors.push('ATR_COMPRESSED');
+    } else if (atrAnalysis.regime === 'EXPANSION') {
+      if (atrAnalysis.expansion > 2.0) {
+        score -= 20;
+        factors.push('ATR_EXTREME_EXPANSION');
+      } else {
+        score += 5;
+        factors.push('ATR_EXPANDING');
+      }
+    }
+
+    if (wick_ratio <= 1.0) {
+      score += 15;
+      factors.push('CLEAN_CANDLES');
+    } else if (wick_ratio <= VOLATILITY_THRESHOLDS.WICK_RATIO_HIGH) {
+      score += 5;
+      factors.push('MODERATE_WICKS');
+    } else if (wick_ratio > VOLATILITY_THRESHOLDS.WICK_RATIO_ERRATIC) {
+      score -= 25;
+      factors.push('ERRATIC_WICKS');
+    } else {
+      score -= 10;
+      factors.push('HIGH_WICKS');
+    }
+
+    if (sensors) {
+      if (sensors.vol_r === 'mid') {
+        score += 10;
+        factors.push('VOL_REGIME_MID');
+      } else if (sensors.vol_r === 'low') {
+        score += 5;
+        factors.push('VOL_REGIME_LOW');
+      } else if (sensors.vol_r === 'high') {
+        score -= 5;
+        factors.push('VOL_REGIME_HIGH');
+      }
+
+      if (sensors.atr_t === 'flat') {
+        score += 10;
+        factors.push('ATR_STABLE');
+      } else if (sensors.atr_t === 'down') {
+        score += 5;
+        factors.push('ATR_CONTRACTING');
+      }
+
+      if (sensors.vol_s === 1) {
+        if (atrAnalysis.regime !== 'EXPANSION') {
+          score += 5;
+          factors.push('VOL_SPIKE_OPPORTUNITY');
+        } else {
+          score -= 5;
+          factors.push('VOL_SPIKE_CAUTION');
         }
-      );
-
-      // Track token usage
-      await llmTokenTracker.logUsage({
-        brainName: 'Omega-5',
-        model: 'gpt-4o-mini',
-        promptTokens: response.usage?.prompt_tokens || 0,
-        completionTokens: response.usage?.completion_tokens || 0,
-        totalTokens: response.usage?.total_tokens || 0,
-        contextType: 'omega_volatility_vote',
-        userId: undefined,
-        sessionId: undefined
-      });
-
-      const content = response.choices[0]?.message?.content || '{}';
-      const vote = this.parseVote(content);
-
-      // Log vote for transparency
-      console.log(`[Omega-5 Volatility] Vote: ${vote.vote} | Confidence: ${vote.confidence}% | Reasoning: ${vote.reasoning}`);
-
-      return vote;
-    } catch (error) {
-      console.error('[Omega-5 Volatility] LLM call failed:', error);
-      return {
-        vote: 'NO_TRADE',
-        confidence: 0,
-        reasoning: 'Analysis failed'
-      };
+      }
     }
-  }
 
-  private parseVote(response: string): OmegaVote {
-    try {
-      const cleaned = response
-        .replace(/```json\n?/g, '')
-        .replace(/```\n?/g, '')
-        .trim();
+    if (c.length >= 3) {
+      let cleanCount = 0;
+      for (const candle of c.slice(-3)) {
+        if (candle.length >= 4) {
+          const metrics = analyzeCandleMetrics(candle[0], candle[1], candle[2], candle[3]);
+          if (metrics.bodyRatio > 0.5) {
+            cleanCount++;
+          }
+        }
+      }
 
-      const parsed = JSON.parse(cleaned);
-
-      return {
-        vote: parsed.vote || 'NO_TRADE',
-        confidence: Math.min(100, Math.max(0, parsed.confidence || 0)),
-        reasoning: parsed.reasoning || 'No reasoning provided'
-      };
-    } catch (error) {
-      console.error('[Omega-5 Volatility] ❌ Parse error:', error);
-      console.error('[Omega-5 Volatility] Raw response:', response.substring(0, 200));
-      return {
-        vote: 'NO_TRADE',
-        confidence: 0,
-        reasoning: 'Parse failed'
-      };
+      if (cleanCount >= 2) {
+        score += 10;
+        factors.push('CONSISTENT_PA');
+      }
     }
+
+    let vote: 'BUY' | 'SELL' | 'NO_TRADE';
+    let confidence: number;
+
+    if (score >= 35) {
+      vote = 'BUY';
+      confidence = Math.min(90, 55 + score * 0.6);
+      factors.push('VOL_FAVORABLE');
+    } else if (score >= 20) {
+      vote = 'BUY';
+      confidence = Math.min(70, 45 + score * 0.5);
+      factors.push('VOL_ACCEPTABLE');
+    } else if (score <= -15) {
+      vote = 'NO_TRADE';
+      confidence = Math.max(20, 35 - Math.abs(score));
+      factors.push('VOL_UNFAVORABLE');
+    } else {
+      vote = 'NO_TRADE';
+      confidence = 40;
+      factors.push('VOL_UNCLEAR');
+    }
+
+    if (vote !== 'NO_TRADE' && confidence < VOLATILITY_THRESHOLDS.MIN_CONFIDENCE_FOR_TRADE) {
+      vote = 'NO_TRADE';
+      factors.push('BELOW_MIN_CONF');
+    }
+
+    const evidence = [
+      formatATREvidence(atrAnalysis),
+      `WICK_RATIO=${wick_ratio.toFixed(2)}`,
+      `VOL_STATE=${vol}`
+    ].join('|');
+
+    const reasoning = `[DET] ${vote} @ ${confidence}% | ${factors.slice(0, 4).join(', ')}`;
+
+    console.log(`[Omega-5 Volatility] [DET] Vote: ${vote} | Confidence: ${confidence}% | Factors: ${factors.join(', ')}`);
+
+    return {
+      vote,
+      confidence: Math.round(confidence),
+      reasoning,
+      evidence,
+      keyFactors: factors
+    };
   }
 }
 

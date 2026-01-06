@@ -1,5 +1,5 @@
 /**
- * Omega Trend - Trend Analysis Specialist
+ * Omega-1 Trend - DETERMINISTIC Trend Analysis Specialist
  *
  * Specializes in:
  * - Trend identification and strength
@@ -7,122 +7,141 @@
  * - Momentum analysis
  * - Trend continuation vs reversal
  *
- * Uses ultra-compressed prompts for cost efficiency
+ * FULLY DETERMINISTIC - NO LLM CALLS
+ * Uses OmegaSensors and technical-math library for all calculations.
  */
 
-import { openAIClient } from '../../services/openai-client';
-import { llmTokenTracker } from '../../services/llm-token-tracker';
+import type { OmegaVote } from '../../types/omega-vote';
+import type { OmegaSensors } from '../../services/omega-sensors';
+import {
+  calculateEMAAlignment,
+  calculateEMASlope,
+  formatEMAEvidence
+} from '../../lib/technical-math/ema';
+import { analyzeMomentum, formatMomentumEvidence } from '../../lib/technical-math/momentum';
+import { TREND_THRESHOLDS } from '../../config/omega-thresholds';
 
 export interface TrendSnapshot {
-  p: number;      // price
-  e20: number;    // ema20
-  e50: number;    // ema50
-  e200: number;   // ema200
-  mom: number;    // momentum -100 to 100
-  tr: string;     // trend: bull/bear/side
-  vol: string;    // volatility: low/med/high
-}
-
-export interface OmegaVote {
-  vote: 'BUY' | 'SELL' | 'NO_TRADE';
-  confidence: number; // 0-100
-  reasoning: string;
+  p: number;
+  e20: number;
+  e50: number;
+  e200: number;
+  mom: number;
+  tr: string;
+  vol: string;
+  sensors?: OmegaSensors;
+  previousEma20?: number;
+  atr?: number;
 }
 
 class OmegaTrendBrain {
-  /**
-   * Evaluate trend for trading decision
-   */
-  async evaluate(snapshot: TrendSnapshot): Promise<OmegaVote> {
-    const prompt = `Trend Analysis:
-${JSON.stringify(snapshot)}
+  evaluate(snapshot: TrendSnapshot): OmegaVote {
+    const { p, e20, e50, e200, mom, sensors, previousEma20, atr } = snapshot;
 
-Evaluate trend strength and direction.
-Vote: BUY (trend up strong), SELL (trend down strong), NO_TRADE (weak/unclear).
+    const emaAlignment = calculateEMAAlignment(p, e20, e50, e200);
+    const emaSlope = calculateEMASlope(e20, previousEma20 || e20, atr || 1);
+    const momentum = analyzeMomentum(mom);
 
-Return JSON only:
-{
-  "vote": "BUY|SELL|NO_TRADE",
-  "confidence": 0-100,
-  "reasoning": "brief 1-line explanation"
-}`;
+    let score = 0;
+    const factors: string[] = [];
 
-    try {
-      const response = await openAIClient.chat(
-        [
-          {
-            role: 'system',
-            content: 'You are OmegaTrend, a trend analysis specialist. Return JSON only.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        {
-          model: 'gpt-4o-mini',
-          temperature: 0.3,
-          max_tokens: 100,
-          requestType: 'omega_trend_vote',
-          endpoint: 'omega-trend'
-        }
-      );
-
-      // Track token usage
-      await llmTokenTracker.logUsage({
-        brainName: 'Omega-1',
-        model: 'gpt-4o-mini',
-        promptTokens: response.usage?.prompt_tokens || 0,
-        completionTokens: response.usage?.completion_tokens || 0,
-        totalTokens: response.usage?.total_tokens || 0,
-        contextType: 'omega_trend_vote',
-        userId: undefined,
-        sessionId: undefined
-      });
-
-      const content = response.choices[0]?.message?.content || '{}';
-      const vote = this.parseVote(content);
-
-      // Log vote for transparency
-      console.log(`[Omega-1 Trend] Vote: ${vote.vote} | Confidence: ${vote.confidence}% | Reasoning: ${vote.reasoning}`);
-
-      return vote;
-    } catch (error) {
-      console.error('[Omega-1 Trend] LLM call failed:', error);
-      return {
-        vote: 'NO_TRADE',
-        confidence: 0,
-        reasoning: 'Analysis failed'
-      };
+    if (emaAlignment.stack === 'BULL') {
+      score += emaAlignment.strength * 0.4;
+      factors.push(`EMA_BULL(${emaAlignment.strength})`);
+    } else if (emaAlignment.stack === 'BEAR') {
+      score -= emaAlignment.strength * 0.4;
+      factors.push(`EMA_BEAR(${emaAlignment.strength})`);
+    } else {
+      factors.push('EMA_MIXED');
     }
-  }
 
-  /**
-   * Parse LLM response into vote
-   */
-  private parseVote(response: string): OmegaVote {
-    try {
-      const cleaned = response
-        .replace(/```json\n?/g, '')
-        .replace(/```\n?/g, '')
-        .trim();
-
-      const parsed = JSON.parse(cleaned);
-
-      return {
-        vote: parsed.vote || 'NO_TRADE',
-        confidence: Math.min(100, Math.max(0, parsed.confidence || 0)),
-        reasoning: parsed.reasoning || 'No reasoning provided'
-      };
-    } catch (error) {
-      console.error('[Omega-1 Trend] ❌ Parse error:', error);
-      console.error('[Omega-1 Trend] Raw response:', response.substring(0, 200));
-      return {
-        vote: 'NO_TRADE',
-        confidence: 0,
-        reasoning: 'Parse failed'
-      };
+    if (emaSlope.direction === 'UP' && emaSlope.magnitude > TREND_THRESHOLDS.EMA_SLOPE_STRONG) {
+      score += 15;
+      factors.push('SLOPE_STRONG_UP');
+    } else if (emaSlope.direction === 'DOWN' && emaSlope.magnitude > TREND_THRESHOLDS.EMA_SLOPE_STRONG) {
+      score -= 15;
+      factors.push('SLOPE_STRONG_DOWN');
+    } else if (emaSlope.direction === 'UP') {
+      score += 8;
+      factors.push('SLOPE_UP');
+    } else if (emaSlope.direction === 'DOWN') {
+      score -= 8;
+      factors.push('SLOPE_DOWN');
     }
+
+    if (momentum.direction === 'STRONG_BULL') {
+      score += 20;
+      factors.push('MOM_STRONG_BULL');
+    } else if (momentum.direction === 'BULL') {
+      score += 10;
+      factors.push('MOM_BULL');
+    } else if (momentum.direction === 'STRONG_BEAR') {
+      score -= 20;
+      factors.push('MOM_STRONG_BEAR');
+    } else if (momentum.direction === 'BEAR') {
+      score -= 10;
+      factors.push('MOM_BEAR');
+    }
+
+    if (sensors) {
+      if (sensors.bos === 'bull') {
+        score += 12;
+        factors.push('BOS_BULL');
+      } else if (sensors.bos === 'bear') {
+        score -= 12;
+        factors.push('BOS_BEAR');
+      }
+
+      if (sensors.cho === 'bull') {
+        score += 8;
+        factors.push('CHOCH_BULL');
+      } else if (sensors.cho === 'bear') {
+        score -= 8;
+        factors.push('CHOCH_BEAR');
+      }
+
+      if (sensors.atr_t === 'up') {
+        const bonus = score > 0 ? 5 : -5;
+        score += bonus;
+        factors.push('ATR_EXPANDING');
+      }
+    }
+
+    let vote: 'BUY' | 'SELL' | 'NO_TRADE';
+    let confidence: number;
+
+    if (score >= 30) {
+      vote = 'BUY';
+      confidence = Math.min(95, 55 + score);
+    } else if (score <= -30) {
+      vote = 'SELL';
+      confidence = Math.min(95, 55 + Math.abs(score));
+    } else {
+      vote = 'NO_TRADE';
+      confidence = Math.max(20, 40 - Math.abs(score));
+    }
+
+    if (vote !== 'NO_TRADE' && confidence < TREND_THRESHOLDS.MIN_CONFIDENCE_FOR_TRADE) {
+      vote = 'NO_TRADE';
+      factors.push('BELOW_MIN_CONF');
+    }
+
+    const evidence = [
+      formatEMAEvidence(emaAlignment, emaSlope),
+      formatMomentumEvidence(momentum)
+    ].join('|');
+
+    const reasoning = `[DET] ${vote} @ ${confidence}% | ${factors.slice(0, 4).join(', ')}`;
+
+    console.log(`[Omega-1 Trend] [DET] Vote: ${vote} | Confidence: ${confidence}% | Factors: ${factors.join(', ')}`);
+
+    return {
+      vote,
+      confidence: Math.round(confidence),
+      reasoning,
+      evidence,
+      keyFactors: factors
+    };
   }
 }
 
