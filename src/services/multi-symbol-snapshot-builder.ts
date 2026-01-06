@@ -87,7 +87,7 @@ class MultiSymbolSnapshotBuilder {
    */
   async buildSnapshots(
     symbols: string[],
-    riskMode: 'conservative' | 'moderate' | 'aggressive' = 'moderate'
+    riskMode: 'low' | 'medium' | 'high' = 'medium'
   ): Promise<MultiSymbolSnapshotResult> {
     console.log(`[Multi-Symbol] Building snapshots for ${symbols.length} symbols using cache...`);
     const startTime = Date.now();
