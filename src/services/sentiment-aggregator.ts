@@ -46,6 +46,19 @@ class MarketContextAggregator {
     marketState: MarketState,
     timestamp: Date = new Date()
   ): Promise<AggregatedSentiment> {
+    // CRITICAL FIX: Validate ATR before using it
+    if (!marketState.atr || isNaN(marketState.atr) || marketState.atr <= 0) {
+      console.error(`[MarketContext] ❌ Invalid ATR for ${symbol}: ${marketState.atr}`);
+      console.error(`[MarketContext] MarketState:`, {
+        symbol,
+        price: marketState.price,
+        atr: marketState.atr,
+        hasATR: 'atr' in marketState,
+        atrType: typeof marketState.atr
+      });
+      throw new Error(`Invalid ATR value for ${symbol}: ${marketState.atr}. Cannot generate market context.`);
+    }
+
     const cacheKey = this.buildCacheKey(symbol, marketState.atr);
 
     if (this.isMemoryCacheValid(cacheKey)) {
@@ -199,10 +212,23 @@ class MarketContextAggregator {
     atr: number
   ): Promise<void> {
     try {
+      // CRITICAL FIX: Validate ATR before saving to prevent NULL constraint violations
+      if (!atr || isNaN(atr) || atr <= 0) {
+        console.error(`[MarketContext] ❌ Cannot save cache - invalid ATR for ${symbol}: ${atr}`);
+        return; // Fail silently - don't try to save invalid data
+      }
+
       const ttlMinutes = this.CACHE_DURATION_MINUTES;
       const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000);
 
       const atrBucket = Math.floor(atr * 1000);
+
+      // Additional validation: atrBucket must be a valid integer
+      if (!Number.isFinite(atrBucket) || isNaN(atrBucket)) {
+        console.error(`[MarketContext] ❌ Cannot save cache - invalid atrBucket for ${symbol}: ${atrBucket} (from ATR: ${atr})`);
+        return;
+      }
+
       const marketStateHash = `MC_${symbol}_ATR${Math.floor(atr * 1000) / 1000}`;
 
       const voteMapping: Record<string, string> = {

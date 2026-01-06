@@ -603,7 +603,10 @@ class GoalSessionLiveEngine {
         ema200: snapshot.ema200,
         rsi: snapshot.rsi,
         stochRsi: snapshot.stochRsi,
-        atr: snapshot.atr,
+        // CRITICAL FIX: Extract raw value from ATRValue type
+        // snapshot.atr is ATRValue { value, timeframe, period }
+        // FullMarketState expects number
+        atr: snapshot.atr.value,
         vwap: snapshot.vwap,
         trend: snapshot.trend,
         volatility: snapshot.volatility,
@@ -832,15 +835,15 @@ class GoalSessionLiveEngine {
       else currentSession = 'closed';
 
       // ✅ CRITICAL FIX: Convert ATR from price units to pips
-      // snapshot.atr is in price units (e.g., 0.04370 for USDJPY)
+      // snapshot.atr is ATRValue type with .value property in price units (e.g., 0.04370 for USDJPY)
       // Must convert to pips before passing to timeToFillCalculator
       const pipInfo = getCurrencyPipInfo(selectedSymbol);
-      const atrPips = (snapshot.atr || (10 * pipInfo.pipValue)) / pipInfo.pipValue;
+      const atrPips = (snapshot.atr.value || (10 * pipInfo.pipValue)) / pipInfo.pipValue;
       const spreadPips = (snapshot.spread || 0) / pipInfo.pipValue;
 
       // DEBUG: Log ATR conversion
       console.log(`[ATR DEBUG] ${selectedSymbol}:`, {
-        snapshotAtr: snapshot.atr,
+        snapshotAtr: snapshot.atr.value,
         pipValue: pipInfo.pipValue,
         atrPips,
         reconvertedATR: atrPips * pipInfo.pipValue
@@ -854,7 +857,7 @@ class GoalSessionLiveEngine {
       });
 
       // Resolve Alpha's style intent to executable trading mode
-      const atrPercent = snapshot.atr / snapshot.price;
+      const atrPercent = snapshot.atr.value / snapshot.price;
       const sessionTypeMap: Record<string, 'asian' | 'london' | 'nyse'> = {
         'london': 'london',
         'ny': 'nyse',
@@ -881,7 +884,7 @@ class GoalSessionLiveEngine {
       console.log('%c[Goal Feasibility] 🔍 Analyzing goal feasibility before execution...', 'color: #3b82f6; font-weight: bold');
 
       const { typicalATR, dailyATR } = await this.calculateHistoricalATR(selectedSymbol);
-      const currentATRValue = snapshot.atr;
+      const currentATRValue = snapshot.atr.value;
 
       const feasibilityInput = {
         userId: this.config.userId,
