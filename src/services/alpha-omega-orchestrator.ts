@@ -1040,7 +1040,7 @@ class AlphaOmegaOrchestrator {
 
       // Equal split (2v2 or 3v3) - signals Alpha's arbitration is needed, but not fatal
       if (majorityCount === minorityCount) {
-        penalty = 0.85; // 15% penalty for equal split - let Alpha decide
+        penalty = 0.90; // 10% penalty for equal split - let Alpha decide
         console.log(`[Omega Conflict] HARD conflict - EQUAL SPLIT (${majorityCount}v${minorityCount}) - Alpha arbitration needed (${((1 - penalty) * 100).toFixed(0)}% penalty)`);
       }
       // Clear majority (3+ vs 1-2) - minimal penalty

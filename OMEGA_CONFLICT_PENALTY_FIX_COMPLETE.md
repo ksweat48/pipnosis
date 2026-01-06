@@ -45,7 +45,7 @@ let penalty = 0.75; // Base: 25% penalty for HARD conflict
 
 // Equal split (2v2 or 3v3) - signals Alpha's arbitration is needed
 if (majorityCount === minorityCount) {
-  penalty = 0.85; // 15% penalty for equal split - let Alpha decide
+  penalty = 0.90; // 10% penalty for equal split - let Alpha decide
 }
 // Clear majority (3+ vs 1-2) - minimal penalty
 else if (majorityCount >= 3 && minorityCount <= 2) {
@@ -63,8 +63,8 @@ else {
 
 | Scenario | Old Penalty | New Penalty | Change |
 |----------|-------------|-------------|--------|
-| **2v2 Equal Split** | **-50%** | **-15%** | ✅ **+35% improvement** |
-| **3v3 Equal Split** | -50% | -15% | ✅ +35% improvement |
+| **2v2 Equal Split** | **-50%** | **-10%** | ✅ **+40% improvement** |
+| **3v3 Equal Split** | -50% | -10% | ✅ +40% improvement |
 | **3v2 Slight Majority** | -50% | -25% | ✅ +25% improvement |
 | **4v1 Clear Majority** | -35% | -10% | ✅ +25% improvement |
 
@@ -73,7 +73,7 @@ else {
 ## Why This Is Better
 
 ### 1. **Equal Splits (2v2, 3v3)**
-- **Penalty: 15% (was 50%)**
+- **Penalty: 10% (was 50%)**
 - These represent genuine market ambiguity where Alpha should decide
 - Example: Trend + OrderFlow (long-term) vs Scalper + Reversal (short-term) = **Alpha arbitrates**
 
@@ -110,12 +110,12 @@ Omega Votes:
   SELL: Scalper (75%), Reversal (75%)
 
 Conflict: 2v2 EQUAL SPLIT
-Penalty: 15% (-0.85x multiplier)
-Result: 81% → 69% confidence
+Penalty: 10% (-0.90x multiplier)
+Result: 81% → 73% confidence
 Status: PASSES to Alpha for final decision ✅
 ```
 
-**Outcome:** Alpha gets to make the call with 69% confidence instead of being blocked.
+**Outcome:** Alpha gets to make the call with 73% confidence instead of being blocked.
 
 ---
 
@@ -147,7 +147,7 @@ Status: PASSES to Alpha for final decision ✅
 
 1. **2v2 Split Test**
    - Look for BTCUSD or other volatile pairs
-   - Verify 15% penalty is applied (not 50%)
+   - Verify 10% penalty is applied (not 50%)
    - Confirm trades pass to Alpha with >45% confidence
 
 2. **3v1 Majority Test**
@@ -155,7 +155,7 @@ Status: PASSES to Alpha for final decision ✅
    - Confirm Alpha still sees high confidence signals
 
 3. **Log Verification**
-   - Check console output includes: `"EQUAL SPLIT (2v2) - Alpha arbitration needed (15% penalty)"`
+   - Check console output includes: `"EQUAL SPLIT (2v2) - Alpha arbitration needed (10% penalty)"`
    - Verify penalty percentages are displayed correctly
 
 ---
@@ -165,7 +165,7 @@ Status: PASSES to Alpha for final decision ✅
 **The 50% penalty for 2v2 Omega splits was architectural overreach.**
 
 Alpha exists to resolve exactly these situations. The new system:
-- Applies **fair, nuanced penalties** (10-25% typical, 15% for equal splits)
+- Applies **fair, nuanced penalties** (10-25% typical, 10% for equal splits)
 - **Respects Alpha's authority** as final decision-maker
 - **Distinguishes between ambiguity and weakness** (2v2 ≠ failure)
 - **Allows high-quality trades** that were previously blocked
