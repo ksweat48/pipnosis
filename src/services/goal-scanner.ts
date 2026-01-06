@@ -12,9 +12,10 @@ import { scanningStateMachine } from './scanning-state-machine';
 import { weekendProtectionService } from './weekend-protection-service';
 import { multiSymbolRanker, type SymbolScore } from './multi-symbol-ranker';
 import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orchestrator';
-import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator';
+import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator-refactored';
 import { computeOmegaSensors, type OmegaSensors } from './omega-sensors';
 import type { TraderScore } from './ai-identity';
+import type { MarketSnapshotData } from './market-snapshot-cache';
 
 export interface SessionConfig {
   starting_balance: number;
@@ -248,15 +249,16 @@ class GoalScanner {
 
   async scanSymbol(symbol: string, sessionConfig: SessionConfig, userId: string): Promise<ScanResult> {
     try {
-      const { data: candles } = await supabase
-        .from('forex_candles')
-        .select('*')
-        .eq('symbol', symbol)
-        .eq('timeframe', normalizeTimeframeToDb('15m'))
-        .order('open_time', { ascending: false })
-        .limit(100);
+      // ✅ SSOT FIX: Use snapshot cache instead of manual DB queries
+      const timeframe = 'M15'; // Goal mode uses M15 by default
+      const snapshot = await sharedIntelligenceCoordinator.getMarketSnapshot(
+        symbol,
+        timeframe,
+        sessionConfig.risk_mode
+      );
 
-      if (!candles || candles.length < 50) {
+      if (!snapshot) {
+        console.warn(`[Goal Scanner] ⚠️ No snapshot available for ${symbol}`);
         return {
           symbol,
           hasValidSetup: false,
@@ -271,7 +273,7 @@ class GoalScanner {
         };
       }
 
-      const setup = await this.detectSetup(symbol, candles, sessionConfig, userId);
+      const setup = await this.detectSetupFromSnapshot(symbol, snapshot, sessionConfig, userId);
 
       return setup;
     } catch (error) {
@@ -291,31 +293,35 @@ class GoalScanner {
     }
   }
 
-  async detectSetup(symbol: string, candles: any[], sessionConfig: SessionConfig, userId: string): Promise<ScanResult> {
-    const recentCandles = candles.slice(0, 50).reverse();
-    const prices = recentCandles.map(c => c.close);
-    const currentPrice = prices[prices.length - 1];
-
-    const ema20 = this.calculateEMA(prices, 20);
-    const ema50 = this.calculateEMA(prices, 50);
-    const ema200 = this.calculateEMA(prices, Math.min(200, prices.length - 1));
-    const vwap = this.calculateVWAP(recentCandles.slice(-20));
-    const atr = this.calculateATR(recentCandles.slice(-14));
-    const rsi = this.calculateRSI(prices, 14);
-
-    const volatilityAnalysis = await forecastEngine.analyzeVolatility(symbol, candles);
-    const trendAnalysis = await forecastEngine.analyzeTrendFormation(symbol, candles);
-
+  /**
+   * ✅ SSOT COMPLIANT: Uses snapshot from cache
+   * Scanner and Omegas now see EXACT SAME DATA
+   */
+  async detectSetupFromSnapshot(
+    symbol: string,
+    snapshot: MarketSnapshotData,
+    sessionConfig: SessionConfig,
+    userId: string
+  ): Promise<ScanResult> {
+    // Build market conditions from snapshot
     const marketConditions: MarketConditions = {
       symbol,
-      volatility: volatilityAnalysis.level === 'high' ? 80 : volatilityAnalysis.level === 'medium' ? 50 : 20,
-      trend: this.determineTrend(recentCandles),
+      volatility: snapshot.volatility === 'high' ? 80 : snapshot.volatility === 'medium' ? 50 : 20,
+      trend: snapshot.trend,
       volume: 50,
-      momentum: trendAnalysis.confidence,
-      priceAction: this.analyzePriceAction(recentCandles.slice(-5)),
+      momentum: snapshot.momentum,
+      priceAction: this.analyzePriceActionFromSnapshot(snapshot),
     };
 
-    const passesBasicFilter = this.passesBasicFilter(currentPrice, ema20, ema50, rsi, atr, marketConditions);
+    // Basic filter using snapshot data
+    const passesBasicFilter = this.passesBasicFilter(
+      snapshot.price,
+      snapshot.ema20,
+      snapshot.ema50,
+      snapshot.rsi,
+      snapshot.atr.value, // Extract numeric value from ATRValue type
+      marketConditions
+    );
 
     if (!passesBasicFilter) {
       console.log(`[Goal Scanner] ❌ ${symbol}: Failed basic filter - skipping Alpha-Omega`);
@@ -329,6 +335,7 @@ class GoalScanner {
     console.log(`[Goal Scanner] ✅ ${symbol}: Passed basic filter - calling Alpha-Omega...`);
 
     try {
+      // Scout state check (uses same coordinator)
       const scoutState = await sharedIntelligenceCoordinator.getScoutState(symbol, 'M15');
       if (scoutState && !scoutState.shouldReconvene && scoutState.cacheAgeSeconds < 300) {
         console.log(`[Goal Scanner] ⚡ ${symbol}: Scout says no opportunity (cache age: ${scoutState.cacheAgeSeconds}s)`);
@@ -340,9 +347,8 @@ class GoalScanner {
         };
       }
 
-      const marketState = this.buildMarketState(symbol, recentCandles, {
-        ema20, ema50, ema200, vwap, atr, rsi, volatilityAnalysis, trendAnalysis
-      });
+      // ✅ Build FullMarketState from snapshot (NOT manual calculations)
+      const marketState = this.snapshotToMarketState(snapshot);
 
       const mockTraderScore: TraderScore = {
         current_score: 75,
@@ -357,10 +363,11 @@ class GoalScanner {
         win_rate: 50
       };
 
-      const proposedSL = currentPrice - (atr * 1.8);
-      const proposedTP = currentPrice + (atr * 3.0);
+      const proposedSL = snapshot.price - (snapshot.atr.value * 1.8);
+      const proposedTP = snapshot.price + (snapshot.atr.value * 3.0);
 
-      // PRIORITY 3 FIX: Pass userId to makeTradeDecision for proper tracking
+      // ✅ Alpha-Omega will use SAME snapshot from cache
+      // This guarantees scanner and Omegas see identical data
       const alphaDecision = await alphaOmegaOrchestrator.makeTradeDecision(
         marketState,
         mockTraderScore,
@@ -398,6 +405,57 @@ class GoalScanner {
         marketConditions,
       };
     }
+  }
+
+  /**
+   * Convert MarketSnapshotData to FullMarketState
+   * Adapter method to maintain compatibility with Alpha-Omega
+   */
+  private snapshotToMarketState(snapshot: MarketSnapshotData): FullMarketState {
+    return {
+      symbol: snapshot.symbol,
+      price: snapshot.price,
+      ema20: snapshot.ema20,
+      ema50: snapshot.ema50,
+      ema200: snapshot.ema200,
+      rsi: snapshot.rsi,
+      stochRsi: snapshot.stochRsi,
+      atr: snapshot.atr.value, // Extract numeric value from ATRValue
+      vwap: snapshot.vwap,
+      trend: snapshot.trend,
+      volatility: snapshot.volatility,
+      momentum: snapshot.momentum,
+      support: snapshot.support,
+      resistance: snapshot.resistance,
+      swingHigh: snapshot.swingHigh,
+      swingLow: snapshot.swingLow,
+      recentCandles: snapshot.recentCandles,
+      omegaSensors: snapshot.omegaSensors
+    };
+  }
+
+  /**
+   * Analyze price action from snapshot data
+   */
+  private analyzePriceActionFromSnapshot(snapshot: MarketSnapshotData): string {
+    const candles = snapshot.recentCandles;
+    if (!candles || candles.length < 3) return 'insufficient';
+
+    const lastCandle = candles[candles.length - 1];
+    const prevCandle = candles[candles.length - 2];
+
+    const bodySize = Math.abs(lastCandle.close - lastCandle.open);
+    const wickSize = lastCandle.high - lastCandle.low;
+    const bodyRatio = wickSize > 0 ? bodySize / wickSize : 0;
+
+    if (bodyRatio > 0.7) return 'strong_momentum';
+    if (bodyRatio < 0.3) return 'indecision';
+
+    const bullish = lastCandle.close > lastCandle.open;
+    const prevBullish = prevCandle.close > prevCandle.open;
+
+    if (bullish === prevBullish) return 'trending';
+    return 'reversal';
   }
 
   private passesBasicFilter(
