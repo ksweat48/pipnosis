@@ -211,7 +211,7 @@ class MarketContextAggregator {
         'mixed': 'NEUTRAL'
       };
 
-      await supabase.from('omega_market_intelligence').upsert({
+      const { error } = await supabase.from('omega_market_intelligence').upsert({
         symbol: symbol,
         timeframe: 'M15',
         brain_name: 'market_context',
@@ -234,9 +234,14 @@ class MarketContextAggregator {
         onConflict: 'symbol,timeframe,brain_name,market_state_hash'
       });
 
-      console.log(`[MarketContext] ✅ Saved to 3-tier cache for ${symbol} (TTL: ${ttlMinutes}min)`);
+      if (error) {
+        console.error('[MarketContext] ❌ Cache save failed:', error.message);
+        console.error('[MarketContext] Error details:', JSON.stringify(error, null, 2));
+      } else {
+        console.log(`[MarketContext] ✅ Saved to 3-tier cache for ${symbol} (TTL: ${ttlMinutes}min)`);
+      }
     } catch (error) {
-      console.warn('[MarketContext] Failed to save to 3-tier cache:', error);
+      console.error('[MarketContext] ❌ Cache save exception:', error);
     }
   }
 

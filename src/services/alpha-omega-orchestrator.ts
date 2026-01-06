@@ -162,21 +162,25 @@ class AlphaOmegaOrchestrator {
     const omega8Snap = this.buildOmega8HybridSnapshot(marketState, entryTimeframe);
 
     // Risk is now a PRE-FLIGHT GATE (not a voting Omega)
+    // Determine probable direction based on SL/TP placement
+    const probableDirection: 'BUY' | 'SELL' = proposedSL < marketState.price ? 'BUY' : 'SELL';
+
     // Check risk constraints BEFORE expensive Omega calls
     const riskPreflightInput: RiskPreflightInput = {
       symbol: marketState.symbol,
+      direction: probableDirection,
       entry: marketState.price,
       stopLoss: proposedSL,
       takeProfit: proposedTP,
       atr: marketState.atr,
-      accountBalance: 10000, // Will be provided by caller in real implementation
-      riskPercentage: 2,
-      volatility: marketState.volatility,
-      existingPositions: []
+      accountBalance: goalContext?.accountBalance || 10000,
+      riskPercent: goalContext?.riskPercent || 2,
+      existingExposure: 0
     };
     const riskCheck = riskPreflightGate.validate(riskPreflightInput);
-    if (!riskCheck.pass) {
-      console.error(`[Alpha+Omega] 🚫 RISK PRE-FLIGHT BLOCKED: ${riskCheck.reason}`);
+    if (!riskCheck.canProceed) {
+      const violationMessages = riskCheck.violations.map(v => v.message).join('; ');
+      console.error(`[Alpha+Omega] 🚫 RISK PRE-FLIGHT BLOCKED: ${violationMessages}`);
       return {
         action: 'NO_TRADE',
         decision: 'NO_TRADE',
@@ -184,13 +188,14 @@ class AlphaOmegaOrchestrator {
         stopLoss: proposedSL,
         takeProfit: proposedTP,
         confidence: 0,
-        reasoning: `RISK GATE BLOCKED: ${riskCheck.reason}`,
-        omega_summary: `Risk pre-flight failed: ${riskCheck.violations.join(', ')}`
+        reasoning: `RISK GATE BLOCKED: ${violationMessages}`,
+        omega_summary: `Risk pre-flight failed: ${violationMessages}`
       };
     }
-    console.log(`[Alpha+Omega] ✅ Risk pre-flight passed (R:R ${riskCheck.rrRatio?.toFixed(2) || 'N/A'})`);
+    console.log(`[Alpha+Omega] ✅ Risk pre-flight passed (Score: ${riskCheck.riskScore}/100)`);
     if (riskCheck.warnings.length > 0) {
-      console.warn(`[Alpha+Omega] ⚠️ Risk warnings: ${riskCheck.warnings.join(', ')}`);
+      const warningMessages = riskCheck.warnings.map(w => w.message).join('; ');
+      console.warn(`[Alpha+Omega] ⚠️ Risk warnings: ${warningMessages}`);
     }
 
     console.log('[Alpha+Omega] 🔮 Calling Omega Council (parallel with 3-tier cache)...');

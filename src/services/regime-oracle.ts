@@ -41,6 +41,7 @@ export interface MarketState {
   atr: number;
   vwap?: number;
   volume?: number;
+  recentCandles?: Candle[];
 }
 
 export interface TimeRegime {
