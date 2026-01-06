@@ -556,9 +556,19 @@ class GoalSessionLiveEngine {
 
       console.log('%c[MULTI-SYMBOL] 📊 Building market snapshots for open markets...', 'color: #2196f3; font-weight: bold');
       const snapshotStartTime = Date.now();
-      // Issue #3 fix: Pass riskMode to buildSnapshots
-      const riskMode = this.config?.riskMode || 'medium';
-      const snapshotResult = await multiSymbolSnapshotBuilder.buildSnapshots(openMarketSymbols, riskMode);
+
+      // Map GoalSessionLiveConfig risk mode to snapshot builder format
+      const riskModeMap = {
+        'low': 'conservative',
+        'medium': 'moderate',
+        'high': 'aggressive'
+      } as const;
+
+      const mappedRiskMode = this.config?.riskMode
+        ? riskModeMap[this.config.riskMode]
+        : 'moderate';
+
+      const snapshotResult = await multiSymbolSnapshotBuilder.buildSnapshots(openMarketSymbols, mappedRiskMode);
       console.log('%c[MULTI-SYMBOL] ✅ Snapshots built in ' + (Date.now() - snapshotStartTime) + 'ms', 'color: #4caf50; font-weight: bold');
       console.log('[MULTI-SYMBOL] Snapshot result:', {
         totalSnapshots: snapshotResult.snapshots.length,
