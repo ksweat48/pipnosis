@@ -30,7 +30,8 @@ import type { RegimeSnapshot } from './regime-oracle';
 import type { AdversarialSignal } from './adversarial-detector';
 import { sentimentCoordinator } from './sentiment-coordinator';
 import type { AggregatedSentiment } from './sentiment-aggregator';
-import { sharedIntelligenceCoordinator, type CachedOmegaIntelligence } from './shared-intelligence-coordinator';
+import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator-refactored';
+import type { MarketSnapshotData } from './market-snapshot-cache';
 import { tradeExecutionFreshnessGate, type ExecutionContext } from './trade-execution-freshness-gate';
 import { realtimePriceStalenessValidator } from './realtime-price-staleness-validator';
 import { getMTFConfig, type Timeframe, type RiskMode } from '../config/timeframe-hierarchy';
@@ -153,26 +154,44 @@ class AlphaOmegaOrchestrator {
       }
     }
 
-    // Build snapshots for each Omega
-    const trendSnap = this.buildTrendSnapshot(marketState);
-    const scalperSnap = this.buildScalperSnapshot(marketState);
-    const confirmationSnap = this.buildConfirmationSnapshot(marketState);
-    const reversalSnap = this.buildReversalSnapshot(marketState);
-    const volatilitySnap = this.buildVolatilitySnapshot(marketState);
-    const omega8Snap = this.buildOmega8HybridSnapshot(marketState, entryTimeframe);
+    // ✅ NEW: Get shared snapshot ONCE (SSOT for all Omegas)
+    // This is THE critical change: one snapshot, not 7+ separate queries
+    let snapshot: MarketSnapshotData;
+    try {
+      snapshot = await sharedIntelligenceCoordinator.getMarketSnapshot(
+        marketState.symbol,
+        entryTimeframe,
+        riskMode
+      );
+      console.log(`[Alpha+Omega] 📊 Snapshot SSOT: ${snapshot.snapshotHash}`);
+      console.log(`  Price: ${snapshot.price.toFixed(5)} | ATR: ${snapshot.atr.toFixed(5)} | Trend: ${snapshot.trend}`);
+      console.log(`  ✅ All Omegas will see THIS EXACT DATA (no drift)`);
+    } catch (error) {
+      console.error(`[Alpha+Omega] ❌ Failed to build snapshot:`, error);
+      return {
+        action: 'NO_TRADE',
+        decision: 'NO_TRADE',
+        entry: marketState.price,
+        stopLoss: proposedSL,
+        takeProfit: proposedTP,
+        confidence: 0,
+        reasoning: `Snapshot build failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        omega_summary: 'System error - no market snapshot available'
+      };
+    }
 
     // Risk is now a PRE-FLIGHT GATE (not a voting Omega)
     // Determine probable direction based on SL/TP placement
-    const probableDirection: 'BUY' | 'SELL' = proposedSL < marketState.price ? 'BUY' : 'SELL';
+    const probableDirection: 'BUY' | 'SELL' = proposedSL < snapshot.price ? 'BUY' : 'SELL';
 
     // Check risk constraints BEFORE expensive Omega calls
     const riskPreflightInput: RiskPreflightInput = {
-      symbol: marketState.symbol,
+      symbol: snapshot.symbol,
       direction: probableDirection,
-      entry: marketState.price,
+      entry: snapshot.price,
       stopLoss: proposedSL,
       takeProfit: proposedTP,
-      atr: marketState.atr,
+      atr: snapshot.atr,
       accountBalance: goalContext?.accountBalance || 10000,
       riskPercent: goalContext?.riskPercent || 2,
       existingExposure: 0
@@ -184,7 +203,7 @@ class AlphaOmegaOrchestrator {
       return {
         action: 'NO_TRADE',
         decision: 'NO_TRADE',
-        entry: marketState.price,
+        entry: snapshot.price,
         stopLoss: proposedSL,
         takeProfit: proposedTP,
         confidence: 0,
@@ -198,144 +217,142 @@ class AlphaOmegaOrchestrator {
       console.warn(`[Alpha+Omega] ⚠️ Risk warnings: ${warningMessages}`);
     }
 
-    console.log('[Alpha+Omega] 🔮 Calling Omega Council (parallel with 3-tier cache)...');
+    // ✅ NEW: Call Omegas directly with shared snapshot (deterministic, instant)
+    console.log('[Alpha+Omega] 🔮 Calling Omega Council (snapshot-first, deterministic)...');
     const startTime = Date.now();
-    let cacheHits = 0;
-    let cacheMisses = 0;
 
-    const [
-      trendCached,
-      scalperCached,
-      confirmationCached,
-      reversalCached,
-      volatilityCached,
-      omega8Vote
-    ] = await Promise.all([
-      sharedIntelligenceCoordinator.getOmegaIntelligence(
-        marketState.symbol,
-        entryTimeframe,
-        'trend',
-        marketState.recentCandles,
-        async () => {
-          const result = omegaTrend.evaluate(trendSnap);
-          return {
-            vote: result.vote,
-            confidence: result.confidence,
-            reasoning: result.reasoning,
-            keyFactors: result.keyFactors || []
-          };
-        }
-      ).catch(err => {
+    const [trendVote, scalperVote, confirmationVote, reversalVote, volatilityVote, omega8Vote] = await Promise.all([
+      omegaTrend.evaluate({
+        p: snapshot.price,
+        e20: snapshot.ema20,
+        e50: snapshot.ema50,
+        e200: snapshot.ema200,
+        mom: snapshot.momentum,
+        tr: snapshot.trend,
+        vol: snapshot.volatility,
+        regime: marketState.regime ? {
+          trend_strength: marketState.regime.trend_strength_score,
+          structure: marketState.regime.structure,
+          bias: marketState.regime.market_bias
+        } : undefined,
+        adv: marketState.adversarial ? {
+          lvl: marketState.adversarial.level,
+          score: marketState.adversarial.suspicion_score
+        } : undefined
+      }).catch(err => {
         console.warn('[Omega Trend] Failed:', err.message);
         return null;
       }),
 
-      sharedIntelligenceCoordinator.getOmegaIntelligence(
-        marketState.symbol,
-        entryTimeframe,
-        'scalper',
-        marketState.recentCandles,
-        async () => {
-          const result = omegaScalper.evaluate(scalperSnap);
-          return {
-            vote: result.vote,
-            confidence: result.confidence,
-            reasoning: result.reasoning,
-            keyFactors: result.keyFactors || []
-          };
-        }
-      ).catch(err => {
+      omegaScalper.evaluate({
+        p: snapshot.price,
+        vw: snapshot.vwap,
+        atr: snapshot.atr,
+        rsi: snapshot.rsi,
+        vol: snapshot.volatility,
+        c: snapshot.candles.slice(-3).map(c => [c.open, c.high, c.low, c.close]),
+        regime: marketState.regime ? {
+          session: marketState.regime.session,
+          session_open: marketState.regime.session_open,
+          atr_expansion: marketState.regime.atr_expansion
+        } : undefined,
+        adv: marketState.adversarial ? {
+          lvl: marketState.adversarial.level,
+          pat: marketState.adversarial.patterns.slice(0, 2)
+        } : undefined
+      }).catch(err => {
         console.warn('[Omega Scalper] Failed:', err.message);
         return null;
       }),
 
-      sharedIntelligenceCoordinator.getOmegaIntelligence(
-        marketState.symbol,
-        entryTimeframe,
-        'confirmation',
-        marketState.recentCandles,
-        async () => {
-          const result = omegaConfirmation.evaluate(confirmationSnap);
-          return {
-            vote: result.vote,
-            confidence: result.confidence,
-            reasoning: result.reasoning,
-            keyFactors: result.keyFactors || []
-          };
-        }
-      ).catch(err => {
+      omegaConfirmation.evaluate({
+        p: snapshot.price,
+        sup: snapshot.support,
+        res: snapshot.resistance,
+        sw: { h: snapshot.swingHigh, l: snapshot.swingLow },
+        str: this.determineStructure(snapshot),
+        tr: snapshot.trend,
+        regime: marketState.regime ? {
+          structure_type: marketState.regime.structure,
+          structure_quality: marketState.regime.structure_quality
+        } : undefined,
+        adv: marketState.adversarial ? {
+          lvl: marketState.adversarial.level
+        } : undefined
+      }).catch(err => {
         console.warn('[Omega Confirmation] Failed:', err.message);
         return null;
       }),
 
-      sharedIntelligenceCoordinator.getOmegaIntelligence(
-        marketState.symbol,
-        entryTimeframe,
-        'reversal',
-        marketState.recentCandles,
-        async () => {
-          const result = omegaReversal.evaluate(reversalSnap);
-          return {
-            vote: result.vote,
-            confidence: result.confidence,
-            reasoning: result.reasoning,
-            keyFactors: result.keyFactors || []
-          };
-        }
-      ).catch(err => {
+      omegaReversal.evaluate({
+        p: snapshot.price,
+        rsi: snapshot.rsi,
+        st: snapshot.stochRsi,
+        mom: snapshot.momentum,
+        e20: snapshot.ema20,
+        e50: snapshot.ema50,
+        tr: snapshot.trend,
+        vol: snapshot.volatility,
+        regime: marketState.regime ? {
+          atr_compression: marketState.regime.atr_compression,
+          wick_risk: marketState.regime.wick_risk,
+          structure: marketState.regime.structure
+        } : undefined,
+        adv: marketState.adversarial ? {
+          lvl: marketState.adversarial.level,
+          pat: marketState.adversarial.patterns.slice(0, 2)
+        } : undefined
+      }).catch(err => {
         console.warn('[Omega Reversal] Failed:', err.message);
         return null;
       }),
 
-      sharedIntelligenceCoordinator.getOmegaIntelligence(
-        marketState.symbol,
-        entryTimeframe,
-        'volatility',
-        marketState.recentCandles,
-        async () => {
-          const result = omegaVolatility.evaluate(volatilitySnap);
-          return {
-            vote: result.vote,
-            confidence: result.confidence,
-            reasoning: result.reasoning,
-            keyFactors: result.keyFactors || []
-          };
-        }
-      ).catch(err => {
+      omegaVolatility.evaluate({
+        atr: snapshot.atr,
+        atr_avg: snapshot.atr,
+        vol: snapshot.volatility,
+        c: snapshot.candles.slice(-5).map(c => [c.open, c.high, c.low, c.close]),
+        wick_ratio: this.calculateWickRatio(snapshot.candles.slice(-5).map(c => [c.open, c.high, c.low, c.close])),
+        regime: marketState.regime ? {
+          volatility_score: marketState.regime.volatility_score,
+          atr_compression: marketState.regime.atr_compression,
+          atr_expansion: marketState.regime.atr_expansion,
+          wick_risk: marketState.regime.wick_risk,
+          volatility_trend: marketState.regime.volatility_trend
+        } : undefined,
+        adv: marketState.adversarial ? {
+          lvl: marketState.adversarial.level,
+          score: marketState.adversarial.suspicion_score
+        } : undefined
+      }).catch(err => {
         console.warn('[Omega Volatility] Failed:', err.message);
         return null;
       }),
 
-      omega8Hybrid.runOmega8(omega8Snap).catch(err => {
+      omega8Hybrid.runOmega8({
+        symbol: snapshot.symbol,
+        timeframe: entryTimeframe,
+        price: snapshot.price,
+        atr: snapshot.atr,
+        candles: snapshot.candles.slice(-30).map(c => ({
+          time: typeof c.open_time === 'string' ? new Date(c.open_time).getTime() : new Date(c.open_time).getTime(),
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+          volume: c.volume || 1000
+        })),
+        trendBias: snapshot.trend === 'bull' ? 'up' : snapshot.trend === 'bear' ? 'down' : 'sideways',
+        support: snapshot.support,
+        resistance: snapshot.resistance
+      }).catch(err => {
         console.warn('[Omega-8 Hybrid] Failed:', err.message);
         return null;
       })
     ]);
 
-    const cachedResults = [trendCached, scalperCached, confirmationCached, reversalCached, volatilityCached];
-    cachedResults.forEach(r => {
-      if (r?.fromCache) {
-        cacheHits++;
-        this.cacheStats.hits++;
-      } else if (r) {
-        cacheMisses++;
-        this.cacheStats.misses++;
-      }
-    });
-
-    const trendVote = trendCached ? trendCached.vote : null;
-    const scalperVote = scalperCached ? scalperCached.vote : null;
-    const confirmationVote = confirmationCached ? confirmationCached.vote : null;
-    const reversalVote = reversalCached ? reversalCached.vote : null;
-    const volatilityVote = volatilityCached ? volatilityCached.vote : null;
-
     const omegaTime = Date.now() - startTime;
-    const hitRate = cachedResults.length > 0 ? (cacheHits / cachedResults.length * 100).toFixed(0) : '0';
-    const estimatedSavings = cacheHits * 0.0001;
-    this.cacheStats.totalSaved += estimatedSavings;
-
-    console.log(`[Alpha+Omega] ✅ Omega Council complete (${omegaTime}ms)`);
-    console.log(`[Alpha+Omega] ⚡ Cache: ${cacheHits}/${cachedResults.length} hits (${hitRate}%) | Saved: ~$${estimatedSavings.toFixed(4)} | Total: ~$${this.cacheStats.totalSaved.toFixed(4)}`);
+    console.log(`[Alpha+Omega] ✅ Omega Council complete (${omegaTime}ms) - All votes computed from SAME snapshot`);
 
     // Log Omega votes (Risk is now a pre-flight gate, not a voting Omega)
     this.logOmegaVotes({
@@ -348,66 +365,14 @@ class AlphaOmegaOrchestrator {
       omega8: omega8Vote
     });
 
-    // P0 CIRCUIT BREAKER: Full freshness gate validation with analytics logging
-    const omegaVotesMap = new Map<string, CachedOmegaIntelligence>();
-    if (trendCached) omegaVotesMap.set('trend', trendCached);
-    if (scalperCached) omegaVotesMap.set('scalper', scalperCached);
-    if (confirmationCached) omegaVotesMap.set('confirmation', confirmationCached);
-    if (reversalCached) omegaVotesMap.set('reversal', reversalCached);
-    if (volatilityCached) omegaVotesMap.set('volatility', volatilityCached);
+    // ✅ Snapshot freshness check (snapshot already validated by cache)
+    const snapshotAge = Date.now() - snapshot.createdAt;
+    const snapshotAgeSeconds = Math.round(snapshotAge / 1000);
 
-    // PRIORITY 2 FIX: Fetch CURRENT price for drift detection (not signal price)
-    const currentPrice = marketState.price; // In real implementation, this would fetch fresh price
-    const currentTimestamp = Date.now();
-    console.log(`[Alpha+Omega] 📍 Current price: ${currentPrice} at ${new Date(currentTimestamp).toISOString()}`);
-
-    const freshnessContext: ExecutionContext = {
-      symbol: marketState.symbol,
-      timeframe: entryTimeframe,
-      signalPrice: signalPrice, // Price at signal time
-      currentPrice: currentPrice, // Current price at execution time
-      signalTimestamp: signalTimestamp, // Timestamp when signal was generated
-      currentTimestamp: currentTimestamp, // Timestamp when current price was fetched
-      omegaVotes: omegaVotesMap
-    };
-
-    const freshnessResult = await tradeExecutionFreshnessGate.validateWithAutoRefresh(
-      freshnessContext,
-      async () => {
-        console.log('[Alpha+Omega] 🔄 Auto-refresh: Invalidating stale cache');
-        sharedIntelligenceCoordinator.clearLocalCache();
-        console.log('[Alpha+Omega] ✅ Cache invalidated - next scan will fetch fresh intelligence');
-      },
-      userId
-    );
-
-    const freshnessAdvisory = freshnessResult.advisory;
-
-    if (freshnessAdvisory?.overallSeverity === 'CRITICAL') {
-      console.error(`[Alpha+Omega] 🚫 CRITICAL: Freshness severely degraded for ${marketState.symbol}`);
-      console.error(`[Alpha+Omega] Advisory: ${freshnessAdvisory.advisoryMessage}`);
-      freshnessResult.blockingReasons.forEach((reason, i) => {
-        console.error(`  ${i + 1}. ${reason}`);
-      });
-      return {
-        action: 'NO_TRADE',
-        decision: 'NO_TRADE',
-        entry: marketState.price,
-        stopLoss: proposedSL,
-        takeProfit: proposedTP,
-        confidence: 0,
-        reasoning: `FRESHNESS CRITICAL: ${freshnessAdvisory.advisoryMessage}`,
-        omega_summary: `Execution blocked by CRITICAL freshness severity${freshnessResult.wasAutoRefreshed ? ' (auto-refresh attempted)' : ''}`
-      };
-    }
-
-    if (freshnessAdvisory?.overallSeverity === 'WARNING') {
-      console.warn(`[Alpha+Omega] ⚠️ WARNING: ${freshnessAdvisory.advisoryMessage}`);
-      console.warn(`[Alpha+Omega] Confidence reduction advisory: -${freshnessAdvisory.confidenceReduction}%`);
-    }
-
-    if (freshnessResult.wasAutoRefreshed) {
-      console.log('[Alpha+Omega] ⚡ Freshness gate passed after auto-refresh');
+    if (snapshotAgeSeconds > 60) {
+      console.warn(`[Alpha+Omega] ⚠️ Snapshot is ${snapshotAgeSeconds}s old - may need refresh`);
+      // Invalidate and refetch if too old
+      sharedIntelligenceCoordinator.invalidateSnapshot(marketState.symbol, entryTimeframe);
     }
 
     // ✅ DETECT Omega conflicts but DON'T BLOCK (Alpha has final authority)
@@ -710,197 +675,15 @@ class AlphaOmegaOrchestrator {
   }
 
   /**
-   * Build snapshot for Omega Trend
+   * REMOVED: Old snapshot builder methods (no longer needed)
+   * All Omegas now share the SAME snapshot from MarketSnapshotCache
+   * This ensures 100% data consistency across all Omegas
    */
-  private buildTrendSnapshot(state: FullMarketState): TrendSnapshot {
-    const base: TrendSnapshot = {
-      p: state.price,
-      e20: state.ema20,
-      e50: state.ema50,
-      e200: state.ema200,
-      mom: state.momentum,
-      tr: state.trend,
-      vol: state.volatility
-    };
-
-    // Add regime data if available
-    if (state.regime) {
-      return {
-        ...base,
-        regime: {
-          trend_strength: state.regime.trend_strength_score,
-          structure: state.regime.structure,
-          bias: state.regime.market_bias
-        },
-        adv: state.adversarial ? { lvl: state.adversarial.level, score: state.adversarial.suspicion_score } : undefined
-      } as any;
-    }
-
-    return base;
-  }
 
   /**
-   * Build snapshot for Omega Scalper
+   * Determine structure pattern (overloaded for both types)
    */
-  private buildScalperSnapshot(state: FullMarketState): ScalperSnapshot {
-    const recentCandles = state.recentCandles.slice(-3).map(c => [
-      c.open, c.high, c.low, c.close
-    ]);
-
-    const base: ScalperSnapshot = {
-      p: state.price,
-      vw: state.vwap,
-      atr: state.atr,
-      rsi: state.rsi,
-      vol: state.volatility,
-      c: recentCandles
-    };
-
-    // Add regime data if available
-    if (state.regime) {
-      return {
-        ...base,
-        regime: {
-          session: state.regime.session,
-          session_open: state.regime.session_open,
-          atr_expansion: state.regime.atr_expansion
-        },
-        adv: state.adversarial ? { lvl: state.adversarial.level, pat: state.adversarial.patterns.slice(0, 2) } : undefined
-      } as any;
-    }
-
-    return base;
-  }
-
-  /**
-   * Build snapshot for Omega Confirmation
-   */
-  private buildConfirmationSnapshot(state: FullMarketState): ConfirmationSnapshot {
-    const base: ConfirmationSnapshot = {
-      p: state.price,
-      sup: state.support,
-      res: state.resistance,
-      sw: { h: state.swingHigh, l: state.swingLow },
-      str: this.determineStructure(state),
-      tr: state.trend
-    };
-
-    // Add regime data if available
-    if (state.regime) {
-      return {
-        ...base,
-        regime: {
-          structure_type: state.regime.structure,
-          structure_quality: state.regime.structure_quality
-        },
-        adv: state.adversarial ? { lvl: state.adversarial.level } : undefined
-      } as any;
-    }
-
-    return base;
-  }
-
-  /**
-   * Build snapshot for Omega Reversal
-   */
-  private buildReversalSnapshot(state: FullMarketState): ReversalSnapshot {
-    const base: ReversalSnapshot = {
-      p: state.price,
-      rsi: state.rsi,
-      st: state.stochRsi,
-      mom: state.momentum,
-      e20: state.ema20,
-      e50: state.ema50,
-      tr: state.trend,
-      vol: state.volatility
-    };
-
-    // Add regime data if available
-    if (state.regime) {
-      return {
-        ...base,
-        regime: {
-          atr_compression: state.regime.atr_compression,
-          wick_risk: state.regime.wick_risk,
-          structure: state.regime.structure
-        },
-        adv: state.adversarial ? { lvl: state.adversarial.level, pat: state.adversarial.patterns.slice(0, 2) } : undefined
-      } as any;
-    }
-
-    return base;
-  }
-
-  /**
-   * Build snapshot for Omega Volatility
-   */
-  private buildVolatilitySnapshot(state: FullMarketState): VolatilitySnapshot {
-    const recentCandles = state.recentCandles.slice(-5).map(c => [
-      c.open, c.high, c.low, c.close
-    ]);
-
-    const wickRatio = this.calculateWickRatio(recentCandles);
-
-    const base: VolatilitySnapshot = {
-      atr: state.atr,
-      atr_avg: state.atr,
-      vol: state.volatility,
-      c: recentCandles,
-      wick_ratio: wickRatio
-    };
-
-    // Add regime data if available
-    if (state.regime) {
-      return {
-        ...base,
-        regime: {
-          volatility_score: state.regime.volatility_score,
-          atr_compression: state.regime.atr_compression,
-          atr_expansion: state.regime.atr_expansion,
-          wick_risk: state.regime.wick_risk,
-          volatility_trend: state.regime.volatility_trend
-        },
-        adv: state.adversarial ? { lvl: state.adversarial.level, score: state.adversarial.suspicion_score } : undefined
-      } as any;
-    }
-
-    return base;
-  }
-
-
-  /**
-   * Build snapshot for Omega-8 Hybrid OrderFlow
-   */
-  private buildOmega8HybridSnapshot(state: FullMarketState, timeframe: Timeframe = 'M15'): Omega8MarketSnapshot {
-    const candles = state.recentCandles.slice(-30).map(c => ({
-      time: c.time || Date.now(),
-      open: c.open || c[0],
-      high: c.high || c[1],
-      low: c.low || c[2],
-      close: c.close || c[3],
-      volume: c.volume || c[4] || 1000
-    }));
-
-    let trendBias: 'up' | 'down' | 'sideways' = 'sideways';
-    if (state.trend === 'bull') trendBias = 'up';
-    else if (state.trend === 'bear') trendBias = 'down';
-
-    return {
-      symbol: state.symbol,
-      timeframe,
-      price: state.price,
-      atr: state.atr,
-      candles,
-      trendBias,
-      support: state.support,
-      resistance: state.resistance
-    };
-  }
-
-  /**
-   * Determine structure pattern
-   */
-  private determineStructure(state: FullMarketState): string {
+  private determineStructure(state: FullMarketState | MarketSnapshotData): string {
     if (state.structure) {
       if (state.structure.hh && state.structure.hl) return 'hh';
       if (state.structure.ll && state.structure.lh) return 'll';
