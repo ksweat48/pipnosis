@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase';
 import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orchestrator';
 // SCOUT REMOVED: No longer needed with SSOT snapshot caching
 // import { globalScoutRunner } from './global-scout-runner';
-import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator';
+import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator-refactored';
 import { DEFAULT_WATCHLIST } from '../config/watchlist';
 import { computeOmegaSensors, OmegaSensors } from './omega-sensors';
 import type { CandleData } from '../types';
@@ -11,7 +11,7 @@ import type { TraderScore } from './ai-identity';
 export interface CacheWarmingResult {
   symbol: string;
   success: boolean;
-  omegaCached: number;
+  alphaWarmed: boolean; // Changed from omegaCached - only Alpha LLM decisions are cached now
   error?: string;
   durationMs: number;
 }
@@ -21,7 +21,7 @@ export interface FullWarmingReport {
   endTime: Date;
   totalDurationMs: number;
   symbolsWarmed: number;
-  totalOmegaCached: number;
+  totalAlphaWarmed: number; // Changed from totalOmegaCached - Omegas are deterministic
   failures: string[];
   results: CacheWarmingResult[];
 }
@@ -67,17 +67,17 @@ class CacheWarmingService {
           results.push({
             symbol,
             success: true,
-            omegaCached: result.omegaCached,
+            alphaWarmed: result.alphaWarmed,
             durationMs: Date.now() - symbolStart
           });
-          console.log(`[CacheWarming] Warmed ${symbol}: ${result.omegaCached} Omega brains cached`);
+          console.log(`[CacheWarming] Warmed ${symbol}: Alpha decision ${result.alphaWarmed ? 'cached' : 'executed'} (Omegas are deterministic - no caching)`);
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : 'Unknown error';
           failures.push(`${symbol}: ${errorMsg}`);
           results.push({
             symbol,
             success: false,
-            omegaCached: 0,
+            alphaWarmed: false,
             error: errorMsg,
             durationMs: Date.now() - symbolStart
           });
@@ -89,16 +89,16 @@ class CacheWarmingService {
 
       const endTime = new Date();
       const totalDurationMs = endTime.getTime() - startTime.getTime();
-      const totalOmegaCached = results.reduce((sum, r) => sum + r.omegaCached, 0);
+      const totalAlphaWarmed = results.filter(r => r.alphaWarmed).length;
 
-      console.log(`[CacheWarming] Complete: ${results.filter(r => r.success).length}/${symbols.length} symbols, ${totalOmegaCached} Omega brains cached in ${totalDurationMs}ms`);
+      console.log(`[CacheWarming] Complete: ${results.filter(r => r.success).length}/${symbols.length} symbols, ${totalAlphaWarmed} Alpha decisions cached in ${totalDurationMs}ms`);
 
       return {
         startTime,
         endTime,
         totalDurationMs,
         symbolsWarmed: results.filter(r => r.success).length,
-        totalOmegaCached,
+        totalAlphaWarmed,
         failures,
         results
       };
@@ -107,7 +107,7 @@ class CacheWarmingService {
     }
   }
 
-  private async warmSymbol(symbol: string, timeframe: string): Promise<{ omegaCached: number }> {
+  private async warmSymbol(symbol: string, timeframe: string): Promise<{ alphaWarmed: boolean }> {
     const candles = await this.fetchCandles(symbol, timeframe, 100);
     if (!candles || candles.length < 50) {
       throw new Error(`Insufficient candle data: ${candles?.length || 0} candles`);
@@ -131,9 +131,12 @@ class CacheWarmingService {
       win_rate: 50
     };
 
+    // Call orchestrator which will:
+    // 1. Compute Omega votes deterministically (instant, no caching)
+    // 2. Cache Alpha LLM decision (expensive, ~$0.20)
+    // 3. Return decision
     const startTime = Date.now();
-    // PRIORITY 3 FIX: Pass userId (undefined for system cache warming)
-    await alphaOmegaOrchestrator.makeTradeDecision(
+    const decision = await alphaOmegaOrchestrator.makeTradeDecision(
       marketState,
       mockTraderScore,
       proposedSL,
@@ -143,8 +146,10 @@ class CacheWarmingService {
     );
     const durationMs = Date.now() - startTime;
 
+    // Alpha decision was warmed if it executed (even if cached)
+    // The orchestrator will handle caching internally
     return {
-      omegaCached: durationMs < 500 ? 0 : 7
+      alphaWarmed: decision !== null && durationMs > 0
     };
   }
 
@@ -347,10 +352,10 @@ class CacheWarmingService {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  async cleanupAndWarm(): Promise<{ cleanup: { omega: number; alpha: number; scout: number }; warming: FullWarmingReport }> {
+  async cleanupAndWarm(): Promise<{ cleanup: { alpha: number }; warming: FullWarmingReport }> {
     console.log('[CacheWarming] Running cleanup before warming...');
     const cleanup = await sharedIntelligenceCoordinator.cleanupExpiredCache();
-    console.log(`[CacheWarming] Cleanup: ${cleanup.omega} omega, ${cleanup.alpha} alpha, ${cleanup.scout} scout entries removed`);
+    console.log(`[CacheWarming] Cleanup: ${cleanup.alpha} Alpha cache entries removed (Omegas are deterministic - no cache cleanup needed)`);
 
     const warming = await this.warmAllSymbols();
 

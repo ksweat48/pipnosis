@@ -74,10 +74,11 @@ class EmergencyPricePoller {
   private async verifyEmergencyModeNeeded(): Promise<boolean> {
     try {
       // Check if database has ANY recent data
+      // CRITICAL: Check forex_candles (what trade flow uses) not realtime_prices
       const { data, error } = await supabase
-        .from('realtime_prices')
-        .select('created_at, symbol')
-        .order('created_at', { ascending: false })
+        .from('forex_candles')
+        .select('open_time, symbol')
+        .order('open_time', { ascending: false })
         .limit(1)
         .maybeSingle();
 
@@ -91,10 +92,10 @@ class EmergencyPricePoller {
         return true;
       }
 
-      const ageMs = Date.now() - new Date(data.created_at).getTime();
+      const ageMs = Date.now() - new Date(data.open_time).getTime();
       const ageSeconds = Math.round(ageMs / 1000);
 
-      logger.debug(LogCategory.SYSTEM, `Database check: Last ${data.symbol} price ${ageSeconds}s ago`);
+      logger.debug(LogCategory.SYSTEM, `Database check: Last ${data.symbol} candle ${ageSeconds}s ago`);
 
       // If data is less than 2 minutes old, normal systems are working
       if (ageMs < 120000) {
@@ -120,10 +121,11 @@ class EmergencyPricePoller {
   private async determineMode(): Promise<void> {
     try {
       // Check if database has recent data
+      // CRITICAL: Check forex_candles (what trade flow uses) not realtime_prices
       const { data, error } = await supabase
-        .from('realtime_prices')
-        .select('created_at')
-        .order('created_at', { ascending: false })
+        .from('forex_candles')
+        .select('open_time')
+        .order('open_time', { ascending: false })
         .limit(1)
         .maybeSingle();
 
@@ -134,12 +136,12 @@ class EmergencyPricePoller {
       }
 
       if (!data) {
-        console.warn('[EmergencyPoller] 📭 No prices in database - activating emergency direct polling');
+        console.warn('[EmergencyPoller] 📭 No candles in database - activating emergency direct polling');
         this.mode = 'emergency';
         return;
       }
 
-      const ageMs = Date.now() - new Date(data.created_at).getTime();
+      const ageMs = Date.now() - new Date(data.open_time).getTime();
 
       if (ageMs > this.DB_STALE_THRESHOLD_MS) {
         console.warn(`[EmergencyPoller] ⚠️ Database data is stale (${Math.round(ageMs / 1000)}s old) - using direct polling`);

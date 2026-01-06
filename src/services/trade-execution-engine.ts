@@ -8,6 +8,7 @@ import { prodLogger } from '../lib/production-logger';
 import { globalDialogManager } from './global-dialog-manager';
 import { llmReasoningLogger } from './llm-reasoning-logger';
 import { getMinConfidenceThreshold } from '../config/risk-levels';
+import { priceCoordinator } from './coordinators/price-coordinator';
 
 interface LivePriceResult {
   price: number;
@@ -54,41 +55,30 @@ export interface TradeExecutionResult {
 class TradeExecutionEngine {
   /**
    * Fetch the CURRENT live price for a symbol at execution time
-   * This ensures trades execute at actual market price, not stale analysis price
+   * Uses Price Coordinator (SSOT) for consistent price access with staleness detection
    */
   private async fetchLivePrice(symbol: string): Promise<LivePriceResult | null> {
     try {
-      const { data: latestCandle, error } = await supabase
-        .from('forex_candles')
-        .select('close, open_time')
-        .eq('symbol', symbol)
-        .order('open_time', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const result = await priceCoordinator.getPrice(symbol, {
+        allowStale: true,
+        useCacheFirst: false // Always fetch fresh for execution
+      });
 
-      if (error || !latestCandle) {
-        console.warn(`[Trade Execution] Could not fetch live price for ${symbol}:`, error?.message);
-
-        const { data: realtimePrice } = await supabase
-          .from('realtime_prices')
-          .select('price, updated_at')
-          .eq('symbol', symbol)
-          .maybeSingle();
-
-        if (realtimePrice?.price) {
-          return {
-            price: realtimePrice.price,
-            source: 'realtime_prices',
-            timestamp: new Date(realtimePrice.updated_at)
-          };
-        }
+      if (!result.success || !result.price) {
+        console.warn(`[Trade Execution] Could not fetch live price for ${symbol}:`, result.error);
         return null;
       }
 
+      const price = result.price;
+
+      if (price.isCriticallyStale) {
+        console.warn(`[Trade Execution] Price critically stale for ${symbol} (age: ${price.ageSeconds}s)`);
+      }
+
       return {
-        price: latestCandle.close,
-        source: 'forex_candles',
-        timestamp: new Date(latestCandle.open_time)
+        price: price.mid, // Use mid price for execution
+        source: price.source,
+        timestamp: price.timestamp
       };
     } catch (error) {
       console.error(`[Trade Execution] Error fetching live price for ${symbol}:`, error);
