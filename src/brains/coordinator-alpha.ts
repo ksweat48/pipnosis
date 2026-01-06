@@ -2040,6 +2040,19 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
       let catastrophicError = false;
       let errorReason = '';
 
+      // 0. SANITY CHECK: Entry price must be within reasonable range of current price
+      // Catches LLM hallucinations where it returns bogus entry prices (e.g., 1.1 for XAUUSD trading at $2600)
+      const entryDeviationPercent = Math.abs((entry - currentPrice) / currentPrice) * 100;
+      const MAX_ENTRY_DEVIATION_PERCENT = 10; // Entry cannot deviate more than 10% from current price
+
+      if (entryDeviationPercent > MAX_ENTRY_DEVIATION_PERCENT) {
+        console.error(`[Alpha Coordinator] 🚨 INVALID ENTRY PRICE from LLM: ${entry} (current: ${currentPrice})`);
+        console.error(`[Alpha Coordinator] Deviation: ${entryDeviationPercent.toFixed(2)}% (max allowed: ${MAX_ENTRY_DEVIATION_PERCENT}%)`);
+        console.error(`[Alpha Coordinator] Symbol: ${symbol} | LLM likely hallucinated`);
+        errorReason = `Entry price ${entry} deviates ${entryDeviationPercent.toFixed(1)}% from current ${currentPrice} (max ${MAX_ENTRY_DEVIATION_PERCENT}%)`;
+        catastrophicError = true;
+      }
+
       // 1. Check if SL is on WRONG SIDE of entry (mathematical impossibility)
       if (stopLoss) {
         const slOnWrongSide = (isBuy && stopLoss > entry) || (!isBuy && stopLoss < entry);
