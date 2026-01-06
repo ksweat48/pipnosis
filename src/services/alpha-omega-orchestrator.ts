@@ -984,15 +984,83 @@ class AlphaOmegaOrchestrator {
 
     if (adversarialSignal && adversarialSignal.is_adversarial) {
       let multiplier = 1.0;
-      if (adversarialSignal.level === 'severe') multiplier = 0.5;
-      else if (adversarialSignal.level === 'moderate') multiplier = 0.7;
-      else if (adversarialSignal.level === 'mild') multiplier = 0.85;
+      let reason = '';
 
+      // ═══════════════════════════════════════════════════════════════════
+      // TIERED CONFIDENCE PENALTY SYSTEM
+      // Uses detailed stop-run classification instead of flat level-based penalties
+      // ═══════════════════════════════════════════════════════════════════
+
+      // Use detailed stop-run classification if available
+      if (adversarialSignal.stop_run_classification) {
+        const classification = adversarialSignal.stop_run_classification;
+
+        // TIER 1: Hard block scenarios (should_block = true)
+        if (classification.should_block) {
+          multiplier = 0.5; // 50% penalty
+          reason = `BLOCKED: ${classification.reasoning}`;
+        }
+        // TIER 2: Active stop runs (happening NOW on current candle)
+        else if (classification.type === 'active_stop_run') {
+          multiplier = 0.55; // 45% penalty
+          reason = `Active stop run (${classification.candles_ago} candles ago) - too volatile to trust`;
+        }
+        // TIER 3: Historical sweep WITH BOS confirmation = GOOD ENTRY (no penalty)
+        else if (classification.type === 'historical_sweep' && classification.has_bos) {
+          multiplier = 1.0; // NO PENALTY - this is a valid reversal setup
+          reason = `Historical sweep with BOS confirmation - valid entry setup`;
+        }
+        // TIER 4: Very recent patterns without BOS (1-2 candles ago)
+        else if (classification.candles_ago <= 2 && !classification.has_bos) {
+          multiplier = 0.85; // 15% penalty
+          reason = `Recent ${classification.type} (${classification.candles_ago} candles ago) without BOS - requires validation`;
+        }
+        // TIER 5: Historical patterns without BOS (3+ candles ago)
+        else if (classification.candles_ago >= 3 && !classification.has_bos) {
+          multiplier = 0.90; // 10% penalty - let Omega-9 handle final validation
+          reason = `Historical ${classification.type} (${classification.candles_ago} candles ago) - Omega-9 validation needed`;
+        }
+        // TIER 6: Manipulation spikes (time-based decay)
+        else if (classification.type === 'manipulation_spike') {
+          if (classification.candles_ago <= 1) {
+            multiplier = 0.55; // 45% penalty for very recent spikes
+            reason = `Very recent manipulation spike (${classification.candles_ago} candles ago) - unstable conditions`;
+          } else if (classification.candles_ago <= 4) {
+            multiplier = 0.75; // 25% penalty for mid-aged spikes
+            reason = `Mid-aged manipulation spike (${classification.candles_ago} candles ago) - checking stabilization`;
+          } else {
+            multiplier = 0.90; // 10% penalty for old spikes (market has stabilized)
+            reason = `Historical manipulation spike (${classification.candles_ago} candles ago) - market stabilized`;
+          }
+        }
+        // DEFAULT: Use classification reasoning with conservative penalty
+        else {
+          multiplier = 0.90; // 10% penalty as conservative default
+          reason = classification.reasoning;
+        }
+      }
+      // FALLBACK: Use legacy level-based penalties only if no classification available
+      else {
+        if (adversarialSignal.level === 'severe') {
+          multiplier = 0.5;
+          reason = `${adversarialSignal.level} manipulation detected (legacy): ${adversarialSignal.notes}`;
+        }
+        else if (adversarialSignal.level === 'moderate') {
+          multiplier = 0.7;
+          reason = `${adversarialSignal.level} manipulation detected (legacy): ${adversarialSignal.notes}`;
+        }
+        else if (adversarialSignal.level === 'mild') {
+          multiplier = 0.85;
+          reason = `${adversarialSignal.level} manipulation detected (legacy): ${adversarialSignal.notes}`;
+        }
+      }
+
+      // Only add penalty if confidence is reduced
       if (multiplier < 1.0) {
         penalties.push({
           source: 'Adversarial Detector',
           multiplier,
-          reason: `${adversarialSignal.level} manipulation detected: ${adversarialSignal.notes}`
+          reason
         });
       }
     }
