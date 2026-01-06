@@ -230,32 +230,28 @@ class MarketSnapshotCache {
 
   /**
    * Fetch candles from database
+   *
+   * CRITICAL FIX: Database stores timeframes in UPPERCASE (M5, M15, H1, etc.)
+   * The Timeframe type already uses uppercase, so use it directly - no conversion needed
    */
   private async fetchCandles(symbol: string, timeframe: Timeframe): Promise<Candle[]> {
-    const timeframeMap: Record<Timeframe, string> = {
-      'M5': 'm5',
-      'M15': 'm15',
-      'H1': 'h1',
-      'H4': 'h4',
-      'D': 'd1'
-    };
-
-    const dbTimeframe = timeframeMap[timeframe];
-
+    // Database uses UPPERCASE: 'M5', 'M15', 'H1', 'H4', 'D1'
+    // Timeframe type already matches this format - use directly
     const { data: candles, error } = await supabase
       .from('forex_candles')
       .select('open_time, open, high, low, close, volume')
       .eq('symbol', symbol)
-      .eq('timeframe', dbTimeframe)
+      .eq('timeframe', timeframe)
       .order('open_time', { ascending: false })
       .limit(300);
 
     if (error) {
-      console.error(`[SnapshotCache] ❌ Failed to fetch candles:`, error);
+      console.error(`[SnapshotCache] ❌ Failed to fetch candles for ${symbol}@${timeframe}:`, error);
       throw new Error(`Database error: ${error.message}`);
     }
 
     if (!candles || candles.length === 0) {
+      console.error(`[SnapshotCache] ❌ No candle data found for ${symbol}@${timeframe} (queried: timeframe='${timeframe}')`);
       throw new Error(`No candle data found for ${symbol}@${timeframe}`);
     }
 
