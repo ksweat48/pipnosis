@@ -1978,7 +1978,36 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
         .replace(/```\n?/g, '')
         .trim();
 
-      const parsed = JSON.parse(cleaned);
+      let parsed: any;
+      try {
+        parsed = JSON.parse(cleaned);
+      } catch (parseError) {
+        // Try to repair common JSON issues
+        console.warn('[Alpha Coordinator] Initial JSON parse failed, attempting repair...');
+
+        // Try to extract JSON between first { and last }
+        const firstBrace = cleaned.indexOf('{');
+        const lastBrace = cleaned.lastIndexOf('}');
+
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          const extracted = cleaned.substring(firstBrace, lastBrace + 1);
+          try {
+            parsed = JSON.parse(extracted);
+            console.log('[Alpha Coordinator] ✅ Repaired JSON successfully');
+          } catch (extractError) {
+            // Log the problematic JSON for debugging
+            console.error('[Alpha Coordinator] Failed to parse JSON after extraction:');
+            console.error('Raw response (first 500 chars):', response.substring(0, 500));
+            console.error('Cleaned (first 500 chars):', cleaned.substring(0, 500));
+            console.error('Parse error:', parseError);
+            throw parseError;
+          }
+        } else {
+          console.error('[Alpha Coordinator] Could not find valid JSON structure');
+          console.error('Raw response (first 500 chars):', response.substring(0, 500));
+          throw parseError;
+        }
+      }
 
       // Validate and sanitize action
       let action = parsed.action || 'NO_TRADE';
@@ -2168,7 +2197,11 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
         omega_summary: ''
       };
     } catch (error) {
-      console.error('[Alpha Coordinator] Parse error:', error);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error('[Alpha Coordinator] ❌ Parse error:', errorMsg);
+      console.error('[Alpha Coordinator] Symbol:', symbol);
+      console.error('[Alpha Coordinator] This is likely an LLM response formatting issue');
+
       return {
         action: 'NO_TRADE',
         decision: 'NO_TRADE',
@@ -2176,7 +2209,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
         stopLoss: currentPrice,
         takeProfit: currentPrice,
         confidence: 0,
-        reasoning: 'Parse failed',
+        reasoning: `LLM response parse failed: ${errorMsg.substring(0, 100)}`,
         omega_summary: ''
       };
     }
