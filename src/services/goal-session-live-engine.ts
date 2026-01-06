@@ -664,7 +664,7 @@ class GoalSessionLiveEngine {
 
       // Calculate expected lot size using our actual risk formula
       const estimatedLotSize = calculatePositionSize(
-        this.config.symbol || 'EURUSD',
+        'EURUSD',
         this.config.initialBalance,
         riskPercent,
         typicalEntryPrice,
@@ -672,7 +672,7 @@ class GoalSessionLiveEngine {
       );
 
       // Calculate dollar per pip for this lot size
-      const estimatedDollarPerPip = calculateDollarPerPip(this.config.symbol || 'EURUSD', estimatedLotSize);
+      const estimatedDollarPerPip = calculateDollarPerPip('EURUSD', estimatedLotSize);
       const pipsNeededEstimate = Math.abs(remainingGoal / estimatedDollarPerPip);
 
       const goalContext: import('../brains/coordinator-alpha').GoalContext = {
