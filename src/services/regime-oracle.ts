@@ -565,7 +565,8 @@ class RegimeOracle {
       return 'trend';
     }
 
-    if (candles.length < 20) {
+    // CRITICAL FIX: Add null/undefined check before accessing .length
+    if (!candles || candles.length < 20) {
       return 'range';
     }
 

@@ -220,8 +220,18 @@ class AlphaOmegaOrchestrator {
     console.log('[Alpha+Omega] 🔮 Calling Omega Council (snapshot-first, deterministic)...');
     const startTime = Date.now();
 
+    // Helper to safely wrap synchronous Omega calls in Promises
+    const safeEvaluate = async <T>(fn: () => T, name: string): Promise<T | null> => {
+      try {
+        return fn();
+      } catch (err) {
+        console.warn(`[${name}] Failed:`, err instanceof Error ? err.message : String(err));
+        return null;
+      }
+    };
+
     const [trendVote, scalperVote, confirmationVote, reversalVote, volatilityVote, omega8Vote] = await Promise.all([
-      omegaTrend.evaluate({
+      safeEvaluate(() => omegaTrend.evaluate({
         p: snapshot.price,
         e20: snapshot.ema20,
         e50: snapshot.ema50,
@@ -238,12 +248,9 @@ class AlphaOmegaOrchestrator {
           lvl: marketState.adversarial.level,
           score: marketState.adversarial.suspicion_score
         } : undefined
-      }).catch(err => {
-        console.warn('[Omega Trend] Failed:', err.message);
-        return null;
-      }),
+      }), 'Omega Trend'),
 
-      omegaScalper.evaluate({
+      safeEvaluate(() => omegaScalper.evaluate({
         p: snapshot.price,
         vw: snapshot.vwap,
         atr: snapshot.atr,
@@ -259,12 +266,9 @@ class AlphaOmegaOrchestrator {
           lvl: marketState.adversarial.level,
           pat: marketState.adversarial.patterns.slice(0, 2)
         } : undefined
-      }).catch(err => {
-        console.warn('[Omega Scalper] Failed:', err.message);
-        return null;
-      }),
+      }), 'Omega Scalper'),
 
-      omegaConfirmation.evaluate({
+      safeEvaluate(() => omegaConfirmation.evaluate({
         p: snapshot.price,
         sup: snapshot.support,
         res: snapshot.resistance,
@@ -278,12 +282,9 @@ class AlphaOmegaOrchestrator {
         adv: marketState.adversarial ? {
           lvl: marketState.adversarial.level
         } : undefined
-      }).catch(err => {
-        console.warn('[Omega Confirmation] Failed:', err.message);
-        return null;
-      }),
+      }), 'Omega Confirmation'),
 
-      omegaReversal.evaluate({
+      safeEvaluate(() => omegaReversal.evaluate({
         p: snapshot.price,
         rsi: snapshot.rsi,
         st: snapshot.stochRsi,
@@ -301,12 +302,9 @@ class AlphaOmegaOrchestrator {
           lvl: marketState.adversarial.level,
           pat: marketState.adversarial.patterns.slice(0, 2)
         } : undefined
-      }).catch(err => {
-        console.warn('[Omega Reversal] Failed:', err.message);
-        return null;
-      }),
+      }), 'Omega Reversal'),
 
-      omegaVolatility.evaluate({
+      safeEvaluate(() => omegaVolatility.evaluate({
         atr: snapshot.atr,
         atr_avg: snapshot.atr,
         vol: snapshot.volatility,
@@ -323,12 +321,9 @@ class AlphaOmegaOrchestrator {
           lvl: marketState.adversarial.level,
           score: marketState.adversarial.suspicion_score
         } : undefined
-      }).catch(err => {
-        console.warn('[Omega Volatility] Failed:', err.message);
-        return null;
-      }),
+      }), 'Omega Volatility'),
 
-      omega8Hybrid.runOmega8({
+      safeEvaluate(() => omega8Hybrid.runOmega8({
         symbol: snapshot.symbol,
         timeframe: entryTimeframe,
         price: snapshot.price,
@@ -344,10 +339,7 @@ class AlphaOmegaOrchestrator {
         trendBias: snapshot.trend === 'bull' ? 'up' : snapshot.trend === 'bear' ? 'down' : 'sideways',
         support: snapshot.support,
         resistance: snapshot.resistance
-      }).catch(err => {
-        console.warn('[Omega-8 Hybrid] Failed:', err.message);
-        return null;
-      })
+      }), 'Omega-8 Hybrid')
     ]);
 
     const omegaTime = Date.now() - startTime;
