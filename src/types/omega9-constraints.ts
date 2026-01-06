@@ -16,6 +16,10 @@ export interface Omega9Constraints {
   recommendedStopLossPips: number;
   stopLossReasoning: string;
 
+  // Noise Floor (statistical minimum for survival)
+  noiseFloorPips: number;       // Minimum stop to survive spread + volatility noise
+  noiseFloorReasoning: string;  // Explanation of noise floor calculation
+
   // Take-Profit Constraints
   minTakeProfitPips: number;  // Minimum for R:R ≥ 1.0 (given current SL)
   maxTakeProfitPips: number;  // Session/volatility ceiling
@@ -38,10 +42,13 @@ export interface Omega9Constraints {
 }
 
 export interface ConstraintViolation {
-  type: 'MIN_RR' | 'MAX_TP' | 'MIN_SL' | 'MAX_SL';
+  type: 'MIN_RR' | 'MAX_TP' | 'MIN_SL' | 'MAX_SL' | 'BELOW_NOISE_FLOOR' | 'INFEASIBLE_SETUP';
   severity: 'WARNING' | 'ERROR' | 'CATASTROPHIC';
   message: string;
   suggestedFix?: string;
+  currentValue?: number;
+  minimumValue?: number;
+  suggestedActions?: string[];
 }
 
 export type TradeStyle = 'SCALP' | 'INTRADAY' | 'SWING';

@@ -67,6 +67,9 @@ class Omega9ConstraintProvider {
       marketVolatility: volatilityRegime
     });
 
+    // Calculate noise floor - the statistical minimum to survive spread + volatility
+    const noiseFloor = riskAwareStopCalculator.calculateNoiseFloor(symbol, entry, atr);
+
     // Calculate feasible travel distance (used for all styles, applied differently)
     // SSOT: volatility calculation delegates to session constraint coordinator
     const volatilityPerHour = this.estimateVolatilityPerHour(symbol, atr, volatilityRegime, currentSession);
@@ -148,10 +151,14 @@ class Omega9ConstraintProvider {
 
     const constraints: Omega9Constraints = {
       // Stop-Loss Constraints
-      minStopLossPips: stopLossCalc.profileMinPips,
+      minStopLossPips: Math.max(stopLossCalc.profileMinPips, noiseFloor.noiseFloorPips), // Enforce noise floor
       maxStopLossPips: stopLossCalc.profileMaxPips,
       recommendedStopLossPips: stopLossCalc.stopLossPips,
       stopLossReasoning: stopLossCalc.reasoning,
+
+      // Noise Floor (statistical minimum for survival)
+      noiseFloorPips: noiseFloor.noiseFloorPips,
+      noiseFloorReasoning: noiseFloor.reasoning,
 
       // Take-Profit Constraints
       minTakeProfitPips,
@@ -195,6 +202,7 @@ class Omega9ConstraintProvider {
 
     console.log('[Omega-9 Constraints] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`[Omega-9 Constraints] Symbol: ${symbol} | Direction: ${direction} | Style: ${tradeStyle} | Risk: ${riskMode.toUpperCase()}`);
+    console.log(`[Omega-9 Constraints] Noise Floor: ${constraints.noiseFloorPips.toFixed(1)} pips (${constraints.noiseFloorReasoning})`);
     console.log(`[Omega-9 Constraints] Stop-Loss Range: ${constraints.minStopLossPips.toFixed(1)} - ${constraints.maxStopLossPips.toFixed(1)} pips (recommended: ${constraints.recommendedStopLossPips.toFixed(1)})`);
     console.log(`[Omega-9 Constraints] Take-Profit Range: ${constraints.minTakeProfitPips.toFixed(1)} - ${constraints.maxTakeProfitPips.toFixed(1)} pips (recommended: ${constraints.recommendedTakeProfitPips.toFixed(1)})`);
     console.log(`[Omega-9 Constraints] R:R Requirements: Min ${constraints.minRiskReward}:1 | Target ${constraints.targetRiskReward}:1 | Optimal ${constraints.optimalRiskReward}:1`);
@@ -378,7 +386,8 @@ These are your DECISION BOUNDARIES, not vetoes.
 You have FULL AUTHORITY to choose within these ranges.
 
 STOP-LOSS BOUNDARIES:
-• Minimum: ${constraints.minStopLossPips.toFixed(1)} pips (risk profile floor)
+• Noise Floor: ${constraints.noiseFloorPips.toFixed(1)} pips (${constraints.noiseFloorReasoning})
+• Minimum: ${constraints.minStopLossPips.toFixed(1)} pips (max of profile floor and noise floor)
 • Maximum: ${constraints.maxStopLossPips.toFixed(1)} pips (risk profile ceiling)
 • Recommended: ${constraints.recommendedStopLossPips.toFixed(1)} pips
 • Rationale: ${constraints.stopLossReasoning}

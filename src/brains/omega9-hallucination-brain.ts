@@ -122,14 +122,35 @@ class Omega9HallucinationBrain {
   }
 
   /**
+   * Estimate spread for a symbol (in pips)
+   * Used to determine if stop is literally inside spread (impossible to hit)
+   */
+  private estimateSpread(symbol: string): number {
+    // Typical spreads in pips during normal market hours
+    if (symbol.startsWith('EUR') || symbol.startsWith('GBP')) return 1.5; // Major pairs
+    if (symbol.startsWith('USD')) return 2.0; // USD crosses
+    if (symbol === 'XAUUSD') return 3.0; // Gold
+    if (symbol.includes('JPY')) return 2.0; // JPY pairs
+    if (symbol === 'NAS100' || symbol === 'US100') return 2.0; // NAS100
+    if (symbol === 'SPX500' || symbol === 'US500') return 1.0; // S&P500
+    if (symbol === 'BTCUSD' || symbol === 'ETHUSD') return 5.0; // Crypto (higher spread)
+    return 3.0; // Default conservative estimate
+  }
+
+  /**
    * Perform local mathematical and logical validation without LLM
    * Includes GRADUATED SAFETY ZONE enforcement
    *
    * SCOPE: Mathematical safety ONLY - no directional consensus validation
    * Alpha has final authority on direction, timing, and strategic decisions
+   *
+   * NEW ARCHITECTURE:
+   * - Only HARD BLOCKS for catastrophic mathematical errors
+   * - Everything else = constraint violations for Alpha to handle
    */
   private performLocalValidation(input: Omega9Input): Omega9ValidationResult {
     const flags: string[] = [];
+    const constraintViolations: import('../types/omega').Omega9ConstraintViolation[] = [];
     const { alphaDecision, marketContext, safetyRules, omegaVotes } = input;
 
     if (alphaDecision.action === 'NO_TRADE') {
@@ -174,8 +195,65 @@ class Omega9HallucinationBrain {
     const tpDistance = Math.abs(tp - entry);
     const rr = slDistance > 0 ? tpDistance / slDistance : 0;
 
-    // R:R < 1.0 ADVISORY (no longer hard-blocks, will be auto-corrected by constraint system)
-    // This allows Alpha to learn and adjust rather than being instantly blocked
+    // Calculate distances in pips for precise validation
+    const slDistancePips = calculatePipDistance(marketContext.symbol, alphaDecision.entry, alphaDecision.stopLoss);
+    const tpDistancePips = calculatePipDistance(marketContext.symbol, alphaDecision.entry, alphaDecision.takeProfit);
+    const spreadPips = this.estimateSpread(marketContext.symbol);
+
+    // HARD BLOCK 1: Stop inside spread (literally impossible to hit)
+    if (slDistancePips < spreadPips * 1.5) {
+      flags.push('HARD_BLOCK_STOP_INSIDE_SPREAD');
+      constraintViolations.push({
+        type: 'STOP_INSIDE_SPREAD',
+        severity: 'HARD_BLOCK',
+        currentValue: slDistancePips,
+        minimumValue: spreadPips * 1.5,
+        message: `Stop ${slDistancePips.toFixed(1)} pips is inside spread (${spreadPips.toFixed(1)} pips × 1.5 safety). Mathematically impossible to hit.`,
+        suggestedActions: [
+          `Increase stop to at least ${(spreadPips * 1.5).toFixed(1)} pips`,
+          `Choose different symbol with tighter spread`,
+          `Wait for lower spread conditions`
+        ]
+      });
+
+      return {
+        pass: false,
+        flags,
+        confidence_adjustment: -100,
+        corrections: { sl: null, tp: null, risk_pct: null },
+        reasoning: `HARD BLOCK: Stop inside spread (${slDistancePips.toFixed(1)} pips < ${(spreadPips * 1.5).toFixed(1)} pips minimum)`,
+        constraintViolations
+      };
+    }
+
+    // HARD BLOCK 2: R:R < 0.5 (catastrophically poor risk/reward)
+    if (rr < 0.5) {
+      flags.push('HARD_BLOCK_RR_CATASTROPHIC');
+      constraintViolations.push({
+        type: 'RR_CATASTROPHIC',
+        severity: 'HARD_BLOCK',
+        currentValue: rr,
+        minimumValue: 0.5,
+        message: `R:R ${rr.toFixed(2)}:1 is catastrophically low (< 0.5:1). Cannot proceed.`,
+        suggestedActions: [
+          `Increase TP to achieve minimum 0.5:1 R:R`,
+          `Tighten stop loss`,
+          `Choose different setup with better R:R`
+        ]
+      });
+
+      return {
+        pass: false,
+        flags,
+        confidence_adjustment: -100,
+        corrections: { sl: null, tp: null, risk_pct: null },
+        reasoning: `HARD BLOCK: R:R catastrophic (${rr.toFixed(2)}:1 < 0.5:1 minimum)`,
+        constraintViolations
+      };
+    }
+
+    // CONSTRAINT VIOLATION (not hard block): R:R < 1.0 ADVISORY
+    // Will be auto-corrected by constraint system, but Alpha can override
     if (rr < 1.0) {
       flags.push('RR_BELOW_1_ADVISORY');
       console.log(`[Omega-9] ⚠️ R:R ${rr.toFixed(3)} < 1.0 - ADVISORY (will be auto-corrected if not revised)`);
@@ -185,9 +263,6 @@ class Omega9HallucinationBrain {
 
     // REMOVED: Vote conflict detection - Alpha has final authority on direction
     // Omega-9's role is MATHEMATICAL SAFETY ONLY, not strategic direction validation
-
-    const slDistancePips = calculatePipDistance(marketContext.symbol, alphaDecision.entry, alphaDecision.stopLoss);
-    const tpDistancePips = calculatePipDistance(marketContext.symbol, alphaDecision.entry, alphaDecision.takeProfit);
 
     const atrValue = safeExtractATRValue(marketContext.atr, 'Omega9.performLocalValidation');
 
@@ -256,12 +331,13 @@ class Omega9HallucinationBrain {
       pass,
       flags,
       confidence_adjustment: confidenceAdjustment,
-      corrections: { sl: null, tp: null, risk_pct: null },
+      corrections: { sl: null, tp: null, risk_pct: null }, // No auto-corrections - Alpha decides
       reasoning: pass ?
         (safetyEval.zone === 'GREEN' ? 'All validations passed' : `${safetyEval.zone} ZONE: ${flags.join(', ')}`) :
         `Failed: ${flags.join(', ')}`,
       safety_zone: safetyEval.zone,
-      safety_evaluation: safetyEval
+      safety_evaluation: safetyEval,
+      constraintViolations
     };
   }
 

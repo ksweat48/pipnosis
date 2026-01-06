@@ -28,6 +28,8 @@ export interface StopLossCalculation {
   profileMinPips: number;
   profileMaxPips: number;
   atrTimeframe?: ATRTimeframe; // Track which timeframe ATR was from
+  noiseFloorPips?: number;      // Statistical minimum for survival
+  noiseFloorReasoning?: string; // Explanation of noise floor
 }
 
 export interface StopCalculatorInputs {
@@ -319,6 +321,71 @@ class RiskAwareStopCalculator {
     }
 
     return recommendation;
+  }
+
+  /**
+   * Calculate noise floor - the minimum stop width needed to survive spread + volatility noise
+   *
+   * This prevents catastrophically tight stops like 10 pips on NAS100 ($25,491 price)
+   * which equals only 0.039% - effectively noise.
+   *
+   * Uses TWO methods and takes the LARGER (more conservative):
+   * 1. Percentage of price (prevents microscopic stops on high-value instruments)
+   * 2. ATR multiplier (prevents stops inside volatility noise)
+   */
+  calculateNoiseFloor(symbol: string, entryPrice: number, atr: number | ATRValue): {
+    noiseFloorPips: number;
+    reasoning: string;
+  } {
+    const pipInfo = getCurrencyPipInfo(symbol);
+
+    // Extract ATR value
+    const atrValue = typeof atr === 'number' ? atr : atr.value;
+    const atrTimeframe = typeof atr === 'number' ? undefined : atr.timeframe;
+
+    // Minimum stops as percentage of price (asset-class specific)
+    let minPercentOfPrice: number;
+    let assetClassName: string;
+
+    if (isIndex(symbol)) {
+      minPercentOfPrice = 0.15; // 0.15% minimum for indices (e.g., 38 pips on NAS100 @ $25,491)
+      assetClassName = 'INDEX';
+    } else if (isCrypto(symbol)) {
+      minPercentOfPrice = 0.20; // 0.20% minimum for crypto (e.g., $180 on $90k BTC)
+      assetClassName = 'CRYPTO';
+    } else if (isXAUUSD(symbol)) {
+      minPercentOfPrice = 0.20; // 0.20% for gold (e.g., $5.20 on $2,600)
+      assetClassName = 'GOLD';
+    } else {
+      minPercentOfPrice = 0.05; // 0.05% for forex (e.g., 5 pips on EURUSD @ 1.0000)
+      assetClassName = 'FOREX';
+    }
+
+    // Minimum stops as ATR multiplier (prevents stops inside volatility)
+    const minATRMultiplier = 1.25;
+
+    // Calculate both methods
+    const percentFloorPips = (entryPrice * minPercentOfPrice / 100) / pipInfo.pipValue;
+    const atrInPips = atrValue / pipInfo.pipValue;
+    const atrFloorPips = atrInPips * minATRMultiplier;
+
+    // Use the LARGER of the two (more conservative = safer)
+    const noiseFloorPips = Math.max(percentFloorPips, atrFloorPips);
+
+    // Determine which method was controlling
+    const controllingMethod = percentFloorPips > atrFloorPips ? 'price-based' : 'volatility-based';
+
+    const reasoning =
+      `${assetClassName} noise floor: ${noiseFloorPips.toFixed(1)} pips ` +
+      `(${controllingMethod}: ${minPercentOfPrice}% of price = ${percentFloorPips.toFixed(1)} pips OR ` +
+      `${minATRMultiplier}x ATR${atrTimeframe ? `[${atrTimeframe}]` : ''} = ${atrFloorPips.toFixed(1)} pips, whichever larger)`;
+
+    console.log(`[Noise Floor] ${symbol} @ ${entryPrice.toFixed(pipInfo.decimalPlaces)}: ${reasoning}`);
+
+    return {
+      noiseFloorPips,
+      reasoning
+    };
   }
 }
 

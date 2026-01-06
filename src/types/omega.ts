@@ -36,6 +36,20 @@ export interface Omega9ValidationResult {
   reasoning: string;
   safety_zone?: SafetyZone;
   safety_evaluation?: SafetyEvaluation;
+  constraintViolations?: Omega9ConstraintViolation[];
+}
+
+export interface Omega9ConstraintViolation {
+  type:
+    | 'STOP_BELOW_NOISE_FLOOR'
+    | 'STOP_INSIDE_SPREAD'
+    | 'RR_CATASTROPHIC'
+    | 'MATHEMATICAL_ERROR';
+  severity: 'WARNING' | 'HARD_BLOCK';
+  currentValue: number;
+  minimumValue?: number;
+  message: string;
+  suggestedActions: string[];
 }
 
 export interface OmegaCouncilVotes {
