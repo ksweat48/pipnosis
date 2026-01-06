@@ -806,6 +806,14 @@ class GoalSessionLiveEngine {
       }
 
       const snapshot = bestSymbolResult.evaluation.snapshot;
+
+      // DEFENSIVE: Validate snapshot has candle data
+      if (!snapshot.recentCandles || snapshot.recentCandles.length === 0) {
+        logger.error(LogCategory.AI_TRADING, `❌ Snapshot missing candle data for ${selectedSymbol}`);
+        console.error('[MULTI-SYMBOL] Invalid snapshot - missing recentCandles:', snapshot);
+        return;
+      }
+
       const latestCandle = snapshot.recentCandles[snapshot.recentCandles.length - 1];
 
       // FINAL CHECK: Ensure we're not exceeding max trades (prevents race conditions)

@@ -147,7 +147,7 @@ class MultiSymbolSnapshotBuilder {
       resistance: snapshot.resistance,
       swingHigh: snapshot.swingHigh,
       swingLow: snapshot.swingLow,
-      recentCandles: snapshot.recentCandles,
+      recentCandles: snapshot.candles,
       structure: snapshot.structure,
       omegaSensors: snapshot.omegaSensors,
       regime: snapshot.regime,
