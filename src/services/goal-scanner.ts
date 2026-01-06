@@ -409,7 +409,7 @@ class GoalScanner {
       resistance: snapshot.resistance,
       swingHigh: snapshot.swingHigh,
       swingLow: snapshot.swingLow,
-      recentCandles: snapshot.recentCandles,
+      recentCandles: snapshot.candles, // FIX: snapshot has 'candles' not 'recentCandles'
       omegaSensors: snapshot.omegaSensors
     };
   }

@@ -164,7 +164,7 @@ class AlphaOmegaOrchestrator {
         riskMode
       );
       console.log(`[Alpha+Omega] 📊 Snapshot SSOT: ${snapshot.snapshotHash}`);
-      console.log(`  Price: ${snapshot.price.toFixed(5)} | ATR: ${snapshot.atr.toFixed(5)} | Trend: ${snapshot.trend}`);
+      console.log(`  Price: ${snapshot.price.toFixed(5)} | ATR: ${snapshot.atr.value.toFixed(5)} | Trend: ${snapshot.trend}`);
       console.log(`  ✅ All Omegas will see THIS EXACT DATA (no drift)`);
     } catch (error) {
       console.error(`[Alpha+Omega] ❌ Failed to build snapshot:`, error);

@@ -540,7 +540,7 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
                 <div>
                   <div className="text-gray-500">ATR</div>
                   <div className="text-white font-mono">
-                    {snapshot.atr.toFixed(5)}
+                    {snapshot.atr.value.toFixed(5)}
                   </div>
                 </div>
               </div>
