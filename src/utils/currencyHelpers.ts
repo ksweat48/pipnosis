@@ -246,13 +246,31 @@ export function calculatePipDistance(
 
 /**
  * Format price to correct decimal places for currency
+ * DEFENSIVE: Handles invalid inputs gracefully to prevent crashes
  */
 export function formatCurrencyPrice(
   symbol: string,
   price: number
 ): string {
-  const pipInfo = getCurrencyPipInfo(symbol);
-  return price.toFixed(pipInfo.decimalPlaces);
+  // Defensive guard: Validate symbol parameter
+  if (!symbol || typeof symbol !== 'string') {
+    console.error('[formatCurrencyPrice] Invalid symbol parameter:', symbol);
+    return typeof price === 'number' && !isNaN(price) ? price.toFixed(2) : 'N/A';
+  }
+
+  // Defensive guard: Validate price parameter
+  if (typeof price !== 'number' || isNaN(price) || price === null || price === undefined) {
+    console.error(`[formatCurrencyPrice] Invalid price parameter for ${symbol}:`, price);
+    return 'N/A';
+  }
+
+  try {
+    const pipInfo = getCurrencyPipInfo(symbol);
+    return price.toFixed(pipInfo.decimalPlaces);
+  } catch (error) {
+    console.error(`[formatCurrencyPrice] Error formatting price for ${symbol}:`, error);
+    return price.toFixed(2); // Fallback to 2 decimals
+  }
 }
 
 /**

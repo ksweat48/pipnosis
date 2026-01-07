@@ -531,22 +531,26 @@ class GoalSessionLiveEngine {
 
 
       // CRITICAL: Verify with DB before expensive operations (prevents memory desync bugs)
-      const { data: verifyTrades } = await supabase
+      const { count: dbCount, error: countError } = await supabase
         .from('goal_session_trades')
-        .select('id', { count: 'exact', head: true })
+        .select('*', { count: 'exact', head: true })
         .eq('goal_session_id', this.activeSession!)
         .eq('status', 'open');
 
-      const dbCount = (verifyTrades as any)?.count || 0;
+      if (countError) {
+        logger.error(LogCategory.AI_TRADING, 'Error querying trade count:', countError);
+      }
+
+      const tradeCount = dbCount || 0;
 
       console.log('%c[MULTI-SYMBOL] 🔐 Trade count verification:', 'color: #ff9800; font-weight: bold', {
         memory: this.openTrades.length,
-        database: dbCount,
+        database: tradeCount,
         maxAllowed: this.config.maxConcurrentTrades
       });
 
       // Use DB as source of truth
-      if (dbCount >= this.config.maxConcurrentTrades) {
+      if (tradeCount >= this.config.maxConcurrentTrades) {
         console.log('%c[MULTI-SYMBOL] ⏸️ BLOCKED: Max trades reached (DB verified)', 'color: #ff9800; font-weight: bold');
         logger.debug(LogCategory.AI_TRADING, `⏸️ Max trades (${this.config.maxConcurrentTrades}) reached - skipping expensive scan`);
         return;
@@ -1174,7 +1178,7 @@ class GoalSessionLiveEngine {
 
         logger.info(
           LogCategory.AI_TRADING,
-          `[Dual TP] TP1: ${formatCurrencyPrice(tp1Price, selectedSymbol)} ($${dualTargets.tp1}) | TP2: ${formatCurrencyPrice(tp2Price, selectedSymbol)} ($${dualTargets.tp2})`
+          `[Dual TP] TP1: ${formatCurrencyPrice(selectedSymbol, tp1Price)} ($${dualTargets.tp1.toFixed(2)}) | TP2: ${formatCurrencyPrice(selectedSymbol, tp2Price)} ($${dualTargets.tp2.toFixed(2)})`
         );
       } catch (error) {
         logger.error(LogCategory.AI_TRADING, '[Dual TP] Error calculating dual targets:', error);
