@@ -316,6 +316,9 @@ class Omega9ConstraintProvider {
     let newTakeProfit = decision.takeProfit;
     let corrected = false;
 
+    // Get currency-specific pip info for proper price conversions
+    const pipInfo = getCurrencyPipInfo(symbol);
+
     const slPips = calculatePipDistance(symbol, decision.entry, decision.stopLoss);
     const tpPips = calculatePipDistance(symbol, decision.entry, decision.takeProfit);
     const rr = slPips > 0 ? tpPips / slPips : 0;
@@ -327,10 +330,13 @@ class Omega9ConstraintProvider {
     if (tpPips > constraints.maxTakeProfitPips) {
       const isBuy = decision.direction === 'BUY';
 
+      // FIXED: Use proper pip-to-price conversion for this symbol
+      const tpPriceDistance = constraints.maxTakeProfitPips * pipInfo.pipValue;
+
       if (isBuy) {
-        newTakeProfit = decision.entry + (constraints.maxTakeProfitPips / 10000);
+        newTakeProfit = decision.entry + tpPriceDistance;
       } else {
-        newTakeProfit = decision.entry - (constraints.maxTakeProfitPips / 10000);
+        newTakeProfit = decision.entry - tpPriceDistance;
       }
 
       corrections.push(`Auto-corrected TP from ${tpPips.toFixed(1)} pips to ${constraints.maxTakeProfitPips.toFixed(1)} pips (maximum constraint)`);
@@ -350,10 +356,13 @@ class Omega9ConstraintProvider {
       if (minTPPips <= constraints.maxTakeProfitPips) {
         const isBuy = decision.direction === 'BUY';
 
+        // FIXED: Use proper pip-to-price conversion for this symbol
+        const tpPriceDistance = minTPPips * pipInfo.pipValue;
+
         if (isBuy) {
-          newTakeProfit = decision.entry + (minTPPips / 10000);
+          newTakeProfit = decision.entry + tpPriceDistance;
         } else {
-          newTakeProfit = decision.entry - (minTPPips / 10000);
+          newTakeProfit = decision.entry - tpPriceDistance;
         }
 
         corrections.push(`Auto-corrected TP from ${finalTPPips.toFixed(1)} pips to ${minTPPips.toFixed(1)} pips (R:R ${finalRR.toFixed(2)} → ${constraints.minRiskReward.toFixed(2)})`);

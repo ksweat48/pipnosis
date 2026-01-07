@@ -42,6 +42,32 @@ export class GoalFeasibilityResolver {
       currentPrice,
     } = input;
 
+    // ✅ Input validation - prevent NaN propagation
+    if (!currentATR || isNaN(currentATR) || currentATR <= 0) {
+      logger.error('Invalid currentATR in feasibility analysis', { currentATR, symbol });
+      return {
+        feasible: false,
+        tier: 'BLOCK_WITH_ALTERNATIVES',
+        proposal: undefined,
+        alternativeSuggestions: ['Wait for valid market data before trading'],
+      };
+    }
+
+    if (!currentPrice || isNaN(currentPrice) || currentPrice <= 0) {
+      logger.error('Invalid currentPrice in feasibility analysis', { currentPrice, symbol });
+      return {
+        feasible: false,
+        tier: 'BLOCK_WITH_ALTERNATIVES',
+        proposal: undefined,
+        alternativeSuggestions: ['Wait for valid price data before trading'],
+      };
+    }
+
+    // Set safe defaults for optional/derived values
+    const safeTypicalATR = typicalATR && !isNaN(typicalATR) && typicalATR > 0 ? typicalATR : currentATR;
+    const safeDailyATR = dailyATR && !isNaN(dailyATR) && dailyATR > 0 ? dailyATR : currentATR * 1.5;
+    const safeSpread = currentSpread && !isNaN(currentSpread) && currentSpread >= 0 ? currentSpread : currentATR * 0.1;
+
     const remainingGoal = goalAmount - currentProgress;
 
     logger.info('Analyzing goal feasibility', {
@@ -51,6 +77,10 @@ export class GoalFeasibilityResolver {
       currentProgress,
       remainingGoal,
       symbol,
+      currentATR,
+      typicalATR: safeTypicalATR,
+      dailyATR: safeDailyATR,
+      currentSpread: safeSpread,
     });
 
     if (remainingGoal <= 0) {
@@ -99,7 +129,7 @@ export class GoalFeasibilityResolver {
 
     const maxProfitPossible = this.calculateMaxDeliverableProfit(
       adjustedATR,
-      currentSpread,
+      safeSpread,
       accountBalance,
       currentPrice,
       symbol
@@ -107,7 +137,7 @@ export class GoalFeasibilityResolver {
 
     logger.debug('Max deliverable profit calculated', {
       adjustedATR,
-      currentSpread,
+      currentSpread: safeSpread,
       maxProfitPossible,
       remainingGoal,
     });
@@ -117,7 +147,7 @@ export class GoalFeasibilityResolver {
     if (
       retentionPercent < GOAL_FEASIBILITY_CONFIG.downshift.minGoalRetentionPercent
     ) {
-      const atrMultiplier = typicalATR > 0 ? currentATR / typicalATR : 1;
+      const atrMultiplier = safeTypicalATR > 0 ? currentATR / safeTypicalATR : 1;
 
       // Check if volatility is unusually low - ADVISORY ONLY (v2.0)
       // Philosophy: "Reduced profit > NO_TRADE"
@@ -182,21 +212,21 @@ export class GoalFeasibilityResolver {
 
     const volatilityContext: VolatilityContext = {
       currentATR,
-      typicalATR,
-      dailyATR,
+      typicalATR: safeTypicalATR,
+      dailyATR: safeDailyATR,
       sessionLiquidity,
-      atrMultiplierFromTypical: typicalATR > 0 ? currentATR / typicalATR : 1,
+      atrMultiplierFromTypical: safeTypicalATR > 0 ? currentATR / safeTypicalATR : 1,
     };
 
     const spreadCost = this.estimateSpreadCost(
-      currentSpread,
+      safeSpread,
       adjustedGoal,
       currentPrice
     );
 
     const thresholds = await MeaningfulTradeCalculator.calculateThresholds({
       accountBalance,
-      dailyATR,
+      dailyATR: safeDailyATR,
       spreadCost,
       userId,
     });
@@ -406,11 +436,13 @@ export class GoalFeasibilityResolver {
     try {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
+      // Fix: Use id column for head request, and filter out nulls before gte comparison
       const { count, error } = await supabase
         .from('goal_session_trades')
-        .select('*', { count: 'exact', head: true })
+        .select('id', { count: 'exact', head: true })
         .eq('user_id', userId)
         .eq('session_id', sessionId)
+        .not('opened_at', 'is', null)
         .gte('opened_at', oneHourAgo.toISOString());
 
       if (error) {
