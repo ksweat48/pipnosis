@@ -25,6 +25,11 @@ interface OpenPosition {
   entry_price: number;
   stop_loss: number;
   take_profit: number;
+  tp1_price?: number | null;
+  tp2_price?: number | null;
+  tp1_hit?: boolean;
+  tp2_hit?: boolean;
+  position_size: number;
   user_id: string;
   goal_session_id: string;
   status: string;
@@ -94,7 +99,7 @@ class RealtimeSLTPMonitor {
     try {
       const { data: positions, error } = await supabase
         .from('goal_session_trades')
-        .select('id, symbol, direction, entry_price, stop_loss, take_profit, user_id, goal_session_id, status')
+        .select('id, symbol, direction, entry_price, stop_loss, take_profit, tp1_price, tp2_price, tp1_hit, tp2_hit, position_size, user_id, goal_session_id, status')
         .eq('status', 'open');
 
       if (error) {
@@ -167,21 +172,15 @@ class RealtimeSLTPMonitor {
     // Use correct price based on direction
     const currentPrice = position.direction === 'buy' ? bid : ask;
 
+    // PRIORITY 1: Check Stop Loss (always full close)
     const shouldCloseAtStopLoss = position.direction === 'buy'
       ? currentPrice <= position.stop_loss
       : currentPrice >= position.stop_loss;
 
-    const shouldCloseAtTakeProfit = position.direction === 'buy'
-      ? currentPrice >= position.take_profit
-      : currentPrice <= position.take_profit;
-
     if (shouldCloseAtStopLoss) {
       console.log(`[RealtimeSLTPMonitor] 🛑 STOP LOSS DETECTED: ${position.symbol} ${position.direction} @ ${currentPrice.toFixed(5)} (SL: ${position.stop_loss.toFixed(5)})`);
-
-      // Remove from monitoring immediately to prevent duplicate closure attempts
       this.removePosition(position.id, position.symbol);
 
-      // Trigger closure via coordinator
       await tradeClosureCoordinator.closeTrade({
         tradeId: position.id,
         currentPrice,
@@ -192,13 +191,122 @@ class RealtimeSLTPMonitor {
       }).catch(error => {
         console.error(`[RealtimeSLTPMonitor] Failed to close at SL:`, error);
       });
-    } else if (shouldCloseAtTakeProfit) {
-      console.log(`[RealtimeSLTPMonitor] 🎯 TAKE PROFIT DETECTED: ${position.symbol} ${position.direction} @ ${currentPrice.toFixed(5)} (TP: ${position.take_profit.toFixed(5)})`);
+      return;
+    }
 
-      // Remove from monitoring immediately
+    // PRIORITY 2: Check Dual TP System
+    const hasDualTP = position.tp1_price && position.tp2_price;
+
+    if (hasDualTP) {
+      // Dual TP System: Check TP1 and TP2 separately
+      const shouldHitTP1 = !position.tp1_hit && (position.direction === 'buy'
+        ? currentPrice >= position.tp1_price!
+        : currentPrice <= position.tp1_price!);
+
+      const shouldHitTP2 = position.tp1_hit && !position.tp2_hit && (position.direction === 'buy'
+        ? currentPrice >= position.tp2_price!
+        : currentPrice <= position.tp2_price!);
+
+      if (shouldHitTP1) {
+        console.log(`[RealtimeSLTPMonitor] 🎯 TP1 HIT (70% close): ${position.symbol} @ ${currentPrice.toFixed(5)} (TP1: ${position.tp1_price!.toFixed(5)})`);
+        await this.handleTP1Hit(position, currentPrice);
+      } else if (shouldHitTP2) {
+        console.log(`[RealtimeSLTPMonitor] 🎯🎯 TP2 HIT (30% close): ${position.symbol} @ ${currentPrice.toFixed(5)} (TP2: ${position.tp2_price!.toFixed(5)})`);
+        await this.handleTP2Hit(position, currentPrice);
+      }
+    } else {
+      // Legacy single TP system
+      const shouldCloseAtTakeProfit = position.direction === 'buy'
+        ? currentPrice >= position.take_profit
+        : currentPrice <= position.take_profit;
+
+      if (shouldCloseAtTakeProfit) {
+        console.log(`[RealtimeSLTPMonitor] 🎯 TAKE PROFIT DETECTED: ${position.symbol} ${position.direction} @ ${currentPrice.toFixed(5)} (TP: ${position.take_profit.toFixed(5)})`);
+        this.removePosition(position.id, position.symbol);
+
+        await tradeClosureCoordinator.closeTrade({
+          tradeId: position.id,
+          currentPrice,
+          closeReason: 'take_profit',
+          userId: position.user_id,
+          goalSessionId: position.goal_session_id,
+          forceClose: false,
+        }).catch(error => {
+          console.error(`[RealtimeSLTPMonitor] Failed to close at TP:`, error);
+        });
+      }
+    }
+  }
+
+  /**
+   * Handle TP1 hit: Close 70% of position, update database, keep monitoring for TP2
+   */
+  private async handleTP1Hit(position: OpenPosition, currentPrice: number): Promise<void> {
+    try {
+      // Calculate 70% partial close
+      const closeSize = position.position_size * 0.7;
+
+      console.log(`[RealtimeSLTPMonitor] Closing 70% (${closeSize.toFixed(2)} lots) at TP1...`);
+
+      // Update database to mark TP1 as hit
+      const { error: updateError } = await supabase
+        .from('goal_session_trades')
+        .update({
+          tp1_hit: true,
+          tp1_hit_at: new Date().toISOString(),
+          tp1_action_taken: 'continued', // Continued to TP2 with 30% remaining
+          position_size: position.position_size * 0.3 // Remaining 30%
+        })
+        .eq('id', position.id);
+
+      if (updateError) {
+        console.error(`[RealtimeSLTPMonitor] Failed to update TP1 hit:`, updateError);
+      }
+
+      // Calculate partial profit (70% of position)
+      const pipInfo = await import('../utils/currencyHelpers').then(m => m.getCurrencyPipInfo(position.symbol));
+      const profitPips = Math.abs(currentPrice - position.entry_price) / pipInfo.pipValue;
+      const dollarPerPip = closeSize * pipInfo.dollarPerPipPerLot;
+      const partialProfit = profitPips * dollarPerPip;
+
+      console.log(`[RealtimeSLTPMonitor] TP1 partial profit: $${partialProfit.toFixed(2)}`);
+
+      // Update position in memory to reflect partial close
+      position.position_size = position.position_size * 0.3;
+      position.tp1_hit = true;
+
+      // Keep monitoring for TP2 - don't remove from monitoring
+      console.log(`[RealtimeSLTPMonitor] TP1 processed. Monitoring continues for TP2...`);
+
+    } catch (error) {
+      console.error(`[RealtimeSLTPMonitor] Error handling TP1:`, error);
+    }
+  }
+
+  /**
+   * Handle TP2 hit: Close remaining 30%, full closure
+   */
+  private async handleTP2Hit(position: OpenPosition, currentPrice: number): Promise<void> {
+    try {
+      console.log(`[RealtimeSLTPMonitor] TP2 hit - closing remaining 30% position...`);
+
+      // Mark TP2 as hit
+      const { error: updateError } = await supabase
+        .from('goal_session_trades')
+        .update({
+          tp2_hit: true,
+          tp2_hit_at: new Date().toISOString()
+        })
+        .eq('id', position.id);
+
+      if (updateError) {
+        console.error(`[RealtimeSLTPMonitor] Failed to update TP2 hit:`, updateError);
+      }
+
+      // Remove from monitoring - full close
       this.removePosition(position.id, position.symbol);
 
-      // Trigger closure via coordinator
+      // Close the full trade via coordinator
       await tradeClosureCoordinator.closeTrade({
         tradeId: position.id,
         currentPrice,
@@ -207,8 +315,12 @@ class RealtimeSLTPMonitor {
         goalSessionId: position.goal_session_id,
         forceClose: false,
       }).catch(error => {
-        console.error(`[RealtimeSLTPMonitor] Failed to close at TP:`, error);
+        console.error(`[RealtimeSLTPMonitor] Failed to close at TP2:`, error);
       });
+
+      console.log(`[RealtimeSLTPMonitor] TP2 closure complete!`);
+    } catch (error) {
+      console.error(`[RealtimeSLTPMonitor] Error handling TP2:`, error);
     }
   }
 
