@@ -139,7 +139,17 @@ class MarketSnapshotBuilder {
         Math.abs(high - prevClose),
         Math.abs(low - prevClose)
       );
-      trs.push(tr);
+
+      // CRITICAL FIX: Filter out zero-range candles (flat MetaAPI placeholders)
+      if (tr > 0) {
+        trs.push(tr);
+      }
+    }
+
+    // Need at least 10 non-zero ranges for valid ATR
+    if (trs.length < 10) {
+      console.warn(`[Snapshot Builder] Insufficient valid candles for ATR (${trs.length} non-zero)`);
+      return 0.001;
     }
 
     return trs.reduce((sum, tr) => sum + tr, 0) / trs.length;

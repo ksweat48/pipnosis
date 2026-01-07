@@ -20,6 +20,7 @@ import { regimeOracle, type RegimeSnapshot } from './regime-oracle';
 import { adversarialDetector, type AdversarialSignal } from './adversarial-detector';
 import { createATRValue, type ATRValue, type ATRTimeframe } from '../types/atr';
 import type { AggregatedSentiment } from './sentiment-aggregator';
+import { TRADING_CONSTANTS } from '../config/trading-constants';
 
 export interface MarketSnapshotData {
   // Core Price Data
@@ -185,7 +186,7 @@ class MarketSnapshotCache {
     }
 
     // Step 2: Compute technical indicators (ONCE)
-    const indicators = this.computeIndicators(candles, timeframe);
+    const indicators = this.computeIndicators(candles, timeframe, symbol);
 
     // Step 3: Compute OmegaSensors (ONCE)
     const omegaSensors = computeOmegaSensors(
@@ -363,7 +364,7 @@ class MarketSnapshotCache {
   /**
    * Compute all technical indicators
    */
-  private computeIndicators(candles: Candle[], timeframe: Timeframe): {
+  private computeIndicators(candles: Candle[], timeframe: Timeframe, symbol: string): {
     ema20: number;
     ema50: number;
     ema200: number;
@@ -386,7 +387,8 @@ class MarketSnapshotCache {
     const rsi = this.calculateRSI(closes, 14);
     const stochRsi = this.calculateStochRSI(closes, 14);
     const atrRaw = this.calculateATR(candles);
-    const atr = createATRValue(atrRaw, timeframe as ATRTimeframe, 14);
+    const atrEnforced = this.enforceATRMinimum(atrRaw, symbol, closes[closes.length - 1]);
+    const atr = createATRValue(atrEnforced, timeframe as ATRTimeframe, 14);
     const vwap = this.calculateVWAP(candles.slice(-20));
     const { macd, signal } = this.calculateMACD(closes);
 
@@ -466,10 +468,55 @@ class MarketSnapshotCache {
         Math.abs(high - prevClose),
         Math.abs(low - prevClose)
       );
-      trs.push(tr);
+
+      // CRITICAL FIX: Filter out zero-range candles (flat MetaAPI placeholders)
+      // These pollute the ATR with artificial zeros
+      if (tr > 0) {
+        trs.push(tr);
+      }
     }
 
-    return trs.slice(-14).reduce((sum, tr) => sum + tr, 0) / 14;
+    // Need at least 10 non-zero ranges for valid ATR
+    if (trs.length < 10) {
+      console.warn(`[SnapshotCache] ⚠️ Insufficient valid candles for ATR (${trs.length}/14 non-zero)`);
+      return 0.001;
+    }
+
+    // Use last 14 valid (non-zero) ranges
+    const validTRs = trs.slice(-14);
+    return validTRs.reduce((sum, tr) => sum + tr, 0) / validTRs.length;
+  }
+
+  /**
+   * Enforce instrument-specific ATR minimums
+   * Prevents impossibly low ATR values caused by bad data
+   */
+  private enforceATRMinimum(atr: number, symbol: string, currentPrice: number): number {
+    // Check if we have a specific minimum for this symbol
+    const specificMin = TRADING_CONSTANTS.ATR_MINIMUMS[symbol as keyof typeof TRADING_CONSTANTS.ATR_MINIMUMS];
+
+    if (specificMin && typeof specificMin === 'number') {
+      if (atr < specificMin) {
+        console.warn(
+          `[SnapshotCache] ⚠️ ATR too low for ${symbol}: ${atr.toFixed(6)} < ${specificMin}. ` +
+          `Enforcing minimum. Likely caused by flat placeholder candles.`
+        );
+        return specificMin;
+      }
+      return atr;
+    }
+
+    // Fallback: use percentage-based minimum
+    const percentMin = currentPrice * TRADING_CONSTANTS.ATR_MINIMUMS.DEFAULT_PERCENT;
+    if (atr < percentMin) {
+      console.warn(
+        `[SnapshotCache] ⚠️ ATR too low for ${symbol}: ${atr.toFixed(6)} < ${percentMin.toFixed(6)} (0.02% of price). ` +
+        `Enforcing minimum.`
+      );
+      return percentMin;
+    }
+
+    return atr;
   }
 
   private calculateVWAP(candles: Candle[]): number {

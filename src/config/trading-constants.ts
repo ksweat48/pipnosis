@@ -25,6 +25,35 @@ export const TRADING_CONSTANTS = {
     MIN_SL_DISTANCE: 0.5,
   },
 
+  /**
+   * ATR Minimum Thresholds - Prevents impossibly low ATR values
+   *
+   * These are instrument-specific minimums based on typical market volatility.
+   * If calculated ATR falls below these thresholds, it indicates bad data
+   * (e.g., flat placeholder candles from MetaAPI) rather than real low volatility.
+   */
+  ATR_MINIMUMS: {
+    // Major Forex Pairs (in price units, ~2-5 pips minimum per M5 candle)
+    EURUSD: 0.00015,  // 1.5 pips
+    GBPUSD: 0.00015,  // 1.5 pips
+    USDJPY: 0.015,    // 1.5 pips (JPY pairs)
+    USDCHF: 0.00015,  // 1.5 pips
+    AUDUSD: 0.00015,  // 1.5 pips
+    NZDUSD: 0.00015,  // 1.5 pips
+    USDCAD: 0.00015,  // 1.5 pips
+
+    // Metals
+    XAUUSD: 0.20,     // Gold: $0.20 minimum
+    XAGUSD: 0.003,    // Silver: $0.003 minimum
+
+    // Crypto
+    BTCUSD: 20.0,     // Bitcoin: $20 minimum
+    ETHUSD: 1.0,      // Ethereum: $1 minimum
+
+    // Default fallback (in percentage terms)
+    DEFAULT_PERCENT: 0.0002,  // 0.02% of price
+  },
+
   RISK_PERCENTAGES: {
     MIN_PER_TRADE: 0.005,
     DEFAULT_PER_TRADE: 0.01,
