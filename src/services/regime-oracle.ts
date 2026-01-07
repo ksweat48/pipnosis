@@ -75,13 +75,24 @@ export interface TrendStructureRegime {
   structure_quality: 'clean' | 'choppy';
 }
 
+export type RegimeClassification = 'NORMAL' | 'ELEVATED' | 'HIGH_RISK' | 'CHAOTIC';
+
 export interface SafetyFlags {
   is_high_risk_regime: boolean;
-  avoid_trading: boolean; // DEPRECATED - Alpha has final authority
-  risk_reduction_factor: number;
+  avoid_trading: boolean; // DEPRECATED - Alpha has final authority (always false)
+  risk_reduction_factor: number; // DEPRECATED - Use confidence_penalty_percent instead
+  confidence_penalty_percent: number; // NEW: Additive penalty 0-15% (hard cap)
+  regime_classification: RegimeClassification; // NEW: Market regime severity
   reason?: string;
   session_weight?: number;
   dead_zone_active?: boolean;
+  advisory_only: true; // NEW: Confirms this is advisory metadata only
+  suggested_adjustments?: {
+    reduce_position_size?: boolean;
+    compress_tp_targets?: boolean;
+    tighten_stop_loss?: boolean;
+    warning_message?: string;
+  };
 }
 
 export interface RegimeSnapshot {
@@ -95,9 +106,11 @@ export interface RegimeSnapshot {
   structure: 'trend' | 'range' | 'accumulation' | 'distribution';
   market_bias: 'bull' | 'bear' | 'sideways';
   wick_risk: 'low' | 'medium' | 'high';
-  avoid_trading: boolean;
+  avoid_trading: boolean; // DEPRECATED - always false
   is_high_risk_regime: boolean;
-  risk_reduction_factor: number;
+  risk_reduction_factor: number; // DEPRECATED - kept for backward compatibility
+  confidence_penalty_percent: number; // NEW: Additive penalty 0-15% (hard cap)
+  regime_classification: RegimeClassification; // NEW: NORMAL/ELEVATED/HIGH_RISK/CHAOTIC
   reason?: string;
   timestamp: Date;
   time_regime: TimeRegime;
@@ -137,7 +150,9 @@ class RegimeOracle {
       wick_risk: volatilityRegime.wick_risk_level,
       avoid_trading: safetyFlags.avoid_trading,
       is_high_risk_regime: safetyFlags.is_high_risk_regime,
-      risk_reduction_factor: safetyFlags.risk_reduction_factor,
+      risk_reduction_factor: safetyFlags.risk_reduction_factor, // DEPRECATED - kept for backward compatibility
+      confidence_penalty_percent: safetyFlags.confidence_penalty_percent,
+      regime_classification: safetyFlags.regime_classification,
       reason: safetyFlags.reason,
       timestamp: ts,
       time_regime: timeRegime,
@@ -281,8 +296,12 @@ class RegimeOracle {
   /**
    * D. SAFETY FLAGS COMPUTATION
    *
-   * UPDATED: Dead zone is now a RISK MODIFIER, not a trade blocker.
-   * Alpha has final authority - no rule-based system may block trades.
+   * REFACTORED: Purely advisory with additive penalties (0-15% max)
+   * - NO trade blocking
+   * - NO multiplicative penalties
+   * - Regime classification: NORMAL → ELEVATED → HIGH_RISK → CHAOTIC
+   * - Hard cap at 15% penalty under ALL circumstances
+   * - Alpha retains final authority
    *
    * SSOT COMPLIANCE:
    * - Session weight delegated to sessionConstraintCoordinator
@@ -296,115 +315,208 @@ class RegimeOracle {
     symbol?: string,
     timestamp?: Date
   ): SafetyFlags {
-    // DEPRECATED: avoidTrading no longer used for blocking - kept for logging compatibility
-    let avoidTrading = false; // Always false in new system
-    let isHighRisk = false;
-    let riskFactor = 1.0; // Confidence penalty multiplier (1.0 = no penalty, 0.5 = -50% confidence)
-    let reason: string | undefined;
+    // Track all individual penalties (additive percentage points)
+    const penalties: Array<{ source: string; penalty: number; reason: string }> = [];
     let sessionWeight = 1.0;
     let deadZoneActive = false;
 
-    // Dead zone is now a risk factor, not a trade blocker
+    // ═══════════════════════════════════════════════════════════════════
+    // PENALTY ASSESSMENT (All capped at 15% individually)
+    // ═══════════════════════════════════════════════════════════════════
+
+    // 1. DEAD ZONE PENALTY (session-based, 0-5% max)
     if (time.is_dead_zone) {
       deadZoneActive = true;
 
-      // Get symbol-specific session weight via coordinator (SSOT)
       if (symbol && timestamp) {
-        // Check if this symbol requires session constraints
         if (sessionConstraintCoordinator.shouldApplySessionWeight(symbol)) {
           sessionWeight = sessionConstraintCoordinator.getSessionWeight({
             symbol,
             hour: timestamp.getUTCHours(),
             session: time.session
           });
-          riskFactor = Math.min(riskFactor, sessionWeight);
 
           if (sessionWeight < 1.0) {
-            isHighRisk = true;
-            reason = reason || `Low liquidity period (${(sessionWeight * 100).toFixed(0)}% confidence)`;
+            // Convert session weight to additive penalty (max 5%)
+            const sessionPenalty = Math.min(5, (1 - sessionWeight) * 10); // Scale to max 5%
+            penalties.push({
+              source: 'Dead Zone',
+              penalty: sessionPenalty,
+              reason: `Low liquidity period (session weight ${(sessionWeight * 100).toFixed(0)}%)`
+            });
           }
         } else {
-          // 24/7 market - no session penalty
-          console.log(`[Regime Oracle] ${symbol} is 24/7 market - no dead zone penalty applied`);
+          console.log(`[Regime Oracle] ${symbol} is 24/7 market - no dead zone penalty`);
         }
       } else {
-        // Default dead zone penalty if symbol not provided
-        isHighRisk = true;
-        riskFactor = Math.min(riskFactor, 0.65);
-        reason = reason || 'Low liquidity period (21:00-00:00 UTC)';
+        // Default dead zone penalty: 5% (was 35% via 0.65 multiplier)
+        penalties.push({
+          source: 'Dead Zone',
+          penalty: 5,
+          reason: 'Low liquidity period (21:00-00:00 UTC)'
+        });
       }
     }
 
-    // CONVERTED TO ADVISORY: Dead market = -20% confidence penalty (not block)
+    // 2. DEAD MARKET PENALTY (volatility < 15, max 10%)
     if (volatility.volatility_score < 15) {
-      isHighRisk = true;
-      riskFactor = Math.min(riskFactor, 0.80); // -20% confidence penalty
-      reason = reason || 'Dead market (extremely low volatility) - advisory penalty';
-      // avoidTrading = true; // REMOVED: Now advisory with penalty
+      penalties.push({
+        source: 'Dead Market',
+        penalty: 10,
+        reason: 'Extremely low volatility - limited price movement expected'
+      });
     }
 
-    // CONVERTED TO ADVISORY: Extreme volatility = -25% confidence penalty (not block)
+    // 3. EXTREME VOLATILITY PENALTY (volatility > 90, max 15%)
     if (volatility.volatility_score > 90) {
-      isHighRisk = true;
-      riskFactor = Math.min(riskFactor, 0.75); // -25% confidence penalty
-      reason = reason || 'Extreme volatility (stops unreliable) - advisory penalty';
-      // avoidTrading = true; // REMOVED: Now advisory with penalty
+      penalties.push({
+        source: 'Extreme Volatility',
+        penalty: 15,
+        reason: 'Extreme volatility - stop loss reliability compromised'
+      });
+    }
+    // 3b. HIGH VOLATILITY PENALTY (volatility > 80, max 12%)
+    else if (volatility.volatility_score > 80) {
+      penalties.push({
+        source: 'High Volatility',
+        penalty: 12,
+        reason: 'High volatility regime - increased execution risk'
+      });
     }
 
-    // CONVERTED TO ADVISORY: High wick risk = -20% confidence penalty (not block)
+    // 4. HIGH WICK RISK PENALTY (max 10%)
     if (volatility.wick_risk_level === 'high') {
-      isHighRisk = true;
-      riskFactor = Math.min(riskFactor, 0.80); // -20% confidence penalty
-      reason = reason || 'High wick risk (SL hunting probable) - advisory penalty';
-      // avoidTrading = true; // REMOVED: Now advisory with penalty
+      penalties.push({
+        source: 'High Wick Risk',
+        penalty: 10,
+        reason: 'High wick risk - stop loss hunting probable'
+      });
+    }
+    // 4b. MEDIUM WICK RISK PENALTY (max 5%)
+    else if (volatility.wick_risk_level === 'medium') {
+      penalties.push({
+        source: 'Medium Wick Risk',
+        penalty: 5,
+        reason: 'Elevated wick activity - monitor stops closely'
+      });
     }
 
-    // CONVERTED TO ADVISORY: High spread risk = -25% confidence penalty (not block)
+    // 5. HIGH SPREAD RISK PENALTY (max 10%)
     if (volatility.spread_risk === 'high') {
-      isHighRisk = true;
-      riskFactor = Math.min(riskFactor, 0.75); // -25% confidence penalty
-      reason = reason || 'High spread risk (execution unreliable) - advisory penalty';
-      // avoidTrading = true; // REMOVED: Now advisory with penalty
+      penalties.push({
+        source: 'High Spread Risk',
+        penalty: 10,
+        reason: 'High spread risk - execution quality unreliable'
+      });
     }
 
-    // CONVERTED TO ADVISORY: Dead zone combination = -15% confidence penalty (not block)
+    // 6. ATR COMPRESSION + RANGE COMBINATION (max 8%)
     if (volatility.atr_compression && trend.structure_type === 'range' && volatility.volatility_score < 25) {
-      isHighRisk = true;
-      riskFactor = Math.min(riskFactor, 0.85); // -15% confidence penalty
-      reason = reason || 'ATR compression + range structure + dead conditions - advisory penalty';
-      // avoidTrading = true; // REMOVED: Now advisory with penalty
+      penalties.push({
+        source: 'ATR Compression + Range',
+        penalty: 8,
+        reason: 'ATR compression in ranging market - low movement potential'
+      });
     }
 
+    // 7. NY OPEN + HIGH VOLATILITY (max 12%)
     if (time.is_ny_open && volatility.volatility_score > 75) {
-      isHighRisk = true;
-      riskFactor = 0.75;
-      reason = reason || 'NY open with high volatility';
+      penalties.push({
+        source: 'NY Open Volatility',
+        penalty: 12,
+        reason: 'NY session open with high volatility - unpredictable price action'
+      });
     }
 
-    if (volatility.volatility_score > 80 && !avoidTrading) {
-      isHighRisk = true;
-      riskFactor = 0.5;
-      reason = reason || 'High volatility regime';
+    // ═══════════════════════════════════════════════════════════════════
+    // WORST-CASE WINS (take single worst penalty, not cumulative)
+    // ═══════════════════════════════════════════════════════════════════
+
+    let finalPenalty = 0;
+    let worstPenaltySource = 'None';
+    let primaryReason = 'Normal market conditions';
+
+    if (penalties.length > 0) {
+      const worstPenalty = penalties.reduce((worst, current) =>
+        current.penalty > worst.penalty ? current : worst
+      );
+      finalPenalty = worstPenalty.penalty;
+      worstPenaltySource = worstPenalty.source;
+      primaryReason = worstPenalty.reason;
     }
 
-    // FIXED: Medium wick risk = slight reduction, not blocking
-    if (volatility.wick_risk_level === 'medium' && !avoidTrading) {
-      isHighRisk = true;
-      riskFactor = Math.min(riskFactor, 0.85); // Reduced from 0.75 to 0.85
-      reason = reason || 'Elevated wick activity (monitor stops)';
+    // ═══════════════════════════════════════════════════════════════════
+    // HARD CAP ENFORCEMENT (15% absolute maximum)
+    // ═══════════════════════════════════════════════════════════════════
+
+    if (finalPenalty > 15) {
+      console.error(`[Regime Oracle] 🚨 PENALTY CAP VIOLATION: ${finalPenalty}% exceeds 15% hard cap`);
+      console.error(`[Regime Oracle] Source: ${worstPenaltySource} - capping at 15%`);
+      finalPenalty = 15;
     }
 
-    console.log(`[Safety Flags - ADVISORY ONLY] highRisk=${isHighRisk}, confidencePenalty=${((1 - riskFactor) * 100).toFixed(0)}%, sessionWeight=${sessionWeight.toFixed(2)}, reason=${reason || 'none'}`);
+    // ═══════════════════════════════════════════════════════════════════
+    // REGIME CLASSIFICATION
+    // ═══════════════════════════════════════════════════════════════════
+
+    let regimeClass: RegimeClassification;
+    if (finalPenalty >= 15) {
+      regimeClass = 'CHAOTIC';
+    } else if (finalPenalty >= 10) {
+      regimeClass = 'HIGH_RISK';
+    } else if (finalPenalty >= 5) {
+      regimeClass = 'ELEVATED';
+    } else {
+      regimeClass = 'NORMAL';
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // SUGGESTED ADJUSTMENTS (Advisory metadata for Alpha)
+    // ═══════════════════════════════════════════════════════════════════
+
+    const suggestedAdjustments: SafetyFlags['suggested_adjustments'] = {};
+
+    if (regimeClass === 'CHAOTIC' || regimeClass === 'HIGH_RISK') {
+      suggestedAdjustments.reduce_position_size = true;
+      suggestedAdjustments.tighten_stop_loss = true;
+      suggestedAdjustments.compress_tp_targets = true;
+      suggestedAdjustments.warning_message = `${regimeClass} regime detected - consider smaller positions and tighter risk management`;
+    } else if (regimeClass === 'ELEVATED') {
+      suggestedAdjustments.warning_message = 'Elevated risk conditions - proceed with standard risk management';
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // LOGGING (Clear advisory messaging)
+    // ═══════════════════════════════════════════════════════════════════
+
+    console.log(`[Regime Oracle] Regime: ${regimeClass}`);
+    console.log(`[Regime Oracle] Confidence Penalty: -${finalPenalty}% (max 15% cap)`);
+    console.log(`[Regime Oracle] Source: ${worstPenaltySource}`);
+    console.log(`[Regime Oracle] Reason: ${primaryReason}`);
+    console.log(`[Regime Oracle] ADVISORY ONLY - Alpha retains final authority`);
+
+    if (penalties.length > 1) {
+      console.log(`[Regime Oracle] Other conditions detected (not applied):`);
+      penalties
+        .filter(p => p.source !== worstPenaltySource)
+        .forEach(p => console.log(`  - ${p.source}: -${p.penalty}% (${p.reason})`));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // RETURN (New advisory contract)
+    // ═══════════════════════════════════════════════════════════════════
 
     return {
-      is_high_risk_regime: isHighRisk,
-      // DEPRECATED: avoid_trading now always false - all conditions converted to confidence penalties
-      // Kept for backward compatibility with logging/monitoring systems
-      avoid_trading: false, // ALWAYS false now - no hard blocks, only penalties
-      risk_reduction_factor: riskFactor,
-      reason,
+      is_high_risk_regime: regimeClass === 'HIGH_RISK' || regimeClass === 'CHAOTIC',
+      avoid_trading: false, // DEPRECATED - always false, Alpha has final authority
+      risk_reduction_factor: 1 - (finalPenalty / 100), // DEPRECATED - kept for backward compatibility
+      confidence_penalty_percent: finalPenalty,
+      regime_classification: regimeClass,
+      reason: primaryReason,
       session_weight: sessionWeight,
-      dead_zone_active: deadZoneActive
+      dead_zone_active: deadZoneActive,
+      advisory_only: true,
+      suggested_adjustments: suggestedAdjustments
     };
   }
 

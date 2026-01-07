@@ -1274,11 +1274,15 @@ class AlphaOmegaOrchestrator {
       }
     }
 
-    if (regimeSnapshot && regimeSnapshot.risk_reduction_factor < 1.0) {
+    // NEW: Use additive penalty system from Regime Oracle (0-15% max)
+    if (regimeSnapshot && regimeSnapshot.confidence_penalty_percent > 0) {
+      // Convert additive penalty to multiplier format for compatibility
+      // E.g., 15% penalty = 0.85 multiplier
+      const multiplier = 1 - (regimeSnapshot.confidence_penalty_percent / 100);
       penalties.push({
         source: 'Regime Oracle',
-        multiplier: regimeSnapshot.risk_reduction_factor,
-        reason: `Market regime risk: ${regimeSnapshot.volatility_score}% volatility, ${regimeSnapshot.is_high_risk_regime ? 'high risk' : 'normal'}`
+        multiplier,
+        reason: `${regimeSnapshot.regime_classification} regime: ${regimeSnapshot.reason || 'Market conditions'} (-${regimeSnapshot.confidence_penalty_percent}% advisory penalty, max 15% cap enforced)`
       });
     }
 
