@@ -11,7 +11,7 @@ export interface TradingSession {
   status: 'active' | 'paused' | 'ended';
   session_type: 'manual' | 'goal_based';
   start_time: string;
-  end_time?: string;
+  completed_at?: string;
   metadata?: Record<string, any>;
 }
 

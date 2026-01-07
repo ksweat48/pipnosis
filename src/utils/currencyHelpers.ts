@@ -634,27 +634,16 @@ export function calculateGoalAwareLotSize(
     console.error(`  Common move = ${commonMovePips.toFixed(2)} ${assetProfile.commonMove.unit}`);
     console.error(`  This is too small - asset profiles must use POINTS/PIPS, not ATR multipliers`);
     console.error(`  Symbol: ${symbol}, Category: ${pipInfo.symbolType}`);
-    console.error(`  Using fallback: typicalSessionMove = ${typicalSessionMove} points`);
+    console.error(`  CRITICAL: Cannot proceed with position sizing - must fix asset profile configuration`);
+    console.error(`  Expected: commonMove.min/max should be in actual pips/points (e.g., 30-100 for indices)`);
 
-    // Use symbol-specific session move as fallback
-    const fallbackOptimalPips = typicalSessionMove;
-    const fallbackRequiredLotSize = remainingGoal / (fallbackOptimalPips * dollarPerPipAtOneLot);
-    console.error(`  Fallback Required Lot Size: ${fallbackRequiredLotSize.toFixed(3)} lots`);
-
-    return {
-      lotSize: Math.min(0.01, fallbackRequiredLotSize),
-      expectedProfitAtCommonMove: 0,
-      remainingGoal,
-      estimatedTradesNeeded: 999,
-      reasoning: `🚨 Position sizing failed - asset profile misconfigured for ${symbol}. Please fix ${assetProfile.commonMove.unit} values in asset-class-risk-profiles.ts`,
-      goalFeasibility: 'unrealistic',
-      feasible: false,
-      infeasibilityReason: 'Asset profile configuration error - common move values too small',
-      alternatives: [
-        `Update ${symbol} asset profile to use actual pip/point values`,
-        'Contact support to fix position sizing configuration'
-      ]
-    };
+    // ✅ FIXED: Throw error instead of returning broken values
+    // This ensures the bug is caught immediately rather than silently producing incorrect lot sizes
+    throw new Error(
+      `Asset profile misconfigured for ${symbol}: commonMove=${commonMovePips.toFixed(2)} ${assetProfile.commonMove.unit}. ` +
+      `This value is too small. Asset profiles must specify POINTS/PIPS, not ATR multipliers. ` +
+      `Fix commonMove.min/max in asset-class-risk-profiles.ts to use actual pip/point values (e.g., 30-100 for indices).`
+    );
   }
 
   // Cap at max risk-based position size

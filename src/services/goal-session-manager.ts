@@ -41,7 +41,7 @@ export interface GoalSession {
   auto_execute: boolean;
   watchlist: string[];
   start_time: string;
-  end_time: string | null;
+  completed_at: string | null;
   last_scan_time: string | null;
   next_scan_time: string | null;
   created_at: string;
@@ -147,7 +147,7 @@ class GoalSessionManager {
           scan_interval_minutes: scanInterval,
           auto_execute: config.autoExecute ?? false,
           watchlist: config.watchlist ?? ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD'],
-          end_time: endTime,
+          completed_at: endTime,
           next_scan_time: nextScanTime,
           server_enabled: true,
           autonomous_enabled: true,
@@ -291,7 +291,7 @@ class GoalSessionManager {
         .from('goal_sessions')
         .update({
           status: 'user_stopped',
-          end_time: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
         .eq('id', sessionId)
@@ -333,7 +333,7 @@ class GoalSessionManager {
         .from('goal_sessions')
         .select('id, user_id')
         .in('status', ['scanning', 'trade_pending', 'in_trade'])
-        .lt('end_time', new Date().toISOString());
+        .lt('completed_at', new Date().toISOString());
 
       if (expiredSessions && expiredSessions.length > 0) {
         for (const session of expiredSessions) {

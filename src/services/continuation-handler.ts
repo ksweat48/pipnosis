@@ -215,7 +215,7 @@ Keep it brief and motivating.
         .from('goal_sessions')
         .update({
           status: 'user_stopped',
-          end_time: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
           awaiting_user_continuation: false,
           continuation_prompt: null,
           updated_at: new Date().toISOString()

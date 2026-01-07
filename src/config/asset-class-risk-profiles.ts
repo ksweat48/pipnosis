@@ -119,9 +119,9 @@ const INDICES_PROFILE: AssetClassRiskProfile = {
   },
 
   commonMove: {
-    min: 0.5,
-    max: 1.2,
-    unit: 'atr'
+    min: 30,      // FIXED: Use absolute points, not ATR multipliers
+    max: 100,     // US30: ~30-100 points, NAS100: ~50-150 points, SPX500: ~20-60 points
+    unit: 'points'
   },
 
   sessionMoveBudget: {
