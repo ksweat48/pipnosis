@@ -941,12 +941,42 @@ class GoalSessionLiveEngine {
         return;
       }
 
-      // Handle DOWNSHIFT tier - Goal needs adjustment, Alpha must re-confirm
+      // Handle EXECUTE_REDUCED tier - Simple automatic goal reduction (no Alpha confirmation needed)
       let downshiftedProposal: DownshiftProposal | undefined;
       let adjustedTakeProfit = decision.takeProfit;
       let adjustedExpectedProfit = expectedProfitAtAlphaTP;
 
-      if (feasibilityResult.feasible && feasibilityResult.proposal) {
+      if (feasibilityResult.feasible && feasibilityResult.tier === 'EXECUTE_REDUCED' && feasibilityResult.proposal) {
+        console.log('%c[Goal Feasibility] 🔄 EXECUTE_REDUCED - Auto-applying goal reduction', 'color: #3b82f6; font-weight: bold');
+
+        const reducedProposal = feasibilityResult.proposal as any;
+        adjustedExpectedProfit = reducedProposal.reducedGoal;
+
+        // Recalculate take profit based on reduced goal
+        const pipInfo = getCurrencyPipInfo(selectedSymbol);
+        const dollarPerPip = calculateDollarPerPip(selectedSymbol, goalAwareSizing.lotSize);
+        const adjustedTPPips = adjustedExpectedProfit / dollarPerPip;
+
+        if (decision.action === 'BUY') {
+          adjustedTakeProfit = decision.entry + (adjustedTPPips * pipInfo.pipValue);
+        } else {
+          adjustedTakeProfit = decision.entry - (adjustedTPPips * pipInfo.pipValue);
+        }
+
+        // Send advisory message to user
+        await this.sendAIMessage(
+          `🔄 Goal Automatically Reduced\n\n` +
+          `${reducedProposal.advisoryMessage}\n\n` +
+          `📊 Reason: ${reducedProposal.reason}\n` +
+          `📉 Adjusted goal: $${reducedProposal.reducedGoal.toFixed(2)}\n` +
+          `📈 Retention: ${(reducedProposal.retentionPercent * 100).toFixed(0)}%\n\n` +
+          `✅ Proceeding with execution...`
+        );
+
+        console.log('%c[Goal Feasibility] ✅ EXECUTE_REDUCED applied - Proceeding to execution', 'color: #10b981; font-weight: bold');
+      }
+      // Handle DOWNSHIFT tier - Goal needs adjustment, Alpha must re-confirm
+      else if (feasibilityResult.feasible && feasibilityResult.proposal) {
         console.log('%c[Goal Feasibility] 📊 Downshift proposal detected - Requesting Alpha confirmation...', 'color: #8b5cf6; font-weight: bold');
 
         downshiftedProposal = feasibilityResult.proposal;

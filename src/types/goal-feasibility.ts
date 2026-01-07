@@ -59,10 +59,17 @@ export interface AlphaFeasibilityResponse {
   };
 }
 
+export interface ReducedGoalProposal {
+  reducedGoal: number;
+  retentionPercent: number;
+  reason: string;
+  advisoryMessage: string;
+}
+
 export interface FeasibilityResult {
   feasible: boolean;
-  tier: 'EXECUTE' | 'WAIT_FOR_VOLATILITY' | 'BLOCK_WITH_ALTERNATIVES';
-  proposal?: DownshiftProposal;
+  tier: 'EXECUTE' | 'EXECUTE_REDUCED' | 'WAIT_FOR_VOLATILITY' | 'BLOCK_WITH_ALTERNATIVES';
+  proposal?: DownshiftProposal | ReducedGoalProposal;
   waitReason?: string;
   blockReason?: string;
   alternativeSuggestions?: string[];
