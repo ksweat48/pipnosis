@@ -4,8 +4,9 @@
  * Detects hostile market behavior using ONLY local computations (no LLM calls).
  * Identifies stop runs, fake breakouts, whipsaws, and news spikes.
  *
- * This module acts as a zero-cost intelligence gate that blocks trades
- * before expensive Alpha/Omega calls during manipulated market conditions.
+ * UPDATED ROLE: Advisory-only system that applies confidence penalties.
+ * NO LONGER BLOCKS TRADES - provides risk assessment for Alpha to consider.
+ * Alpha has final authority to proceed despite adverse conditions if justified.
  */
 
 import type { RegimeSnapshot } from './regime-oracle';
@@ -16,13 +17,15 @@ export interface AdversarialSignal {
   level: 'none' | 'mild' | 'moderate' | 'severe';
   suspicion_score: number; // 0-100
   patterns: string[]; // ["stop_run_high", "whipsaw_cluster"]
-  recommended_action: 'normal' | 'reduce_size' | 'delay' | 'avoid';
+  recommended_action: 'normal' | 'reduce_size' | 'delay'; // REMOVED: 'avoid' - never blocks
+  confidence_penalty?: number; // Penalty multiplier (0.75 = -25% confidence, 0.80 = -20%, etc.)
   notes: string; // short, 80 chars max
   stop_run_classification?: {
     type: 'active_stop_run' | 'historical_sweep' | 'manipulation_spike' | 'none';
     candles_ago: number; // How many candles ago the stop run occurred
     has_bos: boolean; // Break of structure after sweep
-    should_block: boolean; // Final decision
+    should_block: boolean; // DEPRECATED: Always false - kept for backward compatibility
+    requires_omega9_validation?: boolean; // If true, Omega-9 must validate before proceeding
     reasoning: string;
   };
 }
@@ -154,16 +157,26 @@ class AdversarialDetector {
     const is_adversarial = level !== 'none';
     const notes = this.generateNotes(patterns, level);
 
-    console.log(`[Adversarial] Score: ${suspicion_score}, Level: ${level}`);
+    // Calculate confidence penalty based on stop run classification and level
+    const confidence_penalty = this.calculateConfidencePenalty(
+      stopRunClassification,
+      level,
+      patterns
+    );
+
+    console.log(`[Adversarial - ADVISORY] Score: ${suspicion_score}, Level: ${level}`);
+    if (confidence_penalty && confidence_penalty < 1.0) {
+      console.log(`[Adversarial - ADVISORY] Confidence Penalty: ${((1 - confidence_penalty) * 100).toFixed(0)}%`);
+    }
     if (patterns.length > 0) {
-      console.log(`[Adversarial] Patterns: ${patterns.join(', ')}`);
+      console.log(`[Adversarial - ADVISORY] Patterns: ${patterns.join(', ')}`);
     }
 
     // Log stop-run classification
     if (stopRunClassification.type !== 'none') {
-      console.log(`[Adversarial] Stop-Run: ${stopRunClassification.type} (${stopRunClassification.candles_ago} candles ago)`);
-      console.log(`[Adversarial] BOS: ${stopRunClassification.has_bos}, Block: ${stopRunClassification.should_block}`);
-      console.log(`[Adversarial] ${stopRunClassification.reasoning}`);
+      console.log(`[Adversarial - ADVISORY] Stop-Run: ${stopRunClassification.type} (${stopRunClassification.candles_ago} candles ago)`);
+      console.log(`[Adversarial - ADVISORY] BOS: ${stopRunClassification.has_bos}, Requires Omega-9: ${stopRunClassification.requires_omega9_validation || false}`);
+      console.log(`[Adversarial - ADVISORY] ${stopRunClassification.reasoning}`);
     }
 
     return {
@@ -172,6 +185,7 @@ class AdversarialDetector {
       suspicion_score,
       patterns,
       recommended_action,
+      confidence_penalty,
       notes,
       stop_run_classification: stopRunClassification
     };
@@ -416,12 +430,18 @@ class AdversarialDetector {
   /**
    * Determine recommended action based on level
    */
+  /**
+   * Determine recommended action (ADVISORY ONLY - never blocks)
+   *
+   * UPDATED: No longer returns 'avoid'. All recommendations are advisory.
+   * Alpha has final authority to proceed despite adverse conditions.
+   */
   private determineAction(
     level: 'none' | 'mild' | 'moderate' | 'severe'
-  ): 'normal' | 'reduce_size' | 'delay' | 'avoid' {
+  ): 'normal' | 'reduce_size' | 'delay' {
     switch (level) {
       case 'severe':
-        return 'avoid';
+        return 'delay'; // Was 'avoid' - now advisory delay with heavy penalty
       case 'moderate':
         return 'delay';
       case 'mild':
@@ -429,6 +449,61 @@ class AdversarialDetector {
       default:
         return 'normal';
     }
+  }
+
+  /**
+   * Calculate confidence penalty based on adversarial patterns
+   *
+   * Returns a multiplier (0.65 = -35% confidence, 0.80 = -20%, 1.0 = no penalty)
+   * This replaces hard blocks with quantified risk assessment.
+   */
+  private calculateConfidencePenalty(
+    stopRunClassification: {
+      type: 'active_stop_run' | 'historical_sweep' | 'manipulation_spike' | 'none';
+      candles_ago: number;
+      has_bos: boolean;
+      should_block: boolean;
+      requires_omega9_validation?: boolean;
+      reasoning: string;
+    },
+    level: 'none' | 'mild' | 'moderate' | 'severe',
+    patterns: string[]
+  ): number {
+    let penalty = 1.0; // Start with no penalty
+
+    // Stop run classification penalties
+    if (stopRunClassification.type === 'active_stop_run') {
+      penalty = Math.min(penalty, 0.75); // -25% for active stop run
+    } else if (stopRunClassification.type === 'manipulation_spike') {
+      if (stopRunClassification.requires_omega9_validation) {
+        if (stopRunClassification.candles_ago <= 1) {
+          penalty = Math.min(penalty, 0.65); // -35% for extreme recent spike
+        } else {
+          penalty = Math.min(penalty, 0.80); // -20% for unstable spike
+        }
+      } else {
+        penalty = Math.min(penalty, 0.90); // -10% for historical spike
+      }
+    }
+
+    // General level-based penalties
+    if (level === 'severe') {
+      penalty = Math.min(penalty, 0.70); // At least -30% for severe conditions
+    } else if (level === 'moderate') {
+      penalty = Math.min(penalty, 0.85); // At least -15% for moderate conditions
+    } else if (level === 'mild') {
+      penalty = Math.min(penalty, 0.95); // At least -5% for mild conditions
+    }
+
+    // Additional pattern-based penalties
+    if (patterns.includes('extreme_spike')) {
+      penalty = Math.min(penalty, 0.75); // -25% for extreme spike
+    }
+    if (patterns.includes('whipsaw_cluster')) {
+      penalty = Math.min(penalty, 0.85); // -15% for whipsaw
+    }
+
+    return penalty;
   }
 
   /**
@@ -560,15 +635,16 @@ class AdversarialDetector {
       const isVeryRecentSpike = candlesAgo <= 1; // Very recent = within 1 candle (current candle only)
       const isAgedSpike = candlesAgo >= 5; // Aged = 5+ candles old (reduced from 10)
 
-      // Hard block only for very recent AND extreme spikes
+      // CONVERTED TO ADVISORY: Extreme spike = -35% confidence penalty + Omega-9 validation
       if (isVeryRecentSpike && isExtremeSpike) {
-        console.warn(`[Adversarial] Extreme Manipulation Spike Detected (${spikeMultiplier.toFixed(1)}x, ${candlesAgo} candles ago) → BLOCK`);
+        console.warn(`[Adversarial] Extreme Manipulation Spike Detected (${spikeMultiplier.toFixed(1)}x, ${candlesAgo} candles ago) → -35% CONFIDENCE PENALTY + Omega-9 Validation Required`);
         return {
           type: 'manipulation_spike',
           candles_ago: candlesAgo,
           has_bos: false,
-          should_block: true,
-          reasoning: `Extreme volatility spike (${spikeMultiplier.toFixed(1)}x ATR, ${candlesAgo} candles ago) - block expires in ${Math.max(0, 3 - candlesAgo)} candles`
+          should_block: false, // ADVISORY ONLY - Alpha has final authority
+          requires_omega9_validation: true, // Require additional validation
+          reasoning: `Extreme volatility spike (${spikeMultiplier.toFixed(1)}x ATR, ${candlesAgo} candles ago) - confidence reduced, requires Omega-9 validation`
         };
       }
 
@@ -599,25 +675,27 @@ class AdversarialDetector {
         };
       }
 
-      console.warn(`[Adversarial] Manipulation spike still unstable → BLOCK for ${Math.max(0, 5 - candlesAgo)} more candles`);
+      console.warn(`[Adversarial] Manipulation spike still unstable → -20% CONFIDENCE PENALTY`);
       return {
         type: 'manipulation_spike',
         candles_ago: candlesAgo,
         has_bos: false,
-        should_block: true,
-        reasoning: `Manipulation spike (${spikeMultiplier.toFixed(1)}x ATR, ${candlesAgo} candles ago) - waiting for stabilization`
+        should_block: false, // ADVISORY ONLY - Alpha has final authority
+        requires_omega9_validation: true, // Require stabilization check
+        reasoning: `Manipulation spike (${spikeMultiplier.toFixed(1)}x ATR, ${candlesAgo} candles ago) - waiting for stabilization, confidence reduced`
       };
     }
 
-    // B) Check if active (within last 1 candle only - very strict, only blocks current-candle stop runs)
+    // B) CONVERTED TO ADVISORY: Active stop run = -25% confidence penalty (not block)
     if (candlesAgo <= 0) {
-      console.warn('[Adversarial] Active Stop Run Detected → BLOCK');
+      console.warn('[Adversarial] Active Stop Run Detected → -25% CONFIDENCE PENALTY');
       return {
         type: 'active_stop_run',
         candles_ago: candlesAgo,
         has_bos: false,
-        should_block: true,
-        reasoning: `Stop run occurring RIGHT NOW (current candle) - too active to trust`
+        should_block: false, // ADVISORY ONLY - Alpha has final authority
+        requires_omega9_validation: false, // Current candle, Alpha can decide
+        reasoning: `Stop run occurring in current candle - confidence reduced but Alpha may proceed if setup justifies`
       };
     }
 

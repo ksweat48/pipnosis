@@ -9,10 +9,15 @@
  * All session constraint logic MUST go through this coordinator.
  * Consumers NEVER make session decisions - they ALWAYS delegate.
  *
- * PRINCIPLE:
+ * UPDATED PRINCIPLE (DE-PARALYZED ALPHA):
  * - 24/7 markets (crypto) → NO session constraints, EVER
- * - Forex-hours markets → Session constraints apply (symbol-specific weights)
- * - Trade style modifies how constraints apply (SCALP vs INTRADAY vs SWING)
+ * - Forex-hours markets → Session constraints are ADVISORY ONLY (confidence penalties, never blocks)
+ * - Trade style modifies PENALTY SEVERITY (SCALP = heavier penalty for overruns)
+ * - Alpha ALWAYS has final authority to proceed despite session warnings
+ *
+ * CRITICAL CHANGE:
+ * NO MORE 'ENFORCED' MODE. All session constraints are now advisory.
+ * Session mismatches apply confidence penalties, never block trades.
  *
  * SSOT GUARANTEE:
  * If you add a new crypto symbol, update SYMBOL_REGISTRY with marketSchedule: '24/7'
@@ -21,7 +26,8 @@
 
 import { assetClassifier } from './asset-classifier';
 
-export type SessionConstraintPolicy = 'ENFORCED' | 'ADVISORY' | 'NONE';
+// UPDATED: Removed 'ENFORCED' - all constraints are now ADVISORY or NONE
+export type SessionConstraintPolicy = 'ADVISORY' | 'NONE';
 
 interface SessionWeightContext {
   symbol: string;
@@ -35,10 +41,14 @@ class SessionConstraintCoordinator {
    *
    * This is the MASTER DECISION FUNCTION for session constraints.
    *
+   * UPDATED (DE-PARALYZED ALPHA):
    * Returns:
    * - 'NONE': No session constraints apply (24/7 markets or SWING style)
-   * - 'ADVISORY': Session constraints provide guidance (INTRADAY style)
-   * - 'ENFORCED': Session constraints are hard limits (SCALP style on forex-hours markets)
+   * - 'ADVISORY': Session constraints provide warnings and confidence penalties
+   *               (SCALP/INTRADAY styles on forex-hours markets)
+   *
+   * CRITICAL: Never returns 'ENFORCED' anymore. All session constraints are advisory.
+   * Style determines PENALTY SEVERITY, not whether to block.
    */
   getSessionConstraintPolicy(
     symbol: string,
@@ -46,30 +56,32 @@ class SessionConstraintCoordinator {
   ): SessionConstraintPolicy {
     // 24/7 markets NEVER have session constraints, regardless of style
     if (assetClassifier.is24HourMarket(symbol)) {
-      console.log(`[Session Constraints] ${symbol}: NONE (24/7 market)`);
+      console.log(`[Session Constraints - ADVISORY] ${symbol}: NONE (24/7 market)`);
       return 'NONE';
     }
 
     // Forex-hours markets: policy depends on trade style
     switch (tradeStyle) {
       case 'SCALP':
-        // SCALP: Session constraints ENFORCE (trade must complete in session)
-        console.log(`[Session Constraints] ${symbol}: ENFORCED (SCALP on forex-hours market)`);
-        return 'ENFORCED';
+        // SCALP: Session constraints ADVISORY with HEAVIER penalties for overruns
+        // Was ENFORCED - now applies -15% confidence penalty if exceeds session
+        console.log(`[Session Constraints - ADVISORY] ${symbol}: ADVISORY (SCALP - heavier penalties for session overruns)`);
+        return 'ADVISORY';
 
       case 'INTRADAY':
-        // INTRADAY: Session constraints ADVISORY (trade may extend beyond session)
-        console.log(`[Session Constraints] ${symbol}: ADVISORY (INTRADAY on forex-hours market)`);
+        // INTRADAY: Session constraints ADVISORY with LIGHTER penalties
+        // Applies -5% confidence penalty for awareness only
+        console.log(`[Session Constraints - ADVISORY] ${symbol}: ADVISORY (INTRADAY - light penalties for awareness)`);
         return 'ADVISORY';
 
       case 'SWING':
-        // SWING: Session constraints NONE (multi-session trade)
-        console.log(`[Session Constraints] ${symbol}: NONE (SWING style)`);
+        // SWING: Session constraints NONE (multi-session trade by design)
+        console.log(`[Session Constraints - ADVISORY] ${symbol}: NONE (SWING style - multi-session by design)`);
         return 'NONE';
 
       default:
         // Default to ADVISORY for unknown styles
-        console.warn(`[Session Constraints] Unknown trade style: ${tradeStyle}, defaulting to ADVISORY`);
+        console.warn(`[Session Constraints - ADVISORY] Unknown trade style: ${tradeStyle}, defaulting to ADVISORY`);
         return 'ADVISORY';
     }
   }
@@ -221,13 +233,13 @@ class SessionConstraintCoordinator {
 
   /**
    * Helper: Format policy for logging
+   *
+   * UPDATED: ENFORCED mode removed - all constraints are advisory now
    */
   formatPolicy(policy: SessionConstraintPolicy): string {
     switch (policy) {
-      case 'ENFORCED':
-        return '🔴 ENFORCED - Hard session limits apply';
       case 'ADVISORY':
-        return '🟡 ADVISORY - Session guidance only';
+        return '🟡 ADVISORY - Confidence penalties apply, Alpha has final authority';
       case 'NONE':
         return '🟢 NONE - No session constraints';
     }
@@ -244,6 +256,62 @@ class SessionConstraintCoordinator {
 
     // Forex-hours markets: 21:00-00:00 UTC is typically dead zone
     return hour >= 21 || hour < 0;
+  }
+
+  /**
+   * Calculate session-based confidence penalty for a trade
+   *
+   * NEW METHOD for de-paralyzed Alpha system.
+   * Replaces hard blocks with quantified confidence penalties.
+   *
+   * Returns:
+   * - 1.0 = no penalty (within ideal session window)
+   * - 0.95 = -5% penalty (INTRADAY session transition warning)
+   * - 0.85 = -15% penalty (SCALP exceeds session window)
+   *
+   * @param symbol Trading symbol
+   * @param tradeStyle SCALP/INTRADAY/SWING
+   * @param sessionTimeRemainingMinutes Minutes left in current session
+   * @param estimatedDurationMinutes Expected trade duration
+   */
+  calculateSessionPenalty(
+    symbol: string,
+    tradeStyle: 'SCALP' | 'INTRADAY' | 'SWING',
+    sessionTimeRemainingMinutes: number,
+    estimatedDurationMinutes: number
+  ): number {
+    // SWING trades ignore sessions completely
+    if (tradeStyle === 'SWING') {
+      return 1.0; // No penalty
+    }
+
+    // 24/7 markets never have session penalties
+    if (assetClassifier.is24HourMarket(symbol)) {
+      return 1.0; // No penalty
+    }
+
+    // Calculate if trade would exceed session window
+    const wouldExceedSession = estimatedDurationMinutes > sessionTimeRemainingMinutes;
+
+    if (!wouldExceedSession) {
+      // Within session - small reward
+      return 1.05; // +5% confidence reward for ideal timing
+    }
+
+    // Exceeds session - apply penalty based on style
+    if (tradeStyle === 'SCALP') {
+      // SCALP exceeding session is suboptimal but Alpha can still proceed
+      console.log(`[Session Penalty] SCALP trade exceeds session by ${estimatedDurationMinutes - sessionTimeRemainingMinutes}min → -15% confidence penalty`);
+      return 0.85; // -15% penalty
+    }
+
+    if (tradeStyle === 'INTRADAY') {
+      // INTRADAY expected to possibly span sessions - light penalty for awareness
+      console.log(`[Session Penalty] INTRADAY trade spans sessions → -5% confidence penalty (awareness only)`);
+      return 0.95; // -5% penalty
+    }
+
+    return 1.0; // Default no penalty
   }
 }
 

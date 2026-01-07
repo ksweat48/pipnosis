@@ -105,15 +105,65 @@ function getAssetClass(symbol: string): AssetClass {
 }
 
 /**
- * Helper: Map risk mode to trade style
- * HIGH risk = SCALP (fast, within-session trades)
- * MEDIUM risk = INTRADAY (may extend beyond session, complete same day)
- * LOW risk = SWING (multi-session trades)
+ * ═══════════════════════════════════════════════════════════════════
+ * DECOUPLED RISK AND STYLE
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ * CRITICAL ARCHITECTURAL CHANGE:
+ * Risk and Style are now INDEPENDENT dimensions:
+ *
+ * RISK MODE (controls MONEY exposure):
+ * - HIGH: 8-10% max session loss, 0.5:1 min R:R, 50% confidence penalty cap
+ * - MEDIUM: 5-7% max session loss, 1.0:1 min R:R, 40% confidence penalty cap
+ * - LOW: 2-4% max session loss, 1.2:1 min R:R, 30% confidence penalty cap
+ *
+ * TRADE STYLE (controls TIME preference):
+ * - SCALP: 20 minutes to 2 hours expected duration
+ * - MICRO_INTRADAY: 1 hour to 6 hours expected duration
+ * - INTRADAY: 2 hours to 10 hours expected duration
+ * - SWING: Multi-session (days)
+ *
+ * Philosophy:
+ * - A user can be HIGH risk (aggressive money) with SWING style (patient timing)
+ * - A user can be LOW risk (conservative money) with SCALP style (quick timing)
+ * - Risk defines position size and loss tolerance
+ * - Style defines hold time and session constraints (advisory only)
+ *
+ * Default Style Selection (when user doesn't specify):
+ * - Based on session context and time availability
+ * - NOT based on risk mode
+ * ═══════════════════════════════════════════════════════════════════
  */
-function riskModeToTradeStyle(riskMode: 'low' | 'medium' | 'high'): 'SCALP' | 'INTRADAY' | 'SWING' {
-  if (riskMode === 'high') return 'SCALP';
-  if (riskMode === 'medium') return 'INTRADAY';
-  return 'SWING';
+
+/**
+ * Helper: Select default trade style based on time availability
+ * This is time-based, NOT risk-based.
+ *
+ * @param sessionContext - Current market session timing
+ * @param availableTime - Hours available (optional, from user preferences)
+ * @returns Recommended style based on timing, not risk
+ */
+function selectDefaultTradeStyle(
+  sessionContext?: { session: string; hours_until_close?: number },
+  availableTime?: number
+): 'SCALP' | 'INTRADAY' | 'SWING' {
+  // If user has limited time, default to SCALP
+  if (availableTime && availableTime <= 2) {
+    return 'SCALP';
+  }
+
+  // If session is closing soon, use SCALP
+  if (sessionContext?.hours_until_close && sessionContext.hours_until_close <= 2) {
+    return 'SCALP';
+  }
+
+  // If moderate time or mid-session, use INTRADAY
+  if (availableTime && availableTime <= 6) {
+    return 'INTRADAY';
+  }
+
+  // Default to INTRADAY for most trading (good balance)
+  return 'INTRADAY';
 }
 
 export interface OmegaCouncilVotes {
@@ -620,7 +670,18 @@ class AlphaCoordinatorBrain {
 
     if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED' && consensus.direction !== 'WAIT') {
       const assetClass = getAssetClass(marketContext.symbol);
-      const requestedStyle = riskModeToTradeStyle(riskMode);
+
+      // Get current session context for time-based style selection
+      const sessionContext = calculateSessionContext();
+
+      // Select style based on TIME availability, not risk mode
+      const requestedStyle = selectDefaultTradeStyle(
+        {
+          session: sessionContext.sessionName,
+          hours_until_close: sessionContext.sessionTimeRemainingMinutes / 60
+        },
+        undefined // TODO: Add user time preference from settings
+      );
 
       // Extract ATR value for feasibility check
       const atrValue = extractATRValue(marketContext.atr);
@@ -716,8 +777,14 @@ class AlphaCoordinatorBrain {
       const sessionContext = calculateSessionContext();
       console.log(`[Alpha Coordinator] 📅 Session Context: ${sessionContext.sessionName} (${sessionContext.sessionTimeRemainingMinutes}min remaining)`);
 
-      // Get trade style from resolved plan (determined by feasibility resolver)
-      const tradeStyle = resolvedPlan?.style || riskModeToTradeStyle(riskMode);
+      // Get trade style from resolved plan OR time-based default (NOT risk-based)
+      const tradeStyle = resolvedPlan?.style || selectDefaultTradeStyle(
+        {
+          session: sessionContext.sessionName,
+          hours_until_close: sessionContext.sessionTimeRemainingMinutes / 60
+        },
+        undefined // TODO: Add user time preference from settings
+      );
 
       omega9Constraints = omega9ConstraintProvider.generateConstraints({
         symbol: marketContext.symbol,
@@ -969,6 +1036,31 @@ Act accordingly.
 
     const prompt = `You are Alpha, the final decision maker. You have COMPLETE AUTHORITY to accept or override ANY recommendation.
 
+🎯 YOUR CORE MANDATE (DE-PARALYZED ALPHA SYSTEM)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. ALWAYS attempt to find a viable trade when the user requests one
+2. If the user's goal is not fully achievable, take the BEST ACHIEVABLE TRADE
+3. Downgrading profit targets is PREFERABLE to NO_TRADE
+4. Session transitions are ACCEPTABLE (adjust position size if needed)
+5. Style overruns incur confidence penalties, NOT rejection
+6. NO_TRADE is ONLY for:
+   - Market closed / no quotes available
+   - Data stale (integrity issue)
+   - Profit mathematically impossible (spread > potential profit)
+   - Invalid trade parameters (SL on wrong side, zero-distance stops)
+
+⚠️ IMPORTANT: Advisories are GUIDANCE, not VETOES
+You have FINAL AUTHORITY to proceed despite warnings if:
+- Setup quality justifies the risk
+- Market structure supports the trade
+- User's risk tolerance allows it (HIGH risk = more freedom)
+
+Example: "Dead zone warning shows -15% confidence penalty, but Tokyo
+session for USDJPY is actually active. Proceeding with full confidence."
+
+Core Principle: If the market can offer some profit, Alpha should take it.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 🎯 CONFIDENCE LANGUAGE GUIDELINES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Be DECISIVE. Avoid hedging language.
@@ -1027,13 +1119,23 @@ ${this.buildWeightedVoteSummary(votes, weights, consensus)}
   Stop Quality: ${stopQuality.score}/100 → ${stopQuality.recommendation}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-YOUR AUTHORITY & SAFETY ZONES:
-✅ FULL OVERRIDE POWER for: Adversarial blocks (when BOS confirmed), Regime avoid (when justified), Risk Omega (if setup quality high)
-🛡️ OMEGA-9 SAFETY ZONES (Auto-enforced):
-  • GREEN (R:R≥1.5:1): Optimal - full authority
-  • YELLOW (R:R 1.0-1.5:1): Suboptimal - proceed with caution
-  • ORANGE (R:R 0.5-1.0:1): Risky - requires override reasoning
-  • RED (R:R<0.5:1): HARD BLOCK - cannot override
+YOUR AUTHORITY & DECISION FRAMEWORK:
+✅ ADVISORY-ONLY SYSTEM - All recommendations are guidance, never hard blocks
+   • Regime warnings: Confidence penalties, you may proceed if justified
+   • Adversarial signals: Risk assessment, you have final say
+   • Session constraints: Advisory penalties, you can override for valid reasons
+   • Omega consensus: Advisory input, you synthesize and decide
+
+🎯 RISK-PROFILE-SPECIFIC RULES (NEVER VIOLATED):
+   • LOW risk: Min R:R 1.2:1, Max penalty cap 30%
+   • MEDIUM risk: Min R:R 1.0:1, Max penalty cap 40%
+   • HIGH risk: Min R:R 0.5:1, Max penalty cap 50%
+
+🛡️ OMEGA-9 QUALITY ZONES (Advisory guidance):
+  • GREEN (R:R≥1.5:1): Excellent - proceed with confidence
+  • YELLOW (R:R 1.0-1.5:1): Good - acceptable setup
+  • ORANGE (R:R 0.5-1.0:1): Marginal - requires justification
+  • RED (R:R<0.5:1): Poor quality - consider repair or NO_TRADE
 
 ⏳ WAIT vs NO_TRADE DECISION FRAMEWORK
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

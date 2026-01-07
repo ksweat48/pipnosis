@@ -49,7 +49,8 @@ export const TRADE_CONSTRAINTS = {
   // ============================================================================
 
   riskReward: {
-    minimum: 1.0,         // Professional floor (advisory)
+    // DEPRECATED: Use MINIMUM_RR_BY_RISK for risk-profile-specific minimums
+    minimum: 1.0,         // Professional floor (advisory) - MEDIUM risk default
     target: 1.5,          // Professional target (advisory)
     optimal: 2.0,         // Elite standard (advisory)
     criticalWarning: 0.3, // Severe advisory below this
@@ -172,6 +173,61 @@ export const TRADE_CONSTRAINTS = {
 
 } as const;
 
+// ============================================================================
+// RISK-PROFILE-SPECIFIC CONFIGURATIONS
+// ============================================================================
+
+/**
+ * Confidence Penalty Caps by Risk Profile
+ *
+ * These caps prevent "death by 1000 cuts" where stacked penalties
+ * completely paralyze Alpha, especially in imperfect conditions.
+ *
+ * Philosophy:
+ * - LOW risk: Users expect restraint, larger cap for safety
+ * - MEDIUM risk: Balanced approach
+ * - HIGH risk: Users accept uncertainty, tighter cap for freedom
+ *
+ * The cap represents the MAXIMUM total confidence reduction from all penalties.
+ */
+export const CONFIDENCE_PENALTY_CAPS = {
+  LOW: 0.70,    // 30% max penalty - cautious users expect restraint
+  MEDIUM: 0.60, // 40% max penalty - balanced
+  HIGH: 0.50    // 50% max penalty - aggressive users accept uncertainty
+} as const;
+
+/**
+ * Minimum Acceptable R:R by Risk Profile
+ *
+ * This is the floor before Alpha should trigger repair cascades.
+ * NOT a hard block - if repair fails, Alpha may still proceed with justification.
+ *
+ * Philosophy:
+ * - LOW risk: Capital preservation priority
+ * - MEDIUM risk: Professional baseline (1:1 breakeven threshold)
+ * - HIGH risk: Opportunity prioritized over textbook ratios
+ *
+ * HIGH risk accepts 0.5:1 because many profitable scalps and intraday
+ * trades operate at these ratios with high probability.
+ */
+export const MINIMUM_RR_BY_RISK: Record<RiskMode, number> = {
+  LOW: 1.2,    // Capital preservation - professional floor
+  MEDIUM: 1.0, // Professional baseline - standard expectation
+  HIGH: 0.5    // Aggressive deployment - opportunity prioritized
+} as const;
+
+/**
+ * Maximum Session Loss by Risk Profile
+ *
+ * Controls total money exposure per session, NOT trade frequency or style.
+ * This is a HARD constraint for account safety.
+ */
+export const MAX_SESSION_LOSS_BY_RISK: Record<RiskMode, number> = {
+  LOW: 0.04,   // 4% max session loss
+  MEDIUM: 0.07, // 7% max session loss
+  HIGH: 0.10   // 10% max session loss
+} as const;
+
 /**
  * Helper: Get constraint by path
  */
@@ -209,10 +265,14 @@ export function getSlFloor(
 
 /**
  * Determine if session constraints apply to a style
+ *
+ * IMPORTANT: No longer returns 'ENFORCED'. All constraints are ADVISORY or NONE.
+ * Session mismatches apply confidence penalties, never block trades.
  */
-export function getSessionConstraintMode(style: TradeStyle): 'ENFORCED' | 'ADVISORY' | 'NONE' {
+export function getSessionConstraintMode(style: TradeStyle): 'ADVISORY' | 'NONE' {
+  // DEPRECATED: applyHardConstraintsTo - now treated as ADVISORY with higher penalties
   if (TRADE_CONSTRAINTS.sessionConstraints.applyHardConstraintsTo.includes(style)) {
-    return 'ENFORCED';
+    return 'ADVISORY'; // Was ENFORCED - now advisory with -15% penalty
   }
   if (TRADE_CONSTRAINTS.sessionConstraints.applyAdvisoryTo.includes(style)) {
     return 'ADVISORY';
@@ -262,4 +322,25 @@ export function getDrawdownLevel(drawdownPercent: number): 'none' | 'warning' | 
   if (drawdownPercent >= softStop) return 'soft-stop';
   if (drawdownPercent >= warning) return 'warning';
   return 'none';
+}
+
+/**
+ * Get confidence penalty cap for risk profile
+ */
+export function getConfidencePenaltyCap(riskMode: RiskMode): number {
+  return CONFIDENCE_PENALTY_CAPS[riskMode];
+}
+
+/**
+ * Get minimum R:R for risk profile
+ */
+export function getMinimumRR(riskMode: RiskMode): number {
+  return MINIMUM_RR_BY_RISK[riskMode];
+}
+
+/**
+ * Get maximum session loss for risk profile
+ */
+export function getMaxSessionLoss(riskMode: RiskMode): number {
+  return MAX_SESSION_LOSS_BY_RISK[riskMode];
 }

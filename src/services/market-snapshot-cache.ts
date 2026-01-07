@@ -237,19 +237,50 @@ class MarketSnapshotCache {
       regime
     );
 
-    // Step 9: Determine tradeability based on regime and adversarial signals
-    let tradeable = true;
-    let blockReason: string | undefined = undefined;
+    // Step 9: ADVISORY-ONLY MODEL - No hard blocks, only warnings and penalties
+    // ALWAYS tradeable - Alpha has final authority
+    const tradeable = true; // ALWAYS true - advisory system only
 
-    // Block if regime says avoid trading
+    // Collect advisory warnings for Alpha to consider
+    const advisoryFlags: string[] = [];
+    const confidencePenalties: Array<{ source: string; penalty: number; reason: string }> = [];
+
+    // Advisory flag from regime (DEPRECATED: avoid_trading always false now)
     if (regime.avoid_trading) {
-      tradeable = false;
-      blockReason = `Blocked by regime: ${regime.reason || 'unfavorable conditions'}`;
+      advisoryFlags.push(`Regime advisory: ${regime.reason || 'unfavorable conditions'}`);
     }
-    // Block if adversarial detector recommends avoiding
-    else if (adversarial.recommended_action === 'avoid') {
-      tradeable = false;
-      blockReason = `Adversarial pattern detected: ${adversarial.notes}`;
+    // Add regime risk reduction as penalty
+    if (regime.risk_reduction_factor < 1.0) {
+      confidencePenalties.push({
+        source: 'regime',
+        penalty: regime.risk_reduction_factor,
+        reason: regime.reason || 'risk reduction applied'
+      });
+    }
+
+    // Advisory flag from adversarial detector
+    if (adversarial.recommended_action === 'delay') {
+      advisoryFlags.push(`Adversarial advisory: ${adversarial.notes}`);
+    }
+    // Add adversarial confidence penalty
+    if (adversarial.confidence_penalty && adversarial.confidence_penalty < 1.0) {
+      confidencePenalties.push({
+        source: 'adversarial',
+        penalty: adversarial.confidence_penalty,
+        reason: adversarial.notes
+      });
+    }
+
+    // Log advisory status
+    if (advisoryFlags.length > 0) {
+      console.log(`[Market Snapshot - ADVISORY] Warnings for ${symbol}:`);
+      advisoryFlags.forEach(flag => console.log(`  ⚠️ ${flag}`));
+    }
+    if (confidencePenalties.length > 0) {
+      console.log(`[Market Snapshot - ADVISORY] Confidence Penalties for ${symbol}:`);
+      confidencePenalties.forEach(p =>
+        console.log(`  📉 ${p.source}: ${((1 - p.penalty) * 100).toFixed(0)}% (${p.reason})`)
+      );
     }
 
     const snapshot: MarketSnapshotData = {
@@ -267,8 +298,10 @@ class MarketSnapshotCache {
       resistance,
       swingHigh,
       swingLow,
-      tradeable,
-      blockReason,
+      tradeable, // ALWAYS true now
+      blockReason: undefined, // DEPRECATED - kept for backward compatibility
+      advisoryFlags, // NEW: Array of advisory warnings
+      confidencePenalties, // NEW: Array of confidence penalty objects
       snapshotHash,
       createdAt: Date.now()
     };
@@ -276,7 +309,14 @@ class MarketSnapshotCache {
     console.log(`[SnapshotCache] ✅ Snapshot built: ${symbol}@${timeframe}`);
     console.log(`  Price: ${currentPrice.toFixed(5)} | ATR: ${indicators.atr.value.toFixed(5)}`);
     console.log(`  Trend: ${indicators.trend} | Volatility: ${indicators.volatility}`);
-    console.log(`  Tradeable: ${tradeable ? '✅ YES' : '❌ NO'}${blockReason ? ` (${blockReason})` : ''}`);
+    console.log(`  Tradeable: ✅ ALWAYS (advisory-only system)`);
+    if (advisoryFlags.length > 0) {
+      console.log(`  Advisory Warnings: ${advisoryFlags.length}`);
+    }
+    if (confidencePenalties.length > 0) {
+      const totalPenalty = confidencePenalties.reduce((min, p) => Math.min(min, p.penalty), 1.0);
+      console.log(`  Total Confidence Penalty: ${((1 - totalPenalty) * 100).toFixed(0)}%`);
+    }
     console.log(`  Hash: ${snapshotHash}`);
 
     return snapshot;

@@ -296,9 +296,10 @@ class RegimeOracle {
     symbol?: string,
     timestamp?: Date
   ): SafetyFlags {
-    let avoidTrading = false;
+    // DEPRECATED: avoidTrading no longer used for blocking - kept for logging compatibility
+    let avoidTrading = false; // Always false in new system
     let isHighRisk = false;
-    let riskFactor = 1.0;
+    let riskFactor = 1.0; // Confidence penalty multiplier (1.0 = no penalty, 0.5 = -50% confidence)
     let reason: string | undefined;
     let sessionWeight = 1.0;
     let deadZoneActive = false;
@@ -334,31 +335,44 @@ class RegimeOracle {
       }
     }
 
+    // CONVERTED TO ADVISORY: Dead market = -20% confidence penalty (not block)
     if (volatility.volatility_score < 15) {
-      avoidTrading = true;
-      reason = 'Dead market (extremely low volatility)';
+      isHighRisk = true;
+      riskFactor = Math.min(riskFactor, 0.80); // -20% confidence penalty
+      reason = reason || 'Dead market (extremely low volatility) - advisory penalty';
+      // avoidTrading = true; // REMOVED: Now advisory with penalty
     }
 
+    // CONVERTED TO ADVISORY: Extreme volatility = -25% confidence penalty (not block)
     if (volatility.volatility_score > 90) {
-      avoidTrading = true;
-      reason = 'Extreme volatility (stops unreliable)';
+      isHighRisk = true;
+      riskFactor = Math.min(riskFactor, 0.75); // -25% confidence penalty
+      reason = reason || 'Extreme volatility (stops unreliable) - advisory penalty';
+      // avoidTrading = true; // REMOVED: Now advisory with penalty
     }
 
-    // FIXED: Only HIGH wick risk blocks trades, medium just reduces size
+    // CONVERTED TO ADVISORY: High wick risk = -20% confidence penalty (not block)
     if (volatility.wick_risk_level === 'high') {
-      avoidTrading = true;
-      reason = 'High wick risk (SL hunting probable - multiple extreme wicks detected)';
+      isHighRisk = true;
+      riskFactor = Math.min(riskFactor, 0.80); // -20% confidence penalty
+      reason = reason || 'High wick risk (SL hunting probable) - advisory penalty';
+      // avoidTrading = true; // REMOVED: Now advisory with penalty
     }
 
+    // CONVERTED TO ADVISORY: High spread risk = -25% confidence penalty (not block)
     if (volatility.spread_risk === 'high') {
-      avoidTrading = true;
-      reason = 'High spread risk (execution unreliable)';
+      isHighRisk = true;
+      riskFactor = Math.min(riskFactor, 0.75); // -25% confidence penalty
+      reason = reason || 'High spread risk (execution unreliable) - advisory penalty';
+      // avoidTrading = true; // REMOVED: Now advisory with penalty
     }
 
-    // Only block if BOTH compression AND ranging (true dead market)
+    // CONVERTED TO ADVISORY: Dead zone combination = -15% confidence penalty (not block)
     if (volatility.atr_compression && trend.structure_type === 'range' && volatility.volatility_score < 25) {
-      avoidTrading = true;
-      reason = 'ATR compression + range structure + dead conditions';
+      isHighRisk = true;
+      riskFactor = Math.min(riskFactor, 0.85); // -15% confidence penalty
+      reason = reason || 'ATR compression + range structure + dead conditions - advisory penalty';
+      // avoidTrading = true; // REMOVED: Now advisory with penalty
     }
 
     if (time.is_ny_open && volatility.volatility_score > 75) {
@@ -380,11 +394,13 @@ class RegimeOracle {
       reason = reason || 'Elevated wick activity (monitor stops)';
     }
 
-    console.log(`[Safety Flags] avoid=${avoidTrading}, highRisk=${isHighRisk}, riskFactor=${riskFactor}, sessionWeight=${sessionWeight.toFixed(2)}, reason=${reason || 'none'}`);
+    console.log(`[Safety Flags - ADVISORY ONLY] highRisk=${isHighRisk}, confidencePenalty=${((1 - riskFactor) * 100).toFixed(0)}%, sessionWeight=${sessionWeight.toFixed(2)}, reason=${reason || 'none'}`);
 
     return {
       is_high_risk_regime: isHighRisk,
-      avoid_trading: avoidTrading, // DEPRECATED - kept for backward compatibility
+      // DEPRECATED: avoid_trading now always false - all conditions converted to confidence penalties
+      // Kept for backward compatibility with logging/monitoring systems
+      avoid_trading: false, // ALWAYS false now - no hard blocks, only penalties
       risk_reduction_factor: riskFactor,
       reason,
       session_weight: sessionWeight,
