@@ -3,8 +3,12 @@
  *
  * Single entry point for all candle enhancement:
  * 1. Gap filling (fills missing candles)
- * 2. Wick reconstruction (adds realistic wicks)
+ * 2. Wick reconstruction (DISABLED BY DEFAULT - only for truly flat candles)
  * 3. Validation (ensures data quality)
+ *
+ * CRITICAL: Wick reconstruction is now disabled by default to preserve
+ * actual market data integrity. Only enable if you have completely flat
+ * candles that need minimal range for chart rendering.
  *
  * Called automatically before candles reach the chart.
  * Results are cached for 30 seconds to avoid redundant processing.
@@ -55,7 +59,7 @@ class CandleQualityEnhancer {
   ): Promise<EnhancementResult> {
     const {
       fillGaps = true,
-      reconstructWicks = true,
+      reconstructWicks = false, // CRITICAL FIX: Disabled by default to preserve actual price data
       useCache = true
     } = options;
 

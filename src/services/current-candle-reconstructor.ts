@@ -8,6 +8,11 @@
  * 2. Reconstructs the current forming candle from those ticks
  * 3. Returns it so the chart can display it immediately
  *
+ * CRITICAL: This service preserves actual tick data integrity.
+ * Wick reconstruction is DISABLED by default - the candle built from
+ * real ticks is the source of truth. We never artificially extend
+ * price ranges beyond what actually occurred in the market.
+ *
  * This ensures the current candle persists across page refreshes by
  * rebuilding it from the tick data stored in the database.
  */
@@ -232,42 +237,50 @@ class CurrentCandleReconstructor {
         };
       }
 
-      // ENHANCEMENT: Apply wick reconstruction for better visual quality
-      // Uses cached ATR data (no performance hit after first call)
+      // CRITICAL FIX: Disabled wick reconstruction to preserve actual tick data
+      // The reconstructed candle from ticks is THE TRUTH - we never artificially extend it
+      // Only apply reconstruction if candle is completely flat (which should never happen from ticks)
       let finalCandle = reconstructedCandle;
 
-      try {
-        const candleWithMetadata = {
-          ...reconstructedCandle,
-          symbol,
-          timeframe,
-          open_time: new Date(reconstructedCandle.time * 1000).toISOString()
-        };
+      // Only attempt reconstruction if candle is completely flat (defensive check)
+      const isCompletelyFlat = reconstructedCandle.high === reconstructedCandle.low &&
+                               reconstructedCandle.open === reconstructedCandle.close &&
+                               reconstructedCandle.high === reconstructedCandle.open;
 
-        const enhanced = await reconstructCandle(candleWithMetadata);
-
-        if (enhanced.reconstructed) {
-          // Strip metadata, keep only OHLC
-          finalCandle = {
-            time: enhanced.time,
-            open: enhanced.open,
-            high: enhanced.high,
-            low: enhanced.low,
-            close: enhanced.close,
-            volume: enhanced.volume
+      if (isCompletelyFlat) {
+        try {
+          const candleWithMetadata = {
+            ...reconstructedCandle,
+            symbol,
+            timeframe,
+            open_time: new Date(reconstructedCandle.time * 1000).toISOString()
           };
 
-          logger.debug(
+          const enhanced = await reconstructCandle(candleWithMetadata);
+
+          if (enhanced.reconstructed) {
+            // Strip metadata, keep only OHLC
+            finalCandle = {
+              time: enhanced.time,
+              open: enhanced.open,
+              high: enhanced.high,
+              low: enhanced.low,
+              close: enhanced.close,
+              volume: enhanced.volume
+            };
+
+            logger.warn(
+              LogCategory.CHART_POLLER,
+              `[CandleReconstructor] ⚠️ Had to reconstruct FLAT candle from ticks - this should rarely happen`
+            );
+          }
+        } catch (error) {
+          logger.warn(
             LogCategory.CHART_POLLER,
-            `[CandleReconstructor] Enhanced forming candle with realistic wicks`
+            `[CandleReconstructor] Wick enhancement failed, using original:`,
+            error
           );
         }
-      } catch (error) {
-        logger.warn(
-          LogCategory.CHART_POLLER,
-          `[CandleReconstructor] Wick enhancement failed, using original:`,
-          error
-        );
       }
 
       logger.debug(

@@ -176,83 +176,48 @@ async function calculateATR(
 
 /**
  * Determine if a candle needs wick reconstruction
- * ENHANCED: Now also detects candles with suspiciously small wicks
- * Flat candle = open == high == low == close (only 1 tick)
- * Low-quality candle = very small range relative to ATR OR small wicks
+ * CRITICAL FIX: Only reconstruct COMPLETELY FLAT candles
+ * We NEVER extend wicks on candles with actual price data
+ * This preserves data integrity for Alpha's trading decisions
  */
 function needsReconstruction(candle: Candle, atrData: ATRData | null): boolean {
   const range = candle.high - candle.low;
 
-  // Definitely needs reconstruction if it's a flat candle
-  if (range === 0) {
+  // ONLY reconstruct if it's a completely flat candle (all OHLC values identical)
+  // This means we have NO actual price movement data
+  if (range === 0 && candle.open === candle.high && candle.high === candle.low && candle.low === candle.close) {
     return true;
   }
 
-  const bodyTop = Math.max(candle.open, candle.close);
-  const bodyBottom = Math.min(candle.open, candle.close);
-  const bodySize = Math.abs(candle.close - candle.open);
-
-  const upperWick = candle.high - bodyTop;
-  const lowerWick = bodyBottom - candle.low;
-  const totalWickSize = upperWick + lowerWick;
-
-  // If we have ATR data, check if range is suspiciously small
-  if (atrData && range < atrData.atr * 0.1) {
-    // Range is less than 10% of typical ATR
-    return true;
-  }
-
-  // NEW: Check for suspiciously small wicks (even if range is normal)
-  // If candle has a body but wicks are < 50% of expected size
-  if (atrData && bodySize > 0) {
-    const expectedWickSize = bodySize * atrData.avgWickPercent;
-    if (totalWickSize < expectedWickSize * 0.5) {
-      return true;
-    }
-  }
-
-  // Low tick volume also indicates poor quality
-  if (candle.volume <= 2) {
-    return true;
-  }
-
+  // If candle has ANY actual range, we preserve it exactly as-is
+  // Real market data is ALWAYS more accurate than statistical estimates
   return false;
 }
 
 /**
  * Reconstruct wicks using ATR-based estimation
+ * CRITICAL FIX: Only called for completely flat candles
+ * Creates minimal realistic range without extending beyond actual price data
  */
 function reconstructWicksFromATR(candle: Candle, atrData: ATRData): ReconstructedCandle {
   const bodyMid = (candle.open + candle.close) / 2;
-  const bodySize = Math.abs(candle.close - candle.open);
 
-  // If flat candle (no body), use ATR directly
-  if (bodySize === 0) {
-    const wickSize = atrData.atr * 0.5; // Use 50% of ATR for wick estimation
-    return {
-      ...candle,
-      high: bodyMid + wickSize / 2,
-      low: bodyMid - wickSize / 2,
-      reconstructed: true,
-      reconstruction_method: 'atr_flat',
-      original_high: candle.high,
-      original_low: candle.low
-    };
-  }
+  // ONLY reconstruct completely flat candles
+  // Use minimal ATR percentage to avoid creating artificial volatility
+  const wickSize = atrData.atr * 0.3; // Reduced from 0.5 to 0.3 for conservative estimate
 
-  // For non-flat candles, add realistic wicks based on historical patterns
-  const upperWick = bodySize * atrData.avgUpperWickPercent;
-  const lowerWick = bodySize * atrData.avgLowerWickPercent;
-
-  const bodyTop = Math.max(candle.open, candle.close);
-  const bodyBottom = Math.min(candle.open, candle.close);
+  console.warn(
+    `[WickReconstruction] ⚠️ Reconstructing FLAT candle for ${candle.symbol} ${candle.timeframe} ` +
+    `at ${new Date(candle.open_time).toISOString()} - Original: ${candle.high}/${candle.low}, ` +
+    `New: ${(bodyMid + wickSize / 2).toFixed(5)}/${(bodyMid - wickSize / 2).toFixed(5)}`
+  );
 
   return {
     ...candle,
-    high: Math.max(candle.high, bodyTop + upperWick),
-    low: Math.min(candle.low, bodyBottom - lowerWick),
+    high: bodyMid + wickSize / 2,
+    low: bodyMid - wickSize / 2,
     reconstructed: true,
-    reconstruction_method: 'atr_pattern',
+    reconstruction_method: 'atr_flat_only',
     original_high: candle.high,
     original_low: candle.low
   };
@@ -260,41 +225,28 @@ function reconstructWicksFromATR(candle: Candle, atrData: ATRData): Reconstructe
 
 /**
  * Fallback reconstruction using simple percentage of body
+ * CRITICAL FIX: Only for completely flat candles, minimal extension
  */
 function reconstructWicksFallback(candle: Candle): ReconstructedCandle {
   const bodyMid = (candle.open + candle.close) / 2;
-  const bodySize = Math.abs(candle.close - candle.open);
 
-  // Default: 30% wick on each side
-  const DEFAULT_WICK_PERCENT = 0.3;
+  // ONLY reconstruct flat candles - use minimal 0.05% of price as wick
+  // This is conservative to avoid creating artificial volatility
+  const price = candle.open;
+  const wickSize = price * 0.0005; // Reduced from 0.001 to 0.0005
 
-  if (bodySize === 0) {
-    // Flat candle: use 0.1% of price as wick
-    const price = candle.open;
-    const wickSize = price * 0.001;
-    return {
-      ...candle,
-      high: bodyMid + wickSize,
-      low: bodyMid - wickSize,
-      reconstructed: true,
-      reconstruction_method: 'fallback_flat',
-      original_high: candle.high,
-      original_low: candle.low
-    };
-  }
-
-  const upperWick = bodySize * DEFAULT_WICK_PERCENT;
-  const lowerWick = bodySize * DEFAULT_WICK_PERCENT;
-
-  const bodyTop = Math.max(candle.open, candle.close);
-  const bodyBottom = Math.min(candle.open, candle.close);
+  console.warn(
+    `[WickReconstruction] ⚠️ Fallback reconstruction for FLAT candle ${candle.symbol} ${candle.timeframe} ` +
+    `at ${new Date(candle.open_time).toISOString()} - Creating minimal range: ` +
+    `${(bodyMid + wickSize).toFixed(5)}/${(bodyMid - wickSize).toFixed(5)}`
+  );
 
   return {
     ...candle,
-    high: Math.max(candle.high, bodyTop + upperWick),
-    low: Math.min(candle.low, bodyBottom - lowerWick),
+    high: bodyMid + wickSize,
+    low: bodyMid - wickSize,
     reconstructed: true,
-    reconstruction_method: 'fallback_pattern',
+    reconstruction_method: 'fallback_flat_minimal',
     original_high: candle.high,
     original_low: candle.low
   };

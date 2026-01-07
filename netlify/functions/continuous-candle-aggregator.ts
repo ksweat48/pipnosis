@@ -26,8 +26,9 @@ const ALL_TIMEFRAMES = [...FAST_TIMEFRAMES, ...MEDIUM_TIMEFRAMES, ...SLOW_TIMEFR
 // INCREASED from 3 to 10 for better completion rates
 const MAX_CANDLES_PER_TIMEFRAME = 10;
 
-// WICK RECONSTRUCTION: Improve candle quality by adding realistic wicks
-const ENABLE_WICK_RECONSTRUCTION = true;
+// WICK RECONSTRUCTION: DISABLED to preserve actual price data integrity
+// CRITICAL: We never artificially extend wicks beyond actual market prices
+const ENABLE_WICK_RECONSTRUCTION = false;
 
 const TIMEFRAME_MINUTES: Record<string, number> = {
   'M1': 1,
@@ -146,13 +147,23 @@ function isMarketOpenAtTime(date: Date, symbol?: string): boolean {
 }
 
 /**
- * BREAKTHROUGH: Apply ATR-based wick reconstruction for low-tick candles
- * This dramatically improves chart quality by adding realistic wicks
+ * CRITICAL FIX: Wick reconstruction DISABLED to preserve price data integrity
+ * We NEVER artificially extend wicks beyond actual market prices
+ * Only reconstruct completely flat candles (which should be extremely rare)
  */
 async function reconstructCandleWicks(candle: CandleData): Promise<CandleData> {
-  // Only reconstruct if enabled and candle has low tick count
-  if (!ENABLE_WICK_RECONSTRUCTION || candle.volume > 2) {
+  // DISABLED: Return original candle to preserve actual price data
+  if (!ENABLE_WICK_RECONSTRUCTION) {
     return candle;
+  }
+
+  // Even if enabled, only reconstruct completely flat candles
+  const isCompletelyFlat = candle.high === candle.low &&
+                           candle.open === candle.close &&
+                           candle.high === candle.open;
+
+  if (!isCompletelyFlat) {
+    return candle; // Preserve actual price data
   }
 
   try {
@@ -200,29 +211,21 @@ async function reconstructCandleWicks(candle: CandleData): Promise<CandleData> {
     const avgUpperWickPercent = validCandles > 0 ? totalUpperWick / validCandles : 0.3;
     const avgLowerWickPercent = validCandles > 0 ? totalLowerWick / validCandles : 0.3;
 
-    // Reconstruct wicks
-    const bodySize = Math.abs(candle.close - candle.open);
-    if (bodySize === 0) {
-      // Flat candle: use ATR to create realistic range
-      const wickSize = atr * 0.5;
-      const mid = candle.open;
-      return {
-        ...candle,
-        high: Math.max(candle.high, mid + wickSize / 2),
-        low: Math.min(candle.low, mid - wickSize / 2)
-      };
-    }
+    // ONLY reconstruct completely flat candles with minimal extension
+    // Use conservative ATR percentage to avoid artificial volatility
+    const wickSize = atr * 0.3; // Reduced from 0.5
+    const mid = candle.open;
 
-    // Normal candle: add wicks based on historical patterns
-    const upperWick = bodySize * avgUpperWickPercent;
-    const lowerWick = bodySize * avgLowerWickPercent;
-    const bodyTop = Math.max(candle.open, candle.close);
-    const bodyBottom = Math.min(candle.open, candle.close);
+    console.warn(
+      `[CandleAggregator] ⚠️ Reconstructing FLAT candle ${candle.symbol} ${candle.timeframe} ` +
+      `at ${candle.open_time.toISOString()} - Original: ${candle.high}/${candle.low}, ` +
+      `New: ${(mid + wickSize / 2).toFixed(5)}/${(mid - wickSize / 2).toFixed(5)}`
+    );
 
     return {
       ...candle,
-      high: Math.max(candle.high, bodyTop + upperWick),
-      low: Math.min(candle.low, bodyBottom - lowerWick)
+      high: mid + wickSize / 2,
+      low: mid - wickSize / 2
     };
   } catch (error) {
     // If reconstruction fails, return original candle
