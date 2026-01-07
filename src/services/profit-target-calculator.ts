@@ -108,6 +108,8 @@ export class EliteProfitTargetCalculator {
     let placement_type: TPPlacement = 'single';
     let targets: TPTarget[] = [];
 
+    // ARCHITECTURAL CHANGE (v2.0): Time is ADVISORY ONLY, never blocking
+    // Session time constraints are informational for learning/scoring purposes
     const time_constraint_met = input.session_time_remaining_minutes && input.expected_volatility_pips_per_hour
       ? this.checkTimeConstraint(
           primary_liquidity.distance_pips,
@@ -117,7 +119,8 @@ export class EliteProfitTargetCalculator {
       : true;
 
     if (!time_constraint_met) {
-      warnings.push('TP distance may exceed session time constraint - consider shorter target');
+      // ADVISORY ONLY: No blocking - just informational warning
+      warnings.push('ADVISORY: TP may extend beyond session - style upgrade may apply (NOT blocking)');
     }
 
     if (input.allow_partials && primary_rr > 2.0 && this.shouldUsePartials(input)) {

@@ -3,18 +3,28 @@
  *
  * SINGLE SOURCE OF TRUTH for trade execution blocking decisions.
  *
- * This service owns WHETHER a trade executes. It enforces physics and economics,
- * NOT heuristics or quality preferences.
+ * This service owns WHETHER a trade executes. It enforces TRUE physics and economics,
+ * NOT time-based heuristics.
  *
  * RESPONSIBILITY SEPARATION:
  * - Alpha: Owns WHAT to trade (symbol, direction, levels, reasoning)
  * - Position Sizing: Owns HOW MUCH to risk (lot size, dollar risk)
  * - Execution Eligibility Gate: Owns WHETHER to execute (physics and economics)
  *
- * GUIDING PRINCIPLE:
- * If the trade is bad → BLOCK
- * If the trade is good but entry is bad → WAIT (CONVERT_TO_ENTRY_INTENT)
- * If the trade is good and entry is good → EXECUTE
+ * ARCHITECTURAL PRINCIPLE (v2.0):
+ * - TIME IS A SCORING SIGNAL, NOT A REJECTION CONSTRAINT
+ * - NEVER hard-block trades due to time-to-fill expectations
+ * - Time/duration affects confidence scoring and style upgrades only
+ *
+ * LEGITIMATE BLOCKS (Physics/Economics):
+ * - Profit below minimum (spread would consume profit)
+ * - SL too wide for style (beyond ATR physics)
+ * - Trade count absurd (goal mathematically impossible)
+ *
+ * ADVISORY ONLY (NOT BLOCKING):
+ * - Time-to-fill expectations
+ * - Duration warnings
+ * - Session transitions
  */
 
 import {
@@ -211,19 +221,19 @@ class ExecutionEligibilityGate {
     modeLimits: ReturnType<typeof getModeLimits>,
     reasons: EligibilityBlockReason[]
   ): void {
-    const { timeToFillResult, tradingMode } = input;
-    const hardBlockMinutes = modeLimits.timeToFill.hardBlockMinutes;
-
-    if (timeToFillResult.recommendedAction === 'REJECT' ||
-        timeToFillResult.expectedMinutes > hardBlockMinutes) {
-      reasons.push({
-        code: 'TIME_TO_FILL_EXCEEDED',
-        message: `Expected fill time ${this.formatMinutes(timeToFillResult.expectedMinutes)} exceeds intraday limit of ${this.formatMinutes(hardBlockMinutes)}`,
-        metric: `${timeToFillResult.expectedMinutes.toFixed(0)} minutes`,
-        threshold: `${hardBlockMinutes} minutes (INTRADAY)`,
-        suggestion: 'This trade structure exceeds intraday physics. Options: tighter TP, wait for higher volatility session, or reduce goal target to make smaller trades feasible'
-      });
-    }
+    // ARCHITECTURAL CHANGE (v2.0):
+    // Time-to-fill NEVER blocks execution
+    // It only provides advisory information for:
+    // - Style upgrade recommendations
+    // - Confidence scoring adjustments
+    // - Learning/tracking purposes
+    //
+    // The time-to-fill calculator now returns:
+    // - recommendedAction: 'EXECUTE' | 'EXECUTE_WITH_UPGRADE' | 'EXECUTE_WITH_PENALTY'
+    // - styleUpgrade: recommendation for style change
+    // - shouldApplyReward/shouldApplyPenalty: for learning system
+    //
+    // NO BLOCKING based on time - this is intentionally empty for blocking logic
   }
 
   private checkMinimumProfit(
@@ -319,10 +329,30 @@ class ExecutionEligibilityGate {
       });
     }
 
-    if (input.timeToFillResult.viability === 'WARNING') {
+    // Time-to-fill is now ADVISORY ONLY, never blocking
+    const ttf = input.timeToFillResult;
+    if (ttf.viability === 'WARNING' || ttf.viability === 'EXTENDED' || ttf.viability === 'VERY_EXTENDED') {
       advisories.push({
-        type: 'TIME_TO_FILL_WARNING',
-        message: input.timeToFillResult.reasoning,
+        type: 'TIME_TO_FILL_ADVISORY',
+        message: ttf.reasoning,
+        severity: ttf.viability === 'VERY_EXTENDED' ? 'high' : 'medium'
+      });
+    }
+
+    // Add style upgrade advisory if recommended
+    if ('styleUpgrade' in ttf && ttf.styleUpgrade !== 'NONE') {
+      advisories.push({
+        type: 'STYLE_UPGRADE_RECOMMENDED',
+        message: `Style upgrade recommended: ${ttf.styleUpgrade}. Expected duration: ${this.formatMinutes(ttf.expectedMinutes)}`,
+        severity: 'low'
+      });
+    }
+
+    // Add penalty advisory if applicable
+    if ('shouldApplyPenalty' in ttf && ttf.shouldApplyPenalty) {
+      advisories.push({
+        type: 'DURATION_PENALTY_APPLIED',
+        message: `Extended duration penalty applied. Trade still executing with reduced confidence.`,
         severity: 'medium'
       });
     }

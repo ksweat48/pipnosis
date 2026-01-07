@@ -7,10 +7,21 @@
  * - Trading session
  * - Market conditions
  *
- * CRITICAL FOR INTRADAY FOCUS:
- * - Blocks trades that would take >6 hours
- * - Warns on trades >4 hours
- * - Targets 20min-2hr sweet spot
+ * ARCHITECTURAL PRINCIPLE (v2.0):
+ * - TIME IS A SCORING SIGNAL, NOT A REJECTION CONSTRAINT
+ * - NEVER hard-block trades due to time-to-fill expectations
+ * - Use style upgrades instead of rejections
+ * - Apply reward/penalty for duration outcomes
+ *
+ * STYLE TARGET BANDS:
+ * - SCALP: 20min - 2hrs (reward band)
+ * - MICRO_INTRADAY: 1hr - 6hrs (reward band)
+ * - INTRADAY: 2hrs - 10hrs (reward band)
+ *
+ * BEHAVIOR:
+ * - SCALP >2h expected → AUTO-UPGRADE to MICRO_INTRADAY
+ * - MICRO_INTRADAY >6h expected → AUTO-UPGRADE to INTRADAY
+ * - INTRADAY >10h expected → APPLY PENALTY, STILL EXECUTE
  *
  * ⚠️ UNIT REQUIREMENTS:
  * - All inputs MUST be in PIPS, not price units
@@ -19,13 +30,23 @@
  * - Use calculateFromPrice() helper to avoid manual conversion errors
  */
 
+export type StyleUpgradeRecommendation =
+  | 'NONE'
+  | 'SCALP_TO_MICRO'
+  | 'MICRO_TO_INTRADAY'
+  | 'APPLY_PENALTY';
+
 export interface TimeToFillResult {
   expectedHours: number;
   expectedMinutes: number;
-  viability: 'OPTIMAL' | 'ACCEPTABLE' | 'WARNING' | 'TOO_SLOW' | 'UNREALISTIC';
+  viability: 'OPTIMAL' | 'ACCEPTABLE' | 'WARNING' | 'EXTENDED' | 'VERY_EXTENDED';
   reasoning: string;
   confidence: number;
-  recommendedAction: 'TAKE' | 'CAUTION' | 'REJECT';
+  recommendedAction: 'EXECUTE' | 'EXECUTE_WITH_UPGRADE' | 'EXECUTE_WITH_PENALTY';
+  styleUpgrade: StyleUpgradeRecommendation;
+  durationBand: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'EXTENDED';
+  shouldApplyReward: boolean;
+  shouldApplyPenalty: boolean;
 }
 
 /**
@@ -71,9 +92,16 @@ class TimeToFillCalculator {
     'BTCUSD': 2.0
   };
 
-  private readonly OPTIMAL_MAX = 2.0;
-  private readonly ACCEPTABLE_MAX = 4.0;
-  private readonly WARNING_MAX = 6.0;
+  private readonly STYLE_BANDS = {
+    SCALP: { min: 0.33, max: 2.0 },           // 20min - 2hrs
+    MICRO_INTRADAY: { min: 1.0, max: 6.0 },   // 1hr - 6hrs
+    INTRADAY: { min: 2.0, max: 10.0 },        // 2hrs - 10hrs
+    EXTENDED: { min: 10.0, max: Infinity }    // >10hrs (penalty zone)
+  };
+
+  private readonly SCALP_MAX = 2.0;           // Auto-upgrade threshold
+  private readonly MICRO_INTRADAY_MAX = 6.0;  // Auto-upgrade threshold
+  private readonly INTRADAY_MAX = 10.0;       // Penalty threshold
 
   /**
    * Calculate time-to-fill from ATR in price units (RECOMMENDED)
@@ -121,25 +149,33 @@ class TimeToFillCalculator {
     // ✅ UNIT VALIDATION: Detect if price units were passed instead of pips
     // ATR < 0.1 pips is suspicious - likely means price units were passed
     if (safeAtrPips < 0.1) {
-      console.error(`[TimeToFill] ⚠️ UNIT ERROR: ATR=${safeAtrPips} pips is suspiciously small for ${symbol}. Did you pass price units instead of pips? Use calculateFromPrice() instead.`);
+      console.warn(`[TimeToFill] ⚠️ UNIT WARNING: ATR=${safeAtrPips} pips is suspiciously small for ${symbol}. Check if price units were passed.`);
       return {
         expectedHours: 999,
         expectedMinutes: 59940,
-        viability: 'UNREALISTIC',
-        reasoning: `Unit validation failed: ATR=${safeAtrPips.toFixed(4)} pips is too small (likely price units passed instead of pips)`,
-        confidence: 0,
-        recommendedAction: 'REJECT'
+        viability: 'VERY_EXTENDED',
+        reasoning: `Unit validation warning: ATR=${safeAtrPips.toFixed(4)} pips is very small - executing with penalty`,
+        confidence: 20,
+        recommendedAction: 'EXECUTE_WITH_PENALTY',
+        styleUpgrade: 'APPLY_PENALTY',
+        durationBand: 'EXTENDED',
+        shouldApplyReward: false,
+        shouldApplyPenalty: true
       };
     }
 
     if (safeTpPips < 0.01) {
       return {
-        expectedHours: 999,
-        expectedMinutes: 59940,
-        viability: 'UNREALISTIC',
-        reasoning: 'Invalid input: TP distance is too small (<0.01 pips)',
-        confidence: 0,
-        recommendedAction: 'REJECT'
+        expectedHours: 0.1,
+        expectedMinutes: 6,
+        viability: 'OPTIMAL',
+        reasoning: 'Very tight TP - quick execution expected',
+        confidence: 90,
+        recommendedAction: 'EXECUTE',
+        styleUpgrade: 'NONE',
+        durationBand: 'SCALP',
+        shouldApplyReward: true,
+        shouldApplyPenalty: false
       };
     }
 
@@ -157,38 +193,57 @@ class TimeToFillCalculator {
 
     let viability: TimeToFillResult['viability'];
     let recommendedAction: TimeToFillResult['recommendedAction'];
+    let styleUpgrade: StyleUpgradeRecommendation;
+    let durationBand: TimeToFillResult['durationBand'];
     let reasoning: string;
     let confidence: number;
+    let shouldApplyReward = false;
+    let shouldApplyPenalty = false;
 
-    if (expectedHours <= this.OPTIMAL_MAX) {
+    if (expectedHours <= this.SCALP_MAX) {
       viability = 'OPTIMAL';
-      recommendedAction = 'TAKE';
-      reasoning = `Expected fill in ${expectedMinutes}min - perfect for intraday (${currentSession} session)`;
+      recommendedAction = 'EXECUTE';
+      styleUpgrade = 'NONE';
+      durationBand = 'SCALP';
+      reasoning = `Expected fill in ${expectedMinutes}min - perfect for SCALP style (${currentSession} session)`;
       confidence = 85;
-    } else if (expectedHours <= this.ACCEPTABLE_MAX) {
+      shouldApplyReward = true;
+    } else if (expectedHours <= this.MICRO_INTRADAY_MAX) {
       viability = 'ACCEPTABLE';
-      recommendedAction = 'TAKE';
-      reasoning = `Expected fill in ${this.formatHours(expectedHours)} - acceptable for intraday`;
-      confidence = 70;
-    } else if (expectedHours <= this.WARNING_MAX) {
+      recommendedAction = 'EXECUTE_WITH_UPGRADE';
+      styleUpgrade = 'SCALP_TO_MICRO';
+      durationBand = 'MICRO_INTRADAY';
+      reasoning = `Expected fill in ${this.formatHours(expectedHours)} - auto-upgrading to MICRO_INTRADAY style`;
+      confidence = 75;
+      shouldApplyReward = true;
+    } else if (expectedHours <= this.INTRADAY_MAX) {
       viability = 'WARNING';
-      recommendedAction = 'CAUTION';
-      reasoning = `Expected fill in ${this.formatHours(expectedHours)} - exceeding intraday limit. Consider tighter TP.`;
-      confidence = 50;
+      recommendedAction = 'EXECUTE_WITH_UPGRADE';
+      styleUpgrade = 'MICRO_TO_INTRADAY';
+      durationBand = 'INTRADAY';
+      reasoning = `Expected fill in ${this.formatHours(expectedHours)} - auto-upgrading to INTRADAY style`;
+      confidence = 65;
+      shouldApplyReward = true;
     } else if (expectedHours <= 24) {
-      viability = 'TOO_SLOW';
-      recommendedAction = 'REJECT';
-      reasoning = `Expected fill in ${this.formatHours(expectedHours)} - TOO SLOW for intraday. BLOCKED.`;
-      confidence = 80;
+      viability = 'EXTENDED';
+      recommendedAction = 'EXECUTE_WITH_PENALTY';
+      styleUpgrade = 'APPLY_PENALTY';
+      durationBand = 'EXTENDED';
+      reasoning = `Expected fill in ${this.formatHours(expectedHours)} - EXTENDED duration, applying confidence penalty but EXECUTING`;
+      confidence = 50;
+      shouldApplyPenalty = true;
     } else {
-      viability = 'UNREALISTIC';
-      recommendedAction = 'REJECT';
-      reasoning = `Expected fill >24 hours - unrealistic TP (${safeTpPips.toFixed(1)} pips with ATR ${safeAtrPips.toFixed(1)}). BLOCKED.`;
-      confidence = 95;
+      viability = 'VERY_EXTENDED';
+      recommendedAction = 'EXECUTE_WITH_PENALTY';
+      styleUpgrade = 'APPLY_PENALTY';
+      durationBand = 'EXTENDED';
+      reasoning = `Expected fill ${this.formatHours(expectedHours)} - VERY EXTENDED duration, applying penalty but STILL EXECUTING`;
+      confidence = 35;
+      shouldApplyPenalty = true;
     }
 
     if (currentSession === 'asian' || currentSession === 'sydney') {
-      confidence *= 0.8;
+      confidence *= 0.85;
     } else if (currentSession === 'overlap') {
       confidence *= 1.1;
     }
@@ -201,7 +256,11 @@ class TimeToFillCalculator {
       viability,
       reasoning,
       confidence,
-      recommendedAction
+      recommendedAction,
+      styleUpgrade,
+      durationBand,
+      shouldApplyReward,
+      shouldApplyPenalty
     };
   }
 
@@ -250,7 +309,7 @@ class TimeToFillCalculator {
 
   isViableForIntraday(input: TimeToFillInput): boolean {
     const result = this.calculate(input);
-    return result.recommendedAction === 'TAKE';
+    return result.recommendedAction.startsWith('EXECUTE');
   }
 
   getMinTPForDuration(

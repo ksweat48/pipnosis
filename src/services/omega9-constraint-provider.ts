@@ -8,6 +8,12 @@
  * - Alpha optimizes WITHIN those boundaries
  * - Omega-9 validates CATASTROPHIC errors only, not strategy
  *
+ * ARCHITECTURAL PRINCIPLE (v2.0):
+ * - TIME IS A SCORING SIGNAL, NOT A REJECTION CONSTRAINT
+ * - Session time NEVER limits TP or blocks trades
+ * - Session constraints are ADVISORY ONLY for confidence scoring
+ * - Style upgrades replace time-based blocking
+ *
  * This separates:
  * 1. Constraint Generation (this service) - runs BEFORE Alpha decides
  * 2. Catastrophic Validation (Omega-9) - runs AFTER Alpha decides
@@ -83,35 +89,36 @@ class Omega9ConstraintProvider {
     // SSOT: Get session constraint policy from coordinator
     const sessionConstraintPolicy = sessionConstraintCoordinator.getSessionConstraintPolicy(symbol, tradeStyle);
 
-    // Apply session-time constraints based on policy
-    let maxTakeProfitPips: number;
-    let sessionConstraintMode: 'BLOCKING' | 'ADVISORY' | 'NONE';
+    // ARCHITECTURAL CHANGE (v2.0): Session time is ADVISORY ONLY
+    // Session time NEVER limits TP - it only provides information for:
+    // - Style upgrade recommendations
+    // - Confidence scoring adjustments
+    // - Learning/tracking purposes
+    let maxTakeProfitPips: number = atrBasedMaxTP; // ALWAYS use ATR-based max, no session cap
+    let sessionConstraintMode: 'ADVISORY' | 'NONE';
     let tpReasoningSuffix = '';
 
     switch (sessionConstraintPolicy) {
       case 'ENFORCED':
-        // SCALP or forex-hours: Session-time BLOCKS - trade must complete within current session
-        maxTakeProfitPips = Math.min(atrBasedMaxTP, feasibleTravelPips);
-        sessionConstraintMode = 'BLOCKING';
+        // CHANGED: Even ENFORCED is now ADVISORY - no TP ceiling
+        sessionConstraintMode = 'ADVISORY';
 
         if (feasibleTravelPips < atrBasedMaxTP) {
-          tpReasoningSuffix = ` | ⚠️ ${tradeStyle} trades limited by session time: ${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min remaining`;
+          tpReasoningSuffix = ` | ℹ️ ADVISORY: ${tradeStyle} may extend beyond session (${feasibleTravelPips.toFixed(1)} pips in ${sessionTimeRemainingMinutes}min remaining). Style upgrade may apply.`;
         }
         break;
 
       case 'ADVISORY':
-        // INTRADAY: Session-time ADVISORY - trade may extend beyond current session
-        maxTakeProfitPips = atrBasedMaxTP; // No session cap
+        // INTRADAY: Session-time ADVISORY - no TP ceiling
         sessionConstraintMode = 'ADVISORY';
 
         if (atrBasedMaxTP > feasibleTravelPips) {
-          tpReasoningSuffix = ` | ℹ️ ${tradeStyle} trade may extend beyond current session (${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min, target ${atrBasedMaxTP.toFixed(1)} pips)`;
+          tpReasoningSuffix = ` | ℹ️ ADVISORY: ${tradeStyle} trade may extend beyond current session (${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min, target ${atrBasedMaxTP.toFixed(1)} pips)`;
         }
         break;
 
       case 'NONE':
         // SWING or 24/7 market: Session-time NONE - no session constraints
-        maxTakeProfitPips = atrBasedMaxTP; // No session cap
         sessionConstraintMode = 'NONE';
 
         if (assetClassifier.is24HourMarket(symbol)) {

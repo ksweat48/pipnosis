@@ -65,13 +65,13 @@ export const EXECUTION_ELIGIBILITY_CONFIG: ExecutionEligibilityConfig = {
   modes: {
     INTRADAY: {
       timeToFill: {
-        hardBlockMinutes: 240,
-        warningMinutes: 120,
-        description: 'Intraday trades must complete within 4 hours',
+        hardBlockMinutes: 9999,     // DISABLED - time is scoring signal only, not block
+        warningMinutes: 120,        // Advisory threshold only
+        description: 'Time-to-fill is advisory only - trades execute with style upgrades',
         toleranceBySession: {
-          asian: 1.1,   // 10% more time allowed (lower volatility)
-          london: 1.0,  // Standard
-          nyse: 0.9     // 10% less time required (higher volatility)
+          asian: 1.1,   // 10% more time allowed (lower volatility) - for scoring
+          london: 1.0,  // Standard - for scoring
+          nyse: 0.9     // 10% less time required (higher volatility) - for scoring
         }
       },
       maxTradesRequired: 75,

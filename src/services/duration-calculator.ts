@@ -8,9 +8,19 @@
  * - Historical TP fill rates
  * - Whether trade is with-trend or counter-trend
  *
+ * ARCHITECTURAL PRINCIPLE (v2.0):
+ * - Duration is a SCORING SIGNAL, not a rejection constraint
+ * - NEVER block trades due to duration estimates
+ * - Use style upgrades + reward/penalty model instead
+ *
+ * STYLE TARGET BANDS:
+ * - SCALP: 20min - 2hrs (reward band)
+ * - MICRO_INTRADAY: 1hr - 6hrs (reward band)
+ * - INTRADAY: 2hrs - 10hrs (reward band)
+ *
  * Philosophy:
  * - High volatility = Fast fills = Shorter duration
- * - Low volatility = Slow grinds = Longer duration
+ * - Low volatility = Slow grinds = Longer duration (upgrade style)
  * - Trending markets fill faster than ranging markets
  * - London/NY sessions fill faster than Asian session
  */
@@ -32,15 +42,21 @@ export interface DurationEstimateInput {
   timeframe?: string;
 }
 
+export type StyleUpgradeType = 'NONE' | 'SCALP_TO_MICRO' | 'MICRO_TO_INTRADAY' | 'APPLY_PENALTY';
+export type DurationBand = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'EXTENDED';
+
 export interface DurationEstimate {
   expectedHours: number;
   bestCaseHours: number;
   worstCaseHours: number;
-  allowedMaxHours: number;
+  targetMaxHours: number;
   confidence: number;
   warnings: string[];
   recommendation: string;
-  exceedsAllowedDuration: boolean;
+  durationBand: DurationBand;
+  styleUpgradeRecommended: StyleUpgradeType;
+  shouldApplyReward: boolean;
+  shouldApplyPenalty: boolean;
   sessionMultiplier: number;
   regimeMultiplier: number;
   volatilityFactor: number;
@@ -181,24 +197,46 @@ class DurationCalculator {
     const bestCaseHours = expectedHours * 0.7;
     const worstCaseHours = expectedHours * 1.3;
 
-    // Get volatility-adjusted max duration
-    const volatilityDurationMap = PIPNOSIS_CORE_RULES.TRADE_DURATION_VOLATILITY_MAP;
-    const allowedMaxHours =
-      volatilityLevel === 'low'
-        ? volatilityDurationMap.low.max
-        : volatilityLevel === 'high' || volatilityLevel === 'extreme'
-        ? volatilityDurationMap.high.max
-        : volatilityDurationMap.medium.max;
+    // Style band thresholds
+    const SCALP_MAX = 2.0;
+    const MICRO_INTRADAY_MAX = 6.0;
+    const INTRADAY_MAX = 10.0;
 
-    // Check if expected duration exceeds allowed
-    const exceedsAllowedDuration = expectedHours > allowedMaxHours;
+    // Determine duration band and style upgrade recommendation
+    let durationBand: DurationBand;
+    let styleUpgradeRecommended: StyleUpgradeType;
+    let shouldApplyReward = false;
+    let shouldApplyPenalty = false;
+    let targetMaxHours: number;
 
-    // Build warnings
+    if (expectedHours <= SCALP_MAX) {
+      durationBand = 'SCALP';
+      styleUpgradeRecommended = 'NONE';
+      shouldApplyReward = true;
+      targetMaxHours = SCALP_MAX;
+    } else if (expectedHours <= MICRO_INTRADAY_MAX) {
+      durationBand = 'MICRO_INTRADAY';
+      styleUpgradeRecommended = 'SCALP_TO_MICRO';
+      shouldApplyReward = true;
+      targetMaxHours = MICRO_INTRADAY_MAX;
+    } else if (expectedHours <= INTRADAY_MAX) {
+      durationBand = 'INTRADAY';
+      styleUpgradeRecommended = 'MICRO_TO_INTRADAY';
+      shouldApplyReward = true;
+      targetMaxHours = INTRADAY_MAX;
+    } else {
+      durationBand = 'EXTENDED';
+      styleUpgradeRecommended = 'APPLY_PENALTY';
+      shouldApplyPenalty = true;
+      targetMaxHours = 24; // No hard limit, just tracking
+    }
+
+    // Build warnings (advisory only, NOT blocking)
     const warnings: string[] = [];
 
-    if (exceedsAllowedDuration) {
+    if (durationBand === 'EXTENDED') {
       warnings.push(
-        `Expected duration ${expectedHours.toFixed(1)}h exceeds max ${allowedMaxHours}h for ${volatilityLevel} volatility`
+        `Expected duration ${expectedHours.toFixed(1)}h is extended - penalty applied but trade WILL execute`
       );
     }
 
@@ -221,38 +259,41 @@ class DurationCalculator {
     // Build recommendation
     let recommendation = this.buildRecommendation(
       expectedHours,
-      allowedMaxHours,
+      targetMaxHours,
       riskRewardRatio,
       volatilityLevel,
-      marketRegime
+      marketRegime,
+      styleUpgradeRecommended
     );
 
     // Calculate confidence score (0-100)
-    // Higher confidence when:
-    // - Expected duration is well below max
-    // - With-trend setups
-    // - High liquidity sessions
-    let confidence = 70; // Start at 70%
+    // No longer applies -40% penalty for exceeding duration
+    // Instead, uses style upgrade model with moderate adjustments
+    let confidence = 70;
 
-    if (expectedHours < allowedMaxHours * 0.5) confidence += 15; // Well within limits
+    if (expectedHours < targetMaxHours * 0.5) confidence += 15; // Well within band
     if (regimeMultiplier < 0.9) confidence += 10; // With-trend
     if (sessionMultiplier < 1.0) confidence += 5; // High liquidity
 
-    if (exceedsAllowedDuration) confidence -= 40; // Major penalty
-    if (regimeMultiplier > 1.5) confidence -= 15; // Fighting market
-    if (sessionMultiplier > 1.3) confidence -= 10; // Low liquidity
+    // Moderate penalties for scoring (NOT blocking)
+    if (shouldApplyPenalty) confidence -= 15; // Extended duration penalty (reduced from -40)
+    if (regimeMultiplier > 1.5) confidence -= 10; // Fighting market
+    if (sessionMultiplier > 1.3) confidence -= 5; // Low liquidity
 
-    confidence = Math.max(0, Math.min(100, confidence));
+    confidence = Math.max(30, Math.min(100, confidence)); // Floor at 30%, never 0
 
     return {
       expectedHours,
       bestCaseHours,
       worstCaseHours,
-      allowedMaxHours,
+      targetMaxHours,
       confidence,
       warnings,
       recommendation,
-      exceedsAllowedDuration,
+      durationBand,
+      styleUpgradeRecommended,
+      shouldApplyReward,
+      shouldApplyPenalty,
       sessionMultiplier,
       regimeMultiplier,
       volatilityFactor
@@ -261,30 +302,36 @@ class DurationCalculator {
 
   /**
    * Build actionable recommendation based on duration analysis
+   * NO BLOCKING recommendations - only style upgrade suggestions
    */
   private buildRecommendation(
     expectedHours: number,
-    allowedHours: number,
+    targetHours: number,
     riskReward: number,
     volatilityLevel: string,
-    marketRegime: string
+    marketRegime: string,
+    styleUpgrade: StyleUpgradeType
   ): string {
-    if (expectedHours > allowedHours) {
-      return `⚠️ Tighten TP - Expected ${expectedHours.toFixed(1)}h exceeds ${allowedHours}h limit. Consider ${(riskReward * 0.7).toFixed(1)}:1 R:R instead.`;
+    if (styleUpgrade === 'APPLY_PENALTY') {
+      return `Extended duration (${expectedHours.toFixed(1)}h) - Executing with confidence penalty. Consider tighter TP (${(riskReward * 0.7).toFixed(1)}:1 R:R) for future trades.`;
     }
 
-    if (expectedHours > allowedHours * 0.8) {
-      return `⚠️ Moderate risk - Expected fill time ${expectedHours.toFixed(1)}h is near limit. Monitor closely.`;
+    if (styleUpgrade === 'MICRO_TO_INTRADAY') {
+      return `Auto-upgrading to INTRADAY style (${expectedHours.toFixed(1)}h expected). Trade proceeds normally.`;
     }
 
-    if (expectedHours < allowedHours * 0.3) {
+    if (styleUpgrade === 'SCALP_TO_MICRO') {
+      return `Auto-upgrading to MICRO_INTRADAY style (${expectedHours.toFixed(1)}h expected). Trade proceeds normally.`;
+    }
+
+    if (expectedHours < targetHours * 0.3) {
       if (volatilityLevel === 'high' || volatilityLevel === 'extreme') {
-        return `✅ Fast fill expected (${expectedHours.toFixed(1)}h) due to high volatility. Can use wider TP if desired.`;
+        return `Fast fill expected (${expectedHours.toFixed(1)}h) due to high volatility. Reward applied.`;
       }
-      return `✅ Good setup - Expected fill in ${expectedHours.toFixed(1)}h, well within ${allowedHours}h limit.`;
+      return `Excellent timing - Expected fill in ${expectedHours.toFixed(1)}h. Reward applied.`;
     }
 
-    return `✅ Acceptable duration - Expected ${expectedHours.toFixed(1)}h fill time within ${allowedHours}h limit.`;
+    return `Good setup - Expected ${expectedHours.toFixed(1)}h fill time within ${targetHours}h target band.`;
   }
 
   /**

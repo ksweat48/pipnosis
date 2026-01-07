@@ -119,15 +119,33 @@ export class GoalFeasibilityResolver {
     ) {
       const atrMultiplier = typicalATR > 0 ? currentATR / typicalATR : 1;
 
-      // Check if volatility is unusually low (WAIT condition)
+      // Check if volatility is unusually low - ADVISORY ONLY (v2.0)
+      // Philosophy: "Reduced profit > NO_TRADE"
       if (
         atrMultiplier <
         GOAL_FEASIBILITY_CONFIG.waitConditions.minATRMultiplierRequired
       ) {
+        // Instead of blocking, propose reduced goal and proceed
+        const reducedGoal = maxProfitPossible * 0.8; // 80% of max for safety
+        logger.warn('Low volatility detected - proposing reduced goal instead of waiting', {
+          atrMultiplier,
+          maxProfitPossible,
+          reducedGoal,
+        });
+
         return {
-          feasible: false,
-          tier: 'WAIT_FOR_VOLATILITY',
-          waitReason: `Market can only deliver ${(retentionPercent * 100).toFixed(0)}% of goal (below ${(GOAL_FEASIBILITY_CONFIG.downshift.minGoalRetentionPercent * 100).toFixed(0)}% minimum). Current volatility is ${(atrMultiplier * 100).toFixed(0)}% of typical. Waiting for better market conditions.`,
+          feasible: true, // Changed from false (advisory model)
+          tier: 'EXECUTE_REDUCED',
+          proposal: {
+            reducedGoal,
+            retentionPercent: reducedGoal / remainingGoal,
+            reason: `Market volatility is ${(atrMultiplier * 100).toFixed(0)}% of typical. Reducing goal to $${reducedGoal.toFixed(2)} for realistic execution in current conditions.`,
+            advisoryMessage: `ADVISORY: Low volatility detected (${(atrMultiplier * 100).toFixed(0)}% of typical). Trade proceeds with reduced target. Partial success > NO_TRADE.`,
+          },
+          alternativeSuggestions: [
+            `Consider waiting for higher volatility period`,
+            `Current conditions support smaller targets`,
+          ],
         };
       }
 
@@ -197,33 +215,40 @@ export class GoalFeasibilityResolver {
       nearGoalCompletion
     );
 
-    if (
-      !meaningfulnessChecks.anyMet &&
-      GOAL_FEASIBILITY_CONFIG.meaningfulTrade.actionOnFailure ===
-        'WAIT_FOR_VOLATILITY'
-    ) {
+    // Meaningfulness checks are now ADVISORY ONLY (v2.0)
+    // Philosophy: "Small profit > NO_TRADE"
+    if (!meaningfulnessChecks.anyMet) {
       const explanation = MeaningfulTradeCalculator.explainMeaningfulness(
         meaningfulnessChecks,
         netProfit,
         thresholds
       );
 
-      return {
-        feasible: false,
-        tier: 'WAIT_FOR_VOLATILITY',
-        waitReason: `Adjusted profit (${netProfit.toFixed(2)}) does not meet meaningful trade thresholds. ${explanation} Waiting for better opportunity.`,
-      };
+      // Log advisory but DO NOT BLOCK
+      logger.warn('Trade below meaningful thresholds - proceeding with advisory', {
+        netProfit,
+        explanation,
+        meaningfulnessChecks,
+      });
+
+      // Continue to execute with advisory warning attached
+      // The trade proceeds - meaningful checks inform learning, not blocking
     }
 
+    // Trade frequency check is now ADVISORY ONLY (v2.0)
+    // Philosophy: Churn prevention is learning signal, not hard block
     const recentTradeCount = await this.getRecentTradeCount(userId, sessionId);
     if (
       recentTradeCount >= GOAL_FEASIBILITY_CONFIG.waitConditions.maxTradesInLastHour
     ) {
-      return {
-        feasible: false,
-        tier: 'WAIT_FOR_VOLATILITY',
-        waitReason: `Too many recent trades (${recentTradeCount} in last hour). Preventing churn. Waiting for clearer opportunity.`,
-      };
+      // Log advisory but DO NOT BLOCK
+      logger.warn('High trade frequency detected - applying confidence penalty', {
+        recentTradeCount,
+        threshold: GOAL_FEASIBILITY_CONFIG.waitConditions.maxTradesInLastHour,
+      });
+
+      // Continue execution with advisory - churn tracking informs learning
+      // Alpha can proceed if setup quality justifies another trade
     }
 
     const adjustedTrade: AdjustedTradeParameters = {

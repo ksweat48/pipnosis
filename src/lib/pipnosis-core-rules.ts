@@ -19,15 +19,33 @@
  */
 
 export const PIPNOSIS_CORE_RULES = {
-  // Core Duration Rules (Pure Intraday Specialist)
-  TRADE_DURATION_MAX_HOURS: 8,           // Absolute maximum (hard block)
-  TRADE_DURATION_MAX_MINUTES: 480,       // 8 hours in minutes
-  TRADE_DURATION_TARGET_MIN_HOURS: 0.33, // 20 minutes minimum target
-  TRADE_DURATION_TARGET_MAX_HOURS: 2.0,  // 2 hours maximum target
-  TRADE_DURATION_PREFERRED_MAX_HOURS: 2, // Preferred maximum
-  TRADE_DURATION_WARNING_HOURS: 4,       // Warn at 4 hours
-  TRADE_DURATION_BLOCK_HOURS: 6,         // Block at 6+ hours expected
-  TRADE_DURATION_MIN_HOURS: 1,           // Kept for compatibility
+  // DURATION PHILOSOPHY (v2.0):
+  // - Time is a SCORING SIGNAL, not a rejection constraint
+  // - NEVER hard-block trades due to time/duration
+  // - Use style upgrades + reward/penalty model instead
+
+  // Duration Target Bands (for learning/scoring, NOT blocking)
+  STYLE_DURATION_BANDS: {
+    SCALP: { min: 0.33, max: 2.0 },           // 20min - 2hrs (reward band)
+    MICRO_INTRADAY: { min: 1.0, max: 6.0 },   // 1hr - 6hrs (reward band)
+    INTRADAY: { min: 2.0, max: 10.0 },        // 2hrs - 10hrs (reward band)
+  } as const,
+
+  // Auto-upgrade thresholds (NEVER block, just upgrade style)
+  STYLE_UPGRADE_THRESHOLDS: {
+    SCALP_TO_MICRO_HOURS: 2.0,       // >2h expected → upgrade to MICRO_INTRADAY
+    MICRO_TO_INTRADAY_HOURS: 6.0,    // >6h expected → upgrade to INTRADAY
+    PENALTY_THRESHOLD_HOURS: 10.0,   // >10h expected → apply penalty, STILL EXECUTE
+  } as const,
+
+  // Legacy constants (kept for backward compatibility, NOT used for blocking)
+  TRADE_DURATION_MAX_HOURS: 24,           // Removed as hard block - now just learning signal
+  TRADE_DURATION_MAX_MINUTES: 1440,       // 24 hours - NOT a block, just tracking
+  TRADE_DURATION_TARGET_MIN_HOURS: 0.33,  // 20 minutes minimum target
+  TRADE_DURATION_TARGET_MAX_HOURS: 2.0,   // 2 hours target for scalp
+  TRADE_DURATION_PREFERRED_MAX_HOURS: 2,  // Preferred maximum for scalp
+  TRADE_DURATION_WARNING_HOURS: 4,        // Advisory warning, NOT block
+  TRADE_DURATION_MIN_HOURS: 1,            // Kept for compatibility
 
   TRADE_STYLE: 'scalp_and_intraday_only' as const,
   GOAL_COMPLETION_METHOD: 'multiple_small_trades' as const,
@@ -35,11 +53,11 @@ export const PIPNOSIS_CORE_RULES = {
   ALLOW_OVERNIGHT_HOLDS: false,
   ALLOW_MULTI_DAY_POSITIONS: false,
 
-  // Updated volatility map for intraday focus
+  // Updated volatility map for duration estimation (NOT blocking)
   TRADE_DURATION_VOLATILITY_MAP: {
-    low: { min: 0.33, preferred: 1.5, max: 2.0 },     // 20min-2hr for conservative
-    medium: { min: 0.33, preferred: 1.0, max: 2.0 },  // 20min-2hr for moderate
-    high: { min: 0.17, preferred: 0.75, max: 1.5 }    // 10min-1.5hr for aggressive
+    low: { min: 0.33, preferred: 1.5, max: 10.0 },    // Conservative allows longer
+    medium: { min: 0.33, preferred: 1.0, max: 6.0 },  // Moderate micro-intraday
+    high: { min: 0.17, preferred: 0.75, max: 2.0 }    // Aggressive scalp
   } as const,
 
   SESSION_LIQUIDITY_MULTIPLIERS: {
@@ -69,8 +87,8 @@ export const PIPNOSIS_CORE_RULES = {
   NOTIFICATION_COUNTDOWN_MIN_SECONDS: 60,
   NOTIFICATION_COUNTDOWN_MAX_SECONDS: 180,
 
-  AUTO_CLOSE_ON_DURATION_EXCEEDED: true,
-  ENFORCE_END_OF_DAY_CLOSURE: true,
+  AUTO_CLOSE_ON_DURATION_EXCEEDED: false,  // DISABLED - time is scoring signal only
+  ENFORCE_END_OF_DAY_CLOSURE: true,        // Weekend/market close is still enforced (actual closure)
   END_OF_DAY_CLOSE_BUFFER_MINUTES: 30,
 
   GOAL_INTELLIGENCE: {
@@ -248,22 +266,13 @@ export class PipnosisCoreRules {
   static shouldAutoClosePosition(
     entryTime: Date,
     currentTime: Date
-  ): { shouldClose: boolean; reason?: string } {
+  ): { shouldClose: boolean; reason?: string; durationInfo?: { minutes: number; hours: number } } {
     const durationMinutes = (currentTime.getTime() - entryTime.getTime()) / 60000;
+    const durationHours = durationMinutes / 60;
 
-    if (durationMinutes > PIPNOSIS_CORE_RULES.TRADE_DURATION_MAX_MINUTES) {
-      return {
-        shouldClose: true,
-        reason: `Trade exceeded maximum duration of ${PIPNOSIS_CORE_RULES.TRADE_DURATION_MAX_HOURS} hours`
-      };
-    }
-
-    if (this.isOvernightHold(entryTime, currentTime)) {
-      return {
-        shouldClose: true,
-        reason: 'Overnight holds are not permitted'
-      };
-    }
+    // ARCHITECTURAL CHANGE: Duration NEVER triggers auto-close
+    // Only weekend/market closure triggers auto-close
+    // Duration is tracked for learning/scoring purposes only
 
     if (PIPNOSIS_CORE_RULES.ENFORCE_END_OF_DAY_CLOSURE) {
       const endOfDay = new Date(currentTime);
@@ -272,12 +281,17 @@ export class PipnosisCoreRules {
       if (currentTime >= endOfDay) {
         return {
           shouldClose: true,
-          reason: 'End of day closure enforcement'
+          reason: 'End of day market closure (weekend)',
+          durationInfo: { minutes: durationMinutes, hours: durationHours }
         };
       }
     }
 
-    return { shouldClose: false };
+    // Duration exceeded is now just tracking info, NOT a close trigger
+    return {
+      shouldClose: false,
+      durationInfo: { minutes: durationMinutes, hours: durationHours }
+    };
   }
 
   static calculateCountdownDuration(
@@ -355,36 +369,49 @@ export class PipnosisCoreRules {
     return `You are Pipnosis, an elite duration-aware intraday AI trading system.
 
 CORE IDENTITY (NON-NEGOTIABLE):
-- You ONLY execute trades lasting 1-10 hours (extended from 6 for better TP fills)
-- You are DURATION-AWARE: choose realistic TPs that can fill within time constraints
-- You NEVER hold positions overnight or multi-day
-- You NEVER suggest swing trades or long-term positions
-- You aim to complete user goals in ONE high-quality trade first, taking backup trades only if needed based on market conditions
-- You specialize in scalping and intraday opportunities
+- You ALWAYS attempt a trade if profit is mathematically possible
+- You NEVER hard-block trades due to time, duration, session, or expected time-to-fill
+- TIME IS A SCORING SIGNAL, NOT A REJECTION CONSTRAINT
+- Partial success is ALWAYS better than NO_TRADE
+- You specialize in scalping and intraday opportunities with automatic style upgrades
 
-TRADING CONSTRAINTS:
-- Maximum trade duration: ${PIPNOSIS_CORE_RULES.TRADE_DURATION_MAX_HOURS} hours
-- Preferred trade duration: ${PIPNOSIS_CORE_RULES.TRADE_DURATION_PREFERRED_MAX_HOURS} hours or less
-- Minimum trade duration: ${PIPNOSIS_CORE_RULES.TRADE_DURATION_MIN_HOURS} hour
+ALPHA AUTHORITY PRINCIPLES:
+- Always attempt a trade when profit is achievable
+- Reduce TP if full goal is infeasible - NEVER refuse
+- Execute partial-profit trades over refusing
+- Switch styles dynamically based on market conditions
+- Learn from reward/penalty outcomes
+
+STYLE UPGRADE MODEL (NOT BLOCKING):
+- SCALP: 20min-2hrs target → if >2h expected, AUTO-UPGRADE to MICRO_INTRADAY
+- MICRO_INTRADAY: 1hr-6hrs target → if >6h expected, AUTO-UPGRADE to INTRADAY
+- INTRADAY: 2hrs-10hrs target → if >10h expected, APPLY PENALTY but STILL EXECUTE
+
+TRADING PREFERENCES:
 - Primary timeframes: ${PIPNOSIS_CORE_RULES.PRIMARY_TIMEFRAMES.join(', ')}
 - Never use: ${PIPNOSIS_CORE_RULES.PROHIBITED_TIMEFRAMES.join(', ')}
-- All positions must close before end of trading day
+- Weekend market closures are enforced (actual market closure, not arbitrary time limit)
 
-DURATION AWARENESS:
-- Low volatility: Expect 2-10 hour TP fills (slow markets need more time)
-- Medium volatility: Expect 1-8 hour TP fills (standard intraday)
-- High volatility: Expect 1-6 hour TP fills (fast markets fill quickly)
-- Session liquidity affects fill time (London/NY faster, Asian slower)
-- NEVER choose TPs that require more than allowed duration to fill
+DURATION AWARENESS (SCORING ONLY):
+- Low volatility: Expect longer fills → upgrade style, don't block
+- High volatility: Expect faster fills → reward for staying in band
+- Session liquidity affects confidence scoring, not execution permission
+- NEVER choose to NOT trade due to duration concerns alone
+
+LEGITIMATE NO_TRADE CONDITIONS (ONLY THESE):
+- Market actually closed (weekend, holiday)
+- Data stale or invalid (>5min price, >1hr ATR)
+- SL/TP mathematically invalid (wrong side, zero distance)
+- Guaranteed negative EV (spread consumes all potential)
 
 GOAL COMPLETION PHILOSOPHY:
-- Attempt to achieve goals in single trades when possible; only use multiple trades if the goal exceeds safe single-trade limits
-- Execute multiple safe trades rather than risky large trades
-- Accumulate consistent wins over time
-- Minimum ${PIPNOSIS_CORE_RULES.MIN_TRADES_PER_GOAL} trades per goal
-- Maximum ${PIPNOSIS_CORE_RULES.MAX_SINGLE_TRADE_PROFIT_PERCENT}% profit per single trade
+- Attempt to achieve goals in single trades when possible
+- If goal exceeds capacity, reduce target - NEVER refuse
+- Partial progress toward goal is success
+- Minimum ${PIPNOSIS_CORE_RULES.MIN_TRADES_PER_GOAL} trades per goal (guidance, not block)
+- Maximum ${PIPNOSIS_CORE_RULES.MAX_SINGLE_TRADE_PROFIT_PERCENT}% profit per single trade (guidance, not block)
 
-Your recommendations must ALWAYS comply with these rules. If a market condition or user request conflicts with these rules, adjust your recommendation to fit within these constraints.`;
+Your role is to ENGINEER OUTCOMES, not refuse opportunities. Any situation where profit is possible should result in trade execution with appropriate style/penalty adjustments.`;
   }
 
   static validateLLMResponse(response: any): TradeValidationResult {
