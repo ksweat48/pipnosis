@@ -1,44 +1,42 @@
 /**
- * Entry Qualification Engine
+ * Entry Qualification Engine - Professional Entry Quality Scoring
  *
- * SINGLE SOURCE OF TRUTH for entry timing validation.
+ * ═══════════════════════════════════════════════════════════════════
+ * SINGLE SOURCE OF TRUTH for entry timing quality evaluation
+ * ═══════════════════════════════════════════════════════════════════
  *
  * RESPONSIBILITY:
- * Owns WHETHER and WHEN to enter a trade after Alpha signals direction/levels.
+ * Scores entry quality on technical merit (0-100 EQS), decides WHEN to enter.
+ * Alpha decides IF and WHERE. EQE optimizes WHEN and HOW GOOD the entry is.
+ *
+ * ARCHITECTURE CHANGE:
+ * NO MORE REJECTIONS. Removed REJECT_ENTRY status per architectural mandate.
+ * Entry Qualification Engine evaluates quality only - Alpha has final authority.
+ *
+ * ENTRY QUALITY SCORE (EQS) SYSTEM:
+ * - Location Score (0-30): VWAP setup, key levels, liquidity position
+ * - Confirmation Score (0-30): Candle acceptance, patterns, momentum
+ * - Timing Score (0-25): Pullback quality, compression/expansion, precision
+ * - Friction Penalty (0 to -15): Wicks, spread, news spikes
+ *
+ * GRADING SYSTEM:
+ * - Grade A+ (80+): Execute immediately at optimal microstructure
+ * - Grade A (72-79): Execute with strong acceptance + VWAP
+ * - Grade B (65-71): Wait for better entry with structured triggers
+ * - Grade C (50-64): Wait tight, require confirmation candle
+ * - Grade D (<50): Wait passive, monitor for improvement
+ *
+ * PHILOSOPHY:
+ * Alpha says "BUY EURUSD". EQE says "execute now at 80 EQS" or
+ * "wait for 75+ EQS at VWAP kiss". No rejections, only optimal timing.
  *
  * SSOT COMPLIANCE:
- * - Entry timing quality: THIS SERVICE (NEW)
+ * - Entry timing quality: THIS SERVICE
  * - Entry price monitoring: entry-execution-coordinator.ts
  * - Execution economics: execution-eligibility-gate.ts
  * - Strategy decision: coordinator-alpha.ts
  * - Risk boundaries: omega9-constraint-provider.ts
- *
- * PHILOSOPHY:
- * Alpha tells us WHAT to trade and WHERE (symbol, direction, levels).
- * Entry Qualification Engine tells us WHEN (timing quality, microstructure).
- * Execution Eligibility Gate tells us IF (economics, physics).
- *
- * FLOW INTEGRATION:
- * 1. Alpha decides: BUY/SELL EURUSD @ 1.0850, SL 1.0840, TP 1.0870
- * 2. Entry Qualification (THIS): Check M5 microstructure, momentum, confluence
- *    - ACCEPT_ENTRY → proceed to execution eligibility
- *    - WAIT_FOR_BETTER → create entry intent, monitor for improvement
- *    - REJECT_ENTRY → convert to NO_TRADE
- * 3. Execution Eligibility Gate: Check economics (spread, profit, time-to-fill)
- * 4. Execution: Enter trade or create entry intent
- *
- * HARD BLOCKS (non-negotiable):
- * - Wrong side of M5 VWAP (fade play only)
- * - M5 momentum against trade direction (no counter-trend)
- * - Price in no-trade zone (25-75% of range, choppy middle)
- * - Recent false breakout on M5 (< 3 candles ago)
- * - M5 volume dead (< 40% of 20-period average)
- *
- * ADVISORY CHECKS (recommend WAIT but allow override):
- * - Entry at M15 resistance/support instead of retracement
- * - M5 RSI extreme (> 75 or < 25)
- * - Multiple M5 timeframe confluence weak
- * - Spread elevated (> 1.5x 24h average)
+ * ═══════════════════════════════════════════════════════════════════
  */
 
 import { calculatePipDistance } from '../utils/currencyHelpers';
@@ -46,11 +44,12 @@ import { getSymbolConfig } from '../config/symbol-registry';
 import { logger } from '../lib/logger';
 import { VOLATILITY_PATIENCE_CONFIG } from '../config/volatility-aware-patience-config';
 import type { ATRValue } from '../types/atr';
-
-export type EntryQualificationStatus =
-  | 'ACCEPT_ENTRY'          // Good timing, execute immediately
-  | 'WAIT_FOR_BETTER'       // Timing suboptimal, wait for improvement
-  | 'REJECT_ENTRY';         // Timing poor, convert to NO_TRADE
+import type {
+  EntryQualificationStatus,
+  EntryActionTier,
+  EQSBreakdown,
+  EntryTrigger
+} from '../types/entry';
 
 export interface EntryQualificationInput {
   symbol: string;
@@ -137,25 +136,42 @@ export interface FailedMoveResult {
   details: string;
 }
 
+/**
+ * Entry Qualification Result - EQS-based evaluation
+ * Replaces blocks/advisories with scored breakdown
+ */
 export interface EntryQualificationResult {
-  status: EntryQualificationStatus;
-  blocks: EntryQualificationBlock[];
-  advisories: EntryQualificationBlock[];
-  qualityScore: number; // 0-100
+  status: EntryQualificationStatus;           // EXECUTE_NOW or WAIT_FOR_BETTER_ENTRY
+  actionTier: EntryActionTier;                // Granular action decision
+  eqs: number;                                // Total Entry Quality Score (0-100, can be negative)
+  eqsBreakdown: EQSBreakdown;                 // Detailed scoring breakdown
+  eqsGrade: 'A+' | 'A' | 'B' | 'C' | 'D' | 'F'; // Letter grade for EQS
+
+  // Entry triggers (generated when WAIT_FOR_BETTER_ENTRY)
+  entryTriggers?: EntryTrigger[];
+
+  // Wait recommendation (for lower-quality setups)
   waitRecommendation?: {
     reason: string;
     estimatedImprovementMinutes: number;
     expectedQualityImprovement: number;
+    whatsMissing: string[];                   // What components need improvement
   };
+
+  // Legacy metrics for backward compatibility
+  qualityScore: number;                       // Alias for eqs
+  blocks: EntryQualificationBlock[];          // Deprecated: now empty array
+  advisories: EntryQualificationBlock[];      // Deprecated: now empty array
   metrics: {
     vwapAlignment: boolean;
     momentumConfirmation: boolean;
     volumeConfirmation: boolean;
     rangePosition: 'top' | 'middle' | 'bottom';
-    confluenceScore: number; // 0-100
+    confluenceScore: number;
     microstructureGrade: 'A' | 'B' | 'C' | 'D' | 'F';
   };
-  // Enhanced acceptance metrics (BOLT)
+
+  // Enhanced acceptance metrics (preserved from existing system)
   candleAcceptance?: CandleAcceptanceResult;
   pullbackQuality?: PullbackQualityResult;
   compressionExpansion?: CompressionExpansionResult;
@@ -164,195 +180,113 @@ export interface EntryQualificationResult {
 
 class EntryQualificationEngine {
   /**
-   * Evaluate entry timing quality
-   * Returns qualification decision with detailed reasoning
+   * ═══════════════════════════════════════════════════════════════════
+   * MAIN EVALUATION METHOD - EQS-BASED ENTRY QUALITY SCORING
+   * ═══════════════════════════════════════════════════════════════════
    *
-   * UPDATED: Now includes enhanced BOLT entry acceptance logic
+   * Returns professional entry quality score (0-100) with detailed breakdown.
+   * NO REJECTIONS - only execute-now or wait-for-better-entry decisions.
    */
   evaluate(input: EntryQualificationInput): EntryQualificationResult {
-    const blocks: EntryQualificationBlock[] = [];
-    const advisories: EntryQualificationBlock[] = [];
-
-    // Calculate metrics
+    // Calculate legacy metrics for backward compatibility
     const metrics = this.calculateMetrics(input);
 
-    // Run hard blocks
-    this.checkVWAPAlignment(input, metrics, blocks);
-    this.checkMomentumDirection(input, metrics, blocks);
-    this.checkRangePosition(input, metrics, blocks);
-    this.checkFalseBreakout(input, blocks);
-    this.checkVolumeConfirmation(input, metrics, blocks);
-
-    // New stricter checks (Volatility-Aware Patience System)
-    if (VOLATILITY_PATIENCE_CONFIG.eqe.chaseDetection.enabled) {
-      this.checkChaseDetection(input, blocks);
-    }
-    if (VOLATILITY_PATIENCE_CONFIG.eqe.exhaustionDetection.enabled) {
-      this.checkExhaustionDetection(input, blocks);
-    }
-    if (VOLATILITY_PATIENCE_CONFIG.eqe.vwapDistanceLimits.enabled) {
-      this.checkVWAPDistanceLimits(input, blocks);
-    }
-
-    // If any hard blocks, REJECT immediately
-    if (blocks.length > 0) {
-      console.error('%c[ENTRY QUALIFICATION] REJECTED', 'color: #f44336; font-weight: bold; font-size: 14px');
-      blocks.forEach(b => {
-        console.error(`  ${b.code}: ${b.message}`);
-        console.error(`    Suggestion: ${b.suggestion}`);
-      });
-
-      return {
-        status: 'REJECT_ENTRY',
-        blocks,
-        advisories,
-        qualityScore: this.calculateQualityScore(metrics, blocks, advisories),
-        metrics
-      };
-    }
-
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // ENHANCED ENTRY ACCEPTANCE CHECKS (BOLT IMPLEMENTATION)
+    // ENHANCED ACCEPTANCE ANALYSIS (preserved from existing system)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    // A. Candle Acceptance Logic
     const candleAcceptance = this.checkCandleAcceptance(input.m5Candles, input.direction);
-    logger.debug(`[EQE] Candle Acceptance: ${candleAcceptance.details}`);
-
-    // B. Pullback Quality Grading
     const pullbackQuality = this.checkPullbackQuality(input.m5Candles, input.direction);
-    logger.debug(`[EQE] Pullback Quality: Grade ${pullbackQuality.grade} (${pullbackQuality.pullbackPercent.toFixed(1)}%)`);
-
-    // C. Compression & Expansion Detection
     const compressionExpansion = this.checkCompressionExpansion(input.m5Candles);
-    logger.debug(`[EQE] Compression/Expansion: ${compressionExpansion.pattern}`);
-
-    // D. Failed Move Confirmation
     const failedMove = this.checkFailedMove(input.m5Candles, input.direction);
-    logger.debug(`[EQE] Failed Move: ${failedMove.details}`);
 
-    // E. Confidence-Weighted Entry Aggression
-    const confidenceAdjustment = this.applyConfidenceWeightedAggression(
-      input.confidence,
-      candleAcceptance
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // NEW: EQS COMPONENT SCORING
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    // 1. Location Score (0-30 points)
+    const locationScore = this.calculateLocationScore(input, metrics);
+
+    // 2. Confirmation Score (0-30 points)
+    const confirmationScore = this.calculateConfirmationScore(
+      input,
+      metrics,
+      candleAcceptance,
+      failedMove
     );
-    logger.debug(`[EQE] Confidence Aggression: ${confidenceAdjustment.aggressionLevel} (${confidenceAdjustment.recommendation})`);
 
-    // Run advisory checks
-    this.checkStructureAlignment(input, metrics, advisories);
-    this.checkRSIExtremes(input, metrics, advisories);
-    this.checkConfluence(input, metrics, advisories);
-    this.checkSpread(input, advisories);
+    // 3. Timing Score (0-25 points)
+    const timingScore = this.calculateTimingScore(
+      input,
+      pullbackQuality,
+      compressionExpansion
+    );
 
-    // Calculate base quality score
-    let qualityScore = this.calculateQualityScore(metrics, blocks, advisories);
+    // 4. Friction Penalty (0 to -15 points)
+    const frictionPenalty = this.calculateFrictionPenalty(input);
 
-    // Apply enhanced acceptance bonuses
-    if (candleAcceptance.accepted) {
-      qualityScore += 10;
-      logger.debug('[EQE] +10 bonus: Candle acceptance confirmed');
+    // Calculate total EQS
+    let totalEQS = locationScore.total + confirmationScore.total + timingScore.total + frictionPenalty.total;
+
+    // 5. Grade A+ Pattern Bonuses (+10 to +15)
+    const aplusPattern = this.detectAPlusPatterns(input, metrics, candleAcceptance, pullbackQuality);
+    if (aplusPattern) {
+      totalEQS += aplusPattern.bonus;
+      logger.info(`[EQE] 🌟 Grade A+ Pattern Detected: ${aplusPattern.type} (+${aplusPattern.bonus} points)`);
     }
 
-    if (pullbackQuality.grade === 'A') {
-      qualityScore += pullbackQuality.score * 0.1; // +10 points for A grade
-      logger.debug(`[EQE] +10 bonus: Grade A pullback (${pullbackQuality.pullbackPercent.toFixed(1)}%)`);
-    } else if (pullbackQuality.grade === 'B') {
-      qualityScore += pullbackQuality.score * 0.075; // +5.6 points for B grade
-      logger.debug(`[EQE] +5.6 bonus: Grade B pullback (${pullbackQuality.pullbackPercent.toFixed(1)}%)`);
+    // Build EQS breakdown
+    const eqsBreakdown: EQSBreakdown = {
+      locationScore: locationScore.total,
+      confirmationScore: confirmationScore.total,
+      timingScore: timingScore.total,
+      frictionPenalty: frictionPenalty.total,
+      totalScore: totalEQS,
+      locationDetails: locationScore.details,
+      confirmationDetails: confirmationScore.details,
+      timingDetails: timingScore.details,
+      frictionDetails: frictionPenalty.details,
+      aplusPatternBonus: aplusPattern?.bonus,
+      aplusPatternType: aplusPattern?.type
+    };
+
+    // Determine action tier and status
+    const actionTier = this.determineActionTier(totalEQS, eqsBreakdown);
+    const status: EntryQualificationStatus = actionTier === 'EXECUTE_NOW'
+      ? 'EXECUTE_NOW'
+      : 'WAIT_FOR_BETTER_ENTRY';
+
+    // Calculate EQS grade
+    const eqsGrade = this.calculateEQSGrade(totalEQS);
+
+    // Generate entry triggers if waiting
+    let entryTriggers: EntryTrigger[] | undefined;
+    let waitRecommendation: EntryQualificationResult['waitRecommendation'];
+
+    if (status === 'WAIT_FOR_BETTER_ENTRY') {
+      entryTriggers = this.generateEntryTriggers(input, eqsBreakdown, totalEQS);
+      waitRecommendation = this.generateWaitRecommendationNew(input, eqsBreakdown, actionTier);
     }
 
-    qualityScore += compressionExpansion.qualityBonus;
-    if (compressionExpansion.qualityBonus > 0) {
-      logger.debug(`[EQE] +${compressionExpansion.qualityBonus} bonus: Compression → Expansion pattern`);
-    }
+    // Log EQS breakdown
+    this.logEQSBreakdown(totalEQS, eqsGrade, actionTier, eqsBreakdown);
 
-    if (failedMove.entryViable) {
-      qualityScore += 15;
-      logger.debug('[EQE] +15 bonus: Failed move confirmation present');
-    }
-
-    // Apply confidence-weighted aggression adjustment
-    qualityScore += confidenceAdjustment.adjustedScore;
-    logger.debug(`[EQE] ${confidenceAdjustment.adjustedScore >= 0 ? '+' : ''}${confidenceAdjustment.adjustedScore} adjustment: ${confidenceAdjustment.aggressionLevel} aggression`);
-
-    // Cap quality score at 100
-    qualityScore = Math.min(100, qualityScore);
-
-    // Decision logic
-    if (qualityScore >= 75) {
-      // High quality entry - execute immediately
-      console.log('%c[ENTRY QUALIFICATION] ACCEPTED (HIGH QUALITY)', 'color: #4caf50; font-weight: bold');
-      console.log(`  Quality Score: ${qualityScore}/100 | Grade: ${metrics.microstructureGrade}`);
-      console.log(`  VWAP: ${metrics.vwapAlignment ? '✓' : '✗'} | Momentum: ${metrics.momentumConfirmation ? '✓' : '✗'} | Volume: ${metrics.volumeConfirmation ? '✓' : '✗'}`);
-      console.log(`  Candle Acceptance: ${candleAcceptance.accepted ? '✓' : '✗'} | Pullback: Grade ${pullbackQuality.grade}`);
-      console.log(`  Aggression: ${confidenceAdjustment.aggressionLevel}`);
-
-      return {
-        status: 'ACCEPT_ENTRY',
-        blocks,
-        advisories,
-        qualityScore,
-        metrics,
-        candleAcceptance,
-        pullbackQuality,
-        compressionExpansion,
-        failedMove
-      };
-    } else if (qualityScore >= 50 && advisories.length === 0) {
-      // Acceptable quality - execute
-      console.log('%c[ENTRY QUALIFICATION] ACCEPTED (ACCEPTABLE)', 'color: #8bc34a; font-weight: bold');
-      console.log(`  Quality Score: ${qualityScore}/100 | Grade: ${metrics.microstructureGrade}`);
-      console.log(`  Pullback: Grade ${pullbackQuality.grade} | Aggression: ${confidenceAdjustment.aggressionLevel}`);
-
-      return {
-        status: 'ACCEPT_ENTRY',
-        blocks,
-        advisories,
-        qualityScore,
-        metrics,
-        candleAcceptance,
-        pullbackQuality,
-        compressionExpansion,
-        failedMove
-      };
-    } else if (qualityScore >= 40) {
-      // Marginal quality - recommend wait
-      console.log('%c[ENTRY QUALIFICATION] WAIT_FOR_BETTER', 'color: #ff9800; font-weight: bold');
-      console.log(`  Quality Score: ${qualityScore}/100 | Advisories: ${advisories.length}`);
-      console.log(`  ${confidenceAdjustment.recommendation}`);
-
-      const waitRecommendation = this.generateWaitRecommendation(input, metrics, advisories);
-
-      return {
-        status: 'WAIT_FOR_BETTER',
-        blocks,
-        advisories,
-        qualityScore,
-        waitRecommendation,
-        metrics,
-        candleAcceptance,
-        pullbackQuality,
-        compressionExpansion,
-        failedMove
-      };
-    } else {
-      // Poor quality - reject
-      console.error('%c[ENTRY QUALIFICATION] REJECTED (LOW QUALITY)', 'color: #f44336; font-weight: bold');
-      console.error(`  Quality Score: ${qualityScore}/100 | Grade: ${metrics.microstructureGrade}`);
-      console.error(`  Candle Acceptance: ${candleAcceptance.accepted ? '✓' : '✗'} (${candleAcceptance.details})`);
-
-      return {
-        status: 'REJECT_ENTRY',
-        blocks,
-        advisories,
-        qualityScore,
-        metrics,
-        candleAcceptance,
-        pullbackQuality,
-        compressionExpansion,
-        failedMove
-      };
-    }
+    return {
+      status,
+      actionTier,
+      eqs: totalEQS,
+      eqsBreakdown,
+      eqsGrade,
+      entryTriggers,
+      waitRecommendation,
+      qualityScore: totalEQS, // Alias for backward compatibility
+      blocks: [], // Deprecated
+      advisories: [], // Deprecated
+      metrics,
+      candleAcceptance,
+      pullbackQuality,
+      compressionExpansion,
+      failedMove
+    };
   }
 
   /**
@@ -397,23 +331,294 @@ class EntryQualificationEngine {
   }
 
   /**
-   * HARD BLOCK: Check VWAP alignment
-   * Trades should enter on correct side of VWAP (with-trend)
-   * Fading VWAP only allowed with explicit fade setup
+   * ═══════════════════════════════════════════════════════════════════
+   * EQS COMPONENT SCORING METHODS
+   * ═══════════════════════════════════════════════════════════════════
+   */
+
+  /**
+   * 1. LOCATION SCORE (0-30 points)
+   * Where you enter: VWAP setup, key levels, liquidity position
+   */
+  private calculateLocationScore(
+    input: EntryQualificationInput,
+    metrics: EntryQualificationResult['metrics']
+  ): { total: number; details: EQSBreakdown['locationDetails'] } {
+    let vwapSetup = 0;          // 0-12 points
+    let keyLevelConfluence = 0; // 0-10 points
+    let liquidityLocation = 0;  // 0-8 points
+
+    // A. VWAP Setup (0-12 points)
+    const { entryPrice, m5VWAP, atr, direction } = input;
+    const atrValue = typeof atr === 'number' ? atr : atr.value;
+    const vwapDistance = Math.abs(entryPrice - m5VWAP);
+    const vwapDistanceATR = vwapDistance / atrValue;
+
+    if (metrics.vwapAlignment) {
+      // Correct side of VWAP
+      if (vwapDistanceATR < 0.15) {
+        // Perfect VWAP kiss (within 0.15 ATR)
+        vwapSetup = 12;
+      } else if (vwapDistanceATR < 0.3) {
+        // Good proximity (within 0.3 ATR)
+        vwapSetup = 10;
+      } else if (vwapDistanceATR < 0.5) {
+        // Acceptable (within 0.5 ATR)
+        vwapSetup = 8;
+      } else {
+        // Too far but correct side
+        vwapSetup = 4;
+      }
+    } else {
+      // Wrong side of VWAP - penalty instead of block
+      vwapSetup = Math.max(0, 4 - Math.floor(vwapDistanceATR * 2));
+    }
+
+    // B. Key Level Confluence (0-10 points)
+    if (input.m15SupportResistance) {
+      const { nearestSupport, nearestResistance } = input.m15SupportResistance;
+
+      // Check proximity to key M15 levels
+      const atSupport = nearestSupport &&
+        Math.abs(calculatePipDistance(input.symbol, entryPrice, nearestSupport)) < 5;
+      const atResistance = nearestResistance &&
+        Math.abs(calculatePipDistance(input.symbol, entryPrice, nearestResistance)) < 5;
+
+      const isAtStructure = (direction === 'BUY' && atSupport) || (direction === 'SELL' && atResistance);
+
+      if (isAtStructure) {
+        keyLevelConfluence = 10; // Perfect structure entry
+      } else if (atSupport || atResistance) {
+        keyLevelConfluence = 6; // Near structure but not ideal direction
+      } else {
+        keyLevelConfluence = 3; // Mid-range entry
+      }
+    } else {
+      keyLevelConfluence = 5; // No structure data, neutral score
+    }
+
+    // C. Liquidity Location (0-8 points)
+    // Placeholder for liquidity bias integration (will be enhanced with Omega-8 data)
+    // For now, use simple logic based on range position
+    if (metrics.rangePosition === 'top' || metrics.rangePosition === 'bottom') {
+      liquidityLocation = 8; // Range extremes (good for entries)
+    } else {
+      liquidityLocation = 3; // Middle of range (choppy zone)
+    }
+
+    const total = vwapSetup + keyLevelConfluence + liquidityLocation;
+
+    return {
+      total,
+      details: {
+        vwapSetup,
+        keyLevelConfluence,
+        liquidityLocation
+      }
+    };
+  }
+
+  /**
+   * 2. CONFIRMATION SCORE (0-30 points)
+   * Why now: Candle acceptance, patterns, momentum
+   */
+  private calculateConfirmationScore(
+    input: EntryQualificationInput,
+    metrics: EntryQualificationResult['metrics'],
+    candleAcceptance: CandleAcceptanceResult,
+    failedMove: FailedMoveResult
+  ): { total: number; details: EQSBreakdown['confirmationDetails'] } {
+    let candleAcceptanceScore = 0;  // 0-15 points
+    let patternConfirmation = 0;    // 0-10 points
+    let momentumAlignment = 0;      // 0-5 points
+
+    // A. Candle Acceptance (0-15 points)
+    if (candleAcceptance.accepted) {
+      candleAcceptanceScore = 15; // Full score for accepted candles
+    } else {
+      // Partial credit based on quality
+      if (candleAcceptance.consecutiveCloses >= 1) {
+        candleAcceptanceScore += 5;
+      }
+      if (candleAcceptance.bodyDominance >= 0.5) {
+        candleAcceptanceScore += 4;
+      }
+      if (candleAcceptance.closeQuality !== 'poor') {
+        candleAcceptanceScore += 3;
+      }
+    }
+
+    // B. Pattern Confirmation (0-10 points)
+    if (failedMove.entryViable) {
+      patternConfirmation = 10; // Strong reversal pattern
+    } else if (failedMove.failedMoveDetected && failedMove.confirmationPresent) {
+      patternConfirmation = 7; // Pattern present, some confirmation
+    } else {
+      patternConfirmation = 3; // No pattern, neutral
+    }
+
+    // C. Momentum Alignment (0-5 points)
+    if (metrics.momentumConfirmation) {
+      momentumAlignment = 5; // Momentum confirms direction
+    } else {
+      momentumAlignment = 0; // Momentum against - penalty instead of block
+    }
+
+    const total = candleAcceptanceScore + patternConfirmation + momentumAlignment;
+
+    return {
+      total,
+      details: {
+        candleAcceptance: candleAcceptanceScore,
+        patternConfirmation,
+        momentumAlignment
+      }
+    };
+  }
+
+  /**
+   * 3. TIMING SCORE (0-25 points)
+   * Entry finesse: Pullback quality, compression/expansion, precision
+   */
+  private calculateTimingScore(
+    input: EntryQualificationInput,
+    pullbackQuality: PullbackQualityResult,
+    compressionExpansion: CompressionExpansionResult
+  ): { total: number; details: EQSBreakdown['timingDetails'] } {
+    let pullbackQualityScore = 0;        // 0-12 points
+    let compressionExpansionScore = 0;   // 0-8 points
+    let entryPrecision = 0;              // 0-5 points
+
+    // A. Pullback Quality (0-12 points)
+    if (pullbackQuality.grade === 'A') {
+      pullbackQualityScore = 12; // Perfect 38-50% pullback
+    } else if (pullbackQuality.grade === 'B') {
+      pullbackQualityScore = 9;  // Good 50-70% pullback
+    } else if (pullbackQuality.grade === 'C') {
+      pullbackQualityScore = 4;  // Deep pullback, caution
+    }
+
+    // B. Compression/Expansion (0-8 points)
+    if (compressionExpansion.compressionDetected && compressionExpansion.expansionFollows) {
+      compressionExpansionScore = 8; // Perfect compression → expansion
+    } else if (compressionExpansion.compressionDetected) {
+      compressionExpansionScore = 5; // Compression detected
+    } else {
+      compressionExpansionScore = 2; // No pattern, neutral
+    }
+
+    // C. Entry Precision (0-5 points)
+    // Check if we're chasing (reduces score)
+    const atrValue = typeof input.atr === 'number' ? input.atr : input.atr.value;
+    const { m5Candles } = input;
+
+    if (m5Candles.length >= 3) {
+      const recent3 = m5Candles.slice(-3);
+      const totalMove = Math.abs(recent3[recent3.length - 1].close - recent3[0].open);
+      const impulseMoveThreshold = atrValue * 0.8;
+
+      if (totalMove < impulseMoveThreshold * 0.3) {
+        entryPrecision = 5; // Perfect timing, no chase
+      } else if (totalMove < impulseMoveThreshold * 0.6) {
+        entryPrecision = 3; // Reasonable timing
+      } else if (totalMove > impulseMoveThreshold) {
+        entryPrecision = 0; // Chasing impulse - penalty instead of block
+      } else {
+        entryPrecision = 2; // Acceptable
+      }
+    } else {
+      entryPrecision = 3; // Neutral if not enough data
+    }
+
+    const total = pullbackQualityScore + compressionExpansionScore + entryPrecision;
+
+    return {
+      total,
+      details: {
+        pullbackQuality: pullbackQualityScore,
+        compressionExpansion: compressionExpansionScore,
+        entryPrecision
+      }
+    };
+  }
+
+  /**
+   * 4. FRICTION PENALTY (0 to -15 points)
+   * Market conditions: Wicks, spread, news spikes
+   */
+  private calculateFrictionPenalty(
+    input: EntryQualificationInput
+  ): { total: number; details: EQSBreakdown['frictionDetails'] } {
+    let wickRisk = 0;         // 0 to -7 points
+    let spreadPenalty = 0;    // 0 to -6 points
+    let newsSpikePenalty = 0; // 0 to -8 points
+
+    const atrValue = typeof input.atr === 'number' ? input.atr : input.atr.value;
+
+    // A. Wick Risk (0 to -7 points)
+    if (input.m5Candles.length > 0) {
+      const lastCandle = input.m5Candles[input.m5Candles.length - 1];
+      const body = Math.abs(lastCandle.close - lastCandle.open);
+      const maxOC = Math.max(lastCandle.open, lastCandle.close);
+      const minOC = Math.min(lastCandle.open, lastCandle.close);
+      const wickHigh = lastCandle.high - maxOC;
+      const wickLow = minOC - lastCandle.low;
+
+      const largeWickThreshold = atrValue * 0.5;
+
+      if (wickHigh > largeWickThreshold || wickLow > largeWickThreshold) {
+        wickRisk = -7; // Large wick rejection
+      } else if (wickHigh > body * 2 || wickLow > body * 2) {
+        wickRisk = -4; // Moderate wick risk
+      }
+    }
+
+    // B. Spread Penalty (0 to -6 points)
+    const spreadRatio = input.currentSpreadPips / input.averageSpreadPips;
+    if (spreadRatio > 2.5) {
+      spreadPenalty = -6; // Extreme spread
+    } else if (spreadRatio > 2.0) {
+      spreadPenalty = -4; // High spread
+    } else if (spreadRatio > 1.5) {
+      spreadPenalty = -2; // Elevated spread
+    }
+
+    // C. News Spike Penalty (0 to -8 points)
+    if (input.m5Candles.length >= 2) {
+      const avgCandleRange = this.calculateAverageCandleRange(input.m5Candles);
+      const lastCandle = input.m5Candles[input.m5Candles.length - 1];
+      const lastRange = lastCandle.high - lastCandle.low;
+
+      if (lastRange > avgCandleRange * 3.5) {
+        newsSpikePenalty = -8; // Extreme spike
+      } else if (lastRange > avgCandleRange * 2.5) {
+        newsSpikePenalty = -5; // News spike
+      }
+    }
+
+    // Cap total friction penalty at -15
+    const total = Math.max(-15, wickRisk + spreadPenalty + newsSpikePenalty);
+
+    return {
+      total,
+      details: {
+        wickRisk,
+        spreadPenalty,
+        newsSpikePenalty
+      }
+    };
+  }
+
+  /**
+   * DEPRECATED: Check VWAP alignment - now integrated into Location Score
+   * Kept for backward compatibility
    */
   private checkVWAPAlignment(
     input: EntryQualificationInput,
     metrics: EntryQualificationResult['metrics'],
     blocks: EntryQualificationBlock[]
   ): void {
-    if (!metrics.vwapAlignment) {
-      blocks.push({
-        code: 'VWAP_FADE',
-        message: `Entry on wrong side of M5 VWAP (${input.direction} but price ${input.entryPrice > input.m5VWAP ? 'above' : 'below'} VWAP ${input.m5VWAP.toFixed(5)})`,
-        severity: 'HARD_BLOCK',
-        suggestion: 'Wait for price to return to correct side of VWAP or cancel trade'
-      });
-    }
+    // No-op: VWAP alignment is now scored in Location Score, not a hard block
   }
 
   /**
@@ -1408,6 +1613,273 @@ class EntryQualificationEngine {
     const lastRange = ranges[ranges.length - 1];
 
     return lastRange > avgRange * 1.3; // 30% larger than average
+  }
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════
+   * GRADE A+ PATTERN DETECTION & EQS DECISION LOGIC
+   * ═══════════════════════════════════════════════════════════════════
+   */
+
+  /**
+   * 5. GRADE A+ PATTERN DETECTION (+10 to +15 bonus)
+   * Exceptional setups that deserve immediate execution
+   */
+  private detectAPlusPatterns(
+    input: EntryQualificationInput,
+    metrics: EntryQualificationResult['metrics'],
+    candleAcceptance: CandleAcceptanceResult,
+    pullbackQuality: PullbackQualityResult
+  ): { bonus: number; type: string } | null {
+    const atrValue = typeof input.atr === 'number' ? input.atr : input.atr.value;
+    const vwapDistance = Math.abs(input.entryPrice - input.m5VWAP);
+    const vwapDistanceATR = vwapDistance / atrValue;
+
+    // Pattern 1: VWAP Kiss + Acceptance Candle (+15)
+    if (vwapDistanceATR < 0.15 && metrics.vwapAlignment && candleAcceptance.accepted) {
+      return { bonus: 15, type: 'VWAP Kiss + Acceptance' };
+    }
+
+    // Pattern 2: Perfect Pullback + Compression → Expansion (+12)
+    if (pullbackQuality.grade === 'A' && candleAcceptance.expansionDetected) {
+      return { bonus: 12, type: 'Perfect Pullback + Expansion' };
+    }
+
+    // Pattern 3: Structure Level + Acceptance + VWAP (+13)
+    if (input.m15SupportResistance) {
+      const { nearestSupport, nearestResistance } = input.m15SupportResistance;
+      const atStructure =
+        (input.direction === 'BUY' && nearestSupport &&
+          Math.abs(calculatePipDistance(input.symbol, input.entryPrice, nearestSupport)) < 3) ||
+        (input.direction === 'SELL' && nearestResistance &&
+          Math.abs(calculatePipDistance(input.symbol, input.entryPrice, nearestResistance)) < 3);
+
+      if (atStructure && candleAcceptance.accepted && metrics.vwapAlignment) {
+        return { bonus: 13, type: 'Structure + Acceptance + VWAP' };
+      }
+    }
+
+    // Pattern 4: Tight Compression → Strong Breakout (+10)
+    if (input.m5Candles.length >= 5) {
+      const recent5 = input.m5Candles.slice(-5);
+      const ranges = recent5.map(c => c.high - c.low);
+      const avgRange = ranges.slice(0, -1).reduce((sum, r) => sum + r, 0) / (ranges.length - 1);
+      const lastRange = ranges[ranges.length - 1];
+
+      if (avgRange < atrValue * 0.5 && lastRange > avgRange * 2.0 && candleAcceptance.accepted) {
+        return { bonus: 10, type: 'Compression Breakout' };
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Calculate EQS letter grade
+   */
+  private calculateEQSGrade(eqs: number): 'A+' | 'A' | 'B' | 'C' | 'D' | 'F' {
+    if (eqs >= 80) return 'A+';
+    if (eqs >= 72) return 'A';
+    if (eqs >= 65) return 'B';
+    if (eqs >= 50) return 'C';
+    if (eqs >= 30) return 'D';
+    return 'F';
+  }
+
+  /**
+   * Determine action tier based on EQS and component breakdown
+   */
+  private determineActionTier(eqs: number, breakdown: EQSBreakdown): EntryActionTier {
+    // Grade A+ (80+): Execute immediately
+    if (eqs >= 80) {
+      return 'EXECUTE_NOW';
+    }
+
+    // Grade A (72-79): Execute if strong acceptance + VWAP
+    if (eqs >= 72) {
+      const hasStrongAcceptance = breakdown.confirmationDetails.candleAcceptance >= 12;
+      const hasGoodVWAP = breakdown.locationDetails.vwapSetup >= 8;
+
+      if (hasStrongAcceptance && hasGoodVWAP) {
+        return 'EXECUTE_NOW';
+      }
+    }
+
+    // Grade B (65-71): Wait for better entry with structured triggers
+    if (eqs >= 65) {
+      return 'WAIT_FOR_BETTER_ENTRY';
+    }
+
+    // Grade C (50-64): Wait tight, require confirmation
+    if (eqs >= 50) {
+      return 'WAIT_TIGHT';
+    }
+
+    // Grade D (<50): Wait passive, monitor for improvement
+    return 'WAIT_PASSIVE';
+  }
+
+  /**
+   * Generate entry triggers for wait scenarios
+   * Returns specific conditions to monitor for entry execution
+   */
+  private generateEntryTriggers(
+    input: EntryQualificationInput,
+    breakdown: EQSBreakdown,
+    currentEQS: number
+  ): EntryTrigger[] {
+    const triggers: EntryTrigger[] = [];
+    const atrValue = typeof input.atr === 'number' ? input.atr : input.atr.value;
+
+    // Determine what's missing based on component scores
+    const vwapSetupWeak = breakdown.locationDetails.vwapSetup < 8;
+    const acceptanceWeak = breakdown.confirmationDetails.candleAcceptance < 12;
+    const pullbackWeak = breakdown.timingDetails.pullbackQuality < 9;
+
+    // Trigger 1: VWAP Kiss (if VWAP setup is weak)
+    if (vwapSetupWeak) {
+      triggers.push({
+        type: 'vwap_kiss',
+        description: 'Wait for price to return closer to VWAP',
+        targetConditions: {
+          priceLevel: input.m5VWAP,
+          vwapDistance: 0.2, // Within 0.2 ATR of VWAP
+          candleRequirement: 'Body dominance 60%+',
+          volumeRequirement: 'Above 40% of 20-period average'
+        },
+        monitoringParams: {
+          maxWaitMinutes: 30,
+          recheckInterval: 60, // Check every 60 seconds
+          invalidationPrice: input.direction === 'BUY'
+            ? input.m5VWAP - (atrValue * 1.5)
+            : input.m5VWAP + (atrValue * 1.5)
+        }
+      });
+    }
+
+    // Trigger 2: Acceptance Candle (if candle acceptance is weak)
+    if (acceptanceWeak) {
+      triggers.push({
+        type: 'acceptance_candle',
+        description: 'Wait for strong acceptance candle in trade direction',
+        targetConditions: {
+          candleRequirement: `2+ consecutive ${input.direction === 'BUY' ? 'bullish' : 'bearish'} closes`,
+          volumeRequirement: 'Above average',
+          patternType: 'engulfing or strong body candle'
+        },
+        monitoringParams: {
+          maxWaitMinutes: 20,
+          recheckInterval: 300, // Check every M5 candle close
+          invalidationPrice: input.direction === 'BUY'
+            ? input.entryPrice - (atrValue * 2.0)
+            : input.entryPrice + (atrValue * 2.0)
+        }
+      });
+    }
+
+    // Trigger 3: Pullback Complete (if pullback quality is weak)
+    if (pullbackWeak && breakdown.timingDetails.entryPrecision === 0) {
+      triggers.push({
+        type: 'pullback_complete',
+        description: 'Wait for 38-50% pullback to complete',
+        targetConditions: {
+          priceLevel: input.entryPrice - (input.direction === 'BUY' ? atrValue * 0.5 : -atrValue * 0.5),
+          candleRequirement: 'Pullback candles with small bodies',
+          patternType: '38-50% retracement'
+        },
+        monitoringParams: {
+          maxWaitMinutes: 45,
+          recheckInterval: 300,
+          invalidationPrice: input.direction === 'BUY'
+            ? input.stopLoss - (atrValue * 0.3)
+            : input.stopLoss + (atrValue * 0.3)
+        }
+      });
+    }
+
+    return triggers;
+  }
+
+  /**
+   * Generate wait recommendation with actionable guidance
+   */
+  private generateWaitRecommendationNew(
+    input: EntryQualificationInput,
+    breakdown: EQSBreakdown,
+    actionTier: EntryActionTier
+  ): EntryQualificationResult['waitRecommendation'] {
+    const whatsMissing: string[] = [];
+    let estimatedMinutes = 15;
+    let expectedImprovement = 0;
+
+    // Analyze what's missing
+    if (breakdown.locationDetails.vwapSetup < 8) {
+      whatsMissing.push(`Better VWAP setup (need ${12 - breakdown.locationDetails.vwapSetup} more points)`);
+      estimatedMinutes = Math.max(estimatedMinutes, 25);
+      expectedImprovement += 12 - breakdown.locationDetails.vwapSetup;
+    }
+
+    if (breakdown.confirmationDetails.candleAcceptance < 12) {
+      whatsMissing.push(`Stronger acceptance (need ${15 - breakdown.confirmationDetails.candleAcceptance} more points)`);
+      estimatedMinutes = Math.max(estimatedMinutes, 15);
+      expectedImprovement += 15 - breakdown.confirmationDetails.candleAcceptance;
+    }
+
+    if (breakdown.timingDetails.pullbackQuality < 9) {
+      whatsMissing.push(`Better pullback quality (need ${12 - breakdown.timingDetails.pullbackQuality} more points)`);
+      estimatedMinutes = Math.max(estimatedMinutes, 30);
+      expectedImprovement += 12 - breakdown.timingDetails.pullbackQuality;
+    }
+
+    if (breakdown.frictionPenalty < -5) {
+      whatsMissing.push(`Market conditions to improve (${Math.abs(breakdown.frictionPenalty)} friction penalty)`);
+      estimatedMinutes = Math.max(estimatedMinutes, 10);
+      expectedImprovement += Math.abs(breakdown.frictionPenalty);
+    }
+
+    // Generate reason based on action tier
+    let reason = '';
+    if (actionTier === 'WAIT_FOR_BETTER_ENTRY') {
+      reason = `Entry quality: ${breakdown.totalScore}/100 (Grade B) - waiting for better setup`;
+    } else if (actionTier === 'WAIT_TIGHT') {
+      reason = `Entry quality: ${breakdown.totalScore}/100 (Grade C) - requires confirmation candle`;
+    } else {
+      reason = `Entry quality: ${breakdown.totalScore}/100 (Grade D) - significant improvement needed`;
+    }
+
+    return {
+      reason,
+      estimatedImprovementMinutes: estimatedMinutes,
+      expectedQualityImprovement: expectedImprovement,
+      whatsMissing
+    };
+  }
+
+  /**
+   * Log EQS breakdown for observability
+   */
+  private logEQSBreakdown(
+    eqs: number,
+    grade: 'A+' | 'A' | 'B' | 'C' | 'D' | 'F',
+    actionTier: EntryActionTier,
+    breakdown: EQSBreakdown
+  ): void {
+    console.log('%c[EQS] ENTRY QUALITY SCORE', 'color: #2196f3; font-weight: bold; font-size: 14px');
+    console.log(`  Total: ${eqs}/100 | Grade: ${grade} | Action: ${actionTier}`);
+    console.log(`  📍 Location: ${breakdown.locationScore}/30 (VWAP: ${breakdown.locationDetails.vwapSetup}, Levels: ${breakdown.locationDetails.keyLevelConfluence}, Liquidity: ${breakdown.locationDetails.liquidityLocation})`);
+    console.log(`  ✓ Confirmation: ${breakdown.confirmationScore}/30 (Acceptance: ${breakdown.confirmationDetails.candleAcceptance}, Pattern: ${breakdown.confirmationDetails.patternConfirmation}, Momentum: ${breakdown.confirmationDetails.momentumAlignment})`);
+    console.log(`  ⏱ Timing: ${breakdown.timingScore}/25 (Pullback: ${breakdown.timingDetails.pullbackQuality}, Compression: ${breakdown.timingDetails.compressionExpansion}, Precision: ${breakdown.timingDetails.entryPrecision})`);
+    console.log(`  ⚠️  Friction: ${breakdown.frictionPenalty}/0 (Wicks: ${breakdown.frictionDetails.wickRisk}, Spread: ${breakdown.frictionDetails.spreadPenalty}, Spikes: ${breakdown.frictionDetails.newsSpikePenalty})`);
+
+    if (breakdown.aplusPatternBonus) {
+      console.log(`  🌟 A+ Bonus: +${breakdown.aplusPatternBonus} (${breakdown.aplusPatternType})`);
+    }
+
+    if (actionTier === 'EXECUTE_NOW') {
+      console.log('%c  ► EXECUTE NOW', 'color: #4caf50; font-weight: bold');
+    } else {
+      console.log('%c  ► WAIT FOR BETTER ENTRY', 'color: #ff9800; font-weight: bold');
+    }
   }
 }
 

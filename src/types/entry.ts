@@ -185,3 +185,133 @@ export interface VolatilityWaitIntent {
   created_at: string;
   resolved_at?: string;
 }
+
+/**
+ * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ * ENTRY QUALITY SCORE (EQS) SYSTEM
+ * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ *
+ * Professional-grade entry evaluation based on technical quality,
+ * not confidence thresholds. Entries are scored on four factors:
+ *
+ * 1. Location Score (0-30): Where you enter (VWAP, levels, liquidity)
+ * 2. Confirmation Score (0-30): Why now (candles, patterns, momentum)
+ * 3. Timing Score (0-25): Entry finesse (pullback, compression, precision)
+ * 4. Friction Penalty (0 to -15): Market conditions (wicks, spread, spikes)
+ *
+ * Total EQS: 0-100 points (can be negative with high friction)
+ *
+ * Grade A+ Entry (80+): Execute immediately at optimal microstructure
+ * Grade A Entry (72-79): Execute with strong acceptance + VWAP
+ * Grade B Entry (65-71): Wait for better entry with structured triggers
+ * Grade C Entry (50-64): Wait tight, require confirmation candle
+ * Grade D Entry (<50): Wait passive, monitor for improvement
+ *
+ * NO REJECTIONS - only execute-now or wait-for-better-entry decisions.
+ * Alpha's directional signal is trusted; EQE optimizes entry timing only.
+ * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ */
+
+/**
+ * Entry Quality Score breakdown
+ * Shows how the 0-100 EQS is calculated across four dimensions
+ */
+export interface EQSBreakdown {
+  locationScore: number;        // 0-30: VWAP setup + key levels + liquidity location
+  confirmationScore: number;    // 0-30: Candle acceptance + patterns + momentum
+  timingScore: number;          // 0-25: Pullback quality + compression/expansion + precision
+  frictionPenalty: number;      // 0 to -15: Wicks + spread + news spikes
+  totalScore: number;           // Sum of all components (can be negative)
+
+  // Detailed component breakdowns
+  locationDetails: {
+    vwapSetup: number;          // 0-12: VWAP kiss/reclaim quality
+    keyLevelConfluence: number; // 0-10: Session high/low, support/resistance
+    liquidityLocation: number;  // 0-8: Sweep-reclaim vs liquidity grab
+  };
+
+  confirmationDetails: {
+    candleAcceptance: number;   // 0-15: Body dominance, close quality, consecutive closes
+    patternConfirmation: number; // 0-10: Breakout-retest, sweep-reclaim, engulfing
+    momentumAlignment: number;  // 0-5: Momentum direction + exhaustion check
+  };
+
+  timingDetails: {
+    pullbackQuality: number;    // 0-12: 38-50% retracement quality
+    compressionExpansion: number; // 0-8: Tight range → breakout
+    entryPrecision: number;     // 0-5: Distance from ideal entry
+  };
+
+  frictionDetails: {
+    wickRisk: number;           // 0 to -7: Large wicks indicating rejection
+    spreadPenalty: number;      // 0 to -6: Elevated spread
+    newsSpikePenalty: number;   // 0 to -8: News/volatility spike
+  };
+
+  // Grade A+ pattern bonuses
+  aplusPatternBonus?: number;   // +10 to +15 for exceptional setups
+  aplusPatternType?: string;    // Type of A+ pattern detected
+}
+
+/**
+ * Entry qualification status - removed REJECT_ENTRY per architectural mandate
+ * Entry Qualification Engine decides WHEN to enter, not IF
+ */
+export type EntryQualificationStatus =
+  | 'EXECUTE_NOW'              // Grade A+ or A entry: Execute immediately
+  | 'WAIT_FOR_BETTER_ENTRY';   // Grade B/C/D: Wait for improvement
+
+/**
+ * Entry action tier - granular execution decisions based on EQS
+ */
+export type EntryActionTier =
+  | 'EXECUTE_NOW'              // EQS 80+ or 72+ with strong setup
+  | 'WAIT_FOR_BETTER_ENTRY'    // EQS 65-79: structured triggers
+  | 'WAIT_TIGHT'               // EQS 50-64: require confirmation
+  | 'WAIT_PASSIVE';            // EQS <50: monitor for improvement
+
+/**
+ * Entry mode - how Alpha wants to enter based on confidence and setup
+ */
+export type EntryMode =
+  | 'immediate'                // High confidence: enter at first signal (min EQS 70)
+  | 'wait_pullback'            // Medium confidence: wait for pullback (min EQS 75)
+  | 'wait_confirmation';       // Lower confidence: need full confirmation (min EQS 80)
+
+/**
+ * Entry trigger - specific condition to monitor for entry execution
+ * Generated when WAIT_FOR_BETTER_ENTRY is chosen
+ */
+export interface EntryTrigger {
+  type: 'vwap_kiss' | 'acceptance_candle' | 'pullback_complete' | 'pattern_confirmation' | 'level_retest';
+  description: string;
+  targetConditions: {
+    priceLevel?: number;         // Target price level
+    vwapDistance?: number;       // Distance from VWAP (in ATR)
+    candleRequirement?: string;  // Required candle pattern/behavior
+    volumeRequirement?: string;  // Required volume confirmation
+    patternType?: string;        // Required pattern (e.g., "engulfing", "sweep_reclaim")
+  };
+  monitoringParams: {
+    maxWaitMinutes: number;      // How long to monitor for this trigger
+    recheckInterval: number;     // How often to evaluate (in seconds)
+    invalidationPrice?: number;  // Price that invalidates this trigger
+  };
+}
+
+/**
+ * Entry specification - Alpha's explicit instructions for entry execution
+ * Replaces implicit inference from confidence levels
+ */
+export interface EntrySpec {
+  entry_mode: EntryMode;
+  entry_zone: {
+    min: number;                 // Minimum acceptable entry price
+    max: number;                 // Maximum acceptable entry price
+    ideal: number;               // Ideal entry price (center of zone)
+  };
+  entry_triggers?: EntryTrigger[]; // Specific conditions to wait for (if not immediate)
+  min_entry_quality_score: number; // Minimum EQS required to execute (70-80)
+  max_wait_minutes: number;        // Maximum time to wait for better entry
+  alpha_reasoning: string;         // Why this entry spec was chosen
+}

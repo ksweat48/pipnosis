@@ -136,6 +136,10 @@ export class EntryExecutionCoordinator {
       const tp2Price = marketContext?.tp2Price || adjustedTakeProfit;
       const tp2Reasoning = marketContext?.tp2Reasoning || null;
 
+      // Get EQS data from intent (calculated by active-entry-monitor)
+      const eqsScore = (intent as any).eqs_score || null;
+      const eqsGrade = eqsScore ? this.calculateEQSGrade(eqsScore) : null;
+
       const tradeData = {
         user_id: intent.user_id,
         session_id: intent.session_id,
@@ -155,7 +159,9 @@ export class EntryExecutionCoordinator {
         entry_intent_type: intent.intent_type,
         entry_urgency: intent.urgency,
         ideal_entry_price: idealEntryPrice,
-        time_to_entry_seconds: Math.floor((new Date().getTime() - new Date(intent.created_at).getTime()) / 1000)
+        time_to_entry_seconds: Math.floor((new Date().getTime() - new Date(intent.created_at).getTime()) / 1000),
+        eqs_score: eqsScore,
+        eqs_grade: eqsGrade
       };
 
       const { data: trade, error: tradeError } = await supabase
@@ -309,5 +315,16 @@ export class EntryExecutionCoordinator {
       logger.error('Error creating wait condition:', error);
       return null;
     }
+  }
+
+  /**
+   * Convert EQS score to letter grade
+   */
+  private static calculateEQSGrade(score: number): string {
+    if (score >= 80) return 'A+';
+    if (score >= 72) return 'A';
+    if (score >= 65) return 'B';
+    if (score >= 50) return 'C';
+    return 'D';
   }
 }

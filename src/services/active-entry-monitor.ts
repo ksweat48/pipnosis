@@ -134,12 +134,13 @@ export class ActiveEntryMonitor {
       logger.debug(`Intent ${intentId} check: ${monitoringSeconds}s elapsed, should_execute=${validation.should_execute}, should_wait=${validation.should_wait}, should_cancel=${validation.should_cancel}`);
 
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      // ENHANCED ENTRY ACCEPTANCE VALIDATION (BOLT IMPLEMENTATION)
+      // ENTRY QUALITY SCORE (EQS) SYSTEM
+      // No rejections - only EXECUTE_NOW or WAIT_FOR_BETTER_ENTRY decisions
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-      // Run enhanced entry qualification if we're considering execution
-      let enhancedQualification: any = null;
-      if (validation.should_execute && candleData.candles && candleData.candles.length >= 5) {
+      // Run Entry Quality Score evaluation on every check
+      let eqsResult: any = null;
+      if (candleData.candles && candleData.candles.length >= 5) {
         try {
           const marketContext = intent.market_context as any;
           const confidence = marketContext?.confidence || 60;
@@ -163,8 +164,8 @@ export class ActiveEntryMonitor {
               volume: c.volume
             })),
             m5VWAP: marketConditions.vwap || currentPrice,
-            m5EMA20: currentPrice, // Simplified for now
-            m5RSI: 50, // Neutral default
+            m5EMA20: currentPrice,
+            m5RSI: 50,
             m5VolumeAvg20: marketConditions.avgVolume || 0,
             m15Trend: 'sideways',
             m15SupportResistance: {},
@@ -173,53 +174,59 @@ export class ActiveEntryMonitor {
             atr: marketConditions.atr || 0.001
           };
 
-          enhancedQualification = entryQualificationEngine.evaluate(qualificationInput);
+          eqsResult = entryQualificationEngine.evaluate(qualificationInput);
+
+          // Get entry mode from intent or fallback based on confidence
+          const entryMode = (intent as any).entry_mode ||
+            (confidence >= 75 ? 'immediate' : confidence >= 65 ? 'wait_pullback' : 'wait_confirmation');
+
+          // Get minimum EQS threshold from entry_spec or use mode-based defaults
+          const minEQS = entryMode === 'immediate' ? 70 :
+                        entryMode === 'wait_pullback' ? 75 : 80;
 
           logger.info(
-            `[Active Entry Monitor] Enhanced qualification for ${intent.symbol}:\n` +
-            `  Status: ${enhancedQualification.status}\n` +
-            `  Quality Score: ${enhancedQualification.qualityScore}/100\n` +
-            `  Grade: ${enhancedQualification.metrics.microstructureGrade}\n` +
-            `  Candle Acceptance: ${enhancedQualification.candleAcceptance?.accepted ? '✓' : '✗'} (${enhancedQualification.candleAcceptance?.details})\n` +
-            `  Pullback Quality: Grade ${enhancedQualification.pullbackQuality?.grade}\n` +
-            `  Compression/Expansion: ${enhancedQualification.compressionExpansion?.pattern}`
+            `[EQS] ${intent.symbol} Evaluation:\n` +
+            `  EQS Score: ${eqsResult.eqsBreakdown.totalScore}/100 (Grade: ${this.getEQSGrade(eqsResult.eqsBreakdown.totalScore)})\n` +
+            `  Status: ${eqsResult.status} | Action Tier: ${eqsResult.actionTier}\n` +
+            `  Entry Mode: ${entryMode} (requires EQS ${minEQS}+)\n` +
+            `  Location: ${eqsResult.eqsBreakdown.locationScore}/30 | Confirmation: ${eqsResult.eqsBreakdown.confirmationScore}/30\n` +
+            `  Timing: ${eqsResult.eqsBreakdown.timingScore}/25 | Friction: ${eqsResult.eqsBreakdown.frictionPenalty}\n` +
+            `  ${eqsResult.eqsBreakdown.aplusPatternBonus ? `A+ Bonus: +${eqsResult.eqsBreakdown.aplusPatternBonus} (${eqsResult.eqsBreakdown.aplusPatternType})` : ''}`
           );
 
-          // Override execution decision based on enhanced qualification
-          if (enhancedQualification.status === 'REJECT_ENTRY') {
-            logger.warn(
-              `Enhanced qualification REJECTED entry despite basic validation passing.\n` +
-              `Reason: Quality score ${enhancedQualification.qualityScore}/100 below threshold.\n` +
-              `Blocks: ${enhancedQualification.blocks.map((b: any) => b.message).join(', ')}`
-            );
+          // Update entry intent with EQS data
+          await supabase
+            .from('entry_intents')
+            .update({
+              eqs_score: Math.round(eqsResult.eqsBreakdown.totalScore),
+              eqs_breakdown: eqsResult.eqsBreakdown,
+              entry_mode: entryMode
+            })
+            .eq('id', intentId);
 
-            validation.should_execute = false;
-            validation.should_cancel = true;
-            validation.cancel_reason = `Entry quality too low (${enhancedQualification.qualityScore}/100) - ${enhancedQualification.blocks[0]?.message || 'failed enhanced checks'}`;
-          } else if (enhancedQualification.status === 'WAIT_FOR_BETTER') {
+          // Apply EQS-based decision logic
+          if (eqsResult.status === 'EXECUTE_NOW' && eqsResult.eqsBreakdown.totalScore >= minEQS) {
             logger.info(
-              `Enhanced qualification recommends WAIT:\n` +
-              `Quality: ${enhancedQualification.qualityScore}/100\n` +
-              `Recommendation: ${enhancedQualification.waitRecommendation?.reason}`
+              `[EQS] EXECUTE_NOW: Entry quality meets threshold (${eqsResult.eqsBreakdown.totalScore} >= ${minEQS})`
             );
-
+            validation.should_execute = true;
+            validation.should_wait = false;
+            validation.message = `High quality entry (EQS ${Math.round(eqsResult.eqsBreakdown.totalScore)}/100, Grade ${this.getEQSGrade(eqsResult.eqsBreakdown.totalScore)})`;
+          } else {
+            // WAIT_FOR_BETTER_ENTRY
+            logger.info(
+              `[EQS] WAIT: Entry quality below threshold or needs improvement\n` +
+              `  Current EQS: ${eqsResult.eqsBreakdown.totalScore} | Required: ${minEQS}\n` +
+              `  Recommendation: ${eqsResult.waitRecommendation?.userMessage || 'Monitor for better entry'}`
+            );
             validation.should_execute = false;
             validation.should_wait = true;
-            validation.message = `Waiting for better entry quality (current: ${enhancedQualification.qualityScore}/100) - ${enhancedQualification.waitRecommendation?.reason || 'timing suboptimal'}`;
-          } else if (enhancedQualification.status === 'ACCEPT_ENTRY') {
-            logger.info(
-              `Enhanced qualification CONFIRMS execution:\n` +
-              `Quality: ${enhancedQualification.qualityScore}/100 | Grade: ${enhancedQualification.metrics.microstructureGrade}\n` +
-              `Candle Acceptance: ${enhancedQualification.candleAcceptance?.accepted ? 'Yes' : 'No'}\n` +
-              `Entry is HIGH QUALITY - proceeding with confidence`
-            );
-
-            // Enhance validation message with quality details
-            validation.message = `High quality entry (${enhancedQualification.qualityScore}/100, Grade ${enhancedQualification.metrics.microstructureGrade}) - ${enhancedQualification.candleAcceptance?.details}`;
+            validation.message = eqsResult.waitRecommendation?.userMessage ||
+              `Waiting for better entry quality (current EQS: ${Math.round(eqsResult.eqsBreakdown.totalScore)}/100)`;
           }
         } catch (error) {
-          logger.error('Error running enhanced entry qualification:', error);
-          // Don't block execution if enhancement fails - fall back to basic validation
+          logger.error('Error running EQS evaluation:', error);
+          // Don't block execution if EQS fails - fall back to basic validation
         }
       }
 
@@ -229,11 +236,15 @@ export class ActiveEntryMonitor {
         distanceToPips,
         {
           ...validation.conditions_met,
-          enhanced_qualification: enhancedQualification ? {
-            status: enhancedQualification.status,
-            quality_score: enhancedQualification.qualityScore,
-            candle_accepted: enhancedQualification.candleAcceptance?.accepted,
-            pullback_grade: enhancedQualification.pullbackQuality?.grade
+          eqs_evaluation: eqsResult ? {
+            eqs_score: Math.round(eqsResult.eqsBreakdown.totalScore),
+            eqs_grade: this.getEQSGrade(eqsResult.eqsBreakdown.totalScore),
+            action_tier: eqsResult.actionTier,
+            location_score: eqsResult.eqsBreakdown.locationScore,
+            confirmation_score: eqsResult.eqsBreakdown.confirmationScore,
+            timing_score: eqsResult.eqsBreakdown.timingScore,
+            friction_penalty: eqsResult.eqsBreakdown.frictionPenalty,
+            aplus_bonus: eqsResult.eqsBreakdown.aplusPatternBonus || 0
           } : null
         },
         validation.message
@@ -635,6 +646,17 @@ export class ActiveEntryMonitor {
     } finally {
       this.resumeInProgress = false;
     }
+  }
+
+  /**
+   * Convert EQS score to letter grade
+   */
+  private getEQSGrade(score: number): string {
+    if (score >= 80) return 'A+';
+    if (score >= 72) return 'A';
+    if (score >= 65) return 'B';
+    if (score >= 50) return 'C';
+    return 'D';
   }
 }
 

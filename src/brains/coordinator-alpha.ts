@@ -93,6 +93,7 @@ import { tradeFeasibilityResolver } from '../services/trade-feasibility-resolver
 import type { AssetClass, TradeStyle as FeasibilityTradeStyle } from '../types/trade-feasibility-resolver.types';
 import { isCrypto, isIndex, isXAUUSD } from '../utils/currencyHelpers';
 import { calculateSessionContext } from '../utils/marketHours';
+import type { EntrySpec } from '../types/entry';
 
 /**
  * Helper: Determine asset class from symbol
@@ -241,6 +242,7 @@ export interface AlphaDecision {
   intelligence_snapshot?: Partial<AlphaIntelligenceSnapshot>;
   adversarial_advisory?: AdversarialSignal;
   regime_advisory?: RegimeSnapshot;
+  entry_spec?: EntrySpec; // NEW: Alpha's explicit entry specification
   entry_intent?: {
     intent_type: 'immediate_momentum' | 'pullback_to_vwap' | 'pullback_to_support' | 'break_and_retest' | 'range_extreme' | 'retest_structure';
     urgency: 'HIGH' | 'MEDIUM' | 'LOW';
