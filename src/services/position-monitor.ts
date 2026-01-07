@@ -567,19 +567,46 @@ class PositionMonitorService {
       ? actualCurrentPrice <= position.stop_loss
       : actualCurrentPrice >= position.stop_loss;
 
-    const shouldCloseAtTakeProfit = position.direction === 'buy'
-      ? actualCurrentPrice >= position.take_profit
-      : actualCurrentPrice <= position.take_profit;
+    const hasDualTP = (position as any).take_profit_1 && (position as any).take_profit_2;
+    const tp1 = (position as any).take_profit_1;
+    const tp2 = (position as any).take_profit_2;
+    const tp1HitAt = (position as any).tp1_hit_at;
+
+    let shouldCheckTP1 = false;
+    let shouldCheckTP2 = false;
+    let legacyTPCheck = false;
+
+    if (hasDualTP) {
+      shouldCheckTP1 = !tp1HitAt && (position.direction === 'buy'
+        ? actualCurrentPrice >= tp1
+        : actualCurrentPrice <= tp1);
+
+      shouldCheckTP2 = tp1HitAt && (position.direction === 'buy'
+        ? actualCurrentPrice >= tp2
+        : actualCurrentPrice <= tp2);
+    } else {
+      legacyTPCheck = position.direction === 'buy'
+        ? actualCurrentPrice >= position.take_profit
+        : actualCurrentPrice <= position.take_profit;
+    }
+
+    const shouldCloseAtTakeProfit = legacyTPCheck || shouldCheckTP2;
 
     // CRITICAL: Log SL/TP checks for debugging and transparency
-    if (this.criticalSymbols.has(position.symbol) || shouldCloseAtStopLoss || shouldCloseAtTakeProfit) {
+    if (this.criticalSymbols.has(position.symbol) || shouldCloseAtStopLoss || shouldCloseAtTakeProfit || shouldCheckTP1) {
       console.log(`[PositionMonitor] SL/TP Check for ${position.symbol}:`, {
         direction: position.direction,
         currentPrice: actualCurrentPrice.toFixed(5),
         stopLoss: position.stop_loss.toFixed(5),
         takeProfit: position.take_profit.toFixed(5),
+        hasDualTP,
+        tp1: tp1?.toFixed(5),
+        tp2: tp2?.toFixed(5),
+        tp1Hit: !!tp1HitAt,
         shouldCloseAtSL: shouldCloseAtStopLoss,
         shouldCloseAtTP: shouldCloseAtTakeProfit,
+        shouldCheckTP1,
+        shouldCheckTP2,
         priceSource,
         critical: this.criticalSymbols.has(position.symbol)
       });
@@ -588,6 +615,9 @@ class PositionMonitorService {
     if (shouldCloseAtStopLoss) {
       console.log(`[PositionMonitor] 🛑 STOP LOSS TRIGGERED for ${position.symbol} at ${actualCurrentPrice.toFixed(5)}`);
       await this.autoClosePosition(position, actualCurrentPrice, 'stop_loss');
+    } else if (shouldCheckTP1) {
+      console.log(`[PositionMonitor] 🎯 TP1 TRIGGERED for ${position.symbol} at ${actualCurrentPrice.toFixed(5)}`);
+      await this.handleTP1Hit(position, actualCurrentPrice);
     } else if (shouldCloseAtTakeProfit) {
       console.log(`[PositionMonitor] 🎯 TAKE PROFIT TRIGGERED for ${position.symbol} at ${actualCurrentPrice.toFixed(5)}`);
       await this.autoClosePosition(position, actualCurrentPrice, 'take_profit');
@@ -868,6 +898,61 @@ class PositionMonitorService {
       }
     } catch (error) {
       console.error('[PositionMonitor] Error checking mid-trade triggers:', error);
+    }
+  }
+
+  private async handleTP1Hit(
+    position: MonitoredPosition,
+    tp1Price: number
+  ): Promise<void> {
+    try {
+      console.log(`[PositionMonitor] 🎯 TP1 Hit for ${position.symbol} at ${tp1Price.toFixed(5)}`);
+
+      const { error: updateError } = await supabase
+        .from('goal_session_trades')
+        .update({
+          tp1_hit_at: new Date().toISOString(),
+          tp1_price: tp1Price,
+        })
+        .eq('id', position.id)
+        .eq('user_id', position.user_id);
+
+      if (updateError) {
+        console.error('[PositionMonitor] Failed to mark TP1 hit:', updateError);
+        return;
+      }
+
+      await notificationCoordinator.send({
+        userId: position.user_id,
+        type: 'take_profit_hit',
+        title: `TP1 Hit: ${position.symbol}`,
+        message: `First take profit level reached at ${tp1Price.toFixed(5)}. Trade is now risk-free and running for TP2.`,
+        tradeId: position.id,
+        sessionId: position.goal_session_id,
+        priority: 'medium',
+        metadata: {
+          symbol: position.symbol,
+          tp1_price: tp1Price,
+          tp_level: 'tp1',
+        },
+      });
+
+      await supabase.from('goal_ai_conversations').insert({
+        goal_session_id: position.goal_session_id,
+        user_id: position.user_id,
+        role: 'ai',
+        content: `Excellent progress! ${position.symbol} reached TP1 at ${tp1Price.toFixed(5)}. The trade is now protected and running towards TP2 for maximum profit.`,
+        conversation_type: 'trade_milestone',
+        trade_id: position.id,
+        metadata: {
+          milestone_type: 'tp1_hit',
+          tp1_price: tp1Price,
+        }
+      });
+
+      console.log(`[PositionMonitor] TP1 hit processed successfully for ${position.symbol}`);
+    } catch (error) {
+      console.error('[PositionMonitor] Error handling TP1 hit:', error);
     }
   }
 
