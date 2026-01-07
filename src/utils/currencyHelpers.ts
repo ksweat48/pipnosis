@@ -73,6 +73,19 @@ export function isCrypto(symbol: string): boolean {
 
 /**
  * Get pip information for a currency pair, metal, index, or crypto
+ *
+ * CRITICAL - Position Sizing SSOT:
+ *
+ * This function is the SINGLE SOURCE OF TRUTH for position sizing calculations.
+ * It uses "reasoning pips" that allow the LLM to think naturally about distances.
+ *
+ * For market data tick sizes, see symbol-registry.ts (different pip values).
+ *
+ * Example - XAUUSD:
+ * - symbol-registry.ts: pipValue = 0.01 (tick size for prices)
+ * - currencyHelpers.ts: pipValue = 1.0 (reasoning pip for position sizing)
+ *
+ * This maintains correct dollar-per-pip values while simplifying LLM reasoning.
  */
 export function getCurrencyPipInfo(symbol: string): CurrencyPipInfo {
   const normalized = safeNormalizeSymbol(symbol);

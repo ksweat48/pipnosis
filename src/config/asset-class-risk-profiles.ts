@@ -86,9 +86,9 @@ const METALS_PROFILE: AssetClassRiskProfile = {
   },
 
   commonMove: {
-    min: 0.5,
-    max: 1.5,
-    unit: 'atr'
+    min: 50,      // FIXED: Use absolute points, not ATR multipliers
+    max: 150,     // XAUUSD: ~50-150 points typical 4-hour move
+    unit: 'points'
   },
 
   sessionMoveBudget: {
@@ -185,9 +185,9 @@ const ENERGY_PROFILE: AssetClassRiskProfile = {
   },
 
   commonMove: {
-    min: 0.5,
-    max: 1.2,
-    unit: 'atr'
+    min: 30,      // FIXED: Use absolute points, not ATR multipliers
+    max: 100,     // Oil: ~30-100 points (30 cents to $1) typical 4-hour move
+    unit: 'points'
   },
 
   sessionMoveBudget: {

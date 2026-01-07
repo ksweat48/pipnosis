@@ -6,6 +6,18 @@
  * - Market hours (24/7 for crypto, forex hours for others)
  * - Data providers (MetaAPI for forex, Kraken for crypto)
  * - Pip values and lot sizes
+ *
+ * IMPORTANT - Dual PipValue System:
+ *
+ * This registry defines pipValue as MINIMUM TICK SIZE for market data:
+ * - XAUUSD: 0.01 (smallest price increment)
+ * - EURUSD: 0.0001 (smallest price increment)
+ *
+ * For POSITION SIZING, see currencyHelpers.ts which uses REASONING PIP:
+ * - XAUUSD: 1.0 (allows natural reasoning: "20 pip stop" = 20 points)
+ * - This maintains correct dollar values while simplifying LLM logic
+ *
+ * Both systems are mathematically correct for their purposes.
  */
 
 export type SymbolCategory = 'forex' | 'crypto' | 'index' | 'metal' | 'energy';
@@ -62,8 +74,8 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     dollarPerPipPerLot: 5.0,
     minLotSize: 0.01,
     maxLotSize: 10.0,
-    typicalDailyRangePoints: 0.50,
-    typicalSessionMovePoints: 0.25,
+    typicalDailyRangePoints: 500,    // FIXED: 50 cents = 500 points (at 0.001 tick size)
+    typicalSessionMovePoints: 250,   // FIXED: 25 cents = 250 points
     atrMultiplierForStop: 1.5,
   },
 
