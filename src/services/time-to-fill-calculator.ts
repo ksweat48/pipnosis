@@ -173,7 +173,7 @@ class TimeToFillCalculator {
     } else if (expectedHours <= this.WARNING_MAX) {
       viability = 'WARNING';
       recommendedAction = 'CAUTION';
-      reasoning = `Expected fill in ${this.formatHours(expectedHours)} - approaching swing trade duration. Consider tighter TP.`;
+      reasoning = `Expected fill in ${this.formatHours(expectedHours)} - exceeding intraday limit. Consider tighter TP.`;
       confidence = 50;
     } else if (expectedHours <= 24) {
       viability = 'TOO_SLOW';

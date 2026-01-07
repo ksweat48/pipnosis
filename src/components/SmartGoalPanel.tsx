@@ -8,12 +8,13 @@
  * - "Quick Scalp": Time style preference (fast entries/exits)
  *
  * CRITICAL: These are NOT coupled in the UI messaging:
- * - "Conservative" = Low $ risk, Alpha chooses style
- * - "Aggressive" = High $ risk, Alpha chooses style
+ * - "Conservative" = Low $ risk, Alpha chooses style (Intraday-only)
+ * - "Aggressive" = High $ risk, Alpha chooses style (Intraday-only)
  * - "Quick Scalp" = Fast style preference, Alpha determines risk level
  *
  * Users understand they can be conservative with money while still scalping,
- * or aggressive with money while swing trading. The two dimensions are independent.
+ * or aggressive with money while trading patiently. The two dimensions are independent.
+ * All trades are INTRADAY-ONLY (20min to 10hrs).
  */
 
 import React, { useState, useEffect, useMemo } from 'react';

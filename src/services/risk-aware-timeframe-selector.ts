@@ -3,10 +3,10 @@
  *
  * Selects appropriate analysis timeframes based on risk mode strategy
  *
- * CRITICAL INSIGHT: Timeframe is a STRATEGY characteristic
- * - Aggressive mode = M5-M15 (scalp entries)
- * - Moderate mode = M15-H1 (day trade setups)
- * - Conservative mode = H1-H4 (swing positions)
+ * CRITICAL INSIGHT: Timeframe is a STRATEGY characteristic (INTRADAY-ONLY)
+ * - Aggressive mode = M5-M15 (scalp entries, 20min-2hrs)
+ * - Moderate mode = M15-H1 (micro intraday setups, 1-6hrs)
+ * - Conservative mode = H1-H4 (full intraday positions, 2-10hrs)
  */
 
 import { getRiskStrategyProfile, getPrimaryTimeframes } from '../config/risk-strategy-profiles';
@@ -73,12 +73,12 @@ class RiskAwareTimeframeSelector {
 
       // Specific warnings for common mistakes
       if (riskMode === 'high' && (normalizedTimeframe === 'H4' || normalizedTimeframe === 'D1')) {
-        warnings.push(`AGGRESSIVE mode using swing timeframes (${normalizedTimeframe}) - should use M5-M15 for scalp entries`);
+        warnings.push(`AGGRESSIVE mode using longer timeframes (${normalizedTimeframe}) - should use M5-M15 for scalp entries (20min-2hrs)`);
         score -= 40;
       }
 
       if (riskMode === 'low' && (normalizedTimeframe === 'M5' || normalizedTimeframe === 'M15')) {
-        warnings.push(`CONSERVATIVE mode using scalp timeframes (${normalizedTimeframe}) - should use H1-H4 for swing setups`);
+        warnings.push(`CONSERVATIVE mode using scalp timeframes (${normalizedTimeframe}) - should use H1-H4 for full intraday setups (2-10hrs)`);
         score -= 30;
       }
     }

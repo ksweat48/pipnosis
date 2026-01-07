@@ -171,7 +171,7 @@ class RiskAwareStopCalculator {
         minPercent = 1.0;
         maxPercent = 2.5;
         break;
-      case 'low': // Conservative/Swing
+      case 'low': // Conservative/Full Intraday
         minPercent = 2.0;
         maxPercent = 4.0;
         break;
@@ -284,9 +284,9 @@ class RiskAwareStopCalculator {
       score -= 30;
     }
 
-    // Aggressive mode with swing-trade stops is a red flag
+    // Aggressive mode with wide stops is a red flag
     if (riskMode === 'high' && stopPips > 25) {
-      warnings.push(`AGGRESSIVE mode using SWING stops (${stopPips.toFixed(1)} pips) - should be scalp-style (10-20 pips)`);
+      warnings.push(`AGGRESSIVE mode using WIDE stops (${stopPips.toFixed(1)} pips) - should be scalp-style (10-20 pips for 20min-2hr trades)`);
       score -= 40;
     }
 

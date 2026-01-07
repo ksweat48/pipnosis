@@ -8,15 +8,15 @@
  * - Medium (0.5-1.5%): Balanced capital allocation
  * - High (1-3%): Aggressive capital deployment
  *
- * TRADE STYLE controls TIME PREFERENCE (determined separately by Alpha):
- * - Scalp: Fast entries/exits (minutes to 1-2 hours)
- * - Intraday: Standard day trades (1-8 hours)
- * - Swing: Multi-day positions (days to weeks)
+ * TRADE STYLE controls TIME PREFERENCE (Pipnosis is INTRADAY-ONLY):
+ * - Scalp: 20min - 2hrs (fast entries/exits)
+ * - Micro Intraday: 1hr - 6hrs (short day trades)
+ * - Intraday: 2hrs - 10hrs (full day trades)
  *
  * CRITICAL: Users can request any combination:
  * - "Conservative scalp" = Low $ risk + Fast style
- * - "Aggressive swing" = High $ risk + Patient style
- * - "Moderate intraday" = Balanced $ risk + Standard style
+ * - "Aggressive intraday" = High $ risk + Patient style
+ * - "Moderate micro intraday" = Balanced $ risk + Standard style
  *
  * Risk profiles define capital exposure parameters. Alpha independently
  * determines optimal trading style based on market conditions and user preference.
@@ -35,7 +35,7 @@ export interface RiskStrategyProfile {
   baseRiskPercent: number; // Default risk percentage
 
   // Strategy Characteristics
-  // NOTE: Trading style (scalp/intraday/swing) is determined independently by Alpha
+  // NOTE: Trading style (scalp/micro intraday/intraday) is determined independently by Alpha
   // based on market conditions, not coupled to risk level
   entryUrgency: 'immediate' | 'confirmed' | 'patient';
 
@@ -84,7 +84,7 @@ export interface RiskStrategyProfile {
 }
 
 /**
- * AGGRESSIVE / HIGH RISK MODE
+ * AGGRESSIVE / HIGH RISK MODE (SCALP STYLE)
  * For traders wanting to reach goals FAST with active management
  *
  * Example: $50 goal on $10k account
@@ -92,12 +92,12 @@ export interface RiskStrategyProfile {
  * - Position: 0.75-1.25 lots
  * - Stop: 12-18 pips (tight)
  * - Strategy: Scalp breakout on M5-M15
- * - Duration: 30 mins - 2 hours
+ * - Duration: 20min - 2hrs (Scalp)
  */
 export const AGGRESSIVE_PROFILE: RiskStrategyProfile = {
   riskMode: 'high',
   displayName: 'Aggressive',
-  description: 'High capital exposure per trade - Alpha determines optimal style based on market conditions',
+  description: 'High capital exposure per trade - Scalp style (20min-2hrs)',
 
   riskPercentRange: { min: 1.0, max: 3.0 },
   baseRiskPercent: 1.8,
@@ -115,10 +115,10 @@ export const AGGRESSIVE_PROFILE: RiskStrategyProfile = {
   targetSpeed: 'fast',
 
   expectedDuration: {
-    min: 10,   // 10 minutes minimum
-    max: 90    // 1.5 hours maximum (pure intraday)
+    min: 20,   // 20 minutes minimum
+    max: 120   // 2 hours maximum (Scalp)
   },
-  durationWarningThreshold: 120, // 2 hours
+  durationWarningThreshold: 150, // 2.5 hours
 
   omegaWeights: {
     trend: 0.30,
@@ -142,7 +142,7 @@ export const AGGRESSIVE_PROFILE: RiskStrategyProfile = {
 };
 
 /**
- * MODERATE / MEDIUM RISK MODE
+ * MODERATE / MEDIUM RISK MODE (MICRO INTRADAY STYLE)
  * Balanced approach between speed and safety
  *
  * Example: $50 goal on $10k account
@@ -150,12 +150,12 @@ export const AGGRESSIVE_PROFILE: RiskStrategyProfile = {
  * - Position: 0.35-0.50 lots
  * - Stop: 20-28 pips
  * - Strategy: Confirmed pullback on M15-H1
- * - Duration: 2-6 hours
+ * - Duration: 1hr - 6hrs (Micro Intraday)
  */
 export const MODERATE_PROFILE: RiskStrategyProfile = {
   riskMode: 'medium',
   displayName: 'Moderate',
-  description: 'Balanced capital exposure per trade - Alpha determines optimal style based on market conditions',
+  description: 'Balanced capital exposure per trade - Micro Intraday style (1-6hrs)',
 
   riskPercentRange: { min: 0.5, max: 1.5 },
   baseRiskPercent: 1.0,
@@ -173,10 +173,10 @@ export const MODERATE_PROFILE: RiskStrategyProfile = {
   targetSpeed: 'moderate',
 
   expectedDuration: {
-    min: 20,   // 20 minutes minimum
-    max: 120   // 2 hours maximum (pure intraday)
+    min: 60,   // 1 hour minimum
+    max: 360   // 6 hours maximum (Micro Intraday)
   },
-  durationWarningThreshold: 180, // 3 hours
+  durationWarningThreshold: 420, // 7 hours
 
   omegaWeights: {
     trend: 0.30,
@@ -200,7 +200,7 @@ export const MODERATE_PROFILE: RiskStrategyProfile = {
 };
 
 /**
- * CONSERVATIVE / LOW RISK MODE
+ * CONSERVATIVE / LOW RISK MODE (FULL INTRADAY STYLE)
  * Patient approach with deep confirmations and wider stops
  *
  * Example: $50 goal on $10k account
@@ -208,12 +208,12 @@ export const MODERATE_PROFILE: RiskStrategyProfile = {
  * - Position: 0.15-0.25 lots
  * - Stop: 25-35 pips (wider)
  * - Strategy: Patient intraday setup on H1-H4
- * - Duration: 20 mins - 2 hours (pure intraday)
+ * - Duration: 2hrs - 10hrs (Full Intraday)
  */
 export const CONSERVATIVE_PROFILE: RiskStrategyProfile = {
   riskMode: 'low',
   displayName: 'Conservative',
-  description: 'Low capital exposure per trade - Alpha determines optimal style based on market conditions',
+  description: 'Low capital exposure per trade - Full Intraday style (2-10hrs)',
 
   riskPercentRange: { min: 0.3, max: 0.8 },
   baseRiskPercent: 0.5,
@@ -231,10 +231,10 @@ export const CONSERVATIVE_PROFILE: RiskStrategyProfile = {
   targetSpeed: 'patient',
 
   expectedDuration: {
-    min: 20,   // 20 minutes minimum
-    max: 120   // 2 hours maximum (pure intraday)
+    min: 120,  // 2 hours minimum
+    max: 600   // 10 hours maximum (Full Intraday)
   },
-  durationWarningThreshold: 240, // 4 hours
+  durationWarningThreshold: 660, // 11 hours
 
   omegaWeights: {
     trend: 0.30,
@@ -374,7 +374,7 @@ Entry Preference: ${Object.entries(profile.entryTypePreference)
   .map(([type]) => type)
   .join(', ')} setups preferred
 
-NOTE: Trading style (scalp/intraday/swing) is determined independently by Alpha based on market conditions.
+NOTE: Trading style (scalp/micro intraday/intraday) is determined independently by Alpha based on market conditions.
 `.trim();
 }
 

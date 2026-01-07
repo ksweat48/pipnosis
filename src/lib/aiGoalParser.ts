@@ -9,13 +9,13 @@
  *    - Keywords: "conservative exposure", "aggressive exposure", "low risk", "high risk"
  *    - Controls: How much capital to risk per trade (0.3-3%)
  *
- * 2. TRADE STYLE (time preference):
- *    - Keywords: "scalp", "quick", "swing", "patient", "fast"
- *    - Controls: Preference for entry/exit speed (minutes vs hours vs days)
+ * 2. TRADE STYLE (time preference - INTRADAY-ONLY):
+ *    - Keywords: "scalp", "quick", "micro", "patient", "fast"
+ *    - Controls: Preference for entry/exit speed (20min to 10hrs, intraday-only)
  *
  * CRITICAL: These are NOT coupled. Users can request:
  * - "Conservative scalp" = Low $ risk + Fast style
- * - "Aggressive swing" = High $ risk + Patient style
+ * - "Aggressive intraday" = High $ risk + Patient style
  *
  * The parser communicates both dimensions to Alpha, which makes final decisions
  * based on market conditions.
@@ -65,12 +65,12 @@ RISK MODE (Money Exposure):
 - "medium": Balanced capital exposure (0.5-1.5% per trade) - Moderate $ at risk
 - "high": Aggressive capital exposure (1-3% per trade) - High $ at risk
 
-TRADE STYLE (Time Preference - separate from risk):
-- "scalp": Fast entries/exits (minutes to 1-2 hours) - Time-based preference
-- "intraday": Standard day trades (1-8 hours) - Time-based preference
-- "swing": Multi-day holds (days to weeks) - Time-based preference
+TRADE STYLE (Time Preference - INTRADAY-ONLY, separate from risk):
+- "scalp": Fast entries/exits (20min to 2hrs) - Time-based preference
+- "micro_intraday": Short day trades (1hr to 6hrs) - Time-based preference
+- "intraday": Full day trades (2hrs to 10hrs) - Time-based preference
 
-IMPORTANT: Users can request "conservative scalp" (low money risk, fast style) or "aggressive swing" (high money risk, patient style). Do NOT conflate the two dimensions.`;
+IMPORTANT: Pipnosis is INTRADAY-ONLY. Users can request "conservative scalp" (low money risk, fast style) or "aggressive intraday" (high money risk, patient style). Do NOT conflate the two dimensions.`;
 
       const userPrompt = `Parse this trading goal into structured format:
 Goal: "${prompt}"
@@ -194,7 +194,8 @@ Respond with ONLY valid JSON in this format:
 
     const styleKeywords = {
       scalp: /scalp|quick|fast\s+entry|fast\s+exit|quick\s+move/i,
-      swing: /swing|multi-day|hold\s+overnight|patient/i
+      micro: /micro|short\s+intraday/i,
+      intraday: /intraday|full\s+day|patient/i
     };
 
     let riskMode: 'low' | 'medium' | 'high' = 'medium';
@@ -214,12 +215,14 @@ Respond with ONLY valid JSON in this format:
     const riskPercent = getRiskPercentage(riskMode);
     const riskDescription = getRiskModeDescription(riskMode);
 
-    // Detect if user specified a style preference
+    // Detect if user specified a style preference (intraday-only)
     let styleNote = '';
     if (styleKeywords.scalp.test(lowerPrompt)) {
-      styleNote = ' Alpha will prioritize fast scalp-style setups.';
-    } else if (styleKeywords.swing.test(lowerPrompt)) {
-      styleNote = ' Alpha will prioritize patient swing-style setups.';
+      styleNote = ' Alpha will prioritize fast scalp-style setups (20min-2hrs).';
+    } else if (styleKeywords.micro.test(lowerPrompt)) {
+      styleNote = ' Alpha will prioritize micro intraday setups (1-6hrs).';
+    } else if (styleKeywords.intraday.test(lowerPrompt)) {
+      styleNote = ' Alpha will prioritize full intraday setups (2-10hrs).';
     } else {
       styleNote = ' Alpha will choose the optimal style based on market conditions.';
     }
