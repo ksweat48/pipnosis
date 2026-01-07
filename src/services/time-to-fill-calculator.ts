@@ -30,6 +30,8 @@
  * - Use calculateFromPrice() helper to avoid manual conversion errors
  */
 
+import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
+
 export type StyleUpgradeRecommendation =
   | 'NONE'
   | 'SCALP_TO_MICRO'
@@ -92,16 +94,16 @@ class TimeToFillCalculator {
     'BTCUSD': 2.0
   };
 
+  // Use consolidated style bands from pipnosis-core-rules (SSOT)
   private readonly STYLE_BANDS = {
-    SCALP: { min: 0.33, max: 2.0 },           // 20min - 2hrs
-    MICRO_INTRADAY: { min: 1.0, max: 6.0 },   // 1hr - 6hrs
-    INTRADAY: { min: 2.0, max: 10.0 },        // 2hrs - 10hrs
+    ...PIPNOSIS_CORE_RULES.STYLE_DURATION_BANDS,
     EXTENDED: { min: 10.0, max: Infinity }    // >10hrs (penalty zone)
   };
 
-  private readonly SCALP_MAX = 2.0;           // Auto-upgrade threshold
-  private readonly MICRO_INTRADAY_MAX = 6.0;  // Auto-upgrade threshold
-  private readonly INTRADAY_MAX = 10.0;       // Penalty threshold
+  // Use consolidated upgrade thresholds from pipnosis-core-rules (SSOT)
+  private readonly SCALP_MAX = PIPNOSIS_CORE_RULES.STYLE_UPGRADE_THRESHOLDS.SCALP_TO_MICRO_HOURS;
+  private readonly MICRO_INTRADAY_MAX = PIPNOSIS_CORE_RULES.STYLE_UPGRADE_THRESHOLDS.MICRO_TO_INTRADAY_HOURS;
+  private readonly INTRADAY_MAX = PIPNOSIS_CORE_RULES.STYLE_UPGRADE_THRESHOLDS.PENALTY_THRESHOLD_HOURS;
 
   /**
    * Calculate time-to-fill from ATR in price units (RECOMMENDED)

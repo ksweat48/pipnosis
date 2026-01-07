@@ -42,6 +42,13 @@ export interface TradeSignal {
   snapshotTimestamp: number;  // When snapshot was created
   snapshotPrice: number;      // Price at snapshot time
   snapshotHash: string;       // Hash for validation
+  // Duration/Style tracking (Time-as-Scoring-Signal architecture)
+  requestedStyle?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+  resolvedStyle?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'EXTENDED';
+  styleUpgradeApplied?: boolean;
+  expectedDurationHours?: number;
+  durationPenaltyApplied?: boolean;
+  durationRewardApplied?: boolean;
 }
 
 export interface TradeExecutionResult {
@@ -370,7 +377,14 @@ class TradeExecutionEngine {
         risk_dollars: riskDollars,
         ai_confidence: signal.confidence,
         ai_reasoning: signal.reasoning,
-        ai_strategy_used: signal.setupType
+        ai_strategy_used: signal.setupType,
+        // Duration/Style tracking fields
+        requested_style: signal.requestedStyle || null,
+        resolved_style: signal.resolvedStyle || null,
+        style_upgrade_applied: signal.styleUpgradeApplied || false,
+        expected_duration_hours: signal.expectedDurationHours || null,
+        duration_penalty_applied: signal.durationPenaltyApplied || false,
+        duration_reward_applied: signal.durationRewardApplied || false
       })
       .select()
       .single();
@@ -606,7 +620,14 @@ class TradeExecutionEngine {
       tp2_price: signal.tp2Price || null,
       tp1_confidence: signal.tp1Confidence || null,
       tp1_reasoning: signal.tp1Reasoning || null,
-      tp2_reasoning: signal.tp2Reasoning || null
+      tp2_reasoning: signal.tp2Reasoning || null,
+      // Duration/Style tracking fields
+      requested_style: signal.requestedStyle || null,
+      resolved_style: signal.resolvedStyle || null,
+      style_upgrade_applied: signal.styleUpgradeApplied || false,
+      expected_duration_hours: signal.expectedDurationHours || null,
+      duration_penalty_applied: signal.durationPenaltyApplied || false,
+      duration_reward_applied: signal.durationRewardApplied || false
     };
 
     console.log('[Trade Execution] Inserting trade with data:', {

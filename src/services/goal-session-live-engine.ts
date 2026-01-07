@@ -1154,7 +1154,16 @@ class GoalSessionLiveEngine {
           setupType: trade.triggerType,
           reasoning: trade.reasoning,
           riskReward,
-          expectedProfit
+          expectedProfit,
+          // Add style tracking data from eligibility gate
+          ...(eligibilityResult.styleTracking && {
+            requestedStyle: eligibilityResult.styleTracking.requestedStyle,
+            resolvedStyle: eligibilityResult.styleTracking.resolvedStyle,
+            styleUpgradeApplied: eligibilityResult.styleTracking.styleUpgradeApplied,
+            expectedDurationHours: eligibilityResult.styleTracking.expectedDurationHours,
+            durationPenaltyApplied: eligibilityResult.styleTracking.durationPenaltyApplied,
+            durationRewardApplied: eligibilityResult.styleTracking.durationRewardApplied
+          })
         },
         this.config.userId,
         this.config.autoExecute,

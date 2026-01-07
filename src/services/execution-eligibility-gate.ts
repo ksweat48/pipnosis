@@ -76,6 +76,14 @@ export interface ExecutionEligibilityResult {
     suggestedWaitMinutes: number;
     expectedRRImprovement: number;
   };
+  styleTracking?: {
+    requestedStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+    resolvedStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'EXTENDED';
+    styleUpgradeApplied: boolean;
+    expectedDurationHours: number;
+    durationPenaltyApplied: boolean;
+    durationRewardApplied: boolean;
+  };
 }
 
 export interface ExecutionEligibilityInput {
@@ -180,15 +188,22 @@ class ExecutionEligibilityGate {
         console.error(`    Suggestion: ${r.suggestion}`);
       });
 
+      // Build style tracking even for blocked trades (for diagnostics)
+      const styleTracking = this.buildStyleTracking(input);
+
       return {
         status: 'BLOCK_EXECUTION',
         reasons,
         advisories,
-        metrics
+        metrics,
+        styleTracking
       };
     }
 
     this.collectAdvisories(input, metrics, advisories);
+
+    // Build style tracking data for all execution results
+    const styleTracking = this.buildStyleTracking(input);
 
     const entryIntentSuggestion = this.checkEntryQuality(input);
     if (entryIntentSuggestion) {
@@ -201,7 +216,8 @@ class ExecutionEligibilityGate {
         reasons: [],
         advisories,
         metrics,
-        entryIntentSuggestion
+        entryIntentSuggestion,
+        styleTracking
       };
     }
 
@@ -212,7 +228,8 @@ class ExecutionEligibilityGate {
       status: 'ALLOW_EXECUTION',
       reasons: [],
       advisories,
-      metrics
+      metrics,
+      styleTracking
     };
   }
 
@@ -376,6 +393,44 @@ class ExecutionEligibilityGate {
     }
 
     return undefined;
+  }
+
+  private buildStyleTracking(
+    input: ExecutionEligibilityInput
+  ): ExecutionEligibilityResult['styleTracking'] | undefined {
+    const ttf = input.timeToFillResult;
+
+    // Determine requested style from duration band
+    let requestedStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = 'INTRADAY';
+    if (ttf.durationBand === 'SCALP') {
+      requestedStyle = 'SCALP';
+    } else if (ttf.durationBand === 'MICRO_INTRADAY') {
+      requestedStyle = 'MICRO_INTRADAY';
+    }
+
+    // Determine resolved style after upgrades
+    let resolvedStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'EXTENDED' = requestedStyle;
+    let styleUpgradeApplied = false;
+
+    if (ttf.styleUpgrade === 'SCALP_TO_MICRO') {
+      resolvedStyle = 'MICRO_INTRADAY';
+      styleUpgradeApplied = true;
+    } else if (ttf.styleUpgrade === 'MICRO_TO_INTRADAY') {
+      resolvedStyle = 'INTRADAY';
+      styleUpgradeApplied = true;
+    } else if (ttf.styleUpgrade === 'APPLY_PENALTY') {
+      resolvedStyle = 'EXTENDED';
+      styleUpgradeApplied = false;
+    }
+
+    return {
+      requestedStyle,
+      resolvedStyle,
+      styleUpgradeApplied,
+      expectedDurationHours: ttf.expectedHours,
+      durationPenaltyApplied: ttf.shouldApplyPenalty,
+      durationRewardApplied: ttf.shouldApplyReward
+    };
   }
 
   private formatMinutes(minutes: number): string {
