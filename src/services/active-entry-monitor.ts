@@ -5,6 +5,8 @@ import { logger } from '../lib/logger';
 import { globalToastManager } from './global-toast-manager';
 import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
 import { calculatePipDistance } from '../utils/currencyHelpers';
+import { entryQualificationEngine } from './entry-qualification-engine';
+import type { EntryQualificationInput } from './entry-qualification-engine';
 
 export class ActiveEntryMonitor {
   private static instance: ActiveEntryMonitor;
@@ -131,7 +133,111 @@ export class ActiveEntryMonitor {
       const monitoringSeconds = Math.floor((Date.now() - new Date(intent.created_at).getTime()) / 1000);
       logger.debug(`Intent ${intentId} check: ${monitoringSeconds}s elapsed, should_execute=${validation.should_execute}, should_wait=${validation.should_wait}, should_cancel=${validation.should_cancel}`);
 
-      await this.logMonitoring(intentId, currentPrice, distanceToPips, validation.conditions_met, validation.message);
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // ENHANCED ENTRY ACCEPTANCE VALIDATION (BOLT IMPLEMENTATION)
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+      // Run enhanced entry qualification if we're considering execution
+      let enhancedQualification: any = null;
+      if (validation.should_execute && candleData.candles && candleData.candles.length >= 5) {
+        try {
+          const marketContext = intent.market_context as any;
+          const confidence = marketContext?.confidence || 60;
+          const stopLoss = marketContext?.stop_loss || 0;
+          const takeProfit = marketContext?.take_profit || 0;
+
+          // Prepare input for Entry Qualification Engine
+          const qualificationInput: EntryQualificationInput = {
+            symbol: intent.symbol,
+            direction: intent.direction === 'long' ? 'BUY' : 'SELL',
+            entryPrice: currentPrice,
+            stopLoss,
+            takeProfit,
+            confidence,
+            m5Candles: candleData.candles.slice(0, 10).map((c: any) => ({
+              time: c.open_time,
+              open: c.open,
+              high: c.high,
+              low: c.low,
+              close: c.close,
+              volume: c.volume
+            })),
+            m5VWAP: marketConditions.vwap || currentPrice,
+            m5EMA20: currentPrice, // Simplified for now
+            m5RSI: 50, // Neutral default
+            m5VolumeAvg20: marketConditions.avgVolume || 0,
+            m15Trend: 'sideways',
+            m15SupportResistance: {},
+            currentSpreadPips: 0.5,
+            averageSpreadPips: 0.5,
+            atr: marketConditions.atr || 0.001
+          };
+
+          enhancedQualification = entryQualificationEngine.evaluate(qualificationInput);
+
+          logger.info(
+            `[Active Entry Monitor] Enhanced qualification for ${intent.symbol}:\n` +
+            `  Status: ${enhancedQualification.status}\n` +
+            `  Quality Score: ${enhancedQualification.qualityScore}/100\n` +
+            `  Grade: ${enhancedQualification.metrics.microstructureGrade}\n` +
+            `  Candle Acceptance: ${enhancedQualification.candleAcceptance?.accepted ? '✓' : '✗'} (${enhancedQualification.candleAcceptance?.details})\n` +
+            `  Pullback Quality: Grade ${enhancedQualification.pullbackQuality?.grade}\n` +
+            `  Compression/Expansion: ${enhancedQualification.compressionExpansion?.pattern}`
+          );
+
+          // Override execution decision based on enhanced qualification
+          if (enhancedQualification.status === 'REJECT_ENTRY') {
+            logger.warn(
+              `Enhanced qualification REJECTED entry despite basic validation passing.\n` +
+              `Reason: Quality score ${enhancedQualification.qualityScore}/100 below threshold.\n` +
+              `Blocks: ${enhancedQualification.blocks.map((b: any) => b.message).join(', ')}`
+            );
+
+            validation.should_execute = false;
+            validation.should_cancel = true;
+            validation.cancel_reason = `Entry quality too low (${enhancedQualification.qualityScore}/100) - ${enhancedQualification.blocks[0]?.message || 'failed enhanced checks'}`;
+          } else if (enhancedQualification.status === 'WAIT_FOR_BETTER') {
+            logger.info(
+              `Enhanced qualification recommends WAIT:\n` +
+              `Quality: ${enhancedQualification.qualityScore}/100\n` +
+              `Recommendation: ${enhancedQualification.waitRecommendation?.reason}`
+            );
+
+            validation.should_execute = false;
+            validation.should_wait = true;
+            validation.message = `Waiting for better entry quality (current: ${enhancedQualification.qualityScore}/100) - ${enhancedQualification.waitRecommendation?.reason || 'timing suboptimal'}`;
+          } else if (enhancedQualification.status === 'ACCEPT_ENTRY') {
+            logger.info(
+              `Enhanced qualification CONFIRMS execution:\n` +
+              `Quality: ${enhancedQualification.qualityScore}/100 | Grade: ${enhancedQualification.metrics.microstructureGrade}\n` +
+              `Candle Acceptance: ${enhancedQualification.candleAcceptance?.accepted ? 'Yes' : 'No'}\n` +
+              `Entry is HIGH QUALITY - proceeding with confidence`
+            );
+
+            // Enhance validation message with quality details
+            validation.message = `High quality entry (${enhancedQualification.qualityScore}/100, Grade ${enhancedQualification.metrics.microstructureGrade}) - ${enhancedQualification.candleAcceptance?.details}`;
+          }
+        } catch (error) {
+          logger.error('Error running enhanced entry qualification:', error);
+          // Don't block execution if enhancement fails - fall back to basic validation
+        }
+      }
+
+      await this.logMonitoring(
+        intentId,
+        currentPrice,
+        distanceToPips,
+        {
+          ...validation.conditions_met,
+          enhanced_qualification: enhancedQualification ? {
+            status: enhancedQualification.status,
+            quality_score: enhancedQualification.qualityScore,
+            candle_accepted: enhancedQualification.candleAcceptance?.accepted,
+            pullback_grade: enhancedQualification.pullbackQuality?.grade
+          } : null
+        },
+        validation.message
+      );
 
       if (validation.should_execute) {
         logger.info(`Executing intent ${intentId} after ${monitoringSeconds}s: ${validation.message}`);

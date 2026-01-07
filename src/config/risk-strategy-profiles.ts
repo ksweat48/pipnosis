@@ -1,25 +1,40 @@
 /**
  * RISK STRATEGY PROFILES
  *
- * ARCHITECTURE PRINCIPLE: Risk and Style are INDEPENDENT dimensions
+ * ARCHITECTURE PRINCIPLE: Risk and Style are COMPLETELY INDEPENDENT dimensions
  *
- * RISK MODE controls MONEY EXPOSURE:
- * - Low (0.3-0.8%): Conservative capital protection
- * - Medium (0.5-1.5%): Balanced capital allocation
- * - High (1-3%): Aggressive capital deployment
+ * RISK MODE controls MONEY EXPOSURE (Position Sizing):
+ * - LOW: 0.3-0.8% risk per trade (Conservative capital protection)
+ * - MEDIUM: 0.5-1.5% risk per trade (Balanced capital allocation)
+ * - HIGH: 1-3% risk per trade (Aggressive capital deployment)
  *
- * TRADE STYLE controls TIME PREFERENCE (Pipnosis is INTRADAY-ONLY):
- * - Scalp: 20min - 2hrs (fast entries/exits)
- * - Micro Intraday: 1hr - 6hrs (short day trades)
- * - Intraday: 2hrs - 10hrs (full day trades)
+ * TRADE STYLE controls TIME PREFERENCE (Duration, NOT Risk):
+ * - SCALP: 20min - 2hrs (fast entries/exits)
+ * - MICRO_INTRADAY: 1hr - 6hrs (short day trades)
+ * - INTRADAY: 2hrs - 10hrs (full day trades)
  *
- * CRITICAL: Users can request any combination:
- * - "Conservative scalp" = Low $ risk + Fast style
- * - "Aggressive intraday" = High $ risk + Patient style
- * - "Moderate micro intraday" = Balanced $ risk + Standard style
+ * CRITICAL SEPARATION:
+ * - Risk mode NEVER determines style
+ * - Style NEVER determines risk amount
+ * - Alpha determines style dynamically based on:
+ *   1. Market conditions (volatility, session, structure)
+ *   2. Setup characteristics (TP distance, time-to-fill)
+ *   3. User preference (if specified)
+ *   4. Style progression logic (auto-upgrade when duration exceeds band)
  *
- * Risk profiles define capital exposure parameters. Alpha independently
- * determines optimal trading style based on market conditions and user preference.
+ * VALID COMBINATIONS (ALL SUPPORTED):
+ * - "Low risk + SCALP" = Small position, fast exit
+ * - "High risk + INTRADAY" = Large position, patient hold
+ * - "Medium risk + MICRO_INTRADAY" = Balanced position and duration
+ *
+ * Risk profiles define ONLY:
+ * - Position sizing parameters
+ * - Stop loss width preferences (ATR multiples)
+ * - Confidence thresholds
+ * - Loss tolerance limits
+ *
+ * Alpha independently determines style using time-to-fill calculator
+ * and style progression system (SCALP → MICRO → INTRADAY).
  */
 
 import { getAssetClassRiskProfile } from './asset-class-risk-profiles';
@@ -84,20 +99,20 @@ export interface RiskStrategyProfile {
 }
 
 /**
- * AGGRESSIVE / HIGH RISK MODE (SCALP STYLE)
- * For traders wanting to reach goals FAST with active management
+ * AGGRESSIVE / HIGH RISK MODE
+ * For traders wanting high capital exposure with active management
  *
  * Example: $50 goal on $10k account
  * - Risk: $150-200 (1.5-2%)
  * - Position: 0.75-1.25 lots
  * - Stop: 12-18 pips (tight)
- * - Strategy: Scalp breakout on M5-M15
- * - Duration: 20min - 2hrs (Scalp)
+ * - Strategy: Fast entries on M5-M15
+ * - Style: Determined independently by Alpha based on market conditions
  */
 export const AGGRESSIVE_PROFILE: RiskStrategyProfile = {
   riskMode: 'high',
   displayName: 'Aggressive',
-  description: 'High capital exposure per trade - Scalp style (20min-2hrs)',
+  description: 'High capital exposure per trade (1-3% risk)',
 
   riskPercentRange: { min: 1.0, max: 3.0 },
   baseRiskPercent: 1.8,
@@ -142,20 +157,20 @@ export const AGGRESSIVE_PROFILE: RiskStrategyProfile = {
 };
 
 /**
- * MODERATE / MEDIUM RISK MODE (MICRO INTRADAY STYLE)
- * Balanced approach between speed and safety
+ * MODERATE / MEDIUM RISK MODE
+ * Balanced approach between capital exposure and risk management
  *
  * Example: $50 goal on $10k account
  * - Risk: $80-120 (0.8-1.2%)
  * - Position: 0.35-0.50 lots
  * - Stop: 20-28 pips
- * - Strategy: Confirmed pullback on M15-H1
- * - Duration: 1hr - 6hrs (Micro Intraday)
+ * - Strategy: Confirmed setups on M15-H1
+ * - Style: Determined independently by Alpha based on market conditions
  */
 export const MODERATE_PROFILE: RiskStrategyProfile = {
   riskMode: 'medium',
   displayName: 'Moderate',
-  description: 'Balanced capital exposure per trade - Micro Intraday style (1-6hrs)',
+  description: 'Balanced capital exposure per trade (0.5-1.5% risk)',
 
   riskPercentRange: { min: 0.5, max: 1.5 },
   baseRiskPercent: 1.0,
@@ -200,20 +215,20 @@ export const MODERATE_PROFILE: RiskStrategyProfile = {
 };
 
 /**
- * CONSERVATIVE / LOW RISK MODE (FULL INTRADAY STYLE)
+ * CONSERVATIVE / LOW RISK MODE
  * Patient approach with deep confirmations and wider stops
  *
  * Example: $50 goal on $10k account
  * - Risk: $40-60 (0.4-0.6%)
  * - Position: 0.15-0.25 lots
  * - Stop: 25-35 pips (wider)
- * - Strategy: Patient intraday setup on H1-H4
- * - Duration: 2hrs - 10hrs (Full Intraday)
+ * - Strategy: Patient setups on H1-H4
+ * - Style: Determined independently by Alpha based on market conditions
  */
 export const CONSERVATIVE_PROFILE: RiskStrategyProfile = {
   riskMode: 'low',
   displayName: 'Conservative',
-  description: 'Low capital exposure per trade - Full Intraday style (2-10hrs)',
+  description: 'Low capital exposure per trade (0.3-0.8% risk)',
 
   riskPercentRange: { min: 0.3, max: 0.8 },
   baseRiskPercent: 0.5,

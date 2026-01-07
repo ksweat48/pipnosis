@@ -101,6 +101,42 @@ export interface EntryQualificationBlock {
   suggestion: string;
 }
 
+/**
+ * Enhanced Entry Acceptance Interfaces (BOLT Implementation)
+ */
+export interface CandleAcceptanceResult {
+  accepted: boolean;
+  consecutiveCloses: number;
+  bodyDominance: number; // 0-1
+  closeQuality: 'excellent' | 'good' | 'poor';
+  expansionDetected: boolean;
+  details: string;
+}
+
+export interface PullbackQualityResult {
+  grade: 'A' | 'B' | 'C';
+  pullbackPercent: number;
+  quality: 'shallow' | 'medium' | 'deep';
+  score: number; // 0-100
+  recommendation: string;
+}
+
+export interface CompressionExpansionResult {
+  compressionDetected: boolean;
+  compressionCandles: number;
+  expansionFollows: boolean;
+  qualityBonus: number; // 0-20 points
+  pattern: string;
+}
+
+export interface FailedMoveResult {
+  failedMoveDetected: boolean;
+  failureType: 'false_breakout' | 'exhaustion' | 'rejection' | 'none';
+  confirmationPresent: boolean;
+  entryViable: boolean;
+  details: string;
+}
+
 export interface EntryQualificationResult {
   status: EntryQualificationStatus;
   blocks: EntryQualificationBlock[];
@@ -119,12 +155,19 @@ export interface EntryQualificationResult {
     confluenceScore: number; // 0-100
     microstructureGrade: 'A' | 'B' | 'C' | 'D' | 'F';
   };
+  // Enhanced acceptance metrics (BOLT)
+  candleAcceptance?: CandleAcceptanceResult;
+  pullbackQuality?: PullbackQualityResult;
+  compressionExpansion?: CompressionExpansionResult;
+  failedMove?: FailedMoveResult;
 }
 
 class EntryQualificationEngine {
   /**
    * Evaluate entry timing quality
    * Returns qualification decision with detailed reasoning
+   *
+   * UPDATED: Now includes enhanced BOLT entry acceptance logic
    */
   evaluate(input: EntryQualificationInput): EntryQualificationResult {
     const blocks: EntryQualificationBlock[] = [];
@@ -168,14 +211,72 @@ class EntryQualificationEngine {
       };
     }
 
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ENHANCED ENTRY ACCEPTANCE CHECKS (BOLT IMPLEMENTATION)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    // A. Candle Acceptance Logic
+    const candleAcceptance = this.checkCandleAcceptance(input.m5Candles, input.direction);
+    logger.debug(`[EQE] Candle Acceptance: ${candleAcceptance.details}`);
+
+    // B. Pullback Quality Grading
+    const pullbackQuality = this.checkPullbackQuality(input.m5Candles, input.direction);
+    logger.debug(`[EQE] Pullback Quality: Grade ${pullbackQuality.grade} (${pullbackQuality.pullbackPercent.toFixed(1)}%)`);
+
+    // C. Compression & Expansion Detection
+    const compressionExpansion = this.checkCompressionExpansion(input.m5Candles);
+    logger.debug(`[EQE] Compression/Expansion: ${compressionExpansion.pattern}`);
+
+    // D. Failed Move Confirmation
+    const failedMove = this.checkFailedMove(input.m5Candles, input.direction);
+    logger.debug(`[EQE] Failed Move: ${failedMove.details}`);
+
+    // E. Confidence-Weighted Entry Aggression
+    const confidenceAdjustment = this.applyConfidenceWeightedAggression(
+      input.confidence,
+      candleAcceptance
+    );
+    logger.debug(`[EQE] Confidence Aggression: ${confidenceAdjustment.aggressionLevel} (${confidenceAdjustment.recommendation})`);
+
     // Run advisory checks
     this.checkStructureAlignment(input, metrics, advisories);
     this.checkRSIExtremes(input, metrics, advisories);
     this.checkConfluence(input, metrics, advisories);
     this.checkSpread(input, advisories);
 
-    // Calculate quality score
-    const qualityScore = this.calculateQualityScore(metrics, blocks, advisories);
+    // Calculate base quality score
+    let qualityScore = this.calculateQualityScore(metrics, blocks, advisories);
+
+    // Apply enhanced acceptance bonuses
+    if (candleAcceptance.accepted) {
+      qualityScore += 10;
+      logger.debug('[EQE] +10 bonus: Candle acceptance confirmed');
+    }
+
+    if (pullbackQuality.grade === 'A') {
+      qualityScore += pullbackQuality.score * 0.1; // +10 points for A grade
+      logger.debug(`[EQE] +10 bonus: Grade A pullback (${pullbackQuality.pullbackPercent.toFixed(1)}%)`);
+    } else if (pullbackQuality.grade === 'B') {
+      qualityScore += pullbackQuality.score * 0.075; // +5.6 points for B grade
+      logger.debug(`[EQE] +5.6 bonus: Grade B pullback (${pullbackQuality.pullbackPercent.toFixed(1)}%)`);
+    }
+
+    qualityScore += compressionExpansion.qualityBonus;
+    if (compressionExpansion.qualityBonus > 0) {
+      logger.debug(`[EQE] +${compressionExpansion.qualityBonus} bonus: Compression → Expansion pattern`);
+    }
+
+    if (failedMove.entryViable) {
+      qualityScore += 15;
+      logger.debug('[EQE] +15 bonus: Failed move confirmation present');
+    }
+
+    // Apply confidence-weighted aggression adjustment
+    qualityScore += confidenceAdjustment.adjustedScore;
+    logger.debug(`[EQE] ${confidenceAdjustment.adjustedScore >= 0 ? '+' : ''}${confidenceAdjustment.adjustedScore} adjustment: ${confidenceAdjustment.aggressionLevel} aggression`);
+
+    // Cap quality score at 100
+    qualityScore = Math.min(100, qualityScore);
 
     // Decision logic
     if (qualityScore >= 75) {
@@ -183,30 +284,42 @@ class EntryQualificationEngine {
       console.log('%c[ENTRY QUALIFICATION] ACCEPTED (HIGH QUALITY)', 'color: #4caf50; font-weight: bold');
       console.log(`  Quality Score: ${qualityScore}/100 | Grade: ${metrics.microstructureGrade}`);
       console.log(`  VWAP: ${metrics.vwapAlignment ? '✓' : '✗'} | Momentum: ${metrics.momentumConfirmation ? '✓' : '✗'} | Volume: ${metrics.volumeConfirmation ? '✓' : '✗'}`);
+      console.log(`  Candle Acceptance: ${candleAcceptance.accepted ? '✓' : '✗'} | Pullback: Grade ${pullbackQuality.grade}`);
+      console.log(`  Aggression: ${confidenceAdjustment.aggressionLevel}`);
 
       return {
         status: 'ACCEPT_ENTRY',
         blocks,
         advisories,
         qualityScore,
-        metrics
+        metrics,
+        candleAcceptance,
+        pullbackQuality,
+        compressionExpansion,
+        failedMove
       };
     } else if (qualityScore >= 50 && advisories.length === 0) {
       // Acceptable quality - execute
       console.log('%c[ENTRY QUALIFICATION] ACCEPTED (ACCEPTABLE)', 'color: #8bc34a; font-weight: bold');
       console.log(`  Quality Score: ${qualityScore}/100 | Grade: ${metrics.microstructureGrade}`);
+      console.log(`  Pullback: Grade ${pullbackQuality.grade} | Aggression: ${confidenceAdjustment.aggressionLevel}`);
 
       return {
         status: 'ACCEPT_ENTRY',
         blocks,
         advisories,
         qualityScore,
-        metrics
+        metrics,
+        candleAcceptance,
+        pullbackQuality,
+        compressionExpansion,
+        failedMove
       };
     } else if (qualityScore >= 40) {
       // Marginal quality - recommend wait
       console.log('%c[ENTRY QUALIFICATION] WAIT_FOR_BETTER', 'color: #ff9800; font-weight: bold');
       console.log(`  Quality Score: ${qualityScore}/100 | Advisories: ${advisories.length}`);
+      console.log(`  ${confidenceAdjustment.recommendation}`);
 
       const waitRecommendation = this.generateWaitRecommendation(input, metrics, advisories);
 
@@ -216,19 +329,28 @@ class EntryQualificationEngine {
         advisories,
         qualityScore,
         waitRecommendation,
-        metrics
+        metrics,
+        candleAcceptance,
+        pullbackQuality,
+        compressionExpansion,
+        failedMove
       };
     } else {
       // Poor quality - reject
       console.error('%c[ENTRY QUALIFICATION] REJECTED (LOW QUALITY)', 'color: #f44336; font-weight: bold');
       console.error(`  Quality Score: ${qualityScore}/100 | Grade: ${metrics.microstructureGrade}`);
+      console.error(`  Candle Acceptance: ${candleAcceptance.accepted ? '✓' : '✗'} (${candleAcceptance.details})`);
 
       return {
         status: 'REJECT_ENTRY',
         blocks,
         advisories,
         qualityScore,
-        metrics
+        metrics,
+        candleAcceptance,
+        pullbackQuality,
+        compressionExpansion,
+        failedMove
       };
     }
   }
@@ -803,6 +925,489 @@ class EntryQualificationEngine {
     }
 
     return `Entry qualification: ${result.status} (${result.qualityScore}/100)`;
+  }
+
+  /**
+   * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   * ENHANCED ENTRY ACCEPTANCE LOGIC (BOLT IMPLEMENTATION)
+   * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   *
+   * A. Candle Acceptance Logic
+   * B. Pullback Quality Grading
+   * C. Compression & Expansion Detection
+   * D. Failed Move Confirmation
+   * E. Confidence-Weighted Entry Aggression
+   */
+
+  /**
+   * A. CANDLE ACCEPTANCE LOGIC (HIGH PRIORITY)
+   *
+   * Validates that the most recent candles show genuine acceptance
+   * of the trade direction, not just weak attempts.
+   *
+   * REQUIREMENTS:
+   * - ≥2 consecutive closes in trade direction
+   * - Body dominance (body ≥60% of candle range)
+   * - Closes near high (BUY) or low (SELL) - within 20% of extreme
+   * - Range expansion OR controlled compression → expansion
+   *
+   * @param candles - Recent M5 candles (minimum 5)
+   * @param direction - Trade direction (BUY/SELL)
+   * @returns CandleAcceptanceResult with acceptance decision and quality metrics
+   */
+  checkCandleAcceptance(candles: M5Candle[], direction: 'BUY' | 'SELL'): CandleAcceptanceResult {
+    if (candles.length < 2) {
+      return {
+        accepted: false,
+        consecutiveCloses: 0,
+        bodyDominance: 0,
+        closeQuality: 'poor',
+        expansionDetected: false,
+        details: 'Insufficient candle data (need at least 2 candles)'
+      };
+    }
+
+    const recentCandles = candles.slice(-5); // Last 5 candles
+    let consecutiveCloses = 0;
+    let totalBodyDominance = 0;
+    let closeQualitySum = 0;
+
+    // Check consecutive closes in direction
+    for (let i = recentCandles.length - 1; i >= 0; i--) {
+      const candle = recentCandles[i];
+      const isDirectionalClose = direction === 'BUY'
+        ? candle.close > candle.open
+        : candle.close < candle.open;
+
+      if (isDirectionalClose) {
+        consecutiveCloses++;
+
+        // Calculate body dominance
+        const range = candle.high - candle.low;
+        const body = Math.abs(candle.close - candle.open);
+        const bodyDominance = range > 0 ? body / range : 0;
+        totalBodyDominance += bodyDominance;
+
+        // Calculate close quality (distance from extreme)
+        let closeNearExtreme = 0;
+        if (direction === 'BUY') {
+          closeNearExtreme = (candle.close - candle.low) / range;
+        } else {
+          closeNearExtreme = (candle.high - candle.close) / range;
+        }
+        closeQualitySum += closeNearExtreme;
+      } else {
+        break; // Stop counting if streak breaks
+      }
+    }
+
+    // Calculate averages
+    const avgBodyDominance = consecutiveCloses > 0 ? totalBodyDominance / consecutiveCloses : 0;
+    const avgCloseQuality = consecutiveCloses > 0 ? closeQualitySum / consecutiveCloses : 0;
+
+    // Determine close quality grade
+    let closeQuality: 'excellent' | 'good' | 'poor';
+    if (avgCloseQuality >= 0.8) {
+      closeQuality = 'excellent';
+    } else if (avgCloseQuality >= 0.6) {
+      closeQuality = 'good';
+    } else {
+      closeQuality = 'poor';
+    }
+
+    // Check for range expansion
+    const expansionDetected = this.detectRangeExpansion(recentCandles);
+
+    // Acceptance decision
+    const accepted =
+      consecutiveCloses >= 2 &&
+      avgBodyDominance >= 0.6 &&
+      avgCloseQuality >= 0.6;
+
+    const details = `${consecutiveCloses} consecutive ${direction} closes | ` +
+                   `Body: ${(avgBodyDominance * 100).toFixed(0)}% | ` +
+                   `Close quality: ${closeQuality} (${(avgCloseQuality * 100).toFixed(0)}%) | ` +
+                   `Expansion: ${expansionDetected ? 'Yes' : 'No'}`;
+
+    return {
+      accepted,
+      consecutiveCloses,
+      bodyDominance: avgBodyDominance,
+      closeQuality,
+      expansionDetected,
+      details
+    };
+  }
+
+  /**
+   * B. PULLBACK QUALITY GRADING
+   *
+   * Grades the quality of a pullback relative to the prior impulse move.
+   * Better pullbacks = better risk/reward entries.
+   *
+   * GRADING SCALE:
+   * - Grade A: 30-50% pullback (shallow, ideal)
+   * - Grade B: 50-70% pullback (medium, acceptable)
+   * - Grade C: >70% pullback (deep, caution)
+   *
+   * @param candles - Recent M5 candles (minimum 10)
+   * @param direction - Trade direction (BUY/SELL)
+   * @returns PullbackQualityResult with grade and recommendation
+   */
+  checkPullbackQuality(candles: M5Candle[], direction: 'BUY' | 'SELL'): PullbackQualityResult {
+    if (candles.length < 10) {
+      return {
+        grade: 'C',
+        pullbackPercent: 0,
+        quality: 'deep',
+        score: 0,
+        recommendation: 'Insufficient data to grade pullback quality'
+      };
+    }
+
+    const recent10 = candles.slice(-10);
+
+    // Find the impulse move (largest directional move in recent 10)
+    let impulseStart = 0;
+    let impulseEnd = 0;
+    let maxImpulse = 0;
+
+    for (let i = 0; i < recent10.length - 3; i++) {
+      for (let j = i + 2; j < recent10.length; j++) {
+        const move = direction === 'BUY'
+          ? recent10[j].high - recent10[i].low
+          : recent10[i].high - recent10[j].low;
+
+        if (move > maxImpulse) {
+          maxImpulse = move;
+          impulseStart = i;
+          impulseEnd = j;
+        }
+      }
+    }
+
+    // Calculate pullback from impulse high/low to current price
+    const currentPrice = recent10[recent10.length - 1].close;
+    let pullbackAmount = 0;
+
+    if (direction === 'BUY') {
+      const impulseHigh = recent10[impulseEnd].high;
+      const impulseLow = recent10[impulseStart].low;
+      pullbackAmount = impulseHigh - currentPrice;
+      maxImpulse = impulseHigh - impulseLow;
+    } else {
+      const impulseLow = recent10[impulseEnd].low;
+      const impulseHigh = recent10[impulseStart].high;
+      pullbackAmount = currentPrice - impulseLow;
+      maxImpulse = impulseHigh - impulseLow;
+    }
+
+    const pullbackPercent = maxImpulse > 0 ? (pullbackAmount / maxImpulse) * 100 : 0;
+
+    // Grade the pullback
+    let grade: 'A' | 'B' | 'C';
+    let quality: 'shallow' | 'medium' | 'deep';
+    let score: number;
+    let recommendation: string;
+
+    if (pullbackPercent <= 50 && pullbackPercent >= 30) {
+      grade = 'A';
+      quality = 'shallow';
+      score = 100;
+      recommendation = 'Excellent entry - shallow pullback with strong R:R';
+    } else if (pullbackPercent <= 70) {
+      grade = 'B';
+      quality = 'medium';
+      score = 75;
+      recommendation = 'Good entry - medium pullback, acceptable R:R';
+    } else {
+      grade = 'C';
+      quality = 'deep';
+      score = 50;
+      recommendation = 'Caution - deep pullback may indicate trend weakening';
+    }
+
+    return {
+      grade,
+      pullbackPercent,
+      quality,
+      score,
+      recommendation
+    };
+  }
+
+  /**
+   * C. COMPRESSION & EXPANSION DETECTION
+   *
+   * Detects price compression followed by expansion, which often
+   * indicates the start of a new directional move.
+   *
+   * PATTERN:
+   * - Compression: 3+ consecutive narrow-range candles
+   * - Expansion: Candle with range >1.5x average compression range
+   *
+   * Quality bonus: +20 points if pattern present
+   *
+   * @param candles - Recent M5 candles (minimum 5)
+   * @returns CompressionExpansionResult with pattern details
+   */
+  checkCompressionExpansion(candles: M5Candle[]): CompressionExpansionResult {
+    if (candles.length < 5) {
+      return {
+        compressionDetected: false,
+        compressionCandles: 0,
+        expansionFollows: false,
+        qualityBonus: 0,
+        pattern: 'Insufficient data for compression/expansion detection'
+      };
+    }
+
+    const recent = candles.slice(-7); // Last 7 candles
+    const ranges = recent.map(c => c.high - c.low);
+    const avgRange = ranges.reduce((sum, r) => sum + r, 0) / ranges.length;
+
+    // Detect compression phase (3+ narrow candles)
+    let compressionStart = -1;
+    let compressionCandles = 0;
+
+    for (let i = 0; i < recent.length - 1; i++) {
+      const range = ranges[i];
+      const isNarrow = range < avgRange * 0.6; // Narrow = <60% of avg
+
+      if (isNarrow) {
+        if (compressionStart === -1) {
+          compressionStart = i;
+        }
+        compressionCandles++;
+      } else {
+        if (compressionCandles >= 3) {
+          break; // Found compression phase
+        }
+        compressionStart = -1;
+        compressionCandles = 0;
+      }
+    }
+
+    const compressionDetected = compressionCandles >= 3;
+
+    // Check if expansion follows compression
+    let expansionFollows = false;
+    if (compressionDetected && compressionStart >= 0) {
+      const compressionEndIndex = compressionStart + compressionCandles - 1;
+      if (compressionEndIndex < recent.length - 1) {
+        const nextCandle = recent[compressionEndIndex + 1];
+        const nextRange = nextCandle.high - nextCandle.low;
+        const compressionAvgRange = ranges.slice(compressionStart, compressionEndIndex + 1)
+          .reduce((sum, r) => sum + r, 0) / compressionCandles;
+
+        expansionFollows = nextRange > compressionAvgRange * 1.5;
+      }
+    }
+
+    // Calculate quality bonus
+    const qualityBonus = (compressionDetected && expansionFollows) ? 20 : 0;
+
+    const pattern = compressionDetected
+      ? `Compression (${compressionCandles} candles) ${expansionFollows ? '→ Expansion ✓' : 'detected'}`
+      : 'No compression pattern detected';
+
+    return {
+      compressionDetected,
+      compressionCandles,
+      expansionFollows,
+      qualityBonus,
+      pattern
+    };
+  }
+
+  /**
+   * D. FAILED MOVE CONFIRMATION
+   *
+   * Detects failed directional attempts and confirms the counter-move
+   * is valid for entry.
+   *
+   * FAILED MOVE TYPES:
+   * - False breakout: Break above/below level, then immediate rejection
+   * - Exhaustion: Large candle closes mid-range with no follow-through
+   * - Rejection: Strong move hits resistance/support and reverses
+   *
+   * @param candles - Recent M5 candles (minimum 5)
+   * @param direction - Trade direction (opposite of failed move)
+   * @returns FailedMoveResult with failure details
+   */
+  checkFailedMove(candles: M5Candle[], direction: 'BUY' | 'SELL'): FailedMoveResult {
+    if (candles.length < 5) {
+      return {
+        failedMoveDetected: false,
+        failureType: 'none',
+        confirmationPresent: false,
+        entryViable: false,
+        details: 'Insufficient data for failed move detection'
+      };
+    }
+
+    const recent5 = candles.slice(-5);
+    let failureType: 'false_breakout' | 'exhaustion' | 'rejection' | 'none' = 'none';
+    let confirmationPresent = false;
+
+    // Check for false breakout (already has method)
+    const oppositeDirection = direction === 'BUY' ? 'SELL' : 'BUY';
+    const falseBreakout = this.detectFalseBreakout(recent5.slice(-3), oppositeDirection);
+
+    if (falseBreakout) {
+      failureType = 'false_breakout';
+
+      // Check for confirmation candle in our direction
+      const lastCandle = recent5[recent5.length - 1];
+      confirmationPresent = direction === 'BUY'
+        ? lastCandle.close > lastCandle.open && (lastCandle.close - lastCandle.open) > (lastCandle.high - lastCandle.low) * 0.6
+        : lastCandle.close < lastCandle.open && (lastCandle.open - lastCandle.close) > (lastCandle.high - lastCandle.low) * 0.6;
+    }
+
+    // Check for exhaustion
+    if (!falseBreakout) {
+      const prevCandle = recent5[recent5.length - 2];
+      const range = prevCandle.high - prevCandle.low;
+      const body = Math.abs(prevCandle.close - prevCandle.open);
+      const bodyRatio = range > 0 ? body / range : 0;
+
+      // Large body but closes in middle (not at extreme)
+      if (bodyRatio > 0.7) {
+        const closedNearMiddle = oppositeDirection === 'BUY'
+          ? (prevCandle.high - prevCandle.close) / range > 0.3 && (prevCandle.high - prevCandle.close) / range < 0.7
+          : (prevCandle.close - prevCandle.low) / range > 0.3 && (prevCandle.close - prevCandle.low) / range < 0.7;
+
+        if (closedNearMiddle) {
+          failureType = 'exhaustion';
+
+          // Check current candle for reversal confirmation
+          const lastCandle = recent5[recent5.length - 1];
+          confirmationPresent = direction === 'BUY'
+            ? lastCandle.close > prevCandle.close
+            : lastCandle.close < prevCandle.close;
+        }
+      }
+    }
+
+    // Check for rejection at level
+    if (failureType === 'none') {
+      const last3 = recent5.slice(-3);
+      const highestHigh = Math.max(...last3.map(c => c.high));
+      const lowestLow = Math.min(...last3.map(c => c.low));
+      const currentClose = last3[last3.length - 1].close;
+
+      // Price tested extreme and rejected back
+      if (oppositeDirection === 'BUY') {
+        const testedHigh = last3.some(c => c.high === highestHigh);
+        const rejectedDown = currentClose < highestHigh * 0.995;
+        if (testedHigh && rejectedDown) {
+          failureType = 'rejection';
+          confirmationPresent = direction === 'SELL';
+        }
+      } else {
+        const testedLow = last3.some(c => c.low === lowestLow);
+        const rejectedUp = currentClose > lowestLow * 1.005;
+        if (testedLow && rejectedUp) {
+          failureType = 'rejection';
+          confirmationPresent = direction === 'BUY';
+        }
+      }
+    }
+
+    const failedMoveDetected = failureType !== 'none';
+    const entryViable = failedMoveDetected && confirmationPresent;
+
+    const details = failedMoveDetected
+      ? `${failureType.replace('_', ' ')} detected | Confirmation: ${confirmationPresent ? 'Yes ✓' : 'No'}`
+      : 'No failed move pattern detected';
+
+    return {
+      failedMoveDetected,
+      failureType,
+      confirmationPresent,
+      entryViable,
+      details
+    };
+  }
+
+  /**
+   * E. CONFIDENCE-WEIGHTED ENTRY AGGRESSION
+   *
+   * Adjusts entry timing requirements based on Alpha's confidence level.
+   * Higher confidence = more aggressive entry at first signal.
+   * Lower confidence = wait for stronger confirmation.
+   *
+   * CONFIDENCE TIERS:
+   * - High (85%+): Accept entry at first directional signal
+   * - Medium (70-85%): Wait for 2nd confirmation candle
+   * - Low (<70%): Wait for full retest or skip
+   *
+   * @param confidence - Alpha's confidence (0-100)
+   * @param candleAcceptance - Candle acceptance result
+   * @returns Adjusted quality score and recommendation
+   */
+  applyConfidenceWeightedAggression(
+    confidence: number,
+    candleAcceptance: CandleAcceptanceResult
+  ): { adjustedScore: number; recommendation: string; aggressionLevel: 'aggressive' | 'moderate' | 'conservative' } {
+
+    let aggressionLevel: 'aggressive' | 'moderate' | 'conservative';
+    let scoreAdjustment = 0;
+    let recommendation = '';
+
+    if (confidence >= 85) {
+      // High confidence - aggressive entry
+      aggressionLevel = 'aggressive';
+
+      if (candleAcceptance.consecutiveCloses >= 1) {
+        scoreAdjustment = +15;
+        recommendation = 'High confidence: Enter aggressively at first signal';
+      } else {
+        scoreAdjustment = +5;
+        recommendation = 'High confidence: Accept entry despite weak confirmation';
+      }
+    } else if (confidence >= 70) {
+      // Medium confidence - moderate entry
+      aggressionLevel = 'moderate';
+
+      if (candleAcceptance.consecutiveCloses >= 2) {
+        scoreAdjustment = +10;
+        recommendation = 'Medium confidence: Enter after 2nd confirmation';
+      } else {
+        scoreAdjustment = -10;
+        recommendation = 'Medium confidence: Wait for 2nd confirmation candle';
+      }
+    } else {
+      // Low confidence - conservative entry
+      aggressionLevel = 'conservative';
+
+      if (candleAcceptance.consecutiveCloses >= 2 && candleAcceptance.closeQuality === 'excellent') {
+        scoreAdjustment = 0;
+        recommendation = 'Low confidence: Requires full retest and excellent quality';
+      } else {
+        scoreAdjustment = -20;
+        recommendation = 'Low confidence: Skip or wait for stronger confirmation';
+      }
+    }
+
+    return {
+      adjustedScore: scoreAdjustment,
+      recommendation,
+      aggressionLevel
+    };
+  }
+
+  /**
+   * Helper: Detect range expansion in recent candles
+   */
+  private detectRangeExpansion(candles: M5Candle[]): boolean {
+    if (candles.length < 3) return false;
+
+    const ranges = candles.map(c => c.high - c.low);
+    const avgRange = ranges.slice(0, -1).reduce((sum, r) => sum + r, 0) / (ranges.length - 1);
+    const lastRange = ranges[ranges.length - 1];
+
+    return lastRange > avgRange * 1.3; // 30% larger than average
   }
 }
 
