@@ -599,7 +599,7 @@ export function calculateGoalAwareLotSize(
   console.log(`  Goal Target: $${targetGoal.toFixed(2)}`);
   console.log(`  Current Progress: $${currentProgress.toFixed(2)}`);
   console.log(`  Remaining: $${remainingGoal.toFixed(2)}`);
-  console.log(`  Risk Mode: ${riskMode.toUpperCase()} (${riskProfile.tradingStyle})`);
+  console.log(`  Risk Mode: ${riskMode.toUpperCase()} (${riskProfile.riskPercentRange.min}-${riskProfile.riskPercentRange.max}%)`);
 
   // ✅ FIX 2: Asset-class-aware ranges (NOT forex assumptions for crypto/indices)
   const typicalDailyRange = symbolConfig?.typicalDailyRangePoints || 100;

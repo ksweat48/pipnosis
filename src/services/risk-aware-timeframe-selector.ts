@@ -33,11 +33,11 @@ class RiskAwareTimeframeSelector {
     const secondary = primaryTimeframes.length > 1 ? primaryTimeframes[1] : secondaryTimeframes[0];
     const tertiary = secondaryTimeframes[0] !== secondary ? secondaryTimeframes[0] : undefined;
 
-    const reasoning = this.buildReasoning(riskMode, profile.tradingStyle, primary, secondary);
+    const reasoning = this.buildReasoning(riskMode, primary, secondary);
 
     console.log(`[Timeframe Selector] ${riskMode.toUpperCase()} mode:`);
     console.log(`  Primary: ${primary} | Secondary: ${secondary} | Tertiary: ${tertiary || 'none'}`);
-    console.log(`  Strategy: ${profile.tradingStyle} | Depth: ${profile.analysisDepth}`);
+    console.log(`  Risk: ${profile.riskPercentRange.min}-${profile.riskPercentRange.max}% | Depth: ${profile.analysisDepth}`);
 
     return {
       primary,
@@ -68,7 +68,7 @@ class RiskAwareTimeframeSelector {
     const normalizedTimeframe = this.normalizeTimeframe(timeframe);
 
     if (!allValidTimeframes.includes(normalizedTimeframe)) {
-      warnings.push(`Timeframe ${normalizedTimeframe} not recommended for ${riskMode} ${profile.tradingStyle} strategy`);
+      warnings.push(`Timeframe ${normalizedTimeframe} not recommended for ${riskMode} risk profile`);
       score -= 40;
 
       // Specific warnings for common mistakes
@@ -97,7 +97,7 @@ class RiskAwareTimeframeSelector {
     const profile = getRiskStrategyProfile(riskMode);
     const selection = this.getTimeframes(riskMode);
 
-    return `${profile.displayName} mode (${profile.tradingStyle}): Primary ${selection.primary}, Secondary ${selection.secondary} | ${profile.analysisDepth} analysis`;
+    return `${profile.displayName} mode: Primary ${selection.primary}, Secondary ${selection.secondary} | ${profile.analysisDepth} analysis | ${profile.riskPercentRange.min}-${profile.riskPercentRange.max}% risk`;
   }
 
   /**
@@ -126,19 +126,12 @@ class RiskAwareTimeframeSelector {
    */
   private buildReasoning(
     riskMode: string,
-    tradingStyle: string,
     primary: string,
     secondary: string
   ): string {
-    const styleDescriptions: Record<string, string> = {
-      scalp: 'quick scalp entries for fast goal achievement',
-      'day-trade': 'intraday setups with confirmed entries',
-      swing: 'patient swing positions with deep confirmations'
-    };
+    const profile = getRiskStrategyProfile(riskMode as 'low' | 'medium' | 'high');
 
-    const description = styleDescriptions[tradingStyle] || tradingStyle;
-
-    return `${riskMode.toUpperCase()} mode uses ${primary} (primary) and ${secondary} (secondary) for ${description}`;
+    return `${riskMode.toUpperCase()} mode uses ${primary} (primary) and ${secondary} (secondary) with ${profile.analysisDepth} analysis depth. Alpha determines optimal trading style based on market conditions.`;
   }
 
   /**

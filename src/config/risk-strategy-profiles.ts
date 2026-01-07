@@ -1,11 +1,25 @@
 /**
  * RISK STRATEGY PROFILES
  *
- * Defines COMPLETE trading strategies for each risk mode, not just position sizing.
- * Risk mode determines: entry type, timeframes, stop widths, trade duration, Omega weights
+ * ARCHITECTURE PRINCIPLE: Risk and Style are INDEPENDENT dimensions
  *
- * CRITICAL INSIGHT: "Aggressive" doesn't mean "risk more money the same way"
- * It means "trade faster, tighter stops, scalp entries, reach goals quicker"
+ * RISK MODE controls MONEY EXPOSURE:
+ * - Low (0.3-0.8%): Conservative capital protection
+ * - Medium (0.5-1.5%): Balanced capital allocation
+ * - High (1-3%): Aggressive capital deployment
+ *
+ * TRADE STYLE controls TIME PREFERENCE (determined separately by Alpha):
+ * - Scalp: Fast entries/exits (minutes to 1-2 hours)
+ * - Intraday: Standard day trades (1-8 hours)
+ * - Swing: Multi-day positions (days to weeks)
+ *
+ * CRITICAL: Users can request any combination:
+ * - "Conservative scalp" = Low $ risk + Fast style
+ * - "Aggressive swing" = High $ risk + Patient style
+ * - "Moderate intraday" = Balanced $ risk + Standard style
+ *
+ * Risk profiles define capital exposure parameters. Alpha independently
+ * determines optimal trading style based on market conditions and user preference.
  */
 
 import { getAssetClassRiskProfile } from './asset-class-risk-profiles';
@@ -21,7 +35,8 @@ export interface RiskStrategyProfile {
   baseRiskPercent: number; // Default risk percentage
 
   // Strategy Characteristics
-  tradingStyle: 'scalp' | 'day-trade' | 'swing';
+  // NOTE: Trading style (scalp/intraday/swing) is determined independently by Alpha
+  // based on market conditions, not coupled to risk level
   entryUrgency: 'immediate' | 'confirmed' | 'patient';
 
   // Timeframe Preferences
@@ -82,12 +97,11 @@ export interface RiskStrategyProfile {
 export const AGGRESSIVE_PROFILE: RiskStrategyProfile = {
   riskMode: 'high',
   displayName: 'Aggressive',
-  description: 'Fast intraday execution, tight stops, scalp-style entries for quick goal achievement',
+  description: 'High capital exposure per trade - Alpha determines optimal style based on market conditions',
 
   riskPercentRange: { min: 1.0, max: 3.0 },
   baseRiskPercent: 1.8,
 
-  tradingStyle: 'scalp',
   entryUrgency: 'immediate',
 
   primaryTimeframes: ['M5', 'M15'],
@@ -141,12 +155,11 @@ export const AGGRESSIVE_PROFILE: RiskStrategyProfile = {
 export const MODERATE_PROFILE: RiskStrategyProfile = {
   riskMode: 'medium',
   displayName: 'Moderate',
-  description: 'Balanced intraday execution with confirmations, moderate stops for steady progress',
+  description: 'Balanced capital exposure per trade - Alpha determines optimal style based on market conditions',
 
   riskPercentRange: { min: 0.5, max: 1.5 },
   baseRiskPercent: 1.0,
 
-  tradingStyle: 'day-trade',
   entryUrgency: 'confirmed',
 
   primaryTimeframes: ['M15', 'H1'],
@@ -200,12 +213,11 @@ export const MODERATE_PROFILE: RiskStrategyProfile = {
 export const CONSERVATIVE_PROFILE: RiskStrategyProfile = {
   riskMode: 'low',
   displayName: 'Conservative',
-  description: 'Patient intraday execution, deep confirmations, capital preservation focused',
+  description: 'Low capital exposure per trade - Alpha determines optimal style based on market conditions',
 
   riskPercentRange: { min: 0.3, max: 0.8 },
   baseRiskPercent: 0.5,
 
-  tradingStyle: 'day-trade',
   entryUrgency: 'patient',
 
   primaryTimeframes: ['H1', 'H4'],
@@ -351,9 +363,9 @@ export function formatRiskProfileForLLM(riskMode: 'low' | 'medium' | 'high'): st
 
   return `
 🎯 ACTIVE RISK PROFILE: ${profile.displayName.toUpperCase()} MODE
-Strategy: ${profile.tradingStyle.toUpperCase()} | Entry: ${profile.entryUrgency} | Speed: ${profile.targetSpeed}
+Capital Exposure: ${profile.riskPercentRange.min}-${profile.riskPercentRange.max}% per trade
+Entry Urgency: ${profile.entryUrgency} | Target Speed: ${profile.targetSpeed}
 Timeframes: ${profile.primaryTimeframes.join(', ')} primary | ${profile.secondaryTimeframes.join(', ')} secondary
-Risk Range: ${profile.riskPercentRange.min}-${profile.riskPercentRange.max}% actual exposure
 Stop Width: ${profile.typicalStopPips.min}-${profile.typicalStopPips.max} pips (${profile.stopLossMultiplier.min}-${profile.stopLossMultiplier.max}x ATR)
 R:R Target: ${profile.riskRewardRange.min}-${profile.riskRewardRange.max}:1
 Duration: ${Math.floor(profile.expectedDuration.min / 60)}h-${Math.floor(profile.expectedDuration.max / 60)}h expected
@@ -361,6 +373,8 @@ Entry Preference: ${Object.entries(profile.entryTypePreference)
   .filter(([_, weight]) => weight >= 0.7)
   .map(([type]) => type)
   .join(', ')} setups preferred
+
+NOTE: Trading style (scalp/intraday/swing) is determined independently by Alpha based on market conditions.
 `.trim();
 }
 

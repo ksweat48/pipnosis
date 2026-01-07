@@ -1,3 +1,26 @@
+/**
+ * AI GOAL PARSER
+ *
+ * ARCHITECTURE PRINCIPLE: Risk and Style are INDEPENDENT dimensions
+ *
+ * This parser extracts TWO separate concepts from user goals:
+ *
+ * 1. RISK MODE (money exposure):
+ *    - Keywords: "conservative exposure", "aggressive exposure", "low risk", "high risk"
+ *    - Controls: How much capital to risk per trade (0.3-3%)
+ *
+ * 2. TRADE STYLE (time preference):
+ *    - Keywords: "scalp", "quick", "swing", "patient", "fast"
+ *    - Controls: Preference for entry/exit speed (minutes vs hours vs days)
+ *
+ * CRITICAL: These are NOT coupled. Users can request:
+ * - "Conservative scalp" = Low $ risk + Fast style
+ * - "Aggressive swing" = High $ risk + Patient style
+ *
+ * The parser communicates both dimensions to Alpha, which makes final decisions
+ * based on market conditions.
+ */
+
 import { GoalSessionConfig } from '@/services/goal-session-manager';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { getRiskPercentage, getRiskModeDescription } from '../config/risk-levels';
@@ -35,12 +58,19 @@ class AIGoalParser {
     try {
       const systemPrompt = `You are an expert trading goal interpreter. Parse user trading goals into structured configuration. Consider their account balance and provide realistic assessments.
 
-RISK MODE GUIDELINES:
-- "low": Conservative, safe, careful, patient trading
-- "medium": Balanced, moderate exposure, standard trading
-- "high": Aggressive, scalping, fast trades, quick moves, high-frequency
+CRITICAL: Risk mode and trading style are INDEPENDENT dimensions:
 
-IMPORTANT: Scalping and "quick" trades are HIGH risk due to tight stops and fast execution requirements.`;
+RISK MODE (Money Exposure):
+- "low": Conservative capital exposure (0.3-0.8% per trade) - Low $ at risk
+- "medium": Balanced capital exposure (0.5-1.5% per trade) - Moderate $ at risk
+- "high": Aggressive capital exposure (1-3% per trade) - High $ at risk
+
+TRADE STYLE (Time Preference - separate from risk):
+- "scalp": Fast entries/exits (minutes to 1-2 hours) - Time-based preference
+- "intraday": Standard day trades (1-8 hours) - Time-based preference
+- "swing": Multi-day holds (days to weeks) - Time-based preference
+
+IMPORTANT: Users can request "conservative scalp" (low money risk, fast style) or "aggressive swing" (high money risk, patient style). Do NOT conflate the two dimensions.`;
 
       const userPrompt = `Parse this trading goal into structured format:
 Goal: "${prompt}"
@@ -156,18 +186,23 @@ Respond with ONLY valid JSON in this format:
       }
     }
 
+    // CRITICAL: Separate risk (money exposure) from style (time preference)
     const exposureKeywords = {
-      conservative: /safe|careful|conservative|low\s+risk|conservative\s+exposure/i,
-      aggressive: /aggressive|fast|risky|high\s+risk|aggressive\s+exposure|scalp|quick\s+scalp/i
+      conservative: /safe|careful|conservative|low\s+risk|conservative\s+exposure|low\s+exposure/i,
+      aggressive: /aggressive\s+exposure|high\s+risk|high\s+exposure|risky/i
+    };
+
+    const styleKeywords = {
+      scalp: /scalp|quick|fast\s+entry|fast\s+exit|quick\s+move/i,
+      swing: /swing|multi-day|hold\s+overnight|patient/i
     };
 
     let riskMode: 'low' | 'medium' | 'high' = 'medium';
     if (exposureKeywords.conservative.test(lowerPrompt)) riskMode = 'low';
     if (exposureKeywords.aggressive.test(lowerPrompt)) riskMode = 'high';
 
-    // Note: 'riskMode' field name kept for backward compatibility
-    // But semantics changed: now means "exposure_level" (max capital at risk)
-    // NOT behavioral constraints on LLM confidence/psychology
+    // Note: Style detection kept for future use, but NOT coupled to risk mode
+    // Alpha will independently choose style based on market conditions
 
     const riskMultipliers = { low: 0.5, medium: 1, high: 2 };
     const baseTradesPerDay = 3;
@@ -179,6 +214,16 @@ Respond with ONLY valid JSON in this format:
     const riskPercent = getRiskPercentage(riskMode);
     const riskDescription = getRiskModeDescription(riskMode);
 
+    // Detect if user specified a style preference
+    let styleNote = '';
+    if (styleKeywords.scalp.test(lowerPrompt)) {
+      styleNote = ' Alpha will prioritize fast scalp-style setups.';
+    } else if (styleKeywords.swing.test(lowerPrompt)) {
+      styleNote = ' Alpha will prioritize patient swing-style setups.';
+    } else {
+      styleNote = ' Alpha will choose the optimal style based on market conditions.';
+    }
+
     return {
       config: {
         goalType,
@@ -187,7 +232,7 @@ Respond with ONLY valid JSON in this format:
         riskMode,
         watchlist
       },
-      interpretation: `I'll help you ${goalType === 'profit_target' ? `earn $${targetValue}` : `grow your account by ${targetValue}%`} over ${timeframe} with ${riskDescription} capital exposure (max ${riskPercent}% per trade). AI trades autonomously based on market conditions.`,
+      interpretation: `I'll help you ${goalType === 'profit_target' ? `earn $${targetValue}` : `grow your account by ${targetValue}%`} over ${timeframe} with ${riskDescription} money exposure (max ${riskPercent}% per trade).${styleNote}`,
       suggestedWatchlist: watchlist,
       estimatedTrades,
       timeline: timeframe

@@ -75,7 +75,7 @@ class RiskAwareStopCalculator {
     const typicalPipsRange = getTypicalStopPipsRange(riskMode);
 
     console.log(`[Stop Calculator] ${symbol} ${riskMode.toUpperCase()} mode:`);
-    console.log(`  ATR: ${atrValue.toFixed(5)}${atrTimeframe ? ` (${atrTimeframe})` : ''} | Profile: ${profile.tradingStyle}`);
+    console.log(`  ATR: ${atrValue.toFixed(5)}${atrTimeframe ? ` (${atrTimeframe})` : ''} | Risk: ${profile.riskPercentRange.min}-${profile.riskPercentRange.max}%`);
     console.log(`  ATR Multiplier Range: ${atrMultiplierRange.min}x - ${atrMultiplierRange.max}x`);
     console.log(`  Typical Pips Range: ${typicalPipsRange.min} - ${typicalPipsRange.max}`);
 
@@ -116,7 +116,7 @@ class RiskAwareStopCalculator {
       : entryPrice + stopDistance;
 
     // Generate reasoning
-    let reasoning = `${profile.tradingStyle.toUpperCase()} strategy: ${stopPips.toFixed(1)} pips (${atrMultiplier.toFixed(2)}x ATR)`;
+    let reasoning = `${profile.displayName} (${profile.riskPercentRange.min}-${profile.riskPercentRange.max}%): ${stopPips.toFixed(1)} pips (${atrMultiplier.toFixed(2)}x ATR)`;
 
     if (!withinProfileRange) {
       if (stopPips === minPips) {
@@ -179,7 +179,7 @@ class RiskAwareStopCalculator {
 
     console.log(`[Crypto Stop Calculator] ${symbol} ${riskMode.toUpperCase()} mode:`);
     console.log(`  Entry Price: $${entryPrice.toFixed(2)}`);
-    console.log(`  Profile: ${profile.tradingStyle}`);
+    console.log(`  Risk Profile: ${profile.displayName} (${profile.riskPercentRange.min}-${profile.riskPercentRange.max}%)`);
     console.log(`  Percentage Range: ${minPercent}% - ${maxPercent}%`);
 
     // Calculate stop percentage
@@ -226,7 +226,7 @@ class RiskAwareStopCalculator {
     const stopLossPips = stopDistance / pipInfo.pipValue;
 
     // Generate reasoning
-    let reasoning = `${profile.tradingStyle.toUpperCase()} crypto: ${stopPercent.toFixed(2)}% = $${stopDistance.toFixed(2)}`;
+    let reasoning = `${profile.displayName} crypto: ${stopPercent.toFixed(2)}% = $${stopDistance.toFixed(2)}`;
 
     if (!withinProfileRange) {
       if (stopPercent === minPercent) {
@@ -275,12 +275,12 @@ class RiskAwareStopCalculator {
     let score = 100;
 
     if (stopPips < typicalRange.min) {
-      warnings.push(`Stop too tight: ${stopPips.toFixed(1)} pips < ${typicalRange.min} (${riskMode} ${profile.tradingStyle} minimum)`);
+      warnings.push(`Stop too tight: ${stopPips.toFixed(1)} pips < ${typicalRange.min} (${riskMode} profile minimum)`);
       score -= 30;
     }
 
     if (stopPips > typicalRange.max) {
-      warnings.push(`Stop too wide: ${stopPips.toFixed(1)} pips > ${typicalRange.max} (${riskMode} ${profile.tradingStyle} maximum)`);
+      warnings.push(`Stop too wide: ${stopPips.toFixed(1)} pips > ${typicalRange.max} (${riskMode} profile maximum)`);
       score -= 30;
     }
 
@@ -311,8 +311,8 @@ class RiskAwareStopCalculator {
     const stopRange = getTypicalStopPipsRange(riskMode);
     const atrRange = getStopLossMultiplierRange(riskMode);
 
-    let recommendation = `${profile.displayName} mode (${profile.tradingStyle}): ${stopRange.min}-${stopRange.max} pips`;
-    recommendation += ` | ${atrRange.min}x-${atrRange.max}x ATR`;
+    let recommendation = `${profile.displayName} mode: ${stopRange.min}-${stopRange.max} pips`;
+    recommendation += ` | ${atrRange.min}x-${atrRange.max}x ATR | ${profile.riskPercentRange.min}-${profile.riskPercentRange.max}% risk`;
 
     if (atr) {
       const atrMultiplier = (atrRange.min + atrRange.max) / 2;

@@ -1,3 +1,21 @@
+/**
+ * SMART GOAL PANEL
+ *
+ * ARCHITECTURE PRINCIPLE: Risk and Style are INDEPENDENT dimensions
+ *
+ * Quick prompt buttons communicate:
+ * - Conservative/Moderate/Aggressive: Money exposure level (0.3-3% risk per trade)
+ * - "Quick Scalp": Time style preference (fast entries/exits)
+ *
+ * CRITICAL: These are NOT coupled in the UI messaging:
+ * - "Conservative" = Low $ risk, Alpha chooses style
+ * - "Aggressive" = High $ risk, Alpha chooses style
+ * - "Quick Scalp" = Fast style preference, Alpha determines risk level
+ *
+ * Users understand they can be conservative with money while still scalping,
+ * or aggressive with money while swing trading. The two dimensions are independent.
+ */
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Target, TrendingUp, Clock, AlertCircle, Loader2, Zap, AlertTriangle, CheckCircle, Sparkles, ChevronDown, Shield } from 'lucide-react';
 import { smartGoalSessionManager, SmartGoalConfig } from '../services/smart-goal-session-manager';
@@ -45,25 +63,25 @@ const generateGoalTemplates = (balance: number): GoalTemplate[] => {
     {
       label: `Conservative $${amounts.conservative}`,
       prompt: `Make me $${amounts.conservative} today with conservative exposure, close all positions before market close`,
-      description: 'Low risk, patient intraday trades only',
+      description: 'Low money exposure (0.3-0.8% risk), Alpha chooses style',
       riskLevel: 'low'
     },
     {
       label: `Moderate $${amounts.moderate}`,
       prompt: `Make me $${amounts.moderate} today with moderate exposure, close all positions before market close`,
-      description: 'Balanced intraday approach, closes today',
+      description: 'Balanced exposure (0.5-1.5% risk), Alpha chooses style',
       riskLevel: 'medium'
     },
     {
       label: `Quick Scalp $${amounts.quickScalp}`,
       prompt: `Find me a quick scalp move for $${amounts.quickScalp} today, fast entry and exit, close before market close`,
-      description: 'High risk scalp, fast in and out',
+      description: 'Fast scalp-style preference, Alpha determines risk',
       riskLevel: 'high'
     },
     {
       label: `Aggressive $${amounts.aggressive}`,
       prompt: `Make me $${amounts.aggressive} today with aggressive exposure, close all positions before market close`,
-      description: 'Higher risk intraday trades, closes today',
+      description: 'High money exposure (1-3% risk), Alpha chooses style',
       riskLevel: 'high'
     },
   ];
