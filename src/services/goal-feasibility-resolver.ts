@@ -436,13 +436,12 @@ export class GoalFeasibilityResolver {
     try {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
-      // Fix: Use id column for head request, and filter out nulls before gte comparison
+      // Fix: .gte() filter implicitly excludes NULL values
       const { count, error } = await supabase
         .from('goal_session_trades')
         .select('id', { count: 'exact', head: true })
         .eq('user_id', userId)
         .eq('session_id', sessionId)
-        .not('opened_at', 'is', null)
         .gte('opened_at', oneHourAgo.toISOString());
 
       if (error) {

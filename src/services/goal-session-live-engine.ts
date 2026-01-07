@@ -37,6 +37,7 @@ import { executionStyleResolver } from './execution-style-resolver';
 import { GoalFeasibilityResolver } from './goal-feasibility-resolver';
 import { AlphaDownshiftEvaluator } from './alpha-downshift-evaluator';
 import type { DownshiftProposal } from '../types/goal-feasibility';
+import { alphaExecutionPlanner } from './alpha-execution-planner';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
@@ -1141,6 +1142,45 @@ class GoalSessionLiveEngine {
         rrValidation.validation.warnings.forEach(w => logger.warn(LogCategory.AI_TRADING, `  - ${w}`));
       }
 
+      // 🎯 DUAL TAKE-PROFIT SYSTEM
+      // Calculate TP1 (conservative target) and TP2 (realistic target) based on user goal
+      let tp1Price: number | undefined;
+      let tp2Price: number | undefined;
+      let tp1Reasoning: string | undefined;
+      let tp2Reasoning: string | undefined;
+
+      try {
+        const dualTargets = await alphaExecutionPlanner.calculateDualTargets(
+          goalContext.targetGoal,
+          goalContext.currentBalance,
+          this.config.riskMode
+        );
+
+        // Convert dollar amounts to price levels
+        const pipInfo = getCurrencyPipInfo(selectedSymbol);
+        const tp1Pips = dualTargets.tp1 / dollarPerPip;
+        const tp2Pips = dualTargets.tp2 / dollarPerPip;
+
+        if (trade.direction === 'buy') {
+          tp1Price = trade.entryPrice + (tp1Pips * pipInfo.pipValue);
+          tp2Price = trade.entryPrice + (tp2Pips * pipInfo.pipValue);
+        } else {
+          tp1Price = trade.entryPrice - (tp1Pips * pipInfo.pipValue);
+          tp2Price = trade.entryPrice - (tp2Pips * pipInfo.pipValue);
+        }
+
+        tp1Reasoning = `TP1 at $${dualTargets.tp1.toFixed(2)} profit - Conservative target with high probability`;
+        tp2Reasoning = `TP2 at $${dualTargets.tp2.toFixed(2)} profit - Realistic market target`;
+
+        logger.info(
+          LogCategory.AI_TRADING,
+          `[Dual TP] TP1: ${formatCurrencyPrice(tp1Price, selectedSymbol)} ($${dualTargets.tp1}) | TP2: ${formatCurrencyPrice(tp2Price, selectedSymbol)} ($${dualTargets.tp2})`
+        );
+      } catch (error) {
+        logger.error(LogCategory.AI_TRADING, '[Dual TP] Error calculating dual targets:', error);
+        // Continue without dual TP system if calculation fails
+      }
+
       const executionResult = await tradeExecutionEngine.executeSignal(
         {
           sessionId: this.activeSession!,
@@ -1155,6 +1195,12 @@ class GoalSessionLiveEngine {
           reasoning: trade.reasoning,
           riskReward,
           expectedProfit,
+          // Dual TP system
+          tp1Price,
+          tp2Price,
+          tp1Confidence: tp1Price ? 70 : undefined, // TP1 is conservative with higher probability
+          tp1Reasoning,
+          tp2Reasoning,
           // Add style tracking data from eligibility gate
           ...(eligibilityResult.styleTracking && {
             requestedStyle: eligibilityResult.styleTracking.requestedStyle,
@@ -1193,13 +1239,16 @@ class GoalSessionLiveEngine {
         // Track goal feasibility decision for analytics
         if (downshiftedProposal) {
           try {
-            await supabase.from('goal_feasibility_tracking').insert({
+            // Ensure retention_percent is within valid range [0, 1]
+            const clampedRetention = Math.max(0, Math.min(1, downshiftedProposal.retentionPercent));
+
+            const { data, error } = await supabase.from('goal_feasibility_tracking').insert({
               user_id: this.config.userId,
               session_id: this.activeSession!,
               trade_id: trade.id,
               original_goal: downshiftedProposal.originalGoal,
               adjusted_goal: downshiftedProposal.adjustedGoal,
-              retention_percent: downshiftedProposal.retentionPercent,
+              retention_percent: clampedRetention,
               reasons_for_downshift: downshiftedProposal.reasonsForDownshift,
               alpha_affirmed: true,
               market_context: {
@@ -1211,9 +1260,27 @@ class GoalSessionLiveEngine {
                 volatilityContext: feasibilityResult.volatilityContext
               }
             });
-            logger.debug(LogCategory.AI_TRADING, '📊 Feasibility tracking recorded');
+
+            if (error) {
+              logger.error(LogCategory.AI_TRADING, '❌ Feasibility tracking insert failed:', {
+                error,
+                errorMessage: error.message,
+                errorDetails: error.details,
+                errorHint: error.hint,
+                proposalData: {
+                  original_goal: downshiftedProposal.originalGoal,
+                  adjusted_goal: downshiftedProposal.adjustedGoal,
+                  retention_percent: clampedRetention,
+                  user_id: this.config.userId,
+                  session_id: this.activeSession,
+                  trade_id: trade.id
+                }
+              });
+            } else {
+              logger.debug(LogCategory.AI_TRADING, '📊 Feasibility tracking recorded successfully');
+            }
           } catch (error) {
-            logger.error(LogCategory.AI_TRADING, 'Failed to record feasibility tracking', { error });
+            logger.error(LogCategory.AI_TRADING, 'Failed to record feasibility tracking (exception)', { error });
           }
         }
 

@@ -48,6 +48,23 @@ class AlphaRevisionHandler {
       };
     }
 
+    // 🚨 INFEASIBILITY CHECK: Detect impossible constraint scenarios
+    // This prevents wasting LLM tokens on unsolvable situations
+    const infeasibilityCheck = this.detectInfeasibleConstraints(
+      constraints,
+      violations,
+      originalDecision
+    );
+
+    if (infeasibilityCheck.isInfeasible) {
+      console.log('[Alpha Revision] ⚠️ INFEASIBLE CONSTRAINTS DETECTED');
+      console.log(`[Alpha Revision] Reason: ${infeasibilityCheck.reason}`);
+      console.log('[Alpha Revision] Skipping LLM call - constraints cannot be satisfied');
+      return {
+        revised: false
+      };
+    }
+
     // Build revision suggestions
     const revisionSuggestions = this.buildRevisionSuggestions(
       originalDecision,
@@ -88,7 +105,7 @@ class AlphaRevisionHandler {
         {
           model: 'gpt-4o-mini',
           temperature: 0.2, // Lower temperature for focused revision
-          max_tokens: 200,
+          max_tokens: 500, // Increased from 200 to prevent JSON truncation
           requestType: 'alpha_revision',
           endpoint: 'alpha-revision'
         }
@@ -127,6 +144,66 @@ class AlphaRevisionHandler {
         revised: false
       };
     }
+  }
+
+  /**
+   * Detect if constraints are mathematically impossible to satisfy
+   *
+   * This prevents wasting LLM tokens on unsolvable scenarios where
+   * constraints conflict or create impossible requirements
+   */
+  private detectInfeasibleConstraints(
+    constraints: Omega9Constraints,
+    violations: ConstraintViolation[],
+    decision: AlphaDecision
+  ): { isInfeasible: boolean; reason?: string } {
+    // Check 1: TP range validity (min must be <= max)
+    if (constraints.minTakeProfitPips > constraints.maxTakeProfitPips) {
+      return {
+        isInfeasible: true,
+        reason: `TP range invalid: min ${constraints.minTakeProfitPips.toFixed(1)} > max ${constraints.maxTakeProfitPips.toFixed(1)} pips`
+      };
+    }
+
+    // Check 2: SL range validity (min must be <= max)
+    if (constraints.minStopLossPips > constraints.maxStopLossPips) {
+      return {
+        isInfeasible: true,
+        reason: `SL range invalid: min ${constraints.minStopLossPips.toFixed(1)} > max ${constraints.maxStopLossPips.toFixed(1)} pips`
+      };
+    }
+
+    // Check 3: Zero or negative range for TP (impossible to place TP)
+    if (constraints.maxTakeProfitPips <= 0) {
+      return {
+        isInfeasible: true,
+        reason: `TP max is ${constraints.maxTakeProfitPips.toFixed(1)} pips - cannot place take profit`
+      };
+    }
+
+    // Check 4: R:R requirement vs available TP range
+    // If minRR = 1.0 and maxSL = 50 pips, then minTP must be >= 50 pips
+    // If maxTP < minTP required by R:R, it's infeasible
+    const minTPRequiredByRR = constraints.maxStopLossPips * constraints.minRiskReward;
+    if (minTPRequiredByRR > constraints.maxTakeProfitPips) {
+      return {
+        isInfeasible: true,
+        reason: `R:R ${constraints.minRiskReward}:1 requires TP >= ${minTPRequiredByRR.toFixed(1)} pips, but max TP is ${constraints.maxTakeProfitPips.toFixed(1)} pips`
+      };
+    }
+
+    // Check 5: If TP max is very close to TP min (< 1 pip range), it's effectively infeasible
+    const tpRange = constraints.maxTakeProfitPips - constraints.minTakeProfitPips;
+    if (tpRange < 1.0) {
+      return {
+        isInfeasible: true,
+        reason: `TP range too narrow: ${tpRange.toFixed(1)} pips (${constraints.minTakeProfitPips.toFixed(1)} to ${constraints.maxTakeProfitPips.toFixed(1)})`
+      };
+    }
+
+    return {
+      isInfeasible: false
+    };
   }
 
   /**
