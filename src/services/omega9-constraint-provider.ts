@@ -180,24 +180,29 @@ class Omega9ConstraintProvider {
       violations
     };
 
-    // CRITICAL PRE-FLIGHT FEASIBILITY CHECK
-    // Detect mathematically impossible constraint scenarios
+    // ✅ FEASIBILITY ADVISORY (NOT BLOCKING)
+    // Provide "best available" guidance instead of blocking
     const isInfeasible = constraints.minTakeProfitPips > constraints.maxTakeProfitPips;
     const maxAchievableRR = constraints.maxTakeProfitPips / referenceSLPips;
 
     if (isInfeasible) {
-      console.error('[Omega-9 Constraints] ❌ INFEASIBLE CONSTRAINTS DETECTED');
-      console.error(`[Omega-9 Constraints] Min TP: ${constraints.minTakeProfitPips.toFixed(1)} pips > Max TP: ${constraints.maxTakeProfitPips.toFixed(1)} pips`);
-      console.error(`[Omega-9 Constraints] Required R:R: ${minRiskReward.toFixed(2)}:1 | Max Achievable: ${maxAchievableRR.toFixed(2)}:1`);
-      console.error(`[Omega-9 Constraints] Root cause: Session constraint (${feasibleTravelPips.toFixed(1)} pips) too restrictive for ${tradeStyle} style`);
+      console.warn('[Omega-9 Constraints] ⚠️  FEASIBILITY ADVISORY: Constraints are tight');
+      console.warn(`[Omega-9 Constraints] Min TP: ${constraints.minTakeProfitPips.toFixed(1)} pips > Max TP: ${constraints.maxTakeProfitPips.toFixed(1)} pips`);
+      console.warn(`[Omega-9 Constraints] Required R:R: ${minRiskReward.toFixed(2)}:1 | Max Achievable: ${maxAchievableRR.toFixed(2)}:1`);
+      console.warn(`[Omega-9 Constraints] Root cause: Session constraint (${feasibleTravelPips.toFixed(1)} pips) limits available TP`);
 
-      // Add infeasibility violation
+      // Add ADVISORY violation (NOT blocking)
       constraints.violations.push({
-        type: 'INFEASIBLE_SETUP',
-        severity: 'ERROR',
-        message: `Constraints impossible: Min TP ${constraints.minTakeProfitPips.toFixed(1)} > Max TP ${constraints.maxTakeProfitPips.toFixed(1)} pips`,
-        suggestedFix: `STRONG RECOMMENDATION: NO_TRADE. Alternatively: 1) Tighten SL to ${constraints.maxTakeProfitPips.toFixed(1)} pips, or 2) Accept reduced R:R ${maxAchievableRR.toFixed(2)}:1`
+        type: 'TIGHT_CONSTRAINTS',
+        severity: 'WARNING', // Changed from ERROR to WARNING
+        message: `Constraints tight: Best achievable R:R is ${maxAchievableRR.toFixed(2)}:1 (target: ${minRiskReward.toFixed(2)}:1)`,
+        suggestedFix: `ADVISORY: Consider: 1) Tightening SL to ${constraints.maxTakeProfitPips.toFixed(1)} pips for ${maxAchievableRR.toFixed(2)}:1 R:R, or 2) Accepting lower R:R if setup quality justifies. Alpha has final authority.`
       });
+
+      // Adjust constraints to provide "best available" instead of blocking
+      constraints.minTakeProfitPips = Math.min(constraints.minTakeProfitPips, constraints.maxTakeProfitPips);
+      constraints.minRiskReward = maxAchievableRR; // Update to achievable R:R
+      console.log('[Omega-9 Constraints] ✅ Constraints auto-adjusted to provide best available setup');
     }
 
     console.log('[Omega-9 Constraints] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -370,18 +375,18 @@ class Omega9ConstraintProvider {
    * Format constraints for inclusion in Alpha's prompt
    */
   formatConstraintsForPrompt(constraints: Omega9Constraints): string {
-    const infeasibleSetup = constraints.minRiskReward < 1.0;
-    const infeasibleWarning = infeasibleSetup ? `
-⚠️ INFEASIBLE SETUP WARNING:
-The TP ceiling (${constraints.maxTakeProfitPips.toFixed(1)} pips) prevents achieving 1:1 R:R.
-Maximum achievable R:R is ${constraints.minRiskReward.toFixed(2)}:1.
-STRONG RECOMMENDATION: Return NO_TRADE or tighten SL to ≤ ${constraints.maxTakeProfitPips.toFixed(1)} pips.
+    const tightConstraints = constraints.minRiskReward < 1.0;
+    const advisoryNote = tightConstraints ? `
+⚠️ ADVISORY: Tight Market Conditions
+Maximum achievable R:R is ${constraints.minRiskReward.toFixed(2)}:1 (below standard 1:1).
+ADVISORY: Consider accepting lower R:R if setup quality justifies, or tighten SL.
+Remember: Reduced profit > NO_TRADE. You have FINAL AUTHORITY to proceed.
 ` : '';
 
     return `
 🎯 OMEGA-9 TRADING CONSTRAINTS (Your Operating Boundaries)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${infeasibleWarning}
+${advisoryNote}
 These are your DECISION BOUNDARIES, not vetoes.
 You have FULL AUTHORITY to choose within these ranges.
 
@@ -399,7 +404,7 @@ TAKE-PROFIT BOUNDARIES:
 • Rationale: ${constraints.takeProfitReasoning}
 
 RISK:REWARD REQUIREMENTS:
-• MINIMUM: ${constraints.minRiskReward.toFixed(2)}:1 ${infeasibleSetup ? '(⚠️ BELOW PROFESSIONAL STANDARD)' : '(professional floor - auto-corrected if violated)'}
+• AVAILABLE: ${constraints.minRiskReward.toFixed(2)}:1 ${tightConstraints ? '(⚠️ BELOW 1:1 - advisory only, your call)' : '(professional floor - auto-corrected if violated)'}
 • TARGET: ${constraints.targetRiskReward}:1 (standard professional expectation)
 • OPTIMAL: ${constraints.optimalRiskReward}:1 (elite trader standard)
 
@@ -413,14 +418,14 @@ YOUR AUTHORITY:
 ✅ You may choose ANY TP within min-max range
 ✅ You may override recommendations with reasoning
 ✅ You may tighten or widen based on structure
-${infeasibleSetup ? '⚠️ STRONG RECOMMENDATION: NO_TRADE due to infeasible constraints' : ''}
+✅ You may accept lower R:R if setup quality justifies (reduced profit > NO_TRADE)
 
 WHAT HAPPENS IF YOU VIOLATE:
 • R:R < ${constraints.minRiskReward.toFixed(2)}:1 → Auto-corrected to minimum (confidence penalty)
 • TP > maximum → Auto-corrected to maximum (moderate confidence penalty)
 • SL outside range → Warning only (no correction, your choice)
 
-This is CONSTRAINT-FIRST trading: boundaries are transparent, you optimize within them.
+Core Principle: If the market can offer some profit, you should take it.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
   }

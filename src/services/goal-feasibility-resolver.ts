@@ -61,14 +61,31 @@ export class GoalFeasibilityResolver {
       };
     }
 
+    // ✅ ADVISORY: Large goal detection (no longer blocks)
+    // Philosophy: "Reduced profit > NO_TRADE"
     const growthModeThreshold =
       accountBalance *
       GOAL_FEASIBILITY_CONFIG.blockConditions.goalExceedsAccountPercent;
+
     if (remainingGoal > growthModeThreshold) {
+      // Calculate reduced goal that's achievable
+      const reducedGoal = growthModeThreshold * 0.8; // 80% of threshold for safety
+
+      logger.warn('Large goal detected - proposing reduction', {
+        requestedGoal: remainingGoal,
+        reducedGoal,
+        threshold: growthModeThreshold,
+      });
+
       return {
-        feasible: false,
-        tier: 'BLOCK_WITH_ALTERNATIVES',
-        blockReason: `Goal (${remainingGoal.toFixed(2)}) exceeds 30% of account balance (${accountBalance.toFixed(2)}). This is in growth mode territory.`,
+        feasible: true, // Changed from false to true (advisory)
+        tier: 'EXECUTE_REDUCED',
+        proposal: {
+          reducedGoal,
+          retentionPercent: reducedGoal / remainingGoal,
+          reason: `Goal ($${remainingGoal.toFixed(2)}) exceeds 30% of account balance. Reducing to $${reducedGoal.toFixed(2)} (${((reducedGoal / remainingGoal) * 100).toFixed(0)}% of requested) for safer execution.`,
+          advisoryMessage: `ADVISORY: Large goal detected. Consider breaking into smaller staged targets for better risk management. Alpha may proceed with reduced goal.`,
+        },
         alternativeSuggestions: [
           `Break goal into smaller staged targets`,
           `Consider extending timeframe to multiple sessions`,
@@ -102,6 +119,7 @@ export class GoalFeasibilityResolver {
     ) {
       const atrMultiplier = typicalATR > 0 ? currentATR / typicalATR : 1;
 
+      // Check if volatility is unusually low (WAIT condition)
       if (
         atrMultiplier <
         GOAL_FEASIBILITY_CONFIG.waitConditions.minATRMultiplierRequired
@@ -113,12 +131,25 @@ export class GoalFeasibilityResolver {
         };
       }
 
+      // ✅ ADVISORY: Market capacity constraint (no longer blocks)
+      // Propose reduced goal instead of blocking
+      logger.warn('Market capacity constraint - proposing reduced goal', {
+        requestedGoal: remainingGoal,
+        maxDeliverable: maxProfitPossible,
+        retentionPercent: retentionPercent * 100,
+      });
+
       return {
-        feasible: false,
-        tier: 'BLOCK_WITH_ALTERNATIVES',
-        blockReason: `Market can only deliver ${(retentionPercent * 100).toFixed(0)}% of goal, even accounting for volatility. Goal may be too large for current conditions.`,
+        feasible: true, // Changed from false to true (advisory)
+        tier: 'EXECUTE_REDUCED',
+        proposal: {
+          reducedGoal: maxProfitPossible * 0.9, // 90% of max for safety margin
+          retentionPercent: maxProfitPossible / remainingGoal,
+          reason: `Market conditions can deliver ${(retentionPercent * 100).toFixed(0)}% of requested goal. Reducing to $${(maxProfitPossible * 0.9).toFixed(2)} for realistic execution.`,
+          advisoryMessage: `ADVISORY: Goal adjusted to market capacity. Reduced profit > NO_TRADE. Alpha has final authority.`,
+        },
         alternativeSuggestions: [
-          `Reduce goal to ${maxProfitPossible.toFixed(2)} or less`,
+          `Reduce goal to $${maxProfitPossible.toFixed(2)} or less`,
           `Wait for higher volatility period`,
           `Consider different trading session`,
         ],

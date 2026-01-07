@@ -34,6 +34,7 @@ import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator
 import type { MarketSnapshotData } from './market-snapshot-cache';
 import { tradeExecutionFreshnessGate, type ExecutionContext } from './trade-execution-freshness-gate';
 import { getMTFConfig, type Timeframe, type RiskMode } from '../config/timeframe-hierarchy';
+import { getConfidencePenaltyCap } from '../config/trade-constraints';
 
 export interface ConfidencePenalty {
   source: string;
@@ -45,6 +46,17 @@ export interface ConfidencePenaltyResult {
   appliedPenalty: ConfidencePenalty;
   allProposedPenalties: ConfidencePenalty[];
   finalMultiplier: number;
+}
+
+export interface ConfidenceReward {
+  source: string;
+  bonus: number; // Percentage points to add (e.g., 5 means +5%)
+  reason: string;
+}
+
+export interface ConfidenceRewardResult {
+  rewards: ConfidenceReward[];
+  totalBonus: number; // Total percentage points to add
 }
 
 export interface FullMarketState {
@@ -103,10 +115,14 @@ class AlphaOmegaOrchestrator {
   ): Promise<AlphaDecision> {
     console.log('[Alpha+Omega] 🎯 Starting decision pipeline...');
 
-    // PRIORITY 1 FIX: Pre-check freshness BEFORE expensive Omega calls
+    // ✅ FRESHNESS ADVISORY: Check data quality but don't block (except for critical staleness)
     const preCheck = await tradeExecutionFreshnessGate.preCheckFreshness(marketState.symbol);
-    if (!preCheck.shouldProceed) {
-      console.error(`[Alpha+Omega] 🚫 PRE-CHECK BLOCKED: ${preCheck.reason}`);
+
+    // Only block on CRITICAL data staleness (>5min old) - this is a HARD constraint (data integrity)
+    const isCriticallyStale = preCheck.reason?.includes('stale') && !preCheck.shouldProceed;
+
+    if (isCriticallyStale) {
+      console.error(`[Alpha+Omega] 🚫 HARD BLOCK: ${preCheck.reason} (DATA INTEGRITY)`);
       return {
         action: 'NO_TRADE',
         decision: 'NO_TRADE',
@@ -114,9 +130,15 @@ class AlphaOmegaOrchestrator {
         stopLoss: proposedSL,
         takeProfit: proposedTP,
         confidence: 0,
-        reasoning: `PRE-CHECK BLOCKED: ${preCheck.reason}`,
-        omega_summary: 'Execution blocked by pre-check - price data stale before LLM calls'
+        reasoning: `HARD BLOCK - DATA INTEGRITY: ${preCheck.reason}`,
+        omega_summary: 'Execution blocked - price data critically stale (>5min), violates SSOT'
       };
+    }
+
+    // Everything else is ADVISORY - log warning but proceed
+    if (!preCheck.shouldProceed) {
+      console.warn(`[Alpha+Omega] ⚠️  PRE-CHECK ADVISORY: ${preCheck.reason}`);
+      console.warn(`[Alpha+Omega] Proceeding with Alpha's authority - advisory will be included in confidence penalties`);
     }
 
     // Capture signal price and timestamp at analysis time (for drift detection)
@@ -196,9 +218,20 @@ class AlphaOmegaOrchestrator {
       existingExposure: 0
     };
     const riskCheck = riskPreflightGate.validate(riskPreflightInput);
-    if (!riskCheck.canProceed) {
-      const violationMessages = riskCheck.violations.map(v => v.message).join('; ');
-      console.error(`[Alpha+Omega] 🚫 RISK PRE-FLIGHT BLOCKED: ${violationMessages}`);
+
+    // Separate HARD violations (physics/safety) from ADVISORY warnings
+    const hardViolations = riskCheck.violations.filter(v =>
+      v.message.includes('Invalid position') ||
+      v.message.includes('Stop loss on wrong side') ||
+      v.message.includes('mathematically impossible')
+    );
+
+    const advisoryViolations = riskCheck.violations.filter(v => !hardViolations.includes(v));
+
+    // Only block on HARD violations (physics/safety)
+    if (hardViolations.length > 0) {
+      const violationMessages = hardViolations.map(v => v.message).join('; ');
+      console.error(`[Alpha+Omega] 🚫 HARD BLOCK: ${violationMessages} (PHYSICS/SAFETY)`);
       return {
         action: 'NO_TRADE',
         decision: 'NO_TRADE',
@@ -206,14 +239,23 @@ class AlphaOmegaOrchestrator {
         stopLoss: proposedSL,
         takeProfit: proposedTP,
         confidence: 0,
-        reasoning: `RISK GATE BLOCKED: ${violationMessages}`,
-        omega_summary: `Risk pre-flight failed: ${violationMessages}`
+        reasoning: `HARD BLOCK - PHYSICS/SAFETY: ${violationMessages}`,
+        omega_summary: `Risk pre-flight hard block: ${violationMessages}`
       };
     }
-    console.log(`[Alpha+Omega] ✅ Risk pre-flight passed (Score: ${riskCheck.riskScore}/100)`);
+
+    // Log risk score and warnings (all advisory now)
+    console.log(`[Alpha+Omega] ✅ Risk pre-flight passed hard constraints (Score: ${riskCheck.riskScore}/100)`);
+
+    if (advisoryViolations.length > 0) {
+      const advisoryMessages = advisoryViolations.map(v => v.message).join('; ');
+      console.warn(`[Alpha+Omega] ⚠️  Risk advisory violations: ${advisoryMessages}`);
+      console.warn(`[Alpha+Omega] Alpha has authority to proceed - violations will affect confidence`);
+    }
+
     if (riskCheck.warnings.length > 0) {
       const warningMessages = riskCheck.warnings.map(w => w.message).join('; ');
-      console.warn(`[Alpha+Omega] ⚠️ Risk warnings: ${warningMessages}`);
+      console.warn(`[Alpha+Omega] ⚠️  Risk warnings: ${warningMessages}`);
     }
 
     // ✅ NEW: Call Omegas directly with shared snapshot (deterministic, instant)
@@ -439,25 +481,87 @@ class AlphaOmegaOrchestrator {
     const totalTime = Date.now() - startTime;
 
     const originalConfidence = decision.confidence;
-    const adjustedConfidence = Math.round(originalConfidence * confidencePenaltyResult.finalMultiplier);
+
+    // ✅ CALCULATE CONFIDENCE REWARDS (balanced incentive system)
+    const rewardResult = this.calculateConfidenceRewards(
+      {
+        trend: trendVote,
+        scalper: scalperVote,
+        confirmation: confirmationVote,
+        reversal: reversalVote,
+        volatility: volatilityVote,
+        risk: null,
+        omega8: omega8Vote
+      },
+      marketState,
+      marketState.regime,
+      marketState.adversarial
+    );
+
+    // Apply rewards first (additive percentage points)
+    const rewardedConfidence = Math.min(100, originalConfidence + rewardResult.totalBonus);
+
+    // ✅ APPLY CONFIDENCE PENALTY CAPS (prevents "death by 1000 cuts")
+    // Cap is determined by user's risk profile - aggressive users get more freedom
+    const penaltyCap = getConfidencePenaltyCap(riskMode.toUpperCase() as 'LOW' | 'MEDIUM' | 'HIGH');
+
+    // Calculate pre-cap confidence (penalties applied to rewarded confidence)
+    const preCapMultiplier = confidencePenaltyResult.finalMultiplier;
+    const preCapConfidence = Math.round(rewardedConfidence * preCapMultiplier);
+
+    // Enforce cap (cap is minimum multiplier, e.g., 0.70 means max 30% penalty)
+    const cappedMultiplier = Math.max(preCapMultiplier, penaltyCap);
+    const finalConfidence = Math.round(rewardedConfidence * cappedMultiplier);
+
+    // Log cap enforcement for learning
+    const capWasApplied = cappedMultiplier > preCapMultiplier;
 
     console.log(`[Alpha+Omega] ⚡ Alpha decision complete (${alphaTime}ms)`);
     console.log(`[Alpha+Omega] 📊 Total pipeline: ${totalTime}ms`);
     console.log(`[Alpha+Omega] 🎯 Alpha decided: ${decision.action} @ ${originalConfidence}%`);
 
-    if (confidencePenaltyResult.finalMultiplier < 1.0) {
-      console.log(`[Alpha+Omega] 📉 Confidence adjusted: ${originalConfidence}% → ${adjustedConfidence}% (${confidencePenaltyResult.appliedPenalty.source})`);
+    // Log rewards
+    if (rewardResult.totalBonus > 0) {
+      console.log(`[Alpha+Omega] 🎁 Confidence rewards earned: +${rewardResult.totalBonus}pts`);
+      rewardResult.rewards.forEach(r => {
+        console.log(`[Alpha+Omega]   ✨ ${r.source}: +${r.bonus}pts - ${r.reason}`);
+      });
+      console.log(`[Alpha+Omega] 📈 After rewards: ${originalConfidence}% → ${rewardedConfidence}%`);
     }
+
+    // Log penalties
+    if (confidencePenaltyResult.finalMultiplier < 1.0) {
+      console.log(`[Alpha+Omega] 📉 Confidence penalty applied: ${rewardedConfidence}% → ${preCapConfidence}% (${confidencePenaltyResult.appliedPenalty.source})`);
+    }
+
+    // Log cap enforcement
+    if (capWasApplied) {
+      const recoveredPoints = finalConfidence - preCapConfidence;
+      console.log(`[Alpha+Omega] 🛡️  PENALTY CAP ENFORCED (${riskMode.toUpperCase()} risk profile)`);
+      console.log(`[Alpha+Omega] Cap at ${(penaltyCap * 100).toFixed(0)}% → Confidence recovered from ${preCapConfidence}% to ${finalConfidence}% (+${recoveredPoints}pts)`);
+      console.log(`[Alpha+Omega] Rationale: ${riskMode.toUpperCase()} risk users accept more uncertainty - preventing paralysis`);
+    }
+
+    // Final confidence summary
+    console.log(`[Alpha+Omega] 🎯 FINAL CONFIDENCE: ${originalConfidence}% (base) → ${rewardedConfidence}% (rewarded) → ${finalConfidence}% (after penalties & cap)`);
 
     return {
       ...decision,
-      confidence: adjustedConfidence,
+      confidence: finalConfidence,
       confidenceAdjustments: confidencePenaltyResult.allProposedPenalties.map(p => ({
         source: p.source,
         proposedMultiplier: p.multiplier,
         wasApplied: p === confidencePenaltyResult.appliedPenalty,
         reason: p.reason
-      }))
+      })),
+      confidenceRewards: rewardResult.rewards,
+      penaltyCap: {
+        riskMode: riskMode.toUpperCase(),
+        capValue: penaltyCap,
+        wasApplied: capWasApplied,
+        preCapConfidence,
+        finalConfidence
+      }
     };
   }
 
@@ -951,6 +1055,111 @@ class AlphaOmegaOrchestrator {
       appliedPenalty: worstPenalty,
       allProposedPenalties: penalties,
       finalMultiplier: worstPenalty.multiplier
+    };
+  }
+
+  /**
+   * Calculate confidence rewards for optimal conditions
+   * This creates a balanced incentive structure - not all trades get penalized!
+   */
+  private calculateConfidenceRewards(
+    votes: OmegaCouncilVotes,
+    marketState: FullMarketState,
+    regimeSnapshot?: RegimeSnapshot,
+    adversarialSignal?: AdversarialSignal
+  ): ConfidenceRewardResult {
+    const rewards: ConfidenceReward[] = [];
+
+    // ✅ REWARD 1: Strong Omega Consensus (low disagreement, high alignment)
+    const directionalVotes = [
+      votes.trend?.vote,
+      votes.scalper?.vote,
+      votes.reversal?.vote,
+      votes.omega8?.vote,
+      votes.volatility?.vote
+    ].filter(v => v === 'BUY' || v === 'SELL');
+
+    if (directionalVotes.length >= 3) {
+      const buyVotes = directionalVotes.filter(v => v === 'BUY').length;
+      const sellVotes = directionalVotes.filter(v => v === 'SELL').length;
+      const majorityCount = Math.max(buyVotes, sellVotes);
+      const totalVotes = directionalVotes.length;
+
+      // Unanimous alignment (all agree)
+      if (majorityCount === totalVotes && totalVotes >= 4) {
+        rewards.push({
+          source: 'Omega Consensus',
+          bonus: 8,
+          reason: `Unanimous ${directionalVotes[0]} alignment across ${totalVotes} Omegas - exceptional setup`
+        });
+      }
+      // Strong majority (5+ votes, 1-2 disagree)
+      else if (majorityCount >= 5 && totalVotes - majorityCount <= 2) {
+        rewards.push({
+          source: 'Omega Consensus',
+          bonus: 10,
+          reason: `Strong ${majorityCount}v${totalVotes - majorityCount} consensus - high-conviction setup`
+        });
+      }
+      // Clear majority (4v1 or 3v1)
+      else if (majorityCount >= 4 && totalVotes - majorityCount === 1) {
+        rewards.push({
+          source: 'Omega Consensus',
+          bonus: 5,
+          reason: `Clear ${majorityCount}v${totalVotes - majorityCount} majority - solid setup`
+        });
+      }
+    }
+
+    // ✅ REWARD 2: Clean Order Flow (no manipulation detected)
+    if (!adversarialSignal || !adversarialSignal.is_adversarial) {
+      rewards.push({
+        source: 'Clean Order Flow',
+        bonus: 5,
+        reason: 'No manipulation detected - healthy price action'
+      });
+    }
+
+    // ✅ REWARD 3: Optimal Session Timing (within active market session)
+    if (regimeSnapshot?.session && regimeSnapshot.session !== 'dead_zone') {
+      // Check if we're in optimal session window (not at edges)
+      const isOptimalTiming = regimeSnapshot.session_open === false; // Not just opened, stable session
+      if (isOptimalTiming) {
+        rewards.push({
+          source: 'Session Timing',
+          bonus: 5,
+          reason: `Optimal ${regimeSnapshot.session} session timing - active market conditions`
+        });
+      }
+    }
+
+    // ✅ REWARD 4: Optimal ATR for Volatility (not too high, not too low)
+    if (regimeSnapshot) {
+      const volatilityScore = regimeSnapshot.volatility_score;
+      // Goldilocks zone: 40-70 volatility score (not too hot, not too cold)
+      if (volatilityScore >= 40 && volatilityScore <= 70) {
+        rewards.push({
+          source: 'Optimal Volatility',
+          bonus: 5,
+          reason: `Volatility at ${volatilityScore}% - ideal for trading (40-70% sweet spot)`
+        });
+      }
+    }
+
+    // ✅ REWARD 5: Strong Market Structure (clear trend with good structure quality)
+    if (regimeSnapshot?.structure_quality && regimeSnapshot.structure_quality >= 70) {
+      rewards.push({
+        source: 'Market Structure',
+        bonus: 5,
+        reason: `Strong market structure (${regimeSnapshot.structure_quality}% quality) - clear directional bias`
+      });
+    }
+
+    const totalBonus = rewards.reduce((sum, r) => sum + r.bonus, 0);
+
+    return {
+      rewards,
+      totalBonus
     };
   }
 

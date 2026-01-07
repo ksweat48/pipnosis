@@ -308,7 +308,17 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
   }
 
   /**
-   * Adjustment cascade: Try style → risk → SL relaxation
+   * REPAIR CASCADE: Try multiple adjustments to find viable trade
+   * Philosophy: "Reduced profit > NO_TRADE"
+   *
+   * Cascade order:
+   * 1. TP reduction (accept smaller profit)
+   * 2. Risk downgrade (tighter stops)
+   * 3. SL relaxation (crypto only)
+   * 4. TP1-only mode (partial profit target)
+   * 5. Style upgrade (longer duration)
+   *
+   * Only gives up if ALL repairs fail
    */
   private adjustmentCascade(
     input: FeasibilityInput,
@@ -323,8 +333,49 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
     finalSlMinPercent?: number;
     finalRR?: number;
     advisory?: string;
+    repairUsed?: string; // Track which repair succeeded
   } {
-    // Try 1: Downgrade risk mode (reduces SL floor)
+    logger.info(
+      LogCategory.AI_TRADING,
+      `[Repair Cascade] Starting repair sequence for ${input.symbol} (RR target: ${input.policy.minRR}:1)`
+    );
+
+    // REPAIR 1: TP Reduction (accept smaller profit)
+    // Try reducing TP from 12x to 8x, 6x, 4x ATR
+    const tpReductionCandidates = [8, 6, 4, 3];
+    for (const reducedTpMultiple of tpReductionCandidates) {
+      if (reducedTpMultiple < tpMaxMultiple) {
+        const candidateTpCeiling = input.atrPercent * reducedTpMultiple;
+        const candidateRR = currentSlMin > 0 ? candidateTpCeiling / currentSlMin : 0;
+
+        if (candidateRR >= input.policy.minRR) {
+          adjustments.push({
+            field: 'tp.maxAtrMultiple',
+            from: tpMaxMultiple,
+            to: reducedTpMultiple,
+            reason: 'RR_INFEASIBLE',
+            advisory: false,
+            detail: `Reduced TP from ${tpMaxMultiple}x to ${reducedTpMultiple}x ATR to achieve ${candidateRR.toFixed(2)}:1 R:R`
+          });
+
+          logger.info(
+            LogCategory.AI_TRADING,
+            `[Repair Cascade] ✅ REPAIR 1 SUCCESS: TP reduction ${tpMaxMultiple}x → ${reducedTpMultiple}x ATR (RR now ${candidateRR.toFixed(2)}:1)`
+          );
+
+          return {
+            style: currentStyle,
+            riskMode: currentRiskMode,
+            finalSlMinPercent: currentSlMin,
+            finalRR: candidateRR,
+            repairUsed: 'TP_REDUCTION'
+          };
+        }
+      }
+    }
+    logger.info(LogCategory.AI_TRADING, `[Repair Cascade] ❌ REPAIR 1 FAILED: TP reduction didn't achieve target R:R`);
+
+    // REPAIR 2: Risk Downgrade (tighter stops)
     if (input.policy.allowAutoDowngradeRisk) {
       const riskCascade: RiskMode[] = ['HIGH', 'MEDIUM', 'LOW'];
       const currentRiskIndex = riskCascade.indexOf(currentRiskMode);
@@ -345,20 +396,22 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
 
           logger.info(
             LogCategory.AI_TRADING,
-            `[Feasibility Resolver] Risk downgraded: ${currentRiskMode} → ${candidateRiskMode} (RR now ${candidateRR.toFixed(2)}:1)`
+            `[Repair Cascade] ✅ REPAIR 2 SUCCESS: Risk downgrade ${currentRiskMode} → ${candidateRiskMode} (RR now ${candidateRR.toFixed(2)}:1)`
           );
 
           return {
             style: currentStyle,
             riskMode: candidateRiskMode,
             finalSlMinPercent: candidateSlMin,
-            finalRR: candidateRR
+            finalRR: candidateRR,
+            repairUsed: 'RISK_DOWNGRADE'
           };
         }
       }
+      logger.info(LogCategory.AI_TRADING, `[Repair Cascade] ❌ REPAIR 2 FAILED: Risk downgrade didn't achieve target R:R`);
     }
 
-    // Try 2: Bounded SL relaxation (CRYPTO HIGH only, when auto-switched to INTRADAY)
+    // REPAIR 3: Bounded SL Relaxation (CRYPTO HIGH only)
     if (
       input.policy.allowBoundedSlRelaxation &&
       input.assetClass === 'CRYPTO' &&
@@ -379,24 +432,98 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
 
         logger.info(
           LogCategory.AI_TRADING,
-          `[Feasibility Resolver] Bounded SL relaxation: ${currentSlMin.toFixed(2)}% → ${relaxedSlMin.toFixed(2)}% (RR now ${relaxedRR.toFixed(2)}:1)`
+          `[Repair Cascade] ✅ REPAIR 3 SUCCESS: SL relaxation ${currentSlMin.toFixed(2)}% → ${relaxedSlMin.toFixed(2)}% (RR now ${relaxedRR.toFixed(2)}:1)`
         );
 
         return {
           style: currentStyle,
           riskMode: currentRiskMode,
           finalSlMinPercent: relaxedSlMin,
-          finalRR: relaxedRR
+          finalRR: relaxedRR,
+          repairUsed: 'SL_RELAXATION'
         };
       }
+      logger.info(LogCategory.AI_TRADING, `[Repair Cascade] ❌ REPAIR 3 FAILED: SL relaxation didn't achieve target R:R`);
     }
 
-    // All adjustments failed - return advisory (NOT blocker)
+    // REPAIR 4: TP1-Only Mode (partial profit, lower target)
+    // Accept just TP1 (typically 50% of full TP) to achieve lower but viable R:R
+    const tp1Multiple = Math.max(2, tpMaxMultiple * 0.4); // TP1 at 40% of original TP
+    const tp1TpCeiling = input.atrPercent * tp1Multiple;
+    const tp1RR = currentSlMin > 0 ? tp1TpCeiling / currentSlMin : 0;
+
+    if (tp1RR >= input.policy.minRR * 0.7) { // Accept 70% of target R:R for TP1-only
+      adjustments.push({
+        field: 'tp.mode',
+        from: 'FULL_TP',
+        to: 'TP1_ONLY',
+        reason: 'RR_INFEASIBLE',
+        advisory: false,
+        detail: `Using TP1-only mode (${tp1Multiple.toFixed(1)}x ATR) to achieve ${tp1RR.toFixed(2)}:1 R:R`
+      });
+
+      logger.info(
+        LogCategory.AI_TRADING,
+        `[Repair Cascade] ✅ REPAIR 4 SUCCESS: TP1-only mode at ${tp1Multiple.toFixed(1)}x ATR (RR ${tp1RR.toFixed(2)}:1)`
+      );
+
+      return {
+        style: currentStyle,
+        riskMode: currentRiskMode,
+        finalSlMinPercent: currentSlMin,
+        finalRR: tp1RR,
+        repairUsed: 'TP1_ONLY'
+      };
+    }
+    logger.info(LogCategory.AI_TRADING, `[Repair Cascade] ❌ REPAIR 4 FAILED: TP1-only mode didn't achieve acceptable R:R`);
+
+    // REPAIR 5: Style Upgrade (longer duration, more room to breathe)
+    // Only try if we're currently at SCALP
+    if (currentStyle === 'SCALP' && input.policy.allowAutoSwitchStyle) {
+      const upgradedStyle: TradeStyle = 'INTRADAY';
+      if (this.isStyleValid(input.assetClass, upgradedStyle, input.atrPercent)) {
+        adjustments.push({
+          field: 'style',
+          from: currentStyle,
+          to: upgradedStyle,
+          reason: 'LOW_VOLATILITY_FOR_STYLE',
+          advisory: false,
+          detail: `Upgraded from ${currentStyle} to ${upgradedStyle} for better feasibility`
+        });
+
+        logger.info(
+          LogCategory.AI_TRADING,
+          `[Repair Cascade] ✅ REPAIR 5 SUCCESS: Style upgrade ${currentStyle} → ${upgradedStyle}`
+        );
+
+        // Recalculate with upgraded style
+        const upgradedSlMin = this.getSlMinPercent(input.assetClass, currentRiskMode);
+        const upgradedTpCeiling = input.atrPercent * tpMaxMultiple;
+        const upgradedRR = upgradedSlMin > 0 ? upgradedTpCeiling / upgradedSlMin : 0;
+
+        return {
+          style: upgradedStyle,
+          riskMode: currentRiskMode,
+          finalSlMinPercent: upgradedSlMin,
+          finalRR: upgradedRR,
+          repairUsed: 'STYLE_UPGRADE'
+        };
+      }
+      logger.info(LogCategory.AI_TRADING, `[Repair Cascade] ❌ REPAIR 5 FAILED: Style upgrade not valid for current ATR`);
+    }
+
+    // ALL REPAIRS FAILED - Return advisory with best available
     const maxRR = ((input.atrPercent * tpMaxMultiple) / currentSlMin).toFixed(2);
+    logger.warn(
+      LogCategory.AI_TRADING,
+      `[Repair Cascade] ⚠️  ALL REPAIRS EXHAUSTED: Best achievable R:R is ${maxRR}:1 (target: ${input.policy.minRR}:1)`
+    );
+
     return {
       style: currentStyle,
       riskMode: currentRiskMode,
-      advisory: `⚠️ ADVISORY: Cannot achieve professional target ${input.policy.minRR}:1 R:R. TP ceiling ${(input.atrPercent * tpMaxMultiple).toFixed(2)}% / SL floor ${currentSlMin.toFixed(2)}% yields maximum R:R ${maxRR}:1. Alpha may proceed with lower R:R if setup quality justifies it.`
+      advisory: `⚠️ ADVISORY: Repair cascade exhausted. Cannot achieve professional target ${input.policy.minRR}:1 R:R. TP ceiling ${(input.atrPercent * tpMaxMultiple).toFixed(2)}% / SL floor ${currentSlMin.toFixed(2)}% yields maximum R:R ${maxRR}:1. Alpha may proceed with lower R:R if setup quality justifies it.`,
+      repairUsed: 'NONE'
     };
   }
 
