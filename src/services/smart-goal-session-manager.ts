@@ -413,11 +413,13 @@ class SmartGoalSessionManager {
         symbol: config.watchlist[0],
         timeframe: '15m',
         useLLM: true,
-        riskMode: config.riskMode,
+        riskMode: config.riskMode || 'medium',
         maxConcurrentTrades,
         initialBalance: accountBalance,
         autoExecute: config.autoExecute,
-        minConfidence
+        minConfidence,
+        dollarRisk: config.dollarRisk,
+        tradeStyle: config.tradeStyle
       };
 
       const result = await goalSessionLiveEngine.startSession(liveConfig);

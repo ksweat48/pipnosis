@@ -329,6 +329,83 @@ function validatePriceMatchesSymbol(symbol: string, entryPrice: number): void {
 }
 
 /**
+ * Calculate lot size from fixed dollar risk (Trade Styles System)
+ *
+ * CRITICAL: This is the SSOT for dollar-risk-based position sizing.
+ * Used by new Trade Styles system (Sniper, Scalper, Day Trader, Swing Trader).
+ *
+ * Formula: Lot Size = Dollar Risk / (SL Distance in Pips × Dollar Per Pip Per Lot)
+ *
+ * Example - EURUSD with $97.20 risk and 3.2 pip SL:
+ *   - SL Distance: 3.2 pips
+ *   - Dollar per pip needed: $97.20 / 3.2 = $30.38/pip
+ *   - EURUSD: $10 per pip per 1.0 lot
+ *   - Lot size: $30.38 / $10 = 3.04 lots
+ *   - Verification: 3.04 lots × $10/pip × 3.2 pips = $97.28 ✅
+ *
+ * @param symbol Currency pair
+ * @param dollarRisk Fixed dollar amount to risk
+ * @param entryPrice Entry price
+ * @param stopLoss Stop loss price
+ * @returns Lot size rounded to 0.01
+ */
+export function calculateLotSizeFromDollarRisk(
+  symbol: string,
+  dollarRisk: number,
+  entryPrice: number,
+  stopLoss: number
+): number {
+  const pipInfo = getCurrencyPipInfo(symbol);
+
+  // Validate price matches symbol (catch dummy price contamination)
+  validatePriceMatchesSymbol(symbol, entryPrice);
+
+  console.log(`%c[Dollar-Risk Position Sizing] ${symbol}`, 'color: #00ffff; font-weight: bold');
+  console.log(`  Dollar Risk: $${dollarRisk.toFixed(2)}`);
+  console.log(`  Entry: ${entryPrice}, SL: ${stopLoss}`);
+
+  // Validate stop loss distance
+  const direction = stopLoss < entryPrice ? 'LONG' : 'SHORT';
+  const validation = validateStopLossDistance(
+    symbol,
+    entryPrice,
+    stopLoss,
+    direction,
+    pipInfo.pipValue
+  );
+
+  if (!validation.valid) {
+    console.error('%c🚨 INVALID SL DISTANCE', 'color: #ff0000; font-weight: bold');
+    console.error(`  Violations: ${validation.violations.join('; ')}`);
+    throw new Error(`Invalid SL/Entry: ${validation.violations.join('; ')}`);
+  }
+
+  const slDistancePips = validation.actualDistancePips;
+  console.log(`  SL Distance: ${slDistancePips.toFixed(2)} pips`);
+
+  // Calculate lot size
+  // Formula: Lot Size = Dollar Risk / (SL Pips × Dollar Per Pip Per Lot)
+  const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot;
+  let lotSize = dollarRisk / (slDistancePips * dollarPerPipPerLot);
+
+  console.log(`  Dollar/Pip/Lot: $${dollarPerPipPerLot.toFixed(2)}`);
+  console.log(`  Calculated Lot Size: ${lotSize.toFixed(4)}`);
+
+  // Clamp to broker limits
+  const symbolConfig = getSymbolConfig(symbol);
+  const minSize = symbolConfig?.minLotSize || 0.01;
+  const maxSize = symbolConfig?.maxLotSize || 5.0;
+
+  lotSize = Math.max(minSize, Math.min(maxSize, lotSize));
+  lotSize = roundLotSize(lotSize);
+
+  console.log(`  Final Lot Size: ${formatLotSize(lotSize)} lots`);
+  console.log(`  Actual Risk: $${(slDistancePips * calculateDollarPerPip(symbol, lotSize)).toFixed(2)}`);
+
+  return lotSize;
+}
+
+/**
  * Calculate position size based on risk amount and stop loss distance
  * THIS IS THE CORRECT FORMULA - USE THIS EVERYWHERE
  *

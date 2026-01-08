@@ -22,7 +22,7 @@ import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orch
 import { bestSymbolSelector } from './best-symbol-selector';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
-import { calculateDollarPerPip, calculatePositionSize, calculatePipDistance, calculateGoalAwareLotSize, calculateAndValidateRR, getCurrencyPipInfo, formatCurrencyPrice } from '../utils/currencyHelpers';
+import { calculateDollarPerPip, calculatePositionSize, calculatePipDistance, calculateGoalAwareLotSize, calculateLotSizeFromDollarRisk, calculateAndValidateRR, getCurrencyPipInfo, formatCurrencyPrice } from '../utils/currencyHelpers';
 import { getRiskPercentage } from '../config/risk-levels';
 import { postTradeAnalyzer } from './post-trade-analyzer';
 import { scanningStateMachine } from './scanning-state-machine';
@@ -55,6 +55,8 @@ export interface GoalSessionLiveConfig {
   initialBalance: number;
   autoExecute: boolean;
   minConfidence?: number; // Minimum confidence threshold for trades
+  dollarRisk?: number; // Fixed dollar risk for Trade Styles system
+  tradeStyle?: string; // Trade style (Sniper, Scalper, Day Trader, Swing Trader)
 }
 
 export interface LiveTradeSignal {
@@ -828,27 +830,59 @@ class GoalSessionLiveEngine {
         return;
       }
 
-      // ✅ CRITICAL FIX: Goal-aware LOT SIZING only (TP comes from Alpha's market analysis)
-      // This calculates position size appropriate for risk mode and goal context
-      // BUT lets Alpha determine TP based on market reality (liquidity zones, structure, R:R)
-      const goalAwareSizing = calculateGoalAwareLotSize(
-        selectedSymbol,
-        decision.action.toLowerCase() as 'buy' | 'sell',
-        this.config.initialBalance,
-        decision.entry,
-        decision.stopLoss,
-        goalContext.currentProgress,
-        goalContext.targetGoal,
-        this.config.riskMode
-      );
+      // ✅ POSITION SIZING: Use dollar-risk if available (Trade Styles), otherwise goal-aware sizing
+      let lotSize: number;
+      let expectedProfitAtCommonMove: number;
+      let reasoning: string;
+      let estimatedTradesNeeded: number;
+
+      if (this.config.dollarRisk) {
+        // NEW SYSTEM: Fixed dollar-risk position sizing (Trade Styles)
+        console.log(`%c[Trade Styles] Using dollar-risk sizing: $${this.config.dollarRisk}`, 'color: #00ffff; font-weight: bold');
+        lotSize = calculateLotSizeFromDollarRisk(
+          selectedSymbol,
+          this.config.dollarRisk,
+          decision.entry,
+          decision.stopLoss
+        );
+
+        // Calculate expected profit at Alpha's TP
+        const alphaTPPips = calculatePipDistance(selectedSymbol, decision.entry, decision.takeProfit);
+        const dollarPerPip = calculateDollarPerPip(selectedSymbol, lotSize);
+        expectedProfitAtCommonMove = alphaTPPips * dollarPerPip;
+
+        // Estimate trades needed to reach goal
+        const remainingGoal = goalContext.targetGoal - goalContext.currentProgress;
+        estimatedTradesNeeded = Math.ceil(remainingGoal / expectedProfitAtCommonMove);
+
+        reasoning = `${this.config.tradeStyle || 'Dollar-risk'} trade: ${lotSize.toFixed(2)} lots risking $${this.config.dollarRisk.toFixed(2)}. Expected profit at TP: $${expectedProfitAtCommonMove.toFixed(2)}.`;
+      } else {
+        // LEGACY SYSTEM: Goal-aware percentage-based sizing
+        console.log(`%c[Legacy] Using goal-aware sizing: ${this.config.riskMode} risk`, 'color: #ffaa00; font-weight: bold');
+        const goalAwareSizing = calculateGoalAwareLotSize(
+          selectedSymbol,
+          decision.action.toLowerCase() as 'buy' | 'sell',
+          this.config.initialBalance,
+          decision.entry,
+          decision.stopLoss,
+          goalContext.currentProgress,
+          goalContext.targetGoal,
+          this.config.riskMode
+        );
+
+        lotSize = goalAwareSizing.lotSize;
+        expectedProfitAtCommonMove = goalAwareSizing.expectedProfitAtCommonMove;
+        reasoning = goalAwareSizing.reasoning;
+        estimatedTradesNeeded = goalAwareSizing.estimatedTradesNeeded;
+      }
 
       const alphaTPPips = calculatePipDistance(selectedSymbol, decision.entry, decision.takeProfit);
-      const dollarPerPipAtLotSize = calculateDollarPerPip(selectedSymbol, goalAwareSizing.lotSize);
+      const dollarPerPipAtLotSize = calculateDollarPerPip(selectedSymbol, lotSize);
       const expectedProfitAtAlphaTP = alphaTPPips * dollarPerPipAtLotSize;
       const progressPercent = (expectedProfitAtAlphaTP / goalContext.remainingGoal) * 100;
 
       if (import.meta.env.DEV) {
-        console.log(`[Trade] ${decision.symbol} ${goalAwareSizing.lotSize.toFixed(3)} lots, TP: ${alphaTPPips.toFixed(1)}p ($${expectedProfitAtAlphaTP.toFixed(2)})`);
+        console.log(`[Trade] ${decision.symbol} ${lotSize.toFixed(3)} lots, TP: ${alphaTPPips.toFixed(1)}p ($${expectedProfitAtAlphaTP.toFixed(2)})`);
       }
 
       const hour = new Date().getUTCHours();
@@ -1018,7 +1052,7 @@ class GoalSessionLiveEngine {
 
         // Recalculate take profit based on adjusted expected profit
         const pipInfo = getCurrencyPipInfo(selectedSymbol);
-        const dollarPerPip = calculateDollarPerPip(selectedSymbol, goalAwareSizing.lotSize);
+        const dollarPerPip = calculateDollarPerPip(selectedSymbol, lotSize);
         const adjustedTPPips = adjustedExpectedProfit / dollarPerPip;
 
         if (decision.action === 'BUY') {
@@ -1045,9 +1079,9 @@ class GoalSessionLiveEngine {
         entryPrice: decision.entry,
         stopLoss: decision.stopLoss,
         takeProfit: adjustedTakeProfit,
-        lotSize: goalAwareSizing.lotSize,
+        lotSize: lotSize,
         expectedProfitUSD: adjustedExpectedProfit,
-        estimatedTradesRequired: goalAwareSizing.estimatedTradesNeeded,
+        estimatedTradesRequired: estimatedTradesNeeded,
         remainingGoal: goalContext.remainingGoal,
         accountBalance: this.config.initialBalance,
         currentATR: atrPips * pipInfo.pipValue,
@@ -1068,15 +1102,15 @@ class GoalSessionLiveEngine {
         console.log('[Goal Session] Converting to entry intent:', eligibilityResult.entryIntentSuggestion.reason);
       }
 
-      let calculatedLotSize = goalAwareSizing.lotSize;
+      let calculatedLotSize = lotSize;
 
       // Build comprehensive reasoning that explains the trade plan
       const tradeReasoningAddendum = `\n\n💰 GOAL PROGRESS CONTEXT:\n` +
         `Remaining to Goal: $${goalContext.remainingGoal.toFixed(2)}\n` +
         `This Trade Target: $${adjustedExpectedProfit.toFixed(2)} (${((adjustedExpectedProfit / goalContext.remainingGoal) * 100).toFixed(0)}% progress)\n` +
         `${downshiftedProposal ? `🔄 Goal Adjusted: ${(downshiftedProposal.retentionPercent * 100).toFixed(0)}% retention (Alpha approved)\n` : ''}` +
-        `${goalAwareSizing.estimatedTradesNeeded > 1 ?
-          `Multi-Trade Strategy: Estimated ${goalAwareSizing.estimatedTradesNeeded} trades needed at realistic market-based TPs` :
+        `${estimatedTradesNeeded > 1 ?
+          `Multi-Trade Strategy: Estimated ${estimatedTradesNeeded} trades needed at realistic market-based TPs` :
           `Single-Trade Strategy: Goal achievable in this trade if TP is reached`}\n` +
         `\nTP Strategy: ${decision.reasoning.includes('liquidity') ? 'Liquidity-based placement' : 'Market structure-based placement'}`;
 
