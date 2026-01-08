@@ -12,11 +12,14 @@ import { goalSessionLiveEngine, GoalSessionLiveConfig } from './goal-session-liv
 import { v4 as uuidv4 } from 'uuid';
 import { getMinConfidenceThreshold } from '../config/risk-levels';
 import { alphaExecutionPlanner } from './alpha-execution-planner';
+import { TradeStyle } from '../config/trade-styles';
 
 export interface SmartGoalConfig {
   goalAmount: number;
   timeframe: string;
-  riskMode: 'low' | 'medium' | 'high';
+  riskMode?: 'low' | 'medium' | 'high'; // Legacy, optional
+  tradeStyle?: TradeStyle; // New trade styles system
+  dollarRisk?: number; // New dollar-based risk
   watchlist: string[];
   autoExecute: boolean;
   accountBalance: number;
@@ -58,15 +61,24 @@ class SmartGoalSessionManager {
     userId: string,
     prompt: string,
     accountBalance: number,
-    multiTradeEnabled: boolean = false
+    multiTradeEnabled: boolean = false,
+    tradeStyle?: TradeStyle,
+    dollarRisk?: number
   ): Promise<SmartGoalSession> {
-    const config = this.parseGoalPrompt(prompt, accountBalance);
+    // Use new trade styles system if provided, otherwise fall back to legacy parsing
+    const config = tradeStyle && dollarRisk
+      ? this.buildConfigFromStyle(prompt, accountBalance, tradeStyle, dollarRisk)
+      : this.parseGoalPrompt(prompt, accountBalance);
+
     const sessionId = uuidv4();
+
+    // Use riskMode for backward compatibility, or derive from dollarRisk
+    const effectiveRiskMode = config.riskMode || this.deriveRiskModeFromDollarAmount(dollarRisk || 0, accountBalance);
 
     const breakDown = PipnosisCoreRules.breakGoalIntoSmallTrades(
       config.goalAmount,
       accountBalance,
-      config.riskMode
+      effectiveRiskMode
     );
 
     const session: SmartGoalSession = {
@@ -87,23 +99,25 @@ class SmartGoalSessionManager {
 
     this.activeSessions.set(sessionId, session);
 
-    const minConfidence = getMinConfidenceThreshold(config.riskMode);
+    const minConfidence = getMinConfidenceThreshold(effectiveRiskMode);
 
     // Calculate dual take profit targets
     const dualTargets = await alphaExecutionPlanner.calculateDualTargets(
       config.goalAmount,
       accountBalance,
-      config.riskMode
+      effectiveRiskMode
     );
 
     console.log('[Smart Goal] Creating session with settings:', {
       sessionId,
       multi_trade_enabled: multiTradeEnabled,
       target: config.goalAmount,
+      trade_style: config.tradeStyle,
+      dollar_risk: config.dollarRisk,
+      risk_mode_legacy: config.riskMode,
       tp1_target: dualTargets.tp1,
       tp2_target: dualTargets.tp2,
       tp_reasoning: dualTargets.reasoning,
-      risk_mode: config.riskMode,
       min_confidence: minConfidence
     });
 
@@ -115,7 +129,9 @@ class SmartGoalSessionManager {
       tp1_target: dualTargets.tp1,
       tp2_target: dualTargets.tp2,
       timeframe: config.timeframe,
-      risk_mode: config.riskMode,
+      risk_mode: effectiveRiskMode, // Still store for legacy compatibility
+      trade_style: config.tradeStyle, // New field
+      dollar_risk: config.dollarRisk, // New field
       min_confidence: minConfidence,
       status: 'scanning',
       starting_balance: accountBalance,
@@ -142,10 +158,49 @@ class SmartGoalSessionManager {
 
     await this.startLiveEngine(sessionId, userId, config, accountBalance, multiTradeEnabled);
 
-    console.log(`[Smart Goal] Created session ${sessionId}: Target $${config.goalAmount} - Strategy: ${breakDown.targetTradeCount === 1 ? 'ONE premium trade' : `${breakDown.targetTradeCount} trades if needed`}`);
+    const styleInfo = config.tradeStyle ? ` • Style: ${config.tradeStyle}` : '';
+    const riskInfo = config.dollarRisk ? ` • Risk: $${config.dollarRisk}/trade` : ` • Risk Mode: ${effectiveRiskMode}`;
+    console.log(`[Smart Goal] Created session ${sessionId}: Target $${config.goalAmount}${styleInfo}${riskInfo}`);
+    console.log(`[Smart Goal] Strategy: ${breakDown.targetTradeCount === 1 ? 'ONE premium trade' : `${breakDown.targetTradeCount} trades if needed`}`);
     console.log(`[Smart Goal] ✅ LIVE DEMO MODE - All trades use real price monitoring with visible SL/TP`);
 
     return session;
+  }
+
+  /**
+   * Build config from new trade styles system
+   */
+  private buildConfigFromStyle(
+    prompt: string,
+    accountBalance: number,
+    tradeStyle: TradeStyle,
+    dollarRisk: number
+  ): SmartGoalConfig {
+    // Extract goal amount from prompt if present, otherwise use reasonable default
+    const lower = prompt.toLowerCase();
+    const dollarMatch = lower.match(/\$?\s*(\d+(?:\.\d+)?)/);
+    const goalAmount = dollarMatch ? parseFloat(dollarMatch[1]) : dollarRisk * 2; // Default to 2x the risk
+
+    return {
+      goalAmount,
+      timeframe: '1 day',
+      tradeStyle,
+      dollarRisk,
+      watchlist: ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'],
+      autoExecute: true,
+      accountBalance
+    };
+  }
+
+  /**
+   * Derive legacy risk mode from dollar amount for backward compatibility
+   */
+  private deriveRiskModeFromDollarAmount(dollarRisk: number, accountBalance: number): 'low' | 'medium' | 'high' {
+    const percentage = (dollarRisk / accountBalance) * 100;
+
+    if (percentage <= 1.5) return 'low';
+    if (percentage <= 2.5) return 'medium';
+    return 'high';
   }
 
   private parseGoalPrompt(prompt: string, accountBalance: number): SmartGoalConfig {

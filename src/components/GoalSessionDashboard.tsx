@@ -836,7 +836,19 @@ export const GoalSessionDashboard: React.FC = () => {
 
   const calculateActualRiskPercentage = (): { percentage: number; dollarRisk: number; displayText: string } => {
     if (!activeSession || openTrades.length === 0) {
-      // No open trades - show the risk mode setting
+      // No open trades - show the configured risk
+      // Prioritize dollarRisk if available (new system), otherwise use risk mode (legacy)
+      if (activeSession?.config.dollarRisk) {
+        const accountBalance = activeSession.config.accountBalance || 10000;
+        const percentage = (activeSession.config.dollarRisk / accountBalance) * 100;
+        return {
+          percentage,
+          dollarRisk: activeSession.config.dollarRisk,
+          displayText: `$${activeSession.config.dollarRisk}`
+        };
+      }
+
+      // Legacy risk mode
       const riskMode = getRiskPercentage(activeSession?.config.riskMode || 'medium');
       return {
         percentage: riskMode,
@@ -1292,7 +1304,11 @@ export const GoalSessionDashboard: React.FC = () => {
                           Actual Risk
                         </span>
                       ) : (
-                        <span title={`Max ${getRiskPercentage(activeSession.config.riskMode)}% per trade`}>
+                        <span title={
+                          activeSession.config.dollarRisk
+                            ? `$${activeSession.config.dollarRisk} per trade${activeSession.config.tradeStyle ? ` • ${activeSession.config.tradeStyle} style` : ''}`
+                            : `Max ${getRiskPercentage(activeSession.config.riskMode)}% per trade`
+                        }>
                           Risk Per Trade
                         </span>
                       )}

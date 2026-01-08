@@ -1,4 +1,4 @@
-export type TradeStyle = 'scalp' | 'micro_intraday' | 'intraday';
+export type TradeStyle = 'scalper' | 'swing' | 'day';
 
 export interface TradeStyleConfig {
   name: string;
@@ -13,9 +13,9 @@ export interface TradeStyleConfig {
 }
 
 export const TRADE_STYLES: Record<TradeStyle, TradeStyleConfig> = {
-  scalp: {
-    name: 'scalp',
-    displayName: 'Scalp',
+  scalper: {
+    name: 'scalper',
+    displayName: 'Scalper',
     icon: 'Zap',
     description: 'Fast trades, 20min-2hr duration',
     durationMin: 20,
@@ -24,27 +24,27 @@ export const TRADE_STYLES: Record<TradeStyle, TradeStyleConfig> = {
     minDollarAmount: 50,
     maxDollarAmount: 1000,
   },
-  micro_intraday: {
-    name: 'micro_intraday',
-    displayName: 'Micro Intraday',
-    icon: 'Clock',
-    description: 'Medium duration, 1hr-6hr trades',
-    durationMin: 60,
-    durationMax: 360,
+  swing: {
+    name: 'swing',
+    displayName: 'Swing',
+    icon: 'TrendingUp',
+    description: 'Multi-day trades, 1-7 days',
+    durationMin: 1440,
+    durationMax: 10080,
     suggestedMultipliers: [0.02, 0.04, 0.06],
     minDollarAmount: 100,
     maxDollarAmount: 2000,
   },
-  intraday: {
-    name: 'intraday',
-    displayName: 'Intraday',
-    icon: 'TrendingUp',
-    description: 'Longer duration, 2hr-10hr trades',
+  day: {
+    name: 'day',
+    displayName: 'Day Trader',
+    icon: 'Clock',
+    description: 'Intraday trades, 2hr-10hr duration',
     durationMin: 120,
     durationMax: 600,
-    suggestedMultipliers: [0.03, 0.05, 0.09],
-    minDollarAmount: 150,
-    maxDollarAmount: 3000,
+    suggestedMultipliers: [0.015, 0.025, 0.03],
+    minDollarAmount: 75,
+    maxDollarAmount: 1500,
   },
 };
 
@@ -106,23 +106,23 @@ export function validateDollarAmount(
 export function mapLegacyRiskModeToStyle(riskMode: string): TradeStyle {
   switch (riskMode.toLowerCase()) {
     case 'high':
-      return 'scalp';
+      return 'scalper';
     case 'medium':
-      return 'micro_intraday';
+      return 'day';
     case 'low':
-      return 'intraday';
+      return 'swing';
     default:
-      return 'micro_intraday';
+      return 'day';
   }
 }
 
 export function getStyleFromDuration(durationMinutes: number): TradeStyle {
   if (durationMinutes <= 120) {
-    return 'scalp';
-  } else if (durationMinutes <= 360) {
-    return 'micro_intraday';
+    return 'scalper';
+  } else if (durationMinutes <= 600) {
+    return 'day';
   } else {
-    return 'intraday';
+    return 'swing';
   }
 }
 
