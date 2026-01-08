@@ -86,6 +86,8 @@ export const EXECUTION_ELIGIBILITY_CONFIG: ExecutionEligibilityConfig = {
     spreadSafetyMultiplier: 2.0
   },
 
+  // SL/ATR caps are ADVISORY ONLY - trades execute with warnings if exceeded
+  // Philosophy: Reduced profit > NO_TRADE
   slAtrCaps: {
     forex: 2.5,
     crypto: 3.0,

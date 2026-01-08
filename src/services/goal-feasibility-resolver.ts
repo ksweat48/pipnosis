@@ -441,7 +441,7 @@ export class GoalFeasibilityResolver {
         .from('goal_session_trades')
         .select('id', { count: 'exact', head: true })
         .eq('user_id', userId)
-        .eq('session_id', sessionId)
+        .eq('goal_session_id', sessionId)
         .gte('opened_at', oneHourAgo.toISOString());
 
       if (error) {

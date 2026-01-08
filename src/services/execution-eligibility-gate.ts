@@ -3,26 +3,27 @@
  *
  * SINGLE SOURCE OF TRUTH for trade execution blocking decisions.
  *
- * This service owns WHETHER a trade executes. It enforces TRUE physics and economics,
- * NOT time-based heuristics.
+ * This service owns WHETHER a trade executes. It enforces TRUE economics,
+ * NOT volatility/duration heuristics.
  *
  * RESPONSIBILITY SEPARATION:
  * - Alpha: Owns WHAT to trade (symbol, direction, levels, reasoning)
  * - Position Sizing: Owns HOW MUCH to risk (lot size, dollar risk)
- * - Execution Eligibility Gate: Owns WHETHER to execute (physics and economics)
+ * - Execution Eligibility Gate: Owns WHETHER to execute (economics only)
  *
  * ARCHITECTURAL PRINCIPLE (v2.0):
- * - TIME IS A SCORING SIGNAL, NOT A REJECTION CONSTRAINT
- * - NEVER hard-block trades due to time-to-fill expectations
- * - Time/duration affects confidence scoring and style upgrades only
+ * - TIME & VOLATILITY ARE SCORING SIGNALS, NOT REJECTION CONSTRAINTS
+ * - NEVER hard-block trades due to time-to-fill or SL width
+ * - These factors affect confidence scoring and style upgrades only
+ * - Philosophy: Reduced profit > NO_TRADE
  *
- * LEGITIMATE BLOCKS (Physics/Economics):
+ * LEGITIMATE BLOCKS (Economics):
  * - Profit below minimum (spread would consume profit)
- * - SL too wide for style (beyond ATR physics)
  * - Trade count absurd (goal mathematically impossible)
  *
  * ADVISORY ONLY (NOT BLOCKING):
  * - Time-to-fill expectations
+ * - SL width (volatility warnings)
  * - Duration warnings
  * - Session transitions
  */
@@ -38,6 +39,7 @@ import {
 } from '../config/execution-eligibility';
 import type { TimeToFillResult } from './time-to-fill-calculator';
 import { getSymbolConfig } from '../config/symbol-registry';
+import { getAssetClass } from '../config/asset-class-risk-profiles';
 
 export type EligibilityStatus =
   | 'ALLOW_EXECUTION'
@@ -308,18 +310,15 @@ class ExecutionEligibilityGate {
     slAtrMultiple: number,
     reasons: EligibilityBlockReason[]
   ): void {
-    const assetClass = getAssetClass(input.symbol);
-    const slAtrCap = getSlAtrCap(assetClass, input.tradingMode);
-
-    if (slAtrMultiple > slAtrCap && slAtrMultiple > 0) {
-      reasons.push({
-        code: 'SL_TOO_WIDE_FOR_STYLE',
-        message: `Stop loss at ${slAtrMultiple.toFixed(1)}x ATR exceeds intraday cap of ${slAtrCap.toFixed(1)}x for ${assetClass}`,
-        metric: `${slAtrMultiple.toFixed(2)}x ATR`,
-        threshold: `${slAtrCap.toFixed(1)}x ATR (${assetClass} INTRADAY)`,
-        suggestion: 'Stop loss is too wide for intraday execution. Options: tighten stop loss placement, wait for lower volatility conditions, or select less volatile instrument'
-      });
-    }
+    // ARCHITECTURAL CHANGE (v2.0):
+    // SL width NEVER blocks execution
+    // It only provides advisory information for:
+    // - Style upgrade recommendations
+    // - Confidence scoring adjustments
+    // - Learning/tracking purposes
+    //
+    // NO BLOCKING based on SL width - this is intentionally empty for blocking logic
+    // SL width advisories are now handled in collectAdvisories()
   }
 
   private collectAdvisories(
@@ -372,6 +371,20 @@ class ExecutionEligibilityGate {
         message: `Extended duration penalty applied. Trade still executing with reduced confidence.`,
         severity: 'medium'
       });
+    }
+
+    // SL width is now ADVISORY ONLY, never blocking
+    if (metrics.slAtrMultiple > 0) {
+      const assetClass = getAssetClass(input.symbol);
+      const slAtrCap = getSlAtrCap(assetClass, input.tradingMode);
+
+      if (metrics.slAtrMultiple > slAtrCap) {
+        advisories.push({
+          type: 'SL_WIDTH_ADVISORY',
+          message: `Stop loss at ${metrics.slAtrMultiple.toFixed(1)}x ATR exceeds typical ${assetClass} intraday cap of ${slAtrCap.toFixed(1)}x. Trade executing with wider stop loss.`,
+          severity: metrics.slAtrMultiple > slAtrCap * 1.5 ? 'high' : 'medium'
+        });
+      }
     }
   }
 
