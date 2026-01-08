@@ -9,6 +9,8 @@
  * These are NON-NEGOTIABLE safety guards, separate from LLM decision-making.
  */
 
+import { TRADING_CONSTANTS } from '../config/trading-constants';
+
 export interface PositionSafetyResult {
   isValid: boolean;
   violations: string[];
@@ -26,10 +28,11 @@ export interface PositionSafetyConfig {
   MAX_TOTAL_EXPOSURE: number;    // 20% default
 }
 
+// SSOT: Import from trading-constants.ts
 export const DEFAULT_SAFETY_CONFIG: PositionSafetyConfig = {
-  MAX_RISK_PER_TRADE: 10.0,
-  MIN_RISK_PER_TRADE: 1.0,
-  MAX_TOTAL_EXPOSURE: 20.0
+  MAX_RISK_PER_TRADE: TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_PER_TRADE * 100, // Convert to percentage
+  MIN_RISK_PER_TRADE: TRADING_CONSTANTS.RISK_PERCENTAGES.MIN_PER_TRADE * 100,
+  MAX_TOTAL_EXPOSURE: TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_TOTAL_EXPOSURE * 100
 };
 
 class PositionSafetyValidator {

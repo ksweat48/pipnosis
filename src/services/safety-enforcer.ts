@@ -5,6 +5,7 @@
  * Runs POST-decision to enforce absolute safety limits.
  */
 
+import { TRADING_CONSTANTS } from '../config/trading-constants';
 import type { TradeDecision } from './llm-execution-brain';
 import type { RegimeSnapshot } from './regime-oracle';
 import type { AdversarialSignal } from './adversarial-detector';
@@ -29,16 +30,16 @@ export interface ValidationResult {
 }
 
 class SafetyEnforcer {
-  // HARD-CODED LIMITS - CANNOT BE CHANGED BY LLM
-  private readonly MAX_RISK_PER_TRADE = 0.10; // 10%
-  private readonly MIN_RISK_PER_TRADE = 0.005; // 0.5%
-  private readonly MAX_TOTAL_EXPOSURE = 0.20; // 20%
-  private readonly MAX_DAILY_DRAWDOWN = 0.08; // 8%
-  private readonly MAX_CONCURRENT_TRADES = 3;
-  private readonly MIN_SL_DISTANCE_ATR = 0.5;
-  private readonly MAX_SL_DISTANCE_ATR = 3.0;
-  private readonly MIN_RR_RATIO = 1.0;
-  private readonly TARGET_RR_RATIO = 1.5; // Auto-adjust to this if below MIN
+  // HARD-CODED LIMITS - SSOT from trading-constants.ts
+  private readonly MAX_RISK_PER_TRADE = TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_PER_TRADE;
+  private readonly MIN_RISK_PER_TRADE = TRADING_CONSTANTS.RISK_PERCENTAGES.MIN_PER_TRADE;
+  private readonly MAX_TOTAL_EXPOSURE = TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_TOTAL_EXPOSURE;
+  private readonly MAX_DAILY_DRAWDOWN = TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_DAILY_DRAWDOWN;
+  private readonly MAX_CONCURRENT_TRADES = TRADING_CONSTANTS.POSITION_LIMITS.MAX_OPEN_TRADES;
+  private readonly MIN_SL_DISTANCE_ATR = TRADING_CONSTANTS.ATR_MULTIPLIERS.MIN_SL_DISTANCE;
+  private readonly MAX_SL_DISTANCE_ATR = TRADING_CONSTANTS.ATR_MULTIPLIERS.STOP_LOSS_WIDE;
+  private readonly MIN_RR_RATIO = TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM;
+  private readonly TARGET_RR_RATIO = TRADING_CONSTANTS.RISK_REWARD_RATIOS.TARGET;
 
   /**
    * Validate trade decision against hard-coded rules

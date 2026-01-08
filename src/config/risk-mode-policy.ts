@@ -7,6 +7,8 @@
  * Legacy RiskMode type kept for backward compatibility but deprecated.
  */
 
+import { TRADING_CONSTANTS } from './trading-constants';
+
 export type RiskMode = 'LOW' | 'MEDIUM' | 'HIGH' | 'STANDARD';
 
 export interface RiskPolicyEnvelope {
@@ -17,11 +19,12 @@ export interface RiskPolicyEnvelope {
   description: string;
 }
 
+// SSOT: Import risk limits from trading-constants.ts
 export const STANDARD_RISK_POLICY: RiskPolicyEnvelope = {
   mode: 'STANDARD',
-  minPercent: 1,
-  maxPercent: 10,
-  defaultPercent: 2,
+  minPercent: TRADING_CONSTANTS.RISK_PERCENTAGES.MIN_PER_TRADE * 100,
+  maxPercent: TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_PER_TRADE * 100,
+  defaultPercent: TRADING_CONSTANTS.RISK_PERCENTAGES.DEFAULT_PER_TRADE * 100,
   description: 'Standard risk - 1-10% per trade, user controls via dollar amounts',
 };
 
@@ -32,8 +35,9 @@ export const RISK_MODE_POLICIES: Record<RiskMode, RiskPolicyEnvelope> = {
   HIGH: STANDARD_RISK_POLICY,
 };
 
-export const PLATFORM_ABSOLUTE_RISK_CAP = 10;
-export const MAX_TOTAL_EXPOSURE_PERCENT = 20;
+// SSOT: Import from trading-constants.ts
+export const PLATFORM_ABSOLUTE_RISK_CAP = TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_PER_TRADE * 100;
+export const MAX_TOTAL_EXPOSURE_PERCENT = TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_TOTAL_EXPOSURE * 100;
 
 export function getRiskPolicyForMode(mode?: RiskMode): RiskPolicyEnvelope {
   return STANDARD_RISK_POLICY;

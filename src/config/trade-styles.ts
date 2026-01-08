@@ -5,6 +5,8 @@
  * NO SWING TRADES. NO MULTI-DAY POSITIONS. EVER.
  */
 
+import { TRADING_CONSTANTS } from './trading-constants';
+
 export type TradeStyle = 'scalper' | 'micro' | 'intraday';
 
 export interface TradeStyleConfig {
@@ -93,17 +95,20 @@ export function validateDollarAmount(
   }
 
   const percentOfAccount = (amount / accountBalance) * 100;
-  if (percentOfAccount > 10) {
+  const maxRiskPercent = TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_PER_TRADE * 100;
+  const minRiskPercent = TRADING_CONSTANTS.RISK_PERCENTAGES.MIN_PER_TRADE * 100;
+
+  if (percentOfAccount > maxRiskPercent) {
     return {
       valid: false,
-      error: 'Risk amount cannot exceed 10% of account balance',
+      error: `Risk amount cannot exceed ${maxRiskPercent}% of account balance`,
     };
   }
 
-  if (percentOfAccount < 1) {
+  if (percentOfAccount < minRiskPercent) {
     return {
       valid: false,
-      error: 'Risk amount must be at least 1% of account balance',
+      error: `Risk amount must be at least ${minRiskPercent}% of account balance`,
     };
   }
 
@@ -138,9 +143,10 @@ export function getStyleFromDuration(durationMinutes: number): TradeStyle {
   }
 }
 
+// SSOT: Import risk limits from trading-constants.ts
 export const SINGLE_TRADE_RISK_RANGE = {
-  min: 0.01, // 1%
-  max: 0.10, // 10%
+  min: TRADING_CONSTANTS.RISK_PERCENTAGES.MIN_PER_TRADE,
+  max: TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_PER_TRADE,
 } as const;
 
-export const MAX_TOTAL_EXPOSURE = 0.2; // 20% hard cap for multi-trade mode
+export const MAX_TOTAL_EXPOSURE = TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_TOTAL_EXPOSURE;
