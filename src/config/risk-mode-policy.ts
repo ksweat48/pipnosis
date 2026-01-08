@@ -1,7 +1,7 @@
 /**
  * Risk Policy Configuration (SSOT)
  *
- * Simplified to single STANDARD risk policy: 1-3% per trade, 10% max total exposure.
+ * Simplified to single STANDARD risk policy: 1-10% per trade, 20% max total exposure.
  * Risk is now user-controlled via dollar amounts rather than abstract modes.
  *
  * Legacy RiskMode type kept for backward compatibility but deprecated.
@@ -20,9 +20,9 @@ export interface RiskPolicyEnvelope {
 export const STANDARD_RISK_POLICY: RiskPolicyEnvelope = {
   mode: 'STANDARD',
   minPercent: 1,
-  maxPercent: 3,
+  maxPercent: 10,
   defaultPercent: 2,
-  description: 'Standard risk - 1-3% per trade, user controls via dollar amounts',
+  description: 'Standard risk - 1-10% per trade, user controls via dollar amounts',
 };
 
 export const RISK_MODE_POLICIES: Record<RiskMode, RiskPolicyEnvelope> = {
@@ -32,8 +32,8 @@ export const RISK_MODE_POLICIES: Record<RiskMode, RiskPolicyEnvelope> = {
   HIGH: STANDARD_RISK_POLICY,
 };
 
-export const PLATFORM_ABSOLUTE_RISK_CAP = 3;
-export const MAX_TOTAL_EXPOSURE_PERCENT = 10;
+export const PLATFORM_ABSOLUTE_RISK_CAP = 10;
+export const MAX_TOTAL_EXPOSURE_PERCENT = 20;
 
 export function getRiskPolicyForMode(mode?: RiskMode): RiskPolicyEnvelope {
   return STANDARD_RISK_POLICY;

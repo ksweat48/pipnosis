@@ -27,9 +27,9 @@ export const TRADE_STYLES: Record<TradeStyle, TradeStyleConfig> = {
     description: 'Fast trades, 20min-2hr duration',
     durationMin: 20,
     durationMax: 120,
-    suggestedMultipliers: [0.01, 0.02, 0.05],
+    suggestedMultipliers: [0.01, 0.02, 0.05], // 1%, 2%, 5%
     minDollarAmount: 50,
-    maxDollarAmount: 1000,
+    maxDollarAmount: 5000, // Increased for 5% cap
   },
   micro: {
     name: 'micro',
@@ -38,9 +38,9 @@ export const TRADE_STYLES: Record<TradeStyle, TradeStyleConfig> = {
     description: 'Medium trades, 1hr-6hr duration',
     durationMin: 60,
     durationMax: 360,
-    suggestedMultipliers: [0.015, 0.025, 0.04],
+    suggestedMultipliers: [0.02, 0.05, 0.07], // 2%, 5%, 7%
     minDollarAmount: 75,
-    maxDollarAmount: 1500,
+    maxDollarAmount: 7000, // Increased for 7% cap
   },
   intraday: {
     name: 'intraday',
@@ -49,9 +49,9 @@ export const TRADE_STYLES: Record<TradeStyle, TradeStyleConfig> = {
     description: 'Longer intraday, 2hr-10hr duration',
     durationMin: 120,
     durationMax: 600,
-    suggestedMultipliers: [0.02, 0.03, 0.05],
+    suggestedMultipliers: [0.03, 0.07, 0.10], // 3%, 7%, 10%
     minDollarAmount: 100,
-    maxDollarAmount: 2000,
+    maxDollarAmount: 10000, // Increased for 10% cap
   },
 };
 
@@ -93,10 +93,10 @@ export function validateDollarAmount(
   }
 
   const percentOfAccount = (amount / accountBalance) * 100;
-  if (percentOfAccount > 3) {
+  if (percentOfAccount > 10) {
     return {
       valid: false,
-      error: 'Risk amount cannot exceed 3% of account balance',
+      error: 'Risk amount cannot exceed 10% of account balance',
     };
   }
 
@@ -140,7 +140,7 @@ export function getStyleFromDuration(durationMinutes: number): TradeStyle {
 
 export const SINGLE_TRADE_RISK_RANGE = {
   min: 0.01, // 1%
-  max: 0.03, // 3%
+  max: 0.10, // 10%
 } as const;
 
-export const MAX_TOTAL_EXPOSURE = 0.1; // 10% hard cap for multi-trade mode
+export const MAX_TOTAL_EXPOSURE = 0.2; // 20% hard cap for multi-trade mode

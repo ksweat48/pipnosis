@@ -8,7 +8,7 @@
  * Step 1: Choose Trading Style (scalper, micro, intraday)
  * Step 2: Pick Dollar Amount to risk per trade
  *
- * SINGLE RISK POLICY: All trades use STANDARD (1-3% per trade)
+ * RISK POLICY: Risk up to 10% per trade, 20% total exposure
  * - Style determines trade duration and patience
  * - Dollar amount determines position sizing
  * - Alpha Brain handles everything else intelligently
@@ -240,7 +240,7 @@ export const SmartGoalPanel: React.FC = () => {
                 <strong>Account Balance:</strong> ${accountBalance.toLocaleString()}
               </div>
               <div className="text-xs text-gray-400">
-                Choose how much to risk per trade (1-3% of balance)
+                Choose how much to risk per trade (up to 10% of balance)
               </div>
             </div>
 
@@ -300,7 +300,7 @@ export const SmartGoalPanel: React.FC = () => {
                 onChange={(e) => setCustomAmount(e.target.value)}
                 placeholder="Or enter custom amount..."
                 min="50"
-                max={accountBalance * 0.03}
+                max={accountBalance * 0.10}
                 className="w-full px-4 py-4 bg-gray-800/50 backdrop-blur-sm border border-gray-600/50 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all duration-300"
               />
             </div>

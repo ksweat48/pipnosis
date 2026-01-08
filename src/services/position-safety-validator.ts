@@ -21,15 +21,15 @@ export interface PositionSafetyResult {
 
 export interface PositionSafetyConfig {
   // HARD LIMITS (Account Protection)
-  MAX_RISK_PER_TRADE: number;    // 5% default
+  MAX_RISK_PER_TRADE: number;    // 10% default
   MIN_RISK_PER_TRADE: number;    // 1% default
-  MAX_TOTAL_EXPOSURE: number;    // 8% default
+  MAX_TOTAL_EXPOSURE: number;    // 20% default
 }
 
 export const DEFAULT_SAFETY_CONFIG: PositionSafetyConfig = {
-  MAX_RISK_PER_TRADE: 5.0,
+  MAX_RISK_PER_TRADE: 10.0,
   MIN_RISK_PER_TRADE: 1.0,
-  MAX_TOTAL_EXPOSURE: 8.0
+  MAX_TOTAL_EXPOSURE: 20.0
 };
 
 class PositionSafetyValidator {

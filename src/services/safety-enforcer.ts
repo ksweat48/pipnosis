@@ -30,9 +30,9 @@ export interface ValidationResult {
 
 class SafetyEnforcer {
   // HARD-CODED LIMITS - CANNOT BE CHANGED BY LLM
-  private readonly MAX_RISK_PER_TRADE = 0.05; // 5%
+  private readonly MAX_RISK_PER_TRADE = 0.10; // 10%
   private readonly MIN_RISK_PER_TRADE = 0.005; // 0.5%
-  private readonly MAX_TOTAL_EXPOSURE = 0.08; // 8%
+  private readonly MAX_TOTAL_EXPOSURE = 0.20; // 20%
   private readonly MAX_DAILY_DRAWDOWN = 0.08; // 8%
   private readonly MAX_CONCURRENT_TRADES = 3;
   private readonly MIN_SL_DISTANCE_ATR = 0.5;
