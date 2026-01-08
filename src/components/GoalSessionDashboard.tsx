@@ -1346,7 +1346,7 @@ export const GoalSessionDashboard: React.FC = () => {
             {activeSession.tp2_target && activeSession.config.goalAmount > 0 && (
               <div
                 className="absolute top-0 bottom-0 w-1 z-10"
-                style={{ left: `${(activeSession.tp2_target / activeSession.config.goalAmount) * 100}%` }}
+                style={{ left: `100%` }}
                 title={`TP2: $${activeSession.tp2_target.toFixed(2)} (Realistic Target)`}
               >
                 <div className="relative h-full">
