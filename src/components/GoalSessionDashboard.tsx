@@ -1237,7 +1237,7 @@ export const GoalSessionDashboard: React.FC = () => {
                         ? 'bg-green-500 text-white'
                         : 'bg-yellow-500 text-gray-900'
                     }`}>
-                      {activeSession.tp1_hit ? '✓ TP1' : 'TP1'}
+                      {activeSession.tp1_hit ? `✓ TP1: $${activeSession.tp1_target.toFixed(2)}` : `TP1: $${activeSession.tp1_target.toFixed(2)}`}
                     </div>
                   </div>
                 </div>
@@ -1259,7 +1259,7 @@ export const GoalSessionDashboard: React.FC = () => {
                         ? 'bg-green-500 text-white'
                         : 'bg-blue-500 text-white'
                     }`}>
-                      {activeSession.tp2_hit ? '✓ TP2' : 'TP2'}
+                      {activeSession.tp2_hit ? `✓ TP2: $${activeSession.tp2_target.toFixed(2)}` : `TP2: $${activeSession.tp2_target.toFixed(2)}`}
                     </div>
                   </div>
                 </div>

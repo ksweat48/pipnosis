@@ -354,7 +354,14 @@ class SmartGoalSessionManager {
         serverHeartbeat: data.server_heartbeat,
         serverLastCheck: data.server_last_check,
         serverEnabled: data.server_enabled ?? true,
-        autonomousEnabled: data.autonomous_enabled ?? true
+        autonomousEnabled: data.autonomous_enabled ?? true,
+        tp1_target: data.tp1_target,
+        tp2_target: data.tp2_target,
+        tp1_hit: data.tp1_hit,
+        tp2_hit: data.tp2_hit,
+        tp1_hit_at: data.tp1_hit_at,
+        tp2_hit_at: data.tp2_hit_at,
+        tp1_learning_awarded: data.tp1_learning_awarded
       };
 
       this.activeSessions.set(data.id, reconstructed);
