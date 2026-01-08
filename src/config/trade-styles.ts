@@ -26,7 +26,7 @@ export const TRADE_STYLES: Record<TradeStyle, TradeStyleConfig> = {
     name: 'scalper',
     displayName: 'Scalper',
     icon: 'Zap',
-    description: 'Fast trades, 20min-2hr duration',
+    description: 'Fast trades, estimate 20min-2hr',
     durationMin: 20,
     durationMax: 120,
     suggestedMultipliers: [0.01, 0.02, 0.05], // 1%, 2%, 5%
@@ -37,7 +37,7 @@ export const TRADE_STYLES: Record<TradeStyle, TradeStyleConfig> = {
     name: 'micro',
     displayName: 'Micro',
     icon: 'Target',
-    description: 'Medium trades, 1hr-6hr duration',
+    description: 'Medium trades, estimate 1hr-6hr',
     durationMin: 60,
     durationMax: 360,
     suggestedMultipliers: [0.02, 0.05, 0.07], // 2%, 5%, 7%
@@ -48,7 +48,7 @@ export const TRADE_STYLES: Record<TradeStyle, TradeStyleConfig> = {
     name: 'intraday',
     displayName: 'Intraday',
     icon: 'Clock',
-    description: 'Longer intraday, 2hr-10hr duration',
+    description: 'Longer intraday, estimate 2hr-10hr',
     durationMin: 120,
     durationMax: 600,
     suggestedMultipliers: [0.03, 0.07, 0.10], // 3%, 7%, 10%

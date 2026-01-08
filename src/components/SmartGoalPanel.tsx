@@ -180,7 +180,6 @@ export const SmartGoalPanel: React.FC = () => {
           <div className="space-y-4">
             <div className="text-center mb-6">
               <h3 className="text-lg font-bold text-white mb-2">Choose Your Trading Style</h3>
-              <p className="text-sm text-gray-400">Intraday-only: All positions close before market close</p>
             </div>
 
             <div className="grid grid-cols-1 gap-4">
