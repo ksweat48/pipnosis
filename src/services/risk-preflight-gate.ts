@@ -334,6 +334,50 @@ class RiskPreflightGate {
 
     return { valid: true };
   }
+
+  async validateTotalExposure(
+    userId: string,
+    accountBalance: number,
+    newTradeRiskDollars: number,
+    isMultiTradeMode: boolean
+  ): Promise<{
+    canTrade: boolean;
+    blockReason?: string;
+    exposureInfo: {
+      currentExposurePercent: number;
+      remainingCapacityPercent: number;
+      remainingCapacityDollars: number;
+    };
+  }> {
+    if (!isMultiTradeMode) {
+      return {
+        canTrade: true,
+        exposureInfo: {
+          currentExposurePercent: 0,
+          remainingCapacityPercent: 10,
+          remainingCapacityDollars: accountBalance * 0.1,
+        },
+      };
+    }
+
+    const { professionalRiskManager } = await import('./professional-risk-manager');
+
+    const exposureCheck = await professionalRiskManager.checkTotalExposure(
+      userId,
+      accountBalance,
+      newTradeRiskDollars
+    );
+
+    return {
+      canTrade: exposureCheck.canTrade,
+      blockReason: exposureCheck.blockReason,
+      exposureInfo: {
+        currentExposurePercent: exposureCheck.currentExposurePercent,
+        remainingCapacityPercent: exposureCheck.remainingCapacityPercent,
+        remainingCapacityDollars: exposureCheck.remainingCapacityDollars,
+      },
+    };
+  }
 }
 
 export const riskPreflightGate = new RiskPreflightGate();

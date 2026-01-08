@@ -1,96 +1,107 @@
-import { RiskMode } from '../config/risk-levels';
-
 /**
- * OMEGA CONSENSUS ADVISORY SYSTEM
+ * SIMPLIFIED OMEGA CONSENSUS SYSTEM
  *
- * Provides recommended minimum Omega consensus counts based on risk mode.
- * These are advisory only - Alpha has final authority on trade execution.
+ * Fixed baseline consensus with Alpha override capability:
+ * - STANDARD: 4/7 Omegas (57% consensus) - Baseline, no confidence adjustment
+ * - STRICT: 5/7 Omegas (71% consensus) - Alpha chooses higher quality, +5 confidence
+ * - LOOSE: 3/7 Omegas (43% consensus) - Alpha accepts more risk, -5 confidence
  *
- * Advisory Recommendations:
- * - LOW RISK: 5/7 Omegas (71% consensus) - Very selective
- * - MEDIUM RISK: 4/7 Omegas (57% consensus) - Balanced
- * - HIGH RISK: 3/7 Omegas (43% consensus) - Aggressive
+ * Alpha can override consensus based on market conditions and conviction.
  */
 
-export const OMEGA_CONSENSUS_ADVISORY = {
-  low: 5,
-  medium: 4,
-  high: 3,
+export type AlphaConsensusOverride = 'strict' | 'standard' | 'loose';
+
+export const CONSENSUS_REQUIREMENTS = {
+  strict: 5,
+  standard: 4,
+  loose: 3,
+} as const;
+
+export const CONSENSUS_CONFIDENCE_ADJUSTMENTS = {
+  strict: 5,
+  standard: 0,
+  loose: -5,
 } as const;
 
 /**
- * Get the recommended minimum Omega consensus count for a risk mode
+ * Get the consensus requirement based on Alpha's override choice
  */
-export function getRecommendedConsensusCount(riskMode: RiskMode | string): number {
-  const mode = riskMode as RiskMode;
-  return OMEGA_CONSENSUS_ADVISORY[mode] || OMEGA_CONSENSUS_ADVISORY.medium;
+export function getConsensusRequirement(
+  override: AlphaConsensusOverride = 'standard'
+): number {
+  return CONSENSUS_REQUIREMENTS[override];
 }
 
 /**
- * Get the consensus percentage for a risk mode (for display purposes)
+ * Get the confidence adjustment for the consensus override
  */
-export function getConsensusPercentage(riskMode: RiskMode | string): number {
-  const count = getRecommendedConsensusCount(riskMode);
+export function getConfidenceAdjustment(
+  override: AlphaConsensusOverride = 'standard'
+): number {
+  return CONSENSUS_CONFIDENCE_ADJUSTMENTS[override];
+}
+
+/**
+ * Get the consensus percentage for display purposes
+ */
+export function getConsensusPercentage(override: AlphaConsensusOverride = 'standard'): number {
+  const count = getConsensusRequirement(override);
   return Math.round((count / 7) * 100);
 }
 
 /**
- * Get a human-readable description of the consensus requirement
+ * Get a human-readable description of the consensus mode
  */
-export function getConsensusDescription(riskMode: RiskMode | string): string {
-  const count = getRecommendedConsensusCount(riskMode);
-  const percentage = getConsensusPercentage(riskMode);
+export function getConsensusDescription(override: AlphaConsensusOverride = 'standard'): string {
+  const count = getConsensusRequirement(override);
+  const percentage = getConsensusPercentage(override);
+  const adjustment = getConfidenceAdjustment(override);
 
-  const descriptions: Record<string, string> = {
-    '5': `Very selective (${percentage}% Omega agreement)`,
-    '4': `Balanced approach (${percentage}% Omega agreement)`,
-    '3': `Aggressive (${percentage}% Omega agreement)`,
+  const descriptions: Record<AlphaConsensusOverride, string> = {
+    strict: `Strict quality (${count}/7 = ${percentage}%, +${adjustment} confidence)`,
+    standard: `Standard (${count}/7 = ${percentage}%, no adjustment)`,
+    loose: `Aggressive (${count}/7 = ${percentage}%, ${adjustment} confidence)`,
   };
 
-  return descriptions[count.toString()] || descriptions['4'];
+  return descriptions[override];
 }
 
 /**
- * Calculate consensus strength modifier for Alpha's analysis
- *
- * Returns a multiplier that enhances or reduces confidence based on
- * how far the actual consensus exceeds the minimum recommendation.
- *
- * Examples:
- * - 7/7 consensus always gets maximum boost (+0.10)
- * - 6/7 consensus gets strong boost (+0.05)
- * - Exactly at minimum gets no modifier (0.00)
- * - Below minimum gets negative modifier (should be filtered already)
+ * Calculate final confidence with consensus adjustment applied
  */
+export function calculateAdjustedConfidence(
+  baseConfidence: number,
+  override: AlphaConsensusOverride = 'standard'
+): number {
+  const adjustment = getConfidenceAdjustment(override);
+  return Math.max(0, Math.min(100, baseConfidence + adjustment));
+}
+
+/**
+ * Check if an opportunity meets the consensus requirement
+ */
+export function meetsConsensusRequirement(
+  actualConsensus: number,
+  override: AlphaConsensusOverride = 'standard'
+): boolean {
+  const required = getConsensusRequirement(override);
+  return actualConsensus >= required;
+}
+
+export function getRecommendedConsensusCount(riskMode?: string): number {
+  return CONSENSUS_REQUIREMENTS.standard;
+}
+
 export function calculateConsensusStrengthModifier(
   actualConsensus: number,
-  riskMode: RiskMode | string
+  riskMode?: string
 ): number {
-  const recommendedMin = getRecommendedConsensusCount(riskMode);
-
-  if (actualConsensus === 7) {
-    return 0.10;
-  }
-
-  if (actualConsensus === 6) {
-    return 0.05;
-  }
-
-  if (actualConsensus >= recommendedMin) {
-    return 0.02;
-  }
-
-  const deficit = recommendedMin - actualConsensus;
-  return deficit * -0.03;
+  if (actualConsensus === 7) return 0.1;
+  if (actualConsensus === 6) return 0.05;
+  if (actualConsensus >= 4) return 0.02;
+  return -0.03 * (4 - actualConsensus);
 }
 
-/**
- * Check if an opportunity meets the consensus advisory for a risk mode
- */
-export function meetsConsensusAdvisory(
-  actualConsensus: number,
-  riskMode: RiskMode | string
-): boolean {
-  const recommendedMin = getRecommendedConsensusCount(riskMode);
-  return actualConsensus >= recommendedMin;
+export function meetsConsensusAdvisory(actualConsensus: number, riskMode?: string): boolean {
+  return actualConsensus >= CONSENSUS_REQUIREMENTS.standard;
 }

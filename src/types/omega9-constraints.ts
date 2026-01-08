@@ -51,26 +51,30 @@ export interface ConstraintViolation {
   suggestedActions?: string[];
 }
 
-export type TradeStyle = 'SCALP' | 'INTRADAY' | 'SWING';
+export type TradeStyle = 'scalp' | 'micro_intraday' | 'intraday';
+
+export type LegacyRiskMode = 'low' | 'medium' | 'high';
 
 export interface Omega9ConstraintInput {
   symbol: string;
   entry: number;
   direction: 'BUY' | 'SELL';
   atr: number;
-  riskMode: 'low' | 'medium' | 'high';
-  tradeStyle: TradeStyle;  // CRITICAL: Determines session constraint behavior
+
+  tradeStyle: TradeStyle;
+  dollarRisk: number;
+
+  riskMode?: LegacyRiskMode;
+
   currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed';
   sessionTimeRemainingMinutes: number;
   volatilityRegime: 'low' | 'medium' | 'high';
-  proposedStopLoss?: number;  // Optional: if Alpha already has SL in mind
+  proposedStopLoss?: number;
 
-  // Optional: Resolved plan from feasibility resolver (SSOT)
-  // If provided, Omega-9 uses these constraint targets instead of calculating them
   resolvedPlan?: {
-    slMinPercent?: number;      // Override SL floor from feasibility resolver
-    tpMaxAtrMultiple?: number;  // Override TP ceiling from feasibility resolver
-    minRR?: number;             // Override minimum R:R from feasibility resolver
+    slMinPercent?: number;
+    tpMaxAtrMultiple?: number;
+    minRR?: number;
   };
 }
 

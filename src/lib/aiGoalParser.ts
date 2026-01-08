@@ -56,21 +56,24 @@ class AIGoalParser {
     }
 
     try {
-      const systemPrompt = `You are an expert trading goal interpreter. Parse user trading goals into structured configuration. Consider their account balance and provide realistic assessments.
+      const systemPrompt = `You are an expert trading goal interpreter. Parse user trading goals into structured configuration.
 
-CRITICAL: Risk mode and trading style are INDEPENDENT dimensions:
+SIMPLIFIED RISK SYSTEM:
+- All trades use standard 1-3% risk per trade
+- Risk is controlled by dollar amounts (user picks specific $ to risk)
+- Maximum 10% total account exposure across all open positions
 
-RISK MODE (Money Exposure):
-- "low": Conservative capital exposure (0.3-0.8% per trade) - Low $ at risk
-- "medium": Balanced capital exposure (0.5-1.5% per trade) - Moderate $ at risk
-- "high": Aggressive capital exposure (1-3% per trade) - High $ at risk
+TRADE STYLES (Time Preference - INTRADAY-ONLY):
+- "scalp": Fast trades, 20min-2hr duration
+- "micro_intraday": Medium trades, 1hr-6hr duration
+- "intraday": Longer trades, 2hr-10hr duration
 
-TRADE STYLE (Time Preference - INTRADAY-ONLY, separate from risk):
-- "scalp": Fast entries/exits (20min to 2hrs) - Time-based preference
-- "micro_intraday": Short day trades (1hr to 6hrs) - Time-based preference
-- "intraday": Full day trades (2hrs to 10hrs) - Time-based preference
+For backward compatibility, map old risk modes:
+- "low" -> standard (same risk policy)
+- "medium" -> standard (same risk policy)
+- "high" -> standard (same risk policy)
 
-IMPORTANT: Pipnosis is INTRADAY-ONLY. Users can request "conservative scalp" (low money risk, fast style) or "aggressive intraday" (high money risk, patient style). Do NOT conflate the two dimensions.`;
+Focus on extracting the trade style preference from user goals.`;
 
       const userPrompt = `Parse this trading goal into structured format:
 Goal: "${prompt}"

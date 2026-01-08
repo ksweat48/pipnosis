@@ -428,6 +428,74 @@ class ProfessionalRiskManager {
   async validateGoal(inputs: GoalFeasibilityInputs): Promise<any> {
     return await goalFeasibilityValidator.validateGoal(inputs);
   }
+
+  async checkTotalExposure(
+    userId: string,
+    accountBalance: number,
+    newTradeRiskDollars?: number
+  ): Promise<{
+    canTrade: boolean;
+    currentExposurePercent: number;
+    remainingCapacityPercent: number;
+    remainingCapacityDollars: number;
+    blockReason?: string;
+  }> {
+    const { supabase } = await import('../lib/supabase');
+
+    const { data: openPositions, error } = await supabase
+      .from('positions')
+      .select('risk_amount, symbol')
+      .eq('user_id', userId)
+      .eq('status', 'open');
+
+    if (error) {
+      console.error('[Professional Risk Manager] Error fetching open positions:', error);
+      return {
+        canTrade: true,
+        currentExposurePercent: 0,
+        remainingCapacityPercent: 10,
+        remainingCapacityDollars: accountBalance * 0.1,
+      };
+    }
+
+    const currentTotalRisk = openPositions?.reduce(
+      (sum, pos) => sum + (pos.risk_amount || 0),
+      0
+    ) || 0;
+
+    const proposedTotalRisk = newTradeRiskDollars
+      ? currentTotalRisk + newTradeRiskDollars
+      : currentTotalRisk;
+
+    const currentExposurePercent = (currentTotalRisk / accountBalance) * 100;
+    const proposedExposurePercent = (proposedTotalRisk / accountBalance) * 100;
+
+    const maxExposurePercent = 10;
+    const canTrade = proposedExposurePercent <= maxExposurePercent;
+
+    const remainingCapacityPercent = Math.max(
+      0,
+      maxExposurePercent - currentExposurePercent
+    );
+    const remainingCapacityDollars = (remainingCapacityPercent / 100) * accountBalance;
+
+    console.log('[Professional Risk Manager] 📊 Total Exposure Check:', {
+      currentExposurePercent: currentExposurePercent.toFixed(2) + '%',
+      proposedExposurePercent: proposedExposurePercent.toFixed(2) + '%',
+      canTrade,
+      openPositionCount: openPositions?.length || 0,
+    });
+
+    return {
+      canTrade,
+      currentExposurePercent,
+      remainingCapacityPercent,
+      remainingCapacityDollars,
+      blockReason: canTrade
+        ? undefined
+        : `Total exposure would exceed 10% maximum (current: ${currentExposurePercent.toFixed(1)}%, proposed: ${proposedExposurePercent.toFixed(1)}%)`,
+    };
+  }
 }
 
 export const professionalRiskManager = new ProfessionalRiskManager();

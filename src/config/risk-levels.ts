@@ -1,99 +1,77 @@
 /**
- * CENTRALIZED RISK CONFIGURATION
+ * SIMPLIFIED RISK CONFIGURATION (SSOT)
  *
- * IMPORTANT: This file now uses the policy-driven risk system from risk-mode-policy.ts
- * Risk modes define policy envelopes (min-max ranges), not just single values.
+ * Single STANDARD risk policy: 1-3% per trade, 10% max total exposure.
+ * Risk is now user-controlled via dollar amounts and trade styles.
  *
- * These risk percentages are used across:
- * - AI Goal Parser (user-facing messages)
- * - Goal Scanner (actual trade execution)
- * - Goal Session Manager (session configuration)
+ * Legacy functions maintained for backward compatibility.
  */
 
-import { getRiskPolicyForMode, type RiskMode as PolicyRiskMode } from './risk-mode-policy';
+import { getStandardRiskPolicy, type RiskMode as PolicyRiskMode } from './risk-mode-policy';
+
+export const STANDARD_RISK = 2;
 
 export const RISK_PERCENTAGES = {
-  low: 2,      // Conservative: 2% per trade (policy allows 1-3%)
-  medium: 3,   // Moderate: 3% per trade (policy allows 2-5%)
-  high: 5,     // Aggressive: 5% per trade (policy allows 3-10%)
+  low: 2,
+  medium: 2,
+  high: 2,
 } as const;
 
 export type RiskMode = keyof typeof RISK_PERCENTAGES;
 
 /**
- * Get the risk percentage for a given risk mode
- * Uses the policy system's default values
+ * Get the risk percentage (now returns standard 2% for all modes)
  */
-export function getRiskPercentage(riskMode: RiskMode | string): number {
-  const normalizedMode = (riskMode?.toLowerCase() || 'medium') as 'low' | 'medium' | 'high';
-
-  const policyMode = normalizedMode.toUpperCase() as PolicyRiskMode;
-  const policy = getRiskPolicyForMode(policyMode);
-
+export function getRiskPercentage(riskMode?: RiskMode | string): number {
+  const policy = getStandardRiskPolicy();
   return policy.defaultPercent;
 }
 
 /**
- * Get a human-readable description of the risk mode
+ * Get a human-readable description (legacy function for compatibility)
  */
-export function getRiskModeDescription(riskMode: RiskMode | string): string {
-  const descriptions: Record<RiskMode, string> = {
-    low: 'conservative',
-    medium: 'moderate',
-    high: 'aggressive'
-  };
-
-  const mode = riskMode as RiskMode;
-  return descriptions[mode] || descriptions.medium;
+export function getRiskModeDescription(riskMode?: RiskMode | string): string {
+  return 'standard';
 }
 
 /**
- * CONFIDENCE THRESHOLDS BY RISK MODE
+ * SINGLE CONFIDENCE THRESHOLD
  *
- * Aligns minimum confidence requirements with risk tolerance:
- * - LOW: 70% - Very selective, only high-confidence setups
- * - MEDIUM: 65% - Balanced approach, solid setups
- * - HIGH: 60% - Aggressive, captures more opportunities
- *
- * These thresholds ensure risk mode consistency across the platform.
+ * All trades now use the same baseline confidence requirement.
+ * Alpha can adjust consensus requirements (3/7, 4/7, 5/7) for quality control.
  */
+export const STANDARD_CONFIDENCE_THRESHOLD = 65;
+
 export const CONFIDENCE_THRESHOLDS = {
-  low: 70,
-  medium: 65,
-  high: 60,
+  low: STANDARD_CONFIDENCE_THRESHOLD,
+  medium: STANDARD_CONFIDENCE_THRESHOLD,
+  high: STANDARD_CONFIDENCE_THRESHOLD,
 } as const;
 
 /**
- * Get the minimum confidence threshold for a given risk mode
+ * Get the minimum confidence threshold (returns standard threshold)
  */
-export function getMinConfidenceThreshold(riskMode: RiskMode | string): number {
-  const mode = riskMode as RiskMode;
-  return CONFIDENCE_THRESHOLDS[mode] || CONFIDENCE_THRESHOLDS.medium;
+export function getMinConfidenceThreshold(riskMode?: RiskMode | string): number {
+  return STANDARD_CONFIDENCE_THRESHOLD;
 }
 
 /**
- * POSITION SIZE MULTIPLIERS BY RISK MODE
+ * SINGLE POSITION SIZE MULTIPLIER
  *
- * Adjusts position size based on risk tolerance:
- * - LOW: 1.2x - Larger positions (fewer, higher quality trades)
- * - MEDIUM: 1.0x - Standard position sizing
- * - HIGH: 0.8x - Smaller positions (more trades, lower confidence)
- *
- * Logic: High risk takes MORE trades (lower threshold) but SMALLER positions
- *        Low risk takes FEWER trades (higher threshold) but LARGER positions
- *
- * These multipliers are applied after the base risk calculation.
+ * All position sizing is now determined by user-selected dollar amounts.
+ * No mode-based multipliers needed.
  */
+export const STANDARD_POSITION_MULTIPLIER = 1.0;
+
 export const POSITION_SIZE_MULTIPLIERS = {
-  low: 1.2,
-  medium: 1.0,
-  high: 0.8,
+  low: STANDARD_POSITION_MULTIPLIER,
+  medium: STANDARD_POSITION_MULTIPLIER,
+  high: STANDARD_POSITION_MULTIPLIER,
 } as const;
 
 /**
- * Get the position size multiplier for a given risk mode
+ * Get the position size multiplier (returns standard 1.0x)
  */
-export function getPositionSizeMultiplier(riskMode: RiskMode | string): number {
-  const mode = riskMode as RiskMode;
-  return POSITION_SIZE_MULTIPLIERS[mode] || POSITION_SIZE_MULTIPLIERS.medium;
+export function getPositionSizeMultiplier(riskMode?: RiskMode | string): number {
+  return STANDARD_POSITION_MULTIPLIER;
 }
