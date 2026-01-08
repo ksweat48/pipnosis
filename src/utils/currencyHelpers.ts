@@ -120,6 +120,25 @@ export function getCurrencyPipInfo(symbol: string): CurrencyPipInfo {
     };
   }
 
+  // XAGUSD (Silver) - Same logic as XAUUSD
+  //
+  // IMPORTANT: 1 pip = 1.0 point for XAGUSD (natural reasoning)
+  // Example: 28.50 to 28.70 = 0.20 points = 0.20 pips
+  //
+  // Dollar values:
+  // - 1 standard lot (5000 oz) = $5 per pip
+  // - 0.01 lot (50 oz) = $0.05 per pip
+  if (normalized === 'XAGUSD' || normalized === 'SILVER') {
+    return {
+      pipValue: 1.0,            // 1 pip = 1 point (same as gold)
+      pipMultiplier: 1,
+      decimalPlaces: 3,
+      contractSize: 5000,       // 5000 troy ounces per lot
+      dollarPerPipPerLot: 5.0,  // $5 per full lot
+      symbolType: 'metal'
+    };
+  }
+
   // Indices (US30, NAS100, SPX500, etc.)
   if (isIndex(symbol)) {
     return {

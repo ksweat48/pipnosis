@@ -90,7 +90,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     pipMultiplier: 1,
     decimalPlaces: 2,
     contractSize: 1,
-    dollarPerPipPerLot: 1.0,
+    dollarPerPipPerLot: 100,  // FIXED: Was 1.0, should be 100 to match SSOT
     minLotSize: 0.01,
     maxLotSize: 1.0,
     typicalDailyRangePoints: 400,
@@ -107,7 +107,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     pipMultiplier: 1,
     decimalPlaces: 2,
     contractSize: 1,
-    dollarPerPipPerLot: 1.0,
+    dollarPerPipPerLot: 100,  // FIXED: Was 1.0, should be 100 to match SSOT
     minLotSize: 0.01,
     maxLotSize: 1.0,
     typicalDailyRangePoints: 500,
@@ -124,7 +124,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     pipMultiplier: 1,
     decimalPlaces: 2,
     contractSize: 1,
-    dollarPerPipPerLot: 1.0,
+    dollarPerPipPerLot: 100,  // FIXED: Was 1.0, should be 100 to match SSOT
     minLotSize: 0.01,
     maxLotSize: 1.0,
     typicalDailyRangePoints: 300,
@@ -141,7 +141,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     pipMultiplier: 1,
     decimalPlaces: 2,
     contractSize: 1,
-    dollarPerPipPerLot: 1.0,
+    dollarPerPipPerLot: 100,  // FIXED: Was 1.0, should be 100 to match SSOT
     minLotSize: 0.01,
     maxLotSize: 1.0,
     typicalDailyRangePoints: 250,
@@ -158,7 +158,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     pipMultiplier: 1,
     decimalPlaces: 2,
     contractSize: 1,
-    dollarPerPipPerLot: 1.0,
+    dollarPerPipPerLot: 100,  // FIXED: Was 1.0, should be 100 to match SSOT
     minLotSize: 0.01,
     maxLotSize: 1.0,
     typicalDailyRangePoints: 350,
