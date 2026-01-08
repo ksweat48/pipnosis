@@ -3,11 +3,13 @@
  *
  * SSOT for pre-constraint trade feasibility resolution.
  * This runs BEFORE Omega-9 constraints are generated to prevent deadlock scenarios.
+ *
+ * CRITICAL: Pipnosis is INTRADAY-ONLY. NO SWING TRADES.
  */
 
 export type AssetClass = "FOREX" | "CRYPTO" | "METAL" | "INDEX";
 
-export type TradeStyle = "SCALP" | "INTRADAY" | "SWING";
+export type TradeStyle = "SCALP" | "MICRO" | "INTRADAY";
 
 export type RiskMode = "LOW" | "MEDIUM" | "HIGH";
 

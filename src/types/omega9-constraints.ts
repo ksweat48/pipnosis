@@ -51,7 +51,11 @@ export interface ConstraintViolation {
   suggestedActions?: string[];
 }
 
-export type TradeStyle = 'scalp' | 'micro_intraday' | 'intraday';
+/**
+ * INTRADAY-ONLY TRADE STYLES
+ * NO SWING TRADES ALLOWED - Pipnosis is intraday-only
+ */
+export type TradeStyle = 'scalper' | 'micro' | 'intraday';
 
 export type LegacyRiskMode = 'low' | 'medium' | 'high';
 

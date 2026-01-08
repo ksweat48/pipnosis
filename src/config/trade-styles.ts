@@ -1,4 +1,11 @@
-export type TradeStyle = 'scalper' | 'swing' | 'day';
+/**
+ * PIPNOSIS INTRADAY-ONLY TRADE STYLES
+ *
+ * CRITICAL: Pipnosis is an INTRADAY platform. ALL trades MUST close before market close.
+ * NO SWING TRADES. NO MULTI-DAY POSITIONS. EVER.
+ */
+
+export type TradeStyle = 'scalper' | 'micro' | 'intraday';
 
 export interface TradeStyleConfig {
   name: string;
@@ -24,27 +31,27 @@ export const TRADE_STYLES: Record<TradeStyle, TradeStyleConfig> = {
     minDollarAmount: 50,
     maxDollarAmount: 1000,
   },
-  swing: {
-    name: 'swing',
-    displayName: 'Swing',
-    icon: 'TrendingUp',
-    description: 'Multi-day trades, 1-7 days',
-    durationMin: 1440,
-    durationMax: 10080,
-    suggestedMultipliers: [0.02, 0.04, 0.06],
-    minDollarAmount: 100,
-    maxDollarAmount: 2000,
-  },
-  day: {
-    name: 'day',
-    displayName: 'Day Trader',
-    icon: 'Clock',
-    description: 'Intraday trades, 2hr-10hr duration',
-    durationMin: 120,
-    durationMax: 600,
-    suggestedMultipliers: [0.015, 0.025, 0.03],
+  micro: {
+    name: 'micro',
+    displayName: 'Micro',
+    icon: 'Target',
+    description: 'Medium trades, 1hr-6hr duration',
+    durationMin: 60,
+    durationMax: 360,
+    suggestedMultipliers: [0.015, 0.025, 0.04],
     minDollarAmount: 75,
     maxDollarAmount: 1500,
+  },
+  intraday: {
+    name: 'intraday',
+    displayName: 'Intraday',
+    icon: 'Clock',
+    description: 'Longer intraday, 2hr-10hr duration',
+    durationMin: 120,
+    durationMax: 600,
+    suggestedMultipliers: [0.02, 0.03, 0.05],
+    minDollarAmount: 100,
+    maxDollarAmount: 2000,
   },
 };
 
@@ -108,21 +115,26 @@ export function mapLegacyRiskModeToStyle(riskMode: string): TradeStyle {
     case 'high':
       return 'scalper';
     case 'medium':
-      return 'day';
+      return 'micro';
     case 'low':
-      return 'swing';
+      return 'intraday';
     default:
-      return 'day';
+      return 'micro';
   }
 }
 
 export function getStyleFromDuration(durationMinutes: number): TradeStyle {
+  // INTRADAY ONLY: All durations max at 10 hours (600 minutes)
+  if (durationMinutes > 600) {
+    throw new Error('SWING TRADES NOT ALLOWED: Pipnosis is intraday-only. Max duration is 10 hours.');
+  }
+
   if (durationMinutes <= 120) {
     return 'scalper';
-  } else if (durationMinutes <= 600) {
-    return 'day';
+  } else if (durationMinutes <= 360) {
+    return 'micro';
   } else {
-    return 'swing';
+    return 'intraday';
   }
 }
 

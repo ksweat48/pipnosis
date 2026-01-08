@@ -4,20 +4,21 @@
  * SINGLE SOURCE OF TRUTH for mapping Alpha's TradeStyle to execution TradingMode.
  *
  * AUTHORITY MODEL:
- * - Pipnosis is intraday-only platform
- * - SCALP maps to INTRADAY (with tighter constraints)
- * - INTRADAY maps to INTRADAY (standard constraints)
- * - SWING is rejected (violates product philosophy)
+ * - Pipnosis is INTRADAY-ONLY platform - NO SWING TRADES
+ * - SCALP maps to INTRADAY (fast, 20min-2hr duration)
+ * - MICRO maps to INTRADAY (medium, 1hr-6hr duration)
+ * - INTRADAY maps to INTRADAY (longer, 2hr-10hr duration)
  *
  * GUIDING PRINCIPLE:
- * Style downgrade is allowed (SCALP → INTRADAY)
- * Style promotion is forbidden (no swing trades)
+ * All trades MUST close before market close
+ * Maximum trade duration: 10 hours
+ * NO multi-day positions allowed
  */
 
 import type { TradingMode } from '../config/execution-eligibility';
 import { logger, LogCategory } from '../lib/logger';
 
-export type TradeStyle = 'SCALP' | 'INTRADAY' | 'SWING';
+export type TradeStyle = 'SCALP' | 'MICRO' | 'INTRADAY';
 export type RiskMode = 'LOW' | 'MEDIUM' | 'HIGH';
 
 export interface StyleResolutionInput {
@@ -51,38 +52,18 @@ class ExecutionStyleResolver {
       `[Style Resolver] Resolving ${requestedStyle} (risk: ${riskMode || 'N/A'}, ATR: ${atrPercent ? (atrPercent * 100).toFixed(2) + '%' : 'N/A'})`
     );
 
-    // SWING is hard blocked - violates intraday-only philosophy
-    if (requestedStyle === 'SWING') {
-      logger.warn(
-        LogCategory.AI_TRADING,
-        '[Style Resolver] SWING style requested but Pipnosis is intraday-only. Rejecting.'
-      );
-
-      return {
-        executionMode: 'INTRADAY',
-        wasDowngraded: true,
-        originalStyle: 'SWING',
-        advisory: 'SWING trades are not supported. Pipnosis executes intraday trades only.',
-        constraintProfile: {
-          isScalpOriented: false,
-          sessionMultiplier: 1.0,
-          slAtrMultiplier: 1.0
-        }
-      };
-    }
-
-    // SCALP downgrades to INTRADAY (with tighter constraints)
+    // SCALP: Fast intraday trades (20min-2hr)
     if (requestedStyle === 'SCALP') {
       logger.info(
         LogCategory.AI_TRADING,
-        '[Style Resolver] SCALP → INTRADAY (scalp-oriented constraints applied)'
+        '[Style Resolver] SCALP → INTRADAY (fast, scalp-oriented constraints applied)'
       );
 
       return {
         executionMode: 'INTRADAY',
-        wasDowngraded: true,
+        wasDowngraded: false,
         originalStyle: 'SCALP',
-        advisory: 'Scalp style mapped to intraday execution with tighter time-to-fill constraints',
+        advisory: 'Scalp style: Fast intraday trades with tighter time-to-fill constraints',
         constraintProfile: {
           isScalpOriented: true,
           sessionMultiplier: this.getSessionMultiplier(sessionType, true),
@@ -91,16 +72,37 @@ class ExecutionStyleResolver {
       };
     }
 
-    // INTRADAY maps directly to INTRADAY
+    // MICRO: Medium duration intraday trades (1hr-6hr)
+    if (requestedStyle === 'MICRO') {
+      logger.info(
+        LogCategory.AI_TRADING,
+        '[Style Resolver] MICRO → INTRADAY (medium duration, balanced constraints)'
+      );
+
+      return {
+        executionMode: 'INTRADAY',
+        wasDowngraded: false,
+        originalStyle: 'MICRO',
+        advisory: 'Micro style: Medium duration intraday trades',
+        constraintProfile: {
+          isScalpOriented: false,
+          sessionMultiplier: this.getSessionMultiplier(sessionType, false),
+          slAtrMultiplier: 0.95 // Slightly tighter than full intraday
+        }
+      };
+    }
+
+    // INTRADAY: Longer duration intraday trades (2hr-10hr)
     logger.info(
       LogCategory.AI_TRADING,
-      '[Style Resolver] INTRADAY → INTRADAY (standard constraints)'
+      '[Style Resolver] INTRADAY → INTRADAY (longer duration, standard constraints)'
     );
 
     return {
       executionMode: 'INTRADAY',
       wasDowngraded: false,
       originalStyle: 'INTRADAY',
+      advisory: 'Intraday style: Longer duration trades, closes before market close',
       constraintProfile: {
         isScalpOriented: false,
         sessionMultiplier: this.getSessionMultiplier(sessionType, false),

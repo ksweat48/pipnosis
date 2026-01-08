@@ -146,7 +146,11 @@ export const PIPNOSIS_CORE_RULES = {
   } as const,
 } as const;
 
-export type TradeStyle = 'scalp' | 'intraday' | 'swing' | 'position';
+/**
+ * INTRADAY-ONLY TRADE STYLES
+ * NO SWING TRADES. NO POSITION TRADES. Pipnosis is intraday-only.
+ */
+export type TradeStyle = 'scalp' | 'micro' | 'intraday';
 export type ValidTimeframe = typeof PIPNOSIS_CORE_RULES.PRIMARY_TIMEFRAMES[number];
 export type ProhibitedTimeframe = typeof PIPNOSIS_CORE_RULES.PROHIBITED_TIMEFRAMES[number];
 
@@ -164,8 +168,9 @@ export class PipnosisCoreRules {
   static validateTradeStyle(style: TradeStyle): TradeValidationResult {
     const violations: string[] = [];
 
-    if (style === 'swing' || style === 'position') {
-      violations.push(`Pipnosis does not support ${style} trades. Only scalp and intraday trades are allowed.`);
+    // Hard block any attempt to use non-intraday styles
+    if (!['scalp', 'micro', 'intraday'].includes(style)) {
+      violations.push(`SWING TRADES NOT ALLOWED: Pipnosis is intraday-only. Use scalp, micro, or intraday styles only.`);
       return {
         isValid: false,
         violations,

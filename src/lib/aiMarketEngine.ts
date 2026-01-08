@@ -233,7 +233,7 @@ Provide your analysis in the following JSON format (respond ONLY with valid JSON
           resistance: [technicalSignal.takeProfit]
         },
         riskAssessment: `Risk managed with SL at ${technicalSignal.stopLoss.toFixed(5)} and TP at ${technicalSignal.takeProfit.toFixed(5)}. R:R ratio approximately 1:2.`,
-        timeHorizon: timeframe === 'M5' || timeframe === 'M15' ? 'Short-term scalp' : 'Intraday swing',
+        timeHorizon: timeframe === 'M5' || timeframe === 'M15' ? 'Short-term scalp' : 'Intraday',
         entryStrategy: `Enter at current price ${technicalSignal.entryPrice.toFixed(5)} with confirmation from ${technicalSignal.confidence} confidence setup.`,
         exitStrategy: `Target: ${technicalSignal.takeProfit.toFixed(5)}, Stop: ${technicalSignal.stopLoss.toFixed(5)}`,
         timestamp: new Date()

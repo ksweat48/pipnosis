@@ -1,19 +1,23 @@
 /**
  * SMART GOAL PANEL - Trade Styles System
  *
+ * INTRADAY-ONLY PLATFORM: All trades close before market close
+ *
  * NEW ARCHITECTURE: 2-Step Goal Creation Flow
  *
- * Step 1: Choose Trading Style (scalper, swing, day)
+ * Step 1: Choose Trading Style (scalper, micro, intraday)
  * Step 2: Pick Dollar Amount to risk per trade
  *
  * SINGLE RISK POLICY: All trades use STANDARD (1-3% per trade)
  * - Style determines trade duration and patience
  * - Dollar amount determines position sizing
  * - Alpha Brain handles everything else intelligently
+ *
+ * NO SWING TRADES ALLOWED - Pipnosis is intraday-only
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Target, TrendingUp, Clock, AlertCircle, Loader2, Zap, CheckCircle, Shield, ArrowLeft } from 'lucide-react';
+import { Target, Clock, AlertCircle, Loader2, Zap, CheckCircle, Shield, ArrowLeft } from 'lucide-react';
 import { smartGoalSessionManager } from '../services/smart-goal-session-manager';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
@@ -22,7 +26,7 @@ import { TRADE_STYLES, TradeStyle, calculateSuggestedAmounts, validateDollarAmou
 
 const STYLE_ICONS = {
   Zap,
-  TrendingUp,
+  Target,
   Clock,
 };
 
@@ -176,7 +180,7 @@ export const SmartGoalPanel: React.FC = () => {
           <div className="space-y-4">
             <div className="text-center mb-6">
               <h3 className="text-lg font-bold text-white mb-2">Choose Your Trading Style</h3>
-              <p className="text-sm text-gray-400">Select how you want to trade</p>
+              <p className="text-sm text-gray-400">Intraday-only: All positions close before market close</p>
             </div>
 
             <div className="grid grid-cols-1 gap-4">
