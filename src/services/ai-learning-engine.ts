@@ -474,7 +474,11 @@ class AILearningEngine {
     };
   }
 
-  private calculateEntryQualityScore(trade: TradeForAnalysis): number {
+  private calculateEntryQualityScore(trade: TradeForAnalysis, storedEQS?: number | null): number {
+    if (storedEQS !== null && storedEQS !== undefined && storedEQS > 0) {
+      return storedEQS;
+    }
+
     let score = trade.confidence;
 
     if (trade.outcome === 'win') {
@@ -635,7 +639,7 @@ class AILearningEngine {
         entry_confidence: tradeForAnalysis.confidence,
         entry_market_conditions: tradeForAnalysis.marketConditions,
         entry_indicators_alignment: this.extractIndicatorAlignment(tradeForAnalysis),
-        entry_quality_score: this.calculateEntryQualityScore(tradeForAnalysis),
+        entry_quality_score: this.calculateEntryQualityScore(tradeForAnalysis, trade.entry_quality_score),
         decision_reasoning: analysis.reasoning,
         matching_historical_patterns: analysis.matchingPatterns,
         ai_conviction_level: tradeForAnalysis.confidence,

@@ -93,7 +93,10 @@ import { tradeFeasibilityResolver } from '../services/trade-feasibility-resolver
 import type { AssetClass, TradeStyle as FeasibilityTradeStyle } from '../types/trade-feasibility-resolver.types';
 import { isCrypto, isIndex, isXAUUSD } from '../utils/currencyHelpers';
 import { calculateSessionContext } from '../utils/marketHours';
-import type { EntrySpec } from '../types/entry';
+import type { EntrySpec, AlphaOutputFormat, StyleDisplayName } from '../types/entry';
+import { ALPHA_IDENTITY, getAlphaSystemPrompt, getEntryMode } from '../config/alpha-identity';
+import { getDisplayNameFromStyle } from '../config/trade-styles';
+import { getStylePromptContext } from '../config/style-personalities';
 
 /**
  * Helper: Determine asset class from symbol
@@ -147,7 +150,7 @@ function getAssetClass(symbol: string): AssetClass {
 function selectDefaultTradeStyle(
   sessionContext?: { session: string; hours_until_close?: number },
   availableTime?: number
-): 'SCALP' | 'INTRADAY' | 'SWING' {
+): 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' {
   // If user has limited time, default to SCALP
   if (availableTime && availableTime <= 2) {
     return 'SCALP';
@@ -158,13 +161,18 @@ function selectDefaultTradeStyle(
     return 'SCALP';
   }
 
-  // If moderate time or mid-session, use INTRADAY
+  // If moderate time available (2-6 hours), use MICRO_INTRADAY
   if (availableTime && availableTime <= 6) {
+    return 'MICRO_INTRADAY';
+  }
+
+  // If longer time available, use INTRADAY
+  if (availableTime && availableTime > 6) {
     return 'INTRADAY';
   }
 
-  // Default to INTRADAY for most trading (good balance)
-  return 'INTRADAY';
+  // Default to MICRO_INTRADAY for most trading (good balance)
+  return 'MICRO_INTRADAY';
 }
 
 export interface OmegaCouncilVotes {
@@ -236,7 +244,7 @@ export interface AlphaDecision {
   symbol?: string;
   timestamp?: Date;
   risk_pct?: number;
-  resolvedStyle?: 'SCALP' | 'INTRADAY' | 'SWING';
+  resolvedStyle?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
   goal_context?: GoalContext;
   override?: AlphaOverride;
   intelligence_snapshot?: Partial<AlphaIntelligenceSnapshot>;
@@ -1042,62 +1050,42 @@ Act accordingly.
 `;
     }
 
-    const prompt = `You are Alpha, the final decision maker. You have COMPLETE AUTHORITY to accept or override ANY recommendation.
+    const prompt = `${getAlphaSystemPrompt()}
 
-🎯 YOUR CORE MANDATE (BOLT IMPLEMENTATION - ENTRY & TIME LOGIC)
+🎯 CORE MANDATE (PROFESSIONAL SNIPER MODE)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-CRITICAL: You must NEVER be hard-blocked due to time, session, volatility regime, or style mismatch.
-
 DECISION HIERARCHY:
-1. ALWAYS attempt to find a viable trade when the user requests one
-2. PREFER reduced targets over NO_TRADE
-3. PREFER TP1 execution over waiting for perfect entry
-4. PREFER style upgrade/downgrade over rejection
-5. DOWNGRADE target before rejecting trade
+1. ALWAYS attempt trade when profit is mathematically possible
+2. PREFER WAIT over NO_TRADE when edge exists but timing is wrong
+3. PREFER reduced targets over NO_TRADE
+4. PREFER style upgrade over rejection
 
-Style is TIME-based (NOT RISK-based):
-• SCALP: 20min - 2hr hold time
-• MICRO_INTRADAY: 1hr - 6hr hold time
-• INTRADAY: 2hr - 10hr hold time
+MINIMUM CONFIDENCE: ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%
+- Below ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%: Return WAIT (not NO_TRADE unless edge is gone)
+- ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}-${ALPHA_IDENTITY.CONFIDENCE_BANDS.ACCEPTABLE.max}%: Acceptable setup
+- ${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.min}-${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.max}%: Solid setup
+- ${ALPHA_IDENTITY.CONFIDENCE_BANDS.EXCELLENT.min}+%: Excellent setup
 
-Risk Mode is MONEY-based (NOT TIME-based):
-• LOW: 2-4% max loss per session
-• MEDIUM: 5-7% max loss per session
-• HIGH: 8-10% max loss per session
+ENTRY QUALITY SCORE (EQS) THRESHOLDS BY STYLE:
+- SCALP: >= ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.EXECUTE_IMMEDIATELY} execute, ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.WAIT_PULLBACK.min}-${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.WAIT_PULLBACK.max} wait pullback
+- MICRO_INTRADAY: >= ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.EXECUTE_IMMEDIATELY} execute, ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.WAIT_PULLBACK.min}-${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.WAIT_PULLBACK.max} wait pullback
+- INTRADAY: >= ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.INTRADAY.EXECUTE_IMMEDIATELY} execute, ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.INTRADAY.WAIT_PULLBACK.min}-${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.INTRADAY.WAIT_PULLBACK.max} wait pullback
 
-Style Progression (NO BLOCKING):
-• SCALP >2hr projected → Auto-upgrade to MICRO_INTRADAY
-• MICRO_INTRADAY >6hr projected → Auto-upgrade to INTRADAY
-• INTRADAY >10hr projected → Apply penalty, STILL EXECUTE
+ADVISORY SYSTEMS (GUIDANCE ONLY - NEVER BLOCK):
+- Regime Oracle: Max ${ALPHA_IDENTITY.ADVISORY_SYSTEMS.REGIME_ORACLE.maxConfidencePenalty}% penalty
+- Adversarial Detector: Max ${ALPHA_IDENTITY.ADVISORY_SYSTEMS.ADVERSARIAL_DETECTOR.maxConfidencePenalty}% penalty
+- Session Constraints: Max ${ALPHA_IDENTITY.ADVISORY_SYSTEMS.SESSION_CONSTRAINTS.maxConfidencePenalty}% penalty
+- Combined Maximum: ${ALPHA_IDENTITY.MAX_ADVISORY_PENALTY}% penalty
+- You may OVERRIDE any advisory with statistical justification
 
-Session transitions are NORMAL and ACCEPTABLE:
-• Trades may span sessions (adjust position size if needed)
-• Only data freshness and mathematical impossibility can block
+LEGITIMATE NO_TRADE CONDITIONS (ONLY THESE):
+${ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS.map(c => `- ${c}`).join('\n')}
 
-NO_TRADE is ONLY allowed when:
-✗ No profit is physically possible (spread exceeds potential profit)
-✗ Data is invalid or stale (safety issue)
-✗ Parameters are broken (SL on wrong side, zero-distance)
-✗ Market is closed (no liquidity)
-
-⚠️ CRITICAL: Advisories are GUIDANCE, not VETOES
-Regime Oracle, Adversarial Detector, Session Constraints = ADVISORY ONLY
-Maximum penalty from any advisor: 15% confidence reduction
-You have FINAL AUTHORITY to proceed despite all warnings
-
-Example Overrides:
-• "Dead zone shows -15% penalty, but USDJPY Tokyo session active. Proceeding."
-• "Duration 3hrs exceeds SCALP band → upgrading to MICRO_INTRADAY, executing."
-• "Adversarial detector warns stop-run, but BOS confirms reversal. Executing."
-
-ALPHA DECISION PRINCIPLES:
-→ Partial success > NO_TRADE
-→ Adjusted trade > blocked trade
-→ Reduced TP > waiting indefinitely
-→ Style flexibility > style rigidity
-→ Alpha adapts, never quits
-
-Core Principle: If the market can offer some profit, Alpha should take it.
+ALPHA MENTALITY:
+- Precision beats hesitation
+- Partial profit beats no profit
+- WAIT with conditions beats NO_TRADE
+- Advisory warnings inform, never block
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 🎯 CONFIDENCE LANGUAGE GUIDELINES
@@ -1206,12 +1194,15 @@ BUY: SL below entry, TP above | SELL: SL above entry, TP below
 
 Return JSON with structured reasoning:
 {
-  "action": "BUY|SELL|NO_TRADE|WAIT",
+  "action": "BUY|SELL|WAIT",
   "entry": price,
   "stopLoss": price,
   "takeProfit": price,
-  "confidence": 0-100,
-  "reasoning": "[CONSENSUS: summary] [MARKET: key factors] [DECISION: rationale] [OVERRIDES: if any with justification]",
+  "trade_confidence": 0-100,
+  "entry_quality_score": 0-100,
+  "entry_mode": "immediate|wait_pullback|wait_confirmation",
+  "style": "SCALP|MICRO_INTRADAY|INTRADAY",
+  "reasoning": "Brief professional reasoning (1-2 sentences)",
   "wait_condition": {
     "target_entry_zone_min": price,
     "target_entry_zone_max": price,
@@ -1224,7 +1215,12 @@ Return JSON with structured reasoning:
   }
 }
 
-Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omit wait_condition.`;
+DECISION RULES:
+- trade_confidence >= ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE} AND entry_quality_score >= style_threshold: action = BUY/SELL, entry_mode = immediate
+- trade_confidence >= ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE} AND entry_quality_score < style_threshold: action = WAIT, entry_mode = wait_pullback
+- trade_confidence < ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}: action = WAIT, entry_mode = wait_confirmation
+
+Note: NO_TRADE is reserved for legitimate block conditions ONLY. Prefer WAIT when edge exists.`;
 
     try {
       const response = await openAIClient.chat(
@@ -2156,16 +2152,29 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
         action = 'NO_TRADE';
       }
 
+      // Extract new Alpha output format fields
+      const tradeConfidence = parsed.trade_confidence ?? parsed.confidence ?? 0;
+      const entryQualityScore = parsed.entry_quality_score ?? 0;
+      const entryMode = parsed.entry_mode ?? 'wait_confirmation';
+      const resolvedStyle = parsed.style ?? 'SCALP';
+
       // If NO_TRADE, return simple response
       if (action === 'NO_TRADE') {
         return {
           action,
+          decision: action,
           entry: currentPrice,
           stopLoss: currentPrice,
           takeProfit: currentPrice,
-          confidence: Math.min(100, Math.max(0, parsed.confidence || 0)),
+          confidence: Math.min(100, Math.max(0, tradeConfidence)),
           reasoning: parsed.reasoning || 'No reasoning provided',
-          omega_summary: ''
+          omega_summary: '',
+          resolvedStyle,
+          entry_spec: {
+            entry_quality_score: entryQualityScore,
+            entry_mode: entryMode,
+            style: resolvedStyle,
+          }
         };
       }
 
@@ -2183,7 +2192,13 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
             takeProfit: currentPrice,
             confidence: 0,
             reasoning: 'WAIT decision malformed - missing target zones',
-            omega_summary: ''
+            omega_summary: '',
+            resolvedStyle,
+            entry_spec: {
+              entry_quality_score: entryQualityScore,
+              entry_mode: entryMode,
+              style: resolvedStyle,
+            }
           };
         }
 
@@ -2193,10 +2208,16 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
           entry: (waitCondition.target_entry_zone_min + waitCondition.target_entry_zone_max) / 2,
           stopLoss: waitCondition.invalidation_price,
           takeProfit: currentPrice,
-          confidence: Math.min(100, Math.max(0, parsed.confidence || 0)),
+          confidence: Math.min(100, Math.max(0, tradeConfidence)),
           reasoning: parsed.reasoning || 'Waiting for better entry conditions',
           omega_summary: '',
-          wait_condition: waitCondition
+          wait_condition: waitCondition,
+          resolvedStyle,
+          entry_spec: {
+            entry_quality_score: entryQualityScore,
+            entry_mode: entryMode,
+            style: resolvedStyle,
+          }
         };
       }
 
@@ -2325,6 +2346,7 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
 
       return {
         action,
+        decision: action,
         entry,
         stopLoss,
         takeProfit, // Legacy field for backward compatibility
@@ -2333,9 +2355,15 @@ Note: wait_condition only required if action is WAIT. For BUY/SELL/NO_TRADE, omi
         tp1Reasoning: tp1Result?.tp1Reasoning || null,
         tp2Price,
         tp2Reasoning,
-        confidence: Math.round(Math.min(100, Math.max(0, parsed.confidence || 0))),
+        confidence: Math.round(Math.min(100, Math.max(0, tradeConfidence))),
         reasoning: parsed.reasoning || 'No reasoning provided',
-        omega_summary: ''
+        omega_summary: '',
+        resolvedStyle,
+        entry_spec: {
+          entry_quality_score: entryQualityScore,
+          entry_mode: entryMode,
+          style: resolvedStyle,
+        }
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);

@@ -3,11 +3,47 @@
  *
  * CRITICAL: Pipnosis is an INTRADAY platform. ALL trades MUST close before market close.
  * NO SWING TRADES. NO MULTI-DAY POSITIONS. EVER.
+ *
+ * STYLE NAMING CONVENTION:
+ * - Internal names (database): 'scalper', 'micro', 'intraday'
+ * - Display names (UI/logs): 'SCALP', 'MICRO_INTRADAY', 'INTRADAY'
+ *
+ * Use getDisplayNameFromStyle() and getStyleFromDisplayName() for conversions.
  */
 
 import { TRADING_CONSTANTS } from './trading-constants';
 
 export type TradeStyle = 'scalper' | 'micro' | 'intraday';
+
+export type StyleDisplayName = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+
+export const STYLE_DISPLAY_NAMES: Record<TradeStyle, StyleDisplayName> = {
+  scalper: 'SCALP',
+  micro: 'MICRO_INTRADAY',
+  intraday: 'INTRADAY',
+} as const;
+
+export const STYLE_FROM_DISPLAY_NAME: Record<StyleDisplayName, TradeStyle> = {
+  SCALP: 'scalper',
+  MICRO_INTRADAY: 'micro',
+  INTRADAY: 'intraday',
+} as const;
+
+export function getDisplayNameFromStyle(style: TradeStyle): StyleDisplayName {
+  return STYLE_DISPLAY_NAMES[style];
+}
+
+export function getStyleFromDisplayName(displayName: StyleDisplayName): TradeStyle {
+  return STYLE_FROM_DISPLAY_NAME[displayName];
+}
+
+export function isValidDisplayName(name: string): name is StyleDisplayName {
+  return name === 'SCALP' || name === 'MICRO_INTRADAY' || name === 'INTRADAY';
+}
+
+export function isValidTradeStyle(style: string): style is TradeStyle {
+  return style === 'scalper' || style === 'micro' || style === 'intraday';
+}
 
 export interface TradeStyleConfig {
   name: string;

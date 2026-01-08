@@ -1247,6 +1247,12 @@ class GoalSessionLiveEngine {
             expectedDurationHours: eligibilityResult.styleTracking.expectedDurationHours,
             durationPenaltyApplied: eligibilityResult.styleTracking.durationPenaltyApplied,
             durationRewardApplied: eligibilityResult.styleTracking.durationRewardApplied
+          }),
+          // Alpha Identity entry spec (from decision.entry_spec)
+          ...(decision.entry_spec && {
+            entryMode: decision.entry_spec.entry_mode,
+            entryQualityScore: decision.entry_spec.entry_quality_score,
+            tradeConfidence: trade.confidence
           })
         },
         this.config.userId,

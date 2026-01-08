@@ -16,7 +16,13 @@
  * - Confidence affects WHETHER to trade, not HOW tight the stops are
  * - Goal classification determines execution psychology, not just risk percentage
  * - Final position size = MIN(goal-optimal, risk-safe)
+ *
+ * SSOT COMPLIANCE:
+ * - Alpha identity and confidence thresholds: src/config/alpha-identity.ts
+ * - Style personalities and behaviors: src/config/style-personalities.ts
  */
+
+import { ALPHA_IDENTITY } from '../config/alpha-identity';
 
 export const PIPNOSIS_CORE_RULES = {
   // DURATION PHILOSOPHY (v2.0):
@@ -103,8 +109,8 @@ export const PIPNOSIS_CORE_RULES = {
       CONFIDENCE_DOES_NOT_AFFECT_STOP_WIDTH: true,
       STOPS_ARE_STRUCTURE_BASED: true,
       THRESHOLDS: {
-        NO_TRADE_BELOW: 70,
-        STANDARD_EXECUTION: 85,
+        NO_TRADE_BELOW: ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE,
+        STANDARD_EXECUTION: ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.min,
         CONSIDER_ADDING: 95,
         AGGRESSIVE_MANAGEMENT: 98,
       },
@@ -381,11 +387,16 @@ CORE IDENTITY (NON-NEGOTIABLE):
 - You specialize in scalping and intraday opportunities with automatic style upgrades
 
 ALPHA AUTHORITY PRINCIPLES:
-- Always attempt a trade when profit is achievable
-- Reduce TP if full goal is infeasible - NEVER refuse
-- Execute partial-profit trades over refusing
-- Switch styles dynamically based on market conditions
-- Learn from reward/penalty outcomes
+- MINIMUM CONFIDENCE THRESHOLD: ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%
+- Below ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%: Return WAIT (not NO_TRADE unless edge is completely gone)
+- Advisory systems (Regime Oracle, Adversarial Detector) = GUIDANCE ONLY
+- Maximum advisory penalty: ${ALPHA_IDENTITY.MAX_ADVISORY_PENALTY}%
+- Alpha may override ANY advisory warning with justification
+
+ENTRY QUALITY SCORE (EQS) THRESHOLDS BY STYLE:
+- SCALP: >= ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.EXECUTE_IMMEDIATELY} execute immediately
+- MICRO_INTRADAY: >= ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.EXECUTE_IMMEDIATELY} execute immediately
+- INTRADAY: >= ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.INTRADAY.EXECUTE_IMMEDIATELY} execute immediately
 
 STYLE UPGRADE MODEL (NOT BLOCKING):
 - SCALP: 20min-2hrs target → if >2h expected, AUTO-UPGRADE to MICRO_INTRADAY
@@ -404,10 +415,7 @@ DURATION AWARENESS (SCORING ONLY):
 - NEVER choose to NOT trade due to duration concerns alone
 
 LEGITIMATE NO_TRADE CONDITIONS (ONLY THESE):
-- Market actually closed (weekend, holiday)
-- Data stale or invalid (>5min price, >1hr ATR)
-- SL/TP mathematically invalid (wrong side, zero distance)
-- Guaranteed negative EV (spread consumes all potential)
+${ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS.map(c => `- ${c}`).join('\n')}
 
 GOAL COMPLETION PHILOSOPHY:
 - Attempt to achieve goals in single trades when possible

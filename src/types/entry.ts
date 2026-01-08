@@ -213,44 +213,94 @@ export interface VolatilityWaitIntent {
  */
 
 /**
- * Entry Quality Score breakdown
- * Shows how the 0-100 EQS is calculated across four dimensions
+ * Entry Quality Score breakdown - SPEC COMPLIANT WEIGHTS
+ *
+ * Weighted factors (total 100):
+ * 1. Candle acceptance (body dominance, closes): 20
+ * 2. Pullback quality / impulse structure: 15
+ * 3. VWAP interaction (kiss, reclaim, spread): 15
+ * 4. EMA alignment / slope / crossover: 10
+ * 5. Liquidity reaction (not detection): 15
+ * 6. Compression → expansion: 10
+ * 7. Failed move confirmation: 10
+ * 8. Timeframe alignment (M5 for entry): 5
  */
 export interface EQSBreakdown {
-  locationScore: number;        // 0-30: VWAP setup + key levels + liquidity location
-  confirmationScore: number;    // 0-30: Candle acceptance + patterns + momentum
-  timingScore: number;          // 0-25: Pullback quality + compression/expansion + precision
-  frictionPenalty: number;      // 0 to -15: Wicks + spread + news spikes
-  totalScore: number;           // Sum of all components (can be negative)
+  candleAcceptance: number;       // 0-20: Body dominance, closes in direction, consecutive
+  pullbackQuality: number;        // 0-15: 38-50% retracement quality, impulse structure
+  vwapInteraction: number;        // 0-15: VWAP kiss, reclaim, spread from VWAP
+  emaAlignment: number;           // 0-10: EMA20 alignment, slope, crossover confirmation
+  liquidityReaction: number;      // 0-15: Response to liquidity pools, sweep-reclaim
+  compressionExpansion: number;   // 0-10: Tight range breakout patterns
+  failedMoveConfirmation: number; // 0-10: False breakout confirmation, exhaustion
+  timeframeAlignment: number;     // 0-5: M5 microstructure confirmation
+  totalScore: number;             // Sum of all components (0-100)
 
-  // Detailed component breakdowns
+  factorDetails: {
+    candleAcceptance: {
+      bodyDominance: number;      // 0-8
+      consecutiveCloses: number;  // 0-7
+      closeQuality: number;       // 0-5
+    };
+    pullbackQuality: {
+      retracementDepth: number;   // 0-8
+      impulseIdentification: number; // 0-7
+    };
+    vwapInteraction: {
+      distance: number;           // 0-6
+      kissPattern: number;        // 0-5
+      reclaimQuality: number;     // 0-4
+    };
+    emaAlignment: {
+      directionMatch: number;     // 0-4
+      slopeStrength: number;      // 0-3
+      crossoverRecent: number;    // 0-3
+    };
+    liquidityReaction: {
+      poolResponse: number;       // 0-8
+      sweepReclaim: number;       // 0-7
+    };
+    compressionExpansion: {
+      compressionDetected: number; // 0-5
+      expansionFollows: number;    // 0-5
+    };
+    failedMoveConfirmation: {
+      failureDetected: number;    // 0-5
+      confirmationPresent: number; // 0-5
+    };
+    timeframeAlignment: {
+      m5Confirmation: number;     // 0-3
+      mtfAlignment: number;       // 0-2
+    };
+  };
+
+  aplusPatternBonus?: number;
+  aplusPatternType?: string;
+
+  locationScore: number;
+  confirmationScore: number;
+  timingScore: number;
+  frictionPenalty: number;
   locationDetails: {
-    vwapSetup: number;          // 0-12: VWAP kiss/reclaim quality
-    keyLevelConfluence: number; // 0-10: Session high/low, support/resistance
-    liquidityLocation: number;  // 0-8: Sweep-reclaim vs liquidity grab
+    vwapSetup: number;
+    keyLevelConfluence: number;
+    liquidityLocation: number;
   };
-
   confirmationDetails: {
-    candleAcceptance: number;   // 0-15: Body dominance, close quality, consecutive closes
-    patternConfirmation: number; // 0-10: Breakout-retest, sweep-reclaim, engulfing
-    momentumAlignment: number;  // 0-5: Momentum direction + exhaustion check
+    candleAcceptance: number;
+    patternConfirmation: number;
+    momentumAlignment: number;
   };
-
   timingDetails: {
-    pullbackQuality: number;    // 0-12: 38-50% retracement quality
-    compressionExpansion: number; // 0-8: Tight range → breakout
-    entryPrecision: number;     // 0-5: Distance from ideal entry
+    pullbackQuality: number;
+    compressionExpansion: number;
+    entryPrecision: number;
   };
-
   frictionDetails: {
-    wickRisk: number;           // 0 to -7: Large wicks indicating rejection
-    spreadPenalty: number;      // 0 to -6: Elevated spread
-    newsSpikePenalty: number;   // 0 to -8: News/volatility spike
+    wickRisk: number;
+    spreadPenalty: number;
+    newsSpikePenalty: number;
   };
-
-  // Grade A+ pattern bonuses
-  aplusPatternBonus?: number;   // +10 to +15 for exceptional setups
-  aplusPatternType?: string;    // Type of A+ pattern detected
 }
 
 /**
@@ -271,12 +321,55 @@ export type EntryActionTier =
   | 'WAIT_PASSIVE';            // EQS <50: monitor for improvement
 
 /**
- * Entry mode - how Alpha wants to enter based on confidence and setup
+ * Entry mode - how Alpha wants to enter based on confidence and EQS
+ *
+ * Decision is based on Trade Confidence AND Entry Quality Score:
+ * - immediate: TC >= 60% AND EQS >= style threshold (85 SCALP, 80 others)
+ * - wait_pullback: TC >= 60% AND EQS in wait band (70-84 SCALP, 65-79 others)
+ * - wait_confirmation: TC < 60% OR EQS below wait band
  */
 export type EntryMode =
-  | 'immediate'                // High confidence: enter at first signal (min EQS 70)
-  | 'wait_pullback'            // Medium confidence: wait for pullback (min EQS 75)
-  | 'wait_confirmation';       // Lower confidence: need full confirmation (min EQS 80)
+  | 'immediate'
+  | 'wait_pullback'
+  | 'wait_confirmation';
+
+/**
+ * Style display names used in Alpha outputs and UI
+ */
+export type StyleDisplayName = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+
+/**
+ * Alpha decision action types
+ */
+export type AlphaAction = 'BUY' | 'SELL' | 'WAIT' | 'NO_TRADE';
+
+/**
+ * Alpha output format - standardized response structure
+ *
+ * This interface defines the expected output format from Alpha's decisions.
+ * All downstream consumers should use this format.
+ */
+export interface AlphaOutputFormat {
+  action: AlphaAction;
+  trade_confidence: number;
+  entry_quality_score: number;
+  entry_mode: EntryMode;
+  style: StyleDisplayName;
+  reasoning: string;
+  entry?: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  wait_condition?: {
+    target_entry_zone_min: number;
+    target_entry_zone_max: number;
+    invalidation_price: number;
+    wait_reasoning: string;
+  };
+  override?: {
+    type: 'adversarial_block' | 'regime_avoid' | 'risk_limit' | 'none';
+    justification: string;
+  };
+}
 
 /**
  * Entry trigger - specific condition to monitor for entry execution

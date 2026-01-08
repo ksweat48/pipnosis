@@ -43,12 +43,15 @@ import { calculatePipDistance } from '../utils/currencyHelpers';
 import { getSymbolConfig } from '../config/symbol-registry';
 import { logger } from '../lib/logger';
 import { VOLATILITY_PATIENCE_CONFIG } from '../config/volatility-aware-patience-config';
+import { ALPHA_IDENTITY, EQS_WEIGHTED_FACTORS } from '../config/alpha-identity';
+import { getDisplayNameFromStyle, type TradeStyle } from '../config/trade-styles';
 import type { ATRValue } from '../types/atr';
 import type {
   EntryQualificationStatus,
   EntryActionTier,
   EQSBreakdown,
-  EntryTrigger
+  EntryTrigger,
+  StyleDisplayName
 } from '../types/entry';
 
 export interface EntryQualificationInput {
@@ -234,19 +237,83 @@ class EntryQualificationEngine {
       logger.info(`[EQE] 🌟 Grade A+ Pattern Detected: ${aplusPattern.type} (+${aplusPattern.bonus} points)`);
     }
 
-    // Build EQS breakdown
+    // Build EQS breakdown with spec-compliant weights
+    // Map legacy scores to new spec weights:
+    // Candle acceptance: 20 (from confirmationDetails.candleAcceptance scaled)
+    // Pullback quality: 15 (from timingDetails.pullbackQuality scaled)
+    // VWAP interaction: 15 (from locationDetails.vwapSetup scaled)
+    // EMA alignment: 10 (from confluence/momentum)
+    // Liquidity reaction: 15 (from locationDetails.liquidityLocation scaled)
+    // Compression/expansion: 10 (from timingDetails.compressionExpansion scaled)
+    // Failed move: 10 (from pattern confirmation)
+    // Timeframe alignment: 5 (from range position)
+
+    const candleAcceptanceScore = Math.min(20, Math.round((confirmationScore.details.candleAcceptance / 15) * 20));
+    const pullbackQualityScore = Math.min(15, Math.round((timingScore.details.pullbackQuality / 12) * 15));
+    const vwapInteractionScore = Math.min(15, Math.round((locationScore.details.vwapSetup / 12) * 15));
+    const emaAlignmentScore = Math.min(10, Math.round((confirmationScore.details.momentumAlignment / 5) * 10));
+    const liquidityReactionScore = Math.min(15, Math.round((locationScore.details.liquidityLocation / 8) * 15));
+    const compressionExpansionScore = Math.min(10, Math.round((timingScore.details.compressionExpansion / 8) * 10));
+    const failedMoveScore = Math.min(10, Math.round((confirmationScore.details.patternConfirmation / 10) * 10));
+    const timeframeAlignmentScore = Math.min(5, metrics.rangePosition !== 'middle' ? 5 : 2);
+
     const eqsBreakdown: EQSBreakdown = {
+      candleAcceptance: candleAcceptanceScore,
+      pullbackQuality: pullbackQualityScore,
+      vwapInteraction: vwapInteractionScore,
+      emaAlignment: emaAlignmentScore,
+      liquidityReaction: liquidityReactionScore,
+      compressionExpansion: compressionExpansionScore,
+      failedMoveConfirmation: failedMoveScore,
+      timeframeAlignment: timeframeAlignmentScore,
+      totalScore: totalEQS,
+      factorDetails: {
+        candleAcceptance: {
+          bodyDominance: Math.round(candleAcceptance.bodyDominance * 8),
+          consecutiveCloses: Math.min(7, candleAcceptance.consecutiveCloses * 2),
+          closeQuality: candleAcceptance.closeQuality === 'excellent' ? 5 : candleAcceptance.closeQuality === 'good' ? 3 : 1,
+        },
+        pullbackQuality: {
+          retracementDepth: pullbackQuality.grade === 'A' ? 8 : pullbackQuality.grade === 'B' ? 5 : 2,
+          impulseIdentification: pullbackQuality.quality === 'shallow' ? 7 : pullbackQuality.quality === 'medium' ? 4 : 2,
+        },
+        vwapInteraction: {
+          distance: Math.min(6, Math.round((locationScore.details.vwapSetup / 12) * 6)),
+          kissPattern: metrics.vwapAlignment ? 5 : 1,
+          reclaimQuality: metrics.vwapAlignment ? 4 : 1,
+        },
+        emaAlignment: {
+          directionMatch: metrics.momentumConfirmation ? 4 : 1,
+          slopeStrength: 2,
+          crossoverRecent: 2,
+        },
+        liquidityReaction: {
+          poolResponse: Math.min(8, Math.round((locationScore.details.liquidityLocation / 8) * 8)),
+          sweepReclaim: failedMove.entryViable ? 7 : 2,
+        },
+        compressionExpansion: {
+          compressionDetected: compressionExpansion.compressionDetected ? 5 : 1,
+          expansionFollows: compressionExpansion.expansionFollows ? 5 : 1,
+        },
+        failedMoveConfirmation: {
+          failureDetected: failedMove.failedMoveDetected ? 5 : 1,
+          confirmationPresent: failedMove.confirmationPresent ? 5 : 1,
+        },
+        timeframeAlignment: {
+          m5Confirmation: metrics.momentumConfirmation ? 3 : 1,
+          mtfAlignment: input.m15Trend === (input.direction === 'BUY' ? 'bullish' : 'bearish') ? 2 : 0,
+        },
+      },
+      aplusPatternBonus: aplusPattern?.bonus,
+      aplusPatternType: aplusPattern?.type,
       locationScore: locationScore.total,
       confirmationScore: confirmationScore.total,
       timingScore: timingScore.total,
       frictionPenalty: frictionPenalty.total,
-      totalScore: totalEQS,
       locationDetails: locationScore.details,
       confirmationDetails: confirmationScore.details,
       timingDetails: timingScore.details,
       frictionDetails: frictionPenalty.details,
-      aplusPatternBonus: aplusPattern?.bonus,
-      aplusPatternType: aplusPattern?.type
     };
 
     // Determine action tier and status
@@ -1687,36 +1754,52 @@ class EntryQualificationEngine {
   }
 
   /**
-   * Determine action tier based on EQS and component breakdown
+   * Determine action tier based on EQS, style, and component breakdown
+   * Uses ALPHA_IDENTITY thresholds for style-specific decisions
    */
-  private determineActionTier(eqs: number, breakdown: EQSBreakdown): EntryActionTier {
-    // Grade A+ (80+): Execute immediately
-    if (eqs >= 80) {
+  private determineActionTier(eqs: number, breakdown: EQSBreakdown, style?: StyleDisplayName): EntryActionTier {
+    const styleKey = style || 'MICRO_INTRADAY';
+    const thresholds = ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS[styleKey];
+
+    if (eqs >= thresholds.EXECUTE_IMMEDIATELY) {
       return 'EXECUTE_NOW';
     }
 
-    // Grade A (72-79): Execute if strong acceptance + VWAP
-    if (eqs >= 72) {
-      const hasStrongAcceptance = breakdown.confirmationDetails.candleAcceptance >= 12;
-      const hasGoodVWAP = breakdown.locationDetails.vwapSetup >= 8;
-
-      if (hasStrongAcceptance && hasGoodVWAP) {
-        return 'EXECUTE_NOW';
-      }
-    }
-
-    // Grade B (65-71): Wait for better entry with structured triggers
-    if (eqs >= 65) {
+    if (eqs >= thresholds.WAIT_PULLBACK.min) {
       return 'WAIT_FOR_BETTER_ENTRY';
     }
 
-    // Grade C (50-64): Wait tight, require confirmation
     if (eqs >= 50) {
       return 'WAIT_TIGHT';
     }
 
-    // Grade D (<50): Wait passive, monitor for improvement
     return 'WAIT_PASSIVE';
+  }
+
+  /**
+   * Get style-specific EQS thresholds
+   */
+  getStyleThresholds(style: StyleDisplayName): {
+    executeThreshold: number;
+    waitPullbackMin: number;
+    waitPullbackMax: number;
+  } {
+    const thresholds = ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS[style];
+    return {
+      executeThreshold: thresholds.EXECUTE_IMMEDIATELY,
+      waitPullbackMin: thresholds.WAIT_PULLBACK.min,
+      waitPullbackMax: thresholds.WAIT_PULLBACK.max,
+    };
+  }
+
+  /**
+   * Evaluate with style awareness - recommended entry point
+   */
+  evaluateWithStyle(input: EntryQualificationInput, style: StyleDisplayName): EntryQualificationResult {
+    const result = this.evaluate(input);
+    result.actionTier = this.determineActionTier(result.eqs, result.eqsBreakdown, style);
+    result.status = result.actionTier === 'EXECUTE_NOW' ? 'EXECUTE_NOW' : 'WAIT_FOR_BETTER_ENTRY';
+    return result;
   }
 
   /**
@@ -1866,20 +1949,33 @@ class EntryQualificationEngine {
   ): void {
     console.log('%c[EQS] ENTRY QUALITY SCORE', 'color: #2196f3; font-weight: bold; font-size: 14px');
     console.log(`  Total: ${eqs}/100 | Grade: ${grade} | Action: ${actionTier}`);
-    console.log(`  📍 Location: ${breakdown.locationScore}/30 (VWAP: ${breakdown.locationDetails.vwapSetup}, Levels: ${breakdown.locationDetails.keyLevelConfluence}, Liquidity: ${breakdown.locationDetails.liquidityLocation})`);
-    console.log(`  ✓ Confirmation: ${breakdown.confirmationScore}/30 (Acceptance: ${breakdown.confirmationDetails.candleAcceptance}, Pattern: ${breakdown.confirmationDetails.patternConfirmation}, Momentum: ${breakdown.confirmationDetails.momentumAlignment})`);
-    console.log(`  ⏱ Timing: ${breakdown.timingScore}/25 (Pullback: ${breakdown.timingDetails.pullbackQuality}, Compression: ${breakdown.timingDetails.compressionExpansion}, Precision: ${breakdown.timingDetails.entryPrecision})`);
-    console.log(`  ⚠️  Friction: ${breakdown.frictionPenalty}/0 (Wicks: ${breakdown.frictionDetails.wickRisk}, Spread: ${breakdown.frictionDetails.spreadPenalty}, Spikes: ${breakdown.frictionDetails.newsSpikePenalty})`);
+    console.log(`  Candle Acceptance: ${breakdown.candleAcceptance}/20`);
+    console.log(`  Pullback Quality: ${breakdown.pullbackQuality}/15`);
+    console.log(`  VWAP Interaction: ${breakdown.vwapInteraction}/15`);
+    console.log(`  EMA Alignment: ${breakdown.emaAlignment}/10`);
+    console.log(`  Liquidity Reaction: ${breakdown.liquidityReaction}/15`);
+    console.log(`  Compression/Expansion: ${breakdown.compressionExpansion}/10`);
+    console.log(`  Failed Move: ${breakdown.failedMoveConfirmation}/10`);
+    console.log(`  Timeframe Alignment: ${breakdown.timeframeAlignment}/5`);
 
     if (breakdown.aplusPatternBonus) {
-      console.log(`  🌟 A+ Bonus: +${breakdown.aplusPatternBonus} (${breakdown.aplusPatternType})`);
+      console.log(`  A+ Bonus: +${breakdown.aplusPatternBonus} (${breakdown.aplusPatternType})`);
     }
 
     if (actionTier === 'EXECUTE_NOW') {
-      console.log('%c  ► EXECUTE NOW', 'color: #4caf50; font-weight: bold');
+      console.log('%c  EXECUTE NOW', 'color: #4caf50; font-weight: bold');
     } else {
-      console.log('%c  ► WAIT FOR BETTER ENTRY', 'color: #ff9800; font-weight: bold');
+      console.log('%c  WAIT FOR BETTER ENTRY', 'color: #ff9800; font-weight: bold');
     }
+  }
+
+  /**
+   * Helper: Calculate average candle range for comparison
+   */
+  private calculateAverageCandleRange(candles: M5Candle[]): number {
+    if (candles.length === 0) return 0;
+    const ranges = candles.map(c => c.high - c.low);
+    return ranges.reduce((sum, r) => sum + r, 0) / ranges.length;
   }
 }
 

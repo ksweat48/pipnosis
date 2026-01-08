@@ -49,6 +49,10 @@ export interface TradeSignal {
   expectedDurationHours?: number;
   durationPenaltyApplied?: boolean;
   durationRewardApplied?: boolean;
+  // Alpha Identity entry spec (new)
+  entryMode?: 'immediate' | 'wait_pullback' | 'wait_confirmation';
+  entryQualityScore?: number;
+  tradeConfidence?: number;
 }
 
 export interface TradeExecutionResult {
@@ -384,7 +388,11 @@ class TradeExecutionEngine {
         style_upgrade_applied: signal.styleUpgradeApplied || false,
         expected_duration_hours: signal.expectedDurationHours || null,
         duration_penalty_applied: signal.durationPenaltyApplied || false,
-        duration_reward_applied: signal.durationRewardApplied || false
+        duration_reward_applied: signal.durationRewardApplied || false,
+        // Alpha Identity entry spec
+        entry_mode: signal.entryMode || 'immediate',
+        entry_quality_score: signal.entryQualityScore || null,
+        trade_confidence: signal.tradeConfidence || signal.confidence || null
       })
       .select()
       .single();
@@ -627,7 +635,11 @@ class TradeExecutionEngine {
       style_upgrade_applied: signal.styleUpgradeApplied || false,
       expected_duration_hours: signal.expectedDurationHours || null,
       duration_penalty_applied: signal.durationPenaltyApplied || false,
-      duration_reward_applied: signal.durationRewardApplied || false
+      duration_reward_applied: signal.durationRewardApplied || false,
+      // Alpha Identity entry spec
+      entry_mode: signal.entryMode || 'immediate',
+      entry_quality_score: signal.entryQualityScore || null,
+      trade_confidence: signal.tradeConfidence || signal.confidence || null
     };
 
     console.log('[Trade Execution] Inserting trade with data:', {
