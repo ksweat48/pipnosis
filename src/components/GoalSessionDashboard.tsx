@@ -582,19 +582,117 @@ export const GoalSessionDashboard: React.FC = () => {
   const handleStopSession = async () => {
     if (!activeSession || !user) return;
 
+    // Check if there are open trades
+    const hasOpenTrades = openTrades.length > 0;
+
+    // Show different confirmation message based on whether there are open trades
     const confirmed = await confirm({
-      title: 'Stop Goal Session',
-      message: 'Are you sure you want to stop this goal session? Any progress will be saved.',
-      confirmText: 'Stop Session',
-      cancelText: 'Continue',
+      title: hasOpenTrades ? 'Stop Session with Open Trades?' : 'Stop Goal Session',
+      message: hasOpenTrades
+        ? `You are closing this session with ${openTrades.length} open trade${openTrades.length > 1 ? 's' : ''}.\n\nAll open positions will be closed at current market prices. Do you want to continue?`
+        : 'Are you sure you want to stop this goal session? Any progress will be saved.',
+      confirmText: hasOpenTrades ? 'Close All & Stop Session' : 'Stop Session',
+      cancelText: 'Cancel',
       variant: 'warning'
     });
 
     if (!confirmed) return;
 
-    const success = await smartGoalSessionManager.stopSession(activeSession.sessionId, user.id);
-    if (success) {
-      loadSessionData();
+    try {
+      // If there are open trades, close them all first
+      if (hasOpenTrades) {
+        console.log(`[GoalSessionDashboard] Closing ${openTrades.length} open trade(s) before stopping session...`);
+
+        let closedCount = 0;
+        let failedCount = 0;
+
+        for (const trade of openTrades) {
+          try {
+            // Fetch current live price for the symbol
+            const { data: priceData, error: priceError } = await supabase
+              .from('realtime_prices')
+              .select('bid, ask')
+              .eq('symbol', trade.symbol)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (priceError || !priceData) {
+              console.error(`[GoalSessionDashboard] Failed to get price for ${trade.symbol}:`, priceError);
+              failedCount++;
+              continue;
+            }
+
+            // Use bid for long positions, ask for short positions
+            const closePrice = trade.direction === 'buy' ? priceData.bid : priceData.ask;
+
+            console.log(`[GoalSessionDashboard] Closing ${trade.symbol} at ${closePrice}`);
+
+            // Close the position
+            const result = await positionService.closePosition(
+              trade.id,
+              closePrice,
+              'session_ended',
+              user.id,
+              activeSession.sessionId
+            );
+
+            if (result.success) {
+              closedCount++;
+              console.log(`[GoalSessionDashboard] ✅ Closed ${trade.symbol} successfully`);
+            } else {
+              failedCount++;
+              console.error(`[GoalSessionDashboard] ❌ Failed to close ${trade.symbol}:`, result.message);
+            }
+          } catch (error) {
+            failedCount++;
+            console.error(`[GoalSessionDashboard] ❌ Error closing trade ${trade.symbol}:`, error);
+          }
+        }
+
+        // Show summary of trade closures
+        if (closedCount > 0) {
+          showToast({
+            type: 'success',
+            title: 'Trades Closed',
+            message: `Successfully closed ${closedCount} trade${closedCount > 1 ? 's' : ''}`
+          });
+        }
+
+        if (failedCount > 0) {
+          showToast({
+            type: 'warning',
+            title: 'Some Trades Failed to Close',
+            message: `${failedCount} trade${failedCount > 1 ? 's' : ''} could not be closed. Please check manually.`
+          });
+        }
+
+        console.log(`[GoalSessionDashboard] Trade closure summary: ${closedCount} closed, ${failedCount} failed`);
+      }
+
+      // Now stop the session
+      const success = await smartGoalSessionManager.stopSession(activeSession.sessionId, user.id);
+      if (success) {
+        showToast({
+          type: 'success',
+          title: 'Session Stopped',
+          message: 'Goal session has been stopped successfully'
+        });
+        loadSessionData();
+      } else {
+        showToast({
+          type: 'error',
+          title: 'Failed to Stop Session',
+          message: 'Could not stop the session. Please try again.'
+        });
+      }
+    } catch (error) {
+      console.error('[GoalSessionDashboard] Error stopping session:', error);
+      showToast({
+        type: 'error',
+        title: 'Error',
+        message: 'An error occurred while stopping the session'
+      });
     }
   };
 

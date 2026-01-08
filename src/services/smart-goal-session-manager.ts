@@ -652,9 +652,10 @@ class SmartGoalSessionManager {
         .eq('status', 'open');
 
       if (openTrades && openTrades.length > 0) {
-        console.warn(`[Smart Goal] ⚠️ Session has ${openTrades.length} open trade(s):`);
+        console.warn(`[Smart Goal] ⚠️ UNEXPECTED: Session has ${openTrades.length} open trade(s):`);
         openTrades.forEach(t => console.warn(`  - ${t.symbol} (ID: ${t.id})`));
-        console.warn('[Smart Goal] Proceeding with stop, but trades remain open');
+        console.warn('[Smart Goal] ⚠️ Trades should have been closed by UI before stopSession was called!');
+        console.warn('[Smart Goal] This indicates a potential ghost trade situation - manual intervention may be needed');
       }
 
       // Update session to user_stopped
