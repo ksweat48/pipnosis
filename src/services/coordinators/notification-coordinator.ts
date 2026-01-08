@@ -93,7 +93,7 @@ class NotificationCoordinator {
         metadata: request.metadata || {},
         priority: request.priority || 'medium',
         trade_id: request.tradeId || null,
-        session_id: request.sessionId || null,
+        goal_session_id: request.sessionId || null, // ✅ FIX: Use correct column name 'goal_session_id' not 'session_id'
         read: false,
         created_at: new Date().toISOString(),
       };
