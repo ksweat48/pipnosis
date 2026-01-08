@@ -444,11 +444,12 @@ class SmartGoalSessionManager {
         );
 
         // Send comprehensive session startup message
+        const effectiveRiskMode = config.riskMode || 'medium';
         const strategyMessage = `🎯 Goal Session Started!\\n` +
           `💰 Target: $${config.goalAmount} in ${config.timeframe}\\n` +
           `📊 Strategy: ${breakDown.targetTradeCount} trades averaging $${breakDown.avgProfitPerTrade.toFixed(2)} each\\n` +
-          `🛡️ Risk Mode: ${config.riskMode.toUpperCase()} (max $${breakDown.maxProfitPerTrade.toFixed(2)} per trade)\\n` +
-          `🎯 Confidence Threshold: ${minConfidence}% (${config.riskMode} risk = ${minConfidence >= 70 ? 'selective' : minConfidence >= 60 ? 'balanced' : 'aggressive'})\\n` +
+          `🛡️ Risk Mode: ${effectiveRiskMode.toUpperCase()} (max $${breakDown.maxProfitPerTrade.toFixed(2)} per trade)\\n` +
+          `🎯 Confidence Threshold: ${minConfidence}% (${effectiveRiskMode} risk = ${minConfidence >= 70 ? 'selective' : minConfidence >= 60 ? 'balanced' : 'aggressive'})\\n` +
           `\\n🔍 Monitoring: ${config.watchlist.join(', ')}\\n` +
           `⚡ Analyzing markets every minute for optimal entries\\n` +
           `🧠 Autonomous Pipnosis Alpha: GPT-4o-mini creating dynamic strategies\\n` +

@@ -8,6 +8,7 @@
  */
 
 import { getStandardRiskPolicy, type RiskMode as PolicyRiskMode } from './risk-mode-policy';
+import { ALPHA_IDENTITY } from './alpha-identity';
 
 export const STANDARD_RISK = 2;
 
@@ -35,12 +36,15 @@ export function getRiskModeDescription(riskMode?: RiskMode | string): string {
 }
 
 /**
- * SINGLE CONFIDENCE THRESHOLD
+ * SINGLE CONFIDENCE THRESHOLD (SSOT from alpha-identity.ts)
  *
- * All trades now use the same baseline confidence requirement.
+ * All trades now use the same baseline confidence requirement: 60%
  * Alpha can adjust consensus requirements (3/7, 4/7, 5/7) for quality control.
+ *
+ * ARCHITECTURE: This value is sourced from ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE
+ * to maintain Single Source of Truth.
  */
-export const STANDARD_CONFIDENCE_THRESHOLD = 65;
+export const STANDARD_CONFIDENCE_THRESHOLD = ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE;
 
 export const CONFIDENCE_THRESHOLDS = {
   low: STANDARD_CONFIDENCE_THRESHOLD,
@@ -49,10 +53,10 @@ export const CONFIDENCE_THRESHOLDS = {
 } as const;
 
 /**
- * Get the minimum confidence threshold (returns standard threshold)
+ * Get the minimum confidence threshold (returns Alpha's SSOT: 60%)
  */
 export function getMinConfidenceThreshold(riskMode?: RiskMode | string): number {
-  return STANDARD_CONFIDENCE_THRESHOLD;
+  return ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE;
 }
 
 /**
