@@ -244,17 +244,17 @@ export const SmartGoalPanel: React.FC = () => {
             </div>
 
             {suggestedAmounts && (
-              <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
                 <button
                   onClick={() => handleAmountSelection(suggestedAmounts.low)}
-                  className={`px-4 py-4 rounded-lg text-left transition-all border-2 ${
+                  className={`px-2 sm:px-4 py-4 rounded-lg text-center transition-all border-2 ${
                     customAmount === suggestedAmounts.low.toString()
                       ? 'bg-emerald-500/20 border-emerald-500/50 shadow-lg shadow-emerald-500/20'
                       : 'bg-gray-700/30 border-gray-600/50 hover:border-emerald-500/30 hover:bg-gray-700/50'
                   }`}
                 >
-                  <div className="text-xs text-gray-400 mb-1">Conservative</div>
-                  <div className="text-lg font-bold text-white">${suggestedAmounts.low}</div>
+                  <div className="text-xs text-gray-400 mb-1 truncate">Conservative</div>
+                  <div className="text-base sm:text-lg font-bold text-white truncate">${suggestedAmounts.low}</div>
                   <div className="text-xs text-gray-400 mt-1">
                     {((suggestedAmounts.low / accountBalance) * 100).toFixed(1)}%
                   </div>
@@ -262,14 +262,14 @@ export const SmartGoalPanel: React.FC = () => {
 
                 <button
                   onClick={() => handleAmountSelection(suggestedAmounts.medium)}
-                  className={`px-4 py-4 rounded-lg text-left transition-all border-2 ${
+                  className={`px-2 sm:px-4 py-4 rounded-lg text-center transition-all border-2 ${
                     customAmount === suggestedAmounts.medium.toString()
                       ? 'bg-emerald-500/20 border-emerald-500/50 shadow-lg shadow-emerald-500/20'
                       : 'bg-gray-700/30 border-gray-600/50 hover:border-emerald-500/30 hover:bg-gray-700/50'
                   }`}
                 >
-                  <div className="text-xs text-gray-400 mb-1">Balanced</div>
-                  <div className="text-lg font-bold text-white">${suggestedAmounts.medium}</div>
+                  <div className="text-xs text-gray-400 mb-1 truncate">Balanced</div>
+                  <div className="text-base sm:text-lg font-bold text-white truncate">${suggestedAmounts.medium}</div>
                   <div className="text-xs text-gray-400 mt-1">
                     {((suggestedAmounts.medium / accountBalance) * 100).toFixed(1)}%
                   </div>
@@ -277,14 +277,14 @@ export const SmartGoalPanel: React.FC = () => {
 
                 <button
                   onClick={() => handleAmountSelection(suggestedAmounts.high)}
-                  className={`px-4 py-4 rounded-lg text-left transition-all border-2 ${
+                  className={`px-2 sm:px-4 py-4 rounded-lg text-center transition-all border-2 ${
                     customAmount === suggestedAmounts.high.toString()
                       ? 'bg-emerald-500/20 border-emerald-500/50 shadow-lg shadow-emerald-500/20'
                       : 'bg-gray-700/30 border-gray-600/50 hover:border-emerald-500/30 hover:bg-gray-700/50'
                   }`}
                 >
-                  <div className="text-xs text-gray-400 mb-1">Aggressive</div>
-                  <div className="text-lg font-bold text-white">${suggestedAmounts.high}</div>
+                  <div className="text-xs text-gray-400 mb-1 truncate">Aggressive</div>
+                  <div className="text-base sm:text-lg font-bold text-white truncate">${suggestedAmounts.high}</div>
                   <div className="text-xs text-gray-400 mt-1">
                     {((suggestedAmounts.high / accountBalance) * 100).toFixed(1)}%
                   </div>
