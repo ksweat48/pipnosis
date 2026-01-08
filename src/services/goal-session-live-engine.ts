@@ -788,6 +788,30 @@ class GoalSessionLiveEngine {
         return;
       }
 
+      // ✅ CRITICAL FIX: Handle WAIT decisions - do not execute immediately
+      if (decision.action === 'WAIT') {
+        logger.info(LogCategory.AI_TRADING, `⏸️ WAIT decision received for ${selectedSymbol} - deferring execution`);
+
+        // Determine intended direction from stop loss position
+        const intendedDirection = decision.stopLoss > decision.entry ? 'SELL' : 'BUY';
+        const directionEmoji = intendedDirection === 'BUY' ? '🟢' : '🔴';
+
+        await this.sendAIMessage(
+          `⏸️ Setup Identified - Waiting for Optimal Entry\n\n` +
+          `${directionEmoji} Symbol: ${selectedSymbol}\n` +
+          `📊 Intended Direction: ${intendedDirection}\n` +
+          `🎯 Target Entry: ${decision.entry.toFixed(5)}\n` +
+          `🛡️ Stop Loss: ${decision.stopLoss.toFixed(5)}\n` +
+          `💰 Take Profit: ${decision.takeProfit.toFixed(5)}\n` +
+          `🔍 Confidence: ${decision.confidence}%\n\n` +
+          `Alpha is monitoring market conditions and will execute when entry timing is optimal. ` +
+          `This patient approach improves entry quality and risk/reward ratio.`
+        );
+
+        logger.info(LogCategory.AI_TRADING, `WAIT handled: ${selectedSymbol} ${intendedDirection} - monitoring for optimal entry`);
+        return;
+      }
+
       if (this.openTrades.length >= this.config.maxConcurrentTrades) {
         logger.debug(LogCategory.AI_TRADING, 'Max concurrent trades reached');
         return;
@@ -1143,11 +1167,26 @@ class GoalSessionLiveEngine {
       } else {
       }
 
+      // ✅ DEFENSIVE VALIDATION: Ensure only valid trade directions reach execution
+      if (decision.action !== 'BUY' && decision.action !== 'SELL') {
+        logger.error(
+          LogCategory.AI_TRADING,
+          `🚨 CRITICAL: Invalid trade direction '${decision.action}' reached execution flow. This should never happen!`
+        );
+        await this.sendAIMessage(
+          `⚠️ System Error: Invalid trade direction detected. ` +
+          `This has been logged and execution was blocked to protect your account.`
+        );
+        return;
+      }
+
+      const tradeDirection = decision.action.toLowerCase() as 'buy' | 'sell';
+
       const trade: SimulatedTrade = {
         id: `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         symbol: selectedSymbol,
         timeframe: this.config.timeframe,
-        direction: decision.action.toLowerCase() as 'buy' | 'sell',
+        direction: tradeDirection,
         entryTime: new Date(),
         entryPrice: decision.entry,
         stopLoss: decision.stopLoss,
