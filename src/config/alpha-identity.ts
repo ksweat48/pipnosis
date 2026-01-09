@@ -51,24 +51,37 @@ export const ALPHA_IDENTITY = {
   EQS_EXCEPTIONAL_OVERRIDE_THRESHOLD: 90,  // For near-zone overrides with exceptional quality
 
   /**
-   * STYLE_EQS_THRESHOLDS (BACKWARD COMPATIBILITY LAYER)
-   * Provides object structure { min, max } for legacy code.
+   * STYLE_EQS_THRESHOLDS
    * All styles reference the unified EQS_EXECUTION_THRESHOLD constant.
+   * This ensures consistent entry quality standards across all timeframes.
    *
    * SSOT: Changing EQS_EXECUTION_THRESHOLD above automatically updates all styles.
+   *
+   * Structure:
+   * - EXECUTE_IMMEDIATELY: Threshold for immediate execution
+   * - WAIT_PULLBACK: Range for waiting for better entry timing
    */
   STYLE_EQS_THRESHOLDS: {
     SCALP: {
-      min: EQS_EXECUTION_THRESHOLD,
-      max: 100
+      EXECUTE_IMMEDIATELY: EQS_EXECUTION_THRESHOLD,
+      WAIT_PULLBACK: {
+        min: EQS_EXECUTION_THRESHOLD - 10,
+        max: EQS_EXECUTION_THRESHOLD - 1
+      }
     },
     MICRO_INTRADAY: {
-      min: EQS_EXECUTION_THRESHOLD,
-      max: 100
+      EXECUTE_IMMEDIATELY: EQS_EXECUTION_THRESHOLD,
+      WAIT_PULLBACK: {
+        min: EQS_EXECUTION_THRESHOLD - 15,
+        max: EQS_EXECUTION_THRESHOLD - 1
+      }
     },
     INTRADAY: {
-      min: EQS_EXECUTION_THRESHOLD,
-      max: 100
+      EXECUTE_IMMEDIATELY: EQS_EXECUTION_THRESHOLD,
+      WAIT_PULLBACK: {
+        min: EQS_EXECUTION_THRESHOLD - 15,
+        max: EQS_EXECUTION_THRESHOLD - 1
+      }
     },
   } as const,
 
