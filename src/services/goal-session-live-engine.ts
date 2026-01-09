@@ -509,20 +509,44 @@ class GoalSessionLiveEngine {
     let tradeExecuted = false;
 
     try {
+      // 🔍 CRITICAL: Log entry to processMultiSymbolCycle for debugging
+      console.log('%c[PROCESS_MULTI_SYMBOL] 🚀 Entered processMultiSymbolCycle', 'color: #9c27b0; font-weight: bold', {
+        activeSession: this.activeSession,
+        watchlistLength: watchlist.length,
+        openTradesCount: this.openTrades.length
+      });
+
       // ✅ ENTRY MONITOR: Block global rescans during ENTRY_MONITOR mode
       if (this.activeSession) {
+        console.log('%c[PROCESS_MULTI_SYMBOL] ✅ activeSession exists:', 'color: #4caf50; font-weight: bold', this.activeSession);
+
         const monitorState = await entryMonitorCoordinator.getMonitorState(this.activeSession);
+        console.log('%c[PROCESS_MULTI_SYMBOL] 📊 Monitor state:', 'color: #2196f3; font-weight: bold', {
+          state: monitorState.state,
+          canScan: monitorState.canScan,
+          lockedSymbol: monitorState.lockedSymbol,
+          activeIntentId: monitorState.activeIntentId
+        });
+
         if (!monitorState.canScan) {
           logger.debug(
             LogCategory.AI_TRADING,
             `[ENTRY_MONITOR] Blocking scan - in ${monitorState.state} mode for ${monitorState.lockedSymbol} ${monitorState.lockedDirection}`
           );
+          console.log('%c[PROCESS_MULTI_SYMBOL] ⛔ Scan blocked by monitor state', 'color: #ff9800; font-weight: bold');
           return;
         }
 
         // 🎯 CHECK FOR ACTIVE ENTRY INTENT - Monitor instead of scanning
         console.log('%c[AUTONOMOUS ENGINE] 🔍 Checking for active entry intents...', 'color: #2196f3; font-weight: bold');
         const activeIntent = await this.checkAndHandleActiveEntryIntent();
+        console.log('%c[AUTONOMOUS ENGINE] 🎯 checkAndHandleActiveEntryIntent result:', 'color: #2196f3; font-weight: bold', {
+          found: !!activeIntent,
+          intentId: activeIntent?.id,
+          symbol: activeIntent?.symbol,
+          status: (activeIntent as any)?.status
+        });
+
         if (activeIntent) {
           // Entry intent is being monitored - skip fresh scan
           console.log('%c[AUTONOMOUS ENGINE] 👁️ Entry intent monitoring in progress - skipping fresh scan', 'color: #2196f3; font-weight: bold');
@@ -531,6 +555,8 @@ class GoalSessionLiveEngine {
         } else {
           console.log('%c[AUTONOMOUS ENGINE] ✅ No active entry intents - proceeding with fresh scan', 'color: #10b981; font-weight: bold');
         }
+      } else {
+        console.log('%c[PROCESS_MULTI_SYMBOL] ⚠️ activeSession is NULL/UNDEFINED - skipping intent check', 'color: #ff0000; font-weight: bold');
       }
 
       // 🔍 AGGRESSIVE LOGGING: Entry point

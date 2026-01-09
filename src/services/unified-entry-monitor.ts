@@ -37,18 +37,34 @@ export class UnifiedEntryMonitor {
   }
 
   async startMonitoring(intentId: string, userId: string): Promise<void> {
+    console.log('%c[UnifiedMonitor] 🎬 startMonitoring called', 'color: #2196f3; font-weight: bold', {
+      intentId,
+      userId,
+      alreadyMonitoring: this.monitoringIntervals.has(intentId)
+    });
+
     if (this.monitoringIntervals.has(intentId)) {
       logger.info(`[UnifiedMonitor] Already monitoring intent ${intentId}`);
+      console.log('[UnifiedMonitor] ⚠️ Already monitoring this intent - skipping');
       return;
     }
 
     const intent = await this.getIntent(intentId);
     if (!intent) {
       logger.warn(`[UnifiedMonitor] Intent ${intentId} not found`);
+      console.error('[UnifiedMonitor] ❌ Intent not found in database');
       return;
     }
 
     const styleConfig = tradeStyleRegistry.getConfig(intent.style || 'MICRO_INTRADAY');
+    console.log('%c[UnifiedMonitor] ✅ Starting monitoring', 'color: #4caf50; font-weight: bold', {
+      intentId,
+      symbol: intent.symbol,
+      direction: intent.direction,
+      style: styleConfig.canonical,
+      pollIntervalMs: styleConfig.pollIntervalMs,
+      eqsThreshold: styleConfig.eqsThreshold
+    });
     logger.info(`[UnifiedMonitor] Starting monitoring for ${intentId} (${styleConfig.canonical})`);
 
     const interval = setInterval(async () => {
@@ -56,6 +72,7 @@ export class UnifiedEntryMonitor {
     }, styleConfig.pollIntervalMs);
 
     this.monitoringIntervals.set(intentId, interval);
+    console.log('[UnifiedMonitor] ⏰ Interval set, running first check immediately...');
     await this.checkIntent(intentId, userId, styleConfig.canonical);
   }
 
@@ -81,9 +98,20 @@ export class UnifiedEntryMonitor {
   }
 
   private async checkIntent(intentId: string, userId: string, style: string): Promise<void> {
+    const checkStartTime = Date.now();
+    console.log('%c[UnifiedMonitor] 🔄 checkIntent running', 'color: #00bcd4; font-weight: bold', {
+      intentId: intentId.substring(0, 8) + '...',
+      style,
+      timestamp: new Date().toLocaleTimeString()
+    });
+
     try {
       const intent = await this.getIntent(intentId);
       if (!intent || intent.status !== 'monitoring') {
+        console.log('[UnifiedMonitor] ⚠️ Intent no longer monitoring, stopping', {
+          found: !!intent,
+          status: intent?.status
+        });
         logger.info(`[UnifiedMonitor] Intent ${intentId} is not in monitoring status, stopping`);
         await this.stopMonitoring(intentId);
         return;
@@ -184,20 +212,42 @@ export class UnifiedEntryMonitor {
       const styleConfig = tradeStyleRegistry.getConfig(style);
       const currentEQS = eqsResult.eqsBreakdown.totalScore;
 
+      // Check if price is in entry zone
+      const inEntryZone = priceData.price >= intent.entry_zone_min && priceData.price <= intent.entry_zone_max;
+      const distanceToZone = inEntryZone
+        ? 0
+        : priceData.price < intent.entry_zone_min
+        ? intent.entry_zone_min - priceData.price
+        : priceData.price - intent.entry_zone_max;
+
+      console.log('%c[UnifiedMonitor] 📊 Entry Quality Check:', 'color: #2196f3; font-weight: bold; font-size: 14px', {
+        symbol: intent.symbol,
+        currentPrice: priceData.price.toFixed(5),
+        entryZone: `${intent.entry_zone_min.toFixed(5)} - ${intent.entry_zone_max.toFixed(5)}`,
+        inZone: inEntryZone,
+        distanceToZone: distanceToZone.toFixed(5),
+        eqsScore: currentEQS,
+        eqsThreshold: styleConfig.eqsThreshold,
+        eqsGrade: eqsResult.eqsGrade,
+        status: eqsResult.status,
+        meetsThreshold: currentEQS >= styleConfig.eqsThreshold
+      });
+
       logger.info(
         `[UnifiedMonitor] ${intent.symbol} EQS: ${currentEQS}/100 ` +
-        `(threshold: ${styleConfig.eqsThreshold}), Grade: ${eqsResult.eqsGrade}`
+        `(threshold: ${styleConfig.eqsThreshold}), Grade: ${eqsResult.eqsGrade}, ` +
+        `In Zone: ${inEntryZone}, Status: ${eqsResult.status}`
       );
 
       // Log detailed breakdown for debugging
-      logger.info(
-        `[UnifiedMonitor] EQS Breakdown - ` +
-        `Candle: ${eqsResult.eqsBreakdown.candleAcceptance}/20, ` +
-        `Pullback: ${eqsResult.eqsBreakdown.pullbackQuality}/15, ` +
-        `VWAP: ${eqsResult.eqsBreakdown.vwapInteraction}/15, ` +
-        `EMA: ${eqsResult.eqsBreakdown.emaAlignment}/10, ` +
-        `Liquidity: ${eqsResult.eqsBreakdown.liquidityReaction}/15`
-      );
+      console.log('%c[UnifiedMonitor] 📈 EQS Breakdown:', 'color: #9c27b0; font-weight: bold', {
+        candle: `${eqsResult.eqsBreakdown.candleAcceptance}/20`,
+        pullback: `${eqsResult.eqsBreakdown.pullbackQuality}/15`,
+        vwap: `${eqsResult.eqsBreakdown.vwapInteraction}/15`,
+        ema: `${eqsResult.eqsBreakdown.emaAlignment}/10`,
+        liquidity: `${eqsResult.eqsBreakdown.liquidityReaction}/15`,
+        total: `${currentEQS}/100`
+      });
 
       // Store EQS update in database for UI display
       await this.storeEQSUpdate(intent, eqsResult, currentEQS, styleConfig.eqsThreshold);
@@ -238,9 +288,33 @@ export class UnifiedEntryMonitor {
 
       this.lastEQSScores.set(intentId, currentEQS);
 
-      if (eqsResult.status === 'EXECUTE_NOW' && currentEQS >= styleConfig.eqsThreshold) {
+      // Execution decision logic
+      const shouldExecute = eqsResult.status === 'EXECUTE_NOW' && currentEQS >= styleConfig.eqsThreshold;
+
+      console.log('%c[UnifiedMonitor] 🎯 EXECUTION DECISION:', 'color: #ff5722; font-weight: bold; font-size: 16px', {
+        shouldExecute,
+        status: eqsResult.status,
+        statusOK: eqsResult.status === 'EXECUTE_NOW',
+        eqsScore: currentEQS,
+        threshold: styleConfig.eqsThreshold,
+        eqsOK: currentEQS >= styleConfig.eqsThreshold,
+        inEntryZone,
+        reason: shouldExecute
+          ? '✅ ALL CONDITIONS MET - EXECUTING TRADE'
+          : `❌ ${eqsResult.status !== 'EXECUTE_NOW' ? 'Status not EXECUTE_NOW' : 'EQS below threshold'}`
+      });
+
+      if (shouldExecute) {
+        console.log('%c[UnifiedMonitor] 🚀 EXECUTING TRADE NOW!', 'color: #4caf50; font-weight: bold; font-size: 18px', {
+          symbol: intent.symbol,
+          direction: intent.direction,
+          entryPrice: priceData.price,
+          eqsScore: currentEQS
+        });
         await this.handleExecution(intent, priceData.price, currentEQS);
         await this.stopMonitoring(intentId);
+      } else {
+        console.log('%c[UnifiedMonitor] ⏳ Waiting for better conditions...', 'color: #ff9800; font-weight: bold');
       }
     } catch (error) {
       logger.error(`[UnifiedMonitor] Error checking intent ${intentId}:`, error);
@@ -315,18 +389,44 @@ export class UnifiedEntryMonitor {
   }
 
   private async handleExecution(intent: EntryIntent, entryPrice: number, eqsScore: number): Promise<void> {
+    console.log('%c[UnifiedMonitor] 🚀 STARTING TRADE EXECUTION', 'color: #4caf50; font-weight: bold; font-size: 16px', {
+      intentId: intent.id,
+      symbol: intent.symbol,
+      direction: intent.direction,
+      entryPrice,
+      eqsScore
+    });
+
     logger.info(`[UnifiedMonitor] Executing ${intent.id} at ${entryPrice} (EQS: ${eqsScore})`);
 
-    const { EntryPlannerService } = await import('./entry-planner');
-    await EntryPlannerService.updateIntentStatus(intent.id, 'executed', undefined, entryPrice);
+    try {
+      // Step 1: Update intent status to 'executed'
+      console.log('[UnifiedMonitor] Step 1: Updating intent status to executed...');
+      const { EntryPlannerService } = await import('./entry-planner');
+      await EntryPlannerService.updateIntentStatus(intent.id, 'executed', undefined, entryPrice);
+      console.log('[UnifiedMonitor] ✅ Intent status updated');
 
-    const { EntryExecutionCoordinator } = await import('./entry-execution-coordinator');
-    const result = await EntryExecutionCoordinator.executeFromIntent(intent.id, entryPrice);
+      // Step 2: Execute trade through coordinator
+      console.log('[UnifiedMonitor] Step 2: Creating trade in database...');
+      const { EntryExecutionCoordinator } = await import('./entry-execution-coordinator');
+      const result = await EntryExecutionCoordinator.executeFromIntent(intent.id, entryPrice);
 
-    if (result.success) {
-      logger.info(`[UnifiedMonitor] Trade created: ${result.tradeId}`);
-    } else {
-      logger.error('[UnifiedMonitor] Failed to create trade');
+      if (result.success) {
+        console.log('%c[UnifiedMonitor] ✅ TRADE EXECUTED SUCCESSFULLY!', 'color: #4caf50; font-weight: bold; font-size: 18px', {
+          tradeId: result.tradeId,
+          symbol: intent.symbol,
+          direction: intent.direction,
+          entryPrice,
+          eqsScore
+        });
+        logger.info(`[UnifiedMonitor] Trade created: ${result.tradeId}`);
+      } else {
+        console.error('%c[UnifiedMonitor] ❌ TRADE EXECUTION FAILED', 'color: #f44336; font-weight: bold; font-size: 16px');
+        logger.error('[UnifiedMonitor] Failed to create trade');
+      }
+    } catch (error) {
+      console.error('%c[UnifiedMonitor] ❌ ERROR DURING EXECUTION:', 'color: #f44336; font-weight: bold; font-size: 16px', error);
+      logger.error('[UnifiedMonitor] Execution error:', error);
     }
   }
 }
