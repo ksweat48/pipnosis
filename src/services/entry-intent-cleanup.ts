@@ -26,9 +26,9 @@ export class EntryIntentCleanupService {
       const { data, error } = await supabase
         .from('entry_intents')
         .update({
-          status: 'expired',
+          status: 'timeout',
           canceled_at: now,
-          canceled_reason: 'Automatically expired - exceeded timeout'
+          canceled_reason: 'Automatically timed out - exceeded timeout_at'
         })
         .eq('user_id', userId)
         .eq('status', 'monitoring')
