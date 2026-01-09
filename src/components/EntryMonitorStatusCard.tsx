@@ -112,7 +112,7 @@ export function EntryMonitorStatusCard() {
     const { data: intent } = await supabase
       .from('entry_intents')
       .select('*')
-      .eq('goal_session_id', session.id)
+      .eq('session_id', session.id)
       .eq('status', 'monitoring')
       .maybeSingle();
 

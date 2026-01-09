@@ -68,7 +68,7 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
       const { data: intents } = await supabase
         .from('entry_intents')
         .select('id')
-        .eq('goal_session_id', sessionId)
+        .eq('session_id', sessionId)
         .eq('status', 'monitoring');
 
       if (!intents || intents.length === 0) {
