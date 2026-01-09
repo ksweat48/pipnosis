@@ -132,7 +132,7 @@ class EntryMonitoringNotifications {
           message,
           priority: 'high',
           metadata,
-          read: false
+          viewed: false
         })
         .select('id')
         .single();
@@ -221,7 +221,7 @@ class EntryMonitoringNotifications {
           message,
           priority: newGrade === requiredGrade ? 'high' : 'medium',
           metadata,
-          read: false
+          viewed: false
         });
 
       console.log(`[Entry Monitor Notif] EQS progress: ${oldGrade} → ${newGrade} (${newEQS}/100)`);
@@ -281,7 +281,7 @@ class EntryMonitoringNotifications {
           message,
           priority: 'urgent',
           metadata,
-          read: false
+          viewed: false
         })
         .select('id')
         .single();
@@ -348,7 +348,7 @@ class EntryMonitoringNotifications {
           message,
           priority: 'medium',
           metadata,
-          read: false
+          viewed: false
         });
 
       console.log(`[Entry Monitor Notif] Monitoring abandoned: ${symbol} (${reason})`);
