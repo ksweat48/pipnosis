@@ -1,5 +1,10 @@
 /**
- * Entry Monitor Quality Scorer
+ * Entry Monitor Quality Scorer - DEPRECATED
+ *
+ * @deprecated Use EntryQualificationEngine instead (via UnifiedEntryMonitor)
+ *
+ * This scorer has been replaced by the centralized EntryQualificationEngine.
+ * Kept for backward compatibility during migration.
  *
  * DETERMINISTIC entry quality scoring for Entry Monitor mode.
  * This scorer is used during ENTRY_MONITOR_ACTIVE state where ZERO LLM calls are allowed.
