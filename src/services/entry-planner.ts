@@ -840,22 +840,14 @@ export class EntryPlannerService {
     }
   }
 
+  /**
+   * Get active intents for user - DELEGATES TO SSOT
+   * Uses getUserActiveIntents from entry-intent-monitor-mode.ts
+   */
   static async getActiveIntents(userId: string): Promise<EntryIntent[]> {
     try {
-      const { data, error } = await supabase
-        .from('entry_intents')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('status', 'monitoring')
-        .order('urgency', { ascending: false })
-        .order('created_at', { ascending: true });
-
-      if (error) {
-        logger.error('Failed to get active intents:', error);
-        return [];
-      }
-
-      return data || [];
+      const { getUserActiveIntents } = await import('./entry-intent-monitor-mode');
+      return await getUserActiveIntents(userId);
     } catch (error) {
       logger.error('Error getting active intents:', error);
       return [];

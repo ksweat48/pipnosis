@@ -247,18 +247,13 @@ export class UnifiedEntryMonitor {
     }
   }
 
+  /**
+   * Get intent by ID - DELEGATES TO SSOT
+   * Uses getEntryIntentById from entry-intent-monitor-mode.ts
+   */
   private async getIntent(intentId: string): Promise<EntryIntent | null> {
-    const { data, error } = await supabase
-      .from('entry_intents')
-      .select('*')
-      .eq('id', intentId)
-      .maybeSingle();
-
-    if (error || !data) {
-      return null;
-    }
-
-    return data as EntryIntent;
+    const { getEntryIntentById } = await import('./entry-intent-monitor-mode');
+    return await getEntryIntentById(intentId) as EntryIntent | null;
   }
 
   private async storeEQSUpdate(

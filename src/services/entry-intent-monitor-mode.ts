@@ -222,3 +222,66 @@ export async function markIntentExecuted(intentId: string, actualPrice: number):
     })
     .eq('id', intentId);
 }
+
+/**
+ * Get entry intent by ID
+ * SSOT for fetching a single intent by its unique identifier
+ */
+export async function getEntryIntentById(intentId: string): Promise<EntryIntentData | null> {
+  const { supabase } = await import('../lib/supabase');
+
+  const { data, error } = await supabase
+    .from('entry_intents')
+    .select('*')
+    .eq('id', intentId)
+    .maybeSingle();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return data as EntryIntentData;
+}
+
+/**
+ * Get entry intent with goal session relations
+ * SSOT for fetching intent with joined goal_sessions data
+ * Used by execution coordinator to validate session context
+ */
+export async function getEntryIntentWithSession(intentId: string): Promise<any | null> {
+  const { supabase } = await import('../lib/supabase');
+
+  const { data, error } = await supabase
+    .from('entry_intents')
+    .select('*, goal_sessions(*)')
+    .eq('id', intentId)
+    .maybeSingle();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return data;
+}
+
+/**
+ * Get all active intents for a user
+ * SSOT for fetching user's monitoring intents
+ */
+export async function getUserActiveIntents(userId: string): Promise<EntryIntentData[]> {
+  const { supabase } = await import('../lib/supabase');
+
+  const { data, error } = await supabase
+    .from('entry_intents')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('status', 'monitoring')
+    .order('urgency', { ascending: false })
+    .order('created_at', { ascending: true });
+
+  if (error || !data) {
+    return [];
+  }
+
+  return data as EntryIntentData[];
+}

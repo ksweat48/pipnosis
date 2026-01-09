@@ -91,14 +91,11 @@ export class EntryExecutionCoordinator {
     actualEntryPrice: number
   ): Promise<{ success: boolean; tradeId?: string }> {
     try {
-      const { data: intent, error } = await supabase
-        .from('entry_intents')
-        .select('*, goal_sessions(*)')
-        .eq('id', intentId)
-        .single();
+      const { getEntryIntentWithSession } = await import('./entry-intent-monitor-mode');
+      const intent = await getEntryIntentWithSession(intentId);
 
-      if (error || !intent) {
-        logger.error('Failed to fetch intent for execution:', error);
+      if (!intent) {
+        logger.error('Failed to fetch intent for execution: intent not found');
         return { success: false };
       }
 

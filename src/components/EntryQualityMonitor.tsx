@@ -1,6 +1,13 @@
+/**
+ * Entry Quality Monitor Component
+ *
+ * ARCHITECTURE: Uses SSOT hook (useActiveEntryIntent) instead of direct database queries
+ */
+
 import React, { useState, useEffect } from 'react';
 import { Activity, TrendingUp, TrendingDown, CheckCircle, Clock, AlertCircle, Target } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useActiveEntryIntent } from '../hooks/useEntryIntent';
 
 interface EQSBreakdown {
   candleAcceptance: number;
@@ -33,12 +40,19 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
   const [latestEQS, setLatestEQS] = useState<EQSUpdate | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const { activeIntent } = useActiveEntryIntent(sessionId);
+
   useEffect(() => {
-    loadLatestEQS();
+    if (!activeIntent) {
+      setLatestEQS(null);
+      setLoading(false);
+      return;
+    }
 
-    const interval = setInterval(loadLatestEQS, 5000); // Update every 5 seconds
+    loadLatestEQS(activeIntent.id);
 
-    // Subscribe to realtime updates
+    const interval = setInterval(() => loadLatestEQS(activeIntent.id), 5000);
+
     const channel = supabase
       .channel(`eqs-updates-${sessionId}`)
       .on(
@@ -61,28 +75,14 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
       clearInterval(interval);
       supabase.removeChannel(channel);
     };
-  }, [sessionId, intentId]);
+  }, [activeIntent, sessionId, intentId]);
 
-  const loadLatestEQS = async () => {
+  const loadLatestEQS = async (currentIntentId: string) => {
     try {
-      const { data: intents } = await supabase
-        .from('entry_intents')
-        .select('id')
-        .eq('session_id', sessionId)
-        .eq('status', 'monitoring');
-
-      if (!intents || intents.length === 0) {
-        setLatestEQS(null);
-        setLoading(false);
-        return;
-      }
-
-      const intentIds = intents.map(i => i.id);
-
       const { data } = await supabase
         .from('entry_monitoring_logs')
         .select('*')
-        .in('intent_id', intentIds)
+        .eq('intent_id', currentIntentId)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();

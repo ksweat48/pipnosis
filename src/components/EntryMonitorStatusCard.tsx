@@ -8,11 +8,14 @@
  * - Progress bar
  * - Time remaining
  * - Entry zone status
+ *
+ * ARCHITECTURE: Uses SSOT hook (useActiveEntryIntent) instead of direct database queries
  */
 
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import { useActiveEntryIntent } from '../hooks/useEntryIntent';
 import {
   calculateEQSGrade,
   getEQSGradeColor,
@@ -44,14 +47,20 @@ interface EntryIntent {
 
 export function EntryMonitorStatusCard() {
   const { user } = useAuth();
-  const [activeIntent, setActiveIntent] = useState<EntryIntent | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<number>(0);
   const [isVisible, setIsVisible] = useState(false);
+
+  const { activeIntent, refresh } = useActiveEntryIntent(sessionId);
 
   useEffect(() => {
     if (!user?.id) return;
 
-    loadActiveIntent();
+    loadSessionId();
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!sessionId) return;
 
     const channel = supabase
       .channel('entry_intents_monitor')
@@ -64,7 +73,7 @@ export function EntryMonitorStatusCard() {
           filter: `user_id=eq.${user.id}`
         },
         () => {
-          loadActiveIntent();
+          refresh();
         }
       )
       .subscribe();
@@ -72,7 +81,15 @@ export function EntryMonitorStatusCard() {
     return () => {
       channel.unsubscribe();
     };
-  }, [user?.id]);
+  }, [sessionId, user?.id, refresh]);
+
+  useEffect(() => {
+    if (activeIntent) {
+      setIsVisible(true);
+    } else {
+      setIsVisible(false);
+    }
+  }, [activeIntent]);
 
   useEffect(() => {
     if (!activeIntent) return;
@@ -85,7 +102,6 @@ export function EntryMonitorStatusCard() {
       setTimeRemaining(remaining);
 
       if (remaining === 0) {
-        setActiveIntent(null);
         setIsVisible(false);
       }
     }, 1000);
@@ -93,7 +109,7 @@ export function EntryMonitorStatusCard() {
     return () => clearInterval(interval);
   }, [activeIntent]);
 
-  async function loadActiveIntent() {
+  async function loadSessionId() {
     if (!user?.id) return;
 
     const { data: session } = await supabase
@@ -103,26 +119,7 @@ export function EntryMonitorStatusCard() {
       .eq('status', 'active')
       .maybeSingle();
 
-    if (!session) {
-      setActiveIntent(null);
-      setIsVisible(false);
-      return;
-    }
-
-    const { data: intent } = await supabase
-      .from('entry_intents')
-      .select('*')
-      .eq('session_id', session.id)
-      .eq('status', 'monitoring')
-      .maybeSingle();
-
-    if (intent) {
-      setActiveIntent(intent as EntryIntent);
-      setIsVisible(true);
-    } else {
-      setActiveIntent(null);
-      setIsVisible(false);
-    }
+    setSessionId(session?.id || null);
   }
 
   if (!isVisible || !activeIntent) {

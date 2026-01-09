@@ -433,18 +433,13 @@ class EntryMonitorCoordinator {
     }
   }
 
+  /**
+   * Get intent by ID - DELEGATES TO SSOT
+   * Uses getEntryIntentById from entry-intent-monitor-mode.ts
+   */
   private async getIntentById(intentId: string): Promise<EntryIntentData | null> {
-    const { data, error } = await supabase
-      .from('entry_intents')
-      .select('*')
-      .eq('id', intentId)
-      .maybeSingle();
-
-    if (error || !data) {
-      return null;
-    }
-
-    return data as EntryIntentData;
+    const { getEntryIntentById } = await import('./entry-intent-monitor-mode');
+    return await getEntryIntentById(intentId);
   }
 
   async resumeMonitoringIfNeeded(sessionId: string, userId: string): Promise<void> {
