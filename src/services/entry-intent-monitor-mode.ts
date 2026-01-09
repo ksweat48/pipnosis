@@ -30,7 +30,11 @@ export type AbandonReason =
   | 'RUNAWAY_DETECTED'
   | 'OPPOSITE_DIRECTION_ACCEPTANCE'
   | 'MANUAL_CANCEL'
-  | 'ORDER_REJECTED';
+  | 'ORDER_REJECTED'
+  | 'SESSION_INACTIVE'
+  | 'SESSION_MISSING'
+  | 'INTENT_INVALID'
+  | 'MONITORING_STALLED';
 
 export interface EntryIntentData {
   id: string;

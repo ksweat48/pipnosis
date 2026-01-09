@@ -20,7 +20,7 @@ import type { EntryQualificationInput } from './entry-qualification-engine';
 import { entryMonitoringNotifications } from './entry-monitoring-notifications';
 import { calculateEQSGrade, didGradeImprove } from '../utils/eqsHelpers';
 import { calculateEMA, calculateRSI } from '../utils/technicalIndicators';
-import { getEntryIntentById } from './entry-intent-monitor-mode';
+import { getEntryIntentById, type AbandonReason } from './entry-intent-monitor-mode';
 import { EntryPlannerService } from './entry-planner';
 import { EntryExecutionCoordinator } from './entry-execution-coordinator';
 import { ALPHA_IDENTITY } from '../config/alpha-identity';
@@ -111,15 +111,30 @@ export class UnifiedEntryMonitor {
     await this.checkIntent(intentId, userId, styleConfig.canonical);
   }
 
-  async stopMonitoring(intentId: string): Promise<void> {
+  async stopMonitoring(intentId: string, reason?: AbandonReason): Promise<void> {
     const interval = this.monitoringIntervals.get(intentId);
     if (interval) {
+      // If a reason is provided, invoke onAbandon callback before cleanup
+      if (reason) {
+        const callbacks = this.callbacks.get(intentId);
+        if (callbacks?.onAbandon) {
+          console.log(`[UnifiedMonitor] 🛑 Invoking onAbandon callback`, { intentId: intentId.substring(0, 8), reason });
+          try {
+            await callbacks.onAbandon(intentId, reason);
+          } catch (error) {
+            console.error(`[UnifiedMonitor] ❌ Error invoking onAbandon callback:`, error);
+          }
+        }
+      }
+
+      // Now cleanup resources
       clearInterval(interval);
       this.monitoringIntervals.delete(intentId);
       this.lastNotificationTime.delete(intentId);
       this.lastEQSScores.delete(intentId);
       this.callbacks.delete(intentId);
-      logger.info(`[UnifiedMonitor] Stopped monitoring ${intentId}`);
+      this.lastCheckTimestamp.delete(intentId);
+      console.log(`[UnifiedMonitor] Stopped monitoring ${intentId}`, reason ? `(reason: ${reason})` : '');
     }
   }
 
@@ -169,7 +184,7 @@ export class UnifiedEntryMonitor {
 
           // Auto-recovery: Stop this monitoring to prevent deadlock
           logger.error(`[UnifiedMonitor] Auto-stopping deadlocked monitor ${intentId}`);
-          this.stopMonitoring(intentId);
+          this.stopMonitoring(intentId, 'MONITORING_STALLED');
         }
       }
     }, 10000); // Check every 10 seconds
@@ -204,12 +219,12 @@ export class UnifiedEntryMonitor {
       }
 
       if (!intent || intent.status !== 'monitoring') {
-        console.log('[UnifiedMonitor] ⚠️ Intent no longer monitoring, stopping', {
+        console.log('%c[UnifiedMonitor] ⚠️ INTENT INVALID - No longer monitoring', 'color: #ff9800; font-weight: bold', {
           found: !!intent,
-          status: intent?.status
+          status: intent?.status,
+          intentId: intentId.substring(0, 8)
         });
-        logger.info(`[UnifiedMonitor] Intent ${intentId} is not in monitoring status, stopping`);
-        await this.stopMonitoring(intentId);
+        await this.stopMonitoring(intentId, 'INTENT_INVALID');
         return;
       }
 
@@ -240,8 +255,10 @@ export class UnifiedEntryMonitor {
       // Step 3: Verify session validity
       console.log('[UnifiedMonitor] Step 3/8: Validating session...');
       if (!intent.session_id) {
-        logger.warn(`[UnifiedMonitor] Intent ${intentId} has no session_id, stopping monitoring`);
-        await this.stopMonitoring(intentId);
+        console.log('%c[UnifiedMonitor] ⚠️ SESSION MISSING - No session_id on intent', 'color: #ff9800; font-weight: bold', {
+          intentId: intentId.substring(0, 8)
+        });
+        await this.stopMonitoring(intentId, 'SESSION_MISSING');
         return;
       }
 
@@ -265,8 +282,13 @@ export class UnifiedEntryMonitor {
       }
 
       if (!session || session.status !== 'active') {
-        logger.info(`[UnifiedMonitor] Session ${intent.session_id} is not active, stopping monitoring for intent ${intentId}`);
-        await this.stopMonitoring(intentId);
+        console.log('%c[UnifiedMonitor] 🛑 SESSION INACTIVE - Stopping monitoring', 'color: #f44336; font-weight: bold', {
+          intentId: intentId.substring(0, 8),
+          sessionId: intent.session_id.substring(0, 8),
+          sessionFound: !!session,
+          sessionStatus: session?.status
+        });
+        await this.stopMonitoring(intentId, 'SESSION_INACTIVE');
         return;
       }
 
