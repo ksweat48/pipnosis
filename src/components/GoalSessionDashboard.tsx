@@ -288,6 +288,30 @@ export const GoalSessionDashboard: React.FC = () => {
       setActiveSession(session);
 
       if (session) {
+        // HEALTH CHECK: Check if session has expired timeout (on page load / refresh)
+        try {
+          const { data: healthCheck, error: healthError } = await supabase.rpc('check_session_timeout_health', {
+            p_session_id: session.sessionId
+          });
+
+          if (!healthError && healthCheck) {
+            if (healthCheck.auto_closed) {
+              console.log('[GoalSessionDashboard] ✅ Health check auto-closed expired session:', healthCheck.reason);
+              showToast({
+                type: 'info',
+                title: 'Session Auto-Closed',
+                message: healthCheck.message || 'Your session was automatically closed due to timeout'
+              });
+              setShowNoTradesModal(false);
+              setContinuationData(null);
+              setActiveSession(null);
+              return;
+            }
+          }
+        } catch (healthError) {
+          console.error('[GoalSessionDashboard] Health check failed:', healthError);
+        }
+
         // CRITICAL: Client-side timeout enforcement as backup to server-side
         // This ensures sessions close even if autonomous monitor fails
         // CIRCUIT BREAKER: Only attempt force close once per session to prevent infinite loops
@@ -583,6 +607,65 @@ export const GoalSessionDashboard: React.FC = () => {
   const handleStopSession = async () => {
     if (!activeSession || !user) return;
 
+    // Special handling for awaiting_continuation status - use simplified stop
+    if (activeSession.status === 'awaiting_continuation') {
+      const confirmed = await confirm({
+        title: 'Close Session',
+        message: 'Are you sure you want to close this session? Any progress will be saved.',
+        confirmText: 'Close Session',
+        cancelText: 'Cancel',
+        variant: 'warning'
+      });
+
+      if (!confirmed) return;
+
+      try {
+        const { data, error } = await supabase.rpc('stop_continuation_session', {
+          p_session_id: activeSession.sessionId
+        });
+
+        if (error) {
+          console.error('[GoalSessionDashboard] Error stopping continuation session:', error);
+          showToast({
+            type: 'error',
+            title: 'Failed to Stop Session',
+            message: error.message || 'Could not stop the session. Please try again.'
+          });
+          return;
+        }
+
+        if (data?.success) {
+          showToast({
+            type: 'success',
+            title: 'Session Stopped',
+            message: 'Goal session has been stopped successfully'
+          });
+          setShowNoTradesModal(false);
+          setContinuationData(null);
+          await loadSessionData();
+        } else {
+          // Fall back to normal stop flow if function returns error
+          console.log('[GoalSessionDashboard] Falling back to normal stop flow');
+          await handleNormalStopSession();
+        }
+      } catch (error: any) {
+        console.error('[GoalSessionDashboard] Error stopping session:', error);
+        showToast({
+          type: 'error',
+          title: 'Error',
+          message: error.message || 'An error occurred while stopping the session'
+        });
+      }
+      return;
+    }
+
+    // Normal stop flow for other statuses
+    await handleNormalStopSession();
+  };
+
+  const handleNormalStopSession = async () => {
+    if (!activeSession || !user) return;
+
     // Check if there are open trades
     const hasOpenTrades = openTrades.length > 0;
 
@@ -802,16 +885,17 @@ export const GoalSessionDashboard: React.FC = () => {
 
     setUnstickLoading(true);
     try {
-      const { data, error } = await supabase.rpc('unstick_session', {
+      // Try new force close function first (handles awaiting_continuation better)
+      const { data, error } = await supabase.rpc('force_close_continuation_session', {
         p_session_id: activeSession.sessionId
       });
 
       if (error) {
-        console.error('[GoalSessionDashboard] Error unsticking session:', error);
+        console.error('[GoalSessionDashboard] Error force closing session:', error);
         showToast({
           type: 'error',
-          title: 'Failed to Unstick Session',
-          message: error.message || 'Could not unstick the session. Please try again.'
+          title: 'Failed to Close Session',
+          message: error.message || 'Could not close the session. Please try again.'
         });
         return;
       }
@@ -819,23 +903,25 @@ export const GoalSessionDashboard: React.FC = () => {
       if (data?.success) {
         showToast({
           type: 'success',
-          title: 'Session Recovered',
-          message: data.message || 'Your session has been successfully unstuck!'
+          title: 'Session Closed',
+          message: data.message || 'Your session has been successfully closed!'
         });
         setSessionHealth(null);
+        setShowNoTradesModal(false);
+        setContinuationData(null);
         await loadSessionData();
       } else {
         showToast({
           type: 'error',
-          title: 'Cannot Unstick Session',
-          message: data?.error || 'Session cannot be unstuck at this time.'
+          title: 'Cannot Close Session',
+          message: data?.error || 'Session cannot be closed at this time.'
         });
       }
     } catch (error: any) {
-      console.error('[GoalSessionDashboard] Exception unsticking session:', error);
+      console.error('[GoalSessionDashboard] Exception force closing session:', error);
       showToast({
         type: 'error',
-        title: 'Unstick Failed',
+        title: 'Force Close Failed',
         message: error.message || 'An unexpected error occurred.'
       });
     } finally {

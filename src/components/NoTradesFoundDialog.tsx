@@ -28,6 +28,8 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
       setCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(interval);
+          // Auto-close when countdown reaches 0
+          console.log('[NoTradesFoundDialog] Countdown reached 0 - auto-closing session');
           onClose();
           return 0;
         }
