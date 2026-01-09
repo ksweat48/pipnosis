@@ -85,6 +85,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (previousUser?.id !== session.user.id) {
             const { activeEntryMonitor } = await import('@/services/active-entry-monitor');
             activeEntryMonitor.stopAllMonitoring();
+            const { unifiedEntryMonitor } = await import('@/services/unified-entry-monitor');
+            unifiedEntryMonitor.stopAllMonitoring();
             console.log('[Auth] Stopped monitoring for previous user');
           }
 
@@ -120,8 +122,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             continuousLearningLoop.stop();
           }
 
-          import('@/services/active-entry-monitor').then(({ activeEntryMonitor }) => {
-            activeEntryMonitor.stopAllMonitoring();
+          Promise.all([
+            import('@/services/active-entry-monitor').then(({ activeEntryMonitor }) => {
+              activeEntryMonitor.stopAllMonitoring();
+            }),
+            import('@/services/unified-entry-monitor').then(({ unifiedEntryMonitor }) => {
+              unifiedEntryMonitor.stopAllMonitoring();
+            })
+          ]).then(() => {
             console.log('[Auth] Stopped all entry monitoring');
           }).catch(console.error);
         }

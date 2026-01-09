@@ -84,6 +84,20 @@ export class UnifiedEntryMonitor {
     try {
       const intent = await this.getIntent(intentId);
       if (!intent || intent.status !== 'monitoring') {
+        logger.info(`[UnifiedMonitor] Intent ${intentId} is not in monitoring status, stopping`);
+        await this.stopMonitoring(intentId);
+        return;
+      }
+
+      // Verify session is still active
+      const { data: session } = await supabase
+        .from('goal_sessions')
+        .select('status')
+        .eq('id', intent.goal_session_id)
+        .maybeSingle();
+
+      if (!session || session.status !== 'active') {
+        logger.info(`[UnifiedMonitor] Session ${intent.goal_session_id} is not active, stopping monitoring for intent ${intentId}`);
         await this.stopMonitoring(intentId);
         return;
       }
@@ -147,7 +161,7 @@ export class UnifiedEntryMonitor {
         stopLoss,
         takeProfit,
         confidence,
-        m5Candles: candlesForIndicators.slice(0, 10), // Use last 10 for pattern analysis
+        m5Candles: candlesForIndicators.slice(-10), // Use LAST 10 candles for pattern analysis
         m5VWAP: marketConditions.vwap,
         m5EMA20: ema20Value,
         m5RSI: rsiValue,
@@ -165,7 +179,17 @@ export class UnifiedEntryMonitor {
 
       logger.info(
         `[UnifiedMonitor] ${intent.symbol} EQS: ${currentEQS}/100 ` +
-        `(threshold: ${styleConfig.eqsThreshold})`
+        `(threshold: ${styleConfig.eqsThreshold}), Grade: ${eqsResult.eqsGrade}`
+      );
+
+      // Log detailed breakdown for debugging
+      logger.info(
+        `[UnifiedMonitor] EQS Breakdown - ` +
+        `Candle: ${eqsResult.eqsBreakdown.candleAcceptance}/20, ` +
+        `Pullback: ${eqsResult.eqsBreakdown.pullbackQuality}/15, ` +
+        `VWAP: ${eqsResult.eqsBreakdown.vwapInteraction}/15, ` +
+        `EMA: ${eqsResult.eqsBreakdown.emaAlignment}/10, ` +
+        `Liquidity: ${eqsResult.eqsBreakdown.liquidityReaction}/15`
       );
 
       // Store EQS update in database for UI display
@@ -240,11 +264,29 @@ export class UnifiedEntryMonitor {
       const breakdown = eqsResult.eqsBreakdown;
       const grade = calculateEQSGrade(currentEQS);
 
-      // Store as entry monitoring log
-      await supabase.from('entry_monitoring_logs').insert({
+      // Get current price for the required field
+      const priceData = await marketDataService.getCurrentPrice(intent.symbol);
+      if (!priceData) {
+        logger.warn('[UnifiedMonitor] Cannot store EQS update without current price');
+        return;
+      }
+
+      // Calculate distance to entry zone
+      const distanceToZone = intent.entry_zone_min && intent.entry_zone_max
+        ? priceData.price < intent.entry_zone_min
+          ? intent.entry_zone_min - priceData.price
+          : priceData.price > intent.entry_zone_max
+          ? priceData.price - intent.entry_zone_max
+          : 0
+        : null;
+
+      // Store as entry monitoring log with all required fields
+      const { error } = await supabase.from('entry_monitoring_logs').insert({
         intent_id: intent.id,
         user_id: intent.user_id,
         symbol: intent.symbol,
+        current_price: priceData.price,
+        distance_to_zone_pips: distanceToZone,
         eqs_score: currentEQS,
         eqs_grade: grade,
         eqs_threshold: threshold,
@@ -258,8 +300,13 @@ export class UnifiedEntryMonitor {
           failedMoveConfirmation: breakdown.failedMoveConfirmation,
           timeframeAlignment: breakdown.timeframeAlignment
         },
-        status: eqsResult.status
+        status: eqsResult.status,
+        message: `EQS: ${currentEQS}/100 (${grade}) - ${eqsResult.status}`
       });
+
+      if (error) {
+        logger.error('[UnifiedMonitor] Database error storing EQS update:', error);
+      }
     } catch (error) {
       logger.error('[UnifiedMonitor] Failed to store EQS update:', error);
     }
