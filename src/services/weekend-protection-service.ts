@@ -20,7 +20,7 @@
 import { supabase } from '@/lib/supabase';
 import { logger, LogCategory } from '@/lib/logger';
 import { globalToastManager } from './global-toast-manager';
-import { notificationManager } from './notification-manager';
+import { goalNotificationSystem } from './goal-notifications';
 import { is24HourSymbol } from '@/utils/marketHours';
 import { marketScheduleService } from './market-schedule-service';
 
@@ -315,14 +315,16 @@ class WeekendProtectionService {
 
     if (sessions) {
       for (const session of sessions) {
-        await notificationManager.createNotification(
-          session.user_id,
-          'weekend_warning',
-          'Weekend Protection',
+        await goalNotificationSystem.createNotification({
+          sessionId: session.id,
+          userId: session.user_id,
+          type: 'alert',
+          priority: 'high',
+          title: 'Weekend Protection',
           message,
-          { sessionId: session.id, hoursUntil: hours, minutesUntil: minutes },
-          'high'
-        );
+          data: { hoursUntil: hours, minutesUntil: minutes },
+          channels: ['in_app']
+        });
       }
     }
   }
@@ -376,14 +378,25 @@ class WeekendProtectionService {
 
       if (users) {
         for (const user of users) {
-          await notificationManager.createNotification(
-            user.id,
-            'weekend_shutdown',
-            'Weekend Shutdown Complete',
-            `All trades and sessions have been closed for the weekend. Systems will resume Sunday at 5:00 PM EST.`,
-            { closedTrades, endedSessions },
-            'high'
-          );
+          // Get user's active session (if any) for notification linkage
+          const { data: userSession } = await supabase
+            .from('goal_sessions')
+            .select('id')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          await goalNotificationSystem.createNotification({
+            sessionId: userSession?.id || '00000000-0000-0000-0000-000000000000', // Use zero UUID if no session
+            userId: user.id,
+            type: 'alert',
+            priority: 'high',
+            title: 'Weekend Shutdown Complete',
+            message: `All trades and sessions have been closed for the weekend. Systems will resume Sunday at 5:00 PM EST.`,
+            data: { closedTrades, endedSessions },
+            channels: ['in_app']
+          });
         }
       }
 
