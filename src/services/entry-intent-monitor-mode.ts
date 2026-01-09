@@ -353,54 +353,110 @@ export class EntryIntentMonitorMode {
   }
 
   private async fetchCurrentPrice(): Promise<number> {
-    const { data, error } = await supabase
-      .from('realtime_prices')
-      .select('bid, ask')
-      .eq('symbol', this.intent.symbol)
-      .maybeSingle();
+    try {
+      const { data, error } = await supabase
+        .from('realtime_prices')
+        .select('bid, ask')
+        .eq('symbol', this.intent.symbol)
+        .maybeSingle();
 
-    if (error || !data) {
-      console.warn('[ENTRY_MONITOR] Failed to fetch price, using fallback', this.intent.symbol);
-      return this.intent.market_context?.currentPrice || this.intent.entry_zone_min;
+      if (error) {
+        console.warn('[ENTRY_MONITOR] Price fetch error', this.intent.symbol, error.message);
+        return this.getFallbackPrice();
+      }
+
+      if (!data) {
+        console.log('[ENTRY_MONITOR] No realtime price data yet for', this.intent.symbol);
+        return this.getFallbackPrice();
+      }
+
+      // Validate price data
+      const bid = Number(data.bid);
+      const ask = Number(data.ask);
+
+      if (isNaN(bid) || isNaN(ask) || bid <= 0 || ask <= 0) {
+        console.warn('[ENTRY_MONITOR] Invalid price data', this.intent.symbol, { bid, ask });
+        return this.getFallbackPrice();
+      }
+
+      return (bid + ask) / 2;
+    } catch (error) {
+      console.error('[ENTRY_MONITOR] Exception fetching price', this.intent.symbol, error);
+      return this.getFallbackPrice();
+    }
+  }
+
+  private getFallbackPrice(): number {
+    // Try to use stored price from market context
+    if (this.intent.market_context?.currentPrice &&
+        typeof this.intent.market_context.currentPrice === 'number' &&
+        !isNaN(this.intent.market_context.currentPrice)) {
+      return this.intent.market_context.currentPrice;
     }
 
-    return (data.bid + data.ask) / 2;
+    // Last resort: use entry zone midpoint
+    return (this.intent.entry_zone_min + this.intent.entry_zone_max) / 2;
   }
 
   private async fetchRecentCandles(): Promise<CandleData[]> {
-    const { data, error } = await supabase
-      .from('candle_cache')
-      .select('open, high, low, close, volume, time')
-      .eq('symbol', this.intent.symbol)
-      .eq('timeframe', 'M5')
-      .order('time', { ascending: false })
-      .limit(10);
+    try {
+      const { data, error } = await supabase
+        .from('candle_cache')
+        .select('open, high, low, close, volume, time')
+        .eq('symbol', this.intent.symbol)
+        .eq('timeframe', 'M5')
+        .order('time', { ascending: false })
+        .limit(10);
 
-    if (error || !data || data.length === 0) {
+      if (error) {
+        // 404 means no candles exist for this symbol yet - this is normal during initial setup
+        if (error.code === 'PGRST116' || error.message?.includes('404')) {
+          console.log('[ENTRY_MONITOR] No candle cache data yet for', this.intent.symbol);
+        } else {
+          console.warn('[ENTRY_MONITOR] Candle fetch error', this.intent.symbol, error.message);
+        }
+        return [];
+      }
+
+      if (!data || data.length === 0) {
+        console.log('[ENTRY_MONITOR] No candle data available for', this.intent.symbol);
+        return [];
+      }
+
+      return data.reverse().map(c => ({
+        open: Number(c.open),
+        high: Number(c.high),
+        low: Number(c.low),
+        close: Number(c.close),
+        volume: Number(c.volume || 0),
+        time: c.time
+      }));
+    } catch (error) {
+      console.error('[ENTRY_MONITOR] Exception fetching candles', this.intent.symbol, error);
       return [];
     }
-
-    return data.reverse().map(c => ({
-      open: Number(c.open),
-      high: Number(c.high),
-      low: Number(c.low),
-      close: Number(c.close),
-      volume: Number(c.volume || 0),
-      time: c.time
-    }));
   }
 
   private buildMarketContext(currentPrice: number, candles: CandleData[]): MarketContext {
     const stored = this.intent.market_context || {};
 
+    // Ensure currentPrice is valid
+    const safePrice = typeof currentPrice === 'number' && !isNaN(currentPrice) ? currentPrice : this.intent.entry_zone_min;
+
+    // Ensure ATR is always a valid positive number
+    let safeATR = this.intent.atr_at_creation || stored.atr || 0.001;
+    if (typeof safeATR !== 'number' || isNaN(safeATR) || safeATR <= 0) {
+      safeATR = 0.001;
+    }
+
     return {
-      currentPrice,
-      vwap: stored.vwap,
-      ema20: stored.ema20,
-      ema50: stored.ema50,
-      ema200: stored.ema200,
-      atr: this.intent.atr_at_creation || stored.atr || 0.001,
-      recentCandles: candles,
+      currentPrice: safePrice,
+      vwap: typeof stored.vwap === 'number' ? stored.vwap : undefined,
+      ema20: typeof stored.ema20 === 'number' ? stored.ema20 : undefined,
+      ema50: typeof stored.ema50 === 'number' ? stored.ema50 : undefined,
+      ema200: typeof stored.ema200 === 'number' ? stored.ema200 : undefined,
+      atr: safeATR,
+      recentCandles: Array.isArray(candles) ? candles : [],
       m15SupportResistance: stored.m15_levels
     };
   }

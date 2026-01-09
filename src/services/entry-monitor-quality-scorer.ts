@@ -151,6 +151,13 @@ export class EntryMonitorQualityScorer {
   calculate(context: MarketContext): EntryQualityResult {
     const weights = STYLE_WEIGHTS[this.style];
     const threshold = STYLE_THRESHOLDS[this.style];
+
+    // Null safety: ensure weights exist
+    if (!weights) {
+      console.error('[ENTRY_MONITOR_EQS] Invalid style, no weights found', this.style);
+      return this.createFailsafeResult(context.currentPrice, threshold || 70);
+    }
+
     const breakdown = this.calculateBreakdown(context);
     const componentScores = this.calculateComponentScores(breakdown, weights);
 
@@ -202,20 +209,60 @@ export class EntryMonitorQualityScorer {
     };
   }
 
+  private createFailsafeResult(currentPrice: number, threshold: number): EntryQualityResult {
+    // Return a safe "wait" result when we can't calculate properly
+    return {
+      score: 0,
+      decision: 'CONTINUE_WAITING',
+      componentScores: {
+        acceptance: 0,
+        vwapInteraction: 0,
+        microstructure: 0,
+        pullback: 0,
+        emaAlign: 0,
+        compression: 0,
+        location: 0,
+        trendAlign: 0
+      },
+      breakdown: {
+        acceptance: { bodyPercent: 0, consecutiveCloses: 0, closePosition: 0, rangeExpansion: false },
+        vwapInteraction: { distanceATR: 99, zone: 'UNKNOWN', favorable: false },
+        microstructure: { wickImbalance: 0, momentumBar: false, rejectionPattern: false },
+        pullback: { depth: 50, grade: 'B', impulseIdentified: false },
+        emaAlign: { stack: 'UNKNOWN', slopeDirection: 'FLAT', directionMatch: false },
+        compression: { detected: false, expansionFollows: false },
+        location: { nearSupport: false, nearResistance: false, midRange: true }
+      },
+      threshold,
+      reasoning: 'Insufficient data for quality assessment. Waiting.',
+      executionReady: false
+    };
+  }
+
   private isPriceInEntryZone(price: number): boolean {
     return price >= this.entryZoneMin && price <= this.entryZoneMax;
   }
 
   private calculateBreakdown(context: MarketContext): EQSBreakdownDetails {
+    // Null safety: ensure context has required data
+    if (!context || typeof context.currentPrice !== 'number') {
+      console.error('[ENTRY_MONITOR_EQS] Invalid context', context);
+      return this.getDefaultBreakdown();
+    }
+
     const { currentPrice, vwap, ema20, ema50, ema200, atr, recentCandles, m15SupportResistance } = context;
 
-    const acceptanceBreakdown = this.analyzeAcceptance(recentCandles, atr);
-    const vwapBreakdown = this.analyzeVWAPInteraction(currentPrice, vwap, atr);
-    const microBreakdown = this.analyzeMicrostructure(recentCandles, atr);
-    const pullbackBreakdown = this.analyzePullback(recentCandles, atr);
-    const emaBreakdown = this.analyzeEMAAlignment(currentPrice, ema20, ema50, ema200, atr, recentCandles);
-    const compressionBreakdown = this.analyzeCompression(recentCandles, atr);
-    const locationBreakdown = this.analyzeLocation(currentPrice, m15SupportResistance, atr);
+    // Ensure candles array exists
+    const candles = Array.isArray(recentCandles) ? recentCandles : [];
+    const safeATR = typeof atr === 'number' && atr > 0 ? atr : 0.001;
+
+    const acceptanceBreakdown = this.analyzeAcceptance(candles, safeATR);
+    const vwapBreakdown = this.analyzeVWAPInteraction(currentPrice, vwap, safeATR);
+    const microBreakdown = this.analyzeMicrostructure(candles, safeATR);
+    const pullbackBreakdown = this.analyzePullback(candles, safeATR);
+    const emaBreakdown = this.analyzeEMAAlignment(currentPrice, ema20, ema50, ema200, safeATR, candles);
+    const compressionBreakdown = this.analyzeCompression(candles, safeATR);
+    const locationBreakdown = this.analyzeLocation(currentPrice, m15SupportResistance, safeATR);
 
     return {
       acceptance: acceptanceBreakdown,
@@ -225,6 +272,18 @@ export class EntryMonitorQualityScorer {
       emaAlign: emaBreakdown,
       compression: compressionBreakdown,
       location: locationBreakdown
+    };
+  }
+
+  private getDefaultBreakdown(): EQSBreakdownDetails {
+    return {
+      acceptance: { bodyPercent: 0, consecutiveCloses: 0, closePosition: 0, rangeExpansion: false },
+      vwapInteraction: { distanceATR: 99, zone: 'UNKNOWN', favorable: false },
+      microstructure: { wickImbalance: 0, momentumBar: false, rejectionPattern: false },
+      pullback: { depth: 50, grade: 'B', impulseIdentified: false },
+      emaAlign: { stack: 'UNKNOWN', slopeDirection: 'FLAT', directionMatch: false },
+      compression: { detected: false, expansionFollows: false },
+      location: { nearSupport: false, nearResistance: false, midRange: true }
     };
   }
 
@@ -472,7 +531,13 @@ export class EntryMonitorQualityScorer {
       trendAlign: 0
     };
 
-    if ('acceptance' in weights) {
+    // Null safety: ensure breakdown and weights exist
+    if (!breakdown || !weights) {
+      console.error('[ENTRY_MONITOR_EQS] Invalid breakdown or weights', { breakdown: !!breakdown, weights: !!weights });
+      return scores;
+    }
+
+    if (weights.acceptance !== undefined && 'acceptance' in weights) {
       let acceptanceScore = 0;
       if (breakdown.acceptance.consecutiveCloses >= 2) acceptanceScore += 40;
       else if (breakdown.acceptance.consecutiveCloses >= 1) acceptanceScore += 20;
@@ -488,7 +553,7 @@ export class EntryMonitorQualityScorer {
       scores.acceptance = Math.min(100, acceptanceScore);
     }
 
-    if ('vwapInteraction' in weights) {
+    if (weights.vwapInteraction !== undefined && 'vwapInteraction' in weights) {
       let vwapScore = 0;
       if (breakdown.vwapInteraction.favorable) {
         if (breakdown.vwapInteraction.distanceATR <= 0.15) vwapScore = 100;
@@ -502,7 +567,7 @@ export class EntryMonitorQualityScorer {
       scores.vwapInteraction = Math.round(vwapScore);
     }
 
-    if ('microstructure' in weights) {
+    if (weights.microstructure !== undefined && 'microstructure' in weights) {
       let microScore = 50;
       if (breakdown.microstructure.wickImbalance > 30) microScore += 25;
       else if (breakdown.microstructure.wickImbalance > 0) microScore += 10;
@@ -514,7 +579,7 @@ export class EntryMonitorQualityScorer {
       scores.microstructure = Math.max(0, Math.min(100, microScore));
     }
 
-    if ('pullback' in weights) {
+    if (weights.pullback !== undefined && 'pullback' in weights) {
       switch (breakdown.pullback.grade) {
         case 'A':
           scores.pullback = 100;
@@ -531,7 +596,7 @@ export class EntryMonitorQualityScorer {
       if (!breakdown.pullback.impulseIdentified) scores.pullback = Math.round(scores.pullback * 0.6);
     }
 
-    if ('emaAlign' in weights || 'trendAlign' in weights) {
+    if ((weights.emaAlign !== undefined && 'emaAlign' in weights) || (weights.trendAlign !== undefined && 'trendAlign' in weights)) {
       let emaScore = 50;
       if (breakdown.emaAlign.directionMatch) emaScore += 30;
       if (breakdown.emaAlign.stack === 'BULL' && this.direction === 'BUY') emaScore += 20;
@@ -546,7 +611,7 @@ export class EntryMonitorQualityScorer {
       scores.trendAlign = scores.emaAlign;
     }
 
-    if ('compression' in weights) {
+    if (weights.compression !== undefined && 'compression' in weights) {
       if (breakdown.compression.detected && breakdown.compression.expansionFollows) {
         scores.compression = 100;
       } else if (breakdown.compression.detected) {
@@ -556,7 +621,7 @@ export class EntryMonitorQualityScorer {
       }
     }
 
-    if ('location' in weights) {
+    if (weights.location !== undefined && 'location' in weights) {
       if (this.direction === 'BUY') {
         if (breakdown.location.nearSupport) scores.location = 100;
         else if (breakdown.location.midRange) scores.location = 50;
