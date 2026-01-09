@@ -76,7 +76,14 @@ class SmartGoalSessionManager {
     multiTradeEnabled: boolean = false,
     tradeStyle?: TradeStyle,
     dollarRisk?: number
-  ): Promise<SmartGoalSession> {
+  ): Promise<SmartGoalSession | null> {
+    // CRITICAL: Prevent multiple active sessions
+    const existingSession = await this.getActiveSession(userId);
+    if (existingSession) {
+      console.error('[Smart Goal] ❌ Cannot create session - user already has active session:', existingSession.sessionId);
+      throw new Error('You already have an active session running. Please stop it before creating a new one.');
+    }
+
     // Use new trade styles system if provided, otherwise fall back to legacy parsing
     const config = tradeStyle && dollarRisk
       ? this.buildConfigFromStyle(prompt, accountBalance, tradeStyle, dollarRisk)

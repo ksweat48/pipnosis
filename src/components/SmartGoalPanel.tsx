@@ -118,6 +118,19 @@ export const SmartGoalPanel: React.FC = () => {
     setError('');
 
     try {
+      // Check if user already has an active session
+      const existingSession = await smartGoalSessionManager.getActiveSession(user.id);
+      if (existingSession) {
+        toast.error(
+          'Active Session Already Running',
+          'Please stop your current session before starting a new one. Go to AI Trade page to manage sessions.',
+          8000
+        );
+        setError('You already have an active session running. Stop it first.');
+        setLoading(false);
+        return;
+      }
+
       // Check if trading is enabled platform-wide
       const { data: tradingStatus } = await supabase.rpc('is_trading_enabled');
 
@@ -160,8 +173,14 @@ export const SmartGoalPanel: React.FC = () => {
       }
     } catch (err) {
       console.error('Error creating session:', err);
-      toast.error('Error', 'An error occurred while creating your goal session');
-      setError('An error occurred while creating your goal session.');
+      const errorMessage = err instanceof Error ? err.message : 'An error occurred while creating your goal session';
+
+      if (errorMessage.includes('already has an active session')) {
+        toast.error('Active Session Exists', errorMessage, 8000);
+      } else {
+        toast.error('Error', errorMessage);
+      }
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
