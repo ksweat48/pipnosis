@@ -843,6 +843,9 @@ class GoalSessionLiveEngine {
       if (decision.action === 'WAIT') {
         logger.info(LogCategory.AI_TRADING, `⏸️ WAIT decision received for ${selectedSymbol} - starting ENTRY_MONITOR mode`);
 
+        // Get snapshot for selected symbol (needed for entry monitor context)
+        const selectedSnapshot = bestSymbolResult.evaluation.snapshot;
+
         // Determine intended direction from stop loss position
         const intendedDirection = decision.stopLoss > decision.entry ? 'SELL' : 'BUY';
         const directionEmoji = intendedDirection === 'BUY' ? '🟢' : '🔴';
@@ -864,15 +867,15 @@ class GoalSessionLiveEngine {
             reasoning: decision.reasoning,
             entryZone: decision.entry_spec?.entry_zone,
             style: tradeStyle,
-            atr: snapshot.atr?.value || 0.001,
+            atr: selectedSnapshot.atr?.value || 0.001,
             maxWaitSeconds: decision.entry_spec?.max_wait_minutes ? decision.entry_spec.max_wait_minutes * 60 : undefined,
             marketContext: {
-              vwap: snapshot.vwap,
-              ema20: snapshot.ema20,
-              ema50: snapshot.ema50,
-              ema200: snapshot.ema200,
-              m15_levels: snapshot.m15_levels,
-              currentPrice: snapshot.currentPrice
+              vwap: selectedSnapshot.vwap,
+              ema20: selectedSnapshot.ema20,
+              ema50: selectedSnapshot.ema50,
+              ema200: selectedSnapshot.ema200,
+              m15_levels: selectedSnapshot.m15_levels,
+              currentPrice: selectedSnapshot.currentPrice
             }
           }
         );
