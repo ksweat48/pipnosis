@@ -17,11 +17,14 @@ import { entryQualificationEngine } from './entry-qualification-engine';
 import { logger } from '../lib/logger';
 import type { EntryIntent } from '../types/entry';
 import type { EntryQualificationInput } from './entry-qualification-engine';
+import { entryMonitoringNotifications } from './entry-monitoring-notifications';
+import { calculateEQSGrade, didGradeImprove } from '../utils/eqsHelpers';
 
 export class UnifiedEntryMonitor {
   private static instance: UnifiedEntryMonitor;
   private monitoringIntervals: Map<string, NodeJS.Timeout> = new Map();
   private lastNotificationTime: Map<string, number> = new Map();
+  private lastEQSScores: Map<string, number> = new Map();
 
   private constructor() {}
 
@@ -61,6 +64,7 @@ export class UnifiedEntryMonitor {
       clearInterval(interval);
       this.monitoringIntervals.delete(intentId);
       this.lastNotificationTime.delete(intentId);
+      this.lastEQSScores.delete(intentId);
       logger.info(`[UnifiedMonitor] Stopped monitoring ${intentId}`);
     }
   }
@@ -71,6 +75,7 @@ export class UnifiedEntryMonitor {
     }
     this.monitoringIntervals.clear();
     this.lastNotificationTime.clear();
+    this.lastEQSScores.clear();
     logger.info('[UnifiedMonitor] Stopped all monitoring');
   }
 
@@ -129,14 +134,51 @@ export class UnifiedEntryMonitor {
 
       const eqsResult = entryQualificationEngine.evaluate(qualificationInput);
       const styleConfig = tradeStyleRegistry.getConfig(style);
+      const currentEQS = eqsResult.eqsBreakdown.totalScore;
 
       logger.info(
-        `[UnifiedMonitor] ${intent.symbol} EQS: ${eqsResult.eqsBreakdown.totalScore}/100 ` +
+        `[UnifiedMonitor] ${intent.symbol} EQS: ${currentEQS}/100 ` +
         `(threshold: ${styleConfig.eqsThreshold})`
       );
 
-      if (eqsResult.status === 'EXECUTE_NOW' && eqsResult.eqsBreakdown.totalScore >= styleConfig.eqsThreshold) {
-        await this.handleExecution(intent, priceData.price, eqsResult.eqsBreakdown.totalScore);
+      // Track EQS progression and send notification on grade improvement
+      const lastEQS = this.lastEQSScores.get(intentId);
+      if (lastEQS !== undefined && didGradeImprove(lastEQS, currentEQS)) {
+        const oldGrade = calculateEQSGrade(lastEQS);
+        const newGrade = calculateEQSGrade(currentEQS);
+        const requiredGrade = calculateEQSGrade(styleConfig.eqsThreshold);
+
+        const inEntryZone = priceData.price >= intent.entry_zone_min && priceData.price <= intent.entry_zone_max;
+
+        const { data: session } = await supabase
+          .from('goal_sessions')
+          .select('id')
+          .eq('id', intent.goal_session_id)
+          .maybeSingle();
+
+        if (session) {
+          await entryMonitoringNotifications.sendEQSProgress({
+            userId,
+            sessionId: intent.goal_session_id,
+            intentId,
+            symbol: intent.symbol,
+            direction: intent.direction === 'long' ? 'BUY' : 'SELL',
+            oldEQS: lastEQS,
+            newEQS: currentEQS,
+            oldGrade,
+            newGrade,
+            requiredEQS: styleConfig.eqsThreshold,
+            requiredGrade,
+            currentPrice: priceData.price,
+            inEntryZone
+          });
+        }
+      }
+
+      this.lastEQSScores.set(intentId, currentEQS);
+
+      if (eqsResult.status === 'EXECUTE_NOW' && currentEQS >= styleConfig.eqsThreshold) {
+        await this.handleExecution(intent, priceData.price, currentEQS);
         await this.stopMonitoring(intentId);
       }
     } catch (error) {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageCircle, X, Bot, TrendingUp, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
+import { MessageCircle, X, Bot, TrendingUp, AlertTriangle, CheckCircle, Clock, Target, BarChart3, Play, StopCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { notificationManager } from '@/services/notification-manager';
 
@@ -208,6 +208,14 @@ export const FloatingMessageCenter: React.FC<FloatingMessageCenterProps> = ({ us
         return <AlertTriangle size={16} className="text-orange-400" />;
       case 'completion':
         return <CheckCircle size={16} className="text-green-400" />;
+      case 'entry_monitoring_started':
+        return <Target size={16} className="text-blue-400" />;
+      case 'entry_quality_improving':
+        return <BarChart3 size={16} className="text-yellow-400" />;
+      case 'entry_quality_ready':
+        return <Play size={16} className="text-green-400" />;
+      case 'entry_abandoned':
+        return <StopCircle size={16} className="text-gray-400" />;
       default:
         return <MessageCircle size={16} className="text-gray-400" />;
     }
@@ -226,6 +234,14 @@ export const FloatingMessageCenter: React.FC<FloatingMessageCenterProps> = ({ us
         return 'border-orange-500/30 bg-orange-500/5';
       case 'completion':
         return 'border-green-500/30 bg-green-500/5';
+      case 'entry_monitoring_started':
+        return 'border-blue-500/30 bg-blue-500/5';
+      case 'entry_quality_improving':
+        return 'border-yellow-500/30 bg-yellow-500/5';
+      case 'entry_quality_ready':
+        return 'border-green-500/30 bg-green-500/5';
+      case 'entry_abandoned':
+        return 'border-gray-600/30 bg-gray-700/5';
       default:
         return 'border-gray-700/30 bg-gray-800/30';
     }

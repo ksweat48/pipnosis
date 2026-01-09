@@ -7,6 +7,7 @@ import { SmartGoalPanel } from '@/components/SmartGoalPanel';
 import { GoalSessionDashboard } from '@/components/GoalSessionDashboard';
 import { AchievementsHallOfFame } from '@/components/AchievementsHallOfFame';
 import { PendingContinuationModalHandler } from '@/components/PendingContinuationModalHandler';
+import { EntryMonitorStatusCard } from '@/components/EntryMonitorStatusCard';
 import { useAuth } from '@/hooks/useAuth';
 import { smartGoalSessionManager } from '@/services/smart-goal-session-manager';
 import { Target, Trophy } from 'lucide-react';
@@ -145,6 +146,7 @@ export function AITradePage() {
         </div>
       </main>
 
+      <EntryMonitorStatusCard />
       <BottomNavigation />
     </div>
   );

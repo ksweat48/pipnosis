@@ -26,6 +26,9 @@ import {
   calculateAbandonZone
 } from './entry-intent-monitor-mode';
 import { TradeStyle } from './entry-monitor-quality-scorer';
+import { entryMonitoringNotifications } from './entry-monitoring-notifications';
+import { calculateEQSGrade } from '../utils/eqsHelpers';
+import { tradeStyleRegistry } from './trade-style-registry';
 
 export interface WaitDecisionData {
   symbol: string;
@@ -234,6 +237,35 @@ class EntryMonitorCoordinator {
     await monitor.start();
 
     console.log('[ENTRY_MONITOR_COORD] Monitoring started', sessionId, intent.id, intent.symbol);
+
+    // Send monitoring started notification
+    const marketContext = intent.market_context as any || {};
+    const confidence = marketContext.confidence || 70;
+    const currentEQS = marketContext.current_eqs || 0;
+    const style = intent.style || 'MICRO_INTRADAY';
+    const styleConfig = tradeStyleRegistry.getConfig(style);
+    const currentGrade = calculateEQSGrade(currentEQS);
+    const requiredGrade = calculateEQSGrade(styleConfig.eqsThreshold);
+
+    await entryMonitoringNotifications.sendMonitoringStarted({
+      userId,
+      sessionId,
+      intentId: intent.id,
+      symbol: intent.symbol,
+      direction: intent.direction === 'long' ? 'BUY' : 'SELL',
+      entryZoneMin: intent.entry_zone_min,
+      entryZoneMax: intent.entry_zone_max,
+      stopLoss: intent.invalidation_price,
+      takeProfit: marketContext.takeProfit || 0,
+      currentEQS,
+      requiredEQS: styleConfig.eqsThreshold,
+      currentGrade,
+      requiredGrade,
+      confidence,
+      style: style as TradeStyle,
+      maxWaitSeconds: intent.max_wait_seconds,
+      reasoning: intent.reasoning
+    });
   }
 
   async stopMonitoring(sessionId: string): Promise<void> {
@@ -259,6 +291,23 @@ class EntryMonitorCoordinator {
       console.error('[ENTRY_MONITOR_COORD] Intent not found for execution', intentId);
       return;
     }
+
+    // Send EQS ready notification
+    const style = intent.style || 'MICRO_INTRADAY';
+    const styleConfig = tradeStyleRegistry.getConfig(style);
+    const grade = calculateEQSGrade(eqs);
+
+    await entryMonitoringNotifications.sendEQSReady({
+      userId,
+      sessionId,
+      intentId,
+      symbol: intent.symbol,
+      direction: intent.direction === 'long' ? 'BUY' : 'SELL',
+      eqs,
+      grade,
+      requiredEQS: styleConfig.eqsThreshold,
+      executionPrice: price
+    });
 
     await this.transitionState(sessionId, 'EXECUTE_PENDING');
 
@@ -299,6 +348,41 @@ class EntryMonitorCoordinator {
     reason: AbandonReason
   ): Promise<void> {
     console.log('[ENTRY_MONITOR_COORD] Handling abandonment', sessionId, intentId, reason);
+
+    const intent = await this.getIntentById(intentId);
+
+    if (intent) {
+      const marketContext = intent.market_context as any || {};
+      const currentEQS = marketContext.current_eqs || 0;
+      const style = intent.style || 'MICRO_INTRADAY';
+      const styleConfig = tradeStyleRegistry.getConfig(style);
+      const currentGrade = calculateEQSGrade(currentEQS);
+
+      const createdAt = new Date(intent.created_at);
+      const now = new Date();
+      const durationSeconds = Math.floor((now.getTime() - createdAt.getTime()) / 1000);
+
+      const { data: session } = await supabase
+        .from('goal_sessions')
+        .select('user_id')
+        .eq('id', sessionId)
+        .maybeSingle();
+
+      if (session) {
+        await entryMonitoringNotifications.sendMonitoringAbandoned({
+          userId: session.user_id,
+          sessionId,
+          intentId,
+          symbol: intent.symbol,
+          direction: intent.direction === 'long' ? 'BUY' : 'SELL',
+          reason,
+          eqs: currentEQS,
+          grade: currentGrade,
+          requiredEQS: styleConfig.eqsThreshold,
+          durationSeconds
+        });
+      }
+    }
 
     await cancelEntryIntent(intentId, `Abandoned: ${reason}`);
     await this.stopMonitoring(sessionId);
