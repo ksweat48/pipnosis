@@ -224,7 +224,7 @@ export const GoalSessionDashboard: React.FC = () => {
       return;
     }
 
-    const validStatuses = ['scanning', 'initializing', 'trade_pending', 'in_trade', 'awaiting_continuation'];
+    const validStatuses = ['scanning', 'initializing', 'active', 'trade_pending', 'in_trade', 'awaiting_continuation'];
     if (validStatuses.includes(activeSession.status)) {
       console.log(`[GoalSessionDashboard] Starting polling for session ${activeSession.sessionId} (status: ${activeSession.status})`);
       goalScannerTrigger.startPolling(activeSession.sessionId, 60000);
