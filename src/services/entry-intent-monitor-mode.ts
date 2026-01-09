@@ -324,15 +324,24 @@ export async function getEntryIntentWithSession(intentId: string): Promise<any |
 /**
  * Get all active intents for a user
  * SSOT for fetching user's monitoring intents
+ *
+ * This function now validates:
+ * - Intent has active session
+ * - Intent is not expired
+ * - Intent has valid session_id
  */
 export async function getUserActiveIntents(userId: string): Promise<EntryIntentData[]> {
   const { supabase } = await import('../lib/supabase');
+  const now = new Date().toISOString();
 
   const { data, error } = await supabase
     .from('entry_intents')
-    .select('*')
+    .select('*, goal_sessions!inner(id, status)')
     .eq('user_id', userId)
     .eq('status', 'monitoring')
+    .eq('goal_sessions.status', 'active')
+    .not('session_id', 'is', null)
+    .gte('timeout_at', now)
     .order('urgency', { ascending: false })
     .order('created_at', { ascending: true });
 

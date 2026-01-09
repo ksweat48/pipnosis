@@ -103,6 +103,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
 
           try {
+            // STEP 1: Clean up stale intents before resuming
+            const { entryIntentCleanupService } = await import('@/services/entry-intent-cleanup');
+            const cleanupResult = await entryIntentCleanupService.performFullCleanup(session.user.id);
+
+            if (cleanupResult.totalCleaned > 0) {
+              console.log('[Auth] 🧹 Cleaned up stale intents:', cleanupResult);
+            }
+
+            // STEP 2: Resume only valid, active intents
             const { activeEntryMonitor } = await import('@/services/active-entry-monitor');
             await activeEntryMonitor.resumeAllActiveIntents(session.user.id);
             console.log('[Auth] ✅ Resumed entry intent monitoring');
