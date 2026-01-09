@@ -236,8 +236,15 @@ The migration `20260109073352_add_eqs_tracking_to_monitoring_logs.sql` has been 
 
 ## Files Modified
 
-1. `src/services/unified-entry-monitor.ts` - Database insert fix, lifecycle validation, better logging
+1. `src/services/unified-entry-monitor.ts` - Database insert fix, lifecycle validation, better logging, fixed column name (session_id not goal_session_id)
 2. `src/hooks/useAuth.tsx` - Cleanup unified monitor on logout
+
+## Database Migration Applied
+
+**Migration:** `cleanup_orphaned_entry_intents.sql`
+- Canceled all orphaned entry_intents (missing session or inactive session)
+- Added CASCADE DELETE constraint from goal_sessions to entry_intents
+- Prevents future orphan intents
 
 ## Deployment Status
 

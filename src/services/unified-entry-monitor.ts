@@ -89,15 +89,22 @@ export class UnifiedEntryMonitor {
         return;
       }
 
+      // Verify intent has a valid session ID
+      if (!intent.session_id) {
+        logger.warn(`[UnifiedMonitor] Intent ${intentId} has no session_id, stopping monitoring`);
+        await this.stopMonitoring(intentId);
+        return;
+      }
+
       // Verify session is still active
       const { data: session } = await supabase
         .from('goal_sessions')
         .select('status')
-        .eq('id', intent.goal_session_id)
+        .eq('id', intent.session_id)
         .maybeSingle();
 
       if (!session || session.status !== 'active') {
-        logger.info(`[UnifiedMonitor] Session ${intent.goal_session_id} is not active, stopping monitoring for intent ${intentId}`);
+        logger.info(`[UnifiedMonitor] Session ${intent.session_id} is not active, stopping monitoring for intent ${intentId}`);
         await this.stopMonitoring(intentId);
         return;
       }
@@ -207,13 +214,13 @@ export class UnifiedEntryMonitor {
         const { data: session } = await supabase
           .from('goal_sessions')
           .select('id')
-          .eq('id', intent.goal_session_id)
+          .eq('id', intent.session_id)
           .maybeSingle();
 
         if (session) {
           await entryMonitoringNotifications.sendEQSProgress({
             userId,
-            sessionId: intent.goal_session_id,
+            sessionId: intent.session_id,
             intentId,
             symbol: intent.symbol,
             direction: intent.direction === 'long' ? 'BUY' : 'SELL',
