@@ -22,13 +22,15 @@ import {
   getActiveEntryIntent,
   cancelEntryIntent,
   markIntentExecuted,
-  calculateAbandonZone
+  calculateAbandonZone,
+  getEntryIntentById
 } from './entry-intent-monitor-mode';
 import { unifiedEntryMonitor, type MonitoringCallbacks } from './unified-entry-monitor';
 import { TradeStyle } from './entry-monitor-quality-scorer';
 import { entryMonitoringNotifications } from './entry-monitoring-notifications';
 import { calculateEQSGrade } from '../utils/eqsHelpers';
 import { tradeStyleRegistry } from './trade-style-registry';
+import { logger } from '../lib/logger';
 
 export interface WaitDecisionData {
   symbol: string;
@@ -75,6 +77,8 @@ class EntryMonitorCoordinator {
   private activeMonitors: Map<string, string> = new Map(); // Maps sessionId -> intentId
   private executeTradeCallback: ExecuteTradeCallback | null = null;
   private onRescanRequested: ((sessionId: string) => void) | null = null;
+  private monitoringFailureCount: Map<string, number> = new Map(); // Track failures per session
+  private lastFailureTime: Map<string, number> = new Map(); // Track last failure timestamp
 
   setExecuteTradeCallback(callback: ExecuteTradeCallback): void {
     this.executeTradeCallback = callback;
@@ -441,8 +445,54 @@ class EntryMonitorCoordinator {
    * Uses getEntryIntentById from entry-intent-monitor-mode.ts
    */
   private async getIntentById(intentId: string): Promise<EntryIntentData | null> {
-    const { getEntryIntentById } = await import('./entry-intent-monitor-mode');
     return await getEntryIntentById(intentId);
+  }
+
+  /**
+   * Track monitoring failure and trigger automatic fallback if needed
+   * After 3 consecutive failures within 60 seconds, abandon and rescan
+   */
+  private async trackMonitoringFailure(sessionId: string, intentId: string): Promise<void> {
+    const now = Date.now();
+    const lastFailure = this.lastFailureTime.get(sessionId) || 0;
+    const failureCount = this.monitoringFailureCount.get(sessionId) || 0;
+
+    // Reset counter if last failure was more than 60 seconds ago
+    if (now - lastFailure > 60000) {
+      this.monitoringFailureCount.set(sessionId, 1);
+      this.lastFailureTime.set(sessionId, now);
+      logger.warn(`[ENTRY_MONITOR_COORD] Monitoring failure for session ${sessionId} (1/3)`);
+      return;
+    }
+
+    // Increment failure count
+    const newCount = failureCount + 1;
+    this.monitoringFailureCount.set(sessionId, newCount);
+    this.lastFailureTime.set(sessionId, now);
+
+    logger.warn(`[ENTRY_MONITOR_COORD] Monitoring failure for session ${sessionId} (${newCount}/3)`);
+
+    // After 3 failures, force abandonment and rescan
+    if (newCount >= 3) {
+      console.error(
+        '%c[ENTRY_MONITOR_COORD] 🚨 MONITORING FAILED 3 TIMES',
+        'color: #f44336; font-weight: bold',
+        {
+          sessionId,
+          intentId,
+          message: 'Abandoning monitoring and returning to market scan'
+        }
+      );
+
+      logger.error(`[ENTRY_MONITOR_COORD] Auto-abandoning ${intentId} after 3 failures`);
+
+      // Reset counters
+      this.monitoringFailureCount.delete(sessionId);
+      this.lastFailureTime.delete(sessionId);
+
+      // Abandon and trigger rescan
+      await this.handleAbandonment(sessionId, intentId, 'MANUAL_CANCEL');
+    }
   }
 
   async resumeMonitoringIfNeeded(sessionId: string, userId: string): Promise<void> {
