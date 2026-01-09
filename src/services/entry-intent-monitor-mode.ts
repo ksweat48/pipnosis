@@ -510,7 +510,8 @@ export async function createEntryIntentWithMonitoring(
   style: TradeStyle,
   maxWaitSeconds: number,
   alphaReasoning: string,
-  marketContext: Record<string, any>
+  marketContext: Record<string, any>,
+  intentType: 'immediate_momentum' | 'pullback_to_vwap' | 'pullback_to_support' = 'immediate_momentum'
 ): Promise<EntryIntentData | null> {
   const { abandonZoneLow, abandonZoneHigh } = calculateAbandonZone(entryZoneMin, entryZoneMax, atr);
 
@@ -523,6 +524,8 @@ export async function createEntryIntentWithMonitoring(
       user_id: userId,
       symbol,
       direction,
+      intent_type: intentType,
+      urgency: 'MEDIUM',
       entry_zone_min: entryZoneMin,
       entry_zone_max: entryZoneMax,
       abandon_zone_low: abandonZoneLow,
