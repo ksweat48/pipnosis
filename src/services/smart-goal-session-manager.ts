@@ -14,6 +14,18 @@ import { getMinConfidenceThreshold } from '../config/risk-levels';
 import { alphaExecutionPlanner } from './alpha-execution-planner';
 import { TradeStyle } from '../config/trade-styles';
 
+/**
+ * SSOT: Terminal (inactive) session statuses
+ * These are the ONLY statuses that represent a finished/closed session
+ * All other statuses are considered "active" and should be queryable
+ */
+export const TERMINAL_SESSION_STATUSES = [
+  'completed',
+  'goal_achieved',
+  'expired',
+  'user_stopped'
+] as const;
+
 export interface SmartGoalConfig {
   goalAmount: number;
   timeframe: string;
@@ -29,7 +41,7 @@ export interface SmartGoalSession {
   sessionId: string;
   userId: string;
   config: SmartGoalConfig;
-  status: 'initializing' | 'scanning' | 'trade_pending' | 'in_trade' | 'goal_achieved' | 'expired' | 'user_stopped' | 'awaiting_continuation';
+  status: 'initializing' | 'scanning' | 'trade_pending' | 'in_trade' | 'active' | 'goal_achieved' | 'expired' | 'user_stopped' | 'awaiting_continuation';
   strategy: {
     targetTradeCount: number;
     avgProfitPerTrade: number;
@@ -306,11 +318,13 @@ class SmartGoalSessionManager {
 
   async getActiveSession(userId: string): Promise<SmartGoalSession | null> {
     try {
+      // SSOT-compliant: Query for sessions that are NOT terminal (use negative filter)
+      // This automatically includes any new active statuses without code changes
       const { data, error } = await supabase
         .from('goal_sessions')
         .select('*')
         .eq('user_id', userId)
-        .in('status', ['initializing', 'scanning', 'trade_pending', 'in_trade', 'awaiting_continuation'])
+        .not('status', 'in', `(${TERMINAL_SESSION_STATUSES.join(',')})`)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -374,7 +388,7 @@ class SmartGoalSessionManager {
 
   pauseSession(sessionId: string): boolean {
     const session = this.activeSessions.get(sessionId);
-    if (!session || !['scanning', 'trade_pending'].includes(session.status)) return false;
+    if (!session || !['scanning', 'trade_pending', 'active'].includes(session.status)) return false;
 
     session.status = 'user_stopped';
 
