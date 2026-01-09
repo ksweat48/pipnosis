@@ -17,7 +17,6 @@
 import { analyzeCandleMetrics, CandleMetrics } from '../lib/technical-math/candle';
 import { analyzeVWAP, VWAPAnalysis } from '../lib/technical-math/vwap';
 import { calculateEMAAlignment, calculateEMASlope, EMAAlignment, EMASlope } from '../lib/technical-math/ema';
-import { productionLogger } from '../lib/production-logger';
 
 export type TradeStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
 export type TradeDirection = 'BUY' | 'SELL';
@@ -180,15 +179,17 @@ export class EntryMonitorQualityScorer {
       reasoning = `EQS ${totalScore} < ${threshold} threshold. Waiting for better microstructure.`;
     }
 
-    productionLogger.debug('[ENTRY_MONITOR_EQS]', {
-      score: totalScore,
-      threshold,
-      inZone,
-      decision,
-      style: this.style,
-      direction: this.direction,
-      price: context.currentPrice
-    });
+    if (import.meta.env.DEV) {
+      console.log('[ENTRY_MONITOR_EQS]', {
+        score: totalScore,
+        threshold,
+        inZone,
+        decision,
+        style: this.style,
+        direction: this.direction,
+        price: context.currentPrice
+      });
+    }
 
     return {
       score: totalScore,

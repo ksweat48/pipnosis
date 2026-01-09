@@ -13,7 +13,6 @@
  */
 
 import { supabase } from '../lib/supabase';
-import { productionLogger } from '../lib/production-logger';
 import {
   EntryIntentMonitorMode,
   EntryIntentData,
@@ -117,7 +116,7 @@ class EntryMonitorCoordinator {
         canCallLLM
       };
     } catch (error) {
-      productionLogger.error('[ENTRY_MONITOR_COORD] Failed to get state', { sessionId, error });
+      console.error('[ENTRY_MONITOR_COORD] Failed to get state', sessionId, error);
       return {
         state: 'DISCOVERY_SCANNING',
         lockedSymbol: null,
@@ -154,11 +153,7 @@ class EntryMonitorCoordinator {
     userId: string,
     decision: WaitDecisionData
   ): Promise<{ success: boolean; intentId?: string; error?: string }> {
-    productionLogger.info('[ENTRY_MONITOR_COORD] Handling WAIT decision', {
-      sessionId,
-      symbol: decision.symbol,
-      direction: decision.direction
-    });
+    console.log('[ENTRY_MONITOR_COORD] Handling WAIT decision', sessionId, decision.symbol, decision.direction);
 
     const entryZoneMin = decision.entryZone?.min || (decision.entry - decision.atr * 0.3);
     const entryZoneMax = decision.entryZone?.max || (decision.entry + decision.atr * 0.3);
@@ -219,7 +214,7 @@ class EntryMonitorCoordinator {
 
   private async startMonitoring(sessionId: string, userId: string, intent: EntryIntentData): Promise<void> {
     if (this.activeMonitors.has(sessionId)) {
-      productionLogger.warn('[ENTRY_MONITOR_COORD] Monitor already active for session', { sessionId });
+      console.warn('[ENTRY_MONITOR_COORD] Monitor already active for session', sessionId);
       await this.stopMonitoring(sessionId);
     }
 
@@ -238,11 +233,7 @@ class EntryMonitorCoordinator {
     this.activeMonitors.set(sessionId, monitor);
     await monitor.start();
 
-    productionLogger.info('[ENTRY_MONITOR_COORD] Monitoring started', {
-      sessionId,
-      intentId: intent.id,
-      symbol: intent.symbol
-    });
+    console.log('[ENTRY_MONITOR_COORD] Monitoring started', sessionId, intent.id, intent.symbol);
   }
 
   async stopMonitoring(sessionId: string): Promise<void> {
@@ -250,7 +241,7 @@ class EntryMonitorCoordinator {
     if (monitor) {
       await monitor.stop();
       this.activeMonitors.delete(sessionId);
-      productionLogger.info('[ENTRY_MONITOR_COORD] Monitoring stopped', { sessionId });
+      console.log('[ENTRY_MONITOR_COORD] Monitoring stopped', sessionId);
     }
   }
 
@@ -261,16 +252,11 @@ class EntryMonitorCoordinator {
     price: number,
     eqs: number
   ): Promise<void> {
-    productionLogger.info('[ENTRY_MONITOR_COORD] Executing trade from entry monitor', {
-      sessionId,
-      intentId,
-      price,
-      eqs
-    });
+    console.log('[ENTRY_MONITOR_COORD] Executing trade from entry monitor', sessionId, intentId, price, eqs);
 
     const intent = await this.getIntentById(intentId);
     if (!intent) {
-      productionLogger.error('[ENTRY_MONITOR_COORD] Intent not found for execution', { intentId });
+      console.error('[ENTRY_MONITOR_COORD] Intent not found for execution', intentId);
       return;
     }
 
@@ -295,23 +281,13 @@ class EntryMonitorCoordinator {
         await markIntentExecuted(intentId, price);
         await this.transitionState(sessionId, 'TRADE_ACTIVE');
 
-        productionLogger.info('[ENTRY_MONITOR_COORD] Trade executed successfully', {
-          sessionId,
-          intentId,
-          tradeId: result.tradeId,
-          price,
-          eqs
-        });
+        console.log('[ENTRY_MONITOR_COORD] Trade executed successfully', sessionId, intentId, result.tradeId);
       } else {
-        productionLogger.error('[ENTRY_MONITOR_COORD] Trade execution failed', {
-          sessionId,
-          intentId,
-          error: result.error
-        });
+        console.error('[ENTRY_MONITOR_COORD] Trade execution failed', sessionId, intentId, result.error);
         await this.handleAbandonment(sessionId, intentId, 'ORDER_REJECTED');
       }
     } else {
-      productionLogger.warn('[ENTRY_MONITOR_COORD] No execute trade callback configured');
+      console.warn('[ENTRY_MONITOR_COORD] No execute trade callback configured');
       await markIntentExecuted(intentId, price);
       await this.transitionState(sessionId, 'TRADE_ACTIVE');
     }
@@ -322,32 +298,30 @@ class EntryMonitorCoordinator {
     intentId: string,
     reason: AbandonReason
   ): Promise<void> {
-    productionLogger.info('[ENTRY_MONITOR_COORD] Handling abandonment', {
-      sessionId,
-      intentId,
-      reason
-    });
+    console.log('[ENTRY_MONITOR_COORD] Handling abandonment', sessionId, intentId, reason);
 
     await cancelEntryIntent(intentId, `Abandoned: ${reason}`);
     await this.stopMonitoring(sessionId);
     await this.transitionState(sessionId, 'ABANDONED_RESCAN_REQUESTED');
 
     if (this.onRescanRequested) {
-      productionLogger.info('[ENTRY_MONITOR_COORD] Triggering rescan after abandonment', { sessionId, reason });
+      console.log('[ENTRY_MONITOR_COORD] Triggering rescan after abandonment', sessionId, reason);
       this.onRescanRequested(sessionId);
     }
   }
 
   private handleMonitorLog(sessionId: string, intentId: string, log: MonitorCheckResult): void {
     if (log.decision !== 'CONTINUE_WAITING' || log.inEntryZone) {
-      productionLogger.debug('[ENTRY_MONITOR] Check', {
-        sessionId,
-        intentId,
-        price: log.currentPrice,
-        inZone: log.inEntryZone,
-        eqs: log.eqs?.score,
-        decision: log.decision
-      });
+      if (import.meta.env.DEV) {
+        console.log('[ENTRY_MONITOR] Check', {
+          sessionId,
+          intentId,
+          price: log.currentPrice,
+          inZone: log.inEntryZone,
+          eqs: log.eqs?.score,
+          decision: log.decision
+        });
+      }
     }
   }
 
@@ -366,23 +340,12 @@ class EntryMonitorCoordinator {
       });
 
       if (error) {
-        productionLogger.error('[ENTRY_MONITOR_COORD] State transition failed', {
-          sessionId,
-          newState,
-          error: error.message
-        });
+        console.error('[ENTRY_MONITOR_COORD] State transition failed', sessionId, newState, error.message);
       } else {
-        productionLogger.info('[ENTRY_MONITOR_COORD] State transitioned', {
-          sessionId,
-          newState,
-          lockedSymbol,
-          lockedDirection
-        });
+        console.log('[ENTRY_MONITOR_COORD] State transitioned', sessionId, newState, lockedSymbol, lockedDirection);
       }
     } catch (error) {
-      productionLogger.error('[ENTRY_MONITOR_COORD] State transition error', {
-        error: error instanceof Error ? error.message : String(error)
-      });
+      console.error('[ENTRY_MONITOR_COORD] State transition error', error);
     }
   }
 
@@ -406,17 +369,14 @@ class EntryMonitorCoordinator {
     if (state.state === 'ENTRY_MONITOR_ACTIVE' && state.activeIntentId) {
       const intent = await this.getIntentById(state.activeIntentId);
       if (intent && intent.status === 'monitoring') {
-        productionLogger.info('[ENTRY_MONITOR_COORD] Resuming monitoring after page reload', {
-          sessionId,
-          intentId: state.activeIntentId
-        });
+        console.log('[ENTRY_MONITOR_COORD] Resuming monitoring after page reload', sessionId, state.activeIntentId);
         await this.startMonitoring(sessionId, userId, intent);
       }
     }
   }
 
   async forceRescan(sessionId: string): Promise<void> {
-    productionLogger.info('[ENTRY_MONITOR_COORD] Force rescan requested', { sessionId });
+    console.log('[ENTRY_MONITOR_COORD] Force rescan requested', sessionId);
 
     await this.stopMonitoring(sessionId);
 
@@ -433,7 +393,7 @@ class EntryMonitorCoordinator {
   }
 
   async cleanupSession(sessionId: string): Promise<void> {
-    productionLogger.info('[ENTRY_MONITOR_COORD] Cleaning up session', { sessionId });
+    console.log('[ENTRY_MONITOR_COORD] Cleaning up session', sessionId);
     await this.stopMonitoring(sessionId);
     await this.transitionState(sessionId, 'DISCOVERY_SCANNING');
   }

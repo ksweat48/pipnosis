@@ -20,7 +20,6 @@
  */
 
 import { supabase } from '../lib/supabase';
-import { productionLogger } from '../lib/production-logger';
 import {
   EntryMonitorQualityScorer,
   createEntryMonitorScorer,
@@ -121,11 +120,11 @@ export class EntryIntentMonitorMode {
 
   async start(): Promise<void> {
     if (this.isRunning) {
-      productionLogger.warn('[ENTRY_MONITOR] Already running for intent', { intentId: this.intent.id });
+      console.warn('[ENTRY_MONITOR] Already running for intent', this.intent.id);
       return;
     }
 
-    productionLogger.info('[ENTRY_MONITOR] Starting monitor', {
+    console.log('[ENTRY_MONITOR] Starting monitor', {
       intentId: this.intent.id,
       symbol: this.intent.symbol,
       direction: this.intent.direction,
@@ -147,7 +146,7 @@ export class EntryIntentMonitorMode {
   }
 
   async stop(): Promise<void> {
-    productionLogger.info('[ENTRY_MONITOR] Stopping monitor', { intentId: this.intent.id });
+    console.log('[ENTRY_MONITOR] Stopping monitor', this.intent.id);
     this.isRunning = false;
 
     if (this.intervalId) {
@@ -175,10 +174,7 @@ export class EntryIntentMonitorMode {
           break;
       }
     } catch (error) {
-      productionLogger.error('[ENTRY_MONITOR] Check failed', {
-        intentId: this.intent.id,
-        error: error instanceof Error ? error.message : String(error)
-      });
+      console.error('[ENTRY_MONITOR] Check failed', this.intent.id, error);
     }
   }
 
@@ -309,13 +305,10 @@ export class EntryIntentMonitorMode {
       this.consecutiveOutsideCount++;
 
       if (this.consecutiveOutsideCount >= CONSECUTIVE_OUTSIDE_THRESHOLD) {
-        productionLogger.warn('[ENTRY_MONITOR] Runaway detected', {
+        console.warn('[ENTRY_MONITOR] Runaway detected', {
           intentId: this.intent.id,
           price,
-          consecutiveChecks: this.consecutiveOutsideCount,
-          abandonZone: this.intent.direction === 'long'
-            ? `> ${this.intent.abandon_zone_high}`
-            : `< ${this.intent.abandon_zone_low}`
+          consecutiveChecks: this.consecutiveOutsideCount
         });
         return { isRunaway: true };
       }
@@ -367,10 +360,7 @@ export class EntryIntentMonitorMode {
       .maybeSingle();
 
     if (error || !data) {
-      productionLogger.warn('[ENTRY_MONITOR] Failed to fetch price, using fallback', {
-        symbol: this.intent.symbol,
-        error: error?.message
-      });
+      console.warn('[ENTRY_MONITOR] Failed to fetch price, using fallback', this.intent.symbol);
       return this.intent.market_context?.currentPrice || this.intent.entry_zone_min;
     }
 
@@ -416,7 +406,7 @@ export class EntryIntentMonitorMode {
   }
 
   private async handleExecute(result: MonitorCheckResult): Promise<void> {
-    productionLogger.info('[ENTRY_MONITOR] Executing trade', {
+    console.log('[ENTRY_MONITOR] Executing trade', {
       intentId: this.intent.id,
       symbol: this.intent.symbol,
       price: result.currentPrice,
@@ -429,7 +419,7 @@ export class EntryIntentMonitorMode {
   }
 
   private async handleAbandon(reason: AbandonReason): Promise<void> {
-    productionLogger.info('[ENTRY_MONITOR] Abandoning intent', {
+    console.log('[ENTRY_MONITOR] Abandoning intent', {
       intentId: this.intent.id,
       symbol: this.intent.symbol,
       reason
@@ -471,10 +461,7 @@ export class EntryIntentMonitorMode {
         })
         .eq('id', this.intent.id);
     } catch (error) {
-      productionLogger.error('[ENTRY_MONITOR] Failed to persist check result', {
-        intentId: this.intent.id,
-        error: error instanceof Error ? error.message : String(error)
-      });
+      console.error('[ENTRY_MONITOR] Failed to persist check result', this.intent.id, error);
     }
   }
 
@@ -488,16 +475,10 @@ export class EntryIntentMonitorMode {
       });
 
       if (error) {
-        productionLogger.error('[ENTRY_MONITOR] Failed to update session state', {
-          sessionId: this.intent.session_id,
-          newState: state,
-          error: error.message
-        });
+        console.error('[ENTRY_MONITOR] Failed to update session state', this.intent.session_id, state, error.message);
       }
     } catch (error) {
-      productionLogger.error('[ENTRY_MONITOR] State transition failed', {
-        error: error instanceof Error ? error.message : String(error)
-      });
+      console.error('[ENTRY_MONITOR] State transition failed', error);
     }
   }
 }
@@ -564,15 +545,11 @@ export async function createEntryIntentWithMonitoring(
     .single();
 
   if (error || !data) {
-    productionLogger.error('[ENTRY_MONITOR] Failed to create entry intent', {
-      sessionId,
-      symbol,
-      error: error?.message
-    });
+    console.error('[ENTRY_MONITOR] Failed to create entry intent', sessionId, symbol, error?.message);
     return null;
   }
 
-  productionLogger.info('[ENTRY_MONITOR] Entry intent created', {
+  console.log('[ENTRY_MONITOR] Entry intent created', {
     intentId: data.id,
     symbol,
     direction,

@@ -38,6 +38,8 @@ import { GoalFeasibilityResolver } from './goal-feasibility-resolver';
 import { AlphaDownshiftEvaluator } from './alpha-downshift-evaluator';
 import type { DownshiftProposal } from '../types/goal-feasibility';
 import { alphaExecutionPlanner } from './alpha-execution-planner';
+import { entryMonitorCoordinator } from './entry-monitor-coordinator';
+import type { TradeStyle } from './entry-monitor-quality-scorer';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
@@ -265,6 +267,40 @@ class GoalSessionLiveEngine {
         })
         .eq('id', config.goalSessionId);
 
+      // ✅ ENTRY MONITOR: Set up callbacks for entry monitor coordinator
+      entryMonitorCoordinator.setExecuteTradeCallback(async (
+        symbol: string,
+        direction: 'BUY' | 'SELL',
+        entry: number,
+        stopLoss: number,
+        takeProfit: number,
+        lotSize: number,
+        intentId: string
+      ) => {
+        try {
+          logger.info(LogCategory.AI_TRADING, `[ENTRY_MONITOR] Executing trade from monitor: ${symbol} ${direction}`);
+
+          // Execute the trade using existing trade execution logic
+          await this.executeTradeFromMonitor(symbol, direction, entry, stopLoss, takeProfit, lotSize, intentId);
+
+          return { success: true };
+        } catch (error) {
+          logger.error(LogCategory.AI_TRADING, '[ENTRY_MONITOR] Trade execution failed:', error);
+          return { success: false, error: (error as Error).message };
+        }
+      });
+
+      entryMonitorCoordinator.setRescanCallback(async (sessionId: string) => {
+        logger.info(LogCategory.AI_TRADING, `[ENTRY_MONITOR] Rescan requested for session ${sessionId}`);
+        // Trigger immediate scan cycle
+        if (this.activeSession === sessionId && !this.processingLock) {
+          await this.processCandleUpdate();
+        }
+      });
+
+      // ✅ ENTRY MONITOR: Resume monitoring if session was in ENTRY_MONITOR mode
+      await entryMonitorCoordinator.resumeMonitoringIfNeeded(config.goalSessionId, config.userId);
+
       this.startPolling();
 
       // Insert session started notification for push
@@ -372,6 +408,9 @@ class GoalSessionLiveEngine {
         })
         .eq('id', this.activeSession);
 
+      // ✅ ENTRY MONITOR: Clean up monitoring on session stop
+      await entryMonitorCoordinator.cleanupSession(this.activeSession);
+
       localSessionMemory.closeSession(`live-${this.activeSession}`);
 
       const sessionId = this.activeSession;
@@ -469,6 +508,18 @@ class GoalSessionLiveEngine {
     let tradeExecuted = false;
 
     try {
+      // ✅ ENTRY MONITOR: Block global rescans during ENTRY_MONITOR mode
+      if (this.activeSession) {
+        const monitorState = await entryMonitorCoordinator.getMonitorState(this.activeSession);
+        if (!monitorState.canScan) {
+          logger.debug(
+            LogCategory.AI_TRADING,
+            `[ENTRY_MONITOR] Blocking scan - in ${monitorState.state} mode for ${monitorState.lockedSymbol} ${monitorState.lockedDirection}`
+          );
+          return;
+        }
+      }
+
       // 🔍 AGGRESSIVE LOGGING: Entry point
       if (import.meta.env.DEV) {
         console.log('[MULTI-SYMBOL] Watchlist:', watchlist, 'Open:', this.openTrades.length);
@@ -788,27 +839,63 @@ class GoalSessionLiveEngine {
         return;
       }
 
-      // ✅ CRITICAL FIX: Handle WAIT decisions - do not execute immediately
+      // ✅ ENTRY MONITOR: Handle WAIT decisions - Start entry monitoring with ZERO LLM
       if (decision.action === 'WAIT') {
-        logger.info(LogCategory.AI_TRADING, `⏸️ WAIT decision received for ${selectedSymbol} - deferring execution`);
+        logger.info(LogCategory.AI_TRADING, `⏸️ WAIT decision received for ${selectedSymbol} - starting ENTRY_MONITOR mode`);
 
         // Determine intended direction from stop loss position
         const intendedDirection = decision.stopLoss > decision.entry ? 'SELL' : 'BUY';
         const directionEmoji = intendedDirection === 'BUY' ? '🟢' : '🔴';
 
-        await this.sendAIMessage(
-          `⏸️ Setup Identified - Waiting for Optimal Entry\n\n` +
-          `${directionEmoji} Symbol: ${selectedSymbol}\n` +
-          `📊 Intended Direction: ${intendedDirection}\n` +
-          `🎯 Target Entry: ${decision.entry.toFixed(5)}\n` +
-          `🛡️ Stop Loss: ${decision.stopLoss.toFixed(5)}\n` +
-          `💰 Take Profit: ${decision.takeProfit.toFixed(5)}\n` +
-          `🔍 Confidence: ${decision.confidence}%\n\n` +
-          `Alpha is monitoring market conditions and will execute when entry timing is optimal. ` +
-          `This patient approach improves entry quality and risk/reward ratio.`
+        // Determine trade style from config or goal classification
+        const tradeStyle: TradeStyle = this.config.tradeStyle as TradeStyle || 'MICRO_INTRADAY';
+
+        // Create entry intent and start monitoring
+        const result = await entryMonitorCoordinator.handleWaitDecision(
+          this.config.goalSessionId,
+          this.config.userId,
+          {
+            symbol: selectedSymbol,
+            direction: intendedDirection,
+            entry: decision.entry,
+            stopLoss: decision.stopLoss,
+            takeProfit: decision.takeProfit,
+            confidence: decision.confidence,
+            reasoning: decision.reasoning,
+            entryZone: decision.entry_spec?.entry_zone,
+            style: tradeStyle,
+            atr: snapshot.atr?.value || 0.001,
+            maxWaitSeconds: decision.entry_spec?.max_wait_minutes ? decision.entry_spec.max_wait_minutes * 60 : undefined,
+            marketContext: {
+              vwap: snapshot.vwap,
+              ema20: snapshot.ema20,
+              ema50: snapshot.ema50,
+              ema200: snapshot.ema200,
+              m15_levels: snapshot.m15_levels,
+              currentPrice: snapshot.currentPrice
+            }
+          }
         );
 
-        logger.info(LogCategory.AI_TRADING, `WAIT handled: ${selectedSymbol} ${intendedDirection} - monitoring for optimal entry`);
+        if (result.success) {
+          await this.sendAIMessage(
+            `⏸️ Entry Monitor Active - Zero-LLM Execution Waiting\n\n` +
+            `${directionEmoji} Symbol: ${selectedSymbol}\n` +
+            `📊 Direction: ${intendedDirection}\n` +
+            `🎯 Entry Zone: ${decision.entry_spec?.entry_zone?.min?.toFixed(5) || decision.entry.toFixed(5)} - ${decision.entry_spec?.entry_zone?.max?.toFixed(5) || decision.entry.toFixed(5)}\n` +
+            `🛡️ Stop Loss: ${decision.stopLoss.toFixed(5)}\n` +
+            `💰 Take Profit: ${decision.takeProfit.toFixed(5)}\n` +
+            `🔍 Confidence: ${decision.confidence}%\n\n` +
+            `Monitoring entry quality every 3 seconds with deterministic scoring (no LLM).\n` +
+            `Will execute when conditions are optimal or abandon if price runs away.`
+          );
+
+          logger.info(LogCategory.AI_TRADING, `[ENTRY_MONITOR] Started monitoring ${selectedSymbol} ${intendedDirection} - Intent ID: ${result.intentId}`);
+        } else {
+          logger.error(LogCategory.AI_TRADING, `[ENTRY_MONITOR] Failed to start monitoring: ${result.error}`);
+          await this.sendAIMessage(`⚠️ Failed to start entry monitoring: ${result.error}. Continuing scan.`);
+        }
+
         return;
       }
 
@@ -1863,6 +1950,89 @@ class GoalSessionLiveEngine {
       console.error('[Goal Live Engine] Autonomous processing error:', error);
       logger.error(LogCategory.AI_TRADING, 'Autonomous processing error', { error });
       throw error; // Re-throw to be caught by outer handler
+    }
+  }
+
+  /**
+   * Execute trade from entry monitor (ENTRY_MONITOR mode)
+   * Routes through trade-execution-engine with entry intent context
+   */
+  private async executeTradeFromMonitor(
+    symbol: string,
+    direction: 'BUY' | 'SELL',
+    entry: number,
+    stopLoss: number,
+    takeProfit: number,
+    lotSize: number,
+    intentId: string
+  ): Promise<void> {
+    if (!this.config || !this.activeSession) {
+      logger.error(LogCategory.AI_TRADING, '[ENTRY_MONITOR] Execute rejected: No active session');
+      throw new Error('No active session');
+    }
+
+    logger.info(LogCategory.AI_TRADING, `[ENTRY_MONITOR] Executing trade: ${symbol} ${direction} @ ${entry}`);
+
+    // Calculate R:R
+    const rrValidation = calculateAndValidateRR(symbol, entry, stopLoss, takeProfit, direction.toLowerCase() as 'buy' | 'sell');
+    const { riskReward, riskPips, rewardPips } = rrValidation;
+    const dollarPerPip = calculateDollarPerPip(symbol, lotSize);
+    const expectedProfit = rewardPips * dollarPerPip;
+
+    // Execute through trade-execution-engine
+    const executionResult = await tradeExecutionEngine.executeSignal(
+      {
+        sessionId: this.activeSession,
+        symbol,
+        direction: direction.toLowerCase() as 'buy' | 'sell',
+        entryPrice: entry,
+        stopLoss,
+        takeProfit,
+        positionSize: lotSize,
+        confidence: 75, // Entry monitor doesn't have confidence, use default
+        setupType: 'entry_monitor',
+        reasoning: `Entry Monitor execution from intent ${intentId}`,
+        riskReward,
+        expectedProfit
+      },
+      this.config.userId,
+      this.config.autoExecute
+    );
+
+    if (executionResult.success && executionResult.tradeId) {
+      logger.info(LogCategory.AI_TRADING, `[ENTRY_MONITOR] Trade created: ID ${executionResult.tradeId}`);
+
+      // Add to open trades
+      const trade: SimulatedTrade = {
+        id: executionResult.tradeId,
+        symbol,
+        direction: direction.toLowerCase() as 'buy' | 'sell',
+        entryPrice: entry,
+        stopLoss,
+        takeProfit,
+        positionSize: lotSize,
+        confidence: 75,
+        triggerType: 'entry_monitor',
+        reasoning: `Entry Monitor execution from intent ${intentId}`,
+        timestamp: new Date(),
+        status: 'open'
+      };
+
+      this.openTrades.push(trade);
+      localSessionMemory.recordTrade(`live-${this.activeSession}`, trade);
+
+      await this.sendAIMessage(
+        `✅ Trade Executed from Entry Monitor\n\n` +
+        `${direction === 'BUY' ? '🟢' : '🔴'} ${symbol} ${direction}\n` +
+        `📈 Entry: ${formatCurrencyPrice(symbol, entry)}\n` +
+        `🛡️ SL: ${formatCurrencyPrice(symbol, stopLoss)} (${riskPips.toFixed(1)}p)\n` +
+        `💰 TP: ${formatCurrencyPrice(symbol, takeProfit)} (${rewardPips.toFixed(1)}p)\n` +
+        `📊 R:R: 1:${riskReward.toFixed(2)}\n` +
+        `💵 Expected: $${expectedProfit.toFixed(2)}`
+      );
+    } else {
+      logger.error(LogCategory.AI_TRADING, `[ENTRY_MONITOR] Trade execution failed: ${executionResult.error}`);
+      throw new Error(executionResult.error || 'Trade execution failed');
     }
   }
 
