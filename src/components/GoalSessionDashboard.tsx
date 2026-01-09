@@ -4,6 +4,7 @@ import { smartGoalSessionManager, SmartGoalSession } from '../services/smart-goa
 import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/goal-scanner-trigger';
 import { useAuth } from '../hooks/useAuth';
 import { MarketAnalysisStream } from './MarketAnalysisStream';
+import { EntryQualityMonitor } from './EntryQualityMonitor';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { ContinuationDialog } from './ContinuationDialog';
 import { GoalAchievedDialog } from './GoalAchievedDialog';
@@ -1487,10 +1488,13 @@ export const GoalSessionDashboard: React.FC = () => {
       )}
 
       {activeSession && (
-        <MarketAnalysisStream
-          sessionId={activeSession.sessionId}
-          watchlist={activeSession.config.watchlist}
-        />
+        <>
+          <EntryQualityMonitor sessionId={activeSession.sessionId} />
+          <MarketAnalysisStream
+            sessionId={activeSession.sessionId}
+            watchlist={activeSession.config.watchlist}
+          />
+        </>
       )}
 
       {continuationData && progress && activeSession && (

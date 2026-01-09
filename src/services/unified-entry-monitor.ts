@@ -19,6 +19,7 @@ import type { EntryIntent } from '../types/entry';
 import type { EntryQualificationInput } from './entry-qualification-engine';
 import { entryMonitoringNotifications } from './entry-monitoring-notifications';
 import { calculateEQSGrade, didGradeImprove } from '../utils/eqsHelpers';
+import { calculateEMA, calculateRSI } from '../utils/technicalIndicators';
 
 export class UnifiedEntryMonitor {
   private static instance: UnifiedEntryMonitor;
@@ -93,13 +94,46 @@ export class UnifiedEntryMonitor {
         return;
       }
 
-      const candles = await marketDataService.getCandles(intent.symbol, '5m', 10);
+      const candles = await marketDataService.getCandles(intent.symbol, '5m', 50); // Get more candles for indicators
       const marketConditions = await marketDataService.getMarketConditions(intent.symbol);
 
       if (!marketConditions) {
         logger.warn(`[UnifiedMonitor] No market conditions for ${intent.symbol}`);
         return;
       }
+
+      // Calculate real EMA20 and RSI from candle data
+      const candlesForIndicators = candles.slice(0, 50).map(c => ({
+        time: c.open_time,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: c.volume
+      }));
+
+      let ema20Value = priceData.price; // Fallback to current price
+      let rsiValue = 50; // Fallback to neutral
+
+      if (candlesForIndicators.length >= 20) {
+        const ema20Results = calculateEMA(candlesForIndicators, 20);
+        if (ema20Results.length > 0) {
+          ema20Value = ema20Results[ema20Results.length - 1].value;
+        }
+      }
+
+      if (candlesForIndicators.length >= 15) {
+        const rsiResults = calculateRSI(candlesForIndicators, 14);
+        if (rsiResults.length > 0) {
+          rsiValue = rsiResults[rsiResults.length - 1].value;
+        }
+      }
+
+      logger.info(
+        `[UnifiedMonitor] Indicators for ${intent.symbol}: ` +
+        `EMA20=${ema20Value.toFixed(5)}, RSI=${rsiValue.toFixed(1)}, ` +
+        `Price=${priceData.price.toFixed(5)}, Candles=${candlesForIndicators.length}`
+      );
 
       const marketContext = intent.market_context as any;
       const confidence = marketContext?.confidence || 60;
@@ -113,17 +147,10 @@ export class UnifiedEntryMonitor {
         stopLoss,
         takeProfit,
         confidence,
-        m5Candles: candles.slice(0, 10).map(c => ({
-          time: c.open_time,
-          open: c.open,
-          high: c.high,
-          low: c.low,
-          close: c.close,
-          volume: c.volume
-        })),
+        m5Candles: candlesForIndicators.slice(0, 10), // Use last 10 for pattern analysis
         m5VWAP: marketConditions.vwap,
-        m5EMA20: priceData.price,
-        m5RSI: 50,
+        m5EMA20: ema20Value,
+        m5RSI: rsiValue,
         m5VolumeAvg20: marketConditions.avgVolume,
         m15Trend: 'sideways',
         m15SupportResistance: {},
@@ -140,6 +167,9 @@ export class UnifiedEntryMonitor {
         `[UnifiedMonitor] ${intent.symbol} EQS: ${currentEQS}/100 ` +
         `(threshold: ${styleConfig.eqsThreshold})`
       );
+
+      // Store EQS update in database for UI display
+      await this.storeEQSUpdate(intent, eqsResult, currentEQS, styleConfig.eqsThreshold);
 
       // Track EQS progression and send notification on grade improvement
       const lastEQS = this.lastEQSScores.get(intentId);
@@ -198,6 +228,41 @@ export class UnifiedEntryMonitor {
     }
 
     return data as EntryIntent;
+  }
+
+  private async storeEQSUpdate(
+    intent: EntryIntent,
+    eqsResult: any,
+    currentEQS: number,
+    threshold: number
+  ): Promise<void> {
+    try {
+      const breakdown = eqsResult.eqsBreakdown;
+      const grade = calculateEQSGrade(currentEQS);
+
+      // Store as entry monitoring log
+      await supabase.from('entry_monitoring_logs').insert({
+        intent_id: intent.id,
+        user_id: intent.user_id,
+        symbol: intent.symbol,
+        eqs_score: currentEQS,
+        eqs_grade: grade,
+        eqs_threshold: threshold,
+        breakdown: {
+          candleAcceptance: breakdown.candleAcceptance,
+          pullbackQuality: breakdown.pullbackQuality,
+          vwapInteraction: breakdown.vwapInteraction,
+          emaAlignment: breakdown.emaAlignment,
+          liquidityReaction: breakdown.liquidityReaction,
+          compressionExpansion: breakdown.compressionExpansion,
+          failedMoveConfirmation: breakdown.failedMoveConfirmation,
+          timeframeAlignment: breakdown.timeframeAlignment
+        },
+        status: eqsResult.status
+      });
+    } catch (error) {
+      logger.error('[UnifiedMonitor] Failed to store EQS update:', error);
+    }
   }
 
   private async handleExecution(intent: EntryIntent, entryPrice: number, eqsScore: number): Promise<void> {
