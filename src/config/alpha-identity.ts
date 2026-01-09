@@ -17,11 +17,20 @@
  *
  * SSOT COMPLIANCE:
  * - Confidence thresholds: THIS FILE
- * - EQS thresholds by style: THIS FILE
+ * - EQS thresholds by style: THIS FILE (all reference EQS_EXECUTION_THRESHOLD)
  * - Legitimate block conditions: THIS FILE
  * - Advisory system designations: THIS FILE
  * ═══════════════════════════════════════════════════════════════════
  */
+
+/**
+ * UNIFIED EQS THRESHOLD - SINGLE SOURCE OF TRUTH
+ * This constant is the ONLY place where the EQS execution threshold is defined.
+ * All style-specific thresholds reference this value.
+ *
+ * To change the threshold for all styles, modify this constant ONLY.
+ */
+const EQS_EXECUTION_THRESHOLD = 80;
 
 export const ALPHA_IDENTITY = {
   MINIMUM_TRADE_CONFIDENCE: 60,
@@ -35,21 +44,32 @@ export const ALPHA_IDENTITY = {
 
   /**
    * UNIFIED EQS THRESHOLD (SSOT)
-   * All trade styles use the same 80% threshold for execution.
+   * All trade styles use this threshold for execution.
    * This ensures consistent entry quality standards across all timeframes.
    */
-  EQS_EXECUTION_THRESHOLD: 80,
+  EQS_EXECUTION_THRESHOLD,
   EQS_EXCEPTIONAL_OVERRIDE_THRESHOLD: 90,  // For near-zone overrides with exceptional quality
 
   /**
-   * STYLE_EQS_THRESHOLDS (BACKWARD COMPATIBILITY)
-   * Maintained for legacy code compatibility.
-   * All styles now use the unified 80% threshold.
+   * STYLE_EQS_THRESHOLDS (BACKWARD COMPATIBILITY LAYER)
+   * Provides object structure { min, max } for legacy code.
+   * All styles reference the unified EQS_EXECUTION_THRESHOLD constant.
+   *
+   * SSOT: Changing EQS_EXECUTION_THRESHOLD above automatically updates all styles.
    */
   STYLE_EQS_THRESHOLDS: {
-    SCALP: 80,
-    MICRO_INTRADAY: 80,
-    INTRADAY: 80,
+    SCALP: {
+      min: EQS_EXECUTION_THRESHOLD,
+      max: 100
+    },
+    MICRO_INTRADAY: {
+      min: EQS_EXECUTION_THRESHOLD,
+      max: 100
+    },
+    INTRADAY: {
+      min: EQS_EXECUTION_THRESHOLD,
+      max: 100
+    },
   } as const,
 
   LEGITIMATE_BLOCK_CONDITIONS: [
