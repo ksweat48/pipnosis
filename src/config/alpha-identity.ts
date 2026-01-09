@@ -41,6 +41,17 @@ export const ALPHA_IDENTITY = {
   EQS_EXECUTION_THRESHOLD: 80,
   EQS_EXCEPTIONAL_OVERRIDE_THRESHOLD: 90,  // For near-zone overrides with exceptional quality
 
+  /**
+   * STYLE_EQS_THRESHOLDS (BACKWARD COMPATIBILITY)
+   * Maintained for legacy code compatibility.
+   * All styles now use the unified 80% threshold.
+   */
+  STYLE_EQS_THRESHOLDS: {
+    SCALP: 80,
+    MICRO_INTRADAY: 80,
+    INTRADAY: 80,
+  } as const,
+
   LEGITIMATE_BLOCK_CONDITIONS: [
     'STALE_DATA',
     'WRONG_SIDE_SL',
