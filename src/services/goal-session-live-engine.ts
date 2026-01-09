@@ -40,6 +40,7 @@ import type { DownshiftProposal } from '../types/goal-feasibility';
 import { alphaExecutionPlanner } from './alpha-execution-planner';
 import { entryMonitorCoordinator } from './entry-monitor-coordinator';
 import type { TradeStyle } from './entry-monitor-quality-scorer';
+import { getActiveEntryIntent, type EntryIntentData } from './entry-intent-monitor-mode';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
@@ -517,6 +518,18 @@ class GoalSessionLiveEngine {
             `[ENTRY_MONITOR] Blocking scan - in ${monitorState.state} mode for ${monitorState.lockedSymbol} ${monitorState.lockedDirection}`
           );
           return;
+        }
+
+        // 🎯 CHECK FOR ACTIVE ENTRY INTENT - Monitor instead of scanning
+        console.log('%c[AUTONOMOUS ENGINE] 🔍 Checking for active entry intents...', 'color: #2196f3; font-weight: bold');
+        const activeIntent = await this.checkAndHandleActiveEntryIntent();
+        if (activeIntent) {
+          // Entry intent is being monitored - skip fresh scan
+          console.log('%c[AUTONOMOUS ENGINE] 👁️ Entry intent monitoring in progress - skipping fresh scan', 'color: #2196f3; font-weight: bold');
+          logger.debug(LogCategory.AI_TRADING, `[ENTRY_MONITOR] Active intent ${activeIntent.id} being monitored for ${activeIntent.symbol}`);
+          return;
+        } else {
+          console.log('%c[AUTONOMOUS ENGINE] ✅ No active entry intents - proceeding with fresh scan', 'color: #10b981; font-weight: bold');
         }
       }
 
@@ -1584,6 +1597,72 @@ class GoalSessionLiveEngine {
       }
     }
     // NOTE: Parent function manages the lock - do not modify it here
+  }
+
+  /**
+   * Check if there's an active entry intent being monitored
+   * If found, the UnifiedEntryMonitor is handling it via setInterval
+   * This method just detects its presence and logs monitoring status
+   *
+   * @returns EntryIntentData if monitoring in progress, null if should proceed with fresh scan
+   */
+  private async checkAndHandleActiveEntryIntent(): Promise<EntryIntentData | null> {
+    if (!this.activeSession) {
+      return null;
+    }
+
+    try {
+      // Check for active entry intent
+      const activeIntent = await getActiveEntryIntent(this.activeSession);
+
+      if (!activeIntent) {
+        console.log('%c[ENTRY_MONITOR] ✅ No active entry intent found', 'color: #10b981; font-weight: bold');
+        return null;
+      }
+
+      // Calculate time remaining
+      const now = new Date();
+      const timeoutAt = new Date(activeIntent.timeout_at);
+      const secondsRemaining = Math.max(0, Math.floor((timeoutAt.getTime() - now.getTime()) / 1000));
+      const createdAt = new Date((activeIntent as any).created_at || now);
+      const secondsElapsed = Math.floor((now.getTime() - createdAt.getTime()) / 1000);
+
+      console.log('%c[ENTRY_MONITOR] 👁️ Active intent detected - monitoring in progress', 'color: #2196f3; font-weight: bold; font-size: 14px');
+      console.log('%c[ENTRY_MONITOR] 📊 Intent details:', 'color: #2196f3; font-weight: bold', {
+        intentId: activeIntent.id,
+        symbol: activeIntent.symbol,
+        direction: activeIntent.direction,
+        status: (activeIntent as any).status,
+        entryZone: `${activeIntent.entry_zone_min.toFixed(5)} - ${activeIntent.entry_zone_max.toFixed(5)}`,
+        style: activeIntent.style,
+        maxWaitSeconds: activeIntent.max_wait_seconds,
+        secondsElapsed,
+        secondsRemaining,
+        percentComplete: Math.round((secondsElapsed / activeIntent.max_wait_seconds) * 100)
+      });
+
+      // Log EQS information if available
+      const marketContext = activeIntent.market_context as any;
+      if (marketContext?.current_eqs !== undefined) {
+        console.log('%c[ENTRY_MONITOR] 📈 EQS tracking:', 'color: #9c27b0; font-weight: bold', {
+          currentEQS: marketContext.current_eqs,
+          requiredEQS: marketContext.required_eqs || 'N/A',
+          confidence: marketContext.confidence || 'N/A'
+        });
+      }
+
+      logger.info(
+        LogCategory.AI_TRADING,
+        `[ENTRY_MONITOR] Monitoring ${activeIntent.symbol} ${activeIntent.direction} - ` +
+        `${secondsElapsed}s/${activeIntent.max_wait_seconds}s elapsed (${secondsRemaining}s remaining)`
+      );
+
+      return activeIntent;
+    } catch (error) {
+      logger.error(LogCategory.AI_TRADING, '[ENTRY_MONITOR] Error checking active intent:', error);
+      console.error('%c[ENTRY_MONITOR] ❌ Error checking intent:', 'color: #f44336; font-weight: bold', error);
+      return null;
+    }
   }
 
   /**
