@@ -192,9 +192,15 @@ class EntryMonitorCoordinator {
       return { success: false, error: 'Failed to create entry intent' };
     }
 
-    // CRITICAL FIX: Update session status from 'scanning' to 'active'
-    // The UnifiedEntryMonitor checks session.status (not entry_monitor_state)
-    // Without this, monitor immediately rejects session as "SESSION_INACTIVE"
+    // CRITICAL: Update session status from 'scanning' to 'active'
+    //
+    // Why 'active'?
+    // 1. UnifiedEntryMonitor validates session.status (not entry_monitor_state)
+    // 2. Status 'active' indicates "actively monitoring for entry" (still live)
+    // 3. Polling orchestrator recognizes 'active' as a protected status
+    // 4. Prevents session from being terminated prematurely
+    //
+    // This keeps the session alive while entry monitor watches for perfect entry
     await supabase
       .from('goal_sessions')
       .update({ status: 'active' })
