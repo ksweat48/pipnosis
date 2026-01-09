@@ -14,7 +14,6 @@
 
 import { supabase } from '../lib/supabase';
 import {
-  EntryIntentMonitorMode,
   EntryIntentData,
   EntryMonitorState,
   AbandonReason,
@@ -25,6 +24,7 @@ import {
   markIntentExecuted,
   calculateAbandonZone
 } from './entry-intent-monitor-mode';
+import { unifiedEntryMonitor, type MonitoringCallbacks } from './unified-entry-monitor';
 import { TradeStyle } from './entry-monitor-quality-scorer';
 import { entryMonitoringNotifications } from './entry-monitoring-notifications';
 import { calculateEQSGrade } from '../utils/eqsHelpers';
@@ -72,7 +72,7 @@ export interface ExecuteTradeCallback {
 }
 
 class EntryMonitorCoordinator {
-  private activeMonitors: Map<string, EntryIntentMonitorMode> = new Map();
+  private activeMonitors: Map<string, string> = new Map(); // Maps sessionId -> intentId
   private executeTradeCallback: ExecuteTradeCallback | null = null;
   private onRescanRequested: ((sessionId: string) => void) | null = null;
 
@@ -221,22 +221,25 @@ class EntryMonitorCoordinator {
       await this.stopMonitoring(sessionId);
     }
 
-    const monitor = new EntryIntentMonitorMode(intent, {
+    // Define callbacks for UnifiedEntryMonitor
+    const callbacks: MonitoringCallbacks = {
       onExecute: async (intentId, price, eqs) => {
         await this.handleExecution(sessionId, userId, intentId, price, eqs);
       },
       onAbandon: async (intentId, reason) => {
         await this.handleAbandonment(sessionId, intentId, reason);
-      },
-      onLog: (intentId, log) => {
-        this.handleMonitorLog(sessionId, intentId, log);
       }
-    });
+    };
 
-    this.activeMonitors.set(sessionId, monitor);
-    await monitor.start();
+    // Store mapping and start monitoring via UnifiedEntryMonitor
+    this.activeMonitors.set(sessionId, intent.id);
+    await unifiedEntryMonitor.startMonitoring(intent.id, userId, callbacks);
 
-    console.log('[ENTRY_MONITOR_COORD] Monitoring started', sessionId, intent.id, intent.symbol);
+    console.log('[ENTRY_MONITOR_COORD] Monitoring started via UnifiedEntryMonitor', sessionId, intent.id, intent.symbol);
+
+    // Transition state to ENTRY_MONITOR_ACTIVE for session resumption
+    await this.transitionState(sessionId, 'ENTRY_MONITOR_ACTIVE');
+    console.log('[ENTRY_MONITOR_COORD] State transitioned to ENTRY_MONITOR_ACTIVE', sessionId);
 
     // Send monitoring started notification
     const marketContext = intent.market_context as any || {};
@@ -269,11 +272,11 @@ class EntryMonitorCoordinator {
   }
 
   async stopMonitoring(sessionId: string): Promise<void> {
-    const monitor = this.activeMonitors.get(sessionId);
-    if (monitor) {
-      await monitor.stop();
+    const intentId = this.activeMonitors.get(sessionId);
+    if (intentId) {
+      await unifiedEntryMonitor.stopMonitoring(intentId);
       this.activeMonitors.delete(sessionId);
-      console.log('[ENTRY_MONITOR_COORD] Monitoring stopped', sessionId);
+      console.log('[ENTRY_MONITOR_COORD] Monitoring stopped', sessionId, intentId);
     }
   }
 

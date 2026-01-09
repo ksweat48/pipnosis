@@ -33,23 +33,13 @@ export const ALPHA_IDENTITY = {
     INSUFFICIENT: { min: 0, max: 59, description: 'Insufficient edge - WAIT recommended' },
   },
 
-  STYLE_EQS_THRESHOLDS: {
-    SCALP: {
-      EXECUTE_IMMEDIATELY: 85,
-      WAIT_PULLBACK: { min: 70, max: 84 },
-      WAIT: { min: 0, max: 69 },
-    },
-    MICRO_INTRADAY: {
-      EXECUTE_IMMEDIATELY: 80,
-      WAIT_PULLBACK: { min: 65, max: 79 },
-      WAIT: { min: 0, max: 64 },
-    },
-    INTRADAY: {
-      EXECUTE_IMMEDIATELY: 80,
-      WAIT_PULLBACK: { min: 65, max: 79 },
-      WAIT: { min: 0, max: 64 },
-    },
-  },
+  /**
+   * UNIFIED EQS THRESHOLD (SSOT)
+   * All trade styles use the same 80% threshold for execution.
+   * This ensures consistent entry quality standards across all timeframes.
+   */
+  EQS_EXECUTION_THRESHOLD: 80,
+  EQS_EXCEPTIONAL_OVERRIDE_THRESHOLD: 90,  // For near-zone overrides with exceptional quality
 
   LEGITIMATE_BLOCK_CONDITIONS: [
     'STALE_DATA',
@@ -167,49 +157,26 @@ export const EQS_TOTAL_WEIGHT = Object.values(EQS_WEIGHTED_FACTORS).reduce(
 export function shouldExecute(
   tradeConfidence: number,
   entryQualityScore: number,
-  style: StyleName
+  style?: StyleName
 ): boolean {
   if (tradeConfidence < ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE) {
     return false;
   }
 
-  const thresholds = ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS[style];
-  return entryQualityScore >= thresholds.EXECUTE_IMMEDIATELY;
-}
-
-export function shouldWaitPullback(
-  tradeConfidence: number,
-  entryQualityScore: number,
-  style: StyleName
-): boolean {
-  if (tradeConfidence < ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE) {
-    return true;
-  }
-
-  const thresholds = ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS[style];
-  return (
-    entryQualityScore >= thresholds.WAIT_PULLBACK.min &&
-    entryQualityScore < thresholds.EXECUTE_IMMEDIATELY
-  );
+  return entryQualityScore >= ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD;
 }
 
 export function getEntryMode(
   tradeConfidence: number,
   entryQualityScore: number,
-  style: StyleName
+  style?: StyleName
 ): EntryMode {
   if (tradeConfidence < ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE) {
     return 'wait_confirmation';
   }
 
-  const thresholds = ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS[style];
-
-  if (entryQualityScore >= thresholds.EXECUTE_IMMEDIATELY) {
+  if (entryQualityScore >= ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD) {
     return 'immediate';
-  }
-
-  if (entryQualityScore >= thresholds.WAIT_PULLBACK.min) {
-    return 'wait_pullback';
   }
 
   return 'wait_confirmation';
@@ -247,14 +214,14 @@ MINIMUM CONFIDENCE THRESHOLD: ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%
 - ${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.min}-${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.max}%: ${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.description}
 - ${ALPHA_IDENTITY.CONFIDENCE_BANDS.EXCELLENT.min}-100%: ${ALPHA_IDENTITY.CONFIDENCE_BANDS.EXCELLENT.description}
 
-ENTRY QUALITY SCORE (EQS) THRESHOLDS BY STYLE:
-- SCALP: >= ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.EXECUTE_IMMEDIATELY} execute, ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.WAIT_PULLBACK.min}-${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.WAIT_PULLBACK.max} wait pullback
-- MICRO_INTRADAY: >= ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.EXECUTE_IMMEDIATELY} execute, ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.WAIT_PULLBACK.min}-${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.WAIT_PULLBACK.max} wait pullback
-- INTRADAY: >= ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.INTRADAY.EXECUTE_IMMEDIATELY} execute, ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.INTRADAY.WAIT_PULLBACK.min}-${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.INTRADAY.WAIT_PULLBACK.max} wait pullback
+UNIFIED ENTRY QUALITY SCORE (EQS) THRESHOLD:
+- Execute: EQS >= ${ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD}%
+- Wait: EQS < ${ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD}%
+- This threshold applies to ALL trade styles (SCALP, MICRO_INTRADAY, INTRADAY)
 
 DECISION FRAMEWORK:
-1. Trade Confidence >= ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}% AND Entry Quality >= style threshold: EXECUTE
-2. Trade Confidence >= ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}% AND Entry Quality < threshold: WAIT for better entry
+1. Trade Confidence >= ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}% AND Entry Quality >= ${ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD}%: EXECUTE
+2. Trade Confidence >= ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}% AND Entry Quality < ${ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD}%: WAIT for better entry
 3. Trade Confidence < ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%: WAIT (edge exists but timing wrong)
 
 LEGITIMATE NO_TRADE CONDITIONS (ONLY THESE):

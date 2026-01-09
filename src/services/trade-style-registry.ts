@@ -9,6 +9,8 @@
  * All style handling MUST go through this registry.
  */
 
+import { ALPHA_IDENTITY } from '../config/alpha-identity';
+
 export type CanonicalStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
 
 export interface StyleConfig {
@@ -52,7 +54,7 @@ const STYLE_CONFIGS: Record<CanonicalStyle, StyleConfig> = {
     displayName: 'Scalp',
     pollIntervalMs: 2000,
     timeoutMinutes: 3,
-    eqsThreshold: 70,
+    eqsThreshold: ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD,  // Unified 80%
     maxChaseDistance: 5
   },
   MICRO_INTRADAY: {
@@ -60,7 +62,7 @@ const STYLE_CONFIGS: Record<CanonicalStyle, StyleConfig> = {
     displayName: 'Micro Intraday',
     pollIntervalMs: 3000,
     timeoutMinutes: 5,
-    eqsThreshold: 65,
+    eqsThreshold: ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD,  // Unified 80%
     maxChaseDistance: 10
   },
   INTRADAY: {
@@ -68,7 +70,7 @@ const STYLE_CONFIGS: Record<CanonicalStyle, StyleConfig> = {
     displayName: 'Intraday',
     pollIntervalMs: 5000,
     timeoutMinutes: 15,
-    eqsThreshold: 60,
+    eqsThreshold: ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD,  // Unified 80%
     maxChaseDistance: 15
   }
 };
