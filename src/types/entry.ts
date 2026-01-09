@@ -7,6 +7,40 @@ export type EntryIntentType =
   | 'retest_structure'
   | 'wait_for_volatility';
 
+/**
+ * Entry Monitor State Machine States
+ *
+ * Two-mode lifecycle:
+ * 1. DISCOVERY_SCANNING - Multi-symbol evaluation with LLM allowed
+ * 2. ENTRY_MONITOR_ACTIVE - Single-symbol execution waiting with ZERO LLM
+ */
+export type EntryMonitorState =
+  | 'DISCOVERY_SCANNING'
+  | 'ENTRY_INTENT_CREATED'
+  | 'ENTRY_MONITOR_ACTIVE'
+  | 'EXECUTE_PENDING'
+  | 'TRADE_ACTIVE'
+  | 'ABANDONED_RESCAN_REQUESTED';
+
+/**
+ * Monitor decision outcomes during ENTRY_MONITOR mode
+ */
+export type MonitorDecision =
+  | 'EXECUTE_NOW'
+  | 'CONTINUE_WAITING'
+  | 'ABANDON_INTENT_AND_RESCAN';
+
+/**
+ * Reasons for abandoning an entry intent
+ */
+export type AbandonReason =
+  | 'TIMEOUT_EXCEEDED'
+  | 'HARD_INVALIDATION_CROSSED'
+  | 'RUNAWAY_DETECTED'
+  | 'OPPOSITE_DIRECTION_ACCEPTANCE'
+  | 'MANUAL_CANCEL'
+  | 'ORDER_REJECTED';
+
 export type EntryUrgencyLevel = 'HIGH' | 'MEDIUM' | 'LOW';
 
 export type TimeoutAction = 'EXECUTE_AT_MARKET' | 'CANCEL';

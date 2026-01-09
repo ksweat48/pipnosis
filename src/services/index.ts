@@ -21,6 +21,12 @@ export * from './platform-intelligence-service';
 // Scanning Cycle Services
 export * from './scanning-state-machine';
 
+// Entry Monitor Mode Services (Zero-LLM Execution Waiting)
+export * from './entry-monitor-quality-scorer';
+export * from './entry-intent-monitor-mode';
+export * from './entry-monitor-coordinator';
+export * from './llm-call-guard';
+
 // Weekend Protection Services
 export * from './weekend-protection-service';
 
