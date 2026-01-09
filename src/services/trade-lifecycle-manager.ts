@@ -22,6 +22,7 @@ export interface PriceUpdate {
 class TradeLifecycleManager {
   private monitoringInterval: number | null = null;
   private isMonitoring: boolean = false;
+  private abortController: AbortController | null = null;
 
   /**
    * Calculate cumulative profit for a goal session across all closed trades
@@ -169,18 +170,30 @@ class TradeLifecycleManager {
       clearInterval(this.monitoringInterval);
       this.monitoringInterval = null;
       this.isMonitoring = false;
+
+      if (this.abortController) {
+        this.abortController.abort();
+        this.abortController = null;
+      }
+
       console.log('[Trade Lifecycle] Stopped monitoring');
     }
   }
 
   async monitorOpenTrades(): Promise<void> {
     try {
+      this.abortController = new AbortController();
+
       const { data: openTrades, error } = await supabase
         .from('goal_session_trades')
         .select('*, goal_sessions!inner(user_id, auto_execute)')
-        .eq('status', 'open');
+        .eq('status', 'open')
+        .abortSignal(this.abortController.signal);
 
       if (error) {
+        if (error.message?.includes('AbortError') || error.code === 'ABORTED') {
+          return;
+        }
         console.error('[Trade Lifecycle] Error fetching open trades:', error);
         return;
       }
@@ -583,6 +596,9 @@ class TradeLifecycleManager {
         .order('opened_at', { ascending: false });
 
       if (error) {
+        if (error.message?.includes('AbortError') || error.code === 'ABORTED') {
+          return [];
+        }
         console.error('[Trade Lifecycle] Error fetching open trades:', error);
         return [];
       }

@@ -41,6 +41,7 @@ class RealtimeSLTPMonitor {
   private isRunning = false;
   private lastCheckTime: Map<string, number> = new Map(); // tradeId -> timestamp
   private minCheckIntervalMs = 100; // Prevent duplicate checks within 100ms
+  private abortController: AbortController | null = null;
 
   async start(): Promise<void> {
     if (this.isRunning) {
@@ -91,18 +92,29 @@ class RealtimeSLTPMonitor {
       this.channel = null;
     }
 
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
+    }
+
     this.openPositions.clear();
     this.lastCheckTime.clear();
   }
 
   private async refreshOpenPositions(): Promise<void> {
     try {
+      this.abortController = new AbortController();
+
       const { data: positions, error } = await supabase
         .from('goal_session_trades')
         .select('id, symbol, direction, entry_price, stop_loss, take_profit, tp1_price, tp2_price, tp1_hit, tp2_hit, position_size, user_id, goal_session_id, status')
-        .eq('status', 'open');
+        .eq('status', 'open')
+        .abortSignal(this.abortController.signal);
 
       if (error) {
+        if (error.message?.includes('AbortError') || error.code === 'ABORTED') {
+          return;
+        }
         console.error('[RealtimeSLTPMonitor] Error fetching positions:', error);
         return;
       }
