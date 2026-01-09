@@ -192,6 +192,14 @@ class EntryMonitorCoordinator {
       return { success: false, error: 'Failed to create entry intent' };
     }
 
+    // CRITICAL FIX: Update session status from 'scanning' to 'active'
+    // The UnifiedEntryMonitor checks session.status (not entry_monitor_state)
+    // Without this, monitor immediately rejects session as "SESSION_INACTIVE"
+    await supabase
+      .from('goal_sessions')
+      .update({ status: 'active' })
+      .eq('id', sessionId);
+
     await this.transitionState(sessionId, 'ENTRY_INTENT_CREATED', decision.symbol, decision.direction);
 
     await this.startMonitoring(sessionId, userId, intent);

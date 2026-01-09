@@ -281,7 +281,10 @@ export class UnifiedEntryMonitor {
         return;
       }
 
-      if (!session || session.status !== 'active') {
+      // FAILSAFE FIX: Allow both 'active' and 'scanning' status
+      // Session may still be transitioning from 'scanning' to 'active'
+      // This prevents immediate abandonment during status sync
+      if (!session || !['active', 'scanning'].includes(session.status)) {
         console.log('%c[UnifiedMonitor] 🛑 SESSION INACTIVE - Stopping monitoring', 'color: #f44336; font-weight: bold', {
           intentId: intentId.substring(0, 8),
           sessionId: intent.session_id.substring(0, 8),
