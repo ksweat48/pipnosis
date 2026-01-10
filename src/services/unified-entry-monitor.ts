@@ -20,7 +20,7 @@ import type { EntryQualificationInput } from './entry-qualification-engine';
 import { entryMonitoringNotifications } from './entry-monitoring-notifications';
 import { calculateEQSGrade, didGradeImprove } from '../utils/eqsHelpers';
 import { calculateEMA, calculateRSI } from '../utils/technicalIndicators';
-import { getEntryIntentById, type AbandonReason } from './entry-intent-monitor-mode';
+import { getEntryIntentById, markIntentExpired, type AbandonReason } from './entry-intent-monitor-mode';
 import { EntryPlannerService } from './entry-planner';
 import { EntryExecutionCoordinator } from './entry-execution-coordinator';
 import { ALPHA_IDENTITY, EQS_COMPONENT_MAXIMUMS } from '../config/alpha-identity';
@@ -123,6 +123,14 @@ export class UnifiedEntryMonitor {
       if (reason) {
         // Map AbandonReason to EntryOutcomeReason for taxonomy
         const outcomeReason = this.mapAbandonReasonToOutcome(reason);
+
+        // Mark intent as expired in database if timeout occurred
+        if (reason === 'INTENT_EXPIRED') {
+          await markIntentExpired(intentId, 'Entry monitoring window closed - time limit exceeded');
+          logger.info(`[UnifiedMonitor] Marked intent as expired in database`, {
+            intentId: intentId.substring(0, 8),
+          });
+        }
 
         // Mark thesis as expired if applicable
         if (outcomeReason && ['RUNAWAY_DETECTED', 'TIMEOUT'].includes(outcomeReason)) {

@@ -34,7 +34,8 @@ export type AbandonReason =
   | 'SESSION_INACTIVE'
   | 'SESSION_MISSING'
   | 'INTENT_INVALID'
-  | 'MONITORING_STALLED';
+  | 'MONITORING_STALLED'
+  | 'INTENT_EXPIRED';
 
 export interface EntryIntentData {
   id: string;
@@ -323,6 +324,27 @@ export async function markIntentExecuted(intentId: string, actualPrice: number):
       actual_entry_price: actualPrice
     })
     .eq('id', intentId);
+}
+
+export async function markIntentExpired(intentId: string, reason: string): Promise<void> {
+  const { supabase } = await import('../lib/supabase');
+
+  console.log('[markIntentExpired] Marking intent as expired', {
+    intentId: intentId.substring(0, 8),
+    reason
+  });
+
+  await supabase
+    .from('entry_intents')
+    .update({
+      status: 'timeout',
+      canceled_at: new Date().toISOString(),
+      canceled_reason: reason,
+      abandonment_reason: 'TIMEOUT'
+    })
+    .eq('id', intentId);
+
+  logger.info('[markIntentExpired] Intent marked as expired', { intentId: intentId.substring(0, 8), reason });
 }
 
 /**

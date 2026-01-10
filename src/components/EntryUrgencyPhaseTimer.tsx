@@ -119,7 +119,7 @@ export const EntryUrgencyPhaseTimer: React.FC<EntryUrgencyPhaseTimerProps> = ({ 
 
   return (
     <div
-      className={`relative rounded-lg border-2 p-4 transition-all duration-500 ${
+      className={`relative rounded-lg border-2 p-3 sm:p-4 transition-all duration-500 ${
         showPhaseTransition ? 'scale-105 shadow-lg' : 'scale-100'
       } ${colors.bg} ${colors.border} bg-gradient-to-br ${colors.gradient}`}
     >
@@ -129,24 +129,24 @@ export const EntryUrgencyPhaseTimer: React.FC<EntryUrgencyPhaseTimerProps> = ({ 
       )}
 
       {/* Top: Phase Indicator and Countdown */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
         {/* Phase Badge */}
-        <div className="flex items-center gap-3">
-          <div className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 ${colors.border} ${colors.bg}`}>
-            <Zap className={`w-5 h-5 ${colors.text} ${urgencyResult.phase === 3 ? 'animate-pulse' : ''}`} />
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg border-2 ${colors.border} ${colors.bg}`}>
+            <Zap className={`w-4 h-4 sm:w-5 sm:h-5 ${colors.text} ${urgencyResult.phase === 3 ? 'animate-pulse' : ''}`} />
             <div>
               <div className="text-xs text-gray-400">Phase</div>
-              <div className={`text-2xl font-bold ${colors.text}`}>{urgencyResult.phase}</div>
+              <div className={`text-xl sm:text-2xl font-bold ${colors.text}`}>{urgencyResult.phase}</div>
             </div>
           </div>
 
           {/* Phase Description */}
           <div>
-            <div className={`text-sm font-semibold ${colors.text}`}>
+            <div className={`text-xs sm:text-sm font-semibold ${colors.text}`}>
               {EntryUrgencyCalculator.getPhaseDescription(urgencyResult.phase)}
             </div>
             <div className="text-xs text-gray-400">
-              EQS Threshold: {urgencyResult.timeAdjustedThreshold}/75
+              EQS: {urgencyResult.timeAdjustedThreshold}/75
             </div>
           </div>
         </div>
@@ -154,20 +154,20 @@ export const EntryUrgencyPhaseTimer: React.FC<EntryUrgencyPhaseTimerProps> = ({ 
         {/* Countdown Timer */}
         <div className="flex flex-col items-end">
           {urgencyResult.isExpired ? (
-            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/30 border-2 border-red-500">
-              <AlertCircle className="w-5 h-5 text-red-400" />
-              <span className="text-xl font-bold text-red-400">EXPIRED</span>
+            <div className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg bg-red-500/30 border-2 border-red-500">
+              <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 text-red-400" />
+              <span className="text-base sm:text-xl font-bold text-red-400">EXPIRED</span>
             </div>
           ) : (
             <>
               <div className="text-xs text-gray-400 mb-1">
                 {urgencyResult.minutesUntilNextPhase !== null ? 'Next Phase In' : 'Expires In'}
               </div>
-              <div className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 ${
+              <div className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg border-2 ${
                 isWarning ? 'bg-orange-500/30 border-orange-500 animate-pulse' : `${colors.bg} ${colors.border}`
               }`}>
-                <Timer className={`w-5 h-5 ${isWarning ? 'text-orange-400' : colors.text}`} />
-                <span className={`text-3xl font-mono font-bold ${isWarning ? 'text-orange-400' : colors.text}`}>
+                <Timer className={`w-4 h-4 sm:w-5 sm:h-5 ${isWarning ? 'text-orange-400' : colors.text}`} />
+                <span className={`text-xl sm:text-3xl font-mono font-bold ${isWarning ? 'text-orange-400' : colors.text}`}>
                   {formatMMSS(secondsRemaining)}
                 </span>
               </div>
@@ -177,18 +177,18 @@ export const EntryUrgencyPhaseTimer: React.FC<EntryUrgencyPhaseTimerProps> = ({ 
       </div>
 
       {/* Phase Timeline */}
-      <div className="mb-4">
+      <div className="mb-3">
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs text-gray-400">Phase Progression</span>
           <span className="text-xs text-gray-400">
             Elapsed: {EntryUrgencyCalculator.formatTimeRemaining(urgencyResult.minutesElapsed)}
           </span>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-1.5 sm:gap-2">
           {[1, 2, 3].map((phase) => (
             <div
               key={phase}
-              className={`flex-1 h-2 rounded-full transition-all duration-500 ${
+              className={`flex-1 h-1.5 sm:h-2 rounded-full transition-all duration-500 ${
                 urgencyResult.phase >= phase
                   ? urgencyResult.phase === phase
                     ? `${colors.bg} border-2 ${colors.border}`
@@ -209,18 +209,18 @@ export const EntryUrgencyPhaseTimer: React.FC<EntryUrgencyPhaseTimerProps> = ({ 
       <div>
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs text-gray-400">Threshold Decay</span>
-          <span className={`text-sm font-mono font-bold ${colors.text}`}>
+          <span className={`text-xs sm:text-sm font-mono font-bold ${colors.text}`}>
             {urgencyResult.timeAdjustedThreshold}/75
           </span>
         </div>
-        <div className="relative w-full h-3 bg-gray-800 rounded-full border border-gray-700 overflow-hidden">
+        <div className="relative w-full h-2.5 sm:h-3 bg-gray-800 rounded-full border border-gray-700 overflow-hidden">
           {/* Threshold markers */}
           <div
             className="absolute top-0 bottom-0 w-0.5 bg-blue-400 z-10"
             style={{ left: '53.3%' }}
             title="Phase 1: 40/75"
           >
-            <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-xs text-blue-400 whitespace-nowrap">
+            <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-xs text-blue-400 whitespace-nowrap hidden sm:block">
               40
             </div>
           </div>
@@ -229,7 +229,7 @@ export const EntryUrgencyPhaseTimer: React.FC<EntryUrgencyPhaseTimerProps> = ({ 
             style={{ left: '44%' }}
             title="Phase 2: 33/75"
           >
-            <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-xs text-yellow-400 whitespace-nowrap">
+            <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-xs text-yellow-400 whitespace-nowrap hidden sm:block">
               33
             </div>
           </div>
@@ -238,7 +238,7 @@ export const EntryUrgencyPhaseTimer: React.FC<EntryUrgencyPhaseTimerProps> = ({ 
             style={{ left: '33.3%' }}
             title="Phase 3: 25/75"
           >
-            <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-xs text-red-400 whitespace-nowrap">
+            <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-xs text-red-400 whitespace-nowrap hidden sm:block">
               25
             </div>
           </div>
@@ -257,9 +257,9 @@ export const EntryUrgencyPhaseTimer: React.FC<EntryUrgencyPhaseTimerProps> = ({ 
         </div>
       </div>
 
-      {/* Acceleration Info */}
+      {/* Acceleration Info - Hidden on mobile for space */}
       {urgencyResult.accelerationFactor < 1 && (
-        <div className="mt-3 pt-3 border-t border-gray-700">
+        <div className="hidden sm:block mt-3 pt-3 border-t border-gray-700">
           <div className="flex items-center gap-2 text-xs">
             <Zap className="w-3 h-3 text-purple-400" />
             <span className="text-gray-400">
