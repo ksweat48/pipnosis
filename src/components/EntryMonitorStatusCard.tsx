@@ -50,6 +50,8 @@ export function EntryMonitorStatusCard() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [timeElapsed, setTimeElapsed] = useState<number>(0);
   const [isVisible, setIsVisible] = useState(false);
+  const [userDismissed, setUserDismissed] = useState(false);
+  const [lastIntentId, setLastIntentId] = useState<string | null>(null);
 
   const { activeIntent, refresh } = useActiveEntryIntent(sessionId);
 
@@ -85,11 +87,28 @@ export function EntryMonitorStatusCard() {
 
   useEffect(() => {
     if (activeIntent) {
-      setIsVisible(true);
+      // Only auto-show if it's a NEW intent (different ID)
+      if (activeIntent.id !== lastIntentId) {
+        console.log('[EntryMonitorStatusCard] 🆕 New intent detected, showing card:', activeIntent.id.substring(0, 8));
+        setIsVisible(true);
+        setUserDismissed(false);
+        setLastIntentId(activeIntent.id);
+      } else if (!userDismissed) {
+        // Same intent, only show if user hasn't dismissed it
+        console.log('[EntryMonitorStatusCard] 📊 Data refresh, user has not dismissed');
+        setIsVisible(true);
+      } else {
+        // Same intent, but user dismissed it - keep hidden
+        console.log('[EntryMonitorStatusCard] 🔇 Data refresh, but user dismissed - staying hidden');
+      }
     } else {
+      // No active intent - reset everything
+      console.log('[EntryMonitorStatusCard] ❌ No active intent, hiding card');
       setIsVisible(false);
+      setUserDismissed(false);
+      setLastIntentId(null);
     }
-  }, [activeIntent]);
+  }, [activeIntent?.id, lastIntentId, userDismissed]);
 
   useEffect(() => {
     if (!activeIntent) return;
@@ -147,8 +166,13 @@ export function EntryMonitorStatusCard() {
             <span className="font-semibold text-white">Entry Monitor Active</span>
           </div>
           <button
-            onClick={() => setIsVisible(false)}
+            onClick={() => {
+              console.log('[EntryMonitorStatusCard] 🔇 User dismissed card');
+              setIsVisible(false);
+              setUserDismissed(true);
+            }}
             className="text-gray-400 hover:text-white transition-colors"
+            aria-label="Dismiss monitoring card"
           >
             <X className="w-5 h-5" />
           </button>
