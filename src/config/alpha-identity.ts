@@ -56,6 +56,37 @@ export const EQS_CONFIDENCE_TIERS = {
 } as const;
 
 /**
+ * EQS COMPONENT MAXIMUMS - 75-POINT SCALE SSOT
+ * These constants define the maximum points for each component.
+ * ALL display, logging, and calculation code MUST reference these values.
+ */
+export const EQS_COMPONENT_MAXIMUMS = {
+  TOTAL: 75,
+  PULLBACK_QUALITY: 20,
+  VWAP_INTERACTION: 15,
+  EMA_ALIGNMENT: 15,
+  LIQUIDITY_REACTION: 10,
+  COMPRESSION_EXPANSION: 5,
+  FAILED_MOVE: 5,
+  TIMEFRAME_ALIGNMENT: 5,
+  FRICTION_PENALTY_MAX: -15, // Penalty (negative)
+  APLUS_BONUS_MAX: 15,        // Bonus (positive)
+} as const;
+
+/**
+ * EQS GRADE THRESHOLDS - 75-POINT SCALE
+ * SSOT for grade calculation boundaries
+ */
+export const EQS_GRADE_THRESHOLDS = {
+  A_PLUS: 60,  // 80% of 75
+  A: 54,       // 72% of 75
+  B: 49,       // 65% of 75
+  C: 38,       // 50% of 75
+  D: 23,       // 30% of 75
+  F: 0,        // Below 30%
+} as const;
+
+/**
  * TIME-BASED ENTRY URGENCY CONFIGURATION
  *
  * Automatically applied based on trading style (no user choice):

@@ -52,7 +52,12 @@ import { calculatePipDistance } from '../utils/currencyHelpers';
 import { getSymbolConfig } from '../config/symbol-registry';
 import { logger } from '../lib/logger';
 import { VOLATILITY_PATIENCE_CONFIG } from '../config/volatility-aware-patience-config';
-import { ALPHA_IDENTITY, EQS_WEIGHTED_FACTORS } from '../config/alpha-identity';
+import {
+  ALPHA_IDENTITY,
+  EQS_WEIGHTED_FACTORS,
+  EQS_COMPONENT_MAXIMUMS,
+  EQS_GRADE_THRESHOLDS
+} from '../config/alpha-identity';
 import { getDisplayNameFromStyle, type TradeStyle } from '../config/trade-styles';
 import type { ATRValue } from '../types/atr';
 import type {
@@ -825,7 +830,7 @@ class EntryQualificationEngine {
     if (metrics.confluenceScore < 60) {
       advisories.push({
         code: 'WEAK_CONFLUENCE',
-        message: `Multiple timeframe confluence weak (${metrics.confluenceScore}/100)`,
+        message: `Multiple timeframe confluence weak (${metrics.confluenceScore}/${EQS_COMPONENT_MAXIMUMS.TOTAL})`,
         severity: 'ADVISORY',
         suggestion: 'Wait for stronger M5/M15 alignment before entering'
       });
@@ -1187,12 +1192,12 @@ class EntryQualificationEngine {
    */
   formatForUser(result: EntryQualificationResult): string {
     if (result.status === 'ACCEPT_ENTRY') {
-      return `✅ Entry timing: ${result.metrics.microstructureGrade} grade (${result.qualityScore}/100)\n` +
+      return `✅ Entry timing: ${result.metrics.microstructureGrade} grade (${result.qualityScore}/${EQS_COMPONENT_MAXIMUMS.TOTAL})\n` +
              `M5 microstructure: ${result.metrics.vwapAlignment ? '✓' : '✗'} VWAP | ${result.metrics.momentumConfirmation ? '✓' : '✗'} Momentum | ${result.metrics.volumeConfirmation ? '✓' : '✗'} Volume`;
     }
 
     if (result.status === 'WAIT_FOR_BETTER' && result.waitRecommendation) {
-      return `⏳ Entry timing suboptimal (${result.qualityScore}/100)\n` +
+      return `⏳ Entry timing suboptimal (${result.qualityScore}/${EQS_COMPONENT_MAXIMUMS.TOTAL})\n` +
              `${result.waitRecommendation.reason}\n` +
              `Recommendation: Wait ${result.waitRecommendation.estimatedImprovementMinutes}min for better entry`;
     }
@@ -1203,7 +1208,7 @@ class EntryQualificationEngine {
              `${primaryBlock.suggestion}`;
     }
 
-    return `Entry qualification: ${result.status} (${result.qualityScore}/100)`;
+    return `Entry qualification: ${result.status} (${result.qualityScore}/${EQS_COMPONENT_MAXIMUMS.TOTAL})`;
   }
 
   /**
@@ -1811,12 +1816,15 @@ class EntryQualificationEngine {
   /**
    * Calculate EQS letter grade (75-point scale)
    */
+  /**
+   * Calculate EQS grade using SSOT thresholds
+   */
   private calculateEQSGrade(eqs: number): 'A+' | 'A' | 'B' | 'C' | 'D' | 'F' {
-    if (eqs >= 60) return 'A+';  // 80% of 75
-    if (eqs >= 54) return 'A';   // 72% of 75
-    if (eqs >= 49) return 'B';   // 65% of 75
-    if (eqs >= 38) return 'C';   // 50% of 75
-    if (eqs >= 23) return 'D';   // 30% of 75
+    if (eqs >= EQS_GRADE_THRESHOLDS.A_PLUS) return 'A+';  // 80% of 75
+    if (eqs >= EQS_GRADE_THRESHOLDS.A) return 'A';       // 72% of 75
+    if (eqs >= EQS_GRADE_THRESHOLDS.B) return 'B';       // 65% of 75
+    if (eqs >= EQS_GRADE_THRESHOLDS.C) return 'C';       // 50% of 75
+    if (eqs >= EQS_GRADE_THRESHOLDS.D) return 'D';       // 30% of 75
     return 'F';
   }
 
@@ -1987,14 +1995,14 @@ class EntryQualificationEngine {
       expectedImprovement += Math.abs(breakdown.frictionPenalty);
     }
 
-    // Generate reason based on action tier
+    // Generate reason based on action tier (SSOT: use EQS_COMPONENT_MAXIMUMS.TOTAL)
     let reason = '';
     if (actionTier === 'WAIT_FOR_BETTER_ENTRY') {
-      reason = `Entry quality: ${breakdown.totalScore}/100 (Grade B) - waiting for better setup`;
+      reason = `Entry quality: ${breakdown.totalScore}/${EQS_COMPONENT_MAXIMUMS.TOTAL} (Grade B) - waiting for better setup`;
     } else if (actionTier === 'WAIT_TIGHT') {
-      reason = `Entry quality: ${breakdown.totalScore}/100 (Grade C) - requires confirmation candle`;
+      reason = `Entry quality: ${breakdown.totalScore}/${EQS_COMPONENT_MAXIMUMS.TOTAL} (Grade C) - requires confirmation candle`;
     } else {
-      reason = `Entry quality: ${breakdown.totalScore}/100 (Grade D) - significant improvement needed`;
+      reason = `Entry quality: ${breakdown.totalScore}/${EQS_COMPONENT_MAXIMUMS.TOTAL} (Grade D) - significant improvement needed`;
     }
 
     return {
@@ -2007,6 +2015,7 @@ class EntryQualificationEngine {
 
   /**
    * Log EQS breakdown for observability
+   * SSOT: Uses EQS_COMPONENT_MAXIMUMS from alpha-identity.ts
    */
   private logEQSBreakdown(
     eqs: number,
@@ -2015,14 +2024,14 @@ class EntryQualificationEngine {
     breakdown: EQSBreakdown
   ): void {
     console.log('%c[EQS] ENTRY QUALITY SCORE', 'color: #2196f3; font-weight: bold; font-size: 14px');
-    console.log(`  Total: ${eqs}/100 | Grade: ${grade} | Action: ${actionTier}`);
-    console.log(`  Pullback Quality: ${breakdown.pullbackQuality}/15`);
-    console.log(`  VWAP Interaction: ${breakdown.vwapInteraction}/20`);
-    console.log(`  EMA Alignment: ${breakdown.emaAlignment}/10`);
-    console.log(`  Liquidity Reaction: ${breakdown.liquidityReaction}/12`);
-    console.log(`  Compression/Expansion: ${breakdown.compressionExpansion}/10`);
-    console.log(`  Failed Move: ${breakdown.failedMoveConfirmation}/12`);
-    console.log(`  Timeframe Alignment: ${breakdown.timeframeAlignment}/8`);
+    console.log(`  Total: ${eqs}/${EQS_COMPONENT_MAXIMUMS.TOTAL} | Grade: ${grade} | Action: ${actionTier}`);
+    console.log(`  Pullback Quality: ${breakdown.pullbackQuality}/${EQS_COMPONENT_MAXIMUMS.PULLBACK_QUALITY}`);
+    console.log(`  VWAP Interaction: ${breakdown.vwapInteraction}/${EQS_COMPONENT_MAXIMUMS.VWAP_INTERACTION}`);
+    console.log(`  EMA Alignment: ${breakdown.emaAlignment}/${EQS_COMPONENT_MAXIMUMS.EMA_ALIGNMENT}`);
+    console.log(`  Liquidity Reaction: ${breakdown.liquidityReaction}/${EQS_COMPONENT_MAXIMUMS.LIQUIDITY_REACTION}`);
+    console.log(`  Compression/Expansion: ${breakdown.compressionExpansion}/${EQS_COMPONENT_MAXIMUMS.COMPRESSION_EXPANSION}`);
+    console.log(`  Failed Move: ${breakdown.failedMoveConfirmation}/${EQS_COMPONENT_MAXIMUMS.FAILED_MOVE}`);
+    console.log(`  Timeframe Alignment: ${breakdown.timeframeAlignment}/${EQS_COMPONENT_MAXIMUMS.TIMEFRAME_ALIGNMENT}`);
 
     if (breakdown.aplusPatternBonus) {
       console.log(`  A+ Bonus: +${breakdown.aplusPatternBonus} (${breakdown.aplusPatternType})`);

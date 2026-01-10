@@ -216,14 +216,14 @@ export function EntryMonitorStatusCard() {
             <div className="flex items-center justify-between text-sm mb-2">
               <span className="text-gray-400">Current</span>
               <span className={`font-semibold ${getEQSGradeColor(currentGrade)}`}>
-                {Math.round(currentEQS)}/100
+                {Math.round(currentEQS)}/75
               </span>
             </div>
 
             <div className="flex items-center justify-between text-sm mb-2">
               <span className="text-gray-400">Required</span>
               <span className="text-gray-300 font-semibold">
-                {requiredGrade} ({requiredEQS}/100)
+                {requiredGrade} ({requiredEQS}/75)
               </span>
             </div>
 

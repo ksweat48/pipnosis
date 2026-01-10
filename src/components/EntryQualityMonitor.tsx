@@ -392,7 +392,7 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
             <div className="text-sm text-gray-300">
               {isReady && inZone && 'All conditions met. Execution ready.'}
               {isReady && !inZone && `Price must ${activeIntent.direction === 'long' ? 'pull back' : 'rally'} ${distancePips.toFixed(2)} pips into entry zone`}
-              {!isReady && `EQS must reach ${latestEQS.eqs_threshold}/100 (currently ${latestEQS.eqs_score}/100) ${!inZone ? 'AND price must enter zone' : ''}`}
+              {!isReady && `EQS must reach ${latestEQS.eqs_threshold}/75 (currently ${latestEQS.eqs_score}/75) ${!inZone ? 'AND price must enter zone' : ''}`}
             </div>
           </div>
         </div>
@@ -464,7 +464,7 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
           </div>
           <div className="flex items-center gap-2">
             <span className="text-2xl font-bold text-white">{latestEQS.eqs_score}</span>
-            <span className="text-sm text-gray-400">/100</span>
+            <span className="text-sm text-gray-400">/75</span>
           </div>
         </div>
 

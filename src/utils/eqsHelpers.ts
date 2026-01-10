@@ -5,17 +5,20 @@
  * Used by entry monitoring system for consistent grading and display.
  */
 
+import { EQS_GRADE_THRESHOLDS } from '../config/alpha-identity';
+
 export type EQSGrade = 'A+' | 'A' | 'B' | 'C' | 'D' | 'F';
 
 /**
  * Calculate EQS letter grade from numeric score
+ * SSOT: Uses thresholds from alpha-identity config
  */
 export function calculateEQSGrade(eqs: number): EQSGrade {
-  if (eqs >= 80) return 'A+';
-  if (eqs >= 72) return 'A';
-  if (eqs >= 65) return 'B';
-  if (eqs >= 50) return 'C';
-  if (eqs >= 35) return 'D';
+  if (eqs >= EQS_GRADE_THRESHOLDS.A_PLUS) return 'A+';
+  if (eqs >= EQS_GRADE_THRESHOLDS.A) return 'A';
+  if (eqs >= EQS_GRADE_THRESHOLDS.B) return 'B';
+  if (eqs >= EQS_GRADE_THRESHOLDS.C) return 'C';
+  if (eqs >= EQS_GRADE_THRESHOLDS.D) return 'D';
   return 'F';
 }
 
@@ -97,9 +100,11 @@ export function didGradeImprove(oldEQS: number, newEQS: number): boolean {
 
 /**
  * Format EQS score for display
+ * SSOT: Uses maximum from alpha-identity config
  */
 export function formatEQSScore(eqs: number): string {
-  return `${Math.round(eqs)}/100`;
+  const { EQS_COMPONENT_MAXIMUMS } = require('../config/alpha-identity');
+  return `${Math.round(eqs)}/${EQS_COMPONENT_MAXIMUMS.TOTAL}`;
 }
 
 /**

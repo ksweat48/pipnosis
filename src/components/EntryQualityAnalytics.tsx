@@ -107,7 +107,7 @@ export function EntryQualityAnalytics() {
           icon={<CheckCircle className="w-5 h-5 text-green-400" />}
           label="Avg Quality"
           value={`${metrics.average_quality_score.toFixed(1)}`}
-          suffix="/100"
+          suffix="/75"
         />
 
         <MetricCard

@@ -13,6 +13,7 @@ import { supabase } from '../lib/supabase';
 import { notificationManager } from './notification-manager';
 import { pushNotificationDispatcher } from './push-notification-dispatcher';
 import type { TradeStyle } from './entry-monitor-quality-scorer';
+import { EQS_COMPONENT_MAXIMUMS } from '../config/alpha-identity';
 
 interface MonitoringStartedParams {
   userId: string;
@@ -224,7 +225,7 @@ class EntryMonitoringNotifications {
           viewed: false
         });
 
-      console.log(`[Entry Monitor Notif] EQS progress: ${oldGrade} → ${newGrade} (${newEQS}/100)`);
+      console.log(`[Entry Monitor Notif] EQS progress: ${oldGrade} → ${newGrade} (${newEQS}/${EQS_COMPONENT_MAXIMUMS.TOTAL})`);
 
       if (newGrade === requiredGrade || newEQS >= requiredEQS - 5) {
         notificationManager.notify({
@@ -384,8 +385,8 @@ class EntryMonitoringNotifications {
     const gapToThreshold = requiredEQS - currentEQS;
 
     return `${symbol} ${direction} setup detected (${confidence}% confidence)\n\n` +
-      `📊 Entry Quality: ${currentGrade} (${currentEQS}/100)\n` +
-      `🎯 Need: ${requiredGrade} (${requiredEQS}/100) — ${gapToThreshold} points away\n` +
+      `📊 Entry Quality: ${currentGrade} (${currentEQS}/${EQS_COMPONENT_MAXIMUMS.TOTAL})\n` +
+      `🎯 Need: ${requiredGrade} (${requiredEQS}/${EQS_COMPONENT_MAXIMUMS.TOTAL}) — ${gapToThreshold} points away\n` +
       `💰 Entry Zone: ${entryZoneMin.toFixed(5)} - ${entryZoneMax.toFixed(5)}\n` +
       `⏱️ Max Wait: ${timeoutMinutes}m\n\n` +
       `Monitoring for optimal entry... (Zero-LLM execution mode)`;
@@ -408,8 +409,8 @@ class EntryMonitoringNotifications {
 
     return `${symbol} entry conditions improving\n\n` +
       `Grade: ${oldGrade} → ${newGrade} (+${improvement} points)\n` +
-      `Current: ${newEQS}/100\n` +
-      `Target: ${requiredGrade} (${requiredEQS}/100)\n` +
+      `Current: ${newEQS}/${EQS_COMPONENT_MAXIMUMS.TOTAL}\n` +
+      `Target: ${requiredGrade} (${requiredEQS}/${EQS_COMPONENT_MAXIMUMS.TOTAL})\n` +
       `${gapToThreshold > 0 ? `Gap: ${gapToThreshold} points remaining` : '✅ Threshold reached!'}\n` +
       `${inEntryZone ? '✅ Price in entry zone' : '⏳ Waiting for price'}`;
   }
@@ -424,7 +425,7 @@ class EntryMonitoringNotifications {
     } = params;
 
     return `${symbol} ${direction} entry conditions optimal!\n\n` +
-      `✅ Grade ${grade} (${eqs}/100)\n` +
+      `✅ Grade ${grade} (${eqs}/${EQS_COMPONENT_MAXIMUMS.TOTAL})\n` +
       `💰 Executing at ${executionPrice.toFixed(5)}\n\n` +
       `Trade will appear in Positions tab shortly...`;
   }
@@ -445,8 +446,8 @@ class EntryMonitoringNotifications {
 
     return `${symbol} entry monitoring stopped after ${timeStr}\n\n` +
       `Reason: ${reason}\n` +
-      `Final Quality: ${grade} (${eqs}/100)\n` +
-      `Required: ${requiredEQS}/100\n\n` +
+      `Final Quality: ${grade} (${eqs}/${EQS_COMPONENT_MAXIMUMS.TOTAL})\n` +
+      `Required: ${requiredEQS}/${EQS_COMPONENT_MAXIMUMS.TOTAL}\n\n` +
       `Returning to discovery scanning...`;
   }
 }

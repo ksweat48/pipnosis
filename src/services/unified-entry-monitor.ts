@@ -23,7 +23,7 @@ import { calculateEMA, calculateRSI } from '../utils/technicalIndicators';
 import { getEntryIntentById, type AbandonReason } from './entry-intent-monitor-mode';
 import { EntryPlannerService } from './entry-planner';
 import { EntryExecutionCoordinator } from './entry-execution-coordinator';
-import { ALPHA_IDENTITY } from '../config/alpha-identity';
+import { ALPHA_IDENTITY, EQS_COMPONENT_MAXIMUMS } from '../config/alpha-identity';
 import { EntryUrgencyCalculator } from './entry-urgency-calculator';
 import { entryThesisMemoryService } from './entry-thesis-memory-service';
 
@@ -568,19 +568,19 @@ export class UnifiedEntryMonitor {
       });
 
       logger.info(
-        `[UnifiedMonitor] ${intent.symbol} EQS: ${currentEQS}/100 ` +
+        `[UnifiedMonitor] ${intent.symbol} EQS: ${currentEQS}/${EQS_COMPONENT_MAXIMUMS.TOTAL} ` +
         `(threshold: ${styleConfig.eqsThreshold}), Grade: ${eqsResult.eqsGrade}, ` +
         `In Zone: ${inEntryZone}, Status: ${eqsResult.status}`
       );
 
       // Log detailed breakdown for debugging
       console.log('%c[UnifiedMonitor] 📈 EQS Breakdown:', 'color: #9c27b0; font-weight: bold', {
-        candle: `${eqsResult.eqsBreakdown.candleAcceptance}/20`,
-        pullback: `${eqsResult.eqsBreakdown.pullbackQuality}/15`,
-        vwap: `${eqsResult.eqsBreakdown.vwapInteraction}/15`,
-        ema: `${eqsResult.eqsBreakdown.emaAlignment}/10`,
-        liquidity: `${eqsResult.eqsBreakdown.liquidityReaction}/15`,
-        total: `${currentEQS}/100`
+        pullback: `${eqsResult.eqsBreakdown.pullbackQuality}/${EQS_COMPONENT_MAXIMUMS.PULLBACK_QUALITY}`,
+        vwap: `${eqsResult.eqsBreakdown.vwapInteraction}/${EQS_COMPONENT_MAXIMUMS.VWAP_INTERACTION}`,
+        ema: `${eqsResult.eqsBreakdown.emaAlignment}/${EQS_COMPONENT_MAXIMUMS.EMA_ALIGNMENT}`,
+        liquidity: `${eqsResult.eqsBreakdown.liquidityReaction}/${EQS_COMPONENT_MAXIMUMS.LIQUIDITY_REACTION}`,
+        compression: `${eqsResult.eqsBreakdown.compressionExpansion}/${EQS_COMPONENT_MAXIMUMS.COMPRESSION_EXPANSION}`,
+        total: `${currentEQS}/${EQS_COMPONENT_MAXIMUMS.TOTAL}`
       });
 
       // Step 7.5: Update database heartbeat and store EQS
@@ -837,7 +837,7 @@ export class UnifiedEntryMonitor {
           timeframeAlignment: breakdown.timeframeAlignment
         },
         status: eqsResult.status,
-        message: `EQS: ${currentEQS}/100 (${grade}) - ${eqsResult.status}`
+        message: `EQS: ${currentEQS}/${EQS_COMPONENT_MAXIMUMS.TOTAL} (${grade}) - ${eqsResult.status}`
       };
 
       console.log('[UnifiedMonitor] 📤 Inserting EQS log entry:', {
