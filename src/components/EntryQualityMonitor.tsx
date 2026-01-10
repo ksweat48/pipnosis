@@ -112,7 +112,7 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
       clearInterval(interval);
       supabase.removeChannel(channel);
     };
-  }, [activeIntent, sessionId, intentLoading]);
+  }, [activeIntent?.id, activeIntent?.status, sessionId, intentLoading]);
 
   const loadLatestEQS = async (currentIntentId: string) => {
     console.log('[EntryQualityMonitor] 🔍 Loading EQS data for intent:', currentIntentId.substring(0, 8));
@@ -148,14 +148,14 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
     try {
       const { data, error } = await supabase
         .from('realtime_prices')
-        .select('current_price')
+        .select('mid')
         .eq('symbol', symbol)
-        .order('last_updated', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (data && !error) {
-        setCurrentPrice(data.current_price);
+        setCurrentPrice(data.mid);
       }
     } catch (error) {
       console.error('[EntryQualityMonitor] ❌ Error loading current price:', error);

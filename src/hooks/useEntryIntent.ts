@@ -42,7 +42,8 @@ export function useActiveEntryIntent(sessionId: string | null): UseActiveEntryIn
     }
 
     try {
-      setLoading(true);
+      // Don't toggle loading on refresh - only set false when done
+      // Loading is only true on initial mount
       setError(null);
 
       console.log('[useActiveEntryIntent] 🔄 Loading intent for session:', sessionId.substring(0, 8));
@@ -94,8 +95,28 @@ export function useActiveEntryIntent(sessionId: string | null): UseActiveEntryIn
             status: payload.new?.status
           });
 
-          // Refresh intent data when any change occurs
-          loadIntent();
+          // Smart refresh: Only reload if meaningful fields changed
+          if (payload.eventType === 'INSERT') {
+            // New intent created - always reload
+            console.log('[useActiveEntryIntent] 🆕 New intent detected, reloading...');
+            loadIntent();
+          } else if (payload.eventType === 'UPDATE') {
+            // Check if status changed (meaningful) or just heartbeat (ignore)
+            const oldStatus = payload.old?.status;
+            const newStatus = payload.new?.status;
+
+            if (oldStatus !== newStatus) {
+              console.log('[useActiveEntryIntent] 📊 Status changed, reloading...', {oldStatus, newStatus});
+              loadIntent();
+            } else {
+              console.log('[useActiveEntryIntent] 💓 Heartbeat update, skipping reload');
+              // Don't reload - just a heartbeat update
+            }
+          } else if (payload.eventType === 'DELETE') {
+            // Intent removed - clear state
+            console.log('[useActiveEntryIntent] 🗑️ Intent deleted');
+            setActiveIntent(null);
+          }
         }
       )
       .subscribe((status) => {
