@@ -28,6 +28,9 @@ interface EQSUpdate {
   breakdown: EQSBreakdown;
   status: string;
   created_at: string;
+  current_price?: number;
+  in_entry_zone?: boolean;
+  distance_to_zone_pips?: number;
 }
 
 interface EntryQualityMonitorProps {
@@ -39,8 +42,10 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
   const [latestEQS, setLatestEQS] = useState<EQSUpdate | null>(null);
   const [loading, setLoading] = useState(true);
   const [waitingForMonitoring, setWaitingForMonitoring] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
 
-  const { activeIntent, loading: intentLoading } = useActiveEntryIntent(sessionId);
+  const { activeIntent, loading: intentLoading, refresh: refreshIntent } = useActiveEntryIntent(sessionId);
 
   useEffect(() => {
     console.log('[EntryQualityMonitor] 🔄 Component effect triggered', {
@@ -48,15 +53,39 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
       intentId: activeIntent?.id?.substring(0, 8),
       intentStatus: activeIntent?.status,
       sessionId: sessionId?.substring(0, 8),
-      intentLoading
+      intentLoading,
+      retryCount
     });
 
-    if (!activeIntent) {
-      console.log('[EntryQualityMonitor] ⏳ No active intent yet, showing waiting state');
+    if (!activeIntent && !intentLoading) {
+      // RETRY LOGIC: If no intent found but we haven't retried yet, try again
+      if (retryCount < 3) {
+        console.log(`[EntryQualityMonitor] 🔄 No intent found, retrying... (attempt ${retryCount + 1}/3)`);
+        const retryTimeout = setTimeout(() => {
+          setRetryCount(prev => prev + 1);
+          refreshIntent();
+        }, 2000);
+
+        return () => clearTimeout(retryTimeout);
+      }
+
+      // After 3 retries, show waiting state
+      console.log('[EntryQualityMonitor] ⏳ No active intent after retries, showing waiting state');
       setLatestEQS(null);
       setLoading(false);
       setWaitingForMonitoring(true);
       return;
+    }
+
+    if (!activeIntent) {
+      // Still loading initial data
+      return;
+    }
+
+    // Reset retry count when we get an intent
+    if (retryCount > 0) {
+      console.log('[EntryQualityMonitor] ✅ Intent found after retry, resetting retry count');
+      setRetryCount(0);
     }
 
     console.log('[EntryQualityMonitor] ✅ Active intent found, starting monitoring', {
@@ -102,7 +131,7 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
       clearInterval(interval);
       supabase.removeChannel(channel);
     };
-  }, [activeIntent, sessionId, intentLoading]);
+  }, [activeIntent, sessionId, intentLoading, retryCount, refreshIntent]);
 
   const loadLatestEQS = async (currentIntentId: string) => {
     console.log('[EntryQualityMonitor] 🔍 Loading EQS data for intent:', currentIntentId.substring(0, 8));
@@ -133,6 +162,34 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
       setLoading(false);
     }
   };
+
+  const loadCurrentPrice = async (symbol: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('realtime_prices')
+        .select('current_price')
+        .eq('symbol', symbol)
+        .order('last_updated', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (data && !error) {
+        setCurrentPrice(data.current_price);
+      }
+    } catch (error) {
+      console.error('[EntryQualityMonitor] ❌ Error loading current price:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (activeIntent) {
+      loadCurrentPrice(activeIntent.symbol);
+      const priceInterval = setInterval(() => {
+        loadCurrentPrice(activeIntent.symbol);
+      }, 2000);
+      return () => clearInterval(priceInterval);
+    }
+  }, [activeIntent]);
 
   // Show loading state during initial hook fetch
   if (intentLoading) {
@@ -305,6 +362,88 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
           </span>
         </div>
       </div>
+
+      {/* ENTRY ZONE STATUS - Shows what EXECUTE_NOW actually means */}
+      {activeIntent && currentPrice && (
+        <div className="mb-4">
+          {(() => {
+            const inZone = currentPrice >= activeIntent.entry_zone_min && currentPrice <= activeIntent.entry_zone_max;
+            const distancePips = !inZone
+              ? (currentPrice < activeIntent.entry_zone_min
+                  ? activeIntent.entry_zone_min - currentPrice
+                  : currentPrice - activeIntent.entry_zone_max)
+              : 0;
+            const isReady = latestEQS.status === 'EXECUTE_NOW' && latestEQS.eqs_score >= latestEQS.eqs_threshold;
+
+            return (
+              <div className={`p-3 rounded-lg border ${
+                isReady && inZone
+                  ? 'bg-green-900/20 border-green-700/50'
+                  : isReady && !inZone
+                  ? 'bg-blue-900/20 border-blue-700/50'
+                  : 'bg-gray-900/20 border-gray-700/50'
+              }`}>
+                <div className="flex items-start gap-2 mb-2">
+                  {isReady && inZone ? (
+                    <CheckCircle className="w-5 h-5 text-green-400 mt-0.5 flex-shrink-0 animate-pulse" />
+                  ) : isReady && !inZone ? (
+                    <Target className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0 animate-pulse" />
+                  ) : (
+                    <Clock className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                  )}
+                  <div className="flex-1">
+                    <div className={`text-sm font-semibold mb-1 ${
+                      isReady && inZone
+                        ? 'text-green-300'
+                        : isReady && !inZone
+                        ? 'text-blue-300'
+                        : 'text-gray-300'
+                    }`}>
+                      {isReady && inZone && '🚀 READY TO EXECUTE - In Entry Zone'}
+                      {isReady && !inZone && '⏳ Ready When Price Enters Zone'}
+                      {!isReady && 'Building Entry Quality'}
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-400">Current Price:</span>
+                        <span className={`font-mono font-semibold ${
+                          inZone ? 'text-green-400' : 'text-blue-400'
+                        }`}>
+                          {currentPrice.toFixed(5)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-400">Entry Zone:</span>
+                        <span className="font-mono text-gray-300">
+                          {activeIntent.entry_zone_min.toFixed(5)} - {activeIntent.entry_zone_max.toFixed(5)}
+                        </span>
+                      </div>
+                      {!inZone && (
+                        <div className="flex items-center justify-between text-xs pt-1 border-t border-gray-700/50">
+                          <span className="text-gray-400">
+                            {activeIntent.direction === 'long' ? 'Waiting for pullback' : 'Waiting for rally'}:
+                          </span>
+                          <span className="font-mono font-semibold text-orange-400">
+                            {distancePips.toFixed(5)} pips away
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                {isReady && !inZone && (
+                  <div className="mt-2 pt-2 border-t border-blue-700/30">
+                    <div className="text-xs text-blue-300">
+                      <span className="font-semibold">EXECUTE_NOW</span> means entry quality is excellent and we're ready to execute
+                      {activeIntent.direction === 'long' ? ' when price pulls back into zone' : ' when price rallies into zone'}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+      )}
 
       {latestEQS.eqs_score < latestEQS.eqs_threshold && (
         <div className="mb-4 p-3 bg-orange-900/20 border border-orange-700/50 rounded-lg">

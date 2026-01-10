@@ -43,9 +43,21 @@ export function useActiveEntryIntent(sessionId: string | null): UseActiveEntryIn
     try {
       setLoading(true);
       setError(null);
+
+      console.log('[useActiveEntryIntent] 🔄 Loading intent for session:', sessionId.substring(0, 8));
+
       const intent = await getActiveEntryIntent(sessionId);
+
+      console.log('[useActiveEntryIntent] 📦 Received intent:', {
+        hasIntent: !!intent,
+        intentId: intent?.id?.substring(0, 8),
+        status: intent?.status,
+        symbol: intent?.symbol
+      });
+
       setActiveIntent(intent);
     } catch (err) {
+      console.error('[useActiveEntryIntent] ❌ Error loading intent:', err);
       setError(err instanceof Error ? err : new Error('Failed to load entry intent'));
       setActiveIntent(null);
     } finally {

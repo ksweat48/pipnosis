@@ -201,7 +201,18 @@ class PollingOrchestrator {
         return false;
       }
 
-      return sessions && sessions.length > 0;
+      const hasActiveSessions = sessions && sessions.length > 0;
+
+      // DEFENSIVE FIX: Clear our local Set if database says no active sessions
+      // This prevents stale session IDs from staying in memory due to race conditions
+      if (!hasActiveSessions && this.activeGoalSessions.size > 0) {
+        console.warn(`[PollingOrchestrator] 🧹 Database has no active sessions but Set has ${this.activeGoalSessions.size} - clearing stale data`);
+        const staleSessionIds = Array.from(this.activeGoalSessions);
+        console.warn(`[PollingOrchestrator] Stale session IDs: ${staleSessionIds.join(', ')}`);
+        this.activeGoalSessions.clear();
+      }
+
+      return hasActiveSessions;
     } catch (error) {
       console.error('[PollingOrchestrator] Error checking active sessions:', error);
       return false;

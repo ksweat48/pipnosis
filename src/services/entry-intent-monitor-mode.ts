@@ -206,6 +206,7 @@ export async function getActiveEntryIntent(sessionId: string): Promise<EntryInte
 
   console.log('%c[getActiveEntryIntent] 🔍 Querying for session:', 'color: #ff9800; font-weight: bold', sessionId);
 
+  // FIRST ATTEMPT: Try to get intent with status='monitoring'
   const { data, error } = await supabase
     .from('entry_intents')
     .select('*')
@@ -220,42 +221,73 @@ export async function getActiveEntryIntent(sessionId: string): Promise<EntryInte
     return null;
   }
 
-  if (!data) {
-    console.log('%c[getActiveEntryIntent] ⚠️ No intent found with status=monitoring for session:', 'color: #ff9800; font-weight: bold', sessionId);
-
-    // Debug: Check if ANY intents exist for this session
-    const { data: allIntents } = await supabase
-      .from('entry_intents')
-      .select('id, status, created_at, symbol, direction')
-      .eq('session_id', sessionId)
-      .order('created_at', { ascending: false})
-      .limit(10);
-
-    console.log('%c[getActiveEntryIntent] 📊 ALL intents for session (last 10):', 'color: #2196f3; font-weight: bold', {
-      sessionId,
-      totalFound: allIntents?.length || 0,
-      intents: allIntents?.map(i => ({
-        id: i.id,
-        status: i.status,
-        symbol: i.symbol,
-        direction: i.direction,
-        created: new Date(i.created_at).toLocaleTimeString()
-      }))
+  if (data) {
+    console.log('%c[getActiveEntryIntent] ✅ Found active intent with status=monitoring:', 'color: #4caf50; font-weight: bold', {
+      id: data.id,
+      status: data.status,
+      symbol: data.symbol,
+      direction: data.direction,
+      created_at: new Date(data.created_at).toLocaleString(),
+      entry_zone: `${data.entry_zone_min} - ${data.entry_zone_max}`,
+      max_wait_seconds: data.max_wait_seconds
     });
+    return data as EntryIntentData;
+  }
+
+  // FALLBACK: If no monitoring intent, check for ANY recent intent that might be active
+  console.log('%c[getActiveEntryIntent] ⚠️ No intent with status=monitoring, trying fallback query...', 'color: #ff9800; font-weight: bold');
+
+  const { data: allIntents, error: fallbackError } = await supabase
+    .from('entry_intents')
+    .select('*')
+    .eq('session_id', sessionId)
+    .order('created_at', { ascending: false })
+    .limit(5);
+
+  if (fallbackError) {
+    console.error('%c[getActiveEntryIntent] ❌ Fallback query error:', 'color: #f44336; font-weight: bold', fallbackError);
     return null;
   }
 
-  console.log('%c[getActiveEntryIntent] ✅ Found active intent:', 'color: #4caf50; font-weight: bold', {
-    id: data.id,
-    status: data.status,
-    symbol: data.symbol,
-    direction: data.direction,
-    created_at: new Date(data.created_at).toLocaleString(),
-    entry_zone: `${data.entry_zone_min} - ${data.entry_zone_max}`,
-    max_wait_seconds: data.max_wait_seconds
+  console.log('%c[getActiveEntryIntent] 📊 ALL intents for session (last 5):', 'color: #2196f3; font-weight: bold', {
+    sessionId,
+    totalFound: allIntents?.length || 0,
+    intents: allIntents?.map(i => ({
+      id: i.id,
+      status: i.status,
+      symbol: i.symbol,
+      direction: i.direction,
+      created: new Date(i.created_at).toLocaleTimeString(),
+      timeout_at: i.timeout_at ? new Date(i.timeout_at).toLocaleTimeString() : 'N/A'
+    }))
   });
 
-  return data as EntryIntentData;
+  if (!allIntents || allIntents.length === 0) {
+    console.log('%c[getActiveEntryIntent] ⚠️ No intents found at all for session', 'color: #ff9800; font-weight: bold');
+    return null;
+  }
+
+  // Look for the most recent intent that could still be active (not canceled, not executed, not expired)
+  const now = new Date();
+  const activeIntent = allIntents.find(intent => {
+    const isNotFinalized = !['canceled', 'executed', 'abandoned'].includes(intent.status);
+    const notExpired = !intent.timeout_at || new Date(intent.timeout_at) > now;
+    return isNotFinalized && notExpired;
+  });
+
+  if (activeIntent) {
+    console.log('%c[getActiveEntryIntent] ✅ Found active intent via fallback (status=%s):', 'color: #4caf50; font-weight: bold', activeIntent.status, {
+      id: activeIntent.id,
+      status: activeIntent.status,
+      symbol: activeIntent.symbol,
+      direction: activeIntent.direction,
+      created_at: new Date(activeIntent.created_at).toLocaleString()
+    });
+    return activeIntent as EntryIntentData;
+  }
+
+  console.log('%c[getActiveEntryIntent] ⚠️ No active intents found (all are finalized or expired)', 'color: #ff9800; font-weight: bold');
+  return null;
 }
 
 export async function cancelEntryIntent(intentId: string, reason: string): Promise<void> {

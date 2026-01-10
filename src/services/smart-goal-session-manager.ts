@@ -647,7 +647,7 @@ class SmartGoalSessionManager {
       console.log(`[Smart Goal] 🛑 Attempting to stop session ${sessionId} for user ${userId}`);
 
       // First, verify session exists and get current status
-      const { data: existingSession, error: fetchError } = await supabase
+      const { data: existingSession, error: fetchError} = await supabase
         .from('goal_sessions')
         .select('id, status, user_id')
         .eq('id', sessionId)
@@ -666,7 +666,47 @@ class SmartGoalSessionManager {
 
       console.log(`[Smart Goal] 📊 Current session status: ${existingSession.status}`);
 
-      // Check for open trades
+      // STEP 1: Stop live engine FIRST (before database update)
+      // This ensures monitoring stops immediately
+      if (goalSessionLiveEngine.getActiveSessionId() === sessionId) {
+        console.log(`[Smart Goal] 🔌 Stopping live engine for session ${sessionId}`);
+        const stopResult = await goalSessionLiveEngine.stopSession();
+        if (stopResult.success) {
+          console.log('[Smart Goal] ✅ Live engine stopped successfully');
+        } else {
+          console.error('[Smart Goal] ⚠️ Live engine stop returned error:', stopResult.message);
+        }
+      } else {
+        console.log('[Smart Goal] Live engine not active for this session');
+      }
+
+      // STEP 2: Cancel any active entry intents
+      const { data: activeIntents } = await supabase
+        .from('entry_intents')
+        .select('id')
+        .eq('session_id', sessionId)
+        .eq('status', 'monitoring');
+
+      if (activeIntents && activeIntents.length > 0) {
+        console.log(`[Smart Goal] 🚫 Canceling ${activeIntents.length} active entry intent(s)`);
+        const { error: cancelError } = await supabase
+          .from('entry_intents')
+          .update({
+            status: 'canceled',
+            canceled_at: new Date().toISOString(),
+            canceled_reason: 'session_stopped'
+          })
+          .eq('session_id', sessionId)
+          .eq('status', 'monitoring');
+
+        if (cancelError) {
+          console.error('[Smart Goal] ⚠️ Error canceling entry intents:', cancelError);
+        } else {
+          console.log('[Smart Goal] ✅ Entry intents canceled');
+        }
+      }
+
+      // STEP 3: Check for open trades
       const { data: openTrades } = await supabase
         .from('goal_session_trades')
         .select('id, symbol, status')
@@ -680,11 +720,31 @@ class SmartGoalSessionManager {
         console.warn('[Smart Goal] This indicates a potential ghost trade situation - manual intervention may be needed');
       }
 
-      // Update session to user_stopped
+      // STEP 4: Clean up memory and timers BEFORE database update
+      // This ensures the session is immediately removed from active tracking
+      const session = this.activeSessions.get(sessionId);
+      if (session) {
+        session.status = 'user_stopped';
+        console.log('[Smart Goal] Updated session in memory');
+      }
+
+      this.activeSessions.delete(sessionId);
+      console.log('[Smart Goal] Removed session from active sessions map');
+
+      const timer = this.scanTimers.get(sessionId);
+      if (timer) {
+        clearTimeout(timer);
+        this.scanTimers.delete(sessionId);
+        console.log('[Smart Goal] Cleared scan timer');
+      }
+
+      // STEP 5: Update database status LAST
+      // This ensures all cleanup is done before triggering realtime subscriptions
       const { data: updated, error: updateError } = await supabase
         .from('goal_sessions')
         .update({
-          status: 'user_stopped'
+          status: 'user_stopped',
+          completed_at: new Date().toISOString()
         })
         .eq('id', sessionId)
         .eq('user_id', userId)
@@ -708,37 +768,6 @@ class SmartGoalSessionManager {
       }
 
       console.log(`[Smart Goal] ✅ Session ${sessionId} database status updated to: ${updated.status}`);
-
-      // Clean up memory and timers
-      const session = this.activeSessions.get(sessionId);
-      if (session) {
-        session.status = 'user_stopped';
-        console.log('[Smart Goal] Updated session in memory');
-      }
-
-      this.activeSessions.delete(sessionId);
-      console.log('[Smart Goal] Removed session from active sessions map');
-
-      const timer = this.scanTimers.get(sessionId);
-      if (timer) {
-        clearTimeout(timer);
-        this.scanTimers.delete(sessionId);
-        console.log('[Smart Goal] Cleared scan timer');
-      }
-
-      // Stop live engine
-      if (goalSessionLiveEngine.getActiveSessionId() === sessionId) {
-        console.log(`[Smart Goal] 🔌 Stopping live engine for session ${sessionId}`);
-        const stopResult = await goalSessionLiveEngine.stopSession();
-        if (stopResult.success) {
-          console.log('[Smart Goal] ✅ Live engine stopped successfully');
-        } else {
-          console.error('[Smart Goal] ⚠️ Live engine stop returned error:', stopResult.message);
-        }
-      } else {
-        console.log('[Smart Goal] Live engine not active for this session');
-      }
-
       console.log(`[Smart Goal] ✅ Session ${sessionId} stopped successfully by user`);
       return true;
     } catch (error) {
