@@ -145,7 +145,7 @@ class KrakenBackfillService {
         }
 
         // Upsert candle to database
-        const writeSuccess = await this.writeCandle(symbol, dbTimeframe, krakenCandle);
+        const writeSuccess = await this.writeCandle(symbol, dbTimeframe, krakenCandle, interval);
 
         if (writeSuccess) {
           totalWritten++;
@@ -191,20 +191,21 @@ class KrakenBackfillService {
   private async writeCandle(
     symbol: string,
     dbTimeframe: string,
-    candle: KrakenCandle
+    candle: KrakenCandle,
+    interval: number
   ): Promise<boolean> {
     try {
       const candleData = {
         symbol,
         timeframe: dbTimeframe,
         open_time: new Date(candle.time * 1000).toISOString(),
+        close_time: new Date((candle.time + interval * 60) * 1000).toISOString(),
         open: candle.open.toString(),
         high: candle.high.toString(),
         low: candle.low.toString(),
         close: candle.close.toString(),
         volume: candle.volume.toString(),
-        timestamp: new Date(candle.time * 1000).toISOString(),
-        source: 'kraken-rest'
+        data_source: 'kraken-rest'
       };
 
       const { error } = await supabase
