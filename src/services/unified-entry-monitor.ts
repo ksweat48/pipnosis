@@ -54,6 +54,8 @@ export class UnifiedEntryMonitor {
   private callbacks: Map<string, MonitoringCallbacks> = new Map();
   private lastCheckTimestamp: Map<string, number> = new Map(); // Health monitoring
   private healthCheckInterval: NodeJS.Timeout | null = null;
+  private warningCache: Map<string, number> = new Map(); // Throttle warnings
+  private readonly WARNING_THROTTLE_MS = 60000; // Only warn once per 60 seconds
 
   private constructor() {
     // Start interval health monitoring
@@ -362,18 +364,27 @@ export class UnifiedEntryMonitor {
 
         // Check aggregator health first (most fundamental)
         if (!aggregatorHealth.isHealthy) {
-          logger.warn(
-            `[UnifiedMonitor] Aggregator unhealthy for ${intent.symbol}: ${aggregatorHealth.reason}`
-          );
-          console.error(
-            `[UnifiedMonitor] ❌ Aggregator health check failed: ${aggregatorHealth.reason}`,
-            {
-              isReceivingTicks: aggregatorHealth.isReceivingTicks,
-              lastCandleAge: aggregatorHealth.candleAge
-                ? `${Math.floor(aggregatorHealth.candleAge / 60000)}min`
-                : 'unknown'
-            }
-          );
+          // Throttle warnings to prevent console spam (only warn once per 60s per symbol)
+          const now = Date.now();
+          const warningKey = `aggregator_${intent.symbol}`;
+          const lastWarning = this.warningCache.get(warningKey) || 0;
+          const shouldWarn = now - lastWarning > this.WARNING_THROTTLE_MS;
+
+          if (shouldWarn) {
+            logger.warn(
+              `[UnifiedMonitor] Aggregator unhealthy for ${intent.symbol}: ${aggregatorHealth.reason} (throttled logging)`
+            );
+            console.error(
+              `[UnifiedMonitor] ❌ Aggregator health check failed: ${aggregatorHealth.reason}`,
+              {
+                isReceivingTicks: aggregatorHealth.isReceivingTicks,
+                lastCandleAge: aggregatorHealth.candleAge
+                  ? `${Math.floor(aggregatorHealth.candleAge / 60000)}min`
+                  : 'unknown'
+              }
+            );
+            this.warningCache.set(warningKey, now);
+          }
           return;
         }
 

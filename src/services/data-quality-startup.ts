@@ -17,6 +17,7 @@ import { candleQualityValidator } from './candle-quality-validator';
 class DataQualityStartupService {
   private hasRun = false;
   private isRunning = false;
+  private cspBlocked = false; // Track if Kraken API is CSP-blocked
 
   /**
    * Run data quality check and repair on app startup
@@ -54,6 +55,11 @@ class DataQualityStartupService {
    * Check and repair a single symbol
    */
   private async checkAndRepairSymbol(symbol: string): Promise<void> {
+    // Skip if we already know Kraken API is CSP-blocked
+    if (this.cspBlocked) {
+      return;
+    }
+
     try {
       // Quick validation first
       const validation = await krakenBackfillService.validateSymbol(symbol, 5, 72);
@@ -87,6 +93,21 @@ class DataQualityStartupService {
       }
 
     } catch (error) {
+      // Detect CSP violation errors and stop trying
+      const errorStr = String(error);
+      if (
+        errorStr.includes('Failed to fetch') ||
+        errorStr.includes('CSP') ||
+        errorStr.includes('Content Security Policy')
+      ) {
+        this.cspBlocked = true;
+        logger.warn(
+          `[DataQualityStartup] Kraken API blocked by CSP - disabling backfill (one-time warning)`,
+          LogCategory.DATA
+        );
+        return;
+      }
+
       logger.error(`[DataQualityStartup] Error checking ${symbol}: ${error}`, LogCategory.DATA);
     }
   }

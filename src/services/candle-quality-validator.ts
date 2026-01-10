@@ -37,6 +37,10 @@ const MIN_VALID_CANDLES = 5; // Need at least 5 non-DOJI candles
 const MAX_GAP_TOLERANCE_MS = 600000; // 10 minutes (2x M5 candle)
 const MIN_BODY_SIZE_THRESHOLD = 0.001; // Minimum body size to not be considered DOJI
 
+// Throttle logging: only warn once per 60 seconds per symbol
+const WARNING_CACHE: Map<string, number> = new Map();
+const WARNING_THROTTLE_MS = 60000; // 60 seconds
+
 class CandleQualityValidator {
   /**
    * Validate candle data quality for trading decisions
@@ -207,6 +211,7 @@ class CandleQualityValidator {
 
   /**
    * Check if WebSocket is connected and receiving ticks (for crypto pairs)
+   * Warnings are throttled to once per 60 seconds to prevent console spam
    */
   async checkWebSocketHealth(symbol: string): Promise<boolean> {
     // Check if this is a crypto symbol
@@ -223,29 +228,53 @@ class CandleQualityValidator {
         .eq('symbol', symbol)
         .maybeSingle();
 
+      const now = Date.now();
+      const cacheKey = `${symbol}_no_data`;
+      const lastWarning = WARNING_CACHE.get(cacheKey) || 0;
+      const shouldWarn = now - lastWarning > WARNING_THROTTLE_MS;
+
       if (error || !recentPrice) {
-        logger.warn(`[CandleQualityValidator] No recent price data for ${symbol}`, LogCategory.DATA);
+        // Only log warning once per 60 seconds to prevent console spam
+        if (shouldWarn) {
+          logger.warn(`[CandleQualityValidator] No recent price data for ${symbol}`, LogCategory.DATA);
+          WARNING_CACHE.set(cacheKey, now);
+        }
         return false;
       }
 
       const lastUpdate = new Date(recentPrice.updated_at).getTime();
-      const now = Date.now();
       const ageMs = now - lastUpdate;
 
       // Consider WebSocket healthy if data is less than 60 seconds old
       const isHealthy = ageMs < 60000;
 
       if (!isHealthy) {
-        logger.warn(
-          `[CandleQualityValidator] Stale WebSocket data for ${symbol}: ` +
-          `${(ageMs / 1000).toFixed(0)}s old`,
-          LogCategory.DATA
-        );
+        const staleKey = `${symbol}_stale`;
+        const lastStaleWarning = WARNING_CACHE.get(staleKey) || 0;
+        const shouldWarnStale = now - lastStaleWarning > WARNING_THROTTLE_MS;
+
+        // Only log stale warnings once per 60 seconds
+        if (shouldWarnStale) {
+          logger.warn(
+            `[CandleQualityValidator] Stale WebSocket data for ${symbol}: ` +
+            `${(ageMs / 1000).toFixed(0)}s old (throttled logging)`,
+            LogCategory.DATA
+          );
+          WARNING_CACHE.set(staleKey, now);
+        }
       }
 
       return isHealthy;
     } catch (error) {
-      logger.error('[CandleQualityValidator] WebSocket health check error:', error, LogCategory.DATA);
+      const errorKey = `${symbol}_error`;
+      const lastErrorWarning = WARNING_CACHE.get(errorKey) || 0;
+      const shouldWarnError = now - lastErrorWarning > WARNING_THROTTLE_MS;
+
+      // Only log errors once per 60 seconds
+      if (shouldWarnError) {
+        logger.error('[CandleQualityValidator] WebSocket health check error:', error, LogCategory.DATA);
+        WARNING_CACHE.set(errorKey, now);
+      }
       return false;
     }
   }
