@@ -224,7 +224,7 @@ class CandleQualityValidator {
       // Check if we've received recent price updates (within last 60 seconds)
       const { data: recentPrice, error } = await supabase
         .from('realtime_prices')
-        .select('updated_at')
+        .select('created_at')
         .eq('symbol', symbol)
         .maybeSingle();
 
@@ -242,7 +242,7 @@ class CandleQualityValidator {
         return false;
       }
 
-      const lastUpdate = new Date(recentPrice.updated_at).getTime();
+      const lastUpdate = new Date(recentPrice.created_at).getTime();
       const ageMs = now - lastUpdate;
 
       // Consider WebSocket healthy if data is less than 60 seconds old
