@@ -237,28 +237,33 @@ class EntryQualificationEngine {
       logger.info(`[EQE] 🌟 Grade A+ Pattern Detected: ${aplusPattern.type} (+${aplusPattern.bonus} points)`);
     }
 
-    // Build EQS breakdown with spec-compliant weights
-    // Map legacy scores to new spec weights:
-    // Candle acceptance: 20 (from confirmationDetails.candleAcceptance scaled)
-    // Pullback quality: 15 (from timingDetails.pullbackQuality scaled)
-    // VWAP interaction: 15 (from locationDetails.vwapSetup scaled)
-    // EMA alignment: 10 (from confluence/momentum)
-    // Liquidity reaction: 15 (from locationDetails.liquidityLocation scaled)
-    // Compression/expansion: 10 (from timingDetails.compressionExpansion scaled)
-    // Failed move: 10 (from pattern confirmation)
-    // Timeframe alignment: 5 (from range position)
+    // Build EQS breakdown - SIMPLIFIED SCORING (Total: 100 points)
+    // Location: 40 points (VWAP 20, Key Levels 12, Liquidity 8)
+    // Confirmation: 20 points (Pattern 12, Momentum 8)
+    // Timing: 25 points (Pullback 15, Compression/Expansion 10)
+    // Friction: -15 to 0 points (penalties)
+    // A+ Patterns: +10 to +15 bonus
+    //
+    // Display breakdown (mapped to user-friendly categories):
+    // Candle acceptance: REMOVED (0 points - not checked anymore)
+    // Pullback quality: 15 (from timing)
+    // VWAP interaction: 20 (from location - INCREASED)
+    // EMA alignment: 8 (from confirmation momentum)
+    // Liquidity reaction: 12 (from location key levels - reframed)
+    // Compression/expansion: 10 (from timing)
+    // Failed move: 12 (from confirmation pattern)
+    // Timeframe alignment: 8 (from location liquidity position)
 
-    const candleAcceptanceScore = Math.min(20, Math.round((confirmationScore.details.candleAcceptance / 15) * 20));
-    const pullbackQualityScore = Math.min(15, Math.round((timingScore.details.pullbackQuality / 12) * 15));
-    const vwapInteractionScore = Math.min(15, Math.round((locationScore.details.vwapSetup / 12) * 15));
-    const emaAlignmentScore = Math.min(10, Math.round((confirmationScore.details.momentumAlignment / 5) * 10));
-    const liquidityReactionScore = Math.min(15, Math.round((locationScore.details.liquidityLocation / 8) * 15));
-    const compressionExpansionScore = Math.min(10, Math.round((timingScore.details.compressionExpansion / 8) * 10));
-    const failedMoveScore = Math.min(10, Math.round((confirmationScore.details.patternConfirmation / 10) * 10));
-    const timeframeAlignmentScore = Math.min(5, metrics.rangePosition !== 'middle' ? 5 : 2);
+    const pullbackQualityScore = Math.min(15, Math.round((timingScore.details.pullbackQuality / 15) * 15));
+    const vwapInteractionScore = Math.min(20, Math.round((locationScore.details.vwapSetup / 20) * 20));
+    const emaAlignmentScore = Math.min(8, Math.round((confirmationScore.details.momentumAlignment / 8) * 8));
+    const liquidityReactionScore = Math.min(12, Math.round((locationScore.details.keyLevelConfluence / 12) * 12));
+    const compressionExpansionScore = Math.min(10, Math.round((timingScore.details.compressionExpansion / 10) * 10));
+    const failedMoveScore = Math.min(12, Math.round((confirmationScore.details.patternConfirmation / 12) * 12));
+    const timeframeAlignmentScore = Math.min(8, Math.round((locationScore.details.liquidityLocation / 8) * 8));
 
     const eqsBreakdown: EQSBreakdown = {
-      candleAcceptance: candleAcceptanceScore,
+      candleAcceptance: 0, // REMOVED - No longer checked
       pullbackQuality: pullbackQualityScore,
       vwapInteraction: vwapInteractionScore,
       emaAlignment: emaAlignmentScore,
@@ -269,9 +274,9 @@ class EntryQualificationEngine {
       totalScore: totalEQS,
       factorDetails: {
         candleAcceptance: {
-          bodyDominance: Math.round(candleAcceptance.bodyDominance * 8),
-          consecutiveCloses: Math.min(7, candleAcceptance.consecutiveCloses * 2),
-          closeQuality: candleAcceptance.closeQuality === 'excellent' ? 5 : candleAcceptance.closeQuality === 'good' ? 3 : 1,
+          bodyDominance: 0, // REMOVED
+          consecutiveCloses: 0, // REMOVED
+          closeQuality: 0, // REMOVED
         },
         pullbackQuality: {
           retracementDepth: pullbackQuality.grade === 'A' ? 8 : pullbackQuality.grade === 'B' ? 5 : 2,
@@ -404,18 +409,19 @@ class EntryQualificationEngine {
    */
 
   /**
-   * 1. LOCATION SCORE (0-30 points)
+   * 1. LOCATION SCORE (0-40 points)
    * Where you enter: VWAP setup, key levels, liquidity position
+   * EMPHASIS: Price in entry zone is PRIMARY factor - increased weight
    */
   private calculateLocationScore(
     input: EntryQualificationInput,
     metrics: EntryQualificationResult['metrics']
   ): { total: number; details: EQSBreakdown['locationDetails'] } {
-    let vwapSetup = 0;          // 0-12 points
-    let keyLevelConfluence = 0; // 0-10 points
+    let vwapSetup = 0;          // 0-20 points (INCREASED from 12)
+    let keyLevelConfluence = 0; // 0-12 points (INCREASED from 10)
     let liquidityLocation = 0;  // 0-8 points
 
-    // A. VWAP Setup (0-12 points)
+    // A. VWAP Setup (0-20 points) - PRICE IN ZONE IS CRITICAL
     const { entryPrice, m5VWAP, atr, direction } = input;
     const atrValue = typeof atr === 'number' ? atr : atr.value;
     const vwapDistance = Math.abs(entryPrice - m5VWAP);
@@ -425,23 +431,23 @@ class EntryQualificationEngine {
       // Correct side of VWAP
       if (vwapDistanceATR < 0.15) {
         // Perfect VWAP kiss (within 0.15 ATR)
-        vwapSetup = 12;
+        vwapSetup = 20;
       } else if (vwapDistanceATR < 0.3) {
         // Good proximity (within 0.3 ATR)
-        vwapSetup = 10;
+        vwapSetup = 16;
       } else if (vwapDistanceATR < 0.5) {
         // Acceptable (within 0.5 ATR)
-        vwapSetup = 8;
+        vwapSetup = 12;
       } else {
         // Too far but correct side
-        vwapSetup = 4;
+        vwapSetup = 6;
       }
     } else {
       // Wrong side of VWAP - penalty instead of block
-      vwapSetup = Math.max(0, 4 - Math.floor(vwapDistanceATR * 2));
+      vwapSetup = Math.max(0, 6 - Math.floor(vwapDistanceATR * 2));
     }
 
-    // B. Key Level Confluence (0-10 points)
+    // B. Key Level Confluence (0-12 points) - INCREASED IMPORTANCE
     if (input.m15SupportResistance) {
       const { nearestSupport, nearestResistance } = input.m15SupportResistance;
 
@@ -454,19 +460,18 @@ class EntryQualificationEngine {
       const isAtStructure = (direction === 'BUY' && atSupport) || (direction === 'SELL' && atResistance);
 
       if (isAtStructure) {
-        keyLevelConfluence = 10; // Perfect structure entry
+        keyLevelConfluence = 12; // Perfect structure entry
       } else if (atSupport || atResistance) {
-        keyLevelConfluence = 6; // Near structure but not ideal direction
+        keyLevelConfluence = 7; // Near structure but not ideal direction
       } else {
-        keyLevelConfluence = 3; // Mid-range entry
+        keyLevelConfluence = 4; // Mid-range entry
       }
     } else {
-      keyLevelConfluence = 5; // No structure data, neutral score
+      keyLevelConfluence = 6; // No structure data, neutral score
     }
 
     // C. Liquidity Location (0-8 points)
-    // Placeholder for liquidity bias integration (will be enhanced with Omega-8 data)
-    // For now, use simple logic based on range position
+    // Use simple logic based on range position
     if (metrics.rangePosition === 'top' || metrics.rangePosition === 'bottom') {
       liquidityLocation = 8; // Range extremes (good for entries)
     } else {
@@ -486,8 +491,9 @@ class EntryQualificationEngine {
   }
 
   /**
-   * 2. CONFIRMATION SCORE (0-30 points)
-   * Why now: Candle acceptance, patterns, momentum
+   * 2. CONFIRMATION SCORE (0-20 points)
+   * Why now: Pattern confirmation and momentum alignment
+   * SIMPLIFIED: Removed candle acceptance checks - price in zone is more important
    */
   private calculateConfirmationScore(
     input: EntryQualificationInput,
@@ -495,57 +501,40 @@ class EntryQualificationEngine {
     candleAcceptance: CandleAcceptanceResult,
     failedMove: FailedMoveResult
   ): { total: number; details: EQSBreakdown['confirmationDetails'] } {
-    let candleAcceptanceScore = 0;  // 0-15 points
-    let patternConfirmation = 0;    // 0-10 points
-    let momentumAlignment = 0;      // 0-5 points
+    let patternConfirmation = 0;    // 0-12 points (increased from 10)
+    let momentumAlignment = 0;      // 0-8 points (increased from 5)
 
-    // A. Candle Acceptance (0-15 points)
-    if (candleAcceptance.accepted) {
-      candleAcceptanceScore = 15; // Full score for accepted candles
-    } else {
-      // Partial credit based on quality
-      if (candleAcceptance.consecutiveCloses >= 1) {
-        candleAcceptanceScore += 5;
-      }
-      if (candleAcceptance.bodyDominance >= 0.5) {
-        candleAcceptanceScore += 4;
-      }
-      if (candleAcceptance.closeQuality !== 'poor') {
-        candleAcceptanceScore += 3;
-      }
-    }
-
-    // B. Pattern Confirmation (0-10 points)
+    // A. Pattern Confirmation (0-12 points) - INCREASED WEIGHT
     if (failedMove.entryViable) {
-      patternConfirmation = 10; // Strong reversal pattern
+      patternConfirmation = 12; // Strong reversal pattern
     } else if (failedMove.failedMoveDetected && failedMove.confirmationPresent) {
-      patternConfirmation = 7; // Pattern present, some confirmation
+      patternConfirmation = 8; // Pattern present, some confirmation
     } else {
-      patternConfirmation = 3; // No pattern, neutral
+      patternConfirmation = 4; // No pattern, neutral
     }
 
-    // C. Momentum Alignment (0-5 points) - NOW PROPERLY CHECKS EMA ALIGNMENT
-    // This combines both EMA alignment AND candle momentum for a complete picture
+    // B. Momentum Alignment (0-8 points) - INCREASED WEIGHT
+    // Combines EMA alignment AND candle momentum for complete picture
     const emaAlignment = this.checkEMAAlignment(input.entryPrice, input.m5EMA20, input.direction);
     const candleMomentum = metrics.momentumConfirmation;
 
     // Award points based on EMA + candle alignment
     if (emaAlignment && candleMomentum) {
-      momentumAlignment = 5; // Perfect: Both EMA and candles align
+      momentumAlignment = 8; // Perfect: Both EMA and candles align
     } else if (emaAlignment) {
-      momentumAlignment = 3; // Good: EMA aligned even if candles mixed
+      momentumAlignment = 5; // Good: EMA aligned even if candles mixed
     } else if (candleMomentum) {
-      momentumAlignment = 2; // Partial: Candles align but not EMA
+      momentumAlignment = 3; // Partial: Candles align but not EMA
     } else {
       momentumAlignment = 0; // Neither aligns
     }
 
-    const total = candleAcceptanceScore + patternConfirmation + momentumAlignment;
+    const total = patternConfirmation + momentumAlignment;
 
     return {
       total,
       details: {
-        candleAcceptance: candleAcceptanceScore,
+        candleAcceptance: 0, // REMOVED - No longer checked
         patternConfirmation,
         momentumAlignment
       }
@@ -554,66 +543,43 @@ class EntryQualificationEngine {
 
   /**
    * 3. TIMING SCORE (0-25 points)
-   * Entry finesse: Pullback quality, compression/expansion, precision
+   * Entry finesse: Pullback quality and compression/expansion
+   * SIMPLIFIED: Removed entry precision - focus on key timing signals
    */
   private calculateTimingScore(
     input: EntryQualificationInput,
     pullbackQuality: PullbackQualityResult,
     compressionExpansion: CompressionExpansionResult
   ): { total: number; details: EQSBreakdown['timingDetails'] } {
-    let pullbackQualityScore = 0;        // 0-12 points
-    let compressionExpansionScore = 0;   // 0-8 points
-    let entryPrecision = 0;              // 0-5 points
+    let pullbackQualityScore = 0;        // 0-15 points (INCREASED from 12)
+    let compressionExpansionScore = 0;   // 0-10 points (INCREASED from 8)
 
-    // A. Pullback Quality (0-12 points)
+    // A. Pullback Quality (0-15 points) - INCREASED IMPORTANCE
     if (pullbackQuality.grade === 'A') {
-      pullbackQualityScore = 12; // Perfect 38-50% pullback
+      pullbackQualityScore = 15; // Perfect 38-50% pullback
     } else if (pullbackQuality.grade === 'B') {
-      pullbackQualityScore = 9;  // Good 50-70% pullback
+      pullbackQualityScore = 11;  // Good 50-70% pullback
     } else if (pullbackQuality.grade === 'C') {
-      pullbackQualityScore = 4;  // Deep pullback, caution
+      pullbackQualityScore = 5;  // Deep pullback, caution
     }
 
-    // B. Compression/Expansion (0-8 points)
+    // B. Compression/Expansion (0-10 points) - INCREASED IMPORTANCE
     if (compressionExpansion.compressionDetected && compressionExpansion.expansionFollows) {
-      compressionExpansionScore = 8; // Perfect compression → expansion
+      compressionExpansionScore = 10; // Perfect compression → expansion
     } else if (compressionExpansion.compressionDetected) {
-      compressionExpansionScore = 5; // Compression detected
+      compressionExpansionScore = 6; // Compression detected
     } else {
-      compressionExpansionScore = 2; // No pattern, neutral
+      compressionExpansionScore = 3; // No pattern, neutral
     }
 
-    // C. Entry Precision (0-5 points)
-    // Check if we're chasing (reduces score)
-    const atrValue = typeof input.atr === 'number' ? input.atr : input.atr.value;
-    const { m5Candles } = input;
-
-    if (m5Candles.length >= 3) {
-      const recent3 = m5Candles.slice(-3);
-      const totalMove = Math.abs(recent3[recent3.length - 1].close - recent3[0].open);
-      const impulseMoveThreshold = atrValue * 0.8;
-
-      if (totalMove < impulseMoveThreshold * 0.3) {
-        entryPrecision = 5; // Perfect timing, no chase
-      } else if (totalMove < impulseMoveThreshold * 0.6) {
-        entryPrecision = 3; // Reasonable timing
-      } else if (totalMove > impulseMoveThreshold) {
-        entryPrecision = 0; // Chasing impulse - penalty instead of block
-      } else {
-        entryPrecision = 2; // Acceptable
-      }
-    } else {
-      entryPrecision = 3; // Neutral if not enough data
-    }
-
-    const total = pullbackQualityScore + compressionExpansionScore + entryPrecision;
+    const total = pullbackQualityScore + compressionExpansionScore;
 
     return {
       total,
       details: {
         pullbackQuality: pullbackQualityScore,
         compressionExpansion: compressionExpansionScore,
-        entryPrecision
+        entryPrecision: 0 // REMOVED - Simplified scoring
       }
     };
   }

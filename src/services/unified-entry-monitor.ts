@@ -24,8 +24,6 @@ import { getEntryIntentById, type AbandonReason } from './entry-intent-monitor-m
 import { EntryPlannerService } from './entry-planner';
 import { EntryExecutionCoordinator } from './entry-execution-coordinator';
 import { ALPHA_IDENTITY } from '../config/alpha-identity';
-import { candleQualityValidator } from './candle-quality-validator';
-import { aggregatorHealthMonitor } from './aggregator-health-monitor';
 
 /**
  * Timeout wrapper for async operations
@@ -353,78 +351,6 @@ export class UnifiedEntryMonitor {
         return;
       }
 
-      // Step 5.5: Validate candle data quality (NEW - CRITICAL FOR CRYPTO)
-      console.log('[UnifiedMonitor] Step 5.5/8: Validating candle data quality...');
-      try {
-        const [qualityCheck, websocketHealthy, aggregatorHealth] = await Promise.all([
-          candleQualityValidator.validateCandleQuality(intent.symbol, '5m', 10),
-          candleQualityValidator.checkWebSocketHealth(intent.symbol),
-          aggregatorHealthMonitor.checkAggregatorHealth(intent.symbol)
-        ]);
-
-        // Check aggregator health first (most fundamental)
-        if (!aggregatorHealth.isHealthy) {
-          // Throttle warnings to prevent console spam (only warn once per 60s per symbol)
-          const now = Date.now();
-          const warningKey = `aggregator_${intent.symbol}`;
-          const lastWarning = this.warningCache.get(warningKey) || 0;
-          const shouldWarn = now - lastWarning > this.WARNING_THROTTLE_MS;
-
-          if (shouldWarn) {
-            logger.warn(
-              `[UnifiedMonitor] Aggregator unhealthy for ${intent.symbol}: ${aggregatorHealth.reason} (throttled logging)`
-            );
-            console.error(
-              `[UnifiedMonitor] ❌ Aggregator health check failed: ${aggregatorHealth.reason}`,
-              {
-                isReceivingTicks: aggregatorHealth.isReceivingTicks,
-                lastCandleAge: aggregatorHealth.candleAge
-                  ? `${Math.floor(aggregatorHealth.candleAge / 60000)}min`
-                  : 'unknown'
-              }
-            );
-            this.warningCache.set(warningKey, now);
-          }
-          return;
-        }
-
-        // Check candle quality
-        if (!qualityCheck.isValid) {
-          logger.warn(
-            `[UnifiedMonitor] Insufficient data quality for ${intent.symbol}: ${qualityCheck.reason}`
-          );
-          console.error(
-            `[UnifiedMonitor] ❌ Data quality check failed: ${qualityCheck.reason}`,
-            {
-              qualityScore: `${qualityCheck.metrics.qualityScore.toFixed(0)}%`,
-              validCandles: `${qualityCheck.metrics.validCandles}/${qualityCheck.metrics.totalCandles}`,
-              dojiCount: qualityCheck.metrics.dojiCount,
-              gapCount: qualityCheck.metrics.gapCount
-            }
-          );
-          return;
-        }
-
-        // Check WebSocket health (for crypto)
-        if (!websocketHealthy) {
-          logger.warn(`[UnifiedMonitor] WebSocket data stale for ${intent.symbol}`);
-          console.error('[UnifiedMonitor] ❌ WebSocket not receiving recent data (crypto pair)');
-          return;
-        }
-
-        console.log('[UnifiedMonitor] ✓ Data quality validated:', {
-          qualityScore: `${qualityCheck.metrics.qualityScore.toFixed(0)}%`,
-          validCandles: `${qualityCheck.metrics.validCandles}/${qualityCheck.metrics.totalCandles}`,
-          aggregatorHealthy: aggregatorHealth.isHealthy,
-          lastCandleAge: aggregatorHealth.candleAge
-            ? `${Math.floor(aggregatorHealth.candleAge / 60000)}min`
-            : 'unknown'
-        });
-      } catch (error) {
-        logger.error(`[UnifiedMonitor] Data quality validation error:`, error);
-        console.error('[UnifiedMonitor] ⚠️ Skipping quality check due to error');
-      }
-
       // Step 6: Calculate technical indicators
       console.log('[UnifiedMonitor] Step 6/8: Calculating indicators...');
       // SSOT FIX: Candles come from DB in descending order (newest first)
@@ -647,9 +573,10 @@ export class UnifiedEntryMonitor {
       const isNearZone = !inEntryZone && distanceToZone <= nearZoneThreshold;
 
       // Check for exceptional override eligibility
+      // SIMPLIFIED: Removed candle acceptance check, now use VWAP interaction (price location is key)
       const hasExceptionalQuality = currentEQS >= ALPHA_IDENTITY.EQS_EXCEPTIONAL_OVERRIDE_THRESHOLD;
-      const hasMarketAcceptance = eqsResult.eqsBreakdown.candleAcceptance >= 16; // 80% of 20pts
-      const canOverrideZone = isNearZone && hasExceptionalQuality && hasMarketAcceptance;
+      const hasStrongLocation = eqsResult.eqsBreakdown.vwapInteraction >= 16; // 80% of 20pts - price near VWAP
+      const canOverrideZone = isNearZone && hasExceptionalQuality && hasStrongLocation;
 
       // DEFAULT RULE (90-95% of cases): Must be IN zone
       let shouldExecute = false;

@@ -29,8 +29,12 @@
  * All style-specific thresholds reference this value.
  *
  * To change the threshold for all styles, modify this constant ONLY.
+ *
+ * LOWERED FROM 80 TO 60:
+ * With candle acceptance removed and price-in-zone emphasized,
+ * 60 EQS is sufficient for execution when price is in entry zone.
  */
-const EQS_EXECUTION_THRESHOLD = 80;
+const EQS_EXECUTION_THRESHOLD = 60;
 
 export const ALPHA_IDENTITY = {
   MINIMUM_TRADE_CONFIDENCE: 60,
@@ -48,7 +52,7 @@ export const ALPHA_IDENTITY = {
    * This ensures consistent entry quality standards across all timeframes.
    */
   EQS_EXECUTION_THRESHOLD,
-  EQS_EXCEPTIONAL_OVERRIDE_THRESHOLD: 90,  // For near-zone overrides with exceptional quality
+  EQS_EXCEPTIONAL_OVERRIDE_THRESHOLD: 75,  // For near-zone overrides with exceptional quality (lowered from 90)
 
   /**
    * STYLE_EQS_THRESHOLDS
