@@ -182,6 +182,23 @@ class EntryThesisMemoryService {
     expirationMinutes: number = 10
   ): Promise<void> {
     try {
+      // Validate entry zones before proceeding
+      if (
+        intent.entry_zone_min == null ||
+        intent.entry_zone_max == null ||
+        isNaN(intent.entry_zone_min) ||
+        isNaN(intent.entry_zone_max)
+      ) {
+        logger.warn('Cannot mark thesis as expired - invalid entry zones', {
+          intentId: intent.id,
+          entry_zone_min: intent.entry_zone_min,
+          entry_zone_max: intent.entry_zone_max,
+          abandonmentReason
+        });
+        // Still valid to abandon the intent, just skip thesis memory
+        return;
+      }
+
       // Calculate structure anchor (SSOT: midpoint of entry zone)
       const structureAnchor = (intent.entry_zone_min + intent.entry_zone_max) / 2;
 

@@ -459,6 +459,25 @@ class EntryMonitorCoordinator {
     await this.stopMonitoring(sessionId);
     await this.transitionState(sessionId, 'ABANDONED_RESCAN_REQUESTED');
 
+    // Update session to schedule next scan
+    const scanIntervalMinutes = 15; // Default scan interval for intraday
+    const nextScanTime = new Date(Date.now() + scanIntervalMinutes * 60 * 1000);
+
+    await supabase
+      .from('goal_sessions')
+      .update({
+        status: 'scanning',
+        next_scan_time: nextScanTime.toISOString(),
+        last_scan_time: new Date().toISOString()
+      })
+      .eq('id', sessionId);
+
+    console.log('[ENTRY_MONITOR_COORD] ⏰ Next scan scheduled after abandonment', {
+      sessionId: sessionId.substring(0, 8),
+      reason,
+      nextScanTime: nextScanTime.toLocaleTimeString()
+    });
+
     if (this.onRescanRequested) {
       console.log('[ENTRY_MONITOR_COORD] Triggering rescan after abandonment', sessionId, reason);
       this.onRescanRequested(sessionId);

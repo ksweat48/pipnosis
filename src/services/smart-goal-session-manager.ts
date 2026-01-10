@@ -420,6 +420,64 @@ class SmartGoalSessionManager {
     return true;
   }
 
+  /**
+   * Schedule next scan for a session
+   * Called after intent expiration or scan completion
+   */
+  private async scheduleNextScan(sessionId: string): Promise<void> {
+    try {
+      const session = this.activeSessions.get(sessionId);
+      if (!session) {
+        console.warn('[Smart Goal] Cannot schedule scan - session not found:', sessionId);
+        return;
+      }
+
+      // Calculate next scan time (15 minutes from now for intraday)
+      const scanIntervalMs = (session.strategy.scanIntervalMinutes || 15) * 60 * 1000;
+      const nextScanTime = new Date(Date.now() + scanIntervalMs);
+
+      // Update in-memory session
+      session.nextScanTime = nextScanTime;
+      session.lastScanTime = new Date();
+
+      // Update database
+      const { error } = await supabase
+        .from('goal_sessions')
+        .update({
+          next_scan_time: nextScanTime.toISOString(),
+          last_scan_time: new Date().toISOString(),
+          status: 'scanning'
+        })
+        .eq('id', sessionId);
+
+      if (error) {
+        console.error('[Smart Goal] Error updating next_scan_time:', error);
+        return;
+      }
+
+      console.log(`[Smart Goal] ⏰ Next scan scheduled for ${nextScanTime.toLocaleTimeString()}`, {
+        sessionId: sessionId.substring(0, 8),
+        intervalMinutes: session.strategy.scanIntervalMinutes || 15
+      });
+
+      // Clear any existing timer
+      const existingTimer = this.scanTimers.get(sessionId);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+      }
+
+      // Set new timer to trigger scan
+      const timer = setTimeout(() => {
+        console.log('[Smart Goal] 🔍 Scheduled scan triggered');
+        this.scanTimers.delete(sessionId);
+      }, scanIntervalMs);
+
+      this.scanTimers.set(sessionId, timer);
+    } catch (error) {
+      console.error('[Smart Goal] Error in scheduleNextScan:', error);
+    }
+  }
+
   private async startLiveEngine(
     sessionId: string,
     userId: string,
