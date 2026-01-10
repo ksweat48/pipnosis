@@ -351,7 +351,10 @@ export class UnifiedEntryMonitor {
 
       // Step 6: Calculate technical indicators
       console.log('[UnifiedMonitor] Step 6/8: Calculating indicators...');
-      const candlesForIndicators = candles.slice(0, 50).map(c => ({
+      // SSOT FIX: Candles come from DB in descending order (newest first)
+      // Reverse them to chronological order (oldest first) for indicator calculations
+      // Then use last 10 for EQS (most recent price action)
+      const candlesForIndicators = [...candles].reverse().map(c => ({
         time: c.open_time,
         open: c.open,
         high: c.high,
