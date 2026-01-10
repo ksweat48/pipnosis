@@ -38,20 +38,43 @@ interface EntryQualityMonitorProps {
 export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessionId, intentId }) => {
   const [latestEQS, setLatestEQS] = useState<EQSUpdate | null>(null);
   const [loading, setLoading] = useState(true);
+  const [waitingForMonitoring, setWaitingForMonitoring] = useState(false);
 
-  const { activeIntent } = useActiveEntryIntent(sessionId);
+  const { activeIntent, loading: intentLoading } = useActiveEntryIntent(sessionId);
 
   useEffect(() => {
+    console.log('[EntryQualityMonitor] 🔄 Component effect triggered', {
+      hasActiveIntent: !!activeIntent,
+      intentId: activeIntent?.id?.substring(0, 8),
+      intentStatus: activeIntent?.status,
+      sessionId: sessionId?.substring(0, 8),
+      intentLoading
+    });
+
     if (!activeIntent) {
+      console.log('[EntryQualityMonitor] ⏳ No active intent yet, showing waiting state');
       setLatestEQS(null);
       setLoading(false);
+      setWaitingForMonitoring(true);
       return;
     }
 
+    console.log('[EntryQualityMonitor] ✅ Active intent found, starting monitoring', {
+      intentId: activeIntent.id.substring(0, 8),
+      symbol: activeIntent.symbol,
+      status: activeIntent.status
+    });
+
+    setWaitingForMonitoring(false);
     loadLatestEQS(activeIntent.id);
 
-    const interval = setInterval(() => loadLatestEQS(activeIntent.id), 5000);
+    const interval = setInterval(() => {
+      console.log('[EntryQualityMonitor] ⏰ Polling for EQS updates...');
+      loadLatestEQS(activeIntent.id);
+    }, 5000);
 
+    // FIXED: Subscribe using session_id instead of intent_id
+    // This ensures we get updates even if intent_id is not passed as prop
     const channel = supabase
       .channel(`eqs-updates-${sessionId}`)
       .on(
@@ -60,25 +83,31 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
           event: 'INSERT',
           schema: 'public',
           table: 'entry_monitoring_logs',
-          filter: intentId ? `intent_id=eq.${intentId}` : undefined
+          // Use intent_id from activeIntent for filtering
+          filter: `intent_id=eq.${activeIntent.id}`
         },
         (payload) => {
+          console.log('[EntryQualityMonitor] 📥 Realtime EQS update received', payload.new);
           if (payload.new) {
             setLatestEQS(payload.new as EQSUpdate);
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('[EntryQualityMonitor] 📡 Subscription status:', status);
+      });
 
     return () => {
+      console.log('[EntryQualityMonitor] 🧹 Cleaning up interval and subscription');
       clearInterval(interval);
       supabase.removeChannel(channel);
     };
-  }, [activeIntent, sessionId, intentId]);
+  }, [activeIntent, sessionId, intentLoading]);
 
   const loadLatestEQS = async (currentIntentId: string) => {
+    console.log('[EntryQualityMonitor] 🔍 Loading EQS data for intent:', currentIntentId.substring(0, 8));
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('entry_monitoring_logs')
         .select('*')
         .eq('intent_id', currentIntentId)
@@ -86,29 +115,94 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
         .limit(1)
         .maybeSingle();
 
-      if (data) {
+      if (error) {
+        console.error('[EntryQualityMonitor] ❌ Database error loading EQS:', error);
+      } else if (data) {
+        console.log('[EntryQualityMonitor] ✅ EQS data loaded:', {
+          eqsScore: data.eqs_score,
+          grade: data.eqs_grade,
+          status: data.status
+        });
         setLatestEQS(data as EQSUpdate);
+      } else {
+        console.log('[EntryQualityMonitor] ⏳ No EQS data yet, monitoring still initializing...');
       }
     } catch (error) {
-      console.error('[EntryQualityMonitor] Error loading EQS:', error);
+      console.error('[EntryQualityMonitor] ❌ Error loading EQS:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  if (loading) {
+  // Show loading state during initial hook fetch
+  if (intentLoading) {
     return (
       <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-4 border border-gray-700">
         <div className="flex items-center gap-2">
           <Activity className="w-4 h-4 text-blue-400 animate-pulse" />
-          <span className="text-sm text-gray-400">Loading entry quality data...</span>
+          <span className="text-sm text-gray-400">Initializing entry quality monitor...</span>
         </div>
       </div>
     );
   }
 
+  // Show waiting state when monitoring is starting
+  if (waitingForMonitoring || !activeIntent) {
+    return (
+      <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-4 border border-gray-700">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Target className="w-5 h-5 text-purple-400" />
+            <h3 className="text-lg font-bold text-white">Entry Quality Monitor</h3>
+          </div>
+          <div className="px-3 py-1 rounded-lg border border-gray-600 bg-gray-700/30">
+            <span className="text-xs text-gray-400">Waiting</span>
+          </div>
+        </div>
+        <div className="flex items-start gap-3 p-3 bg-blue-900/20 border border-blue-700/50 rounded-lg">
+          <Clock className="w-5 h-5 text-blue-400 animate-pulse flex-shrink-0 mt-0.5" />
+          <div>
+            <div className="text-sm font-semibold text-blue-300 mb-1">
+              Waiting for monitoring to start
+            </div>
+            <div className="text-xs text-gray-400">
+              Entry quality monitoring will begin once Alpha identifies a trade opportunity and starts analyzing entry conditions.
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show "calculating" state when we have an intent but no EQS data yet
   if (!latestEQS) {
-    return null;
+    return (
+      <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-4 border border-gray-700">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Target className="w-5 h-5 text-purple-400 animate-pulse" />
+            <h3 className="text-lg font-bold text-white">Entry Quality Monitor</h3>
+          </div>
+          <div className="px-3 py-1 rounded-lg border border-yellow-600 bg-yellow-700/20">
+            <span className="text-xs text-yellow-400">Analyzing</span>
+          </div>
+        </div>
+        <div className="flex items-start gap-3 p-3 bg-yellow-900/20 border border-yellow-700/50 rounded-lg">
+          <Activity className="w-5 h-5 text-yellow-400 animate-pulse flex-shrink-0 mt-0.5" />
+          <div>
+            <div className="text-sm font-semibold text-yellow-300 mb-1">
+              Calculating Entry Quality Score
+            </div>
+            <div className="text-xs text-gray-400 mb-2">
+              Monitoring {activeIntent.symbol} for {activeIntent.direction === 'long' ? 'BUY' : 'SELL'} entry...
+            </div>
+            <div className="text-xs text-gray-500">
+              First quality assessment will appear within seconds
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const getGradeColor = (grade: string) => {

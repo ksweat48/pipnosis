@@ -647,6 +647,13 @@ export class UnifiedEntryMonitor {
     currentEQS: number,
     threshold: number
   ): Promise<void> {
+    console.log('[UnifiedMonitor] 💾 Storing EQS update to database...', {
+      intentId: intent.id.substring(0, 8),
+      symbol: intent.symbol,
+      eqsScore: currentEQS,
+      threshold
+    });
+
     try {
       const breakdown = eqsResult.eqsBreakdown;
       const grade = calculateEQSGrade(currentEQS);
@@ -655,6 +662,7 @@ export class UnifiedEntryMonitor {
       const priceData = await marketDataService.getCurrentPrice(intent.symbol);
       if (!priceData) {
         logger.warn('[UnifiedMonitor] Cannot store EQS update without current price');
+        console.error('[UnifiedMonitor] ❌ No price data available, cannot store EQS');
         return;
       }
 
@@ -667,8 +675,7 @@ export class UnifiedEntryMonitor {
           : 0
         : null;
 
-      // Store as entry monitoring log with all required fields
-      const { error } = await supabase.from('entry_monitoring_logs').insert({
+      const logEntry = {
         intent_id: intent.id,
         user_id: intent.user_id,
         symbol: intent.symbol,
@@ -689,13 +696,41 @@ export class UnifiedEntryMonitor {
         },
         status: eqsResult.status,
         message: `EQS: ${currentEQS}/100 (${grade}) - ${eqsResult.status}`
+      };
+
+      console.log('[UnifiedMonitor] 📤 Inserting EQS log entry:', {
+        intentId: intent.id.substring(0, 8),
+        userId: intent.user_id?.substring(0, 8),
+        symbol: intent.symbol,
+        eqsScore: currentEQS,
+        grade,
+        hasBreakdown: !!logEntry.breakdown
       });
+
+      // Store as entry monitoring log with all required fields
+      const { data, error } = await supabase
+        .from('entry_monitoring_logs')
+        .insert(logEntry)
+        .select()
+        .single();
 
       if (error) {
         logger.error('[UnifiedMonitor] Database error storing EQS update:', error);
+        console.error('[UnifiedMonitor] ❌ DATABASE ERROR storing EQS:', {
+          error: error.message,
+          code: error.code,
+          details: error.details
+        });
+      } else {
+        console.log('[UnifiedMonitor] ✅ EQS update stored successfully', {
+          id: data?.id,
+          eqsScore: currentEQS,
+          grade
+        });
       }
     } catch (error) {
       logger.error('[UnifiedMonitor] Failed to store EQS update:', error);
+      console.error('[UnifiedMonitor] ❌ EXCEPTION storing EQS:', error);
     }
   }
 
