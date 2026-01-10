@@ -30,23 +30,29 @@
  *
  * To change the threshold for all styles, modify this constant ONLY.
  *
- * LOWERED FROM 80 TO 60:
- * With candle acceptance removed and price-in-zone emphasized,
- * 60 EQS is sufficient for execution when price is in entry zone.
+ * 75-POINT SCALE (REDUCED FROM 100):
+ * Core structure (pullback + EMA + VWAP) is sufficient for entry.
+ * Patterns are enhancers, not gatekeepers.
+ * 40/75 EQS (53%) is sufficient for execution when price is in entry zone.
  *
  * NOTE: This is the BASELINE threshold. High confidence can relax this further.
  * See getConfidenceAdjustedEQSThreshold() for dynamic adjustment logic.
  */
-const EQS_EXECUTION_THRESHOLD = 60;
+const EQS_EXECUTION_THRESHOLD = 40;
 
 /**
  * CONFIDENCE-BASED EQS RELAXATION TIERS
  * High conviction trades get entry timing flexibility
+ *
+ * 75-POINT SCALE:
+ * - 85%+ confidence: EQS 30 (40% of max)
+ * - 70%+ confidence: EQS 35 (47% of max)
+ * - 60%+ confidence: EQS 40 (53% of max - baseline)
  */
 export const EQS_CONFIDENCE_TIERS = {
-  EXCELLENT: { minConfidence: 85, eqsAdjustment: -10 },  // 85%+ confidence: EQS 50
-  SOLID: { minConfidence: 70, eqsAdjustment: -5 },       // 70%+ confidence: EQS 55
-  ACCEPTABLE: { minConfidence: 60, eqsAdjustment: 0 },   // 60%+ confidence: EQS 60
+  EXCELLENT: { minConfidence: 85, eqsAdjustment: -10 },  // 85%+ confidence: EQS 30
+  SOLID: { minConfidence: 70, eqsAdjustment: -5 },       // 70%+ confidence: EQS 35
+  ACCEPTABLE: { minConfidence: 60, eqsAdjustment: 0 },   // 60%+ confidence: EQS 40
 } as const;
 
 /**
@@ -57,18 +63,18 @@ export const EQS_CONFIDENCE_TIERS = {
  * - MICRO_INTRADAY: Medium urgency (8/20/35 min transitions)
  * - INTRADAY: Slower urgency (15/35/55 min transitions)
  *
- * Phase Progression:
- * - Phase 1 (STRICT): Base threshold (60)
- * - Phase 2 (RELAXED): Threshold -10 (50)
- * - Phase 3 (URGENT): Threshold -20 (40)
+ * Phase Progression (75-point scale):
+ * - Phase 1 (STRICT): Base threshold (40/75 = 53%)
+ * - Phase 2 (RELAXED): Threshold -7 (33/75 = 44%)
+ * - Phase 3 (URGENT): Threshold -15 (25/75 = 33%)
  *
  * High Alpha confidence accelerates phase transitions
  */
 export const ENTRY_URGENCY_CONFIG = {
   PHASE_THRESHOLDS: {
-    PHASE_1: { threshold: 60, description: 'Strict - Original threshold' },
-    PHASE_2: { threshold: 50, description: 'Relaxed - Near zone acceptable' },
-    PHASE_3: { threshold: 40, description: 'Urgent - Continuation entries allowed' },
+    PHASE_1: { threshold: 40, description: 'Strict - Original threshold' },
+    PHASE_2: { threshold: 33, description: 'Relaxed - Near zone acceptable' },
+    PHASE_3: { threshold: 25, description: 'Urgent - Continuation entries allowed' },
   },
 
   STYLE_TIME_THRESHOLDS: {
@@ -113,7 +119,7 @@ export const ALPHA_IDENTITY = {
    * This ensures consistent entry quality standards across all timeframes.
    */
   EQS_EXECUTION_THRESHOLD,
-  EQS_EXCEPTIONAL_OVERRIDE_THRESHOLD: 75,  // For near-zone overrides with exceptional quality (lowered from 90)
+  EQS_EXCEPTIONAL_OVERRIDE_THRESHOLD: 56,  // For near-zone overrides with exceptional quality (75% of 75 = 56)
 
   /**
    * STYLE_EQS_THRESHOLDS
@@ -266,10 +272,10 @@ export const EQS_TOTAL_WEIGHT = Object.values(EQS_WEIGHTED_FACTORS).reduce(
 /**
  * Get confidence-adjusted EQS threshold - SSOT for dynamic EQS requirements
  *
- * High confidence trades get entry timing flexibility:
- * - 85%+ confidence: Requires EQS 50 (professional sniper takes the shot)
- * - 70%+ confidence: Requires EQS 55 (solid setup, minor timing flex)
- * - 60%+ confidence: Requires EQS 60 (baseline standard)
+ * High confidence trades get entry timing flexibility (75-point scale):
+ * - 85%+ confidence: Requires EQS 30 (professional sniper takes the shot)
+ * - 70%+ confidence: Requires EQS 35 (solid setup, minor timing flex)
+ * - 60%+ confidence: Requires EQS 40 (baseline standard)
  *
  * Philosophy: When Alpha is highly confident in the trade idea,
  * don't let minor entry timing issues block execution.
@@ -346,16 +352,17 @@ MINIMUM CONFIDENCE THRESHOLD: ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%
 - ${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.min}-${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.max}%: ${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.description}
 - ${ALPHA_IDENTITY.CONFIDENCE_BANDS.EXCELLENT.min}-100%: ${ALPHA_IDENTITY.CONFIDENCE_BANDS.EXCELLENT.description}
 
-CONFIDENCE-ADJUSTED EQS THRESHOLDS (Dynamic Entry Standards):
-- Confidence >= 85% (EXCELLENT): Requires EQS >= 50 (high conviction, entry flexibility)
-- Confidence >= 70% (SOLID): Requires EQS >= 55 (good setup, modest flexibility)
-- Confidence >= 60% (ACCEPTABLE): Requires EQS >= 60 (baseline standard)
+CONFIDENCE-ADJUSTED EQS THRESHOLDS (Dynamic Entry Standards - 75-point scale):
+- Confidence >= 85% (EXCELLENT): Requires EQS >= 30 (high conviction, entry flexibility)
+- Confidence >= 70% (SOLID): Requires EQS >= 35 (good setup, modest flexibility)
+- Confidence >= 60% (ACCEPTABLE): Requires EQS >= 40 (baseline standard)
 - Professional snipers take the shot when conviction is high
+- Core structure (pullback + EMA + VWAP) is sufficient for entry
 
 DECISION FRAMEWORK:
-1. Confidence >= 85% + EQS >= 50: EXECUTE (high conviction trade)
-2. Confidence >= 70% + EQS >= 55: EXECUTE (solid setup)
-3. Confidence >= 60% + EQS >= 60: EXECUTE (acceptable setup)
+1. Confidence >= 85% + EQS >= 30: EXECUTE (high conviction trade)
+2. Confidence >= 70% + EQS >= 35: EXECUTE (solid setup)
+3. Confidence >= 60% + EQS >= 40: EXECUTE (acceptable setup)
 4. Confidence >= 60% but EQS below threshold: WAIT for better entry
 5. Confidence < 60%: WAIT (insufficient edge)
 

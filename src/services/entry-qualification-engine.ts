@@ -6,29 +6,38 @@
  * ═══════════════════════════════════════════════════════════════════
  *
  * RESPONSIBILITY:
- * Scores entry quality on technical merit (0-100 EQS), decides WHEN to enter.
+ * Scores entry quality on technical merit (0-75 EQS), decides WHEN to enter.
  * Alpha decides IF and WHERE. EQE optimizes WHEN and HOW GOOD the entry is.
  *
  * ARCHITECTURE CHANGE:
  * NO MORE REJECTIONS. Removed REJECT_ENTRY status per architectural mandate.
  * Entry Qualification Engine evaluates quality only - Alpha has final authority.
  *
- * ENTRY QUALITY SCORE (EQS) SYSTEM:
- * - Location Score (0-30): VWAP setup, key levels, liquidity position
- * - Confirmation Score (0-30): Candle acceptance, patterns, momentum
- * - Timing Score (0-25): Pullback quality, compression/expansion, precision
+ * ENTRY QUALITY SCORE (EQS) SYSTEM - 75-POINT SCALE:
+ * - Core Requirements (60 points):
+ *   - Pullback Structure: 20 pts (ESSENTIAL)
+ *   - VWAP Proximity: 15 pts (IMPORTANT but not perfect)
+ *   - EMA Alignment: 15 pts (ESSENTIAL for momentum)
+ *   - Liquidity Location: 10 pts (HELPFUL)
+ * - Boosters (15 points - optional):
+ *   - Compression pattern: 5 pts (NICE TO HAVE)
+ *   - Failed move confirmation: 5 pts (NICE TO HAVE)
+ *   - Timeframe alignment: 5 pts (ALREADY IN ALPHA ANALYSIS)
  * - Friction Penalty (0 to -15): Wicks, spread, news spikes
+ * - A+ Pattern Bonuses (+10 to +15): Keep existing bonuses
  *
- * GRADING SYSTEM:
- * - Grade A+ (80+): Execute immediately at optimal microstructure
- * - Grade A (72-79): Execute with strong acceptance + VWAP
- * - Grade B (65-71): Wait for better entry with structured triggers
- * - Grade C (50-64): Wait tight, require confirmation candle
- * - Grade D (<50): Wait passive, monitor for improvement
+ * GRADING SYSTEM (75-point scale):
+ * - Grade A+ (60+): Execute immediately at optimal microstructure (80% of max)
+ * - Grade A (54-59): Execute with strong acceptance + VWAP (72% of max)
+ * - Grade B (49-53): Wait for better entry with structured triggers (65% of max)
+ * - Grade C (38-48): Wait tight, require confirmation candle (50% of max)
+ * - Grade D (<38): Wait passive, monitor for improvement
  *
  * PHILOSOPHY:
- * Alpha says "BUY EURUSD". EQE says "execute now at 80 EQS" or
- * "wait for 75+ EQS at VWAP kiss". No rejections, only optimal timing.
+ * Patterns are enhancers, not gatekeepers. Core structure (pullback + EMA + VWAP)
+ * is sufficient for entry. Perfect patterns earn bonus points but aren't required.
+ * Alpha says "BUY EURUSD". EQE says "execute now at 50 EQS" or
+ * "wait for 55+ EQS at VWAP kiss". No rejections, only optimal timing.
  *
  * SSOT COMPLIANCE:
  * - Entry timing quality: THIS SERVICE
@@ -237,29 +246,35 @@ class EntryQualificationEngine {
       logger.info(`[EQE] 🌟 Grade A+ Pattern Detected: ${aplusPattern.type} (+${aplusPattern.bonus} points)`);
     }
 
-    // Build EQS breakdown - SIMPLIFIED SCORING (Total: 100 points)
-    // Location: 40 points (VWAP 20, Key Levels 12, Liquidity 8)
-    // Confirmation: 20 points (Pattern 12, Momentum 8)
-    // Timing: 25 points (Pullback 15, Compression/Expansion 10)
+    // Build EQS breakdown - 75-POINT SCALE (Total: 75 points)
+    // Core Requirements (60 points):
+    //   - Pullback Structure: 20 pts (ESSENTIAL)
+    //   - VWAP Proximity: 15 pts (IMPORTANT but not perfect)
+    //   - EMA Alignment: 15 pts (ESSENTIAL for momentum)
+    //   - Liquidity Location: 10 pts (HELPFUL)
+    // Boosters (15 points - optional):
+    //   - Compression pattern: 5 pts (NICE TO HAVE)
+    //   - Failed move confirmation: 5 pts (NICE TO HAVE)
+    //   - Timeframe alignment: 5 pts (ALREADY IN ALPHA ANALYSIS)
     // Friction: -15 to 0 points (penalties)
     // A+ Patterns: +10 to +15 bonus
     //
     // Display breakdown (mapped to user-friendly categories):
-    // Pullback quality: 15 (from timing)
-    // VWAP interaction: 20 (from location - INCREASED)
-    // EMA alignment: 8 (from confirmation momentum)
-    // Liquidity reaction: 12 (from location key levels - reframed)
-    // Compression/expansion: 10 (from timing)
-    // Failed move: 12 (from confirmation pattern)
-    // Timeframe alignment: 8 (from location liquidity position)
+    // Pullback quality: 20 (from timing - ESSENTIAL)
+    // VWAP interaction: 15 (from location - IMPORTANT)
+    // EMA alignment: 15 (from confirmation momentum - ESSENTIAL)
+    // Liquidity reaction: 10 (from location liquidity - HELPFUL)
+    // Compression/expansion: 5 (from timing - NICE TO HAVE)
+    // Failed move: 5 (from confirmation pattern - NICE TO HAVE)
+    // Timeframe alignment: 5 (from location key levels - NICE TO HAVE)
 
-    const pullbackQualityScore = Math.min(15, Math.round((timingScore.details.pullbackQuality / 15) * 15));
-    const vwapInteractionScore = Math.min(20, Math.round((locationScore.details.vwapSetup / 20) * 20));
-    const emaAlignmentScore = Math.min(8, Math.round((confirmationScore.details.momentumAlignment / 8) * 8));
-    const liquidityReactionScore = Math.min(12, Math.round((locationScore.details.keyLevelConfluence / 12) * 12));
-    const compressionExpansionScore = Math.min(10, Math.round((timingScore.details.compressionExpansion / 10) * 10));
-    const failedMoveScore = Math.min(12, Math.round((confirmationScore.details.patternConfirmation / 12) * 12));
-    const timeframeAlignmentScore = Math.min(8, Math.round((locationScore.details.liquidityLocation / 8) * 8));
+    const pullbackQualityScore = Math.min(20, Math.round((timingScore.details.pullbackQuality / 20) * 20));
+    const vwapInteractionScore = Math.min(15, Math.round((locationScore.details.vwapSetup / 15) * 15));
+    const emaAlignmentScore = Math.min(15, Math.round((confirmationScore.details.momentumAlignment / 15) * 15));
+    const liquidityReactionScore = Math.min(10, Math.round((locationScore.details.liquidityLocation / 10) * 10));
+    const compressionExpansionScore = Math.min(5, Math.round((timingScore.details.compressionExpansion / 5) * 5));
+    const failedMoveScore = Math.min(5, Math.round((confirmationScore.details.patternConfirmation / 12) * 5));
+    const timeframeAlignmentScore = Math.min(5, Math.round((locationScore.details.keyLevelConfluence / 12) * 5));
 
     const eqsBreakdown: EQSBreakdown = {
       pullbackQuality: pullbackQualityScore,
@@ -410,11 +425,11 @@ class EntryQualificationEngine {
     input: EntryQualificationInput,
     metrics: EntryQualificationResult['metrics']
   ): { total: number; details: EQSBreakdown['locationDetails'] } {
-    let vwapSetup = 0;          // 0-20 points (INCREASED from 12)
-    let keyLevelConfluence = 0; // 0-12 points (INCREASED from 10)
-    let liquidityLocation = 0;  // 0-8 points
+    let vwapSetup = 0;          // 0-15 points (75-point scale)
+    let keyLevelConfluence = 0; // 0-12 points (maps to Liquidity Reaction display)
+    let liquidityLocation = 0;  // 0-10 points (75-point scale)
 
-    // A. VWAP Setup (0-20 points) - PRICE IN ZONE IS CRITICAL
+    // A. VWAP Setup (0-15 points) - IMPORTANT BUT NOT PERFECT
     const { entryPrice, m5VWAP, atr, direction } = input;
     const atrValue = typeof atr === 'number' ? atr : atr.value;
     const vwapDistance = Math.abs(entryPrice - m5VWAP);
@@ -424,20 +439,20 @@ class EntryQualificationEngine {
       // Correct side of VWAP
       if (vwapDistanceATR < 0.15) {
         // Perfect VWAP kiss (within 0.15 ATR)
-        vwapSetup = 20;
+        vwapSetup = 15;
       } else if (vwapDistanceATR < 0.3) {
         // Good proximity (within 0.3 ATR)
-        vwapSetup = 16;
+        vwapSetup = 12;
       } else if (vwapDistanceATR < 0.5) {
         // Acceptable (within 0.5 ATR)
-        vwapSetup = 12;
+        vwapSetup = 9;
       } else {
         // Too far but correct side
-        vwapSetup = 6;
+        vwapSetup = 4;
       }
     } else {
       // Wrong side of VWAP - penalty instead of block
-      vwapSetup = Math.max(0, 6 - Math.floor(vwapDistanceATR * 2));
+      vwapSetup = Math.max(0, 4 - Math.floor(vwapDistanceATR * 2));
     }
 
     // B. Key Level Confluence (0-12 points) - INCREASED IMPORTANCE
@@ -463,12 +478,12 @@ class EntryQualificationEngine {
       keyLevelConfluence = 6; // No structure data, neutral score
     }
 
-    // C. Liquidity Location (0-8 points)
+    // C. Liquidity Location (0-10 points)
     // Use simple logic based on range position
     if (metrics.rangePosition === 'top' || metrics.rangePosition === 'bottom') {
-      liquidityLocation = 8; // Range extremes (good for entries)
+      liquidityLocation = 10; // Range extremes (good for entries)
     } else {
-      liquidityLocation = 3; // Middle of range (choppy zone)
+      liquidityLocation = 4; // Middle of range (choppy zone)
     }
 
     const total = vwapSetup + keyLevelConfluence + liquidityLocation;
@@ -494,10 +509,10 @@ class EntryQualificationEngine {
     candleAcceptance: CandleAcceptanceResult,
     failedMove: FailedMoveResult
   ): { total: number; details: EQSBreakdown['confirmationDetails'] } {
-    let patternConfirmation = 0;    // 0-12 points (increased from 10)
-    let momentumAlignment = 0;      // 0-8 points (increased from 5)
+    let patternConfirmation = 0;    // 0-12 points (maps to 0-5 display)
+    let momentumAlignment = 0;      // 0-15 points (ESSENTIAL - 75-point scale)
 
-    // A. Pattern Confirmation (0-12 points) - INCREASED WEIGHT
+    // A. Pattern Confirmation (0-12 points) - NICE TO HAVE
     if (failedMove.entryViable) {
       patternConfirmation = 12; // Strong reversal pattern
     } else if (failedMove.failedMoveDetected && failedMove.confirmationPresent) {
@@ -506,18 +521,18 @@ class EntryQualificationEngine {
       patternConfirmation = 4; // No pattern, neutral
     }
 
-    // B. Momentum Alignment (0-8 points) - INCREASED WEIGHT
+    // B. Momentum Alignment (0-15 points) - ESSENTIAL FOR MOMENTUM
     // Combines EMA alignment AND candle momentum for complete picture
     const emaAlignment = this.checkEMAAlignment(input.entryPrice, input.m5EMA20, input.direction);
     const candleMomentum = metrics.momentumConfirmation;
 
     // Award points based on EMA + candle alignment
     if (emaAlignment && candleMomentum) {
-      momentumAlignment = 8; // Perfect: Both EMA and candles align
+      momentumAlignment = 15; // Perfect: Both EMA and candles align
     } else if (emaAlignment) {
-      momentumAlignment = 5; // Good: EMA aligned even if candles mixed
+      momentumAlignment = 10; // Good: EMA aligned even if candles mixed
     } else if (candleMomentum) {
-      momentumAlignment = 3; // Partial: Candles align but not EMA
+      momentumAlignment = 5; // Partial: Candles align but not EMA
     } else {
       momentumAlignment = 0; // Neither aligns
     }
@@ -543,25 +558,25 @@ class EntryQualificationEngine {
     pullbackQuality: PullbackQualityResult,
     compressionExpansion: CompressionExpansionResult
   ): { total: number; details: EQSBreakdown['timingDetails'] } {
-    let pullbackQualityScore = 0;        // 0-15 points (INCREASED from 12)
-    let compressionExpansionScore = 0;   // 0-10 points (INCREASED from 8)
+    let pullbackQualityScore = 0;        // 0-20 points (ESSENTIAL - 75-point scale)
+    let compressionExpansionScore = 0;   // 0-5 points (NICE TO HAVE - 75-point scale)
 
-    // A. Pullback Quality (0-15 points) - INCREASED IMPORTANCE
+    // A. Pullback Quality (0-20 points) - ESSENTIAL TIMING SIGNAL
     if (pullbackQuality.grade === 'A') {
-      pullbackQualityScore = 15; // Perfect 38-50% pullback
+      pullbackQualityScore = 20; // Perfect 38-50% pullback
     } else if (pullbackQuality.grade === 'B') {
-      pullbackQualityScore = 11;  // Good 50-70% pullback
+      pullbackQualityScore = 15;  // Good 50-70% pullback
     } else if (pullbackQuality.grade === 'C') {
-      pullbackQualityScore = 5;  // Deep pullback, caution
+      pullbackQualityScore = 7;  // Deep pullback, caution
     }
 
-    // B. Compression/Expansion (0-10 points) - INCREASED IMPORTANCE
+    // B. Compression/Expansion (0-5 points) - NICE TO HAVE
     if (compressionExpansion.compressionDetected && compressionExpansion.expansionFollows) {
-      compressionExpansionScore = 10; // Perfect compression → expansion
+      compressionExpansionScore = 5; // Perfect compression → expansion
     } else if (compressionExpansion.compressionDetected) {
-      compressionExpansionScore = 6; // Compression detected
+      compressionExpansionScore = 3; // Compression detected
     } else {
-      compressionExpansionScore = 3; // No pattern, neutral
+      compressionExpansionScore = 2; // No pattern, neutral
     }
 
     const total = pullbackQualityScore + compressionExpansionScore;
@@ -1794,14 +1809,14 @@ class EntryQualificationEngine {
   }
 
   /**
-   * Calculate EQS letter grade
+   * Calculate EQS letter grade (75-point scale)
    */
   private calculateEQSGrade(eqs: number): 'A+' | 'A' | 'B' | 'C' | 'D' | 'F' {
-    if (eqs >= 80) return 'A+';
-    if (eqs >= 72) return 'A';
-    if (eqs >= 65) return 'B';
-    if (eqs >= 50) return 'C';
-    if (eqs >= 30) return 'D';
+    if (eqs >= 60) return 'A+';  // 80% of 75
+    if (eqs >= 54) return 'A';   // 72% of 75
+    if (eqs >= 49) return 'B';   // 65% of 75
+    if (eqs >= 38) return 'C';   // 50% of 75
+    if (eqs >= 23) return 'D';   // 30% of 75
     return 'F';
   }
 

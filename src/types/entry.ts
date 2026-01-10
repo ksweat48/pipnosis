@@ -344,29 +344,35 @@ export interface VolatilityWaitIntent {
  */
 
 /**
- * Entry Quality Score breakdown - SPEC COMPLIANT WEIGHTS
+ * Entry Quality Score breakdown - 75-POINT SCALE
  *
- * Weighted factors (total 100):
- * 1. Pullback quality / impulse structure: 15
- * 2. VWAP interaction (kiss, reclaim, spread): 20 (INCREASED)
- * 3. EMA alignment / slope / crossover: 10
- * 4. Liquidity reaction (not detection): 12
- * 5. Compression → expansion: 10
- * 6. Failed move confirmation: 12
- * 7. Timeframe alignment (M5 for entry): 8
- * 8. Location/Confirmation/Timing scores: 40+20+25 = 85 base
- * 9. Friction penalties: -15 to 0
- * 10. A+ Pattern bonuses: +10 to +15
+ * Core Requirements (60 points):
+ * 1. Pullback Structure: 20 pts (ESSENTIAL)
+ * 2. VWAP Proximity: 15 pts (IMPORTANT but not perfect)
+ * 3. EMA Alignment: 15 pts (ESSENTIAL for momentum)
+ * 4. Liquidity Location: 10 pts (HELPFUL)
+ *
+ * Boosters (15 points - optional):
+ * 5. Compression pattern: 5 pts (NICE TO HAVE)
+ * 6. Failed move confirmation: 5 pts (NICE TO HAVE)
+ * 7. Timeframe alignment: 5 pts (ALREADY IN ALPHA ANALYSIS)
+ *
+ * Other:
+ * 8. Friction penalties: -15 to 0
+ * 9. A+ Pattern bonuses: +10 to +15
+ *
+ * Philosophy: Patterns are enhancers, not gatekeepers.
+ * Core structure (pullback + EMA + VWAP) is sufficient for entry.
  */
 export interface EQSBreakdown {
-  pullbackQuality: number;        // 0-15: 38-50% retracement quality, impulse structure
-  vwapInteraction: number;        // 0-20: VWAP kiss, reclaim, spread from VWAP (INCREASED)
-  emaAlignment: number;           // 0-10: EMA20 alignment, slope, crossover confirmation
-  liquidityReaction: number;      // 0-12: Response to liquidity pools, sweep-reclaim
-  compressionExpansion: number;   // 0-10: Tight range breakout patterns
-  failedMoveConfirmation: number; // 0-12: False breakout confirmation, exhaustion
-  timeframeAlignment: number;     // 0-8: M5 microstructure confirmation
-  totalScore: number;             // Sum of all components (0-100)
+  pullbackQuality: number;        // 0-20: 38-50% retracement quality, impulse structure (ESSENTIAL)
+  vwapInteraction: number;        // 0-15: VWAP kiss, reclaim, spread from VWAP (IMPORTANT)
+  emaAlignment: number;           // 0-15: EMA20 alignment, slope, crossover confirmation (ESSENTIAL)
+  liquidityReaction: number;      // 0-10: Response to liquidity pools, sweep-reclaim (HELPFUL)
+  compressionExpansion: number;   // 0-5: Tight range breakout patterns (NICE TO HAVE)
+  failedMoveConfirmation: number; // 0-5: False breakout confirmation, exhaustion (NICE TO HAVE)
+  timeframeAlignment: number;     // 0-5: M5 microstructure confirmation (NICE TO HAVE)
+  totalScore: number;             // Sum of all components (0-75)
 
   factorDetails: {
     pullbackQuality: {
