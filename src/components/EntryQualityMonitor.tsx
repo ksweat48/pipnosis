@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Activity, TrendingUp, TrendingDown, CheckCircle, Clock, AlertCircle, Target } from 'lucide-react';
+import { Activity, TrendingUp, TrendingDown, CheckCircle, Clock, AlertCircle, Target, MapPin, ArrowUp, ArrowDown, Minus } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useActiveEntryIntent } from '../hooks/useEntryIntent';
 
@@ -43,6 +43,7 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
   const [loading, setLoading] = useState(true);
   const [waitingForMonitoring, setWaitingForMonitoring] = useState(false);
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+  const [previousPrice, setPreviousPrice] = useState<number | null>(null);
 
   const { activeIntent, loading: intentLoading } = useActiveEntryIntent(sessionId);
 
@@ -155,6 +156,7 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
         .maybeSingle();
 
       if (data && !error) {
+        setPreviousPrice(currentPrice);
         setCurrentPrice(data.mid);
       }
     } catch (error) {
@@ -277,6 +279,31 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
     return <AlertCircle className="w-3 h-3 text-red-400" />;
   };
 
+  const getMonitoringFrequency = (style: string): string => {
+    const frequencies: Record<string, string> = {
+      'SCALP': '2s',
+      'MICRO_INTRADAY': '3s',
+      'INTRADAY': '5s'
+    };
+    return frequencies[style] || '5s';
+  };
+
+  const getStyleDisplayName = (style: string): string => {
+    const names: Record<string, string> = {
+      'SCALP': 'Scalp',
+      'MICRO_INTRADAY': 'Micro Intraday',
+      'INTRADAY': 'Intraday'
+    };
+    return names[style] || style;
+  };
+
+  const getPriceDirectionIcon = () => {
+    if (!currentPrice || !previousPrice) return <Minus className="w-3 h-3 text-gray-400" />;
+    if (currentPrice > previousPrice) return <ArrowUp className="w-3 h-3 text-green-400" />;
+    if (currentPrice < previousPrice) return <ArrowDown className="w-3 h-3 text-red-400" />;
+    return <Minus className="w-3 h-3 text-gray-400" />;
+  };
+
   const breakdown = latestEQS.breakdown;
   const scorePercentage = (latestEQS.eqs_score / 100) * 100;
   const thresholdPercentage = (latestEQS.eqs_threshold / 100) * 100;
@@ -291,21 +318,148 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
     { name: 'Timeframe Alignment', score: breakdown.timeframeAlignment, max: 8 }
   ];
 
+  // Calculate entry zone metrics
+  const inZone = currentPrice && activeIntent
+    ? currentPrice >= activeIntent.entry_zone_min && currentPrice <= activeIntent.entry_zone_max
+    : false;
+  const distancePips = !inZone && currentPrice && activeIntent
+    ? (currentPrice < activeIntent.entry_zone_min
+        ? activeIntent.entry_zone_min - currentPrice
+        : currentPrice - activeIntent.entry_zone_max)
+    : 0;
+  const isReady = latestEQS.status === 'EXECUTE_NOW' && latestEQS.eqs_score >= latestEQS.eqs_threshold;
+  const gap = Math.max(0, latestEQS.eqs_threshold - latestEQS.eqs_score);
+
   return (
     <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-4 border border-gray-700">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Target className="w-5 h-5 text-purple-400 animate-pulse" />
-          <h3 className="text-lg font-bold text-white">Entry Quality Monitor</h3>
-        </div>
-        <div className={`px-3 py-1 rounded-lg border font-bold ${getGradeColor(latestEQS.eqs_grade)}`}>
-          Grade {latestEQS.eqs_grade}
+      {/* HEADER: Symbol, Direction, Style, Frequency */}
+      <div className="mb-4 pb-3 border-b border-gray-700">
+        <div className="flex items-start justify-between mb-2">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <h2 className="text-2xl font-bold text-white">{activeIntent.symbol}</h2>
+              <span className={`px-2 py-1 rounded text-sm font-bold ${
+                activeIntent.direction === 'long'
+                  ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                  : 'bg-red-500/20 text-red-400 border border-red-500/30'
+              }`}>
+                {activeIntent.direction === 'long' ? 'LONG' : 'SHORT'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-gray-400">
+              <span>{getStyleDisplayName(activeIntent.style)}</span>
+              <span>•</span>
+              <span>Checking every {getMonitoringFrequency(activeIntent.style)}</span>
+              <span>•</span>
+              <Target className="w-3 h-3 text-blue-400 animate-pulse" />
+              <span className="text-blue-400">Monitoring</span>
+            </div>
+          </div>
+          <div className={`px-3 py-1 rounded-lg border font-bold ${getGradeColor(latestEQS.eqs_grade)}`}>
+            Grade {latestEQS.eqs_grade}
+          </div>
         </div>
       </div>
 
+      {/* DECISION SUMMARY: Why Not Executing */}
+      <div className={`mb-4 p-3 rounded-lg border ${
+        isReady && inZone
+          ? 'bg-green-900/30 border-green-600/50'
+          : isReady && !inZone
+          ? 'bg-blue-900/30 border-blue-600/50'
+          : 'bg-orange-900/30 border-orange-600/50'
+      }`}>
+        <div className="flex items-start gap-3">
+          {isReady && inZone ? (
+            <CheckCircle className="w-6 h-6 text-green-400 mt-0.5 flex-shrink-0 animate-pulse" />
+          ) : isReady && !inZone ? (
+            <MapPin className="w-6 h-6 text-blue-400 mt-0.5 flex-shrink-0 animate-pulse" />
+          ) : (
+            <Clock className="w-6 h-6 text-orange-400 mt-0.5 flex-shrink-0" />
+          )}
+          <div className="flex-1">
+            <div className={`font-bold mb-1 ${
+              isReady && inZone
+                ? 'text-green-300 text-base'
+                : isReady && !inZone
+                ? 'text-blue-300 text-base'
+                : 'text-orange-300 text-base'
+            }`}>
+              {isReady && inZone && 'READY TO EXECUTE'}
+              {isReady && !inZone && 'WAITING FOR PRICE ZONE'}
+              {!isReady && 'BUILDING ENTRY QUALITY'}
+            </div>
+            <div className="text-sm text-gray-300">
+              {isReady && inZone && 'All conditions met. Execution ready.'}
+              {isReady && !inZone && `Price must ${activeIntent.direction === 'long' ? 'pull back' : 'rally'} ${distancePips.toFixed(2)} pips into entry zone`}
+              {!isReady && `EQS must reach ${latestEQS.eqs_threshold}/100 (currently ${latestEQS.eqs_score}/100) ${!inZone ? 'AND price must enter zone' : ''}`}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* PRICE ZONE STATUS: Prominent display */}
+      {activeIntent && currentPrice && (
+        <div className={`mb-4 p-4 rounded-lg border-2 ${
+          inZone
+            ? 'bg-green-900/20 border-green-600 shadow-lg shadow-green-500/20'
+            : 'bg-gray-900/20 border-gray-600'
+        }`}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <MapPin className={`w-5 h-5 ${inZone ? 'text-green-400 animate-pulse' : 'text-gray-400'}`} />
+              <span className="text-sm font-semibold text-gray-300">Price Zone Status</span>
+            </div>
+            <span className={`px-3 py-1 rounded-lg text-sm font-bold ${
+              inZone
+                ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                : 'bg-gray-500/20 text-gray-400 border border-gray-500/30'
+            }`}>
+              {inZone ? 'IN ZONE' : 'OUTSIDE'}
+            </span>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-400">Current Price</span>
+              <div className="flex items-center gap-2">
+                {getPriceDirectionIcon()}
+                <span className={`text-lg font-mono font-bold ${
+                  inZone ? 'text-green-400' : 'text-blue-400'
+                }`}>
+                  {currentPrice.toFixed(5)}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-400">Entry Zone</span>
+              <span className="text-sm font-mono text-gray-300">
+                {activeIntent.entry_zone_min.toFixed(5)} - {activeIntent.entry_zone_max.toFixed(5)}
+              </span>
+            </div>
+
+            {!inZone && (
+              <div className="mt-2 pt-2 border-t border-gray-700">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-400">
+                    {activeIntent.direction === 'long' ? 'Need pullback of' : 'Need rally of'}
+                  </span>
+                  <span className="text-base font-mono font-bold text-orange-400">
+                    {distancePips.toFixed(2)} pips
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* EQS SCORE DISPLAY */}
       <div className="mb-4">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-blue-400" />
             <span className="text-sm text-gray-400">Entry Quality Score</span>
           </div>
           <div className="flex items-center gap-2">
@@ -337,110 +491,14 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
         </div>
 
         <div className="flex items-center justify-between mt-1">
-          <span className="text-xs text-gray-500">Current Score</span>
+          <span className="text-xs text-gray-500">
+            {gap > 0 ? `${gap} points needed` : 'Threshold met!'}
+          </span>
           <span className="text-xs text-blue-400">
             Threshold: {latestEQS.eqs_threshold}
           </span>
         </div>
       </div>
-
-      {/* ENTRY ZONE STATUS - Shows what EXECUTE_NOW actually means */}
-      {activeIntent && currentPrice && (
-        <div className="mb-4">
-          {(() => {
-            const inZone = currentPrice >= activeIntent.entry_zone_min && currentPrice <= activeIntent.entry_zone_max;
-            const distancePips = !inZone
-              ? (currentPrice < activeIntent.entry_zone_min
-                  ? activeIntent.entry_zone_min - currentPrice
-                  : currentPrice - activeIntent.entry_zone_max)
-              : 0;
-            const isReady = latestEQS.status === 'EXECUTE_NOW' && latestEQS.eqs_score >= latestEQS.eqs_threshold;
-
-            return (
-              <div className={`p-3 rounded-lg border ${
-                isReady && inZone
-                  ? 'bg-green-900/20 border-green-700/50'
-                  : isReady && !inZone
-                  ? 'bg-blue-900/20 border-blue-700/50'
-                  : 'bg-gray-900/20 border-gray-700/50'
-              }`}>
-                <div className="flex items-start gap-2 mb-2">
-                  {isReady && inZone ? (
-                    <CheckCircle className="w-5 h-5 text-green-400 mt-0.5 flex-shrink-0 animate-pulse" />
-                  ) : isReady && !inZone ? (
-                    <Target className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0 animate-pulse" />
-                  ) : (
-                    <Clock className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                  )}
-                  <div className="flex-1">
-                    <div className={`text-sm font-semibold mb-1 ${
-                      isReady && inZone
-                        ? 'text-green-300'
-                        : isReady && !inZone
-                        ? 'text-blue-300'
-                        : 'text-gray-300'
-                    }`}>
-                      {isReady && inZone && '🚀 READY TO EXECUTE - In Entry Zone'}
-                      {isReady && !inZone && '⏳ Ready When Price Enters Zone'}
-                      {!isReady && 'Building Entry Quality'}
-                    </div>
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-gray-400">Current Price:</span>
-                        <span className={`font-mono font-semibold ${
-                          inZone ? 'text-green-400' : 'text-blue-400'
-                        }`}>
-                          {currentPrice.toFixed(5)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-gray-400">Entry Zone:</span>
-                        <span className="font-mono text-gray-300">
-                          {activeIntent.entry_zone_min.toFixed(5)} - {activeIntent.entry_zone_max.toFixed(5)}
-                        </span>
-                      </div>
-                      {!inZone && (
-                        <div className="flex items-center justify-between text-xs pt-1 border-t border-gray-700/50">
-                          <span className="text-gray-400">
-                            {activeIntent.direction === 'long' ? 'Waiting for pullback' : 'Waiting for rally'}:
-                          </span>
-                          <span className="font-mono font-semibold text-orange-400">
-                            {distancePips.toFixed(5)} pips away
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                {isReady && !inZone && (
-                  <div className="mt-2 pt-2 border-t border-blue-700/30">
-                    <div className="text-xs text-blue-300">
-                      <span className="font-semibold">EXECUTE_NOW</span> means entry quality is excellent and we're ready to execute
-                      {activeIntent.direction === 'long' ? ' when price pulls back into zone' : ' when price rallies into zone'}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-        </div>
-      )}
-
-      {latestEQS.eqs_score < latestEQS.eqs_threshold && (
-        <div className="mb-4 p-3 bg-orange-900/20 border border-orange-700/50 rounded-lg">
-          <div className="flex items-start gap-2">
-            <Clock className="w-4 h-4 text-orange-400 mt-0.5 flex-shrink-0" />
-            <div>
-              <div className="text-sm font-semibold text-orange-300 mb-1">
-                Waiting for Better Entry Quality
-              </div>
-              <div className="text-xs text-gray-400">
-                Need {latestEQS.eqs_threshold - latestEQS.eqs_score} more points to reach execution threshold
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       <div className="space-y-2">
         <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
