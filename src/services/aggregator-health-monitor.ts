@@ -79,7 +79,7 @@ class AggregatorHealthMonitor {
     try {
       const { data: recentPrice, error } = await supabase
         .from('realtime_prices')
-        .select('updated_at')
+        .select('created_at')
         .eq('symbol', symbol)
         .maybeSingle();
 
@@ -87,7 +87,7 @@ class AggregatorHealthMonitor {
         return false;
       }
 
-      const lastUpdate = new Date(recentPrice.updated_at).getTime();
+      const lastUpdate = new Date(recentPrice.created_at).getTime();
       const now = Date.now();
       const ageMs = now - lastUpdate;
 
