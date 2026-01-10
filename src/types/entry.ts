@@ -41,6 +41,95 @@ export type AbandonReason =
   | 'MANUAL_CANCEL'
   | 'ORDER_REJECTED';
 
+/**
+ * Entry Outcome Taxonomy - Rich classification of why entry was abandoned
+ *
+ * EXPIRED: Execution window closed (do NOT rescan same thesis)
+ * INVALIDATED: Structure broken (rescan allowed - market changed)
+ * PAUSED: Temporary condition (rescan after condition clears)
+ */
+export type EntryOutcomeReason =
+  | 'RUNAWAY_DETECTED'          // EXPIRED: Price moved too far (> 3x ATR)
+  | 'STRUCTURE_INVALIDATED'     // INVALIDATED: BOS failed, level broken
+  | 'REGIME_SHIFT'              // PAUSED: Market regime changed
+  | 'VOLATILITY_SPIKE'          // PAUSED: Abnormal volatility detected
+  | 'NEWS_EVENT'                // PAUSED: High-impact news event
+  | 'STOP_RUN'                  // INVALIDATED: Stop hunt detected
+  | 'TIMEOUT'                   // EXPIRED: Time limit exceeded
+  | 'EXECUTION_COMPLETED'       // Success: Trade entered
+  | 'USER_CANCELLED';           // User action
+
+/**
+ * Entry Outcome Status - Lifecycle state of entry intent
+ */
+export type EntryOutcomeStatus =
+  | 'ACTIVE'                    // Currently monitoring
+  | 'EXECUTED'                  // Trade entered successfully
+  | 'EXPIRED'                   // Execution window closed - do NOT rescan
+  | 'INVALIDATED'               // Structure broken - rescan allowed
+  | 'PAUSED'                    // Temporary hold - rescan after condition clears
+  | 'ESCALATED';                // Escalated to continuation entry
+
+/**
+ * Thesis Fingerprint - Unique identifier for a trading thesis
+ * Used to prevent recreating the same thesis after EXPIRED status
+ */
+export interface ThesisFingerprint {
+  symbol: string;
+  direction: 'BUY' | 'SELL';
+  structure_anchor: number;     // Entry zone center, rounded to 2 decimals
+  timeframe: string;
+  fingerprint: string;          // Generated hash: symbol_direction_anchor_timeframe
+}
+
+/**
+ * Thesis Memory Entry - Tracks thesis lifecycle across abandonment cycles
+ */
+export interface ThesisMemoryEntry {
+  id: string;
+  session_id: string;
+  user_id: string;
+  symbol: string;
+  direction: 'BUY' | 'SELL';
+  structure_anchor: number;
+  timeframe: string;
+  thesis_fingerprint: string;
+  status: 'ACTIVE' | 'EXPIRED' | 'INVALIDATED' | 'ESCALATED';
+  entry_intent_id?: string;
+  created_at: string;
+  expires_at?: string;          // Expiration timestamp (typically +10 minutes)
+  alpha_confidence?: number;
+  abandonment_count: number;
+}
+
+/**
+ * Pre-flight validation result for entry intent creation
+ */
+export interface EntryPreFlightResult {
+  is_viable: boolean;
+  distance_from_zone_atr?: number;
+  rejection_reason?: EntryOutcomeReason;
+  current_price?: number;
+  entry_zone_center?: number;
+  message: string;
+}
+
+/**
+ * Escalation decision for continuation entry
+ */
+export interface EntryEscalationDecision {
+  should_escalate: boolean;
+  reasoning: string;
+  continuation_entry?: {
+    entry_price: number;        // Current market price
+    stop_loss: number;          // Tighter SL (1.5x ATR)
+    take_profit: number;        // Same TP as original
+    size_multiplier: number;    // Reduced size (0.5x)
+    confidence_boost: number;   // Increased confidence requirement
+  };
+  rejection_reason?: string;
+}
+
 export type EntryUrgencyLevel = 'HIGH' | 'MEDIUM' | 'LOW';
 
 export type TimeoutAction = 'EXECUTE_AT_MARKET' | 'CANCEL';
@@ -76,6 +165,12 @@ export interface EntryIntent {
   canceled_at?: string;
   canceled_reason?: string;
   actual_entry_price?: number;
+
+  // Entry Lifecycle Taxonomy
+  abandonment_reason?: EntryOutcomeReason;
+  outcome_status?: EntryOutcomeStatus;
+  distance_from_zone_atr?: number;
+  escalation_attempted?: boolean;
 }
 
 export interface EntryMonitoringLog {

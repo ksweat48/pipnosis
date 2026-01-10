@@ -31,6 +31,7 @@ import { entryMonitoringNotifications } from './entry-monitoring-notifications';
 import { calculateEQSGrade } from '../utils/eqsHelpers';
 import { tradeStyleRegistry } from './trade-style-registry';
 import { logger } from '../lib/logger';
+import { EntryPreFlightValidator } from './entry-preflight-validator';
 
 export interface WaitDecisionData {
   symbol: string;
@@ -164,6 +165,55 @@ class EntryMonitorCoordinator {
 
     const entryZoneMin = decision.entryZone?.min || (decision.entry - decision.atr * 0.3);
     const entryZoneMax = decision.entryZone?.max || (decision.entry + decision.atr * 0.3);
+
+    // PRE-FLIGHT VALIDATION: Check if intent is viable before creation
+    // This prevents creating intents that will be immediately abandoned (infinite loop fix)
+    logger.info('[ENTRY_MONITOR_COORD] Running pre-flight validation', {
+      symbol: decision.symbol,
+      direction: decision.direction,
+      entryZone: `${entryZoneMin.toFixed(5)} - ${entryZoneMax.toFixed(5)}`,
+    });
+
+    const preFlightResult = await EntryPreFlightValidator.validateBeforeCreation(
+      userId,
+      sessionId,
+      decision.symbol,
+      decision.direction,
+      entryZoneMin,
+      entryZoneMax,
+      'M15'
+    );
+
+    if (!preFlightResult.is_viable) {
+      logger.warn('[ENTRY_MONITOR_COORD] Pre-flight validation FAILED', {
+        symbol: decision.symbol,
+        direction: decision.direction,
+        reason: preFlightResult.rejection_reason,
+        message: preFlightResult.message,
+        distanceATR: preFlightResult.distance_from_zone_atr?.toFixed(2),
+      });
+
+      console.log(
+        '%c[ENTRY_MONITOR_COORD] ❌ INTENT REJECTED - Pre-flight validation failed',
+        'color: #f44336; font-weight: bold',
+        {
+          symbol: decision.symbol,
+          direction: decision.direction,
+          reason: preFlightResult.rejection_reason,
+          distanceATR: preFlightResult.distance_from_zone_atr?.toFixed(2),
+        }
+      );
+
+      return {
+        success: false,
+        error: `Entry intent rejected: ${preFlightResult.message}`,
+      };
+    }
+
+    logger.info('[ENTRY_MONITOR_COORD] Pre-flight validation PASSED', {
+      symbol: decision.symbol,
+      distanceATR: preFlightResult.distance_from_zone_atr?.toFixed(2),
+    });
 
     const maxWaitSeconds = decision.maxWaitSeconds ||
       this.calculateMaxWaitSeconds(decision.style || 'MICRO_INTRADAY', decision.confidence);

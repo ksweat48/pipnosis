@@ -15,7 +15,7 @@ import { marketDataService } from './market-data-service';
 import { tradeStyleRegistry } from './trade-style-registry';
 import { entryQualificationEngine } from './entry-qualification-engine';
 import { logger } from '../lib/logger';
-import type { EntryIntent } from '../types/entry';
+import type { EntryIntent, EntryOutcomeReason } from '../types/entry';
 import type { EntryQualificationInput } from './entry-qualification-engine';
 import { entryMonitoringNotifications } from './entry-monitoring-notifications';
 import { calculateEQSGrade, didGradeImprove } from '../utils/eqsHelpers';
@@ -25,6 +25,7 @@ import { EntryPlannerService } from './entry-planner';
 import { EntryExecutionCoordinator } from './entry-execution-coordinator';
 import { ALPHA_IDENTITY } from '../config/alpha-identity';
 import { EntryUrgencyCalculator } from './entry-urgency-calculator';
+import { entryThesisMemoryService } from './entry-thesis-memory-service';
 
 /**
  * Timeout wrapper for async operations
@@ -120,9 +121,25 @@ export class UnifiedEntryMonitor {
     if (interval) {
       // If a reason is provided, invoke onAbandon callback before cleanup
       if (reason) {
+        // Map AbandonReason to EntryOutcomeReason for taxonomy
+        const outcomeReason = this.mapAbandonReasonToOutcome(reason);
+
+        // Mark thesis as expired if applicable
+        if (outcomeReason && ['RUNAWAY_DETECTED', 'TIMEOUT'].includes(outcomeReason)) {
+          await entryThesisMemoryService.markThesisExpired(intentId, outcomeReason);
+          logger.info(`[UnifiedMonitor] Marked thesis as expired`, {
+            intentId: intentId.substring(0, 8),
+            reason: outcomeReason,
+          });
+        }
+
         const callbacks = this.callbacks.get(intentId);
         if (callbacks?.onAbandon) {
-          console.log(`[UnifiedMonitor] 🛑 Invoking onAbandon callback`, { intentId: intentId.substring(0, 8), reason });
+          console.log(`[UnifiedMonitor] 🛑 Invoking onAbandon callback`, {
+            intentId: intentId.substring(0, 8),
+            reason,
+            outcomeReason,
+          });
           try {
             await callbacks.onAbandon(intentId, reason);
           } catch (error) {
@@ -141,6 +158,23 @@ export class UnifiedEntryMonitor {
       this.consecutiveOutsideZone.delete(intentId);
       console.log(`[UnifiedMonitor] Stopped monitoring ${intentId}`, reason ? `(reason: ${reason})` : '');
     }
+  }
+
+  /**
+   * Map AbandonReason to EntryOutcomeReason for taxonomy
+   */
+  private mapAbandonReasonToOutcome(reason: AbandonReason): EntryOutcomeReason | null {
+    const mapping: Record<AbandonReason, EntryOutcomeReason> = {
+      RUNAWAY_DETECTED: 'RUNAWAY_DETECTED',
+      HARD_INVALIDATION_CROSSED: 'STRUCTURE_INVALIDATED',
+      INTENT_EXPIRED: 'TIMEOUT',
+      INTENT_INVALID: 'STRUCTURE_INVALIDATED',
+      SESSION_INACTIVE: 'USER_CANCELLED',
+      SESSION_MISSING: 'USER_CANCELLED',
+      MONITORING_STALLED: 'STRUCTURE_INVALIDATED',
+    };
+
+    return mapping[reason] || null;
   }
 
   stopAllMonitoring(): void {

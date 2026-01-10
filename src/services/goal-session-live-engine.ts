@@ -41,6 +41,7 @@ import { alphaExecutionPlanner } from './alpha-execution-planner';
 import { entryMonitorCoordinator } from './entry-monitor-coordinator';
 import type { TradeStyle } from './entry-monitor-quality-scorer';
 import { getActiveEntryIntent, type EntryIntentData } from './entry-intent-monitor-mode';
+import { entryThesisMemoryService } from './entry-thesis-memory-service';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
@@ -842,9 +843,88 @@ class GoalSessionLiveEngine {
         console.log(`[MULTI-SYMBOL] Full Council: ${omegaDecisions.size} decisions in ${orchestratorDuration}ms`);
       }
 
+      // 🔒 THESIS FILTER: Remove symbols with expired theses (Infinite Loop Fix)
+      // This prevents rescanning the same symbol after it was abandoned due to runaway price
+      logger.info(LogCategory.AI_TRADING, `[THESIS_FILTER] Checking ${tradeableSnapshots.length} symbols for expired theses...`);
+
+      const filteredSnapshots: typeof tradeableSnapshots = [];
+      const filteredDecisions = new Map<string, any>();
+      let expiredThesisCount = 0;
+
+      for (const snapshot of tradeableSnapshots) {
+        const decision = omegaDecisions.get(snapshot.symbol);
+        if (!decision) {
+          continue;
+        }
+
+        // Only filter if decision is actionable (BUY/SELL/WAIT)
+        if (['BUY', 'SELL', 'WAIT'].includes(decision.action)) {
+          const direction: 'BUY' | 'SELL' = decision.action === 'SELL' ? 'SELL' : 'BUY';
+          const entryZoneCenter = decision.entry || snapshot.price;
+
+          // Check if thesis is expired for this symbol/direction combination
+          const thesisCheck = await entryThesisMemoryService.shouldCreateIntent(
+            this.config.userId,
+            this.config.goalSessionId,
+            snapshot.symbol,
+            direction,
+            entryZoneCenter,
+            'M15'
+          );
+
+          if (!thesisCheck.allowed) {
+            logger.warn(LogCategory.AI_TRADING, `[THESIS_FILTER] ❌ Filtered ${snapshot.symbol} ${direction}`, {
+              reason: thesisCheck.reason,
+              fingerprint: thesisCheck.fingerprint,
+            });
+
+            console.log(
+              '%c[THESIS_FILTER] ❌ FILTERED SYMBOL',
+              'color: #ff9800; font-weight: bold',
+              {
+                symbol: snapshot.symbol,
+                direction,
+                action: decision.action,
+                reason: thesisCheck.reason,
+                fingerprint: thesisCheck.fingerprint,
+              }
+            );
+
+            expiredThesisCount++;
+            continue;
+          }
+        }
+
+        // Symbol passed filter
+        filteredSnapshots.push(snapshot);
+        filteredDecisions.set(snapshot.symbol, decision);
+      }
+
+      logger.info(LogCategory.AI_TRADING, `[THESIS_FILTER] Filtered ${expiredThesisCount} expired theses. ${filteredSnapshots.length}/${tradeableSnapshots.length} symbols remain.`);
+
+      console.log(
+        '%c[THESIS_FILTER] ✅ Filter complete',
+        'color: #4caf50; font-weight: bold',
+        {
+          totalSymbols: tradeableSnapshots.length,
+          expiredFiltered: expiredThesisCount,
+          remainingSymbols: filteredSnapshots.length,
+        }
+      );
+
+      // If all symbols were filtered, return early
+      if (filteredSnapshots.length === 0) {
+        logger.info(LogCategory.AI_TRADING, `[THESIS_FILTER] All symbols have expired theses. Waiting for new opportunities.`);
+        await this.sendAIMessage(
+          `🔒 All detected opportunities have recently been abandoned. Waiting for market structure to evolve before reassessing.`
+        );
+        return;
+      }
+
+      // Use filtered snapshots and decisions for selection
       const bestSymbolResult = bestSymbolSelector.selectBestSymbol(
-        tradeableSnapshots,
-        omegaDecisions
+        filteredSnapshots,
+        filteredDecisions
       );
 
       bestSymbolSelector.logEvaluationDetails(bestSymbolResult);
