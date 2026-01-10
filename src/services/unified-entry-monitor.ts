@@ -580,7 +580,7 @@ export class UnifiedEntryMonitor {
         // Calculate time-based urgency for notification
         const alphaConfidence = intent.alpha_confidence || 60;
         const createdAt = new Date(intent.created_at);
-        const style = intent.style || 'MICRO_INTRADAY';
+        // Use the style parameter passed to the function
 
         const urgencyResult = EntryUrgencyCalculator.calculateUrgency(
           createdAt,
@@ -624,7 +624,7 @@ export class UnifiedEntryMonitor {
       // SSOT: Calculate time-based urgency (Phase 1/2/3)
       const alphaConfidence = intent.alpha_confidence || 60;
       const createdAt = new Date(intent.created_at);
-      const style = intent.style || 'MICRO_INTRADAY';
+      // Use the style parameter passed to the function
 
       const urgencyResult = EntryUrgencyCalculator.calculateUrgency(
         createdAt,
