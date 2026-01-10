@@ -422,7 +422,13 @@ class SmartGoalSessionManager {
 
   /**
    * Schedule next scan for a session
-   * Called after intent expiration or scan completion
+   *
+   * NOTE: This schedules REGULAR scans (15 minute interval).
+   * IMMEDIATE restarts after abandonment are handled by:
+   * - entry-monitor-coordinator.ts (30 second client-side restart)
+   * - Database trigger (1 minute server-side restart on intent timeout)
+   *
+   * This method is for normal scheduled scanning between opportunities.
    */
   private async scheduleNextScan(sessionId: string): Promise<void> {
     try {
@@ -432,7 +438,7 @@ class SmartGoalSessionManager {
         return;
       }
 
-      // Calculate next scan time (15 minutes from now for intraday)
+      // Calculate next scan time (15 minutes from now for regular scheduled scans)
       const scanIntervalMs = (session.strategy.scanIntervalMinutes || 15) * 60 * 1000;
       const nextScanTime = new Date(Date.now() + scanIntervalMs);
 

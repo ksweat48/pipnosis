@@ -80,6 +80,8 @@ class EntryMonitorCoordinator {
   private onRescanRequested: ((sessionId: string) => void) | null = null;
   private monitoringFailureCount: Map<string, number> = new Map(); // Track failures per session
   private lastFailureTime: Map<string, number> = new Map(); // Track last failure timestamp
+  private abandonmentCount: Map<string, number> = new Map(); // Track abandonments per session for throttling
+  private lastAbandonmentTime: Map<string, number> = new Map(); // Track last abandonment timestamp
 
   setExecuteTradeCallback(callback: ExecuteTradeCallback): void {
     this.executeTradeCallback = callback;
@@ -459,9 +461,43 @@ class EntryMonitorCoordinator {
     await this.stopMonitoring(sessionId);
     await this.transitionState(sessionId, 'ABANDONED_RESCAN_REQUESTED');
 
-    // Update session to schedule next scan
-    const scanIntervalMinutes = 15; // Default scan interval for intraday
-    const nextScanTime = new Date(Date.now() + scanIntervalMinutes * 60 * 1000);
+    // SAFETY THROTTLING: Prevent infinite abandonment loops
+    // Track abandonments per session and throttle if too frequent
+    const now = Date.now();
+    const lastAbandon = this.lastAbandonmentTime.get(sessionId) || 0;
+    const abandonCount = this.abandonmentCount.get(sessionId) || 0;
+
+    // Reset counter if last abandonment was more than 10 minutes ago
+    let currentAbandonCount = abandonCount;
+    if (now - lastAbandon > 10 * 60 * 1000) {
+      currentAbandonCount = 1;
+      this.abandonmentCount.set(sessionId, 1);
+    } else {
+      currentAbandonCount = abandonCount + 1;
+      this.abandonmentCount.set(sessionId, currentAbandonCount);
+    }
+    this.lastAbandonmentTime.set(sessionId, now);
+
+    // Throttling logic: If 3+ abandonments in 10 minutes, use longer delay
+    let scanIntervalSeconds: number;
+    let throttleMessage: string;
+
+    if (currentAbandonCount >= 3) {
+      // After 3 abandonments, use 5 minute delay to prevent runaway loops
+      scanIntervalSeconds = 5 * 60;
+      throttleMessage = `⚠️ THROTTLED (${currentAbandonCount} abandonments in 10min) - Using 5min delay`;
+      console.warn('[ENTRY_MONITOR_COORD] THROTTLING: Too many abandonments, using longer delay', {
+        sessionId: sessionId.substring(0, 8),
+        abandonCount: currentAbandonCount,
+        delay: '5 minutes'
+      });
+    } else {
+      // Normal case: immediate restart with 30 second cooldown
+      scanIntervalSeconds = 30;
+      throttleMessage = 'Looking for new opportunity right away!';
+    }
+
+    const nextScanTime = new Date(Date.now() + scanIntervalSeconds * 1000);
 
     await supabase
       .from('goal_sessions')
@@ -472,10 +508,13 @@ class EntryMonitorCoordinator {
       })
       .eq('id', sessionId);
 
-    console.log('[ENTRY_MONITOR_COORD] ⏰ Next scan scheduled after abandonment', {
+    console.log('[ENTRY_MONITOR_COORD] 🚀 RESCAN scheduled after abandonment', {
       sessionId: sessionId.substring(0, 8),
       reason,
-      nextScanTime: nextScanTime.toLocaleTimeString()
+      nextScanTime: nextScanTime.toLocaleTimeString(),
+      delaySeconds: scanIntervalSeconds,
+      abandonCount: currentAbandonCount,
+      message: throttleMessage
     });
 
     if (this.onRescanRequested) {
