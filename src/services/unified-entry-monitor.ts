@@ -24,6 +24,7 @@ import { getEntryIntentById, type AbandonReason } from './entry-intent-monitor-m
 import { EntryPlannerService } from './entry-planner';
 import { EntryExecutionCoordinator } from './entry-execution-coordinator';
 import { ALPHA_IDENTITY } from '../config/alpha-identity';
+import { EntryUrgencyCalculator } from './entry-urgency-calculator';
 
 /**
  * Timeout wrapper for async operations
@@ -576,12 +577,18 @@ export class UnifiedEntryMonitor {
         const oldGrade = calculateEQSGrade(lastEQS);
         const newGrade = calculateEQSGrade(currentEQS);
 
-        // Use confidence-adjusted threshold for required grade
+        // Calculate time-based urgency for notification
         const alphaConfidence = intent.alpha_confidence || 60;
-        const { getConfidenceAdjustedEQSThreshold } = await import('../config/alpha-identity');
-        const adjustedEQSThreshold = getConfidenceAdjustedEQSThreshold(alphaConfidence);
-        const requiredGrade = calculateEQSGrade(adjustedEQSThreshold);
+        const createdAt = new Date(intent.created_at);
+        const style = intent.style || 'MICRO_INTRADAY';
 
+        const urgencyResult = EntryUrgencyCalculator.calculateUrgency(
+          createdAt,
+          style as any,
+          alphaConfidence
+        );
+
+        const requiredGrade = calculateEQSGrade(urgencyResult.timeAdjustedThreshold);
         const inEntryZone = priceData.price >= intent.entry_zone_min && priceData.price <= intent.entry_zone_max;
 
         const { data: session } = await supabase
@@ -601,7 +608,7 @@ export class UnifiedEntryMonitor {
             newEQS: currentEQS,
             oldGrade,
             newGrade,
-            requiredEQS: adjustedEQSThreshold,
+            requiredEQS: urgencyResult.timeAdjustedThreshold,
             requiredGrade,
             currentPrice: priceData.price,
             inEntryZone
@@ -611,18 +618,55 @@ export class UnifiedEntryMonitor {
 
       this.lastEQSScores.set(intentId, currentEQS);
 
-      // Step 8: Make execution decision with confidence-adjusted EQS threshold
+      // Step 8: Make execution decision with time-based urgency + confidence
       console.log('[UnifiedMonitor] Step 8/8: Making execution decision...');
 
-      // SSOT: Use confidence-adjusted EQS threshold for high-conviction trades
+      // SSOT: Calculate time-based urgency (Phase 1/2/3)
       const alphaConfidence = intent.alpha_confidence || 60;
-      const { getConfidenceAdjustedEQSThreshold } = await import('../config/alpha-identity');
-      const adjustedEQSThreshold = getConfidenceAdjustedEQSThreshold(alphaConfidence);
+      const createdAt = new Date(intent.created_at);
+      const style = intent.style || 'MICRO_INTRADAY';
+
+      const urgencyResult = EntryUrgencyCalculator.calculateUrgency(
+        createdAt,
+        style as any,
+        alphaConfidence
+      );
+
+      // Check if intent expired
+      if (urgencyResult.isExpired) {
+        console.log('%c[UnifiedMonitor] ⏰ INTENT EXPIRED', 'color: #f44336; font-weight: bold', {
+          minutesElapsed: urgencyResult.minutesElapsed.toFixed(1),
+          style,
+          intentId: intentId.substring(0, 8)
+        });
+        await this.stopMonitoring(intentId, 'INTENT_EXPIRED');
+        return;
+      }
+
+      // Use time-adjusted threshold (decays over time)
+      const adjustedEQSThreshold = urgencyResult.timeAdjustedThreshold;
+
+      // Update database with urgency phase
+      try {
+        await supabase
+          .from('entry_intents')
+          .update({
+            urgency_phase: urgencyResult.phase,
+            phase_entered_at: urgencyResult.phase !== (intent.urgency_phase || 1)
+              ? new Date().toISOString()
+              : undefined,
+            time_adjusted_threshold: adjustedEQSThreshold,
+            alpha_confidence: alphaConfidence
+          })
+          .eq('id', intentId);
+      } catch (error) {
+        logger.error('[UnifiedMonitor] Failed to update urgency phase', error);
+      }
 
       const eqsMeetsThreshold = currentEQS >= adjustedEQSThreshold;
       const statusReady = eqsResult.status === 'EXECUTE_NOW';
 
-      console.log(`[UnifiedMonitor] 🎯 Confidence-Adjusted Threshold: Alpha confidence ${alphaConfidence}% → EQS threshold ${adjustedEQSThreshold} (baseline: ${styleConfig.eqsThreshold})`);
+      console.log(`[UnifiedMonitor] 🎯 Time-Urgency Threshold: Phase ${urgencyResult.phase} (${EntryUrgencyCalculator.getPhaseDescription(urgencyResult.phase)}) → EQS threshold ${adjustedEQSThreshold} (baseline: 60, Alpha confidence: ${alphaConfidence}%, elapsed: ${urgencyResult.minutesElapsed.toFixed(1)}m)`);
 
       // Calculate zone width and near-zone distance
       const zoneWidth = intent.entry_zone_max - intent.entry_zone_min;
@@ -660,10 +704,14 @@ export class UnifiedEntryMonitor {
         statusReady,
         eqsMeetsThreshold,
         eqsScore: currentEQS,
-        baselineThreshold: styleConfig.eqsThreshold,
+        baselineThreshold: 60,
         adjustedThreshold: adjustedEQSThreshold,
+        urgencyPhase: urgencyResult.phase,
+        minutesElapsed: urgencyResult.minutesElapsed.toFixed(1),
+        minutesUntilNextPhase: urgencyResult.minutesUntilNextPhase?.toFixed(1) || 'N/A',
+        minutesUntilExpiry: urgencyResult.minutesUntilExpiry.toFixed(1),
         alphaConfidence: alphaConfidence,
-        confidenceBonus: styleConfig.eqsThreshold - adjustedEQSThreshold,
+        thresholdDecay: 60 - adjustedEQSThreshold,
         inEntryZone,
         isNearZone,
         distanceToZone: distanceToZone.toFixed(5),

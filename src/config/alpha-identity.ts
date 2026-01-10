@@ -49,6 +49,54 @@ export const EQS_CONFIDENCE_TIERS = {
   ACCEPTABLE: { minConfidence: 60, eqsAdjustment: 0 },   // 60%+ confidence: EQS 60
 } as const;
 
+/**
+ * TIME-BASED ENTRY URGENCY CONFIGURATION
+ *
+ * Automatically applied based on trading style (no user choice):
+ * - SCALP: Fast urgency (5/15/25 min phase transitions)
+ * - MICRO_INTRADAY: Medium urgency (8/20/35 min transitions)
+ * - INTRADAY: Slower urgency (15/35/55 min transitions)
+ *
+ * Phase Progression:
+ * - Phase 1 (STRICT): Base threshold (60)
+ * - Phase 2 (RELAXED): Threshold -10 (50)
+ * - Phase 3 (URGENT): Threshold -20 (40)
+ *
+ * High Alpha confidence accelerates phase transitions
+ */
+export const ENTRY_URGENCY_CONFIG = {
+  PHASE_THRESHOLDS: {
+    PHASE_1: { threshold: 60, description: 'Strict - Original threshold' },
+    PHASE_2: { threshold: 50, description: 'Relaxed - Near zone acceptable' },
+    PHASE_3: { threshold: 40, description: 'Urgent - Continuation entries allowed' },
+  },
+
+  STYLE_TIME_THRESHOLDS: {
+    SCALP: {
+      PHASE_2_MINUTES: 5,   // Enter Phase 2 at 5 minutes
+      PHASE_3_MINUTES: 15,  // Enter Phase 3 at 15 minutes
+      MAX_WAIT_MINUTES: 25, // Expire intent at 25 minutes
+    },
+    MICRO_INTRADAY: {
+      PHASE_2_MINUTES: 8,
+      PHASE_3_MINUTES: 20,
+      MAX_WAIT_MINUTES: 35,
+    },
+    INTRADAY: {
+      PHASE_2_MINUTES: 15,
+      PHASE_3_MINUTES: 35,
+      MAX_WAIT_MINUTES: 55,
+    },
+  },
+
+  // High confidence accelerates phase transitions
+  CONFIDENCE_ACCELERATION: {
+    EXCELLENT: 0.75,  // 85%+ confidence: 25% faster phase transitions
+    SOLID: 0.85,      // 70%+ confidence: 15% faster
+    ACCEPTABLE: 1.0,  // 60%+ confidence: Normal speed
+  },
+} as const;
+
 export const ALPHA_IDENTITY = {
   MINIMUM_TRADE_CONFIDENCE: 60,
 

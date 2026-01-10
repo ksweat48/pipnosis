@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import type { ActiveEntryIntent } from '../types/entry';
-import { Clock, TrendingUp, TrendingDown, Target, X } from 'lucide-react';
+import { Clock, TrendingUp, TrendingDown, Target, X, Zap } from 'lucide-react';
 import { EntryExecutionCoordinator } from '../services/entry-execution-coordinator';
+import { EntryUrgencyCalculator } from '../services/entry-urgency-calculator';
 
 export function ActiveEntryIntents() {
   const { user } = useAuth();
@@ -95,6 +96,24 @@ interface EntryIntentCardProps {
 
 function EntryIntentCard({ intent, onCancel }: EntryIntentCardProps) {
   const isLong = intent.direction === 'long';
+
+  // Calculate urgency phase
+  const createdAt = new Date(intent.created_at);
+  const style = intent.style || 'MICRO_INTRADAY';
+  const alphaConfidence = intent.alpha_confidence || 60;
+
+  const urgencyResult = EntryUrgencyCalculator.calculateUrgency(
+    createdAt,
+    style as any,
+    alphaConfidence
+  );
+
+  const phaseColors = {
+    1: { bg: 'bg-blue-500/20', text: 'text-blue-400', border: 'border-blue-500/30' },
+    2: { bg: 'bg-yellow-500/20', text: 'text-yellow-400', border: 'border-yellow-500/30' },
+    3: { bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/30' }
+  }[urgencyResult.phase];
+
   const urgencyColor = {
     HIGH: 'text-red-400',
     MEDIUM: 'text-yellow-400',
@@ -175,6 +194,28 @@ function EntryIntentCard({ intent, onCancel }: EntryIntentCardProps) {
           <span className={`font-medium ${minutesRemaining < 10 ? 'text-orange-400' : 'text-slate-300'}`}>
             {minutesRemaining} min
           </span>
+        </div>
+
+        <div className={`p-2 rounded-lg border ${phaseColors.bg} ${phaseColors.border}`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Zap className={`w-4 h-4 ${phaseColors.text}`} />
+              <span className={`text-xs font-medium ${phaseColors.text}`}>
+                Phase {urgencyResult.phase}
+              </span>
+            </div>
+            <span className={`text-xs ${phaseColors.text}`}>
+              EQS {urgencyResult.timeAdjustedThreshold}
+            </span>
+          </div>
+          <div className="text-xs text-slate-400 mt-1">
+            {EntryUrgencyCalculator.getPhaseDescription(urgencyResult.phase)}
+          </div>
+          {urgencyResult.minutesUntilNextPhase && (
+            <div className="text-xs text-slate-500 mt-1">
+              Next phase in {EntryUrgencyCalculator.formatTimeRemaining(urgencyResult.minutesUntilNextPhase)}
+            </div>
+          )}
         </div>
       </div>
 
