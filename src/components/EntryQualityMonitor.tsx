@@ -42,10 +42,9 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
   const [latestEQS, setLatestEQS] = useState<EQSUpdate | null>(null);
   const [loading, setLoading] = useState(true);
   const [waitingForMonitoring, setWaitingForMonitoring] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
 
-  const { activeIntent, loading: intentLoading, refresh: refreshIntent } = useActiveEntryIntent(sessionId);
+  const { activeIntent, loading: intentLoading } = useActiveEntryIntent(sessionId);
 
   useEffect(() => {
     console.log('[EntryQualityMonitor] 🔄 Component effect triggered', {
@@ -53,24 +52,14 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
       intentId: activeIntent?.id?.substring(0, 8),
       intentStatus: activeIntent?.status,
       sessionId: sessionId?.substring(0, 8),
-      intentLoading,
-      retryCount
+      intentLoading
     });
 
+    // Show waiting state when no intent and not loading
+    // Hook's realtime subscription will automatically update when intent is created
     if (!activeIntent && !intentLoading) {
-      // RETRY LOGIC: If no intent found but we haven't retried yet, try again
-      if (retryCount < 3) {
-        console.log(`[EntryQualityMonitor] 🔄 No intent found, retrying... (attempt ${retryCount + 1}/3)`);
-        const retryTimeout = setTimeout(() => {
-          setRetryCount(prev => prev + 1);
-          refreshIntent();
-        }, 2000);
-
-        return () => clearTimeout(retryTimeout);
-      }
-
-      // After 3 retries, show waiting state
-      console.log('[EntryQualityMonitor] ⏳ No active intent after retries, showing waiting state');
+      console.log('[EntryQualityMonitor] ⏳ No active intent yet, showing waiting state');
+      console.log('[EntryQualityMonitor] 💡 Realtime subscription in hook will notify when intent is created');
       setLatestEQS(null);
       setLoading(false);
       setWaitingForMonitoring(true);
@@ -80,12 +69,6 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
     if (!activeIntent) {
       // Still loading initial data
       return;
-    }
-
-    // Reset retry count when we get an intent
-    if (retryCount > 0) {
-      console.log('[EntryQualityMonitor] ✅ Intent found after retry, resetting retry count');
-      setRetryCount(0);
     }
 
     console.log('[EntryQualityMonitor] ✅ Active intent found, starting monitoring', {
@@ -102,8 +85,7 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
       loadLatestEQS(activeIntent.id);
     }, 5000);
 
-    // FIXED: Subscribe using session_id instead of intent_id
-    // This ensures we get updates even if intent_id is not passed as prop
+    // Subscribe to EQS monitoring logs for this intent
     const channel = supabase
       .channel(`eqs-updates-${sessionId}`)
       .on(
@@ -112,7 +94,6 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
           event: 'INSERT',
           schema: 'public',
           table: 'entry_monitoring_logs',
-          // Use intent_id from activeIntent for filtering
           filter: `intent_id=eq.${activeIntent.id}`
         },
         (payload) => {
@@ -123,7 +104,7 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
         }
       )
       .subscribe((status) => {
-        console.log('[EntryQualityMonitor] 📡 Subscription status:', status);
+        console.log('[EntryQualityMonitor] 📡 EQS subscription status:', status);
       });
 
     return () => {
@@ -131,7 +112,7 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
       clearInterval(interval);
       supabase.removeChannel(channel);
     };
-  }, [activeIntent, sessionId, intentLoading, retryCount, refreshIntent]);
+  }, [activeIntent, sessionId, intentLoading]);
 
   const loadLatestEQS = async (currentIntentId: string) => {
     console.log('[EntryQualityMonitor] 🔍 Loading EQS data for intent:', currentIntentId.substring(0, 8));

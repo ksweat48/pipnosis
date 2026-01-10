@@ -11,6 +11,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '../lib/supabase';
 import {
   getActiveEntryIntent,
   getEntryIntentById,
@@ -66,8 +67,60 @@ export function useActiveEntryIntent(sessionId: string | null): UseActiveEntryIn
   }, [sessionId]);
 
   useEffect(() => {
+    if (!sessionId) {
+      return;
+    }
+
+    // Initial load
     loadIntent();
-  }, [loadIntent]);
+
+    // Set up realtime subscription for entry_intents table changes
+    console.log('[useActiveEntryIntent] 📡 Setting up realtime subscription for session:', sessionId.substring(0, 8));
+
+    const channel = supabase
+      .channel(`entry-intents-${sessionId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen for INSERT, UPDATE, DELETE
+          schema: 'public',
+          table: 'entry_intents',
+          filter: `session_id=eq.${sessionId}`
+        },
+        (payload) => {
+          console.log('[useActiveEntryIntent] 🔔 Realtime update received:', {
+            event: payload.eventType,
+            intentId: payload.new?.id?.substring(0, 8) || payload.old?.id?.substring(0, 8),
+            status: payload.new?.status
+          });
+
+          // Refresh intent data when any change occurs
+          loadIntent();
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('[useActiveEntryIntent] 📡 Realtime subscription CONNECTED for session:', sessionId.substring(0, 8));
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn('[useActiveEntryIntent] ⚠️ Realtime subscription ERROR/TIMEOUT:', status);
+        } else if (status === 'CLOSED') {
+          console.log('[useActiveEntryIntent] 📡 Realtime subscription CLOSED');
+        }
+      });
+
+    // Set up fallback polling (30 seconds) as safety net
+    const pollInterval = setInterval(() => {
+      console.log('[useActiveEntryIntent] 🔄 Fallback poll (subscription backup)');
+      loadIntent();
+    }, 30000);
+
+    // Cleanup
+    return () => {
+      console.log('[useActiveEntryIntent] 🧹 Cleaning up subscription and polling');
+      supabase.removeChannel(channel);
+      clearInterval(pollInterval);
+    };
+  }, [loadIntent, sessionId]);
 
   return {
     activeIntent,
