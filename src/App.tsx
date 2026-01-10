@@ -113,17 +113,19 @@ const AppRoutes: React.FC = () => {
   }, []);
 
   // Data quality startup - validate and repair candle data
-  useEffect(() => {
-    const initDataQuality = async () => {
-      const { dataQualityStartup } = await import('./services/data-quality-startup');
-      await dataQualityStartup.runStartupChecks();
-    };
+  // DISABLED: Automatic repair on startup disabled to prevent console spam
+  // To manually run data quality checks, use: dataQualityStartup.forceRerun()
+  // useEffect(() => {
+  //   const initDataQuality = async () => {
+  //     const { dataQualityStartup } = await import('./services/data-quality-startup');
+  //     await dataQualityStartup.runStartupChecks();
+  //   };
 
-    // Run in background - don't block app startup
-    initDataQuality().catch(error => {
-      console.error('[App] Data quality check failed:', error);
-    });
-  }, []);
+  //   // Run in background - don't block app startup
+  //   initDataQuality().catch(error => {
+  //     console.error('[App] Data quality check failed:', error);
+  //   });
+  // }, []);
 
   useEffect(() => {
     if (!user) return;

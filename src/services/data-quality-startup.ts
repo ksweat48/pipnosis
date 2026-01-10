@@ -1,13 +1,19 @@
 /**
  * Data Quality Startup Service
  *
- * Runs on app initialization to validate and repair candle data.
+ * STATUS: DISABLED BY DEFAULT (to prevent console spam on startup)
+ *
+ * Validates and repairs candle data for crypto symbols.
  * Ensures EQS calculations always have complete, high-quality data.
  *
  * WORKFLOW:
  * 1. Check data quality for crypto symbols (BTCUSD, ETHUSD)
  * 2. If DOJIs or gaps found, trigger Kraken REST backfill
  * 3. Run silently in background - doesn't block app startup
+ *
+ * MANUAL USAGE:
+ * To run manually: dataQualityStartup.forceRerun()
+ * To re-enable automatic startup: Uncomment in App.tsx (lines 118-128)
  */
 
 import { logger, LogCategory } from '@/lib/logger';
