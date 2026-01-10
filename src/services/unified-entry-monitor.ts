@@ -132,13 +132,36 @@ export class UnifiedEntryMonitor {
           });
         }
 
-        // Mark thesis as expired if applicable
+        // Mark thesis as expired if applicable (SSOT: load intent data first)
         if (outcomeReason && ['RUNAWAY_DETECTED', 'TIMEOUT'].includes(outcomeReason)) {
-          await entryThesisMemoryService.markThesisExpired(intentId, outcomeReason);
-          logger.info(`[UnifiedMonitor] Marked thesis as expired`, {
-            intentId: intentId.substring(0, 8),
-            reason: outcomeReason,
-          });
+          try {
+            const intent = await this.getIntent(intentId);
+            if (intent) {
+              // Pass full intent data to service (SSOT compliance)
+              await entryThesisMemoryService.markThesisExpired(
+                {
+                  id: intent.id,
+                  user_id: intent.user_id,
+                  session_id: intent.session_id,
+                  symbol: intent.symbol,
+                  direction: intent.direction,
+                  entry_zone_min: intent.entry_zone_min,
+                  entry_zone_max: intent.entry_zone_max,
+                  style: undefined, // Will use default M15 timeframe
+                },
+                outcomeReason
+              );
+              logger.info(`[UnifiedMonitor] Marked thesis as expired`, {
+                intentId: intentId.substring(0, 8),
+                reason: outcomeReason,
+              });
+            }
+          } catch (error) {
+            logger.error(`[UnifiedMonitor] Failed to mark thesis expired`, {
+              error,
+              intentId: intentId.substring(0, 8),
+            });
+          }
         }
 
         const callbacks = this.callbacks.get(intentId);

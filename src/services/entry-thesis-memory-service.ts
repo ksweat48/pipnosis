@@ -159,26 +159,75 @@ class EntryThesisMemoryService {
 
   /**
    * Mark thesis as expired (called when intent is abandoned due to runaway)
+   *
+   * SSOT Authority: This service owns fingerprint generation and thesis expiration logic.
+   * The database only stores what we calculate here.
+   *
+   * @param intent - Full intent data (already loaded by caller)
+   * @param abandonmentReason - Why the thesis was abandoned
+   * @param expirationMinutes - How long to block this thesis
    */
   async markThesisExpired(
-    entryIntentId: string,
+    intent: {
+      id: string;
+      user_id: string;
+      session_id: string;
+      symbol: string;
+      direction: 'long' | 'short';
+      entry_zone_min: number;
+      entry_zone_max: number;
+      style?: string;
+    },
     abandonmentReason: EntryOutcomeReason,
     expirationMinutes: number = 10
   ): Promise<void> {
     try {
-      const { error } = await supabase.rpc('mark_thesis_expired', {
-        p_entry_intent_id: entryIntentId,
+      // Calculate structure anchor (SSOT: midpoint of entry zone)
+      const structureAnchor = (intent.entry_zone_min + intent.entry_zone_max) / 2;
+
+      // Map direction from database format to thesis format
+      const direction: 'BUY' | 'SELL' = intent.direction === 'long' ? 'BUY' : 'SELL';
+
+      // Determine timeframe from style (SSOT: M15 default for all intraday styles)
+      const timeframe = 'M15';
+
+      // Generate fingerprint using SSOT logic
+      const thesis = this.generateFingerprint(
+        intent.symbol,
+        direction,
+        structureAnchor,
+        timeframe
+      );
+
+      // Calculate expiration timestamp
+      const expiresAt = new Date(Date.now() + expirationMinutes * 60 * 1000).toISOString();
+
+      // Store in database - database is ONLY storage, no recalculation
+      const { error } = await supabase.rpc('mark_thesis_expired_v2', {
+        p_entry_intent_id: intent.id,
+        p_user_id: intent.user_id,
+        p_session_id: intent.session_id,
+        p_symbol: thesis.symbol,
+        p_direction: thesis.direction,
+        p_structure_anchor: thesis.structure_anchor,
+        p_timeframe: thesis.timeframe,
+        p_thesis_fingerprint: thesis.fingerprint,
         p_abandonment_reason: abandonmentReason,
-        p_expiration_duration: `${expirationMinutes} minutes`,
+        p_expires_at: expiresAt,
       });
 
       if (error) {
-        logger.error('Failed to mark thesis as expired', { error, entryIntentId });
+        logger.error('Failed to mark thesis as expired', { error, intentId: intent.id });
       } else {
-        logger.info('Marked thesis as expired', { entryIntentId, abandonmentReason });
+        logger.info('Marked thesis as expired', {
+          intentId: intent.id,
+          fingerprint: thesis.fingerprint,
+          abandonmentReason,
+          expiresAt
+        });
       }
     } catch (error) {
-      logger.error('Error marking thesis expired', { error, entryIntentId });
+      logger.error('Error marking thesis expired', { error, intentId: intent.id });
     }
   }
 
