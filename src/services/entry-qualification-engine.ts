@@ -283,9 +283,9 @@ class EntryQualificationEngine {
           reclaimQuality: metrics.vwapAlignment ? 4 : 1,
         },
         emaAlignment: {
-          directionMatch: metrics.momentumConfirmation ? 4 : 1,
+          directionMatch: this.checkEMAAlignment(input.entryPrice, input.m5EMA20, input.direction) ? 4 : 1,
           slopeStrength: 2,
-          crossoverRecent: 2,
+          crossoverRecent: metrics.momentumConfirmation ? 2 : 1, // Use candle momentum for crossover proxy
         },
         liquidityReaction: {
           poolResponse: Math.min(8, Math.round((locationScore.details.liquidityLocation / 8) * 8)),
@@ -524,11 +524,20 @@ class EntryQualificationEngine {
       patternConfirmation = 3; // No pattern, neutral
     }
 
-    // C. Momentum Alignment (0-5 points)
-    if (metrics.momentumConfirmation) {
-      momentumAlignment = 5; // Momentum confirms direction
+    // C. Momentum Alignment (0-5 points) - NOW PROPERLY CHECKS EMA ALIGNMENT
+    // This combines both EMA alignment AND candle momentum for a complete picture
+    const emaAlignment = this.checkEMAAlignment(input.entryPrice, input.m5EMA20, input.direction);
+    const candleMomentum = metrics.momentumConfirmation;
+
+    // Award points based on EMA + candle alignment
+    if (emaAlignment && candleMomentum) {
+      momentumAlignment = 5; // Perfect: Both EMA and candles align
+    } else if (emaAlignment) {
+      momentumAlignment = 3; // Good: EMA aligned even if candles mixed
+    } else if (candleMomentum) {
+      momentumAlignment = 2; // Partial: Candles align but not EMA
     } else {
-      momentumAlignment = 0; // Momentum against - penalty instead of block
+      momentumAlignment = 0; // Neither aligns
     }
 
     const total = candleAcceptanceScore + patternConfirmation + momentumAlignment;
@@ -1004,7 +1013,32 @@ class EntryQualificationEngine {
   }
 
   /**
-   * Helper: Check if momentum confirmed
+   * Helper: Check if EMA20 aligned with trade direction
+   * This is the REAL EMA alignment check that awards partial credit
+   */
+  private checkEMAAlignment(entryPrice: number, ema20: number, direction: 'BUY' | 'SELL'): boolean {
+    if (!ema20 || ema20 <= 0) return false;
+
+    const distancePercent = Math.abs((entryPrice - ema20) / ema20) * 100;
+    const isTooFar = distancePercent > 0.5; // More than 0.5% away = too far
+
+    if (direction === 'BUY') {
+      // For longs, price should be above or near EMA20 (within 0.3%)
+      // Allow slight pullback below EMA20 for entries
+      const priceRelative = (entryPrice - ema20) / ema20;
+      return priceRelative >= -0.003 && !isTooFar; // Allow 0.3% below, max 0.5% away
+    } else {
+      // For shorts, price should be below or near EMA20 (within 0.3%)
+      // Allow slight bounce above EMA20 for entries
+      const priceRelative = (ema20 - entryPrice) / ema20;
+      return priceRelative >= -0.003 && !isTooFar; // Allow 0.3% above, max 0.5% away
+    }
+  }
+
+  /**
+   * Helper: Check if candle momentum confirmed (color-based)
+   * NOTE: This checks CANDLE COLORS, not EMA alignment!
+   * Use checkEMAAlignment() for actual EMA-based scoring.
    */
   private isMomentumConfirmed(candles: M5Candle[], direction: 'BUY' | 'SELL'): boolean {
     if (candles.length < 3) return false;
