@@ -1,12 +1,13 @@
 import {
   ALPHA_IDENTITY,
   shouldExecute,
-  shouldWaitPullback,
   getEntryMode,
+  getConfidenceAdjustedEQSThreshold,
   isLegitimateBlockCondition,
   calculateAdvisoryPenalty,
   EQS_WEIGHTED_FACTORS,
   EQS_TOTAL_WEIGHT,
+  EQS_CONFIDENCE_TIERS,
 } from '../config/alpha-identity';
 
 describe('Alpha Identity Configuration', () => {
@@ -22,20 +23,20 @@ describe('Alpha Identity Configuration', () => {
       expect(ALPHA_IDENTITY.CONFIDENCE_BANDS.INSUFFICIENT.max).toBe(59);
     });
 
-    it('should have correct SCALP EQS thresholds', () => {
-      expect(ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.EXECUTE_IMMEDIATELY).toBe(85);
-      expect(ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.WAIT_PULLBACK.min).toBe(70);
-      expect(ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.WAIT_PULLBACK.max).toBe(84);
+    it('should have unified EQS baseline threshold of 60', () => {
+      expect(ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD).toBe(60);
+      expect(ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.EXECUTE_IMMEDIATELY).toBe(60);
+      expect(ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.EXECUTE_IMMEDIATELY).toBe(60);
+      expect(ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.INTRADAY.EXECUTE_IMMEDIATELY).toBe(60);
     });
 
-    it('should have correct MICRO_INTRADAY EQS thresholds', () => {
-      expect(ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.EXECUTE_IMMEDIATELY).toBe(80);
-      expect(ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.WAIT_PULLBACK.min).toBe(65);
-    });
-
-    it('should have correct INTRADAY EQS thresholds', () => {
-      expect(ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.INTRADAY.EXECUTE_IMMEDIATELY).toBe(80);
-      expect(ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.INTRADAY.WAIT_PULLBACK.min).toBe(65);
+    it('should have confidence-based relaxation tiers', () => {
+      expect(EQS_CONFIDENCE_TIERS.EXCELLENT.minConfidence).toBe(85);
+      expect(EQS_CONFIDENCE_TIERS.EXCELLENT.eqsAdjustment).toBe(-10);
+      expect(EQS_CONFIDENCE_TIERS.SOLID.minConfidence).toBe(70);
+      expect(EQS_CONFIDENCE_TIERS.SOLID.eqsAdjustment).toBe(-5);
+      expect(EQS_CONFIDENCE_TIERS.ACCEPTABLE.minConfidence).toBe(60);
+      expect(EQS_CONFIDENCE_TIERS.ACCEPTABLE.eqsAdjustment).toBe(0);
     });
 
     it('should have max advisory penalty of 30', () => {
@@ -72,50 +73,58 @@ describe('Alpha Identity Configuration', () => {
     });
   });
 
+  describe('getConfidenceAdjustedEQSThreshold', () => {
+    it('should return 60 for baseline confidence (60-69%)', () => {
+      expect(getConfidenceAdjustedEQSThreshold(60)).toBe(60);
+      expect(getConfidenceAdjustedEQSThreshold(65)).toBe(60);
+      expect(getConfidenceAdjustedEQSThreshold(69)).toBe(60);
+    });
+
+    it('should return 55 for solid confidence (70-84%)', () => {
+      expect(getConfidenceAdjustedEQSThreshold(70)).toBe(55);
+      expect(getConfidenceAdjustedEQSThreshold(75)).toBe(55);
+      expect(getConfidenceAdjustedEQSThreshold(84)).toBe(55);
+    });
+
+    it('should return 50 for excellent confidence (85%+)', () => {
+      expect(getConfidenceAdjustedEQSThreshold(85)).toBe(50);
+      expect(getConfidenceAdjustedEQSThreshold(90)).toBe(50);
+      expect(getConfidenceAdjustedEQSThreshold(100)).toBe(50);
+    });
+  });
+
   describe('shouldExecute', () => {
     it('should return false when confidence below minimum', () => {
       expect(shouldExecute(59, 90, 'SCALP')).toBe(false);
       expect(shouldExecute(50, 90, 'MICRO_INTRADAY')).toBe(false);
     });
 
-    it('should return true for SCALP when confidence>=60 and EQS>=85', () => {
-      expect(shouldExecute(60, 85, 'SCALP')).toBe(true);
-      expect(shouldExecute(75, 90, 'SCALP')).toBe(true);
+    it('should use confidence-adjusted EQS thresholds', () => {
+      // Confidence 60%: requires EQS 60
+      expect(shouldExecute(60, 60, 'SCALP')).toBe(true);
+      expect(shouldExecute(60, 59, 'SCALP')).toBe(false);
+
+      // Confidence 70%: requires EQS 55
+      expect(shouldExecute(70, 55, 'MICRO_INTRADAY')).toBe(true);
+      expect(shouldExecute(70, 54, 'MICRO_INTRADAY')).toBe(false);
+
+      // Confidence 85%: requires EQS 50
+      expect(shouldExecute(85, 50, 'INTRADAY')).toBe(true);
+      expect(shouldExecute(85, 49, 'INTRADAY')).toBe(false);
     });
 
-    it('should return false for SCALP when EQS<85', () => {
-      expect(shouldExecute(70, 84, 'SCALP')).toBe(false);
-      expect(shouldExecute(80, 70, 'SCALP')).toBe(false);
-    });
+    it('should allow high confidence trades with lower EQS', () => {
+      // High conviction (85%) executes with EQS 50
+      expect(shouldExecute(85, 50)).toBe(true);
+      expect(shouldExecute(90, 52)).toBe(true);
 
-    it('should return true for MICRO_INTRADAY when confidence>=60 and EQS>=80', () => {
-      expect(shouldExecute(60, 80, 'MICRO_INTRADAY')).toBe(true);
-      expect(shouldExecute(75, 85, 'MICRO_INTRADAY')).toBe(true);
-    });
+      // Medium conviction (70%) executes with EQS 55
+      expect(shouldExecute(70, 55)).toBe(true);
+      expect(shouldExecute(75, 57)).toBe(true);
 
-    it('should return true for INTRADAY when confidence>=60 and EQS>=80', () => {
-      expect(shouldExecute(60, 80, 'INTRADAY')).toBe(true);
-      expect(shouldExecute(85, 95, 'INTRADAY')).toBe(true);
-    });
-  });
-
-  describe('shouldWaitPullback', () => {
-    it('should return true when confidence below minimum', () => {
-      expect(shouldWaitPullback(55, 90, 'SCALP')).toBe(true);
-    });
-
-    it('should return true for SCALP when EQS 70-84', () => {
-      expect(shouldWaitPullback(70, 70, 'SCALP')).toBe(true);
-      expect(shouldWaitPullback(70, 80, 'SCALP')).toBe(true);
-    });
-
-    it('should return false for SCALP when EQS>=85', () => {
-      expect(shouldWaitPullback(70, 85, 'SCALP')).toBe(false);
-    });
-
-    it('should return true for MICRO_INTRADAY when EQS 65-79', () => {
-      expect(shouldWaitPullback(70, 65, 'MICRO_INTRADAY')).toBe(true);
-      expect(shouldWaitPullback(70, 75, 'MICRO_INTRADAY')).toBe(true);
+      // Baseline conviction (60%) requires full EQS 60
+      expect(shouldExecute(60, 60)).toBe(true);
+      expect(shouldExecute(65, 62)).toBe(true);
     });
   });
 
@@ -124,20 +133,29 @@ describe('Alpha Identity Configuration', () => {
       expect(getEntryMode(55, 90, 'SCALP')).toBe('wait_confirmation');
     });
 
-    it('should return immediate for high EQS above threshold', () => {
-      expect(getEntryMode(70, 85, 'SCALP')).toBe('immediate');
-      expect(getEntryMode(70, 80, 'MICRO_INTRADAY')).toBe('immediate');
-      expect(getEntryMode(70, 80, 'INTRADAY')).toBe('immediate');
+    it('should return immediate when EQS meets confidence-adjusted threshold', () => {
+      // Confidence 60%: needs EQS 60+
+      expect(getEntryMode(60, 60)).toBe('immediate');
+      expect(getEntryMode(60, 70)).toBe('immediate');
+
+      // Confidence 70%: needs EQS 55+
+      expect(getEntryMode(70, 55)).toBe('immediate');
+      expect(getEntryMode(70, 65)).toBe('immediate');
+
+      // Confidence 85%: needs EQS 50+
+      expect(getEntryMode(85, 50)).toBe('immediate');
+      expect(getEntryMode(85, 60)).toBe('immediate');
     });
 
-    it('should return wait_pullback for EQS in pullback range', () => {
-      expect(getEntryMode(70, 75, 'SCALP')).toBe('wait_pullback');
-      expect(getEntryMode(70, 70, 'MICRO_INTRADAY')).toBe('wait_pullback');
-    });
+    it('should return wait_confirmation when EQS below confidence-adjusted threshold', () => {
+      // Confidence 60%: EQS below 60
+      expect(getEntryMode(60, 59)).toBe('wait_confirmation');
 
-    it('should return wait_confirmation for low EQS', () => {
-      expect(getEntryMode(70, 60, 'SCALP')).toBe('wait_confirmation');
-      expect(getEntryMode(70, 50, 'MICRO_INTRADAY')).toBe('wait_confirmation');
+      // Confidence 70%: EQS below 55
+      expect(getEntryMode(70, 54)).toBe('wait_confirmation');
+
+      // Confidence 85%: EQS below 50
+      expect(getEntryMode(85, 49)).toBe('wait_confirmation');
     });
   });
 

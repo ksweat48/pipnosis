@@ -33,8 +33,21 @@
  * LOWERED FROM 80 TO 60:
  * With candle acceptance removed and price-in-zone emphasized,
  * 60 EQS is sufficient for execution when price is in entry zone.
+ *
+ * NOTE: This is the BASELINE threshold. High confidence can relax this further.
+ * See getConfidenceAdjustedEQSThreshold() for dynamic adjustment logic.
  */
 const EQS_EXECUTION_THRESHOLD = 60;
+
+/**
+ * CONFIDENCE-BASED EQS RELAXATION TIERS
+ * High conviction trades get entry timing flexibility
+ */
+export const EQS_CONFIDENCE_TIERS = {
+  EXCELLENT: { minConfidence: 85, eqsAdjustment: -10 },  // 85%+ confidence: EQS 50
+  SOLID: { minConfidence: 70, eqsAdjustment: -5 },       // 70%+ confidence: EQS 55
+  ACCEPTABLE: { minConfidence: 60, eqsAdjustment: 0 },   // 60%+ confidence: EQS 60
+} as const;
 
 export const ALPHA_IDENTITY = {
   MINIMUM_TRADE_CONFIDENCE: 60,
@@ -202,6 +215,27 @@ export const EQS_TOTAL_WEIGHT = Object.values(EQS_WEIGHTED_FACTORS).reduce(
   0
 );
 
+/**
+ * Get confidence-adjusted EQS threshold - SSOT for dynamic EQS requirements
+ *
+ * High confidence trades get entry timing flexibility:
+ * - 85%+ confidence: Requires EQS 50 (professional sniper takes the shot)
+ * - 70%+ confidence: Requires EQS 55 (solid setup, minor timing flex)
+ * - 60%+ confidence: Requires EQS 60 (baseline standard)
+ *
+ * Philosophy: When Alpha is highly confident in the trade idea,
+ * don't let minor entry timing issues block execution.
+ */
+export function getConfidenceAdjustedEQSThreshold(tradeConfidence: number): number {
+  if (tradeConfidence >= EQS_CONFIDENCE_TIERS.EXCELLENT.minConfidence) {
+    return ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD + EQS_CONFIDENCE_TIERS.EXCELLENT.eqsAdjustment;
+  }
+  if (tradeConfidence >= EQS_CONFIDENCE_TIERS.SOLID.minConfidence) {
+    return ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD + EQS_CONFIDENCE_TIERS.SOLID.eqsAdjustment;
+  }
+  return ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD;
+}
+
 export function shouldExecute(
   tradeConfidence: number,
   entryQualityScore: number,
@@ -211,7 +245,8 @@ export function shouldExecute(
     return false;
   }
 
-  return entryQualityScore >= ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD;
+  const requiredEQS = getConfidenceAdjustedEQSThreshold(tradeConfidence);
+  return entryQualityScore >= requiredEQS;
 }
 
 export function getEntryMode(
@@ -223,7 +258,8 @@ export function getEntryMode(
     return 'wait_confirmation';
   }
 
-  if (entryQualityScore >= ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD) {
+  const requiredEQS = getConfidenceAdjustedEQSThreshold(tradeConfidence);
+  if (entryQualityScore >= requiredEQS) {
     return 'immediate';
   }
 
@@ -262,15 +298,18 @@ MINIMUM CONFIDENCE THRESHOLD: ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%
 - ${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.min}-${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.max}%: ${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.description}
 - ${ALPHA_IDENTITY.CONFIDENCE_BANDS.EXCELLENT.min}-100%: ${ALPHA_IDENTITY.CONFIDENCE_BANDS.EXCELLENT.description}
 
-UNIFIED ENTRY QUALITY SCORE (EQS) THRESHOLD:
-- Execute: EQS >= ${ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD}%
-- Wait: EQS < ${ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD}%
-- This threshold applies to ALL trade styles (SCALP, MICRO_INTRADAY, INTRADAY)
+CONFIDENCE-ADJUSTED EQS THRESHOLDS (Dynamic Entry Standards):
+- Confidence >= 85% (EXCELLENT): Requires EQS >= 50 (high conviction, entry flexibility)
+- Confidence >= 70% (SOLID): Requires EQS >= 55 (good setup, modest flexibility)
+- Confidence >= 60% (ACCEPTABLE): Requires EQS >= 60 (baseline standard)
+- Professional snipers take the shot when conviction is high
 
 DECISION FRAMEWORK:
-1. Trade Confidence >= ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}% AND Entry Quality >= ${ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD}%: EXECUTE
-2. Trade Confidence >= ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}% AND Entry Quality < ${ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD}%: WAIT for better entry
-3. Trade Confidence < ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%: WAIT (edge exists but timing wrong)
+1. Confidence >= 85% + EQS >= 50: EXECUTE (high conviction trade)
+2. Confidence >= 70% + EQS >= 55: EXECUTE (solid setup)
+3. Confidence >= 60% + EQS >= 60: EXECUTE (acceptable setup)
+4. Confidence >= 60% but EQS below threshold: WAIT for better entry
+5. Confidence < 60%: WAIT (insufficient edge)
 
 LEGITIMATE NO_TRADE CONDITIONS (ONLY THESE):
 ${ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS.map(c => `- ${c}`).join('\n')}

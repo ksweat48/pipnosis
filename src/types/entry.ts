@@ -68,6 +68,7 @@ export interface EntryIntent {
   timeout_action: TimeoutAction;
   invalidation_price?: number;
   status: EntryIntentStatus;
+  alpha_confidence?: number;
   alpha_reasoning?: string;
   market_context?: Record<string, any>;
   created_at: string;
@@ -169,6 +170,7 @@ export interface EntryIntentRequest {
   max_wait_seconds: number;
   timeout_action: TimeoutAction;
   invalidation_price?: number;
+  alpha_confidence?: number;
   alpha_reasoning: string;
   market_context?: Record<string, any>;
 }

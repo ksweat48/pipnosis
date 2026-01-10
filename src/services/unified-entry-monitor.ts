@@ -575,7 +575,12 @@ export class UnifiedEntryMonitor {
       if (lastEQS !== undefined && didGradeImprove(lastEQS, currentEQS)) {
         const oldGrade = calculateEQSGrade(lastEQS);
         const newGrade = calculateEQSGrade(currentEQS);
-        const requiredGrade = calculateEQSGrade(styleConfig.eqsThreshold);
+
+        // Use confidence-adjusted threshold for required grade
+        const alphaConfidence = intent.alpha_confidence || 60;
+        const { getConfidenceAdjustedEQSThreshold } = await import('../config/alpha-identity');
+        const adjustedEQSThreshold = getConfidenceAdjustedEQSThreshold(alphaConfidence);
+        const requiredGrade = calculateEQSGrade(adjustedEQSThreshold);
 
         const inEntryZone = priceData.price >= intent.entry_zone_min && priceData.price <= intent.entry_zone_max;
 
@@ -596,7 +601,7 @@ export class UnifiedEntryMonitor {
             newEQS: currentEQS,
             oldGrade,
             newGrade,
-            requiredEQS: styleConfig.eqsThreshold,
+            requiredEQS: adjustedEQSThreshold,
             requiredGrade,
             currentPrice: priceData.price,
             inEntryZone
@@ -606,10 +611,18 @@ export class UnifiedEntryMonitor {
 
       this.lastEQSScores.set(intentId, currentEQS);
 
-      // Step 8: Make execution decision
+      // Step 8: Make execution decision with confidence-adjusted EQS threshold
       console.log('[UnifiedMonitor] Step 8/8: Making execution decision...');
-      const eqsMeetsThreshold = currentEQS >= styleConfig.eqsThreshold;
+
+      // SSOT: Use confidence-adjusted EQS threshold for high-conviction trades
+      const alphaConfidence = intent.alpha_confidence || 60;
+      const { getConfidenceAdjustedEQSThreshold } = await import('../config/alpha-identity');
+      const adjustedEQSThreshold = getConfidenceAdjustedEQSThreshold(alphaConfidence);
+
+      const eqsMeetsThreshold = currentEQS >= adjustedEQSThreshold;
       const statusReady = eqsResult.status === 'EXECUTE_NOW';
+
+      console.log(`[UnifiedMonitor] 🎯 Confidence-Adjusted Threshold: Alpha confidence ${alphaConfidence}% → EQS threshold ${adjustedEQSThreshold} (baseline: ${styleConfig.eqsThreshold})`);
 
       // Calculate zone width and near-zone distance
       const zoneWidth = intent.entry_zone_max - intent.entry_zone_min;
@@ -635,7 +648,7 @@ export class UnifiedEntryMonitor {
       } else if (!inEntryZone && !isNearZone) {
         executionReason = `❌ OUTSIDE ENTRY ZONE - Distance: ${distanceToZone.toFixed(5)}`;
       } else if (!eqsMeetsThreshold) {
-        executionReason = `❌ EQS ${currentEQS} BELOW THRESHOLD ${styleConfig.eqsThreshold}`;
+        executionReason = `❌ EQS ${currentEQS} BELOW THRESHOLD ${adjustedEQSThreshold} (confidence ${alphaConfidence}%)`;
       } else if (!statusReady) {
         executionReason = `❌ STATUS NOT READY - ${eqsResult.status}`;
       } else {
@@ -647,7 +660,10 @@ export class UnifiedEntryMonitor {
         statusReady,
         eqsMeetsThreshold,
         eqsScore: currentEQS,
-        threshold: styleConfig.eqsThreshold,
+        baselineThreshold: styleConfig.eqsThreshold,
+        adjustedThreshold: adjustedEQSThreshold,
+        alphaConfidence: alphaConfidence,
+        confidenceBonus: styleConfig.eqsThreshold - adjustedEQSThreshold,
         inEntryZone,
         isNearZone,
         distanceToZone: distanceToZone.toFixed(5),

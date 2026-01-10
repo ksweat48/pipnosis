@@ -65,6 +65,7 @@ export class EntryPlannerService {
           max_wait_seconds: maxWaitSeconds,
           timeout_action: request.timeout_action || 'CANCEL',
           invalidation_price: request.invalidation_price,
+          alpha_confidence: request.alpha_confidence || 60,
           alpha_reasoning: request.alpha_reasoning,
           market_context: request.market_context || {},
           status: 'monitoring'

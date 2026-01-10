@@ -60,6 +60,7 @@ export class EntryExecutionCoordinator {
       max_wait_seconds: entryIntent.max_wait_seconds,
       timeout_action: entryIntent.timeout_action,
       invalidation_price: entryIntent.invalidation_price,
+      alpha_confidence: decision.confidence,
       alpha_reasoning: decision.reasoning,
       market_context: {
         confidence: decision.confidence,
