@@ -112,6 +112,19 @@ const AppRoutes: React.FC = () => {
     });
   }, []);
 
+  // Data quality startup - validate and repair candle data
+  useEffect(() => {
+    const initDataQuality = async () => {
+      const { dataQualityStartup } = await import('./services/data-quality-startup');
+      await dataQualityStartup.runStartupChecks();
+    };
+
+    // Run in background - don't block app startup
+    initDataQuality().catch(error => {
+      console.error('[App] Data quality check failed:', error);
+    });
+  }, []);
+
   useEffect(() => {
     if (!user) return;
 
