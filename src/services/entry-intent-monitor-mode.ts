@@ -47,7 +47,14 @@ export interface EntryIntentData {
   abandon_zone_low: number;
   abandon_zone_high: number;
   invalidation_price?: number;
+  /**
+   * @deprecated Time-based fields are deprecated. Use invalidation_price for setup validity.
+   * timeout_at is set to +24h for backward compatibility but monitoring now uses setup validity.
+   */
   timeout_at: string;
+  /**
+   * @deprecated Use invalidation_price instead of time-based limits
+   */
   max_wait_seconds: number;
   style: CanonicalStyle;
   atr_at_creation: number;
@@ -132,7 +139,9 @@ export async function createEntryIntentWithMonitoring(
   const { supabase } = await import('../lib/supabase');
   const { abandonZoneLow, abandonZoneHigh } = calculateAbandonZone(entryZoneMin, entryZoneMax, atr);
 
-  const timeoutAt = new Date(Date.now() + maxWaitSeconds * 1000).toISOString();
+  // DEPRECATED: Time-based monitoring replaced with setup validity
+  // Set timeout_at to +24h for backward compatibility (setup validity is primary)
+  const timeoutAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   const normalizedStyle = tradeStyleRegistry.normalize(style);
 
   console.log('[createEntryIntentWithMonitoring] Creating intent with:', {

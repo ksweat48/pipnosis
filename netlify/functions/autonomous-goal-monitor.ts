@@ -64,13 +64,13 @@ export const handler: Handler = async (event, context) => {
         console.log(`[Autonomous Monitor] Processing session ${session.session_id} for user ${session.user_id}`);
 
         /*
-         * CRITICAL 15-MINUTE TIMEOUT ENFORCEMENT
+         * CRITICAL 60-MINUTE TIMEOUT ENFORCEMENT
          *
-         * This section implements the 15-minute scanning limit to prevent resource waste.
+         * This section implements the 60-minute scanning limit to prevent resource waste.
          * The flow MUST execute in this exact order:
          *
          * 1. Check for expired timeout (1-minute after modal shown) → auto-close if expired
-         * 2. Check if 15 minutes elapsed without trade → show continuation modal
+         * 2. Check if 60 minutes elapsed without trade → show continuation modal
          * 3. If awaiting user response → skip trading operations but KEEP in processing queue
          *
          * IMPORTANT: Sessions with status 'awaiting_continuation' MUST remain in the
@@ -98,13 +98,13 @@ export const handler: Handler = async (event, context) => {
           continue;
         }
 
-        // CRITICAL: Check if 15 minutes elapsed without trades - trigger modal
+        // CRITICAL: Check if 60 minutes elapsed without trades - trigger modal
         const { data: shouldShowModal } = await supabase.rpc('should_show_continuation_modal', {
           p_session_id: session.session_id
         });
 
         if (shouldShowModal) {
-          console.log(`[Autonomous Monitor] 🕐 Session ${session.session_id} reached 15-min threshold - triggering modal`);
+          console.log(`[Autonomous Monitor] 🕐 Session ${session.session_id} reached 60-min threshold - triggering modal`);
           await supabase.rpc('trigger_continuation_modal', {
             p_session_id: session.session_id
           });
@@ -113,7 +113,7 @@ export const handler: Handler = async (event, context) => {
           results.push({
             sessionId: session.session_id,
             success: true,
-            message: '15-minute threshold reached - awaiting user response',
+            message: '60-minute threshold reached - awaiting user response',
             action: 'modal_triggered'
           });
           continue;
@@ -246,7 +246,7 @@ export const handler: Handler = async (event, context) => {
 
     console.log('[Autonomous Monitor] Completed:', summary);
     if (modalTriggeredCount > 0) {
-      console.log(`[Autonomous Monitor] 🕐 ${modalTriggeredCount} sessions reached 15-minute threshold`);
+      console.log(`[Autonomous Monitor] 🕐 ${modalTriggeredCount} sessions reached 60-minute threshold`);
     }
     if (timedOutCount > 0) {
       console.log(`[Autonomous Monitor] ⏰ ${timedOutCount} sessions auto-closed due to timeout`);

@@ -54,6 +54,7 @@ export class UnifiedEntryMonitor {
   private healthCheckInterval: NodeJS.Timeout | null = null;
   private warningCache: Map<string, number> = new Map(); // Throttle warnings
   private readonly WARNING_THROTTLE_MS = 60000; // Only warn once per 60 seconds
+  private consecutiveOutsideZone: Map<string, number> = new Map(); // Setup validity tracking
 
   private constructor() {
     // Start interval health monitoring
@@ -136,6 +137,7 @@ export class UnifiedEntryMonitor {
       this.lastEQSScores.delete(intentId);
       this.callbacks.delete(intentId);
       this.lastCheckTimestamp.delete(intentId);
+      this.consecutiveOutsideZone.delete(intentId);
       console.log(`[UnifiedMonitor] Stopped monitoring ${intentId}`, reason ? `(reason: ${reason})` : '');
     }
   }
@@ -149,6 +151,7 @@ export class UnifiedEntryMonitor {
     this.lastEQSScores.clear();
     this.callbacks.clear();
     this.lastCheckTimestamp.clear();
+    this.consecutiveOutsideZone.clear();
     logger.info('[UnifiedMonitor] Stopped all monitoring');
   }
 
@@ -230,29 +233,16 @@ export class UnifiedEntryMonitor {
         return;
       }
 
-      // Step 2: Check for timeout expiration
-      console.log('[UnifiedMonitor] Step 2/8: Checking timeout...');
-      if (intent.timeout_at) {
-        const timeoutAt = new Date(intent.timeout_at);
-        const now = new Date();
-        if (now >= timeoutAt) {
-          console.log('%c[UnifiedMonitor] ⏰ TIMEOUT EXCEEDED', 'color: #ff5722; font-weight: bold', {
-            intentId,
-            timeoutAt: timeoutAt.toISOString(),
-            now: now.toISOString()
-          });
-          logger.info(`[UnifiedMonitor] Intent ${intentId} has exceeded timeout, abandoning`);
+      // Step 2: Check setup validity (replaces time-based abandonment)
+      // Abandon if:
+      // 1. Price crossed stop loss (hard invalidation)
+      // 2. Price too far from zone (>3x ATR) for 5+ consecutive checks
+      // 3. Session no longer active
+      console.log('[UnifiedMonitor] Step 2/8: Checking setup validity...');
 
-          const callbacks = this.callbacks.get(intentId);
-          if (callbacks?.onAbandon) {
-            await callbacks.onAbandon(intentId, 'TIMEOUT_EXCEEDED');
-          }
-
-          await this.stopMonitoring(intentId);
-          return;
-        }
-      }
-      console.log('[UnifiedMonitor] ✓ Timeout check passed');
+      // We'll do the full setup validity check after getting market conditions
+      // This is just a placeholder step for now
+      console.log('[UnifiedMonitor] ✓ Setup validity check will be performed after market data fetch');
 
       // Step 3: Verify session validity
       console.log('[UnifiedMonitor] Step 3/8: Validating session...');
@@ -350,6 +340,66 @@ export class UnifiedEntryMonitor {
         console.error('[UnifiedMonitor] ❌ No market conditions, skipping this check');
         return;
       }
+
+      // Step 5.5: Setup Validity Check (replaces time-based timeout)
+      console.log('[UnifiedMonitor] Step 5.5/8: Checking setup validity...');
+
+      // Calculate distance to entry zone
+      const inEntryZone = priceData.price >= intent.entry_zone_min && priceData.price <= intent.entry_zone_max;
+      const distanceToZone = inEntryZone
+        ? 0
+        : priceData.price < intent.entry_zone_min
+        ? intent.entry_zone_min - priceData.price
+        : priceData.price - intent.entry_zone_max;
+
+      // Track consecutive checks outside zone
+      const currentOutsideCount = this.consecutiveOutsideZone.get(intentId) || 0;
+
+      // Check if price is too far from entry zone (>3x ATR)
+      const distanceInATR = distanceToZone / marketConditions.atr;
+      const tooFarFromZone = distanceInATR > 3.0;
+
+      if (tooFarFromZone) {
+        this.consecutiveOutsideZone.set(intentId, currentOutsideCount + 1);
+
+        if (currentOutsideCount + 1 >= 5) {
+          console.log('%c[UnifiedMonitor] 🚫 ABANDONING - Price too far from zone', 'color: #f44336; font-weight: bold', {
+            intentId: intentId.substring(0, 8),
+            distanceInATR: distanceInATR.toFixed(2),
+            consecutiveChecks: currentOutsideCount + 1
+          });
+
+          await this.stopMonitoring(intentId, 'RUNAWAY_DETECTED');
+          return;
+        }
+      } else {
+        // Reset counter when price returns to reasonable distance
+        this.consecutiveOutsideZone.set(intentId, 0);
+      }
+
+      // Check hard invalidation (stop loss crossed)
+      if (intent.invalidation_price) {
+        const invalidationCrossed = intent.direction === 'long'
+          ? priceData.price <= intent.invalidation_price
+          : priceData.price >= intent.invalidation_price;
+
+        if (invalidationCrossed) {
+          console.log('%c[UnifiedMonitor] 🛑 ABANDONING - Invalidation price crossed', 'color: #f44336; font-weight: bold', {
+            intentId: intentId.substring(0, 8),
+            currentPrice: priceData.price,
+            invalidationPrice: intent.invalidation_price,
+            direction: intent.direction
+          });
+          await this.stopMonitoring(intentId, 'HARD_INVALIDATION_CROSSED');
+          return;
+        }
+      }
+
+      console.log('[UnifiedMonitor] ✓ Setup validity check passed', {
+        inEntryZone,
+        distanceInATR: distanceInATR.toFixed(2),
+        consecutiveOutsideCount: this.consecutiveOutsideZone.get(intentId) || 0
+      });
 
       // Step 6: Calculate technical indicators
       console.log('[UnifiedMonitor] Step 6/8: Calculating indicators...');
@@ -467,13 +517,7 @@ export class UnifiedEntryMonitor {
 
       const styleConfig = tradeStyleRegistry.getConfig(style);
 
-      // Check if price is in entry zone
-      const inEntryZone = priceData.price >= intent.entry_zone_min && priceData.price <= intent.entry_zone_max;
-      const distanceToZone = inEntryZone
-        ? 0
-        : priceData.price < intent.entry_zone_min
-        ? intent.entry_zone_min - priceData.price
-        : priceData.price - intent.entry_zone_max;
+      // Note: inEntryZone and distanceToZone already calculated in Step 5.5 for setup validity check
 
       console.log('%c[UnifiedMonitor] 📊 Entry Quality Check:', 'color: #2196f3; font-weight: bold; font-size: 14px', {
         symbol: intent.symbol,

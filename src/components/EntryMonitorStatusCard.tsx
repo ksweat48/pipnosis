@@ -48,7 +48,7 @@ interface EntryIntent {
 export function EntryMonitorStatusCard() {
   const { user } = useAuth();
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [timeRemaining, setTimeRemaining] = useState<number>(0);
+  const [timeElapsed, setTimeElapsed] = useState<number>(0);
   const [isVisible, setIsVisible] = useState(false);
 
   const { activeIntent, refresh } = useActiveEntryIntent(sessionId);
@@ -98,12 +98,7 @@ export function EntryMonitorStatusCard() {
       const createdAt = new Date(activeIntent.created_at).getTime();
       const now = Date.now();
       const elapsedSeconds = Math.floor((now - createdAt) / 1000);
-      const remaining = Math.max(0, activeIntent.max_wait_seconds - elapsedSeconds);
-      setTimeRemaining(remaining);
-
-      if (remaining === 0) {
-        setIsVisible(false);
-      }
+      setTimeElapsed(elapsedSeconds);
     }, 1000);
 
     return () => clearInterval(interval);
@@ -243,16 +238,14 @@ export function EntryMonitorStatusCard() {
             </span>
           </div>
 
-          {/* Time Remaining */}
+          {/* Monitoring Status */}
           <div className="flex items-center justify-between text-sm">
             <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-gray-400" />
-              <span className="text-gray-400">Time Remaining</span>
+              <Clock className="w-4 h-4 text-blue-400" />
+              <span className="text-gray-400">Monitoring Duration</span>
             </div>
-            <span className={`font-semibold ${
-              timeRemaining < 60 ? 'text-red-400' : 'text-gray-300'
-            }`}>
-              {formatTimeRemaining(timeRemaining)}
+            <span className="font-semibold text-blue-400">
+              {formatTimeRemaining(timeElapsed)}
             </span>
           </div>
 
