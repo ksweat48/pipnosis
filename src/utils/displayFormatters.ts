@@ -434,7 +434,7 @@ export function formatPositionSummary(params: {
  * VALIDATION: Detect manual formatting in runtime (development mode only)
  */
 export function warnManualFormatting(location: string, value: any): void {
-  if (process.env.NODE_ENV === 'development') {
+  if (import.meta.env.DEV) {
     const valueStr = String(value);
     if (valueStr.includes('.toFixed(') || valueStr.match(/\.\d+$/)) {
       console.warn(

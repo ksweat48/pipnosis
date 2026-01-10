@@ -285,9 +285,9 @@ export function formatATR(atr: ATRValue, pipValue: number): string {
  */
 const isProduction = typeof window !== 'undefined'
   ? window.location?.hostname !== 'localhost'
-  : process.env.NODE_ENV === 'production';
+  : import.meta.env.PROD;
 
-const isStrictValidation = !isProduction || process.env.STRICT_TYPE_VALIDATION === 'true';
+const isStrictValidation = !isProduction || import.meta.env.VITE_STRICT_TYPE_VALIDATION === 'true';
 
 /**
  * ATR Type Validation Error - thrown only in strict mode

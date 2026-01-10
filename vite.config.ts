@@ -77,7 +77,10 @@ export default defineConfig({
   define: {
     // Build version for error tracking
     __BUILD_VERSION__: JSON.stringify(process.env.npm_package_version || '2.0.0'),
-    __BUILD_TIME__: JSON.stringify(new Date().toISOString())
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    // Make process.env available in browser code
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
+    'process.env.STRICT_TYPE_VALIDATION': JSON.stringify(process.env.STRICT_TYPE_VALIDATION || 'false')
   },
   // Ensure proper environment variable handling
   envPrefix: ['VITE_'],
