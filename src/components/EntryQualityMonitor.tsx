@@ -10,7 +10,6 @@ import { supabase } from '../lib/supabase';
 import { useActiveEntryIntent } from '../hooks/useEntryIntent';
 
 interface EQSBreakdown {
-  candleAcceptance: number;
   pullbackQuality: number;
   vwapInteraction: number;
   emaAlignment: number;
@@ -151,14 +150,13 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
   const thresholdPercentage = (latestEQS.eqs_threshold / 100) * 100;
 
   const metrics = [
-    { name: 'Candle Acceptance', score: breakdown.candleAcceptance, max: 20 },
     { name: 'Pullback Quality', score: breakdown.pullbackQuality, max: 15 },
-    { name: 'VWAP Interaction', score: breakdown.vwapInteraction, max: 15 },
+    { name: 'VWAP Interaction', score: breakdown.vwapInteraction, max: 20 },
     { name: 'EMA Alignment', score: breakdown.emaAlignment, max: 10 },
-    { name: 'Liquidity Reaction', score: breakdown.liquidityReaction, max: 15 },
+    { name: 'Liquidity Reaction', score: breakdown.liquidityReaction, max: 12 },
     { name: 'Compression/Expansion', score: breakdown.compressionExpansion, max: 10 },
-    { name: 'Failed Move', score: breakdown.failedMoveConfirmation, max: 10 },
-    { name: 'Timeframe Alignment', score: breakdown.timeframeAlignment, max: 5 }
+    { name: 'Failed Move', score: breakdown.failedMoveConfirmation, max: 12 },
+    { name: 'Timeframe Alignment', score: breakdown.timeframeAlignment, max: 8 }
   ];
 
   return (

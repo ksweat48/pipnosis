@@ -250,32 +250,28 @@ export interface VolatilityWaitIntent {
  * Entry Quality Score breakdown - SPEC COMPLIANT WEIGHTS
  *
  * Weighted factors (total 100):
- * 1. Candle acceptance (body dominance, closes): 20
- * 2. Pullback quality / impulse structure: 15
- * 3. VWAP interaction (kiss, reclaim, spread): 15
- * 4. EMA alignment / slope / crossover: 10
- * 5. Liquidity reaction (not detection): 15
- * 6. Compression → expansion: 10
- * 7. Failed move confirmation: 10
- * 8. Timeframe alignment (M5 for entry): 5
+ * 1. Pullback quality / impulse structure: 15
+ * 2. VWAP interaction (kiss, reclaim, spread): 20 (INCREASED)
+ * 3. EMA alignment / slope / crossover: 10
+ * 4. Liquidity reaction (not detection): 12
+ * 5. Compression → expansion: 10
+ * 6. Failed move confirmation: 12
+ * 7. Timeframe alignment (M5 for entry): 8
+ * 8. Location/Confirmation/Timing scores: 40+20+25 = 85 base
+ * 9. Friction penalties: -15 to 0
+ * 10. A+ Pattern bonuses: +10 to +15
  */
 export interface EQSBreakdown {
-  candleAcceptance: number;       // 0-20: Body dominance, closes in direction, consecutive
   pullbackQuality: number;        // 0-15: 38-50% retracement quality, impulse structure
-  vwapInteraction: number;        // 0-15: VWAP kiss, reclaim, spread from VWAP
+  vwapInteraction: number;        // 0-20: VWAP kiss, reclaim, spread from VWAP (INCREASED)
   emaAlignment: number;           // 0-10: EMA20 alignment, slope, crossover confirmation
-  liquidityReaction: number;      // 0-15: Response to liquidity pools, sweep-reclaim
+  liquidityReaction: number;      // 0-12: Response to liquidity pools, sweep-reclaim
   compressionExpansion: number;   // 0-10: Tight range breakout patterns
-  failedMoveConfirmation: number; // 0-10: False breakout confirmation, exhaustion
-  timeframeAlignment: number;     // 0-5: M5 microstructure confirmation
+  failedMoveConfirmation: number; // 0-12: False breakout confirmation, exhaustion
+  timeframeAlignment: number;     // 0-8: M5 microstructure confirmation
   totalScore: number;             // Sum of all components (0-100)
 
   factorDetails: {
-    candleAcceptance: {
-      bodyDominance: number;      // 0-8
-      consecutiveCloses: number;  // 0-7
-      closeQuality: number;       // 0-5
-    };
     pullbackQuality: {
       retracementDepth: number;   // 0-8
       impulseIdentification: number; // 0-7
@@ -321,7 +317,6 @@ export interface EQSBreakdown {
     liquidityLocation: number;
   };
   confirmationDetails: {
-    candleAcceptance: number;
     patternConfirmation: number;
     momentumAlignment: number;
   };

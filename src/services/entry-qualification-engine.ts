@@ -245,7 +245,6 @@ class EntryQualificationEngine {
     // A+ Patterns: +10 to +15 bonus
     //
     // Display breakdown (mapped to user-friendly categories):
-    // Candle acceptance: REMOVED (0 points - not checked anymore)
     // Pullback quality: 15 (from timing)
     // VWAP interaction: 20 (from location - INCREASED)
     // EMA alignment: 8 (from confirmation momentum)
@@ -263,7 +262,6 @@ class EntryQualificationEngine {
     const timeframeAlignmentScore = Math.min(8, Math.round((locationScore.details.liquidityLocation / 8) * 8));
 
     const eqsBreakdown: EQSBreakdown = {
-      candleAcceptance: 0, // REMOVED - No longer checked
       pullbackQuality: pullbackQualityScore,
       vwapInteraction: vwapInteractionScore,
       emaAlignment: emaAlignmentScore,
@@ -273,11 +271,6 @@ class EntryQualificationEngine {
       timeframeAlignment: timeframeAlignmentScore,
       totalScore: totalEQS,
       factorDetails: {
-        candleAcceptance: {
-          bodyDominance: 0, // REMOVED
-          consecutiveCloses: 0, // REMOVED
-          closeQuality: 0, // REMOVED
-        },
         pullbackQuality: {
           retracementDepth: pullbackQuality.grade === 'A' ? 8 : pullbackQuality.grade === 'B' ? 5 : 2,
           impulseIdentification: pullbackQuality.quality === 'shallow' ? 7 : pullbackQuality.quality === 'medium' ? 4 : 2,
@@ -534,7 +527,6 @@ class EntryQualificationEngine {
     return {
       total,
       details: {
-        candleAcceptance: 0, // REMOVED - No longer checked
         patternConfirmation,
         momentumAlignment
       }
@@ -1875,9 +1867,9 @@ class EntryQualificationEngine {
     const atrValue = typeof input.atr === 'number' ? input.atr : input.atr.value;
 
     // Determine what's missing based on component scores
-    const vwapSetupWeak = breakdown.locationDetails.vwapSetup < 8;
-    const acceptanceWeak = breakdown.confirmationDetails.candleAcceptance < 12;
-    const pullbackWeak = breakdown.timingDetails.pullbackQuality < 9;
+    const vwapSetupWeak = breakdown.locationDetails.vwapSetup < 12;
+    const patternWeak = breakdown.confirmationDetails.patternConfirmation < 8;
+    const pullbackWeak = breakdown.timingDetails.pullbackQuality < 10;
 
     // Trigger 1: VWAP Kiss (if VWAP setup is weak)
     if (vwapSetupWeak) {
@@ -1900,15 +1892,15 @@ class EntryQualificationEngine {
       });
     }
 
-    // Trigger 2: Acceptance Candle (if candle acceptance is weak)
-    if (acceptanceWeak) {
+    // Trigger 2: Pattern Confirmation (if pattern confirmation is weak)
+    if (patternWeak) {
       triggers.push({
-        type: 'acceptance_candle',
-        description: 'Wait for strong acceptance candle in trade direction',
+        type: 'pattern_confirmation',
+        description: 'Wait for strong pattern confirmation',
         targetConditions: {
-          candleRequirement: `2+ consecutive ${input.direction === 'BUY' ? 'bullish' : 'bearish'} closes`,
+          candleRequirement: `Strong ${input.direction === 'BUY' ? 'bullish' : 'bearish'} pattern`,
           volumeRequirement: 'Above average',
-          patternType: 'engulfing or strong body candle'
+          patternType: 'engulfing, rejection, or failed move pattern'
         },
         monitoringParams: {
           maxWaitMinutes: 20,
@@ -1956,22 +1948,22 @@ class EntryQualificationEngine {
     let expectedImprovement = 0;
 
     // Analyze what's missing
-    if (breakdown.locationDetails.vwapSetup < 8) {
-      whatsMissing.push(`Better VWAP setup (need ${12 - breakdown.locationDetails.vwapSetup} more points)`);
+    if (breakdown.locationDetails.vwapSetup < 12) {
+      whatsMissing.push(`Better VWAP setup (need ${20 - breakdown.locationDetails.vwapSetup} more points)`);
       estimatedMinutes = Math.max(estimatedMinutes, 25);
-      expectedImprovement += 12 - breakdown.locationDetails.vwapSetup;
+      expectedImprovement += 20 - breakdown.locationDetails.vwapSetup;
     }
 
-    if (breakdown.confirmationDetails.candleAcceptance < 12) {
-      whatsMissing.push(`Stronger acceptance (need ${15 - breakdown.confirmationDetails.candleAcceptance} more points)`);
+    if (breakdown.confirmationDetails.patternConfirmation < 8) {
+      whatsMissing.push(`Stronger pattern confirmation (need ${12 - breakdown.confirmationDetails.patternConfirmation} more points)`);
       estimatedMinutes = Math.max(estimatedMinutes, 15);
-      expectedImprovement += 15 - breakdown.confirmationDetails.candleAcceptance;
+      expectedImprovement += 12 - breakdown.confirmationDetails.patternConfirmation;
     }
 
-    if (breakdown.timingDetails.pullbackQuality < 9) {
-      whatsMissing.push(`Better pullback quality (need ${12 - breakdown.timingDetails.pullbackQuality} more points)`);
+    if (breakdown.timingDetails.pullbackQuality < 10) {
+      whatsMissing.push(`Better pullback quality (need ${15 - breakdown.timingDetails.pullbackQuality} more points)`);
       estimatedMinutes = Math.max(estimatedMinutes, 30);
-      expectedImprovement += 12 - breakdown.timingDetails.pullbackQuality;
+      expectedImprovement += 15 - breakdown.timingDetails.pullbackQuality;
     }
 
     if (breakdown.frictionPenalty < -5) {
@@ -2009,14 +2001,13 @@ class EntryQualificationEngine {
   ): void {
     console.log('%c[EQS] ENTRY QUALITY SCORE', 'color: #2196f3; font-weight: bold; font-size: 14px');
     console.log(`  Total: ${eqs}/100 | Grade: ${grade} | Action: ${actionTier}`);
-    console.log(`  Candle Acceptance: ${breakdown.candleAcceptance}/20`);
     console.log(`  Pullback Quality: ${breakdown.pullbackQuality}/15`);
-    console.log(`  VWAP Interaction: ${breakdown.vwapInteraction}/15`);
+    console.log(`  VWAP Interaction: ${breakdown.vwapInteraction}/20`);
     console.log(`  EMA Alignment: ${breakdown.emaAlignment}/10`);
-    console.log(`  Liquidity Reaction: ${breakdown.liquidityReaction}/15`);
+    console.log(`  Liquidity Reaction: ${breakdown.liquidityReaction}/12`);
     console.log(`  Compression/Expansion: ${breakdown.compressionExpansion}/10`);
-    console.log(`  Failed Move: ${breakdown.failedMoveConfirmation}/10`);
-    console.log(`  Timeframe Alignment: ${breakdown.timeframeAlignment}/5`);
+    console.log(`  Failed Move: ${breakdown.failedMoveConfirmation}/12`);
+    console.log(`  Timeframe Alignment: ${breakdown.timeframeAlignment}/8`);
 
     if (breakdown.aplusPatternBonus) {
       console.log(`  A+ Bonus: +${breakdown.aplusPatternBonus} (${breakdown.aplusPatternType})`);
