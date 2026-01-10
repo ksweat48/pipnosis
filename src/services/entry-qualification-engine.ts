@@ -1240,11 +1240,30 @@ class EntryQualificationEngine {
     }
 
     const recentCandles = candles.slice(-5); // Last 5 candles
+
+    // DEBUG: Verify candle order and direction checking
+    console.log('[EQS] 🔍 CANDLE ACCEPTANCE CHECK:', {
+      direction,
+      totalCandles: candles.length,
+      using: 'LAST 5 candles',
+      candleOrder: recentCandles.map((c, idx) => ({
+        index: idx,
+        position: idx === recentCandles.length - 1 ? 'NEWEST' : `${recentCandles.length - 1 - idx} older`,
+        time: c.time,
+        open: c.open.toFixed(2),
+        close: c.close.toFixed(2),
+        movement: c.close > c.open ? '🟢 BULL' : '🔴 BEAR',
+        matchesDirection: direction === 'BUY' ? (c.close > c.open ? '✅' : '❌') : (c.close < c.open ? '✅' : '❌')
+      })),
+      note: 'Loop checks from NEWEST backward - breaks on first non-match'
+    });
+
     let consecutiveCloses = 0;
     let totalBodyDominance = 0;
     let closeQualitySum = 0;
 
     // Check consecutive closes in direction
+    // IMPORTANT: This loops BACKWARD from newest candle (index 4) to oldest (index 0)
     for (let i = recentCandles.length - 1; i >= 0; i--) {
       const candle = recentCandles[i];
       const isDirectionalClose = direction === 'BUY'
@@ -1300,6 +1319,22 @@ class EntryQualificationEngine {
                    `Body: ${(avgBodyDominance * 100).toFixed(0)}% | ` +
                    `Close quality: ${closeQuality} (${(avgCloseQuality * 100).toFixed(0)}%) | ` +
                    `Expansion: ${expansionDetected ? 'Yes' : 'No'}`;
+
+    // DEBUG: Show final decision
+    console.log('[EQS] ✅ CANDLE ACCEPTANCE RESULT:', {
+      accepted: accepted ? '✅ YES' : '❌ NO',
+      consecutiveCloses,
+      avgBodyDominance: (avgBodyDominance * 100).toFixed(1) + '%',
+      avgCloseQuality: (avgCloseQuality * 100).toFixed(1) + '%',
+      closeQuality,
+      expansionDetected,
+      criteria: {
+        needConsecutive: '≥2',
+        needBodyDominance: '≥60%',
+        needCloseQuality: '≥60%',
+        actual: `${consecutiveCloses} consecutive, ${(avgBodyDominance * 100).toFixed(0)}% body, ${(avgCloseQuality * 100).toFixed(0)}% quality`
+      }
+    });
 
     return {
       accepted,

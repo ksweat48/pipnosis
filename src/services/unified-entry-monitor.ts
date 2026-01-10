@@ -407,6 +407,34 @@ export class UnifiedEntryMonitor {
       let currentEQS = 0;
 
       try {
+        const last10Candles = candlesForIndicators.slice(-10);
+
+        // DEBUG: Comprehensive candle order verification
+        console.log('[UnifiedMonitor] 🔍 CANDLE ORDER VERIFICATION:', {
+          totalCandlesAvailable: candlesForIndicators.length,
+          using: 'LAST 10 candles (most recent)',
+          candleCount: last10Candles.length,
+          orderCheck: {
+            firstCandle: last10Candles[0]?.time,
+            lastCandle: last10Candles[last10Candles.length - 1]?.time,
+            isChronological: last10Candles[0]?.time < last10Candles[last10Candles.length - 1]?.time ? '✅ CORRECT (oldest→newest)' : '❌ WRONG (reversed)'
+          },
+          last3Candles: last10Candles.slice(-3).map((c, idx) => ({
+            position: `${last10Candles.length - 3 + idx} (${idx === 2 ? 'NEWEST' : 'older'})`,
+            time: c.time,
+            open: c.open.toFixed(2),
+            close: c.close.toFixed(2),
+            movement: c.close > c.open ? '🟢 BULLISH' : '🔴 BEARISH'
+          })),
+          indicatorInputs: {
+            ema20: ema20Value.toFixed(5),
+            rsi: rsiValue.toFixed(1),
+            currentPrice: priceData.price.toFixed(5),
+            priceVsEMA: priceData.price > ema20Value ? '📈 ABOVE (bullish)' : '📉 BELOW (bearish)',
+            direction: intent.direction === 'long' ? 'BUY' : 'SELL'
+          }
+        });
+
         const qualificationInput: EntryQualificationInput = {
           symbol: intent.symbol,
           direction: intent.direction === 'long' ? 'BUY' : 'SELL',
@@ -414,7 +442,7 @@ export class UnifiedEntryMonitor {
           stopLoss,
           takeProfit,
           confidence,
-          m5Candles: candlesForIndicators.slice(-10), // Use LAST 10 candles for pattern analysis
+          m5Candles: last10Candles, // Use LAST 10 candles for pattern analysis
           m5VWAP: marketConditions.vwap,
           m5EMA20: ema20Value,
           m5RSI: rsiValue,
