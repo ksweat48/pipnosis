@@ -24,6 +24,8 @@ import { getEntryIntentById, type AbandonReason } from './entry-intent-monitor-m
 import { EntryPlannerService } from './entry-planner';
 import { EntryExecutionCoordinator } from './entry-execution-coordinator';
 import { ALPHA_IDENTITY } from '../config/alpha-identity';
+import { candleQualityValidator } from './candle-quality-validator';
+import { aggregatorHealthMonitor } from './aggregator-health-monitor';
 
 /**
  * Timeout wrapper for async operations
@@ -347,6 +349,69 @@ export class UnifiedEntryMonitor {
         logger.warn(`[UnifiedMonitor] No market conditions for ${intent.symbol}`);
         console.error('[UnifiedMonitor] ❌ No market conditions, skipping this check');
         return;
+      }
+
+      // Step 5.5: Validate candle data quality (NEW - CRITICAL FOR CRYPTO)
+      console.log('[UnifiedMonitor] Step 5.5/8: Validating candle data quality...');
+      try {
+        const [qualityCheck, websocketHealthy, aggregatorHealth] = await Promise.all([
+          candleQualityValidator.validateCandleQuality(intent.symbol, '5m', 10),
+          candleQualityValidator.checkWebSocketHealth(intent.symbol),
+          aggregatorHealthMonitor.checkAggregatorHealth(intent.symbol)
+        ]);
+
+        // Check aggregator health first (most fundamental)
+        if (!aggregatorHealth.isHealthy) {
+          logger.warn(
+            `[UnifiedMonitor] Aggregator unhealthy for ${intent.symbol}: ${aggregatorHealth.reason}`
+          );
+          console.error(
+            `[UnifiedMonitor] ❌ Aggregator health check failed: ${aggregatorHealth.reason}`,
+            {
+              isReceivingTicks: aggregatorHealth.isReceivingTicks,
+              lastCandleAge: aggregatorHealth.candleAge
+                ? `${Math.floor(aggregatorHealth.candleAge / 60000)}min`
+                : 'unknown'
+            }
+          );
+          return;
+        }
+
+        // Check candle quality
+        if (!qualityCheck.isValid) {
+          logger.warn(
+            `[UnifiedMonitor] Insufficient data quality for ${intent.symbol}: ${qualityCheck.reason}`
+          );
+          console.error(
+            `[UnifiedMonitor] ❌ Data quality check failed: ${qualityCheck.reason}`,
+            {
+              qualityScore: `${qualityCheck.metrics.qualityScore.toFixed(0)}%`,
+              validCandles: `${qualityCheck.metrics.validCandles}/${qualityCheck.metrics.totalCandles}`,
+              dojiCount: qualityCheck.metrics.dojiCount,
+              gapCount: qualityCheck.metrics.gapCount
+            }
+          );
+          return;
+        }
+
+        // Check WebSocket health (for crypto)
+        if (!websocketHealthy) {
+          logger.warn(`[UnifiedMonitor] WebSocket data stale for ${intent.symbol}`);
+          console.error('[UnifiedMonitor] ❌ WebSocket not receiving recent data (crypto pair)');
+          return;
+        }
+
+        console.log('[UnifiedMonitor] ✓ Data quality validated:', {
+          qualityScore: `${qualityCheck.metrics.qualityScore.toFixed(0)}%`,
+          validCandles: `${qualityCheck.metrics.validCandles}/${qualityCheck.metrics.totalCandles}`,
+          aggregatorHealthy: aggregatorHealth.isHealthy,
+          lastCandleAge: aggregatorHealth.candleAge
+            ? `${Math.floor(aggregatorHealth.candleAge / 60000)}min`
+            : 'unknown'
+        });
+      } catch (error) {
+        logger.error(`[UnifiedMonitor] Data quality validation error:`, error);
+        console.error('[UnifiedMonitor] ⚠️ Skipping quality check due to error');
       }
 
       // Step 6: Calculate technical indicators

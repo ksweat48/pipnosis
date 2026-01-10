@@ -1246,16 +1246,26 @@ class EntryQualificationEngine {
       direction,
       totalCandles: candles.length,
       using: 'LAST 5 candles',
-      candleOrder: recentCandles.map((c, idx) => ({
-        index: idx,
-        position: idx === recentCandles.length - 1 ? 'NEWEST' : `${recentCandles.length - 1 - idx} older`,
-        time: c.time,
-        open: c.open.toFixed(2),
-        close: c.close.toFixed(2),
-        movement: c.close > c.open ? '🟢 BULL' : '🔴 BEAR',
-        matchesDirection: direction === 'BUY' ? (c.close > c.open ? '✅' : '❌') : (c.close < c.open ? '✅' : '❌')
-      })),
-      note: 'Loop checks from NEWEST backward - breaks on first non-match'
+      candleOrder: recentCandles.map((c, idx) => {
+        const isDoji = c.open === c.close;
+        const range = c.high - c.low;
+        const bodySize = Math.abs(c.close - c.open);
+        const bodyPercent = range > 0 ? (bodySize / range * 100).toFixed(1) : '0.0';
+
+        return {
+          index: idx,
+          position: idx === recentCandles.length - 1 ? 'NEWEST' : `${recentCandles.length - 1 - idx} older`,
+          time: c.time,
+          open: c.open.toFixed(2),
+          close: c.close.toFixed(2),
+          isDOJI: isDoji,
+          bodySize: bodySize.toFixed(4),
+          bodyPercent: bodyPercent + '%',
+          movement: isDoji ? '⚪ DOJI' : (c.close > c.open ? '🟢 BULL' : '🔴 BEAR'),
+          matchesDirection: isDoji ? '⚪ DOJI (skipped)' : (direction === 'BUY' ? (c.close > c.open ? '✅' : '❌') : (c.close < c.open ? '✅' : '❌'))
+        };
+      }),
+      note: 'Loop checks from NEWEST backward - breaks on first non-match or DOJI'
     });
 
     let consecutiveCloses = 0;
@@ -1264,8 +1274,20 @@ class EntryQualificationEngine {
 
     // Check consecutive closes in direction
     // IMPORTANT: This loops BACKWARD from newest candle (index 4) to oldest (index 0)
+    let rejectionReason = '';
     for (let i = recentCandles.length - 1; i >= 0; i--) {
       const candle = recentCandles[i];
+      const range = candle.high - candle.low;
+      const bodySize = Math.abs(candle.close - candle.open);
+
+      // Check if this is a DOJI candle (open === close)
+      const isDoji = candle.open === candle.close;
+      if (isDoji) {
+        rejectionReason = `Stopped at DOJI candle (open=${candle.open.toFixed(4)}, close=${candle.close.toFixed(4)}, bodySize=0)`;
+        console.log(`[EQS] ⚪ DOJI detected at index ${i} - stopping consecutive count`);
+        break;
+      }
+
       const isDirectionalClose = direction === 'BUY'
         ? candle.close > candle.open
         : candle.close < candle.open;
@@ -1274,20 +1296,22 @@ class EntryQualificationEngine {
         consecutiveCloses++;
 
         // Calculate body dominance
-        const range = candle.high - candle.low;
-        const body = Math.abs(candle.close - candle.open);
-        const bodyDominance = range > 0 ? body / range : 0;
+        const bodyDominance = range > 0 ? bodySize / range : 0;
         totalBodyDominance += bodyDominance;
 
         // Calculate close quality (distance from extreme)
         let closeNearExtreme = 0;
         if (direction === 'BUY') {
-          closeNearExtreme = (candle.close - candle.low) / range;
+          closeNearExtreme = range > 0 ? (candle.close - candle.low) / range : 0;
         } else {
-          closeNearExtreme = (candle.high - candle.close) / range;
+          closeNearExtreme = range > 0 ? (candle.high - candle.close) / range : 0;
         }
         closeQualitySum += closeNearExtreme;
+
+        console.log(`[EQS] ✅ Candle ${i} counts: body=${(bodyDominance * 100).toFixed(1)}%, quality=${(closeNearExtreme * 100).toFixed(1)}%`);
       } else {
+        rejectionReason = `Stopped at opposite-direction candle (${candle.close > candle.open ? 'BULL' : 'BEAR'} when expecting ${direction})`;
+        console.log(`[EQS] ❌ Candle ${i} breaks streak: wrong direction (${candle.close > candle.open ? 'BULL' : 'BEAR'} vs ${direction})`);
         break; // Stop counting if streak breaks
       }
     }
@@ -1328,6 +1352,7 @@ class EntryQualificationEngine {
       avgCloseQuality: (avgCloseQuality * 100).toFixed(1) + '%',
       closeQuality,
       expansionDetected,
+      rejectionReason: consecutiveCloses === 0 ? rejectionReason : undefined,
       criteria: {
         needConsecutive: '≥2',
         needBodyDominance: '≥60%',
