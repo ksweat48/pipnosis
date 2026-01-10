@@ -8,6 +8,7 @@ import React, { useState, useEffect } from 'react';
 import { Activity, TrendingUp, TrendingDown, CheckCircle, Clock, AlertCircle, Target, MapPin, ArrowUp, ArrowDown, Minus } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useActiveEntryIntent } from '../hooks/useEntryIntent';
+import { EntryUrgencyPhaseTimer } from './EntryUrgencyPhaseTimer';
 
 interface EQSBreakdown {
   pullbackQuality: number;
@@ -359,6 +360,11 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
             Grade {latestEQS.eqs_grade}
           </div>
         </div>
+      </div>
+
+      {/* URGENCY PHASE TIMER: Live countdown to next phase */}
+      <div className="mb-4">
+        <EntryUrgencyPhaseTimer activeIntent={activeIntent} />
       </div>
 
       {/* DECISION SUMMARY: Why Not Executing */}
