@@ -116,9 +116,28 @@ export class UnifiedEntryMonitor {
     await this.checkIntent(intentId, userId, styleConfig.canonical);
   }
 
-  async stopMonitoring(intentId: string, reason?: AbandonReason): Promise<void> {
+  /**
+   * Immediately stop the monitoring interval (synchronous)
+   * Prevents race condition where interval fires during async cleanup
+   */
+  private immediatelyStopInterval(intentId: string): void {
     const interval = this.monitoringIntervals.get(intentId);
     if (interval) {
+      clearInterval(interval);
+      this.monitoringIntervals.delete(intentId);
+      console.log(`[UnifiedMonitor] ⚡ Interval cleared immediately (runaway loop prevention)`, {
+        intentId: intentId.substring(0, 8)
+      });
+    }
+  }
+
+  async stopMonitoring(intentId: string, reason?: AbandonReason): Promise<void> {
+    // CRITICAL: Clear interval FIRST (synchronously) before any async operations
+    // This prevents race condition where interval fires again during cleanup
+    const hadInterval = this.monitoringIntervals.has(intentId);
+    this.immediatelyStopInterval(intentId);
+
+    if (hadInterval) {
       // If a reason is provided, invoke onAbandon callback before cleanup
       if (reason) {
         // Map AbandonReason to EntryOutcomeReason for taxonomy
@@ -179,9 +198,7 @@ export class UnifiedEntryMonitor {
         }
       }
 
-      // Now cleanup resources
-      clearInterval(interval);
-      this.monitoringIntervals.delete(intentId);
+      // Now cleanup remaining resources (interval already cleared in immediatelyStopInterval)
       this.lastNotificationTime.delete(intentId);
       this.lastEQSScores.delete(intentId);
       this.callbacks.delete(intentId);
@@ -295,6 +312,8 @@ export class UnifiedEntryMonitor {
           status: intent?.status,
           intentId: intentId.substring(0, 8)
         });
+
+        // stopMonitoring now clears interval immediately (synchronously) to prevent runaway loop
         await this.stopMonitoring(intentId, 'INTENT_INVALID');
         return;
       }

@@ -614,43 +614,54 @@ class EntryMonitorCoordinator {
     await this.stopMonitoring(sessionId);
     await this.transitionState(sessionId, 'ABANDONED_RESCAN_REQUESTED');
 
-    // SAFETY THROTTLING: Prevent infinite abandonment loops
-    // Track abandonments per session and throttle if too frequent
-    const now = Date.now();
-    const lastAbandon = this.lastAbandonmentTime.get(sessionId) || 0;
-    const abandonCount = this.abandonmentCount.get(sessionId) || 0;
+    // NEW SSOT FLOW: Request continuation decision from user
+    // Instead of auto-scheduling rescan, show modal and wait for user decision
+    console.log('[ENTRY_MONITOR_COORD] 📋 Requesting continuation decision from user', {
+      sessionId: sessionId.substring(0, 8),
+      reason
+    });
 
-    // Reset counter if last abandonment was more than 10 minutes ago
-    let currentAbandonCount = abandonCount;
-    if (now - lastAbandon > 10 * 60 * 1000) {
-      currentAbandonCount = 1;
-      this.abandonmentCount.set(sessionId, 1);
-    } else {
-      currentAbandonCount = abandonCount + 1;
-      this.abandonmentCount.set(sessionId, currentAbandonCount);
-    }
-    this.lastAbandonmentTime.set(sessionId, now);
-
-    // Throttling logic: If 3+ abandonments in 10 minutes, use longer delay
-    let scanIntervalSeconds: number;
-    let throttleMessage: string;
-
-    if (currentAbandonCount >= 3) {
-      // After 3 abandonments, use 5 minute delay to prevent runaway loops
-      scanIntervalSeconds = 5 * 60;
-      throttleMessage = `⚠️ THROTTLED (${currentAbandonCount} abandonments in 10min) - Using 5min delay`;
-      console.warn('[ENTRY_MONITOR_COORD] THROTTLING: Too many abandonments, using longer delay', {
-        sessionId: sessionId.substring(0, 8),
-        abandonCount: currentAbandonCount,
-        delay: '5 minutes'
+    try {
+      const { data, error } = await supabase.rpc('request_session_continuation', {
+        p_session_id: sessionId,
+        p_reason: reason
       });
-    } else {
-      // Normal case: immediate restart with 30 second cooldown
-      scanIntervalSeconds = 30;
-      throttleMessage = 'Looking for new opportunity right away!';
-    }
 
-    const nextScanTime = new Date(Date.now() + scanIntervalSeconds * 1000);
+      if (error) {
+        console.error('[ENTRY_MONITOR_COORD] Failed to request continuation:', error);
+        // Fallback: auto-schedule rescan if continuation request fails
+        await this.fallbackAutoRescan(sessionId, reason);
+        return;
+      }
+
+      console.log('[ENTRY_MONITOR_COORD] ✅ Continuation modal created', {
+        sessionId: sessionId.substring(0, 8),
+        deadline: data.deadline,
+        secondsRemaining: data.seconds_remaining
+      });
+
+      // Modal will be shown by SessionContinuationHandler component
+      // User has 60 seconds to decide: continue or close
+      // If no response, session auto-closes via auto_close_expired_continuations
+    } catch (error) {
+      console.error('[ENTRY_MONITOR_COORD] Exception requesting continuation:', error);
+      // Fallback: auto-schedule rescan
+      await this.fallbackAutoRescan(sessionId, reason);
+    }
+  }
+
+  /**
+   * Fallback auto-rescan when continuation request fails
+   * Safety mechanism to prevent sessions from getting stuck
+   */
+  private async fallbackAutoRescan(sessionId: string, reason: AbandonReason): Promise<void> {
+    console.warn('[ENTRY_MONITOR_COORD] Using fallback auto-rescan', {
+      sessionId: sessionId.substring(0, 8),
+      reason
+    });
+
+    // Simple 30-second rescan schedule
+    const nextScanTime = new Date(Date.now() + 30000);
 
     await supabase
       .from('goal_sessions')
@@ -661,17 +672,12 @@ class EntryMonitorCoordinator {
       })
       .eq('id', sessionId);
 
-    console.log('[ENTRY_MONITOR_COORD] 🚀 RESCAN scheduled after abandonment', {
+    console.log('[ENTRY_MONITOR_COORD] 🚀 Fallback rescan scheduled', {
       sessionId: sessionId.substring(0, 8),
-      reason,
-      nextScanTime: nextScanTime.toLocaleTimeString(),
-      delaySeconds: scanIntervalSeconds,
-      abandonCount: currentAbandonCount,
-      message: throttleMessage
+      nextScanTime: nextScanTime.toLocaleTimeString()
     });
 
     if (this.onRescanRequested) {
-      console.log('[ENTRY_MONITOR_COORD] Triggering rescan after abandonment', sessionId, reason);
       this.onRescanRequested(sessionId);
     }
   }
