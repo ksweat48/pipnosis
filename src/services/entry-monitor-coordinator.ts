@@ -246,9 +246,9 @@ class EntryMonitorCoordinator {
       'M15'
     );
 
-    // Handle pre-flight result (advisory system)
+    // SSOT FIX: Pre-flight validation IS the gatekeeper
+    // If it says don't create, we don't create. No exceptions.
     if (!preFlightResult.is_viable) {
-      // Only reject for data integrity issues (stale data, thesis expired, etc.)
       logger.warn('[ENTRY_MONITOR_COORD] Pre-flight REJECTED - Data integrity issue', {
         symbol: decision.symbol,
         direction: decision.direction,
@@ -272,7 +272,38 @@ class EntryMonitorCoordinator {
       };
     }
 
-    // Log advisory level (NOT a rejection - Alpha retains authority)
+    // SSOT FIX: RED advisory means "don't create this intent"
+    // Price is too far from entry zone - intent will immediately abandon
+    // Block creation to prevent infinite loop
+    if (preFlightResult.advisory_level === 'RED' ||
+        (preFlightResult.distance_from_zone_atr && preFlightResult.distance_from_zone_atr > 2.5)) {
+
+      logger.warn('[ENTRY_MONITOR_COORD] Pre-flight BLOCKED - RED advisory', {
+        symbol: decision.symbol,
+        direction: decision.direction,
+        distanceATR: preFlightResult.distance_from_zone_atr?.toFixed(2),
+        message: preFlightResult.message,
+      });
+
+      console.log(
+        '%c[ENTRY_MONITOR_COORD] 🔴 INTENT BLOCKED - Price too far from entry zone',
+        'color: #f44336; font-weight: bold',
+        {
+          symbol: decision.symbol,
+          direction: decision.direction,
+          distanceATR: preFlightResult.distance_from_zone_atr?.toFixed(2),
+          threshold: '2.5 ATR',
+          message: 'Would immediately abandon - not creating intent'
+        }
+      );
+
+      return {
+        success: false,
+        error: `Entry conditions not viable: ${preFlightResult.message}. Price is ${preFlightResult.distance_from_zone_atr?.toFixed(2)}x ATR from entry zone (max 2.5x).`,
+      };
+    }
+
+    // Log advisory level for GREEN/AMBER (informational only)
     const advisoryColor = {
       GREEN: '#4caf50',
       AMBER: '#ff9800',
@@ -286,16 +317,14 @@ class EntryMonitorCoordinator {
         symbol: decision.symbol,
         direction: decision.direction,
         distanceATR: preFlightResult.distance_from_zone_atr?.toFixed(2),
-        shouldConsultAlpha: preFlightResult.should_consult_alpha,
         message: preFlightResult.message,
       }
     );
 
-    logger.info('[ENTRY_MONITOR_COORD] Pre-flight advisory received', {
+    logger.info('[ENTRY_MONITOR_COORD] Pre-flight passed - creating intent', {
       symbol: decision.symbol,
       advisoryLevel: preFlightResult.advisory_level,
       distanceATR: preFlightResult.distance_from_zone_atr?.toFixed(2),
-      shouldConsultAlpha: preFlightResult.should_consult_alpha,
     });
 
     const maxWaitSeconds = decision.maxWaitSeconds ||
