@@ -78,8 +78,12 @@ export function useActiveEntryIntent(sessionId: string | null): UseActiveEntryIn
     // Set up realtime subscription for entry_intents table changes
     console.log('[useActiveEntryIntent] 📡 Setting up realtime subscription for session:', sessionId.substring(0, 8));
 
+    // Declare channel variable in outer scope so cleanup can access it
+    // CRITICAL: Must be declared here, not inside try block, for proper cleanup
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
     try {
-      const channel = supabase
+      channel = supabase
         .channel(`entry-intents-${sessionId}`)
         .on(
           'postgres_changes',
@@ -140,10 +144,21 @@ export function useActiveEntryIntent(sessionId: string | null): UseActiveEntryIn
       loadIntent();
     }, 30000);
 
-    // Cleanup
+    // Cleanup function with defensive null checking
     return () => {
       console.log('[useActiveEntryIntent] 🧹 Cleaning up subscription and polling');
-      supabase.removeChannel(channel);
+
+      // Defensive cleanup: Check if channel exists before removing
+      if (channel) {
+        try {
+          supabase.removeChannel(channel);
+          console.log('[useActiveEntryIntent] ✅ Channel removed successfully');
+        } catch (error) {
+          // Log but don't throw - cleanup should never crash
+          console.log('[useActiveEntryIntent] ⚠️ Error removing channel (non-critical):', error);
+        }
+      }
+
       clearInterval(pollInterval);
     };
   }, [loadIntent, sessionId]);

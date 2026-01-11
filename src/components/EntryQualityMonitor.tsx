@@ -73,8 +73,15 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
       }
 
       if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
+        try {
+          supabase.removeChannel(channelRef.current);
+          channelRef.current = null;
+          console.log('[EntryQualityMonitor] ✅ Channel removed successfully');
+        } catch (error) {
+          // Log but don't throw - cleanup should never crash
+          console.log('[EntryQualityMonitor] ⚠️ Error removing channel (non-critical):', error);
+          channelRef.current = null;
+        }
       }
     };
 
