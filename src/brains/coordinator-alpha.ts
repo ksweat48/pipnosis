@@ -1564,9 +1564,7 @@ Note: NO_TRADE is reserved for legitimate block conditions ONLY. Prefer WAIT whe
       if (liquidityIntent && liquidityIntent.overallConviction > 0) {
         decision.liquidityIntent = liquidityIntent;
       }
-      if (narrativeValidation) {
-        decision.narrativeValidation = narrativeValidation;
-      }
+      // Note: narrativeValidation is already set by parseDecision()
 
       // Add Phase 5: Pattern Intelligence
       if (patternIntelligence) {
