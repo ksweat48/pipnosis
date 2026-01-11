@@ -1,7 +1,7 @@
 // Pipnosis PWA Service Worker
 // Enables installation and "Add to Home Screen" functionality
 
-const BUILD_VERSION = '1.0.8';
+const BUILD_VERSION = '1.0.0-mka8u134';
 const CACHE_NAME = `pipnosis-v${BUILD_VERSION}`;
 const STATIC_ASSETS = [
   '/',
@@ -13,12 +13,24 @@ const STATIC_ASSETS = [
   '/Pipnosis icon.png'
 ];
 
-// Install event - cache static assets
+// Install event - cache static assets and skip waiting
 self.addEventListener('install', (event) => {
   console.log(`[Service Worker] Installing version ${BUILD_VERSION}`);
+
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(STATIC_ASSETS))
+    (async () => {
+      try {
+        const cache = await caches.open(CACHE_NAME);
+        await cache.addAll(STATIC_ASSETS);
+        console.log(`[Service Worker] Static assets cached`);
+
+        // Skip waiting to activate immediately
+        await self.skipWaiting();
+        console.log(`[Service Worker] Skipped waiting - activating now`);
+      } catch (error) {
+        console.error('[Service Worker] Installation error:', error);
+      }
+    })()
   );
 });
 
@@ -30,13 +42,15 @@ self.addEventListener('message', (event) => {
   }
 });
 
-// Activate event - clean up old caches
+// Activate event - clean up old caches and take control immediately
 self.addEventListener('activate', (event) => {
   console.log(`[Service Worker] Activating version ${BUILD_VERSION}`);
   event.waitUntil(
-    caches.keys()
-      .then((cacheNames) => {
-        return Promise.all(
+    (async () => {
+      try {
+        // Delete all old caches
+        const cacheNames = await caches.keys();
+        await Promise.all(
           cacheNames
             .filter((name) => name !== CACHE_NAME)
             .map((name) => {
@@ -44,23 +58,29 @@ self.addEventListener('activate', (event) => {
               return caches.delete(name);
             })
         );
-      })
-      .then(() => self.clients.claim())
-      .then(() => {
-        return self.clients.matchAll({ type: 'window' });
-      })
-      .then((clients) => {
+
+        // Take control of all clients immediately
+        await self.clients.claim();
+        console.log(`[Service Worker] Claimed all clients`);
+
+        // Notify all clients of the new version
+        const clients = await self.clients.matchAll({ type: 'window' });
         clients.forEach((client) => {
           client.postMessage({
             type: 'VERSION_ACTIVATED',
             version: BUILD_VERSION
           });
         });
-      })
+
+        console.log(`[Service Worker] ✅ Activation complete: ${BUILD_VERSION}`);
+      } catch (error) {
+        console.error('[Service Worker] Activation error:', error);
+      }
+    })()
   );
 });
 
-// Fetch event - network first, fallback to cache
+// Fetch event - intelligent caching strategy
 self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
   if (event.request.method !== 'GET') return;
@@ -68,25 +88,46 @@ self.addEventListener('fetch', (event) => {
   // Skip chrome extensions and other protocols
   if (!event.request.url.startsWith('http')) return;
 
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        // Clone the response before caching
-        const responseClone = response.clone();
+  const url = new URL(event.request.url);
 
-        // Cache successful responses
-        if (response.status === 200) {
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
-          });
-        }
-
-        return response;
-      })
-      .catch(() => {
-        // Fallback to cache on network error
+  // CRITICAL: Never cache index.html or version.json - always fetch from network
+  if (url.pathname === '/' || url.pathname === '/index.html' || url.pathname === '/version.json') {
+    event.respondWith(
+      fetch(event.request, {
+        cache: 'no-cache',
+        headers: new Headers({
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        })
+      }).catch(() => {
+        // Only on network failure, use cache as fallback
         return caches.match(event.request);
       })
+    );
+    return;
+  }
+
+  // For static assets, use stale-while-revalidate
+  event.respondWith(
+    caches.match(event.request).then((cachedResponse) => {
+      const fetchPromise = fetch(event.request)
+        .then((networkResponse) => {
+          // Cache successful responses
+          if (networkResponse && networkResponse.status === 200) {
+            const responseClone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseClone);
+            });
+          }
+          return networkResponse;
+        })
+        .catch((error) => {
+          console.warn('[SW] Fetch failed:', url.pathname, error);
+          return cachedResponse; // Fallback to cache
+        });
+
+      // Return cached version immediately if available, update in background
+      return cachedResponse || fetchPromise;
+    })
   );
 });
 

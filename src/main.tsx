@@ -244,6 +244,13 @@ window.addEventListener('unhandledrejection', (event) => {
     timestamp: new Date().toISOString()
   });
 
+  // CRITICAL: Handle chunk load errors (404 on dynamic imports)
+  if (errorHandler.isChunkLoadError(event.reason)) {
+    event.preventDefault();
+    errorHandler.handleChunkLoadError(event.reason);
+    return;
+  }
+
   if (
     reason.includes('ERR_NETWORK_CHANGED') ||
     reason.includes('ERR_CONNECTION_RESET') ||
@@ -286,6 +293,13 @@ window.addEventListener('error', (event) => {
     error: event.error,
     timestamp: new Date().toISOString()
   });
+
+  // CRITICAL: Handle chunk load errors
+  if (errorHandler.isChunkLoadError(event.error)) {
+    event.preventDefault();
+    errorHandler.handleChunkLoadError(event.error);
+    return;
+  }
 
   if (errorHandler.isWebContainerError(event.error)) {
     event.preventDefault();

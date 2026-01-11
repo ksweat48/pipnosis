@@ -11,7 +11,7 @@ import { globalToastManager } from './services/global-toast-manager';
 import { globalDialogManager } from './services/global-dialog-manager';
 import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 import { UpdateBanner } from './components/UpdateBanner';
-import { cacheClearOnRefresh } from './services/cache-clear-on-refresh';
+import { cacheManager } from './services/cache-manager';
 import { supabase } from './lib/supabase';
 import { midTradeNotificationQueue } from './services/mid-trade-notification-queue';
 import MidTradeUpdateModal from './components/MidTradeUpdateModal';
@@ -103,13 +103,25 @@ const AppRoutes: React.FC = () => {
 
   useEffect(() => {
     const initCache = async () => {
-      await cacheClearOnRefresh.forceClearOnHardRefresh();
-      await cacheClearOnRefresh.checkAndClearStaleCache();
+      await cacheManager.forceClearOnHardRefresh();
+      await cacheManager.checkAndClearStaleCache();
     };
 
     initCache().catch(error => {
       console.error('[App] Error initializing cache:', error);
     });
+
+    // Initialize deployment detector in production
+    if (import.meta.env.PROD) {
+      const initDeploymentDetector = async () => {
+        const { deploymentDetector } = await import('./services/deployment-detector');
+        await deploymentDetector.initialize();
+      };
+
+      initDeploymentDetector().catch(error => {
+        console.error('[App] Error initializing deployment detector:', error);
+      });
+    }
   }, []);
 
   // Data quality startup - validate and repair candle data

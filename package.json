@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "node scripts/validate-critical-systems.cjs && node scripts/validate-omega-deterministic.cjs",
+    "prebuild": "node scripts/update-sw-version.cjs && node scripts/validate-critical-systems.cjs && node scripts/validate-omega-deterministic.cjs",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",

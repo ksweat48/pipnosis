@@ -24,11 +24,45 @@ export class DatabaseErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('DatabaseErrorBoundary caught an error:', error, errorInfo);
+
+    // Check if this is a chunk load error
+    const isChunkError = this.isChunkLoadError(error);
+
+    if (isChunkError) {
+      console.log('[DatabaseErrorBoundary] Chunk load error detected - triggering auto-recovery');
+      // Trigger automatic recovery after a brief delay
+      setTimeout(() => {
+        this.handleChunkErrorRecovery();
+      }, 2000);
+    }
+
     this.setState(prev => ({
       error,
       errorInfo,
       retryCount: prev.retryCount + 1
     }));
+  }
+
+  isChunkLoadError(error: Error): boolean {
+    const message = error.message || error.toString();
+    return (
+      message.includes('Failed to fetch dynamically imported module') ||
+      message.includes('ChunkLoadError') ||
+      message.includes('Loading chunk') ||
+      (message.includes('404') && message.includes('assets/'))
+    );
+  }
+
+  async handleChunkErrorRecovery() {
+    try {
+      // Dynamic import to avoid circular dependencies
+      const { cacheManager } = await import('../services/cache-manager');
+      await cacheManager.emergencyClearAndReload();
+    } catch (error) {
+      console.error('[DatabaseErrorBoundary] Recovery failed:', error);
+      // Force reload anyway
+      window.location.reload();
+    }
   }
 
   handleReset = () => {
@@ -41,6 +75,29 @@ export class DatabaseErrorBoundary extends Component<Props, State> {
 
   render(): ReactNode {
     if (this.state.hasError) {
+      const isChunkError = this.isChunkLoadError(this.state.error!);
+
+      // Show different UI for chunk load errors (auto-recovering)
+      if (isChunkError) {
+        return (
+          <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+            <div className="max-w-2xl w-full">
+              <div className="bg-gray-900 border border-emerald-700 rounded-xl p-8">
+                <div className="text-center">
+                  <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-600/20 rounded-full mb-4">
+                    <div className="animate-spin h-8 w-8 border-3 border-emerald-500 border-t-transparent rounded-full"></div>
+                  </div>
+                  <h1 className="text-2xl font-bold text-white mb-2">New Version Available</h1>
+                  <p className="text-gray-400">Updating to the latest version...</p>
+                  <p className="text-gray-500 text-sm mt-4">This will only take a moment</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Show standard error UI for other errors
       return (
         <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
           <div className="max-w-2xl w-full">
