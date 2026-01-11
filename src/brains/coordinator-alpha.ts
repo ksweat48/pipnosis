@@ -1936,12 +1936,24 @@ Note: NO_TRADE is reserved for legitimate block conditions ONLY. Prefer WAIT whe
             marketContext,
             votes,
             vwap,
-            recentCandles
+            microRegime?.regime
           );
 
           if (entryIntent) {
             decision.entry_intent = entryIntent;
             console.log(`[Alpha Coordinator] 🎯 Entry intent: ${entryIntent.intent_type} (${entryIntent.urgency})`);
+
+            // Log adaptive zone details if available
+            if (entryIntent.zone_type && entryIntent.micro_regime_used) {
+              console.log(`[Alpha Coordinator] 🎯 Adaptive Zones: ${entryIntent.zone_type.toUpperCase()} zone for ${entryIntent.micro_regime_used} regime`);
+              console.log(`[Alpha Coordinator]    Primary Zone: ${entryIntent.primary_zone_min?.toFixed(5)} - ${entryIntent.primary_zone_max?.toFixed(5)}`);
+              console.log(`[Alpha Coordinator]    Secondary Zone: ${entryIntent.secondary_zone_min?.toFixed(5)} - ${entryIntent.secondary_zone_max?.toFixed(5)}`);
+              console.log(`[Alpha Coordinator]    Reachability: ${entryIntent.zone_reachability_distance_pips?.toFixed(2)} pips from current price`);
+              console.log(`[Alpha Coordinator]    Position Size: ${((entryIntent.position_size_multiplier || 1.0) * 100).toFixed(0)}% of standard size`);
+              if (entryIntent.zone_downgrade_applied) {
+                console.log(`[Alpha Coordinator]    ⚠️ Zone downgraded due to reachability constraints`);
+              }
+            }
 
             // Log entry quality violations
             if (entryIntent.quality_violations && entryIntent.quality_violations.length > 0) {
