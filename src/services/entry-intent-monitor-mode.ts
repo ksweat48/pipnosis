@@ -355,6 +355,19 @@ export async function markIntentExpired(intentId: string, reason: string): Promi
     reason
   });
 
+  // First, get the intent data to extract user_id, session_id, and symbol for modal
+  const { data: intent } = await supabase
+    .from('entry_intents')
+    .select('user_id, session_id, symbol')
+    .eq('id', intentId)
+    .maybeSingle();
+
+  if (!intent) {
+    logger.error('[markIntentExpired] Intent not found', { intentId: intentId.substring(0, 8) });
+    return;
+  }
+
+  // Update intent status to timeout
   await supabase
     .from('entry_intents')
     .update({
@@ -365,7 +378,46 @@ export async function markIntentExpired(intentId: string, reason: string): Promi
     })
     .eq('id', intentId);
 
-  logger.info('[markIntentExpired] Intent marked as expired', { intentId: intentId.substring(0, 8), reason });
+  // Create continuation modal so user can decide to continue or close session
+  const modalDeadline = new Date(Date.now() + 60000); // 60 seconds to respond
+
+  console.log('[markIntentExpired] Creating continuation modal', {
+    intentId: intentId.substring(0, 8),
+    sessionId: intent.session_id?.substring(0, 8),
+    symbol: intent.symbol,
+    deadline: modalDeadline.toISOString()
+  });
+
+  const { error: modalError } = await supabase
+    .from('pending_user_modals')
+    .insert({
+      user_id: intent.user_id,
+      goal_session_id: intent.session_id,
+      modal_type: 'continuation',
+      modal_data: {
+        session_id: intent.session_id,
+        symbol: intent.symbol,
+        reason: `EQS monitoring timed out: ${reason}`,
+        deadline: modalDeadline.toISOString(),
+        intent_id: intentId
+      },
+      expires_at: modalDeadline.toISOString()
+    });
+
+  if (modalError) {
+    logger.error('[markIntentExpired] Failed to create continuation modal', {
+      intentId: intentId.substring(0, 8),
+      error: modalError.message
+    });
+  } else {
+    console.log('[markIntentExpired] ✅ Continuation modal created successfully');
+  }
+
+  logger.info('[markIntentExpired] Intent marked as expired with continuation modal', {
+    intentId: intentId.substring(0, 8),
+    reason,
+    modalCreated: !modalError
+  });
 }
 
 /**

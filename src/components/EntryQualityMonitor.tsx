@@ -129,14 +129,16 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
           filter: `intent_id=eq.${activeIntent.id}`
         },
         (payload) => {
-          console.log('[EntryQualityMonitor] 📥 Realtime EQS update received', payload.new);
+          const isDev = import.meta.env.DEV;
+          if (isDev) console.log('[EntryQualityMonitor] 📥 Realtime EQS update received', payload.new);
           if (payload.new) {
             setLatestEQS(payload.new as EQSUpdate);
           }
         }
       )
       .subscribe((status) => {
-        console.log('[EntryQualityMonitor] 📡 EQS subscription status:', status);
+        const isDev = import.meta.env.DEV;
+        if (isDev) console.log('[EntryQualityMonitor] 📡 EQS subscription status:', status);
       });
 
     // Store channel in ref for safe cleanup
@@ -146,7 +148,8 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
   }, [activeIntent?.id, activeIntent?.status, sessionId, intentLoading]);
 
   const loadLatestEQS = async (currentIntentId: string) => {
-    console.log('[EntryQualityMonitor] 🔍 Loading EQS data for intent:', currentIntentId.substring(0, 8));
+    const isDev = import.meta.env.DEV;
+    if (isDev) console.log('[EntryQualityMonitor] 🔍 Loading EQS data for intent:', currentIntentId.substring(0, 8));
     try {
       const { data, error } = await supabase
         .from('entry_monitoring_logs')
@@ -159,14 +162,16 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
       if (error) {
         console.error('[EntryQualityMonitor] ❌ Database error loading EQS:', error);
       } else if (data) {
-        console.log('[EntryQualityMonitor] ✅ EQS data loaded:', {
-          eqsScore: data.eqs_score,
-          grade: data.eqs_grade,
-          status: data.status
-        });
+        if (isDev) {
+          console.log('[EntryQualityMonitor] ✅ EQS data loaded:', {
+            eqsScore: data.eqs_score,
+            grade: data.eqs_grade,
+            status: data.status
+          });
+        }
         setLatestEQS(data as EQSUpdate);
       } else {
-        console.log('[EntryQualityMonitor] ⏳ No EQS data yet, monitoring still initializing...');
+        if (isDev) console.log('[EntryQualityMonitor] ⏳ No EQS data yet, monitoring still initializing...');
       }
     } catch (error) {
       console.error('[EntryQualityMonitor] ❌ Error loading EQS:', error);

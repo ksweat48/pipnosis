@@ -375,18 +375,22 @@ export class UnifiedEntryMonitor {
 
   private async checkIntent(intentId: string, userId: string, style: string): Promise<void> {
     const checkStartTime = Date.now();
-    console.log('%c[UnifiedMonitor] 🔄 checkIntent running', 'color: #00bcd4; font-weight: bold', {
-      intentId: intentId.substring(0, 8) + '...',
-      style,
-      timestamp: new Date().toLocaleTimeString()
-    });
+    const isDev = import.meta.env.DEV;
+
+    if (isDev) {
+      console.log('%c[UnifiedMonitor] 🔄 checkIntent running', 'color: #00bcd4; font-weight: bold', {
+        intentId: intentId.substring(0, 8) + '...',
+        style,
+        timestamp: new Date().toLocaleTimeString()
+      });
+    }
 
     // Update health monitoring timestamp at the start
     this.lastCheckTimestamp.set(intentId, checkStartTime);
 
     try {
       // Step 1: Fetch intent with timeout protection
-      console.log('[UnifiedMonitor] Step 1/8: Fetching intent...');
+      if (isDev) console.log('[UnifiedMonitor] Step 1/8: Fetching intent...');
       let intent: EntryIntent | null = null;
       try {
         intent = await withTimeout(
@@ -394,7 +398,7 @@ export class UnifiedEntryMonitor {
           5000,
           'Fetch intent from database'
         );
-        console.log('[UnifiedMonitor] ✓ Intent fetched');
+        if (isDev) console.log('[UnifiedMonitor] ✓ Intent fetched');
       } catch (error) {
         logger.error(`[UnifiedMonitor] Failed to fetch intent ${intentId}:`, error);
         console.error('[UnifiedMonitor] ❌ Intent fetch failed, skipping this check');
@@ -418,14 +422,14 @@ export class UnifiedEntryMonitor {
       // 1. Price crossed stop loss (hard invalidation)
       // 2. Price too far from zone (>3x ATR) for 5+ consecutive checks
       // 3. Session no longer active
-      console.log('[UnifiedMonitor] Step 2/8: Checking setup validity...');
+      if (isDev) console.log('[UnifiedMonitor] Step 2/8: Checking setup validity...');
 
       // We'll do the full setup validity check after getting market conditions
       // This is just a placeholder step for now
-      console.log('[UnifiedMonitor] ✓ Setup validity check will be performed after market data fetch');
+      if (isDev) console.log('[UnifiedMonitor] ✓ Setup validity check will be performed after market data fetch');
 
       // Step 3: Verify session validity
-      console.log('[UnifiedMonitor] Step 3/8: Validating session...');
+      if (isDev) console.log('[UnifiedMonitor] Step 3/8: Validating session...');
       if (!intent.session_id) {
         console.log('%c[UnifiedMonitor] ⚠️ SESSION MISSING - No session_id on intent', 'color: #ff9800; font-weight: bold', {
           intentId: intentId.substring(0, 8)
@@ -446,7 +450,7 @@ export class UnifiedEntryMonitor {
           'Fetch session status'
         );
         session = data;
-        console.log('[UnifiedMonitor] ✓ Session validated');
+        if (isDev) console.log('[UnifiedMonitor] ✓ Session validated');
       } catch (error) {
         logger.error(`[UnifiedMonitor] Session validation timeout:`, error);
         console.error('[UnifiedMonitor] ❌ Session fetch failed, skipping this check');
@@ -468,7 +472,7 @@ export class UnifiedEntryMonitor {
       }
 
       // Step 4: Fetch current price
-      console.log('[UnifiedMonitor] Step 4/8: Fetching current price...');
+      if (isDev) console.log('[UnifiedMonitor] Step 4/8: Fetching current price...');
       let priceData: any = null;
       try {
         priceData = await withTimeout(
@@ -476,7 +480,7 @@ export class UnifiedEntryMonitor {
           5000,
           'Fetch current price'
         );
-        console.log('[UnifiedMonitor] ✓ Price fetched:', priceData?.price);
+        if (isDev) console.log('[UnifiedMonitor] ✓ Price fetched:', priceData?.price);
       } catch (error) {
         logger.error(`[UnifiedMonitor] Price fetch timeout:`, error);
         console.error('[UnifiedMonitor] ❌ Price fetch failed, skipping this check');
@@ -490,7 +494,7 @@ export class UnifiedEntryMonitor {
       }
 
       // Step 5: Fetch candles and market conditions
-      console.log('[UnifiedMonitor] Step 5/8: Fetching candles and market conditions...');
+      if (isDev) console.log('[UnifiedMonitor] Step 5/8: Fetching candles and market conditions...');
       let candles: any[] = [];
       let marketConditions: any = null;
 
@@ -507,8 +511,8 @@ export class UnifiedEntryMonitor {
             'Fetch market conditions'
           )
         ]);
-        console.log('[UnifiedMonitor] ✓ Candles fetched:', candles.length);
-        console.log('[UnifiedMonitor] ✓ Market conditions fetched');
+        if (isDev) console.log('[UnifiedMonitor] ✓ Candles fetched:', candles.length);
+        if (isDev) console.log('[UnifiedMonitor] ✓ Market conditions fetched');
       } catch (error) {
         logger.error(`[UnifiedMonitor] Candle/market fetch timeout:`, error);
         console.error('[UnifiedMonitor] ❌ Data fetch failed, skipping this check');
@@ -522,7 +526,7 @@ export class UnifiedEntryMonitor {
       }
 
       // Step 5.5: Setup Validity Check (replaces time-based timeout)
-      console.log('[UnifiedMonitor] Step 5.5/8: Checking setup validity...');
+      if (isDev) console.log('[UnifiedMonitor] Step 5.5/8: Checking setup validity...');
 
       // Calculate distance to entry zone (supports both legacy and adaptive zones)
       const zoneCheck = this.checkZoneEntry(priceData.price, intent);
@@ -593,14 +597,16 @@ export class UnifiedEntryMonitor {
         }
       }
 
-      console.log('[UnifiedMonitor] ✓ Setup validity check passed', {
-        inEntryZone,
-        distanceInATR: distanceInATR.toFixed(2),
-        consecutiveOutsideCount: this.consecutiveOutsideZone.get(intentId) || 0
-      });
+      if (isDev) {
+        console.log('[UnifiedMonitor] ✓ Setup validity check passed', {
+          inEntryZone,
+          distanceInATR: distanceInATR.toFixed(2),
+          consecutiveOutsideCount: this.consecutiveOutsideZone.get(intentId) || 0
+        });
+      }
 
       // Step 6: Calculate technical indicators
-      console.log('[UnifiedMonitor] Step 6/8: Calculating indicators...');
+      if (isDev) console.log('[UnifiedMonitor] Step 6/8: Calculating indicators...');
       // SSOT FIX: Candles come from DB in descending order (newest first)
       // Reverse them to chronological order (oldest first) for indicator calculations
       // Then use last 10 for EQS (most recent price action)
@@ -631,10 +637,12 @@ export class UnifiedEntryMonitor {
           }
         }
 
-        console.log('[UnifiedMonitor] ✓ Indicators calculated:', {
-          ema20: ema20Value.toFixed(5),
-          rsi: rsiValue.toFixed(1)
-        });
+        if (isDev) {
+          console.log('[UnifiedMonitor] ✓ Indicators calculated:', {
+            ema20: ema20Value.toFixed(5),
+            rsi: rsiValue.toFixed(1)
+          });
+        }
       } catch (error) {
         logger.error(`[UnifiedMonitor] Indicator calculation error:`, error);
         console.error('[UnifiedMonitor] ⚠️ Using fallback indicator values');
@@ -647,7 +655,7 @@ export class UnifiedEntryMonitor {
       );
 
       // Step 7: Calculate EQS
-      console.log('[UnifiedMonitor] Step 7/8: Calculating Entry Quality Score...');
+      if (isDev) console.log('[UnifiedMonitor] Step 7/8: Calculating Entry Quality Score...');
       const marketContext = intent.market_context as any;
       const confidence = marketContext?.confidence || 60;
       const stopLoss = marketContext?.stop_loss || 0;
@@ -659,31 +667,33 @@ export class UnifiedEntryMonitor {
       try {
         const last10Candles = candlesForIndicators.slice(-10);
 
-        // DEBUG: Comprehensive candle order verification
-        console.log('[UnifiedMonitor] 🔍 CANDLE ORDER VERIFICATION:', {
-          totalCandlesAvailable: candlesForIndicators.length,
-          using: 'LAST 10 candles (most recent)',
-          candleCount: last10Candles.length,
-          orderCheck: {
-            firstCandle: last10Candles[0]?.time,
-            lastCandle: last10Candles[last10Candles.length - 1]?.time,
-            isChronological: last10Candles[0]?.time < last10Candles[last10Candles.length - 1]?.time ? '✅ CORRECT (oldest→newest)' : '❌ WRONG (reversed)'
-          },
-          last3Candles: last10Candles.slice(-3).map((c, idx) => ({
-            position: `${last10Candles.length - 3 + idx} (${idx === 2 ? 'NEWEST' : 'older'})`,
-            time: c.time,
-            open: c.open.toFixed(2),
-            close: c.close.toFixed(2),
-            movement: c.close > c.open ? '🟢 BULLISH' : '🔴 BEARISH'
-          })),
-          indicatorInputs: {
-            ema20: ema20Value.toFixed(5),
-            rsi: rsiValue.toFixed(1),
-            currentPrice: priceData.price.toFixed(5),
-            priceVsEMA: priceData.price > ema20Value ? '📈 ABOVE (bullish)' : '📉 BELOW (bearish)',
-            direction: intent.direction === 'long' ? 'BUY' : 'SELL'
-          }
-        });
+        // DEBUG: Comprehensive candle order verification (dev only)
+        if (isDev) {
+          console.log('[UnifiedMonitor] 🔍 CANDLE ORDER VERIFICATION:', {
+            totalCandlesAvailable: candlesForIndicators.length,
+            using: 'LAST 10 candles (most recent)',
+            candleCount: last10Candles.length,
+            orderCheck: {
+              firstCandle: last10Candles[0]?.time,
+              lastCandle: last10Candles[last10Candles.length - 1]?.time,
+              isChronological: last10Candles[0]?.time < last10Candles[last10Candles.length - 1]?.time ? '✅ CORRECT (oldest→newest)' : '❌ WRONG (reversed)'
+            },
+            last3Candles: last10Candles.slice(-3).map((c, idx) => ({
+              position: `${last10Candles.length - 3 + idx} (${idx === 2 ? 'NEWEST' : 'older'})`,
+              time: c.time,
+              open: c.open.toFixed(2),
+              close: c.close.toFixed(2),
+              movement: c.close > c.open ? '🟢 BULLISH' : '🔴 BEARISH'
+            })),
+            indicatorInputs: {
+              ema20: ema20Value.toFixed(5),
+              rsi: rsiValue.toFixed(1),
+              currentPrice: priceData.price.toFixed(5),
+              priceVsEMA: priceData.price > ema20Value ? '📈 ABOVE (bullish)' : '📉 BELOW (bearish)',
+              direction: intent.direction === 'long' ? 'BUY' : 'SELL'
+            }
+          });
+        }
 
         const qualificationInput: EntryQualificationInput = {
           symbol: intent.symbol,
@@ -706,7 +716,7 @@ export class UnifiedEntryMonitor {
 
         eqsResult = entryQualificationEngine.evaluate(qualificationInput);
         currentEQS = eqsResult.eqsBreakdown.totalScore;
-        console.log('[UnifiedMonitor] ✓ EQS calculated:', currentEQS);
+        if (isDev) console.log('[UnifiedMonitor] ✓ EQS calculated:', currentEQS);
       } catch (error) {
         logger.error(`[UnifiedMonitor] EQS calculation error:`, error);
         console.error('[UnifiedMonitor] ❌ EQS calculation failed, skipping this check');
@@ -717,18 +727,20 @@ export class UnifiedEntryMonitor {
 
       // Note: inEntryZone and distanceToZone already calculated in Step 5.5 for setup validity check
 
-      console.log('%c[UnifiedMonitor] 📊 Entry Quality Check:', 'color: #2196f3; font-weight: bold; font-size: 14px', {
-        symbol: intent.symbol,
-        currentPrice: priceData.price.toFixed(5),
-        entryZone: `${intent.entry_zone_min.toFixed(5)} - ${intent.entry_zone_max.toFixed(5)}`,
-        inZone: inEntryZone,
-        distanceToZone: distanceToZone.toFixed(5),
-        eqsScore: currentEQS,
-        eqsThreshold: styleConfig.eqsThreshold,
-        eqsGrade: eqsResult.eqsGrade,
-        status: eqsResult.status,
-        meetsThreshold: currentEQS >= styleConfig.eqsThreshold
-      });
+      if (isDev) {
+        console.log('%c[UnifiedMonitor] 📊 Entry Quality Check:', 'color: #2196f3; font-weight: bold; font-size: 14px', {
+          symbol: intent.symbol,
+          currentPrice: priceData.price.toFixed(5),
+          entryZone: `${intent.entry_zone_min.toFixed(5)} - ${intent.entry_zone_max.toFixed(5)}`,
+          inZone: inEntryZone,
+          distanceToZone: distanceToZone.toFixed(5),
+          eqsScore: currentEQS,
+          eqsThreshold: styleConfig.eqsThreshold,
+          eqsGrade: eqsResult.eqsGrade,
+          status: eqsResult.status,
+          meetsThreshold: currentEQS >= styleConfig.eqsThreshold
+        });
+      }
 
       logger.info(
         `[UnifiedMonitor] ${intent.symbol} EQS: ${currentEQS}/${EQS_COMPONENT_MAXIMUMS.TOTAL} ` +
@@ -736,18 +748,20 @@ export class UnifiedEntryMonitor {
         `In Zone: ${inEntryZone}, Status: ${eqsResult.status}`
       );
 
-      // Log detailed breakdown for debugging
-      console.log('%c[UnifiedMonitor] 📈 EQS Breakdown:', 'color: #9c27b0; font-weight: bold', {
-        pullback: `${eqsResult.eqsBreakdown.pullbackQuality}/${EQS_COMPONENT_MAXIMUMS.PULLBACK_QUALITY}`,
-        vwap: `${eqsResult.eqsBreakdown.vwapInteraction}/${EQS_COMPONENT_MAXIMUMS.VWAP_INTERACTION}`,
-        ema: `${eqsResult.eqsBreakdown.emaAlignment}/${EQS_COMPONENT_MAXIMUMS.EMA_ALIGNMENT}`,
-        liquidity: `${eqsResult.eqsBreakdown.liquidityReaction}/${EQS_COMPONENT_MAXIMUMS.LIQUIDITY_REACTION}`,
-        compression: `${eqsResult.eqsBreakdown.compressionExpansion}/${EQS_COMPONENT_MAXIMUMS.COMPRESSION_EXPANSION}`,
-        total: `${currentEQS}/${EQS_COMPONENT_MAXIMUMS.TOTAL}`
-      });
+      // Log detailed breakdown for debugging (dev only)
+      if (isDev) {
+        console.log('%c[UnifiedMonitor] 📈 EQS Breakdown:', 'color: #9c27b0; font-weight: bold', {
+          pullback: `${eqsResult.eqsBreakdown.pullbackQuality}/${EQS_COMPONENT_MAXIMUMS.PULLBACK_QUALITY}`,
+          vwap: `${eqsResult.eqsBreakdown.vwapInteraction}/${EQS_COMPONENT_MAXIMUMS.VWAP_INTERACTION}`,
+          ema: `${eqsResult.eqsBreakdown.emaAlignment}/${EQS_COMPONENT_MAXIMUMS.EMA_ALIGNMENT}`,
+          liquidity: `${eqsResult.eqsBreakdown.liquidityReaction}/${EQS_COMPONENT_MAXIMUMS.LIQUIDITY_REACTION}`,
+          compression: `${eqsResult.eqsBreakdown.compressionExpansion}/${EQS_COMPONENT_MAXIMUMS.COMPRESSION_EXPANSION}`,
+          total: `${currentEQS}/${EQS_COMPONENT_MAXIMUMS.TOTAL}`
+        });
+      }
 
       // Step 7.5: Update database heartbeat and store EQS
-      console.log('[UnifiedMonitor] Step 7.5/8: Updating database heartbeat...');
+      if (isDev) console.log('[UnifiedMonitor] Step 7.5/8: Updating database heartbeat...');
       try {
         // Store EQS update in database for UI display
         await this.storeEQSUpdate(intent, eqsResult, currentEQS, styleConfig.eqsThreshold);
@@ -761,7 +775,7 @@ export class UnifiedEntryMonitor {
           3000,
           'Update heartbeat timestamp'
         );
-        console.log('[UnifiedMonitor] ✓ Database heartbeat updated');
+        if (isDev) console.log('[UnifiedMonitor] ✓ Database heartbeat updated');
       } catch (error) {
         logger.error(`[UnifiedMonitor] Database update error:`, error);
         console.error('[UnifiedMonitor] ⚠️ Database heartbeat failed (non-critical)');
@@ -816,7 +830,7 @@ export class UnifiedEntryMonitor {
       this.lastEQSScores.set(intentId, currentEQS);
 
       // Step 8: Make execution decision with time-based urgency + confidence
-      console.log('[UnifiedMonitor] Step 8/8: Making execution decision...');
+      if (isDev) console.log('[UnifiedMonitor] Step 8/8: Making execution decision...');
 
       // SSOT: Calculate time-based urgency (Phase 1/2/3)
       const alphaConfidence = intent.alpha_confidence || 60;
@@ -863,7 +877,8 @@ export class UnifiedEntryMonitor {
       const eqsMeetsThreshold = currentEQS >= adjustedEQSThreshold;
       const statusReady = eqsResult.status === 'EXECUTE_NOW';
 
-      console.log(`[UnifiedMonitor] 🎯 Time-Urgency Threshold: Phase ${urgencyResult.phase} (${EntryUrgencyCalculator.getPhaseDescription(urgencyResult.phase)}) → EQS threshold ${adjustedEQSThreshold} (baseline: 60, Alpha confidence: ${alphaConfidence}%, elapsed: ${urgencyResult.minutesElapsed.toFixed(1)}m)`);
+      // Always log time-urgency threshold (important for monitoring)
+      logger.info(`[UnifiedMonitor] Time-Urgency: Phase ${urgencyResult.phase} (${EntryUrgencyCalculator.getPhaseDescription(urgencyResult.phase)}) → Threshold ${adjustedEQSThreshold} (Alpha confidence: ${alphaConfidence}%, elapsed: ${urgencyResult.minutesElapsed.toFixed(1)}m)`);
 
       // Calculate zone width and near-zone distance
       const zoneWidth = intent.entry_zone_max - intent.entry_zone_min;
@@ -896,27 +911,8 @@ export class UnifiedEntryMonitor {
         executionReason = `❌ NEAR ZONE but quality insufficient - EQS ${currentEQS} (need ${ALPHA_IDENTITY.EQS_EXCEPTIONAL_OVERRIDE_THRESHOLD}+)`;
       }
 
-      console.log('%c[UnifiedMonitor] 🎯 EXECUTION DECISION:', 'color: #ff5722; font-weight: bold; font-size: 16px', {
-        shouldExecute,
-        statusReady,
-        eqsMeetsThreshold,
-        eqsScore: currentEQS,
-        baselineThreshold: 60,
-        adjustedThreshold: adjustedEQSThreshold,
-        urgencyPhase: urgencyResult.phase,
-        minutesElapsed: urgencyResult.minutesElapsed.toFixed(1),
-        minutesUntilNextPhase: urgencyResult.minutesUntilNextPhase?.toFixed(1) || 'N/A',
-        minutesUntilExpiry: urgencyResult.minutesUntilExpiry.toFixed(1),
-        alphaConfidence: alphaConfidence,
-        thresholdDecay: 60 - adjustedEQSThreshold,
-        inEntryZone,
-        isNearZone,
-        distanceToZone: distanceToZone.toFixed(5),
-        nearZoneThreshold: nearZoneThreshold.toFixed(5),
-        hasExceptionalQuality,
-        canOverrideZone,
-        reason: executionReason
-      });
+      // Always log execution decisions (critical for monitoring)
+      logger.info(`[UnifiedMonitor] EXECUTION DECISION: ${shouldExecute ? '✅ EXECUTE' : '⏳ WAIT'} - ${executionReason} (EQS: ${currentEQS}/${adjustedEQSThreshold})`);
 
       if (shouldExecute) {
         console.log('%c[UnifiedMonitor] 🚀 EXECUTING TRADE NOW!', 'color: #4caf50; font-weight: bold; font-size: 18px', {
@@ -952,12 +948,15 @@ export class UnifiedEntryMonitor {
     currentEQS: number,
     threshold: number
   ): Promise<void> {
-    console.log('[UnifiedMonitor] 💾 Storing EQS update to database...', {
-      intentId: intent.id.substring(0, 8),
-      symbol: intent.symbol,
-      eqsScore: currentEQS,
-      threshold
-    });
+    const isDev = import.meta.env.DEV;
+    if (isDev) {
+      console.log('[UnifiedMonitor] 💾 Storing EQS update to database...', {
+        intentId: intent.id.substring(0, 8),
+        symbol: intent.symbol,
+        eqsScore: currentEQS,
+        threshold
+      });
+    }
 
     try {
       const breakdown = eqsResult.eqsBreakdown;
@@ -967,7 +966,7 @@ export class UnifiedEntryMonitor {
       const priceData = await marketDataService.getCurrentPrice(intent.symbol);
       if (!priceData) {
         logger.warn('[UnifiedMonitor] Cannot store EQS update without current price');
-        console.error('[UnifiedMonitor] ❌ No price data available, cannot store EQS');
+        if (isDev) console.error('[UnifiedMonitor] ❌ No price data available, cannot store EQS');
         return;
       }
 
@@ -1003,14 +1002,16 @@ export class UnifiedEntryMonitor {
         message: `EQS: ${currentEQS}/${EQS_COMPONENT_MAXIMUMS.TOTAL} (${grade}) - ${eqsResult.status}`
       };
 
-      console.log('[UnifiedMonitor] 📤 Inserting EQS log entry:', {
-        intentId: intent.id.substring(0, 8),
-        userId: intent.user_id?.substring(0, 8),
-        symbol: intent.symbol,
-        eqsScore: currentEQS,
-        grade,
-        hasBreakdown: !!logEntry.breakdown
-      });
+      if (isDev) {
+        console.log('[UnifiedMonitor] 📤 Inserting EQS log entry:', {
+          intentId: intent.id.substring(0, 8),
+          userId: intent.user_id?.substring(0, 8),
+          symbol: intent.symbol,
+          eqsScore: currentEQS,
+          grade,
+          hasBreakdown: !!logEntry.breakdown
+        });
+      }
 
       // Store as entry monitoring log with all required fields
       const { data, error } = await supabase
@@ -1021,12 +1022,14 @@ export class UnifiedEntryMonitor {
 
       if (error) {
         logger.error('[UnifiedMonitor] Database error storing EQS update:', error);
-        console.error('[UnifiedMonitor] ❌ DATABASE ERROR storing EQS:', {
-          error: error.message,
-          code: error.code,
-          details: error.details
-        });
-      } else {
+        if (isDev) {
+          console.error('[UnifiedMonitor] ❌ DATABASE ERROR storing EQS:', {
+            error: error.message,
+            code: error.code,
+            details: error.details
+          });
+        }
+      } else if (isDev) {
         console.log('[UnifiedMonitor] ✅ EQS update stored successfully', {
           id: data?.id,
           eqsScore: currentEQS,
@@ -1035,7 +1038,7 @@ export class UnifiedEntryMonitor {
       }
     } catch (error) {
       logger.error('[UnifiedMonitor] Failed to store EQS update:', error);
-      console.error('[UnifiedMonitor] ❌ EXCEPTION storing EQS:', error);
+      if (isDev) console.error('[UnifiedMonitor] ❌ EXCEPTION storing EQS:', error);
     }
   }
 

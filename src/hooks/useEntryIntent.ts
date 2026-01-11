@@ -110,12 +110,13 @@ export function useActiveEntryIntent(sessionId: string | null): UseActiveEntryIn
               const oldStatus = payload.old?.status;
               const newStatus = payload.new?.status;
 
-              if (oldStatus !== newStatus) {
+              // Only reload if status actually changed (both values defined and different)
+              if (oldStatus && newStatus && oldStatus !== newStatus) {
                 console.log('[useActiveEntryIntent] 📊 Status changed, reloading...', {oldStatus, newStatus});
                 loadIntent();
               } else {
                 console.log('[useActiveEntryIntent] 💓 Heartbeat update, skipping reload');
-                // Don't reload - just a heartbeat update
+                // Don't reload - just a heartbeat update or incomplete payload
               }
             } else if (payload.eventType === 'DELETE') {
               // Intent removed - clear state
