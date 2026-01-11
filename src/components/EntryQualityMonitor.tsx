@@ -4,12 +4,13 @@
  * ARCHITECTURE: Uses SSOT hook (useActiveEntryIntent) instead of direct database queries
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Activity, TrendingUp, TrendingDown, CheckCircle, Clock, AlertCircle, Target, MapPin, ArrowUp, ArrowDown, Minus } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useActiveEntryIntent } from '../hooks/useEntryIntent';
 import { EntryUrgencyPhaseTimer } from './EntryUrgencyPhaseTimer';
 import { EQS_COMPONENT_MAXIMUMS } from '../config/alpha-identity';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
 interface EQSBreakdown {
   pullbackQuality: number;
@@ -47,6 +48,10 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [previousPrice, setPreviousPrice] = useState<number | null>(null);
 
+  // Persist channel and interval refs across renders for safe cleanup
+  const channelRef = useRef<RealtimeChannel | null>(null);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
   const { activeIntent, loading: intentLoading } = useActiveEntryIntent(sessionId);
 
   useEffect(() => {
@@ -58,6 +63,21 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
       intentLoading
     });
 
+    // Cleanup function for both early returns and active monitoring
+    const cleanup = () => {
+      console.log('[EntryQualityMonitor] 🧹 Cleaning up interval and subscription');
+
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+    };
+
     // Show waiting state when no intent and not loading
     // Hook's realtime subscription will automatically update when intent is created
     if (!activeIntent && !intentLoading) {
@@ -66,12 +86,12 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
       setLatestEQS(null);
       setLoading(false);
       setWaitingForMonitoring(true);
-      return;
+      return cleanup;
     }
 
     if (!activeIntent) {
       // Still loading initial data
-      return;
+      return cleanup;
     }
 
     console.log('[EntryQualityMonitor] ✅ Active intent found, starting monitoring', {
@@ -83,7 +103,8 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
     setWaitingForMonitoring(false);
     loadLatestEQS(activeIntent.id);
 
-    const interval = setInterval(() => {
+    // Store interval in ref for safe cleanup
+    pollIntervalRef.current = setInterval(() => {
       console.log('[EntryQualityMonitor] ⏰ Polling for EQS updates...');
       loadLatestEQS(activeIntent.id);
     }, 5000);
@@ -110,11 +131,10 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
         console.log('[EntryQualityMonitor] 📡 EQS subscription status:', status);
       });
 
-    return () => {
-      console.log('[EntryQualityMonitor] 🧹 Cleaning up interval and subscription');
-      clearInterval(interval);
-      supabase.removeChannel(channel);
-    };
+    // Store channel in ref for safe cleanup
+    channelRef.current = channel;
+
+    return cleanup;
   }, [activeIntent?.id, activeIntent?.status, sessionId, intentLoading]);
 
   const loadLatestEQS = async (currentIntentId: string) => {
