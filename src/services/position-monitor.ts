@@ -612,6 +612,39 @@ class PositionMonitorService {
       });
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // P0-3: RACE CONDITION PROTECTION (CCIP v2.0)
+    // ═══════════════════════════════════════════════════════════════════
+    // If price gaps through BOTH S/L and T/P simultaneously, STOP LOSS wins.
+    // This ensures risk management always takes priority over profit taking.
+    // Rationale:
+    // - Prevents optimistic accounting (recording profit when loss occurred)
+    // - Ensures consistent loss recording for risk metrics
+    // - Protects user capital by prioritizing risk limits
+    // ═══════════════════════════════════════════════════════════════════
+    if (shouldCloseAtStopLoss && (shouldCloseAtTakeProfit || shouldCheckTP1 || shouldCheckTP2)) {
+      console.warn(
+        `[PositionMonitor] 🚨 RACE CONDITION DETECTED: ${position.symbol}`,
+        {
+          positionId: position.id.substring(0, 8),
+          currentPrice: actualCurrentPrice.toFixed(5),
+          stopLoss: position.stop_loss.toFixed(5),
+          takeProfit: position.take_profit.toFixed(5),
+          direction: position.direction,
+          decision: 'Executing S/L (priority)',
+          slTriggered: shouldCloseAtStopLoss,
+          tpTriggered: shouldCloseAtTakeProfit,
+          tp1Triggered: shouldCheckTP1,
+          tp2Triggered: shouldCheckTP2
+        }
+      );
+      // Execute S/L only, ignore T/P
+      console.log(`[PositionMonitor] 🛑 STOP LOSS TRIGGERED (priority) for ${position.symbol} at ${actualCurrentPrice.toFixed(5)}`);
+      await this.autoClosePosition(position, actualCurrentPrice, 'stop_loss');
+      return; // Exit early to prevent any T/P execution
+    }
+
+    // Normal single trigger handling (no race condition)
     if (shouldCloseAtStopLoss) {
       console.log(`[PositionMonitor] 🛑 STOP LOSS TRIGGERED for ${position.symbol} at ${actualCurrentPrice.toFixed(5)}`);
       await this.autoClosePosition(position, actualCurrentPrice, 'stop_loss');

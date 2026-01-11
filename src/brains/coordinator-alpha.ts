@@ -1930,8 +1930,8 @@ Note: NO_TRADE is reserved for legitimate block conditions ONLY. Prefer WAIT whe
             }
           }
 
-          // Classify entry intent with quality rules
-          const entryIntent = EntryIntentClassifier.classifyEntryIntent(
+          // Classify entry intent with quality rules (async with adaptive zones)
+          const entryIntent = await EntryIntentClassifier.classifyEntryIntent(
             decision,
             marketContext,
             votes,
