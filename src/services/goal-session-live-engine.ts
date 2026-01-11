@@ -26,7 +26,7 @@ import { calculateDollarPerPip, calculatePositionSize, calculatePipDistance, cal
 import { getRiskPercentage } from '../config/risk-levels';
 import { postTradeAnalyzer } from './post-trade-analyzer';
 import { scanningStateMachine } from './scanning-state-machine';
-import { hasAnyOpenMarket, isSymbolMarketOpen } from '../utils/marketHours';
+import { hasAnyOpenMarket, isSymbolMarketOpen, getEstimationReferenceSymbol } from '../utils/marketHours';
 import { weekendProtectionService } from './weekend-protection-service';
 import { marketScheduleService } from './market-schedule-service';
 import { goalIntelligenceClassifier, GoalClassification } from './goal-intelligence-classifier';
@@ -753,33 +753,48 @@ class GoalSessionLiveEngine {
       const remainingGoal = targetGoal - currentProgress;
       const goalPercentage = (remainingGoal / this.config.initialBalance) * 100;
 
+      // ═══════════════════════════════════════════════════════════════════
+      // CCIP COMPLIANT: Market-Aware Goal Feasibility Estimation (SSOT)
+      // ═══════════════════════════════════════════════════════════════════
+      //
       // ✅ GOAL FEASIBILITY ESTIMATION ONLY - NOT REAL TRADE PRICES
-      // ⚠️ CRITICAL: These dummy prices are for goal estimation ONLY
+      // ⚠️ CRITICAL: These reference prices are for estimation ONLY
       // They should NEVER be used in actual trade execution
       // Real trades use actual market prices from snapshot data
       //
       // Purpose: Estimate "how many pips needed" to reach goal
-      // Method: Use EURUSD as reference standard (most liquid forex pair)
-      // Assumption: 30 pip stop, typical risk-based position size
+      // Method: Use market-aware reference symbol (SSOT: getEstimationReferenceSymbol)
+      //   - Forex OPEN → EURUSD (most liquid, best reference)
+      //   - Forex CLOSED → BTCUSD (24/7 availability, prevents misleading logs)
       //
       // This provides context for Alpha's decision-making, but Alpha ALWAYS
       // uses real market prices, real symbol data, and real opportunity analysis
+
       const riskPercent = getRiskPercentage(this.config.riskMode);
-      const ESTIMATION_REFERENCE_STOP_PIPS = 30;  // Typical forex stop
-      const ESTIMATION_REFERENCE_ENTRY = 1.1000;   // EURUSD-like (ESTIMATION ONLY)
-      const ESTIMATION_REFERENCE_STOP = ESTIMATION_REFERENCE_ENTRY - (ESTIMATION_REFERENCE_STOP_PIPS * 0.0001);
+      const estimationRef = getEstimationReferenceSymbol();
+
+      const ESTIMATION_REFERENCE_ENTRY = estimationRef.referenceEntry;
+      const ESTIMATION_REFERENCE_STOP = estimationRef.symbol === 'EURUSD'
+        ? ESTIMATION_REFERENCE_ENTRY - (estimationRef.referenceStopPips * 0.0001)
+        : ESTIMATION_REFERENCE_ENTRY - (estimationRef.referenceStopPips * 0.01);
+
+      if (import.meta.env.DEV) {
+        console.log(`[Goal Estimation] Using ${estimationRef.symbol} - ${estimationRef.reason}`);
+      }
 
       // Calculate expected lot size using our actual risk formula
+      // CCIP: Pass isEstimation=true to suppress misleading trade logs
       const estimatedLotSize = calculatePositionSize(
-        'EURUSD',  // Reference symbol for estimation
+        estimationRef.symbol,  // Market-aware reference symbol
         this.config.initialBalance,
         riskPercent,
         ESTIMATION_REFERENCE_ENTRY,  // NOT REAL PRICE - estimation only
-        ESTIMATION_REFERENCE_STOP     // NOT REAL PRICE - estimation only
+        ESTIMATION_REFERENCE_STOP,    // NOT REAL PRICE - estimation only
+        true  // isEstimation flag - suppresses misleading logs
       );
 
       // Calculate dollar per pip for this lot size
-      const estimatedDollarPerPip = calculateDollarPerPip('EURUSD', estimatedLotSize);
+      const estimatedDollarPerPip = calculateDollarPerPip(estimationRef.symbol, estimatedLotSize);
       const pipsNeededEstimate = Math.abs(remainingGoal / estimatedDollarPerPip);
 
       const goalContext: import('../brains/coordinator-alpha').GoalContext = {

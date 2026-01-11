@@ -418,6 +418,45 @@ export function getCurrentMarketSession(): SessionInfo {
 }
 
 /**
+ * ═════════════════════════════════════════════════════════════════════
+ * SSOT: Market-Aware Estimation Reference Symbol Selection
+ * ═════════════════════════════════════════════════════════════════════
+ *
+ * When calculating goal feasibility, we need a reference symbol to estimate
+ * position sizes and pip requirements. This function returns the appropriate
+ * reference symbol based on current market conditions:
+ *
+ * - Forex OPEN: Use EURUSD (most liquid, tightest spreads, best reference)
+ * - Forex CLOSED: Use BTCUSD (24/7 availability, crypto never closes)
+ *
+ * This prevents logs showing "EURUSD" analysis when forex markets are closed.
+ */
+export function getEstimationReferenceSymbol(): {
+  symbol: string;
+  referenceEntry: number;
+  referenceStopPips: number;
+  reason: string;
+} {
+  const forexStatus = getForexMarketStatus();
+
+  if (forexStatus.isOpen) {
+    return {
+      symbol: 'EURUSD',
+      referenceEntry: 1.1000,
+      referenceStopPips: 30,
+      reason: 'Forex markets open - using EURUSD as liquid reference'
+    };
+  } else {
+    return {
+      symbol: 'BTCUSD',
+      referenceEntry: 95000,
+      referenceStopPips: 500,
+      reason: 'Forex markets closed - using BTCUSD (24/7 availability)'
+    };
+  }
+}
+
+/**
  * Adjust entry intent timeout based on market session
  * @param baseTimeoutMinutes - Original timeout in minutes
  * @param symbol - Trading symbol (JPY pairs get different treatment)

@@ -429,23 +429,35 @@ export function calculateLotSizeFromDollarRisk(
  * THIS IS THE CORRECT FORMULA - USE THIS EVERYWHERE
  *
  * Formula: Position Size = Risk Amount / (Stop Distance in Pips × Dollar Per Pip at 0.01 lot)
+ *
+ * @param isEstimation - If true, suppresses verbose logging and validation (used for goal feasibility calculations)
  */
 export function calculatePositionSize(
   symbol: string,
   accountBalance: number,
   riskPercentage: number,
   entryPrice: number,
-  stopLoss: number
+  stopLoss: number,
+  isEstimation: boolean = false
 ): number {
   const pipInfo = getCurrencyPipInfo(symbol);
   const riskAmount = accountBalance * (riskPercentage / 100);
 
   // 🛡️ DEFENSIVE GUARD: Catch price/symbol mismatches early (prevents dummy price contamination)
-  validatePriceMatchesSymbol(symbol, entryPrice);
+  // Skip validation for estimations (they use reference prices intentionally)
+  if (!isEstimation) {
+    validatePriceMatchesSymbol(symbol, entryPrice);
+  }
 
-  console.log(`%c[Position Sizing PRE-CHECK] ${symbol}`, 'color: #ffaa00; font-weight: bold');
-  console.log(`  Entry: ${entryPrice}, SL: ${stopLoss}`);
-  console.log(`  Risk %: ${riskPercentage}%, Balance: $${accountBalance.toFixed(2)}`);
+  // CCIP LOGGING SEPARATION: Clearly distinguish estimation from real trade attempts
+  const logPrefix = isEstimation ? '[Goal Estimation]' : '[Position Sizing PRE-CHECK]';
+  const logColor = isEstimation ? '#999999' : '#ffaa00';
+
+  if (!isEstimation || import.meta.env.DEV) {
+    console.log(`%c${logPrefix} ${symbol}`, `color: ${logColor}; font-weight: bold`);
+    console.log(`  Entry: ${entryPrice}, SL: ${stopLoss}`);
+    console.log(`  Risk %: ${riskPercentage}%, Balance: $${accountBalance.toFixed(2)}`);
+  }
 
   const direction = stopLoss < entryPrice ? 'LONG' : 'SHORT';
   const validation = validateStopLossDistance(
@@ -457,21 +469,28 @@ export function calculatePositionSize(
   );
 
   if (!validation.valid) {
-    console.error('%c🚨 INVALID TRADE PARAMETERS - CANNOT SIZE POSITION', 'color: #ff0000; font-weight: bold; font-size: 14px');
-    console.error(`  Symbol: ${symbol}`);
-    console.error(`  Entry: ${entryPrice}`);
-    console.error(`  Stop Loss: ${stopLoss}`);
-    console.error(`  Direction: ${direction}`);
-    console.error(`  Actual Distance: ${validation.actualDistancePips.toFixed(2)} pips`);
-    console.error(`  Violations:`);
-    validation.violations.forEach(v => console.error(`    - ${v}`));
-    console.error(`  Constraint: ${validation.constraint.reason}`);
-    console.error(`  Min Required: ${validation.constraint.minPips} pips`);
+    // For estimations, just calculate without throwing (they use reference prices)
+    if (isEstimation) {
+      if (import.meta.env.DEV) {
+        console.warn(`[Goal Estimation] Using reference prices for ${symbol} - validation skipped`);
+      }
+    } else {
+      console.error('%c🚨 INVALID TRADE PARAMETERS - CANNOT SIZE POSITION', 'color: #ff0000; font-weight: bold; font-size: 14px');
+      console.error(`  Symbol: ${symbol}`);
+      console.error(`  Entry: ${entryPrice}`);
+      console.error(`  Stop Loss: ${stopLoss}`);
+      console.error(`  Direction: ${direction}`);
+      console.error(`  Actual Distance: ${validation.actualDistancePips.toFixed(2)} pips`);
+      console.error(`  Violations:`);
+      validation.violations.forEach(v => console.error(`    - ${v}`));
+      console.error(`  Constraint: ${validation.constraint.reason}`);
+      console.error(`  Min Required: ${validation.constraint.minPips} pips`);
 
-    throw new Error(`Invalid SL/Entry: ${validation.violations.join('; ')}`);
+      throw new Error(`Invalid SL/Entry: ${validation.violations.join('; ')}`);
+    }
+  } else if (!isEstimation || import.meta.env.DEV) {
+    console.log(`  ✅ SL validation passed: ${validation.actualDistancePips.toFixed(2)} pips`);
   }
-
-  console.log(`  ✅ SL validation passed: ${validation.actualDistancePips.toFixed(2)} pips`);
 
   // Calculate stop distance in pips
   const stopDistancePips = validation.actualDistancePips;
@@ -511,14 +530,16 @@ export function calculatePositionSize(
   // Round to broker standard precision (0.01 lots)
   positionSize = roundLotSize(positionSize);
 
-  // Log calculation for verification
-  console.log(`[Position Sizing] ${symbol}:`);
-  console.log(`  Account: $${accountBalance.toFixed(2)}`);
-  console.log(`  Risk: ${riskPercentage}% = $${riskAmount.toFixed(2)}`);
-  console.log(`  Stop Distance: ${stopDistancePips.toFixed(1)} pips`);
-  console.log(`  Dollar/Pip/Lot: $${pipInfo.dollarPerPipPerLot.toFixed(2)}`);
-  console.log(`  Position Size: ${formatLotSize(positionSize)} lots`);
-  console.log(`  Actual Risk: $${(stopDistancePips * calculateDollarPerPip(symbol, positionSize)).toFixed(2)}`);
+  // Log calculation for verification (suppress for estimations in production)
+  if (!isEstimation || import.meta.env.DEV) {
+    console.log(`[Position Sizing] ${symbol}:`);
+    console.log(`  Account: $${accountBalance.toFixed(2)}`);
+    console.log(`  Risk: ${riskPercentage}% = $${riskAmount.toFixed(2)}`);
+    console.log(`  Stop Distance: ${stopDistancePips.toFixed(1)} pips`);
+    console.log(`  Dollar/Pip/Lot: $${pipInfo.dollarPerPipPerLot.toFixed(2)}`);
+    console.log(`  Position Size: ${formatLotSize(positionSize)} lots`);
+    console.log(`  Actual Risk: $${(stopDistancePips * calculateDollarPerPip(symbol, positionSize)).toFixed(2)}`);
+  }
 
   return positionSize;
 }
