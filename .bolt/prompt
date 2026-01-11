@@ -87,3 +87,9 @@ Guiding Principle
 If the same problem can be fixed more than once, the system is architecturally broken.
 
 All changes should correct the architecture, not just the symptoms.
+
+
+PIPNOSIS CORE ENGINEERING LAW — CCIP (Change Control Intelligence Protocol)
+Pipnosis is now under a Change Control Intelligence Protocol (CCIP).
+All upgrades must follow: System Map → Logic Contract → Dry-Run Simulation → Compatibility Check → Staged Deployment → Post-Deploy Verification.
+No code may be written until these are complete.
