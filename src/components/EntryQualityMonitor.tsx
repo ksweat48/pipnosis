@@ -9,6 +9,7 @@ import { Activity, TrendingUp, TrendingDown, CheckCircle, Clock, AlertCircle, Ta
 import { supabase } from '../lib/supabase';
 import { useActiveEntryIntent } from '../hooks/useEntryIntent';
 import { EntryUrgencyPhaseTimer } from './EntryUrgencyPhaseTimer';
+import { EQS_COMPONENT_MAXIMUMS } from '../config/alpha-identity';
 
 interface EQSBreakdown {
   pullbackQuality: number;
@@ -337,17 +338,17 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
   };
 
   const breakdown = latestEQS.breakdown;
-  const scorePercentage = (latestEQS.eqs_score / 100) * 100;
-  const thresholdPercentage = (latestEQS.eqs_threshold / 100) * 100;
+  const scorePercentage = (latestEQS.eqs_score / EQS_COMPONENT_MAXIMUMS.TOTAL) * 100;
+  const thresholdPercentage = (latestEQS.eqs_threshold / EQS_COMPONENT_MAXIMUMS.TOTAL) * 100;
 
   const metrics = [
-    { name: 'Pullback Quality', score: breakdown.pullbackQuality, max: 15 },
-    { name: 'VWAP Interaction', score: breakdown.vwapInteraction, max: 20 },
-    { name: 'EMA Alignment', score: breakdown.emaAlignment, max: 10 },
-    { name: 'Liquidity Reaction', score: breakdown.liquidityReaction, max: 12 },
-    { name: 'Compression/Expansion', score: breakdown.compressionExpansion, max: 10 },
-    { name: 'Failed Move', score: breakdown.failedMoveConfirmation, max: 12 },
-    { name: 'Timeframe Alignment', score: breakdown.timeframeAlignment, max: 8 }
+    { name: 'Pullback Quality', score: breakdown.pullbackQuality, max: EQS_COMPONENT_MAXIMUMS.PULLBACK_QUALITY },
+    { name: 'VWAP Interaction', score: breakdown.vwapInteraction, max: EQS_COMPONENT_MAXIMUMS.VWAP_INTERACTION },
+    { name: 'EMA Alignment', score: breakdown.emaAlignment, max: EQS_COMPONENT_MAXIMUMS.EMA_ALIGNMENT },
+    { name: 'Liquidity Reaction', score: breakdown.liquidityReaction, max: EQS_COMPONENT_MAXIMUMS.LIQUIDITY_REACTION },
+    { name: 'Compression/Expansion', score: breakdown.compressionExpansion, max: EQS_COMPONENT_MAXIMUMS.COMPRESSION_EXPANSION },
+    { name: 'Failed Move', score: breakdown.failedMoveConfirmation, max: EQS_COMPONENT_MAXIMUMS.FAILED_MOVE },
+    { name: 'Timeframe Alignment', score: breakdown.timeframeAlignment, max: EQS_COMPONENT_MAXIMUMS.TIMEFRAME_ALIGNMENT }
   ];
 
   // Calculate entry zone metrics
