@@ -135,7 +135,8 @@ export async function createEntryIntentWithMonitoring(
   maxWaitSeconds: number,
   alphaReasoning: string,
   marketContext: Record<string, any>,
-  intentType: 'immediate_momentum' | 'pullback_to_vwap' | 'pullback_to_support' = 'immediate_momentum'
+  intentType: 'immediate_momentum' | 'pullback_to_vwap' | 'pullback_to_support' = 'immediate_momentum',
+  preFlightAdvisoryLevel?: 'GREEN' | 'AMBER' | 'RED'
 ): Promise<EntryIntentData | null> {
   const { supabase } = await import('../lib/supabase');
   const { abandonZoneLow, abandonZoneHigh } = calculateAbandonZone(entryZoneMin, entryZoneMax, atr);
@@ -179,7 +180,16 @@ export async function createEntryIntentWithMonitoring(
         ...marketContext,
         stopLoss,
         takeProfit
-      }
+      },
+      // Alpha authority restoration fields
+      entry_type: 'pullback',  // Default to pullback entry
+      zone_revision_count: 0,  // Original zone (not revised)
+      original_entry_zone: {   // Preserve Alpha's original zone
+        min: entryZoneMin,
+        max: entryZoneMax,
+        center: (entryZoneMin + entryZoneMax) / 2
+      },
+      pre_flight_advisory_level: preFlightAdvisoryLevel || 'GREEN'
     })
     .select()
     .single();

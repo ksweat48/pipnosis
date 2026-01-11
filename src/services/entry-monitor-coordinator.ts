@@ -186,23 +186,23 @@ class EntryMonitorCoordinator {
       'M15'
     );
 
+    // Handle pre-flight result (advisory system)
     if (!preFlightResult.is_viable) {
-      logger.warn('[ENTRY_MONITOR_COORD] Pre-flight validation FAILED', {
+      // Only reject for data integrity issues (stale data, thesis expired, etc.)
+      logger.warn('[ENTRY_MONITOR_COORD] Pre-flight REJECTED - Data integrity issue', {
         symbol: decision.symbol,
         direction: decision.direction,
         reason: preFlightResult.rejection_reason,
         message: preFlightResult.message,
-        distanceATR: preFlightResult.distance_from_zone_atr?.toFixed(2),
       });
 
       console.log(
-        '%c[ENTRY_MONITOR_COORD] ❌ INTENT REJECTED - Pre-flight validation failed',
+        '%c[ENTRY_MONITOR_COORD] ❌ INTENT REJECTED - Data integrity issue',
         'color: #f44336; font-weight: bold',
         {
           symbol: decision.symbol,
           direction: decision.direction,
           reason: preFlightResult.rejection_reason,
-          distanceATR: preFlightResult.distance_from_zone_atr?.toFixed(2),
         }
       );
 
@@ -212,9 +212,30 @@ class EntryMonitorCoordinator {
       };
     }
 
-    logger.info('[ENTRY_MONITOR_COORD] Pre-flight validation PASSED', {
+    // Log advisory level (NOT a rejection - Alpha retains authority)
+    const advisoryColor = {
+      GREEN: '#4caf50',
+      AMBER: '#ff9800',
+      RED: '#f44336',
+    }[preFlightResult.advisory_level];
+
+    console.log(
+      `%c[ENTRY_MONITOR_COORD] ${preFlightResult.advisory_level} Advisory`,
+      `color: ${advisoryColor}; font-weight: bold`,
+      {
+        symbol: decision.symbol,
+        direction: decision.direction,
+        distanceATR: preFlightResult.distance_from_zone_atr?.toFixed(2),
+        shouldConsultAlpha: preFlightResult.should_consult_alpha,
+        message: preFlightResult.message,
+      }
+    );
+
+    logger.info('[ENTRY_MONITOR_COORD] Pre-flight advisory received', {
       symbol: decision.symbol,
+      advisoryLevel: preFlightResult.advisory_level,
       distanceATR: preFlightResult.distance_from_zone_atr?.toFixed(2),
+      shouldConsultAlpha: preFlightResult.should_consult_alpha,
     });
 
     const maxWaitSeconds = decision.maxWaitSeconds ||
@@ -237,7 +258,9 @@ class EntryMonitorCoordinator {
         ...decision.marketContext,
         confidence: decision.confidence,
         originalEntry: decision.entry
-      }
+      },
+      'immediate_momentum',
+      preFlightResult.advisory_level  // Store advisory level for tracking and learning
     );
 
     if (!intent) {

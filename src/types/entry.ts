@@ -103,15 +103,31 @@ export interface ThesisMemoryEntry {
 }
 
 /**
+ * Pre-flight advisory level - NOT a hard gate
+ *
+ * GREEN: 0-1.5x ATR - Optimal entry conditions
+ * AMBER: 1.5-3x ATR - Suboptimal but acceptable (log warning)
+ * RED: 3x+ ATR - Strong advisory against entry (Alpha should reconsider)
+ */
+export type PreFlightAdvisoryLevel = 'GREEN' | 'AMBER' | 'RED';
+
+/**
  * Pre-flight validation result for entry intent creation
+ *
+ * IMPORTANT: This is an ADVISORY system, not a gate
+ * - Even RED advisories should not hard block execution
+ * - Alpha retains authority to proceed despite advisories
+ * - Advisories inform risk management but don't prevent entry
  */
 export interface EntryPreFlightResult {
-  is_viable: boolean;
-  distance_from_zone_atr?: number;
-  rejection_reason?: EntryOutcomeReason;
-  current_price?: number;
-  entry_zone_center?: number;
-  message: string;
+  is_viable: boolean;                     // Should intent be created?
+  advisory_level: PreFlightAdvisoryLevel; // Distance-based advisory
+  distance_from_zone_atr?: number;        // How far from entry zone
+  rejection_reason?: EntryOutcomeReason;  // Data integrity issues only
+  current_price?: number;                 // Current market price
+  entry_zone_center?: number;             // Center of entry zone
+  message: string;                        // Human-readable explanation
+  should_consult_alpha?: boolean;         // Should Alpha reconsider continuation?
 }
 
 /**

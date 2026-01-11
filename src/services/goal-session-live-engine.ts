@@ -1013,12 +1013,15 @@ class GoalSessionLiveEngine {
           );
 
           logger.info(LogCategory.AI_TRADING, `[ENTRY_MONITOR] Started monitoring ${selectedSymbol} ${intendedDirection} - Intent ID: ${result.intentId}`);
+
+          // Only return if monitoring successfully started - allows other symbols to be evaluated
+          return;
         } else {
           logger.error(LogCategory.AI_TRADING, `[ENTRY_MONITOR] Failed to start monitoring: ${result.error}`);
           await this.sendAIMessage(`⚠️ Failed to start entry monitoring: ${result.error}. Continuing scan.`);
-        }
 
-        return;
+          // DO NOT return here - allow scan to continue and evaluate other symbols
+        }
       }
 
       if (this.openTrades.length >= this.config.maxConcurrentTrades) {

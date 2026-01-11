@@ -1,21 +1,29 @@
 import { marketDataService } from './market-data-service';
 import { entryThesisMemoryService } from './entry-thesis-memory-service';
 import { logger } from '../lib/logger';
-import type { EntryPreFlightResult, EntryOutcomeReason } from '../types/entry';
+import type { EntryPreFlightResult, EntryOutcomeReason, PreFlightAdvisoryLevel } from '../types/entry';
 
 /**
- * Entry Pre-Flight Validator
+ * Entry Pre-Flight Validator - ADVISORY SYSTEM (Not a Gate)
  *
- * Validates entry intent creation BEFORE creating the intent.
- * Prevents creating invalid intents that will be immediately abandoned.
+ * Provides advisories on entry intent creation quality.
+ * Does NOT hard block execution - Alpha retains authority.
  *
- * Phase 1 Fix: Stops the infinite loop by:
- * 1. Checking distance from entry zone at creation time
- * 2. Checking thesis memory for expired theses
- * 3. Rejecting intents that are already outside viable execution range
+ * Advisory Levels:
+ * - GREEN (0-1.5x ATR): Optimal pullback entry conditions
+ * - AMBER (1.5-3x ATR): Suboptimal but acceptable (continuation candidate)
+ * - RED (3x+ ATR): Strong advisory - Alpha should reconsider or escalate to continuation
+ *
+ * Only REJECTS for data integrity issues:
+ * - Stale price data
+ * - Missing market conditions
+ * - Thesis already expired (duplicate prevention)
  */
 export class EntryPreFlightValidator {
-  private static readonly MAX_DISTANCE_ATR_MULTIPLIER = 3.0;
+  // Advisory thresholds (NOT hard gates)
+  private static readonly GREEN_ZONE_ATR = 1.5;   // Optimal entry range
+  private static readonly AMBER_ZONE_ATR = 3.0;   // Suboptimal but acceptable
+  // RED zone = anything beyond AMBER_ZONE_ATR
 
   /**
    * Validate entry intent before creation
@@ -58,7 +66,7 @@ export class EntryPreFlightValidator {
       );
 
       if (!thesisCheck.allowed) {
-        logger.warn('[PreFlight] Thesis already expired', {
+        logger.warn('[PreFlight] Thesis already expired - preventing duplicate', {
           symbol,
           direction,
           fingerprint: thesisCheck.fingerprint,
@@ -67,6 +75,7 @@ export class EntryPreFlightValidator {
 
         return {
           is_viable: false,
+          advisory_level: 'RED',
           rejection_reason: 'TIMEOUT',
           message: thesisCheck.reason || 'Thesis already expired - execution window closed',
         };
@@ -84,7 +93,8 @@ export class EntryPreFlightValidator {
         logger.warn('[PreFlight] Cannot validate - invalid price data', { symbol });
         return {
           is_viable: true,
-          message: 'Price data unavailable - proceeding with caution',
+          advisory_level: 'AMBER',
+          message: 'Price data unavailable - proceeding with caution (AMBER advisory)',
         };
       }
 
@@ -95,7 +105,8 @@ export class EntryPreFlightValidator {
         logger.warn('[PreFlight] Cannot validate - no ATR data', { symbol });
         return {
           is_viable: true,
-          message: 'Market conditions unavailable - proceeding with caution',
+          advisory_level: 'AMBER',
+          message: 'Market conditions unavailable - proceeding with caution (AMBER advisory)',
         };
       }
 
@@ -109,70 +120,51 @@ export class EntryPreFlightValidator {
 
       const distanceInATR = distanceToZone / marketConditions.atr;
 
-      logger.info('[PreFlight] Distance check', {
+      // Determine advisory level based on distance (NOT a gate)
+      let advisoryLevel: PreFlightAdvisoryLevel;
+      let advisoryMessage: string;
+      let shouldConsultAlpha = false;
+
+      if (distanceInATR <= EntryPreFlightValidator.GREEN_ZONE_ATR) {
+        advisoryLevel = 'GREEN';
+        advisoryMessage = inEntryZone
+          ? '✅ Optimal entry conditions - price in pullback zone'
+          : `✅ Good entry conditions - price ${distanceInATR.toFixed(2)}x ATR from zone`;
+      } else if (distanceInATR <= EntryPreFlightValidator.AMBER_ZONE_ATR) {
+        advisoryLevel = 'AMBER';
+        advisoryMessage = `⚠️ Suboptimal entry - price ${distanceInATR.toFixed(
+          2
+        )}x ATR from zone. Consider continuation entry if direction confirmed.`;
+      } else {
+        advisoryLevel = 'RED';
+        shouldConsultAlpha = true;
+        advisoryMessage = `🔴 Strong advisory - price ${distanceInATR.toFixed(
+          2
+        )}x ATR from zone. Alpha should reconsider or escalate to continuation entry.`;
+      }
+
+      logger.info(`[PreFlight] ${advisoryLevel} Advisory`, {
         symbol,
+        direction,
         currentPrice: currentPrice.toFixed(5),
         entryZone: `${entryZoneMin.toFixed(5)} - ${entryZoneMax.toFixed(5)}`,
         inZone: inEntryZone,
         distanceToZone: distanceToZone.toFixed(5),
         distanceInATR: distanceInATR.toFixed(2),
         atr: marketConditions.atr.toFixed(5),
-        threshold: EntryPreFlightValidator.MAX_DISTANCE_ATR_MULTIPLIER,
+        advisoryLevel,
+        shouldConsultAlpha,
       });
 
-      // If price is already > 3x ATR away, reject immediately
-      if (distanceInATR > EntryPreFlightValidator.MAX_DISTANCE_ATR_MULTIPLIER) {
-        const rejectionReason: EntryOutcomeReason = 'RUNAWAY_DETECTED';
-
-        logger.warn('[PreFlight] REJECTED - Price too far from entry zone', {
-          symbol,
-          direction,
-          currentPrice,
-          entryZone: `${entryZoneMin} - ${entryZoneMax}`,
-          distanceInATR: distanceInATR.toFixed(2),
-          threshold: EntryPreFlightValidator.MAX_DISTANCE_ATR_MULTIPLIER,
-        });
-
-        // Store in thesis memory as expired
-        const thesis = entryThesisMemoryService.generateFingerprint(
-          symbol,
-          direction,
-          entryZoneCenter,
-          timeframe
-        );
-
-        await entryThesisMemoryService.storeThesis(userId, sessionId, thesis, 'EXPIRED', {
-          abandonmentReason: rejectionReason,
-          expirationMinutes: 10,
-        });
-
-        return {
-          is_viable: false,
-          distance_from_zone_atr: distanceInATR,
-          rejection_reason: rejectionReason,
-          current_price: currentPrice,
-          entry_zone_center: entryZoneCenter,
-          message: `Price already ${distanceInATR.toFixed(
-            2
-          )}x ATR away from entry zone (threshold: ${
-            EntryPreFlightValidator.MAX_DISTANCE_ATR_MULTIPLIER
-          }x). Execution window closed.`,
-        };
-      }
-
-      // All checks passed
-      logger.info('[PreFlight] PASSED - Intent is viable', {
-        symbol,
-        direction,
-        distanceInATR: distanceInATR.toFixed(2),
-      });
-
+      // Return advisory (NOT rejection)
       return {
         is_viable: true,
+        advisory_level: advisoryLevel,
         distance_from_zone_atr: distanceInATR,
         current_price: currentPrice,
         entry_zone_center: entryZoneCenter,
-        message: 'Intent is viable for creation',
+        should_consult_alpha: shouldConsultAlpha,
+        message: advisoryMessage,
       };
     } catch (error) {
       logger.error('[PreFlight] Validation error', { error, symbol });
@@ -180,15 +172,20 @@ export class EntryPreFlightValidator {
       // On error, allow creation but log warning
       return {
         is_viable: true,
-        message: 'Pre-flight validation failed - proceeding with caution',
+        advisory_level: 'AMBER',
+        message: 'Pre-flight validation failed - proceeding with caution (AMBER advisory)',
       };
     }
   }
 
   /**
-   * Get distance threshold in ATR
+   * Get advisory zone thresholds
    */
-  static getDistanceThreshold(): number {
-    return EntryPreFlightValidator.MAX_DISTANCE_ATR_MULTIPLIER;
+  static getGreenZoneThreshold(): number {
+    return EntryPreFlightValidator.GREEN_ZONE_ATR;
+  }
+
+  static getAmberZoneThreshold(): number {
+    return EntryPreFlightValidator.AMBER_ZONE_ATR;
   }
 }
