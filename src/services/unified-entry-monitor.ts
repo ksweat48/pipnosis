@@ -26,6 +26,8 @@ import { EntryExecutionCoordinator } from './entry-execution-coordinator';
 import { ALPHA_IDENTITY, EQS_COMPONENT_MAXIMUMS } from '../config/alpha-identity';
 import { EntryUrgencyCalculator } from './entry-urgency-calculator';
 import { entryThesisMemoryService } from './entry-thesis-memory-service';
+import { ADAPTIVE_ZONE_CONFIG, type ExecutedZoneType } from '../config/adaptive-zone-config';
+import { ZoneMetaLearningService } from './zone-meta-learning-service';
 
 /**
  * Timeout wrapper for async operations
@@ -57,6 +59,8 @@ export class UnifiedEntryMonitor {
   private warningCache: Map<string, number> = new Map(); // Throttle warnings
   private readonly WARNING_THROTTLE_MS = 60000; // Only warn once per 60 seconds
   private consecutiveOutsideZone: Map<string, number> = new Map(); // Setup validity tracking
+  private executedZoneTypes: Map<string, ExecutedZoneType> = new Map(); // Track which zone triggered execution
+  private zoneHitTimestamps: Map<string, number> = new Map(); // Track when zone was first reached
 
   private constructor() {
     // Start interval health monitoring
@@ -68,6 +72,93 @@ export class UnifiedEntryMonitor {
       UnifiedEntryMonitor.instance = new UnifiedEntryMonitor();
     }
     return UnifiedEntryMonitor.instance;
+  }
+
+  /**
+   * Check if price is in any zone (primary or secondary)
+   * Returns zone type and distance
+   */
+  private checkZoneEntry(price: number, intent: any): {
+    inZone: boolean;
+    zoneType: ExecutedZoneType;
+    distanceToNearestZone: number;
+    positionSizeMultiplier: number;
+  } {
+    // Check if adaptive zones are available
+    const hasPrimaryZone = intent.primary_zone_min !== null && intent.primary_zone_max !== null;
+    const hasSecondaryZone = intent.secondary_zone_min !== null && intent.secondary_zone_max !== null;
+
+    // If no adaptive zones, fall back to legacy zone
+    if (!hasPrimaryZone && !hasSecondaryZone) {
+      const inLegacyZone = price >= intent.entry_zone_min && price <= intent.entry_zone_max;
+      const distanceToLegacyZone = inLegacyZone
+        ? 0
+        : price < intent.entry_zone_min
+        ? intent.entry_zone_min - price
+        : price - intent.entry_zone_max;
+
+      return {
+        inZone: inLegacyZone,
+        zoneType: 'none',
+        distanceToNearestZone: distanceToLegacyZone,
+        positionSizeMultiplier: ADAPTIVE_ZONE_CONFIG.positionSizing.primary_zone_multiplier
+      };
+    }
+
+    // Check PRIMARY zone first (highest priority)
+    const inPrimaryZone = hasPrimaryZone &&
+      price >= intent.primary_zone_min &&
+      price <= intent.primary_zone_max;
+
+    if (inPrimaryZone) {
+      logger.debug(`[UnifiedMonitor] Price ${price} in PRIMARY zone`);
+      return {
+        inZone: true,
+        zoneType: 'primary',
+        distanceToNearestZone: 0,
+        positionSizeMultiplier: ADAPTIVE_ZONE_CONFIG.positionSizing.primary_zone_multiplier
+      };
+    }
+
+    // Check SECONDARY zone
+    const inSecondaryZone = hasSecondaryZone &&
+      price >= intent.secondary_zone_min &&
+      price <= intent.secondary_zone_max;
+
+    if (inSecondaryZone) {
+      logger.debug(`[UnifiedMonitor] Price ${price} in SECONDARY zone`);
+      return {
+        inZone: true,
+        zoneType: 'secondary',
+        distanceToNearestZone: 0,
+        positionSizeMultiplier: ADAPTIVE_ZONE_CONFIG.positionSizing.secondary_zone_multiplier
+      };
+    }
+
+    // Not in any zone - calculate distance to nearest zone
+    let distanceToPrimary = Infinity;
+    let distanceToSecondary = Infinity;
+
+    if (hasPrimaryZone) {
+      distanceToPrimary = price < intent.primary_zone_min
+        ? intent.primary_zone_min - price
+        : price - intent.primary_zone_max;
+    }
+
+    if (hasSecondaryZone) {
+      distanceToSecondary = price < intent.secondary_zone_min
+        ? intent.secondary_zone_min - price
+        : price - intent.secondary_zone_max;
+    }
+
+    const nearestDistance = Math.min(distanceToPrimary, distanceToSecondary);
+
+    return {
+      inZone: false,
+      zoneType: 'none',
+      distanceToNearestZone: nearestDistance,
+      positionSizeMultiplier: 0
+    };
   }
 
   async startMonitoring(intentId: string, userId: string, callbacks?: MonitoringCallbacks): Promise<void> {
@@ -204,6 +295,8 @@ export class UnifiedEntryMonitor {
       this.callbacks.delete(intentId);
       this.lastCheckTimestamp.delete(intentId);
       this.consecutiveOutsideZone.delete(intentId);
+      this.executedZoneTypes.delete(intentId);
+      this.zoneHitTimestamps.delete(intentId);
       console.log(`[UnifiedMonitor] Stopped monitoring ${intentId}`, reason ? `(reason: ${reason})` : '');
     }
   }
@@ -235,6 +328,8 @@ export class UnifiedEntryMonitor {
     this.callbacks.clear();
     this.lastCheckTimestamp.clear();
     this.consecutiveOutsideZone.clear();
+    this.executedZoneTypes.clear();
+    this.zoneHitTimestamps.clear();
     logger.info('[UnifiedMonitor] Stopped all monitoring');
   }
 
@@ -429,13 +524,31 @@ export class UnifiedEntryMonitor {
       // Step 5.5: Setup Validity Check (replaces time-based timeout)
       console.log('[UnifiedMonitor] Step 5.5/8: Checking setup validity...');
 
-      // Calculate distance to entry zone
-      const inEntryZone = priceData.price >= intent.entry_zone_min && priceData.price <= intent.entry_zone_max;
-      const distanceToZone = inEntryZone
-        ? 0
-        : priceData.price < intent.entry_zone_min
-        ? intent.entry_zone_min - priceData.price
-        : priceData.price - intent.entry_zone_max;
+      // Calculate distance to entry zone (supports both legacy and adaptive zones)
+      const zoneCheck = this.checkZoneEntry(priceData.price, intent);
+      const inEntryZone = zoneCheck.inZone;
+      const distanceToZone = zoneCheck.distanceToNearestZone;
+      const executedZoneType = zoneCheck.zoneType;
+
+      // Track zone hit timestamp for meta-learning (time to reach zone)
+      if (inEntryZone && !this.zoneHitTimestamps.has(intentId)) {
+        const createdAt = new Date(intent.created_at).getTime();
+        const hitTime = Date.now();
+        const timeToReachSeconds = Math.floor((hitTime - createdAt) / 1000);
+
+        this.zoneHitTimestamps.set(intentId, hitTime);
+
+        // Log zone reached for meta-learning
+        if (executedZoneType !== 'none') {
+          ZoneMetaLearningService.logZoneReached(intentId, executedZoneType, timeToReachSeconds);
+          logger.info(`[UnifiedMonitor] ${executedZoneType.toUpperCase()} zone reached in ${timeToReachSeconds}s`);
+        }
+      }
+
+      // Store executed zone type for later use
+      if (inEntryZone && executedZoneType !== 'none') {
+        this.executedZoneTypes.set(intentId, executedZoneType);
+      }
 
       // Track consecutive checks outside zone
       const currentOutsideCount = this.consecutiveOutsideZone.get(intentId) || 0;
@@ -936,6 +1049,13 @@ export class UnifiedEntryMonitor {
     });
 
     logger.info(`[UnifiedMonitor] Executing ${intent.id} at ${entryPrice} (EQS: ${eqsScore})`);
+
+    // Log zone execution for meta-learning
+    const executedFromZone = this.executedZoneTypes.get(intent.id) || 'none';
+    if (executedFromZone !== 'none') {
+      ZoneMetaLearningService.logZoneExecution(intent.id, executedFromZone);
+      logger.info(`[UnifiedMonitor] Execution triggered from ${executedFromZone.toUpperCase()} zone`);
+    }
 
     try {
       // Check if there's a callback registered for this intent

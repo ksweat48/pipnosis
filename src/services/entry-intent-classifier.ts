@@ -1,7 +1,13 @@
 import type { AlphaDecision, MarketContext, OmegaCouncilVotes } from '../brains/coordinator-alpha';
 import type { EntryIntentType, EntryUrgencyLevel, TimeoutAction } from '../types/entry';
+import type { MicroRegime } from './micro-regime-classifier';
 import { logger } from '../lib/logger';
 import { calculatePipDistance } from '../utils/currencyHelpers';
+import { ADAPTIVE_ZONE_CONFIG, type ZoneType } from '../config/adaptive-zone-config';
+import { RegimeZoneTypeSelector } from './regime-zone-type-selector';
+import { ZoneCalculationInputProvider } from './zone-calculation-input-provider';
+import { AdaptiveEntryZoneCalculator } from './adaptive-entry-zone-calculator';
+import { ZoneReachabilityValidator } from './zone-reachability-validator';
 
 export interface ClassifiedEntryIntent {
   intent_type: EntryIntentType;
@@ -13,27 +19,83 @@ export interface ClassifiedEntryIntent {
   timeout_action: TimeoutAction;
   invalidation_price: number;
   should_execute_immediately: boolean;
+
+  // Adaptive zone fields (v2.0)
+  zone_type?: ZoneType;
+  primary_zone_min?: number;
+  primary_zone_max?: number;
+  secondary_zone_min?: number;
+  secondary_zone_max?: number;
+  zone_reachability_distance_pips?: number;
+  micro_regime_used?: string;
+  zone_downgrade_applied?: boolean;
+  position_size_multiplier?: number;
 }
 
 export class EntryIntentClassifier {
   private static readonly IMMEDIATE_ZONE_PIPS = 3;
   private static readonly CLOSE_ENOUGH_PIPS = 8;
 
-  static classifyEntryIntent(
+  static async classifyEntryIntent(
     decision: AlphaDecision,
     marketContext: MarketContext,
     votes: OmegaCouncilVotes,
-    vwap?: number
-  ): ClassifiedEntryIntent | null {
+    vwap?: number,
+    microRegime?: MicroRegime
+  ): Promise<ClassifiedEntryIntent | null> {
     if (decision.action === 'NO_TRADE') {
       return null;
     }
 
-    const entryZone = this.calculateEntryZone(decision, 'immediate_momentum', marketContext, decision.confidence);
+    // Check if adaptive zones are enabled
+    const useAdaptiveZones = ADAPTIVE_ZONE_CONFIG.features.adaptive_zones_enabled;
+
+    let finalEntryZone: { min: number; max: number };
+    let zoneType: ZoneType | undefined;
+    let primaryZone: { min: number; max: number } | undefined;
+    let secondaryZone: { min: number; max: number } | undefined;
+    let zoneReachabilityDistancePips: number | undefined;
+    let zoneDowngradeApplied: boolean | undefined;
+    let positionSizeMultiplier: number | undefined;
+
+    if (useAdaptiveZones && microRegime) {
+      // Use adaptive zone system (v2.0)
+      const adaptiveResult = await this.calculateAdaptiveZones(
+        decision,
+        marketContext,
+        microRegime
+      );
+
+      if (adaptiveResult) {
+        finalEntryZone = adaptiveResult.primary;
+        zoneType = adaptiveResult.zoneType;
+        primaryZone = adaptiveResult.primary;
+        secondaryZone = adaptiveResult.secondary;
+        zoneReachabilityDistancePips = adaptiveResult.reachabilityDistancePips;
+        zoneDowngradeApplied = adaptiveResult.downgradeApplied;
+        positionSizeMultiplier = adaptiveResult.positionSizeMultiplier;
+
+        logger.info(
+          `[AdaptiveZones] Using ${zoneType} zone for ${microRegime} regime. ` +
+          `Primary: ${primaryZone.min.toFixed(5)}-${primaryZone.max.toFixed(5)}, ` +
+          `Secondary: ${secondaryZone.min.toFixed(5)}-${secondaryZone.max.toFixed(5)}`
+        );
+      } else {
+        // Fallback to legacy zones if adaptive fails
+        logger.warn('[AdaptiveZones] Failed to calculate adaptive zones, falling back to legacy');
+        const entryZone = this.calculateEntryZone(decision, 'immediate_momentum', marketContext, decision.confidence);
+        finalEntryZone = entryZone;
+      }
+    } else {
+      // Use legacy zone calculation
+      const entryZone = this.calculateEntryZone(decision, 'immediate_momentum', marketContext, decision.confidence);
+      finalEntryZone = entryZone;
+    }
+
     const distanceToZonePips = this.calculateDistanceToZone(
       marketContext.price,
-      entryZone.min,
-      entryZone.max,
+      finalEntryZone.min,
+      finalEntryZone.max,
       marketContext.symbol
     );
 
@@ -45,7 +107,10 @@ export class EntryIntentClassifier {
       vwap
     );
 
-    const finalEntryZone = this.calculateEntryZone(decision, intentType, marketContext, decision.confidence);
+    // Recalculate zone with final intent type if using legacy zones
+    if (!useAdaptiveZones || !microRegime) {
+      finalEntryZone = this.calculateEntryZone(decision, intentType, marketContext, decision.confidence);
+    }
 
     const urgency = this.determineUrgency(decision, marketContext, votes, intentType, distanceToZonePips);
     const maxWaitSeconds = this.calculateMaxWaitSeconds(urgency, intentType, marketContext);
@@ -60,7 +125,8 @@ export class EntryIntentClassifier {
       `Entry zone: ${finalEntryZone.min.toFixed(5)}-${finalEntryZone.max.toFixed(5)} | ` +
       `Distance: ${distanceToZonePips.toFixed(1)} pips | ` +
       `Max wait: ${maxWaitSeconds}s | Timeout action: ${timeoutAction} | ` +
-      `Execute immediately: ${shouldExecuteImmediately}`
+      `Execute immediately: ${shouldExecuteImmediately}` +
+      (zoneType ? ` | Zone type: ${zoneType}` : '')
     );
 
     return {
@@ -72,7 +138,18 @@ export class EntryIntentClassifier {
       max_wait_seconds: maxWaitSeconds,
       timeout_action: timeoutAction,
       invalidation_price: invalidationPrice,
-      should_execute_immediately: shouldExecuteImmediately
+      should_execute_immediately: shouldExecuteImmediately,
+
+      // Adaptive zone fields (v2.0)
+      zone_type: zoneType,
+      primary_zone_min: primaryZone?.min,
+      primary_zone_max: primaryZone?.max,
+      secondary_zone_min: secondaryZone?.min,
+      secondary_zone_max: secondaryZone?.max,
+      zone_reachability_distance_pips: zoneReachabilityDistancePips,
+      micro_regime_used: microRegime,
+      zone_downgrade_applied: zoneDowngradeApplied,
+      position_size_multiplier: positionSizeMultiplier
     };
   }
 
@@ -128,6 +205,89 @@ export class EntryIntentClassifier {
     }
 
     return 'pullback_to_support';
+  }
+
+  /**
+   * Calculate adaptive zones using regime-aware zone models
+   * SSOT orchestrator - delegates to specialized services
+   */
+  private static async calculateAdaptiveZones(
+    decision: AlphaDecision,
+    marketContext: MarketContext,
+    microRegime: MicroRegime
+  ): Promise<{
+    primary: { min: number; max: number };
+    secondary: { min: number; max: number };
+    zoneType: ZoneType;
+    reachabilityDistancePips: number;
+    downgradeApplied: boolean;
+    positionSizeMultiplier: number;
+  } | null> {
+    try {
+      // Step 1: Select zone type based on regime
+      const zoneTypeSelection = RegimeZoneTypeSelector.selectZoneType(microRegime);
+      let selectedZoneType = zoneTypeSelection.zoneType;
+
+      // Step 2: Gather technical inputs for zone calculation
+      const inputs = await ZoneCalculationInputProvider.gatherInputs(
+        marketContext.symbol,
+        marketContext.price
+      );
+
+      if (!ZoneCalculationInputProvider.validateInputs(inputs)) {
+        logger.error('[AdaptiveZones] Invalid inputs for zone calculation');
+        return null;
+      }
+
+      // Step 3: Calculate zones using selected model
+      let zones = AdaptiveEntryZoneCalculator.calculateZones(
+        inputs,
+        selectedZoneType,
+        decision.action,
+        decision.confidence
+      );
+
+      // Step 4: Validate reachability and potentially downgrade
+      let reachability = ZoneReachabilityValidator.validate(zones, inputs);
+      let downgradeApplied = false;
+
+      // Auto-downgrade if unreachable and enabled
+      if (
+        reachability.shouldDowngrade &&
+        reachability.downgradeTo &&
+        ADAPTIVE_ZONE_CONFIG.features.auto_downgrade_enabled
+      ) {
+        logger.warn(
+          `[AdaptiveZones] Zone unreachable, downgrading ${selectedZoneType} → ${reachability.downgradeTo}`
+        );
+
+        selectedZoneType = reachability.downgradeTo;
+        downgradeApplied = true;
+
+        // Recalculate with downgraded zone type
+        zones = AdaptiveEntryZoneCalculator.calculateZones(
+          inputs,
+          selectedZoneType,
+          decision.action,
+          decision.confidence
+        );
+
+        // Re-validate reachability
+        reachability = ZoneReachabilityValidator.validate(zones, inputs);
+      }
+
+      return {
+        primary: zones.primary,
+        secondary: zones.secondary,
+        zoneType: selectedZoneType,
+        reachabilityDistancePips: reachability.distanceFromPricePips,
+        downgradeApplied,
+        positionSizeMultiplier: reachability.positionSizeMultiplier
+      };
+    } catch (error) {
+      logger.error('[AdaptiveZones] Failed to calculate adaptive zones:', error);
+      return null;
+    }
   }
 
   private static calculateInvalidationPrice(
