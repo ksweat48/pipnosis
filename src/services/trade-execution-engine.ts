@@ -9,6 +9,7 @@ import { globalDialogManager } from './global-dialog-manager';
 import { llmReasoningLogger } from './llm-reasoning-logger';
 import { getMinConfidenceThreshold } from '../config/risk-levels';
 import { priceCoordinator } from './coordinators/price-coordinator';
+import { validatePositionContract, isPCVLEnabled } from './pcvl-position-contract-validator';
 
 interface LivePriceResult {
   price: number;
@@ -166,6 +167,89 @@ class TradeExecutionEngine {
     }
 
     return { stopLoss: newSL, takeProfit: newTP };
+  }
+
+  /**
+   * Validate position contract using PCVL (Position Contract Validation Layer)
+   *
+   * CRITICAL: Last-line defense against 10-100× risk violations
+   * Validates that: trueRisk = lot_size × pip_value × stop_pips = intended_risk
+   *
+   * @returns Validation result with approval status and audit trail
+   */
+  private async validatePCVL(
+    symbol: string,
+    lotSize: number,
+    entryPrice: number,
+    stopLoss: number,
+    intendedRiskDollars: number,
+    userId: string,
+    sessionId: string
+  ): Promise<{ approved: boolean; blockReason?: string }> {
+    // Check if PCVL is enabled (kill switch)
+    if (!isPCVLEnabled()) {
+      prodLogger.warn('[PCVL] ⚠️ PCVL disabled - skipping validation');
+      return { approved: true };
+    }
+
+    // Calculate stop distance in pips
+    const stopPips = calculatePipDistance(symbol, entryPrice, stopLoss);
+
+    // Run PCVL validation
+    const pcvlResult = validatePositionContract({
+      symbol,
+      lot_size: lotSize,
+      stop_pips: stopPips,
+      intended_risk_dollars: intendedRiskDollars,
+      entry_price: entryPrice,
+      stop_loss: stopLoss,
+    });
+
+    // Log audit trail to database
+    await this.logPCVLAudit(userId, sessionId, pcvlResult.audit);
+
+    // If blocked, log detailed error
+    if (!pcvlResult.approved) {
+      prodLogger.error(`[PCVL] 🚫 TRADE BLOCKED: ${pcvlResult.block_reason}`);
+      prodLogger.error(`[PCVL] Symbol: ${symbol}, Lot size: ${lotSize}, Stop: ${stopPips.toFixed(1)} pips`);
+      prodLogger.error(`[PCVL] Intended risk: $${intendedRiskDollars.toFixed(2)}, Actual risk: $${pcvlResult.true_risk_dollars.toFixed(2)}`);
+      prodLogger.error(`[PCVL] Variance: ${pcvlResult.risk_variance_percent.toFixed(2)}%`);
+      prodLogger.error(`[PCVL] Pip value: ${pcvlResult.pip_value_used}, Dollar/pip: $${pcvlResult.dollar_per_pip.toFixed(2)}`);
+    }
+
+    return {
+      approved: pcvlResult.approved,
+      blockReason: pcvlResult.block_reason,
+    };
+  }
+
+  /**
+   * Log PCVL audit trail to database
+   */
+  private async logPCVLAudit(
+    userId: string,
+    sessionId: string,
+    audit: any
+  ): Promise<void> {
+    try {
+      await supabase.from('pcvl_audit_log').insert({
+        user_id: userId,
+        session_id: sessionId,
+        symbol: audit.symbol,
+        lot_size: audit.lot_size,
+        stop_pips: audit.stop_pips,
+        intended_risk_dollars: audit.intended_risk,
+        calculated_risk_dollars: audit.calculated_risk,
+        risk_variance_percent: audit.risk_variance,
+        pip_value: audit.pip_value,
+        dollar_per_pip: audit.dollar_per_pip,
+        approved: audit.approved,
+        block_reason: audit.block_reason,
+      });
+    } catch (error) {
+      prodLogger.error('[PCVL] Failed to log audit trail:', error);
+      // Don't block trade if audit logging fails - validation is what matters
+    }
   }
 
   async executeSignal(
@@ -353,6 +437,29 @@ class TradeExecutionEngine {
     const riskPips = Math.abs(signal.entryPrice - signal.stopLoss) / pipInfo.pipValue;
     const dollarPerPip = roundedLotSize * pipInfo.dollarPerPipPerLot; // Use symbol-specific calculation
     const riskDollars = roundPnL(riskPips * dollarPerPip);
+
+    // 🛡️ PCVL VALIDATION - Critical last-line defense against position sizing disasters
+    console.log('[Trade Execution] 🛡️ Running PCVL validation before creating trade...');
+    const pcvlValidation = await this.validatePCVL(
+      signal.symbol,
+      roundedLotSize,
+      signal.entryPrice,
+      signal.stopLoss,
+      riskDollars,
+      userId,
+      signal.sessionId
+    );
+
+    if (!pcvlValidation.approved) {
+      console.error('[Trade Execution] 🚫 PCVL BLOCKED TRADE');
+      return {
+        success: false,
+        error: 'PCVL_VALIDATION_FAILED',
+        message: `Position contract validation failed: ${pcvlValidation.blockReason}`,
+      };
+    }
+
+    console.log('[Trade Execution] ✅ PCVL validation passed - proceeding with trade creation');
 
     console.log('[Trade Execution] Creating pending trade:', {
       symbol: signal.symbol,
@@ -600,6 +707,29 @@ class TradeExecutionEngine {
     // Recalculate risk with adjusted levels
     const finalRiskPips = Math.abs(actualEntryPrice - adjustedSL) / pipInfo.pipValue;
     const finalRiskDollars = finalRiskPips * dollarPerPip;
+
+    // 🛡️ PCVL VALIDATION - Critical last-line defense against position sizing disasters
+    console.log('[Trade Execution] 🛡️ Running PCVL validation before live execution...');
+    const pcvlValidation = await this.validatePCVL(
+      signal.symbol,
+      signal.positionSize,
+      actualEntryPrice,
+      adjustedSL,
+      finalRiskDollars,
+      userId,
+      signal.sessionId
+    );
+
+    if (!pcvlValidation.approved) {
+      console.error('[Trade Execution] 🚫 PCVL BLOCKED LIVE TRADE');
+      return {
+        success: false,
+        error: 'PCVL_VALIDATION_FAILED',
+        message: `Position contract validation failed: ${pcvlValidation.blockReason}`,
+      };
+    }
+
+    console.log('[Trade Execution] ✅ PCVL validation passed - executing live trade');
 
     // Insert trade with all required fields populated (using adjusted SL/TP)
     const tradeData = {
