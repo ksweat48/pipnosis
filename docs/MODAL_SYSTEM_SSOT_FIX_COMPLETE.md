@@ -1,5 +1,14 @@
 # Modal System SSOT Compliance Fix - Complete
 
+## Hotfix Applied (Jan 11, 2026)
+
+**Issue**: PostgreSQL error 42702 "column reference 'user_id' is ambiguous"
+**Cause**: RAISE NOTICE statement referenced `user_id` without table qualification
+**Fix**: Applied migration `fix_ambiguous_user_id_column_reference.sql` to fully qualify all column references
+**Status**: ✅ Fixed and deployed
+
+---
+
 ## Executive Summary
 
 Fixed critical SSOT violations causing session expiration modals to never appear. The root cause was a multi-layered system desynchronization where modals were created but immediately deleted, session state was never updated, and health checks couldn't detect pending modals.
