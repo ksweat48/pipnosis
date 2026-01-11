@@ -56,26 +56,39 @@ class RealtimeSLTPMonitor {
     await this.refreshOpenPositions();
 
     // Subscribe to realtime_prices INSERT events
-    this.channel = supabase
-      .channel('realtime-sltp-monitor')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'realtime_prices'
-        },
-        (payload) => {
-          this.handlePriceUpdate(payload.new as any);
-        }
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('[RealtimeSLTPMonitor] ✅ Subscribed to realtime_prices updates');
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('[RealtimeSLTPMonitor] ❌ Subscription error');
-        }
-      });
+    try {
+      this.channel = supabase
+        .channel('realtime-sltp-monitor')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'realtime_prices'
+          },
+          (payload) => {
+            this.handlePriceUpdate(payload.new as any);
+          }
+        )
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('[RealtimeSLTPMonitor] ✅ Subscribed to realtime_prices updates');
+          } else if (status === 'CHANNEL_ERROR') {
+            // Log warning but system will fall back to polling - NOT a critical error
+            console.warn('[RealtimeSLTPMonitor] ⚠️ Realtime subscription unavailable - falling back to position-monitor polling');
+            this.channel = null;
+          } else if (status === 'TIMED_OUT') {
+            console.warn('[RealtimeSLTPMonitor] ⏱️ Realtime subscription timed out - using polling fallback');
+            this.channel = null;
+          } else if (status === 'CLOSED') {
+            this.channel = null;
+          }
+        });
+    } catch (error) {
+      console.warn('[RealtimeSLTPMonitor] ⚠️ Error setting up realtime subscription:', error);
+      console.warn('[RealtimeSLTPMonitor] Position monitoring will continue via polling - functionality not affected');
+      this.channel = null;
+    }
 
     // Refresh open positions every 5 seconds (catch new trades)
     setInterval(() => this.refreshOpenPositions(), 5000);

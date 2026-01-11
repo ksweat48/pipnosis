@@ -322,33 +322,46 @@ class CandleCacheManager {
 
     console.log('[CandleCache] 🔔 Subscribing to real-time cache invalidation events...');
 
-    this.realtimeSubscription = supabase
-      .channel('candle-cache-invalidation')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'candle_cache_invalidation_events'
-        },
-        async (payload) => {
-          const { symbol, timeframe, candle_time } = payload.new as any;
-          // Silenced: This happens frequently during normal operation
-          // console.log(
-          //   `[CandleCache] 🔄 Real-time invalidation: ${symbol} ${timeframe} at ${candle_time}`
-          // );
+    try {
+      this.realtimeSubscription = supabase
+        .channel('candle-cache-invalidation')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'candle_cache_invalidation_events'
+          },
+          async (payload) => {
+            const { symbol, timeframe, candle_time } = payload.new as any;
+            // Silenced: This happens frequently during normal operation
+            // console.log(
+            //   `[CandleCache] 🔄 Real-time invalidation: ${symbol} ${timeframe} at ${candle_time}`
+            // );
 
-          // Invalidate cache immediately
-          await this.invalidateSymbolTimeframe(symbol, timeframe);
-        }
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('[CandleCache] ✅ Subscribed to cache invalidation events');
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('[CandleCache] ❌ Failed to subscribe to invalidation events');
-        }
-      });
+            // Invalidate cache immediately
+            await this.invalidateSymbolTimeframe(symbol, timeframe);
+          }
+        )
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('[CandleCache] ✅ Subscribed to cache invalidation events');
+          } else if (status === 'CHANNEL_ERROR') {
+            // Log warning but allow graceful degradation - NOT an error
+            console.warn('[CandleCache] ⚠️ Realtime subscription unavailable - cache will use manual refresh only');
+            this.realtimeSubscription = null;
+          } else if (status === 'TIMED_OUT') {
+            console.warn('[CandleCache] ⏱️ Realtime subscription timed out - cache will use manual refresh');
+            this.realtimeSubscription = null;
+          } else if (status === 'CLOSED') {
+            this.realtimeSubscription = null;
+          }
+        });
+    } catch (error) {
+      console.warn('[CandleCache] ⚠️ Error setting up realtime subscription:', error);
+      console.warn('[CandleCache] Continuing without realtime updates - functionality not affected');
+      this.realtimeSubscription = null;
+    }
   }
 
   /**

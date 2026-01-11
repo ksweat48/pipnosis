@@ -203,11 +203,12 @@ export const GoalSessionDashboard: React.FC = () => {
         }
       )
       .subscribe((status) => {
-        console.log('[GoalSessionDashboard] 📊 Realtime subscription status:', status);
         if (status === 'SUBSCRIBED') {
-          console.log('[GoalSessionDashboard] ✅ Successfully subscribed to trade closures');
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('[GoalSessionDashboard] ❌ Realtime subscription error');
+          console.log('[GoalSessionDashboard] ✅ Realtime subscription active for trade updates');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.log('[GoalSessionDashboard] ℹ️ Realtime subscription unavailable, polling will handle updates');
+        } else if (status === 'CLOSED') {
+          console.log('[GoalSessionDashboard] 📡 Realtime subscription closed');
         }
       });
 

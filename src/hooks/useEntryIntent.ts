@@ -78,56 +78,61 @@ export function useActiveEntryIntent(sessionId: string | null): UseActiveEntryIn
     // Set up realtime subscription for entry_intents table changes
     console.log('[useActiveEntryIntent] 📡 Setting up realtime subscription for session:', sessionId.substring(0, 8));
 
-    const channel = supabase
-      .channel(`entry-intents-${sessionId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*', // Listen for INSERT, UPDATE, DELETE
-          schema: 'public',
-          table: 'entry_intents',
-          filter: `session_id=eq.${sessionId}`
-        },
-        (payload) => {
-          console.log('[useActiveEntryIntent] 🔔 Realtime update received:', {
-            event: payload.eventType,
-            intentId: payload.new?.id?.substring(0, 8) || payload.old?.id?.substring(0, 8),
-            status: payload.new?.status
-          });
+    try {
+      const channel = supabase
+        .channel(`entry-intents-${sessionId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*', // Listen for INSERT, UPDATE, DELETE
+            schema: 'public',
+            table: 'entry_intents',
+            filter: `session_id=eq.${sessionId}`
+          },
+          (payload) => {
+            console.log('[useActiveEntryIntent] 🔔 Realtime update received:', {
+              event: payload.eventType,
+              intentId: payload.new?.id?.substring(0, 8) || payload.old?.id?.substring(0, 8),
+              status: payload.new?.status
+            });
 
-          // Smart refresh: Only reload if meaningful fields changed
-          if (payload.eventType === 'INSERT') {
-            // New intent created - always reload
-            console.log('[useActiveEntryIntent] 🆕 New intent detected, reloading...');
-            loadIntent();
-          } else if (payload.eventType === 'UPDATE') {
-            // Check if status changed (meaningful) or just heartbeat (ignore)
-            const oldStatus = payload.old?.status;
-            const newStatus = payload.new?.status;
-
-            if (oldStatus !== newStatus) {
-              console.log('[useActiveEntryIntent] 📊 Status changed, reloading...', {oldStatus, newStatus});
+            // Smart refresh: Only reload if meaningful fields changed
+            if (payload.eventType === 'INSERT') {
+              // New intent created - always reload
+              console.log('[useActiveEntryIntent] 🆕 New intent detected, reloading...');
               loadIntent();
-            } else {
-              console.log('[useActiveEntryIntent] 💓 Heartbeat update, skipping reload');
-              // Don't reload - just a heartbeat update
+            } else if (payload.eventType === 'UPDATE') {
+              // Check if status changed (meaningful) or just heartbeat (ignore)
+              const oldStatus = payload.old?.status;
+              const newStatus = payload.new?.status;
+
+              if (oldStatus !== newStatus) {
+                console.log('[useActiveEntryIntent] 📊 Status changed, reloading...', {oldStatus, newStatus});
+                loadIntent();
+              } else {
+                console.log('[useActiveEntryIntent] 💓 Heartbeat update, skipping reload');
+                // Don't reload - just a heartbeat update
+              }
+            } else if (payload.eventType === 'DELETE') {
+              // Intent removed - clear state
+              console.log('[useActiveEntryIntent] 🗑️ Intent deleted');
+              setActiveIntent(null);
             }
-          } else if (payload.eventType === 'DELETE') {
-            // Intent removed - clear state
-            console.log('[useActiveEntryIntent] 🗑️ Intent deleted');
-            setActiveIntent(null);
           }
-        }
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('[useActiveEntryIntent] 📡 Realtime subscription CONNECTED for session:', sessionId.substring(0, 8));
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          console.warn('[useActiveEntryIntent] ⚠️ Realtime subscription ERROR/TIMEOUT:', status);
-        } else if (status === 'CLOSED') {
-          console.log('[useActiveEntryIntent] 📡 Realtime subscription CLOSED');
-        }
-      });
+        )
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('[useActiveEntryIntent] 📡 Realtime subscription CONNECTED for session:', sessionId.substring(0, 8));
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            // Log as info, not warning - fallback polling will handle updates
+            console.log('[useActiveEntryIntent] ℹ️ Realtime subscription unavailable, using polling fallback (normal for some network configs)');
+          } else if (status === 'CLOSED') {
+            console.log('[useActiveEntryIntent] 📡 Realtime subscription CLOSED');
+          }
+        });
+    } catch (error) {
+      console.log('[useActiveEntryIntent] ℹ️ Realtime subscription error, using polling fallback:', error);
+    }
 
     // Set up fallback polling (30 seconds) as safety net
     const pollInterval = setInterval(() => {

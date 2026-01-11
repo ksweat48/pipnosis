@@ -2445,7 +2445,8 @@ Note: NO_TRADE is reserved for legitimate block conditions ONLY. Prefer WAIT whe
             entry_quality_score: entryQualityScore,
             entry_mode: entryMode,
             style: resolvedStyle,
-          }
+          },
+          narrativeValidation: narrativeValidation || undefined
         };
       }
 
@@ -2469,7 +2470,8 @@ Note: NO_TRADE is reserved for legitimate block conditions ONLY. Prefer WAIT whe
               entry_quality_score: entryQualityScore,
               entry_mode: entryMode,
               style: resolvedStyle,
-            }
+            },
+            narrativeValidation: narrativeValidation || undefined
           };
         }
 
@@ -2488,7 +2490,8 @@ Note: NO_TRADE is reserved for legitimate block conditions ONLY. Prefer WAIT whe
             entry_quality_score: entryQualityScore,
             entry_mode: entryMode,
             style: resolvedStyle,
-          }
+          },
+          narrativeValidation: narrativeValidation || undefined
         };
       }
 
@@ -2568,7 +2571,8 @@ Note: NO_TRADE is reserved for legitimate block conditions ONLY. Prefer WAIT whe
           takeProfit: currentPrice,
           confidence: 0,
           reasoning: `BLOCKED: ${errorReason}`,
-          omega_summary: ''
+          omega_summary: '',
+          narrativeValidation: narrativeValidation || undefined
         };
       }
 
@@ -2626,7 +2630,7 @@ Note: NO_TRADE is reserved for legitimate block conditions ONLY. Prefer WAIT whe
         tp1Reasoning: tp1Result?.tp1Reasoning || null,
         tp2Price,
         tp2Reasoning,
-        confidence: Math.round(Math.min(100, Math.max(0, tradeConfidence))),
+        confidence: Math.round(Math.min(100, Math.max(0, adjustedConfidence))),
         reasoning: parsed.reasoning || 'No reasoning provided',
         omega_summary: '',
         resolvedStyle,
@@ -2634,7 +2638,8 @@ Note: NO_TRADE is reserved for legitimate block conditions ONLY. Prefer WAIT whe
           entry_quality_score: entryQualityScore,
           entry_mode: entryMode,
           style: resolvedStyle,
-        }
+        },
+        narrativeValidation: narrativeValidation || undefined
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -2650,7 +2655,8 @@ Note: NO_TRADE is reserved for legitimate block conditions ONLY. Prefer WAIT whe
         takeProfit: currentPrice,
         confidence: 0,
         reasoning: `LLM response parse failed: ${errorMsg.substring(0, 100)}`,
-        omega_summary: ''
+        omega_summary: '',
+        narrativeValidation: undefined
       };
     }
   }
