@@ -405,36 +405,166 @@ class EntryMonitorCoordinator {
       executionPrice: price
     });
 
-    await this.transitionState(sessionId, 'EXECUTE_PENDING');
+    // CRITICAL FIX: Record execution attempt BEFORE state transition
+    // This allows tracking and debugging of execution flow
+    const direction = intent.direction === 'long' ? 'BUY' : 'SELL';
+    const stopLoss = intent.market_context?.stopLoss || intent.invalidation_price || price * 0.99;
+    const takeProfit = intent.market_context?.takeProfit || price * 1.02;
+    const lotSize = 0.01;
 
+    let attemptId: string | null = null;
+    try {
+      const { data: attemptData, error: attemptError } = await supabase.rpc('record_execution_attempt', {
+        p_session_id: sessionId,
+        p_intent_id: intentId,
+        p_user_id: userId,
+        p_symbol: intent.symbol,
+        p_direction: direction,
+        p_entry_price: price,
+        p_stop_loss: stopLoss as number,
+        p_take_profit: takeProfit as number,
+        p_lot_size: lotSize,
+        p_eqs_score: eqs
+      });
+
+      if (attemptError) {
+        console.warn('[ENTRY_MONITOR_COORD] Failed to record attempt', attemptError);
+      } else {
+        attemptId = attemptData;
+      }
+    } catch (error) {
+      console.warn('[ENTRY_MONITOR_COORD] Exception recording attempt', error);
+    }
+
+    // CRITICAL FIX: Execute trade BEFORE transitioning to EXECUTE_PENDING
+    // This prevents deadlock where EXECUTE_PENDING state blocks trade insertion
     if (this.executeTradeCallback) {
-      const direction = intent.direction === 'long' ? 'BUY' : 'SELL';
-      const stopLoss = intent.market_context?.stopLoss || intent.invalidation_price || price * 0.99;
-      const takeProfit = intent.market_context?.takeProfit || price * 1.02;
-
-      const result = await this.executeTradeCallback(
-        intent.symbol,
-        direction as 'BUY' | 'SELL',
+      console.log('[ENTRY_MONITOR_COORD] Calling executeTradeCallback (trade insertion)', {
+        sessionId: sessionId.substring(0, 8),
+        symbol: intent.symbol,
+        direction,
         price,
-        stopLoss as number,
-        takeProfit as number,
-        0.01,
-        intentId
-      );
+        eqs
+      });
 
-      if (result.success) {
+      let result;
+      let retryCount = 0;
+      const maxRetries = 3;
+
+      // Retry logic for transient failures
+      while (retryCount < maxRetries) {
+        try {
+          result = await this.executeTradeCallback(
+            intent.symbol,
+            direction as 'BUY' | 'SELL',
+            price,
+            stopLoss as number,
+            takeProfit as number,
+            lotSize,
+            intentId
+          );
+
+          // If successful, break retry loop
+          if (result.success) {
+            break;
+          }
+
+          // If not successful, check if should retry
+          retryCount++;
+          if (retryCount < maxRetries) {
+            const isTransient = result.error?.includes('timeout') ||
+                              result.error?.includes('network') ||
+                              result.error?.includes('temporary');
+
+            if (isTransient) {
+              console.warn(`[ENTRY_MONITOR_COORD] Transient failure, retrying (${retryCount}/${maxRetries})`, result.error);
+              await new Promise(resolve => setTimeout(resolve, 1000 * retryCount)); // Exponential backoff
+              continue;
+            } else {
+              // Non-transient error, don't retry
+              break;
+            }
+          }
+        } catch (error) {
+          console.error('[ENTRY_MONITOR_COORD] Exception during execution', error);
+          result = { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+          retryCount++;
+
+          if (retryCount < maxRetries) {
+            console.warn(`[ENTRY_MONITOR_COORD] Exception, retrying (${retryCount}/${maxRetries})`);
+            await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+          }
+        }
+      }
+
+      // CRITICAL: Only transition state AFTER trade insertion succeeds or definitively fails
+      if (result && result.success) {
+        console.log('[ENTRY_MONITOR_COORD] ✅ Trade inserted successfully, now transitioning state', {
+          sessionId: sessionId.substring(0, 8),
+          tradeId: result.tradeId
+        });
+
+        // Mark intent as executed
         await markIntentExecuted(intentId, price);
+
+        // NOW transition to TRADE_ACTIVE (after successful insertion)
         await this.transitionState(sessionId, 'TRADE_ACTIVE');
+
+        // Complete execution attempt with success
+        if (attemptId) {
+          try {
+            await supabase.rpc('complete_execution_attempt', {
+              p_attempt_id: attemptId,
+              p_success: true,
+              p_trade_id: result.tradeId,
+              p_state_after: 'TRADE_ACTIVE'
+            });
+          } catch (error) {
+            console.warn('[ENTRY_MONITOR_COORD] Failed to complete attempt log', error);
+          }
+        }
 
         console.log('[ENTRY_MONITOR_COORD] Trade executed successfully', sessionId, intentId, result.tradeId);
       } else {
-        console.error('[ENTRY_MONITOR_COORD] Trade execution failed', sessionId, intentId, result.error);
+        console.error('[ENTRY_MONITOR_COORD] ❌ Trade execution failed after retries', {
+          sessionId: sessionId.substring(0, 8),
+          error: result?.error,
+          retries: retryCount
+        });
+
+        // Complete execution attempt with failure
+        if (attemptId) {
+          try {
+            await supabase.rpc('complete_execution_attempt', {
+              p_attempt_id: attemptId,
+              p_success: false,
+              p_error_message: result?.error || 'Unknown error',
+              p_state_after: 'ENTRY_MONITOR_ACTIVE' // Stay in monitoring state
+            });
+          } catch (error) {
+            console.warn('[ENTRY_MONITOR_COORD] Failed to complete attempt log', error);
+          }
+        }
+
         await this.handleAbandonment(sessionId, intentId, 'ORDER_REJECTED');
       }
     } else {
       console.warn('[ENTRY_MONITOR_COORD] No execute trade callback configured');
       await markIntentExecuted(intentId, price);
       await this.transitionState(sessionId, 'TRADE_ACTIVE');
+
+      // Complete execution attempt
+      if (attemptId) {
+        try {
+          await supabase.rpc('complete_execution_attempt', {
+            p_attempt_id: attemptId,
+            p_success: true,
+            p_state_after: 'TRADE_ACTIVE'
+          });
+        } catch (error) {
+          console.warn('[ENTRY_MONITOR_COORD] Failed to complete attempt log', error);
+        }
+      }
     }
   }
 
