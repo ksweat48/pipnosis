@@ -110,6 +110,17 @@ class GoalScanner {
       const watchlist = marketCheck.openSymbols;
       const closedSymbols = marketCheck.closedSymbols;
 
+      // SSOT: Update active_pairs_count in database (real-time count of scannable pairs)
+      await supabase
+        .from('goal_sessions')
+        .update({
+          active_pairs_count: watchlist.length,
+          last_pairs_update: new Date().toISOString()
+        })
+        .eq('id', sessionId);
+
+      console.log(`[Goal Scanner] 📊 Active pairs count updated: ${watchlist.length} scannable pair(s)`);
+
       // Add market status message if some symbols are closed
       if (closedSymbols.length > 0) {
         const cryptoOnly = watchlist.every(s => ['BTCUSD', 'ETHUSD'].includes(s));

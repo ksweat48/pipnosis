@@ -13,6 +13,10 @@ import { v4 as uuidv4 } from 'uuid';
 import { getMinConfidenceThreshold } from '../config/risk-levels';
 import { alphaExecutionPlanner } from './alpha-execution-planner';
 import { TradeStyle } from '../config/trade-styles';
+import { extractSymbolsFromPrompt, getSymbolSelectionSource } from '../utils/symbol-prompt-parser';
+import { getSymbolsByAssetClass, filterWatchlistByAssetClass, type AssetClass } from '../utils/asset-class-mapper';
+import { getDefaultWatchlist } from '../config/watchlist';
+import { weekendProtectionService } from './weekend-protection-service';
 
 /**
  * SSOT: Terminal (inactive) session statuses
@@ -35,6 +39,10 @@ export interface SmartGoalConfig {
   watchlist: string[];
   autoExecute: boolean;
   accountBalance: number;
+  assetClassFilter?: string[]; // Asset class preferences: ['forex', 'crypto', 'indices', 'gold']
+  specificSymbols?: string[]; // User-selected specific symbols
+  customInstructions?: string; // Custom trading instructions (max 200 chars)
+  symbolSelectionSource?: 'prompt' | 'ui' | 'asset_filter' | 'default'; // How symbols were chosen
 }
 
 export interface SmartGoalSession {
@@ -63,6 +71,12 @@ export interface SmartGoalSession {
   tp1_learning_awarded?: boolean;
   tp2_hit?: boolean;
   tp2_hit_at?: string;
+  activePairsCount?: number; // Real-time count of scannable pairs considering market hours
+  assetClassFilter?: string[]; // Asset class preferences
+  specificSymbols?: string[]; // User-selected specific symbols
+  customInstructions?: string; // Custom trading instructions
+  symbolSelectionSource?: 'prompt' | 'ui' | 'asset_filter' | 'default'; // How symbols were chosen
+  lastPairsUpdate?: string; // Timestamp of last active_pairs_count update
 }
 
 class SmartGoalSessionManager {
@@ -75,7 +89,10 @@ class SmartGoalSessionManager {
     accountBalance: number,
     multiTradeEnabled: boolean = false,
     tradeStyle?: TradeStyle,
-    dollarRisk?: number
+    dollarRisk?: number,
+    assetClassFilter?: string[],
+    specificSymbols?: string[],
+    customInstructions?: string
   ): Promise<SmartGoalSession | null> {
     // CRITICAL: Prevent multiple active sessions
     const existingSession = await this.getActiveSession(userId);
@@ -86,7 +103,7 @@ class SmartGoalSessionManager {
 
     // Use new trade styles system if provided, otherwise fall back to legacy parsing
     const config = tradeStyle && dollarRisk
-      ? this.buildConfigFromStyle(prompt, accountBalance, tradeStyle, dollarRisk)
+      ? this.buildConfigFromStyle(prompt, accountBalance, tradeStyle, dollarRisk, assetClassFilter, specificSymbols, customInstructions)
       : this.parseGoalPrompt(prompt, accountBalance);
 
     const sessionId = uuidv4();
@@ -168,7 +185,13 @@ class SmartGoalSessionManager {
       execution_mode: 'server',
       scanning_started_at: session.startTime.toISOString(),
       scanning_duration_minutes: 15,
-      awaiting_continuation_confirmation: false
+      awaiting_continuation_confirmation: false,
+      active_pairs_count: config.watchlist.length,
+      asset_class_filter: config.assetClassFilter || null,
+      specific_symbols: config.specificSymbols || null,
+      custom_instructions: config.customInstructions || null,
+      symbol_selection_source: config.symbolSelectionSource || 'default',
+      last_pairs_update: new Date().toISOString()
     });
 
     if (error) {
@@ -187,27 +210,83 @@ class SmartGoalSessionManager {
   }
 
   /**
-   * Build config from new trade styles system
+   * Build config from new trade styles system with symbol detection (SSOT)
+   *
+   * Priority order for symbol selection:
+   * 1. Symbols detected from prompt (e.g., "trade EURUSD")
+   * 2. Specific symbols from UI selection
+   * 3. Asset class filter (e.g., ['forex', 'crypto'])
+   * 4. Default full watchlist
    */
   private buildConfigFromStyle(
     prompt: string,
     accountBalance: number,
     tradeStyle: TradeStyle,
-    dollarRisk: number
+    dollarRisk: number,
+    assetClassFilter?: string[],
+    specificSymbols?: string[],
+    customInstructions?: string
   ): SmartGoalConfig {
     // Extract goal amount from prompt if present, otherwise use reasonable default
     const lower = prompt.toLowerCase();
     const dollarMatch = lower.match(/\$?\s*(\d+(?:\.\d+)?)/);
     const goalAmount = dollarMatch ? parseFloat(dollarMatch[1]) : dollarRisk * 2; // Default to 2x the risk
 
+    // STEP 1: Detect symbols from prompt (highest priority)
+    const promptSymbols = extractSymbolsFromPrompt(prompt);
+
+    // STEP 2: Determine watchlist based on priority order
+    let watchlist: string[];
+    let symbolSelectionSource: 'prompt' | 'ui' | 'asset_filter' | 'default';
+
+    if (promptSymbols.length > 0) {
+      // Priority 1: Use symbols from prompt
+      watchlist = promptSymbols;
+      symbolSelectionSource = 'prompt';
+      console.log(`[Smart Goal] 🎯 Detected ${promptSymbols.length} symbol(s) from prompt: ${promptSymbols.join(', ')}`);
+    } else if (specificSymbols && specificSymbols.length > 0) {
+      // Priority 2: Use specific symbols from UI
+      watchlist = specificSymbols;
+      symbolSelectionSource = 'ui';
+      console.log(`[Smart Goal] 🎯 Using ${specificSymbols.length} symbol(s) from UI: ${specificSymbols.join(', ')}`);
+    } else if (assetClassFilter && assetClassFilter.length > 0) {
+      // Priority 3: Filter by asset class
+      const fullWatchlist = getDefaultWatchlist();
+      watchlist = filterWatchlistByAssetClass(fullWatchlist, assetClassFilter as AssetClass[]);
+      symbolSelectionSource = 'asset_filter';
+      console.log(`[Smart Goal] 🎯 Filtered to ${watchlist.length} symbol(s) by asset classes: ${assetClassFilter.join(', ')}`);
+    } else {
+      // Priority 4: Use full default watchlist
+      watchlist = getDefaultWatchlist();
+      symbolSelectionSource = 'default';
+      console.log(`[Smart Goal] 🎯 Using default watchlist: ${watchlist.length} symbols`);
+    }
+
+    // STEP 3: Validate that at least one market is open for selected symbols
+    const marketCheck = weekendProtectionService.canScanAnySymbol(watchlist);
+    if (!marketCheck.allowed) {
+      throw new Error(`All selected markets are closed. Trading resumes Sunday 5:00 PM EST. Available 24/7: BTCUSD, ETHUSD`);
+    }
+
+    // If some symbols are closed, warn but continue with open symbols
+    if (marketCheck.closedSymbols.length > 0) {
+      console.warn(`[Smart Goal] ⚠️ ${marketCheck.closedSymbols.length} symbol(s) closed: ${marketCheck.closedSymbols.join(', ')}`);
+      console.log(`[Smart Goal] ✅ Continuing with ${marketCheck.openSymbols.length} open symbol(s): ${marketCheck.openSymbols.join(', ')}`);
+      watchlist = marketCheck.openSymbols;
+    }
+
     return {
       goalAmount,
       timeframe: '1 day',
       tradeStyle,
       dollarRisk,
-      watchlist: ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'],
+      watchlist,
       autoExecute: true,
-      accountBalance
+      accountBalance,
+      assetClassFilter,
+      specificSymbols,
+      customInstructions,
+      symbolSelectionSource
     };
   }
 

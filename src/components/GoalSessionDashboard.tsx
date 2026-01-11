@@ -1567,7 +1567,28 @@ export const GoalSessionDashboard: React.FC = () => {
             <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 text-blue-200">
               <div className="animate-pulse flex items-center gap-2">
                 <Search className="w-5 h-5" />
-                <span>Scanning {activeSession.config.watchlist.length} pairs for opportunities...</span>
+                <span>
+                  {(() => {
+                    const activePairs = activeSession.activePairsCount || activeSession.config.watchlist.length;
+                    const totalPairs = activeSession.config.watchlist.length;
+                    const isSinglePair = totalPairs === 1;
+                    const isFiltered = activePairs < totalPairs;
+
+                    if (isSinglePair) {
+                      return `Scanning ${activeSession.config.watchlist[0]} only`;
+                    }
+
+                    if (isFiltered) {
+                      const cryptoOnly = activeSession.config.watchlist.every((s: string) => ['BTCUSD', 'ETHUSD'].includes(s));
+                      if (cryptoOnly) {
+                        return `Scanning ${activePairs} pairs (Crypto only - Forex markets closed)`;
+                      }
+                      return `Scanning ${activePairs} of ${totalPairs} pairs (some markets closed)`;
+                    }
+
+                    return `Scanning ${activePairs} pairs for opportunities...`;
+                  })()}
+                </span>
               </div>
             </div>
           )}

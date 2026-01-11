@@ -17,12 +17,13 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Target, Clock, AlertCircle, Loader2, Zap, CheckCircle, Shield, ArrowLeft } from 'lucide-react';
+import { Target, Clock, AlertCircle, Loader2, Zap, CheckCircle, Shield, ArrowLeft, ChevronDown, ChevronUp } from 'lucide-react';
 import { smartGoalSessionManager } from '../services/smart-goal-session-manager';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import { supabase } from '../lib/supabase';
 import { TRADE_STYLES, TradeStyle, calculateSuggestedAmounts, validateDollarAmount } from '../config/trade-styles';
+import { getAssetClassInfo, type AssetClass } from '../utils/asset-class-mapper';
 
 const STYLE_ICONS = {
   Zap,
@@ -43,6 +44,9 @@ export const SmartGoalPanel: React.FC = () => {
   const [accountBalance, setAccountBalance] = useState(10000);
   const [loadingPreferences, setLoadingPreferences] = useState(true);
   const [multiTradeEnabled, setMultiTradeEnabled] = useState(false);
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
+  const [selectedAssetClasses, setSelectedAssetClasses] = useState<AssetClass[]>(['forex', 'crypto', 'indices', 'gold']);
+  const [customInstructions, setCustomInstructions] = useState('');
 
   useEffect(() => {
     const loadUserPreferences = async () => {
@@ -151,7 +155,10 @@ export const SmartGoalPanel: React.FC = () => {
         accountBalance,
         multiTradeEnabled,
         selectedStyle,
-        dollarRisk
+        dollarRisk,
+        selectedAssetClasses.length < 4 ? selectedAssetClasses : undefined,
+        undefined,
+        customInstructions || undefined
       );
 
       if (session) {
@@ -321,6 +328,78 @@ export const SmartGoalPanel: React.FC = () => {
                 max={accountBalance * 0.10}
                 className="w-full px-4 py-4 bg-gray-800/50 backdrop-blur-sm border border-gray-600/50 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all duration-300"
               />
+            </div>
+
+            {/* Advanced Options */}
+            <div className="border border-gray-700/50 rounded-xl bg-gray-800/30 backdrop-blur-sm overflow-hidden">
+              <button
+                onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+                className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-700/30 transition-colors"
+              >
+                <span className="text-sm font-medium text-gray-300">Advanced Options (Optional)</span>
+                {showAdvancedOptions ? (
+                  <ChevronUp className="w-4 h-4 text-gray-400" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-gray-400" />
+                )}
+              </button>
+
+              {showAdvancedOptions && (
+                <div className="px-4 pb-4 space-y-4 border-t border-gray-700/50 pt-4">
+                  {/* Asset Class Filter */}
+                  <div>
+                    <label className="text-sm font-medium text-gray-300 mb-2 block">
+                      Asset Classes
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {getAssetClassInfo().map((info) => (
+                        <button
+                          key={info.assetClass}
+                          onClick={() => {
+                            setSelectedAssetClasses(prev =>
+                              prev.includes(info.assetClass)
+                                ? prev.filter(c => c !== info.assetClass)
+                                : [...prev, info.assetClass]
+                            );
+                          }}
+                          className={`px-3 py-2 rounded-lg text-sm transition-all border ${
+                            selectedAssetClasses.includes(info.assetClass)
+                              ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                              : 'bg-gray-700/30 border-gray-600/50 text-gray-400 hover:border-gray-500/50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span>{info.emoji}</span>
+                            <span className="font-medium">{info.displayName}</span>
+                            <span className="text-xs opacity-70">({info.symbols.length})</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-2">
+                      {selectedAssetClasses.length === 4 ? 'All markets selected' : `${selectedAssetClasses.length} asset class(es) selected`}
+                    </div>
+                  </div>
+
+                  {/* Custom Instructions */}
+                  <div>
+                    <label className="text-sm font-medium text-gray-300 mb-2 block">
+                      Custom Instructions
+                    </label>
+                    <textarea
+                      value={customInstructions}
+                      onChange={(e) => setCustomInstructions(e.target.value.slice(0, 200))}
+                      placeholder="e.g., 'Focus on high-probability setups only' or 'Be aggressive with entries'"
+                      maxLength={200}
+                      rows={3}
+                      className="w-full px-3 py-2 bg-gray-800/50 border border-gray-600/50 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all resize-none"
+                    />
+                    <div className="text-xs text-gray-500 mt-1">
+                      {customInstructions.length}/200 characters
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {customAmount && amountValidation && !amountValidation.valid && (
