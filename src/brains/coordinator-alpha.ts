@@ -80,6 +80,8 @@ import { timeToFillCalculator, type TimeToFillInput } from '../services/time-to-
 import { dailyNarrativeBuilder, type DailyNarrative } from '../services/daily-narrative-builder';
 import { multiSymbolRanker, type SymbolScore } from '../services/multi-symbol-ranker';
 import { riskAwareStopCalculator, type StopLossCalculation } from '../services/risk-aware-stop-calculator';
+import { multiTimeframePatternIntelligence, type PatternIntelligenceResult } from '../services/multi-timeframe-pattern-intelligence';
+import { patternLiquidityAdapter } from '../services/pattern-liquidity-adapter';
 import { eliteProfitTargetCalculator, type LiquidityZone, type TPCalculationResult } from '../services/profit-target-calculator';
 import { tp1ProbabilityCalculator, type TP1Result } from '../services/tp1-probability-calculator';
 import { calculatePipDistance, getCurrencyPipInfo } from '../utils/currencyHelpers';
@@ -278,6 +280,23 @@ export interface AlphaDecision {
   microRegime?: MicroRegimeClassification;
   liquidityIntent?: LiquidityIntentModel;
   narrativeValidation?: NarrativeValidation;
+  // Phase 5: Multi-Timeframe Pattern Intelligence
+  patternIntelligence?: {
+    htfPattern: string | null;
+    htfIntent: string;
+    mtfPattern: string | null;
+    mtfIntent: string;
+    ltfPattern: string | null;
+    ltfIntent: string;
+    alignmentScore: number;
+    overallIntent: string;
+    directionBias: string;
+    confidenceBoosts: Array<{ reason: string; amount: number }>;
+    confidencePenalties: Array<{ reason: string; amount: number }>;
+    liquidityTargets: number[];
+    invalidationPoint: { price: number; reasoning: string } | null;
+    warnings: string[];
+  };
 }
 
 /**
@@ -721,7 +740,44 @@ class AlphaCoordinatorBrain {
       }
     }
 
-    // Detect liquidity zones for Elite TP System
+    // ═══════════════════════════════════════════════════════════════════
+    // PHASE 5: MULTI-TIMEFRAME PATTERN INTELLIGENCE
+    // ═══════════════════════════════════════════════════════════════════
+    let patternIntelligence: PatternIntelligenceResult | null = null;
+    let patternContext = '';
+    if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED') {
+      try {
+        const tradeDirection = consensus.direction === 'BUY' ? 'long' : 'short';
+
+        console.log('[Alpha Coordinator] 🔍 Analyzing multi-timeframe patterns...');
+
+        // Run pattern intelligence analysis
+        patternIntelligence = await multiTimeframePatternIntelligence.analyzePatterns({
+          symbol: marketContext.symbol,
+          riskMode,
+          baseConfidence: consensus.score,
+          tradeDirection,
+          liquidityIntentConfirms: liquidityIntent ? liquidityIntent.overallConviction >= 70 : false,
+        });
+
+        console.log(`[Alpha Coordinator] 📊 Pattern Analysis Complete:`, {
+          htfIntent: patternIntelligence.intentAnalysis.htf.intent,
+          mtfIntent: patternIntelligence.intentAnalysis.mtf.intent,
+          ltfIntent: patternIntelligence.intentAnalysis.ltf.intent,
+          alignment: patternIntelligence.intentAnalysis.alignmentScore,
+          confidenceAdjustment: patternIntelligence.confidenceAdjustment.totalAdjustment,
+          finalConfidence: patternIntelligence.finalConfidence,
+        });
+
+        // Format for LLM prompt
+        patternContext = '\n' + multiTimeframePatternIntelligence.formatForAlphaPrompt(patternIntelligence);
+
+      } catch (error) {
+        console.error('[Alpha Coordinator] Failed to analyze patterns:', error);
+      }
+    }
+
+    // Detect liquidity zones for Elite TP System (now enhanced with pattern intelligence)
     let liquidityZones: LiquidityZone[] = [];
     let liquidityContext = '';
     if (fullCandles && fullCandles.length > 0 && consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED') {
@@ -731,6 +787,27 @@ class AlphaCoordinatorBrain {
         marketContext.price,
         direction
       );
+
+      // Enhance liquidity zones with pattern-identified targets
+      if (patternIntelligence && patternIntelligence.liquidityTargets.length > 0) {
+        const patternZones = patternLiquidityAdapter.convertToLiquidityZones(
+          patternIntelligence,
+          marketContext.symbol,
+          marketContext.price
+        );
+
+        // Merge pattern zones with standard liquidity zones (dedupe by price)
+        for (const patternZone of patternZones) {
+          const isDuplicate = liquidityZones.some(
+            z => Math.abs(z.price - patternZone.price) < patternZone.price * 0.001
+          );
+          if (!isDuplicate) {
+            liquidityZones.push(patternZone);
+          }
+        }
+
+        console.log(`[Alpha Coordinator] 🎯 Added ${patternZones.length} pattern liquidity zones to standard zones`);
+      }
 
       if (liquidityZones.length > 0) {
         liquidityContext = `\n🎯 ELITE TP SYSTEM - LIQUIDITY ZONES:\n`;
@@ -1234,7 +1311,7 @@ ${consensus.agreementCount === 7 ? '🏆 UNANIMOUS (7/7) - Maximum consensus str
   '⚠️ BELOW ADVISORY - Proceed with caution'}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${intelligenceContext}${goalContextText}${liquidityContext}${constraintsText}${stopLossDirective}
+${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${patternContext}${intelligenceContext}${goalContextText}${liquidityContext}${constraintsText}${stopLossDirective}
 
 🎯 ALPHA DECISION INTELLIGENCE:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1489,6 +1566,27 @@ Note: NO_TRADE is reserved for legitimate block conditions ONLY. Prefer WAIT whe
       }
       if (narrativeValidation) {
         decision.narrativeValidation = narrativeValidation;
+      }
+
+      // Add Phase 5: Pattern Intelligence
+      if (patternIntelligence) {
+        decision.patternIntelligence = {
+          htfPattern: patternIntelligence.htfScan.primaryPattern?.patternType || null,
+          htfIntent: patternIntelligence.intentAnalysis.htf.intent,
+          mtfPattern: patternIntelligence.mtfScan.primaryPattern?.patternType || null,
+          mtfIntent: patternIntelligence.intentAnalysis.mtf.intent,
+          ltfPattern: patternIntelligence.ltfScan.primaryPattern?.patternType || null,
+          ltfIntent: patternIntelligence.intentAnalysis.ltf.intent,
+          alignmentScore: patternIntelligence.intentAnalysis.alignmentScore,
+          overallIntent: patternIntelligence.intentAnalysis.overallIntent,
+          directionBias: patternIntelligence.intentAnalysis.directionBias,
+          confidenceBoosts: patternIntelligence.confidenceAdjustment.boosts,
+          confidencePenalties: patternIntelligence.confidenceAdjustment.penalties,
+          liquidityTargets: patternIntelligence.liquidityTargets,
+          invalidationPoint: patternIntelligence.invalidationPoint,
+          warnings: patternIntelligence.intentAnalysis.conflictWarnings,
+        };
+        console.log('[Alpha Coordinator] ✅ Pattern intelligence attached to decision');
       }
 
       // Log Alpha's stop placement vs anchor (Enhanced Stop Tracking)
