@@ -133,30 +133,59 @@ class OmegaAlphaLogger {
       risk: votes.risk ? { vote: votes.risk.vote, confidence: votes.risk.confidence, reasoning: votes.risk.reasoning } : null
     };
 
+    // Prepare Phase 1-4 upgrade fields
+    const insertData: any = {
+      user_id: this.userId,
+      session_id: context.sessionId || null,
+      trade_id: context.tradeId || null,
+      action: decision.action,
+      confidence: decision.confidence,
+      reasoning: decision.reasoning,
+      entry_price: decision.entry,
+      stop_loss: decision.stopLoss,
+      take_profit: decision.takeProfit,
+      symbol: context.symbol,
+      market_regime: context.marketRegime,
+      volatility_state: context.volatilityState,
+      omega_votes_count: votesList.length,
+      buy_votes: buyVotes,
+      sell_votes: sellVotes,
+      no_trade_votes: noTradeVotes,
+      omega_vote_details: voteDetails,
+      vote_weights: weights,
+      trade_executed: decision.action !== 'NO_TRADE' && !safetyBlocked,
+      safety_blocked: safetyBlocked
+    };
+
+    // Add micro-regime classification fields
+    if (decision.microRegime) {
+      insertData.micro_regime = decision.microRegime.regime;
+      insertData.regime_confidence = decision.microRegime.confidence;
+      insertData.regime_confidence_modifier = decision.microRegime.confidenceModifier;
+      insertData.regime_direction = decision.microRegime.direction;
+    }
+
+    // Add liquidity intent fields
+    if (decision.liquidityIntent) {
+      insertData.trapped_side = decision.liquidityIntent.trapped;
+      insertData.vulnerability_type = decision.liquidityIntent.vulnerability;
+      insertData.hunt_zone_active = decision.liquidityIntent.huntZoneStatus === 'active';
+      insertData.predator_direction = decision.liquidityIntent.predatorDirection;
+      insertData.cascade_distance = decision.liquidityIntent.expectedCascadeDistance;
+      insertData.liquidity_conviction = decision.liquidityIntent.overallConviction;
+    }
+
+    // Add narrative coherence fields
+    if (decision.narrativeValidation) {
+      insertData.market_narrative = decision.narrativeValidation.narrative;
+      insertData.narrative_strength_score = decision.narrativeValidation.strengthScore;
+      insertData.narrative_confidence_penalty = decision.narrativeValidation.confidencePenalty;
+      insertData.narrative_quality_tier = decision.narrativeValidation.qualityTier;
+    }
+
     const { data, error } = await supabase
       .from('alpha_decisions')
-      .insert({
-        user_id: this.userId,
-        session_id: context.sessionId || null,
-        trade_id: context.tradeId || null,
-        action: decision.action,
-        confidence: decision.confidence,
-        reasoning: decision.reasoning,
-        entry_price: decision.entry,
-        stop_loss: decision.stopLoss,
-        take_profit: decision.takeProfit,
-        symbol: context.symbol,
-        market_regime: context.marketRegime,
-        volatility_state: context.volatilityState,
-        omega_votes_count: votesList.length,
-        buy_votes: buyVotes,
-        sell_votes: sellVotes,
-        no_trade_votes: noTradeVotes,
-        omega_vote_details: voteDetails,
-        vote_weights: weights,
-        trade_executed: decision.action !== 'NO_TRADE' && !safetyBlocked,
-        safety_blocked: safetyBlocked
-      })
+      .insert(insertData)
       .select()
       .single();
 

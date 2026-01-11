@@ -97,6 +97,9 @@ import type { EntrySpec, AlphaOutputFormat, StyleDisplayName } from '../types/en
 import { ALPHA_IDENTITY, getAlphaSystemPrompt, getEntryMode } from '../config/alpha-identity';
 import { getDisplayNameFromStyle } from '../config/trade-styles';
 import { getStylePromptContext } from '../config/style-personalities';
+import { microRegimeClassifier, type MicroRegimeClassification, type MicroRegimeCandle } from '../services/micro-regime-classifier';
+import { liquidityIntentAnalyzer, type LiquidityIntentModel } from '../services/liquidity-intent-analyzer';
+import { narrativeCoherenceValidator, type NarrativeValidation } from '../services/narrative-coherence-validator';
 
 /**
  * Helper: Determine asset class from symbol
@@ -271,6 +274,10 @@ export interface AlphaDecision {
     wasApplied: boolean;
     reason: string;
   }>;
+  // Phase 1-4 Upgrades: Micro-regime, Liquidity Intent, Narrative Coherence
+  microRegime?: MicroRegimeClassification;
+  liquidityIntent?: LiquidityIntentModel;
+  narrativeValidation?: NarrativeValidation;
 }
 
 /**
@@ -617,6 +624,100 @@ class AlphaCoordinatorBrain {
       dailyNarrativeContext += `Session: ${dailyNarrative.currentSession} | ${dailyNarrative.intradayContext}\n`;
       if (dailyNarrative.liquiditySweeps.asianLowSwept || dailyNarrative.liquiditySweeps.asianHighSwept) {
         dailyNarrativeContext += `Liquidity: ${dailyNarrative.liquiditySweeps.asianLowSwept ? 'Asian low swept' : ''} ${dailyNarrative.liquiditySweeps.asianHighSwept ? 'Asian high swept' : ''}\n`;
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // PHASE 1: MICRO-REGIME CLASSIFICATION
+    // ═══════════════════════════════════════════════════════════════════
+    let microRegime: MicroRegimeClassification | null = null;
+    let microRegimeContext = '';
+
+    if (fullCandles && fullCandles.length >= 50) {
+      try {
+        // Convert candles to format expected by classifier
+        const regimeCandles: MicroRegimeCandle[] = fullCandles.map(c => ({
+          time: new Date(c.open_time).getTime(),
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+          volume: c.volume || 0
+        }));
+
+        microRegime = await microRegimeClassifier.classify(regimeCandles);
+
+        if (microRegime) {
+          console.log(`[Alpha Coordinator] 🎯 Micro-Regime: ${microRegime.regime} | Direction: ${microRegime.direction} | Confidence: ${microRegime.confidence}% | Modifier: ${microRegime.confidenceModifier > 0 ? '+' : ''}${microRegime.confidenceModifier}%`);
+
+          microRegimeContext = `\n🎯 MICRO-REGIME CLASSIFICATION:\n`;
+          microRegimeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+          microRegimeContext += `Regime: ${microRegime.regime.toUpperCase().replace(/_/g, ' ')} (${microRegime.confidence}% confidence)\n`;
+          microRegimeContext += `Direction: ${microRegime.direction.toUpperCase()}\n`;
+          microRegimeContext += `Confidence Modifier: ${microRegime.confidenceModifier > 0 ? '+' : ''}${microRegime.confidenceModifier}%\n\n`;
+          microRegimeContext += `📊 Behavioral Pattern:\n${microRegime.description}\n\n`;
+          microRegimeContext += `💡 Trading Adjustment:\n${microRegime.tradingAdjustment}\n\n`;
+          microRegimeContext += `🔮 Expected Behavior:\n${microRegime.behavioralExpectation}\n\n`;
+          microRegimeContext += `📈 Technical Indicators:\n`;
+          microRegimeContext += `  • ATR Expansion: ${microRegime.indicators.atrExpansion.toFixed(2)}x\n`;
+          microRegimeContext += `  • EMA Displacement: ${microRegime.indicators.emaDisplacement.toFixed(2)}%\n`;
+          microRegimeContext += `  • RSI: ${microRegime.indicators.rsi.toFixed(0)}\n`;
+          microRegimeContext += `  • Volume: ${microRegime.indicators.volumeProfile}\n`;
+          microRegimeContext += `  • Range Compression: ${microRegime.indicators.rangeCompression.toFixed(2)}x\n`;
+          microRegimeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+        }
+      } catch (error) {
+        console.error('[Alpha Coordinator] Failed to classify micro-regime:', error);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // PHASE 2: LIQUIDITY INTENT ANALYSIS
+    // ═══════════════════════════════════════════════════════════════════
+    let liquidityIntent: LiquidityIntentModel | null = null;
+    let liquidityIntentContext = '';
+
+    // Analyze liquidity intent if Omega-8 detected patterns
+    if (votes.omega8 && votes.omega8.patterns && fullCandles && fullCandles.length >= 10) {
+      try {
+        const omega8Candles = fullCandles.slice(-20).map(c => ({
+          time: new Date(c.open_time).getTime(),
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+          volume: c.volume || 0
+        }));
+
+        const atrValue = extractATRValue(marketContext.atr);
+
+        liquidityIntent = liquidityIntentAnalyzer.analyzeLiquidityIntent(
+          votes.omega8.patterns,
+          omega8Candles,
+          atrValue,
+          votes.omega8.sweep_details
+        );
+
+        if (liquidityIntent && liquidityIntent.overallConviction > 0) {
+          console.log(`[Alpha Coordinator] 🎯 Liquidity Intent: ${liquidityIntent.trapped} | Predator: ${liquidityIntent.predatorDirection} | Conviction: ${liquidityIntent.overallConviction}%`);
+
+          liquidityIntentContext = `\n🎯 LIQUIDITY INTENT ANALYSIS:\n`;
+          liquidityIntentContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+          liquidityIntentContext += `Trapped Participants: ${liquidityIntent.trapped.toUpperCase().replace(/_/g, ' ')}\n`;
+          liquidityIntentContext += `Vulnerability: ${liquidityIntent.vulnerability.toUpperCase().replace(/_/g, ' ')}\n`;
+          liquidityIntentContext += `Predator Direction: ${liquidityIntent.predatorDirection.toUpperCase()}\n`;
+          liquidityIntentContext += `Hunt Zone Status: ${liquidityIntent.huntZoneStatus.toUpperCase()}\n`;
+          liquidityIntentContext += `Cascade Distance: ${liquidityIntent.expectedCascadeDistance.toFixed(1)} ATR\n`;
+          liquidityIntentContext += `Cascade Confidence: ${liquidityIntent.cascadeConfidence}%\n`;
+          liquidityIntentContext += `Sweep Recency: ${liquidityIntent.sweepRecency} candles ago\n`;
+          liquidityIntentContext += `Entry Window: ${liquidityIntent.optimalEntryWindow.toUpperCase().replace(/_/g, ' ')}\n`;
+          liquidityIntentContext += `Overall Conviction: ${liquidityIntent.overallConviction}%\n\n`;
+          liquidityIntentContext += `💡 Stop Placement Guidance:\n${liquidityIntent.stopPlacementGuidance}\n\n`;
+          liquidityIntentContext += `🔮 Reasoning:\n${liquidityIntent.reasoning}\n`;
+          liquidityIntentContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+        }
+      } catch (error) {
+        console.error('[Alpha Coordinator] Failed to analyze liquidity intent:', error);
       }
     }
 
@@ -1133,7 +1234,7 @@ ${consensus.agreementCount === 7 ? '🏆 UNANIMOUS (7/7) - Maximum consensus str
   '⚠️ BELOW ADVISORY - Proceed with caution'}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${intelligenceContext}${goalContextText}${liquidityContext}${constraintsText}${stopLossDirective}
+${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${intelligenceContext}${goalContextText}${liquidityContext}${constraintsText}${stopLossDirective}
 
 🎯 ALPHA DECISION INTELLIGENCE:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1145,6 +1246,40 @@ ${this.buildWeightedVoteSummary(votes, weights, consensus)}
   Volatility: ${volatilityRegime.regime.toUpperCase()} ${volatilityRegime.ratio !== 1.0 ? `(${volatilityRegime.ratio.toFixed(2)}x)` : ''} → ${volatilityRegime.recommendation}
   Stop Quality: ${stopQuality.score}/100 → ${stopQuality.recommendation}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 NARRATIVE COHERENCE REQUIREMENT (MANDATORY):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CRITICAL: You MUST provide a single-sentence market narrative for EVERY trade decision (BUY/SELL).
+
+Requirements:
+1. Cause-effect relationship (what triggered the setup)
+2. Specific price destination (where are we going)
+3. Participant behavior (who is trapped/capitulating)
+4. Liquidity/structure intent (why the move will happen)
+5. Concise (under 250 characters)
+
+EXCELLENT Examples:
+✅ "Swept Asian lows, trapped retail shorts, BOS confirms predators long - targeting 1.0850 previous resistance."
+✅ "Failed breakout at 104.50, institutional distribution evident, sellers targeting 103.20 liquidity zone."
+✅ "Double bottom retest at 1.2680 after stop-hunt, buyers defending structure - targeting 1.2750 gap fill."
+
+ACCEPTABLE Examples:
+✅ "Price rejected resistance at 1.0900, heading back to support at 1.0850."
+✅ "Liquidity sweep detected, expecting reversal toward previous high."
+
+POOR Examples (DO NOT USE):
+❌ "Good setup here."
+❌ "Technical levels look favorable."
+❌ "Price action suggests potential move."
+
+CONFIDENCE PENALTIES:
+- No narrative: -30% (capped at 69% max confidence)
+- Weak narrative (missing key elements): -15%
+- Acceptable narrative (has cause-effect OR destination+participant): -5%
+- Strong/Excellent narrative: 0%
+
+You must include "market_narrative" field in your JSON response.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 YOUR AUTHORITY & DECISION FRAMEWORK:
 ✅ ADVISORY-ONLY SYSTEM - All recommendations are guidance, never hard blocks
@@ -1203,6 +1338,7 @@ Return JSON with structured reasoning:
   "entry_mode": "immediate|wait_pullback|wait_confirmation",
   "style": "SCALP|MICRO_INTRADAY|INTRADAY",
   "reasoning": "Brief professional reasoning (1-2 sentences)",
+  "market_narrative": "Single-sentence cause-effect thesis (REQUIRED for BUY/SELL)",
   "wait_condition": {
     "target_entry_zone_min": price,
     "target_entry_zone_max": price,
@@ -1343,6 +1479,17 @@ Note: NO_TRADE is reserved for legitimate block conditions ONLY. Prefer WAIT whe
       decision.decision = decision.action;
       decision.symbol = marketContext.symbol;
       decision.timestamp = new Date();
+
+      // Add Phase 1-4 upgrades to decision
+      if (microRegime) {
+        decision.microRegime = microRegime;
+      }
+      if (liquidityIntent && liquidityIntent.overallConviction > 0) {
+        decision.liquidityIntent = liquidityIntent;
+      }
+      if (narrativeValidation) {
+        decision.narrativeValidation = narrativeValidation;
+      }
 
       // Log Alpha's stop placement vs anchor (Enhanced Stop Tracking)
       if (decision.action !== 'NO_TRADE' && stopLossAnchor) {
@@ -2157,6 +2304,32 @@ Note: NO_TRADE is reserved for legitimate block conditions ONLY. Prefer WAIT whe
       const entryQualityScore = parsed.entry_quality_score ?? 0;
       const entryMode = parsed.entry_mode ?? 'wait_confirmation';
       const resolvedStyle = parsed.style ?? 'SCALP';
+
+      // ═══════════════════════════════════════════════════════════════════
+      // PHASE 4: NARRATIVE COHERENCE VALIDATION
+      // ═══════════════════════════════════════════════════════════════════
+      let narrativeValidation: NarrativeValidation | null = null;
+      let adjustedConfidence = tradeConfidence;
+
+      // Validate narrative for BUY/SELL actions
+      if (action === 'BUY' || action === 'SELL') {
+        const marketNarrative = parsed.market_narrative;
+        narrativeValidation = narrativeCoherenceValidator.validate(marketNarrative);
+
+        console.log(`[Alpha Coordinator] 📖 Narrative Quality: ${narrativeValidation.qualityTier.toUpperCase()} | Strength: ${narrativeValidation.strengthScore}/100 | Penalty: ${narrativeValidation.confidencePenalty}%`);
+        console.log(`[Alpha Coordinator] 📖 Narrative: "${narrativeValidation.narrative || '(none)'}"`);
+
+        // Apply confidence penalty
+        adjustedConfidence = Math.max(0, tradeConfidence + narrativeValidation.confidencePenalty);
+
+        // Cap confidence at 69% if narrative doesn't pass gate
+        if (!narrativeValidation.passesGate) {
+          adjustedConfidence = Math.min(adjustedConfidence, 69);
+          console.warn(`[Alpha Coordinator] ⚠️ Narrative quality below threshold - confidence capped at 69%`);
+        }
+
+        console.log(`[Alpha Coordinator] 📊 Confidence adjustment: ${tradeConfidence}% → ${adjustedConfidence}% (narrative penalty: ${narrativeValidation.confidencePenalty}%)`);
+      }
 
       // If NO_TRADE, return simple response
       if (action === 'NO_TRADE') {
