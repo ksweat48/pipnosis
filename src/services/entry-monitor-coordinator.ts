@@ -140,7 +140,67 @@ class EntryMonitorCoordinator {
     }
   }
 
+  /**
+   * Validate monitor state consistency and self-heal if needed
+   *
+   * Detects and fixes the deadlock scenario where:
+   * - entry_monitor_state='ENTRY_MONITOR_ACTIVE' (or other non-scannable state)
+   * - But no active intent exists (activeIntentId is null)
+   *
+   * This state inconsistency blocks all scanning permanently.
+   */
+  async validateAndHealState(sessionId: string): Promise<{ healed: boolean; reason?: string }> {
+    try {
+      const state = await this.getMonitorState(sessionId);
+
+      // Check for the deadlock scenario
+      const isInMonitorMode = state.state === 'ENTRY_MONITOR_ACTIVE' || state.state === 'EXECUTE_PENDING';
+      const hasNoActiveIntent = !state.activeIntentId;
+
+      if (isInMonitorMode && hasNoActiveIntent) {
+        console.warn('[ENTRY_MONITOR_COORD] 🚨 STATE INCONSISTENCY DETECTED', {
+          sessionId: sessionId.substring(0, 8),
+          monitorState: state.state,
+          activeIntentId: state.activeIntentId,
+          lockedSymbol: state.lockedSymbol,
+          canScan: state.canScan
+        });
+
+        // SELF-HEALING: Transition back to DISCOVERY_SCANNING
+        await this.transitionState(sessionId, 'DISCOVERY_SCANNING');
+
+        // Clear in-memory state if exists
+        this.activeMonitors.delete(sessionId);
+
+        console.log('[ENTRY_MONITOR_COORD] ✅ STATE HEALED - Transitioned to DISCOVERY_SCANNING', {
+          sessionId: sessionId.substring(0, 8)
+        });
+
+        return {
+          healed: true,
+          reason: `Orphaned monitor state detected (${state.state} with no intent). Auto-corrected to DISCOVERY_SCANNING.`
+        };
+      }
+
+      // State is consistent
+      return { healed: false };
+    } catch (error) {
+      console.error('[ENTRY_MONITOR_COORD] Failed to validate/heal state:', error);
+      return { healed: false, reason: `Validation failed: ${error}` };
+    }
+  }
+
   async canScanNow(sessionId: string): Promise<{ allowed: boolean; reason: string }> {
+    // CRITICAL: Always validate state before checking if scan is allowed
+    // This self-heals orphaned states that would otherwise block scanning forever
+    const healResult = await this.validateAndHealState(sessionId);
+    if (healResult.healed) {
+      console.log('[ENTRY_MONITOR_COORD] 🔧 State was healed, scanning now allowed', {
+        sessionId: sessionId.substring(0, 8),
+        reason: healResult.reason
+      });
+    }
+
     const state = await this.getMonitorState(sessionId);
 
     if (state.canScan) {
@@ -370,6 +430,17 @@ class EntryMonitorCoordinator {
       await unifiedEntryMonitor.stopMonitoring(intentId);
       this.activeMonitors.delete(sessionId);
       console.log('[ENTRY_MONITOR_COORD] Monitoring stopped', sessionId, intentId);
+    }
+
+    // CRITICAL FIX: Always clean up database state to prevent deadlock
+    // If monitor stops but database state isn't cleared, system gets stuck
+    // with entry_monitor_state='ENTRY_MONITOR_ACTIVE' but no active intent
+    try {
+      await this.transitionState(sessionId, 'DISCOVERY_SCANNING');
+      console.log('[ENTRY_MONITOR_COORD] ✓ Database state cleaned up', sessionId.substring(0, 8));
+    } catch (error) {
+      console.error('[ENTRY_MONITOR_COORD] Failed to clean up database state:', error);
+      // Don't throw - monitoring already stopped, this is just cleanup
     }
   }
 
@@ -664,6 +735,18 @@ class EntryMonitorCoordinator {
 
     // Simple 30-second rescan schedule
     const nextScanTime = new Date(Date.now() + 30000);
+
+    // CRITICAL FIX: Transition monitor state to allow scanning
+    // Without this, entry_monitor_state stays 'ENTRY_MONITOR_ACTIVE'
+    // and blocks all future scans (deadlock)
+    try {
+      await this.transitionState(sessionId, 'DISCOVERY_SCANNING');
+      console.log('[ENTRY_MONITOR_COORD] ✓ Monitor state transitioned to DISCOVERY_SCANNING');
+    } catch (error) {
+      console.error('[ENTRY_MONITOR_COORD] Failed to transition monitor state:', error);
+      // Continue anyway - better to try scanning with potentially wrong state
+      // than to be permanently stuck
+    }
 
     await supabase
       .from('goal_sessions')
