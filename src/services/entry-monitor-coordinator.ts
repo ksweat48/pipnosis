@@ -612,10 +612,12 @@ class EntryMonitorCoordinator {
 
     await cancelEntryIntent(intentId, `Abandoned: ${reason}`);
     await this.stopMonitoring(sessionId);
-    await this.transitionState(sessionId, 'ABANDONED_RESCAN_REQUESTED');
 
     // NEW SSOT FLOW: Request continuation decision from user
-    // Instead of auto-scheduling rescan, show modal and wait for user decision
+    // request_session_continuation() handles state changes:
+    // - Sets status='awaiting_continuation' (pauses session)
+    // - Sets entry_monitor_state='ABANDONED_RESCAN_REQUESTED'
+    // - Creates modal and notification
     console.log('[ENTRY_MONITOR_COORD] 📋 Requesting continuation decision from user', {
       sessionId: sessionId.substring(0, 8),
       reason
