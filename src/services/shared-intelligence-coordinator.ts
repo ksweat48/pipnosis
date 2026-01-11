@@ -1,29 +1,28 @@
+/**
+ * Shared Intelligence Coordinator - REFACTORED
+ *
+ * PURPOSE: Cache EXPENSIVE operations only
+ *
+ * CRITICAL ARCHITECTURE CHANGE:
+ * ✅ Cache Alpha LLM decisions (expensive, ~$0.10-0.50 per call)
+ * ✅ Cache market snapshots (input SSOT, prevents duplicate DB reads)
+ * ❌ NO LONGER cache Omega votes (deterministic, instant computation)
+ *
+ * OLD MODEL (wrong):
+ * - Cached deterministic Omega vote outputs
+ * - Each Omega queried candles separately
+ * - Inconsistent ATR/price across Omegas
+ *
+ * NEW MODEL (correct):
+ * - Omega votes computed fresh every time (instant, deterministic)
+ * - All Omegas share the SAME snapshot (input SSOT)
+ * - Only Alpha LLM calls are cached (expensive)
+ */
+
 import { supabase } from '../lib/supabase';
-import {
-  generateMarketStateHash,
-  generateOmegaVotesHash,
-  buildMarketStateSnapshot,
-  getTTLForTimeframe,
-  getTTLForAlphaCache,
-  getTTLForScoutCache,
-  MarketStateSnapshot
-} from './cache-key-generator';
-import { priceDriftDetector } from './price-drift-detector';
-import type { CandleData } from '../types';
-
-export interface OmegaVote {
-  vote: 'BUY' | 'SELL' | 'NO_TRADE' | 'WAIT' | 'NEUTRAL';
-  confidence: number;
-  reasoning: string;
-  keyFactors?: string[];
-}
-
-export interface CachedOmegaIntelligence {
-  brainName: string;
-  vote: OmegaVote;
-  cacheAgeSeconds: number;
-  fromCache: boolean;
-}
+import { generateOmegaVotesHash } from './cache-key-generator';
+import { marketSnapshotCache, type MarketSnapshotData } from './market-snapshot-cache';
+import type { Timeframe, RiskMode } from '../config/timeframe-hierarchy';
 
 export interface AlphaStrategicInsight {
   marketBias: 'bullish' | 'bearish' | 'neutral' | 'mixed';
@@ -38,26 +37,6 @@ export interface AlphaStrategicInsight {
   fromCache: boolean;
 }
 
-export interface ScoutState {
-  improvementScore: number;
-  shouldReconvene: boolean;
-  keyChanges: string[];
-  marketSummary: string;
-  volatilityState: string;
-  trendState: string;
-  priceAtScan: number;
-  cacheAgeSeconds: number;
-}
-
-export interface PersonalizedExecution {
-  shouldTrade: boolean;
-  direction: 'buy' | 'sell' | null;
-  positionSize: number;
-  riskPercent: number;
-  adjustedConfidence: number;
-  reasoning: string;
-}
-
 export interface CacheStats {
   cacheTier: string;
   totalLookups: number;
@@ -68,199 +47,70 @@ export interface CacheStats {
   totalLlmCallsSaved: number;
 }
 
-type OmegaBrainName = 'trend' | 'scalper' | 'confirmation' | 'reversal' |
-                      'volatility' | 'risk' | 'orderflow' | 'sentiment' |
-                      'hallucination' | 'meta_reasoning' | 'regime_oracle' |
-                      'adversarial_detector';
+/**
+ * Get TTL for Alpha cache based on timeframe
+ */
+function getTTLForAlphaCache(timeframe: Timeframe): number {
+  const ttls: Record<Timeframe, number> = {
+    'M5': 300000,     // 5 minutes
+    'M15': 600000,    // 10 minutes
+    'H1': 900000,     // 15 minutes
+    'H4': 1800000,    // 30 minutes
+    'D': 3600000      // 1 hour
+  };
+
+  return ttls[timeframe] || 600000; // Default: 10 minutes
+}
 
 class SharedIntelligenceCoordinator {
-  private localCacheEnabled = true;
-  private localOmegaCache = new Map<string, { data: CachedOmegaIntelligence; expiresAt: number }>();
   private localAlphaCache = new Map<string, { data: AlphaStrategicInsight; expiresAt: number }>();
-  private localScoutCache = new Map<string, { data: ScoutState; expiresAt: number }>();
 
-  async getOmegaIntelligence(
+  /**
+   * Get market snapshot (SSOT for inputs)
+   * All Omegas will receive the SAME snapshot
+   */
+  async getMarketSnapshot(
     symbol: string,
-    timeframe: string,
-    brainName: OmegaBrainName,
-    candles: CandleData[],
-    fetchFreshFn: () => Promise<OmegaVote>
-  ): Promise<CachedOmegaIntelligence> {
-    const snapshot = buildMarketStateSnapshot(symbol, timeframe, candles);
-    if (!snapshot) {
-      console.log(`[SharedIntelligence] ⚠️ ${brainName}@${symbol}: No snapshot (insufficient data)`);
-      const fresh = await fetchFreshFn();
-      return {
-        brainName,
-        vote: fresh,
-        cacheAgeSeconds: 0,
-        fromCache: false
-      };
-    }
-
-    const { hash, atrPriceBucket } = generateMarketStateHash(snapshot);
-
-    const localKey = `omega:${symbol}:${timeframe}:${brainName}:${hash}`;
-    const localCached = this.localOmegaCache.get(localKey);
-    if (localCached && localCached.expiresAt > Date.now()) {
-      console.log(`[SharedIntelligence] ⚡ ${brainName}@${symbol}: LOCAL HIT (age: ${localCached.data.cacheAgeSeconds}s)`);
-      await this.logCacheStat('omega', symbol, timeframe, 'lookup', 'hit', localCached.data.cacheAgeSeconds);
-      return localCached.data;
-    }
-
-    try {
-      const { data: cached, error } = await supabase
-        .rpc('get_omega_intelligence', {
-          p_symbol: symbol,
-          p_timeframe: timeframe,
-          p_brain_name: brainName,
-          p_market_state_hash: hash
-        });
-
-      if (!error && cached && cached.length > 0) {
-        const cachedSnapshot = await this.getCachedSnapshotPrice(symbol, timeframe, hash);
-        if (cachedSnapshot && snapshot.price && snapshot.atr) {
-          const { shouldInvalidateCache } = priceDriftDetector.calculateDriftFromSnapshot(
-            symbol,
-            cachedSnapshot.price,
-            snapshot.price,
-            snapshot.atr
-          );
-
-          if (shouldInvalidateCache) {
-            console.log(`[SharedIntelligence] 🔄 ${brainName}@${symbol}: Cache invalidated due to price drift`);
-            await this.logCacheStat('omega', symbol, timeframe, 'lookup', 'miss', cached[0].cache_age_seconds);
-            const fresh = await fetchFreshFn();
-            await this.writeFreshOmegaCache(symbol, timeframe, brainName, atrPriceBucket, hash, fresh, localKey);
-            return {
-              brainName,
-              vote: fresh,
-              cacheAgeSeconds: 0,
-              fromCache: false
-            };
-          }
-        }
-
-        const result: CachedOmegaIntelligence = {
-          brainName,
-          vote: {
-            vote: cached[0].vote as OmegaVote['vote'],
-            confidence: cached[0].confidence,
-            reasoning: cached[0].reasoning,
-            keyFactors: cached[0].key_factors || []
-          },
-          cacheAgeSeconds: cached[0].cache_age_seconds,
-          fromCache: true
-        };
-
-        this.localOmegaCache.set(localKey, {
-          data: result,
-          expiresAt: Date.now() + getTTLForTimeframe(timeframe)
-        });
-
-        console.log(`[SharedIntelligence] ⚡ ${brainName}@${symbol}: DB HIT (age: ${result.cacheAgeSeconds}s, saved ~$0.0001)`);
-        await this.logCacheStat('omega', symbol, timeframe, 'lookup', 'hit', result.cacheAgeSeconds, 1);
-        return result;
-      }
-    } catch (err) {
-      console.warn('[SharedIntelligence] DB cache lookup failed, fetching fresh:', err);
-    }
-
-    console.log(`[SharedIntelligence] 🔄 ${brainName}@${symbol}: MISS - calling LLM`);
-    await this.logCacheStat('omega', symbol, timeframe, 'lookup', 'miss', 0);
-
-    const fresh = await fetchFreshFn();
-
-    const ttl = getTTLForTimeframe(timeframe);
-    const expiresAt = new Date(Date.now() + ttl);
-
-    try {
-      const { error: upsertError } = await supabase.from('omega_market_intelligence').upsert({
-        symbol,
-        timeframe,
-        brain_name: brainName,
-        atr_price_bucket: atrPriceBucket,
-        market_state_hash: hash,
-        vote: fresh.vote,
-        confidence: fresh.confidence,
-        reasoning: fresh.reasoning,
-        key_factors: fresh.keyFactors || [],
-        expires_at: expiresAt.toISOString()
-      }, {
-        onConflict: 'symbol,timeframe,brain_name,market_state_hash'
-      });
-
-      if (upsertError) {
-        console.error('[SharedIntelligence] ❌ Omega cache upsert failed:', upsertError);
-        this.localOmegaCache.delete(localKey);
-      } else {
-        console.log(`[SharedIntelligence] ✅ ${brainName}@${symbol}: Cache written successfully`);
-      }
-    } catch (err) {
-      console.error('[SharedIntelligence] ❌ Failed to write omega cache:', err);
-      this.localOmegaCache.delete(localKey);
-    }
-
-    const result: CachedOmegaIntelligence = {
-      brainName,
-      vote: fresh,
-      cacheAgeSeconds: 0,
-      fromCache: false
-    };
-
-    this.localOmegaCache.set(localKey, {
-      data: result,
-      expiresAt: Date.now() + ttl
-    });
-
-    return result;
+    timeframe: Timeframe,
+    riskMode?: RiskMode
+  ): Promise<MarketSnapshotData> {
+    return marketSnapshotCache.getSnapshot(symbol, timeframe, riskMode);
   }
 
-  async getAllOmegaIntelligence(
-    symbol: string,
-    timeframe: string,
-    candles: CandleData[],
-    brainFetchers: Record<OmegaBrainName, () => Promise<OmegaVote>>
-  ): Promise<Map<OmegaBrainName, CachedOmegaIntelligence>> {
-    const results = new Map<OmegaBrainName, CachedOmegaIntelligence>();
-
-    const brainNames = Object.keys(brainFetchers) as OmegaBrainName[];
-
-    const promises = brainNames.map(async (brainName) => {
-      const result = await this.getOmegaIntelligence(
-        symbol,
-        timeframe,
-        brainName,
-        candles,
-        brainFetchers[brainName]
-      );
-      return { brainName, result };
-    });
-
-    const allResults = await Promise.all(promises);
-
-    for (const { brainName, result } of allResults) {
-      results.set(brainName, result);
-    }
-
-    return results;
+  /**
+   * Invalidate snapshot cache for a symbol/timeframe
+   * Use this when price drift is detected or data is stale
+   */
+  invalidateSnapshot(symbol: string, timeframe: Timeframe): void {
+    marketSnapshotCache.invalidateSnapshot(symbol, timeframe);
+    console.log(`[SharedIntelligence] 🔄 Snapshot invalidated: ${symbol}@${timeframe}`);
   }
 
+  /**
+   * Get Alpha strategic insight (with LLM caching)
+   * This is the ONLY expensive operation we cache now
+   */
   async getAlphaStrategicInsight(
     symbol: string,
-    timeframe: string,
+    timeframe: Timeframe,
     omegaVotes: Array<{ brainName: string; vote: string; confidence: number }>,
     fetchFreshFn: () => Promise<Omit<AlphaStrategicInsight, 'cacheAgeSeconds' | 'fromCache'>>
   ): Promise<AlphaStrategicInsight> {
     const omegaVotesHash = generateOmegaVotesHash(omegaVotes);
 
+    // Check local cache first
     const localKey = `alpha:${symbol}:${timeframe}:${omegaVotesHash}`;
     const localCached = this.localAlphaCache.get(localKey);
-    if (localCached && localCached.expiresAt > Date.now()) {
-      await this.logCacheStat('alpha', symbol, timeframe, 'lookup', 'hit', localCached.data.cacheAgeSeconds);
+    const now = Date.now();
+
+    if (localCached && localCached.expiresAt > now) {
+      const ageSeconds = Math.round((now - localCached.data.cacheAgeSeconds * 1000) / 1000);
+      await this.logCacheStat('alpha', symbol, timeframe, 'lookup', 'hit', ageSeconds);
+      console.log(`[SharedIntelligence] ⚡ Alpha LOCAL HIT: ${symbol}@${timeframe} (age: ${ageSeconds}s)`);
       return localCached.data;
     }
 
+    // Check database cache
     try {
       const { data: cached, error } = await supabase
         .rpc('get_alpha_strategic', {
@@ -283,24 +133,30 @@ class SharedIntelligenceCoordinator {
           fromCache: true
         };
 
+        // Store in local cache
+        const ttl = getTTLForAlphaCache(timeframe);
         this.localAlphaCache.set(localKey, {
           data: result,
-          expiresAt: Date.now() + getTTLForAlphaCache(timeframe)
+          expiresAt: now + ttl
         });
 
         await this.logCacheStat('alpha', symbol, timeframe, 'lookup', 'hit', result.cacheAgeSeconds, 1);
+        console.log(`[SharedIntelligence] ⚡ Alpha DB HIT: ${symbol}@${timeframe} (age: ${result.cacheAgeSeconds}s) | Saved ~$0.20`);
         return result;
       }
     } catch (err) {
       console.warn('[SharedIntelligence] Alpha cache lookup failed:', err);
     }
 
+    // Cache miss - call LLM
+    console.log(`[SharedIntelligence] 🔄 Alpha MISS: ${symbol}@${timeframe} - Calling LLM (~$0.20)`);
     await this.logCacheStat('alpha', symbol, timeframe, 'lookup', 'miss', 0);
 
     const fresh = await fetchFreshFn();
 
+    // Write to database cache
     const ttl = getTTLForAlphaCache(timeframe);
-    const expiresAt = new Date(Date.now() + ttl);
+    const expiresAt = new Date(now + ttl);
 
     try {
       const { error: upsertError } = await supabase.from('alpha_strategic_cache').upsert({
@@ -321,13 +177,13 @@ class SharedIntelligenceCoordinator {
       });
 
       if (upsertError) {
-        console.error('[SharedIntelligence] ❌ Alpha cache upsert failed:', upsertError);
+        console.error('[SharedIntelligence] ❌ Alpha cache write failed:', upsertError);
         this.localAlphaCache.delete(localKey);
       } else {
-        console.log(`[SharedIntelligence] ✅ Alpha@${symbol}: Cache written successfully`);
+        console.log(`[SharedIntelligence] ✅ Alpha cached: ${symbol}@${timeframe} (TTL: ${ttl / 1000}s)`);
       }
     } catch (err) {
-      console.error('[SharedIntelligence] ❌ Failed to write alpha cache:', err);
+      console.error('[SharedIntelligence] ❌ Alpha cache write error:', err);
       this.localAlphaCache.delete(localKey);
     }
 
@@ -337,165 +193,27 @@ class SharedIntelligenceCoordinator {
       fromCache: false
     };
 
+    // Store in local cache
     this.localAlphaCache.set(localKey, {
       data: result,
-      expiresAt: Date.now() + ttl
+      expiresAt: now + ttl
     });
 
     return result;
   }
 
-  async getScoutState(
-    symbol: string,
-    timeframe: string
-  ): Promise<ScoutState | null> {
-    const localKey = `scout:${symbol}:${timeframe}`;
-    const localCached = this.localScoutCache.get(localKey);
-    if (localCached && localCached.expiresAt > Date.now()) {
-      return localCached.data;
-    }
-
-    try {
-      const { data: cached, error } = await supabase
-        .rpc('get_scout_state', {
-          p_symbol: symbol,
-          p_timeframe: timeframe
-        });
-
-      if (!error && cached && cached.length > 0) {
-        const result: ScoutState = {
-          improvementScore: cached[0].improvement_score,
-          shouldReconvene: cached[0].should_reconvene,
-          keyChanges: cached[0].key_changes || [],
-          marketSummary: cached[0].market_summary || '',
-          volatilityState: cached[0].volatility_state || 'medium',
-          trendState: cached[0].trend_state || 'sideways',
-          priceAtScan: parseFloat(cached[0].price_at_scan) || 0,
-          cacheAgeSeconds: cached[0].cache_age_seconds
-        };
-
-        this.localScoutCache.set(localKey, {
-          data: result,
-          expiresAt: Date.now() + getTTLForScoutCache()
-        });
-
-        return result;
-      }
-    } catch (err) {
-      console.warn('[SharedIntelligence] Scout state lookup failed:', err);
-    }
-
-    return null;
+  /**
+   * Clear all local caches
+   */
+  clearLocalCache(): void {
+    this.localAlphaCache.clear();
+    marketSnapshotCache.clearAll();
+    console.log('[SharedIntelligence] 🗑️ All local caches cleared');
   }
 
-  async updateScoutState(
-    symbol: string,
-    timeframe: string,
-    state: Omit<ScoutState, 'cacheAgeSeconds'>,
-    snapshotHash: string
-  ): Promise<void> {
-    const ttl = getTTLForScoutCache();
-    const expiresAt = new Date(Date.now() + ttl);
-
-    try {
-      const { error: upsertError } = await supabase.from('scout_market_state').upsert({
-        symbol,
-        timeframe,
-        improvement_score: state.improvementScore,
-        should_reconvene: state.shouldReconvene,
-        key_changes: state.keyChanges,
-        market_summary: state.marketSummary,
-        snapshot_hash: snapshotHash,
-        price_at_scan: state.priceAtScan,
-        volatility_state: state.volatilityState,
-        trend_state: state.trendState,
-        expires_at: expiresAt.toISOString()
-      }, {
-        onConflict: 'symbol,timeframe'
-      });
-
-      if (upsertError) {
-        console.error('[SharedIntelligence] ❌ Scout state upsert failed:', upsertError);
-        const localKey = `scout:${symbol}:${timeframe}`;
-        this.localScoutCache.delete(localKey);
-      } else {
-        const localKey = `scout:${symbol}:${timeframe}`;
-        this.localScoutCache.set(localKey, {
-          data: { ...state, cacheAgeSeconds: 0 },
-          expiresAt: Date.now() + ttl
-        });
-        console.log(`[SharedIntelligence] ✅ Scout@${symbol}: Cache written successfully`);
-      }
-    } catch (err) {
-      console.error('[SharedIntelligence] ❌ Failed to update scout state:', err);
-      const localKey = `scout:${symbol}:${timeframe}`;
-      this.localScoutCache.delete(localKey);
-    }
-  }
-
-  personalizeExecution(
-    alphaInsight: AlphaStrategicInsight,
-    goalContext: {
-      goalAmount: number;
-      currentProgress: number;
-      accountBalance: number;
-      riskMode: 'conservative' | 'moderate' | 'aggressive';
-      maxRiskPercent: number;
-    }
-  ): PersonalizedExecution {
-    const riskMultipliers = {
-      conservative: 0.5,
-      moderate: 1.0,
-      aggressive: 1.5
-    };
-
-    const riskMult = riskMultipliers[goalContext.riskMode];
-
-    const progressPercent = goalContext.currentProgress / goalContext.goalAmount;
-    let urgencyFactor = 1.0;
-    if (progressPercent > 0.8) {
-      urgencyFactor = 0.7;
-    } else if (progressPercent < 0.2) {
-      urgencyFactor = 1.2;
-    }
-
-    const baseRiskPercent = Math.min(goalContext.maxRiskPercent, 3);
-    const adjustedRiskPercent = baseRiskPercent * riskMult * urgencyFactor;
-    const finalRiskPercent = Math.min(adjustedRiskPercent, goalContext.maxRiskPercent);
-
-    const positionValue = goalContext.accountBalance * (finalRiskPercent / 100);
-
-    let shouldTrade = false;
-    let direction: 'buy' | 'sell' | null = null;
-
-    if (alphaInsight.waitRecommended) {
-      shouldTrade = false;
-    } else if (alphaInsight.suggestedDirection === 'buy' || alphaInsight.suggestedDirection === 'sell') {
-      shouldTrade = alphaInsight.conviction >= 60;
-      direction = alphaInsight.suggestedDirection;
-    }
-
-    let adjustedConfidence = alphaInsight.conviction;
-    if (goalContext.riskMode === 'conservative') {
-      adjustedConfidence = Math.max(0, adjustedConfidence - 10);
-    } else if (goalContext.riskMode === 'aggressive') {
-      adjustedConfidence = Math.min(100, adjustedConfidence + 5);
-    }
-
-    let reasoning = `Market bias: ${alphaInsight.marketBias}, Conviction: ${alphaInsight.conviction}%. `;
-    reasoning += `Risk mode: ${goalContext.riskMode}, Risk: ${finalRiskPercent.toFixed(2)}%. `;
-    reasoning += alphaInsight.keyReasoning;
-
-    return {
-      shouldTrade,
-      direction,
-      positionSize: positionValue,
-      riskPercent: finalRiskPercent,
-      adjustedConfidence,
-      reasoning
-    };
-  }
-
+  /**
+   * Get cache statistics from database
+   */
   async getCacheStats(hours: number = 24): Promise<CacheStats[]> {
     try {
       const { data, error } = await supabase.rpc('get_cache_stats', { p_hours: hours });
@@ -523,105 +241,27 @@ class SharedIntelligenceCoordinator {
     }
   }
 
-  async cleanupExpiredCache(): Promise<{ omega: number; alpha: number; scout: number }> {
+  /**
+   * Cleanup expired cache entries
+   */
+  async cleanupExpiredCache(): Promise<{ alpha: number }> {
     try {
       const { data, error } = await supabase.rpc('cleanup_expired_cache');
       if (error) throw error;
       return {
-        omega: data?.[0]?.omega_deleted || 0,
-        alpha: data?.[0]?.alpha_deleted || 0,
-        scout: data?.[0]?.scout_deleted || 0
+        alpha: data?.[0]?.alpha_deleted || 0
       };
     } catch (err) {
       console.error('[SharedIntelligence] Failed to cleanup cache:', err);
-      return { omega: 0, alpha: 0, scout: 0 };
+      return { alpha: 0 };
     }
   }
 
-  clearLocalCache(): void {
-    this.localOmegaCache.clear();
-    this.localAlphaCache.clear();
-    this.localScoutCache.clear();
-    console.log('[SharedIntelligence] Local cache cleared');
-  }
-
-  private async getCachedSnapshotPrice(
-    symbol: string,
-    timeframe: string,
-    hash: string
-  ): Promise<{ price: number } | null> {
-    try {
-      const { data, error } = await supabase
-        .from('omega_market_intelligence')
-        .select('raw_snapshot')
-        .eq('symbol', symbol)
-        .eq('timeframe', timeframe)
-        .eq('market_state_hash', hash)
-        .limit(1)
-        .single();
-
-      if (!error && data && data.raw_snapshot) {
-        return { price: data.raw_snapshot.price || null };
-      }
-    } catch (err) {
-    }
-    return null;
-  }
-
-  private async writeFreshOmegaCache(
-    symbol: string,
-    timeframe: string,
-    brainName: OmegaBrainName,
-    atrPriceBucket: number,
-    hash: string,
-    fresh: OmegaVote,
-    localKey: string
-  ): Promise<void> {
-    const ttl = getTTLForTimeframe(timeframe);
-    const expiresAt = new Date(Date.now() + ttl);
-
-    try {
-      const { error: upsertError } = await supabase.from('omega_market_intelligence').upsert({
-        symbol,
-        timeframe,
-        brain_name: brainName,
-        atr_price_bucket: atrPriceBucket,
-        market_state_hash: hash,
-        vote: fresh.vote,
-        confidence: fresh.confidence,
-        reasoning: fresh.reasoning,
-        key_factors: fresh.keyFactors || [],
-        expires_at: expiresAt.toISOString()
-      }, {
-        onConflict: 'symbol,timeframe,brain_name,market_state_hash'
-      });
-
-      if (upsertError) {
-        console.error('[SharedIntelligence] ❌ Omega cache upsert failed:', upsertError);
-        this.localOmegaCache.delete(localKey);
-      } else {
-        console.log(`[SharedIntelligence] ✅ ${brainName}@${symbol}: Cache written successfully`);
-      }
-    } catch (err) {
-      console.error('[SharedIntelligence] ❌ Failed to write omega cache:', err);
-      this.localOmegaCache.delete(localKey);
-    }
-
-    const result: CachedOmegaIntelligence = {
-      brainName,
-      vote: fresh,
-      cacheAgeSeconds: 0,
-      fromCache: false
-    };
-
-    this.localOmegaCache.set(localKey, {
-      data: result,
-      expiresAt: Date.now() + ttl
-    });
-  }
-
+  /**
+   * Log cache statistics event
+   */
   private async logCacheStat(
-    tier: 'omega' | 'alpha' | 'scout',
+    tier: 'alpha' | 'snapshot',
     symbol: string,
     timeframe: string,
     eventType: 'lookup' | 'write' | 'expire' | 'warm',
@@ -640,7 +280,32 @@ class SharedIntelligenceCoordinator {
         llm_calls_saved: llmCallsSaved
       });
     } catch (err) {
+      // Silently fail - logging shouldn't break the system
     }
+  }
+
+  /**
+   * Get snapshot cache statistics
+   */
+  getSnapshotStats(): {
+    hits: number;
+    misses: number;
+    hitRate: number;
+    cacheSize: number;
+    dbReadsAvoided: number;
+  } {
+    return marketSnapshotCache.getStats();
+  }
+
+  /**
+   * Log all cache statistics
+   */
+  logAllStats(): void {
+    console.log('[SharedIntelligence] 📊 Cache Statistics:');
+    console.log('  === Snapshot Cache (Input SSOT) ===');
+    marketSnapshotCache.logStats();
+    console.log('  === Alpha Cache (LLM Decisions) ===');
+    console.log(`    Local cache size: ${this.localAlphaCache.size} entries`);
   }
 }
 

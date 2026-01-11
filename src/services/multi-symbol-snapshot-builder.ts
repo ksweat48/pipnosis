@@ -11,7 +11,7 @@
  * - Zero price drift between components
  */
 
-import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator-refactored';
+import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator';
 import type { MarketSnapshotData } from './market-snapshot-cache';
 import type { OmegaSensors } from './omega-sensors';
 import type { RegimeSnapshot } from './regime-oracle';

@@ -12,7 +12,7 @@ import { scanningStateMachine } from './scanning-state-machine';
 import { weekendProtectionService } from './weekend-protection-service';
 import { multiSymbolRanker, type SymbolScore } from './multi-symbol-ranker';
 import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orchestrator';
-import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator-refactored';
+import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator';
 import { computeOmegaSensors, type OmegaSensors } from './omega-sensors';
 import type { TraderScore } from './ai-identity';
 import type { MarketSnapshotData } from './market-snapshot-cache';

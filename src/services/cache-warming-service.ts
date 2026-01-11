@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase';
 import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orchestrator';
 // SCOUT REMOVED: No longer needed with SSOT snapshot caching
 // import { globalScoutRunner } from './global-scout-runner';
-import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator-refactored';
+import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator';
 import { DEFAULT_WATCHLIST } from '../config/watchlist';
 import { computeOmegaSensors, OmegaSensors } from './omega-sensors';
 import type { CandleData } from '../types';

@@ -30,7 +30,7 @@ import type { RegimeSnapshot } from './regime-oracle';
 import type { AdversarialSignal } from './adversarial-detector';
 import { sentimentCoordinator } from './sentiment-coordinator';
 import type { AggregatedSentiment } from './sentiment-aggregator';
-import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator-refactored';
+import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator';
 import type { MarketSnapshotData } from './market-snapshot-cache';
 import { tradeExecutionFreshnessGate, type ExecutionContext } from './trade-execution-freshness-gate';
 import { getMTFConfig, type Timeframe, type RiskMode } from '../config/timeframe-hierarchy';
