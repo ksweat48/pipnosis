@@ -378,45 +378,37 @@ export async function markIntentExpired(intentId: string, reason: string): Promi
     })
     .eq('id', intentId);
 
-  // Create continuation modal so user can decide to continue or close session
-  const modalDeadline = new Date(Date.now() + 60000); // 60 seconds to respond
-
-  console.log('[markIntentExpired] Creating continuation modal', {
+  // SSOT: Use atomic function to create modal AND update session state
+  console.log('[markIntentExpired] Creating continuation modal atomically', {
     intentId: intentId.substring(0, 8),
     sessionId: intent.session_id?.substring(0, 8),
-    symbol: intent.symbol,
-    deadline: modalDeadline.toISOString()
+    symbol: intent.symbol
   });
 
-  const { error: modalError } = await supabase
-    .from('pending_user_modals')
-    .insert({
-      user_id: intent.user_id,
-      goal_session_id: intent.session_id,
-      modal_type: 'continuation',
-      modal_data: {
-        session_id: intent.session_id,
-        symbol: intent.symbol,
-        reason: `EQS monitoring timed out: ${reason}`,
-        deadline: modalDeadline.toISOString(),
-        intent_id: intentId
-      },
-      expires_at: modalDeadline.toISOString()
-    });
+  const { data: atomicResult, error: atomicError } = await supabase.rpc('create_continuation_modal_atomic', {
+    p_user_id: intent.user_id,
+    p_session_id: intent.session_id,
+    p_intent_id: intentId,
+    p_symbol: intent.symbol,
+    p_reason: `Entry monitoring timed out: ${reason}`
+  });
 
-  if (modalError) {
-    logger.error('[markIntentExpired] Failed to create continuation modal', {
+  if (atomicError || !atomicResult?.success) {
+    logger.error('[markIntentExpired] Failed to create continuation modal atomically', {
       intentId: intentId.substring(0, 8),
-      error: modalError.message
+      error: atomicError?.message || atomicResult?.error
     });
   } else {
-    console.log('[markIntentExpired] ✅ Continuation modal created successfully');
+    console.log('[markIntentExpired] ✅ Continuation modal created and session updated atomically', {
+      modalId: atomicResult.modal_id,
+      deadline: atomicResult.deadline
+    });
   }
 
-  logger.info('[markIntentExpired] Intent marked as expired with continuation modal', {
+  logger.info('[markIntentExpired] Intent marked as expired with atomic modal creation', {
     intentId: intentId.substring(0, 8),
     reason,
-    modalCreated: !modalError
+    success: atomicResult?.success || false
   });
 }
 
