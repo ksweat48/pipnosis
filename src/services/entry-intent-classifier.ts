@@ -8,6 +8,8 @@ import { RegimeZoneTypeSelector } from './regime-zone-type-selector';
 import { ZoneCalculationInputProvider } from './zone-calculation-input-provider';
 import { AdaptiveEntryZoneCalculator } from './adaptive-entry-zone-calculator';
 import { ZoneReachabilityValidator } from './zone-reachability-validator';
+import { applyPCPE, isPCPEEnabled } from './pcpe-execution-governor';
+import type { PCPEInput } from '../types/pcpe';
 
 export interface ClassifiedEntryIntent {
   intent_type: EntryIntentType;
@@ -30,6 +32,13 @@ export interface ClassifiedEntryIntent {
   micro_regime_used?: string;
   zone_downgrade_applied?: boolean;
   position_size_multiplier?: number;
+
+  // PCPE governance fields (v3.0)
+  pcpe_execution_band?: 'FULL' | 'REDUCED' | 'MICRO' | 'BLOCKED';
+  pcpe_original_band?: 'FULL' | 'REDUCED' | 'MICRO';
+  pcpe_downgrade_applied?: boolean;
+  pcpe_downgrade_reason?: string;
+  pcpe_distance_to_atr_ratio?: number;
 }
 
 export class EntryIntentClassifier {
@@ -120,13 +129,78 @@ export class EntryIntentClassifier {
 
     const shouldExecuteImmediately = Math.abs(distanceToZonePips) <= this.IMMEDIATE_ZONE_PIPS;
 
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // PCPE EXECUTION GOVERNOR v2.0 (HARDENED)
+    // Runs AFTER zones are calculated, evaluates execution viability
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    let pcpeExecutionBand: 'FULL' | 'REDUCED' | 'MICRO' | 'BLOCKED' | undefined;
+    let pcpeOriginalBand: 'FULL' | 'REDUCED' | 'MICRO' | undefined;
+    let pcpeDowngradeApplied: boolean | undefined;
+    let pcpeDowngradeReason: string | undefined;
+    let pcpeDistanceToATRRatio: number | undefined;
+
+    if (isPCPEEnabled() && useAdaptiveZones && zoneType && microRegime) {
+      logger.info('[PCPE] ━━━ PCPE Execution Governor v2.0 ━━━');
+
+      // CRITICAL: PCPE must receive final effective confidence (post-penalty)
+      // NOT raw Alpha confidence
+      const pcpeInput: PCPEInput = {
+        final_effective_confidence: decision.confidence,  // Must be post-penalty
+        zone_type: zoneType as 'PRIMARY' | 'SECONDARY' | 'CHASE',
+        distance_to_zone_pips: Math.abs(distanceToZonePips),
+        atr: marketContext.atr,
+        spread: marketContext.spread || (marketContext.atr * 0.1), // Estimate if missing
+        micro_regime: microRegime.regime,
+        symbol: marketContext.symbol,
+      };
+
+      const pcpeResult = applyPCPE(pcpeInput);
+
+      // Hard abort if blocked
+      if (pcpeResult.execution_band === 'BLOCKED') {
+        logger.warn(
+          `[PCPE] 🚫 EXECUTION BLOCKED: ` +
+          `band=${pcpeResult.execution_band}, ` +
+          `conf=${decision.confidence.toFixed(1)}%, ` +
+          `zone=${zoneType}, ` +
+          `distance=${Math.abs(distanceToZonePips).toFixed(1)} pips, ` +
+          `reason=${pcpeResult.block_reason}`
+        );
+        return null;  // No entry intent created
+      }
+
+      // Apply PCPE size multiplier to existing multiplier
+      if (positionSizeMultiplier !== undefined) {
+        positionSizeMultiplier = positionSizeMultiplier * pcpeResult.size_multiplier;
+      } else {
+        positionSizeMultiplier = pcpeResult.size_multiplier;
+      }
+
+      // Store PCPE audit fields
+      pcpeExecutionBand = pcpeResult.execution_band;
+      pcpeOriginalBand = pcpeResult.original_band;
+      pcpeDowngradeApplied = pcpeResult.downgrade_applied;
+      pcpeDowngradeReason = pcpeResult.downgrade_reason;
+      pcpeDistanceToATRRatio = pcpeResult.audit.distance_to_atr_ratio;
+
+      logger.info(
+        `[PCPE] ✅ EXECUTION APPROVED: ` +
+        `band=${pcpeResult.execution_band}, ` +
+        `multiplier=${pcpeResult.size_multiplier}x, ` +
+        `conf=${decision.confidence.toFixed(1)}%` +
+        (pcpeResult.downgrade_applied ? ` (downgraded from ${pcpeResult.original_band})` : '')
+      );
+      logger.info(`[PCPE] Reasoning: ${pcpeResult.reasoning}`);
+    }
+
     logger.info(
       `Entry intent classified (${decision.confidence}% conf): ${intentType} (${urgency}) - ` +
       `Entry zone: ${finalEntryZone.min.toFixed(5)}-${finalEntryZone.max.toFixed(5)} | ` +
       `Distance: ${distanceToZonePips.toFixed(1)} pips | ` +
       `Max wait: ${maxWaitSeconds}s | Timeout action: ${timeoutAction} | ` +
       `Execute immediately: ${shouldExecuteImmediately}` +
-      (zoneType ? ` | Zone type: ${zoneType}` : '')
+      (zoneType ? ` | Zone type: ${zoneType}` : '') +
+      (pcpeExecutionBand ? ` | PCPE band: ${pcpeExecutionBand}` : '')
     );
 
     return {
@@ -149,7 +223,14 @@ export class EntryIntentClassifier {
       zone_reachability_distance_pips: zoneReachabilityDistancePips,
       micro_regime_used: microRegime,
       zone_downgrade_applied: zoneDowngradeApplied,
-      position_size_multiplier: positionSizeMultiplier
+      position_size_multiplier: positionSizeMultiplier,
+
+      // PCPE governance fields (v3.0)
+      pcpe_execution_band: pcpeExecutionBand,
+      pcpe_original_band: pcpeOriginalBand,
+      pcpe_downgrade_applied: pcpeDowngradeApplied,
+      pcpe_downgrade_reason: pcpeDowngradeReason,
+      pcpe_distance_to_atr_ratio: pcpeDistanceToATRRatio,
     };
   }
 

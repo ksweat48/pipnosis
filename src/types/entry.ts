@@ -295,6 +295,13 @@ export interface EntryIntentRequest {
   zone_reachability_distance_pips?: number;
   zone_downgrade_applied?: boolean;
   position_size_multiplier?: number;
+
+  // PCPE governance fields (v3.0) - SSOT: Applied by PCPE Execution Governor
+  pcpe_execution_band?: 'FULL' | 'REDUCED' | 'MICRO' | 'BLOCKED';
+  pcpe_original_band?: 'FULL' | 'REDUCED' | 'MICRO';
+  pcpe_downgrade_applied?: boolean;
+  pcpe_downgrade_reason?: string;
+  pcpe_distance_to_atr_ratio?: number;
 }
 
 export interface EntryMetrics {
