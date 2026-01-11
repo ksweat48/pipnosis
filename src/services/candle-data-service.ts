@@ -48,7 +48,6 @@ export function ensureUnixTimestamp(value: any, context: string = 'unknown'): nu
     // Check if it's in milliseconds (> year 2100 in seconds)
     if (value > 4102444800) {
       const seconds = Math.floor(value / 1000);
-      console.log(`[${context}] Converted milliseconds to seconds: ${value} -> ${seconds}`);
       return seconds;
     }
     return value;
@@ -57,7 +56,6 @@ export function ensureUnixTimestamp(value: any, context: string = 'unknown'): nu
   // Date object
   if (value instanceof Date) {
     const seconds = Math.floor(value.getTime() / 1000);
-    console.log(`[${context}] Converted Date object to seconds: ${value.toISOString()} -> ${seconds}`);
     return seconds;
   }
 
@@ -75,7 +73,6 @@ export function ensureUnixTimestamp(value: any, context: string = 'unknown'): nu
     const date = new Date(value);
     if (!isNaN(date.getTime())) {
       const seconds = Math.floor(date.getTime() / 1000);
-      console.log(`[${context}] Converted string to seconds: ${value} -> ${seconds}`);
       return seconds;
     }
   }
@@ -86,7 +83,6 @@ export function ensureUnixTimestamp(value: any, context: string = 'unknown'): nu
     if (typeof value.valueOf === 'function') {
       const primitiveValue = value.valueOf();
       if (typeof primitiveValue === 'number' || typeof primitiveValue === 'string') {
-        console.log(`[${context}] Unwrapped object to primitive:`, primitiveValue);
         return ensureUnixTimestamp(primitiveValue, context);
       }
     }
@@ -95,7 +91,6 @@ export function ensureUnixTimestamp(value: any, context: string = 'unknown'): nu
     if (typeof value.toString === 'function') {
       const stringValue = value.toString();
       if (stringValue !== '[object Object]') {
-        console.log(`[${context}] Converted object to string:`, stringValue);
         return ensureUnixTimestamp(stringValue, context);
       }
     }

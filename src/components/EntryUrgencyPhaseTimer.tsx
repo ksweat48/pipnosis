@@ -206,9 +206,9 @@ export const EntryUrgencyPhaseTimer: React.FC<EntryUrgencyPhaseTimerProps> = ({ 
       </div>
 
       {/* Threshold Decay Meter */}
-      <div>
+      <div className="mb-3">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-xs text-gray-400">Threshold Decay</span>
+          <span className="text-xs text-gray-400">EQS Threshold</span>
           <span className={`text-xs sm:text-sm font-mono font-bold ${colors.text}`}>
             {urgencyResult.timeAdjustedThreshold}/75
           </span>
@@ -254,6 +254,34 @@ export const EntryUrgencyPhaseTimer: React.FC<EntryUrgencyPhaseTimerProps> = ({ 
             }`}
             style={{ width: `${(urgencyResult.timeAdjustedThreshold / 75) * 100}%` }}
           />
+        </div>
+      </div>
+
+      {/* Zone Tolerance Display */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs text-gray-400">Entry Zone Tolerance</span>
+          <span className={`text-xs sm:text-sm font-mono font-bold ${colors.text}`}>
+            {urgencyResult.zoneTolerancePips === 0 ? 'Exact' : `±${urgencyResult.zoneTolerancePips} pips`}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700">
+          {urgencyResult.zoneTolerancePips === 0 ? (
+            <div className="flex items-center gap-2 text-xs text-gray-300">
+              <div className="w-2 h-2 rounded-full bg-blue-400" />
+              <span>Must be exactly in zone</span>
+            </div>
+          ) : urgencyResult.phase === 2 ? (
+            <div className="flex items-center gap-2 text-xs text-gray-300">
+              <div className="w-2 h-2 rounded-full bg-yellow-400" />
+              <span>Near zone acceptable (within {urgencyResult.zoneTolerancePips} pips)</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-xs text-gray-300">
+              <div className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
+              <span>Continuation entries allowed (within {urgencyResult.zoneTolerancePips} pips)</span>
+            </div>
+          )}
         </div>
       </div>
 

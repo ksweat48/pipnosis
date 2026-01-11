@@ -108,6 +108,28 @@ export const ENTRY_URGENCY_CONFIG = {
     PHASE_3: { threshold: 25, description: 'Urgent - Continuation entries allowed' },
   },
 
+  // ZONE TOLERANCE: Progressive relaxation of entry zone distance requirements
+  // Phase 1: Exact zone only (0 pips tolerance)
+  // Phase 2: Near zone acceptable (20-40 pips depending on style)
+  // Phase 3: Continuation entries (50-70 pips depending on style)
+  ZONE_TOLERANCE_PIPS: {
+    SCALP: {
+      PHASE_1: 0,   // Must be exactly in zone
+      PHASE_2: 20,  // Can be 20 pips from zone edge
+      PHASE_3: 50,  // Can be 50 pips from zone edge
+    },
+    MICRO_INTRADAY: {
+      PHASE_1: 0,
+      PHASE_2: 30,
+      PHASE_3: 60,
+    },
+    INTRADAY: {
+      PHASE_1: 0,
+      PHASE_2: 40,
+      PHASE_3: 70,
+    },
+  },
+
   STYLE_TIME_THRESHOLDS: {
     SCALP: {
       PHASE_2_MINUTES: 5,   // Enter Phase 2 at 5 minutes

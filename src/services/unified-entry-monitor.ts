@@ -75,14 +75,19 @@ export class UnifiedEntryMonitor {
   }
 
   /**
-   * Check if price is in any zone (primary or secondary)
+   * Check if price is in any zone (primary or secondary) with optional tolerance
    * Returns zone type and distance
+   *
+   * @param price - Current market price
+   * @param intent - Entry intent with zone data
+   * @param tolerancePips - Zone tolerance in pips (for progressive relaxation)
    */
-  private checkZoneEntry(price: number, intent: any): {
+  private checkZoneEntry(price: number, intent: any, tolerancePips: number = 0): {
     inZone: boolean;
     zoneType: ExecutedZoneType;
     distanceToNearestZone: number;
     positionSizeMultiplier: number;
+    usedTolerance: boolean;
   } {
     // Check if adaptive zones are available
     const hasPrimaryZone = intent.primary_zone_min !== null && intent.primary_zone_max !== null;
@@ -90,49 +95,95 @@ export class UnifiedEntryMonitor {
 
     // If no adaptive zones, fall back to legacy zone
     if (!hasPrimaryZone && !hasSecondaryZone) {
-      const inLegacyZone = price >= intent.entry_zone_min && price <= intent.entry_zone_max;
-      const distanceToLegacyZone = inLegacyZone
+      const exactInZone = price >= intent.entry_zone_min && price <= intent.entry_zone_max;
+      const distanceToZone = exactInZone
         ? 0
         : price < intent.entry_zone_min
         ? intent.entry_zone_min - price
         : price - intent.entry_zone_max;
 
+      // Apply tolerance if not exactly in zone
+      const relaxedInZone = exactInZone || Math.abs(distanceToZone) <= tolerancePips;
+
       return {
-        inZone: inLegacyZone,
+        inZone: relaxedInZone,
         zoneType: 'none',
-        distanceToNearestZone: distanceToLegacyZone,
-        positionSizeMultiplier: ADAPTIVE_ZONE_CONFIG.positionSizing.primary_zone_multiplier
+        distanceToNearestZone: distanceToZone,
+        positionSizeMultiplier: ADAPTIVE_ZONE_CONFIG.positionSizing.primary_zone_multiplier,
+        usedTolerance: relaxedInZone && !exactInZone
       };
     }
 
     // Check PRIMARY zone first (highest priority)
-    const inPrimaryZone = hasPrimaryZone &&
+    const exactInPrimaryZone = hasPrimaryZone &&
       price >= intent.primary_zone_min &&
       price <= intent.primary_zone_max;
 
-    if (inPrimaryZone) {
-      logger.debug(`[UnifiedMonitor] Price ${price} in PRIMARY zone`);
+    if (exactInPrimaryZone) {
+      logger.debug(`[UnifiedMonitor] Price ${price} in PRIMARY zone (exact)`);
       return {
         inZone: true,
         zoneType: 'primary',
         distanceToNearestZone: 0,
-        positionSizeMultiplier: ADAPTIVE_ZONE_CONFIG.positionSizing.primary_zone_multiplier
+        positionSizeMultiplier: ADAPTIVE_ZONE_CONFIG.positionSizing.primary_zone_multiplier,
+        usedTolerance: false
       };
     }
 
+    // Check PRIMARY zone with tolerance
+    if (hasPrimaryZone && tolerancePips > 0) {
+      const distanceToPrimary = price < intent.primary_zone_min
+        ? intent.primary_zone_min - price
+        : price > intent.primary_zone_max
+        ? price - intent.primary_zone_max
+        : 0;
+
+      if (distanceToPrimary <= tolerancePips && distanceToPrimary > 0) {
+        logger.debug(`[UnifiedMonitor] Price ${price} within PRIMARY zone tolerance (${distanceToPrimary.toFixed(1)} pips from edge)`);
+        return {
+          inZone: true,
+          zoneType: 'primary',
+          distanceToNearestZone: distanceToPrimary,
+          positionSizeMultiplier: ADAPTIVE_ZONE_CONFIG.positionSizing.primary_zone_multiplier,
+          usedTolerance: true
+        };
+      }
+    }
+
     // Check SECONDARY zone
-    const inSecondaryZone = hasSecondaryZone &&
+    const exactInSecondaryZone = hasSecondaryZone &&
       price >= intent.secondary_zone_min &&
       price <= intent.secondary_zone_max;
 
-    if (inSecondaryZone) {
-      logger.debug(`[UnifiedMonitor] Price ${price} in SECONDARY zone`);
+    if (exactInSecondaryZone) {
+      logger.debug(`[UnifiedMonitor] Price ${price} in SECONDARY zone (exact)`);
       return {
         inZone: true,
         zoneType: 'secondary',
         distanceToNearestZone: 0,
-        positionSizeMultiplier: ADAPTIVE_ZONE_CONFIG.positionSizing.secondary_zone_multiplier
+        positionSizeMultiplier: ADAPTIVE_ZONE_CONFIG.positionSizing.secondary_zone_multiplier,
+        usedTolerance: false
       };
+    }
+
+    // Check SECONDARY zone with tolerance
+    if (hasSecondaryZone && tolerancePips > 0) {
+      const distanceToSecondary = price < intent.secondary_zone_min
+        ? intent.secondary_zone_min - price
+        : price > intent.secondary_zone_max
+        ? price - intent.secondary_zone_max
+        : 0;
+
+      if (distanceToSecondary <= tolerancePips && distanceToSecondary > 0) {
+        logger.debug(`[UnifiedMonitor] Price ${price} within SECONDARY zone tolerance (${distanceToSecondary.toFixed(1)} pips from edge)`);
+        return {
+          inZone: true,
+          zoneType: 'secondary',
+          distanceToNearestZone: distanceToSecondary,
+          positionSizeMultiplier: ADAPTIVE_ZONE_CONFIG.positionSizing.secondary_zone_multiplier,
+          usedTolerance: true
+        };
+      }
     }
 
     // Not in any zone - calculate distance to nearest zone
@@ -157,7 +208,8 @@ export class UnifiedEntryMonitor {
       inZone: false,
       zoneType: 'none',
       distanceToNearestZone: nearestDistance,
-      positionSizeMultiplier: 0
+      positionSizeMultiplier: 0,
+      usedTolerance: false
     };
   }
 
@@ -528,11 +580,23 @@ export class UnifiedEntryMonitor {
       // Step 5.5: Setup Validity Check (replaces time-based timeout)
       if (isDev) console.log('[UnifiedMonitor] Step 5.5/8: Checking setup validity...');
 
-      // Calculate distance to entry zone (supports both legacy and adaptive zones)
-      const zoneCheck = this.checkZoneEntry(priceData.price, intent);
+      // Calculate time-based urgency to get zone tolerance
+      const urgencyForZoneCheck = EntryUrgencyCalculator.calculateUrgency(
+        new Date(intent.created_at),
+        style as any,
+        intent.alpha_confidence || 60
+      );
+
+      // Calculate distance to entry zone with progressive tolerance
+      const zoneCheck = this.checkZoneEntry(priceData.price, intent, urgencyForZoneCheck.zoneTolerancePips);
       const inEntryZone = zoneCheck.inZone;
       const distanceToZone = zoneCheck.distanceToNearestZone;
       const executedZoneType = zoneCheck.zoneType;
+      const usedZoneTolerance = zoneCheck.usedTolerance;
+
+      if (usedZoneTolerance) {
+        logger.info(`[UnifiedMonitor] Entry via RELAXED zone (Phase ${urgencyForZoneCheck.phase}, tolerance: ${urgencyForZoneCheck.zoneTolerancePips} pips)`);
+      }
 
       // Track zone hit timestamp for meta-learning (time to reach zone)
       if (inEntryZone && !this.zoneHitTimestamps.has(intentId)) {
@@ -857,12 +921,13 @@ export class UnifiedEntryMonitor {
       // Use time-adjusted threshold (decays over time)
       const adjustedEQSThreshold = urgencyResult.timeAdjustedThreshold;
 
-      // Update database with urgency phase
+      // Update database with urgency phase and zone tolerance
       try {
         await supabase
           .from('entry_intents')
           .update({
             urgency_phase: urgencyResult.phase,
+            zone_tolerance_pips: urgencyResult.zoneTolerancePips,
             phase_entered_at: urgencyResult.phase !== (intent.urgency_phase || 1)
               ? new Date().toISOString()
               : undefined,

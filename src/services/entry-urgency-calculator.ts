@@ -26,6 +26,7 @@ import { logger } from '../lib/logger';
 export interface UrgencyPhaseResult {
   phase: 1 | 2 | 3;
   timeAdjustedThreshold: number;
+  zoneTolerancePips: number;
   minutesElapsed: number;
   minutesUntilNextPhase: number | null;
   minutesUntilExpiry: number;
@@ -46,6 +47,7 @@ export class EntryUrgencyCalculator {
     const minutesElapsed = (now.getTime() - createdAt.getTime()) / (1000 * 60);
 
     const styleConfig = ENTRY_URGENCY_CONFIG.STYLE_TIME_THRESHOLDS[style];
+    const zoneToleranceConfig = ENTRY_URGENCY_CONFIG.ZONE_TOLERANCE_PIPS[style];
     const accelerationFactor = this.getAccelerationFactor(alphaConfidence);
 
     const phase2Threshold = styleConfig.PHASE_2_MINUTES * accelerationFactor;
@@ -54,19 +56,23 @@ export class EntryUrgencyCalculator {
 
     let phase: 1 | 2 | 3;
     let timeAdjustedThreshold: number;
+    let zoneTolerancePips: number;
     let minutesUntilNextPhase: number | null;
 
     if (minutesElapsed < phase2Threshold) {
       phase = 1;
       timeAdjustedThreshold = ENTRY_URGENCY_CONFIG.PHASE_THRESHOLDS.PHASE_1.threshold;
+      zoneTolerancePips = zoneToleranceConfig.PHASE_1;
       minutesUntilNextPhase = phase2Threshold - minutesElapsed;
     } else if (minutesElapsed < phase3Threshold) {
       phase = 2;
       timeAdjustedThreshold = ENTRY_URGENCY_CONFIG.PHASE_THRESHOLDS.PHASE_2.threshold;
+      zoneTolerancePips = zoneToleranceConfig.PHASE_2;
       minutesUntilNextPhase = phase3Threshold - minutesElapsed;
     } else {
       phase = 3;
       timeAdjustedThreshold = ENTRY_URGENCY_CONFIG.PHASE_THRESHOLDS.PHASE_3.threshold;
+      zoneTolerancePips = zoneToleranceConfig.PHASE_3;
       minutesUntilNextPhase = null;
     }
 
@@ -78,6 +84,7 @@ export class EntryUrgencyCalculator {
       minutesElapsed: minutesElapsed.toFixed(1),
       phase,
       threshold: timeAdjustedThreshold,
+      zoneTolerancePips,
       alphaConfidence,
       accelerationFactor,
       minutesUntilNextPhase: minutesUntilNextPhase?.toFixed(1),
@@ -88,6 +95,7 @@ export class EntryUrgencyCalculator {
     return {
       phase,
       timeAdjustedThreshold,
+      zoneTolerancePips,
       minutesElapsed,
       minutesUntilNextPhase,
       minutesUntilExpiry,
