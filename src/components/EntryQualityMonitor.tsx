@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase';
 import { useActiveEntryIntent } from '../hooks/useEntryIntent';
 import { EntryUrgencyPhaseTimer } from './EntryUrgencyPhaseTimer';
 import { EQS_COMPONENT_MAXIMUMS } from '../config/alpha-identity';
+import { getZoneLanguage, getZoneTypeBadge, getZoneTypeColor } from '../utils/regime-zone-language';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
 interface EQSBreakdown {
@@ -390,6 +391,14 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
   const isReady = latestEQS.status === 'EXECUTE_NOW' && latestEQS.eqs_score >= latestEQS.eqs_threshold;
   const gap = Math.max(0, latestEQS.eqs_threshold - latestEQS.eqs_score);
 
+  // SSOT: Get regime-aware zone language from database fields
+  const zoneLanguage = activeIntent ? getZoneLanguage(
+    activeIntent.zone_type,
+    activeIntent.direction,
+    distancePips,
+    activeIntent.micro_regime_used
+  ) : null;
+
   return (
     <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-3 sm:p-4 border border-gray-700">
       {/* HEADER: Symbol, Direction, Style, Frequency */}
@@ -451,12 +460,12 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
                 : 'text-orange-300'
             }`}>
               {isReady && inZone && 'READY TO EXECUTE'}
-              {isReady && !inZone && 'WAITING FOR PRICE ZONE'}
+              {isReady && !inZone && (zoneLanguage?.waitingStatus || 'WAITING FOR PRICE ZONE')}
               {!isReady && 'BUILDING ENTRY QUALITY'}
             </div>
             <div className="text-xs sm:text-sm text-gray-300">
               {isReady && inZone && 'All conditions met. Execution ready.'}
-              {isReady && !inZone && `Price must ${activeIntent.direction === 'long' ? 'pull back' : 'rally'} ${distancePips.toFixed(2)} pips into entry zone`}
+              {isReady && !inZone && (zoneLanguage?.distanceMessage || `Price must ${activeIntent.direction === 'long' ? 'pull back' : 'rally'} ${distancePips.toFixed(2)} pips into entry zone`)}
               {!isReady && `EQS must reach ${latestEQS.eqs_threshold}/75 (currently ${latestEQS.eqs_score}/75) ${!inZone ? 'AND price must enter zone' : ''}`}
             </div>
           </div>
@@ -508,7 +517,7 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
               <div className="mt-1.5 sm:mt-2 pt-1.5 sm:pt-2 border-t border-gray-700">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-400">
-                    {activeIntent.direction === 'long' ? 'Need pullback' : 'Need rally'}
+                    {zoneLanguage?.shortLabel || (activeIntent.direction === 'long' ? 'Need pullback' : 'Need rally')}
                   </span>
                   <span className="text-sm sm:text-base font-mono font-bold text-orange-400">
                     {distancePips.toFixed(2)} pips

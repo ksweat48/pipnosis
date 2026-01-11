@@ -284,6 +284,17 @@ export interface EntryIntentRequest {
   alpha_confidence?: number;
   alpha_reasoning: string;
   market_context?: Record<string, any>;
+
+  // Adaptive zone fields (v2.0) - SSOT: Calculated by EntryIntentClassifier
+  zone_type?: string;
+  micro_regime_used?: string;
+  primary_zone_min?: number;
+  primary_zone_max?: number;
+  secondary_zone_min?: number;
+  secondary_zone_max?: number;
+  zone_reachability_distance_pips?: number;
+  zone_downgrade_applied?: boolean;
+  position_size_multiplier?: number;
 }
 
 export interface EntryMetrics {

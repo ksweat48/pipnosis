@@ -68,7 +68,18 @@ export class EntryPlannerService {
           alpha_confidence: request.alpha_confidence || 60,
           alpha_reasoning: request.alpha_reasoning,
           market_context: request.market_context || {},
-          status: 'monitoring'
+          status: 'monitoring',
+
+          // Adaptive zone fields (v2.0) - SSOT: Preserve calculated zone data
+          zone_type: request.zone_type,
+          micro_regime_used: request.micro_regime_used,
+          primary_zone_min: request.primary_zone_min,
+          primary_zone_max: request.primary_zone_max,
+          secondary_zone_min: request.secondary_zone_min,
+          secondary_zone_max: request.secondary_zone_max,
+          zone_reachability_distance_pips: request.zone_reachability_distance_pips,
+          zone_downgrade_applied: request.zone_downgrade_applied,
+          position_size_multiplier: request.position_size_multiplier
         })
         .select()
         .single();

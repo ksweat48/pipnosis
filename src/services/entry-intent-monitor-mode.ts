@@ -62,6 +62,17 @@ export interface EntryIntentData {
   consecutive_checks_outside_zone: number;
   market_context?: Record<string, any>;
   alpha_reasoning?: string;
+
+  // Adaptive zone fields (v2.0) - SSOT: Populated by EntryIntentClassifier
+  zone_type?: string | null;
+  micro_regime_used?: string | null;
+  primary_zone_min?: number | null;
+  primary_zone_max?: number | null;
+  secondary_zone_min?: number | null;
+  secondary_zone_max?: number | null;
+  zone_reachability_distance_pips?: number | null;
+  zone_downgrade_applied?: boolean | null;
+  position_size_multiplier?: number | null;
 }
 
 export interface MonitorCheckResult {
