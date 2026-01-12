@@ -39,10 +39,183 @@ import {
   calculateAndValidateRR,
   type CurrencyPipInfo
 } from './currencyHelpers';
+import { getSymbolConfig } from '../config/symbol-registry';
+import type { TradeContext, TradeContextResult } from '../types/trade-context';
+import { createProfileHash, createConverters, isContextStale } from '../types/trade-context';
+
+// ============================================================================
+// TRADECONTEXT FACTORY - SSOT ENTRY POINT
+// ============================================================================
+
+/**
+ * Create TradeContext - THE ONLY LEGAL WAY TO OBTAIN SSOT PARAMETERS
+ *
+ * This is the MANDATORY entry point for all trade-related mathematics.
+ * All Alpha/Omega/Execution functions MUST accept TradeContext.
+ *
+ * ARCHITECTURE PRINCIPLE:
+ * TradeContext can ONLY be created here. Business logic layers MUST NOT
+ * compute pip values, lot sizes, or dollar conversions directly.
+ *
+ * @example
+ * const result = tradeMath.createTradeContext('EURUSD');
+ * if (!result.success) {
+ *   return { action: 'NO_TRADE', error: result.error };
+ * }
+ * const ctx = result.context!;
+ * const dollarsPerPip = ctx.calculateDollarsPerPip(lots(0.1));
+ */
+export function createTradeContext(symbol: string): TradeContextResult {
+  try {
+    // Validate symbol input
+    if (!symbol || typeof symbol !== 'string') {
+      return {
+        success: false,
+        error: `Invalid symbol: ${symbol}`,
+        errorCode: 'INVALID_SYMBOL'
+      };
+    }
+
+    const normalizedSymbol = symbol.toUpperCase().trim();
+
+    // Load symbol config from SSOT (symbol-registry.ts)
+    const config = getSymbolConfig(normalizedSymbol);
+    if (!config) {
+      return {
+        success: false,
+        error: `Symbol not found in registry: ${normalizedSymbol}`,
+        errorCode: 'SYMBOL_NOT_FOUND'
+      };
+    }
+
+    // Create integrity hash
+    const profileHash = createProfileHash(config);
+
+    // Create timestamp
+    const createdAt = new Date();
+    const createdTimestamp = createdAt.getTime();
+
+    // Create bound converter functions
+    const converters = createConverters(config);
+
+    // Assemble immutable context object
+    const context: TradeContext = {
+      symbol: config.symbol,
+      category: config.category,
+      displayName: config.displayName,
+
+      // Core math parameters
+      pipValue: config.pipValue,
+      pipMultiplier: config.pipMultiplier,
+      decimalPlaces: config.decimalPlaces,
+      contractSize: config.contractSize,
+      dollarPerPipPerLot: config.dollarPerPipPerLot,
+
+      // Broker constraints
+      minLotSize: config.minLotSize,
+      maxLotSize: config.maxLotSize,
+      lotStepSize: config.minLotSize, // Step size equals min lot size
+
+      // Volatility characteristics
+      typicalDailyRangePoints: config.typicalDailyRangePoints,
+      typicalSessionMovePoints: config.typicalSessionMovePoints,
+      atrMultiplierForStop: config.atrMultiplierForStop,
+
+      // Integrity validation
+      profileHash,
+      createdAt,
+      createdTimestamp,
+
+      // Bound converter methods
+      ...converters,
+    };
+
+    return {
+      success: true,
+      context,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error creating TradeContext',
+      errorCode: 'CONTEXT_CREATION_FAILED'
+    };
+  }
+}
+
+/**
+ * Validate TradeContext integrity
+ *
+ * Checks:
+ * - Context exists and is valid
+ * - Profile hash matches current symbol registry
+ * - Context is not stale (< 5 minutes old)
+ *
+ * @param ctx The context to validate
+ * @param maxAgeMs Maximum allowed age in milliseconds (default 5 minutes)
+ */
+export function validateTradeContext(
+  ctx: TradeContext | undefined,
+  maxAgeMs: number = 5 * 60 * 1000
+): { valid: boolean; error?: string; violationType?: string } {
+  if (!ctx) {
+    return {
+      valid: false,
+      error: 'TradeContext is missing or undefined',
+      violationType: 'MISSING_CONTEXT'
+    };
+  }
+
+  // Check staleness
+  if (isContextStale(ctx, maxAgeMs)) {
+    const ageSeconds = Math.floor((Date.now() - ctx.createdTimestamp) / 1000);
+    return {
+      valid: false,
+      error: `TradeContext is stale (${ageSeconds}s old, max ${maxAgeMs / 1000}s)`,
+      violationType: 'STALE_CONTEXT'
+    };
+  }
+
+  // Validate hash matches current config
+  const currentConfig = getSymbolConfig(ctx.symbol);
+  if (!currentConfig) {
+    return {
+      valid: false,
+      error: `Symbol ${ctx.symbol} no longer in registry`,
+      violationType: 'PROFILE_MISMATCH'
+    };
+  }
+
+  const currentHash = createProfileHash(currentConfig);
+  if (currentHash !== ctx.profileHash) {
+    return {
+      valid: false,
+      error: `TradeContext hash mismatch for ${ctx.symbol} (symbol config may have changed)`,
+      violationType: 'HASH_MISMATCH'
+    };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Re-create TradeContext for same symbol (refreshes timestamp and hash)
+ *
+ * Use when context has become stale but symbol hasn't changed
+ */
+export function refreshTradeContext(oldContext: TradeContext): TradeContextResult {
+  return createTradeContext(oldContext.symbol);
+}
+
+// ============================================================================
+// LEGACY FUNCTIONS - DEPRECATED (Use TradeContext instead)
+// ============================================================================
 
 /**
  * Get complete symbol profile (pip value, lot sizing, etc.)
  * This is the ENTRY POINT for all symbol-specific data.
+ *
+ * @deprecated Use createTradeContext() instead for new code
  *
  * @example
  * const profile = tradeMath.getSymbolProfile('EURUSD');
@@ -306,18 +479,8 @@ export const FORBIDDEN_PATTERNS = {
 
 /**
  * Runtime detection of SSOT bypasses (development mode only)
+ *
+ * NOTE: ESLint rules provide compile-time detection. Runtime detection
+ * has been removed to avoid build warnings about reassigning imports.
+ * All violations should be caught by ESLint before build.
  */
-if (import.meta.env.DEV) {
-  const originalCalculatePipDistance = calculatePipDistance;
-
-  // Wrap to detect bypass attempts
-  (calculatePipDistance as any) = (symbol: string, price1: number, price2: number) => {
-    const stack = new Error().stack || '';
-    if (stack.includes('/ 0.0001') || stack.includes('* 10000')) {
-      console.error('⚠️  SSOT BYPASS DETECTED');
-      console.error('Hardcoded pip math found in call stack');
-      console.error('Stack:', stack.split('\n').slice(0, 5).join('\n'));
-    }
-    return originalCalculatePipDistance(symbol, price1, price2);
-  };
-}

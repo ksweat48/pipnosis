@@ -10,6 +10,10 @@ import { llmReasoningLogger } from './llm-reasoning-logger';
 import { getMinConfidenceThreshold } from '../config/risk-levels';
 import { priceCoordinator } from './coordinators/price-coordinator';
 import { validatePositionContract, isPCVLEnabled } from './pcvl-position-contract-validator';
+import { validateAtCheckpoint } from './ssot-preflight-guard';
+import { logExecutionViolation } from './ssot-violation-logger';
+import type { TradeContext } from '../types/trade-context';
+import { price as createPrice, lots as createLots } from '../types/trading-units';
 
 interface LivePriceResult {
   price: number;
@@ -54,6 +58,8 @@ export interface TradeSignal {
   entryMode?: 'immediate' | 'wait_pullback' | 'wait_confirmation';
   entryQualityScore?: number;
   tradeConfidence?: number;
+  // SSOT ENFORCEMENT: TradeContext MUST be present for all executions
+  tradeContext?: TradeContext;
 }
 
 export interface TradeExecutionResult {
@@ -260,6 +266,118 @@ class TradeExecutionEngine {
   ): Promise<TradeExecutionResult> {
     try {
       console.log(`[Trade Execution] Processing signal for ${signal.symbol}...`);
+
+      // ✅ SSOT EXECUTION GUARDRAIL: Validate TradeContext at execution time
+      console.log('[Trade Execution] 🔒 Validating SSOT TradeContext...');
+      const contextValidation = await validateAtCheckpoint(
+        signal.tradeContext,
+        'trade-execution-engine',
+        signal.symbol
+      );
+
+      if (!contextValidation.passed) {
+        console.error(`[Trade Execution] 🚫 SSOT VIOLATION: ${contextValidation.error}`);
+        await logExecutionViolation(
+          signal.symbol,
+          signal.positionSize,
+          signal.entryPrice,
+          signal.stopLoss,
+          signal.takeProfit,
+          contextValidation.error || 'TradeContext validation failed'
+        );
+        return {
+          success: false,
+          error: 'MATH_NOT_SSOT',
+          message: `SSOT Execution Guardrail: ${contextValidation.blockReason}`
+        };
+      }
+
+      const ctx = signal.tradeContext!;
+      console.log(`[Trade Execution] ✅ TradeContext validated: ${ctx.symbol} (hash: ${ctx.profileHash})`);
+
+      // ✅ SSOT VALIDATION: Check lot size against broker constraints
+      try {
+        const lotSize = createLots(signal.positionSize);
+        const lotValidation = ctx.validateLotSize(lotSize);
+
+        if (!lotValidation.valid) {
+          console.error(`[Trade Execution] 🚫 LOT SIZE VIOLATION: ${lotValidation.error}`);
+          await logExecutionViolation(
+            signal.symbol,
+            signal.positionSize,
+            signal.entryPrice,
+            signal.stopLoss,
+            signal.takeProfit,
+            lotValidation.error || 'Invalid lot size'
+          );
+          return {
+            success: false,
+            error: 'INVALID_LOT_SIZE',
+            message: `Lot size validation failed: ${lotValidation.error}`
+          };
+        }
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Unknown lot size error';
+        console.error(`[Trade Execution] 🚫 LOT SIZE ERROR: ${errorMsg}`);
+        await logExecutionViolation(
+          signal.symbol,
+          signal.positionSize,
+          signal.entryPrice,
+          signal.stopLoss,
+          signal.takeProfit,
+          errorMsg
+        );
+        return {
+          success: false,
+          error: 'INVALID_LOT_SIZE',
+          message: `Lot size error: ${errorMsg}`
+        };
+      }
+
+      // ✅ SSOT VALIDATION: Check SL/TP precision and pip values
+      try {
+        const entryPrice = createPrice(signal.entryPrice);
+        const slPrice = createPrice(signal.stopLoss);
+        const tpPrice = createPrice(signal.takeProfit);
+        const direction = signal.direction === 'buy' ? 'long' : 'short';
+
+        const sltpValidation = ctx.validateSLTP(entryPrice, slPrice, tpPrice, direction);
+
+        if (!sltpValidation.valid) {
+          console.error(`[Trade Execution] 🚫 SL/TP VIOLATION: ${sltpValidation.error}`);
+          await logExecutionViolation(
+            signal.symbol,
+            signal.positionSize,
+            signal.entryPrice,
+            signal.stopLoss,
+            signal.takeProfit,
+            sltpValidation.error || 'Invalid SL/TP'
+          );
+          return {
+            success: false,
+            error: 'INVALID_SLTP',
+            message: `SL/TP validation failed: ${sltpValidation.error}`
+          };
+        }
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Unknown SL/TP error';
+        console.error(`[Trade Execution] 🚫 SL/TP ERROR: ${errorMsg}`);
+        await logExecutionViolation(
+          signal.symbol,
+          signal.positionSize,
+          signal.entryPrice,
+          signal.stopLoss,
+          signal.takeProfit,
+          errorMsg
+        );
+        return {
+          success: false,
+          error: 'INVALID_SLTP',
+          message: `SL/TP error: ${errorMsg}`
+        };
+      }
+
+      console.log('[Trade Execution] ✅ All SSOT validations passed');
 
       const { data: session, error: sessionError } = await supabase
         .from('goal_sessions')

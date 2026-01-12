@@ -5,6 +5,8 @@ import type { AlphaDecision } from '../brains/coordinator-alpha';
 import type { EntryIntent, EntryIntentRequest } from '../types/entry';
 import { logger } from '../lib/logger';
 import { globalToastManager } from './global-toast-manager';
+import { createTradeContext } from '../utils/tradeMath';
+import type { TradeContext } from '../types/trade-context';
 
 export class EntryExecutionCoordinator {
   static async handleAlphaDecision(
@@ -111,6 +113,14 @@ export class EntryExecutionCoordinator {
       const marketContext = intent.market_context as any;
       const idealEntryPrice = (intent.entry_zone_min + intent.entry_zone_max) / 2;
 
+      // Create TradeContext for SSOT compliance
+      const contextResult = createTradeContext(intent.symbol);
+      if (!contextResult.success || !contextResult.context) {
+        logger.error(`Failed to create TradeContext: ${contextResult.error}`);
+        return { success: false };
+      }
+      const tradeContext = contextResult.context;
+
       // CRITICAL: Adjust SL/TP when entry price slips to maintain original R:R ratio
       let adjustedStopLoss = marketContext?.stop_loss;
       let adjustedTakeProfit = marketContext?.take_profit;
@@ -129,7 +139,9 @@ export class EntryExecutionCoordinator {
           adjustedTakeProfit = actualEntryPrice - (originalStopDistance * originalRR);
         }
 
-        const slippagePips = Math.abs(actualEntryPrice - idealEntryPrice) * 10000;
+        // SSOT: Use TradeContext for pip calculation
+        const priceSlippage = Math.abs(actualEntryPrice - idealEntryPrice);
+        const slippagePips = tradeContext.convertPriceToPips(priceSlippage);
         logger.info(`Entry slipped ${slippagePips.toFixed(2)} pips. Adjusted SL/TP to maintain ${originalRR.toFixed(2)}:1 R:R`);
         logger.info(`Original: SL=${marketContext.stop_loss.toFixed(5)}, TP=${marketContext.take_profit.toFixed(5)}`);
         logger.info(`Adjusted: SL=${adjustedStopLoss.toFixed(5)}, TP=${adjustedTakeProfit.toFixed(5)}`);
@@ -200,7 +212,8 @@ export class EntryExecutionCoordinator {
         intent.direction,
         intent.intent_type,
         intent.urgency,
-        Math.floor((new Date().getTime() - new Date(intent.created_at).getTime()) / 1000)
+        Math.floor((new Date().getTime() - new Date(intent.created_at).getTime()) / 1000),
+        tradeContext
       );
 
       logger.info(`Trade executed from intent ${intentId}: ${trade.id}`);
@@ -219,10 +232,13 @@ export class EntryExecutionCoordinator {
     direction: string,
     intentType: string,
     urgency: string,
-    monitoringDuration: number
+    monitoringDuration: number,
+    tradeContext: TradeContext
   ): Promise<void> {
     try {
-      const slippagePips = Math.abs(actualEntry - idealEntry) * 10000;
+      // SSOT: Use TradeContext to calculate pip slippage (no hardcoded math)
+      const priceDistance = Math.abs(actualEntry - idealEntry);
+      const slippagePips = tradeContext.convertPriceToPips(priceDistance);
 
       const { data: qualityScore } = await supabase.rpc('calculate_entry_quality_score', {
         p_ideal_price: idealEntry,

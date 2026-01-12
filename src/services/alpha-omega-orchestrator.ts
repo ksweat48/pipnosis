@@ -35,6 +35,8 @@ import type { MarketSnapshotData } from './market-snapshot-cache';
 import { tradeExecutionFreshnessGate, type ExecutionContext } from './trade-execution-freshness-gate';
 import { getMTFConfig, type Timeframe, type RiskMode } from '../config/timeframe-hierarchy';
 import { getConfidencePenaltyCap } from '../config/trade-constraints';
+import { createTradeContext, type TradeContext } from '../utils/tradeMath';
+import { validatePreFlight, createBlockedDecision } from './ssot-preflight-guard';
 
 export interface ConfidencePenalty {
   source: string;
@@ -114,6 +116,44 @@ class AlphaOmegaOrchestrator {
     userId?: string
   ): Promise<AlphaDecision> {
     console.log('[Alpha+Omega] 🎯 Starting decision pipeline...');
+
+    // ✅ SSOT GUARDRAIL #1: Create TradeContext (MANDATORY for all math operations)
+    console.log(`[Alpha+Omega] 🔒 Creating TradeContext for ${marketState.symbol}...`);
+    const contextResult = createTradeContext(marketState.symbol);
+
+    if (!contextResult.success || !contextResult.context) {
+      console.error(`[Alpha+Omega] 🚫 SSOT VIOLATION: Failed to create TradeContext - ${contextResult.error}`);
+      return {
+        action: 'NO_TRADE',
+        decision: 'NO_TRADE',
+        entry: marketState.price,
+        stopLoss: proposedSL,
+        takeProfit: proposedTP,
+        confidence: 0,
+        reasoning: `SSOT VIOLATION: ${contextResult.error}`,
+        omega_summary: `Math operations blocked - no valid TradeContext (error: ${contextResult.errorCode})`
+      };
+    }
+
+    const tradeContext = contextResult.context;
+    console.log(`[Alpha+Omega] ✅ TradeContext created: hash=${tradeContext.profileHash}, pip=${tradeContext.pipValue}, decimals=${tradeContext.decimalPlaces}`);
+
+    // ✅ SSOT GUARDRAIL #2: Validate TradeContext integrity (pre-flight check)
+    const preFlightValidation = await validatePreFlight(tradeContext, marketState.symbol, 'alpha-omega-orchestrator');
+
+    if (!preFlightValidation.passed) {
+      console.error(`[Alpha+Omega] 🚫 SSOT PRE-FLIGHT FAILED: ${preFlightValidation.error}`);
+      const blockedDecision = createBlockedDecision(preFlightValidation, marketState.symbol);
+      return {
+        ...blockedDecision,
+        entry: marketState.price,
+        stopLoss: proposedSL,
+        takeProfit: proposedTP,
+        omega_summary: `Pre-flight validation failed: ${preFlightValidation.violationType}`
+      };
+    }
+
+    console.log('[Alpha+Omega] ✅ SSOT pre-flight passed - TradeContext validated');
 
     // ✅ FRESHNESS ADVISORY: Check data quality but don't block (except for critical staleness)
     const preCheck = await tradeExecutionFreshnessGate.preCheckFreshness(marketState.symbol);
