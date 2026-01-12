@@ -394,10 +394,22 @@ export async function markIntentExpired(intentId: string, reason: string): Promi
   });
 
   if (atomicError || !atomicResult?.success) {
-    logger.error('[markIntentExpired] Failed to create continuation modal atomically', {
-      intentId: intentId.substring(0, 8),
-      error: atomicError?.message || atomicResult?.error
-    });
+    const errorMsg = atomicError?.message || atomicResult?.error || '';
+    const isAlreadyExists = errorMsg.includes('already exists') || errorMsg.includes('Continuation modal already exists');
+
+    if (isAlreadyExists) {
+      // Expected race condition: Browser and server-side monitors both detected timeout
+      logger.debug('[markIntentExpired] Continuation modal already exists (expected with dual monitoring)', {
+        intentId: intentId.substring(0, 8),
+        note: 'Browser or server-side monitor already created the modal - this is normal'
+      });
+    } else {
+      // Unexpected error
+      logger.error('[markIntentExpired] Failed to create continuation modal atomically', {
+        intentId: intentId.substring(0, 8),
+        error: errorMsg
+      });
+    }
   } else {
     console.log('[markIntentExpired] ✅ Continuation modal created and session updated atomically', {
       modalId: atomicResult.modal_id,
