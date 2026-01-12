@@ -68,21 +68,24 @@ export const SimpleEntryMonitor: React.FC<SimpleEntryMonitorProps> = ({ sessionI
       const result = await EntryExecutionCoordinator.executeManualEntry(activeIntent.id);
 
       if (result.success) {
-        globalToastManager.show(
-          `✅ Trade executed for ${activeIntent.symbol} at market price`,
-          'success'
+        globalToastManager.showToast(
+          'success',
+          'Trade Executed',
+          `Trade executed for ${activeIntent.symbol} at market price`
         );
       } else {
-        globalToastManager.show(
-          `❌ Failed to execute trade: ${result.error || 'Unknown error'}`,
-          'error'
+        globalToastManager.showToast(
+          'error',
+          'Trade Failed',
+          `Failed to execute trade: ${result.error || 'Unknown error'}`
         );
       }
     } catch (error) {
       logger.error('[SimpleEntryMonitor] Manual entry error:', error);
-      globalToastManager.show(
-        `❌ Error executing trade: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        'error'
+      globalToastManager.showToast(
+        'error',
+        'Execution Error',
+        `Error executing trade: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     } finally {
       setExecuting(false);

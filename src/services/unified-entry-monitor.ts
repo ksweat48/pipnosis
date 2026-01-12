@@ -842,9 +842,10 @@ export class UnifiedEntryMonitor {
             });
 
             // Show user notification about the failure
-            globalToastManager.show(
-              `⚠️ Trade execution failed for ${intent.symbol}. Please report this error. Monitoring continues.`,
-              'error'
+            globalToastManager.showToast(
+              'error',
+              'Trade Execution Failed',
+              `Trade execution failed for ${intent.symbol}. Please report this error. Monitoring continues.`
             );
 
             // Do NOT stop monitoring - let it retry on next qualifying conditions
@@ -894,9 +895,10 @@ export class UnifiedEntryMonitor {
           });
 
           // Notify user of the error
-          globalToastManager.show(
-            `⚠️ Critical error executing trade for ${intent.symbol}. Please report this error.`,
-            'error'
+          globalToastManager.showToast(
+            'error',
+            'Critical Error',
+            `Critical error executing trade for ${intent.symbol}. Please report this error.`
           );
         }
       }

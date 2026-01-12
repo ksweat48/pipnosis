@@ -152,7 +152,6 @@ export class EntryExecutionCoordinator {
         tp2_price: tp2Price,
         tp2_reasoning: tp2Reasoning,
         status: 'open',
-        confidence: marketContext?.confidence || 70,
         reasoning: intent.alpha_reasoning,
         entry_intent_type: intent.intent_type,
         entry_urgency: intent.urgency,
@@ -364,9 +363,10 @@ export class EntryExecutionCoordinator {
         return null;
       }
 
-      globalToastManager.show(
-        `⏳ Waiting for ${symbol} to enter zone ${decision.wait_condition.target_entry_zone_min.toFixed(5)}-${decision.wait_condition.target_entry_zone_max.toFixed(5)}`,
-        'info'
+      globalToastManager.showToast(
+        'info',
+        'Waiting for Entry',
+        `Waiting for ${symbol} to enter zone ${decision.wait_condition.target_entry_zone_min.toFixed(5)}-${decision.wait_condition.target_entry_zone_max.toFixed(5)}`
       );
 
       return data.id;
