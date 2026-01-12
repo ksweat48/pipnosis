@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
-// learning-pipeline-health-check removed - diagnostics simplified
-// LearningPipelineMonitor removed
 import GPT4oUsageMonitor from '../components/GPT4oUsageMonitor';
 import { FreshnessGateAnalytics } from '../components/FreshnessGateAnalytics';
 import { BottomNavigation } from '@/components/BottomNavigation';
@@ -19,8 +17,7 @@ import {
   Database,
   Brain,
   TrendingUp,
-  DollarSign,
-  Clock
+  DollarSign
 } from 'lucide-react';
 
 export default function SystemDiagnosticsPage() {
@@ -31,7 +28,6 @@ export default function SystemDiagnosticsPage() {
   const [healthLoading, setHealthLoading] = useState(true);
   const [priceDataStatus, setPriceDataStatus] = useState<any>(null);
   const [priceDataLoading, setPriceDataLoading] = useState(true);
-  const [triggeringPriceCollection, setTriggeringPriceCollection] = useState(false);
 
   const pullToRefresh = usePullToRefresh({
     onRefresh: async () => {
@@ -44,9 +40,7 @@ export default function SystemDiagnosticsPage() {
     checkTrainingLabHealth();
     checkPriceDataStatus();
 
-    // Poll training lab health every 10 seconds
     const healthInterval = setInterval(checkTrainingLabHealth, 10000);
-    // Poll price data status every 5 seconds
     const priceInterval = setInterval(checkPriceDataStatus, 5000);
 
     return () => {
@@ -60,7 +54,6 @@ export default function SystemDiagnosticsPage() {
 
     setHealthLoading(true);
     try {
-      // Check database tables exist and have data
       const checks = await Promise.all([
         supabase.from('backtest_sessions').select('id', { count: 'exact', head: true }),
         supabase.from('synthetic_backtest_sessions').select('id', { count: 'exact', head: true }),
@@ -70,7 +63,6 @@ export default function SystemDiagnosticsPage() {
         supabase.from('synthetic_generation_sessions').select('id', { count: 'exact', head: true })
       ]);
 
-      // Check for recent backtest activity (last 24 hours)
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const { data: recentBacktests } = await supabase
         .from('backtest_sessions')
@@ -82,7 +74,6 @@ export default function SystemDiagnosticsPage() {
         .select('id, win_rate')
         .gte('created_at', oneDayAgo);
 
-      // Check for recent learning insights
       const { data: recentInsights } = await supabase
         .from('ai_learning_insights')
         .select('id')
@@ -90,9 +81,9 @@ export default function SystemDiagnosticsPage() {
 
       const health = {
         autoBacktest: {
-          status: state.isRunning ? 'running' : 'idle',
-          totalCompleted: state.totalBacktestsCompleted,
-          currentNumber: state.currentBacktestNumber
+          status: 'idle',
+          totalCompleted: 0,
+          currentNumber: 0
         },
         tables: {
           backtestSessions: checks[0].count || 0,
@@ -128,7 +119,6 @@ export default function SystemDiagnosticsPage() {
 
     setPriceDataLoading(true);
     try {
-      // Check realtime_prices table for recent data
       const { data: prices, error, count } = await supabase
         .from('realtime_prices')
         .select('symbol, broker_time, created_at, source', { count: 'exact' })
@@ -187,33 +177,6 @@ export default function SystemDiagnosticsPage() {
     }
   };
 
-  const triggerEmergencyPriceCollection = async () => {
-    setTriggeringPriceCollection(true);
-    try {
-      const response = await fetch('/.netlify/functions/emergency-price-trigger', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log('[Emergency Price Trigger] Result:', result);
-
-      // Refresh price data status
-      await checkPriceDataStatus();
-
-      alert(`Price collection triggered! ${result.summary?.successCount || 0} symbols collected successfully.`);
-    } catch (error) {
-      console.error('[Emergency Price Trigger] Error:', error);
-      alert(`Failed to trigger price collection: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setTriggeringPriceCollection(false);
-    }
-  };
-
   const runPipelineTest = async () => {
     if (!user) return;
 
@@ -221,7 +184,6 @@ export default function SystemDiagnosticsPage() {
     setTestResults(null);
 
     try {
-      // Simplified test without health check service
       setTestResults({
         success: true,
         stageResults: [{ stage: 'System Check', passed: true, message: 'Basic checks passed' }]
@@ -275,13 +237,12 @@ export default function SystemDiagnosticsPage() {
         threshold={pullToRefresh.threshold}
       />
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-6">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-white mb-2">System Diagnostics</h1>
               <p className="text-gray-400">
-                Monitor and diagnose the AI learning pipeline in real-time
+                Monitor system health and data feeds in real-time
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -313,7 +274,6 @@ export default function SystemDiagnosticsPage() {
           </div>
         </div>
 
-        {/* Price Data Status */}
         {!priceDataLoading && priceDataStatus && (
           <div className={`backdrop-blur-sm border-2 rounded-lg p-6 ${
             priceDataStatus.status === 'healthy' ? 'bg-green-900/30 border-green-500/30' :
@@ -321,34 +281,15 @@ export default function SystemDiagnosticsPage() {
             priceDataStatus.status === 'critical' ? 'bg-orange-900/30 border-orange-500/30' :
             'bg-red-900/30 border-red-500/30'
           }`}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold text-white flex items-center gap-2">
-                <DollarSign className={`w-6 h-6 ${
-                  priceDataStatus.status === 'healthy' ? 'text-green-400' :
-                  priceDataStatus.status === 'warning' ? 'text-yellow-400' :
-                  priceDataStatus.status === 'critical' ? 'text-orange-400' :
-                  'text-red-400'
-                }`} />
-                Price Data Feed Status
-              </h2>
-              <button
-                onClick={triggerEmergencyPriceCollection}
-                disabled={triggeringPriceCollection}
-                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-500/50 text-white rounded-lg flex items-center gap-2 transition-colors text-sm"
-              >
-                {triggeringPriceCollection ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    Collecting...
-                  </>
-                ) : (
-                  <>
-                    <Zap className="w-4 h-4" />
-                    Emergency Collect
-                  </>
-                )}
-              </button>
-            </div>
+            <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+              <DollarSign className={`w-6 h-6 ${
+                priceDataStatus.status === 'healthy' ? 'text-green-400' :
+                priceDataStatus.status === 'warning' ? 'text-yellow-400' :
+                priceDataStatus.status === 'critical' ? 'text-orange-400' :
+                'text-red-400'
+              }`} />
+              Price Data Feed Status
+            </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
@@ -389,8 +330,8 @@ export default function SystemDiagnosticsPage() {
                   <div>
                     <div className="text-red-400 font-semibold mb-1">No Price Data Available</div>
                     <div className="text-red-300 text-sm">
-                      The realtime_prices table is empty. This will block all trading decisions.
-                      Click "Emergency Collect" to manually trigger price collection.
+                      The scheduled price collector (hybrid-price-collector) is not running.
+                      Check Netlify function logs and environment variables.
                     </div>
                   </div>
                 </div>
@@ -436,7 +377,6 @@ export default function SystemDiagnosticsPage() {
           </div>
         )}
 
-        {/* Training Lab Health Status */}
         {!healthLoading && trainingLabHealth && (
           <div className="bg-gradient-to-br from-blue-900/30 to-purple-900/30 backdrop-blur-sm border-2 border-blue-500/30 rounded-lg p-6">
             <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
@@ -445,37 +385,6 @@ export default function SystemDiagnosticsPage() {
             </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-              {/* Auto-Backtest Status */}
-              <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
-                <div className="flex items-center gap-2 mb-3">
-                  <Zap className={`w-5 h-5 ${
-                    trainingLabHealth.autoBacktest.status === 'running' ? 'text-green-400 animate-pulse' : 'text-gray-400'
-                  }`} />
-                  <h3 className="text-white font-semibold">Auto-Backtest Service</h3>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">Status:</span>
-                    <span className={`font-semibold ${
-                      trainingLabHealth.autoBacktest.status === 'running' ? 'text-green-400' : 'text-gray-300'
-                    }`}>
-                      {trainingLabHealth.autoBacktest.status.toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">Total Completed:</span>
-                    <span className="text-white font-semibold">{trainingLabHealth.autoBacktest.totalCompleted}</span>
-                  </div>
-                  {trainingLabHealth.autoBacktest.status === 'running' && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-400">Current Run:</span>
-                      <span className="text-white font-semibold">#{trainingLabHealth.autoBacktest.currentNumber}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Database Tables */}
               <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
                 <div className="flex items-center gap-2 mb-3">
                   <Database className="w-5 h-5 text-emerald-400" />
@@ -497,7 +406,6 @@ export default function SystemDiagnosticsPage() {
                 </div>
               </div>
 
-              {/* Recent Activity */}
               <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
                 <div className="flex items-center gap-2 mb-3">
                   <TrendingUp className="w-5 h-5 text-purple-400" />
@@ -522,18 +430,18 @@ export default function SystemDiagnosticsPage() {
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* Detailed Table Status */}
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              <HealthCard label="Skill Tracking" count={trainingLabHealth.tables.skillTracking} />
-              <HealthCard label="Pattern Discoveries" count={trainingLabHealth.tables.patternDiscoveries} />
-              <HealthCard label="Synthetic Generations" count={trainingLabHealth.tables.syntheticGenerations} />
+              <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+                <div className="text-sm text-gray-400 mb-3">Additional Tables</div>
+                <div className="space-y-2">
+                  <HealthCard label="Skill Tracking" count={trainingLabHealth.tables.skillTracking} />
+                  <HealthCard label="Pattern Discoveries" count={trainingLabHealth.tables.patternDiscoveries} />
+                </div>
+              </div>
             </div>
           </div>
         )}
 
-        {/* Test Results */}
         {testResults && (
           <div className={`border rounded-lg p-6 ${
             testResults.success
@@ -589,46 +497,8 @@ export default function SystemDiagnosticsPage() {
           </div>
         )}
 
-        {/* GPT-4o Usage Monitor */}
         <GPT4oUsageMonitor />
-
-        {/* Freshness Gate Analytics */}
         <FreshnessGateAnalytics hours={24} />
-
-        {/* Pipeline Monitor */}
-        <div className="bg-gray-900/50 border border-gray-800 rounded-lg p-6 text-center text-gray-400">
-          Learning pipeline monitoring removed
-        </div>
-
-        {/* Backtest system removed - goal sessions only */}
-
-        {/* Info Section */}
-        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-6">
-          <h2 className="text-lg font-semibold text-white mb-3">About Pipeline Monitoring</h2>
-          <div className="space-y-3 text-gray-400 text-sm">
-            <p>
-              The Learning Pipeline Monitor tracks data flow through every stage of the AI learning system.
-              Each stage processes data from the previous stage and passes it to the next.
-            </p>
-            <p>
-              <strong className="text-white">Status Indicators:</strong>
-            </p>
-            <ul className="list-disc list-inside space-y-1 ml-2">
-              <li><span className="text-green-500">Healthy</span> - Stage is processing data normally (activity within last 2 hours)</li>
-              <li><span className="text-yellow-500">Warning</span> - Stage has reduced activity (no activity in 2-24 hours)</li>
-              <li><span className="text-gray-500">Idle</span> - Stage is inactive (no activity in 24+ hours)</li>
-              <li><span className="text-red-500">Error</span> - Stage has encountered errors and needs attention</li>
-            </ul>
-            <p>
-              <strong className="text-white">Health Score:</strong> A composite score (0-100%) based on all pipeline stages.
-              Scores above 75% indicate healthy operation, 50-75% warrant attention, and below 50% require immediate action.
-            </p>
-            <p>
-              <strong className="text-white">Pipeline Test:</strong> Runs diagnostic checks on all components to verify
-              they are properly configured and accessible. Use this to troubleshoot issues before running backtests.
-            </p>
-          </div>
-        </div>
       </div>
       <BottomNavigation />
     </div>
@@ -637,16 +507,9 @@ export default function SystemDiagnosticsPage() {
 
 function HealthCard({ label, count }: { label: string; count: number }) {
   return (
-    <div className="bg-gray-700/50 rounded-lg p-3 border border-gray-600">
-      <div className="text-xs text-gray-400 mb-1">{label}</div>
-      <div className="flex items-center justify-between">
-        <span className="text-lg font-bold text-white">{count}</span>
-        {count > 0 ? (
-          <CheckCircle className="w-4 h-4 text-green-400" />
-        ) : (
-          <AlertCircle className="w-4 h-4 text-yellow-400" />
-        )}
-      </div>
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-gray-400">{label}:</span>
+      <span className="text-white font-semibold">{count}</span>
     </div>
   );
 }

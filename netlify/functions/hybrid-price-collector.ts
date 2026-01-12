@@ -68,6 +68,10 @@ interface KrakenPrice {
 type HybridPrice = MetaApiPrice | FinnhubPrice | KrakenPrice;
 
 async function fetchFromMetaAPI(symbol: string): Promise<MetaApiPrice | null> {
+  if (!metaApiToken || !metaApiAccountId) {
+    return null;
+  }
+
   try {
     const url = `https://mt-client-api-v1.${metaApiRegion}.agiliumtrade.ai/users/current/accounts/${metaApiAccountId}/symbols/${symbol}/current-price`;
 
@@ -76,7 +80,8 @@ async function fetchFromMetaAPI(symbol: string): Promise<MetaApiPrice | null> {
       headers: {
         'auth-token': metaApiToken,
         'Content-Type': 'application/json'
-      }
+      },
+      signal: AbortSignal.timeout(5000) // 5 second timeout
     });
 
     if (!response.ok) {
@@ -98,6 +103,7 @@ async function fetchFromMetaAPI(symbol: string): Promise<MetaApiPrice | null> {
       source: 'metaapi'
     };
   } catch (error) {
+    console.error(`[HybridCollector] MetaAPI error for ${symbol}:`, error instanceof Error ? error.message : 'Unknown');
     return null;
   }
 }
@@ -182,6 +188,17 @@ async function fetchPriceHybrid(symbol: string): Promise<HybridPrice | null> {
 
 async function savePriceToDatabase(priceData: HybridPrice): Promise<boolean> {
   try {
+    // VALIDATION: Sanity check price values
+    if (!priceData.bid || !priceData.ask || priceData.bid <= 0 || priceData.ask <= 0) {
+      console.error(`[HybridCollector] Invalid price for ${priceData.symbol}: bid=${priceData.bid}, ask=${priceData.ask}`);
+      return false;
+    }
+
+    if (priceData.ask < priceData.bid) {
+      console.error(`[HybridCollector] Invalid spread for ${priceData.symbol}: ask < bid`);
+      return false;
+    }
+
     const mid = (priceData.bid + priceData.ask) / 2;
     const spread = priceData.ask - priceData.bid;
 
@@ -205,7 +222,7 @@ async function savePriceToDatabase(priceData: HybridPrice): Promise<boolean> {
 
     return true;
   } catch (error) {
-    console.error(`[HybridCollector] Unexpected error saving ${priceData.symbol}:`, error);
+    console.error(`[HybridCollector] Unexpected error saving ${priceData.symbol}:`, error instanceof Error ? error.message : 'Unknown');
     return false;
   }
 }
@@ -216,6 +233,23 @@ export const handler: Handler = async (event, context) => {
   let totalTicksCollected = 0;
   let totalTicksFailed = 0;
   const sourceStats: Record<string, number> = { metaapi: 0, finnhub: 0, kraken: 0 };
+
+  // VALIDATION: Ensure critical environment variables exist
+  if (!supabaseUrl || !supabaseServiceKey) {
+    console.error('[HybridCollector] FATAL: Missing Supabase credentials');
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        success: false,
+        error: 'Missing Supabase configuration',
+        timestamp: new Date().toISOString()
+      })
+    };
+  }
+
+  if (!metaApiToken || !metaApiAccountId) {
+    console.error('[HybridCollector] WARNING: Missing MetaAPI credentials, crypto-only mode');
+  }
 
   console.log(`[HybridCollector:${executionId}] Starting hybrid price collection...`);
   console.log(`[HybridCollector:${executionId}] Forex symbols: ${FOREX_SYMBOLS.join(', ')}`);
