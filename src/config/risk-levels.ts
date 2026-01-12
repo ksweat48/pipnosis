@@ -1,7 +1,7 @@
 /**
  * SIMPLIFIED RISK CONFIGURATION (SSOT)
  *
- * Single STANDARD risk policy: 1-3% per trade, 10% max total exposure.
+ * Single STANDARD risk policy: 1-10% per trade, 20% max total exposure.
  * Risk is now user-controlled via dollar amounts and trade styles.
  *
  * Legacy functions maintained for backward compatibility.

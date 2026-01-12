@@ -19,6 +19,7 @@ import { safeExtractATRValue } from '../types/atr';
 import { calculatePipDistance } from '../utils/currencyHelpers';
 import { RISK_GATE_THRESHOLDS } from '../config/omega-thresholds';
 import { validateRiskPercentForMode, PLATFORM_ABSOLUTE_RISK_CAP, type RiskMode } from '../config/risk-mode-policy';
+import { TRADING_CONSTANTS } from '../config/trading-constants';
 
 export interface RiskGateInput {
   symbol: string;
@@ -350,12 +351,14 @@ class RiskPreflightGate {
     };
   }> {
     if (!isMultiTradeMode) {
+      // SSOT: Use platform maximum exposure from trading-constants.ts (20%)
+      const maxExposurePercent = TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_TOTAL_EXPOSURE * 100;
       return {
         canTrade: true,
         exposureInfo: {
           currentExposurePercent: 0,
-          remainingCapacityPercent: 10,
-          remainingCapacityDollars: accountBalance * 0.1,
+          remainingCapacityPercent: maxExposurePercent,
+          remainingCapacityDollars: accountBalance * TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_TOTAL_EXPOSURE,
         },
       };
     }

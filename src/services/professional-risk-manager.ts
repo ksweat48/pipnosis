@@ -9,6 +9,7 @@ import { winRateRROptimizer, WinRateRRInputs } from './winrate-rr-optimizer';
 import { progressiveRiskScaling, RiskScalingInputs } from './progressive-risk-scaling';
 import { getRiskStrategyProfile } from '../config/risk-strategy-profiles';
 import { calculateDollarPerPip } from '../utils/currencyHelpers';
+import { TRADING_CONSTANTS } from '../config/trading-constants';
 
 export interface ComprehensiveRiskAssessment {
   approved: boolean;
@@ -470,7 +471,8 @@ class ProfessionalRiskManager {
     const currentExposurePercent = (currentTotalRisk / accountBalance) * 100;
     const proposedExposurePercent = (proposedTotalRisk / accountBalance) * 100;
 
-    const maxExposurePercent = 10;
+    // SSOT: Platform maximum total exposure from trading-constants.ts (20%)
+    const maxExposurePercent = TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_TOTAL_EXPOSURE * 100;
     const canTrade = proposedExposurePercent <= maxExposurePercent;
 
     const remainingCapacityPercent = Math.max(
@@ -493,7 +495,7 @@ class ProfessionalRiskManager {
       remainingCapacityDollars,
       blockReason: canTrade
         ? undefined
-        : `Total exposure would exceed 10% maximum (current: ${currentExposurePercent.toFixed(1)}%, proposed: ${proposedExposurePercent.toFixed(1)}%)`,
+        : `Total exposure would exceed ${maxExposurePercent}% maximum (current: ${currentExposurePercent.toFixed(1)}%, proposed: ${proposedExposurePercent.toFixed(1)}%)`,
     };
   }
 }

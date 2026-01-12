@@ -9,6 +9,7 @@ import {
 import { MeaningfulTradeCalculator } from './meaningful-trade-calculator';
 import { logger } from '../lib/logger';
 import { supabase } from '../lib/supabase';
+import { TRADING_CONSTANTS } from '../config/trading-constants';
 
 interface FeasibilityInput {
   userId: string;
@@ -605,11 +606,12 @@ export class GoalFeasibilityResolver {
   ): { valid: boolean; warning?: string; riskPercent: number } {
     const riskPercent = this.calculateRiskPercentage(dollarRisk, accountBalance);
 
-    // Platform absolute limits (from TRADING_CONSTANTS)
-    if (riskPercent > 10) {
+    // SSOT: Platform absolute limits from trading-constants.ts
+    const maxRiskPercent = TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_PER_TRADE * 100;
+    if (riskPercent > maxRiskPercent) {
       return {
         valid: false,
-        warning: `Risk ${riskPercent.toFixed(2)}% exceeds platform maximum of 10%`,
+        warning: `Risk ${riskPercent.toFixed(2)}% exceeds platform maximum of ${maxRiskPercent}%`,
         riskPercent
       };
     }
