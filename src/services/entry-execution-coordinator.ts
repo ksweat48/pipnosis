@@ -138,21 +138,33 @@ export class EntryExecutionCoordinator {
       const eqsScore = (intent as any).eqs_score || null;
       const eqsGrade = eqsScore ? this.calculateEQSGrade(eqsScore) : null;
 
+      // Calculate position size from risk parameters
+      const { calculateLotSizeFromDollarRisk } = await import('../utils/currencyHelpers');
+      const riskDollars = marketContext?.risk_dollars || 10; // Default $10 risk if not specified
+      const lotSize = calculateLotSizeFromDollarRisk(
+        intent.symbol,
+        riskDollars,
+        actualEntryPrice,
+        adjustedStopLoss
+      );
+
       const tradeData = {
         user_id: intent.user_id,
-        session_id: intent.session_id,
+        goal_session_id: intent.session_id,
         symbol: intent.symbol,
         direction: intent.direction,
         entry_price: actualEntryPrice,
         stop_loss: adjustedStopLoss,
         take_profit: adjustedTakeProfit, // Legacy field for backward compatibility
+        position_size: lotSize,
+        lot_size: lotSize,
         tp1_price: tp1Price,
         tp1_confidence: tp1Confidence,
         tp1_reasoning: tp1Reasoning,
         tp2_price: tp2Price,
         tp2_reasoning: tp2Reasoning,
         status: 'open',
-        reasoning: intent.alpha_reasoning,
+        ai_reasoning: intent.alpha_reasoning,
         entry_intent_type: intent.intent_type,
         entry_urgency: intent.urgency,
         ideal_entry_price: idealEntryPrice,
