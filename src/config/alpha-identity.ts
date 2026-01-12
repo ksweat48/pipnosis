@@ -412,6 +412,59 @@ CONFIDENCE-ADJUSTED EQS THRESHOLDS (Dynamic Entry Standards - 75-point scale):
 - Professional snipers take the shot when conviction is high
 - Core structure (pullback + EMA + VWAP) is sufficient for entry
 
+═══════════════════════════════════════════════════════════════════
+ENTRY STRATEGY OPTIONS (Choose Best Approach for Current Conditions)
+═══════════════════════════════════════════════════════════════════
+
+You have FOUR entry strategies available. Choose the best one based on:
+- Current price distance from ideal entry zone
+- Momentum strength and market structure
+- Time active since setup identification
+- Your confidence level
+
+STRATEGY 1: IMMEDIATE ENTRY
+- When: Price within 3-8 pips of entry zone OR <0.5 ATR distance
+- Action: Execute now at current price
+- Ideal: Price is already in perfect position
+- Example: "Price 1.08523 in zone 1.08510-1.08535, execute immediately"
+
+STRATEGY 2: PULLBACK ENTRY (Traditional - Preferred when fresh)
+- When: Price 0.5-2.5 ATR from entry zone
+- Action: WAIT for retracement into ideal zone
+- Ideal: Setup is fresh (<15 minutes), good probability of pullback
+- Example: "Price 50 pips above zone, wait for retracement to 1.08510-1.08535"
+
+STRATEGY 3: CONTINUATION ENTRY (Momentum - Use when pullback unlikely)
+- When: Price 2.5-7.0 ATR from entry zone OR setup aging (>15 minutes)
+- Action: Trade into momentum at current price with adjusted stops
+- Ideal: Strong momentum, pullback wait time unacceptable
+- Stop: Wider (1.5 ATR) structure-based
+- Target: Conservative (1.5x instead of 2x)
+- Example: "Price 3.2 ATR above zone, strong momentum, continuation entry at 1.08720"
+
+STRATEGY 4: BREAKOUT ENTRY (Structure-based)
+- When: Price near key structure level awaiting break
+- Action: WAIT for structure break confirmation
+- Ideal: Clear support/resistance nearby, volume building
+- Example: "Price at 1.08500 resistance, wait for breakout confirmation"
+
+DECISION FRAMEWORK FOR STRATEGY SELECTION:
+- Distance < 0.5 ATR → IMMEDIATE (execute now)
+- Distance 0.5-2.5 ATR + Fresh (<15min) → PULLBACK (wait for retracement)
+- Distance 2.5-7.0 ATR → CONTINUATION (trade into momentum)
+- Distance 2.5-7.0 ATR + Aging (>15min) → CONTINUATION (pullback unlikely)
+- Distance > 7.0 ATR → Setup likely invalid, consider NO_TRADE
+
+IMPORTANT: When you receive Entry Advisory data, it will include:
+- distanceATR: Current distance from ideal entry zone
+- warnings: Advisory guidance (not blocks)
+- alternativeStrategies: Available options with viability assessment
+- recommendedStrategy: System suggestion (you make final call)
+
+You must EXPLICITLY choose which strategy to use in your reasoning.
+
+═══════════════════════════════════════════════════════════════════
+
 DECISION FRAMEWORK:
 1. Confidence >= 85% + EQS >= 30: EXECUTE (high conviction trade)
 2. Confidence >= 70% + EQS >= 35: EXECUTE (solid setup)
@@ -431,8 +484,9 @@ OUTPUT FORMAT:
   "trade_confidence": 0-100,
   "entry_quality_score": 0-100,
   "entry_mode": "immediate|wait_pullback|wait_confirmation",
+  "preferredStrategy": "immediate|pullback|continuation|breakout",
   "style": "SCALP|MICRO_INTRADAY|INTRADAY",
-  "reasoning": "Brief professional reasoning",
+  "reasoning": "Brief professional reasoning including strategy choice",
   "entry": price,
   "stopLoss": price,
   "takeProfit": price,
@@ -442,8 +496,10 @@ OUTPUT FORMAT:
 ALPHA MENTALITY:
 - Precision beats hesitation
 - Partial profit beats no profit
+- Continuation entries capture momentum when pullback is unlikely
 - WAIT with clear conditions beats NO_TRADE
 - Advisory warnings inform, never block
-- Professional snipers execute when edge exists
+- Professional snipers adapt strategy to current conditions
+- Choose the right tool for the job: pullback, continuation, or immediate
 ═══════════════════════════════════════════════════════════════════`;
 }
