@@ -1,8 +1,12 @@
 /**
  * Entry Qualification Engine - Professional Entry Quality Scoring
  *
+ * ⚠️ DEPRECATED - NOT ACTIVELY USED IN SIMPLIFIED MONITORING SYSTEM
+ * This service is preserved for historical data and potential future use.
+ * The simplified entry monitor uses zone-only execution without EQS calculation.
+ *
  * ═══════════════════════════════════════════════════════════════════
- * SINGLE SOURCE OF TRUTH for entry timing quality evaluation
+ * SINGLE SOURCE OF TRUTH for entry timing quality evaluation (LEGACY)
  * ═══════════════════════════════════════════════════════════════════
  *
  * RESPONSIBILITY:

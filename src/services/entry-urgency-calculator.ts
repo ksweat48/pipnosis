@@ -1,7 +1,11 @@
 /**
  * Entry Urgency Calculator - Time-Based EQS Threshold Decay
  *
- * SINGLE SOURCE OF TRUTH for time-based entry urgency logic.
+ * ⚠️ DEPRECATED - NOT USED IN SIMPLIFIED MONITORING SYSTEM
+ * This service is preserved for historical data and potential future use.
+ * The simplified entry monitor has no timeouts or time-based urgency phases.
+ *
+ * SINGLE SOURCE OF TRUTH for time-based entry urgency logic (LEGACY)
  *
  * ARCHITECTURE:
  * - Automatically determines urgency phase based on time elapsed and trading style

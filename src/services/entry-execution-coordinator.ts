@@ -247,6 +247,67 @@ export class EntryExecutionCoordinator {
     return names[intentType] || intentType;
   }
 
+  /**
+   * Manual entry execution - User clicks button to enter trade immediately
+   * Executes at current market price regardless of zone or quality
+   */
+  static async executeManualEntry(
+    intentId: string
+  ): Promise<{ success: boolean; tradeId?: string; error?: string }> {
+    try {
+      logger.info(`[EntryExecutionCoordinator] Manual entry requested for intent ${intentId}`);
+
+      // Fetch intent to get current state
+      const { getEntryIntentWithSession } = await import('./entry-intent-monitor-mode');
+      const intent = await getEntryIntentWithSession(intentId);
+
+      if (!intent) {
+        logger.error('Failed to fetch intent for manual entry: intent not found');
+        return { success: false, error: 'Intent not found' };
+      }
+
+      if (intent.status !== 'monitoring') {
+        logger.error(`Intent ${intentId} is not in monitoring status: ${intent.status}`);
+        return { success: false, error: `Intent is ${intent.status}, cannot execute` };
+      }
+
+      // Get current market price
+      const { marketDataService } = await import('./market-data-service');
+      const priceData = await marketDataService.getCurrentPrice(intent.symbol);
+
+      if (!priceData || priceData.freshness === 'invalid') {
+        logger.error('Failed to get current price for manual entry');
+        return { success: false, error: 'Cannot get current market price' };
+      }
+
+      const currentPrice = priceData.price;
+      logger.info(`[EntryExecutionCoordinator] Manual entry at market price: ${currentPrice}`);
+
+      // Mark intent as manual entry requested
+      await supabase
+        .from('entry_intents')
+        .update({
+          manual_entry_requested: true,
+          manual_entry_at: new Date().toISOString()
+        })
+        .eq('id', intentId);
+
+      // Execute trade at current market price
+      const result = await this.executeFromIntent(intentId, currentPrice);
+
+      if (result.success) {
+        // Stop monitoring since trade is executed
+        await activeEntryMonitor.stopMonitoring(intentId);
+        logger.info(`[EntryExecutionCoordinator] Manual entry successful: trade ${result.tradeId}`);
+      }
+
+      return result;
+    } catch (error) {
+      logger.error('Error executing manual entry:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
   static async cancelIntent(intentId: string, reason: string): Promise<boolean> {
     try {
       await EntryPlannerService.updateIntentStatus(intentId, 'canceled', reason);
