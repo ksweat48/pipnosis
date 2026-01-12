@@ -8,6 +8,7 @@ import {
   isTimestampAligned,
 } from '@/config/timeframe-hierarchy';
 import { isMarketOpenAt, getTimeframeLookbackHours } from '@/utils/marketHours';
+import { prodLogger } from '@/lib/production-logger';
 
 function appTimeframeToDb(timeframe: Timeframe): string {
   return formatTimeframeForDb(timeframe);
@@ -439,7 +440,7 @@ export async function fetchPreAggregatedCandles(
           const wickSize = candleRange - candleBody;
 
           if (candleBody > 0 && wickSize / candleBody > 10) {
-            console.warn(`[fetchPreAggregatedCandles] ⚠️ WARNING candle ${index} for ${symbol}: excessive wick ${(wickSize/candleBody).toFixed(1)}x body (may skip)`);
+            prodLogger.dev(`[fetchPreAggregatedCandles] ⚠️ WARNING candle ${index} for ${symbol}: excessive wick ${(wickSize/candleBody).toFixed(1)}x body (may skip)`);
             // Still allow but log warning - might be valid spike
           }
 
