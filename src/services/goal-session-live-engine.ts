@@ -518,21 +518,27 @@ class GoalSessionLiveEngine {
       });
 
       // ✅ ENTRY MONITOR: Block global rescans during ENTRY_MONITOR mode
+      // CRITICAL: Use canScanNow() instead of getMonitorState() to trigger self-healing
       if (this.activeSession) {
         console.log('%c[PROCESS_MULTI_SYMBOL] ✅ activeSession exists:', 'color: #4caf50; font-weight: bold', this.activeSession);
 
+        // Call canScanNow() which includes validateAndHealState() to auto-fix orphaned states
+        const scanCheck = await entryMonitorCoordinator.canScanNow(this.activeSession);
+
+        // Also get state for logging purposes
         const monitorState = await entryMonitorCoordinator.getMonitorState(this.activeSession);
         console.log('%c[PROCESS_MULTI_SYMBOL] 📊 Monitor state:', 'color: #2196f3; font-weight: bold', {
           state: monitorState.state,
-          canScan: monitorState.canScan,
+          canScan: scanCheck.allowed,
+          reason: scanCheck.reason,
           lockedSymbol: monitorState.lockedSymbol,
           activeIntentId: monitorState.activeIntentId
         });
 
-        if (!monitorState.canScan) {
+        if (!scanCheck.allowed) {
           logger.debug(
             LogCategory.AI_TRADING,
-            `[ENTRY_MONITOR] Blocking scan - in ${monitorState.state} mode for ${monitorState.lockedSymbol} ${monitorState.lockedDirection}`
+            `[ENTRY_MONITOR] Blocking scan - ${scanCheck.reason}`
           );
           console.log('%c[PROCESS_MULTI_SYMBOL] ⛔ Scan blocked by monitor state', 'color: #ff9800; font-weight: bold');
           return;

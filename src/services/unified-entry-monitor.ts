@@ -28,6 +28,7 @@ import { EntryUrgencyCalculator } from './entry-urgency-calculator';
 import { entryThesisMemoryService } from './entry-thesis-memory-service';
 import { ADAPTIVE_ZONE_CONFIG, type ExecutedZoneType } from '../config/adaptive-zone-config';
 import { ZoneMetaLearningService } from './zone-meta-learning-service';
+import { globalToastManager } from './global-toast-manager';
 
 /**
  * Timeout wrapper for async operations
@@ -281,6 +282,18 @@ export class UnifiedEntryMonitor {
     this.immediatelyStopInterval(intentId);
 
     if (hadInterval) {
+      // Get session ID for state cleanup BEFORE any other operations
+      let sessionId: string | null = null;
+      try {
+        const intent = await this.getIntent(intentId);
+        sessionId = intent?.session_id || null;
+      } catch (error) {
+        logger.warn(`[UnifiedMonitor] Could not fetch intent for state cleanup`, {
+          intentId: intentId.substring(0, 8),
+          error
+        });
+      }
+
       // If a reason is provided, invoke onAbandon callback before cleanup
       if (reason) {
         // Map AbandonReason to EntryOutcomeReason for taxonomy
@@ -338,6 +351,27 @@ export class UnifiedEntryMonitor {
           } catch (error) {
             console.error(`[UnifiedMonitor] ❌ Error invoking onAbandon callback:`, error);
           }
+        }
+      }
+
+      // CRITICAL: Reset monitor state to DISCOVERY_SCANNING to prevent orphaned state
+      if (sessionId) {
+        try {
+          await supabase.rpc('transition_entry_monitor_state', {
+            p_session_id: sessionId,
+            p_new_state: 'DISCOVERY_SCANNING',
+            p_locked_symbol: null,
+            p_locked_direction: null
+          });
+          console.log(`[UnifiedMonitor] ✅ Reset monitor state to DISCOVERY_SCANNING`, {
+            sessionId: sessionId.substring(0, 8),
+            intentId: intentId.substring(0, 8)
+          });
+        } catch (stateError) {
+          logger.error(`[UnifiedMonitor] Failed to reset monitor state`, {
+            sessionId: sessionId.substring(0, 8),
+            error: stateError
+          });
         }
       }
 
@@ -1138,36 +1172,89 @@ export class UnifiedEntryMonitor {
         console.log('[UnifiedMonitor] No callback registered, using direct execution path...');
 
         try {
-          // Step 1: Update intent status to 'executed'
-          console.log('[UnifiedMonitor] Step 1: Updating intent status to executed...');
+          // CRITICAL FIX: Create trade FIRST, mark intent executed ONLY if trade creation succeeds
+          // This prevents orphaned 'executed' intents with no corresponding trade
+
+          // Step 1: Create trade in database
+          console.log('[UnifiedMonitor] Step 1: Creating trade in database...');
+          const result = await EntryExecutionCoordinator.executeFromIntent(intent.id, entryPrice);
+
+          if (!result.success) {
+            // Trade creation FAILED - DO NOT mark intent as executed, keep monitoring
+            const errorMsg = `Trade execution failed for ${intent.symbol} - monitoring will continue`;
+            console.error('%c[UnifiedMonitor] ❌ TRADE EXECUTION FAILED - INTENT REMAINS IN MONITORING', 'color: #f44336; font-weight: bold; font-size: 16px');
+            logger.error('[UnifiedMonitor] Trade creation failed, intent will continue monitoring', {
+              intentId: intent.id,
+              symbol: intent.symbol,
+              entryPrice
+            });
+
+            // Show user notification about the failure
+            globalToastManager.show(
+              `⚠️ Trade execution failed for ${intent.symbol}. Please report this error. Monitoring continues.`,
+              'error'
+            );
+
+            // Do NOT stop monitoring - let it retry on next qualifying conditions
+            return;
+          }
+
+          // Step 2: Trade created successfully, NOW mark intent as executed
+          console.log('[UnifiedMonitor] Step 2: Marking intent as executed...');
           await EntryPlannerService.updateIntentStatus(intent.id, 'executed', undefined, entryPrice);
           console.log('[UnifiedMonitor] ✅ Intent status updated');
 
-          // Step 2: Execute trade through coordinator
-          console.log('[UnifiedMonitor] Step 2: Creating trade in database...');
-          const result = await EntryExecutionCoordinator.executeFromIntent(intent.id, entryPrice);
-
-          if (result.success) {
-            console.log('%c[UnifiedMonitor] ✅ TRADE EXECUTED SUCCESSFULLY!', 'color: #4caf50; font-weight: bold; font-size: 18px', {
-              tradeId: result.tradeId,
-              symbol: intent.symbol,
-              direction: intent.direction,
-              entryPrice,
-              eqsScore
-            });
-            logger.info(`[UnifiedMonitor] Trade created: ${result.tradeId}`);
-          } else {
-            console.error('%c[UnifiedMonitor] ❌ TRADE EXECUTION FAILED', 'color: #f44336; font-weight: bold; font-size: 16px');
-            logger.error('[UnifiedMonitor] Failed to create trade');
+          // Step 3: Transition monitor state to allow new scans
+          if (intent.session_id) {
+            try {
+              await supabase.rpc('transition_entry_monitor_state', {
+                p_session_id: intent.session_id,
+                p_new_state: 'DISCOVERY_SCANNING',
+                p_locked_symbol: null,
+                p_locked_direction: null
+              });
+              console.log('[UnifiedMonitor] ✅ Monitor state reset to DISCOVERY_SCANNING');
+            } catch (stateError) {
+              logger.error('[UnifiedMonitor] Failed to transition monitor state after execution', stateError);
+            }
           }
+
+          console.log('%c[UnifiedMonitor] ✅ TRADE EXECUTED SUCCESSFULLY!', 'color: #4caf50; font-weight: bold; font-size: 18px', {
+            tradeId: result.tradeId,
+            symbol: intent.symbol,
+            direction: intent.direction,
+            entryPrice,
+            eqsScore
+          });
+          logger.info(`[UnifiedMonitor] Trade created successfully: ${result.tradeId}`);
+
         } catch (executionError) {
+          // Unexpected error during execution - log details and notify user
           console.error('%c[UnifiedMonitor] ❌ EXECUTION ERROR', 'color: #f44336; font-weight: bold; font-size: 16px', executionError);
-          logger.error('[UnifiedMonitor] Direct execution error:', executionError);
+          logger.error('[UnifiedMonitor] Critical execution error:', {
+            error: executionError,
+            stack: executionError instanceof Error ? executionError.stack : undefined,
+            intentId: intent.id,
+            symbol: intent.symbol,
+            sessionId: intent.session_id,
+            entryPrice,
+            eqsScore
+          });
+
+          // Notify user of the error
+          globalToastManager.show(
+            `⚠️ Critical error executing trade for ${intent.symbol}. Please report this error.`,
+            'error'
+          );
         }
       }
     } catch (error) {
       console.error('%c[UnifiedMonitor] ❌ ERROR DURING EXECUTION:', 'color: #f44336; font-weight: bold; font-size: 16px', error);
-      logger.error('[UnifiedMonitor] Execution error:', error);
+      logger.error('[UnifiedMonitor] Outer execution error:', {
+        error,
+        stack: error instanceof Error ? error.stack : undefined,
+        intentId: intent.id
+      });
     }
   }
 }
