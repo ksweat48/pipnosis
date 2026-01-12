@@ -66,6 +66,13 @@
   timeout = 30
   schedule = "* * * * *"  # 🚨 5-field format ONLY - processes active goal sessions
 
+# 🎯 AUTONOMOUS: Entry intent monitor (runs every minute)
+# ELIMINATES BROWSER THROTTLING: Monitors entry intents server-side for true "set and forget"
+# Enables trade execution even when browser is closed
+[functions."autonomous-entry-monitor"]
+  timeout = 30
+  schedule = "* * * * *"  # 🚨 5-field format ONLY - monitors active entry intents
+
 # 🚨 EMERGENCY: Position recovery backup monitor (runs every minute)
 # CRITICAL SAFETY NET: Force-recovers stuck positions that didn't close at TP/SL
 [functions."emergency-position-recovery"]

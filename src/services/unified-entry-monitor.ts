@@ -235,17 +235,38 @@ export class UnifiedEntryMonitor {
       return;
     }
 
+    // Check if server monitoring is active
+    const isServerMonitoring = await this.checkServerMonitoringActive(intent);
+
+    if (isServerMonitoring) {
+      console.log('%c[UnifiedMonitor] 🖥️ Server monitoring ACTIVE - browser monitoring disabled', 'color: #4caf50; font-weight: bold', {
+        intentId,
+        symbol: intent.symbol,
+        serverHeartbeat: intent.server_heartbeat,
+        executionMode: intent.execution_mode
+      });
+      logger.info(`[UnifiedMonitor] Server monitoring active for ${intentId}, browser monitoring not needed`);
+
+      // Store callbacks but don't start polling - server will handle it
+      if (callbacks) {
+        this.callbacks.set(intentId, callbacks);
+      }
+
+      return;
+    }
+
     const styleConfig = tradeStyleRegistry.getConfig(intent.style || 'MICRO_INTRADAY');
-    console.log('%c[UnifiedMonitor] ✅ Starting monitoring', 'color: #4caf50; font-weight: bold', {
+    console.log('%c[UnifiedMonitor] 💻 Starting BROWSER monitoring (server inactive)', 'color: #ff9800; font-weight: bold', {
       intentId,
       symbol: intent.symbol,
       direction: intent.direction,
       style: styleConfig.canonical,
       pollIntervalMs: styleConfig.pollIntervalMs,
       eqsThreshold: styleConfig.eqsThreshold,
-      hasCallbacks: !!callbacks
+      hasCallbacks: !!callbacks,
+      reason: intent.execution_mode === 'browser' ? 'browser mode' : 'server stale'
     });
-    logger.info(`[UnifiedMonitor] Starting monitoring for ${intentId} (${styleConfig.canonical})`);
+    logger.info(`[UnifiedMonitor] Starting BROWSER monitoring for ${intentId} (${styleConfig.canonical}) - server inactive`);
 
     // Store callbacks for this intent
     if (callbacks) {
@@ -257,8 +278,47 @@ export class UnifiedEntryMonitor {
     }, styleConfig.pollIntervalMs);
 
     this.monitoringIntervals.set(intentId, interval);
-    console.log('[UnifiedMonitor] ⏰ Interval set, running first check immediately...');
+    console.log('[UnifiedMonitor] ⏰ Browser interval set, running first check immediately...');
     await this.checkIntent(intentId, userId, styleConfig.canonical);
+  }
+
+  /**
+   * Check if server monitoring is active and healthy
+   * Server is considered active if:
+   * - execution_mode is 'server'
+   * - server_heartbeat exists and is < 90 seconds old
+   */
+  private async checkServerMonitoringActive(intent: any): Promise<boolean> {
+    // If execution_mode is explicitly browser, server is not active
+    if (intent.execution_mode === 'browser') {
+      return false;
+    }
+
+    // If no server heartbeat, server is not active
+    if (!intent.server_heartbeat) {
+      return false;
+    }
+
+    // Check if server heartbeat is fresh (< 90 seconds old)
+    const heartbeatAge = Date.now() - new Date(intent.server_heartbeat).getTime();
+    const isHeartbeatFresh = heartbeatAge < 90000; // 90 seconds
+
+    if (!isHeartbeatFresh) {
+      logger.warn(`[UnifiedMonitor] Server heartbeat stale (${Math.round(heartbeatAge / 1000)}s old), falling back to browser`);
+
+      // Update intent to browser mode since server is stale
+      await supabase
+        .from('entry_intents')
+        .update({
+          execution_mode: 'browser',
+          server_error: `Server heartbeat stale (${Math.round(heartbeatAge / 1000)}s old)`
+        })
+        .eq('id', intent.id);
+
+      return false;
+    }
+
+    return true;
   }
 
   /**
@@ -425,14 +485,39 @@ export class UnifiedEntryMonitor {
 
   /**
    * Health monitoring - detects silent failures and auto-recovers
+   * Also checks if server monitoring has become active
    * Runs every 10 seconds to check monitoring health
    */
   private startHealthMonitoring(): void {
-    this.healthCheckInterval = setInterval(() => {
+    this.healthCheckInterval = setInterval(async () => {
       const now = Date.now();
 
       for (const [intentId, lastCheck] of this.lastCheckTimestamp.entries()) {
         const secondsSinceLastCheck = (now - lastCheck) / 1000;
+
+        // Check if server monitoring has become active - if so, stop browser monitoring
+        try {
+          const { data: intent } = await supabase
+            .from('entry_intents')
+            .select('execution_mode, server_heartbeat')
+            .eq('id', intentId)
+            .maybeSingle();
+
+          if (intent && intent.execution_mode === 'server' && intent.server_heartbeat) {
+            const heartbeatAge = Date.now() - new Date(intent.server_heartbeat).getTime();
+            if (heartbeatAge < 90000) {
+              console.log(
+                '%c[UnifiedMonitor] 🖥️ Server monitoring now active - stopping browser monitoring',
+                'color: #4caf50; font-weight: bold',
+                { intentId: intentId.substring(0, 8) + '...' }
+              );
+              this.stopMonitoring(intentId, 'SERVER_MONITORING_ACTIVE');
+              continue;
+            }
+          }
+        } catch (error) {
+          // Ignore errors in health check
+        }
 
         if (secondsSinceLastCheck > 15 && secondsSinceLastCheck < 30) {
           console.warn(
