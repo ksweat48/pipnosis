@@ -68,11 +68,11 @@ export class EntryExecutionCoordinator {
         confidence: decision.confidence,
         stop_loss: decision.stopLoss,
         take_profit: decision.takeProfit,
-        tp1Price: decision.tp1Price,
-        tp1Confidence: decision.tp1Confidence,
-        tp1Reasoning: decision.tp1Reasoning,
-        tp2Price: decision.tp2Price,
-        tp2Reasoning: decision.tp2Reasoning,
+        tp1_price: decision.tp1Price,
+        tp1_confidence: decision.tp1Confidence,
+        tp1_reasoning: decision.tp1Reasoning,
+        tp2_price: decision.tp2Price,
+        tp2_reasoning: decision.tp2Reasoning,
         risk_dollars: 10, // Default $10 risk - will be overridden by session config if available
         omega_summary: decision.omega_summary
       }
@@ -136,11 +136,11 @@ export class EntryExecutionCoordinator {
       }
 
       // Extract TP1/TP2 values from Alpha decision (if available)
-      const tp1Price = marketContext?.tp1Price || null;
-      const tp1Confidence = marketContext?.tp1Confidence || null;
-      const tp1Reasoning = marketContext?.tp1Reasoning || null;
-      const tp2Price = marketContext?.tp2Price || adjustedTakeProfit;
-      const tp2Reasoning = marketContext?.tp2Reasoning || null;
+      const tp1Price = marketContext?.tp1_price || null;
+      const tp1Confidence = marketContext?.tp1_confidence || null;
+      const tp1Reasoning = marketContext?.tp1_reasoning || null;
+      const tp2Price = marketContext?.tp2_price || adjustedTakeProfit;
+      const tp2Reasoning = marketContext?.tp2_reasoning || null;
 
       // Get EQS data from intent (calculated by active-entry-monitor)
       const eqsScore = (intent as any).eqs_score || null;

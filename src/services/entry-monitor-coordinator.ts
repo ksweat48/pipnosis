@@ -421,7 +421,7 @@ class EntryMonitorCoordinator {
       {
         ...decision.marketContext,
         confidence: decision.confidence,
-        originalEntry: decision.entry
+        original_entry: decision.entry
       },
       'immediate_momentum',
       preFlightResult.advisory_level  // Store advisory level for tracking and learning

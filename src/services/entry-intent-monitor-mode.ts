@@ -189,8 +189,8 @@ export async function createEntryIntentWithMonitoring(
       alpha_reasoning: alphaReasoning,
       market_context: {
         ...marketContext,
-        stopLoss,
-        takeProfit
+        stop_loss: stopLoss,
+        take_profit: takeProfit
       },
       // Alpha authority restoration fields
       entry_type: 'pullback',  // Default to pullback entry

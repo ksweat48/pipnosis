@@ -29,6 +29,7 @@ import { entryThesisMemoryService } from './entry-thesis-memory-service';
 import { ADAPTIVE_ZONE_CONFIG, type ExecutedZoneType } from '../config/adaptive-zone-config';
 import { ZoneMetaLearningService } from './zone-meta-learning-service';
 import { globalToastManager } from './global-toast-manager';
+import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 
 /**
  * Timeout wrapper for async operations
@@ -745,9 +746,14 @@ export class UnifiedEntryMonitor {
 
       // SIMPLIFIED EXECUTION DECISION: Just check if in zone
       const shouldExecute = inEntryZone;
+
+      // Convert distance to pips for display (distanceToZone is in price units)
+      const pipInfo = getCurrencyPipInfo(intent.symbol);
+      const distanceToPips = distanceToZone / pipInfo.pipValue;
+
       const executionReason = inEntryZone
         ? '✅ PRICE IN ENTRY ZONE - AUTO EXECUTING'
-        : `⏳ Waiting for entry zone (${distanceToZone.toFixed(5)} pips away)`;
+        : `⏳ Waiting for entry zone (${distanceToPips.toFixed(2)} pips away)`;
 
       // Always log execution decisions (critical for monitoring)
       logger.info(`[UnifiedMonitor] EXECUTION DECISION: ${shouldExecute ? '✅ EXECUTE' : '⏳ WAIT'} - ${executionReason}`);
@@ -758,7 +764,7 @@ export class UnifiedEntryMonitor {
           currentPrice: priceData.price.toFixed(5),
           entryZone: `${intent.entry_zone_min.toFixed(5)} - ${intent.entry_zone_max.toFixed(5)}`,
           inZone: inEntryZone,
-          distanceToZone: distanceToZone.toFixed(5),
+          distanceToZone: `${distanceToPips.toFixed(2)} pips`,
           willExecute: shouldExecute
         });
       }
@@ -774,7 +780,7 @@ export class UnifiedEntryMonitor {
         await this.stopMonitoring(intentId);
       } else {
         console.log('%c[UnifiedMonitor] ⏳ Waiting for entry zone...', 'color: #ff9800; font-weight: bold', {
-          distanceToZone: `${distanceToZone.toFixed(5)} pips`,
+          distanceToZone: `${distanceToPips.toFixed(2)} pips`,
           currentPrice: priceData.price.toFixed(5),
           targetZone: `${intent.entry_zone_min.toFixed(5)} - ${intent.entry_zone_max.toFixed(5)}`
         });
