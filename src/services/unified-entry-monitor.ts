@@ -62,6 +62,7 @@ export class UnifiedEntryMonitor {
   private consecutiveOutsideZone: Map<string, number> = new Map(); // Setup validity tracking
   private executedZoneTypes: Map<string, ExecutedZoneType> = new Map(); // Track which zone triggered execution
   private zoneHitTimestamps: Map<string, number> = new Map(); // Track when zone was first reached
+  private healthStopAttempts: Set<string> = new Set(); // Track intents health monitor already tried to stop
 
   private constructor() {
     // Start interval health monitoring
@@ -269,6 +270,8 @@ export class UnifiedEntryMonitor {
     if (interval) {
       clearInterval(interval);
       this.monitoringIntervals.delete(intentId);
+      this.lastCheckTimestamp.delete(intentId); // Remove from health tracking
+      this.healthStopAttempts.delete(intentId); // Reset health stop tracking
       console.log(`[UnifiedMonitor] ⚡ Interval cleared immediately (runaway loop prevention)`, {
         intentId: intentId.substring(0, 8)
       });
@@ -416,6 +419,7 @@ export class UnifiedEntryMonitor {
     this.consecutiveOutsideZone.clear();
     this.executedZoneTypes.clear();
     this.zoneHitTimestamps.clear();
+    this.healthStopAttempts.clear();
     logger.info('[UnifiedMonitor] Stopped all monitoring');
   }
 
@@ -441,6 +445,12 @@ export class UnifiedEntryMonitor {
             }
           );
         } else if (secondsSinceLastCheck >= 30) {
+          // Debounce: Only try to stop once per intent per health check cycle
+          if (this.healthStopAttempts.has(intentId)) {
+            // Already tried to stop this intent, skip to prevent spam
+            continue;
+          }
+
           console.error(
             '%c[UnifiedMonitor] 🚨 HEALTH CRITICAL',
             'color: #f44336; font-weight: bold',
@@ -451,10 +461,19 @@ export class UnifiedEntryMonitor {
             }
           );
 
+          // Mark as attempted to prevent repeated stop calls
+          this.healthStopAttempts.add(intentId);
+
           // Auto-recovery: Stop this monitoring to prevent deadlock
           logger.error(`[UnifiedMonitor] Auto-stopping deadlocked monitor ${intentId}`);
           this.stopMonitoring(intentId, 'MONITORING_STALLED');
         }
+      }
+
+      // Clear health stop attempts every 60 seconds to allow re-detection if needed
+      // This is safe because stopMonitoring removes from lastCheckTimestamp
+      if (this.healthStopAttempts.size > 0 && now % 60000 < 10000) {
+        this.healthStopAttempts.clear();
       }
     }, 10000); // Check every 10 seconds
   }
@@ -462,6 +481,16 @@ export class UnifiedEntryMonitor {
   private async checkIntent(intentId: string, userId: string, style: string): Promise<void> {
     const checkStartTime = Date.now();
     const isDev = import.meta.env.DEV;
+
+    // ZOMBIE CHECK: If this intent is no longer being monitored, exit immediately
+    // This prevents orphaned interval callbacks from continuing after stopMonitoring()
+    if (!this.monitoringIntervals.has(intentId)) {
+      console.log('%c[UnifiedMonitor] 👻 ZOMBIE CHECK - Intent no longer monitored, skipping', 'color: #9e9e9e; font-weight: bold', {
+        intentId: intentId.substring(0, 8),
+        timestamp: new Date().toLocaleTimeString()
+      });
+      return;
+    }
 
     if (isDev) {
       console.log('%c[UnifiedMonitor] 🔄 checkIntent running', 'color: #00bcd4; font-weight: bold', {
