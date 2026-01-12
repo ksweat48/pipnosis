@@ -141,6 +141,13 @@ class PriceCoordinator {
       if (priceRow) {
         const timestamp = new Date(priceRow.broker_time || priceRow.created_at);
         const ageSeconds = getAgeInSeconds(timestamp);
+
+        // ABSOLUTE MAX CHECK: Reject prices older than 10 minutes
+        if (ageSeconds > TIME_CONSTANTS.SECONDS.PRICE_STALENESS_ABSOLUTE_MAX) {
+          results.set(symbol, await this.getPrice(symbol, options));
+          continue;
+        }
+
         const mid = (priceRow.bid + priceRow.ask) / 2;
         const spread = priceRow.ask - priceRow.bid;
 
@@ -187,6 +194,17 @@ class PriceCoordinator {
 
       const timestamp = new Date(data.broker_time || data.created_at);
       const ageSeconds = getAgeInSeconds(timestamp);
+
+      // ABSOLUTE MAX CHECK: Reject prices older than 10 minutes
+      // This prevents serving extremely stale data (e.g., 52-hour old prices)
+      if (ageSeconds > TIME_CONSTANTS.SECONDS.PRICE_STALENESS_ABSOLUTE_MAX) {
+        return {
+          success: false,
+          price: null,
+          error: `Price data too old: ${ageSeconds}s (max: ${TIME_CONSTANTS.SECONDS.PRICE_STALENESS_ABSOLUTE_MAX}s)`,
+        };
+      }
+
       const mid = (data.bid + data.ask) / 2;
       const spread = data.ask - data.bid;
 
@@ -275,6 +293,13 @@ class PriceCoordinator {
     }
 
     const ageSeconds = getAgeInSeconds(cached.data.timestamp);
+
+    // ABSOLUTE MAX CHECK: Reject cached prices older than 10 minutes
+    if (ageSeconds > TIME_CONSTANTS.SECONDS.PRICE_STALENESS_ABSOLUTE_MAX) {
+      this.priceCache.delete(symbol);
+      return null;
+    }
+
     return {
       ...cached.data,
       ageSeconds,

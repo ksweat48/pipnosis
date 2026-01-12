@@ -15,6 +15,7 @@
 # - automatic-gap-filler: Fills missing data every 3 minutes
 # - autonomous-goal-monitor: Monitors active goal sessions every minute
 # - emergency-position-recovery: Safety net for stuck positions every minute
+# - realtime-prices-cleanup: Cleans up stale price data every hour
 #
 # See: docs/CRITICAL_SYSTEMS.md for details
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -77,6 +78,13 @@
 [functions."automatic-gap-filler"]
   timeout = 120  # 2 minutes to detect and fill gaps
   schedule = "* * * * *"  # 🚨 Every 1 minute - comprehensive backend coverage
+
+# 🧹 CRITICAL: Automatic price data cleanup (runs every hour)
+# PREVENTS STALE DATA: Removes prices older than 24 hours to prevent "Price data is XXXXs old" errors
+# This function calls the database cleanup_old_realtime_prices_batch() function
+[functions."realtime-prices-cleanup"]
+  timeout = 60
+  schedule = "0 * * * *"  # 🚨 Every hour at :00 minutes - keeps price data fresh
 
 # 📊 COMPREHENSIVE BACKFILL: Backfill all timeframes for new currency pairs
 [functions."backfill-all-timeframes-new-pairs"]
