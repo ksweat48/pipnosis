@@ -18,7 +18,9 @@ import {
   Zap,
   Database,
   Brain,
-  TrendingUp
+  TrendingUp,
+  DollarSign,
+  Clock
 } from 'lucide-react';
 
 export default function SystemDiagnosticsPage() {
@@ -27,6 +29,9 @@ export default function SystemDiagnosticsPage() {
   const [testResults, setTestResults] = useState<any>(null);
   const [trainingLabHealth, setTrainingLabHealth] = useState<any>(null);
   const [healthLoading, setHealthLoading] = useState(true);
+  const [priceDataStatus, setPriceDataStatus] = useState<any>(null);
+  const [priceDataLoading, setPriceDataLoading] = useState(true);
+  const [triggeringPriceCollection, setTriggeringPriceCollection] = useState(false);
 
   const pullToRefresh = usePullToRefresh({
     onRefresh: async () => {
@@ -37,12 +42,16 @@ export default function SystemDiagnosticsPage() {
 
   useEffect(() => {
     checkTrainingLabHealth();
+    checkPriceDataStatus();
 
     // Poll training lab health every 10 seconds
     const healthInterval = setInterval(checkTrainingLabHealth, 10000);
+    // Poll price data status every 5 seconds
+    const priceInterval = setInterval(checkPriceDataStatus, 5000);
 
     return () => {
       clearInterval(healthInterval);
+      clearInterval(priceInterval);
     };
   }, [user]);
 
@@ -112,6 +121,97 @@ export default function SystemDiagnosticsPage() {
     if (sessions.length === 0) return 0;
     const total = sessions.reduce((sum, s) => sum + (s.win_rate || 0), 0);
     return total / sessions.length;
+  };
+
+  const checkPriceDataStatus = async () => {
+    if (!user) return;
+
+    setPriceDataLoading(true);
+    try {
+      // Check realtime_prices table for recent data
+      const { data: prices, error, count } = await supabase
+        .from('realtime_prices')
+        .select('symbol, broker_time, created_at, source', { count: 'exact' })
+        .order('broker_time', { ascending: false })
+        .limit(10);
+
+      if (error) {
+        console.error('[Price Data Diagnostics] Error:', error);
+        setPriceDataStatus({
+          status: 'error',
+          error: error.message,
+          totalRecords: 0,
+          latestPrices: []
+        });
+        return;
+      }
+
+      const latestPrices = (prices || []).map(p => {
+        const timestamp = new Date(p.broker_time || p.created_at);
+        const ageSeconds = Math.round((Date.now() - timestamp.getTime()) / 1000);
+        return {
+          symbol: p.symbol,
+          ageSeconds,
+          source: p.source,
+          timestamp: timestamp.toISOString()
+        };
+      });
+
+      const oldestAge = latestPrices.length > 0 ? Math.max(...latestPrices.map(p => p.ageSeconds)) : Infinity;
+
+      let status: 'healthy' | 'warning' | 'critical' | 'empty' = 'healthy';
+      if (latestPrices.length === 0) {
+        status = 'empty';
+      } else if (oldestAge > 300) {
+        status = 'critical';
+      } else if (oldestAge > 120) {
+        status = 'warning';
+      }
+
+      setPriceDataStatus({
+        status,
+        totalRecords: count || 0,
+        latestPrices,
+        oldestAgeSeconds: oldestAge
+      });
+    } catch (error) {
+      console.error('[Price Data Diagnostics] Error:', error);
+      setPriceDataStatus({
+        status: 'error',
+        error: error instanceof Error ? error.message : 'Unknown error',
+        totalRecords: 0,
+        latestPrices: []
+      });
+    } finally {
+      setPriceDataLoading(false);
+    }
+  };
+
+  const triggerEmergencyPriceCollection = async () => {
+    setTriggeringPriceCollection(true);
+    try {
+      const response = await fetch('/.netlify/functions/emergency-price-trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('[Emergency Price Trigger] Result:', result);
+
+      // Refresh price data status
+      await checkPriceDataStatus();
+
+      alert(`Price collection triggered! ${result.summary?.successCount || 0} symbols collected successfully.`);
+    } catch (error) {
+      console.error('[Emergency Price Trigger] Error:', error);
+      alert(`Failed to trigger price collection: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setTriggeringPriceCollection(false);
+    }
   };
 
   const runPipelineTest = async () => {
@@ -212,6 +312,129 @@ export default function SystemDiagnosticsPage() {
             </div>
           </div>
         </div>
+
+        {/* Price Data Status */}
+        {!priceDataLoading && priceDataStatus && (
+          <div className={`backdrop-blur-sm border-2 rounded-lg p-6 ${
+            priceDataStatus.status === 'healthy' ? 'bg-green-900/30 border-green-500/30' :
+            priceDataStatus.status === 'warning' ? 'bg-yellow-900/30 border-yellow-500/30' :
+            priceDataStatus.status === 'critical' ? 'bg-orange-900/30 border-orange-500/30' :
+            'bg-red-900/30 border-red-500/30'
+          }`}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+                <DollarSign className={`w-6 h-6 ${
+                  priceDataStatus.status === 'healthy' ? 'text-green-400' :
+                  priceDataStatus.status === 'warning' ? 'text-yellow-400' :
+                  priceDataStatus.status === 'critical' ? 'text-orange-400' :
+                  'text-red-400'
+                }`} />
+                Price Data Feed Status
+              </h2>
+              <button
+                onClick={triggerEmergencyPriceCollection}
+                disabled={triggeringPriceCollection}
+                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-500/50 text-white rounded-lg flex items-center gap-2 transition-colors text-sm"
+              >
+                {triggeringPriceCollection ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Collecting...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4" />
+                    Emergency Collect
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+                <div className="text-sm text-gray-400 mb-1">Status</div>
+                <div className={`text-2xl font-bold ${
+                  priceDataStatus.status === 'healthy' ? 'text-green-400' :
+                  priceDataStatus.status === 'warning' ? 'text-yellow-400' :
+                  priceDataStatus.status === 'critical' ? 'text-orange-400' :
+                  'text-red-400'
+                }`}>
+                  {priceDataStatus.status.toUpperCase()}
+                </div>
+              </div>
+
+              <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+                <div className="text-sm text-gray-400 mb-1">Total Records</div>
+                <div className="text-2xl font-bold text-white">
+                  {priceDataStatus.totalRecords.toLocaleString()}
+                </div>
+              </div>
+
+              <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+                <div className="text-sm text-gray-400 mb-1">Oldest Price Age</div>
+                <div className={`text-2xl font-bold ${
+                  priceDataStatus.oldestAgeSeconds < 120 ? 'text-green-400' :
+                  priceDataStatus.oldestAgeSeconds < 300 ? 'text-yellow-400' :
+                  'text-red-400'
+                }`}>
+                  {priceDataStatus.oldestAgeSeconds === Infinity ? '∞' : `${priceDataStatus.oldestAgeSeconds}s`}
+                </div>
+              </div>
+            </div>
+
+            {priceDataStatus.status === 'empty' && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-red-400 mt-0.5" />
+                  <div>
+                    <div className="text-red-400 font-semibold mb-1">No Price Data Available</div>
+                    <div className="text-red-300 text-sm">
+                      The realtime_prices table is empty. This will block all trading decisions.
+                      Click "Emergency Collect" to manually trigger price collection.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {priceDataStatus.status === 'critical' && (
+              <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-4 mb-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-orange-400 mt-0.5" />
+                  <div>
+                    <div className="text-orange-400 font-semibold mb-1">Critically Stale Price Data</div>
+                    <div className="text-orange-300 text-sm">
+                      Price data is over 5 minutes old. Trading will be blocked until fresh prices are available.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {priceDataStatus.latestPrices.length > 0 && (
+              <div className="bg-gray-800/30 rounded-lg p-4 border border-gray-700">
+                <div className="text-sm font-semibold text-gray-300 mb-3">Latest Prices (Last 10)</div>
+                <div className="space-y-2">
+                  {priceDataStatus.latestPrices.map((price: any, idx: number) => (
+                    <div key={idx} className="flex items-center justify-between text-sm">
+                      <span className="text-white font-mono">{price.symbol}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-gray-400 text-xs">{price.source}</span>
+                        <span className={`font-semibold ${
+                          price.ageSeconds < 60 ? 'text-green-400' :
+                          price.ageSeconds < 120 ? 'text-yellow-400' :
+                          'text-red-400'
+                        }`}>
+                          {price.ageSeconds}s ago
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Training Lab Health Status */}
         {!healthLoading && trainingLabHealth && (
