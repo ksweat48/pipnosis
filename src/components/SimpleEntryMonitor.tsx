@@ -16,6 +16,7 @@ import { useActiveEntryIntent } from '../hooks/useEntryIntent';
 import { EntryExecutionCoordinator } from '../services/entry-execution-coordinator';
 import { globalToastManager } from '../services/global-toast-manager';
 import { logger } from '../lib/logger';
+import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 
 interface SimpleEntryMonitorProps {
   sessionId: string;
@@ -137,10 +138,12 @@ export const SimpleEntryMonitor: React.FC<SimpleEntryMonitorProps> = ({ sessionI
     ? currentPrice >= activeIntent.entry_zone_min && currentPrice <= activeIntent.entry_zone_max
     : false;
 
+  // Get correct pip multiplier for the symbol (e.g., 10000 for forex, 1 for XAUUSD)
+  const pipInfo = getCurrencyPipInfo(activeIntent.symbol);
   const distancePips = !inZone && currentPrice
     ? (currentPrice < activeIntent.entry_zone_min
         ? activeIntent.entry_zone_min - currentPrice
-        : currentPrice - activeIntent.entry_zone_max) * 10000 // Convert to pips
+        : currentPrice - activeIntent.entry_zone_max) * pipInfo.pipMultiplier
     : 0;
 
   const getPriceDirectionIcon = () => {

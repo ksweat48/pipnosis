@@ -63,9 +63,17 @@ export class EntryExecutionCoordinator {
       alpha_confidence: decision.confidence,
       alpha_reasoning: decision.reasoning,
       market_context: {
+        symbol,
+        price: decision.entry,
         confidence: decision.confidence,
         stop_loss: decision.stopLoss,
         take_profit: decision.takeProfit,
+        tp1Price: decision.tp1Price,
+        tp1Confidence: decision.tp1Confidence,
+        tp1Reasoning: decision.tp1Reasoning,
+        tp2Price: decision.tp2Price,
+        tp2Reasoning: decision.tp2Reasoning,
+        risk_dollars: 10, // Default $10 risk - will be overridden by session config if available
         omega_summary: decision.omega_summary
       }
     };

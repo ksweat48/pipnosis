@@ -11,6 +11,7 @@ import { useActiveEntryIntent } from '../hooks/useEntryIntent';
 import { EntryUrgencyPhaseTimer } from './EntryUrgencyPhaseTimer';
 import { EQS_COMPONENT_MAXIMUMS } from '../config/alpha-identity';
 import { getZoneLanguage, getZoneTypeBadge, getZoneTypeColor } from '../utils/regime-zone-language';
+import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
 interface EQSBreakdown {
@@ -388,10 +389,13 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
   const inZone = currentPrice && activeIntent
     ? currentPrice >= activeIntent.entry_zone_min && currentPrice <= activeIntent.entry_zone_max
     : false;
+
+  // Get correct pip multiplier for the symbol (e.g., 10000 for forex, 1 for XAUUSD)
+  const pipInfo = activeIntent ? getCurrencyPipInfo(activeIntent.symbol) : { pipMultiplier: 10000 };
   const distancePips = !inZone && currentPrice && activeIntent
     ? (currentPrice < activeIntent.entry_zone_min
         ? activeIntent.entry_zone_min - currentPrice
-        : currentPrice - activeIntent.entry_zone_max)
+        : currentPrice - activeIntent.entry_zone_max) * pipInfo.pipMultiplier
     : 0;
   const isReady = latestEQS.status === 'EXECUTE_NOW' && latestEQS.eqs_score >= latestEQS.eqs_threshold;
   const gap = Math.max(0, latestEQS.eqs_threshold - latestEQS.eqs_score);
