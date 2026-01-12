@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import GPT4oUsageMonitor from '../components/GPT4oUsageMonitor';
 import { FreshnessGateAnalytics } from '../components/FreshnessGateAnalytics';
+import { PriceCollectionHealthDashboard } from '../components/PriceCollectionHealthDashboard';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
@@ -499,6 +500,7 @@ export default function SystemDiagnosticsPage() {
 
         <GPT4oUsageMonitor />
         <FreshnessGateAnalytics hours={24} />
+        <PriceCollectionHealthDashboard />
       </div>
       <BottomNavigation />
     </div>

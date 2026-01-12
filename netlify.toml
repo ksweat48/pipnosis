@@ -50,8 +50,9 @@
 
 # 🔄 HYBRID: MetaAPI + Binance 24/7 crypto support
 # Provides dual-source redundancy with 24/7 crypto polling
+# ENHANCED: 8s MetaAPI timeout, retry logic, health metrics logging
 [functions."hybrid-price-collector"]
-  timeout = 26
+  timeout = 35  # Increased from 26s to 35s for retry logic
   schedule = "* * * * *"
 
 # 🚨 CRITICAL: Candle aggregation (runs every 2 minutes)
@@ -92,6 +93,28 @@
 [functions."realtime-prices-cleanup"]
   timeout = 60
   schedule = "0 * * * *"  # 🚨 Every hour at :00 minutes - keeps price data fresh
+
+# 🛡️ CRITICAL: Autonomous Position Monitor (runs every minute)
+# CAPITAL PROTECTION: Monitors ALL open positions for SL/TP/TP1/TP2 hits
+# BREAKTHROUGH: Positions close even when browser is offline/throttled
+# Primary monitoring authority - browser monitoring is view-only
+[functions."autonomous-position-monitor"]
+  timeout = 10  # Fast execution required for capital protection
+  schedule = "* * * * *"  # 🚨 Every minute - sub-60s response time
+
+# 🎯 AUTONOMOUS: Mid-Trade Alert Executor (runs every minute)
+# AUTO-EXECUTES: Expired mid-trade alerts (EXIT_IMMEDIATELY, TAKE_PROFIT_EARLY)
+# BREAKTHROUGH: Alerts execute even when browser is closed
+[functions."autonomous-midtrade-executor"]
+  timeout = 10  # Fast execution for time-sensitive alerts
+  schedule = "* * * * *"  # 🚨 Every minute - ensures timely alert execution
+
+# 🏥 WELLNESS: Autonomous Wellness Monitor (runs every 15 minutes)
+# HEALTH CHECKS: Evaluates all open positions for drawdown levels
+# TRIGGERS: Alpha/Omega analysis for positions at 30/50/70% drawdown thresholds
+[functions."autonomous-wellness-monitor"]
+  timeout = 120  # 2 minutes for comprehensive wellness evaluation
+  schedule = "*/15 * * * *"  # 🚨 Every 15 minutes - periodic health checks
 
 # 📊 COMPREHENSIVE BACKFILL: Backfill all timeframes for new currency pairs
 [functions."backfill-all-timeframes-new-pairs"]

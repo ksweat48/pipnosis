@@ -28,7 +28,10 @@ const ACTIVE_SYMBOLS = [...FOREX_SYMBOLS, ...CRYPTO_SYMBOLS];
 
 const TICKS_PER_MINUTE = 8;
 const TICK_INTERVAL_MS = 3000;
-const MAX_EXECUTION_TIME_MS = 24000;
+const MAX_EXECUTION_TIME_MS = 33000; // Increased from 24s to 33s for better reliability
+const METAAPI_TIMEOUT_MS = 8000; // Increased from 5s to 8s
+const MAX_RETRIES = 3;
+const RETRY_BASE_DELAY_MS = 1000;
 
 function isCryptoSymbol(symbol: string): boolean {
   return CRYPTO_SYMBOLS.includes(symbol.toUpperCase());
@@ -67,10 +70,12 @@ interface KrakenPrice {
 
 type HybridPrice = MetaApiPrice | FinnhubPrice | KrakenPrice;
 
-async function fetchFromMetaAPI(symbol: string): Promise<MetaApiPrice | null> {
+async function fetchFromMetaAPI(symbol: string, attemptNumber: number = 1): Promise<MetaApiPrice | null> {
   if (!metaApiToken || !metaApiAccountId) {
     return null;
   }
+
+  const startTime = Date.now();
 
   try {
     const url = `https://mt-client-api-v1.${metaApiRegion}.agiliumtrade.ai/users/current/accounts/${metaApiAccountId}/symbols/${symbol}/current-price`;
@@ -81,18 +86,20 @@ async function fetchFromMetaAPI(symbol: string): Promise<MetaApiPrice | null> {
         'auth-token': metaApiToken,
         'Content-Type': 'application/json'
       },
-      signal: AbortSignal.timeout(5000) // 5 second timeout
+      signal: AbortSignal.timeout(METAAPI_TIMEOUT_MS)
     });
 
     if (!response.ok) {
-      return null;
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
     const data = await response.json();
 
     if (!data.bid || !data.ask) {
-      return null;
+      throw new Error('Missing bid/ask in response');
     }
+
+    const latency = Date.now() - startTime;
 
     return {
       symbol,
@@ -103,7 +110,9 @@ async function fetchFromMetaAPI(symbol: string): Promise<MetaApiPrice | null> {
       source: 'metaapi'
     };
   } catch (error) {
-    console.error(`[HybridCollector] MetaAPI error for ${symbol}:`, error instanceof Error ? error.message : 'Unknown');
+    const latency = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`[HybridCollector] MetaAPI error for ${symbol} (attempt ${attemptNumber}):`, errorMessage);
     return null;
   }
 }
@@ -161,29 +170,125 @@ async function fetchFromKraken(symbol: string): Promise<KrakenPrice | null> {
   }
 }
 
-async function fetchPriceHybrid(symbol: string): Promise<HybridPrice | null> {
+async function fetchPriceWithRetry(
+  symbol: string,
+  executionId: string
+): Promise<{ price: HybridPrice | null; metrics: HealthMetrics }> {
+  const metrics: HealthMetrics = {
+    symbol,
+    executionId,
+    sourceAttempted: '',
+    sourceUsed: null,
+    success: false,
+    attemptNumber: 0,
+    latencyMs: 0,
+    errorMessage: null
+  };
+
+  const startTime = Date.now();
+
+  // Crypto symbols: use Kraken only
   if (isCryptoSymbol(symbol)) {
-    const krakenPrice = await fetchFromKraken(symbol);
-    if (krakenPrice) {
-      return krakenPrice;
+    metrics.sourceAttempted = 'kraken';
+    metrics.attemptNumber = 1;
+
+    try {
+      const krakenPrice = await fetchFromKraken(symbol);
+      if (krakenPrice) {
+        metrics.sourceUsed = 'kraken';
+        metrics.success = true;
+        metrics.latencyMs = Date.now() - startTime;
+        return { price: krakenPrice, metrics };
+      }
+      metrics.errorMessage = 'Kraken returned no data';
+    } catch (error) {
+      metrics.errorMessage = error instanceof Error ? error.message : 'Unknown error';
     }
+
+    metrics.latencyMs = Date.now() - startTime;
     console.error(`[HybridCollector] Kraken failed for crypto ${symbol}`);
-    return null;
+    return { price: null, metrics };
   }
 
-  const metaPrice = await fetchFromMetaAPI(symbol);
-  if (metaPrice) {
-    return metaPrice;
+  // Forex/indices: MetaAPI primary with retry, Finnhub fallback
+  metrics.sourceAttempted = 'metaapi';
+
+  // Try MetaAPI with exponential backoff retry
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    metrics.attemptNumber = attempt;
+    const attemptStart = Date.now();
+
+    const metaPrice = await fetchFromMetaAPI(symbol, attempt);
+    if (metaPrice) {
+      metrics.sourceUsed = 'metaapi';
+      metrics.success = true;
+      metrics.latencyMs = Date.now() - startTime;
+      return { price: metaPrice, metrics };
+    }
+
+    // Exponential backoff if not last attempt
+    if (attempt < MAX_RETRIES) {
+      const backoffDelay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+      console.log(`[HybridCollector] Retrying ${symbol} after ${backoffDelay}ms (attempt ${attempt}/${MAX_RETRIES})`);
+      await new Promise(resolve => setTimeout(resolve, backoffDelay));
+    }
   }
 
-  console.log(`[HybridCollector] MetaAPI failed for ${symbol}, falling back to Finnhub...`);
-  const finnhubPrice = await fetchFromFinnhub(symbol);
-  if (finnhubPrice) {
-    return finnhubPrice;
+  // All MetaAPI retries failed, fall back to Finnhub
+  console.log(`[HybridCollector] MetaAPI exhausted for ${symbol}, falling back to Finnhub...`);
+  metrics.sourceAttempted = 'metaapi->finnhub';
+  metrics.attemptNumber++;
+
+  try {
+    const finnhubPrice = await fetchFromFinnhub(symbol);
+    if (finnhubPrice) {
+      metrics.sourceUsed = 'finnhub';
+      metrics.success = true;
+      metrics.latencyMs = Date.now() - startTime;
+      return { price: finnhubPrice, metrics };
+    }
+    metrics.errorMessage = 'All sources exhausted';
+  } catch (error) {
+    metrics.errorMessage = error instanceof Error ? error.message : 'Unknown error';
   }
 
+  metrics.latencyMs = Date.now() - startTime;
   console.error(`[HybridCollector] All sources failed for ${symbol}`);
-  return null;
+  return { price: null, metrics };
+}
+
+interface HealthMetrics {
+  symbol: string;
+  executionId: string;
+  sourceAttempted: string;
+  sourceUsed: string | null;
+  success: boolean;
+  attemptNumber: number;
+  latencyMs: number;
+  errorMessage: string | null;
+}
+
+async function logHealthMetrics(metrics: HealthMetrics): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('price_collection_health')
+      .insert({
+        execution_id: metrics.executionId,
+        symbol: metrics.symbol,
+        source_attempted: metrics.sourceAttempted,
+        source_used: metrics.sourceUsed,
+        success: metrics.success,
+        attempt_number: metrics.attemptNumber,
+        latency_ms: metrics.latencyMs,
+        error_message: metrics.errorMessage
+      });
+
+    if (error) {
+      console.error(`[HybridCollector] Failed to log health metrics for ${metrics.symbol}:`, error.message);
+    }
+  } catch (error) {
+    console.error(`[HybridCollector] Exception logging health metrics:`, error);
+  }
 }
 
 async function savePriceToDatabase(priceData: HybridPrice): Promise<boolean> {
@@ -268,15 +373,19 @@ export const handler: Handler = async (event, context) => {
       // Collect all symbols in parallel for this tick
       const results = await Promise.allSettled(
         ACTIVE_SYMBOLS.map(async (symbol) => {
-          const priceData = await fetchPriceHybrid(symbol);
+          const { price: priceData, metrics } = await fetchPriceWithRetry(symbol, executionId);
+
+          // Log health metrics for every attempt
+          await logHealthMetrics(metrics);
+
           if (priceData) {
             const saved = await savePriceToDatabase(priceData);
             if (saved) {
               sourceStats[priceData.source]++;
             }
-            return { symbol, success: saved, price: priceData };
+            return { symbol, success: saved, price: priceData, metrics };
           }
-          return { symbol, success: false, price: null };
+          return { symbol, success: false, price: null, metrics };
         })
       );
 
@@ -300,15 +409,24 @@ export const handler: Handler = async (event, context) => {
 
     const duration = Date.now() - startTime;
     const avgTicksPerSymbol = totalTicksCollected / ACTIVE_SYMBOLS.length;
+    const successRate = totalTicksCollected > 0
+      ? ((totalTicksCollected / (totalTicksCollected + totalTicksFailed)) * 100).toFixed(1)
+      : '0.0';
 
-    console.log(`[HybridCollector:${executionId}] Completed in ${duration}ms`);
-    console.log(`[HybridCollector:${executionId}] Total: ${totalTicksCollected} ticks collected, ${totalTicksFailed} failed`);
+    console.log(`[HybridCollector:${executionId}] ✅ Completed in ${duration}ms`);
+    console.log(`[HybridCollector:${executionId}] Total: ${totalTicksCollected} ticks collected, ${totalTicksFailed} failed (${successRate}% success rate)`);
     console.log(`[HybridCollector:${executionId}] Average: ${avgTicksPerSymbol.toFixed(1)} ticks per symbol`);
     console.log(`[HybridCollector:${executionId}] Sources: MetaAPI=${sourceStats.metaapi}, Finnhub=${sourceStats.finnhub}, Kraken=${sourceStats.kraken}`);
 
     const finnhubUsagePercent = totalTicksCollected > 0 ? (sourceStats.finnhub / totalTicksCollected) * 100 : 0;
     if (finnhubUsagePercent > 20) {
-      console.warn(`[HybridCollector:${executionId}] Finnhub used for ${finnhubUsagePercent.toFixed(1)}% - MetaAPI may have issues`);
+      console.warn(`[HybridCollector:${executionId}] ⚠️ Finnhub used for ${finnhubUsagePercent.toFixed(1)}% - MetaAPI may have issues`);
+    }
+
+    // Alert if success rate is below 95%
+    const successRateNum = parseFloat(successRate);
+    if (successRateNum < 95) {
+      console.error(`[HybridCollector:${executionId}] 🚨 SUCCESS RATE BELOW 95%: ${successRate}% - Check health metrics`);
     }
 
     return {
@@ -321,10 +439,12 @@ export const handler: Handler = async (event, context) => {
         totalTicksFailed,
         avgTicksPerSymbol,
         sourceStats,
+        successRate: parseFloat(successRate),
         finnhubUsagePercent: finnhubUsagePercent.toFixed(1),
         durationMs: duration,
         timestamp: new Date().toISOString(),
-        symbols: ACTIVE_SYMBOLS
+        symbols: ACTIVE_SYMBOLS,
+        healthMetricsLogged: true
       })
     };
   } catch (error) {
