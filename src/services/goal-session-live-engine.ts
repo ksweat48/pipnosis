@@ -1215,6 +1215,9 @@ class GoalSessionLiveEngine {
         dailyATR,
         currentSpread: snapshot.spread,
         currentPrice: decision.entry,
+        // CRITICAL FIX: Pass user's Trade Style risk selection for accurate feasibility calculation
+        dollarRisk: this.config.dollarRisk,
+        tradeStyle: this.config.tradeStyle,
       };
 
       const feasibilityResult = await GoalFeasibilityResolver.analyzeFeasibility(feasibilityInput);

@@ -22,6 +22,10 @@ interface FeasibilityInput {
   dailyATR: number;
   currentSpread: number;
   currentPrice: number;
+  // NEW: User's selected dollar risk from Trade Style system
+  // Used to calculate dynamic risk percentage instead of hardcoded 2%
+  dollarRisk?: number;
+  tradeStyle?: string; // For validation and logging context
 }
 
 export class GoalFeasibilityResolver {
@@ -40,6 +44,8 @@ export class GoalFeasibilityResolver {
       dailyATR,
       currentSpread,
       currentPrice,
+      dollarRisk,
+      tradeStyle,
     } = input;
 
     // ✅ Input validation - prevent NaN propagation
@@ -63,12 +69,38 @@ export class GoalFeasibilityResolver {
       };
     }
 
+    // Validate risk amount if provided
+    if (dollarRisk && accountBalance > 0) {
+      const validation = this.validateRiskAgainstStyleLimits(dollarRisk, accountBalance, tradeStyle);
+      if (!validation.valid) {
+        logger.error('[Feasibility] Invalid risk amount', {
+          dollarRisk,
+          accountBalance,
+          tradeStyle,
+          error: validation.warning
+        });
+      } else if (validation.warning) {
+        logger.warn('[Feasibility] Risk validation warning', {
+          dollarRisk,
+          accountBalance,
+          tradeStyle,
+          riskPercent: validation.riskPercent.toFixed(2) + '%',
+          warning: validation.warning
+        });
+      }
+    }
+
     // Set safe defaults for optional/derived values
     const safeTypicalATR = typicalATR && !isNaN(typicalATR) && typicalATR > 0 ? typicalATR : currentATR;
     const safeDailyATR = dailyATR && !isNaN(dailyATR) && dailyATR > 0 ? dailyATR : currentATR * 1.5;
     const safeSpread = currentSpread && !isNaN(currentSpread) && currentSpread >= 0 ? currentSpread : currentATR * 0.1;
 
     const remainingGoal = goalAmount - currentProgress;
+
+    // Calculate risk percentage from user's Trade Style selection
+    const riskPercentage = dollarRisk && accountBalance > 0
+      ? (dollarRisk / accountBalance) * 100
+      : 2.0; // Fallback to 2% default if not provided
 
     logger.info('Analyzing goal feasibility', {
       userId,
@@ -81,6 +113,9 @@ export class GoalFeasibilityResolver {
       typicalATR: safeTypicalATR,
       dailyATR: safeDailyATR,
       currentSpread: safeSpread,
+      dollarRisk,
+      tradeStyle,
+      calculatedRiskPercent: riskPercentage.toFixed(2) + '%',
     });
 
     if (remainingGoal <= 0) {
@@ -132,7 +167,8 @@ export class GoalFeasibilityResolver {
       safeSpread,
       accountBalance,
       currentPrice,
-      symbol
+      symbol,
+      dollarRisk // Pass user's Trade Style risk selection
     );
 
     logger.debug('Max deliverable profit calculated', {
@@ -337,14 +373,51 @@ export class GoalFeasibilityResolver {
     spread: number,
     accountBalance: number,
     currentPrice: number,
-    symbol: string
+    symbol: string,
+    dollarRisk?: number
   ): number {
     const maxMove = adjustedATR * 3;
 
-    const roughLotSize = accountBalance * 0.02;
+    // CRITICAL FIX: Use user's actual Trade Style risk selection instead of hardcoded 2%
+    // This ensures feasibility estimates match actual execution risk
+    let roughLotSize: number;
+    let riskPercentUsed: number;
+
+    if (dollarRisk && accountBalance > 0) {
+      // NEW: Dynamic risk based on user's Trade Style + Risk Level selection
+      // Scalp: 1%/2%/5%, Micro: 2%/5%/7%, Intraday: 3%/7%/10%
+      roughLotSize = dollarRisk;
+      riskPercentUsed = (dollarRisk / accountBalance) * 100;
+
+      logger.debug('[Feasibility] Using dynamic risk from Trade Style', {
+        dollarRisk,
+        riskPercentUsed: riskPercentUsed.toFixed(2) + '%',
+        accountBalance
+      });
+    } else {
+      // LEGACY: Fallback to 2% for backward compatibility
+      roughLotSize = accountBalance * 0.02;
+      riskPercentUsed = 2.0;
+
+      logger.warn('[Feasibility] Using fallback 2% risk (dollarRisk not provided)', {
+        accountBalance,
+        roughLotSize
+      });
+    }
 
     const pipValue = this.getPipValue(symbol);
     const maxProfit = maxMove * roughLotSize * pipValue - spread * roughLotSize;
+
+    logger.debug('[Feasibility] Max deliverable profit calculation', {
+      adjustedATR,
+      maxMove: maxMove.toFixed(4),
+      roughLotSize: roughLotSize.toFixed(2),
+      riskPercentUsed: riskPercentUsed.toFixed(2) + '%',
+      pipValue,
+      spread,
+      maxProfit: maxProfit.toFixed(2),
+      symbol
+    });
 
     return Math.max(0, maxProfit);
   }
@@ -510,5 +583,71 @@ export class GoalFeasibilityResolver {
       recommendedAction,
       explanation,
     };
+  }
+
+  /**
+   * Calculate risk percentage from dollar amount
+   * Used for validation and logging
+   */
+  static calculateRiskPercentage(dollarRisk: number, accountBalance: number): number {
+    if (accountBalance <= 0) return 0;
+    return (dollarRisk / accountBalance) * 100;
+  }
+
+  /**
+   * Validate risk amount against Trade Style maximums
+   * Returns warning if risk exceeds expected limits for the style
+   */
+  static validateRiskAgainstStyleLimits(
+    dollarRisk: number,
+    accountBalance: number,
+    tradeStyle?: string
+  ): { valid: boolean; warning?: string; riskPercent: number } {
+    const riskPercent = this.calculateRiskPercentage(dollarRisk, accountBalance);
+
+    // Platform absolute limits (from TRADING_CONSTANTS)
+    if (riskPercent > 10) {
+      return {
+        valid: false,
+        warning: `Risk ${riskPercent.toFixed(2)}% exceeds platform maximum of 10%`,
+        riskPercent
+      };
+    }
+
+    if (riskPercent < 1) {
+      return {
+        valid: false,
+        warning: `Risk ${riskPercent.toFixed(2)}% below platform minimum of 1%`,
+        riskPercent
+      };
+    }
+
+    // Trade Style specific limits
+    const styleUpper = tradeStyle?.toUpperCase();
+    if (styleUpper?.includes('SCALP') && riskPercent > 5) {
+      return {
+        valid: true,
+        warning: `Risk ${riskPercent.toFixed(2)}% exceeds Scalp style maximum of 5% (aggressive)`,
+        riskPercent
+      };
+    }
+
+    if (styleUpper?.includes('MICRO') && riskPercent > 7) {
+      return {
+        valid: true,
+        warning: `Risk ${riskPercent.toFixed(2)}% exceeds Micro style maximum of 7% (aggressive)`,
+        riskPercent
+      };
+    }
+
+    if (styleUpper?.includes('INTRADAY') && riskPercent > 10) {
+      return {
+        valid: true,
+        warning: `Risk ${riskPercent.toFixed(2)}% exceeds Intraday style maximum of 10% (aggressive)`,
+        riskPercent
+      };
+    }
+
+    return { valid: true, riskPercent };
   }
 }
