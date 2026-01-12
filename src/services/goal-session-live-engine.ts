@@ -1250,7 +1250,7 @@ class GoalSessionLiveEngine {
 
         // Recalculate take profit based on reduced goal
         const pipInfo = getCurrencyPipInfo(selectedSymbol);
-        const dollarPerPip = calculateDollarPerPip(selectedSymbol, goalAwareSizing.lotSize);
+        const dollarPerPip = calculateDollarPerPip(selectedSymbol, lotSize);
         const adjustedTPPips = adjustedExpectedProfit / dollarPerPip;
 
         if (decision.action === 'BUY') {
