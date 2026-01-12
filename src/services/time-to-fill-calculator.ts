@@ -328,16 +328,9 @@ class TimeToFillCalculator {
     return Math.round(atrMoves * Math.max(0.1, atrPips));
   }
 
-  static getPipFactor(symbol: string): number {
-    const upper = symbol.toUpperCase();
-    if (upper.includes('JPY')) return 0.01;
-    if (upper.includes('XAU') || upper.includes('GOLD')) return 0.1;
-    if (upper.includes('US30') || upper.includes('DOW') || upper.includes('DJ')) return 1.0;
-    if (upper.includes('NAS') || upper.includes('NDX') || upper.includes('US100')) return 0.1;
-    if (upper.includes('SPX') || upper.includes('US500')) return 0.1;
-    if (upper.includes('BTC')) return 1.0;
-    return 0.0001;
-  }
+  // ❌ REMOVED: getPipFactor() - replaced with SSOT getCurrencyPipInfo()
+  // Use: import { getCurrencyPipInfo } from '../utils/currencyHelpers';
+  //      const pipFactor = getCurrencyPipInfo(symbol).pipValue;
 }
 
 export const timeToFillCalculator = new TimeToFillCalculator();

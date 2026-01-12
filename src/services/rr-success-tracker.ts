@@ -148,9 +148,11 @@ class RRSuccessTracker {
       const buckets: Map<string, SLWidthAnalysis> = new Map();
 
       for (const trade of trades) {
-        if (!trade.entry_price || !trade.stop_loss) continue;
+        if (!trade.entry_price || !trade.stop_loss || !trade.symbol) continue;
 
-        const slPips = Math.abs(trade.entry_price - trade.stop_loss) / 0.0001;
+        // ✅ SSOT FIX: Use calculatePipDistance() instead of hardcoded / 0.0001
+        const { calculatePipDistance } = await import('../utils/currencyHelpers');
+        const slPips = calculatePipDistance(trade.symbol, trade.entry_price, trade.stop_loss);
 
         let bucketKey: string;
         let minSL: number;

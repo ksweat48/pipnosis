@@ -193,13 +193,18 @@ class KellyCriterionSizer {
       const winRate = wins.length / trades.length;
 
       // Calculate average win/loss in pips
+      // ✅ SSOT FIX: Use calculatePipDistance() instead of hardcoded * 10000
+      const { calculatePipDistance } = await import('../utils/currencyHelpers');
+
       const avgWinPips = wins.reduce((sum, t) => {
-        const pips = Math.abs(t.exit_price - t.entry_price) * 10000; // Approximate pip conversion
+        if (!t.symbol || !t.entry_price || !t.exit_price) return sum;
+        const pips = calculatePipDistance(t.symbol, t.entry_price, t.exit_price);
         return sum + pips;
       }, 0) / (wins.length || 1);
 
       const avgLossPips = losses.reduce((sum, t) => {
-        const pips = Math.abs(t.exit_price - t.entry_price) * 10000;
+        if (!t.symbol || !t.entry_price || !t.exit_price) return sum;
+        const pips = calculatePipDistance(t.symbol, t.entry_price, t.exit_price);
         return sum + pips;
       }, 0) / (losses.length || 1);
 

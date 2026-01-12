@@ -157,16 +157,11 @@ export class PriceDriftDetector {
     return { driftATR, shouldInvalidateCache };
   }
 
+  // ❌ REMOVED: getPipValue() - replaced with SSOT getCurrencyPipInfo()
+  // All pip value queries must go through currencyHelpers.ts
   private getPipValue(symbol: string): number {
-    if (symbol.includes('JPY')) {
-      return 0.01;
-    }
-
-    if (symbol === 'XAUUSD') {
-      return 0.1;
-    }
-
-    return 0.0001;
+    const { getCurrencyPipInfo } = require('../utils/currencyHelpers');
+    return getCurrencyPipInfo(symbol).pipValue;
   }
 
   getDriftThreshold(symbol: string): { pips?: number; percent?: number } {

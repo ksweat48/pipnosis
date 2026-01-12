@@ -153,22 +153,15 @@ export class MarketDataService {
 
   /**
    * Calculate pip distance between two prices
+   * ✅ SSOT FIX: Delegate to currencyHelpers instead of local implementation
    */
-  calculatePipDistance(symbol: string, price1: number, price2: number): number {
-    const pipMultiplier = this.getPipMultiplier(symbol);
-    return Math.abs(price1 - price2) * pipMultiplier;
+  async calculatePipDistance(symbol: string, price1: number, price2: number): Promise<number> {
+    const { calculatePipDistance } = await import('../utils/currencyHelpers');
+    return calculatePipDistance(symbol, price1, price2);
   }
 
-  /**
-   * Get pip multiplier for symbol
-   */
-  private getPipMultiplier(symbol: string): number {
-    const upperSymbol = symbol.toUpperCase();
-    if (upperSymbol.includes('JPY')) return 100;
-    if (upperSymbol.includes('XAU') || upperSymbol.includes('GOLD')) return 10;
-    if (upperSymbol.includes('BTC') || upperSymbol.includes('ETH')) return 1;
-    return 10000;
-  }
+  // ❌ REMOVED: getPipMultiplier() - replaced with SSOT getCurrencyPipInfo()
+  // All pip calculations must go through currencyHelpers.ts
 
   /**
    * Calculate VWAP from candles
