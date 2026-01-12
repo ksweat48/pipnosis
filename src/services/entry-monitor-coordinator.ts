@@ -330,6 +330,81 @@ class EntryMonitorCoordinator {
     const maxWaitSeconds = decision.maxWaitSeconds ||
       this.calculateMaxWaitSeconds(decision.style || 'MICRO_INTRADAY', decision.confidence);
 
+    // CRITICAL VALIDATION: Ensure TP/SL are in correct directions
+    const entryPrice = (entryZoneMin + entryZoneMax) / 2;
+    const tpAboveEntry = decision.takeProfit > entryPrice;
+    const slAboveEntry = decision.stopLoss > entryPrice;
+    const shouldTpBeAbove = decision.direction === 'BUY';
+    const shouldSlBeAbove = decision.direction === 'SELL';
+
+    // Validate TP direction
+    if (tpAboveEntry !== shouldTpBeAbove) {
+      logger.error('[ENTRY_MONITOR_COORD] CRITICAL: TP direction mismatch', {
+        symbol: decision.symbol,
+        direction: decision.direction,
+        entryPrice: entryPrice.toFixed(5),
+        takeProfit: decision.takeProfit.toFixed(5),
+        stopLoss: decision.stopLoss.toFixed(5),
+        tpAboveEntry,
+        shouldTpBeAbove,
+        issue: `${decision.direction} trade has TP ${tpAboveEntry ? 'above' : 'below'} entry - will lose money instantly!`
+      });
+
+      return {
+        success: false,
+        error: `Invalid TP: ${decision.direction} trade cannot have TP ${tpAboveEntry ? 'above' : 'below'} entry (Entry: ${entryPrice.toFixed(5)}, TP: ${decision.takeProfit.toFixed(5)}). This would cause immediate loss.`,
+      };
+    }
+
+    // Validate SL direction
+    if (slAboveEntry !== shouldSlBeAbove) {
+      logger.error('[ENTRY_MONITOR_COORD] CRITICAL: SL direction mismatch', {
+        symbol: decision.symbol,
+        direction: decision.direction,
+        entryPrice: entryPrice.toFixed(5),
+        stopLoss: decision.stopLoss.toFixed(5),
+        slAboveEntry,
+        shouldSlBeAbove,
+        issue: `${decision.direction} trade has SL in wrong direction!`
+      });
+
+      return {
+        success: false,
+        error: `Invalid SL: ${decision.direction} trade cannot have SL ${slAboveEntry ? 'above' : 'below'} entry (Entry: ${entryPrice.toFixed(5)}, SL: ${decision.stopLoss.toFixed(5)}).`,
+      };
+    }
+
+    // Calculate R:R to ensure it's reasonable
+    const riskPips = Math.abs(entryPrice - decision.stopLoss);
+    const rewardPips = Math.abs(decision.takeProfit - entryPrice);
+    const rrRatio = rewardPips / riskPips;
+
+    if (rrRatio < 0.5) {
+      logger.error('[ENTRY_MONITOR_COORD] CRITICAL: Poor risk/reward ratio', {
+        symbol: decision.symbol,
+        direction: decision.direction,
+        riskPips: riskPips.toFixed(2),
+        rewardPips: rewardPips.toFixed(2),
+        rrRatio: rrRatio.toFixed(3),
+      });
+
+      return {
+        success: false,
+        error: `Poor risk/reward: Risking ${riskPips.toFixed(2)} pips to make ${rewardPips.toFixed(2)} pips (R:R = 1:${rrRatio.toFixed(2)}). Minimum acceptable is 1:0.5.`,
+      };
+    }
+
+    logger.info('[ENTRY_MONITOR_COORD] ✅ TP/SL validation passed', {
+      symbol: decision.symbol,
+      direction: decision.direction,
+      entry: entryPrice.toFixed(5),
+      tp: decision.takeProfit.toFixed(5),
+      sl: decision.stopLoss.toFixed(5),
+      riskPips: riskPips.toFixed(2),
+      rewardPips: rewardPips.toFixed(2),
+      rrRatio: `1:${rrRatio.toFixed(2)}`
+    });
+
     const intent = await createEntryIntentWithMonitoring(
       sessionId,
       userId,
@@ -731,6 +806,14 @@ class EntryMonitorCoordinator {
 
       if (error) {
         console.error('[ENTRY_MONITOR_COORD] Failed to request continuation:', error);
+
+        // Check if we should block retry due to repeated failures
+        if (this.shouldBlockRetry(sessionId, reason)) {
+          console.warn('[ENTRY_MONITOR_COORD] 🛑 Blocking auto-rescan - repeated execution failures detected');
+          await this.transitionState(sessionId, 'DISCOVERY_SCANNING');
+          return;
+        }
+
         // Fallback: auto-schedule rescan if continuation request fails
         await this.fallbackAutoRescan(sessionId, reason);
         return;
@@ -747,6 +830,14 @@ class EntryMonitorCoordinator {
       // If no response, session auto-closes via auto_close_expired_continuations
     } catch (error) {
       console.error('[ENTRY_MONITOR_COORD] Exception requesting continuation:', error);
+
+      // Check if we should block retry due to repeated failures
+      if (this.shouldBlockRetry(sessionId, reason)) {
+        console.warn('[ENTRY_MONITOR_COORD] 🛑 Blocking auto-rescan - repeated execution failures detected');
+        await this.transitionState(sessionId, 'DISCOVERY_SCANNING');
+        return;
+      }
+
       // Fallback: auto-schedule rescan
       await this.fallbackAutoRescan(sessionId, reason);
     }
@@ -756,6 +847,43 @@ class EntryMonitorCoordinator {
    * Fallback auto-rescan when continuation request fails
    * Safety mechanism to prevent sessions from getting stuck
    */
+  /**
+   * Check if we should block retry due to repeated execution failures
+   * Prevents infinite loop when same error repeats (e.g., prodLogger.info crash)
+   */
+  private shouldBlockRetry(sessionId: string, reason: AbandonReason): boolean {
+    // Only block on ORDER_REJECTED (execution failures), not other abandonment reasons
+    if (reason !== 'ORDER_REJECTED') return false;
+
+    const now = Date.now();
+    const lastFailure = this.lastFailureTime.get(sessionId) || 0;
+    const failureCount = this.monitoringFailureCount.get(sessionId) || 0;
+
+    // Reset counter if last failure was > 5 minutes ago (different issue)
+    if (now - lastFailure > 5 * 60 * 1000) {
+      this.monitoringFailureCount.set(sessionId, 1);
+      this.lastFailureTime.set(sessionId, now);
+      return false;
+    }
+
+    // Increment failure count
+    this.monitoringFailureCount.set(sessionId, failureCount + 1);
+    this.lastFailureTime.set(sessionId, now);
+
+    // Block retry after 3 consecutive failures within 5 minutes
+    if (failureCount >= 2) { // Already failed 2 times, this is the 3rd
+      logger.error('[ENTRY_MONITOR_COORD] 🛑 Blocking retry - too many execution failures', {
+        sessionId: sessionId.substring(0, 8),
+        failureCount: failureCount + 1,
+        timeWindow: '5 minutes',
+        message: 'Repeated ORDER_REJECTED errors indicate a system issue. Manual intervention required.'
+      });
+      return true;
+    }
+
+    return false;
+  }
+
   private async fallbackAutoRescan(sessionId: string, reason: AbandonReason): Promise<void> {
     console.warn('[ENTRY_MONITOR_COORD] Using fallback auto-rescan', {
       sessionId: sessionId.substring(0, 8),

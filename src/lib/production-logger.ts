@@ -37,6 +37,14 @@ class ProductionLogger {
   }
 
   /**
+   * General info logging (dev only to reduce production noise)
+   */
+  info(message: string, data?: any) {
+    if (!this.enabled || !this.isDev) return;
+    console.log(message, data || '');
+  }
+
+  /**
    * Log trade executions
    */
   trade(action: string, symbol: string, details: any) {
