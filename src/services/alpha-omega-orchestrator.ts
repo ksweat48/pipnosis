@@ -609,7 +609,10 @@ class AlphaOmegaOrchestrator {
         const proposedSL = marketState.price - (marketState.atr * stopLossMultiplier);
         const proposedTP = marketState.price + (marketState.atr * takeProfitMultiplier);
 
-        const slDistancePips = Math.abs(marketState.price - proposedSL) / (marketState.pipMultiplier || 0.0001);
+        // ✅ CRITICAL FIX: Use calculatePipDistance() for correct pip calculation
+        // DO NOT manually divide by pipMultiplier - it's incorrect for non-forex assets
+        const { calculatePipDistance } = await import('../utils/currencyHelpers');
+        const slDistancePips = calculatePipDistance(marketState.symbol, marketState.price, proposedSL);
 
         console.log(`[Alpha+Omega] Dynamic SL/TP for ${marketState.symbol}:`);
         console.log(`  Multipliers: ${stopLossMultiplier.toFixed(2)}x SL / ${takeProfitMultiplier.toFixed(2)}x TP`);
