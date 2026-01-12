@@ -582,6 +582,7 @@ class SmartGoalSessionManager {
         goalSessionId: sessionId,
         userId,
         symbol: config.watchlist[0],
+        watchlist: config.watchlist,
         timeframe: '15m',
         useLLM: true,
         riskMode: config.riskMode || 'medium',
