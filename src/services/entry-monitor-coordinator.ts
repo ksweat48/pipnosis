@@ -32,6 +32,7 @@ import { calculateEQSGrade } from '../utils/eqsHelpers';
 import { tradeStyleRegistry } from './trade-style-registry';
 import { logger } from '../lib/logger';
 import { EntryPreFlightValidator } from './entry-preflight-validator';
+import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 
 export interface WaitDecisionData {
   symbol: string;
@@ -375,8 +376,10 @@ class EntryMonitorCoordinator {
     }
 
     // Calculate R:R to ensure it's reasonable
-    const riskPips = Math.abs(entryPrice - decision.stopLoss);
-    const rewardPips = Math.abs(decision.takeProfit - entryPrice);
+    // CRITICAL: Convert price differences to actual pips using symbol-specific pip value
+    const pipInfo = getCurrencyPipInfo(decision.symbol);
+    const riskPips = Math.abs(entryPrice - decision.stopLoss) / pipInfo.pipValue;
+    const rewardPips = Math.abs(decision.takeProfit - entryPrice) / pipInfo.pipValue;
     const rrRatio = rewardPips / riskPips;
 
     if (rrRatio < 0.5) {
