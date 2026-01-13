@@ -1,14 +1,16 @@
 /**
  * PCPE (Post-Confidence Position Eligibility) Types
  *
- * PCPE v2.0 - Hardened Execution Governor
+ * PCPE v2.0 - Alpha Sovereignty Edition
  * Evaluates execution viability based on:
  * - Final effective confidence (post-penalty)
- * - Zone reachability (distance-to-ATR)
+ * - Zone reachability (distance-to-ATR) - ADVISORY only
  * - Chase zone viability (regime-specific)
+ *
+ * ALPHA SOVEREIGNTY: No more BLOCKED band - all trades execute with appropriate sizing
  */
 
-export type ExecutionBand = 'FULL' | 'REDUCED' | 'MICRO' | 'BLOCKED';
+export type ExecutionBand = 'FULL' | 'REDUCED' | 'MICRO';
 export type ZoneType = 'PRIMARY' | 'SECONDARY' | 'CHASE';
 
 export interface PCPEInput {

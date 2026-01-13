@@ -19,31 +19,34 @@ export const PCPE_CONFIG = {
   /**
    * Confidence Band Thresholds
    *
+   * ALPHA SOVEREIGNTY: No more BLOCKED band - Alpha decides execution
+   *
    * FULL: ≥78% confidence = 1.0x size, PRIMARY + SECONDARY zones
    * REDUCED: 68-77% = 0.5x size, PRIMARY only
-   * MICRO: 58-67% = 0.25x size, PRIMARY only
-   * BLOCKED: <58% = 0x size, NO EXECUTION
+   * MICRO: <68% = 0.25x size, PRIMARY only (was 58-67%, now unlimited floor)
+   *
+   * All confidence levels execute - just with different sizing
    */
   thresholds: {
     full_band: 78,      // Minimum confidence for FULL band
     reduced_band: 68,   // Minimum confidence for REDUCED band
-    micro_band: 58,     // Minimum confidence for MICRO band
+    micro_band: 0,      // MICRO band has no floor - Alpha authority
   },
 
   /**
-   * Reachability Gates - Distance-to-ATR Downgrade Rules
+   * Reachability Gates - Distance-to-ATR Downgrade Rules (ADVISORY)
    *
-   * Prevents unreachable fantasy entries by downgrading based on distance.
-   * Distance normalized by ATR to work across all symbols.
+   * ALPHA SOVEREIGNTY: No longer blocks - only downgrades size
+   * If Alpha says WAIT for distant zone, we honor it with reduced size
    *
    * FULL band: distance ≤ 1.2 × ATR, else downgrade to REDUCED
-   * REDUCED band: distance ≤ 1.0 × ATR, else downgrade to MICRO
-   * MICRO band: distance ≤ 1.0 × ATR, else downgrade to BLOCKED (WAIT)
+   * REDUCED band: distance ≤ 1.5 × ATR, else downgrade to MICRO
+   * MICRO band: NO LIMIT - Alpha authority (monitoring may abandon)
    */
   reachability: {
     full_max_distance_atr: 1.2,    // FULL → REDUCED if distance > 1.2x ATR
-    reduced_max_distance_atr: 1.0, // REDUCED → MICRO if distance > 1.0x ATR
-    micro_max_distance_atr: 1.0,   // MICRO → BLOCKED if distance > 1.0x ATR
+    reduced_max_distance_atr: 1.5, // REDUCED → MICRO if distance > 1.5x ATR
+    micro_max_distance_atr: 999,   // MICRO never downgrades - Alpha decides
   },
 
   /**
@@ -83,28 +86,27 @@ export const PCPE_CONFIG = {
   /**
    * Band Multipliers - Position Size Scaling
    *
+   * ALPHA SOVEREIGNTY: BLOCKED removed - all trades execute
    * Applied on top of base position size calculation
    */
   multipliers: {
     FULL: 1.0,      // 100% size
     REDUCED: 0.5,   // 50% size
     MICRO: 0.25,    // 25% size
-    BLOCKED: 0,     // 0% size (no execution)
   },
 
   /**
    * Zone Permissions by Band
    *
+   * ALPHA SOVEREIGNTY: BLOCKED removed
    * FULL: Can use PRIMARY and SECONDARY zones
    * REDUCED: PRIMARY only
    * MICRO: PRIMARY only (or CHASE if regime permits)
-   * BLOCKED: NO ZONES
    */
   zone_permissions: {
     FULL: ['PRIMARY', 'SECONDARY'] as const,
     REDUCED: ['PRIMARY'] as const,
     MICRO: ['PRIMARY'] as const,  // Note: CHASE added dynamically if regime permits
-    BLOCKED: [] as const,
   },
 } as const;
 
@@ -146,10 +148,7 @@ export function validatePCPEConfig(): boolean {
     return false;
   }
 
-  if (multipliers.BLOCKED !== 0) {
-    console.error('[PCPE Config] BLOCKED multiplier must be 0');
-    return false;
-  }
+  // BLOCKED band removed - Alpha sovereignty
 
   return true;
 }

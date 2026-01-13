@@ -273,36 +273,10 @@ class EntryMonitorCoordinator {
       };
     }
 
-    // SSOT FIX: RED advisory means "don't create this intent"
-    // Price is too far from entry zone - intent will immediately abandon
-    // Block creation to prevent infinite loop
-    if (preFlightResult.advisory_level === 'RED' ||
-        (preFlightResult.distance_from_zone_atr && preFlightResult.distance_from_zone_atr > 2.5)) {
-
-      logger.warn('[ENTRY_MONITOR_COORD] Pre-flight BLOCKED - RED advisory', {
-        symbol: decision.symbol,
-        direction: decision.direction,
-        distanceATR: preFlightResult.distance_from_zone_atr?.toFixed(2),
-        message: preFlightResult.message,
-      });
-
-      console.log(
-        '%c[ENTRY_MONITOR_COORD] 🔴 INTENT BLOCKED - Price too far from entry zone',
-        'color: #f44336; font-weight: bold',
-        {
-          symbol: decision.symbol,
-          direction: decision.direction,
-          distanceATR: preFlightResult.distance_from_zone_atr?.toFixed(2),
-          threshold: '2.5 ATR',
-          message: 'Would immediately abandon - not creating intent'
-        }
-      );
-
-      return {
-        success: false,
-        error: `Entry conditions not viable: ${preFlightResult.message}. Price is ${preFlightResult.distance_from_zone_atr?.toFixed(2)}x ATR from entry zone (max 2.5x).`,
-      };
-    }
+    // ALPHA SOVEREIGNTY: RED advisory is informational only, never blocks
+    // Alpha has decided WAIT - we honor that decision regardless of distance
+    // Entry Optimizer will monitor and may abandon later if conditions deteriorate
+    // But we NEVER prevent Alpha's WAIT decision from being executed
 
     // Log advisory level for GREEN/AMBER (informational only)
     const advisoryColor = {

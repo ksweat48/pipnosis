@@ -46,15 +46,17 @@ export function applyPCPE(inputs: PCPEInput): PCPEResult {
     symbol,
   } = inputs;
 
-  // Validate inputs
+  // Validate inputs - use MICRO band as fallback instead of blocking
   if (final_effective_confidence < 0 || final_effective_confidence > 100) {
-    logger.error(`[PCPE] Invalid confidence: ${final_effective_confidence}%. Must be 0-100.`);
-    return createBlockedResult(inputs, 'INVALID_CONFIDENCE', 'Confidence out of valid range (0-100)');
+    logger.warn(`[PCPE] Invalid confidence: ${final_effective_confidence}%. Clamping to 0-100 range.`);
+    // Clamp to valid range instead of blocking
+    inputs.final_effective_confidence = Math.max(0, Math.min(100, final_effective_confidence));
   }
 
   if (atr <= 0) {
-    logger.error(`[PCPE] Invalid ATR: ${atr}. Must be > 0.`);
-    return createBlockedResult(inputs, 'INVALID_ATR', 'ATR must be positive');
+    logger.warn(`[PCPE] Invalid ATR: ${atr}. Using fallback ATR of 0.001.`);
+    // Use fallback instead of blocking
+    inputs.atr = 0.001;
   }
 
   logger.info(
@@ -73,7 +75,8 @@ export function applyPCPE(inputs: PCPEInput): PCPEResult {
 
   logger.info(`[PCPE] Step 1: Confidence band = ${initialBand} (${final_effective_confidence.toFixed(1)}%)`);
 
-  // Step 2: Apply distance-to-ATR reachability gates
+  // Step 2: Apply distance-to-ATR reachability gates (ADVISORY - downgrades only)
+  // ALPHA SOVEREIGNTY: No longer blocks, only downgrades to MICRO with reduced size
   const reachabilityResult = applyReachabilityGates(currentBand, distance_to_zone_pips, atr);
   currentBand = reachabilityResult.band;
 
@@ -93,34 +96,21 @@ export function applyPCPE(inputs: PCPEInput): PCPEResult {
     );
   }
 
-  // If already blocked by reachability, return early
-  if (currentBand === 'BLOCKED') {
-    return createBlockedResult(
-      inputs,
-      'UNREACHABLE_ZONE',
-      `Zone unreachable: distance ${reachabilityResult.distance_check.distance_to_atr_ratio.toFixed(2)}x ATR exceeds threshold`,
-      initialBand,
-      downgradePath
-    );
-  }
+  // ALPHA SOVEREIGNTY: No more blocking - worst case is MICRO band (0.25x size)
 
   // Step 3: Evaluate chase zone viability (if applicable)
+  // ALPHA SOVEREIGNTY: Chase evaluation is advisory - converts to PRIMARY if not viable
   if (zone_type === 'CHASE') {
     logger.info(`[PCPE] Step 3: Evaluating chase zone viability...`);
     const chaseResult = evaluateChaseZone(currentBand, micro_regime, spread, atr);
 
     if (chaseResult.blocked) {
-      logger.warn(`[PCPE] Chase zone BLOCKED: ${chaseResult.reason}`);
-      return createBlockedResult(
-        inputs,
-        'CHASE_ZONE_INVALID',
-        chaseResult.reason,
-        initialBand,
-        downgradePath
-      );
+      logger.warn(`[PCPE] Chase zone not viable: ${chaseResult.reason}. Converting to PRIMARY zone.`);
+      // Convert to PRIMARY instead of blocking
+      inputs.zone_type = 'PRIMARY';
+    } else {
+      logger.info(`[PCPE] Step 3: Chase zone ALLOWED: ${chaseResult.reason}`);
     }
-
-    logger.info(`[PCPE] Step 3: Chase zone ALLOWED: ${chaseResult.reason}`);
   } else {
     logger.info(`[PCPE] Step 3: Not a chase zone, skipping chase viability check.`);
   }
@@ -162,10 +152,10 @@ export function applyPCPE(inputs: PCPEInput): PCPEResult {
 /**
  * Step 1: Classify confidence into execution band
  *
+ * ALPHA SOVEREIGNTY: No more BLOCKED band
  * FULL: ≥78% confidence = 1.0x size
  * REDUCED: 68-77% confidence = 0.5x size
- * MICRO: 58-67% confidence = 0.25x size
- * BLOCKED: <58% confidence = 0x size
+ * MICRO: <68% confidence = 0.25x size (no floor)
  */
 function classifyConfidenceBand(confidence: number): ExecutionBand {
   const { thresholds } = PCPE_CONFIG;
@@ -174,22 +164,19 @@ function classifyConfidenceBand(confidence: number): ExecutionBand {
     return 'FULL';
   } else if (confidence >= thresholds.reduced_band) {
     return 'REDUCED';
-  } else if (confidence >= thresholds.micro_band) {
-    return 'MICRO';
   } else {
-    return 'BLOCKED';
+    // All other confidence levels go to MICRO - Alpha authority
+    return 'MICRO';
   }
 }
 
 /**
- * Step 2: Apply distance-to-ATR reachability gates
+ * Step 2: Apply distance-to-ATR reachability gates (ADVISORY)
  *
- * Auto-downgrades bands if zone is too far from current price:
+ * ALPHA SOVEREIGNTY: No more blocking - only downgrades size
  * - FULL: distance > 1.2 × ATR → downgrade to REDUCED
- * - REDUCED: distance > 1.0 × ATR → downgrade to MICRO
- * - MICRO: distance > 1.0 × ATR → downgrade to BLOCKED (WAIT)
- *
- * Prevents "perfect trade, unreachable entry" problem.
+ * - REDUCED: distance > 1.5 × ATR → downgrade to MICRO
+ * - MICRO: NO LIMIT - Alpha decides (may abandon during monitoring)
  */
 function applyReachabilityGates(
   band: ExecutionBand,
@@ -215,18 +202,16 @@ function applyReachabilityGates(
       targetBand = 'MICRO';
       break;
     case 'MICRO':
+      // MICRO never downgrades - Alpha authority
+      // Very distant zones will be handled by Entry Optimizer monitoring
       threshold = reachability.micro_max_distance_atr;
-      targetBand = 'BLOCKED';
-      break;
-    case 'BLOCKED':
-      // Already blocked, no downgrade possible
       return {
-        band: 'BLOCKED',
+        band: 'MICRO',
         downgraded: false,
         distance_check: {
           distance_to_atr_ratio: distanceToATRRatio,
-          threshold: 0,
-          within_threshold: false,
+          threshold,
+          within_threshold: true, // Always pass for MICRO
         },
       };
   }
@@ -388,27 +373,9 @@ function generateReasoning(
 }
 
 /**
- * Create blocked result for invalid/failed executions
+ * ALPHA SOVEREIGNTY: createBlockedResult removed
+ * All invalid scenarios now fallback to MICRO band with warnings
  */
-function createBlockedResult(
-  inputs: PCPEInput,
-  blockReason: string,
-  reasoning: string,
-  originalBand?: ExecutionBand,
-  downgradePath?: ExecutionBand[]
-): PCPEResult {
-  return {
-    execution_band: 'BLOCKED',
-    size_multiplier: 0,
-    zone_permissions: [],
-    block_reason: blockReason,
-    original_band: originalBand,
-    downgrade_applied: originalBand !== undefined && originalBand !== 'BLOCKED',
-    downgrade_reason: reasoning,
-    audit: createAudit(inputs, 'BLOCKED', 0, originalBand, downgradePath),
-    reasoning,
-  };
-}
 
 /**
  * Check if PCPE is enabled (kill switch)

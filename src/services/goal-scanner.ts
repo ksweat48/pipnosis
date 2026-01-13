@@ -364,8 +364,8 @@ class GoalScanner {
         userId
       );
 
-      const hasValidSetup = (alphaDecision.action === 'BUY' || alphaDecision.action === 'SELL') &&
-                            alphaDecision.confidence >= 60;
+      // ALPHA SOVEREIGNTY: Remove confidence threshold - Alpha decides
+      const hasValidSetup = (alphaDecision.action === 'BUY' || alphaDecision.action === 'SELL');
 
       const setupType = hasValidSetup
         ? `Alpha ${alphaDecision.action} (${alphaDecision.confidence}%)`
