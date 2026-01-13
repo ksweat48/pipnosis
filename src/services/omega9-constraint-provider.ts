@@ -81,10 +81,35 @@ class Omega9ConstraintProvider {
     const volatilityPerHour = this.estimateVolatilityPerHour(symbol, atr, volatilityRegime, currentSession);
     const feasibleTravelPips = (sessionTimeRemainingMinutes / 60) * volatilityPerHour * 0.8; // 80% safety factor
 
-    // Base TP maximum from ATR
-    const atrBasedMaxTP = resolvedPlan?.tpMaxAtrMultiple
+    // ADVISORY ONLY: feasibleTravelPips informs style upgrades and confidence scoring.
+    // It does NOT limit TP or block trades - Alpha has final authority.
+
+    // ✅ CRITICAL FIX: Convert ATR-based TP from PRICE UNITS to PIPS
+    // BUG: atr is in PRICE_UNITS (e.g., 0.00039 for GBPUSD), not pips
+    // WRONG: maxTakeProfitPips = 0.00468 (rounds to 0 pips)
+    // CORRECT: maxTakeProfitPips = 46.8 pips
+    const pipInfo = getCurrencyPipInfo(symbol);
+    const atrBasedMaxTP_PRICE_UNITS = resolvedPlan?.tpMaxAtrMultiple
       ? atr * resolvedPlan.tpMaxAtrMultiple
-      : atr * 12; // 12x ATR as default
+      : atr * 12; // 12x ATR as default (IN PRICE UNITS)
+
+    // Convert to pips using SSOT helper
+    const atrBasedMaxTP_PIPS = atrBasedMaxTP_PRICE_UNITS / pipInfo.pipValue;
+
+    // Add diagnostic guard for SSOT math corruption
+    if (atrBasedMaxTP_PIPS < 1.0) {
+      console.error('[SSOT_MATH_CORRUPTION] TP range suspiciously low', {
+        type: 'ZERO_TP',
+        severity: 'ERROR',
+        symbol,
+        atr,
+        atrBasedMaxTP_PRICE_UNITS,
+        pipValue: pipInfo.pipValue,
+        atrBasedMaxTP_PIPS,
+        callsite: 'omega9-constraint-provider.ts:97',
+        message: 'TP calculation produced near-zero pips - likely units mismatch'
+      });
+    }
 
     // SSOT: Get session constraint policy from coordinator
     const sessionConstraintPolicy = sessionConstraintCoordinator.getSessionConstraintPolicy(symbol, tradeStyle);
@@ -94,7 +119,7 @@ class Omega9ConstraintProvider {
     // - Style upgrade recommendations
     // - Confidence scoring adjustments
     // - Learning/tracking purposes
-    let maxTakeProfitPips: number = atrBasedMaxTP; // ALWAYS use ATR-based max, no session cap
+    let maxTakeProfitPips: number = atrBasedMaxTP_PIPS; // ALWAYS use ATR-based max (NOW IN PIPS), no session cap
     let sessionConstraintMode: 'ADVISORY' | 'NONE';
     let tpReasoningSuffix = '';
 
@@ -103,7 +128,7 @@ class Omega9ConstraintProvider {
         // CHANGED: Even ENFORCED is now ADVISORY - no TP ceiling
         sessionConstraintMode = 'ADVISORY';
 
-        if (feasibleTravelPips < atrBasedMaxTP) {
+        if (feasibleTravelPips < atrBasedMaxTP_PIPS) {
           tpReasoningSuffix = ` | ℹ️ ADVISORY: ${tradeStyle} may extend beyond session (${feasibleTravelPips.toFixed(1)} pips in ${sessionTimeRemainingMinutes}min remaining). Style upgrade may apply.`;
         }
         break;
@@ -112,8 +137,8 @@ class Omega9ConstraintProvider {
         // INTRADAY: Session-time ADVISORY - no TP ceiling
         sessionConstraintMode = 'ADVISORY';
 
-        if (atrBasedMaxTP > feasibleTravelPips) {
-          tpReasoningSuffix = ` | ℹ️ ADVISORY: ${tradeStyle} trade may extend beyond current session (${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min, target ${atrBasedMaxTP.toFixed(1)} pips)`;
+        if (atrBasedMaxTP_PIPS > feasibleTravelPips) {
+          tpReasoningSuffix = ` | ℹ️ ADVISORY: ${tradeStyle} trade may extend beyond current session (${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min, target ${atrBasedMaxTP_PIPS.toFixed(1)} pips)`;
         }
         break;
 
@@ -156,10 +181,36 @@ class Omega9ConstraintProvider {
     const baseTpReasoning = `Minimum: ${minTakeProfitPips.toFixed(1)} pips (R:R ≥ ${minRiskReward.toFixed(1)}:1). Target: ${targetTakeProfitPips.toFixed(1)} pips (R:R ≥ 1.5:1). Maximum: ${maxTakeProfitPips.toFixed(1)} pips (12x ATR)`;
     const fullTpReasoning = constraintFeasibilityWarning || (baseTpReasoning + tpReasoningSuffix);
 
+    // ✅ CRITICAL FIX: Ensure min <= max for SL range (SECONDARY BUG)
+    // BUG: noiseFloor can exceed profileMax, creating invalid range (min > max)
+    // Example: NAS100 noiseFloor=38.6 pips, profileMax=35 pips → INVALID (38.6 > 35)
+    const rawMinStopLoss = Math.max(stopLossCalc.profileMinPips, noiseFloor.noiseFloorPips);
+    const rawMaxStopLoss = stopLossCalc.profileMaxPips;
+
+    let finalMinStopLoss = rawMinStopLoss;
+    let finalMaxStopLoss = rawMaxStopLoss;
+
+    if (rawMinStopLoss > rawMaxStopLoss) {
+      console.warn('[SSOT_MATH_CORRUPTION] Noise floor exceeds profile max - expanding envelope', {
+        type: 'INVALID_RANGE',
+        severity: 'WARNING',
+        symbol,
+        noiseFloor: noiseFloor.noiseFloorPips,
+        profileMin: stopLossCalc.profileMinPips,
+        profileMax: rawMaxStopLoss,
+        correction: 'Expanding max to accommodate noise floor',
+        callsite: 'omega9-constraint-provider.ts:161'
+      });
+
+      // Expand max by 50% above noise floor to create valid range
+      finalMaxStopLoss = rawMinStopLoss * 1.5;
+      console.log(`[Omega-9 Constraints] SL range corrected: ${rawMinStopLoss.toFixed(1)}-${rawMaxStopLoss.toFixed(1)} → ${finalMinStopLoss.toFixed(1)}-${finalMaxStopLoss.toFixed(1)} pips`);
+    }
+
     const constraints: Omega9Constraints = {
-      // Stop-Loss Constraints
-      minStopLossPips: Math.max(stopLossCalc.profileMinPips, noiseFloor.noiseFloorPips), // Enforce noise floor
-      maxStopLossPips: stopLossCalc.profileMaxPips,
+      // Stop-Loss Constraints (NOW ALWAYS VALID: min <= max)
+      minStopLossPips: finalMinStopLoss,
+      maxStopLossPips: finalMaxStopLoss,
       recommendedStopLossPips: stopLossCalc.stopLossPips,
       stopLossReasoning: stopLossCalc.reasoning,
 

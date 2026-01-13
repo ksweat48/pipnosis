@@ -349,26 +349,51 @@ class EntryMonitorCoordinator {
       };
     }
 
-    // Calculate R:R to ensure it's reasonable
+    // Calculate R:R for diagnostic purposes
     // CRITICAL: Convert price differences to actual pips using symbol-specific pip value
     const pipInfo = getCurrencyPipInfo(decision.symbol);
     const riskPips = Math.abs(entryPrice - decision.stopLoss) / pipInfo.pipValue;
     const rewardPips = Math.abs(decision.takeProfit - entryPrice) / pipInfo.pipValue;
     const rrRatio = rewardPips / riskPips;
 
+    // ✅ ALPHA SOVEREIGNTY: R:R check is DIAGNOSTIC only, not blocking
+    // Poor R:R may indicate SSOT math corruption OR Alpha's deliberate choice
     if (rrRatio < 0.5) {
-      logger.error('[ENTRY_MONITOR_COORD] CRITICAL: Poor risk/reward ratio', {
+      console.warn('[ENTRY_MONITOR_COORD] ⚠️ ADVISORY: Poor R:R detected', {
         symbol: decision.symbol,
         direction: decision.direction,
         riskPips: riskPips.toFixed(2),
         rewardPips: rewardPips.toFixed(2),
         rrRatio: rrRatio.toFixed(3),
+        advisory: 'R:R below 1:0.5 - may indicate SSOT math corruption or aggressive Alpha choice'
       });
 
-      return {
-        success: false,
-        error: `Poor risk/reward: Risking ${riskPips.toFixed(2)} pips to make ${rewardPips.toFixed(2)} pips (R:R = 1:${rrRatio.toFixed(2)}). Minimum acceptable is 1:0.5.`,
-      };
+      // Check if this is likely system corruption vs. Alpha's choice
+      if (rrRatio < 0.05) {
+        // Catastrophically bad R:R - likely system bug, not Alpha's choice
+        console.error('[SSOT_MATH_CORRUPTION] R:R below 1:0.05 indicates calculation error', {
+          type: 'RR_CATASTROPHIC',
+          severity: 'ERROR',
+          symbol: decision.symbol,
+          entryPrice: entryPrice.toFixed(5),
+          stopLoss: decision.stopLoss.toFixed(5),
+          takeProfit: decision.takeProfit.toFixed(5),
+          riskPips,
+          rewardPips,
+          rrRatio,
+          pipValue: pipInfo.pipValue,
+          callsite: 'entry-monitor-coordinator.ts:359',
+          action: 'DIAGNOSTIC_ONLY - Not blocking Alpha sovereignty'
+        });
+      }
+
+      // ✅ ALPHA SOVEREIGNTY: Continue with intent creation
+      // Entry Optimizer will monitor and may abandon if conditions deteriorate
+      logger.info('[ENTRY_MONITOR_COORD] Proceeding with intent creation - Alpha has final authority', {
+        symbol: decision.symbol,
+        rrRatio: rrRatio.toFixed(3),
+        reason: 'Alpha sovereignty preserved - R:R advisory only'
+      });
     }
 
     logger.info('[ENTRY_MONITOR_COORD] ✅ TP/SL validation passed', {
