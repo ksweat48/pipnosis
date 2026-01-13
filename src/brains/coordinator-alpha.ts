@@ -2462,27 +2462,64 @@ Note: NO_TRADE is reserved for legitimate block conditions ONLY. Prefer WAIT whe
 
       // If WAIT, return with wait_condition
       if (action === 'WAIT') {
-        const waitCondition = parsed.wait_condition;
+        let waitCondition = parsed.wait_condition;
 
+        // DEFENSIVE FIX: Try to construct wait_condition if missing or incomplete
         if (!waitCondition || !waitCondition.target_entry_zone_min || !waitCondition.target_entry_zone_max || !waitCondition.invalidation_price) {
-          console.error('[Alpha Coordinator] WAIT action missing required wait_condition fields');
-          return {
-            action: 'NO_TRADE',
-            decision: 'NO_TRADE',
-            entry: currentPrice,
-            stopLoss: currentPrice,
-            takeProfit: currentPrice,
-            confidence: 0,
-            reasoning: 'WAIT decision malformed - missing target zones',
-            omega_summary: '',
-            resolvedStyle,
-            entry_spec: {
-              entry_quality_score: entryQualityScore,
-              entry_mode: entryMode,
-              style: resolvedStyle,
-            },
-            narrativeValidation: narrativeValidation || undefined
+          console.warn('[Alpha Coordinator] ⚠️ wait_condition missing or incomplete - attempting fallback construction');
+          console.warn('[Alpha Coordinator] Original wait_condition:', JSON.stringify(waitCondition));
+
+          // Try to construct from top-level fields or calculate defaults
+          const entryPrice = parsed.entry || currentPrice;
+          const direction = parsed.action === 'BUY' ? 'BUY' : 'SELL';
+          const isBuyDirection = direction === 'BUY';
+
+          // Fallback: Create reasonable entry zone based on ATR
+          const zoneSpread = atr * 0.3; // +/- 30% ATR for entry zone
+          const fallbackMin = entryPrice - zoneSpread;
+          const fallbackMax = entryPrice + zoneSpread;
+
+          // Fallback invalidation: 2x ATR away from entry in opposite direction
+          const fallbackInvalidation = isBuyDirection
+            ? entryPrice - (atr * 2)  // Invalidate below for BUY
+            : entryPrice + (atr * 2); // Invalidate above for SELL
+
+          waitCondition = {
+            target_entry_zone_min: waitCondition?.target_entry_zone_min || fallbackMin,
+            target_entry_zone_max: waitCondition?.target_entry_zone_max || fallbackMax,
+            invalidation_price: waitCondition?.invalidation_price || fallbackInvalidation,
+            wait_reasoning: waitCondition?.wait_reasoning || parsed.reasoning || 'Waiting for better entry conditions',
+            expected_wait_minutes: waitCondition?.expected_wait_minutes
           };
+
+          console.warn('[Alpha Coordinator] ✅ Constructed fallback wait_condition:', JSON.stringify({
+            target_entry_zone_min: waitCondition.target_entry_zone_min.toFixed(5),
+            target_entry_zone_max: waitCondition.target_entry_zone_max.toFixed(5),
+            invalidation_price: waitCondition.invalidation_price.toFixed(5)
+          }));
+
+          // Still validate required fields after fallback
+          if (!waitCondition.target_entry_zone_min || !waitCondition.target_entry_zone_max || !waitCondition.invalidation_price) {
+            console.error('[Alpha Coordinator] ❌ WAIT action still missing required fields even after fallback');
+            console.error('[Alpha Coordinator] Parsed response (first 500 chars):', JSON.stringify(parsed).substring(0, 500));
+            return {
+              action: 'NO_TRADE',
+              decision: 'NO_TRADE',
+              entry: currentPrice,
+              stopLoss: currentPrice,
+              takeProfit: currentPrice,
+              confidence: 0,
+              reasoning: 'WAIT decision malformed - missing target zones even after fallback',
+              omega_summary: '',
+              resolvedStyle,
+              entry_spec: {
+                entry_quality_score: entryQualityScore,
+                entry_mode: entryMode,
+                style: resolvedStyle,
+              },
+              narrativeValidation: narrativeValidation || undefined
+            };
+          }
         }
 
         return {
@@ -2547,8 +2584,31 @@ Note: NO_TRADE is reserved for legitimate block conditions ONLY. Prefer WAIT whe
       if (takeProfit) {
         const tpOnWrongSide = (isBuy && takeProfit < entry) || (!isBuy && takeProfit > entry);
         if (tpOnWrongSide) {
-          errorReason = `TP on WRONG SIDE of entry (${action}: TP ${takeProfit} vs Entry ${entry})`;
-          catastrophicError = true;
+          // DEFENSIVE FIX: Auto-correct TP instead of blocking
+          console.warn(`[Alpha Coordinator] ⚠️ TP on WRONG SIDE - auto-correcting`);
+          console.warn(`[Alpha Coordinator] Original: ${action} Entry=${entry.toFixed(5)} TP=${takeProfit.toFixed(5)} (TP ${isBuy ? 'below' : 'above'} entry)`);
+
+          // Calculate correct TP based on SL distance with 1.5:1 R:R
+          if (stopLoss) {
+            const slDistance = Math.abs(entry - stopLoss);
+            const rrRatio = 1.5; // Conservative R:R for auto-correction
+
+            if (isBuy) {
+              takeProfit = entry + (slDistance * rrRatio); // TP above entry for BUY
+            } else {
+              takeProfit = entry - (slDistance * rrRatio); // TP below entry for SELL
+            }
+
+            console.warn(`[Alpha Coordinator] ✅ Corrected: ${action} Entry=${entry.toFixed(5)} TP=${takeProfit.toFixed(5)} (R:R ${rrRatio}:1)`);
+            console.warn(`[Alpha Coordinator] Applied -15% confidence penalty for LLM TP calculation error`);
+
+            // Apply heavy confidence penalty for LLM error but don't block
+            adjustedConfidence = Math.max(0, adjustedConfidence - 15);
+          } else {
+            // Cannot auto-correct without valid SL - must block
+            errorReason = `TP on WRONG SIDE of entry (${action}: TP ${takeProfit} vs Entry ${entry}) and no valid SL to calculate correction`;
+            catastrophicError = true;
+          }
         }
       }
 
