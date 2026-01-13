@@ -87,8 +87,14 @@ class BestSymbolSelector {
     evaluations.sort((a, b) => b.overallScore - a.overallScore);
 
     const best = evaluations[0];
-    console.log(`[Best Symbol Selector] 🎯 SELECTED: ${best.symbol} (Score: ${best.overallScore.toFixed(2)})`);
-    console.log(`[Best Symbol Selector] 📊 Ranking: ${evaluations.map(e => `${e.symbol}:${e.overallScore.toFixed(1)}`).join(', ')}`);
+
+    // Show execution vs monitoring breakdown
+    const executableCount = evaluations.filter(e => e.omegaDecision.action === 'BUY' || e.omegaDecision.action === 'SELL').length;
+    const waitCount = evaluations.filter(e => e.omegaDecision.action === 'WAIT').length;
+    console.log(`[Best Symbol Selector] 📊 Action breakdown: ${executableCount} executable (BUY/SELL), ${waitCount} monitoring (WAIT)`);
+
+    console.log(`[Best Symbol Selector] 🎯 SELECTED: ${best.symbol} (Score: ${best.overallScore.toFixed(2)}, Action: ${best.omegaDecision.action})`);
+    console.log(`[Best Symbol Selector] 📊 Ranking: ${evaluations.map(e => `${e.symbol}:${e.overallScore.toFixed(1)}(${e.omegaDecision.action})`).join(', ')}`);
 
     return {
       selected: true,
@@ -101,9 +107,22 @@ class BestSymbolSelector {
 
   /**
    * Calculate overall score for a symbol
+   *
+   * CRITICAL: Execution ALWAYS outranks monitoring
+   * - BUY/SELL: +200 absolute priority bonus
+   * - WAIT: +0 bonus (fallback only)
    */
   private calculateSymbolScore(snapshot: SymbolSnapshot, decision: AlphaDecision): number {
     let score = 0;
+
+    // EXECUTION PRIORITY: BUY/SELL gets massive bonus that WAIT cannot overcome
+    if (decision.action === 'BUY' || decision.action === 'SELL') {
+      score += 200; // Absolute execution priority
+      console.log(`[Best Symbol Selector] ⚡ ${snapshot.symbol}: +200 EXECUTION PRIORITY (${decision.action})`);
+    } else if (decision.action === 'WAIT') {
+      score += 0; // No bonus - monitoring is fallback only
+      console.log(`[Best Symbol Selector] ⏸️  ${snapshot.symbol}: +0 WAIT fallback (monitoring mode)`);
+    }
 
     score += decision.confidence * 0.4;
 
@@ -160,6 +179,13 @@ class BestSymbolSelector {
    */
   private buildReasoning(snapshot: SymbolSnapshot, decision: AlphaDecision, score: number): string[] {
     const reasons: string[] = [];
+
+    // Show execution priority first
+    if (decision.action === 'BUY' || decision.action === 'SELL') {
+      reasons.push(`⚡ EXECUTION: ${decision.action} (+200 priority)`);
+    } else if (decision.action === 'WAIT') {
+      reasons.push(`⏸️  MONITORING: WAIT (fallback)`);
+    }
 
     reasons.push(`Omega confidence ${decision.confidence}%`);
 
