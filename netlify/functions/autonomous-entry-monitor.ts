@@ -59,22 +59,42 @@ interface IntentForMonitoring {
 
 export const handler: Handler = async (event, context) => {
   const startTime = Date.now();
-  console.log('[Entry Monitor] Starting scheduled check...');
+  console.log('[Entry Monitor] 🚀 Starting scheduled check...');
+
+  // Health tracking metrics
+  let totalIntents = 0;
+  let successCount = 0;
+  let errorCount = 0;
+  let executedCount = 0;
+  let abandonedCount = 0;
+  let stalePriceCount = 0;
+  const errors: any[] = [];
 
   try {
     // Get all active entry intents that need server monitoring
     const { data: activeIntents, error } = await supabase.rpc('get_intents_for_server_monitoring');
 
     if (error) {
-      console.error('[Entry Monitor] Error fetching intents:', error);
+      console.error('[Entry Monitor] ❌ Error fetching intents:', error);
+      errors.push({ context: 'fetch_intents', error: error.message });
+
+      // Log failed health check
+      await logHealthMetrics(0, 0, 1, 0, 0, 0, Date.now() - startTime, errors);
+
       return {
         statusCode: 500,
         body: JSON.stringify({ error: error.message })
       };
     }
 
+    totalIntents = activeIntents?.length || 0;
+
     if (!activeIntents || activeIntents.length === 0) {
-      console.log('[Entry Monitor] No active intents to monitor');
+      console.log('[Entry Monitor] ✓ No active intents to monitor');
+
+      // Log successful health check (even with 0 intents)
+      await logHealthMetrics(0, 0, 0, 0, 0, 0, Date.now() - startTime, []);
+
       return {
         statusCode: 200,
         body: JSON.stringify({
@@ -85,13 +105,9 @@ export const handler: Handler = async (event, context) => {
       };
     }
 
-    console.log(`[Entry Monitor] Processing ${activeIntents.length} active intents`);
+    console.log(`[Entry Monitor] 📊 Processing ${activeIntents.length} active intents`);
 
     const results = [];
-    let successCount = 0;
-    let errorCount = 0;
-    let executedCount = 0;
-    let abandonedCount = 0;
     let waitingCount = 0;
 
     // Process each intent
@@ -109,6 +125,7 @@ export const handler: Handler = async (event, context) => {
         if (!intent.current_price || !intent.price_updated_at) {
           console.log(`[Entry Monitor] ⚠️ No price data for ${intent.symbol}, skipping`);
           await updateServerState(intent.intent_id, intent.user_id, null, null, 'no_price_data', 'Price data unavailable');
+          stalePriceCount++;
           waitingCount++;
           continue;
         }
@@ -117,6 +134,7 @@ export const handler: Handler = async (event, context) => {
         if (priceAge > 120000) {
           console.log(`[Entry Monitor] ⚠️ Stale price data for ${intent.symbol} (${Math.round(priceAge / 1000)}s old)`);
           await updateServerState(intent.intent_id, intent.user_id, intent.current_price, null, 'stale_price', 'Price data too old');
+          stalePriceCount++;
           waitingCount++;
           continue;
         }
@@ -238,8 +256,14 @@ export const handler: Handler = async (event, context) => {
           });
         }
       } catch (intentError) {
-        console.error(`[Entry Monitor] Error processing intent ${intent.intent_id}:`, intentError);
+        console.error(`[Entry Monitor] ❌ Error processing intent ${intent.intent_id}:`, intentError);
         errorCount++;
+        errors.push({
+          context: 'process_intent',
+          intent_id: intent.intent_id,
+          symbol: intent.symbol,
+          error: (intentError as Error).message
+        });
 
         await updateServerState(
           intent.intent_id,
@@ -253,13 +277,26 @@ export const handler: Handler = async (event, context) => {
       }
     }
 
-    // Mark stale intents for browser fallback
+    // Mark stale intents and create alerts (NO LONGER switches to browser mode)
     const { data: staleIntents } = await supabase.rpc('mark_stale_entry_intents');
     if (staleIntents && staleIntents.length > 0) {
-      console.log(`[Entry Monitor] Marked ${staleIntents.length} stale intents for browser fallback`);
+      console.log(`[Entry Monitor] 🚨 ${staleIntents.length} stale intents detected - alerts created`);
     }
 
     const duration = Date.now() - startTime;
+
+    // Log health metrics to database
+    await logHealthMetrics(
+      totalIntents,
+      successCount,
+      errorCount,
+      executedCount,
+      abandonedCount,
+      stalePriceCount,
+      duration,
+      errors
+    );
+
     const summary = {
       processed: activeIntents.length,
       successful: successCount,
@@ -267,12 +304,13 @@ export const handler: Handler = async (event, context) => {
       executed: executedCount,
       abandoned: abandonedCount,
       waiting: waitingCount,
+      stalePriceCount,
       staleIntents: staleIntents?.length || 0,
       duration,
       results
     };
 
-    console.log('[Entry Monitor] Completed:', summary);
+    console.log('[Entry Monitor] ✅ Completed:', summary);
     if (executedCount > 0) {
       console.log(`[Entry Monitor] 🎯 ${executedCount} trades executed`);
     }
@@ -282,7 +320,12 @@ export const handler: Handler = async (event, context) => {
       body: JSON.stringify(summary)
     };
   } catch (error) {
-    console.error('[Entry Monitor] Fatal error:', error);
+    console.error('[Entry Monitor] 💥 Fatal error:', error);
+    errors.push({ context: 'fatal', error: (error as Error).message });
+
+    // Log failed health check
+    await logHealthMetrics(totalIntents, successCount, errorCount, executedCount, abandonedCount, stalePriceCount, Date.now() - startTime, errors);
+
     return {
       statusCode: 500,
       body: JSON.stringify({
@@ -437,4 +480,32 @@ async function logMonitoringCheck(
       decision: eqs >= threshold ? 'execute' : 'wait',
       reason: `Phase ${phase}: EQS ${eqs.toFixed(1)} vs threshold ${threshold}`
     });
+}
+
+// Helper: Log server monitoring health metrics
+async function logHealthMetrics(
+  totalIntents: number,
+  successful: number,
+  failed: number,
+  executed: number,
+  abandoned: number,
+  stalePrice: number,
+  durationMs: number,
+  errors: any[]
+): Promise<void> {
+  try {
+    await supabase.rpc('log_server_monitoring_health', {
+      p_total_intents: totalIntents,
+      p_successful: successful,
+      p_failed: failed,
+      p_executed: executed,
+      p_abandoned: abandoned,
+      p_stale_price: stalePrice,
+      p_duration_ms: durationMs,
+      p_errors: errors
+    });
+  } catch (error) {
+    // Don't fail function if health logging fails
+    console.error('[Entry Monitor] Failed to log health metrics:', error);
+  }
 }

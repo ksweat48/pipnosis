@@ -283,42 +283,16 @@ export class UnifiedEntryMonitor {
   }
 
   /**
-   * Check if server monitoring is active and healthy
-   * Server is considered active if:
-   * - execution_mode is 'server'
-   * - server_heartbeat exists and is < 90 seconds old
+   * Check if server monitoring is active
+   * Server is considered active if execution_mode is 'server'
+   *
+   * CRITICAL: We TRUST server monitoring - no fallback to browser
+   * If server monitoring fails, alerts will be created in database
    */
   private async checkServerMonitoringActive(intent: any): Promise<boolean> {
-    // If execution_mode is explicitly browser, server is not active
-    if (intent.execution_mode === 'browser') {
-      return false;
-    }
-
-    // If no server heartbeat, server is not active
-    if (!intent.server_heartbeat) {
-      return false;
-    }
-
-    // Check if server heartbeat is fresh (< 90 seconds old)
-    const heartbeatAge = Date.now() - new Date(intent.server_heartbeat).getTime();
-    const isHeartbeatFresh = heartbeatAge < 90000; // 90 seconds
-
-    if (!isHeartbeatFresh) {
-      logger.warn(`[UnifiedMonitor] Server heartbeat stale (${Math.round(heartbeatAge / 1000)}s old), falling back to browser`);
-
-      // Update intent to browser mode since server is stale
-      await supabase
-        .from('entry_intents')
-        .update({
-          execution_mode: 'browser',
-          server_error: `Server heartbeat stale (${Math.round(heartbeatAge / 1000)}s old)`
-        })
-        .eq('id', intent.id);
-
-      return false;
-    }
-
-    return true;
+    // Server is active if execution_mode is 'server'
+    // We trust the server monitoring system completely
+    return intent.execution_mode === 'server';
   }
 
   /**
@@ -482,65 +456,41 @@ export class UnifiedEntryMonitor {
   }
 
   /**
-   * Health monitoring - detects silent failures and auto-recovers
-   * Also checks if server monitoring has become active
-   * Runs every 10 seconds to check monitoring health
+   * Health monitoring - detects silent failures in BROWSER monitoring only
+   * SIMPLIFIED: No longer checks for server monitoring takeover
+   * Server monitoring is trusted - any failures create database alerts
+   * Runs every 30 seconds to check browser monitoring health
    */
   private startHealthMonitoring(): void {
-    this.healthCheckInterval = setInterval(async () => {
+    this.healthCheckInterval = setInterval(() => {
       const now = Date.now();
 
       for (const [intentId, lastCheck] of this.lastCheckTimestamp.entries()) {
         const secondsSinceLastCheck = (now - lastCheck) / 1000;
 
-        // Check if server monitoring has become active - if so, stop browser monitoring
-        try {
-          const { data: intent } = await supabase
-            .from('entry_intents')
-            .select('execution_mode, server_heartbeat')
-            .eq('id', intentId)
-            .maybeSingle();
-
-          if (intent && intent.execution_mode === 'server' && intent.server_heartbeat) {
-            const heartbeatAge = Date.now() - new Date(intent.server_heartbeat).getTime();
-            if (heartbeatAge < 90000) {
-              console.log(
-                '%c[UnifiedMonitor] 🖥️ Server monitoring now active - stopping browser monitoring',
-                'color: #4caf50; font-weight: bold',
-                { intentId: intentId.substring(0, 8) + '...' }
-              );
-              this.stopMonitoring(intentId, 'SERVER_MONITORING_ACTIVE');
-              continue;
-            }
-          }
-        } catch (error) {
-          // Ignore errors in health check
-        }
-
-        if (secondsSinceLastCheck > 15 && secondsSinceLastCheck < 30) {
+        if (secondsSinceLastCheck > 30 && secondsSinceLastCheck < 60) {
           console.warn(
-            '%c[UnifiedMonitor] ⚠️ HEALTH WARNING',
+            '%c[UnifiedMonitor] ⚠️ BROWSER HEALTH WARNING',
             'color: #ff9800; font-weight: bold',
             {
               intentId: intentId.substring(0, 8) + '...',
               secondsSinceLastCheck: Math.floor(secondsSinceLastCheck),
-              message: 'No check in 15+ seconds - monitoring may be stalled'
+              message: 'No check in 30+ seconds - browser monitoring may be throttled'
             }
           );
-        } else if (secondsSinceLastCheck >= 30) {
-          // Debounce: Only try to stop once per intent per health check cycle
+        } else if (secondsSinceLastCheck >= 60) {
+          // Debounce: Only try to stop once per intent
           if (this.healthStopAttempts.has(intentId)) {
-            // Already tried to stop this intent, skip to prevent spam
             continue;
           }
 
           console.error(
-            '%c[UnifiedMonitor] 🚨 HEALTH CRITICAL',
+            '%c[UnifiedMonitor] 🚨 BROWSER HEALTH CRITICAL',
             'color: #f44336; font-weight: bold',
             {
               intentId: intentId.substring(0, 8) + '...',
               secondsSinceLastCheck: Math.floor(secondsSinceLastCheck),
-              message: 'No check in 30+ seconds - monitoring has failed'
+              message: 'No check in 60+ seconds - browser monitoring has failed'
             }
           );
 
@@ -548,17 +498,16 @@ export class UnifiedEntryMonitor {
           this.healthStopAttempts.add(intentId);
 
           // Auto-recovery: Stop this monitoring to prevent deadlock
-          logger.error(`[UnifiedMonitor] Auto-stopping deadlocked monitor ${intentId}`);
+          logger.error(`[UnifiedMonitor] Auto-stopping deadlocked browser monitor ${intentId}`);
           this.stopMonitoring(intentId, 'MONITORING_STALLED');
         }
       }
 
-      // Clear health stop attempts every 60 seconds to allow re-detection if needed
-      // This is safe because stopMonitoring removes from lastCheckTimestamp
-      if (this.healthStopAttempts.size > 0 && now % 60000 < 10000) {
+      // Clear health stop attempts every 60 seconds
+      if (this.healthStopAttempts.size > 0 && now % 60000 < 30000) {
         this.healthStopAttempts.clear();
       }
-    }, 10000); // Check every 10 seconds
+    }, 30000); // Check every 30 seconds
   }
 
   private async checkIntent(intentId: string, userId: string, style: string): Promise<void> {
