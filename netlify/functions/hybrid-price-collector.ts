@@ -353,7 +353,14 @@ export const handler: Handler = async (event, context) => {
   }
 
   if (!metaApiToken || !metaApiAccountId) {
-    console.error('[HybridCollector] WARNING: Missing MetaAPI credentials, crypto-only mode');
+    console.error('[HybridCollector] ❌ CRITICAL: Missing MetaAPI credentials!');
+    console.error('[HybridCollector] Looking for: process.env.METAAPI_TOKEN');
+    console.error('[HybridCollector] Current value: METAAPI_TOKEN =', metaApiToken ? 'SET' : 'UNDEFINED');
+    console.error('[HybridCollector] Current value: METAAPI_ACCOUNT_ID =', metaApiAccountId ? 'SET' : 'UNDEFINED');
+    console.error('[HybridCollector] ⚠️  Forex symbols will NOT be collected (XAUUSD, EURUSD, etc.)');
+    console.error('[HybridCollector] ⚠️  Only crypto symbols will work (BTCUSD, ETHUSD via Kraken)');
+    console.error('[HybridCollector] 🔧 FIX: Set METAAPI_TOKEN in Netlify Dashboard (NOT METAAPI_ADMIN_TOKEN)');
+    console.error('[HybridCollector] 📍 Location: Netlify Dashboard → Site Settings → Environment Variables');
   }
 
   console.log(`[HybridCollector:${executionId}] Starting hybrid price collection...`);
