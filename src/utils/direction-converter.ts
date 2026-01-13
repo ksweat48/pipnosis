@@ -1,23 +1,23 @@
 /**
  * Direction Format Converter - Single Source of Truth
  *
- * CRITICAL: Database tables expect uppercase 'BUY' | 'SELL' format
+ * CRITICAL: Database tables expect lowercase 'buy' | 'sell' format
  *
  * Different parts of the system use different formats:
  * - entry_intents table: 'long' | 'short'
- * - goal_session_trades table: 'BUY' | 'SELL'
+ * - goal_session_trades table: 'buy' | 'sell'
  * - TypeScript types: 'buy' | 'sell'
  *
  * This converter ensures consistent format conversion across all trade execution paths.
  */
 
-export type DirectionDB = 'BUY' | 'SELL';
+export type DirectionDB = 'buy' | 'sell';
 export type DirectionLowercase = 'buy' | 'sell';
 export type DirectionLongShort = 'long' | 'short';
 export type DirectionAny = DirectionDB | DirectionLowercase | DirectionLongShort;
 
 /**
- * Convert any direction format to database format ('BUY' | 'SELL')
+ * Convert any direction format to database format ('buy' | 'sell')
  *
  * @throws Error if invalid direction provided
  */
@@ -31,11 +31,11 @@ export function toDirectionDB(direction: DirectionAny): DirectionDB {
   switch (normalized) {
     case 'buy':
     case 'long':
-      return 'BUY';
+      return 'buy';
 
     case 'sell':
     case 'short':
-      return 'SELL';
+      return 'sell';
 
     default:
       throw new Error(`[Direction Converter] Unknown direction format: '${direction}'. Expected: 'buy', 'sell', 'long', 'short', 'BUY', or 'SELL'`);
