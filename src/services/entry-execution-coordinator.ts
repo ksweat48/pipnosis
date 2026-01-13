@@ -168,11 +168,14 @@ export class EntryExecutionCoordinator {
         adjustedStopLoss
       );
 
+      // CRITICAL: Convert direction from 'long'/'short' to 'BUY'/'SELL' for database
+      const tradeDirection = intent.direction === 'long' ? 'BUY' : 'SELL';
+
       const tradeData = {
         user_id: intent.user_id,
         goal_session_id: intent.session_id,
         symbol: intent.symbol,
-        direction: intent.direction,
+        direction: tradeDirection,
         entry_price: actualEntryPrice,
         stop_loss: adjustedStopLoss,
         take_profit: adjustedTakeProfit, // Legacy field for backward compatibility
