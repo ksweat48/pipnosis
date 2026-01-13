@@ -107,6 +107,7 @@ class GoalSessionLiveEngine {
   private allowNewTrades = true;
   private tradesOpenAtExpiration = 0;
   private goalClassification: GoalClassification | null = null;
+  private isStopping = false; // RACE CONDITION FIX: Track session shutdown state
 
   private readonly POLLING_INTERVAL_MS = 60000; // 60s = 75% fewer LLM calls
   private readonly MAX_DAILY_LOSS_PERCENT = 10;
@@ -238,6 +239,7 @@ class GoalSessionLiveEngine {
       this.allowNewTrades = true;
       this.tradesOpenAtExpiration = 0;
       this.monitoringModeMessageSent = false;
+      this.isStopping = false; // RACE CONDITION FIX: Reset stopping flag for new session
 
       // ✅ CRITICAL: Initialize autonomous Pipnosis Alpha brain
       await eventBasedLLMEngine.initialize(config.userId, config.goalSessionId);
@@ -352,6 +354,10 @@ class GoalSessionLiveEngine {
         };
       }
 
+      // RACE CONDITION FIX: Set stopping flag BEFORE stopping polling
+      // This prevents new operations from starting while cleanup is in progress
+      this.isStopping = true;
+
       logger.info(LogCategory.AI_TRADING, `Stopping goal session: ${this.activeSession}`);
 
       this.stopPolling();
@@ -461,7 +467,8 @@ class GoalSessionLiveEngine {
    * Process candle update with mutex to prevent race conditions
    */
   private async processCandleUpdate(): Promise<void> {
-    if (!this.config || !this.activeSession) {
+    // RACE CONDITION FIX: Early exit if session is stopping or config is null
+    if (this.isStopping || !this.config || !this.activeSession) {
       return;
     }
 
@@ -510,6 +517,16 @@ class GoalSessionLiveEngine {
     let tradeExecuted = false;
 
     try {
+      // 🔍 RACE CONDITION FIX: Early exit if session is stopping or config is null
+      if (this.isStopping || !this.config || !this.activeSession) {
+        console.log('%c[PROCESS_MULTI_SYMBOL] ⏹️ ABORT: Session stopping or config null', 'color: #ff9800; font-weight: bold', {
+          isStopping: this.isStopping,
+          hasConfig: !!this.config,
+          hasSession: !!this.activeSession
+        });
+        return;
+      }
+
       // 🔍 CRITICAL: Log entry to processMultiSymbolCycle for debugging
       console.log('%c[PROCESS_MULTI_SYMBOL] 🚀 Entered processMultiSymbolCycle', 'color: #9c27b0; font-weight: bold', {
         activeSession: this.activeSession,
@@ -981,6 +998,13 @@ class GoalSessionLiveEngine {
 
       // ✅ ENTRY MONITOR: Handle WAIT decisions - Start entry monitoring with ZERO LLM
       if (decision.action === 'WAIT') {
+        // 🔍 RACE CONDITION FIX: Verify config still exists before accessing userId
+        if (!this.config || this.isStopping) {
+          console.log('%c[WAIT HANDLER] ⏹️ ABORT: Session stopping or config null during WAIT decision', 'color: #ff9800; font-weight: bold');
+          logger.warn(LogCategory.AI_TRADING, 'WAIT decision aborted - session stopping or config null');
+          return;
+        }
+
         logger.info(LogCategory.AI_TRADING, `⏸️ WAIT decision received for ${selectedSymbol} - starting ENTRY_MONITOR mode`);
 
         // Get snapshot for selected symbol (needed for entry monitor context)
