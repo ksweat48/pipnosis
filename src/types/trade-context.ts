@@ -156,8 +156,12 @@ export function createConverters(config: SymbolConfig) {
     }
 
     // Check if lot size is a valid multiple of min lot size
-    const remainder = lotValue % config.minLotSize;
-    if (remainder > 0.00001) {
+    // Use rounding approach to avoid floating-point modulo issues
+    const steps = Math.round(lotValue / config.minLotSize);
+    const normalizedLot = steps * config.minLotSize;
+    const deviation = Math.abs(lotValue - normalizedLot);
+
+    if (deviation > 0.00001) {
       return {
         valid: false,
         error: `Lot size ${lotValue} not a valid multiple of step size ${config.minLotSize}`
