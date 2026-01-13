@@ -14,6 +14,7 @@ import { validateAtCheckpoint } from './ssot-preflight-guard';
 import { logExecutionViolation } from './ssot-violation-logger';
 import type { TradeContext } from '../types/trade-context';
 import { price as createPrice, lots as createLots } from '../types/trading-units';
+import { toDirectionDB } from '../utils/direction-converter';
 
 interface LivePriceResult {
   price: number;
@@ -849,12 +850,16 @@ class TradeExecutionEngine {
 
     console.log('[Trade Execution] ✅ PCVL validation passed - executing live trade');
 
+    // CRITICAL: Convert direction to database format ('BUY'/'SELL')
+    const tradeDirection = toDirectionDB(signal.direction);
+    console.log(`[Trade Execution] Direction converted: ${signal.direction} → ${tradeDirection}`);
+
     // Insert trade with all required fields populated (using adjusted SL/TP)
     const tradeData = {
       goal_session_id: signal.sessionId,
       user_id: userId,
       symbol: signal.symbol,
-      direction: signal.direction,
+      direction: tradeDirection,
       entry_price: actualEntryPrice,
       stop_loss: adjustedSL,
       take_profit: adjustedTP,

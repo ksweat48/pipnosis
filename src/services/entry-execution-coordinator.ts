@@ -7,6 +7,7 @@ import { logger } from '../lib/logger';
 import { globalToastManager } from './global-toast-manager';
 import { createTradeContext } from '../utils/tradeMath';
 import type { TradeContext } from '../types/trade-context';
+import { toDirectionDB } from '../utils/direction-converter';
 
 export class EntryExecutionCoordinator {
   static async handleAlphaDecision(
@@ -168,8 +169,9 @@ export class EntryExecutionCoordinator {
         adjustedStopLoss
       );
 
-      // CRITICAL: Convert direction from 'long'/'short' to 'BUY'/'SELL' for database
-      const tradeDirection = intent.direction === 'long' ? 'BUY' : 'SELL';
+      // CRITICAL: Convert direction from 'long'/'short' to 'BUY'/'SELL' for database using SSOT converter
+      const tradeDirection = toDirectionDB(intent.direction);
+      console.log(`[Entry Execution] Direction converted: ${intent.direction} → ${tradeDirection}`);
 
       const tradeData = {
         user_id: intent.user_id,

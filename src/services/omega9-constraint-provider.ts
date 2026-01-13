@@ -111,8 +111,13 @@ class Omega9ConstraintProvider {
       });
     }
 
-    // SSOT: Get session constraint policy from coordinator
-    const sessionConstraintPolicy = sessionConstraintCoordinator.getSessionConstraintPolicy(symbol, tradeStyle);
+    // ✅ CRYPTO EXEMPTION: 24/7 markets skip session calculations entirely
+    const is24HourMarket = assetClassifier.is24HourMarket(symbol);
+
+    // SSOT: Get session constraint policy from coordinator (unless 24/7 market)
+    const sessionConstraintPolicy = is24HourMarket
+      ? 'NONE'
+      : sessionConstraintCoordinator.getSessionConstraintPolicy(symbol, tradeStyle);
 
     // ARCHITECTURAL CHANGE (v2.0): Session time is ADVISORY ONLY
     // Session time NEVER limits TP - it only provides information for:
@@ -123,19 +128,26 @@ class Omega9ConstraintProvider {
     let sessionConstraintMode: 'ADVISORY' | 'NONE';
     let tpReasoningSuffix = '';
 
-    switch (sessionConstraintPolicy) {
-      case 'ENFORCED':
-        // CHANGED: Even ENFORCED is now ADVISORY - no TP ceiling
-        sessionConstraintMode = 'ADVISORY';
+    if (is24HourMarket) {
+      // 24/7 markets: No session constraints at all
+      sessionConstraintMode = 'NONE';
+      tpReasoningSuffix = ' | 24/7 market - no session constraints';
+      console.log(`[Omega-9] ${symbol} is 24/7 market - session constraints disabled`);
+    } else {
+      // Forex/indices with session-based trading hours
+      switch (sessionConstraintPolicy) {
+        case 'ENFORCED':
+          // CHANGED: Even ENFORCED is now ADVISORY - no TP ceiling
+          sessionConstraintMode = 'ADVISORY';
 
-        if (feasibleTravelPips < atrBasedMaxTP_PIPS) {
-          tpReasoningSuffix = ` | ℹ️ ADVISORY: ${tradeStyle} may extend beyond session (${feasibleTravelPips.toFixed(1)} pips in ${sessionTimeRemainingMinutes}min remaining). Style upgrade may apply.`;
-        }
-        break;
+          if (feasibleTravelPips < atrBasedMaxTP_PIPS) {
+            tpReasoningSuffix = ` | ℹ️ ADVISORY: ${tradeStyle} may extend beyond session (${feasibleTravelPips.toFixed(1)} pips in ${sessionTimeRemainingMinutes}min remaining). Style upgrade may apply.`;
+          }
+          break;
 
-      case 'ADVISORY':
-        // INTRADAY: Session-time ADVISORY - no TP ceiling
-        sessionConstraintMode = 'ADVISORY';
+        case 'ADVISORY':
+          // INTRADAY: Session-time ADVISORY - no TP ceiling
+          sessionConstraintMode = 'ADVISORY';
 
         if (atrBasedMaxTP_PIPS > feasibleTravelPips) {
           tpReasoningSuffix = ` | ℹ️ ADVISORY: ${tradeStyle} trade may extend beyond current session (${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min, target ${atrBasedMaxTP_PIPS.toFixed(1)} pips)`;
@@ -152,6 +164,7 @@ class Omega9ConstraintProvider {
           tpReasoningSuffix = ` | ${tradeStyle} trade - session timing not applicable`;
         }
         break;
+    }
     }
 
     // Determine the SL we'll use for R:R calculations
@@ -276,6 +289,30 @@ class Omega9ConstraintProvider {
     }
 
     console.log('[Omega-9 Constraints] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    // ✅ CRYPTO SCALE MISMATCH DIAGNOSTIC (NON-BLOCKING)
+    // Detect when crypto TP is suspiciously small relative to SL (likely scale error)
+    if (assetClassifier.isCrypto(symbol)) {
+      const tpToSLRatio = constraints.minTakeProfitPips / referenceSLPips;
+
+      if (tpToSLRatio < 0.2) {
+        // TP is less than 20% of SL - very suspicious for crypto
+        console.error('[Omega-9 Crypto Scale] 🚨 DIAGNOSTIC: Crypto scale mismatch detected (NON-BLOCKING)');
+        console.error(`[Omega-9 Crypto Scale] ${symbol}: TP ${constraints.minTakeProfitPips.toFixed(0)} pips / SL ${referenceSLPips.toFixed(0)} pips = ${(tpToSLRatio * 100).toFixed(1)}% ratio`);
+        console.error(`[Omega-9 Crypto Scale] This suggests a calculation error in session constraints or ATR scaling`);
+        console.error(`[Omega-9 Crypto Scale] Expected: TP should be at least 20-50% of SL for crypto trades`);
+        console.error(`[Omega-9 Crypto Scale] Root cause likely: Session time constraint crushing TP for 24/7 market`);
+        console.error(`[Omega-9 Crypto Scale] Recommendation: Verify 24/7 market detection and session constraint exemption`);
+
+        // Add diagnostic warning (NOT blocking, just visibility)
+        constraints.violations.push({
+          type: 'CRYPTO_SCALE_MISMATCH',
+          severity: 'WARNING',
+          message: `Crypto scale diagnostic: TP/SL ratio ${(tpToSLRatio * 100).toFixed(1)}% (expected >20%) - possible calculation error`,
+          suggestedFix: 'DIAGNOSTIC ONLY: This is informational. Alpha retains full authority. Check session constraint exemption for 24/7 markets.'
+        });
+      }
+    }
 
     return constraints;
   }
@@ -540,14 +577,33 @@ Core Principle: If the market can offer some profit, you should take it.
 
     baseVolatility *= sessionMultiplier;
 
-    // Apply minimum floor of 5 pips/hour to prevent zero feasible travel
-    const minimumVolatility = 5.0;
+    // ✅ ASSET-CLASS-AWARE VOLATILITY FLOORS (ADVISORY)
+    // These are safety floors, not hard constraints - Alpha can still decide
+    let minimumVolatility: number;
+    const assetCategory = assetClassifier.getAssetCategory(symbol);
+
+    switch (assetCategory) {
+      case 'crypto':
+        minimumVolatility = 100.0;  // 100 pips/hour = $100/hour for BTC scale
+        break;
+      case 'index':
+        minimumVolatility = 20.0;   // 20 points/hour for indices
+        break;
+      case 'metal':
+        minimumVolatility = 10.0;   // 10 points/hour for gold/silver
+        break;
+      case 'forex':
+      case 'energy':
+      default:
+        minimumVolatility = 5.0;    // 5 pips/hour for forex (existing)
+    }
+
     if (baseVolatility < minimumVolatility) {
-      console.warn(`[Omega-9 Volatility] ${symbol}: Calculated volatility ${baseVolatility.toFixed(2)} pips/hour below minimum ${minimumVolatility} - using floor`);
+      console.warn(`[Omega-9 Volatility] ⚠️ ADVISORY: ${symbol} (${assetCategory}): Calculated volatility ${baseVolatility.toFixed(2)} pips/hour below ${assetCategory} minimum ${minimumVolatility} - using floor (advisory only, Alpha has final authority)`);
       baseVolatility = minimumVolatility;
     }
 
-    console.log(`[Omega-9 Volatility] ${symbol}: Base ${(atrInPips * 1.5).toFixed(1)} → Regime ${regimeMultiplier}x → Session ${sessionMultiplier}x → Final ${baseVolatility.toFixed(1)} pips/hour`);
+    console.log(`[Omega-9 Volatility] ${symbol} (${assetCategory}): Base ${(atrInPips * 1.5).toFixed(1)} → Regime ${regimeMultiplier}x → Session ${sessionMultiplier}x → Final ${baseVolatility.toFixed(1)} pips/hour (${assetCategory} floor: ${minimumVolatility})`);
 
     return baseVolatility;
   }
