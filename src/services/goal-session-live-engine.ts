@@ -23,6 +23,7 @@ import { bestSymbolSelector } from './best-symbol-selector';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
 import { calculateDollarPerPip, calculatePositionSize, calculatePipDistance, calculateGoalAwareLotSize, calculateLotSizeFromDollarRisk, calculateAndValidateRR, getCurrencyPipInfo, formatCurrencyPrice } from '../utils/currencyHelpers';
+import { createTradeContext } from '../utils/tradeMath';
 import { getRiskPercentage } from '../config/risk-levels';
 import { postTradeAnalyzer } from './post-trade-analyzer';
 import { scanningStateMachine } from './scanning-state-machine';
@@ -1469,6 +1470,15 @@ class GoalSessionLiveEngine {
         // Continue without dual TP system if calculation fails
       }
 
+      // ✅ SSOT FIX: Create TradeContext before execution
+      const tradeContextResult = createTradeContext(selectedSymbol);
+      if (!tradeContextResult.success || !tradeContextResult.context) {
+        logger.error(LogCategory.AI_TRADING, `[SSOT] Failed to create TradeContext for ${selectedSymbol}: ${tradeContextResult.error}`);
+        throw new Error(`TradeContext creation failed: ${tradeContextResult.error}`);
+      }
+      const tradeContext = tradeContextResult.context;
+      logger.info(LogCategory.AI_TRADING, `[SSOT] TradeContext created for ${selectedSymbol} (hash: ${tradeContext.profileHash})`);
+
       const executionResult = await tradeExecutionEngine.executeSignal(
         {
           sessionId: this.activeSession!,
@@ -1489,6 +1499,8 @@ class GoalSessionLiveEngine {
           tp1Confidence: tp1Price ? 70 : undefined, // TP1 is conservative with higher probability
           tp1Reasoning,
           tp2Reasoning,
+          // ✅ SSOT FIX: Include TradeContext in signal
+          tradeContext,
           // Add style tracking data from eligibility gate
           ...(eligibilityResult.styleTracking && {
             requestedStyle: eligibilityResult.styleTracking.requestedStyle,
@@ -2169,6 +2181,15 @@ class GoalSessionLiveEngine {
     const dollarPerPip = calculateDollarPerPip(symbol, lotSize);
     const expectedProfit = rewardPips * dollarPerPip;
 
+    // ✅ SSOT FIX: Create TradeContext before execution
+    const tradeContextResult = createTradeContext(symbol);
+    if (!tradeContextResult.success || !tradeContextResult.context) {
+      logger.error(LogCategory.AI_TRADING, `[SSOT] Failed to create TradeContext for ${symbol}: ${tradeContextResult.error}`);
+      throw new Error(`TradeContext creation failed: ${tradeContextResult.error}`);
+    }
+    const tradeContext = tradeContextResult.context;
+    logger.info(LogCategory.AI_TRADING, `[SSOT] TradeContext created for ${symbol} (hash: ${tradeContext.profileHash})`);
+
     // Execute through trade-execution-engine
     const executionResult = await tradeExecutionEngine.executeSignal(
       {
@@ -2183,7 +2204,9 @@ class GoalSessionLiveEngine {
         setupType: 'entry_monitor',
         reasoning: `Entry Monitor execution from intent ${intentId}`,
         riskReward,
-        expectedProfit
+        expectedProfit,
+        // ✅ SSOT FIX: Include TradeContext in signal
+        tradeContext
       },
       this.config.userId,
       this.config.autoExecute
@@ -2261,6 +2284,15 @@ class GoalSessionLiveEngine {
       rrValidation.validation.warnings.forEach(w => logger.warn(LogCategory.AI_TRADING, `  - ${w}`));
     }
 
+    // ✅ SSOT FIX: Create TradeContext before execution
+    const tradeContextResult = createTradeContext(trade.symbol);
+    if (!tradeContextResult.success || !tradeContextResult.context) {
+      logger.error(LogCategory.AI_TRADING, `[SSOT] Failed to create TradeContext for ${trade.symbol}: ${tradeContextResult.error}`);
+      throw new Error(`TradeContext creation failed: ${tradeContextResult.error}`);
+    }
+    const tradeContext = tradeContextResult.context;
+    logger.info(LogCategory.AI_TRADING, `[SSOT] TradeContext created for ${trade.symbol} (hash: ${tradeContext.profileHash})`);
+
     // Route through trade-execution-engine to create simulated_positions
     const executionResult = await tradeExecutionEngine.executeSignal(
       {
@@ -2275,7 +2307,9 @@ class GoalSessionLiveEngine {
         setupType: trade.triggerType,
         reasoning: trade.reasoning,
         riskReward,
-        expectedProfit
+        expectedProfit,
+        // ✅ SSOT FIX: Include TradeContext in signal
+        tradeContext
       },
       this.config.userId,
       this.config.autoExecute
