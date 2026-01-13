@@ -365,7 +365,7 @@ class PositionMonitorService {
         return;
       }
 
-      await this.updateOpenPosition(position, { bid, ask }, currentPrice);
+      await this.updateOpenPosition(position, { bid, ask }, currentPrice, priceSource);
     } catch (error) {
       console.error(`[PositionMonitor] Failed to update position for ${position.symbol}:`, error);
     }
@@ -432,7 +432,8 @@ class PositionMonitorService {
   private async updateOpenPosition(
     position: MonitoredPosition,
     price: { bid: number; ask: number },
-    currentPrice?: number
+    currentPrice?: number,
+    priceSource?: string
   ) {
     if (!position.entry_price) return;
 
