@@ -9,19 +9,27 @@
  * - Mixed calculation sources (currencyHelpers vs symbol-registry)
  * - Decimal placement disasters
  * - Missing pip value definitions
+ * - Calculation contamination bugs
  *
- * VALIDATION LOGIC:
+ * VALIDATION LOGIC (Hybrid Approach):
  * 1. Calculate TRUE risk: trueRisk = lot_size × pip_value × stop_pips
  * 2. Compare to intended risk
  * 3. Block if variance > ±2%
- * 4. Validate pip value is within expected range
- * 5. Validate lot size is within broker limits
+ * 4. Validate SOURCE pip value (dollarPerPipPerLot) against expected ranges for instrument type
+ * 5. Validate CALCULATED pip value (dollarPerPip) matches lot_size × dollarPerPipPerLot
+ * 6. Validate lot size is within broker limits
+ *
+ * ARCHITECTURAL FIX:
+ * - OLD: Validated dollarPerPip against fixed ranges (broke for micro-lots)
+ * - NEW: Validates dollarPerPipPerLot (source) + calculation formula separately
+ * - This catches CONFIG errors (wrong source values) AND CALCULATION errors (formula bugs)
+ * - Micro-lots like 0.07 lots now pass correctly
  *
  * HARD BLOCKS:
  * - Risk variance > ±2%
- * - Pip value missing or out of range
+ * - SOURCE pip value outside expected range for instrument type
+ * - CALCULATED pip value doesn't match formula
  * - Lot size outside broker limits
- * - Stop distance < minimum
  *
  * EMERGENCY KILL SWITCH:
  * Set PCVL_CONFIG.enabled = false to bypass (use with extreme caution)
@@ -88,13 +96,16 @@ export function validatePositionContract(inputs: PCVLInput): PCVLResult {
     };
   }
 
-  // Step 5: Validate pip value is within expected range for instrument type
+  // Step 5: Validate SOURCE pip value (dollarPerPipPerLot) is within expected range
+  // This catches configuration errors in symbol-registry or currencyHelpers
   const instrumentType = pipInfo.symbolType;
   const pipValueRange = PCVL_CONFIG.pip_value_validation[instrumentType];
+  const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot;
 
-  if (pipValueRange && (dollarPerPip < pipValueRange.min || dollarPerPip > pipValueRange.max)) {
-    prodLogger.error(`[PCVL] 🚫 BLOCKED: Dollar/pip $${dollarPerPip.toFixed(2)} outside expected range [$${pipValueRange.min}-$${pipValueRange.max}] for ${instrumentType}`);
+  if (pipValueRange && (dollarPerPipPerLot < pipValueRange.min || dollarPerPipPerLot > pipValueRange.max)) {
+    prodLogger.error(`[PCVL] 🚫 BLOCKED: SOURCE pip value $${dollarPerPipPerLot.toFixed(2)}/pip/lot outside expected range [$${pipValueRange.min}-$${pipValueRange.max}] for ${instrumentType}`);
     prodLogger.error(`[PCVL] This indicates a pip value configuration error in currencyHelpers or symbol-registry`);
+    prodLogger.error(`[PCVL] Symbol: ${symbol}, Config: ${JSON.stringify(symbolConfig)}`);
 
     return {
       approved: false,
@@ -102,10 +113,36 @@ export function validatePositionContract(inputs: PCVLInput): PCVLResult {
       pip_value_used: pipInfo.pipValue,
       dollar_per_pip: dollarPerPip,
       risk_variance_percent: riskVariance,
-      block_reason: `PIP_VALUE_OUT_OF_RANGE: $${dollarPerPip.toFixed(2)}/pip outside expected range [$${pipValueRange.min}-$${pipValueRange.max}] for ${instrumentType}`,
-      audit: createAudit(inputs, trueRiskDollars, pipInfo.pipValue, dollarPerPip, riskVariance, false, 'PIP_VALUE_OUT_OF_RANGE'),
+      block_reason: `PIP_VALUE_CONFIG_ERROR: SOURCE value $${dollarPerPipPerLot.toFixed(2)}/pip/lot outside expected range [$${pipValueRange.min}-$${pipValueRange.max}] for ${instrumentType}`,
+      audit: createAudit(inputs, trueRiskDollars, pipInfo.pipValue, dollarPerPip, riskVariance, false, 'PIP_VALUE_CONFIG_ERROR'),
     };
   }
+
+  // Step 5b: Validate CALCULATED pip value matches expected formula (lot_size × dollarPerPipPerLot)
+  // This catches calculation errors or contamination bugs
+  const expectedDollarPerPip = lot_size * dollarPerPipPerLot;
+  const calculationDiscrepancy = Math.abs(dollarPerPip - expectedDollarPerPip);
+  const tolerancePercent = 0.1; // 0.1% tolerance for floating point rounding
+
+  if (calculationDiscrepancy > expectedDollarPerPip * (tolerancePercent / 100)) {
+    prodLogger.error(`[PCVL] 🚫 BLOCKED: Dollar/pip calculation mismatch detected`);
+    prodLogger.error(`[PCVL] Expected: ${lot_size.toFixed(3)} lots × $${dollarPerPipPerLot.toFixed(2)}/pip/lot = $${expectedDollarPerPip.toFixed(2)}/pip`);
+    prodLogger.error(`[PCVL] Actual: $${dollarPerPip.toFixed(2)}/pip`);
+    prodLogger.error(`[PCVL] Discrepancy: $${calculationDiscrepancy.toFixed(4)} (${((calculationDiscrepancy / expectedDollarPerPip) * 100).toFixed(2)}%)`);
+    prodLogger.error(`[PCVL] This indicates a calculation contamination bug in calculateDollarPerPip()`);
+
+    return {
+      approved: false,
+      true_risk_dollars: trueRiskDollars,
+      pip_value_used: pipInfo.pipValue,
+      dollar_per_pip: dollarPerPip,
+      risk_variance_percent: riskVariance,
+      block_reason: `CALCULATION_ERROR: Dollar/pip mismatch. Expected $${expectedDollarPerPip.toFixed(2)}, got $${dollarPerPip.toFixed(2)} (${((calculationDiscrepancy / expectedDollarPerPip) * 100).toFixed(2)}% error)`,
+      audit: createAudit(inputs, trueRiskDollars, pipInfo.pipValue, dollarPerPip, riskVariance, false, 'CALCULATION_ERROR'),
+    };
+  }
+
+  prodLogger.info(`[PCVL] ✅ Pip value validation passed: SOURCE $${dollarPerPipPerLot.toFixed(2)}/pip/lot, CALCULATED $${dollarPerPip.toFixed(2)}/pip for ${lot_size.toFixed(3)} lots`);
 
   // Step 6: Validate lot size within broker limits
   const minLot = symbolConfig?.minLotSize || 0.01;
@@ -182,7 +219,7 @@ function createAudit(
     pip_value: pipValue,
     dollar_per_pip: dollarPerPip,
     approved,
-    block_reason,
+    block_reason: blockReason,
   };
 }
 
