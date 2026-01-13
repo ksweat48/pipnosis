@@ -1263,95 +1263,47 @@ class GoalSessionLiveEngine {
         return;
       }
 
-      // Handle EXECUTE_REDUCED tier - Simple automatic goal reduction (no Alpha confirmation needed)
+      // ✅ ARCHITECTURAL FIX: Feasibility is ADVISORY ONLY - Alpha has final authority
+      // Philosophy: "Reduced profit > NO_TRADE" means Alpha can proceed with ANY feasible setup
+      // Auto-reduction logic REMOVED per CCIP - no silent TP/SL mutation allowed
       let downshiftedProposal: DownshiftProposal | undefined;
-      let adjustedTakeProfit = decision.takeProfit;
-      let adjustedExpectedProfit = expectedProfitAtAlphaTP;
+      let adjustedTakeProfit = decision.takeProfit; // Keep Alpha's original TP
+      let adjustedExpectedProfit = expectedProfitAtAlphaTP; // Keep Alpha's original profit estimate
 
       if (feasibilityResult.feasible && feasibilityResult.tier === 'EXECUTE_REDUCED' && feasibilityResult.proposal) {
-        console.log('%c[Goal Feasibility] 🔄 EXECUTE_REDUCED - Auto-applying goal reduction', 'color: #3b82f6; font-weight: bold');
+        // CHANGED: Log advisory but DO NOT auto-reduce
+        console.log('%c[Goal Feasibility] ℹ️ EXECUTE_REDUCED advisory (NOT applied)', 'color: #3b82f6; font-weight: bold');
 
         const reducedProposal = feasibilityResult.proposal as any;
-        adjustedExpectedProfit = reducedProposal.reducedGoal;
 
-        // Recalculate take profit based on reduced goal
-        const pipInfo = getCurrencyPipInfo(selectedSymbol);
-        const dollarPerPip = calculateDollarPerPip(selectedSymbol, lotSize);
-        const adjustedTPPips = adjustedExpectedProfit / dollarPerPip;
-
-        if (decision.action === 'BUY') {
-          adjustedTakeProfit = decision.entry + (adjustedTPPips * pipInfo.pipValue);
-        } else {
-          adjustedTakeProfit = decision.entry - (adjustedTPPips * pipInfo.pipValue);
-        }
-
-        // Send advisory message to user
+        // Send ADVISORY message only - no execution changes
         await this.sendAIMessage(
-          `🔄 Goal Automatically Reduced\n\n` +
+          `ℹ️ Feasibility Advisory\n\n` +
           `${reducedProposal.advisoryMessage}\n\n` +
           `📊 Reason: ${reducedProposal.reason}\n` +
-          `📉 Adjusted goal: $${reducedProposal.reducedGoal.toFixed(2)}\n` +
+          `📉 Suggested goal: $${reducedProposal.reducedGoal.toFixed(2)}\n` +
           `📈 Retention: ${(reducedProposal.retentionPercent * 100).toFixed(0)}%\n\n` +
-          `✅ Proceeding with execution...`
+          `🎯 Alpha's Decision: Proceeding with original TP (Alpha has FINAL AUTHORITY)`
         );
 
-        console.log('%c[Goal Feasibility] ✅ EXECUTE_REDUCED applied - Proceeding to execution', 'color: #10b981; font-weight: bold');
+        console.log('%c[Goal Feasibility] ✅ Advisory logged - Alpha TP preserved', 'color: #10b981; font-weight: bold');
       }
-      // Handle DOWNSHIFT tier - Goal needs adjustment, Alpha must re-confirm
+      // ✅ ARCHITECTURAL FIX: DOWNSHIFT tier is now ADVISORY ONLY
+      // Alpha already chose the TP - downshift suggestions are informational
       else if (feasibilityResult.feasible && feasibilityResult.proposal) {
-        console.log('%c[Goal Feasibility] 📊 Downshift proposal detected - Requesting Alpha confirmation...', 'color: #8b5cf6; font-weight: bold');
+        console.log('%c[Goal Feasibility] ℹ️ Downshift advisory detected (INFORMATIONAL)', 'color: #8b5cf6; font-weight: bold');
 
         downshiftedProposal = feasibilityResult.proposal;
 
-        const alphaEvaluation = await AlphaDownshiftEvaluator.evaluateDownshiftProposal(
-          downshiftedProposal,
-          this.config.userId,
-          this.activeSession!
-        );
-
-        if (alphaEvaluation.decision === 'REJECT') {
-          console.log('%c[Goal Feasibility] ❌ Alpha REJECTED downshift proposal', 'color: #ef4444; font-weight: bold');
-          await this.sendAIMessage(
-            `❌ Trade Rejected by Alpha\n\n` +
-            `Proposed adjusted goal: $${downshiftedProposal.adjustedGoal.toFixed(2)} (${(downshiftedProposal.retentionPercent * 100).toFixed(0)}% of original)\n\n` +
-            `Alpha's reasoning: ${alphaEvaluation.reasoning}`
-          );
-          return;
-        }
-
-        if (alphaEvaluation.decision === 'WAIT') {
-          console.log('%c[Goal Feasibility] ⏳ Alpha chose to WAIT for better conditions', 'color: #f59e0b; font-weight: bold');
-          await this.sendAIMessage(
-            `⏳ Waiting for Better Conditions\n\n` +
-            `Alpha's reasoning: ${alphaEvaluation.reasoning}`
-          );
-          return;
-        }
-
-        // AFFIRM - Alpha approved the downshift
-        console.log('%c[Goal Feasibility] ✅ Alpha AFFIRMED downshift - Adjusting trade parameters', 'color: #10b981; font-weight: bold');
-
-        adjustedExpectedProfit = downshiftedProposal.adjustedGoal;
-
-        // Recalculate take profit based on adjusted expected profit
-        const pipInfo = getCurrencyPipInfo(selectedSymbol);
-        const dollarPerPip = calculateDollarPerPip(selectedSymbol, lotSize);
-        const adjustedTPPips = adjustedExpectedProfit / dollarPerPip;
-
-        if (decision.action === 'BUY') {
-          adjustedTakeProfit = decision.entry + (adjustedTPPips * pipInfo.pipValue);
-        } else {
-          adjustedTakeProfit = decision.entry - (adjustedTPPips * pipInfo.pipValue);
-        }
-
+        // Log advisory but DO NOT ask Alpha to re-confirm or modify TP
         await this.sendAIMessage(
-          `✅ Goal Adapted - Alpha Approved\n\n` +
-          `📊 Original goal: $${downshiftedProposal.originalGoal.toFixed(2)}\n` +
-          `📈 Adjusted goal: $${downshiftedProposal.adjustedGoal.toFixed(2)}\n` +
-          `📉 Retention: ${(downshiftedProposal.retentionPercent * 100).toFixed(0)}%\n\n` +
-          `${alphaEvaluation.reasoning}\n\n` +
-          `Reasons for adjustment:\n${downshiftedProposal.reasonsForDownshift.map(r => `  • ${r}`).join('\n')}`
+          `ℹ️ Feasibility Advisory\n\n` +
+          `Feasibility suggests adjusted goal: $${downshiftedProposal.adjustedGoal.toFixed(2)} (${(downshiftedProposal.retentionPercent * 100).toFixed(0)}% retention)\n\n` +
+          `Reasons:\n${downshiftedProposal.reasonsForDownshift.map(r => `  • ${r}`).join('\n')}\n\n` +
+          `🎯 Alpha's Decision: Proceeding with original TP (Alpha sovereignty preserved)`
         );
+
+        console.log('%c[Goal Feasibility] ✅ Advisory logged - Alpha TP preserved (no downshift applied)', 'color: #10b981; font-weight: bold');
       } else if (feasibilityResult.feasible) {
         console.log('%c[Goal Feasibility] ✅ Goal is feasible without adjustments', 'color: #10b981; font-weight: bold');
       }

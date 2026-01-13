@@ -10,6 +10,8 @@ import { MeaningfulTradeCalculator } from './meaningful-trade-calculator';
 import { logger } from '../lib/logger';
 import { supabase } from '../lib/supabase';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
+import { getCurrencyPipInfo } from '../utils/currencyHelpers';
+import { logSSOTCorruption } from '../types/ssot-diagnostics';
 
 interface FeasibilityInput {
   userId: string;
@@ -377,50 +379,105 @@ export class GoalFeasibilityResolver {
     symbol: string,
     dollarRisk?: number
   ): number {
-    const maxMove = adjustedATR * 3;
+    // ✅ CRITICAL FIX: Proper position sizing math using SSOT principles
+    // BUG WAS: roughLotSize = dollarRisk ($255 treated as lot size!)
+    // CORRECT: Calculate actual lot size from dollar risk and SL distance
 
-    // CRITICAL FIX: Use user's actual Trade Style risk selection instead of hardcoded 2%
-    // This ensures feasibility estimates match actual execution risk
-    let roughLotSize: number;
+    const pipInfo = this.getPipInfo(symbol);
+    const slPips = adjustedATR * 2; // Standard SL: 2x ATR
+    const tpPips = adjustedATR * 3; // Conservative TP: 3x ATR
+
+    // Calculate ACTUAL lot size using proper formula
+    let actualLotSize: number;
     let riskPercentUsed: number;
 
     if (dollarRisk && accountBalance > 0) {
-      // NEW: Dynamic risk based on user's Trade Style + Risk Level selection
-      // Scalp: 1%/2%/5%, Micro: 2%/5%/7%, Intraday: 3%/7%/10%
-      roughLotSize = dollarRisk;
+      // CORRECT FORMULA: lotSize = dollarRisk / (slPips × pipValuePerLot)
+      const pipValuePerLot = pipInfo.pipValue * pipInfo.pipSize;
+      actualLotSize = dollarRisk / (slPips * pipValuePerLot);
       riskPercentUsed = (dollarRisk / accountBalance) * 100;
 
-      logger.debug('[Feasibility] Using dynamic risk from Trade Style', {
+      // SSOT_MATH_CORRUPTION diagnostic
+      if (actualLotSize < 0.01 || isNaN(actualLotSize)) {
+        logSSOTCorruption({
+          type: 'INVALID_LOT_SIZE',
+          severity: 'ERROR',
+          symbol,
+          dollarRisk,
+          slPips,
+          pipValuePerLot,
+          actualLotSize,
+          callsite: 'goal-feasibility-resolver.ts:394',
+          message: 'Lot size < 0.01 or NaN - check input values'
+        });
+        actualLotSize = 0.01; // Safety floor
+      }
+
+      logger.debug('[Feasibility] Position sizing (CORRECTED)', {
         dollarRisk,
+        slPips: slPips.toFixed(2),
+        pipValuePerLot: pipValuePerLot.toFixed(4),
+        actualLotSize: actualLotSize.toFixed(3),
         riskPercentUsed: riskPercentUsed.toFixed(2) + '%',
         accountBalance
       });
     } else {
-      // LEGACY: Fallback to 2% for backward compatibility
-      roughLotSize = accountBalance * 0.02;
+      // LEGACY: Fallback to 2% risk
+      const pipValuePerLot = pipInfo.pipValue * pipInfo.pipSize;
+      actualLotSize = (accountBalance * 0.02) / (slPips * pipValuePerLot);
       riskPercentUsed = 2.0;
 
       logger.warn('[Feasibility] Using fallback 2% risk (dollarRisk not provided)', {
         accountBalance,
-        roughLotSize
+        actualLotSize: actualLotSize.toFixed(3)
       });
     }
 
-    const pipValue = this.getPipValue(symbol);
-    const maxProfit = maxMove * roughLotSize * pipValue - spread * roughLotSize;
+    // Calculate profit using CORRECT formula: profit = tpPips × lotSize × pipValuePerLot
+    const pipValuePerLot = pipInfo.pipValue * pipInfo.pipSize;
+    const grossProfit = tpPips * actualLotSize * pipValuePerLot;
+    const spreadCost = spread * actualLotSize * pipValuePerLot;
+    const netProfit = grossProfit - spreadCost;
 
-    logger.debug('[Feasibility] Max deliverable profit calculation', {
+    // SSOT_MATH_CORRUPTION diagnostic for suspiciously low profit
+    if (netProfit < 1.0 && netProfit > 0) {
+      logSSOTCorruption({
+        type: 'LOW_PROFIT',
+        severity: 'WARNING',
+        symbol,
+        tpPips: tpPips.toFixed(2),
+        actualLotSize: actualLotSize.toFixed(3),
+        grossProfit: grossProfit.toFixed(2),
+        spreadCost: spreadCost.toFixed(2),
+        netProfit: netProfit.toFixed(2),
+        callsite: 'goal-feasibility-resolver.ts:438',
+        message: 'Net profit < $1 - verify TP distance and lot size are reasonable'
+      });
+    }
+
+    logger.debug('[Feasibility] Max deliverable profit (CORRECTED)', {
       adjustedATR,
-      maxMove: maxMove.toFixed(4),
-      roughLotSize: roughLotSize.toFixed(2),
+      slPips: slPips.toFixed(2),
+      tpPips: tpPips.toFixed(2),
+      actualLotSize: actualLotSize.toFixed(3),
       riskPercentUsed: riskPercentUsed.toFixed(2) + '%',
-      pipValue,
-      spread,
-      maxProfit: maxProfit.toFixed(2),
+      pipValuePerLot: pipValuePerLot.toFixed(4),
+      grossProfit: grossProfit.toFixed(2),
+      spreadCost: spreadCost.toFixed(2),
+      netProfit: netProfit.toFixed(2),
       symbol
     });
 
-    return Math.max(0, maxProfit);
+    return Math.max(0, netProfit);
+  }
+
+  private static getPipInfo(symbol: string): { pipValue: number; pipSize: number } {
+    // SSOT: Delegate to currency helpers
+    const pipInfo = getCurrencyPipInfo(symbol);
+    return {
+      pipValue: pipInfo.pipValue,
+      pipSize: pipInfo.pipSize
+    };
   }
 
   private static getPipValue(symbol: string): number {
