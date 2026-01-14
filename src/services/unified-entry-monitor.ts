@@ -30,6 +30,8 @@ import { ADAPTIVE_ZONE_CONFIG, type ExecutedZoneType } from '../config/adaptive-
 import { ZoneMetaLearningService } from './zone-meta-learning-service';
 import { globalToastManager } from './global-toast-manager';
 import { getCurrencyPipInfo } from '../utils/currencyHelpers';
+import { thesisEntryQualityEngine } from './thesis-entry-quality-engine';
+import type { ThesisType } from '../types/thesis';
 
 /**
  * Timeout wrapper for async operations
@@ -693,16 +695,58 @@ export class UnifiedEntryMonitor {
         // Non-critical, continue monitoring
       }
 
-      // SIMPLIFIED EXECUTION DECISION: Just check if in zone
-      const shouldExecute = inEntryZone;
+      // EXECUTION DECISION: Zone-only (simplified) OR Thesis-aware EQS (if enabled)
+      const USE_THESIS_EQS = import.meta.env.VITE_THESIS_EQS_ENABLED === 'true';
+
+      let shouldExecute = false;
+      let eqsScore = 0;
+      let executionReason = '';
 
       // Convert distance to pips for display (distanceToZone is in price units)
       const pipInfo = getCurrencyPipInfo(intent.symbol);
       const distanceToPips = distanceToZone / pipInfo.pipValue;
 
-      const executionReason = inEntryZone
-        ? '✅ PRICE IN ENTRY ZONE - AUTO EXECUTING'
-        : `⏳ Waiting for entry zone (${distanceToPips.toFixed(2)} pips away)`;
+      if (USE_THESIS_EQS && intent.thesis) {
+        try {
+          const eqsInput = this.buildEQSInput(intent, priceData);
+          const eqsResult = thesisEntryQualityEngine.calculateEQS(eqsInput);
+          eqsScore = eqsResult.score;
+
+          const baseThreshold = 40;
+          const immediateOverride = intent.execution_preference === 'IMMEDIATE' && eqsScore >= 30;
+          const highConfidenceOverride = (intent.alpha_confidence || 0) >= 85 && eqsScore >= 30;
+
+          shouldExecute =
+            eqsResult.readiness === 'EXECUTE_NOW' ||
+            immediateOverride ||
+            highConfidenceOverride;
+
+          executionReason = shouldExecute
+            ? `✅ THESIS EQS: ${eqsScore}/100 (${eqsResult.readiness}) - ${intent.thesis}`
+            : `⏳ EQS ${eqsScore}/100 needs improvement (${distanceToPips.toFixed(2)} pips away)`;
+
+          if (isDev) {
+            console.log('%c[UnifiedMonitor] 🎯 Thesis-Aware EQS:', 'color: #9c27b0; font-weight: bold', {
+              thesis: intent.thesis,
+              eqsScore: eqsScore,
+              readiness: eqsResult.readiness,
+              criticalGaps: eqsResult.critical_gaps,
+              willExecute: shouldExecute
+            });
+          }
+        } catch (error) {
+          logger.warn('[UnifiedMonitor] Thesis EQS calculation failed, falling back to zone-only', error);
+          shouldExecute = inEntryZone;
+          executionReason = inEntryZone
+            ? '✅ PRICE IN ENTRY ZONE - AUTO EXECUTING (EQS fallback)'
+            : `⏳ Waiting for entry zone (${distanceToPips.toFixed(2)} pips away)`;
+        }
+      } else {
+        shouldExecute = inEntryZone;
+        executionReason = inEntryZone
+          ? '✅ PRICE IN ENTRY ZONE - AUTO EXECUTING'
+          : `⏳ Waiting for entry zone (${distanceToPips.toFixed(2)} pips away)`;
+      }
 
       // Always log execution decisions (critical for monitoring)
       logger.info(`[UnifiedMonitor] EXECUTION DECISION: ${shouldExecute ? '✅ EXECUTE' : '⏳ WAIT'} - ${executionReason}`);
@@ -714,6 +758,8 @@ export class UnifiedEntryMonitor {
           entryZone: `${intent.entry_zone_min.toFixed(5)} - ${intent.entry_zone_max.toFixed(5)}`,
           inZone: inEntryZone,
           distanceToZone: `${distanceToPips.toFixed(2)} pips`,
+          eqsEnabled: USE_THESIS_EQS,
+          eqsScore: eqsScore,
           willExecute: shouldExecute
         });
       }
@@ -723,15 +769,17 @@ export class UnifiedEntryMonitor {
           symbol: intent.symbol,
           direction: intent.direction,
           entryPrice: priceData.price,
+          eqsScore: eqsScore,
           reason: executionReason
         });
-        await this.handleExecution(intent, priceData.price, 0); // No EQS score
+        await this.handleExecution(intent, priceData.price, eqsScore);
         await this.stopMonitoring(intentId);
       } else {
         console.log('%c[UnifiedMonitor] ⏳ Waiting for entry zone...', 'color: #ff9800; font-weight: bold', {
           distanceToZone: `${distanceToPips.toFixed(2)} pips`,
           currentPrice: priceData.price.toFixed(5),
-          targetZone: `${intent.entry_zone_min.toFixed(5)} - ${intent.entry_zone_max.toFixed(5)}`
+          targetZone: `${intent.entry_zone_min.toFixed(5)} - ${intent.entry_zone_max.toFixed(5)}`,
+          eqsScore: eqsScore
         });
       }
     } catch (error) {
@@ -865,6 +913,55 @@ export class UnifiedEntryMonitor {
         intentId: intent.id
       });
     }
+  }
+
+  /**
+   * Build EQS input from entry intent and current price data
+   * Helper for thesis-aware entry quality scoring
+   */
+  private buildEQSInput(intent: any, priceData: any): any {
+    return {
+      thesis: intent.thesis as ThesisType,
+      direction: intent.direction,
+      price_data: {
+        price: priceData.price,
+        momentum: 'moderate',
+        candle_body_ratio: 0.6,
+        wick_rejection: 0.5
+      },
+      indicators: {
+        ema_slope: 0.01,
+        ema_alignment: intent.direction === 'BUY' ? 'bullish' : 'bearish',
+        vwap: priceData.vwap || priceData.price,
+        atr: intent.atr || 0.001,
+        pullback_quality: 50,
+        noise_level: 30
+      },
+      structure: {
+        sweep_magnitude: 0.7,
+        break_of_structure: true,
+        acceptance_candles: true,
+        htf_trend_aligned: true,
+        pullback_depth_percent: 50,
+        ema_support: true,
+        range_compression: 0.6,
+        break_strength: 0.7,
+        retest_quality: 0.6,
+        volume_expansion: false,
+        distance_from_mean: Math.abs(priceData.price - (priceData.vwap || priceData.price)) / (intent.atr || 0.001),
+        exhaustion_candle: false,
+        momentum_decay: false,
+        failed_break_confirmed: false,
+        fast_reclaim: false,
+        momentum_flip: false,
+        range_validity: false,
+        extreme_location: 0.5,
+        rejection_candle: false,
+        volatility_contraction: false
+      },
+      execution_preference: intent.execution_preference,
+      alpha_confidence: intent.alpha_confidence
+    };
   }
 }
 

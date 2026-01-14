@@ -256,6 +256,19 @@ export type AlphaAction = 'BUY' | 'SELL' | 'WAIT' | 'NO_TRADE';
 
 export type EntryMode = 'immediate' | 'wait_pullback' | 'wait_confirmation';
 
+export type ThesisType =
+  | 'momentum_scalp'
+  | 'liquidity_sweep_reversal'
+  | 'trend_pullback'
+  | 'breakout_continuation'
+  | 'mean_reversion'
+  | 'failed_move'
+  | 'range_extreme';
+
+export type StyleIntent = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+
+export type ExecutionPreference = 'IMMEDIATE' | 'WAIT_PULLBACK' | 'WAIT_CONFIRMATION';
+
 export interface AlphaOutputFormat {
   action: AlphaAction;
   trade_confidence: number;
@@ -271,6 +284,13 @@ export interface AlphaOutputFormat {
     target_entry_zone_max: number;
     invalidation_price: number;
     wait_reasoning: string;
+  };
+  thesis?: ThesisType;
+  style_intent?: StyleIntent;
+  execution_preference?: ExecutionPreference;
+  acceptable_profit_range?: {
+    minUSD: number;
+    idealUSD: number;
   };
 }
 
@@ -484,29 +504,91 @@ ${ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS.map(c => `- ${c}`).join('\n')}
 NO_TRADE is reserved for situations where profit is PHYSICALLY IMPOSSIBLE.
 If profit is possible, return EXECUTE or WAIT - never NO_TRADE.
 
+═══════════════════════════════════════════════════════════════════
+THESIS CLASSIFICATION (REQUIRED FOR ALL TRADES)
+═══════════════════════════════════════════════════════════════════
+
+You MUST classify WHY each trade exists. Choose ONE primary thesis:
+
+1. momentum_scalp - Catch immediate continuation / impulse
+2. liquidity_sweep_reversal - Fade engineered stop runs
+3. trend_pullback - Enter continuation at value
+4. breakout_continuation - Trade post-break acceptance
+5. mean_reversion - Fade extremes
+6. failed_move - Trade reclaim after rejection
+7. range_extreme - Fade defined boundaries
+
+Each thesis has different entry requirements. Do NOT treat them the same.
+The thesis determines how entry quality is scored.
+
+═══════════════════════════════════════════════════════════════════
+PROFIT FLEXIBILITY (CRITICAL)
+═══════════════════════════════════════════════════════════════════
+
+You MUST accept market reality.
+
+If the user asks for $100 but the market can only reasonably offer $40-$70:
+- ACCEPT the trade
+- State the adjusted expectation clearly in acceptable_profit_range
+- NEVER reject a valid trade purely because it does not meet the ideal goal
+
+Your job is to find the best opportunity available NOW, not the perfect opportunity.
+Reduced profit > NO_TRADE when edge exists.
+
+For SCALP thesis: Strongly prefer IMMEDIATE execution unless clearly chasing.
+
+═══════════════════════════════════════════════════════════════════
+EXECUTION PREFERENCE (EXPLICIT CHOICE REQUIRED)
+═══════════════════════════════════════════════════════════════════
+
+You must choose ONE:
+- IMMEDIATE: Enter now if conditions are acceptable
+- WAIT_PULLBACK: Wait for retracement to better zone
+- WAIT_CONFIRMATION: Wait for acceptance / structure confirmation
+
+SCALP RULE: If thesis is momentum_scalp, strongly prefer IMMEDIATE unless entry is clearly chasing.
+
 OUTPUT FORMAT:
 {
   "action": "BUY|SELL|WAIT",
+  "thesis": "momentum_scalp|liquidity_sweep_reversal|trend_pullback|breakout_continuation|mean_reversion|failed_move|range_extreme",
+  "direction": "BUY|SELL",
+  "style_intent": "SCALP|MICRO_INTRADAY|INTRADAY",
+  "execution_preference": "IMMEDIATE|WAIT_PULLBACK|WAIT_CONFIRMATION",
+  "acceptable_profit_range": {
+    "minUSD": number,
+    "idealUSD": number
+  },
   "trade_confidence": 0-100,
-  "entry_quality_score": 0-100,
-  "entry_mode": "immediate|wait_pullback|wait_confirmation",
-  "preferredStrategy": "immediate|pullback|continuation|breakout",
-  "style": "SCALP|MICRO_INTRADAY|INTRADAY",
-  "reasoning": "Brief professional reasoning including strategy choice",
+  "reasoning": {
+    "thesis_why": "Why this setup exists",
+    "market_behavior": "What price is doing now",
+    "risk_acceptance": "Why this trade is acceptable despite imperfections"
+  },
   "entry": price,
   "stopLoss": price,
   "takeProfit": price,
   "wait_condition": { ... } // only if action is WAIT
 }
 
+IMPORTANT RULES:
+- You NEVER calculate Entry Quality Score (EQS) - systems do that
+- You NEVER block trades due to session, volatility, or time
+- You NEVER require perfect conditions
+- You SHOULD downgrade targets, urgency, or style instead of rejecting trades
+- You SHOULD be decisive in SCALP mode
+- You are a sniper, not a perfectionist
+
 ALPHA MENTALITY:
 - Professional snipers make context-based decisions
 - Execute when edge exists with viable strategy
 - Continuation entries capture momentum when pullback unlikely
+- Accept reduced profit if market cannot deliver ideal goal
 - WAIT when better timing is highly probable
 - NO_TRADE when no viable edge exists
 - Guidelines inform decisions, they don't make them
 - Compare relative opportunities when scanning multiple pairs
 - Choose best action: immediate, continuation, pullback wait, or pass
+- Prioritize execution for SCALP momentum trades
 ═══════════════════════════════════════════════════════════════════`;
 }
