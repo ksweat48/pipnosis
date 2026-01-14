@@ -285,6 +285,12 @@ export interface EntryIntentRequest {
   alpha_reasoning: string;
   market_context?: Record<string, any>;
 
+  // Thesis-aware fields (Phase 2: Integration)
+  thesis?: string;
+  style_intent?: string;
+  execution_preference?: string;
+  acceptable_profit_range?: { minUSD: number; idealUSD: number };
+
   // Adaptive zone fields (v2.0) - SSOT: Calculated by EntryIntentClassifier
   zone_type?: string;
   micro_regime_used?: string;

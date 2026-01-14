@@ -256,6 +256,10 @@ export interface AlphaDecision {
   adversarial_advisory?: AdversarialSignal;
   regime_advisory?: RegimeSnapshot;
   entry_spec?: EntrySpec; // NEW: Alpha's explicit entry specification
+  thesis?: string; // Trade thesis type (momentum_scalp, liquidity_sweep_reversal, etc.)
+  style_intent?: string; // Style intent (SCALP, MICRO_INTRADAY, INTRADAY)
+  execution_preference?: string; // Execution preference (IMMEDIATE, WAIT_PULLBACK, WAIT_CONFIRMATION)
+  acceptable_profit_range?: { minUSD: number; idealUSD: number }; // Expected profit range
   entry_intent?: {
     intent_type: 'immediate_momentum' | 'pullback_to_vwap' | 'pullback_to_support' | 'break_and_retest' | 'range_extreme' | 'retest_structure';
     urgency: 'HIGH' | 'MEDIUM' | 'LOW';
@@ -2431,6 +2435,12 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
       const entryMode = parsed.entry_mode ?? 'wait_confirmation';
       const resolvedStyle = parsed.style ?? 'SCALP';
 
+      // Extract thesis-aware fields (Phase 2: Integration)
+      const thesis = parsed.thesis || null;
+      const styleIntent = parsed.style_intent || null;
+      const executionPreference = parsed.execution_preference || null;
+      const acceptableProfitRange = parsed.acceptable_profit_range || null;
+
       // ═══════════════════════════════════════════════════════════════════
       // PHASE 4: NARRATIVE COHERENCE VALIDATION
       // ═══════════════════════════════════════════════════════════════════
@@ -2469,6 +2479,10 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
           reasoning: parsed.reasoning || 'No reasoning provided',
           omega_summary: '',
           resolvedStyle,
+          thesis: thesis || undefined,
+          style_intent: styleIntent || undefined,
+          execution_preference: executionPreference || undefined,
+          acceptable_profit_range: acceptableProfitRange || undefined,
           entry_spec: {
             entry_quality_score: entryQualityScore,
             entry_mode: entryMode,
@@ -2551,6 +2565,10 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
           omega_summary: '',
           wait_condition: waitCondition,
           resolvedStyle,
+          thesis: thesis || undefined,
+          style_intent: styleIntent || undefined,
+          execution_preference: executionPreference || undefined,
+          acceptable_profit_range: acceptableProfitRange || undefined,
           entry_spec: {
             entry_quality_score: entryQualityScore,
             entry_mode: entryMode,
@@ -2722,6 +2740,10 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
         reasoning: parsed.reasoning || 'No reasoning provided',
         omega_summary: '',
         resolvedStyle,
+        thesis: thesis || undefined,
+        style_intent: styleIntent || undefined,
+        execution_preference: executionPreference || undefined,
+        acceptable_profit_range: acceptableProfitRange || undefined,
         entry_spec: {
           entry_quality_score: entryQualityScore,
           entry_mode: entryMode,

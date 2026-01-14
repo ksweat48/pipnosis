@@ -70,6 +70,12 @@ export class EntryPlannerService {
           market_context: request.market_context || {},
           status: 'monitoring',
 
+          // Thesis-aware fields (Phase 2: Integration)
+          thesis: request.thesis || null,
+          style_intent: request.style_intent || null,
+          execution_preference: request.execution_preference || null,
+          acceptable_profit_range: request.acceptable_profit_range || null,
+
           // Adaptive zone fields (v2.0) - SSOT: Preserve calculated zone data
           zone_type: request.zone_type,
           micro_regime_used: request.micro_regime_used,
