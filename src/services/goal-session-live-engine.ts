@@ -28,6 +28,7 @@ import { getRiskPercentage } from '../config/risk-levels';
 import { postTradeAnalyzer } from './post-trade-analyzer';
 import { scanningStateMachine } from './scanning-state-machine';
 import { hasAnyOpenMarket, isSymbolMarketOpen, getEstimationReferenceSymbol } from '../utils/marketHours';
+import { scanResultsManager, type ScanCandidate } from './scan-results-manager';
 import { weekendProtectionService } from './weekend-protection-service';
 import { marketScheduleService } from './market-schedule-service';
 import { goalIntelligenceClassifier, GoalClassification } from './goal-intelligence-classifier';
@@ -967,6 +968,59 @@ class GoalSessionLiveEngine {
       );
 
       bestSymbolSelector.logEvaluationDetails(bestSymbolResult);
+
+      // 📊 SCAN RESULTS: Store scan outcome for user visibility
+      const scanEndTime = Date.now();
+      const scanDurationMs = scanEndTime - orchestratorStartTime;
+      try {
+        // Build all candidates from rankings
+        const allCandidates: ScanCandidate[] = bestSymbolResult.rankings.map(ranking => {
+          const symbol = ranking.symbol;
+          const decision = filteredDecisions.get(symbol);
+          const snapshot = filteredSnapshots.find(s => s.symbol === symbol);
+
+          return {
+            symbol,
+            action: decision?.action === 'WAIT' ? 'WAIT' : (decision?.action || 'WAIT') as 'BUY' | 'SELL' | 'WAIT',
+            confidence: decision?.confidence || 0,
+            score: ranking.totalScore,
+            reasoning: ranking.detailedBreakdown || '',
+            trend: snapshot?.trend,
+            volatility: snapshot?.volatility,
+            session: snapshot?.session,
+            adversarialLevel: snapshot?.adversarialLevel
+          };
+        });
+
+        const topCandidate = allCandidates[0] || null;
+        const rejectionReason = !bestSymbolResult.selected
+          ? 'No symbols passed selection criteria'
+          : (bestSymbolResult.evaluation?.omegaDecision?.action === 'WAIT'
+            ? `Best candidate ${topCandidate?.symbol} returned WAIT decision`
+            : (decision.confidence < (this.config.minConfidence || 70)
+              ? `Confidence ${decision.confidence}% below threshold ${this.config.minConfidence || 70}%`
+              : null));
+
+        await scanResultsManager.storeScanResult({
+          sessionId: this.activeSession!,
+          scanTimestamp: new Date(scanEndTime),
+          scanDurationMs,
+          symbolsEvaluated: filteredSnapshots.length,
+          topCandidate,
+          rejectionReason,
+          allCandidates,
+          userId: this.config.userId
+        });
+
+        console.log('[SCAN RESULTS] ✅ Scan result stored', {
+          topCandidate: topCandidate?.symbol,
+          action: topCandidate?.action,
+          confidence: topCandidate?.confidence,
+          rejectionReason
+        });
+      } catch (error) {
+        logger.error(LogCategory.AI_TRADING, '[SCAN RESULTS] Failed to store scan result', { error });
+      }
 
       if (!bestSymbolResult.selected || !bestSymbolResult.symbol || !bestSymbolResult.evaluation) {
         logger.debug(LogCategory.AI_TRADING, '🚫 No symbols passed selection criteria');
