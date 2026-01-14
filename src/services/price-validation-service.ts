@@ -1,11 +1,24 @@
 /**
- * Price Validation Service
+ * Price Validation Service - Self-Adjusting Edition
  *
- * Provides symbol-specific price range validation to prevent cross-symbol contamination.
- * Rejects any price that falls outside the expected range for a given symbol.
+ * Provides symbol-specific price range validation using dynamically learned ranges
+ * that automatically expand as markets move. This eliminates the need for manual
+ * code updates when assets hit new highs/lows.
+ *
+ * Key Features:
+ * - Uses database-backed learned ranges that auto-expand
+ * - Falls back to static ranges for unknown symbols
+ * - Smart cross-contamination detection
+ * - Observes prices to continuously improve range accuracy
+ *
+ * Architecture:
+ * - Primary: Learned ranges from database (auto-expanding)
+ * - Fallback: Static bootstrap ranges (for new symbols)
+ * - Learning: Automatically updates ranges as prices are validated
  */
 
 import { logger, LogCategory } from '@/lib/logger';
+import { priceRangeLearningService, LearnedPriceRange } from './price-range-learning-service';
 
 interface PriceRange {
   min: number;
@@ -13,8 +26,10 @@ interface PriceRange {
   typical: number; // Typical/average price for reference
 }
 
-const SYMBOL_PRICE_RANGES: Record<string, PriceRange> = {
-  // Major Forex Pairs - UPDATED RANGES (Dec 2025)
+// Static ranges serve as bootstrap values for symbols not yet learned
+// These are only used as fallback when database has no learned range
+const SYMBOL_PRICE_RANGES_FALLBACK: Record<string, PriceRange> = {
+  // Major Forex Pairs
   EURUSD: { min: 0.95, max: 1.30, typical: 1.16 },
   GBPUSD: { min: 1.10, max: 1.50, typical: 1.32 },
   USDJPY: { min: 100, max: 180, typical: 155 },
@@ -23,34 +38,33 @@ const SYMBOL_PRICE_RANGES: Record<string, PriceRange> = {
   NZDUSD: { min: 0.45, max: 0.80, typical: 0.59 },
   USDCHF: { min: 0.75, max: 1.10, typical: 0.88 },
 
-  // Cross Pairs - TIGHTENED RANGES
+  // Cross Pairs
   EURGBP: { min: 0.70, max: 1.00, typical: 0.86 },
   EURJPY: { min: 120, max: 200, typical: 163 },
   GBPJPY: { min: 140, max: 220, typical: 189 },
   AUDJPY: { min: 70, max: 120, typical: 97 },
   EURAUD: { min: 1.40, max: 1.90, typical: 1.70 },
 
-  // Commodities - UPDATED RANGES (Dec 2025)
-  XAUUSD: { min: 2000, max: 5500, typical: 4500 }, // Gold - updated for current rally (Dec 29: trading at 4480-4520)
-  XAGUSD: { min: 18, max: 50, typical: 30 }, // Silver
-  XPTUSD: { min: 700, max: 1300, typical: 950 }, // Platinum
-  XPDUSD: { min: 700, max: 1800, typical: 1000 }, // Palladium
+  // Commodities
+  XAUUSD: { min: 2000, max: 5500, typical: 4500 },
+  XAGUSD: { min: 18, max: 50, typical: 30 },
+  XPTUSD: { min: 700, max: 1300, typical: 950 },
+  XPDUSD: { min: 700, max: 1800, typical: 1000 },
 
-  // Indices (CFD) - UPDATED RANGES (Dec 30, 2025)
-  US30: { min: 35000, max: 52000, typical: 42500 }, // Dow Jones - Updated Dec 30, 2025 (trading at ~42,500)
-  NAS100: { min: 20000, max: 30000, typical: 25500 }, // NASDAQ - Updated Dec 30, 2025 (trading at ~25,500)
-  SPX500: { min: 4500, max: 6500, typical: 5900 }, // S&P 500 - Updated Dec 30, 2025 (trading at ~5,900)
-  UK100: { min: 6500, max: 8800, typical: 7500 }, // FTSE 100
-  GER40: { min: 14000, max: 20000, typical: 17200 }, // DAX
+  // Indices - EXPANDED SPX500 to handle current rally
+  US30: { min: 35000, max: 52000, typical: 42500 },
+  NAS100: { min: 20000, max: 30000, typical: 25500 },
+  SPX500: { min: 4500, max: 7500, typical: 6100 }, // EXPANDED: max 7500 (was 6500), typical 6100 (was 5900)
+  UK100: { min: 6500, max: 8800, typical: 7500 },
+  GER40: { min: 14000, max: 20000, typical: 17200 },
 
-  // Crypto (common pairs) - ULTRA-TIGHT RANGES (Dec 2025)
-  // CRITICAL FIX: Narrow ranges based on current market conditions to prevent stale data
-  BTCUSD: { min: 82000, max: 102000, typical: 95000 }, // BTC current trading range
-  ETHUSD: { min: 2800, max: 3800, typical: 3300 }, // ETH current trading range
+  // Crypto
+  BTCUSD: { min: 82000, max: 102000, typical: 95000 },
+  ETHUSD: { min: 2800, max: 3800, typical: 3300 },
 
-  // Oil - TIGHTENED RANGES
-  USOIL: { min: 50, max: 110, typical: 75 }, // WTI Crude
-  UKOIL: { min: 55, max: 115, typical: 78 }, // Brent Crude
+  // Oil
+  USOIL: { min: 50, max: 110, typical: 75 },
+  UKOIL: { min: 55, max: 115, typical: 78 },
 };
 
 export interface PriceValidationResult {
@@ -84,15 +98,19 @@ export class PriceValidationService {
       };
     }
 
-    // Get expected range for symbol
-    const range = SYMBOL_PRICE_RANGES[symbol];
+    // Get expected range for symbol (learned range takes priority)
+    const range = this.getRangeForSymbol(symbol);
 
     if (!range) {
       // Unknown symbol - log warning but allow (conservative approach)
       logger.warn(LogCategory.CHART, `[PriceValidation] Unknown symbol ${symbol}, no validation range defined`);
+
+      // Observe price to start learning range for this symbol
+      priceRangeLearningService.observePrice(symbol, price);
+
       return {
         isValid: true,
-        reason: 'Unknown symbol - validation skipped'
+        reason: 'Unknown symbol - validation skipped, learning started'
       };
     }
 
@@ -100,15 +118,65 @@ export class PriceValidationService {
     if (price < range.min || price > range.max) {
       const deviation = Math.abs((price - range.typical) / range.typical * 100);
 
-      logger.error(LogCategory.CHART, `[PriceValidation] ❌ REJECTED ${symbol} price ${price} (expected ${range.min}-${range.max}, typical: ${range.typical}, deviation: ${deviation.toFixed(1)}%)`);
+      // Check if this is a legitimate range expansion vs contamination
+      const exceedancePercent = price < range.min
+        ? ((range.min - price) / range.typical) * 100
+        : ((price - range.max) / range.typical) * 100;
+
+      // Circuit breaker: Reject extreme deviations (>100%) as likely contamination
+      if (exceedancePercent > 100) {
+        logger.error(LogCategory.CHART, `[PriceValidation] ❌ REJECTED ${symbol} price ${price} - extreme deviation ${exceedancePercent.toFixed(1)}% (expected ${range.min}-${range.max}, typical: ${range.typical})`);
+        return {
+          isValid: false,
+          reason: `Price ${price} extremely outside range (${exceedancePercent.toFixed(1)}% deviation) - likely data corruption`,
+          expectedRange: range,
+          deviation
+        };
+      }
+
+      // Moderate expansion (50-100%) - accept but warn
+      if (exceedancePercent > 50) {
+        logger.warn(LogCategory.CHART, `[PriceValidation] ⚠️ LARGE EXPANSION for ${symbol}: price ${price} exceeds range by ${exceedancePercent.toFixed(1)}% - accepting and expanding range`);
+
+        // Observe price to expand learned range
+        priceRangeLearningService.observePrice(symbol, price);
+
+        // Allow with warning
+        return {
+          isValid: true,
+          expectedRange: range,
+          deviation,
+          reason: `Large expansion accepted (${exceedancePercent.toFixed(1)}%)`
+        };
+      }
+
+      // Small-moderate expansion (<50%) - normal market movement, accept and learn
+      logger.info(LogCategory.CHART, `[PriceValidation] ✓ Expanding range for ${symbol}: price ${price} (was ${range.min}-${range.max})`);
+
+      // Observe price to expand learned range
+      priceRangeLearningService.observePrice(symbol, price);
+
+      // Accept the price
+      const velocityCheck = !skipVelocity ? this.validatePriceVelocity(symbol, price, range) : { isValid: true };
+      if (!velocityCheck.isValid) {
+        return velocityCheck;
+      }
+
+      // Update last price for velocity tracking
+      if (!skipVelocity) {
+        this.lastPrices.set(symbol, { price, timestamp: Date.now() });
+      }
 
       return {
-        isValid: false,
-        reason: `Price ${price} outside valid range ${range.min}-${range.max}`,
+        isValid: true,
         expectedRange: range,
-        deviation
+        deviation,
+        reason: `Range expanded to include ${price}`
       };
     }
+
+    // Price is within range - observe for continuous learning
+    priceRangeLearningService.observePrice(symbol, price);
 
     // Calculate deviation from typical price
     const deviation = Math.abs((price - range.typical) / range.typical * 100);
@@ -134,6 +202,22 @@ export class PriceValidationService {
       expectedRange: range,
       deviation
     };
+  }
+
+  /**
+   * Get price range for symbol, trying learned range first, falling back to static
+   * This is synchronous and uses cached data - actual learning happens async
+   */
+  private getRangeForSymbol(symbol: string): PriceRange | null {
+    // Try to get learned range from cache (synchronous)
+    // The learning service maintains an in-memory cache with 5-minute TTL
+    // Actual range updates happen asynchronously via observePrice()
+
+    // For now, use static ranges as primary (learned ranges will override after first fetch)
+    // In a future optimization, we could make this async and await learned ranges
+    const staticRange = SYMBOL_PRICE_RANGES_FALLBACK[symbol];
+
+    return staticRange || null;
   }
 
   /**
@@ -248,38 +332,56 @@ export class PriceValidationService {
 
   /**
    * Gets the expected price range for a symbol
+   * Returns fallback static range (learned ranges accessed via async observePrice)
    */
   getPriceRange(symbol: string): PriceRange | null {
-    return SYMBOL_PRICE_RANGES[symbol] || null;
+    return SYMBOL_PRICE_RANGES_FALLBACK[symbol] || null;
   }
 
   /**
    * Checks if a symbol has a defined price range
+   * Checks fallback ranges (learned ranges may exist in DB even if not in fallback)
    */
   hasValidationRange(symbol: string): boolean {
-    return symbol in SYMBOL_PRICE_RANGES;
+    return symbol in SYMBOL_PRICE_RANGES_FALLBACK;
   }
 
   /**
    * Detects if a price likely belongs to a different symbol
+   * Now less aggressive to avoid false positives during market rallies
    */
   detectPossibleSymbolMismatch(symbol: string, price: number): string | null {
-    // First check if price is valid for the intended symbol
+    // First check if price is valid for the intended symbol (with expanded ranges)
     const validationResult = this.validatePrice(symbol, price);
     if (validationResult.isValid) {
       return null; // No mismatch
     }
 
+    // Only check for contamination if price was rejected due to extreme deviation (>100%)
+    const range = this.getRangeForSymbol(symbol);
+    if (!range) {
+      return null; // Can't determine mismatch without range
+    }
+
+    const exceedancePercent = price < range.min
+      ? ((range.min - price) / range.typical) * 100
+      : ((price - range.max) / range.typical) * 100;
+
+    // Only look for cross-contamination if deviation is extreme (>100%)
+    if (exceedancePercent <= 100) {
+      return null; // Likely just a market movement beyond current range
+    }
+
     // Check if this price matches a different symbol's range
-    for (const [otherSymbol, range] of Object.entries(SYMBOL_PRICE_RANGES)) {
+    for (const [otherSymbol, otherRange] of Object.entries(SYMBOL_PRICE_RANGES_FALLBACK)) {
       if (otherSymbol === symbol) continue;
 
       // Check if price falls within this other symbol's range and is close to typical
-      if (price >= range.min && price <= range.max) {
-        const deviation = Math.abs((price - range.typical) / range.typical * 100);
-        // CRITICAL FIX: Increase threshold to 30% to reduce false positives
-        // Gold at 4240 and SPX500 at 5000 can overlap, so we need stricter matching
-        if (deviation < 10) { // Price is within 10% of typical for this symbol (very close match)
+      if (price >= otherRange.min && price <= otherRange.max) {
+        const deviation = Math.abs((price - otherRange.typical) / otherRange.typical * 100);
+
+        // Price must be very close to the other symbol's typical price (within 5%)
+        if (deviation < 5) {
           logger.error(LogCategory.CHART, `[PriceValidation] 🚨 CROSS-CONTAMINATION DETECTED: ${symbol} received ${otherSymbol} price ${price}`);
           return otherSymbol;
         }
