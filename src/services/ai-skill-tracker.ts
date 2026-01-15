@@ -696,7 +696,7 @@ class AISkillTracker {
         .not('win_rate', 'is', null)
         .not('profit_factor', 'is', null)
         .gt('total_trades', 0)
-        .order('ended_at', { ascending: false })
+        .order('completed_at', { ascending: false })
         .limit(10);
 
       if (error || !sessions || sessions.length === 0) {
@@ -1223,7 +1223,7 @@ class AISkillTracker {
         .select('*')
         .eq('user_id', userId)
         .eq('status', 'closed')
-        .order('close_time', { ascending: false })
+        .order('closed_at', { ascending: false })
         .limit(limit);
 
       if (error || !trades) {

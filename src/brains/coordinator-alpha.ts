@@ -70,6 +70,7 @@ import { llmTokenTracker } from '../services/llm-token-tracker';
 import { globalIntelligenceProvider } from '../services/global-intelligence-provider';
 import { professionalRiskManager } from '../services/professional-risk-manager';
 import { alphaIntelligenceAggregator, type AlphaIntelligenceSnapshot } from '../services/alpha-intelligence-aggregator';
+import { alphaLearningFeedback } from '../services/alpha-learning-feedback';
 import type { ATRValue } from '../types/atr';
 import { supabase } from '../lib/supabase';
 import type { AdversarialSignal } from '../services/adversarial-detector';
@@ -1996,6 +1997,29 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
         }
       }
 
+      // CRITICAL: Apply confidence calibration based on historical accuracy
+      // This ensures Alpha's confidence reflects actual win rates, not just predicted
+      if (decision.action !== 'NO_TRADE' && decision.confidence > 0) {
+        try {
+          const rawConfidence = decision.confidence;
+          const calibratedConfidence = await alphaLearningFeedback.getCalibratedConfidence(
+            userId,
+            rawConfidence,
+            marketContext.condition,
+            marketContext.symbol
+          );
+
+          if (calibratedConfidence !== rawConfidence) {
+            console.log(`[Alpha Coordinator] 🎯 Confidence calibration applied: ${rawConfidence.toFixed(1)}% → ${calibratedConfidence.toFixed(1)}%`);
+            decision.confidence = calibratedConfidence;
+            decision.reasoning += ` [Calibrated from ${rawConfidence.toFixed(0)}% based on historical accuracy]`;
+          }
+        } catch (error) {
+          console.error('[Alpha Coordinator] Failed to apply confidence calibration:', error);
+          // Continue with uncalibrated confidence rather than block the trade
+        }
+      }
+
       return decision;
     } catch (error) {
       console.error('[Alpha Coordinator] Error:', error);
@@ -2810,41 +2834,79 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
 
   /**
    * Build intelligence context from platform-wide learning
+   * ENHANCED: Now provides ACTIONABLE behavioral guidance, not just summaries
    */
   private buildIntelligenceContext(intelligence?: AlphaIntelligenceSnapshot | null): string {
     if (!intelligence) {
       return '';
     }
 
-    const parts: string[] = ['\n🧠 ALPHA INTELLIGENCE (Platform Learning):'];
+    const parts: string[] = ['\n🧠 ALPHA INTELLIGENCE (Learned Performance Data):'];
 
-    // Platform patterns
-    if (intelligence.platformPatterns.topPerformingPatterns.length > 0) {
-      const top = intelligence.platformPatterns.topPerformingPatterns[0];
-      parts.push(`  Top Pattern: ${top.patternId} (WR: ${top.winRate.toFixed(1)}%, R: ${top.avgRMultiple.toFixed(2)}, n=${top.sampleSize})`);
+    // ACTIONABLE: Platform patterns with FAVOR/AVOID guidance
+    if (intelligence.platformPatterns.topPerformingPatterns.length > 0 || intelligence.platformPatterns.failingPatterns.length > 0) {
+      parts.push('\n📊 PATTERN PERFORMANCE (Historical Evidence):');
+
+      // Show top 3 winning patterns
+      const topPatterns = intelligence.platformPatterns.topPerformingPatterns.slice(0, 3);
+      if (topPatterns.length > 0) {
+        parts.push('  ✅ FAVOR (Proven Winners):');
+        topPatterns.forEach(p => {
+          parts.push(`    • ${p.patternId}: ${p.winRate.toFixed(1)}% WR, ${p.avgRMultiple.toFixed(2)}R (n=${p.sampleSize})`);
+        });
+      }
+
+      // Show top 3 losing patterns
+      const failingPatterns = intelligence.platformPatterns.failingPatterns.slice(0, 3);
+      if (failingPatterns.length > 0) {
+        parts.push('  ❌ AVOID (Proven Losers):');
+        failingPatterns.forEach(p => {
+          parts.push(`    • ${p.patternId}: ${p.winRate.toFixed(1)}% WR, ${p.avgRMultiple.toFixed(2)}R (n=${p.sampleSize})`);
+        });
+      }
     }
 
-    // Override history
-    if (intelligence.overrideHistory.totalOverrides > 0) {
-      parts.push(`  Override History: ${intelligence.overrideHistory.totalOverrides} total, ${intelligence.overrideHistory.successRate.toFixed(1)}% success rate`);
-    }
-
-    // Confidence calibration
+    // ACTIONABLE: Confidence calibration with behavioral guidance
     const calibrationKeys = Object.keys(intelligence.calibrationData);
     if (calibrationKeys.length > 0) {
-      parts.push(`  Confidence Calibration: ${calibrationKeys.length} buckets tracked`);
+      parts.push('\n🎯 CONFIDENCE CALIBRATION (Accuracy Check):');
+
+      // Find buckets with significant miscalibration
+      const miscalibrations: Array<{bucket: number, actual: number, error: number}> = [];
+      for (const [bucketStr, data] of Object.entries(intelligence.calibrationData)) {
+        if (data.sampleSize >= 10 && data.calibrationError > 10) {
+          miscalibrations.push({
+            bucket: parseInt(bucketStr),
+            actual: data.actualWinRate,
+            error: data.calibrationError
+          });
+        }
+      }
+
+      if (miscalibrations.length > 0) {
+        parts.push('  ⚠️ CALIBRATION WARNINGS:');
+        miscalibrations.forEach(m => {
+          if (m.actual < m.bucket) {
+            parts.push(`    • Your ${m.bucket}% confidence trades actually win ${m.actual.toFixed(0)}% (${m.error.toFixed(0)}% overconfident)`);
+          } else {
+            parts.push(`    • Your ${m.bucket}% confidence trades actually win ${m.actual.toFixed(0)}% (${m.error.toFixed(0)}% underconfident)`);
+          }
+        });
+        parts.push('    → Confidence will be auto-calibrated based on this data');
+      } else {
+        parts.push('  ✅ Confidence well-calibrated (within 10% of predicted)');
+      }
     }
 
-    // Reasoning patterns
-    if (intelligence.reasoningPatterns.length > 0) {
-      const topPattern = intelligence.reasoningPatterns[0];
-      parts.push(`  Top Reasoning: ${topPattern.description.substring(0, 50)}... (${topPattern.effectiveness.toFixed(1)}% effective)`);
-    }
-
-    // Meta insights
+    // ACTIONABLE: Meta insights with concrete adjustments
     if (intelligence.metaInsights.length > 0) {
-      const topInsight = intelligence.metaInsights[0];
-      parts.push(`  Key Insight: ${topInsight.description.substring(0, 60)}...`);
+      parts.push('\n💡 KEY INSIGHTS (Actionable Adjustments):');
+      intelligence.metaInsights.slice(0, 3).forEach(insight => {
+        if (insight.validated) {
+          parts.push(`  ✅ ${insight.description}`);
+          parts.push(`     → ${insight.actionableAdjustment}`);
+        }
+      });
     }
 
     // Execution quality

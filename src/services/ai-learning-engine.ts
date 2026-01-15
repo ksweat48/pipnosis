@@ -1308,7 +1308,11 @@ class AILearningEngine {
         const newTotal = existing.total_predictions + 1;
         const newCorrect = existing.correct_predictions + (trade.outcome === 'win' ? 1 : 0);
         const newActualWinRate = (newCorrect / newTotal) * 100;
-        const newCalibrationError = Math.abs(newActualWinRate - parseFloat(existing.expected_win_rate.toString()));
+
+        // Extract expected win rate from bucket name (e.g., "80-85" -> 82.5)
+        const bucketParts = bucket.split('-').map(Number);
+        const expectedWinRate = bucketParts.length === 2 ? (bucketParts[0] + bucketParts[1]) / 2 : trade.confidence;
+        const newCalibrationError = Math.abs(newActualWinRate - expectedWinRate);
 
         const { error } = await supabase
           .from('ai_global_confidence_calibration')
@@ -1317,7 +1321,6 @@ class AILearningEngine {
             correct_predictions: newCorrect,
             actual_win_rate: newActualWinRate,
             calibration_error: newCalibrationError,
-            is_well_calibrated: newCalibrationError < 5,
             last_updated: new Date().toISOString()
           })
           .eq('confidence_bucket', bucket);
