@@ -993,12 +993,13 @@ class GoalSessionLiveEngine {
         });
 
         const topCandidate = allCandidates[0] || null;
+        const topCandidateDecision = topCandidate ? filteredDecisions.get(topCandidate.symbol) : null;
         const rejectionReason = !bestSymbolResult.selected
           ? 'No symbols passed selection criteria'
           : (bestSymbolResult.evaluation?.omegaDecision?.action === 'WAIT'
             ? `Best candidate ${topCandidate?.symbol} returned WAIT decision`
-            : (decision.confidence < (this.config.minConfidence || 70)
-              ? `Confidence ${decision.confidence}% below threshold ${this.config.minConfidence || 70}%`
+            : (topCandidateDecision && topCandidateDecision.confidence < (this.config.minConfidence || 70)
+              ? `Confidence ${topCandidateDecision.confidence}% below threshold ${this.config.minConfidence || 70}%`
               : null));
 
         await scanResultsManager.storeScanResult({
