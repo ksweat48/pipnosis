@@ -94,50 +94,9 @@ export const SimpleEntryMonitor: React.FC<SimpleEntryMonitorProps> = ({ sessionI
     }
   };
 
-  // Show loading state
-  if (intentLoading) {
-    return (
-      <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-4 border border-gray-700">
-        <div className="flex items-center gap-2">
-          <Target className="w-4 h-4 text-blue-400 animate-pulse" />
-          <span className="text-sm text-gray-400">Loading entry monitor...</span>
-        </div>
-      </div>
-    );
-  }
-
-  // Show waiting state when no intent
-  if (!activeIntent) {
-    return (
-      <div className="space-y-4">
-        <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-4 border border-gray-700">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Target className="w-5 h-5 text-purple-400" />
-              <h3 className="text-lg font-bold text-white">Entry Monitor</h3>
-            </div>
-            <div className="px-3 py-1 rounded-lg border border-gray-600 bg-gray-700/30">
-              <span className="text-xs text-gray-400">Waiting</span>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-3 p-3 bg-blue-900/20 border border-blue-700/50 rounded-lg">
-            <AlertCircle className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
-            <div>
-              <div className="text-sm font-semibold text-blue-300 mb-1">
-                Waiting for trade opportunity
-              </div>
-              <div className="text-xs text-gray-400">
-                Entry monitoring will begin once Alpha identifies a trade setup.
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Show latest scan results */}
-        <ScanResultsCard sessionId={sessionId} minConfidence={60} />
-      </div>
-    );
+  // Hide entry monitor completely when no active intent
+  if (intentLoading || !activeIntent) {
+    return null;
   }
 
   // Calculate entry zone metrics
