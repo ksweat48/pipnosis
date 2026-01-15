@@ -52,7 +52,7 @@ class SessionConstraintCoordinator {
    */
   getSessionConstraintPolicy(
     symbol: string,
-    tradeStyle: 'SCALP' | 'INTRADAY' | 'SWING'
+    tradeStyle: 'MICRO_INTRADAY' | 'SCALP' | 'INTRADAY' | 'SWING'
   ): SessionConstraintPolicy {
     // 24/7 markets NEVER have session constraints, regardless of style
     if (assetClassifier.is24HourMarket(symbol)) {
@@ -62,6 +62,12 @@ class SessionConstraintCoordinator {
 
     // Forex-hours markets: policy depends on trade style
     switch (tradeStyle) {
+      case 'MICRO_INTRADAY':
+        // MICRO_INTRADAY: Very fast trades, ADVISORY with HEAVIEST penalties
+        // Applies -20% confidence penalty if exceeds session (worse than SCALP)
+        console.log(`[Session Constraints - ADVISORY] ${symbol}: ADVISORY (MICRO_INTRADAY - heaviest penalties for session overruns)`);
+        return 'ADVISORY';
+
       case 'SCALP':
         // SCALP: Session constraints ADVISORY with HEAVIER penalties for overruns
         // Was ENFORCED - now applies -15% confidence penalty if exceeds session

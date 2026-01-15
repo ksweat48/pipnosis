@@ -524,17 +524,35 @@ export class AlphaLearningFeedbackService {
     symbol?: string
   ): Promise<number> {
     try {
+      // ✅ SSOT FIX: Validate required parameters before querying
+      // Prevents "user_id=eq.undefined" and "market_condition=eq.undefined" errors
+      if (!userId || userId === 'undefined') {
+        logger.warn('[Alpha Feedback] getCalibratedConfidence called with invalid userId, returning raw confidence');
+        return rawConfidence;
+      }
+
+      if (!marketCondition || marketCondition === 'undefined') {
+        logger.warn('[Alpha Feedback] getCalibratedConfidence called with invalid marketCondition, returning raw confidence');
+        return rawConfidence;
+      }
+
       const confidenceBucket = Math.round(rawConfidence / 10) * 10;
 
-      const { data } = await supabase
+      // Build query with validated parameters
+      let query = supabase
         .from('alpha_confidence_calibration')
         .select('actual_win_rate, sample_size')
         .eq('user_id', userId)
         .eq('confidence_bucket', confidenceBucket)
         .eq('market_condition', marketCondition)
-        .eq('symbol', symbol || '')
-        .gte('sample_size', 10)
-        .maybeSingle();
+        .gte('sample_size', 10);
+
+      // Only filter by symbol if provided and valid
+      if (symbol && symbol !== 'undefined') {
+        query = query.eq('symbol', symbol);
+      }
+
+      const { data } = await query.maybeSingle();
 
       if (data && data.sample_size >= 10) {
         logger.info(`[Alpha Feedback] Using calibrated confidence: ${rawConfidence}% → ${data.actual_win_rate.toFixed(1)}% (n=${data.sample_size})`);

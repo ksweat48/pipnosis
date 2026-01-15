@@ -42,6 +42,7 @@ import {
 import { getSymbolConfig } from '../config/symbol-registry';
 import type { TradeContext, TradeContextResult } from '../types/trade-context';
 import { createProfileHash, createConverters, isContextStale } from '../types/trade-context';
+import { unwrapPrice } from '../types/trading-units';
 
 // ============================================================================
 // TRADECONTEXT FACTORY - SSOT ENTRY POINT
@@ -459,6 +460,41 @@ function validatePositionSizeParams(params: any): void {
     throw new Error(`[TradeMath] Invalid risk percentage: ${params.riskPercentage}% (must be 0-15%)`);
   }
   validatePrices(params.entryPrice, params.stopLoss);
+}
+
+// ============================================================================
+// ALPHA DECISION PRICE ROUNDING - SSOT FOR PRECISION ENFORCEMENT
+// ============================================================================
+
+/**
+ * Round all prices in an AlphaDecision to proper decimal precision
+ *
+ * This is the SINGLE SOURCE OF TRUTH for price precision enforcement.
+ * All AlphaDecisions MUST pass through this function before execution.
+ *
+ * ARCHITECTURE: Price rounding happens at the boundary between Alpha's
+ * decision-making (which may produce arbitrary precision) and execution
+ * (which requires exchange-compliant precision).
+ *
+ * @param decision - The AlphaDecision from coordinator-alpha
+ * @param tradeContext - TradeContext containing roundPrice function
+ * @returns Modified decision with all prices rounded to correct precision
+ */
+export function roundAlphaDecisionPrices<T extends {
+  entry: number;
+  stopLoss: number;
+  takeProfit: number;
+  tp1Price?: number | null;
+  tp2Price?: number;
+}>(decision: T, tradeContext: TradeContext): T {
+  return {
+    ...decision,
+    entry: unwrapPrice(tradeContext.roundPrice(decision.entry)),
+    stopLoss: unwrapPrice(tradeContext.roundPrice(decision.stopLoss)),
+    takeProfit: unwrapPrice(tradeContext.roundPrice(decision.takeProfit)),
+    tp1Price: decision.tp1Price ? unwrapPrice(tradeContext.roundPrice(decision.tp1Price)) : decision.tp1Price,
+    tp2Price: decision.tp2Price ? unwrapPrice(tradeContext.roundPrice(decision.tp2Price)) : decision.tp2Price,
+  };
 }
 
 // ============================================================================

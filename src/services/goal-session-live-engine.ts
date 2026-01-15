@@ -23,7 +23,7 @@ import { bestSymbolSelector } from './best-symbol-selector';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
 import { calculateDollarPerPip, calculatePositionSize, calculatePipDistance, calculateGoalAwareLotSize, calculateLotSizeFromDollarRisk, calculateAndValidateRR, getCurrencyPipInfo, formatCurrencyPrice } from '../utils/currencyHelpers';
-import { createTradeContext } from '../utils/tradeMath';
+import { createTradeContext, roundAlphaDecisionPrices } from '../utils/tradeMath';
 import { getRiskPercentage } from '../config/risk-levels';
 import { postTradeAnalyzer } from './post-trade-analyzer';
 import { scanningStateMachine } from './scanning-state-machine';
@@ -974,7 +974,8 @@ class GoalSessionLiveEngine {
       const scanDurationMs = scanEndTime - orchestratorStartTime;
       try {
         // Build all candidates from rankings
-        const allCandidates: ScanCandidate[] = bestSymbolResult.rankings.map(ranking => {
+        // ✅ SSOT FIX: Validate rankings exists before mapping
+        const allCandidates: ScanCandidate[] = (bestSymbolResult.rankings || []).map(ranking => {
           const symbol = ranking.symbol;
           const decision = filteredDecisions.get(symbol);
           const snapshot = filteredSnapshots.find(s => s.symbol === symbol);
@@ -1043,7 +1044,17 @@ class GoalSessionLiveEngine {
       }
 
       const selectedSymbol = bestSymbolResult.symbol;
-      const decision = bestSymbolResult.evaluation.omegaDecision;
+      let decision = bestSymbolResult.evaluation.omegaDecision;
+
+      // ✅ SSOT PRECISION FIX: Round all prices to correct decimal places
+      // This prevents "SL/TP precision exceeds X decimal places" validation errors
+      const priceContextResult = createTradeContext(selectedSymbol);
+      if (priceContextResult.success && priceContextResult.context) {
+        decision = roundAlphaDecisionPrices(decision, priceContextResult.context);
+        logger.debug(LogCategory.AI_TRADING, `✅ SSOT: Rounded prices for ${selectedSymbol} (${priceContextResult.context.decimalPlaces} decimals)`);
+      } else {
+        logger.warn(LogCategory.AI_TRADING, `⚠️ Could not round prices for ${selectedSymbol}: ${priceContextResult.error}`);
+      }
 
       logger.debug(LogCategory.AI_TRADING, `🎯 SELECTED: ${selectedSymbol} | ${decision.action} @ ${decision.confidence}%`);
 
