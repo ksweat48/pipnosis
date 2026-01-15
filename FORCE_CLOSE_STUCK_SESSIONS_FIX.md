@@ -122,14 +122,59 @@ The function now:
 - ✅ Staged Deployment: Applied migration then deployed frontend
 - ✅ Verification: Can test in production admin dashboard
 
+## Cascading Issue Discovery
+
+### Third Error: Missing Column Alias
+After fixing the ambiguous `user_id`, a new error appeared:
+```
+column stale_sessions.extract does not exist
+```
+
+**Root Cause**: In my fix, I qualified the columns but forgot to alias the `EXTRACT()` expression:
+
+```sql
+-- BROKEN:
+RETURNING
+  goal_sessions.id,
+  goal_sessions.user_id,
+  EXTRACT(EPOCH FROM (NOW() - goal_sessions.scanning_started_at)) / 60  -- No alias!
+
+SELECT
+  stale_sessions.extract as minutes_scanning  -- Can't reference unnamed column
+```
+
+**Fix**: Add proper alias to the EXTRACT expression:
+```sql
+-- FIXED:
+RETURNING
+  goal_sessions.id,
+  goal_sessions.user_id,
+  EXTRACT(EPOCH FROM (NOW() - goal_sessions.scanning_started_at)) / 60 as minutes_scanning
+
+SELECT
+  stale_sessions.minutes_scanning  -- Now references the aliased column
+```
+
+**SSOT Principle**: SQL expressions in RETURNING clauses must be explicitly named to be referenced in subsequent queries. The column alias is the contract.
+
 ## Deployment Status
-- ✅ Frontend fix deployed
-- ✅ Database migration applied
+- ✅ Frontend fix deployed (iteration 1)
+- ✅ Database migration applied (iteration 1 - ambiguous user_id)
+- ✅ Database migration applied (iteration 2 - missing alias)
 - ✅ Build successful
 - ✅ Netlify deployment triggered
+
+## Root Cause Summary
+This was a three-layer issue:
+1. **Frontend**: Hook API mismatch (`confirm` vs `showConfirm`)
+2. **Database**: Ambiguous column reference (function parameter vs table column)
+3. **Database Cascading**: Unnamed expression cannot be referenced
+
+The cascading issue demonstrates why CCIP's dry-run phase is critical - my first fix resolved one ambiguity but introduced a new unnamed column bug.
 
 ## Related Files
 - `src/components/admin/UserManagementPanel.tsx`
 - `src/hooks/useConfirmDialog.tsx`
 - `src/services/admin-user-service.ts`
 - `supabase/migrations/fix_force_close_ambiguous_user_id.sql`
+- `supabase/migrations/fix_force_close_extract_alias.sql`
