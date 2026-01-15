@@ -1,7 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { logger } from '@/lib/logger';
-
-const log = logger('ScanResultsManager');
+import { logger, LogCategory } from '@/lib/logger';
 
 export interface ScanCandidate {
   symbol: string;
@@ -84,18 +82,18 @@ export class ScanResultsManager {
         });
 
       if (error) {
-        log.error('[storeScanResult] Failed to store scan result:', error);
+        logger.error(LogCategory.AI_TRADING, '[storeScanResult] Failed to store scan result:', error);
         throw error;
       }
 
-      log.info('[storeScanResult] ✅ Scan result stored', {
+      logger.info(LogCategory.AI_TRADING, '[storeScanResult] ✅ Scan result stored', {
         sessionId: result.sessionId,
         topCandidate: topCandidate?.symbol,
         action: topCandidate?.action,
         confidence: topCandidate?.confidence
       });
     } catch (error) {
-      log.error('[storeScanResult] Error storing scan result:', error);
+      logger.error(LogCategory.AI_TRADING, '[storeScanResult] Error storing scan result:', error);
       throw error;
     }
   }
@@ -110,7 +108,7 @@ export class ScanResultsManager {
         .maybeSingle();
 
       if (error) {
-        log.error('[getLatestScanResult] Failed to fetch latest scan result:', error);
+        logger.error(LogCategory.AI_TRADING, '[getLatestScanResult] Failed to fetch latest scan result:', error);
         throw error;
       }
 
@@ -120,7 +118,7 @@ export class ScanResultsManager {
 
       return this.mapDatabaseResultToScanResult(data);
     } catch (error) {
-      log.error('[getLatestScanResult] Error fetching latest scan result:', error);
+      logger.error(LogCategory.AI_TRADING, '[getLatestScanResult] Error fetching latest scan result:', error);
       return null;
     }
   }
@@ -137,7 +135,7 @@ export class ScanResultsManager {
         });
 
       if (error) {
-        log.error('[getScanHistory] Failed to fetch scan history:', error);
+        logger.error(LogCategory.AI_TRADING, '[getScanHistory] Failed to fetch scan history:', error);
         throw error;
       }
 
@@ -151,7 +149,7 @@ export class ScanResultsManager {
         rejectionReason: row.rejection_reason
       }));
     } catch (error) {
-      log.error('[getScanHistory] Error fetching scan history:', error);
+      logger.error(LogCategory.AI_TRADING, '[getScanHistory] Error fetching scan history:', error);
       return [];
     }
   }
@@ -163,7 +161,7 @@ export class ScanResultsManager {
     this.listeners.add(callback);
 
     if (!this.realtimeSubscription) {
-      log.info('[subscribeToScanResults] 🔔 Setting up realtime subscription for scan results');
+      logger.info(LogCategory.AI_TRADING, '[subscribeToScanResults] 🔔 Setting up realtime subscription for scan results');
 
       this.realtimeSubscription = supabase
         .channel('scan-results-updates')
@@ -176,20 +174,20 @@ export class ScanResultsManager {
             filter: `session_id=eq.${sessionId}`
           },
           (payload) => {
-            log.info('[subscribeToScanResults] 📊 New scan result received', payload);
+            logger.info(LogCategory.AI_TRADING, '[subscribeToScanResults] 📊 New scan result received', payload);
             const result = this.mapDatabaseResultToScanResult(payload.new);
             this.listeners.forEach(listener => listener(result));
           }
         )
         .subscribe();
 
-      log.info('[subscribeToScanResults] ✅ Realtime subscription active');
+      logger.info(LogCategory.AI_TRADING, '[subscribeToScanResults] ✅ Realtime subscription active');
     }
 
     return () => {
       this.listeners.delete(callback);
       if (this.listeners.size === 0 && this.realtimeSubscription) {
-        log.info('[subscribeToScanResults] 🔕 Unsubscribing from scan results');
+        logger.info(LogCategory.AI_TRADING, '[subscribeToScanResults] 🔕 Unsubscribing from scan results');
         this.realtimeSubscription.unsubscribe();
         this.realtimeSubscription = null;
       }
