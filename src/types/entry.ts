@@ -579,4 +579,16 @@ export interface EntrySpec {
   min_entry_quality_score: number; // Minimum EQS required to execute (70-80)
   max_wait_minutes: number;        // Maximum time to wait for better entry
   alpha_reasoning: string;         // Why this entry spec was chosen
+
+  // TPS System Extensions
+  entryMode?: 'EXECUTE_NOW' | 'WAIT_ENTRY' | 'WAIT_HIGHER_EDGE'; // TPS entry mode classification
+  eqsThesis?: string;              // Entry thesis label for EQS weight mapping
+  eqsRequired?: number;            // Minimum EQS threshold (0-100)
+  eqsFocus?: string[];             // Array of 3-5 key entry quality drivers
+  runawayPolicy?: 'RESCAN' | 'EXECUTE_ON_FIRST_PULLBACK'; // What to do if price runs away
+  projection?: {
+    eqsProjected: number;          // Expected EQS if conditions improve
+    projectionConfidence: number;  // Confidence in projection (0-100)
+    expectedMinutesToImprove: number; // Expected time to reach projected EQS
+  };
 }

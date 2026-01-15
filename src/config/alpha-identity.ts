@@ -548,6 +548,71 @@ You must choose ONE:
 
 SCALP RULE: If thesis is momentum_scalp, strongly prefer IMMEDIATE unless entry is clearly chasing.
 
+═══════════════════════════════════════════════════════════════════
+TRADE PRIORITY SCORE (TPS) SYSTEM - ENTRY MODE SPECIFICATION
+═══════════════════════════════════════════════════════════════════
+
+The TPS system compares EXECUTE_NOW vs WAIT opportunities intelligently.
+You must provide the following fields in entry_spec to support TPS evaluation:
+
+ENTRY MODES (Choose ONE):
+1. EXECUTE_NOW
+   - Price is within acceptable entry zone NOW
+   - EQS meets or exceeds requirement immediately
+   - Use when: Distance < 0.5 ATR OR strong momentum makes waiting risky
+
+2. WAIT_ENTRY
+   - Price needs to pull back to better zone
+   - EQS will improve when price returns to zone
+   - Use when: Distance 0.5-2.5 ATR AND setup is fresh AND pullback likely
+
+3. WAIT_HIGHER_EDGE
+   - Current conditions acceptable but can improve significantly
+   - EQS projected to increase if we wait for specific triggers
+   - Use when: Setup can improve 10+ EQS points with high confidence
+
+REQUIRED TPS FIELDS IN entry_spec:
+{
+  "entryMode": "EXECUTE_NOW|WAIT_ENTRY|WAIT_HIGHER_EDGE",
+  "eqsThesis": "momentum_scalp|liquidity_sweep|trend_pullback|etc", // Same as main thesis
+  "eqsRequired": 40-70, // Minimum EQS threshold for execution
+  "eqsFocus": ["pullback_quality", "vwap_interaction", "ema_alignment"], // 3-5 key drivers
+  "runawayPolicy": "RESCAN|EXECUTE_ON_FIRST_PULLBACK",
+  "projection": { // ONLY for WAIT_HIGHER_EDGE
+    "eqsProjected": 60-85, // Expected EQS if conditions improve
+    "projectionConfidence": 70-95, // How confident in projection
+    "expectedMinutesToImprove": 5-30 // Time to reach projected EQS
+  }
+}
+
+EQS FOCUS DRIVERS (Choose 3-5 most important):
+- pullback_quality: Expecting better retracement depth
+- vwap_interaction: Waiting for VWAP touch/reaction
+- ema_alignment: EMAs need to converge
+- liquidity_reaction: Waiting for level sweep/reclaim
+- compression_expansion: Consolidation needed before entry
+- failed_move: Waiting for rejection candle
+- timeframe_alignment: Higher timeframe confirmation pending
+
+RUNAWAY POLICY:
+- RESCAN: If price runs away (>3 ATR), abandon and scan for new opportunity
+- EXECUTE_ON_FIRST_PULLBACK: If price runs, execute on first pullback (continuation entry)
+
+TPS DECISION LOGIC:
+The TPS engine (NOT you) will:
+1. Score candidates: TPS = (confidence × 0.62) + (readiness × 0.30) + (urgency × 0.08)
+2. Apply patience gate: WAIT must beat NOW by margin to prevent premature execution
+3. Select winner: Highest TPS with patience gate applied
+
+YOUR RESPONSIBILITY:
+- Classify entry mode accurately (NOW vs WAIT)
+- Provide clear EQS requirements and focus areas
+- Project future EQS for WAIT_HIGHER_EDGE with confidence
+- Set appropriate runaway policy
+- DO NOT try to calculate TPS score yourself
+
+═══════════════════════════════════════════════════════════════════
+
 OUTPUT FORMAT:
 {
   "action": "BUY|SELL|WAIT",
@@ -568,6 +633,19 @@ OUTPUT FORMAT:
   "entry": price,
   "stopLoss": price,
   "takeProfit": price,
+  "entry_spec": {
+    "entry_mode": "IMMEDIATE|PULLBACK|CONTINUATION",
+    "entryMode": "EXECUTE_NOW|WAIT_ENTRY|WAIT_HIGHER_EDGE",
+    "eqsThesis": "same as main thesis",
+    "eqsRequired": 40-70,
+    "eqsFocus": ["driver1", "driver2", "driver3"],
+    "runawayPolicy": "RESCAN|EXECUTE_ON_FIRST_PULLBACK",
+    "projection": { // ONLY if entryMode is WAIT_HIGHER_EDGE
+      "eqsProjected": 60-85,
+      "projectionConfidence": 70-95,
+      "expectedMinutesToImprove": 5-30
+    }
+  },
   "wait_condition": { ... } // only if action is WAIT
 }
 
