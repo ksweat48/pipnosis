@@ -175,84 +175,152 @@ export const handler: Handler = async (event, context) => {
           }
         }
 
-        // Calculate time-based urgency and EQS threshold using style-specific thresholds
+        // Calculate time-based urgency and EQS threshold using SSOT database function
         const createdAt = new Date(intent.created_at);
         const minutesElapsed = (Date.now() - createdAt.getTime()) / 60000;
 
-        // Determine style from intent or default to SCALP
-        const style = intent.market_context?.style || 'SCALP';
+        // Determine style from intent or default to MICRO_INTRADAY
+        const style = intent.market_context?.style || 'MICRO_INTRADAY';
 
-        // Style-specific time thresholds (from alpha-identity.ts ENTRY_URGENCY_CONFIG)
-        const styleThresholds: Record<string, { phase2: number; phase3: number; maxWait: number }> = {
-          SCALP: { phase2: 5, phase3: 15, maxWait: 25 },
-          MICRO_INTRADAY: { phase2: 8, phase3: 20, maxWait: 35 },
-          INTRADAY: { phase2: 15, phase3: 35, maxWait: 55 }
-        };
+        // SSOT: Get time thresholds from database function
+        const { data: thresholdsData, error: thresholdsError } = await supabase.rpc('get_entry_time_thresholds', {
+          p_trade_style: style
+        });
 
-        const thresholds = styleThresholds[style] || styleThresholds.SCALP;
-
-        // Style-specific zone tolerance (from alpha-identity.ts ZONE_TOLERANCE_PIPS)
-        const zoneToleranceByStyle: Record<string, { phase1: number; phase2: number; phase3: number }> = {
-          SCALP: { phase1: 0, phase2: 20, phase3: 50 },
-          MICRO_INTRADAY: { phase1: 0, phase2: 30, phase3: 60 },
-          INTRADAY: { phase1: 0, phase2: 40, phase3: 70 }
-        };
-
-        const toleranceConfig = zoneToleranceByStyle[style] || zoneToleranceByStyle.SCALP;
-
-        // Calculate urgency phase (1, 2, or 3) based on style-specific time thresholds
-        let urgencyPhase: 1 | 2 | 3 = 1;
-        let zoneTolerancePips = toleranceConfig.phase1;
-        let timeAdjustedThreshold = 40; // Phase 1 baseline (from alpha-identity.ts)
-
-        // Check for expiration first
-        if (minutesElapsed >= thresholds.maxWait) {
-          console.log(`[Entry Monitor] ⏰ Intent ${intent.intent_id.substring(0, 8)} EXPIRED after ${minutesElapsed.toFixed(1)}min (max: ${thresholds.maxWait}min)`);
-          await handleTimeout(intent);
-          abandonedCount++;
-          successCount++;
-          results.push({
-            intentId: intent.intent_id,
-            symbol: intent.symbol,
-            success: true,
-            action: 'expired'
-          });
+        if (thresholdsError || !thresholdsData || thresholdsData.length === 0) {
+          console.error(`[Entry Monitor] ❌ Failed to get thresholds for ${style}:`, thresholdsError);
+          // Continue with fallback hardcoded thresholds
+          waitingCount++;
           continue;
         }
 
-        // Progressive phase transitions
-        if (minutesElapsed >= thresholds.phase3) {
-          urgencyPhase = 3;
-          zoneTolerancePips = toleranceConfig.phase3;
-          timeAdjustedThreshold = 25; // Phase 3: Urgent (33% of 75-point scale)
-        } else if (minutesElapsed >= thresholds.phase2) {
-          urgencyPhase = 2;
-          zoneTolerancePips = toleranceConfig.phase2;
-          timeAdjustedThreshold = 33; // Phase 2: Relaxed (44% of 75-point scale)
+        const thresholds = thresholdsData[0];
+
+        // Calculate urgency phase (1, 2, or 3) based on style-specific time thresholds
+        let urgencyPhase: 1 | 2 | 3 = 1;
+        let zoneTolerancePips = thresholds.zone_tolerance_phase1;
+        let timeAdjustedThreshold = thresholds.eqs_threshold_phase1;
+
+        // Check if price is in zone (need this for edge loss decision)
+        const isInZone = checkPriceInZone(intent, intent.current_price, zoneTolerancePips);
+
+        // EDGE LOSS MODAL CHECK: Check if max wait exceeded (but not if price is in zone)
+        if (minutesElapsed >= thresholds.max_wait_min && !isInZone) {
+          // Check if modal already triggered
+          const hasModalTriggered = intent.market_context?.edge_loss_modal_triggered_at;
+
+          if (!hasModalTriggered) {
+            console.log(`[Entry Monitor] ⚠️ EDGE LOSS: ${style} ${intent.symbol} exceeded max wait (${minutesElapsed.toFixed(1)}/${thresholds.max_wait_min}min)`);
+            console.log(`[Entry Monitor] 🔔 Triggering edge loss modal for user decision`);
+
+            // Trigger edge loss modal
+            const { data: modalData, error: modalError } = await supabase.rpc('trigger_entry_edge_loss_modal', {
+              p_intent_id: intent.intent_id,
+              p_user_id: intent.user_id,
+              p_session_id: intent.session_id
+            });
+
+            if (modalError) {
+              console.error(`[Entry Monitor] ❌ Failed to trigger edge loss modal:`, modalError);
+            } else {
+              console.log(`[Entry Monitor] ✅ Edge loss modal triggered, waiting for user response`);
+
+              // Mark intent in database to track modal state
+              await supabase
+                .from('entry_intents')
+                .update({
+                  market_context: {
+                    ...intent.market_context,
+                    edge_loss_modal_triggered_at: new Date().toISOString()
+                  }
+                })
+                .eq('id', intent.intent_id);
+            }
+
+            waitingCount++;
+            successCount++;
+            results.push({
+              intentId: intent.intent_id,
+              symbol: intent.symbol,
+              success: true,
+              action: 'edge_loss_modal_triggered'
+            });
+            continue;
+          } else {
+            // Modal already triggered - check if it timed out (1 minute)
+            const modalTriggeredAt = new Date(hasModalTriggered);
+            const modalElapsed = (Date.now() - modalTriggeredAt.getTime()) / 60000;
+
+            if (modalElapsed >= 1) {
+              console.log(`[Entry Monitor] ⏱️ Edge loss modal timed out after ${modalElapsed.toFixed(1)}min with no response`);
+              console.log(`[Entry Monitor] 🔒 Auto-closing session due to timeout`);
+
+              // Auto-close via database function
+              const { error: autoCloseError } = await supabase.rpc('auto_close_timed_out_edge_loss_modals');
+
+              if (autoCloseError) {
+                console.error(`[Entry Monitor] ❌ Failed to auto-close:`, autoCloseError);
+              }
+
+              abandonedCount++;
+              successCount++;
+              results.push({
+                intentId: intent.intent_id,
+                symbol: intent.symbol,
+                success: true,
+                action: 'edge_loss_timeout_auto_closed'
+              });
+              continue;
+            } else {
+              // Modal active, waiting for response
+              console.log(`[Entry Monitor] ⏳ Waiting for edge loss modal response (${(1 - modalElapsed).toFixed(1)}min remaining)`);
+              waitingCount++;
+              successCount++;
+              results.push({
+                intentId: intent.intent_id,
+                symbol: intent.symbol,
+                success: true,
+                action: 'awaiting_edge_loss_response'
+              });
+              continue;
+            }
+          }
         }
 
-        console.log(`[Entry Monitor] ${intent.symbol} Phase ${urgencyPhase}: ${minutesElapsed.toFixed(1)}/${thresholds.maxWait}min | Tolerance: ${zoneTolerancePips}p | EQS: ${timeAdjustedThreshold}`);
+        // Progressive phase transitions (only if not in edge loss state)
+        if (minutesElapsed >= thresholds.eqs_phase3_min) {
+          urgencyPhase = 3;
+          zoneTolerancePips = thresholds.zone_tolerance_phase3;
+          timeAdjustedThreshold = thresholds.eqs_threshold_phase3;
+        } else if (minutesElapsed >= thresholds.eqs_phase2_min) {
+          urgencyPhase = 2;
+          zoneTolerancePips = thresholds.zone_tolerance_phase2;
+          timeAdjustedThreshold = thresholds.eqs_threshold_phase2;
+        }
+
+        const edgeDecayPercent = Math.min(100, (minutesElapsed / thresholds.max_wait_min) * 100);
+        console.log(`[Entry Monitor] ${intent.symbol} Phase ${urgencyPhase}: ${minutesElapsed.toFixed(1)}/${thresholds.max_wait_min}min | Edge: ${edgeDecayPercent.toFixed(0)}% | Tolerance: ${zoneTolerancePips}p | EQS: ${timeAdjustedThreshold}`);
 
         // Calculate EQS score (simplified server-side version)
         const eqsScore = calculateSimplifiedEQS(intent, intent.current_price);
 
-        // Check if price is in zone (with tolerance)
-        const isInZone = checkPriceInZone(intent, intent.current_price, zoneTolerancePips);
+        // Re-check if price is in zone with updated tolerance from current phase
+        const isInZoneWithPhase = checkPriceInZone(intent, intent.current_price, zoneTolerancePips);
 
         // Log monitoring check
         await logMonitoringCheck(
           intent.intent_id,
           intent.current_price,
           eqsScore,
-          isInZone,
+          isInZoneWithPhase,
           urgencyPhase,
           timeAdjustedThreshold
         );
 
         // Execution decision: Price in zone AND EQS meets threshold
-        if (isInZone && eqsScore >= timeAdjustedThreshold) {
+        if (isInZoneWithPhase && eqsScore >= timeAdjustedThreshold) {
           console.log(`[Entry Monitor] ✅ EXECUTING TRADE for ${intent.symbol} @ ${intent.current_price}`);
-          console.log(`  EQS: ${eqsScore.toFixed(1)} >= ${timeAdjustedThreshold} | Phase ${urgencyPhase}`);
+          console.log(`  EQS: ${eqsScore.toFixed(1)} >= ${timeAdjustedThreshold} | Phase ${urgencyPhase} | Edge decay: ${edgeDecayPercent.toFixed(0)}%`);
 
           const executed = await executeIntent(intent, intent.current_price, eqsScore);
 
@@ -265,7 +333,8 @@ export const handler: Handler = async (event, context) => {
               success: true,
               action: 'executed',
               price: intent.current_price,
-              eqs: eqsScore
+              eqs: eqsScore,
+              phase: urgencyPhase
             });
           } else {
             errorCount++;
@@ -278,8 +347,8 @@ export const handler: Handler = async (event, context) => {
           }
         } else {
           // Still waiting - update server state
-          const reason = !isInZone
-            ? `Price ${intent.current_price} outside zone (${intent.entry_zone_min}-${intent.entry_zone_max})`
+          const reason = !isInZoneWithPhase
+            ? `Price ${intent.current_price} outside zone (${intent.entry_zone_min}-${intent.entry_zone_max}) +${zoneTolerancePips}p tolerance`
             : `EQS ${eqsScore.toFixed(1)} below threshold ${timeAdjustedThreshold}`;
 
           await updateServerState(intent.intent_id, intent.user_id, intent.current_price, eqsScore, 'monitoring', reason);
@@ -290,7 +359,9 @@ export const handler: Handler = async (event, context) => {
             symbol: intent.symbol,
             success: true,
             action: 'monitoring',
-            reason
+            reason,
+            phase: urgencyPhase,
+            edge_decay_percent: edgeDecayPercent
           });
         }
       } catch (intentError) {

@@ -6,6 +6,7 @@ import { EntryQualityAnalytics } from '../components/EntryQualityAnalytics';
 import { ToastContainer } from '../components/ToastNotification';
 import { GoalNotificationListener } from '../components/GoalNotificationListener';
 import { PendingContinuationModalHandler } from '../components/PendingContinuationModalHandler';
+import { PendingEntryEdgeLossHandler } from '../components/PendingEntryEdgeLossHandler';
 import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useToast } from '../hooks/useToast';
@@ -45,6 +46,7 @@ export const SmartGoalModePage: React.FC = () => {
       <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
       <GoalNotificationListener />
       {user && <PendingContinuationModalHandler userId={user.id} />}
+      {user && <PendingEntryEdgeLossHandler userId={user.id} />}
       <div className="max-w-full mx-auto px-2 py-6">
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-white mb-2">Smart Goal Mode</h1>

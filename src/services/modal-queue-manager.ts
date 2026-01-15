@@ -5,10 +5,10 @@ export interface PendingModal {
   id: string;
   user_id: string;
   goal_session_id: string | null;
-  modal_type: 'trade_closed' | 'goal_achieved' | 'session_update' | 'continuation' | 'session_ended';
+  modal_type: 'trade_closed' | 'goal_achieved' | 'session_update' | 'continuation' | 'session_ended' | 'entry_edge_loss';
   modal_data: {
     symbol?: string;
-    direction?: 'buy' | 'sell';
+    direction?: 'buy' | 'sell' | 'long' | 'short';
     entry_price?: number;
     exit_price?: number;
     profit_loss?: number;
@@ -23,6 +23,12 @@ export interface PendingModal {
     duration_minutes?: number;
     final_status?: string;
     message?: string;
+    modal_id?: string;
+    style?: string;
+    entry_zone_min?: number;
+    entry_zone_max?: number;
+    created_at?: string;
+    timeout_minutes?: number;
   };
   created_at: string;
   expires_at: string | null;
@@ -40,7 +46,7 @@ class ModalQueueManager extends TinyEmitter {
   async createPendingModal(
     userId: string,
     goalSessionId: string | null,
-    modalType: 'trade_closed' | 'goal_achieved' | 'session_update' | 'continuation' | 'session_ended',
+    modalType: 'trade_closed' | 'goal_achieved' | 'session_update' | 'continuation' | 'session_ended' | 'entry_edge_loss',
     modalData: PendingModal['modal_data']
   ): Promise<{ success: boolean; modalId?: string; error?: any }> {
     try {
