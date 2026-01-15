@@ -221,6 +221,23 @@ export class EntryExecutionCoordinator {
         tradeContext
       );
 
+      // CRITICAL: Update intent status to 'executed' so UI can remove entry monitor
+      // This triggers realtime subscription in useActiveEntryIntent hook
+      const { error: intentUpdateError } = await supabase
+        .from('entry_intents')
+        .update({
+          status: 'executed',
+          executed_at: new Date().toISOString(),
+          executed_price: actualEntryPrice,
+          trade_id: trade.id
+        })
+        .eq('id', intentId);
+
+      if (intentUpdateError) {
+        logger.error(`Failed to update intent status to executed: ${intentUpdateError.message}`);
+        // Non-fatal - trade was created successfully, just log the error
+      }
+
       logger.info(`Trade executed from intent ${intentId}: ${trade.id}`);
       return { success: true, tradeId: trade.id };
     } catch (error) {
