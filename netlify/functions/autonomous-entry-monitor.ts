@@ -175,25 +175,63 @@ export const handler: Handler = async (event, context) => {
           }
         }
 
-        // Calculate time-based urgency and EQS threshold
+        // Calculate time-based urgency and EQS threshold using style-specific thresholds
         const createdAt = new Date(intent.created_at);
         const minutesElapsed = (Date.now() - createdAt.getTime()) / 60000;
-        const maxWaitMinutes = intent.max_wait_seconds / 60;
 
-        // Calculate urgency phase (1, 2, or 3)
-        let urgencyPhase = 1;
-        let zoneTolerancePips = 0;
-        let timeAdjustedThreshold = 75;
+        // Determine style from intent or default to SCALP
+        const style = intent.market_context?.style || 'SCALP';
 
-        if (minutesElapsed > maxWaitMinutes * 0.66) {
-          urgencyPhase = 3;
-          zoneTolerancePips = 5;
-          timeAdjustedThreshold = 40;
-        } else if (minutesElapsed > maxWaitMinutes * 0.33) {
-          urgencyPhase = 2;
-          zoneTolerancePips = 2;
-          timeAdjustedThreshold = 60;
+        // Style-specific time thresholds (from alpha-identity.ts ENTRY_URGENCY_CONFIG)
+        const styleThresholds: Record<string, { phase2: number; phase3: number; maxWait: number }> = {
+          SCALP: { phase2: 5, phase3: 15, maxWait: 25 },
+          MICRO_INTRADAY: { phase2: 8, phase3: 20, maxWait: 35 },
+          INTRADAY: { phase2: 15, phase3: 35, maxWait: 55 }
+        };
+
+        const thresholds = styleThresholds[style] || styleThresholds.SCALP;
+
+        // Style-specific zone tolerance (from alpha-identity.ts ZONE_TOLERANCE_PIPS)
+        const zoneToleranceByStyle: Record<string, { phase1: number; phase2: number; phase3: number }> = {
+          SCALP: { phase1: 0, phase2: 20, phase3: 50 },
+          MICRO_INTRADAY: { phase1: 0, phase2: 30, phase3: 60 },
+          INTRADAY: { phase1: 0, phase2: 40, phase3: 70 }
+        };
+
+        const toleranceConfig = zoneToleranceByStyle[style] || zoneToleranceByStyle.SCALP;
+
+        // Calculate urgency phase (1, 2, or 3) based on style-specific time thresholds
+        let urgencyPhase: 1 | 2 | 3 = 1;
+        let zoneTolerancePips = toleranceConfig.phase1;
+        let timeAdjustedThreshold = 40; // Phase 1 baseline (from alpha-identity.ts)
+
+        // Check for expiration first
+        if (minutesElapsed >= thresholds.maxWait) {
+          console.log(`[Entry Monitor] ⏰ Intent ${intent.intent_id.substring(0, 8)} EXPIRED after ${minutesElapsed.toFixed(1)}min (max: ${thresholds.maxWait}min)`);
+          await handleTimeout(intent);
+          abandonedCount++;
+          successCount++;
+          results.push({
+            intentId: intent.intent_id,
+            symbol: intent.symbol,
+            success: true,
+            action: 'expired'
+          });
+          continue;
         }
+
+        // Progressive phase transitions
+        if (minutesElapsed >= thresholds.phase3) {
+          urgencyPhase = 3;
+          zoneTolerancePips = toleranceConfig.phase3;
+          timeAdjustedThreshold = 25; // Phase 3: Urgent (33% of 75-point scale)
+        } else if (minutesElapsed >= thresholds.phase2) {
+          urgencyPhase = 2;
+          zoneTolerancePips = toleranceConfig.phase2;
+          timeAdjustedThreshold = 33; // Phase 2: Relaxed (44% of 75-point scale)
+        }
+
+        console.log(`[Entry Monitor] ${intent.symbol} Phase ${urgencyPhase}: ${minutesElapsed.toFixed(1)}/${thresholds.maxWait}min | Tolerance: ${zoneTolerancePips}p | EQS: ${timeAdjustedThreshold}`);
 
         // Calculate EQS score (simplified server-side version)
         const eqsScore = calculateSimplifiedEQS(intent, intent.current_price);

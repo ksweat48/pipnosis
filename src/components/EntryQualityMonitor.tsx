@@ -421,7 +421,7 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
                   ? 'bg-green-500/20 text-green-400 border border-green-500/30'
                   : 'bg-red-500/20 text-red-400 border border-red-500/30'
               }`}>
-                {activeIntent.direction === 'long' ? 'LONG' : 'SHORT'}
+                {activeIntent.direction === 'long' ? 'BUY' : 'SELL'}
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-1 sm:gap-2 text-xs text-gray-400">

@@ -43,18 +43,22 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
   const [nextScanTime, setNextScanTime] = useState<Date | null>(null);
   const [countdown, setCountdown] = useState<string>('Calculating...');
   const [hasOpenTrades, setHasOpenTrades] = useState(false);
+  const [hasActiveIntent, setHasActiveIntent] = useState(false);
+  const [activeIntentSymbol, setActiveIntentSymbol] = useState<string | null>(null);
   const [wellnessMessages, setWellnessMessages] = useState<WellnessMessage[]>([]);
 
   useEffect(() => {
     loadMarketData();
     loadSessionInfo();
     checkOpenTrades();
+    checkActiveIntent();
     loadWellnessMessages();
 
     const interval = setInterval(() => {
       loadMarketData();
       loadSessionInfo();
       checkOpenTrades();
+      checkActiveIntent();
       loadWellnessMessages();
     }, 10000); // Check more frequently for wellness updates
 
@@ -129,6 +133,30 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
     } catch (error) {
       console.error('Error checking open trades:', error);
       setHasOpenTrades(false);
+    }
+  };
+
+  const checkActiveIntent = async () => {
+    try {
+      const { data: activeIntents } = await supabase
+        .from('entry_intents')
+        .select('id, symbol')
+        .eq('session_id', sessionId)
+        .eq('status', 'monitoring')
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (activeIntents && activeIntents.length > 0) {
+        setHasActiveIntent(true);
+        setActiveIntentSymbol(activeIntents[0].symbol);
+      } else {
+        setHasActiveIntent(false);
+        setActiveIntentSymbol(null);
+      }
+    } catch (error) {
+      console.error('Error checking active intent:', error);
+      setHasActiveIntent(false);
+      setActiveIntentSymbol(null);
     }
   };
 
@@ -418,6 +446,11 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
                 <Brain className="w-4 h-4 text-purple-400 animate-pulse" />
                 <h4 className="text-base font-bold text-white">Alpha Trade Monitor</h4>
               </>
+            ) : hasActiveIntent ? (
+              <>
+                <Target className="w-4 h-4 text-orange-400 animate-pulse" />
+                <h4 className="text-base font-bold text-white">Entry Monitor</h4>
+              </>
             ) : (
               <>
                 <Activity className="w-4 h-4 text-blue-400 animate-pulse" />
@@ -429,6 +462,11 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
             <div className="flex items-center gap-2 px-2 py-1 bg-blue-500/20 rounded border border-blue-500/50">
               <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />
               <span className="text-xs font-semibold text-blue-300">MONITORING</span>
+            </div>
+          ) : hasActiveIntent ? (
+            <div className="flex items-center gap-2 px-2 py-1 bg-orange-500/20 rounded border border-orange-500/50">
+              <div className="w-1.5 h-1.5 bg-orange-400 rounded-full animate-pulse" />
+              <span className="text-xs font-semibold text-orange-300">WAITING FOR ENTRY</span>
             </div>
           ) : (
             <div className="flex items-center gap-1.5 text-xs">
@@ -489,6 +527,20 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
           <div className="flex items-center gap-2 px-3 py-2 bg-gray-700/30 rounded border border-gray-600/50">
             <Clock className="w-3 h-3 text-gray-500 animate-pulse" />
             <span className="text-xs text-gray-500">Waiting for wellness check...</span>
+          </div>
+        ) : hasActiveIntent ? (
+          <div className="bg-orange-900/20 border border-orange-700/50 rounded-lg p-3">
+            <div className="flex items-start gap-2">
+              <Target className="w-5 h-5 text-orange-400 mt-0.5 flex-shrink-0 animate-pulse" />
+              <div className="flex-1">
+                <div className="font-bold text-orange-300 mb-1">
+                  Waiting for Entry Zone - {activeIntentSymbol}
+                </div>
+                <div className="text-sm text-gray-300">
+                  Price must pull back to entry zone for optimal entry. Alpha is monitoring price movement and will execute automatically when conditions are met.
+                </div>
+              </div>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-2">
