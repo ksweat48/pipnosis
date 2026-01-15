@@ -34,7 +34,7 @@ export const UserManagementPanel: React.FC = () => {
   const [forceClosing, setForceClosing] = useState(false);
   const [searchDebounce, setSearchDebounce] = useState<NodeJS.Timeout | null>(null);
   const { showToast } = useToast();
-  const { showConfirm } = useConfirmDialog();
+  const { confirm: showConfirm } = useConfirmDialog();
 
   // Handle search with debouncing (500ms delay)
   const handleSearchChange = (value: string) => {
