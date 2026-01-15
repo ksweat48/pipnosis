@@ -17,7 +17,6 @@ import { EntryExecutionCoordinator } from '../services/entry-execution-coordinat
 import { globalToastManager } from '../services/global-toast-manager';
 import { logger } from '../lib/logger';
 import { getCurrencyPipInfo } from '../utils/currencyHelpers';
-import { ScanProgressIndicator } from './ScanProgressIndicator';
 import { ScanResultsCard } from './ScanResultsCard';
 
 interface SimpleEntryMonitorProps {
@@ -29,48 +28,8 @@ export const SimpleEntryMonitor: React.FC<SimpleEntryMonitorProps> = ({ sessionI
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [previousPrice, setPreviousPrice] = useState<number | null>(null);
   const [executing, setExecuting] = useState(false);
-  const [scanningStatus, setScanningStatus] = useState<{
-    isScanning: boolean;
-    currentSymbol?: string;
-    currentIndex?: number;
-    totalSymbols?: number;
-    scanStartTime?: number;
-  }>({
-    isScanning: false
-  });
 
   const { activeIntent, loading: intentLoading } = useActiveEntryIntent(sessionId);
-
-  // Monitor scanning status from goal_sessions table
-  useEffect(() => {
-    const fetchScanningStatus = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('goal_sessions')
-          .select('status, scan_start_time, current_scan_symbol, symbols_scanned, total_symbols_to_scan')
-          .eq('id', sessionId)
-          .maybeSingle();
-
-        if (data && !error) {
-          const isScanning = data.status === 'scanning';
-          setScanningStatus({
-            isScanning,
-            currentSymbol: isScanning ? data.current_scan_symbol : undefined,
-            currentIndex: isScanning ? data.symbols_scanned : undefined,
-            totalSymbols: isScanning ? data.total_symbols_to_scan : undefined,
-            scanStartTime: isScanning && data.scan_start_time ? new Date(data.scan_start_time).getTime() : undefined
-          });
-        }
-      } catch (error) {
-        console.error('[SimpleEntryMonitor] Error fetching scanning status:', error);
-      }
-    };
-
-    fetchScanningStatus();
-    const interval = setInterval(fetchScanningStatus, 2000);
-
-    return () => clearInterval(interval);
-  }, [sessionId]);
 
   // Poll for current price
   useEffect(() => {
@@ -158,40 +117,25 @@ export const SimpleEntryMonitor: React.FC<SimpleEntryMonitorProps> = ({ sessionI
               <h3 className="text-lg font-bold text-white">Entry Monitor</h3>
             </div>
             <div className="px-3 py-1 rounded-lg border border-gray-600 bg-gray-700/30">
-              <span className="text-xs text-gray-400">
-                {scanningStatus.isScanning ? 'Scanning' : 'Waiting'}
-              </span>
+              <span className="text-xs text-gray-400">Waiting</span>
             </div>
           </div>
 
-          {/* Show scan progress if currently scanning */}
-          {scanningStatus.isScanning ? (
-            <ScanProgressIndicator
-              isScanning={scanningStatus.isScanning}
-              currentSymbol={scanningStatus.currentSymbol}
-              currentIndex={scanningStatus.currentIndex}
-              totalSymbols={scanningStatus.totalSymbols}
-              scanStartTime={scanningStatus.scanStartTime}
-            />
-          ) : (
-            <div className="flex items-start gap-3 p-3 bg-blue-900/20 border border-blue-700/50 rounded-lg">
-              <AlertCircle className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
-              <div>
-                <div className="text-sm font-semibold text-blue-300 mb-1">
-                  Waiting for trade opportunity
-                </div>
-                <div className="text-xs text-gray-400">
-                  Entry monitoring will begin once Alpha identifies a trade setup.
-                </div>
+          <div className="flex items-start gap-3 p-3 bg-blue-900/20 border border-blue-700/50 rounded-lg">
+            <AlertCircle className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <div className="text-sm font-semibold text-blue-300 mb-1">
+                Waiting for trade opportunity
+              </div>
+              <div className="text-xs text-gray-400">
+                Entry monitoring will begin once Alpha identifies a trade setup.
               </div>
             </div>
-          )}
+          </div>
         </div>
 
         {/* Show latest scan results */}
-        {!scanningStatus.isScanning && (
-          <ScanResultsCard sessionId={sessionId} minConfidence={60} />
-        )}
+        <ScanResultsCard sessionId={sessionId} minConfidence={60} />
       </div>
     );
   }
