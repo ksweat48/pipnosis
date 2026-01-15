@@ -71,6 +71,18 @@ export interface TradeExecutionResult {
   isMonitoring?: boolean;
 }
 
+function normalizeEntryMode(mode: string | undefined): 'immediate' | 'wait_pullback' | 'wait_confirmation' {
+  if (!mode) return 'immediate';
+
+  const normalized = mode.toLowerCase().trim();
+
+  if (normalized === 'immediate' || normalized === 'execute_now') return 'immediate';
+  if (normalized === 'pullback' || normalized === 'wait_pullback' || normalized === 'wait_entry') return 'wait_pullback';
+  if (normalized === 'continuation' || normalized === 'wait_confirmation' || normalized === 'wait_higher_edge') return 'wait_confirmation';
+
+  return 'immediate';
+}
+
 class TradeExecutionEngine {
   /**
    * Fetch the CURRENT live price for a symbol at execution time
@@ -616,7 +628,7 @@ class TradeExecutionEngine {
         duration_penalty_applied: signal.durationPenaltyApplied || false,
         duration_reward_applied: signal.durationRewardApplied || false,
         // Alpha Identity entry spec
-        entry_mode: signal.entryMode || 'immediate',
+        entry_mode: normalizeEntryMode(signal.entryMode),
         entry_quality_score: signal.entryQualityScore || null,
         trade_confidence: signal.tradeConfidence || signal.confidence || null
       })
@@ -890,7 +902,7 @@ class TradeExecutionEngine {
       duration_penalty_applied: signal.durationPenaltyApplied || false,
       duration_reward_applied: signal.durationRewardApplied || false,
       // Alpha Identity entry spec
-      entry_mode: signal.entryMode || 'immediate',
+      entry_mode: normalizeEntryMode(signal.entryMode),
       entry_quality_score: signal.entryQualityScore || null,
       trade_confidence: signal.tradeConfidence || signal.confidence || null
     };

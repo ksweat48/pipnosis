@@ -634,13 +634,12 @@ OUTPUT FORMAT:
   "stopLoss": price,
   "takeProfit": price,
   "entry_spec": {
-    "entry_mode": "IMMEDIATE|PULLBACK|CONTINUATION",
-    "entryMode": "EXECUTE_NOW|WAIT_ENTRY|WAIT_HIGHER_EDGE",
+    "entry_mode": "immediate|wait_pullback|wait_confirmation",
     "eqsThesis": "same as main thesis",
     "eqsRequired": 40-70,
     "eqsFocus": ["driver1", "driver2", "driver3"],
     "runawayPolicy": "RESCAN|EXECUTE_ON_FIRST_PULLBACK",
-    "projection": { // ONLY if entryMode is WAIT_HIGHER_EDGE
+    "projection": {
       "eqsProjected": 60-85,
       "projectionConfidence": 70-95,
       "expectedMinutesToImprove": 5-30
