@@ -529,23 +529,29 @@ class GoalSessionLiveEngine {
         return;
       }
 
+      // 🔒 CRITICAL: Create local copy of config to prevent race condition
+      // this.config can be set to null by stop() while async operations are running
+      // Using a local copy ensures we have stable references throughout execution
+      const config = this.config;
+      const activeSession = this.activeSession;
+
       // 🔍 CRITICAL: Log entry to processMultiSymbolCycle for debugging
       console.log('%c[PROCESS_MULTI_SYMBOL] 🚀 Entered processMultiSymbolCycle', 'color: #9c27b0; font-weight: bold', {
-        activeSession: this.activeSession,
+        activeSession: activeSession,
         watchlistLength: watchlist.length,
         openTradesCount: this.openTrades.length
       });
 
       // ✅ ENTRY MONITOR: Block global rescans during ENTRY_MONITOR mode
       // CRITICAL: Use canScanNow() instead of getMonitorState() to trigger self-healing
-      if (this.activeSession) {
-        console.log('%c[PROCESS_MULTI_SYMBOL] ✅ activeSession exists:', 'color: #4caf50; font-weight: bold', this.activeSession);
+      if (activeSession) {
+        console.log('%c[PROCESS_MULTI_SYMBOL] ✅ activeSession exists:', 'color: #4caf50; font-weight: bold', activeSession);
 
         // Call canScanNow() which includes validateAndHealState() to auto-fix orphaned states
-        const scanCheck = await entryMonitorCoordinator.canScanNow(this.activeSession);
+        const scanCheck = await entryMonitorCoordinator.canScanNow(activeSession);
 
         // Also get state for logging purposes
-        const monitorState = await entryMonitorCoordinator.getMonitorState(this.activeSession);
+        const monitorState = await entryMonitorCoordinator.getMonitorState(activeSession);
         console.log('%c[PROCESS_MULTI_SYMBOL] 📊 Monitor state:', 'color: #2196f3; font-weight: bold', {
           state: monitorState.state,
           canScan: scanCheck.allowed,
@@ -652,7 +658,7 @@ class GoalSessionLiveEngine {
       const { count: dbCount, error: countError } = await supabase
         .from('goal_session_trades')
         .select('*', { count: 'exact', head: true })
-        .eq('goal_session_id', this.activeSession!)
+        .eq('goal_session_id', activeSession!)
         .eq('status', 'open');
 
       if (countError) {
@@ -664,13 +670,13 @@ class GoalSessionLiveEngine {
       console.log('%c[MULTI-SYMBOL] 🔐 Trade count verification:', 'color: #ff9800; font-weight: bold', {
         memory: this.openTrades.length,
         database: tradeCount,
-        maxAllowed: this.config.maxConcurrentTrades
+        maxAllowed: config.maxConcurrentTrades
       });
 
       // Use DB as source of truth
-      if (tradeCount >= this.config.maxConcurrentTrades) {
+      if (tradeCount >= config.maxConcurrentTrades) {
         console.log('%c[MULTI-SYMBOL] ⏸️ BLOCKED: Max trades reached (DB verified)', 'color: #ff9800; font-weight: bold');
-        logger.debug(LogCategory.AI_TRADING, `⏸️ Max trades (${this.config.maxConcurrentTrades}) reached - skipping expensive scan`);
+        logger.debug(LogCategory.AI_TRADING, `⏸️ Max trades (${config.maxConcurrentTrades}) reached - skipping expensive scan`);
         return;
       }
 
@@ -681,7 +687,7 @@ class GoalSessionLiveEngine {
       const snapshotStartTime = Date.now();
 
       // Use risk mode directly from config (SSOT: 'low' | 'medium' | 'high')
-      const riskMode = this.config?.riskMode || 'medium';
+      const riskMode = config?.riskMode || 'medium';
 
       const snapshotResult = await multiSymbolSnapshotBuilder.buildSnapshots(openMarketSymbols, riskMode);
       console.log('%c[MULTI-SYMBOL] ✅ Snapshots built in ' + (Date.now() - snapshotStartTime) + 'ms', 'color: #4caf50; font-weight: bold');
@@ -755,8 +761,8 @@ class GoalSessionLiveEngine {
         winRate: 0,
         profitFactor: 1.0,
         avgHoldTime: 0,
-        riskTolerance: this.config.riskMode === 'high' ? 0.8 : this.config.riskMode === 'medium' ? 0.5 : 0.3,
-        preferredTimeframe: this.config.timeframe,
+        riskTolerance: config.riskMode === 'high' ? 0.8 : config.riskMode === 'medium' ? 0.5 : 0.3,
+        preferredTimeframe: config.timeframe,
         learningProgress: 0
       };
 
@@ -764,19 +770,19 @@ class GoalSessionLiveEngine {
       const { data: sessionData } = await supabase
         .from('goal_sessions')
         .select('target_value, starting_balance')
-        .eq('id', this.activeSession)
+        .eq('id', activeSession)
         .single();
 
       const { data: closedTrades } = await supabase
         .from('goal_session_trades')
         .select('profit_loss')
-        .eq('goal_session_id', this.activeSession)
+        .eq('goal_session_id', activeSession)
         .eq('status', 'closed');
 
       const currentProgress = closedTrades?.reduce((sum, t) => sum + (t.profit_loss || 0), 0) || 0;
       const targetGoal = sessionData?.target_value || 200;
       const remainingGoal = targetGoal - currentProgress;
-      const goalPercentage = (remainingGoal / this.config.initialBalance) * 100;
+      const goalPercentage = (remainingGoal / config.initialBalance) * 100;
 
       // ═══════════════════════════════════════════════════════════════════
       // CCIP COMPLIANT: Market-Aware Goal Feasibility Estimation (SSOT)
@@ -795,7 +801,7 @@ class GoalSessionLiveEngine {
       // This provides context for Alpha's decision-making, but Alpha ALWAYS
       // uses real market prices, real symbol data, and real opportunity analysis
 
-      const riskPercent = getRiskPercentage(this.config.riskMode);
+      const riskPercent = getRiskPercentage(config.riskMode);
       const estimationRef = getEstimationReferenceSymbol();
 
       const ESTIMATION_REFERENCE_ENTRY = estimationRef.referenceEntry;
@@ -811,7 +817,7 @@ class GoalSessionLiveEngine {
       // CCIP: Pass isEstimation=true to suppress misleading trade logs
       const estimatedLotSize = calculatePositionSize(
         estimationRef.symbol,  // Market-aware reference symbol
-        this.config.initialBalance,
+        config.initialBalance,
         riskPercent,
         ESTIMATION_REFERENCE_ENTRY,  // NOT REAL PRICE - estimation only
         ESTIMATION_REFERENCE_STOP,    // NOT REAL PRICE - estimation only
@@ -824,14 +830,14 @@ class GoalSessionLiveEngine {
 
       const goalContext: import('../brains/coordinator-alpha').GoalContext = {
         hasGoal: true,
-        currentBalance: this.config.initialBalance,
+        currentBalance: config.initialBalance,
         targetGoal,
         currentProgress,
         remainingGoal,
         goalPercentage,
         pipsNeededEstimate,
-        riskMode: this.config.riskMode,
-        riskPercent: getRiskPercentage(this.config.riskMode)
+        riskMode: config.riskMode,
+        riskPercent: getRiskPercentage(config.riskMode)
       };
 
       if (import.meta.env.DEV) {
@@ -848,7 +854,7 @@ class GoalSessionLiveEngine {
       const councilPromise = alphaOmegaOrchestrator.evaluateMultipleSymbols(
         marketStates,
         traderScore,
-        this.config.userId,
+        config.userId,
         goalContext
       );
 
@@ -904,8 +910,8 @@ class GoalSessionLiveEngine {
 
           // Check if thesis is expired for this symbol/direction combination
           const thesisCheck = await entryThesisMemoryService.shouldCreateIntent(
-            this.config.userId,
-            this.config.goalSessionId,
+            config.userId,
+            config.goalSessionId,
             snapshot.symbol,
             direction,
             entryZoneCenter,
@@ -999,19 +1005,19 @@ class GoalSessionLiveEngine {
           ? 'No symbols passed selection criteria'
           : (bestSymbolResult.evaluation?.omegaDecision?.action === 'WAIT'
             ? `Best candidate ${topCandidate?.symbol} returned WAIT decision`
-            : (topCandidateDecision && topCandidateDecision.confidence < (this.config.minConfidence || 70)
-              ? `Confidence ${topCandidateDecision.confidence}% below threshold ${this.config.minConfidence || 70}%`
+            : (topCandidateDecision && topCandidateDecision.confidence < (config.minConfidence || 70)
+              ? `Confidence ${topCandidateDecision.confidence}% below threshold ${config.minConfidence || 70}%`
               : null));
 
         await scanResultsManager.storeScanResult({
-          sessionId: this.activeSession!,
+          sessionId: activeSession!,
           scanTimestamp: new Date(scanEndTime),
           scanDurationMs,
           symbolsEvaluated: filteredSnapshots.length,
           topCandidate,
           rejectionReason,
           allCandidates,
-          userId: this.config.userId
+          userId: config.userId
         });
 
         console.log('[SCAN RESULTS] ✅ Scan result stored', {
@@ -1082,12 +1088,12 @@ class GoalSessionLiveEngine {
         const directionEmoji = intendedDirection === 'BUY' ? '🟢' : '🔴';
 
         // Determine trade style from config or goal classification
-        const tradeStyle: TradeStyle = this.config.tradeStyle as TradeStyle || 'MICRO_INTRADAY';
+        const tradeStyle: TradeStyle = config.tradeStyle as TradeStyle || 'MICRO_INTRADAY';
 
         // Create entry intent and start monitoring
         const result = await entryMonitorCoordinator.handleWaitDecision(
-          this.config.goalSessionId,
-          this.config.userId,
+          config.goalSessionId,
+          config.userId,
           {
             symbol: selectedSymbol,
             direction: intendedDirection,
@@ -1135,7 +1141,7 @@ class GoalSessionLiveEngine {
         return;
       }
 
-      if (this.openTrades.length >= this.config.maxConcurrentTrades) {
+      if (this.openTrades.length >= config.maxConcurrentTrades) {
         logger.debug(LogCategory.AI_TRADING, 'Max concurrent trades reached');
         return;
       }
@@ -1145,14 +1151,14 @@ class GoalSessionLiveEngine {
         return;
       }
 
-      const minConfidence = this.config.minConfidence || 70;
+      const minConfidence = config.minConfidence || 70;
       if (decision.confidence < minConfidence) {
         const rejectionMessage = `⚠️ Trade opportunity found but rejected:\n\n` +
           `🎯 Symbol: ${selectedSymbol}\n` +
           `📊 Direction: ${decision.action}\n` +
           `🔍 Confidence: ${decision.confidence}%\n` +
           `⛔ Required: ${minConfidence}%\n\n` +
-          `Waiting for stronger signals (${this.config.riskMode.toUpperCase()} risk mode).`;
+          `Waiting for stronger signals (${config.riskMode.toUpperCase()} risk mode).`;
 
         await this.sendAIMessage(rejectionMessage);
         logger.info(LogCategory.AI_TRADING, `Trade rejected: ${selectedSymbol} ${decision.action} @ ${decision.confidence}% < ${minConfidence}%`);
@@ -1171,9 +1177,9 @@ class GoalSessionLiveEngine {
       const latestCandle = snapshot.recentCandles[snapshot.recentCandles.length - 1];
 
       // FINAL CHECK: Ensure we're not exceeding max trades (prevents race conditions)
-      if (this.openTrades.length >= this.config.maxConcurrentTrades) {
-        logger.debug(LogCategory.AI_TRADING, `BLOCKED: Already at max trades (${this.config.maxConcurrentTrades})`);
-        await this.sendAIMessage(`Max trades (${this.config.maxConcurrentTrades}) limit reached. Pausing new trade scans to preserve credits. Monitoring open positions only.`);
+      if (this.openTrades.length >= config.maxConcurrentTrades) {
+        logger.debug(LogCategory.AI_TRADING, `BLOCKED: Already at max trades (${config.maxConcurrentTrades})`);
+        await this.sendAIMessage(`Max trades (${config.maxConcurrentTrades}) limit reached. Pausing new trade scans to preserve credits. Monitoring open positions only.`);
         return;
       }
 
@@ -1183,12 +1189,12 @@ class GoalSessionLiveEngine {
       let reasoning: string;
       let estimatedTradesNeeded: number;
 
-      if (this.config.dollarRisk) {
+      if (config.dollarRisk) {
         // NEW SYSTEM: Fixed dollar-risk position sizing (Trade Styles)
-        console.log(`%c[Trade Styles] Using dollar-risk sizing: $${this.config.dollarRisk}`, 'color: #00ffff; font-weight: bold');
+        console.log(`%c[Trade Styles] Using dollar-risk sizing: $${config.dollarRisk}`, 'color: #00ffff; font-weight: bold');
         lotSize = calculateLotSizeFromDollarRisk(
           selectedSymbol,
-          this.config.dollarRisk,
+          config.dollarRisk,
           decision.entry,
           decision.stopLoss
         );
@@ -1202,19 +1208,19 @@ class GoalSessionLiveEngine {
         const remainingGoal = goalContext.targetGoal - goalContext.currentProgress;
         estimatedTradesNeeded = Math.ceil(remainingGoal / expectedProfitAtCommonMove);
 
-        reasoning = `${this.config.tradeStyle || 'Dollar-risk'} trade: ${lotSize.toFixed(2)} lots risking $${this.config.dollarRisk.toFixed(2)}. Expected profit at TP: $${expectedProfitAtCommonMove.toFixed(2)}.`;
+        reasoning = `${config.tradeStyle || 'Dollar-risk'} trade: ${lotSize.toFixed(2)} lots risking $${config.dollarRisk.toFixed(2)}. Expected profit at TP: $${expectedProfitAtCommonMove.toFixed(2)}.`;
       } else {
         // LEGACY SYSTEM: Goal-aware percentage-based sizing
-        console.log(`%c[Legacy] Using goal-aware sizing: ${this.config.riskMode} risk`, 'color: #ffaa00; font-weight: bold');
+        console.log(`%c[Legacy] Using goal-aware sizing: ${config.riskMode} risk`, 'color: #ffaa00; font-weight: bold');
         const goalAwareSizing = calculateGoalAwareLotSize(
           selectedSymbol,
           decision.action.toLowerCase() as 'buy' | 'sell',
-          this.config.initialBalance,
+          config.initialBalance,
           decision.entry,
           decision.stopLoss,
           goalContext.currentProgress,
           goalContext.targetGoal,
-          this.config.riskMode
+          config.riskMode
         );
 
         lotSize = goalAwareSizing.lotSize;
@@ -1294,8 +1300,8 @@ class GoalSessionLiveEngine {
       const currentATRValue = snapshot.atr.value;
 
       const feasibilityInput = {
-        userId: this.config.userId,
-        sessionId: this.activeSession!,
+        userId: config.userId,
+        sessionId: activeSession!,
         goalAmount: goalContext.targetGoal,
         currentProgress: goalContext.currentProgress,
         accountBalance: goalContext.currentBalance,
@@ -1306,8 +1312,8 @@ class GoalSessionLiveEngine {
         currentSpread: snapshot.spread,
         currentPrice: decision.entry,
         // CRITICAL FIX: Pass user's Trade Style risk selection for accurate feasibility calculation
-        dollarRisk: this.config.dollarRisk,
-        tradeStyle: this.config.tradeStyle,
+        dollarRisk: config.dollarRisk,
+        tradeStyle: config.tradeStyle,
       };
 
       const feasibilityResult = await GoalFeasibilityResolver.analyzeFeasibility(feasibilityInput);
@@ -1385,7 +1391,7 @@ class GoalSessionLiveEngine {
         expectedProfitUSD: adjustedExpectedProfit,
         estimatedTradesRequired: estimatedTradesNeeded,
         remainingGoal: goalContext.remainingGoal,
-        accountBalance: this.config.initialBalance,
+        accountBalance: config.initialBalance,
         currentATR: atrPips * pipInfo.pipValue,
         spreadPips,
         timeToFillResult,
@@ -1420,7 +1426,7 @@ class GoalSessionLiveEngine {
       const stopPips = calculatePipDistance(selectedSymbol, decision.entry, decision.stopLoss);
       const dollarPerPipCalc = calculateDollarPerPip(selectedSymbol, calculatedLotSize);
       const calculatedRisk = stopPips * dollarPerPipCalc;
-      const maxSafeRisk = this.config.initialBalance * 0.05; // 5% absolute maximum
+      const maxSafeRisk = config.initialBalance * 0.05; // 5% absolute maximum
 
       if (import.meta.env.DEV) {
         console.log(`[Validation] Risk: $${calculatedRisk.toFixed(2)}/$${maxSafeRisk.toFixed(2)}, ${stopPips.toFixed(1)}p`);
@@ -1463,7 +1469,7 @@ class GoalSessionLiveEngine {
       const trade: SimulatedTrade = {
         id: `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         symbol: selectedSymbol,
-        timeframe: this.config.timeframe,
+        timeframe: config.timeframe,
         direction: tradeDirection,
         entryTime: new Date(),
         entryPrice: decision.entry,
@@ -1508,7 +1514,7 @@ class GoalSessionLiveEngine {
         const dualTargets = await alphaExecutionPlanner.calculateDualTargets(
           goalContext.targetGoal,
           goalContext.currentBalance,
-          this.config.riskMode
+          config.riskMode
         );
 
         // Convert dollar amounts to price levels
@@ -1547,7 +1553,7 @@ class GoalSessionLiveEngine {
 
       const executionResult = await tradeExecutionEngine.executeSignal(
         {
-          sessionId: this.activeSession!,
+          sessionId: activeSession!,
           symbol: selectedSymbol,
           direction: trade.direction,
           entryPrice: trade.entryPrice,
@@ -1583,8 +1589,8 @@ class GoalSessionLiveEngine {
             tradeConfidence: trade.confidence
           })
         },
-        this.config.userId,
-        this.config.autoExecute,
+        config.userId,
+        config.autoExecute,
         decision
       );
 
@@ -1605,7 +1611,7 @@ class GoalSessionLiveEngine {
         // CRITICAL: Update trade ID to match database UUID before tracking
         trade.id = executionResult.tradeId!;
         this.openTrades.push(trade);
-        logger.debug(LogCategory.AI_TRADING, `Trade ${this.openTrades.length}/${this.config.maxConcurrentTrades} added with DB ID: ${trade.id}`);
+        logger.debug(LogCategory.AI_TRADING, `Trade ${this.openTrades.length}/${config.maxConcurrentTrades} added with DB ID: ${trade.id}`);
         logger.info(LogCategory.AI_TRADING, `✅ Trade executed: ${selectedSymbol} ${trade.direction} @ ${trade.entryPrice} (confidence: ${trade.confidence}%)`);
 
         // Track goal feasibility decision for analytics
@@ -1615,8 +1621,8 @@ class GoalSessionLiveEngine {
             const clampedRetention = Math.max(0, Math.min(1, downshiftedProposal.retentionPercent));
 
             const { data, error } = await supabase.from('goal_feasibility_tracking').insert({
-              user_id: this.config.userId,
-              session_id: this.activeSession!,
+              user_id: config.userId,
+              session_id: activeSession!,
               trade_id: trade.id,
               original_goal: downshiftedProposal.originalGoal,
               adjusted_goal: downshiftedProposal.adjustedGoal,
@@ -1643,8 +1649,8 @@ class GoalSessionLiveEngine {
                   original_goal: downshiftedProposal.originalGoal,
                   adjusted_goal: downshiftedProposal.adjustedGoal,
                   retention_percent: clampedRetention,
-                  user_id: this.config.userId,
-                  session_id: this.activeSession,
+                  user_id: config.userId,
+                  session_id: activeSession,
                   trade_id: trade.id
                 }
               });
@@ -1661,7 +1667,7 @@ class GoalSessionLiveEngine {
           const { data: sessionData, error: fetchError } = await supabase
             .from('goal_sessions')
             .select('trades_in_session, multi_trade_enabled')
-            .eq('id', this.activeSession)
+            .eq('id', activeSession)
             .single();
 
           if (fetchError) {
@@ -1676,7 +1682,7 @@ class GoalSessionLiveEngine {
                 trades_in_session: newTradeCount,
                 last_trade_id: trade.id
               })
-              .eq('id', this.activeSession);
+              .eq('id', activeSession);
 
             if (updateError) {
               logger.error(LogCategory.AI_TRADING, 'Failed to update trade counter', { updateError });
@@ -1685,7 +1691,7 @@ class GoalSessionLiveEngine {
             }
 
             // If max trades reached AND multi-trade is DISABLED, just monitor (don't show dialog yet)
-            if (this.openTrades.length >= this.config.maxConcurrentTrades && !multiTradeEnabled) {
+            if (this.openTrades.length >= config.maxConcurrentTrades && !multiTradeEnabled) {
               logger.info(LogCategory.AI_TRADING, '🛑 Max trades reached in single-trade mode - monitoring position');
 
               const entryMessage = `✅ Trade executed successfully!\n\n` +
