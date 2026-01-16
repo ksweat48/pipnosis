@@ -69,13 +69,10 @@ export class ScanResultsManager {
     try {
       const topCandidate = result.topCandidate;
 
-      // Use admin client to bypass RLS (CRITICAL for forensics)
+      // Prefer admin client if available (server-side), fall back to regular client (browser)
+      // With updated RLS policies, regular client works fine for user's own data
       const adminClient = getSupabaseAdmin();
       const client = adminClient || supabase;
-
-      if (!adminClient) {
-        logger.error(LogCategory.AI_TRADING, '[storeScanResult] ❌ CRITICAL: Admin client unavailable - scan result logging may fail due to RLS');
-      }
 
       const { error } = await client
         .from('goal_session_scan_results')
@@ -95,7 +92,6 @@ export class ScanResultsManager {
 
       if (error) {
         logger.error(LogCategory.AI_TRADING, '[storeScanResult] ❌ Failed to store scan result:', error);
-        logger.error(LogCategory.AI_TRADING, '[storeScanResult] ❌ This is a CRITICAL forensics failure - cannot track scan decisions');
         throw error;
       }
 
@@ -108,8 +104,6 @@ export class ScanResultsManager {
     } catch (error) {
       logger.error(LogCategory.AI_TRADING, '[storeScanResult] ❌ Error storing scan result:', error);
       // Don't throw - allow trading to continue even if logging fails
-      // But log prominently so we can fix the root cause
-      logger.error(LogCategory.AI_TRADING, '[storeScanResult] ❌ FORENSICS FAILURE: Cannot audit scan decisions');
     }
   }
 

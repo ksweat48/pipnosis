@@ -42,7 +42,8 @@ if (!supabaseUrl) {
 }
 
 if (!supabaseServiceRoleKey) {
-  logger.error(LogCategory.DATABASE, '❌ [Supabase Admin] Missing SUPABASE_SERVICE_ROLE_KEY - forensics logging will fail');
+  // INFO level - this is expected in browser environment
+  logger.info(LogCategory.DATABASE, '[Supabase Admin] Service role key not available (expected in browser - using regular client with RLS)');
 }
 
 // Create admin client with service role key
@@ -88,7 +89,8 @@ if (supabaseUrl && supabaseServiceRoleKey) {
 
   logger.info(LogCategory.DATABASE, '✅ [Supabase Admin] Service role client initialized');
 } else {
-  logger.error(LogCategory.DATABASE, '❌ [Supabase Admin] Cannot create admin client - missing credentials');
+  // INFO level - this is expected in browser, only server-side has service role
+  logger.info(LogCategory.DATABASE, '[Supabase Admin] Admin client not initialized (using regular client with RLS policies)');
 }
 
 /**
@@ -96,9 +98,7 @@ if (supabaseUrl && supabaseServiceRoleKey) {
  * Returns null if service role key is not configured
  */
 export function getSupabaseAdmin(): SupabaseClient | null {
-  if (!supabaseAdminClient) {
-    logger.warn(LogCategory.DATABASE, '⚠️ [Supabase Admin] Admin client not available - operations may fail due to RLS');
-  }
+  // Returns null in browser (expected) - callers should fall back to regular client
   return supabaseAdminClient;
 }
 

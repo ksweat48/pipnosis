@@ -81,13 +81,9 @@ class AlphaThoughtStream {
    */
   async clearScanThoughts(sessionId: string): Promise<void> {
     try {
-      // Use admin client to bypass RLS
+      // Prefer admin client if available (server-side), fall back to regular client (browser)
       const adminClient = getSupabaseAdmin();
       const client = adminClient || supabase;
-
-      if (!adminClient) {
-        logger.warn(LogCategory.AI_TRADING, '[AlphaThoughtStream] ⚠️ Using regular client (RLS may block) - admin client unavailable');
-      }
 
       const { error } = await client.rpc('clear_scan_thoughts', {
         p_session_id: sessionId
@@ -133,13 +129,10 @@ class AlphaThoughtStream {
       const currentStep = (this.stepCounter.get(sessionId) || 0) + 1;
       this.stepCounter.set(sessionId, currentStep);
 
-      // Use admin client to bypass RLS (CRITICAL for forensics)
+      // Prefer admin client if available (server-side), fall back to regular client (browser)
+      // With updated RLS policies, regular client works fine for user's own data
       const adminClient = getSupabaseAdmin();
       const client = adminClient || supabase;
-
-      if (!adminClient) {
-        logger.error(LogCategory.AI_TRADING, '[AlphaThoughtStream] ❌ CRITICAL: Admin client unavailable - thought logging may fail due to RLS');
-      }
 
       const { error } = await client
         .from('alpha_scan_thoughts')
@@ -155,7 +148,6 @@ class AlphaThoughtStream {
 
       if (error) {
         logger.error(LogCategory.AI_TRADING, '[AlphaThoughtStream] ❌ Failed to emit thought:', error);
-        logger.error(LogCategory.AI_TRADING, '[AlphaThoughtStream] ❌ This is a CRITICAL forensics failure - trades are executing blind');
         throw error;
       }
 
@@ -163,8 +155,6 @@ class AlphaThoughtStream {
     } catch (error) {
       logger.error(LogCategory.AI_TRADING, '[AlphaThoughtStream] ❌ Error emitting thought:', error);
       // Don't throw - allow trading to continue even if logging fails
-      // But log prominently so we can fix the root cause
-      logger.error(LogCategory.AI_TRADING, '[AlphaThoughtStream] ❌ FORENSICS FAILURE: Cannot audit this trade decision');
     }
   }
 
