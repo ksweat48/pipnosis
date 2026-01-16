@@ -32,6 +32,7 @@ import { globalToastManager } from './global-toast-manager';
 import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { thesisEntryQualityEngine } from './thesis-entry-quality-engine';
 import type { ThesisType } from '../types/thesis';
+import { entryTimeDecayCoordinator } from './entry-time-decay-coordinator';
 
 /**
  * Timeout wrapper for async operations
@@ -631,11 +632,69 @@ export class UnifiedEntryMonitor {
         return;
       }
 
-      // Step 4: SIMPLIFIED ZONE CHECK - No EQS, No Timeout, Just Zone Entry
-      if (isDev) console.log('[UnifiedMonitor] Step 4/4: Checking if price is in entry zone...');
+      // Step 4: TIME DECAY CALCULATION - Calculate urgency phase and tolerance
+      if (isDev) console.log('[UnifiedMonitor] Step 4/5: Calculating time decay phase...');
 
-      // Calculate distance to entry zone with NO tolerance (strict zone only)
-      const zoneCheck = this.checkZoneEntry(priceData.price, intent, 0);
+      const createdAt = new Date(intent.created_at);
+      const elapsedMinutes = (Date.now() - createdAt.getTime()) / (1000 * 60);
+
+      // Get time decay thresholds for this trade style
+      const urgencyResult = await entryTimeDecayCoordinator.calculateUrgencyPhase(
+        intent.trade_style || 'MICRO_INTRADAY',
+        elapsedMinutes
+      );
+
+      if (isDev) {
+        console.log('%c[UnifiedMonitor] ⏱️ TIME DECAY STATUS:', 'color: #ff9800; font-weight: bold', {
+          elapsedMinutes: elapsedMinutes.toFixed(1),
+          phase: urgencyResult.phase,
+          eqsThreshold: urgencyResult.eqsThreshold,
+          zoneTolerance: urgencyResult.zoneTolerance,
+          timeDescription: urgencyResult.timeDescription,
+          minutesUntilNextPhase: urgencyResult.minutesUntilNextPhase
+        });
+      }
+
+      // Check for EDGE LOSS - if exceeded max wait time, trigger abandonment
+      const edgeLossStatus = await entryTimeDecayCoordinator.checkEdgeLoss(
+        intent.trade_style || 'MICRO_INTRADAY',
+        elapsedMinutes
+      );
+
+      if (edgeLossStatus.shouldTriggerModal) {
+        console.log('%c[UnifiedMonitor] 🚨 EDGE LOSS DETECTED - Max wait time exceeded', 'color: #f44336; font-weight: bold', {
+          intentId: intentId.substring(0, 8),
+          elapsedMinutes: elapsedMinutes.toFixed(1),
+          minutesOverdue: edgeLossStatus.minutesOverdue,
+          edgeDecayPercent: `${edgeLossStatus.edgeDecayPercent}%`
+        });
+
+        // Trigger edge loss modal (will be handled by modal system)
+        await supabase.from('goal_notifications').insert({
+          user_id: userId,
+          session_id: intent.session_id,
+          type: 'entry_edge_loss',
+          title: 'Entry Edge Lost',
+          message: `Trade setup has aged ${elapsedMinutes.toFixed(0)} minutes. Edge quality degraded by ${edgeLossStatus.edgeDecayPercent}%. Execute now or abandon?`,
+          metadata: {
+            intent_id: intentId,
+            symbol: intent.symbol,
+            elapsed_minutes: Math.floor(elapsedMinutes),
+            edge_decay_percent: edgeLossStatus.edgeDecayPercent,
+            minutes_overdue: edgeLossStatus.minutesOverdue
+          }
+        });
+
+        // Stop monitoring - user must decide
+        await this.stopMonitoring(intentId, 'EDGE_LOSS_TIMEOUT');
+        return;
+      }
+
+      // Step 5: ZONE CHECK WITH TIME DECAY TOLERANCE
+      if (isDev) console.log('[UnifiedMonitor] Step 5/5: Checking if price is in entry zone with tolerance...');
+
+      // Apply zone tolerance based on urgency phase
+      const zoneCheck = this.checkZoneEntry(priceData.price, intent, urgencyResult.zoneTolerance);
       const inEntryZone = zoneCheck.inZone;
       const distanceToZone = zoneCheck.distanceToNearestZone;
       const executedZoneType = zoneCheck.zoneType;
@@ -712,24 +771,29 @@ export class UnifiedEntryMonitor {
           const eqsResult = thesisEntryQualityEngine.calculateEQS(eqsInput);
           eqsScore = eqsResult.score;
 
-          const baseThreshold = 40;
+          // Use phase-specific threshold (relaxes over time)
+          const phaseThreshold = urgencyResult.eqsThreshold;
           const immediateOverride = intent.execution_preference === 'IMMEDIATE' && eqsScore >= 30;
           const highConfidenceOverride = (intent.alpha_confidence || 0) >= 85 && eqsScore >= 30;
 
           shouldExecute =
             eqsResult.readiness === 'EXECUTE_NOW' ||
+            eqsScore >= phaseThreshold ||
             immediateOverride ||
             highConfidenceOverride;
 
           executionReason = shouldExecute
-            ? `✅ THESIS EQS: ${eqsScore}/100 (${eqsResult.readiness}) - ${intent.thesis}`
-            : `⏳ EQS ${eqsScore}/100 needs improvement (${distanceToPips.toFixed(2)} pips away)`;
+            ? `✅ THESIS EQS: ${eqsScore}/100 (Phase ${urgencyResult.phase} threshold: ${phaseThreshold}) - ${intent.thesis}`
+            : `⏳ EQS ${eqsScore}/100 below Phase ${urgencyResult.phase} threshold ${phaseThreshold} (${distanceToPips.toFixed(2)} pips away)`;
 
           if (isDev) {
-            console.log('%c[UnifiedMonitor] 🎯 Thesis-Aware EQS:', 'color: #9c27b0; font-weight: bold', {
+            console.log('%c[UnifiedMonitor] 🎯 Thesis-Aware EQS with Time Decay:', 'color: #9c27b0; font-weight: bold', {
               thesis: intent.thesis,
               eqsScore: eqsScore,
               readiness: eqsResult.readiness,
+              urgencyPhase: urgencyResult.phase,
+              phaseThreshold: phaseThreshold,
+              elapsedMinutes: elapsedMinutes.toFixed(1),
               criticalGaps: eqsResult.critical_gaps,
               willExecute: shouldExecute
             });
@@ -744,8 +808,8 @@ export class UnifiedEntryMonitor {
       } else {
         shouldExecute = inEntryZone;
         executionReason = inEntryZone
-          ? '✅ PRICE IN ENTRY ZONE - AUTO EXECUTING'
-          : `⏳ Waiting for entry zone (${distanceToPips.toFixed(2)} pips away)`;
+          ? `✅ PRICE IN ENTRY ZONE - AUTO EXECUTING (Phase ${urgencyResult.phase}, tolerance: ${urgencyResult.zoneTolerance} pips)`
+          : `⏳ Waiting for entry zone (${distanceToPips.toFixed(2)} pips away, Phase ${urgencyResult.phase})`;
       }
 
       // Always log execution decisions (critical for monitoring)
@@ -823,86 +887,98 @@ export class UnifiedEntryMonitor {
         await callbacks.onExecute(intent.id, entryPrice, eqsScore);
         console.log('[UnifiedMonitor] ✅ Callback completed');
       } else {
-        // Fallback: Direct execution
-        console.log('[UnifiedMonitor] No callback registered, using direct execution path...');
+        // Fallback: Direct execution with retry logic
+        console.log('[UnifiedMonitor] No callback registered, using direct execution path with retry...');
 
-        try {
-          // CRITICAL FIX: Create trade FIRST, mark intent executed ONLY if trade creation succeeds
-          // This prevents orphaned 'executed' intents with no corresponding trade
+        // Retry configuration
+        const MAX_RETRIES = 3;
+        const INITIAL_DELAY_MS = 1000;
+        let lastError: any = null;
 
-          // Step 1: Create trade in database
-          console.log('[UnifiedMonitor] Step 1: Creating trade in database...');
-          const result = await EntryExecutionCoordinator.executeFromIntent(intent.id, entryPrice);
+        // Try execution with exponential backoff
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+          try {
+            // CRITICAL FIX: Create trade FIRST, mark intent executed ONLY if trade creation succeeds
+            // This prevents orphaned 'executed' intents with no corresponding trade
 
-          if (!result.success) {
-            // Trade creation FAILED - DO NOT mark intent as executed, keep monitoring
-            const errorMsg = `Trade execution failed for ${intent.symbol} - monitoring will continue`;
-            console.error('%c[UnifiedMonitor] ❌ TRADE EXECUTION FAILED - INTENT REMAINS IN MONITORING', 'color: #f44336; font-weight: bold; font-size: 16px');
-            logger.error('[UnifiedMonitor] Trade creation failed, intent will continue monitoring', {
-              intentId: intent.id,
-              symbol: intent.symbol,
-              entryPrice
-            });
+            console.log(`[UnifiedMonitor] Execution attempt ${attempt}/${MAX_RETRIES}...`);
+            const result = await EntryExecutionCoordinator.executeFromIntent(intent.id, entryPrice);
 
-            // Show user notification about the failure
-            globalToastManager.showToast(
-              'error',
-              'Trade Execution Failed',
-              `Trade execution failed for ${intent.symbol}. Please report this error. Monitoring continues.`
-            );
+            if (!result.success) {
+              lastError = result.error || 'Unknown error';
+              console.error(`[UnifiedMonitor] ❌ Attempt ${attempt} failed:`, lastError);
 
-            // Do NOT stop monitoring - let it retry on next qualifying conditions
-            return;
-          }
+              // If this is not the last attempt, wait with exponential backoff
+              if (attempt < MAX_RETRIES) {
+                const delayMs = INITIAL_DELAY_MS * Math.pow(2, attempt - 1);
+                console.log(`[UnifiedMonitor] Retrying in ${delayMs}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+                continue;
+              }
 
-          // Step 2: Trade created successfully, NOW mark intent as executed
-          console.log('[UnifiedMonitor] Step 2: Marking intent as executed...');
-          await EntryPlannerService.updateIntentStatus(intent.id, 'executed', undefined, entryPrice);
-          console.log('[UnifiedMonitor] ✅ Intent status updated');
-
-          // Step 3: Transition monitor state to allow new scans
-          if (intent.session_id) {
-            try {
-              await supabase.rpc('transition_entry_monitor_state', {
-                p_session_id: intent.session_id,
-                p_new_state: 'DISCOVERY_SCANNING',
-                p_locked_symbol: null,
-                p_locked_direction: null
+              // All retries exhausted
+              console.error('%c[UnifiedMonitor] ❌ ALL RETRIES EXHAUSTED - TRADE EXECUTION FAILED', 'color: #f44336; font-weight: bold; font-size: 16px');
+              logger.error('[UnifiedMonitor] Trade creation failed after all retries, intent will continue monitoring', {
+                intentId: intent.id,
+                symbol: intent.symbol,
+                entryPrice,
+                attempts: MAX_RETRIES,
+                lastError
               });
-              console.log('[UnifiedMonitor] ✅ Monitor state reset to DISCOVERY_SCANNING');
-            } catch (stateError) {
-              logger.error('[UnifiedMonitor] Failed to transition monitor state after execution', stateError);
+
+              // Show user notification about the failure with manual fallback option
+              globalToastManager.showToast(
+                'error',
+                'Trade Execution Failed',
+                `Trade execution failed for ${intent.symbol} after ${MAX_RETRIES} attempts. Use manual execution button. Monitoring continues.`
+              );
+
+              // Do NOT stop monitoring - user can still manually execute
+              return;
+            }
+
+            // Success! Continue with post-execution steps
+            console.log(`[UnifiedMonitor] ✅ Execution succeeded on attempt ${attempt}`);
+
+            // Step 2: Trade created successfully, NOW mark intent as executed
+            console.log('[UnifiedMonitor] Step 2: Marking intent as executed...');
+            await EntryPlannerService.updateIntentStatus(intent.id, 'executed', undefined, entryPrice);
+            console.log('[UnifiedMonitor] ✅ Intent status updated');
+
+            // Step 3: Transition monitor state to allow new scans
+            if (intent.session_id) {
+              try {
+                await supabase.rpc('transition_entry_monitor_state', {
+                  p_session_id: intent.session_id,
+                  p_new_state: 'DISCOVERY_SCANNING',
+                  p_locked_symbol: null,
+                  p_locked_direction: null
+                });
+                console.log('[UnifiedMonitor] ✅ Monitor state reset to DISCOVERY_SCANNING');
+              } catch (stateError) {
+                logger.error('[UnifiedMonitor] Failed to transition monitor state after execution', stateError);
+              }
+            }
+
+            console.log('%c[UnifiedMonitor] ✅ TRADE EXECUTED SUCCESSFULLY!', 'color: #4caf50; font-weight: bold; font-size: 18px', {
+              symbol: intent.symbol,
+              direction: intent.direction,
+              entryPrice,
+              eqsScore
+            });
+            logger.info(`[UnifiedMonitor] Trade created successfully`);
+
+            break;
+          } catch (error) {
+            lastError = error;
+            console.error(`[UnifiedMonitor] Exception on attempt ${attempt}:`, error);
+
+            if (attempt < MAX_RETRIES) {
+              const delayMs = INITIAL_DELAY_MS * Math.pow(2, attempt - 1);
+              console.log(`[UnifiedMonitor] Retrying after exception in ${delayMs}ms...`);
+              await new Promise(resolve => setTimeout(resolve, delayMs));
             }
           }
-
-          console.log('%c[UnifiedMonitor] ✅ TRADE EXECUTED SUCCESSFULLY!', 'color: #4caf50; font-weight: bold; font-size: 18px', {
-            tradeId: result.tradeId,
-            symbol: intent.symbol,
-            direction: intent.direction,
-            entryPrice,
-            eqsScore
-          });
-          logger.info(`[UnifiedMonitor] Trade created successfully: ${result.tradeId}`);
-
-        } catch (executionError) {
-          // Unexpected error during execution - log details and notify user
-          console.error('%c[UnifiedMonitor] ❌ EXECUTION ERROR', 'color: #f44336; font-weight: bold; font-size: 16px', executionError);
-          logger.error('[UnifiedMonitor] Critical execution error:', {
-            error: executionError,
-            stack: executionError instanceof Error ? executionError.stack : undefined,
-            intentId: intent.id,
-            symbol: intent.symbol,
-            sessionId: intent.session_id,
-            entryPrice,
-            eqsScore
-          });
-
-          // Notify user of the error
-          globalToastManager.showToast(
-            'error',
-            'Critical Error',
-            `Critical error executing trade for ${intent.symbol}. Please report this error.`
-          );
         }
       }
     } catch (error) {

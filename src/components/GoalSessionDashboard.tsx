@@ -5,6 +5,7 @@ import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/go
 import { useAuth } from '../hooks/useAuth';
 import { MarketAnalysisStream } from './MarketAnalysisStream';
 import { SimpleEntryMonitor } from './SimpleEntryMonitor';
+import { AlphaScanningFeed } from './AlphaScanningFeed';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { ContinuationDialog } from './ContinuationDialog';
 import { GoalAchievedDialog } from './GoalAchievedDialog';
@@ -1597,6 +1598,7 @@ export const GoalSessionDashboard: React.FC = () => {
 
       {activeSession && (
         <>
+          <AlphaScanningFeed sessionId={activeSession.sessionId} />
           <SimpleEntryMonitor sessionId={activeSession.sessionId} />
           <MarketAnalysisStream
             sessionId={activeSession.sessionId}

@@ -446,11 +446,6 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
                 <Brain className="w-4 h-4 text-purple-400 animate-pulse" />
                 <h4 className="text-base font-bold text-white">Alpha Trade Monitor</h4>
               </>
-            ) : hasActiveIntent ? (
-              <>
-                <Target className="w-4 h-4 text-orange-400 animate-pulse" />
-                <h4 className="text-base font-bold text-white">Entry Monitor</h4>
-              </>
             ) : (
               <>
                 <Activity className="w-4 h-4 text-blue-400 animate-pulse" />
@@ -462,11 +457,6 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
             <div className="flex items-center gap-2 px-2 py-1 bg-blue-500/20 rounded border border-blue-500/50">
               <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />
               <span className="text-xs font-semibold text-blue-300">MONITORING</span>
-            </div>
-          ) : hasActiveIntent ? (
-            <div className="flex items-center gap-2 px-2 py-1 bg-orange-500/20 rounded border border-orange-500/50">
-              <div className="w-1.5 h-1.5 bg-orange-400 rounded-full animate-pulse" />
-              <span className="text-xs font-semibold text-orange-300">WAITING FOR ENTRY</span>
             </div>
           ) : (
             <div className="flex items-center gap-1.5 text-xs">
@@ -527,20 +517,6 @@ export const MarketAnalysisStream: React.FC<AnalysisStreamProps> = ({ sessionId,
           <div className="flex items-center gap-2 px-3 py-2 bg-gray-700/30 rounded border border-gray-600/50">
             <Clock className="w-3 h-3 text-gray-500 animate-pulse" />
             <span className="text-xs text-gray-500">Waiting for wellness check...</span>
-          </div>
-        ) : hasActiveIntent ? (
-          <div className="bg-orange-900/20 border border-orange-700/50 rounded-lg p-3">
-            <div className="flex items-start gap-2">
-              <Target className="w-5 h-5 text-orange-400 mt-0.5 flex-shrink-0 animate-pulse" />
-              <div className="flex-1">
-                <div className="font-bold text-orange-300 mb-1">
-                  Waiting for Entry Zone - {activeIntentSymbol}
-                </div>
-                <div className="text-sm text-gray-300">
-                  Price must pull back to entry zone for optimal entry. Alpha is monitoring price movement and will execute automatically when conditions are met.
-                </div>
-              </div>
-            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-2">
