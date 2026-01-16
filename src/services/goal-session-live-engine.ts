@@ -44,6 +44,7 @@ import { entryMonitorCoordinator } from './entry-monitor-coordinator';
 import type { TradeStyle } from './entry-monitor-quality-scorer';
 import { getActiveEntryIntent, type EntryIntentData } from './entry-intent-monitor-mode';
 import { entryThesisMemoryService } from './entry-thesis-memory-service';
+import { alphaThoughtStream } from './alpha-thought-stream';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
@@ -542,6 +543,19 @@ class GoalSessionLiveEngine {
         openTradesCount: this.openTrades.length
       });
 
+      // 💭 THOUGHT STREAM: Clear old thoughts and emit scan start
+      try {
+        await alphaThoughtStream.clearScanThoughts(activeSession);
+        await alphaThoughtStream.emitScanStart(
+          activeSession,
+          config.userId,
+          watchlist.length,
+          watchlist
+        );
+      } catch (error) {
+        logger.error(LogCategory.AI_TRADING, '[AlphaThoughts] Failed to initialize thought stream', { error });
+      }
+
       // ✅ ENTRY MONITOR: Block global rescans during ENTRY_MONITOR mode
       // CRITICAL: Use canScanNow() instead of getMonitorState() to trigger self-healing
       if (activeSession) {
@@ -712,6 +726,20 @@ class GoalSessionLiveEngine {
       }
 
       const tradeableSnapshots = snapshotResult.snapshots.filter(s => s.tradeable);
+
+      // 💭 THOUGHT STREAM: Emit filtering results
+      try {
+        const qualitySymbols = tradeableSnapshots.map(s => s.symbol);
+        await alphaThoughtStream.emitFiltering(
+          activeSession,
+          config.userId,
+          tradeableSnapshots.length,
+          snapshotResult.snapshots.length,
+          qualitySymbols
+        );
+      } catch (error) {
+        logger.error(LogCategory.AI_TRADING, '[AlphaThoughts] Failed to emit filtering', { error });
+      }
 
       if (tradeableSnapshots.length === 0) {
         console.log('%c[MULTI-SYMBOL] 🚫 No tradeable opportunities', 'color: #ff9800; font-weight: bold');
@@ -967,6 +995,26 @@ class GoalSessionLiveEngine {
         return;
       }
 
+      // 💭 THOUGHT STREAM: Emit comparing candidates
+      try {
+        const candidates = filteredSnapshots.map(snapshot => {
+          const decision = filteredDecisions.get(snapshot.symbol);
+          return {
+            symbol: snapshot.symbol,
+            confidence: decision?.confidence || 0,
+            action: (decision?.action || 'WAIT') as 'BUY' | 'SELL' | 'WAIT' | 'NO_TRADE',
+            score: decision?.confidence || 0
+          };
+        });
+        await alphaThoughtStream.emitComparing(
+          activeSession,
+          config.userId,
+          candidates
+        );
+      } catch (error) {
+        logger.error(LogCategory.AI_TRADING, '[AlphaThoughts] Failed to emit comparing', { error });
+      }
+
       // Use filtered snapshots and decisions for selection
       const bestSymbolResult = bestSymbolSelector.selectBestSymbol(
         filteredSnapshots,
@@ -1026,6 +1074,37 @@ class GoalSessionLiveEngine {
           confidence: topCandidate?.confidence,
           rejectionReason
         });
+
+        // 💭 THOUGHT STREAM: Emit final decision
+        try {
+          if (bestSymbolResult.selected && bestSymbolResult.symbol && bestSymbolResult.evaluation) {
+            const decision = bestSymbolResult.evaluation.omegaDecision;
+            await alphaThoughtStream.emitFinalDecision(
+              activeSession,
+              config.userId,
+              {
+                selected: true,
+                symbol: bestSymbolResult.symbol,
+                action: decision.action as 'BUY' | 'SELL' | 'WAIT' | 'NO_TRADE',
+                confidence: decision.confidence,
+                entry: decision.entry,
+                reasoning: rejectionReason || `${bestSymbolResult.symbol} selected with ${decision.confidence}% confidence`
+              }
+            );
+          } else {
+            await alphaThoughtStream.emitFinalDecision(
+              activeSession,
+              config.userId,
+              {
+                selected: false,
+                symbol: null,
+                reasoning: rejectionReason || 'No quality setups found'
+              }
+            );
+          }
+        } catch (error) {
+          logger.error(LogCategory.AI_TRADING, '[AlphaThoughts] Failed to emit final decision', { error });
+        }
       } catch (error) {
         logger.error(LogCategory.AI_TRADING, '[SCAN RESULTS] Failed to store scan result', { error });
       }
@@ -2307,6 +2386,19 @@ class GoalSessionLiveEngine {
 
     if (executionResult.success && executionResult.tradeId) {
       logger.info(LogCategory.AI_TRADING, `[ENTRY_MONITOR] Trade created: ID ${executionResult.tradeId}`);
+
+      // 💭 THOUGHT STREAM: Emit execution
+      try {
+        await alphaThoughtStream.emitExecution(
+          this.activeSession,
+          this.config.userId,
+          symbol,
+          direction,
+          entry
+        );
+      } catch (error) {
+        logger.error(LogCategory.AI_TRADING, '[AlphaThoughts] Failed to emit execution', { error });
+      }
 
       // Add to open trades
       const trade: SimulatedTrade = {
