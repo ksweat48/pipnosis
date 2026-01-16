@@ -36,6 +36,7 @@ interface AlphaThought {
   message: string;
   metadata: any;
   created_at: string;
+  is_active_scan: boolean;
 }
 
 interface AlphaScanningFeedProps {
@@ -102,7 +103,7 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({ sessionId 
         (payload) => {
           const newThought = payload.new as AlphaThought;
           // Only add if it's an active scan thought
-          if (newThought.metadata && (newThought.metadata as any).is_active_scan !== false) {
+          if (newThought.is_active_scan !== false) {
             setAlphaThoughts(prev => [...prev, newThought].slice(-15)); // Keep last 15 thoughts
           }
         }
