@@ -1620,14 +1620,34 @@ class GoalSessionLiveEngine {
             // Ensure retention_percent is within valid range [0, 1]
             const clampedRetention = Math.max(0, Math.min(1, downshiftedProposal.retentionPercent));
 
+            // Handle both DownshiftProposal and ReducedGoalProposal types
+            const isDownshiftProposal = 'adjustedGoal' in downshiftedProposal;
+            const isReducedGoalProposal = 'reducedGoal' in downshiftedProposal;
+
+            const adjustedGoal = isDownshiftProposal
+              ? (downshiftedProposal as any).adjustedGoal
+              : isReducedGoalProposal
+              ? (downshiftedProposal as any).reducedGoal
+              : 0;
+
+            const originalGoal = isDownshiftProposal
+              ? (downshiftedProposal as any).originalGoal
+              : config.goalAmount;
+
+            const reasonsForDownshift = isDownshiftProposal
+              ? (downshiftedProposal as any).reasonsForDownshift
+              : isReducedGoalProposal
+              ? [(downshiftedProposal as any).reason]
+              : ['Unknown downshift reason'];
+
             const { data, error } = await supabase.from('goal_feasibility_tracking').insert({
               user_id: config.userId,
               session_id: activeSession!,
               trade_id: trade.id,
-              original_goal: downshiftedProposal.originalGoal,
-              adjusted_goal: downshiftedProposal.adjustedGoal,
+              original_goal: originalGoal,
+              adjusted_goal: adjustedGoal,
               retention_percent: clampedRetention,
-              reasons_for_downshift: downshiftedProposal.reasonsForDownshift,
+              reasons_for_downshift: reasonsForDownshift,
               alpha_affirmed: true,
               market_context: {
                 symbol: selectedSymbol,
@@ -1646,12 +1666,13 @@ class GoalSessionLiveEngine {
                 errorDetails: error.details,
                 errorHint: error.hint,
                 proposalData: {
-                  original_goal: downshiftedProposal.originalGoal,
-                  adjusted_goal: downshiftedProposal.adjustedGoal,
+                  original_goal: originalGoal,
+                  adjusted_goal: adjustedGoal,
                   retention_percent: clampedRetention,
                   user_id: config.userId,
                   session_id: activeSession,
-                  trade_id: trade.id
+                  trade_id: trade.id,
+                  proposalType: isDownshiftProposal ? 'DownshiftProposal' : 'ReducedGoalProposal'
                 }
               });
             } else {
