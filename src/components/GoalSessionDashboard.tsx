@@ -1631,7 +1631,10 @@ export const GoalSessionDashboard: React.FC = () => {
 
       {activeSession && (
         <>
-          <AlphaScanningFeed sessionId={activeSession.sessionId} />
+          <AlphaScanningFeed
+            sessionId={activeSession.sessionId}
+            hasActiveTrades={openTrades.length > 0}
+          />
           <SimpleEntryMonitor sessionId={activeSession.sessionId} />
           <MarketAnalysisStream
             sessionId={activeSession.sessionId}

@@ -41,9 +41,10 @@ interface AlphaThought {
 
 interface AlphaScanningFeedProps {
   sessionId: string;
+  hasActiveTrades?: boolean; // Hide scan history when trades are active
 }
 
-export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({ sessionId }) => {
+export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({ sessionId, hasActiveTrades = false }) => {
   const [scanResults, setScanResults] = useState<ScanResult[]>([]);
   const [alphaThoughts, setAlphaThoughts] = useState<AlphaThought[]>([]);
   const [isScanning, setIsScanning] = useState(false);
@@ -312,8 +313,8 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({ sessionId 
         </div>
       )}
 
-      {/* Scan Results Section */}
-      {scanResults.length > 0 && (
+      {/* Scan Results Section - Only show when no active trades */}
+      {scanResults.length > 0 && !hasActiveTrades && (
         <div className="bg-gray-800/50 rounded-lg border border-gray-700 p-4">
           <div className="flex items-center gap-2 mb-3">
             <Brain className="w-5 h-5 text-purple-400" />
