@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import { logger, LogCategory } from '@/lib/logger';
 
 export interface ScanCandidate {
@@ -60,12 +61,23 @@ export class ScanResultsManager {
 
   /**
    * Store a scan result
+   *
+   * CRITICAL: Uses admin client to bypass RLS policies
+   * This ensures scan results are logged even if user session expires during scan
    */
   async storeScanResult(result: ScanResult): Promise<void> {
     try {
       const topCandidate = result.topCandidate;
 
-      const { error } = await supabase
+      // Use admin client to bypass RLS (CRITICAL for forensics)
+      const adminClient = getSupabaseAdmin();
+      const client = adminClient || supabase;
+
+      if (!adminClient) {
+        logger.error(LogCategory.AI_TRADING, '[storeScanResult] ❌ CRITICAL: Admin client unavailable - scan result logging may fail due to RLS');
+      }
+
+      const { error } = await client
         .from('goal_session_scan_results')
         .insert({
           session_id: result.sessionId,
@@ -82,7 +94,8 @@ export class ScanResultsManager {
         });
 
       if (error) {
-        logger.error(LogCategory.AI_TRADING, '[storeScanResult] Failed to store scan result:', error);
+        logger.error(LogCategory.AI_TRADING, '[storeScanResult] ❌ Failed to store scan result:', error);
+        logger.error(LogCategory.AI_TRADING, '[storeScanResult] ❌ This is a CRITICAL forensics failure - cannot track scan decisions');
         throw error;
       }
 
@@ -93,8 +106,10 @@ export class ScanResultsManager {
         confidence: topCandidate?.confidence
       });
     } catch (error) {
-      logger.error(LogCategory.AI_TRADING, '[storeScanResult] Error storing scan result:', error);
-      throw error;
+      logger.error(LogCategory.AI_TRADING, '[storeScanResult] ❌ Error storing scan result:', error);
+      // Don't throw - allow trading to continue even if logging fails
+      // But log prominently so we can fix the root cause
+      logger.error(LogCategory.AI_TRADING, '[storeScanResult] ❌ FORENSICS FAILURE: Cannot audit scan decisions');
     }
   }
 

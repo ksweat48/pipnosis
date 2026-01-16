@@ -18,6 +18,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { getSupabaseAdmin, isAdminClientAvailable } from '../lib/supabase-admin';
 import { logger, LogCategory } from '../lib/logger';
 import type { OmegaVote } from '../brains/omega/trend';
 import type { Omega8Vote } from '../types/omega';
@@ -80,7 +81,15 @@ class AlphaThoughtStream {
    */
   async clearScanThoughts(sessionId: string): Promise<void> {
     try {
-      const { error } = await supabase.rpc('clear_scan_thoughts', {
+      // Use admin client to bypass RLS
+      const adminClient = getSupabaseAdmin();
+      const client = adminClient || supabase;
+
+      if (!adminClient) {
+        logger.warn(LogCategory.AI_TRADING, '[AlphaThoughtStream] ⚠️ Using regular client (RLS may block) - admin client unavailable');
+      }
+
+      const { error } = await client.rpc('clear_scan_thoughts', {
         p_session_id: sessionId
       });
 
@@ -101,6 +110,9 @@ class AlphaThoughtStream {
   /**
    * Core method to emit a thought step
    * Handles debouncing and step numbering automatically
+   *
+   * CRITICAL: Uses admin client to bypass RLS policies
+   * This ensures thoughts are logged even if user session expires during scan
    */
   private async emitThought(
     sessionId: string,
@@ -121,7 +133,15 @@ class AlphaThoughtStream {
       const currentStep = (this.stepCounter.get(sessionId) || 0) + 1;
       this.stepCounter.set(sessionId, currentStep);
 
-      const { error } = await supabase
+      // Use admin client to bypass RLS (CRITICAL for forensics)
+      const adminClient = getSupabaseAdmin();
+      const client = adminClient || supabase;
+
+      if (!adminClient) {
+        logger.error(LogCategory.AI_TRADING, '[AlphaThoughtStream] ❌ CRITICAL: Admin client unavailable - thought logging may fail due to RLS');
+      }
+
+      const { error } = await client
         .from('alpha_scan_thoughts')
         .insert({
           session_id: sessionId,
@@ -134,13 +154,17 @@ class AlphaThoughtStream {
         });
 
       if (error) {
-        logger.error(LogCategory.AI_TRADING, '[AlphaThoughtStream] Failed to emit thought:', error);
+        logger.error(LogCategory.AI_TRADING, '[AlphaThoughtStream] ❌ Failed to emit thought:', error);
+        logger.error(LogCategory.AI_TRADING, '[AlphaThoughtStream] ❌ This is a CRITICAL forensics failure - trades are executing blind');
         throw error;
       }
 
       logger.info(LogCategory.AI_TRADING, `[AlphaThoughtStream] 💭 Step ${currentStep}: ${stepType} - ${message.substring(0, 60)}...`);
     } catch (error) {
-      logger.error(LogCategory.AI_TRADING, '[AlphaThoughtStream] Error emitting thought:', error);
+      logger.error(LogCategory.AI_TRADING, '[AlphaThoughtStream] ❌ Error emitting thought:', error);
+      // Don't throw - allow trading to continue even if logging fails
+      // But log prominently so we can fix the root cause
+      logger.error(LogCategory.AI_TRADING, '[AlphaThoughtStream] ❌ FORENSICS FAILURE: Cannot audit this trade decision');
     }
   }
 
