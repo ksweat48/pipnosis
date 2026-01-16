@@ -16,6 +16,7 @@ import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator
 import { computeOmegaSensors, type OmegaSensors } from './omega-sensors';
 import type { TraderScore } from './ai-identity';
 import type { MarketSnapshotData } from './market-snapshot-cache';
+import { alphaThoughtStream } from './alpha-thought-stream';
 
 export interface SessionConfig {
   starting_balance: number;
@@ -49,7 +50,12 @@ export interface ScanResult {
 
 class GoalScanner {
   async scanMarket(sessionId: string, userId: string): Promise<ScanResult[]> {
+    const scanStartTime = Date.now();
+
     try {
+      // STEP 0: Clear old thoughts and prepare for new scan
+      await alphaThoughtStream.clearScanThoughts(sessionId);
+
       // STEP 1: Check scanning timing permissions
       const scanPermission = await scanningStateMachine.canScanNow(sessionId);
 
@@ -175,9 +181,33 @@ class GoalScanner {
 
       console.log(`[Goal Scanner] 🔍 Scanning ${symbolsToScan.length} symbols...`);
 
+      // Emit thought: Scan started
+      await alphaThoughtStream.emitScanStart(sessionId, userId, symbolsToScan.length, symbolsToScan);
+
+      // Emit thought: Filtering results
+      if (qualitySymbols.length > 0) {
+        await alphaThoughtStream.emitFiltering(
+          sessionId,
+          userId,
+          qualitySymbols.length,
+          watchlist.length,
+          symbolsToScan
+        );
+      }
+
       for (const symbol of symbolsToScan) {
         const scanResult = await this.scanSymbol(symbol, session.data, userId);
         results.push(scanResult);
+
+        // Emit Omega Council votes thought if Alpha analyzed this symbol
+        if (scanResult.alphaDecision?.omega_votes && scanResult.hasValidSetup) {
+          await alphaThoughtStream.emitOmegaVoting(
+            sessionId,
+            userId,
+            symbol,
+            scanResult.alphaDecision.omega_votes
+          );
+        }
       }
 
       const lastScanTime = new Date();
@@ -192,9 +222,42 @@ class GoalScanner {
       if (validSetups.length > 0) {
         console.log(`[Goal Scanner] 🎯 Found ${validSetups.length} valid setup(s), evaluating for execution...`);
 
+        // Emit comparison thought if multiple setups found
+        if (validSetups.length > 1) {
+          const candidates = validSetups.map(s => ({
+            symbol: s.symbol,
+            confidence: s.confidence || 0,
+            action: (s.alphaDecision?.action || 'NO_TRADE') as 'BUY' | 'SELL' | 'WAIT' | 'NO_TRADE',
+            score: s.confidence || 0
+          }));
+
+          await alphaThoughtStream.emitComparing(sessionId, userId, candidates);
+        }
+
+        // Emit analyzing entry thought for the top candidate
+        const topSetup = validSetups[0];
+        if (topSetup.alphaDecision) {
+          await alphaThoughtStream.emitAnalyzingEntry(
+            sessionId,
+            userId,
+            topSetup.symbol,
+            topSetup.confidence || 0
+          );
+        }
+
         for (const setup of validSetups) {
           const result = await this.evaluateSignal(sessionId, setup, session.data);
           if (result) {
+            // Emit final decision thought before execution
+            await alphaThoughtStream.emitFinalDecision(sessionId, userId, {
+              selected: true,
+              symbol: setup.symbol,
+              action: setup.alphaDecision?.action as 'BUY' | 'SELL' | 'WAIT' | 'NO_TRADE',
+              confidence: setup.confidence,
+              entry: setup.entry,
+              reasoning: `Highest confidence setup with quality entry at ${setup.entry?.toFixed(5)}`
+            });
+
             const executionResult = await tradeExecutionEngine.executeSignal(
               result.signal,
               userId,
@@ -204,6 +267,18 @@ class GoalScanner {
 
             if (executionResult.success) {
               console.log(`[Goal Scanner] ✅ Trade signal executed: ${executionResult.message}`);
+
+              // Emit execution thought
+              if (setup.alphaDecision?.action && (setup.alphaDecision.action === 'BUY' || setup.alphaDecision.action === 'SELL')) {
+                await alphaThoughtStream.emitExecution(
+                  sessionId,
+                  userId,
+                  setup.symbol,
+                  setup.alphaDecision.action,
+                  setup.entry || 0
+                );
+              }
+
               tradeExecuted = true;
               break; // Stop after first successful trade
             } else {
@@ -211,6 +286,13 @@ class GoalScanner {
             }
           }
         }
+      } else {
+        // No valid setups found - emit final decision
+        await alphaThoughtStream.emitFinalDecision(sessionId, userId, {
+          selected: false,
+          symbol: null,
+          reasoning: 'No quality setups met confidence and safety thresholds'
+        });
       }
 
       // STEP 4: Record scan completion
@@ -221,6 +303,17 @@ class GoalScanner {
       } else {
         console.log('[Goal Scanner] ⏭️  Scan completed - no trades found');
       }
+
+      // Emit thought: Scan complete
+      const scanDurationMs = Date.now() - scanStartTime;
+      const monitoringCount = validSetups.filter(s => s.alphaDecision?.action === 'WAIT').length;
+
+      await alphaThoughtStream.emitScanComplete(sessionId, userId, {
+        tradeExecuted,
+        tradesFound: validSetups.length,
+        monitoringCount,
+        scanDurationMs
+      });
 
       // STEP 5: Add AI summary message
       await goalSessionManager.addAIMessage(

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Brain, TrendingUp, TrendingDown, Minus, Clock, Target, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { Brain, TrendingUp, TrendingDown, Minus, Clock, Target, CheckCircle, XCircle, AlertCircle, Search, Users, BarChart3, Award, Zap } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface ScanCandidate {
@@ -28,17 +28,29 @@ interface ScanResult {
   rejection_reason?: string;
 }
 
+interface AlphaThought {
+  id: string;
+  session_id: string;
+  step_type: string;
+  step_number: number;
+  message: string;
+  metadata: any;
+  created_at: string;
+}
+
 interface AlphaScanningFeedProps {
   sessionId: string;
 }
 
 export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({ sessionId }) => {
   const [scanResults, setScanResults] = useState<ScanResult[]>([]);
+  const [alphaThoughts, setAlphaThoughts] = useState<AlphaThought[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [expandedScan, setExpandedScan] = useState<string | null>(null);
 
   useEffect(() => {
     loadRecentScans();
+    loadAlphaThoughts();
 
     const channel = supabase
       .channel('alpha-scan-feed')
@@ -76,9 +88,31 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({ sessionId 
       )
       .subscribe();
 
+    // Subscribe to alpha thoughts (live thought stream)
+    const thoughtsChannel = supabase
+      .channel('alpha-thoughts-stream')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'alpha_scan_thoughts',
+          filter: `session_id=eq.${sessionId}`
+        },
+        (payload) => {
+          const newThought = payload.new as AlphaThought;
+          // Only add if it's an active scan thought
+          if (newThought.metadata && (newThought.metadata as any).is_active_scan !== false) {
+            setAlphaThoughts(prev => [...prev, newThought].slice(-15)); // Keep last 15 thoughts
+          }
+        }
+      )
+      .subscribe();
+
     return () => {
       channel.unsubscribe();
       scanningChannel.unsubscribe();
+      thoughtsChannel.unsubscribe();
     };
   }, [sessionId]);
 
@@ -95,6 +129,20 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({ sessionId 
       if (data.length > 0) {
         setExpandedScan(data[0].id);
       }
+    }
+  };
+
+  const loadAlphaThoughts = async () => {
+    const { data, error } = await supabase
+      .from('alpha_scan_thoughts')
+      .select('*')
+      .eq('session_id', sessionId)
+      .eq('is_active_scan', true)
+      .order('created_at', { ascending: true })
+      .limit(15);
+
+    if (!error && data) {
+      setAlphaThoughts(data);
     }
   };
 
@@ -140,24 +188,144 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({ sessionId 
     });
   };
 
-  if (scanResults.length === 0 && !isScanning) {
+  const getThoughtIcon = (stepType: string) => {
+    switch (stepType) {
+      case 'scan_start':
+        return <Search className="w-4 h-4 text-blue-400" />;
+      case 'filtering':
+        return <BarChart3 className="w-4 h-4 text-purple-400" />;
+      case 'omega_voting':
+        return <Users className="w-4 h-4 text-indigo-400" />;
+      case 'comparing':
+        return <BarChart3 className="w-4 h-4 text-yellow-400" />;
+      case 'analyzing_entry':
+        return <Target className="w-4 h-4 text-orange-400" />;
+      case 'final_decision':
+        return <Award className="w-4 h-4 text-green-400" />;
+      case 'execution':
+        return <Zap className="w-4 h-4 text-green-500" />;
+      case 'scan_complete':
+        return <CheckCircle className="w-4 h-4 text-gray-400" />;
+      default:
+        return <Brain className="w-4 h-4 text-gray-400" />;
+    }
+  };
+
+  const getThoughtColor = (stepType: string) => {
+    switch (stepType) {
+      case 'scan_start':
+        return 'bg-blue-900/20 border-blue-700/50';
+      case 'filtering':
+        return 'bg-purple-900/20 border-purple-700/50';
+      case 'omega_voting':
+        return 'bg-indigo-900/20 border-indigo-700/50';
+      case 'comparing':
+        return 'bg-yellow-900/20 border-yellow-700/50';
+      case 'analyzing_entry':
+        return 'bg-orange-900/20 border-orange-700/50';
+      case 'final_decision':
+        return 'bg-green-900/20 border-green-700/50';
+      case 'execution':
+        return 'bg-green-900/30 border-green-600/50';
+      case 'scan_complete':
+        return 'bg-gray-800/50 border-gray-600/50';
+      default:
+        return 'bg-gray-800/50 border-gray-600/50';
+    }
+  };
+
+  const formatTimeAgo = (timestamp: string) => {
+    const now = Date.now();
+    const then = new Date(timestamp).getTime();
+    const diffSeconds = Math.floor((now - then) / 1000);
+
+    if (diffSeconds < 5) return 'just now';
+    if (diffSeconds < 60) return `${diffSeconds}s ago`;
+    const diffMinutes = Math.floor(diffSeconds / 60);
+    if (diffMinutes < 60) return `${diffMinutes}m ago`;
+    const diffHours = Math.floor(diffMinutes / 60);
+    return `${diffHours}h ago`;
+  };
+
+  if (scanResults.length === 0 && !isScanning && alphaThoughts.length === 0) {
     return null;
   }
 
   return (
-    <div className="bg-gray-800/50 rounded-lg border border-gray-700 p-4 mb-4">
-      <div className="flex items-center gap-2 mb-3">
-        <Brain className="w-5 h-5 text-purple-400" />
-        <h3 className="text-sm font-bold text-white">Alpha's Market Analysis</h3>
-        {isScanning && (
-          <div className="ml-auto flex items-center gap-2">
-            <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse" />
-            <span className="text-xs text-purple-300">Scanning markets...</span>
+    <div className="space-y-3 mb-4">
+      {/* Alpha's Thinking - Live Thought Stream */}
+      {alphaThoughts.length > 0 && (
+        <div className="bg-gradient-to-br from-purple-900/20 to-blue-900/20 rounded-lg border border-purple-700/50 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Brain className="w-5 h-5 text-purple-400 animate-pulse" />
+              <h3 className="text-sm font-bold text-white">Alpha's Thinking</h3>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse" />
+              <span className="text-xs text-purple-300">LIVE</span>
+            </div>
           </div>
-        )}
-      </div>
 
-      <div className="space-y-3">
+          <div className="space-y-2 max-h-[400px] overflow-y-auto">
+            {alphaThoughts.map((thought, idx) => (
+              <div
+                key={thought.id}
+                className={`rounded-lg p-3 border ${getThoughtColor(thought.step_type)} transition-all duration-300 ${
+                  idx === alphaThoughts.length - 1 ? 'animate-pulse' : ''
+                }`}
+              >
+                <div className="flex items-start gap-2">
+                  <div className="flex-shrink-0 mt-0.5">
+                    {getThoughtIcon(thought.step_type)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-white font-medium leading-relaxed">
+                      {thought.message}
+                    </div>
+                    {thought.metadata && thought.metadata.candidates && (
+                      <div className="mt-2 space-y-1">
+                        {thought.metadata.candidates.map((candidate: any, cidx: number) => (
+                          <div key={cidx} className="text-xs text-gray-300 flex items-center gap-2">
+                            <span className="font-mono">{candidate.symbol}</span>
+                            <span className={`font-bold ${
+                              candidate.confidence >= 75 ? 'text-green-400' :
+                              candidate.confidence >= 65 ? 'text-yellow-400' :
+                              'text-gray-400'
+                            }`}>
+                              {candidate.confidence}%
+                            </span>
+                            <span className="text-gray-500">{candidate.action}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-500 flex-shrink-0">
+                    {formatTimeAgo(thought.created_at)}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Scan Results Section */}
+      {scanResults.length > 0 && (
+        <div className="bg-gray-800/50 rounded-lg border border-gray-700 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Brain className="w-5 h-5 text-purple-400" />
+            <h3 className="text-sm font-bold text-white">Scan History</h3>
+            {isScanning && (
+              <div className="ml-auto flex items-center gap-2">
+                <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse" />
+                <span className="text-xs text-purple-300">Scanning markets...</span>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3">
         {scanResults.map((scan) => (
           <div key={scan.id} className="bg-gray-700/30 rounded-lg border border-gray-600/50">
             <div
@@ -244,7 +412,9 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({ sessionId 
             )}
           </div>
         ))}
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
