@@ -221,7 +221,7 @@ class SLTPDiagnosticService {
       ? `No price data available for ${symbol}. Your stop loss and take profit may not trigger automatically. Please monitor this position manually.`
       : `Price data for ${symbol} is ${ageMinutes} minutes old. Your stop loss and take profit may be delayed. System is attempting to restore live data.`;
 
-    await notificationCoordinator.send({
+    await notificationCoordinator.sendSystemNotification({
       userId,
       type: 'system_alert',
       title: 'Position Monitoring Alert',

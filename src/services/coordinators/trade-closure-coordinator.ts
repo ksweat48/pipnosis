@@ -257,7 +257,7 @@ class TradeClosureCoordinator {
       console.log(`[TradeClosureCoordinator] Emergency balance update: ${profile.account_balance} + ${pnl} = ${newBalance}`);
     }
 
-    await notificationCoordinator.send({
+    await notificationCoordinator.sendSystemNotification({
       userId: request.userId,
       type: 'system_alert',
       title: 'Trade Closed (Emergency Recovery)',

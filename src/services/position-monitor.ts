@@ -347,7 +347,7 @@ class PositionMonitorService {
         console.error(`[PositionMonitor] ❌ CRITICAL: No price data for ${position.symbol} from ANY source!`);
         console.error(`[PositionMonitor] This position cannot be monitored for SL/TP!`);
 
-        await notificationCoordinator.send({
+        await notificationCoordinator.sendSystemNotification({
           userId: position.user_id,
           type: 'system_alert',
           title: 'Price Data Unavailable',
@@ -911,7 +911,7 @@ class PositionMonitorService {
             }
           });
 
-          await notificationCoordinator.send({
+          await notificationCoordinator.sendSystemNotification({
             userId: position.user_id,
             type: 'mid_trade_alert',
             title: `Trade Alert: ${position.symbol}`,

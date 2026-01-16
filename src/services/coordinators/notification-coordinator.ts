@@ -93,7 +93,7 @@ class NotificationCoordinator {
         metadata: request.metadata || {},
         priority: request.priority || 'medium',
         trade_id: request.tradeId || null,
-        goal_session_id: request.sessionId || null, // ✅ FIX: Use correct column name 'goal_session_id' not 'session_id'
+        goal_session_id: request.sessionId || null,
         read: false,
         created_at: new Date().toISOString(),
       };
@@ -127,6 +127,78 @@ class NotificationCoordinator {
       };
     } catch (error) {
       console.error(`[NotificationCoordinator] Error sending notification:`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  async sendSystemNotification(request: NotificationRequest): Promise<NotificationResult> {
+    const systemTypes: NotificationType[] = ['system_alert', 'wellness_check', 'mid_trade_alert', 'balance_update'];
+
+    if (!systemTypes.includes(request.type)) {
+      console.error(`[NotificationCoordinator] Invalid system notification type: ${request.type}`);
+      return {
+        success: false,
+        error: `Only system notification types allowed: ${systemTypes.join(', ')}`,
+      };
+    }
+
+    const dedupeKey = this.createDedupeKey(request);
+    const dedupeWindowMs = request.dedupeWindowMs ?? this.DEFAULT_DEDUPE_WINDOW_MS;
+
+    if (this.isDuplicate(dedupeKey, dedupeWindowMs)) {
+      console.log(`[NotificationCoordinator] Deduplicated system notification: ${request.type} for user ${request.userId}`);
+      return {
+        success: true,
+        deduplicated: true,
+      };
+    }
+
+    if (this.isRateLimited(request.userId)) {
+      console.warn(`[NotificationCoordinator] Rate limited: user ${request.userId}`);
+      return {
+        success: false,
+        error: 'Rate limit exceeded',
+      };
+    }
+
+    try {
+      const { data, error } = await supabase.rpc('create_system_notification', {
+        p_user_id: request.userId,
+        p_type: request.type,
+        p_title: request.title,
+        p_message: request.message,
+        p_metadata: request.metadata || {},
+        p_priority: request.priority || 'medium',
+        p_trade_id: request.tradeId || null,
+        p_goal_session_id: request.sessionId || null,
+      });
+
+      if (error) {
+        console.error(`[NotificationCoordinator] Failed to create system notification:`, error);
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+
+      this.recentNotifications.set(dedupeKey, Date.now());
+      this.recordForRateLimit(request.userId);
+
+      if (request.priority === 'high' || request.priority === 'critical') {
+        await this.sendPushNotification(request);
+      }
+
+      console.log(`[NotificationCoordinator] Sent system notification: ${request.type} to user ${request.userId}`);
+
+      return {
+        success: true,
+        notificationId: data as string,
+      };
+    } catch (error) {
+      console.error(`[NotificationCoordinator] Error sending system notification:`, error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
