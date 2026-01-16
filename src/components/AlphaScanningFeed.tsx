@@ -42,13 +42,27 @@ interface AlphaThought {
 interface AlphaScanningFeedProps {
   sessionId: string;
   hasActiveTrades?: boolean; // Hide scan history when trades are active
+  isScanning?: boolean; // Current scanning status
+  activePairsCount?: number; // Number of pairs being scanned
+  totalPairs?: number; // Total pairs in watchlist
+  watchlist?: string[]; // List of symbols being scanned
 }
 
-export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({ sessionId, hasActiveTrades = false }) => {
+export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({
+  sessionId,
+  hasActiveTrades = false,
+  isScanning: externalIsScanning = false,
+  activePairsCount = 0,
+  totalPairs = 0,
+  watchlist = []
+}) => {
   const [scanResults, setScanResults] = useState<ScanResult[]>([]);
   const [alphaThoughts, setAlphaThoughts] = useState<AlphaThought[]>([]);
-  const [isScanning, setIsScanning] = useState(false);
+  const [internalIsScanning, setInternalIsScanning] = useState(false);
   const [expandedScan, setExpandedScan] = useState<string | null>(null);
+
+  // Use external scanning state if provided, otherwise use internal
+  const isScanning = externalIsScanning || internalIsScanning;
 
   useEffect(() => {
     loadRecentScans();
@@ -67,7 +81,7 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({ sessionId,
         (payload) => {
           const newScan = payload.new as ScanResult;
           setScanResults(prev => [newScan, ...prev].slice(0, 5));
-          setIsScanning(false);
+          setInternalIsScanning(false);
           setExpandedScan(newScan.id);
         }
       )
@@ -85,7 +99,7 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({ sessionId,
         },
         (payload) => {
           const status = payload.new.status;
-          setIsScanning(status === 'scanning');
+          setInternalIsScanning(status === 'scanning');
         }
       )
       .subscribe();
@@ -249,82 +263,121 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({ sessionId,
     return `${diffHours}h ago`;
   };
 
-  if (scanResults.length === 0 && !isScanning && alphaThoughts.length === 0) {
+  // Don't render if not scanning and no historical data to show
+  if (!isScanning && scanResults.length === 0 && alphaThoughts.length === 0) {
     return null;
   }
 
+  // Generate scanning status message
+  const getScanningStatusMessage = () => {
+    const isSinglePair = totalPairs === 1;
+    const isFiltered = activePairsCount < totalPairs;
+
+    if (isSinglePair && watchlist.length > 0) {
+      return `Scanning ${watchlist[0]} only`;
+    }
+
+    if (isFiltered) {
+      const cryptoOnly = watchlist.every(s => ['BTCUSD', 'ETHUSD'].includes(s));
+      if (cryptoOnly) {
+        return `Scanning ${activePairsCount} pairs (Crypto only - Forex markets closed)`;
+      }
+      return `Scanning ${activePairsCount} of ${totalPairs} pairs (some markets closed)`;
+    }
+
+    return `Scanning ${activePairsCount || totalPairs} pairs for opportunities...`;
+  };
+
   return (
     <div className="space-y-3 mb-4">
-      {/* Alpha's Thinking - Live Thought Stream */}
-      {alphaThoughts.length > 0 && (
-        <div className="bg-gradient-to-br from-purple-900/20 to-blue-900/20 rounded-lg border border-purple-700/50 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Brain className="w-5 h-5 text-purple-400 animate-pulse" />
-              <h3 className="text-sm font-bold text-white">Alpha's Thinking</h3>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse" />
-              <span className="text-xs text-purple-300">LIVE</span>
+      {/* Unified Scanning Status & Alpha's Thinking */}
+      {isScanning && (
+        <div className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 rounded-lg border border-blue-500/30 overflow-hidden">
+          {/* Scanning Status Header */}
+          <div className="bg-blue-900/20 border-b border-blue-500/30 p-4">
+            <div className="animate-pulse flex items-center gap-2">
+              <Search className="w-5 h-5 text-blue-400" />
+              <span className="text-blue-200 font-medium">
+                {getScanningStatusMessage()}
+              </span>
             </div>
           </div>
 
-          <div className="space-y-2 max-h-[400px] overflow-y-auto">
-            {alphaThoughts.map((thought, idx) => (
-              <div
-                key={thought.id}
-                className={`rounded-lg p-3 border ${getThoughtColor(thought.step_type)} transition-all duration-300 ${
-                  idx === alphaThoughts.length - 1 ? 'animate-pulse' : ''
-                }`}
-              >
-                <div className="flex items-start gap-2">
-                  <div className="flex-shrink-0 mt-0.5">
-                    {getThoughtIcon(thought.step_type)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm text-white font-medium leading-relaxed">
-                      {thought.message}
-                    </div>
-                    {thought.metadata && thought.metadata.candidates && (
-                      <div className="mt-2 space-y-1">
-                        {thought.metadata.candidates.map((candidate: any, cidx: number) => (
-                          <div key={cidx} className="text-xs text-gray-300 flex items-center gap-2">
-                            <span className="font-mono">{candidate.symbol}</span>
-                            <span className={`font-bold ${
-                              candidate.confidence >= 75 ? 'text-green-400' :
-                              candidate.confidence >= 65 ? 'text-yellow-400' :
-                              'text-gray-400'
-                            }`}>
-                              {candidate.confidence}%
-                            </span>
-                            <span className="text-gray-500">{candidate.action}</span>
-                          </div>
-                        ))}
+          {/* Alpha's Live Thought Stream */}
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Brain className="w-5 h-5 text-purple-400 animate-pulse" />
+                <h3 className="text-sm font-bold text-white">Alpha's Thinking</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse" />
+                <span className="text-xs text-purple-300">LIVE</span>
+              </div>
+            </div>
+
+            {alphaThoughts.length > 0 ? (
+              <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                {alphaThoughts.map((thought, idx) => (
+                  <div
+                    key={thought.id}
+                    className={`rounded-lg p-3 border ${getThoughtColor(thought.step_type)} transition-all duration-300 ${
+                      idx === alphaThoughts.length - 1 ? 'animate-pulse' : ''
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <div className="flex-shrink-0 mt-0.5">
+                        {getThoughtIcon(thought.step_type)}
                       </div>
-                    )}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm text-white font-medium leading-relaxed">
+                          {thought.message}
+                        </div>
+                        {thought.metadata && thought.metadata.candidates && (
+                          <div className="mt-2 space-y-1">
+                            {thought.metadata.candidates.map((candidate: any, cidx: number) => (
+                              <div key={cidx} className="text-xs text-gray-300 flex items-center gap-2">
+                                <span className="font-mono">{candidate.symbol}</span>
+                                <span className={`font-bold ${
+                                  candidate.confidence >= 75 ? 'text-green-400' :
+                                  candidate.confidence >= 65 ? 'text-yellow-400' :
+                                  'text-gray-400'
+                                }`}>
+                                  {candidate.confidence}%
+                                </span>
+                                <span className="text-gray-500">{candidate.action}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-500 flex-shrink-0">
+                        {formatTimeAgo(thought.created_at)}
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500 flex-shrink-0">
-                    {formatTimeAgo(thought.created_at)}
+                ))}
+              </div>
+            ) : (
+              <div className="bg-gray-800/50 rounded-lg border border-gray-700/50 p-4">
+                <div className="flex items-center gap-3">
+                  <Brain className="w-5 h-5 text-gray-400 animate-pulse" />
+                  <div className="text-sm text-gray-300">
+                    Alpha is analyzing markets and evaluating opportunities...
                   </div>
                 </div>
               </div>
-            ))}
+            )}
           </div>
         </div>
       )}
 
-      {/* Scan Results Section - Only show when no active trades */}
+      {/* Historical Scan Results - Only show when no active trades */}
       {scanResults.length > 0 && !hasActiveTrades && (
         <div className="bg-gray-800/50 rounded-lg border border-gray-700 p-4">
           <div className="flex items-center gap-2 mb-3">
             <Brain className="w-5 h-5 text-purple-400" />
-            <h3 className="text-sm font-bold text-white">Scan History</h3>
-            {isScanning && (
-              <div className="ml-auto flex items-center gap-2">
-                <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse" />
-                <span className="text-xs text-purple-300">Scanning markets...</span>
-              </div>
-            )}
+            <h3 className="text-sm font-bold text-white">Recent Scan History</h3>
           </div>
 
           <div className="space-y-3">
