@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, MoreVertical, User, DollarSign, RefreshCw, Eye, Copy, Clock, AlertTriangle, Users as UsersIcon, Activity, TrendingUp, Target, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, MoreVertical, User, DollarSign, RefreshCw, Eye, Copy, Clock, AlertTriangle, Users as UsersIcon, Activity, TrendingUp, Target, ChevronLeft, ChevronRight, ArrowUp, ArrowDown } from 'lucide-react';
 import { adminUserService } from '../../services/admin-user-service';
 import { useAdminDashboard } from '../../hooks/useAdminDashboard';
 import { useToast } from '../../hooks/useToast';
@@ -416,6 +416,11 @@ export const UserManagementPanel: React.FC = () => {
                           {user.active_trades_detail.slice(0, 3).map((trade, idx) => (
                             <div key={idx} className="flex items-center justify-between gap-2 text-xs">
                               <div className="flex items-center gap-1">
+                                {trade.direction === 'buy' ? (
+                                  <ArrowUp size={12} className="text-green-400 flex-shrink-0" strokeWidth={3} />
+                                ) : (
+                                  <ArrowDown size={12} className="text-red-400 flex-shrink-0" strokeWidth={3} />
+                                )}
                                 <span className="font-semibold text-gray-300">{trade.symbol}</span>
                                 <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" title="Live"></span>
                               </div>
