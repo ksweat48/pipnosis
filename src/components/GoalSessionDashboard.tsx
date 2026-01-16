@@ -1090,7 +1090,10 @@ export const GoalSessionDashboard: React.FC = () => {
       in_trade: 'text-green-400',
       goal_achieved: 'text-emerald-400',
       expired: 'text-gray-400',
+      stopped: 'text-red-400',
       user_stopped: 'text-red-400',
+      timeout: 'text-gray-400',
+      weekend_shutdown: 'text-orange-400',
     };
     return colors[status as keyof typeof colors] || 'text-gray-400';
   };
@@ -1105,7 +1108,11 @@ export const GoalSessionDashboard: React.FC = () => {
         return <CheckCircle className="w-5 h-5" />;
       case 'expired':
       case 'user_stopped':
-        return <XCircle className="w-5 h-5" />;
+      case 'stopped':
+      case 'timeout':
+        return <StopCircle className="w-5 h-5" />;
+      case 'weekend_shutdown':
+        return <Pause className="w-5 h-5" />;
       default:
         return <Clock className="w-5 h-5" />;
     }
@@ -1232,6 +1239,32 @@ export const GoalSessionDashboard: React.FC = () => {
                     <span className="text-red-400 font-medium">Open trades: {sessionHealth.open_trades} (close them first)</span>
                   )}
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Session Ended Banner */}
+        {(activeSession.status === 'stopped' || activeSession.status === 'timeout') && (
+          <div className="mb-4 p-4 bg-red-900/20 border border-red-500/30 rounded-lg">
+            <div className="flex items-start gap-3">
+              <StopCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h4 className="text-sm font-semibold text-red-300 mb-1">
+                  {activeSession.status === 'stopped' ? 'Session Ended' : 'Session Timeout'}
+                </h4>
+                <p className="text-xs text-red-200/80 mb-3">
+                  {activeSession.status === 'stopped'
+                    ? 'Your trading session has ended because you closed all trades. Start a new session to continue trading.'
+                    : 'Your trading session has ended due to timeout. Start a new session to continue trading.'}
+                </p>
+                <button
+                  onClick={() => navigate('/smart-goal-mode')}
+                  className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 rounded-lg text-sm font-semibold text-white transition-all duration-300 flex items-center gap-2 shadow-lg hover:shadow-blue-500/25"
+                >
+                  <Target className="w-4 h-4" />
+                  Start New Session
+                </button>
               </div>
             </div>
           </div>

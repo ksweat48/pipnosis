@@ -187,7 +187,7 @@ class TradeClosureCoordinator {
 
       const goalResult = await this.checkGoalAfterClose(request.userId, request.goalSessionId);
 
-      await this.updateSessionAfterClose(request.goalSessionId, request.userId);
+      await this.updateSessionAfterClose(request.goalSessionId, request.userId, request.closeReason);
 
       await this.runPostTradeAnalysis(request, tradeData, pnl);
 
@@ -333,22 +333,132 @@ class TradeClosureCoordinator {
     });
   }
 
-  private async updateSessionAfterClose(sessionId: string, userId: string): Promise<void> {
+  private async updateSessionAfterClose(
+    sessionId: string,
+    userId: string,
+    closeReason?: CloseReason
+  ): Promise<void> {
+    // Check ALL execution channels before deciding session fate
     const { data: openTrades } = await supabase
       .from('goal_session_trades')
       .select('id')
       .eq('goal_session_id', sessionId)
       .eq('status', 'open');
 
-    if (!openTrades || openTrades.length === 0) {
-      const currentStatus = await goalSessionStateMachine.getCurrentStatus(sessionId);
+    const { data: pendingOrders } = await supabase
+      .from('goal_session_trades')
+      .select('id')
+      .eq('goal_session_id', sessionId)
+      .eq('status', 'pending');
 
-      if (currentStatus === 'active') {
-        await goalSessionStateMachine.transition(sessionId, 'scanning', {
-          reason: 'All trades closed, returning to scanning',
-          triggeredBy: 'TradeClosureCoordinator',
+    const { data: activeIntents } = await supabase
+      .from('entry_intents')
+      .select('id')
+      .eq('goal_session_id', sessionId)
+      .in('status', ['monitoring', 'active', 'qualified']);
+
+    const openTradesCount = openTrades?.length || 0;
+    const pendingOrdersCount = pendingOrders?.length || 0;
+    const activeIntentsCount = activeIntents?.length || 0;
+
+    const allChannelsEmpty = openTradesCount === 0 && pendingOrdersCount === 0 && activeIntentsCount === 0;
+
+    console.log(`[TradeClosureCoordinator] Session ${sessionId} execution status:`, {
+      openTrades: openTradesCount,
+      pendingOrders: pendingOrdersCount,
+      activeIntents: activeIntentsCount,
+      allChannelsEmpty,
+      closeReason,
+    });
+
+    if (!allChannelsEmpty) {
+      console.log(`[TradeClosureCoordinator] Session still has active execution channels, no transition needed`);
+      return;
+    }
+
+    // All execution channels are empty - determine next state
+    const currentStatus = await goalSessionStateMachine.getCurrentStatus(sessionId);
+
+    if (currentStatus !== 'active' && currentStatus !== 'scanning') {
+      console.log(`[TradeClosureCoordinator] Session status is ${currentStatus}, no transition needed`);
+      return;
+    }
+
+    // Check if goal was already achieved
+    const { data: session } = await supabase
+      .from('goal_sessions')
+      .select('status')
+      .eq('id', sessionId)
+      .maybeSingle();
+
+    if (session?.status === 'goal_achieved') {
+      console.log(`[TradeClosureCoordinator] Goal already achieved, no further transition needed`);
+      return;
+    }
+
+    // Determine transition based on close reason
+    const isManualClose = closeReason === 'manual' || closeReason === 'force_close';
+    const isSystemClose = closeReason === 'stop_loss' || closeReason === 'take_profit';
+    const isWeekendShutdown = closeReason === 'weekend_shutdown';
+    const isTimeout = closeReason === 'session_timeout';
+
+    let targetStatus: 'scanning' | 'stopped' | 'weekend_shutdown' | 'timeout' = 'stopped';
+    let transitionReason = 'All execution channels empty';
+
+    if (isManualClose) {
+      // Manual closure → stop the session
+      targetStatus = 'stopped';
+      transitionReason = 'User manually closed all trades';
+    } else if (isSystemClose) {
+      // System closure (SL/TP) → return to scanning so user can continue
+      targetStatus = 'scanning';
+      transitionReason = 'Trade closed by system, returning to scanning';
+    } else if (isWeekendShutdown) {
+      targetStatus = 'weekend_shutdown';
+      transitionReason = 'Weekend protection activated';
+    } else if (isTimeout) {
+      targetStatus = 'timeout';
+      transitionReason = 'Session timeout';
+    } else {
+      // Default: stop the session
+      targetStatus = 'stopped';
+      transitionReason = `All trades closed (reason: ${closeReason || 'unknown'})`;
+    }
+
+    console.log(`[TradeClosureCoordinator] Transitioning session ${sessionId} to ${targetStatus}`);
+
+    const transitionResult = await goalSessionStateMachine.transition(sessionId, targetStatus, {
+      reason: transitionReason,
+      triggeredBy: 'TradeClosureCoordinator',
+      additionalData: {
+        closeReason,
+        isManualClose,
+        isSystemClose,
+      },
+    });
+
+    if (transitionResult.success) {
+      // Send notification for session closure
+      if (targetStatus === 'stopped') {
+        await notificationCoordinator.send({
+          userId,
+          type: 'session_ended',
+          title: 'Session Ended',
+          message: isManualClose
+            ? 'Your trading session has ended because you closed all trades.'
+            : 'Your trading session has ended.',
+          sessionId,
+          priority: 'medium',
+          metadata: {
+            reason: transitionReason,
+            closeReason,
+          },
         });
       }
+    } else {
+      console.error(
+        `[TradeClosureCoordinator] Failed to transition session: ${transitionResult.error}`
+      );
     }
   }
 

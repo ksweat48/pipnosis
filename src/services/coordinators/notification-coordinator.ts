@@ -23,6 +23,7 @@ export type NotificationType =
   | 'take_profit_hit'
   | 'session_timeout'
   | 'session_paused'
+  | 'session_ended'
   | 'wellness_check'
   | 'mid_trade_alert'
   | 'continuation_required'
