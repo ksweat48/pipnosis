@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { TRADE_CONSTRAINTS } from '../config/trade-constraints';
+import { calculateDollarPerPip } from '../utils/currencyHelpers';
 
 export interface EVGateInputs {
   winRate: number; // 0-1
@@ -63,9 +64,9 @@ class EVGatingSystem {
       adjustments.push('Asian session (-15% EV)');
     }
 
-    // Calculate in money terms
-    const pipValue = this.getPipValue(symbol);
-    const evInMoney = adjustedEV * pipValue * proposedLotSize;
+    // Calculate in money terms using SSOT
+    const dollarPerPipAt1Lot = calculateDollarPerPip(symbol, 1.0);
+    const evInMoney = adjustedEV * dollarPerPipAt1Lot * proposedLotSize;
 
     // Calculate minimum win rate needed for breakeven
     const rewardRiskRatio = avgWinPips / avgLossPips;
@@ -142,21 +143,6 @@ class EVGatingSystem {
       reasoning,
       recommendations
     };
-  }
-
-  private getPipValue(symbol: string): number {
-    const pipValues: Record<string, number> = {
-      'EURUSD': 10,
-      'GBPUSD': 10,
-      'USDJPY': 9.09,
-      'USDCHF': 10,
-      'AUDUSD': 10,
-      'NZDUSD': 10,
-      'USDCAD': 7.69,
-      'XAUUSD': 10,
-      'XAGUSD': 5,
-    };
-    return pipValues[symbol] || 10;
   }
 
   calculateBreakevenMetrics(winRate: number, avgWinPips: number, avgLossPips: number): {

@@ -241,9 +241,45 @@ class ProfessionalRiskManager {
 
     // Calculate final lot size using SSOT pip values
     const riskAmount = currentBalance * finalRiskPercent;
-    const pipValue = calculateDollarPerPip(symbol, 1.0);
-    const recommendedLotSize = Math.max(0.01, riskAmount / (avgLossPips * pipValue));
+    const dollarPerPipAt1Lot = calculateDollarPerPip(symbol, 1.0);
+    const recommendedLotSize = Math.max(0.01, riskAmount / (avgLossPips * dollarPerPipAt1Lot));
     const roundedLotSize = Math.round(recommendedLotSize * 100) / 100;
+
+    // 🚨 CCIP VALIDATION: Detect contaminated avgLossPips for indices
+    const { getCurrencyPipInfo } = await import('../utils/currencyHelpers');
+    const pipInfo = getCurrencyPipInfo(symbol);
+
+    if (pipInfo.symbolType === 'index' && currentBalance > 5000) {
+      const dollarPerPointAtLotSize = roundedLotSize * dollarPerPipAt1Lot;
+
+      // For accounts > $5K, indices should have at least $5/point exposure
+      if (dollarPerPointAtLotSize < 5.0 && avgLossPips > 100) {
+        console.error('%c🚨 CCIP VALIDATION WARNING: Possible avgLossPips Contamination Detected!', 'color: #ff0000; font-weight: bold; font-size: 16px');
+        console.error(`  Symbol: ${symbol} (Index)`);
+        console.error(`  Account Balance: $${currentBalance.toFixed(2)}`);
+        console.error(`  Risk Amount: $${riskAmount.toFixed(2)}`);
+        console.error(`  avgLossPips: ${avgLossPips.toFixed(1)} pips`);
+        console.error(`  Dollar/Point/Lot: $${dollarPerPipAt1Lot.toFixed(2)}`);
+        console.error(`  Calculated Lot Size: ${roundedLotSize.toFixed(2)}`);
+        console.error(`  Dollar/Point at Lot Size: $${dollarPerPointAtLotSize.toFixed(2)}`);
+        console.error(`  `);
+        console.error(`  ⚠️ ANALYSIS: avgLossPips of ${avgLossPips.toFixed(1)} seems contaminated.`);
+        console.error(`  Expected: 10-50 points for indices (using SSOT pipValue = 1.0)`);
+        console.error(`  Possible cause: Historical trades stored with symbol-registry tick size instead of SSOT pip values`);
+        console.error(`  `);
+        console.error(`  RECOMMENDATION: Verify historical trade pip calculations use calculatePipDistance() from currencyHelpers`);
+
+        criticalWarnings.push(`⚠️ CCIP WARNING: avgLossPips (${avgLossPips.toFixed(0)}) appears contaminated for ${symbol}. Review historical pip calculations.`);
+      }
+
+      // Validation log for successful calculations
+      console.log(`%c[CCIP Validation] ${symbol} Position Sizing`, 'color: #00ff00; font-weight: bold');
+      console.log(`  Lot Size: ${roundedLotSize.toFixed(2)}`);
+      console.log(`  Dollar/Point: $${dollarPerPointAtLotSize.toFixed(2)}`);
+      console.log(`  Expected Risk: ${avgLossPips.toFixed(1)} pips × $${dollarPerPointAtLotSize.toFixed(2)}/pip = $${(avgLossPips * dollarPerPointAtLotSize).toFixed(2)}`);
+      console.log(`  Target Risk: $${riskAmount.toFixed(2)}`);
+      console.log(`  ✅ Validation: ${Math.abs((avgLossPips * dollarPerPointAtLotSize) - riskAmount) < 1.0 ? 'PASS' : 'REVIEW'}`);
+    }
 
     // Apply correlation adjustment
     const finalLotSize = Math.min(roundedLotSize, correlation.maxSafeSize);

@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { TRADE_CONSTRAINTS } from '../config/trade-constraints';
+import { calculateDollarPerPip } from '../utils/currencyHelpers';
 
 export interface KellyInputs {
   winRate: number; // 0-1 (e.g., 0.55 for 55%)
@@ -84,14 +85,14 @@ class KellyCriterionSizer {
     // If advisory triggered, use minimum lot size instead of zero
     if (advisory) {
       const minRiskAmount = currentBalance * 0.005; // 0.5% minimum risk
-      const pipValue = this.getPipValue(symbol);
+      const dollarPerPipAt1Lot = calculateDollarPerPip(symbol, 1.0);
       const minLotSize = this.MIN_LOT_SIZE;
 
       return {
         optimalFraction: fullKelly <= 0 ? 0 : fullKelly,
         conservativeFraction: 0.005, // 0.5% minimum risk
         recommendedLotSize: minLotSize,
-        riskAmount: minLotSize * avgLossPips * pipValue,
+        riskAmount: minLotSize * avgLossPips * dollarPerPipAt1Lot,
         reasoning: `⚠️ ADVISORY: ${advisory.message}. Using minimum lot size ${minLotSize}. RR: ${rewardRiskRatio.toFixed(2)}:1. Win rate: ${(winRate * 100).toFixed(1)}%. ${advisory.suggestion}`,
         kellyMultiplier: this.FRACTIONAL_KELLY,
         edgeStrength,
@@ -108,10 +109,9 @@ class KellyCriterionSizer {
     // Calculate risk amount
     const riskAmount = currentBalance * cappedFraction;
 
-    // Convert to lot size (assuming $10 per pip for standard lot)
-    // This will need adjustment based on symbol-specific pip values
-    const pipValue = this.getPipValue(symbol);
-    const recommendedLotSize = Math.max(0.01, riskAmount / (avgLossPips * pipValue));
+    // Convert to lot size using SSOT dollar-per-pip calculation
+    const dollarPerPipAt1Lot = calculateDollarPerPip(symbol, 1.0);
+    const recommendedLotSize = Math.max(0.01, riskAmount / (avgLossPips * dollarPerPipAt1Lot));
 
     // Round to nearest 0.01 lot
     const roundedLotSize = Math.round(recommendedLotSize * 100) / 100;
@@ -131,29 +131,11 @@ class KellyCriterionSizer {
       optimalFraction: fullKelly,
       conservativeFraction: cappedFraction,
       recommendedLotSize: roundedLotSize,
-      riskAmount: roundedLotSize * avgLossPips * pipValue,
+      riskAmount: roundedLotSize * avgLossPips * dollarPerPipAt1Lot,
       reasoning,
       kellyMultiplier: this.FRACTIONAL_KELLY,
       edgeStrength
     };
-  }
-
-
-  private getPipValue(symbol: string): number {
-    // Standard pip values for common pairs (per standard lot)
-    const pipValues: Record<string, number> = {
-      'EURUSD': 10,
-      'GBPUSD': 10,
-      'USDJPY': 9.09, // Approximate for 110 rate
-      'USDCHF': 10,
-      'AUDUSD': 10,
-      'NZDUSD': 10,
-      'USDCAD': 7.69, // Approximate for 1.30 rate
-      'XAUUSD': 10, // Gold
-      'XAGUSD': 5,  // Silver
-    };
-
-    return pipValues[symbol] || 10; // Default to $10
   }
 
   async getHistoricalStats(userId: string, symbol?: string): Promise<{
