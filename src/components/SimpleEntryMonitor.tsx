@@ -159,11 +159,11 @@ export const SimpleEntryMonitor: React.FC<SimpleEntryMonitorProps> = ({ sessionI
             <div className={`font-bold mb-1 text-sm sm:text-base ${
               inZone ? 'text-green-300' : 'text-blue-300'
             }`}>
-              {inZone ? 'IN ENTRY ZONE - Auto-executing...' : 'Waiting for Entry Zone'}
+              {inZone ? 'IN ENTRY ZONE - Monitoring for execution...' : 'Waiting for Entry Zone'}
             </div>
             <div className="text-xs sm:text-sm text-gray-300">
               {inZone
-                ? 'Price is in entry zone. Trade will execute automatically.'
+                ? 'Price is in entry zone. System is evaluating entry quality and timing for optimal execution.'
                 : `Price needs to ${activeIntent.direction === 'long' ? 'pull back' : 'rally'} ${distancePips.toFixed(2)} pips to reach entry zone.`
               }
             </div>

@@ -2578,12 +2578,28 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
           }
         }
 
+        // Calculate proper takeProfit for WAIT decisions (SSOT FIX: was hardcoded to currentPrice)
+        // Use same logic as BUY/SELL auto-correction (lines 2651-2663)
+        const entryMidpoint = (waitCondition.target_entry_zone_min + waitCondition.target_entry_zone_max) / 2;
+        const stopLossPrice = waitCondition.invalidation_price;
+        const slDistance = Math.abs(entryMidpoint - stopLossPrice);
+        const targetRR = 2.0; // Conservative R:R for WAIT decisions
+        const isWaitBuy = parsed.action === 'BUY';
+
+        // Calculate TP: entry ± (SL distance × R:R ratio)
+        const calculatedTP = isWaitBuy
+          ? entryMidpoint + (slDistance * targetRR)  // TP above entry for BUY
+          : entryMidpoint - (slDistance * targetRR); // TP below entry for SELL
+
+        // Use parsed.takeProfit if provided by LLM, otherwise use calculated
+        const finalTakeProfit = parsed.takeProfit || calculatedTP;
+
         return {
           action: 'WAIT',
           decision: 'WAIT',
-          entry: (waitCondition.target_entry_zone_min + waitCondition.target_entry_zone_max) / 2,
-          stopLoss: waitCondition.invalidation_price,
-          takeProfit: currentPrice,
+          entry: entryMidpoint,
+          stopLoss: stopLossPrice,
+          takeProfit: finalTakeProfit,
           confidence: Math.min(100, Math.max(0, tradeConfidence)),
           reasoning: parsed.reasoning || 'Waiting for better entry conditions',
           omega_summary: '',

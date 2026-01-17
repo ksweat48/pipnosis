@@ -461,7 +461,9 @@ class SmartGoalSessionManager {
         tp2_hit: data.tp2_hit,
         tp1_hit_at: data.tp1_hit_at,
         tp2_hit_at: data.tp2_hit_at,
-        tp1_learning_awarded: data.tp1_learning_awarded
+        tp1_learning_awarded: data.tp1_learning_awarded,
+        activePairsCount: data.active_pairs_count,
+        lastPairsUpdate: data.last_pairs_update
       };
 
       this.activeSessions.set(data.id, reconstructed);

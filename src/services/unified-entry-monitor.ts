@@ -908,6 +908,15 @@ export class UnifiedEntryMonitor {
               lastError = result.error || 'Unknown error';
               console.error(`[UnifiedMonitor] ❌ Attempt ${attempt} failed:`, lastError);
 
+              // Show user notification for each failure attempt (SSOT FIX: was silent)
+              if (attempt < MAX_RETRIES) {
+                globalToastManager.showToast(
+                  'warning',
+                  'Execution Retry',
+                  `Trade execution attempt ${attempt}/${MAX_RETRIES} failed for ${intent.symbol}. Retrying...`
+                );
+              }
+
               // If this is not the last attempt, wait with exponential backoff
               if (attempt < MAX_RETRIES) {
                 const delayMs = INITIAL_DELAY_MS * Math.pow(2, attempt - 1);
