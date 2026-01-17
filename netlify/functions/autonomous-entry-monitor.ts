@@ -540,19 +540,19 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
       opened_at: new Date().toISOString(),
       current_price: entryPrice,
       current_pnl: 0,
-      ai_confidence: fullIntent.alpha_confidence || eqsScore,
+      ai_confidence: Math.round(fullIntent.alpha_confidence || eqsScore),
       ai_reasoning: fullIntent.alpha_reasoning || marketContext?.omega_summary || 'Server-side auto-execution',
-      confidence_score: eqsScore,
+      confidence_score: Math.round(eqsScore),
       entry_intent_id: fullIntent.id,
       entry_intent_type: fullIntent.intent_type || 'limit',
       entry_urgency: fullIntent.urgency || 'normal',
-      entry_quality_score: eqsScore,
+      entry_quality_score: Math.round(eqsScore),
       time_to_entry_seconds: timeToEntrySeconds,
       ideal_entry_price: idealEntryPrice,
       entry_slippage_pips: Math.abs(entryPrice - idealEntryPrice) / pipInfo.pipValue,
-      eqs_score: eqsScore,
+      eqs_score: Math.round(eqsScore),
       entry_mode: 'monitored',
-      trade_confidence: eqsScore,
+      trade_confidence: Math.round(eqsScore),
       order_type: 'market'
     };
 
@@ -586,7 +586,7 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
         status: 'executed',
         executed_at: new Date().toISOString(),
         executed_price: entryPrice,
-        execution_eqs_score: eqsScore
+        execution_eqs_score: Math.round(eqsScore)
       })
       .eq('id', intent.intent_id);
 
