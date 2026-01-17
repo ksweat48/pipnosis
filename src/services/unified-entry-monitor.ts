@@ -638,10 +638,14 @@ export class UnifiedEntryMonitor {
       const createdAt = new Date(intent.created_at);
       const elapsedMinutes = (Date.now() - createdAt.getTime()) / (1000 * 60);
 
+      // Quick check if price is currently in zone (for edge loss calculation)
+      const quickZoneCheck = this.checkZoneEntry(priceData.price, intent, 0);
+      const isPriceInZone = quickZoneCheck.inZone;
+
       // Get time decay thresholds for this trade style
       const urgencyResult = await entryTimeDecayCoordinator.calculateUrgencyPhase(
         intent.trade_style || 'MICRO_INTRADAY',
-        elapsedMinutes
+        createdAt
       );
 
       if (isDev) {
@@ -658,7 +662,8 @@ export class UnifiedEntryMonitor {
       // Check for EDGE LOSS - if exceeded max wait time, trigger abandonment
       const edgeLossStatus = await entryTimeDecayCoordinator.checkEdgeLoss(
         intent.trade_style || 'MICRO_INTRADAY',
-        elapsedMinutes
+        createdAt,
+        isPriceInZone
       );
 
       if (edgeLossStatus.shouldTriggerModal) {

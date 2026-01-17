@@ -2,7 +2,7 @@
  * Entry Urgency Phase Timer Component
  *
  * Real-time countdown timer showing current urgency phase and time until next phase transition.
- * Uses EntryUrgencyCalculator as SSOT for phase logic.
+ * Uses entryTimeDecayCoordinator as SSOT for phase logic.
  *
  * Features:
  * - Live MM:SS countdown to next phase
@@ -13,7 +13,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Clock, Zap, Timer, AlertCircle } from 'lucide-react';
-import { EntryUrgencyCalculator, UrgencyPhaseResult } from '../services/entry-urgency-calculator';
+import { entryTimeDecayCoordinator, UrgencyPhaseResult } from '../services/entry-time-decay-coordinator';
 import type { EntryIntentData } from '../services/entry-intent-monitor-mode';
 
 interface EntryUrgencyPhaseTimerProps {
@@ -27,15 +27,13 @@ export const EntryUrgencyPhaseTimer: React.FC<EntryUrgencyPhaseTimerProps> = ({ 
   const [showPhaseTransition, setShowPhaseTransition] = useState(false);
 
   // Calculate urgency result from intent data
-  const calculateUrgency = useCallback(() => {
+  const calculateUrgency = useCallback(async () => {
     const createdAt = new Date(activeIntent.created_at);
-    const style = activeIntent.style || 'MICRO_INTRADAY';
-    const alphaConfidence = activeIntent.alpha_confidence || 60;
+    const style = activeIntent.trade_style || activeIntent.style || 'MICRO_INTRADAY';
 
-    const result = EntryUrgencyCalculator.calculateUrgency(
-      createdAt,
-      style as any,
-      alphaConfidence
+    const result = await entryTimeDecayCoordinator.calculateUrgencyPhase(
+      style,
+      createdAt
     );
 
     // Detect phase transition
@@ -50,10 +48,6 @@ export const EntryUrgencyPhaseTimer: React.FC<EntryUrgencyPhaseTimerProps> = ({ 
     // Calculate seconds remaining to next phase
     if (result.minutesUntilNextPhase !== null) {
       const totalSeconds = Math.floor(result.minutesUntilNextPhase * 60);
-      setSecondsRemaining(totalSeconds);
-    } else if (!result.isExpired) {
-      // Phase 3: Show seconds until expiry
-      const totalSeconds = Math.floor(result.minutesUntilExpiry * 60);
       setSecondsRemaining(totalSeconds);
     } else {
       setSecondsRemaining(0);
@@ -116,6 +110,7 @@ export const EntryUrgencyPhaseTimer: React.FC<EntryUrgencyPhaseTimerProps> = ({ 
 
   const colors = getPhaseColors(urgencyResult.phase);
   const isWarning = secondsRemaining <= 120; // Less than 2 minutes
+  const minutesElapsed = (Date.now() - new Date(activeIntent.created_at).getTime()) / 60000;
 
   return (
     <div
@@ -143,36 +138,29 @@ export const EntryUrgencyPhaseTimer: React.FC<EntryUrgencyPhaseTimerProps> = ({ 
           {/* Phase Description */}
           <div>
             <div className={`text-xs sm:text-sm font-semibold ${colors.text}`}>
-              {EntryUrgencyCalculator.getPhaseDescription(urgencyResult.phase)}
+              {urgencyResult.timeDescription}
             </div>
             <div className="text-xs text-gray-400">
-              EQS: {urgencyResult.timeAdjustedThreshold}/75
+              EQS: {urgencyResult.eqsThreshold}
             </div>
           </div>
         </div>
 
         {/* Countdown Timer */}
         <div className="flex flex-col items-end">
-          {urgencyResult.isExpired ? (
-            <div className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg bg-red-500/30 border-2 border-red-500">
-              <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 text-red-400" />
-              <span className="text-base sm:text-xl font-bold text-red-400">EXPIRED</span>
+          <>
+            <div className="text-xs text-gray-400 mb-1">
+              {urgencyResult.minutesUntilNextPhase !== null ? 'Next Phase In' : 'Phase 3 Active'}
             </div>
-          ) : (
-            <>
-              <div className="text-xs text-gray-400 mb-1">
-                {urgencyResult.minutesUntilNextPhase !== null ? 'Next Phase In' : 'Expires In'}
-              </div>
-              <div className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg border-2 ${
-                isWarning ? 'bg-orange-500/30 border-orange-500 animate-pulse' : `${colors.bg} ${colors.border}`
-              }`}>
-                <Timer className={`w-4 h-4 sm:w-5 sm:h-5 ${isWarning ? 'text-orange-400' : colors.text}`} />
-                <span className={`text-xl sm:text-3xl font-mono font-bold ${isWarning ? 'text-orange-400' : colors.text}`}>
-                  {formatMMSS(secondsRemaining)}
-                </span>
-              </div>
-            </>
-          )}
+            <div className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg border-2 ${
+              isWarning ? 'bg-orange-500/30 border-orange-500 animate-pulse' : `${colors.bg} ${colors.border}`
+            }`}>
+              <Timer className={`w-4 h-4 sm:w-5 sm:h-5 ${isWarning ? 'text-orange-400' : colors.text}`} />
+              <span className={`text-xl sm:text-3xl font-mono font-bold ${isWarning ? 'text-orange-400' : colors.text}`}>
+                {formatMMSS(secondsRemaining)}
+              </span>
+            </div>
+          </>
         </div>
       </div>
 
@@ -181,7 +169,7 @@ export const EntryUrgencyPhaseTimer: React.FC<EntryUrgencyPhaseTimerProps> = ({ 
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs text-gray-400">Phase Progression</span>
           <span className="text-xs text-gray-400">
-            Elapsed: {EntryUrgencyCalculator.formatTimeRemaining(urgencyResult.minutesElapsed)}
+            Elapsed: {formatMMSS(Math.floor(minutesElapsed * 60))}
           </span>
         </div>
         <div className="flex gap-1.5 sm:gap-2">
@@ -210,39 +198,10 @@ export const EntryUrgencyPhaseTimer: React.FC<EntryUrgencyPhaseTimerProps> = ({ 
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs text-gray-400">EQS Threshold</span>
           <span className={`text-xs sm:text-sm font-mono font-bold ${colors.text}`}>
-            {urgencyResult.timeAdjustedThreshold}/75
+            {urgencyResult.eqsThreshold}
           </span>
         </div>
         <div className="relative w-full h-2.5 sm:h-3 bg-gray-800 rounded-full border border-gray-700 overflow-hidden">
-          {/* Threshold markers */}
-          <div
-            className="absolute top-0 bottom-0 w-0.5 bg-blue-400 z-10"
-            style={{ left: '53.3%' }}
-            title="Phase 1: 40/75"
-          >
-            <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-xs text-blue-400 whitespace-nowrap hidden sm:block">
-              40
-            </div>
-          </div>
-          <div
-            className="absolute top-0 bottom-0 w-0.5 bg-yellow-400 z-10"
-            style={{ left: '44%' }}
-            title="Phase 2: 33/75"
-          >
-            <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-xs text-yellow-400 whitespace-nowrap hidden sm:block">
-              33
-            </div>
-          </div>
-          <div
-            className="absolute top-0 bottom-0 w-0.5 bg-red-400 z-10"
-            style={{ left: '33.3%' }}
-            title="Phase 3: 25/75"
-          >
-            <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-xs text-red-400 whitespace-nowrap hidden sm:block">
-              25
-            </div>
-          </div>
-
           {/* Current threshold indicator */}
           <div
             className={`absolute top-0 bottom-0 h-full transition-all duration-500 bg-gradient-to-r ${
@@ -252,8 +211,13 @@ export const EntryUrgencyPhaseTimer: React.FC<EntryUrgencyPhaseTimerProps> = ({ 
                 ? 'from-yellow-500 to-yellow-600'
                 : 'from-red-500 to-red-600'
             }`}
-            style={{ width: `${(urgencyResult.timeAdjustedThreshold / 75) * 100}%` }}
+            style={{ width: `${Math.min(100, (urgencyResult.eqsThreshold / 70) * 100)}%` }}
           />
+        </div>
+        <div className="flex justify-between mt-1 text-xs text-gray-500">
+          <span>Phase 1: 70</span>
+          <span>Phase 2: 60</span>
+          <span>Phase 3: 50</span>
         </div>
       </div>
 
@@ -262,11 +226,11 @@ export const EntryUrgencyPhaseTimer: React.FC<EntryUrgencyPhaseTimerProps> = ({ 
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs text-gray-400">Entry Zone Tolerance</span>
           <span className={`text-xs sm:text-sm font-mono font-bold ${colors.text}`}>
-            {urgencyResult.zoneTolerancePips === 0 ? 'Exact' : `±${urgencyResult.zoneTolerancePips} pips`}
+            {urgencyResult.zoneTolerance === 0 ? 'Exact' : `±${urgencyResult.zoneTolerance}%`}
           </span>
         </div>
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700">
-          {urgencyResult.zoneTolerancePips === 0 ? (
+          {urgencyResult.zoneTolerance === 0 ? (
             <div className="flex items-center gap-2 text-xs text-gray-300">
               <div className="w-2 h-2 rounded-full bg-blue-400" />
               <span>Must be exactly in zone</span>
@@ -274,29 +238,16 @@ export const EntryUrgencyPhaseTimer: React.FC<EntryUrgencyPhaseTimerProps> = ({ 
           ) : urgencyResult.phase === 2 ? (
             <div className="flex items-center gap-2 text-xs text-gray-300">
               <div className="w-2 h-2 rounded-full bg-yellow-400" />
-              <span>Near zone acceptable (within {urgencyResult.zoneTolerancePips} pips)</span>
+              <span>Near zone acceptable (within {urgencyResult.zoneTolerance}% tolerance)</span>
             </div>
           ) : (
             <div className="flex items-center gap-2 text-xs text-gray-300">
               <div className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
-              <span>Continuation entries allowed (within {urgencyResult.zoneTolerancePips} pips)</span>
+              <span>Continuation entries allowed (within {urgencyResult.zoneTolerance}% tolerance)</span>
             </div>
           )}
         </div>
       </div>
-
-      {/* Acceleration Info - Hidden on mobile for space */}
-      {urgencyResult.accelerationFactor < 1 && (
-        <div className="hidden sm:block mt-3 pt-3 border-t border-gray-700">
-          <div className="flex items-center gap-2 text-xs">
-            <Zap className="w-3 h-3 text-purple-400" />
-            <span className="text-gray-400">
-              High confidence ({activeIntent.alpha_confidence}%) accelerating phases by{' '}
-              {Math.round((1 - urgencyResult.accelerationFactor) * 100)}%
-            </span>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
