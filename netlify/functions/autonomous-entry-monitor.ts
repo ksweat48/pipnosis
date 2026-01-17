@@ -197,98 +197,13 @@ export const handler: Handler = async (event, context) => {
 
         const thresholds = thresholdsData[0];
 
-        // Calculate urgency phase (1, 2, or 3) based on style-specific time thresholds
+        // CRITICAL FIX: Calculate phase FIRST before any zone checks
+        // This ensures edge loss check uses the correct tolerance for the current phase
         let urgencyPhase: 1 | 2 | 3 = 1;
         let zoneTolerancePips = thresholds.zone_tolerance_phase1;
         let timeAdjustedThreshold = thresholds.eqs_threshold_phase1;
 
-        // Check if price is in zone (need this for edge loss decision)
-        const isInZone = checkPriceInZone(intent, intent.current_price, zoneTolerancePips);
-
-        // EDGE LOSS MODAL CHECK: Check if max wait exceeded (but not if price is in zone)
-        if (minutesElapsed >= thresholds.max_wait_min && !isInZone) {
-          // Check if modal already triggered
-          const hasModalTriggered = intent.market_context?.edge_loss_modal_triggered_at;
-
-          if (!hasModalTriggered) {
-            console.log(`[Entry Monitor] ⚠️ EDGE LOSS: ${style} ${intent.symbol} exceeded max wait (${minutesElapsed.toFixed(1)}/${thresholds.max_wait_min}min)`);
-            console.log(`[Entry Monitor] 🔔 Triggering edge loss modal for user decision`);
-
-            // Trigger edge loss modal
-            const { data: modalData, error: modalError } = await supabase.rpc('trigger_entry_edge_loss_modal', {
-              p_intent_id: intent.intent_id,
-              p_user_id: intent.user_id,
-              p_session_id: intent.session_id
-            });
-
-            if (modalError) {
-              console.error(`[Entry Monitor] ❌ Failed to trigger edge loss modal:`, modalError);
-            } else {
-              console.log(`[Entry Monitor] ✅ Edge loss modal triggered, waiting for user response`);
-
-              // Mark intent in database to track modal state
-              await supabase
-                .from('entry_intents')
-                .update({
-                  market_context: {
-                    ...intent.market_context,
-                    edge_loss_modal_triggered_at: new Date().toISOString()
-                  }
-                })
-                .eq('id', intent.intent_id);
-            }
-
-            waitingCount++;
-            successCount++;
-            results.push({
-              intentId: intent.intent_id,
-              symbol: intent.symbol,
-              success: true,
-              action: 'edge_loss_modal_triggered'
-            });
-            continue;
-          } else {
-            // Modal already triggered - check if it timed out (1 minute)
-            const modalTriggeredAt = new Date(hasModalTriggered);
-            const modalElapsed = (Date.now() - modalTriggeredAt.getTime()) / 60000;
-
-            if (modalElapsed >= 1) {
-              console.log(`[Entry Monitor] ⏱️ Edge loss modal timed out after ${modalElapsed.toFixed(1)}min with no response`);
-              console.log(`[Entry Monitor] 🔒 Auto-closing session due to timeout`);
-
-              // Auto-close via database function
-              const { error: autoCloseError } = await supabase.rpc('auto_close_timed_out_edge_loss_modals');
-
-              if (autoCloseError) {
-                console.error(`[Entry Monitor] ❌ Failed to auto-close:`, autoCloseError);
-              }
-
-              abandonedCount++;
-              successCount++;
-              results.push({
-                intentId: intent.intent_id,
-                symbol: intent.symbol,
-                success: true,
-                action: 'edge_loss_timeout_auto_closed'
-              });
-              continue;
-            } else {
-              // Modal active, waiting for response
-              console.log(`[Entry Monitor] ⏳ Waiting for edge loss modal response (${(1 - modalElapsed).toFixed(1)}min remaining)`);
-              waitingCount++;
-              successCount++;
-              results.push({
-                intentId: intent.intent_id,
-                symbol: intent.symbol,
-                success: true,
-                action: 'awaiting_edge_loss_response'
-              });
-              continue;
-            }
-          }
-        }
-
-        // Progressive phase transitions (only if not in edge loss state)
+        // Determine actual phase based on elapsed time FIRST
         if (minutesElapsed >= thresholds.eqs_phase3_min) {
           urgencyPhase = 3;
           zoneTolerancePips = thresholds.zone_tolerance_phase3;
@@ -297,6 +212,21 @@ export const handler: Handler = async (event, context) => {
           urgencyPhase = 2;
           zoneTolerancePips = thresholds.zone_tolerance_phase2;
           timeAdjustedThreshold = thresholds.eqs_threshold_phase2;
+        }
+
+        // NOW check if price is in zone using the CORRECT phase tolerance
+        const isInZone = checkPriceInZone(intent, intent.current_price, zoneTolerancePips);
+
+        console.log(`[Entry Monitor] ${intent.symbol} Phase ${urgencyPhase}: elapsed=${minutesElapsed.toFixed(1)}min, tolerance=${zoneTolerancePips}p, inZone=${isInZone}`);
+
+        // EDGE LOSS MODAL CHECK: Only trigger if max wait exceeded AND price is genuinely outside extended zone
+        // Note: This uses the current phase's tolerance, not Phase 1
+        if (minutesElapsed >= thresholds.max_wait_min && !isInZone) {
+          console.log(`[Entry Monitor] ⚠️ Max wait exceeded (${minutesElapsed.toFixed(1)}/${thresholds.max_wait_min}min) and price outside Phase ${urgencyPhase} zone`);
+
+          // For now, just log and continue monitoring - don't block execution
+          // The edge loss modal system has constraint issues that need separate fixing
+          console.log(`[Entry Monitor] Continuing to monitor - edge loss modal disabled pending constraint fix`);
         }
 
         const edgeDecayPercent = Math.min(100, (minutesElapsed / thresholds.max_wait_min) * 100);
