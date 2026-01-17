@@ -1583,7 +1583,7 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
               session_id: goalContext?.sessionId || null,
               resolution: 'blocked_no_repair',
               created_at: new Date().toISOString()
-            }).catch(error => {
+            }).then(() => {}).catch(error => {
               console.error('[Alpha Coordinator] Failed to log SSOT violation:', error);
             });
           }
@@ -2617,7 +2617,7 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
               reasoning: parsed.reasoning,
               timestamp: new Date().toISOString(),
             }
-          }).catch(err => console.error('[Alpha Coordinator] Failed to log SSOT violation:', err));
+          });
 
           return {
             action: 'NO_TRADE',
@@ -2721,7 +2721,7 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
             },
             resolution: 'hard_blocked',
             created_at: new Date().toISOString()
-          }).catch(error => {
+          }).then(() => {}).catch(error => {
             console.error('[Alpha Coordinator] Failed to log SL geometry violation:', error);
           });
         }
@@ -2755,7 +2755,7 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
             },
             resolution: 'hard_blocked',
             created_at: new Date().toISOString()
-          }).catch(error => {
+          }).then(() => {}).catch(error => {
             console.error('[Alpha Coordinator] Failed to log TP geometry violation:', error);
           });
         }
