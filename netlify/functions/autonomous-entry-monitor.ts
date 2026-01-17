@@ -301,8 +301,32 @@ export const handler: Handler = async (event, context) => {
         const edgeDecayPercent = Math.min(100, (minutesElapsed / thresholds.max_wait_min) * 100);
         console.log(`[Entry Monitor] ${intent.symbol} Phase ${urgencyPhase}: ${minutesElapsed.toFixed(1)}/${thresholds.max_wait_min}min | Edge: ${edgeDecayPercent.toFixed(0)}% | Tolerance: ${zoneTolerancePips}p | EQS: ${timeAdjustedThreshold}`);
 
+        // CRITICAL FIX: Persist phase progression to database
+        // This ensures UI and subsequent checks use current phase thresholds
+        const updatePayload: any = {
+          urgency_phase: urgencyPhase,
+          zone_tolerance_pips: zoneTolerancePips,
+          time_adjusted_threshold: timeAdjustedThreshold,
+          last_checked_at: new Date().toISOString()
+        };
+
+        // Track phase transitions - update phase_entered_at only when phase changes
+        if (intent.urgency_phase !== urgencyPhase) {
+          updatePayload.phase_entered_at = new Date().toISOString();
+          console.log(`[Entry Monitor] 🔄 Phase transition: ${intent.urgency_phase || 1} → ${urgencyPhase} for ${intent.symbol}`);
+        }
+
+        const { error: updateError } = await supabase
+          .from('entry_intents')
+          .update(updatePayload)
+          .eq('id', intent.intent_id);
+
+        if (updateError) {
+          console.error(`[Entry Monitor] ⚠️ Failed to update phase for ${intent.symbol}:`, updateError);
+        }
+
         // Calculate EQS score (simplified server-side version)
-        const eqsScore = calculateSimplifiedEQS(intent, intent.current_price);
+        const eqsScore = calculateSimplifiedEQS(intent, intent.current_price, urgencyPhase, zoneTolerancePips);
 
         // Re-check if price is in zone with updated tolerance from current phase
         const isInZoneWithPhase = checkPriceInZone(intent, intent.current_price, zoneTolerancePips);
@@ -446,19 +470,36 @@ export const handler: Handler = async (event, context) => {
 };
 
 // Helper: Calculate simplified EQS score server-side
-function calculateSimplifiedEQS(intent: IntentForMonitoring, currentPrice: number): number {
+// ENHANCED: More forgiving scoring in Phase 2/3 with tolerance-aware calculation
+function calculateSimplifiedEQS(
+  intent: IntentForMonitoring,
+  currentPrice: number,
+  phase: number,
+  tolerancePips: number
+): number {
   let score = 50;
 
-  // Zone proximity (0-30 points)
+  // Zone proximity with tolerance (0-30 points)
+  const pipValue = intent.symbol.includes('JPY') ? 0.01 : 0.0001;
+  const tolerance = tolerancePips * pipValue;
+
   const zoneMid = (intent.entry_zone_min + intent.entry_zone_max) / 2;
   const zoneRange = intent.entry_zone_max - intent.entry_zone_min;
+  const extendedRange = zoneRange + (2 * tolerance); // Account for both sides
   const distanceFromMid = Math.abs(currentPrice - zoneMid);
-  const proximityScore = Math.max(0, 30 * (1 - distanceFromMid / zoneRange));
+
+  // More forgiving proximity calculation with tolerance
+  const proximityScore = Math.max(0, 30 * (1 - distanceFromMid / Math.max(extendedRange, zoneRange)));
   score += proximityScore;
 
   // Alpha confidence bonus (0-20 points)
   const confidenceBonus = Math.max(0, (intent.alpha_confidence - 50) / 50 * 20);
   score += confidenceBonus;
+
+  // Phase urgency bonus (0-10 points)
+  // Give bonus points in later phases to increase execution probability
+  const phaseBonus = (phase - 1) * 5; // Phase 2: +5, Phase 3: +10
+  score += phaseBonus;
 
   return Math.min(100, Math.max(0, score));
 }
