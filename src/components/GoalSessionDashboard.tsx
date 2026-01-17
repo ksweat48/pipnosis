@@ -21,6 +21,7 @@ import { useToast } from '../hooks/useToast';
 import { calculatePnL } from '../types/position';
 import { positionService } from '../services/position-service';
 import { continuationHandler } from '../services/continuation-handler';
+import { getForexMarketStatus } from '../utils/marketHours';
 // GoalScanReadinessIndicator removed - using simple indicator
 
 export const GoalSessionDashboard: React.FC = () => {
@@ -240,6 +241,49 @@ export const GoalSessionDashboard: React.FC = () => {
       // No cleanup needed - next render will handle it
     };
   }, [activeSession?.sessionId, activeSession?.status]);
+
+  // CRITICAL: Subscribe to active_pairs_count updates from goal-scanner
+  // This ensures the UI displays the correct filtered count when markets close
+  useEffect(() => {
+    if (!user || !activeSession) return;
+
+    console.log('[GoalSessionDashboard] 🔌 Setting up realtime subscription for active_pairs_count updates');
+
+    const channel = supabase
+      .channel('active-pairs-count-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'goal_sessions',
+          filter: `id=eq.${activeSession.sessionId}`
+        },
+        (payload) => {
+          const newPairsCount = payload.new.active_pairs_count;
+          const oldPairsCount = payload.old?.active_pairs_count;
+
+          if (newPairsCount !== oldPairsCount) {
+            console.log(`[GoalSessionDashboard] 📊 Active pairs count updated: ${oldPairsCount} → ${newPairsCount}`);
+
+            // Update activeSession with new count
+            setActiveSession(prev => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                activePairsCount: newPairsCount
+              };
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      console.log('[GoalSessionDashboard] 🔌 Cleaning up active_pairs_count subscription');
+      supabase.removeChannel(channel);
+    };
+  }, [user, activeSession?.sessionId]);
 
   // Fetch live prices for open trades
   useEffect(() => {
@@ -471,6 +515,28 @@ export const GoalSessionDashboard: React.FC = () => {
     }
 
     return price.toFixed(5);
+  };
+
+  /**
+   * SSOT: Filter watchlist based on market hours
+   * Crypto (BTCUSD, ETHUSD) = 24/7
+   * Forex/Indices = Only when Forex market is open
+   */
+  const getActiveWatchlist = (fullWatchlist: string[]): string[] => {
+    const forexStatus = getForexMarketStatus();
+
+    if (forexStatus.isOpen) {
+      // All markets open - return full watchlist
+      return fullWatchlist;
+    }
+
+    // Forex closed - return only crypto pairs
+    const cryptoSymbols = ['BTCUSD', 'ETHUSD'];
+    const filteredList = fullWatchlist.filter(symbol => cryptoSymbols.includes(symbol));
+
+    console.log(`[GoalSessionDashboard] Forex closed - filtering watchlist: ${fullWatchlist.length} → ${filteredList.length} (crypto only)`);
+
+    return filteredList;
   };
 
   const handleContinuationResponse = async (response: 'continue' | 'stop') => {
@@ -1602,9 +1668,9 @@ export const GoalSessionDashboard: React.FC = () => {
               sessionId={activeSession.sessionId}
               hasActiveTrades={openTrades.length > 0}
               isScanning={true}
-              activePairsCount={activeSession.activePairsCount || activeSession.config.watchlist.length}
+              activePairsCount={activeSession.activePairsCount || getActiveWatchlist(activeSession.config.watchlist).length}
               totalPairs={activeSession.config.watchlist.length}
-              watchlist={activeSession.config.watchlist}
+              watchlist={getActiveWatchlist(activeSession.config.watchlist)}
             />
           )}
         </div>
