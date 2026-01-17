@@ -1550,31 +1550,42 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
             decision.confidence = Math.min(100, decision.confidence + 5);
             decision.reasoning += ` [Revised based on constraints: ${revisionResponse.revisionReasoning}]`;
           } else {
-            console.log('[Alpha Coordinator] ⚠️ Alpha did not revise - applying auto-corrections if needed');
+            // ALPHA AUTHORITY PRINCIPLE: If Alpha declined revision, block the trade
+            // Do NOT silently correct. Only Alpha decides SL/TP.
+            console.log('[Alpha Coordinator] ❌ Alpha declined revision - blocking trade');
+            console.log('[Alpha Coordinator] Constraint violations unresolved:');
+            violations.forEach(v => console.log(`  - ${v.message}`));
 
-            // Phase 3: Auto-correct decision to meet minimum constraints
-            const autoCorrection = omega9ConstraintProvider.autoCorrectDecision(
-              {
-                entry: decision.entry,
-                stopLoss: decision.stopLoss,
-                takeProfit: decision.takeProfit,
-                direction: decision.action as 'BUY' | 'SELL'
+            // Block trade
+            decision.action = 'NO_TRADE';
+            decision.decision = 'NO_TRADE';
+            decision.confidence = 0;
+            decision.reasoning = `Constraint violations not resolved by Alpha: ${violations.map(v => v.message).join('; ')}`;
+
+            // Log SSOT violation for learning and prompt improvement (fire-and-forget)
+            supabase.from('ssot_violations').insert({
+              violation_type: 'ALPHA_CONSTRAINT_VIOLATION_UNRESOLVED',
+              severity: 'high',
+              source_module: 'coordinator-alpha.constraint_validation',
+              violation_details: {
+                symbol: marketContext.symbol,
+                violations: violations.map(v => ({ type: v.type, message: v.message, severity: v.severity })),
+                originalDecision: {
+                  action: decision.action,
+                  entry: decision.entry,
+                  stopLoss: decision.stopLoss,
+                  takeProfit: decision.takeProfit,
+                  risk_pct: decision.risk_pct,
+                  confidence: decision.confidence
+                }
               },
-              omega9Constraints,
-              marketContext.symbol
-            );
-
-            if (autoCorrection.corrected) {
-              console.log('[Alpha Coordinator] 🔧 Auto-corrections applied:');
-              autoCorrection.corrections.forEach(c => console.log(`  - ${c}`));
-
-              if (autoCorrection.newStopLoss) decision.stopLoss = autoCorrection.newStopLoss;
-              if (autoCorrection.newTakeProfit) decision.takeProfit = autoCorrection.newTakeProfit;
-
-              // Apply moderate confidence penalty for auto-correction (-10%)
-              decision.confidence = Math.max(0, decision.confidence - 10);
-              decision.reasoning += ` [Auto-corrected: ${autoCorrection.corrections.join('; ')}]`;
-            }
+              user_id: userId || null,
+              session_id: goalContext?.sessionId || null,
+              resolution: 'blocked_no_repair',
+              created_at: new Date().toISOString()
+            }).catch(error => {
+              console.error('[Alpha Coordinator] Failed to log SSOT violation:', error);
+            });
           }
         } else {
           console.log('[Alpha Coordinator] ✅ Decision within all constraints');
@@ -2682,50 +2693,71 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
         catastrophicError = true;
       }
 
-      // 1. Check if SL is on WRONG SIDE of entry (mathematical impossibility)
+      // 1. Check if SL is on WRONG SIDE of entry (HARD BLOCK - geometry invalid)
       if (stopLoss) {
         const slOnWrongSide = (isBuy && stopLoss > entry) || (!isBuy && stopLoss < entry);
         if (slOnWrongSide) {
-          // AUTO-CORRECT: Use calculated anchor instead of blocking
-          if (stopLossAnchor) {
-            console.warn(`[Alpha Coordinator] ⚠️ Stop on WRONG SIDE (${action}: SL ${stopLoss} vs Entry ${entry}) - Auto-correcting to anchor: ${stopLossAnchor.stopLossPrice.toFixed(5)}`);
-            stopLoss = stopLossAnchor.stopLossPrice;
-          } else {
-            errorReason = `Stop on WRONG SIDE of entry (${action}: SL ${stopLoss} vs Entry ${entry}) - No anchor available`;
-            catastrophicError = true;
-          }
+          // ALPHA AUTHORITY: Do NOT auto-correct. Only Alpha decides SL.
+          // Wrong-side SL is a hard block (geometry invalid).
+          console.error(`[Alpha Coordinator] 🚨 GEOMETRY ERROR: Stop Loss on WRONG SIDE`);
+          console.error(`[Alpha Coordinator] ${action} trade: Entry=${entry.toFixed(5)}, SL=${stopLoss.toFixed(5)}`);
+          console.error(`[Alpha Coordinator] For ${isBuy ? 'BUY' : 'SELL'}, SL must be ${isBuy ? 'below' : 'above'} entry`);
+
+          errorReason = `Stop Loss on WRONG SIDE of entry (${action}: Entry=${entry.toFixed(5)}, SL=${stopLoss.toFixed(5)})`;
+          catastrophicError = true;
+
+          // Log SSOT violation for learning (fire-and-forget)
+          supabase.from('ssot_violations').insert({
+            violation_type: 'ALPHA_SL_WRONG_SIDE',
+            severity: 'critical',
+            source_module: 'coordinator-alpha.parseDecision',
+            violation_details: {
+              symbol,
+              action,
+              direction: isBuy ? 'BUY' : 'SELL',
+              entry,
+              stopLoss,
+              expectedSide: isBuy ? 'below entry' : 'above entry'
+            },
+            resolution: 'hard_blocked',
+            created_at: new Date().toISOString()
+          }).catch(error => {
+            console.error('[Alpha Coordinator] Failed to log SL geometry violation:', error);
+          });
         }
       }
 
-      // 2. Check if TP is on WRONG SIDE of entry
+      // 2. Check if TP is on WRONG SIDE of entry (HARD BLOCK - geometry invalid)
       if (takeProfit) {
         const tpOnWrongSide = (isBuy && takeProfit < entry) || (!isBuy && takeProfit > entry);
         if (tpOnWrongSide) {
-          // DEFENSIVE FIX: Auto-correct TP instead of blocking
-          console.warn(`[Alpha Coordinator] ⚠️ TP on WRONG SIDE - auto-correcting`);
-          console.warn(`[Alpha Coordinator] Original: ${action} Entry=${entry.toFixed(5)} TP=${takeProfit.toFixed(5)} (TP ${isBuy ? 'below' : 'above'} entry)`);
+          // ALPHA AUTHORITY: Do NOT auto-correct with hardcoded 1.5:1 R:R. Only Alpha decides TP.
+          // Wrong-side TP is a hard block (geometry invalid).
+          console.error(`[Alpha Coordinator] 🚨 GEOMETRY ERROR: Take Profit on WRONG SIDE`);
+          console.error(`[Alpha Coordinator] ${action} trade: Entry=${entry.toFixed(5)}, TP=${takeProfit.toFixed(5)}`);
+          console.error(`[Alpha Coordinator] For ${isBuy ? 'BUY' : 'SELL'}, TP must be ${isBuy ? 'above' : 'below'} entry`);
 
-          // Calculate correct TP based on SL distance with 1.5:1 R:R
-          if (stopLoss) {
-            const slDistance = Math.abs(entry - stopLoss);
-            const rrRatio = 1.5; // Conservative R:R for auto-correction
+          errorReason = `Take Profit on WRONG SIDE of entry (${action}: Entry=${entry.toFixed(5)}, TP=${takeProfit.toFixed(5)})`;
+          catastrophicError = true;
 
-            if (isBuy) {
-              takeProfit = entry + (slDistance * rrRatio); // TP above entry for BUY
-            } else {
-              takeProfit = entry - (slDistance * rrRatio); // TP below entry for SELL
-            }
-
-            console.warn(`[Alpha Coordinator] ✅ Corrected: ${action} Entry=${entry.toFixed(5)} TP=${takeProfit.toFixed(5)} (R:R ${rrRatio}:1)`);
-            console.warn(`[Alpha Coordinator] Applied -15% confidence penalty for LLM TP calculation error`);
-
-            // Apply heavy confidence penalty for LLM error but don't block
-            adjustedConfidence = Math.max(0, adjustedConfidence - 15);
-          } else {
-            // Cannot auto-correct without valid SL - must block
-            errorReason = `TP on WRONG SIDE of entry (${action}: TP ${takeProfit} vs Entry ${entry}) and no valid SL to calculate correction`;
-            catastrophicError = true;
-          }
+          // Log SSOT violation for learning (fire-and-forget)
+          supabase.from('ssot_violations').insert({
+            violation_type: 'ALPHA_TP_WRONG_SIDE',
+            severity: 'critical',
+            source_module: 'coordinator-alpha.parseDecision',
+            violation_details: {
+              symbol,
+              action,
+              direction: isBuy ? 'BUY' : 'SELL',
+              entry,
+              takeProfit,
+              expectedSide: isBuy ? 'above entry' : 'below entry'
+            },
+            resolution: 'hard_blocked',
+            created_at: new Date().toISOString()
+          }).catch(error => {
+            console.error('[Alpha Coordinator] Failed to log TP geometry violation:', error);
+          });
         }
       }
 

@@ -380,99 +380,63 @@ class Omega9ConstraintProvider {
   }
 
   /**
-   * Auto-correct decision to meet minimum constraints
-   * Used when Alpha's decision violates basic requirements
+   * REMOVED: autoCorrectDecision() method
+   *
+   * ALPHA AUTHORITY PRINCIPLE:
+   * This service provides constraint boundaries for Alpha, but does NOT auto-correct decisions.
+   * Only Alpha may decide SL/TP values.
+   *
+   * Previous behavior: Auto-corrected TP to meet R:R and maximum pip constraints
+   * New behavior: Constraints are provided to Alpha upfront; violations trigger Alpha Repair Pass
+   *
+   * Use getConstraintRanges() for advisory ranges
+   * Use validateAgainstConstraints() for violation detection
    */
-  autoCorrectDecision(
-    decision: {
-      entry: number;
-      stopLoss: number;
-      takeProfit: number;
-      direction: 'BUY' | 'SELL';
-    },
+
+  /**
+   * Get constraint ranges for Alpha Repair (advisory only)
+   * Returns price ranges, not corrections
+   */
+  getConstraintRanges(
+    entry: number,
+    direction: 'BUY' | 'SELL',
     constraints: Omega9Constraints,
     symbol: string
   ): {
-    corrected: boolean;
-    newStopLoss?: number;
-    newTakeProfit?: number;
-    corrections: string[];
-    infeasible?: boolean;
+    slRange: { min: number; max: number; unit: string };
+    tpRange: { min: number; max: number; unit: string };
+    rrRange: { min: number; max: number; unit: string };
   } {
-    const corrections: string[] = [];
-    let newStopLoss = decision.stopLoss;
-    let newTakeProfit = decision.takeProfit;
-    let corrected = false;
-
-    // Get currency-specific pip info for proper price conversions
     const pipInfo = getCurrencyPipInfo(symbol);
+    const isBuy = direction === 'BUY';
 
-    const slPips = calculatePipDistance(symbol, decision.entry, decision.stopLoss);
-    const tpPips = calculatePipDistance(symbol, decision.entry, decision.takeProfit);
-    const rr = slPips > 0 ? tpPips / slPips : 0;
+    // Calculate SL price range
+    const minSLPriceDistance = constraints.minStopLossPips * pipInfo.pipValue;
+    const maxSLPriceDistance = constraints.maxStopLossPips * pipInfo.pipValue;
 
-    // Note: Infeasibility checks are now handled by the feasibility resolver (SSOT)
-    // If we reach this point, constraints should be feasible
-
-    // Auto-correct TP maximum violation first (sanity check constraint)
-    if (tpPips > constraints.maxTakeProfitPips) {
-      const isBuy = decision.direction === 'BUY';
-
-      // FIXED: Use proper pip-to-price conversion for this symbol
-      const tpPriceDistance = constraints.maxTakeProfitPips * pipInfo.pipValue;
-
-      if (isBuy) {
-        newTakeProfit = decision.entry + tpPriceDistance;
-      } else {
-        newTakeProfit = decision.entry - tpPriceDistance;
-      }
-
-      corrections.push(`Auto-corrected TP from ${tpPips.toFixed(1)} pips to ${constraints.maxTakeProfitPips.toFixed(1)} pips (maximum constraint)`);
-      corrected = true;
-    }
-
-    // Now check R:R with the potentially corrected TP
-    const finalTPPips = calculatePipDistance(symbol, decision.entry, newTakeProfit);
-    const finalRR = slPips > 0 ? finalTPPips / slPips : 0;
-
-    // Auto-correct R:R < minRiskReward (respects the constraint's actual minimum)
-    // Only if it won't violate the maximum we just applied
-    if (finalRR < constraints.minRiskReward) {
-      const minTPPips = slPips * constraints.minRiskReward;
-
-      // Double-check maximum (should not happen after previous check, but safety)
-      if (minTPPips <= constraints.maxTakeProfitPips) {
-        const isBuy = decision.direction === 'BUY';
-
-        // FIXED: Use proper pip-to-price conversion for this symbol
-        const tpPriceDistance = minTPPips * pipInfo.pipValue;
-
-        if (isBuy) {
-          newTakeProfit = decision.entry + tpPriceDistance;
-        } else {
-          newTakeProfit = decision.entry - tpPriceDistance;
-        }
-
-        corrections.push(`Auto-corrected TP from ${finalTPPips.toFixed(1)} pips to ${minTPPips.toFixed(1)} pips (R:R ${finalRR.toFixed(2)} → ${constraints.minRiskReward.toFixed(2)})`);
-        corrected = true;
-      } else {
-        // This should have been caught earlier but just in case
-        corrections.push(`Cannot correct R:R: would violate maximum constraint`);
-        return {
-          corrected: false,
-          infeasible: true,
-          corrections
-        };
-      }
-    }
-
-    return {
-      corrected,
-      newStopLoss: corrected ? newStopLoss : undefined,
-      newTakeProfit: corrected ? newTakeProfit : undefined,
-      corrections,
-      infeasible: false
+    const slRange = {
+      min: isBuy ? entry - maxSLPriceDistance : entry + minSLPriceDistance,
+      max: isBuy ? entry - minSLPriceDistance : entry + maxSLPriceDistance,
+      unit: 'price'
     };
+
+    // Calculate TP price range
+    const minTPPriceDistance = constraints.minTakeProfitPips * pipInfo.pipValue;
+    const maxTPPriceDistance = constraints.maxTakeProfitPips * pipInfo.pipValue;
+
+    const tpRange = {
+      min: isBuy ? entry + minTPPriceDistance : entry - maxTPPriceDistance,
+      max: isBuy ? entry + maxTPPriceDistance : entry - minTPPriceDistance,
+      unit: 'price'
+    };
+
+    const rrRange = {
+      min: constraints.minRiskReward,
+      max: constraints.maxRiskReward || 5.0, // Default max if not specified
+      unit: 'ratio'
+    };
+
+    return { slRange, tpRange, rrRange };
   }
 
   /**

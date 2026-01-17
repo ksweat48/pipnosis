@@ -70,12 +70,14 @@ class Omega9HallucinationBrain {
       f.includes('RISK_TOO_HIGH')
     );
 
+    // ALPHA AUTHORITY: Omega-9 detects but does NOT repair
+    // Only Alpha may decide SL/TP values
+    // If geometry errors detected, block and log for Alpha learning
     if (fixableIssues.length > 0 && localValidation.flags.length === fixableIssues.length) {
-      console.log('[Omega-9] ⚠️ Fixable issues detected, attempting repair...');
-      const repaired = this.attemptRepair(input, localValidation.flags);
-      if (repaired.pass) {
-        return repaired;
-      }
+      console.log('[Omega-9] ⚠️ Geometry errors detected - blocking (no repair)');
+      console.log('[Omega-9] Flags:', localValidation.flags);
+      console.log('[Omega-9] Only Alpha may decide SL/TP values');
+      // Continue to validation result (will block with flags)
     }
 
     if (!localValidation.pass) {
@@ -350,63 +352,15 @@ class Omega9HallucinationBrain {
    */
 
   /**
-   * Attempt to repair fixable issues
+   * REMOVED: attemptRepair() method
+   *
+   * ALPHA AUTHORITY PRINCIPLE:
+   * Omega-9 detects catastrophic errors but does NOT repair them.
+   * Only Alpha may decide SL/TP values.
+   *
+   * Previous behavior: Calculated SL using 1.5x ATR, TP using 2.5x ATR
+   * New behavior: Block with clear error flags for Alpha to learn from
    */
-  private attemptRepair(input: Omega9Input, flags: string[]): Omega9ValidationResult {
-    const { alphaDecision, marketContext } = input;
-    const corrections: Omega9Corrections = { sl: null, tp: null, risk_pct: null };
-    const repairedFlags: string[] = [];
-
-    const isBuy = alphaDecision.action === 'BUY';
-    const entry = alphaDecision.entry;
-    let sl = alphaDecision.stopLoss;
-    let tp = alphaDecision.takeProfit;
-
-    const atrValue = safeExtractATRValue(marketContext.atr, 'Omega9.attemptRepair');
-
-    if (flags.includes('SL_POSITION_ERROR_BUY') && isBuy) {
-      sl = entry - atrValue * 1.5;
-      corrections.sl = sl;
-      console.log(`[Omega-9] 🔧 Corrected BUY SL: ${alphaDecision.stopLoss} → ${sl}`);
-    } else if (flags.includes('SL_POSITION_ERROR_SELL') && !isBuy) {
-      sl = entry + atrValue * 1.5;
-      corrections.sl = sl;
-      console.log(`[Omega-9] 🔧 Corrected SELL SL: ${alphaDecision.stopLoss} → ${sl}`);
-    }
-
-    if (flags.includes('TP_POSITION_ERROR_BUY') && isBuy) {
-      tp = entry + atrValue * 2.5;
-      corrections.tp = tp;
-      console.log(`[Omega-9] 🔧 Corrected BUY TP: ${alphaDecision.takeProfit} → ${tp}`);
-    } else if (flags.includes('TP_POSITION_ERROR_SELL') && !isBuy) {
-      tp = entry - atrValue * 2.5;
-      corrections.tp = tp;
-      console.log(`[Omega-9] 🔧 Corrected SELL TP: ${alphaDecision.takeProfit} → ${tp}`);
-    }
-
-    const repairSuccessful = flags.every(flag =>
-      flag.includes('SL_POSITION') ||
-      flag.includes('TP_POSITION') ||
-      flag.includes('RISK_TOO_HIGH')
-    );
-
-    if (!repairSuccessful) {
-      repairedFlags.push(...flags.filter(f =>
-        !f.includes('SL_POSITION') &&
-        !f.includes('TP_POSITION')
-      ));
-    }
-
-    return {
-      pass: repairSuccessful,
-      flags: repairedFlags,
-      confidence_adjustment: -10,
-      corrections,
-      reasoning: repairSuccessful ?
-        'Repaired SL/TP positioning' :
-        'Could not repair all issues'
-    };
-  }
 
   /**
    * Request LLM validation for complex scenarios
