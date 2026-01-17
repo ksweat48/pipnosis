@@ -27,6 +27,15 @@ export const handler: Handler = async (event, context) => {
   console.log('[Autonomous Monitor] Starting scheduled check...');
 
   try {
+    // FIRST: Auto-detect and clean up stuck sessions
+    const { data: cleanedCount, error: cleanupError } = await supabase.rpc('cleanup_stuck_sessions_automatic');
+
+    if (cleanupError) {
+      console.error('[Autonomous Monitor] Cleanup error:', cleanupError);
+    } else if (cleanedCount && cleanedCount > 0) {
+      console.log(`[Autonomous Monitor] 🧹 Auto-cleaned ${cleanedCount} stuck session(s)`);
+    }
+
     // Get all active goal sessions that need processing
     const { data: activeSessions, error } = await supabase.rpc('get_sessions_for_server_processing');
 
