@@ -10,6 +10,7 @@
 
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
+import { getCurrencyPipInfo } from '../../src/utils/currencyHelpers';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -480,8 +481,9 @@ function calculateSimplifiedEQS(
   let score = 50;
 
   // Zone proximity with tolerance (0-30 points)
-  const pipValue = intent.symbol.includes('JPY') ? 0.01 : 0.0001;
-  const tolerance = tolerancePips * pipValue;
+  // SSOT: Use getCurrencyPipInfo for correct pip values across all asset classes
+  const pipInfo = getCurrencyPipInfo(intent.symbol);
+  const tolerance = tolerancePips * pipInfo.pipValue;
 
   const zoneMid = (intent.entry_zone_min + intent.entry_zone_max) / 2;
   const zoneRange = intent.entry_zone_max - intent.entry_zone_min;
@@ -505,12 +507,15 @@ function calculateSimplifiedEQS(
 }
 
 // Helper: Check if price is in zone with tolerance
+// SSOT: Use getCurrencyPipInfo for correct pip values across all asset classes
 function checkPriceInZone(intent: IntentForMonitoring, price: number, tolerancePips: number): boolean {
-  const pipValue = intent.symbol.includes('JPY') ? 0.01 : 0.0001;
-  const tolerance = tolerancePips * pipValue;
+  const pipInfo = getCurrencyPipInfo(intent.symbol);
+  const tolerance = tolerancePips * pipInfo.pipValue;
 
   const effectiveMin = intent.entry_zone_min - tolerance;
   const effectiveMax = intent.entry_zone_max + tolerance;
+
+  console.log(`[Entry Monitor] Zone check ${intent.symbol}: price=${price}, zone=${intent.entry_zone_min}-${intent.entry_zone_max}, tolerance=${tolerancePips}p (${tolerance} price units), effective=${effectiveMin}-${effectiveMax}, pipValue=${pipInfo.pipValue}`);
 
   return price >= effectiveMin && price <= effectiveMax;
 }
