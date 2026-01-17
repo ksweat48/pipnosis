@@ -181,7 +181,36 @@ export class GoalFeasibilityResolver {
       remainingGoal,
     });
 
+    if (!maxProfitPossible || isNaN(maxProfitPossible) || maxProfitPossible <= 0) {
+      logger.error('Invalid maxProfitPossible in feasibility analysis', {
+        maxProfitPossible,
+        adjustedATR,
+        safeSpread,
+        symbol
+      });
+      return {
+        feasible: false,
+        tier: 'BLOCK_WITH_ALTERNATIVES',
+        proposal: undefined,
+        alternativeSuggestions: ['Unable to calculate profit potential - market data may be invalid. Please refresh and try again.'],
+      };
+    }
+
     const retentionPercent = maxProfitPossible / remainingGoal;
+
+    if (!retentionPercent || isNaN(retentionPercent)) {
+      logger.error('Invalid retentionPercent calculated', {
+        maxProfitPossible,
+        remainingGoal,
+        retentionPercent
+      });
+      return {
+        feasible: false,
+        tier: 'BLOCK_WITH_ALTERNATIVES',
+        proposal: undefined,
+        alternativeSuggestions: ['Unable to assess goal feasibility. Please try again.'],
+      };
+    }
 
     if (
       retentionPercent < GOAL_FEASIBILITY_CONFIG.downshift.minGoalRetentionPercent

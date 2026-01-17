@@ -518,7 +518,7 @@ export class AlphaLearningFeedbackService {
    * Get calibrated confidence for a given confidence level
    */
   async getCalibratedConfidence(
-    userId: string,
+    userId: string | undefined,
     rawConfidence: number,
     marketCondition: string,
     symbol?: string
@@ -526,13 +526,13 @@ export class AlphaLearningFeedbackService {
     try {
       // ✅ SSOT FIX: Validate required parameters before querying
       // Prevents "user_id=eq.undefined" and "market_condition=eq.undefined" errors
-      if (!userId || userId === 'undefined') {
-        logger.warn('[Alpha Feedback] getCalibratedConfidence called with invalid userId, returning raw confidence');
+      if (!userId || userId === 'undefined' || typeof userId !== 'string') {
+        logger.warn('[Alpha Feedback] getCalibratedConfidence called with invalid userId', { userId, rawConfidence });
         return rawConfidence;
       }
 
-      if (!marketCondition || marketCondition === 'undefined') {
-        logger.warn('[Alpha Feedback] getCalibratedConfidence called with invalid marketCondition, returning raw confidence');
+      if (!marketCondition || marketCondition === 'undefined' || typeof marketCondition !== 'string') {
+        logger.warn('[Alpha Feedback] getCalibratedConfidence called with invalid marketCondition', { marketCondition, rawConfidence });
         return rawConfidence;
       }
 

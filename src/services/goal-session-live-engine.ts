@@ -3493,7 +3493,7 @@ This learning will carry forward to improve future sessions!
     type: 'forecast' | 'signal' | 'progress' | 'alert' | 'completion',
     title: string,
     message: string,
-    priority: 'low' | 'medium' | 'high' | 'urgent' = 'medium',
+    priority: 'low' | 'medium' | 'high' | 'critical' = 'medium',
     data?: any
   ): Promise<void> {
     if (!this.activeSession || !this.config) {
@@ -3502,11 +3502,13 @@ This learning will carry forward to improve future sessions!
     }
 
     try {
+      const validatedPriority = this.validatePriority(priority);
+
       const { error } = await supabase.from('goal_notifications').insert({
         goal_session_id: this.activeSession,
         user_id: this.config.userId,
         type: type,
-        priority,
+        priority: validatedPriority,
         title,
         message,
         metadata: data || {},
@@ -3516,7 +3518,7 @@ This learning will carry forward to improve future sessions!
 
       if (error) {
         console.error('[Goal Live Engine] CRITICAL: Notification insert failed:', error);
-        logger.error(LogCategory.AI_TRADING, 'Failed to insert notification', { error, title, type });
+        logger.error(LogCategory.AI_TRADING, 'Failed to insert notification', { error, title, type, priority: validatedPriority });
       } else {
         console.log(`[Notification Logged] ✅ ${type.toUpperCase()}: ${title}`);
       }
@@ -3524,6 +3526,18 @@ This learning will carry forward to improve future sessions!
       console.error('[Goal Live Engine] Failed to log notification (exception):', error);
       logger.error(LogCategory.AI_TRADING, 'Notification logging exception', { error, title, type });
     }
+  }
+
+  private validatePriority(priority: any): 'low' | 'medium' | 'high' | 'critical' {
+    const validPriorities = ['low', 'medium', 'high', 'critical'];
+    if (validPriorities.includes(priority)) {
+      return priority;
+    }
+    if (priority === 'urgent') {
+      return 'critical';
+    }
+    console.warn(`[Priority Validation] Invalid priority "${priority}", defaulting to "medium"`);
+    return 'medium';
   }
 
   private async sendTriggerDetectedMessage(trigger: any, latestCandle: any): Promise<void> {
