@@ -467,7 +467,7 @@ class PostTradeAnalyzer {
         .select('*')
         .eq('user_id', tradeData.userId)
         .eq('symbol', tradeData.symbol)
-        .eq('insight_description', `${pattern} on ${tradeData.symbol}`)
+        .ilike('insight_description', `%${pattern}%${tradeData.symbol}%`)
         .maybeSingle();
 
       if (existing) {
