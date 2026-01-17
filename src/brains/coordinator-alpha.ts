@@ -103,6 +103,7 @@ import { getStylePromptContext } from '../config/style-personalities';
 import { microRegimeClassifier, type MicroRegimeClassification, type MicroRegimeCandle } from '../services/micro-regime-classifier';
 import { liquidityIntentAnalyzer, type LiquidityIntentModel } from '../services/liquidity-intent-analyzer';
 import { narrativeCoherenceValidator, type NarrativeValidation } from '../services/narrative-coherence-validator';
+import { logViolation } from '../services/ssot-violation-logger';
 
 /**
  * Helper: Determine asset class from symbol
@@ -1419,6 +1420,11 @@ When choosing WAIT, specify:
 • Target entry zone (min/max prices)
 • Invalidation price (where setup becomes invalid)
 • Wait reasoning (what you're waiting for)
+• FULL TRADE PLAN including entry, stopLoss, and takeProfit
+
+CRITICAL: WAIT is a full trade plan with delayed execution.
+You MUST provide entry, stopLoss, and takeProfit for WAIT decisions.
+Waiting changes WHEN we enter, not WHAT the trade is.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 POSITIONING RULES:
@@ -1429,7 +1435,7 @@ Return JSON with structured reasoning:
   "action": "BUY|SELL|WAIT",
   "entry": price,
   "stopLoss": price,
-  "takeProfit": price,
+  "takeProfit": price,  // REQUIRED for all actions including WAIT
   "trade_confidence": 0-100,
   "entry_quality_score": 0-100,
   "entry_mode": "immediate|wait_pullback|wait_confirmation",
@@ -2578,21 +2584,56 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
           }
         }
 
-        // Calculate proper takeProfit for WAIT decisions (SSOT FIX: was hardcoded to currentPrice)
-        // Use same logic as BUY/SELL auto-correction (lines 2651-2663)
+        // SSOT ENFORCEMENT: Alpha MUST provide takeProfit for WAIT decisions
+        // WAIT is a full trade plan with delayed execution - not a partial decision
+        // Engines validate. Alpha decides. Engines never invent intent.
+        if (!parsed.takeProfit) {
+          console.error('[Alpha Coordinator] ❌ SSOT VIOLATION: Alpha did not provide takeProfit for WAIT decision');
+
+          // Log violation for monitoring and learning (non-blocking)
+          logViolation({
+            violationType: 'ALPHA_MISSING_TAKEPROFIT_WAIT',
+            symbol: marketContext.symbol,
+            attemptedOperation: 'wait_decision',
+            callLocation: 'coordinator-alpha.ts:2591',
+            blocked: true,
+            errorDetails: {
+              action: parsed.action,
+              hasEntry: !!parsed.entry,
+              hasStopLoss: !!parsed.stopLoss,
+              hasTakeProfit: false,
+              wait_condition: waitCondition,
+              reasoning: parsed.reasoning,
+              timestamp: new Date().toISOString(),
+            }
+          }).catch(err => console.error('[Alpha Coordinator] Failed to log SSOT violation:', err));
+
+          return {
+            action: 'NO_TRADE',
+            decision: 'NO_TRADE',
+            entry: currentPrice,
+            stopLoss: currentPrice,
+            takeProfit: currentPrice,
+            confidence: 0,
+            reasoning: 'Invalid WAIT decision: Alpha did not provide takeProfit. WAIT requires full trade plan.',
+            omega_summary: '',
+            resolvedStyle,
+            thesis: thesis || undefined,
+            style_intent: styleIntent || undefined,
+            execution_preference: executionPreference || undefined,
+            acceptable_profit_range: acceptableProfitRange || undefined,
+            entry_spec: {
+              entry_quality_score: 0,
+              entry_mode: 'immediate',
+              style: resolvedStyle,
+            },
+            narrativeValidation: narrativeValidation || undefined
+          };
+        }
+
         const entryMidpoint = (waitCondition.target_entry_zone_min + waitCondition.target_entry_zone_max) / 2;
         const stopLossPrice = waitCondition.invalidation_price;
-        const slDistance = Math.abs(entryMidpoint - stopLossPrice);
-        const targetRR = 2.0; // Conservative R:R for WAIT decisions
-        const isWaitBuy = parsed.action === 'BUY';
-
-        // Calculate TP: entry ± (SL distance × R:R ratio)
-        const calculatedTP = isWaitBuy
-          ? entryMidpoint + (slDistance * targetRR)  // TP above entry for BUY
-          : entryMidpoint - (slDistance * targetRR); // TP below entry for SELL
-
-        // Use parsed.takeProfit if provided by LLM, otherwise use calculated
-        const finalTakeProfit = parsed.takeProfit || calculatedTP;
+        const finalTakeProfit = parsed.takeProfit; // Alpha's decision - no fallbacks
 
         return {
           action: 'WAIT',
