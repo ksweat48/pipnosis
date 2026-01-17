@@ -450,42 +450,187 @@ function checkPriceInZone(intent: IntentForMonitoring, price: number, toleranceP
   return price >= effectiveMin && price <= effectiveMax;
 }
 
-// Helper: Execute intent
+// Helper: Execute intent - FULLY SERVER-SIDE using SERVICE_ROLE client
+// This bypasses browser code to avoid RLS issues with anon key
 async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eqsScore: number): Promise<boolean> {
   try {
-    // Import execution coordinator dynamically
-    const { EntryExecutionCoordinator } = await import('../../src/services/entry-execution-coordinator');
+    console.log(`[Entry Monitor] 🎯 Server-side execution starting for ${intent.symbol}`);
+    console.log(`[Entry Monitor] Intent: ${intent.intent_id}, User: ${intent.user_id}, Session: ${intent.session_id}`);
 
-    const result = await EntryExecutionCoordinator.executeFromIntent(intent.intent_id, entryPrice);
+    // Step 1: Fetch full intent data using SERVICE_ROLE client (bypasses RLS)
+    const { data: fullIntent, error: fetchError } = await supabase
+      .from('entry_intents')
+      .select('*, goal_sessions(*)')
+      .eq('id', intent.intent_id)
+      .maybeSingle();
 
-    if (result.success) {
-      // Update intent status to executed
-      await supabase
-        .from('entry_intents')
-        .update({
-          status: 'executed',
-          executed_at: new Date().toISOString(),
-          executed_price: entryPrice,
-          execution_eqs_score: eqsScore
-        })
-        .eq('id', intent.intent_id);
-
-      // Transition session back to discovery mode
-      if (intent.session_id) {
-        await supabase.rpc('transition_entry_monitor_state', {
-          p_session_id: intent.session_id,
-          p_new_state: 'DISCOVERY_SCANNING',
-          p_locked_symbol: null,
-          p_locked_direction: null
-        });
-      }
-
-      return true;
+    if (fetchError) {
+      console.error(`[Entry Monitor] ❌ Failed to fetch intent: ${fetchError.message}`);
+      console.error(`[Entry Monitor] ❌ Fetch error details:`, JSON.stringify(fetchError));
+      return false;
     }
 
-    return false;
+    if (!fullIntent) {
+      console.error(`[Entry Monitor] ❌ Intent not found in database: ${intent.intent_id}`);
+      return false;
+    }
+
+    console.log(`[Entry Monitor] ✅ Intent fetched successfully`);
+
+    const marketContext = fullIntent.market_context as any || {};
+    const session = fullIntent.goal_sessions as any;
+
+    // Step 2: Calculate adjusted SL/TP based on actual entry price
+    const idealEntryPrice = (fullIntent.entry_zone_min + fullIntent.entry_zone_max) / 2;
+    let adjustedStopLoss = marketContext?.stop_loss || fullIntent.invalidation_price;
+    let adjustedTakeProfit = marketContext?.take_profit;
+
+    if (adjustedStopLoss && adjustedTakeProfit && entryPrice !== idealEntryPrice) {
+      const originalStopDistance = Math.abs(idealEntryPrice - adjustedStopLoss);
+      const originalTPDistance = Math.abs(adjustedTakeProfit - idealEntryPrice);
+      const originalRR = originalTPDistance / originalStopDistance;
+
+      if (fullIntent.direction === 'long') {
+        adjustedStopLoss = entryPrice - originalStopDistance;
+        adjustedTakeProfit = entryPrice + (originalStopDistance * originalRR);
+      } else {
+        adjustedStopLoss = entryPrice + originalStopDistance;
+        adjustedTakeProfit = entryPrice - (originalStopDistance * originalRR);
+      }
+      console.log(`[Entry Monitor] 📐 Adjusted SL/TP for entry slip: SL=${adjustedStopLoss.toFixed(5)}, TP=${adjustedTakeProfit.toFixed(5)}`);
+    }
+
+    // Step 3: Get risk dollars from session
+    const riskDollars = session?.dollar_risk || marketContext?.risk_dollars || 10;
+
+    // Step 4: Calculate lot size using pip info
+    const pipInfo = getCurrencyPipInfo(intent.symbol);
+    const stopDistancePips = Math.abs(entryPrice - adjustedStopLoss) / pipInfo.pipValue;
+    const pipValuePerLot = pipInfo.pipValuePerLot || 10;
+    const lotSize = Math.max(0.01, Math.min(10, riskDollars / (stopDistancePips * pipValuePerLot)));
+    const positionSize = Math.round(lotSize * 100000);
+
+    console.log(`[Entry Monitor] 💰 Position sizing: Risk=$${riskDollars}, SL=${stopDistancePips.toFixed(1)} pips, Lot=${lotSize.toFixed(2)}`);
+
+    // Step 5: Calculate time to entry
+    const intentCreatedAt = new Date(fullIntent.created_at);
+    const timeToEntrySeconds = Math.round((Date.now() - intentCreatedAt.getTime()) / 1000);
+
+    // Step 6: Insert trade using SERVICE_ROLE client
+    const tradeData = {
+      goal_session_id: fullIntent.session_id,
+      user_id: fullIntent.user_id,
+      symbol: fullIntent.symbol,
+      direction: fullIntent.direction === 'long' ? 'buy' : 'sell',
+      position_type: fullIntent.direction,
+      entry_price: entryPrice,
+      stop_loss: adjustedStopLoss,
+      take_profit: adjustedTakeProfit,
+      tp1_price: marketContext?.tp1_price || null,
+      tp1_confidence: marketContext?.tp1_confidence || null,
+      tp1_reasoning: marketContext?.tp1_reasoning || null,
+      tp2_price: marketContext?.tp2_price || adjustedTakeProfit,
+      tp2_reasoning: marketContext?.tp2_reasoning || null,
+      take_profit_1: marketContext?.tp1_price || null,
+      take_profit_2: adjustedTakeProfit,
+      lot_size: Number(lotSize.toFixed(2)),
+      position_size: positionSize,
+      risk_dollars: riskDollars,
+      status: 'open',
+      opened_at: new Date().toISOString(),
+      current_price: entryPrice,
+      current_pnl: 0,
+      ai_confidence: fullIntent.alpha_confidence || eqsScore,
+      ai_reasoning: fullIntent.alpha_reasoning || marketContext?.omega_summary || 'Server-side auto-execution',
+      confidence_score: eqsScore,
+      entry_intent_id: fullIntent.id,
+      entry_intent_type: fullIntent.intent_type || 'limit',
+      entry_urgency: fullIntent.urgency || 'normal',
+      entry_quality_score: eqsScore,
+      time_to_entry_seconds: timeToEntrySeconds,
+      ideal_entry_price: idealEntryPrice,
+      entry_slippage_pips: Math.abs(entryPrice - idealEntryPrice) / pipInfo.pipValue,
+      eqs_score: eqsScore,
+      entry_mode: 'monitored',
+      trade_confidence: eqsScore,
+      order_type: 'market'
+    };
+
+    console.log(`[Entry Monitor] 📝 Creating trade:`, JSON.stringify({
+      symbol: tradeData.symbol,
+      direction: tradeData.direction,
+      entry: tradeData.entry_price,
+      sl: tradeData.stop_loss,
+      tp: tradeData.take_profit,
+      lot: tradeData.lot_size
+    }));
+
+    const { data: newTrade, error: insertError } = await supabase
+      .from('goal_session_trades')
+      .insert(tradeData)
+      .select('id')
+      .single();
+
+    if (insertError) {
+      console.error(`[Entry Monitor] ❌ Failed to create trade: ${insertError.message}`);
+      console.error(`[Entry Monitor] ❌ Insert error details:`, JSON.stringify(insertError));
+      return false;
+    }
+
+    console.log(`[Entry Monitor] ✅ Trade created: ${newTrade.id}`);
+
+    // Step 7: Update intent status to executed
+    const { error: updateError } = await supabase
+      .from('entry_intents')
+      .update({
+        status: 'executed',
+        executed_at: new Date().toISOString(),
+        executed_price: entryPrice,
+        execution_eqs_score: eqsScore
+      })
+      .eq('id', intent.intent_id);
+
+    if (updateError) {
+      console.error(`[Entry Monitor] ⚠️ Failed to update intent status: ${updateError.message}`);
+    }
+
+    // Step 8: Transition session back to discovery mode
+    if (intent.session_id) {
+      const { error: transitionError } = await supabase.rpc('transition_entry_monitor_state', {
+        p_session_id: intent.session_id,
+        p_new_state: 'DISCOVERY_SCANNING',
+        p_locked_symbol: null,
+        p_locked_direction: null
+      });
+
+      if (transitionError) {
+        console.error(`[Entry Monitor] ⚠️ Failed to transition session state: ${transitionError.message}`);
+      }
+    }
+
+    // Step 9: Create success notification (using valid type 'trade_opened')
+    await supabase.from('goal_notifications').insert({
+      user_id: fullIntent.user_id,
+      session_id: fullIntent.session_id,
+      type: 'trade_opened',
+      title: `Trade Executed: ${fullIntent.symbol}`,
+      message: `${fullIntent.direction.toUpperCase()} ${fullIntent.symbol} @ ${entryPrice.toFixed(pipInfo.decimals)} | EQS: ${eqsScore}`,
+      priority: 'high',
+      metadata: {
+        trade_id: newTrade.id,
+        symbol: fullIntent.symbol,
+        direction: fullIntent.direction,
+        entry_price: entryPrice,
+        eqs_score: eqsScore,
+        execution_source: 'server_entry_monitor'
+      }
+    });
+
+    console.log(`[Entry Monitor] 🎉 Execution complete for ${fullIntent.symbol}`);
+    return true;
   } catch (error) {
-    console.error('[Entry Monitor] Execution error:', error);
+    console.error('[Entry Monitor] ❌ Execution error:', error);
+    console.error('[Entry Monitor] ❌ Error stack:', (error as Error).stack);
     return false;
   }
 }
