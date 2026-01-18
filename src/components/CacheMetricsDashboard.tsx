@@ -240,12 +240,13 @@ export function CacheMetricsDashboard({ onClose }: Props) {
       </div>
 
       <div className="mt-6 p-4 bg-slate-700/30 rounded-lg">
-        <h4 className="text-sm font-medium text-slate-300 mb-2">How It Works</h4>
+        <h4 className="text-sm font-medium text-slate-300 mb-2">How It Works (Legacy System)</h4>
         <ul className="text-xs text-slate-400 space-y-1">
           <li>- Omega brains analyze markets once, results shared with all users</li>
           <li>- Cache keys use ATR-relative price buckets for intelligent reuse</li>
           <li>- TTL varies by timeframe: M5=8min, M15=15min, H1=30min</li>
           <li>- Scout runs globally, not per-user, for significant savings</li>
+          <li>- New: Alpha theses now cached by regime fingerprint (see Alpha cache above)</li>
         </ul>
       </div>
     </div>

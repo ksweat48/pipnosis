@@ -15,6 +15,7 @@ import { ServerSidePollingMonitor } from '@/components/ServerSidePollingMonitor'
 import { LLMTokenUsageDashboard } from '@/components/LLMTokenUsageDashboard';
 import { CacheMetricsDashboard } from '@/components/CacheMetricsDashboard';
 import { FreshnessGateAnalytics } from '@/components/FreshnessGateAnalytics';
+import { AlphaIntelligenceTelemetry } from '@/components/AlphaIntelligenceTelemetry';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import {
@@ -533,7 +534,7 @@ export function AdminDashboard() {
                         </div>
                         <div>
                           <h3 className="text-xl font-bold text-white">Intelligence Cache Performance</h3>
-                          <p className="text-cyan-200 text-sm">Three-tier platform-wide LLM caching system</p>
+                          <p className="text-cyan-200 text-sm">Regime-based Alpha caching + three-tier Omega system</p>
                         </div>
                       </div>
                       <button
@@ -568,9 +569,9 @@ export function AdminDashboard() {
                         <div className="text-emerald-400 text-xs mt-1">Cost reduction</div>
                       </div>
                       <div className="bg-gray-900/30 rounded-lg p-4">
-                        <div className="text-cyan-300 text-sm mb-1">Cache Tiers</div>
-                        <div className="text-white text-2xl font-bold">3</div>
-                        <div className="text-cyan-400 text-xs mt-1">Omega • Alpha • Scout</div>
+                        <div className="text-cyan-300 text-sm mb-1">Cache Systems</div>
+                        <div className="text-white text-2xl font-bold">2</div>
+                        <div className="text-cyan-400 text-xs mt-1">Regime + Three-Tier</div>
                       </div>
                     </div>
                   </div>
@@ -673,17 +674,33 @@ export function AdminDashboard() {
 
         {activeTab === 'cache' && (
           <div className="space-y-6">
+            {/* Regime-Based Alpha Thesis Cache */}
+            <div className="bg-gradient-to-br from-blue-600/20 to-blue-800/20 backdrop-blur-sm border-2 border-blue-500/30 rounded-xl p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <Activity size={24} className="text-blue-400" />
+                <div>
+                  <h2 className="text-2xl font-semibold text-white">Alpha Thesis Cache (Regime-Based)</h2>
+                  <p className="text-gray-400 text-sm mt-1">
+                    Intelligent thesis caching using market regime fingerprints (HTF bias, micro regime, volatility, structure)
+                  </p>
+                </div>
+              </div>
+              <AlphaIntelligenceTelemetry />
+            </div>
+
+            {/* Three-Tier Omega Cache */}
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
               <div className="flex items-center gap-3 mb-6">
                 <Layers size={24} className="text-cyan-400" />
                 <div>
-                  <h2 className="text-2xl font-semibold text-white">Three-Tier Intelligence Cache</h2>
-                  <p className="text-gray-400 text-sm mt-1">Platform-wide LLM response caching for cost optimization</p>
+                  <h2 className="text-2xl font-semibold text-white">Three-Tier Intelligence Cache (Legacy)</h2>
+                  <p className="text-gray-400 text-sm mt-1">Platform-wide LLM response caching for Omega council and scout operations</p>
                 </div>
               </div>
               <CacheMetricsDashboard />
             </div>
 
+            {/* Freshness Gate */}
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
               <div className="flex items-center gap-3 mb-6">
                 <Layers size={24} className="text-emerald-400" />

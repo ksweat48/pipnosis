@@ -3,6 +3,7 @@ import { useAuth } from '../hooks/useAuth';
 import GPT4oUsageMonitor from '../components/GPT4oUsageMonitor';
 import { FreshnessGateAnalytics } from '../components/FreshnessGateAnalytics';
 import { PriceCollectionHealthDashboard } from '../components/PriceCollectionHealthDashboard';
+import { AlphaIntelligenceTelemetry } from '../components/AlphaIntelligenceTelemetry';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
@@ -497,6 +498,17 @@ export default function SystemDiagnosticsPage() {
             </div>
           </div>
         )}
+
+        <div className="bg-gradient-to-br from-blue-900/30 to-indigo-900/30 backdrop-blur-sm border-2 border-blue-500/30 rounded-lg p-6">
+          <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+            <Activity className="w-6 h-6 text-blue-400" />
+            Alpha Thesis Cache (Regime-Based)
+          </h2>
+          <p className="text-gray-400 text-sm mb-6">
+            Intelligent thesis caching using market regime fingerprints for cost optimization
+          </p>
+          <AlphaIntelligenceTelemetry />
+        </div>
 
         <GPT4oUsageMonitor />
         <FreshnessGateAnalytics hours={24} />
