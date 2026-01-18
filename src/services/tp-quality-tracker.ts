@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
 import type { TPCalculationResult, LiquidityZone } from './profit-target-calculator';
+import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 
 export interface TPQualityLog {
   user_id: string;
@@ -220,7 +221,8 @@ class TPQualityTracker {
     tpCalculation?: TPCalculationResult,
     liquidityZones?: LiquidityZone[]
   ): Partial<TPQualityLog> {
-    const pipValue = symbol.includes('JPY') ? 0.01 : 0.0001;
+    // SSOT COMPLIANCE: Use centralized pip value
+    const pipValue = getCurrencyPipInfo(symbol).pipValue;
     const slDistance = Math.abs(entry - sl);
     const tpDistance = Math.abs(tp - entry);
     const rrRatio = slDistance > 0 ? tpDistance / slDistance : 0;

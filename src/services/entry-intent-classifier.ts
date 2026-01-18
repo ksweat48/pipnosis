@@ -2,7 +2,7 @@ import type { AlphaDecision, MarketContext, OmegaCouncilVotes } from '../brains/
 import type { EntryIntentType, EntryUrgencyLevel, TimeoutAction } from '../types/entry';
 import type { MicroRegime } from './micro-regime-classifier';
 import { logger } from '../lib/logger';
-import { calculatePipDistance } from '../utils/currencyHelpers';
+import { calculatePipDistance, getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { ADAPTIVE_ZONE_CONFIG, type ZoneType } from '../config/adaptive-zone-config';
 import { RegimeZoneTypeSelector } from './regime-zone-type-selector';
 import { ZoneCalculationInputProvider } from './zone-calculation-input-provider';
@@ -491,7 +491,8 @@ export class EntryIntentClassifier {
     marketContext: MarketContext,
     confidence: number
   ): { min: number; max: number } {
-    const pipValue = marketContext.symbol.includes('JPY') ? 0.01 : 0.0001;
+    // SSOT COMPLIANCE: Use centralized pip value
+    const pipValue = getCurrencyPipInfo(marketContext.symbol).pipValue;
     const atr = marketContext.atr;
     const idealEntry = decision.entry;
     const direction = decision.action === 'BUY' ? 1 : -1;

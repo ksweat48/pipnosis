@@ -9,6 +9,7 @@
 
 import { logger } from '../lib/logger';
 import type { LiquidityZone } from './profit-target-calculator';
+import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 
 export interface TP1Input {
   symbol: string;
@@ -379,17 +380,14 @@ class TP1ProbabilityCalculator {
   }
 
   /**
-   * Get pip value for symbol
+   * SSOT COMPLIANCE: Use centralized pip value from currencyHelpers
+   *
+   * Previously hardcoded pip values that diverged from SSOT.
+   * Now delegates to getCurrencyPipInfo() - the single source of truth.
    */
   private getPipValue(symbol: string): number {
-    const sym = symbol.toUpperCase();
-
-    if (sym === 'ETHUSD' || sym.includes('ETH')) return 0.1;
-    if (sym === 'BTCUSD' || sym.includes('BTC')) return 1.0;
-    if (sym.includes('US30') || sym.includes('NAS') || sym.includes('SPX') || sym.includes('DJI')) return 1.0;
-    if (sym.includes('JPY') || sym.includes('XAU') || sym.includes('XAG')) return 0.01;
-
-    return 0.0001; // Standard forex
+    const pipInfo = getCurrencyPipInfo(symbol);
+    return pipInfo.pipValue;
   }
 }
 

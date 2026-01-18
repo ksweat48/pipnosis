@@ -1,4 +1,5 @@
 import { logger } from '../lib/logger';
+import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 
 export type TPPlacement = 'single' | 'partial';
 
@@ -331,21 +332,23 @@ export class EliteProfitTargetCalculator {
     return 'poor';
   }
 
+  /**
+   * SSOT COMPLIANCE: Use centralized pip value from currencyHelpers
+   *
+   * Previously this method had hardcoded pip values that diverged from SSOT,
+   * causing catastrophic calculation errors (e.g., ETHUSD 0.1 vs 1.0 = 10x error).
+   *
+   * Now delegates to getCurrencyPipInfo() - the single source of truth.
+   */
   private getPipValue(symbol: string): number {
-    const sym = symbol.toUpperCase();
+    const pipInfo = getCurrencyPipInfo(symbol);
 
-    // ETHUSD uses 0.1
-    if (sym === 'ETHUSD' || sym.includes('ETH')) return 0.1;
+    // Diagnostic logging for ETHUSD to catch future regressions
+    if (symbol.toUpperCase().includes('ETH')) {
+      logger.info(`[TP Calculator] SSOT pip value for ${symbol}: ${pipInfo.pipValue}`);
+    }
 
-    // BTCUSD and indices use 1.0
-    if (sym === 'BTCUSD' || sym.includes('BTC')) return 1.0;
-    if (sym.includes('US30') || sym.includes('NAS') || sym.includes('SPX') || sym.includes('DJI')) return 1.0;
-
-    // JPY pairs and metals use 0.01
-    if (sym.includes('JPY') || sym.includes('XAU') || sym.includes('XAG')) return 0.01;
-
-    // Standard forex pairs use 0.0001
-    return 0.0001;
+    return pipInfo.pipValue;
   }
 
   public detectLiquidityZones(
