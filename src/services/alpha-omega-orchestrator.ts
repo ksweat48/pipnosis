@@ -512,7 +512,7 @@ class AlphaOmegaOrchestrator {
       },
       marketContext,
       traderScore,
-      undefined, // userId - will be added if needed
+      userId, // Pass userId for confidence calibration
       conflictCheck, // Pass conflict info to Alpha
       goalContext // Pass goal context for smart position sizing
     );
@@ -1307,6 +1307,15 @@ class AlphaOmegaOrchestrator {
         }
       }
 
+      // ENFORCE 15% MAXIMUM PENALTY (per alpha-identity.ts config)
+      // ALPHA_IDENTITY.ADVISORY_SYSTEMS.ADVERSARIAL_DETECTOR.maxConfidencePenalty = 15
+      const MIN_MULTIPLIER = 0.85; // Max 15% penalty
+      if (multiplier < MIN_MULTIPLIER) {
+        const originalPenalty = Math.round((1 - multiplier) * 100);
+        multiplier = MIN_MULTIPLIER;
+        reason = `${reason} [Originally ${originalPenalty}% penalty, capped at 15% per Alpha Authority config]`;
+      }
+
       // Only add penalty if confidence is reduced
       if (multiplier < 1.0) {
         penalties.push({
@@ -1319,13 +1328,22 @@ class AlphaOmegaOrchestrator {
 
     // NEW: Use additive penalty system from Regime Oracle (0-15% max)
     if (regimeSnapshot && regimeSnapshot.confidence_penalty_percent > 0) {
+      // ENFORCE 15% MAXIMUM PENALTY (per alpha-identity.ts config)
+      const MAX_REGIME_PENALTY = 15;
+      const cappedPenalty = Math.min(regimeSnapshot.confidence_penalty_percent, MAX_REGIME_PENALTY);
+
       // Convert additive penalty to multiplier format for compatibility
       // E.g., 15% penalty = 0.85 multiplier
-      const multiplier = 1 - (regimeSnapshot.confidence_penalty_percent / 100);
+      const multiplier = 1 - (cappedPenalty / 100);
+
+      const penaltyNote = cappedPenalty < regimeSnapshot.confidence_penalty_percent
+        ? ` [capped from ${regimeSnapshot.confidence_penalty_percent}%]`
+        : '';
+
       penalties.push({
         source: 'Regime Oracle',
         multiplier,
-        reason: `${regimeSnapshot.regime_classification} regime: ${regimeSnapshot.reason || 'Market conditions'} (-${regimeSnapshot.confidence_penalty_percent}% advisory penalty, max 15% cap enforced)`
+        reason: `${regimeSnapshot.regime_classification} regime: ${regimeSnapshot.reason || 'Market conditions'} (-${cappedPenalty}% advisory penalty${penaltyNote})`
       });
     }
 
