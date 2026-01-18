@@ -154,73 +154,41 @@ class MultiSymbolRanker {
     }
   }
 
+  /**
+   * REMOVED: Cache-aware bonus calculation
+   *
+   * Per SSOT architecture (migration 20260118032110):
+   * - omega_market_intelligence table was intentionally dropped
+   * - Deterministic Omega analysis doesn't need database caching
+   * - Symbol ranking works perfectly without cache bonus
+   *
+   * Returns zero bonus to maintain interface compatibility.
+   */
   private async getCacheAwareBonus(symbol: string): Promise<{
     bonus: number;
     hasCachedIntelligence: boolean;
     consensus: 'bullish' | 'bearish' | 'mixed' | 'none';
   }> {
-    try {
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-
-      const { data: cachedIntel, error } = await supabase
-        .from('omega_market_intelligence')
-        .select('brain_name, vote, confidence, created_at')
-        .eq('symbol', symbol)
-        .eq('timeframe', 'M15')
-        .gte('created_at', fiveMinutesAgo.toISOString())
-        .limit(10);
-
-      if (error || !cachedIntel || cachedIntel.length === 0) {
-        return { bonus: 0, hasCachedIntelligence: false, consensus: 'none' };
-      }
-
-      let buyVotes = 0;
-      let sellVotes = 0;
-      let totalConfidence = 0;
-
-      for (const intel of cachedIntel) {
-        if (intel.vote === 'BUY') {
-          buyVotes++;
-          totalConfidence += intel.confidence || 0;
-        } else if (intel.vote === 'SELL') {
-          sellVotes++;
-          totalConfidence += intel.confidence || 0;
-        }
-      }
-
-      const avgConfidence = cachedIntel.length > 0 ? totalConfidence / cachedIntel.length : 0;
-
-      let consensus: 'bullish' | 'bearish' | 'mixed' | 'none' = 'none';
-      let directionBonus = 0;
-
-      if (buyVotes > sellVotes + 2) {
-        consensus = 'bullish';
-        directionBonus = 5;
-      } else if (sellVotes > buyVotes + 2) {
-        consensus = 'bearish';
-        directionBonus = 5;
-      } else if (buyVotes > 0 && sellVotes > 0) {
-        consensus = 'mixed';
-        directionBonus = -2;
-      }
-
-      const cacheBonus = Math.min(15,
-        5 +
-        directionBonus +
-        (avgConfidence > 60 ? 3 : 0) +
-        (cachedIntel.length >= 5 ? 2 : 0)
-      );
-
-      return {
-        bonus: Math.max(0, cacheBonus),
-        hasCachedIntelligence: true,
-        consensus
-      };
-    } catch (error) {
-      console.warn(`[Multi-Symbol Ranker] Cache lookup error for ${symbol}:`, error);
-      return { bonus: 0, hasCachedIntelligence: false, consensus: 'none' };
-    }
+    // Cache bonus feature removed - all symbols ranked purely on live metrics
+    return {
+      bonus: 0,
+      hasCachedIntelligence: false,
+      consensus: 'none'
+    };
   }
+
+  /**
+   * LEGACY CODE REMOVED (kept for reference):
+   * Previous implementation queried omega_market_intelligence for:
+   * - Brain consensus (bullish/bearish)
+   * - Confidence-weighted voting
+   * - Up to 15-point cache bonus
+   *
+   * This provided minimal value since:
+   * - Real-time metrics are always fresher
+   * - Symbol scoring is deterministic
+   * - Removed table dependency improves reliability
+   */
 
   /**
    * Calculate simplified ATR
