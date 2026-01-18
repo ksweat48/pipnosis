@@ -10,6 +10,11 @@
  */
 
 export interface Omega9Constraints {
+  // Context (SSOT: Constraints must know their context for absolute price calculation)
+  symbol: string;
+  entryPrice: number;
+  direction: 'BUY' | 'SELL';
+
   // Stop-Loss Constraints
   minStopLossPips: number;
   maxStopLossPips: number;

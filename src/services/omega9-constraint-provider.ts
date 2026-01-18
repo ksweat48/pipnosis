@@ -25,6 +25,7 @@
  */
 
 import { calculatePipDistance, getCurrencyPipInfo } from '../utils/currencyHelpers';
+import { getSymbolConfig } from '../config/symbol-registry';
 import { riskAwareStopCalculator } from './risk-aware-stop-calculator';
 import { sessionConstraintCoordinator } from './session-constraint-coordinator';
 import { assetClassifier } from './asset-classifier';
@@ -221,6 +222,11 @@ class Omega9ConstraintProvider {
     }
 
     const constraints: Omega9Constraints = {
+      // Context (SSOT: Constraints know their context for absolute price calculations)
+      symbol,
+      entryPrice: entry,
+      direction,
+
       // Stop-Loss Constraints (NOW ALWAYS VALID: min <= max)
       minStopLossPips: finalMinStopLoss,
       maxStopLossPips: finalMaxStopLoss,
@@ -440,9 +446,56 @@ class Omega9ConstraintProvider {
   }
 
   /**
+   * Calculate absolute price ranges from pip-based constraints
+   * SSOT: This eliminates arithmetic burden from Alpha LLM
+   */
+  private calculateAbsolutePriceRanges(constraints: Omega9Constraints): {
+    stopLoss: { min: number; max: number; recommended: number };
+    takeProfit: { min: number; max: number; recommended: number };
+  } {
+    const { symbol, entryPrice, direction } = constraints;
+    const pipInfo = getCurrencyPipInfo(symbol);
+    const isBuy = direction === 'BUY';
+
+    // Calculate SL absolute prices
+    const minSLDistance = constraints.minStopLossPips * pipInfo.pipValue;
+    const maxSLDistance = constraints.maxStopLossPips * pipInfo.pipValue;
+    const recSLDistance = constraints.recommendedStopLossPips * pipInfo.pipValue;
+
+    const stopLoss = {
+      min: isBuy ? entryPrice - maxSLDistance : entryPrice + minSLDistance,
+      max: isBuy ? entryPrice - minSLDistance : entryPrice + maxSLDistance,
+      recommended: isBuy ? entryPrice - recSLDistance : entryPrice + recSLDistance
+    };
+
+    // Calculate TP absolute prices
+    const minTPDistance = constraints.minTakeProfitPips * pipInfo.pipValue;
+    const maxTPDistance = constraints.maxTakeProfitPips * pipInfo.pipValue;
+    const recTPDistance = constraints.recommendedTakeProfitPips * pipInfo.pipValue;
+
+    const takeProfit = {
+      min: isBuy ? entryPrice + minTPDistance : entryPrice - maxTPDistance,
+      max: isBuy ? entryPrice + maxTPDistance : entryPrice - minTPDistance,
+      recommended: isBuy ? entryPrice + recTPDistance : entryPrice - recTPDistance
+    };
+
+    return { stopLoss, takeProfit };
+  }
+
+  /**
    * Format constraints for inclusion in Alpha's prompt
+   * ENHANCED: Includes pre-calculated absolute prices to eliminate LLM arithmetic errors
    */
   formatConstraintsForPrompt(constraints: Omega9Constraints): string {
+    // Calculate absolute price ranges (SSOT: eliminates LLM arithmetic burden)
+    const absolutePrices = this.calculateAbsolutePriceRanges(constraints);
+    const { symbol, entryPrice, direction } = constraints;
+
+    // Get symbol config for context
+    const symbolConfig = getSymbolConfig(symbol);
+    const displayName = symbolConfig?.displayName || symbol;
+    const decimalPlaces = symbolConfig?.decimalPlaces || 5;
+
     const tightConstraints = constraints.minRiskReward < 1.0;
     const advisoryNote = tightConstraints ? `
 ⚠️ ADVISORY: Tight Market Conditions
@@ -458,21 +511,43 @@ ${advisoryNote}
 These are your DECISION BOUNDARIES, not vetoes.
 You have FULL AUTHORITY to choose within these ranges.
 
-STOP-LOSS BOUNDARIES:
+📊 MARKET CONTEXT:
+Symbol: ${displayName} (${symbol})
+Direction: ${direction}
+Entry Price: ${entryPrice.toFixed(decimalPlaces)}
+Typical Price Range: Use this as sanity check for your outputs
+
+STOP-LOSS BOUNDARIES (Relative):
 • Noise Floor: ${constraints.noiseFloorPips.toFixed(1)} pips (${constraints.noiseFloorReasoning})
-• Minimum: ${constraints.minStopLossPips.toFixed(1)} pips (max of profile floor and noise floor)
-• Maximum: ${constraints.maxStopLossPips.toFixed(1)} pips (risk profile ceiling)
+• Minimum: ${constraints.minStopLossPips.toFixed(1)} pips
+• Maximum: ${constraints.maxStopLossPips.toFixed(1)} pips
 • Recommended: ${constraints.recommendedStopLossPips.toFixed(1)} pips
 • Rationale: ${constraints.stopLossReasoning}
 
-TAKE-PROFIT BOUNDARIES:
+STOP-LOSS BOUNDARIES (Absolute Prices):
+Your stop loss must fall within the following allowed range.
+You are free to choose any value inside it.
+• Minimum: ${absolutePrices.stopLoss.min.toFixed(decimalPlaces)} (tightest acceptable stop)
+• Recommended: ${absolutePrices.stopLoss.recommended.toFixed(decimalPlaces)} (professional placement)
+• Maximum: ${absolutePrices.stopLoss.max.toFixed(decimalPlaces)} (widest acceptable stop)
+⚠️ Your stopLoss output must be between ${absolutePrices.stopLoss.min.toFixed(decimalPlaces)} and ${absolutePrices.stopLoss.max.toFixed(decimalPlaces)}
+
+TAKE-PROFIT BOUNDARIES (Relative):
 • Minimum: ${constraints.minTakeProfitPips.toFixed(1)} pips (R:R ≥ ${constraints.minRiskReward.toFixed(2)}:1)
 • Recommended: ${constraints.recommendedTakeProfitPips.toFixed(1)} pips (R:R ≥ ${constraints.targetRiskReward}:1)
 • Maximum: ${constraints.maxTakeProfitPips.toFixed(1)} pips (ATR-based maximum)
 • Rationale: ${constraints.takeProfitReasoning}
 
+TAKE-PROFIT BOUNDARIES (Absolute Prices):
+Your take profit must fall within the following allowed range.
+You are free to choose any value inside it.
+• Minimum: ${absolutePrices.takeProfit.min.toFixed(decimalPlaces)} (meets minimum R:R)
+• Recommended: ${absolutePrices.takeProfit.recommended.toFixed(decimalPlaces)} (professional target)
+• Maximum: ${absolutePrices.takeProfit.max.toFixed(decimalPlaces)} (maximum realistic target)
+⚠️ Your takeProfit output must be between ${absolutePrices.takeProfit.min.toFixed(decimalPlaces)} and ${absolutePrices.takeProfit.max.toFixed(decimalPlaces)}
+
 RISK:REWARD REQUIREMENTS:
-• AVAILABLE: ${constraints.minRiskReward.toFixed(2)}:1 ${tightConstraints ? '(⚠️ BELOW 1:1 - advisory only, your call)' : '(professional floor - auto-corrected if violated)'}
+• AVAILABLE: ${constraints.minRiskReward.toFixed(2)}:1 ${tightConstraints ? '(⚠️ BELOW 1:1 - advisory only, your call)' : '(professional floor)'}
 • TARGET: ${constraints.targetRiskReward}:1 (standard professional expectation)
 • OPTIMAL: ${constraints.optimalRiskReward}:1 (elite trader standard)
 
@@ -480,6 +555,13 @@ SESSION PHYSICS:
 • Time remaining: ${constraints.sessionTimeRemaining} minutes
 • Expected volatility: ${constraints.volatilityPerHour.toFixed(1)} pips/hour
 • Realistic travel: ${constraints.feasibleTravelPips.toFixed(1)} pips maximum
+
+CRITICAL VALIDATION BEFORE OUTPUT:
+Before you finalize your JSON response, verify:
+✓ For ${direction}: takeProfit ${direction === 'BUY' ? '>' : '<'} entry ${direction === 'BUY' ? '>' : '<'} stopLoss
+✓ stopLoss is between ${absolutePrices.stopLoss.min.toFixed(decimalPlaces)} and ${absolutePrices.stopLoss.max.toFixed(decimalPlaces)}
+✓ takeProfit is between ${absolutePrices.takeProfit.min.toFixed(decimalPlaces)} and ${absolutePrices.takeProfit.max.toFixed(decimalPlaces)}
+✓ All prices are within ±20% of entry price ${entryPrice.toFixed(decimalPlaces)}
 
 YOUR AUTHORITY:
 ✅ You may choose ANY SL within min-max range
