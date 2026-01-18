@@ -15,6 +15,7 @@
 
 import { supabase } from '../../lib/supabase';
 import { calculatePnL } from '../../types/position';
+import { calculatePipDistance, calculateDollarPerPip } from '../../utils/currencyHelpers';
 import { goalAchievementCoordinator } from './goal-achievement-coordinator';
 import { goalSessionStateMachine } from './goal-session-state-machine';
 import { notificationCoordinator, NotificationType } from './notification-coordinator';
@@ -601,7 +602,12 @@ class TradeClosureCoordinator {
 
       const outcome: 'win' | 'loss' | 'breakeven' = pnl > 0 ? 'win' : pnl < 0 ? 'loss' : 'breakeven';
       const lotSize = trade.lot_size || trade.position_size;
-      const risk = Math.abs(trade.entry_price - trade.stop_loss) * lotSize * 100000;
+
+      // SSOT: Use currency helpers for asset-class-aware risk calculation
+      const stopDistancePips = calculatePipDistance(trade.symbol, trade.entry_price, trade.stop_loss);
+      const dollarPerPip = calculateDollarPerPip(trade.symbol, lotSize);
+      const risk = stopDistancePips * dollarPerPip;
+
       const durationMinutes = Math.round((exitTime.getTime() - entryTime.getTime()) / 60000);
 
       const traderScore = await rewardEngine.loadTraderScore(request.userId);
@@ -660,9 +666,13 @@ class TradeClosureCoordinator {
         .maybeSingle();
 
       if (tradeWithPlaybook?.strategy_playbook_id) {
-        const risk = Math.abs(trade.entry_price - trade.stop_loss);
-        const pnlInR = risk > 0 ? pnl / (risk * lotSize * 100000) : 0;
-        const realizedRR = risk > 0 ? Math.abs(request.currentPrice - trade.entry_price) / risk : 0;
+        // SSOT: Calculate R (risk) and R:R properly using pip distance
+        // Risk in R = PnL / Risk in dollars (already calculated above)
+        const pnlInR = risk > 0 ? pnl / risk : 0;
+
+        // Realized R:R = Exit distance / SL distance (both in pips)
+        const exitDistancePips = calculatePipDistance(trade.symbol, trade.entry_price, request.currentPrice);
+        const realizedRR = stopDistancePips > 0 ? exitDistancePips / stopDistancePips : 0;
 
         await strategyPlaybookManager.updatePlaybookStats(
           tradeWithPlaybook.strategy_playbook_id,

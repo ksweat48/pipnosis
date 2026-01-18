@@ -215,6 +215,54 @@ export function roundLotSize(lotSize: number): number {
 }
 
 /**
+ * Convert lot size to position_size for database storage (SSOT)
+ *
+ * CRITICAL: This is the SINGLE SOURCE OF TRUTH for lot → position_size conversion.
+ * Different asset classes have different position size formats:
+ *
+ * - Forex: position_size = lotSize × contractSize (e.g., 0.01 lot × 100,000 = 1,000)
+ * - Crypto: position_size = lotSize × 100 (e.g., 2.4 ETH → 240 for database storage)
+ * - Indices: position_size = lotSize × 100 (e.g., 0.5 contract → 50)
+ * - Metals: position_size = lotSize × 100 (e.g., 0.03 oz × 100 = 3)
+ *
+ * Database constraint: position_size must be ≤ 1000
+ *
+ * @param symbol Currency pair, crypto, index, or metal
+ * @param lotSize Lot size in standard lots (0.01, 0.1, 1.0, etc.)
+ * @returns Position size for database storage (integer)
+ */
+export function convertLotToPositionSize(symbol: string, lotSize: number): number {
+  const pipInfo = getCurrencyPipInfo(symbol);
+
+  let positionSize: number;
+
+  if (pipInfo.symbolType === 'forex') {
+    // Forex: Use contract size (100,000 for standard lot)
+    // But scale down to fit database constraint
+    // 0.01 lot = 1,000 units (instead of 1,000 base units)
+    positionSize = Math.round(lotSize * 100);
+  } else {
+    // Crypto, Indices, Metals: Direct scaling
+    // 2.4 ETH → 240
+    // 0.5 contracts → 50
+    // 0.03 oz → 3
+    positionSize = Math.round(lotSize * 100);
+  }
+
+  // Defensive validation: Ensure within database constraint
+  if (positionSize > 1000) {
+    console.warn(
+      `[Position Size] WARNING: Calculated position_size ${positionSize} exceeds database limit (1000).\n` +
+      `  Symbol: ${symbol}, Lot Size: ${lotSize}, Type: ${pipInfo.symbolType}\n` +
+      `  Capping to 1000 to prevent insertion failure.`
+    );
+    positionSize = 1000;
+  }
+
+  return positionSize;
+}
+
+/**
  * Round PnL to cents (2 decimal places)
  * Prevents floating point precision issues in currency display
  */

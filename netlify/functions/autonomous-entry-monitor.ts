@@ -10,7 +10,7 @@
 
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
-import { getCurrencyPipInfo } from '../../src/utils/currencyHelpers';
+import { getCurrencyPipInfo, convertLotToPositionSize } from '../../src/utils/currencyHelpers';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -664,11 +664,14 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
 
     const pipInfo = getCurrencyPipInfo(intent.symbol);
     const stopDistancePips = Math.abs(entryPrice - adjustedStopLoss) / pipInfo.pipValue;
-    const pipValuePerLot = pipInfo.pipValuePerLot || 10;
-    const lotSize = Math.max(0.01, Math.min(10, riskDollars / (stopDistancePips * pipValuePerLot)));
-    const positionSize = Math.round(lotSize * 100000);
+    const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot;
+    const lotSize = Math.max(0.01, Math.min(10, riskDollars / (stopDistancePips * dollarPerPipPerLot)));
 
-    console.log(`[Entry Monitor] 💰 Position sizing: Risk=$${riskDollars}, SL=${stopDistancePips.toFixed(1)} pips, Lot=${lotSize.toFixed(2)}`);
+    // SSOT: Use helper function to convert lot size to position_size for database storage
+    // This handles asset-class differences (forex, crypto, indices, metals)
+    const positionSize = convertLotToPositionSize(intent.symbol, lotSize);
+
+    console.log(`[Entry Monitor] 💰 Position sizing: Risk=$${riskDollars}, SL=${stopDistancePips.toFixed(1)} pips, Lot=${lotSize.toFixed(2)}, PositionSize=${positionSize}`);
 
     // Step 5: Calculate time to entry
     const intentCreatedAt = new Date(fullIntent.created_at);

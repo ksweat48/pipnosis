@@ -20,7 +20,7 @@ import {
   detectTrueCloseReason,
   getCloseReasonText
 } from '@/utils/close-reason-detector';
-import { calculatePipDistance } from '@/utils/currencyHelpers';
+import { calculatePipDistance, calculateDollarPerPip } from '@/utils/currencyHelpers';
 import {
   TrendingUp,
   TrendingDown,
@@ -716,8 +716,16 @@ export function PositionsPage() {
                             : livePrices[position.symbol].ask)
                         : position.currentPrice;
 
-                      const pnlPercent = position.entryPrice
-                        ? ((currentPnL / (position.entryPrice * position.lotSize * 100000)) * 100)
+                      // SSOT: Calculate P&L as % of risk (in R's)
+                      const stopDistancePips = position.entryPrice && position.symbol
+                        ? calculatePipDistance(position.symbol, position.entryPrice, position.stopLoss)
+                        : 0;
+                      const dollarPerPip = position.symbol && position.lotSize
+                        ? calculateDollarPerPip(position.symbol, position.lotSize)
+                        : 0;
+                      const riskDollars = stopDistancePips * dollarPerPip;
+                      const pnlPercent = riskDollars > 0
+                        ? (currentPnL / riskDollars) * 100
                         : 0;
 
                       const distanceToSL = position.entryPrice && currentPrice && position.symbol
