@@ -264,23 +264,20 @@ class RealtimeSLTPMonitor {
   }
 
   /**
-   * Handle TP1 hit: Close 70% of position, update database, keep monitoring for TP2
+   * Handle TP1 hit: Mark TP1 as hit, keep monitoring for TP2
+   * CRITICAL: position_size/lot_size NEVER changes - only TP1 flag is set
    */
   private async handleTP1Hit(position: OpenPosition, currentPrice: number): Promise<void> {
     try {
-      // Calculate 70% partial close
-      const closeSize = position.position_size * 0.7;
+      console.log(`[RealtimeSLTPMonitor] TP1 HIT @ ${currentPrice.toFixed(5)} - marking flag, lot size unchanged`);
 
-      console.log(`[RealtimeSLTPMonitor] Closing 70% (${closeSize.toFixed(2)} lots) at TP1...`);
-
-      // Update database to mark TP1 as hit
+      // Update database to mark TP1 as hit (NO position_size modification!)
       const { error: updateError } = await supabase
         .from('goal_session_trades')
         .update({
           tp1_hit: true,
           tp1_hit_at: new Date().toISOString(),
-          tp1_action_taken: 'continued', // Continued to TP2 with 30% remaining
-          position_size: position.position_size * 0.3 // Remaining 30%
+          tp1_action_taken: 'continued' // Continued to TP2 with full position
         })
         .eq('id', position.id);
 
@@ -288,20 +285,11 @@ class RealtimeSLTPMonitor {
         console.error(`[RealtimeSLTPMonitor] Failed to update TP1 hit:`, updateError);
       }
 
-      // Calculate partial profit (70% of position)
-      const pipInfo = await import('../utils/currencyHelpers').then(m => m.getCurrencyPipInfo(position.symbol));
-      const profitPips = Math.abs(currentPrice - position.entry_price) / pipInfo.pipValue;
-      const dollarPerPip = closeSize * pipInfo.dollarPerPipPerLot;
-      const partialProfit = profitPips * dollarPerPip;
-
-      console.log(`[RealtimeSLTPMonitor] TP1 partial profit: $${partialProfit.toFixed(2)}`);
-
-      // Update position in memory to reflect partial close
-      position.position_size = position.position_size * 0.3;
+      // Update position in memory (flag only, NOT size)
       position.tp1_hit = true;
 
       // Keep monitoring for TP2 - don't remove from monitoring
-      console.log(`[RealtimeSLTPMonitor] TP1 processed. Monitoring continues for TP2...`);
+      console.log(`[RealtimeSLTPMonitor] TP1 marked. Full position still active. Monitoring continues for TP2...`);
 
     } catch (error) {
       console.error(`[RealtimeSLTPMonitor] Error handling TP1:`, error);
@@ -309,11 +297,12 @@ class RealtimeSLTPMonitor {
   }
 
   /**
-   * Handle TP2 hit: Close remaining 30%, full closure
+   * Handle TP2 hit: Close full position
+   * CRITICAL: Position size was never reduced at TP1, so this closes the complete position
    */
   private async handleTP2Hit(position: OpenPosition, currentPrice: number): Promise<void> {
     try {
-      console.log(`[RealtimeSLTPMonitor] TP2 hit - closing remaining 30% position...`);
+      console.log(`[RealtimeSLTPMonitor] TP2 HIT @ ${currentPrice.toFixed(5)} - closing full position...`);
 
       // Mark TP2 as hit
       const { error: updateError } = await supabase
