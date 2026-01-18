@@ -43,7 +43,6 @@ export async function logViolation(entry: ViolationLogEntry): Promise<void> {
         call_location: entry.callLocation,
         blocked: entry.blocked,
         error_details: entry.errorDetails,
-        created_at: new Date().toISOString(),
       });
 
     if (error) {
