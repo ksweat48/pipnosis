@@ -265,7 +265,11 @@ export const handler: Handler = async (event, context) => {
         // Log monitoring check
         await logMonitoringCheck(
           intent.intent_id,
+          intent.user_id,
+          intent.symbol,
           intent.current_price,
+          parseFloat(intent.entry_zone_min),
+          parseFloat(intent.entry_zone_max),
           eqsScore,
           isInZoneWithPhase,
           urgencyPhase,
@@ -609,7 +613,7 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
     }
 
     // Step 9: Create success notification (using valid type 'trade_opened')
-    await supabase.from('goal_notifications').insert({
+    const { error: notificationError } = await supabase.from('goal_notifications').insert({
       user_id: fullIntent.user_id,
       session_id: fullIntent.session_id,
       type: 'trade_opened',
@@ -625,6 +629,10 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
         execution_source: 'server_entry_monitor'
       }
     });
+
+    if (notificationError) {
+      console.error('[Entry Monitor] ⚠️ Failed to create notification:', notificationError.message);
+    }
 
     console.log(`[Entry Monitor] 🎉 Execution complete for ${fullIntent.symbol}`);
     return true;
@@ -650,7 +658,7 @@ async function handleTimeout(intent: IntentForMonitoring): Promise<void> {
 
 // Helper: Abandon intent
 async function abandonIntent(intentId: string, reason: string): Promise<void> {
-  await supabase
+  const { error } = await supabase
     .from('entry_intents')
     .update({
       status: 'timeout',
@@ -658,6 +666,10 @@ async function abandonIntent(intentId: string, reason: string): Promise<void> {
       canceled_reason: reason
     })
     .eq('id', intentId);
+
+  if (error) {
+    console.error('[Entry Monitor] ⚠️ Failed to abandon intent:', error.message);
+  }
 }
 
 // Helper: Update server state
@@ -670,46 +682,82 @@ async function updateServerState(
   reason: string,
   isError: boolean = false
 ): Promise<void> {
-  await supabase
-    .from('entry_intent_server_state')
-    .upsert({
-      intent_id: intentId,
-      user_id: userId,
-      last_processed_at: new Date().toISOString(),
-      last_price_checked: lastPrice,
-      last_eqs_score: lastEQS,
-      last_decision: decision,
-      consecutive_errors: isError ? 1 : 0,
-      last_error: isError ? reason : null,
-      last_error_at: isError ? new Date().toISOString() : null,
-      total_checks: 1
-    }, {
-      onConflict: 'intent_id',
-      ignoreDuplicates: false
-    });
+  try {
+    const { error } = await supabase
+      .from('entry_intent_server_state')
+      .upsert({
+        intent_id: intentId,
+        user_id: userId,
+        last_processed_at: new Date().toISOString(),
+        last_price_checked: lastPrice,
+        last_eqs_score: lastEQS,
+        last_decision: decision,
+        consecutive_errors: isError ? 1 : 0,
+        last_error: isError ? reason : null,
+        last_error_at: isError ? new Date().toISOString() : null,
+        total_checks: 1
+      }, {
+        onConflict: 'intent_id',
+        ignoreDuplicates: false
+      });
+
+    if (error) {
+      console.error('[Entry Monitor] ⚠️ Failed to update server state:', error.message);
+    }
+  } catch (error) {
+    console.error('[Entry Monitor] ⚠️ Exception in updateServerState:', (error as Error).message);
+  }
 }
 
 // Helper: Log monitoring check
 async function logMonitoringCheck(
   intentId: string,
+  userId: string,
+  symbol: string,
   price: number,
+  entryZoneMin: number,
+  entryZoneMax: number,
   eqs: number,
   inZone: boolean,
   phase: number,
   threshold: number
 ): Promise<void> {
-  await supabase
-    .from('entry_monitoring_logs')
-    .insert({
-      intent_id: intentId,
-      checked_at: new Date().toISOString(),
-      current_price: price,
-      entry_quality_score: eqs,
-      in_entry_zone: inZone,
-      zone_status: inZone ? 'inside' : 'outside',
-      decision: eqs >= threshold ? 'execute' : 'wait',
-      reason: `Phase ${phase}: EQS ${eqs.toFixed(1)} vs threshold ${threshold}`
-    });
+  try {
+    // Calculate distance to zone for analytics
+    const distanceToZonePips = inZone ? 0 : Math.min(
+      Math.abs(price - entryZoneMin),
+      Math.abs(price - entryZoneMax)
+    );
+
+    const { error } = await supabase
+      .from('entry_monitoring_logs')
+      .insert({
+        intent_id: intentId,
+        user_id: userId,
+        symbol: symbol,
+        timestamp: new Date().toISOString(),
+        current_price: price,
+        distance_to_zone_pips: distanceToZonePips,
+        eqs_score: Math.round(eqs),
+        eqs_threshold: threshold,
+        status: eqs >= threshold && inZone ? 'EXECUTE_READY' : inZone ? 'WAIT_IN_ZONE' : 'WAIT_OUTSIDE_ZONE',
+        message: `Phase ${phase}: EQS ${eqs.toFixed(1)} vs threshold ${threshold} | ${inZone ? 'IN ZONE' : 'OUTSIDE ZONE'}`,
+        conditions_met: {
+          in_zone: inZone,
+          eqs_meets_threshold: eqs >= threshold,
+          phase: phase,
+          zone_min: entryZoneMin,
+          zone_max: entryZoneMax
+        }
+      });
+
+    if (error) {
+      console.error('[Entry Monitor] ⚠️ Failed to log monitoring check:', error.message);
+    }
+  } catch (error) {
+    // Don't fail monitoring if logging fails - log and continue
+    console.error('[Entry Monitor] ⚠️ Exception in logMonitoringCheck:', (error as Error).message);
+  }
 }
 
 // Helper: Log server monitoring health metrics

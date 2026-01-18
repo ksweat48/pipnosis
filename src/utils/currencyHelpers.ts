@@ -165,11 +165,11 @@ export function getCurrencyPipInfo(symbol: string): CurrencyPipInfo {
     }
     if (normalized === 'ETHUSD' || normalized.includes('ETH')) {
       return {
-        pipValue: 0.1,
+        pipValue: 1.0,  // Fixed: Was 0.1, causing zone tolerance to be 10x too small
         pipMultiplier: 1,
         decimalPlaces: 2,
         contractSize: 1,
-        dollarPerPipPerLot: 0.1,
+        dollarPerPipPerLot: 1.0,  // Fixed: Match BTCUSD behavior
         symbolType: 'crypto'
       };
     }
