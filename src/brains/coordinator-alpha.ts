@@ -104,6 +104,10 @@ import { microRegimeClassifier, type MicroRegimeClassification, type MicroRegime
 import { liquidityIntentAnalyzer, type LiquidityIntentModel } from '../services/liquidity-intent-analyzer';
 import { narrativeCoherenceValidator, type NarrativeValidation } from '../services/narrative-coherence-validator';
 import { logViolation } from '../services/ssot-violation-logger';
+import { sharedIntelligenceCoordinator } from '../services/shared-intelligence-coordinator';
+import { extractRegimeSignature } from '../services/regime-signature-extractor';
+import { parseStructuredAlphaResponse } from '../services/alpha-thesis-parser';
+import type { AlphaMarketThesis, RegimeSignature } from '../types/alpha-thesis';
 
 /**
  * Helper: Determine asset class from symbol
@@ -1234,7 +1238,67 @@ Act accordingly.
 `;
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // REGIME-BASED THESIS CACHING INTEGRATION
+    // ═══════════════════════════════════════════════════════════════════
+    // Generate regime signature from market context
+    const regimeSignature = extractRegimeSignature(
+      marketContext.symbol,
+      marketContext,
+      votes,
+      regimeSnapshot
+    );
+
+    // Check cache for existing thesis
+    let cachedThesis: AlphaMarketThesis | null = null;
+    let cachedThesisPrompt = '';
+
+    try {
+      // Attempt to get cached thesis from database
+      cachedThesis = await sharedIntelligenceCoordinator.getAlphaThesis(
+        marketContext.symbol,
+        regimeSignature,
+        null, // First call to check cache only
+        async () => {
+          // This won't be called on cache hit - we'll handle fresh generation separately
+          throw new Error('Cache check only');
+        }
+      );
+
+      if (cachedThesis && cachedThesis.fromCache) {
+        const ageMinutes = Math.round(cachedThesis.cacheAgeSeconds / 60);
+        cachedThesisPrompt = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 CACHED MARKET THESIS (Age: ${ageMinutes}min)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The following thesis was generated ${ageMinutes} minutes ago for the same regime:
+
+Direction Bias: ${cachedThesis.directionBias}
+Regime: ${cachedThesis.regime}
+Narrative: ${cachedThesis.narrative}
+Liquidity Context: ${cachedThesis.liquidityContext || 'Not specified'}
+Confidence Band: ${cachedThesis.confidenceBand}
+
+INSTRUCTIONS:
+1. Review this thesis against CURRENT market conditions
+2. If market structure is UNCHANGED → Accept and reuse (say "ACCEPTED_THESIS")
+3. If market has CHANGED → Reject and generate fresh analysis (say "REJECT_THESIS: [reason]")
+
+Only accept if the thesis is still valid. Be conservative.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+        console.log(`[Alpha Coordinator] 💾 Cached thesis available (${ageMinutes}min old)`);
+      }
+    } catch (error) {
+      // Cache miss or error - will generate fresh
+      console.log('[Alpha Coordinator] 💭 No cached thesis - will generate fresh');
+      cachedThesis = null;
+    }
+
     const prompt = `${getAlphaSystemPrompt()}
+${cachedThesisPrompt}
 
 🎯 CORE MANDATE (PROFESSIONAL SNIPER MODE)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1442,7 +1506,8 @@ Return JSON with structured reasoning:
   "entry_quality_score": 80,
   "entry_mode": "immediate",
   "style": "SCALP",
-  "reasoning": "Brief professional reasoning",
+  "marketThesis": "Brief market analysis (30-50 words) - what is happening in the market, direction bias, regime classification. Do NOT include price levels or execution details.",
+  "reasoning": "Brief execution reasoning for THIS user's trade parameters",
   "market_narrative": "Single-sentence cause-effect thesis",
   "wait_condition": {
     "target_entry_zone_min": 12340.00,
@@ -1500,6 +1565,59 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
       });
 
       const content = response.choices[0]?.message?.content || '{}';
+
+      // ═══════════════════════════════════════════════════════════════════
+      // EXTRACT AND CACHE MARKET THESIS
+      // ═══════════════════════════════════════════════════════════════════
+      let parsedJSON: any = {};
+      try {
+        parsedJSON = JSON.parse(content);
+
+        // Extract market thesis from response
+        const marketThesisText = parsedJSON.marketThesis || parsedJSON.reasoning || '';
+
+        // Check if Alpha accepted or rejected the cached thesis
+        const thesisAccepted = marketThesisText.includes('ACCEPTED_THESIS');
+        const thesisRejected = marketThesisText.includes('REJECT_THESIS');
+
+        if (cachedThesis && thesisRejected) {
+          console.log('[Alpha Coordinator] ❌ Alpha rejected cached thesis');
+          // Rejection logging handled by shared intelligence coordinator
+        } else if (cachedThesis && thesisAccepted) {
+          console.log('[Alpha Coordinator] ✅ Alpha accepted cached thesis');
+        } else if (!cachedThesis && marketThesisText) {
+          // Fresh thesis generation - cache it
+          const directionBias = parsedJSON.action === 'BUY' ? 'BUY' :
+                               parsedJSON.action === 'SELL' ? 'SELL' : 'NEUTRAL';
+
+          // Store thesis in cache (fire-and-forget to avoid blocking execution)
+          sharedIntelligenceCoordinator.getAlphaThesis(
+            marketContext.symbol,
+            regimeSignature,
+            cachedThesis,
+            async () => ({
+              thesis: {
+                directionBias: directionBias as 'BUY' | 'SELL' | 'NEUTRAL',
+                narrative: marketThesisText,
+                regime: regimeSnapshot?.category || 'unknown',
+                liquidityContext: parsedJSON.market_narrative || undefined,
+                confidenceBand: parsedJSON.trade_confidence > 70 ? 'strong' as const :
+                               parsedJSON.trade_confidence > 50 ? 'medium' as const : 'weak' as const,
+                thesisSummary: marketThesisText.substring(0, 100)
+              },
+              thesisRejected: false
+            })
+          ).catch(err => {
+            logger.error('[Alpha Coordinator] Failed to cache thesis', { error: err });
+          });
+
+          console.log('[Alpha Coordinator] 💾 Caching fresh market thesis');
+        }
+      } catch (parseError) {
+        logger.warn('[Alpha Coordinator] Failed to parse thesis from response', {
+          error: parseError instanceof Error ? parseError.message : 'Unknown error'
+        });
+      }
 
       let decision = this.parseDecision(
         content,
