@@ -28,9 +28,9 @@ import { marketSnapshotCache, type MarketSnapshotData } from './market-snapshot-
 import type { Timeframe, RiskMode } from '../config/timeframe-hierarchy';
 import type {
   AlphaMarketThesis,
-  RegimeSignature,
-  THESIS_TTL_MS
+  RegimeSignature
 } from '../types/alpha-thesis';
+import { THESIS_TTL_MS } from '../types/alpha-thesis';
 import {
   createImmutableThesis,
   verifyCachedThesisIntegrity,
