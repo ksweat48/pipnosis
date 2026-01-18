@@ -398,11 +398,11 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     displayName: 'Ethereum',
     marketSchedule: '24/7',
     dataProvider: 'kraken',
-    pipValue: 0.1,
+    pipValue: 1.0,  // SSOT FIX: Changed from 0.1 to 1.0 to match currencyHelpers.ts
     pipMultiplier: 1,
     decimalPlaces: 2,
     contractSize: 1,
-    dollarPerPipPerLot: 0.1,
+    dollarPerPipPerLot: 1.0,  // SSOT FIX: Changed from 0.1 to 1.0 to match currencyHelpers.ts
     minLotSize: 0.01,
     maxLotSize: 100.0,
     typicalDailyRangePoints: 150,
