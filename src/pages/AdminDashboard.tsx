@@ -6,9 +6,7 @@ import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { DataManagementPanel } from '@/components/DataManagementPanel';
 import { CandleAggregatorStatus } from '@/components/CandleAggregatorStatus';
-import APIUsageMonitor from '@/components/APIUsageMonitor';
 import { GlobalPollingStatus } from '@/components/GlobalPollingStatus';
-import { PollingPreferences } from '@/components/PollingPreferences';
 import { PipnosisMasteryCurve } from '@/components/PipnosisMasteryCurve';
 import { OpenAIUsageDashboard } from '@/components/OpenAIUsageDashboard';
 import { ServerSidePollingMonitor } from '@/components/ServerSidePollingMonitor';
@@ -43,7 +41,7 @@ import { PushNotificationTester } from '@/components/admin/PushNotificationTeste
 import { WebSocketStatusPanel } from '@/components/admin/WebSocketStatusPanel';
 import { userFeedbackService } from '@/services/user-feedback-service';
 
-type AdminTab = 'overview' | 'data' | 'cache' | 'api-usage' | 'settings' | 'users' | 'feedback' | 'push-notifications';
+type AdminTab = 'overview' | 'data' | 'cache' | 'api-usage' | 'users' | 'feedback' | 'push-notifications';
 
 interface AIMetrics {
   skillLevel: number;
@@ -52,8 +50,6 @@ interface AIMetrics {
   learningInsights: number;
   patternDiscoveries: number;
   avgWinRate: number;
-  isAutoRunning: boolean;
-  currentBacktestNumber: number;
   skillLevelChange: number;
   recentSessionsCount: number;
 }
@@ -65,7 +61,7 @@ export function AdminDashboard() {
   // Initialize active tab from URL hash or default to 'overview'
   const getInitialTab = (): AdminTab => {
     const hash = window.location.hash.slice(1); // Remove '#'
-    const validTabs: AdminTab[] = ['overview', 'data', 'cache', 'api-usage', 'settings', 'users', 'feedback', 'push-notifications'];
+    const validTabs: AdminTab[] = ['overview', 'data', 'cache', 'api-usage', 'users', 'feedback', 'push-notifications'];
     return validTabs.includes(hash as AdminTab) ? (hash as AdminTab) : 'overview';
   };
 
@@ -231,8 +227,6 @@ export function AdminDashboard() {
         learningInsights: insightsCount || 0,
         patternDiscoveries: patternsCount || 0,
         avgWinRate,
-        isAutoRunning: false,
-        currentBacktestNumber: 0,
         skillLevelChange: currentSkillLevel - previousSkillLevel,
         recentSessionsCount: totalTrades
       });
@@ -243,10 +237,6 @@ export function AdminDashboard() {
     }
   };
 
-  const handleToggleAutoBacktest = async () => {
-    // Backtest system removed - using goal sessions only
-    console.log('[Admin Dashboard] Auto-backtest system removed');
-  };
 
   return (
     <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950" ref={pullToRefresh.containerRef}>
@@ -412,30 +402,6 @@ export function AdminDashboard() {
             {/* Pipnosis Mastery Curve - TOP PRIORITY */}
             <PipnosisMasteryCurve userId={null} />
 
-            {/* AI Training Status Banner */}
-            {aiMetrics?.isAutoRunning && (
-              <div className="bg-gradient-to-r from-green-900/30 to-emerald-900/30 border-2 border-green-500/30 rounded-xl p-6">
-                <div className="flex items-center gap-4">
-                  <div className="p-3 bg-green-600/20 rounded-lg">
-                    <Zap className="w-8 h-8 text-green-400 animate-pulse" />
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="text-xl font-bold text-white mb-1">Auto-Training Active</h3>
-                    <p className="text-green-200">
-                      Currently running backtest #{aiMetrics.currentBacktestNumber} • AI is learning in real-time
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleToggleAutoBacktest}
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-all flex items-center gap-2"
-                  >
-                    <Pause size={18} />
-                    Stop Training
-                  </button>
-                </div>
-              </div>
-            )}
-
             {/* AI Metrics Grid */}
             {!loading && aiMetrics && (
               <>
@@ -502,13 +468,6 @@ export function AdminDashboard() {
                   color="blue"
                   onClick={() => handleTabChange('data')}
                 />
-                <QuickActionCard
-                  title="Backtest Lab"
-                  description="Run backtests and generate learning insights"
-                  icon={Brain}
-                  color="purple"
-                  onClick={() => navigate('/admin/ai-training')}
-                />
               </div>
             </div>
 
@@ -519,12 +478,7 @@ export function AdminDashboard() {
                 <Activity className="text-emerald-400" size={24} />
                 System Health
               </h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <HealthStatusCard
-                  label="Auto-Training"
-                  status={aiMetrics?.isAutoRunning ? 'active' : 'idle'}
-                  details={aiMetrics?.isAutoRunning ? `Run #${aiMetrics.currentBacktestNumber}` : 'Ready to start'}
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <HealthStatusCard
                   label="Learning Pipeline"
                   status={aiMetrics && aiMetrics.learningInsights > 0 ? 'active' : 'idle'}
