@@ -519,12 +519,41 @@ function checkPriceInZone(intent: IntentForMonitoring, price: number, toleranceP
 
 // Helper: Execute intent - FULLY SERVER-SIDE using SERVICE_ROLE client
 // This bypasses browser code to avoid RLS issues with anon key
+// CCIP-COMPLIANT: Comprehensive audit trail for diagnosing execution failures
 async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eqsScore: number): Promise<boolean> {
+  let auditId: string | null = null;
+
   try {
     console.log(`[Entry Monitor] 🎯 Server-side execution starting for ${intent.symbol}`);
     console.log(`[Entry Monitor] Intent: ${intent.intent_id}, User: ${intent.user_id}, Session: ${intent.session_id}`);
 
+    // AUDIT: Start execution tracking
+    const { data: auditIdData, error: auditStartError } = await supabase.rpc('start_execution_audit', {
+      p_intent_id: intent.intent_id,
+      p_user_id: intent.user_id,
+      p_session_id: intent.session_id,
+      p_entry_price: entryPrice,
+      p_eqs_score: Math.round(eqsScore),
+      p_urgency_phase: intent.urgency_phase || 1,
+      p_zone_tolerance_pips: intent.zone_tolerance_pips || 0
+    });
+
+    if (auditStartError || !auditIdData) {
+      console.error(`[Entry Monitor] ⚠️ Failed to start audit (non-blocking): ${auditStartError?.message}`);
+    } else {
+      auditId = auditIdData;
+      console.log(`[Entry Monitor] 📋 Audit tracking started: ${auditId}`);
+    }
+
     // Step 1: Fetch full intent data using SERVICE_ROLE client (bypasses RLS)
+    if (auditId) {
+      await supabase.rpc('log_execution_step', {
+        p_audit_id: auditId,
+        p_step: 'FETCH_INTENT',
+        p_details: { intent_id: intent.intent_id }
+      });
+    }
+
     const { data: fullIntent, error: fetchError } = await supabase
       .from('entry_intents')
       .select('*, goal_sessions(*)')
@@ -534,11 +563,31 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
     if (fetchError) {
       console.error(`[Entry Monitor] ❌ Failed to fetch intent: ${fetchError.message}`);
       console.error(`[Entry Monitor] ❌ Fetch error details:`, JSON.stringify(fetchError));
+
+      if (auditId) {
+        await supabase.rpc('fail_execution_audit', {
+          p_audit_id: auditId,
+          p_failure_step: 'FETCH_INTENT',
+          p_failure_reason: `Database fetch failed: ${fetchError.message}`,
+          p_error_details: { code: fetchError.code, hint: fetchError.hint, details: fetchError.details }
+        });
+      }
+
       return false;
     }
 
     if (!fullIntent) {
       console.error(`[Entry Monitor] ❌ Intent not found in database: ${intent.intent_id}`);
+
+      if (auditId) {
+        await supabase.rpc('fail_execution_audit', {
+          p_audit_id: auditId,
+          p_failure_step: 'FETCH_INTENT',
+          p_failure_reason: 'Intent not found in database',
+          p_error_details: { intent_id: intent.intent_id }
+        });
+      }
+
       return false;
     }
 
@@ -547,10 +596,39 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
     const marketContext = fullIntent.market_context as any || {};
     const session = fullIntent.goal_sessions as any;
 
-    // Step 2: Calculate adjusted SL/TP based on actual entry price
+    // Step 2: Validate context
+    if (auditId) {
+      await supabase.rpc('log_execution_step', {
+        p_audit_id: auditId,
+        p_step: 'VALIDATE_CONTEXT',
+        p_details: {
+          has_session: !!session,
+          has_market_context: !!marketContext,
+          direction: fullIntent.direction
+        }
+      });
+    }
+
+    // Step 3: Calculate adjusted SL/TP based on actual entry price
     const idealEntryPrice = (fullIntent.entry_zone_min + fullIntent.entry_zone_max) / 2;
     let adjustedStopLoss = marketContext?.stop_loss || fullIntent.invalidation_price;
     let adjustedTakeProfit = marketContext?.take_profit;
+
+    // Validate we have required SL
+    if (!adjustedStopLoss) {
+      console.error(`[Entry Monitor] ❌ Missing stop loss - cannot execute`);
+
+      if (auditId) {
+        await supabase.rpc('fail_execution_audit', {
+          p_audit_id: auditId,
+          p_failure_step: 'VALIDATE_CONTEXT',
+          p_failure_reason: 'Missing required stop loss price',
+          p_error_details: { market_context: marketContext, invalidation_price: fullIntent.invalidation_price }
+        });
+      }
+
+      return false;
+    }
 
     if (adjustedStopLoss && adjustedTakeProfit && entryPrice !== idealEntryPrice) {
       const originalStopDistance = Math.abs(idealEntryPrice - adjustedStopLoss);
@@ -567,10 +645,23 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
       console.log(`[Entry Monitor] 📐 Adjusted SL/TP for entry slip: SL=${adjustedStopLoss.toFixed(5)}, TP=${adjustedTakeProfit.toFixed(5)}`);
     }
 
-    // Step 3: Get risk dollars from session
+    // Step 4: Get risk dollars from session
     const riskDollars = session?.dollar_risk || marketContext?.risk_dollars || 10;
 
-    // Step 4: Calculate lot size using pip info
+    // Step 5: Calculate lot size using pip info
+    if (auditId) {
+      await supabase.rpc('log_execution_step', {
+        p_audit_id: auditId,
+        p_step: 'CALCULATE_POSITION',
+        p_details: {
+          entry_price: entryPrice,
+          stop_loss: adjustedStopLoss,
+          take_profit: adjustedTakeProfit,
+          risk_dollars: riskDollars
+        }
+      });
+    }
+
     const pipInfo = getCurrencyPipInfo(intent.symbol);
     const stopDistancePips = Math.abs(entryPrice - adjustedStopLoss) / pipInfo.pipValue;
     const pipValuePerLot = pipInfo.pipValuePerLot || 10;
@@ -632,6 +723,20 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
       lot: tradeData.lot_size
     }));
 
+    // AUDIT: Log trade insertion attempt (CRITICAL STEP)
+    if (auditId) {
+      await supabase.rpc('log_execution_step', {
+        p_audit_id: auditId,
+        p_step: 'INSERT_TRADE',
+        p_details: {
+          symbol: tradeData.symbol,
+          direction: tradeData.direction,
+          lot_size: tradeData.lot_size,
+          position_size: tradeData.position_size
+        }
+      });
+    }
+
     const { data: newTrade, error: insertError } = await supabase
       .from('goal_session_trades')
       .insert(tradeData)
@@ -641,6 +746,28 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
     if (insertError) {
       console.error(`[Entry Monitor] ❌ Failed to create trade: ${insertError.message}`);
       console.error(`[Entry Monitor] ❌ Insert error details:`, JSON.stringify(insertError));
+
+      // AUDIT: Log trade insertion failure (THIS IS WHERE MOST FAILURES HAPPEN)
+      if (auditId) {
+        await supabase.rpc('fail_execution_audit', {
+          p_audit_id: auditId,
+          p_failure_step: 'INSERT_TRADE',
+          p_failure_reason: `Trade insertion failed: ${insertError.message}`,
+          p_error_details: {
+            code: insertError.code,
+            hint: insertError.hint,
+            details: insertError.details,
+            trade_data_summary: {
+              symbol: tradeData.symbol,
+              direction: tradeData.direction,
+              entry_price: tradeData.entry_price,
+              lot_size: tradeData.lot_size,
+              position_size: tradeData.position_size
+            }
+          }
+        });
+      }
+
       return false;
     }
 
@@ -697,11 +824,34 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
       console.error('[Entry Monitor] ⚠️ Failed to create notification:', notificationError.message);
     }
 
+    // AUDIT: Mark execution as successful
+    if (auditId) {
+      await supabase.rpc('complete_execution_audit', {
+        p_audit_id: auditId,
+        p_trade_id: newTrade.id
+      });
+    }
+
     console.log(`[Entry Monitor] 🎉 Execution complete for ${fullIntent.symbol}`);
     return true;
   } catch (error) {
     console.error('[Entry Monitor] ❌ Execution error:', error);
     console.error('[Entry Monitor] ❌ Error stack:', (error as Error).stack);
+
+    // AUDIT: Log unexpected error (catch-all)
+    if (auditId) {
+      await supabase.rpc('fail_execution_audit', {
+        p_audit_id: auditId,
+        p_failure_step: 'UNEXPECTED_ERROR',
+        p_failure_reason: `Unexpected error: ${(error as Error).message}`,
+        p_error_details: {
+          error_name: (error as Error).name,
+          error_message: (error as Error).message,
+          error_stack: (error as Error).stack
+        }
+      });
+    }
+
     return false;
   }
 }
