@@ -45,6 +45,7 @@ interface Position {
   direction: 'buy' | 'sell';
   entry_price: number;
   current_pnl: number;
+  goal_session_id: string;
 }
 
 /**
@@ -88,7 +89,7 @@ async function executeAlertAction(
     // Verify position still exists and is open
     const { data: position, error: posError } = await supabase
       .from('goal_session_trades')
-      .select('id, status, symbol, direction, entry_price, current_pnl')
+      .select('id, status, symbol, direction, entry_price, current_pnl, goal_session_id')
       .eq('id', positionId)
       .single();
 
@@ -109,19 +110,22 @@ async function executeAlertAction(
     const closePrice = position.direction === 'buy' ? price.bid : price.ask;
 
     // Determine close reason from alert type
+    // Map to valid close_reason values per database constraint
     const closeReason = alert.type === 'midtrade_exit_immediately'
-      ? 'alpha_emergency_exit'
+      ? 'alpha_override'
       : alert.type === 'midtrade_take_profit_early'
-      ? 'alpha_early_tp'
-      : 'alpha_recommendation';
+      ? 'alpha_override'
+      : 'ai_decision';
 
     console.log(`[AutonomousMidTrade:${executionId}] Executing closure for ${position.symbol}: ${closeReason}`);
 
-    // Execute closure via database function (SSOT)
-    const { error: closeError } = await supabase.rpc('close_position_at_sltp', {
-      p_position_id: positionId,
+    // Execute closure via SSOT close_goal_session_trade function
+    const { error: closeError } = await supabase.rpc('close_goal_session_trade', {
+      p_trade_id: positionId,
       p_close_price: closePrice,
-      p_close_reason: closeReason
+      p_close_reason: closeReason,
+      p_goal_session_id: position.goal_session_id,
+      p_force_close: false
     });
 
     if (closeError) {

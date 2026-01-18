@@ -179,7 +179,7 @@ function checkPositionTriggers(position: OpenPosition, price: PriceData): Monito
 
 /**
  * Execute position closure via database function
- * Delegates to close_position_at_sltp (SSOT)
+ * Delegates to close_goal_session_trade (SSOT)
  */
 async function executePositionClosure(
   result: MonitoringResult,
@@ -209,16 +209,20 @@ async function executePositionClosure(
 
     } else {
       // SL/TP/TP2 hit - full close
+      // Map to valid close_reason values per database constraint
       const closeReason = result.checkType === 'sl' ? 'stop_loss'
-        : result.checkType === 'tp2' ? 'tp2_hit'
+        : result.checkType === 'tp2' ? 'take_profit_2'
         : 'take_profit';
 
       console.log(`[AutonomousMonitor] ${result.checkType.toUpperCase()} HIT for ${position.symbol}: Executing full close`);
 
-      const { data, error } = await supabase.rpc('close_position_at_sltp', {
-        p_position_id: position.id,
+      // Use SSOT close_goal_session_trade function
+      const { data, error } = await supabase.rpc('close_goal_session_trade', {
+        p_trade_id: position.id,
         p_close_price: result.currentPrice,
-        p_close_reason: closeReason
+        p_close_reason: closeReason,
+        p_goal_session_id: position.goal_session_id,
+        p_force_close: false
       });
 
       if (error) {
