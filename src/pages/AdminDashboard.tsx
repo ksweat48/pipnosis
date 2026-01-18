@@ -13,7 +13,6 @@ import { PipnosisMasteryCurve } from '@/components/PipnosisMasteryCurve';
 import { OpenAIUsageDashboard } from '@/components/OpenAIUsageDashboard';
 import { ServerSidePollingMonitor } from '@/components/ServerSidePollingMonitor';
 import { LLMTokenUsageDashboard } from '@/components/LLMTokenUsageDashboard';
-import { CacheMetricsDashboard } from '@/components/CacheMetricsDashboard';
 import { FreshnessGateAnalytics } from '@/components/FreshnessGateAnalytics';
 import { AlphaIntelligenceTelemetry } from '@/components/AlphaIntelligenceTelemetry';
 import { useAuth } from '@/hooks/useAuth';
@@ -59,13 +58,6 @@ interface AIMetrics {
   recentSessionsCount: number;
 }
 
-interface CacheMetrics {
-  totalHitRate: number;
-  totalCallsSaved: number;
-  estimatedSavings: number;
-  cacheHealth: 'healthy' | 'degraded' | 'stale';
-}
-
 export function AdminDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -79,7 +71,6 @@ export function AdminDashboard() {
 
   const [activeTab, setActiveTab] = useState<AdminTab>(getInitialTab());
   const [aiMetrics, setAIMetrics] = useState<AIMetrics | null>(null);
-  const [cacheMetrics, setCacheMetrics] = useState<CacheMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [newFeedbackCount, setNewFeedbackCount] = useState(0);
   const [tradingEnabled, setTradingEnabled] = useState(true);
@@ -101,12 +92,10 @@ export function AdminDashboard() {
   useEffect(() => {
     if (user) {
       loadAIMetrics();
-      loadCacheMetrics();
 
       // Refresh metrics every 30 seconds
       const interval = setInterval(() => {
         loadAIMetrics();
-        loadCacheMetrics();
       }, 30000);
       return () => clearInterval(interval);
     }
@@ -251,48 +240,6 @@ export function AdminDashboard() {
       console.error('[Admin Dashboard] Error loading AI metrics:', error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadCacheMetrics = async () => {
-    if (!user) return;
-
-    try {
-      const { data: stats, error } = await supabase.rpc('get_cache_stats', { p_hours: 24 });
-
-      if (error) {
-        console.error('[Admin Dashboard] Error loading cache stats:', error);
-        return;
-      }
-
-      if (!stats || stats.length === 0) {
-        setCacheMetrics({
-          totalHitRate: 0,
-          totalCallsSaved: 0,
-          estimatedSavings: 0,
-          cacheHealth: 'stale'
-        });
-        return;
-      }
-
-      const totalLookups = stats.reduce((sum: number, s: any) => sum + (s.total_lookups || 0), 0);
-      const totalHits = stats.reduce((sum: number, s: any) => sum + (s.cache_hits || 0), 0);
-      const totalSaved = stats.reduce((sum: number, s: any) => sum + (s.total_llm_calls_saved || 0), 0);
-      const hitRate = totalLookups > 0 ? (totalHits / totalLookups) * 100 : 0;
-      const estimatedSavings = totalSaved * 0.002;
-
-      let health: 'healthy' | 'degraded' | 'stale' = 'healthy';
-      if (hitRate < 50) health = 'degraded';
-      if (hitRate < 20) health = 'stale';
-
-      setCacheMetrics({
-        totalHitRate: hitRate,
-        totalCallsSaved: totalSaved,
-        estimatedSavings: estimatedSavings,
-        cacheHealth: health
-      });
-    } catch (error) {
-      console.error('[Admin Dashboard] Error loading cache metrics:', error);
     }
   };
 
@@ -524,58 +471,6 @@ export function AdminDashboard() {
                   />
                 </div>
 
-                {/* Cache Intelligence Overview */}
-                {cacheMetrics && (
-                  <div className="bg-gradient-to-br from-cyan-600/20 to-cyan-800/20 backdrop-blur-sm border-2 border-cyan-500/30 rounded-xl p-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className="p-3 bg-gray-900/50 rounded-lg">
-                          <Layers className="text-cyan-400" size={28} />
-                        </div>
-                        <div>
-                          <h3 className="text-xl font-bold text-white">Intelligence Cache Performance</h3>
-                          <p className="text-cyan-200 text-sm">Regime-based Alpha caching + three-tier Omega system</p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => handleTabChange('cache')}
-                        className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg font-medium transition-all flex items-center gap-2"
-                      >
-                        View Details
-                        <ArrowRight size={16} />
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                      <div className="bg-gray-900/30 rounded-lg p-4">
-                        <div className="text-cyan-300 text-sm mb-1">Cache Hit Rate</div>
-                        <div className="text-white text-2xl font-bold">{cacheMetrics.totalHitRate.toFixed(1)}%</div>
-                        <div className={`text-xs mt-1 ${
-                          cacheMetrics.cacheHealth === 'healthy' ? 'text-emerald-400' :
-                          cacheMetrics.cacheHealth === 'degraded' ? 'text-amber-400' : 'text-red-400'
-                        }`}>
-                          {cacheMetrics.cacheHealth === 'healthy' ? 'Healthy' :
-                           cacheMetrics.cacheHealth === 'degraded' ? 'Degraded' : 'Needs Warming'}
-                        </div>
-                      </div>
-                      <div className="bg-gray-900/30 rounded-lg p-4">
-                        <div className="text-cyan-300 text-sm mb-1">LLM Calls Saved</div>
-                        <div className="text-white text-2xl font-bold">{cacheMetrics.totalCallsSaved.toLocaleString()}</div>
-                        <div className="text-emerald-400 text-xs mt-1">Last 24 hours</div>
-                      </div>
-                      <div className="bg-gray-900/30 rounded-lg p-4">
-                        <div className="text-cyan-300 text-sm mb-1">Estimated Savings</div>
-                        <div className="text-white text-2xl font-bold">${cacheMetrics.estimatedSavings.toFixed(2)}</div>
-                        <div className="text-emerald-400 text-xs mt-1">Cost reduction</div>
-                      </div>
-                      <div className="bg-gray-900/30 rounded-lg p-4">
-                        <div className="text-cyan-300 text-sm mb-1">Cache Systems</div>
-                        <div className="text-white text-2xl font-bold">2</div>
-                        <div className="text-cyan-400 text-xs mt-1">Regime + Three-Tier</div>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </>
             )}
 
@@ -588,7 +483,7 @@ export function AdminDashboard() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <QuickActionCard
                   title="Cache Intelligence"
-                  description="Monitor three-tier LLM cache performance and savings"
+                  description="Monitor regime-based thesis caching and freshness metrics"
                   icon={Layers}
                   color="cyan"
                   onClick={() => handleTabChange('cache')}
@@ -686,18 +581,6 @@ export function AdminDashboard() {
                 </div>
               </div>
               <AlphaIntelligenceTelemetry />
-            </div>
-
-            {/* Three-Tier Omega Cache */}
-            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
-              <div className="flex items-center gap-3 mb-6">
-                <Layers size={24} className="text-cyan-400" />
-                <div>
-                  <h2 className="text-2xl font-semibold text-white">Three-Tier Intelligence Cache (Legacy)</h2>
-                  <p className="text-gray-400 text-sm mt-1">Platform-wide LLM response caching for Omega council and scout operations</p>
-                </div>
-              </div>
-              <CacheMetricsDashboard />
             </div>
 
             {/* Freshness Gate */}

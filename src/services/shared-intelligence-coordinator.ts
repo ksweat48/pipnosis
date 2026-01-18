@@ -53,15 +53,6 @@ export interface AlphaStrategicInsight {
   fromCache: boolean;
 }
 
-export interface CacheStats {
-  cacheTier: string;
-  totalLookups: number;
-  cacheHits: number;
-  cacheMisses: number;
-  hitRate: number;
-  avgCacheAgeSeconds: number;
-  totalLlmCallsSaved: number;
-}
 
 /**
  * Get TTL for Alpha thesis cache
@@ -376,35 +367,6 @@ class SharedIntelligenceCoordinator {
     console.log('[SharedIntelligence] 🗑️ All local caches cleared');
   }
 
-  /**
-   * Get cache statistics from database
-   */
-  async getCacheStats(hours: number = 24): Promise<CacheStats[]> {
-    try {
-      const { data, error } = await supabase.rpc('get_cache_stats', { p_hours: hours });
-      if (error) throw error;
-      return (data || []).map((row: {
-        cache_tier: string;
-        total_lookups: string;
-        cache_hits: string;
-        cache_misses: string;
-        hit_rate: string;
-        avg_cache_age_seconds: string;
-        total_llm_calls_saved: string;
-      }) => ({
-        cacheTier: row.cache_tier,
-        totalLookups: parseInt(row.total_lookups),
-        cacheHits: parseInt(row.cache_hits),
-        cacheMisses: parseInt(row.cache_misses),
-        hitRate: parseFloat(row.hit_rate),
-        avgCacheAgeSeconds: parseFloat(row.avg_cache_age_seconds) || 0,
-        totalLlmCallsSaved: parseInt(row.total_llm_calls_saved)
-      }));
-    } catch (err) {
-      console.error('[SharedIntelligence] Failed to get cache stats:', err);
-      return [];
-    }
-  }
 
   /**
    * Cleanup expired cache entries
