@@ -71,7 +71,7 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({
           const newThought = payload.new as AlphaThought;
           // Only add if it's an active scan thought
           if (newThought.is_active_scan !== false) {
-            setAlphaThoughts(prev => [...prev, newThought].slice(-15)); // Keep last 15 thoughts
+            setAlphaThoughts(prev => [newThought, ...prev].slice(0, 15)); // Keep first 15 thoughts (newest)
           }
         }
       )
@@ -89,7 +89,7 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({
       .select('*')
       .eq('session_id', sessionId)
       .eq('is_active_scan', true)
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
       .limit(15);
 
     if (!error && data) {
@@ -217,7 +217,7 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({
                   <div
                     key={thought.id}
                     className={`rounded-lg p-3 border ${getThoughtColor(thought.step_type)} transition-all duration-300 ${
-                      idx === alphaThoughts.length - 1 ? 'animate-pulse' : ''
+                      idx === 0 ? 'animate-pulse' : ''
                     }`}
                   >
                     <div className="flex items-start gap-2">

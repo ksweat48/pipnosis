@@ -543,17 +543,11 @@ class GoalSessionLiveEngine {
         openTradesCount: this.openTrades.length
       });
 
-      // 💭 THOUGHT STREAM: Clear old thoughts and emit scan start
+      // 💭 THOUGHT STREAM: Clear old thoughts
       try {
         await alphaThoughtStream.clearScanThoughts(activeSession);
-        await alphaThoughtStream.emitScanStart(
-          activeSession,
-          config.userId,
-          watchlist.length,
-          watchlist
-        );
       } catch (error) {
-        logger.error(LogCategory.AI_TRADING, '[AlphaThoughts] Failed to initialize thought stream', { error });
+        logger.error(LogCategory.AI_TRADING, '[AlphaThoughts] Failed to clear old thoughts', { error });
       }
 
       // ✅ ENTRY MONITOR: Block global rescans during ENTRY_MONITOR mode

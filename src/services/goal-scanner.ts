@@ -181,9 +181,6 @@ class GoalScanner {
 
       console.log(`[Goal Scanner] 🔍 Scanning ${symbolsToScan.length} symbols...`);
 
-      // Emit thought: Scan started
-      await alphaThoughtStream.emitScanStart(sessionId, userId, symbolsToScan.length, symbolsToScan);
-
       // Emit thought: Filtering results
       if (qualitySymbols.length > 0) {
         await alphaThoughtStream.emitFiltering(
