@@ -32,7 +32,7 @@ import type {
   HardBlockResult,
   AllowedHardBlock,
 } from '../types/alpha-repair';
-import { ssotViolationLogger } from './ssot-violation-logger';
+import { logViolation } from './ssot-violation-logger';
 
 interface ValidationInput {
   symbol: string;
@@ -359,6 +359,9 @@ class AlphaValidationService {
 
   /**
    * Log SSOT violation for analytics
+   *
+   * SSOT Compliance: Uses correct ViolationLogEntry interface matching database schema.
+   * All required fields (symbol, attemptedOperation, callLocation) are provided.
    */
   private async logSSotViolation(
     violationType: string,
@@ -367,25 +370,30 @@ class AlphaValidationService {
     context: ValidationContext
   ): Promise<void> {
     try {
-      await ssotViolationLogger.logViolation({
-        violation_type: violationType,
-        severity: 'high',
-        source_module: 'alpha-validation-service',
-        violation_details: {
+      await logViolation({
+        violationType: violationType,
+        symbol: decision.symbol,
+        attemptedOperation: 'alpha_validation',
+        callLocation: 'alpha-validation-service',
+        blocked: true,
+        errorDetails: {
           reason,
-          symbol: decision.symbol,
           action: decision.action,
           entry: decision.entry,
           stopLoss: decision.stopLoss,
           takeProfit: decision.takeProfit,
           direction: decision.direction,
+          confidence: decision.confidence,
+          risk_pct: decision.risk_pct,
+          userId: context.userId,
+          sessionId: context.sessionId,
+          currentPrice: context.currentPrice,
+          timestamp: new Date().toISOString(),
         },
-        user_id: context.userId || null,
-        session_id: context.sessionId || null,
-        resolution: 'blocked',
       });
     } catch (error) {
       logger.error('[Alpha Validation] Failed to log SSOT violation:', error);
+      // Don't throw - logging failures never block validation
     }
   }
 }
