@@ -29,16 +29,19 @@ export const SimpleEntryMonitor: React.FC<SimpleEntryMonitorProps> = ({ sessionI
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [previousPrice, setPreviousPrice] = useState<number | null>(null);
   const [executing, setExecuting] = useState(false);
+  const [eqsScore, setEqsScore] = useState<number | null>(null);
+  const [eqsThreshold, setEqsThreshold] = useState<number | null>(null);
 
   const { activeIntent, loading: intentLoading } = useActiveEntryIntent(sessionId);
 
-  // Poll for current price
+  // Poll for current price and EQS data
   useEffect(() => {
     if (!activeIntent) return;
 
-    const fetchPrice = async () => {
+    const fetchData = async () => {
       try {
-        const { data, error } = await supabase
+        // Fetch current price
+        const { data: priceData, error: priceError } = await supabase
           .from('realtime_prices')
           .select('mid')
           .eq('symbol', activeIntent.symbol)
@@ -46,17 +49,31 @@ export const SimpleEntryMonitor: React.FC<SimpleEntryMonitorProps> = ({ sessionI
           .limit(1)
           .maybeSingle();
 
-        if (data && !error) {
+        if (priceData && !priceError) {
           setPreviousPrice(currentPrice);
-          setCurrentPrice(data.mid);
+          setCurrentPrice(priceData.mid);
+        }
+
+        // Fetch latest EQS score from monitoring logs
+        const { data: eqsData, error: eqsError } = await supabase
+          .from('entry_monitoring_logs')
+          .select('eqs_score, eqs_threshold')
+          .eq('intent_id', activeIntent.id)
+          .order('timestamp', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (eqsData && !eqsError) {
+          setEqsScore(eqsData.eqs_score);
+          setEqsThreshold(eqsData.eqs_threshold);
         }
       } catch (error) {
-        console.error('[SimpleEntryMonitor] Error fetching price:', error);
+        console.error('[SimpleEntryMonitor] Error fetching data:', error);
       }
     };
 
-    fetchPrice();
-    const interval = setInterval(fetchPrice, 2000); // Update every 2 seconds
+    fetchData();
+    const interval = setInterval(fetchData, 2000); // Update every 2 seconds
 
     return () => clearInterval(interval);
   }, [activeIntent, currentPrice]);
@@ -176,6 +193,71 @@ export const SimpleEntryMonitor: React.FC<SimpleEntryMonitorProps> = ({ sessionI
       <div className="mb-3 sm:mb-4">
         <EntryUrgencyPhaseTimer activeIntent={activeIntent} />
       </div>
+
+      {/* EQS (ENTRY QUALITY SCORE) METER */}
+      {eqsScore !== null && eqsThreshold !== null && (
+        <div className="mb-3 sm:mb-4 p-3 sm:p-4 rounded-lg border-2 bg-gradient-to-br from-purple-900/20 to-blue-900/20 border-purple-600/50">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-purple-400" />
+              <span className="text-sm font-semibold text-gray-300">Entry Quality Score</span>
+            </div>
+            <span className={`px-2 py-1 rounded text-xs font-bold ${
+              eqsScore >= eqsThreshold
+                ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+            }`}>
+              {eqsScore >= eqsThreshold ? 'READY' : 'WAITING'}
+            </span>
+          </div>
+
+          {/* Progress Bar */}
+          <div className="mb-2">
+            <div className="flex items-baseline justify-between mb-1">
+              <span className={`text-2xl font-bold font-mono ${
+                eqsScore >= eqsThreshold ? 'text-green-400' : 'text-yellow-400'
+              }`}>
+                {eqsScore}
+              </span>
+              <span className="text-sm text-gray-400">
+                / {eqsThreshold} required
+              </span>
+            </div>
+            <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
+              <div
+                className={`h-full transition-all duration-500 ${
+                  eqsScore >= eqsThreshold
+                    ? 'bg-gradient-to-r from-green-500 to-emerald-400'
+                    : 'bg-gradient-to-r from-yellow-500 to-orange-400'
+                }`}
+                style={{ width: `${Math.min(100, (eqsScore / eqsThreshold) * 100)}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Explanation */}
+          <div className="text-xs text-gray-300 space-y-1">
+            {eqsScore >= eqsThreshold ? (
+              <div className="flex items-start gap-1.5">
+                <span className="text-green-400">✓</span>
+                <span>Quality score meets threshold. Trade will auto-execute when conditions are met.</span>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-start gap-1.5">
+                  <span className="text-yellow-400">⏳</span>
+                  <span>Waiting for quality score to improve. Need +{eqsThreshold - eqsScore} points.</span>
+                </div>
+                <div className="text-gray-400 ml-4">
+                  • Score improves with time (phase progression)
+                  • Better zone proximity increases score
+                  • Click "Enter Trade Now" to override and execute immediately
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* PRICE ZONE STATUS */}
       {currentPrice && (

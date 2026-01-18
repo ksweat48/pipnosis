@@ -330,8 +330,13 @@ export const handler: Handler = async (event, context) => {
         );
 
         // Execution decision: Price in zone AND EQS meets threshold
+        console.log(`[Entry Monitor] 🎯 EXECUTION CHECK for ${intent.symbol}:`);
+        console.log(`  - Price in zone: ${isInZoneWithPhase} (price: ${intent.current_price}, zone: ${intent.entry_zone_min}-${intent.entry_zone_max}, tolerance: ${zoneTolerancePips}p)`);
+        console.log(`  - EQS check: ${eqsScore.toFixed(1)} >= ${timeAdjustedThreshold} = ${eqsScore >= timeAdjustedThreshold}`);
+        console.log(`  - Phase: ${urgencyPhase}, Edge decay: ${edgeDecayPercent.toFixed(0)}%`);
+
         if (isInZoneWithPhase && eqsScore >= timeAdjustedThreshold) {
-          console.log(`[Entry Monitor] ✅ EXECUTING TRADE for ${intent.symbol} @ ${intent.current_price}`);
+          console.log(`[Entry Monitor] ✅✅✅ EXECUTING TRADE NOW for ${intent.symbol} @ ${intent.current_price}`);
           console.log(`  EQS: ${eqsScore.toFixed(1)} >= ${timeAdjustedThreshold} | Phase ${urgencyPhase} | Edge decay: ${edgeDecayPercent.toFixed(0)}%`);
 
           const executed = await executeIntent(intent, intent.current_price, eqsScore);
@@ -339,6 +344,7 @@ export const handler: Handler = async (event, context) => {
           if (executed) {
             executedCount++;
             successCount++;
+            console.log(`[Entry Monitor] ✅ Trade executed successfully for ${intent.symbol}`);
             results.push({
               intentId: intent.intent_id,
               symbol: intent.symbol,
@@ -350,6 +356,8 @@ export const handler: Handler = async (event, context) => {
             });
           } else {
             errorCount++;
+            console.error(`[Entry Monitor] ❌ Trade execution FAILED for ${intent.symbol} - executeIntent returned false`);
+            console.error(`[Entry Monitor] ❌ Check executeIntent logs above for specific error`);
             results.push({
               intentId: intent.intent_id,
               symbol: intent.symbol,
@@ -358,6 +366,8 @@ export const handler: Handler = async (event, context) => {
             });
           }
         } else {
+          console.log(`[Entry Monitor] ⏳ NOT executing ${intent.symbol} - conditions not met`);
+
           // Still waiting - update server state
           const reason = !isInZoneWithPhase
             ? `Price ${intent.current_price} outside zone (${intent.entry_zone_min}-${intent.entry_zone_max}) +${zoneTolerancePips}p tolerance`
