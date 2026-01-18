@@ -1430,26 +1430,28 @@ Waiting changes WHEN we enter, not WHAT the trade is.
 POSITIONING RULES:
 BUY: SL below entry, TP above | SELL: SL above entry, TP below
 
+CRITICAL: Return PURE JSON - NO comments, NO trailing commas, NO explanations.
+
 Return JSON with structured reasoning:
 {
   "action": "BUY|SELL|WAIT",
-  "entry": price,
-  "stopLoss": price,
-  "takeProfit": price,  // REQUIRED for all actions including WAIT
-  "trade_confidence": 0-100,
-  "entry_quality_score": 0-100,
-  "entry_mode": "immediate|wait_pullback|wait_confirmation",
-  "style": "SCALP|MICRO_INTRADAY|INTRADAY",
-  "reasoning": "Brief professional reasoning (1-2 sentences)",
-  "market_narrative": "Single-sentence cause-effect thesis (REQUIRED for BUY/SELL)",
+  "entry": 12345.67,
+  "stopLoss": 12300.00,
+  "takeProfit": 12400.00,
+  "trade_confidence": 75,
+  "entry_quality_score": 80,
+  "entry_mode": "immediate",
+  "style": "SCALP",
+  "reasoning": "Brief professional reasoning",
+  "market_narrative": "Single-sentence cause-effect thesis",
   "wait_condition": {
-    "target_entry_zone_min": price,
-    "target_entry_zone_max": price,
-    "invalidation_price": price,
+    "target_entry_zone_min": 12340.00,
+    "target_entry_zone_max": 12350.00,
+    "invalidation_price": 12360.00,
     "wait_reasoning": "what you're waiting for"
   },
   "override": {
-    "type": "adversarial_block|regime_avoid|risk_limit|none",
+    "type": "none",
     "justification": "statistical reasoning if override occurred"
   }
 }
@@ -2428,7 +2430,13 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
     marketContext?: MarketContext
   ): AlphaDecision {
     try {
-      const cleaned = response
+      // Step 1: Remove JavaScript-style comments (single-line and multi-line)
+      let cleaned = response
+        // Remove single-line comments: // comment
+        .replace(/\/\/[^\n]*/g, '')
+        // Remove multi-line comments: /* comment */
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        // Remove markdown code fences
         .replace(/```json\n?/g, '')
         .replace(/```\n?/g, '')
         .trim();
