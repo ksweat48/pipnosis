@@ -18,10 +18,26 @@
  */
 
 import { supabase } from '../lib/supabase';
-import { generateOmegaVotesHash } from './cache-key-generator';
+import {
+  generateRegimeSignatureHash,
+  generateThesisCacheKey,
+  validateRegimeSignature,
+  detectRegimeChange
+} from './cache-key-generator';
 import { marketSnapshotCache, type MarketSnapshotData } from './market-snapshot-cache';
 import type { Timeframe, RiskMode } from '../config/timeframe-hierarchy';
-import type { AlphaMarketThesis, THESIS_TTL } from '../types/alpha-thesis';
+import type {
+  AlphaMarketThesis,
+  RegimeSignature,
+  THESIS_TTL_MS
+} from '../types/alpha-thesis';
+import {
+  createImmutableThesis,
+  verifyCachedThesisIntegrity,
+  freezeThesis
+} from './thesis-immutability-guard';
+import { logThesisRejection } from './thesis-rejection-logger';
+import { logger } from '../lib/logger';
 
 // Legacy interface - kept for backward compatibility during migration
 export interface AlphaStrategicInsight {
@@ -48,19 +64,12 @@ export interface CacheStats {
 }
 
 /**
- * Get TTL for Alpha thesis cache based on timeframe
- * Scalp (M5): 5 min | Micro (M15): 10 min | Intraday (H1+): 15 min
+ * Get TTL for Alpha thesis cache
+ * Fixed baseline: 15 minutes (global)
+ * Early invalidation handled by structure-aware triggers
  */
-function getTTLForAlphaThesis(timeframe: Timeframe): number {
-  const ttls: Record<Timeframe, number> = {
-    'M5': 300000,     // 5 minutes (fast-moving)
-    'M15': 600000,    // 10 minutes (moderate)
-    'H1': 900000,     // 15 minutes (slower structural changes)
-    'H4': 900000,     // 15 minutes
-    'D': 900000       // 15 minutes
-  };
-
-  return ttls[timeframe] || 600000; // Default: 10 minutes
+function getTTLForAlphaThesis(): number {
+  return THESIS_TTL_MS; // 15 minutes fixed
 }
 
 class SharedIntelligenceCoordinator {
@@ -88,133 +97,274 @@ class SharedIntelligenceCoordinator {
   }
 
   /**
-   * Get Alpha Market Thesis (with LLM caching)
+   * Get Alpha Market Thesis (regime-based caching)
    *
-   * Caches ONLY the thesis (market analysis), NOT execution decisions
-   * This is the ONLY expensive operation we cache now
+   * SSOT: Caches ONLY the thesis (market analysis), NOT execution decisions
+   * Cache key based on REGIME SIGNATURE, not Omega votes
+   * Session context EXCLUDED (execution-only)
    *
    * @param symbol Trading symbol
-   * @param timeframe Analysis timeframe
-   * @param omegaVotes Omega council votes (for cache key)
-   * @param fetchFreshFn Function to generate fresh thesis if cache miss
+   * @param regimeSignature Structural market fingerprint
+   * @param cachedThesis Previously cached thesis (if available) for Alpha to accept/reject
+   * @param fetchFreshFn Function to generate fresh thesis if needed
    * @returns AlphaMarketThesis with cache metadata
    */
   async getAlphaThesis(
     symbol: string,
-    timeframe: Timeframe,
-    omegaVotes: Array<{ brainName: string; vote: string; confidence: number }>,
-    fetchFreshFn: () => Promise<Omit<AlphaMarketThesis, 'cacheAgeSeconds' | 'fromCache' | 'createdAt'>>
+    regimeSignature: RegimeSignature,
+    cachedThesis: AlphaMarketThesis | null,
+    fetchFreshFn: (cachedThesis: AlphaMarketThesis | null) => Promise<{
+      thesis: Omit<AlphaMarketThesis, 'regimeSignature' | 'thesisHash' | 'cacheAgeSeconds' | 'fromCache' | 'createdAt'>;
+      thesisRejected: boolean;
+      rejectionReason?: string;
+    }>
   ): Promise<AlphaMarketThesis> {
-    const omegaVotesHash = generateOmegaVotesHash(omegaVotes);
+    // Validate regime signature
+    if (!validateRegimeSignature(regimeSignature)) {
+      logger.error('[SharedIntelligence] Invalid regime signature', { symbol, regimeSignature });
+      throw new Error('Invalid regime signature');
+    }
 
-    // Check local cache first
-    const localKey = `thesis:${symbol}:${timeframe}:${omegaVotesHash}`;
-    const localCached = this.localThesisCache.get(localKey);
+    const regimeHash = generateRegimeSignatureHash(regimeSignature);
     const now = Date.now();
 
+    // Check local cache first
+    const localKey = generateThesisCacheKey(symbol, regimeHash);
+    const localCached = this.localThesisCache.get(localKey);
+
     if (localCached && localCached.expiresAt > now) {
-      const ageSeconds = Math.round((now - localCached.data.createdAt.getTime()) / 1000);
-      await this.logCacheStat('alpha_thesis', symbol, timeframe, 'lookup', 'hit', ageSeconds);
-      console.log(`[SharedIntelligence] ⚡ Thesis LOCAL HIT: ${symbol}@${timeframe} (age: ${ageSeconds}s)`);
-      return { ...localCached.data, cacheAgeSeconds: ageSeconds };
+      // Verify thesis integrity
+      const integrityCheck = verifyCachedThesisIntegrity(localCached.data);
+      if (integrityCheck.valid) {
+        const ageSeconds = Math.round((now - localCached.data.createdAt.getTime()) / 1000);
+        await this.logCacheStat('alpha_thesis', symbol, regimeSignature.symbol, 'lookup', 'hit', ageSeconds);
+        logger.info('[SharedIntelligence] Thesis LOCAL HIT', {
+          symbol,
+          ageSeconds,
+          regimeHash
+        });
+        return { ...localCached.data, cacheAgeSeconds: ageSeconds };
+      } else {
+        logger.warn('[SharedIntelligence] Local cache integrity failed, invalidating', {
+          symbol,
+          reason: integrityCheck.reason
+        });
+        this.localThesisCache.delete(localKey);
+      }
     }
 
     // Check database cache
     try {
       const { data: cached, error } = await supabase
-        .rpc('get_alpha_thesis', {
+        .rpc('get_alpha_thesis_by_regime', {
           p_symbol: symbol,
-          p_timeframe: timeframe,
-          p_omega_votes_hash: omegaVotesHash
+          p_regime_hash: regimeHash
         });
 
       if (!error && cached && cached.length > 0) {
+        const dbThesis = cached[0];
+        const ageSeconds = Math.round((now - new Date(dbThesis.created_at).getTime()) / 1000);
+
         const result: AlphaMarketThesis = {
-          symbol: cached[0].symbol || symbol,
-          timeframe: cached[0].timeframe || timeframe,
-          directionBias: cached[0].direction_bias as AlphaMarketThesis['directionBias'],
-          narrative: cached[0].narrative,
-          regime: cached[0].regime,
-          liquidityContext: cached[0].liquidity_context,
-          invalidationLogic: cached[0].invalidation_logic,
-          confidenceBand: cached[0].confidence_band as AlphaMarketThesis['confidenceBand'],
-          thesisSummary: cached[0].thesis_summary,
-          omegaSummary: cached[0].omega_summary || {},
-          createdAt: new Date(cached[0].created_at),
-          cacheAgeSeconds: cached[0].cache_age_seconds,
+          symbol: dbThesis.symbol || symbol,
+          timeframe: dbThesis.timeframe || regimeSignature.timeframeRelevance || 'H1',
+          directionBias: dbThesis.direction_bias as AlphaMarketThesis['directionBias'],
+          narrative: dbThesis.narrative,
+          regime: dbThesis.regime,
+          liquidityContext: dbThesis.liquidity_context,
+          invalidationLogic: dbThesis.invalidation_logic,
+          confidenceBand: dbThesis.confidence_band as AlphaMarketThesis['confidenceBand'],
+          thesisSummary: dbThesis.thesis_summary,
+          regimeSignature: {
+            symbol: dbThesis.symbol,
+            htfBias: dbThesis.htf_bias as RegimeSignature['htfBias'],
+            microRegime: dbThesis.micro_regime as RegimeSignature['microRegime'],
+            volatilityRegime: dbThesis.volatility_regime as RegimeSignature['volatilityRegime'],
+            structureState: dbThesis.structure_state as RegimeSignature['structureState'],
+            timeframeRelevance: dbThesis.timeframe_relevance
+          },
+          thesisHash: dbThesis.thesis_hash,
+          createdAt: new Date(dbThesis.created_at),
+          cacheAgeSeconds: ageSeconds,
           fromCache: true
         };
 
-        // Store in local cache
-        const ttl = getTTLForAlphaThesis(timeframe);
-        this.localThesisCache.set(localKey, {
-          data: result,
-          expiresAt: now + ttl
-        });
+        // Verify integrity before serving
+        const integrityCheck = verifyCachedThesisIntegrity(result);
+        if (!integrityCheck.valid) {
+          logger.error('[SharedIntelligence] DB cache integrity failed', {
+            symbol,
+            reason: integrityCheck.reason
+          });
+          // Invalidate and continue to fresh generation
+          await this.invalidateThesisByRegime(symbol, regimeHash);
+        } else {
+          // Freeze thesis before storing
+          const frozenThesis = freezeThesis(result);
 
-        await this.logCacheStat('alpha_thesis', symbol, timeframe, 'lookup', 'hit', result.cacheAgeSeconds, 1);
-        console.log(`[SharedIntelligence] ⚡ Thesis DB HIT: ${symbol}@${timeframe} (age: ${result.cacheAgeSeconds}s) | Saved ~$0.20`);
-        return result;
+          // Store in local cache
+          const ttl = getTTLForAlphaThesis();
+          this.localThesisCache.set(localKey, {
+            data: frozenThesis,
+            expiresAt: now + ttl
+          });
+
+          await this.logCacheStat('alpha_thesis', symbol, regimeSignature.symbol, 'lookup', 'hit', ageSeconds, 1);
+          logger.info('[SharedIntelligence] Thesis DB HIT', {
+            symbol,
+            ageSeconds,
+            regimeHash,
+            costSaved: '$0.20'
+          });
+
+          return frozenThesis;
+        }
       }
     } catch (err) {
-      console.warn('[SharedIntelligence] Thesis cache lookup failed:', err);
+      logger.error('[SharedIntelligence] Thesis cache lookup failed', {
+        error: err instanceof Error ? err.message : 'Unknown error',
+        symbol
+      });
     }
 
-    // Cache miss - call LLM
-    console.log(`[SharedIntelligence] 🔄 Thesis MISS: ${symbol}@${timeframe} - Calling LLM (~$0.20)`);
-    await this.logCacheStat('alpha_thesis', symbol, timeframe, 'lookup', 'miss', 0);
+    // Cache miss - call LLM (with cached thesis for Alpha to review)
+    logger.info('[SharedIntelligence] Thesis MISS - Calling LLM', {
+      symbol,
+      regimeHash,
+      hasCachedThesis: !!cachedThesis,
+      cost: '$0.20'
+    });
+    await this.logCacheStat('alpha_thesis', symbol, regimeSignature.symbol, 'lookup', 'miss', 0);
 
-    const fresh = await fetchFreshFn();
+    const freshResult = await fetchFreshFn(cachedThesis);
 
-    // Write to database cache
-    const ttl = getTTLForAlphaThesis(timeframe);
-    const expiresAt = new Date(now + ttl);
-
-    try {
-      const { error: upsertError } = await supabase.from('alpha_market_thesis_cache').upsert({
+    // Check if Alpha rejected the cached thesis
+    if (freshResult.thesisRejected && cachedThesis) {
+      logger.info('[SharedIntelligence] Alpha rejected cached thesis', {
         symbol,
-        timeframe,
-        omega_votes_hash: omegaVotesHash,
-        direction_bias: fresh.directionBias,
-        narrative: fresh.narrative,
-        regime: fresh.regime,
-        liquidity_context: fresh.liquidityContext || 'Standard liquidity conditions',
-        invalidation_logic: fresh.invalidationLogic || 'Standard invalidation rules',
-        confidence_band: fresh.confidenceBand,
-        thesis_summary: fresh.thesisSummary,
-        omega_summary: fresh.omegaSummary,
-        expires_at: expiresAt.toISOString()
-      }, {
-        onConflict: 'symbol,timeframe,omega_votes_hash'
+        reason: freshResult.rejectionReason
       });
 
-      if (upsertError) {
-        console.error('[SharedIntelligence] ❌ Thesis cache write failed:', upsertError);
-        this.localThesisCache.delete(localKey);
-      } else {
-        console.log(`[SharedIntelligence] ✅ Thesis cached: ${symbol}@${timeframe} (TTL: ${ttl / 1000}s)`);
-      }
-    } catch (err) {
-      console.error('[SharedIntelligence] ❌ Thesis cache write error:', err);
-      this.localThesisCache.delete(localKey);
+      // Log rejection as learning signal
+      await logThesisRejection(
+        cachedThesis.thesisHash,
+        symbol,
+        freshResult.rejectionReason || 'Market conditions changed',
+        regimeSignature,
+        now - cachedThesis.createdAt.getTime(),
+        'unknown', // Execution style (filled by caller if available)
+        'unknown'  // Session context (filled by caller if available)
+      );
+
+      // Invalidate old thesis
+      await this.invalidateThesisByRegime(symbol, regimeHash);
     }
 
-    const result: AlphaMarketThesis = {
-      ...fresh,
+    // Create immutable thesis
+    const immutableThesis = createImmutableThesis({
+      ...freshResult.thesis,
       symbol,
-      timeframe,
+      regimeSignature,
       createdAt: new Date(),
       cacheAgeSeconds: 0,
       fromCache: false
-    };
+    });
+
+    // Cache new thesis in database
+    try {
+      await supabase.rpc('cache_alpha_thesis', {
+        p_symbol: symbol,
+        p_timeframe: regimeSignature.timeframeRelevance || 'H1',
+        p_direction_bias: freshResult.thesis.directionBias,
+        p_narrative: freshResult.thesis.narrative,
+        p_regime: freshResult.thesis.regime,
+        p_liquidity_context: freshResult.thesis.liquidityContext || 'Standard liquidity conditions',
+        p_invalidation_logic: freshResult.thesis.invalidationLogic || 'Standard invalidation rules',
+        p_confidence_band: freshResult.thesis.confidenceBand,
+        p_thesis_summary: freshResult.thesis.thesisSummary,
+        p_regime_signature_hash: regimeHash,
+        p_htf_bias: regimeSignature.htfBias,
+        p_micro_regime: regimeSignature.microRegime,
+        p_volatility_regime: regimeSignature.volatilityRegime,
+        p_structure_state: regimeSignature.structureState,
+        p_timeframe_relevance: regimeSignature.timeframeRelevance || 'H1',
+        p_thesis_hash: immutableThesis.thesisHash
+      });
+
+      logger.info('[SharedIntelligence] Thesis cached successfully', {
+        symbol,
+        regimeHash,
+        ttl: '15min'
+      });
+    } catch (err) {
+      logger.error('[SharedIntelligence] Thesis cache write failed', {
+        error: err instanceof Error ? err.message : 'Unknown error',
+        symbol
+      });
+    }
 
     // Store in local cache
+    const ttl = getTTLForAlphaThesis();
     this.localThesisCache.set(localKey, {
-      data: result,
+      data: immutableThesis,
       expiresAt: now + ttl
     });
 
-    return result;
+    return immutableThesis;
+  }
+
+  /**
+   * Invalidate thesis by regime signature (structure-aware invalidation)
+   * Called when market structure changes materially
+   */
+  async invalidateThesisByRegime(symbol: string, regimeHash: string): Promise<void> {
+    try {
+      await supabase.rpc('invalidate_thesis_by_structure', {
+        p_symbol: symbol,
+        p_regime_hash: regimeHash
+      });
+
+      // Clear from local cache
+      const localKey = generateThesisCacheKey(symbol, regimeHash);
+      this.localThesisCache.delete(localKey);
+
+      logger.info('[SharedIntelligence] Thesis invalidated', {
+        symbol,
+        regimeHash
+      });
+    } catch (err) {
+      logger.error('[SharedIntelligence] Thesis invalidation failed', {
+        error: err instanceof Error ? err.message : 'Unknown error',
+        symbol
+      });
+    }
+  }
+
+  /**
+   * Detect regime change and invalidate thesis if needed
+   * Returns true if thesis was invalidated
+   */
+  async checkAndInvalidateOnRegimeChange(
+    symbol: string,
+    oldSignature: RegimeSignature,
+    newSignature: RegimeSignature
+  ): Promise<boolean> {
+    const regimeChanged = detectRegimeChange(oldSignature, newSignature);
+
+    if (regimeChanged) {
+      const oldHash = generateRegimeSignatureHash(oldSignature);
+      await this.invalidateThesisByRegime(symbol, oldHash);
+
+      logger.info('[SharedIntelligence] Regime change detected, thesis invalidated', {
+        symbol,
+        oldSignature,
+        newSignature
+      });
+
+      return true;
+    }
+
+    return false;
   }
 
   /**

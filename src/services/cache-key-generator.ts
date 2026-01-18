@@ -1,4 +1,5 @@
 import { CandleData } from '../types';
+import { RegimeSignature, RegimeSignatureHash } from '../types/alpha-thesis';
 
 export interface MarketStateSnapshot {
   symbol: string;
@@ -295,4 +296,79 @@ export function getTTLForAlphaCache(timeframe: string): number {
 
 export function getTTLForScoutCache(): number {
   return 60 * 1000;
+}
+
+/**
+ * Generate regime signature hash for thesis caching
+ *
+ * IMPORTANT: Session context (Asia/London/NY) is EXCLUDED
+ * Session affects execution, not structural market truth
+ *
+ * This hash is used as the cache key for Alpha market theses
+ */
+export function generateRegimeSignatureHash(signature: RegimeSignature): RegimeSignatureHash {
+  const hashInput = [
+    signature.symbol,
+    signature.htfBias,
+    signature.microRegime,
+    signature.volatilityRegime,
+    signature.structureState,
+    signature.timeframeRelevance || ''
+  ].join('|');
+
+  return simpleHash(hashInput);
+}
+
+/**
+ * Generate thesis cache key
+ * Combines symbol and regime signature hash
+ */
+export function generateThesisCacheKey(
+  symbol: string,
+  regimeHash: RegimeSignatureHash
+): string {
+  return `thesis:${symbol}:${regimeHash}`;
+}
+
+/**
+ * Validate regime signature completeness
+ * Ensures all required fields are present
+ */
+export function validateRegimeSignature(signature: RegimeSignature): boolean {
+  if (!signature.symbol || !signature.htfBias || !signature.microRegime) {
+    return false;
+  }
+
+  if (!signature.volatilityRegime || !signature.structureState) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Detect regime signature change for early invalidation
+ * Returns true if regime has changed materially
+ */
+export function detectRegimeChange(
+  oldSignature: RegimeSignature,
+  newSignature: RegimeSignature
+): boolean {
+  if (oldSignature.htfBias !== newSignature.htfBias) {
+    return true;
+  }
+
+  if (oldSignature.microRegime !== newSignature.microRegime) {
+    return true;
+  }
+
+  if (oldSignature.volatilityRegime !== newSignature.volatilityRegime) {
+    return true;
+  }
+
+  if (oldSignature.structureState !== newSignature.structureState) {
+    return true;
+  }
+
+  return false;
 }
