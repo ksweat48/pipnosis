@@ -7,12 +7,13 @@
  */
 
 export type SSOTCorruptionType =
-  | 'UNITS_MISMATCH'     // Price units stored as pips, or vice versa
-  | 'INVALID_RANGE'      // Min > Max (mathematically impossible)
-  | 'ZERO_TP'            // TP calculation produces near-zero pips
-  | 'RR_CATASTROPHIC'    // R:R below 1:0.05 (likely bug, not Alpha's choice)
-  | 'INVALID_LOT_SIZE'   // Lot size < 0.01 or NaN
-  | 'LOW_PROFIT';        // Profit calculation produces suspiciously low value
+  | 'UNITS_MISMATCH'          // Price units stored as pips, or vice versa
+  | 'INVALID_RANGE'           // Min > Max (mathematically impossible)
+  | 'ZERO_TP'                 // TP calculation produces near-zero pips
+  | 'RR_CATASTROPHIC'         // R:R below 1:0.05 (likely bug, not Alpha's choice)
+  | 'INVALID_LOT_SIZE'        // Lot size < 0.01 or NaN
+  | 'LOW_PROFIT'              // Profit calculation produces suspiciously low value
+  | 'INVALID_ATR_CONVERSION'; // ATR to pip conversion produced invalid result
 
 export type SSOTSeverity = 'ERROR' | 'WARNING';
 

@@ -408,22 +408,48 @@ export class GoalFeasibilityResolver {
     symbol: string,
     dollarRisk?: number
   ): number {
-    // ✅ CRITICAL FIX: Proper position sizing math using SSOT principles
-    // BUG WAS: roughLotSize = dollarRisk ($255 treated as lot size!)
-    // CORRECT: Calculate actual lot size from dollar risk and SL distance
+    // ✅ CRITICAL FIX: ATR Unit Conversion + SSOT Dollar-Per-Pip Usage
+    // BUG 1: adjustedATR is in PRICE UNITS, must convert to PIPS
+    // BUG 2: pipInfo.pipSize doesn't exist, must use pipInfo.dollarPerPipPerLot
+    //
+    // Example - ETHUSD:
+    // - adjustedATR = 4.039 (price units)
+    // - pipValue = 0.1 (1 pip = 0.1 price units)
+    // - atrInPips = 4.039 / 0.1 = 40.39 pips ✅
+    //
+    // CORRECT: Convert ATR to pips, then use SSOT dollarPerPipPerLot
 
-    const pipInfo = this.getPipInfo(symbol);
-    const slPips = adjustedATR * 2; // Standard SL: 2x ATR
-    const tpPips = adjustedATR * 3; // Conservative TP: 3x ATR
+    const pipInfo = getCurrencyPipInfo(symbol);
+
+    // Convert ATR from price units to pips (SSOT: use pipValue from currency helpers)
+    const atrInPips = adjustedATR / pipInfo.pipValue;
+    const slPips = atrInPips * 2; // Standard SL: 2x ATR in pips
+    const tpPips = atrInPips * 3; // Conservative TP: 3x ATR in pips
+
+    // Validate pip conversion produced reasonable values
+    if (isNaN(atrInPips) || atrInPips <= 0 || atrInPips > 1000) {
+      logSSOTCorruption({
+        type: 'INVALID_ATR_CONVERSION',
+        severity: 'ERROR',
+        symbol,
+        adjustedATR,
+        pipValue: pipInfo.pipValue,
+        atrInPips,
+        callsite: 'goal-feasibility-resolver.ts:420',
+        message: 'ATR to pip conversion produced invalid result'
+      });
+      return 0; // Cannot calculate profit with invalid ATR
+    }
 
     // Calculate ACTUAL lot size using proper formula
     let actualLotSize: number;
     let riskPercentUsed: number;
 
     if (dollarRisk && accountBalance > 0) {
-      // CORRECT FORMULA: lotSize = dollarRisk / (slPips × pipValuePerLot)
-      const pipValuePerLot = pipInfo.pipValue * pipInfo.pipSize;
-      actualLotSize = dollarRisk / (slPips * pipValuePerLot);
+      // CORRECT FORMULA: lotSize = dollarRisk / (slPips × dollarPerPipPerLot)
+      // SSOT: Use dollarPerPipPerLot from currency helpers (NOT pipValue * pipSize)
+      const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot;
+      actualLotSize = dollarRisk / (slPips * dollarPerPipPerLot);
       riskPercentUsed = (dollarRisk / accountBalance) * 100;
 
       // SSOT_MATH_CORRUPTION diagnostic
@@ -434,38 +460,43 @@ export class GoalFeasibilityResolver {
           symbol,
           dollarRisk,
           slPips,
-          pipValuePerLot,
+          dollarPerPipPerLot,
           actualLotSize,
-          callsite: 'goal-feasibility-resolver.ts:394',
+          callsite: 'goal-feasibility-resolver.ts:445',
           message: 'Lot size < 0.01 or NaN - check input values'
         });
         actualLotSize = 0.01; // Safety floor
       }
 
-      logger.debug('[Feasibility] Position sizing (CORRECTED)', {
+      logger.debug('[Feasibility] Position sizing (ATR CONVERSION FIXED)', {
+        adjustedATR,
+        atrInPips: atrInPips.toFixed(2),
         dollarRisk,
         slPips: slPips.toFixed(2),
-        pipValuePerLot: pipValuePerLot.toFixed(4),
+        dollarPerPipPerLot: dollarPerPipPerLot.toFixed(4),
         actualLotSize: actualLotSize.toFixed(3),
         riskPercentUsed: riskPercentUsed.toFixed(2) + '%',
         accountBalance
       });
     } else {
       // LEGACY: Fallback to 2% risk
-      const pipValuePerLot = pipInfo.pipValue * pipInfo.pipSize;
-      actualLotSize = (accountBalance * 0.02) / (slPips * pipValuePerLot);
+      const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot;
+      actualLotSize = (accountBalance * 0.02) / (slPips * dollarPerPipPerLot);
       riskPercentUsed = 2.0;
 
       logger.warn('[Feasibility] Using fallback 2% risk (dollarRisk not provided)', {
         accountBalance,
+        atrInPips: atrInPips.toFixed(2),
+        slPips: slPips.toFixed(2),
         actualLotSize: actualLotSize.toFixed(3)
       });
     }
 
-    // Calculate profit using CORRECT formula: profit = tpPips × lotSize × pipValuePerLot
-    const pipValuePerLot = pipInfo.pipValue * pipInfo.pipSize;
-    const grossProfit = tpPips * actualLotSize * pipValuePerLot;
-    const spreadCost = spread * actualLotSize * pipValuePerLot;
+    // Calculate profit using CORRECT formula: profit = tpPips × lotSize × dollarPerPipPerLot
+    // SSOT: Use dollarPerPipPerLot directly (NOT pipValue * pipSize)
+    const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot;
+    const grossProfit = tpPips * actualLotSize * dollarPerPipPerLot;
+    const spreadCost = spread * actualLotSize * dollarPerPipPerLot;
     const netProfit = grossProfit - spreadCost;
 
     // SSOT_MATH_CORRUPTION diagnostic for suspiciously low profit
@@ -474,23 +505,25 @@ export class GoalFeasibilityResolver {
         type: 'LOW_PROFIT',
         severity: 'WARNING',
         symbol,
+        atrInPips: atrInPips.toFixed(2),
         tpPips: tpPips.toFixed(2),
         actualLotSize: actualLotSize.toFixed(3),
         grossProfit: grossProfit.toFixed(2),
         spreadCost: spreadCost.toFixed(2),
         netProfit: netProfit.toFixed(2),
-        callsite: 'goal-feasibility-resolver.ts:438',
+        callsite: 'goal-feasibility-resolver.ts:492',
         message: 'Net profit < $1 - verify TP distance and lot size are reasonable'
       });
     }
 
-    logger.debug('[Feasibility] Max deliverable profit (CORRECTED)', {
+    logger.debug('[Feasibility] Max deliverable profit (ATR CONVERSION FIXED)', {
       adjustedATR,
+      atrInPips: atrInPips.toFixed(2),
       slPips: slPips.toFixed(2),
       tpPips: tpPips.toFixed(2),
       actualLotSize: actualLotSize.toFixed(3),
       riskPercentUsed: riskPercentUsed.toFixed(2) + '%',
-      pipValuePerLot: pipValuePerLot.toFixed(4),
+      dollarPerPipPerLot: dollarPerPipPerLot.toFixed(4),
       grossProfit: grossProfit.toFixed(2),
       spreadCost: spreadCost.toFixed(2),
       netProfit: netProfit.toFixed(2),
@@ -498,21 +531,6 @@ export class GoalFeasibilityResolver {
     });
 
     return Math.max(0, netProfit);
-  }
-
-  private static getPipInfo(symbol: string): { pipValue: number; pipSize: number } {
-    // SSOT: Delegate to currency helpers
-    const pipInfo = getCurrencyPipInfo(symbol);
-    return {
-      pipValue: pipInfo.pipValue,
-      pipSize: pipInfo.pipSize
-    };
-  }
-
-  private static getPipValue(symbol: string): number {
-    if (symbol.includes('JPY')) return 1000;
-    if (symbol.includes('XAU') || symbol.includes('GOLD')) return 0.1;
-    return 10;
   }
 
   private static estimateSpreadCost(
