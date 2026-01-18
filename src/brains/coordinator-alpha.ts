@@ -1565,12 +1565,14 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
             decision.reasoning = `Constraint violations not resolved by Alpha: ${violations.map(v => v.message).join('; ')}`;
 
             // Log SSOT violation for learning and prompt improvement (fire-and-forget)
-            supabase.from('ssot_violations').insert({
-              violation_type: 'ALPHA_CONSTRAINT_VIOLATION_UNRESOLVED',
-              severity: 'high',
-              source_module: 'coordinator-alpha.constraint_validation',
-              violation_details: {
-                symbol: marketContext.symbol,
+            logViolation({
+              violationType: 'ALPHA_CONSTRAINT_VIOLATION_UNRESOLVED',
+              symbol: marketContext.symbol,
+              attemptedOperation: 'constraint_validation',
+              callLocation: 'coordinator-alpha.constraint_validation',
+              blocked: true,
+              errorDetails: {
+                severity: 'high',
                 violations: violations.map(v => ({ type: v.type, message: v.message, severity: v.severity })),
                 originalDecision: {
                   action: decision.action,
@@ -1579,13 +1581,12 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
                   takeProfit: decision.takeProfit,
                   risk_pct: decision.risk_pct,
                   confidence: decision.confidence
-                }
-              },
-              user_id: userId || null,
-              session_id: goalContext?.sessionId || null,
-              resolution: 'blocked_no_repair',
-              created_at: new Date().toISOString()
-            }).then(() => {}).catch(error => {
+                },
+                userId: userId || null,
+                sessionId: goalContext?.sessionId || null,
+                resolution: 'blocked_no_repair'
+              }
+            }).catch(error => {
               console.error('[Alpha Coordinator] Failed to log SSOT violation:', error);
             });
           }
@@ -2715,21 +2716,22 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
           catastrophicError = true;
 
           // Log SSOT violation for learning (fire-and-forget)
-          supabase.from('ssot_violations').insert({
-            violation_type: 'ALPHA_SL_WRONG_SIDE',
-            severity: 'critical',
-            source_module: 'coordinator-alpha.parseDecision',
-            violation_details: {
-              symbol,
+          logViolation({
+            violationType: 'ALPHA_SL_WRONG_SIDE',
+            symbol,
+            attemptedOperation: 'parse_decision',
+            callLocation: 'coordinator-alpha.parseDecision',
+            blocked: true,
+            errorDetails: {
+              severity: 'critical',
               action,
               direction: isBuy ? 'BUY' : 'SELL',
               entry,
               stopLoss,
-              expectedSide: isBuy ? 'below entry' : 'above entry'
-            },
-            resolution: 'hard_blocked',
-            created_at: new Date().toISOString()
-          }).then(() => {}).catch(error => {
+              expectedSide: isBuy ? 'below entry' : 'above entry',
+              resolution: 'hard_blocked'
+            }
+          }).catch(error => {
             console.error('[Alpha Coordinator] Failed to log SL geometry violation:', error);
           });
         }
@@ -2749,21 +2751,22 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
           catastrophicError = true;
 
           // Log SSOT violation for learning (fire-and-forget)
-          supabase.from('ssot_violations').insert({
-            violation_type: 'ALPHA_TP_WRONG_SIDE',
-            severity: 'critical',
-            source_module: 'coordinator-alpha.parseDecision',
-            violation_details: {
-              symbol,
+          logViolation({
+            violationType: 'ALPHA_TP_WRONG_SIDE',
+            symbol,
+            attemptedOperation: 'parse_decision',
+            callLocation: 'coordinator-alpha.parseDecision',
+            blocked: true,
+            errorDetails: {
+              severity: 'critical',
               action,
               direction: isBuy ? 'BUY' : 'SELL',
               entry,
               takeProfit,
-              expectedSide: isBuy ? 'above entry' : 'below entry'
-            },
-            resolution: 'hard_blocked',
-            created_at: new Date().toISOString()
-          }).then(() => {}).catch(error => {
+              expectedSide: isBuy ? 'above entry' : 'below entry',
+              resolution: 'hard_blocked'
+            }
+          }).catch(error => {
             console.error('[Alpha Coordinator] Failed to log TP geometry violation:', error);
           });
         }
