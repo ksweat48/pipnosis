@@ -56,6 +56,9 @@ interface IntentForMonitoring {
   last_checked_at: string | null;
   current_price: number | null;
   price_updated_at: string | null;
+  edge_loss_modal_triggered_at: string | null;
+  edge_loss_modal_response: string | null;
+  edge_loss_modal_response_at: string | null;
 }
 
 export const handler: Handler = async (event, context) => {
@@ -219,14 +222,64 @@ export const handler: Handler = async (event, context) => {
 
         console.log(`[Entry Monitor] ${intent.symbol} Phase ${urgencyPhase}: elapsed=${minutesElapsed.toFixed(1)}min, tolerance=${zoneTolerancePips}p, inZone=${isInZone}`);
 
-        // EDGE LOSS MODAL CHECK: Only trigger if max wait exceeded AND price is genuinely outside extended zone
-        // Note: This uses the current phase's tolerance, not Phase 1
-        if (minutesElapsed >= thresholds.max_wait_min && !isInZone) {
+        // EDGE LOSS MODAL CHECK: Trigger if max wait exceeded AND price is outside extended zone
+        // Only trigger once per intent to avoid duplicate modals
+        if (minutesElapsed >= thresholds.max_wait_min && !isInZone && !intent.edge_loss_modal_triggered_at) {
           console.log(`[Entry Monitor] ⚠️ Max wait exceeded (${minutesElapsed.toFixed(1)}/${thresholds.max_wait_min}min) and price outside Phase ${urgencyPhase} zone`);
+          console.log(`[Entry Monitor] 🔔 Triggering edge loss modal for ${intent.symbol}`);
 
-          // For now, just log and continue monitoring - don't block execution
-          // The edge loss modal system has constraint issues that need separate fixing
-          console.log(`[Entry Monitor] Continuing to monitor - edge loss modal disabled pending constraint fix`);
+          try {
+            const { data: modalId, error: modalError } = await supabase.rpc('trigger_entry_edge_loss_modal', {
+              p_intent_id: intent.intent_id,
+              p_user_id: intent.user_id,
+              p_session_id: intent.session_id
+            });
+
+            if (modalError) {
+              console.error(`[Entry Monitor] ❌ Failed to trigger edge loss modal:`, modalError);
+            } else {
+              console.log(`[Entry Monitor] ✅ Edge loss modal triggered successfully:`, modalId);
+            }
+          } catch (error) {
+            console.error(`[Entry Monitor] ❌ Exception triggering edge loss modal:`, error);
+          }
+
+          // Continue monitoring to give user chance to respond
+          continue;
+        }
+
+        // GRACEFUL FALLBACK: If modal was triggered but no response after 2 minutes, force-abandon
+        if (intent.edge_loss_modal_triggered_at && !intent.edge_loss_modal_response) {
+          const modalAge = (Date.now() - new Date(intent.edge_loss_modal_triggered_at).getTime()) / (60 * 1000);
+
+          if (modalAge > 2) {
+            console.log(`[Entry Monitor] ⏰ Edge loss modal timeout (${modalAge.toFixed(1)} min) - force abandoning ${intent.symbol}`);
+
+            try {
+              await supabase
+                .from('entry_intents')
+                .update({
+                  status: 'timeout',
+                  canceled_at: new Date().toISOString()
+                })
+                .eq('id', intent.intent_id);
+
+              await supabase
+                .from('goal_sessions')
+                .update({
+                  status: 'completed',
+                  completed_at: new Date().toISOString()
+                })
+                .eq('id', intent.session_id);
+
+              abandonedCount++;
+              console.log(`[Entry Monitor] ✅ Force-abandoned ${intent.symbol} after modal timeout`);
+            } catch (error) {
+              console.error(`[Entry Monitor] ❌ Error force-abandoning intent:`, error);
+            }
+
+            continue;
+          }
         }
 
         const edgeDecayPercent = Math.min(100, (minutesElapsed / thresholds.max_wait_min) * 100);
