@@ -122,6 +122,10 @@ export interface PlatformKPIs {
   winning_trades: number;
   losing_trades: number;
   overall_win_rate: number;
+  total_platform_pnl: number;
+  total_platform_balance: number;
+  open_positions_count: number;
+  total_unrealized_pnl: number;
 }
 
 export interface PaginationMetadata {

@@ -14,6 +14,7 @@ import { LLMTokenUsageDashboard } from '@/components/LLMTokenUsageDashboard';
 import { FreshnessGateAnalytics } from '@/components/FreshnessGateAnalytics';
 import { AlphaIntelligenceTelemetry } from '@/components/AlphaIntelligenceTelemetry';
 import { useAuth } from '@/hooks/useAuth';
+import { useAdminDashboard } from '@/hooks/useAdminDashboard';
 import { supabase } from '@/lib/supabase';
 import {
   Database,
@@ -33,7 +34,10 @@ import {
   Users,
   MessageSquare,
   Bell,
-  Layers
+  Layers,
+  DollarSign,
+  TrendingUp,
+  Wallet
 } from 'lucide-react';
 import { UserManagementPanel } from '@/components/admin/UserManagementPanel';
 import { UserFeedbackPanel } from '@/components/admin/UserFeedbackPanel';
@@ -56,6 +60,7 @@ interface AIMetrics {
 
 export function AdminDashboard() {
   const { user } = useAuth();
+  const { platformKPIs } = useAdminDashboard();
   const navigate = useNavigate();
 
   // Initialize active tab from URL hash or default to 'overview'
@@ -344,26 +349,26 @@ export function AdminDashboard() {
 
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            {/* Platform Trading Control - ADMIN ONLY */}
-            <div className={`border-2 rounded-xl p-6 ${
+            {/* Platform Trading Control - MOBILE FRIENDLY */}
+            <div className={`border-2 rounded-xl p-4 sm:p-6 ${
               tradingEnabled
                 ? 'bg-gradient-to-r from-green-900/30 to-emerald-900/30 border-green-500/30'
                 : 'bg-gradient-to-r from-red-900/30 to-orange-900/30 border-red-500/30'
             }`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className={`p-3 rounded-lg ${tradingEnabled ? 'bg-green-600/20' : 'bg-red-600/20'}`}>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="flex items-center gap-3 sm:gap-4">
+                  <div className={`p-2 sm:p-3 rounded-lg ${tradingEnabled ? 'bg-green-600/20' : 'bg-red-600/20'}`}>
                     {tradingEnabled ? (
-                      <Play className="w-8 h-8 text-green-400" />
+                      <Play className="w-6 h-6 sm:w-8 sm:h-8 text-green-400" />
                     ) : (
-                      <Pause className="w-8 h-8 text-red-400" />
+                      <Pause className="w-6 h-6 sm:w-8 sm:h-8 text-red-400" />
                     )}
                   </div>
                   <div className="flex-1">
-                    <h3 className="text-xl font-bold text-white mb-1">
+                    <h3 className="text-lg sm:text-xl font-bold text-white mb-0.5 sm:mb-1">
                       Platform Trading: {tradingEnabled ? 'ENABLED' : 'DISABLED'}
                     </h3>
-                    <p className={tradingEnabled ? 'text-green-200' : 'text-red-200'}>
+                    <p className={`text-sm ${tradingEnabled ? 'text-green-200' : 'text-red-200'}`}>
                       {tradingEnabled
                         ? 'Users can start goal sessions and trade normally'
                         : 'All users blocked from starting sessions - Maintenance mode active'}
@@ -373,7 +378,7 @@ export function AdminDashboard() {
                 <button
                   onClick={toggleTrading}
                   disabled={toggleLoading}
-                  className={`px-6 py-3 rounded-lg font-medium transition-all flex items-center gap-2 ${
+                  className={`w-full sm:w-auto px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
                     tradingEnabled
                       ? 'bg-red-600 hover:bg-red-700 text-white'
                       : 'bg-green-600 hover:bg-green-700 text-white'
@@ -381,23 +386,100 @@ export function AdminDashboard() {
                 >
                   {toggleLoading ? (
                     <>
-                      <Clock className="w-5 h-5 animate-spin" />
-                      Processing...
+                      <Clock className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
+                      <span className="text-sm sm:text-base">Processing...</span>
                     </>
                   ) : tradingEnabled ? (
                     <>
-                      <Pause size={18} />
-                      Disable Trading
+                      <Pause size={16} className="sm:w-[18px] sm:h-[18px]" />
+                      <span className="text-sm sm:text-base">Disable Trading</span>
                     </>
                   ) : (
                     <>
-                      <Play size={18} />
-                      Enable Trading
+                      <Play size={16} className="sm:w-[18px] sm:h-[18px]" />
+                      <span className="text-sm sm:text-base">Enable Trading</span>
                     </>
                   )}
                 </button>
               </div>
             </div>
+
+            {/* Platform Statistics - NEW SECTION */}
+            {platformKPIs && (
+              <div className="bg-gradient-to-br from-blue-900/30 via-purple-900/20 to-indigo-900/30 border-2 border-blue-500/30 rounded-xl p-4 sm:p-6">
+                <h2 className="text-xl sm:text-2xl font-bold text-white mb-4 flex items-center gap-2">
+                  <Wallet className="w-6 h-6 text-blue-400" />
+                  Platform Statistics
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                  {/* Total Platform Balance */}
+                  <div className="bg-gray-900/60 backdrop-blur-sm border border-blue-500/20 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-gray-400 text-sm">Total Balance</span>
+                      <DollarSign className="w-5 h-5 text-blue-400" />
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-bold text-white">
+                      ${platformKPIs.total_platform_balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Across {platformKPIs.total_users} users
+                    </div>
+                  </div>
+
+                  {/* Total Platform P&L */}
+                  <div className={`bg-gray-900/60 backdrop-blur-sm border ${
+                    platformKPIs.total_platform_pnl >= 0
+                      ? 'border-green-500/20'
+                      : 'border-red-500/20'
+                  } rounded-lg p-4`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-gray-400 text-sm">Total P&L</span>
+                      <TrendingUp className={`w-5 h-5 ${
+                        platformKPIs.total_platform_pnl >= 0 ? 'text-green-400' : 'text-red-400'
+                      }`} />
+                    </div>
+                    <div className={`text-2xl sm:text-3xl font-bold ${
+                      platformKPIs.total_platform_pnl >= 0 ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {platformKPIs.total_platform_pnl >= 0 ? '+' : ''}${platformKPIs.total_platform_pnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {platformKPIs.total_trades} closed trades
+                    </div>
+                  </div>
+
+                  {/* Open Positions */}
+                  <div className="bg-gray-900/60 backdrop-blur-sm border border-yellow-500/20 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-gray-400 text-sm">Open Positions</span>
+                      <Activity className="w-5 h-5 text-yellow-400" />
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-bold text-white">
+                      {platformKPIs.open_positions_count}
+                    </div>
+                    <div className={`text-xs mt-1 ${
+                      platformKPIs.total_unrealized_pnl >= 0 ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {platformKPIs.total_unrealized_pnl >= 0 ? '+' : ''}${platformKPIs.total_unrealized_pnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} unrealized
+                    </div>
+                  </div>
+
+                  {/* Win Rate */}
+                  <div className="bg-gray-900/60 backdrop-blur-sm border border-purple-500/20 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-gray-400 text-sm">Platform Win Rate</span>
+                      <Target className="w-5 h-5 text-purple-400" />
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-bold text-white">
+                      {platformKPIs.overall_win_rate.toFixed(1)}%
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {platformKPIs.winning_trades}W / {platformKPIs.losing_trades}L
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Pipnosis Mastery Curve - TOP PRIORITY */}
             <PipnosisMasteryCurve userId={null} />
