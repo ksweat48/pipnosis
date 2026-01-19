@@ -13,7 +13,7 @@
 
 import { getCurrencyPipInfo } from './currencyHelpers';
 
-export type CloseReason = 'stop_loss' | 'take_profit' | 'manual' | 'goal_met' | 'breakeven' | 'trailing_stop';
+export type CloseReason = 'stop_loss' | 'take_profit' | 'manual' | 'goal_met' | 'breakeven' | 'trailing_stop' | 'weekend_protection' | 'holiday_closure' | 'force_closed' | 'market_closed';
 
 export interface TradeCloseData {
   exitPrice: number;
@@ -133,6 +133,14 @@ export function detectTrueCloseReason(tradeData: TradeCloseData): SmartCloseReas
     normalizedReason = 'breakeven';
   } else if (databaseCloseReason === 'trailing_stop') {
     normalizedReason = 'trailing_stop';
+  } else if (databaseCloseReason === 'weekend_protection') {
+    normalizedReason = 'weekend_protection';
+  } else if (databaseCloseReason === 'holiday_closure') {
+    normalizedReason = 'holiday_closure';
+  } else if (databaseCloseReason === 'force_closed') {
+    normalizedReason = 'force_closed';
+  } else if (databaseCloseReason === 'market_closed') {
+    normalizedReason = 'market_closed';
   } else {
     normalizedReason = 'manual';
   }
@@ -162,6 +170,14 @@ export function getCloseReasonText(reason: CloseReason): string {
       return 'Breakeven Exit';
     case 'trailing_stop':
       return 'Trailing Stop';
+    case 'weekend_protection':
+      return 'Weekend Market Closure';
+    case 'holiday_closure':
+      return 'Holiday Market Closure';
+    case 'force_closed':
+      return 'Force Closed by System';
+    case 'market_closed':
+      return 'Market Closed';
     default:
       return 'Trade Closed';
   }
@@ -180,7 +196,12 @@ export function getCloseReasonColor(reason: CloseReason): string {
     case 'breakeven':
       return 'from-yellow-500 to-amber-500';
     case 'trailing_stop':
-      return 'from-purple-500 to-pink-500';
+      return 'from-blue-500 to-cyan-500';
+    case 'weekend_protection':
+    case 'holiday_closure':
+    case 'force_closed':
+    case 'market_closed':
+      return 'from-slate-500 to-gray-500'; // Neutral system color
     default:
       return 'from-gray-500 to-gray-600';
   }
@@ -199,7 +220,12 @@ export function getCloseReasonBadgeColor(reason: CloseReason): string {
     case 'breakeven':
       return 'bg-yellow-500/20 text-yellow-400';
     case 'trailing_stop':
-      return 'bg-purple-500/20 text-purple-400';
+      return 'bg-blue-500/20 text-blue-400';
+    case 'weekend_protection':
+    case 'holiday_closure':
+    case 'force_closed':
+    case 'market_closed':
+      return 'bg-slate-500/20 text-slate-400'; // Neutral system color
     default:
       return 'bg-gray-500/20 text-gray-400';
   }

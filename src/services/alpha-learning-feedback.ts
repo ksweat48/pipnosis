@@ -15,6 +15,7 @@
 
 import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
+import { isSystemClosure, CloseReason as PositionCloseReason } from '../types/position';
 
 export interface TradeOutcome {
   tradeId: string;
@@ -56,6 +57,9 @@ export interface ReasoningPatternUpdate {
 export class AlphaLearningFeedbackService {
   /**
    * Process trade outcome and update all learning systems
+   *
+   * IMPORTANT: System closures (weekend_protection, holiday_closure, etc.) are
+   * excluded from learning as they are NOT Alpha's fault
    */
   async processTradeOutcome(outcome: TradeOutcome): Promise<void> {
     logger.info(`[Alpha Feedback] Processing trade outcome for ${outcome.symbol}`, {
@@ -63,6 +67,26 @@ export class AlphaLearningFeedbackService {
       closeReason: outcome.closeReason,
       pnl: outcome.pnl
     });
+
+    // ✅ ALPHA PROTECTION: Exclude system closures from learning
+    // These are not Alpha's fault - they're system requirements
+    const closeReasonMap: Record<string, PositionCloseReason> = {
+      'tp_hit': 'take_profit',
+      'sl_hit': 'stop_loss',
+      'manual_close': 'manual',
+      'timeout': 'session_ended',
+      'weekend_protection': 'weekend_protection',
+      'holiday_closure': 'holiday_closure',
+      'force_closed': 'force_closed',
+      'market_closed': 'market_closed'
+    };
+
+    const mappedCloseReason = closeReasonMap[outcome.closeReason] || 'manual';
+
+    if (isSystemClosure(mappedCloseReason)) {
+      logger.info(`[Alpha Feedback] ⚠️ Skipping learning update - ${outcome.closeReason} is a system closure (NOT Alpha's fault)`);
+      return; // Do NOT penalize Alpha for system closures
+    }
 
     try {
       await Promise.all([

@@ -10,7 +10,38 @@ import { calculateDollarPerPip, calculatePipDistance, roundPnL } from '../utils/
 export type PositionStatus = 'pending' | 'open' | 'closed' | 'rejected';
 export type PositionDirection = 'buy' | 'sell';
 export type OrderType = 'market' | 'limit';
-export type CloseReason = 'manual' | 'stop_loss' | 'take_profit' | 'goal_achieved' | 'goal_expired' | 'session_ended' | 'risk_limit' | 'trailing_stop';
+export type CloseReason =
+  | 'manual'
+  | 'stop_loss'
+  | 'take_profit'
+  | 'goal_achieved'
+  | 'goal_expired'
+  | 'session_ended'
+  | 'risk_limit'
+  | 'trailing_stop'
+  | 'weekend_protection'  // System closure - NOT Alpha's fault
+  | 'holiday_closure'     // System closure - NOT Alpha's fault
+  | 'force_closed'        // System closure - NOT Alpha's fault
+  | 'market_closed';      // System closure - NOT Alpha's fault
+
+/**
+ * System close reasons that should NOT affect Alpha's learning
+ * These are external factors, not trading decisions
+ */
+export const SYSTEM_CLOSE_REASONS: CloseReason[] = [
+  'weekend_protection',
+  'holiday_closure',
+  'force_closed',
+  'market_closed'
+];
+
+/**
+ * Check if a close reason is a system closure (should not affect Alpha learning)
+ */
+export function isSystemClosure(closeReason: CloseReason | null | undefined): boolean {
+  if (!closeReason) return false;
+  return SYSTEM_CLOSE_REASONS.includes(closeReason);
+}
 
 /**
  * Database row from goal_session_trades

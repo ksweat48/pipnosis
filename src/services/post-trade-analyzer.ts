@@ -15,6 +15,7 @@ import { supabase } from '../lib/supabase';
 import { llmReasoningLogger, PostTradeAnalysis } from './llm-reasoning-logger';
 import { logger } from '../lib/logger';
 import { tpQualityTracker } from './tp-quality-tracker';
+import { isSystemClosure, CloseReason as PositionCloseReason } from '../types/position';
 
 interface TradeData {
   id: string;
@@ -32,15 +33,26 @@ interface TradeData {
   expectedOutcome?: string;
   convictionLevel?: number;
   patternIdentified?: string;
+  closeReason?: string;  // Added to detect system closures
 }
 
 class PostTradeAnalyzer {
   /**
    * Analyze trade outcome when position closes
+   *
+   * IMPORTANT: System closures (weekend_protection, holiday_closure, etc.) are
+   * excluded from learning as they are NOT Alpha's fault
    */
   async analyzeClosedTrade(tradeData: TradeData): Promise<void> {
     try {
       console.log(`[Post-Trade Analyzer] Analyzing trade ${tradeData.id} for ${tradeData.symbol}`);
+
+      // ✅ ALPHA PROTECTION: Exclude system closures from learning
+      // These are not Alpha's fault - they're system requirements
+      if (tradeData.closeReason && isSystemClosure(tradeData.closeReason as PositionCloseReason)) {
+        console.log(`[Post-Trade Analyzer] ⚠️ Skipping analysis - ${tradeData.closeReason} is a system closure (NOT Alpha's fault)`);
+        return; // Do NOT analyze or learn from system closures
+      }
 
       // Determine actual outcome
       const outcome = this.determineOutcome(tradeData.pnl);
@@ -610,6 +622,19 @@ class PostTradeAnalyzer {
    * Determine close reason
    */
   private determineCloseReason(tradeData: TradeData): string {
+    // Use provided close reason if available
+    if (tradeData.closeReason) {
+      // Map database close reasons to analysis close reasons
+      if (tradeData.closeReason === 'take_profit') return 'tp_hit';
+      if (tradeData.closeReason === 'stop_loss') return 'sl_hit';
+      if (tradeData.closeReason === 'weekend_protection') return 'weekend_protection';
+      if (tradeData.closeReason === 'holiday_closure') return 'holiday_closure';
+      if (tradeData.closeReason === 'force_closed') return 'force_closed';
+      if (tradeData.closeReason === 'market_closed') return 'market_closed';
+      return 'manual_close';
+    }
+
+    // Fallback to price-based detection
     if (this.didHitTargetProfit(tradeData)) return 'tp_hit';
     if (this.didHitStopLoss(tradeData)) return 'sl_hit';
     return 'manual_close';
