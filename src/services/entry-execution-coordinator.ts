@@ -52,8 +52,33 @@ export class EntryExecutionCoordinator {
       return { shouldExecuteImmediately: false, waitConditionId };
     }
 
+    // IMMEDIATE EXECUTION PATH: Deduct credits before executing
     if (!decision.entry_intent) {
       logger.info('No entry intent specified, executing immediately');
+
+      // Deduct credits for immediate signal (10 credits per signal)
+      const deductionResult = await creditValidationService.deductSignalCredits(
+        userId,
+        sessionId,
+        {
+          symbol,
+          intentId: null, // No intent for immediate execution
+          intentType: 'immediate_momentum',
+          confidence: decision.confidence
+        }
+      );
+
+      if (!deductionResult.success) {
+        logger.error(`[Entry Execution] Credit deduction failed for immediate execution: ${deductionResult.error}`);
+        globalToastManager.showToast(
+          'error',
+          'Credit Deduction Failed',
+          'Failed to deduct credits for this signal. Trade execution blocked.'
+        );
+        return { shouldExecuteImmediately: false };
+      }
+
+      logger.info(`[Entry Execution] ✅ Credits deducted for immediate execution. New balance: ${deductionResult.newBalance} credits`);
       return { shouldExecuteImmediately: true };
     }
 
@@ -61,6 +86,30 @@ export class EntryExecutionCoordinator {
 
     if (entryIntent.should_execute_immediately) {
       logger.info(`Price already in zone - EXECUTING IMMEDIATELY (no monitoring needed)`);
+
+      // Deduct credits for immediate signal (10 credits per signal)
+      const deductionResult = await creditValidationService.deductSignalCredits(
+        userId,
+        sessionId,
+        {
+          symbol,
+          intentId: null, // No intent for immediate execution
+          intentType: entryIntent.intent_type,
+          confidence: decision.confidence
+        }
+      );
+
+      if (!deductionResult.success) {
+        logger.error(`[Entry Execution] Credit deduction failed for immediate execution: ${deductionResult.error}`);
+        globalToastManager.showToast(
+          'error',
+          'Credit Deduction Failed',
+          'Failed to deduct credits for this signal. Trade execution blocked.'
+        );
+        return { shouldExecuteImmediately: false };
+      }
+
+      logger.info(`[Entry Execution] ✅ Credits deducted for immediate execution. New balance: ${deductionResult.newBalance} credits`);
       return { shouldExecuteImmediately: true };
     }
 
