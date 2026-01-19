@@ -11,9 +11,14 @@
  * the wrong close_reason to be recorded.
  */
 
+import { CloseReason } from '../types/position';
+import {
+  mapDatabaseToCloseReason,
+  getCloseReasonText,
+  getCloseReasonColor,
+  getCloseReasonBadgeColor
+} from './close-reason-mapper';
 import { getCurrencyPipInfo } from './currencyHelpers';
-
-export type CloseReason = 'stop_loss' | 'take_profit' | 'manual' | 'goal_met' | 'breakeven' | 'trailing_stop' | 'weekend_protection' | 'holiday_closure' | 'force_closed' | 'market_closed';
 
 export interface TradeCloseData {
   exitPrice: number;
@@ -121,29 +126,8 @@ export function detectTrueCloseReason(tradeData: TradeCloseData): SmartCloseReas
   console.log(`  ℹ️ Using database reason: ${databaseCloseReason}`);
   console.log(`    (Exit is ${exitToSL.toFixed(1)} pips from SL, ${exitToTP.toFixed(1)} pips from TP)`);
 
-  // Normalize database reason to our type
-  let normalizedReason: CloseReason = 'manual';
-  if (databaseCloseReason === 'stop_loss' || databaseCloseReason === 'sl') {
-    normalizedReason = 'stop_loss';
-  } else if (databaseCloseReason === 'take_profit' || databaseCloseReason === 'tp') {
-    normalizedReason = 'take_profit';
-  } else if (databaseCloseReason === 'goal_met' || databaseCloseReason === 'goal_achieved') {
-    normalizedReason = 'goal_met';
-  } else if (databaseCloseReason === 'breakeven') {
-    normalizedReason = 'breakeven';
-  } else if (databaseCloseReason === 'trailing_stop') {
-    normalizedReason = 'trailing_stop';
-  } else if (databaseCloseReason === 'weekend_protection') {
-    normalizedReason = 'weekend_protection';
-  } else if (databaseCloseReason === 'holiday_closure') {
-    normalizedReason = 'holiday_closure';
-  } else if (databaseCloseReason === 'force_closed') {
-    normalizedReason = 'force_closed';
-  } else if (databaseCloseReason === 'market_closed') {
-    normalizedReason = 'market_closed';
-  } else {
-    normalizedReason = 'manual';
-  }
+  // ✅ SSOT: Use centralized mapper for database reason normalization
+  const normalizedReason = mapDatabaseToCloseReason(databaseCloseReason);
 
   return {
     displayReason: normalizedReason,
@@ -154,82 +138,10 @@ export function detectTrueCloseReason(tradeData: TradeCloseData): SmartCloseReas
 }
 
 /**
- * Get human-readable text for close reason
+ * Re-export centralized display functions
+ * ✅ SSOT: All display logic is now in close-reason-mapper.ts
  */
-export function getCloseReasonText(reason: CloseReason): string {
-  switch (reason) {
-    case 'stop_loss':
-      return 'Stop Loss Hit';
-    case 'take_profit':
-      return 'Take Profit Hit';
-    case 'manual':
-      return 'Manually Closed';
-    case 'goal_met':
-      return 'Goal Achieved';
-    case 'breakeven':
-      return 'Breakeven Exit';
-    case 'trailing_stop':
-      return 'Trailing Stop';
-    case 'weekend_protection':
-      return 'Weekend Market Closure';
-    case 'holiday_closure':
-      return 'Holiday Market Closure';
-    case 'force_closed':
-      return 'Force Closed by System';
-    case 'market_closed':
-      return 'Market Closed';
-    default:
-      return 'Trade Closed';
-  }
-}
-
-/**
- * Get color class for close reason
- */
-export function getCloseReasonColor(reason: CloseReason): string {
-  switch (reason) {
-    case 'stop_loss':
-      return 'from-red-500 to-orange-500';
-    case 'take_profit':
-    case 'goal_met':
-      return 'from-emerald-500 to-blue-500';
-    case 'breakeven':
-      return 'from-yellow-500 to-amber-500';
-    case 'trailing_stop':
-      return 'from-blue-500 to-cyan-500';
-    case 'weekend_protection':
-    case 'holiday_closure':
-    case 'force_closed':
-    case 'market_closed':
-      return 'from-slate-500 to-gray-500'; // Neutral system color
-    default:
-      return 'from-gray-500 to-gray-600';
-  }
-}
-
-/**
- * Get badge color for close reason display in lists
- */
-export function getCloseReasonBadgeColor(reason: CloseReason): string {
-  switch (reason) {
-    case 'stop_loss':
-      return 'bg-red-500/20 text-red-400';
-    case 'take_profit':
-    case 'goal_met':
-      return 'bg-emerald-500/20 text-emerald-400';
-    case 'breakeven':
-      return 'bg-yellow-500/20 text-yellow-400';
-    case 'trailing_stop':
-      return 'bg-blue-500/20 text-blue-400';
-    case 'weekend_protection':
-    case 'holiday_closure':
-    case 'force_closed':
-    case 'market_closed':
-      return 'bg-slate-500/20 text-slate-400'; // Neutral system color
-    default:
-      return 'bg-gray-500/20 text-gray-400';
-  }
-}
+export { getCloseReasonText, getCloseReasonColor, getCloseReasonBadgeColor };
 
 /**
  * Analyze a batch of trades and report any mismatches

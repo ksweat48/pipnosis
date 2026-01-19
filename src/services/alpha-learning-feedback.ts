@@ -15,7 +15,8 @@
 
 import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
-import { isSystemClosure, CloseReason as PositionCloseReason } from '../types/position';
+import { shouldIncludeInLearning, getExclusionReason } from '../utils/trade-learning-filter';
+import { mapAnalysisToCloseReason } from '../utils/close-reason-mapper';
 
 export interface TradeOutcome {
   tradeId: string;
@@ -68,24 +69,14 @@ export class AlphaLearningFeedbackService {
       pnl: outcome.pnl
     });
 
-    // ✅ ALPHA PROTECTION: Exclude system closures from learning
-    // These are not Alpha's fault - they're system requirements
-    const closeReasonMap: Record<string, PositionCloseReason> = {
-      'tp_hit': 'take_profit',
-      'sl_hit': 'stop_loss',
-      'manual_close': 'manual',
-      'timeout': 'session_ended',
-      'weekend_protection': 'weekend_protection',
-      'holiday_closure': 'holiday_closure',
-      'force_closed': 'force_closed',
-      'market_closed': 'market_closed'
-    };
+    // ✅ SSOT: Use centralized learning filter
+    // Map analysis close reason to CloseReason type for filtering
+    const mappedCloseReason = mapAnalysisToCloseReason(outcome.closeReason);
 
-    const mappedCloseReason = closeReasonMap[outcome.closeReason] || 'manual';
-
-    if (isSystemClosure(mappedCloseReason)) {
-      logger.info(`[Alpha Feedback] ⚠️ Skipping learning update - ${outcome.closeReason} is a system closure (NOT Alpha's fault)`);
-      return; // Do NOT penalize Alpha for system closures
+    if (!shouldIncludeInLearning(mappedCloseReason)) {
+      const exclusionReason = getExclusionReason(mappedCloseReason);
+      logger.info(`[Alpha Feedback] ⚠️ Skipping learning update - ${exclusionReason}`);
+      return; // Do NOT penalize Alpha for excluded trades
     }
 
     try {
