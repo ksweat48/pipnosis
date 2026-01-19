@@ -550,17 +550,30 @@ class GlobalPollingCoordinator {
       status.isPolling = true;
 
       try {
-        // Read from database instead of fetching from API
+        // Read from database with timeout protection
+        // AbortController prevents hanging queries when tab loses focus
+        const abortController = new AbortController();
+        const timeoutId = setTimeout(() => abortController.abort(), 5000); // 5 second timeout
+
         const { data, error } = await supabase
           .from('realtime_prices')
           .select('bid, ask, broker_time, created_at')
           .eq('symbol', symbol)
           .order('created_at', { ascending: false })
           .limit(1)
+          .abortSignal(abortController.signal)
           .maybeSingle();
 
+        clearTimeout(timeoutId);
+
         if (error) {
-          console.error(`❌ [${symbol}] DB Read Error:`, error);
+          // Check if this is an AbortError (tab throttling) - this is EXPECTED behavior
+          if (error.message?.includes('AbortError') || error.message?.includes('signal is aborted')) {
+            logger.debug(LogCategory.POLLING_COORDINATOR, `ℹ️ [${symbol}] Query cancelled (tab throttling or timeout) - this is normal`);
+          } else {
+            // Real error - log as error
+            console.error(`❌ [${symbol}] DB Read Error:`, error);
+          }
           // Error recording removed
         } else if (data) {
           const bid = parseFloat(data.bid);
@@ -575,9 +588,17 @@ class GlobalPollingCoordinator {
           this.notifyListeners();
         }
       } catch (error) {
+        // Catch-all for unexpected errors
         const errorMsg = error instanceof Error ? error.message : String(error);
-        console.error(`❌ [${symbol}] Poll failed:`, errorMsg);
-        // Error recording removed
+
+        // Check if this is an AbortError - downgrade to debug
+        if (errorMsg.includes('AbortError') || errorMsg.includes('signal is aborted') || errorMsg.includes('aborted')) {
+          logger.debug(LogCategory.POLLING_COORDINATOR, `ℹ️ [${symbol}] Query aborted (browser throttling) - expected when tab hidden`);
+        } else {
+          // Real error - log as error
+          console.error(`❌ [${symbol}] Poll failed:`, errorMsg);
+        }
+
         this.notifyListeners();
       } finally {
         status.isPolling = false;

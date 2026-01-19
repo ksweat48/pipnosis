@@ -88,13 +88,27 @@ class BestSymbolSelector {
 
     const best = evaluations[0];
 
-    // Show execution vs monitoring breakdown
+    // Show execution vs monitoring breakdown with detailed reasoning
     const executableCount = evaluations.filter(e => e.omegaDecision.action === 'BUY' || e.omegaDecision.action === 'SELL').length;
     const waitCount = evaluations.filter(e => e.omegaDecision.action === 'WAIT').length;
-    console.log(`[Best Symbol Selector] 📊 Action breakdown: ${executableCount} executable (BUY/SELL), ${waitCount} monitoring (WAIT)`);
+    const confidenceRange = evaluations.length > 0
+      ? `${Math.min(...evaluations.map(e => e.omegaDecision.confidence))}%-${Math.max(...evaluations.map(e => e.omegaDecision.confidence))}%`
+      : 'N/A';
 
-    console.log(`[Best Symbol Selector] 🎯 SELECTED: ${best.symbol} (Score: ${best.overallScore.toFixed(2)}, Action: ${best.omegaDecision.action})`);
-    console.log(`[Best Symbol Selector] 📊 Ranking: ${evaluations.map(e => `${e.symbol}:${e.overallScore.toFixed(1)}(${e.omegaDecision.action})`).join(', ')}`);
+    console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    console.log(`[Best Symbol Selector] 📊 PAIR SELECTION ANALYSIS`);
+    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    console.log(`Total pairs evaluated: ${evaluations.length}`);
+    console.log(`  • Executable (BUY/SELL): ${executableCount} pairs (+200 execution priority)`);
+    console.log(`  • Monitoring (WAIT): ${waitCount} pairs (+0 fallback priority)`);
+    console.log(`  • Confidence range: ${confidenceRange}`);
+    console.log(`\n⚡ SELECTION LOGIC: Execution priority beats monitoring`);
+    console.log(`   BUY/SELL actions get +200 bonus that WAIT cannot overcome`);
+    console.log(`   Even lower confidence BUY/SELL will beat higher confidence WAIT`);
+    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+
+    console.log(`[Best Symbol Selector] 🎯 SELECTED: ${best.symbol} (Score: ${best.overallScore.toFixed(2)}, Action: ${best.omegaDecision.action}, Confidence: ${best.omegaDecision.confidence}%)`);
+    console.log(`[Best Symbol Selector] 📊 Full Ranking: ${evaluations.map(e => `${e.symbol}:${e.overallScore.toFixed(1)}(${e.omegaDecision.action}/${e.omegaDecision.confidence}%)`).join(', ')}`);
 
     return {
       selected: true,

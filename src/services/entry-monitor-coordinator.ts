@@ -116,6 +116,55 @@ class EntryMonitorCoordinator {
       const canScan = state === 'DISCOVERY_SCANNING' || state === 'ABANDONED_RESCAN_REQUESTED';
       const canCallLLM = canScan;
 
+      // PROACTIVE HEALTH CHECK: Detect and fix orphaned monitor states
+      // If state is locked but no active intent, this blocks scanning forever - self-heal immediately
+      if (state === 'ENTRY_MONITOR_ACTIVE' && row.active_intent_id) {
+        // Verify the intent actually exists and is still monitoring
+        const { data: intentData, error: intentError } = await supabase
+          .from('entry_intents')
+          .select('id, status')
+          .eq('id', row.active_intent_id)
+          .maybeSingle();
+
+        // If intent is missing or not in monitoring status, state is orphaned
+        const intentInvalid = intentError || !intentData ||
+          (intentData.status !== 'monitoring' && intentData.status !== 'pending');
+
+        if (intentInvalid) {
+          console.warn(
+            `%c[ENTRY_MONITOR_COORD] 🚨 ORPHANED STATE AUTO-HEAL`,
+            'color: #ff9800; font-weight: bold',
+            {
+              sessionId: sessionId.substring(0, 8),
+              state: state,
+              intentId: row.active_intent_id?.substring(0, 8),
+              intentStatus: intentData?.status || 'missing',
+              action: 'Resetting to DISCOVERY_SCANNING'
+            }
+          );
+
+          // Force reset to unblock scanner
+          await supabase.rpc('transition_entry_monitor_state', {
+            p_session_id: sessionId,
+            p_new_state: 'DISCOVERY_SCANNING',
+            p_locked_symbol: null,
+            p_locked_direction: null
+          });
+
+          // Return healed state
+          return {
+            state: 'DISCOVERY_SCANNING',
+            lockedSymbol: null,
+            lockedDirection: null,
+            monitorStartedAt: null,
+            activeIntentId: null,
+            secondsInMonitor: 0,
+            canScan: true,
+            canCallLLM: true
+          };
+        }
+      }
+
       return {
         state,
         lockedSymbol: row.locked_symbol,

@@ -222,68 +222,99 @@ export const handler: Handler = async (event, context) => {
 
         console.log(`[Entry Monitor] ${intent.symbol} Phase ${urgencyPhase}: elapsed=${minutesElapsed.toFixed(1)}min, tolerance=${zoneTolerancePips}p, inZone=${isInZone}`);
 
-        // EDGE LOSS MODAL CHECK: Trigger if max wait exceeded AND price is outside extended zone
-        // Only trigger once per intent to avoid duplicate modals
-        if (minutesElapsed >= thresholds.max_wait_min && !isInZone && !intent.edge_loss_modal_triggered_at) {
-          console.log(`[Entry Monitor] ⚠️ Max wait exceeded (${minutesElapsed.toFixed(1)}/${thresholds.max_wait_min}min) and price outside Phase ${urgencyPhase} zone`);
-          console.log(`[Entry Monitor] 🔔 Triggering edge loss modal for ${intent.symbol}`);
+        // PHASE 3 TIMEOUT ABANDONMENT: If max wait exceeded AND price is outside zone, abandon immediately
+        // Per CCIP: Trades degrade intelligently - they do not silently hang forever
+        // User requirement: Abandon when time expires, reset state, allow manual rescan
+        if (minutesElapsed >= thresholds.max_wait_min && !isInZone) {
+          console.log(`[Entry Monitor] ⏰ ABANDONING ${intent.symbol}: Max wait ${thresholds.max_wait_min}min exceeded and price never reached zone`);
+          console.log(`[Entry Monitor] Time elapsed: ${minutesElapsed.toFixed(1)}min | Phase ${urgencyPhase} | Tolerance: ${zoneTolerancePips} pips`);
+          console.log(`[Entry Monitor] Price: ${intent.current_price} | Zone: ${intent.entry_zone_min}-${intent.entry_zone_max}`);
+          console.log(`[Entry Monitor] Reason: Entry opportunity expired - price movement did not favor entry`);
 
           try {
-            const { data: modalId, error: modalError } = await supabase.rpc('trigger_entry_edge_loss_modal', {
-              p_intent_id: intent.intent_id,
-              p_user_id: intent.user_id,
-              p_session_id: intent.session_id
+            // Step 1: Mark intent as expired
+            await supabase
+              .from('entry_intents')
+              .update({
+                status: 'expired_no_entry',
+                canceled_at: new Date().toISOString(),
+                canceled_reason: `Max wait time ${thresholds.max_wait_min} minutes exceeded - price never reached entry zone (Phase ${urgencyPhase})`
+              })
+              .eq('id', intent.intent_id);
+
+            // Step 2: Reset monitor state to allow new scans
+            // CRITICAL: This unblocks the scanner so user can manually rescan
+            if (intent.session_id) {
+              const { error: transitionError } = await supabase.rpc('transition_entry_monitor_state', {
+                p_session_id: intent.session_id,
+                p_new_state: 'DISCOVERY_SCANNING',
+                p_locked_symbol: null,
+                p_locked_direction: null
+              });
+
+              if (transitionError) {
+                console.error(`[Entry Monitor] ⚠️ Failed to reset monitor state:`, transitionError);
+              } else {
+                console.log(`[Entry Monitor] ✅ Monitor state reset to DISCOVERY_SCANNING`);
+              }
+            }
+
+            // Step 3: Create notification for user
+            await supabase.from('goal_notifications').insert({
+              user_id: intent.user_id,
+              session_id: intent.session_id,
+              type: 'entry_abandoned',
+              title: `Entry Abandoned: ${intent.symbol}`,
+              message: `${intent.symbol} entry abandoned after ${minutesElapsed.toFixed(0)} minutes - price never reached zone. You can rescan for new opportunities.`,
+              priority: 'medium',
+              metadata: {
+                symbol: intent.symbol,
+                direction: intent.direction,
+                reason: 'timeout_no_entry',
+                minutes_elapsed: Math.round(minutesElapsed),
+                max_wait_minutes: thresholds.max_wait_min,
+                phase: urgencyPhase,
+                price: intent.current_price,
+                zone_min: intent.entry_zone_min,
+                zone_max: intent.entry_zone_max
+              }
             });
 
-            if (modalError) {
-              console.error(`[Entry Monitor] ❌ Failed to trigger edge loss modal:`, modalError);
-            } else {
-              console.log(`[Entry Monitor] ✅ Edge loss modal triggered successfully:`, modalId);
-            }
+            abandonedCount++;
+            console.log(`[Entry Monitor] ✅ Abandoned ${intent.symbol} and reset state - ready for new scan`);
+
+            results.push({
+              intentId: intent.intent_id,
+              symbol: intent.symbol,
+              success: true,
+              action: 'abandoned_timeout'
+            });
           } catch (error) {
-            console.error(`[Entry Monitor] ❌ Exception triggering edge loss modal:`, error);
+            console.error(`[Entry Monitor] ❌ Error during abandonment:`, error);
+            errorCount++;
+            errors.push({
+              context: 'abandon_timeout',
+              intent_id: intent.intent_id,
+              symbol: intent.symbol,
+              error: (error as Error).message
+            });
           }
 
-          // Continue monitoring to give user chance to respond
           continue;
         }
 
-        // GRACEFUL FALLBACK: If modal was triggered but no response after 2 minutes, force-abandon
-        if (intent.edge_loss_modal_triggered_at && !intent.edge_loss_modal_response) {
-          const modalAge = (Date.now() - new Date(intent.edge_loss_modal_triggered_at).getTime()) / (60 * 1000);
-
-          if (modalAge > 2) {
-            console.log(`[Entry Monitor] ⏰ Edge loss modal timeout (${modalAge.toFixed(1)} min) - force abandoning ${intent.symbol}`);
-
-            try {
-              await supabase
-                .from('entry_intents')
-                .update({
-                  status: 'timeout',
-                  canceled_at: new Date().toISOString()
-                })
-                .eq('id', intent.intent_id);
-
-              await supabase
-                .from('goal_sessions')
-                .update({
-                  status: 'completed',
-                  completed_at: new Date().toISOString()
-                })
-                .eq('id', intent.session_id);
-
-              abandonedCount++;
-              console.log(`[Entry Monitor] ✅ Force-abandoned ${intent.symbol} after modal timeout`);
-            } catch (error) {
-              console.error(`[Entry Monitor] ❌ Error force-abandoning intent:`, error);
-            }
-
-            continue;
-          }
-        }
-
         const edgeDecayPercent = Math.min(100, (minutesElapsed / thresholds.max_wait_min) * 100);
-        console.log(`[Entry Monitor] ${intent.symbol} Phase ${urgencyPhase}: ${minutesElapsed.toFixed(1)}/${thresholds.max_wait_min}min | Edge: ${edgeDecayPercent.toFixed(0)}% | Tolerance: ${zoneTolerancePips}p | EQS: ${timeAdjustedThreshold}`);
+
+        // Enhanced EQS logging - explain WHY score is what it is
+        const pipInfo = getCurrencyPipInfo(intent.symbol);
+        const zoneMid = (intent.entry_zone_min + intent.entry_zone_max) / 2;
+        const distanceFromMid = Math.abs(intent.current_price - zoneMid);
+        const distanceInPips = distanceFromMid / pipInfo.pipValue;
+
+        console.log(`[Entry Monitor] ${intent.symbol} Phase ${urgencyPhase}: ${minutesElapsed.toFixed(1)}/${thresholds.max_wait_min}min | Edge: ${edgeDecayPercent.toFixed(0)}%`);
+        console.log(`  📊 EQS Analysis: Threshold = ${timeAdjustedThreshold} | Tolerance = ${zoneTolerancePips} pips`);
+        console.log(`  📍 Price Position: Current ${intent.current_price} | Zone mid ${zoneMid.toFixed(pipInfo.decimals)} | Distance ${distanceInPips.toFixed(1)} pips`);
+        console.log(`  💡 EQS Impact: Distance affects proximity score (0-30 pts). Price must move closer to zone for EQS to improve.`);
 
         // CRITICAL FIX: Persist phase progression to database
         // This ensures UI and subsequent checks use current phase thresholds
