@@ -61,7 +61,7 @@ export function AlphaIntelligenceTelemetry() {
 
         // Count unique regimes
         const { data: theses } = await supabase
-          .from('alpha_thesis_cache')
+          .from('alpha_market_thesis_cache')
           .select('regime_signature_hash')
           .order('created_at', { ascending: false })
           .limit(1000);
@@ -82,7 +82,7 @@ export function AlphaIntelligenceTelemetry() {
 
       // Load regime-specific performance
       const { data: regimeStats } = await supabase
-        .from('alpha_thesis_cache')
+        .from('alpha_market_thesis_cache')
         .select('htf_bias, micro_regime, created_at')
         .order('created_at', { ascending: false })
         .limit(100);

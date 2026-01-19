@@ -174,7 +174,7 @@ class ThesisCacheWarmer {
     try {
       // Query recent theses to identify active regimes
       const { data: recentTheses } = await supabase
-        .from('alpha_thesis_cache')
+        .from('alpha_market_thesis_cache')
         .select('symbol, htf_bias, micro_regime, volatility_regime, structure_state, timeframe_relevance')
         .in('symbol', symbols)
         .order('created_at', { ascending: false })
@@ -229,7 +229,7 @@ class ThesisCacheWarmer {
   }> {
     try {
       const { data: cacheStats } = await supabase
-        .from('alpha_thesis_cache')
+        .from('alpha_market_thesis_cache')
         .select('created_at')
         .order('created_at', { ascending: false })
         .limit(100);
