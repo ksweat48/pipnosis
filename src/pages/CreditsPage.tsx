@@ -43,6 +43,7 @@ export function CreditsPage() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [referralData, setReferralData] = useState<ReferralData | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [processingPayment, setProcessingPayment] = useState<string | null>(null);
 
   const pullToRefresh = usePullToRefresh({
     onRefresh: async () => {
@@ -125,6 +126,50 @@ export function CreditsPage() {
       navigator.clipboard.writeText(url);
       setCopiedCode(true);
       setTimeout(() => setCopiedCode(false), 2000);
+    }
+  };
+
+  const handlePurchaseClick = async (pkg: CreditPackage) => {
+    if (!user || !pkg.id) {
+      alert('Please log in to purchase credits');
+      return;
+    }
+
+    const stripePublishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+    if (!stripePublishableKey) {
+      alert('Payment system not configured. Please contact support.');
+      return;
+    }
+
+    setProcessingPayment(pkg.id);
+
+    try {
+      const response = await fetch('/.netlify/functions/stripe-create-checkout-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          priceId: pkg.id,
+          packageId: pkg.id,
+          userId: user.id,
+          mode: pkg.packageType === 'subscription' ? 'subscription' : 'payment',
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create checkout session');
+      }
+
+      const { url } = await response.json();
+
+      if (url) {
+        window.location.href = url;
+      }
+    } catch (error) {
+      console.error('Purchase error:', error);
+      alert('Failed to process purchase. Please try again.');
+      setProcessingPayment(null);
     }
   };
 
@@ -285,8 +330,12 @@ export function CreditsPage() {
                         </div>
                       </div>
                       <div className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-green-400 mb-4">${pkg.priceUsd.toFixed(2)}</div>
-                      <button className="w-full px-4 py-3 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white font-semibold rounded-lg transition-all shadow-lg hover:shadow-emerald-500/25 hover:scale-105 active:scale-95">
-                        Buy Now
+                      <button
+                        onClick={() => handlePurchaseClick(pkg)}
+                        disabled={processingPayment === pkg.id || balance?.isAdmin}
+                        className="w-full px-4 py-3 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all shadow-lg hover:shadow-emerald-500/25 hover:scale-105 active:scale-95 disabled:scale-100"
+                      >
+                        {processingPayment === pkg.id ? 'Processing...' : balance?.isAdmin ? 'Admin Account' : 'Buy Now'}
                       </button>
                     </div>
                   </div>
@@ -331,8 +380,12 @@ export function CreditsPage() {
                       </div>
                       <div className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400 mb-1">${pkg.priceUsd.toFixed(2)}</div>
                       <div className="text-gray-400 text-sm mb-4">/month</div>
-                      <button className="w-full px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold rounded-lg transition-all shadow-lg hover:shadow-blue-500/25 hover:scale-105 active:scale-95">
-                        Subscribe
+                      <button
+                        onClick={() => handlePurchaseClick(pkg)}
+                        disabled={processingPayment === pkg.id || balance?.isAdmin}
+                        className="w-full px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all shadow-lg hover:shadow-blue-500/25 hover:scale-105 active:scale-95 disabled:scale-100"
+                      >
+                        {processingPayment === pkg.id ? 'Processing...' : balance?.isAdmin ? 'Admin Account' : 'Subscribe'}
                       </button>
                     </div>
                   </div>
