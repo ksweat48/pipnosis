@@ -307,20 +307,17 @@ export function classifyRRToZone(rrRatio: number, tpAtrMultiple: number): 'GREEN
 
 /**
  * Check if drawdown blocks trading (HARD constraint)
+ * @deprecated Drawdown protection removed - always returns false
  */
 export function isDrawdownBlocking(drawdownPercent: number): boolean {
-  return drawdownPercent >= TRADE_CONSTRAINTS.drawdown.hardStop;
+  return false;
 }
 
 /**
  * Get drawdown protection level
+ * @deprecated Drawdown protection removed - always returns 'none'
  */
 export function getDrawdownLevel(drawdownPercent: number): 'none' | 'warning' | 'soft-stop' | 'hard-stop' {
-  const { warning, softStop, hardStop } = TRADE_CONSTRAINTS.drawdown;
-
-  if (drawdownPercent >= hardStop) return 'hard-stop';
-  if (drawdownPercent >= softStop) return 'soft-stop';
-  if (drawdownPercent >= warning) return 'warning';
   return 'none';
 }
 

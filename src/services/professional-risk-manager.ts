@@ -3,7 +3,6 @@ import { evGatingSystem, EVGateInputs } from './ev-gating-system';
 import { goalFeasibilityValidator, GoalFeasibilityInputs } from './goal-feasibility-validator';
 import { volatilityAdjustedRisk, VolatilityRiskInputs } from './volatility-adjusted-risk';
 import { correlationRiskManager, CorrelationCheckInputs } from './correlation-risk-manager';
-import { drawdownProtectionBreaker, DrawdownCheckInputs } from './drawdown-protection-breaker';
 import { marketConditionRiskAdjuster, MarketConditionInputs } from './market-condition-risk-adjuster';
 import { winRateRROptimizer, WinRateRRInputs } from './winrate-rr-optimizer';
 import { progressiveRiskScaling, RiskScalingInputs } from './progressive-risk-scaling';
@@ -24,7 +23,6 @@ export interface ComprehensiveRiskAssessment {
     evGate: any;
     volatility: any;
     correlation: any;
-    drawdown: any;
     marketCondition: any;
     winRateRR: any;
     riskScaling: any;
@@ -79,27 +77,7 @@ class ProfessionalRiskManager {
     // Step 1: Get historical statistics for Kelly/EV calculations
     const historicalStats = await kellyCriterionSizer.getHistoricalStats(userId, symbol);
 
-    // Step 2: Check drawdown protection FIRST (hard stop overrides everything)
-    const drawdownCheck = await drawdownProtectionBreaker.checkDrawdownProtection({
-      userId,
-      currentBalance,
-      goalSessionId
-    });
-
-    if (!drawdownCheck.tradingAllowed) {
-      return this.buildRejectionResponse(
-        'DRAWDOWN HARD STOP',
-        drawdownCheck.reasoning,
-        drawdownCheck.recommendations,
-        { drawdown: drawdownCheck }
-      );
-    }
-
-    if (drawdownCheck.breachedLevel !== 'none') {
-      criticalWarnings.push(...drawdownCheck.recommendations);
-    }
-
-    // Step 3: Evaluate win rate vs RR metrics
+    // Step 2: Evaluate win rate vs RR metrics
     const avgWinPips = takeProfitPips || historicalStats.avgWinPips;
     const avgLossPips = stopLossPips || historicalStats.avgLossPips;
 
@@ -212,7 +190,6 @@ class ProfessionalRiskManager {
     let finalRiskPercent = baseRiskPercent;
 
     // Apply all multipliers
-    finalRiskPercent *= drawdownCheck.riskReduction;
     finalRiskPercent *= volatility.riskMultiplier;
     finalRiskPercent *= marketCondition.riskMultiplier;
     finalRiskPercent *= riskScaling.scalingMultiplier;
@@ -286,7 +263,6 @@ class ProfessionalRiskManager {
 
     // Calculate risk score (0-100, higher = more risky)
     const riskScore = this.calculateRiskScore({
-      drawdownLevel: drawdownCheck.currentDrawdown,
       volatilityState: volatility.volatilityState,
       correlationRisk: correlation.totalCorrelationRisk,
       sessionQuality: marketCondition.liquidityScore,
@@ -341,7 +317,6 @@ class ProfessionalRiskManager {
         evGate,
         volatility,
         correlation,
-        drawdown: drawdownCheck,
         marketCondition,
         winRateRR,
         riskScaling
@@ -370,16 +345,12 @@ class ProfessionalRiskManager {
   }
 
   private calculateRiskScore(inputs: {
-    drawdownLevel: number;
     volatilityState: string;
     correlationRisk: number;
     sessionQuality: number;
     evConfidence: string;
   }): number {
     let score = 0;
-
-    // Drawdown component (0-30 points)
-    score += inputs.drawdownLevel * 150; // 20% drawdown = 30 points
 
     // Volatility component (0-25 points)
     const volatilityScores = {

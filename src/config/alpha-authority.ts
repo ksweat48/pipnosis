@@ -10,15 +10,14 @@
 /**
  * Mandatory Safety Blocks - The ONLY allowed blockers
  *
- * These are the 4 categories that can prevent trade execution:
- * 1. Margin/Drawdown/Exposure Breach
+ * These are the 3 categories that can prevent trade execution:
+ * 1. Margin/Exposure Breach
  * 2. Market Closed / Symbol Halted
  * 3. Invalid SSOT TradeContext
  * 4. Malformed Order (NaN, invalid decimals, broker rejection)
  */
 export const MANDATORY_SAFETY_BLOCKS = {
   MARGIN_BREACH: 'Account margin insufficient',
-  DRAWDOWN_BREACH: 'Daily loss limit exceeded',
   EXPOSURE_BREACH: 'Position size limit exceeded',
   MARKET_CLOSED: 'Market is closed or symbol halted',
   INVALID_SSOT: 'Missing or corrupted trade context',

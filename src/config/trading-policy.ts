@@ -35,13 +35,6 @@ export const RISK_HARD_BLOCKS = {
     HIGH: 0.10        // 10% max daily loss
   },
 
-  maxDrawdown: {
-    warning: 0.05,       // 5% - reduce sizing
-    softStop: 0.10,      // 10% - 50% risk reduction
-    hardStop: 0.20,      // 20% - trading suspended (HARD BLOCK)
-    recoveryThreshold: 0.05
-  },
-
   /**
    * Position Size Validation
    * Prevents broker rejection and invalid orders
@@ -336,9 +329,10 @@ export const POLICY_GUIDELINES = {
 
 /**
  * Check if drawdown requires hard block
+ * @deprecated Drawdown protection removed - always returns false
  */
 export function isDrawdownBlocking(drawdownPercent: number): boolean {
-  return drawdownPercent >= RISK_HARD_BLOCKS.maxDrawdown.hardStop;
+  return false;
 }
 
 /**
@@ -470,7 +464,6 @@ export function getFallbackConfig() {
 export function isRiskHardBlock(condition: string): boolean {
   const hardBlockConditions = [
     'MAX_DAILY_LOSS_EXCEEDED',
-    'MAX_DRAWDOWN_EXCEEDED',
     'INSUFFICIENT_MARGIN',
     'INVALID_POSITION_SIZE',
     'STALE_DATA',
