@@ -1,4 +1,5 @@
 import { marketScheduleService } from '@/services/market-schedule-service';
+import { is24HourMarket } from '@/config/symbol-registry';
 
 export interface MarketStatus {
   isOpen: boolean;
@@ -257,14 +258,11 @@ export function getTimeframeLookbackHours(timeframe: string): number {
  * Symbol registry is the authoritative source for marketSchedule configuration
  */
 export function isCryptoSymbol(symbol: string): boolean {
-  // Import dynamically to avoid circular dependencies
-  const { is24HourMarket } = require('@/config/symbol-registry');
   return is24HourMarket(symbol);
 }
 
 export function is24HourSymbol(symbol: string): boolean {
   // SSOT: Delegate to symbol registry - it owns market schedule configuration
-  const { is24HourMarket } = require('@/config/symbol-registry');
   return is24HourMarket(symbol);
 }
 
