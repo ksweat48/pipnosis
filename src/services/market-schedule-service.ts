@@ -57,32 +57,18 @@ class MarketScheduleService {
   private readonly CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
   // Hardcoded holidays for 2025-2026 (fallback if DB is not available)
+  // NOTE: Forex markets ARE OPEN on MLK Day, Presidents Day, Memorial Day, Labor Day, and Thanksgiving
+  // Only major holidays that close forex: New Year's Day, Good Friday, Christmas Day
   private readonly HARDCODED_HOLIDAYS: MarketHoliday[] = [
     // 2025
     { date: '2025-01-01', name: 'New Year\'s Day', type: 'full_day' },
-    { date: '2025-01-20', name: 'Martin Luther King Jr. Day', type: 'full_day' },
-    { date: '2025-02-17', name: 'Presidents Day', type: 'full_day' },
     { date: '2025-04-18', name: 'Good Friday', type: 'full_day' },
-    { date: '2025-05-26', name: 'Memorial Day', type: 'full_day' },
-    { date: '2025-07-04', name: 'Independence Day', type: 'full_day' },
-    { date: '2025-09-01', name: 'Labor Day', type: 'full_day' },
-    { date: '2025-11-27', name: 'Thanksgiving', type: 'full_day' },
-    { date: '2025-12-24', name: 'Christmas Eve', type: 'early_close', earlyCloseTimeEST: '13:00' },
     { date: '2025-12-25', name: 'Christmas Day', type: 'full_day' },
-    { date: '2025-12-31', name: 'New Year\'s Eve', type: 'early_close', earlyCloseTimeEST: '13:00' },
 
     // 2026
     { date: '2026-01-01', name: 'New Year\'s Day', type: 'full_day' },
-    { date: '2026-01-19', name: 'Martin Luther King Jr. Day', type: 'full_day' },
-    { date: '2026-02-16', name: 'Presidents Day', type: 'full_day' },
     { date: '2026-04-03', name: 'Good Friday', type: 'full_day' },
-    { date: '2026-05-25', name: 'Memorial Day', type: 'full_day' },
-    { date: '2026-07-03', name: 'Independence Day (Observed)', type: 'full_day' }, // July 4 falls on Saturday
-    { date: '2026-09-07', name: 'Labor Day', type: 'full_day' },
-    { date: '2026-11-26', name: 'Thanksgiving', type: 'full_day' },
-    { date: '2026-12-24', name: 'Christmas Eve', type: 'early_close', earlyCloseTimeEST: '13:00' },
     { date: '2026-12-25', name: 'Christmas Day', type: 'full_day' },
-    { date: '2026-12-31', name: 'New Year\'s Eve', type: 'early_close', earlyCloseTimeEST: '13:00' },
   ];
 
   /**
