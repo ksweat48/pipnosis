@@ -22,6 +22,13 @@ class CreditValidationService {
     try {
       logger.info(`[Credit Validation] Pre-session check for user ${userId}`);
 
+      // CRITICAL: Check if credits are enabled platform-wide
+      const creditsEnabled = await this.isCreditsEnabled();
+      if (!creditsEnabled) {
+        logger.info('[Credit Validation] Credits disabled platform-wide - validation bypassed');
+        return { valid: true, balance: 999999 };
+      }
+
       const balance = await creditMeterService.getBalance(userId);
 
       if (!balance) {
@@ -78,6 +85,13 @@ class CreditValidationService {
   ): Promise<CreditDeductionResult> {
     try {
       logger.info(`[Credit Deduction] Deducting ${this.SIGNAL_COST} credits for signal ${signalMetadata.intentId}`);
+
+      // CRITICAL: Check if credits are enabled platform-wide
+      const creditsEnabled = await this.isCreditsEnabled();
+      if (!creditsEnabled) {
+        logger.info('[Credit Deduction] Credits disabled platform-wide - deduction bypassed');
+        return { success: true, newBalance: 999999 };
+      }
 
       const balance = await creditMeterService.getBalance(userId);
       if (balance?.isAdmin) {
@@ -319,6 +333,22 @@ class CreditValidationService {
 
   getMinBalanceForSession(): number {
     return this.MIN_BALANCE_FOR_SESSION;
+  }
+
+  private async isCreditsEnabled(): Promise<boolean> {
+    try {
+      const { data, error } = await supabase.rpc('is_credits_enabled');
+
+      if (error) {
+        logger.error('[Credit Validation] Error checking if credits enabled:', error);
+        return true;
+      }
+
+      return data === true;
+    } catch (error) {
+      logger.error('[Credit Validation] Error in isCreditsEnabled:', error);
+      return true;
+    }
   }
 }
 
