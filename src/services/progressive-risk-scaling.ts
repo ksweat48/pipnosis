@@ -182,10 +182,10 @@ class ProgressiveRiskScaling {
     try {
       let query = supabase
         .from('goal_session_trades')
-        .select('status, close_reason, pnl')
+        .select('status, close_reason, profit_loss')
         .eq('user_id', userId)
         .eq('status', 'closed')
-        .not('pnl', 'is', null)
+        .not('profit_loss', 'is', null)
         .order('created_at', { ascending: false })
         .limit(limit);
 
@@ -200,8 +200,8 @@ class ProgressiveRiskScaling {
       }
 
       return trades.map(t => ({
-        result: (t.pnl || 0) > 0 ? 'win' : 'loss',
-        pnl: t.pnl || 0
+        result: (t.profit_loss || 0) > 0 ? 'win' : 'loss',
+        pnl: t.profit_loss || 0
       }));
     } catch (error) {
       console.error('Error fetching recent trades:', error);

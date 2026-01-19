@@ -168,7 +168,7 @@ class GoalFeasibilityValidator {
     try {
       const { data: trades, error } = await supabase
         .from('goal_session_trades')
-        .select('status, pnl, created_at')
+        .select('status, profit_loss, created_at')
         .eq('user_id', userId)
         .in('status', ['win', 'loss'])
         .limit(50)
@@ -186,7 +186,7 @@ class GoalFeasibilityValidator {
       const wins = trades.filter(t => t.status === 'win').length;
       const actualWinRate = wins / trades.length;
 
-      const totalPnL = trades.reduce((sum, t) => sum + (t.pnl || 0), 0);
+      const totalPnL = trades.reduce((sum, t) => sum + (t.profit_loss || 0), 0);
       const avgReturnPerTrade = totalPnL / trades.length;
 
       // Calculate trading days span

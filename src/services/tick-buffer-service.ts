@@ -63,8 +63,13 @@ class TickBufferService {
 
     this.saveBuffer(bufferKey, buffer);
 
-    // NOTE: Immediate sync disabled - buffer cleanup happens on background interval only
-    // No need to sync after every tick since we're not writing to database
+    // FALLBACK DATABASE WRITE
+    // Primary: Netlify continuous-price-collector (SSOT)
+    // Fallback: Browser writes when primary unavailable (graceful degradation)
+    // This prevents "over-blocking" by ensuring fresh price data is always available
+    if (this.isOnline) {
+      await this.writeToDatabaseFallback(tick);
+    }
   }
 
   private getBuffer(key: string): TickData[] {
@@ -91,14 +96,67 @@ class TickBufferService {
     }
   }
 
+  private async writeToDatabaseFallback(tick: TickData): Promise<void> {
+    try {
+      const mid = (tick.bid + tick.ask) / 2;
+      const spread = tick.ask - tick.bid;
+
+      const { error } = await supabase
+        .from('realtime_prices')
+        .insert({
+          symbol: tick.symbol,
+          bid: tick.bid,
+          ask: tick.ask,
+          mid,
+          spread,
+          broker_time: tick.broker_time || tick.timestamp,
+          source: 'browser_fallback',
+          created_at: tick.timestamp
+        });
+
+      if (error) {
+        logger.warn(
+          LogCategory.TICK_BUFFER,
+          `⚠️ Fallback DB write failed for ${tick.symbol}: ${error.message}`
+        );
+      } else {
+        logger.trace(
+          LogCategory.TICK_BUFFER,
+          `✅ Fallback DB write success for ${tick.symbol} (bid: ${tick.bid}, ask: ${tick.ask})`
+        );
+      }
+    } catch (error) {
+      logger.error(
+        LogCategory.TICK_BUFFER,
+        `❌ Fallback DB write exception for ${tick.symbol}:`,
+        error
+      );
+    }
+  }
+
   private async syncBuffer(bufferKey: string, symbol: string): Promise<void> {
-    // NOTE: Database sync disabled - Netlify continuous-price-collector handles persistence
-    // This method now only manages local buffer cleanup to prevent memory bloat
+    // Background sync: Retry failed writes and clean up old data
+    // Primary writer: Netlify continuous-price-collector (SSOT)
+    // This is fallback/retry layer for degraded mode operation
 
     const buffer = this.getBuffer(bufferKey);
+    const unsyncedTicks = buffer.filter(t => !t.synced && t.retry_count < MAX_RETRY_ATTEMPTS);
 
-    // Mark all ticks as "synced" (even though we're not actually syncing)
-    // This prevents buffer from growing indefinitely
+    // Retry unsynced ticks if any exist
+    if (unsyncedTicks.length > 0) {
+      logger.debug(
+        LogCategory.TICK_BUFFER,
+        `🔄 Retrying ${unsyncedTicks.length} unsynced ticks for ${symbol}`
+      );
+
+      for (const tick of unsyncedTicks) {
+        await this.writeToDatabaseFallback(tick);
+        tick.synced = true;
+        tick.retry_count++;
+      }
+    }
+
+    // Mark all remaining ticks as synced for cleanup
     const cleanedBuffer = buffer.map(tick => ({
       ...tick,
       synced: true
@@ -108,11 +166,21 @@ class TickBufferService {
     const recentBuffer = cleanedBuffer.slice(-100);
     this.saveBuffer(bufferKey, recentBuffer);
 
-    logger.trace(LogCategory.TICK_BUFFER, `🧹 Cleaned buffer for ${symbol}, kept ${recentBuffer.length} recent ticks`);
+    logger.trace(
+      LogCategory.TICK_BUFFER,
+      `🧹 Buffer sync complete for ${symbol}: ${unsyncedTicks.length} retried, ${recentBuffer.length} kept`
+    );
   }
 
   private async syncAllBuffers(): Promise<void> {
-    const symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'US30'];
+    // Include all symbols that are actively polled
+    const symbols = [
+      'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD',
+      'NZDUSD', 'USDCHF', 'EURJPY', 'GBPJPY',
+      'XAUUSD', 'XAGUSD',
+      'US30', 'NAS100', 'SPX500',
+      'BTCUSD', 'ETHUSD'
+    ];
 
     for (const symbol of symbols) {
       const bufferKey = `${BUFFER_KEY_PREFIX}${symbol}`;
@@ -158,7 +226,13 @@ class TickBufferService {
   }
 
   clearAllBuffers(): void {
-    const symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'US30'];
+    const symbols = [
+      'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD',
+      'NZDUSD', 'USDCHF', 'EURJPY', 'GBPJPY',
+      'XAUUSD', 'XAGUSD',
+      'US30', 'NAS100', 'SPX500',
+      'BTCUSD', 'ETHUSD'
+    ];
     symbols.forEach(symbol => this.clearBuffer(symbol));
     logger.info(LogCategory.TICK_BUFFER, '🗑️ All buffers cleared');
   }
