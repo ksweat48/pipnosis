@@ -4,6 +4,7 @@ import { calculateDollarPerPip, calculatePipDistance, getCurrencyPipInfo } from 
 import { liveTradeLearningTrigger } from './live-trade-learning-trigger';
 import { llmPostSessionAnalyzer } from './llm-post-session-analyzer';
 import { goalSessionStateMachine } from './coordinators/goal-session-state-machine';
+import { creditValidationService } from './credit-validation-service';
 
 export interface GoalSessionConfig {
   goalType: 'profit_target' | 'percentage_gain' | 'account_growth';
@@ -120,6 +121,16 @@ class GoalSessionManager {
 
   async createSession(userId: string, config: GoalSessionConfig): Promise<GoalSession | null> {
     try {
+      // CRITICAL: Validate credits BEFORE creating session
+      const creditValidation = await creditValidationService.validatePreSession(userId);
+
+      if (!creditValidation.valid) {
+        console.error(`[Goal Session] Credit validation failed: ${creditValidation.reason}`);
+        throw new Error(creditValidation.reason || 'Insufficient credits to start session');
+      }
+
+      console.log(`[Goal Session] ✅ Credit validation passed. Balance: ${creditValidation.balance} credits`);
+
       const { data: profileData } = await supabase
         .from('user_profiles')
         .select('account_balance')

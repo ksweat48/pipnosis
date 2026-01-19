@@ -18,6 +18,10 @@ export * from './performance-analyzer';
 // Platform Intelligence Services
 export * from './platform-intelligence-service';
 
+// Credit System Services
+export * from './credit-validation-service';
+export * from './credit-meter-service';
+
 // Scanning Cycle Services
 export * from './scanning-state-machine';
 

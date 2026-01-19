@@ -8,6 +8,7 @@ import { globalToastManager } from './global-toast-manager';
 import { createTradeContext } from '../utils/tradeMath';
 import type { TradeContext } from '../types/trade-context';
 import { toDirectionDB } from '../utils/direction-converter';
+import { creditValidationService } from './credit-validation-service';
 
 export class EntryExecutionCoordinator {
   static async handleAlphaDecision(
@@ -16,6 +17,18 @@ export class EntryExecutionCoordinator {
     decision: AlphaDecision,
     symbol: string
   ): Promise<{ shouldExecuteImmediately: boolean; intentId?: string; waitConditionId?: string }> {
+    // CRITICAL: Check if session is credit blocked before processing signal
+    const isBlocked = await creditValidationService.isSessionCreditBlocked(sessionId);
+    if (isBlocked) {
+      logger.error(`[Entry Execution] Session ${sessionId} is credit blocked. Cannot process new signal.`);
+      globalToastManager.showToast(
+        'error',
+        'Session Blocked',
+        'Your session is blocked due to a failed credit deduction. Please resolve the issue before continuing.'
+      );
+      return { shouldExecuteImmediately: false };
+    }
+
     if (decision.action === 'NO_TRADE') {
       return { shouldExecuteImmediately: false };
     }
@@ -86,6 +99,7 @@ export class EntryExecutionCoordinator {
       `Max wait: ${entryIntent.max_wait_seconds}s | Timeout action: ${entryIntent.timeout_action}`
     );
 
+    // STEP 1: Create the intent (data integrity - always save the signal)
     const intent = await EntryPlannerService.createEntryIntent(userId, request);
 
     if (!intent) {
@@ -93,6 +107,32 @@ export class EntryExecutionCoordinator {
       return { shouldExecuteImmediately: true };
     }
 
+    // STEP 2: Deduct credits for the signal (10 credits per signal)
+    const deductionResult = await creditValidationService.deductSignalCredits(
+      userId,
+      sessionId,
+      {
+        symbol,
+        intentId: intent.id,
+        intentType: entryIntent.intent_type,
+        confidence: decision.confidence
+      }
+    );
+
+    if (!deductionResult.success) {
+      logger.error(`[Entry Execution] Credit deduction failed: ${deductionResult.error}`);
+      globalToastManager.showToast(
+        'error',
+        'Credit Deduction Failed',
+        'Failed to deduct credits for this signal. Session is now blocked until resolved.'
+      );
+      // Signal is saved but session is blocked for next signals
+      return { shouldExecuteImmediately: false, intentId: intent.id };
+    }
+
+    logger.info(`[Entry Execution] ✅ Credits deducted. New balance: ${deductionResult.newBalance} credits`);
+
+    // STEP 3: Start monitoring the intent
     await activeEntryMonitor.startMonitoring(intent.id, userId);
 
     return { shouldExecuteImmediately: false, intentId: intent.id };

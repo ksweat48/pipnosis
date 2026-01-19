@@ -17,6 +17,7 @@ import { computeOmegaSensors, type OmegaSensors } from './omega-sensors';
 import type { TraderScore } from './ai-identity';
 import type { MarketSnapshotData } from './market-snapshot-cache';
 import { alphaThoughtStream } from './alpha-thought-stream';
+import { creditValidationService } from './credit-validation-service';
 
 export interface SessionConfig {
   starting_balance: number;
@@ -79,6 +80,22 @@ class GoalScanner {
       }
 
       console.log(`[Goal Scanner] ✅ Scanning allowed: ${scanPermission.message}`);
+
+      // STEP 1.5: Check if session is credit blocked
+      const isCreditBlocked = await creditValidationService.isSessionCreditBlocked(sessionId);
+      if (isCreditBlocked) {
+        console.log(`[Goal Scanner] 🔒 Session is credit blocked - cannot generate new signals`);
+
+        await goalSessionManager.addAIMessage(
+          sessionId,
+          userId,
+          'Session blocked: A previous credit deduction failed. Please resolve the credit issue to continue scanning.',
+          { creditBlocked: true },
+          'warning'
+        );
+
+        return [];
+      }
 
       const session = await supabase
         .from('goal_sessions')
