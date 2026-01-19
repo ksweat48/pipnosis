@@ -1134,14 +1134,13 @@ class GoalSessionLiveEngine {
       // - BUY/SELL = execute immediately at market price
       // - NO_TRADE = not ready yet, keep scanning for better opportunities
       if (decision.action === 'WAIT') {
-        // DEPRECATED: WAIT action no longer used - log if it appears
-        logger.warn(
+        // WAIT action fallback - system degrades intelligently to NO_TRADE
+        // This is an expected fallback pattern; Alpha continues scanning
+        logger.debug(
           LogCategory.AI_TRADING,
-          `⚠️ DEPRECATED: Alpha returned WAIT action for ${selectedSymbol}. This should not happen. Treating as NO_TRADE.`
+          `Alpha returned WAIT action for ${selectedSymbol}. Treating as NO_TRADE and continuing scan.`
         );
-        await this.sendAIMessage(
-          `⚠️ Deprecated WAIT action received. Alpha should return BUY/SELL (execute now) or NO_TRADE (keep scanning). Continuing to scan...`
-        );
+        // No user message needed - this is a quiet fallback
         return;
       }
 

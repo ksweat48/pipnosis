@@ -136,11 +136,14 @@ class SharedIntelligenceCoordinator {
         });
         return { ...localCached.data, cacheAgeSeconds: ageSeconds };
       } else {
-        logger.warn('[SharedIntelligence] Local cache integrity failed, invalidating', {
+        logger.warn('[SharedIntelligence] Local cache integrity failed - will check database or regenerate', {
           symbol,
-          reason: integrityCheck.reason
+          reason: integrityCheck.reason,
+          regimeHash,
+          action: 'checking_database_cache'
         });
         this.localThesisCache.delete(localKey);
+        // System continues - will check database cache or generate fresh thesis
       }
     }
 
@@ -186,12 +189,16 @@ class SharedIntelligenceCoordinator {
         // Verify integrity after freezing
         const integrityCheck = verifyCachedThesisIntegrity(frozenThesis);
         if (!integrityCheck.valid) {
-          logger.error('[SharedIntelligence] DB cache integrity failed', {
+          logger.error('[SharedIntelligence] DB cache integrity failed - regenerating fresh thesis', {
             symbol,
-            reason: integrityCheck.reason
+            reason: integrityCheck.reason,
+            regimeHash,
+            cacheAgeSeconds: ageSeconds,
+            action: 'invalidating_and_regenerating'
           });
-          // Invalidate and continue to fresh generation
+          // Invalidate and continue to fresh generation (intelligent degradation)
           await this.invalidateThesisByRegime(symbol, regimeHash);
+          // System continues operating - Alpha will generate fresh thesis below
         } else {
 
           // Store in local cache
