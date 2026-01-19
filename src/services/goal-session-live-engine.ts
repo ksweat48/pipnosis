@@ -568,33 +568,19 @@ class GoalSessionLiveEngine {
           activeIntentId: monitorState.activeIntentId
         });
 
+        // 🔥 SSOT FIX: Monitor state and active intents NO LONGER block Alpha from scanning
+        // canScanNow() always returns true - Alpha decides when to scan
         if (!scanCheck.allowed) {
-          logger.debug(
+          // This should never happen now, but log if it does
+          logger.warn(
             LogCategory.AI_TRADING,
-            `[ENTRY_MONITOR] Blocking scan - ${scanCheck.reason}`
+            `[ENTRY_MONITOR] scanCheck returned false (unexpected) - ${scanCheck.reason}`
           );
-          console.log('%c[PROCESS_MULTI_SYMBOL] ⛔ Scan blocked by monitor state', 'color: #ff9800; font-weight: bold');
-          return;
         }
 
-        // 🎯 CHECK FOR ACTIVE ENTRY INTENT - Monitor instead of scanning
-        console.log('%c[AUTONOMOUS ENGINE] 🔍 Checking for active entry intents...', 'color: #2196f3; font-weight: bold');
-        const activeIntent = await this.checkAndHandleActiveEntryIntent();
-        console.log('%c[AUTONOMOUS ENGINE] 🎯 checkAndHandleActiveEntryIntent result:', 'color: #2196f3; font-weight: bold', {
-          found: !!activeIntent,
-          intentId: activeIntent?.id,
-          symbol: activeIntent?.symbol,
-          status: (activeIntent as any)?.status
-        });
-
-        if (activeIntent) {
-          // Entry intent is being monitored - skip fresh scan
-          console.log('%c[AUTONOMOUS ENGINE] 👁️ Entry intent monitoring in progress - skipping fresh scan', 'color: #2196f3; font-weight: bold');
-          logger.debug(LogCategory.AI_TRADING, `[ENTRY_MONITOR] Active intent ${activeIntent.id} being monitored for ${activeIntent.symbol}`);
-          return;
-        } else {
-          console.log('%c[AUTONOMOUS ENGINE] ✅ No active entry intents - proceeding with fresh scan', 'color: #10b981; font-weight: bold');
-        }
+        // 🔥 SSOT FIX: Active intents are visual/advisory only - NEVER block Alpha from scanning
+        // Alpha decides: execute now OR keep scanning. Entry Monitor does not control this.
+        console.log('%c[AUTONOMOUS ENGINE] ✅ Alpha always scans - monitor state is advisory only', 'color: #10b981; font-weight: bold');
       } else {
         console.log('%c[PROCESS_MULTI_SYMBOL] ⚠️ activeSession is NULL/UNDEFINED - skipping intent check', 'color: #ff0000; font-weight: bold');
       }
@@ -1142,75 +1128,20 @@ class GoalSessionLiveEngine {
         return;
       }
 
-      // ✅ ENTRY MONITOR: Handle WAIT decisions - Start entry monitoring with ZERO LLM
+      // 🔥 SSOT FIX: WAIT action REMOVED - Alpha decides: EXECUTE NOW or KEEP SCANNING
+      // Entry Monitor and EQS no longer block execution
+      // Alpha returns: BUY, SELL, or NO_TRADE
+      // - BUY/SELL = execute immediately at market price
+      // - NO_TRADE = not ready yet, keep scanning for better opportunities
       if (decision.action === 'WAIT') {
-        // 🔍 RACE CONDITION FIX: Verify config still exists before accessing userId
-        if (!this.config || this.isStopping) {
-          console.log('%c[WAIT HANDLER] ⏹️ ABORT: Session stopping or config null during WAIT decision', 'color: #ff9800; font-weight: bold');
-          logger.warn(LogCategory.AI_TRADING, 'WAIT decision aborted - session stopping or config null');
-          return;
-        }
-
-        logger.info(LogCategory.AI_TRADING, `⏸️ WAIT decision received for ${selectedSymbol} - starting ENTRY_MONITOR mode`);
-
-        // Get snapshot for selected symbol (needed for entry monitor context)
-        const selectedSnapshot = bestSymbolResult.evaluation.snapshot;
-
-        // Determine intended direction from stop loss position
-        const intendedDirection = decision.stopLoss > decision.entry ? 'SELL' : 'BUY';
-        const directionEmoji = intendedDirection === 'BUY' ? '🟢' : '🔴';
-
-        // Determine trade style from config or goal classification
-        const tradeStyle: TradeStyle = config.tradeStyle as TradeStyle || 'MICRO_INTRADAY';
-
-        // Create entry intent and start monitoring
-        const result = await entryMonitorCoordinator.handleWaitDecision(
-          config.goalSessionId,
-          config.userId,
-          {
-            symbol: selectedSymbol,
-            direction: intendedDirection,
-            entry: decision.entry,
-            stopLoss: decision.stopLoss,
-            takeProfit: decision.takeProfit,
-            confidence: decision.confidence,
-            reasoning: decision.reasoning,
-            entryZone: decision.entry_spec?.entry_zone,
-            style: tradeStyle,
-            atr: selectedSnapshot.atr?.value || 0.001,
-            maxWaitSeconds: decision.entry_spec?.max_wait_minutes ? decision.entry_spec.max_wait_minutes * 60 : undefined,
-            marketContext: {
-              vwap: selectedSnapshot.vwap,
-              ema20: selectedSnapshot.ema20,
-              ema50: selectedSnapshot.ema50,
-              ema200: selectedSnapshot.ema200,
-              m15_levels: selectedSnapshot.m15_levels,
-              currentPrice: selectedSnapshot.currentPrice
-            }
-          }
+        // DEPRECATED: WAIT action no longer used - log if it appears
+        logger.warn(
+          LogCategory.AI_TRADING,
+          `⚠️ DEPRECATED: Alpha returned WAIT action for ${selectedSymbol}. This should not happen. Treating as NO_TRADE.`
         );
-
-        if (result.success) {
-          await this.sendAIMessage(
-            `⏸️ Entry Monitor Active - Zero-LLM Execution Waiting\n\n` +
-            `${directionEmoji} Symbol: ${selectedSymbol}\n` +
-            `📊 Direction: ${intendedDirection}\n` +
-            `🎯 Entry Zone: ${decision.entry_spec?.entry_zone?.min?.toFixed(5) || decision.entry.toFixed(5)} - ${decision.entry_spec?.entry_zone?.max?.toFixed(5) || decision.entry.toFixed(5)}\n` +
-            `🛡️ Stop Loss: ${decision.stopLoss.toFixed(5)}\n` +
-            `💰 Take Profit: ${decision.takeProfit.toFixed(5)}\n` +
-            `🔍 Confidence: ${decision.confidence}%\n\n` +
-            `Monitoring entry quality every 3 seconds with deterministic scoring (no LLM).\n` +
-            `Will execute when conditions are optimal or abandon if price runs away.`
-          );
-
-          logger.info(LogCategory.AI_TRADING, `[ENTRY_MONITOR] Started monitoring ${selectedSymbol} ${intendedDirection} - Intent ID: ${result.intentId}`);
-        } else {
-          logger.error(LogCategory.AI_TRADING, `[ENTRY_MONITOR] Failed to start monitoring: ${result.error}`);
-          await this.sendAIMessage(`⚠️ Failed to start entry monitoring: ${result.error}. Will re-evaluate on next scan.`);
-        }
-
-        // ✅ CRITICAL FIX: ALWAYS return after WAIT decision handling
-        // WAIT decisions must NEVER reach execution flow, regardless of monitoring success
+        await this.sendAIMessage(
+          `⚠️ Deprecated WAIT action received. Alpha should return BUY/SELL (execute now) or NO_TRADE (keep scanning). Continuing to scan...`
+        );
         return;
       }
 

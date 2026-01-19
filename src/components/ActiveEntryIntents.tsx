@@ -71,9 +71,14 @@ export function ActiveEntryIntents() {
 
   return (
     <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-4 border border-slate-700 shadow-lg">
-      <div className="flex items-center gap-2 mb-4">
-        <Target className="w-5 h-5 text-blue-400" />
-        <h3 className="text-lg font-semibold text-white">Active Entry Monitoring</h3>
+      <div className="mb-4">
+        <div className="flex items-center gap-2 mb-1">
+          <Target className="w-5 h-5 text-blue-400" />
+          <h3 className="text-lg font-semibold text-white">Entry Advisory (Visual Only)</h3>
+        </div>
+        <p className="text-xs text-slate-400">
+          📊 This monitor shows optimal entry timing for manual trades on external platforms. Alpha executes immediately at market price.
+        </p>
       </div>
 
       <div className="space-y-3">

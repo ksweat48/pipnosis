@@ -139,6 +139,16 @@ export const SimpleEntryMonitor: React.FC<SimpleEntryMonitorProps> = ({ sessionI
 
   return (
     <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-3 sm:p-4 border border-gray-700">
+      {/* ADVISORY NOTICE */}
+      <div className="mb-3 p-2 rounded-lg bg-blue-900/20 border border-blue-600/30">
+        <div className="flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
+          <div className="text-xs text-blue-300">
+            <span className="font-semibold">Advisory Only:</span> This monitor shows optimal entry timing for manual trades on external platforms. Alpha executes immediately at market price when ready.
+          </div>
+        </div>
+      </div>
+
       {/* HEADER: Symbol, Direction */}
       <div className="mb-3 sm:mb-4 pb-2 sm:pb-3 border-b border-gray-700">
         <div className="flex items-start justify-between mb-2">
@@ -155,7 +165,7 @@ export const SimpleEntryMonitor: React.FC<SimpleEntryMonitorProps> = ({ sessionI
             </div>
             <div className="flex flex-wrap items-center gap-1 sm:gap-2 text-xs text-gray-400">
               <Target className="w-3 h-3 text-blue-400 animate-pulse" />
-              <span className="text-blue-400">Monitoring for entry zone</span>
+              <span className="text-blue-400">Entry Zone Advisory (Visual Only)</span>
             </div>
           </div>
         </div>

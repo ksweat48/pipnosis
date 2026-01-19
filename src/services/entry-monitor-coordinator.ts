@@ -1,15 +1,20 @@
 /**
- * Entry Monitor Coordinator
+ * Entry Monitor Coordinator (Advisory Only - SSOT Compliant)
  *
- * SSOT for the two-mode lifecycle:
- * 1. DISCOVERY_SCANNING - Multi-symbol evaluation with LLM allowed
- * 2. ENTRY_MONITOR - Single-symbol execution waiting with ZERO LLM
+ * ⚠️ CRITICAL: Entry Monitor NO LONGER BLOCKS Alpha's scanning or execution.
  *
- * This coordinator:
- * - Manages state transitions between modes
- * - Prevents global rescans during ENTRY_MONITOR
- * - Handles WAIT decisions from Alpha
- * - Integrates with goal-session-live-engine
+ * Alpha is the SINGLE SOURCE OF TRUTH for trade decisions.
+ * Alpha decides: EXECUTE NOW (at market) OR KEEP SCANNING.
+ *
+ * Entry Monitor is now:
+ * - Visual advisory for users (post-execution)
+ * - Informational state tracking
+ * - NEVER blocks Alpha from analyzing markets or executing trades
+ *
+ * Architecture Decision:
+ * - Entry Monitor = Visual advisory only (shows after trade execution)
+ * - EQS = Informational display
+ * - Alpha = Only execution authority (never blocked by monitor state)
  */
 
 import { supabase } from '../lib/supabase';
@@ -241,11 +246,13 @@ class EntryMonitorCoordinator {
   }
 
   async canScanNow(sessionId: string): Promise<{ allowed: boolean; reason: string }> {
-    // CRITICAL: Always validate state before checking if scan is allowed
-    // This self-heals orphaned states that would otherwise block scanning forever
+    // 🔥 CRITICAL: ALWAYS allow scanning - Alpha decides when to scan, not monitor state
+    // Entry Monitor state is for visual tracking only and NEVER blocks Alpha
+
+    // Still validate state for health checks and logging
     const healResult = await this.validateAndHealState(sessionId);
     if (healResult.healed) {
-      console.log('[ENTRY_MONITOR_COORD] 🔧 State was healed, scanning now allowed', {
+      console.log('[ENTRY_MONITOR_COORD] 🔧 State was healed (advisory)', {
         sessionId: sessionId.substring(0, 8),
         reason: healResult.reason
       });
@@ -253,19 +260,26 @@ class EntryMonitorCoordinator {
 
     const state = await this.getMonitorState(sessionId);
 
-    if (state.canScan) {
-      return { allowed: true, reason: 'In DISCOVERY_SCANNING mode' };
+    // Log state for analytics but NEVER block
+    if (!state.canScan) {
+      console.log('[ENTRY_MONITOR_COORD] 📊 Scanning during monitor state (allowed by SSOT)', {
+        sessionId: sessionId.substring(0, 8),
+        state: state.state,
+        lockedSymbol: state.lockedSymbol
+      });
     }
 
+    // ALWAYS return allowed - Alpha is never blocked
     return {
-      allowed: false,
-      reason: `In ${state.state} mode - monitoring ${state.lockedSymbol} ${state.lockedDirection}. No global rescans allowed.`
+      allowed: true,
+      reason: 'Alpha always permitted to scan markets (SSOT)'
     };
   }
 
   async isLLMAllowed(sessionId: string): Promise<boolean> {
-    const state = await this.getMonitorState(sessionId);
-    return state.canCallLLM;
+    // 🔥 CRITICAL: ALWAYS allow LLM calls - Alpha must never be blocked from thinking
+    // Entry Monitor state is irrelevant to Alpha's ability to analyze markets
+    return true;
   }
 
   async handleWaitDecision(

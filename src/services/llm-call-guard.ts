@@ -1,16 +1,21 @@
 /**
- * LLM Call Guard
+ * LLM Call Guard (Advisory Only - SSOT Compliant)
  *
- * Enforces ZERO LLM calls during ENTRY_MONITOR mode.
+ * ⚠️ CRITICAL: This guard NO LONGER BLOCKS Alpha from thinking.
  *
- * This guard MUST be checked before ANY OpenAI API call.
- * If the session is in ENTRY_MONITOR mode, LLM calls are blocked.
+ * Alpha is the SINGLE SOURCE OF TRUTH for trade decisions.
+ * Alpha must ALWAYS be able to call OpenAI to analyze markets and make decisions.
  *
- * The guard:
- * 1. Checks current entry_monitor_state for the session
- * 2. Returns blocked=true if state is ENTRY_MONITOR_ACTIVE or EXECUTE_PENDING
- * 3. Logs violation attempts for debugging
- * 4. Provides clear error messages
+ * The guard now:
+ * 1. Logs LLM calls for analytics and monitoring
+ * 2. ALWAYS returns allowed=true (never blocks)
+ * 3. Tracks state for telemetry purposes only
+ * 4. Entry Monitor state is irrelevant to Alpha's ability to think
+ *
+ * Architecture Decision:
+ * - Entry Monitor = Visual advisory (post-execution)
+ * - EQS = Informational only
+ * - Alpha = Only execution authority (never blocked)
  */
 
 import { supabase } from '../lib/supabase';
@@ -31,7 +36,8 @@ export interface LLMGuardViolation {
   stackTrace?: string;
 }
 
-const BLOCKED_STATES = [
+// DEPRECATED: These states no longer block LLM calls (kept for analytics)
+const MONITORED_STATES = [
   'ENTRY_INTENT_CREATED',
   'ENTRY_MONITOR_ACTIVE',
   'EXECUTE_PENDING'
@@ -57,22 +63,18 @@ class LLMCallGuard {
       this.sessionStateCache.set(sessionId, { state, timestamp: now });
     }
 
-    const isBlocked = BLOCKED_STATES.includes(state);
+    // 🔥 CRITICAL: ALWAYS allow LLM calls - Alpha must never be blocked
+    const wasMonitored = MONITORED_STATES.includes(state);
 
-    if (isBlocked) {
-      this.logViolation(sessionId, callDescription || 'unknown', state);
-
-      return {
-        allowed: false,
-        reason: `LLM calls blocked in ${state} mode. Entry monitoring uses deterministic scoring only.`,
-        state,
-        violationLogged: true
-      };
+    if (wasMonitored) {
+      // Log for analytics only - DO NOT BLOCK
+      this.logActivity(sessionId, callDescription || 'unknown', state);
     }
 
+    // ALWAYS return allowed=true
     return {
       allowed: true,
-      reason: 'LLM calls permitted in DISCOVERY_SCANNING mode',
+      reason: 'Alpha always permitted to analyze markets and make decisions (SSOT)',
       state
     };
   }
@@ -96,8 +98,9 @@ class LLMCallGuard {
     }
   }
 
-  private logViolation(sessionId: string, attemptedCall: string, state: string): void {
-    const violation: LLMGuardViolation = {
+  private logActivity(sessionId: string, attemptedCall: string, state: string): void {
+    // Log for analytics only - this is no longer a violation
+    const activity: LLMGuardViolation = {
       sessionId,
       attemptedCall,
       state,
@@ -105,31 +108,27 @@ class LLMCallGuard {
       stackTrace: new Error().stack
     };
 
-    violations.push(violation);
+    violations.push(activity);
 
     if (violations.length > MAX_VIOLATIONS_LOG) {
       violations.shift();
     }
 
-    productionLogger.warn('[LLM_GUARD] VIOLATION: LLM call attempted during ENTRY_MONITOR', {
+    // Info level logging - Alpha is allowed to think at any time
+    productionLogger.info('[LLM_GUARD] Alpha LLM call during monitoring state (allowed)', {
       sessionId,
       attemptedCall,
       state
     });
-
-    console.warn(
-      '%c[LLM_GUARD] VIOLATION: LLM call attempted during ENTRY_MONITOR mode!',
-      'color: #ff0000; font-weight: bold; font-size: 14px',
-      { sessionId, attemptedCall, state }
-    );
   }
 
   async assertLLMAllowed(sessionId: string, callDescription?: string): Promise<void> {
+    // 🔥 CRITICAL: Never throw - Alpha must never be blocked
+    // This method is kept for backward compatibility but does nothing
     const result = await this.checkLLMAllowed(sessionId, callDescription);
 
-    if (!result.allowed) {
-      throw new Error(`LLM_GUARD_BLOCK: ${result.reason}`);
-    }
+    // Always allowed - no need to check result
+    return;
   }
 
   getViolations(): LLMGuardViolation[] {
