@@ -282,12 +282,16 @@ export function formatATR(atr: ATRValue, pipValue: number): string {
  * Environment-aware validation configuration
  * - Development: Strict errors that throw immediately
  * - Production: Resilient logging without crashes
+ *
+ * IMPORTANT: Must work in both browser (Vite) and Node.js (Netlify Functions)
  */
 const isProduction = typeof window !== 'undefined'
   ? window.location?.hostname !== 'localhost'
-  : import.meta.env.PROD;
+  : (typeof import.meta !== 'undefined' && import.meta.env?.PROD === true) || process.env.NODE_ENV === 'production';
 
-const isStrictValidation = !isProduction || import.meta.env.VITE_STRICT_TYPE_VALIDATION === 'true';
+const isStrictValidation = !isProduction ||
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_STRICT_TYPE_VALIDATION === 'true') ||
+  (typeof process !== 'undefined' && process.env?.VITE_STRICT_TYPE_VALIDATION === 'true');
 
 /**
  * ATR Type Validation Error - thrown only in strict mode

@@ -709,6 +709,16 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
     const timeToEntrySeconds = Math.round((Date.now() - intentCreatedAt.getTime()) / 1000);
 
     // Step 6: Insert trade using SERVICE_ROLE client
+    //
+    // SSOT AUTHORITY MODEL FOR TAKE PROFIT:
+    // - take_profit (NOT NULL) = PRIMARY SSOT - authoritative final exit price
+    // - take_profit_1 (NULLABLE) = ADVISORY - optional partial profit guidance from Alpha
+    // - take_profit_2 (NULLABLE) = TRACKING - typically mirrors take_profit for dual-TP scenarios
+    //
+    // VALID CONFIGURATIONS:
+    // 1. Single TP (most common): tp=set, tp1=NULL, tp2=set (tp2 mirrors tp)
+    // 2. Dual TP (when Alpha provides guidance): tp=set, tp1=set, tp2=set
+    // 3. Legacy (no dual TP): tp=set, tp1=NULL, tp2=NULL
     const tradeData = {
       goal_session_id: fullIntent.session_id,
       user_id: fullIntent.user_id,
@@ -717,14 +727,14 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
       position_type: fullIntent.direction,
       entry_price: entryPrice,
       stop_loss: adjustedStopLoss,
-      take_profit: adjustedTakeProfit,
+      take_profit: adjustedTakeProfit, // PRIMARY SSOT - always set
       tp1_price: marketContext?.tp1_price || null,
       tp1_confidence: marketContext?.tp1_confidence || null,
       tp1_reasoning: marketContext?.tp1_reasoning || null,
       tp2_price: marketContext?.tp2_price || adjustedTakeProfit,
       tp2_reasoning: marketContext?.tp2_reasoning || null,
-      take_profit_1: marketContext?.tp1_price || null,
-      take_profit_2: adjustedTakeProfit,
+      take_profit_1: marketContext?.tp1_price || null, // ADVISORY - NULL when no partial guidance
+      take_profit_2: adjustedTakeProfit, // TRACKING - mirrors take_profit as final exit
       lot_size: Number(lotSize.toFixed(2)),
       position_size: positionSize,
       risk_dollars: riskDollars,
@@ -748,14 +758,28 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
       order_type: 'market'
     };
 
-    console.log(`[Entry Monitor] 📝 Creating trade:`, JSON.stringify({
+    // PRE-VALIDATION: Check TP structure before insertion
+    const tpMode = tradeData.take_profit_1 ? 'DUAL_TP' : 'SINGLE_TP';
+    console.log(`[Entry Monitor] 📝 Creating trade (${tpMode}):`, JSON.stringify({
       symbol: tradeData.symbol,
       direction: tradeData.direction,
       entry: tradeData.entry_price,
       sl: tradeData.stop_loss,
       tp: tradeData.take_profit,
+      tp1: tradeData.take_profit_1,
+      tp2: tradeData.take_profit_2,
       lot: tradeData.lot_size
     }));
+
+    // Validate TP structure matches business rules
+    if (tradeData.take_profit_1 !== null && tradeData.take_profit_2 === null) {
+      console.error(`[Entry Monitor] ⚠️ INVALID TP STRUCTURE: tp1 set but tp2 is NULL - this will fail insertion`);
+      console.error(`[Entry Monitor] ⚠️ Fix: Either set both tp1 and tp2, or set tp1=NULL`);
+    }
+
+    if (tradeData.take_profit_1 !== null && tradeData.take_profit_2 !== null && tradeData.take_profit_1 === tradeData.take_profit_2) {
+      console.error(`[Entry Monitor] ⚠️ INVALID TP STRUCTURE: tp1 and tp2 are equal - no point in advisory if same as final`);
+    }
 
     // AUDIT: Log trade insertion attempt (CRITICAL STEP)
     if (auditId) {
@@ -766,7 +790,13 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
           symbol: tradeData.symbol,
           direction: tradeData.direction,
           lot_size: tradeData.lot_size,
-          position_size: tradeData.position_size
+          position_size: tradeData.position_size,
+          tp_mode: tpMode,
+          tp_structure: {
+            take_profit: tradeData.take_profit,
+            take_profit_1: tradeData.take_profit_1,
+            take_profit_2: tradeData.take_profit_2
+          }
         }
       });
     }
