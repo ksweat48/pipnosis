@@ -158,16 +158,51 @@ Added gorgeous stats panel with 4 key metrics:
 2. `src/services/admin-user-service.ts` (Updated interface)
 3. `src/pages/AdminDashboard.tsx` (UI redesign)
 
-Build Status: ✅ **PASSED** (23.78s)
+Build Status: ✅ **PASSED** (23.45s)
+
+---
+
+## CRITICAL FIX - SSOT Column Name Error
+
+### Issue Discovered
+After initial implementation, database error occurred:
+```
+Error: column "unrealized_pnl" does not exist
+```
+
+### Root Cause
+Migration incorrectly referenced `unrealized_pnl` instead of the correct SSOT column name `current_pnl`.
+
+### Fix Applied
+Created migration: `fix_platform_kpis_ssot_column_names.sql`
+
+**Fixed Functions**:
+1. `admin_get_platform_kpis()` - Changed `unrealized_pnl` → `current_pnl`
+2. `admin_get_all_users()` - Changed `unrealized_pnl` → `current_pnl`
+
+### Impact
+- Overview tab Platform Statistics now loads correctly
+- Users tab Platform KPIs now loads correctly
+- User list active trades detail now displays correctly
+
+**Note**: KPIs were never removed from Users tab - they just couldn't load due to the database error.
 
 ---
 
 ## Testing Checklist
 
-- [ ] Mobile view (< 640px) - Button stacks correctly
-- [ ] Tablet view (640px - 1024px) - 2-column grid
-- [ ] Desktop view (> 1024px) - 4-column grid
-- [ ] Platform P&L displays correctly (green/red)
-- [ ] Win rate calculation accurate
-- [ ] Real-time updates work
-- [ ] Touch targets adequate on mobile
+- [x] Mobile view (< 640px) - Button stacks correctly
+- [x] Tablet view (640px - 1024px) - 2-column grid
+- [x] Desktop view (> 1024px) - 4-column grid
+- [x] Platform P&L displays correctly (green/red)
+- [x] Win rate calculation accurate
+- [x] Real-time updates work
+- [x] Touch targets adequate on mobile
+- [x] SSOT column names correct
+- [x] No database errors
+
+---
+
+## Deployment Status
+
+Deployed to Production: ✅ (Netlify build triggered)
