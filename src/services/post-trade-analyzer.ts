@@ -434,25 +434,20 @@ class PostTradeAnalyzer {
       const riskReward = this.calculateRiskReward(tradeData);
       const durationMinutes = this.calculateTradeDuration(tradeData);
 
+      // SSOT: Only insert valid schema fields
       await supabase.from('ai_trade_analysis').insert({
         user_id: tradeData.userId,
         live_trade_id: tradeData.id,
         symbol: tradeData.symbol,
         direction: tradeData.direction,
-        entry_time: tradeData.entryTime.toISOString(),
-        exit_time: tradeData.exitTime.toISOString(),
-        entry_price: tradeData.entryPrice,
-        exit_price: tradeData.exitPrice,
-        stop_loss: tradeData.stopLoss,
-        take_profit: tradeData.takeProfit,
-        entry_confidence: journalEntry.conviction_level || 0,
         outcome: outcome,
         pnl: tradeData.pnl,
-        risk_reward_at_entry: riskReward,
+        entry_time: tradeData.entryTime.toISOString(),
+        exit_time: tradeData.exitTime.toISOString(),
         duration_minutes: durationMinutes,
-        close_reason: this.determineCloseReason(tradeData),
-        ai_reasoning: journalEntry.llm_reasoning,
-        entry_indicators_alignment: {
+        entry_confidence: journalEntry.conviction_level || 0,
+        reasoning: journalEntry.llm_reasoning,  // Schema field: reasoning (not ai_reasoning)
+        market_conditions: {  // Consolidate into schema field: market_conditions
           setup: journalEntry.pattern_identified || 'unknown',
           market_read: journalEntry.market_read
         },

@@ -627,7 +627,7 @@ class AILearningEngine {
       // Analyze the individual trade
       const analysis = await this.analyzeIndividualTrade(tradeForAnalysis, allTrades);
 
-      // Store detailed trade analysis with LIVE TRADING FLAG
+      // Store detailed trade analysis - SSOT: Only valid schema fields
       await supabase.from('ai_trade_analysis').insert({
         user_id: userId,
         live_trade_id: tradeId,
@@ -636,25 +636,15 @@ class AILearningEngine {
         outcome: tradeForAnalysis.outcome,
         pnl: tradeForAnalysis.pnl,
         entry_time: tradeForAnalysis.entryTime.toISOString(),
-        entry_confidence: tradeForAnalysis.confidence,
-        entry_market_conditions: tradeForAnalysis.marketConditions,
-        entry_indicators_alignment: this.extractIndicatorAlignment(tradeForAnalysis),
-        entry_quality_score: this.calculateEntryQualityScore(tradeForAnalysis, trade.entry_quality_score),
-        decision_reasoning: analysis.reasoning,
-        matching_historical_patterns: analysis.matchingPatterns,
-        ai_conviction_level: tradeForAnalysis.confidence,
-        risk_reward_at_entry: Math.abs((tradeForAnalysis.takeProfit - tradeForAnalysis.entryPrice) / (tradeForAnalysis.entryPrice - tradeForAnalysis.stopLoss)),
         exit_time: tradeForAnalysis.exitTime.toISOString(),
-        exit_reason: this.determineExitReason(tradeForAnalysis),
-        exit_market_conditions: {},
-        was_exit_optimal: tradeForAnalysis.outcome === 'win',
+        entry_confidence: tradeForAnalysis.confidence,
+        reasoning: analysis.reasoning,  // Schema field: reasoning (not decision_reasoning)
+        matching_historical_patterns: analysis.matchingPatterns,
         key_learnings: analysis.keyLearnings,
-        mistakes_identified: analysis.mistakes,
+        mistakes: analysis.mistakes,  // Schema field: mistakes (not mistakes_identified)
         what_worked: analysis.whatWorked,
         what_failed: analysis.whatFailed,
-        similar_trades_count: analysis.similarTradesCount,
-        similar_trades_win_rate: analysis.similarTradesWinRate,
-        is_pattern_repeating: analysis.isPatternRepeating,
+        market_conditions: tradeForAnalysis.marketConditions,  // Schema field: market_conditions (not entry_market_conditions)
         contributed_to_global_learning: true
       });
 

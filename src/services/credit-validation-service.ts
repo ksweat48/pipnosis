@@ -139,7 +139,7 @@ class CreditValidationService {
       const newBalance = await creditMeterService.getBalance(userId);
       logger.info(`[Credit Deduction] ✅ Successfully deducted ${this.SIGNAL_COST} credits. New balance: ${newBalance?.balance || 0}`);
 
-      await this.recordSuccessfulDeduction(sessionId, signalMetadata.intentId, this.SIGNAL_COST);
+      await this.recordSuccessfulDeduction(userId, sessionId, signalMetadata.intentId, this.SIGNAL_COST);
 
       return {
         success: true,
@@ -308,6 +308,7 @@ class CreditValidationService {
   }
 
   private async recordSuccessfulDeduction(
+    userId: string,
     sessionId: string,
     intentId: string,
     amount: number
@@ -316,6 +317,7 @@ class CreditValidationService {
       await supabase
         .from('credit_deduction_history')
         .insert({
+          user_id: userId,      // SSOT FIX: Required by schema and RLS policy
           session_id: sessionId,
           intent_id: intentId,
           amount,
