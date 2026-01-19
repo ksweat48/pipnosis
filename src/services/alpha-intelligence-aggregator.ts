@@ -123,7 +123,6 @@ export class AlphaIntelligenceAggregator {
       const { data: patterns } = await supabase
         .from('ai_global_patterns')
         .select('*')
-        .eq('user_id', userId)
         .order('win_rate', { ascending: false })
         .limit(20);
 
@@ -132,24 +131,24 @@ export class AlphaIntelligenceAggregator {
       }
 
       const topPerforming = patterns
-        .filter(p => p.win_rate >= 60 && p.sample_size >= 10)
+        .filter(p => p.win_rate >= 60 && p.total_occurrences >= 10)
         .slice(0, 10)
         .map(p => ({
           patternId: p.pattern_id,
           winRate: p.win_rate,
-          avgRMultiple: p.avg_r_multiple || 0,
-          sampleSize: p.sample_size,
+          avgRMultiple: p.avg_rr || 0,
+          sampleSize: p.total_occurrences,
           marketConditions: p.market_conditions || []
         }));
 
       const failing = patterns
-        .filter(p => p.win_rate < 40 && p.sample_size >= 10)
+        .filter(p => p.win_rate < 40 && p.total_occurrences >= 10)
         .slice(0, 5)
         .map(p => ({
           patternId: p.pattern_id,
           winRate: p.win_rate,
-          avgRMultiple: p.avg_r_multiple || 0,
-          sampleSize: p.sample_size,
+          avgRMultiple: p.avg_rr || 0,
+          sampleSize: p.total_occurrences,
           marketConditions: p.market_conditions || []
         }));
 
@@ -162,26 +161,30 @@ export class AlphaIntelligenceAggregator {
 
   private async getSymbolIntelligence(userId: string, symbol?: string) {
     try {
-      const { data: intelligence } = await supabase
+      let query = supabase
         .from('ai_global_symbol_intelligence')
         .select('*')
-        .eq('user_id', userId)
-        .gte('sample_size', 10);
+        .gte('total_trades_platform_wide', 10);
+
+      if (symbol) {
+        query = query.eq('symbol', symbol);
+      }
+
+      const { data: intelligence } = await query;
 
       if (!intelligence || intelligence.length === 0) {
         return {};
       }
 
       const result: any = {};
-      const symbolsToProcess = symbol ? intelligence.filter(i => i.symbol === symbol) : intelligence;
 
-      for (const intel of symbolsToProcess) {
+      for (const intel of intelligence) {
         result[intel.symbol] = {
-          recentWinRate: intel.win_rate || 0,
+          recentWinRate: intel.platform_win_rate || 0,
           avgSlippage: 0,
           bestTimeframes: intel.best_timeframes || [],
-          bestSessions: intel.best_sessions || [],
-          volatilityLevel: intel.volatility_level || 'medium'
+          bestSessions: intel.best_session_times || [],
+          volatilityLevel: intel.best_volatility_regime || 'medium'
         };
       }
 
