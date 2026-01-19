@@ -12,6 +12,7 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   const seriesRefs = useRef<{
     mastery: ISeriesApi<'Line'> | null;
@@ -29,15 +30,26 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
     avoidPattern: null
   });
 
-  // Handle resize
+  // Handle window resize for mobile detection
+  useEffect(() => {
+    const handleWindowResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+
+    window.addEventListener('resize', handleWindowResize);
+    return () => window.removeEventListener('resize', handleWindowResize);
+  }, []);
+
+  // Handle chart resize
   useEffect(() => {
     if (!chartRef.current || !chartContainerRef.current) return;
 
     const handleResize = () => {
       if (chartContainerRef.current && chartRef.current) {
         const newWidth = chartContainerRef.current.clientWidth;
+        const newHeight = isMobile ? 250 : 400;
         if (newWidth > 100) {
-          chartRef.current.applyOptions({ width: newWidth });
+          chartRef.current.applyOptions({ width: newWidth, height: newHeight });
         }
       }
     };
@@ -48,7 +60,7 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
     return () => {
       resizeObserver.disconnect();
     };
-  }, [chartRef.current]);
+  }, [chartRef.current, isMobile]);
 
   useEffect(() => {
     if (!chartContainerRef.current || loading || chartData.length === 0) return;
@@ -89,9 +101,14 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
 
       try {
         console.log('[Mastery Curve] Calling createChart with width:', containerWidth);
+
+        // Responsive height: shorter on mobile for horizontal/landscape look
+        const isMobile = containerWidth < 768;
+        const chartHeight = isMobile ? 250 : 400;
+
         const chart = createChart(chartContainerRef.current, {
           width: containerWidth,
-          height: 400,
+          height: chartHeight,
           layout: {
             background: { color: 'transparent' },
             textColor: '#9ca3af'
@@ -287,7 +304,7 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
             <h2 className="text-xl font-bold text-white">Pipnosis Mastery Curve (AI Evolution Score)</h2>
           </div>
         </div>
-        <div className="flex items-center justify-center h-96">
+        <div className={`flex items-center justify-center ${isMobile ? 'h-64' : 'h-96'}`}>
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-400"></div>
         </div>
       </div>
@@ -359,7 +376,7 @@ export function PipnosisMasteryCurve({ userId }: PipnosisMasteryCurveProps) {
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6">
         <div className="lg:col-span-3">
-          <div ref={chartContainerRef} className="w-full" style={{ minHeight: '400px' }} />
+          <div ref={chartContainerRef} className="w-full" style={{ minHeight: isMobile ? '250px' : '400px' }} />
 
           <div className="mt-4 flex flex-wrap gap-4 items-center justify-center text-sm">
             <div className="flex items-center gap-2">
