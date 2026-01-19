@@ -13,6 +13,8 @@ import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
 import { autoPushNotificationService } from '@/services/auto-push-notification-service';
 import { activeEntryMonitor } from '@/services/active-entry-monitor';
+import { LowCreditWarning } from '@/components/LowCreditWarning';
+import { BlockedSessionStatus } from '@/components/BlockedSessionStatus';
 
 export const SmartGoalModePage: React.FC = () => {
   const toast = useToast();
@@ -53,6 +55,11 @@ export const SmartGoalModePage: React.FC = () => {
           <p className="text-gray-400 text-lg">
             AI-driven trading goals that work around the clock to achieve your targets
           </p>
+        </div>
+
+        <div className="space-y-4 mb-6">
+          <LowCreditWarning />
+          <BlockedSessionStatus />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

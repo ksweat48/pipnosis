@@ -6,6 +6,7 @@ import { ServerSideAggregatorStatus } from './ServerSideAggregatorStatus';
 import { useUserBalance } from '@/hooks/useUserBalance';
 import { midTradeNotificationQueue } from '@/services/mid-trade-notification-queue';
 import NotificationHistoryPanel from './NotificationHistoryPanel';
+import { LowCreditWarning } from './LowCreditWarning';
 
 export function Header() {
   const { user, signOut } = useAuth();
@@ -125,7 +126,12 @@ export function Header() {
               </div>
             )}
           </div>
-          {user && <ServerSideAggregatorStatus />}
+          {user && (
+            <>
+              <ServerSideAggregatorStatus />
+              <LowCreditWarning showInHeader={true} />
+            </>
+          )}
         </div>
       </div>
 

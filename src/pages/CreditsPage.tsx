@@ -8,6 +8,7 @@ import { creditMeterService } from '@/services/credit-meter-service';
 import { supabase } from '@/lib/supabase';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { BottomNavigation } from '@/components/BottomNavigation';
+import { CreditUsageAnalytics } from '@/components/CreditUsageAnalytics';
 
 interface CreditPackage {
   id: string;
@@ -342,8 +343,11 @@ export function CreditsPage() {
         )}
 
         {activeTab === 'history' && (
-          <div className="relative group">
-            <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-xl opacity-10 group-hover:opacity-20 transition duration-300 blur" />
+          <div className="space-y-6">
+            <CreditUsageAnalytics />
+
+            <div className="relative group">
+              <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-xl opacity-10 group-hover:opacity-20 transition duration-300 blur" />
 
             <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl rounded-xl border border-gray-700/50 overflow-hidden shadow-2xl">
               <div className="p-6 border-b border-gray-700/50">
@@ -397,6 +401,7 @@ export function CreditsPage() {
                   </tbody>
                 </table>
               </div>
+            </div>
             </div>
           </div>
         )}
