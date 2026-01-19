@@ -252,14 +252,20 @@ export function getTimeframeLookbackHours(timeframe: string): number {
   return lookbackMap[timeframe] || 720; // Default to 30 days
 }
 
-const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'];
-
+/**
+ * SSOT COMPLIANCE: Delegate to symbol-registry.ts for 24/7 market detection
+ * Symbol registry is the authoritative source for marketSchedule configuration
+ */
 export function isCryptoSymbol(symbol: string): boolean {
-  return CRYPTO_SYMBOLS.includes(symbol.toUpperCase());
+  // Import dynamically to avoid circular dependencies
+  const { is24HourMarket } = require('@/config/symbol-registry');
+  return is24HourMarket(symbol);
 }
 
 export function is24HourSymbol(symbol: string): boolean {
-  return isCryptoSymbol(symbol);
+  // SSOT: Delegate to symbol registry - it owns market schedule configuration
+  const { is24HourMarket } = require('@/config/symbol-registry');
+  return is24HourMarket(symbol);
 }
 
 export interface SymbolMarketStatus {

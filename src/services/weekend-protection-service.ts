@@ -167,42 +167,65 @@ class WeekendProtectionService {
   }
 
   async canOpenNewTrade(symbol?: string): Promise<{ allowed: boolean; reason?: string; holidayName?: string }> {
+    // CRYPTO BYPASS: 24/7 markets always allowed (delegates to symbol registry SSOT)
     if (symbol && is24HourSymbol(symbol)) {
+      logger.debug(
+        LogCategory.POSITION_MONITOR,
+        `✅ ${symbol} bypass - 24/7 market (trades during holidays/weekends)`
+      );
       return { allowed: true };
     }
 
+    // FOREX/INDICES: Check market schedule (holidays, weekends, early close)
     const marketStatus = await marketScheduleService.getMarketStatus();
 
     if (marketStatus.status === 'holiday') {
       const holiday = await marketScheduleService.isHoliday();
+      logger.info(
+        LogCategory.POSITION_MONITOR,
+        `🚫 Forex/Index trading blocked - ${holiday?.name || 'Holiday'} (Crypto unaffected)`
+      );
       return {
         allowed: false,
-        reason: marketStatus.reason || `Market closed for ${holiday?.name || 'holiday'}`,
+        reason: marketStatus.reason || `Forex market closed for ${holiday?.name || 'holiday'}`,
         holidayName: holiday?.name
       };
     }
 
     if (marketStatus.status === 'early_close') {
+      const holiday = await marketScheduleService.isHoliday();
+      logger.info(
+        LogCategory.POSITION_MONITOR,
+        `🚫 Forex/Index early close - ${holiday?.name || 'Holiday'} (Crypto unaffected)`
+      );
       return {
         allowed: false,
-        reason: marketStatus.reason || 'Market closed early for holiday',
-        holidayName: (await marketScheduleService.isHoliday())?.name
+        reason: marketStatus.reason || 'Forex market closed early for holiday',
+        holidayName: holiday?.name
       };
     }
 
     const status = await this.getWeekendStatus();
 
     if (status.isWeekend) {
+      logger.debug(
+        LogCategory.POSITION_MONITOR,
+        `🚫 Forex/Index weekend closure (Crypto 24/7)`
+      );
       return {
         allowed: false,
-        reason: 'Market is closed for the weekend. Trading resumes Sunday 5:00 PM EST.'
+        reason: 'Forex market is closed for the weekend. Trading resumes Sunday 5:00 PM EST.'
       };
     }
 
     if (SCANNING_DISABLED || LLM_API_DISABLED) {
+      logger.debug(
+        LogCategory.POSITION_MONITOR,
+        `🚫 Forex systems paused for weekend (Crypto active)`
+      );
       return {
         allowed: false,
-        reason: 'All systems paused for weekend. Market reopens Sunday 5:00 PM EST.'
+        reason: 'Forex systems paused for weekend. Market reopens Sunday 5:00 PM EST.'
       };
     }
 
@@ -424,9 +447,10 @@ class WeekendProtectionService {
       const cryptoTrades = trades.filter(t => is24HourSymbol(t.symbol));
 
       if (cryptoTrades.length > 0) {
+        const symbols = cryptoTrades.map(t => t.symbol).join(', ');
         logger.info(
           LogCategory.POSITION_MONITOR,
-          `Skipping ${cryptoTrades.length} crypto trade(s) - 24/7 markets stay open`
+          `✅ Preserving ${cryptoTrades.length} crypto trade(s) - 24/7 markets unaffected by weekend: ${symbols}`
         );
       }
 
