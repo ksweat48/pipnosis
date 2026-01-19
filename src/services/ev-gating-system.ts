@@ -139,7 +139,7 @@ class EVGatingSystem {
       expectedValue: adjustedEV,
       expectedValueMoney: evInMoney,
       confidenceLevel,
-      minimumWinRateNeeded,
+      minimumWinRateNeeded: minWinRateNeeded,
       reasoning,
       recommendations
     };
