@@ -626,7 +626,7 @@ class AlphaCoordinatorBrain {
       try {
         const { data: recentTrades } = await supabase
           .from('goal_session_trades')
-          .select('symbol, direction, pnl_result, close_reason, created_at')
+          .select('symbol, direction, profit_loss, close_reason, created_at')
           .eq('user_id', userId)
           .order('created_at', { ascending: false })
           .limit(3);
@@ -634,9 +634,9 @@ class AlphaCoordinatorBrain {
         if (recentTrades && recentTrades.length > 0) {
           recentTradesContext = `\n📈 RECENT TRADES (Last 3):\n`;
           recentTrades.forEach((trade, idx) => {
-            const result = trade.pnl_result > 0 ? 'WIN' : trade.pnl_result < 0 ? 'LOSS' : 'BE';
+            const result = trade.profit_loss > 0 ? 'WIN' : trade.profit_loss < 0 ? 'LOSS' : 'BE';
             const emoji = result === 'WIN' ? '✅' : result === 'LOSS' ? '❌' : '⚪';
-            recentTradesContext += `${idx + 1}. ${emoji} ${trade.symbol} ${trade.direction} → ${result} ($${trade.pnl_result.toFixed(2)}) - ${trade.close_reason}\n`;
+            recentTradesContext += `${idx + 1}. ${emoji} ${trade.symbol} ${trade.direction} → ${result} ($${trade.profit_loss.toFixed(2)}) - ${trade.close_reason}\n`;
           });
         }
       } catch (error) {

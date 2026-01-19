@@ -127,12 +127,12 @@ class WaitPerformanceAnalytics {
           if (tradeIds.length > 0) {
             const { data: trades } = await supabase
               .from('goal_session_trades')
-              .select('pnl_result')
+              .select('profit_loss')
               .in('id', tradeIds)
-              .not('pnl_result', 'is', null);
+              .not('profit_loss', 'is', null);
 
             if (trades && trades.length > 0) {
-              const wins = trades.filter((t) => t.pnl_result > 0).length;
+              const wins = trades.filter((t) => t.profit_loss > 0).length;
               avgWinRate = (wins / trades.length) * 100;
             }
           }
@@ -174,15 +174,15 @@ class WaitPerformanceAnalytics {
 
       const { data: trades, error: tradesError } = await supabase
         .from('goal_session_trades')
-        .select('pnl_result')
+        .select('profit_loss')
         .in('id', tradeIds)
-        .not('pnl_result', 'is', null);
+        .not('profit_loss', 'is', null);
 
       if (tradesError || !trades || trades.length === 0) {
         return 0;
       }
 
-      const wins = trades.filter((t) => t.pnl_result > 0).length;
+      const wins = trades.filter((t) => t.profit_loss > 0).length;
       return (wins / trades.length) * 100;
     } catch (error) {
       logger.error(LogCategory.AI_TRADING, 'Error calculating wait trade win rate:', error);

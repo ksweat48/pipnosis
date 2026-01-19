@@ -133,12 +133,12 @@ class DrawdownProtectionBreaker {
         }
       }
 
-      // Fallback: Get from user profile
+      // Fallback: Get from user token balance
       const { data: profile, error } = await supabase
-        .from('user_profiles')
+        .from('user_token_balance')
         .select('balance')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
       if (!error && profile) {
         return profile.balance || 10000; // Default to $10,000
