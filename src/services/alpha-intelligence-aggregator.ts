@@ -387,17 +387,27 @@ export class AlphaIntelligenceAggregator {
 
   private async getCachedIntelligence(userId: string, cacheKey: string, cacheType: string): Promise<any | null> {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('alpha_intelligence_cache')
         .select('cached_data, expires_at')
         .eq('user_id', userId)
         .eq('cache_key', cacheKey)
         .eq('cache_type', cacheType)
         .gt('expires_at', new Date().toISOString())
-        .single();
+        .maybeSingle();
 
-      return data ? data.cached_data : null;
-    } catch {
+      if (error) {
+        logger.warn(`[AlphaCache] Cache read error for ${cacheKey}:`, error.message);
+        return null;
+      }
+
+      if (!data) {
+        return null;
+      }
+
+      return data.cached_data;
+    } catch (error) {
+      logger.warn(`[AlphaCache] Unexpected cache error for ${cacheKey}:`, error);
       return null;
     }
   }
@@ -407,7 +417,7 @@ export class AlphaIntelligenceAggregator {
       const expiresAt = new Date();
       expiresAt.setMinutes(expiresAt.getMinutes() + this.cacheExpiryMinutes);
 
-      await supabase
+      const { error } = await supabase
         .from('alpha_intelligence_cache')
         .upsert({
           user_id: userId,
@@ -418,8 +428,12 @@ export class AlphaIntelligenceAggregator {
         }, {
           onConflict: 'user_id,cache_key,cache_type'
         });
+
+      if (error) {
+        logger.warn(`[AlphaCache] Cache write failed for ${cacheKey}:`, error.message);
+      }
     } catch (error) {
-      logger.error('Error caching intelligence:', error);
+      logger.warn(`[AlphaCache] Cache write error for ${cacheKey} (system continues):`, error);
     }
   }
 
