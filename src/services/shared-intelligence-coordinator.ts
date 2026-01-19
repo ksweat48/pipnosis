@@ -180,8 +180,11 @@ class SharedIntelligenceCoordinator {
           fromCache: true
         };
 
-        // Verify integrity before serving
-        const integrityCheck = verifyCachedThesisIntegrity(result);
+        // Freeze thesis BEFORE integrity check (SSOT requirement)
+        const frozenThesis = freezeThesis(result);
+
+        // Verify integrity after freezing
+        const integrityCheck = verifyCachedThesisIntegrity(frozenThesis);
         if (!integrityCheck.valid) {
           logger.error('[SharedIntelligence] DB cache integrity failed', {
             symbol,
@@ -190,8 +193,6 @@ class SharedIntelligenceCoordinator {
           // Invalidate and continue to fresh generation
           await this.invalidateThesisByRegime(symbol, regimeHash);
         } else {
-          // Freeze thesis before storing
-          const frozenThesis = freezeThesis(result);
 
           // Store in local cache
           const ttl = getTTLForAlphaThesis();

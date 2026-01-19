@@ -43,7 +43,7 @@ class GoalNotificationSystem {
       sessionId: signal.sessionId,
       userId,
       type: 'signal',
-      priority: 'urgent',
+      priority: 'critical',
       title: `🎯 Trade Signal: ${signal.symbol}`,
       message: this.formatTradeSignalMessage(signal, progressContribution),
       data: { signal, progressContribution },
@@ -93,7 +93,7 @@ ${signal.reasoning}`;
     trade?: any
   ): Promise<void> {
     let message = '';
-    let priority: 'low' | 'medium' | 'high' | 'urgent' = 'medium';
+    let priority: 'low' | 'medium' | 'high' | 'critical' = 'medium';
 
     if (trade) {
       const profit = trade.profit_loss || 0;
@@ -101,7 +101,7 @@ ${signal.reasoning}`;
       message = `Trade closed: ${profitSign}$${profit.toFixed(2)} on ${trade.symbol}.\n\nGoal progress: $${currentProgress.toFixed(2)} / $${targetValue} (${progressPercentage.toFixed(1)}%).`;
 
       if (progressPercentage >= 100) {
-        priority = 'urgent';
+        priority = 'critical';
         message = `🎉 Goal achieved! Total profit: $${currentProgress.toFixed(2)}. You've reached your $${targetValue} target!`;
       } else if (progressPercentage >= 75) {
         priority = 'high';

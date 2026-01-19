@@ -280,7 +280,7 @@ class EntryMonitoringNotifications {
           type: 'entry_quality_ready',
           title,
           message,
-          priority: 'urgent',
+          priority: 'critical',
           metadata,
           viewed: false
         })

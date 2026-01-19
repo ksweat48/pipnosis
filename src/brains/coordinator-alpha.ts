@@ -2140,10 +2140,12 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
       if (decision.action !== 'NO_TRADE' && decision.confidence > 0) {
         try {
           const rawConfidence = decision.confidence;
+          // Derive market condition from regime (trending vs ranging)
+          const marketCondition = marketContext.regime === 'side' ? 'ranging' : 'trending';
           const calibratedConfidence = await alphaLearningFeedback.getCalibratedConfidence(
             userId,
             rawConfidence,
-            marketContext.condition,
+            marketCondition,
             marketContext.symbol
           );
 

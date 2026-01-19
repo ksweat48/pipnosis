@@ -702,7 +702,7 @@ class TradeExecutionEngine {
       goal_session_id: signal.sessionId,
       user_id: userId,
       type: 'signal',
-      priority: 'urgent',
+      priority: 'critical',
       title: `Trade Signal: ${signal.symbol}`,
       message: `${signal.setupType} detected. Confidence: ${signal.confidence}%. Entry: ${signal.entryPrice}, SL: ${signal.stopLoss}, TP: ${signal.takeProfit}`,
       metadata: { signal, tradeId: trade.id },
@@ -1042,7 +1042,7 @@ class TradeExecutionEngine {
       goal_session_id: signal.sessionId,
       user_id: userId,
       type: 'trade_entry',
-      priority: 'urgent',
+      priority: 'critical',
       title: `Trade Executed: ${signal.symbol}`,
       message: `${signal.direction.toUpperCase()} trade opened at ${actualEntryPrice.toFixed(5)}. SL: ${adjustedSL.toFixed(5)}, ${notificationTpMessage}. Expected R:R = ${signal.riskReward.toFixed(2)}:1`,
       metadata: {
@@ -1082,7 +1082,7 @@ class TradeExecutionEngine {
       takeProfit: adjustedTP,
       lotSize: signal.positionSize,
       confidence: signal.confidence,
-      priority: signal.confidence >= 85 ? 'urgent' : signal.confidence >= 75 ? 'high' : 'medium',
+      priority: signal.confidence >= 85 ? 'critical' : signal.confidence >= 75 ? 'high' : 'medium',
       setupType: signal.setupType,
       reasoning: signal.reasoning,
       expectedProfit: signal.expectedProfit,
@@ -1093,7 +1093,7 @@ class TradeExecutionEngine {
       tp1: trade.tp1_price || undefined,
       tp2: trade.tp2_price || undefined,
       tp1Confidence: trade.tp1_confidence || undefined
-    }, signal.confidence >= 85 ? 'urgent' : signal.confidence >= 75 ? 'high' : 'medium');
+    }, signal.confidence >= 85 ? 'critical' : signal.confidence >= 75 ? 'high' : 'medium');
 
     return {
       success: true,

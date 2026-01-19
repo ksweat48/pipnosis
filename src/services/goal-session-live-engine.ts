@@ -3722,7 +3722,7 @@ This learning will carry forward to improve future sessions!
         type: 'mid_trade_alert',
         title: evaluation.recommendation === 'EXIT_IMMEDIATELY' ? 'Emergency Exit Required' : 'Take Profit Early',
         message: actionMessage,
-        priority: 'urgent',
+        priority: 'critical',
         requires_user_alert: true,
         auto_execute_at: autoExecuteAt.toISOString(),
         executed: false,

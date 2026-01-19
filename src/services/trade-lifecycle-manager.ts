@@ -763,7 +763,7 @@ class TradeLifecycleManager {
             user_id: goalSession.user_id,
             goal_session_id: goalSession.id,
             type: 'alert',
-            priority: 'urgent',
+            priority: 'critical',
             title: '⚠️ Profit Fading!',
             message: `Your profit has dropped from $${goalSession.goal_achieved_pnl.toFixed(2)} to $${currentPnL.toFixed(2)}. Consider closing or protecting your position!`,
             metadata: {

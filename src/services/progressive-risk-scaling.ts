@@ -182,9 +182,10 @@ class ProgressiveRiskScaling {
     try {
       let query = supabase
         .from('goal_session_trades')
-        .select('status, pnl')
+        .select('status, close_reason, pnl')
         .eq('user_id', userId)
-        .in('status', ['win', 'loss'])
+        .eq('status', 'closed')
+        .not('pnl', 'is', null)
         .order('created_at', { ascending: false })
         .limit(limit);
 
@@ -199,7 +200,7 @@ class ProgressiveRiskScaling {
       }
 
       return trades.map(t => ({
-        result: t.status as 'win' | 'loss',
+        result: (t.pnl || 0) > 0 ? 'win' : 'loss',
         pnl: t.pnl || 0
       }));
     } catch (error) {

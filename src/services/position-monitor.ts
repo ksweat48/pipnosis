@@ -851,16 +851,16 @@ class PositionMonitorService {
 
       let triggerType: string | null = null;
       let alertMessage: string | null = null;
-      let priority: 'low' | 'medium' | 'high' | 'urgent' = 'medium';
+      let priority: 'low' | 'medium' | 'high' | 'critical' = 'medium';
 
       if (slProximity < 0.15) {
         triggerType = 'near_sl';
         alertMessage = `ALERT: ${position.symbol} is very close to stop loss! Currently ${(slProximity * 100).toFixed(1)}% away. Price: ${currentPrice.toFixed(5)}, SL: ${position.stop_loss.toFixed(5)}. The trade may close soon if price continues in this direction.`;
-        priority = 'urgent';
+        priority = 'critical';
       } else if (riskRatio <= -0.70) {
         triggerType = 'drawdown_0.70R';
         alertMessage = `CRITICAL: ${position.symbol} is down 70% of risk (-0.70R). Current P&L: $${currentPnl.toFixed(2)}. Price is at ${currentPrice.toFixed(5)}. This trade is approaching stop loss territory.`;
-        priority = 'urgent';
+        priority = 'critical';
       } else if (riskRatio <= -0.50) {
         triggerType = 'drawdown_0.50R';
         alertMessage = `WARNING: ${position.symbol} is down 50% of risk (-0.50R). Current P&L: $${currentPnl.toFixed(2)}. Price is at ${currentPrice.toFixed(5)}. Monitoring this position closely for potential reversal or stop loss hit.`;
@@ -918,7 +918,7 @@ class PositionMonitorService {
             message: alertMessage,
             tradeId: position.id,
             sessionId: position.goal_session_id,
-            priority: priority === 'urgent' ? 'critical' : priority as 'low' | 'medium' | 'high',
+            priority: priority,
             metadata: {
               trade_id: position.id,
               symbol: position.symbol,
