@@ -1,18 +1,29 @@
 /**
- * Secure OpenAI Client Service
+ * Secure OpenAI Client Service (Context-Aware)
  *
- * This service provides a secure interface to OpenAI API through Netlify serverless functions.
- * API keys are NEVER exposed to the frontend - all calls are proxied through the backend.
+ * SSOT for OpenAI API integration across browser and server contexts.
  *
- * Architecture:
- * Frontend → openai-client.ts → Netlify Function → OpenAI API
- *                                  (has API key)
+ * Architecture (DUAL-MODE):
+ *
+ * BROWSER MODE:
+ *   Frontend → openai-client.ts → Netlify Function → OpenAI API
+ *                                  (has API key, user auth required)
+ *
+ * SERVER MODE (Scheduled Functions):
+ *   Scheduled Function → openai-client.ts → OpenAI API (direct)
+ *                                           (service API key, no user auth)
+ *
+ * Context Detection:
+ * - Automatically detects runtime environment (typeof window === 'undefined')
+ * - Browser: Requires user authentication, proxies through Netlify function
+ * - Server: Uses service API key, calls OpenAI directly (autonomous trading)
  *
  * Security Benefits:
  * 1. API key stored securely on server (Netlify env vars)
  * 2. No key exposure in browser/network requests
  * 3. Rate limiting and abuse prevention possible
  * 4. Usage monitoring and cost control
+ * 5. Enables autonomous trading without user session
  */
 
 interface ChatMessage {
@@ -65,6 +76,15 @@ class OpenAIClient {
     return status === 500 || status === 502 || status === 503 || status === 504;
   }
 
+  /**
+   * Detect if running in server context (Node.js) vs browser
+   * Server: Scheduled functions, Netlify functions
+   * Browser: Frontend React app
+   */
+  private isServerContext(): boolean {
+    return typeof window === 'undefined' && typeof process !== 'undefined';
+  }
+
   private async getAuthToken(): Promise<string | null> {
     try {
       const { createClient } = await import('../lib/supabase');
@@ -77,6 +97,57 @@ class OpenAIClient {
     }
   }
 
+  /**
+   * Server-side direct OpenAI API call
+   * Used by scheduled functions (autonomous trading) that run without user context
+   */
+  private async chatServerSide(
+    messages: ChatMessage[],
+    options: ChatCompletionOptions = {}
+  ): Promise<ChatCompletionResponse> {
+    const apiKey = process.env.OPENAI_API_KEY || process.env.VITE_OPENAI_API_KEY;
+
+    if (!apiKey) {
+      throw new Error('[OpenAI Client] OPENAI_API_KEY not configured for server-side execution');
+    }
+
+    console.log('[OpenAI Client] Server-side direct call to OpenAI API', {
+      endpoint: options.endpoint || 'unknown',
+      requestType: options.requestType || 'unknown',
+      model: options.model || 'gpt-4o-mini'
+    });
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: options.model || 'gpt-4o-mini',
+        messages: messages,
+        temperature: options.temperature ?? 0.7,
+        max_tokens: options.max_tokens ?? 2000
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(`OpenAI API error: ${response.status} - ${errorData.error?.message || 'Unknown'}`);
+    }
+
+    const data: ChatCompletionResponse = await response.json();
+
+    console.log('[OpenAI Client] Server-side success:', {
+      model: data.model,
+      tokens: data.usage?.total_tokens || 0,
+      cost: this.estimateCost(data.model, data.usage?.total_tokens || 0),
+      finishReason: data.choices[0]?.finish_reason
+    });
+
+    return data;
+  }
+
   async chat(
     messages: ChatMessage[],
     options: ChatCompletionOptions = {}
@@ -87,6 +158,15 @@ class OpenAIClient {
       if (weekendProtectionService.isLLMDisabled()) {
         throw new Error('LLM APIs are disabled for weekend shutdown. Market reopens Sunday 5 PM EST.');
       }
+
+      // CONTEXT-AWARE ROUTING: Detect server vs browser
+      if (this.isServerContext()) {
+        console.log('[OpenAI Client] 🖥️  Server context detected - using direct API call');
+        return await this.chatServerSide(messages, options);
+      }
+
+      // BROWSER MODE: Require user authentication
+      console.log('[OpenAI Client] 🌐 Browser context detected - using proxy with user auth');
 
       const authToken = await this.getAuthToken();
       if (!authToken) {
