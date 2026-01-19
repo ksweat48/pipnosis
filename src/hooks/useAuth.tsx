@@ -33,16 +33,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAdminLoading(true);
       try {
         const { data, error } = await supabase
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', userId)
-          .maybeSingle();
+          .from('user_profiles')
+          .select('is_admin')
+          .eq('id', userId)
+          .single();
 
         if (!error && data) {
-          console.log('✅ [useAuth] User role:', data.role);
-          setIsAdmin(data.role === 'admin');
+          console.log('✅ [useAuth] User admin status:', data.is_admin);
+          setIsAdmin(data.is_admin === true);
         } else {
-          console.log('ℹ️ [useAuth] No admin role found, treating as regular user');
+          console.log('ℹ️ [useAuth] No user profile found or not admin, treating as regular user');
           setIsAdmin(false);
         }
       } catch (error) {

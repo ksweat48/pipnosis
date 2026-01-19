@@ -85,18 +85,17 @@ export async function isCurrentUserAdmin(): Promise<boolean> {
     if (!user) return false;
 
     const { data, error } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user.id)
-      .eq('role', 'admin')
-      .maybeSingle();
+      .from('user_profiles')
+      .select('is_admin')
+      .eq('id', user.id)
+      .single();
 
     if (error) {
       console.error('Error checking admin status:', error);
       return false;
     }
 
-    return data !== null;
+    return data?.is_admin === true;
   } catch (error) {
     console.error('Error in isCurrentUserAdmin:', error);
     return false;
@@ -110,17 +109,17 @@ export async function getCurrentUserRole(): Promise<'admin' | 'user' | null> {
     if (!user) return null;
 
     const { data, error } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user.id)
-      .maybeSingle();
+      .from('user_profiles')
+      .select('is_admin')
+      .eq('id', user.id)
+      .single();
 
     if (error) {
       console.error('Error getting user role:', error);
       return null;
     }
 
-    return (data?.role as 'admin' | 'user') || null;
+    return data?.is_admin === true ? 'admin' : 'user';
   } catch (error) {
     console.error('Error in getCurrentUserRole:', error);
     return null;
