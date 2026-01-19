@@ -140,7 +140,11 @@ export const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ userId, onCl
               <div>
                 <div className="text-sm text-gray-400">Credits</div>
                 <div className="text-xl font-bold font-mono text-amber-400">
-                  {details.balances.credit_balance.toFixed(2)}
+                  {details.user.is_admin ? (
+                    <span title="Admin accounts have unlimited credits">∞</span>
+                  ) : (
+                    details.balances.credit_balance.toFixed(2)
+                  )}
                 </div>
               </div>
               <div>

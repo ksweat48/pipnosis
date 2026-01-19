@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, DollarSign } from 'lucide-react';
+import { X, DollarSign, Info } from 'lucide-react';
 import { adminUserService } from '../../services/admin-user-service';
 import { useToast } from '../../hooks/useToast';
 
@@ -17,6 +17,7 @@ export const AddCreditsDialog: React.FC<AddCreditsDialogProps> = ({
   const [amount, setAmount] = useState<string>('');
   const [reason, setReason] = useState('');
   const [currentBalance, setCurrentBalance] = useState<number>(0);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [loading, setLoading] = useState(false);
   const [loadingBalance, setLoadingBalance] = useState(true);
   const { showToast } = useToast();
@@ -27,6 +28,7 @@ export const AddCreditsDialog: React.FC<AddCreditsDialogProps> = ({
         setLoadingBalance(true);
         const details = await adminUserService.getUserDetails(userId);
         setCurrentBalance(details.balances.credit_balance);
+        setIsAdmin(details.user.is_admin);
       } catch (error) {
         console.error('Failed to load user balance:', error);
       } finally {
@@ -101,9 +103,19 @@ export const AddCreditsDialog: React.FC<AddCreditsDialogProps> = ({
               <div className="bg-gray-900 rounded-lg p-4">
                 <div className="text-sm text-gray-400 mb-1">Current Balance</div>
                 <div className="text-2xl font-bold font-mono text-amber-400">
-                  {currentBalance.toFixed(2)} Credits
+                  {isAdmin ? '∞' : `${currentBalance.toFixed(2)} Credits`}
                 </div>
               </div>
+
+              {isAdmin && (
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 flex items-start gap-3">
+                  <Info size={20} className="text-blue-400 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm text-gray-300">
+                    <strong className="text-blue-400">Admin Account:</strong> This user already has unlimited credits.
+                    Adding credits will update the balance display but admins bypass all credit checks.
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">

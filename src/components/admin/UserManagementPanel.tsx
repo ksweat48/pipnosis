@@ -379,8 +379,14 @@ export const UserManagementPanel: React.FC = () => {
                         {formatBalance(user.account_balance)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-sm text-right font-mono text-amber-400">
-                      {user.credit_balance.toFixed(2)}
+                    <td className="px-4 py-3 text-sm text-right font-mono">
+                      {user.is_admin ? (
+                        <div className="flex items-center justify-end gap-1" title="Admin accounts have unlimited credits">
+                          <span className="text-amber-400 text-lg font-bold">∞</span>
+                        </div>
+                      ) : (
+                        <span className="text-amber-400">{user.credit_balance.toFixed(2)}</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-sm text-center">
                       {user.total_trades > 0 ? (
