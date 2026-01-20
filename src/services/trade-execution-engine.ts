@@ -12,6 +12,7 @@ import { priceCoordinator } from './coordinators/price-coordinator';
 import { validatePositionContract, isPCVLEnabled } from './pcvl-position-contract-validator';
 import { validateAtCheckpoint } from './ssot-preflight-guard';
 import { logExecutionViolation } from './ssot-violation-logger';
+import { omegaCouncilValidationGate } from './omega-council-validation-gate';
 import type { TradeContext } from '../types/trade-context';
 import { price as createPrice, lots as createLots } from '../types/trading-units';
 import { toDirectionDB } from '../utils/direction-converter';
@@ -279,6 +280,31 @@ class TradeExecutionEngine {
   ): Promise<TradeExecutionResult> {
     try {
       console.log(`[Trade Execution] Processing signal for ${signal.symbol}...`);
+
+      // 🛡️ OMEGA COUNCIL VALIDATION GATE: MANDATORY first check
+      // Ensures Omega8 (OrderFlow) and Omega9 (Hallucination) were consulted
+      // CRITICAL: This prevents catastrophic losses from bypassed validation
+      console.log('[Trade Execution] 🛡️ Validating Omega Council consultation...');
+
+      if (alphaDecision) {
+        const omegaValidation = await omegaCouncilValidationGate.validate(alphaDecision, userId);
+
+        if (!omegaValidation.passed) {
+          console.error(`[Trade Execution] 🚫 OMEGA COUNCIL VALIDATION FAILED: ${omegaValidation.reason}`);
+          console.error('[Trade Execution] Missing components:', omegaValidation.missingComponents);
+          console.error('[Trade Execution] Diagnostics:', JSON.stringify(omegaValidation.diagnostics, null, 2));
+
+          return {
+            success: false,
+            error: 'OMEGA_COUNCIL_BYPASS',
+            message: `BLOCKED: ${omegaValidation.reason}. This trade requires full Omega Council validation.`
+          };
+        }
+
+        console.log('[Trade Execution] ✅ Omega Council validation passed');
+      } else {
+        console.warn('[Trade Execution] ⚠️ No alphaDecision provided - skipping Omega validation (legacy mode)');
+      }
 
       // ✅ SSOT EXECUTION GUARDRAIL: Validate TradeContext at execution time
       console.log('[Trade Execution] 🔒 Validating SSOT TradeContext...');
@@ -658,6 +684,27 @@ class TradeExecutionEngine {
 
     // CRITICAL FIX: Create journal entry for pending trade
     try {
+      // 🛡️ Extract Omega Council data from alphaDecision (if provided)
+      const omega8Data = alphaDecision ? {
+        omega8_liquidity_bias: alphaDecision.omega8_liquidity_bias || null,
+        omega8_direction_support: alphaDecision.omega8_direction_support || null,
+        omega8_confidence: alphaDecision.omega_votes?.omega8?.confidence || null,
+        omega8_reasoning: alphaDecision.omega_votes?.omega8?.reasoning || null,
+        omega8_used_llm: alphaDecision.omega_votes?.omega8?.used_llm || false,
+        omega8_deterministic_bias: alphaDecision.omega_votes?.omega8?.deterministic_bias || null,
+        omega8_deterministic_confidence: alphaDecision.omega_votes?.omega8?.deterministic_confidence || null,
+        omega8_llm_reason: alphaDecision.omega_votes?.omega8?.llm_reason || null,
+        omega8_patterns: alphaDecision.omega_votes?.omega8?.patterns || null
+      } : {};
+
+      const omega9Data = alphaDecision && alphaDecision.omega9_validation ? {
+        omega9_pass: alphaDecision.omega9_validation.pass,
+        omega9_flags: alphaDecision.omega9_validation.flags || null,
+        omega9_confidence_adjustment: alphaDecision.omega9_validation.confidence_adjustment || null,
+        omega9_corrections: alphaDecision.omega9_validation.corrections || null,
+        omega9_reasoning: alphaDecision.omega9_validation.reasoning || null
+      } : {};
+
       const journalEntryId = await llmReasoningLogger.logTradeEntry({
         userId: userId,
         tradeId: trade.id,
@@ -673,7 +720,10 @@ class TradeExecutionEngine {
         expectedOutcome: `Expecting price to move to take profit at ${signal.takeProfit.toFixed(5)} (${signal.riskReward.toFixed(2)}:1 R:R) once trade is confirmed. Stop loss will be placed at ${signal.stopLoss.toFixed(5)}.`,
         patternIdentified: signal.setupType || 'AI Setup',
         convictionLevel: signal.confidence,
-        rankAtTime: 'Autonomous AI'
+        rankAtTime: 'Autonomous AI',
+        // 🛡️ OMEGA COUNCIL DATA: Now persisted to database
+        ...omega8Data,
+        ...omega9Data
       });
 
       if (journalEntryId) {

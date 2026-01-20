@@ -29,6 +29,23 @@ export interface JournalEntry {
   patternIdentified?: string;
   convictionLevel: number;
   rankAtTime: string;
+
+  // Omega Council votes (MANDATORY - cannot be null)
+  omega8_liquidity_bias?: string;
+  omega8_direction_support?: string;
+  omega8_confidence?: number;
+  omega8_reasoning?: string;
+  omega8_used_llm?: boolean;
+  omega8_deterministic_bias?: string;
+  omega8_deterministic_confidence?: number;
+  omega8_llm_reason?: string;
+  omega8_patterns?: any;
+
+  omega9_pass?: boolean;
+  omega9_flags?: any;
+  omega9_confidence_adjustment?: number;
+  omega9_corrections?: any;
+  omega9_reasoning?: string;
 }
 
 export interface PostTradeAnalysis {
@@ -68,6 +85,17 @@ class LLMReasoningLogger {
    */
   async logTradeEntry(entry: JournalEntry): Promise<string | null> {
     try {
+      // CRITICAL: Validate Omega Council data is present
+      if (!entry.omega8_liquidity_bias && !entry.omega8_direction_support) {
+        console.error('[LLM Reasoning Logger] ⚠️  WARNING: Omega8 data missing from journal entry!');
+        console.error('[LLM Reasoning Logger] This indicates Omega Council was not consulted properly.');
+      }
+
+      if (entry.omega9_pass === undefined && !entry.omega9_flags) {
+        console.error('[LLM Reasoning Logger] ⚠️  WARNING: Omega9 data missing from journal entry!');
+        console.error('[LLM Reasoning Logger] This indicates hallucination check was not performed.');
+      }
+
       const { data, error } = await supabase
         .from('ai_trade_journal')
         .insert({
@@ -87,7 +115,24 @@ class LLMReasoningLogger {
           conviction_level: entry.convictionLevel,
           rank_at_time: entry.rankAtTime,
           outcome: 'open',
-          journal_entry_type: 'trade'
+          journal_entry_type: 'trade',
+
+          // 🛡️  CRITICAL FIX: Persist Omega Council votes
+          omega8_liquidity_bias: entry.omega8_liquidity_bias || null,
+          omega8_direction_support: entry.omega8_direction_support || null,
+          omega8_confidence: entry.omega8_confidence || null,
+          omega8_reasoning: entry.omega8_reasoning || null,
+          omega8_used_llm: entry.omega8_used_llm || false,
+          omega8_deterministic_bias: entry.omega8_deterministic_bias || null,
+          omega8_deterministic_confidence: entry.omega8_deterministic_confidence || null,
+          omega8_llm_reason: entry.omega8_llm_reason || null,
+          omega8_patterns: entry.omega8_patterns || null,
+
+          omega9_pass: entry.omega9_pass !== undefined ? entry.omega9_pass : null,
+          omega9_flags: entry.omega9_flags || null,
+          omega9_confidence_adjustment: entry.omega9_confidence_adjustment || null,
+          omega9_corrections: entry.omega9_corrections || null,
+          omega9_reasoning: entry.omega9_reasoning || null
         })
         .select('id')
         .single();
@@ -97,7 +142,12 @@ class LLMReasoningLogger {
         return null;
       }
 
+      // Log success with Omega coverage stats
+      const omega8Present = !!entry.omega8_liquidity_bias;
+      const omega9Present = entry.omega9_pass !== undefined;
       console.log(`[LLM Reasoning Logger] ✅ Trade journal entry created: ${data.id}`);
+      console.log(`[LLM Reasoning Logger] 🛡️  Omega Coverage: Omega8=${omega8Present}, Omega9=${omega9Present}`);
+
       return data.id;
     } catch (error) {
       console.error('[LLM Reasoning Logger] Exception creating journal entry:', error);
