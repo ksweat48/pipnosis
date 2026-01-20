@@ -185,7 +185,6 @@ class SmartGoalSessionManager {
       execution_mode: 'server',
       scanning_started_at: session.startTime.toISOString(),
       scanning_duration_minutes: 15,
-      awaiting_continuation_confirmation: false,
       active_pairs_count: config.watchlist.length,
       asset_class_filter: config.assetClassFilter || null,
       specific_symbols: config.specificSymbols || null,

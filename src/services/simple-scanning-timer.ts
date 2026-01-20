@@ -202,9 +202,7 @@ class SimpleScanningTimerService {
       const { error } = await supabase
         .from('goal_sessions')
         .update({
-          scanning_started_at: new Date().toISOString(),
-          awaiting_continuation_confirmation: false,
-          continuation_confirmation_expires_at: null
+          scanning_started_at: new Date().toISOString()
         })
         .eq('id', sessionId);
 
@@ -228,9 +226,7 @@ class SimpleScanningTimerService {
       const { error } = await supabase
         .from('goal_sessions')
         .update({
-          scanning_started_at: new Date().toISOString(),
-          awaiting_continuation_confirmation: false,
-          continuation_confirmation_expires_at: null
+          scanning_started_at: new Date().toISOString()
         })
         .eq('id', sessionId);
 
