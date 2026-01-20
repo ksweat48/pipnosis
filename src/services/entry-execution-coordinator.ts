@@ -248,15 +248,72 @@ export class EntryExecutionCoordinator {
       const eqsScore = (intent as any).eqs_score || null;
       const eqsGrade = eqsScore ? this.calculateEQSGrade(eqsScore) : null;
 
-      // Calculate position size from risk parameters
-      const { calculateLotSizeFromDollarRisk } = await import('../utils/currencyHelpers');
-      const riskDollars = marketContext?.risk_dollars || 10; // Default $10 risk if not specified
-      const lotSize = calculateLotSizeFromDollarRisk(
-        intent.symbol,
-        riskDollars,
-        actualEntryPrice,
-        adjustedStopLoss
-      );
+      // ✅ PHASE 2 REFACTOR: Use ProfessionalRiskManager (SSOT for position sizing)
+      // Replaces direct calculateLotSizeFromDollarRisk() call
+      // Ensures Kelly Criterion, EV Gating, volatility adjustments, correlation checks, etc. are applied
+      logger.info('[Entry Execution] Using ProfessionalRiskManager for position sizing...');
+
+      const { professionalRiskManager } = await import('./professional-risk-manager');
+      const { calculatePipDistance } = await import('../utils/currencyHelpers');
+
+      // Get user's current balance
+      const { data: userProfile } = await supabase
+        .from('user_profiles')
+        .select('account_balance')
+        .eq('id', intent.user_id)
+        .single();
+
+      const currentBalance = parseFloat(userProfile?.account_balance || '10000');
+
+      // Get session risk mode
+      const { data: session } = await supabase
+        .from('goal_sessions')
+        .select('risk_mode')
+        .eq('id', intent.session_id)
+        .single();
+
+      const riskMode = session?.risk_mode || 'medium';
+
+      // Calculate pip distances for risk assessment
+      const stopPips = calculatePipDistance(intent.symbol, actualEntryPrice, adjustedStopLoss);
+      const takeProfitPips = adjustedTakeProfit
+        ? calculatePipDistance(intent.symbol, actualEntryPrice, adjustedTakeProfit)
+        : stopPips * 2; // Default 2:1 R:R
+
+      // Convert dollar risk to risk percentage (if specified)
+      const riskDollars = marketContext?.risk_dollars || 10; // Default $10 risk
+      const baseRiskPercent = (riskDollars / currentBalance);
+
+      const riskAssessment = await professionalRiskManager.evaluateTrade({
+        userId: intent.user_id,
+        symbol: intent.symbol,
+        direction: intent.direction,
+        currentBalance,
+        baseRiskPercent,
+        stopLossPips: stopPips,
+        takeProfitPips: takeProfitPips,
+        goalSessionId: intent.session_id,
+        riskMode: riskMode as 'low' | 'medium' | 'high'
+      });
+
+      if (!riskAssessment.approved) {
+        logger.warn(`[Entry Execution] ProfessionalRiskManager rejected trade: ${riskAssessment.criticalWarnings.join(', ')}`);
+        // Mark intent as rejected due to risk assessment
+        await supabase
+          .from('entry_intents')
+          .update({
+            status: 'rejected',
+            rejection_reason: `Risk assessment failed: ${riskAssessment.criticalWarnings[0]}`
+          })
+          .eq('id', intentId);
+        return { success: false };
+      }
+
+      const lotSize = riskAssessment.recommendedLotSize;
+      logger.info(`[Entry Execution] ProfessionalRiskManager approved: ${lotSize.toFixed(2)} lots`);
+      logger.info(`  Risk Score: ${riskAssessment.riskScore}/100, Confidence: ${riskAssessment.confidenceScore}/100`);
+      logger.info(`  Kelly Edge: ${riskAssessment.detailedBreakdown.kelly.edgeStrength}`);
+      logger.info(`  EV: ${riskAssessment.detailedBreakdown.evGate.expectedValue.toFixed(1)} pips/trade`);
 
       // CRITICAL: Convert direction from 'long'/'short' to 'BUY'/'SELL' for database using SSOT converter
       const tradeDirection = toDirectionDB(intent.direction);

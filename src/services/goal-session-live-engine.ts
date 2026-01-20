@@ -1182,59 +1182,89 @@ class GoalSessionLiveEngine {
         return;
       }
 
-      // ✅ POSITION SIZING: Use dollar-risk if available (Trade Styles), otherwise goal-aware sizing
-      let lotSize: number;
-      let expectedProfitAtCommonMove: number;
-      let reasoning: string;
-      let estimatedTradesNeeded: number;
+      // ✅ PHASE 2 REFACTOR: Use ProfessionalRiskManager (SSOT for position sizing)
+      // Replaces direct calculateLotSizeFromDollarRisk() and calculateGoalAwareLotSize() calls
+      // This ensures Kelly Criterion, EV Gating, volatility adjustments, correlation checks,
+      // market condition risk, and progressive risk scaling are ALL applied consistently
+      console.log(`%c[Phase 2] Using ProfessionalRiskManager for comprehensive risk evaluation...`, 'color: #00ff00; font-weight: bold');
 
+      const { professionalRiskManager } = await import('./professional-risk-manager');
+      const pipInfo = getCurrencyPipInfo(selectedSymbol);
+      const stopPips = calculatePipDistance(selectedSymbol, decision.entry, decision.stopLoss);
+      const takeProfitPips = calculatePipDistance(selectedSymbol, decision.entry, decision.takeProfit);
+
+      // Determine base risk percent (either from dollar risk or risk mode)
+      let baseRiskPercent: number;
       if (config.dollarRisk) {
-        // NEW SYSTEM: Fixed dollar-risk position sizing (Trade Styles)
-        console.log(`%c[Trade Styles] Using dollar-risk sizing: $${config.dollarRisk}`, 'color: #00ffff; font-weight: bold');
-        lotSize = calculateLotSizeFromDollarRisk(
-          selectedSymbol,
-          config.dollarRisk,
-          decision.entry,
-          decision.stopLoss
-        );
-
-        // Calculate expected profit at Alpha's TP
-        const alphaTPPips = calculatePipDistance(selectedSymbol, decision.entry, decision.takeProfit);
-        const dollarPerPip = calculateDollarPerPip(selectedSymbol, lotSize);
-        expectedProfitAtCommonMove = alphaTPPips * dollarPerPip;
-
-        // Estimate trades needed to reach goal
-        const remainingGoal = goalContext.targetGoal - goalContext.currentProgress;
-        estimatedTradesNeeded = Math.ceil(remainingGoal / expectedProfitAtCommonMove);
-
-        reasoning = `${config.tradeStyle || 'Dollar-risk'} trade: ${lotSize.toFixed(2)} lots risking $${config.dollarRisk.toFixed(2)}. Expected profit at TP: $${expectedProfitAtCommonMove.toFixed(2)}.`;
+        // Convert dollar risk to percentage of account
+        baseRiskPercent = (config.dollarRisk / config.initialBalance) * 100;
+        console.log(`[ProfessionalRiskManager] Dollar risk: $${config.dollarRisk} = ${baseRiskPercent.toFixed(2)}% of $${config.initialBalance}`);
       } else {
-        // LEGACY SYSTEM: Goal-aware percentage-based sizing
-        console.log(`%c[Legacy] Using goal-aware sizing: ${config.riskMode} risk`, 'color: #ffaa00; font-weight: bold');
-        const goalAwareSizing = calculateGoalAwareLotSize(
-          selectedSymbol,
-          decision.action.toLowerCase() as 'buy' | 'sell',
-          config.initialBalance,
-          decision.entry,
-          decision.stopLoss,
-          goalContext.currentProgress,
-          goalContext.targetGoal,
-          config.riskMode
-        );
-
-        lotSize = goalAwareSizing.lotSize;
-        expectedProfitAtCommonMove = goalAwareSizing.expectedProfitAtCommonMove;
-        reasoning = goalAwareSizing.reasoning;
-        estimatedTradesNeeded = goalAwareSizing.estimatedTradesNeeded;
+        baseRiskPercent = getRiskPercentage(config.riskMode);
+        console.log(`[ProfessionalRiskManager] Risk mode: ${config.riskMode} = ${baseRiskPercent}%`);
       }
 
-      const alphaTPPips = calculatePipDistance(selectedSymbol, decision.entry, decision.takeProfit);
+      const riskAssessment = await professionalRiskManager.evaluateTrade({
+        userId: this.userId!,
+        symbol: selectedSymbol,
+        direction: decision.action === 'BUY' ? 'long' : 'short',
+        currentBalance: config.initialBalance,
+        baseRiskPercent: baseRiskPercent / 100, // Convert to decimal (1% = 0.01)
+        stopLossPips: stopPips,
+        takeProfitPips: takeProfitPips,
+        currentATR: snapshot.atr.value,
+        goalSessionId: this.activeSession,
+        riskMode: config.riskMode
+      });
+
+      if (!riskAssessment.approved) {
+        console.warn(`[ProfessionalRiskManager] Trade REJECTED:`, riskAssessment.criticalWarnings);
+        await this.sendAIMessage(
+          `⚠️ Trade opportunity on ${selectedSymbol} rejected by risk management:\n\n` +
+          riskAssessment.criticalWarnings.join('\n') + '\n\n' +
+          `Recommendations:\n` + riskAssessment.recommendations.join('\n')
+        );
+        logger.info(LogCategory.AI_TRADING, `Trade rejected by ProfessionalRiskManager: ${selectedSymbol}`);
+        return;
+      }
+
+      // Extract approved position size from ProfessionalRiskManager
+      const lotSize = riskAssessment.recommendedLotSize;
+      const adjustedRiskPercent = riskAssessment.adjustedRiskPercent * 100; // Convert back to percentage
+
+      console.log(`%c[ProfessionalRiskManager] ✅ APPROVED`, 'color: #00ff00; font-weight: bold');
+      console.log(`  Lot Size: ${lotSize.toFixed(2)} lots`);
+      console.log(`  Adjusted Risk: ${adjustedRiskPercent.toFixed(2)}% (from ${baseRiskPercent.toFixed(2)}%)`);
+      console.log(`  Risk Score: ${riskAssessment.riskScore}/100`);
+      console.log(`  Confidence Score: ${riskAssessment.confidenceScore}/100`);
+      console.log(`  Kelly Edge: ${riskAssessment.detailedBreakdown.kelly.edgeStrength}`);
+      console.log(`  EV: ${riskAssessment.detailedBreakdown.evGate.expectedValue.toFixed(1)} pips/trade`);
+
+      // Calculate expected profit at Alpha's TP
+      const alphaTPPips = takeProfitPips;
+      const dollarPerPip = calculateDollarPerPip(selectedSymbol, lotSize);
+      const expectedProfitAtCommonMove = takeProfitPips * dollarPerPip;
+
+      // Estimate trades needed to reach goal (remainingGoal already declared above)
+      const estimatedTradesNeeded = Math.ceil(remainingGoal / expectedProfitAtCommonMove);
+
+      const reasoning = `ProfessionalRiskManager approved: ${lotSize.toFixed(2)} lots (${adjustedRiskPercent.toFixed(2)}% risk). ` +
+        `Kelly Edge: ${riskAssessment.detailedBreakdown.kelly.edgeStrength}. ` +
+        `EV: ${riskAssessment.detailedBreakdown.evGate.expectedValue.toFixed(1)} pips/trade. ` +
+        `Expected profit at TP: $${expectedProfitAtCommonMove.toFixed(2)}.`;
+
+      // Log if any warnings were issued (but not blocking)
+      if (riskAssessment.criticalWarnings.length > 0) {
+        console.warn(`[ProfessionalRiskManager] Warnings (non-blocking):`, riskAssessment.criticalWarnings);
+      }
+
+      // Calculate profit expectations (alphaTPPips already calculated above in takeProfitPips)
       const dollarPerPipAtLotSize = calculateDollarPerPip(selectedSymbol, lotSize);
-      const expectedProfitAtAlphaTP = alphaTPPips * dollarPerPipAtLotSize;
-      const progressPercent = (expectedProfitAtAlphaTP / goalContext.remainingGoal) * 100;
+      const expectedProfitAtAlphaTP = takeProfitPips * dollarPerPipAtLotSize;
+      const progressPercent = (expectedProfitAtAlphaTP / remainingGoal) * 100;
 
       if (import.meta.env.DEV) {
-        console.log(`[Trade] ${decision.symbol} ${lotSize.toFixed(3)} lots, TP: ${alphaTPPips.toFixed(1)}p ($${expectedProfitAtAlphaTP.toFixed(2)})`);
+        console.log(`[Trade] ${decision.symbol} ${lotSize.toFixed(3)} lots, TP: ${takeProfitPips.toFixed(1)}p ($${expectedProfitAtAlphaTP.toFixed(2)})`);
       }
 
       const hour = new Date().getUTCHours();
@@ -1249,7 +1279,7 @@ class GoalSessionLiveEngine {
       // ✅ CRITICAL FIX: Convert ATR from price units to pips
       // snapshot.atr is ATRValue type with .value property in price units (e.g., 0.04370 for USDJPY)
       // Must convert to pips before passing to timeToFillCalculator
-      const pipInfo = getCurrencyPipInfo(selectedSymbol);
+      // pipInfo already declared above in refactoring code
       const atrPips = (snapshot.atr.value || (10 * pipInfo.pipValue)) / pipInfo.pipValue;
       const spreadPips = (snapshot.spread || 0) / pipInfo.pipValue;
 
@@ -1422,7 +1452,7 @@ class GoalSessionLiveEngine {
         `\nTP Strategy: ${decision.reasoning.includes('liquidity') ? 'Liquidity-based placement' : 'Market structure-based placement'}`;
 
       // 🚨 CRITICAL PRE-EXECUTION SAFETY CHECK
-      const stopPips = calculatePipDistance(selectedSymbol, decision.entry, decision.stopLoss);
+      // stopPips already declared above in refactoring code
       const dollarPerPipCalc = calculateDollarPerPip(selectedSymbol, calculatedLotSize);
       const calculatedRisk = stopPips * dollarPerPipCalc;
       const maxSafeRisk = config.initialBalance * 0.05; // 5% absolute maximum
@@ -1493,8 +1523,9 @@ class GoalSessionLiveEngine {
       );
 
       const { riskReward, riskPips, rewardPips } = rrValidation;
-      const dollarPerPip = calculateDollarPerPip(selectedSymbol, trade.positionSize);
-      const expectedProfit = rewardPips * dollarPerPip;
+      // dollarPerPip already used above - calculate fresh for this position size
+      const dollarPerPipForProfit = calculateDollarPerPip(selectedSymbol, trade.positionSize);
+      const expectedProfit = rewardPips * dollarPerPipForProfit;
 
       // Log any validation warnings
       if (!rrValidation.validation.isValid) {

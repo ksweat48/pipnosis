@@ -399,8 +399,32 @@ function validatePriceMatchesSymbol(symbol: string, entryPrice: number): void {
 /**
  * Calculate lot size from fixed dollar risk (Trade Styles System)
  *
- * CRITICAL: This is the SSOT for dollar-risk-based position sizing.
- * Used by new Trade Styles system (Sniper, Scalper, Day Trader, Swing Trader).
+ * @deprecated **PHASE 2: Use ProfessionalRiskManager.evaluateTrade() instead**
+ *
+ * This function bypasses critical risk management layers:
+ * - ❌ Kelly Criterion optimization
+ * - ❌ EV Gating validation
+ * - ❌ Volatility adjustments
+ * - ❌ Correlation risk checks
+ * - ❌ Market condition risk modifiers
+ * - ❌ Progressive risk scaling
+ * - ❌ PCVL (Position Contract Validation Layer)
+ *
+ * **Migration Path:**
+ * ```typescript
+ * // OLD (deprecated):
+ * const lotSize = calculateLotSizeFromDollarRisk(symbol, dollarRisk, entry, sl);
+ *
+ * // NEW (correct):
+ * const riskAssessment = await professionalRiskManager.evaluateTrade({
+ *   userId, symbol, direction, currentBalance,
+ *   baseRiskPercent: dollarRisk / currentBalance,
+ *   stopLossPips, takeProfitPips, goalSessionId, riskMode
+ * });
+ * const lotSize = riskAssessment.recommendedLotSize;
+ * ```
+ *
+ * Keeping for backward compatibility only. Will be removed in Phase 3.
  *
  * Formula: Lot Size = Dollar Risk / (SL Distance in Pips × Dollar Per Pip Per Lot)
  *
@@ -536,7 +560,34 @@ export function calculateLotSizeFromDollarRisk(
 
 /**
  * Calculate position size based on risk amount and stop loss distance
- * THIS IS THE CORRECT FORMULA - USE THIS EVERYWHERE
+ *
+ * @deprecated **PHASE 2: Use ProfessionalRiskManager.evaluateTrade() instead**
+ *
+ * This function bypasses critical risk management layers:
+ * - ❌ Kelly Criterion optimization
+ * - ❌ EV Gating validation
+ * - ❌ Volatility adjustments
+ * - ❌ Correlation risk checks
+ * - ❌ Market condition risk modifiers
+ * - ❌ Progressive risk scaling
+ *
+ * **Exception:** OK to use with `isEstimation=true` for UI/feasibility calculations only (NOT actual trades)
+ *
+ * **Migration Path for Trade Execution:**
+ * ```typescript
+ * // OLD (deprecated for trades):
+ * const lotSize = calculatePositionSize(symbol, balance, riskPercent, entry, sl);
+ *
+ * // NEW (correct):
+ * const riskAssessment = await professionalRiskManager.evaluateTrade({
+ *   userId, symbol, direction, currentBalance,
+ *   baseRiskPercent: riskPercent / 100,
+ *   stopLossPips, takeProfitPips, goalSessionId, riskMode
+ * });
+ * const lotSize = riskAssessment.recommendedLotSize;
+ * ```
+ *
+ * Keeping for backward compatibility and estimations. Will be removed in Phase 3.
  *
  * Formula: Position Size = Risk Amount / (Stop Distance in Pips × Dollar Per Pip at 0.01 lot)
  *
@@ -801,6 +852,34 @@ export function calculateAutonomousPositionSize(
 
 /**
  * Calculate goal-aware position size (LOT SIZE ONLY - TP comes from Alpha)
+ *
+ * @deprecated **PHASE 2: Use ProfessionalRiskManager.evaluateTrade() instead**
+ *
+ * This function bypasses critical risk management layers:
+ * - ❌ Kelly Criterion optimization
+ * - ❌ EV Gating validation
+ * - ❌ Volatility adjustments
+ * - ❌ Correlation risk checks
+ * - ❌ Market condition risk modifiers
+ * - ❌ Progressive risk scaling
+ * - ❌ PCVL (Position Contract Validation Layer)
+ *
+ * **Migration Path:**
+ * ```typescript
+ * // OLD (deprecated):
+ * const sizing = calculateGoalAwareLotSize(symbol, direction, balance, entry, sl, progress, goal, riskMode);
+ * const lotSize = sizing.lotSize;
+ *
+ * // NEW (correct):
+ * const riskAssessment = await professionalRiskManager.evaluateTrade({
+ *   userId, symbol, direction, currentBalance: balance,
+ *   baseRiskPercent: getRiskPercentage(riskMode) / 100,
+ *   stopLossPips, takeProfitPips, goalSessionId, riskMode
+ * });
+ * const lotSize = riskAssessment.recommendedLotSize;
+ * ```
+ *
+ * Keeping for backward compatibility only. Will be removed in Phase 3.
  *
  * CRITICAL CHANGE: This function now ONLY calculates lot size.
  * TP placement is determined by Alpha based on market conditions (liquidity zones, structure, R:R)
