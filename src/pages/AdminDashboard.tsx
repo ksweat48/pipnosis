@@ -43,9 +43,10 @@ import { UserManagementPanel } from '@/components/admin/UserManagementPanel';
 import { UserFeedbackPanel } from '@/components/admin/UserFeedbackPanel';
 import { PushNotificationTester } from '@/components/admin/PushNotificationTester';
 import { WebSocketStatusPanel } from '@/components/admin/WebSocketStatusPanel';
+import { SSOTViolationDashboard } from '@/components/admin/SSOTViolationDashboard';
 import { userFeedbackService } from '@/services/user-feedback-service';
 
-type AdminTab = 'overview' | 'data' | 'cache' | 'api-usage' | 'users' | 'feedback' | 'push-notifications';
+type AdminTab = 'overview' | 'data' | 'cache' | 'api-usage' | 'users' | 'feedback' | 'push-notifications' | 'ssot-violations';
 
 interface AIMetrics {
   skillLevel: number;
@@ -363,6 +364,18 @@ export function AdminDashboard() {
             <Bell size={16} className="sm:w-[18px] sm:h-[18px]" />
             <span className="hidden sm:inline">Push Notifications</span>
             <span className="sm:hidden">Push</span>
+          </button>
+          <button
+            onClick={() => handleTabChange('ssot-violations')}
+            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
+              activeTab === 'ssot-violations'
+                ? 'bg-red-600 text-white'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            <AlertCircle size={16} className="sm:w-[18px] sm:h-[18px]" />
+            <span className="hidden sm:inline">SSOT Violations</span>
+            <span className="sm:hidden">SSOT</span>
           </button>
         </div>
 
@@ -724,6 +737,12 @@ export function AdminDashboard() {
         {activeTab === 'push-notifications' && (
           <div className="space-y-6">
             <PushNotificationTester />
+          </div>
+        )}
+
+        {activeTab === 'ssot-violations' && (
+          <div className="space-y-6">
+            <SSOTViolationDashboard />
           </div>
         )}
       </main>
