@@ -262,21 +262,20 @@ class CurrencyCorrelationService {
     timeframe: string,
     lookbackHours: number
   ): Promise<PriceData[]> {
-    const startTime = new Date();
-    startTime.setHours(startTime.getHours() - lookbackHours);
+    // ✅ PHASE 2: Use MarketDataService as SSOT
+    // Convert lookbackHours to approximate candle count based on timeframe
+    const timeframeMinutes = timeframe === 'H1' ? 60 : timeframe === 'M15' ? 15 : 60;
+    const estimatedCandleCount = Math.ceil((lookbackHours * 60) / timeframeMinutes);
 
-    const { data, error } = await supabase
-      .from('forex_candles')
-      .select('open_time, close')
-      .eq('symbol', symbol)
-      .eq('timeframe', timeframe)
-      .gte('open_time', startTime.toISOString())
-      .order('open_time', { ascending: true });
+    const marketDataService = MarketDataService.getInstance();
+    const candlesRaw = await marketDataService.getCandles(symbol, timeframe, estimatedCandleCount);
 
-    if (error || !data) {
+    if (!candlesRaw) {
       return [];
     }
 
+    // Convert to ascending order and map to PriceData format
+    const data = [...candlesRaw].reverse();
     return data.map(row => ({
       timestamp: new Date(row.open_time),
       close: parseFloat(row.close.toString())

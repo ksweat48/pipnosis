@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
+import { MarketDataService } from './market-data-service';
 
 export interface ScanTriggerResult {
   success: boolean;
@@ -176,22 +177,19 @@ class GoalScannerTrigger {
   async getMarketDataStatus(symbols: string[]): Promise<MarketDataStatus[]> {
     const results: MarketDataStatus[] = [];
 
+    // ✅ PHASE 2: Use MarketDataService as SSOT
+    const marketDataService = MarketDataService.getInstance();
+
     for (const symbol of symbols) {
       try {
-        const { data, error } = await supabase
-          .from('forex_candles')
-          .select('open_time')
-          .eq('symbol', symbol)
-          .eq('timeframe', normalizeTimeframeToDb('15m'))
-          .order('open_time', { ascending: false })
-          .limit(100);
+        const data = await marketDataService.getCandles(symbol, normalizeTimeframeToDb('15m'), 100);
 
-        if (error) {
+        if (!data) {
           results.push({
             symbol,
             available: false,
             candleCount: 0,
-            error: error.message,
+            error: 'Failed to fetch candles',
           });
           continue;
         }

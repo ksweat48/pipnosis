@@ -12,6 +12,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { MarketDataService } from './market-data-service';
 
 export interface SymbolScore {
   symbol: string;
@@ -67,18 +68,11 @@ class MultiSymbolRanker {
    */
   private async scoreSymbol(symbol: string): Promise<SymbolScore | null> {
     try {
-      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      // ✅ PHASE 2: Use MarketDataService as SSOT
+      const marketDataService = MarketDataService.getInstance();
+      const candles = await marketDataService.getCandles(symbol, 'M15', 100);
 
-      const { data: candles, error } = await supabase
-        .from('forex_candles')
-        .select('*')
-        .eq('symbol', symbol)
-        .eq('timeframe', 'M15')
-        .gte('open_time', twentyFourHoursAgo.toISOString())
-        .order('open_time', { ascending: false })
-        .limit(100);
-
-      if (error || !candles || candles.length < 20) {
+      if (!candles || candles.length < 20) {
         console.warn(`[Multi-Symbol Ranker] Insufficient data for ${symbol}`);
         return null;
       }

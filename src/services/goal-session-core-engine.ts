@@ -14,6 +14,7 @@ import { midTradeTriggerDetector, type MarketConditions } from './mid-trade-trig
 import { llmMidTradeEvaluator } from './llm-mid-trade-evaluator';
 import { logger, LogCategory } from '../lib/logger';
 import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
+import { MarketDataService } from './market-data-service';
 
 export interface GoalSessionProcessResult {
   success: boolean;
@@ -84,26 +85,23 @@ export async function processGoalSessionIteration(
     let triggersDetected = 0;
     let tradesExecuted = 0;
 
+    // ✅ PHASE 2: Use MarketDataService as SSOT
+    const marketDataService = MarketDataService.getInstance();
+
     // Process EACH symbol in the watchlist
     for (const symbol of watchlist) {
       // Fetch latest candles from database
       const dbTimeframe = normalizeTimeframeToDb(timeframe);
       logger.info(LogCategory.AI_TRADING, `[Core] 🔍 Scanning ${symbol} ${timeframe}...`);
 
-      const { data: candles, error } = await client
-        .from('forex_candles')
-        .select('*')
-        .eq('symbol', symbol)
-        .eq('timeframe', dbTimeframe)
-        .order('open_time', { ascending: false })
-        .limit(100);
+      const candles = await marketDataService.getCandles(symbol, dbTimeframe, 100);
 
-      if (error || !candles || candles.length < 50) {
+      if (!candles || candles.length < 50) {
         logger.warn(LogCategory.AI_TRADING, `[Core] ⚠️ Insufficient data for ${symbol} (found ${candles?.length || 0} candles, need 50+)`);
         continue;
       }
 
-      const sortedCandles = candles.reverse();
+      const sortedCandles = [...candles].reverse();
       const latestCandle = sortedCandles[sortedCandles.length - 1];
 
       // Check if this is a new candle (for tracking purposes)

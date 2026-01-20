@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { openAIClient } from './openai-client';
+import { MarketDataService } from './market-data-service';
 
 interface PairPerformanceData {
   symbol: string;
@@ -186,18 +187,11 @@ class LLMPairSelector {
 
   private async calculatePairVolatility(pairs: string[]): Promise<PairVolatility[]> {
     const results: PairVolatility[] = [];
-    const oneDayAgo = new Date();
-    oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+    // ✅ PHASE 2: Use MarketDataService as SSOT
+    const marketDataService = MarketDataService.getInstance();
 
     for (const symbol of pairs) {
-      const { data: candles } = await supabase
-        .from('forex_candles')
-        .select('high, low, close')
-        .eq('symbol', symbol)
-        .eq('timeframe', 'H1')
-        .gte('open_time', oneDayAgo.toISOString())
-        .order('open_time', { ascending: false })
-        .limit(24);
+      const candles = await marketDataService.getCandles(symbol, 'H1', 24);
 
       if (!candles || candles.length < 14) {
         results.push({
@@ -224,18 +218,12 @@ class LLMPairSelector {
 
   private async detectTrendRegimes(pairs: string[]): Promise<TrendRegime[]> {
     const results: TrendRegime[] = [];
-    const oneWeekAgo = new Date();
-    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    // ✅ PHASE 2: Use MarketDataService as SSOT
+    const marketDataService = MarketDataService.getInstance();
 
     for (const symbol of pairs) {
-      const { data: candles } = await supabase
-        .from('forex_candles')
-        .select('close')
-        .eq('symbol', symbol)
-        .eq('timeframe', 'H1')
-        .gte('open_time', oneWeekAgo.toISOString())
-        .order('open_time', { ascending: true })
-        .limit(168);
+      const candlesRaw = await marketDataService.getCandles(symbol, 'H1', 168);
+      const candles = candlesRaw ? [...candlesRaw].reverse() : null; // Convert to ascending order
 
       if (!candles || candles.length < 50) {
         results.push({
