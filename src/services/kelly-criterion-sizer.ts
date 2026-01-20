@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { TRADE_CONSTRAINTS } from '../config/trade-constraints';
+import { TRADING_CONSTANTS } from '../config/trading-constants';
 import { calculateDollarPerPip } from '../utils/currencyHelpers';
 
 export interface KellyInputs {
@@ -84,7 +85,8 @@ class KellyCriterionSizer {
 
     // If advisory triggered, use minimum lot size instead of zero
     if (advisory) {
-      const minRiskAmount = currentBalance * 0.005; // 0.5% minimum risk
+      // PHASE 2: Use SSOT constant for minimum risk (already imported at top)
+      const minRiskAmount = currentBalance * TRADING_CONSTANTS.RISK_PERCENTAGES.MIN_PER_TRADE; // 0.01 (1%)
       const dollarPerPipAt1Lot = calculateDollarPerPip(symbol, 1.0);
       const minLotSize = this.MIN_LOT_SIZE;
 

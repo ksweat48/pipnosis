@@ -479,10 +479,13 @@ export class GoalFeasibilityResolver {
         accountBalance
       });
     } else {
-      // LEGACY: Fallback to 2% risk
+      // PHASE 2: Use SSOT constant for fallback risk (already imported at top)
+      const defaultRiskPercent = TRADING_CONSTANTS.RISK_PERCENTAGES.DEFAULT_PER_TRADE; // 0.02 (2%)
+
+      // LEGACY: Fallback to default risk
       const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot;
-      actualLotSize = (accountBalance * 0.02) / (slPips * dollarPerPipPerLot);
-      riskPercentUsed = 2.0;
+      actualLotSize = (accountBalance * defaultRiskPercent) / (slPips * dollarPerPipPerLot);
+      riskPercentUsed = defaultRiskPercent * 100;
 
       logger.warn('[Feasibility] Using fallback 2% risk (dollarRisk not provided)', {
         accountBalance,

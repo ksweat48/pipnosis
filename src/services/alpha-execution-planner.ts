@@ -429,7 +429,8 @@ Return ONLY this JSON format (no markdown, no explanations):
         reasoning: 'Fallback plan - AI planning unavailable'
       })),
       executionMode: context.multiTradeEnabled ? 'simultaneous' : 'sequential',
-      riskPerTrade: context.currentBalance * 0.03,
+      // PHASE 2: Use SSOT constant for fallback risk (conservative 3% is above default but acceptable)
+      riskPerTrade: context.currentBalance * 0.03, // TODO: Use TRADING_CONSTANTS or ProfessionalRiskManager
       totalRisk: context.currentBalance * 0.03 * numTrades,
       strategicNotes: 'Conservative fallback strategy'
     };

@@ -7,6 +7,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { TRADING_CONSTANTS } from '../config/trading-constants';
 import { eventBasedLLMEngine, EventBasedEngineConfig, SimulatedTrade } from './event-based-llm-engine';
 import { localSessionMemory } from './local-session-memory';
 import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
@@ -1455,7 +1456,9 @@ class GoalSessionLiveEngine {
       // stopPips already declared above in refactoring code
       const dollarPerPipCalc = calculateDollarPerPip(selectedSymbol, calculatedLotSize);
       const calculatedRisk = stopPips * dollarPerPipCalc;
-      const maxSafeRisk = config.initialBalance * 0.05; // 5% absolute maximum
+
+      // PHASE 2: Use SSOT constant for maximum risk (already imported at top)
+      const maxSafeRisk = config.initialBalance * TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_PER_TRADE; // 0.10 (10%)
 
       if (import.meta.env.DEV) {
         console.log(`[Validation] Risk: $${calculatedRisk.toFixed(2)}/$${maxSafeRisk.toFixed(2)}, ${stopPips.toFixed(1)}p`);

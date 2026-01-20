@@ -13,6 +13,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { TRADING_CONSTANTS } from '../config/trading-constants';
 import { logger } from '../lib/logger';
 import { marketScheduleService } from './market-schedule-service';
 import { getSymbolConfig } from '../config/symbol-registry';
@@ -219,8 +220,11 @@ export class MandatorySafetyValidator {
         return { allowed: true };
       }
 
+      // PHASE 2: Use SSOT constant for daily loss limit (already imported at top)
+      const defaultMaxDailyLoss = user.balance * TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_DAILY_DRAWDOWN; // 0.08 (8%)
+
       // Check drawdown limit
-      const maxDailyLoss = session.max_daily_loss || user.balance * 0.05;
+      const maxDailyLoss = session.max_daily_loss || defaultMaxDailyLoss;
 
       // Get current positions to calculate exposure
       const { data: positions, error: posError } = await supabase

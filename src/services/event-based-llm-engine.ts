@@ -392,8 +392,9 @@ class EventBasedLLMEngine {
     const finalDecision = safetyCheck.adjustedDecision || decision;
 
     // STEP 5: Calculate proper position size and create trade
-    const riskModeMap = { low: 3, medium: 5, high: 10 };
-    const riskPercent = riskModeMap[config.riskMode] || 5;
+    // PHASE 2: Use SSOT for risk percentage instead of hardcoded map
+    const { getRiskPercentage } = await import('../config/risk-levels');
+    const riskPercent = getRiskPercentage(config.riskMode);
 
     const positionSize = calculatePositionSize(
       config.symbol,

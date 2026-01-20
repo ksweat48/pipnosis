@@ -804,9 +804,26 @@ class GoalScanner {
 
     // CRITICAL FIX: Use proper position sizing formula
     const balance = sessionConfig.starting_balance || 10000;
+
+    /**
+     * PHASE 2 TODO: This bypasses ProfessionalRiskManager's 7 layers of risk protection:
+     * - Kelly Criterion optimization
+     * - EV Gating validation
+     * - Volatility adjustments
+     * - Correlation risk checks
+     * - Market condition risk modifiers
+     * - Progressive risk scaling
+     * - PCVL validation
+     *
+     * Scanner should either:
+     * 1. Use ProfessionalRiskManager.evaluateTrade() for accurate position sizing, OR
+     * 2. Defer position sizing to execution layer (recommended)
+     *
+     * For now, using getRiskPercentage() for estimation only.
+     */
     const riskPercent = getRiskPercentage(sessionConfig.risk_mode);
 
-    // Calculate position size using CORRECT formula
+    // Calculate position size using CORRECT formula (estimation - actual sizing happens at execution)
     let positionSize = calculatePositionSize(
       scanResult.symbol,
       balance,
@@ -907,11 +924,10 @@ class GoalScanner {
     };
   }
 
-  calculateRiskAmount(sessionConfig: SessionConfig): number {
-    const balance = sessionConfig.starting_balance;
-    const riskPercent = getRiskPercentage(sessionConfig.risk_mode) / 100;
-    return balance * riskPercent;
-  }
+  /**
+   * PHASE 2: Removed calculateRiskAmount() - unused dead code that bypassed ProfessionalRiskManager
+   * Risk calculations should always go through ProfessionalRiskManager.evaluateTrade()
+   */
 }
 
 export const goalScanner = new GoalScanner();

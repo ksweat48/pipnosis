@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { TRADING_CONSTANTS } from '../config/trading-constants';
 import { goalIntelligenceClassifier, GoalClassification } from './goal-intelligence-classifier';
 
 /**
@@ -418,8 +419,8 @@ class HybridRiskManager {
         ? ((peakBalance - currentBalance) / peakBalance) * 100
         : 0;
 
-      // Calculate daily loss remaining (assuming max loss is 5% of account)
-      const maxDailyLoss = currentBalance * 0.05;
+      // PHASE 2: Use SSOT constant for daily loss limit (already imported at top)
+      const maxDailyLoss = currentBalance * TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_DAILY_DRAWDOWN; // 0.08 (8%)
       const dailyLossRemainingPct = ((maxDailyLoss + dailyPnl) / currentBalance) * 100;
 
       // Calculate daily goal progress

@@ -163,6 +163,8 @@ Respond with JSON only.`;
     winRate: number,
     rr: number
   ): number {
+    // PHASE 2: This is estimation-only logic, not actual risk calculation
+    // Actual risk management happens through ProfessionalRiskManager.evaluateTrade()
     const riskPerTrade = balance * (riskPercent / 100);
     const avgWinAmount = riskPerTrade * rr; // Win = risk * RR
     const avgLossAmount = riskPerTrade; // Loss = risk amount

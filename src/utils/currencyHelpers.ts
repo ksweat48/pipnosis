@@ -11,6 +11,7 @@ import { getRiskStrategyProfile } from '../config/risk-strategy-profiles';
 import { getSymbolConfig } from '../config/symbol-registry';
 import { getAssetClassRiskProfile } from '../config/asset-class-risk-profiles';
 import { validateStopLossDistance } from '../config/trade-parameter-constraints';
+import { TRADING_CONSTANTS } from '../config/trading-constants';
 
 export interface CurrencyPipInfo {
   pipValue: number;
@@ -661,8 +662,11 @@ export function calculatePositionSize(
     throw new Error(`ASSERTION FAILED: stopDistancePips must be > 0 (got ${stopDistancePips})`);
   }
 
-  if (riskPercentage <= 0 || riskPercentage > 15) {
-    throw new Error(`ASSERTION FAILED: riskPercentage must be 0-15% (got ${riskPercentage}%)`);
+  // PHASE 2: Use SSOT constant for maximum risk
+  const maxRiskPercent = TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_PER_TRADE * 100; // 10%
+
+  if (riskPercentage <= 0 || riskPercentage > maxRiskPercent) {
+    throw new Error(`ASSERTION FAILED: riskPercentage must be 0-${maxRiskPercent}% (got ${riskPercentage}%)`);
   }
 
   if (accountBalance <= 0) {
