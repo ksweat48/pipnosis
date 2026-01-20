@@ -495,13 +495,8 @@ class GoalSessionLiveEngine {
         return;
       }
 
-      // Check if modal timed out
-      const timedOut = await simpleScanningTimer.checkModalTimeout(this.activeSession);
-      if (timedOut) {
-        console.log('[Goal Live Engine] ⏰ Modal timeout - stopping session');
-        await this.stopSession();
-        return;
-      }
+      // SSOT: Database trigger (enforce_continuation_timeout_ssot) handles timeout enforcement
+      // Client just observes state changes via realtime subscriptions
 
       await this.processCandleAutonomous();
     } catch (error) {

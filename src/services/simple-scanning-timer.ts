@@ -9,8 +9,10 @@
  *
  * Same rules for all users (no admin bypass)
  *
- * CRITICAL: Includes client-side fallback to ensure sessions close
- * even if server-side autonomous monitor fails
+ * SSOT ARCHITECTURE:
+ * - Database trigger (enforce_continuation_timeout_ssot) is the SINGLE authority for timeout enforcement
+ * - Client observes status changes via realtime subscriptions
+ * - Client-side enforcement methods are DEPRECATED and should not be used
  */
 
 import { supabase } from '../lib/supabase';
@@ -126,10 +128,10 @@ class SimpleScanningTimerService {
   }
 
   /**
-   * Check if modal has timed out and auto-close if needed
+   * @deprecated This method is DEPRECATED and should not be used
    *
-   * SSOT: Timeout enforcement now handled by database trigger (enforce_continuation_timeout_ssot)
-   * This method checks the current status to see if timeout already occurred
+   * SSOT: Database trigger (enforce_continuation_timeout_ssot) is the single authority
+   * Client should observe status changes via realtime subscriptions, not enforce timeouts
    */
   async checkModalTimeout(sessionId: string): Promise<boolean> {
     try {
@@ -257,8 +259,10 @@ class SimpleScanningTimerService {
   }
 
   /**
-   * CLIENT-SIDE FALLBACK: Check and enforce timeout locally
-   * This runs as a backup if server-side autonomous monitor fails
+   * @deprecated This method is DEPRECATED and should not be used
+   *
+   * SSOT: Database trigger (enforce_continuation_timeout_ssot) is the single authority
+   * Client should observe status changes via realtime subscriptions, not enforce timeouts
    */
   async clientSideTimeoutCheck(sessionId: string): Promise<{
     shouldTriggerModal: boolean;
@@ -318,7 +322,9 @@ class SimpleScanningTimerService {
   }
 
   /**
-   * CLIENT-SIDE FALLBACK: Trigger continuation modal from client
+   * @deprecated This method is DEPRECATED and should not be used
+   *
+   * SSOT: Server-side autonomous monitor is the single authority for triggering modals
    */
   async clientTriggerModal(sessionId: string): Promise<boolean> {
     try {
@@ -345,8 +351,9 @@ class SimpleScanningTimerService {
   }
 
   /**
-   * CLIENT-SIDE FALLBACK: Force close a stale session
-   * Includes circuit breaker to prevent infinite retry loops
+   * @deprecated This method is DEPRECATED and should not be used
+   *
+   * SSOT: Database trigger (enforce_continuation_timeout_ssot) is the single authority
    */
   async forceCloseStaleSession(sessionId: string): Promise<boolean> {
     try {
@@ -390,8 +397,9 @@ class SimpleScanningTimerService {
   }
 
   /**
-   * Full client-side timeout enforcement - call this periodically
-   * Returns true if an action was taken (modal triggered or session closed)
+   * @deprecated This method is DEPRECATED and should not be used
+   *
+   * SSOT: Database trigger (enforce_continuation_timeout_ssot) is the single authority
    */
   async enforceTimeoutClientSide(sessionId: string): Promise<boolean> {
     const check = await this.clientSideTimeoutCheck(sessionId);

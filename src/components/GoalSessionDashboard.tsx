@@ -358,35 +358,8 @@ export const GoalSessionDashboard: React.FC = () => {
           console.error('[GoalSessionDashboard] Health check failed:', healthError);
         }
 
-        // CRITICAL: Client-side timeout enforcement as backup to server-side
-        // This ensures sessions close even if autonomous monitor fails
-        // CIRCUIT BREAKER: Only attempt force close once per session to prevent infinite loops
-        try {
-          const timeoutCheck = await simpleScanningTimer.clientSideTimeoutCheck(session.sessionId);
-
-          if (timeoutCheck.shouldForceClose && forceCloseAttempted !== session.sessionId) {
-            console.log('[GoalSessionDashboard] 🛑 CLIENT-SIDE: Forcing session close due to timeout');
-            setForceCloseAttempted(session.sessionId);
-            const closed = await simpleScanningTimer.forceCloseStaleSession(session.sessionId);
-            if (closed) {
-              setShowNoTradesModal(false);
-              setContinuationData(null);
-              setActiveSession(null);
-            } else {
-              console.error('[GoalSessionDashboard] Force close failed - circuit breaker engaged');
-            }
-            return;
-          }
-
-          if (timeoutCheck.shouldTriggerModal) {
-            console.log('[GoalSessionDashboard] 🔔 CLIENT-SIDE: Triggering 15-minute modal');
-            await simpleScanningTimer.clientTriggerModal(session.sessionId);
-          }
-        } catch (timeoutError) {
-          console.error('[GoalSessionDashboard] Client-side timeout check failed:', timeoutError);
-        }
-
-        // Check for no-trades-found continuation modal using SSOT system
+        // SSOT: Observe session status (database trigger enforces all timeouts)
+        // Client is purely observational - it reads status and displays UI accordingly
         try {
           const { data: sessionData } = await supabase
             .from('goal_sessions')
@@ -394,29 +367,8 @@ export const GoalSessionDashboard: React.FC = () => {
             .eq('id', session.sessionId)
             .single();
 
-          // SSOT: Check if continuation timeout exceeded (60 seconds)
-          // CIRCUIT BREAKER: Don't attempt if already tried for this session
-          if (sessionData?.status === 'awaiting_continuation' &&
-              sessionData?.awaiting_continuation_since &&
-              forceCloseAttempted !== session.sessionId) {
-            const sinceTime = new Date(sessionData.awaiting_continuation_since);
-            const now = new Date();
-            const elapsedSeconds = (now.getTime() - sinceTime.getTime()) / 1000;
-
-            if (elapsedSeconds > 60) {
-              console.log('[GoalSessionDashboard] ⏰ Continuation timeout detected (SSOT) - auto-closing session');
-              setForceCloseAttempted(session.sessionId);
-              const closed = await simpleScanningTimer.forceCloseStaleSession(session.sessionId);
-              if (closed) {
-                setShowNoTradesModal(false);
-                setContinuationData(null);
-                setActiveSession(null);
-              }
-              return;
-            }
-          }
-
-          // SSOT: Show modal if status is awaiting_continuation
+          // SSOT: Display modal if database status is 'awaiting_continuation'
+          // The trigger handles timeout enforcement - we just observe and display
           if (sessionData?.status === 'awaiting_continuation') {
             setShowNoTradesModal(true);
           } else {
