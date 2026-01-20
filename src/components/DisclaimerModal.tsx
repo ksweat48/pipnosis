@@ -12,8 +12,8 @@ export function DisclaimerModal({ isOpen, onClose }: DisclaimerModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
-      <div className="relative bg-gray-900 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl border border-amber-700">
-        <div className="sticky top-0 bg-gray-900 border-b border-amber-700 p-6 flex items-center justify-between">
+      <div className="relative bg-gray-900 rounded-lg max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-amber-700">
+        <div className="flex-shrink-0 bg-gray-900 border-b border-amber-700 p-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <AlertTriangle className="text-amber-500" size={28} />
             <h2 className="text-2xl font-bold text-white">Risk Disclaimer</h2>
@@ -27,7 +27,7 @@ export function DisclaimerModal({ isOpen, onClose }: DisclaimerModalProps) {
           </button>
         </div>
 
-        <div className="overflow-y-auto max-h-[calc(90vh-120px)] p-6 text-gray-300 space-y-6">
+        <div className="flex-1 overflow-y-auto p-6 text-gray-300 space-y-6">
           <p className="text-sm text-gray-400">Last Updated: January 20, 2026</p>
 
           <div className="bg-amber-500/10 border border-amber-500 rounded-lg p-4">
@@ -96,7 +96,7 @@ export function DisclaimerModal({ isOpen, onClose }: DisclaimerModalProps) {
           </div>
         </div>
 
-        <div className="sticky bottom-0 bg-gray-900 border-t border-amber-700 p-6">
+        <div className="flex-shrink-0 bg-gray-900 border-t border-amber-700 p-6">
           <button
             onClick={onClose}
             className="w-full bg-amber-600 text-white py-3 rounded hover:bg-amber-700 transition-colors font-semibold"
