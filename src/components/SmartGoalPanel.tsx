@@ -315,8 +315,15 @@ export const SmartGoalPanel: React.FC = () => {
                       : 'bg-gray-700/30 border-gray-600/50 hover:border-emerald-500/30 hover:bg-gray-700/50'
                   }`}
                 >
-                  <div className="text-xs text-gray-400 mb-1 truncate">Conservative</div>
-                  <div className="text-base sm:text-lg font-bold text-white truncate">${suggestedAmounts.low}</div>
+                  <div className="text-xs text-gray-400 mb-1">Conservative</div>
+                  <div className="flex flex-col items-end justify-center leading-tight">
+                    <div className="text-lg font-bold text-white">
+                      ${Math.floor(suggestedAmounts.low)}
+                    </div>
+                    <div className="text-[10px] text-gray-300 -mt-0.5">
+                      .{(suggestedAmounts.low % 1).toFixed(2).substring(2)}
+                    </div>
+                  </div>
                   <div className="text-xs text-gray-400 mt-1">
                     {((suggestedAmounts.low / accountBalance) * 100).toFixed(1)}%
                   </div>
@@ -330,8 +337,15 @@ export const SmartGoalPanel: React.FC = () => {
                       : 'bg-gray-700/30 border-gray-600/50 hover:border-emerald-500/30 hover:bg-gray-700/50'
                   }`}
                 >
-                  <div className="text-xs text-gray-400 mb-1 truncate">Balanced</div>
-                  <div className="text-base sm:text-lg font-bold text-white truncate">${suggestedAmounts.medium}</div>
+                  <div className="text-xs text-gray-400 mb-1">Balanced</div>
+                  <div className="flex flex-col items-end justify-center leading-tight">
+                    <div className="text-lg font-bold text-white">
+                      ${Math.floor(suggestedAmounts.medium)}
+                    </div>
+                    <div className="text-[10px] text-gray-300 -mt-0.5">
+                      .{(suggestedAmounts.medium % 1).toFixed(2).substring(2)}
+                    </div>
+                  </div>
                   <div className="text-xs text-gray-400 mt-1">
                     {((suggestedAmounts.medium / accountBalance) * 100).toFixed(1)}%
                   </div>
@@ -345,8 +359,15 @@ export const SmartGoalPanel: React.FC = () => {
                       : 'bg-gray-700/30 border-gray-600/50 hover:border-emerald-500/30 hover:bg-gray-700/50'
                   }`}
                 >
-                  <div className="text-xs text-gray-400 mb-1 truncate">Aggressive</div>
-                  <div className="text-base sm:text-lg font-bold text-white truncate">${suggestedAmounts.high}</div>
+                  <div className="text-xs text-gray-400 mb-1">Aggressive</div>
+                  <div className="flex flex-col items-end justify-center leading-tight">
+                    <div className="text-lg font-bold text-white">
+                      ${Math.floor(suggestedAmounts.high)}
+                    </div>
+                    <div className="text-[10px] text-gray-300 -mt-0.5">
+                      .{(suggestedAmounts.high % 1).toFixed(2).substring(2)}
+                    </div>
+                  </div>
                   <div className="text-xs text-gray-400 mt-1">
                     {((suggestedAmounts.high / accountBalance) * 100).toFixed(1)}%
                   </div>

@@ -63,13 +63,11 @@ class TickBufferService {
 
     this.saveBuffer(bufferKey, buffer);
 
-    // FALLBACK DATABASE WRITE
-    // Primary: Netlify continuous-price-collector (SSOT)
-    // Fallback: Browser writes when primary unavailable (graceful degradation)
-    // This prevents "over-blocking" by ensuring fresh price data is always available
-    if (this.isOnline) {
-      await this.writeToDatabaseFallback(tick);
-    }
+    // SSOT COMPLIANCE: Database writes handled exclusively by server-side functions
+    // - hybrid-price-collector.ts (Netlify function with service_role)
+    // - save-websocket-price.ts (Netlify function with service_role)
+    // Browser maintains in-memory buffer for UI display only
+    // This prevents RLS violations and maintains Single Source of Truth
   }
 
   private getBuffer(key: string): TickData[] {
@@ -96,67 +94,19 @@ class TickBufferService {
     }
   }
 
-  private async writeToDatabaseFallback(tick: TickData): Promise<void> {
-    try {
-      const mid = (tick.bid + tick.ask) / 2;
-      const spread = tick.ask - tick.bid;
-
-      const { error } = await supabase
-        .from('realtime_prices')
-        .insert({
-          symbol: tick.symbol,
-          bid: tick.bid,
-          ask: tick.ask,
-          mid,
-          spread,
-          broker_time: tick.broker_time || tick.timestamp,
-          source: 'browser_fallback',
-          created_at: tick.timestamp
-        });
-
-      if (error) {
-        logger.warn(
-          LogCategory.TICK_BUFFER,
-          `⚠️ Fallback DB write failed for ${tick.symbol}: ${error.message}`
-        );
-      } else {
-        logger.trace(
-          LogCategory.TICK_BUFFER,
-          `✅ Fallback DB write success for ${tick.symbol} (bid: ${tick.bid}, ask: ${tick.ask})`
-        );
-      }
-    } catch (error) {
-      logger.error(
-        LogCategory.TICK_BUFFER,
-        `❌ Fallback DB write exception for ${tick.symbol}:`,
-        error
-      );
-    }
-  }
+  // REMOVED: writeToDatabaseFallback()
+  // Reason: SSOT violation - database writes must go through server-side functions only
+  // Server-side authorities: hybrid-price-collector.ts, save-websocket-price.ts
+  // Browser role: In-memory buffering for UI display only
 
   private async syncBuffer(bufferKey: string, symbol: string): Promise<void> {
-    // Background sync: Retry failed writes and clean up old data
-    // Primary writer: Netlify continuous-price-collector (SSOT)
-    // This is fallback/retry layer for degraded mode operation
+    // Background cleanup: Remove old ticks from memory
+    // SSOT: Database writes handled by server-side functions only
+    // This service maintains in-memory buffer for UI display
 
     const buffer = this.getBuffer(bufferKey);
-    const unsyncedTicks = buffer.filter(t => !t.synced && t.retry_count < MAX_RETRY_ATTEMPTS);
 
-    // Retry unsynced ticks if any exist
-    if (unsyncedTicks.length > 0) {
-      logger.debug(
-        LogCategory.TICK_BUFFER,
-        `🔄 Retrying ${unsyncedTicks.length} unsynced ticks for ${symbol}`
-      );
-
-      for (const tick of unsyncedTicks) {
-        await this.writeToDatabaseFallback(tick);
-        tick.synced = true;
-        tick.retry_count++;
-      }
-    }
-
-    // Mark all remaining ticks as synced for cleanup
+    // Mark all ticks as synced (server handles persistence)
     const cleanedBuffer = buffer.map(tick => ({
       ...tick,
       synced: true
@@ -168,7 +118,7 @@ class TickBufferService {
 
     logger.trace(
       LogCategory.TICK_BUFFER,
-      `🧹 Buffer sync complete for ${symbol}: ${unsyncedTicks.length} retried, ${recentBuffer.length} kept`
+      `🧹 Buffer cleanup complete for ${symbol}: ${recentBuffer.length} kept in memory`
     );
   }
 
