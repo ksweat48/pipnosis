@@ -1897,14 +1897,15 @@ class GoalSessionLiveEngine {
       // 🔍 DEFENSIVE: Log trade array contents for desync detection
 
       // CHECK: Is session awaiting user continuation?
+      // SSOT: Status field is the single source of truth for session state
       const { data: sessionCheck } = await supabase
         .from('goal_sessions')
-        .select('awaiting_user_continuation')
+        .select('status')
         .eq('id', this.activeSession)
         .single();
 
-
-      if (sessionCheck?.awaiting_user_continuation) {
+      // SSOT: Check status instead of dropped awaiting_user_continuation column
+      if (sessionCheck?.status === 'awaiting_continuation') {
         logger.debug(LogCategory.AI_TRADING, '⏸️ Awaiting user continuation - not scanning for new trades');
         console.log('%c[AUTONOMOUS ENGINE] ⏸️ BLOCKED: Awaiting user continuation', 'color: #f59e0b; font-weight: bold');
         // Still monitor open positions (no symbol param needed - fetches all trade symbols)
@@ -2545,10 +2546,10 @@ class GoalSessionLiveEngine {
       const continuationPrompt = await this.generateContinuationPrompt(trade, session);
 
       // Update session to awaiting continuation state
+      // SSOT: status field will be set to 'awaiting_continuation' by the calling code
       await supabase
         .from('goal_sessions')
         .update({
-          awaiting_user_continuation: true,
           continuation_prompt: continuationPrompt,
           last_trade_id: tradeId,
           trades_in_session: (session.trades_in_session || 0) + 1
@@ -2629,11 +2630,12 @@ Your decision keeps you in control of your risk and prevents runaway trading.
       switch (response) {
         case 'continue':
           // Resume scanning for next trade
+          // SSOT: Clear continuation state and resume scanning
           await supabase
             .from('goal_sessions')
             .update({
-              awaiting_user_continuation: false,
-              continuation_prompt: null
+              continuation_prompt: null,
+              status: 'scanning'
             })
             .eq('id', this.activeSession);
 
@@ -2976,19 +2978,18 @@ Your decision keeps you in control of your risk and prevents runaway trading.
         `🎯 Remaining: $${remainingAmount.toFixed(2)} to goal\n\n` +
         `Would you like to continue scanning for another trade?`;
 
-      // Set awaiting_user_continuation flag and pause session
-      // CRITICAL: Set status to 'paused' so scanning doesn't resume automatically
+      // Pause session and await user decision
+      // SSOT: status='awaiting_continuation' blocks scanning until user responds
       const { error: updateError } = await supabase
         .from('goal_sessions')
         .update({
-          awaiting_user_continuation: true,
           continuation_prompt: continuationPrompt,
-          status: 'paused' // Block scanning until user responds
+          status: 'awaiting_continuation' // SSOT: Blocks scanning until user responds
         })
         .eq('id', this.activeSession);
 
       if (updateError) {
-        logger.error(LogCategory.AI_TRADING, 'Failed to set awaiting_user_continuation', { updateError });
+        logger.error(LogCategory.AI_TRADING, 'Failed to set awaiting_continuation status', { updateError });
       } else {
         logger.info(LogCategory.AI_TRADING, '🛑 Single-trade mode: Trade closed, awaiting user decision');
       }

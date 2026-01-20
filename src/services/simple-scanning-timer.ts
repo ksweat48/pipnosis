@@ -127,23 +127,38 @@ class SimpleScanningTimerService {
 
   /**
    * Check if modal has timed out and auto-close if needed
+   *
+   * SSOT: Timeout enforcement now handled by database trigger (enforce_continuation_timeout_ssot)
+   * This method checks the current status to see if timeout already occurred
    */
   async checkModalTimeout(sessionId: string): Promise<boolean> {
     try {
-      const { data, error } = await supabase.rpc('check_continuation_modal_timeout', {
-        p_session_id: sessionId
-      });
+      // SSOT: Check if session was auto-closed by trigger (status changed from awaiting_continuation)
+      const { data: session, error } = await supabase
+        .from('goal_sessions')
+        .select('status, awaiting_continuation_since')
+        .eq('id', sessionId)
+        .maybeSingle();
 
       if (error) {
         console.error('[Scanning Timer] Error checking timeout:', error);
         return false;
       }
 
-      if (data) {
-        console.log('[Scanning Timer] ⏰ Modal timed out - session auto-closed');
+      if (!session) {
+        console.error('[Scanning Timer] Session not found:', sessionId);
+        return false;
       }
 
-      return data || false;
+      // If status is no longer awaiting_continuation, timeout occurred
+      const timedOut = session.status !== 'awaiting_continuation' &&
+                      session.awaiting_continuation_since === null;
+
+      if (timedOut) {
+        console.log('[Scanning Timer] ⏰ Modal timed out - session auto-closed by trigger');
+      }
+
+      return timedOut;
     } catch (error) {
       console.error('[Scanning Timer] Exception checking timeout:', error);
       return false;

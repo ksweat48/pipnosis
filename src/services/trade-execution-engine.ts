@@ -1,7 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { goalSessionManager } from './goal-session-manager';
 import { positionService } from './position-service';
-import { getCurrencyPipInfo, roundLotSize, roundPnL, calculatePipDistance } from '../utils/currencyHelpers';
+import { getCurrencyPipInfo, roundLotSize, roundPnL, calculatePipDistance, convertLotToPositionSize } from '../utils/currencyHelpers';
 import { strategyPlaybookManager } from './strategy-playbook-manager';
 import { getRegimeBucket } from './regime-bucketing';
 import { prodLogger } from '../lib/production-logger';
@@ -917,6 +917,12 @@ class TradeExecutionEngine {
     console.log(`[Trade Execution] Direction converted: ${signal.direction} → ${tradeDirection}`);
 
     // Insert trade with all required fields populated (using adjusted SL/TP)
+    // 🛡️ SSOT: Convert lot size to position_size for database storage
+    // CRITICAL: signal.positionSize is in LOTS (0.01, 0.1, 1.0, etc.)
+    // Database position_size column expects scaled integer (lots × 100)
+    // Delegate to SSOT helper to handle asset-class differences
+    const positionSizeForDb = convertLotToPositionSize(signal.symbol, signal.positionSize);
+
     const tradeData = {
       goal_session_id: signal.sessionId,
       user_id: userId,
@@ -925,8 +931,8 @@ class TradeExecutionEngine {
       entry_price: actualEntryPrice,
       stop_loss: adjustedSL,
       take_profit: adjustedTP,
-      position_size: signal.positionSize,
-      lot_size: signal.positionSize,
+      position_size: positionSizeForDb,  // 🛡️ SSOT: Use converted value for database
+      lot_size: signal.positionSize,     // ✅ Lot size in standard format (0.01, 0.1, etc.)
       status: 'open',
       order_type: 'market' as const,
       current_price: actualEntryPrice,

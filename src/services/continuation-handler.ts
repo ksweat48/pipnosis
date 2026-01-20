@@ -38,10 +38,10 @@ class ContinuationHandler {
       const prompt = await this.generateContinuationPrompt(context);
 
       // Pause the session
+      // SSOT: status='awaiting_continuation' is the single source of truth
       await supabase
         .from('goal_sessions')
         .update({
-          awaiting_user_continuation: true,
           continuation_prompt: prompt,
           status: 'awaiting_continuation',
           trades_completed: context.sessionProgress.tradesCompleted,
@@ -144,10 +144,10 @@ Keep it brief and motivating.
       }
 
       // Resume the session
+      // SSOT: status='scanning' indicates resumption
       await supabase
         .from('goal_sessions')
         .update({
-          awaiting_user_continuation: false,
           continuation_prompt: null,
           status: 'scanning',
           updated_at: new Date().toISOString()
@@ -211,12 +211,12 @@ Keep it brief and motivating.
       logger.info(LogCategory.AI_TRADING, `[Continuation] 📊 Current session status: ${session.status}`);
 
       // Update session to stopped with verification
+      // SSOT: status='user_stopped' indicates session ended by user
       const { data: updated, error: updateError } = await supabase
         .from('goal_sessions')
         .update({
           status: 'user_stopped',
           completed_at: new Date().toISOString(),
-          awaiting_user_continuation: false,
           continuation_prompt: null,
           updated_at: new Date().toISOString()
         })
