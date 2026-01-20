@@ -26,6 +26,7 @@ import { strategyPlaybookManager } from '../strategy-playbook-manager';
 export type CloseReason =
   | 'stop_loss'
   | 'take_profit'
+  | 'take_profit_2'
   | 'manual'
   | 'goal_achieved'
   | 'goal_met'
