@@ -10,6 +10,7 @@ import { openaiProxyClient } from './openai-proxy-client';
 import { logger, LogCategory } from '../lib/logger';
 import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
 import { goalIntelligenceClassifier, GoalClassification } from './goal-intelligence-classifier';
+import { MarketDataService } from './market-data-service';
 
 export interface TradePlan {
   totalTradesNeeded: number;
@@ -342,14 +343,9 @@ Return ONLY this JSON format (no markdown, no explanations):
     const snapshots = await Promise.all(
       symbols.map(async (symbol) => {
         try {
-          const dbTimeframe = normalizeTimeframeToDb('15m');
-          const { data: candles } = await supabase
-            .from('forex_candles')
-            .select('*')
-            .eq('symbol', symbol)
-            .eq('timeframe', dbTimeframe)
-            .order('open_time', { ascending: false })
-            .limit(50);
+          // ✅ PHASE 2: Use MarketDataService as SSOT
+          const marketDataService = MarketDataService.getInstance();
+          const candles = await marketDataService.getCandles(symbol, '15m', 50);
 
           if (!candles || candles.length === 0) {
             return { symbol, available: false };

@@ -11,6 +11,7 @@ import { goalAchievementCoordinator } from './coordinators/goal-achievement-coor
 import { notificationCoordinator } from './coordinators/notification-coordinator';
 import { goalSessionStateMachine } from './coordinators/goal-session-state-machine';
 import { TIME_MS } from '@/config/time-constants';
+import { MarketDataService } from './market-data-service';
 
 logger.setCategoryLevel(LogCategory.POSITION_MONITOR, LogLevel.ERROR);
 

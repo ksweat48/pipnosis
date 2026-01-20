@@ -26,6 +26,7 @@ import {
   isRiskHardBlock
 } from '../config/trading-policy';
 import { getCurrencyPipInfo } from '../utils/currencyHelpers';
+import { MarketDataService } from './market-data-service';
 
 export type EntryViability =
   | 'IMMEDIATE'      // Price in zone, execute now
@@ -478,23 +479,19 @@ class EntryAdvisor {
 
   /**
    * Get current market price
+   * ✅ PHASE 2: Use MarketDataService as SSOT
    */
   private async getCurrentPrice(symbol: string): Promise<number> {
     try {
-      const { data, error } = await supabase
-        .from('realtime_prices')
-        .select('bid, ask')
-        .eq('symbol', symbol)
-        .order('timestamp', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const marketDataService = MarketDataService.getInstance();
+      const priceData = await marketDataService.getCurrentPrice(symbol);
 
-      if (error || !data) {
-        logger.warn('[ENTRY_ADVISOR] Failed to get current price', { symbol, error });
+      if (!priceData) {
+        logger.warn('[ENTRY_ADVISOR] Failed to get current price', { symbol });
         return 0;
       }
 
-      return (data.bid + data.ask) / 2;
+      return priceData.price; // Already mid price from MarketDataService
     } catch (error) {
       logger.error('[ENTRY_ADVISOR] Exception getting current price', { symbol, error });
       return 0;
@@ -503,23 +500,19 @@ class EntryAdvisor {
 
   /**
    * Get current spread
+   * ✅ PHASE 2: Use MarketDataService as SSOT
    */
   private async getCurrentSpread(symbol: string): Promise<number> {
     try {
-      const { data, error } = await supabase
-        .from('realtime_prices')
-        .select('bid, ask')
-        .eq('symbol', symbol)
-        .order('timestamp', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const marketDataService = MarketDataService.getInstance();
+      const priceData = await marketDataService.getCurrentPrice(symbol);
 
-      if (error || !data) {
+      if (!priceData) {
         return 2.0; // Default fallback
       }
 
       const pipInfo = getCurrencyPipInfo(symbol);
-      return Math.abs(data.ask - data.bid) / pipInfo.pipValue;
+      return Math.abs(priceData.ask - priceData.bid) / pipInfo.pipValue;
     } catch (error) {
       return 2.0; // Default fallback
     }

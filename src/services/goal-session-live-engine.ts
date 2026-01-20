@@ -46,6 +46,7 @@ import type { TradeStyle } from './entry-monitor-quality-scorer';
 import { getActiveEntryIntent, type EntryIntentData } from './entry-intent-monitor-mode';
 import { entryThesisMemoryService } from './entry-thesis-memory-service';
 import { alphaThoughtStream } from './alpha-thought-stream';
+import { MarketDataService } from './market-data-service';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
@@ -2098,15 +2099,11 @@ class GoalSessionLiveEngine {
         return;
       }
 
-      const { data: candles, error } = await supabase
-        .from('forex_candles')
-        .select('*')
-        .eq('symbol', symbol)
-        .eq('timeframe', dbTimeframe)
-        .order('open_time', { ascending: false })
-        .limit(300);
+      // ✅ PHASE 2: Use MarketDataService as SSOT
+      const marketDataService = MarketDataService.getInstance();
+      const candles = await marketDataService.getCandles(symbol, dbTimeframe, 300);
 
-      if (error || !candles || candles.length < 50) {
+      if (!candles || candles.length < 50) {
         console.warn('[Goal Live Engine] Insufficient candle data');
         return;
       }
@@ -3037,13 +3034,13 @@ Your decision keeps you in control of your risk and prevents runaway trading.
       return;
     }
 
-    const { data: candles } = await supabase
-      .from('forex_candles')
-      .select('*')
-      .eq('symbol', this.config.symbol)
-      .eq('timeframe', this.config.timeframe.toLowerCase())
-      .order('open_time', { ascending: false })
-      .limit(1);
+    // ✅ PHASE 2: Use MarketDataService as SSOT
+    const marketDataService = MarketDataService.getInstance();
+    const candles = await marketDataService.getCandles(
+      this.config.symbol,
+      this.config.timeframe.toLowerCase(),
+      1
+    );
 
     if (!candles || candles.length === 0) {
       return;
@@ -4143,14 +4140,11 @@ Keep response under 100 words, educational tone.`;
    */
   private async calculateHistoricalATR(symbol: string): Promise<{ typicalATR: number; dailyATR: number }> {
     try {
-      const { data: candles, error } = await supabase
-        .from('forex_candles')
-        .select('high, low, close, open')
-        .eq('symbol', symbol)
-        .order('open_time', { ascending: false })
-        .limit(20);
+      // ✅ PHASE 2: Use MarketDataService as SSOT
+      const marketDataService = MarketDataService.getInstance();
+      const candles = await marketDataService.getCandles(symbol, '15m', 20);
 
-      if (error || !candles || candles.length < 10) {
+      if (!candles || candles.length < 10) {
         console.warn(`[Historical ATR] Insufficient data for ${symbol}, using fallback`);
         const pipInfo = getCurrencyPipInfo(symbol);
         const fallbackATR = pipInfo.pipValue * 10;
@@ -4386,17 +4380,14 @@ Keep response under 100 words, educational tone.`;
 
     const dbTimeframe = normalizeTimeframeToDb(this.config.timeframe);
 
+    // ✅ PHASE 2: Use MarketDataService as SSOT
+    const marketDataService = MarketDataService.getInstance();
+
     // Fetch latest candle for each symbol with open positions
     for (const symbol of tradeSymbols) {
-      const { data: candles, error } = await supabase
-        .from('forex_candles')
-        .select('*')
-        .eq('symbol', symbol)
-        .eq('timeframe', dbTimeframe)
-        .order('open_time', { ascending: false })
-        .limit(10);
+      const candles = await marketDataService.getCandles(symbol, dbTimeframe, 10);
 
-      if (error || !candles || candles.length === 0) {
+      if (!candles || candles.length === 0) {
         console.warn(`[MONITORING MODE] ⚠️ No candles for ${symbol} - skipping`);
         continue;
       }

@@ -11,6 +11,7 @@ import {
   priceCoordinator,
   tradeClosureCoordinator,
 } from './coordinators';
+import { MarketDataService } from './market-data-service';
 
 export interface PriceUpdate {
   symbol: string;
@@ -316,31 +317,24 @@ class TradeLifecycleManager {
     }
   }
 
+  /**
+   * ✅ PHASE 2: Use MarketDataService as SSOT
+   */
   async getCurrentPrice(symbol: string): Promise<PriceUpdate | null> {
     try {
-      const { data, error } = await supabase
-        .from('realtime_prices')
-        .select('symbol, bid, ask, created_at')
-        .eq('symbol', symbol)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const marketDataService = MarketDataService.getInstance();
+      const priceData = await marketDataService.getCurrentPrice(symbol);
 
-      if (error || !data) {
-        const { data: candleData } = await supabase
-          .from('forex_candles')
-          .select('symbol, close, open_time')
-          .eq('symbol', symbol)
-          .order('open_time', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (candleData) {
+      if (!priceData) {
+        // Fallback: Try getting latest candle close price
+        const candles = await marketDataService.getCandles(symbol, '15m', 1);
+        if (candles && candles.length > 0) {
+          const candle = candles[0];
           return {
-            symbol: candleData.symbol,
-            bid: parseFloat(candleData.close),
-            ask: parseFloat(candleData.close),
-            created_at: new Date(candleData.open_time)
+            symbol,
+            bid: candle.close,
+            ask: candle.close,
+            created_at: new Date(candle.open_time)
           };
         }
 
@@ -348,10 +342,10 @@ class TradeLifecycleManager {
       }
 
       return {
-        symbol: data.symbol,
-        bid: parseFloat(data.bid),
-        ask: parseFloat(data.ask),
-        created_at: new Date(data.created_at)
+        symbol,
+        bid: priceData.bid,
+        ask: priceData.ask,
+        created_at: priceData.timestamp
       };
     } catch (error) {
       console.error(`[Trade Lifecycle] Error getting price for ${symbol}:`, error);
