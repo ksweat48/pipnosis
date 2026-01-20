@@ -88,9 +88,8 @@ class BestSymbolSelector {
 
     const best = evaluations[0];
 
-    // Show execution vs monitoring breakdown with detailed reasoning
+    // Show execution analysis
     const executableCount = evaluations.filter(e => e.omegaDecision.action === 'BUY' || e.omegaDecision.action === 'SELL').length;
-    const waitCount = evaluations.filter(e => e.omegaDecision.action === 'WAIT').length;
     const confidenceRange = evaluations.length > 0
       ? `${Math.min(...evaluations.map(e => e.omegaDecision.confidence))}%-${Math.max(...evaluations.map(e => e.omegaDecision.confidence))}%`
       : 'N/A';
@@ -99,12 +98,10 @@ class BestSymbolSelector {
     console.log(`[Best Symbol Selector] 📊 PAIR SELECTION ANALYSIS`);
     console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
     console.log(`Total pairs evaluated: ${evaluations.length}`);
-    console.log(`  • Executable (BUY/SELL): ${executableCount} pairs (+200 execution priority)`);
-    console.log(`  • Monitoring (WAIT): ${waitCount} pairs (+0 fallback priority)`);
+    console.log(`  • Executable (BUY/SELL): ${executableCount} pairs`);
     console.log(`  • Confidence range: ${confidenceRange}`);
-    console.log(`\n⚡ SELECTION LOGIC: Execution priority beats monitoring`);
-    console.log(`   BUY/SELL actions get +200 bonus that WAIT cannot overcome`);
-    console.log(`   Even lower confidence BUY/SELL will beat higher confidence WAIT`);
+    console.log(`\n⚡ SELECTION LOGIC: Best opportunity execution`);
+    console.log(`   Highest confidence and best conditions win`);
     console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
 
     console.log(`[Best Symbol Selector] 🎯 SELECTED: ${best.symbol} (Score: ${best.overallScore.toFixed(2)}, Action: ${best.omegaDecision.action}, Confidence: ${best.omegaDecision.confidence}%)`);
@@ -129,13 +126,10 @@ class BestSymbolSelector {
   private calculateSymbolScore(snapshot: SymbolSnapshot, decision: AlphaDecision): number {
     let score = 0;
 
-    // EXECUTION PRIORITY: BUY/SELL gets massive bonus that WAIT cannot overcome
+    // All BUY/SELL actions are executable (NO_TRADE filtered earlier)
     if (decision.action === 'BUY' || decision.action === 'SELL') {
-      score += 200; // Absolute execution priority
-      console.log(`[Best Symbol Selector] ⚡ ${snapshot.symbol}: +200 EXECUTION PRIORITY (${decision.action})`);
-    } else if (decision.action === 'WAIT') {
-      score += 0; // No bonus - monitoring is fallback only
-      console.log(`[Best Symbol Selector] ⏸️  ${snapshot.symbol}: +0 WAIT fallback (monitoring mode)`);
+      score += 200; // Base executable score
+      console.log(`[Best Symbol Selector] ⚡ ${snapshot.symbol}: +200 EXECUTABLE (${decision.action})`);
     }
 
     score += decision.confidence * 0.4;
@@ -194,11 +188,9 @@ class BestSymbolSelector {
   private buildReasoning(snapshot: SymbolSnapshot, decision: AlphaDecision, score: number): string[] {
     const reasons: string[] = [];
 
-    // Show execution priority first
+    // Show execution action
     if (decision.action === 'BUY' || decision.action === 'SELL') {
-      reasons.push(`⚡ EXECUTION: ${decision.action} (+200 priority)`);
-    } else if (decision.action === 'WAIT') {
-      reasons.push(`⏸️  MONITORING: WAIT (fallback)`);
+      reasons.push(`⚡ EXECUTION: ${decision.action}`);
     }
 
     reasons.push(`Omega confidence ${decision.confidence}%`);

@@ -320,12 +320,11 @@ class GoalScanner {
 
       // Emit thought: Scan complete
       const scanDurationMs = Date.now() - scanStartTime;
-      const monitoringCount = validSetups.filter(s => s.alphaDecision?.action === 'WAIT').length;
 
       await alphaThoughtStream.emitScanComplete(sessionId, userId, {
         tradeExecuted,
         tradesFound: validSetups.length,
-        monitoringCount,
+        monitoringCount: 0, // WAIT removed - no monitoring mode
         scanDurationMs
       });
 

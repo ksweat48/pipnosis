@@ -10,41 +10,11 @@
  * - Only mandatory safety (margin, market closed, SSOT, format) can block
  */
 
-export type AlphaAction = 'EXECUTE_NOW' | 'WAIT' | 'PASS';
-export type AlphaUrgency = 'HIGH' | 'MEDIUM' | 'LOW';
+export type AlphaAction = 'BUY' | 'SELL' | 'NO_TRADE';
 
-export interface AlphaEntryPlan {
-  /** Entry zone boundaries - price must reach this zone */
-  entryZone: {
-    minPrice: number;
-    maxPrice: number;
-  };
-
-  /** Invalidation zone - if price enters here, thesis is invalidated */
-  invalidationZone: {
-    minPrice: number;
-    maxPrice: number;
-  };
-
-  /** Maximum time to wait for entry (seconds) */
-  timeoutSeconds: number;
-
-  /** Urgency level - affects monitoring frequency */
-  urgency: AlphaUrgency;
-}
-
-export interface AlphaExecutionPolicy {
-  /** Whether Entry Optimizer can auto-execute when conditions met */
-  allowAutoExecute: boolean;
-
-  /** Whether to recheck with Alpha before executing (for complex setups) */
-  requireRecheckBeforeExecute: boolean;
-}
-
-export interface AlphaWaitDecision {
-  entryPlan: AlphaEntryPlan;
-  executionPolicy: AlphaExecutionPolicy;
-}
+// REMOVED: WAIT infrastructure
+// AlphaUrgency, AlphaEntryPlan, AlphaExecutionPolicy, AlphaWaitDecision
+// Alpha now returns BUY/SELL for immediate execution or NO_TRADE to continue scanning
 
 export interface AlphaTradeSpec {
   symbol: string;
@@ -67,7 +37,7 @@ export interface AlphaTradeSpec {
  * Components must execute Alpha's will, not override it.
  */
 export interface AlphaDecisionContract {
-  /** Alpha's final decision */
+  /** Alpha's final decision: BUY, SELL, or NO_TRADE */
   action: AlphaAction;
 
   /** Alpha's reasoning for this decision */
@@ -76,10 +46,7 @@ export interface AlphaDecisionContract {
   /** Final confidence after all penalties (0-100) */
   confidence: number;
 
-  /** If WAIT: entry plan and execution policy */
-  waitDecision?: AlphaWaitDecision;
-
-  /** Trade parameters (for EXECUTE_NOW or WAIT) */
+  /** Trade parameters (for BUY/SELL actions) */
   tradeSpec: AlphaTradeSpec;
 
   /** Market context that informed decision */
@@ -103,95 +70,74 @@ export function validateAlphaContract(contract: any): contract is AlphaDecisionC
   if (!contract || typeof contract !== 'object') return false;
 
   // Check required fields
-  if (!['EXECUTE_NOW', 'WAIT', 'PASS'].includes(contract.action)) return false;
+  if (!['BUY', 'SELL', 'NO_TRADE'].includes(contract.action)) return false;
   if (typeof contract.reasoning !== 'string') return false;
   if (typeof contract.confidence !== 'number' || contract.confidence < 0 || contract.confidence > 100) return false;
 
-  // Check tradeSpec
+  // Check tradeSpec (required for BUY/SELL, minimal for NO_TRADE)
   if (!contract.tradeSpec || typeof contract.tradeSpec !== 'object') return false;
   const spec = contract.tradeSpec;
-  if (typeof spec.symbol !== 'string') return false;
-  if (!['BUY', 'SELL'].includes(spec.direction)) return false;
-  if (typeof spec.entry !== 'number' || spec.entry <= 0) return false;
-  if (typeof spec.stopLoss !== 'number' || spec.stopLoss <= 0) return false;
-  if (typeof spec.takeProfit !== 'number' || spec.takeProfit <= 0) return false;
 
-  // Check waitDecision if action is WAIT
-  if (contract.action === 'WAIT') {
-    if (!contract.waitDecision || typeof contract.waitDecision !== 'object') return false;
-    const wait = contract.waitDecision;
-
-    if (!wait.entryPlan || typeof wait.entryPlan !== 'object') return false;
-    if (!wait.executionPolicy || typeof wait.executionPolicy !== 'object') return false;
-
-    const plan = wait.entryPlan;
-    if (!plan.entryZone || typeof plan.entryZone.minPrice !== 'number' || typeof plan.entryZone.maxPrice !== 'number') return false;
-    if (!plan.invalidationZone || typeof plan.invalidationZone.minPrice !== 'number' || typeof plan.invalidationZone.maxPrice !== 'number') return false;
-    if (typeof plan.timeoutSeconds !== 'number' || plan.timeoutSeconds <= 0) return false;
-    if (!['HIGH', 'MEDIUM', 'LOW'].includes(plan.urgency)) return false;
-
-    const policy = wait.executionPolicy;
-    if (typeof policy.allowAutoExecute !== 'boolean') return false;
-    if (typeof policy.requireRecheckBeforeExecute !== 'boolean') return false;
+  // For BUY/SELL actions, validate full tradeSpec
+  if (contract.action === 'BUY' || contract.action === 'SELL') {
+    if (typeof spec.symbol !== 'string') return false;
+    if (!['BUY', 'SELL'].includes(spec.direction)) return false;
+    if (typeof spec.entry !== 'number' || spec.entry <= 0) return false;
+    if (typeof spec.stopLoss !== 'number' || spec.stopLoss <= 0) return false;
+    if (typeof spec.takeProfit !== 'number' || spec.takeProfit <= 0) return false;
   }
 
   return true;
 }
 
 /**
- * Create a standard EXECUTE_NOW contract
+ * Create a standard BUY contract
  */
-export function createExecuteNowContract(
+export function createBuyContract(
   tradeSpec: AlphaTradeSpec,
   confidence: number,
   reasoning: string,
   marketContext?: Record<string, any>
 ): AlphaDecisionContract {
   return {
-    action: 'EXECUTE_NOW',
+    action: 'BUY',
     reasoning,
     confidence,
-    tradeSpec,
+    tradeSpec: { ...tradeSpec, direction: 'BUY' },
     marketContext,
     decidedAt: new Date()
   };
 }
 
 /**
- * Create a standard WAIT contract
+ * Create a standard SELL contract
  */
-export function createWaitContract(
+export function createSellContract(
   tradeSpec: AlphaTradeSpec,
   confidence: number,
   reasoning: string,
-  entryPlan: AlphaEntryPlan,
-  executionPolicy: AlphaExecutionPolicy,
   marketContext?: Record<string, any>
 ): AlphaDecisionContract {
   return {
-    action: 'WAIT',
+    action: 'SELL',
     reasoning,
     confidence,
-    tradeSpec,
-    waitDecision: {
-      entryPlan,
-      executionPolicy
-    },
+    tradeSpec: { ...tradeSpec, direction: 'SELL' },
     marketContext,
     decidedAt: new Date()
   };
 }
 
 /**
- * Create a standard PASS contract
+ * Create a standard NO_TRADE contract
  */
-export function createPassContract(
+export function createNoTradeContract(
   reasoning: string,
   confidence: number = 0
 ): AlphaDecisionContract {
-  // PASS requires minimal tradeSpec (not used)
+  // NO_TRADE requires minimal tradeSpec (not used)
   return {
-    action: 'PASS',
+    action: 'NO_TRADE',
     reasoning,
     confidence,
     tradeSpec: {

@@ -234,8 +234,8 @@ export interface AlphaOverride {
 }
 
 export interface AlphaDecision {
-  action: 'BUY' | 'SELL' | 'NO_TRADE' | 'WAIT';
-  decision: 'BUY' | 'SELL' | 'NO_TRADE' | 'WAIT';
+  action: 'BUY' | 'SELL' | 'NO_TRADE';
+  decision: 'BUY' | 'SELL' | 'NO_TRADE';
   entry: number;
   stopLoss: number;
   takeProfit: number; // Legacy field - maps to tp2Price
@@ -1303,16 +1303,16 @@ ${cachedThesisPrompt}
 🎯 CORE MANDATE (PROFESSIONAL SNIPER MODE)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DECISION PHILOSOPHY:
-1. Execute when profit is mathematically possible and strategy is sound
-2. Consider WAIT when better entry timing is likely
-3. Consider reduced targets or continuation entries over rejection
-4. Use NO_TRADE only when no viable edge exists
+1. Execute immediately (BUY/SELL) when profit is mathematically possible and strategy is sound
+2. Use NO_TRADE when setup not ready or no viable edge exists
+3. Consider continuation entries when momentum is strong
+4. Scanner will re-evaluate next cycle - no need to "wait" manually
 
 CONFIDENCE BANDS (ADVISORY):
 - ${ALPHA_IDENTITY.CONFIDENCE_BANDS.EXCELLENT.min}+%: Excellent setup - execute with conviction
 - ${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.min}-${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.max}%: Solid setup - strong execution candidate
 - ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}-${ALPHA_IDENTITY.CONFIDENCE_BANDS.ACCEPTABLE.max}%: Acceptable setup - evaluate entry quality
-- Below ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%: Weak edge - consider WAIT or NO_TRADE
+- Below ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%: Weak edge - return NO_TRADE
 
 EQS THRESHOLDS (ADVISORY GUIDANCE - NOT MANDATORY):
 These are GUIDELINES for entry quality, NOT hard blocks:
@@ -1351,7 +1351,7 @@ Be DECISIVE. Avoid hedging language.
 ✅ USE (Confident):
 "Executing BUY - confluence at support"
 "Taking the trade - momentum confirmed"
-"WAIT for pullback to 1.0850 VWAP zone"
+"SELL setup - breakdown confirmed"
 "NO_TRADE - mixed signals, no edge"
 "Strong setup - executing immediately"
 
@@ -1456,39 +1456,32 @@ YOUR AUTHORITY & DECISION FRAMEWORK:
 
 ⏳ ACTION SELECTION FRAMEWORK (YOU DECIDE)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You have THREE action choices. Select the BEST one based on full context:
+You have THREE action choices: BUY, SELL, or NO_TRADE
 
-EXECUTE (BUY/SELL):
-✓ Edge exists with viable entry strategy
-✓ Risk/reward acceptable (consider continuation if EQS low)
+BUY:
+✓ Bullish edge exists with viable entry strategy
+✓ Risk/reward acceptable
 ✓ Profit mathematically possible
 ✓ Current price actionable OR continuation entry justified
 ✓ Best opportunity among available pairs
 
-WAIT:
-✓ Edge exists but better timing highly probable
-✓ Pullback to ideal zone likely (fresh setup <15min)
-✓ Would execute at specific target price
-✓ Waiting has low opportunity cost
+SELL:
+✓ Bearish edge exists with viable entry strategy
+✓ Risk/reward acceptable
+✓ Profit mathematically possible
+✓ Current price actionable OR continuation entry justified
+✓ Best opportunity among available pairs
 
 NO_TRADE:
 ✗ No edge detected across any strategy
+✗ Setup not ready yet (scanner will re-evaluate next cycle)
 ✗ Setup invalidated or highly uncertain
-✗ Would not execute regardless of price
 ✗ Better opportunities available on other pairs
 
-CRITICAL: When analyzing multiple pairs, EXECUTE the best opportunity.
-Don't WAIT on all pairs just because EQS is below ideal - compare relative merit.
+CRITICAL: When analyzing multiple pairs, EXECUTE (BUY/SELL) the best opportunity.
+Don't return NO_TRADE on all pairs just because EQS is below ideal - compare relative merit and execute the best setup.
 
-When choosing WAIT, specify:
-• Target entry zone (min/max prices)
-• Invalidation price (where setup becomes invalid)
-• Wait reasoning (what you're waiting for)
-• FULL TRADE PLAN including entry, stopLoss, and takeProfit
-
-CRITICAL: WAIT is a full trade plan with delayed execution.
-You MUST provide entry, stopLoss, and takeProfit for WAIT decisions.
-Waiting changes WHEN we enter, not WHAT the trade is.
+Scanner continuously re-evaluates - if setup not ready now, return NO_TRADE and scanner will check again next cycle.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 POSITIONING RULES:
@@ -1498,7 +1491,7 @@ CRITICAL: Return PURE JSON - NO comments, NO trailing commas, NO explanations.
 
 Return JSON with structured reasoning:
 {
-  "action": "BUY|SELL|WAIT",
+  "action": "BUY|SELL|NO_TRADE",
   "entry": 12345.67,
   "stopLoss": 12300.00,
   "takeProfit": 12400.00,
@@ -1509,12 +1502,6 @@ Return JSON with structured reasoning:
   "marketThesis": "Brief market analysis (30-50 words) - what is happening in the market, direction bias, regime classification. Do NOT include price levels or execution details.",
   "reasoning": "Brief execution reasoning for THIS user's trade parameters",
   "market_narrative": "Single-sentence cause-effect thesis",
-  "wait_condition": {
-    "target_entry_zone_min": 12340.00,
-    "target_entry_zone_max": 12350.00,
-    "invalidation_price": 12360.00,
-    "wait_reasoning": "what you're waiting for"
-  },
   "override": {
     "type": "none",
     "justification": "statistical reasoning if override occurred"
@@ -1522,14 +1509,14 @@ Return JSON with structured reasoning:
 }
 
 DECISION GUIDELINES (ADVISORY - YOU HAVE FINAL SAY):
-- High confidence (${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.min}+) + Good EQS (${ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD}+): Strong execute candidate
-- High confidence (${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.min}+) + Lower EQS: Consider continuation entry or WAIT
+- High confidence (${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.min}+) + Good EQS (${ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD}+): Strong execute candidate (BUY/SELL)
+- High confidence (${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.min}+) + Lower EQS: Consider continuation entry or NO_TRADE
 - Moderate confidence (${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}-${ALPHA_IDENTITY.CONFIDENCE_BANDS.ACCEPTABLE.max}) + Good EQS: Acceptable execute candidate
-- Moderate confidence + Lower EQS: Evaluate alternative strategies vs WAIT
-- Low confidence (<${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}): Generally WAIT or NO_TRADE, but you may override
+- Moderate confidence + Lower EQS: Evaluate alternative strategies vs NO_TRADE
+- Low confidence (<${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}): Generally NO_TRADE, but you may override
 
 REMEMBER: These are guidelines, NOT hard rules. You are a professional sniper making context-based decisions.
-When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT on everything.`;
+When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity - don't return NO_TRADE on everything.`;
 
     try {
       const response = await openAIClient.chat(
@@ -1865,7 +1852,7 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
       }
 
       // Omega-9 validation (final safety check) - skip for WAIT since we're not executing yet
-      if (decision.action !== 'NO_TRADE' && decision.action !== 'WAIT') {
+      if (decision.action !== 'NO_TRADE') {
         console.log('[Alpha Coordinator] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log('[Alpha Coordinator] 📋 ALPHA\'S DECISION (Before Omega-9):');
         console.log(`[Alpha Coordinator]   Action: ${decision.action}`);
@@ -1997,7 +1984,7 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
       }
 
       // Time-to-Fill validation (CRITICAL FOR INTRADAY FOCUS) - skip for WAIT
-      if (decision.action !== 'NO_TRADE' && decision.action !== 'WAIT') {
+      if (decision.action !== 'NO_TRADE') {
         console.log('[Alpha Coordinator] ⏱️  Running Time-to-Fill validation...');
 
         const tpDistancePips = calculatePipDistance(marketContext.symbol, decision.entry, decision.takeProfit);
@@ -2041,13 +2028,7 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
       console.log('[Alpha Coordinator] Reasoning:', decision.reasoning);
       console.log('[Alpha Coordinator] Omega Summary:', decision.omega_summary);
 
-      if (decision.action === 'WAIT' && decision.wait_condition) {
-        console.log(`[Alpha Coordinator] ⏳ WAIT Decision: Targeting zone ${decision.wait_condition.target_entry_zone_min.toFixed(5)}-${decision.wait_condition.target_entry_zone_max.toFixed(5)}`);
-        console.log(`[Alpha Coordinator] ⏳ Invalidation: ${decision.wait_condition.invalidation_price.toFixed(5)}`);
-        console.log(`[Alpha Coordinator] ⏳ Reason: ${decision.wait_condition.wait_reasoning}`);
-      }
-
-      if (decision.action !== 'NO_TRADE' && decision.action !== 'WAIT') {
+      if (decision.action !== 'NO_TRADE') {
         try {
           // Extract recent candles and calculate VWAP for entry quality analysis
           let recentCandles: Array<{
@@ -2595,7 +2576,8 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
 
       // Validate and sanitize action
       let action = parsed.action || 'NO_TRADE';
-      if (!['BUY', 'SELL', 'NO_TRADE', 'WAIT'].includes(action)) {
+      if (!['BUY', 'SELL', 'NO_TRADE'].includes(action)) {
+        console.warn(`[Alpha Coordinator] Invalid action "${action}" - converting to NO_TRADE`);
         action = 'NO_TRADE';
       }
 
@@ -2662,142 +2644,9 @@ When scanning multiple pairs, EXECUTE the best relative opportunity - don't WAIT
         };
       }
 
-      // If WAIT, return with wait_condition
-      if (action === 'WAIT') {
-        let waitCondition = parsed.wait_condition;
-
-        // DEFENSIVE FIX: Try to construct wait_condition if missing or incomplete
-        if (!waitCondition || !waitCondition.target_entry_zone_min || !waitCondition.target_entry_zone_max || !waitCondition.invalidation_price) {
-          console.warn('[Alpha Coordinator] ⚠️ wait_condition missing or incomplete - attempting fallback construction');
-          console.warn('[Alpha Coordinator] Original wait_condition:', JSON.stringify(waitCondition));
-
-          // Try to construct from top-level fields or calculate defaults
-          const entryPrice = parsed.entry || currentPrice;
-          const direction = parsed.action === 'BUY' ? 'BUY' : 'SELL';
-          const isBuyDirection = direction === 'BUY';
-
-          // Fallback: Create reasonable entry zone based on ATR
-          const zoneSpread = atr * 0.3; // +/- 30% ATR for entry zone
-          const fallbackMin = entryPrice - zoneSpread;
-          const fallbackMax = entryPrice + zoneSpread;
-
-          // Fallback invalidation: 2x ATR away from entry in opposite direction
-          const fallbackInvalidation = isBuyDirection
-            ? entryPrice - (atr * 2)  // Invalidate below for BUY
-            : entryPrice + (atr * 2); // Invalidate above for SELL
-
-          waitCondition = {
-            target_entry_zone_min: waitCondition?.target_entry_zone_min || fallbackMin,
-            target_entry_zone_max: waitCondition?.target_entry_zone_max || fallbackMax,
-            invalidation_price: waitCondition?.invalidation_price || fallbackInvalidation,
-            wait_reasoning: waitCondition?.wait_reasoning || parsed.reasoning || 'Waiting for better entry conditions',
-            expected_wait_minutes: waitCondition?.expected_wait_minutes
-          };
-
-          console.warn('[Alpha Coordinator] ✅ Constructed fallback wait_condition:', JSON.stringify({
-            target_entry_zone_min: waitCondition.target_entry_zone_min.toFixed(5),
-            target_entry_zone_max: waitCondition.target_entry_zone_max.toFixed(5),
-            invalidation_price: waitCondition.invalidation_price.toFixed(5)
-          }));
-
-          // Still validate required fields after fallback
-          if (!waitCondition.target_entry_zone_min || !waitCondition.target_entry_zone_max || !waitCondition.invalidation_price) {
-            console.error('[Alpha Coordinator] ❌ WAIT action still missing required fields even after fallback');
-            console.error('[Alpha Coordinator] Parsed response (first 500 chars):', JSON.stringify(parsed).substring(0, 500));
-            return {
-              action: 'NO_TRADE',
-              decision: 'NO_TRADE',
-              entry: currentPrice,
-              stopLoss: currentPrice,
-              takeProfit: currentPrice,
-              confidence: 0,
-              reasoning: 'WAIT decision malformed - missing target zones even after fallback',
-              omega_summary: '',
-              resolvedStyle,
-              entry_spec: {
-                entry_quality_score: entryQualityScore,
-                entry_mode: entryMode,
-                style: resolvedStyle,
-              },
-              narrativeValidation: narrativeValidation || undefined
-            };
-          }
-        }
-
-        // SSOT ENFORCEMENT: Alpha MUST provide takeProfit for WAIT decisions
-        // WAIT is a full trade plan with delayed execution - not a partial decision
-        // Engines validate. Alpha decides. Engines never invent intent.
-        if (!parsed.takeProfit) {
-          console.error('[Alpha Coordinator] ❌ SSOT VIOLATION: Alpha did not provide takeProfit for WAIT decision');
-
-          // Log violation for monitoring and learning (non-blocking)
-          logViolation({
-            violationType: 'ALPHA_MISSING_TAKEPROFIT_WAIT',
-            symbol: marketContext.symbol,
-            attemptedOperation: 'wait_decision',
-            callLocation: 'coordinator-alpha.ts:2591',
-            blocked: true,
-            errorDetails: {
-              action: parsed.action,
-              hasEntry: !!parsed.entry,
-              hasStopLoss: !!parsed.stopLoss,
-              hasTakeProfit: false,
-              wait_condition: waitCondition,
-              reasoning: parsed.reasoning,
-              timestamp: new Date().toISOString(),
-            }
-          });
-
-          return {
-            action: 'NO_TRADE',
-            decision: 'NO_TRADE',
-            entry: currentPrice,
-            stopLoss: currentPrice,
-            takeProfit: currentPrice,
-            confidence: 0,
-            reasoning: 'Invalid WAIT decision: Alpha did not provide takeProfit. WAIT requires full trade plan.',
-            omega_summary: '',
-            resolvedStyle,
-            thesis: thesis || undefined,
-            style_intent: styleIntent || undefined,
-            execution_preference: executionPreference || undefined,
-            acceptable_profit_range: acceptableProfitRange || undefined,
-            entry_spec: {
-              entry_quality_score: 0,
-              entry_mode: 'immediate',
-              style: resolvedStyle,
-            },
-            narrativeValidation: narrativeValidation || undefined
-          };
-        }
-
-        const entryMidpoint = (waitCondition.target_entry_zone_min + waitCondition.target_entry_zone_max) / 2;
-        const stopLossPrice = waitCondition.invalidation_price;
-        const finalTakeProfit = parsed.takeProfit; // Alpha's decision - no fallbacks
-
-        return {
-          action: 'WAIT',
-          decision: 'WAIT',
-          entry: entryMidpoint,
-          stopLoss: stopLossPrice,
-          takeProfit: finalTakeProfit,
-          confidence: Math.min(100, Math.max(0, tradeConfidence)),
-          reasoning: parsed.reasoning || 'Waiting for better entry conditions',
-          omega_summary: '',
-          wait_condition: waitCondition,
-          resolvedStyle,
-          thesis: thesis || undefined,
-          style_intent: styleIntent || undefined,
-          execution_preference: executionPreference || undefined,
-          acceptable_profit_range: acceptableProfitRange || undefined,
-          entry_spec: {
-            entry_quality_score: entryQualityScore,
-            entry_mode: entryMode,
-            style: resolvedStyle,
-          },
-          narrativeValidation: narrativeValidation || undefined
-        };
-      }
+      // REMOVED: WAIT action handling
+      // Alpha now only returns BUY, SELL, or NO_TRADE
+      // If setup not ready, return NO_TRADE and scanner will re-evaluate
 
       // Get LLM values
       let entry = parsed.entry || currentPrice;

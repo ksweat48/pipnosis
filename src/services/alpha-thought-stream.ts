@@ -50,7 +50,7 @@ export interface OmegaCouncilVotes {
 export interface CandidateSummary {
   symbol: string;
   confidence: number;
-  action: 'BUY' | 'SELL' | 'WAIT' | 'NO_TRADE';
+  action: 'BUY' | 'SELL' | 'NO_TRADE';
   score?: number;
 }
 
@@ -217,7 +217,6 @@ class AlphaThoughtStream {
     const votesSummary: string[] = [];
     let buyCount = 0;
     let sellCount = 0;
-    let waitCount = 0;
     let noTradeCount = 0;
 
     // Count votes and build summary
@@ -240,7 +239,6 @@ class AlphaThoughtStream {
 
       if (action === 'BUY') buyCount++;
       else if (action === 'SELL') sellCount++;
-      else if (action === 'WAIT') waitCount++;
       else if (action === 'NO_TRADE') noTradeCount++;
     });
 
@@ -248,14 +246,12 @@ class AlphaThoughtStream {
     let consensus = 'MIXED';
     let consensusStrength = '';
 
-    if (buyCount > sellCount && buyCount > waitCount && buyCount > noTradeCount) {
+    if (buyCount > sellCount && buyCount > noTradeCount) {
       consensus = 'BUY';
       consensusStrength = buyCount >= 4 ? 'STRONG' : buyCount >= 3 ? 'MODERATE' : 'WEAK';
-    } else if (sellCount > buyCount && sellCount > waitCount && sellCount > noTradeCount) {
+    } else if (sellCount > buyCount && sellCount > noTradeCount) {
       consensus = 'SELL';
       consensusStrength = sellCount >= 4 ? 'STRONG' : sellCount >= 3 ? 'MODERATE' : 'WEAK';
-    } else if (waitCount > buyCount && waitCount > sellCount) {
-      consensus = 'WAIT';
     } else if (noTradeCount > buyCount && noTradeCount > sellCount) {
       consensus = 'NO_TRADE';
     }
@@ -347,8 +343,6 @@ class AlphaThoughtStream {
 
     if (!result.selected || !result.symbol) {
       message = `No quality setups found - ${result.reasoning}`;
-    } else if (result.action === 'WAIT') {
-      message = `${result.symbol} selected for monitoring - ${result.reasoning}`;
     } else {
       const actionIcon = result.action === 'BUY' ? '📈' : result.action === 'SELL' ? '📉' : '';
       message = `${actionIcon} ${result.symbol} selected - ${result.reasoning}`;

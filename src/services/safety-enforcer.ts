@@ -52,8 +52,8 @@ class SafetyEnforcer {
     const adjustments: string[] = [];
     let adjustedDecision = { ...decision };
 
-    // Skip validation for NO_TRADE and WAIT (monitoring states with no prices set)
-    if (decision.action === 'NO_TRADE' || decision.action === 'WAIT') {
+    // Skip validation for NO_TRADE (no trade execution)
+    if (decision.action === 'NO_TRADE') {
       return {
         passed: true,
         violations: [],

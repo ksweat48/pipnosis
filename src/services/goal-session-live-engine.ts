@@ -1133,14 +1133,15 @@ class GoalSessionLiveEngine {
       // Alpha returns: BUY, SELL, or NO_TRADE
       // - BUY/SELL = execute immediately at market price
       // - NO_TRADE = not ready yet, keep scanning for better opportunities
-      if (decision.action === 'WAIT') {
-        // WAIT action fallback - system degrades intelligently to NO_TRADE
-        // This is an expected fallback pattern; Alpha continues scanning
+
+      // REMOVED: WAIT action handling
+      // Alpha no longer returns WAIT - only BUY, SELL, or NO_TRADE
+      if (decision.action === 'NO_TRADE') {
         logger.debug(
           LogCategory.AI_TRADING,
-          `Alpha returned WAIT action for ${selectedSymbol}. Treating as NO_TRADE and continuing scan.`
+          `Alpha returned NO_TRADE for ${selectedSymbol}. Setup not ready - continuing scan.`
         );
-        // No user message needed - this is a quiet fallback
+        // Continue scanning - no user message needed
         return;
       }
 
