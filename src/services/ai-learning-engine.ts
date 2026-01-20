@@ -627,7 +627,7 @@ class AILearningEngine {
       // Analyze the individual trade
       const analysis = await this.analyzeIndividualTrade(tradeForAnalysis, allTrades);
 
-      // Store detailed trade analysis - SSOT: Only valid schema fields
+      // Store detailed trade analysis - SSOT: Correct schema field names
       await supabase.from('ai_trade_analysis').insert({
         user_id: userId,
         live_trade_id: tradeId,
@@ -638,13 +638,22 @@ class AILearningEngine {
         entry_time: tradeForAnalysis.entryTime.toISOString(),
         exit_time: tradeForAnalysis.exitTime.toISOString(),
         entry_confidence: tradeForAnalysis.confidence,
-        reasoning: analysis.reasoning,  // Schema field: reasoning (not decision_reasoning)
+        entry_market_conditions: tradeForAnalysis.marketConditions || {},  // REQUIRED
+        entry_indicators_alignment: {},  // REQUIRED: Placeholder for now
+        decision_reasoning: analysis.reasoning || 'Trade analysis pending',  // REQUIRED: Correct field name
+        ai_conviction_level: Math.min(Math.max(Math.round(tradeForAnalysis.confidence), 1), 100),  // REQUIRED: 1-100
+        risk_reward_at_entry: Math.abs(
+          (tradeForAnalysis.takeProfit - tradeForAnalysis.entryPrice) /
+          (tradeForAnalysis.stopLoss - tradeForAnalysis.entryPrice)
+        ),  // REQUIRED: Calculate R:R
+        exit_reason: trade.close_reason || 'unknown',  // REQUIRED
+        exit_market_conditions: {},  // REQUIRED: Placeholder for now
+        was_exit_optimal: tradeForAnalysis.outcome === 'win',  // REQUIRED: Simple heuristic
         matching_historical_patterns: analysis.matchingPatterns,
-        key_learnings: analysis.keyLearnings,
-        mistakes: analysis.mistakes,  // Schema field: mistakes (not mistakes_identified)
+        key_learnings: analysis.keyLearnings || [],  // REQUIRED: Default to empty array
+        mistakes_identified: analysis.mistakes,  // Correct field name
         what_worked: analysis.whatWorked,
         what_failed: analysis.whatFailed,
-        market_conditions: tradeForAnalysis.marketConditions,  // Schema field: market_conditions (not entry_market_conditions)
         contributed_to_global_learning: true
       });
 
