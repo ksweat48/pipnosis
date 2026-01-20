@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Eye, EyeOff } from 'lucide-react';
+import { TermsModal } from '@/components/TermsModal';
+import { DisclaimerModal } from '@/components/DisclaimerModal';
 
 export function AuthPage() {
   const [email, setEmail] = useState('');
@@ -10,12 +12,22 @@ export function AuthPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [acceptedDisclaimer, setAcceptedDisclaimer] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showDisclaimerModal, setShowDisclaimerModal] = useState(false);
   const { signIn, signUp } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (!acceptedTerms || !acceptedDisclaimer) {
+      setError('You must accept the Terms & Conditions and Disclaimer to continue.');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -100,10 +112,52 @@ export function AuthPage() {
             </div>
           </div>
 
+          <div className="space-y-3 bg-white/5 p-4 rounded border border-white/10">
+            <label className="flex items-start gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                className="mt-1 w-5 h-5 rounded border-gray-400 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-0 cursor-pointer"
+                required
+              />
+              <span className="text-sm text-gray-300 flex-1">
+                I have read and agree to the{' '}
+                <button
+                  type="button"
+                  onClick={() => setShowTermsModal(true)}
+                  className="text-emerald-400 hover:text-emerald-300 underline font-medium transition-colors"
+                >
+                  Terms & Conditions
+                </button>
+              </span>
+            </label>
+
+            <label className="flex items-start gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={acceptedDisclaimer}
+                onChange={(e) => setAcceptedDisclaimer(e.target.checked)}
+                className="mt-1 w-5 h-5 rounded border-gray-400 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-0 cursor-pointer"
+                required
+              />
+              <span className="text-sm text-gray-300 flex-1">
+                I have read and understand the{' '}
+                <button
+                  type="button"
+                  onClick={() => setShowDisclaimerModal(true)}
+                  className="text-amber-400 hover:text-amber-300 underline font-medium transition-colors"
+                >
+                  Risk Disclaimer
+                </button>
+              </span>
+            </label>
+          </div>
+
           <button
             type="submit"
-            disabled={loading}
-            className="w-full bg-emerald-600 text-white py-3 rounded hover:bg-emerald-700 disabled:opacity-50"
+            disabled={loading || !acceptedTerms || !acceptedDisclaimer}
+            className="w-full bg-emerald-600 text-white py-3 rounded hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
             {loading ? 'Processing...' : (isSignUp ? 'Sign Up' : 'Sign In')}
           </button>
@@ -111,13 +165,21 @@ export function AuthPage() {
 
         <div className="mt-4 text-center">
           <button
-            onClick={() => setIsSignUp(!isSignUp)}
+            onClick={() => {
+              setIsSignUp(!isSignUp);
+              setAcceptedTerms(false);
+              setAcceptedDisclaimer(false);
+              setError('');
+            }}
             className="text-emerald-500 hover:text-emerald-400 text-sm"
           >
             {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
           </button>
         </div>
       </div>
+
+      <TermsModal isOpen={showTermsModal} onClose={() => setShowTermsModal(false)} />
+      <DisclaimerModal isOpen={showDisclaimerModal} onClose={() => setShowDisclaimerModal(false)} />
     </div>
   );
 }
