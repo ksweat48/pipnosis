@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { MarketDataService } from './market-data-service';
 
 /**
  * Enhanced Market Regime Detector with Session-Aware Intelligence
@@ -155,16 +156,12 @@ class EnhancedMarketRegimeDetector {
     timeframe: string,
     count: number
   ): Promise<Candle[]> {
-    const { data, error } = await supabase
-      .from('forex_candles')
-      .select('open_time, open, high, low, close, volume')
-      .eq('symbol', symbol)
-      .eq('timeframe', timeframe)
-      .order('open_time', { ascending: false })
-      .limit(count);
+    // ✅ PHASE 2: Use MarketDataService as SSOT
+    const marketDataService = MarketDataService.getInstance();
+    const data = await marketDataService.getCandles(symbol, timeframe, count);
 
-    if (error) {
-      console.error('[Enhanced Regime] Error fetching candles:', error);
+    if (!data) {
+      console.error('[Enhanced Regime] Error fetching candles');
       return [];
     }
 

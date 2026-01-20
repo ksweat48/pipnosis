@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { MarketDataService } from './market-data-service';
 
 /**
  * Currency Correlation Service

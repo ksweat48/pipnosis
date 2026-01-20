@@ -22,6 +22,7 @@ import { notificationCoordinator, NotificationType } from './notification-coordi
 import { postTradeAnalyzer } from '../post-trade-analyzer';
 import { rewardEngine } from '../reward-engine';
 import { strategyPlaybookManager } from '../strategy-playbook-manager';
+import { MarketDataService } from '../market-data-service';
 
 export type CloseReason =
   | 'stop_loss'
@@ -532,16 +533,13 @@ class TradeClosureCoordinator {
 
     const results: CloseTradeResult[] = [];
 
-    for (const trade of openTrades) {
-      const { data: priceData } = await supabase
-        .from('realtime_prices')
-        .select('bid, ask')
-        .eq('symbol', trade.symbol)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    // ✅ PHASE 2: Use MarketDataService as SSOT
+    const marketDataService = MarketDataService.getInstance();
 
-      const currentPrice = priceData ? (priceData.bid + priceData.ask) / 2 : 0;
+    for (const trade of openTrades) {
+      const priceData = await marketDataService.getCurrentPrice(trade.symbol);
+
+      const currentPrice = priceData ? priceData.price : 0;
 
       if (currentPrice > 0) {
         const result = await this.closeTrade({

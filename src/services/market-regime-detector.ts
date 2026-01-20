@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { MarketDataService } from './market-data-service';
 
 /**
  * Market Regime Detector
@@ -104,16 +105,12 @@ class MarketRegimeDetector {
     timeframe: string,
     count: number
   ): Promise<any[]> {
-    const { data, error } = await supabase
-      .from('forex_candles')
-      .select('*')
-      .eq('symbol', symbol)
-      .eq('timeframe', timeframe)
-      .order('open_time', { ascending: false })
-      .limit(count);
+    // ✅ PHASE 2: Use MarketDataService as SSOT
+    const marketDataService = MarketDataService.getInstance();
+    const data = await marketDataService.getCandles(symbol, timeframe, count);
 
-    if (error) {
-      console.error('[Market Regime] Error fetching candles:', error);
+    if (!data) {
+      console.error('[Market Regime] Error fetching candles');
       return [];
     }
 

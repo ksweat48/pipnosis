@@ -16,6 +16,7 @@
 import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
 import type { M5Candle } from './entry-qualification-engine';
+import { MarketDataService } from './market-data-service';
 
 export interface M5Microstructure {
   candles: M5Candle[];
@@ -34,17 +35,12 @@ class M5MicrostructureProvider {
    */
   async getMicrostructure(symbol: string): Promise<M5Microstructure | null> {
     try {
-      // Fetch last 30 M5 candles
-      const { data: candles, error } = await supabase
-        .from('forex_candles')
-        .select('*')
-        .eq('symbol', symbol)
-        .eq('timeframe', 'm5')
-        .order('open_time', { ascending: false })
-        .limit(30);
+      // ✅ PHASE 2: Use MarketDataService as SSOT
+      const marketDataService = MarketDataService.getInstance();
+      const candles = await marketDataService.getCandles(symbol, 'm5', 30);
 
-      if (error) {
-        logger.error('[M5 Microstructure] Failed to fetch M5 candles:', error);
+      if (!candles) {
+        logger.error('[M5 Microstructure] Failed to fetch M5 candles');
         return null;
       }
 
@@ -193,15 +189,11 @@ class M5MicrostructureProvider {
    */
   async getCurrentSpread(symbol: string): Promise<{ currentPips: number; averagePips: number }> {
     try {
-      const { data: recentCandles, error } = await supabase
-        .from('forex_candles')
-        .select('high, low')
-        .eq('symbol', symbol)
-        .eq('timeframe', 'm5')
-        .order('open_time', { ascending: false })
-        .limit(20);
+      // ✅ PHASE 2: Use MarketDataService as SSOT
+      const marketDataService = MarketDataService.getInstance();
+      const recentCandles = await marketDataService.getCandles(symbol, 'm5', 20);
 
-      if (error || !recentCandles || recentCandles.length === 0) {
+      if (!recentCandles || recentCandles.length === 0) {
         // Fallback default spreads
         return { currentPips: 1.5, averagePips: 1.5 };
       }
@@ -223,14 +215,11 @@ class M5MicrostructureProvider {
    */
   async isM5DataAvailable(symbol: string): Promise<boolean> {
     try {
-      const { data, error } = await supabase
-        .from('forex_candles')
-        .select('id')
-        .eq('symbol', symbol)
-        .eq('timeframe', 'm5')
-        .limit(1);
+      // ✅ PHASE 2: Use MarketDataService as SSOT
+      const marketDataService = MarketDataService.getInstance();
+      const data = await marketDataService.getCandles(symbol, 'm5', 1);
 
-      return !error && data && data.length > 0;
+      return data !== null && data.length > 0;
     } catch (error) {
       return false;
     }
