@@ -53,15 +53,15 @@ export async function processGoalSessionIteration(
     logger.info(LogCategory.AI_TRADING, `[Core] 🚀 Starting iteration for session ${goalSessionId}`);
     logger.info(LogCategory.AI_TRADING, `[Core] Watchlist: ${watchlist.join(', ')} | Timeframe: ${timeframe}`);
 
-    // CRITICAL: Check if session is awaiting continuation response
+    // CRITICAL: Check if session is awaiting continuation response (SSOT)
     const { data: sessionStatus, error: statusError } = await client
       .from('goal_sessions')
-      .select('status, awaiting_continuation_confirmation')
+      .select('status')
       .eq('id', goalSessionId)
       .single();
 
     if (!statusError && sessionStatus) {
-      if (sessionStatus.status === 'awaiting_continuation' || sessionStatus.awaiting_continuation_confirmation) {
+      if (sessionStatus.status === 'awaiting_continuation') {
         logger.info(LogCategory.AI_TRADING, '[Core] ⏸️ Session awaiting user continuation response - skipping processing');
         return {
           success: true,

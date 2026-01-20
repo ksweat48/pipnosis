@@ -128,15 +128,15 @@ export const handler: Handler = async (event, context) => {
           continue;
         }
 
-        // Skip sessions awaiting continuation response (don't do trading operations)
+        // Skip sessions awaiting continuation response (SSOT)
         // NOTE: These sessions remain in the processing queue for timeout checks above
         const { data: sessionStatus } = await supabase
           .from('goal_sessions')
-          .select('status, awaiting_continuation_confirmation')
+          .select('status')
           .eq('id', session.session_id)
           .single();
 
-        if (sessionStatus?.status === 'awaiting_continuation' || sessionStatus?.awaiting_continuation_confirmation) {
+        if (sessionStatus?.status === 'awaiting_continuation') {
           console.log(`[Autonomous Monitor] ⏸️ Session ${session.session_id} awaiting user response - skipping`);
           successCount++;
           results.push({

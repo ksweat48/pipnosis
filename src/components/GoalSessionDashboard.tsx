@@ -386,24 +386,25 @@ export const GoalSessionDashboard: React.FC = () => {
           console.error('[GoalSessionDashboard] Client-side timeout check failed:', timeoutError);
         }
 
-        // Check for no-trades-found continuation modal (15-minute threshold)
+        // Check for no-trades-found continuation modal using SSOT system
         try {
           const { data: sessionData } = await supabase
             .from('goal_sessions')
-            .select('status, awaiting_continuation_confirmation, awaiting_user_continuation, continuation_prompt, trades_in_session, current_progress, target_value, multi_trade_enabled, continuation_confirmation_expires_at')
+            .select('status, awaiting_continuation_since, trades_in_session, current_progress, target_value, multi_trade_enabled')
             .eq('id', session.sessionId)
             .single();
 
-          // CRITICAL: Check if continuation modal has timed out (client-side safety check)
+          // SSOT: Check if continuation timeout exceeded (60 seconds)
           // CIRCUIT BREAKER: Don't attempt if already tried for this session
-          if (sessionData?.awaiting_continuation_confirmation &&
-              sessionData?.continuation_confirmation_expires_at &&
+          if (sessionData?.status === 'awaiting_continuation' &&
+              sessionData?.awaiting_continuation_since &&
               forceCloseAttempted !== session.sessionId) {
-            const expiresAt = new Date(sessionData.continuation_confirmation_expires_at);
+            const sinceTime = new Date(sessionData.awaiting_continuation_since);
             const now = new Date();
+            const elapsedSeconds = (now.getTime() - sinceTime.getTime()) / 1000;
 
-            if (now > expiresAt) {
-              console.log('[GoalSessionDashboard] ⏰ Continuation modal timeout detected - auto-closing session');
+            if (elapsedSeconds > 60) {
+              console.log('[GoalSessionDashboard] ⏰ Continuation timeout detected (SSOT) - auto-closing session');
               setForceCloseAttempted(session.sessionId);
               const closed = await simpleScanningTimer.forceCloseStaleSession(session.sessionId);
               if (closed) {
@@ -415,25 +416,11 @@ export const GoalSessionDashboard: React.FC = () => {
             }
           }
 
-          // New simplified 15-minute modal (takes priority)
-          if (sessionData?.awaiting_continuation_confirmation) {
+          // SSOT: Show modal if status is awaiting_continuation
+          if (sessionData?.status === 'awaiting_continuation') {
             setShowNoTradesModal(true);
           } else {
             setShowNoTradesModal(false);
-          }
-
-          // Legacy continuation dialog (only if multi-trade is disabled AND in correct status)
-          const shouldShowLegacyDialog =
-            sessionData?.awaiting_user_continuation &&
-            !sessionData?.multi_trade_enabled;
-
-          if (shouldShowLegacyDialog) {
-            setContinuationData({
-              isAwaiting: true,
-              prompt: sessionData.continuation_prompt || 'Would you like to continue scanning for more trades?',
-              tradesInSession: sessionData.trades_in_session || 0
-            });
-          } else {
             setContinuationData(null);
           }
         } catch (error) {

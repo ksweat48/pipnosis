@@ -157,7 +157,7 @@ class SimpleScanningTimerService {
     try {
       const { data: session, error } = await supabase
         .from('goal_sessions')
-        .select('scanning_started_at, awaiting_continuation_confirmation, continuation_confirmation_expires_at, status')
+        .select('scanning_started_at, awaiting_continuation_since, status')
         .eq('id', sessionId)
         .maybeSingle();
 
@@ -174,11 +174,18 @@ class SimpleScanningTimerService {
 
       const shouldShowModal = await this.shouldShowContinuationModal(sessionId);
 
+      // SSOT: Calculate timeout from awaiting_continuation_since
+      let timeoutExpiresAt = null;
+      if (session.awaiting_continuation_since) {
+        const sinceTime = new Date(session.awaiting_continuation_since);
+        timeoutExpiresAt = new Date(sinceTime.getTime() + 60000).toISOString(); // 60 seconds timeout
+      }
+
       return {
         elapsedMinutes,
         shouldShowModal,
-        awaitingConfirmation: session.awaiting_continuation_confirmation || false,
-        timeoutExpiresAt: session.continuation_confirmation_expires_at,
+        awaitingConfirmation: session.status === 'awaiting_continuation',
+        timeoutExpiresAt,
         sessionStatus: session.status
       };
     } catch (error) {
@@ -251,7 +258,7 @@ class SimpleScanningTimerService {
     try {
       const { data: session, error } = await supabase
         .from('goal_sessions')
-        .select('scanning_started_at, start_time, created_at, status, awaiting_continuation_confirmation, continuation_confirmation_expires_at')
+        .select('scanning_started_at, start_time, created_at, status, awaiting_continuation_since')
         .eq('id', sessionId)
         .maybeSingle();
 
@@ -267,24 +274,26 @@ class SimpleScanningTimerService {
       const elapsed = Date.now() - new Date(scanningStartedAt).getTime();
       const elapsedMinutes = Math.floor(elapsed / 60000);
 
-      // Check 1: Modal timeout expired - force close
-      if (session.awaiting_continuation_confirmation && session.continuation_confirmation_expires_at) {
-        const expiresAt = new Date(session.continuation_confirmation_expires_at);
-        if (new Date() > expiresAt) {
-          console.log('[Scanning Timer] ⏰ CLIENT-SIDE: Modal timeout expired - forcing close');
+      // SSOT: Check 1: Continuation timeout expired (60 seconds) - force close
+      if (session.status === 'awaiting_continuation' && session.awaiting_continuation_since) {
+        const sinceTime = new Date(session.awaiting_continuation_since);
+        const timeoutTime = new Date(sinceTime.getTime() + 60000); // 60 seconds
+        if (new Date() > timeoutTime) {
+          console.log('[Scanning Timer] ⏰ CLIENT-SIDE: Continuation timeout expired (SSOT) - forcing close');
           return { shouldTriggerModal: false, shouldForceClose: true, timedOut: true, elapsedMinutes };
         }
       }
 
-      // Check 2: Safety net - scanning >80 minutes without modal
+      // Check 2: Safety net - scanning >80 minutes without awaiting continuation
       if (session.status === 'scanning' || session.status === 'trade_pending') {
-        if (elapsedMinutes >= SAFETY_NET_MINUTES && !session.awaiting_continuation_confirmation) {
+        const isAwaitingContinuation = session.status === 'awaiting_continuation';
+        if (elapsedMinutes >= SAFETY_NET_MINUTES && !isAwaitingContinuation) {
           console.log('[Scanning Timer] ⚠️ CLIENT-SIDE: Safety net - >80min without modal, forcing close');
           return { shouldTriggerModal: false, shouldForceClose: true, timedOut: true, elapsedMinutes };
         }
 
         // Check 3: 60 minutes elapsed - should trigger modal
-        if (elapsedMinutes >= TIMEOUT_THRESHOLD_MINUTES && !session.awaiting_continuation_confirmation) {
+        if (elapsedMinutes >= TIMEOUT_THRESHOLD_MINUTES && !isAwaitingContinuation) {
           console.log('[Scanning Timer] 🕐 CLIENT-SIDE: 60 minutes elapsed - triggering modal');
           return { shouldTriggerModal: true, shouldForceClose: false, timedOut: false, elapsedMinutes };
         }
