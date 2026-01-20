@@ -184,7 +184,7 @@ class SmartGoalSessionManager {
       autonomous_enabled: true,
       execution_mode: 'server',
       scanning_started_at: session.startTime.toISOString(),
-      scanning_duration_minutes: 15,
+      scanning_duration_minutes: 60,  // ✅ FIXED: Changed from 15 to 60 minutes
       active_pairs_count: config.watchlist.length,
       asset_class_filter: config.assetClassFilter || null,
       specific_symbols: config.specificSymbols || null,
