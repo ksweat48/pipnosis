@@ -31,10 +31,10 @@ export interface MicroSnapshot {
 }
 
 export interface TradeDecision {
-  action: 'BUY' | 'SELL' | 'NO_TRADE';
-  entry: number;
-  stopLoss: number;
-  takeProfit: number;
+  action: 'BUY' | 'SELL' | 'NO_TRADE' | 'WAIT';
+  entry?: number; // Optional for WAIT decisions
+  stopLoss?: number; // Optional for WAIT decisions
+  takeProfit?: number; // Optional for WAIT decisions
   risk_pct: number;
   confidence: number;
   reasoning: string;
