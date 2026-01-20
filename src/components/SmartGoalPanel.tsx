@@ -22,7 +22,7 @@ import { smartGoalSessionManager } from '../services/smart-goal-session-manager'
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import { supabase } from '../lib/supabase';
-import { TRADE_STYLES, TradeStyle, calculateSuggestedAmounts, validateDollarAmount } from '../config/trade-styles';
+import { TRADE_STYLES, TradeStyle, calculateSuggestedAmounts, validateDollarAmount, MINIMUM_ACCOUNT_BALANCE } from '../config/trade-styles';
 import { getAssetClassInfo, type AssetClass } from '../utils/asset-class-mapper';
 
 const STYLE_ICONS = {
@@ -90,6 +90,17 @@ export const SmartGoalPanel: React.FC = () => {
   }, [customAmount, accountBalance]);
 
   const handleStyleSelection = (style: TradeStyle) => {
+    // SSOT: Enforce minimum account balance
+    if (accountBalance < MINIMUM_ACCOUNT_BALANCE) {
+      toast.error(
+        'Insufficient Account Balance',
+        `Minimum account balance of $${MINIMUM_ACCOUNT_BALANCE} required. Please update your balance to start trading.`,
+        8000
+      );
+      setError(`Minimum account balance of $${MINIMUM_ACCOUNT_BALANCE} required`);
+      return;
+    }
+
     setSelectedStyle(style);
     setCurrentStep('amount');
     setCustomAmount('');
@@ -109,6 +120,17 @@ export const SmartGoalPanel: React.FC = () => {
 
   const handleCreateSession = async () => {
     if (!user || !selectedStyle || !customAmount) return;
+
+    // SSOT: Safety check for minimum account balance
+    if (accountBalance < MINIMUM_ACCOUNT_BALANCE) {
+      toast.error(
+        'Insufficient Account Balance',
+        `Minimum account balance of $${MINIMUM_ACCOUNT_BALANCE} required. Please update your balance to start trading.`,
+        8000
+      );
+      setError(`Minimum account balance of $${MINIMUM_ACCOUNT_BALANCE} required`);
+      return;
+    }
 
     const dollarRisk = parseFloat(customAmount);
     const validation = validateDollarAmount(dollarRisk, accountBalance);
@@ -201,6 +223,20 @@ export const SmartGoalPanel: React.FC = () => {
       <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-xl opacity-20 group-hover:opacity-40 transition duration-300 blur" />
 
       <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl rounded-xl p-6 border border-gray-700/50 shadow-2xl">
+        {/* Low Balance Warning Banner */}
+        {accountBalance < MINIMUM_ACCOUNT_BALANCE && !loadingPreferences && (
+          <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-red-300 mb-1">Insufficient Account Balance</p>
+              <p className="text-xs text-red-400">
+                Minimum balance of ${MINIMUM_ACCOUNT_BALANCE} required to start trading.
+                Current balance: ${accountBalance.toFixed(2)}. Please update your balance to continue.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Step 1: Choose Trading Style */}
         {currentStep === 'style' && (
           <div className="space-y-4">

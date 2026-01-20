@@ -53,8 +53,24 @@ const supabaseClient = createClient(
     fetch: (url, options = {}) => {
       return fetch(url, options).then(response => {
         if (!response.ok) {
+          const urlString = url.toString();
+
+          // SSOT: Suppress expected 403 errors for realtime_prices
+          // These are DEFENSIVE security - RLS correctly blocks unauthorized INSERT attempts
+          // Frontend has read-only access; only backend (service_role) can write
+          const is403 = response.status === 403;
+          const isRealtimePrices = urlString.includes('/realtime_prices');
+          const isPost = options.method?.toUpperCase() === 'POST';
+
+          // Silently suppress expected 403 POST errors to realtime_prices
+          if (is403 && isRealtimePrices && isPost) {
+            // Security working correctly - no logging needed
+            return response;
+          }
+
+          // Log all other errors normally
           console.error('[Supabase Error]', {
-            url: url.toString(),
+            url: urlString,
             status: response.status,
             statusText: response.statusText
           });
