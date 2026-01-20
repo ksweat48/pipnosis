@@ -229,7 +229,15 @@ class SmartGoalSessionManager {
     // Extract goal amount from prompt if present, otherwise use reasonable default
     const lower = prompt.toLowerCase();
     const dollarMatch = lower.match(/\$?\s*(\d+(?:\.\d+)?)/);
-    const goalAmount = dollarMatch ? parseFloat(dollarMatch[1]) : dollarRisk * 2; // Default to 2x the risk
+
+    // 🛡️ INTELLIGENT ROUNDING: Round goal to nearest dollar for internal calculations
+    // UI can show cents, but calculations work with whole dollars to prevent precision issues
+    let goalAmount = dollarMatch ? parseFloat(dollarMatch[1]) : dollarRisk * 2; // Default to 2x the risk
+    goalAmount = Math.round(goalAmount); // Round to nearest dollar
+
+    if (dollarMatch && goalAmount !== parseFloat(dollarMatch[1])) {
+      console.log(`[Smart Goal] Rounded goal from $${parseFloat(dollarMatch[1]).toFixed(2)} to $${goalAmount.toFixed(2)} for calculation stability`);
+    }
 
     // STEP 1: Detect symbols from prompt (highest priority)
     const promptSymbols = extractSymbolsFromPrompt(prompt);

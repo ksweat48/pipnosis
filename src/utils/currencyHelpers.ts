@@ -5,6 +5,7 @@
  * Particularly important for JPY pairs which use different pip values
  */
 
+import { supabase } from '../lib/supabase';
 import { getRiskPercentage } from '../config/risk-levels';
 import { getRiskStrategyProfile } from '../config/risk-strategy-profiles';
 import { getSymbolConfig } from '../config/symbol-registry';
@@ -450,6 +451,18 @@ export function calculateLotSizeFromDollarRisk(
   const slDistancePips = validation.actualDistancePips;
   console.log(`  SL Distance: ${slDistancePips.toFixed(2)} pips`);
 
+  // 🛡️ INTELLIGENT DEGRADATION: Detect suspiciously small SL distances
+  // Engines validate. Alpha decides. Trades degrade intelligently.
+  if (slDistancePips < 1.0 && pipInfo.symbolType === 'forex') {
+    console.warn(
+      `%c⚠️ MICRO-PIP STOP DETECTED`, 'color: #ff9900; font-weight: bold',
+      `\n  Symbol: ${symbol}`,
+      `\n  SL Distance: ${slDistancePips.toFixed(4)} pips (< 1 pip)`,
+      `\n  Entry: ${entryPrice}, SL: ${stopLoss}`,
+      `\n  This will produce astronomical lot sizes. Proceeding with intelligent cap.`
+    );
+  }
+
   // Calculate lot size
   // Formula: Lot Size = Dollar Risk / (SL Pips × Dollar Per Pip Per Lot)
   const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot;
@@ -458,10 +471,59 @@ export function calculateLotSizeFromDollarRisk(
   console.log(`  Dollar/Pip/Lot: $${dollarPerPipPerLot.toFixed(2)}`);
   console.log(`  Calculated Lot Size: ${lotSize.toFixed(4)}`);
 
+  // 🛡️ INTELLIGENT DEGRADATION: Cap extreme lot sizes before broker limits
+  // This catches calculation errors (goal amount used as risk, micro-pip SLs, etc.)
+  const ABSOLUTE_MAX_LOT_SIZE = 10.0; // Conservative max for safety
+
+  if (lotSize > ABSOLUTE_MAX_LOT_SIZE) {
+    console.error(
+      `%c🚨 EXTREME LOT SIZE DETECTED - INTELLIGENT CAP APPLIED`, 'color: #ff0000; font-weight: bold',
+      `\n  Symbol: ${symbol}`,
+      `\n  Calculated: ${lotSize.toFixed(2)} lots`,
+      `\n  Dollar Risk: $${dollarRisk.toFixed(2)}`,
+      `\n  SL Distance: ${slDistancePips.toFixed(4)} pips`,
+      `\n  Dollar/Pip/Lot: $${dollarPerPipPerLot.toFixed(2)}`,
+      `\n  `,
+      `\n  🔍 DIAGNOSTIC:`,
+      `\n  - If SL distance < 1 pip: Stop loss too tight`,
+      `\n  - If dollar risk > $500: Goal amount may be used as risk`,
+      `\n  - If neither: Check pip calculation for this symbol`,
+      `\n  `,
+      `\n  ⚠️ DEGRADATION: Capping to ${ABSOLUTE_MAX_LOT_SIZE} lots to prevent database constraint violation.`,
+      `\n  Actual risk will be: $${(slDistancePips * dollarPerPipPerLot * ABSOLUTE_MAX_LOT_SIZE).toFixed(2)}`
+    );
+
+    // Log to SSOT violations for learning
+    try {
+      supabase.from('ssot_violations').insert({
+        violation_type: 'extreme_lot_size_calculation',
+        severity: 'critical',
+        context: {
+          symbol,
+          calculated_lot_size: lotSize,
+          capped_to: ABSOLUTE_MAX_LOT_SIZE,
+          dollar_risk: dollarRisk,
+          sl_distance_pips: slDistancePips,
+          dollar_per_pip_per_lot: dollarPerPipPerLot,
+          entry: entryPrice,
+          stop_loss: stopLoss,
+          direction
+        },
+        message: `Lot size calculation produced ${lotSize.toFixed(2)} lots (exceeds ${ABSOLUTE_MAX_LOT_SIZE} max). Likely micro-pip SL or goal amount used as risk.`
+      }).then(({ error }) => {
+        if (error) console.error('[SSOT Violation Logging] Failed:', error);
+      });
+    } catch (logError) {
+      console.error('[SSOT Violation Logging] Exception:', logError);
+    }
+
+    lotSize = ABSOLUTE_MAX_LOT_SIZE;
+  }
+
   // Clamp to broker limits
   const symbolConfig = getSymbolConfig(symbol);
   const minSize = symbolConfig?.minLotSize || 0.01;
-  const maxSize = symbolConfig?.maxLotSize || 5.0;
+  const maxSize = Math.min(symbolConfig?.maxLotSize || 5.0, ABSOLUTE_MAX_LOT_SIZE);
 
   lotSize = Math.max(minSize, Math.min(maxSize, lotSize));
   lotSize = roundLotSize(lotSize);
