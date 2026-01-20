@@ -3,11 +3,16 @@
  *
  * P0 CIRCUIT BREAKER: Prevents execution on stale intelligence or prices
  *
+ * SSOT COMPLIANCE:
+ * - Price freshness checks delegated to PriceFreshnessGate (governance layer)
+ * - This service handles trade-specific validation (intelligence + drift)
+ * - No duplicate price checking logic
+ *
  * Validation Layers:
  * 1. Omega Intelligence Freshness (max age by timeframe)
  * 2. Alpha Strategic Intelligence Freshness
  * 3. Price Drift Detection (signal vs current)
- * 4. Realtime Price Staleness Check
+ * 4. Realtime Price Staleness Check (delegated to PriceFreshnessGate)
  *
  * ALL validations must pass for trade execution to proceed.
  */
@@ -15,6 +20,7 @@
 import { logger, LogCategory } from '../lib/logger';
 import { intelligenceFreshnessValidator, type IntelligenceData } from './intelligence-freshness-validator';
 import { priceDriftDetector } from './price-drift-detector';
+import { priceFreshnessGate } from '../governance/price-freshness-gate';
 import { priceCoordinator } from './coordinators/price-coordinator';
 import type { CachedOmegaIntelligence, AlphaStrategicInsight } from './shared-intelligence-coordinator';
 import { FreshnessBlockCategory, type BlockMetadata } from '../types/freshness-block';
@@ -225,6 +231,8 @@ export class TradeExecutionFreshnessGate {
   /**
    * PRE-CHECK: Quick validation before expensive LLM calls
    * Checks price staleness only to fail fast before wasting money
+   *
+   * SSOT: Delegates to PriceFreshnessGate (governance layer)
    */
   async preCheckFreshness(symbol: string): Promise<{ shouldProceed: boolean; reason?: string }> {
     logger.info(
@@ -232,14 +240,14 @@ export class TradeExecutionFreshnessGate {
       `[Freshness Gate] 🔍 Pre-check for ${symbol} before Omega calls`
     );
 
-    // Check price freshness using Price Coordinator (SSOT for all price data)
-    const priceValidation = await priceCoordinator.validatePriceFreshness(symbol);
+    // SSOT: Use centralized PriceFreshnessGate for all price freshness checks
+    const freshnessResult = await priceFreshnessGate.checkFreshness(symbol, 'execution');
 
-    if (priceValidation.shouldBlockTrading) {
-      const reason = priceValidation.warning || 'Price data unavailable or critically stale';
+    if (!freshnessResult.isFresh) {
+      const reason = freshnessResult.reason || 'Price data unavailable or critically stale';
       logger.error(
         LogCategory.AI_TRADING,
-        `[Freshness Gate] 🚫 PRE-CHECK FAILED: ${reason} (age: ${priceValidation.ageSeconds}s)`
+        `[Freshness Gate] 🚫 PRE-CHECK FAILED: ${reason} (age: ${freshnessResult.ageSeconds}s)`
       );
       return {
         shouldProceed: false,
@@ -249,7 +257,7 @@ export class TradeExecutionFreshnessGate {
 
     logger.info(
       LogCategory.AI_TRADING,
-      `[Freshness Gate] ✅ Pre-check PASSED - price age: ${priceValidation.ageSeconds}s`
+      `[Freshness Gate] ✅ Pre-check PASSED - price age: ${freshnessResult.ageSeconds}s`
     );
     return { shouldProceed: true };
   }
@@ -336,29 +344,29 @@ export class TradeExecutionFreshnessGate {
       }
     }
 
-    // Layer 4: Validate Price Freshness (using Price Coordinator SSOT)
-    const priceValidation = await priceCoordinator.validatePriceFreshness(context.symbol);
+    // Layer 4: Validate Price Freshness (SSOT: PriceFreshnessGate)
+    const freshnessResult = await priceFreshnessGate.checkFreshness(context.symbol, 'execution');
 
     validationResults.priceStaleness = {
-      isValid: priceValidation.isValid,
-      ageSeconds: priceValidation.ageSeconds,
-      maxAgeSeconds: 120,
-      shouldBlockTrading: priceValidation.shouldBlockTrading
+      isValid: freshnessResult.isFresh,
+      ageSeconds: freshnessResult.ageSeconds,
+      maxAgeSeconds: freshnessResult.maxAgeSeconds,
+      shouldBlockTrading: !freshnessResult.isFresh
     };
 
-    if (priceValidation.shouldBlockTrading) {
-      const reason = priceValidation.warning || 'Price data unavailable';
-      blockingReasons.push(`Price Freshness: ${reason} (age: ${priceValidation.ageSeconds}s)`);
+    if (!freshnessResult.isFresh) {
+      const reason = freshnessResult.reason || 'Price data unavailable';
+      blockingReasons.push(`Price Freshness: ${reason}`);
 
-      const blockCat = priceValidation.ageSeconds === Infinity
+      const blockCat = freshnessResult.ageSeconds === Infinity
         ? FreshnessBlockCategory.BLOCK_NO_PRICE_DATA
         : FreshnessBlockCategory.BLOCK_STALE_PRICE_FEED;
 
       blockCategories.push(blockCat);
       blockMetadata.push({
         symbol: context.symbol,
-        ageSeconds: priceValidation.ageSeconds,
-        maxAgeSeconds: 120
+        ageSeconds: freshnessResult.ageSeconds,
+        maxAgeSeconds: freshnessResult.maxAgeSeconds
       });
     }
 
@@ -577,20 +585,16 @@ export class TradeExecutionFreshnessGate {
 
   /**
    * Validate price staleness before any trading activity
+   *
+   * SSOT: Uses centralized PriceFreshnessGate for batch checking
    */
   async validatePriceDataAvailability(symbols: string[]): Promise<Map<string, boolean>> {
+    // SSOT: Use centralized gate for batch freshness checking
+    const freshnessResults = await priceFreshnessGate.checkMultipleFreshness(symbols, 'execution');
+
     const availability = new Map<string, boolean>();
-
-    // Validate each symbol's price freshness using Price Coordinator
-    const validations = await Promise.all(
-      symbols.map(async (symbol) => {
-        const result = await priceCoordinator.validatePriceFreshness(symbol);
-        return { symbol, shouldBlock: result.shouldBlockTrading };
-      })
-    );
-
-    for (const { symbol, shouldBlock } of validations) {
-      availability.set(symbol, !shouldBlock);
+    for (const [symbol, result] of freshnessResults) {
+      availability.set(symbol, result.isFresh);
     }
 
     return availability;

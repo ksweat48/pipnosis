@@ -241,10 +241,10 @@ export function generateMarketStateHash(
     volumeBucket
   };
 
-  const candleTimeStr = snapshot.candleCloseTime
-    ? Math.floor(snapshot.candleCloseTime / 1000).toString()
-    : '';
-  const hashInput = `${snapshot.symbol}|${snapshot.timeframe}|${priceBucket}|${rsiBucket}|${trendBucket}|${volatilityBucket}|${candleTimeStr}`;
+  // SSOT FIX: Removed candleCloseTime from hash - it causes instability
+  // Hash should be based on market REGIME (structure), not timestamp
+  // If price bucket, RSI bucket, trend, and volatility are same -> same regime
+  const hashInput = `${snapshot.symbol}|${snapshot.timeframe}|${priceBucket}|${rsiBucket}|${trendBucket}|${volatilityBucket}`;
   const hash = simpleHash(hashInput);
 
   return {
