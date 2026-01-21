@@ -53,10 +53,10 @@ export const UserManagementPanel: React.FC = () => {
     setSearchDebounce(timeout);
   };
 
-  // Count stuck sessions (65+ minutes = stuck, 60-min timeout + 5-min buffer)
+  // Count stuck sessions (20+ minutes = stuck, 15-min timeout + 5-min buffer)
   const stuckSessionsCount = useMemo(() => {
     return users.reduce((count, user) => {
-      if (user.scanning_duration_minutes && user.scanning_duration_minutes > 65) {
+      if (user.scanning_duration_minutes && user.scanning_duration_minutes > 20) {
         return count + user.scanning_sessions;
       }
       return count;
@@ -154,7 +154,7 @@ export const UserManagementPanel: React.FC = () => {
   const formatScanDuration = (minutes: number | null): string => {
     if (!minutes) return '';
 
-    // Display up to 60 minutes, stuck sessions show 60+
+    // Display scanning duration, stuck threshold is 20 minutes (15min + 5min buffer)
     if (minutes < 60) {
       return `${Math.round(minutes)}m`;
     } else if (minutes < 1440) {
@@ -447,7 +447,7 @@ export const UserManagementPanel: React.FC = () => {
                     <td className="px-4 py-3 text-sm text-center">
                       {user.scanning_sessions > 0 ? (
                         <div className="flex flex-col items-center gap-1">
-                          {user.scanning_duration_minutes && user.scanning_duration_minutes > 65 ? (
+                          {user.scanning_duration_minutes && user.scanning_duration_minutes > 20 ? (
                             <span className="px-2 py-1 bg-red-500/20 text-red-400 text-xs rounded flex items-center justify-center gap-1 border border-red-500/30">
                               <AlertTriangle className="w-3 h-3 animate-pulse" />
                               {user.scanning_sessions}
@@ -463,7 +463,7 @@ export const UserManagementPanel: React.FC = () => {
                             </span>
                           )}
                           {user.scanning_duration_minutes && (
-                            <span className={`text-xs ${user.scanning_duration_minutes > 65 ? 'text-red-400 font-semibold' : 'text-gray-400'}`}>
+                            <span className={`text-xs ${user.scanning_duration_minutes > 20 ? 'text-red-400 font-semibold' : 'text-gray-400'}`}>
                               {formatScanDuration(user.scanning_duration_minutes)}
                             </span>
                           )}

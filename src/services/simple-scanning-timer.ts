@@ -1,8 +1,8 @@
 /**
  * Simple Scanning Timer Service
  *
- * Replaces the complex state machine with a simple 60-minute timer:
- * - Scan for 60 minutes
+ * Replaces the complex state machine with a simple 15-minute timer:
+ * - Scan for 15 minutes
  * - If no trade found → show continuation modal
  * - User chooses: Continue (reset timer) or Stop (end session)
  * - 1-minute auto-timeout if no response
@@ -25,7 +25,7 @@ export interface ScanningTimerStatus {
   sessionStatus: string;
 }
 
-const TIMEOUT_THRESHOLD_MINUTES = 60;
+const TIMEOUT_THRESHOLD_MINUTES = 15;
 const SAFETY_NET_MINUTES = 80;
 const MAX_RETRY_ATTEMPTS = 3;
 
@@ -78,7 +78,7 @@ class SimpleScanningTimerService {
    */
   async triggerContinuationModal(sessionId: string): Promise<void> {
     try {
-      console.log('[Scanning Timer] 🕐 60 minutes elapsed - triggering continuation modal');
+      console.log('[Scanning Timer] 🕐 15 minutes elapsed - triggering continuation modal');
 
       const { error } = await supabase.rpc('trigger_continuation_modal', {
         p_session_id: sessionId
@@ -117,7 +117,7 @@ class SimpleScanningTimerService {
       }
 
       if (continueScanning) {
-        console.log('[Scanning Timer] ✅ Timer reset - scanning for another 60 minutes');
+        console.log('[Scanning Timer] ✅ Timer reset - scanning for another 15 minutes');
       } else {
         console.log('[Scanning Timer] ✅ Session stopped by user');
       }
@@ -228,7 +228,7 @@ class SimpleScanningTimerService {
         throw error;
       }
 
-      console.log('[Scanning Timer] ✅ Timer initialized - scanning for 60 minutes');
+      console.log('[Scanning Timer] ✅ Timer initialized - scanning for 15 minutes');
     } catch (error) {
       console.error('[Scanning Timer] Exception initializing timer:', error);
       throw error;
@@ -307,9 +307,9 @@ class SimpleScanningTimerService {
           return { shouldTriggerModal: false, shouldForceClose: true, timedOut: true, elapsedMinutes };
         }
 
-        // Check 3: 60 minutes elapsed - should trigger modal
+        // Check 3: 15 minutes elapsed - should trigger modal
         if (elapsedMinutes >= TIMEOUT_THRESHOLD_MINUTES && !isAwaitingContinuation) {
-          console.log('[Scanning Timer] 🕐 CLIENT-SIDE: 60 minutes elapsed - triggering modal');
+          console.log('[Scanning Timer] 🕐 CLIENT-SIDE: 15 minutes elapsed - triggering modal');
           return { shouldTriggerModal: true, shouldForceClose: false, timedOut: false, elapsedMinutes };
         }
       }
