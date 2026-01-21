@@ -14,6 +14,7 @@
 
 import { logger } from '../lib/logger';
 import { supabase } from '../lib/supabase';
+import { governanceAlertService } from '../services/governance-alert-service';
 
 export interface ViolationReport {
   type: 'duplicate_authority' | 'bypassed_gateway' | 'direct_db_access' | 'inconsistent_rules';
@@ -191,7 +192,7 @@ class SSOTViolationDetector {
    */
   private async persistViolation(violation: ViolationReport): Promise<void> {
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('ssot_violations')
         .insert({
           violation_type: violation.type,
@@ -201,10 +202,27 @@ class SSOTViolationDetector {
           details: violation.details,
           stack_trace: violation.stackTrace,
           detected_at: violation.timestamp.toISOString()
-        });
+        })
+        .select()
+        .single();
 
       if (error) {
         logger.error('[SSOT Violation Detector] Failed to insert violation', { error });
+        return;
+      }
+
+      // Trigger alert evaluation for this violation
+      if (data) {
+        governanceAlertService.evaluateViolation({
+          id: data.id,
+          violation_type: violation.type,
+          component_name: violation.service,
+          severity: violation.severity === 'critical' ? 'error' :
+                   violation.severity === 'high' ? 'warning' : 'info',
+          details: { details: violation.details, stack_trace: violation.stackTrace }
+        }).catch(err => {
+          logger.error('[SSOT Violation Detector] Failed to evaluate violation for alert', { error: err });
+        });
       }
     } catch (err) {
       logger.error('[SSOT Violation Detector] Exception persisting violation', { error: err });
