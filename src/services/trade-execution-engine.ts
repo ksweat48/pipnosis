@@ -1004,16 +1004,54 @@ class TradeExecutionEngine {
       throw validationError;
     }
 
-    if (tradeData.position_size < 0.001 || tradeData.position_size > 1000) {
+    // 🛡️ CCIP: Type coercion and validation at database boundary
+    // Ensures PostgreSQL receives a proper numeric value, not string/null/undefined/NaN
+    const positionSizeRaw = tradeData.position_size;
+    const positionSizeType = typeof positionSizeRaw;
+
+    console.log('[Trade Execution] 🔍 CCIP Type Validation:', {
+      raw_value: positionSizeRaw,
+      type: positionSizeType,
+      is_number: typeof positionSizeRaw === 'number',
+      is_finite: Number.isFinite(positionSizeRaw),
+      constraint: '0.001 <= position_size <= 1000'
+    });
+
+    // Coerce to number explicitly
+    const positionSizeNumeric = Number(positionSizeRaw);
+
+    // Validate the coerced value
+    if (!Number.isFinite(positionSizeNumeric)) {
+      const validationError = new Error('[Trade Execution] ❌ CRITICAL: position_size is not a valid finite number');
+      console.error(validationError.message, {
+        raw_value: positionSizeRaw,
+        raw_type: positionSizeType,
+        coerced_value: positionSizeNumeric,
+        signal_position_size: signal.positionSize,
+        symbol: signal.symbol
+      });
+      throw validationError;
+    }
+
+    if (positionSizeNumeric < 0.001 || positionSizeNumeric > 1000) {
       const validationError = new Error('[Trade Execution] ❌ CRITICAL: position_size out of valid range');
       console.error(validationError.message, {
-        position_size: tradeData.position_size,
+        position_size: positionSizeNumeric,
         constraint: '0.001 <= position_size <= 1000',
         lotSize: signal.positionSize,
         symbol: signal.symbol
       });
       throw validationError;
     }
+
+    // ✅ SSOT: Update tradeData with validated numeric value
+    tradeData.position_size = positionSizeNumeric;
+
+    console.log('[Trade Execution] ✅ CCIP Type Validation Passed:', {
+      validated_position_size: positionSizeNumeric,
+      type: typeof positionSizeNumeric,
+      ready_for_database: true
+    });
 
     const { data: trade, error } = await supabase
       .from('goal_session_trades')
