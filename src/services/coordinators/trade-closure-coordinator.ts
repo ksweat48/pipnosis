@@ -24,18 +24,27 @@ import { rewardEngine } from '../reward-engine';
 import { strategyPlaybookManager } from '../strategy-playbook-manager';
 import { MarketDataService } from '../market-data-service';
 
+/**
+ * SSOT Close Reason Types - MUST match database constraint
+ * Database constraint defined in: 20260119053122_add_system_close_reasons_exclude_from_learning.sql
+ *
+ * ✅ CRITICAL: These values MUST match the goal_session_trades.close_reason CHECK constraint
+ * Any mismatch will cause database constraint violation errors
+ */
 export type CloseReason =
   | 'stop_loss'
   | 'take_profit'
+  | 'take_profit_1'
   | 'take_profit_2'
   | 'manual'
   | 'goal_achieved'
-  | 'goal_met'
-  | 'session_timeout'
-  | 'force_close'
-  | 'weekend_shutdown'
+  | 'timeout'                 // ✅ FIXED: was 'session_timeout'
+  | 'force_closed'            // ✅ FIXED: was 'force_close'
+  | 'weekend_protection'      // ✅ FIXED: was 'weekend_shutdown'
   | 'risk_limit'
-  | 'trailing_stop';
+  | 'trailing_stop'
+  | 'holiday_closure'
+  | 'market_closed';
 
 export interface CloseTradeRequest {
   tradeId: string;
@@ -400,10 +409,11 @@ class TradeClosureCoordinator {
     }
 
     // Determine transition based on close reason
-    const isManualClose = closeReason === 'manual' || closeReason === 'force_close';
+    // ✅ SSOT COMPLIANCE: Use database constraint values
+    const isManualClose = closeReason === 'manual' || closeReason === 'force_closed';
     const isSystemClose = closeReason === 'stop_loss' || closeReason === 'take_profit';
-    const isWeekendShutdown = closeReason === 'weekend_shutdown';
-    const isTimeout = closeReason === 'session_timeout';
+    const isWeekendShutdown = closeReason === 'weekend_protection';
+    const isTimeout = closeReason === 'timeout';
 
     let targetStatus: 'scanning' | 'stopped' | 'weekend_shutdown' | 'timeout' = 'stopped';
     let transitionReason = 'All execution channels empty';
@@ -472,7 +482,7 @@ class TradeClosureCoordinator {
       case 'take_profit':
         return 'take_profit_hit';
       case 'goal_achieved':
-      case 'goal_met':
+        // ✅ REMOVED: 'goal_met' (use 'goal_achieved' instead)
         return 'goal_achieved';
       default:
         return 'trade_closed';
@@ -486,13 +496,13 @@ class TradeClosureCoordinator {
       case 'take_profit':
         return 'Take Profit Hit!';
       case 'goal_achieved':
-      case 'goal_met':
+        // ✅ REMOVED: 'goal_met' (use 'goal_achieved' instead)
         return 'Goal Achieved!';
       case 'manual':
         return pnl >= 0 ? 'Trade Closed in Profit' : 'Trade Closed';
-      case 'session_timeout':
+      case 'timeout':  // ✅ FIXED: was 'session_timeout'
         return 'Session Timeout - Trade Closed';
-      case 'force_close':
+      case 'force_closed':  // ✅ FIXED: was 'force_close'
         return 'Trade Force Closed';
       default:
         return 'Trade Closed';
@@ -508,7 +518,7 @@ class TradeClosureCoordinator {
       case 'take_profit':
         return `${symbol} reached take profit! Result: ${pnlStr}`;
       case 'goal_achieved':
-      case 'goal_met':
+        // ✅ REMOVED: 'goal_met' (use 'goal_achieved' instead)
         return `${symbol} closed at goal achievement. Result: ${pnlStr}`;
       default:
         return `${symbol} closed. Result: ${pnlStr}`;

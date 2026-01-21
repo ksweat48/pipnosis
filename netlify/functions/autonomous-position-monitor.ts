@@ -187,14 +187,18 @@ async function executePositionClosure(
 ): Promise<boolean> {
   try {
     if (result.action === 'close_partial_50') {
-      // TP1 hit - partial close 50%
-      console.log(`[AutonomousMonitor] TP1 HIT for ${position.symbol}: Executing 50% partial close`);
+      // TP1 hit - Mark milestone flag ONLY (no position_size change)
+      // ✅ SSOT COMPLIANCE: TP1 is a milestone, not a partial close
+      // Position continues to TP2 for full closure
+      console.log(`[AutonomousMonitor] TP1 HIT for ${position.symbol}: Marking milestone (no partial close)`);
 
       const { error: updateError } = await supabase
         .from('goal_session_trades')
         .update({
           tp1_hit: true,
-          position_size: position.position_size * 0.5, // Reduce to 50%
+          tp1_hit_at: new Date().toISOString(),
+          // ✅ CRITICAL FIX: Removed position_size mutation
+          // All monitors must have consistent TP1 behavior
           updated_at: new Date().toISOString()
         })
         .eq('id', position.id);
@@ -204,7 +208,7 @@ async function executePositionClosure(
         return false;
       }
 
-      console.log(`[AutonomousMonitor] ✅ TP1 executed: Position ${position.id} reduced to 50%`);
+      console.log(`[AutonomousMonitor] ✅ TP1 milestone marked: Position ${position.id} continues to TP2`);
       return true;
 
     } else {
