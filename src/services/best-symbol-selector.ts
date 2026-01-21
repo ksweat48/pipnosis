@@ -8,6 +8,7 @@
 import type { SymbolSnapshot } from './multi-symbol-snapshot-builder';
 import type { AlphaDecision } from '../brains/coordinator-alpha';
 import { logger } from '../lib/logger';
+import { ALPHA_IDENTITY } from '../config/alpha-identity';
 
 export interface SymbolEvaluation {
   symbol: string;
@@ -59,6 +60,14 @@ class BestSymbolSelector {
         continue;
       }
 
+      // SSOT: Filter by minimum confidence threshold BEFORE scoring
+      // This prevents wasting scan cycles on unexecutable trades
+      // Alpha's decision authority is preserved - this is an efficiency filter, not a decision override
+      if (decision.confidence < ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE) {
+        console.log(`[Best Symbol Selector] ⚠️ ${snapshot.symbol}: Confidence ${decision.confidence}% below executable threshold ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}% - skipping`);
+        continue;
+      }
+
       const score = this.calculateSymbolScore(snapshot, decision);
       const reasoning = this.buildReasoning(snapshot, decision, score);
 
@@ -100,8 +109,8 @@ class BestSymbolSelector {
     console.log(`Total pairs evaluated: ${evaluations.length}`);
     console.log(`  • Executable (BUY/SELL): ${executableCount} pairs`);
     console.log(`  • Confidence range: ${confidenceRange}`);
-    console.log(`\n⚡ SELECTION LOGIC: Best opportunity execution`);
-    console.log(`   Highest confidence and best conditions win`);
+    console.log(`\n⚡ SELECTION LOGIC: Executable-first ranking`);
+    console.log(`   Filtered by ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%+ confidence, then highest score wins`);
     console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
 
     console.log(`[Best Symbol Selector] 🎯 SELECTED: ${best.symbol} (Score: ${best.overallScore.toFixed(2)}, Action: ${best.omegaDecision.action}, Confidence: ${best.omegaDecision.confidence}%)`);
