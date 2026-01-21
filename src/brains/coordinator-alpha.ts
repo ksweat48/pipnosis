@@ -971,13 +971,18 @@ class AlphaCoordinatorBrain {
     // Now receives resolved plan from feasibility resolver
     let omega9Constraints: Omega9Constraints | null = null;
     let constraintsText = '';
+
+    // SSOT: Declare tradeStyle at function scope for accessibility throughout decision process
+    // Default to resolvedPlan's style, or MICRO_INTRADAY as safe fallback
+    let tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = resolvedPlan?.style || 'MICRO_INTRADAY';
+
     if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED' && consensus.direction !== 'WAIT') {
       // Calculate actual current session context (NO hardcoded values)
       const sessionContext = calculateSessionContext();
       console.log(`[Alpha Coordinator] 📅 Session Context: ${sessionContext.sessionName} (${sessionContext.sessionTimeRemainingMinutes}min remaining)`);
 
-      // Get trade style from resolved plan OR time-based default (NOT risk-based)
-      const tradeStyle = resolvedPlan?.style || selectDefaultTradeStyle(
+      // Refine trade style with session context if needed (time-based, NOT risk-based)
+      tradeStyle = resolvedPlan?.style || selectDefaultTradeStyle(
         {
           session: sessionContext.sessionName,
           hours_until_close: sessionContext.sessionTimeRemainingMinutes / 60
