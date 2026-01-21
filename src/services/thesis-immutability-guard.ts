@@ -15,6 +15,35 @@ import { logger } from '../lib/logger';
 import { generateThesisHash } from './alpha-thesis-parser';
 
 /**
+ * Stable JSON stringification with sorted keys (SSOT for hashing)
+ * Ensures consistent hash generation regardless of object property order
+ *
+ * CRITICAL: Must match the implementation in alpha-thesis-parser.ts
+ */
+function stableStringify(obj: any): string {
+  if (obj === null || obj === undefined) {
+    return JSON.stringify(obj);
+  }
+
+  if (typeof obj !== 'object') {
+    return JSON.stringify(obj);
+  }
+
+  if (Array.isArray(obj)) {
+    return '[' + obj.map(item => stableStringify(item)).join(',') + ']';
+  }
+
+  // Sort object keys for deterministic ordering
+  const sortedKeys = Object.keys(obj).sort();
+  const pairs = sortedKeys.map(key => {
+    const value = stableStringify(obj[key]);
+    return `"${key}":${value}`;
+  });
+
+  return '{' + pairs.join(',') + '}';
+}
+
+/**
  * Freeze thesis object to prevent mutation
  * Uses Object.freeze() for runtime immutability
  */
@@ -151,8 +180,9 @@ export function validateNoExecutionData(thesis: AlphaMarketThesis): boolean {
 export function createImmutableThesis(
   thesis: Omit<AlphaMarketThesis, 'thesisHash'>
 ): Readonly<AlphaMarketThesis> {
-  // Generate thesis content hash
-  const thesisContent = JSON.stringify({
+  // Generate thesis content hash with stable stringification (SSOT compliance)
+  // Using stableStringify ensures consistent hashing regardless of property order
+  const thesisContent = stableStringify({
     symbol: thesis.symbol,
     timeframe: thesis.timeframe,
     directionBias: thesis.directionBias,
@@ -197,8 +227,9 @@ export function verifyCachedThesisIntegrity(
     };
   }
 
-  // Check hash integrity
-  const thesisContent = JSON.stringify({
+  // Check hash integrity with stable stringification (SSOT compliance)
+  // CRITICAL: Must use same stringification as createImmutableThesis for consistent hashing
+  const thesisContent = stableStringify({
     symbol: thesis.symbol,
     timeframe: thesis.timeframe,
     directionBias: thesis.directionBias,

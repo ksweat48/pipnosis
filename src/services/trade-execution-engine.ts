@@ -618,13 +618,30 @@ class TradeExecutionEngine {
 
     console.log('[Trade Execution] ✅ PCVL validation passed - proceeding with trade creation');
 
+    // 🛡️ SSOT FIX: Convert lot size to position_size for database storage (PENDING trade path)
+    // CRITICAL: roundedLotSize is in LOTS (0.01, 0.1, 1.0, etc.)
+    // Database position_size column expects scaled value based on asset class
+    // Delegate to SSOT helper to handle asset-class differences
+    console.log('[Trade Execution] 🔍 Position size conversion (PENDING):', {
+      symbol: signal.symbol,
+      inputLotSize: roundedLotSize,
+      path: 'PENDING trade insert'
+    });
+    const positionSizeForDb = convertLotToPositionSize(signal.symbol, roundedLotSize);
+    console.log('[Trade Execution] ✅ Position size conversion result:', {
+      positionSizeForDb,
+      constraint: 'Must be >= 0.001 AND <= 1000 for pending trades',
+      valid: positionSizeForDb >= 0.001 && positionSizeForDb <= 1000
+    });
+
     console.log('[Trade Execution] Creating pending trade:', {
       symbol: signal.symbol,
       direction: signal.direction,
       entry_price: signal.entryPrice,
       stop_loss: signal.stopLoss,
       take_profit: signal.takeProfit,
-      position_size: roundedLotSize
+      position_size: positionSizeForDb,
+      lot_size: roundedLotSize
     });
 
     const { data: trade, error } = await supabase
@@ -637,8 +654,8 @@ class TradeExecutionEngine {
         entry_price: signal.entryPrice,
         stop_loss: signal.stopLoss,
         take_profit: signal.takeProfit,
-        position_size: roundedLotSize,
-        lot_size: roundedLotSize,
+        position_size: positionSizeForDb,  // 🛡️ SSOT: Use converted value for database
+        lot_size: roundedLotSize,         // ✅ Lot size in standard format (0.01, 0.1, etc.)
         status: 'pending',
         playbook_id: activePlaybook?.id || null,
         regime_bucket: regimeBucket,

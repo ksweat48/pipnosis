@@ -1,7 +1,7 @@
 // Pipnosis PWA Service Worker
 // Enables installation and "Add to Home Screen" functionality
 
-const BUILD_VERSION = '1.0.0-mknl3ywt';
+const BUILD_VERSION = '1.0.0-mknlo2j4';
 const CACHE_NAME = `pipnosis-v${BUILD_VERSION}`;
 const STATIC_ASSETS = [
   '/',

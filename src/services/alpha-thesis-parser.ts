@@ -436,7 +436,39 @@ function extractStyle(text: string): string {
 }
 
 /**
+ * Stable JSON stringification with sorted keys (SSOT for hashing)
+ * Ensures consistent hash generation regardless of object property order
+ *
+ * CRITICAL: Database retrieval may reconstruct objects with different key order,
+ * causing hash mismatches even when content is identical. This function sorts
+ * keys recursively to guarantee deterministic serialization.
+ */
+function stableStringify(obj: any): string {
+  if (obj === null || obj === undefined) {
+    return JSON.stringify(obj);
+  }
+
+  if (typeof obj !== 'object') {
+    return JSON.stringify(obj);
+  }
+
+  if (Array.isArray(obj)) {
+    return '[' + obj.map(item => stableStringify(item)).join(',') + ']';
+  }
+
+  // Sort object keys for deterministic ordering
+  const sortedKeys = Object.keys(obj).sort();
+  const pairs = sortedKeys.map(key => {
+    const value = stableStringify(obj[key]);
+    return `"${key}":${value}`;
+  });
+
+  return '{' + pairs.join(',') + '}';
+}
+
+/**
  * Generate content hash for thesis immutability
+ * Uses stable stringification to prevent false cache invalidations
  */
 export function generateThesisHash(thesisContent: string): string {
   let hash = 0;
