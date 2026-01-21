@@ -3,11 +3,7 @@ import { forecastEngine, MarketConditions } from './forecast-engine';
 import { goalSessionManager } from './goal-session-manager';
 import { tradeExecutionEngine, type TradeSignal } from './trade-execution-engine';
 import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
-import { calculatePositionSize, getCurrencyPipInfo, calculatePipDistance, calculateDollarPerPip } from '../utils/currencyHelpers';
-import { getPositionSizeMultiplier } from '../config/risk-levels';
-import { positionSafetyValidator } from './position-safety-validator';
 import { getDefaultWatchlist } from '../config/watchlist';
-import { getRiskPercentage } from '../config/risk-levels';
 import { scanningStateMachine } from './scanning-state-machine';
 import { weekendProtectionService } from './weekend-protection-service';
 import { multiSymbolRanker, type SymbolScore } from './multi-symbol-ranker';
@@ -18,6 +14,13 @@ import type { TraderScore } from './ai-identity';
 import type { MarketSnapshotData } from './market-snapshot-cache';
 import { alphaThoughtStream } from './alpha-thought-stream';
 import { creditValidationService } from './credit-validation-service';
+
+/**
+ * ✅ SSOT COMPLIANCE: Removed position sizing imports
+ * Position sizing is now handled exclusively by ProfessionalRiskManager at execution layer
+ * Removed: calculatePositionSize, getCurrencyPipInfo, calculatePipDistance, calculateDollarPerPip,
+ *          getPositionSizeMultiplier, positionSafetyValidator, getRiskPercentage
+ */
 
 export interface SessionConfig {
   starting_balance: number;
@@ -802,11 +805,11 @@ class GoalScanner {
 
     const direction: 'buy' | 'sell' = scanResult.setupType?.toUpperCase().includes('SELL') ? 'sell' : 'buy';
 
-    // CRITICAL FIX: Use proper position sizing formula
-    const balance = sessionConfig.starting_balance || 10000;
-
     /**
-     * PHASE 2 TODO: This bypasses ProfessionalRiskManager's 7 layers of risk protection:
+     * ✅ SSOT COMPLIANCE FIX: Position sizing REMOVED from scanner
+     *
+     * Position sizing deferred to execution layer where ProfessionalRiskManager
+     * applies all 7 layers of risk protection:
      * - Kelly Criterion optimization
      * - EV Gating validation
      * - Volatility adjustments
@@ -815,91 +818,16 @@ class GoalScanner {
      * - Progressive risk scaling
      * - PCVL validation
      *
-     * Scanner should either:
-     * 1. Use ProfessionalRiskManager.evaluateTrade() for accurate position sizing, OR
-     * 2. Defer position sizing to execution layer (recommended)
-     *
-     * For now, using getRiskPercentage() for estimation only.
+     * Scanner's job: Identify trade opportunities
+     * Execution layer's job: Size positions with full risk context
      */
-    const riskPercent = getRiskPercentage(sessionConfig.risk_mode);
-
-    // Calculate position size using CORRECT formula (estimation - actual sizing happens at execution)
-    let positionSize = calculatePositionSize(
-      scanResult.symbol,
-      balance,
-      riskPercent,
-      scanResult.entry!,
-      scanResult.stopLoss!
-    );
-
-    // Get pip info for validation
-    const pipInfo = getCurrencyPipInfo(scanResult.symbol);
-    const stopDistancePips = calculatePipDistance(
-      scanResult.symbol,
-      scanResult.entry!,
-      scanResult.stopLoss!
-    );
-
-    // SAFETY VALIDATION: Run through position safety validator
-    const safetyResult = positionSafetyValidator.validatePosition(
-      positionSize,
-      scanResult.entry!,
-      scanResult.stopLoss!,
-      balance,
-      [], // No other open trades in scanner context
-      scanResult.symbol,
-      pipInfo.pipValue,
-      pipInfo.dollarPerPipPerLot
-    );
-
-    if (!safetyResult.isValid) {
-      console.error('[Goal Scanner] 🚨 SAFETY VIOLATION - Trade blocked:');
-      safetyResult.violations.forEach(v => console.error(`  ${v}`));
-      return null;
-    }
-
-    // Use adjusted position size if safety validator changed it
-    if (safetyResult.adjustedPositionSize) {
-      positionSize = safetyResult.adjustedPositionSize;
-      console.warn('[Goal Scanner] ⚠️  Position size adjusted by safety validator');
-      safetyResult.safetyAdjustments.forEach(adj => console.warn(`  ${adj}`));
-    }
-
-    // Apply risk mode position size multiplier
-    const positionSizeMultiplier = getPositionSizeMultiplier(sessionConfig.risk_mode);
-    const positionSizeBeforeMultiplier = positionSize;
-    positionSize = positionSize * positionSizeMultiplier;
-    console.log(`[Goal Scanner] 📊 Risk mode position sizing: ${sessionConfig.risk_mode} (${positionSizeMultiplier}x) | ${positionSizeBeforeMultiplier.toFixed(3)} → ${positionSize.toFixed(3)} lots`);
-
-    // Calculate actual dollar risk
-    const dollarPerPip = calculateDollarPerPip(scanResult.symbol, positionSize);
-    const actualRiskDollars = stopDistancePips * dollarPerPip;
-    const actualRiskPercent = (actualRiskDollars / balance) * 100;
-
-    // SANITY CHECK: Block if risk exceeds hard limit
-    if (actualRiskPercent > 5.5) {
-      console.error('[Goal Scanner] 🚨 HARD BLOCK: Risk exceeds 5.5% maximum');
-      console.error(`  Calculated Risk: ${actualRiskPercent.toFixed(2)}% ($${actualRiskDollars.toFixed(2)})`);
-      console.error(`  Position Size: ${positionSize.toFixed(3)} lots`);
-      console.error(`  Stop Distance: ${stopDistancePips.toFixed(1)} pips`);
-      console.error(`  Dollar Per Pip: $${dollarPerPip.toFixed(2)}`);
-      return null;
-    }
-
-    // Log position details
-    console.log('[Goal Scanner] 💰 Position Sizing Details:');
-    console.log(`  Symbol: ${scanResult.symbol} (${pipInfo.symbolType})`);
-    console.log(`  Account Balance: $${balance.toFixed(2)}`);
-    console.log(`  Risk Mode: ${sessionConfig.risk_mode} (${riskPercent}%)`);
-    console.log(`  Target Risk: $${(balance * riskPercent / 100).toFixed(2)}`);
-    console.log(`  Stop Distance: ${stopDistancePips.toFixed(1)} pips`);
-    console.log(`  Position Size: ${positionSize.toFixed(3)} lots`);
-    console.log(`  Dollar Per Pip: $${dollarPerPip.toFixed(2)}`);
-    console.log(`  Actual Risk: $${actualRiskDollars.toFixed(2)} (${actualRiskPercent.toFixed(2)}%)`);
-
     const stopDistance = Math.abs(scanResult.entry! - scanResult.stopLoss!);
     const riskReward = Math.abs(scanResult.takeProfit! - scanResult.entry!) / stopDistance;
-    const expectedProfit = Math.abs(scanResult.takeProfit! - scanResult.entry!) * dollarPerPip;
+
+    console.log('[Goal Scanner] ✅ Position sizing deferred to ProfessionalRiskManager');
+    console.log(`  Symbol: ${scanResult.symbol}`);
+    console.log(`  R:R Ratio: ${riskReward.toFixed(2)}:1`);
+    console.log(`  Risk mode: ${sessionConfig.risk_mode}`);
 
     return {
       signal: {
@@ -909,12 +837,12 @@ class GoalScanner {
         entryPrice: scanResult.entry!,
         stopLoss: scanResult.stopLoss!,
         takeProfit: scanResult.takeProfit!,
-        positionSize,
+        positionSize: 0, // ✅ PLACEHOLDER: Actual sizing at execution via ProfessionalRiskManager
         confidence: scanResult.confidence!,
         setupType: scanResult.setupType!,
         reasoning: scanResult.reasoning!,
         riskReward,
-        expectedProfit: Math.abs(expectedProfit),
+        expectedProfit: 0, // ✅ PLACEHOLDER: Calculated with actual position size at execution
         // SSOT Snapshot metadata (Issue #2 fix) - passed from scanResult
         snapshotTimestamp: scanResult.snapshotTimestamp || Date.now(),
         snapshotPrice: scanResult.snapshotPrice || scanResult.entry!,
