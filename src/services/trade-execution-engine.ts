@@ -921,7 +921,17 @@ class TradeExecutionEngine {
     // CRITICAL: signal.positionSize is in LOTS (0.01, 0.1, 1.0, etc.)
     // Database position_size column expects scaled integer (lots × 100)
     // Delegate to SSOT helper to handle asset-class differences
+    console.log('[Trade Execution] 🔍 Position size conversion:', {
+      symbol: signal.symbol,
+      inputLotSize: signal.positionSize,
+      conversionFormula: 'lotSize × 100'
+    });
     const positionSizeForDb = convertLotToPositionSize(signal.symbol, signal.positionSize);
+    console.log('[Trade Execution] ✅ Position size conversion result:', {
+      positionSizeForDb,
+      constraint: 'Must be >= 0.001 AND <= 1000 for open trades',
+      valid: positionSizeForDb >= 0.001 && positionSizeForDb <= 1000
+    });
 
     const tradeData = {
       goal_session_id: signal.sessionId,
@@ -972,6 +982,24 @@ class TradeExecutionEngine {
       position_size: tradeData.position_size,
       status: tradeData.status
     });
+
+    // 🛡️ CCIP: Defensive validation before database insertion
+    if (!tradeData.user_id || tradeData.user_id === 'undefined') {
+      const validationError = new Error('[Trade Execution] ❌ CRITICAL: userId is undefined or invalid');
+      console.error(validationError.message, { userId: tradeData.user_id });
+      throw validationError;
+    }
+
+    if (tradeData.position_size < 0.001 || tradeData.position_size > 1000) {
+      const validationError = new Error('[Trade Execution] ❌ CRITICAL: position_size out of valid range');
+      console.error(validationError.message, {
+        position_size: tradeData.position_size,
+        constraint: '0.001 <= position_size <= 1000',
+        lotSize: signal.positionSize,
+        symbol: signal.symbol
+      });
+      throw validationError;
+    }
 
     const { data: trade, error } = await supabase
       .from('goal_session_trades')

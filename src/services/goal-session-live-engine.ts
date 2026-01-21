@@ -1207,7 +1207,7 @@ class GoalSessionLiveEngine {
       }
 
       const riskAssessment = await professionalRiskManager.evaluateTrade({
-        userId: this.userId!,
+        userId: this.config!.userId,
         symbol: selectedSymbol,
         direction: decision.action === 'BUY' ? 'long' : 'short',
         currentBalance: config.initialBalance,
