@@ -45,9 +45,10 @@ import { PushNotificationTester } from '@/components/admin/PushNotificationTeste
 import { WebSocketStatusPanel } from '@/components/admin/WebSocketStatusPanel';
 import { SSOTViolationDashboard } from '@/components/admin/SSOTViolationDashboard';
 import { GovernanceAlertCenter } from '@/components/admin/GovernanceAlertCenter';
+import { ComplianceDashboard } from '@/components/admin/ComplianceDashboard';
 import { userFeedbackService } from '@/services/user-feedback-service';
 
-type AdminTab = 'overview' | 'data' | 'cache' | 'api-usage' | 'users' | 'feedback' | 'push-notifications' | 'ssot-violations' | 'governance-alerts';
+type AdminTab = 'overview' | 'data' | 'cache' | 'api-usage' | 'users' | 'feedback' | 'push-notifications' | 'ssot-violations' | 'governance-alerts' | 'compliance';
 
 interface AIMetrics {
   skillLevel: number;
@@ -389,6 +390,18 @@ export function AdminDashboard() {
             <Bell size={16} className="sm:w-[18px] sm:h-[18px]" />
             <span className="hidden sm:inline">Alerts</span>
             <span className="sm:hidden">Alerts</span>
+          </button>
+          <button
+            onClick={() => handleTabChange('compliance')}
+            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
+              activeTab === 'compliance'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            <CheckCircle size={16} className="sm:w-[18px] sm:h-[18px]" />
+            <span className="hidden sm:inline">Compliance</span>
+            <span className="sm:hidden">Score</span>
           </button>
         </div>
 
@@ -762,6 +775,12 @@ export function AdminDashboard() {
         {activeTab === 'governance-alerts' && (
           <div className="space-y-6">
             <GovernanceAlertCenter />
+          </div>
+        )}
+
+        {activeTab === 'compliance' && (
+          <div className="space-y-6">
+            <ComplianceDashboard />
           </div>
         )}
       </main>
