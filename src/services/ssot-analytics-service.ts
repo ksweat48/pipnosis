@@ -54,29 +54,45 @@ class SSOTAnalyticsService {
   }
 
   /**
+   * Determine if violation is a protective block (good) or actual bug (bad)
+   *
+   * Protective blocks = System correctly preventing bad trades
+   * Actual bugs = LLM hallucinations or system errors that need fixing
+   */
+  private isProtectiveBlock(violationType: string): boolean {
+    const protectiveBlocks = [
+      'ALPHA_CONSTRAINT_VIOLATION_UNRESOLVED', // System preventing unprofessional R:R
+      'EXECUTION_VALIDATION_FAILED', // ValidationGateway catching bad params
+      'PRICE_FRESHNESS_BYPASS', // Freshness gate protecting against stale data
+    ];
+    return protectiveBlocks.includes(violationType);
+  }
+
+  private isActualBug(violationType: string): boolean {
+    const actualBugs = [
+      'ALPHA_TP_WRONG_SIDE', // Alpha hallucinated wrong geometry
+      'ALPHA_SL_WRONG_SIDE', // Alpha hallucinated wrong geometry
+      'VALIDATION_GATEWAY_BYPASSED', // Something bypassed safety
+      'POSITION_SIZE_MISMATCH', // Calculation error
+    ];
+    return actualBugs.includes(violationType);
+  }
+
+  /**
    * Get severity for a violation type
    */
   private getSeverity(violationType: string): 'critical' | 'warning' | 'info' {
-    const criticalViolations = [
-      'POSITION_SIZE_MISMATCH',
-      'ALPHA_CONSTRAINT_VIOLATION_UNRESOLVED',
-      'VALIDATION_GATEWAY_BYPASSED',
-      'PRICE_FRESHNESS_BYPASS',
-      'ALPHA_TP_WRONG_SIDE',
-      'ALPHA_SL_WRONG_SIDE'
-    ];
-
-    const warningViolations = [
-      'EXECUTION_VALIDATION_FAILED',
-      'DUPLICATE_LOGIC_DETECTED',
-      'DEPRECATED_PATTERN_USED'
-    ];
-
-    if (criticalViolations.includes(violationType)) {
+    // Actual bugs are critical (need prompt/code fixes)
+    if (this.isActualBug(violationType)) {
       return 'critical';
-    } else if (warningViolations.includes(violationType)) {
+    }
+
+    // Protective blocks are warnings (system working correctly)
+    if (this.isProtectiveBlock(violationType)) {
       return 'warning';
     }
+
+    // Everything else is info
     return 'info';
   }
 
@@ -276,6 +292,10 @@ class SSOTAnalyticsService {
 
   /**
    * Get overall platform compliance score (0-100)
+   *
+   * UPDATED: Distinguishes between protective blocks (good) and actual bugs (bad)
+   * - Protective blocks: Minimal penalty (system working correctly)
+   * - Actual bugs: Heavy penalty (LLM hallucinations, system errors)
    */
   async getPlatformComplianceScore(): Promise<{
     score: number;
@@ -283,6 +303,8 @@ class SSOTAnalyticsService {
     criticalViolations: number;
     warningViolations: number;
     infoViolations: number;
+    protectiveBlocks: number;
+    actualBugs: number;
   }> {
     try {
       const sevenDaysAgo = new Date();
@@ -299,28 +321,41 @@ class SSOTAnalyticsService {
           totalViolations: 0,
           criticalViolations: 0,
           warningViolations: 0,
-          infoViolations: 0
+          infoViolations: 0,
+          protectiveBlocks: 0,
+          actualBugs: 0
         };
       }
 
       let criticalCount = 0;
       let warningCount = 0;
       let infoCount = 0;
+      let protectiveBlockCount = 0;
+      let actualBugCount = 0;
 
       data.forEach(v => {
         const severity = this.getSeverity(v.violation_type);
         if (severity === 'critical') criticalCount++;
         else if (severity === 'warning') warningCount++;
         else infoCount++;
+
+        if (this.isProtectiveBlock(v.violation_type)) protectiveBlockCount++;
+        if (this.isActualBug(v.violation_type)) actualBugCount++;
       });
 
-      // Score calculation: Start with 100, deduct for violations
-      // Critical: -10 points each
-      // Warning: -3 points each
+      // NEW SCORING: Differentiate protective blocks from bugs
+      // Actual bugs (critical): -15 points each (need fixing)
+      // Protective blocks (warning): -1 point each (system working)
+      // Other warnings: -3 points each
       // Info: -1 point each
+      const actualBugPenalty = actualBugCount * 15;
+      const protectiveBlockPenalty = protectiveBlockCount * 1;
+      const otherWarningPenalty = (warningCount - protectiveBlockCount) * 3;
+      const infoPenalty = infoCount * 1;
+
       const score = Math.max(
         0,
-        100 - (criticalCount * 10) - (warningCount * 3) - infoCount
+        100 - actualBugPenalty - protectiveBlockPenalty - otherWarningPenalty - infoPenalty
       );
 
       return {
@@ -328,7 +363,9 @@ class SSOTAnalyticsService {
         totalViolations: data.length,
         criticalViolations: criticalCount,
         warningViolations: warningCount,
-        infoViolations: infoCount
+        infoViolations: infoCount,
+        protectiveBlocks: protectiveBlockCount,
+        actualBugs: actualBugCount
       };
     } catch (error) {
       logger.error(LogCategory.SYSTEM, '[SSOT Analytics] Error in getPlatformComplianceScore', error);
@@ -337,7 +374,9 @@ class SSOTAnalyticsService {
         totalViolations: 0,
         criticalViolations: 0,
         warningViolations: 0,
-        infoViolations: 0
+        infoViolations: 0,
+        protectiveBlocks: 0,
+        actualBugs: 0
       };
     }
   }
@@ -394,6 +433,67 @@ class SSOTAnalyticsService {
       logger.error(LogCategory.SYSTEM, '[SSOT Analytics] Error in getViolationDetails', error);
       return null;
     }
+  }
+
+  /**
+   * Get human-readable description for violation type
+   */
+  getViolationDescription(violationType: string): {
+    title: string;
+    description: string;
+    category: 'protective' | 'bug' | 'other';
+  } {
+    if (this.isProtectiveBlock(violationType)) {
+      const descriptions: Record<string, { title: string; description: string }> = {
+        'ALPHA_CONSTRAINT_VIOLATION_UNRESOLVED': {
+          title: 'Professional Risk Protection',
+          description: 'System prevented trade with unprofessional R:R or infeasible constraints. Alpha declined revision.'
+        },
+        'EXECUTION_VALIDATION_FAILED': {
+          title: 'Validation Gateway Protection',
+          description: 'Trade execution blocked due to missing validation. Safety net working correctly.'
+        },
+        'PRICE_FRESHNESS_BYPASS': {
+          title: 'Stale Data Protection',
+          description: 'System blocked execution using stale price data. Data integrity check working.'
+        }
+      };
+      return {
+        category: 'protective',
+        ...(descriptions[violationType] || { title: 'System Protection', description: 'Protective block active' })
+      };
+    }
+
+    if (this.isActualBug(violationType)) {
+      const descriptions: Record<string, { title: string; description: string }> = {
+        'ALPHA_TP_WRONG_SIDE': {
+          title: 'Alpha Geometry Hallucination (TP)',
+          description: 'Alpha placed Take Profit on wrong side of entry. Prompt engineering fix needed.'
+        },
+        'ALPHA_SL_WRONG_SIDE': {
+          title: 'Alpha Geometry Hallucination (SL)',
+          description: 'Alpha placed Stop Loss on wrong side of entry. Prompt engineering fix needed.'
+        },
+        'VALIDATION_GATEWAY_BYPASSED': {
+          title: 'Safety Bypass Detected',
+          description: 'Code bypassed ValidationGateway. Architecture violation - needs immediate fix.'
+        },
+        'POSITION_SIZE_MISMATCH': {
+          title: 'Position Sizing Error',
+          description: 'Position size calculation mismatch detected. Math error needs correction.'
+        }
+      };
+      return {
+        category: 'bug',
+        ...(descriptions[violationType] || { title: 'System Error', description: 'Bug requiring fix' })
+      };
+    }
+
+    return {
+      category: 'other',
+      title: violationType.replace(/_/g, ' '),
+      description: 'Informational event'
+    };
   }
 }
 

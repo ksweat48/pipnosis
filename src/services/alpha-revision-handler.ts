@@ -254,7 +254,11 @@ class AlphaRevisionHandler {
       .map((s, i) => `${i + 1}. ${s}`)
       .join('\n');
 
-    return `You made a trading decision that violates professional constraints.
+    return `CONSTRAINT VIOLATION DETECTED - Revision Opportunity
+
+You proposed a trade that violates professional risk management constraints.
+These constraints exist to protect against unprofessional trades and are
+calibrated based on ATR, session feasibility, and market volatility.
 
 ORIGINAL DECISION:
 Action: ${originalDecision.action}
@@ -264,35 +268,58 @@ Take-Profit: ${originalDecision.takeProfit}
 Confidence: ${originalDecision.confidence}%
 Reasoning: ${originalDecision.reasoning}
 
-CONSTRAINT VIOLATIONS:
+PROFESSIONAL CONSTRAINT VIOLATIONS:
 ${violationSummary}
 
-SUGGESTED ADJUSTMENTS:
+WHY THESE CONSTRAINTS EXIST:
+• Stop Loss ranges ensure survival through normal market noise
+• Take Profit ranges are session-feasible (based on time remaining)
+• R:R requirements maintain professional edge standards
+• Constraints adapt to volatility, ATR, and market conditions
+
+SUGGESTED ADJUSTMENTS (High Success Path):
 ${suggestionSummary}
 
-CONSTRAINTS YOU MUST WORK WITHIN:
-• SL Range: ${constraints.minStopLossPips.toFixed(1)} - ${constraints.maxStopLossPips.toFixed(1)} pips
-• TP Range: ${constraints.minTakeProfitPips.toFixed(1)} - ${constraints.maxTakeProfitPips.toFixed(1)} pips (minimum for R:R ≥ 1.0)
+CONSTRAINT BOUNDARIES:
+• SL Range: ${constraints.minStopLossPips.toFixed(1)} - ${constraints.maxStopLossPips.toFixed(1)} pips (ATR-based, noise floor-aware)
+• TP Range: ${constraints.minTakeProfitPips.toFixed(1)} - ${constraints.maxTakeProfitPips.toFixed(1)} pips (session-feasible distance)
 • Minimum R:R: ${constraints.minRiskReward}:1 (professional standard)
+• Noise Floor: ${constraints.noiseFloorPips.toFixed(1)} pips (${constraints.noiseFloorReasoning})
 
-This is your ONE REVISION OPPORTUNITY. Adjust your SL/TP to meet constraints, or stand by your original decision with strong justification.
+THIS IS YOUR ONE REVISION OPPORTUNITY:
+
+Option 1 (RECOMMENDED): Accept constraints and adjust SL/TP
+- Demonstrates professional discipline
+- Trade proceeds with optimized parameters
+- Respects market reality (ATR, session time, volatility)
+
+Option 2: Stand firm with strong statistical justification
+- Requires compelling evidence why constraints don't apply
+- Trade may be blocked if justification insufficient
+- Use ONLY when constraints genuinely conflict with edge
+
+CRITICAL: If you revise, ensure geometry is correct:
+- BUY: SL < Entry < TP
+- SELL: TP < Entry < SL
 
 Return JSON:
 {
   "revised": true|false,
   "revisedDecision": {
     "action": "${originalDecision.action}",
-    "entry": number,
+    "entry": ${originalDecision.entry},
     "stopLoss": number,
     "takeProfit": number,
     "confidence": 0-100,
-    "reasoning": "explain your adjustment or why you're keeping original"
+    "reasoning": "explain adjustment OR why constraints don't apply to this setup"
   },
-  "revisionReasoning": "brief explanation",
-  "acceptedConstraints": ["which constraints you accepted"]
+  "revisionReasoning": "why you accepted constraints OR why you're declining",
+  "acceptedConstraints": ["constraint names you accepted"] or []
 }
 
-If you choose NOT to revise (revised: false), your original decision will proceed but may be auto-corrected.`;
+If you choose NOT to revise (revised: false), the trade will be BLOCKED to prevent
+unprofessional risk management. Only decline if constraints are genuinely incompatible
+with your statistical edge.`;
   }
 
   /**
