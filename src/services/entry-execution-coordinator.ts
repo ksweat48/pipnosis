@@ -315,6 +315,12 @@ export class EntryExecutionCoordinator {
       logger.info(`  Kelly Edge: ${riskAssessment.detailedBreakdown.kelly.edgeStrength}`);
       logger.info(`  EV: ${riskAssessment.detailedBreakdown.evGate.expectedValue.toFixed(1)} pips/trade`);
 
+      // 🛡️ SSOT: Convert lot size to position_size for database storage
+      // CRITICAL FIX: This prevents constraint violations when inserting trades
+      const { convertLotToPositionSize } = await import('../utils/currencyHelpers');
+      const positionSizeForDb = convertLotToPositionSize(intent.symbol, lotSize);
+      logger.info(`[Entry Execution] Position size conversion: ${lotSize} lots → ${positionSizeForDb} for database`);
+
       // CRITICAL: Convert direction from 'long'/'short' to 'BUY'/'SELL' for database using SSOT converter
       const tradeDirection = toDirectionDB(intent.direction);
       console.log(`[Entry Execution] Direction converted: ${intent.direction} → ${tradeDirection}`);
@@ -327,8 +333,8 @@ export class EntryExecutionCoordinator {
         entry_price: actualEntryPrice,
         stop_loss: adjustedStopLoss,
         take_profit: adjustedTakeProfit, // Legacy field for backward compatibility
-        position_size: lotSize,
-        lot_size: lotSize,
+        position_size: positionSizeForDb,  // ✅ SSOT: Converted value complies with constraint
+        lot_size: lotSize,  // ✅ Standard lot format for trading
         tp1_price: tp1Price,
         tp1_confidence: tp1Confidence,
         tp1_reasoning: tp1Reasoning,
