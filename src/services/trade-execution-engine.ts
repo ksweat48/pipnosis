@@ -618,19 +618,13 @@ class TradeExecutionEngine {
 
     console.log('[Trade Execution] ✅ PCVL validation passed - proceeding with trade creation');
 
-    // 🛡️ SSOT FIX: Convert lot size to position_size for database storage (PENDING trade path)
-    // CRITICAL: roundedLotSize is in LOTS (0.01, 0.1, 1.0, etc.)
-    // Database position_size column expects scaled value based on asset class
-    // Delegate to SSOT helper to handle asset-class differences
-    console.log('[Trade Execution] 🔍 Position size conversion (PENDING):', {
-      symbol: signal.symbol,
-      inputLotSize: roundedLotSize,
-      path: 'PENDING trade insert'
-    });
-    const positionSizeForDb = convertLotToPositionSize(signal.symbol, roundedLotSize);
-    console.log('[Trade Execution] ✅ Position size conversion result:', {
-      positionSizeForDb,
-      constraint: 'Must be >= 0.001 AND <= 1000 for pending trades',
+    // 🛡️ SSOT: Store lot size directly as position_size (PENDING trade path)
+    // Database position_size column stores lot values (0.001-1000 range)
+    // No conversion needed - lot size is the position size
+    const positionSizeForDb = roundedLotSize;
+    console.log('[Trade Execution] ✅ Position size validation (PENDING):', {
+      positionSize: positionSizeForDb,
+      constraint: 'Lot size must be >= 0.001 AND <= 1000 for pending trades',
       valid: positionSizeForDb >= 0.001 && positionSizeForDb <= 1000
     });
 
@@ -654,8 +648,8 @@ class TradeExecutionEngine {
         entry_price: signal.entryPrice,
         stop_loss: signal.stopLoss,
         take_profit: signal.takeProfit,
-        position_size: positionSizeForDb,  // 🛡️ SSOT: Use converted value for database
-        lot_size: roundedLotSize,         // ✅ Lot size in standard format (0.01, 0.1, etc.)
+        position_size: positionSizeForDb,  // 🛡️ SSOT: Lot size stored directly (0.001-1000 range)
+        lot_size: roundedLotSize,         // ✅ Same value - lot size in standard format (0.01, 0.1, etc.)
         status: 'pending',
         playbook_id: activePlaybook?.id || null,
         regime_bucket: regimeBucket,
@@ -933,20 +927,13 @@ class TradeExecutionEngine {
     const tradeDirection = toDirectionDB(signal.direction);
     console.log(`[Trade Execution] Direction converted: ${signal.direction} → ${tradeDirection}`);
 
-    // Insert trade with all required fields populated (using adjusted SL/TP)
-    // 🛡️ SSOT: Convert lot size to position_size for database storage
-    // CRITICAL: signal.positionSize is in LOTS (0.01, 0.1, 1.0, etc.)
-    // Database position_size column expects scaled integer (lots × 100)
-    // Delegate to SSOT helper to handle asset-class differences
-    console.log('[Trade Execution] 🔍 Position size conversion:', {
-      symbol: signal.symbol,
-      inputLotSize: signal.positionSize,
-      conversionFormula: 'lotSize × 100'
-    });
-    const positionSizeForDb = convertLotToPositionSize(signal.symbol, signal.positionSize);
-    console.log('[Trade Execution] ✅ Position size conversion result:', {
-      positionSizeForDb,
-      constraint: 'Must be >= 0.001 AND <= 1000 for open trades',
+    // 🛡️ SSOT: Store lot size directly as position_size (OPEN trade path)
+    // Database position_size column stores lot values (0.001-1000 range)
+    // No conversion needed - lot size is the position size
+    const positionSizeForDb = signal.positionSize;
+    console.log('[Trade Execution] ✅ Position size validation (OPEN):', {
+      positionSize: positionSizeForDb,
+      constraint: 'Lot size must be >= 0.001 AND <= 1000 for open trades',
       valid: positionSizeForDb >= 0.001 && positionSizeForDb <= 1000
     });
 
@@ -958,8 +945,8 @@ class TradeExecutionEngine {
       entry_price: actualEntryPrice,
       stop_loss: adjustedSL,
       take_profit: adjustedTP,
-      position_size: positionSizeForDb,  // 🛡️ SSOT: Use converted value for database
-      lot_size: signal.positionSize,     // ✅ Lot size in standard format (0.01, 0.1, etc.)
+      position_size: positionSizeForDb,  // 🛡️ SSOT: Lot size stored directly (0.001-1000 range)
+      lot_size: signal.positionSize,     // ✅ Same value - lot size in standard format (0.01, 0.1, etc.)
       status: 'open',
       order_type: 'market' as const,
       current_price: actualEntryPrice,
