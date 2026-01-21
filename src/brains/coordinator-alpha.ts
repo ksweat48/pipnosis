@@ -108,6 +108,7 @@ import { sharedIntelligenceCoordinator } from '../services/shared-intelligence-c
 import { extractRegimeSignature } from '../services/regime-signature-extractor';
 import { parseStructuredAlphaResponse } from '../services/alpha-thesis-parser';
 import type { AlphaMarketThesis, RegimeSignature } from '../types/alpha-thesis';
+import { m5SwingAnalyzer, type M5SwingContext } from '../services/m5-swing-analyzer';
 
 /**
  * Helper: Determine asset class from symbol
@@ -1297,8 +1298,56 @@ Only accept if the thesis is still valid. Be conservative.
       cachedThesis = null;
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // M5 SCALP CONTEXT (ADVISORY - ONLY FOR SCALP STYLE)
+    // ═══════════════════════════════════════════════════════════════════
+    let m5ContextPrompt = '';
+    if (getDisplayNameFromStyle(tradeStyle) === 'SCALP') {
+      try {
+        const m5Context = await m5SwingAnalyzer.getRecentSwings(
+          marketContext.symbol,
+          50
+        );
+
+        m5ContextPrompt = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 M5 SCALP CONTEXT (${marketContext.symbol}) - ADVISORY GUIDANCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+You are trading M5 price action. Use this context to inform your TP/SL decisions:
+
+M5 Statistics (Recent Behavior):
+• Avg M5 Swing: ${m5Context.avgSwingPips} pips
+• Recent M5 Swings: ${m5Context.recentSwings.join(', ')} pips
+• Current M5 Progress: ${(m5Context.currentSwingProgress * 100).toFixed(0)}% through typical swing
+• M5 ATR: ${m5Context.m5ATR} pips (baseline stop size)
+
+Session Context:
+• Session: ${m5Context.session}
+• Typical ${m5Context.session} M5 Range: ${m5Context.sessionTypicalRange}
+
+Reference Ranges (GUIDANCE, not limits):
+• Suggested TP Range: ${m5Context.suggestedTPRange[0]}-${m5Context.suggestedTPRange[1]} pips
+• Suggested SL Range: ${m5Context.suggestedSLRange[0]}-${m5Context.suggestedSLRange[1]} pips
+
+IMPORTANT REMINDERS:
+- These are REFERENCE RANGES based on recent M5 behavior
+- You have FULL AUTHORITY to exceed them with justification
+- Think in M5 terms: target ONE M5 leg, not H1 pools
+- If you exceed typical M5 range (>60 pips TP), explain why
+- EQS may be adjusted for unusual ranges (soft penalty, not block)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+        console.log(`[Alpha Coordinator] 📊 M5 Context: ${m5Context.avgSwingPips} pip avg, ${m5Context.session} session`);
+      } catch (error) {
+        console.warn('[Alpha Coordinator] ⚠️ Failed to fetch M5 context:', error);
+        // Non-blocking - continue without M5 context
+      }
+    }
+
     const prompt = `${getAlphaSystemPrompt()}
 ${cachedThesisPrompt}
+${m5ContextPrompt}
 
 🎯 CORE MANDATE (PROFESSIONAL SNIPER MODE)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -51,6 +51,20 @@ export interface StylePersonality {
     belowBandBonus: number;
     exceedsBandPenalty: number;
   };
+  referenceRanges?: {
+    primaryTimeframe: 'M5' | 'M15' | 'H1' | 'H4';
+    atrTimeframe: 'M5' | 'M15' | 'H1' | 'H4';
+    typicalTPPips: { low: number; mid: number; high: number };
+    typicalSLPips: { low: number; mid: number; high: number };
+    sessionAdjustment: boolean;
+  };
+  eqsAdjustments?: {
+    tpWithinRange: number;
+    tpExceedsTypical: number;
+    slWithinRange: number;
+    slExceedsTypical: number;
+    slTooTight: number;
+  };
 }
 
 export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
@@ -84,6 +98,20 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
       belowBandBonus: 10,
       exceedsBandPenalty: 0,
     },
+    referenceRanges: {
+      primaryTimeframe: 'M5',
+      atrTimeframe: 'M5',
+      typicalTPPips: { low: 20, mid: 35, high: 50 },
+      typicalSLPips: { low: 10, mid: 14, high: 18 },
+      sessionAdjustment: true,
+    },
+    eqsAdjustments: {
+      tpWithinRange: 3,
+      tpExceedsTypical: -5,
+      slWithinRange: 2,
+      slExceedsTypical: -3,
+      slTooTight: -4,
+    },
   },
 
   MICRO_INTRADAY: {
@@ -116,6 +144,20 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
       belowBandBonus: 8,
       exceedsBandPenalty: 0,
     },
+    referenceRanges: {
+      primaryTimeframe: 'M15',
+      atrTimeframe: 'M15',
+      typicalTPPips: { low: 50, mid: 80, high: 120 },
+      typicalSLPips: { low: 20, mid: 28, high: 35 },
+      sessionAdjustment: true,
+    },
+    eqsAdjustments: {
+      tpWithinRange: 3,
+      tpExceedsTypical: -4,
+      slWithinRange: 2,
+      slExceedsTypical: -3,
+      slTooTight: -3,
+    },
   },
 
   INTRADAY: {
@@ -147,6 +189,20 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
       withinBandBonus: 5,
       belowBandBonus: 5,
       exceedsBandPenalty: -5,
+    },
+    referenceRanges: {
+      primaryTimeframe: 'H1',
+      atrTimeframe: 'H1',
+      typicalTPPips: { low: 100, mid: 150, high: 200 },
+      typicalSLPips: { low: 35, mid: 48, high: 60 },
+      sessionAdjustment: false,
+    },
+    eqsAdjustments: {
+      tpWithinRange: 2,
+      tpExceedsTypical: -3,
+      slWithinRange: 2,
+      slExceedsTypical: -2,
+      slTooTight: -2,
     },
   },
 } as const;

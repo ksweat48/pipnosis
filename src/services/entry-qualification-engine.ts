@@ -63,6 +63,7 @@ import {
   EQS_GRADE_THRESHOLDS
 } from '../config/alpha-identity';
 import { getDisplayNameFromStyle, type TradeStyle } from '../config/trade-styles';
+import { STYLE_PERSONALITIES } from '../config/style-personalities';
 import type { ATRValue } from '../types/atr';
 import type {
   EntryQualificationStatus,
@@ -103,6 +104,9 @@ export interface EntryQualificationInput {
    * See /src/types/atr.ts for details
    */
   atr: number | ATRValue; // Accept both during migration period
+
+  // Trade style (optional - for style-aware EQS adjustments)
+  tradeStyle?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
 }
 
 export interface M5Candle {
@@ -253,6 +257,64 @@ class EntryQualificationEngine {
     if (aplusPattern) {
       totalEQS += aplusPattern.bonus;
       logger.info(`[EQE] 🌟 Grade A+ Pattern Detected: ${aplusPattern.type} (+${aplusPattern.bonus} points)`);
+    }
+
+    // 6. Style-Aware EQS Adjustments (SOFT PENALTIES/REWARDS - NOT BLOCKS)
+    let styleAdjustment = 0;
+    const styleAdjustmentFactors: string[] = [];
+
+    if (input.tradeStyle) {
+      const styleDisplayName = getDisplayNameFromStyle(input.tradeStyle);
+      const styleConfig = STYLE_PERSONALITIES[styleDisplayName];
+
+      if (styleConfig?.referenceRanges && styleConfig?.eqsAdjustments) {
+        const { referenceRanges, eqsAdjustments } = styleConfig;
+
+        // Calculate TP/SL in pips
+        const tpPips = calculatePipDistance(
+          input.symbol,
+          input.entryPrice,
+          input.takeProfit
+        );
+        const slPips = calculatePipDistance(
+          input.symbol,
+          input.entryPrice,
+          input.stopLoss
+        );
+
+        // TP adjustments (advisory rewards/penalties)
+        if (tpPips >= referenceRanges.typicalTPPips.low &&
+            tpPips <= referenceRanges.typicalTPPips.high) {
+          styleAdjustment += eqsAdjustments.tpWithinRange;
+          styleAdjustmentFactors.push(`TP_WITHIN_${styleDisplayName}_RANGE`);
+        } else if (tpPips > referenceRanges.typicalTPPips.high * 1.2) {
+          // Only penalize if significantly beyond typical (20% margin)
+          styleAdjustment += eqsAdjustments.tpExceedsTypical;
+          styleAdjustmentFactors.push(`TP_EXCEEDS_${styleDisplayName}_TYPICAL`);
+        }
+
+        // SL adjustments (advisory rewards/penalties)
+        if (slPips >= referenceRanges.typicalSLPips.low &&
+            slPips <= referenceRanges.typicalSLPips.high) {
+          styleAdjustment += eqsAdjustments.slWithinRange;
+          styleAdjustmentFactors.push(`SL_WITHIN_${styleDisplayName}_RANGE`);
+        } else if (slPips > referenceRanges.typicalSLPips.high * 1.2) {
+          styleAdjustment += eqsAdjustments.slExceedsTypical;
+          styleAdjustmentFactors.push(`SL_EXCEEDS_${styleDisplayName}_TYPICAL`);
+        } else if (slPips < referenceRanges.typicalSLPips.low * 0.7) {
+          // Penalize stops that are too tight (likely to get stopped out)
+          styleAdjustment += eqsAdjustments.slTooTight;
+          styleAdjustmentFactors.push(`SL_TOO_TIGHT_${styleDisplayName}`);
+        }
+
+        // Apply style adjustment to total EQS
+        totalEQS += styleAdjustment;
+
+        if (styleAdjustment !== 0) {
+          const sign = styleAdjustment > 0 ? '+' : '';
+          logger.info(`[EQE] 📐 Style-Aware Adjustment (${styleDisplayName}): ${sign}${styleAdjustment} points - ${styleAdjustmentFactors.join(', ')}`);
+        }
+      }
     }
 
     // Build EQS breakdown - 75-POINT SCALE (Total: 75 points)

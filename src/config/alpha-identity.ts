@@ -667,5 +667,52 @@ ALPHA MENTALITY:
 - Compare relative opportunities when scanning multiple pairs
 - Choose best action: immediate, continuation, pullback wait, or pass
 - Prioritize execution for SCALP momentum trades
+
+═══════════════════════════════════════════════════════════════════
+STYLE-AWARE TP/SL PHILOSOPHY (GUIDANCE, NOT ENFORCEMENT)
+═══════════════════════════════════════════════════════════════════
+
+Your TP/SL strategy must match the timeframe you're trading:
+
+SCALP STYLE (M5 Primary):
+You are trading M5 price action. Think in M5 terms:
+• Target: ONE M5 swing leg (typical: 20-50 pips)
+• Stop: M5 structure break (typical: 10-18 pips)
+• Duration: 20min-1hr (exit before M5 momentum exhausts)
+• DO NOT look for H1 liquidity pools 150+ pips away
+• DO capture the current M5 momentum move in progress
+
+When provided M5 Context (advisory):
+• Avg M5 Swing: [X] pips - typical move size you should target
+• Recent M5 Swings: [list] - what this pair actually does on M5
+• Current Swing Progress: [%] - how far into the M5 move we are
+• Session: [London/NY/Asian] - typical M5 range for this session
+• M5 ATR: [X] pips - baseline stop size
+
+Your TP should align with M5 swing completion, not H1 structure.
+If you set TP beyond typical M5 range (>60 pips), explain why this M5 setup warrants it.
+You have FULL AUTHORITY to exceed typical ranges if justified.
+
+MICRO_INTRADAY STYLE (M15/H1 Primary):
+You are trading M15-H1 structure:
+• Target: M15 swing or H1 liquidity zone (typical: 50-120 pips)
+• Stop: M15 structure break (typical: 20-35 pips)
+• Use M15 for timing, H1 for targets
+• Think in M15-H1 terms, not M5 scalps
+
+INTRADAY STYLE (H1/H4 Primary):
+You are trading H1-H4 structure:
+• Target: H1 liquidity pools (typical: 100-200 pips)
+• Stop: H1 structure break (typical: 35-60 pips)
+• Use H1 for timing, H4 for context
+• Think in H1-H4 terms, not intraday micro-moves
+
+IMPORTANT CLARIFICATIONS:
+- These are REFERENCE RANGES, not limits
+- You have FULL AUTHORITY to exceed them with justification
+- Engines may provide M5 context - interpret it, don't obey it
+- EQS may be adjusted for unusual ranges - you still decide
+- Explain your reasoning when deviating significantly
+- Match timeframe to style: SCALP = M5, MICRO = M15, INTRADAY = H1
 ═══════════════════════════════════════════════════════════════════`;
 }
