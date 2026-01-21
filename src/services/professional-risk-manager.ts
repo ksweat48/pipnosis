@@ -220,7 +220,46 @@ class ProfessionalRiskManager {
     const riskAmount = currentBalance * finalRiskPercent;
     const dollarPerPipAt1Lot = calculateDollarPerPip(symbol, 1.0);
     const recommendedLotSize = Math.max(0.01, riskAmount / (avgLossPips * dollarPerPipAt1Lot));
-    const roundedLotSize = Math.round(recommendedLotSize * 100) / 100;
+    let roundedLotSize = Math.round(recommendedLotSize * 100) / 100;
+
+    // 💰 MARGIN VALIDATION: Ensure position size doesn't exceed available balance
+    // Standard margin requirement: $1000 per lot for forex/indices/commodities
+    const MARGIN_PER_LOT = 1000;
+    const maxAffordableLotSize = Math.floor((currentBalance / MARGIN_PER_LOT) * 100) / 100;
+
+    if (roundedLotSize > maxAffordableLotSize) {
+      const originalLotSize = roundedLotSize;
+      const originalRiskPercent = finalRiskPercent;
+
+      // Cap lot size to what's affordable
+      roundedLotSize = Math.max(0.01, maxAffordableLotSize);
+
+      // Recalculate actual risk percentage based on capped lot size
+      const actualRiskDollars = roundedLotSize * avgLossPips * dollarPerPipAt1Lot;
+      finalRiskPercent = actualRiskDollars / currentBalance;
+
+      console.log(`%c[Professional Risk Manager] 💰 MARGIN CONSTRAINT: Intelligent Degradation`, 'color: #ffa500; font-weight: bold');
+      console.log(`  Available Balance: $${currentBalance.toFixed(2)}`);
+      console.log(`  Requested Lot Size: ${originalLotSize.toFixed(2)} lots (requires $${(originalLotSize * MARGIN_PER_LOT).toFixed(2)} margin)`);
+      console.log(`  Maximum Affordable: ${roundedLotSize.toFixed(2)} lots (requires $${(roundedLotSize * MARGIN_PER_LOT).toFixed(2)} margin)`);
+      console.log(`  Risk Adjusted: ${(originalRiskPercent * 100).toFixed(2)}% → ${(finalRiskPercent * 100).toFixed(2)}%`);
+      console.log(`  ✅ Position degraded intelligently to fit available margin`);
+
+      recommendations.push(
+        `💰 Margin constraint: Lot size reduced from ${originalLotSize.toFixed(2)} to ${roundedLotSize.toFixed(2)} to fit available balance of $${currentBalance.toFixed(2)}`
+      );
+      recommendations.push(
+        `Risk adjusted from ${(originalRiskPercent * 100).toFixed(2)}% to ${(finalRiskPercent * 100).toFixed(2)}% due to margin limitations`
+      );
+
+      // Warn if degradation is significant (>20% reduction)
+      const degradationPercent = ((originalLotSize - roundedLotSize) / originalLotSize) * 100;
+      if (degradationPercent > 20) {
+        criticalWarnings.push(
+          `⚠️ Position size reduced by ${degradationPercent.toFixed(0)}% due to insufficient margin. Consider adding funds for optimal position sizing.`
+        );
+      }
+    }
 
     // 🚨 CCIP VALIDATION: Detect contaminated avgLossPips for indices
     const { getCurrencyPipInfo } = await import('../utils/currencyHelpers');

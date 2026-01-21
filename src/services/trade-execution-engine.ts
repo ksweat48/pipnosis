@@ -832,11 +832,21 @@ class TradeExecutionEngine {
     const currentBalance = parseFloat(profile?.account_balance || '10000');
     const requiredMargin = signal.positionSize * 1000;
 
+    // 🛡️ FAILSAFE: ProfessionalRiskManager is the SSOT authority for margin validation
+    // This check should NEVER trigger in normal operation - if it does, it indicates
+    // an architectural violation where a trade bypassed the risk manager
     if (currentBalance < requiredMargin) {
+      console.error(`%c🚨 SSOT VIOLATION: Margin check triggered at execution layer!`, 'color: #ff0000; font-weight: bold; font-size: 16px');
+      console.error(`  This indicates a trade bypassed ProfessionalRiskManager validation`);
+      console.error(`  Required: $${requiredMargin.toFixed(2)}, Available: $${currentBalance.toFixed(2)}`);
+      console.error(`  Position Size: ${signal.positionSize} lots`);
+      console.error(`  Symbol: ${signal.symbol}`);
+      console.error(`  ARCHITECTURE ERROR: All trades must be validated by ProfessionalRiskManager BEFORE execution`);
+
       return {
         success: false,
-        error: 'Insufficient balance',
-        message: `Insufficient demo balance. Required: $${requiredMargin.toFixed(2)}, Available: $${currentBalance.toFixed(2)}`
+        error: 'Architecture violation',
+        message: `SSOT violation: Trade bypassed risk manager validation. Required: $${requiredMargin.toFixed(2)}, Available: $${currentBalance.toFixed(2)}. Contact system administrator.`
       };
     }
 
