@@ -30,9 +30,13 @@ export interface PriceFreshnessResult {
   symbol: string;
 }
 
+/**
+ * Price data interface - SSOT compliant
+ * Uses canonical database columns (mid, not price alias)
+ */
 export interface PriceData {
   symbol: string;
-  price: number;
+  mid: number;  // SSOT: Use 'mid' column (not 'price')
   timestamp: Date | string;
   source?: string;
 }
@@ -79,12 +83,12 @@ class PriceFreshnessGate {
     context: FreshnessContext = 'execution'
   ): Promise<PriceFreshnessResult> {
     try {
-      // Get latest price from database
+      // Get latest price from database (SSOT: use canonical columns)
       const { data: priceData, error } = await supabase
         .from('realtime_prices')
-        .select('symbol, price, updated_at')
+        .select('symbol, mid, created_at')
         .eq('symbol', symbol.toUpperCase())
-        .order('updated_at', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
@@ -110,8 +114,8 @@ class PriceFreshnessGate {
         };
       }
 
-      // Calculate age
-      const lastUpdate = new Date(priceData.updated_at);
+      // Calculate age (SSOT: use canonical created_at column)
+      const lastUpdate = new Date(priceData.created_at);
       const ageSeconds = (Date.now() - lastUpdate.getTime()) / 1000;
       const maxAgeSeconds = this.getMaxAgeForContext(context, symbol);
 
@@ -158,12 +162,12 @@ class PriceFreshnessGate {
   ): Promise<Map<string, PriceFreshnessResult>> {
     const results = new Map<string, PriceFreshnessResult>();
 
-    // Fetch all prices in one query
+    // Fetch all prices in one query (SSOT: use canonical columns)
     const { data: pricesData, error } = await supabase
       .from('realtime_prices')
-      .select('symbol, price, updated_at')
+      .select('symbol, mid, created_at')
       .in('symbol', symbols.map(s => s.toUpperCase()))
-      .order('updated_at', { ascending: false });
+      .order('created_at', { ascending: false });
 
     if (error) {
       logger.error('[Price Freshness Gate] Batch fetch error', { symbols, error });
@@ -199,7 +203,8 @@ class PriceFreshnessGate {
         return;
       }
 
-      const lastUpdate = new Date(priceData.updated_at);
+      // SSOT: use canonical created_at column
+      const lastUpdate = new Date(priceData.created_at);
       const ageSeconds = (now - lastUpdate.getTime()) / 1000;
       const maxAgeSeconds = this.getMaxAgeForContext(context, symbol);
       const isFresh = ageSeconds <= maxAgeSeconds;

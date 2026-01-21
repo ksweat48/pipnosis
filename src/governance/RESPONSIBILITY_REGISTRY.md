@@ -50,11 +50,28 @@
 | **Real-time price fetching** | `PriceCoordinator` | `src/services/coordinators/price-coordinator.ts` |
 | **Price data caching** | `MarketSnapshotCache` | `src/services/market-snapshot-cache.ts` |
 | **Candle data retrieval** | `CandleDataService` | `src/services/candle-data-service.ts` |
+| **Realtime prices schema (SSOT)** | Database migration 20251224101143 | `supabase/migrations/` |
 
-**VIOLATIONS TO FIX:**
+**REALTIME_PRICES TABLE - CANONICAL SCHEMA:**
+- ✅ Use `mid` for price (NOT `price`)
+- ✅ Use `created_at` for timestamp (NOT `updated_at`)
+- ✅ Use `bid, ask` for spread components
+- ❌ NEVER create alias columns (`price`, `updated_at`)
+- ❌ NEVER add computed columns that duplicate existing data
+
+**ENFORCEMENT:**
+- All services MUST query canonical columns (`mid`, `created_at`)
+- Database is SSOT - consumers adapt to it, NOT vice versa
+- If a bug can be fixed in multiple places, the architecture is wrong
+
+**VIOLATIONS FIXED:**
+- ✅ Removed generated `price` column (was duplicate of `mid`)
+- ✅ Removed generated `updated_at` column (was duplicate of `created_at`)
+- ✅ Updated `price-freshness-gate.ts` to use canonical columns
+
+**REMAINING VIOLATIONS TO FIX:**
 - ❌ Duplicate freshness checks in `goal-session-live-engine.ts`
 - ❌ Duplicate freshness checks in `entry-execution-coordinator.ts`
-- ❌ Multiple services reading `realtime_prices` table directly
 
 ### 🧠 AI & Intelligence
 
