@@ -9,6 +9,8 @@
  * - Gap detection and reporting
  * - Backfill progress monitoring
  * - Storage usage tracking
+ *
+ * ✅ SSOT COMPLIANT: Uses MarketDataService for all candle queries
  */
 
 import { supabase } from '@/lib/supabase';
@@ -21,6 +23,7 @@ import {
   calculateStorageRequirements
 } from '@/utils/timeframe-candle-limits';
 import { logger, LogCategory } from '@/lib/logger';
+import { marketDataService } from './market-data-service';
 
 export interface DataAvailability {
   symbol: string;
@@ -61,26 +64,17 @@ export interface StorageStats {
 
 /**
  * Check data availability for a specific symbol and timeframe
+ * ✅ SSOT: Uses MarketDataService
  */
 export async function checkDataAvailability(
   symbol: string,
   timeframe: Timeframe
 ): Promise<DataAvailability> {
   try {
-    // Get candle count and time range
-    const { data, error } = await supabase
-      .from('forex_candles')
-      .select('open_time')
-      .eq('symbol', symbol)
-      .eq('timeframe', timeframe)
-      .order('open_time', { ascending: true });
+    // Get candle statistics from SSOT
+    const stats = await marketDataService.getCandleStatistics(symbol, timeframe);
 
-    if (error) {
-      logger.error(LogCategory.CHART_POLLER, 'Error checking data availability:', error);
-      throw error;
-    }
-
-    const candleCount = data?.length || 0;
+    const candleCount = stats.totalCandles;
     const minRequired = getMinRequiredCandles(timeframe);
     const displayLimit = getDisplayLimit(timeframe);
     const historicalTarget = getHistoricalStorage(timeframe);
@@ -89,13 +83,8 @@ export async function checkDataAvailability(
       ? Math.min(100, (candleCount / historicalTarget) * 100)
       : 0;
 
-    const oldestCandle = data && data.length > 0
-      ? new Date(data[0].open_time)
-      : null;
-
-    const newestCandle = data && data.length > 0
-      ? new Date(data[data.length - 1].open_time)
-      : null;
+    const oldestCandle = stats.oldestCandle;
+    const newestCandle = stats.newestCandle;
 
     const gapHours = newestCandle
       ? (Date.now() - newestCandle.getTime()) / (1000 * 60 * 60)

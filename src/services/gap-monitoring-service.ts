@@ -1,5 +1,5 @@
-import { supabase } from '@/lib/supabase';
 import { logger, LogCategory } from '@/lib/logger';
+import { marketDataService } from './market-data-service';
 
 export interface GapStatistics {
   symbol: string;
@@ -33,6 +33,9 @@ class GapMonitoringService {
   private gapCache: Map<string, GapStatistics> = new Map();
   private lastSystemCheck: Date | null = null;
 
+  /**
+   * ✅ SSOT: Uses MarketDataService for candle queries
+   */
   async detectGaps(
     symbol: string,
     timeframe: string,
@@ -49,18 +52,13 @@ class GapMonitoringService {
       const endTime = new Date();
       const startTime = new Date(endTime.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
 
-      const { data: candles, error } = await supabase
-        .from('forex_candles')
-        .select('open_time')
-        .eq('symbol', symbol)
-        .eq('timeframe', timeframe)
-        .gte('open_time', startTime.toISOString())
-        .lte('open_time', endTime.toISOString())
-        .order('open_time', { ascending: true });
-
-      if (error) {
-        throw error;
-      }
+      const candles = await marketDataService.getCandlesInRange(
+        symbol,
+        timeframe,
+        startTime,
+        endTime,
+        true // ascending order
+      );
 
       if (!candles || candles.length < 2) {
         const stats: GapStatistics = {

@@ -38,6 +38,20 @@ export interface MarketConditions {
   candles: CandleData[];
 }
 
+export interface CandleStats {
+  totalCandles: number;
+  oldestCandle: Date | null;
+  newestCandle: Date | null;
+  averageInterval: number | null;
+  gapCount?: number;
+}
+
+export interface Gap {
+  expectedTime: Date;
+  actualNextTime: Date;
+  gapDurationMs: number;
+}
+
 const FRESH_THRESHOLD_MS = 10000; // 10 seconds
 const STALE_THRESHOLD_MS = 30000; // 30 seconds
 
@@ -162,6 +176,283 @@ export class MarketDataService {
 
   // ❌ REMOVED: getPipMultiplier() - replaced with SSOT getCurrencyPipInfo()
   // All pip calculations must go through currencyHelpers.ts
+
+  /**
+   * Get the most recent candle for a symbol/timeframe
+   * @param symbol - Trading symbol (e.g., "EURUSD")
+   * @param timeframe - Timeframe (e.g., "5m", "15m", "1h")
+   * @returns Latest candle or null if not found
+   */
+  async getLastCandle(symbol: string, timeframe: string): Promise<CandleData | null> {
+    try {
+      const { data, error } = await supabase
+        .from('forex_candles')
+        .select('*')
+        .eq('symbol', symbol)
+        .eq('timeframe', normalizeTimeframeToDb(timeframe))
+        .order('open_time', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error || !data) {
+        return null;
+      }
+
+      return data as CandleData;
+    } catch (error) {
+      logger.error('[MarketData] Error fetching last candle:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Count candles with optional filters
+   * @param symbol - Optional symbol filter
+   * @param timeframe - Optional timeframe filter
+   * @param startTime - Optional start time filter
+   * @param endTime - Optional end time filter
+   * @returns Number of candles matching filters
+   */
+  async getCandleCount(
+    symbol?: string,
+    timeframe?: string,
+    startTime?: Date,
+    endTime?: Date
+  ): Promise<number> {
+    try {
+      let query = supabase
+        .from('forex_candles')
+        .select('*', { count: 'exact', head: true });
+
+      if (symbol) {
+        query = query.eq('symbol', symbol);
+      }
+      if (timeframe) {
+        query = query.eq('timeframe', normalizeTimeframeToDb(timeframe));
+      }
+      if (startTime) {
+        query = query.gte('open_time', startTime.toISOString());
+      }
+      if (endTime) {
+        query = query.lte('open_time', endTime.toISOString());
+      }
+
+      const { count, error } = await query;
+
+      if (error) {
+        throw error;
+      }
+
+      return count || 0;
+    } catch (error) {
+      logger.error('[MarketData] Error counting candles:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Get candles within a time range
+   * @param symbol - Trading symbol
+   * @param timeframe - Timeframe
+   * @param startTime - Start of range
+   * @param endTime - End of range
+   * @param orderAsc - Order ascending (default: false)
+   * @returns Array of candles in range
+   */
+  async getCandlesInRange(
+    symbol: string,
+    timeframe: string,
+    startTime: Date,
+    endTime: Date,
+    orderAsc: boolean = false
+  ): Promise<CandleData[]> {
+    try {
+      const { data, error } = await supabase
+        .from('forex_candles')
+        .select('*')
+        .eq('symbol', symbol)
+        .eq('timeframe', normalizeTimeframeToDb(timeframe))
+        .gte('open_time', startTime.toISOString())
+        .lte('open_time', endTime.toISOString())
+        .order('open_time', { ascending: orderAsc });
+
+      if (error || !data) {
+        logger.warn(`[MarketData] No candles in range for ${symbol} ${timeframe}`);
+        return [];
+      }
+
+      return data as CandleData[];
+    } catch (error) {
+      logger.error('[MarketData] Error fetching candles in range:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Efficiently fetch candles for multiple symbols
+   * @param symbols - Array of symbols
+   * @param timeframe - Timeframe
+   * @param limit - Number of candles per symbol
+   * @returns Map of symbol to candles
+   */
+  async getBulkCandles(
+    symbols: string[],
+    timeframe: string,
+    limit: number = 10
+  ): Promise<Map<string, CandleData[]>> {
+    const result = new Map<string, CandleData[]>();
+
+    try {
+      const { data, error } = await supabase
+        .from('forex_candles')
+        .select('*')
+        .in('symbol', symbols)
+        .eq('timeframe', normalizeTimeframeToDb(timeframe))
+        .order('open_time', { ascending: false })
+        .limit(limit * symbols.length);
+
+      if (error || !data) {
+        logger.warn(`[MarketData] No bulk candle data for timeframe ${timeframe}`);
+        return result;
+      }
+
+      // Group candles by symbol
+      const grouped = data.reduce((acc, candle) => {
+        const symbol = (candle as any).symbol;
+        if (!acc.has(symbol)) {
+          acc.set(symbol, []);
+        }
+        acc.get(symbol)!.push(candle as CandleData);
+        return acc;
+      }, new Map<string, CandleData[]>());
+
+      // Limit each symbol to the requested limit
+      for (const [symbol, candles] of grouped) {
+        result.set(symbol, candles.slice(0, limit));
+      }
+
+      return result;
+    } catch (error) {
+      logger.error('[MarketData] Error fetching bulk candles:', error);
+      return result;
+    }
+  }
+
+  /**
+   * Get aggregate statistics for candles
+   * @param symbol - Optional symbol filter
+   * @param timeframe - Optional timeframe filter
+   * @returns Statistics about candles
+   */
+  async getCandleStatistics(
+    symbol?: string,
+    timeframe?: string
+  ): Promise<CandleStats> {
+    try {
+      let query = supabase
+        .from('forex_candles')
+        .select('open_time')
+        .order('open_time', { ascending: true });
+
+      if (symbol) {
+        query = query.eq('symbol', symbol);
+      }
+      if (timeframe) {
+        query = query.eq('timeframe', normalizeTimeframeToDb(timeframe));
+      }
+
+      const { data, error } = await query;
+
+      if (error || !data || data.length === 0) {
+        return {
+          totalCandles: 0,
+          oldestCandle: null,
+          newestCandle: null,
+          averageInterval: null
+        };
+      }
+
+      const oldestCandle = new Date(data[0].open_time);
+      const newestCandle = new Date(data[data.length - 1].open_time);
+
+      // Calculate average interval from sample
+      let averageInterval: number | null = null;
+      if (data.length > 1) {
+        const sampleSize = Math.min(data.length - 1, 100);
+        let totalInterval = 0;
+        for (let i = 0; i < sampleSize; i++) {
+          const current = new Date(data[i].open_time);
+          const next = new Date(data[i + 1].open_time);
+          totalInterval += next.getTime() - current.getTime();
+        }
+        averageInterval = totalInterval / sampleSize;
+      }
+
+      return {
+        totalCandles: data.length,
+        oldestCandle,
+        newestCandle,
+        averageInterval
+      };
+    } catch (error) {
+      logger.error('[MarketData] Error fetching candle statistics:', error);
+      return {
+        totalCandles: 0,
+        oldestCandle: null,
+        newestCandle: null,
+        averageInterval: null
+      };
+    }
+  }
+
+  /**
+   * Detect gaps in candle sequence
+   * @param symbol - Trading symbol
+   * @param timeframe - Timeframe
+   * @param startTime - Start of range
+   * @param endTime - End of range
+   * @param expectedIntervalMinutes - Expected interval between candles
+   * @returns Array of detected gaps
+   */
+  async detectGaps(
+    symbol: string,
+    timeframe: string,
+    startTime: Date,
+    endTime: Date,
+    expectedIntervalMinutes: number
+  ): Promise<Gap[]> {
+    try {
+      const candles = await this.getCandlesInRange(symbol, timeframe, startTime, endTime, true);
+
+      if (candles.length === 0) {
+        return [];
+      }
+
+      const gaps: Gap[] = [];
+      const expectedIntervalMs = expectedIntervalMinutes * 60 * 1000;
+      const gapThresholdMs = expectedIntervalMs * 1.5; // Allow 50% tolerance
+
+      for (let i = 0; i < candles.length - 1; i++) {
+        const currentTime = new Date(candles[i].open_time);
+        const nextTime = new Date(candles[i + 1].open_time);
+        const actualInterval = nextTime.getTime() - currentTime.getTime();
+
+        if (actualInterval > gapThresholdMs) {
+          const expectedTime = new Date(currentTime.getTime() + expectedIntervalMs);
+          gaps.push({
+            expectedTime,
+            actualNextTime: nextTime,
+            gapDurationMs: actualInterval - expectedIntervalMs
+          });
+        }
+      }
+
+      return gaps;
+    } catch (error) {
+      logger.error('[MarketData] Error detecting gaps:', error);
+      return [];
+    }
+  }
 
   /**
    * Calculate VWAP from candles

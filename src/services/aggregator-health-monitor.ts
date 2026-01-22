@@ -3,11 +3,14 @@
  *
  * Monitors the health of the background candle aggregator
  * to ensure real-time data pipeline is functioning.
+ *
+ * ✅ SSOT COMPLIANT: Uses MarketDataService for all candle queries
  */
 
 import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
 import { backgroundCandleAggregator } from './background-candle-aggregator';
+import { marketDataService } from './market-data-service';
 
 export interface AggregatorHealthStatus {
   isRunning: boolean;
@@ -100,21 +103,15 @@ class AggregatorHealthMonitor {
 
   /**
    * Get information about the most recent M5 candle
+   * ✅ SSOT: Uses MarketDataService
    */
   private async getLastCandleInfo(
     symbol: string
   ): Promise<{ lastCandleTime: Date | null; candleAge: number | null }> {
     try {
-      const { data: lastCandle, error } = await supabase
-        .from('forex_candles')
-        .select('open_time')
-        .eq('symbol', symbol)
-        .eq('timeframe', 'M5')
-        .order('open_time', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const lastCandle = await marketDataService.getLastCandle(symbol, 'M5');
 
-      if (error || !lastCandle) {
+      if (!lastCandle) {
         return { lastCandleTime: null, candleAge: null };
       }
 
@@ -161,6 +158,7 @@ class AggregatorHealthMonitor {
 
   /**
    * Get detailed aggregator statistics
+   * ✅ SSOT: Uses MarketDataService
    */
   async getAggregatorStats(symbol: string): Promise<{
     totalCandles: number;
@@ -169,42 +167,23 @@ class AggregatorHealthMonitor {
   }> {
     try {
       // Get total M5 candles for symbol
-      const { count: totalCandles, error: totalError } = await supabase
-        .from('forex_candles')
-        .select('*', { count: 'exact', head: true })
-        .eq('symbol', symbol)
-        .eq('timeframe', 'M5');
-
-      if (totalError) {
-        throw totalError;
-      }
+      const totalCandles = await marketDataService.getCandleCount(symbol, 'M5');
 
       // Get candles from last 24 hours
       const yesterday = new Date();
       yesterday.setHours(yesterday.getHours() - 24);
 
-      const { count: candlesLast24h, error: recentError } = await supabase
-        .from('forex_candles')
-        .select('*', { count: 'exact', head: true })
-        .eq('symbol', symbol)
-        .eq('timeframe', 'M5')
-        .gte('open_time', yesterday.toISOString());
-
-      if (recentError) {
-        throw recentError;
-      }
+      const candlesLast24h = await marketDataService.getCandleCount(
+        symbol,
+        'M5',
+        yesterday
+      );
 
       // Calculate average interval between candles (last 10)
-      const { data: recentCandles, error: intervalError } = await supabase
-        .from('forex_candles')
-        .select('open_time')
-        .eq('symbol', symbol)
-        .eq('timeframe', 'M5')
-        .order('open_time', { ascending: false })
-        .limit(10);
+      const recentCandles = await marketDataService.getCandles(symbol, 'M5', 10);
 
       let averageCandleInterval: number | null = null;
-      if (!intervalError && recentCandles && recentCandles.length > 1) {
+      if (recentCandles && recentCandles.length > 1) {
         let totalInterval = 0;
         let intervalCount = 0;
 
@@ -219,8 +198,8 @@ class AggregatorHealthMonitor {
       }
 
       return {
-        totalCandles: totalCandles || 0,
-        candlesLast24h: candlesLast24h || 0,
+        totalCandles,
+        candlesLast24h,
         averageCandleInterval
       };
     } catch (error) {

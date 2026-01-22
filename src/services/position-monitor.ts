@@ -11,7 +11,7 @@ import { goalAchievementCoordinator } from './coordinators/goal-achievement-coor
 import { notificationCoordinator } from './coordinators/notification-coordinator';
 import { goalSessionStateMachine } from './coordinators/goal-session-state-machine';
 import { TIME_MS } from '@/config/time-constants';
-import { MarketDataService } from './market-data-service';
+import { marketDataService } from './market-data-service';
 
 logger.setCategoryLevel(LogCategory.POSITION_MONITOR, LogLevel.ERROR);
 
@@ -303,17 +303,11 @@ class PositionMonitorService {
       }
 
       // SOURCE 2: forex_candles table (M5 close price)
+      // ✅ SSOT: Uses MarketDataService
       if (!currentPrice) {
-        const { data: candleData, error: candleError } = await supabase
-          .from('forex_candles')
-          .select('close, high, low')
-          .eq('symbol', position.symbol)
-          .eq('timeframe', 'M5')
-          .order('open_time', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const candleData = await marketDataService.getLastCandle(position.symbol, 'M5');
 
-        if (candleData && !candleError) {
+        if (candleData) {
           currentPrice = parseFloat(candleData.close);
           // Approximate bid/ask from candle high/low
           const high = parseFloat(candleData.high);
@@ -323,8 +317,8 @@ class PositionMonitorService {
           ask = currentPrice + spread / 2;
           priceSource = 'forex_candles';
           console.log(`[PositionMonitor] ${position.symbol}: Using forex_candles M5 fallback`);
-        } else if (candleError) {
-          console.warn(`[PositionMonitor] ${position.symbol}: forex_candles fallback error:`, candleError.message);
+        } else {
+          console.warn(`[PositionMonitor] ${position.symbol}: forex_candles fallback unavailable`);
         }
       }
 
@@ -399,15 +393,9 @@ class PositionMonitorService {
       }
 
       // SOURCE 2: forex_candles fallback
+      // ✅ SSOT: Uses MarketDataService
       if (!bid || !ask) {
-        const { data: candleData } = await supabase
-          .from('forex_candles')
-          .select('close, high, low')
-          .eq('symbol', order.symbol)
-          .eq('timeframe', '5m')
-          .order('timestamp', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const candleData = await marketDataService.getLastCandle(order.symbol, 'M5');
 
         if (candleData) {
           const close = parseFloat(candleData.close);
