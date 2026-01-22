@@ -74,8 +74,14 @@ describe('Architectural Compliance - SSOT Enforcement', () => {
       ];
 
       for (const file of files) {
-        const content = readFileContent(file);
+        let content = readFileContent(file);
         const relativePath = path.relative(SRC_DIR, file);
+
+        // ✅ PHASE 2 SECTION 3: Strip comments to avoid false positives
+        // Remove single-line comments
+        content = content.replace(/\/\/.*$/gm, '');
+        // Remove multi-line comments
+        content = content.replace(/\/\*[\s\S]*?\*\//g, '');
 
         for (const pattern of forbiddenPatterns) {
           if (pattern.test(content)) {
