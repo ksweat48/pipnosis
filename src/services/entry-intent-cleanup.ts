@@ -23,6 +23,9 @@ export class EntryIntentCleanupService {
     try {
       const now = new Date().toISOString();
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(new Error('Cleanup timeout after 5s')), 5000);
+
       const { data, error } = await supabase
         .from('entry_intents')
         .update({
@@ -33,9 +36,16 @@ export class EntryIntentCleanupService {
         .eq('user_id', userId)
         .eq('status', 'monitoring')
         .lt('timeout_at', now)
-        .select('id');
+        .select('id')
+        .abortSignal(controller.signal);
+
+      clearTimeout(timeoutId);
 
       if (error) {
+        // Silently ignore network errors during cleanup - these are non-critical
+        if (error.message?.includes('aborted') || error.message?.includes('Failed to fetch')) {
+          return 0;
+        }
         logger.error('[IntentCleanup] Error cleaning expired intents:', error);
         return 0;
       }
@@ -59,14 +69,24 @@ export class EntryIntentCleanupService {
     try {
       const now = new Date().toISOString();
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(new Error('Orphan check timeout after 5s')), 5000);
+
       // Get all monitoring intents with their sessions
       const { data: intents, error: fetchError } = await supabase
         .from('entry_intents')
         .select('id, session_id, goal_sessions!inner(id, status)')
         .eq('user_id', userId)
-        .eq('status', 'monitoring');
+        .eq('status', 'monitoring')
+        .abortSignal(controller.signal);
+
+      clearTimeout(timeoutId);
 
       if (fetchError) {
+        // Silently ignore network errors during cleanup
+        if (fetchError.message?.includes('aborted') || fetchError.message?.includes('Failed to fetch')) {
+          return 0;
+        }
         logger.error('[IntentCleanup] Error fetching intents for orphan check:', fetchError);
         return 0;
       }
@@ -88,6 +108,9 @@ export class EntryIntentCleanupService {
       }
 
       // Mark orphaned intents as canceled
+      const updateController = new AbortController();
+      const updateTimeoutId = setTimeout(() => updateController.abort(new Error('Update timeout after 5s')), 5000);
+
       const { error: updateError } = await supabase
         .from('entry_intents')
         .update({
@@ -95,9 +118,16 @@ export class EntryIntentCleanupService {
           canceled_at: now,
           canceled_reason: 'Session no longer active'
         })
-        .in('id', orphanedIntentIds);
+        .in('id', orphanedIntentIds)
+        .abortSignal(updateController.signal);
+
+      clearTimeout(updateTimeoutId);
 
       if (updateError) {
+        // Silently ignore network errors
+        if (updateError.message?.includes('aborted') || updateError.message?.includes('Failed to fetch')) {
+          return 0;
+        }
         logger.error('[IntentCleanup] Error updating orphaned intents:', updateError);
         return 0;
       }
@@ -117,6 +147,9 @@ export class EntryIntentCleanupService {
     try {
       const now = new Date().toISOString();
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(new Error('Cleanup timeout after 5s')), 5000);
+
       const { data, error } = await supabase
         .from('entry_intents')
         .update({
@@ -127,9 +160,16 @@ export class EntryIntentCleanupService {
         .eq('user_id', userId)
         .eq('status', 'monitoring')
         .is('session_id', null)
-        .select('id');
+        .select('id')
+        .abortSignal(controller.signal);
+
+      clearTimeout(timeoutId);
 
       if (error) {
+        // Silently ignore network errors during cleanup
+        if (error.message?.includes('aborted') || error.message?.includes('Failed to fetch')) {
+          return 0;
+        }
         logger.error('[IntentCleanup] Error cleaning intents without session:', error);
         return 0;
       }

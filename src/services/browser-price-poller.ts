@@ -166,7 +166,7 @@ class BrowserPricePoller {
           }
 
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+          const timeoutId = setTimeout(() => controller.abort(new Error(`Price request timeout after ${REQUEST_TIMEOUT_MS}ms`)), REQUEST_TIMEOUT_MS);
 
           const response = await fetch(`/.netlify/functions/get-live-price?symbol=${symbol}`, {
             method: 'GET',

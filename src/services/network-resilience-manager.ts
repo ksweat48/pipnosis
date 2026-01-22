@@ -134,7 +134,7 @@ class NetworkResilienceManager {
     timeoutMs: number
   ): Promise<Response> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutId = setTimeout(() => controller.abort(new Error(`Request timeout after ${timeoutMs}ms`)), timeoutMs);
 
     try {
       const response = await fetch(url, {

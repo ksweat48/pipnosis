@@ -93,7 +93,7 @@ class KrakenRestClient {
 
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+      const timeout = setTimeout(() => controller.abort(new Error(`Kraken API request timeout after ${REQUEST_TIMEOUT}ms`)), REQUEST_TIMEOUT);
 
       const response = await fetch(url.toString(), {
         method: 'GET',
