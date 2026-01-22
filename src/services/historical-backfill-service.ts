@@ -6,6 +6,7 @@
  */
 
 import { supabase } from '@/lib/supabase';
+import { marketDataService } from './market-data-service';
 
 export type Timeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1';
 
@@ -238,6 +239,7 @@ class HistoricalBackfillService {
 
   /**
    * Get candle continuity report (identifies gaps)
+   * ✅ SSOT: Uses MarketDataService for candle queries and gap detection
    */
   async getCandleContinuityReport(
     symbol: string,
@@ -249,14 +251,10 @@ class HistoricalBackfillService {
     gaps: Array<{ startTime: string; endTime: string; missingCandles: number }>;
   }> {
     try {
-      const { data: candles, error } = await supabase
-        .from('forex_candles')
-        .select('open_time')
-        .eq('symbol', symbol)
-        .eq('timeframe', timeframe)
-        .order('open_time', { ascending: true });
+      // Get candle statistics
+      const stats = await marketDataService.getCandleStatistics(symbol, timeframe);
 
-      if (error || !candles || candles.length === 0) {
+      if (stats.totalCandles === 0 || !stats.oldestCandle || !stats.newestCandle) {
         return {
           totalCandles: 0,
           oldestCandle: null,
@@ -265,31 +263,31 @@ class HistoricalBackfillService {
         };
       }
 
-      // Detect gaps
-      const gaps: Array<{ startTime: string; endTime: string; missingCandles: number }> = [];
+      // Detect gaps using MarketDataService
       const timeframeMinutes = this.getTimeframeMinutes(timeframe);
+      const gapsDetected = await marketDataService.detectGaps(
+        symbol,
+        timeframe,
+        stats.oldestCandle,
+        stats.newestCandle,
+        timeframeMinutes
+      );
 
-      for (let i = 1; i < candles.length; i++) {
-        const prevTime = new Date(candles[i - 1].open_time).getTime();
-        const currTime = new Date(candles[i].open_time).getTime();
+      // Convert gap format
+      const gaps = gapsDetected.map(gap => {
         const expectedDiff = timeframeMinutes * 60 * 1000;
-        const actualDiff = currTime - prevTime;
-
-        if (actualDiff > expectedDiff * 1.5) {
-          // Gap detected
-          const missingCandles = Math.floor(actualDiff / expectedDiff) - 1;
-          gaps.push({
-            startTime: candles[i - 1].open_time,
-            endTime: candles[i].open_time,
-            missingCandles,
-          });
-        }
-      }
+        const missingCandles = Math.floor(gap.gapDurationMs / expectedDiff);
+        return {
+          startTime: gap.expectedTime.toISOString(),
+          endTime: gap.actualNextTime.toISOString(),
+          missingCandles,
+        };
+      });
 
       return {
-        totalCandles: candles.length,
-        oldestCandle: candles[0].open_time,
-        newestCandle: candles[candles.length - 1].open_time,
+        totalCandles: stats.totalCandles,
+        oldestCandle: stats.oldestCandle.toISOString(),
+        newestCandle: stats.newestCandle.toISOString(),
         gaps,
       };
 

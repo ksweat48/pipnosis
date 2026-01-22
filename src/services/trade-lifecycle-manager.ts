@@ -11,7 +11,7 @@ import {
   priceCoordinator,
   tradeClosureCoordinator,
 } from './coordinators';
-import { MarketDataService } from './market-data-service';
+import { MarketDataService, marketDataService } from './market-data-service';
 
 export interface PriceUpdate {
   symbol: string;
@@ -803,6 +803,7 @@ class TradeLifecycleManager {
 
   /**
    * Run counterfactual analysis on closed trade (async, non-blocking)
+   * ✅ SSOT: Uses MarketDataService for candle queries
    */
   private async runCounterfactualAnalysis(
     trade: any,
@@ -820,19 +821,13 @@ class TradeLifecycleManager {
       const lookbackMinutes = lookbackCandles * 15;
       const startTime = new Date(entryTime.getTime() - lookbackMinutes * 60 * 1000);
 
-      const { data: candles, error } = await supabase
-        .from('forex_candles')
-        .select('open_time, open, high, low, close, volume')
-        .eq('symbol', trade.symbol)
-        .eq('timeframe', timeframe)
-        .gte('open_time', startTime.toISOString())
-        .lte('open_time', exitTime.toISOString())
-        .order('open_time', { ascending: true });
-
-      if (error) {
-        console.error('[Trade Lifecycle] Error fetching candles for counterfactual:', error);
-        return;
-      }
+      const candles = await marketDataService.getCandlesInRange(
+        trade.symbol,
+        timeframe,
+        startTime,
+        exitTime,
+        true // Ascending order
+      );
 
       if (!candles || candles.length < 10) {
         console.warn(`[Trade Lifecycle] Insufficient candle data (${candles?.length || 0}), skipping counterfactual`);
@@ -841,11 +836,11 @@ class TradeLifecycleManager {
 
       const candleData: CandleData[] = candles.map(c => ({
         time: Math.floor(new Date(c.open_time).getTime() / 1000),
-        open: parseFloat(c.open),
-        high: parseFloat(c.high),
-        low: parseFloat(c.low),
-        close: parseFloat(c.close),
-        volume: c.volume ? parseFloat(c.volume) : undefined
+        open: parseFloat(String(c.open)),
+        high: parseFloat(String(c.high)),
+        low: parseFloat(String(c.low)),
+        close: parseFloat(String(c.close)),
+        volume: c.volume ? parseFloat(String(c.volume)) : undefined
       }));
 
       const tradeData = {

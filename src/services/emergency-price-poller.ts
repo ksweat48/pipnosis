@@ -6,8 +6,8 @@
  * It will automatically activate if no recent prices are found in the database.
  */
 
-import { supabase } from '@/lib/supabase';
 import { logger, LogCategory } from '@/lib/logger';
+import { marketDataService } from './market-data-service';
 
 interface LivePrice {
   symbol: string;
@@ -71,21 +71,15 @@ class EmergencyPricePoller {
     logger.info(LogCategory.SYSTEM, `✅ Active in ${this.mode} mode`);
   }
 
+  /**
+   * Verify if emergency mode is needed
+   * ✅ SSOT: Uses MarketDataService for candle queries
+   */
   private async verifyEmergencyModeNeeded(): Promise<boolean> {
     try {
       // Check if database has ANY recent data
       // CRITICAL: Check forex_candles (what trade flow uses) not realtime_prices
-      const { data, error } = await supabase
-        .from('forex_candles')
-        .select('open_time, symbol')
-        .order('open_time', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (error) {
-        console.error('[EmergencyPoller] Database check failed:', error);
-        return true;
-      }
+      const data = await marketDataService.getLatestCandleAnySymbol();
 
       if (!data) {
         console.warn('[EmergencyPoller] No data in database - emergency mode needed');
@@ -118,22 +112,15 @@ class EmergencyPricePoller {
     }
   }
 
+  /**
+   * Determine polling mode based on database freshness
+   * ✅ SSOT: Uses MarketDataService for candle queries
+   */
   private async determineMode(): Promise<void> {
     try {
       // Check if database has recent data
       // CRITICAL: Check forex_candles (what trade flow uses) not realtime_prices
-      const { data, error } = await supabase
-        .from('forex_candles')
-        .select('open_time')
-        .order('open_time', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (error) {
-        console.error('[EmergencyPoller] Database check failed:', error);
-        this.mode = 'emergency';
-        return;
-      }
+      const data = await marketDataService.getLatestCandleAnySymbol();
 
       if (!data) {
         console.warn('[EmergencyPoller] 📭 No candles in database - activating emergency direct polling');

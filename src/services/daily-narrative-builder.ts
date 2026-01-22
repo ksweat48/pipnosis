@@ -11,7 +11,7 @@
  * This provides "smart money" context for intraday decisions
  */
 
-import { supabase } from '../lib/supabase';
+import { marketDataService } from './market-data-service';
 
 export interface DailyNarrative {
   symbol: string;
@@ -53,6 +53,7 @@ class DailyNarrativeBuilder {
   /**
    * Build daily narrative for a symbol
    * ALWAYS returns data - uses fallback if database has no candles
+   * ✅ SSOT: Uses MarketDataService for candle queries
    */
   async build(symbol: string, currentPrice: number): Promise<DailyNarrative> {
     try {
@@ -60,15 +61,15 @@ class DailyNarrativeBuilder {
       const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
       const dateStr = todayUTC.toISOString().split('T')[0];
 
-      const { data: candles, error } = await supabase
-        .from('forex_candles')
-        .select('*')
-        .eq('symbol', symbol)
-        .eq('timeframe', 'M15')
-        .gte('open_time', todayUTC.toISOString())
-        .order('open_time', { ascending: true });
+      const candles = await marketDataService.getCandlesInRange(
+        symbol,
+        'M15',
+        todayUTC,
+        now,
+        true // Ascending order
+      );
 
-      if (error || !candles || candles.length === 0) {
+      if (!candles || candles.length === 0) {
         console.warn(`[Daily Narrative] No data for ${symbol} today - using fallback`);
         return this.buildFallbackNarrative(symbol, currentPrice, dateStr);
       }

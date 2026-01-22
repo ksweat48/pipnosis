@@ -1,8 +1,8 @@
-import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
 import { CandleData } from '../types/chart';
 import { databaseResilienceWrapper } from './database-resilience-wrapper';
 import { shouldDisableMetaAPI } from '../lib/environment';
+import { marketDataService } from './market-data-service';
 
 interface DatabaseCandleRecord {
   id: string;
@@ -86,28 +86,22 @@ export class ChartDataGuarantor {
       // browser aggregator creates 500+ candles but we only fetch oldest 250)
       // Wrapped with database resilience for retry and caching
       //
-      // 🎯 QUALITY SYSTEM: Using forex_candles_best view for automatic
+      // ✅ SSOT: Uses MarketDataService with quality-filtered view for automatic
       // data source prioritization and flat candle filtering
-      const { data: candles, error } = await databaseResilienceWrapper.query(
-        () => supabase
-          .from('forex_candles_best')  // ✨ Uses quality-filtered view
-          .select('*')
-          .eq('symbol', symbol)
-          .eq('timeframe', timeframe)
-          .gte('open_time', startTimeISO)
-          .lte('open_time', endTimeISO)
-          .order('open_time', { ascending: false })  // Get newest first
-          .limit(queryLimit),
+      const candles = await databaseResilienceWrapper.query(
+        () => marketDataService.getQualityCandlesInRange(
+          symbol,
+          timeframe,
+          startTime,
+          endTime,
+          false, // Get newest first (descending)
+          queryLimit
+        ),
         {
           cacheKey: `chart-guarantor:${symbol}:${timeframe}:${startTimeISO}`,
           cacheDuration: cacheDuration,
         }
       );
-
-      if (error) {
-        logger.error('[ChartDataGuarantor] Database error:', error);
-        throw error;
-      }
 
       if (!candles || candles.length === 0) {
         logger.warn('[ChartDataGuarantor] No candles found');
@@ -288,6 +282,10 @@ export class ChartDataGuarantor {
     return { hasWeekdayGaps, gaps };
   }
 
+  /**
+   * Fetch incremental data within a time range
+   * ✅ SSOT: Uses MarketDataService for candle queries
+   */
   static async fetchIncrementalData(
     symbol: string,
     timeframe: string,
@@ -295,20 +293,18 @@ export class ChartDataGuarantor {
     toTime: string
   ): Promise<CandleData[]> {
     try {
-      const { data: candles, error } = await supabase
-        .from('forex_candles')
-        .select('*')
-        .eq('symbol', symbol)
-        .eq('timeframe', timeframe)
-        .gte('open_time', fromTime)
-        .lte('open_time', toTime)
-        .order('open_time', { ascending: true });
+      const startTime = new Date(fromTime);
+      const endTime = new Date(toTime);
 
-      if (error) {
-        throw error;
-      }
+      const candles = await marketDataService.getCandlesInRange(
+        symbol,
+        timeframe,
+        startTime,
+        endTime,
+        true // Ascending order
+      );
 
-      return this.validateCandles(candles || []);
+      return this.validateCandles(candles);
 
     } catch (error) {
       logger.error('[ChartDataGuarantor] Incremental fetch error:', error);

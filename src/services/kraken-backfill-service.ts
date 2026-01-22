@@ -13,10 +13,10 @@
  */
 
 import { logger, LogCategory } from '@/lib/logger';
-import { supabase } from '@/lib/supabase';
 import { krakenRestClient, type KrakenCandle } from './kraken-rest-client';
 import { candleQualityValidator } from './candle-quality-validator';
 import { normalizeTimeframe } from '@/utils/timeframeNormalizer';
+import { candleBackfillService } from './candle-backfill-service';
 
 export interface BackfillResult {
   symbol: string;
@@ -187,6 +187,7 @@ class KrakenBackfillService {
 
   /**
    * Write a single candle to database (upsert)
+   * ✅ SSOT: Uses CandleBackfillService for candle writes
    */
   private async writeCandle(
     symbol: string,
@@ -200,22 +201,21 @@ class KrakenBackfillService {
         timeframe: dbTimeframe,
         open_time: new Date(candle.time * 1000).toISOString(),
         close_time: new Date((candle.time + interval * 60) * 1000).toISOString(),
-        open: candle.open.toString(),
-        high: candle.high.toString(),
-        low: candle.low.toString(),
-        close: candle.close.toString(),
-        volume: candle.volume.toString(),
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        volume: candle.volume,
         data_source: 'kraken-rest'
       };
 
-      const { error } = await supabase
-        .from('forex_candles')
-        .upsert(candleData, {
-          onConflict: 'symbol,timeframe,open_time'
-        });
+      const result = await candleBackfillService.insertCandles([candleData], {
+        deduplicate: true,
+        validate: true
+      });
 
-      if (error) {
-        logger.error(`[KrakenBackfill] Failed to write candle: ${error.message}`, LogCategory.DATA);
+      if (result.inserted === 0 && result.errors.length > 0) {
+        logger.error(`[KrakenBackfill] Failed to write candle: ${result.errors[0]}`, LogCategory.DATA);
         return false;
       }
 

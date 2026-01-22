@@ -455,6 +455,80 @@ export class MarketDataService {
   }
 
   /**
+   * Get quality-filtered candles within a time range
+   * Uses forex_candles_best view for automatic data source prioritization
+   * and flat candle filtering.
+   *
+   * @param symbol - Trading symbol
+   * @param timeframe - Timeframe
+   * @param startTime - Start of range
+   * @param endTime - End of range
+   * @param orderAsc - Order ascending (default: false)
+   * @param limit - Optional limit on results
+   * @returns Array of quality-filtered candles in range
+   */
+  async getQualityCandlesInRange(
+    symbol: string,
+    timeframe: string,
+    startTime: Date,
+    endTime: Date,
+    orderAsc: boolean = false,
+    limit?: number
+  ): Promise<CandleData[]> {
+    try {
+      let query = supabase
+        .from('forex_candles_best')
+        .select('*')
+        .eq('symbol', symbol)
+        .eq('timeframe', normalizeTimeframeToDb(timeframe))
+        .gte('open_time', startTime.toISOString())
+        .lte('open_time', endTime.toISOString())
+        .order('open_time', { ascending: orderAsc });
+
+      if (limit) {
+        query = query.limit(limit);
+      }
+
+      const { data, error } = await query;
+
+      if (error || !data) {
+        logger.warn(`[MarketData] No quality candles in range for ${symbol} ${timeframe}`);
+        return [];
+      }
+
+      return data as CandleData[];
+    } catch (error) {
+      logger.error('[MarketData] Error fetching quality candles in range:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get the most recent candle across all symbols
+   * Used for system health checks (e.g., emergency poller mode determination)
+   * @returns Latest candle from any symbol, or null if no data exists
+   */
+  async getLatestCandleAnySymbol(): Promise<{ open_time: string; symbol: string } | null> {
+    try {
+      const { data, error } = await supabase
+        .from('forex_candles')
+        .select('open_time, symbol')
+        .order('open_time', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error || !data) {
+        return null;
+      }
+
+      return data as { open_time: string; symbol: string };
+    } catch (error) {
+      logger.error('[MarketData] Error fetching latest candle across all symbols:', error);
+      return null;
+    }
+  }
+
+  /**
    * Calculate VWAP from candles
    */
   private calculateVWAP(candles: CandleData[]): number {
