@@ -386,7 +386,7 @@ class EventBasedLLMEngine {
     console.log(`[Autonomous Brain] ✅ Alpha approved: ${decision.action} ${config.symbol}`);
     console.log(`[Autonomous Brain] Omega Summary: ${decision.omega_summary}`);
 
-    // STEP 4: Safety validation
+    // STEP 4: Safety validation (GOVERNANCE COMPLIANT)
     const balance = config.initialBalance || 10000;
     const currentExposure = openTrades.reduce((sum, t) => {
       const risk = Math.abs(t.entryPrice - t.stopLoss) * t.positionSize;
@@ -400,18 +400,40 @@ class EventBasedLLMEngine {
       dailyDrawdown: 0,
       atr: marketState.atr,
       currentPrice: marketState.price,
-      regime: conditionCheck.regime, // Pass regime for enhanced safety checks
-      adversarial: conditionCheck.adversarial // Pass adversarial for hostile environment detection
+      regime: conditionCheck.regime,
+      adversarial: conditionCheck.adversarial
     });
 
+    // GOVERNANCE: Only block on system integrity violations
     if (!safetyCheck.passed) {
-      console.warn(`[Autonomous] 🚫 Safety blocked:`);
-      safetyCheck.violations.forEach(v => console.warn(`  - ${v}`));
+      console.error(`[Autonomous] 🚫 SYSTEM ERROR - Trade blocked:`);
+      safetyCheck.hardBlocks.forEach(v => console.error(`  ❌ ${v}`));
       return { trade: null, trigger: null, llmCalled: true };
     }
 
-    // Use adjusted decision if safety enforcer made improvements
-    const finalDecision = safetyCheck.adjustedDecision || decision;
+    // GOVERNANCE: Apply advisory penalties with 25% cap
+    const { advisoryPenaltyAggregator } = await import('./advisory-penalty-aggregator');
+    const penaltyResult = advisoryPenaltyAggregator.applyPenalties(
+      decision.confidence,
+      safetyCheck.advisoryPenalties
+    );
+
+    // Update decision confidence with capped penalties
+    const finalDecision = {
+      ...(safetyCheck.adjustedDecision || decision),
+      confidence: penaltyResult.finalConfidence,
+    };
+
+    // TRANSPARENCY: Show Alpha's decision with full context
+    if (safetyCheck.advisories.length > 0) {
+      console.log(`[Alpha Authority] ⚠️ Advisory Warnings:`);
+      safetyCheck.advisories.forEach(a => console.log(`  • ${a}`));
+      console.log(`[Alpha Authority] Confidence: ${decision.confidence}% → ${penaltyResult.finalConfidence.toFixed(1)}%`);
+      if (penaltyResult.wasCapped) {
+        console.log(`[Alpha Authority] 🛡️ Governance cap active: Alpha authority preserved`);
+      }
+      console.log(`[Alpha Authority] ✅ Alpha proceeding with ${penaltyResult.finalConfidence.toFixed(1)}% confidence`);
+    }
 
     // STEP 5: Calculate proper position size and create trade
     // ✅ PHASE 2 SECTION 1: Use ProfessionalRiskManager (SSOT for position sizing)

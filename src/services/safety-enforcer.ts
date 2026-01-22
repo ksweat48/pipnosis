@@ -1,8 +1,14 @@
 /**
- * Safety Enforcer - Hard-Coded Safety Rules
+ * Safety Enforcer - Alpha Authority Compliant
  *
- * Final validation layer that CANNOT be bypassed by any LLM output.
- * Runs POST-decision to enforce absolute safety limits.
+ * GOVERNANCE ROLE:
+ * - HARD BLOCKS: System integrity violations only (NaN, invalid prices, malformed data)
+ * - ADVISORY WARNINGS: Risk metrics that inform Alpha but don't block
+ *
+ * ALPHA SOVEREIGNTY:
+ * Safety Enforcer serves Alpha, doesn't veto Alpha.
+ * Only system errors block execution. Risk advisories penalize confidence
+ * within governance cap (25% max total penalty).
  */
 
 import { TRADING_CONSTANTS } from '../config/trading-constants';
@@ -10,6 +16,7 @@ import type { TradeDecision } from './llm-execution-brain';
 import type { RegimeSnapshot } from './regime-oracle';
 import type { AdversarialSignal } from './adversarial-detector';
 import { tradeValidationService } from './trade-validation-service';
+import { advisoryPenaltyAggregator, type AdvisoryPenalty } from './advisory-penalty-aggregator';
 
 export interface SafetyContext {
   balance: number;
@@ -23,11 +30,13 @@ export interface SafetyContext {
 }
 
 export interface ValidationResult {
-  passed: boolean;
-  violations: string[];
-  action: 'ALLOW' | 'BLOCK';
+  passed: boolean;              // Only false for HARD BLOCKS (system errors)
+  hardBlocks: string[];         // System integrity violations (blocks execution)
+  advisories: string[];         // Risk warnings (doesn't block, penalizes confidence)
+  action: 'ALLOW' | 'BLOCK';    // BLOCK only on hard blocks
   adjustedDecision?: TradeDecision;
   adjustments?: string[];
+  advisoryPenalties: AdvisoryPenalty[]; // Structured penalties for aggregator
 }
 
 class SafetyEnforcer {
@@ -43,46 +52,49 @@ class SafetyEnforcer {
   private readonly TARGET_RR_RATIO = TRADING_CONSTANTS.RISK_REWARD_RATIOS.TARGET;
 
   /**
-   * Validate trade decision against hard-coded rules
+   * Validate trade decision against safety rules
+   *
+   * GOVERNANCE COMPLIANT:
+   * - Returns HARD BLOCKS for system integrity violations
+   * - Returns ADVISORIES for risk concerns (doesn't block)
+   * - Advisory penalties capped at 25% by advisory-penalty-aggregator
    */
   validateTrade(
     decision: TradeDecision,
     context: SafetyContext
   ): ValidationResult {
-    const violations: string[] = [];
+    const hardBlocks: string[] = [];       // System errors - blocks execution
+    const advisories: string[] = [];       // Risk warnings - doesn't block
     const adjustments: string[] = [];
+    const advisoryPenalties: AdvisoryPenalty[] = [];
     let adjustedDecision = { ...decision };
 
     // Skip validation for NO_TRADE (no trade execution)
     if (decision.action === 'NO_TRADE') {
       return {
         passed: true,
-        violations: [],
+        hardBlocks: [],
+        advisories: [],
         action: 'ALLOW',
-        adjustments: []
+        adjustments: [],
+        advisoryPenalties: [],
       };
     }
 
-    // 1. Risk per trade validation
-    const riskAmount = (decision.risk_pct / 100) * context.balance;
-    const riskPct = decision.risk_pct / 100;
+    // ========================================
+    // HARD BLOCKS - System Integrity Only
+    // ========================================
 
-    if (riskPct > this.MAX_RISK_PER_TRADE) {
-      violations.push(`Risk ${(riskPct * 100).toFixed(2)}% exceeds max ${this.MAX_RISK_PER_TRADE * 100}%`);
+    // 1. NaN/Infinity checks (HARD BLOCK)
+    if (!isFinite(decision.entry) || !isFinite(decision.stopLoss) || !isFinite(decision.takeProfit)) {
+      hardBlocks.push('Invalid price values (NaN/Infinity) - system error');
     }
 
-    if (riskPct < this.MIN_RISK_PER_TRADE) {
-      violations.push(`Risk ${(riskPct * 100).toFixed(2)}% below min ${this.MIN_RISK_PER_TRADE * 100}%`);
+    if (decision.entry <= 0 || decision.stopLoss <= 0 || decision.takeProfit <= 0) {
+      hardBlocks.push('Prices must be positive - malformed order');
     }
 
-    // 2. Total exposure validation
-    const newExposure = context.currentExposure + riskPct;
-    if (newExposure > this.MAX_TOTAL_EXPOSURE) {
-      violations.push(`Total exposure ${(newExposure * 100).toFixed(2)}% exceeds ${this.MAX_TOTAL_EXPOSURE * 100}%`);
-    }
-
-    // 3. SL/TP direction validation - ✅ PHASE 2 SECTION 2: Use TradeValidationService (SSOT)
-    // Replaces duplicate validation logic (lines 84-98)
+    // 2. SL/TP direction validation (HARD BLOCK)
     const validation = tradeValidationService.validateTrade({
       symbol: decision.symbol,
       direction: decision.action === 'BUY' ? 'buy' : 'sell',
@@ -93,32 +105,88 @@ class SafetyEnforcer {
     });
 
     if (!validation.valid) {
-      violations.push(...validation.errors);
+      hardBlocks.push(...validation.errors.map(e => `Direction error: ${e}`));
     }
 
-    // 4. NaN/Infinity checks
-    if (!isFinite(decision.entry) || !isFinite(decision.stopLoss) || !isFinite(decision.takeProfit)) {
-      violations.push('Invalid price values (NaN/Infinity)');
+    // 3. Entry price sanity check (HARD BLOCK if > 1% difference)
+    const priceDiff = Math.abs(decision.entry - context.currentPrice) / context.currentPrice;
+    if (priceDiff > 0.01) { // 1% difference
+      hardBlocks.push(`Entry price ${decision.entry} too far from current ${context.currentPrice} - stale data`);
     }
 
-    if (decision.entry <= 0 || decision.stopLoss <= 0 || decision.takeProfit <= 0) {
-      violations.push('Prices must be positive');
+    // ========================================
+    // ADVISORIES - Risk Warnings (Don't Block)
+    // ========================================
+
+    // 4. Risk per trade (ADVISORY)
+    const riskAmount = (decision.risk_pct / 100) * context.balance;
+    const riskPct = decision.risk_pct / 100;
+
+    if (riskPct > this.MAX_RISK_PER_TRADE) {
+      const advisory = `Risk ${(riskPct * 100).toFixed(2)}% exceeds recommended ${this.MAX_RISK_PER_TRADE * 100}%`;
+      advisories.push(advisory);
+      advisoryPenalties.push(
+        advisoryPenaltyAggregator.createPenalty(
+          'Safety:Risk_Too_High',
+          advisory,
+          10, // -10% confidence
+          'risk'
+        )
+      );
     }
 
-    // 5. SL distance validation (prevent too tight or too wide stops)
+    if (riskPct < this.MIN_RISK_PER_TRADE) {
+      advisories.push(`Risk ${(riskPct * 100).toFixed(2)}% below minimum ${this.MIN_RISK_PER_TRADE * 100}% - position too small`);
+      // No penalty - just informational
+    }
+
+    // 5. Total exposure (ADVISORY)
+    const newExposure = context.currentExposure + riskPct;
+    if (newExposure > this.MAX_TOTAL_EXPOSURE) {
+      const advisory = `Total exposure ${(newExposure * 100).toFixed(2)}% exceeds ${this.MAX_TOTAL_EXPOSURE * 100}%`;
+      advisories.push(advisory);
+      advisoryPenalties.push(
+        advisoryPenaltyAggregator.createPenalty(
+          'Safety:Exposure_High',
+          advisory,
+          15, // -15% confidence
+          'risk'
+        )
+      );
+    }
+
+    // 6. SL distance validation (ADVISORY)
     const slDistance = Math.abs(adjustedDecision.entry - adjustedDecision.stopLoss);
     const minSlDistance = context.atr * this.MIN_SL_DISTANCE_ATR;
     const maxSlDistance = context.atr * this.MAX_SL_DISTANCE_ATR;
 
     if (slDistance < minSlDistance) {
-      violations.push(`SL too tight: ${slDistance.toFixed(5)} < ${minSlDistance.toFixed(5)} (${this.MIN_SL_DISTANCE_ATR} ATR)`);
+      const advisory = `SL tight: ${slDistance.toFixed(5)} < ${minSlDistance.toFixed(5)} (${this.MIN_SL_DISTANCE_ATR} ATR)`;
+      advisories.push(advisory);
+      advisoryPenalties.push(
+        advisoryPenaltyAggregator.createPenalty(
+          'Safety:SL_Too_Tight',
+          advisory,
+          8, // -8% confidence
+          'risk'
+        )
+      );
     }
 
     if (slDistance > maxSlDistance) {
-      violations.push(`SL too wide: ${slDistance.toFixed(5)} > ${maxSlDistance.toFixed(5)} (${this.MAX_SL_DISTANCE_ATR} ATR)`);
+      const advisory = `SL wide: ${slDistance.toFixed(5)} > ${maxSlDistance.toFixed(5)} (${this.MAX_SL_DISTANCE_ATR} ATR)`;
+      advisories.push(advisory);
+      advisoryPenalties.push(
+        advisoryPenaltyAggregator.createPenalty(
+          'Safety:SL_Too_Wide',
+          advisory,
+          10, // -10% confidence
+          'risk'
+        )
+      );
     }
 
-    // 6. Risk:Reward ratio validation with AUTO-ADJUSTMENT
+    // 7. Risk:Reward ratio (ADVISORY with AUTO-ADJUSTMENT)
     let tpDistance = Math.abs(adjustedDecision.takeProfit - adjustedDecision.entry);
     let rr = tpDistance / slDistance;
 
@@ -144,40 +212,79 @@ class SafetyEnforcer {
       rr = tpDistance / slDistance;
     }
 
-    // Only flag as violation if even after adjustment it's still below MIN (shouldn't happen)
+    // Advisory if R:R is still low (doesn't block)
     if (rr < this.MIN_RR_RATIO) {
-      violations.push(`R:R ratio ${rr.toFixed(2)} below absolute min ${this.MIN_RR_RATIO} (after adjustment)`);
+      const advisory = `R:R ratio ${rr.toFixed(2)} below recommended ${this.MIN_RR_RATIO}`;
+      advisories.push(advisory);
+      advisoryPenalties.push(
+        advisoryPenaltyAggregator.createPenalty(
+          'Safety:RR_Low',
+          advisory,
+          12, // -12% confidence
+          'risk'
+        )
+      );
     }
 
-    // 7. Maximum position size
+    // 8. Maximum position size (ADVISORY)
     const maxPositionSize = context.balance * this.MAX_RISK_PER_TRADE;
     if (riskAmount > maxPositionSize) {
-      violations.push(`Position size $${riskAmount.toFixed(2)} exceeds max $${maxPositionSize.toFixed(2)}`);
+      const advisory = `Position size $${riskAmount.toFixed(2)} exceeds max $${maxPositionSize.toFixed(2)}`;
+      advisories.push(advisory);
+      advisoryPenalties.push(
+        advisoryPenaltyAggregator.createPenalty(
+          'Safety:Position_Too_Large',
+          advisory,
+          12, // -12% confidence
+          'risk'
+        )
+      );
     }
 
-    // 8. Daily drawdown limit
+    // 9. Daily drawdown limit (ADVISORY)
     if (context.dailyDrawdown < -this.MAX_DAILY_DRAWDOWN) {
-      violations.push(`Daily drawdown ${(context.dailyDrawdown * 100).toFixed(2)}% exceeds ${this.MAX_DAILY_DRAWDOWN * 100}%`);
+      const advisory = `Daily drawdown ${(context.dailyDrawdown * 100).toFixed(2)}% exceeds ${this.MAX_DAILY_DRAWDOWN * 100}%`;
+      advisories.push(advisory);
+      advisoryPenalties.push(
+        advisoryPenaltyAggregator.createPenalty(
+          'Safety:Drawdown_High',
+          advisory,
+          15, // -15% confidence (serious concern)
+          'risk'
+        )
+      );
     }
 
-    // 9. Max concurrent trades
+    // 10. Max concurrent trades (ADVISORY)
     if (context.openTrades >= this.MAX_CONCURRENT_TRADES) {
-      violations.push(`Max ${this.MAX_CONCURRENT_TRADES} concurrent trades reached`);
+      const advisory = `Max ${this.MAX_CONCURRENT_TRADES} concurrent trades reached`;
+      advisories.push(advisory);
+      advisoryPenalties.push(
+        advisoryPenaltyAggregator.createPenalty(
+          'Safety:Max_Trades',
+          advisory,
+          10, // -10% confidence
+          'risk'
+        )
+      );
     }
 
-    // 10. Entry price vs current price sanity check
-    const priceDiff = Math.abs(decision.entry - context.currentPrice) / context.currentPrice;
-    if (priceDiff > 0.01) { // 1% difference
-      violations.push(`Entry price ${decision.entry} too far from current ${context.currentPrice}`);
-    }
-
-    // 11. REGIME-BASED SAFETY CHECKS
+    // 11. REGIME-BASED SAFETY CHECKS (ADVISORY)
     if (context.regime) {
       const regime = context.regime;
 
-      // Block dead zone trades (regime oracle should have caught this, but double-check)
+      // Dead zone advisory (regime oracle should have caught this, but inform Alpha)
       if (regime.avoid_trading) {
-        violations.push(`Regime block: ${regime.reason || 'Unfavorable market conditions'}`);
+        const advisory = `Regime warning: ${regime.reason || 'Unfavorable market conditions'}`;
+        advisories.push(advisory);
+        advisoryPenalties.push(
+          advisoryPenaltyAggregator.createPenalty(
+            'Safety:Regime_Unfavorable',
+            advisory,
+            15, // -15% confidence
+            'environment'
+          )
+        );
       }
 
       // Apply risk reduction for high volatility
@@ -214,37 +321,66 @@ class SafetyEnforcer {
         }
       }
 
-      // Block breakouts during compression + range
+      // Breakout warning during compression + range
       if (regime.atr_compression && regime.structure === 'range') {
         // Check if this looks like a breakout attempt
         const isNearResistance = context.currentPrice > (adjustedDecision.entry * 0.998);
         const isNearSupport = context.currentPrice < (adjustedDecision.entry * 1.002);
         if ((isNearResistance && adjustedDecision.action === 'BUY') ||
             (isNearSupport && adjustedDecision.action === 'SELL')) {
-          violations.push('Breakout blocked: ATR compression + range structure');
+          const advisory = 'Breakout attempt during ATR compression + range structure';
+          advisories.push(advisory);
+          advisoryPenalties.push(
+            advisoryPenaltyAggregator.createPenalty(
+              'Safety:Breakout_Risk',
+              advisory,
+              12, // -12% confidence
+              'environment'
+            )
+          );
         }
       }
     }
 
-    // 12. ADVERSARIAL-BASED SAFETY CHECKS
+    // 12. ADVERSARIAL-BASED SAFETY CHECKS (ADVISORY)
     if (context.adversarial) {
       const adv = context.adversarial;
 
-      // Severe level: HARD BLOCK
+      // Severe level: Strong advisory (doesn't block, but high penalty)
       if (adv.level === 'severe') {
-        violations.push(`Adversarial environment: ${adv.notes}`);
-        console.log(`[Safety] 🚫 BLOCKED by adversarial detector: ${adv.level}`);
+        const advisory = `Severe adversarial environment: ${adv.notes}`;
+        advisories.push(advisory);
+        advisoryPenalties.push(
+          advisoryPenaltyAggregator.createPenalty(
+            'Safety:Adversarial_Severe',
+            advisory,
+            20, // -20% confidence (will be capped by aggregator)
+            'environment'
+          )
+        );
+        console.log(`[Safety] ⚠️ Severe adversarial environment detected`);
       }
 
-      // Moderate level: 50% risk reduction
+      // Moderate level: 50% risk reduction + advisory
       else if (adv.level === 'moderate') {
         const originalRisk = adjustedDecision.risk_pct;
         adjustedDecision.risk_pct = originalRisk * 0.5;
         adjustments.push(`Risk reduced 50% (adversarial): ${originalRisk.toFixed(2)}% → ${adjustedDecision.risk_pct.toFixed(2)}%`);
+
+        const advisory = `Moderate adversarial environment: ${adv.notes}`;
+        advisories.push(advisory);
+        advisoryPenalties.push(
+          advisoryPenaltyAggregator.createPenalty(
+            'Safety:Adversarial_Moderate',
+            advisory,
+            12, // -12% confidence
+            'environment'
+          )
+        );
         console.log(`[Safety] 🔧 Risk reduced 50% due to moderate adversarial environment`);
       }
 
-      // Mild level: 25% risk reduction OR higher R:R requirement
+      // Mild level: 25% risk reduction OR higher R:R requirement + advisory
       else if (adv.level === 'mild') {
         const currentRR = tpDistance / slDistance;
 
@@ -268,16 +404,34 @@ class SafetyEnforcer {
           adjustments.push(`Risk reduced 25% (adversarial): ${originalRisk.toFixed(2)}% → ${adjustedDecision.risk_pct.toFixed(2)}%`);
           console.log(`[Safety] 🔧 Risk reduced 25% due to mild adversarial environment`);
         }
+
+        const advisory = `Mild adversarial environment: ${adv.notes}`;
+        advisories.push(advisory);
+        advisoryPenalties.push(
+          advisoryPenaltyAggregator.createPenalty(
+            'Safety:Adversarial_Mild',
+            advisory,
+            8, // -8% confidence
+            'environment'
+          )
+        );
       }
     }
 
-    const passed = violations.length === 0;
+    // Only block on HARD BLOCKS (system integrity)
+    const passed = hardBlocks.length === 0;
 
     if (!passed) {
-      console.warn('[Safety Enforcer] 🚫 TRADE BLOCKED');
-      violations.forEach(v => console.warn(`  - ${v}`));
+      console.error('[Safety Enforcer] 🚫 SYSTEM ERROR - TRADE BLOCKED');
+      hardBlocks.forEach(v => console.error(`  ❌ ${v}`));
     } else {
-      console.log('[Safety Enforcer] ✅ Safety checks passed');
+      console.log('[Safety Enforcer] ✅ System integrity validated');
+
+      if (advisories.length > 0) {
+        console.log('[Safety Enforcer] ⚠️ Advisory warnings (Alpha aware):');
+        advisories.forEach(a => console.log(`  • ${a}`));
+      }
+
       if (adjustments.length > 0) {
         console.log('[Safety Enforcer] 🔧 Auto-adjustments applied:');
         adjustments.forEach(a => console.log(`  ✓ ${a}`));
@@ -286,10 +440,12 @@ class SafetyEnforcer {
 
     return {
       passed,
-      violations,
+      hardBlocks,
+      advisories,
       action: passed ? 'ALLOW' : 'BLOCK',
       adjustedDecision: adjustments.length > 0 ? adjustedDecision : undefined,
-      adjustments
+      adjustments,
+      advisoryPenalties,
     };
   }
 

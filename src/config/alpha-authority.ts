@@ -83,6 +83,28 @@ export const ALPHA_AUTHORITY = {
   MAX_TIME_TO_FILL_HOURS: Infinity,
 
   /**
+   * Advisory Penalty Cap - GOVERNANCE GUARDRAIL
+   *
+   * No combination of advisory penalties may reduce confidence by more than 25%.
+   * This prevents "death by a thousand cuts" where multiple advisory systems
+   * stack penalties until confidence always drops below execution threshold.
+   *
+   * This guarantees Alpha can still act on strong conviction.
+   */
+  MAX_ADVISORY_PENALTY_PERCENT: 25,
+
+  /**
+   * Per-category penalty caps
+   * Prevents single category from dominating penalties
+   */
+  ADVISORY_PENALTY_CATEGORY_CAPS: {
+    risk: 15,          // Risk-related penalties (SL distance, R:R, exposure)
+    timing: 10,        // Time-related penalties (urgency, decay, staleness)
+    environment: 15,   // Market environment (adversarial, regime, volatility)
+    quality: 10,       // Quality metrics (EQS, pattern confidence)
+  },
+
+  /**
    * Advisory metrics list
    * Components must not block based on these
    */
