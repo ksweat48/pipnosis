@@ -116,6 +116,14 @@
   timeout = 120  # 2 minutes for comprehensive wellness evaluation
   schedule = "*/15 * * * *"  # 🚨 Every 15 minutes - periodic health checks
 
+# 🧹 CRITICAL: Stuck Continuation Session Cleanup (runs every 1 minute)
+# PREVENTS STUCK MODALS: Auto-closes sessions stuck in 'awaiting_continuation' after 15 minutes
+# SSOT COMPLIANCE: Enforces server-side timeout when JS timer stops (phone sleep, etc.)
+# SAFETY: Never closes sessions with open trades (defense-in-depth)
+[functions."cleanup-stuck-continuation-sessions"]
+  timeout = 30  # Fast cleanup for stuck sessions
+  schedule = "* * * * *"  # 🚨 Every minute - ensures modals never stuck forever
+
 # 📊 COMPREHENSIVE BACKFILL: Backfill all timeframes for new currency pairs
 [functions."backfill-all-timeframes-new-pairs"]
   timeout = 900
