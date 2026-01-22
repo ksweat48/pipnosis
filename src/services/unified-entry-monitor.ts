@@ -32,7 +32,7 @@ import { globalToastManager } from './global-toast-manager';
 import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { thesisEntryQualityEngine } from './thesis-entry-quality-engine';
 import type { ThesisType } from '../types/thesis';
-import { entryTimeDecayCoordinator } from './entry-time-decay-coordinator';
+import { entryEdgeLossDetector } from './entry-edge-loss-detector';
 
 /**
  * Timeout wrapper for async operations
@@ -80,14 +80,15 @@ export class UnifiedEntryMonitor {
   }
 
   /**
-   * Check if price is in any zone (primary or secondary) with optional tolerance
+   * Check if price is in any zone (primary or secondary)
    * Returns zone type and distance
+   *
+   * Note: Zone tolerance removed - exact zone matching only
    *
    * @param price - Current market price
    * @param intent - Entry intent with zone data
-   * @param tolerancePips - Zone tolerance in pips (for progressive relaxation)
    */
-  private checkZoneEntry(price: number, intent: any, tolerancePips: number = 0): {
+  private checkZoneEntry(price: number, intent: any): {
     inZone: boolean;
     zoneType: ExecutedZoneType;
     distanceToNearestZone: number;
@@ -100,32 +101,29 @@ export class UnifiedEntryMonitor {
 
     // If no adaptive zones, fall back to legacy zone
     if (!hasPrimaryZone && !hasSecondaryZone) {
-      const exactInZone = price >= intent.entry_zone_min && price <= intent.entry_zone_max;
-      const distanceToZone = exactInZone
+      const inZone = price >= intent.entry_zone_min && price <= intent.entry_zone_max;
+      const distanceToZone = inZone
         ? 0
         : price < intent.entry_zone_min
         ? intent.entry_zone_min - price
         : price - intent.entry_zone_max;
 
-      // Apply tolerance if not exactly in zone
-      const relaxedInZone = exactInZone || Math.abs(distanceToZone) <= tolerancePips;
-
       return {
-        inZone: relaxedInZone,
+        inZone,
         zoneType: 'none',
         distanceToNearestZone: distanceToZone,
         positionSizeMultiplier: ADAPTIVE_ZONE_CONFIG.positionSizing.primary_zone_multiplier,
-        usedTolerance: relaxedInZone && !exactInZone
+        usedTolerance: false
       };
     }
 
-    // Check PRIMARY zone first (highest priority)
-    const exactInPrimaryZone = hasPrimaryZone &&
+    // Check PRIMARY zone first (highest priority) - exact zone only
+    const inPrimaryZone = hasPrimaryZone &&
       price >= intent.primary_zone_min &&
       price <= intent.primary_zone_max;
 
-    if (exactInPrimaryZone) {
-      logger.debug(`[UnifiedMonitor] Price ${price} in PRIMARY zone (exact)`);
+    if (inPrimaryZone) {
+      logger.debug(`[UnifiedMonitor] Price ${price} in PRIMARY zone`);
       return {
         inZone: true,
         zoneType: 'primary',
@@ -135,33 +133,13 @@ export class UnifiedEntryMonitor {
       };
     }
 
-    // Check PRIMARY zone with tolerance
-    if (hasPrimaryZone && tolerancePips > 0) {
-      const distanceToPrimary = price < intent.primary_zone_min
-        ? intent.primary_zone_min - price
-        : price > intent.primary_zone_max
-        ? price - intent.primary_zone_max
-        : 0;
-
-      if (distanceToPrimary <= tolerancePips && distanceToPrimary > 0) {
-        logger.debug(`[UnifiedMonitor] Price ${price} within PRIMARY zone tolerance (${distanceToPrimary.toFixed(1)} pips from edge)`);
-        return {
-          inZone: true,
-          zoneType: 'primary',
-          distanceToNearestZone: distanceToPrimary,
-          positionSizeMultiplier: ADAPTIVE_ZONE_CONFIG.positionSizing.primary_zone_multiplier,
-          usedTolerance: true
-        };
-      }
-    }
-
-    // Check SECONDARY zone
-    const exactInSecondaryZone = hasSecondaryZone &&
+    // Check SECONDARY zone - exact zone only
+    const inSecondaryZone = hasSecondaryZone &&
       price >= intent.secondary_zone_min &&
       price <= intent.secondary_zone_max;
 
-    if (exactInSecondaryZone) {
-      logger.debug(`[UnifiedMonitor] Price ${price} in SECONDARY zone (exact)`);
+    if (inSecondaryZone) {
+      logger.debug(`[UnifiedMonitor] Price ${price} in SECONDARY zone`);
       return {
         inZone: true,
         zoneType: 'secondary',
@@ -169,26 +147,6 @@ export class UnifiedEntryMonitor {
         positionSizeMultiplier: ADAPTIVE_ZONE_CONFIG.positionSizing.secondary_zone_multiplier,
         usedTolerance: false
       };
-    }
-
-    // Check SECONDARY zone with tolerance
-    if (hasSecondaryZone && tolerancePips > 0) {
-      const distanceToSecondary = price < intent.secondary_zone_min
-        ? intent.secondary_zone_min - price
-        : price > intent.secondary_zone_max
-        ? price - intent.secondary_zone_max
-        : 0;
-
-      if (distanceToSecondary <= tolerancePips && distanceToSecondary > 0) {
-        logger.debug(`[UnifiedMonitor] Price ${price} within SECONDARY zone tolerance (${distanceToSecondary.toFixed(1)} pips from edge)`);
-        return {
-          inZone: true,
-          zoneType: 'secondary',
-          distanceToNearestZone: distanceToSecondary,
-          positionSizeMultiplier: ADAPTIVE_ZONE_CONFIG.positionSizing.secondary_zone_multiplier,
-          usedTolerance: true
-        };
-      }
     }
 
     // Not in any zone - calculate distance to nearest zone
@@ -632,39 +590,32 @@ export class UnifiedEntryMonitor {
         return;
       }
 
-      // Step 4: TIME DECAY CALCULATION - Calculate urgency phase and tolerance
-      if (isDev) console.log('[UnifiedMonitor] Step 4/5: Calculating time decay phase...');
+      // Step 4: EDGE LOSS CHECK - Check absolute time limits (no phases)
+      if (isDev) console.log('[UnifiedMonitor] Step 4/5: Checking edge loss status...');
 
       const createdAt = new Date(intent.created_at);
       const elapsedMinutes = (Date.now() - createdAt.getTime()) / (1000 * 60);
 
       // Quick check if price is currently in zone (for edge loss calculation)
-      const quickZoneCheck = this.checkZoneEntry(priceData.price, intent, 0);
+      const quickZoneCheck = this.checkZoneEntry(priceData.price, intent);
       const isPriceInZone = quickZoneCheck.inZone;
 
-      // Get time decay thresholds for this trade style
-      const urgencyResult = await entryTimeDecayCoordinator.calculateUrgencyPhase(
-        intent.trade_style || 'MICRO_INTRADAY',
-        createdAt
-      );
-
-      if (isDev) {
-        console.log('%c[UnifiedMonitor] ⏱️ TIME DECAY STATUS:', 'color: #ff9800; font-weight: bold', {
-          elapsedMinutes: elapsedMinutes.toFixed(1),
-          phase: urgencyResult.phase,
-          eqsThreshold: urgencyResult.eqsThreshold,
-          zoneTolerance: urgencyResult.zoneTolerance,
-          timeDescription: urgencyResult.timeDescription,
-          minutesUntilNextPhase: urgencyResult.minutesUntilNextPhase
-        });
-      }
-
-      // Check for EDGE LOSS - if exceeded max wait time, trigger abandonment
-      const edgeLossStatus = await entryTimeDecayCoordinator.checkEdgeLoss(
+      // Check for EDGE LOSS using absolute time limits (no progressive phases)
+      const edgeLossStatus = entryEdgeLossDetector.checkEdgeLoss(
         intent.trade_style || 'MICRO_INTRADAY',
         createdAt,
         isPriceInZone
       );
+
+      if (isDev) {
+        console.log('%c[UnifiedMonitor] ⏱️ EDGE LOSS STATUS:', 'color: #ff9800; font-weight: bold', {
+          elapsedMinutes: elapsedMinutes.toFixed(1),
+          maxWaitMinutes: edgeLossStatus.maxWaitMinutes,
+          shouldTriggerModal: edgeLossStatus.shouldTriggerModal,
+          minutesOverdue: edgeLossStatus.minutesOverdue,
+          edgeDecayPercent: `${edgeLossStatus.edgeDecayPercent}%`
+        });
+      }
 
       if (edgeLossStatus.shouldTriggerModal) {
         console.log('%c[UnifiedMonitor] 🚨 EDGE LOSS DETECTED - Max wait time exceeded', 'color: #f44336; font-weight: bold', {
@@ -695,11 +646,11 @@ export class UnifiedEntryMonitor {
         return;
       }
 
-      // Step 5: ZONE CHECK WITH TIME DECAY TOLERANCE
-      if (isDev) console.log('[UnifiedMonitor] Step 5/5: Checking if price is in entry zone with tolerance...');
+      // Step 5: ZONE CHECK (exact zone only - no tolerance)
+      if (isDev) console.log('[UnifiedMonitor] Step 5/5: Checking if price is in entry zone...');
 
-      // Apply zone tolerance based on urgency phase
-      const zoneCheck = this.checkZoneEntry(priceData.price, intent, urgencyResult.zoneTolerance);
+      // Check exact zone (no tolerance - time-based relaxation removed)
+      const zoneCheck = this.checkZoneEntry(priceData.price, intent);
       const inEntryZone = zoneCheck.inZone;
       const distanceToZone = zoneCheck.distanceToNearestZone;
       const executedZoneType = zoneCheck.zoneType;
@@ -776,28 +727,28 @@ export class UnifiedEntryMonitor {
           const eqsResult = thesisEntryQualityEngine.calculateEQS(eqsInput);
           eqsScore = eqsResult.score;
 
-          // Use phase-specific threshold (relaxes over time)
-          const phaseThreshold = urgencyResult.eqsThreshold;
+          // Use confidence-based threshold (static, no time decay)
+          const confidenceThreshold = this.getConfidenceAdjustedThreshold(intent.alpha_confidence || 60);
           const immediateOverride = intent.execution_preference === 'IMMEDIATE' && eqsScore >= 30;
           const highConfidenceOverride = (intent.alpha_confidence || 0) >= 85 && eqsScore >= 30;
 
           shouldExecute =
             eqsResult.readiness === 'EXECUTE_NOW' ||
-            eqsScore >= phaseThreshold ||
+            eqsScore >= confidenceThreshold ||
             immediateOverride ||
             highConfidenceOverride;
 
           executionReason = shouldExecute
-            ? `✅ THESIS EQS: ${eqsScore}/100 (Phase ${urgencyResult.phase} threshold: ${phaseThreshold}) - ${intent.thesis}`
-            : `⏳ EQS ${eqsScore}/100 below Phase ${urgencyResult.phase} threshold ${phaseThreshold} (${distanceToPips.toFixed(2)} pips away)`;
+            ? `✅ THESIS EQS: ${eqsScore}/100 (confidence threshold: ${confidenceThreshold}) - ${intent.thesis}`
+            : `⏳ EQS ${eqsScore}/100 below confidence threshold ${confidenceThreshold} (${distanceToPips.toFixed(2)} pips away)`;
 
           if (isDev) {
-            console.log('%c[UnifiedMonitor] 🎯 Thesis-Aware EQS with Time Decay:', 'color: #9c27b0; font-weight: bold', {
+            console.log('%c[UnifiedMonitor] 🎯 Thesis-Aware EQS (Confidence-Based):', 'color: #9c27b0; font-weight: bold', {
               thesis: intent.thesis,
               eqsScore: eqsScore,
               readiness: eqsResult.readiness,
-              urgencyPhase: urgencyResult.phase,
-              phaseThreshold: phaseThreshold,
+              alphaConfidence: intent.alpha_confidence || 60,
+              confidenceThreshold: confidenceThreshold,
               elapsedMinutes: elapsedMinutes.toFixed(1),
               criticalGaps: eqsResult.critical_gaps,
               willExecute: shouldExecute
@@ -813,8 +764,8 @@ export class UnifiedEntryMonitor {
       } else {
         shouldExecute = inEntryZone;
         executionReason = inEntryZone
-          ? `✅ PRICE IN ENTRY ZONE - AUTO EXECUTING (Phase ${urgencyResult.phase}, tolerance: ${urgencyResult.zoneTolerance} pips)`
-          : `⏳ Waiting for entry zone (${distanceToPips.toFixed(2)} pips away, Phase ${urgencyResult.phase})`;
+          ? `✅ PRICE IN ENTRY ZONE - AUTO EXECUTING (exact zone match)`
+          : `⏳ Waiting for entry zone (${distanceToPips.toFixed(2)} pips away)`;
       }
 
       // Always log execution decisions (critical for monitoring)
@@ -854,6 +805,19 @@ export class UnifiedEntryMonitor {
     } catch (error) {
       logger.error(`[UnifiedMonitor] Error checking intent ${intentId}:`, error);
     }
+  }
+
+  /**
+   * Get confidence-adjusted EQS threshold (SSOT)
+   * Uses confidence-based static thresholds, no time decay
+   *
+   * @param alphaConfidence - Alpha's confidence (60-100)
+   * @returns EQS threshold (30-40 on 75-point scale)
+   */
+  private getConfidenceAdjustedThreshold(alphaConfidence: number): number {
+    if (alphaConfidence >= 85) return 30;  // Excellent: 40% of 75
+    if (alphaConfidence >= 70) return 35;  // Solid: 47% of 75
+    return 40;  // Acceptable: 53% of 75 (baseline)
   }
 
   /**

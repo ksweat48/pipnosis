@@ -87,73 +87,21 @@ export const EQS_GRADE_THRESHOLDS = {
 } as const;
 
 /**
- * TIME-BASED ENTRY URGENCY CONFIGURATION
+ * EDGE LOSS TIME LIMITS - ABSOLUTE THRESHOLDS PER STYLE
  *
- * Automatically applied based on trading style (no user choice):
- * - SCALP: Fast urgency (5/15/25 min phase transitions)
- * - MICRO_INTRADAY: Medium urgency (8/20/35 min transitions)
- * - INTRADAY: Slower urgency (15/35/55 min transitions)
+ * After these time limits, edge loss modal is triggered to alert the user.
+ * These are ABSOLUTE limits, not progressive phases.
+ * No threshold decay, no zone tolerance relaxation.
  *
- * Phase Progression (75-point scale):
- * - Phase 1 (STRICT): Base threshold (40/75 = 53%)
- * - Phase 2 (RELAXED): Threshold -7 (33/75 = 44%)
- * - Phase 3 (URGENT): Threshold -15 (25/75 = 33%)
- *
- * High Alpha confidence accelerates phase transitions
+ * Style-Specific Max Wait Times:
+ * - SCALP: 10 minutes (fast execution style)
+ * - MICRO_INTRADAY: 45 minutes (structured patience)
+ * - INTRADAY: 120 minutes (patient positioning)
  */
-export const ENTRY_URGENCY_CONFIG = {
-  PHASE_THRESHOLDS: {
-    PHASE_1: { threshold: 40, description: 'Strict - Original threshold' },
-    PHASE_2: { threshold: 33, description: 'Relaxed - Near zone acceptable' },
-    PHASE_3: { threshold: 25, description: 'Urgent - Continuation entries allowed' },
-  },
-
-  // ZONE TOLERANCE: Progressive relaxation of entry zone distance requirements
-  // Phase 1: Exact zone only (0 pips tolerance)
-  // Phase 2: Near zone acceptable (20-40 pips depending on style)
-  // Phase 3: Continuation entries (50-70 pips depending on style)
-  ZONE_TOLERANCE_PIPS: {
-    SCALP: {
-      PHASE_1: 0,   // Must be exactly in zone
-      PHASE_2: 20,  // Can be 20 pips from zone edge
-      PHASE_3: 50,  // Can be 50 pips from zone edge
-    },
-    MICRO_INTRADAY: {
-      PHASE_1: 0,
-      PHASE_2: 30,
-      PHASE_3: 60,
-    },
-    INTRADAY: {
-      PHASE_1: 0,
-      PHASE_2: 40,
-      PHASE_3: 70,
-    },
-  },
-
-  STYLE_TIME_THRESHOLDS: {
-    SCALP: {
-      PHASE_2_MINUTES: 5,   // Enter Phase 2 at 5 minutes
-      PHASE_3_MINUTES: 15,  // Enter Phase 3 at 15 minutes
-      MAX_WAIT_MINUTES: 25, // Expire intent at 25 minutes
-    },
-    MICRO_INTRADAY: {
-      PHASE_2_MINUTES: 8,
-      PHASE_3_MINUTES: 20,
-      MAX_WAIT_MINUTES: 35,
-    },
-    INTRADAY: {
-      PHASE_2_MINUTES: 15,
-      PHASE_3_MINUTES: 35,
-      MAX_WAIT_MINUTES: 55,
-    },
-  },
-
-  // High confidence accelerates phase transitions
-  CONFIDENCE_ACCELERATION: {
-    EXCELLENT: 0.75,  // 85%+ confidence: 25% faster phase transitions
-    SOLID: 0.85,      // 70%+ confidence: 15% faster
-    ACCEPTABLE: 1.0,  // 60%+ confidence: Normal speed
-  },
+export const EDGE_LOSS_TIME_LIMITS = {
+  SCALP: 10,              // 10 minutes max wait
+  MICRO_INTRADAY: 45,     // 45 minutes max wait
+  INTRADAY: 120,          // 120 minutes max wait
 } as const;
 
 export const ALPHA_IDENTITY = {

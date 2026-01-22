@@ -18,7 +18,6 @@ import { globalToastManager } from '../services/global-toast-manager';
 import { logger } from '../lib/logger';
 import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { ScanResultsCard } from './ScanResultsCard';
-import { EntryUrgencyPhaseTimer } from './EntryUrgencyPhaseTimer';
 
 interface SimpleEntryMonitorProps {
   sessionId: string;
@@ -199,10 +198,7 @@ export const SimpleEntryMonitor: React.FC<SimpleEntryMonitorProps> = ({ sessionI
         </div>
       </div>
 
-      {/* TIME DECAY PHASE MONITOR */}
-      <div className="mb-3 sm:mb-4">
-        <EntryUrgencyPhaseTimer activeIntent={activeIntent} />
-      </div>
+      {/* Note: Time-based urgency phases removed - using confidence-based static thresholds */}
 
       {/* EQS (ENTRY QUALITY SCORE) METER */}
       {eqsScore !== null && eqsThreshold !== null && (

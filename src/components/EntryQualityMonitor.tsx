@@ -8,7 +8,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Activity, TrendingUp, TrendingDown, CheckCircle, Clock, AlertCircle, Target, MapPin, ArrowUp, ArrowDown, Minus } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useActiveEntryIntent } from '../hooks/useEntryIntent';
-import { EntryUrgencyPhaseTimer } from './EntryUrgencyPhaseTimer';
 import { EQS_COMPONENT_MAXIMUMS } from '../config/alpha-identity';
 import { getZoneLanguage, getZoneTypeBadge, getZoneTypeColor } from '../utils/regime-zone-language';
 import { getCurrencyPipInfo } from '../utils/currencyHelpers';
@@ -439,10 +438,7 @@ export const EntryQualityMonitor: React.FC<EntryQualityMonitorProps> = ({ sessio
         </div>
       </div>
 
-      {/* URGENCY PHASE TIMER: Live countdown to next phase */}
-      <div className="mb-3 sm:mb-4">
-        <EntryUrgencyPhaseTimer activeIntent={activeIntent} />
-      </div>
+      {/* Note: Time-based urgency phases removed - using confidence-based static thresholds */}
 
       {/* DECISION SUMMARY: Why Not Executing */}
       <div className={`mb-3 sm:mb-4 p-2 sm:p-3 rounded-lg border ${
