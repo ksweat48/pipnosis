@@ -20,6 +20,7 @@
  */
 
 import { logger } from '../lib/logger';
+import { tradeValidationService } from '../services/trade-validation-service';
 
 export interface ValidationResult {
   isValid: boolean;
@@ -118,29 +119,25 @@ class ValidationGateway {
     if (request.entryPrice <= 0) {
       errors.push('Entry price must be positive');
     }
-    if (request.stopLoss <= 0) {
-      errors.push('Stop loss must be positive');
-    }
-    if (request.takeProfit !== null && request.takeProfit <= 0) {
-      errors.push('Take profit must be positive');
+    // ✅ PHASE 2 SECTION 2: Use TradeValidationService (SSOT for trade validation)
+    // Replaces duplicate SL/TP direction validation logic (lines 121-144)
+    // This ensures consistent validation across all layers
+    const validation = tradeValidationService.validateTrade({
+      symbol: request.symbol,
+      direction: request.direction,
+      entry: request.entryPrice,
+      stopLoss: request.stopLoss,
+      takeProfit: request.takeProfit || request.entryPrice * 1.01, // Use small default if null for validation
+      lotSize: 1.0 // Default for validation purposes
+    });
+
+    if (!validation.valid) {
+      errors.push(...validation.errors);
     }
 
-    // Validate direction consistency
-    if (request.direction === 'buy' && request.stopLoss >= request.entryPrice) {
-      errors.push('For buy orders, stop loss must be below entry price');
-    }
-    if (request.direction === 'sell' && request.stopLoss <= request.entryPrice) {
-      errors.push('For sell orders, stop loss must be above entry price');
-    }
-
-    // Validate take profit consistency
-    if (request.takeProfit !== null) {
-      if (request.direction === 'buy' && request.takeProfit <= request.entryPrice) {
-        errors.push('For buy orders, take profit must be above entry price');
-      }
-      if (request.direction === 'sell' && request.takeProfit >= request.entryPrice) {
-        errors.push('For sell orders, take profit must be below entry price');
-      }
+    // Include warnings from SSOT validation
+    if (validation.warnings.length > 0) {
+      warnings.push(...validation.warnings);
     }
 
     // Validate user context
