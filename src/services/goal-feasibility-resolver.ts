@@ -12,6 +12,7 @@ import { supabase } from '../lib/supabase';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
 import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { logSSOTCorruption } from '../types/ssot-diagnostics';
+import { estimationRiskCalculator } from './estimation-risk-calculator';
 
 interface FeasibilityInput {
   userId: string;
@@ -581,7 +582,6 @@ export class GoalFeasibilityResolver {
     adjustedATR: number,
     currentPrice: number
   ): number {
-    const { estimationRiskCalculator } = require('./estimation-risk-calculator');
     return estimationRiskCalculator.estimateFromATR(targetProfit, adjustedATR, currentPrice);
   }
 
