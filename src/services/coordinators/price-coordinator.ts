@@ -10,10 +10,13 @@
  * - Automatic fallback to candle data
  * - Caching to reduce database load
  * - Validation of price data quality
+ *
+ * ✅ SSOT COMPLIANT: Uses MarketDataService for candle fallback queries
  */
 
 import { supabase } from '../../lib/supabase';
 import { TIME_CONSTANTS, TIME_MS, isOlderThan, getAgeInSeconds } from '../../config/time-constants';
+import { marketDataService } from '../market-data-service';
 
 export interface PriceData {
   symbol: string;
@@ -232,30 +235,26 @@ class PriceCoordinator {
     }
   }
 
+  /**
+   * ✅ SSOT: Uses MarketDataService for candle queries
+   */
   private async fetchCandlePrice(symbol: string): Promise<PriceFetchResult> {
     try {
-      const { data, error } = await supabase
-        .from('forex_candles')
-        .select('close, high, low, open_time')
-        .eq('symbol', symbol)
-        .eq('timeframe', '5m')
-        .order('open_time', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const candle = await marketDataService.getLastCandle(symbol, 'M5');
 
-      if (error || !data) {
+      if (!candle) {
         return {
           success: false,
           price: null,
-          error: error?.message || 'No candle data found',
+          error: 'No candle data found',
         };
       }
 
-      const timestamp = new Date(data.open_time);
+      const timestamp = new Date(candle.open_time);
       const ageSeconds = getAgeInSeconds(timestamp);
 
-      const estimatedSpread = (data.high - data.low) * 0.1;
-      const mid = data.close;
+      const estimatedSpread = (candle.high - candle.low) * 0.1;
+      const mid = candle.close;
       const bid = mid - estimatedSpread / 2;
       const ask = mid + estimatedSpread / 2;
 

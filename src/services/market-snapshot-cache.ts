@@ -11,9 +11,10 @@
  * - Consistent ATR/price across all Omegas
  * - No "Omega-1 saw 4461.70, Omega-2 saw 4461.42" bugs
  * - Prevents repeated indicator computation
+ *
+ * ✅ SSOT COMPLIANT: Uses MarketDataService for all candle queries
  */
 
-import { supabase } from '../lib/supabase';
 import { computeOmegaSensors, type OmegaSensors, type Candle } from './omega-sensors';
 import { getMTFConfig, type Timeframe, type RiskMode } from '../config/timeframe-hierarchy';
 import { regimeOracle, type RegimeSnapshot } from './regime-oracle';
@@ -21,6 +22,7 @@ import { adversarialDetector, type AdversarialSignal } from './adversarial-detec
 import { createATRValue, type ATRValue, type ATRTimeframe } from '../types/atr';
 import type { AggregatedSentiment } from './sentiment-aggregator';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
+import { marketDataService } from './market-data-service';
 
 export interface MarketSnapshotData {
   // Core Price Data
@@ -325,32 +327,17 @@ class MarketSnapshotCache {
 
   /**
    * Fetch candles from database
-   *
-   * CRITICAL FIX: Database stores timeframes in UPPERCASE (M5, M15, H1, etc.)
-   * The Timeframe type already uses uppercase, so use it directly - no conversion needed
+   * ✅ SSOT: Uses MarketDataService
    */
   private async fetchCandles(symbol: string, timeframe: Timeframe): Promise<Candle[]> {
-    // Database uses UPPERCASE: 'M5', 'M15', 'H1', 'H4', 'D1'
-    // Timeframe type already matches this format - use directly
-    const { data: candles, error } = await supabase
-      .from('forex_candles')
-      .select('open_time, open, high, low, close, volume')
-      .eq('symbol', symbol)
-      .eq('timeframe', timeframe)
-      .order('open_time', { ascending: false })
-      .limit(300);
-
-    if (error) {
-      console.error(`[SnapshotCache] ❌ Failed to fetch candles for ${symbol}@${timeframe}:`, error);
-      throw new Error(`Database error: ${error.message}`);
-    }
+    const candles = await marketDataService.getCandles(symbol, timeframe, 300);
 
     if (!candles || candles.length === 0) {
-      console.error(`[SnapshotCache] ❌ No candle data found for ${symbol}@${timeframe} (queried: timeframe='${timeframe}')`);
+      console.error(`[SnapshotCache] ❌ No candle data found for ${symbol}@${timeframe}`);
       throw new Error(`No candle data found for ${symbol}@${timeframe}`);
     }
 
-    // Reverse to chronological order
+    // Reverse to chronological order (MarketDataService returns newest first)
     return candles.reverse().map(c => ({
       open_time: c.open_time,
       open: c.open,

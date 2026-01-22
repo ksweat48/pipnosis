@@ -6,6 +6,7 @@ import { llmPostSessionAnalyzer } from './llm-post-session-analyzer';
 import { goalSessionStateMachine } from './coordinators/goal-session-state-machine';
 import { tradeClosureCoordinator, CloseReason } from './coordinators/trade-closure-coordinator';
 import { creditValidationService } from './credit-validation-service';
+import { marketDataService } from './market-data-service';
 
 export interface GoalSessionConfig {
   goalType: 'profit_target' | 'percentage_gain' | 'account_growth';
@@ -535,15 +536,9 @@ class GoalSessionManager {
       // session state transitions, and post-trade analysis
 
       // Get current price for closure
-      const { data: priceData } = await supabase
-        .from('forex_candles')
-        .select('close')
-        .eq('symbol', trade.symbol)
-        .order('open_time', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      const exitPrice = priceData ? parseFloat(priceData.close) : trade.entry_price;
+      // ✅ SSOT: Uses MarketDataService
+      const lastCandle = await marketDataService.getLastCandle(trade.symbol, 'M5');
+      const exitPrice = lastCandle ? lastCandle.close : trade.entry_price;
 
       // Delegate to tradeClosureCoordinator (SSOT for trade closures)
       const result = await tradeClosureCoordinator.closeTrade({
@@ -628,15 +623,9 @@ class GoalSessionManager {
   ): Promise<{ success: boolean; message: string }> {
     try {
       // Get current price
-      const { data: priceData } = await supabase
-        .from('forex_candles')
-        .select('close')
-        .eq('symbol', trade.symbol)
-        .order('open_time', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      const currentPrice = priceData ? parseFloat(priceData.close) : trade.entry_price;
+      // ✅ SSOT: Uses MarketDataService
+      const lastCandle = await marketDataService.getLastCandle(trade.symbol, 'M5');
+      const currentPrice = lastCandle ? lastCandle.close : trade.entry_price;
 
       // Calculate safety price (50% of current profit)
       const pipDistance = calculatePipDistance(trade.symbol, trade.entry_price, currentPrice);

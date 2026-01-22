@@ -1,10 +1,10 @@
-import { supabase } from '../lib/supabase';
 import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orchestrator';
 import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator';
 import { DEFAULT_WATCHLIST } from '../config/watchlist';
 import { computeOmegaSensors, OmegaSensors } from './omega-sensors';
 import type { CandleData } from '../types';
 import type { TraderScore } from './ai-identity';
+import { marketDataService } from './market-data-service';
 
 /**
  * Cache Warming Result - Thesis-Only Model
@@ -161,22 +161,21 @@ class CacheWarmingService {
     };
   }
 
+  /**
+   * ✅ SSOT: Uses MarketDataService for candle queries
+   */
   private async fetchCandles(symbol: string, timeframe: string, limit: number): Promise<CandleData[]> {
-    const { data, error } = await supabase
-      .from('forex_candles')
-      .select('time, open, high, low, close, volume')
-      .eq('symbol', symbol)
-      .eq('timeframe', timeframe)
-      .order('time', { ascending: false })
-      .limit(limit);
+    const candles = await marketDataService.getCandles(symbol, timeframe, limit);
 
-    if (error) {
-      console.error(`[CacheWarming] Supabase error for ${symbol}:`, error);
+    if (!candles || candles.length === 0) {
+      console.error(`[CacheWarming] No candles available for ${symbol}`);
       return [];
     }
 
-    return (data || []).reverse().map(c => ({
-      time: typeof c.time === 'number' ? c.time : new Date(c.time).getTime() / 1000,
+    // Convert from database format to CandleData format
+    // Note: MarketDataService returns newest first, so reverse for chronological order
+    return candles.reverse().map(c => ({
+      time: new Date(c.open_time).getTime() / 1000,
       open: c.open,
       high: c.high,
       low: c.low,
