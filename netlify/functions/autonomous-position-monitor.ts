@@ -188,27 +188,19 @@ async function executePositionClosure(
   try {
     if (result.action === 'close_partial_50') {
       // TP1 hit - Mark milestone flag ONLY (no position_size change)
-      // ✅ SSOT COMPLIANCE: TP1 is a milestone, not a partial close
+      // ✅ SSOT COMPLIANCE: Use mark_tp1_milestone RPC for all TP1 updates
       // Position continues to TP2 for full closure
       console.log(`[AutonomousMonitor] TP1 HIT for ${position.symbol}: Marking milestone (no partial close)`);
 
-      const { error: updateError } = await supabase
-        .from('goal_session_trades')
-        .update({
-          tp1_hit: true,
-          tp1_hit_at: new Date().toISOString(),
-          // ✅ CRITICAL FIX: Removed position_size mutation
-          // All monitors must have consistent TP1 behavior
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', position.id);
+      const { data: result, error: updateError } = await supabase
+        .rpc('mark_tp1_milestone', { trade_id: position.id });
 
-      if (updateError) {
-        console.error(`[AutonomousMonitor] Failed to update TP1 for ${position.id}:`, updateError);
+      if (updateError || !result?.success) {
+        console.error(`[AutonomousMonitor] Failed to mark TP1 for ${position.id}:`, updateError || result?.error);
         return false;
       }
 
-      console.log(`[AutonomousMonitor] ✅ TP1 milestone marked: Position ${position.id} continues to TP2`);
+      console.log(`[AutonomousMonitor] ✅ TP1 milestone marked via RPC: Position ${position.id} continues to TP2`);
       return true;
 
     } else {

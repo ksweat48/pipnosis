@@ -7,7 +7,7 @@ import { goalIntelligenceClassifier, GoalClassification } from './goal-intellige
  *
  * Hard Safety Rails (Non-negotiable):
  * - Max 5% risk per trade
- * - Max 8% total session exposure
+ * - Max 20% total session exposure (SSOT: TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_TOTAL_EXPOSURE)
  * - Max 3 concurrent open trades
  *
  * Soft Dynamic Adjustments:
@@ -32,12 +32,12 @@ import { goalIntelligenceClassifier, GoalClassification } from './goal-intellige
 // ============================================================
 
 export const HARD_RISK_LIMITS = {
-  MAX_RISK_PER_TRADE_PCT: 5.0,           // Maximum risk per single trade
-  MAX_TOTAL_SESSION_EXPOSURE_PCT: 8.0,   // Maximum total open exposure
-  MAX_OPEN_TRADES: 3,                     // Maximum concurrent positions
-  MIN_RISK_REWARD_RATIO: 1.5,            // Minimum R:R for any trade
-  MAX_TRADE_DURATION_MINUTES: 1440,      // 24 hours maximum hold
-  MIN_CONFIDENCE_THRESHOLD: 70,          // Minimum confidence to execute
+  MAX_RISK_PER_TRADE_PCT: 5.0,            // Maximum risk per single trade
+  MAX_TOTAL_SESSION_EXPOSURE_PCT: 20.0,   // CRITICAL FIX: Match TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_TOTAL_EXPOSURE (was 8%, now 20%)
+  MAX_OPEN_TRADES: 3,                      // Maximum concurrent positions
+  MIN_RISK_REWARD_RATIO: 1.5,             // Minimum R:R for any trade
+  MAX_TRADE_DURATION_MINUTES: 1440,       // 24 hours maximum hold
+  MIN_CONFIDENCE_THRESHOLD: 70,           // Minimum confidence to execute
 } as const;
 
 // ============================================================

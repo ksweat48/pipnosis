@@ -4,6 +4,7 @@ import { calculateDollarPerPip, calculatePipDistance, getCurrencyPipInfo } from 
 import { liveTradeLearningTrigger } from './live-trade-learning-trigger';
 import { llmPostSessionAnalyzer } from './llm-post-session-analyzer';
 import { goalSessionStateMachine } from './coordinators/goal-session-state-machine';
+import { tradeClosureCoordinator, CloseReason } from './coordinators/trade-closure-coordinator';
 import { creditValidationService } from './credit-validation-service';
 
 export interface GoalSessionConfig {
@@ -144,6 +145,9 @@ class GoalSessionManager {
       const scanInterval = this.calculateScanInterval(config.riskMode, timeframeHours);
       const nextScanTime = new Date(Date.now() + scanInterval * 60 * 1000).toISOString();
 
+      // SSOT COMPLIANT: Direct INSERT for NEW session initialization is acceptable
+      // This creates a new entity (not updating existing), so coordinator delegation not required
+      // All subsequent status transitions MUST use goalSessionStateMachine.transition()
       const { data, error } = await supabase
         .from('goal_sessions')
         .insert({
@@ -253,16 +257,16 @@ class GoalSessionManager {
 
   async transitionStatus(sessionId: string, newStatus: string): Promise<boolean> {
     try {
-      const { error } = await supabase
-        .from('goal_sessions')
-        .update({
-          status: newStatus,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', sessionId);
+      // SSOT COMPLIANCE: Use goalSessionStateMachine for all status transitions
+      // This ensures valid transitions, race condition protection, and audit trail
+      const result = await goalSessionStateMachine.transition(
+        sessionId,
+        newStatus as any,
+        { reason: 'Session manager state transition', triggeredBy: 'goal-session-manager' }
+      );
 
-      if (error) {
-        console.error('Error updating session status:', error);
+      if (!result.success) {
+        console.error('[Goal Session] State transition failed:', result.error);
         return false;
       }
 
@@ -526,7 +530,11 @@ class GoalSessionManager {
     trade: any
   ): Promise<{ success: boolean; message: string }> {
     try {
-      // Get current price
+      // SSOT COMPLIANCE: Use tradeClosureCoordinator for all trade closures
+      // This ensures proper P&L calculation, audit trail, goal achievement checks,
+      // session state transitions, and post-trade analysis
+
+      // Get current price for closure
       const { data: priceData } = await supabase
         .from('forex_candles')
         .select('close')
@@ -537,40 +545,20 @@ class GoalSessionManager {
 
       const exitPrice = priceData ? parseFloat(priceData.close) : trade.entry_price;
 
-      // Calculate final P&L - CRITICAL FIX: Use calculatePnL for correct sign handling
-      const pipDistance = calculatePipDistance(trade.symbol, trade.entry_price, exitPrice);
-      const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.position_size);
+      // Delegate to tradeClosureCoordinator (SSOT for trade closures)
+      const result = await tradeClosureCoordinator.closeTrade({
+        tradeId: trade.id,
+        currentPrice: exitPrice,
+        closeReason: 'goal_achieved' as CloseReason,
+        userId,
+        goalSessionId,
+        forceClose: false,
+      });
 
-      // Calculate signed price movement to determine profit/loss correctly
-      const priceDiff = trade.direction === 'buy'
-        ? exitPrice - trade.entry_price      // For BUY: profit if price goes UP
-        : trade.entry_price - exitPrice;      // For SELL: profit if price goes DOWN
-
-      // Apply correct sign based on favorable/unfavorable movement
-      const finalPnL = priceDiff >= 0
-        ? pipDistance * dollarPerPip      // Profit (price moved favorably)
-        : -pipDistance * dollarPerPip;    // Loss (price moved unfavorably)
-
-      // Close the trade
-      await supabase
-        .from('goal_session_trades')
-        .update({
-          status: 'closed',
-          exit_price: exitPrice,
-          profit_loss: finalPnL,
-          closed_at: new Date().toISOString()
-        })
-        .eq('id', trade.id);
-
-      // Update goal session
-      await supabase
-        .from('goal_sessions')
-        .update({
-          status: 'completed',
-          final_pnl: finalPnL,
-          completed_at: new Date().toISOString()
-        })
-        .eq('id', goalSessionId);
+      if (!result.success) {
+        console.error('[Goal Session] Trade closure failed:', result.error);
+        return { success: false, message: result.error || 'Failed to close trade' };
+      }
 
       // Clear mid-trade notifications for this session
       await midTradeNotificationQueue.clearSessionNotifications(goalSessionId);
@@ -581,39 +569,13 @@ class GoalSessionManager {
         console.error('[Goal Session] Error queuing deep analysis:', err)
       );
 
-      // Update achievement record
-      const { data: achievement } = await supabase
-        .from('goal_achievements')
-        .update({
-          final_pnl: finalPnL,
-          final_outcome: 'closed_at_goal',
-          completed_at: new Date().toISOString(),
-          choice_made_at: new Date().toISOString()
-        })
-        .eq('goal_session_id', goalSessionId)
-        .select('id')
-        .single();
-
-      // Apply final outcome reward bonus
-      if (achievement?.id) {
-        try {
-          const { rewardEngine } = await import('./reward-engine');
-          await rewardEngine.applyGoalFinalOutcome(
-            userId,
-            achievement.id,
-            'closed_at_goal',
-            finalPnL
-          );
-        } catch (error) {
-          console.error('[Goal Session] Error applying final outcome reward:', error);
-        }
-      }
-
-      console.log(`[Goal Session] ✅ Trade closed successfully. Final P&L: $${finalPnL.toFixed(2)}`);
+      console.log(
+        `[Goal Session] ✅ Trade closed via coordinator. Final P&L: $${result.pnl?.toFixed(2)}`
+      );
 
       return {
         success: true,
-        message: `Trade closed successfully! Final profit: $${finalPnL.toFixed(2)}`
+        message: `Trade closed successfully! Final profit: $${result.pnl?.toFixed(2) || '0.00'}`
       };
     } catch (error) {
       console.error('[Goal Session] Error closing trade:', error);

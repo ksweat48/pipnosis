@@ -150,20 +150,15 @@ class MetaApiWebSocketClient {
   }
 
   private async fetchMetaApiToken(): Promise<string | null> {
-    try {
-      const response = await fetch('/.netlify/functions/get-metaapi-token');
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const data = await response.json();
-      if (!data.success || !data.token) {
-        throw new Error('Invalid token response');
-      }
-      return data.token;
-    } catch (error) {
-      logger.error(LogCategory.PRICE, '[MetaApiWS] Failed to fetch token:', error);
-      return null;
-    }
+    // DEPRECATED: Client-side MetaAPI access disabled for security
+    // The get-metaapi-token endpoint has been removed to prevent token exposure
+    // All MetaAPI calls must be made server-side via Netlify functions
+    // See: hybrid-price-collector.ts for server-side MetaAPI integration
+    logger.warn(
+      LogCategory.PRICE,
+      '[MetaApiWS] DEPRECATED: Client-side MetaAPI WebSocket disabled for security. Use server-side price collection.'
+    );
+    return null;
   }
 
   private setupQuoteListener(): void {

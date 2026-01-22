@@ -13,6 +13,7 @@ import { validatePositionContract, isPCVLEnabled } from './pcvl-position-contrac
 import { validateAtCheckpoint } from './ssot-preflight-guard';
 import { logExecutionViolation } from './ssot-violation-logger';
 import { omegaCouncilValidationGate } from './omega-council-validation-gate';
+import { professionalRiskManager } from './professional-risk-manager';
 import type { TradeContext } from '../types/trade-context';
 import { price as createPrice, lots as createLots } from '../types/trading-units';
 import { toDirectionDB } from '../utils/direction-converter';
@@ -1270,8 +1271,27 @@ class TradeExecutionEngine {
         .single();
 
       const currentBalance = parseFloat(profile?.account_balance || '10000');
-      const requiredMargin = trade.position_size * 1000;
 
+      // SSOT COMPLIANCE: Re-validate risk using ProfessionalRiskManager
+      // User's balance may have changed since trade was created (pending state)
+      // Must re-check exposure limits, Kelly criterion, and position sizing
+      const riskValidation = await professionalRiskManager.validateTradeRisk(
+        userId,
+        trade.symbol,
+        trade.direction,
+        trade.position_size,
+        currentBalance
+      );
+
+      if (!riskValidation.allowed) {
+        return {
+          success: false,
+          error: 'Risk validation failed',
+          message: `Cannot confirm trade: ${riskValidation.reason || 'Risk limits exceeded'}`
+        };
+      }
+
+      const requiredMargin = trade.position_size * 1000;
       if (currentBalance < requiredMargin) {
         return {
           success: false,
@@ -1279,8 +1299,6 @@ class TradeExecutionEngine {
           message: `Insufficient demo balance. Required: $${requiredMargin.toFixed(2)}, Available: $${currentBalance.toFixed(2)}`
         };
       }
-
-      // Verbose log removed
 
       // Open position directly in goal_session_trades
       const { error: updateError } = await supabase

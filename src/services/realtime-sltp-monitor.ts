@@ -304,17 +304,12 @@ class RealtimeSLTPMonitor {
     try {
       console.log(`[RealtimeSLTPMonitor] TP2 HIT @ ${currentPrice.toFixed(5)} - closing full position...`);
 
-      // Mark TP2 as hit
-      const { error: updateError } = await supabase
-        .from('goal_session_trades')
-        .update({
-          tp2_hit: true,
-          tp2_hit_at: new Date().toISOString()
-        })
-        .eq('id', position.id);
+      // Mark TP2 as hit - SSOT COMPLIANCE: Use mark_tp2_milestone RPC
+      const { data: result, error: updateError } = await supabase
+        .rpc('mark_tp2_milestone', { trade_id: position.id });
 
-      if (updateError) {
-        console.error(`[RealtimeSLTPMonitor] Failed to update TP2 hit:`, updateError);
+      if (updateError || !result?.success) {
+        console.error(`[RealtimeSLTPMonitor] Failed to mark TP2 milestone:`, updateError || result?.error);
       }
 
       // Remove from monitoring - full close

@@ -789,6 +789,8 @@ export function getStandardLotSize(symbol: string): number {
 /**
  * Calculate position size with LLM autonomy + user exposure cap
  *
+ * @deprecated **PHASE 2: This function appears unused. Use ProfessionalRiskManager.evaluateTrade() instead**
+ *
  * The LLM determines desired risk based on:
  * - Rank (Bronze, Silver, Gold, Alpha, Omega)
  * - Win/loss streak
@@ -796,6 +798,8 @@ export function getStandardLotSize(symbol: string): number {
  * - Pattern confidence
  *
  * User's exposure_level only sets a MAXIMUM cap, not the actual risk taken.
+ *
+ * **Status:** No active callers found. Candidate for removal in Phase 3.
  *
  * @param symbol Currency pair
  * @param accountBalance Account balance

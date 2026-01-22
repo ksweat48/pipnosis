@@ -21,7 +21,7 @@ import { safetyEnforcer } from './safety-enforcer';
 import { performanceAnalyzer } from './performance-analyzer';
 import { developerModeLogger } from './developer-mode-logger';
 import { openAIClient } from './openai-client';
-import { calculatePositionSize, getCurrencyPipInfo, calculateDollarPerPip } from '../utils/currencyHelpers';
+import { getCurrencyPipInfo, calculateDollarPerPip } from '../utils/currencyHelpers';
 
 export interface EventBasedEngineConfig {
   symbol: string;
@@ -392,17 +392,42 @@ class EventBasedLLMEngine {
     const finalDecision = safetyCheck.adjustedDecision || decision;
 
     // STEP 5: Calculate proper position size and create trade
-    // PHASE 2: Use SSOT for risk percentage instead of hardcoded map
+    // ✅ PHASE 2 SECTION 1: Use ProfessionalRiskManager (SSOT for position sizing)
+    // Replaces calculatePositionSize() to ensure Kelly Criterion, EV Gating,
+    // volatility adjustments, correlation checks, and progressive risk scaling are applied
+    const { professionalRiskManager } = await import('./professional-risk-manager');
+    const { calculatePipDistance } = await import('../utils/currencyHelpers');
     const { getRiskPercentage } = await import('../config/risk-levels');
-    const riskPercent = getRiskPercentage(config.riskMode);
 
-    const positionSize = calculatePositionSize(
-      config.symbol,
-      balance,
-      riskPercent,
-      finalDecision.entry,
-      finalDecision.stopLoss
-    );
+    const baseRiskPercent = getRiskPercentage(config.riskMode);
+
+    // Calculate pip distances for risk assessment
+    const stopPips = calculatePipDistance(config.symbol, finalDecision.entry, finalDecision.stopLoss);
+    const takeProfitPips = calculatePipDistance(config.symbol, finalDecision.entry, finalDecision.takeProfit);
+
+    // Use ProfessionalRiskManager for comprehensive risk evaluation
+    const riskAssessment = await professionalRiskManager.evaluateTrade({
+      userId: this.userId || 'event-engine',
+      symbol: config.symbol,
+      direction: finalDecision.direction,
+      currentBalance: balance,
+      baseRiskPercent,
+      stopLossPips: stopPips,
+      takeProfitPips: takeProfitPips,
+      goalSessionId: config.goalContext?.goalSessionId,
+      riskMode: config.riskMode,
+      entryPrice: finalDecision.entry,
+      currentPrice: finalDecision.entry
+    });
+
+    if (!riskAssessment.approved) {
+      console.warn(`[Event Engine] ProfessionalRiskManager rejected trade: ${riskAssessment.criticalWarnings.join(', ')}`);
+      this.stats.safetyBlocks++;
+      return null; // Trade blocked by risk management
+    }
+
+    const positionSize = riskAssessment.recommendedLotSize;
+    console.log(`[Event Engine] ProfessionalRiskManager approved: ${positionSize.toFixed(2)} lots (Risk Score: ${riskAssessment.riskScore}/100)`);
 
     const currentCandle = candles[candles.length - 1];
 

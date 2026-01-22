@@ -26,12 +26,12 @@ Shared utility module that handles all MetaAPI SDK operations:
 - `verifyAccount()` - Verifies account access
 - `getSDKInfo()` - Returns SDK debugging information
 
-### `get-metaapi-token.js`
-Generates short-lived narrowed tokens for frontend use.
-- **Method**: POST
-- **Input**: `{ accountId: string }`
-- **Output**: `{ token: string, expiresIn: number }`
-- **Environment**: Requires `METAAPI_ADMIN_TOKEN`, `METAAPI_REGION`
+### `get-metaapi-token.js` [REMOVED - SECURITY FIX]
+**DEPRECATED AND REMOVED** for security reasons (exposed MetaAPI token to client).
+- All MetaAPI access must be server-side only
+- Use `hybrid-price-collector.ts` Netlify function for price data
+- Client-side MetaAPI WebSocket disabled in `metaapi-websocket-client.ts`
+- **Removal Date**: Phase 1 SSOT/CCIP Governance Implementation
 
 ### `test-metaapi-token.js`
 Comprehensive testing function that validates the entire token generation flow.
