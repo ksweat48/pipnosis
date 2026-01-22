@@ -33,7 +33,7 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
  * - Provenance: Full logging and audit trail
  */
 
-const handler: Handler = async (event, context) => {
+const cleanupHandler: Handler = async (event, context) => {
   const startTime = Date.now();
 
   console.log('[Continuation Cleanup] Starting periodic cleanup...');
@@ -198,4 +198,4 @@ const handler: Handler = async (event, context) => {
 };
 
 // Run every 1 minute
-export const handler = schedule('*/1 * * * *', handler);
+export const handler = schedule('*/1 * * * *', cleanupHandler);
