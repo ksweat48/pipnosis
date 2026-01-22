@@ -23,7 +23,7 @@ import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orch
 import { bestSymbolSelector } from './best-symbol-selector';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
-import { calculateDollarPerPip, calculatePositionSize, calculatePipDistance, calculateGoalAwareLotSize, calculateLotSizeFromDollarRisk, calculateAndValidateRR, getCurrencyPipInfo, formatCurrencyPrice } from '../utils/currencyHelpers';
+import { calculateDollarPerPip, calculatePipDistance, calculateGoalAwareLotSize, calculateLotSizeFromDollarRisk, calculateAndValidateRR, getCurrencyPipInfo, formatCurrencyPrice } from '../utils/currencyHelpers';
 import { createTradeContext, roundAlphaDecisionPrices } from '../utils/tradeMath';
 import { getRiskPercentage } from '../config/risk-levels';
 import { postTradeAnalyzer } from './post-trade-analyzer';
@@ -818,16 +818,18 @@ class GoalSessionLiveEngine {
         console.log(`[Goal Estimation] Using ${estimationRef.symbol} - ${estimationRef.reason}`);
       }
 
-      // Calculate expected lot size using our actual risk formula
-      // CCIP: Pass isEstimation=true to suppress misleading trade logs
-      const estimatedLotSize = calculatePositionSize(
-        estimationRef.symbol,  // Market-aware reference symbol
-        config.initialBalance,
+      // ✅ PHASE 3.1 SECTION 3: Use EstimationRiskCalculator (SSOT for estimations)
+      // Fast, synchronous estimation for goal amount calculations
+      const { estimationRiskCalculator } = await import('./estimation-risk-calculator');
+      const estimate = estimationRiskCalculator.estimatePositionSize({
+        balance: config.initialBalance,
         riskPercent,
-        ESTIMATION_REFERENCE_ENTRY,  // NOT REAL PRICE - estimation only
-        ESTIMATION_REFERENCE_STOP,    // NOT REAL PRICE - estimation only
-        true  // isEstimation flag - suppresses misleading logs
-      );
+        symbol: estimationRef.symbol,  // Market-aware reference symbol
+        entryPrice: ESTIMATION_REFERENCE_ENTRY,  // NOT REAL PRICE - estimation only
+        stopLossPrice: ESTIMATION_REFERENCE_STOP,  // NOT REAL PRICE - estimation only
+        isEstimation: true  // Suppress misleading logs
+      });
+      const estimatedLotSize = estimate.lotSize;
 
       // Calculate dollar per pip for this lot size
       const estimatedDollarPerPip = calculateDollarPerPip(estimationRef.symbol, estimatedLotSize);

@@ -574,13 +574,15 @@ export class GoalFeasibilityResolver {
     );
   }
 
+  // ✅ PHASE 3.1 SECTION 3: Use EstimationRiskCalculator (SSOT for estimations)
+  // Replaces local position sizing logic with centralized estimation service
   private static calculatePositionSize(
     targetProfit: number,
     adjustedATR: number,
     currentPrice: number
   ): number {
-    if (adjustedATR === 0) return 0.01;
-    return Math.max(0.01, (targetProfit / (adjustedATR * 10)) * 0.01);
+    const { estimationRiskCalculator } = require('./estimation-risk-calculator');
+    return estimationRiskCalculator.estimateFromATR(targetProfit, adjustedATR, currentPrice);
   }
 
   private static generateDownshiftReasons(

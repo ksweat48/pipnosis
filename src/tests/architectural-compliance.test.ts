@@ -62,7 +62,8 @@ describe('Architectural Compliance - SSOT Enforcement', () => {
   describe('Position Sizing Authority', () => {
     it('should not calculate position sizes outside ProfessionalRiskManager', () => {
       const violations: string[] = [];
-      const files = getAllTsFiles(SERVICES_DIR, ['professional-risk-manager.ts']);
+      // ✅ PHASE 3.1 SECTION 3: Allow EstimationRiskCalculator as SSOT for estimations
+      const files = getAllTsFiles(SERVICES_DIR, ['professional-risk-manager.ts', 'estimation-risk-calculator.ts']);
 
       // Patterns that indicate position sizing logic
       const forbiddenPatterns = [
@@ -91,9 +92,9 @@ describe('Architectural Compliance - SSOT Enforcement', () => {
       }
 
       if (violations.length > 0) {
-        console.error('\n⛔ SSOT VIOLATION: Position sizing logic found outside ProfessionalRiskManager\n');
+        console.error('\n⛔ SSOT VIOLATION: Position sizing logic found outside authorized services\n');
         violations.forEach(v => console.error(`  - ${v}`));
-        console.error('\n✅ FIX: All position sizing must route through ProfessionalRiskManager.evaluateTrade()\n');
+        console.error('\n✅ FIX: Use ProfessionalRiskManager.evaluateTrade() for execution or EstimationRiskCalculator for estimations\n');
       }
 
       expect(violations).toHaveLength(0);
