@@ -10,6 +10,7 @@ import { TriggerEvent } from './trigger-detection-rules';
 import { validateSLTPDistances, calculatePipDistance } from '../utils/currencyHelpers';
 import { computeOmegaSensors, formatSensorsForLogging, type OmegaSensors } from './omega-sensors';
 import { getEnv } from '../lib/environment';
+import { tradeValidationService } from './trade-validation-service';
 
 export interface LLMSnapshot {
   pipnosisIdentity: string;
@@ -456,22 +457,20 @@ Should you:
       violations.push('Missing required fields: entry, stopLoss, or takeProfit');
     }
 
-    // Validate SL/TP direction relative to entry price
+    // ✅ PHASE 2 SECTION 2: Use TradeValidationService (SSOT for SL/TP direction)
+    // Replaces duplicate validation logic (lines 460-476)
     if (decision.entry && decision.stopLoss && decision.takeProfit) {
-      if (decision.direction === 'buy') {
-        if (decision.stopLoss >= decision.entry) {
-          violations.push(`BUY trade: Stop loss (${decision.stopLoss}) must be below entry (${decision.entry})`);
-        }
-        if (decision.takeProfit <= decision.entry) {
-          violations.push(`BUY trade: Take profit (${decision.takeProfit}) must be above entry (${decision.entry})`);
-        }
-      } else if (decision.direction === 'sell') {
-        if (decision.stopLoss <= decision.entry) {
-          violations.push(`SELL trade: Stop loss (${decision.stopLoss}) must be above entry (${decision.entry})`);
-        }
-        if (decision.takeProfit >= decision.entry) {
-          violations.push(`SELL trade: Take profit (${decision.takeProfit}) must be below entry (${decision.entry})`);
-        }
+      const validation = tradeValidationService.validateTrade({
+        symbol: decision.symbol,
+        direction: decision.direction,
+        entry: decision.entry,
+        stopLoss: decision.stopLoss,
+        takeProfit: decision.takeProfit,
+        lotSize: 1.0 // Default for validation purposes
+      });
+
+      if (!validation.valid) {
+        violations.push(...validation.errors);
       }
     }
 

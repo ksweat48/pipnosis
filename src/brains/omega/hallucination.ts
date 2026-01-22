@@ -18,6 +18,7 @@ import { calculatePipDistance } from '../../utils/currencyHelpers';
 import { HALLUCINATION_THRESHOLDS, RISK_GATE_THRESHOLDS } from '../../config/omega-thresholds';
 import type { ATRValue } from '../../types/atr';
 import { safeExtractATRValue } from '../../types/atr';
+import { tradeValidationService } from '../../services/trade-validation-service';
 
 export interface HallucinationInput {
   action: 'BUY' | 'SELL' | 'NO_TRADE';
@@ -61,18 +62,26 @@ class OmegaHallucinationBrain {
     const isBuy = input.action === 'BUY';
     const atrValue = safeExtractATRValue(input.atr, 'OmegaHallucination.validate');
 
-    if (isBuy && input.stopLoss >= input.entry) {
-      flags.push('SL_WRONG_SIDE_BUY');
-    }
-    if (!isBuy && input.stopLoss <= input.entry) {
-      flags.push('SL_WRONG_SIDE_SELL');
-    }
+    // ✅ PHASE 2 SECTION 2: Use TradeValidationService (SSOT for SL/TP direction)
+    // Replaces duplicate validation logic (lines 64-76)
+    const validation = tradeValidationService.validateTrade({
+      symbol: input.symbol,
+      direction: input.action.toLowerCase() as 'buy' | 'sell',
+      entry: input.entry,
+      stopLoss: input.stopLoss,
+      takeProfit: input.takeProfit,
+      lotSize: 1.0 // Default for validation purposes
+    });
 
-    if (isBuy && input.takeProfit <= input.entry) {
-      flags.push('TP_WRONG_SIDE_BUY');
-    }
-    if (!isBuy && input.takeProfit >= input.entry) {
-      flags.push('TP_WRONG_SIDE_SELL');
+    if (!validation.valid) {
+      // Map SSOT errors to Omega-9 flag format
+      validation.errors.forEach(error => {
+        if (error.includes('Stop loss')) {
+          flags.push(isBuy ? 'SL_WRONG_SIDE_BUY' : 'SL_WRONG_SIDE_SELL');
+        } else if (error.includes('Take profit')) {
+          flags.push(isBuy ? 'TP_WRONG_SIDE_BUY' : 'TP_WRONG_SIDE_SELL');
+        }
+      });
     }
 
     if (input.stopLoss === input.entry) {

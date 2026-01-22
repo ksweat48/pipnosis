@@ -9,6 +9,7 @@ import { TRADING_CONSTANTS } from '../config/trading-constants';
 import type { TradeDecision } from './llm-execution-brain';
 import type { RegimeSnapshot } from './regime-oracle';
 import type { AdversarialSignal } from './adversarial-detector';
+import { tradeValidationService } from './trade-validation-service';
 
 export interface SafetyContext {
   balance: number;
@@ -80,21 +81,19 @@ class SafetyEnforcer {
       violations.push(`Total exposure ${(newExposure * 100).toFixed(2)}% exceeds ${this.MAX_TOTAL_EXPOSURE * 100}%`);
     }
 
-    // 3. SL/TP direction validation
-    if (decision.action === 'BUY') {
-      if (decision.stopLoss >= decision.entry) {
-        violations.push('BUY: Stop loss must be below entry');
-      }
-      if (decision.takeProfit <= decision.entry) {
-        violations.push('BUY: Take profit must be above entry');
-      }
-    } else if (decision.action === 'SELL') {
-      if (decision.stopLoss <= decision.entry) {
-        violations.push('SELL: Stop loss must be above entry');
-      }
-      if (decision.takeProfit >= decision.entry) {
-        violations.push('SELL: Take profit must below entry');
-      }
+    // 3. SL/TP direction validation - ✅ PHASE 2 SECTION 2: Use TradeValidationService (SSOT)
+    // Replaces duplicate validation logic (lines 84-98)
+    const validation = tradeValidationService.validateTrade({
+      symbol: decision.symbol,
+      direction: decision.action === 'BUY' ? 'buy' : 'sell',
+      entry: decision.entry,
+      stopLoss: decision.stopLoss,
+      takeProfit: decision.takeProfit,
+      lotSize: 1.0 // Default for validation purposes
+    });
+
+    if (!validation.valid) {
+      violations.push(...validation.errors);
     }
 
     // 4. NaN/Infinity checks

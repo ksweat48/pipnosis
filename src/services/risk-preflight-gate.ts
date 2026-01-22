@@ -20,6 +20,7 @@ import { calculatePipDistance } from '../utils/currencyHelpers';
 import { RISK_GATE_THRESHOLDS } from '../config/omega-thresholds';
 import { validateRiskPercentForMode, PLATFORM_ABSOLUTE_RISK_CAP, type RiskMode } from '../config/risk-mode-policy';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
+import { tradeValidationService } from './trade-validation-service';
 
 export interface RiskGateInput {
   symbol: string;
@@ -83,46 +84,27 @@ class RiskPreflightGate {
     const tpDistancePips = calculatePipDistance(input.symbol, input.entry, input.takeProfit);
     const slInATR = slDistance / atrValue;
 
-    if (isBuy && input.stopLoss >= input.entry) {
-      violations.push({
-        type: 'CRITICAL',
-        code: 'SL_WRONG_SIDE_BUY',
-        message: `BUY SL (${input.stopLoss}) must be below entry (${input.entry})`,
-        value: input.stopLoss,
-        threshold: input.entry
-      });
-      riskScore = 0;
-    }
+    // ✅ PHASE 2 SECTION 2: Use TradeValidationService (SSOT for SL/TP direction)
+    // Replaces duplicate validation logic (lines 86-128)
+    const validation = tradeValidationService.validateTrade({
+      symbol: input.symbol,
+      direction: input.direction.toLowerCase() as 'buy' | 'sell',
+      entry: input.entry,
+      stopLoss: input.stopLoss,
+      takeProfit: input.takeProfit,
+      lotSize: 1.0 // Default for validation purposes
+    });
 
-    if (!isBuy && input.stopLoss <= input.entry) {
-      violations.push({
-        type: 'CRITICAL',
-        code: 'SL_WRONG_SIDE_SELL',
-        message: `SELL SL (${input.stopLoss}) must be above entry (${input.entry})`,
-        value: input.stopLoss,
-        threshold: input.entry
-      });
-      riskScore = 0;
-    }
-
-    if (isBuy && input.takeProfit <= input.entry) {
-      violations.push({
-        type: 'CRITICAL',
-        code: 'TP_WRONG_SIDE_BUY',
-        message: `BUY TP (${input.takeProfit}) must be above entry (${input.entry})`,
-        value: input.takeProfit,
-        threshold: input.entry
-      });
-      riskScore = 0;
-    }
-
-    if (!isBuy && input.takeProfit >= input.entry) {
-      violations.push({
-        type: 'CRITICAL',
-        code: 'TP_WRONG_SIDE_SELL',
-        message: `SELL TP (${input.takeProfit}) must be below entry (${input.entry})`,
-        value: input.takeProfit,
-        threshold: input.entry
+    if (!validation.valid) {
+      // Map SSOT errors to RiskGate violation format
+      validation.errors.forEach(error => {
+        violations.push({
+          type: 'CRITICAL',
+          code: error.includes('Stop loss') ? 'SL_DIRECTION_INVALID' : 'TP_DIRECTION_INVALID',
+          message: error,
+          value: error.includes('Stop loss') ? input.stopLoss : input.takeProfit,
+          threshold: input.entry
+        });
       });
       riskScore = 0;
     }
