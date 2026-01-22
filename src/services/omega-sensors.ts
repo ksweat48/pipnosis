@@ -61,10 +61,11 @@ export interface OmegaSensors {
 
 /**
  * Compute all Omega Sensors from candle array
+ * SSOT: Handles null indicators gracefully (insufficient data)
  */
 export function computeOmegaSensors(
   candles: Candle[],
-  rsi: number,
+  rsi: number | null,
   macd: number,
   macdSignal: number,
   atr: number,
@@ -76,7 +77,7 @@ export function computeOmegaSensors(
 
   const structure = computeStructure(candles);
   const volume = computeVolume(candles);
-  const momentum = computeMomentum(candles, rsi, macd, macdSignal);
+  const momentum = computeMomentum(candles, rsi ?? 50, macd, macdSignal); // Use 50 fallback only for Omega sensors
   const patterns = computePatterns(candles);
   const micro = computeMicro(candles, vwap, atr);
 

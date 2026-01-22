@@ -10,7 +10,7 @@
  */
 
 import type { RegimeSnapshot } from './regime-oracle';
-import { safeExtractATRValue, type ATRValue } from '../types/atr';
+import { safeExtractATRValue, safeExtractATRTimeframe, type ATRValue } from '../types/atr';
 
 export interface AdversarialSignal {
   is_adversarial: boolean;
@@ -75,7 +75,14 @@ class AdversarialDetector {
       return this.createCleanSignal();
     }
 
+    // SSOT: Extract ATR value and validate timeframe if available
     const atrValue = safeExtractATRValue(marketState.atr, 'AdversarialDetector.evaluate');
+    const atrTimeframe = safeExtractATRTimeframe(marketState.atr, 'AdversarialDetector.evaluate');
+
+    if (atrTimeframe) {
+      console.log(`[Adversarial] Using ${atrTimeframe} ATR: ${atrValue.toFixed(5)}`);
+    }
+
     const normalizedState: MarketState & { atr: number } = {
       ...marketState,
       atr: atrValue

@@ -11,15 +11,18 @@ import type { OmegaSensors } from './omega-sensors';
 import { regimeOracle, type RegimeSnapshot, type Candle } from './regime-oracle';
 import { adversarialDetector, type AdversarialSignal } from './adversarial-detector';
 
+import type { ATRValue } from '../types/atr';
+
 export interface MarketState {
   price: number;
   ema20: number;
   ema50: number;
   ema200: number;
-  rsi: number;
-  stochRsi: number;
-  atr: number;
+  rsi: number | null; // SSOT: null when insufficient data (< 15 candles)
+  stochRsi: number | null; // SSOT: null when insufficient data (< 28 candles)
+  atr: number | ATRValue; // SSOT: Typed ATRValue preferred, raw number for backward compat
   vwap: number;
+  vwapReliability?: number; // SSOT: 0-1 score of real volume vs synthetic
   trend: string;
   momentum: number;
   volatility: string;
@@ -28,21 +31,87 @@ export interface MarketState {
   macd?: number;
   macdSignal?: number;
   omegaSensors?: OmegaSensors;
+  dataQuality?: {
+    hasRSI: boolean;
+    hasStochRSI: boolean;
+    vwapReliable: boolean;
+    candleCount: number;
+  };
 }
 
 export interface ConditionCheckResult {
   ready: boolean;
   conditionsMet: string[];
   conditionsFailed: string[];
+  conditionsBlocked?: string[]; // Conditions that can't be evaluated (insufficient data)
   trigger: string;
   confidence: number;
   regime?: RegimeSnapshot;
   blockedByRegime?: boolean;
   adversarial?: AdversarialSignal;
   blockedByAdversarial?: boolean;
+  alphaThoughts?: string; // Human-readable explanation for UI transparency
 }
 
 class ConditionMonitor {
+  /**
+   * Generate Alpha thoughts for transparency
+   * SSOT: Explains why trade isn't executing
+   */
+  private generateAlphaThoughts(
+    ready: boolean,
+    met: string[],
+    failed: string[],
+    blocked: string[],
+    state: MarketState,
+    plan: StrategyPlan
+  ): string {
+    if (ready) {
+      return `✅ All conditions met! Executing ${plan.mode} strategy with ${plan.confidence}% confidence.`;
+    }
+
+    const thoughts: string[] = [];
+
+    // Data quality issues
+    if (blocked.length > 0) {
+      thoughts.push(`⏳ Waiting for data: Need ${blocked.length} indicator(s) to load`);
+
+      if (!state.dataQuality?.hasRSI) {
+        thoughts.push(`  • RSI loading (${state.dataQuality?.candleCount || 0}/15 candles)`);
+      }
+      if (!state.dataQuality?.hasStochRSI) {
+        thoughts.push(`  • StochRSI loading (${state.dataQuality?.candleCount || 0}/28 candles)`);
+      }
+      if (!state.dataQuality?.vwapReliable) {
+        thoughts.push(`  • VWAP unreliable (missing volume data)`);
+      }
+    }
+
+    // Condition status
+    const totalConditions = met.length + failed.length;
+    thoughts.push(`\n📊 ${plan.mode} conditions: ${met.length}/${totalConditions} met`);
+
+    if (met.length > 0) {
+      thoughts.push(`✅ Met: ${met.join(', ')}`);
+    }
+
+    if (failed.length > 0 && failed.length !== blocked.length) {
+      const actuallyFailed = failed.filter(f => !blocked.includes(f));
+      if (actuallyFailed.length > 0) {
+        thoughts.push(`❌ Need: ${actuallyFailed.join(', ')}`);
+      }
+    }
+
+    // Current market values for context
+    thoughts.push(`\n📈 Current: ${state.trend} trend, vol=${state.volatility}`);
+    if (state.rsi !== null) {
+      thoughts.push(`  • RSI: ${state.rsi.toFixed(1)}`);
+    }
+    thoughts.push(`  • Price vs EMA50: ${state.price > state.ema50 ? 'above' : 'below'}`);
+
+    return thoughts.join('\n');
+  }
+
   /**
    * Check if strategy conditions are met
    * Now includes regime oracle evaluation for zero-cost intelligence
@@ -139,12 +208,17 @@ class ConditionMonitor {
 
     const conditionsMet: string[] = [];
     const conditionsFailed: string[] = [];
+    const conditionsBlocked: string[] = []; // Conditions that can't be evaluated (missing data)
 
     // Evaluate each condition
     for (const condition of strategyPlan.conditions) {
       const ismet = this.evaluateCondition(condition, marketState);
 
-      if (ismet) {
+      if (ismet === null) {
+        // Condition requires data that isn't available yet
+        conditionsBlocked.push(condition);
+        conditionsFailed.push(condition); // Also count as failed for ready check
+      } else if (ismet) {
         conditionsMet.push(condition);
       } else {
         conditionsFailed.push(condition);
@@ -177,23 +251,36 @@ class ConditionMonitor {
       console.log(`[Condition Monitor] Confidence adjusted: ${finalConfidence}% → ${adjustedConfidence.toFixed(0)}% (risk_factor: ${regime.risk_reduction_factor})`);
     }
 
+    // Generate Alpha thoughts for transparency
+    const alphaThoughts = this.generateAlphaThoughts(
+      ready,
+      conditionsMet,
+      conditionsFailed,
+      conditionsBlocked,
+      marketState,
+      strategyPlan
+    );
+
     return {
       ready,
       conditionsMet,
       conditionsFailed,
+      conditionsBlocked,
       trigger: ready ? `${strategyPlan.mode}_setup` : 'waiting',
       confidence: adjustedConfidence,
       regime,
       blockedByRegime: false,
       adversarial,
-      blockedByAdversarial: false
+      blockedByAdversarial: false,
+      alphaThoughts
     };
   }
 
   /**
    * Evaluate a single condition
+   * SSOT: Returns false if required indicators are null (insufficient data)
    */
-  private evaluateCondition(condition: string, state: MarketState): boolean {
+  private evaluateCondition(condition: string, state: MarketState): boolean | null {
     const c = condition.toLowerCase().trim();
 
     // Natural language: "price above ema20/50/200"
@@ -247,6 +334,10 @@ class ConditionMonitor {
     // Natural language: "rsi between X-Y" or "rsi remains between X and Y"
     const rsiBetweenMatch = c.match(/rsi\s+(?:between|remains between|range|from)\s+(\d+)[-\s](?:and\s+|to\s+)?(\d+)/);
     if (rsiBetweenMatch) {
+      if (state.rsi === null) {
+        console.log(`[Condition Monitor] ⚠️ RSI condition requires data: "${condition}" (need ${state.dataQuality?.candleCount || 0}/15 candles)`);
+        return null;
+      }
       const min = parseInt(rsiBetweenMatch[1]);
       const max = parseInt(rsiBetweenMatch[2]);
       return state.rsi >= min && state.rsi <= max;
@@ -255,6 +346,10 @@ class ConditionMonitor {
     // RSI conditions - flexible threshold support
     const rsiMatch = c.match(/rsi\s*([><]=?)\s*(\d+)/);
     if (rsiMatch) {
+      if (state.rsi === null) {
+        console.log(`[Condition Monitor] ⚠️ RSI condition requires data: "${condition}" (need ${state.dataQuality?.candleCount || 0}/15 candles)`);
+        return null;
+      }
       const operator = rsiMatch[1];
       const threshold = parseInt(rsiMatch[2]);
       switch (operator) {
@@ -267,19 +362,55 @@ class ConditionMonitor {
     }
 
     // Stoch RSI
-    if (c.includes('st>70') || c.includes('stoch>70')) return state.stochRsi > 70;
-    if (c.includes('st<30') || c.includes('stoch<30')) return state.stochRsi < 30;
-    if (c.includes('st>50') || c.includes('stoch>50')) return state.stochRsi > 50;
-    if (c.includes('st<50') || c.includes('stoch<50')) return state.stochRsi < 50;
+    if (c.includes('st>70') || c.includes('stoch>70')) {
+      if (state.stochRsi === null) {
+        console.log(`[Condition Monitor] ⚠️ StochRSI condition requires data: "${condition}" (need ${state.dataQuality?.candleCount || 0}/28 candles)`);
+        return null;
+      }
+      return state.stochRsi > 70;
+    }
+    if (c.includes('st<30') || c.includes('stoch<30')) {
+      if (state.stochRsi === null) {
+        console.log(`[Condition Monitor] ⚠️ StochRSI condition requires data: "${condition}" (need ${state.dataQuality?.candleCount || 0}/28 candles)`);
+        return null;
+      }
+      return state.stochRsi < 30;
+    }
+    if (c.includes('st>50') || c.includes('stoch>50')) {
+      if (state.stochRsi === null) {
+        console.log(`[Condition Monitor] ⚠️ StochRSI condition requires data: "${condition}" (need ${state.dataQuality?.candleCount || 0}/28 candles)`);
+        return null;
+      }
+      return state.stochRsi > 50;
+    }
+    if (c.includes('st<50') || c.includes('stoch<50')) {
+      if (state.stochRsi === null) {
+        console.log(`[Condition Monitor] ⚠️ StochRSI condition requires data: "${condition}" (need ${state.dataQuality?.candleCount || 0}/28 candles)`);
+        return null;
+      }
+      return state.stochRsi < 50;
+    }
 
     // VWAP
     if (c.includes('vw_above') || c.includes('p>vw') || c.includes('price>vwap')) {
+      if (state.vwapReliability && state.vwapReliability < 0.7) {
+        console.log(`[Condition Monitor] ⚠️ VWAP condition unreliable: "${condition}" (${Math.round(state.vwapReliability * 100)}% real volume data)`);
+        return null;
+      }
       return state.price > state.vwap;
     }
     if (c.includes('vw_below') || c.includes('p<vw') || c.includes('price<vwap')) {
+      if (state.vwapReliability && state.vwapReliability < 0.7) {
+        console.log(`[Condition Monitor] ⚠️ VWAP condition unreliable: "${condition}" (${Math.round(state.vwapReliability * 100)}% real volume data)`);
+        return null;
+      }
       return state.price < state.vwap;
     }
     if (c.includes('vw_near')) {
+      if (state.vwapReliability && state.vwapReliability < 0.7) {
+        console.log(`[Condition Monitor] ⚠️ VWAP condition unreliable: "${condition}" (${Math.round(state.vwapReliability * 100)}% real volume data)`);
+        return null;
+      }
       const distance = Math.abs(state.price - state.vwap) / state.vwap;
       return distance < 0.002; // Within 0.2%
     }

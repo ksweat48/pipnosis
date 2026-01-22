@@ -543,9 +543,13 @@ Should you:
 
   /**
    * Calculate RSI helper
+   * SSOT: Returns null when insufficient data - NO FAKE DEFAULTS
    */
-  private calculateRSI(closes: number[], period: number = 14): number {
-    if (closes.length < period + 1) return 50;
+  private calculateRSI(closes: number[], period: number = 14): number | null {
+    if (closes.length < period + 1) {
+      console.log(`[Indicator SSOT] RSI: Insufficient data (${closes.length}/${period + 1} candles) - returning null`);
+      return null;
+    }
 
     let gains = 0;
     let losses = 0;
@@ -572,14 +576,23 @@ Should you:
 
   /**
    * Calculate Stochastic RSI
+   * SSOT: Returns null when insufficient data - NO FAKE DEFAULTS
    */
-  calculateStochRSI(closes: number[], period: number = 14): number {
-    if (closes.length < period * 2) return 50;
+  calculateStochRSI(closes: number[], period: number = 14): number | null {
+    if (closes.length < period * 2) {
+      console.log(`[Indicator SSOT] StochRSI: Insufficient data (${closes.length}/${period * 2} candles) - returning null`);
+      return null;
+    }
 
     const rsiValues: number[] = [];
     for (let i = period; i < closes.length; i++) {
       const slice = closes.slice(i - period, i + 1);
-      rsiValues.push(this.calculateRSI(slice, period));
+      const rsiValue = this.calculateRSI(slice, period);
+      if (rsiValue === null) {
+        console.log(`[Indicator SSOT] StochRSI: RSI calculation failed for slice - returning null`);
+        return null;
+      }
+      rsiValues.push(rsiValue);
     }
 
     const currentRSI = rsiValues[rsiValues.length - 1];
@@ -588,7 +601,10 @@ Should you:
     const minRSI = Math.min(...recentRSI);
     const maxRSI = Math.max(...recentRSI);
 
-    if (maxRSI === minRSI) return 50;
+    if (maxRSI === minRSI) {
+      console.log(`[Indicator SSOT] StochRSI: No variance in RSI (all ${currentRSI}) - returning null`);
+      return null;
+    }
 
     const stochRSI = ((currentRSI - minRSI) / (maxRSI - minRSI)) * 100;
     return stochRSI;
@@ -738,17 +754,33 @@ Should you:
     }
     const atr = trValues.reduce((sum, tr) => sum + tr, 0) / trValues.length;
 
-    // Calculate VWAP
+    // Calculate VWAP - SSOT: Detect missing volume data
     const vwapCandles = candles.slice(-20);
     let sumPV = 0;
     let sumV = 0;
+    let missingVolumeCount = 0;
+
     for (const candle of vwapCandles) {
       const typical = (candle.high + candle.low + candle.close) / 3;
-      const volume = candle.volume || 1000;
-      sumPV += typical * volume;
-      sumV += volume;
+      const volume = candle.volume;
+
+      // Track missing volume
+      if (!volume || volume === 0) {
+        missingVolumeCount++;
+      }
+
+      // Use actual volume or calculate from candle range if missing
+      const effectiveVolume = volume || ((candle.high - candle.low) * 1000);
+      sumPV += typical * effectiveVolume;
+      sumV += effectiveVolume;
     }
+
     const vwap = sumPV / sumV;
+    const vwapReliability = 1 - (missingVolumeCount / vwapCandles.length);
+
+    if (vwapReliability < 0.7) {
+      console.log(`[Indicator SSOT] VWAP: Low reliability (${Math.round(vwapReliability * 100)}% real volume) - marking as unreliable`);
+    }
 
     // Determine trend
     let trend = 'sideways';
@@ -789,6 +821,14 @@ Should you:
       console.debug(formatSensorsForLogging(omegaSensors, trend));
     }
 
+    // Data quality assessment
+    const dataQuality = {
+      hasRSI: rsi !== null,
+      hasStochRSI: stochRsi !== null,
+      vwapReliable: vwapReliability >= 0.7,
+      candleCount: candles.length
+    };
+
     return {
       price: currentCandle.close,
       ema20,
@@ -798,6 +838,7 @@ Should you:
       stochRsi,
       atr,
       vwap,
+      vwapReliability,
       trend,
       momentum,
       volatility,
@@ -805,7 +846,8 @@ Should you:
       swingLow: swingLevels.low,
       macd: macdData.macd,
       macdSignal: macdData.signal,
-      omegaSensors
+      omegaSensors,
+      dataQuality
     };
   }
 }

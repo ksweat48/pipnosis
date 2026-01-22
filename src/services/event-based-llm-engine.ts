@@ -297,6 +297,28 @@ class EventBasedLLMEngine {
       if (!conditionCheck.ready) {
         const statusMsg = this.getDetailedConditionStatus(conditionCheck, marketState);
         console.log(`[Autonomous Brain] ${statusMsg}`);
+
+        // ALPHA THOUGHTS: Show transparency about why no trade
+        if (conditionCheck.alphaThoughts) {
+          console.log(`\n💭 [ALPHA THOUGHTS]\n${conditionCheck.alphaThoughts}\n`);
+
+          // Emit to UI for real-time visibility (import at top if not already)
+          try {
+            const { AlphaThoughtStream } = await import('./alpha-thought-stream');
+            const thoughtStream = AlphaThoughtStream.getInstance();
+            await thoughtStream.emitConditionEvaluation(
+              this.sessionId,
+              this.userId,
+              this.symbol,
+              conditionCheck.alphaThoughts,
+              conditionCheck.conditionsMet.length,
+              conditionCheck.conditionsMet.length + conditionCheck.conditionsFailed.length
+            );
+          } catch (error) {
+            console.warn('[Autonomous Brain] Failed to emit Alpha thoughts to UI:', error);
+          }
+        }
+
         console.log(`[Autonomous Brain] Monitoring conditions... waiting for setup`);
         return { trade: null, trigger: null, llmCalled: false };
       }

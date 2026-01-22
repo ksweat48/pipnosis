@@ -324,6 +324,28 @@ class AlphaThoughtStream {
   }
 
   /**
+   * Emit condition evaluation transparency thought
+   * Shows why conditions aren't met and what's needed
+   */
+  async emitConditionEvaluation(
+    sessionId: string,
+    userId: string,
+    symbol: string,
+    alphaThoughts: string,
+    conditionsMet: number,
+    conditionsTotal: number
+  ): Promise<void> {
+    const message = `${symbol}: ${conditionsMet}/${conditionsTotal} conditions met\n${alphaThoughts}`;
+
+    await this.emitThought(sessionId, userId, 'analyzing_entry', message, {
+      symbol,
+      conditions_met: conditionsMet,
+      conditions_total: conditionsTotal,
+      thoughts: alphaThoughts
+    });
+  }
+
+  /**
    * Emit final decision thought
    * Example: "EURUSD selected - highest confidence entry at 1.12345"
    */
