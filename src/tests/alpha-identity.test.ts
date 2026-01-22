@@ -3,11 +3,13 @@ import {
   shouldExecute,
   getEntryMode,
   getConfidenceAdjustedEQSThreshold,
+  getEQSConfidenceModifier,
   isLegitimateBlockCondition,
   calculateAdvisoryPenalty,
   EQS_WEIGHTED_FACTORS,
   EQS_TOTAL_WEIGHT,
   EQS_CONFIDENCE_TIERS,
+  EQS_CONFIDENCE_MODIFIERS,
 } from '../config/alpha-identity';
 
 describe('Alpha Identity Configuration', () => {
@@ -23,11 +25,11 @@ describe('Alpha Identity Configuration', () => {
       expect(ALPHA_IDENTITY.CONFIDENCE_BANDS.INSUFFICIENT.max).toBe(59);
     });
 
-    it('should have unified EQS baseline threshold of 60', () => {
-      expect(ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD).toBe(60);
-      expect(ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.EXECUTE_IMMEDIATELY).toBe(60);
-      expect(ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.EXECUTE_IMMEDIATELY).toBe(60);
-      expect(ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.INTRADAY.EXECUTE_IMMEDIATELY).toBe(60);
+    it('should have unified EQS baseline threshold of 40', () => {
+      expect(ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD).toBe(40);
+      expect(ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.EXECUTE_IMMEDIATELY).toBe(40);
+      expect(ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.EXECUTE_IMMEDIATELY).toBe(40);
+      expect(ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.INTRADAY.EXECUTE_IMMEDIATELY).toBe(40);
     });
 
     it('should have confidence-based relaxation tiers', () => {
@@ -73,89 +75,140 @@ describe('Alpha Identity Configuration', () => {
     });
   });
 
-  describe('getConfidenceAdjustedEQSThreshold', () => {
-    it('should return 60 for baseline confidence (60-69%)', () => {
-      expect(getConfidenceAdjustedEQSThreshold(60)).toBe(60);
-      expect(getConfidenceAdjustedEQSThreshold(65)).toBe(60);
-      expect(getConfidenceAdjustedEQSThreshold(69)).toBe(60);
+  describe('getConfidenceAdjustedEQSThreshold (DEPRECATED)', () => {
+    it('should return 40 for baseline confidence (60-69%)', () => {
+      expect(getConfidenceAdjustedEQSThreshold(60)).toBe(40);
+      expect(getConfidenceAdjustedEQSThreshold(65)).toBe(40);
+      expect(getConfidenceAdjustedEQSThreshold(69)).toBe(40);
     });
 
-    it('should return 55 for solid confidence (70-84%)', () => {
-      expect(getConfidenceAdjustedEQSThreshold(70)).toBe(55);
-      expect(getConfidenceAdjustedEQSThreshold(75)).toBe(55);
-      expect(getConfidenceAdjustedEQSThreshold(84)).toBe(55);
+    it('should return 35 for solid confidence (70-84%)', () => {
+      expect(getConfidenceAdjustedEQSThreshold(70)).toBe(35);
+      expect(getConfidenceAdjustedEQSThreshold(75)).toBe(35);
+      expect(getConfidenceAdjustedEQSThreshold(84)).toBe(35);
     });
 
-    it('should return 50 for excellent confidence (85%+)', () => {
-      expect(getConfidenceAdjustedEQSThreshold(85)).toBe(50);
-      expect(getConfidenceAdjustedEQSThreshold(90)).toBe(50);
-      expect(getConfidenceAdjustedEQSThreshold(100)).toBe(50);
+    it('should return 30 for excellent confidence (85%+)', () => {
+      expect(getConfidenceAdjustedEQSThreshold(85)).toBe(30);
+      expect(getConfidenceAdjustedEQSThreshold(90)).toBe(30);
+      expect(getConfidenceAdjustedEQSThreshold(100)).toBe(30);
+    });
+  });
+
+  describe('getEQSConfidenceModifier', () => {
+    it('should apply rewards for good timing (EQS 50+)', () => {
+      expect(getEQSConfidenceModifier(75)).toBe(5);
+      expect(getEQSConfidenceModifier(72)).toBe(4);
+      expect(getEQSConfidenceModifier(67)).toBe(3);
+      expect(getEQSConfidenceModifier(62)).toBe(2);
+      expect(getEQSConfidenceModifier(57)).toBe(1);
+      expect(getEQSConfidenceModifier(52)).toBe(0);
+    });
+
+    it('should apply steep penalties for poor timing (EQS <50)', () => {
+      expect(getEQSConfidenceModifier(47)).toBe(-2);
+      expect(getEQSConfidenceModifier(42)).toBe(-5);
+      expect(getEQSConfidenceModifier(37)).toBe(-10);
+      expect(getEQSConfidenceModifier(32)).toBe(-15);
+      expect(getEQSConfidenceModifier(27)).toBe(-20);
+      expect(getEQSConfidenceModifier(22)).toBe(-25);
+      expect(getEQSConfidenceModifier(15)).toBe(-30);
     });
   });
 
   describe('shouldExecute', () => {
-    it('should return false when confidence below minimum', () => {
-      expect(shouldExecute(59, 90, 'SCALP')).toBe(false);
-      expect(shouldExecute(50, 90, 'MICRO_INTRADAY')).toBe(false);
+    it('should return false when adjusted confidence below minimum', () => {
+      // 59% confidence + 0 EQS modifier = 59% (below 60%)
+      expect(shouldExecute(59, 50)).toBe(false);
+
+      // 65% confidence - 10 EQS penalty = 55% (below 60%)
+      expect(shouldExecute(65, 35)).toBe(false);
     });
 
-    it('should use confidence-adjusted EQS thresholds', () => {
-      // Confidence 60%: requires EQS 60
-      expect(shouldExecute(60, 60, 'SCALP')).toBe(true);
-      expect(shouldExecute(60, 59, 'SCALP')).toBe(false);
+    it('should apply EQS modifiers to confidence before checking threshold', () => {
+      // High conviction with poor timing:
+      // 85% + EQS 35 → 85% - 10% = 75% → EXECUTE
+      expect(shouldExecute(85, 35)).toBe(true);
 
-      // Confidence 70%: requires EQS 55
-      expect(shouldExecute(70, 55, 'MICRO_INTRADAY')).toBe(true);
-      expect(shouldExecute(70, 54, 'MICRO_INTRADAY')).toBe(false);
+      // 85% + EQS 25 → 85% - 20% = 65% → EXECUTE
+      expect(shouldExecute(85, 25)).toBe(true);
 
-      // Confidence 85%: requires EQS 50
-      expect(shouldExecute(85, 50, 'INTRADAY')).toBe(true);
-      expect(shouldExecute(85, 49, 'INTRADAY')).toBe(false);
+      // 85% + EQS 20 → 85% - 25% = 60% → EXECUTE (barely)
+      expect(shouldExecute(85, 20)).toBe(true);
+
+      // 85% + EQS 15 → 85% - 30% = 55% → WAIT
+      expect(shouldExecute(85, 15)).toBe(false);
     });
 
-    it('should allow high confidence trades with lower EQS', () => {
-      // High conviction (85%) executes with EQS 50
-      expect(shouldExecute(85, 50)).toBe(true);
-      expect(shouldExecute(90, 52)).toBe(true);
+    it('should penalize medium conviction trades more severely', () => {
+      // Medium conviction with poor timing:
+      // 70% + EQS 35 → 70% - 10% = 60% → EXECUTE (barely)
+      expect(shouldExecute(70, 35)).toBe(true);
 
-      // Medium conviction (70%) executes with EQS 55
-      expect(shouldExecute(70, 55)).toBe(true);
-      expect(shouldExecute(75, 57)).toBe(true);
+      // 70% + EQS 30 → 70% - 15% = 55% → WAIT
+      expect(shouldExecute(70, 30)).toBe(false);
 
-      // Baseline conviction (60%) requires full EQS 60
-      expect(shouldExecute(60, 60)).toBe(true);
-      expect(shouldExecute(65, 62)).toBe(true);
+      // 65% + EQS 40 → 65% - 5% = 60% → EXECUTE (barely)
+      expect(shouldExecute(65, 40)).toBe(true);
+
+      // 65% + EQS 35 → 65% - 10% = 55% → WAIT
+      expect(shouldExecute(65, 35)).toBe(false);
+    });
+
+    it('should reward good timing with higher confidence', () => {
+      // Baseline confidence with excellent timing:
+      // 60% + EQS 75 → 60% + 5% = 65% → EXECUTE
+      expect(shouldExecute(60, 75)).toBe(true);
+
+      // 60% + EQS 70 → 60% + 4% = 64% → EXECUTE
+      expect(shouldExecute(60, 70)).toBe(true);
+
+      // 60% + EQS 50 → 60% + 0% = 60% → EXECUTE
+      expect(shouldExecute(60, 50)).toBe(true);
     });
   });
 
   describe('getEntryMode', () => {
-    it('should return wait_confirmation when confidence below minimum', () => {
-      expect(getEntryMode(55, 90, 'SCALP')).toBe('wait_confirmation');
+    it('should return wait_confirmation when adjusted confidence below minimum', () => {
+      // 55% + EQS 50 → 55% + 0% = 55% (below 60%)
+      expect(getEntryMode(55, 50)).toBe('wait_confirmation');
+
+      // 65% + EQS 35 → 65% - 10% = 55% (below 60%)
+      expect(getEntryMode(65, 35)).toBe('wait_confirmation');
     });
 
-    it('should return immediate when EQS meets confidence-adjusted threshold', () => {
-      // Confidence 60%: needs EQS 60+
-      expect(getEntryMode(60, 60)).toBe('immediate');
-      expect(getEntryMode(60, 70)).toBe('immediate');
+    it('should return immediate when adjusted confidence meets threshold', () => {
+      // High conviction with poor timing still executes:
+      // 85% + EQS 35 → 85% - 10% = 75% → IMMEDIATE
+      expect(getEntryMode(85, 35)).toBe('immediate');
 
-      // Confidence 70%: needs EQS 55+
-      expect(getEntryMode(70, 55)).toBe('immediate');
-      expect(getEntryMode(70, 65)).toBe('immediate');
+      // 70% + EQS 35 → 70% - 10% = 60% → IMMEDIATE (barely)
+      expect(getEntryMode(70, 35)).toBe('immediate');
 
-      // Confidence 85%: needs EQS 50+
-      expect(getEntryMode(85, 50)).toBe('immediate');
-      expect(getEntryMode(85, 60)).toBe('immediate');
+      // 60% + EQS 50 → 60% + 0% = 60% → IMMEDIATE
+      expect(getEntryMode(60, 50)).toBe('immediate');
     });
 
-    it('should return wait_confirmation when EQS below confidence-adjusted threshold', () => {
-      // Confidence 60%: EQS below 60
-      expect(getEntryMode(60, 59)).toBe('wait_confirmation');
+    it('should return wait_confirmation when adjusted confidence fails', () => {
+      // 70% + EQS 30 → 70% - 15% = 55% → WAIT
+      expect(getEntryMode(70, 30)).toBe('wait_confirmation');
 
-      // Confidence 70%: EQS below 55
-      expect(getEntryMode(70, 54)).toBe('wait_confirmation');
+      // 65% + EQS 35 → 65% - 10% = 55% → WAIT
+      expect(getEntryMode(65, 35)).toBe('wait_confirmation');
 
-      // Confidence 85%: EQS below 50
-      expect(getEntryMode(85, 49)).toBe('wait_confirmation');
+      // 60% + EQS 45 → 60% - 2% = 58% → WAIT
+      expect(getEntryMode(60, 45)).toBe('wait_confirmation');
+    });
+
+    it('should benefit from good timing', () => {
+      // 60% + EQS 75 → 60% + 5% = 65% → IMMEDIATE
+      expect(getEntryMode(60, 75)).toBe('immediate');
+
+      // 55% + EQS 70 → 55% + 4% = 59% → WAIT (still below 60%)
+      expect(getEntryMode(55, 70)).toBe('wait_confirmation');
+
+      // 56% + EQS 70 → 56% + 4% = 60% → IMMEDIATE (exactly at threshold)
+      expect(getEntryMode(56, 70)).toBe('immediate');
     });
   });
 

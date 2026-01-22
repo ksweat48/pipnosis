@@ -41,13 +41,51 @@
 const EQS_EXECUTION_THRESHOLD = 40;
 
 /**
- * CONFIDENCE-BASED EQS RELAXATION TIERS
- * High conviction trades get entry timing flexibility
+ * EQS-TO-CONFIDENCE MODIFIER - STEEPER PENALTY CURVE
+ * Entry timing now significantly impacts confidence scores
  *
  * 75-POINT SCALE:
- * - 85%+ confidence: EQS 30 (40% of max)
- * - 70%+ confidence: EQS 35 (47% of max)
- * - 60%+ confidence: EQS 40 (53% of max - baseline)
+ * REWARDS (Above 50):
+ * - 75+: +5 points (exceptional timing)
+ * - 70-74: +4 points
+ * - 65-69: +3 points
+ * - 60-64: +2 points
+ * - 55-59: +1 points
+ * - 50-54: +0 points (neutral)
+ *
+ * PENALTIES (Below 50) - STEEPER CURVE:
+ * - 45-49: -2 points (minor penalty)
+ * - 40-44: -5 points (moderate penalty)
+ * - 35-39: -10 points (significant penalty)
+ * - 30-34: -15 points (heavy penalty)
+ * - 25-29: -20 points (severe penalty)
+ * - 20-24: -25 points (critical penalty)
+ * - <20: -30 points (maximum penalty)
+ *
+ * Philosophy: Poor entry timing should heavily penalize confidence.
+ * High-conviction trades (85%+) can still execute with poor timing,
+ * but they're significantly penalized. Medium-conviction trades (65-70%)
+ * are likely to fall below execution threshold with poor timing.
+ */
+export const EQS_CONFIDENCE_MODIFIERS = [
+  { minEQS: 75, modifier: 5 },
+  { minEQS: 70, modifier: 4 },
+  { minEQS: 65, modifier: 3 },
+  { minEQS: 60, modifier: 2 },
+  { minEQS: 55, modifier: 1 },
+  { minEQS: 50, modifier: 0 },
+  { minEQS: 45, modifier: -2 },
+  { minEQS: 40, modifier: -5 },
+  { minEQS: 35, modifier: -10 },
+  { minEQS: 30, modifier: -15 },
+  { minEQS: 25, modifier: -20 },
+  { minEQS: 20, modifier: -25 },
+  { minEQS: 0, modifier: -30 },
+] as const;
+
+/**
+ * DEPRECATED: Old confidence-based EQS threshold adjustment
+ * Kept for backward compatibility during migration
  */
 export const EQS_CONFIDENCE_TIERS = {
   EXCELLENT: { minConfidence: 85, eqsAdjustment: -10 },  // 85%+ confidence: EQS 30
@@ -291,15 +329,46 @@ export const EQS_TOTAL_WEIGHT = Object.values(EQS_WEIGHTED_FACTORS).reduce(
 );
 
 /**
- * Get confidence-adjusted EQS threshold - SSOT for dynamic EQS requirements
+ * Get EQS-based confidence modifier - SSOT for entry timing impact
  *
- * High confidence trades get entry timing flexibility (75-point scale):
- * - 85%+ confidence: Requires EQS 30 (professional sniper takes the shot)
- * - 70%+ confidence: Requires EQS 35 (solid setup, minor timing flex)
- * - 60%+ confidence: Requires EQS 40 (baseline standard)
+ * Entry timing (EQS) now directly modifies the confidence score:
+ * - Good timing (EQS 50+): Minor rewards (+0 to +5)
+ * - Poor timing (EQS <50): Steep penalties (-2 to -30)
  *
- * Philosophy: When Alpha is highly confident in the trade idea,
- * don't let minor entry timing issues block execution.
+ * 75-POINT SCALE:
+ * - EQS 75+: +5 points
+ * - EQS 70-74: +4 points
+ * - EQS 65-69: +3 points
+ * - EQS 60-64: +2 points
+ * - EQS 55-59: +1 points
+ * - EQS 50-54: +0 points
+ * - EQS 45-49: -2 points
+ * - EQS 40-44: -5 points
+ * - EQS 35-39: -10 points
+ * - EQS 30-34: -15 points
+ * - EQS 25-29: -20 points
+ * - EQS 20-24: -25 points
+ * - EQS <20: -30 points
+ *
+ * Philosophy: Entry timing matters significantly. Poor timing heavily
+ * penalizes confidence, forcing the system to either wait for better
+ * timing or have very high conviction.
+ */
+export function getEQSConfidenceModifier(entryQualityScore: number): number {
+  for (const tier of EQS_CONFIDENCE_MODIFIERS) {
+    if (entryQualityScore >= tier.minEQS) {
+      return tier.modifier;
+    }
+  }
+  return -30; // Fallback for extremely low EQS
+}
+
+/**
+ * DEPRECATED: Get confidence-adjusted EQS threshold
+ * Old approach: Adjusted EQS threshold based on confidence
+ * New approach: Adjust confidence based on EQS, then compare to fixed threshold
+ *
+ * Kept for backward compatibility during migration.
  */
 export function getConfidenceAdjustedEQSThreshold(tradeConfidence: number): number {
   if (tradeConfidence >= EQS_CONFIDENCE_TIERS.EXCELLENT.minConfidence) {
@@ -316,12 +385,12 @@ export function shouldExecute(
   entryQualityScore: number,
   style?: StyleName
 ): boolean {
-  if (tradeConfidence < ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE) {
-    return false;
-  }
+  // Apply EQS-based confidence modifier
+  const eqsModifier = getEQSConfidenceModifier(entryQualityScore);
+  const adjustedConfidence = tradeConfidence + eqsModifier;
 
-  const requiredEQS = getConfidenceAdjustedEQSThreshold(tradeConfidence);
-  return entryQualityScore >= requiredEQS;
+  // Check if adjusted confidence meets minimum threshold
+  return adjustedConfidence >= ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE;
 }
 
 export function getEntryMode(
@@ -329,12 +398,12 @@ export function getEntryMode(
   entryQualityScore: number,
   style?: StyleName
 ): EntryMode {
-  if (tradeConfidence < ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE) {
-    return 'wait_confirmation';
-  }
+  // Apply EQS-based confidence modifier
+  const eqsModifier = getEQSConfidenceModifier(entryQualityScore);
+  const adjustedConfidence = tradeConfidence + eqsModifier;
 
-  const requiredEQS = getConfidenceAdjustedEQSThreshold(tradeConfidence);
-  if (entryQualityScore >= requiredEQS) {
+  // Check if adjusted confidence meets minimum threshold
+  if (adjustedConfidence >= ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE) {
     return 'immediate';
   }
 
@@ -398,12 +467,34 @@ MINIMUM CONFIDENCE THRESHOLD: ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%
 - ${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.min}-${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.max}%: ${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.description}
 - ${ALPHA_IDENTITY.CONFIDENCE_BANDS.EXCELLENT.min}-100%: ${ALPHA_IDENTITY.CONFIDENCE_BANDS.EXCELLENT.description}
 
-CONFIDENCE-ADJUSTED EQS THRESHOLDS (Dynamic Entry Standards - 75-point scale):
-- Confidence >= 85% (EXCELLENT): Requires EQS >= 30 (high conviction, entry flexibility)
-- Confidence >= 70% (SOLID): Requires EQS >= 35 (good setup, modest flexibility)
-- Confidence >= 60% (ACCEPTABLE): Requires EQS >= 40 (baseline standard)
-- Professional snipers take the shot when conviction is high
-- Core structure (pullback + EMA + VWAP) is sufficient for entry
+EQS-BASED CONFIDENCE MODIFIERS (Entry Timing Impact - 75-point scale):
+Entry timing (EQS) directly modifies your confidence score before execution decision:
+
+REWARDS (Good Timing):
+- EQS 75+: +5 confidence points
+- EQS 70-74: +4 confidence points
+- EQS 65-69: +3 confidence points
+- EQS 60-64: +2 confidence points
+- EQS 55-59: +1 confidence points
+- EQS 50-54: +0 confidence points (neutral)
+
+PENALTIES (Poor Timing - STEEP CURVE):
+- EQS 45-49: -2 confidence points
+- EQS 40-44: -5 confidence points
+- EQS 35-39: -10 confidence points
+- EQS 30-34: -15 confidence points
+- EQS 25-29: -20 confidence points
+- EQS 20-24: -25 confidence points
+- EQS <20: -30 confidence points
+
+Impact Examples:
+- Alpha 85% + EQS 35 → 85% - 10% = 75% → EXECUTE (penalized but strong)
+- Alpha 70% + EQS 35 → 70% - 10% = 60% → EXECUTE (barely passes)
+- Alpha 65% + EQS 35 → 65% - 10% = 55% → WAIT (fails threshold)
+
+Philosophy: Entry timing matters significantly. Poor timing heavily penalizes confidence.
+High-conviction trades can still execute with poor timing, but they're penalized.
+Medium-conviction trades are likely to fall below 60% threshold with poor timing.
 
 ═══════════════════════════════════════════════════════════════════
 PROFESSIONAL RISK MANAGEMENT CONSTRAINTS (Omega-9 Boundaries)
