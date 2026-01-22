@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, XCircle, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
+import { Search, XCircle, CheckCircle, Clock, AlertTriangle, X } from 'lucide-react';
 
 interface NoTradesFoundDialogProps {
   isOpen: boolean;
@@ -17,6 +17,7 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
   isLoading = false
 }) => {
   const [countdown, setCountdown] = useState(60);
+  const [forceClosing, setForceClosing] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -30,7 +31,13 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
           clearInterval(interval);
           // Auto-close when countdown reaches 0
           console.log('[NoTradesFoundDialog] Countdown reached 0 - auto-closing session');
-          onClose();
+          try {
+            onClose();
+          } catch (error) {
+            console.error('[NoTradesFoundDialog] Error in onClose:', error);
+            // Force close even if handler fails
+            setForceClosing(true);
+          }
           return 0;
         }
         return prev - 1;
@@ -40,17 +47,81 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
     return () => clearInterval(interval);
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  // ESCAPE HATCH: Force close if stuck for more than 90 seconds
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const forceCloseTimer = setTimeout(() => {
+      console.warn('[NoTradesFoundDialog] EMERGENCY: Force closing stuck modal after 90s');
+      setForceClosing(true);
+    }, 90000); // 90 seconds
+
+    return () => clearTimeout(forceCloseTimer);
+  }, [isOpen]);
+
+  if (!isOpen || forceClosing) return null;
 
   const isUrgent = countdown <= 10;
   const progressPercentage = (countdown / 60) * 100;
 
+  const handleContinueClick = () => {
+    console.log('[NoTradesFoundDialog] User clicked Continue');
+    try {
+      onContinue();
+    } catch (error) {
+      console.error('[NoTradesFoundDialog] Error in onContinue handler:', error);
+      // Force close modal on error
+      setForceClosing(true);
+    }
+  };
+
+  const handleCloseClick = () => {
+    console.log('[NoTradesFoundDialog] User clicked Close');
+    try {
+      onClose();
+    } catch (error) {
+      console.error('[NoTradesFoundDialog] Error in onClose handler:', error);
+      // Force close modal on error
+      setForceClosing(true);
+    }
+  };
+
+  const handleForceClose = () => {
+    console.warn('[NoTradesFoundDialog] User force-closed modal via X button');
+    setForceClosing(true);
+    try {
+      onClose();
+    } catch (error) {
+      console.error('[NoTradesFoundDialog] Error calling onClose during force close:', error);
+    }
+  };
+
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    // Only close if clicking directly on backdrop, not on modal content
+    if (e.target === e.currentTarget && countdown <= 0) {
+      console.log('[NoTradesFoundDialog] User clicked backdrop after countdown ended');
+      handleCloseClick();
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={handleBackdropClick}
+    >
       <div className="relative max-w-md w-full max-h-[650px] flex flex-col">
         <div className="absolute -inset-1 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-2xl opacity-20 blur animate-pulse" />
 
         <div className="relative bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl border border-gray-700 shadow-2xl overflow-hidden flex flex-col">
+          {/* ESCAPE HATCH: Force close button */}
+          <button
+            onClick={handleForceClose}
+            className="absolute top-4 right-4 z-10 p-2 rounded-full bg-gray-700/50 hover:bg-gray-600/50 transition-colors"
+            title="Force close modal"
+          >
+            <X className="w-5 h-5 text-gray-400 hover:text-white" />
+          </button>
+
           <div className="p-6 overflow-y-auto flex-1" style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto' }}>
             <div className="flex items-start gap-4 mb-6">
               <div className={`p-3 rounded-xl ${isUrgent ? 'bg-gradient-to-br from-red-600 to-orange-600 animate-pulse' : 'bg-gradient-to-br from-yellow-600 to-orange-600'}`}>
@@ -109,7 +180,7 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
 
             <div className="space-y-3">
               <button
-                onClick={onContinue}
+                onClick={handleContinueClick}
                 disabled={isLoading}
                 className="w-full flex items-center justify-center gap-3 px-4 py-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed rounded-xl text-white font-semibold transition-all duration-300 shadow-lg hover:shadow-green-500/25 hover:scale-[1.02] active:scale-[0.98]"
               >
@@ -118,7 +189,7 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
               </button>
 
               <button
-                onClick={onClose}
+                onClick={handleCloseClick}
                 disabled={isLoading}
                 className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-red-900/30 hover:bg-red-900/50 disabled:bg-gray-800 disabled:cursor-not-allowed rounded-xl text-red-400 font-medium transition-all duration-300 border border-red-800/50 hover:border-red-700"
               >
