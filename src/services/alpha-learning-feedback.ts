@@ -59,8 +59,9 @@ export class AlphaLearningFeedbackService {
   /**
    * Process trade outcome and update all learning systems
    *
-   * IMPORTANT: System closures (weekend_protection, holiday_closure, etc.) are
-   * excluded from learning as they are NOT Alpha's fault
+   * IMPORTANT: System closures (weekend_protection, holiday_closure, etc.) and
+   * manual closes BEFORE reaching any milestone are excluded from learning.
+   * Alpha only learns from fully executed trades.
    */
   async processTradeOutcome(outcome: TradeOutcome): Promise<void> {
     logger.info(`[Alpha Feedback] Processing trade outcome for ${outcome.symbol}`, {
@@ -69,15 +70,41 @@ export class AlphaLearningFeedbackService {
       pnl: outcome.pnl
     });
 
-    // ✅ SSOT: Use centralized learning filter
+    // ✅ SSOT: Fetch full trade data to check milestone status
+    const { data: tradeData } = await supabase
+      .from('goal_session_trades')
+      .select('tp1_hit, tp2_hit, close_reason, trailing_active, breakeven_moved')
+      .eq('id', outcome.tradeId)
+      .maybeSingle();
+
     // Map analysis close reason to CloseReason type for filtering
     const mappedCloseReason = mapAnalysisToCloseReason(outcome.closeReason);
 
-    if (!shouldIncludeInLearning(mappedCloseReason)) {
-      const exclusionReason = getExclusionReason(mappedCloseReason);
-      logger.info(`[Alpha Feedback] ⚠️ Skipping learning update - ${exclusionReason}`);
+    // Check if trade should be included in learning (with milestone data)
+    const milestoneData = tradeData ? {
+      tp1_hit: tradeData.tp1_hit,
+      tp2_hit: tradeData.tp2_hit,
+      sl_hit: mappedCloseReason === 'stop_loss', // SL hit inferred from close reason
+      trailing_active: tradeData.trailing_active,
+      breakeven_moved: tradeData.breakeven_moved
+    } : undefined;
+
+    if (!shouldIncludeInLearning(mappedCloseReason, milestoneData)) {
+      const exclusionReason = getExclusionReason(mappedCloseReason, milestoneData);
+      logger.info(`[Alpha Feedback] ⚠️ Skipping learning update - ${exclusionReason}`, {
+        tradeId: outcome.tradeId,
+        closeReason: outcome.closeReason,
+        mappedReason: mappedCloseReason,
+        milestoneData
+      });
       return; // Do NOT penalize Alpha for excluded trades
     }
+
+    logger.info(`[Alpha Feedback] ✅ Trade included in learning`, {
+      tradeId: outcome.tradeId,
+      closeReason: outcome.closeReason,
+      milestoneData
+    });
 
     try {
       await Promise.all([

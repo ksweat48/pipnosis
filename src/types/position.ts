@@ -14,6 +14,8 @@ export type CloseReason =
   | 'manual'
   | 'stop_loss'
   | 'take_profit'
+  | 'take_profit_1'
+  | 'take_profit_2'
   | 'goal_achieved'
   | 'goal_expired'
   | 'session_ended'
@@ -36,11 +38,32 @@ export const SYSTEM_CLOSE_REASONS: CloseReason[] = [
 ];
 
 /**
+ * Milestone close reasons - trades that reached a valid exit point
+ * These SHOULD affect Alpha's learning as they are natural outcomes
+ */
+export const MILESTONE_CLOSE_REASONS: CloseReason[] = [
+  'stop_loss',
+  'take_profit',
+  'take_profit_1',
+  'take_profit_2',
+  'trailing_stop'
+];
+
+/**
  * Check if a close reason is a system closure (should not affect Alpha learning)
  */
 export function isSystemClosure(closeReason: CloseReason | null | undefined): boolean {
   if (!closeReason) return false;
   return SYSTEM_CLOSE_REASONS.includes(closeReason);
+}
+
+/**
+ * Check if a close reason is a milestone (trade reached a valid exit point)
+ * These should be included in Alpha's learning
+ */
+export function isMilestoneClose(closeReason: CloseReason | null | undefined): boolean {
+  if (!closeReason) return false;
+  return MILESTONE_CLOSE_REASONS.includes(closeReason);
 }
 
 /**

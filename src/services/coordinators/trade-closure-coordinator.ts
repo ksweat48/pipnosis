@@ -26,25 +26,15 @@ import { MarketDataService } from '../market-data-service';
 
 /**
  * SSOT Close Reason Types - MUST match database constraint
- * Database constraint defined in: 20260119053122_add_system_close_reasons_exclude_from_learning.sql
+ * Database constraint will be updated in migration to include take_profit_1 and take_profit_2
  *
  * ✅ CRITICAL: These values MUST match the goal_session_trades.close_reason CHECK constraint
  * Any mismatch will cause database constraint violation errors
+ *
+ * NOTE: This now uses the CloseReason type from position.ts to maintain SSOT
  */
-export type CloseReason =
-  | 'stop_loss'
-  | 'take_profit'
-  | 'take_profit_1'
-  | 'take_profit_2'
-  | 'manual'
-  | 'goal_achieved'
-  | 'timeout'                 // ✅ FIXED: was 'session_timeout'
-  | 'force_closed'            // ✅ FIXED: was 'force_close'
-  | 'weekend_protection'      // ✅ FIXED: was 'weekend_shutdown'
-  | 'risk_limit'
-  | 'trailing_stop'
-  | 'holiday_closure'
-  | 'market_closed';
+import { CloseReason as PositionCloseReason } from '../../types/position';
+export type CloseReason = PositionCloseReason;
 
 export interface CloseTradeRequest {
   tradeId: string;

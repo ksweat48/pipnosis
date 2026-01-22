@@ -18,6 +18,7 @@ export type DatabaseCloseReason =
   | 'stop_loss'
   | 'sl'
   | 'take_profit'
+  | 'take_profit_1'
   | 'take_profit_2'
   | 'tp'
   | 'tp1'
@@ -61,11 +62,16 @@ export function mapDatabaseToCloseReason(dbReason: string | null | undefined): C
     case 'sl':
       return 'stop_loss';
 
-    case 'take_profit':
-    case 'take_profit_2':
-    case 'tp':
+    case 'take_profit_1':
     case 'tp1':
+      return 'take_profit_1';
+
+    case 'take_profit_2':
     case 'tp2':
+      return 'take_profit_2';
+
+    case 'take_profit':
+    case 'tp':
       return 'take_profit';
 
     case 'goal_achieved':
@@ -112,6 +118,8 @@ export function mapCloseReasonToAnalysis(reason: CloseReason): AnalysisCloseReas
       return 'sl_hit';
 
     case 'take_profit':
+    case 'take_profit_1':
+    case 'take_profit_2':
       return 'tp_hit';
 
     case 'session_ended':
@@ -184,6 +192,8 @@ export function getCloseReasonText(reason: CloseReason): string {
       return 'Stop Loss Hit';
     case 'take_profit':
       return 'Take Profit Hit';
+    case 'take_profit_1':
+      return 'Take Profit 1 Hit';
     case 'take_profit_2':
       return 'Take Profit 2 Hit';
     case 'manual':
@@ -220,6 +230,7 @@ export function getCloseReasonColor(reason: CloseReason): string {
     case 'stop_loss':
       return 'from-red-500 to-orange-500';
     case 'take_profit':
+    case 'take_profit_1':
     case 'take_profit_2':
     case 'goal_achieved':
       return 'from-emerald-500 to-blue-500';
@@ -244,6 +255,7 @@ export function getCloseReasonBadgeColor(reason: CloseReason): string {
     case 'stop_loss':
       return 'bg-red-500/20 text-red-400';
     case 'take_profit':
+    case 'take_profit_1':
     case 'take_profit_2':
     case 'goal_achieved':
       return 'bg-emerald-500/20 text-emerald-400';
