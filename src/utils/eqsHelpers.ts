@@ -5,7 +5,7 @@
  * Used by entry monitoring system for consistent grading and display.
  */
 
-import { EQS_GRADE_THRESHOLDS } from '../config/alpha-identity';
+import { EQS_GRADE_THRESHOLDS, EQS_COMPONENT_MAXIMUMS } from '../config/alpha-identity';
 
 export type EQSGrade = 'A+' | 'A' | 'B' | 'C' | 'D' | 'F';
 
@@ -103,7 +103,6 @@ export function didGradeImprove(oldEQS: number, newEQS: number): boolean {
  * SSOT: Uses maximum from alpha-identity config
  */
 export function formatEQSScore(eqs: number): string {
-  const { EQS_COMPONENT_MAXIMUMS } = require('../config/alpha-identity');
   return `${Math.round(eqs)}/${EQS_COMPONENT_MAXIMUMS.TOTAL}`;
 }
 

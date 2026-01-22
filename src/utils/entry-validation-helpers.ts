@@ -11,7 +11,7 @@
  * 4. Entry zone validation
  */
 
-import { isIndex } from './currencyHelpers';
+import { isIndex, calculatePipDistance } from './currencyHelpers';
 import type { EntryIntent } from '../types/entry';
 
 /**
@@ -85,9 +85,6 @@ export function calculateDistanceToZone(
   zoneMax: number,
   symbol: string
 ): number {
-  // Import here to avoid circular dependency
-  const { calculatePipDistance } = require('./currencyHelpers');
-
   // Check if price is in zone
   if (currentPrice >= zoneMin && currentPrice <= zoneMax) {
     return 0;
