@@ -1627,6 +1627,7 @@ export const GoalSessionDashboard: React.FC = () => {
             sessionId={activeSession.sessionId}
             watchlist={activeSession.config.watchlist}
           />
+          <TradingMonitorStack />
         </>
       )}
 

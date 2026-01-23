@@ -128,6 +128,20 @@
 [functions."backfill-all-timeframes-new-pairs"]
   timeout = 900
 
+# 🧠 EDUCATIONAL: Session Intelligence Populator (runs every hour)
+# ADVISORY ONLY: Analyzes current trading session and recommends optimal pairs
+# Does not affect Alpha's autonomous trading decisions
+[functions."populate-session-intelligence"]
+  timeout = 30
+  schedule = "0 * * * *"  # 🚨 Every hour at :00 - provides session-based trading insights
+
+# 📊 EDUCATIONAL: VWAP Kiss Scanner (runs every 2 minutes)
+# ADVISORY ONLY: Detects when price is near VWAP for scalp opportunities
+# Does not affect Alpha's autonomous trading decisions
+[functions."scan-vwap-kisses"]
+  timeout = 60  # 1 minute to scan all watchlist pairs
+  schedule = "*/2 * * * *"  # 🚨 Every 2 minutes - real-time VWAP proximity detection
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
