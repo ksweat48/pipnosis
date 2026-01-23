@@ -1610,8 +1610,8 @@ class GoalSessionLiveEngine {
           tp2Reasoning,
           // ✅ SSOT REQUIRED FIELDS: Snapshot metadata for trade validation
           snapshotTimestamp: Date.now(),
-          snapshotPrice: marketContext.price,
-          snapshotHash: `${selectedSymbol}-${Date.now()}-${marketContext.price.toFixed(5)}`,
+          snapshotPrice: snapshot.price,
+          snapshotHash: `${selectedSymbol}-${Date.now()}-${snapshot.price.toFixed(5)}`,
           // ✅ SSOT FIX: Include TradeContext in signal
           tradeContext,
           // Add style tracking data from eligibility gate (ALPHA AUTHORITY MODEL)
@@ -1836,7 +1836,54 @@ class GoalSessionLiveEngine {
       console.log('%c[MULTI-SYMBOL] ❌ ERROR CAUGHT', 'color: #f44336; font-weight: bold; font-size: 18px');
       console.error('[MULTI-SYMBOL] Error details:', error);
       console.error('[MULTI-SYMBOL] Error stack:', error instanceof Error ? error.stack : 'No stack');
-      logger.error(LogCategory.AI_TRADING, 'Multi-symbol cycle error', { error });
+
+      // ✅ ENHANCED DIAGNOSTICS: Detect common error patterns
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+
+      // Check for specific error patterns
+      const isConstraintError = errorMessage.includes('violates check constraint');
+      const isReferenceError = errorMessage.includes('is not defined') || errorMessage.includes('Cannot read');
+      const isDatabaseError = errorMessage.includes('error code') || errorMessage.includes('PGRST');
+
+      // Build diagnostic context
+      const diagnosticContext = {
+        errorType: error instanceof Error ? error.constructor.name : 'Unknown',
+        errorMessage,
+        isConstraintError,
+        isReferenceError,
+        isDatabaseError,
+        symbolsEvaluated: tradeableSnapshots?.length || 0,
+        activeSessionId: activeSession,
+        timestamp: new Date().toISOString()
+      };
+
+      // Log to governance system if critical
+      if (isConstraintError || isReferenceError) {
+        console.error('[MULTI-SYMBOL] 🚨 CRITICAL ERROR DETECTED - Logging to governance system');
+        try {
+          await supabase.from('ssot_violations').insert({
+            violation_type: isConstraintError ? 'database_constraint_violation' : 'javascript_reference_error',
+            severity: 'high',
+            system_component: 'goal_session_live_engine',
+            details: {
+              ...diagnosticContext,
+              stack: errorStack,
+              errorName: error instanceof Error ? error.name : 'UnknownError'
+            },
+            user_id: config?.userId || null
+          }).catch(govError => {
+            console.error('[MULTI-SYMBOL] Failed to log to governance:', govError);
+          });
+        } catch (govError) {
+          // Silent fail - don't break on governance logging
+        }
+      }
+
+      logger.error(LogCategory.AI_TRADING, 'Multi-symbol cycle error', {
+        error,
+        diagnostics: diagnosticContext
+      });
 
       // Send error notification to user
       await this.sendAIMessage(`⚠️ Error during market scan: ${error instanceof Error ? error.message : 'Unknown error'}. Will retry on next cycle.`).catch(e => {
