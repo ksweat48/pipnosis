@@ -77,10 +77,23 @@ const supabaseClient = createClient(
         }
         return response;
       }).catch(error => {
-        console.error('[Supabase Request Failed]', {
-          url: url.toString(),
-          error: error.message
-        });
+        // GOVERNANCE: Don't log intentional request cancellations
+        // AbortErrors occur when:
+        // 1. Component unmounts before request completes (React lifecycle)
+        // 2. New request supersedes old one (request deduplication)
+        // 3. User navigates away (normal behavior)
+        // These are not failures - they're expected React patterns
+        const isAbortError = error.name === 'AbortError' ||
+                            error.message?.includes('aborted') ||
+                            error.message?.includes('signal');
+
+        if (!isAbortError) {
+          // Log actual network failures
+          console.error('[Supabase Request Failed]', {
+            url: url.toString(),
+            error: error.message
+          });
+        }
         throw error;
       });
     }
