@@ -23,6 +23,7 @@ import { postTradeAnalyzer } from '../post-trade-analyzer';
 import { rewardEngine } from '../reward-engine';
 import { strategyPlaybookManager } from '../strategy-playbook-manager';
 import { MarketDataService } from '../market-data-service';
+import { modalQueueManager } from '../modal-queue-manager';
 
 /**
  * SSOT Close Reason Types - MUST match database constraint
@@ -401,11 +402,11 @@ class TradeClosureCoordinator {
     // Determine transition based on close reason
     // ✅ SSOT COMPLIANCE: Use database constraint values
     const isManualClose = closeReason === 'manual' || closeReason === 'force_closed';
-    const isSystemClose = closeReason === 'stop_loss' || closeReason === 'take_profit';
+    const isSystemClose = closeReason === 'stop_loss' || closeReason === 'take_profit' || closeReason === 'take_profit_1' || closeReason === 'take_profit_2';
     const isWeekendShutdown = closeReason === 'weekend_protection';
     const isTimeout = closeReason === 'timeout';
 
-    let targetStatus: 'scanning' | 'stopped' | 'weekend_shutdown' | 'timeout' = 'stopped';
+    let targetStatus: 'scanning' | 'stopped' | 'weekend_shutdown' | 'timeout' | 'awaiting_continuation' = 'stopped';
     let transitionReason = 'All execution channels empty';
 
     if (isManualClose) {
@@ -413,9 +414,12 @@ class TradeClosureCoordinator {
       targetStatus = 'stopped';
       transitionReason = 'User manually closed all trades';
     } else if (isSystemClose) {
-      // System closure (SL/TP) → return to scanning so user can continue
-      targetStatus = 'scanning';
-      transitionReason = 'Trade closed by system, returning to scanning';
+      // System closure (SL/TP) → pause and ask user what to do next
+      targetStatus = 'awaiting_continuation';
+      transitionReason = 'Trade closed by system, awaiting user decision';
+
+      // Create trade_closed modal for user to decide
+      await this.createTradeClosedModal(sessionId, userId, closeReason);
     } else if (isWeekendShutdown) {
       targetStatus = 'weekend_shutdown';
       transitionReason = 'Weekend protection activated';
@@ -462,6 +466,73 @@ class TradeClosureCoordinator {
       console.error(
         `[TradeClosureCoordinator] Failed to transition session: ${transitionResult.error}`
       );
+    }
+  }
+
+  private async createTradeClosedModal(
+    sessionId: string,
+    userId: string,
+    closeReason: CloseReason
+  ): Promise<void> {
+    try {
+      // Get session and trade data for modal
+      const { data: session } = await supabase
+        .from('goal_sessions')
+        .select('goal_amount, target_value, current_progress')
+        .eq('id', sessionId)
+        .maybeSingle();
+
+      const { data: closedTrade } = await supabase
+        .from('goal_session_trades')
+        .select('symbol, direction, entry_price, exit_price, profit_loss, stop_loss, take_profit')
+        .eq('goal_session_id', sessionId)
+        .eq('close_reason', closeReason)
+        .order('closed_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const { count: tradesCount } = await supabase
+        .from('goal_session_trades')
+        .select('*', { count: 'exact', head: true })
+        .eq('goal_session_id', sessionId);
+
+      if (!session || !closedTrade) {
+        console.error('[TradeClosureCoordinator] Missing session or trade data for modal');
+        return;
+      }
+
+      const targetValue = session.target_value
+        || (typeof session.goal_amount === 'object'
+          ? (session.goal_amount as Record<string, number>).amount
+          : session.goal_amount);
+
+      // Check if goal achieved
+      const isGoalAchieved = session.current_progress >= targetValue;
+
+      // Create modal through modal queue manager (SSOT for modals)
+      await modalQueueManager.createPendingModal(
+        userId,
+        sessionId,
+        'trade_closed',
+        {
+          symbol: closedTrade.symbol,
+          direction: closedTrade.direction,
+          entry_price: closedTrade.entry_price,
+          exit_price: closedTrade.exit_price,
+          profit_loss: closedTrade.profit_loss,
+          close_reason: closeReason,
+          stop_loss: closedTrade.stop_loss,
+          take_profit: closedTrade.take_profit,
+          current_progress: session.current_progress || 0,
+          target_value: targetValue,
+          trades_in_session: tradesCount || 0,
+          isGoalAchieved,
+        }
+      );
+
+      console.log('[TradeClosureCoordinator] ✅ Trade closed modal created for user decision');
+    } catch (error) {
+      console.error('[TradeClosureCoordinator] Error creating trade closed modal:', error);
     }
   }
 

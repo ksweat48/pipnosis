@@ -96,13 +96,9 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
       setTimeRemaining((prev) => {
         if (prev <= 1000) {
           clearInterval(interval);
-          // If goal achieved, auto-close session and stop scanning
-          // If goal not achieved, auto-continue session
-          if (isGoalAchieved) {
-            onCloseForNow();
-          } else {
-            onContinueSession();
-          }
+          // SSOT COMPLIANCE: Always auto-close on timeout (safe default)
+          // User must explicitly choose to continue
+          onCloseForNow();
           return 0;
         }
         return prev - 1000;
@@ -110,7 +106,7 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isOpen, isPendingModal, isGoalAchieved, onContinueSession, onCloseForNow]);
+  }, [isOpen, isPendingModal, onCloseForNow]);
 
   // Helper to format time elapsed for pending modals
   const formatTimeElapsed = (ts: string): string => {
@@ -241,7 +237,7 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
               <div className="flex items-center justify-center gap-2 text-xs">
                 <Clock className="w-3 h-3 text-gray-500" />
                 <span className="text-gray-500">
-                  {isGoalAchieved ? 'Auto-close in' : 'Auto-continue in'} <span className="font-semibold text-gray-400">{formatTime(timeRemaining)}</span>
+                  Auto-close in <span className="font-semibold text-gray-400">{formatTime(timeRemaining)}</span>
                 </span>
               </div>
             )}
