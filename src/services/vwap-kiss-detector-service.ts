@@ -24,7 +24,7 @@ class VWAPKissDetectorService {
         .from('forex_candles_best')
         .select('high, low, close, volume')
         .eq('symbol', symbol)
-        .eq('timeframe', '15m')
+        .eq('timeframe', '5m')
         .order('open_time', { ascending: false })
         .limit(28);
 
@@ -74,7 +74,7 @@ class VWAPKissDetectorService {
         .from('forex_candles_best')
         .select('high, low, close')
         .eq('symbol', symbol)
-        .eq('timeframe', '15m')
+        .eq('timeframe', '5m')
         .order('open_time', { ascending: false })
         .limit(15);
 
@@ -192,6 +192,13 @@ class VWAPKissDetectorService {
       }
 
       signals.sort((a, b) => b.scalpOpportunityScore - a.scalpOpportunityScore);
+
+      const symbolsToInsert = signals.map((s) => s.symbol);
+      await supabase
+        .from('vwap_kiss_signals')
+        .delete()
+        .in('symbol', symbolsToInsert)
+        .gt('expires_at', new Date().toISOString());
 
       const expiresAt = new Date();
       expiresAt.setMinutes(expiresAt.getMinutes() + 5);

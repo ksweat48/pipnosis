@@ -22,6 +22,21 @@ export const VWAPKissMonitor: React.FC = () => {
   const [signals, setSignals] = useState<VWAPSignal[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const deduplicateSignals = (rawSignals: VWAPSignal[]): VWAPSignal[] => {
+    const signalMap = new Map<string, VWAPSignal>();
+
+    for (const signal of rawSignals) {
+      const existing = signalMap.get(signal.symbol);
+      if (!existing || signal.scalp_opportunity_score > existing.scalp_opportunity_score) {
+        signalMap.set(signal.symbol, signal);
+      }
+    }
+
+    return Array.from(signalMap.values())
+      .sort((a, b) => b.scalp_opportunity_score - a.scalp_opportunity_score)
+      .slice(0, 3);
+  };
+
   useEffect(() => {
     loadSignals();
 
@@ -61,7 +76,8 @@ export const VWAPKissMonitor: React.FC = () => {
       if (error) {
         console.error('[VWAPKissMonitor] Error loading signals:', error);
       } else {
-        setSignals(data || []);
+        const uniqueSignals = deduplicateSignals(data || []);
+        setSignals(uniqueSignals);
       }
     } catch (error) {
       console.error('[VWAPKissMonitor] Error:', error);
@@ -166,7 +182,7 @@ export const VWAPKissMonitor: React.FC = () => {
             </div>
             <div>
               <h3 className="text-lg font-bold text-white">VWAP Kiss Detector</h3>
-              <p className="text-sm text-emerald-300">{signals.length} Active Signals</p>
+              <p className="text-sm text-emerald-300">Top {signals.length} {signals.length === 1 ? 'Pair' : 'Pairs'}</p>
             </div>
           </div>
 
@@ -180,7 +196,7 @@ export const VWAPKissMonitor: React.FC = () => {
         </div>
 
         <div className="space-y-3 mb-4">
-          {signals.slice(0, 5).map((signal) => {
+          {signals.map((signal) => {
             const strengthConfig = getSignalStrengthConfig(signal.signal_strength);
 
             return (
@@ -258,7 +274,7 @@ export const VWAPKissMonitor: React.FC = () => {
 
         <div className="bg-emerald-900/20 rounded-lg p-3 border border-emerald-500/20">
           <p className="text-xs text-emerald-200">
-            VWAP (Volume Weighted Average Price) acts as a magnetic price level. When price "kisses" VWAP, quick scalp opportunities often appear.
+            VWAP (Volume Weighted Average Price) acts as a magnetic price level. When price "kisses" VWAP, quick scalp opportunities often appear. Calculated on M5 timeframe.
           </p>
         </div>
 
