@@ -4,6 +4,13 @@ import { WATCHLIST } from '@/config/watchlist';
 import { analyzeVWAP } from '@/lib/technical-math/vwap';
 import { calculateATR } from '@/lib/technical-math/atr';
 
+// SSOT: VWAP calculation parameters - must match MarketChart.tsx M5 lookback
+// MarketChart uses 150 candles for M5 timeframe (12.5 hours of data)
+// This ensures VWAP Kiss Monitor displays identical VWAP values as chart visual
+const VWAP_LOOKBACK_CANDLES = 150;
+const VWAP_MIN_CANDLES = 100; // Minimum candles required for valid VWAP calculation
+const VWAP_CACHE_TTL_MS = 60000; // 1 minute cache to reduce DB load during scan cycles
+
 interface VWAPSignal {
   symbol: string;
   currentPrice: number;
@@ -17,24 +24,46 @@ interface VWAPSignal {
   reasoning: string;
 }
 
+interface VWAPCache {
+  value: number;
+  timestamp: number;
+}
+
 class VWAPKissDetectorService {
+  private vwapCache: Map<string, VWAPCache> = new Map();
+
   private async calculateVWAP(symbol: string): Promise<number | null> {
     try {
+      // Check cache first (Governance: reduce DB load)
+      const cached = this.vwapCache.get(symbol);
+      if (cached && Date.now() - cached.timestamp < VWAP_CACHE_TTL_MS) {
+        return cached.value;
+      }
+
+      // SSOT: Use same lookback as MarketChart M5 calculation (150 candles)
       const { data: candles } = await supabase
         .from('forex_candles_best')
         .select('high, low, close, volume')
         .eq('symbol', symbol)
         .eq('timeframe', '5m')
         .order('open_time', { ascending: false })
-        .limit(28);
+        .limit(VWAP_LOOKBACK_CANDLES);
 
-      if (!candles || candles.length < 20) {
+      // Governance: Validate minimum data requirement
+      if (!candles || candles.length < VWAP_MIN_CANDLES) {
+        logger.warn('[VWAPKissDetector] Insufficient candles for VWAP calculation', {
+          symbol,
+          candlesReceived: candles?.length || 0,
+          minimumRequired: VWAP_MIN_CANDLES
+        });
         return null;
       }
 
       let totalTPV = 0;
       let totalVolume = 0;
 
+      // SSOT: Use same typical price formula as MarketChart
+      // Formula: (high + low + close) / 3
       for (const candle of candles) {
         const typicalPrice = (parseFloat(candle.high) + parseFloat(candle.low) + parseFloat(candle.close)) / 3;
         const volume = parseFloat(candle.volume) || 1;
@@ -42,7 +71,14 @@ class VWAPKissDetectorService {
         totalVolume += volume;
       }
 
-      return totalVolume > 0 ? totalTPV / totalVolume : null;
+      const vwap = totalVolume > 0 ? totalTPV / totalVolume : null;
+
+      // Cache result (Performance: reduce redundant calculations)
+      if (vwap !== null) {
+        this.vwapCache.set(symbol, { value: vwap, timestamp: Date.now() });
+      }
+
+      return vwap;
     } catch (error) {
       logger.error('[VWAPKissDetector] Error calculating VWAP', { error, symbol });
       return null;

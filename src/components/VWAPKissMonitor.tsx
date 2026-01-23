@@ -232,7 +232,7 @@ export const VWAPKissMonitor: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 mb-3">
+                <div className="grid grid-cols-3 gap-2">
                   <div className="bg-gray-800/50 rounded-lg p-2">
                     <p className="text-xs text-gray-400">Current</p>
                     <p className="text-sm font-mono text-white">
@@ -252,21 +252,6 @@ export const VWAPKissMonitor: React.FC = () => {
                     </p>
                   </div>
                 </div>
-
-                <div className="bg-emerald-900/20 rounded-lg p-3 border border-emerald-500/20">
-                  <p className="text-xs font-semibold text-emerald-300 mb-1">Entry / Exit Suggestion</p>
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-emerald-100">
-                      Entry: <span className="font-mono">{formatPrice(signal.entry_suggestion, signal.symbol)}</span>
-                    </p>
-                    <span className="text-emerald-400">→</span>
-                    <p className="text-sm text-emerald-100">
-                      Exit: <span className="font-mono">{formatPrice(signal.exit_suggestion, signal.symbol)}</span>
-                    </p>
-                  </div>
-                </div>
-
-                <p className="text-xs text-gray-300 mt-2">{signal.reasoning}</p>
               </div>
             );
           })}
@@ -274,7 +259,7 @@ export const VWAPKissMonitor: React.FC = () => {
 
         <div className="bg-emerald-900/20 rounded-lg p-3 border border-emerald-500/20">
           <p className="text-xs text-emerald-200">
-            VWAP (Volume Weighted Average Price) acts as a magnetic price level. When price "kisses" VWAP, quick scalp opportunities often appear. Calculated on M5 timeframe.
+            VWAP (Volume Weighted Average Price) acts as a magnetic price level. When price "kisses" VWAP, quick scalp opportunities often appear. <span className="font-semibold">Calculated using M5 timeframe with 150-candle rolling window</span> to match chart accuracy.
           </p>
         </div>
 

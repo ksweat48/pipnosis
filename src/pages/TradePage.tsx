@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { BottomNavigation } from '@/components/BottomNavigation';
@@ -19,6 +19,10 @@ export function TradePage() {
     tp1?: number;
     tp2?: number;
   }>({});
+
+  // Governance: Preserve scroll position during real-time updates to prevent UI jumping
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const previousScrollTopRef = useRef<number>(0);
 
   // Handle symbol change with persistence
   const handleSymbolChange = useCallback((symbol: string) => {
@@ -42,16 +46,49 @@ export function TradePage() {
     enabled: true
   });
 
+  // SSOT: Deep equality check to prevent unnecessary re-renders and scroll jumping
+  const tradeLinesEqual = (a: typeof tradeLines, b: typeof tradeLines): boolean => {
+    return a.entry === b.entry &&
+           a.stopLoss === b.stopLoss &&
+           a.takeProfit === b.takeProfit &&
+           a.tp1 === b.tp1 &&
+           a.tp2 === b.tp2;
+  };
+
+  // Governance: Preserve scroll position during state updates
+  const updateTradeLinesWithScrollPreservation = useCallback((newLines: typeof tradeLines) => {
+    // Only update if values actually changed (prevent unnecessary re-renders)
+    setTradeLines(prevLines => {
+      if (tradeLinesEqual(prevLines, newLines)) {
+        return prevLines; // No change, prevent re-render
+      }
+
+      // Capture scroll position before update
+      if (scrollContainerRef.current) {
+        previousScrollTopRef.current = scrollContainerRef.current.scrollTop;
+      }
+
+      // Schedule scroll restoration after React's commit phase
+      requestAnimationFrame(() => {
+        if (scrollContainerRef.current && previousScrollTopRef.current > 0) {
+          scrollContainerRef.current.scrollTop = previousScrollTopRef.current;
+        }
+      });
+
+      return newLines;
+    });
+  }, []);
+
   // Fetch open trades for current symbol and display TP/SL lines on chart
   useEffect(() => {
     // Clear stale trade lines immediately when symbol changes
-    setTradeLines({});
+    updateTradeLinesWithScrollPreservation({});
 
     const fetchOpenTrades = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
-          setTradeLines({});
+          updateTradeLinesWithScrollPreservation({});
           return;
         }
 
@@ -67,12 +104,12 @@ export function TradePage() {
 
         if (error) {
           console.error('[TradePage] Error fetching open trades:', error);
-          setTradeLines({});
+          updateTradeLinesWithScrollPreservation({});
           return;
         }
 
         if (trades) {
-          setTradeLines({
+          updateTradeLinesWithScrollPreservation({
             entry: parseFloat(trades.entry_price),
             stopLoss: parseFloat(trades.stop_loss),
             takeProfit: parseFloat(trades.take_profit),
@@ -80,11 +117,11 @@ export function TradePage() {
             tp2: trades.tp2_price ? parseFloat(trades.tp2_price) : undefined
           });
         } else {
-          setTradeLines({});
+          updateTradeLinesWithScrollPreservation({});
         }
       } catch (error) {
         console.error('[TradePage] Error in fetchOpenTrades:', error);
-        setTradeLines({});
+        updateTradeLinesWithScrollPreservation({});
       }
     };
 
@@ -110,10 +147,19 @@ export function TradePage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [selectedSymbol]);
+  }, [selectedSymbol, updateTradeLinesWithScrollPreservation]);
 
   return (
-    <div ref={pullToRefresh.containerRef} className="h-screen w-screen overflow-hidden bg-gray-950 flex flex-col">
+    <div
+      ref={(node) => {
+        // Dual ref assignment: pullToRefresh and scroll container
+        if (pullToRefresh.containerRef) {
+          (pullToRefresh.containerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+        }
+        scrollContainerRef.current = node;
+      }}
+      className="h-screen w-screen overflow-hidden bg-gray-950 flex flex-col"
+    >
       <PullToRefreshIndicator
         isPulling={pullToRefresh.isPulling}
         isRefreshing={pullToRefresh.isRefreshing}
