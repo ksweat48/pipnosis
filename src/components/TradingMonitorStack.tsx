@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { EntryPriceMonitor } from './EntryPriceMonitor';
+import { MidTradeMonitor } from './MidTradeMonitor';
 import { SessionIntelligenceMonitor } from './SessionIntelligenceMonitor';
 import { VWAPKissMonitor } from './VWAPKissMonitor';
 
 interface MonitorPreferences {
   entry_price_monitor_enabled: boolean;
+  mid_trade_monitor_enabled: boolean;
   session_intelligence_enabled: boolean;
   vwap_kiss_monitor_enabled: boolean;
 }
@@ -15,6 +17,7 @@ export const TradingMonitorStack: React.FC = () => {
   const { user } = useAuth();
   const [preferences, setPreferences] = useState<MonitorPreferences>({
     entry_price_monitor_enabled: true,
+    mid_trade_monitor_enabled: true,
     session_intelligence_enabled: true,
     vwap_kiss_monitor_enabled: true,
   });
@@ -38,6 +41,7 @@ export const TradingMonitorStack: React.FC = () => {
             if (payload.new) {
               setPreferences({
                 entry_price_monitor_enabled: payload.new.entry_price_monitor_enabled,
+                mid_trade_monitor_enabled: payload.new.mid_trade_monitor_enabled,
                 session_intelligence_enabled: payload.new.session_intelligence_enabled,
                 vwap_kiss_monitor_enabled: payload.new.vwap_kiss_monitor_enabled,
               });
@@ -68,6 +72,7 @@ export const TradingMonitorStack: React.FC = () => {
       } else if (data) {
         setPreferences({
           entry_price_monitor_enabled: data.entry_price_monitor_enabled ?? true,
+          mid_trade_monitor_enabled: data.mid_trade_monitor_enabled ?? true,
           session_intelligence_enabled: data.session_intelligence_enabled ?? true,
           vwap_kiss_monitor_enabled: data.vwap_kiss_monitor_enabled ?? true,
         });
@@ -93,6 +98,7 @@ export const TradingMonitorStack: React.FC = () => {
 
   const hasAnyMonitorEnabled =
     preferences.entry_price_monitor_enabled ||
+    preferences.mid_trade_monitor_enabled ||
     preferences.session_intelligence_enabled ||
     preferences.vwap_kiss_monitor_enabled;
 
@@ -103,6 +109,7 @@ export const TradingMonitorStack: React.FC = () => {
   return (
     <div className="space-y-4">
       {preferences.entry_price_monitor_enabled && <EntryPriceMonitor />}
+      {preferences.mid_trade_monitor_enabled && <MidTradeMonitor />}
       {preferences.session_intelligence_enabled && <SessionIntelligenceMonitor />}
       {preferences.vwap_kiss_monitor_enabled && <VWAPKissMonitor />}
     </div>
