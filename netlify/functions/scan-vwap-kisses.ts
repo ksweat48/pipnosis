@@ -39,7 +39,7 @@ const WATCHLIST = [
 
 interface Candle {
   symbol: string;
-  timestamp: string;
+  open_time: string;
   open: number;
   high: number;
   low: number;
@@ -64,10 +64,10 @@ async function fetchRecentCandles(symbol: string): Promise<Candle[]> {
   // Fetch last 50 x 15-minute candles (approximately 12.5 hours of data)
   const { data, error } = await supabase
     .from('forex_candles_best')
-    .select('symbol, timestamp, open, high, low, close, volume')
+    .select('symbol, open_time, open, high, low, close, volume')
     .eq('symbol', symbol)
     .eq('timeframe', '15m')
-    .order('timestamp', { ascending: false })
+    .order('open_time', { ascending: false })
     .limit(50);
 
   if (error) {
