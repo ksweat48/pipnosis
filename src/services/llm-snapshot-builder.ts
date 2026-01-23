@@ -463,13 +463,13 @@ Should you:
       const validation = tradeValidationService.validateTrade({
         symbol: decision.symbol,
         direction: decision.direction,
-        entry: decision.entry,
+        entryPrice: decision.entry,
         stopLoss: decision.stopLoss,
         takeProfit: decision.takeProfit,
         lotSize: 1.0 // Default for validation purposes
       });
 
-      if (!validation.valid) {
+      if (!validation.isValid) {
         violations.push(...validation.errors);
       }
     }

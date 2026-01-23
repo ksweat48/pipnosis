@@ -89,13 +89,13 @@ class RiskPreflightGate {
     const validation = tradeValidationService.validateTrade({
       symbol: input.symbol,
       direction: input.direction.toLowerCase() as 'buy' | 'sell',
-      entry: input.entry,
+      entryPrice: input.entry,
       stopLoss: input.stopLoss,
       takeProfit: input.takeProfit,
       lotSize: 1.0 // Default for validation purposes
     });
 
-    if (!validation.valid) {
+    if (!validation.isValid) {
       // Map SSOT errors to RiskGate violation format
       validation.errors.forEach(error => {
         violations.push({

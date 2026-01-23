@@ -67,13 +67,13 @@ class OmegaHallucinationBrain {
     const validation = tradeValidationService.validateTrade({
       symbol: input.symbol,
       direction: input.action.toLowerCase() as 'buy' | 'sell',
-      entry: input.entry,
+      entryPrice: input.entry,
       stopLoss: input.stopLoss,
       takeProfit: input.takeProfit,
       lotSize: 1.0 // Default for validation purposes
     });
 
-    if (!validation.valid) {
+    if (!validation.isValid) {
       // Map SSOT errors to Omega-9 flag format
       validation.errors.forEach(error => {
         if (error.includes('Stop loss')) {

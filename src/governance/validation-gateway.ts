@@ -131,7 +131,7 @@ class ValidationGateway {
       lotSize: 1.0 // Default for validation purposes
     });
 
-    if (!validation.valid) {
+    if (!validation.isValid) {
       errors.push(...validation.errors);
     }
 
