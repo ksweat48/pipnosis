@@ -106,6 +106,8 @@ export interface ExecutionEligibilityInput {
   tradingMode: TradingMode;
   entryQualityScore?: number;
   potentialRRImprovement?: number;
+  tradeConfidence?: number; // ✅ NEW: For MICRO >=85% confidence override
+  style?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'; // ✅ NEW: For style-specific overrides
 }
 
 function getAssetClass(symbol: string): 'forex' | 'crypto' | 'index' | 'metal' | 'energy' {
@@ -140,6 +142,27 @@ class ExecutionEligibilityGate {
     const reasons: EligibilityBlockReason[] = [];
     const advisories: EligibilityAdvisory[] = [];
     const modeLimits = getModeLimits(input.tradingMode);
+
+    // ═══════════════════════════════════════════════════════════════════
+    // MICRO >=85% CONFIDENCE OVERRIDE (CONFIDENCE-DOMINANT ARCHITECTURE)
+    // ═══════════════════════════════════════════════════════════════════
+    // When Alpha has >=85% confidence on MICRO_INTRADAY style, bypass
+    // non-economic filters to respect confidence-first selection
+    const isMicroHighConfidence =
+      input.style === 'MICRO_INTRADAY' &&
+      (input.tradeConfidence || 0) >= 85;
+
+    if (isMicroHighConfidence) {
+      console.log('%c[EXECUTION GATE] 🎯 MICRO >=85% CONFIDENCE OVERRIDE ACTIVE', 'color: #2196f3; font-weight: bold; font-size: 14px');
+      console.log(`  Confidence: ${input.tradeConfidence}% | Style: ${input.style}`);
+      console.log(`  Bypassing non-economic filters to respect Alpha's high-confidence decision`);
+
+      advisories.push({
+        type: 'HIGH_CONFIDENCE_OVERRIDE',
+        message: `MICRO style with ${input.tradeConfidence}% confidence - relaxed filtering applied`,
+        severity: 'low'
+      });
+    }
 
     const slAtrMultiple = calculateSlAtrMultiple(
       input.symbol,
@@ -178,10 +201,10 @@ class ExecutionEligibilityGate {
       goalContributionPercent
     };
 
-    this.checkTimeToFill(input, modeLimits, reasons);
-    this.checkMinimumProfit(input, minRequiredProfitUSD, spreadCostUSD, reasons);
-    this.checkAbsurdTradeCount(input, modeLimits, reasons);
-    this.checkSlAtrWidth(input, slAtrMultiple, reasons);
+    this.checkTimeToFill(input, modeLimits, reasons, isMicroHighConfidence);
+    this.checkMinimumProfit(input, minRequiredProfitUSD, spreadCostUSD, reasons, isMicroHighConfidence);
+    this.checkAbsurdTradeCount(input, modeLimits, reasons, isMicroHighConfidence);
+    this.checkSlAtrWidth(input, slAtrMultiple, reasons, isMicroHighConfidence);
 
     if (reasons.length > 0) {
       console.error('%c[EXECUTION GATE] BLOCKED', 'color: #f44336; font-weight: bold; font-size: 14px');
@@ -239,7 +262,8 @@ class ExecutionEligibilityGate {
   private checkTimeToFill(
     input: ExecutionEligibilityInput,
     modeLimits: ReturnType<typeof getModeLimits>,
-    reasons: EligibilityBlockReason[]
+    reasons: EligibilityBlockReason[],
+    isMicroHighConfidence: boolean
   ): void {
     // ARCHITECTURAL CHANGE (v2.0):
     // Time-to-fill NEVER blocks execution
@@ -254,18 +278,22 @@ class ExecutionEligibilityGate {
     // - shouldApplyReward/shouldApplyPenalty: for learning system
     //
     // NO BLOCKING based on time - this is intentionally empty for blocking logic
+    // MICRO >=85% override is not needed here as there's no blocking
   }
 
   private checkMinimumProfit(
     input: ExecutionEligibilityInput,
     minRequiredProfitUSD: number,
     spreadCostUSD: number,
-    reasons: EligibilityBlockReason[]
+    reasons: EligibilityBlockReason[],
+    isMicroHighConfidence: boolean
   ): void {
     const { expectedProfitUSD, accountBalance } = input;
     const spreadSafetyMultiplier = getSpreadSafetyMultiplier();
     const minProfitVsSpread = spreadCostUSD * spreadSafetyMultiplier;
 
+    // ✅ ECONOMIC CHECK: Always enforce (not overridable)
+    // These checks protect against unprofitable trades regardless of confidence
     if (expectedProfitUSD < minRequiredProfitUSD) {
       reasons.push({
         code: 'PROFIT_BELOW_MINIMUM',
@@ -285,16 +313,20 @@ class ExecutionEligibilityGate {
         suggestion: 'Trade is spread-dominated - wait for lower spread conditions or choose different instrument'
       });
     }
+    // Note: MICRO >=85% override does NOT bypass economic checks
   }
 
   private checkAbsurdTradeCount(
     input: ExecutionEligibilityInput,
     modeLimits: ReturnType<typeof getModeLimits>,
-    reasons: EligibilityBlockReason[]
+    reasons: EligibilityBlockReason[],
+    isMicroHighConfidence: boolean
   ): void {
     const { estimatedTradesRequired, tradingMode } = input;
     const maxTrades = modeLimits.maxTradesRequired;
 
+    // ✅ ECONOMIC CHECK: Always enforce (not overridable)
+    // This prevents mathematically impossible goals regardless of confidence
     if (estimatedTradesRequired > maxTrades) {
       reasons.push({
         code: 'ABSURD_TRADE_COUNT',
@@ -304,12 +336,14 @@ class ExecutionEligibilityGate {
         suggestion: 'Reduce goal amount, increase position size within risk limits, or extend goal timeline'
       });
     }
+    // Note: MICRO >=85% override does NOT bypass economic checks
   }
 
   private checkSlAtrWidth(
     input: ExecutionEligibilityInput,
     slAtrMultiple: number,
-    reasons: EligibilityBlockReason[]
+    reasons: EligibilityBlockReason[],
+    isMicroHighConfidence: boolean
   ): void {
     // ARCHITECTURAL CHANGE (v2.0):
     // SL width NEVER blocks execution
@@ -320,6 +354,7 @@ class ExecutionEligibilityGate {
     //
     // NO BLOCKING based on SL width - this is intentionally empty for blocking logic
     // SL width advisories are now handled in collectAdvisories()
+    // MICRO >=85% override is not needed here as there's no blocking
   }
 
   private collectAdvisories(

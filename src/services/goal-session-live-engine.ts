@@ -1072,10 +1072,57 @@ class GoalSessionLiveEngine {
         logger.error(LogCategory.AI_TRADING, '[AlphaThoughts] Failed to emit comparing', { error });
       }
 
-      // Use filtered snapshots and decisions for selection
+      // ═══════════════════════════════════════════════════════════════════
+      // CALCULATE TPS SCORES FOR TIE-BREAKING (CONFIDENCE-DOMINANT FIX)
+      // ═══════════════════════════════════════════════════════════════════
+      // TPS scores are used ONLY for tie-breaking when confidence difference ≤5 points
+      // Alpha's confidence remains the PRIMARY score
+      const tpsScores = new Map<string, number>();
+
+      try {
+        const { computeTPS } = await import('./trade-priority-score');
+        const { TPSCandidate } = await import('../types/tps');
+
+        for (const snapshot of filteredSnapshots) {
+          const decision = filteredDecisions.get(snapshot.symbol);
+          if (!decision || decision.action === 'NO_TRADE') {
+            continue;
+          }
+
+          // Build TPS candidate from Alpha decision
+          const candidate = {
+            symbol: snapshot.symbol,
+            direction: decision.action === 'SELL' ? 'SELL' : 'BUY',
+            style: decision.style || 'INTRADAY',
+            tradeConfidence: decision.confidence || 0,
+            eqsNow: decision.entryQualityScore || 40,
+            eqsRequired: 40, // Baseline threshold
+            entryMode: decision.entryMode === 'immediate' ? 'EXECUTE_NOW' : 'WAIT_ENTRY',
+            minutesSinceSignal: 0, // Fresh scan, no age
+            momentumState: 'NEUTRAL' as const,
+            eqsProjected: undefined,
+            projectionConfidence: undefined,
+          };
+
+          const evaluation = computeTPS(candidate);
+          tpsScores.set(snapshot.symbol, evaluation.scores.total);
+
+          if (import.meta.env.DEV) {
+            console.log(`[TPS] ${snapshot.symbol}: ${evaluation.scores.total.toFixed(1)} (Conf: ${evaluation.scores.confidence.toFixed(1)}, Ready: ${evaluation.scores.readiness.toFixed(1)}, Urgency: ${evaluation.scores.urgency.toFixed(1)})`);
+          }
+        }
+
+        console.log(`[TPS] Calculated scores for ${tpsScores.size} candidates`);
+      } catch (tpsError) {
+        logger.warn(LogCategory.AI_TRADING, 'Failed to calculate TPS scores, proceeding without tie-breaker enhancement', { error: tpsError });
+        // Non-critical: Continue with confidence-only selection
+      }
+
+      // Use filtered snapshots and decisions for selection (with TPS scores for tie-breaking)
       const bestSymbolResult = bestSymbolSelector.selectBestSymbol(
         filteredSnapshots,
-        filteredDecisions
+        filteredDecisions,
+        tpsScores // ✅ NEW: Pass TPS scores for intelligent tie-breaking
       );
 
       bestSymbolSelector.logEvaluationDetails(bestSymbolResult);

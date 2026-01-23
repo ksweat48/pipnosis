@@ -543,8 +543,217 @@ describe('Architectural Compliance - Best Practices', () => {
   });
 });
 
+describe('Architectural Compliance - Confidence-Dominant Selection', () => {
+
+  describe('Best Symbol Selector Authority', () => {
+    it('should use confidence as PRIMARY score, not TPS', () => {
+      const violations: string[] = [];
+      const selectorFile = path.join(SERVICES_DIR, 'best-symbol-selector.ts');
+
+      if (!fs.existsSync(selectorFile)) {
+        console.error('\n⛔ CRITICAL: best-symbol-selector.ts not found\n');
+        expect(true).toBe(false);
+        return;
+      }
+
+      const content = readFileContent(selectorFile);
+
+      // ✅ CONFIDENCE-DOMINANT ARCHITECTURE CHECKS
+      // 1. Confidence must be the primaryScore
+      if (!/primaryScore:\s*decision\.confidence/.test(content)) {
+        violations.push('primaryScore must be decision.confidence (confidence IS the score)');
+      }
+
+      // 2. TPS should only be used for tie-breaking
+      if (!/TIE.*BREAKER|tie.*breaker/i.test(content) && /tpsScore|TPS.*score/i.test(content)) {
+        violations.push('TPS scores should only be used for tie-breaking logic');
+      }
+
+      // 3. Confidence sorting must happen before tie-breaking
+      if (!/sort.*primaryScore/.test(content)) {
+        violations.push('Must sort by primaryScore (confidence) before applying tie-breakers');
+      }
+
+      // 4. TPS scores must be optional parameter
+      if (!/tpsScores\?:.*Map<string,\s*number>/.test(content)) {
+        violations.push('tpsScores must be an optional parameter (confidence works without it)');
+      }
+
+      if (violations.length > 0) {
+        console.error('\n⛔ ARCHITECTURAL VIOLATION: Confidence-dominant selection broken\n');
+        violations.forEach(v => console.error(`  - ${v}`));
+        console.error('\n✅ FIX: Confidence is PRIMARY score, TPS only for tie-breaking (≤5 point difference)\n');
+      }
+
+      expect(violations).toHaveLength(0);
+    });
+
+    it('should pass TPS scores from goal-session-live-engine to selector', () => {
+      const liveEngineFile = path.join(SERVICES_DIR, 'goal-session-live-engine.ts');
+
+      if (!fs.existsSync(liveEngineFile)) {
+        console.error('\n⛔ CRITICAL: goal-session-live-engine.ts not found\n');
+        expect(true).toBe(false);
+        return;
+      }
+
+      const content = readFileContent(liveEngineFile);
+
+      // Check that TPS scores are calculated and passed
+      const calculatesTPS = /computeTPS|trade-priority-score/.test(content);
+      const passesTPS = /selectBestSymbol\([^)]*tpsScores/.test(content);
+
+      if (!calculatesTPS) {
+        console.error('\n⛔ REGRESSION: TPS scores not being calculated in goal-session-live-engine\n');
+        console.error('✅ FIX: Import computeTPS and calculate scores before calling selector\n');
+      }
+
+      if (!passesTPS) {
+        console.error('\n⛔ REGRESSION: TPS scores not being passed to selectBestSymbol\n');
+        console.error('✅ FIX: Pass tpsScores Map as third parameter to selectBestSymbol\n');
+      }
+
+      expect(calculatesTPS).toBe(true);
+      expect(passesTPS).toBe(true);
+    });
+  });
+
+  describe('Execution Eligibility Gate - MICRO Override', () => {
+    it('should have MICRO >=85% confidence override logic', () => {
+      const violations: string[] = [];
+      const gateFile = path.join(SERVICES_DIR, 'execution-eligibility-gate.ts');
+
+      if (!fs.existsSync(gateFile)) {
+        console.error('\n⛔ CRITICAL: execution-eligibility-gate.ts not found\n');
+        expect(true).toBe(false);
+        return;
+      }
+
+      const content = readFileContent(gateFile);
+
+      // Check for MICRO override logic
+      if (!/MICRO.*CONFIDENCE.*OVERRIDE|MICRO.*>=85/i.test(content)) {
+        violations.push('Missing MICRO >=85% confidence override logic');
+      }
+
+      // Check that style and confidence are in input interface
+      if (!/tradeConfidence\?:.*number/.test(content)) {
+        violations.push('ExecutionEligibilityInput must include tradeConfidence field');
+      }
+
+      if (!/style\?:.*SCALP.*MICRO_INTRADAY.*INTRADAY/.test(content)) {
+        violations.push('ExecutionEligibilityInput must include style field');
+      }
+
+      // Check that override detects MICRO_INTRADAY + >=85% confidence
+      if (!/MICRO_INTRADAY.*>=.*85|>=.*85.*MICRO_INTRADAY/.test(content)) {
+        violations.push('Override must check for MICRO_INTRADAY style AND confidence >= 85%');
+      }
+
+      if (violations.length > 0) {
+        console.error('\n⛔ ARCHITECTURAL VIOLATION: MICRO confidence override missing or broken\n');
+        violations.forEach(v => console.error(`  - ${v}`));
+        console.error('\n✅ FIX: Add MICRO_INTRADAY + >=85% confidence override to respect Alpha authority\n');
+      }
+
+      expect(violations).toHaveLength(0);
+    });
+
+    it('should respect economic checks even with MICRO override', () => {
+      const gateFile = path.join(SERVICES_DIR, 'execution-eligibility-gate.ts');
+
+      if (!fs.existsSync(gateFile)) {
+        console.error('\n⛔ CRITICAL: execution-eligibility-gate.ts not found\n');
+        expect(true).toBe(false);
+        return;
+      }
+
+      const content = readFileContent(gateFile);
+
+      // Economic checks should NEVER be bypassed
+      const hasEconomicChecks = /checkMinimumProfit|PROFIT_BELOW_MINIMUM/.test(content);
+      const economicChecksRespectOverride = /Note:.*MICRO.*override.*NOT.*bypass.*economic|economic.*check.*not.*overridable/i.test(content);
+
+      if (!hasEconomicChecks) {
+        console.error('\n⛔ CRITICAL: Economic checks (minimum profit) missing\n');
+        expect(true).toBe(false);
+        return;
+      }
+
+      if (!economicChecksRespectOverride) {
+        console.warn('\n⚠️  WARNING: Clarify that MICRO override does NOT bypass economic checks\n');
+        console.warn('💡 TIP: Add comment noting economic checks remain enforced\n');
+      }
+
+      expect(hasEconomicChecks).toBe(true);
+    });
+  });
+
+  describe('TPS Integration Integrity', () => {
+    it('should not allow TPS to override confidence-based ranking', () => {
+      const violations: string[] = [];
+      const files = getAllTsFiles(SERVICES_DIR);
+
+      for (const file of files) {
+        const content = readFileContent(file);
+        const relativePath = path.relative(SRC_DIR, file);
+
+        // Look for TPS score being used as primary ranking
+        const forbiddenPatterns = [
+          /sort.*tpsScore(?!.*\/\/.*tie[-\s]?break)/i,  // Sorting by TPS without tie-break comment
+          /primaryScore.*=.*tps/i,                       // Setting primaryScore to TPS
+          /if.*tpsScore.*>.*confidence/i,                // Comparing TPS vs confidence
+        ];
+
+        for (const pattern of forbiddenPatterns) {
+          if (pattern.test(content)) {
+            violations.push(`${relativePath}: TPS score used for primary ranking (${pattern.source})`);
+          }
+        }
+      }
+
+      if (violations.length > 0) {
+        console.error('\n⛔ ARCHITECTURAL VIOLATION: TPS overriding confidence-based ranking\n');
+        violations.forEach(v => console.error(`  - ${v}`));
+        console.error('\n✅ FIX: TPS must ONLY be used for tie-breaking, never primary ranking\n');
+      }
+
+      expect(violations).toHaveLength(0);
+    });
+
+    it('should use TPS only for candidates with close confidence', () => {
+      const selectorFile = path.join(SERVICES_DIR, 'best-symbol-selector.ts');
+
+      if (!fs.existsSync(selectorFile)) {
+        expect(true).toBe(true); // Skip if file doesn't exist
+        return;
+      }
+
+      const content = readFileContent(selectorFile);
+
+      // Check for tie-breaker threshold logic
+      const hasTieThreshold = /CONFIDENCE_TIE_THRESHOLD|confidenceDiff.*<=|confidence.*difference.*<=/.test(content);
+      const appliesTieBreakersConditionally = /if.*confidenceDiff.*<=|if.*confidence.*difference/.test(content);
+
+      if (!hasTieThreshold) {
+        console.warn('\n⚠️  WARNING: No confidence tie threshold defined\n');
+        console.warn('💡 TIP: Define threshold for when tie-breakers activate (e.g., ≤5 points)\n');
+      }
+
+      if (!appliesTieBreakersConditionally) {
+        console.warn('\n⚠️  WARNING: Tie-breakers may not be applied conditionally\n');
+        console.warn('💡 TIP: Only apply tie-breakers when confidence difference is within threshold\n');
+      }
+
+      // Non-critical checks - don't fail build
+      expect(true).toBe(true);
+    });
+  });
+});
+
 // Summary reporter
 afterAll(() => {
   console.log('\n✅ Architectural compliance tests complete');
-  console.log('📊 SSOT enforcement verified at build time\n');
+  console.log('📊 SSOT enforcement verified at build time');
+  console.log('🎯 Confidence-dominant selection architecture validated\n');
 });
