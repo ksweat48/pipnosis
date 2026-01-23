@@ -71,6 +71,7 @@ import { globalIntelligenceProvider } from '../services/global-intelligence-prov
 import { professionalRiskManager } from '../services/professional-risk-manager';
 import { alphaIntelligenceAggregator, type AlphaIntelligenceSnapshot } from '../services/alpha-intelligence-aggregator';
 import { alphaLearningFeedback } from '../services/alpha-learning-feedback';
+import { alphaThoughtStream } from '../services/alpha-thought-stream';
 import type { ATRValue } from '../types/atr';
 import { supabase } from '../lib/supabase';
 import type { AdversarialSignal } from '../services/adversarial-detector';
@@ -224,6 +225,7 @@ export interface GoalContext {
   pipsNeededEstimate: number; // Rough estimate for context
   riskMode?: 'low' | 'medium' | 'high'; // User's selected risk tolerance
   riskPercent?: number; // Actual risk percentage (3%, 5%, 10%)
+  sessionId?: string; // Goal session ID for progress thought emissions (optional)
 }
 
 export interface AlphaOverride {
@@ -507,9 +509,19 @@ class AlphaCoordinatorBrain {
     regimeSnapshot?: RegimeSnapshot,
     fullCandles?: any[]
   ): Promise<AlphaDecision> {
+    // Extract sessionId from goalContext for progress thoughts (optional)
+    const sessionId = goalContext?.sessionId;
+
     // Load full intelligence snapshot for comprehensive decision-making
     let intelligenceSnapshot: AlphaIntelligenceSnapshot | null = null;
     if (userId) {
+      // Emit progress thought (non-blocking, advisory only)
+      if (sessionId) {
+        alphaThoughtStream.emitAlphaLoadingSnapshot(sessionId, userId, marketContext.symbol).catch(err => {
+          console.warn('[Alpha Coordinator] Failed to emit loading snapshot thought:', err);
+        });
+      }
+
       try {
         intelligenceSnapshot = await alphaIntelligenceAggregator.getFullIntelligenceSnapshot(userId, marketContext.symbol);
         console.log('[Alpha Coordinator] 🧠 Loaded full intelligence snapshot');
@@ -535,15 +547,30 @@ class AlphaCoordinatorBrain {
     console.log(`[Alpha Coordinator] 🎯 Consensus Advisory: ${recommendedConsensusCount}/7 recommended for ${riskMode} risk | Actual: ${consensus.agreementCount}/7 | Strength Modifier: ${consensusStrengthModifier > 0 ? '+' : ''}${(consensusStrengthModifier * 100).toFixed(1)}%`);
 
     // Fetch platform-wide intelligence for this symbol
+    if (sessionId && userId) {
+      alphaThoughtStream.emitAlphaPlatformIntel(sessionId, userId, marketContext.symbol).catch(err => {
+        console.warn('[Alpha Coordinator] Failed to emit platform intel thought:', err);
+      });
+    }
     const platformIntelligence = await this.fetchPlatformIntelligence(marketContext.symbol);
 
     // Build daily narrative for institutional context
+    if (sessionId && userId) {
+      alphaThoughtStream.emitAlphaNarrative(sessionId, userId, marketContext.symbol).catch(err => {
+        console.warn('[Alpha Coordinator] Failed to emit narrative thought:', err);
+      });
+    }
     const dailyNarrative = await dailyNarrativeBuilder.build(marketContext.symbol, marketContext.price);
 
     // Get professional risk assessment (advisory only - Alpha has final authority)
     let riskAssessment = null;
     let riskContext = '';
     if (userId && goalContext) {
+      if (sessionId) {
+        alphaThoughtStream.emitAlphaRiskCheck(sessionId, userId, marketContext.symbol).catch(err => {
+          console.warn('[Alpha Coordinator] Failed to emit risk check thought:', err);
+        });
+      }
       try {
         const preliminaryAssessment = await professionalRiskManager.evaluateTrade({
           userId,
@@ -664,6 +691,11 @@ class AlphaCoordinatorBrain {
     let microRegimeContext = '';
 
     if (fullCandles && fullCandles.length >= 50) {
+      if (sessionId && userId) {
+        alphaThoughtStream.emitAlphaMicroRegime(sessionId, userId, marketContext.symbol).catch(err => {
+          console.warn('[Alpha Coordinator] Failed to emit micro-regime thought:', err);
+        });
+      }
       try {
         // Convert candles to format expected by classifier
         const regimeCandles: MicroRegimeCandle[] = fullCandles.map(c => ({
@@ -709,6 +741,11 @@ class AlphaCoordinatorBrain {
 
     // Analyze liquidity intent if Omega-8 detected patterns
     if (votes.omega8 && votes.omega8.patterns && fullCandles && fullCandles.length >= 10) {
+      if (sessionId && userId) {
+        alphaThoughtStream.emitAlphaLiquidityIntent(sessionId, userId, marketContext.symbol).catch(err => {
+          console.warn('[Alpha Coordinator] Failed to emit liquidity intent thought:', err);
+        });
+      }
       try {
         const omega8Candles = fullCandles.slice(-20).map(c => ({
           time: new Date(c.open_time).getTime(),
@@ -757,6 +794,11 @@ class AlphaCoordinatorBrain {
     let patternIntelligence: PatternIntelligenceResult | null = null;
     let patternContext = '';
     if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED') {
+      if (sessionId && userId) {
+        alphaThoughtStream.emitAlphaPatternAnalysis(sessionId, userId, marketContext.symbol).catch(err => {
+          console.warn('[Alpha Coordinator] Failed to emit pattern analysis thought:', err);
+        });
+      }
       try {
         const tradeDirection = consensus.direction === 'BUY' ? 'long' : 'short';
 
@@ -842,6 +884,11 @@ class AlphaCoordinatorBrain {
     let stopLossAnchor: StopLossCalculation | null = null;
     let stopLossDirective = '';
     if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED') {
+      if (sessionId && userId) {
+        alphaThoughtStream.emitAlphaStopCalculation(sessionId, userId, marketContext.symbol).catch(err => {
+          console.warn('[Alpha Coordinator] Failed to emit stop calculation thought:', err);
+        });
+      }
       const entryPrice = marketContext.price;
       const direction = consensus.direction === 'BUY' ? 'buy' : 'sell';
 
@@ -886,6 +933,12 @@ class AlphaCoordinatorBrain {
       const atrValue = extractATRValue(marketContext.atr);
       const atrPercent = (atrValue / marketContext.price) * 100;
       logATRUsage('Feasibility check', marketContext.atr);
+
+      if (sessionId && userId) {
+        alphaThoughtStream.emitAlphaFeasibility(sessionId, userId, marketContext.symbol).catch(err => {
+          console.warn('[Alpha Coordinator] Failed to emit feasibility thought:', err);
+        });
+      }
 
       console.log(`[Alpha Coordinator] 🔍 Feasibility Check: ${requestedStyle} style with ${riskMode.toUpperCase()} risk on ${assetClass}`);
       console.log(`[Alpha Coordinator] 📊 Market ATR: ${atrValue.toFixed(5)} (${atrPercent.toFixed(3)}%)`);
@@ -977,6 +1030,12 @@ class AlphaCoordinatorBrain {
     let tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = resolvedPlan?.style || 'MICRO_INTRADAY';
 
     if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED' && consensus.direction !== 'WAIT') {
+      if (sessionId && userId) {
+        alphaThoughtStream.emitAlphaConstraints(sessionId, userId, marketContext.symbol).catch(err => {
+          console.warn('[Alpha Coordinator] Failed to emit constraints thought:', err);
+        });
+      }
+
       // Calculate actual current session context (NO hardcoded values)
       const sessionContext = calculateSessionContext();
       console.log(`[Alpha Coordinator] 📅 Session Context: ${sessionContext.sessionName} (${sessionContext.sessionTimeRemainingMinutes}min remaining)`);
@@ -1571,6 +1630,13 @@ DECISION GUIDELINES (ADVISORY - YOU HAVE FINAL SAY):
 
 REMEMBER: These are guidelines, NOT hard rules. You are a professional sniper making context-based decisions.
 When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity - don't return NO_TRADE on everything.`;
+
+    // Emit final progress thought before LLM call (this is the 6.3s phase)
+    if (sessionId && userId) {
+      alphaThoughtStream.emitAlphaFinalDecision(sessionId, userId, marketContext.symbol).catch(err => {
+        console.warn('[Alpha Coordinator] Failed to emit final decision thought:', err);
+      });
+    }
 
     try {
       const response = await openAIClient.chat(

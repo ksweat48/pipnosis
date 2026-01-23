@@ -844,7 +844,8 @@ class GoalSessionLiveEngine {
         goalPercentage,
         pipsNeededEstimate,
         riskMode: config.riskMode,
-        riskPercent: getRiskPercentage(config.riskMode)
+        riskPercent: getRiskPercentage(config.riskMode),
+        sessionId: this.activeSession ?? undefined
       };
 
       if (import.meta.env.DEV) {

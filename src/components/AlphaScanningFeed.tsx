@@ -109,6 +109,28 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({
         return <BarChart3 className="w-4 h-4 text-yellow-400" />;
       case 'analyzing_entry':
         return <Target className="w-4 h-4 text-orange-400" />;
+      case 'alpha_loading_snapshot':
+        return <Brain className="w-4 h-4 text-cyan-400" />;
+      case 'alpha_platform_intel':
+        return <Brain className="w-4 h-4 text-sky-400" />;
+      case 'alpha_narrative':
+        return <Brain className="w-4 h-4 text-blue-400" />;
+      case 'alpha_risk_check':
+        return <Brain className="w-4 h-4 text-amber-400" />;
+      case 'alpha_micro_regime':
+        return <Brain className="w-4 h-4 text-emerald-400" />;
+      case 'alpha_liquidity_intent':
+        return <Brain className="w-4 h-4 text-teal-400" />;
+      case 'alpha_pattern_analysis':
+        return <Brain className="w-4 h-4 text-violet-400" />;
+      case 'alpha_stop_calculation':
+        return <Brain className="w-4 h-4 text-rose-400" />;
+      case 'alpha_feasibility':
+        return <Brain className="w-4 h-4 text-fuchsia-400" />;
+      case 'alpha_constraints':
+        return <Brain className="w-4 h-4 text-orange-400" />;
+      case 'alpha_final_decision':
+        return <Brain className="w-4 h-4 text-lime-400" />;
       case 'final_decision':
         return <Award className="w-4 h-4 text-green-400" />;
       case 'execution':
@@ -132,6 +154,28 @@ export const AlphaScanningFeed: React.FC<AlphaScanningFeedProps> = ({
         return 'bg-yellow-900/20 border-yellow-700/50';
       case 'analyzing_entry':
         return 'bg-orange-900/20 border-orange-700/50';
+      case 'alpha_loading_snapshot':
+        return 'bg-cyan-900/20 border-cyan-700/50';
+      case 'alpha_platform_intel':
+        return 'bg-sky-900/20 border-sky-700/50';
+      case 'alpha_narrative':
+        return 'bg-blue-900/20 border-blue-700/50';
+      case 'alpha_risk_check':
+        return 'bg-amber-900/20 border-amber-700/50';
+      case 'alpha_micro_regime':
+        return 'bg-emerald-900/20 border-emerald-700/50';
+      case 'alpha_liquidity_intent':
+        return 'bg-teal-900/20 border-teal-700/50';
+      case 'alpha_pattern_analysis':
+        return 'bg-violet-900/20 border-violet-700/50';
+      case 'alpha_stop_calculation':
+        return 'bg-rose-900/20 border-rose-700/50';
+      case 'alpha_feasibility':
+        return 'bg-fuchsia-900/20 border-fuchsia-700/50';
+      case 'alpha_constraints':
+        return 'bg-orange-900/20 border-orange-700/50';
+      case 'alpha_final_decision':
+        return 'bg-lime-900/20 border-lime-700/50';
       case 'final_decision':
         return 'bg-green-900/20 border-green-700/50';
       case 'execution':

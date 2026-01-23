@@ -29,6 +29,17 @@ export type ThoughtStepType =
   | 'omega_voting'
   | 'comparing'
   | 'analyzing_entry'
+  | 'alpha_loading_snapshot'
+  | 'alpha_platform_intel'
+  | 'alpha_narrative'
+  | 'alpha_risk_check'
+  | 'alpha_micro_regime'
+  | 'alpha_liquidity_intent'
+  | 'alpha_pattern_analysis'
+  | 'alpha_stop_calculation'
+  | 'alpha_feasibility'
+  | 'alpha_constraints'
+  | 'alpha_final_decision'
   | 'final_decision'
   | 'execution'
   | 'scan_complete';
@@ -63,7 +74,7 @@ export interface ComparisonResult {
 class AlphaThoughtStream {
   private static instance: AlphaThoughtStream;
   private lastEmissionTime: number = 0;
-  private readonly MIN_EMISSION_INTERVAL_MS = 200; // Debounce: 200ms between thoughts
+  private readonly MIN_EMISSION_INTERVAL_MS = 50; // Debounce: 50ms between thoughts (reduced for real-time feedback)
   private stepCounter: Map<string, number> = new Map(); // Track step numbers per session
 
   private constructor() {}
@@ -430,6 +441,142 @@ class AlphaThoughtStream {
       monitoring_count: result.monitoringCount,
       scan_duration_ms: result.scanDurationMs
     });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // ALPHA COORDINATOR PROGRESS THOUGHTS (Granular feedback during 6s decision)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Emit Alpha loading snapshot thought
+   */
+  async emitAlphaLoadingSnapshot(
+    sessionId: string,
+    userId: string,
+    symbol: string
+  ): Promise<void> {
+    const message = `Loading intelligence snapshot for ${symbol}...`;
+    await this.emitThought(sessionId, userId, 'alpha_loading_snapshot', message, { symbol });
+  }
+
+  /**
+   * Emit Alpha platform intelligence thought
+   */
+  async emitAlphaPlatformIntel(
+    sessionId: string,
+    userId: string,
+    symbol: string
+  ): Promise<void> {
+    const message = `Fetching platform-wide intelligence for ${symbol}...`;
+    await this.emitThought(sessionId, userId, 'alpha_platform_intel', message, { symbol });
+  }
+
+  /**
+   * Emit Alpha narrative building thought
+   */
+  async emitAlphaNarrative(
+    sessionId: string,
+    userId: string,
+    symbol: string
+  ): Promise<void> {
+    const message = `Building daily narrative and institutional context for ${symbol}...`;
+    await this.emitThought(sessionId, userId, 'alpha_narrative', message, { symbol });
+  }
+
+  /**
+   * Emit Alpha risk assessment thought
+   */
+  async emitAlphaRiskCheck(
+    sessionId: string,
+    userId: string,
+    symbol: string
+  ): Promise<void> {
+    const message = `Evaluating professional risk assessment for ${symbol}...`;
+    await this.emitThought(sessionId, userId, 'alpha_risk_check', message, { symbol });
+  }
+
+  /**
+   * Emit Alpha micro-regime classification thought
+   */
+  async emitAlphaMicroRegime(
+    sessionId: string,
+    userId: string,
+    symbol: string
+  ): Promise<void> {
+    const message = `Classifying micro-regime and behavioral patterns for ${symbol}...`;
+    await this.emitThought(sessionId, userId, 'alpha_micro_regime', message, { symbol });
+  }
+
+  /**
+   * Emit Alpha liquidity intent thought
+   */
+  async emitAlphaLiquidityIntent(
+    sessionId: string,
+    userId: string,
+    symbol: string
+  ): Promise<void> {
+    const message = `Analyzing liquidity intent and predator positioning for ${symbol}...`;
+    await this.emitThought(sessionId, userId, 'alpha_liquidity_intent', message, { symbol });
+  }
+
+  /**
+   * Emit Alpha pattern analysis thought
+   */
+  async emitAlphaPatternAnalysis(
+    sessionId: string,
+    userId: string,
+    symbol: string
+  ): Promise<void> {
+    const message = `Analyzing multi-timeframe patterns for ${symbol}...`;
+    await this.emitThought(sessionId, userId, 'alpha_pattern_analysis', message, { symbol });
+  }
+
+  /**
+   * Emit Alpha stop-loss calculation thought
+   */
+  async emitAlphaStopCalculation(
+    sessionId: string,
+    userId: string,
+    symbol: string
+  ): Promise<void> {
+    const message = `Calculating professional stop-loss anchor for ${symbol}...`;
+    await this.emitThought(sessionId, userId, 'alpha_stop_calculation', message, { symbol });
+  }
+
+  /**
+   * Emit Alpha feasibility check thought
+   */
+  async emitAlphaFeasibility(
+    sessionId: string,
+    userId: string,
+    symbol: string
+  ): Promise<void> {
+    const message = `Checking trade feasibility and market conditions for ${symbol}...`;
+    await this.emitThought(sessionId, userId, 'alpha_feasibility', message, { symbol });
+  }
+
+  /**
+   * Emit Alpha constraints generation thought
+   */
+  async emitAlphaConstraints(
+    sessionId: string,
+    userId: string,
+    symbol: string
+  ): Promise<void> {
+    const message = `Generating execution constraints and risk parameters for ${symbol}...`;
+    await this.emitThought(sessionId, userId, 'alpha_constraints', message, { symbol });
+  }
+
+  /**
+   * Emit Alpha final decision thought (BEFORE LLM call)
+   */
+  async emitAlphaFinalDecision(
+    sessionId: string,
+    userId: string,
+    symbol: string
+  ): Promise<void> {
+    const message = `Alpha making final decision on ${symbol}...`;
+    await this.emitThought(sessionId, userId, 'alpha_final_decision', message, { symbol });
   }
 }
 
