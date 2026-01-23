@@ -14,6 +14,7 @@ export * from './llm-execution-brain';
 export * from './condition-monitor';
 export * from './safety-enforcer';
 export * from './performance-analyzer';
+export * from './alpha-thought-stream';
 
 // Platform Intelligence Services
 export * from './platform-intelligence-service';

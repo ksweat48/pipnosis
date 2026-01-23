@@ -22,6 +22,7 @@ import { performanceAnalyzer } from './performance-analyzer';
 import { developerModeLogger } from './developer-mode-logger';
 import { openAIClient } from './openai-client';
 import { getCurrencyPipInfo, calculateDollarPerPip } from '../utils/currencyHelpers';
+import { alphaThoughtStream } from './alpha-thought-stream';
 
 export interface EventBasedEngineConfig {
   symbol: string;
@@ -302,11 +303,10 @@ class EventBasedLLMEngine {
         if (conditionCheck.alphaThoughts) {
           console.log(`\n💭 [ALPHA THOUGHTS]\n${conditionCheck.alphaThoughts}\n`);
 
-          // Emit to UI for real-time visibility (import at top if not already)
+          // Emit to UI for real-time visibility
+          // SSOT: Use singleton instance from alpha-thought-stream.ts
           try {
-            const { AlphaThoughtStream } = await import('./alpha-thought-stream');
-            const thoughtStream = AlphaThoughtStream.getInstance();
-            await thoughtStream.emitConditionEvaluation(
+            await alphaThoughtStream.emitConditionEvaluation(
               this.sessionId,
               this.userId,
               this.symbol,
@@ -315,6 +315,7 @@ class EventBasedLLMEngine {
               conditionCheck.conditionsMet.length + conditionCheck.conditionsFailed.length
             );
           } catch (error) {
+            // Governance: Degrade gracefully - Alpha continues even if UI emission fails
             console.warn('[Autonomous Brain] Failed to emit Alpha thoughts to UI:', error);
           }
         }
