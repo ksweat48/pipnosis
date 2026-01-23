@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
@@ -27,6 +27,10 @@ export function AITradePage() {
   });
   const [hasActiveSession, setHasActiveSession] = useState(false);
 
+  // Governance: Preserve scroll position during state updates to prevent UI jumping
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const previousScrollTopRef = useRef<number>(0);
+
   const pullToRefresh = usePullToRefresh({
     onRefresh: async () => {
       window.location.reload();
@@ -52,7 +56,7 @@ export function AITradePage() {
     };
   }, []);
 
-  // Check for active session and poll for changes
+  // Governance: Check for active session and poll for changes with scroll preservation
   useEffect(() => {
     const checkActiveSession = async () => {
       if (!user) {
@@ -62,7 +66,28 @@ export function AITradePage() {
 
       try {
         const activeSession = await smartGoalSessionManager.getActiveSession(user.id);
-        setHasActiveSession(!!activeSession);
+        const newHasActiveSession = !!activeSession;
+
+        // SSOT: Only update if value actually changed (prevent unnecessary re-renders)
+        setHasActiveSession(prev => {
+          if (prev === newHasActiveSession) {
+            return prev; // No change, prevent re-render
+          }
+
+          // Capture scroll position before update
+          if (scrollContainerRef.current) {
+            previousScrollTopRef.current = scrollContainerRef.current.scrollTop;
+          }
+
+          // Schedule scroll restoration after React's commit phase
+          requestAnimationFrame(() => {
+            if (scrollContainerRef.current && previousScrollTopRef.current > 0) {
+              scrollContainerRef.current.scrollTop = previousScrollTopRef.current;
+            }
+          });
+
+          return newHasActiveSession;
+        });
       } catch (error) {
         console.error('[AITradePage] Error checking active session:', error);
         setHasActiveSession(false);
@@ -79,7 +104,16 @@ export function AITradePage() {
   }, [user]);
 
   return (
-    <div className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 relative" ref={pullToRefresh.containerRef}>
+    <div
+      className="app-viewport bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 relative"
+      ref={(node) => {
+        // Dual ref assignment: pullToRefresh and scroll container
+        if (pullToRefresh.containerRef) {
+          (pullToRefresh.containerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+        }
+        scrollContainerRef.current = node;
+      }}
+    >
       <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 via-transparent to-blue-500/5 pointer-events-none" />
 
       <div className="absolute top-20 left-10 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl animate-pulse" />

@@ -191,7 +191,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
                     </div>
                     <div>
                       <p className="text-base font-bold text-white">{pair.symbol}</p>
-                      <p className="text-xs text-gray-400">{pair.confidence}% confidence</p>
+                      <p className="text-xs text-gray-400">{pair.confidence}%</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
