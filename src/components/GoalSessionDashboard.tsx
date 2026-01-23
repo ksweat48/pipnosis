@@ -6,6 +6,7 @@ import { useAuth } from '../hooks/useAuth';
 import { MarketAnalysisStream } from './MarketAnalysisStream';
 import { SimpleEntryMonitor } from './SimpleEntryMonitor';
 import { AlphaScanningFeed } from './AlphaScanningFeed';
+import { TradingMonitorStack } from './TradingMonitorStack';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { ContinuationDialog } from './ContinuationDialog';
 import { GoalAchievedDialog } from './GoalAchievedDialog';
@@ -1133,50 +1134,54 @@ export const GoalSessionDashboard: React.FC = () => {
 
   if (!activeSession) {
     return (
-      <div className="relative group">
-        <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-emerald-500 rounded-xl opacity-10 group-hover:opacity-20 transition duration-300 blur" />
+      <div className="space-y-6">
+        <div className="relative group">
+          <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-emerald-500 rounded-xl opacity-10 group-hover:opacity-20 transition duration-300 blur" />
 
-        <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl rounded-xl p-12 border border-gray-700/50 shadow-2xl">
-          <div className="text-center">
-            <div className="relative inline-block mb-6">
-              <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-emerald-500 rounded-full blur-2xl opacity-30 animate-pulse" />
-              <div className="relative w-24 h-24 mx-auto bg-gradient-to-br from-gray-700 to-gray-800 rounded-full flex items-center justify-center border border-gray-600/50">
-                <Target className="w-12 h-12 text-gray-500" />
-              </div>
-            </div>
-
-            <h3 className="text-2xl font-bold text-white mb-2">No active goal session</h3>
-            <p className="text-gray-400 mb-6 max-w-md mx-auto">
-              Create a new goal to get started with AI-powered trading.
-            </p>
-
-            <div className="grid grid-cols-3 gap-4 max-w-2xl mx-auto mt-8 pt-8 border-t border-gray-700/50">
-              <div className="text-center">
-                <div className="w-12 h-12 mx-auto mb-3 bg-gradient-to-br from-emerald-600/20 to-blue-600/20 rounded-xl flex items-center justify-center border border-emerald-500/20">
-                  <Sparkles className="w-6 h-6 text-emerald-400" />
+          <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl rounded-xl p-12 border border-gray-700/50 shadow-2xl">
+            <div className="text-center">
+              <div className="relative inline-block mb-6">
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-emerald-500 rounded-full blur-2xl opacity-30 animate-pulse" />
+                <div className="relative w-24 h-24 mx-auto bg-gradient-to-br from-gray-700 to-gray-800 rounded-full flex items-center justify-center border border-gray-600/50">
+                  <Target className="w-12 h-12 text-gray-500" />
                 </div>
-                <p className="text-sm font-medium text-gray-300">AI-Powered</p>
-                <p className="text-xs text-gray-500 mt-1">Smart analysis</p>
               </div>
 
-              <div className="text-center">
-                <div className="w-12 h-12 mx-auto mb-3 bg-gradient-to-br from-blue-600/20 to-emerald-600/20 rounded-xl flex items-center justify-center border border-blue-500/20">
-                  <TrendingUp className="w-6 h-6 text-blue-400" />
-                </div>
-                <p className="text-sm font-medium text-gray-300">Autonomous</p>
-                <p className="text-xs text-gray-500 mt-1">Hands-free trading</p>
-              </div>
+              <h3 className="text-2xl font-bold text-white mb-2">No active goal session</h3>
+              <p className="text-gray-400 mb-6 max-w-md mx-auto">
+                Create a new goal to get started with AI-powered trading.
+              </p>
 
-              <div className="text-center">
-                <div className="w-12 h-12 mx-auto mb-3 bg-gradient-to-br from-emerald-600/20 to-blue-600/20 rounded-xl flex items-center justify-center border border-emerald-500/20">
-                  <Shield className="w-6 h-6 text-emerald-400" />
+              <div className="grid grid-cols-3 gap-4 max-w-2xl mx-auto mt-8 pt-8 border-t border-gray-700/50">
+                <div className="text-center">
+                  <div className="w-12 h-12 mx-auto mb-3 bg-gradient-to-br from-emerald-600/20 to-blue-600/20 rounded-xl flex items-center justify-center border border-emerald-500/20">
+                    <Sparkles className="w-6 h-6 text-emerald-400" />
+                  </div>
+                  <p className="text-sm font-medium text-gray-300">AI-Powered</p>
+                  <p className="text-xs text-gray-500 mt-1">Smart analysis</p>
                 </div>
-                <p className="text-sm font-medium text-gray-300">Protected</p>
-                <p className="text-xs text-gray-500 mt-1">Risk managed</p>
+
+                <div className="text-center">
+                  <div className="w-12 h-12 mx-auto mb-3 bg-gradient-to-br from-blue-600/20 to-emerald-600/20 rounded-xl flex items-center justify-center border border-blue-500/20">
+                    <TrendingUp className="w-6 h-6 text-blue-400" />
+                  </div>
+                  <p className="text-sm font-medium text-gray-300">Autonomous</p>
+                  <p className="text-xs text-gray-500 mt-1">Hands-free trading</p>
+                </div>
+
+                <div className="text-center">
+                  <div className="w-12 h-12 mx-auto mb-3 bg-gradient-to-br from-emerald-600/20 to-blue-600/20 rounded-xl flex items-center justify-center border border-emerald-500/20">
+                    <Shield className="w-6 h-6 text-emerald-400" />
+                  </div>
+                  <p className="text-sm font-medium text-gray-300">Protected</p>
+                  <p className="text-xs text-gray-500 mt-1">Risk managed</p>
+                </div>
               </div>
             </div>
           </div>
         </div>
+
+        <TradingMonitorStack />
       </div>
     );
   }

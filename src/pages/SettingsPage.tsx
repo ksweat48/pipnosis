@@ -6,7 +6,7 @@ import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { usePWAUpdate } from '@/hooks/usePWAUpdate';
 import { supabase } from '@/lib/supabase';
-import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock, CheckCircle, AlertCircle, Activity, DollarSign, Zap, RefreshCw, Smartphone, ChevronDown } from 'lucide-react';
+import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock, CheckCircle, AlertCircle, Activity, DollarSign, Zap, RefreshCw, Smartphone, ChevronDown, Clock, BarChart3 } from 'lucide-react';
 import { validatePassword, passwordsMatch } from '@/utils/passwordValidation';
 import { chartPreferencesService, type IndicatorVisibility } from '@/services/chart-preferences';
 import { useToast } from '@/hooks/useToast';
@@ -50,6 +50,14 @@ export function SettingsPage() {
   const [savingIndicators, setSavingIndicators] = useState(false);
   const [indicatorMessage, setIndicatorMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const [monitorPreferences, setMonitorPreferences] = useState({
+    entryPriceMonitorEnabled: true,
+    sessionIntelligenceEnabled: true,
+    vwapKissMonitorEnabled: true,
+  });
+  const [savingMonitors, setSavingMonitors] = useState(false);
+  const [monitorMessage, setMonitorMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   const [accountBalance, setAccountBalance] = useState<string>('10000.00');
   const [savingBalance, setSavingBalance] = useState(false);
   const [balanceMessage, setBalanceMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -65,6 +73,7 @@ export function SettingsPage() {
     accountInfo: true,
     accountManagement: true,
     tradingBehavior: true,
+    tradingMonitors: true,
     notifications: true,
     chartDisplay: true,
     security: true,
@@ -89,6 +98,7 @@ export function SettingsPage() {
     if (user) {
       loadUserData();
       loadIndicatorPreferences();
+      loadMonitorPreferences();
       loadPushSettings();
     }
   }, [user]);
@@ -195,6 +205,71 @@ export function SettingsPage() {
     setIndicatorVisibility(prev => ({
       ...prev,
       [indicator]: !prev[indicator]
+    }));
+  };
+
+  const loadMonitorPreferences = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('user_monitor_preferences')
+        .select('*')
+        .eq('user_id', user?.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error loading monitor preferences:', error);
+      } else if (data) {
+        setMonitorPreferences({
+          entryPriceMonitorEnabled: data.entry_price_monitor_enabled ?? true,
+          sessionIntelligenceEnabled: data.session_intelligence_enabled ?? true,
+          vwapKissMonitorEnabled: data.vwap_kiss_monitor_enabled ?? true,
+        });
+      }
+    } catch (error) {
+      console.error('Error loading monitor preferences:', error);
+    }
+  };
+
+  const handleSaveMonitorPreferences = async () => {
+    try {
+      setSavingMonitors(true);
+      setMonitorMessage(null);
+
+      const { error } = await supabase
+        .from('user_monitor_preferences')
+        .upsert({
+          user_id: user?.id,
+          entry_price_monitor_enabled: monitorPreferences.entryPriceMonitorEnabled,
+          session_intelligence_enabled: monitorPreferences.sessionIntelligenceEnabled,
+          vwap_kiss_monitor_enabled: monitorPreferences.vwapKissMonitorEnabled,
+          updated_at: new Date().toISOString(),
+        });
+
+      if (error) throw error;
+
+      setMonitorMessage({
+        type: 'success',
+        text: 'Trading monitor preferences saved successfully!'
+      });
+
+      setTimeout(() => {
+        setMonitorMessage(null);
+      }, 3000);
+    } catch (error) {
+      console.error('Error saving monitor preferences:', error);
+      setMonitorMessage({
+        type: 'error',
+        text: 'Failed to save monitor preferences. Please try again.'
+      });
+    } finally {
+      setSavingMonitors(false);
+    }
+  };
+
+  const handleMonitorToggle = (monitor: keyof typeof monitorPreferences) => {
+    setMonitorPreferences(prev => ({
+      ...prev,
+      [monitor]: !prev[monitor]
     }));
   };
 
@@ -769,6 +844,139 @@ export function SettingsPage() {
                     <>
                       <Save size={18} />
                       <span>Save Preferences</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              </>
+              )}
+            </div>
+
+            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
+              <button
+                onClick={() => toggleSection('tradingMonitors')}
+                className="flex items-center gap-3 mb-6 w-full text-left group"
+              >
+                <Activity size={20} className="text-emerald-400" />
+                <h2 className="text-xl font-semibold text-white flex-1">Trading Monitors</h2>
+                <ChevronDown
+                  size={20}
+                  className={`text-gray-400 transition-transform duration-200 ${
+                    collapsedSections.tradingMonitors ? '' : 'rotate-180'
+                  }`}
+                />
+              </button>
+
+              {!collapsedSections.tradingMonitors && (
+                <>
+
+              <p className="text-sm text-gray-400 mb-6">
+                Educational trading monitors displayed on the Smart Goal page when no active sessions are running. These are advisory-only and do not affect Alpha's autonomous trading decisions.
+              </p>
+
+              {monitorMessage && (
+                <div
+                  className={`mb-6 p-4 rounded-lg flex items-center gap-3 ${
+                    monitorMessage.type === 'success'
+                      ? 'bg-green-900/20 border border-green-700/30 text-green-400'
+                      : 'bg-red-900/20 border border-red-700/30 text-red-400'
+                  }`}
+                >
+                  {monitorMessage.type === 'success' ? (
+                    <CheckCircle size={20} />
+                  ) : (
+                    <AlertCircle size={20} />
+                  )}
+                  <span>{monitorMessage.text}</span>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                  <div className="flex items-center gap-3">
+                    <TrendingUp size={18} className="text-emerald-400" />
+                    <div>
+                      <div className="text-white font-medium">Entry Price Monitor</div>
+                      <div className="text-xs text-gray-400">Shows optimal entry prices after Alpha executes trades</div>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={monitorPreferences.entryPriceMonitorEnabled}
+                      onChange={() => handleMonitorToggle('entryPriceMonitorEnabled')}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                  <div className="flex items-center gap-3">
+                    <Clock size={18} className="text-blue-400" />
+                    <div>
+                      <div className="text-white font-medium">Session Intelligence</div>
+                      <div className="text-xs text-gray-400">Best pairs for current trading session with market conditions</div>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={monitorPreferences.sessionIntelligenceEnabled}
+                      onChange={() => handleMonitorToggle('sessionIntelligenceEnabled')}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                  <div className="flex items-center gap-3">
+                    <BarChart3 size={18} className="text-amber-400" />
+                    <div>
+                      <div className="text-white font-medium">VWAP Kiss Monitor</div>
+                      <div className="text-xs text-gray-400">Pairs near VWAP for quick scalp opportunities</div>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={monitorPreferences.vwapKissMonitorEnabled}
+                      onChange={() => handleMonitorToggle('vwapKissMonitorEnabled')}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+              </div>
+
+              <div className="mt-6 p-4 bg-blue-900/20 border border-blue-700/30 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <AlertCircle size={18} className="text-blue-400 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm text-blue-300">
+                    <p className="font-medium mb-1">Advisory Only</p>
+                    <p className="text-blue-300/80">
+                      These monitors are educational tools for manual trading analysis. They have zero influence on Alpha's autonomous trading decisions or execution logic.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-end">
+                <button
+                  onClick={handleSaveMonitorPreferences}
+                  disabled={savingMonitors}
+                  className="flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-700 text-white rounded-lg transition-colors"
+                >
+                  {savingMonitors ? (
+                    <>
+                      <div className="animate-spin h-4 w-4 border-2 border-white/30 border-t-white rounded-full"></div>
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save size={18} />
+                      <span>Save Monitor Settings</span>
                     </>
                   )}
                 </button>
