@@ -1668,7 +1668,9 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
         stopLossAnchor,
         liquidityZones,
         fullCandles,
-        marketContext
+        marketContext,
+        riskMode,
+        goalContext
       );
 
       // CONSTRAINT-FIRST VALIDATION (Phase 1: Check violations, Phase 2: Revision loop, Phase 3: Auto-correction)
@@ -2583,7 +2585,9 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
     stopLossAnchor: StopLossCalculation | null = null,
     liquidityZones: LiquidityZone[] = [],
     fullCandles: any[] = [],
-    marketContext?: MarketContext
+    marketContext?: MarketContext,
+    riskMode: 'low' | 'medium' | 'high' = 'medium',
+    goalContext?: GoalContext
   ): AlphaDecision {
     try {
       // Step 1: Remove JavaScript-style comments (single-line and multi-line)
@@ -2648,6 +2652,30 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
       const acceptableProfitRange = parsed.acceptable_profit_range || null;
 
       // ═══════════════════════════════════════════════════════════════════
+      // CALCULATE RISK PERCENTAGE (SSOT)
+      // ═══════════════════════════════════════════════════════════════════
+      // Risk percentage calculation priority:
+      // 1. LLM response (if provided)
+      // 2. Goal context risk percentage (dollar risk / balance)
+      // 3. Risk mode defaults (LOW=0.5%, MEDIUM=1%, HIGH=2%)
+      let riskPct: number;
+
+      if (parsed.risk_pct !== undefined && parsed.risk_pct > 0) {
+        // LLM provided risk percentage
+        riskPct = parsed.risk_pct;
+        console.log(`[Alpha Coordinator] 📊 Risk: ${riskPct.toFixed(2)}% (from LLM)`);
+      } else if (goalContext?.riskPercent) {
+        // Use goal context risk percentage
+        riskPct = goalContext.riskPercent;
+        console.log(`[Alpha Coordinator] 📊 Risk: ${riskPct.toFixed(2)}% (from goal context)`);
+      } else {
+        // Use risk mode defaults
+        const riskDefaults = { low: 0.5, medium: 1.0, high: 2.0 };
+        riskPct = riskDefaults[riskMode];
+        console.log(`[Alpha Coordinator] 📊 Risk: ${riskPct.toFixed(2)}% (${riskMode} mode default)`);
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
       // PHASE 4: NARRATIVE COHERENCE VALIDATION
       // ═══════════════════════════════════════════════════════════════════
       let narrativeValidation: NarrativeValidation | null = null;
@@ -2685,6 +2713,7 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
           reasoning: parsed.reasoning || 'No reasoning provided',
           omega_summary: '',
           resolvedStyle,
+          risk_pct: riskPct, // SSOT: Always provide risk percentage
           thesis: thesis || undefined,
           style_intent: styleIntent || undefined,
           execution_preference: executionPreference || undefined,
@@ -2825,6 +2854,7 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
           confidence: 0,
           reasoning: `BLOCKED: ${errorReason}`,
           omega_summary: '',
+          risk_pct: riskPct, // SSOT: Provide risk percentage even for blocked trades
           narrativeValidation: narrativeValidation || undefined
         };
       }
@@ -2887,6 +2917,7 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
         reasoning: parsed.reasoning || 'No reasoning provided',
         omega_summary: '',
         resolvedStyle,
+        risk_pct: riskPct, // SSOT: Always provide risk percentage
         thesis: thesis || undefined,
         style_intent: styleIntent || undefined,
         execution_preference: executionPreference || undefined,
@@ -2913,6 +2944,7 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
         confidence: 0,
         reasoning: `LLM response parse failed: ${errorMsg.substring(0, 100)}`,
         omega_summary: '',
+        risk_pct: 1.0, // Default for error case
         narrativeValidation: undefined
       };
     }

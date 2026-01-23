@@ -119,6 +119,15 @@ class SafetyEnforcer {
     // ========================================
 
     // 4. Risk per trade (ADVISORY)
+    // DEFENSIVE: Handle missing risk_pct (should not happen, but advisory system shouldn't crash)
+    if (decision.risk_pct === undefined || decision.risk_pct === null) {
+      const advisory = 'Risk percentage not provided by Alpha - using default 1%';
+      advisories.push(advisory);
+      console.warn('[Safety Enforcer] ⚠️ Missing risk_pct - Alpha should provide complete decisions');
+      // Use conservative default
+      decision.risk_pct = 1.0;
+    }
+
     const riskAmount = (decision.risk_pct / 100) * context.balance;
     const riskPct = decision.risk_pct / 100;
 
