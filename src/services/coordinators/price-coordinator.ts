@@ -12,6 +12,12 @@
  * - Validation of price data quality
  *
  * ✅ SSOT COMPLIANT: Uses MarketDataService for candle fallback queries
+ *
+ * PRICE WRITE AUTHORITY:
+ * - Browser polling writes immediately to database (tick-buffer-service)
+ * - Server-side cron provides backup price collection
+ * - Both sources write to realtime_prices table (single authority)
+ * - This ensures Alpha has fresh prices for execution decisions (<30s threshold)
  */
 
 import { supabase } from '../../lib/supabase';

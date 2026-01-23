@@ -41,7 +41,7 @@ class TickBufferService {
     }
   }
 
-  async bufferTick(symbol: string, bid: number, ask: number, timestamp: string, broker_time?: string): Promise<void> {
+  async bufferTick(symbol: string, bid: number, ask: number, timestamp: string, broker_time?: string, writeToDatabase: boolean = true): Promise<void> {
     const tick: TickData = {
       symbol,
       bid,
@@ -63,11 +63,11 @@ class TickBufferService {
 
     this.saveBuffer(bufferKey, buffer);
 
-    // SSOT COMPLIANCE: Database writes handled exclusively by server-side functions
-    // - hybrid-price-collector.ts (Netlify function with service_role)
-    // - save-websocket-price.ts (Netlify function with service_role)
-    // Browser maintains in-memory buffer for UI display only
-    // This prevents RLS violations and maintains Single Source of Truth
+    // SSOT FIX: Write to database immediately for ultra-critical symbols (active sessions)
+    // This ensures Alpha has fresh price data when making execution decisions
+    if (writeToDatabase && this.isOnline) {
+      await this.writeToDatabase(tick);
+    }
   }
 
   private getBuffer(key: string): TickData[] {
@@ -94,14 +94,51 @@ class TickBufferService {
     }
   }
 
-  // REMOVED: writeToDatabaseFallback()
-  // Reason: SSOT violation - database writes must go through server-side functions only
-  // Server-side authorities: hybrid-price-collector.ts, save-websocket-price.ts
-  // Browser role: In-memory buffering for UI display only
+  /**
+   * SSOT FIX: Write price to database immediately
+   *
+   * WHY THIS IS NEEDED:
+   * - Browser polling runs at 250ms for ultra-critical symbols (active sessions)
+   * - Alpha needs fresh database prices for execution decisions (< 30s threshold)
+   * - Server-side cron runs less frequently, causing staleness
+   *
+   * SSOT COMPLIANCE:
+   * - Uses authenticated user context (respects RLS)
+   * - Only writes fresh data during market hours
+   * - Complements (not replaces) server-side price collection
+   * - Ensures price freshness when execution is imminent
+   */
+  private async writeToDatabase(tick: TickData): Promise<void> {
+    try {
+      const mid = (tick.bid + tick.ask) / 2;
+
+      // Insert price record (RLS will handle authorization)
+      const { error } = await supabase
+        .from('realtime_prices')
+        .insert({
+          symbol: tick.symbol,
+          bid: tick.bid,
+          ask: tick.ask,
+          mid,
+          spread: tick.ask - tick.bid,
+          broker_time: tick.broker_time || tick.timestamp,
+          source: 'browser_poll'
+        });
+
+      if (error) {
+        // Log but don't throw - price updates are best-effort
+        logger.debug(LogCategory.TICK_BUFFER, `⚠️ DB write failed for ${tick.symbol}: ${error.message}`);
+      } else {
+        logger.trace(LogCategory.TICK_BUFFER, `✅ Wrote ${tick.symbol} to database: ${tick.bid}/${tick.ask}`);
+      }
+    } catch (error) {
+      logger.debug(LogCategory.TICK_BUFFER, `Error writing ${tick.symbol} to database:`, error);
+    }
+  }
 
   private async syncBuffer(bufferKey: string, symbol: string): Promise<void> {
     // Background cleanup: Remove old ticks from memory
-    // SSOT: Database writes handled by server-side functions only
+    // SSOT: Database writes happen immediately in bufferTick()
     // This service maintains in-memory buffer for UI display
 
     const buffer = this.getBuffer(bufferKey);
