@@ -1607,6 +1607,10 @@ class GoalSessionLiveEngine {
           tp1Confidence: tp1Price ? 70 : undefined, // TP1 is conservative with higher probability
           tp1Reasoning,
           tp2Reasoning,
+          // ✅ SSOT REQUIRED FIELDS: Snapshot metadata for trade validation
+          snapshotTimestamp: Date.now(),
+          snapshotPrice: marketContext.price,
+          snapshotHash: `${selectedSymbol}-${Date.now()}-${marketContext.price.toFixed(5)}`,
           // ✅ SSOT FIX: Include TradeContext in signal
           tradeContext,
           // Add style tracking data from eligibility gate (ALPHA AUTHORITY MODEL)
@@ -2332,6 +2336,10 @@ class GoalSessionLiveEngine {
         reasoning: `Entry Monitor execution from intent ${intentId}`,
         riskReward,
         expectedProfit,
+        // ✅ SSOT REQUIRED FIELDS: Snapshot metadata for trade validation
+        snapshotTimestamp: Date.now(),
+        snapshotPrice: entry,
+        snapshotHash: `${symbol}-${Date.now()}-${entry.toFixed(5)}`,
         // ✅ SSOT FIX: Include TradeContext in signal
         tradeContext
       },
@@ -2448,6 +2456,10 @@ class GoalSessionLiveEngine {
         reasoning: trade.reasoning,
         riskReward,
         expectedProfit,
+        // ✅ SSOT REQUIRED FIELDS: Snapshot metadata for trade validation
+        snapshotTimestamp: Date.now(),
+        snapshotPrice: trade.entryPrice,
+        snapshotHash: `${trade.symbol}-${Date.now()}-${trade.entryPrice.toFixed(5)}`,
         // ✅ SSOT FIX: Include TradeContext in signal
         tradeContext
       },
