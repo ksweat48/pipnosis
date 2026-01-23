@@ -85,6 +85,8 @@ async function analyzeMarketConditions(): Promise<{
 
 function getRankedPairs(session: SessionInfo, condition: string): BestPair[] {
   // Session-specific pair recommendations based on liquidity and activity
+  // SSOT: Only recommend pairs from the official 9-pair watchlist
+  // Official watchlist: XAUUSD, US30, NAS100, SPX500, EURUSD, GBPUSD, USDJPY, BTCUSD, ETHUSD
 
   if (session.name === 'London') {
     return [
@@ -99,9 +101,9 @@ function getRankedPairs(session: SessionInfo, condition: string): BestPair[] {
         reasoning: 'Cable is most active during London session. High volatility provides clear technical setups.'
       },
       {
-        symbol: 'EURGBP',
+        symbol: 'XAUUSD',
         confidence: 88,
-        reasoning: 'Cross-currency action peaks during London open. Strong trend continuation patterns.'
+        reasoning: 'Gold reacts to European economic data. Safe-haven flows during London session.'
       },
       {
         symbol: 'USDJPY',
@@ -109,9 +111,9 @@ function getRankedPairs(session: SessionInfo, condition: string): BestPair[] {
         reasoning: 'London-Tokyo overlap creates trading opportunities. Risk-on/risk-off sentiment driver.'
       },
       {
-        symbol: 'XAUUSD',
+        symbol: 'US30',
         confidence: 82,
-        reasoning: 'Gold reacts to European economic data. Safe-haven flows during London session.'
+        reasoning: 'Dow Jones index active during London-NY overlap. US futures trading begins during European hours.'
       }
     ];
   }
@@ -119,28 +121,28 @@ function getRankedPairs(session: SessionInfo, condition: string): BestPair[] {
   if (session.name === 'New York') {
     return [
       {
-        symbol: 'EURUSD',
-        confidence: 94,
-        reasoning: 'Most liquid pair during NY session. Major economic data releases drive clear directional moves.'
+        symbol: 'US30',
+        confidence: 95,
+        reasoning: 'Dow Jones most active during NY session. Major economic data releases drive clear directional moves.'
       },
       {
-        symbol: 'USDJPY',
+        symbol: 'SPX500',
+        confidence: 93,
+        reasoning: 'S&P 500 peak liquidity during NY hours. Fed policy and US data key drivers.'
+      },
+      {
+        symbol: 'NAS100',
         confidence: 90,
-        reasoning: 'Dollar strength/weakness most visible during NY hours. Fed policy and US data key drivers.'
+        reasoning: 'NASDAQ tech sector volatility highest during NY session. Strong momentum patterns.'
       },
       {
-        symbol: 'GBPUSD',
+        symbol: 'EURUSD',
         confidence: 87,
-        reasoning: 'London-NY overlap continues. High volume and volatility provide quality entry opportunities.'
-      },
-      {
-        symbol: 'USDCAD',
-        confidence: 84,
-        reasoning: 'Canadian oil and economic data released during NY session. Strong technical patterns.'
+        reasoning: 'Most liquid forex pair during NY session. High volume provides quality entry opportunities.'
       },
       {
         symbol: 'XAUUSD',
-        confidence: 81,
+        confidence: 84,
         reasoning: 'Gold reacts to US dollar strength and Fed commentary. NY session volatility creates opportunities.'
       }
     ];
@@ -154,24 +156,24 @@ function getRankedPairs(session: SessionInfo, condition: string): BestPair[] {
       reasoning: 'Tokyo session peak activity. Japanese economic data and risk sentiment drive moves.'
     },
     {
-      symbol: 'AUDUSD',
-      confidence: 88,
-      reasoning: 'Aussie dollar most active during Asian hours. Australian economic data releases.'
-    },
-    {
-      symbol: 'NZDUSD',
-      confidence: 85,
-      reasoning: 'Kiwi follows Australian session patterns. Strong technical setups during Asian trading.'
-    },
-    {
       symbol: 'BTCUSD',
-      confidence: 83,
+      confidence: 88,
       reasoning: 'Crypto markets 24/7. Asian session often shows momentum continuation patterns.'
     },
     {
       symbol: 'ETHUSD',
-      confidence: 80,
+      confidence: 85,
       reasoning: 'Ethereum follows Bitcoin patterns. 24/7 liquidity during quieter forex hours.'
+    },
+    {
+      symbol: 'XAUUSD',
+      confidence: 82,
+      reasoning: 'Gold trades actively during Asian hours. Safe-haven flows from Asian market participants.'
+    },
+    {
+      symbol: 'EURUSD',
+      confidence: 78,
+      reasoning: 'EUR pairs show technical setups during Asian session. Lower volatility allows precise entries.'
     }
   ];
 }

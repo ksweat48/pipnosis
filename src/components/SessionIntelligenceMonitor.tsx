@@ -179,7 +179,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
         {sessionData.is_tradable && sessionData.best_pairs.length > 0 ? (
           <div className="space-y-3 mb-4">
             <p className="text-sm font-semibold text-purple-200">Best Pairs for This Session:</p>
-            {sessionData.best_pairs.slice(0, 5).map((pair, index) => (
+            {sessionData.best_pairs.slice(0, 3).map((pair, index) => (
               <div
                 key={pair.symbol}
                 className="bg-gray-900/50 rounded-lg p-4 border border-gray-700/50 hover:border-purple-500/30 transition-colors"

@@ -29,12 +29,11 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 // Watchlist symbols to scan
+// SSOT: Must match the official 9-pair watchlist from src/config/watchlist.ts
 const WATCHLIST = [
-  'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD',
-  'EURGBP', 'EURJPY', 'GBPJPY',
-  'XAUUSD', // Gold
-  'BTCUSD', 'ETHUSD', // Crypto
-  'US30', 'SPX500' // Indices
+  'XAUUSD', 'US30', 'NAS100', 'SPX500',
+  'EURUSD', 'GBPUSD', 'USDJPY',
+  'BTCUSD', 'ETHUSD'
 ];
 
 interface Candle {
@@ -62,11 +61,12 @@ interface VWAPSignal {
 
 async function fetchRecentCandles(symbol: string): Promise<Candle[]> {
   // Fetch last 50 x 15-minute candles (approximately 12.5 hours of data)
+  // SSOT: Database stores timeframes in MetaTrader format (M15, M5, H1, etc.)
   const { data, error } = await supabase
     .from('forex_candles_best')
     .select('symbol, open_time, open, high, low, close, volume')
     .eq('symbol', symbol)
-    .eq('timeframe', '15m')
+    .eq('timeframe', 'M15')
     .order('open_time', { ascending: false })
     .limit(50);
 
