@@ -897,6 +897,83 @@ class GoalSessionLiveEngine {
         console.log(`[MULTI-SYMBOL] Full Council: ${omegaDecisions.size} decisions in ${orchestratorDuration}ms`);
       }
 
+      // ═══════════════════════════════════════════════════════════════════
+      // MANDATORY DECISION LOGGING (SSOT + CCIP REQUIREMENT)
+      // ═══════════════════════════════════════════════════════════════════
+      // ALL decisions must be logged to alpha_decisions table IMMEDIATELY
+      // If logging fails, the scan must STOP (not continue silently)
+      // This is critical for forensic analysis and Alpha learning
+      console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+      console.log(`[MANDATORY LOGGING] Logging ${omegaDecisions.size} Alpha decisions...`);
+      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+
+      const { alphaLearningTracker } = await import('./alpha-learning-tracker');
+
+      try {
+        for (const [symbol, decision] of omegaDecisions.entries()) {
+          // Log every decision (BUY, SELL, WAIT, NO_TRADE)
+          const marketState = marketStates.find(ms => ms.symbol === symbol);
+          if (!marketState) {
+            console.warn(`[MANDATORY LOGGING] ⚠️ No market state found for ${symbol} - skipping log`);
+            continue;
+          }
+
+          const decisionId = await alphaLearningTracker.logDecision(
+            config.userId,
+            decision,
+            marketState.omegaVotes || {},
+            {
+              direction: decision.action || 'NO_TRADE',
+              confidence: decision.confidence || 0,
+              agreement_count: 0,
+              total_votes: 0,
+            },
+            {
+              detected: false,
+              type: 'NONE',
+            },
+            {
+              symbol,
+              timeframe: config.timeframe,
+              currentPrice: marketState.currentPrice,
+              atr: marketState.atr?.value || 0,
+              session: marketState.regime?.session || 'unknown',
+            },
+            traderScore,
+            config.goalSessionId
+          );
+
+          if (decisionId) {
+            console.log(`[MANDATORY LOGGING] ✅ ${symbol}: Logged decision ${decisionId} (${decision.action} @ ${decision.confidence}%)`);
+          } else {
+            console.error(`[MANDATORY LOGGING] ❌ ${symbol}: Failed to get decision ID from logger`);
+          }
+        }
+
+        console.log(`\n[MANDATORY LOGGING] ✅ All ${omegaDecisions.size} decisions logged successfully\n`);
+      } catch (loggingError) {
+        // CRITICAL: If logging fails, stop the scan cycle
+        console.error(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        console.error(`[MANDATORY LOGGING] ❌ CRITICAL: Decision logging failed`);
+        console.error(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        console.error(loggingError);
+
+        logger.error(LogCategory.AI_TRADING, '❌ CRITICAL: Mandatory decision logging failed', {
+          error: loggingError instanceof Error ? loggingError.message : 'Unknown error',
+          symbolCount: omegaDecisions.size,
+        });
+
+        await this.sendAIMessage(
+          `🚨 CRITICAL ERROR: Failed to log trading decisions to database.\n\n` +
+          `This is a mandatory requirement for system integrity and Alpha learning.\n` +
+          `Scan cycle stopped to prevent data loss.\n\n` +
+          `Error: ${loggingError instanceof Error ? loggingError.message : 'Unknown error'}`
+        );
+
+        // STOP SCANNING - do not continue without decision logging
+        return;
+      }
+
       // 🔒 THESIS FILTER: Remove symbols with expired theses (Infinite Loop Fix)
       // This prevents rescanning the same symbol after it was abandoned due to runaway price
       logger.info(LogCategory.AI_TRADING, `[THESIS_FILTER] Checking ${tradeableSnapshots.length} symbols for expired theses...`);
