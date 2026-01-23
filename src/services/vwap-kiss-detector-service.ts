@@ -25,7 +25,7 @@ class VWAPKissDetectorService {
         .select('high, low, close, volume')
         .eq('symbol', symbol)
         .eq('timeframe', '15m')
-        .order('timestamp', { ascending: false })
+        .order('open_time', { ascending: false })
         .limit(28);
 
       if (!candles || candles.length < 20) {
@@ -75,7 +75,7 @@ class VWAPKissDetectorService {
         .select('high, low, close')
         .eq('symbol', symbol)
         .eq('timeframe', '15m')
-        .order('timestamp', { ascending: false })
+        .order('open_time', { ascending: false })
         .limit(15);
 
       if (!candles || candles.length < 14) {

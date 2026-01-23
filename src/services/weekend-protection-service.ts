@@ -467,7 +467,7 @@ class WeekendProtectionService {
             .from('realtime_prices')
             .select('bid, ask')
             .eq('symbol', trade.symbol)
-            .order('timestamp', { ascending: false })
+            .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle();
 
