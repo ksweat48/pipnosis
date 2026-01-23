@@ -149,6 +149,12 @@ export function calculateSuggestedAmounts(
  * - NO hardcoded minimum dollar amounts
  * - Validates against 1-10% risk range from TRADING_CONSTANTS
  * - Account balance minimum ($50) is enforced separately at UI level
+ *
+ * FLOATING-POINT TOLERANCE:
+ * - Uses epsilon (0.01%) to handle rounding errors
+ * - Prevents false rejections when dollar amounts are rounded to cents
+ * - Example: $55.29 = 0.999982% rounds to ~1%, should pass validation
+ * - Example: $552.95 = 10.000326% rounds to ~10%, should pass validation
  */
 export function validateDollarAmount(
   amount: number,
@@ -168,14 +174,18 @@ export function validateDollarAmount(
   const maxRiskPercent = TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_PER_TRADE * 100;
   const minRiskPercent = TRADING_CONSTANTS.RISK_PERCENTAGES.MIN_PER_TRADE * 100;
 
-  if (percentOfAccount > maxRiskPercent) {
+  // FLOATING-POINT TOLERANCE: Allow 0.01% epsilon for rounding errors
+  // This prevents false rejections when dollar amounts are rounded to cents
+  const EPSILON = 0.01; // 0.01% tolerance
+
+  if (percentOfAccount > maxRiskPercent + EPSILON) {
     return {
       valid: false,
       error: `Risk amount cannot exceed ${maxRiskPercent}% of account balance`,
     };
   }
 
-  if (percentOfAccount < minRiskPercent) {
+  if (percentOfAccount < minRiskPercent - EPSILON) {
     return {
       valid: false,
       error: `Risk amount must be at least ${minRiskPercent}% of account balance`,
