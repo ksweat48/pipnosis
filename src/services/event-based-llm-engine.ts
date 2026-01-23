@@ -482,13 +482,13 @@ class EventBasedLLMEngine {
       const { strategyPlaybookManager } = await import('./strategy-playbook-manager');
       const { getRegimeBucket } = await import('./regime-bucketing');
 
-      regimeBucket = getRegimeBucket(checkResult.regime, checkResult.adversarial);
+      regimeBucket = getRegimeBucket(conditionCheck.regime, conditionCheck.adversarial);
 
       const activePlaybook = await strategyPlaybookManager.getActivePlaybook(
         config.symbol,
         config.timeframe,
-        checkResult.regime?.structure || 'unknown',
-        checkResult.adversarial
+        conditionCheck.regime?.structure || 'unknown',
+        conditionCheck.adversarial
       );
 
       if (activePlaybook) {
@@ -535,8 +535,8 @@ class EventBasedLLMEngine {
       // Playbook tracking for learning system
       playbook_id: playbookId,
       regime_bucket: regimeBucket,
-      regimeSnapshot: checkResult.regime,
-      adversarialSignal: checkResult.adversarial
+      regimeSnapshot: conditionCheck.regime,
+      adversarialSignal: conditionCheck.adversarial
     };
 
     console.log(`[Autonomous] ✓ Trade: ${trade.direction} @ ${trade.entryPrice}`);
