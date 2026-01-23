@@ -50,10 +50,11 @@ export interface TradeSignal {
   snapshotTimestamp: number;  // When snapshot was created
   snapshotPrice: number;      // Price at snapshot time
   snapshotHash: string;       // Hash for validation
-  // Duration/Style tracking (Time-as-Scoring-Signal architecture)
-  requestedStyle?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
-  resolvedStyle?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'EXTENDED';
-  styleUpgradeApplied?: boolean;
+  // Duration/Style tracking (ALPHA AUTHORITY MODEL)
+  alphaStyle?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'; // ✅ IMMUTABLE: Alpha's chosen style
+  durationBand?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'EXTENDED'; // ✅ Expected duration (advisory)
+  durationDeviation?: 'WITHIN_BAND' | 'SLIGHTLY_OVER' | 'SIGNIFICANTLY_OVER' | 'VERY_EXTENDED'; // ✅ Duration classification
+  confidencePenalty?: number; // ✅ Penalty amount for duration deviation
   expectedDurationHours?: number;
   durationPenaltyApplied?: boolean;
   durationRewardApplied?: boolean;
@@ -658,10 +659,11 @@ class TradeExecutionEngine {
         ai_confidence: signal.confidence,
         ai_reasoning: signal.reasoning,
         ai_strategy_used: signal.setupType,
-        // Duration/Style tracking fields
-        requested_style: signal.requestedStyle || null,
-        resolved_style: signal.resolvedStyle || null,
-        style_upgrade_applied: signal.styleUpgradeApplied || false,
+        // Duration/Style tracking fields (ALPHA AUTHORITY MODEL)
+        alpha_style: signal.alphaStyle || null, // ✅ IMMUTABLE: Alpha's chosen style
+        duration_band: signal.durationBand || null, // ✅ Expected duration (advisory)
+        duration_deviation: signal.durationDeviation || null, // ✅ Duration classification
+        confidence_penalty: signal.confidencePenalty || 0, // ✅ Penalty amount
         expected_duration_hours: signal.expectedDurationHours || null,
         duration_penalty_applied: signal.durationPenaltyApplied || false,
         duration_reward_applied: signal.durationRewardApplied || false,
@@ -975,10 +977,11 @@ class TradeExecutionEngine {
       tp1_confidence: signal.tp1Confidence || null,
       tp1_reasoning: signal.tp1Reasoning || null,
       tp2_reasoning: signal.tp2Reasoning || null,
-      // Duration/Style tracking fields
-      requested_style: signal.requestedStyle || null,
-      resolved_style: signal.resolvedStyle || null,
-      style_upgrade_applied: signal.styleUpgradeApplied || false,
+      // Duration/Style tracking fields (ALPHA AUTHORITY MODEL)
+      alpha_style: signal.alphaStyle || null, // ✅ IMMUTABLE: Alpha's chosen style
+      duration_band: signal.durationBand || null, // ✅ Expected duration (advisory)
+      duration_deviation: signal.durationDeviation || null, // ✅ Duration classification
+      confidence_penalty: signal.confidencePenalty || 0, // ✅ Penalty amount
       expected_duration_hours: signal.expectedDurationHours || null,
       duration_penalty_applied: signal.durationPenaltyApplied || false,
       duration_reward_applied: signal.durationRewardApplied || false,

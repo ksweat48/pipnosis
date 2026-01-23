@@ -79,10 +79,11 @@ export interface ExecutionEligibilityResult {
     expectedRRImprovement: number;
   };
   styleTracking?: {
-    requestedStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
-    resolvedStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'EXTENDED';
-    styleUpgradeApplied: boolean;
+    alphaStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'; // ✅ IMMUTABLE: Alpha's chosen style
+    durationBand: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'EXTENDED'; // ✅ Expected duration (advisory only)
+    durationDeviation: 'WITHIN_BAND' | 'SLIGHTLY_OVER' | 'SIGNIFICANTLY_OVER' | 'VERY_EXTENDED'; // ✅ How far over expected
     expectedDurationHours: number;
+    confidencePenalty: number; // ✅ NEW: Explicit penalty amount
     durationPenaltyApplied: boolean;
     durationRewardApplied: boolean;
   };
@@ -355,14 +356,8 @@ class ExecutionEligibilityGate {
       });
     }
 
-    // Add style upgrade advisory if recommended
-    if ('styleUpgrade' in ttf && ttf.styleUpgrade !== 'NONE') {
-      advisories.push({
-        type: 'STYLE_UPGRADE_RECOMMENDED',
-        message: `Style upgrade recommended: ${ttf.styleUpgrade}. Expected duration: ${this.formatMinutes(ttf.expectedMinutes)}`,
-        severity: 'low'
-      });
-    }
+    // ❌ REMOVED: Style upgrade advisory - style is IMMUTABLE after Alpha decides
+    // Duration deviation is tracked but never changes the style
 
     // Add penalty advisory if applicable
     if ('shouldApplyPenalty' in ttf && ttf.shouldApplyPenalty) {
@@ -413,34 +408,29 @@ class ExecutionEligibilityGate {
   ): ExecutionEligibilityResult['styleTracking'] | undefined {
     const ttf = input.timeToFillResult;
 
-    // Determine requested style from duration band
-    let requestedStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = 'INTRADAY';
+    // ✅ ALPHA AUTHORITY MODEL: Alpha's style is IMMUTABLE
+    // We track the style Alpha chose (based on execution mechanics)
+    // Duration band is advisory only - it does NOT change the style
+    let alphaStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = 'INTRADAY';
+
+    // Infer Alpha's intended style from the duration band
+    // (This is what Alpha chose based on M5 execution logic, pip targets, etc.)
     if (ttf.durationBand === 'SCALP') {
-      requestedStyle = 'SCALP';
+      alphaStyle = 'SCALP';
     } else if (ttf.durationBand === 'MICRO_INTRADAY') {
-      requestedStyle = 'MICRO_INTRADAY';
+      alphaStyle = 'MICRO_INTRADAY';
     }
 
-    // Determine resolved style after upgrades
-    let resolvedStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'EXTENDED' = requestedStyle;
-    let styleUpgradeApplied = false;
-
-    if (ttf.styleUpgrade === 'SCALP_TO_MICRO') {
-      resolvedStyle = 'MICRO_INTRADAY';
-      styleUpgradeApplied = true;
-    } else if (ttf.styleUpgrade === 'MICRO_TO_INTRADAY') {
-      resolvedStyle = 'INTRADAY';
-      styleUpgradeApplied = true;
-    } else if (ttf.styleUpgrade === 'APPLY_PENALTY') {
-      resolvedStyle = 'EXTENDED';
-      styleUpgradeApplied = false;
-    }
+    // ❌ REMOVED: Style mutation logic - resolvedStyle/styleUpgradeApplied
+    // Style remains UNCHANGED regardless of expected duration
+    // Duration deviations only affect confidence scoring
 
     return {
-      requestedStyle,
-      resolvedStyle,
-      styleUpgradeApplied,
+      alphaStyle, // ✅ IMMUTABLE: What Alpha chose
+      durationBand: ttf.durationBand, // ✅ Expected duration (advisory only)
+      durationDeviation: ttf.durationDeviation, // ✅ How far over expected
       expectedDurationHours: ttf.expectedHours,
+      confidencePenalty: ttf.confidencePenalty, // ✅ Explicit penalty amount
       durationPenaltyApplied: ttf.shouldApplyPenalty,
       durationRewardApplied: ttf.shouldApplyReward
     };

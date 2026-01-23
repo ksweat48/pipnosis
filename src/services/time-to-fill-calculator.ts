@@ -7,21 +7,29 @@
  * - Trading session
  * - Market conditions
  *
- * ARCHITECTURAL PRINCIPLE (v2.0):
- * - TIME IS A SCORING SIGNAL, NOT A REJECTION CONSTRAINT
- * - NEVER hard-block trades due to time-to-fill expectations
- * - Use style upgrades instead of rejections
- * - Apply reward/penalty for duration outcomes
+ * ARCHITECTURAL PRINCIPLE (v3.0 - ALPHA AUTHORITY):
+ * ============================================
+ * - TIME IS AN ADVISORY SIGNAL, NOT A CONSTRAINT
+ * - NEVER hard-block or reclassify trades due to time-to-fill expectations
+ * - Alpha's style decision is IMMUTABLE
+ * - Apply confidence penalties for duration deviations (not style changes)
+ * - Trades degrade intelligently through scoring, not mutation
  *
- * STYLE TARGET BANDS:
- * - SCALP: 20min - 2hrs (reward band)
- * - MICRO_INTRADAY: 1hr - 6hrs (reward band)
- * - INTRADAY: 2hrs - 10hrs (reward band)
+ * GOVERNANCE MODEL:
+ * - Alpha decides style based on execution mechanics (M5 swing, pip targets, etc.)
+ * - Time-to-fill is a LEARNING signal only
+ * - Duration deviations penalize confidence, never reclassify
+ * - "SCALP" means M5 execution logic, regardless of actual duration
  *
- * BEHAVIOR:
- * - SCALP >2h expected → AUTO-UPGRADE to MICRO_INTRADAY
- * - MICRO_INTRADAY >6h expected → AUTO-UPGRADE to INTRADAY
- * - INTRADAY >10h expected → APPLY PENALTY, STILL EXECUTE
+ * STYLE DURATION BANDS (ADVISORY ONLY):
+ * - SCALP: 20min - 2hrs (optimal band for reward)
+ * - MICRO_INTRADAY: 1hr - 6hrs (optimal band for reward)
+ * - INTRADAY: 2hrs - 10hrs (optimal band for reward)
+ *
+ * BEHAVIOR (ADVISORY ONLY):
+ * - Within optimal band → Apply confidence REWARD
+ * - Outside optimal band → Apply confidence PENALTY
+ * - Style remains UNCHANGED regardless of duration
  *
  * ⚠️ UNIT REQUIREMENTS:
  * - All inputs MUST be in PIPS, not price units
@@ -32,11 +40,8 @@
 
 import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
 
-export type StyleUpgradeRecommendation =
-  | 'NONE'
-  | 'SCALP_TO_MICRO'
-  | 'MICRO_TO_INTRADAY'
-  | 'APPLY_PENALTY';
+// ❌ REMOVED: StyleUpgradeRecommendation - style is IMMUTABLE after Alpha decides
+// Time-to-fill is advisory only, never changes style
 
 export interface TimeToFillResult {
   expectedHours: number;
@@ -44,11 +49,12 @@ export interface TimeToFillResult {
   viability: 'OPTIMAL' | 'ACCEPTABLE' | 'WARNING' | 'EXTENDED' | 'VERY_EXTENDED';
   reasoning: string;
   confidence: number;
-  recommendedAction: 'EXECUTE' | 'EXECUTE_WITH_UPGRADE' | 'EXECUTE_WITH_PENALTY';
-  styleUpgrade: StyleUpgradeRecommendation;
+  recommendedAction: 'EXECUTE' | 'EXECUTE_WITH_PENALTY'; // ✅ SIMPLIFIED: No more "EXECUTE_WITH_UPGRADE"
   durationBand: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'EXTENDED';
   shouldApplyReward: boolean;
   shouldApplyPenalty: boolean;
+  confidencePenalty: number; // ✅ NEW: Explicit penalty amount (0 = no penalty)
+  durationDeviation: 'WITHIN_BAND' | 'SLIGHTLY_OVER' | 'SIGNIFICANTLY_OVER' | 'VERY_EXTENDED';
 }
 
 /**
@@ -159,10 +165,11 @@ class TimeToFillCalculator {
         reasoning: `Unit validation warning: ATR=${safeAtrPips.toFixed(4)} pips is very small - executing with penalty`,
         confidence: 20,
         recommendedAction: 'EXECUTE_WITH_PENALTY',
-        styleUpgrade: 'APPLY_PENALTY',
         durationBand: 'EXTENDED',
         shouldApplyReward: false,
-        shouldApplyPenalty: true
+        shouldApplyPenalty: true,
+        confidencePenalty: 80, // ✅ High penalty for unit errors
+        durationDeviation: 'VERY_EXTENDED'
       };
     }
 
@@ -174,10 +181,11 @@ class TimeToFillCalculator {
         reasoning: 'Very tight TP - quick execution expected',
         confidence: 90,
         recommendedAction: 'EXECUTE',
-        styleUpgrade: 'NONE',
         durationBand: 'SCALP',
         shouldApplyReward: true,
-        shouldApplyPenalty: false
+        shouldApplyPenalty: false,
+        confidencePenalty: 0,
+        durationDeviation: 'WITHIN_BAND'
       };
     }
 
@@ -193,54 +201,62 @@ class TimeToFillCalculator {
     expectedHours = Math.max(0.01, Math.min(999, expectedHours));
     const expectedMinutes = Math.round(expectedHours * 60);
 
+    // ✅ ALPHA AUTHORITY MODEL: Style is IMMUTABLE, time is ADVISORY only
     let viability: TimeToFillResult['viability'];
     let recommendedAction: TimeToFillResult['recommendedAction'];
-    let styleUpgrade: StyleUpgradeRecommendation;
     let durationBand: TimeToFillResult['durationBand'];
+    let durationDeviation: TimeToFillResult['durationDeviation'];
     let reasoning: string;
     let confidence: number;
+    let confidencePenalty: number = 0;
     let shouldApplyReward = false;
     let shouldApplyPenalty = false;
 
+    // Determine duration band and deviation (ADVISORY ONLY - does not change style)
     if (expectedHours <= this.SCALP_MAX) {
       viability = 'OPTIMAL';
       recommendedAction = 'EXECUTE';
-      styleUpgrade = 'NONE';
       durationBand = 'SCALP';
-      reasoning = `Expected fill in ${expectedMinutes}min - perfect for SCALP style (${currentSession} session)`;
+      durationDeviation = 'WITHIN_BAND';
+      reasoning = `Expected fill in ${expectedMinutes}min - optimal duration for fast execution (${currentSession} session)`;
       confidence = 85;
+      confidencePenalty = 0;
       shouldApplyReward = true;
     } else if (expectedHours <= this.MICRO_INTRADAY_MAX) {
       viability = 'ACCEPTABLE';
-      recommendedAction = 'EXECUTE_WITH_UPGRADE';
-      styleUpgrade = 'SCALP_TO_MICRO';
+      recommendedAction = 'EXECUTE';
       durationBand = 'MICRO_INTRADAY';
-      reasoning = `Expected fill in ${this.formatHours(expectedHours)} - auto-upgrading to MICRO_INTRADAY style`;
+      durationDeviation = 'SLIGHTLY_OVER'; // ✅ Over SCALP band but within MICRO band
+      reasoning = `Expected fill in ${this.formatHours(expectedHours)} - longer than SCALP optimal, minor confidence adjustment applied`;
       confidence = 75;
-      shouldApplyReward = true;
+      confidencePenalty = 10; // ✅ Small penalty for exceeding SCALP band
+      shouldApplyPenalty = true;
     } else if (expectedHours <= this.INTRADAY_MAX) {
       viability = 'WARNING';
-      recommendedAction = 'EXECUTE_WITH_UPGRADE';
-      styleUpgrade = 'MICRO_TO_INTRADAY';
+      recommendedAction = 'EXECUTE';
       durationBand = 'INTRADAY';
-      reasoning = `Expected fill in ${this.formatHours(expectedHours)} - auto-upgrading to INTRADAY style`;
+      durationDeviation = 'SIGNIFICANTLY_OVER'; // ✅ Over both SCALP and MICRO bands
+      reasoning = `Expected fill in ${this.formatHours(expectedHours)} - extended duration, moderate confidence penalty applied`;
       confidence = 65;
-      shouldApplyReward = true;
+      confidencePenalty = 20; // ✅ Moderate penalty for extended duration
+      shouldApplyPenalty = true;
     } else if (expectedHours <= 24) {
       viability = 'EXTENDED';
       recommendedAction = 'EXECUTE_WITH_PENALTY';
-      styleUpgrade = 'APPLY_PENALTY';
       durationBand = 'EXTENDED';
-      reasoning = `Expected fill in ${this.formatHours(expectedHours)} - EXTENDED duration, applying confidence penalty but EXECUTING`;
+      durationDeviation = 'VERY_EXTENDED';
+      reasoning = `Expected fill in ${this.formatHours(expectedHours)} - very extended duration, significant confidence penalty applied but EXECUTING`;
       confidence = 50;
+      confidencePenalty = 35; // ✅ Higher penalty for very extended duration
       shouldApplyPenalty = true;
     } else {
       viability = 'VERY_EXTENDED';
       recommendedAction = 'EXECUTE_WITH_PENALTY';
-      styleUpgrade = 'APPLY_PENALTY';
       durationBand = 'EXTENDED';
-      reasoning = `Expected fill ${this.formatHours(expectedHours)} - VERY EXTENDED duration, applying penalty but STILL EXECUTING`;
+      durationDeviation = 'VERY_EXTENDED';
+      reasoning = `Expected fill ${this.formatHours(expectedHours)} - extremely extended duration, major confidence penalty applied but STILL EXECUTING`;
       confidence = 35;
+      confidencePenalty = 50; // ✅ Maximum penalty for extremely long duration
       shouldApplyPenalty = true;
     }
 
@@ -259,10 +275,11 @@ class TimeToFillCalculator {
       reasoning,
       confidence,
       recommendedAction,
-      styleUpgrade,
       durationBand,
       shouldApplyReward,
-      shouldApplyPenalty
+      shouldApplyPenalty,
+      confidencePenalty, // ✅ Explicit penalty for duration deviation
+      durationDeviation // ✅ Classification of how far off expected duration is
     };
   }
 

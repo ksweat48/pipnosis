@@ -1322,9 +1322,9 @@ class GoalSessionLiveEngine {
 
       const tradingMode: TradingMode = styleResolution.executionMode;
 
-      if (styleResolution.wasDowngraded) {
-        console.log(`[Style Resolution] ${styleResolution.originalStyle} → ${styleResolution.executionMode}${styleResolution.advisory ? ': ' + styleResolution.advisory : ''}`);
-      }
+      // ✅ ALPHA AUTHORITY MODEL: Log the immutable style
+      console.log(`[Style Resolution] ✅ Alpha Style: ${styleResolution.immutableStyle} (IMMUTABLE) | Execution Mode: ${styleResolution.executionMode}${styleResolution.advisory ? ' | ' + styleResolution.advisory : ''}`);
+
 
       // 🎯 GOAL FEASIBILITY CHECK - Prevents forcing trades in low volatility / unrealistic goals
       console.log('%c[Goal Feasibility] 🔍 Analyzing goal feasibility before execution...', 'color: #3b82f6; font-weight: bold');
@@ -1609,11 +1609,12 @@ class GoalSessionLiveEngine {
           tp2Reasoning,
           // ✅ SSOT FIX: Include TradeContext in signal
           tradeContext,
-          // Add style tracking data from eligibility gate
+          // Add style tracking data from eligibility gate (ALPHA AUTHORITY MODEL)
           ...(eligibilityResult.styleTracking && {
-            requestedStyle: eligibilityResult.styleTracking.requestedStyle,
-            resolvedStyle: eligibilityResult.styleTracking.resolvedStyle,
-            styleUpgradeApplied: eligibilityResult.styleTracking.styleUpgradeApplied,
+            alphaStyle: eligibilityResult.styleTracking.alphaStyle, // ✅ IMMUTABLE: Alpha's chosen style
+            durationBand: eligibilityResult.styleTracking.durationBand, // ✅ Expected duration (advisory)
+            durationDeviation: eligibilityResult.styleTracking.durationDeviation, // ✅ How far over expected
+            confidencePenalty: eligibilityResult.styleTracking.confidencePenalty, // ✅ Penalty amount
             expectedDurationHours: eligibilityResult.styleTracking.expectedDurationHours,
             durationPenaltyApplied: eligibilityResult.styleTracking.durationPenaltyApplied,
             durationRewardApplied: eligibilityResult.styleTracking.durationRewardApplied

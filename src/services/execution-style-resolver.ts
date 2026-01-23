@@ -1,18 +1,25 @@
 /**
  * Execution Style Resolver
  *
- * SINGLE SOURCE OF TRUTH for mapping Alpha's TradeStyle to execution TradingMode.
+ * ALPHA AUTHORITY MODEL (v3.0 - ADVISORY ONLY)
+ * ============================================
+ *
+ * This resolver is now ADVISORY ONLY. It does NOT mutate Alpha's style decision.
  *
  * AUTHORITY MODEL:
- * - Pipnosis is INTRADAY-ONLY platform - NO SWING TRADES
- * - SCALP maps to INTRADAY (fast, 20min-2hr duration)
- * - MICRO maps to INTRADAY (medium, 1hr-6hr duration)
- * - INTRADAY maps to INTRADAY (longer, 2hr-10hr duration)
+ * - Alpha decides style based on execution mechanics (M5 swing, pip targets, etc.)
+ * - Style is IMMUTABLE after Alpha decides
+ * - This resolver only provides constraint profiles for execution
+ * - Duration deviations apply confidence penalties, NOT style changes
+ *
+ * CONSTRAINT PROFILES (ADVISORY):
+ * - SCALP: Fast intraday execution with tight constraints
+ * - MICRO_INTRADAY: Medium duration with balanced constraints
+ * - INTRADAY: Longer duration with standard constraints
  *
  * GUIDING PRINCIPLE:
- * All trades MUST close before market close
- * Maximum trade duration: 10 hours
- * NO multi-day positions allowed
+ * "Alpha decides. Engines validate. Trades degrade intelligently — they do not silently mutate."
+ * All trades MUST close before market close. Maximum trade duration: 10 hours.
  */
 
 import type { TradingMode } from '../config/execution-eligibility';
@@ -29,9 +36,8 @@ export interface StyleResolutionInput {
 }
 
 export interface StyleResolutionResult {
-  executionMode: TradingMode;
-  wasDowngraded: boolean;
-  originalStyle: TradeStyle;
+  executionMode: TradingMode; // Always INTRADAY for Pipnosis platform
+  immutableStyle: TradeStyle; // ✅ IMMUTABLE: Alpha's chosen style (never changes)
   advisory?: string;
   constraintProfile: {
     isScalpOriented: boolean;
@@ -42,28 +48,28 @@ export interface StyleResolutionResult {
 
 class ExecutionStyleResolver {
   /**
-   * Resolve Alpha's requested style to executable TradingMode
+   * ✅ ALPHA AUTHORITY MODEL: Provide constraint profile for Alpha's IMMUTABLE style
+   * This method does NOT change the style - it only provides execution constraints
    */
   resolve(input: StyleResolutionInput): StyleResolutionResult {
     const { requestedStyle, riskMode, atrPercent, sessionType } = input;
 
     logger.info(
       LogCategory.AI_TRADING,
-      `[Style Resolver] Resolving ${requestedStyle} (risk: ${riskMode || 'N/A'}, ATR: ${atrPercent ? (atrPercent * 100).toFixed(2) + '%' : 'N/A'})`
+      `[Style Resolver] ✅ Providing constraints for Alpha's ${requestedStyle} style (risk: ${riskMode || 'N/A'}, ATR: ${atrPercent ? (atrPercent * 100).toFixed(2) + '%' : 'N/A'})`
     );
 
-    // SCALP: Fast intraday trades (20min-2hr)
+    // SCALP: Fast intraday trades with tight M5 execution
     if (requestedStyle === 'SCALP') {
       logger.info(
         LogCategory.AI_TRADING,
-        '[Style Resolver] SCALP → INTRADAY (fast, scalp-oriented constraints applied)'
+        '[Style Resolver] ✅ SCALP style retained - applying fast execution constraints (style IMMUTABLE)'
       );
 
       return {
-        executionMode: 'INTRADAY',
-        wasDowngraded: false,
-        originalStyle: 'SCALP',
-        advisory: 'Scalp style: Fast intraday trades with tighter time-to-fill constraints',
+        executionMode: 'INTRADAY', // Platform execution mode (all trades are intraday)
+        immutableStyle: 'SCALP', // ✅ Alpha's style - NEVER CHANGES
+        advisory: 'SCALP style: M5 execution targeting one swing leg. Duration may vary - penalties applied if extended.',
         constraintProfile: {
           isScalpOriented: true,
           sessionMultiplier: this.getSessionMultiplier(sessionType, true),
@@ -72,18 +78,17 @@ class ExecutionStyleResolver {
       };
     }
 
-    // MICRO: Medium duration intraday trades (1hr-6hr)
+    // MICRO: Medium duration intraday trades
     if (requestedStyle === 'MICRO') {
       logger.info(
         LogCategory.AI_TRADING,
-        '[Style Resolver] MICRO → INTRADAY (medium duration, balanced constraints)'
+        '[Style Resolver] ✅ MICRO_INTRADAY style retained - applying balanced constraints (style IMMUTABLE)'
       );
 
       return {
         executionMode: 'INTRADAY',
-        wasDowngraded: false,
-        originalStyle: 'MICRO',
-        advisory: 'Micro style: Medium duration intraday trades',
+        immutableStyle: 'MICRO',
+        advisory: 'MICRO_INTRADAY style: Medium duration trades. Duration may vary - penalties applied if extended.',
         constraintProfile: {
           isScalpOriented: false,
           sessionMultiplier: this.getSessionMultiplier(sessionType, false),
@@ -92,17 +97,16 @@ class ExecutionStyleResolver {
       };
     }
 
-    // INTRADAY: Longer duration intraday trades (2hr-10hr)
+    // INTRADAY: Longer duration intraday trades
     logger.info(
       LogCategory.AI_TRADING,
-      '[Style Resolver] INTRADAY → INTRADAY (longer duration, standard constraints)'
+      '[Style Resolver] ✅ INTRADAY style retained - applying standard constraints (style IMMUTABLE)'
     );
 
     return {
       executionMode: 'INTRADAY',
-      wasDowngraded: false,
-      originalStyle: 'INTRADAY',
-      advisory: 'Intraday style: Longer duration trades, closes before market close',
+      immutableStyle: 'INTRADAY',
+      advisory: 'INTRADAY style: Longer duration trades closing before market close. Duration may vary - penalties applied if extended.',
       constraintProfile: {
         isScalpOriented: false,
         sessionMultiplier: this.getSessionMultiplier(sessionType, false),
@@ -144,18 +148,15 @@ class ExecutionStyleResolver {
   }
 
   /**
-   * Format resolution for logging
+   * Format resolution for logging (ALPHA AUTHORITY MODEL)
    */
   formatResolution(result: StyleResolutionResult): string {
-    const downgradeNote = result.wasDowngraded
-      ? ` (downgraded from ${result.originalStyle})`
-      : '';
-
     const profileNote = result.constraintProfile.isScalpOriented
       ? ' with scalp-oriented constraints'
       : '';
 
-    return `Execution Mode: ${result.executionMode}${downgradeNote}${profileNote}`;
+    // ✅ ALPHA AUTHORITY MODEL: Style is immutable, never downgraded
+    return `Alpha Style: ${result.immutableStyle} (IMMUTABLE) | Execution Mode: ${result.executionMode}${profileNote}`;
   }
 }
 
