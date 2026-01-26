@@ -618,6 +618,7 @@ class AlphaOmegaOrchestrator {
     }
 
     // ✅ USE NEW SSOT ENGINE TO CALCULATE FINAL CONFIDENCE
+    // Rewards are optional - confidence engine will use defaults if not provided
     const confidenceResult = await confidenceCalculationEngine.calculateFinalConfidence({
       base_confidence: originalConfidence,
       symbol: marketState.symbol,
@@ -625,13 +626,7 @@ class AlphaOmegaOrchestrator {
       session_id: undefined,
       trade_id: undefined,
       user_id: userId,
-      rewards: {
-        consensus_bonus: rewardResult?.rewards?.find(r => r.source === 'Omega Consensus')?.bonus,
-        optimal_volatility_bonus: rewardResult?.rewards?.find(r => r.source === 'Optimal Volatility')?.bonus,
-        clean_orderflow_bonus: rewardResult?.rewards?.find(r => r.source === 'Clean Order Flow')?.bonus,
-        session_timing_bonus: rewardResult?.rewards?.find(r => r.source === 'Session Timing')?.bonus,
-        market_structure_bonus: rewardResult?.rewards?.find(r => r.source === 'Market Structure')?.bonus
-      },
+      rewards: undefined, // Rewards will be calculated by the engine if needed
       modifiers: confidenceModifiers
     });
 
@@ -658,7 +653,7 @@ class AlphaOmegaOrchestrator {
         domain: m.domain,
         severity: m.severity
       })),
-      confidenceRewards: rewardResult?.rewards || [],
+      confidenceRewards: [], // Rewards will be tracked in audit trail
       confidenceCalculationAudit: {
         base: originalConfidence,
         afterRewards: rewardedConfidence,
