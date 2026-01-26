@@ -265,10 +265,10 @@ export class EntryExecutionCoordinator {
 
       const currentBalance = parseFloat(userProfile?.account_balance || '10000');
 
-      // Get session risk mode
+      // Get session risk mode and dollar risk (SSOT authority for position sizing)
       const { data: session } = await supabase
         .from('goal_sessions')
-        .select('risk_mode')
+        .select('risk_mode, dollar_risk')
         .eq('id', intent.session_id)
         .single();
 
@@ -280,9 +280,13 @@ export class EntryExecutionCoordinator {
         ? calculatePipDistance(intent.symbol, actualEntryPrice, adjustedTakeProfit)
         : stopPips * 2; // Default 2:1 R:R
 
-      // Convert dollar risk to risk percentage (if specified)
-      const riskDollars = marketContext?.risk_dollars || 10; // Default $10 risk
+      // 🎯 SSOT: session.dollar_risk is authoritative source for risk per trade
+      // Intelligent degradation: Falls back to marketContext, then $10 default
+      const riskDollars = session?.dollar_risk || marketContext?.risk_dollars || 10;
       const baseRiskPercent = (riskDollars / currentBalance);
+
+      logger.info(`[Entry Execution] 💰 Risk Sizing: $${riskDollars.toFixed(2)} (${(baseRiskPercent * 100).toFixed(2)}% of $${currentBalance.toFixed(2)})`);
+      logger.info(`[Entry Execution] 📊 Source: ${session?.dollar_risk ? 'session.dollar_risk (SSOT)' : marketContext?.risk_dollars ? 'marketContext fallback' : 'default $10'}`);
 
       const riskAssessment = await professionalRiskManager.evaluateTrade({
         userId: intent.user_id,
