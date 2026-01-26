@@ -137,28 +137,33 @@ export class GoalFeasibilityResolver {
       GOAL_FEASIBILITY_CONFIG.blockConditions.goalExceedsAccountPercent;
 
     if (remainingGoal > growthModeThreshold) {
-      // Calculate reduced goal that's achievable
-      const reducedGoal = growthModeThreshold * 0.8; // 80% of threshold for safety
+      // GOVERNANCE COMPLIANCE: No compound reductions
+      // Use growthModeThreshold directly, not *0.8
+      // This is a SIZE advisory, not a capacity issue
 
-      logger.warn('Large goal detected - proposing reduction', {
+      const proposedGoal = growthModeThreshold; // Use threshold as proposed goal
+
+      logger.warn('Large goal detected - applying governance framework', {
         requestedGoal: remainingGoal,
-        reducedGoal,
+        proposedGoal,
         threshold: growthModeThreshold,
+        reason: 'Goal size recommendation - not a technical blocker'
       });
 
       return {
-        feasible: true, // Changed from false to true (advisory)
+        feasible: true,
         tier: 'EXECUTE_REDUCED',
         proposal: {
-          reducedGoal,
-          retentionPercent: reducedGoal / remainingGoal,
-          reason: `Goal ($${remainingGoal.toFixed(2)}) exceeds 30% of account balance. Reducing to $${reducedGoal.toFixed(2)} (${((reducedGoal / remainingGoal) * 100).toFixed(0)}% of requested) for safer execution.`,
-          advisoryMessage: `ADVISORY: Large goal detected. Consider breaking into smaller staged targets for better risk management. Alpha may proceed with reduced goal.`,
+          reducedGoal: proposedGoal,
+          retentionPercent: proposedGoal / remainingGoal,
+          reason: `Goal ($${remainingGoal.toFixed(2)}) recommendation: Consider $${proposedGoal.toFixed(2)} (${((proposedGoal / remainingGoal) * 100).toFixed(0)}% of requested) to align with account sizing best practices. Not a blocker.`,
+          advisoryMessage: `ADVISORY: Large goal suggestion. Alpha retains authority to accept full goal or propose reduction. No forced reduction.`,
+          governanceNote: 'Goal size tracked for risk management learning'
         },
         alternativeSuggestions: [
-          `Break goal into smaller staged targets`,
-          `Consider extending timeframe to multiple sessions`,
-          `Focus on building capital before pursuing larger goals`,
+          `Accept suggested reduction to $${proposedGoal.toFixed(2)}`,
+          `Proceed with full $${remainingGoal.toFixed(2)} goal (Alpha authority)`,
+          `Break into multiple staged sessions`,
         ],
       };
     }
@@ -224,26 +229,29 @@ export class GoalFeasibilityResolver {
         atrMultiplier <
         GOAL_FEASIBILITY_CONFIG.waitConditions.minATRMultiplierRequired
       ) {
-        // Instead of blocking, propose reduced goal and proceed
-        const reducedGoal = maxProfitPossible * 0.8; // 80% of max for safety
-        logger.warn('Low volatility detected - proposing reduced goal instead of waiting', {
+        // GOVERNANCE COMPLIANCE: No compound reductions
+        // Do not apply *0.8 - use maxProfitPossible directly
+        // Volatility context is logged but not used as excuse for aggressive reduction
+
+        logger.warn('Low volatility detected - proceeding with governance logging', {
           atrMultiplier,
           maxProfitPossible,
-          reducedGoal,
+          volatilityContext: `${(atrMultiplier * 100).toFixed(0)}% of typical`
         });
 
         return {
-          feasible: true, // Changed from false (advisory model)
+          feasible: true,
           tier: 'EXECUTE_REDUCED',
           proposal: {
-            reducedGoal,
-            retentionPercent: reducedGoal / remainingGoal,
-            reason: `Market volatility is ${(atrMultiplier * 100).toFixed(0)}% of typical. Reducing goal to $${reducedGoal.toFixed(2)} for realistic execution in current conditions.`,
-            advisoryMessage: `ADVISORY: Low volatility detected (${(atrMultiplier * 100).toFixed(0)}% of typical). Trade proceeds with reduced target. Partial success > NO_TRADE.`,
+            reducedGoal: maxProfitPossible,
+            retentionPercent: maxProfitPossible / remainingGoal,
+            reason: `Market volatility is ${(atrMultiplier * 100).toFixed(0)}% of typical. Goal will be $${maxProfitPossible.toFixed(2)} with intelligent monitoring. Alpha approves execution or rejects.`,
+            advisoryMessage: `ADVISORY: Low volatility period (${(atrMultiplier * 100).toFixed(0)}% of typical). Proceeding with logged degradation. No silent mutations.`,
+            governanceNote: 'Volatility context tracked for post-trade learning'
           },
           alternativeSuggestions: [
-            `Consider waiting for higher volatility period`,
-            `Current conditions support smaller targets`,
+            `Accept trade with governance monitoring`,
+            `Wait for higher volatility (ATR > ${(safeTypicalATR).toFixed(2)})`,
           ],
         };
       }
@@ -256,19 +264,27 @@ export class GoalFeasibilityResolver {
         retentionPercent: retentionPercent * 100,
       });
 
+      // GOVERNANCE COMPLIANCE: CCIP - Do NOT compound reductions
+      // Use maxProfitPossible directly instead of *0.9 which causes cascading pessimism
+      // Trade degradation should be INTELLIGENT and LOGGED, not silent
+      // Alpha has final authority to approve or reject this proposal
+
+      const proposedReducedGoal = maxProfitPossible; // SSOT: Use actual max, not reduced max
+
       return {
         feasible: true, // Changed from false to true (advisory)
         tier: 'EXECUTE_REDUCED',
         proposal: {
-          reducedGoal: maxProfitPossible * 0.9, // 90% of max for safety margin
-          retentionPercent: maxProfitPossible / remainingGoal,
-          reason: `Market conditions can deliver ${(retentionPercent * 100).toFixed(0)}% of requested goal. Reducing to $${(maxProfitPossible * 0.9).toFixed(2)} for realistic execution.`,
-          advisoryMessage: `ADVISORY: Goal adjusted to market capacity. Reduced profit > NO_TRADE. Alpha has final authority.`,
+          reducedGoal: proposedReducedGoal,
+          retentionPercent: proposedReducedGoal / remainingGoal,
+          reason: `Market conditions can realistically deliver $${proposedReducedGoal.toFixed(2)} per trade (${(retentionPercent * 100).toFixed(0)}% of requested $${remainingGoal.toFixed(2)}). This is achievable with proper position sizing.`,
+          advisoryMessage: `ADVISORY: Goal will be intelligently tracked and logged. No silent mutations. Alpha validates final execution.`,
+          governanceNote: 'Goal degradation will be logged to goal_target_audit with reason and severity for governance review'
         },
         alternativeSuggestions: [
-          `Reduce goal to $${maxProfitPossible.toFixed(2)} or less`,
-          `Wait for higher volatility period`,
-          `Consider different trading session`,
+          `Accept reduced goal: $${proposedReducedGoal.toFixed(2)} per trade`,
+          `Request new session when volatility increases`,
+          `Consider splitting across multiple trades`,
         ],
       };
     }
@@ -409,6 +425,11 @@ export class GoalFeasibilityResolver {
     symbol: string,
     dollarRisk?: number
   ): number {
+    // ✅ ARCHITECTURE NOTE: This is ADVISORY position calculation for feasibility testing
+    // NOT execution position sizing (which is handled by ProfessionalRiskManager)
+    // This function calculates "what's theoretically achievable in market" for advisory only
+    // Alpha Execution Planner and Trade Execution Engine must use ProfessionalRiskManager
+
     // ✅ CRITICAL FIX: ATR Unit Conversion + SSOT Dollar-Per-Pip Usage
     // BUG 1: adjustedATR is in PRICE UNITS, must convert to PIPS
     // BUG 2: pipInfo.pipSize doesn't exist, must use pipInfo.dollarPerPipPerLot
