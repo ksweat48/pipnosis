@@ -42,6 +42,10 @@ export * from './profit-target-calculator';
 export * from './critical-level-detector';
 export * from './trade-level-integration';
 
+// Goal Feasibility and Audit System
+export * from './goal-feasibility-resolver';
+export * from './goal-feasibility-audit-logger';
+
 // Existing Services
 export * from './openai-client';
 export * from './database-service';

@@ -7,6 +7,7 @@ import {
   GoalFeasibilityAnalysis,
 } from '../types/goal-feasibility';
 import { MeaningfulTradeCalculator } from './meaningful-trade-calculator';
+import { GoalFeasibilityAuditLogger } from './goal-feasibility-audit-logger';
 import { logger } from '../lib/logger';
 import { supabase } from '../lib/supabase';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
@@ -168,11 +169,8 @@ export class GoalFeasibilityResolver {
       };
     }
 
-    const adjustedATR =
-      currentATR * GOAL_FEASIBILITY_CONFIG.calculation.atrSafetyFactor;
-
     const maxProfitPossible = this.calculateMaxDeliverableProfit(
-      adjustedATR,
+      currentATR,
       safeSpread,
       accountBalance,
       currentPrice,
@@ -181,7 +179,7 @@ export class GoalFeasibilityResolver {
     );
 
     logger.debug('Max deliverable profit calculated', {
-      adjustedATR,
+      currentATR,
       currentSpread: safeSpread,
       maxProfitPossible,
       remainingGoal,
@@ -350,30 +348,25 @@ export class GoalFeasibilityResolver {
       // The trade proceeds - meaningful checks inform learning, not blocking
     }
 
-    // Trade frequency check is now ADVISORY ONLY (v2.0)
-    // Philosophy: Churn prevention is learning signal, not hard block
+    // Trade frequency is logged for learning but never applies a penalty
+    // Philosophy: Users can trade as often as they want. Frequency is informational.
     const recentTradeCount = await this.getRecentTradeCount(userId, sessionId);
-    if (
-      recentTradeCount >= GOAL_FEASIBILITY_CONFIG.waitConditions.maxTradesInLastHour
-    ) {
-      // Log advisory but DO NOT BLOCK
-      logger.warn('High trade frequency detected - applying confidence penalty', {
-        recentTradeCount,
-        threshold: GOAL_FEASIBILITY_CONFIG.waitConditions.maxTradesInLastHour,
-      });
 
-      // Continue execution with advisory - churn tracking informs learning
-      // Alpha can proceed if setup quality justifies another trade
-    }
+    logger.info('Trade frequency context (informational only)', {
+      recentTradeCount,
+      sessionId,
+      userId,
+      message: 'No penalty applied - frequency is learning signal only'
+    });
 
     const adjustedTrade: AdjustedTradeParameters = {
       targetProfit: adjustedGoal,
-      stopLoss: this.calculateStopLoss(adjustedATR, currentPrice),
-      riskReward: this.calculateRiskReward(adjustedGoal, adjustedATR),
-      timeToFillMinutes: this.estimateTimeToFill(adjustedATR, currentATR),
+      stopLoss: this.calculateStopLoss(currentATR, currentPrice),
+      riskReward: this.calculateRiskReward(adjustedGoal, currentATR),
+      timeToFillMinutes: this.estimateTimeToFill(currentATR, currentATR),
       positionSize: this.calculatePositionSize(
         adjustedGoal,
-        adjustedATR,
+        currentATR,
         currentPrice
       ),
       estimatedSpreadCost: spreadCost,
@@ -409,6 +402,48 @@ export class GoalFeasibilityResolver {
       retentionPercent: `${(retentionPercent * 100).toFixed(1)}%`,
       meaningfulnessChecks,
     });
+
+    const atrMultiplier = safeTypicalATR > 0 ? currentATR / safeTypicalATR : 1;
+    const mechanismsEvaluated = [
+      'MARKET_CAPACITY',
+      'MEANINGFUL_TRADE_FLOORS',
+      'GOAL_SIZE_CHECK',
+    ];
+    const mechanismsApplied = [];
+    if (retentionPercent < 1) {
+      mechanismsApplied.push('GOAL_CAPACITY_RECOMMENDATION');
+    }
+
+    (async () => {
+      await GoalFeasibilityAuditLogger.logDecision({
+        userId,
+        sessionId,
+        symbol,
+        goalRequested: remainingGoal,
+        goalRecommended: adjustedGoal,
+        mechanismsEvaluated,
+        mechanismsSuppressed: [],
+        mechanismsApplied,
+        atrValue: currentATR,
+        atrTypical: safeTypicalATR,
+        atrMultiplier,
+        sessionLiquidity,
+        currentSpread: safeSpread,
+        accountBalance,
+        minGoalRetentionMet: retentionPercent >= GOAL_FEASIBILITY_CONFIG.downshift.minGoalRetentionPercent,
+        meaningfulTradeFloorDetails: meaningfulnessChecks,
+        volatilityAdvisoryApplied: atrMultiplier < GOAL_FEASIBILITY_CONFIG.waitConditions.minATRMultiplierRequired,
+        goalSizeAdvisoryApplied: remainingGoal > growthModeThreshold,
+        userChoice: 'accept_recommended',
+        suppressedMechanismsReason: {},
+        reductionBreakdown: {
+          originalGoal: remainingGoal,
+          recommendedGoal: adjustedGoal,
+          retentionPercent: retentionPercent * 100,
+        },
+        governanceNotes: 'CCIP-compliant decision with transparent mechanisms',
+      });
+    })();
 
     return {
       feasible: true,

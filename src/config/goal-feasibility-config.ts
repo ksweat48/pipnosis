@@ -23,7 +23,6 @@ export const GOAL_FEASIBILITY_CONFIG = {
   },
 
   calculation: {
-    atrSafetyFactor: 0.7,
     minTimeToFillMinutes: 15,
     maxTimeToFillMinutes: 180,
 
@@ -32,21 +31,11 @@ export const GOAL_FEASIBILITY_CONFIG = {
       lookbackPeriodsForTypical: 20,
       minATRForConsideration: 0.0001,
     },
-
-    sessionLiquidityMultipliers: {
-      london_ny_overlap: 1.2,
-      london: 1.0,
-      newyork: 1.0,
-      asian: 0.6,
-      off_hours: 0.4,
-    },
   },
 
   waitConditions: {
     minATRMultiplierRequired: 1.5,
     minSessionLiquidity: 'medium' as const,
-    maxTradesInLastHour: 2,
-    minMinutesSinceLastTrade: 20,
 
     preferWaitDuring: {
       lowLiquidity: true,
@@ -58,7 +47,6 @@ export const GOAL_FEASIBILITY_CONFIG = {
   blockConditions: {
     goalExceedsAccountPercent: 0.30,
     noForeseeablePathToGoal: true,
-    riskRewardBelowMinimum: 1.5,
 
     offerAlternatives: true,
     suggestStagedTargets: true,
@@ -71,6 +59,7 @@ export const GOAL_FEASIBILITY_CONFIG = {
     showMeaningfulnessChecks: true,
     explainWaitReason: true,
     showVolatilityContext: true,
+    showMeaningfulnessBreakdown: true,
     showCalculationDetails: false,
   },
 
@@ -79,6 +68,9 @@ export const GOAL_FEASIBILITY_CONFIG = {
     maxWaitTimeMinutes: 60,
     fallbackToBlockAfterMaxWaits: true,
   },
+
+  advisoryMaxStackDepth: 2,
+  requireUserConfirmationForReduction: true,
 } as const;
 
 export const GUIDING_PRINCIPLE = `

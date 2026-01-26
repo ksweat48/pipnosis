@@ -135,7 +135,7 @@ export class MeaningfulTradeCalculator {
       );
     } else {
       failed.push(
-        `Volatility floor (need ${thresholds.volatilityFloorValue.toFixed(2)}, have ${expectedProfit.toFixed(2)})`
+        `Volatility floor (need $${thresholds.volatilityFloorValue.toFixed(2)}, have $${expectedProfit.toFixed(2)})`
       );
     }
 
@@ -145,38 +145,42 @@ export class MeaningfulTradeCalculator {
       );
     } else {
       failed.push(
-        `Account floor (need ${thresholds.accountFloorValue.toFixed(2)}, have ${expectedProfit.toFixed(2)})`
+        `Account floor (need $${thresholds.accountFloorValue.toFixed(2)}, have $${expectedProfit.toFixed(2)})`
       );
     }
 
     if (checks.meetsSpreadFloor) {
-      passed.push(`Spread floor (${thresholds.spreadFloorValue.toFixed(2)})`);
+      passed.push(`Spread floor ($${thresholds.spreadFloorValue.toFixed(2)})`);
     } else {
       failed.push(
-        `Spread floor (need ${thresholds.spreadFloorValue.toFixed(2)}, have ${expectedProfit.toFixed(2)})`
+        `Spread floor (need $${thresholds.spreadFloorValue.toFixed(2)}, have $${expectedProfit.toFixed(2)})`
       );
     }
 
     if (checks.meetsHistoricalFloor) {
       if (thresholds.historicalFloorValue > 0) {
         passed.push(
-          `Historical floor (${thresholds.historicalFloorValue.toFixed(2)})`
+          `Historical floor ($${thresholds.historicalFloorValue.toFixed(2)})`
         );
       }
     } else {
       failed.push(
-        `Historical floor (need ${thresholds.historicalFloorValue.toFixed(2)}, have ${expectedProfit.toFixed(2)})`
+        `Historical floor (need $${thresholds.historicalFloorValue.toFixed(2)}, have $${expectedProfit.toFixed(2)})`
       );
     }
 
     let explanation = '';
 
     if (passed.length > 0) {
-      explanation += `Passes: ${passed.join(', ')}. `;
+      explanation += `PASS: ${passed.join(', ')}. `;
     }
 
     if (failed.length > 0) {
-      explanation += `Fails: ${failed.join(', ')}.`;
+      explanation += `FAIL: ${failed.join(', ')}.`;
+    }
+
+    if (passed.length === 0 && failed.length === 0) {
+      explanation = 'No floors evaluated (historical data insufficient)';
     }
 
     return explanation.trim();
