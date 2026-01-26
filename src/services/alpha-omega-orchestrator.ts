@@ -37,6 +37,7 @@ import { getMTFConfig, type Timeframe, type RiskMode } from '../config/timeframe
 import { getConfidencePenaltyCap } from '../config/trade-constraints';
 import { createTradeContext, type TradeContext } from '../utils/tradeMath';
 import { validatePreFlight, createBlockedDecision } from './ssot-preflight-guard';
+import { confidenceCalculationEngine, type ConfidenceModifier } from './confidence-calculation-engine';
 
 export interface ConfidencePenalty {
   source: string;
@@ -522,85 +523,153 @@ class AlphaOmegaOrchestrator {
 
     const originalConfidence = decision.confidence;
 
-    // ✅ CALCULATE CONFIDENCE REWARDS (balanced incentive system)
-    const rewardResult = this.calculateConfidenceRewards(
-      {
-        trend: trendVote,
-        scalper: scalperVote,
-        confirmation: confirmationVote,
-        reversal: reversalVote,
-        volatility: volatilityVote,
-        risk: null,
-        omega8: omega8Vote
+    // ✅ BUILD CONFIDENCE MODIFIERS FOR NEW SSOT ENGINE
+    const confidenceModifiers: ConfidenceModifier[] = [];
+
+    // EQS Penalty (0-15%, additive)
+    if (decision.eqs_penalty !== undefined && decision.eqs_penalty > 0) {
+      confidenceModifiers.push({
+        domain: 'eqs',
+        domain_owner: 'EQS Quality Gate',
+        penalty_type: 'additive',
+        value: Math.min(decision.eqs_penalty / 100, 0.15),
+        reason: decision.eqs_reason || 'Entry quality score penalty',
+        source_file: 'alpha-omega-orchestrator.ts',
+        severity: decision.eqs_penalty > 10 ? 'high' : 'medium'
+      });
+    }
+
+    // Narrative Penalty (0-12%, additive)
+    if (decision.narrative_penalty !== undefined && decision.narrative_penalty > 0) {
+      confidenceModifiers.push({
+        domain: 'narrative',
+        domain_owner: 'Narrative Validator',
+        penalty_type: 'additive',
+        value: Math.min(decision.narrative_penalty / 100, 0.12),
+        reason: decision.narrative_reason || 'Narrative coherence penalty',
+        source_file: 'alpha-omega-orchestrator.ts',
+        severity: decision.narrative_penalty > 8 ? 'high' : 'medium'
+      });
+    }
+
+    // Regime Oracle Penalties (regime + volatility + session, max 15% total)
+    if (marketState.regime) {
+      const regimePenalty = marketState.regime.confidence_penalty_percent || 0;
+      if (regimePenalty > 0) {
+        confidenceModifiers.push({
+          domain: 'regime_oracle',
+          domain_owner: 'RegimeOracle',
+          penalty_type: 'additive',
+          value: Math.min(regimePenalty / 100, 0.15),
+          reason: `Market regime: ${marketState.regime.regime_classification} - ${marketState.regime.reason || ''}`,
+          source_file: 'alpha-omega-orchestrator.ts',
+          severity: regimePenalty > 10 ? 'high' : 'medium'
+        });
+      }
+    }
+
+    // Adversarial Penalty (0-10%, hard cap)
+    if (marketState.adversarial && marketState.adversarial.is_adversarial) {
+      let adversarialPenalty = 0.05; // Default 5%
+      if (marketState.adversarial.stop_run_classification?.should_block) {
+        adversarialPenalty = 0.1; // Max 10% for blocks
+      } else if (marketState.adversarial.stop_run_classification?.type === 'active_stop_run') {
+        adversarialPenalty = 0.08;
+      }
+      confidenceModifiers.push({
+        domain: 'adversarial',
+        domain_owner: 'Adversarial Detector',
+        penalty_type: 'additive',
+        value: adversarialPenalty,
+        reason: `Adversarial detection: ${marketState.adversarial.stop_run_classification?.reasoning || 'manipulation risk'}`,
+        source_file: 'alpha-omega-orchestrator.ts',
+        severity: adversarialPenalty > 0.05 ? 'high' : 'medium'
+      });
+    }
+
+    // Session Advisory Penalty (0-5% max, purely advisory)
+    // This is extracted from regime if present
+    if (marketState.regime?.session === 'dead_zone') {
+      confidenceModifiers.push({
+        domain: 'session_advisor',
+        domain_owner: 'Session Advisor',
+        penalty_type: 'additive',
+        value: 0.03, // Small penalty for dead zone
+        reason: 'Dead zone trading - reduced liquidity',
+        source_file: 'alpha-omega-orchestrator.ts',
+        severity: 'low'
+      });
+    }
+
+    // Pattern Confidence Adjustment (±5-10%)
+    if (decision.pattern_confidence_penalty !== undefined) {
+      const patternVal = Math.abs(decision.pattern_confidence_penalty) / 100;
+      if (patternVal > 0) {
+        confidenceModifiers.push({
+          domain: 'pattern_confidence',
+          domain_owner: 'Pattern Confidence',
+          penalty_type: 'additive',
+          value: Math.min(patternVal, 0.1),
+          reason: decision.pattern_reason || 'Technical pattern quality adjustment',
+          source_file: 'alpha-omega-orchestrator.ts',
+          severity: patternVal > 0.05 ? 'medium' : 'low'
+        });
+      }
+    }
+
+    // ✅ USE NEW SSOT ENGINE TO CALCULATE FINAL CONFIDENCE
+    const confidenceResult = await confidenceCalculationEngine.calculateFinalConfidence({
+      base_confidence: originalConfidence,
+      symbol: marketState.symbol,
+      risk_mode: riskMode as RiskMode,
+      session_id: undefined,
+      trade_id: undefined,
+      user_id: userId,
+      rewards: {
+        consensus_bonus: rewardResult?.rewards?.find(r => r.source === 'Omega Consensus')?.bonus,
+        optimal_volatility_bonus: rewardResult?.rewards?.find(r => r.source === 'Optimal Volatility')?.bonus,
+        clean_orderflow_bonus: rewardResult?.rewards?.find(r => r.source === 'Clean Order Flow')?.bonus,
+        session_timing_bonus: rewardResult?.rewards?.find(r => r.source === 'Session Timing')?.bonus,
+        market_structure_bonus: rewardResult?.rewards?.find(r => r.source === 'Market Structure')?.bonus
       },
-      marketState,
-      marketState.regime,
-      marketState.adversarial
-    );
+      modifiers: confidenceModifiers
+    });
 
-    // Apply rewards first (additive percentage points)
-    const rewardedConfidence = Math.min(100, originalConfidence + rewardResult.totalBonus);
-
-    // ✅ APPLY CONFIDENCE PENALTY CAPS (prevents "death by 1000 cuts")
-    // Cap is determined by user's risk profile - aggressive users get more freedom
-    const penaltyCap = getConfidencePenaltyCap(riskMode.toUpperCase() as 'LOW' | 'MEDIUM' | 'HIGH');
-
-    // Calculate pre-cap confidence (penalties applied to rewarded confidence)
-    const preCapMultiplier = confidencePenaltyResult.finalMultiplier;
-    const preCapConfidence = Math.round(rewardedConfidence * preCapMultiplier);
-
-    // Enforce cap (cap is minimum multiplier, e.g., 0.70 means max 30% penalty)
-    const cappedMultiplier = Math.max(preCapMultiplier, penaltyCap);
-    const finalConfidence = Math.round(rewardedConfidence * cappedMultiplier);
-
-    // Log cap enforcement for learning
-    const capWasApplied = cappedMultiplier > preCapMultiplier;
+    const finalConfidence = confidenceResult.final_confidence;
+    const rewardedConfidence = confidenceResult.after_rewards;
+    const preCapConfidence = confidenceResult.pre_cap_confidence;
 
     console.log(`[Alpha+Omega] ⚡ Alpha decision complete (${alphaTime}ms)`);
     console.log(`[Alpha+Omega] 📊 Total pipeline: ${totalTime}ms`);
     console.log(`[Alpha+Omega] 🎯 Alpha decided: ${decision.action} @ ${originalConfidence}%`);
+    console.log(`[Alpha+Omega] ✅ SSOT Confidence Engine: ${originalConfidence}% → ${finalConfidence}% (audit: ${confidenceResult.audit_id?.substring(0, 8)})`);
 
-    // Log rewards
-    if (rewardResult.totalBonus > 0) {
-      console.log(`[Alpha+Omega] 🎁 Confidence rewards earned: +${rewardResult.totalBonus}pts`);
-      rewardResult.rewards.forEach(r => {
-        console.log(`[Alpha+Omega]   ✨ ${r.source}: +${r.bonus}pts - ${r.reason}`);
-      });
-      console.log(`[Alpha+Omega] 📈 After rewards: ${originalConfidence}% → ${rewardedConfidence}%`);
+    if (confidenceResult.is_degraded) {
+      console.warn(`[Alpha+Omega] ⚠️ CONFIDENCE DEGRADED: ${confidenceResult.degradation_reason}`);
     }
-
-    // Log penalties
-    if (confidencePenaltyResult.finalMultiplier < 1.0) {
-      console.log(`[Alpha+Omega] 📉 Confidence penalty applied: ${rewardedConfidence}% → ${preCapConfidence}% (${confidencePenaltyResult.appliedPenalty.source})`);
-    }
-
-    // Log cap enforcement
-    if (capWasApplied) {
-      const recoveredPoints = finalConfidence - preCapConfidence;
-      console.log(`[Alpha+Omega] 🛡️  PENALTY CAP ENFORCED (${riskMode.toUpperCase()} risk profile)`);
-      console.log(`[Alpha+Omega] Cap at ${(penaltyCap * 100).toFixed(0)}% → Confidence recovered from ${preCapConfidence}% to ${finalConfidence}% (+${recoveredPoints}pts)`);
-      console.log(`[Alpha+Omega] Rationale: ${riskMode.toUpperCase()} risk users accept more uncertainty - preventing paralysis`);
-    }
-
-    // Final confidence summary
-    console.log(`[Alpha+Omega] 🎯 FINAL CONFIDENCE: ${originalConfidence}% (base) → ${rewardedConfidence}% (rewarded) → ${finalConfidence}% (after penalties & cap)`);
 
     return {
       ...decision,
       confidence: finalConfidence,
-      confidenceAdjustments: confidencePenaltyResult.allProposedPenalties.map(p => ({
-        source: p.source,
-        proposedMultiplier: p.multiplier,
-        wasApplied: p === confidencePenaltyResult.appliedPenalty,
-        reason: p.reason
+      confidenceAdjustments: confidenceResult.all_modifiers.map(m => ({
+        source: m.domain_owner,
+        penalty: m.value,
+        reason: m.reason,
+        domain: m.domain,
+        severity: m.severity
       })),
-      confidenceRewards: rewardResult.rewards,
-      penaltyCap: {
-        riskMode: riskMode.toUpperCase(),
-        capValue: penaltyCap,
-        wasApplied: capWasApplied,
+      confidenceRewards: rewardResult?.rewards || [],
+      confidenceCalculationAudit: {
+        base: originalConfidence,
+        afterRewards: rewardedConfidence,
         preCapConfidence,
-        finalConfidence
+        finalConfidence,
+        isDegraded: confidenceResult.is_degraded,
+        degradationReason: confidenceResult.degradation_reason,
+        auditId: confidenceResult.audit_id,
+        riskMode: riskMode.toUpperCase(),
+        passesThreshold: confidenceResult.passes_threshold,
+        executionThreshold: confidenceResult.execution_threshold
       }
     };
   }
