@@ -1100,7 +1100,28 @@ class TradeExecutionEngine {
     });
 
     // CRITICAL FIX: Create journal entry for autonomous trading
+    // CCIP Compliance: Include Omega8/Omega9 data from alphaDecision for full governance audit trail
     try {
+      const omega8Data = alphaDecision ? {
+        omega8_liquidity_bias: alphaDecision.omega8_liquidity_bias || null,
+        omega8_direction_support: alphaDecision.omega8_direction_support || null,
+        omega8_confidence: alphaDecision.omega_votes?.omega8?.confidence || null,
+        omega8_reasoning: alphaDecision.omega_votes?.omega8?.reasoning || null,
+        omega8_used_llm: alphaDecision.omega_votes?.omega8?.used_llm || false,
+        omega8_deterministic_bias: alphaDecision.omega_votes?.omega8?.deterministic_bias || null,
+        omega8_deterministic_confidence: alphaDecision.omega_votes?.omega8?.deterministic_confidence || null,
+        omega8_llm_reason: alphaDecision.omega_votes?.omega8?.llm_reason || null,
+        omega8_patterns: alphaDecision.omega_votes?.omega8?.patterns || null
+      } : {};
+
+      const omega9Data = alphaDecision && alphaDecision.omega9_validation ? {
+        omega9_pass: alphaDecision.omega9_validation.pass,
+        omega9_flags: alphaDecision.omega9_validation.flags || null,
+        omega9_confidence_adjustment: alphaDecision.omega9_validation.confidence_adjustment || null,
+        omega9_corrections: alphaDecision.omega9_validation.corrections || null,
+        omega9_reasoning: alphaDecision.omega9_validation.reasoning || null
+      } : {};
+
       const journalEntryId = await llmReasoningLogger.logTradeEntry({
         userId: userId,
         tradeId: trade.id,
@@ -1116,7 +1137,10 @@ class TradeExecutionEngine {
         expectedOutcome: `Expecting price to move to take profit at ${adjustedTP.toFixed(5)} (${signal.riskReward.toFixed(2)}:1 R:R). Stop loss placed at ${adjustedSL.toFixed(5)}.`,
         patternIdentified: signal.setupType || 'AI Setup',
         convictionLevel: signal.confidence,
-        rankAtTime: 'Autonomous AI'
+        rankAtTime: 'Autonomous AI',
+        // 🛡️ OMEGA COUNCIL DATA: Persisted for governance audit trail (CCIP compliance)
+        ...omega8Data,
+        ...omega9Data
       });
 
       if (journalEntryId) {
