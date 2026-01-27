@@ -110,6 +110,7 @@ import { extractRegimeSignature } from '../services/regime-signature-extractor';
 import { parseStructuredAlphaResponse } from '../services/alpha-thesis-parser';
 import type { AlphaMarketThesis, RegimeSignature } from '../types/alpha-thesis';
 import { m5SwingAnalyzer, type M5SwingContext } from '../services/m5-swing-analyzer';
+import { alphaGeometryValidator } from '../services/alpha-geometry-validator';
 
 /**
  * Helper: Determine asset class from symbol
@@ -2803,114 +2804,70 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
       let takeProfit = parsed.takeProfit;
       const isBuy = action === 'BUY';
 
-      // CRITICAL SAFEGUARDS ONLY (catastrophic errors)
-      let catastrophicError = false;
-      let errorReason = '';
+      // ═══════════════════════════════════════════════════════════════════
+      // GEOMETRY VALIDATION (SSOT: alpha-geometry-validator.ts)
+      // ═══════════════════════════════════════════════════════════════════
+      // CRITICAL: This layer ONLY validates + logs + blocks. NO auto-correction.
+      // Alpha's decision authority is maintained - we detect errors but never modify values.
 
-      // 0. SANITY CHECK: Entry price must be within reasonable range of current price
-      // Catches LLM hallucinations where it returns bogus entry prices (e.g., 1.1 for XAUUSD trading at $2600)
-      const entryDeviationPercent = Math.abs((entry - currentPrice) / currentPrice) * 100;
-      const MAX_ENTRY_DEVIATION_PERCENT = 10; // Entry cannot deviate more than 10% from current price
+      const geometryValidation = alphaGeometryValidator.validate({
+        symbol,
+        direction: action as 'BUY' | 'SELL',
+        entryPrice: entry,
+        stopLoss,
+        takeProfit,
+        currentMarketPrice: currentPrice,
 
-      if (entryDeviationPercent > MAX_ENTRY_DEVIATION_PERCENT) {
-        console.error(`[Alpha Coordinator] 🚨 INVALID ENTRY PRICE from LLM: ${entry} (current: ${currentPrice})`);
-        console.error(`[Alpha Coordinator] Deviation: ${entryDeviationPercent.toFixed(2)}% (max allowed: ${MAX_ENTRY_DEVIATION_PERCENT}%)`);
-        console.error(`[Alpha Coordinator] Symbol: ${symbol} | LLM likely hallucinated`);
-        errorReason = `Entry price ${entry} deviates ${entryDeviationPercent.toFixed(1)}% from current ${currentPrice} (max ${MAX_ENTRY_DEVIATION_PERCENT}%)`;
-        catastrophicError = true;
-      }
+        // Context for learning
+        alphaConfidence: parsed.confidence || 0,
+        narrativeQuality: narrativeValidation?.quality,
+        narrativeText: parsed.reasoning,
+        eqsScore: undefined, // Will be calculated later
+        tradeStyle: parsed.style,
+        marketRegime: regimeSnapshot?.currentRegime,
+        volatilityLevel: regimeSnapshot?.volatilityRegime,
+        sessionContext: undefined, // Could add if available
 
-      // 1. Check if SL is on WRONG SIDE of entry (HARD BLOCK - geometry invalid)
-      if (stopLoss) {
-        const slOnWrongSide = (isBuy && stopLoss > entry) || (!isBuy && stopLoss < entry);
-        if (slOnWrongSide) {
-          // ALPHA AUTHORITY: Do NOT auto-correct. Only Alpha decides SL.
-          // Wrong-side SL is a hard block (geometry invalid).
-          console.error(`[Alpha Coordinator] 🚨 GEOMETRY ERROR: Stop Loss on WRONG SIDE`);
-          console.error(`[Alpha Coordinator] ${action} trade: Entry=${entry.toFixed(5)}, SL=${stopLoss.toFixed(5)}`);
-          console.error(`[Alpha Coordinator] For ${isBuy ? 'BUY' : 'SELL'}, SL must be ${isBuy ? 'below' : 'above'} entry`);
+        // Tracking
+        userId: input.userId,
+        sessionId: input.sessionId,
+        scanAttemptId: undefined,
 
-          errorReason = `Stop Loss on WRONG SIDE of entry (${action}: Entry=${entry.toFixed(5)}, SL=${stopLoss.toFixed(5)})`;
-          catastrophicError = true;
+        // LLM metadata
+        promptVersion: 'v2.0-geometry-reinforced',
+        modelUsed: 'gpt-4o-mini',
+        tokensUsed: undefined // Track if available
+      });
 
-          // Log SSOT violation for learning (fire-and-forget)
-          logViolation({
-            violationType: 'ALPHA_SL_WRONG_SIDE',
-            symbol,
-            attemptedOperation: 'parse_decision',
-            callLocation: 'coordinator-alpha.parseDecision',
-            blocked: true,
-            errorDetails: {
-              severity: 'critical',
-              action,
-              direction: isBuy ? 'BUY' : 'SELL',
-              entry,
-              stopLoss,
-              expectedSide: isBuy ? 'below entry' : 'above entry',
-              resolution: 'hard_blocked'
-            }
-          }).catch(error => {
-            console.error('[Alpha Coordinator] Failed to log SL geometry violation:', error);
-          });
-        }
-      }
+      // If geometry validation failed, HARD BLOCK the trade
+      if (!geometryValidation.valid) {
+        console.error(`[Alpha Coordinator] 🚨 GEOMETRY ERROR: ${geometryValidation.errorMessage}`);
+        console.error(`[Alpha Coordinator] ${action} trade: Entry=${entry.toFixed(5)}, SL=${stopLoss?.toFixed(5)}, TP=${takeProfit?.toFixed(5)}`);
+        console.error(`[Alpha Coordinator] Expected: SL ${geometryValidation.expectedGeometry?.slSide}, TP ${geometryValidation.expectedGeometry?.tpSide}`);
+        console.error(`[Alpha Coordinator] Error logged to alpha_geometry_errors: ${geometryValidation.errorLogId}`);
 
-      // 2. Check if TP is on WRONG SIDE of entry (HARD BLOCK - geometry invalid)
-      if (takeProfit) {
-        const tpOnWrongSide = (isBuy && takeProfit < entry) || (!isBuy && takeProfit > entry);
-        if (tpOnWrongSide) {
-          // ALPHA AUTHORITY: Do NOT auto-correct with hardcoded 1.5:1 R:R. Only Alpha decides TP.
-          // Wrong-side TP is a hard block (geometry invalid).
-          console.error(`[Alpha Coordinator] 🚨 GEOMETRY ERROR: Take Profit on WRONG SIDE`);
-          console.error(`[Alpha Coordinator] ${action} trade: Entry=${entry.toFixed(5)}, TP=${takeProfit.toFixed(5)}`);
-          console.error(`[Alpha Coordinator] For ${isBuy ? 'BUY' : 'SELL'}, TP must be ${isBuy ? 'above' : 'below'} entry`);
+        // Also log to SSOT violations for backward compatibility
+        logViolation({
+          violationType: `ALPHA_${geometryValidation.errorType}`,
+          symbol,
+          attemptedOperation: 'parse_decision',
+          callLocation: 'coordinator-alpha.parseDecision',
+          blocked: true,
+          errorDetails: {
+            severity: geometryValidation.severity,
+            action,
+            direction: isBuy ? 'BUY' : 'SELL',
+            entry,
+            stopLoss,
+            takeProfit,
+            expectedGeometry: geometryValidation.expectedGeometry,
+            errorMessage: geometryValidation.errorMessage,
+            resolution: 'hard_blocked'
+          }
+        }).catch(error => {
+          console.error('[Alpha Coordinator] Failed to log geometry violation to SSOT:', error);
+        });
 
-          errorReason = `Take Profit on WRONG SIDE of entry (${action}: Entry=${entry.toFixed(5)}, TP=${takeProfit.toFixed(5)})`;
-          catastrophicError = true;
-
-          // Log SSOT violation for learning (fire-and-forget)
-          logViolation({
-            violationType: 'ALPHA_TP_WRONG_SIDE',
-            symbol,
-            attemptedOperation: 'parse_decision',
-            callLocation: 'coordinator-alpha.parseDecision',
-            blocked: true,
-            errorDetails: {
-              severity: 'critical',
-              action,
-              direction: isBuy ? 'BUY' : 'SELL',
-              entry,
-              takeProfit,
-              expectedSide: isBuy ? 'above entry' : 'below entry',
-              resolution: 'hard_blocked'
-            }
-          }).catch(error => {
-            console.error('[Alpha Coordinator] Failed to log TP geometry violation:', error);
-          });
-        }
-      }
-
-      // 3. Check for zero/missing distance (< 5 pips minimum for survival)
-      // Use centralized pip calculation for consistency across all symbols
-      const MIN_SURVIVAL_PIPS = 5;
-
-      if (stopLoss) {
-        const stopDistancePips = calculatePipDistance(symbol, entry, stopLoss);
-        if (stopDistancePips < MIN_SURVIVAL_PIPS) {
-          errorReason = `Stop distance < ${MIN_SURVIVAL_PIPS} pips - below survival minimum`;
-          catastrophicError = true;
-        }
-      }
-
-      // 4. Missing SL/TP entirely
-      if (!stopLoss || !takeProfit) {
-        errorReason = 'Missing SL or TP values';
-        catastrophicError = true;
-      }
-
-      // If catastrophic error detected, block trade
-      if (catastrophicError) {
-        console.error(`[Alpha Coordinator] 🚨 CATASTROPHIC ERROR: ${errorReason}`);
         return {
           action: 'NO_TRADE',
           decision: 'NO_TRADE',
@@ -2918,11 +2875,35 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
           stopLoss: currentPrice,
           takeProfit: currentPrice,
           confidence: 0,
-          reasoning: `BLOCKED: ${errorReason}`,
+          reasoning: `BLOCKED: ${geometryValidation.errorMessage}`,
           omega_summary: '',
-          risk_pct: riskPct, // SSOT: Provide risk percentage even for blocked trades
+          risk_pct: riskPct,
           narrativeValidation: narrativeValidation || undefined
         };
+      }
+
+      // Geometry validation passed - trade can proceed
+      console.log(`[Alpha Coordinator] ✅ Geometry validation passed`);
+
+      // Additional sanity check for minimum pip distance (< 5 pips survival minimum)
+      const MIN_SURVIVAL_PIPS = 5;
+      if (stopLoss) {
+        const stopDistancePips = calculatePipDistance(symbol, entry, stopLoss);
+        if (stopDistancePips < MIN_SURVIVAL_PIPS) {
+          console.error(`[Alpha Coordinator] 🚨 Stop distance ${stopDistancePips.toFixed(1)} pips < ${MIN_SURVIVAL_PIPS} pips minimum`);
+          return {
+            action: 'NO_TRADE',
+            decision: 'NO_TRADE',
+            entry: currentPrice,
+            stopLoss: currentPrice,
+            takeProfit: currentPrice,
+            confidence: 0,
+            reasoning: `BLOCKED: Stop distance ${stopDistancePips.toFixed(1)} pips below ${MIN_SURVIVAL_PIPS} pip survival minimum`,
+            omega_summary: '',
+            risk_pct: riskPct,
+            narrativeValidation: narrativeValidation || undefined
+          };
+        }
       }
 
       // Calculate R:R for logging (NOT enforced here - Omega-9's job)
