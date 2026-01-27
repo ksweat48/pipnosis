@@ -1737,7 +1737,8 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
         fullCandles,
         marketContext,
         riskMode,
-        goalContext
+        goalContext,
+        regimeSnapshot // SSOT: Pass regime data for entry quality tracking
       );
 
       // CONSTRAINT-FIRST VALIDATION (Phase 1: Check violations, Phase 2: Revision loop, Phase 3: Auto-correction)
@@ -2654,7 +2655,8 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
     fullCandles: any[] = [],
     marketContext?: MarketContext,
     riskMode: 'low' | 'medium' | 'high' = 'medium',
-    goalContext?: GoalContext
+    goalContext?: GoalContext,
+    regimeSnapshot?: RegimeSnapshot // SSOT: Required for entry quality tracking
   ): AlphaDecision {
     try {
       // Step 1: Remove JavaScript-style comments (single-line and multi-line)

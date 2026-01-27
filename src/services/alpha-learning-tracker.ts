@@ -17,7 +17,7 @@ export interface AlphaDecisionLog {
   user_id: string;
   session_id?: string;
   symbol: string;
-  decision: 'BUY' | 'SELL' | 'NO_TRADE';
+  action: 'BUY' | 'SELL' | 'NO_TRADE'; // SSOT: Database column is 'action', not 'decision'
   confidence: number;
   omega_consensus: {
     direction: 'BUY' | 'SELL' | 'NO_TRADE' | 'MIXED';
@@ -81,7 +81,7 @@ class AlphaLearningTracker {
         user_id: userId,
         session_id: sessionId,
         symbol: decision.symbol || marketContext.symbol,
-        decision: decision.action,
+        action: decision.action, // SSOT: Correctly maps to database 'action' column
         confidence: decision.confidence,
         omega_consensus: omegaConsensus,
         omega_votes: omegaVotes,
