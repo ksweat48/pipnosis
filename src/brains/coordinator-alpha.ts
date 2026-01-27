@@ -1738,7 +1738,9 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
         marketContext,
         riskMode,
         goalContext,
-        regimeSnapshot // SSOT: Pass regime data for entry quality tracking
+        regimeSnapshot, // SSOT: Pass regime data for entry quality tracking
+        userId, // SSOT: Pass userId for geometry error logging
+        sessionId // SSOT: Pass sessionId for geometry error logging
       );
 
       // CONSTRAINT-FIRST VALIDATION (Phase 1: Check violations, Phase 2: Revision loop, Phase 3: Auto-correction)
@@ -2656,7 +2658,9 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
     marketContext?: MarketContext,
     riskMode: 'low' | 'medium' | 'high' = 'medium',
     goalContext?: GoalContext,
-    regimeSnapshot?: RegimeSnapshot // SSOT: Required for entry quality tracking
+    regimeSnapshot?: RegimeSnapshot, // SSOT: Required for entry quality tracking
+    userId?: string, // SSOT: Required for geometry error logging
+    sessionId?: string // SSOT: Required for geometry error logging
   ): AlphaDecision {
     try {
       // Step 1: Remove JavaScript-style comments (single-line and multi-line)
@@ -2831,8 +2835,8 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
         sessionContext: undefined, // Could add if available
 
         // Tracking
-        userId: input.userId,
-        sessionId: input.sessionId,
+        userId: userId,
+        sessionId: sessionId,
         scanAttemptId: undefined,
 
         // LLM metadata
