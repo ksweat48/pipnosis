@@ -63,8 +63,10 @@
   schedule = "*/2 * * * *"  # 🚨 Every 2 minutes (was 5) - matches doubled polling speed
 
 # 🤖 AUTONOMOUS: Goal session autonomous monitor (runs every minute)
+# CCIP FIX: Increased timeout from 30s to 120s to prevent mid-processing timeouts
+# Root cause: Sequential processing of multiple sessions exceeded 30s limit
 [functions."autonomous-goal-monitor"]
-  timeout = 30
+  timeout = 120
   schedule = "* * * * *"  # 🚨 5-field format ONLY - processes active goal sessions
 
 # 🎯 AUTONOMOUS: Entry intent monitor (runs every minute)

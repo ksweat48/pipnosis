@@ -59,7 +59,17 @@ export const handler: Handler = async (event, context) => {
       };
     }
 
-    console.log(`[Autonomous Monitor] Processing ${activeSessions.length} active sessions`);
+    // CCIP FIX: Limit processing to max 10 sessions per run to prevent timeout
+    // Root cause: Sequential processing of many sessions exceeded 120s limit
+    // Defense-in-depth: Next run will pick up remaining sessions
+    const MAX_SESSIONS_PER_RUN = 10;
+    const sessionsToProcess = activeSessions.slice(0, MAX_SESSIONS_PER_RUN);
+
+    if (activeSessions.length > MAX_SESSIONS_PER_RUN) {
+      console.log(`[Autonomous Monitor] 🔄 Processing ${MAX_SESSIONS_PER_RUN} of ${activeSessions.length} active sessions (${activeSessions.length - MAX_SESSIONS_PER_RUN} queued for next run)`);
+    } else {
+      console.log(`[Autonomous Monitor] Processing ${activeSessions.length} active sessions`);
+    }
 
     const results = [];
     let successCount = 0;
@@ -68,7 +78,7 @@ export const handler: Handler = async (event, context) => {
     let modalTriggeredCount = 0;
 
     // Process each session
-    for (const session of activeSessions) {
+    for (const session of sessionsToProcess) {
       try {
         console.log(`[Autonomous Monitor] Processing session ${session.session_id} for user ${session.user_id}`);
 
@@ -243,7 +253,9 @@ export const handler: Handler = async (event, context) => {
 
     const duration = Date.now() - startTime;
     const summary = {
-      processed: activeSessions.length,
+      processed: sessionsToProcess.length,
+      totalActive: activeSessions.length,
+      queued: activeSessions.length - sessionsToProcess.length,
       successful: successCount,
       errors: errorCount,
       modalTriggered: modalTriggeredCount,
