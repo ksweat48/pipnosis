@@ -36,6 +36,32 @@ export interface FeasibilityAuditLog {
 export class GoalFeasibilityAuditLogger {
   static async logDecision(audit: FeasibilityAuditLog): Promise<boolean> {
     try {
+      // SSOT: Calculate required audit fields explicitly
+      const originalAmount = audit.goalRequested;
+      const newAmount = audit.goalUserChoice ?? audit.goalRecommended ?? audit.goalRequested;
+      const reductionPercentage = originalAmount > 0
+        ? Math.round(((originalAmount - newAmount) / originalAmount) * 100 * 100) / 100
+        : 0;
+
+      // Determine degradation type
+      let degradationType: 'user_adjustment' | 'market_capacity' | 'risk_constraint' | 'intelligent_reduction';
+      if (audit.userChoice === 'accept_custom' && audit.userChoiceValue) {
+        degradationType = 'user_adjustment';
+      } else if (reductionPercentage > 0) {
+        degradationType = 'intelligent_reduction';
+      } else {
+        degradationType = 'market_capacity';
+      }
+
+      // Authority: This logger represents the Feasibility Engine
+      const authority = 'feasibility_engine';
+
+      // Reason: Use governance notes or default explanation
+      const reason = audit.governanceNotes ||
+        (reductionPercentage > 0
+          ? `Market feasibility analysis reduced goal by ${reductionPercentage}% to maintain execution quality`
+          : 'Goal feasibility validated - no reduction required');
+
       const { data, error } = await supabase
         .from('goal_target_audit')
         .insert({
@@ -43,6 +69,15 @@ export class GoalFeasibilityAuditLogger {
           goal_session_id: audit.sessionId,
           symbol: audit.symbol,
 
+          // SSOT: Required audit trail fields (schema contract)
+          original_amount: originalAmount,
+          new_amount: newAmount,
+          reduction_percentage: reductionPercentage,
+          reason,
+          authority,
+          degradation_type: degradationType,
+
+          // Legacy fields (for backward compatibility and additional detail)
           goal_requested: audit.goalRequested,
           goal_recommended: audit.goalRecommended,
           goal_user_choice: audit.goalUserChoice,
