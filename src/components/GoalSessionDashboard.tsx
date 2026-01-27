@@ -17,7 +17,7 @@ import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { simpleScanningTimer } from '../services/simple-scanning-timer';
 import { getRiskPercentage } from '../config/risk-levels';
-import { calculatePipDistance, calculateDollarPerPip } from '../utils/currencyHelpers';
+import { calculatePipDistance, calculateDollarPerPip, getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { useToast } from '../hooks/useToast';
 import { calculatePnL } from '../types/position';
 import { positionService } from '../services/position-service';
@@ -1250,7 +1250,13 @@ export const GoalSessionDashboard: React.FC = () => {
                 const priceDiff = isLong
                   ? (currentPrice - trade.entry_price)
                   : (trade.entry_price - currentPrice);
-                const pips = calculatePipDistance(trade.symbol, trade.entry_price, currentPrice);
+
+                // SSOT: Calculate pips with correct sign (negative when losing, positive when winning)
+                // For BUY: pips = (currentPrice - entryPrice) / pipValue
+                // For SELL: pips = (entryPrice - currentPrice) / pipValue
+                const pipInfo = getCurrencyPipInfo(trade.symbol);
+                const pips = priceDiff / pipInfo.pipValue;
+
                 const currentPnL = calculateCurrentPnL(trade);
 
                 return (
