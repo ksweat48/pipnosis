@@ -131,15 +131,15 @@ export async function processGoalSessionIteration(
       for (const trade of symbolTrades) {
         if (trade.outcome === 'open') {
           const conditions = calculateMarketConditions(sortedCandles, latestCandle);
-          const triggers = midTradeTriggerDetector.detectTriggers(trade, conditions, latestCandle);
+          const triggerResult = midTradeTriggerDetector.checkForTriggers(trade, conditions);
 
-          if (triggers.length > 0) {
-            triggersDetected += triggers.length;
+          if (triggerResult.triggered && triggerResult.shouldCallLLM) {
+            triggersDetected += 1;
 
             // Evaluate with LLM
             const evaluation = await llmMidTradeEvaluator.evaluatePosition(
               trade,
-              triggers,
+              [triggerResult], // Wrap in array for compatibility
               sortedCandles,
               userId
             );
