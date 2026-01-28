@@ -24,6 +24,56 @@ interface LivePriceResult {
   timestamp: Date;
 }
 
+/**
+ * Safely extract Omega8 data from alpha decision with fallback values
+ * Prevents errors if alpha decision is missing or malformed
+ */
+function extractOmega8Data(alphaDecision: TradeSignal['alphaDecision']) {
+  if (!alphaDecision) {
+    return {};
+  }
+
+  try {
+    return {
+      omega8_liquidity_bias: alphaDecision.omega8_liquidity_bias ?? null,
+      omega8_direction_support: alphaDecision.omega8_direction_support ?? null,
+      omega8_confidence: alphaDecision.omega_votes?.omega8?.confidence ?? null,
+      omega8_reasoning: alphaDecision.omega_votes?.omega8?.reasoning ?? null,
+      omega8_used_llm: alphaDecision.omega_votes?.omega8?.used_llm ?? false,
+      omega8_deterministic_bias: alphaDecision.omega_votes?.omega8?.deterministic_bias ?? null,
+      omega8_deterministic_confidence: alphaDecision.omega_votes?.omega8?.deterministic_confidence ?? null,
+      omega8_llm_reason: alphaDecision.omega_votes?.omega8?.llm_reason ?? null,
+      omega8_patterns: alphaDecision.omega_votes?.omega8?.patterns ?? null
+    };
+  } catch (err) {
+    console.warn('[Trade Execution] ⚠️ Failed to extract Omega8 data - using fallback', err);
+    return {};
+  }
+}
+
+/**
+ * Safely extract Omega9 data from alpha decision with fallback values
+ * Prevents errors if alpha decision is missing or malformed
+ */
+function extractOmega9Data(alphaDecision: TradeSignal['alphaDecision']) {
+  if (!alphaDecision?.omega9_validation) {
+    return {};
+  }
+
+  try {
+    return {
+      omega9_pass: alphaDecision.omega9_validation.pass,
+      omega9_flags: alphaDecision.omega9_validation.flags ?? null,
+      omega9_confidence_adjustment: alphaDecision.omega9_validation.confidence_adjustment ?? null,
+      omega9_corrections: alphaDecision.omega9_validation.corrections ?? null,
+      omega9_reasoning: alphaDecision.omega9_validation.reasoning ?? null
+    };
+  } catch (err) {
+    console.warn('[Trade Execution] ⚠️ Failed to extract Omega9 data - using fallback', err);
+    return {};
+  }
+}
+
 export interface TradeSignal {
   sessionId: string;
   symbol: string;
@@ -712,27 +762,9 @@ class TradeExecutionEngine {
     // CRITICAL FIX: Create journal entry for pending trade
     try {
       // 🛡️ Extract Omega Council data from signal.alphaDecision (if provided)
-      const alphaDecision = signal.alphaDecision;
-
-      const omega8Data = alphaDecision ? {
-        omega8_liquidity_bias: alphaDecision.omega8_liquidity_bias || null,
-        omega8_direction_support: alphaDecision.omega8_direction_support || null,
-        omega8_confidence: alphaDecision.omega_votes?.omega8?.confidence || null,
-        omega8_reasoning: alphaDecision.omega_votes?.omega8?.reasoning || null,
-        omega8_used_llm: alphaDecision.omega_votes?.omega8?.used_llm || false,
-        omega8_deterministic_bias: alphaDecision.omega_votes?.omega8?.deterministic_bias || null,
-        omega8_deterministic_confidence: alphaDecision.omega_votes?.omega8?.deterministic_confidence || null,
-        omega8_llm_reason: alphaDecision.omega_votes?.omega8?.llm_reason || null,
-        omega8_patterns: alphaDecision.omega_votes?.omega8?.patterns || null
-      } : {};
-
-      const omega9Data = alphaDecision && alphaDecision.omega9_validation ? {
-        omega9_pass: alphaDecision.omega9_validation.pass,
-        omega9_flags: alphaDecision.omega9_validation.flags || null,
-        omega9_confidence_adjustment: alphaDecision.omega9_validation.confidence_adjustment || null,
-        omega9_corrections: alphaDecision.omega9_validation.corrections || null,
-        omega9_reasoning: alphaDecision.omega9_validation.reasoning || null
-      } : {};
+      // Uses safe extraction with fallback values for robustness
+      const omega8Data = extractOmega8Data(signal.alphaDecision);
+      const omega9Data = extractOmega9Data(signal.alphaDecision);
 
       const journalEntryId = await llmReasoningLogger.logTradeEntry({
         userId: userId,
@@ -1117,27 +1149,9 @@ class TradeExecutionEngine {
     // CRITICAL FIX: Create journal entry for autonomous trading
     // CCIP Compliance: Include Omega8/Omega9 data from signal.alphaDecision for full governance audit trail
     try {
-      const alphaDecision = signal.alphaDecision;
-
-      const omega8Data = alphaDecision ? {
-        omega8_liquidity_bias: alphaDecision.omega8_liquidity_bias || null,
-        omega8_direction_support: alphaDecision.omega8_direction_support || null,
-        omega8_confidence: alphaDecision.omega_votes?.omega8?.confidence || null,
-        omega8_reasoning: alphaDecision.omega_votes?.omega8?.reasoning || null,
-        omega8_used_llm: alphaDecision.omega_votes?.omega8?.used_llm || false,
-        omega8_deterministic_bias: alphaDecision.omega_votes?.omega8?.deterministic_bias || null,
-        omega8_deterministic_confidence: alphaDecision.omega_votes?.omega8?.deterministic_confidence || null,
-        omega8_llm_reason: alphaDecision.omega_votes?.omega8?.llm_reason || null,
-        omega8_patterns: alphaDecision.omega_votes?.omega8?.patterns || null
-      } : {};
-
-      const omega9Data = alphaDecision && alphaDecision.omega9_validation ? {
-        omega9_pass: alphaDecision.omega9_validation.pass,
-        omega9_flags: alphaDecision.omega9_validation.flags || null,
-        omega9_confidence_adjustment: alphaDecision.omega9_validation.confidence_adjustment || null,
-        omega9_corrections: alphaDecision.omega9_validation.corrections || null,
-        omega9_reasoning: alphaDecision.omega9_validation.reasoning || null
-      } : {};
+      // Uses safe extraction with fallback values for robustness
+      const omega8Data = extractOmega8Data(signal.alphaDecision);
+      const omega9Data = extractOmega9Data(signal.alphaDecision);
 
       const journalEntryId = await llmReasoningLogger.logTradeEntry({
         userId: userId,
