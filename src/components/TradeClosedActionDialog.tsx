@@ -320,36 +320,51 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
               </div>
             </div>
 
-            {/* Action Buttons */}
+            {/* Action Buttons - SSOT: Clear button purposes and consequences */}
             <div className="space-y-3 pb-6">
               {!isGoalAchieved && (
-                <button
-                  onClick={onContinueSession}
-                  disabled={isLoading}
-                  className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-500 hover:to-blue-500 rounded-xl font-semibold text-white transition-all duration-300 shadow-lg hover:shadow-emerald-500/25 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  <PlayCircle className="w-5 h-5" />
-                  Continue Current Session
-                </button>
+                <div>
+                  <button
+                    onClick={onContinueSession}
+                    disabled={isLoading}
+                    className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-500 hover:to-blue-500 rounded-xl font-semibold text-white transition-all duration-300 shadow-lg hover:shadow-emerald-500/25 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    <PlayCircle className="w-5 h-5" />
+                    Continue This Session
+                  </button>
+                  <p className="text-xs text-gray-500 mt-2 text-center">
+                    Keep scanning for the next trading opportunity in this session
+                  </p>
+                </div>
               )}
 
-              <button
-                onClick={onStartNewSession}
-                disabled={isLoading}
-                className="w-full py-3 px-4 bg-gray-700/50 hover:bg-gray-700 rounded-xl font-semibold text-white transition-all duration-300 border border-gray-600/50 hover:border-gray-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                <RotateCcw className="w-5 h-5" />
-                Start Fresh Session
-              </button>
+              <div>
+                <button
+                  onClick={onCloseForNow}
+                  disabled={isLoading}
+                  className="w-full py-3 px-4 bg-gray-700/50 hover:bg-gray-700 rounded-xl font-semibold text-white transition-all duration-300 border border-gray-600/50 hover:border-gray-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  <PauseCircle className="w-4 h-4" />
+                  {isGoalAchieved ? 'Close Session' : 'End Session Now'}
+                </button>
+                <p className="text-xs text-gray-500 mt-2 text-center">
+                  {isGoalAchieved
+                    ? 'Permanently close this session. Start a new one when ready.'
+                    : 'Permanently close this session (cannot be resumed). Start a fresh session later.'}
+                </p>
+              </div>
 
-              <button
-                onClick={onCloseForNow}
-                disabled={isLoading}
-                className="w-full py-2 px-4 text-gray-400 hover:text-white transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                <PauseCircle className="w-4 h-4" />
-                Close for Now
-              </button>
+              {/* Show "Start New Session" for goal achieved case */}
+              {isGoalAchieved && (
+                <button
+                  onClick={onStartNewSession}
+                  disabled={isLoading}
+                  className="w-full py-2 px-4 text-emerald-400 hover:text-emerald-300 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  Start New Session Immediately
+                </button>
+              )}
             </div>
           </div>
           </div>

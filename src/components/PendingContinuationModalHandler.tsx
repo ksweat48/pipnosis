@@ -6,6 +6,8 @@ import { SessionEndedDialog } from './SessionEndedDialog';
 import { TradeClosedActionDialog } from './TradeClosedActionDialog';
 import { supabase } from '@/lib/supabase';
 import { goalSessionStateMachine } from '@/services/coordinators/goal-session-state-machine';
+import { modalStateRecoveryService } from '@/services/modal-state-recovery';
+import { useToast } from '@/hooks/useToast';
 
 interface PendingContinuationModalHandlerProps {
   userId: string;
@@ -18,6 +20,7 @@ export const PendingContinuationModalHandler: React.FC<PendingContinuationModalH
 }) => {
   const [pendingModal, setPendingModal] = useState<PendingModal | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const { error: showError, success: showSuccess } = useToast();
 
   useEffect(() => {
     loadPendingModal();
@@ -180,6 +183,7 @@ export const PendingContinuationModalHandler: React.FC<PendingContinuationModalH
     const sessionId = pendingModal.goal_session_id || pendingModal.modal_data.session_id;
     if (!sessionId) {
       console.error('[PendingModalHandler] No session_id found in trade_closed modal');
+      showError('Session ID not found');
       return;
     }
 
@@ -188,27 +192,38 @@ export const PendingContinuationModalHandler: React.FC<PendingContinuationModalH
     try {
       console.log('[PendingModalHandler] User chose to continue after trade close');
 
-      // Transition session back to scanning (SSOT: use state machine)
-      const transitionResult = await goalSessionStateMachine.transition(sessionId, 'scanning', {
-        reason: 'User chose to continue after trade close',
-        triggeredBy: 'TradeClosedModal',
-      });
+      // SSOT: Use modal state recovery service for atomic, recoverable state transitions
+      const actionResult = await modalStateRecoveryService.handleModalAction(
+        sessionId,
+        pendingModal.id,
+        userId,
+        'continue'
+      );
 
-      if (!transitionResult.success) {
-        console.error('[PendingModalHandler] Failed to transition to scanning:', transitionResult.error);
+      if (!actionResult.success) {
+        console.error('[PendingModalHandler] Modal action failed:', actionResult.errorMessage);
+        showError(actionResult.errorMessage || 'Failed to continue session. Please refresh and try again.');
+        return;
       }
 
-      await modalQueueManager.dismissModal(pendingModal.id, 'continue');
+      // Action succeeded - validate state before reload
+      const isStateValid = await modalStateRecoveryService.validateStateBeforeReload(sessionId);
+      if (!isStateValid) {
+        console.warn('[PendingModalHandler] Session in unexpected state, but proceeding with reload');
+        showError('Warning: Session may not be in expected state. Reloading...');
+      }
 
       setPendingModal(null);
       onModalDismissed?.();
+      showSuccess('Session resumed - scanning for new opportunities');
 
-      // Reload to restart scanning
+      // Reload to restart scanning with fresh state
       setTimeout(() => {
         window.location.reload();
-      }, 500);
+      }, 1000);
     } catch (error) {
-      console.error('[PendingModalHandler] Error handling trade closed continue:', error);
+      console.error('[PendingModalHandler] Unexpected error handling trade closed continue:', error);
+      showError('An unexpected error occurred. Please refresh the page.');
     } finally {
       setIsLoading(false);
     }
@@ -220,6 +235,7 @@ export const PendingContinuationModalHandler: React.FC<PendingContinuationModalH
     const sessionId = pendingModal.goal_session_id || pendingModal.modal_data.session_id;
     if (!sessionId) {
       console.error('[PendingModalHandler] No session_id found in trade_closed modal');
+      showError('Session ID not found');
       return;
     }
 
@@ -228,27 +244,38 @@ export const PendingContinuationModalHandler: React.FC<PendingContinuationModalH
     try {
       console.log('[PendingModalHandler] User chose to start new session after trade close');
 
-      // Transition session to stopped (SSOT: use state machine)
-      const transitionResult = await goalSessionStateMachine.transition(sessionId, 'stopped', {
-        reason: 'User chose to start new session after trade close',
-        triggeredBy: 'TradeClosedModal',
-      });
+      // SSOT: Use modal state recovery service for atomic, recoverable state transitions
+      const actionResult = await modalStateRecoveryService.handleModalAction(
+        sessionId,
+        pendingModal.id,
+        userId,
+        'start_new'
+      );
 
-      if (!transitionResult.success) {
-        console.error('[PendingModalHandler] Failed to stop session:', transitionResult.error);
+      if (!actionResult.success) {
+        console.error('[PendingModalHandler] Modal action failed:', actionResult.errorMessage);
+        showError(actionResult.errorMessage || 'Failed to close session. Please refresh and try again.');
+        return;
       }
 
-      await modalQueueManager.dismissModal(pendingModal.id, 'close');
+      // Action succeeded - validate state before reload
+      const isStateValid = await modalStateRecoveryService.validateStateBeforeReload(sessionId);
+      if (!isStateValid) {
+        console.warn('[PendingModalHandler] Session in unexpected state, but proceeding with reload');
+        showError('Warning: Session may not be in expected state. Reloading...');
+      }
 
       setPendingModal(null);
       onModalDismissed?.();
+      showSuccess('Session closed - ready to start a fresh session');
 
-      // Reload to show fresh start
+      // Reload to show closed session state
       setTimeout(() => {
         window.location.reload();
-      }, 500);
+      }, 1000);
     } catch (error) {
-      console.error('[PendingModalHandler] Error handling trade closed start new:', error);
+      console.error('[PendingModalHandler] Unexpected error handling trade closed start new:', error);
+      showError('An unexpected error occurred. Please refresh the page.');
     } finally {
       setIsLoading(false);
     }
@@ -260,6 +287,7 @@ export const PendingContinuationModalHandler: React.FC<PendingContinuationModalH
     const sessionId = pendingModal.goal_session_id || pendingModal.modal_data.session_id;
     if (!sessionId) {
       console.error('[PendingModalHandler] No session_id found in trade_closed modal');
+      showError('Session ID not found');
       return;
     }
 
@@ -268,27 +296,38 @@ export const PendingContinuationModalHandler: React.FC<PendingContinuationModalH
     try {
       console.log('[PendingModalHandler] User chose to close after trade close');
 
-      // Transition session to stopped (SSOT: use state machine)
-      const transitionResult = await goalSessionStateMachine.transition(sessionId, 'stopped', {
-        reason: 'User closed session after trade close',
-        triggeredBy: 'TradeClosedModal',
-      });
+      // SSOT: Use modal state recovery service for atomic, recoverable state transitions
+      const actionResult = await modalStateRecoveryService.handleModalAction(
+        sessionId,
+        pendingModal.id,
+        userId,
+        'close'
+      );
 
-      if (!transitionResult.success) {
-        console.error('[PendingModalHandler] Failed to stop session:', transitionResult.error);
+      if (!actionResult.success) {
+        console.error('[PendingModalHandler] Modal action failed:', actionResult.errorMessage);
+        showError(actionResult.errorMessage || 'Failed to close session. Please refresh and try again.');
+        return;
       }
 
-      await modalQueueManager.dismissModal(pendingModal.id, 'close');
+      // Action succeeded - validate state before reload
+      const isStateValid = await modalStateRecoveryService.validateStateBeforeReload(sessionId);
+      if (!isStateValid) {
+        console.warn('[PendingModalHandler] Session in unexpected state, but proceeding with reload');
+        showError('Warning: Session may not be in expected state. Reloading...');
+      }
 
       setPendingModal(null);
       onModalDismissed?.();
+      showSuccess('Session closed for now');
 
       // Reload to show stopped state
       setTimeout(() => {
         window.location.reload();
-      }, 500);
+      }, 1000);
     } catch (error) {
-      console.error('[PendingModalHandler] Error handling trade closed close:', error);
+      console.error('[PendingModalHandler] Unexpected error handling trade closed close:', error);
+      showError('An unexpected error occurred. Please refresh the page.');
     } finally {
       setIsLoading(false);
     }
