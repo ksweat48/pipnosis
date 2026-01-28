@@ -12,6 +12,8 @@ import { notificationCoordinator } from './coordinators/notification-coordinator
 import { goalSessionStateMachine } from './coordinators/goal-session-state-machine';
 import { TIME_MS } from '@/config/time-constants';
 import { marketDataService } from './market-data-service';
+import { positionMonitoringAuthority } from './monitoring/position-monitoring-authority';
+import type { MonitoredPosition, PriceData } from './monitoring/position-monitoring-authority';
 
 logger.setCategoryLevel(LogCategory.POSITION_MONITOR, LogLevel.ERROR);
 
@@ -70,25 +72,30 @@ class PositionMonitorService {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data: positions, error } = await supabase
-        .from('goal_session_trades')
-        .select('*')
-        .eq('user_id', user.id)
-        .in('status', ['open', 'pending']);
+      // SSOT: Use authority for position fetching (handles authorization)
+      const result = await positionMonitoringAuthority.getMonitorablePositions(user.id, false);
 
-      if (error) throw error;
-      if (!positions || positions.length === 0) {
+      if (!result.success) {
+        if (result.accessDenied) {
+          logger.error(LogCategory.POSITION_MONITOR, 'Access denied:', result.error);
+        } else {
+          logger.error(LogCategory.POSITION_MONITOR, 'Error fetching positions:', result.error);
+        }
+        return;
+      }
+
+      if (result.positions.length === 0) {
         this.criticalSymbols.clear();
         return;
       }
 
-      const symbols = Array.from(new Set(positions.map(p => p.symbol)));
+      const symbols = Array.from(new Set(result.positions.map(p => p.symbol)));
 
       symbols.forEach(symbol => {
         globalPollingCoordinator.setSymbolHasPosition(symbol, true);
       });
 
-      this.updateCriticalSymbols(positions);
+      this.updateCriticalSymbols(result.positions as any[]); // Cast needed for legacy compatibility
     } catch (error) {
       logger.error(LogCategory.POSITION_MONITOR, 'Error monitoring positions:', error);
     }
