@@ -367,7 +367,7 @@ class TradeClosureCoordinator {
     const { data: activeIntents } = await supabase
       .from('entry_intents')
       .select('id')
-      .eq('goal_session_id', sessionId)
+      .eq('session_id', sessionId)
       .eq('status', 'monitoring');
 
     const openTradesCount = openTrades?.length || 0;
