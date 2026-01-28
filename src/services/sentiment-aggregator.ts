@@ -37,6 +37,8 @@ export interface AggregatedSentiment {
 class MarketContextAggregator {
   private readonly CACHE_DURATION_MINUTES = 15;
   private cachedContext: Map<string, { context: AggregatedSentiment; expiry: Date }> = new Map();
+  private sentimentHistory: Map<string, AggregatedSentiment[]> = new Map();
+  private readonly MAX_HISTORY_SIZE = 5;
 
   private cacheStats = {
     hits: 0,
@@ -77,6 +79,9 @@ class MarketContextAggregator {
     console.log(`[MarketContext] 🔄 Cache MISS for ${symbol} - Generating fresh analysis...`);
 
     const context = this.generateFreshContext(symbol, candles, marketState, timestamp);
+
+    // Track sentiment history for trend analysis (CRITICAL: enables getSentimentTrend)
+    this.trackSentimentHistory(symbol, context);
 
     // Store in memory cache
     this.cachedContext.set(cacheKey, {
@@ -178,17 +183,124 @@ class MarketContextAggregator {
   }
 
   /**
-   * REMOVED: getSentimentTrend()
+   * Get sentiment trend by comparing current vs previous sentiment states
    *
-   * This method relied on omega_market_intelligence table which was
-   * intentionally dropped per SSOT architecture. Trend analysis should
-   * be implemented using real-time price action, not historical cache data.
+   * CRITICAL: Restored method that was removed but still called by sentiment-coordinator
+   * Uses in-memory history to track sentiment direction without database dependency.
+   * Does NOT use the dropped omega_market_intelligence table.
    *
-   * If trend analysis is needed:
-   * - Use regime-oracle for momentum analysis
-   * - Compare current vs previous candle structures
-   * - Use volatility expansion/compression metrics
+   * Sources for trend detection:
+   * - Sentiment changes (risk_on → risk_off = worsening)
+   * - Volatility expansion/compression
+   * - Confidence level changes
    */
+  async getSentimentTrend(symbol: string): Promise<{
+    current: AggregatedSentiment | null;
+    previous: AggregatedSentiment | null;
+    direction: 'improving' | 'worsening' | 'stable' | 'unknown';
+  }> {
+    try {
+      // Get history for this symbol
+      const history = this.sentimentHistory.get(symbol) || [];
+
+      if (history.length === 0) {
+        console.warn(`[MarketContext] No sentiment history available for ${symbol} - returning unknown trend`);
+        return {
+          current: null,
+          previous: null,
+          direction: 'unknown'
+        };
+      }
+
+      const current = history[history.length - 1]; // Latest
+      const previous = history.length > 1 ? history[history.length - 2] : null;
+
+      if (!current) {
+        return {
+          current: null,
+          previous: null,
+          direction: 'unknown'
+        };
+      }
+
+      // Determine trend direction by comparing sentiment states
+      let direction: 'improving' | 'worsening' | 'stable' | 'unknown' = 'unknown';
+
+      if (previous) {
+        // Risk sentiment change (primary indicator of trend)
+        const riskWorsening =
+          (previous.sentiment === 'risk_on' && current.sentiment === 'risk_off') ||
+          (previous.sentiment === 'mixed' && current.sentiment === 'risk_off');
+
+        const riskImproving =
+          (previous.sentiment === 'risk_off' && current.sentiment === 'risk_on') ||
+          (previous.sentiment === 'risk_off' && current.sentiment === 'mixed');
+
+        // Volatility expansion (worsening)
+        const volExpanding =
+          current.volatility === 'high' &&
+          (previous.volatility === 'medium' || previous.volatility === 'low');
+
+        // Volatility compression (improving)
+        const volCompressing =
+          current.volatility === 'low' &&
+          (previous.volatility === 'high' || previous.volatility === 'medium');
+
+        // Confidence changes
+        const confidenceDropping = current.confidence < previous.confidence - 10;
+        const confidenceRising = current.confidence > previous.confidence + 10;
+
+        // Composite direction assessment
+        if (riskWorsening || (volExpanding && confidenceDropping)) {
+          direction = 'worsening';
+        } else if (riskImproving || (volCompressing && confidenceRising)) {
+          direction = 'improving';
+        } else if (
+          current.sentiment === previous.sentiment &&
+          current.volatility === previous.volatility &&
+          Math.abs(current.confidence - previous.confidence) <= 10
+        ) {
+          direction = 'stable';
+        } else {
+          direction = 'stable';
+        }
+
+        console.log(`[MarketContext] Trend for ${symbol}: ${direction} (${previous.sentiment} → ${current.sentiment})`);
+      } else {
+        direction = 'unknown';
+      }
+
+      return {
+        current,
+        previous,
+        direction
+      };
+    } catch (error) {
+      console.error(`[MarketContext] Error getting sentiment trend for ${symbol}:`, error);
+      return {
+        current: null,
+        previous: null,
+        direction: 'unknown'
+      };
+    }
+  }
+
+  /**
+   * Track sentiment history (called after each sentiment update)
+   */
+  private trackSentimentHistory(symbol: string, sentiment: AggregatedSentiment): void {
+    let history = this.sentimentHistory.get(symbol) || [];
+
+    // Add new sentiment to history
+    history.push(sentiment);
+
+    // Keep only last N entries to avoid memory bloat
+    if (history.length > this.MAX_HISTORY_SIZE) {
+      history = history.slice(history.length - this.MAX_HISTORY_SIZE);
+    }
+
+    this.sentimentHistory.set(symbol, history);
+  }
 }
 
 export const sentimentAggregator = new MarketContextAggregator();

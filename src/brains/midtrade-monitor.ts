@@ -68,16 +68,20 @@ export interface MidTradeDecision {
 class MidTradeMonitorBrain {
   /**
    * Check if sentiment should trigger mid-trade override
+   *
+   * CRITICAL FIX: Added symbol parameter to getSentimentForMidTrade call
+   * Now properly handles errors instead of silently failing
    */
   async shouldTriggerSentimentOverride(snapshot: MidTradeSnapshot): Promise<{
     trigger: boolean;
     reason: string;
   }> {
     try {
-      const sentimentData = await sentimentCoordinator.getSentimentForMidTrade();
+      const sentimentData = await sentimentCoordinator.getSentimentForMidTrade(snapshot.sym);
 
       // Trigger if sentiment has flipped
       if (sentimentData.hasFlipped) {
+        console.log(`[MidTrade] Sentiment flip detected for ${snapshot.sym}: ${sentimentData.direction}`);
         return {
           trigger: true,
           reason: `Sentiment flipped ${sentimentData.direction}`
@@ -87,6 +91,7 @@ class MidTradeMonitorBrain {
       // Trigger if current sentiment is risk-off and high volatility
       if (sentimentData.current?.sentiment === 'risk_off' &&
           sentimentData.current?.volatility === 'high') {
+        console.warn(`[MidTrade] Risk-OFF + High volatility triggered for ${snapshot.sym}`);
         return {
           trigger: true,
           reason: 'Risk-OFF + High volatility detected'
@@ -97,6 +102,7 @@ class MidTradeMonitorBrain {
       if (sentimentData.current?.usd_strength === 'strong' &&
           snapshot.sym === 'XAUUSD' &&
           snapshot.dir === 'sell') {
+        console.warn(`[MidTrade] USD strength conflict detected for ${snapshot.sym}`);
         return {
           trigger: true,
           reason: 'Strong USD against XAU/USD sell position'
@@ -106,8 +112,8 @@ class MidTradeMonitorBrain {
       return { trigger: false, reason: '' };
 
     } catch (error) {
-      console.error('[MidTrade] Sentiment override check failed:', error);
-      return { trigger: false, reason: 'Sentiment check failed' };
+      console.error(`[MidTrade] Sentiment override check failed for ${snapshot.sym}:`, error);
+      return { trigger: false, reason: 'Sentiment check failed - proceeding without sentiment context' };
     }
   }
 
@@ -115,6 +121,9 @@ class MidTradeMonitorBrain {
    * Periodic Wellness Check (every 15 minutes)
    * Comprehensive evaluation with full trade context
    * Uses gpt-4o-mini for cost efficiency (~$0.0003 per check with context)
+   *
+   * CRITICAL FIX: Removed error masking with .catch(() => null)
+   * Now properly logs sentiment failures without silently ignoring them
    */
   async evaluatePeriodicWellness(
     snapshot: MidTradeSnapshot,
@@ -127,11 +136,22 @@ class MidTradeMonitorBrain {
       tradeContext = await tradeContextRetriever.getTradeContext(tradeId);
     }
 
-    // Get sentiment context (lightweight)
-    const sentimentData = await sentimentCoordinator.getSentimentForMidTrade().catch(() => null);
-    const sentimentContext = sentimentData?.current
-      ? ` | Sentiment: ${sentimentData.current.sentiment}, Vol: ${sentimentData.current.volatility}`
-      : '';
+    // Get sentiment context (lightweight) - CRITICAL: Now properly handles errors
+    let sentimentContext = '';
+    try {
+      const sentimentData = await sentimentCoordinator.getSentimentForMidTrade(snapshot.sym);
+      if (sentimentData?.current) {
+        sentimentContext = ` | Sentiment: ${sentimentData.current.sentiment}, Vol: ${sentimentData.current.volatility}`;
+        if (sentimentData.hasFlipped) {
+          sentimentContext += ` [FLIPPED-${sentimentData.direction}]`;
+        }
+      } else {
+        console.warn(`[Periodic Wellness] No sentiment available for ${snapshot.sym}`);
+      }
+    } catch (error) {
+      console.error(`[Periodic Wellness] Sentiment context failed for ${snapshot.sym}:`, error);
+      sentimentContext = ' | Sentiment: unavailable (error)';
+    }
 
     // Build comprehensive prompt with trade context
     let contextSection = '';
@@ -304,13 +324,21 @@ Write naturally like you're texting an update to a friend.`
   /**
    * Soft Check (30-49% drawdown)
    * Quick Alpha evaluation with sentiment context
+   *
+   * CRITICAL FIX: Now properly handles sentiment context without error masking
    */
   async evaluateSoft(snapshot: MidTradeSnapshot, traderScore: TraderScore): Promise<MidTradeDecision> {
-    // Get sentiment context
-    const sentimentData = await sentimentCoordinator.getSentimentForMidTrade();
-    const sentimentContext = sentimentData.current
-      ? `\nSentiment: ${sentimentData.current.sentiment}, Vol: ${sentimentData.current.volatility}, USD: ${sentimentData.current.usd_strength}${sentimentData.hasFlipped ? ' [FLIPPED]' : ''}`
-      : '';
+    // Get sentiment context - CRITICAL: Proper error handling
+    let sentimentContext = '';
+    try {
+      const sentimentData = await sentimentCoordinator.getSentimentForMidTrade(snapshot.sym);
+      sentimentContext = sentimentData.current
+        ? `\nSentiment: ${sentimentData.current.sentiment}, Vol: ${sentimentData.current.volatility}, USD: ${sentimentData.current.usd_strength}${sentimentData.hasFlipped ? ' [FLIPPED]' : ''}`
+        : '';
+    } catch (error) {
+      console.error(`[MidTrade Soft] Sentiment context failed for ${snapshot.sym}:`, error);
+      sentimentContext = '\nSentiment: unavailable';
+    }
 
     const prompt = `Mid-Trade Soft Check:
 ${JSON.stringify(snapshot)}
@@ -378,13 +406,21 @@ Return JSON:
   /**
    * Hard Check (50-69% drawdown)
    * Full Alpha evaluation with sentiment
+   *
+   * CRITICAL FIX: Now properly handles sentiment context without error masking
    */
   async evaluateHard(snapshot: MidTradeSnapshot, traderScore: TraderScore): Promise<MidTradeDecision> {
-    // Get sentiment context
-    const sentimentData = await sentimentCoordinator.getSentimentForMidTrade();
-    const sentimentContext = sentimentData.current
-      ? `\nSENTIMENT: ${sentimentData.current.sentiment}, Vol: ${sentimentData.current.volatility}, USD: ${sentimentData.current.usd_strength}\nWarnings: ${sentimentData.current.warnings.join(', ') || 'none'}${sentimentData.hasFlipped ? '\n⚠️ SENTIMENT FLIPPED' : ''}`
-      : '\nSentiment: unavailable';
+    // Get sentiment context - CRITICAL: Proper error handling
+    let sentimentContext = '';
+    try {
+      const sentimentData = await sentimentCoordinator.getSentimentForMidTrade(snapshot.sym);
+      sentimentContext = sentimentData.current
+        ? `\nSENTIMENT: ${sentimentData.current.sentiment}, Vol: ${sentimentData.current.volatility}, USD: ${sentimentData.current.usd_strength}\nWarnings: ${sentimentData.current.warnings.join(', ') || 'none'}${sentimentData.hasFlipped ? '\n⚠️ SENTIMENT FLIPPED' : ''}`
+        : '\nSentiment: unavailable';
+    } catch (error) {
+      console.error(`[MidTrade Hard] Sentiment context failed for ${snapshot.sym}:`, error);
+      sentimentContext = '\nSentiment: unavailable (error)';
+    }
 
     const prompt = `Mid-Trade Hard Check:
 ${JSON.stringify(snapshot)}

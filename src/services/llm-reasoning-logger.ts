@@ -82,18 +82,27 @@ export interface LLMDecisionLog {
 class LLMReasoningLogger {
   /**
    * Create journal entry when trade is executed (pre-trade)
+   *
+   * CRITICAL FIX: Now enforces HARD validation for Omega8/Omega9 data
+   * Journal entries cannot be created without proper Omega Council consultation
+   * This prevents incomplete audit trails and ensures governance compliance
    */
   async logTradeEntry(entry: JournalEntry): Promise<string | null> {
     try {
-      // CRITICAL: Validate Omega Council data is present
+      // CRITICAL: HARD VALIDATION - Omega8 data MUST be present
       if (!entry.omega8_liquidity_bias && !entry.omega8_direction_support) {
-        console.error('[LLM Reasoning Logger] ⚠️  WARNING: Omega8 data missing from journal entry!');
-        console.error('[LLM Reasoning Logger] This indicates Omega Council was not consulted properly.');
+        const errorMsg = '[LLM Reasoning Logger] ERROR: Cannot create journal entry - Omega8 data MISSING! ' +
+          'Omega Council (liquidity bias or direction support) must be consulted before trade entry.';
+        console.error(errorMsg);
+        throw new Error(errorMsg);
       }
 
+      // CRITICAL: HARD VALIDATION - Omega9 data MUST be present
       if (entry.omega9_pass === undefined && !entry.omega9_flags) {
-        console.error('[LLM Reasoning Logger] ⚠️  WARNING: Omega9 data missing from journal entry!');
-        console.error('[LLM Reasoning Logger] This indicates hallucination check was not performed.');
+        const errorMsg = '[LLM Reasoning Logger] ERROR: Cannot create journal entry - Omega9 data MISSING! ' +
+          'Hallucination check (omega9_pass) must be performed before trade entry.';
+        console.error(errorMsg);
+        throw new Error(errorMsg);
       }
 
       const { data, error } = await supabase

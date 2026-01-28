@@ -113,6 +113,9 @@ class SentimentCoordinator {
 
   /**
    * Get market context for mid-trade evaluation
+   *
+   * CRITICAL FIX: Now uses the restored getSentimentTrend() method
+   * Properly handles errors without masking them
    */
   async getSentimentForMidTrade(symbol: string): Promise<{
     current: AggregatedSentiment | null;
@@ -121,9 +124,24 @@ class SentimentCoordinator {
     direction: 'improving' | 'worsening' | 'stable' | 'unknown';
   }> {
     try {
+      // Call restored getSentimentTrend() method
       const trend = await sentimentAggregator.getSentimentTrend(symbol);
 
+      if (!trend.current) {
+        console.warn('[MarketContext] No current sentiment available for mid-trade evaluation');
+        return {
+          current: null,
+          previous: null,
+          hasFlipped: false,
+          direction: trend.direction
+        };
+      }
+
       const hasFlipped = this.detectSentimentFlip(trend.current, trend.previous);
+
+      if (hasFlipped) {
+        console.warn(`[MarketContext] SENTIMENT FLIP DETECTED for ${symbol}: ${trend.direction}`);
+      }
 
       return {
         current: trend.current,
