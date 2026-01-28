@@ -179,7 +179,7 @@ class SharedIntelligenceCoordinator {
           },
           thesisHash: dbThesis.thesis_hash,
           createdAt: new Date(dbThesis.created_at),
-          cacheAgeSeconds: ageSeconds,
+          cacheAgeSeconds: 0,
           fromCache: true
         };
 

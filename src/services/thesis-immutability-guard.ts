@@ -191,6 +191,7 @@ export function createImmutableThesis(
     liquidityContext: thesis.liquidityContext,
     invalidationLogic: thesis.invalidationLogic,
     confidenceBand: thesis.confidenceBand,
+    thesisSummary: thesis.thesisSummary,
     regimeSignature: thesis.regimeSignature
   });
 
@@ -238,6 +239,7 @@ export function verifyCachedThesisIntegrity(
     liquidityContext: thesis.liquidityContext,
     invalidationLogic: thesis.invalidationLogic,
     confidenceBand: thesis.confidenceBand,
+    thesisSummary: thesis.thesisSummary,
     regimeSignature: thesis.regimeSignature
   });
 

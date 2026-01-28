@@ -64,6 +64,19 @@ export interface TradeSignal {
   tradeConfidence?: number;
   // SSOT ENFORCEMENT: TradeContext MUST be present for all executions
   tradeContext?: TradeContext;
+  // Alpha Decision Metadata - For governance audit trail
+  alphaDecision?: {
+    omega8_liquidity_bias?: string | null;
+    omega8_direction_support?: boolean | null;
+    omega_votes?: Record<string, any>;
+    omega9_validation?: {
+      pass: boolean;
+      flags?: string[] | null;
+      confidence_adjustment?: number | null;
+      corrections?: string[] | null;
+      reasoning?: string | null;
+    } | null;
+  };
 }
 
 export interface TradeExecutionResult {
@@ -698,7 +711,9 @@ class TradeExecutionEngine {
 
     // CRITICAL FIX: Create journal entry for pending trade
     try {
-      // 🛡️ Extract Omega Council data from alphaDecision (if provided)
+      // 🛡️ Extract Omega Council data from signal.alphaDecision (if provided)
+      const alphaDecision = signal.alphaDecision;
+
       const omega8Data = alphaDecision ? {
         omega8_liquidity_bias: alphaDecision.omega8_liquidity_bias || null,
         omega8_direction_support: alphaDecision.omega8_direction_support || null,
@@ -1100,8 +1115,10 @@ class TradeExecutionEngine {
     });
 
     // CRITICAL FIX: Create journal entry for autonomous trading
-    // CCIP Compliance: Include Omega8/Omega9 data from alphaDecision for full governance audit trail
+    // CCIP Compliance: Include Omega8/Omega9 data from signal.alphaDecision for full governance audit trail
     try {
+      const alphaDecision = signal.alphaDecision;
+
       const omega8Data = alphaDecision ? {
         omega8_liquidity_bias: alphaDecision.omega8_liquidity_bias || null,
         omega8_direction_support: alphaDecision.omega8_direction_support || null,
