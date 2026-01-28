@@ -560,97 +560,83 @@ class PositionMonitorService {
       return;
     }
 
-    const shouldCloseAtStopLoss = position.direction === 'buy'
-      ? actualCurrentPrice <= position.stop_loss
-      : actualCurrentPrice >= position.stop_loss;
+    // ═══════════════════════════════════════════════════════════════════
+    // SSOT: Use Position Monitoring Authority for SL/TP decisions
+    // ═══════════════════════════════════════════════════════════════════
+    // All SL/TP logic is centralized in the authority to ensure:
+    // - Single source of truth
+    // - Race condition protection (SL always wins)
+    // - Consistent TP1/TP2 handling
+    // - No duplicate logic across monitors
+    // ═══════════════════════════════════════════════════════════════════
 
-    const hasDualTP = (position as any).take_profit_1 && (position as any).take_profit_2;
-    const tp1 = (position as any).take_profit_1;
-    const tp2 = (position as any).take_profit_2;
-    const tp1HitAt = (position as any).tp1_hit_at;
+    // Convert position to MonitoredPosition format
+    const monitoredPosition: MonitoredPosition = {
+      id: position.id,
+      symbol: position.symbol,
+      direction: position.direction,
+      entry_price: position.entry_price,
+      stop_loss: position.stop_loss,
+      take_profit: position.take_profit,
+      tp1_price: (position as any).tp1_price || null,
+      tp2_price: (position as any).tp2_price || null,
+      tp1_hit: (position as any).tp1_hit || false,
+      tp2_hit: (position as any).tp2_hit || false,
+      position_size: position.position_size,
+      lot_size: position.lot_size,
+      user_id: position.user_id,
+      goal_session_id: position.goal_session_id,
+      status: position.status,
+      current_price: actualCurrentPrice,
+      opened_at: position.opened_at || new Date().toISOString(),
+    };
 
-    let shouldCheckTP1 = false;
-    let shouldCheckTP2 = false;
-    let legacyTPCheck = false;
+    // Construct price data for authority
+    const priceData: PriceData = {
+      bid: actualCurrentPrice,
+      ask: actualCurrentPrice,
+    };
 
-    if (hasDualTP) {
-      shouldCheckTP1 = !tp1HitAt && (position.direction === 'buy'
-        ? actualCurrentPrice >= tp1
-        : actualCurrentPrice <= tp1);
+    // SSOT: Delegate SL/TP decision to authority
+    const decision = positionMonitoringAuthority.checkSLTP(monitoredPosition, priceData);
 
-      shouldCheckTP2 = tp1HitAt && (position.direction === 'buy'
-        ? actualCurrentPrice >= tp2
-        : actualCurrentPrice <= tp2);
-    } else {
-      legacyTPCheck = position.direction === 'buy'
-        ? actualCurrentPrice >= position.take_profit
-        : actualCurrentPrice <= position.take_profit;
-    }
-
-    const shouldCloseAtTakeProfit = legacyTPCheck || shouldCheckTP2;
-
-    // CRITICAL: Log SL/TP checks for debugging and transparency
-    if (this.criticalSymbols.has(position.symbol) || shouldCloseAtStopLoss || shouldCloseAtTakeProfit || shouldCheckTP1) {
-      console.log(`[PositionMonitor] SL/TP Check for ${position.symbol}:`, {
+    // Log for transparency (critical symbols or any closure decision)
+    if (this.criticalSymbols.has(position.symbol) || decision) {
+      console.log(`[PositionMonitor] SL/TP Authority Check for ${position.symbol}:`, {
         direction: position.direction,
         currentPrice: actualCurrentPrice.toFixed(5),
         stopLoss: position.stop_loss.toFixed(5),
         takeProfit: position.take_profit.toFixed(5),
-        hasDualTP,
-        tp1: tp1?.toFixed(5),
-        tp2: tp2?.toFixed(5),
-        tp1Hit: !!tp1HitAt,
-        shouldCloseAtSL: shouldCloseAtStopLoss,
-        shouldCloseAtTP: shouldCloseAtTakeProfit,
-        shouldCheckTP1,
-        shouldCheckTP2,
+        hasDualTP: !!(monitoredPosition.tp1_price && monitoredPosition.tp2_price),
+        tp1Price: monitoredPosition.tp1_price?.toFixed(5),
+        tp2Price: monitoredPosition.tp2_price?.toFixed(5),
+        tp1Hit: monitoredPosition.tp1_hit,
+        decision: decision ? ('milestone' in decision ? `TP1 Milestone` : decision.reason) : 'No Action',
         priceSource,
         critical: this.criticalSymbols.has(position.symbol)
       });
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // P0-3: RACE CONDITION PROTECTION (CCIP v2.0)
-    // ═══════════════════════════════════════════════════════════════════
-    // If price gaps through BOTH S/L and T/P simultaneously, STOP LOSS wins.
-    // This ensures risk management always takes priority over profit taking.
-    // Rationale:
-    // - Prevents optimistic accounting (recording profit when loss occurred)
-    // - Ensures consistent loss recording for risk metrics
-    // - Protects user capital by prioritizing risk limits
-    // ═══════════════════════════════════════════════════════════════════
-    if (shouldCloseAtStopLoss && (shouldCloseAtTakeProfit || shouldCheckTP1 || shouldCheckTP2)) {
-      console.warn(
-        `[PositionMonitor] 🚨 RACE CONDITION DETECTED: ${position.symbol}`,
-        {
-          positionId: position.id.substring(0, 8),
-          currentPrice: actualCurrentPrice.toFixed(5),
-          stopLoss: position.stop_loss.toFixed(5),
-          takeProfit: position.take_profit.toFixed(5),
-          direction: position.direction,
-          decision: 'Executing S/L (priority)',
-          slTriggered: shouldCloseAtStopLoss,
-          tpTriggered: shouldCloseAtTakeProfit,
-          tp1Triggered: shouldCheckTP1,
-          tp2Triggered: shouldCheckTP2
-        }
-      );
-      // Execute S/L only, ignore T/P
-      console.log(`[PositionMonitor] 🛑 STOP LOSS TRIGGERED (priority) for ${position.symbol} at ${actualCurrentPrice.toFixed(5)}`);
-      await this.autoClosePosition(position, actualCurrentPrice, 'stop_loss');
-      return; // Exit early to prevent any T/P execution
+    // No closure conditions met
+    if (!decision) {
+      return;
     }
 
-    // Normal single trigger handling (no race condition)
-    if (shouldCloseAtStopLoss) {
-      console.log(`[PositionMonitor] 🛑 STOP LOSS TRIGGERED for ${position.symbol} at ${actualCurrentPrice.toFixed(5)}`);
-      await this.autoClosePosition(position, actualCurrentPrice, 'stop_loss');
-    } else if (shouldCheckTP1) {
-      console.log(`[PositionMonitor] 🎯 TP1 TRIGGERED for ${position.symbol} at ${actualCurrentPrice.toFixed(5)}`);
-      await this.handleTP1Hit(position, actualCurrentPrice);
-    } else if (shouldCloseAtTakeProfit) {
-      console.log(`[PositionMonitor] 🎯 TAKE PROFIT TRIGGERED for ${position.symbol} at ${actualCurrentPrice.toFixed(5)}`);
-      await this.autoClosePosition(position, actualCurrentPrice, 'take_profit');
+    // Handle TP1 milestone (continue monitoring)
+    if ('milestone' in decision && decision.milestone === 'tp1') {
+      console.log(`[PositionMonitor] 🎯 TP1 TRIGGERED for ${position.symbol} at ${decision.price.toFixed(5)}`);
+      await this.handleTP1Hit(position, decision.price);
+      return;
+    }
+
+    // Handle closure decision (SL, TP, TP2)
+    if ('shouldClose' in decision && decision.shouldClose) {
+      const icon = decision.reason === 'stop_loss' ? '🛑' : '🎯';
+      const reasonText = decision.reason === 'stop_loss' ? 'STOP LOSS' :
+                         decision.reason === 'take_profit_2' ? 'TP2' : 'TAKE PROFIT';
+
+      console.log(`[PositionMonitor] ${icon} ${reasonText} TRIGGERED for ${position.symbol} at ${decision.price.toFixed(5)}`);
+      await this.autoClosePosition(position, decision.price, decision.reason);
     }
   }
 

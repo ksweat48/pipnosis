@@ -73,7 +73,7 @@ export function isMilestoneClose(closeReason: CloseReason | null | undefined): b
 export interface GoalSessionTrade {
   id: string;
   goal_session_id: string;
-  trade_id: string | null;
+  external_trade_record_id: string | null; // RENAMED: was trade_id (FK to trade_records for MT5 integration)
   user_id: string;
   symbol: string;
   direction: PositionDirection;
