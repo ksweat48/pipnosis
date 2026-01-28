@@ -33,6 +33,16 @@ import { modalQueueManager } from '../modal-queue-manager';
  * Any mismatch will cause database constraint violation errors
  *
  * NOTE: This now uses the CloseReason type from position.ts to maintain SSOT
+ *
+ * ENTRY_INTENT_STATUS ENUM (PostgreSQL):
+ * Valid values for entry_intents.status queries:
+ * - 'monitoring': Actively monitoring for entry conditions
+ * - 'executed': Successfully entered trade (moved to goal_session_trades)
+ * - 'timeout': User-defined timeout reached without entry
+ * - 'canceled': Manually canceled by user or system
+ * - 'conditions_changed': Entry conditions no longer met
+ * - 'expired_no_entry': Entry expired without any fill
+ * ⚠️ NEVER query with values like 'active', 'qualified' - these don't exist in enum
  */
 import { CloseReason as PositionCloseReason } from '../../types/position';
 export type CloseReason = PositionCloseReason;
@@ -358,7 +368,7 @@ class TradeClosureCoordinator {
       .from('entry_intents')
       .select('id')
       .eq('goal_session_id', sessionId)
-      .in('status', ['monitoring', 'active', 'qualified']);
+      .eq('status', 'monitoring');
 
     const openTradesCount = openTrades?.length || 0;
     const pendingOrdersCount = pendingOrders?.length || 0;
