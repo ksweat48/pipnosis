@@ -327,16 +327,13 @@ class TradeClosureCoordinator {
   private async checkGoalAfterClose(userId: string, sessionId: string) {
     const { data: session } = await supabase
       .from('goal_sessions')
-      .select('goal_amount, target_value, current_progress, status')
+      .select('target_value, current_progress, status')
       .eq('id', sessionId)
       .maybeSingle();
 
     if (!session || session.status === 'goal_achieved') return null;
 
-    const goalAmount = session.target_value
-      || (typeof session.goal_amount === 'object'
-        ? (session.goal_amount as Record<string, number>).amount
-        : session.goal_amount);
+    const goalAmount = session.target_value;
 
     return await goalAchievementCoordinator.checkAndProcessGoalAchievement({
       sessionId,
@@ -488,7 +485,7 @@ class TradeClosureCoordinator {
       // Get session and trade data for modal
       const { data: session } = await supabase
         .from('goal_sessions')
-        .select('goal_amount, target_value, current_progress')
+        .select('target_value, current_progress')
         .eq('id', sessionId)
         .maybeSingle();
 
@@ -511,10 +508,7 @@ class TradeClosureCoordinator {
         return;
       }
 
-      const targetValue = session.target_value
-        || (typeof session.goal_amount === 'object'
-          ? (session.goal_amount as Record<string, number>).amount
-          : session.goal_amount);
+      const targetValue = session.target_value;
 
       // Check if goal achieved
       const isGoalAchieved = session.current_progress >= targetValue;

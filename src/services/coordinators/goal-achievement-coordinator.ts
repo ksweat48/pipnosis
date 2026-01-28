@@ -115,7 +115,7 @@ class GoalAchievementCoordinator {
 
       const { data: sessionData } = await supabase
         .from('goal_sessions')
-        .select('goal_amount, risk_mode, status')
+        .select('target_value, risk_mode, status')
         .eq('id', context.sessionId)
         .maybeSingle();
 
@@ -139,9 +139,7 @@ class GoalAchievementCoordinator {
         return null;
       }
 
-      const goalAmount = typeof sessionData.goal_amount === 'object'
-        ? (sessionData.goal_amount as Record<string, number>).amount
-        : sessionData.goal_amount;
+      const goalAmount = sessionData.target_value;
 
       const achievementData = {
         user_id: context.userId,
@@ -226,15 +224,13 @@ class GoalAchievementCoordinator {
   async getSessionProgress(sessionId: string): Promise<GoalCheckResult | null> {
     const { data: session, error } = await supabase
       .from('goal_sessions')
-      .select('id, user_id, goal_amount, current_progress')
+      .select('id, user_id, target_value, current_progress')
       .eq('id', sessionId)
       .maybeSingle();
 
     if (error || !session) return null;
 
-    const goalAmount = typeof session.goal_amount === 'object'
-      ? (session.goal_amount as Record<string, number>).amount
-      : session.goal_amount;
+    const goalAmount = session.target_value;
 
     const progress = session.current_progress || 0;
     const progressPercent = (progress / goalAmount) * 100;
