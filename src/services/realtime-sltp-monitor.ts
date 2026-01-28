@@ -118,10 +118,18 @@ class RealtimeSLTPMonitor {
     try {
       this.abortController = new AbortController();
 
+      // Get current user - CRITICAL: Only monitor OWN trades
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.warn('[RealtimeSLTPMonitor] No authenticated user - skipping position refresh');
+        return;
+      }
+
       const { data: positions, error } = await supabase
         .from('goal_session_trades')
         .select('id, symbol, direction, entry_price, stop_loss, take_profit, tp1_price, tp2_price, tp1_hit, tp2_hit, position_size, user_id, goal_session_id, status')
         .eq('status', 'open')
+        .eq('user_id', user.id)
         .abortSignal(this.abortController.signal);
 
       if (error) {
