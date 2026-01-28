@@ -79,9 +79,9 @@ class GoalSessionManager {
     const percentMatch = lowerPrompt.match(/(\d+(?:\.\d+)?)\s*%/);
 
     const timeframePatterns = [
-      { regex: /today|this\s+day/i, timeframe: '1 day' },
-      { regex: /this\s+week|weekly/i, timeframe: '1 week' },
-      { regex: /this\s+month|monthly/i, timeframe: '1 month' },
+      { regex: /today|this\s+day/i, timeframe: 'D1' },
+      { regex: /this\s+week|weekly/i, timeframe: 'D1' },
+      { regex: /this\s+month|monthly/i, timeframe: 'D1' },
       { regex: /(\d+)\s+hours?/i, timeframe: null },
       { regex: /(\d+)\s+days?/i, timeframe: null },
       { regex: /(\d+)\s+weeks?/i, timeframe: null },
@@ -89,7 +89,7 @@ class GoalSessionManager {
 
     let targetValue = 0;
     let goalType: 'profit_target' | 'percentage_gain' | 'account_growth' = 'profit_target';
-    let timeframe = '1 day';
+    let timeframe = 'D1';
 
     if (percentMatch) {
       targetValue = parseFloat(percentMatch[1]);
@@ -107,7 +107,15 @@ class GoalSessionManager {
         if (pattern.timeframe) {
           timeframe = pattern.timeframe;
         } else {
-          timeframe = match[0];
+          // Extract number and unit, map to valid timeframe
+          const value = parseInt(match[1]);
+          if (match[0].includes('hour')) {
+            timeframe = value <= 4 ? 'H1' : 'H4';
+          } else if (match[0].includes('day')) {
+            timeframe = 'D1';
+          } else if (match[0].includes('week')) {
+            timeframe = 'D1';
+          }
         }
         break;
       }

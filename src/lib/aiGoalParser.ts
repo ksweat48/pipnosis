@@ -168,20 +168,26 @@ Respond with ONLY valid JSON in this format:
     }
 
     const timeframePatterns = [
-      { regex: /today|this\s+day/i, timeframe: '1 day' },
-      { regex: /this\s+week|weekly/i, timeframe: '1 week' },
-      { regex: /this\s+month|monthly/i, timeframe: '1 month' },
-      { regex: /(\d+)\s+hour/i, extract: true, unit: 'hour' },
-      { regex: /(\d+)\s+day/i, extract: true, unit: 'day' },
-      { regex: /(\d+)\s+week/i, extract: true, unit: 'week' },
+      { regex: /today|this\s+day/i, timeframe: 'D1' },
+      { regex: /this\s+week|weekly/i, timeframe: 'D1' },
+      { regex: /this\s+month|monthly/i, timeframe: 'D1' },
+      { regex: /(\d+)\s+hour/i, extract: true, unit: 'h' },
+      { regex: /(\d+)\s+day/i, extract: true, unit: 'd' },
+      { regex: /(\d+)\s+week/i, extract: true, unit: 'd' },
     ];
 
-    let timeframe = '1 day';
+    let timeframe = 'D1';
     for (const pattern of timeframePatterns) {
       const match = lowerPrompt.match(pattern.regex);
       if (match) {
         if (pattern.extract) {
-          timeframe = `${match[1]} ${pattern.unit}${parseInt(match[1]) > 1 ? 's' : ''}`;
+          const value = parseInt(match[1]);
+          // Map user input to valid timeframes (M1, M5, M15, M30, H1, H4, D1 only)
+          if (pattern.unit === 'h') {
+            timeframe = value <= 4 ? 'H1' : 'H4';
+          } else if (pattern.unit === 'd') {
+            timeframe = 'D1';
+          }
         } else {
           timeframe = pattern.timeframe;
         }

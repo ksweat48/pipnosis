@@ -156,6 +156,9 @@ const LEGACY_TIMEFRAME_MAP: Record<string, Timeframe> = {
   '1H': 'H1', '4H': 'H4', '1D': 'D1',
   'm1': 'M1', 'm5': 'M5', 'm15': 'M15', 'm30': 'M30',
   'h1': 'H1', 'h4': 'H4', 'd1': 'D1',
+  // Natural language timeframes (from goal parsing)
+  '1 day': 'D1', '1 hour': 'H1', '1 week': 'D1', '1 month': 'D1',
+  '1day': 'D1', '1hour': 'H1', '1week': 'D1', '1month': 'D1',
 };
 
 export function isValidTimeframe(value: string): value is Timeframe {
