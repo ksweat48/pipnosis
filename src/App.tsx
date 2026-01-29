@@ -122,6 +122,16 @@ const AppRoutes: React.FC = () => {
         console.error('[App] Error initializing deployment detector:', error);
       });
     }
+
+    // Initialize CCIP change tracking for entry intent cleanup fix
+    const initCCIPTracking = async () => {
+      const { ccipEntryIntentCleanupTracker } = await import('./services/ccip-entry-intent-cleanup-tracker');
+      await ccipEntryIntentCleanupTracker.initializeTracking();
+    };
+
+    initCCIPTracking().catch(error => {
+      console.error('[App] Error initializing CCIP tracking:', error);
+    });
   }, []);
 
   // Data quality startup - validate and repair candle data
