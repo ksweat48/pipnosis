@@ -27,6 +27,10 @@ interface LivePriceResult {
 /**
  * Safely extract Omega8 data from alpha decision with fallback values
  * Prevents errors if alpha decision is missing or malformed
+ *
+ * Handles both nested and top-level Omega8 data structures:
+ * - Top-level: alphaDecision.omega8_liquidity_bias (from coordinator-alpha)
+ * - Nested: alphaDecision.omega_votes.omega8.* (from omega council votes)
  */
 function extractOmega8Data(alphaDecision: TradeSignal['alphaDecision']) {
   if (!alphaDecision) {
@@ -34,20 +38,41 @@ function extractOmega8Data(alphaDecision: TradeSignal['alphaDecision']) {
   }
 
   try {
+    // Try top-level fields first (coordinator-alpha structure)
+    const liquidityBias = alphaDecision.omega8_liquidity_bias;
+    const directionSupport = alphaDecision.omega8_direction_support;
+
+    // Then try nested omega_votes.omega8 (council votes structure)
+    const omega8FromVotes = alphaDecision.omega_votes?.omega8;
+
     return {
-      omega8_liquidity_bias: alphaDecision.omega8_liquidity_bias ?? null,
-      omega8_direction_support: alphaDecision.omega8_direction_support ?? null,
-      omega8_confidence: alphaDecision.omega_votes?.omega8?.confidence ?? null,
-      omega8_reasoning: alphaDecision.omega_votes?.omega8?.reasoning ?? null,
-      omega8_used_llm: alphaDecision.omega_votes?.omega8?.used_llm ?? false,
-      omega8_deterministic_bias: alphaDecision.omega_votes?.omega8?.deterministic_bias ?? null,
-      omega8_deterministic_confidence: alphaDecision.omega_votes?.omega8?.deterministic_confidence ?? null,
-      omega8_llm_reason: alphaDecision.omega_votes?.omega8?.llm_reason ?? null,
-      omega8_patterns: alphaDecision.omega_votes?.omega8?.patterns ?? null
+      // Use top-level if available, fall back to nested
+      omega8_liquidity_bias: liquidityBias ?? omega8FromVotes?.liquidity_bias ?? null,
+      omega8_direction_support: directionSupport ?? omega8FromVotes?.direction_support ?? null,
+
+      // Nested fields (always from omega_votes)
+      omega8_confidence: omega8FromVotes?.confidence ?? null,
+      omega8_reasoning: omega8FromVotes?.reasoning ?? null,
+      omega8_used_llm: omega8FromVotes?.used_llm ?? false,
+      omega8_deterministic_bias: omega8FromVotes?.deterministic_bias ?? null,
+      omega8_deterministic_confidence: omega8FromVotes?.deterministic_confidence ?? null,
+      omega8_llm_reason: omega8FromVotes?.llm_reason ?? null,
+      omega8_patterns: omega8FromVotes?.patterns ?? null
     };
   } catch (err) {
     console.warn('[Trade Execution] ⚠️ Failed to extract Omega8 data - using fallback', err);
-    return {};
+    // Return safe defaults instead of empty object
+    return {
+      omega8_liquidity_bias: null,
+      omega8_direction_support: null,
+      omega8_confidence: null,
+      omega8_reasoning: null,
+      omega8_used_llm: false,
+      omega8_deterministic_bias: null,
+      omega8_deterministic_confidence: null,
+      omega8_llm_reason: null,
+      omega8_patterns: null
+    };
   }
 }
 
@@ -762,7 +787,10 @@ class TradeExecutionEngine {
       status: trade.status
     });
 
-    // CRITICAL FIX: Create journal entry for pending trade
+    // CRITICAL FIX: Create journal entry for pending trade (NON-BLOCKING)
+    // Journal entry is for analytics/learning, not for trade safety
+    // Trade already exists in database - journal failure won't prevent execution
+    let journalCreated = false;
     try {
       // 🛡️ Extract Omega Council data from signal.alphaDecision (if provided)
       // Uses safe extraction with fallback values for robustness
@@ -792,11 +820,32 @@ class TradeExecutionEngine {
 
       if (journalEntryId) {
         console.log(`[Trade Execution] ✅ Journal entry created for pending trade: ${journalEntryId}`);
+        journalCreated = true;
       } else {
         console.warn(`[Trade Execution] ⚠️ Failed to create journal entry for pending trade ${trade.id}`);
       }
     } catch (journalError) {
       console.error(`[Trade Execution] ❌ Exception creating journal entry for pending trade:`, journalError);
+      // Don't block - continue with trade that's already created
+    }
+
+    // Mark journal entry status in database (fire-and-forget, don't block)
+    if (!journalCreated) {
+      supabase
+        .from('goal_session_trades')
+        .update({ journal_entry_created: false })
+        .eq('id', trade.id)
+        .catch(err => {
+          console.warn('[Trade Execution] Failed to mark journal_entry_created=false:', err);
+        });
+    } else {
+      supabase
+        .from('goal_session_trades')
+        .update({ journal_entry_created: true })
+        .eq('id', trade.id)
+        .catch(err => {
+          console.warn('[Trade Execution] Failed to mark journal_entry_created=true:', err);
+        });
     }
 
     await supabase
@@ -1149,8 +1198,10 @@ class TradeExecutionEngine {
       status: trade.status
     });
 
-    // CRITICAL FIX: Create journal entry for autonomous trading
+    // CRITICAL FIX: Create journal entry for autonomous trading (NON-BLOCKING)
     // CCIP Compliance: Include Omega8/Omega9 data from signal.alphaDecision for full governance audit trail
+    // Journal entry is for learning/analytics, not required for trade execution
+    let journalCreated = false;
     try {
       // Uses safe extraction with fallback values for robustness
       const omega8Data = extractOmega8Data(signal.alphaDecision);
@@ -1179,11 +1230,32 @@ class TradeExecutionEngine {
 
       if (journalEntryId) {
         console.log(`[Trade Execution] ✅ Journal entry created: ${journalEntryId}`);
+        journalCreated = true;
       } else {
         console.warn(`[Trade Execution] ⚠️ Failed to create journal entry for trade ${trade.id}`);
       }
     } catch (journalError) {
       console.error(`[Trade Execution] ❌ Exception creating journal entry:`, journalError);
+      // Don't block - trade is already created and open in the market
+    }
+
+    // Mark journal entry status in database (fire-and-forget, don't block)
+    if (!journalCreated) {
+      supabase
+        .from('goal_session_trades')
+        .update({ journal_entry_created: false })
+        .eq('id', trade.id)
+        .catch(err => {
+          console.warn('[Trade Execution] Failed to mark journal_entry_created=false:', err);
+        });
+    } else {
+      supabase
+        .from('goal_session_trades')
+        .update({ journal_entry_created: true })
+        .eq('id', trade.id)
+        .catch(err => {
+          console.warn('[Trade Execution] Failed to mark journal_entry_created=true:', err);
+        });
     }
 
     if (!trade.entry_price || trade.entry_price <= 0) {
