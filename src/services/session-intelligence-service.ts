@@ -28,6 +28,24 @@ export interface SessionSummary {
   improvementsTested?: string[];
 }
 
+export interface SessionPair {
+  symbol: string;
+  confidence: number;
+  tradeConfidence: number;
+  reasoning: string;
+  indicatorAlignment?: {
+    vwap: boolean;
+    ema20: boolean;
+    ema50: boolean;
+    rsi: boolean;
+    volumePressure: boolean;
+    candlePattern: boolean;
+    structure: boolean;
+    momentum: boolean;
+  };
+  lastCalculated?: string;
+}
+
 export interface TradeIntelligence {
   id: string;
   symbol: string;
@@ -406,6 +424,60 @@ class SessionIntelligenceService {
    */
   getTradesWithWinPatterns(trades: TradeIntelligence[]): TradeIntelligence[] {
     return trades.filter(t => t.winPattern !== null && t.winPattern !== undefined);
+  }
+
+  /**
+   * Fetch current session intelligence data with trade probability scores
+   * SSOT: All session probability data comes through here
+   */
+  async fetchCurrentSessionIntelligence(sessionName: string): Promise<{ pairs: SessionPair[]; marketCondition: string; istradable: boolean }> {
+    try {
+      const { data, error } = await supabase
+        .from('session_intelligence_data')
+        .select('best_pairs, market_condition, is_tradable')
+        .eq('session_name', sessionName)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.error('[Session Intelligence] Error fetching session data:', error);
+        return { pairs: [], marketCondition: 'unknown', istradable: false };
+      }
+
+      if (!data) {
+        return { pairs: [], marketCondition: 'unknown', istradable: false };
+      }
+
+      const pairs: SessionPair[] = (data.best_pairs || []).map((pair: any) => ({
+        symbol: pair.symbol || '',
+        confidence: pair.confidence || 0,
+        tradeConfidence: pair.tradeConfidence || pair.confidence || 0,
+        reasoning: pair.reasoning || '',
+        indicatorAlignment: pair.indicatorAlignment,
+        lastCalculated: pair.lastCalculated
+      }));
+
+      return {
+        pairs,
+        marketCondition: data.market_condition || 'unknown',
+        istradable: data.is_tradable || false
+      };
+    } catch (error) {
+      console.error('[Session Intelligence] Error fetching session intelligence:', error);
+      return { pairs: [], marketCondition: 'unknown', istradable: false };
+    }
+  }
+
+  /**
+   * Get color code for trade confidence percentage
+   * Green: 80-100%, Yellow: 70-79%, Orange: 60-69%, Gray: <60%
+   */
+  getConfidenceColorCode(confidence: number): 'green' | 'yellow' | 'orange' | 'gray' {
+    if (confidence >= 80) return 'green';
+    if (confidence >= 70) return 'yellow';
+    if (confidence >= 60) return 'orange';
+    return 'gray';
   }
 }
 

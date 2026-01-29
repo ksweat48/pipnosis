@@ -53,7 +53,6 @@ export function SettingsPage() {
   const [monitorPreferences, setMonitorPreferences] = useState({
     entryPriceMonitorEnabled: true,
     sessionIntelligenceEnabled: true,
-    vwapKissMonitorEnabled: true,
   });
   const [savingMonitors, setSavingMonitors] = useState(false);
   const [monitorMessage, setMonitorMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -222,7 +221,6 @@ export function SettingsPage() {
         setMonitorPreferences({
           entryPriceMonitorEnabled: data.entry_price_monitor_enabled ?? true,
           sessionIntelligenceEnabled: data.session_intelligence_enabled ?? true,
-          vwapKissMonitorEnabled: data.vwap_kiss_monitor_enabled ?? true,
         });
       }
     } catch (error) {
@@ -241,7 +239,6 @@ export function SettingsPage() {
           user_id: user?.id,
           entry_price_monitor_enabled: monitorPreferences.entryPriceMonitorEnabled,
           session_intelligence_enabled: monitorPreferences.sessionIntelligenceEnabled,
-          vwap_kiss_monitor_enabled: monitorPreferences.vwapKissMonitorEnabled,
           updated_at: new Date().toISOString(),
         });
 
@@ -924,25 +921,6 @@ export function SettingsPage() {
                       type="checkbox"
                       checked={monitorPreferences.sessionIntelligenceEnabled}
                       onChange={() => handleMonitorToggle('sessionIntelligenceEnabled')}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                  </label>
-                </div>
-
-                <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-gray-700">
-                  <div className="flex items-center gap-3">
-                    <BarChart3 size={18} className="text-amber-400" />
-                    <div>
-                      <div className="text-white font-medium">VWAP Kiss Monitor</div>
-                      <div className="text-xs text-gray-400">Pairs near VWAP for quick scalp opportunities</div>
-                    </div>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={monitorPreferences.vwapKissMonitorEnabled}
-                      onChange={() => handleMonitorToggle('vwapKissMonitorEnabled')}
                       className="sr-only peer"
                     />
                     <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
