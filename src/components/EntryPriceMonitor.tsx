@@ -38,11 +38,7 @@ export const EntryPriceMonitor: React.FC = () => {
   const { activeIntent, loading: loadingIntent } = useActiveEntryIntent(activeSession?.id || null);
 
   // Load active goal session
-  useEffect(() => {
-    loadActiveSession();
-  }, []);
-
-  const loadActiveSession = async () => {
+  const loadActiveSession = useCallback(async () => {
     try {
       setLoadingSession(true);
       const { data: session, error } = await supabase
@@ -63,7 +59,11 @@ export const EntryPriceMonitor: React.FC = () => {
     } finally {
       setLoadingSession(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadActiveSession();
+  }, [loadActiveSession]);
 
   // Poll live price when we have an active intent
   useEffect(() => {
