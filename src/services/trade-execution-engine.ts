@@ -733,7 +733,10 @@ class TradeExecutionEngine {
         // Alpha Identity entry spec
         entry_mode: normalizeEntryMode(signal.entryMode),
         entry_quality_score: signal.entryQualityScore || null,
-        trade_confidence: signal.tradeConfidence || signal.confidence || null
+        trade_confidence: signal.tradeConfidence || signal.confidence || null,
+        // CCIP: Expected profit tracking (SSOT for continuation modal)
+        expected_profit_for_session: signal.expectedProfit || 0,
+        expected_profit_reason: `Alpha TP projection: ${signal.setupType} setup on ${signal.symbol}`
       })
       .select()
       .single();
