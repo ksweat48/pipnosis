@@ -87,6 +87,28 @@
 - ❌ Unstable hash generation in cache key generator
 - ❌ Duplicate regime detection logic
 
+### 📊 Real-Time Intelligence & Probability
+
+| Responsibility | Authority Service | Location |
+|---|---|---|
+| **Real-time probability calculation** | `RealTimeIntelligenceCalculator` | `netlify/functions/_shared/realtime-intelligence-calculator.ts` |
+| **Indicator weighting** | `getIntelligentWeights()` | `src/config/intelligent-indicator-weights.ts` |
+| **Session detection** | `getCurrentSession()` | `src/config/intelligent-indicator-weights.ts` |
+| **Intelligence population** | `populate-session-intelligence` | `netlify/functions/populate-session-intelligence.ts` |
+
+**CCIP COMPLIANCE (2026-01-29):**
+- ✅ Replaced hardcoded session-based probabilities with real-time calculations
+- ✅ Integrated intelligent indicator weighting (time/asset/regime aware)
+- ✅ Removed duplicate `trading-session-monitor-service.ts` (SSOT violation)
+- ✅ Shows only pairs ≥70% confidence threshold
+- ✅ Updates every 3 minutes (was 2 hours)
+- ✅ Calculates confidence from 8 technical indicators with intelligent weights
+
+**VIOLATIONS FIXED:**
+- ✅ Deleted `trading-session-monitor-service.ts` (duplicate session intelligence logic)
+- ✅ Removed hardcoded confidence percentages (95%, 93%, 90%)
+- ✅ Eliminated session window forecasts (replaced with RIGHT NOW calculations)
+
 ### 📈 Trade Execution & Lifecycle
 
 | Responsibility | Authority Service | Location |
@@ -207,6 +229,6 @@ If unsure which service is the authority for a responsibility:
 
 ---
 
-**Last Updated:** 2026-01-20
+**Last Updated:** 2026-01-29
 **Maintained By:** Architecture Team
 **Review Frequency:** Weekly during governance implementation

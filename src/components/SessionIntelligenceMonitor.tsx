@@ -40,7 +40,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
   useEffect(() => {
     loadSessionData();
 
-    const interval = setInterval(loadSessionData, 300000);
+    const interval = setInterval(loadSessionData, 180000);
 
     const channel = supabase
       .channel('session-intelligence')
@@ -170,9 +170,9 @@ export const SessionIntelligenceMonitor: React.FC = () => {
             <Clock className="w-6 h-6 text-gray-400" />
           </div>
           <div className="flex-1">
-            <h3 className="text-lg font-bold text-white mb-2">Session Intelligence</h3>
+            <h3 className="text-lg font-bold text-white mb-2">Real-Time Intelligence</h3>
             <p className="text-sm text-gray-400">
-              Session analysis will appear here shortly. This monitor shows which pairs are best for the current trading session.
+              Real-time probability analysis will appear here shortly. This monitor shows which pairs have ≥70% indicator alignment RIGHT NOW.
             </p>
           </div>
         </div>
@@ -191,9 +191,9 @@ export const SessionIntelligenceMonitor: React.FC = () => {
               {getSessionIcon(sessionData.session_name)}
             </div>
             <div>
-              <h3 className="text-lg font-bold text-white">Session Intelligence</h3>
+              <h3 className="text-lg font-bold text-white">Real-Time Intelligence</h3>
               <p className="text-sm text-blue-300">
-                {sessionData.session_name} Session • {sessionData.session_start_hour}:00 - {sessionData.session_end_hour}:00 EST
+                Updated every 3 minutes • Last: {new Date(sessionData.created_at).toLocaleTimeString()}
               </p>
             </div>
           </div>
@@ -225,7 +225,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
 
         {sessionData.is_tradable && sessionData.best_pairs.length > 0 ? (
           <div className="space-y-3 mb-4">
-            <p className="text-sm font-semibold text-blue-200">Best Pairs for This Session:</p>
+            <p className="text-sm font-semibold text-blue-200">Highest Probability Right Now (≥70%):</p>
             {sessionData.best_pairs.slice(0, 3).map((pair, index) => {
               const tradeConfidence = pair.tradeConfidence ?? pair.confidence;
               const confidenceColor = getTradeConfidenceColor(tradeConfidence);
@@ -243,7 +243,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
                       </div>
                       <div>
                         <p className="text-base font-bold text-white">{pair.symbol}</p>
-                        <p className="text-xs text-gray-400">Session match: {pair.confidence}%</p>
+                        <p className="text-xs text-gray-400">Real-time probability: {pair.confidence}%</p>
                       </div>
                     </div>
                   </div>
