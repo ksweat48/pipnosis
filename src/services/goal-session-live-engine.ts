@@ -16,7 +16,7 @@ import { midTradeTriggerDetector, type MarketConditions } from './mid-trade-trig
 import { llmMidTradeEvaluator } from './llm-mid-trade-evaluator';
 import { logger, LogCategory, LogLevel } from '../lib/logger';
 import { openAIClient } from './openai-client';
-import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
+import { normalizeTimeframeToDb, generateTimeframe, type Timeframe } from '../utils/timeframe-utils';
 import { multiSymbolScanner } from './multi-symbol-scanner';
 import { multiSymbolSnapshotBuilder, type SymbolSnapshot } from './multi-symbol-snapshot-builder';
 import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orchestrator';
@@ -236,7 +236,12 @@ class GoalSessionLiveEngine {
         };
       }
 
-      this.config = config;
+      // CCIP: Validate and normalize timeframe from config using centralized authority
+      const validatedTimeframe = generateTimeframe(config.timeframe, 'M15');
+      this.config = {
+        ...config,
+        timeframe: validatedTimeframe
+      };
       this.activeSession = config.goalSessionId;
       this.sessionStartTime = new Date();
       this.openTrades = [];

@@ -25,6 +25,7 @@ import { GoalSessionConfig } from '@/services/goal-session-manager';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { getRiskPercentage, getRiskModeDescription } from '../config/risk-levels';
 import { goalIntelligenceClassifier, GoalClassification } from '@/services/goal-intelligence-classifier';
+import { generateTimeframe, type Timeframe } from '../config/timeframe-hierarchy';
 
 interface AIGoalParsing {
   config: GoalSessionConfig;
@@ -176,7 +177,7 @@ Respond with ONLY valid JSON in this format:
       { regex: /(\d+)\s+week/i, extract: true, unit: 'd' },
     ];
 
-    let timeframe = 'D1';
+    let timeframeInput = 'D1';
     for (const pattern of timeframePatterns) {
       const match = lowerPrompt.match(pattern.regex);
       if (match) {
@@ -184,16 +185,19 @@ Respond with ONLY valid JSON in this format:
           const value = parseInt(match[1]);
           // Map user input to valid timeframes (M1, M5, M15, M30, H1, H4, D1 only)
           if (pattern.unit === 'h') {
-            timeframe = value <= 4 ? 'H1' : 'H4';
+            timeframeInput = value <= 4 ? 'H1' : 'H4';
           } else if (pattern.unit === 'd') {
-            timeframe = 'D1';
+            timeframeInput = 'D1';
           }
         } else {
-          timeframe = pattern.timeframe;
+          timeframeInput = pattern.timeframe;
         }
         break;
       }
     }
+
+    // CCIP: Use centralized generation authority to ensure valid timeframe
+    const timeframe = generateTimeframe(timeframeInput)
 
     // CRITICAL: Separate risk (money exposure) from style (time preference)
     const exposureKeywords = {
@@ -240,11 +244,11 @@ Respond with ONLY valid JSON in this format:
       config: {
         goalType,
         targetValue,
-        timeframe,
+        timeframe: timeframe as Timeframe,
         riskMode,
         watchlist
       },
-      interpretation: `I'll help you ${goalType === 'profit_target' ? `earn $${targetValue}` : `grow your account by ${targetValue}%`} over ${timeframe} with ${riskDescription} money exposure (max ${riskPercent}% per trade).${styleNote}`,
+      interpretation: `I'll help you ${goalType === 'profit_target' ? `earn $${targetValue}` : `grow your account by ${targetValue}%`} with ${riskDescription} money exposure (max ${riskPercent}% per trade).${styleNote}`,
       suggestedWatchlist: watchlist,
       estimatedTrades,
       timeline: timeframe

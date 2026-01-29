@@ -7,6 +7,7 @@ import { goalSessionStateMachine } from './coordinators/goal-session-state-machi
 import { tradeClosureCoordinator, CloseReason } from './coordinators/trade-closure-coordinator';
 import { creditValidationService } from './credit-validation-service';
 import { marketDataService } from './market-data-service';
+import { generateTimeframe, type Timeframe } from '../config/timeframe-hierarchy';
 
 export interface GoalSessionConfig {
   goalType: 'profit_target' | 'percentage_gain' | 'account_growth';
@@ -148,7 +149,10 @@ class GoalSessionManager {
         .maybeSingle();
 
       const startingBalance = profileData?.account_balance || 10000;
-      const timeframeHours = this.parseTimeframe(config.timeframe);
+
+      // CCIP: Validate and normalize timeframe before storing in database
+      const validatedTimeframe = generateTimeframe(config.timeframe, 'M15');
+      const timeframeHours = this.parseTimeframe(validatedTimeframe);
       const endTime = new Date(Date.now() + timeframeHours * 60 * 60 * 1000).toISOString();
 
       const scanInterval = this.calculateScanInterval(config.riskMode, timeframeHours);
@@ -157,13 +161,14 @@ class GoalSessionManager {
       // SSOT COMPLIANT: Direct INSERT for NEW session initialization is acceptable
       // This creates a new entity (not updating existing), so coordinator delegation not required
       // All subsequent status transitions MUST use goalSessionStateMachine.transition()
+      // CCIP: timeframe is validated above before storage
       const { data, error } = await supabase
         .from('goal_sessions')
         .insert({
           user_id: userId,
           goal_type: config.goalType,
           target_value: config.targetValue,
-          timeframe: config.timeframe,
+          timeframe: validatedTimeframe,
           timeframe_hours: timeframeHours,
           risk_mode: config.riskMode,
           status: 'initializing',

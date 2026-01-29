@@ -13,7 +13,7 @@ import { tradeExecutionEngine } from './trade-execution-engine';
 import { midTradeTriggerDetector, type MarketConditions } from './mid-trade-trigger-detector';
 import { llmMidTradeEvaluator } from './llm-mid-trade-evaluator';
 import { logger, LogCategory } from '../lib/logger';
-import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
+import { normalizeTimeframeToDb, generateTimeframe, type Timeframe } from '../utils/timeframe-utils';
 import { MarketDataService } from './market-data-service';
 
 export interface GoalSessionProcessResult {
@@ -418,11 +418,15 @@ export async function initializeGoalSession(
 
     const watchlist = goalSession.watchlist || ['XAUUSD', 'EURUSD', 'GBPUSD'];
 
+    // CCIP: Validate timeframe from database using centralized authority
+    // This ensures all loaded timeframes are canonical and valid
+    const validatedTimeframe = generateTimeframe(goalSession.timeframe, 'M15');
+
     const state: GoalSessionState = {
       goalSessionId,
       userId: goalSession.user_id,
       watchlist: Array.isArray(watchlist) ? watchlist : [watchlist],
-      timeframe: goalSession.timeframe || '15m',
+      timeframe: validatedTimeframe,
       openTrades,
       lastProcessedCandleTime: goalSession.last_scan_time ? new Date(goalSession.last_scan_time) : null,
       sessionStartTime: new Date(goalSession.created_at),

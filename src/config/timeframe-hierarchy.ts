@@ -335,3 +335,38 @@ export function isCandleCompleted(candleStartSeconds: number, timeframe: Timefra
 export function isTimestampAligned(timestampSeconds: number, timeframe: Timeframe): boolean {
   return timestampSeconds % TIMEFRAME_SECONDS[timeframe] === 0;
 }
+
+/**
+ * CENTRALIZED TIMEFRAME GENERATION AUTHORITY
+ *
+ * SSOT + CCIP COMPLIANCE
+ *
+ * This is the ONLY function that should be called to generate timeframes from user input.
+ * All parsers, engines, and APIs must use this function to ensure consistency.
+ *
+ * @param userInput - Any user-provided timeframe (natural language, shorthand, etc.)
+ * @param defaultValue - Default timeframe if input is empty/invalid (default: 'M15')
+ * @returns Valid normalized Timeframe guaranteed to be in ALL_TIMEFRAMES
+ * @throws Error if unable to normalize after attempting all mappings
+ */
+export function generateTimeframe(userInput?: string | null, defaultValue: Timeframe = 'M15'): Timeframe {
+  // Step 1: Handle empty/null input
+  if (!userInput || userInput.trim() === '') {
+    return defaultValue;
+  }
+
+  // Step 2: Try to normalize (includes legacy mapping)
+  const normalized = normalizeTimeframe(userInput);
+
+  // Step 3: Verify result is valid (fail-loud, not silent)
+  if (!isValidTimeframe(normalized)) {
+    throw new Error(
+      `[CCIP VIOLATION] Timeframe generation failed for input "${userInput}". ` +
+      `Normalized to "${normalized}" which is not a valid Timeframe. ` +
+      `Valid timeframes are: ${ALL_TIMEFRAMES.join(', ')}. ` +
+      `This indicates a bug in normalizeTimeframe() or legacy mapping.`
+    );
+  }
+
+  return normalized;
+}
