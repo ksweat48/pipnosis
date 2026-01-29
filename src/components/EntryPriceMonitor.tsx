@@ -37,9 +37,12 @@ export const EntryPriceMonitor: React.FC = () => {
 
   const { activeIntent, loading: loadingIntent } = useActiveEntryIntent(activeSession?.id || null);
 
+  console.log('[EntryPriceMonitor] Rendering - activeSession:', activeSession, 'activeIntent:', activeIntent);
+
   // Load active goal session
   const loadActiveSession = useCallback(async () => {
     try {
+      console.log('[EntryPriceMonitor] Loading active session...');
       setLoadingSession(true);
       const { data: session, error } = await supabase
         .from('goal_sessions')
@@ -48,6 +51,8 @@ export const EntryPriceMonitor: React.FC = () => {
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
+
+      console.log('[EntryPriceMonitor] Session query result:', { session, error });
 
       if (error) {
         console.error('[EntryPriceMonitor] Error loading session:', error);
@@ -62,6 +67,7 @@ export const EntryPriceMonitor: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    console.log('[EntryPriceMonitor] Mounted - calling loadActiveSession');
     loadActiveSession();
   }, [loadActiveSession]);
 
