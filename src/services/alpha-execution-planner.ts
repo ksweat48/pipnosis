@@ -11,6 +11,7 @@ import { logger, LogCategory } from '../lib/logger';
 import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
 import { goalIntelligenceClassifier, GoalClassification } from './goal-intelligence-classifier';
 import { MarketDataService } from './market-data-service';
+import { getCurrencyPipInfo, calculateDollarPerPip } from '../utils/currencyHelpers';
 
 export interface TradePlan {
   totalTradesNeeded: number;
@@ -433,84 +434,245 @@ Return ONLY this JSON format (no markdown, no explanations):
   }
 
   /**
+   * Estimate market profit potential based on technical indicators
+   * SSOT: This is the authoritative calculation for market capability
+   */
+  private async estimateMarketPotential(
+    symbol: string,
+    direction: 'buy' | 'sell',
+    entryPrice: number,
+    atr?: number
+  ): Promise<{
+    predictedProfitMin: number;
+    predictedProfitMax: number;
+    confidence: number;
+    reasoning: string;
+  }> {
+    try {
+      // Get ATR from market data if not provided
+      let currentATR = atr;
+      if (!currentATR) {
+        const { data: atrData } = await supabase
+          .from('market_atr_values')
+          .select('atr_value')
+          .eq('symbol', symbol)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        currentATR = atrData?.atr_value || null;
+      }
+
+      // Fallback: Use percentage-based estimation if no ATR
+      if (!currentATR) {
+        const conservativeMove = entryPrice * 0.003; // 0.3% move
+        const optimisticMove = entryPrice * 0.008; // 0.8% move
+
+        // Estimate profit based on typical position size
+        const typicalPositionSize = 0.1; // 0.1 lots
+        const pipInfo = getCurrencyPipInfo(symbol);
+        const dollarPerPip = calculateDollarPerPip(symbol, typicalPositionSize);
+
+        const minPips = conservativeMove / pipInfo.pipValue;
+        const maxPips = optimisticMove / pipInfo.pipValue;
+
+        const predictedProfitMin = Math.round(minPips * dollarPerPip * 100) / 100;
+        const predictedProfitMax = Math.round(maxPips * dollarPerPip * 100) / 100;
+
+        return {
+          predictedProfitMin,
+          predictedProfitMax,
+          confidence: 60,
+          reasoning: `Market potential estimated without ATR data. Conservative $${predictedProfitMin} to optimistic $${predictedProfitMax} based on typical ${symbol} volatility patterns.`
+        };
+      }
+
+      // Calculate profit potential based on ATR
+      // Conservative: 1.5x ATR move, Optimistic: 3.0x ATR move
+      const conservativeMove = currentATR * 1.5;
+      const optimisticMove = currentATR * 3.0;
+
+      // Convert price moves to dollar profit (typical position size)
+      const typicalPositionSize = 0.1;
+      const pipInfo = getCurrencyPipInfo(symbol);
+      const dollarPerPip = calculateDollarPerPip(symbol, typicalPositionSize);
+
+      const minPips = conservativeMove / pipInfo.pipValue;
+      const maxPips = optimisticMove / pipInfo.pipValue;
+
+      const predictedProfitMin = Math.round(minPips * dollarPerPip * 100) / 100;
+      const predictedProfitMax = Math.round(maxPips * dollarPerPip * 100) / 100;
+
+      return {
+        predictedProfitMin,
+        predictedProfitMax,
+        confidence: 75,
+        reasoning: `Market potential based on ATR analysis. ${symbol} with ATR=${currentATR.toFixed(5)} suggests conservative $${predictedProfitMin} (1.5x ATR) to optimistic $${predictedProfitMax} (3.0x ATR) profit range.`
+      };
+    } catch (error) {
+      logger.error(LogCategory.AI_TRADING, '[Market Potential Estimator] Error:', error);
+
+      // Emergency fallback
+      return {
+        predictedProfitMin: 50,
+        predictedProfitMax: 120,
+        confidence: 50,
+        reasoning: 'Fallback estimation due to technical error. Conservative $50 to optimistic $120 range.'
+      };
+    }
+  }
+
+  /**
    * Calculate dual take profit targets for a goal
    * TP1: Conservative "safe zone" target with higher probability
    * TP2: Realistic market target that Alpha believes market will give
+   *
+   * ✅ SSOT COMPLIANCE: Uses Alpha's market assessment as authoritative source
+   * ✅ GOVERNANCE: Market assessment overrides user goal if goal exceeds market potential
    */
   async calculateDualTargets(
     userGoal: number,
     currentBalance: number,
-    riskMode: 'low' | 'medium' | 'high'
-  ): Promise<{ tp1: number; tp2: number; reasoning: string }> {
+    riskMode: 'low' | 'medium' | 'high',
+    options?: {
+      marketAssessment?: {
+        predictedProfitMin: number;
+        predictedProfitMax: number;
+        confidence: number;
+        reasoning: string;
+      };
+      symbol?: string;
+      direction?: 'buy' | 'sell';
+      entryPrice?: number;
+      atr?: number;
+    }
+  ): Promise<{
+    tp1: number;
+    tp2: number;
+    reasoning: string;
+    marketAssessment?: {
+      predictedProfitMin: number;
+      predictedProfitMax: number;
+      confidence: number;
+      reasoning: string;
+    };
+    adjustedGoal?: number;
+    goalAdjusted: boolean;
+  }> {
     try {
-      // Classify the goal
-      const classification = goalIntelligenceClassifier.classify({
-        goalAmount: userGoal,
-        accountBalance: currentBalance,
-        timeframe: '1 day' // Default for calculation
-      });
+      let tp1: number;
+      let tp2: number;
+      let reasoning: string;
+      let adjustedGoal: number | undefined;
+      let goalAdjusted = false;
+      let marketAssessment = options?.marketAssessment;
 
-      // Base TP1 on conservative probability (45-60% of user's goal)
-      // This is the "safe zone" where Alpha is confident user can reach
-      let tp1Percentage: number;
-      let tp2Percentage: number;
+      // ✅ AUTO-GENERATE MARKET ASSESSMENT if not provided
+      // This enables market-aligned TPs without requiring upstream changes
+      if (!marketAssessment && options?.symbol && options?.direction && options?.entryPrice) {
+        logger.info(
+          LogCategory.AI_TRADING,
+          `[Alpha TP Calculator] No market assessment provided, auto-generating for ${options.symbol}`
+        );
 
-      switch (classification.mode) {
-        case 'precision':
-          // For precision mode, user's goal is already small and realistic
-          tp1Percentage = 0.55; // 55% of goal is very achievable
-          tp2Percentage = 0.85; // 85% of goal is what market will likely give
-          break;
-
-        case 'execution':
-          // For execution mode, goals are moderate but achievable
-          tp1Percentage = 0.50; // 50% is high probability
-          tp2Percentage = 0.75; // 75% is realistic market target
-          break;
-
-        case 'campaign':
-          // For campaign mode, goals are ambitious
-          tp1Percentage = 0.45; // 45% is conservative
-          tp2Percentage = 0.65; // 65% is realistic for this session
-          break;
-
-        case 'growth':
-          // For growth mode (shouldn't execute, but calculate anyway)
-          tp1Percentage = 0.40; // 40% would be impressive
-          tp2Percentage = 0.55; // 55% would be exceptional
-          break;
-
-        default:
-          tp1Percentage = 0.50;
-          tp2Percentage = 0.75;
+        marketAssessment = await this.estimateMarketPotential(
+          options.symbol,
+          options.direction,
+          options.entryPrice,
+          options.atr
+        );
       }
 
-      const tp1 = Math.round(userGoal * tp1Percentage * 100) / 100;
-      const tp2 = Math.round(userGoal * tp2Percentage * 100) / 100;
+      // ✅ SSOT: If Alpha provided or generated market assessment, use it as truth
+      if (marketAssessment) {
+        // TP2 = Alpha's maximum predicted profit (what market will realistically give)
+        tp2 = Math.round(marketAssessment.predictedProfitMax * 100) / 100;
 
-      const reasoning = `Based on ${classification.mode} mode classification: TP1 ($${tp1}) represents a ${(tp1Percentage * 100).toFixed(0)}% conservative target with high probability. TP2 ($${tp2}) represents a ${(tp2Percentage * 100).toFixed(0)}% realistic target that market conditions suggest is achievable.`;
+        // TP1 = Conservative portion of market potential (65-70% of TP2)
+        // This represents high-probability zone within market's capability
+        tp1 = Math.round(marketAssessment.predictedProfitMax * 0.65 * 100) / 100;
 
-      logger.info(
-        LogCategory.AI_TRADING,
-        `[Alpha TP Calculator] User Goal: $${userGoal} → TP1: $${tp1} (${(tp1Percentage * 100).toFixed(0)}%) | TP2: $${tp2} (${(tp2Percentage * 100).toFixed(0)}%)`
-      );
+        // Ensure TP1 doesn't fall below minimum prediction
+        tp1 = Math.max(tp1, marketAssessment.predictedProfitMin);
+
+        // Check if user goal exceeds market capability
+        if (userGoal > marketAssessment.predictedProfitMax) {
+          adjustedGoal = marketAssessment.predictedProfitMax;
+          goalAdjusted = true;
+          reasoning = `Market Assessment: Alpha predicts market can give $${marketAssessment.predictedProfitMin}-$${marketAssessment.predictedProfitMax}. Your goal ($${userGoal}) exceeds market capability, adjusted to $${adjustedGoal}. ${marketAssessment.reasoning}. TP1 ($${tp1}) = conservative 65% zone. TP2 ($${tp2}) = market maximum.`;
+        } else {
+          reasoning = `Market Assessment: Alpha predicts market can give $${marketAssessment.predictedProfitMin}-$${marketAssessment.predictedProfitMax}. ${marketAssessment.reasoning}. TP1 ($${tp1}) = conservative entry at 65% of market potential. TP2 ($${tp2}) = market maximum within capability.`;
+        }
+
+        logger.info(
+          LogCategory.AI_TRADING,
+          `[Alpha TP Calculator - Market Aligned] Market Range: $${marketAssessment.predictedProfitMin}-$${marketAssessment.predictedProfitMax} | User Goal: $${userGoal}${goalAdjusted ? ` → Adjusted: $${adjustedGoal}` : ''} | TP1: $${tp1} | TP2: $${tp2}`
+        );
+      } else {
+        // FALLBACK: No market assessment provided - use legacy goal-based calculation
+        // This should rarely happen after market assessment integration
+        logger.warn(
+          LogCategory.AI_TRADING,
+          `[Alpha TP Calculator] No market assessment provided, using legacy goal-based calculation`
+        );
+
+        const classification = goalIntelligenceClassifier.classify({
+          goalAmount: userGoal,
+          accountBalance: currentBalance,
+          timeframe: '1 day'
+        });
+
+        let tp1Percentage: number;
+        let tp2Percentage: number;
+
+        switch (classification.mode) {
+          case 'precision':
+            tp1Percentage = 0.55;
+            tp2Percentage = 0.85;
+            break;
+          case 'execution':
+            tp1Percentage = 0.50;
+            tp2Percentage = 0.75;
+            break;
+          case 'campaign':
+            tp1Percentage = 0.45;
+            tp2Percentage = 0.65;
+            break;
+          case 'growth':
+            tp1Percentage = 0.40;
+            tp2Percentage = 0.55;
+            break;
+          default:
+            tp1Percentage = 0.50;
+            tp2Percentage = 0.75;
+        }
+
+        tp1 = Math.round(userGoal * tp1Percentage * 100) / 100;
+        tp2 = Math.round(userGoal * tp2Percentage * 100) / 100;
+
+        reasoning = `⚠️ Legacy calculation (no market assessment): Based on ${classification.mode} mode. TP1 ($${tp1}) = ${(tp1Percentage * 100).toFixed(0)}% conservative. TP2 ($${tp2}) = ${(tp2Percentage * 100).toFixed(0)}% goal-based estimate.`;
+      }
 
       return {
         tp1,
         tp2,
-        reasoning
+        reasoning,
+        marketAssessment,
+        adjustedGoal,
+        goalAdjusted
       };
     } catch (error) {
       logger.error(LogCategory.AI_TRADING, '[Alpha TP Calculator] Error calculating targets:', error);
 
-      // Fallback to simple calculation
+      // Emergency fallback
       const tp1 = Math.round(userGoal * 0.50 * 100) / 100;
       const tp2 = Math.round(userGoal * 0.75 * 100) / 100;
 
       return {
         tp1,
         tp2,
-        reasoning: 'Fallback calculation: TP1 at 50%, TP2 at 75% of user goal'
+        reasoning: '⚠️ Fallback calculation due to error: TP1 at 50%, TP2 at 75% of user goal',
+        goalAdjusted: false
       };
     }
   }

@@ -58,6 +58,21 @@ export interface AlphaDecisionContract {
     [key: string]: any;
   };
 
+  /**
+   * Market assessment: Alpha's prediction of what the market can realistically give
+   * SSOT for profit potential - used to set TP levels
+   */
+  marketAssessment?: {
+    /** Minimum expected profit (conservative estimate) */
+    predictedProfitMin: number;
+    /** Maximum expected profit (optimistic estimate) */
+    predictedProfitMax: number;
+    /** Confidence in this assessment (0-100) */
+    confidence: number;
+    /** Why Alpha set this range */
+    reasoning: string;
+  };
+
   /** Timestamp of decision */
   decidedAt: Date;
 }

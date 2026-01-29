@@ -1670,18 +1670,47 @@ class GoalSessionLiveEngine {
       }
 
       // 🎯 DUAL TAKE-PROFIT SYSTEM
-      // Calculate TP1 (conservative target) and TP2 (realistic target) based on user goal
+      // Calculate TP1 (conservative target) and TP2 (realistic target) based on market assessment
+      // ✅ SSOT: Market assessment is authoritative source for TP calculations
+      // ✅ GOVERNANCE: Market capability overrides user goal if goal exceeds market potential
       let tp1Price: number | undefined;
       let tp2Price: number | undefined;
       let tp1Reasoning: string | undefined;
       let tp2Reasoning: string | undefined;
+      let marketAssessment: any;
+      let goalWasAdjusted = false;
 
       try {
         const dualTargets = await alphaExecutionPlanner.calculateDualTargets(
           goalContext.targetGoal,
           goalContext.currentBalance,
-          config.riskMode
+          config.riskMode,
+          {
+            symbol: selectedSymbol,
+            direction: trade.direction,
+            entryPrice: trade.entryPrice,
+            atr: trade.marketContext?.atr,
+            // If Alpha provided market assessment in decision, use it
+            marketAssessment: decision.marketAssessment
+          }
         );
+
+        marketAssessment = dualTargets.marketAssessment;
+        goalWasAdjusted = dualTargets.goalAdjusted;
+
+        // Store market assessment in session for transparency
+        if (marketAssessment && activeSession) {
+          await supabase
+            .from('goal_sessions')
+            .update({
+              predicted_profit_min: marketAssessment.predictedProfitMin,
+              predicted_profit_max: marketAssessment.predictedProfitMax,
+              market_assessment_confidence: marketAssessment.confidence,
+              market_assessment_reasoning: marketAssessment.reasoning,
+              ...(dualTargets.adjustedGoal && { target_value: dualTargets.adjustedGoal })
+            })
+            .eq('id', activeSession);
+        }
 
         // Convert dollar amounts to price levels
         const pipInfo = getCurrencyPipInfo(selectedSymbol);
@@ -1697,12 +1726,19 @@ class GoalSessionLiveEngine {
         }
 
         tp1Reasoning = `TP1 at $${dualTargets.tp1.toFixed(2)} profit - Conservative target with high probability`;
-        tp2Reasoning = `TP2 at $${dualTargets.tp2.toFixed(2)} profit - Realistic market target`;
+        tp2Reasoning = `TP2 at $${dualTargets.tp2.toFixed(2)} profit - ${marketAssessment ? 'Market maximum capability' : 'Realistic market target'}`;
 
         logger.info(
           LogCategory.AI_TRADING,
-          `[Dual TP] TP1: ${formatCurrencyPrice(selectedSymbol, tp1Price)} ($${dualTargets.tp1.toFixed(2)}) | TP2: ${formatCurrencyPrice(selectedSymbol, tp2Price)} ($${dualTargets.tp2.toFixed(2)})`
+          `[Dual TP - Market Aligned] ${marketAssessment ? `Market Range: $${marketAssessment.predictedProfitMin}-$${marketAssessment.predictedProfitMax} | ` : ''}User Goal: $${goalContext.targetGoal}${goalWasAdjusted ? ` → Adjusted: $${dualTargets.adjustedGoal}` : ''} | TP1: ${formatCurrencyPrice(selectedSymbol, tp1Price)} ($${dualTargets.tp1.toFixed(2)}) | TP2: ${formatCurrencyPrice(selectedSymbol, tp2Price)} ($${dualTargets.tp2.toFixed(2)})`
         );
+
+        if (goalWasAdjusted) {
+          logger.warn(
+            LogCategory.AI_TRADING,
+            `[Goal Adjusted] User's goal ($${goalContext.targetGoal}) exceeded market capability. Alpha adjusted to $${dualTargets.adjustedGoal} based on market assessment.`
+          );
+        }
       } catch (error) {
         logger.error(LogCategory.AI_TRADING, '[Dual TP] Error calculating dual targets:', error);
         // Continue without dual TP system if calculation fails

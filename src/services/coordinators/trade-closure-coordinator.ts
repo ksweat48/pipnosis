@@ -348,6 +348,21 @@ class TradeClosureCoordinator {
     userId: string,
     closeReason?: CloseReason
   ): Promise<void> {
+    // GOVERNANCE: Clean up stale intents BEFORE checking execution channels
+    // This prevents orphaned "monitoring" intents from blocking session transitions
+    try {
+      const { data: cleanupResult, error: cleanupError } = await supabase
+        .rpc('cleanup_orphaned_intents', { p_session_id: sessionId });
+
+      if (cleanupError) {
+        console.error(`[TradeClosureCoordinator] Intent cleanup error:`, cleanupError);
+      } else if (cleanupResult && cleanupResult.length > 0) {
+        console.log(`[TradeClosureCoordinator] Cleaned up orphaned intents:`, cleanupResult);
+      }
+    } catch (error) {
+      console.error(`[TradeClosureCoordinator] Failed to cleanup intents:`, error);
+    }
+
     // Check ALL execution channels before deciding session fate
     const { data: openTrades } = await supabase
       .from('goal_session_trades')
@@ -361,6 +376,8 @@ class TradeClosureCoordinator {
       .eq('goal_session_id', sessionId)
       .eq('status', 'pending');
 
+    // ✅ SSOT: Use 'monitoring' status as authoritative state for active intents
+    // After cleanup, only legitimate monitoring intents should remain
     const { data: activeIntents } = await supabase
       .from('entry_intents')
       .select('id')
@@ -413,6 +430,14 @@ class TradeClosureCoordinator {
     const isWeekendShutdown = closeReason === 'weekend_protection';
     const isTimeout = closeReason === 'timeout';
 
+    console.log(`[TradeClosureCoordinator] Close reason classification:`, {
+      closeReason,
+      isManualClose,
+      isSystemClose,
+      isWeekendShutdown,
+      isTimeout,
+    });
+
     let targetStatus: 'scanning' | 'stopped' | 'weekend_shutdown' | 'timeout' | 'awaiting_continuation' = 'stopped';
     let transitionReason = 'All execution channels empty';
 
@@ -420,26 +445,34 @@ class TradeClosureCoordinator {
       // Manual closure → stop the session
       targetStatus = 'stopped';
       transitionReason = 'User manually closed all trades';
+      console.log(`[TradeClosureCoordinator] Manual close detected → will stop session`);
     } else if (isSystemClose) {
       // System closure (SL/TP) → pause and ask user what to do next
       targetStatus = 'awaiting_continuation';
       transitionReason = 'Trade closed by system, awaiting user decision';
+      console.log(`[TradeClosureCoordinator] System close (${closeReason}) detected → will pause and ask user`);
 
       // Create trade_closed modal for user to decide
+      console.log(`[TradeClosureCoordinator] Creating trade_closed modal for user decision`);
       await this.createTradeClosedModal(sessionId, userId, closeReason);
+      console.log(`[TradeClosureCoordinator] Modal created successfully`);
     } else if (isWeekendShutdown) {
       targetStatus = 'weekend_shutdown';
       transitionReason = 'Weekend protection activated';
+      console.log(`[TradeClosureCoordinator] Weekend shutdown detected`);
     } else if (isTimeout) {
       targetStatus = 'timeout';
       transitionReason = 'Session timeout';
+      console.log(`[TradeClosureCoordinator] Timeout detected`);
     } else {
       // Default: stop the session
       targetStatus = 'stopped';
       transitionReason = `All trades closed (reason: ${closeReason || 'unknown'})`;
+      console.log(`[TradeClosureCoordinator] Default behavior → stopping session`);
     }
 
-    console.log(`[TradeClosureCoordinator] Transitioning session ${sessionId} to ${targetStatus}`);
+    console.log(`[TradeClosureCoordinator] 🔄 Attempting transition: ${currentStatus} → ${targetStatus}`);
+    console.log(`[TradeClosureCoordinator] Transition reason: ${transitionReason}`);
 
     const transitionResult = await goalSessionStateMachine.transition(sessionId, targetStatus, {
       reason: transitionReason,
