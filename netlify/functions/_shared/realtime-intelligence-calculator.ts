@@ -110,6 +110,12 @@ export class RealTimeIntelligenceCalculator {
     heatingPairs: IntelligencePairResult[];
     marketCondition: MarketRegime;
     calculatedAt: string;
+    diagnostics?: {
+      symbolsAttempted: number;
+      symbolsSuccessful: number;
+      symbolsFailed: number;
+      failureReasons: Record<string, string>;
+    };
   }> {
     console.log(`[RealTimeIntelligence] Calculating ALL pair scores for ${symbols.length} symbols...`);
 
@@ -117,13 +123,16 @@ export class RealTimeIntelligenceCalculator {
     const marketCondition = await this.detectMarketRegime(symbols);
 
     const allResults: IntelligencePairResult[] = [];
+    const failureReasons: Record<string, string> = {};
 
     for (const symbol of symbols) {
       try {
         const result = await this.calculateForSymbol(symbol, session, marketCondition);
         allResults.push(result);
       } catch (error) {
-        console.error(`[RealTimeIntelligence] Error calculating ${symbol}:`, error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        failureReasons[symbol] = errorMessage;
+        console.error(`[RealTimeIntelligence] Error calculating ${symbol}:`, errorMessage);
       }
     }
 
@@ -137,6 +146,12 @@ export class RealTimeIntelligenceCalculator {
       `[RealTimeIntelligence] All pairs calculated: ${allResults.length} total | ${highConfidencePairs.length} ≥70% | ${heatingPairs.length} heating (50-70%)`
     );
 
+    if (Object.keys(failureReasons).length > 0) {
+      console.warn(
+        `[RealTimeIntelligence] Failed symbols: ${Object.keys(failureReasons).join(', ')}`
+      );
+    }
+
     return {
       allPairs: allResults,
       topPairs,
@@ -144,6 +159,12 @@ export class RealTimeIntelligenceCalculator {
       heatingPairs,
       marketCondition,
       calculatedAt: new Date().toISOString(),
+      diagnostics: {
+        symbolsAttempted: symbols.length,
+        symbolsSuccessful: allResults.length,
+        symbolsFailed: symbols.length - allResults.length,
+        failureReasons,
+      },
     };
   }
 

@@ -8,17 +8,21 @@
  * advisory intelligence to users. This is purely educational and does not
  * affect Alpha's autonomous trading decisions.
  *
- * CCIP Compliant:
- * - Replaced hardcoded session-based probabilities with real-time calculations
- * - Uses intelligent weighting based on time, asset class, and market regime
- * - Shows only pairs ≥70% confidence
- * - Expires data in 3 minutes for freshness
+ * CCIP Compliant (Phase 2 - Implementation):
+ * - Watchlist loaded from trading_watchlist_configuration SSOT table
+ * - Error aggregation with failure tracking and diagnostics
+ * - Pre-insert validation gate requiring minimum data quality
+ * - UPSERT instead of delete+insert (atomic, faster)
+ * - Execution metrics logged for pipeline health monitoring
+ * - Governance-compliant RLS policies utilized
  *
  * Architecture:
- * 1. Fetch all watchlist pairs
+ * 1. Fetch active watchlist from trading_watchlist_configuration (SSOT)
  * 2. Calculate real-time probability using indicator alignment + intelligent weights
- * 3. Filter pairs ≥70% confidence
- * 4. Insert data into session_intelligence_data with 3-minute expiration
+ * 3. Aggregate errors and track failed symbols
+ * 4. Validate data quality before insertion (must have ≥3 symbols calculated)
+ * 5. UPSERT into session_intelligence_data with 3-minute expiration
+ * 6. Log execution metrics for pipeline monitoring
  */
 
 import type { Handler } from '@netlify/functions';
@@ -29,18 +33,6 @@ import { getCurrentSession } from '../../src/config/intelligent-indicator-weight
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-const WATCHLIST = [
-  'XAUUSD',
-  'US30',
-  'NAS100',
-  'SPX500',
-  'EURUSD',
-  'GBPUSD',
-  'USDJPY',
-  'BTCUSD',
-  'ETHUSD',
-];
 
 interface SessionInfo {
   name: string;
@@ -66,7 +58,49 @@ function getSessionInfo(): SessionInfo {
   };
 }
 
+async function getActiveWatchlist(): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('trading_watchlist_configuration')
+    .select('symbol')
+    .eq('is_active', true)
+    .order('symbol');
+
+  if (error) {
+    console.error('[RealTimeIntelligence] Error loading watchlist from database:', error);
+    throw error;
+  }
+
+  const symbols = data.map((row: { symbol: string }) => row.symbol);
+  console.log(`[RealTimeIntelligence] Loaded ${symbols.length} active watchlist symbols from SSOT`);
+  return symbols;
+}
+
+async function logExecutionMetrics(
+  status: 'success' | 'error' | 'stale',
+  symbolsAttempted: number,
+  symbolsSuccessful: number,
+  pairCount: number,
+  executionTimeMs: number,
+  errorMessage?: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('session_intelligence_logs')
+    .insert({
+      status,
+      symbols_attempted: symbolsAttempted,
+      symbols_successful: symbolsSuccessful,
+      pair_count: pairCount,
+      execution_time_ms: executionTimeMs,
+      error_message: errorMessage,
+    });
+
+  if (error) {
+    console.warn('[RealTimeIntelligence] Failed to log execution metrics:', error);
+  }
+}
+
 export const handler: Handler = async (event) => {
+  const executionStart = Date.now();
   console.log('[RealTimeIntelligence] Starting real-time probability analysis...');
 
   try {
@@ -75,13 +109,21 @@ export const handler: Handler = async (event) => {
       `[RealTimeIntelligence] Current session: ${sessionInfo.name} (${sessionInfo.startHour}:00 - ${sessionInfo.endHour}:00 EST)`
     );
 
-    const { allPairs, topPairs, highConfidencePairs, heatingPairs, marketCondition, calculatedAt } =
-      await realTimeIntelligenceCalculator.calculateForAllPairsWithAllScores(WATCHLIST);
+    const watchlist = await getActiveWatchlist();
+    const { allPairs, topPairs, highConfidencePairs, heatingPairs, marketCondition, calculatedAt, diagnostics } =
+      await realTimeIntelligenceCalculator.calculateForAllPairsWithAllScores(watchlist);
 
     console.log(`[RealTimeIntelligence] Market regime: ${marketCondition}`);
     console.log(
       `[RealTimeIntelligence] Total pairs analyzed: ${allPairs.length} | Ready (≥70%): ${highConfidencePairs.length} | Heating (50-70%): ${heatingPairs.length}`
     );
+
+    if (diagnostics && diagnostics.failureReasons && Object.keys(diagnostics.failureReasons).length > 0) {
+      console.warn(
+        `[RealTimeIntelligence] Symbol calculation failures:`,
+        JSON.stringify(diagnostics.failureReasons, null, 2)
+      );
+    }
 
     const isTradable = highConfidencePairs.length > 0;
 
@@ -138,44 +180,81 @@ export const handler: Handler = async (event) => {
 
     const expiresAt = new Date(Date.now() + 3 * 60 * 1000);
 
-    const { data: existingData } = await supabase
-      .from('session_intelligence_data')
-      .select('id')
-      .gt('expires_at', new Date().toISOString())
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const totalPairsAnalyzed = allPairs.length;
+    const readyPairsCount = highConfidencePairs.length;
+    const heatingPairsCount = heatingPairs.length;
 
-    if (existingData) {
-      await supabase
-        .from('session_intelligence_data')
-        .delete()
-        .eq('id', existingData.id);
-    }
+    const hasEnoughData = totalPairsAnalyzed >= 3 && (readyPairsCount > 0 || heatingPairsCount > 0);
 
-    const { error: insertError } = await supabase
-      .from('session_intelligence_data')
-      .insert({
-        session_name: sessionInfo.name as 'London' | 'New York' | 'Asian',
-        session_start_hour: sessionInfo.startHour,
-        session_end_hour: sessionInfo.endHour,
-        best_pairs: bestPairs,
-        top_pairs: topPairsFormatted,
-        all_pair_scores: allPairsFormatted,
-        heating_pairs: heatingPairs.map((pair) => formatPairData(pair, 'heating')),
-        market_condition: marketCondition,
-        is_tradable: isTradable,
-        recommendation_text: recommendationText,
-        expires_at: expiresAt.toISOString(),
-      });
+    if (!hasEnoughData) {
+      const executionTimeMs = Date.now() - executionStart;
+      const errorMessage = `Insufficient data for insertion: ${totalPairsAnalyzed} analyzed, ${readyPairsCount} ready, ${heatingPairsCount} heating`;
+      console.warn(`[RealTimeIntelligence] ${errorMessage}`);
 
-    if (insertError) {
-      console.error('[RealTimeIntelligence] Error inserting data:', insertError);
+      await logExecutionMetrics(
+        'stale',
+        watchlist.length,
+        totalPairsAnalyzed,
+        0,
+        executionTimeMs,
+        errorMessage
+      );
+
       return {
-        statusCode: 500,
-        body: JSON.stringify({ error: 'Failed to insert intelligence data' }),
+        statusCode: 202,
+        body: JSON.stringify({
+          message: 'Insufficient data for meaningful intelligence',
+          diagnostics: {
+            totalAttempted: watchlist.length,
+            successfulCalculations: totalPairsAnalyzed,
+            readyPairs: readyPairsCount,
+            heatingPairs: heatingPairsCount,
+            failures: diagnostics?.failureReasons || {},
+          },
+        }),
       };
     }
+
+    const { error: upsertError } = await supabase
+      .from('session_intelligence_data')
+      .upsert(
+        {
+          session_name: sessionInfo.name as 'London' | 'New York' | 'Asian',
+          session_start_hour: sessionInfo.startHour,
+          session_end_hour: sessionInfo.endHour,
+          best_pairs: bestPairs,
+          top_pairs: topPairsFormatted,
+          all_pair_scores: allPairsFormatted,
+          heating_pairs: heatingPairs.map((pair) => formatPairData(pair, 'heating')),
+          market_condition: marketCondition,
+          is_tradable: isTradable,
+          recommendation_text: recommendationText,
+          expires_at: expiresAt.toISOString(),
+        },
+        { onConflict: 'session_name' }
+      );
+
+    if (upsertError) {
+      const executionTimeMs = Date.now() - executionStart;
+      console.error('[RealTimeIntelligence] Error upserting data:', upsertError);
+
+      await logExecutionMetrics(
+        'error',
+        watchlist.length,
+        totalPairsAnalyzed,
+        readyPairsCount,
+        executionTimeMs,
+        upsertError.message
+      );
+
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: 'Failed to upsert intelligence data' }),
+      };
+    }
+
+    const executionTimeMs = Date.now() - executionStart;
+    await logExecutionMetrics('success', watchlist.length, totalPairsAnalyzed, readyPairsCount, executionTimeMs);
 
     console.log('[RealTimeIntelligence] Successfully updated real-time intelligence');
     if (topPairsFormatted.length > 0) {
