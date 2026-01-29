@@ -134,8 +134,8 @@
 # ADVISORY ONLY: Analyzes current trading session and recommends optimal pairs
 # Does not affect Alpha's autonomous trading decisions
 [functions."populate-session-intelligence"]
-  timeout = 30
-  schedule = "0 * * * *"  # 🚨 Every hour at :00 - provides session-based trading insights
+  timeout = 60
+  schedule = "*/3 * * * *"  # 🚨 Every 3 minutes - provides real-time trading intelligence
 
 # 📊 EDUCATIONAL: VWAP Kiss Scanner (runs every 2 minutes)
 # ADVISORY ONLY: Detects when price is near VWAP for scalp opportunities
