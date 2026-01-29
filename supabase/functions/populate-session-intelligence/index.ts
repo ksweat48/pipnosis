@@ -1,6 +1,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+const PIPNOSIS_WATCHLIST = [
+  'XAUUSD', 'US30', 'NAS100', 'SPX500',
+  'EURUSD', 'GBPUSD', 'USDJPY',
+  'BTCUSD', 'ETHUSD'
+] as const;
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -126,24 +132,8 @@ async function generateSessionIntelligence(
   startHour: number,
   endHour: number
 ): Promise<SessionIntelligence> {
-  // Fetch all available pairs
-  const { data: symbols } = await supabase
-    .from("symbol_availability")
-    .select("symbol")
-    .limit(50);
-
-  const watchlistSymbols = symbols?.map((s: any) => s.symbol) || [
-    "EURUSD",
-    "GBPUSD",
-    "USDJPY",
-    "AUDUSD",
-    "NZDUSD",
-    "USDCAD",
-    "USDCHF",
-    "BTCUSD",
-    "ETHUSD",
-    "XAUUSD",
-  ];
+  // Use only Pipnosis official watchlist - SSOT compliance
+  const watchlistSymbols = Array.from(PIPNOSIS_WATCHLIST);
 
   // Calculate scores for each pair
   const pairScores: PairScore[] = [];
