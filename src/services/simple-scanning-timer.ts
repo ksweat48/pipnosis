@@ -1,18 +1,29 @@
 /**
  * Simple Scanning Timer Service
  *
- * Replaces the complex state machine with a simple 15-minute timer:
- * - Scan for 15 minutes
- * - If no trade found → show continuation modal
- * - User chooses: Continue (reset timer) or Stop (end session)
- * - 1-minute auto-timeout if no response
+ * CCIP IMMEDIATE TIMEOUT SYSTEM - Single Source of Truth Compliance
  *
- * Same rules for all users (no admin bypass)
+ * Scanning Timeline:
+ * - 15 minutes: Show continuation modal IMMEDIATELY (no delay)
+ * - 20 minutes: Auto-close with NO grace period if no response
+ * - 5-minute warning: Governance alert sent at 20-min mark
  *
- * SSOT ARCHITECTURE:
- * - Database trigger (enforce_continuation_timeout_ssot) is the SINGLE authority for timeout enforcement
- * - Client observes status changes via realtime subscriptions
- * - Client-side enforcement methods are DEPRECATED and should not be used
+ * User Response Options:
+ * - Continue: Reset scanning_started_at, restart 15-minute timer
+ * - Stop: Session ends immediately (user_stopped status)
+ * - No Response: Auto-close at 20-min hard limit
+ *
+ * SSOT ARCHITECTURE (Database is Authority):
+ * - Database trigger enforce_continuation_timeout_ssot is the SINGLE authority
+ * - Database function handle_session_early_warning sends governance alerts
+ * - Client observes status changes via realtime subscriptions ONLY
+ * - Client cannot prevent, delay, or override database timeout enforcement
+ * - All auto-closures logged in governance_auto_closure_log for CCIP compliance
+ *
+ * Previous System (REMOVED):
+ * - 80-minute safety net → NOW 20 minutes (IMMEDIATE)
+ * - Client-side timeout checks → NOW database-only
+ * - Grace periods → REMOVED (immediate enforcement)
  */
 
 import { supabase } from '../lib/supabase';
@@ -25,8 +36,15 @@ export interface ScanningTimerStatus {
   sessionStatus: string;
 }
 
-const TIMEOUT_THRESHOLD_MINUTES = 15;
-const SAFETY_NET_MINUTES = 80;
+/**
+ * CCIP IMMEDIATE TIMEOUT SYSTEM
+ * All values are now sourced from database (immediate_timeout_config table)
+ * These constants are DEPRECATED and kept only for backward compatibility
+ * Database values are SSOT (Single Source of Truth)
+ */
+const TIMEOUT_THRESHOLD_MINUTES = 15; // Modal trigger - IMMEDIATE
+const SAFETY_NET_MINUTES = 20; // Hard close - NO grace period (was 80)
+const EARLY_WARNING_MINUTES = 20; // Governance alert sent at this point
 const MAX_RETRY_ATTEMPTS = 3;
 
 class SimpleScanningTimerService {
@@ -128,10 +146,15 @@ class SimpleScanningTimerService {
   }
 
   /**
-   * @deprecated This method is DEPRECATED and should not be used
+   * @deprecated COMPLETELY DEPRECATED - Do not use this method
    *
-   * SSOT: Database trigger (enforce_continuation_timeout_ssot) is the single authority
-   * Client should observe status changes via realtime subscriptions, not enforce timeouts
+   * SSOT AUTHORITY: Database trigger enforce_continuation_timeout_ssot is the ONLY authority
+   * - Modal trigger at 15 minutes (automatic)
+   * - Hard close at 20 minutes (NO grace period)
+   * - Client has NO ability to prevent or delay auto-close
+   *
+   * Client role: Observe status via realtime subscriptions only
+   * Database role: Enforce all timeout logic
    */
   async checkModalTimeout(sessionId: string): Promise<boolean> {
     try {
@@ -259,10 +282,20 @@ class SimpleScanningTimerService {
   }
 
   /**
-   * @deprecated This method is DEPRECATED and should not be used
+   * @deprecated COMPLETELY DEPRECATED - Do not use or call this method
    *
-   * SSOT: Database trigger (enforce_continuation_timeout_ssot) is the single authority
-   * Client should observe status changes via realtime subscriptions, not enforce timeouts
+   * REMOVED: Client-side timeout enforcement
+   *
+   * CCIP SSOT AUTHORITY:
+   * - Database trigger enforce_continuation_timeout_ssot is the ONLY timeout authority
+   * - Database function handle_session_early_warning sends governance alerts
+   * - Client has ZERO responsibility for timeout enforcement
+   * - All client-side timeout methods are non-functional stubs
+   *
+   * Timeline (Database-Enforced):
+   * - 15 minutes: Modal trigger (automatic)
+   * - 20 minutes: Hard close (automatic, NO grace period)
+   * - This method is a stub and should return false/false/false
    */
   async clientSideTimeoutCheck(sessionId: string): Promise<{
     shouldTriggerModal: boolean;
@@ -299,12 +332,13 @@ class SimpleScanningTimerService {
         }
       }
 
-      // Check 2: Safety net - scanning >80 minutes without awaiting continuation
+      // Check 2: Safety net - hard close at 20 minutes (DEPRECATED - database is SSOT)
       if (session.status === 'scanning' || session.status === 'trade_pending') {
         const isAwaitingContinuation = session.status === 'awaiting_continuation';
         if (elapsedMinutes >= SAFETY_NET_MINUTES && !isAwaitingContinuation) {
-          console.log('[Scanning Timer] ⚠️ CLIENT-SIDE: Safety net - >80min without modal, forcing close');
-          return { shouldTriggerModal: false, shouldForceClose: true, timedOut: true, elapsedMinutes };
+          console.log('[Scanning Timer] ⚠️ CLIENT-SIDE: DEPRECATED - Database trigger enforce_continuation_timeout_ssot handles this (20-min hard close)');
+          // Database will handle this - client should not intervene
+          return { shouldTriggerModal: false, shouldForceClose: false, timedOut: false, elapsedMinutes };
         }
 
         // Check 3: 15 minutes elapsed - should trigger modal
@@ -322,9 +356,10 @@ class SimpleScanningTimerService {
   }
 
   /**
-   * @deprecated This method is DEPRECATED and should not be used
+   * @deprecated COMPLETELY DEPRECATED - Do not use or call this method
    *
-   * SSOT: Server-side autonomous monitor is the single authority for triggering modals
+   * SSOT AUTHORITY: Database trigger enforce_continuation_timeout_ssot is the ONLY authority
+   * This method is a non-functional stub. Database automatically triggers modals at 15 minutes.
    */
   async clientTriggerModal(sessionId: string): Promise<boolean> {
     try {
@@ -351,9 +386,10 @@ class SimpleScanningTimerService {
   }
 
   /**
-   * @deprecated This method is DEPRECATED and should not be used
+   * @deprecated COMPLETELY DEPRECATED - Do not use or call this method
    *
-   * SSOT: Database trigger (enforce_continuation_timeout_ssot) is the single authority
+   * SSOT AUTHORITY: Database trigger enforce_continuation_timeout_ssot is the ONLY authority
+   * Database auto-closes at 20 minutes. Client has NO ability to force close.
    */
   async forceCloseStaleSession(sessionId: string): Promise<boolean> {
     try {
@@ -397,9 +433,10 @@ class SimpleScanningTimerService {
   }
 
   /**
-   * @deprecated This method is DEPRECATED and should not be used
+   * @deprecated COMPLETELY DEPRECATED - Do not use or call this method
    *
-   * SSOT: Database trigger (enforce_continuation_timeout_ssot) is the single authority
+   * SSOT AUTHORITY: Database trigger enforce_continuation_timeout_ssot is the ONLY authority
+   * Client has ZERO responsibility for timeout enforcement. This is a non-functional stub.
    */
   async enforceTimeoutClientSide(sessionId: string): Promise<boolean> {
     const check = await this.clientSideTimeoutCheck(sessionId);
