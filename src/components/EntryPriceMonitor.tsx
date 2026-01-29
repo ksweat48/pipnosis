@@ -183,16 +183,15 @@ export const EntryPriceMonitor: React.FC = () => {
 
   if (!activeIntent) {
     return (
-      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 rounded-xl p-6 border border-gray-700/50">
+      <div className="bg-gradient-to-br from-cyan-900/30 to-blue-900/30 rounded-xl p-6 border border-cyan-500/30">
         <div className="flex items-start gap-4">
-          <div className="p-3 bg-gray-700/50 rounded-lg">
-            <Target className="w-6 h-6 text-gray-400" />
+          <div className="p-3 bg-cyan-500/20 rounded-lg">
+            <Target className="w-6 h-6 text-cyan-400" />
           </div>
           <div className="flex-1">
             <h3 className="text-lg font-bold text-white mb-2">Entry Price Monitor</h3>
-            <p className="text-sm text-gray-400">
-              Waiting for Alpha to find an entry opportunity. Once an entry intent is created, this monitor will show
-              real-time proximity to the entry zone.
+            <p className="text-sm text-cyan-200">
+              Real-time proximity tracking to entry zones. Once Alpha identifies an entry opportunity, this monitor will display live price distance and help you execute at optimal levels.
             </p>
           </div>
         </div>
