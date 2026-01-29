@@ -8,9 +8,7 @@ import {
   Shield,
   AlertTriangle,
   CheckCircle,
-  Target,
-  Clock,
-  DollarSign
+  Target
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { midTradeMonitorService, type MidTradeGuidance } from '@/services/mid-trade-monitor-service';
@@ -88,12 +86,6 @@ export const MidTradeMonitor: React.FC = () => {
     }
   };
 
-  const formatPrice = (price: number, symbol: string): string => {
-    if (symbol.includes('JPY')) return price.toFixed(3);
-    if (symbol.includes('XAU') || symbol.includes('US30') || symbol.includes('SPX')) return price.toFixed(2);
-    if (symbol.includes('BTC') || symbol.includes('ETH')) return price.toFixed(2);
-    return price.toFixed(5);
-  };
 
   const getActionIcon = (action: MidTradeGuidance['primaryAction']) => {
     switch (action) {
@@ -255,58 +247,13 @@ export const MidTradeMonitor: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Metrics Grid */}
-                <div className="grid grid-cols-2 gap-3 mb-3">
-                  <div className="bg-gray-800/50 rounded-lg p-2">
-                    <p className="text-xs text-gray-400 mb-1">Entry Price</p>
-                    <p className="text-sm font-mono text-white">
-                      {formatPrice(guide.entryPrice, guide.symbol)}
-                    </p>
-                  </div>
-
-                  <div className="bg-gray-800/50 rounded-lg p-2">
-                    <p className="text-xs text-gray-400 mb-1">Current Price</p>
-                    <p className="text-sm font-mono text-white">
-                      {formatPrice(guide.currentPrice, guide.symbol)}
-                    </p>
-                  </div>
-
-                  <div className="bg-gray-800/50 rounded-lg p-2">
-                    <p className="text-xs text-gray-400 mb-1">Distance to SL</p>
-                    <p className="text-sm font-mono text-white">
-                      {guide.distanceToSL.toFixed(1)} pips
-                    </p>
-                  </div>
-
-                  <div className="bg-gray-800/50 rounded-lg p-2">
-                    <p className="text-xs text-gray-400 mb-1">Time in Trade</p>
-                    <p className="text-sm font-mono text-white flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      {guide.timeInTrade < 60
-                        ? `${Math.floor(guide.timeInTrade)} min`
-                        : `${Math.floor(guide.timeInTrade / 60)}h ${Math.floor(guide.timeInTrade % 60)}m`
-                      }
-                    </p>
-                  </div>
+                {/* Distance to SL - Primary Watch Metric */}
+                <div className="bg-gray-800/50 rounded-lg p-2 mb-3">
+                  <p className="text-xs text-gray-400 mb-1">Distance to SL</p>
+                  <p className="text-sm font-mono text-white">
+                    {guide.distanceToSL.toFixed(1)} pips
+                  </p>
                 </div>
-
-                {/* AI Recommendation (if available) */}
-                {guide.aiRecommendation && (
-                  <div className="bg-blue-900/20 rounded-lg p-3 border border-blue-500/20">
-                    <div className="flex items-start gap-2">
-                      <Activity className="w-4 h-4 text-blue-300 flex-shrink-0 mt-0.5" />
-                      <div className="flex-1">
-                        <p className="text-xs text-blue-300 mb-1">
-                          Alpha Intelligence {guide.aiConfidence && `(${guide.aiConfidence}% confidence)`}
-                        </p>
-                        <p className="text-sm text-blue-100">
-                          {guide.aiRecommendation.substring(0, 150)}
-                          {guide.aiRecommendation.length > 150 ? '...' : ''}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             );
           })}
