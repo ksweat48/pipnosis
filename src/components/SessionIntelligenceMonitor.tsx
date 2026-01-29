@@ -288,7 +288,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-3 flex-1">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isReady ? 'bg-green-500/20' : 'bg-blue-500/20'}`}>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isReady ? 'bg-green-500/20' : 'bg-blue-500/20'}`}>
                         <span className={`text-sm font-bold ${isReady ? 'text-green-300' : 'text-blue-300'}`}>{index + 1}</span>
                       </div>
                       <div>
@@ -296,13 +296,13 @@ export const SessionIntelligenceMonitor: React.FC = () => {
                         <p className="text-xs text-gray-400">Probability: {pair.confidence}%</p>
                       </div>
                     </div>
-                  </div>
 
-                  <div className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border ${confidenceColor.bg} mb-3`}>
-                    <BarChart3 className={`w-4 h-4 ${confidenceColor.text}`} />
-                    <div>
-                      <p className={`text-sm font-bold ${confidenceColor.text}`}>{tradeConfidence}%</p>
-                      <p className={`text-xs ${confidenceColor.text} opacity-75`}>{confidenceColor.label}</p>
+                    <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${confidenceColor.bg} flex-shrink-0 ml-4`}>
+                      <BarChart3 className={`w-4 h-4 ${confidenceColor.text}`} />
+                      <div>
+                        <p className={`text-sm font-bold ${confidenceColor.text}`}>{tradeConfidence}%</p>
+                        <p className={`text-xs ${confidenceColor.text} opacity-75`}>{confidenceColor.label}</p>
+                      </div>
                     </div>
                   </div>
 
