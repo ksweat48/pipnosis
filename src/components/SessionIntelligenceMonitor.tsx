@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Clock, TrendingUp, BarChart3, AlertTriangle, RefreshCw, Sun, Moon, Sunrise } from 'lucide-react';
 
@@ -37,6 +37,29 @@ export const SessionIntelligenceMonitor: React.FC = () => {
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const loadSessionData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('session_intelligence_data')
+        .select('*')
+        .gt('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.error('[SessionIntelligenceMonitor] Error loading session data:', error);
+      } else {
+        setSessionData(data);
+      }
+    } catch (error) {
+      console.error('[SessionIntelligenceMonitor] Error:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadSessionData();
 
@@ -61,30 +84,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
       clearInterval(interval);
       supabase.removeChannel(channel);
     };
-  }, []);
-
-  const loadSessionData = async () => {
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('session_intelligence_data')
-        .select('*')
-        .gt('expires_at', new Date().toISOString())
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (error) {
-        console.error('[SessionIntelligenceMonitor] Error loading session data:', error);
-      } else {
-        setSessionData(data);
-      }
-    } catch (error) {
-      console.error('[SessionIntelligenceMonitor] Error:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [loadSessionData]);
 
   const getSessionIcon = (sessionName: string) => {
     switch (sessionName) {

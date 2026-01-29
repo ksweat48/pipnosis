@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
   Activity,
@@ -18,6 +18,28 @@ export const MidTradeMonitor: React.FC = () => {
   const [guidance, setGuidance] = useState<MidTradeGuidance[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  const loadGuidance = useCallback(async () => {
+    if (!user) return;
+
+    try {
+      if (!loading) {
+        setRefreshing(true);
+      }
+
+      const result = await midTradeMonitorService.getMidTradeGuidance(user.id);
+      setGuidance(result.guidance);
+    } catch (error) {
+      // Silently handle abort errors - these are expected when requests overlap
+      if (error instanceof Error && error.name === 'AbortError') {
+        return;
+      }
+      console.error('[MidTradeMonitor] Error loading guidance:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [user, loading]);
 
   useEffect(() => {
     if (user) {
@@ -66,29 +88,7 @@ export const MidTradeMonitor: React.FC = () => {
         clearInterval(pollInterval);
       };
     }
-  }, [user, guidance.length]);
-
-  const loadGuidance = async () => {
-    if (!user) return;
-
-    try {
-      if (!loading) {
-        setRefreshing(true);
-      }
-
-      const result = await midTradeMonitorService.getMidTradeGuidance(user.id);
-      setGuidance(result.guidance);
-    } catch (error) {
-      // Silently handle abort errors - these are expected when requests overlap
-      if (error instanceof Error && error.name === 'AbortError') {
-        return;
-      }
-      console.error('[MidTradeMonitor] Error loading guidance:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+  }, [user, loadGuidance, refreshing, guidance.length]);
 
 
   const getActionIcon = (action: MidTradeGuidance['primaryAction']) => {

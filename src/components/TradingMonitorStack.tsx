@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { EntryPriceMonitor } from './EntryPriceMonitor';
@@ -19,6 +19,33 @@ export const TradingMonitorStack: React.FC = () => {
     session_intelligence_enabled: true,
   });
   const [loading, setLoading] = useState(true);
+
+  const loadPreferences = useCallback(async () => {
+    if (!user) return;
+
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('user_monitor_preferences')
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error('[TradingMonitorStack] Error loading preferences:', error);
+      } else if (data) {
+        setPreferences({
+          entry_price_monitor_enabled: data.entry_price_monitor_enabled ?? true,
+          mid_trade_monitor_enabled: data.mid_trade_monitor_enabled ?? true,
+          session_intelligence_enabled: data.session_intelligence_enabled ?? true,
+        });
+      }
+    } catch (error) {
+      console.error('[TradingMonitorStack] Error:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
 
   useEffect(() => {
     if (user) {
@@ -50,34 +77,7 @@ export const TradingMonitorStack: React.FC = () => {
         supabase.removeChannel(channel);
       };
     }
-  }, [user]);
-
-  const loadPreferences = async () => {
-    if (!user) return;
-
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('user_monitor_preferences')
-        .select('*')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (error) {
-        console.error('[TradingMonitorStack] Error loading preferences:', error);
-      } else if (data) {
-        setPreferences({
-          entry_price_monitor_enabled: data.entry_price_monitor_enabled ?? true,
-          mid_trade_monitor_enabled: data.mid_trade_monitor_enabled ?? true,
-          session_intelligence_enabled: data.session_intelligence_enabled ?? true,
-        });
-      }
-    } catch (error) {
-      console.error('[TradingMonitorStack] Error:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [user, loadPreferences]);
 
   if (loading) {
     return (
