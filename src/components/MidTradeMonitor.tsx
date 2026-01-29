@@ -54,12 +54,12 @@ export const MidTradeMonitor: React.FC = () => {
         )
         .subscribe();
 
-      // Poll every second for active trades (smooth P&L updates)
+      // Poll every 2 seconds for active trades (reduce concurrent requests)
       const pollInterval = setInterval(() => {
         if (!refreshing && guidance.length > 0) {
           loadGuidance();
         }
-      }, 1000);
+      }, 2000);
 
       return () => {
         supabase.removeChannel(channel);
@@ -79,6 +79,10 @@ export const MidTradeMonitor: React.FC = () => {
       const result = await midTradeMonitorService.getMidTradeGuidance(user.id);
       setGuidance(result.guidance);
     } catch (error) {
+      // Silently handle abort errors - these are expected when requests overlap
+      if (error instanceof Error && error.name === 'AbortError') {
+        return;
+      }
       console.error('[MidTradeMonitor] Error loading guidance:', error);
     } finally {
       setLoading(false);
@@ -245,14 +249,6 @@ export const MidTradeMonitor: React.FC = () => {
                       </p>
                     </div>
                   </div>
-                </div>
-
-                {/* Distance to SL - Primary Watch Metric */}
-                <div className="bg-gray-800/50 rounded-lg p-2 mb-3">
-                  <p className="text-xs text-gray-400 mb-1">Distance to SL</p>
-                  <p className="text-sm font-mono text-white">
-                    {guide.distanceToSL.toFixed(1)} pips
-                  </p>
                 </div>
               </div>
             );

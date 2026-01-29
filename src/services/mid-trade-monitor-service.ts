@@ -63,6 +63,9 @@ export interface MidTradeMonitorStats {
 }
 
 class MidTradeMonitorService {
+  private lastRequestTime = 0;
+  private requestInProgress = false;
+
   /**
    * Get all mid-trade guidance for user's active trades
    * Sorted by urgency (most urgent first)
@@ -71,6 +74,34 @@ class MidTradeMonitorService {
     guidance: MidTradeGuidance[];
     stats: MidTradeMonitorStats;
   }> {
+    // Prevent concurrent requests and rapid successive calls
+    if (this.requestInProgress) {
+      return {
+        guidance: [],
+        stats: {
+          totalOpenTrades: 0,
+          tradesByUrgency: { critical: 0, high: 0, medium: 0, low: 0 },
+          totalUnrealizedPnL: 0
+        }
+      };
+    }
+
+    // Throttle requests to max once per 500ms
+    const now = Date.now();
+    if (now - this.lastRequestTime < 500) {
+      return {
+        guidance: [],
+        stats: {
+          totalOpenTrades: 0,
+          tradesByUrgency: { critical: 0, high: 0, medium: 0, low: 0 },
+          totalUnrealizedPnL: 0
+        }
+      };
+    }
+
+    this.lastRequestTime = now;
+    this.requestInProgress = true;
+
     try {
       // Fetch all open trades
       const { data: trades, error: tradesError } = await supabase
@@ -240,8 +271,29 @@ class MidTradeMonitorService {
 
       return { guidance: guidanceList, stats };
     } catch (error) {
+      // Ignore AbortError - these happen when requests are cancelled
+      if (error instanceof Error && error.name === 'AbortError') {
+        return {
+          guidance: [],
+          stats: {
+            totalOpenTrades: 0,
+            tradesByUrgency: { critical: 0, high: 0, medium: 0, low: 0 },
+            totalUnrealizedPnL: 0
+          }
+        };
+      }
+
       console.error('[MidTradeMonitor] Error getting guidance:', error);
-      throw error;
+      return {
+        guidance: [],
+        stats: {
+          totalOpenTrades: 0,
+          tradesByUrgency: { critical: 0, high: 0, medium: 0, low: 0 },
+          totalUnrealizedPnL: 0
+        }
+      };
+    } finally {
+      this.requestInProgress = false;
     }
   }
 
