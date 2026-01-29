@@ -16,7 +16,7 @@ export interface CCIPChangeRecord {
   id?: string;
   change_type: 'bugfix' | 'feature' | 'hotfix' | 'refactor' | 'migration' | 'config' | 'emergency';
   priority: 'low' | 'medium' | 'high' | 'critical';
-  title: string;
+  change_title: string;
   description: string;
   ccip_status: 'initiated' | 'deployed' | 'verified';
   governance_status: 'pending' | 'approved' | 'rejected' | 'emergency_override';
@@ -38,7 +38,7 @@ export class CCIPEntryIntentCleanupTracker {
       const changeRecord: CCIPChangeRecord = {
         change_type: 'bugfix',
         priority: 'critical',
-        title: this.CHANGE_TITLE,
+        change_title: this.CHANGE_TITLE,
         description: `
 CRITICAL FIX: Entry-Intent Orphan Check Timeout Error
 
@@ -272,7 +272,7 @@ COMPLIANCE:
       const { data: existing, error: checkError } = await supabase
         .from('ccip_change_requests')
         .select('id')
-        .eq('title', this.CHANGE_TITLE)
+        .eq('change_title', this.CHANGE_TITLE)
         .maybeSingle();
 
       if (checkError) {
