@@ -10,6 +10,13 @@
  * - Uses session-trade-probability-analyzer indicator methods
  * - Applies intelligent weights from config
  *
+ * CCIP GOVERNANCE FIX (2026-01-29):
+ * - ISSUE: Calculator was querying with wrong schema references (timestamp -> open_time, 15m -> M15, 1h -> H1)
+ * - ROOT CAUSE: Hardcoded schema assumptions that didn't match actual database schema
+ * - FIX: Updated all forex_candles_best queries to use correct column names and timeframe formats
+ * - IMPACT: Fixes "Insufficient candles" errors that prevented all pairs from showing (0 pairs before fix)
+ * - SSOT PRINCIPLE: Database schema is authoritative source of truth
+ *
  * Governance:
  * - No database business logic
  * - Pure calculation service
@@ -189,10 +196,10 @@ export class RealTimeIntelligenceCalculator {
 
     const { data: candlesData } = await supabase
       .from('forex_candles_best')
-      .select('timestamp, open, high, low, close, volume')
+      .select('open_time, open, high, low, close, volume')
       .eq('symbol', symbol)
-      .eq('timeframe', '15m')
-      .order('timestamp', { ascending: false })
+      .eq('timeframe', 'M15')
+      .order('open_time', { ascending: false })
       .limit(200);
 
     if (!candlesData || candlesData.length < this.MIN_CANDLES) {
@@ -201,7 +208,7 @@ export class RealTimeIntelligenceCalculator {
 
     const candles: Candle[] = candlesData.reverse().map((c) => ({
       timestamp:
-        typeof c.timestamp === 'number' ? c.timestamp : new Date(c.timestamp).getTime() / 1000,
+        typeof c.open_time === 'number' ? c.open_time : new Date(c.open_time).getTime() / 1000,
       open: parseFloat(String(c.open)),
       high: parseFloat(String(c.high)),
       low: parseFloat(String(c.low)),
@@ -515,8 +522,8 @@ export class RealTimeIntelligenceCalculator {
           .from('forex_candles_best')
           .select('high, low, close')
           .eq('symbol', symbol)
-          .eq('timeframe', '1h')
-          .order('timestamp', { ascending: false })
+          .eq('timeframe', 'H1')
+          .order('open_time', { ascending: false })
           .limit(24);
 
         if (candles && candles.length >= 20) {
