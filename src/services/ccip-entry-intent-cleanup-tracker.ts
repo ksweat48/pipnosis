@@ -31,6 +31,7 @@ export class CCIPEntryIntentCleanupTracker {
 
   /**
    * Register the CCIP change request for governance tracking
+   * Safe-fails if ccip_change_requests table not available (RLS, permissions, or schema)
    */
   static async registerChangeRequest(): Promise<string | null> {
     try {
@@ -73,7 +74,7 @@ COMPLIANCE:
         governance_status: 'approved',
         database_changes: true,
         breaking_changes: false,
-        ccip_score: 95 // High completion due to thorough implementation
+        ccip_score: 95
       };
 
       const { data, error } = await supabase
@@ -83,7 +84,10 @@ COMPLIANCE:
         .maybeSingle();
 
       if (error) {
-        logger.error('[CCIP] Failed to register change request', { error });
+        logger.warn('[CCIP] Governance registration unavailable (table/RLS issue)', {
+          errorMessage: error.message,
+          statusCode: (error as any).status
+        });
         return null;
       }
 
@@ -95,10 +99,7 @@ COMPLIANCE:
         status: 'deployed'
       });
 
-      // Mark system_map phase complete
       await this.markPhaseComplete(changeId, 'system_map', 100, 0, 'Comprehensive analysis completed');
-
-      // Mark logic_contract phase complete
       await this.markPhaseComplete(
         changeId,
         'logic_contract',
@@ -106,8 +107,6 @@ COMPLIANCE:
         0,
         'Behavior specifications validated: orphan detection, audit logging, RLS'
       );
-
-      // Mark dry_run_simulation phase complete
       await this.markPhaseComplete(
         changeId,
         'dry_run_simulation',
@@ -115,8 +114,6 @@ COMPLIANCE:
         0,
         'Query performance validated: <200ms vs 4-5s baseline'
       );
-
-      // Mark compatibility_check phase complete
       await this.markPhaseComplete(
         changeId,
         'compatibility_check',
@@ -124,8 +121,6 @@ COMPLIANCE:
         0,
         'Backward compatibility maintained: existing methods still work'
       );
-
-      // Mark staged_deployment phase complete
       await this.markPhaseComplete(
         changeId,
         'staged_deployment',
@@ -136,7 +131,9 @@ COMPLIANCE:
 
       return changeId;
     } catch (error) {
-      logger.error('[CCIP] Exception registering change request', { error });
+      logger.warn('[CCIP] Exception during change registration (will continue without governance tracking)', {
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
       return null;
     }
   }
@@ -268,21 +265,27 @@ COMPLIANCE:
 
   /**
    * Auto-register this change on service initialization
+   * Safe-fails if ccip tables not available (allows cleanup to work independent of governance)
    */
   static async initializeTracking(): Promise<void> {
     try {
-      // Check if change already exists
-      const { data: existing } = await supabase
+      const { data: existing, error: checkError } = await supabase
         .from('ccip_change_requests')
         .select('id')
         .eq('title', this.CHANGE_TITLE)
         .maybeSingle();
 
+      if (checkError) {
+        logger.warn('[CCIP] Governance tables unavailable during init (will continue without tracking)', {
+          errorMessage: checkError.message
+        });
+        return;
+      }
+
       if (!existing) {
         const changeId = await this.registerChangeRequest();
 
         if (changeId) {
-          // Log system map components
           await this.logSystemMapComponent(
             changeId,
             'database',
@@ -328,7 +331,6 @@ COMPLIANCE:
             'Refactored to use SSOT server-side functions'
           );
 
-          // Log test results
           await this.logTestResult(changeId, 'migration_dry_run', 1, 0, 'production', 'Migration applied successfully');
           await this.logTestResult(changeId, 'unit_test', 3, 0, 'production', 'All cleanup functions tested');
           await this.logTestResult(
@@ -340,7 +342,6 @@ COMPLIANCE:
             '<200ms execution time vs 4-5s baseline'
           );
 
-          // Log post-deploy verifications
           await this.logPostDeployVerification(changeId, 'functionality', true, 'Cleanup operations work correctly');
           await this.logPostDeployVerification(
             changeId,
@@ -365,7 +366,9 @@ COMPLIANCE:
         }
       }
     } catch (error) {
-      logger.warn('[CCIP] Failed to initialize change tracking', { error });
+      logger.warn('[CCIP] Failed to initialize change tracking (non-blocking)', {
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
     }
   }
 }
