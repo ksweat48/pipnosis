@@ -68,12 +68,14 @@ export function useActiveEntryIntent(sessionId: string | null): UseActiveEntryIn
   }, [sessionId]);
 
   useEffect(() => {
+    // Always load intent initially - loadIntent() handles null sessionId by setting loading to false
+    // CCIP CHANGE: This ensures loading state is properly initialized even when sessionId is null,
+    // fixing the skeleton loader stuck state in EntryPriceMonitor
+    loadIntent();
+
     if (!sessionId) {
       return;
     }
-
-    // Initial load
-    loadIntent();
 
     // Set up realtime subscription for entry_intents table changes
     console.log('[useActiveEntryIntent] 📡 Setting up realtime subscription for session:', sessionId.substring(0, 8));
