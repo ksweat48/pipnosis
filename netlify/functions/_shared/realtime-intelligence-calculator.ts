@@ -103,6 +103,50 @@ export class RealTimeIntelligenceCalculator {
     };
   }
 
+  async calculateForAllPairsWithAllScores(symbols: string[]): Promise<{
+    allPairs: IntelligencePairResult[];
+    topPairs: IntelligencePairResult[];
+    highConfidencePairs: IntelligencePairResult[];
+    heatingPairs: IntelligencePairResult[];
+    marketCondition: MarketRegime;
+    calculatedAt: string;
+  }> {
+    console.log(`[RealTimeIntelligence] Calculating ALL pair scores for ${symbols.length} symbols...`);
+
+    const session = getCurrentSession();
+    const marketCondition = await this.detectMarketRegime(symbols);
+
+    const allResults: IntelligencePairResult[] = [];
+
+    for (const symbol of symbols) {
+      try {
+        const result = await this.calculateForSymbol(symbol, session, marketCondition);
+        allResults.push(result);
+      } catch (error) {
+        console.error(`[RealTimeIntelligence] Error calculating ${symbol}:`, error);
+      }
+    }
+
+    allResults.sort((a, b) => b.confidence - a.confidence);
+
+    const highConfidencePairs = allResults.filter((p) => p.confidence >= this.PROBABILITY_THRESHOLD);
+    const heatingPairs = allResults.filter((p) => p.confidence >= 50 && p.confidence < this.PROBABILITY_THRESHOLD);
+    const topPairs = allResults.slice(0, 3);
+
+    console.log(
+      `[RealTimeIntelligence] All pairs calculated: ${allResults.length} total | ${highConfidencePairs.length} ≥70% | ${heatingPairs.length} heating (50-70%)`
+    );
+
+    return {
+      allPairs: allResults,
+      topPairs,
+      highConfidencePairs,
+      heatingPairs,
+      marketCondition,
+      calculatedAt: new Date().toISOString(),
+    };
+  }
+
   private async calculateForSymbol(
     symbol: string,
     session: Session,

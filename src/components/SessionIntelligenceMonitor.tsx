@@ -6,6 +6,9 @@ interface BestPair {
   symbol: string;
   confidence: number;
   tradeConfidence?: number;
+  alignedIndicators?: number;
+  totalIndicators?: number;
+  status?: 'ready' | 'heating' | 'monitoring';
   reasoning: string;
   indicatorAlignment?: {
     vwap: boolean;
@@ -26,6 +29,9 @@ interface SessionData {
   session_start_hour: number;
   session_end_hour: number;
   best_pairs: BestPair[];
+  top_pairs?: BestPair[];
+  all_pair_scores?: BestPair[];
+  heating_pairs?: BestPair[];
   market_condition: string;
   is_tradable: boolean;
   recommendation_text: string;
@@ -42,7 +48,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
       setLoading(true);
       const { data, error } = await supabase
         .from('session_intelligence_data')
-        .select('*')
+        .select('id, session_name, session_start_hour, session_end_hour, best_pairs, top_pairs, all_pair_scores, heating_pairs, market_condition, is_tradable, recommendation_text, created_at, expires_at')
         .gt('expires_at', new Date().toISOString())
         .order('created_at', { ascending: false })
         .limit(1)
@@ -135,12 +141,41 @@ export const SessionIntelligenceMonitor: React.FC = () => {
         text: 'text-orange-400',
         label: 'Average Probability'
       };
+    } else if (conf >= 50) {
+      return {
+        bg: 'bg-blue-500/20 border-blue-500/50',
+        text: 'text-blue-400',
+        label: 'Heating Up'
+      };
     } else {
       return {
         bg: 'bg-gray-500/20 border-gray-500/50',
         text: 'text-gray-400',
-        label: 'Low Probability'
+        label: 'Monitoring'
       };
+    }
+  };
+
+  const getStatusBadgeColor = (status?: string): { bg: string; text: string; label: string } => {
+    switch (status) {
+      case 'ready':
+        return {
+          bg: 'bg-green-500/20 border-green-500/50',
+          text: 'text-green-400',
+          label: 'Ready to Trade'
+        };
+      case 'heating':
+        return {
+          bg: 'bg-amber-500/20 border-amber-500/50',
+          text: 'text-amber-400',
+          label: 'Heating Up'
+        };
+      default:
+        return {
+          bg: 'bg-slate-500/20 border-slate-500/50',
+          text: 'text-slate-400',
+          label: 'Monitoring'
+        };
     }
   };
 
@@ -164,15 +199,18 @@ export const SessionIntelligenceMonitor: React.FC = () => {
 
   if (!sessionData) {
     return (
-      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 rounded-xl p-6 border border-gray-700/50">
+      <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 rounded-xl p-6 border border-slate-700/50">
         <div className="flex items-start gap-4">
-          <div className="p-3 bg-gray-700/50 rounded-lg">
-            <Clock className="w-6 h-6 text-gray-400" />
+          <div className="p-3 bg-slate-700/50 rounded-lg">
+            <Clock className="w-6 h-6 text-slate-400" />
           </div>
           <div className="flex-1">
             <h3 className="text-lg font-bold text-white mb-2">Real-Time Intelligence</h3>
-            <p className="text-sm text-gray-400">
-              Real-time probability analysis will appear here shortly. This monitor shows which pairs have ≥70% indicator alignment RIGHT NOW.
+            <p className="text-sm text-slate-400 mb-2">
+              Real-time probability analysis will appear here shortly.
+            </p>
+            <p className="text-xs text-slate-500">
+              We analyze all watchlist pairs and show you the top 3. Ready to trade pairs show ≥70% indicator alignment. Heating up pairs are 50-70% and warming toward entry signals.
             </p>
           </div>
         </div>
@@ -223,27 +261,39 @@ export const SessionIntelligenceMonitor: React.FC = () => {
           )}
         </div>
 
-        {sessionData.is_tradable && sessionData.best_pairs.length > 0 ? (
+        {sessionData.top_pairs && sessionData.top_pairs.length > 0 ? (
           <div className="space-y-3 mb-4">
-            <p className="text-sm font-semibold text-blue-200">Highest Probability Right Now (≥70%):</p>
-            {sessionData.best_pairs.slice(0, 3).map((pair, index) => {
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-blue-200">
+                {sessionData.is_tradable ? 'Ready to Trade Right Now' : 'Top Market Opportunities'}
+              </p>
+              <p className="text-xs text-gray-400">
+                {sessionData.is_tradable ? 'Showing pairs ≥70% confidence' : 'Waiting for 70%+ alignment'}
+              </p>
+            </div>
+            {sessionData.top_pairs.slice(0, 3).map((pair, index) => {
               const tradeConfidence = pair.tradeConfidence ?? pair.confidence;
-              const confidenceColor = getTradeConfidenceColor(tradeConfidence);
+              const confidenceColor = getStatusBadgeColor(pair.status);
               const indicatorCount = getIndicatorCount(pair.indicatorAlignment);
+              const isReady = pair.status === 'ready';
 
               return (
                 <div
                   key={pair.symbol}
-                  className="bg-gray-900/50 rounded-lg p-4 border border-gray-700/50 hover:border-purple-500/30 transition-colors"
+                  className={`rounded-lg p-4 border transition-colors ${
+                    isReady
+                      ? 'bg-green-900/10 border-green-500/30 hover:border-green-500/50'
+                      : 'bg-gray-900/50 border-gray-700/50 hover:border-amber-500/30'
+                  }`}
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-3 flex-1">
-                      <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center">
-                        <span className="text-sm font-bold text-blue-300">{index + 1}</span>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isReady ? 'bg-green-500/20' : 'bg-blue-500/20'}`}>
+                        <span className={`text-sm font-bold ${isReady ? 'text-green-300' : 'text-blue-300'}`}>{index + 1}</span>
                       </div>
                       <div>
                         <p className="text-base font-bold text-white">{pair.symbol}</p>
-                        <p className="text-xs text-gray-400">Real-time probability: {pair.confidence}%</p>
+                        <p className="text-xs text-gray-400">Probability: {pair.confidence}%</p>
                       </div>
                     </div>
                   </div>
@@ -256,9 +306,9 @@ export const SessionIntelligenceMonitor: React.FC = () => {
                     </div>
                   </div>
 
-                  {indicatorCount.total > 0 && (
+                  {pair.alignedIndicators !== undefined && pair.totalIndicators !== undefined && (
                     <div className="mb-3 p-2 bg-gray-800/50 rounded border border-gray-700/30">
-                      <p className="text-xs text-gray-400 mb-1">Indicator alignment: {indicatorCount.aligned}/{indicatorCount.total}</p>
+                      <p className="text-xs text-gray-400 mb-1">Indicator alignment: {pair.alignedIndicators}/{pair.totalIndicators}</p>
                       <div className="text-xs text-gray-500 space-y-0.5">
                         {pair.indicatorAlignment && (
                           <div className="flex flex-wrap gap-1">
@@ -283,12 +333,12 @@ export const SessionIntelligenceMonitor: React.FC = () => {
             })}
           </div>
         ) : (
-          <div className="bg-orange-900/20 rounded-lg p-4 border border-orange-500/30 mb-4">
+          <div className="bg-blue-900/20 rounded-lg p-4 border border-blue-500/30 mb-4">
             <div className="flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-orange-400 flex-shrink-0 mt-0.5" />
+              <Clock className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
               <div>
-                <p className="text-sm font-semibold text-orange-300 mb-1">Market Trading Sideways</p>
-                <p className="text-sm text-orange-200/80">{sessionData.recommendation_text}</p>
+                <p className="text-sm font-semibold text-blue-300 mb-1">Analyzing Markets</p>
+                <p className="text-sm text-blue-200/80">Real-time probability analysis in progress. Waiting for strong setups with ≥70% indicator alignment.</p>
               </div>
             </div>
           </div>

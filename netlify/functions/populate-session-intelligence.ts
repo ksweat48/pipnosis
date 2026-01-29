@@ -75,20 +75,23 @@ export const handler: Handler = async (event) => {
       `[RealTimeIntelligence] Current session: ${sessionInfo.name} (${sessionInfo.startHour}:00 - ${sessionInfo.endHour}:00 EST)`
     );
 
-    const { pairs, marketCondition, calculatedAt } =
-      await realTimeIntelligenceCalculator.calculateForAllPairs(WATCHLIST);
+    const { allPairs, topPairs, highConfidencePairs, heatingPairs, marketCondition, calculatedAt } =
+      await realTimeIntelligenceCalculator.calculateForAllPairsWithAllScores(WATCHLIST);
 
     console.log(`[RealTimeIntelligence] Market regime: ${marketCondition}`);
     console.log(
-      `[RealTimeIntelligence] Found ${pairs.length} pairs ≥70% confidence`
+      `[RealTimeIntelligence] Total pairs analyzed: ${allPairs.length} | Ready (≥70%): ${highConfidencePairs.length} | Heating (50-70%): ${heatingPairs.length}`
     );
 
-    const isTradable = pairs.length > 0;
+    const isTradable = highConfidencePairs.length > 0;
 
-    const bestPairs = pairs.map((pair) => ({
+    const formatPairData = (pair: typeof allPairs[0], status: 'ready' | 'heating' | 'monitoring') => ({
       symbol: pair.symbol,
       confidence: pair.confidence,
       tradeConfidence: pair.confidence,
+      alignedIndicators: pair.alignedIndicators,
+      totalIndicators: pair.totalIndicators,
+      status,
       reasoning: pair.reasoning.join('. '),
       indicatorAlignment: Object.entries(pair.indicatorBreakdown).reduce(
         (acc, [key, val]) => {
@@ -98,7 +101,27 @@ export const handler: Handler = async (event) => {
         {} as Record<string, boolean>
       ),
       lastCalculated: pair.lastCalculated,
-    }));
+    });
+
+    const bestPairs = highConfidencePairs.map((pair) => formatPairData(pair, 'ready'));
+
+    const topPairsFormatted = topPairs.map((pair) => {
+      const status = highConfidencePairs.some((p) => p.symbol === pair.symbol)
+        ? 'ready'
+        : heatingPairs.some((p) => p.symbol === pair.symbol)
+          ? 'heating'
+          : 'monitoring';
+      return formatPairData(pair, status);
+    });
+
+    const allPairsFormatted = allPairs.map((pair) => {
+      const status = highConfidencePairs.some((p) => p.symbol === pair.symbol)
+        ? 'ready'
+        : heatingPairs.some((p) => p.symbol === pair.symbol)
+          ? 'heating'
+          : 'monitoring';
+      return formatPairData(pair, status);
+    });
 
     let recommendationText = '';
     if (isTradable && bestPairs.length > 0) {
@@ -137,6 +160,9 @@ export const handler: Handler = async (event) => {
         session_start_hour: sessionInfo.startHour,
         session_end_hour: sessionInfo.endHour,
         best_pairs: bestPairs,
+        top_pairs: topPairsFormatted,
+        all_pair_scores: allPairsFormatted,
+        heating_pairs: heatingPairs.map((pair) => formatPairData(pair, 'heating')),
         market_condition: marketCondition,
         is_tradable: isTradable,
         recommendation_text: recommendationText,
@@ -152,9 +178,9 @@ export const handler: Handler = async (event) => {
     }
 
     console.log('[RealTimeIntelligence] Successfully updated real-time intelligence');
-    if (bestPairs.length > 0) {
+    if (topPairsFormatted.length > 0) {
       console.log(
-        `[RealTimeIntelligence] Top pair: ${bestPairs[0].symbol} (${bestPairs[0].confidence}% - ${bestPairs[0].alignedIndicators}/8 indicators)`
+        `[RealTimeIntelligence] Top 3 pairs: ${topPairsFormatted.map((p) => `${p.symbol}(${p.confidence}% ${p.status})`).join(', ')}`
       );
     }
 
@@ -164,8 +190,10 @@ export const handler: Handler = async (event) => {
         success: true,
         session: sessionInfo.name,
         marketCondition,
-        pairsFound: pairs.length,
-        topPairs: bestPairs.slice(0, 3).map((p) => p.symbol),
+        readyPairs: highConfidencePairs.length,
+        heatingPairs: heatingPairs.length,
+        allPairsAnalyzed: allPairs.length,
+        topPairs: topPairsFormatted.slice(0, 3).map((p) => ({ symbol: p.symbol, confidence: p.confidence, status: p.status })),
       }),
     };
   } catch (error) {
