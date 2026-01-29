@@ -17,6 +17,7 @@ import { extractSymbolsFromPrompt, getSymbolSelectionSource } from '../utils/sym
 import { getSymbolsByAssetClass, filterWatchlistByAssetClass, type AssetClass } from '../utils/asset-class-mapper';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { weekendProtectionService } from './weekend-protection-service';
+import { generateTimeframe } from '../config/timeframe-hierarchy';
 
 /**
  * SSOT: Terminal (inactive) session statuses
@@ -164,7 +165,7 @@ class SmartGoalSessionManager {
       target_value: config.goalAmount,
       tp1_target: dualTargets.tp1,
       tp2_target: dualTargets.tp2,
-      timeframe: config.timeframe,
+      timeframe: generateTimeframe(config.timeframe),
       risk_mode: effectiveRiskMode, // Still store for legacy compatibility
       trade_style: config.tradeStyle, // New field
       dollar_risk: config.dollarRisk, // New field
@@ -284,7 +285,7 @@ class SmartGoalSessionManager {
 
     return {
       goalAmount,
-      timeframe: '1 day',
+      timeframe: generateTimeframe('1 day'),
       tradeStyle,
       dollarRisk,
       watchlist,
@@ -340,7 +341,7 @@ class SmartGoalSessionManager {
 
     return {
       goalAmount,
-      timeframe,
+      timeframe: generateTimeframe(timeframe),
       riskMode,
       watchlist: ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY'],
       autoExecute: true,
