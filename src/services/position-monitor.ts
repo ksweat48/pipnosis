@@ -13,6 +13,7 @@ import { notificationCoordinator } from './coordinators/notification-coordinator
 import { goalSessionStateMachine } from './coordinators/goal-session-state-machine';
 import { TIME_MS } from '@/config/time-constants';
 import { marketDataService } from './market-data-service';
+import { tradeProcessingLockService } from './trade-processing-lock-service';
 import { positionMonitoringAuthority } from './monitoring/position-monitoring-authority';
 import type { MonitoredPosition, PriceData } from './monitoring/position-monitoring-authority';
 
@@ -983,6 +984,18 @@ class PositionMonitorService {
     closePrice: number,
     reason: 'stop_loss' | 'take_profit' | 'goal_met'
   ) {
+    // SSOT AUTHORITY: Try to acquire database-backed lock FIRST
+    // This prevents multiple monitoring systems from processing the same trade
+    const lockAcquired = await tradeProcessingLockService.acquireLock(
+      position.id,
+      'PositionMonitorService'
+    );
+
+    if (!lockAcquired) {
+      console.log(`[PositionMonitor] Skipping trade ${position.id} closure - locked by another system`);
+      return;
+    }
+
     try {
       // AUTHORITY: All closures go through tradeClosureCoordinator
       // The coordinator handles: RPC call, P&L calculation, balance update,
@@ -1098,6 +1111,9 @@ class PositionMonitorService {
       }
     } catch (error) {
       console.error(`[PositionMonitor] Failed to auto-close position ${position.id}:`, error);
+    } finally {
+      // SSOT AUTHORITY: Release lock so other systems can process if needed
+      await tradeProcessingLockService.releaseLock(position.id);
     }
   }
 }

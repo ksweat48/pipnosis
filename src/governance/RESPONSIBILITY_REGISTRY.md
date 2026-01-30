@@ -26,6 +26,14 @@
 | **Pre-flight validation** | `ValidationGateway` | `src/governance/validation-gateway.ts` |
 | **Price freshness checks** | `PriceFreshnessGate` | `src/governance/price-freshness-gate.ts` |
 | **SSOT violation detection** | `SSOTViolationDetector` | `src/governance/ssot-violation-detector.ts` |
+| **Trade processing locks** | `TradeProcessingLockService` | `src/services/trade-processing-lock-service.ts` |
+
+**TRADE PROCESSING LOCKS (CCIP-20260130-002):**
+- ✅ SSOT Authority for "is this trade being processed"
+- ✅ Prevents duplicate trade closures across 3 monitoring systems
+- ✅ Database-backed locks (30s TTL, auto-cleanup every 60s)
+- ✅ All monitoring systems MUST acquire lock before closing trades
+- ✅ Governance logging: All lock operations logged to `governance_change_log`
 
 ### 💰 Position Sizing & Risk
 

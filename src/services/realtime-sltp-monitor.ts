@@ -19,6 +19,7 @@ import { tradeClosureCoordinator } from './coordinators/trade-closure-coordinato
 import { positionMonitoringAuthority } from './monitoring/position-monitoring-authority';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import type { MonitoredPosition, PriceData } from './monitoring/position-monitoring-authority';
+import { tradeProcessingLockService } from './trade-processing-lock-service';
 
 // REMOVED: Duplicate interface - now using MonitoredPosition from authority
 
@@ -203,24 +204,41 @@ class RealtimeSLTPMonitor {
 
     // It's a closure decision (SL, TP2, or legacy TP)
     if ('shouldClose' in decision && decision.shouldClose) {
-      const icon = decision.reason === 'stop_loss' ? '🛑' : '🎯';
-      const reasonText = decision.reason === 'stop_loss' ? 'STOP LOSS' :
-                         decision.reason === 'take_profit_2' ? 'TP2' : 'TAKE PROFIT';
+      // SSOT AUTHORITY: Try to acquire database-backed lock FIRST
+      // This prevents multiple monitoring systems from processing the same trade
+      const lockAcquired = await tradeProcessingLockService.acquireLock(
+        position.id,
+        'RealtimeSLTPMonitor'
+      );
 
-      console.log(`[RealtimeSLTPMonitor] ${icon} ${reasonText} DETECTED: ${position.symbol} @ ${decision.price.toFixed(5)}`);
+      if (!lockAcquired) {
+        console.log(`[RealtimeSLTPMonitor] Skipping trade ${position.id} closure - locked by another system`);
+        return;
+      }
 
-      this.removePosition(position.id, position.symbol);
+      try {
+        const icon = decision.reason === 'stop_loss' ? '🛑' : '🎯';
+        const reasonText = decision.reason === 'stop_loss' ? 'STOP LOSS' :
+                           decision.reason === 'take_profit_2' ? 'TP2' : 'TAKE PROFIT';
 
-      await tradeClosureCoordinator.closeTrade({
-        tradeId: position.id,
-        currentPrice: decision.price,
-        closeReason: decision.reason,
-        userId: position.user_id,
-        goalSessionId: position.goal_session_id,
-        forceClose: false,
-      }).catch(error => {
-        console.error(`[RealtimeSLTPMonitor] Failed to close at ${reasonText}:`, error);
-      });
+        console.log(`[RealtimeSLTPMonitor] ${icon} ${reasonText} DETECTED: ${position.symbol} @ ${decision.price.toFixed(5)}`);
+
+        this.removePosition(position.id, position.symbol);
+
+        await tradeClosureCoordinator.closeTrade({
+          tradeId: position.id,
+          currentPrice: decision.price,
+          closeReason: decision.reason,
+          userId: position.user_id,
+          goalSessionId: position.goal_session_id,
+          forceClose: false,
+        }).catch(error => {
+          console.error(`[RealtimeSLTPMonitor] Failed to close at ${reasonText}:`, error);
+        });
+      } finally {
+        // SSOT AUTHORITY: Release lock
+        await tradeProcessingLockService.releaseLock(position.id);
+      }
     }
   }
 
@@ -260,6 +278,18 @@ class RealtimeSLTPMonitor {
    * Keeping for backward compatibility during transition
    */
   private async handleTP2Hit(position: MonitoredPosition, currentPrice: number): Promise<void> {
+    // SSOT AUTHORITY: Try to acquire database-backed lock FIRST
+    // This prevents multiple monitoring systems from processing the same trade
+    const lockAcquired = await tradeProcessingLockService.acquireLock(
+      position.id,
+      'RealtimeSLTPMonitor'
+    );
+
+    if (!lockAcquired) {
+      console.log(`[RealtimeSLTPMonitor] Skipping TP2 closure for trade ${position.id} - locked by another system`);
+      return;
+    }
+
     try {
       console.log(`[RealtimeSLTPMonitor] TP2 HIT @ ${currentPrice.toFixed(5)} - closing full position...`);
 
@@ -288,6 +318,9 @@ class RealtimeSLTPMonitor {
       console.log(`[RealtimeSLTPMonitor] TP2 closure complete!`);
     } catch (error) {
       console.error(`[RealtimeSLTPMonitor] Error handling TP2:`, error);
+    } finally {
+      // SSOT AUTHORITY: Release lock
+      await tradeProcessingLockService.releaseLock(position.id);
     }
   }
 
