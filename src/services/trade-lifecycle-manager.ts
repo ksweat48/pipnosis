@@ -24,6 +24,7 @@ class TradeLifecycleManager {
   private monitoringInterval: number | null = null;
   private isMonitoring: boolean = false;
   private abortController: AbortController | null = null;
+  private recentlyClosedTrades = new Set<string>();
 
   /**
    * Calculate cumulative profit for a goal session across all closed trades
@@ -185,11 +186,17 @@ class TradeLifecycleManager {
     try {
       this.abortController = new AbortController();
 
-      const { data: openTrades, error } = await supabase
+      let query = supabase
         .from('goal_session_trades')
         .select('*, goal_sessions!inner(user_id, auto_execute)')
-        .eq('status', 'open')
-        .abortSignal(this.abortController.signal);
+        .eq('status', 'open');
+
+      if (this.recentlyClosedTrades.size > 0) {
+        const excludedIds = Array.from(this.recentlyClosedTrades);
+        query = query.not('id', 'in', `(${excludedIds.join(',')})`);
+      }
+
+      const { data: openTrades, error } = await query.abortSignal(this.abortController.signal);
 
       if (error) {
         if (error.message?.includes('AbortError') || error.code === 'ABORTED') {
@@ -394,12 +401,22 @@ class TradeLifecycleManager {
       const isProfit = profitLoss > 0;
 
       if (reason === 'take_profit' && isProfit) {
-        console.log('[Trade Lifecycle] TP HIT! Playing celebration sound...');
-        try {
-          const { notificationManager } = await import('./notification-manager');
-          notificationManager.playSound('trade_exit');
-        } catch (soundError) {
-          console.error('[Trade Lifecycle] Failed to play sound:', soundError);
+        if (this.recentlyClosedTrades.has(trade.id)) {
+          console.log('[Trade Lifecycle] Sound already played for this closure, skipping');
+        } else {
+          console.log('[Trade Lifecycle] TP HIT! Playing celebration sound...');
+          this.recentlyClosedTrades.add(trade.id);
+
+          setTimeout(() => {
+            this.recentlyClosedTrades.delete(trade.id);
+          }, 5000);
+
+          try {
+            const { notificationManager } = await import('./notification-manager');
+            notificationManager.playSound('trade_exit');
+          } catch (soundError) {
+            console.error('[Trade Lifecycle] Failed to play sound:', soundError);
+          }
         }
       }
 

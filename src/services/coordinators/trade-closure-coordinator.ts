@@ -133,7 +133,7 @@ class TradeClosureCoordinator {
       if (tradeData.status === 'closed') {
         console.log(`[TradeClosureCoordinator] Trade ${request.tradeId} already closed, skipping`);
         return {
-          success: true,
+          success: false,
           tradeId: request.tradeId,
           error: 'Trade already closed',
         };
