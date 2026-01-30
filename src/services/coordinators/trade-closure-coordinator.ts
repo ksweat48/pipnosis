@@ -679,6 +679,15 @@ class TradeClosureCoordinator {
     pnl: number
   ): Promise<void> {
     try {
+      // CRITICAL FIX: Skip post-trade analysis if viewing other users' trades
+      // In browser, we don't have service role access and RLS blocks cross-user reads
+      // This prevents "duplicate key" errors when trying to load other users' trader scores
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && user.id !== request.userId) {
+        console.log(`[TradeClosureCoordinator] Skipping post-trade analysis - viewing other user's trade (logged in: ${user.id}, trade owner: ${request.userId})`);
+        return;
+      }
+
       const { data: closedTrade } = await supabase
         .from('goal_session_trades')
         .select('opened_at, closed_at')

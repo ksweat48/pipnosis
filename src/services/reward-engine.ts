@@ -65,6 +65,33 @@ class RewardEngine {
         50 // consistency_score (initial)
       );
 
+      // Handle duplicate key error (record was created by another process/RLS blocked initial SELECT)
+      if (result.error && result.error.includes('duplicate key')) {
+        console.warn('[RewardEngine] Duplicate key on create - record exists, retrying SELECT...');
+        // Retry SELECT - record must exist
+        const { data: retryData, error: retryError } = await client
+          .from('ai_trader_score')
+          .select('*')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (retryError) throw retryError;
+        if (retryData) return retryData as TraderScore;
+
+        // If still no data, return default (shouldn't happen but be safe)
+        console.error('[RewardEngine] CRITICAL: Record exists (duplicate key) but SELECT still returns null. Possible RLS issue.');
+        return {
+          id: '',
+          user_id: userId,
+          current_score: 50,
+          trade_count: 0,
+          win_rate: 50,
+          avg_rr: 0,
+          consistency_score: 50,
+          created_at: new Date().toISOString(),
+        } as TraderScore;
+      }
+
       if (result.error) throw new Error(result.error);
 
       // Return default trader score structure
