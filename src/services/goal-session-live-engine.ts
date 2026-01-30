@@ -491,7 +491,7 @@ class GoalSessionLiveEngine {
 
     try {
       // Check if we should show the 15-minute continuation modal
-      const { simpleScanningTimer } = await import('./simple-scanning-timer');
+      // Removed simpleScanningTimer (2026-01-30) - continuation modal system removed
       const shouldShowModal = await simpleScanningTimer.shouldShowContinuationModal(this.activeSession);
 
       if (shouldShowModal) {
@@ -2154,14 +2154,8 @@ class GoalSessionLiveEngine {
         .eq('id', this.activeSession)
         .single();
 
-      // SSOT: Check status instead of dropped awaiting_user_continuation column
-      if (sessionCheck?.status === 'awaiting_continuation') {
-        logger.debug(LogCategory.AI_TRADING, '⏸️ Awaiting user continuation - not scanning for new trades');
-        console.log('%c[AUTONOMOUS ENGINE] ⏸️ BLOCKED: Awaiting user continuation', 'color: #f59e0b; font-weight: bold');
-        // Still monitor open positions (no symbol param needed - fetches all trade symbols)
-        await this.monitorOpenPositionsOnly();
-        return;
-      }
+      // Removed awaiting_continuation check - no longer used (removed 2026-01-30)
+      // Sessions now continue automatically without modal interruptions
 
       // ⏱️ CHECK: Scanning frequency control via state machine
       const scanState = await scanningStateMachine.canScanNow(this.activeSession);
@@ -2797,36 +2791,15 @@ class GoalSessionLiveEngine {
       logger.info(LogCategory.AI_TRADING, '🛑 Single-trade mode: Pausing for user review');
 
       // Generate AI continuation prompt
-      const continuationPrompt = await this.generateContinuationPrompt(trade, session);
-
-      // Update session to awaiting continuation state
-      // SSOT: status field will be set to 'awaiting_continuation' by the calling code
+      // Removed continuation prompt system (2026-01-30) - no longer pauses for user confirmation
+      // Update trade counter only
       await supabase
         .from('goal_sessions')
         .update({
-          continuation_prompt: continuationPrompt,
           last_trade_id: tradeId,
           trades_in_session: (session.trades_in_session || 0) + 1
         })
         .eq('id', this.activeSession);
-
-      // Send continuation prompt to AI conversation
-      try {
-        await supabase.from('goal_ai_conversations').insert({
-          goal_session_id: this.activeSession,
-          user_id: this.config.userId,
-          role: 'ai',
-          message: continuationPrompt,
-          context: {
-            awaiting_continuation: true,
-            trade_id: tradeId,
-            trades_in_session: (session.trades_in_session || 0) + 1
-          },
-          sentiment: 'neutral'
-        });
-      } catch (error) {
-        console.error('[Goal Live Engine] Failed to log continuation prompt:', error);
-      }
 
       console.log('[Goal Live Engine] 🛑 Scanning paused - awaiting user continuation decision');
 
@@ -2888,7 +2861,6 @@ Your decision keeps you in control of your risk and prevents runaway trading.
           await supabase
             .from('goal_sessions')
             .update({
-              continuation_prompt: null,
               status: 'scanning'
             })
             .eq('id', this.activeSession);
@@ -3232,21 +3204,9 @@ Your decision keeps you in control of your risk and prevents runaway trading.
         `🎯 Remaining: $${remainingAmount.toFixed(2)} to goal\n\n` +
         `Would you like to continue scanning for another trade?`;
 
-      // Pause session and await user decision
-      // SSOT: status='awaiting_continuation' blocks scanning until user responds
-      const { error: updateError } = await supabase
-        .from('goal_sessions')
-        .update({
-          continuation_prompt: continuationPrompt,
-          status: 'awaiting_continuation' // SSOT: Blocks scanning until user responds
-        })
-        .eq('id', this.activeSession);
-
-      if (updateError) {
-        logger.error(LogCategory.AI_TRADING, 'Failed to set awaiting_continuation status', { updateError });
-      } else {
-        logger.info(LogCategory.AI_TRADING, '🛑 Single-trade mode: Trade closed, awaiting user decision');
-      }
+      // Removed continuation modal system (2026-01-30) - sessions continue automatically
+      // Single-trade mode continues scanning without user confirmation
+      logger.info(LogCategory.AI_TRADING, '✅ Single-trade mode: Trade closed, continuing to scan automatically');
 
     } catch (error) {
       console.error('[Goal Live Engine] Error checking continuation after trade close:', error);

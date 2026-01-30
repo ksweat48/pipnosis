@@ -61,16 +61,8 @@ export async function processGoalSessionIteration(
       .eq('id', goalSessionId)
       .single();
 
-    if (!statusError && sessionStatus) {
-      if (sessionStatus.status === 'awaiting_continuation') {
-        logger.info(LogCategory.AI_TRADING, '[Core] ⏸️ Session awaiting user continuation response - skipping processing');
-        return {
-          success: true,
-          message: 'Session paused - awaiting user continuation response',
-          shouldContinue: false
-        };
-      }
-    }
+    // Removed awaiting_continuation check - no longer used (removed 2026-01-30)
+    // Sessions now continue automatically without modal interruptions
 
     if (!watchlist || watchlist.length === 0) {
       logger.error(LogCategory.AI_TRADING, '[Core] ❌ No symbols in watchlist');
@@ -253,32 +245,10 @@ export async function processGoalSessionIteration(
         const isGoalAchieved = goalSession.current_progress >= goalSession.target_value;
 
         if (!isGoalAchieved) {
-          // Import continuation handler dynamically
-          const { continuationHandler } = await import('./continuation-handler');
-
-          // Get the most recent closed trade
-          const recentTrade = closedTrades[closedTrades.length - 1];
-
-          await continuationHandler.handleTradeClose({
-            goalSessionId,
-            userId: goalSession.user_id,
-            tradeResult: {
-              symbol: recentTrade.symbol,
-              direction: recentTrade.direction,
-              entryPrice: recentTrade.entryPrice,
-              exitPrice: recentTrade.closePrice!,
-              profitLoss: recentTrade.profitLoss,
-              outcome: recentTrade.profitLoss > 0 ? 'win' : recentTrade.profitLoss < 0 ? 'loss' : 'breakeven'
-            },
-            sessionProgress: {
-              targetAmount: goalSession.target_value,
-              currentProgress: goalSession.current_progress,
-              tradesCompleted: goalSession.trades_completed || 0
-            }
-          });
-
-          // STOP processing - wait for user decision
-          logger.info(LogCategory.AI_TRADING, '[Core] Single-trade mode: Paused for user continuation decision');
+          // Removed continuation handler (2026-01-30) - sessions continue automatically
+          // Removed continuation handler calls (2026-01-30) - sessions continue automatically
+          // In single-trade mode, session will continue scanning after trade closes
+          logger.info(LogCategory.AI_TRADING, '[Core] Single-trade mode: Trade closed, continuing automatically');
           return {
             success: true,
             message: 'Trade closed - awaiting user continuation decision',

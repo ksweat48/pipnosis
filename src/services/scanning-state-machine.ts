@@ -121,13 +121,11 @@ class ScanningStateMachine {
 
   /**
    * Record that a scan was completed
-   * NOTE: This is now a no-op since the simplified 15-minute confirmation system
-   * uses time-based checks instead of scan counters.
+   * NOTE: This is now a no-op - scan tracking happens via database timestamps
    */
   async recordScanCompletion(sessionId: string, tradeFound: boolean = false): Promise<void> {
-    // No longer needed with simplified scanning system
-    // The new system uses time-based continuation checks via should_show_continuation_modal
-    logger.debug('📊 Scan completed (tracking via time-based system)', {
+    // Scan completion tracked automatically via last_scan_at timestamp in database
+    logger.debug('📊 Scan completed', {
       sessionId,
       tradeFound
     });

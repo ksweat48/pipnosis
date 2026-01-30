@@ -18,7 +18,6 @@ export type GoalSessionStatus =
   | 'scanning'
   | 'active'
   | 'paused'
-  | 'awaiting_continuation'
   | 'goal_achieved'
   | 'stopped'
   | 'timeout'
@@ -42,10 +41,9 @@ export interface TransitionMetadata {
 
 const VALID_TRANSITIONS: Record<GoalSessionStatus, GoalSessionStatus[]> = {
   'initializing': ['scanning', 'timeout', 'stopped'],
-  'scanning': ['active', 'awaiting_continuation', 'goal_achieved', 'timeout', 'paused', 'stopped', 'weekend_shutdown'],
-  'active': ['awaiting_continuation', 'scanning', 'goal_achieved', 'timeout', 'paused', 'stopped'],
+  'scanning': ['active', 'goal_achieved', 'timeout', 'paused', 'stopped', 'weekend_shutdown'],
+  'active': ['scanning', 'goal_achieved', 'timeout', 'paused', 'stopped'],
   'paused': ['scanning', 'active', 'stopped', 'timeout'],
-  'awaiting_continuation': ['scanning', 'stopped', 'timeout'],
   'goal_achieved': [],
   'stopped': [],
   'timeout': [],

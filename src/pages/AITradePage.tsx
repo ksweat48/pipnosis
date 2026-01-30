@@ -6,7 +6,7 @@ import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { SmartGoalPanel } from '@/components/SmartGoalPanel';
 import { GoalSessionDashboard } from '@/components/GoalSessionDashboard';
 import { AchievementsHallOfFame } from '@/components/AchievementsHallOfFame';
-import { PendingContinuationModalHandler } from '@/components/PendingContinuationModalHandler';
+// Removed: PendingContinuationModalHandler (continuation modal system removed 2026-01-30)
 import { useAuth } from '@/hooks/useAuth';
 import { smartGoalSessionManager } from '@/services/smart-goal-session-manager';
 import { Target, Trophy } from 'lucide-react';
@@ -125,7 +125,6 @@ export function AITradePage() {
         pullDistance={pullToRefresh.pullDistance}
         threshold={pullToRefresh.threshold}
       />
-      {user && <PendingContinuationModalHandler userId={user.id} />}
       <NavigationMenu />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12 relative z-10">

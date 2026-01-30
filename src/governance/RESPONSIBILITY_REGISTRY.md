@@ -126,6 +126,12 @@
 | **Goal achievement tracking** | `GoalAchievementCoordinator` | `src/services/coordinators/goal-achievement-coordinator.ts` |
 | **Session timeout enforcement** | Database triggers | `supabase/migrations/*.sql` |
 
+**REMOVED (2026-01-30):**
+- ❌ 15-minute continuation modal system (unnecessary friction after shift to centralized caching)
+- ❌ `ContinuationHandler`, `ContinuationDecisionCoordinator`, `ContinuationEntryStrategy` services
+- ❌ Database columns: `awaiting_continuation_confirmation`, `continuation_confirmation_expires_at`
+- ❌ Scanning remains interval-based (5 minutes) to prevent API hammering
+
 ### 🔔 Notifications & UI
 
 | Responsibility | Authority Service | Location |

@@ -50,7 +50,7 @@ export interface SmartGoalSession {
   sessionId: string;
   userId: string;
   config: SmartGoalConfig;
-  status: 'initializing' | 'scanning' | 'trade_pending' | 'in_trade' | 'active' | 'goal_achieved' | 'expired' | 'user_stopped' | 'awaiting_continuation';
+  status: 'initializing' | 'scanning' | 'trade_pending' | 'in_trade' | 'active' | 'goal_achieved' | 'expired' | 'user_stopped';
   strategy: {
     targetTradeCount: number;
     avgProfitPerTrade: number;

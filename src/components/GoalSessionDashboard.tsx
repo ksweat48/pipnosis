@@ -14,13 +14,13 @@ import { NoTradesFoundDialog } from './NoTradesFoundDialog';
 import { goalSessionLiveEngine } from '../services/goal-session-live-engine';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
-import { simpleScanningTimer } from '../services/simple-scanning-timer';
+// Removed: simpleScanningTimer (continuation modal system removed 2026-01-30)
 import { getRiskPercentage } from '../config/risk-levels';
 import { calculatePipDistance, calculateDollarPerPip, getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { useToast } from '../hooks/useToast';
 import { calculatePnL } from '../types/position';
 import { positionService } from '../services/position-service';
-import { continuationHandler } from '../services/continuation-handler';
+// Removed: continuationHandler (continuation modal system removed 2026-01-30)
 import { getForexMarketStatus } from '../utils/marketHours';
 // GoalScanReadinessIndicator removed - using simple indicator
 
@@ -227,7 +227,7 @@ export const GoalSessionDashboard: React.FC = () => {
       return;
     }
 
-    const validStatuses = ['scanning', 'initializing', 'active', 'trade_pending', 'in_trade', 'awaiting_continuation'];
+    const validStatuses = ['scanning', 'initializing', 'active', 'trade_pending', 'in_trade'];
     if (validStatuses.includes(activeSession.status)) {
       console.log(`[GoalSessionDashboard] Starting polling for session ${activeSession.sessionId} (status: ${activeSession.status})`);
       goalScannerTrigger.startPolling(activeSession.sessionId, 60000);
@@ -363,18 +363,11 @@ export const GoalSessionDashboard: React.FC = () => {
         try {
           const { data: sessionData } = await supabase
             .from('goal_sessions')
-            .select('status, awaiting_continuation_since, trades_in_session, current_progress, target_value, multi_trade_enabled')
+            .select('status, trades_in_session, current_progress, target_value, multi_trade_enabled')
             .eq('id', session.sessionId)
             .single();
 
-          // SSOT: Display modal if database status is 'awaiting_continuation'
-          // The trigger handles timeout enforcement - we just observe and display
-          if (sessionData?.status === 'awaiting_continuation') {
-            setShowNoTradesModal(true);
-          } else {
-            setShowNoTradesModal(false);
-            setContinuationData(null);
-          }
+          // Removed continuation modal checks (2026-01-30) - sessions continue automatically
         } catch (error) {
           console.error('[GoalSessionDashboard] Error checking continuation status:', error);
           setContinuationData(null);
@@ -483,14 +476,19 @@ export const GoalSessionDashboard: React.FC = () => {
 
     setContinuationLoading(true);
     try {
-      // Import continuation handler
-      const { continuationHandler } = await import('../services/continuation-handler');
-
+      // Removed continuation handler (2026-01-30) - sessions continue automatically
+      // Update session status based on user choice
       if (response === 'continue') {
-        await continuationHandler.handleContinue(activeSession.sessionId);
+        await supabase
+          .from('goal_sessions')
+          .update({ status: 'scanning' })
+          .eq('id', activeSession.sessionId);
         console.log('[GoalSessionDashboard] User chose to continue - session resumed');
       } else {
-        await continuationHandler.handleStop(activeSession.sessionId, user.id);
+        await supabase
+          .from('goal_sessions')
+          .update({ status: 'stopped' })
+          .eq('id', activeSession.sessionId);
         console.log('[GoalSessionDashboard] User chose to stop - session ended');
       }
 
@@ -537,9 +535,11 @@ export const GoalSessionDashboard: React.FC = () => {
         });
       }
 
-      // CRITICAL FIX: Properly resume the session by updating status to 'scanning'
-      // This ensures the goal scanner starts looking for the next opportunity
-      await continuationHandler.handleContinue(activeSession.sessionId);
+      // Resume the session by updating status to 'scanning' (removed continuation handler 2026-01-30)
+      await supabase
+        .from('goal_sessions')
+        .update({ status: 'scanning' })
+        .eq('id', activeSession.sessionId);
 
       console.log('[GoalSessionDashboard] ✅ Session resumed - scanner will look for next opportunity');
 
@@ -614,8 +614,9 @@ export const GoalSessionDashboard: React.FC = () => {
   const handleStopSession = async () => {
     if (!activeSession || !user) return;
 
-    // Special handling for awaiting_continuation status - use simplified stop
-    if (activeSession.status === 'awaiting_continuation') {
+    // Removed special handling for awaiting_continuation status (2026-01-30)
+    // All sessions now use standard stop flow
+    if (false) { // Disabled code path
       const confirmed = await confirm({
         title: 'Close Session',
         message: 'Are you sure you want to close this session? Any progress will be saved.',
@@ -627,12 +628,12 @@ export const GoalSessionDashboard: React.FC = () => {
       if (!confirmed) return;
 
       try {
-        const { data, error } = await supabase.rpc('stop_continuation_session', {
+        const { data, error } = await supabase.rpc('stop_session_placeholder', {
           p_session_id: activeSession.sessionId
         });
 
         if (error) {
-          console.error('[GoalSessionDashboard] Error stopping continuation session:', error);
+          console.error('[GoalSessionDashboard] Error stopping session:', error);
           showToast({
             type: 'error',
             title: 'Failed to Stop Session',
@@ -892,8 +893,8 @@ export const GoalSessionDashboard: React.FC = () => {
 
     setUnstickLoading(true);
     try {
-      // Try new force close function first (handles awaiting_continuation better)
-      const { data, error } = await supabase.rpc('force_close_continuation_session', {
+      // Force close session (removed continuation-specific logic 2026-01-30)
+      const { data, error } = await supabase.rpc('force_close_session', {
         p_session_id: activeSession.sessionId
       });
 
@@ -941,8 +942,8 @@ export const GoalSessionDashboard: React.FC = () => {
 
     setNoTradesLoading(true);
     try {
-      console.log('[GoalSessionDashboard] User chose to continue scanning');
-      await simpleScanningTimer.handleContinuationResponse(activeSession.sessionId, true);
+      console.log('[GoalSessionDashboard] User chose to continue scanning (removed timer 2026-01-30)');
+      // Sessions now continue automatically - just dismiss modal
       setShowNoTradesModal(false);
       loadSessionData();
     } catch (error) {
@@ -958,7 +959,11 @@ export const GoalSessionDashboard: React.FC = () => {
     setNoTradesLoading(true);
     try {
       console.log('[GoalSessionDashboard] User chose to close session');
-      await simpleScanningTimer.handleContinuationResponse(activeSession.sessionId, false);
+      // Stop the session
+      await supabase
+        .from('goal_sessions')
+        .update({ status: 'stopped' })
+        .eq('id', activeSession.sessionId);
       setShowNoTradesModal(false);
       loadSessionData();
     } catch (error) {

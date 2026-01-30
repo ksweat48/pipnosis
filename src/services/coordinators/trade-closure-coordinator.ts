@@ -438,7 +438,7 @@ class TradeClosureCoordinator {
       isTimeout,
     });
 
-    let targetStatus: 'scanning' | 'stopped' | 'weekend_shutdown' | 'timeout' | 'awaiting_continuation' = 'stopped';
+    let targetStatus: 'scanning' | 'stopped' | 'weekend_shutdown' | 'timeout' = 'stopped';
     let transitionReason = 'All execution channels empty';
 
     if (isManualClose) {
@@ -447,15 +447,15 @@ class TradeClosureCoordinator {
       transitionReason = 'User manually closed all trades';
       console.log(`[TradeClosureCoordinator] Manual close detected → will stop session`);
     } else if (isSystemClose) {
-      // System closure (SL/TP) → pause and ask user what to do next
-      targetStatus = 'awaiting_continuation';
-      transitionReason = 'Trade closed by system, awaiting user decision';
-      console.log(`[TradeClosureCoordinator] System close (${closeReason}) detected → will pause and ask user`);
+      // System closure (SL/TP) → continue scanning automatically (removed continuation modal 2026-01-30)
+      targetStatus = 'scanning';
+      transitionReason = 'Trade closed by system, resuming scanning automatically';
+      console.log(`[TradeClosureCoordinator] System close (${closeReason}) detected → will resume scanning automatically`);
 
-      // Create trade_closed modal for user to decide
-      console.log(`[TradeClosureCoordinator] Creating trade_closed modal for user decision`);
+      // Create trade_closed modal for notification only (non-blocking)
+      console.log(`[TradeClosureCoordinator] Creating trade_closed notification`);
       await this.createTradeClosedModal(sessionId, userId, closeReason);
-      console.log(`[TradeClosureCoordinator] Modal created successfully`);
+      console.log(`[TradeClosureCoordinator] Notification created successfully`);
     } else if (isWeekendShutdown) {
       targetStatus = 'weekend_shutdown';
       transitionReason = 'Weekend protection activated';
