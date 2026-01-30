@@ -222,6 +222,27 @@ class TradeLifecycleManager {
 
   async checkTradeTargets(trade: any): Promise<void> {
     try {
+      if (this.recentlyClosedTrades.has(trade.id)) {
+        console.log(`[Trade Lifecycle] Trade ${trade.id} recently closed, skipping check`);
+        return;
+      }
+
+      const { data: freshTrade, error: fetchError } = await supabase
+        .from('goal_session_trades')
+        .select('status')
+        .eq('id', trade.id)
+        .maybeSingle();
+
+      if (fetchError || !freshTrade) {
+        console.error(`[Trade Lifecycle] Could not verify trade status:`, fetchError);
+        return;
+      }
+
+      if (freshTrade.status !== 'open') {
+        console.log(`[Trade Lifecycle] Trade ${trade.id} is ${freshTrade.status}, skipping`);
+        return;
+      }
+
       const currentPrice = await this.getCurrentPrice(trade.symbol);
       if (!currentPrice) {
         console.warn(`[Trade Lifecycle] No price data for ${trade.symbol}`);
@@ -377,6 +398,13 @@ class TradeLifecycleManager {
     reason: string
   ): Promise<void> {
     try {
+      if (this.recentlyClosedTrades.has(trade.id)) {
+        console.log(`[Trade Lifecycle] Trade ${trade.id} is already being closed, skipping duplicate`);
+        return;
+      }
+
+      this.recentlyClosedTrades.add(trade.id);
+
       console.log(`[Trade Lifecycle] Delegating trade closure to coordinator: ${trade.id}`);
 
       const { tradeClosureCoordinator } = await import('./coordinators/trade-closure-coordinator');
@@ -394,29 +422,24 @@ class TradeLifecycleManager {
 
       if (!result.success) {
         console.error(`[Trade Lifecycle] Coordinator closure failed: ${result.error}`);
+        this.recentlyClosedTrades.delete(trade.id);
         return;
       }
+
+      setTimeout(() => {
+        this.recentlyClosedTrades.delete(trade.id);
+      }, 5000);
 
       const profitLoss = result.pnl || 0;
       const isProfit = profitLoss > 0;
 
       if (reason === 'take_profit' && isProfit) {
-        if (this.recentlyClosedTrades.has(trade.id)) {
-          console.log('[Trade Lifecycle] Sound already played for this closure, skipping');
-        } else {
-          console.log('[Trade Lifecycle] TP HIT! Playing celebration sound...');
-          this.recentlyClosedTrades.add(trade.id);
-
-          setTimeout(() => {
-            this.recentlyClosedTrades.delete(trade.id);
-          }, 5000);
-
-          try {
-            const { notificationManager } = await import('./notification-manager');
-            notificationManager.playSound('trade_exit');
-          } catch (soundError) {
-            console.error('[Trade Lifecycle] Failed to play sound:', soundError);
-          }
+        console.log('[Trade Lifecycle] TP HIT! Playing celebration sound...');
+        try {
+          const { notificationManager } = await import('./notification-manager');
+          notificationManager.playSound('trade_exit');
+        } catch (soundError) {
+          console.error('[Trade Lifecycle] Failed to play sound:', soundError);
         }
       }
 
