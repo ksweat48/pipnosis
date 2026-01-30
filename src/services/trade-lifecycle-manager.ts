@@ -193,27 +193,27 @@ class TradeLifecycleManager {
     try {
       this.abortController = new AbortController();
 
-      const timestamp = Date.now();
+      // CCIP-20260130-002: Get current user for authorization
+      const { data: { user } } = await supabase.auth.getUser();
 
-      let query = supabase
-        .from('goal_session_trades')
-        .select('*, goal_sessions!inner(user_id, auto_execute)')
-        .eq('status', 'open')
-        .gte('created_at', new Date(0).toISOString());
-
-      if (this.recentlyClosedTrades.size > 0) {
-        const excludedIds = Array.from(this.recentlyClosedTrades);
-        query = query.not('id', 'in', `(${excludedIds.join(',')})`);
-        console.log(`[Trade Lifecycle] Excluding ${excludedIds.length} recently closed trade(s) from query`);
+      if (!user) {
+        // No user logged in - skip monitoring
+        return;
       }
 
-      const { data: openTrades, error } = await query.abortSignal(this.abortController.signal);
+      // SSOT AUTHORITY: Use get_user_monitorable_trades() RPC for proper authorization
+      // This ensures browser monitoring ONLY monitors logged-in user's trades
+      const { data: openTrades, error } = await supabase
+        .rpc('get_user_monitorable_trades', {
+          p_requesting_user_id: user.id,
+          p_target_user_id: null // null = monitor own trades only
+        });
 
       if (error) {
         if (error.message?.includes('AbortError') || error.code === 'ABORTED') {
           return;
         }
-        console.error('[Trade Lifecycle] Error fetching open trades:', error);
+        console.error('[Trade Lifecycle] Error fetching monitorable trades:', error);
         return;
       }
 
@@ -221,9 +221,18 @@ class TradeLifecycleManager {
         return;
       }
 
-      console.log(`[Trade Lifecycle] Monitoring ${openTrades.length} open trade(s)`);
+      // Filter out recently closed trades (in-memory cache)
+      const tradesToMonitor = openTrades.filter(trade =>
+        !this.recentlyClosedTrades.has(trade.id)
+      );
 
-      for (const trade of openTrades) {
+      if (tradesToMonitor.length === 0) {
+        return;
+      }
+
+      console.log(`[Trade Lifecycle] Monitoring ${tradesToMonitor.length} authorized trade(s) for user ${user.id}`);
+
+      for (const trade of tradesToMonitor) {
         await this.checkTradeTargets(trade);
       }
     } catch (error) {
@@ -710,12 +719,12 @@ class TradeLifecycleManager {
 
   async getOpenTrades(userId: string): Promise<any[]> {
     try {
+      // CCIP-20260130-002: Use authorized RPC function
       const { data, error } = await supabase
-        .from('goal_session_trades')
-        .select('*, goal_sessions!inner(user_id)')
-        .eq('goal_sessions.user_id', userId)
-        .eq('status', 'open')
-        .order('opened_at', { ascending: false });
+        .rpc('get_user_monitorable_trades', {
+          p_requesting_user_id: userId,
+          p_target_user_id: null // Monitor own trades only
+        });
 
       if (error) {
         if (error.message?.includes('AbortError') || error.code === 'ABORTED') {

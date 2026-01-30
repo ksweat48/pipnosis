@@ -124,7 +124,21 @@
 | **Trade execution** | `TradeExecutionEngine` | `src/services/trade-execution-engine.ts` |
 | **Trade validation** | `ValidationGateway` + `TradeValidationService` | Multiple |
 | **Trade closure** | `TradeClosureCoordinator` | `src/services/coordinators/trade-closure-coordinator.ts` |
+| **Position monitoring authorization** | `get_user_monitorable_trades()` | Database RPC function |
 | **Position monitoring** | `PositionMonitor` | `src/services/position-monitor.ts` |
+
+**POSITION MONITORING AUTHORIZATION (CCIP-20260130-002):**
+- ✅ SSOT Authority for "which trades can this user monitor"
+- ✅ Regular users: ONLY their own trades
+- ✅ Admins: Can monitor specific users with explicit target
+- ✅ Violations logged to `cross_user_monitoring_violations` table
+- ✅ ALL monitoring services MUST use this RPC function
+- ❌ NEVER query `goal_session_trades` directly for monitoring
+
+**VIOLATIONS FIXED:**
+- ✅ `TradeLifecycleManager` now uses RPC (was querying all trades)
+- ⏳ `PositionMonitor` should use RPC (pending update)
+- ⏳ `RealtimeSLTPMonitor` should use RPC (pending update)
 
 ### 🎯 Session & Goal Management
 
