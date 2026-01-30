@@ -15,6 +15,7 @@
 
 import { supabase } from '../lib/supabase';
 import { CandleData } from './candle-data-service';
+import SystemTableRPCWrapper from './system-table-rpc-wrapper';
 
 interface TradeData {
   id: string;
@@ -473,37 +474,43 @@ class CounterfactualEngine {
   }
 
   /**
-   * Save counterfactual results to database
+   * Save counterfactual results to database via RPC
    */
   private async saveCounterfactuals(trade: TradeData, results: CounterfactualResult[]): Promise<void> {
-    const records = results.map(result => ({
-      trade_id: trade.id,
-      user_id: trade.user_id,
-      symbol: trade.symbol,
-      timeframe: trade.timeframe || '15m',
-      variant_type: result.variant_type,
-      variant_setting: result.variant_setting,
-      variant_description: result.variant_description,
-      counterfactual_pnl: result.counterfactual_pnl,
-      actual_pnl: trade.profit_loss,
-      would_hit_tp: result.would_hit_tp,
-      would_hit_sl: result.would_hit_sl,
-      would_reverse_later: result.would_reverse_later,
-      time_to_resolution_minutes: result.time_to_resolution_minutes,
-      candles_held: result.candles_held,
-      market_regime: result.market_regime,
-      volatility_regime: result.volatility_regime
-    }));
+    let savedCount = 0;
 
-    const { error } = await supabase
-      .from('ai_counterfactuals')
-      .insert(records);
+    for (const result of results) {
+      try {
+        const counterfactualId = await SystemTableRPCWrapper.createAICounterfactual(
+          trade.user_id,
+          trade.id,
+          trade.symbol,
+          trade.timeframe || '15m',
+          result.variant_type,
+          result.variant_setting,
+          result.variant_description,
+          result.counterfactual_pnl,
+          trade.profit_loss,
+          result.would_hit_tp,
+          result.would_hit_sl,
+          result.would_reverse_later,
+          result.time_to_resolution_minutes,
+          result.candles_held,
+          result.market_regime,
+          result.volatility_regime
+        );
 
-    if (error) {
-      console.error('[Counterfactual] Error saving counterfactuals:', error);
-    } else {
-      console.log(`[Counterfactual] ✅ Saved ${records.length} counterfactual simulations`);
+        if (!counterfactualId.error) {
+          savedCount++;
+        } else {
+          console.error('[Counterfactual] Error saving single counterfactual:', counterfactualId.error);
+        }
+      } catch (error) {
+        console.error('[Counterfactual] Exception saving counterfactual:', error);
+      }
     }
+
+    console.log(`[Counterfactual] ✅ Saved ${savedCount}/${results.length} counterfactual simulations`);
   }
 }
 

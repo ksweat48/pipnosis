@@ -13,6 +13,7 @@
 
 import { supabase } from '../../lib/supabase';
 import { TIME_CONSTANTS } from '../../config/time-constants';
+import SystemTableRPCWrapper from '../system-table-rpc-wrapper';
 
 export type NotificationType =
   | 'goal_achieved'
@@ -86,30 +87,26 @@ class NotificationCoordinator {
     }
 
     try {
-      const notificationData = {
-        user_id: request.userId,
-        type: request.type,
-        title: request.title,
-        message: request.message,
-        metadata: request.metadata || {},
-        priority: request.priority || 'medium',
-        trade_id: request.tradeId || null,
-        goal_session_id: request.sessionId || null,
-        read: false,
-        created_at: new Date().toISOString(),
+      const metadata = {
+        ...(request.metadata || {}),
+        tradeId: request.tradeId || null,
+        sessionId: request.sessionId || null,
       };
 
-      const { data, error } = await supabase
-        .from('goal_notifications')
-        .insert(notificationData)
-        .select('id')
-        .single();
+      const result = await SystemTableRPCWrapper.createGoalNotification(
+        request.userId,
+        request.type,
+        request.title,
+        request.message,
+        metadata,
+        request.priority || 'medium'
+      );
 
-      if (error) {
-        console.error(`[NotificationCoordinator] Failed to create notification:`, error);
+      if (result.error) {
+        console.error(`[NotificationCoordinator] Failed to create notification:`, result.error);
         return {
           success: false,
-          error: error.message,
+          error: result.error,
         };
       }
 
@@ -124,7 +121,7 @@ class NotificationCoordinator {
 
       return {
         success: true,
-        notificationId: data.id,
+        notificationId: result.id,
       };
     } catch (error) {
       console.error(`[NotificationCoordinator] Error sending notification:`, error);

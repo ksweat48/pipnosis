@@ -7,6 +7,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import SystemTableRPCWrapper from './system-table-rpc-wrapper';
 import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
 import { triggerDetectionRules, TriggerEvent, MarketSnapshot } from './trigger-detection-rules';
 import { llmSnapshotBuilder, LLMSnapshot, LLMTradeDecision } from './llm-snapshot-builder';
@@ -919,30 +920,34 @@ class EventBasedLLMEngine {
       `${emoji} Layer 5: ${executionResult.action}`;
 
     try {
-      await supabase.from('goal_ai_conversations').insert({
-        goal_session_id: this.sessionId,
-        user_id: this.userId,
-        role: 'ai',
+      await SystemTableRPCWrapper.createGoalAIConversation(
+        this.userId,
+        this.sessionId,
+        'ai',
         message,
-        context: {
-          pipeline_duration: totalDuration,
-          trigger_type: trigger.type,
-          final_decision: executionResult.action
-        },
-        sentiment: isApproved ? 'analytical' : 'cautionary',
-        technical_data: {
-          regime: regimeResult.regime,
-          volatility: regimeResult.volatility,
-          quality_score: qualityResult.quality_score,
-          confidence_before: trigger.confidence,
-          confidence_after: calibrationResult.calibrated_confidence
-        },
-        market_snapshot: {
-          decision: executionResult.action,
-          confidence: calibrationResult.calibrated_confidence,
-          trend: regimeResult.regime
+        0,
+        'gpt-4',
+        {
+          context: {
+            pipeline_duration: totalDuration,
+            trigger_type: trigger.type,
+            final_decision: executionResult.action
+          },
+          sentiment: isApproved ? 'analytical' : 'cautionary',
+          technical_data: {
+            regime: regimeResult.regime,
+            volatility: regimeResult.volatility,
+            quality_score: qualityResult.quality_score,
+            confidence_before: trigger.confidence,
+            confidence_after: calibrationResult.calibrated_confidence
+          },
+          market_snapshot: {
+            decision: executionResult.action,
+            confidence: calibrationResult.calibrated_confidence,
+            trend: regimeResult.regime
+          }
         }
-      });
+      );
     } catch (error) {
       console.error('[Pipeline] Error sending to conversation:', error);
     }
