@@ -120,17 +120,32 @@
 
 ### 🎯 Session & Goal Management
 
-| Responsibility | Authority Service | Location |
-|---|---|---|
-| **Session lifecycle** | `SessionManagementService` | `src/services/session-management-service.ts` |
-| **Goal achievement tracking** | `GoalAchievementCoordinator` | `src/services/coordinators/goal-achievement-coordinator.ts` |
-| **Session status transitions** | **SessionStateAuthority** | `supabase/migrations/20260130_*_ssot_compliant_stuck_session_fixes_*` |
-| **Session timeout enforcement** | **SessionTimeoutAuthority** | `supabase/migrations/20260130_*_ssot_compliant_stuck_session_fixes_*` |
-| **Entry intent lifecycle** | **EntryIntentAuthority** | `supabase/migrations/20260130_*_ssot_compliant_stuck_session_fixes_*` |
-| **Trade closure & balance** | **TradeClosureCoordinator** | `supabase/migrations/20260130_*_ssot_compliant_stuck_session_fixes_*` |
+| Responsibility | Authority Service | Location | SSOT Table |
+|---|---|---|---|
+| **Session lifecycle** | `SessionManagementService` | `src/services/session-management-service.ts` | `goal_sessions` |
+| **Session state (SSOT)** | **SessionStateAuthority** | `get_session_state()` RPC function | `goal_sessions` |
+| **Scanning initialization** | **ScanningSystemAuthority** | `initialize_session_scanning()` RPC function | `goal_sessions` |
+| **Status transition validation** | **SessionStateAuthority** | `validate_session_status_transition()` RPC function | `goal_session_audit_trail` |
+| **Session health checks** | **SessionStateAuthority** | `check_goal_session_health()` RPC function | `goal_sessions` |
+| **Goal achievement tracking** | `GoalAchievementCoordinator` | `src/services/coordinators/goal-achievement-coordinator.ts` | `goal_sessions` |
+| **Session timeout enforcement** | **SessionTimeoutAuthority** | `supabase/migrations/20260130_*_ssot_compliant_stuck_session_fixes_*` | `goal_sessions` |
+| **Entry intent lifecycle** | **EntryIntentAuthority** | `supabase/migrations/20260130_*_ssot_compliant_stuck_session_fixes_*` | `entry_intents` |
+| **Trade closure & balance** | **TradeClosureCoordinator** | `supabase/migrations/20260130_*_ssot_compliant_stuck_session_fixes_*` | `goal_session_trades` |
+| **Session audit trail** | Governance audit | `goal_session_audit_trail` table | `goal_session_audit_trail` |
 
-**CCIP COMPLIANCE (2026-01-30 - Stuck Sessions Fix):**
-- ✅ Created `SessionStateAuthority` for all session status transitions
+**CCIP COMPLIANCE (2026-01-30 - Goal Sessions & Scanning Fix):**
+- ✅ Added missing `scanning_duration_minutes` column to goal_sessions table
+- ✅ Created `SessionStateAuthority` RPC functions (get_session_state, validate_status_transition, check_health)
+- ✅ Created `ScanningSystemAuthority` RPC function (initialize_session_scanning)
+- ✅ Created `goal_session_audit_trail` table for governance compliance
+- ✅ Fixed RLS policies to allow proper session creation and updates
+- ✅ Forced Supabase schema cache refresh via NOTIFY trigger
+- ✅ All scanning operations logged to audit trail
+- ✅ All sessions default to 60-minute scanning duration
+- ✅ Session status transitions validated and logged
+- ✅ Health checks available for debugging
+
+**PREVIOUS CCIP COMPLIANCE (2026-01-30 - Stuck Sessions Fix):**
 - ✅ Created `SessionTimeoutAuthority` for timeout logic (single source)
 - ✅ Created `EntryIntentAuthority` for intent lifecycle
 - ✅ Enhanced `TradeClosureCoordinator` with transaction support
@@ -142,7 +157,6 @@
 **REMOVED (2026-01-30):**
 - ❌ 15-minute continuation modal system (unnecessary friction after shift to centralized caching)
 - ❌ `ContinuationHandler`, `ContinuationDecisionCoordinator`, `ContinuationEntryStrategy` services
-- ❌ Database columns: `awaiting_continuation_confirmation`, `continuation_confirmation_expires_at`
 - ❌ Scanning remains interval-based (5 minutes) to prevent API hammering
 
 ### 🔔 Notifications & UI
