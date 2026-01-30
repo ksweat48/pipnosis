@@ -48,26 +48,23 @@ export class SystemTableRPCWrapper {
 
   /**
    * Create an AI trader score via SECURITY DEFINER RPC
-   * SSOT: session_id can be null for initial score creation
+   * SSOT: ai_trader_score table does NOT have session_id column
+   * EMERGENCY FIX: Removed session_id parameter to match database schema
    */
   static async createAITraderScore(
     userId: string,
-    sessionId: string | null,
     tradeCount: number = 0,
     winRate: number = 0,
     avgRR: number = 0,
-    consistencyScore: number = 0,
-    metadata?: Record<string, any>
+    consistencyScore: number = 0
   ): Promise<{ id: string; error?: string }> {
     try {
       const { data, error } = await supabase.rpc('create_ai_trader_score', {
         p_user_id: userId,
-        p_session_id: sessionId || null,
         p_trade_count: tradeCount,
         p_win_rate: winRate,
         p_avg_rr: avgRR,
         p_consistency_score: consistencyScore,
-        p_metadata: metadata || null,
       });
 
       if (error) {
