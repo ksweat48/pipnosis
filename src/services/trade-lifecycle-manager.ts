@@ -12,6 +12,7 @@ import {
   tradeClosureCoordinator,
 } from './coordinators';
 import { MarketDataService, marketDataService } from './market-data-service';
+import { tradeProcessingLockService } from './trade-processing-lock-service';
 
 export interface PriceUpdate {
   symbol: string;
@@ -226,12 +227,26 @@ class TradeLifecycleManager {
   }
 
   async checkTradeTargets(trade: any): Promise<void> {
+    // SSOT AUTHORITY: Try to acquire database-backed lock FIRST
+    // This prevents multiple monitoring systems from processing the same trade
+    const lockAcquired = await tradeProcessingLockService.acquireLock(
+      trade.id,
+      'TradeLifecycleManager'
+    );
+
+    if (!lockAcquired) {
+      console.log(`[Trade Lifecycle] Skipping trade ${trade.id} - locked by another system`);
+      return;
+    }
+
     try {
       if (this.tradesBeingProcessed.has(trade.id)) {
+        await tradeProcessingLockService.releaseLock(trade.id);
         return;
       }
 
       if (this.recentlyClosedTrades.has(trade.id)) {
+        await tradeProcessingLockService.releaseLock(trade.id);
         return;
       }
 
@@ -354,10 +369,14 @@ class TradeLifecycleManager {
         }
       } finally {
         this.tradesBeingProcessed.delete(trade.id);
+        // SSOT AUTHORITY: Release lock so other systems can process if needed
+        await tradeProcessingLockService.releaseLock(trade.id);
       }
     } catch (error) {
       console.error(`[Trade Lifecycle] Error checking targets for trade ${trade.id}:`, error);
       this.tradesBeingProcessed.delete(trade.id);
+      // SSOT AUTHORITY: Release lock on error
+      await tradeProcessingLockService.releaseLock(trade.id);
     }
   }
 
