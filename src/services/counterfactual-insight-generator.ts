@@ -153,17 +153,24 @@ Keep total response under 100 words. Be direct and specific.`;
     const riskVariants = counterfactuals.filter(c => c.variant_type === 'risk_variant');
     const earlyExit = counterfactuals.find(c => c.variant_type === 'early_exit');
 
-    const bestSL = slVariants.reduce((best, curr) =>
-      curr.rr_difference > best.rr_difference ? curr : best, slVariants[0]
-    );
+    // SSOT FIX: Handle empty arrays in reduce operations to prevent null reference errors
+    const bestSL = slVariants.length > 0
+      ? slVariants.reduce((best, curr) =>
+          curr.rr_difference > best.rr_difference ? curr : best, slVariants[0]
+        )
+      : null;
 
-    const bestTP = tpVariants.reduce((best, curr) =>
-      curr.rr_difference > best.rr_difference ? curr : best, tpVariants[0]
-    );
+    const bestTP = tpVariants.length > 0
+      ? tpVariants.reduce((best, curr) =>
+          curr.rr_difference > best.rr_difference ? curr : best, tpVariants[0]
+        )
+      : null;
 
-    const bestRisk = riskVariants.reduce((best, curr) =>
-      curr.rr_difference > best.rr_difference ? curr : best, riskVariants[0]
-    );
+    const bestRisk = riskVariants.length > 0
+      ? riskVariants.reduce((best, curr) =>
+          curr.rr_difference > best.rr_difference ? curr : best, riskVariants[0]
+        )
+      : null;
 
     const bestOverall = counterfactuals[0];
     const improvementDollars = bestOverall.rr_difference;

@@ -25,7 +25,12 @@ class TradeLifecycleManager {
   private monitoringInterval: number | null = null;
   private isMonitoring: boolean = false;
   private abortController: AbortController | null = null;
+
+  // SSOT: Recently closed trades cache (30-second window = 6x polling interval)
+  // This prevents re-processing trades that were just closed
   private recentlyClosedTrades = new Set<string>();
+  private readonly RECENTLY_CLOSED_CACHE_TIMEOUT_MS = 30000; // 30 seconds
+
   private tradesBeingProcessed = new Set<string>();
 
   /**
@@ -433,11 +438,45 @@ class TradeLifecycleManager {
     reason: string
   ): Promise<void> {
     try {
+      // First check: In-memory cache (fast check)
       if (this.recentlyClosedTrades.has(trade.id)) {
-        console.log(`[Trade Lifecycle] Trade ${trade.id} is already being closed, skipping duplicate`);
+        console.log(`[Trade Lifecycle] Trade ${trade.id} is in recently closed cache, skipping duplicate`);
         return;
       }
 
+      // Second check: Database status (SSOT - authoritative check)
+      // This prevents race conditions between multiple monitoring systems
+      const { data: dbTrade, error: dbError } = await supabase
+        .from('goal_session_trades')
+        .select('status')
+        .eq('id', trade.id)
+        .maybeSingle();
+
+      if (dbError) {
+        console.error(`[Trade Lifecycle] Error checking trade status from database:`, dbError);
+        // Don't proceed if we can't verify status
+        return;
+      }
+
+      if (!dbTrade) {
+        console.error(`[Trade Lifecycle] Trade ${trade.id} not found in database`);
+        return;
+      }
+
+      if (dbTrade.status !== 'open') {
+        console.log(
+          `[Trade Lifecycle] Trade ${trade.id} is already ${dbTrade.status} in database, ` +
+          `skipping duplicate closure attempt`
+        );
+        // Add to cache to prevent repeated database checks
+        this.recentlyClosedTrades.add(trade.id);
+        setTimeout(() => {
+          this.recentlyClosedTrades.delete(trade.id);
+        }, this.RECENTLY_CLOSED_CACHE_TIMEOUT_MS);
+        return;
+      }
+
+      // Trade is confirmed open in database - proceed with closure
       this.recentlyClosedTrades.add(trade.id);
 
       console.log(`[Trade Lifecycle] Delegating trade closure to coordinator: ${trade.id}`);
@@ -461,18 +500,32 @@ class TradeLifecycleManager {
         return;
       }
 
+      // Remove from cache after 30 seconds (6x polling interval)
+      // This ensures the trade won't be re-processed by parallel monitoring systems
       setTimeout(() => {
         this.recentlyClosedTrades.delete(trade.id);
-      }, 5000);
+      }, this.RECENTLY_CLOSED_CACHE_TIMEOUT_MS);
 
       const profitLoss = result.pnl || 0;
       const isProfit = profitLoss > 0;
 
+      // SSOT: Route sound playback through audioAlertService for deduplication
       if (reason === 'take_profit' && isProfit) {
         console.log('[Trade Lifecycle] TP HIT! Playing celebration sound...');
         try {
-          const { notificationManager } = await import('./notification-manager');
-          notificationManager.playSound('trade_exit');
+          const { audioAlertService } = await import('./audio-alert-service');
+          const soundPlayed = await audioAlertService.playTradeProfit(trade.id);
+          if (!soundPlayed) {
+            console.log('[Trade Lifecycle] Sound deduplicated (recently played)');
+          }
+        } catch (soundError) {
+          console.error('[Trade Lifecycle] Failed to play sound:', soundError);
+        }
+      } else if (!isProfit && reason === 'stop_loss') {
+        // Play loss sound for stop loss hits
+        try {
+          const { audioAlertService } = await import('./audio-alert-service');
+          await audioAlertService.playTradeLoss(trade.id);
         } catch (soundError) {
           console.error('[Trade Lifecycle] Failed to play sound:', soundError);
         }

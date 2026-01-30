@@ -1,14 +1,26 @@
 /**
- * Audio Alert Service
+ * Audio Alert Service (SSOT for Sound Playback)
  *
  * Manages 2-3 second audio alerts for critical trading events
  * - Trade entry
  * - Trade close (profit)
  * - Trade close (loss)
  * - Goal achieved
+ *
+ * GOVERNANCE:
+ * - SINGLE SOURCE OF TRUTH for all sound playback
+ * - Deduplicates sounds within 10-second window
+ * - Tracks sound history per context (e.g., tradeId)
  */
 
 export type AlertType = 'success' | 'warning' | 'attention' | 'critical';
+
+interface SoundContext {
+  type: AlertType;
+  tradeId?: string;
+  sessionId?: string;
+  context?: string;
+}
 
 class AudioAlertService {
   private audioContext: AudioContext | null = null;
@@ -16,8 +28,68 @@ class AudioAlertService {
   private volume: number = 0.7;
   private isInitialized: boolean = false;
 
+  // SSOT: Sound deduplication cache (10-second window)
+  private recentSounds: Map<string, number> = new Map();
+  private readonly DEDUPLICATION_WINDOW_MS = 10000; // 10 seconds
+
   constructor() {
     this.loadPreferences();
+    this.startCleanupInterval();
+  }
+
+  /**
+   * Start cleanup interval to remove expired sound cache entries
+   */
+  private startCleanupInterval(): void {
+    setInterval(() => {
+      const now = Date.now();
+      for (const [key, timestamp] of this.recentSounds.entries()) {
+        if (now - timestamp > this.DEDUPLICATION_WINDOW_MS) {
+          this.recentSounds.delete(key);
+        }
+      }
+    }, 5000); // Clean every 5 seconds
+  }
+
+  /**
+   * Generate deduplication key for sound
+   */
+  private getSoundKey(context: SoundContext): string {
+    const parts = [context.type];
+    if (context.tradeId) parts.push(`trade:${context.tradeId}`);
+    if (context.sessionId) parts.push(`session:${context.sessionId}`);
+    if (context.context) parts.push(context.context);
+    return parts.join('|');
+  }
+
+  /**
+   * Check if sound was recently played
+   */
+  private wasRecentlyPlayed(context: SoundContext): boolean {
+    const key = this.getSoundKey(context);
+    const lastPlayed = this.recentSounds.get(key);
+
+    if (!lastPlayed) return false;
+
+    const timeSinceLastPlay = Date.now() - lastPlayed;
+    const wasRecent = timeSinceLastPlay < this.DEDUPLICATION_WINDOW_MS;
+
+    if (wasRecent) {
+      console.log(
+        `[AudioAlert] Deduplicated sound: ${context.type} ` +
+        `(last played ${Math.round(timeSinceLastPlay / 1000)}s ago)`
+      );
+    }
+
+    return wasRecent;
+  }
+
+  /**
+   * Mark sound as played
+   */
+  private markAsPlayed(context: SoundContext): void {
+    const key = this.getSoundKey(context);
+    this.recentSounds.set(key, Date.now());
   }
 
   private loadPreferences(): void {
@@ -239,9 +311,10 @@ class AudioAlertService {
   }
 
   /**
-   * Play alert based on type
+   * Play alert based on type (DEPRECATED - use playWithContext)
    */
   async play(type: AlertType): Promise<void> {
+    // Legacy method - no deduplication for backward compatibility
     switch (type) {
       case 'success':
         await this.playSuccess();
@@ -258,6 +331,90 @@ class AudioAlertService {
       default:
         console.warn(`[AudioAlert] Unknown alert type: ${type}`);
     }
+  }
+
+  /**
+   * Play alert with deduplication (SSOT Authority)
+   *
+   * This is the PRIMARY method for playing sounds in the application.
+   * All business logic should route through this method, not direct playSuccess/playWarning.
+   *
+   * @param context - Sound context with type and optional deduplication keys
+   * @returns Promise<boolean> - true if sound played, false if deduplicated
+   */
+  async playWithContext(context: SoundContext): Promise<boolean> {
+    // Check deduplication
+    if (this.wasRecentlyPlayed(context)) {
+      return false; // Deduplicated
+    }
+
+    // Mark as played BEFORE starting playback to prevent race conditions
+    this.markAsPlayed(context);
+
+    // Play the sound
+    switch (context.type) {
+      case 'success':
+        await this.playSuccess();
+        break;
+      case 'warning':
+        await this.playWarning();
+        break;
+      case 'attention':
+        await this.playAttention();
+        break;
+      case 'critical':
+        await this.playCritical();
+        break;
+      default:
+        console.warn(`[AudioAlert] Unknown alert type: ${context.type}`);
+        return false;
+    }
+
+    return true; // Sound played successfully
+  }
+
+  /**
+   * Convenience method: Play trade profit sound with deduplication
+   */
+  async playTradeProfit(tradeId: string): Promise<boolean> {
+    return this.playWithContext({
+      type: 'success',
+      tradeId,
+      context: 'trade_profit'
+    });
+  }
+
+  /**
+   * Convenience method: Play trade loss sound with deduplication
+   */
+  async playTradeLoss(tradeId: string): Promise<boolean> {
+    return this.playWithContext({
+      type: 'warning',
+      tradeId,
+      context: 'trade_loss'
+    });
+  }
+
+  /**
+   * Convenience method: Play trade entry sound with deduplication
+   */
+  async playTradeEntry(tradeId: string): Promise<boolean> {
+    return this.playWithContext({
+      type: 'attention',
+      tradeId,
+      context: 'trade_entry'
+    });
+  }
+
+  /**
+   * Convenience method: Play goal achieved sound with deduplication
+   */
+  async playGoalAchieved(sessionId: string): Promise<boolean> {
+    return this.playWithContext({
+      type: 'critical',
+      sessionId,
+      context: 'goal_achieved'
+    });
   }
 
   /**

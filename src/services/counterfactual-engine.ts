@@ -93,7 +93,11 @@ class CounterfactualEngine {
 
       results.push(...this.simulateStopLossVariants(trade, candlesInTrade, marketRegime, volatilityRegime));
       results.push(...this.simulateTakeProfitVariants(trade, candlesInTrade, marketRegime, volatilityRegime));
-      results.push(...this.simulateRiskVariants(trade, candlesInTrade, marketRegime, volatilityRegime));
+
+      // SSOT FIX: Await async risk variants calculation
+      const riskVariants = await this.simulateRiskVariants(trade, candlesInTrade, marketRegime, volatilityRegime);
+      results.push(...riskVariants);
+
       results.push(...this.simulateEarlyExit(trade, candlesInTrade, marketRegime, volatilityRegime));
 
       await this.saveCounterfactuals(trade, results);
@@ -108,20 +112,21 @@ class CounterfactualEngine {
         `(${bestAlternate.counterfactual_pnl > trade.profit_loss ? '+' : ''}${(bestAlternate.counterfactual_pnl - trade.profit_loss).toFixed(2)})`
       );
 
+      // SSOT FIX: Properly await insight generation instead of fire-and-forget
+      // This ensures errors are propagated and operation completes before function returns
       if (options.generateInsights) {
-        setTimeout(async () => {
-          try {
-            const { counterfactualInsightGenerator } = await import('./counterfactual-insight-generator');
-            await counterfactualInsightGenerator.generateInsights(
-              trade.id,
-              trade.user_id,
-              trade.symbol,
-              trade.profit_loss
-            );
-          } catch (error) {
-            console.error('[Counterfactual] Error generating insights:', error);
-          }
-        }, 2000);
+        try {
+          const { counterfactualInsightGenerator } = await import('./counterfactual-insight-generator');
+          await counterfactualInsightGenerator.generateInsights(
+            trade.id,
+            trade.user_id,
+            trade.symbol,
+            trade.profit_loss
+          );
+        } catch (error) {
+          console.error('[Counterfactual] Error generating insights:', error);
+          // Don't throw - insights are supplementary, not critical
+        }
       }
     } catch (error) {
       console.error('[Counterfactual] Error running counterfactuals:', error);
@@ -204,21 +209,47 @@ class CounterfactualEngine {
 
   /**
    * Simulate 4 risk sizing variants
+   *
+   * SSOT FIX: Corrected position size multiplier calculation
+   * - Both values now in percentage units (not mixing percentage and decimal)
+   * - Added division by zero protection
+   * - Added reasonable bounds (0.1x to 10x multiplier)
    */
-  private simulateRiskVariants(
+  private async simulateRiskVariants(
     trade: TradeData,
     candles: CandleData[],
     marketRegime: string,
     volatilityRegime: string
-  ): CounterfactualResult[] {
+  ): Promise<CounterfactualResult[]> {
     const riskPercentages = [1, 2, 3, 5];
     const results: CounterfactualResult[] = [];
 
-    const actualRiskPct = this.estimateRiskPercentage(trade);
+    const actualRiskPct = await this.estimateRiskPercentage(trade);
+
+    // CRITICAL FIX: Division by zero protection
+    if (actualRiskPct === 0 || actualRiskPct === null || actualRiskPct === undefined) {
+      console.warn('[Counterfactual] Cannot calculate risk variants - actual risk is zero or invalid');
+      return results;
+    }
+
     const simulation = this.replayTrade(trade, candles, trade.stop_loss, trade.take_profit);
 
     for (const riskPct of riskPercentages) {
+      // CRITICAL FIX: Both values are now in percentage units
+      // actualRiskPct is already a percentage (e.g., 2.5 = 2.5%)
+      // riskPct is also a percentage (1, 2, 3, or 5)
       const multiplier = riskPct / actualRiskPct;
+
+      // CRITICAL FIX: Bounds checking to prevent absurd multipliers
+      // Reasonable range: 0.1x to 10x position size
+      if (multiplier < 0.1 || multiplier > 10) {
+        console.warn(
+          `[Counterfactual] Skipping risk variant ${riskPct}% - ` +
+          `multiplier ${multiplier.toFixed(2)}x is out of reasonable bounds (0.1x - 10x)`
+        );
+        continue;
+      }
+
       const adjustedPnL = trade.profit_loss * multiplier;
 
       results.push({
@@ -422,13 +453,67 @@ class CounterfactualEngine {
   }
 
   /**
-   * Estimate risk percentage from trade data
+   * Estimate risk percentage from trade data (SSOT - User's Real Account Size)
+   *
+   * CRITICAL FIXES:
+   * - Fetches real account balance from user profile (no hardcoding)
+   * - Adds division by zero protection
+   * - Returns null if account size cannot be determined
+   * - Falls back to $10,000 only if database query fails
    */
-  private estimateRiskPercentage(trade: TradeData): number {
-    const slDistance = Math.abs(trade.entry_price - trade.stop_loss);
-    const riskDollars = slDistance * trade.position_size;
-    const accountSize = 10000;
-    return (riskDollars / accountSize) * 100;
+  private async estimateRiskPercentage(trade: TradeData): Promise<number | null> {
+    try {
+      const slDistance = Math.abs(trade.entry_price - trade.stop_loss);
+
+      // CRITICAL FIX: Division by zero protection
+      if (slDistance === 0) {
+        console.warn('[Counterfactual] SL distance is zero - cannot calculate risk percentage');
+        return null;
+      }
+
+      const riskDollars = slDistance * trade.position_size;
+
+      // CRITICAL FIX: Fetch real account balance from user profile
+      const { data: profile, error } = await supabase
+        .from('user_profiles')
+        .select('account_balance')
+        .eq('id', trade.user_id)
+        .maybeSingle();
+
+      let accountSize = 10000; // Fallback default
+
+      if (error) {
+        console.error('[Counterfactual] Error fetching user account balance:', error);
+      } else if (profile && profile.account_balance && profile.account_balance > 0) {
+        accountSize = profile.account_balance;
+      } else {
+        console.warn(
+          `[Counterfactual] No valid account balance for user ${trade.user_id}, ` +
+          `using default $${accountSize}`
+        );
+      }
+
+      // CRITICAL FIX: Division by zero protection
+      if (accountSize === 0) {
+        console.error('[Counterfactual] Account size is zero - cannot calculate risk percentage');
+        return null;
+      }
+
+      const riskPct = (riskDollars / accountSize) * 100;
+
+      // Sanity check: Risk percentage should be reasonable (0.01% to 20%)
+      if (riskPct < 0.01 || riskPct > 20) {
+        console.warn(
+          `[Counterfactual] Calculated risk percentage ${riskPct.toFixed(4)}% ` +
+          `is outside reasonable bounds (0.01% - 20%)`
+        );
+      }
+
+      return riskPct;
+    } catch (error) {
+      console.error('[Counterfactual] Error in estimateRiskPercentage:', error);
+      return null;
+    }
   }
 
   /**
