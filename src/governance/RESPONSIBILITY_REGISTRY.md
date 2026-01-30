@@ -225,6 +225,26 @@ if (positionSize > 1000) {
 - [ ] Enforce contracts at compile time
 - [ ] Add governance monitoring dashboard
 
+### 💰 Credits & Payments
+
+| Responsibility | Authority Service | Location | SSOT Table |
+|---|---|---|---|
+| **Credit balance (SSOT)** | **CreditManagementAuthority** | Database functions | `user_token_balance` |
+| **Admin credit additions** | `admin_add_credits_to_user()` | `supabase/migrations/20260130_fix_credit_system_ssot_compliance_v2.sql` | `user_token_balance` |
+| **New user credit signup** | `handle_new_user()` trigger | `supabase/migrations/20260130_fix_credit_system_ssot_compliance_v2.sql` | `user_token_balance` |
+| **Credit audit trail** | Governance audit | `credit_transaction_audit` table | `credit_transaction_audit` |
+| **Credit balance reading** | `CreditMeterService` | `src/services/credit-meter-service.ts` | `user_token_balance` |
+| **Credit deduction on trade** | `CreditMeterService` | `src/services/credit-meter-service.ts` | `user_token_balance` |
+
+**CCIP Compliance (2026-01-30 - Credit System Fix):**
+- ✅ Created `CreditManagementAuthority` as SSOT for all credit changes
+- ✅ Admin function fixed to work with RLS policies (was blocked by policy)
+- ✅ New users receive 50 free credits on signup (verified and audited)
+- ✅ All credit transactions logged to `credit_transaction_audit` table
+- ✅ Governance compliance with full transaction history
+- ✅ No duplicate credit management logic
+- ✅ Admin can now successfully add credits to users
+
 ---
 
 ## Violation Detection
