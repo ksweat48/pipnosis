@@ -7,6 +7,7 @@
 
 import { supabase } from '../lib/supabase';
 import { getPersonalityState, type TraderScore } from './ai-identity';
+import SystemTableRPCWrapper from './system-table-rpc-wrapper';
 
 export interface TradeContext {
   symbol: string;
@@ -54,18 +55,30 @@ class RewardEngine {
     if (error) throw error;
 
     if (!data) {
-      // Initialize new trader score
-      const { data: newScore, error: insertError } = await client
-        .from('ai_trader_score')
-        .insert({
-          user_id: userId,
-          current_score: 50
-        })
-        .select()
-        .single();
+      // Initialize new trader score via RPC
+      const result = await SystemTableRPCWrapper.createAITraderScore(
+        userId,
+        '', // session_id - empty for initial score
+        0, // trade_count
+        50, // win_rate (initial)
+        0, // avg_rr
+        50 // consistency_score (initial)
+      );
 
-      if (insertError) throw insertError;
-      return newScore as TraderScore;
+      if (result.error) throw new Error(result.error);
+
+      // Return default trader score structure
+      return {
+        id: result.id,
+        user_id: userId,
+        current_score: 50,
+        session_id: null,
+        trade_count: 0,
+        win_rate: 50,
+        avg_rr: 0,
+        consistency_score: 50,
+        created_at: new Date().toISOString(),
+      } as TraderScore;
     }
 
     return data as TraderScore;

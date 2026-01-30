@@ -7,6 +7,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import SystemTableRPCWrapper from './system-table-rpc-wrapper';
 import { PIPNOSIS_CORE_RULES, PipnosisCoreRules } from '../lib/pipnosis-core-rules';
 import { goalSessionLiveEngine, GoalSessionLiveConfig } from './goal-session-live-engine';
 import { v4 as uuidv4 } from 'uuid';
@@ -636,39 +637,47 @@ class SmartGoalSessionManager {
           `   • Its own memory & playbook of proven strategies\\n` +
           `\\n📊 Strategy plans will be shared as the AI makes decisions in real-time`;
 
-        await supabase.from('goal_ai_conversations').insert({
-          goal_session_id: sessionId,
-          user_id: userId,
-          role: 'ai',
-          message: strategyMessage,
-          context: {
-            liveEngineStatus: 'started',
-            target: config.goalAmount,
-            trades_needed: breakDown.targetTradeCount,
-            avg_per_trade: breakDown.avgProfitPerTrade
-          },
-          sentiment: 'encouraging',
-          technical_data: {
-            watchlist: config.watchlist,
-            scan_interval: '15s',
-            risk_mode: config.riskMode
-          },
-          market_snapshot: {
-            protection: '5-layer-llm',
-            mode: 'live-demo'
+        await SystemTableRPCWrapper.createGoalAIConversation(
+          userId,
+          sessionId,
+          'ai',
+          strategyMessage,
+          0,
+          'gpt-4',
+          {
+            context: {
+              liveEngineStatus: 'started',
+              target: config.goalAmount,
+              trades_needed: breakDown.targetTradeCount,
+              avg_per_trade: breakDown.avgProfitPerTrade
+            },
+            sentiment: 'encouraging',
+            technical_data: {
+              watchlist: config.watchlist,
+              scan_interval: '15s',
+              risk_mode: config.riskMode
+            },
+            market_snapshot: {
+              protection: '5-layer-llm',
+              mode: 'live-demo'
+            }
           }
-        });
+        );
       } else {
         console.error('[Smart Goal] Failed to start live engine:', result.message);
 
-        await supabase.from('goal_ai_conversations').insert({
-          goal_session_id: sessionId,
-          user_id: userId,
-          role: 'ai',
-          message: `Note: Live engine startup encountered an issue: ${result.message}. Continuing with scheduled scans.`,
-          context: { liveEngineStatus: 'error', error: result.message },
-          sentiment: 'cautionary'
-        });
+        await SystemTableRPCWrapper.createGoalAIConversation(
+          userId,
+          sessionId,
+          'ai',
+          `Note: Live engine startup encountered an issue: ${result.message}. Continuing with scheduled scans.`,
+          0,
+          'gpt-4',
+          {
+            context: { liveEngineStatus: 'error', error: result.message },
+            sentiment: 'cautionary'
+          }
+        );
       }
     } catch (error) {
       console.error('[Smart Goal] Error starting live engine:', error);

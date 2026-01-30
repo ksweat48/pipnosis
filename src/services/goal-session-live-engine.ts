@@ -7,6 +7,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import SystemTableRPCWrapper from './system-table-rpc-wrapper';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
 import { eventBasedLLMEngine, EventBasedEngineConfig, SimulatedTrade } from './event-based-llm-engine';
 import { localSessionMemory } from './local-session-memory';
@@ -2692,25 +2693,29 @@ class GoalSessionLiveEngine {
         `🔄 Monitoring every 15 seconds for TP/SL hit...`;
 
       try {
-        await supabase.from('goal_ai_conversations').insert({
-          goal_session_id: this.activeSession,
-          user_id: this.config.userId,
-          role: 'ai',
+        await SystemTableRPCWrapper.createGoalAIConversation(
+          this.config.userId,
+          this.activeSession!,
+          'ai',
           message,
-          context: {
-            trade_id: executionResult.tradeId,
-            execution_result: executionResult,
-            entry_price: trade.entryPrice,
-            stop_loss: trade.stopLoss,
-            take_profit: trade.takeProfit,
-            risk_pips: riskPips,
-            reward_pips: rewardPips,
-            risk_reward: riskReward,
-            confidence: trade.confidence,
-            setup_type: trade.triggerType
-          },
-          sentiment: 'encouraging'
-        });
+          0,
+          'gpt-4',
+          {
+            context: {
+              trade_id: executionResult.tradeId,
+              execution_result: executionResult,
+              entry_price: trade.entryPrice,
+              stop_loss: trade.stopLoss,
+              take_profit: trade.takeProfit,
+              risk_pips: riskPips,
+              reward_pips: rewardPips,
+              risk_reward: riskReward,
+              confidence: trade.confidence,
+              setup_type: trade.triggerType
+            },
+            sentiment: 'encouraging'
+          }
+        );
       } catch (error) {
         console.error('[Goal Live Engine] Failed to log trade execution conversation:', error);
       }
@@ -2726,14 +2731,18 @@ class GoalSessionLiveEngine {
 
       // Send failure message
       try {
-        await supabase.from('goal_ai_conversations').insert({
-          goal_session_id: this.activeSession,
-          user_id: this.config.userId,
-          role: 'ai',
-          message: `❌ Trade execution failed: ${executionResult.message}. Continuing to scan for next opportunity...`,
-          context: { error: executionResult.message },
-          sentiment: 'cautionary'
-        });
+        await SystemTableRPCWrapper.createGoalAIConversation(
+          this.config.userId,
+          this.activeSession!,
+          'ai',
+          `❌ Trade execution failed: ${executionResult.message}. Continuing to scan for next opportunity...`,
+          0,
+          'gpt-4',
+          {
+            context: { error: executionResult.message },
+            sentiment: 'cautionary'
+          }
+        );
       } catch (error) {
         console.error('[Goal Live Engine] Failed to log trade failure conversation:', error);
       }
@@ -2868,13 +2877,15 @@ Your decision keeps you in control of your risk and prevents runaway trading.
           logger.info(LogCategory.AI_TRADING, '✅ User chose to continue - resuming scan');
 
           try {
-            await supabase.from('goal_ai_conversations').insert({
-              goal_session_id: this.activeSession,
-              user_id: this.config.userId,
-              role: 'ai',
-              message: '✅ Resuming scan for next opportunity... I\'ll monitor your open position and look for another high-quality setup.',
-              sentiment: 'encouraging'
-            });
+            await SystemTableRPCWrapper.createGoalAIConversation(
+              this.config.userId,
+              this.activeSession!,
+              'ai',
+              '✅ Resuming scan for next opportunity... I\'ll monitor your open position and look for another high-quality setup.',
+              0,
+              'gpt-4',
+              { sentiment: 'encouraging' }
+            );
           } catch (error) {
             console.error('[Goal Live Engine] Failed to log continuation response:', error);
           }
@@ -3029,24 +3040,28 @@ Your decision keeps you in control of your risk and prevents runaway trading.
       `💰 P&L: ${finalPnL >= 0 ? '+' : ''}$${finalPnL.toFixed(2)} (${pips >= 0 ? '+' : ''}${pips.toFixed(1)} ${pointsLabel})`;
 
     try {
-      await supabase.from('goal_ai_conversations').insert({
-        goal_session_id: this.activeSession,
-        user_id: this.config!.userId,
-        role: 'ai',
-        message: closureMessage,
-        context: {
-          trade_id: trade.id,
-          outcome: trade.outcome,
-          duration_minutes: tradeDuration,
-          entry_price: trade.entryPrice,
-          exit_price: trade.exitPrice,
-          pnl: finalPnL,
-          pips,
-          duration: durationText,
-          exit_reason: exitReason
-        },
-        sentiment: isWin ? 'encouraging' : 'educational'
-      });
+      await SystemTableRPCWrapper.createGoalAIConversation(
+        this.config!.userId,
+        this.activeSession!,
+        'ai',
+        closureMessage,
+        0,
+        'gpt-4',
+        {
+          context: {
+            trade_id: trade.id,
+            outcome: trade.outcome,
+            duration_minutes: tradeDuration,
+            entry_price: trade.entryPrice,
+            exit_price: trade.exitPrice,
+            pnl: finalPnL,
+            pips,
+            duration: durationText,
+            exit_reason: exitReason
+          },
+          sentiment: isWin ? 'encouraging' : 'educational'
+        }
+      );
 
       // Log notification for audit trail
       await this.logNotification(
@@ -3099,21 +3114,25 @@ Your decision keeps you in control of your risk and prevents runaway trading.
         `📊 Session Stats: ${stats.totalTrades} trades | ${stats.winningTrades} wins | ${((stats.winningTrades / stats.totalTrades) * 100).toFixed(0)}% win rate`;
 
       try {
-        await supabase.from('goal_ai_conversations').insert({
-          goal_session_id: this.activeSession,
-          user_id: this.config!.userId,
-          role: 'ai',
-          message: llmAnalysis + progressMessage,
-          context: {
-            stats,
-            trade_id: trade.id,
-            llm_analysis: true,
-            total_pnl: stats.totalPnL,
-            win_rate: (stats.winningTrades / stats.totalTrades) * 100,
-            total_trades: stats.totalTrades
-          },
-          sentiment: 'neutral'
-        });
+        await SystemTableRPCWrapper.createGoalAIConversation(
+          this.config!.userId,
+          this.activeSession!,
+          'ai',
+          llmAnalysis + progressMessage,
+          0,
+          'gpt-4',
+          {
+            context: {
+              stats,
+              trade_id: trade.id,
+              llm_analysis: true,
+              total_pnl: stats.totalPnL,
+              win_rate: (stats.winningTrades / stats.totalTrades) * 100,
+              total_trades: stats.totalTrades
+            },
+            sentiment: 'neutral'
+          }
+        );
       } catch (error) {
         console.error('[Goal Live Engine] Failed to log post-trade analysis conversation:', error);
       }
@@ -3321,18 +3340,22 @@ This learning will carry forward to improve future sessions!
       `.trim();
 
       try {
-        await supabase.from('goal_ai_conversations').insert({
-          goal_session_id: this.activeSession,
-          user_id: this.config!.userId,
-          role: 'ai',
-          message: learningSummary,
-          context: {
-            ...summary.statistics,
-            learningInsights,
-            sessionType: 'live_goal_mode'
-          },
-          sentiment: stats.totalPnL > 0 ? 'celebratory' : 'educational'
-        });
+        await SystemTableRPCWrapper.createGoalAIConversation(
+          this.config!.userId,
+          this.activeSession!,
+          'ai',
+          learningSummary,
+          0,
+          'gpt-4',
+          {
+            context: {
+              ...summary.statistics,
+              learningInsights,
+              sessionType: 'live_goal_mode'
+            },
+            sentiment: stats.totalPnL > 0 ? 'celebratory' : 'educational'
+          }
+        );
       } catch (error) {
         console.error('[Goal Live Engine] Failed to log learning summary conversation:', error);
       }
@@ -3453,23 +3476,27 @@ This learning will carry forward to improve future sessions!
     }
 
     try {
-      await supabase.from('goal_ai_conversations').insert({
-        goal_session_id: this.activeSession,
-        user_id: this.config.userId,
-        role: 'ai',
+      await SystemTableRPCWrapper.createGoalAIConversation(
+        this.config.userId,
+        this.activeSession!,
+        'ai',
         message,
-        context: {
-          scanCount: this.scanCount,
-          price,
-          symbol: this.config.symbol,
-          time,
-          trend,
-          rsi,
-          hasSetup: !!result.trigger,
-          hasTrade: !!result.trade
-        },
-        sentiment: result.trade ? 'encouraging' : 'neutral'
-      });
+        0,
+        'gpt-4',
+        {
+          context: {
+            scanCount: this.scanCount,
+            price,
+            symbol: this.config.symbol,
+            time,
+            trend,
+            rsi,
+            hasSetup: !!result.trigger,
+            hasTrade: !!result.trade
+          },
+          sentiment: result.trade ? 'encouraging' : 'neutral'
+        }
+      );
 
       // Update last state
       this.lastMarketState = { price, trend, rsi };
@@ -3514,21 +3541,25 @@ This learning will carry forward to improve future sessions!
     }
 
     try {
-      await supabase.from('goal_ai_conversations').insert({
-        goal_session_id: this.activeSession,
-        user_id: this.config.userId,
-        role: 'ai',
+      await SystemTableRPCWrapper.createGoalAIConversation(
+        this.config.userId,
+        this.activeSession!,
+        'ai',
         message,
-        context: {
-          scanCount: this.scanCount,
-          hasOpenTrades: this.openTrades.length > 0,
-          price,
-          symbol: this.config.symbol,
-          time,
-          trigger: trigger?.type || null
-        },
-        sentiment: trigger ? 'encouraging' : 'neutral'
-      });
+        0,
+        'gpt-4',
+        {
+          context: {
+            scanCount: this.scanCount,
+            hasOpenTrades: this.openTrades.length > 0,
+            price,
+            symbol: this.config.symbol,
+            time,
+            trigger: trigger?.type || null
+          },
+          sentiment: trigger ? 'encouraging' : 'neutral'
+        }
+      );
     } catch (error) {
       console.error('[Goal Live Engine] Failed to log scanning update conversation:', error);
     }
@@ -3613,13 +3644,15 @@ This learning will carry forward to improve future sessions!
     }
 
     try {
-      await supabase.from('goal_ai_conversations').insert({
-        goal_session_id: this.activeSession,
-        user_id: this.config.userId,
-        role: 'ai',
+      await SystemTableRPCWrapper.createGoalAIConversation(
+        this.config.userId,
+        this.activeSession,
+        'ai',
         message,
-        sentiment: 'neutral'
-      });
+        0,
+        'gpt-4',
+        { sentiment: 'neutral' }
+      );
     } catch (error) {
       console.error('[Goal Live Engine] Failed to send AI message:', error);
     }
@@ -3686,19 +3719,23 @@ This learning will carry forward to improve future sessions!
     const message = `🎯 Potential setup detected on ${this.config.symbol}! Type: ${trigger.type} | Confidence: ${trigger.confidence}% | Initiating 5-layer validation...`;
 
     try {
-      await supabase.from('goal_ai_conversations').insert({
-        goal_session_id: this.activeSession,
-        user_id: this.config.userId,
-        role: 'ai',
+      await SystemTableRPCWrapper.createGoalAIConversation(
+        this.config.userId,
+        this.activeSession,
+        'ai',
         message,
-        context: {
-          trigger,
-          price: latestCandle.close,
-          trigger_type: trigger.type,
-          confidence: trigger.confidence
-        },
-        sentiment: 'neutral'
-      });
+        0,
+        'gpt-4',
+        {
+          context: {
+            trigger,
+            price: latestCandle.close,
+            trigger_type: trigger.type,
+            confidence: trigger.confidence
+          },
+          sentiment: 'neutral'
+        }
+      );
     } catch (error) {
       console.error('[Goal Live Engine] Failed to log trigger detected conversation:', error);
     }
@@ -3831,14 +3868,18 @@ This learning will carry forward to improve future sessions!
 
       // Send rejection message
       try {
-        await supabase.from('goal_ai_conversations').insert({
-          goal_session_id: this.activeSession,
-          user_id: this.config.userId,
-          role: 'ai',
-          message: `⚠️ LLM recommendation rejected: ${validation.violations.join('. ')}. Keeping current parameters for safety.`,
-          context: { evaluation, validation },
-          sentiment: 'cautionary'
-        });
+        await SystemTableRPCWrapper.createGoalAIConversation(
+          this.config.userId,
+          this.activeSession,
+          'ai',
+          `⚠️ LLM recommendation rejected: ${validation.violations.join('. ')}. Keeping current parameters for safety.`,
+          0,
+          'gpt-4',
+          {
+            context: { evaluation, validation },
+            sentiment: 'cautionary'
+          }
+        );
       } catch (error) {
         console.error('[Goal Live Engine] Failed to log recommendation rejection conversation:', error);
       }
@@ -3895,21 +3936,25 @@ This learning will carry forward to improve future sessions!
       });
 
       // Log to AI conversation (informational only - execution will happen after countdown)
-      await supabase.from('goal_ai_conversations').insert({
-        goal_session_id: this.activeSession,
-        user_id: this.config.userId,
-        role: 'ai',
-        message: actionMessage,
-        context: {
-          evaluation,
-          trade_id: trade.id,
-          recommendation: evaluation.recommendation,
-          confidence: evaluation.confidence,
-          auto_execute_in_seconds: 30,
-          alert_created: true
-        },
-        sentiment: evaluation.recommendation === 'EXIT_IMMEDIATELY' ? 'cautionary' : 'neutral'
-      });
+      await SystemTableRPCWrapper.createGoalAIConversation(
+        this.config.userId,
+        this.activeSession!,
+        'ai',
+        actionMessage,
+        0,
+        'gpt-4',
+        {
+          context: {
+            evaluation,
+            trade_id: trade.id,
+            recommendation: evaluation.recommendation,
+            confidence: evaluation.confidence,
+            auto_execute_in_seconds: 30,
+            alert_created: true
+          },
+          sentiment: evaluation.recommendation === 'EXIT_IMMEDIATELY' ? 'cautionary' : 'neutral'
+        }
+      );
 
       logger.info(LogCategory.AI_TRADING, `Mid-trade alert created: ${evaluation.recommendation} (auto-execute in 30s)`);
     } else {
@@ -3951,21 +3996,25 @@ This learning will carry forward to improve future sessions!
 
       // Send action message to AI conversation
       try {
-        await supabase.from('goal_ai_conversations').insert({
-          goal_session_id: this.activeSession,
-          user_id: this.config.userId,
-          role: 'ai',
-          message: actionMessage,
-          context: {
-            evaluation,
-            trade_id: trade.id,
-            recommendation: evaluation.recommendation,
-            confidence: evaluation.confidence,
-            new_sl: trade.stopLoss,
-            new_tp: trade.takeProfit
-          },
-          sentiment: 'neutral'
-        });
+        await SystemTableRPCWrapper.createGoalAIConversation(
+          this.config.userId,
+          this.activeSession!,
+          'ai',
+          actionMessage,
+          0,
+          'gpt-4',
+          {
+            context: {
+              evaluation,
+              trade_id: trade.id,
+              recommendation: evaluation.recommendation,
+              confidence: evaluation.confidence,
+              new_sl: trade.stopLoss,
+              new_tp: trade.takeProfit
+            },
+            sentiment: 'neutral'
+          }
+        );
       } catch (error) {
         console.error('[Goal Live Engine] Failed to log mid-trade action conversation:', error);
       }
@@ -4010,21 +4059,25 @@ This learning will carry forward to improve future sessions!
     }
 
     try {
-      await supabase.from('goal_ai_conversations').insert({
-        goal_session_id: this.activeSession,
-        user_id: this.config.userId,
-        role: 'ai',
+      await SystemTableRPCWrapper.createGoalAIConversation(
+        this.config.userId,
+        this.activeSession!,
+        'ai',
         message,
-        context: {
-          trigger,
-          trade_id: trade.id,
-          trigger_type: trigger.triggerType,
-          confidence: trigger.confidence,
-          current_price: candle.close,
-          goal_metadata: trigger.metadata
-        },
-        sentiment
-      });
+        0,
+        'gpt-4',
+        {
+          context: {
+            trigger,
+            trade_id: trade.id,
+            trigger_type: trigger.triggerType,
+            confidence: trigger.confidence,
+            current_price: candle.close,
+            goal_metadata: trigger.metadata
+          },
+          sentiment
+        }
+      );
     } catch (error) {
       console.error('[Goal Live Engine] Failed to log mid-trade trigger conversation:', error);
     }
@@ -4044,21 +4097,25 @@ This learning will carry forward to improve future sessions!
       `Recommendation: ${evaluation.recommendation} | Confidence: ${evaluation.confidence}%`;
 
     try {
-      await supabase.from('goal_ai_conversations').insert({
-        goal_session_id: this.activeSession,
-        user_id: this.config.userId,
-        role: 'ai',
+      await SystemTableRPCWrapper.createGoalAIConversation(
+        this.config.userId,
+        this.activeSession!,
+        'ai',
         message,
-        context: {
-          evaluation,
-          trade_id: trade.id,
-          recommendation: evaluation.recommendation,
-          confidence: evaluation.confidence,
-          cost_usd: evaluation.costUsd,
-          tokens_used: evaluation.tokensUsed
-        },
-        sentiment: 'neutral'
-      });
+        0,
+        'gpt-4',
+        {
+          context: {
+            evaluation,
+            trade_id: trade.id,
+            recommendation: evaluation.recommendation,
+            confidence: evaluation.confidence,
+            cost_usd: evaluation.costUsd,
+            tokens_used: evaluation.tokensUsed
+          },
+          sentiment: 'neutral'
+        }
+      );
     } catch (error) {
       console.error('[Goal Live Engine] Failed to log mid-trade evaluation conversation:', error);
     }
@@ -4297,26 +4354,30 @@ Keep response under 100 words, educational tone.`;
     const message = `${emoji} ${statusText}: ${trade.symbol} ${trade.direction.toUpperCase()} (${timeOpen}m) | Price: ${formatCurrencyPrice(trade.symbol, currentPrice)} | P&L: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pips >= 0 ? '+' : ''}${pips.toFixed(1)} ${pointsLabel})`;
 
     try {
-      await supabase.from('goal_ai_conversations').insert({
-        goal_session_id: this.activeSession,
-        user_id: this.config.userId,
-        role: 'ai',
+      await SystemTableRPCWrapper.createGoalAIConversation(
+        this.config.userId,
+        this.activeSession!,
+        'ai',
         message,
-        context: {
-          trade_id: trade.id,
-          time_open: timeOpen,
-          current_pnl: pnl,
-          current_price: currentPrice,
-          entry_price: trade.entryPrice,
-          stop_loss: trade.stopLoss,
-          take_profit: trade.takeProfit,
-          pnl,
-          pips,
-          distance_to_tp: distanceToTP,
-          distance_to_sl: distanceToSL
-        },
-        sentiment
-      });
+        0,
+        'gpt-4',
+        {
+          context: {
+            trade_id: trade.id,
+            time_open: timeOpen,
+            current_pnl: pnl,
+            current_price: currentPrice,
+            entry_price: trade.entryPrice,
+            stop_loss: trade.stopLoss,
+            take_profit: trade.takeProfit,
+            pnl,
+            pips,
+            distance_to_tp: distanceToTP,
+            distance_to_sl: distanceToSL
+          },
+          sentiment
+        }
+      );
     } catch (error) {
       console.error('[Goal Live Engine] Failed to log trade monitoring conversation:', error);
     }

@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import SystemTableRPCWrapper from './system-table-rpc-wrapper';
 import { globalPollingCoordinator } from './global-polling-coordinator';
 import { logger, LogCategory, LogLevel } from '@/lib/logger';
 import type { GoalSessionTrade } from '@/types/position';
@@ -774,14 +775,16 @@ class PositionMonitorService {
       );
 
       // Create comprehensive wellness message for FloatingMessageCenter
-      await supabase.from('goal_ai_conversations').insert({
-        goal_session_id: position.goal_session_id,
-        user_id: position.user_id,
-        role: 'ai',
-        content: decision.reasoning, // Full comprehensive message
-        conversation_type: 'periodic_wellness',
-        trade_id: position.id,
-        metadata: {
+      await SystemTableRPCWrapper.createGoalAIConversation(
+        position.user_id,
+        position.goal_session_id,
+        'ai',
+        decision.reasoning,
+        0,
+        'gpt-4',
+        {
+          conversation_type: 'periodic_wellness',
+          trade_id: position.id,
           trigger_type: 'periodic_wellness',
           ...triggerResult.metadata,
           action: decision.action,
@@ -789,10 +792,9 @@ class PositionMonitorService {
           current_pnl: currentPnL,
           risk_ratio: riskRatio.toFixed(3),
           minutes_in_trade: snapshot.t,
-          // NO silent flag - show these messages!
           show_in_floating_center: true
         }
-      });
+      );
 
       console.log(`[PositionMonitor] ✅ Comprehensive wellness check completed: ${position.symbol}`);
       console.log(`[PositionMonitor] Decision: ${decision.action} (${decision.confidence}% confidence)`);
@@ -876,14 +878,16 @@ class PositionMonitorService {
           .maybeSingle();
 
         if (!existingTrigger) {
-          await supabase.from('goal_ai_conversations').insert({
-            goal_session_id: position.goal_session_id,
-            user_id: position.user_id,
-            role: 'ai',
-            content: alertMessage,
-            conversation_type: 'mid_trade_alert',
-            trade_id: position.id,
-            metadata: {
+          await SystemTableRPCWrapper.createGoalAIConversation(
+            position.user_id,
+            position.goal_session_id,
+            'ai',
+            alertMessage,
+            0,
+            'gpt-4',
+            {
+              conversation_type: 'mid_trade_alert',
+              trade_id: position.id,
               trigger_type: triggerType,
               current_price: currentPrice,
               current_pnl: currentPnl,
@@ -891,7 +895,7 @@ class PositionMonitorService {
               sl_proximity: slProximity.toFixed(3),
               time_in_trade_minutes: Math.floor(timeInTrade)
             }
-          });
+          );
 
           await notificationCoordinator.sendSystemNotification({
             userId: position.user_id,
@@ -953,18 +957,20 @@ class PositionMonitorService {
         },
       });
 
-      await supabase.from('goal_ai_conversations').insert({
-        goal_session_id: position.goal_session_id,
-        user_id: position.user_id,
-        role: 'ai',
-        content: `Excellent progress! ${position.symbol} reached TP1 at ${tp1Price.toFixed(5)}. The trade is now protected and running towards TP2 for maximum profit.`,
-        conversation_type: 'trade_milestone',
-        trade_id: position.id,
-        metadata: {
+      await SystemTableRPCWrapper.createGoalAIConversation(
+        position.user_id,
+        position.goal_session_id,
+        'ai',
+        `Excellent progress! ${position.symbol} reached TP1 at ${tp1Price.toFixed(5)}. The trade is now protected and running towards TP2 for maximum profit.`,
+        0,
+        'gpt-4',
+        {
+          conversation_type: 'trade_milestone',
+          trade_id: position.id,
           milestone_type: 'tp1_hit',
-          tp1_price: tp1Price,
+          tp1_price: tp1Price
         }
-      });
+      );
 
       console.log(`[PositionMonitor] TP1 hit processed successfully for ${position.symbol}`);
     } catch (error) {
@@ -1007,21 +1013,23 @@ class PositionMonitorService {
           ? `Excellent! Take profit was hit on ${position.symbol}. The trade closed at ${closePrice.toFixed(5)} with a profit of $${result.pnl.toFixed(2)}. The market moved as predicted and we successfully captured our target.`
           : `Outstanding! Your goal has been achieved! The ${position.symbol} trade reached your target profit of $${result.pnl.toFixed(2)}. Well done on this successful trade.`;
 
-        await supabase.from('goal_ai_conversations').insert({
-          goal_session_id: position.goal_session_id,
-          user_id: position.user_id,
-          role: 'ai',
-          content: conversationMessage,
-          conversation_type: 'trade_closure',
-          trade_id: position.id,
-          metadata: {
+        await SystemTableRPCWrapper.createGoalAIConversation(
+          position.user_id,
+          position.goal_session_id,
+          'ai',
+          conversationMessage,
+          0,
+          'gpt-4',
+          {
+            conversation_type: 'trade_closure',
+            trade_id: position.id,
             close_reason: reason,
             symbol: position.symbol,
             pnl: result.pnl,
             entry_price: position.entry_price,
             exit_price: closePrice
           }
-        });
+        );
 
         console.log(`[PositionMonitor] Created AI conversation message for ${reason} on ${position.symbol}`);
 
