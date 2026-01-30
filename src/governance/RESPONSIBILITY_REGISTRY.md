@@ -124,7 +124,20 @@
 |---|---|---|
 | **Session lifecycle** | `SessionManagementService` | `src/services/session-management-service.ts` |
 | **Goal achievement tracking** | `GoalAchievementCoordinator` | `src/services/coordinators/goal-achievement-coordinator.ts` |
-| **Session timeout enforcement** | Database triggers | `supabase/migrations/*.sql` |
+| **Session status transitions** | **SessionStateAuthority** | `supabase/migrations/20260130_*_ssot_compliant_stuck_session_fixes_*` |
+| **Session timeout enforcement** | **SessionTimeoutAuthority** | `supabase/migrations/20260130_*_ssot_compliant_stuck_session_fixes_*` |
+| **Entry intent lifecycle** | **EntryIntentAuthority** | `supabase/migrations/20260130_*_ssot_compliant_stuck_session_fixes_*` |
+| **Trade closure & balance** | **TradeClosureCoordinator** | `supabase/migrations/20260130_*_ssot_compliant_stuck_session_fixes_*` |
+
+**CCIP COMPLIANCE (2026-01-30 - Stuck Sessions Fix):**
+- ✅ Created `SessionStateAuthority` for all session status transitions
+- ✅ Created `SessionTimeoutAuthority` for timeout logic (single source)
+- ✅ Created `EntryIntentAuthority` for intent lifecycle
+- ✅ Enhanced `TradeClosureCoordinator` with transaction support
+- ✅ All state transitions logged to governance_change_log
+- ✅ All functions have proper error handling with rollback
+- ✅ Orphaned intents cleanup integrated into all session transitions
+- ✅ Retry mechanism for failed balance updates
 
 **REMOVED (2026-01-30):**
 - ❌ 15-minute continuation modal system (unnecessary friction after shift to centralized caching)
