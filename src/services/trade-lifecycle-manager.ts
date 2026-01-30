@@ -25,6 +25,7 @@ class TradeLifecycleManager {
   private isMonitoring: boolean = false;
   private abortController: AbortController | null = null;
   private recentlyClosedTrades = new Set<string>();
+  private tradesBeingProcessed = new Set<string>();
 
   /**
    * Calculate cumulative profit for a goal session across all closed trades
@@ -186,14 +187,18 @@ class TradeLifecycleManager {
     try {
       this.abortController = new AbortController();
 
+      const timestamp = Date.now();
+
       let query = supabase
         .from('goal_session_trades')
         .select('*, goal_sessions!inner(user_id, auto_execute)')
-        .eq('status', 'open');
+        .eq('status', 'open')
+        .gte('created_at', new Date(0).toISOString());
 
       if (this.recentlyClosedTrades.size > 0) {
         const excludedIds = Array.from(this.recentlyClosedTrades);
         query = query.not('id', 'in', `(${excludedIds.join(',')})`);
+        console.log(`[Trade Lifecycle] Excluding ${excludedIds.length} recently closed trade(s) from query`);
       }
 
       const { data: openTrades, error } = await query.abortSignal(this.abortController.signal);
@@ -222,26 +227,33 @@ class TradeLifecycleManager {
 
   async checkTradeTargets(trade: any): Promise<void> {
     try {
+      if (this.tradesBeingProcessed.has(trade.id)) {
+        return;
+      }
+
       if (this.recentlyClosedTrades.has(trade.id)) {
-        console.log(`[Trade Lifecycle] Trade ${trade.id} recently closed, skipping check`);
         return;
       }
 
-      const { data: freshTrade, error: fetchError } = await supabase
-        .from('goal_session_trades')
-        .select('status')
-        .eq('id', trade.id)
-        .maybeSingle();
+      this.tradesBeingProcessed.add(trade.id);
 
-      if (fetchError || !freshTrade) {
-        console.error(`[Trade Lifecycle] Could not verify trade status:`, fetchError);
-        return;
-      }
+      try {
+        const { data: freshTrade, error: fetchError } = await supabase
+          .from('goal_session_trades')
+          .select('status')
+          .eq('id', trade.id)
+          .maybeSingle();
 
-      if (freshTrade.status !== 'open') {
-        console.log(`[Trade Lifecycle] Trade ${trade.id} is ${freshTrade.status}, skipping`);
-        return;
-      }
+        if (fetchError || !freshTrade) {
+          console.error(`[Trade Lifecycle] Could not verify trade status:`, fetchError);
+          this.tradesBeingProcessed.delete(trade.id);
+          return;
+        }
+
+        if (freshTrade.status !== 'open') {
+          this.tradesBeingProcessed.delete(trade.id);
+          return;
+        }
 
       const currentPrice = await this.getCurrentPrice(trade.symbol);
       if (!currentPrice) {
@@ -337,11 +349,15 @@ class TradeLifecycleManager {
         }
       }
 
-      if (shouldClose) {
-        await this.closeTrade(trade, price, profitLoss, closeReason);
+        if (shouldClose) {
+          await this.closeTrade(trade, price, profitLoss, closeReason);
+        }
+      } finally {
+        this.tradesBeingProcessed.delete(trade.id);
       }
     } catch (error) {
       console.error(`[Trade Lifecycle] Error checking targets for trade ${trade.id}:`, error);
+      this.tradesBeingProcessed.delete(trade.id);
     }
   }
 
