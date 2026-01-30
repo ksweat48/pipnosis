@@ -48,10 +48,11 @@ export class SystemTableRPCWrapper {
 
   /**
    * Create an AI trader score via SECURITY DEFINER RPC
+   * SSOT: session_id can be null for initial score creation
    */
   static async createAITraderScore(
     userId: string,
-    sessionId: string,
+    sessionId: string | null,
     tradeCount: number = 0,
     winRate: number = 0,
     avgRR: number = 0,
@@ -61,7 +62,7 @@ export class SystemTableRPCWrapper {
     try {
       const { data, error } = await supabase.rpc('create_ai_trader_score', {
         p_user_id: userId,
-        p_session_id: sessionId,
+        p_session_id: sessionId || null,
         p_trade_count: tradeCount,
         p_win_rate: winRate,
         p_avg_rr: avgRR,

@@ -56,9 +56,10 @@ class RewardEngine {
 
     if (!data) {
       // Initialize new trader score via RPC
+      // SSOT: Use null instead of empty string for optional UUID parameters
       const result = await SystemTableRPCWrapper.createAITraderScore(
         userId,
-        '', // session_id - empty for initial score
+        null as any, // session_id - null for initial score (no session yet)
         0, // trade_count
         50, // win_rate (initial)
         0, // avg_rr

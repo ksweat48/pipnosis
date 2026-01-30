@@ -8,6 +8,7 @@
 
 import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
+import { SystemTableRPCWrapper } from './system-table-rpc-wrapper';
 
 class MidTradeAlertExecutor {
   private intervalId: NodeJS.Timeout | null = null;
@@ -187,15 +188,20 @@ class MidTradeAlertExecutor {
         ? `❌ Position closed by Alpha (Emergency Exit): ${alert.recommendation_data?.reasoning}`
         : `🎯 Position closed by Alpha (Early Profit): ${alert.recommendation_data?.reasoning}`;
 
-      await supabase
-        .from('goal_ai_conversations')
-        .insert({
-          user_id: alert.user_id,
-          goal_session_id: alert.goal_session_id,
-          role: 'ai',
-          content: conversationMessage,
-          created_at: new Date().toISOString()
-        });
+      // SSOT: Use RPC wrapper instead of direct INSERT
+      await SystemTableRPCWrapper.createGoalAIConversation(
+        alert.user_id,
+        alert.goal_session_id,
+        'ai',
+        conversationMessage,
+        0, // tokens_used
+        'alpha-brain', // model
+        {
+          alert_type: recommendation,
+          trade_id: trade.id,
+          symbol: trade.symbol
+        }
+      );
 
       // Mark alert as executed
       await this.markAlertAsExecuted(alert.id, 'Trade closed successfully');
@@ -244,15 +250,21 @@ class MidTradeAlertExecutor {
       }
 
       // Log to AI conversation
-      await supabase
-        .from('goal_ai_conversations')
-        .insert({
-          user_id: alert.user_id,
-          goal_session_id: alert.goal_session_id,
-          role: 'ai',
-          content: `✓ Stop Loss adjusted to ${newStopLoss.toFixed(5)} by Alpha. ${alert.recommendation_data?.reasoning}`,
-          created_at: new Date().toISOString()
-        });
+      // SSOT: Use RPC wrapper instead of direct INSERT
+      await SystemTableRPCWrapper.createGoalAIConversation(
+        alert.user_id,
+        alert.goal_session_id,
+        'ai',
+        `✓ Stop Loss adjusted to ${newStopLoss.toFixed(5)} by Alpha. ${alert.recommendation_data?.reasoning}`,
+        0, // tokens_used
+        'alpha-brain', // model
+        {
+          alert_type: 'MOVE_STOP_LOSS',
+          trade_id: trade.id,
+          symbol: trade.symbol,
+          new_stop_loss: newStopLoss
+        }
+      );
 
       // Mark alert as executed
       await this.markAlertAsExecuted(alert.id, 'Stop loss updated successfully');
@@ -298,15 +310,21 @@ class MidTradeAlertExecutor {
       }
 
       // Log to AI conversation
-      await supabase
-        .from('goal_ai_conversations')
-        .insert({
-          user_id: alert.user_id,
-          goal_session_id: alert.goal_session_id,
-          role: 'ai',
-          content: `✓ Take Profit adjusted to ${newTakeProfit.toFixed(5)} by Alpha. ${alert.recommendation_data?.reasoning}`,
-          created_at: new Date().toISOString()
-        });
+      // SSOT: Use RPC wrapper instead of direct INSERT
+      await SystemTableRPCWrapper.createGoalAIConversation(
+        alert.user_id,
+        alert.goal_session_id,
+        'ai',
+        `✓ Take Profit adjusted to ${newTakeProfit.toFixed(5)} by Alpha. ${alert.recommendation_data?.reasoning}`,
+        0, // tokens_used
+        'alpha-brain', // model
+        {
+          alert_type: 'MOVE_TAKE_PROFIT',
+          trade_id: trade.id,
+          symbol: trade.symbol,
+          new_take_profit: newTakeProfit
+        }
+      );
 
       // Mark alert as executed
       await this.markAlertAsExecuted(alert.id, 'Take profit updated successfully');

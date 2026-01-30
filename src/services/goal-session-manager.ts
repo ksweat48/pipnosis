@@ -8,6 +8,7 @@ import { tradeClosureCoordinator, CloseReason } from './coordinators/trade-closu
 import { creditValidationService } from './credit-validation-service';
 import { marketDataService } from './market-data-service';
 import { generateTimeframe, type Timeframe } from '../config/timeframe-hierarchy';
+import { SystemTableRPCWrapper } from './system-table-rpc-wrapper';
 
 export interface GoalSessionConfig {
   goalType: 'profit_target' | 'percentage_gain' | 'account_growth';
@@ -399,18 +400,23 @@ class GoalSessionManager {
     sentiment: string = 'neutral'
   ): Promise<void> {
     try {
-      await supabase
-        .from('goal_ai_conversations')
-        .insert({
-          goal_session_id: sessionId,
-          user_id: userId,
-          role: 'ai',
-          message,
-          context,
-          sentiment,
-        });
+      // SSOT: Use RPC wrapper instead of direct INSERT
+      // This prevents 403 Forbidden errors and ensures RLS compliance
+      const result = await SystemTableRPCWrapper.createGoalAIConversation(
+        userId,
+        sessionId,
+        'ai',
+        message,
+        0, // tokens_used (not tracked for these messages)
+        'system', // model (system-generated messages)
+        { context, sentiment } // metadata
+      );
+
+      if (result.error) {
+        console.error('[GoalSessionManager] Error adding AI message via RPC:', result.error);
+      }
     } catch (error) {
-      console.error('Error adding AI message:', error);
+      console.error('[GoalSessionManager] Exception adding AI message:', error);
     }
   }
 
