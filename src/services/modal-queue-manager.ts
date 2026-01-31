@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import TinyEmitter from 'tiny-emitter';
+import { modalHealthMonitor } from './modal-health-monitor';
 
 export interface PendingModal {
   id: string;
@@ -75,10 +76,20 @@ class ModalQueueManager extends TinyEmitter {
 
       if (error) {
         console.error('[ModalQueueManager] Failed to create pending modal:', error);
+        await modalHealthMonitor.logModalEvent(userId, undefined, modalType, 'error', {
+          errorReason: 'Failed to create pending modal',
+          error: error?.message
+        });
         return { success: false, error };
       }
 
       console.log('[ModalQueueManager] ✅ Pending modal created:', data.id);
+
+      // Log modal event for governance tracking (CCIP)
+      await modalHealthMonitor.logModalEvent(userId, data.id, modalType, 'opened', {
+        goalSessionId,
+        modalData: modalData
+      });
 
       // Emit event for real-time updates
       this.emit('modal-created', data);
@@ -170,6 +181,15 @@ class ModalQueueManager extends TinyEmitter {
       }
 
       console.log('[ModalQueueManager] ✅ Modal deleted');
+
+      // Get user ID from auth for governance logging
+      const { data: authData } = await supabase.auth.getSession();
+      const userId = authData?.session?.user?.id;
+
+      if (userId) {
+        // Log modal dismiss event for governance tracking (CCIP)
+        await modalHealthMonitor.dismissModal(userId, modalId, 'unknown', 'user_action');
+      }
 
       // Emit event for real-time updates
       this.emit('modal-dismissed', { modalId, userAction });

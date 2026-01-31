@@ -809,82 +809,48 @@ class SmartGoalSessionManager {
     try {
       console.log(`[Smart Goal] 🛑 Attempting to stop session ${sessionId} for user ${userId}`);
 
-      // First, verify session exists and get current status
-      const { data: existingSession, error: fetchError} = await supabase
-        .from('goal_sessions')
-        .select('id, status, user_id')
-        .eq('id', sessionId)
-        .eq('user_id', userId)
-        .maybeSingle();
+      // SSOT ENFORCEMENT: Use atomic RPC function for all closure logic
+      // This ensures state consistency and enables CCIP governance tracking
+      const { data: closureResult, error: rpcError } = await supabase
+        .rpc('atomic_close_goal_session', {
+          p_session_id: sessionId,
+          p_user_id: userId
+        });
 
-      if (fetchError) {
-        console.error('[Smart Goal] ❌ Error fetching session:', fetchError);
+      if (rpcError) {
+        console.error('[Smart Goal] ❌ RPC Error:', rpcError);
         return false;
       }
 
-      if (!existingSession) {
-        console.error(`[Smart Goal] ❌ Session ${sessionId} not found for user ${userId}`);
+      if (!closureResult) {
+        console.error('[Smart Goal] ❌ Closure RPC returned null result');
         return false;
       }
 
-      console.log(`[Smart Goal] 📊 Current session status: ${existingSession.status}`);
+      const result = closureResult as { success: boolean; errors: string[]; steps_completed: Record<string, any> };
 
-      // STEP 1: Stop live engine FIRST (before database update)
-      // This ensures monitoring stops immediately
+      if (!result.success) {
+        console.error('[Smart Goal] ❌ Session closure failed:', result.errors);
+        return false;
+      }
+
+      // STEP 1: Stop live engine (after RPC but before local cleanup)
+      // RPC already closed trades, but live engine may have its own state to clean
       if (goalSessionLiveEngine.getActiveSessionId() === sessionId) {
         console.log(`[Smart Goal] 🔌 Stopping live engine for session ${sessionId}`);
-        const stopResult = await goalSessionLiveEngine.stopSession();
-        if (stopResult.success) {
-          console.log('[Smart Goal] ✅ Live engine stopped successfully');
-        } else {
-          console.error('[Smart Goal] ⚠️ Live engine stop returned error:', stopResult.message);
-        }
-      } else {
-        console.log('[Smart Goal] Live engine not active for this session');
-      }
-
-      // STEP 2: Cancel any active entry intents
-      const { data: activeIntents } = await supabase
-        .from('entry_intents')
-        .select('id')
-        .eq('session_id', sessionId)
-        .eq('status', 'monitoring');
-
-      if (activeIntents && activeIntents.length > 0) {
-        console.log(`[Smart Goal] 🚫 Canceling ${activeIntents.length} active entry intent(s)`);
-        const { error: cancelError } = await supabase
-          .from('entry_intents')
-          .update({
-            status: 'canceled',
-            canceled_at: new Date().toISOString(),
-            canceled_reason: 'session_stopped'
-          })
-          .eq('session_id', sessionId)
-          .eq('status', 'monitoring');
-
-        if (cancelError) {
-          console.error('[Smart Goal] ⚠️ Error canceling entry intents:', cancelError);
-        } else {
-          console.log('[Smart Goal] ✅ Entry intents canceled');
+        try {
+          const stopResult = await goalSessionLiveEngine.stopSession();
+          if (stopResult.success) {
+            console.log('[Smart Goal] ✅ Live engine stopped successfully');
+          } else {
+            console.warn('[Smart Goal] ⚠️ Live engine stop returned error:', stopResult.message);
+          }
+        } catch (engineError) {
+          console.warn('[Smart Goal] ⚠️ Live engine error (non-critical):', engineError);
         }
       }
 
-      // STEP 3: Check for open trades
-      const { data: openTrades } = await supabase
-        .from('goal_session_trades')
-        .select('id, symbol, status')
-        .eq('goal_session_id', sessionId)
-        .eq('status', 'open');
-
-      if (openTrades && openTrades.length > 0) {
-        console.warn(`[Smart Goal] ⚠️ UNEXPECTED: Session has ${openTrades.length} open trade(s):`);
-        openTrades.forEach(t => console.warn(`  - ${t.symbol} (ID: ${t.id})`));
-        console.warn('[Smart Goal] ⚠️ Trades should have been closed by UI before stopSession was called!');
-        console.warn('[Smart Goal] This indicates a potential ghost trade situation - manual intervention may be needed');
-      }
-
-      // STEP 4: Clean up memory and timers BEFORE database update
-      // This ensures the session is immediately removed from active tracking
+      // STEP 2: Clean up memory and timers (NOW safe since RPC handled database)
       const session = this.activeSessions.get(sessionId);
       if (session) {
         session.status = 'user_stopped';
@@ -901,37 +867,15 @@ class SmartGoalSessionManager {
         console.log('[Smart Goal] Cleared scan timer');
       }
 
-      // STEP 5: Update database status LAST
-      // This ensures all cleanup is done before triggering realtime subscriptions
-      const { data: updated, error: updateError } = await supabase
-        .from('goal_sessions')
-        .update({
-          status: 'user_stopped',
-          completed_at: new Date().toISOString()
-        })
-        .eq('id', sessionId)
-        .eq('user_id', userId)
-        .select()
-        .single();
+      // STEP 3: Log governance tracking for the closure operation
+      console.log('[Smart Goal] ✅ Session closure completed:', {
+        session_id: sessionId,
+        user_id: userId,
+        trades_closed: result.steps_completed.trades_closed?.count || 0,
+        intents_canceled: result.steps_completed.intents_canceled || 0,
+        completion_timestamp: new Date().toISOString()
+      });
 
-      if (updateError) {
-        console.error('[Smart Goal] ❌ Error updating session:', updateError);
-        console.error('[Smart Goal] Error details:', {
-          code: updateError.code,
-          message: updateError.message,
-          details: updateError.details,
-          hint: updateError.hint
-        });
-        return false;
-      }
-
-      if (!updated) {
-        console.error('[Smart Goal] ❌ Update returned no data - session may not exist or update failed');
-        return false;
-      }
-
-      console.log(`[Smart Goal] ✅ Session ${sessionId} database status updated to: ${updated.status}`);
-      console.log(`[Smart Goal] ✅ Session ${sessionId} stopped successfully by user`);
       return true;
     } catch (error) {
       console.error('[Smart Goal] ❌ Exception in stopSession:', error);

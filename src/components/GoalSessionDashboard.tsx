@@ -51,6 +51,8 @@ export const GoalSessionDashboard: React.FC = () => {
   const [sessionHealth, setSessionHealth] = useState<any>(null);
   const [unstickLoading, setUnstickLoading] = useState(false);
   const [closingPosition, setClosingPosition] = useState<string | null>(null);
+  const [isClosingSession, setIsClosingSession] = useState(false);
+  const [closureTimeoutId, setClosureTimeoutId] = useState<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     loadSessionData();
@@ -667,7 +669,7 @@ export const GoalSessionDashboard: React.FC = () => {
   };
 
   const handleNormalStopSession = async () => {
-    if (!activeSession || !user) return;
+    if (!activeSession || !user || isClosingSession) return;
 
     // Check if there are open trades
     const hasOpenTrades = openTrades.length > 0;
@@ -685,88 +687,46 @@ export const GoalSessionDashboard: React.FC = () => {
 
     if (!confirmed) return;
 
+    // IMMEDIATE UI FEEDBACK: Disable button and show loading state
+    setIsClosingSession(true);
+    console.log('[GoalSessionDashboard] ✋ Session closure initiated - UI locked');
+
+    // Set timeout for error handling (15 seconds)
+    const timeoutId = setTimeout(() => {
+      console.error('[GoalSessionDashboard] ⏱️ Session closure timeout - exceeded 15 seconds');
+      setIsClosingSession(false);
+      showToast({
+        type: 'error',
+        title: 'Session Closure Timeout',
+        message: 'The session closure is taking too long. Please check the status and try again.'
+      });
+    }, 15000);
+
+    setClosureTimeoutId(timeoutId);
+
     try {
-      // If there are open trades, close them all first
-      if (hasOpenTrades) {
-        console.log(`[GoalSessionDashboard] Closing ${openTrades.length} open trade(s) before stopping session...`);
+      console.log('[GoalSessionDashboard] 🔄 Starting atomic session closure...');
 
-        let closedCount = 0;
-        let failedCount = 0;
-
-        for (const trade of openTrades) {
-          try {
-            // Fetch current live price for the symbol
-            const { data: priceData, error: priceError } = await supabase
-              .from('realtime_prices')
-              .select('bid, ask')
-              .eq('symbol', trade.symbol)
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-
-            if (priceError || !priceData) {
-              console.error(`[GoalSessionDashboard] Failed to get price for ${trade.symbol}:`, priceError);
-              failedCount++;
-              continue;
-            }
-
-            // Use bid for long positions, ask for short positions
-            const closePrice = trade.direction === 'buy' ? priceData.bid : priceData.ask;
-
-            console.log(`[GoalSessionDashboard] Closing ${trade.symbol} at ${closePrice}`);
-
-            // Close the position
-            const result = await positionService.closePosition(
-              trade.id,
-              closePrice,
-              'session_ended',
-              user.id,
-              activeSession.sessionId
-            );
-
-            if (result.success) {
-              closedCount++;
-              console.log(`[GoalSessionDashboard] ✅ Closed ${trade.symbol} successfully`);
-            } else {
-              failedCount++;
-              console.error(`[GoalSessionDashboard] ❌ Failed to close ${trade.symbol}:`, result.message);
-            }
-          } catch (error) {
-            failedCount++;
-            console.error(`[GoalSessionDashboard] ❌ Error closing trade ${trade.symbol}:`, error);
-          }
-        }
-
-        // Show summary of trade closures
-        if (closedCount > 0) {
-          showToast({
-            type: 'success',
-            title: 'Trades Closed',
-            message: `Successfully closed ${closedCount} trade${closedCount > 1 ? 's' : ''}`
-          });
-        }
-
-        if (failedCount > 0) {
-          showToast({
-            type: 'warning',
-            title: 'Some Trades Failed to Close',
-            message: `${failedCount} trade${failedCount > 1 ? 's' : ''} could not be closed. Please check manually.`
-          });
-        }
-
-        console.log(`[GoalSessionDashboard] Trade closure summary: ${closedCount} closed, ${failedCount} failed`);
-      }
-
-      // Now stop the session
+      // Use atomic RPC function (SSOT compliant)
+      // This handles: polling stop, trade closing, entry intent cancellation, and database update
       const success = await smartGoalSessionManager.stopSession(activeSession.sessionId, user.id);
+
+      // Clear timeout if operation completed
+      if (timeoutId) clearTimeout(timeoutId);
+      setClosureTimeoutId(null);
+
       if (success) {
+        console.log('[GoalSessionDashboard] ✅ Session closure completed successfully');
         showToast({
           type: 'success',
           title: 'Session Stopped',
           message: 'Goal session has been stopped successfully'
         });
-        loadSessionData();
+
+        // Reload session data to confirm status change
+        await loadSessionData();
       } else {
+        console.error('[GoalSessionDashboard] ❌ Session closure failed');
         showToast({
           type: 'error',
           title: 'Failed to Stop Session',
@@ -774,12 +734,21 @@ export const GoalSessionDashboard: React.FC = () => {
         });
       }
     } catch (error) {
-      console.error('[GoalSessionDashboard] Error stopping session:', error);
+      console.error('[GoalSessionDashboard] ❌ Exception during session closure:', error);
+
+      // Clear timeout on exception
+      if (closureTimeoutId) clearTimeout(closureTimeoutId);
+      setClosureTimeoutId(null);
+
       showToast({
         type: 'error',
         title: 'Error',
         message: 'An error occurred while stopping the session'
       });
+    } finally {
+      // RE-ENABLE button after closure attempt (success or failure)
+      setIsClosingSession(false);
+      console.log('[GoalSessionDashboard] 🔓 Session closure UI unlocked');
     }
   };
 
@@ -1179,10 +1148,20 @@ export const GoalSessionDashboard: React.FC = () => {
               )}
               <button
                 onClick={handleStopSession}
-                className="w-full sm:w-auto px-4 py-3 sm:py-2 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 rounded-xl text-sm font-semibold text-white transition-all duration-300 flex items-center justify-center gap-2 shadow-lg hover:shadow-red-500/25 hover:scale-105 active:scale-95"
+                disabled={isClosingSession}
+                className={`w-full sm:w-auto px-4 py-3 sm:py-2 bg-gradient-to-r from-red-600 to-red-700 ${isClosingSession ? 'opacity-50 cursor-not-allowed from-red-700 to-red-800' : 'hover:from-red-500 hover:to-red-600 hover:scale-105 active:scale-95'} rounded-xl text-sm font-semibold text-white transition-all duration-300 flex items-center justify-center gap-2 shadow-lg ${isClosingSession ? '' : 'hover:shadow-red-500/25'}`}
               >
-                <Pause className="w-4 h-4" />
-                Stop Session
+                {isClosingSession ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Closing Session...
+                  </>
+                ) : (
+                  <>
+                    <Pause className="w-4 h-4" />
+                    Stop Session
+                  </>
+                )}
               </button>
             </div>
           </div>
