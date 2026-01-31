@@ -68,10 +68,21 @@ export const AddCreditsDialog: React.FC<AddCreditsDialogProps> = ({
           'success'
         );
         onSuccess();
+        onClose();
+      } else {
+        const errorMsg = result.error || 'Failed to add credits';
+        showToast(errorMsg, 'error');
+        console.error('[AddCreditsDialog] Failed to add credits:', result);
       }
     } catch (error) {
-      showToast('Failed to add credits', 'error');
-      console.error(error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      showToast(`Failed to add credits: ${errorMessage}`, 'error');
+      console.error('[AddCreditsDialog] Exception while adding credits:', {
+        error,
+        userId,
+        amount: amountNum,
+        reason,
+      });
     } finally {
       setLoading(false);
     }

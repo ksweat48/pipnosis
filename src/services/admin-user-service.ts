@@ -92,10 +92,13 @@ export interface SessionResetResult {
 
 export interface AddCreditsResult {
   success: boolean;
-  old_balance: number;
-  new_balance: number;
-  amount_added: number;
-  reason: string;
+  old_balance?: number;
+  new_balance?: number;
+  amount_added?: number;
+  reason?: string;
+  error?: string;
+  timestamp?: string;
+  error_code?: string;
 }
 
 export interface RecalculateBalanceResult {
@@ -236,8 +239,29 @@ export const adminUserService = {
     });
 
     if (error) {
-      console.error('Error adding credits:', error);
+      console.error('[AdminUserService] RPC error adding credits:', {
+        message: error.message,
+        details: error,
+        userId,
+        amount,
+      });
       throw new Error(error.message);
+    }
+
+    if (!data) {
+      console.error('[AdminUserService] No data returned from add_credits RPC');
+      throw new Error('No response from server');
+    }
+
+    if (!data.success && data.error) {
+      console.error('[AdminUserService] Function returned error:', {
+        error: data.error,
+        userId,
+        amount,
+      });
+      const error = new Error(data.error);
+      (error as any).isKnownError = true;
+      throw error;
     }
 
     return data;
