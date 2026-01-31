@@ -29,6 +29,7 @@ import { getSymbolConfig } from '../config/symbol-registry';
 import { riskAwareStopCalculator } from './risk-aware-stop-calculator';
 import { sessionConstraintCoordinator } from './session-constraint-coordinator';
 import { assetClassifier } from './asset-classifier';
+import { constraintFeasibilityValidator } from './constraint-feasibility-validator';
 import type {
   Omega9Constraints,
   Omega9ConstraintInput,
@@ -257,30 +258,44 @@ class Omega9ConstraintProvider {
       violations
     };
 
-    // ✅ FEASIBILITY ADVISORY (NOT BLOCKING)
-    // Provide "best available" guidance instead of blocking
-    const isInfeasible = constraints.minTakeProfitPips > constraints.maxTakeProfitPips;
-    const maxAchievableRR = constraints.maxTakeProfitPips / referenceSLPips;
+    // ✅ FEASIBILITY VALIDATION (SSOT - Single Source of Truth)
+    // Use dedicated validator to check constraint internal consistency
+    const conflictSource = feasibleTravelPips < maxTakeProfitPips ? 'SESSION_TIME' : 'MARKET_ATR';
+    const feasibilityStatus = constraintFeasibilityValidator.validateConstraintPair(
+      minTakeProfitPips,
+      maxTakeProfitPips,
+      minRiskReward,
+      referenceSLPips,
+      conflictSource,
+      symbol,
+      tradeStyle
+    );
+
+    const isInfeasible = !feasibilityStatus.isFeasible;
+    const maxAchievableRR = feasibilityStatus.maxRiskRewardAchievable;
 
     if (isInfeasible) {
-      console.warn('[Omega-9 Constraints] ⚠️  FEASIBILITY ADVISORY: Constraints are tight');
-      console.warn(`[Omega-9 Constraints] Min TP: ${constraints.minTakeProfitPips.toFixed(1)} pips > Max TP: ${constraints.maxTakeProfitPips.toFixed(1)} pips`);
+      console.warn('[Omega-9 Constraints] ⚠️ FEASIBILITY ADVISORY: Constraint conflict detected');
+      console.warn(`[Omega-9 Constraints] Min TP: ${minTakeProfitPips.toFixed(1)} pips > Max TP: ${maxTakeProfitPips.toFixed(1)} pips`);
       console.warn(`[Omega-9 Constraints] Required R:R: ${minRiskReward.toFixed(2)}:1 | Max Achievable: ${maxAchievableRR.toFixed(2)}:1`);
-      console.warn(`[Omega-9 Constraints] Root cause: Session constraint (${feasibleTravelPips.toFixed(1)} pips) limits available TP`);
+      console.warn(`[Omega-9 Constraints] Root cause: ${conflictSource === 'SESSION_TIME' ? 'Session time constraint limits available TP' : 'Market volatility (ATR) insufficient for required R:R'}`);
 
-      // Add ADVISORY violation (NOT blocking)
+      // Add ADVISORY violation with full context (NOT auto-correcting)
       constraints.violations.push({
         type: 'TIGHT_CONSTRAINTS',
-        severity: 'WARNING', // Changed from ERROR to WARNING
-        message: `Constraints tight: Best achievable R:R is ${maxAchievableRR.toFixed(2)}:1 (target: ${minRiskReward.toFixed(2)}:1)`,
-        suggestedFix: `ADVISORY: Consider: 1) Tightening SL to ${constraints.maxTakeProfitPips.toFixed(1)} pips for ${maxAchievableRR.toFixed(2)}:1 R:R, or 2) Accepting lower R:R if setup quality justifies. Alpha has final authority.`
+        severity: 'WARNING',
+        message: feasibilityStatus.advisoryMessage,
+        suggestedFix: `ADVISORY: Alpha has full authority to decide. Options:\n${feasibilityStatus.alphaOptions.map(opt => `- ${opt}`).join('\n')}`
       });
 
-      // Adjust constraints to provide "best available" instead of blocking
-      constraints.minTakeProfitPips = Math.min(constraints.minTakeProfitPips, constraints.maxTakeProfitPips);
-      constraints.minRiskReward = maxAchievableRR; // Update to achievable R:R
-      console.log('[Omega-9 Constraints] ✅ Constraints auto-adjusted to provide best available setup');
+      // CRITICAL: DO NOT auto-correct constraints
+      // Return unmodified constraints + advisory state
+      // Alpha will see this in the prompt and make informed decision
+      console.log('[Omega-9 Constraints] ✅ Feasibility advisory generated - Alpha retains full authority');
     }
+
+    // Add feasibility status to constraints (for governance tracking and Alpha awareness)
+    constraints.feasibilityStatus = feasibilityStatus;
 
     console.log('[Omega-9 Constraints] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`[Omega-9 Constraints] Symbol: ${symbol} | Direction: ${direction} | Style: ${tradeStyle} | Risk: ${riskMode.toUpperCase()}`);
@@ -485,6 +500,7 @@ class Omega9ConstraintProvider {
   /**
    * Format constraints for inclusion in Alpha's prompt
    * ENHANCED: Includes pre-calculated absolute prices to eliminate LLM arithmetic errors
+   * CRITICAL: If constraints are infeasible, includes full feasibility advisory from SSOT validator
    */
   formatConstraintsForPrompt(constraints: Omega9Constraints): string {
     // Calculate absolute price ranges (SSOT: eliminates LLM arithmetic burden)
@@ -496,13 +512,47 @@ class Omega9ConstraintProvider {
     const displayName = symbolConfig?.displayName || symbol;
     const decimalPlaces = symbolConfig?.decimalPlaces || 5;
 
-    const tightConstraints = constraints.minRiskReward < 1.0;
-    const advisoryNote = tightConstraints ? `
+    // CRITICAL: Build feasibility advisory from SSOT validator
+    let advisoryNote = '';
+    if (constraints.feasibilityStatus && !constraints.feasibilityStatus.isFeasible) {
+      const fs = constraints.feasibilityStatus;
+      advisoryNote = `
+╔════════════════════════════════════════════════════════════════════╗
+║           CONSTRAINT FEASIBILITY ADVISORY (FROM OMEGA-9)           ║
+╚════════════════════════════════════════════════════════════════════╝
+
+⚠️ MARKET REALITY VS STYLE REQUIREMENTS:
+
+Your original R:R requirement: ${fs.minRiskRewardRequired.toFixed(2)}:1
+Maximum market can deliver: ${fs.maxRiskRewardAchievable.toFixed(2)}:1
+Gap: ${((fs.minRiskRewardRequired - fs.maxRiskRewardAchievable) / fs.minRiskRewardRequired * 100).toFixed(1)}%
+
+Why: ${fs.conflictSource === 'SESSION_TIME' ? 'Session time constraint is limiting available TP distance' : 'Market volatility (ATR) insufficient for required R:R multiple'}
+
+${fs.advisoryMessage}
+
+YOUR DECISION OPTIONS:
+${fs.alphaOptions.map((opt, i) => `${i + 1}. ${opt}`).join('\n')}
+
+CRITICAL PRINCIPLE:
+This is NOT a trade error. This is market reality speaking.
+You retain FULL AUTHORITY to decide:
+✓ Accept reduced R:R if setup quality justifies it
+✓ Change style to get better R:R potential
+✓ Skip this trade and wait for better conditions
+✓ Accept higher position risk with lower R:R
+
+Remember: Reduced profit > NO_TRADE > Forced compliance with impossible constraints.
+═══════════════════════════════════════════════════════════════════════
+`;
+    } else if (constraints.minRiskReward < 1.0) {
+      advisoryNote = `
 ⚠️ ADVISORY: Tight Market Conditions
 Maximum achievable R:R is ${constraints.minRiskReward.toFixed(2)}:1 (below standard 1:1).
 ADVISORY: Consider accepting lower R:R if setup quality justifies, or tighten SL.
 Remember: Reduced profit > NO_TRADE. You have FINAL AUTHORITY to proceed.
-` : '';
+`;
+    }
 
     return `
 🎯 OMEGA-9 TRADING CONSTRAINTS (Your Operating Boundaries)

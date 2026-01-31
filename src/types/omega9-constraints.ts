@@ -42,18 +42,32 @@ export interface Omega9Constraints {
   feasibleTravelPips: number;   // Max realistic TP distance
   sessionConstraintMode: 'BLOCKING' | 'ADVISORY' | 'NONE'; // How session constraints are applied
 
+  // Feasibility Status (CCIP: Governance-tracked constraint validation)
+  feasibilityStatus?: ConstraintFeasibilityStatus;
+
   // Constraint Violations (for learning)
   violations: ConstraintViolation[];
 }
 
 export interface ConstraintViolation {
-  type: 'MIN_RR' | 'MAX_TP' | 'MIN_SL' | 'MAX_SL' | 'BELOW_NOISE_FLOOR' | 'INFEASIBLE_SETUP';
+  type: 'MIN_RR' | 'MAX_TP' | 'MIN_SL' | 'MAX_SL' | 'BELOW_NOISE_FLOOR' | 'INFEASIBLE_SETUP' | 'TIGHT_CONSTRAINTS' | 'CRYPTO_SCALE_MISMATCH';
   severity: 'WARNING' | 'ERROR' | 'CATASTROPHIC';
   message: string;
   suggestedFix?: string;
   currentValue?: number;
   minimumValue?: number;
   suggestedActions?: string[];
+}
+
+export interface ConstraintFeasibilityStatus {
+  isFeasible: boolean;
+  minTakeProfitRequired: number;
+  maxTakeProfitAvailable: number;
+  minRiskRewardRequired: number;
+  maxRiskRewardAchievable: number;
+  conflictSource: 'SESSION_TIME' | 'MARKET_ATR' | 'NONE';
+  advisoryMessage: string;
+  alphaOptions: string[];
 }
 
 /**
