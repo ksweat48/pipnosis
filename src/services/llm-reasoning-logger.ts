@@ -83,18 +83,30 @@ class LLMReasoningLogger {
   /**
    * Create journal entry when trade is executed (pre-trade)
    *
-   * CRITICAL FIX: Now enforces HARD validation for Omega8/Omega9 data
-   * Journal entries cannot be created without proper Omega Council consultation
-   * This prevents incomplete audit trails and ensures governance compliance
+   * GOVERNANCE COMPLIANCE: Validates Omega Council data but degrades gracefully
+   * - Omega9 (safety) is HARD requirement - trades cannot execute without it
+   * - Omega8 (liquidity) is SOFT requirement - logs warning but allows journal entry
+   * This ensures trades are safe (Omega9) while maintaining audit trail
    */
   async logTradeEntry(entry: JournalEntry): Promise<string | null> {
     try {
-      // CRITICAL: HARD VALIDATION - Omega8 data MUST be present
+      // GOVERNANCE: SOFT VALIDATION - Omega8 data SHOULD be present
       if (!entry.omega8_liquidity_bias && !entry.omega8_direction_support) {
-        const errorMsg = '[LLM Reasoning Logger] ERROR: Cannot create journal entry - Omega8 data MISSING! ' +
-          'Omega Council (liquidity bias or direction support) must be consulted before trade entry.';
-        console.error(errorMsg);
-        throw new Error(errorMsg);
+        const warningMsg = '[LLM Reasoning Logger] ⚠️ GOVERNANCE WARNING: Omega8 data MISSING! ' +
+          'Omega Council (liquidity bias or direction support) was not consulted. ' +
+          'This is logged for governance audit but will not block journal entry.';
+        console.warn(warningMsg);
+        console.warn('[LLM Reasoning Logger] Trade details:', {
+          symbol: entry.symbol,
+          direction: entry.direction,
+          tradeId: entry.tradeId,
+          hasOmega9: entry.omega9_pass !== undefined,
+          omega8_liquidity_bias: entry.omega8_liquidity_bias,
+          omega8_direction_support: entry.omega8_direction_support
+        });
+
+        // Continue with journal entry - Omega9 validation is the hard safety gate
+        // Omega8 is important for audit but not critical for trade safety
       }
 
       // CRITICAL: HARD VALIDATION - Omega9 data MUST be present

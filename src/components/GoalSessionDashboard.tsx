@@ -976,6 +976,25 @@ export const GoalSessionDashboard: React.FC = () => {
     return trade.current_pnl || trade.profit_loss || 0;
   };
 
+  /**
+   * SSOT: Get Alpha's calculated target for the current trade
+   * Returns the most recent trade's expected_profit_for_session (what Alpha calculated)
+   * Falls back to original goal amount if no active trades exist
+   */
+  const getCurrentTradeTarget = (): number => {
+    if (openTrades.length === 0) {
+      // No active trades - show original session goal
+      return activeSession?.config.goalAmount || 0;
+    }
+
+    // Get most recent open trade (last in array)
+    const latestTrade = openTrades[openTrades.length - 1];
+
+    // Return Alpha's calculated target for this trade
+    // This is what Alpha says the market can give (~$135 in your example)
+    return latestTrade.expected_profit_for_session || activeSession?.config.goalAmount || 0;
+  };
+
   const calculateLiveProgressPercentage = (): number => {
     if (!progress || !activeSession) return 0;
 
@@ -990,9 +1009,11 @@ export const GoalSessionDashboard: React.FC = () => {
 
     // Total progress = closed + open unrealized
     const totalProgress = closedProfit + openUnrealizedPnL;
-    const goalAmount = activeSession.config.goalAmount;
 
-    return (totalProgress / goalAmount) * 100;
+    // SSOT FIX: Use current trade target (Alpha's calculation) not original goal
+    const targetAmount = getCurrentTradeTarget();
+
+    return targetAmount > 0 ? (totalProgress / targetAmount) * 100 : 0;
   };
 
   const calculateActualRiskPercentage = (): { percentage: number; dollarRisk: number; displayText: string } => {
@@ -1344,10 +1365,17 @@ export const GoalSessionDashboard: React.FC = () => {
           <div className="relative group overflow-hidden rounded-xl">
             <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-blue-500/10 group-hover:from-emerald-500/20 group-hover:to-blue-500/20 transition-all duration-300" />
             <div className="relative bg-gray-800/50 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50 group-hover:border-emerald-500/30 transition-all duration-300">
-              <div className="text-sm text-gray-400 mb-1">Target</div>
-              <div className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-blue-400">
-                ${activeSession.config.goalAmount.toFixed(0)}
+              <div className="text-sm text-gray-400 mb-1" title="Alpha's calculated profit target for the current trade">
+                {openTrades.length > 0 ? 'Trade Target' : 'Session Goal'}
               </div>
+              <div className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-blue-400">
+                ${getCurrentTradeTarget().toFixed(0)}
+              </div>
+              {openTrades.length > 0 && activeSession.config.goalAmount !== getCurrentTradeTarget() && (
+                <div className="text-xs text-gray-500 mt-1">
+                  Session Goal: ${activeSession.config.goalAmount.toFixed(0)}
+                </div>
+              )}
             </div>
           </div>
 

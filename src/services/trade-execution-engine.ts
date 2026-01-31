@@ -792,18 +792,40 @@ class TradeExecutionEngine {
     // Trade already exists in database - journal failure won't prevent execution
     let journalCreated = false;
     try {
+      // 🛡️ GOVERNANCE DIAGNOSTIC: Detailed alphaDecision inspection
+      console.log('[Trade Execution] 🔍 Alpha Decision Parameter Diagnostic:', {
+        hasAlphaDecision: !!alphaDecision,
+        alphaDecisionType: typeof alphaDecision,
+        alphaDecisionKeys: alphaDecision ? Object.keys(alphaDecision) : [],
+        hasOmegaVotes: alphaDecision?.omega_votes ? 'YES' : 'NO',
+        omegaVotesKeys: alphaDecision?.omega_votes ? Object.keys(alphaDecision.omega_votes) : [],
+        hasOmega8InVotes: alphaDecision?.omega_votes?.omega8 ? 'YES' : 'NO',
+        hasOmega9InVotes: alphaDecision?.omega_votes?.omega9 ? 'YES' : 'NO',
+        directOmega8Fields: {
+          liquidity_bias: alphaDecision?.omega8_liquidity_bias,
+          direction_support: alphaDecision?.omega8_direction_support
+        }
+      });
+
       // ✅ SSOT FIX: Extract Omega Council data from alphaDecision parameter (not signal.alphaDecision)
       // alphaDecision is passed as 4th parameter to executeSignal(), not attached to signal object
       const omega8Data = extractOmega8Data(alphaDecision);
       const omega9Data = extractOmega9Data(alphaDecision);
 
       // 🛡️ GOVERNANCE AUDIT: Log Omega Council coverage for journal entry
-      console.log('[Trade Execution] 🛡️ Omega Council Data Coverage:', {
-        hasAlphaDecision: !!alphaDecision,
+      console.log('[Trade Execution] 🛡️ Omega Council Data Coverage (Extracted):', {
         omega8Present: !!(omega8Data.omega8_liquidity_bias || omega8Data.omega8_direction_support),
         omega9Present: omega9Data.omega9_pass !== undefined,
-        omega8Keys: Object.keys(omega8Data),
-        omega9Keys: Object.keys(omega9Data)
+        omega8Data: {
+          liquidity_bias: omega8Data.omega8_liquidity_bias,
+          direction_support: omega8Data.omega8_direction_support,
+          confidence: omega8Data.omega8_confidence
+        },
+        omega9Data: {
+          pass: omega9Data.omega9_pass,
+          flags: omega9Data.omega9_flags,
+          confidence_adjustment: omega9Data.omega9_confidence_adjustment
+        }
       });
 
       const journalEntryId = await llmReasoningLogger.logTradeEntry({
