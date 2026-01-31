@@ -530,6 +530,8 @@ class GoalSessionLiveEngine {
    */
   private async processMultiSymbolCycle(watchlist: string[]): Promise<void> {
     let tradeExecuted = false;
+    // ✅ SSOT FIX: Declare at function scope so catch block can access for diagnostics
+    let tradeableSnapshots: any[] | undefined;
 
     try {
       // 🔍 RACE CONDITION FIX: Early exit if session is stopping or config is null
@@ -717,7 +719,8 @@ class GoalSessionLiveEngine {
         });
       }
 
-      const tradeableSnapshots = snapshotResult.snapshots.filter(s => s.tradeable);
+      // ✅ SSOT FIX: Assign to function-scoped variable (no const redeclaration)
+      tradeableSnapshots = snapshotResult.snapshots.filter(s => s.tradeable);
 
       // 💭 THOUGHT STREAM: Emit filtering results
       try {
@@ -1377,12 +1380,12 @@ class GoalSessionLiveEngine {
       const adjustedRiskPercent = riskAssessment.adjustedRiskPercent * 100; // Convert back to percentage
 
       console.log(`%c[ProfessionalRiskManager] ✅ APPROVED`, 'color: #00ff00; font-weight: bold');
-      console.log(`  Lot Size: ${lotSize.toFixed(2)} lots`);
-      console.log(`  Adjusted Risk: ${adjustedRiskPercent.toFixed(2)}% (from ${baseRiskPercent.toFixed(2)}%)`);
-      console.log(`  Risk Score: ${riskAssessment.riskScore}/100`);
-      console.log(`  Confidence Score: ${riskAssessment.confidenceScore}/100`);
-      console.log(`  Kelly Edge: ${riskAssessment.detailedBreakdown.kelly.edgeStrength}`);
-      console.log(`  EV: ${riskAssessment.detailedBreakdown.evGate.expectedValue.toFixed(1)} pips/trade`);
+      console.log(`  Lot Size: ${(lotSize ?? 0).toFixed(2)} lots`);
+      console.log(`  Adjusted Risk: ${(adjustedRiskPercent ?? 0).toFixed(2)}% (from ${(baseRiskPercent ?? 0).toFixed(2)}%)`);
+      console.log(`  Risk Score: ${riskAssessment.riskScore ?? 0}/100`);
+      console.log(`  Confidence Score: ${riskAssessment.confidenceScore ?? 0}/100`);
+      console.log(`  Kelly Edge: ${riskAssessment.detailedBreakdown?.kelly?.edgeStrength ?? 'N/A'}`);
+      console.log(`  EV: ${(riskAssessment.detailedBreakdown?.evGate?.expectedValue ?? 0).toFixed(1)} pips/trade`);
 
       // Calculate expected profit at Alpha's TP
       const alphaTPPips = takeProfitPips;
@@ -1392,23 +1395,29 @@ class GoalSessionLiveEngine {
       // Estimate trades needed to reach goal (remainingGoal already declared above)
       const estimatedTradesNeeded = Math.ceil(remainingGoal / expectedProfitAtCommonMove);
 
-      const reasoning = `ProfessionalRiskManager approved: ${lotSize.toFixed(2)} lots (${adjustedRiskPercent.toFixed(2)}% risk). ` +
-        `Kelly Edge: ${riskAssessment.detailedBreakdown.kelly.edgeStrength}. ` +
-        `EV: ${riskAssessment.detailedBreakdown.evGate.expectedValue.toFixed(1)} pips/trade. ` +
-        `Expected profit at TP: $${expectedProfitAtCommonMove.toFixed(2)}.`;
+      // ✅ SSOT FIX: Defensive null checks in reasoning string
+      const reasoning = `ProfessionalRiskManager approved: ${(lotSize ?? 0).toFixed(2)} lots (${(adjustedRiskPercent ?? 0).toFixed(2)}% risk). ` +
+        `Kelly Edge: ${riskAssessment.detailedBreakdown?.kelly?.edgeStrength ?? 'N/A'}. ` +
+        `EV: ${(riskAssessment.detailedBreakdown?.evGate?.expectedValue ?? 0).toFixed(1)} pips/trade. ` +
+        `Expected profit at TP: $${(expectedProfitAtCommonMove ?? 0).toFixed(2)}.`;
 
       // Log if any warnings were issued (but not blocking)
       if (riskAssessment.criticalWarnings.length > 0) {
         console.warn(`[ProfessionalRiskManager] Warnings (non-blocking):`, riskAssessment.criticalWarnings);
       }
 
+      // ✅ SSOT FIX: Add defensive null checks before toFixed() calls
       // Calculate profit expectations (alphaTPPips already calculated above in takeProfitPips)
       const dollarPerPipAtLotSize = calculateDollarPerPip(selectedSymbol, lotSize);
-      const expectedProfitAtAlphaTP = takeProfitPips * dollarPerPipAtLotSize;
-      const progressPercent = (expectedProfitAtAlphaTP / remainingGoal) * 100;
+      const expectedProfitAtAlphaTP = (takeProfitPips || 0) * (dollarPerPipAtLotSize || 0);
+      const progressPercent = remainingGoal > 0 ? (expectedProfitAtAlphaTP / remainingGoal) * 100 : 0;
 
       if (import.meta.env.DEV) {
-        console.log(`[Trade] ${decision.symbol} ${lotSize.toFixed(3)} lots, TP: ${takeProfitPips.toFixed(1)}p ($${expectedProfitAtAlphaTP.toFixed(2)})`);
+        // ✅ SSOT FIX: Defensive null checks to prevent "Cannot read toFixed of undefined"
+        const safeLotSize = lotSize ?? 0;
+        const safeTakeProfitPips = takeProfitPips ?? 0;
+        const safeExpectedProfit = expectedProfitAtAlphaTP ?? 0;
+        console.log(`[Trade] ${decision.symbol} ${safeLotSize.toFixed(3)} lots, TP: ${safeTakeProfitPips.toFixed(1)}p ($${safeExpectedProfit.toFixed(2)})`);
       }
 
       const hour = new Date().getUTCHours();

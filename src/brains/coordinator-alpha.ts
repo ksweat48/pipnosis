@@ -61,6 +61,7 @@
  */
 
 import { openAIClient } from '../services/openai-client';
+import { sanitizeAndParse, tryParseLLMResponse } from '../services/llm-response-sanitizer';
 import type { OmegaVote } from './omega/trend';
 import type { Omega8Vote, Omega9ValidationResult } from '../types/omega';
 import type { TraderScore } from '../services/ai-identity';
@@ -1679,7 +1680,8 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
       // ═══════════════════════════════════════════════════════════════════
       let parsedJSON: any = {};
       try {
-        parsedJSON = JSON.parse(content);
+        // ✅ SSOT FIX: Use centralized sanitizer
+        parsedJSON = sanitizeAndParse(content, 'alpha market thesis');
 
         // Extract market thesis from response
         const marketThesisText = parsedJSON.marketThesis || parsedJSON.reasoning || '';
@@ -1923,7 +1925,8 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
       // Check if Alpha overrode any recommendations
       const parsed = response.choices[0]?.message?.content || '{}';
       try {
-        const rawDecision = JSON.parse(parsed.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim());
+        // ✅ SSOT FIX: Use centralized sanitizer
+        const rawDecision = tryParseLLMResponse(parsed, 'alpha override decision') || {};
         if (rawDecision.override && rawDecision.override.type && rawDecision.override.type !== 'none') {
           const overrideInfo: AlphaOverride = {
             override_type: rawDecision.override.type,
@@ -2663,46 +2666,22 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
     sessionId?: string // SSOT: Required for geometry error logging
   ): AlphaDecision {
     try {
-      // Step 1: Remove JavaScript-style comments (single-line and multi-line)
+      // ✅ SSOT FIX: Use centralized sanitizer (handles markdown, comment removal, and JSON extraction)
+      // Step 1: Remove JavaScript-style comments before sanitization
       let cleaned = response
-        // Remove single-line comments: // comment
-        .replace(/\/\/[^\n]*/g, '')
-        // Remove multi-line comments: /* comment */
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        // Remove markdown code fences
-        .replace(/```json\n?/g, '')
-        .replace(/```\n?/g, '')
-        .trim();
+        .replace(/\/\/[^\n]*/g, '')           // Remove single-line comments
+        .replace(/\/\*[\s\S]*?\*\//g, '');    // Remove multi-line comments
 
+      // Step 2: Sanitize with centralized logic (handles markdown, JSON extraction)
       let parsed: any;
       try {
-        parsed = JSON.parse(cleaned);
+        parsed = sanitizeAndParse(cleaned, 'alpha decision response');
       } catch (parseError) {
-        // Try to repair common JSON issues
-        console.warn('[Alpha Coordinator] Initial JSON parse failed, attempting repair...');
-
-        // Try to extract JSON between first { and last }
-        const firstBrace = cleaned.indexOf('{');
-        const lastBrace = cleaned.lastIndexOf('}');
-
-        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-          const extracted = cleaned.substring(firstBrace, lastBrace + 1);
-          try {
-            parsed = JSON.parse(extracted);
-            console.log('[Alpha Coordinator] ✅ Repaired JSON successfully');
-          } catch (extractError) {
-            // Log the problematic JSON for debugging
-            console.error('[Alpha Coordinator] Failed to parse JSON after extraction:');
-            console.error('Raw response (first 500 chars):', response.substring(0, 500));
-            console.error('Cleaned (first 500 chars):', cleaned.substring(0, 500));
-            console.error('Parse error:', parseError);
-            throw parseError;
-          }
-        } else {
-          console.error('[Alpha Coordinator] Could not find valid JSON structure');
-          console.error('Raw response (first 500 chars):', response.substring(0, 500));
-          throw parseError;
-        }
+        // Enhanced error logging
+        console.error('[Alpha Coordinator] Failed to parse Alpha decision response');
+        console.error('Raw response preview:', response.substring(0, 500));
+        console.error('After comment removal:', cleaned.substring(0, 500));
+        throw parseError;
       }
 
       // Validate and sanitize action

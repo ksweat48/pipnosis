@@ -449,18 +449,29 @@ Return ONLY this JSON format (no markdown, no explanations):
     reasoning: string;
   }> {
     try {
-      // Get ATR from market data if not provided
+      // ✅ SSOT FIX: Get ATR from market data if not provided (with graceful fallback)
       let currentATR = atr;
       if (!currentATR) {
-        const { data: atrData } = await supabase
-          .from('market_atr_values')
-          .select('atr_value')
-          .eq('symbol', symbol)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        try {
+          const { data: atrData, error: atrError } = await supabase
+            .from('market_atr_values')
+            .select('atr_value')
+            .eq('symbol', symbol)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
 
-        currentATR = atrData?.atr_value || null;
+          if (atrError) {
+            // Table might not exist or RLS blocking - gracefully degrade
+            console.warn(`[Alpha Execution Planner] Could not fetch ATR from market_atr_values (${atrError.code}): ${atrError.message}`);
+            console.warn('[Alpha Execution Planner] Falling back to percentage-based estimation');
+          } else {
+            currentATR = atrData?.atr_value || null;
+          }
+        } catch (atrFetchError) {
+          // Network error or other exception - gracefully degrade
+          console.warn('[Alpha Execution Planner] Exception fetching ATR, using fallback:', atrFetchError);
+        }
       }
 
       // Fallback: Use percentage-based estimation if no ATR

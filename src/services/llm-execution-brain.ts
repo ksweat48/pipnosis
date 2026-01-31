@@ -8,6 +8,7 @@
 
 import { openAIClient } from './openai-client';
 import { getExecutionIdentity, type TraderScore } from './ai-identity';
+import { sanitizeAndParse } from './llm-response-sanitizer';
 
 export interface MicroSnapshot {
   p: number; // price
@@ -123,12 +124,8 @@ Max 150 tokens.`;
     strategyMode: string
   ): TradeDecision {
     try {
-      const cleaned = response
-        .replace(/```json\n?/g, '')
-        .replace(/```\n?/g, '')
-        .trim();
-
-      const parsed = JSON.parse(cleaned);
+      // ✅ SSOT FIX: Use centralized sanitizer instead of duplicated logic
+      const parsed = sanitizeAndParse(response, 'execution decision');
 
       // Validate action
       const action = ['BUY', 'SELL', 'NO_TRADE'].includes(parsed.action)

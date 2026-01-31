@@ -792,10 +792,19 @@ class TradeExecutionEngine {
     // Trade already exists in database - journal failure won't prevent execution
     let journalCreated = false;
     try {
-      // 🛡️ Extract Omega Council data from signal.alphaDecision (if provided)
-      // Uses safe extraction with fallback values for robustness
-      const omega8Data = extractOmega8Data(signal.alphaDecision);
-      const omega9Data = extractOmega9Data(signal.alphaDecision);
+      // ✅ SSOT FIX: Extract Omega Council data from alphaDecision parameter (not signal.alphaDecision)
+      // alphaDecision is passed as 4th parameter to executeSignal(), not attached to signal object
+      const omega8Data = extractOmega8Data(alphaDecision);
+      const omega9Data = extractOmega9Data(alphaDecision);
+
+      // 🛡️ GOVERNANCE AUDIT: Log Omega Council coverage for journal entry
+      console.log('[Trade Execution] 🛡️ Omega Council Data Coverage:', {
+        hasAlphaDecision: !!alphaDecision,
+        omega8Present: !!(omega8Data.omega8_liquidity_bias || omega8Data.omega8_direction_support),
+        omega9Present: omega9Data.omega9_pass !== undefined,
+        omega8Keys: Object.keys(omega8Data),
+        omega9Keys: Object.keys(omega9Data)
+      });
 
       const journalEntryId = await llmReasoningLogger.logTradeEntry({
         userId: userId,
@@ -830,21 +839,26 @@ class TradeExecutionEngine {
     }
 
     // Mark journal entry status in database (fire-and-forget, don't block)
+    // ✅ SSOT FIX: Supabase doesn't support .catch() - use proper async error handling
     if (!journalCreated) {
       supabase
         .from('goal_session_trades')
         .update({ journal_entry_created: false })
         .eq('id', trade.id)
-        .catch(err => {
-          console.warn('[Trade Execution] Failed to mark journal_entry_created=false:', err);
+        .then(({ error }) => {
+          if (error) {
+            console.warn('[Trade Execution] Failed to mark journal_entry_created=false:', error);
+          }
         });
     } else {
       supabase
         .from('goal_session_trades')
         .update({ journal_entry_created: true })
         .eq('id', trade.id)
-        .catch(err => {
-          console.warn('[Trade Execution] Failed to mark journal_entry_created=true:', err);
+        .then(({ error }) => {
+          if (error) {
+            console.warn('[Trade Execution] Failed to mark journal_entry_created=true:', error);
+          }
         });
     }
 
@@ -1240,21 +1254,26 @@ class TradeExecutionEngine {
     }
 
     // Mark journal entry status in database (fire-and-forget, don't block)
+    // ✅ SSOT FIX: Supabase doesn't support .catch() - use proper async error handling
     if (!journalCreated) {
       supabase
         .from('goal_session_trades')
         .update({ journal_entry_created: false })
         .eq('id', trade.id)
-        .catch(err => {
-          console.warn('[Trade Execution] Failed to mark journal_entry_created=false:', err);
+        .then(({ error }) => {
+          if (error) {
+            console.warn('[Trade Execution] Failed to mark journal_entry_created=false:', error);
+          }
         });
     } else {
       supabase
         .from('goal_session_trades')
         .update({ journal_entry_created: true })
         .eq('id', trade.id)
-        .catch(err => {
-          console.warn('[Trade Execution] Failed to mark journal_entry_created=true:', err);
+        .then(({ error }) => {
+          if (error) {
+            console.warn('[Trade Execution] Failed to mark journal_entry_created=true:', error);
+          }
         });
     }
 
