@@ -199,11 +199,41 @@ class PollingStrategyCoordinator {
    * Get interval for a specific session state and symbol class
    */
   private getInterval(sessionState: SessionState, symbolClass: SymbolClass): number {
-    const intervals = this.INTERVALS[sessionState];
+    const intervalKey = this.mapSessionStateToIntervalKey(sessionState);
+    const intervals = this.INTERVALS[intervalKey as keyof typeof this.INTERVALS];
+
+    if (!intervals) {
+      logger.warn(
+        LogCategory.POLLING_COORDINATOR,
+        `No intervals found for session state: ${sessionState}, using minimum interval`
+      );
+      return this.MIN_POLLING_INTERVAL_MS;
+    }
+
     const interval = intervals[symbolClass];
+
+    if (!interval) {
+      logger.warn(
+        LogCategory.POLLING_COORDINATOR,
+        `No interval found for symbol class: ${symbolClass} in state: ${sessionState}`
+      );
+      return this.MIN_POLLING_INTERVAL_MS;
+    }
 
     // Enforce minimum interval
     return Math.max(interval, this.MIN_POLLING_INTERVAL_MS);
+  }
+
+  /**
+   * Map lowercase session state to uppercase interval key
+   */
+  private mapSessionStateToIntervalKey(sessionState: SessionState): string {
+    const keyMap: Record<SessionState, string> = {
+      'active_trading': 'ACTIVE_TRADING',
+      'monitoring': 'MONITORING',
+      'inactive': 'INACTIVE'
+    };
+    return keyMap[sessionState];
   }
 
   /**
