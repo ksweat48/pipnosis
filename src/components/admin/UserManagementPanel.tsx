@@ -32,6 +32,7 @@ export const UserManagementPanel: React.FC = () => {
   const [showCreditsDialog, setShowCreditsDialog] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [forceClosing, setForceClosing] = useState(false);
+  const [forceClosingAll, setForceClosingAll] = useState(false);
   const [searchDebounce, setSearchDebounce] = useState<NodeJS.Timeout | null>(null);
   const { showToast } = useToast();
   const { confirm: showConfirm } = useConfirmDialog();
@@ -60,6 +61,13 @@ export const UserManagementPanel: React.FC = () => {
         return count + user.scanning_sessions;
       }
       return count;
+    }, 0);
+  }, [users]);
+
+  // Count non-trade sessions (any session + awaiting response sessions)
+  const nonTradeSessionsCount = useMemo(() => {
+    return users.reduce((count, user) => {
+      return count + user.scanning_sessions + user.awaiting_response_sessions;
     }, 0);
   }, [users]);
 
@@ -131,6 +139,37 @@ export const UserManagementPanel: React.FC = () => {
       console.error('[Admin] Error force-closing sessions:', error);
     } finally {
       setForceClosing(false);
+    }
+  };
+
+  const handleForceCloseAllNonTradeSessions = async () => {
+    const confirmed = await showConfirm(
+      'Force Close All Non-Trade Sessions?',
+      `This will close ${nonTradeSessionsCount} scanning and paused sessions across all users. Active trades (in_trade) and awaiting continuation sessions will NOT be affected. This action cannot be undone. Continue?`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setForceClosingAll(true);
+      const result = await adminUserService.forceCloseAllNonTradeSessions();
+
+      if (result.success) {
+        showToast(
+          `Closed ${result.sessions_closed} session${result.sessions_closed > 1 ? 's' : ''} affecting ${result.affected_users} user${result.affected_users > 1 ? 's' : ''}`,
+          'success'
+        );
+        console.log('[Admin] Force-closed all non-trade sessions:', result);
+      } else {
+        showToast(result.error || 'Failed to close sessions', 'error');
+      }
+
+      await refresh();
+    } catch (error) {
+      showToast('Failed to force-close all non-trade sessions', 'error');
+      console.error('[Admin] Error force-closing all non-trade sessions:', error);
+    } finally {
+      setForceClosingAll(false);
     }
   };
 
@@ -248,7 +287,7 @@ export const UserManagementPanel: React.FC = () => {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           {stuckSessionsCount > 0 && (
             <button
               onClick={handleForceCloseStuckSessions}
@@ -259,6 +298,19 @@ export const UserManagementPanel: React.FC = () => {
               {forceClosing ? 'Closing...' : 'Force Close Stuck Sessions'}
               <span className="absolute -top-2 -right-2 px-2 py-0.5 bg-yellow-500 text-black text-xs font-bold rounded-full">
                 {stuckSessionsCount}
+              </span>
+            </button>
+          )}
+          {nonTradeSessionsCount > 0 && (
+            <button
+              onClick={handleForceCloseAllNonTradeSessions}
+              disabled={forceClosingAll}
+              className="px-4 py-2 bg-red-700 hover:bg-red-800 disabled:bg-red-900 disabled:cursor-not-allowed text-white rounded transition-colors flex items-center gap-2 relative"
+            >
+              <AlertTriangle size={16} className={forceClosingAll ? 'animate-pulse' : ''} />
+              {forceClosingAll ? 'Closing...' : 'Force Close All Non-Trade'}
+              <span className="absolute -top-2 -right-2 px-2 py-0.5 bg-red-500 text-white text-xs font-bold rounded-full">
+                {nonTradeSessionsCount}
               </span>
             </button>
           )}

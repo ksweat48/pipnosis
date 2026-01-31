@@ -118,6 +118,14 @@ export interface StaleSessionResult {
   minutes_scanning: number;
 }
 
+export interface ForceCloseAllNonTradeResult {
+  success: boolean;
+  sessions_closed: number;
+  affected_users: number;
+  message: string;
+  error?: string;
+}
+
 export interface PlatformKPIs {
   total_users: number;
   active_users: number;
@@ -306,6 +314,21 @@ export const adminUserService = {
     }
 
     return data || [];
+  },
+
+  async forceCloseAllNonTradeSessions(): Promise<ForceCloseAllNonTradeResult> {
+    const { data, error } = await supabase.rpc('force_close_all_non_trade_sessions');
+
+    if (error) {
+      console.error('Error force-closing all non-trade sessions:', error);
+      throw new Error(error.message);
+    }
+
+    if (!data) {
+      throw new Error('No response from server');
+    }
+
+    return data as ForceCloseAllNonTradeResult;
   },
 
   /**
