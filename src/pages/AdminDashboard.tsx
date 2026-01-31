@@ -7,7 +7,6 @@ import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { DataManagementPanel } from '@/components/DataManagementPanel';
 import { CandleAggregatorStatus } from '@/components/CandleAggregatorStatus';
 import { GlobalPollingStatus } from '@/components/GlobalPollingStatus';
-import { PipnosisMasteryCurve } from '@/components/PipnosisMasteryCurve';
 import { OpenAIUsageDashboard } from '@/components/OpenAIUsageDashboard';
 import { ServerSidePollingMonitor } from '@/components/ServerSidePollingMonitor';
 import { LLMTokenUsageDashboard } from '@/components/LLMTokenUsageDashboard';
@@ -559,9 +558,6 @@ export function AdminDashboard() {
                 </div>
               )}
             </div>
-
-            {/* Pipnosis Mastery Curve - TOP PRIORITY */}
-            <PipnosisMasteryCurve userId={null} />
 
             {/* AI Metrics Grid */}
             {!loading && aiMetrics && (
