@@ -119,7 +119,7 @@ class MasteryCurveService {
       }
 
       const masteryData: MasteryScoreData[] = data.map((row: any) => ({
-        date: row.date,
+        date: this.normalizeDateForChart(row.date),
         winRate: Number(row.win_rate) || 50,
         profitFactor: Number(row.profit_factor) || 1.0,
         evScore: Number(row.ev_score) || 0,
@@ -139,6 +139,12 @@ class MasteryCurveService {
       console.error('[Mastery Curve] Failed to fetch platform-wide data from RPC:', error);
       throw error;
     }
+  }
+
+  private normalizeDateForChart(dateString: string): string {
+    if (!dateString) return dateString;
+    if (dateString.includes('T')) return dateString;
+    return `${dateString}T00:00:00Z`;
   }
 
   private async fetchPerformanceEvolution(userId: string | null, startDate: Date) {
@@ -480,9 +486,12 @@ class MasteryCurveService {
       }
     });
 
-    return Array.from(dateMap.values()).sort((a, b) =>
-      a.date.localeCompare(b.date)
-    );
+    return Array.from(dateMap.values())
+      .map(item => ({
+        ...item,
+        date: this.normalizeDateForChart(item.date)
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
   }
 
   calculateMasteryScore(data: DailyMasteryData): number {
