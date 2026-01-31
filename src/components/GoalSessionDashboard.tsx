@@ -334,25 +334,23 @@ export const GoalSessionDashboard: React.FC = () => {
       setActiveSession(session);
 
       if (session) {
-        // HEALTH CHECK: Verify session is still valid on page load
-        // Note: Database triggers auto-close expired sessions. This check is diagnostic only.
+        // GOVERNANCE: Log health check for audit trail (diagnostic only)
+        // SSOT AUTHORITY: Session validity is determined by getActiveSession() result, NOT health check
+        // Health check is informational only - used for stuck detection and UI diagnostics
         try {
           const { data: healthCheck, error: healthError } = await supabase.rpc('check_session_timeout_health', {
             p_session_id: session.sessionId
           });
 
           if (healthError) {
-            console.error('[GoalSessionDashboard] Health check failed:', healthError);
-          } else if (healthCheck && !healthCheck.success) {
-            // Session not found or access denied (was deleted or belongs to another user)
-            console.log('[GoalSessionDashboard] Session no longer exists or access denied');
-            setShowNoTradesModal(false);
-            setContinuationData(null);
-            setActiveSession(null);
-            return;
+            console.warn('[GoalSessionDashboard] Health check RPC failed (diagnostic only):', healthError);
+          } else if (healthCheck?.governance_log_id) {
+            console.log('[GoalSessionDashboard] Health check logged (governance_log_id:', healthCheck.governance_log_id + ')');
           }
+          // NOTE: We do NOT use healthCheck.success to gate session validity
+          // The session manager already provided the authority (getActiveSession result)
         } catch (healthError) {
-          console.error('[GoalSessionDashboard] Health check exception:', healthError);
+          console.warn('[GoalSessionDashboard] Health check exception (diagnostic):', healthError);
         }
 
         // SSOT: Observe session status (database trigger enforces all timeouts)
