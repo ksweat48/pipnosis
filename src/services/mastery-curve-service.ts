@@ -51,6 +51,12 @@ class MasteryCurveService {
     if (cached) return cached;
 
     try {
+      // Use RPC for platform-wide data (userId = null) to bypass RLS restrictions
+      if (!userId) {
+        return await this.getMasteryCurveDataFromRPC();
+      }
+
+      // Use individual table queries for user-specific data
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - this.MAX_DAYS);
 
@@ -88,6 +94,49 @@ class MasteryCurveService {
       return masteryData;
     } catch (error) {
       console.error('[Mastery Curve] Error fetching data:', error);
+      throw error;
+    }
+  }
+
+  private async getMasteryCurveDataFromRPC(): Promise<MasteryScoreData[]> {
+    const cacheKey = `mastery-curve-all-users`;
+    const cached = this.getCachedData(cacheKey);
+    if (cached) return cached;
+
+    try {
+      const { data, error } = await supabase.rpc('get_platform_mastery_curve_data', {
+        p_days_back: this.MAX_DAYS
+      });
+
+      if (error) {
+        console.error('[Mastery Curve] RPC Error fetching platform-wide data:', error);
+        throw error;
+      }
+
+      if (!data || data.length === 0) {
+        console.warn('[Mastery Curve] RPC returned no data for platform-wide aggregation');
+        return [];
+      }
+
+      const masteryData: MasteryScoreData[] = data.map((row: any) => ({
+        date: row.date,
+        winRate: Number(row.win_rate) || 50,
+        profitFactor: Number(row.profit_factor) || 1.0,
+        evScore: Number(row.ev_score) || 0,
+        calibrationAccuracy100: Number(row.calibration_accuracy_100) || 70,
+        llmLayerPassRateAvg: Number(row.llm_layer_pass_rate_avg) || 80,
+        avoidPatternSuccessRate: Number(row.avoid_pattern_success_rate) || 0,
+        totalTrades: row.total_trades || 0,
+        insightsValidated: row.insights_validated || 0,
+        mistakesPrevented: row.mistakes_prevented || 0,
+        winningPatternsAdded: row.winning_patterns_added || 0,
+        masteryScore: Number(row.mastery_score) || 0
+      }));
+
+      this.setCachedData(cacheKey, masteryData);
+      return masteryData;
+    } catch (error) {
+      console.error('[Mastery Curve] Failed to fetch platform-wide data from RPC:', error);
       throw error;
     }
   }
