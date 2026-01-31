@@ -358,18 +358,25 @@ class GoalSessionLiveEngine {
    */
   async stopSession(): Promise<{ success: boolean; message: string }> {
     try {
+      // SSOT: CRITICAL null safety check
+      // Prevents id=eq.null queries if activeSession was already cleared
       if (!this.activeSession) {
+        logger.info(LogCategory.AI_TRADING, 'No active session to stop (already cleared)');
         return {
           success: false,
           message: 'No active session to stop'
         };
       }
 
+      // Capture session ID before any async operation
+      const sessionId = this.activeSession;
+      const userId = this.config?.userId;
+
       // RACE CONDITION FIX: Set stopping flag BEFORE stopping polling
       // This prevents new operations from starting while cleanup is in progress
       this.isStopping = true;
 
-      logger.info(LogCategory.AI_TRADING, `Stopping goal session: ${this.activeSession}`);
+      logger.info(LogCategory.AI_TRADING, `Stopping goal session: ${sessionId}`);
 
       this.stopPolling();
 
@@ -378,74 +385,87 @@ class GoalSessionLiveEngine {
         await this.closeAllPositions('session_stopped');
       }
 
-      const summary = localSessionMemory.generateSessionSummary(`live-${this.activeSession}`);
+      const summary = localSessionMemory.generateSessionSummary(`live-${sessionId}`);
       if (summary) {
         await this.saveLiveSessionSummary(summary);
       }
 
-      // Calculate session statistics
-      const { data: sessionData } = await supabase
+      // SSOT COMPLIANCE: Fetch session data SAFELY with null check
+      // Use maybeSingle() to handle not found gracefully
+      const { data: sessionData, error: sessionError } = await supabase
         .from('goal_sessions')
         .select('created_at, target_value, current_progress')
-        .eq('id', this.activeSession)
-        .single();
+        .eq('id', sessionId)
+        .maybeSingle();
 
-      const { data: tradesData } = await supabase
+      if (sessionError) {
+        logger.error(LogCategory.AI_TRADING, `Failed to fetch session data: ${sessionError.message}`);
+      }
+
+      const { data: tradesData = [] } = await supabase
         .from('goal_session_trades')
         .select('id')
-        .eq('goal_session_id', this.activeSession)
+        .eq('goal_session_id', sessionId)
         .in('status', ['open', 'closed']);
 
       const durationMinutes = sessionData?.created_at
         ? (Date.now() - new Date(sessionData.created_at).getTime()) / (1000 * 60)
         : 0;
 
-      // Insert session ended notification for push
-      if (this.config) {
-        await supabase.from('goal_notifications').insert({
-          goal_session_id: this.activeSession,
-          user_id: this.config.userId,
-          type: 'session_ended',
-          priority: 'medium',
-          title: '✋ Session Closed',
-          message: `Your session ended after ${Math.round(durationMinutes)} minutes. ${tradesData?.length || 0} trade${tradesData?.length !== 1 ? 's' : ''} completed. Final: $${(sessionData?.current_progress || 0).toFixed(2)}`,
-          metadata: {
-            close_reason: 'user_stopped',
-            duration_minutes: durationMinutes,
-            trades_in_session: tradesData?.length || 0,
-            current_progress: sessionData?.current_progress || 0,
-            target_value: sessionData?.target_value || 0
-          },
-          channels: ['in_app']
-        });
+      // Insert session ended notification for push (non-critical, wrapped in try-catch)
+      if (this.config && sessionData) {
+        try {
+          await supabase.from('goal_notifications').insert({
+            goal_session_id: sessionId,
+            user_id: this.config.userId,
+            type: 'session_ended',
+            priority: 'medium',
+            title: '✋ Session Closed',
+            message: `Your session ended after ${Math.round(durationMinutes)} minutes. ${tradesData?.length || 0} trade${tradesData?.length !== 1 ? 's' : ''} completed. Final: $${(sessionData?.current_progress || 0).toFixed(2)}`,
+            metadata: {
+              close_reason: 'user_stopped',
+              duration_minutes: durationMinutes,
+              trades_in_session: tradesData?.length || 0,
+              current_progress: sessionData?.current_progress || 0,
+              target_value: sessionData?.target_value || 0
+            },
+            channels: ['in_app']
+          });
+        } catch (notifError) {
+          logger.warn(LogCategory.AI_TRADING, `Failed to insert session_ended notification: ${notifError}`);
+          // Continue - notification failure doesn't block session close
+        }
       }
 
-      await supabase
-        .from('goal_sessions')
-        .update({
-          status: 'user_stopped'
-        })
-        .eq('id', this.activeSession);
+      // Note: Database update of goal_sessions is handled by atomic_close_goal_session() RPC
+      // in SmartGoalSessionManager.stopSession(). This function is FALLBACK cleanup only.
 
-      // ✅ ENTRY MONITOR: Clean up monitoring on session stop
-      await entryMonitorCoordinator.cleanupSession(this.activeSession);
+      // ✅ ENTRY MONITOR: Clean up monitoring on session stop (SSOT)
+      try {
+        await entryMonitorCoordinator.cleanupSession(sessionId);
+      } catch (cleanupError) {
+        logger.warn(LogCategory.AI_TRADING, `Failed to cleanup entry monitor: ${cleanupError}`);
+        // Continue - cleanup failure doesn't block session close
+      }
 
-      localSessionMemory.closeSession(`live-${this.activeSession}`);
+      localSessionMemory.closeSession(`live-${sessionId}`);
 
-      const sessionId = this.activeSession;
+      // CRITICAL: Clear state AFTER all operations using sessionId
       this.activeSession = null;
       this.config = null;
       this.openTrades = [];
       this.sessionStartTime = null;
+      this.isStopping = false;
 
-      logger.info(LogCategory.AI_TRADING, 'Session stopped successfully');
+      logger.info(LogCategory.AI_TRADING, 'Live trading session stopped successfully');
 
       return {
         success: true,
         message: 'Live trading session stopped'
       };
     } catch (error) {
-      console.error('[Goal Live Engine] Error stopping session:', error);
+      logger.error(LogCategory.AI_TRADING, `Error stopping session: ${error}`);
+      this.isStopping = false;
       return {
         success: false,
         message: `Failed to stop session: ${(error as Error).message}`

@@ -807,10 +807,17 @@ class SmartGoalSessionManager {
 
   async stopSession(sessionId: string, userId: string): Promise<boolean> {
     try {
+      // NULL SAFETY: Validate inputs before proceeding
+      if (!sessionId || !userId) {
+        console.error('[Smart Goal] ❌ Invalid session or user ID:', { sessionId, userId });
+        return false;
+      }
+
       console.log(`[Smart Goal] 🛑 Attempting to stop session ${sessionId} for user ${userId}`);
 
       // SSOT ENFORCEMENT: Use atomic RPC function for all closure logic
       // This ensures state consistency and enables CCIP governance tracking
+      // The RPC handles: polling stop, trade closing, intent cancellation, database updates
       const { data: closureResult, error: rpcError } = await supabase
         .rpc('atomic_close_goal_session', {
           p_session_id: sessionId,
@@ -836,7 +843,9 @@ class SmartGoalSessionManager {
 
       // STEP 1: Stop live engine (after RPC but before local cleanup)
       // RPC already closed trades, but live engine may have its own state to clean
-      if (goalSessionLiveEngine.getActiveSessionId() === sessionId) {
+      // This is a FALLBACK-ONLY cleanup - RPC is the SSOT
+      const liveEngineSessionId = goalSessionLiveEngine.getActiveSessionId();
+      if (liveEngineSessionId === sessionId) {
         console.log(`[Smart Goal] 🔌 Stopping live engine for session ${sessionId}`);
         try {
           const stopResult = await goalSessionLiveEngine.stopSession();
@@ -847,7 +856,10 @@ class SmartGoalSessionManager {
           }
         } catch (engineError) {
           console.warn('[Smart Goal] ⚠️ Live engine error (non-critical):', engineError);
+          // Continue - live engine cleanup failure doesn't block session closure
         }
+      } else if (liveEngineSessionId !== null) {
+        console.warn(`[Smart Goal] ⚠️ Live engine has different session active: ${liveEngineSessionId}`);
       }
 
       // STEP 2: Clean up memory and timers (NOW safe since RPC handled database)
@@ -868,11 +880,15 @@ class SmartGoalSessionManager {
       }
 
       // STEP 3: Log governance tracking for the closure operation
+      const tradesClosed = result.steps_completed?.trades_closed?.count ||
+                          (typeof result.steps_completed?.trades_closed === 'number' ? result.steps_completed.trades_closed : 0);
+      const intentsCanceled = result.steps_completed?.intents_canceled || 0;
+
       console.log('[Smart Goal] ✅ Session closure completed:', {
         session_id: sessionId,
         user_id: userId,
-        trades_closed: result.steps_completed.trades_closed?.count || 0,
-        intents_canceled: result.steps_completed.intents_canceled || 0,
+        trades_closed: tradesClosed,
+        intents_canceled: intentsCanceled,
         completion_timestamp: new Date().toISOString()
       });
 

@@ -271,8 +271,15 @@ class MidTradeMonitorService {
 
       return { guidance: guidanceList, stats };
     } catch (error) {
-      // Ignore AbortError - these happen when requests are cancelled
-      if (error instanceof Error && error.name === 'AbortError') {
+      // Ignore AbortError - these happen when requests are cancelled (component unmount, session close, etc.)
+      const isAbortError = error instanceof Error && (
+        error.name === 'AbortError' ||
+        error.message?.includes('signal is aborted') ||
+        error.message?.includes('AbortError')
+      );
+
+      if (isAbortError) {
+        // Silently return empty guidance - request was aborted
         return {
           guidance: [],
           stats: {
@@ -283,6 +290,7 @@ class MidTradeMonitorService {
         };
       }
 
+      // Only log non-abort errors
       console.error('[MidTradeMonitor] Error getting guidance:', error);
       return {
         guidance: [],
