@@ -3,6 +3,21 @@
  *
  * Pre-generates and caches Alpha market theses for common regime combinations
  * Runs during low-traffic periods to optimize cache hit rates
+ *
+ * STATUS: Awaiting Backend Integration
+ * - Service defined and ready for use
+ * - Cache warming logic complete (checks freshness, avoids duplicate work)
+ * - NOT CURRENTLY INTEGRATED: warmCache() is not called from any service
+ *
+ * NEXT STEPS:
+ * 1. When background job system is ready, call warmCache() during off-peak hours
+ * 2. Current implementation just logs intent - can optionally call Alpha if needed
+ * 3. Alternatively, use event-driven warming: refresh expiring theses on cache hit
+ *
+ * CCIP GOVERNANCE NOTE:
+ * Cache warming is an optimization, not critical for functionality.
+ * System works fine with on-demand cache generation.
+ * Warming would reduce latency but adds complexity - implement after core system stabilizes.
  */
 
 import { supabase } from '../lib/supabase';

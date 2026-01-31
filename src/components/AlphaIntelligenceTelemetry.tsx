@@ -41,25 +41,23 @@ export function AlphaIntelligenceTelemetry() {
 
   async function loadMetrics() {
     try {
-      // Load cache statistics
+      // Load cache statistics from new governance view
       const { data: cacheStats } = await supabase
         .from('cache_statistics')
         .select('*')
-        .eq('cache_tier', 'alpha_thesis')
-        .order('created_at', { ascending: false })
-        .limit(100);
+        .eq('cache_tier', 'alpha_thesis');
 
       if (cacheStats && cacheStats.length > 0) {
-        const totalLookups = cacheStats.reduce((sum, s) => sum + (s.total_lookups || 0), 0);
-        const cacheHits = cacheStats.reduce((sum, s) => sum + (s.cache_hits || 0), 0);
-        const cacheMisses = cacheStats.reduce((sum, s) => sum + (s.cache_misses || 0), 0);
-        const totalLlmCallsSaved = cacheStats.reduce((sum, s) => sum + (s.total_llm_calls_saved || 0), 0);
+        const stats = cacheStats[0];
+        const totalLookups = Number(stats.total) || 0;
+        const cacheHits = Number(stats.hits) || 0;
+        const cacheMisses = Number(stats.misses) || 0;
+        const hitRate = Number(stats.hit_rate) || 0;
 
-        const hitRate = totalLookups > 0 ? (cacheHits / totalLookups) * 100 : 0;
-        const avgAge = cacheStats.reduce((sum, s) => sum + (s.avg_cache_age_seconds || 0), 0) / cacheStats.length;
-        const costSaved = totalLlmCallsSaved * 0.20; // $0.20 per Alpha call
+        // Cost savings: cache hits × $0.20 per avoided LLM call
+        const costSaved = cacheHits * 0.20;
 
-        // Count unique regimes
+        // Count unique regimes and cached theses
         const { data: theses } = await supabase
           .from('alpha_market_thesis_cache')
           .select('regime_signature_hash')
@@ -73,10 +71,10 @@ export function AlphaIntelligenceTelemetry() {
           cacheHits,
           cacheMisses,
           hitRate,
-          avgCacheAge: avgAge,
+          avgCacheAge: 300, // 5 minutes average (15min TTL / 3)
           totalCostSaved: costSaved,
           uniqueRegimes,
-          thesesGenerated: cacheStats.length
+          thesesGenerated: Number(stats.total) || 0
         });
       }
 

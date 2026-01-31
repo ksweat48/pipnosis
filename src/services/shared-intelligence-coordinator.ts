@@ -271,7 +271,7 @@ class SharedIntelligenceCoordinator {
 
     // Cache new thesis in database
     try {
-      await supabase.rpc('cache_alpha_thesis', {
+      const cacheResult = await supabase.rpc('cache_alpha_thesis', {
         p_symbol: symbol,
         p_timeframe: regimeSignature.timeframeRelevance || 'H1',
         p_direction_bias: freshResult.thesis.directionBias,
@@ -290,16 +290,53 @@ class SharedIntelligenceCoordinator {
         p_thesis_hash: immutableThesis.thesisHash
       });
 
+      // Log cache write success for governance audit trail (non-blocking)
+      try {
+        await supabase.rpc('log_cache_write_event', {
+          p_symbol: symbol,
+          p_regime_signature_hash: regimeHash,
+          p_write_status: 'success',
+          p_error_message: null,
+          p_cache_tier: 'alpha_thesis'
+        });
+      } catch (auditErr) {
+        logger.warn('[SharedIntelligence] Failed to log cache write success to audit trail', {
+          error: auditErr instanceof Error ? auditErr.message : 'Unknown error'
+        });
+      }
+
       logger.info('[SharedIntelligence] Thesis cached successfully', {
         symbol,
         regimeHash,
-        ttl: '15min'
+        ttl: '15min',
+        thesisId: cacheResult
       });
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+
       logger.error('[SharedIntelligence] Thesis cache write failed', {
-        error: err instanceof Error ? err.message : 'Unknown error',
-        symbol
+        error: errorMsg,
+        symbol,
+        regimeHash
       });
+
+      // Log cache write failure for governance audit trail (non-blocking)
+      try {
+        await supabase.rpc('log_cache_write_event', {
+          p_symbol: symbol,
+          p_regime_signature_hash: regimeHash,
+          p_write_status: 'failed',
+          p_error_message: errorMsg.substring(0, 255),
+          p_cache_tier: 'alpha_thesis'
+        });
+      } catch (auditErr) {
+        logger.warn('[SharedIntelligence] Failed to log cache write failure to audit trail', {
+          error: auditErr instanceof Error ? auditErr.message : 'Unknown error'
+        });
+      }
+
+      // Important: Do NOT rethrow error - cache write failure should NOT block execution
+      // This is "intelligent degradation": thesis is still valid even if caching failed
     }
 
     // Store in local cache
