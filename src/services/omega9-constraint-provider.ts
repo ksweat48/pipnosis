@@ -512,6 +512,9 @@ class Omega9ConstraintProvider {
     const displayName = symbolConfig?.displayName || symbol;
     const decimalPlaces = symbolConfig?.decimalPlaces || 5;
 
+    // Determine if constraints are tight (R:R below standard)
+    const tightConstraints = constraints.minRiskReward < 1.0;
+
     // CRITICAL: Build feasibility advisory from SSOT validator
     let advisoryNote = '';
     if (constraints.feasibilityStatus && !constraints.feasibilityStatus.isFeasible) {
