@@ -491,20 +491,9 @@ class GoalSessionLiveEngine {
     this.processingLock = true;
 
     try {
-      // Check if we should show the 15-minute continuation modal
-      // Removed simpleScanningTimer (2026-01-30) - continuation modal system removed
-      const shouldShowModal = await simpleScanningTimer.shouldShowContinuationModal(this.activeSession);
-
-      if (shouldShowModal) {
-        console.log('[Goal Live Engine] 🕐 15 minutes elapsed with no trades - triggering modal');
-        await simpleScanningTimer.triggerContinuationModal(this.activeSession);
-        // Stop polling until user responds
-        this.stopPolling();
-        return;
-      }
-
-      // SSOT: Database trigger (enforce_continuation_timeout_ssot) handles timeout enforcement
-      // Client just observes state changes via realtime subscriptions
+      // SSOT: Database triggers handle continuation timeout enforcement
+      // Client processes candles autonomously - no continuation modal needed at client level
+      // Timeout enforcement is database-driven for consistency across all clients
 
       await this.processCandleAutonomous();
     } catch (error) {

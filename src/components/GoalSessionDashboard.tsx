@@ -334,28 +334,25 @@ export const GoalSessionDashboard: React.FC = () => {
       setActiveSession(session);
 
       if (session) {
-        // HEALTH CHECK: Check if session has expired timeout (on page load / refresh)
+        // HEALTH CHECK: Verify session is still valid on page load
+        // Note: Database triggers auto-close expired sessions. This check is diagnostic only.
         try {
           const { data: healthCheck, error: healthError } = await supabase.rpc('check_session_timeout_health', {
             p_session_id: session.sessionId
           });
 
-          if (!healthError && healthCheck) {
-            if (healthCheck.auto_closed) {
-              console.log('[GoalSessionDashboard] ✅ Health check auto-closed expired session:', healthCheck.reason);
-              showToast({
-                type: 'info',
-                title: 'Session Auto-Closed',
-                message: healthCheck.message || 'Your session was automatically closed due to timeout'
-              });
-              setShowNoTradesModal(false);
-              setContinuationData(null);
-              setActiveSession(null);
-              return;
-            }
+          if (healthError) {
+            console.error('[GoalSessionDashboard] Health check failed:', healthError);
+          } else if (healthCheck && !healthCheck.success) {
+            // Session not found or access denied (was deleted or belongs to another user)
+            console.log('[GoalSessionDashboard] Session no longer exists or access denied');
+            setShowNoTradesModal(false);
+            setContinuationData(null);
+            setActiveSession(null);
+            return;
           }
         } catch (healthError) {
-          console.error('[GoalSessionDashboard] Health check failed:', healthError);
+          console.error('[GoalSessionDashboard] Health check exception:', healthError);
         }
 
         // SSOT: Observe session status (database trigger enforces all timeouts)
@@ -893,8 +890,8 @@ export const GoalSessionDashboard: React.FC = () => {
 
     setUnstickLoading(true);
     try {
-      // Force close session (removed continuation-specific logic 2026-01-30)
-      const { data, error } = await supabase.rpc('force_close_session', {
+      // Manual session recovery - SSOT compliant (requires no open trades)
+      const { data, error } = await supabase.rpc('unstick_session', {
         p_session_id: activeSession.sessionId
       });
 
