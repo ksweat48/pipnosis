@@ -821,6 +821,76 @@ class TradeClosureCoordinator {
     if (error || !data) return null;
     return data as TradeData;
   }
+
+  /**
+   * Subscribe to trade closure events from database
+   * Enables realtime post-processing for all closure paths:
+   *   - Browser-based closures (manual UI)
+   *   - Database trigger-based closures (SL/TP hits)
+   *   - Server-side monitor closures
+   *
+   * This ensures post-processing runs immediately for users with active browser sessions.
+   * Server-side fallback processes events every 10 seconds for offline users.
+   */
+  subscribeToClosureEvents(userId: string): void {
+    try {
+      supabase
+        .channel(`closure_events_${userId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'trade_closure_events',
+            filter: `user_id=eq.${userId}`,
+          },
+          (payload) => {
+            const event = payload.new as any;
+            this.handleClosureEvent(event).catch((error) => {
+              console.error('[TradeClosureCoordinator] Error handling closure event:', error);
+            });
+          }
+        )
+        .subscribe();
+
+      console.log(`[TradeClosureCoordinator] Subscribed to closure events for user ${userId}`);
+    } catch (error) {
+      console.error('[TradeClosureCoordinator] Failed to subscribe to closure events:', error);
+      // Don't fail - server-side processing will catch up
+    }
+  }
+
+  /**
+   * Handle a trade closure event from the event stream
+   * Runs post-processing pipeline: notifications, analysis, rewards, state transitions
+   */
+  private async handleClosureEvent(event: any): Promise<void> {
+    const { tradeClosureEventProcessor } = await import('../trade-closure-event-processor');
+
+    console.log(`[TradeClosureCoordinator] Handling closure event for trade ${event.trade_id}`);
+
+    // Process the event using the event processor
+    const result = await tradeClosureEventProcessor.processEvent({
+      id: event.id,
+      trade_id: event.trade_id,
+      user_id: event.user_id,
+      goal_session_id: event.goal_session_id,
+      symbol: event.symbol,
+      direction: event.direction,
+      close_price: event.close_price,
+      close_reason: event.close_reason,
+      pnl: event.pnl,
+      last_processed_at: event.last_processed_at,
+      post_processing_status: event.post_processing_status,
+      processing_error: event.processing_error,
+      created_at: event.created_at,
+      event_triggered_by: event.event_triggered_by,
+    });
+
+    if (!result.success) {
+      console.warn(`[TradeClosureCoordinator] Event processing failed for ${event.trade_id}:`, result.error);
+    }
+  }
 }
 
 export const tradeClosureCoordinator = new TradeClosureCoordinator();
