@@ -389,6 +389,30 @@ export class EntryExecutionCoordinator {
         })
         .eq('id', intentId);
 
+      // CCIP COMPLIANCE: Record entry quality advisory for post-execution display
+      // Advisory is created immediately after trade execution (SSOT: entry_intents)
+      // Used by EntryPriceMonitor to show whether Alpha's execution was optimal
+      try {
+        const { data: advisoryResult, error: advisoryError } = await supabase.rpc(
+          'record_entry_quality_advisory',
+          {
+            p_user_id: intent.user_id,
+            p_entry_intent_id: intentId,
+            p_trade_id: trade.id,
+            p_session_id: intent.session_id
+          }
+        );
+
+        if (advisoryError) {
+          logger.warn(`[Entry Execution] Failed to record advisory: ${advisoryError.message}`);
+        } else {
+          logger.info(`[Entry Execution] Entry quality advisory recorded for trade ${trade.id}`);
+        }
+      } catch (error) {
+        logger.warn('[Entry Execution] Error recording advisory:', error);
+        // Non-fatal - trade was executed successfully
+      }
+
       if (intentUpdateError) {
         logger.error(`Failed to update intent status to executed: ${intentUpdateError.message}`);
         // Non-fatal - trade was created successfully, just log the error

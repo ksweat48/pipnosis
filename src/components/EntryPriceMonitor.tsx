@@ -1,26 +1,29 @@
 /**
- * ENTRY PRICE MONITOR - Real-Time Entry Proximity Display
+ * ENTRY PRICE MONITOR - Entry Quality Advisory System
  *
  * CCIP CHANGE NOTICE:
- * Refactored from post-execution recommendations to pre-execution monitoring.
- * Shows real-time distance to entry zones BEFORE Alpha executes.
+ * Refactored from pre-execution monitoring to POST-EXECUTION advisory.
+ * Shows entry quality analysis AFTER Alpha executes trades.
+ * Advisory is non-blocking - purely educational for user.
  *
  * SSOT COMPLIANCE:
  * - Uses useActiveEntryIntent hook for entry intent data (SSOT: entry-intent-monitor-mode.ts)
- * - Uses PriceCoordinator.getPrice() for live prices (SSOT: price-coordinator.ts)
+ * - Uses entryQualityAdvisorService for advisory data (SSOT: entry_quality_advisories table)
+ * - Uses get_entry_advisory_analysis RPC for calculations (SSOT: database functions)
  * - Uses tradeMath for pip calculations and formatting (SSOT: tradeMath.ts)
  *
  * GOVERNANCE COMPLIANCE:
- * - No business logic in component (delegates to services)
- * - Fails loudly on errors with clear error messages
- * - Uses existing abstractions consistently
+ * - Advisory mode is non-blocking and informational
+ * - No business logic (delegates to services and database)
+ * - Realtime subscriptions validate data integrity
+ * - Fails loudly on errors with clear messages
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { TrendingUp, TrendingDown, Target, AlertCircle, RefreshCw, Activity } from 'lucide-react';
+import { TrendingUp, TrendingDown, CheckCircle, AlertCircle, Activity, Info } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useActiveEntryIntent } from '@/hooks/useEntryIntent';
-import { priceCoordinator } from '@/services/coordinators/price-coordinator';
+import { entryQualityAdvisorService } from '@/services/entry-quality-advisor-service';
 import * as tradeMath from '@/utils/tradeMath';
 
 interface ActiveGoalSession {
@@ -31,9 +34,8 @@ interface ActiveGoalSession {
 export const EntryPriceMonitor: React.FC = () => {
   const [activeSession, setActiveSession] = useState<ActiveGoalSession | null>(null);
   const [loadingSession, setLoadingSession] = useState(true);
-  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
-  const [priceAge, setPriceAge] = useState<number>(0);
-  const [lastPriceUpdate, setLastPriceUpdate] = useState<Date | null>(null);
+  const [advisory, setAdvisory] = useState<any | null>(null);
+  const [loadingAdvisory, setLoadingAdvisory] = useState(false);
 
   // Memoize session ID to prevent unnecessary re-renders of useActiveEntryIntent
   const sessionId = useMemo(() => activeSession?.id || null, [activeSession?.id]);
@@ -111,103 +113,60 @@ export const EntryPriceMonitor: React.FC = () => {
     };
   }, []);
 
-  // Poll live price when we have an active intent
+  // Load advisory data when we have an executed intent
   useEffect(() => {
-    if (!activeIntent) {
-      setCurrentPrice(null);
-      setLastPriceUpdate(null);
+    if (!activeIntent || activeIntent.status !== 'executed') {
+      setAdvisory(null);
       return;
     }
 
     let mounted = true;
 
-    const fetchPrice = async () => {
+    const loadAdvisory = async () => {
+      setLoadingAdvisory(true);
       try {
-        const result = await priceCoordinator.getPrice(activeIntent.symbol, {
-          maxAgeSeconds: 30,
-          allowStale: true,
-          useCacheFirst: false,
-        });
-
-        if (!mounted) return;
-
-        if (result.success && result.price) {
-          setCurrentPrice(result.price.mid);
-          setPriceAge(result.price.ageSeconds);
-          setLastPriceUpdate(new Date());
-        } else {
-          console.warn('[EntryPriceMonitor] Failed to fetch price:', result.error);
+        const advisoryData = await entryQualityAdvisorService.getAdvisoryForIntent(activeIntent.id);
+        if (mounted && advisoryData) {
+          setAdvisory(advisoryData);
         }
       } catch (error) {
-        console.error('[EntryPriceMonitor] Price fetch error:', error);
+        console.error('[EntryPriceMonitor] Error loading advisory:', error);
+      } finally {
+        if (mounted) {
+          setLoadingAdvisory(false);
+        }
       }
     };
 
-    fetchPrice();
-    const interval = setInterval(fetchPrice, 3000);
+    loadAdvisory();
+
+    // Subscribe to real-time advisory updates
+    const channel = supabase
+      .channel(`entry-advisory-${activeIntent.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'entry_quality_advisories',
+          filter: `entry_intent_id=eq.${activeIntent.id}`
+        },
+        () => {
+          console.log('[EntryPriceMonitor] Advisory updated, reloading...');
+          loadAdvisory();
+        }
+      )
+      .subscribe();
 
     return () => {
       mounted = false;
-      clearInterval(interval);
+      supabase.removeChannel(channel);
     };
-  }, [activeIntent]);
+  }, [activeIntent?.id, activeIntent?.status]);
 
   const formatPrice = useCallback((price: number, symbol: string): string => {
     return tradeMath.formatPrice(symbol, price);
   }, []);
-
-  // Calculate real-time metrics
-  const calculateMetrics = useCallback(() => {
-    if (!activeIntent || !currentPrice) return null;
-
-    const entryZoneMin = activeIntent.entry_zone_min;
-    const entryZoneMax = activeIntent.entry_zone_max;
-    const entryZoneMid = (entryZoneMin + entryZoneMax) / 2;
-
-    // Calculate distance using SSOT tradeMath
-    const distanceToMin = tradeMath.calculatePips(activeIntent.symbol, currentPrice, entryZoneMin);
-    const distanceToMax = tradeMath.calculatePips(activeIntent.symbol, currentPrice, entryZoneMax);
-    const distanceToMid = tradeMath.calculatePips(activeIntent.symbol, currentPrice, entryZoneMid);
-
-    // Determine if in zone
-    const inZone = currentPrice >= entryZoneMin && currentPrice <= entryZoneMax;
-
-    // Calculate distance to zone (0 if in zone, otherwise distance to nearest edge)
-    let distanceToZone: number;
-    if (inZone) {
-      distanceToZone = 0;
-    } else if (currentPrice < entryZoneMin) {
-      distanceToZone = Math.abs(distanceToMin);
-    } else {
-      distanceToZone = Math.abs(distanceToMax);
-    }
-
-    // Determine proximity level
-    let proximityLevel: 'in-zone' | 'very-close' | 'close' | 'far';
-    if (inZone) {
-      proximityLevel = 'in-zone';
-    } else if (distanceToZone <= 5) {
-      proximityLevel = 'very-close';
-    } else if (distanceToZone <= 15) {
-      proximityLevel = 'close';
-    } else {
-      proximityLevel = 'far';
-    }
-
-    return {
-      entryZoneMin,
-      entryZoneMax,
-      entryZoneMid,
-      distanceToMin,
-      distanceToMax,
-      distanceToMid,
-      distanceToZone,
-      inZone,
-      proximityLevel,
-    };
-  }, [activeIntent, currentPrice]);
-
-  const metrics = calculateMetrics();
 
   if (loadingSession || loadingIntent) {
     return (
@@ -229,9 +188,9 @@ export const EntryPriceMonitor: React.FC = () => {
             <Target className="w-6 h-6 text-cyan-400" />
           </div>
           <div className="flex-1">
-            <h3 className="text-lg font-bold text-white mb-2">Entry Price Monitor</h3>
+            <h3 className="text-lg font-bold text-white mb-2">Entry Quality Advisor</h3>
             <p className="text-sm text-cyan-200">
-              Real-time proximity tracking to entry zones. Once Alpha identifies an entry opportunity, this monitor will display live price distance and help you execute at optimal levels.
+              Entry quality analysis will appear here after Alpha executes trades. Shows whether Alpha's entry was optimal and what better prices were available.
             </p>
           </div>
         </div>
@@ -239,7 +198,10 @@ export const EntryPriceMonitor: React.FC = () => {
     );
   }
 
-  if (!currentPrice || !metrics) {
+  // Check if this is a post-execution advisory
+  const isAdvisoryMode = entryQualityAdvisorService.isAdvisoryMode(activeIntent);
+
+  if (!isAdvisoryMode) {
     return (
       <div className="bg-gradient-to-br from-blue-900/30 to-cyan-900/30 rounded-xl p-6 border border-blue-500/30">
         <div className="flex items-start gap-4">
@@ -247,9 +209,48 @@ export const EntryPriceMonitor: React.FC = () => {
             <Activity className="w-6 h-6 text-blue-400 animate-pulse" />
           </div>
           <div className="flex-1">
-            <h3 className="text-lg font-bold text-white mb-2">Entry Price Monitor</h3>
+            <h3 className="text-lg font-bold text-white mb-2">Entry Quality Advisor</h3>
             <p className="text-sm text-blue-300">
-              Loading live price data for {activeIntent.symbol}...
+              Waiting for Alpha to execute a trade for {activeIntent.symbol}...
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (loadingAdvisory || !advisory) {
+    return (
+      <div className="bg-gradient-to-br from-blue-900/30 to-cyan-900/30 rounded-xl p-6 border border-blue-500/30">
+        <div className="flex items-start gap-4">
+          <div className="p-3 bg-blue-500/20 rounded-lg">
+            <Activity className="w-6 h-6 text-blue-400 animate-pulse" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-lg font-bold text-white mb-2">Entry Quality Advisor</h3>
+            <p className="text-sm text-blue-300">
+              Analyzing entry quality for {activeIntent.symbol}...
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Format and display advisory
+  const formattedAdvisory = entryQualityAdvisorService.formatAdvisoryDisplay(advisory);
+
+  if (!formattedAdvisory) {
+    return (
+      <div className="bg-gradient-to-br from-gray-900/30 to-blue-900/30 rounded-xl p-6 border border-gray-500/30">
+        <div className="flex items-start gap-4">
+          <div className="p-3 bg-gray-500/20 rounded-lg">
+            <AlertCircle className="w-6 h-6 text-gray-400" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-lg font-bold text-white mb-2">Entry Quality Advisor</h3>
+            <p className="text-sm text-gray-300">
+              Advisory data not yet available. Please check back shortly.
             </p>
           </div>
         </div>
@@ -258,36 +259,11 @@ export const EntryPriceMonitor: React.FC = () => {
   }
 
   const isLong = activeIntent.direction === 'long';
-
-  // Determine status color and message
-  const getStatusColor = () => {
-    switch (metrics.proximityLevel) {
-      case 'in-zone':
-        return 'from-emerald-500 to-green-500';
-      case 'very-close':
-        return 'from-yellow-500 to-orange-500';
-      case 'close':
-        return 'from-blue-500 to-cyan-500';
-      case 'far':
-        return 'from-gray-500 to-gray-600';
-    }
-  };
-
-  const getStatusMessage = () => {
-    if (metrics.inZone) {
-      return 'Price is in entry zone - Quality entry available';
-    } else if (metrics.proximityLevel === 'very-close') {
-      return `${metrics.distanceToZone.toFixed(1)} pips to entry zone - Very close`;
-    } else if (metrics.proximityLevel === 'close') {
-      return `${metrics.distanceToZone.toFixed(1)} pips to entry zone - Approaching`;
-    } else {
-      return `${metrics.distanceToZone.toFixed(1)} pips to entry zone - Waiting`;
-    }
-  };
+  const gradeColor = entryQualityAdvisorService.getGradeColor(formattedAdvisory.grade);
 
   return (
     <div className="relative group">
-      <div className={`absolute -inset-0.5 bg-gradient-to-r ${getStatusColor()} rounded-xl opacity-20 group-hover:opacity-30 transition duration-300 blur`} />
+      <div className={`absolute -inset-0.5 bg-gradient-to-r ${gradeColor} rounded-xl opacity-20 group-hover:opacity-30 transition duration-300 blur`} />
 
       <div className="relative bg-gradient-to-br from-blue-900/40 to-cyan-900/40 rounded-xl p-6 border border-blue-500/50">
         <div className="flex items-start justify-between mb-4">
@@ -300,111 +276,93 @@ export const EntryPriceMonitor: React.FC = () => {
               )}
             </div>
             <div>
-              <h3 className="text-lg font-bold text-white">Entry Price Monitor</h3>
+              <h3 className="text-lg font-bold text-white">Entry Quality Advisor</h3>
               <p className="text-sm text-cyan-300">{activeIntent.symbol} {activeIntent.direction.toUpperCase()}</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            {lastPriceUpdate && (
-              <span className="text-xs text-gray-400">
-                {priceAge}s ago
-              </span>
-            )}
-            <Activity className="w-4 h-4 text-emerald-400 animate-pulse" />
+            <span className="text-xs text-cyan-400 font-semibold">ADVISORY</span>
+            <CheckCircle className="w-4 h-4 text-cyan-400" />
           </div>
         </div>
 
-        {/* Status Banner */}
-        <div className={`bg-gradient-to-r ${getStatusColor()} bg-opacity-20 rounded-lg p-4 mb-4 border ${
-          metrics.inZone ? 'border-emerald-500/50' : 'border-blue-500/30'
-        }`}>
+        {/* Quality Grade Banner */}
+        <div className={`bg-gradient-to-r ${gradeColor} bg-opacity-20 rounded-lg p-4 mb-4 border border-opacity-50`}>
           <p className="text-sm font-semibold text-white text-center">
-            {getStatusMessage()}
+            {formattedAdvisory.message}
           </p>
         </div>
 
-        {/* Price Grid */}
+        {/* Entry Quality Metrics Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
           <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700/50">
-            <p className="text-xs text-gray-400 mb-1">Current Price</p>
+            <p className="text-xs text-gray-400 mb-1">Executed Entry</p>
             <p className="text-xl font-bold text-white font-mono">
-              {formatPrice(currentPrice, activeIntent.symbol)}
+              {formatPrice(formattedAdvisory.executedPrice, activeIntent.symbol)}
             </p>
-            <p className="text-xs text-gray-400 mt-1">Live Market</p>
-          </div>
-
-          <div className={`rounded-lg p-4 border ${
-            metrics.inZone
-              ? 'bg-gradient-to-br from-emerald-900/30 to-green-900/30 border-emerald-500/50'
-              : 'bg-blue-900/30 border-blue-500/30'
-          }`}>
-            <p className={`text-xs mb-1 ${metrics.inZone ? 'text-emerald-300' : 'text-blue-300'}`}>
-              Entry Zone Center
-            </p>
-            <p className={`text-xl font-bold font-mono ${metrics.inZone ? 'text-emerald-400' : 'text-blue-400'}`}>
-              {formatPrice(metrics.entryZoneMid, activeIntent.symbol)}
-            </p>
-            <p className={`text-xs mt-1 ${metrics.inZone ? 'text-emerald-300' : 'text-blue-300'}`}>
-              {Math.abs(metrics.distanceToMid).toFixed(1)} pips away
-            </p>
+            <p className="text-xs text-gray-400 mt-1">Alpha's Price</p>
           </div>
 
           <div className="bg-blue-900/30 rounded-lg p-4 border border-blue-500/30">
-            <p className="text-xs text-blue-300 mb-1">Distance to Zone</p>
+            <p className="text-xs text-blue-300 mb-1">Quality Grade</p>
+            <p className="text-xl font-bold text-blue-400 uppercase">
+              {formattedAdvisory.grade}
+            </p>
+            <p className="text-xs text-blue-300 mt-1">Entry Assessment</p>
+          </div>
+
+          <div className="bg-blue-900/30 rounded-lg p-4 border border-blue-500/30">
+            <p className="text-xs text-blue-300 mb-1">Distance from Optimal</p>
             <div className="flex items-baseline gap-2">
               <p className="text-xl font-bold text-blue-400">
-                {metrics.distanceToZone.toFixed(1)}
+                {Math.abs(formattedAdvisory.distance).toFixed(1)}
               </p>
               <p className="text-xs text-blue-300">pips</p>
             </div>
-            {metrics.inZone && (
-              <p className="text-xs text-emerald-400 mt-1 font-semibold">IN ZONE</p>
-            )}
           </div>
         </div>
 
-        {/* Entry Zone Visualization */}
+        {/* Retrospective Optimal Zone */}
         <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700/50 mb-4">
-          <p className="text-sm font-semibold text-gray-300 mb-2">Entry Zone Range</p>
+          <p className="text-sm font-semibold text-gray-300 mb-2">Retrospective Optimal Zone</p>
+          <p className="text-xs text-gray-400 mb-3">
+            What the optimal entry zone SHOULD have been, calculated from market conditions at execution
+          </p>
           <div className="flex items-center gap-3">
             <div>
               <p className="text-xs text-gray-400">Min</p>
               <p className="text-sm font-mono text-white">
-                {formatPrice(metrics.entryZoneMin, activeIntent.symbol)}
+                {formatPrice(formattedAdvisory.optimalZone.min, activeIntent.symbol)}
               </p>
             </div>
             <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden relative">
-              {metrics.inZone ? (
-                <div className="absolute inset-0 bg-gradient-to-r from-emerald-500 to-green-500" />
-              ) : (
-                <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-cyan-500 opacity-50" />
-              )}
+              <div className="absolute inset-0 bg-gradient-to-r from-cyan-500 to-blue-500 opacity-60" />
             </div>
             <div>
               <p className="text-xs text-gray-400">Max</p>
               <p className="text-sm font-mono text-white">
-                {formatPrice(metrics.entryZoneMax, activeIntent.symbol)}
+                {formatPrice(formattedAdvisory.optimalZone.max, activeIntent.symbol)}
               </p>
             </div>
           </div>
         </div>
 
-        {/* Alpha Reasoning */}
-        {activeIntent.alpha_reasoning && (
-          <div className="bg-blue-900/20 rounded-lg p-4 border border-blue-500/20">
-            <div className="flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-blue-300 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-xs text-blue-400 font-semibold mb-1">Alpha's Reasoning</p>
-                <p className="text-sm text-blue-100">{activeIntent.alpha_reasoning}</p>
-              </div>
+        {/* Educational Note */}
+        <div className="bg-cyan-900/20 rounded-lg p-4 border border-cyan-500/20">
+          <div className="flex items-start gap-2">
+            <Info className="w-4 h-4 text-cyan-300 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs text-cyan-400 font-semibold mb-1">About This Advisory</p>
+              <p className="text-sm text-cyan-100">
+                This is a post-execution advisory showing whether Alpha's instant execution was optimal. Zones are calculated retroactively based on market conditions at execution time. No action needed - this is purely educational.
+              </p>
             </div>
           </div>
-        )}
+        </div>
 
         <div className="mt-4 text-xs text-gray-500 text-center">
-          Real-time monitoring - Updates every 3 seconds
+          Post-execution entry quality analysis
         </div>
       </div>
     </div>

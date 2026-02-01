@@ -181,12 +181,20 @@ export interface EntryIntent {
   canceled_at?: string;
   canceled_reason?: string;
   actual_entry_price?: number;
+  executed_price?: number;
+  trade_id?: string;
 
   // Entry Lifecycle Taxonomy
   abandonment_reason?: EntryOutcomeReason;
   outcome_status?: EntryOutcomeStatus;
   distance_from_zone_atr?: number;
   escalation_attempted?: boolean;
+
+  // Post-execution advisory fields (CCIP GOVERNANCE COMPLIANT)
+  advisor_mode?: 'monitoring' | 'post_execution_advisory';
+  entry_quality_grade?: 'optimal' | 'good' | 'acceptable' | 'suboptimal';
+  retrospective_optimal_zone?: Record<string, any>;
+  opportunity_cost_analysis?: Record<string, any>;
 }
 
 export interface EntryMonitoringLog {
