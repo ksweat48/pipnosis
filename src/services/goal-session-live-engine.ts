@@ -1732,9 +1732,11 @@ class GoalSessionLiveEngine {
         }
 
         // Convert dollar amounts to price levels
+        // ✅ SSOT FIX: Use dollarPerPipForProfit (calculated with actual trade.positionSize)
+        // NOT dollarPerPip (old value calculated with original lotSize)
         const pipInfo = getCurrencyPipInfo(selectedSymbol);
-        const tp1Pips = dualTargets.tp1 / dollarPerPip;
-        const tp2Pips = dualTargets.tp2 / dollarPerPip;
+        const tp1Pips = dualTargets.tp1 / dollarPerPipForProfit;
+        const tp2Pips = dualTargets.tp2 / dollarPerPipForProfit;
 
         if (trade.direction === 'buy') {
           tp1Price = trade.entryPrice + (tp1Pips * pipInfo.pipValue);
