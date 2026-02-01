@@ -669,43 +669,53 @@ export const GoalSessionDashboard: React.FC = () => {
   };
 
   const handleNormalStopSession = async () => {
-    if (!activeSession || !user || isClosingSession) return;
+    // CRITICAL FIX: Prevent multiple concurrent closure attempts
+    if (!activeSession || !user) return;
+    if (isClosingSession) {
+      console.warn('[GoalSessionDashboard] ⚠️ Session closure already in progress, ignoring duplicate click');
+      return;
+    }
 
-    // Check if there are open trades
-    const hasOpenTrades = openTrades.length > 0;
-
-    // Show different confirmation message based on whether there are open trades
-    const confirmed = await confirm({
-      title: hasOpenTrades ? 'Stop Session with Open Trades?' : 'Stop Goal Session',
-      message: hasOpenTrades
-        ? `You are closing this session with ${openTrades.length} open trade${openTrades.length > 1 ? 's' : ''}.\n\nAll open positions will be closed at current market prices. Do you want to continue?`
-        : 'Are you sure you want to stop this goal session? Any progress will be saved.',
-      confirmText: hasOpenTrades ? 'Close All & Stop Session' : 'Stop Session',
-      cancelText: 'Cancel',
-      variant: 'warning'
-    });
-
-    if (!confirmed) return;
-
-    // IMMEDIATE UI FEEDBACK: Disable button and show loading state
+    // IMMEDIATE UI FEEDBACK: Disable button BEFORE showing dialog
+    // This prevents user from clicking again while dialog is shown
     setIsClosingSession(true);
-    console.log('[GoalSessionDashboard] ✋ Session closure initiated - UI locked');
-
-    // Set timeout for error handling (15 seconds)
-    const timeoutId = setTimeout(() => {
-      console.error('[GoalSessionDashboard] ⏱️ Session closure timeout - exceeded 15 seconds');
-      setIsClosingSession(false);
-      showToast({
-        type: 'error',
-        title: 'Session Closure Timeout',
-        message: 'The session closure is taking too long. Please check the status and try again.'
-      });
-    }, 15000);
-
-    setClosureTimeoutId(timeoutId);
+    console.log('[GoalSessionDashboard] ✋ UI locked to prevent double-click');
 
     try {
+      // Check if there are open trades
+      const hasOpenTrades = openTrades.length > 0;
+
+      // Show different confirmation message based on whether there are open trades
+      const confirmed = await confirm({
+        title: hasOpenTrades ? 'Stop Session with Open Trades?' : 'Stop Goal Session',
+        message: hasOpenTrades
+          ? `You are closing this session with ${openTrades.length} open trade${openTrades.length > 1 ? 's' : ''}.\n\nAll open positions will be closed at current market prices. Do you want to continue?`
+          : 'Are you sure you want to stop this goal session? Any progress will be saved.',
+        confirmText: hasOpenTrades ? 'Close All & Stop Session' : 'Stop Session',
+        cancelText: 'Cancel',
+        variant: 'warning'
+      });
+
+      if (!confirmed) {
+        console.log('[GoalSessionDashboard] User cancelled session closure');
+        setIsClosingSession(false);
+        return;
+      }
+
       console.log('[GoalSessionDashboard] 🔄 Starting atomic session closure...');
+
+      // Set timeout for error handling (15 seconds)
+      const timeoutId = setTimeout(() => {
+        console.error('[GoalSessionDashboard] ⏱️ Session closure timeout - exceeded 15 seconds');
+        setIsClosingSession(false);
+        showToast({
+          type: 'error',
+          title: 'Session Closure Timeout',
+          message: 'The session closure is taking too long. Please check the status and try again.'
+        });
+      }, 15000);
+
+      setClosureTimeoutId(timeoutId);
 
       // Use atomic RPC function (SSOT compliant)
       // This handles: polling stop, trade closing, entry intent cancellation, and database update
@@ -732,6 +742,8 @@ export const GoalSessionDashboard: React.FC = () => {
           title: 'Failed to Stop Session',
           message: 'Could not stop the session. Please try again.'
         });
+        // Unlock UI on failure so user can try again
+        setIsClosingSession(false);
       }
     } catch (error) {
       console.error('[GoalSessionDashboard] ❌ Exception during session closure:', error);
@@ -745,10 +757,9 @@ export const GoalSessionDashboard: React.FC = () => {
         title: 'Error',
         message: 'An error occurred while stopping the session'
       });
-    } finally {
-      // RE-ENABLE button after closure attempt (success or failure)
+
+      // Unlock UI on error so user can try again
       setIsClosingSession(false);
-      console.log('[GoalSessionDashboard] 🔓 Session closure UI unlocked');
     }
   };
 
