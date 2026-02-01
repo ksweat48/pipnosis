@@ -417,6 +417,56 @@ export class UnifiedEntryMonitor {
   }
 
   /**
+   * Resume monitoring for all active entry intents for a user
+   * Called when user logs in to restore monitoring after browser refresh/restart
+   * Only starts monitoring for intents with status='active'
+   * Part of SSOT entry monitoring authority - centralizes resumption logic
+   */
+  async resumeAllActiveIntents(userId: string): Promise<void> {
+    try {
+      console.log('[UnifiedMonitor] 🔄 Resuming active intents for user:', userId);
+
+      const { data: activeIntents, error } = await supabase
+        .from('entry_intents')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('status', 'active')
+        .is('executed_at', null)
+        .is('canceled_at', null);
+
+      if (error) {
+        console.error('[UnifiedMonitor] Failed to fetch active intents:', error);
+        logger.error('[UnifiedMonitor] Failed to fetch active intents', error);
+        return;
+      }
+
+      if (!activeIntents || activeIntents.length === 0) {
+        console.log('[UnifiedMonitor] ℹ️ No active intents to resume');
+        return;
+      }
+
+      console.log('[UnifiedMonitor] ℹ️ Found', activeIntents.length, 'active intents to resume');
+
+      let resumedCount = 0;
+      for (const intent of activeIntents) {
+        try {
+          await this.startMonitoring(intent.id, userId);
+          resumedCount++;
+          console.log('[UnifiedMonitor] ✅ Resumed monitoring for intent:', intent.id.substring(0, 8));
+        } catch (err) {
+          console.error('[UnifiedMonitor] Failed to resume intent', intent.id, err);
+          logger.error(`[UnifiedMonitor] Failed to resume intent ${intent.id}`, err);
+        }
+      }
+
+      console.log('[UnifiedMonitor] ✅ Resumed', resumedCount, 'intents successfully');
+    } catch (error) {
+      console.error('[UnifiedMonitor] Error during resumeAllActiveIntents:', error);
+      logger.error('[UnifiedMonitor] Error during resumeAllActiveIntents', error);
+    }
+  }
+
+  /**
    * Health monitoring - detects silent failures in BROWSER monitoring only
    * SIMPLIFIED: No longer checks for server monitoring takeover
    * Server monitoring is trusted - any failures create database alerts
