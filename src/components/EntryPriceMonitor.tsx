@@ -121,16 +121,49 @@ export const EntryPriceMonitor: React.FC = () => {
     }
 
     let mounted = true;
+    let retryCount = 0;
+    const MAX_RETRIES = 5;
+    let retryTimer: ReturnType<typeof setTimeout>;
 
     const loadAdvisory = async () => {
       setLoadingAdvisory(true);
       try {
+        console.log('[EntryPriceMonitor] Loading advisory for executed intent:', activeIntent.id);
         const advisoryData = await entryQualityAdvisorService.getAdvisoryForIntent(activeIntent.id);
-        if (mounted && advisoryData) {
-          setAdvisory(advisoryData);
+
+        if (mounted) {
+          if (advisoryData) {
+            console.log('[EntryPriceMonitor] Advisory loaded successfully:', advisoryData);
+            setAdvisory(advisoryData);
+            retryCount = 0; // Reset retry on success
+          } else if (retryCount < MAX_RETRIES) {
+            // GOVERNANCE: Retry logic for delayed advisory data creation
+            // Advisory data is created asynchronously in some flows
+            retryCount++;
+            console.log(`[EntryPriceMonitor] Advisory not yet available, retry ${retryCount}/${MAX_RETRIES}`);
+
+            retryTimer = setTimeout(() => {
+              if (mounted) {
+                loadAdvisory();
+              }
+            }, 1000 * retryCount); // Exponential backoff: 1s, 2s, 3s, 4s, 5s
+          } else {
+            // After retries, still no advisory - this could be a new trade
+            // Show the analyzing state but don't keep retrying forever
+            console.log('[EntryPriceMonitor] Advisory not available after retries');
+            setAdvisory(null); // This will show the analyzing state
+          }
         }
       } catch (error) {
         console.error('[EntryPriceMonitor] Error loading advisory:', error);
+        if (mounted && retryCount < MAX_RETRIES) {
+          retryCount++;
+          retryTimer = setTimeout(() => {
+            if (mounted) {
+              loadAdvisory();
+            }
+          }, 1000 * retryCount);
+        }
       } finally {
         if (mounted) {
           setLoadingAdvisory(false);
@@ -153,6 +186,7 @@ export const EntryPriceMonitor: React.FC = () => {
         },
         () => {
           console.log('[EntryPriceMonitor] Advisory updated, reloading...');
+          retryCount = 0; // Reset retry count on real-time update
           loadAdvisory();
         }
       )
@@ -160,6 +194,7 @@ export const EntryPriceMonitor: React.FC = () => {
 
     return () => {
       mounted = false;
+      clearTimeout(retryTimer);
       supabase.removeChannel(channel);
     };
   }, [activeIntent?.id, activeIntent?.status]);

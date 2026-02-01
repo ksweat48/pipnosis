@@ -18,6 +18,30 @@ export const MidTradeMonitor: React.FC = () => {
   const [guidance, setGuidance] = useState<MidTradeGuidance[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [lastTradeStateHash, setLastTradeStateHash] = useState<string>('');
+
+  // SSOT COMPLIANCE: Load guidance - extracted to component scope
+  // for proper closure access in onClick handler and useEffect
+  const loadGuidance = async (fromUser: boolean = false) => {
+    if (!user?.id) return;
+
+    try {
+      if (fromUser || !loading) {
+        setRefreshing(true);
+      }
+
+      const result = await midTradeMonitorService.getMidTradeGuidance(user.id);
+      setGuidance(result.guidance);
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return;
+      }
+      console.error('[MidTradeMonitor] Error loading guidance:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     if (!user?.id) return;
@@ -26,39 +50,19 @@ export const MidTradeMonitor: React.FC = () => {
     let debounceTimer: ReturnType<typeof setTimeout>;
     let channel: ReturnType<typeof supabase.channel>;
 
-    const loadGuidance = async () => {
-      try {
-        if (!loading) {
-          setRefreshing(true);
-        }
-
-        const result = await midTradeMonitorService.getMidTradeGuidance(user.id);
-        if (isMounted) {
-          setGuidance(result.guidance);
-        }
-      } catch (error) {
-        if (error instanceof Error && error.name === 'AbortError') {
-          return;
-        }
-        console.error('[MidTradeMonitor] Error loading guidance:', error);
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-          setRefreshing(false);
-        }
-      }
-    };
-
     const debouncedLoad = () => {
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        loadGuidance();
+        // GOVERNANCE: Only reload if trade state actually changed
+        // This prevents excessive refreshes from minor updates
+        loadGuidance(false);
       }, 300);
     };
 
-    loadGuidance();
+    loadGuidance(false);
 
-    // SSOT COMPLIANCE: Only subscribe to trade changes
+    // SSOT COMPLIANCE: Only subscribe to meaningful trade state changes
+    // GOVERNANCE: Filter to avoid reacting to heartbeats/minor updates
     // When user's trades UPDATE, fetch prices on-demand within getMidTradeGuidance()
     // Do NOT subscribe to global realtime_prices (causes platform-wide event spam)
     channel = supabase
@@ -71,9 +75,26 @@ export const MidTradeMonitor: React.FC = () => {
           table: 'goal_session_trades',
           filter: `user_id=eq.${user.id}`,
         },
-        () => {
-          console.log('[MidTradeMonitor] Trade updated, fetching guidance...');
-          debouncedLoad();
+        (payload) => {
+          // GOVERNANCE: Smart filtering - only trigger on meaningful changes
+          // Check if this is a substantive trade state change vs heartbeat/status check
+          // Avoid reacting to every micro-update
+          if (payload.new && typeof payload.new === 'object') {
+            const newState = JSON.stringify({
+              status: (payload.new as any).status,
+              closed_at: (payload.new as any).closed_at,
+              stop_loss: (payload.new as any).stop_loss,
+              take_profit: (payload.new as any).take_profit,
+              take_profit_2: (payload.new as any).take_profit_2,
+            });
+
+            // Only trigger refresh if trade state hash changed
+            if (newState !== lastTradeStateHash) {
+              console.log('[MidTradeMonitor] Trade state changed, fetching guidance...');
+              setLastTradeStateHash(newState);
+              debouncedLoad();
+            }
+          }
         }
       )
       .subscribe();
@@ -83,7 +104,7 @@ export const MidTradeMonitor: React.FC = () => {
       supabase.removeChannel(channel);
       clearTimeout(debounceTimer);
     };
-  }, [user?.id]);
+  }, [user?.id, lastTradeStateHash]);
 
 
   const getActionIcon = (action: MidTradeGuidance['primaryAction']) => {
@@ -188,7 +209,7 @@ export const MidTradeMonitor: React.FC = () => {
           </div>
 
           <button
-            onClick={() => loadGuidance()}
+            onClick={() => loadGuidance(true)}
             className="p-2 hover:bg-amber-500/20 rounded-lg transition-colors"
             title="Refresh"
             disabled={refreshing}
