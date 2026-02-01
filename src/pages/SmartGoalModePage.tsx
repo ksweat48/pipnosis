@@ -12,7 +12,6 @@ import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
 import { autoPushNotificationService } from '@/services/auto-push-notification-service';
-import { activeEntryMonitor } from '@/services/active-entry-monitor';
 import { LowCreditWarning } from '@/components/LowCreditWarning';
 import { BlockedSessionStatus } from '@/components/BlockedSessionStatus';
 

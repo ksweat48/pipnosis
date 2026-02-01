@@ -83,8 +83,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(session?.user ?? null);
         if (session?.user) {
           if (previousUser?.id !== session.user.id) {
-            const { activeEntryMonitor } = await import('@/services/active-entry-monitor');
-            activeEntryMonitor.stopAllMonitoring();
             const { unifiedEntryMonitor } = await import('@/services/unified-entry-monitor');
             unifiedEntryMonitor.stopAllMonitoring();
             console.log('[Auth] Stopped monitoring for previous user');
@@ -112,8 +110,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
 
             // STEP 2: Resume only valid, active intents
-            const { activeEntryMonitor } = await import('@/services/active-entry-monitor');
-            await activeEntryMonitor.resumeAllActiveIntents(session.user.id);
+            const { unifiedEntryMonitor } = await import('@/services/unified-entry-monitor');
+            await unifiedEntryMonitor.resumeAllActiveIntents(session.user.id);
             console.log('[Auth] ✅ Resumed entry intent monitoring');
           } catch (error) {
             console.error('[Auth] Failed to resume entry monitoring:', error);
@@ -131,14 +129,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             continuousLearningLoop.stop();
           }
 
-          Promise.all([
-            import('@/services/active-entry-monitor').then(({ activeEntryMonitor }) => {
-              activeEntryMonitor.stopAllMonitoring();
-            }),
-            import('@/services/unified-entry-monitor').then(({ unifiedEntryMonitor }) => {
-              unifiedEntryMonitor.stopAllMonitoring();
-            })
-          ]).then(() => {
+          import('@/services/unified-entry-monitor').then(({ unifiedEntryMonitor }) => {
+            unifiedEntryMonitor.stopAllMonitoring();
             console.log('[Auth] Stopped all entry monitoring');
           }).catch(console.error);
         }

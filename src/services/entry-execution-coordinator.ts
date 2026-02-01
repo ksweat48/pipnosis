@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { EntryPlannerService } from './entry-planner';
-import { activeEntryMonitor } from './active-entry-monitor';
+import { unifiedEntryMonitor } from './unified-entry-monitor';
 import type { AlphaDecision } from '../brains/coordinator-alpha';
 import type { EntryIntent, EntryIntentRequest } from '../types/entry';
 import { logger } from '../lib/logger';
@@ -182,7 +182,7 @@ export class EntryExecutionCoordinator {
     logger.info(`[Entry Execution] ✅ Credits deducted. New balance: ${deductionResult.newBalance} credits`);
 
     // STEP 3: Start monitoring the intent
-    await activeEntryMonitor.startMonitoring(intent.id, userId);
+    await unifiedEntryMonitor.startMonitoring(intent.id, userId);
 
     return { shouldExecuteImmediately: false, intentId: intent.id };
   }
@@ -510,7 +510,7 @@ export class EntryExecutionCoordinator {
 
       if (result.success) {
         // Stop monitoring since trade is executed
-        await activeEntryMonitor.stopMonitoring(intentId);
+        await unifiedEntryMonitor.stopMonitoring(intentId);
         logger.info(`[EntryExecutionCoordinator] Manual entry successful: trade ${result.tradeId}`);
       }
 
@@ -524,7 +524,7 @@ export class EntryExecutionCoordinator {
   static async cancelIntent(intentId: string, reason: string): Promise<boolean> {
     try {
       await EntryPlannerService.updateIntentStatus(intentId, 'canceled', reason);
-      await activeEntryMonitor.stopMonitoring(intentId);
+      await unifiedEntryMonitor.stopMonitoring(intentId);
       return true;
     } catch (error) {
       logger.error('Error canceling intent:', error);
