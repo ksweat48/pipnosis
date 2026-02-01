@@ -69,7 +69,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
   useEffect(() => {
     loadSessionData();
 
-    const interval = setInterval(loadSessionData, 180000);
+    let debounceTimer: ReturnType<typeof setTimeout>;
 
     const channel = supabase
       .channel('session-intelligence')
@@ -87,7 +87,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
       .subscribe();
 
     return () => {
-      clearInterval(interval);
+      clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
   }, [loadSessionData]);

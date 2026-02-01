@@ -23,7 +23,7 @@ export const MidTradeMonitor: React.FC = () => {
     if (!user) return;
 
     let isMounted = true;
-    let pollInterval: ReturnType<typeof setInterval>;
+    let debounceTimer: ReturnType<typeof setTimeout>;
     let channel: ReturnType<typeof supabase.channel>;
 
     const loadGuidance = async () => {
@@ -49,6 +49,13 @@ export const MidTradeMonitor: React.FC = () => {
       }
     };
 
+    const debouncedLoad = () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        loadGuidance();
+      }, 300);
+    };
+
     loadGuidance();
 
     channel = supabase
@@ -62,7 +69,7 @@ export const MidTradeMonitor: React.FC = () => {
           filter: `user_id=eq.${user.id}`,
         },
         () => {
-          loadGuidance();
+          debouncedLoad();
         }
       )
       .on(
@@ -73,23 +80,15 @@ export const MidTradeMonitor: React.FC = () => {
           table: 'realtime_prices',
         },
         () => {
-          if (!refreshing) {
-            loadGuidance();
-          }
+          debouncedLoad();
         }
       )
       .subscribe();
 
-    pollInterval = setInterval(() => {
-      if (!refreshing) {
-        loadGuidance();
-      }
-    }, 2000);
-
     return () => {
       isMounted = false;
       supabase.removeChannel(channel);
-      clearInterval(pollInterval);
+      clearTimeout(debounceTimer);
     };
   }, [user]);
 

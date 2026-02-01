@@ -41,7 +41,7 @@ export const EntryPriceMonitor: React.FC = () => {
 
   useEffect(() => {
     let isMounted = true;
-    let pollInterval: ReturnType<typeof setInterval>;
+    let debounceTimer: ReturnType<typeof setTimeout>;
     let channel: ReturnType<typeof supabase.channel>;
 
     const loadActiveSession = async () => {
@@ -71,13 +71,15 @@ export const EntryPriceMonitor: React.FC = () => {
       }
     };
 
+    const debouncedLoad = () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        loadActiveSession();
+      }, 300);
+    };
+
     console.log('[EntryPriceMonitor] Mounted - calling loadActiveSession');
     loadActiveSession();
-
-    pollInterval = setInterval(() => {
-      console.log('[EntryPriceMonitor] 🔄 Polling for active session (every 5s)');
-      loadActiveSession();
-    }, 5000);
 
     channel = supabase
       .channel('entry-monitor-sessions')
@@ -91,7 +93,7 @@ export const EntryPriceMonitor: React.FC = () => {
         },
         () => {
           console.log('[EntryPriceMonitor] 📡 Session changed, reloading...');
-          loadActiveSession();
+          debouncedLoad();
         }
       )
       .subscribe((status) => {
@@ -102,7 +104,7 @@ export const EntryPriceMonitor: React.FC = () => {
 
     return () => {
       isMounted = false;
-      clearInterval(pollInterval);
+      clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
   }, []);
