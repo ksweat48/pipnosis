@@ -834,10 +834,35 @@ class SmartGoalSessionManager {
         return false;
       }
 
-      const result = closureResult as { success: boolean; errors: string[]; steps_completed: Record<string, any> };
+      const result = closureResult as {
+        success: boolean;
+        errors: string[];
+        steps_completed: Record<string, any>;
+        schema_validated?: boolean;
+        schema_details?: Record<string, any>;
+        recommendation?: string;
+      };
 
       if (!result.success) {
-        console.error('[Smart Goal] ❌ Session closure failed:', result.errors);
+        console.error('[Smart Goal] ❌ Session closure failed');
+        console.error('[Smart Goal] Errors:', result.errors);
+
+        // Enhanced diagnostics for schema-related failures
+        if (result.schema_details) {
+          console.error('[Smart Goal] Schema Validation Details:', result.schema_details);
+          console.error('[Smart Goal] Recommendation:', result.recommendation || 'Check database schema');
+        }
+
+        // Log detailed failure context for post-mortem analysis
+        console.error('[Smart Goal] Closure RPC Response:', {
+          success: result.success,
+          steps_completed: result.steps_completed,
+          error_count: result.errors?.length || 0,
+          errors: result.errors,
+          schema_validated: result.schema_validated,
+          recommendation: result.recommendation
+        });
+
         return false;
       }
 
