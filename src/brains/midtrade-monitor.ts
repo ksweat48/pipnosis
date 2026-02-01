@@ -128,7 +128,9 @@ class MidTradeMonitorBrain {
   async evaluatePeriodicWellness(
     snapshot: MidTradeSnapshot,
     traderScore: TraderScore,
-    tradeId?: string
+    tradeId?: string,
+    userId?: string,
+    sessionId?: string
   ): Promise<MidTradeDecision> {
     // CRITICAL: Get original trade context
     let tradeContext: TradeContext | null = null;
@@ -241,7 +243,7 @@ Write naturally like you're texting an update to a friend.`
         }
       );
 
-      // Log token usage
+      // Log token usage (SSOT: Include userId/sessionId for governance tracking)
       await llmTokenTracker.logUsage({
         brainName: 'MidTrade-Periodic',
         model: 'gpt-4o-mini',
@@ -249,8 +251,8 @@ Write naturally like you're texting an update to a friend.`
         completionTokens: response.usage?.completion_tokens || 0,
         totalTokens: response.usage?.total_tokens || 0,
         contextType: 'trade_monitoring',
-        userId: undefined,
-        sessionId: undefined
+        userId,
+        sessionId
       });
 
       const content = response.choices[0]?.message?.content || '{}';
@@ -327,7 +329,12 @@ Write naturally like you're texting an update to a friend.`
    *
    * CRITICAL FIX: Now properly handles sentiment context without error masking
    */
-  async evaluateSoft(snapshot: MidTradeSnapshot, traderScore: TraderScore): Promise<MidTradeDecision> {
+  async evaluateSoft(
+    snapshot: MidTradeSnapshot,
+    traderScore: TraderScore,
+    userId?: string,
+    sessionId?: string
+  ): Promise<MidTradeDecision> {
     // Get sentiment context - CRITICAL: Proper error handling
     let sentimentContext = '';
     try {
@@ -375,7 +382,7 @@ Return JSON:
         }
       );
 
-      // Log token usage
+      // Log token usage (SSOT: Include userId/sessionId for governance tracking)
       await llmTokenTracker.logUsage({
         brainName: 'MidTrade-Monitor',
         model: 'gpt-4o-mini',
@@ -383,8 +390,8 @@ Return JSON:
         completionTokens: response.usage?.completion_tokens || 0,
         totalTokens: response.usage?.total_tokens || 0,
         contextType: 'trade_monitoring',
-        userId: undefined,
-        sessionId: undefined
+        userId,
+        sessionId
       });
 
       const content = response.choices[0]?.message?.content || '{}';
@@ -409,7 +416,12 @@ Return JSON:
    *
    * CRITICAL FIX: Now properly handles sentiment context without error masking
    */
-  async evaluateHard(snapshot: MidTradeSnapshot, traderScore: TraderScore): Promise<MidTradeDecision> {
+  async evaluateHard(
+    snapshot: MidTradeSnapshot,
+    traderScore: TraderScore,
+    userId?: string,
+    sessionId?: string
+  ): Promise<MidTradeDecision> {
     // Get sentiment context - CRITICAL: Proper error handling
     let sentimentContext = '';
     try {
@@ -459,7 +471,7 @@ Return JSON:
         }
       );
 
-      // Log token usage
+      // Log token usage (SSOT: Include userId/sessionId for governance tracking)
       await llmTokenTracker.logUsage({
         brainName: 'MidTrade-Monitor',
         model: 'gpt-4o-mini',
@@ -467,8 +479,8 @@ Return JSON:
         completionTokens: response.usage?.completion_tokens || 0,
         totalTokens: response.usage?.total_tokens || 0,
         contextType: 'trade_monitoring',
-        userId: undefined,
-        sessionId: undefined
+        userId,
+        sessionId
       });
 
       const content = response.choices[0]?.message?.content || '{}';
@@ -494,7 +506,9 @@ Return JSON:
    */
   async evaluateEmergency(
     snapshot: MidTradeSnapshot,
-    traderScore: TraderScore
+    traderScore: TraderScore,
+    userId?: string,
+    sessionId?: string
   ): Promise<MidTradeDecision> {
     console.log(`[MidTrade Emergency] ${snapshot.sym}: EMERGENCY @ ${snapshot.dd.toFixed(0)}% DD - Calling Omega Council`);
 
@@ -586,7 +600,7 @@ Return JSON:
         }
       );
 
-      // Log token usage
+      // Log token usage (SSOT: Include userId/sessionId for governance tracking)
       await llmTokenTracker.logUsage({
         brainName: 'MidTrade-Monitor',
         model: 'gpt-4o-mini',
@@ -594,8 +608,8 @@ Return JSON:
         completionTokens: response.usage?.completion_tokens || 0,
         totalTokens: response.usage?.total_tokens || 0,
         contextType: 'trade_monitoring',
-        userId: undefined,
-        sessionId: undefined
+        userId,
+        sessionId
       });
 
       const content = response.choices[0]?.message?.content || '{}';

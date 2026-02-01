@@ -775,7 +775,9 @@ class AlphaOmegaOrchestrator {
     marketState: FullMarketState,
     traderScore: TraderScore,
     currentPrice: number,
-    currentTime: Date
+    currentTime: Date,
+    userId?: string,
+    sessionId?: string
   ): Promise<MidTradeDecision | null> {
     // Calculate drawdown
     const directionFactor = position.direction === 'buy' ? 1 : -1;
@@ -817,13 +819,13 @@ class AlphaOmegaOrchestrator {
     // Determine check level
     if (drawdownPct >= EMERGENCY_TRIGGER) {
       console.log(`[MidTrade] 🚨 EMERGENCY check @ ${(drawdownPct * 100).toFixed(0)}% drawdown`);
-      return await midTradeMonitor.evaluateEmergency(snapshot, traderScore);
+      return await midTradeMonitor.evaluateEmergency(snapshot, traderScore, userId, sessionId);
     } else if (drawdownPct >= HARD_TRIGGER) {
       console.log(`[MidTrade] ⚠️ HARD check @ ${(drawdownPct * 100).toFixed(0)}% drawdown`);
-      return await midTradeMonitor.evaluateHard(snapshot, traderScore);
+      return await midTradeMonitor.evaluateHard(snapshot, traderScore, userId, sessionId);
     } else {
       console.log(`[MidTrade] ℹ️ SOFT check @ ${(drawdownPct * 100).toFixed(0)}% drawdown`);
-      return await midTradeMonitor.evaluateSoft(snapshot, traderScore);
+      return await midTradeMonitor.evaluateSoft(snapshot, traderScore, userId, sessionId);
     }
   }
 

@@ -768,11 +768,13 @@ class PositionMonitorService {
         adaptive_sizing_enabled: false
       };
 
-      // CRITICAL: Pass trade ID so Alpha can retrieve original context
+      // CRITICAL: Pass trade ID and user/session context for comprehensive evaluation
       const decision = await midTradeMonitor.evaluatePeriodicWellness(
         snapshot,
         traderScore,
-        position.id // Pass trade ID for context retrieval
+        position.id, // Trade ID for context retrieval
+        position.user_id, // User ID for governance tracking
+        position.goal_session_id // Session ID for governance tracking
       );
 
       // Create comprehensive wellness message for FloatingMessageCenter
