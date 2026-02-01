@@ -144,7 +144,18 @@ export const GoalSessionDashboard: React.FC = () => {
           filter: `goal_session_id=eq.${activeSession.sessionId}`
         },
         (payload) => {
-          console.log('[GoalSessionDashboard] 📡 Realtime UPDATE event received:', {
+          // GOVERNANCE: Smart filtering - only process meaningful state changes
+          // Ignore heartbeat events where nothing actually changed
+          const statusChanged = payload.new?.status !== payload.old?.status;
+          const closedReasonAdded = payload.new?.close_reason && !payload.old?.close_reason;
+          const meaningfulChange = statusChanged || closedReasonAdded;
+
+          if (!meaningfulChange) {
+            // Skip logging for heartbeat events
+            return;
+          }
+
+          console.log('[GoalSessionDashboard] 📡 Realtime UPDATE event received (meaningful):', {
             old_status: payload.old?.status,
             new_status: payload.new?.status,
             close_reason: payload.new?.close_reason,
