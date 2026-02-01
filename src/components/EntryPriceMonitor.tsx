@@ -16,7 +16,7 @@
  * - Uses existing abstractions consistently
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { TrendingUp, TrendingDown, Target, AlertCircle, RefreshCw, Activity } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useActiveEntryIntent } from '@/hooks/useEntryIntent';
