@@ -105,22 +105,27 @@ export async function recordAlphaDecision(
 ): Promise<string> {
   const auditId = crypto.randomUUID();
 
-  const auditLog: ExecutionAuditLog = {
-    userId,
-    sessionId: context.sessionId,
-    decisionId: decision.id,
+  const priceDriftPips = context.marketPrice
+    ? Math.abs(context.marketPrice - (context.signalPrice || context.marketPrice)) * 10000
+    : undefined;
+
+  const auditLog = {
+    user_id: userId,
+    session_id: context.sessionId,
+    decision_id: decision.id,
     action: decision.action,
     symbol: decision.symbol,
     confidence: decision.confidence,
-    regimeOracleConfidence: context.regimeConfidence,
-    adversarialScore: context.adversarialScore,
-    omegaCouncilVotes: context.omegaVotes,
-    marketPrice: context.marketPrice,
-    signalPrice: context.signalPrice,
-    priceDriftPips: context.marketPrice
-      ? Math.abs(context.marketPrice - (context.signalPrice || context.marketPrice)) * 10000
-      : undefined,
-    signalTimestamp: new Date().toISOString(),
+    regime_oracle_confidence: context.regimeConfidence,
+    adversarial_score: context.adversarialScore,
+    omega_council_votes: context.omegaVotes,
+    execution_attempted: false,
+    execution_success: null,
+    execution_blocked_reason: null,
+    market_price: context.marketPrice,
+    signal_price: context.signalPrice,
+    price_drift_pips: priceDriftPips,
+    signal_timestamp: new Date().toISOString(),
   };
 
   // Fire and forget: don't await, don't block execution
@@ -223,7 +228,7 @@ export async function recordDiagnosticSnapshot(
       .from('alpha_decision_diagnostics')
       .insert([snapshot])
       .then(() => {
-        // Success
+        // Success - diagnostic snapshot logged
       })
       .catch((err) => {
         // Silent failure
