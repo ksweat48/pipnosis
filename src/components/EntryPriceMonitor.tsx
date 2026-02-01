@@ -20,7 +20,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { TrendingUp, TrendingDown, CheckCircle, AlertCircle, Activity, Info } from 'lucide-react';
+import { TrendingUp, TrendingDown, CheckCircle, AlertCircle, Activity, Info, Target } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useActiveEntryIntent } from '@/hooks/useEntryIntent';
 import { entryQualityAdvisorService } from '@/services/entry-quality-advisor-service';
