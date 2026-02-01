@@ -35,6 +35,7 @@ interface SymbolPollingState {
 class PollingStrategyCoordinator {
   private sessionState: SessionState = 'inactive';
   private activeSymbols: Map<string, SymbolPollingState> = new Map();
+  private isInitialized: boolean = false;
 
   // Polling intervals by session state
   private readonly INTERVALS = {
@@ -62,20 +63,56 @@ class PollingStrategyCoordinator {
   private readonly MAX_POLLING_INTERVAL_MS = 30000; // Never go faster than 1 second (1000ms)
 
   /**
-   * Initialize the coordinator with known symbols
+   * Check if coordinator is already initialized
+   * SSOT: Only initialize once, prevent race conditions during failover
+   */
+  isCoordinatorInitialized(): boolean {
+    return this.isInitialized;
+  }
+
+  /**
+   * Initialize the coordinator with known symbols (idempotent)
+   * Skip reinitialization if already done to prevent state corruption during failover
    */
   initializeSymbols(symbols: string[]): void {
+    // Guard: Skip if already initialized
+    if (this.isInitialized) {
+      logger.debug(
+        LogCategory.POLLING_COORDINATOR,
+        `Coordinator already initialized with ${this.activeSymbols.size} symbols, skipping reinit`
+      );
+      return;
+    }
+
     symbols.forEach(symbol => {
+      // Skip if symbol already exists (extra safety)
+      if (this.activeSymbols.has(symbol)) {
+        return;
+      }
+
       const symbolClass = this.classifySymbol(symbol);
       this.activeSymbols.set(symbol, {
         symbol,
         symbolClass,
         lastPolledAt: null,
-        currentInterval: this.getInterval('inactive', symbolClass),
+        currentInterval: this.safeGetInterval('inactive', symbolClass),
         marketOpen: false
       });
     });
+
+    this.isInitialized = true;
     logger.debug(LogCategory.POLLING_COORDINATOR, `Initialized polling strategy for ${symbols.length} symbols`);
+  }
+
+  /**
+   * Reset coordinator state - used during explicit recovery
+   * GOVERNANCE: Only call during controlled shutdown/recovery, not during normal failover
+   */
+  reset(): void {
+    logger.info(LogCategory.POLLING_COORDINATOR, 'Resetting polling coordinator state');
+    this.activeSymbols.clear();
+    this.sessionState = 'inactive';
+    this.isInitialized = false;
   }
 
   /**
@@ -196,32 +233,60 @@ class PollingStrategyCoordinator {
   }
 
   /**
+   * Safe get interval with error handling
+   * Never returns undefined or crashes - always returns valid interval
+   * SSOT: Used by all interval lookups during initialization and polling
+   */
+  private safeGetInterval(sessionState: SessionState, symbolClass: SymbolClass): number {
+    try {
+      const intervalKey = this.mapSessionStateToIntervalKey(sessionState);
+
+      // Defensive check: ensure intervalKey is valid
+      if (!intervalKey) {
+        logger.warn(
+          LogCategory.POLLING_COORDINATOR,
+          `Invalid session state: ${sessionState}, returning minimum interval`
+        );
+        return this.MIN_POLLING_INTERVAL_MS;
+      }
+
+      const intervals = this.INTERVALS[intervalKey as keyof typeof this.INTERVALS];
+
+      if (!intervals) {
+        logger.warn(
+          LogCategory.POLLING_COORDINATOR,
+          `No intervals found for session state key: ${intervalKey}, returning minimum interval`
+        );
+        return this.MIN_POLLING_INTERVAL_MS;
+      }
+
+      const interval = intervals[symbolClass];
+
+      if (!interval) {
+        logger.warn(
+          LogCategory.POLLING_COORDINATOR,
+          `No interval found for symbol class: ${symbolClass} in state: ${sessionState}`
+        );
+        return this.MIN_POLLING_INTERVAL_MS;
+      }
+
+      // Enforce minimum interval
+      return Math.max(interval, this.MIN_POLLING_INTERVAL_MS);
+    } catch (error) {
+      logger.error(
+        LogCategory.POLLING_COORDINATOR,
+        `Error in safeGetInterval: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return this.MIN_POLLING_INTERVAL_MS;
+    }
+  }
+
+  /**
    * Get interval for a specific session state and symbol class
+   * Internal use only - use safeGetInterval for external/failover scenarios
    */
   private getInterval(sessionState: SessionState, symbolClass: SymbolClass): number {
-    const intervalKey = this.mapSessionStateToIntervalKey(sessionState);
-    const intervals = this.INTERVALS[intervalKey as keyof typeof this.INTERVALS];
-
-    if (!intervals) {
-      logger.warn(
-        LogCategory.POLLING_COORDINATOR,
-        `No intervals found for session state: ${sessionState}, using minimum interval`
-      );
-      return this.MIN_POLLING_INTERVAL_MS;
-    }
-
-    const interval = intervals[symbolClass];
-
-    if (!interval) {
-      logger.warn(
-        LogCategory.POLLING_COORDINATOR,
-        `No interval found for symbol class: ${symbolClass} in state: ${sessionState}`
-      );
-      return this.MIN_POLLING_INTERVAL_MS;
-    }
-
-    // Enforce minimum interval
-    return Math.max(interval, this.MIN_POLLING_INTERVAL_MS);
+    return this.safeGetInterval(sessionState, symbolClass);
   }
 
   /**

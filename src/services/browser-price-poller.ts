@@ -71,9 +71,28 @@ class BrowserPricePoller {
       });
     }
 
-    // Initialize polling strategy coordinator
-    pollingStrategyCoordinator.initializeSymbols(ALL_PAIRS);
-    pollingStrategyCoordinator.setSessionState('monitoring');
+    // Initialize polling strategy coordinator with safety checks
+    try {
+      // Only initialize if not already initialized (idempotent)
+      if (!pollingStrategyCoordinator.isCoordinatorInitialized()) {
+        pollingStrategyCoordinator.initializeSymbols(ALL_PAIRS);
+      }
+
+      pollingStrategyCoordinator.setSessionState('monitoring');
+
+      // Validate coordinator is in working state
+      const testStrategy = pollingStrategyCoordinator.getStrategy('EURUSD');
+      if (!testStrategy || testStrategy.intervalMs <= 0) {
+        throw new Error('Coordinator validation failed - invalid interval returned');
+      }
+
+      logger.debug(LogCategory.BROWSER_POLLER, 'Coordinator initialization and validation successful');
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      logger.error(LogCategory.BROWSER_POLLER, `Failed to initialize coordinator: ${errorMsg}`);
+      this.isActive = false;
+      throw error; // Propagate to orchestrator
+    }
 
     await this.poll();
     this.startPollingWithCoordinator();

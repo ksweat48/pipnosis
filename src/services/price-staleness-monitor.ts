@@ -1,261 +1,246 @@
 /**
- * Price Staleness Monitor - Observability & CCIP Governance Tracking
+ * Price Staleness Monitor Service
  *
- * Monitors price freshness across all symbols and logs governance events.
- * Provides real-time dashboard data for price staleness visualization.
- * Tracks all freshness-related events for CCIP compliance audit trail.
+ * SSOT: Single source of truth for price data freshness
+ * Runs periodically to update the polling_price_staleness table
+ * Enables mid-trade monitor to detect stale data and warn users
+ *
+ * Governance:
+ * - Service role only - cannot be called by authenticated users
+ * - Updates polling_price_staleness table on fixed interval
+ * - Tracks staleness trends for diagnostics
+ * - Alerts when critical staleness detected
  */
 
-import { logger, LogCategory } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
+import { logger, LogCategory } from '@/lib/logger';
 
-interface PriceFreshnessEvent {
+const STALE_THRESHOLD_MINUTES = 2; // Price older than 2 minutes is considered stale
+const CRITICAL_THRESHOLD_MINUTES = 5; // Price older than 5 minutes is critical
+const CHECK_INTERVAL_MS = 30000; // Check every 30 seconds
+
+interface PriceStatenessStatus {
   symbol: string;
-  ageMs: number;
-  timestamp: Date;
-  severity: 'info' | 'warning' | 'critical';
-  message: string;
+  staleness_minutes: number;
+  is_critical: boolean;
+  last_update_age_seconds: number;
 }
 
-interface SymbolFreshnessState {
-  symbol: string;
-  currentAgeMs: number;
-  lastUpdateAt: Date;
-  warningCount: number;
-  criticalCount: number;
-  lastWarningAt: Date | null;
-  lastCriticalAt: Date | null;
-}
-
-class PriceStalnessMonitor {
-  private freshnessStates: Map<string, SymbolFreshnessState> = new Map();
-  private recentEvents: PriceFreshnessEvent[] = [];
-  private readonly MAX_EVENT_HISTORY = 200;
-
-  // Alert thresholds (milliseconds)
-  private readonly WARNING_THRESHOLD_MS = 20000;   // 20 seconds
-  private readonly CRITICAL_THRESHOLD_MS = 30000;  // 30 seconds
-
-  private readonly MIN_LOG_INTERVAL_MS = 5000;     // Don't spam logs
-  private lastLogTime: Map<string, Date> = new Map();
+class PriceStalenessMonitor {
+  private checkInterval: NodeJS.Timeout | null = null;
+  private isRunning = false;
 
   /**
-   * Initialize monitor for a set of symbols
+   * Start monitoring price staleness
    */
-  initializeSymbols(symbols: string[]): void {
-    symbols.forEach(symbol => {
-      this.freshnessStates.set(symbol, {
-        symbol,
-        currentAgeMs: 0,
-        lastUpdateAt: new Date(),
-        warningCount: 0,
-        criticalCount: 0,
-        lastWarningAt: null,
-        lastCriticalAt: null
-      });
-    });
-    logger.debug(LogCategory.POLLING_COORDINATOR, `Price staleness monitor initialized for ${symbols.length} symbols`);
-  }
-
-  /**
-   * Update price age for a symbol
-   */
-  updatePriceAge(symbol: string, ageMs: number): void {
-    const state = this.freshnessStates.get(symbol);
-    if (!state) {
+  start(): void {
+    if (this.isRunning) {
+      logger.debug(LogCategory.POLLING_COORDINATOR, 'Price staleness monitor already running');
       return;
     }
 
-    state.currentAgeMs = ageMs;
-    state.lastUpdateAt = new Date();
+    this.isRunning = true;
+    logger.info(LogCategory.POLLING_COORDINATOR, '🔍 Starting price staleness monitor');
 
-    // Evaluate and record if necessary
-    this.evaluateFreshness(symbol, ageMs);
+    // Run check immediately
+    this.checkPricesStaleness();
+
+    // Then run periodically
+    this.checkInterval = setInterval(() => {
+      this.checkPricesStaleness();
+    }, CHECK_INTERVAL_MS);
   }
 
   /**
-   * Evaluate if price freshness warrants logging
+   * Stop monitoring
    */
-  private evaluateFreshness(symbol: string, ageMs: number): void {
-    const state = this.freshnessStates.get(symbol);
-    if (!state) {
-      return;
+  stop(): void {
+    if (!this.isRunning) return;
+
+    this.isRunning = false;
+
+    if (this.checkInterval) {
+      clearInterval(this.checkInterval);
+      this.checkInterval = null;
     }
 
-    // Check if we should log this event
-    const shouldLog = this.shouldLogEvent(symbol);
-
-    if (ageMs >= this.CRITICAL_THRESHOLD_MS) {
-      state.criticalCount++;
-      state.lastCriticalAt = new Date();
-
-      if (shouldLog) {
-        const event: PriceFreshnessEvent = {
-          symbol,
-          ageMs,
-          timestamp: new Date(),
-          severity: 'critical',
-          message: `CRITICAL: Price ${ageMs}ms old exceeds hard limit ${this.CRITICAL_THRESHOLD_MS}ms`
-        };
-        this.recordEvent(event);
-        this.logToGovernance(symbol, 'PRICE_CRITICAL_STALE', ageMs);
-      }
-    } else if (ageMs >= this.WARNING_THRESHOLD_MS) {
-      state.warningCount++;
-      state.lastWarningAt = new Date();
-
-      if (shouldLog) {
-        const event: PriceFreshnessEvent = {
-          symbol,
-          ageMs,
-          timestamp: new Date(),
-          severity: 'warning',
-          message: `WARNING: Price ${ageMs}ms old, approaching hard limit`
-        };
-        this.recordEvent(event);
-        this.logToGovernance(symbol, 'PRICE_WARNING_STALE', ageMs);
-      }
-    }
+    logger.info(LogCategory.POLLING_COORDINATOR, '⏹️ Price staleness monitor stopped');
   }
 
   /**
-   * Check if we should log an event (rate limiting)
+   * Check all prices and update staleness table
+   * SSOT: Updates polling_price_staleness with current status
    */
-  private shouldLogEvent(symbol: string): boolean {
-    const lastLog = this.lastLogTime.get(symbol);
-    if (!lastLog) {
-      this.lastLogTime.set(symbol, new Date());
-      return true;
-    }
+  private async checkPricesStaleness(): Promise<void> {
+    if (!this.isRunning) return;
 
-    const timeSinceLastLog = Date.now() - lastLog.getTime();
-    if (timeSinceLastLog >= this.MIN_LOG_INTERVAL_MS) {
-      this.lastLogTime.set(symbol, new Date());
-      return true;
-    }
-
-    return false;
-  }
-
-  /**
-   * Record an event in local history
-   */
-  private recordEvent(event: PriceFreshnessEvent): void {
-    this.recentEvents.push(event);
-    if (this.recentEvents.length > this.MAX_EVENT_HISTORY) {
-      this.recentEvents = this.recentEvents.slice(-this.MAX_EVENT_HISTORY);
-    }
-
-    if (event.severity === 'critical') {
-      logger.error(LogCategory.POLLING_COORDINATOR, `${event.message}`);
-    } else if (event.severity === 'warning') {
-      logger.warn(LogCategory.POLLING_COORDINATOR, `${event.message}`);
-    } else {
-      logger.debug(LogCategory.POLLING_COORDINATOR, `${event.message}`);
-    }
-  }
-
-  /**
-   * Log to governance system (CCIP tracking)
-   */
-  private async logToGovernance(
-    symbol: string,
-    operationType: string,
-    ageMs: number
-  ): Promise<void> {
     try {
-      // Only log if authenticated (client-side may not have user)
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        return; // No user session, skip governance logging
+      // Fetch all realtime prices with their timestamps
+      const { data: prices, error: pricesError } = await supabase
+        .from('realtime_prices')
+        .select('symbol, created_at')
+        .order('created_at', { ascending: false });
+
+      if (pricesError) {
+        logger.error(LogCategory.POLLING_COORDINATOR, `Failed to fetch prices for staleness check: ${pricesError.message}`);
+        return;
       }
 
-      // Record in governance tracking table
-      const { error } = await supabase
-        .from('ccip_change_tracking')
-        .insert({
-          user_id: user.id,
-          operation_type: operationType,
-          table_name: 'realtime_prices',
-          record_id: crypto.randomUUID(),
-          change_details: {
-            symbol,
-            price_age_ms: ageMs,
-            threshold_ms: operationType === 'PRICE_CRITICAL_STALE'
-              ? this.CRITICAL_THRESHOLD_MS
-              : this.WARNING_THRESHOLD_MS,
-            timestamp: new Date().toISOString()
-          }
+      if (!prices || prices.length === 0) {
+        logger.debug(LogCategory.POLLING_COORDINATOR, 'No prices found for staleness check');
+        return;
+      }
+
+      // Get latest price for each symbol
+      const latestPrices = new Map<string, Date>();
+      for (const price of prices) {
+        if (!latestPrices.has(price.symbol)) {
+          latestPrices.set(price.symbol, new Date(price.created_at));
+        }
+      }
+
+      // Calculate staleness and update database
+      const now = new Date();
+      const updates: PriceStatenessStatus[] = [];
+
+      for (const [symbol, lastUpdate] of latestPrices.entries()) {
+        const ageMs = now.getTime() - lastUpdate.getTime();
+        const ageSeconds = Math.floor(ageMs / 1000);
+        const ageMinutes = ageSeconds / 60;
+
+        const isCritical = ageMinutes > CRITICAL_THRESHOLD_MINUTES;
+        const isStale = ageMinutes > STALE_THRESHOLD_MINUTES;
+
+        updates.push({
+          symbol,
+          staleness_minutes: ageMinutes,
+          is_critical: isCritical,
+          last_update_age_seconds: ageSeconds
         });
 
-      if (error) {
-        logger.error(LogCategory.POLLING_COORDINATOR, `Failed to log governance event:`, error);
+        // Log critical staleness
+        if (isCritical) {
+          logger.warn(
+            LogCategory.POLLING_COORDINATOR,
+            `CRITICAL: ${symbol} price is ${ageMinutes.toFixed(1)} minutes stale`
+          );
+        } else if (isStale) {
+          logger.debug(
+            LogCategory.POLLING_COORDINATOR,
+            `${symbol} price is ${ageMinutes.toFixed(1)} minutes stale`
+          );
+        }
+      }
+
+      // Update staleness records
+      for (const update of updates) {
+        const { error: updateError } = await supabase
+          .from('polling_price_staleness')
+          .upsert({
+            symbol: update.symbol,
+            last_update_at: new Date(now.getTime() - update.last_update_age_seconds * 1000),
+            staleness_minutes: update.staleness_minutes,
+            is_critical: update.is_critical,
+            updated_at: now
+          }, {
+            onConflict: 'symbol'
+          });
+
+        if (updateError) {
+          logger.error(
+            LogCategory.POLLING_COORDINATOR,
+            `Failed to update staleness for ${update.symbol}: ${updateError.message}`
+          );
+        }
+      }
+
+      // Log summary
+      const criticalCount = updates.filter(u => u.is_critical).length;
+      const staleCount = updates.filter(u => u.staleness_minutes > STALE_THRESHOLD_MINUTES).length;
+
+      if (criticalCount > 0) {
+        logger.warn(
+          LogCategory.POLLING_COORDINATOR,
+          `📊 Price staleness check: ${criticalCount} critical, ${staleCount} stale out of ${updates.length} symbols`
+        );
+      } else {
+        logger.debug(
+          LogCategory.POLLING_COORDINATOR,
+          `📊 Price staleness check: ${staleCount} stale out of ${updates.length} symbols (all fresh)`
+        );
       }
     } catch (error) {
-      logger.error(LogCategory.POLLING_COORDINATOR, `Governance logging error:`, error);
+      logger.error(
+        LogCategory.POLLING_COORDINATOR,
+        `Error checking price staleness: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
   /**
-   * Get current freshness state for a symbol
+   * Manually trigger a staleness check
    */
-  getFreshnessState(symbol: string): SymbolFreshnessState | undefined {
-    return this.freshnessStates.get(symbol);
+  async checkNow(): Promise<void> {
+    await this.checkPricesStaleness();
   }
 
   /**
-   * Get all freshness states
+   * Get current staleness status for a symbol
    */
-  getAllFreshnessStates(): Map<string, SymbolFreshnessState> {
-    return new Map(this.freshnessStates);
-  }
+  async getStatus(symbol: string): Promise<PriceStatenessStatus | null> {
+    try {
+      const { data, error } = await supabase
+        .from('polling_price_staleness')
+        .select('symbol, staleness_minutes, is_critical, updated_at')
+        .eq('symbol', symbol)
+        .single();
 
-  /**
-   * Get recent events
-   */
-  getRecentEvents(limit: number = 50): PriceFreshnessEvent[] {
-    return this.recentEvents.slice(-limit);
-  }
-
-  /**
-   * Get monitoring summary
-   */
-  getSummary() {
-    let warningCount = 0;
-    let criticalCount = 0;
-    const symbols = [];
-
-    this.freshnessStates.forEach(state => {
-      warningCount += state.warningCount;
-      criticalCount += state.criticalCount;
-
-      symbols.push({
-        symbol: state.symbol,
-        currentAgeMs: state.currentAgeMs,
-        lastUpdateAt: state.lastUpdateAt,
-        warningCount: state.warningCount,
-        criticalCount: state.criticalCount,
-        status: state.currentAgeMs >= this.CRITICAL_THRESHOLD_MS
-          ? 'critical'
-          : state.currentAgeMs >= this.WARNING_THRESHOLD_MS
-          ? 'warning'
-          : 'healthy'
-      });
-    });
-
-    return {
-      totalSymbols: this.freshnessStates.size,
-      warningCount,
-      criticalCount,
-      recentEvents: this.getRecentEvents(10),
-      symbols,
-      thresholds: {
-        warning_ms: this.WARNING_THRESHOLD_MS,
-        critical_ms: this.CRITICAL_THRESHOLD_MS
+      if (error || !data) {
+        return null;
       }
-    };
+
+      const updateAge = Math.floor(
+        (Date.now() - new Date(data.updated_at).getTime()) / 1000
+      );
+
+      return {
+        symbol: data.symbol,
+        staleness_minutes: data.staleness_minutes,
+        is_critical: data.is_critical,
+        last_update_age_seconds: updateAge
+      };
+    } catch (error) {
+      logger.error(
+        LogCategory.POLLING_COORDINATOR,
+        `Failed to get staleness status for ${symbol}: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Get all symbols currently in critical staleness
+   */
+  async getCriticalSymbols(): Promise<string[]> {
+    try {
+      const { data, error } = await supabase
+        .from('polling_price_staleness')
+        .select('symbol')
+        .eq('is_critical', true);
+
+      if (error) {
+        return [];
+      }
+
+      return (data || []).map(item => item.symbol);
+    } catch (error) {
+      logger.error(
+        LogCategory.POLLING_COORDINATOR,
+        `Failed to get critical symbols: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return [];
+    }
   }
 }
 
-// Export singleton instance
-export const priceStalnessMonitor = new PriceStalnessMonitor();
+export const priceStalenessMonitor = new PriceStalenessMonitor();

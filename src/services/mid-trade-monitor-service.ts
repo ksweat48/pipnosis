@@ -45,6 +45,11 @@ export interface MidTradeGuidance {
   aiConfidence?: number;
   aiTimestamp?: string;
 
+  // Price freshness (SSOT compliance)
+  priceAgeSeconds?: number;
+  isPriceFresh?: boolean;
+  stalePriceWarning?: string;
+
   // Session context
   goalSessionId: string;
   goalProgress?: number;
@@ -136,18 +141,37 @@ class MidTradeMonitorService {
       }
 
       // Build price map (most recent price per symbol)
-      const priceMap = new Map<string, { bid: number; ask: number; age: number }>();
+      const priceMap = new Map<string, { bid: number; ask: number; age: number; ageSeconds: number }>();
       if (prices) {
         for (const price of prices) {
           if (!priceMap.has(price.symbol)) {
-            const age = (Date.now() - new Date(price.created_at).getTime()) / 1000 / 60; // minutes
+            const ageMs = Date.now() - new Date(price.created_at).getTime();
+            const ageSeconds = Math.floor(ageMs / 1000);
+            const ageMinutes = ageSeconds / 60;
             priceMap.set(price.symbol, {
               bid: parseFloat(price.bid),
               ask: parseFloat(price.ask),
-              age
+              age: ageMinutes,
+              ageSeconds
             });
           }
         }
+      }
+
+      // Fetch price freshness status from SSOT table
+      const { data: stalenessData } = await supabase
+        .from('polling_price_staleness')
+        .select('symbol, staleness_minutes, is_critical')
+        .in('symbol', symbols);
+
+      const stalenessMap = new Map<string, { staleness_minutes: number; is_critical: boolean }>();
+      if (stalenessData) {
+        stalenessData.forEach(item => {
+          stalenessMap.set(item.symbol, {
+            staleness_minutes: item.staleness_minutes,
+            is_critical: item.is_critical
+          });
+        });
       }
 
       // Fetch recent AI evaluations (last 24 hours)
@@ -228,6 +252,18 @@ class MidTradeMonitorService {
           aiMap.get(trade.id)
         );
 
+        // Check price freshness for this symbol
+        const staleness = stalenessMap.get(trade.symbol);
+        const priceAgeSeconds = priceData?.ageSeconds || 0;
+        const isFresh = !staleness?.is_critical && priceAgeSeconds < 300; // Fresh if < 5 min and not critical
+        let stalePriceWarning: string | undefined;
+
+        if (staleness?.is_critical) {
+          stalePriceWarning = `WARNING: Price data is ${Math.round(staleness.staleness_minutes)} minutes stale - guidance may be inaccurate`;
+        } else if (priceAgeSeconds > 120) {
+          stalePriceWarning = `CAUTION: Price data is ${Math.round(priceAgeSeconds / 60)} minutes old`;
+        }
+
         guidanceList.push({
           tradeId: trade.id,
           symbol: trade.symbol,
@@ -250,6 +286,9 @@ class MidTradeMonitorService {
           aiRecommendation: aiMap.get(trade.id)?.content,
           aiConfidence: aiMap.get(trade.id)?.confidence,
           aiTimestamp: aiMap.get(trade.id)?.timestamp,
+          priceAgeSeconds,
+          isPriceFresh: isFresh,
+          stalePriceWarning,
           goalSessionId: trade.goal_session_id
         });
       }

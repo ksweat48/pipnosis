@@ -324,15 +324,31 @@ class PollingOrchestrator {
       // Wait for cooldown
       await new Promise(resolve => setTimeout(resolve, this.FAILOVER_COOLDOWN_MS));
 
-      // Start browser poller
-      await browserPricePoller.start();
-      this.activePoller = 'browser';
+      // Start browser poller with error handling
+      try {
+        await browserPricePoller.start();
+        this.activePoller = 'browser';
 
-      logger.info(LogCategory.POLLING_COORDINATOR, '✅ Failover complete: Browser is now active');
-      await this.logFailover('global_to_browser', true);
+        logger.info(LogCategory.POLLING_COORDINATOR, '✅ Failover complete: Browser is now active');
+        await this.logPollingError('failover', 'failover_success', 'Global -> Browser successful', null);
+        await this.logFailover('global_to_browser', true);
+      } catch (browserError) {
+        // Browser initialization failed - log specific error
+        const errorMsg = browserError instanceof Error ? browserError.message : String(browserError);
+        logger.error(LogCategory.POLLING_COORDINATOR, `Browser poller start failed during failover: ${errorMsg}`);
+
+        // Log to polling errors table for diagnostics
+        await this.logPollingError('failover', 'browser_init_failed', `Browser init failed: ${errorMsg}`, browserError instanceof Error ? browserError.stack : undefined);
+
+        // Failover failed - no active poller
+        this.activePoller = 'none';
+        throw new Error(`Browser poller initialization failed: ${errorMsg}`);
+      }
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[PollingOrchestrator] Failover failed:', error);
-      await this.logFailover('global_to_browser', false, error instanceof Error ? error.message : String(error));
+      await this.logFailover('global_to_browser', false, errorMsg);
+      await this.logPollingError('failover', 'failover_failed', errorMsg, error instanceof Error ? error.stack : undefined);
       this.activePoller = 'none';
     } finally {
       this.failoverInProgress = false;
@@ -385,10 +401,13 @@ class PollingOrchestrator {
       if (globalPollingCoordinator.isInitialized()) {
         this.activePoller = 'global';
         logger.info(LogCategory.POLLING_COORDINATOR, '✅ Recovery successful with Global');
+        await this.logPollingError('recovery', 'recovery_success', 'Recovered with Global', null);
         return;
       }
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[PollingOrchestrator] Global recovery failed:', error);
+      await this.logPollingError('recovery', 'global_recovery_failed', errorMsg, error instanceof Error ? error.stack : undefined);
     }
 
     // Try browser as fallback
@@ -397,14 +416,37 @@ class PollingOrchestrator {
       if (browserPricePoller.isRunning()) {
         this.activePoller = 'browser';
         logger.info(LogCategory.POLLING_COORDINATOR, '✅ Recovery successful with Browser');
+        await this.logPollingError('recovery', 'recovery_success', 'Recovered with Browser', null);
         return;
       }
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[PollingOrchestrator] Browser recovery failed:', error);
+      await this.logPollingError('recovery', 'browser_recovery_failed', errorMsg, error instanceof Error ? error.stack : undefined);
     }
 
     console.error('[PollingOrchestrator] ❌ Full recovery failed, no active poller');
     this.activePoller = 'none';
+    await this.logPollingError('recovery', 'complete_failure', 'Full recovery failed - no active poller', null);
+  }
+
+  private async logPollingError(
+    errorType: 'failover' | 'recovery' | 'health_check',
+    errorSubtype: string,
+    errorMessage: string,
+    stackTrace: string | null
+  ): Promise<void> {
+    try {
+      await supabase.from('polling_orchestrator_errors').insert({
+        error_type: errorType === 'health_check' ? 'recovery' : errorType,
+        error_message: errorMessage,
+        stack_trace: stackTrace,
+        recovery_action: `${errorType}:${errorSubtype}`,
+        resolved_at: null
+      });
+    } catch (error) {
+      console.error('[PollingOrchestrator] Failed to log polling error:', error);
+    }
   }
 
   private async logFailover(action: string, success: boolean, errorMessage?: string): Promise<void> {
