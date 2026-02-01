@@ -76,9 +76,11 @@ export const MidTradeMonitor: React.FC = () => {
         )
         .subscribe();
 
-      // Poll every 2 seconds for active trades (reduce concurrent requests)
+      // CCIP FIX: Poll every 2 seconds to discover trades
+      // GOVERNANCE: Always poll regardless of guidance state - this ensures initial trade discovery
+      // Prevents catch-22 where empty guidance blocks polling
       const pollInterval = setInterval(() => {
-        if (!refreshing && guidance.length > 0) {
+        if (!refreshing) {
           loadGuidance();
         }
       }, 2000);
@@ -88,7 +90,7 @@ export const MidTradeMonitor: React.FC = () => {
         clearInterval(pollInterval);
       };
     }
-  }, [user, loadGuidance, refreshing, guidance.length]);
+  }, [user, loadGuidance, refreshing]);
 
 
   const getActionIcon = (action: MidTradeGuidance['primaryAction']) => {

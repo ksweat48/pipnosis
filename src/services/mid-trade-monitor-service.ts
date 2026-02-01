@@ -70,38 +70,45 @@ export interface MidTradeMonitorStats {
 class MidTradeMonitorService {
   private lastRequestTime = 0;
   private requestInProgress = false;
+  private lastSuccessfulUserId: string | null = null;
 
   /**
    * Get all mid-trade guidance for user's active trades
    * Sorted by urgency (most urgent first)
+   *
+   * CCIP COMPLIANCE:
+   * - Throttling is transparent (logged)
+   * - First request bypasses throttling (ensures initial discovery)
+   * - Prevents concurrent requests (re-entrancy protection)
    */
   async getMidTradeGuidance(userId: string): Promise<{
     guidance: MidTradeGuidance[];
     stats: MidTradeMonitorStats;
   }> {
-    // Prevent concurrent requests and rapid successive calls
+    const emptyResponse = {
+      guidance: [],
+      stats: {
+        totalOpenTrades: 0,
+        tradesByUrgency: { critical: 0, high: 0, medium: 0, low: 0 },
+        totalUnrealizedPnL: 0
+      }
+    };
+
+    // Prevent concurrent requests to same user (re-entrancy protection)
     if (this.requestInProgress) {
-      return {
-        guidance: [],
-        stats: {
-          totalOpenTrades: 0,
-          tradesByUrgency: { critical: 0, high: 0, medium: 0, low: 0 },
-          totalUnrealizedPnL: 0
-        }
-      };
+      console.debug('[MidTradeMonitor] Request already in progress, returning cached state');
+      return emptyResponse;
     }
 
-    // Throttle requests to max once per 500ms
+    // Throttle requests: max once per 500ms, UNLESS first request for this user
     const now = Date.now();
-    if (now - this.lastRequestTime < 500) {
-      return {
-        guidance: [],
-        stats: {
-          totalOpenTrades: 0,
-          tradesByUrgency: { critical: 0, high: 0, medium: 0, low: 0 },
-          totalUnrealizedPnL: 0
-        }
-      };
+    const isFirstRequest = this.lastSuccessfulUserId !== userId;
+    const timeSinceLastRequest = now - this.lastRequestTime;
+    const isThrottled = timeSinceLastRequest < 500;
+
+    if (isThrottled && !isFirstRequest) {
+      console.debug(`[MidTradeMonitor] Throttled (${timeSinceLastRequest}ms since last request, min 500ms required)`);
+      return emptyResponse;
     }
 
     this.lastRequestTime = now;
@@ -307,6 +314,9 @@ class MidTradeMonitorService {
         },
         totalUnrealizedPnL: totalPnL
       };
+
+      // Track successful request for this user (enables first-request throttling bypass)
+      this.lastSuccessfulUserId = userId;
 
       return { guidance: guidanceList, stats };
     } catch (error) {

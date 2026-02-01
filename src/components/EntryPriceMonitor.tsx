@@ -69,6 +69,40 @@ export const EntryPriceMonitor: React.FC = () => {
   useEffect(() => {
     console.log('[EntryPriceMonitor] Mounted - calling loadActiveSession');
     loadActiveSession();
+
+    // CCIP FIX: Add polling to handle missed updates or initial load failures
+    // GOVERNANCE: Ensures continuous discovery of active sessions without blocking
+    const pollInterval = setInterval(() => {
+      console.log('[EntryPriceMonitor] 🔄 Polling for active session (every 5s)');
+      loadActiveSession();
+    }, 5000);
+
+    // Set up realtime subscription to goal_sessions for real-time updates
+    const channel = supabase
+      .channel('entry-monitor-sessions')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'goal_sessions',
+          filter: `status=eq.active`
+        },
+        () => {
+          console.log('[EntryPriceMonitor] 📡 Session changed, reloading...');
+          loadActiveSession();
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('[EntryPriceMonitor] 📡 Realtime subscription CONNECTED');
+        }
+      });
+
+    return () => {
+      clearInterval(pollInterval);
+      supabase.removeChannel(channel);
+    };
   }, [loadActiveSession]);
 
   // Poll live price when we have an active intent
