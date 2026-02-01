@@ -20,7 +20,7 @@ export const MidTradeMonitor: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) return;
 
     let isMounted = true;
     let debounceTimer: ReturnType<typeof setTimeout>;
@@ -59,7 +59,7 @@ export const MidTradeMonitor: React.FC = () => {
     loadGuidance();
 
     channel = supabase
-      .channel('mid-trade-updates')
+      .channel(`mid-trade-updates-${user.id}`)
       .on(
         'postgres_changes',
         {
@@ -90,7 +90,7 @@ export const MidTradeMonitor: React.FC = () => {
       supabase.removeChannel(channel);
       clearTimeout(debounceTimer);
     };
-  }, [user]);
+  }, [user?.id]);
 
 
   const getActionIcon = (action: MidTradeGuidance['primaryAction']) => {

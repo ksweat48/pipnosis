@@ -20,15 +20,17 @@ export const TradingMonitorStack: React.FC = () => {
   });
   const [loading, setLoading] = useState(true);
 
+  const userId = user?.id;
+
   const loadPreferences = useCallback(async () => {
-    if (!user) return;
+    if (!userId) return;
 
     try {
       setLoading(true);
       const { data, error } = await supabase
         .from('user_monitor_preferences')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .maybeSingle();
 
       if (error) {
@@ -45,21 +47,21 @@ export const TradingMonitorStack: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => {
-    if (user) {
+    if (userId) {
       loadPreferences();
 
       const channel = supabase
-        .channel('monitor-preferences')
+        .channel(`monitor-preferences-${userId}`)
         .on(
           'postgres_changes',
           {
             event: '*',
             schema: 'public',
             table: 'user_monitor_preferences',
-            filter: `user_id=eq.${user.id}`,
+            filter: `user_id=eq.${userId}`,
           },
           (payload) => {
             if (payload.new) {
@@ -77,7 +79,7 @@ export const TradingMonitorStack: React.FC = () => {
         supabase.removeChannel(channel);
       };
     }
-  }, [user, loadPreferences]);
+  }, [userId, loadPreferences]);
 
   console.log('[TradingMonitorStack] Rendering - loading:', loading, 'preferences:', preferences);
 

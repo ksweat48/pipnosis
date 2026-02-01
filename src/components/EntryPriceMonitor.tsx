@@ -16,7 +16,7 @@
  * - Uses existing abstractions consistently
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { TrendingUp, TrendingDown, Target, AlertCircle, RefreshCw, Activity } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useActiveEntryIntent } from '@/hooks/useEntryIntent';
@@ -35,7 +35,9 @@ export const EntryPriceMonitor: React.FC = () => {
   const [priceAge, setPriceAge] = useState<number>(0);
   const [lastPriceUpdate, setLastPriceUpdate] = useState<Date | null>(null);
 
-  const { activeIntent, loading: loadingIntent } = useActiveEntryIntent(activeSession?.id || null);
+  // Memoize session ID to prevent unnecessary re-renders of useActiveEntryIntent
+  const sessionId = useMemo(() => activeSession?.id || null, [activeSession?.id]);
+  const { activeIntent, loading: loadingIntent } = useActiveEntryIntent(sessionId);
 
   console.log('[EntryPriceMonitor] Rendering - activeSession:', activeSession, 'activeIntent:', activeIntent);
 

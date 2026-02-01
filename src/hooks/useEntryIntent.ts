@@ -138,18 +138,12 @@ export function useActiveEntryIntent(sessionId: string | null): UseActiveEntryIn
           }
         });
     } catch (error) {
-      console.log('[useActiveEntryIntent] ℹ️ Realtime subscription error, using polling fallback:', error);
+      console.log('[useActiveEntryIntent] ℹ️ Realtime subscription error:', error);
     }
-
-    // Set up fallback polling (30 seconds) as safety net
-    const pollInterval = setInterval(() => {
-      console.log('[useActiveEntryIntent] 🔄 Fallback poll (subscription backup)');
-      loadIntent();
-    }, 30000);
 
     // Cleanup function with defensive null checking
     return () => {
-      console.log('[useActiveEntryIntent] 🧹 Cleaning up subscription and polling');
+      console.log('[useActiveEntryIntent] 🧹 Cleaning up subscription');
 
       // Defensive cleanup: Check if channel exists before removing
       if (channel) {
@@ -161,8 +155,6 @@ export function useActiveEntryIntent(sessionId: string | null): UseActiveEntryIn
           console.log('[useActiveEntryIntent] ⚠️ Error removing channel (non-critical):', error);
         }
       }
-
-      clearInterval(pollInterval);
     };
   }, [loadIntent, sessionId]);
 
