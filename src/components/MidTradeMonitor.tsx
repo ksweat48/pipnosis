@@ -39,7 +39,7 @@ export const MidTradeMonitor: React.FC = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user, loading]);
+  }, [user]);
 
   useEffect(() => {
     if (user) {
@@ -90,7 +90,7 @@ export const MidTradeMonitor: React.FC = () => {
         clearInterval(pollInterval);
       };
     }
-  }, [user, loadGuidance, refreshing]);
+  }, [user, loadGuidance]);
 
 
   const getActionIcon = (action: MidTradeGuidance['primaryAction']) => {
