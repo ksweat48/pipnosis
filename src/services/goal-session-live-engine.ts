@@ -694,6 +694,35 @@ class GoalSessionLiveEngine {
       console.log('%c[MULTI-SYMBOL] 📊 Building market snapshots for open markets...', 'color: #2196f3; font-weight: bold');
       const snapshotStartTime = Date.now();
 
+      // SSOT PRICE FRESHNESS: Invoke autonomous price poller to ensure realtime_prices table is fresh
+      // Server polling keeps data fresh independently of client polling cycle
+      // This ensures execution freshness gate (30s) is always satisfied
+      try {
+        const pollerUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/autonomous-price-poller`;
+        const pollerResponse = await fetch(pollerUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+          },
+          body: JSON.stringify({ symbols: openMarketSymbols })
+        });
+
+        if (!pollerResponse.ok) {
+          logger.warn(LogCategory.AI_TRADING, '[Price Poller] Polling failed', {
+            status: pollerResponse.status
+          });
+        } else {
+          const pollerResult = await pollerResponse.json();
+          logger.debug(LogCategory.AI_TRADING, '[Price Poller] ✅ Price freshness updated', {
+            polledCount: pollerResult.polledCount
+          });
+        }
+      } catch (pollerError) {
+        logger.warn(LogCategory.AI_TRADING, '[Price Poller] Failed to invoke', { error: pollerError });
+        // Non-fatal: Continue with snapshot building
+      }
+
       // Use risk mode directly from config (SSOT: 'low' | 'medium' | 'high')
       const riskMode = config?.riskMode || 'medium';
 
