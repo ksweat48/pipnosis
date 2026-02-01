@@ -237,12 +237,14 @@ export async function getActiveEntryIntent(sessionId: string): Promise<EntryInte
 
   console.log('%c[getActiveEntryIntent] 🔍 Querying for session:', 'color: #ff9800; font-weight: bold', sessionId);
 
-  // FIRST ATTEMPT: Try to get intent with status='monitoring'
+  // CCIP FIX: Include BOTH 'monitoring' AND recently-executed intents
+  // When Alpha executes immediately, status changes to 'executed' within seconds
+  // This ensures EntryPriceMonitor shows the intent even during immediate execution flow
   const { data, error } = await supabase
     .from('entry_intents')
     .select('*')
     .eq('session_id', sessionId)
-    .eq('status', 'monitoring')
+    .in('status', ['monitoring', 'executed'])
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -253,7 +255,7 @@ export async function getActiveEntryIntent(sessionId: string): Promise<EntryInte
   }
 
   if (data) {
-    console.log('%c[getActiveEntryIntent] ✅ Found active intent with status=monitoring:', 'color: #4caf50; font-weight: bold', {
+    console.log('%c[getActiveEntryIntent] ✅ Found active intent with status=%s:', 'color: #4caf50; font-weight: bold', data.status, {
       id: data.id,
       status: data.status,
       symbol: data.symbol,
@@ -265,8 +267,8 @@ export async function getActiveEntryIntent(sessionId: string): Promise<EntryInte
     return data as EntryIntentData;
   }
 
-  // FALLBACK: If no monitoring intent, check for ANY recent intent that might be active
-  console.log('%c[getActiveEntryIntent] ⚠️ No intent with status=monitoring, trying fallback query...', 'color: #ff9800; font-weight: bold');
+  // FALLBACK: If no active intent, check for ANY recent intent that might be waiting
+  console.log('%c[getActiveEntryIntent] ⚠️ No active intent found, trying fallback query...', 'color: #ff9800; font-weight: bold');
 
   const { data: allIntents, error: fallbackError } = await supabase
     .from('entry_intents')

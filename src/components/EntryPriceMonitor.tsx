@@ -16,7 +16,7 @@
  * - Uses existing abstractions consistently
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, Target, AlertCircle, RefreshCw, Activity } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useActiveEntryIntent } from '@/hooks/useEntryIntent';
@@ -39,46 +39,47 @@ export const EntryPriceMonitor: React.FC = () => {
 
   console.log('[EntryPriceMonitor] Rendering - activeSession:', activeSession, 'activeIntent:', activeIntent);
 
-  // Load active goal session
-  const loadActiveSession = useCallback(async () => {
-    try {
-      console.log('[EntryPriceMonitor] Loading active session...');
-      setLoadingSession(true);
-      const { data: session, error } = await supabase
-        .from('goal_sessions')
-        .select('id, status')
-        .eq('status', 'active')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      console.log('[EntryPriceMonitor] Session query result:', { session, error });
-
-      if (error) {
-        console.error('[EntryPriceMonitor] Error loading session:', error);
-      } else {
-        setActiveSession(session);
-      }
-    } catch (error) {
-      console.error('[EntryPriceMonitor] Error:', error);
-    } finally {
-      setLoadingSession(false);
-    }
-  }, []);
-
   useEffect(() => {
+    let isMounted = true;
+    let pollInterval: ReturnType<typeof setInterval>;
+    let channel: ReturnType<typeof supabase.channel>;
+
+    const loadActiveSession = async () => {
+      try {
+        console.log('[EntryPriceMonitor] Loading active session...');
+        const { data: session, error } = await supabase
+          .from('goal_sessions')
+          .select('id, status')
+          .eq('status', 'active')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        console.log('[EntryPriceMonitor] Session query result:', { session, error });
+
+        if (error) {
+          console.error('[EntryPriceMonitor] Error loading session:', error);
+        } else if (isMounted) {
+          setActiveSession(session);
+        }
+      } catch (error) {
+        console.error('[EntryPriceMonitor] Error:', error);
+      } finally {
+        if (isMounted) {
+          setLoadingSession(false);
+        }
+      }
+    };
+
     console.log('[EntryPriceMonitor] Mounted - calling loadActiveSession');
     loadActiveSession();
 
-    // CCIP FIX: Add polling to handle missed updates or initial load failures
-    // GOVERNANCE: Ensures continuous discovery of active sessions without blocking
-    const pollInterval = setInterval(() => {
+    pollInterval = setInterval(() => {
       console.log('[EntryPriceMonitor] 🔄 Polling for active session (every 5s)');
       loadActiveSession();
     }, 5000);
 
-    // Set up realtime subscription to goal_sessions for real-time updates
-    const channel = supabase
+    channel = supabase
       .channel('entry-monitor-sessions')
       .on(
         'postgres_changes',
@@ -100,10 +101,11 @@ export const EntryPriceMonitor: React.FC = () => {
       });
 
     return () => {
+      isMounted = false;
       clearInterval(pollInterval);
       supabase.removeChannel(channel);
     };
-  }, [loadActiveSession]);
+  }, []);
 
   // Poll live price when we have an active intent
   useEffect(() => {
