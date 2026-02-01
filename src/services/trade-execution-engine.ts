@@ -17,6 +17,11 @@ import { professionalRiskManager } from './professional-risk-manager';
 import type { TradeContext } from '../types/trade-context';
 import { price as createPrice, lots as createLots } from '../types/trading-units';
 import { toDirectionDB } from '../utils/direction-converter';
+import {
+  recordAlphaDecision,
+  recordExecutionBlock,
+  recordDiagnosticSnapshot
+} from './alpha-execution-transparency';
 
 interface LivePriceResult {
   price: number;
@@ -371,6 +376,17 @@ class TradeExecutionEngine {
     try {
       console.log(`[Trade Execution] Processing signal for ${signal.symbol}...`);
 
+      // Record Alpha decision in audit trail (fire-and-forget, non-blocking)
+      const auditId = await recordAlphaDecision(userId, alphaDecision, {
+        sessionId: signal.sessionId,
+        tradeContext: signal.tradeContext,
+        marketPrice: signal.entryPrice,
+        signalPrice: signal.entryPrice,
+        regimeConfidence: alphaDecision?.regime_confidence,
+        adversarialScore: alphaDecision?.adversarial_score,
+        omegaVotes: alphaDecision?.omega_votes
+      });
+
       // 🛡️ OMEGA COUNCIL VALIDATION GATE: MANDATORY first check
       // Ensures Omega8 (OrderFlow) and Omega9 (Hallucination) were consulted
       // CRITICAL: This prevents catastrophic losses from bypassed validation
@@ -383,6 +399,16 @@ class TradeExecutionEngine {
           console.error(`[Trade Execution] 🚫 OMEGA COUNCIL VALIDATION FAILED: ${omegaValidation.reason}`);
           console.error('[Trade Execution] Missing components:', omegaValidation.missingComponents);
           console.error('[Trade Execution] Diagnostics:', JSON.stringify(omegaValidation.diagnostics, null, 2));
+
+          // Log the block reason (fire-and-forget)
+          recordExecutionBlock(userId, auditId, {
+            sessionId: signal.sessionId,
+            blockCategory: 'OMEGA_VALIDATION',
+            specificReason: omegaValidation.reason,
+            severity: 'FATAL',
+            blockingValue: JSON.stringify(omegaValidation.missingComponents),
+            recoverable: false
+          }).catch(() => {}); // Silent failure
 
           return {
             success: false,
@@ -414,6 +440,17 @@ class TradeExecutionEngine {
           signal.takeProfit,
           contextValidation.error || 'TradeContext validation failed'
         );
+
+        // Log the block reason (fire-and-forget)
+        recordExecutionBlock(userId, auditId, {
+          sessionId: signal.sessionId,
+          blockCategory: 'SSOT_VALIDATION',
+          specificReason: contextValidation.error || 'TradeContext validation failed',
+          severity: 'FATAL',
+          blockingValue: contextValidation.blockReason,
+          recoverable: false
+        }).catch(() => {});
+
         return {
           success: false,
           error: 'MATH_NOT_SSOT',
@@ -439,6 +476,18 @@ class TradeExecutionEngine {
             signal.takeProfit,
             lotValidation.error || 'Invalid lot size'
           );
+
+          // Log the block reason (fire-and-forget)
+          recordExecutionBlock(userId, auditId, {
+            sessionId: signal.sessionId,
+            blockCategory: 'SSOT_VALIDATION',
+            specificReason: `Lot size validation: ${lotValidation.error}`,
+            severity: 'FATAL',
+            blockingValue: String(signal.positionSize),
+            thresholdValue: `${ctx.minLotSize}-${ctx.maxLotSize}`,
+            recoverable: false
+          }).catch(() => {});
+
           return {
             success: false,
             error: 'INVALID_LOT_SIZE',
@@ -456,6 +505,17 @@ class TradeExecutionEngine {
           signal.takeProfit,
           errorMsg
         );
+
+        // Log the block reason (fire-and-forget)
+        recordExecutionBlock(userId, auditId, {
+          sessionId: signal.sessionId,
+          blockCategory: 'SSOT_VALIDATION',
+          specificReason: `Lot size error: ${errorMsg}`,
+          severity: 'FATAL',
+          blockingValue: String(signal.positionSize),
+          recoverable: false
+        }).catch(() => {});
+
         return {
           success: false,
           error: 'INVALID_LOT_SIZE',
@@ -482,6 +542,18 @@ class TradeExecutionEngine {
             signal.takeProfit,
             sltpValidation.error || 'Invalid SL/TP'
           );
+
+          // Log the block reason (fire-and-forget)
+          recordExecutionBlock(userId, auditId, {
+            sessionId: signal.sessionId,
+            blockCategory: 'SSOT_VALIDATION',
+            specificReason: `SL/TP validation: ${sltpValidation.error}`,
+            severity: 'FATAL',
+            blockingValue: `SL: ${signal.stopLoss}, TP: ${signal.takeProfit}`,
+            thresholdValue: `Entry: ${signal.entryPrice}`,
+            recoverable: false
+          }).catch(() => {});
+
           return {
             success: false,
             error: 'INVALID_SLTP',
@@ -499,6 +571,17 @@ class TradeExecutionEngine {
           signal.takeProfit,
           errorMsg
         );
+
+        // Log the block reason (fire-and-forget)
+        recordExecutionBlock(userId, auditId, {
+          sessionId: signal.sessionId,
+          blockCategory: 'SSOT_VALIDATION',
+          specificReason: `SL/TP error: ${errorMsg}`,
+          severity: 'FATAL',
+          blockingValue: `SL: ${signal.stopLoss}, TP: ${signal.takeProfit}`,
+          recoverable: false
+        }).catch(() => {});
+
         return {
           success: false,
           error: 'INVALID_SLTP',
