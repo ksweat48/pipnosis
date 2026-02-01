@@ -159,6 +159,17 @@ class SharedIntelligenceCoordinator {
         const dbThesis = cached[0];
         const ageSeconds = Math.round((now - new Date(dbThesis.created_at).getTime()) / 1000);
 
+        // Use stored regime_signature_json if available (SSOT compliance)
+        // Fallback to reconstructed object for backward compatibility
+        const storedRegimeSignature = dbThesis.regime_signature_json || {
+          symbol: dbThesis.symbol,
+          htfBias: dbThesis.htf_bias as RegimeSignature['htfBias'],
+          microRegime: dbThesis.micro_regime as RegimeSignature['microRegime'],
+          volatilityRegime: dbThesis.volatility_regime as RegimeSignature['volatilityRegime'],
+          structureState: dbThesis.structure_state as RegimeSignature['structureState'],
+          timeframeRelevance: dbThesis.timeframe_relevance
+        };
+
         const result: AlphaMarketThesis = {
           symbol: dbThesis.symbol || symbol,
           timeframe: dbThesis.timeframe || regimeSignature.timeframeRelevance || 'H1',
@@ -169,14 +180,7 @@ class SharedIntelligenceCoordinator {
           invalidationLogic: dbThesis.invalidation_logic,
           confidenceBand: dbThesis.confidence_band as AlphaMarketThesis['confidenceBand'],
           thesisSummary: dbThesis.thesis_summary,
-          regimeSignature: {
-            symbol: dbThesis.symbol,
-            htfBias: dbThesis.htf_bias as RegimeSignature['htfBias'],
-            microRegime: dbThesis.micro_regime as RegimeSignature['microRegime'],
-            volatilityRegime: dbThesis.volatility_regime as RegimeSignature['volatilityRegime'],
-            structureState: dbThesis.structure_state as RegimeSignature['structureState'],
-            timeframeRelevance: dbThesis.timeframe_relevance
-          },
+          regimeSignature: storedRegimeSignature as RegimeSignature,
           thesisHash: dbThesis.thesis_hash,
           createdAt: new Date(dbThesis.created_at),
           cacheAgeSeconds: 0,
@@ -282,12 +286,13 @@ class SharedIntelligenceCoordinator {
         p_confidence_band: freshResult.thesis.confidenceBand,
         p_thesis_summary: freshResult.thesis.thesisSummary,
         p_regime_signature_hash: regimeHash,
+        p_thesis_hash: immutableThesis.thesisHash,
+        p_regime_signature_json: regimeSignature,
         p_htf_bias: regimeSignature.htfBias,
         p_micro_regime: regimeSignature.microRegime,
         p_volatility_regime: regimeSignature.volatilityRegime,
         p_structure_state: regimeSignature.structureState,
-        p_timeframe_relevance: regimeSignature.timeframeRelevance || 'H1',
-        p_thesis_hash: immutableThesis.thesisHash
+        p_timeframe_relevance: regimeSignature.timeframeRelevance || 'H1'
       });
 
       // Log cache write success for governance audit trail (non-blocking)

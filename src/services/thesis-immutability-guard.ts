@@ -216,6 +216,9 @@ export function createImmutableThesis(
 /**
  * Verify cached thesis integrity on retrieval
  * Full integrity check before serving from cache
+ *
+ * SSOT COMPLIANCE: Uses thesis.regimeSignature directly (already properly structured from DB storage)
+ * No reconstruction needed - hash validation against stored representation
  */
 export function verifyCachedThesisIntegrity(
   thesis: AlphaMarketThesis
@@ -230,6 +233,8 @@ export function verifyCachedThesisIntegrity(
 
   // Check hash integrity with stable stringification (SSOT compliance)
   // CRITICAL: Must use same stringification as createImmutableThesis for consistent hashing
+  // NOTE: regimeSignature is already in correct structure (from DB storage or creation)
+  // No reconstruction needed - use as-is for consistency
   const thesisContent = stableStringify({
     symbol: thesis.symbol,
     timeframe: thesis.timeframe,
@@ -246,7 +251,7 @@ export function verifyCachedThesisIntegrity(
   if (!validateThesisHash(thesis, thesisContent)) {
     return {
       valid: false,
-      reason: 'Hash mismatch (thesis modified)'
+      reason: 'Hash mismatch (thesis modified or regime changed)'
     };
   }
 
