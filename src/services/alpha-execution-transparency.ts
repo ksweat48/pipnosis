@@ -15,7 +15,7 @@
  */
 
 import { supabase } from '../lib/supabase';
-import { supabaseAdmin } from '../lib/supabase-admin';
+import { getSupabaseAdmin, isAdminClientAvailable } from '../lib/supabase-admin';
 import type { AlphaDecision } from '../brains/coordinator-alpha';
 import type { TradeContext } from '../utils/tradeMath';
 
@@ -124,16 +124,23 @@ export async function recordAlphaDecision(
   };
 
   // Fire and forget: don't await, don't block execution
-  supabaseAdmin
-    .from('alpha_execution_audit')
-    .insert([auditLog])
-    .then(() => {
-      // Success - audit logged
-    })
-    .catch((err) => {
-      // Silent failure - execution must not be affected by logging failures
-      console.warn('[AlphaExecutionTransparency] Failed to log decision:', err.message);
-    });
+  // Use admin client if available, fall back to regular client with RLS
+  try {
+    const client = getSupabaseAdmin() || supabase;
+    client
+      .from('alpha_execution_audit')
+      .insert([auditLog])
+      .then(() => {
+        // Success - audit logged
+      })
+      .catch((err) => {
+        // Silent failure - execution must not be affected by logging failures
+        console.warn('[AlphaExecutionTransparency] Failed to log decision:', err.message);
+      });
+  } catch (err) {
+    // Silent failure if client selection fails
+    console.warn('[AlphaExecutionTransparency] Client error:', err instanceof Error ? err.message : String(err));
+  }
 
   return auditId;
 }
@@ -162,16 +169,22 @@ export async function recordExecutionBlock(
   };
 
   // Fire and forget
-  supabaseAdmin
-    .from('execution_block_reasons')
-    .insert([blockLog])
-    .then(() => {
-      // Success
-    })
-    .catch((err) => {
-      // Silent failure
-      console.warn('[AlphaExecutionTransparency] Failed to log block:', err.message);
-    });
+  try {
+    const client = getSupabaseAdmin() || supabase;
+    client
+      .from('execution_block_reasons')
+      .insert([blockLog])
+      .then(() => {
+        // Success
+      })
+      .catch((err) => {
+        // Silent failure
+        console.warn('[AlphaExecutionTransparency] Failed to log block:', err.message);
+      });
+  } catch (err) {
+    // Silent failure if client selection fails
+    console.warn('[AlphaExecutionTransparency] Client error:', err instanceof Error ? err.message : String(err));
+  }
 }
 
 /**
@@ -204,16 +217,22 @@ export async function recordDiagnosticSnapshot(
   };
 
   // Fire and forget
-  supabaseAdmin
-    .from('alpha_decision_diagnostics')
-    .insert([snapshot])
-    .then(() => {
-      // Success
-    })
-    .catch((err) => {
-      // Silent failure
-      console.warn('[AlphaExecutionTransparency] Failed to log diagnostics:', err.message);
-    });
+  try {
+    const client = getSupabaseAdmin() || supabase;
+    client
+      .from('alpha_decision_diagnostics')
+      .insert([snapshot])
+      .then(() => {
+        // Success
+      })
+      .catch((err) => {
+        // Silent failure
+        console.warn('[AlphaExecutionTransparency] Failed to log diagnostics:', err.message);
+      });
+  } catch (err) {
+    // Silent failure if client selection fails
+    console.warn('[AlphaExecutionTransparency] Client error:', err instanceof Error ? err.message : String(err));
+  }
 }
 
 /**

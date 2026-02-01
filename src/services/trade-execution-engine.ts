@@ -377,15 +377,22 @@ class TradeExecutionEngine {
       console.log(`[Trade Execution] Processing signal for ${signal.symbol}...`);
 
       // Record Alpha decision in audit trail (fire-and-forget, non-blocking)
-      const auditId = await recordAlphaDecision(userId, alphaDecision, {
-        sessionId: signal.sessionId,
-        tradeContext: signal.tradeContext,
-        marketPrice: signal.entryPrice,
-        signalPrice: signal.entryPrice,
-        regimeConfidence: alphaDecision?.regime_confidence,
-        adversarialScore: alphaDecision?.adversarial_score,
-        omegaVotes: alphaDecision?.omega_votes
-      });
+      let auditId = '';
+      try {
+        auditId = await recordAlphaDecision(userId, alphaDecision, {
+          sessionId: signal.sessionId,
+          tradeContext: signal.tradeContext,
+          marketPrice: signal.entryPrice,
+          signalPrice: signal.entryPrice,
+          regimeConfidence: alphaDecision?.regime_confidence,
+          adversarialScore: alphaDecision?.adversarial_score,
+          omegaVotes: alphaDecision?.omega_votes
+        });
+      } catch (auditError) {
+        // Silent failure: logging errors never block execution
+        console.warn('[Trade Execution] Audit logging failed (non-blocking):', auditError instanceof Error ? auditError.message : String(auditError));
+        auditId = ''; // Continue without audit tracking
+      }
 
       // 🛡️ OMEGA COUNCIL VALIDATION GATE: MANDATORY first check
       // Ensures Omega8 (OrderFlow) and Omega9 (Hallucination) were consulted
