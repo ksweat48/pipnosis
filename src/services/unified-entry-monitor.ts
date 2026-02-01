@@ -430,7 +430,7 @@ export class UnifiedEntryMonitor {
         .from('entry_intents')
         .select('*')
         .eq('user_id', userId)
-        .eq('status', 'active')
+        .eq('status', 'monitoring')
         .is('executed_at', null)
         .is('canceled_at', null);
 
