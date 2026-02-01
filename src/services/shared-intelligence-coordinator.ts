@@ -275,6 +275,9 @@ class SharedIntelligenceCoordinator {
 
     // Cache new thesis in database
     try {
+      // Convert regime signature to JSON string for RPC
+      const regimeSignatureJson = JSON.stringify(regimeSignature);
+
       const cacheResult = await supabase.rpc('cache_alpha_thesis', {
         p_symbol: symbol,
         p_timeframe: regimeSignature.timeframeRelevance || 'H1',
@@ -287,7 +290,7 @@ class SharedIntelligenceCoordinator {
         p_thesis_summary: freshResult.thesis.thesisSummary,
         p_regime_signature_hash: regimeHash,
         p_thesis_hash: immutableThesis.thesisHash,
-        p_regime_signature_json: regimeSignature,
+        p_regime_signature_json: regimeSignatureJson,
         p_htf_bias: regimeSignature.htfBias,
         p_micro_regime: regimeSignature.microRegime,
         p_volatility_regime: regimeSignature.volatilityRegime,
