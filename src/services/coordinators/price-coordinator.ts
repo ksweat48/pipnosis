@@ -355,6 +355,30 @@ class PriceCoordinator {
       warning: isStale ? `Price data is ${ageSeconds}s old` : undefined,
     };
   }
+
+  /**
+   * SSOT: Extract execution price from PriceData object
+   *
+   * This centralizes the logic for selecting the correct price to use for trade execution.
+   * - BUY orders use ASK (what you pay to enter long)
+   * - SELL orders use BID (what you receive to enter short)
+   *
+   * GOVERNANCE: Validates the extracted price and throws if invalid
+   * CCIP: Call site logs any failures for audit trail
+   */
+  extractExecutionPrice(priceData: PriceData, direction: 'buy' | 'sell'): number {
+    // Use directional price (ask for buys, bid for sells)
+    const executionPrice = direction === 'buy' ? priceData.ask : priceData.bid;
+
+    // GOVERNANCE: Validate extracted price is a valid number
+    if (!Number.isFinite(executionPrice)) {
+      throw new Error(
+        `[PriceCoordinator] Invalid execution price for ${direction} on ${priceData.symbol}: ${executionPrice} (source: ${priceData.source})`
+      );
+    }
+
+    return executionPrice;
+  }
 }
 
 export const priceCoordinator = new PriceCoordinator();

@@ -295,6 +295,8 @@ class AlphaTradeExecutor {
 
   /**
    * Execute immediately at market price
+   * SSOT: Uses priceCoordinator.extractExecutionPrice() to get correct price component
+   * CCIP: Logs price extraction failures for governance audit
    */
   private async executeImmediate(params: {
     decision: AlphaDecision;
@@ -321,14 +323,64 @@ class AlphaTradeExecutor {
       };
     }
 
-    const livePrice = priceResult.price;
-    const entryPrice = livePrice; // Use live price as entry
+    const priceData = priceResult.price;
+    let entryPrice: number;
+
+    // SSOT: Extract correct price component for trade direction
+    try {
+      const direction = decision.action === 'BUY' ? 'buy' : 'sell';
+      entryPrice = priceCoordinator.extractExecutionPrice(priceData, direction);
+    } catch (error: any) {
+      // CCIP: Log price extraction failure
+      console.error('[AlphaTradeExecutor] Price extraction failed:', {
+        symbol: decision.symbol,
+        direction: decision.action,
+        error: error.message,
+        userId,
+        sessionId
+      });
+
+      await this.logCCIPChange({
+        changeType: 'PRICE_EXTRACTION_ERROR',
+        tableAffected: 'goal_session_trades',
+        recordId: userId,
+        userId,
+        metadata: {
+          symbol: decision.symbol,
+          direction: decision.action,
+          error: error.message,
+          priceSource: priceData.source
+        }
+      });
+
+      return {
+        success: false,
+        error: error.message || 'Failed to extract execution price'
+      };
+    }
 
     // Apply slippage adjustment (symbol-specific)
     const slippage = this.calculateSlippage(decision.symbol);
+
+    // GOVERNANCE: Validate slippage before arithmetic
+    if (!Number.isFinite(slippage)) {
+      return {
+        success: false,
+        error: `Invalid slippage calculated for ${decision.symbol}: ${slippage}`
+      };
+    }
+
     const adjustedEntry = decision.action === 'BUY'
       ? entryPrice + slippage
       : entryPrice - slippage;
+
+    // GOVERNANCE: Validate adjusted entry is valid number
+    if (!Number.isFinite(adjustedEntry)) {
+      return {
+        success: false,
+        error: `Slippage adjustment resulted in invalid price: ${adjustedEntry} (base: ${entryPrice}, slippage: ${slippage})`
+      };
+    }
 
     // Insert trade
     let tradeData: any;
@@ -423,7 +475,8 @@ class AlphaTradeExecutor {
 
   /**
    * Create pending trade (awaiting user confirmation)
-   * CCIP COMPLIANCE (2026-02-02): Fetch live price if decision.entry is null
+   * SSOT: Uses priceCoordinator.extractExecutionPrice() if decision.entry is null
+   * CCIP COMPLIANCE (2026-02-02): Fetch live price and extract direction-specific component
    */
   private async createPending(params: {
     decision: AlphaDecision;
@@ -452,7 +505,41 @@ class AlphaTradeExecutor {
         };
       }
 
-      entryPrice = priceResult.price;
+      const priceData = priceResult.price;
+
+      // SSOT: Extract correct price component for trade direction
+      try {
+        const direction = decision.action === 'BUY' ? 'buy' : 'sell';
+        entryPrice = priceCoordinator.extractExecutionPrice(priceData, direction);
+      } catch (error: any) {
+        // CCIP: Log price extraction failure
+        console.error('[AlphaTradeExecutor] Pending trade price extraction failed:', {
+          symbol: decision.symbol,
+          direction: decision.action,
+          error: error.message,
+          userId,
+          sessionId
+        });
+
+        await this.logCCIPChange({
+          changeType: 'PRICE_EXTRACTION_ERROR',
+          tableAffected: 'goal_session_trades',
+          recordId: userId,
+          userId,
+          metadata: {
+            symbol: decision.symbol,
+            direction: decision.action,
+            tradeMode: 'pending',
+            error: error.message,
+            priceSource: priceData.source
+          }
+        });
+
+        return {
+          success: false,
+          error: error.message || 'Failed to extract execution price for pending trade'
+        };
+      }
     }
 
     // Insert trade
@@ -613,9 +700,21 @@ class AlphaTradeExecutor {
   }): any {
     const { decision, userId, sessionId, lotSize, riskDollars, entryPrice, status, openedAt, inputs } = params;
 
-    // VALIDATION: entry_price must not be null (Phase 1 compliance)
+    // GOVERNANCE: Comprehensive price validation (catches NaN from previous cascading errors)
     if (entryPrice === null || entryPrice === undefined) {
-      throw new Error('[AlphaTradeExecutor] buildTradeRecord: entryPrice cannot be null');
+      throw new Error('[AlphaTradeExecutor] buildTradeRecord: entryPrice cannot be null or undefined');
+    }
+
+    if (!Number.isFinite(entryPrice)) {
+      throw new Error(
+        `[AlphaTradeExecutor] buildTradeRecord: entryPrice must be a finite number, got: ${entryPrice} (type: ${typeof entryPrice})`
+      );
+    }
+
+    if (entryPrice <= 0) {
+      throw new Error(
+        `[AlphaTradeExecutor] buildTradeRecord: entryPrice must be positive, got: ${entryPrice} for ${decision.symbol}`
+      );
     }
 
     // Get regime bucket
@@ -732,6 +831,12 @@ class AlphaTradeExecutor {
   /**
    * Log CCIP change event (governance tracking)
    * CCIP Compliance (20260202): Track all database mutations for audit trail
+   *
+   * SSOT COMPLIANCE: Uses correct ccip_change_tracking schema
+   * - operation_type: The type of change (TRADE_CREATED, PRICE_EXTRACTION_ERROR, etc)
+   * - table_name: Which table was affected
+   * - record_id: UUID of affected record
+   * - change_details: JSONB metadata about the change
    */
   private async logCCIPChange(params: {
     changeType: string;
@@ -742,12 +847,11 @@ class AlphaTradeExecutor {
   }): Promise<void> {
     try {
       await supabase.from('ccip_change_tracking').insert({
-        change_type: params.changeType,
-        table_affected: params.tableAffected,
+        operation_type: params.changeType,
+        table_name: params.tableAffected,
         record_id: params.recordId,
         user_id: params.userId,
-        metadata: params.metadata,
-        created_at: new Date().toISOString()
+        change_details: params.metadata || {}
       });
     } catch (error) {
       // Non-blocking - CCIP tracking failure shouldn't break trade execution
