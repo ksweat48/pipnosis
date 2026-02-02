@@ -117,21 +117,38 @@ class AlphaTradeExecutor {
     }
 
     // Layer 3: Risk Authority (Context + PCVL + Margin + Kelly)
-    // SSOT FIX (2026-02-02): Use session.account_balance as source of truth
-    // The goal_sessions table contains the authoritative account balance for the session
-    const currentBalance = session.account_balance;
+    // SSOT FIX (2026-02-02): Fetch balance from user_token_balance (SSOT for account balance)
+    const { data: balanceData, error: balanceError } = await supabase
+      .from('user_token_balance')
+      .select('balance')
+      .eq('user_id', userId)
+      .single();
 
-    // GOVERNANCE: Fail closed if balance is missing
+    if (balanceError || !balanceData) {
+      console.error('[AlphaTradeExecutor] Failed to fetch account balance:', {
+        userId,
+        sessionId,
+        error: balanceError?.message
+      });
+      return {
+        success: false,
+        error: 'Failed to fetch account balance',
+        blockReason: 'Cannot assess risk without account balance data'
+      };
+    }
+
+    const currentBalance = balanceData.balance;
+
+    // GOVERNANCE: Fail closed if balance is missing or invalid
     if (currentBalance === undefined || currentBalance === null || isNaN(currentBalance)) {
       console.error('[AlphaTradeExecutor] Invalid account balance:', {
         userId,
         sessionId,
-        sessionBalance: session.account_balance,
-        sessionData: session
+        fetchedBalance: currentBalance
       });
       return {
         success: false,
-        error: 'Account balance is invalid or missing from session',
+        error: 'Account balance is invalid or missing',
         blockReason: 'Cannot assess risk without valid account balance'
       };
     }
