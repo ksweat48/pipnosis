@@ -188,7 +188,7 @@ class UnifiedRiskAuthority {
     }
 
     // Volatility adjustment
-    const volatilityRisk = volatilityAdjustedRisk.adjustRisk({
+    const volatilityRisk = await volatilityAdjustedRisk.adjustRiskForVolatility({
       symbol,
       baseRiskPercent,
       currentATR: stopPips,
