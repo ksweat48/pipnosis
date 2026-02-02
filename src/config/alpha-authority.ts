@@ -85,13 +85,22 @@ export const ALPHA_AUTHORITY = {
   /**
    * Advisory Penalty Cap - GOVERNANCE GUARDRAIL
    *
-   * No combination of advisory penalties may reduce confidence by more than 25%.
+   * ⚠️ SSOT GOVERNANCE NOTE (2026-02-02):
+   * MAX_ADVISORY_PENALTY_PERCENT has been DEPRECATED.
+   *
+   * AUTHORITATIVE SOURCE for maximum advisory penalty:
+   * → alpha-identity.ts: ALPHA_IDENTITY.MAX_ADVISORY_PENALTY = 30%
+   *
+   * REASON: Alpha-specific behavioral parameters belong in alpha-identity.ts
+   * See GOVERNANCE_DECISIONS.md for full rationale.
+   *
+   * No combination of advisory penalties may reduce confidence by more than 30%.
    * This prevents "death by a thousand cuts" where multiple advisory systems
    * stack penalties until confidence always drops below execution threshold.
    *
    * This guarantees Alpha can still act on strong conviction.
    */
-  MAX_ADVISORY_PENALTY_PERCENT: 25,
+  // MAX_ADVISORY_PENALTY_PERCENT: DEPRECATED - Use ALPHA_IDENTITY.MAX_ADVISORY_PENALTY instead
 
   /**
    * Per-category penalty caps

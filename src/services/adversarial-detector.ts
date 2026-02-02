@@ -12,6 +12,22 @@
 import type { RegimeSnapshot } from './regime-oracle';
 import { safeExtractATRValue, safeExtractATRTimeframe, type ATRValue } from '../types/atr';
 
+/**
+ * ✅ GOVERNANCE FIX (2026-02-02): SSOT for Manipulation Detection Thresholds
+ *
+ * These thresholds determine when volatility spikes are considered manipulation.
+ * Defined as multiples of average candle range (ATR proxy).
+ *
+ * MANIPULATION_SPIKE_THRESHOLD: Standard manipulation detection (2.2x ATR)
+ * EXTREME_MANIPULATION_THRESHOLD: Extreme/catastrophic volatility (4.0x ATR)
+ *
+ * RATIONALE:
+ * - 2.2x catches most stop hunts and fake breakouts
+ * - 4.0x reserved for truly extreme events (flash crashes, major news)
+ */
+const MANIPULATION_SPIKE_THRESHOLD = 2.2;
+const EXTREME_MANIPULATION_THRESHOLD = 4.0;
+
 export interface AdversarialSignal {
   is_adversarial: boolean;
   level: 'none' | 'mild' | 'moderate' | 'severe';
@@ -630,15 +646,16 @@ class AdversarialDetector {
 
     const candlesAgo = recentCandles.length - 1 - stopRunCandleIndex;
 
-    // A) Check for manipulation spike (ATR > 2.2x) with TIME-BASED EXPIRATION
+    // A) Check for manipulation spike with TIME-BASED EXPIRATION
+    // ✅ GOVERNANCE FIX (2026-02-02): Import from SSOT instead of hardcoded 2.2 and 4.0
     const stopRunCandle = recentCandles[stopRunCandleIndex];
     const stopRunRange = stopRunCandle.high - stopRunCandle.low;
     const spikeMultiplier = stopRunRange / avgCandleRange;
-    const isManipulationSpike = spikeMultiplier > 2.2;
+    const isManipulationSpike = spikeMultiplier > MANIPULATION_SPIKE_THRESHOLD;
 
     if (isManipulationSpike) {
       // CRITICAL FIX: Only block VERY recent AND severe spikes
-      const isExtremeSpike = spikeMultiplier >= 4.0; // Extreme spikes (4.0x ATR or more)
+      const isExtremeSpike = spikeMultiplier >= EXTREME_MANIPULATION_THRESHOLD;
       const isVeryRecentSpike = candlesAgo <= 1; // Very recent = within 1 candle (current candle only)
       const isAgedSpike = candlesAgo >= 5; // Aged = 5+ candles old (reduced from 10)
 

@@ -29,6 +29,7 @@ import { llmTokenTracker } from '../services/llm-token-tracker';
 import { alphaSafetyZoneEvaluator, type SafetyEvaluation } from '../config/alpha-safety-zones';
 import { calculatePipDistance } from '../utils/currencyHelpers';
 import { safeExtractATRValue, type ATRValue } from '../types/atr';
+import { TRADING_CONSTANTS } from '../config/trading-constants';
 
 export interface Omega9Input {
   alphaDecision: AlphaDecision;
@@ -228,17 +229,19 @@ class Omega9HallucinationBrain {
       };
     }
 
-    // HARD BLOCK 2: R:R < 0.5 (catastrophically poor risk/reward)
-    if (rr < 0.5) {
+    // HARD BLOCK 2: R:R < CATASTROPHIC_THRESHOLD (catastrophically poor risk/reward)
+    // ✅ GOVERNANCE FIX (2026-02-02): Import from SSOT instead of hardcoded 0.5
+    const CATASTROPHIC_RR = TRADING_CONSTANTS.RISK_REWARD_RATIOS.CATASTROPHIC_THRESHOLD;
+    if (rr < CATASTROPHIC_RR) {
       flags.push('HARD_BLOCK_RR_CATASTROPHIC');
       constraintViolations.push({
         type: 'RR_CATASTROPHIC',
         severity: 'HARD_BLOCK',
         currentValue: rr,
-        minimumValue: 0.5,
-        message: `R:R ${rr.toFixed(2)}:1 is catastrophically low (< 0.5:1). Cannot proceed.`,
+        minimumValue: CATASTROPHIC_RR,
+        message: `R:R ${rr.toFixed(2)}:1 is catastrophically low (< ${CATASTROPHIC_RR}:1). Cannot proceed.`,
         suggestedActions: [
-          `Increase TP to achieve minimum 0.5:1 R:R`,
+          `Increase TP to achieve minimum ${CATASTROPHIC_RR}:1 R:R`,
           `Tighten stop loss`,
           `Choose different setup with better R:R`
         ]
@@ -249,16 +252,18 @@ class Omega9HallucinationBrain {
         flags,
         confidence_adjustment: -100,
         corrections: { sl: null, tp: null, risk_pct: null },
-        reasoning: `HARD BLOCK: R:R catastrophic (${rr.toFixed(2)}:1 < 0.5:1 minimum)`,
+        reasoning: `HARD BLOCK: R:R catastrophic (${rr.toFixed(2)}:1 < ${CATASTROPHIC_RR}:1 minimum)`,
         constraintViolations
       };
     }
 
-    // CONSTRAINT VIOLATION (not hard block): R:R < 1.0 ADVISORY
+    // CONSTRAINT VIOLATION (not hard block): R:R < MINIMUM ADVISORY
+    // ✅ GOVERNANCE FIX (2026-02-02): Import from SSOT instead of hardcoded 1.0
     // Will be auto-corrected by constraint system, but Alpha can override
-    if (rr < 1.0) {
+    const MINIMUM_RR = TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM;
+    if (rr < MINIMUM_RR) {
       flags.push('RR_BELOW_1_ADVISORY');
-      console.log(`[Omega-9] ⚠️ R:R ${rr.toFixed(3)} < 1.0 - ADVISORY (will be auto-corrected if not revised)`);
+      console.log(`[Omega-9] ⚠️ R:R ${rr.toFixed(3)} < ${MINIMUM_RR} - ADVISORY (will be auto-corrected if not revised)`);
       // DO NOT return early - let other validations run
       // Auto-correction happens in coordinator-alpha via constraint provider
     }

@@ -1,14 +1,21 @@
 /**
- * Safety Enforcer - Alpha Authority Compliant
+ * Safety Enforcer - Alpha Authority Compliant (PHASE 1 GOVERNANCE FIX - 2026-02-02)
  *
  * GOVERNANCE ROLE:
  * - HARD BLOCKS: System integrity violations only (NaN, invalid prices, malformed data)
  * - ADVISORY WARNINGS: Risk metrics that inform Alpha but don't block
  *
- * ALPHA SOVEREIGNTY:
- * Safety Enforcer serves Alpha, doesn't veto Alpha.
- * Only system errors block execution. Risk advisories penalize confidence
- * within governance cap (25% max total penalty).
+ * ALPHA SOVEREIGNTY ENFORCEMENT (SSOT + CCIP Compliance):
+ * ✅ Safety Enforcer serves Alpha, NEVER mutates Alpha's decisions
+ * ✅ Only system errors block execution
+ * ✅ Risk advisories penalize confidence within governance cap (30% max per ALPHA_IDENTITY.MAX_ADVISORY_PENALTY)
+ * ✅ NO AUTO-ADJUSTMENTS - All recommendations returned to Alpha for re-evaluation
+ *
+ * PHASE 1 FIXES (2026-02-02):
+ * - Removed 9 mutation sites that violated Alpha authority
+ * - Converted TP/SL/Risk auto-adjustments to pure advisories
+ * - Alpha now receives recommendations, decides whether to apply them
+ * - Maintains full audit trail of all safety checks
  */
 
 import { TRADING_CONSTANTS } from '../config/trading-constants';
@@ -34,9 +41,12 @@ export interface ValidationResult {
   hardBlocks: string[];         // System integrity violations (blocks execution)
   advisories: string[];         // Risk warnings (doesn't block, penalizes confidence)
   action: 'ALLOW' | 'BLOCK';    // BLOCK only on hard blocks
-  adjustedDecision?: TradeDecision;
-  adjustments?: string[];
   advisoryPenalties: AdvisoryPenalty[]; // Structured penalties for aggregator
+
+  // ⚠️ DEPRECATED (2026-02-02): adjustedDecision and adjustments removed
+  // Safety Enforcer no longer mutates Alpha's decisions
+  // All recommendations are now returned via advisories and advisoryPenalties
+  // Alpha receives recommendations and decides whether to apply them
 }
 
 class SafetyEnforcer {
@@ -54,10 +64,11 @@ class SafetyEnforcer {
   /**
    * Validate trade decision against safety rules
    *
-   * GOVERNANCE COMPLIANT:
+   * GOVERNANCE COMPLIANT (PHASE 1 FIX - 2026-02-02):
    * - Returns HARD BLOCKS for system integrity violations
    * - Returns ADVISORIES for risk concerns (doesn't block)
-   * - Advisory penalties capped at 25% by advisory-penalty-aggregator
+   * - Advisory penalties capped at 30% per ALPHA_IDENTITY.MAX_ADVISORY_PENALTY
+   * - NO MUTATIONS: Alpha's decision is NEVER modified
    */
   validateTrade(
     decision: TradeDecision,
@@ -65,9 +76,7 @@ class SafetyEnforcer {
   ): ValidationResult {
     const hardBlocks: string[] = [];       // System errors - blocks execution
     const advisories: string[] = [];       // Risk warnings - doesn't block
-    const adjustments: string[] = [];
     const advisoryPenalties: AdvisoryPenalty[] = [];
-    let adjustedDecision = { ...decision };
 
     // Skip validation for NO_TRADE (no trade execution)
     if (decision.action === 'NO_TRADE') {
@@ -76,7 +85,6 @@ class SafetyEnforcer {
         hardBlocks: [],
         advisories: [],
         action: 'ALLOW',
-        adjustments: [],
         advisoryPenalties: [],
       };
     }
@@ -165,7 +173,7 @@ class SafetyEnforcer {
     }
 
     // 6. SL distance validation (ADVISORY)
-    const slDistance = Math.abs(adjustedDecision.entry - adjustedDecision.stopLoss);
+    const slDistance = Math.abs(decision.entry - decision.stopLoss);
     const minSlDistance = context.atr * this.MIN_SL_DISTANCE_ATR;
     const maxSlDistance = context.atr * this.MAX_SL_DISTANCE_ATR;
 
@@ -195,41 +203,40 @@ class SafetyEnforcer {
       );
     }
 
-    // 7. Risk:Reward ratio (ADVISORY with AUTO-ADJUSTMENT)
-    let tpDistance = Math.abs(adjustedDecision.takeProfit - adjustedDecision.entry);
-    let rr = tpDistance / slDistance;
+    // 7. Risk:Reward ratio (ADVISORY ONLY - NO AUTO-ADJUSTMENT)
+    const tpDistance = Math.abs(decision.takeProfit - decision.entry);
+    const rr = tpDistance / slDistance;
 
+    // ✅ GOVERNANCE FIX (2026-02-02): Removed auto-adjustment mutation
+    // Previously: Safety Enforcer auto-adjusted TP to meet TARGET_RR_RATIO
+    // Now: Advisory only - Alpha receives recommendation and decides
     if (rr < this.TARGET_RR_RATIO) {
-      // AUTO-ADJUST: Extend TP to meet TARGET_RR_RATIO (1.5)
       const requiredTpDistance = slDistance * this.TARGET_RR_RATIO;
-      const oldTp = adjustedDecision.takeProfit;
+      const suggestedTp = decision.action === 'BUY'
+        ? decision.entry + requiredTpDistance
+        : decision.entry - requiredTpDistance;
 
-      if (adjustedDecision.action === 'BUY') {
-        adjustedDecision.takeProfit = adjustedDecision.entry + requiredTpDistance;
-      } else {
-        adjustedDecision.takeProfit = adjustedDecision.entry - requiredTpDistance;
-      }
-
-      adjustments.push(`R:R auto-adjusted from ${rr.toFixed(2)} to ${this.TARGET_RR_RATIO}`);
-      adjustments.push(`TP adjusted: ${oldTp.toFixed(5)} → ${adjustedDecision.takeProfit.toFixed(5)}`);
-
-      console.log(`[Safety] 🔧 R:R ${rr.toFixed(2)} adjusted to ${this.TARGET_RR_RATIO}`);
-      console.log(`[Safety] 🎯 TP adjusted: ${oldTp.toFixed(5)} → ${adjustedDecision.takeProfit.toFixed(5)}`);
-
-      // Recalculate R:R with new TP
-      tpDistance = Math.abs(adjustedDecision.takeProfit - adjustedDecision.entry);
-      rr = tpDistance / slDistance;
-    }
-
-    // Advisory if R:R is still low (doesn't block)
-    if (rr < this.MIN_RR_RATIO) {
-      const advisory = `R:R ratio ${rr.toFixed(2)} below recommended ${this.MIN_RR_RATIO}`;
+      const advisory = `R:R below target: ${rr.toFixed(2)} < ${this.TARGET_RR_RATIO}. Consider TP ${suggestedTp.toFixed(5)}`;
       advisories.push(advisory);
       advisoryPenalties.push(
         advisoryPenaltyAggregator.createPenalty(
-          'Safety:RR_Low',
+          'Safety:RR_Below_Target',
           advisory,
-          12, // -12% confidence
+          8, // -8% confidence (moderate concern)
+          'risk'
+        )
+      );
+    }
+
+    // Advisory if R:R is critically low (doesn't block)
+    if (rr < this.MIN_RR_RATIO) {
+      const advisory = `R:R ratio ${rr.toFixed(2)} below minimum ${this.MIN_RR_RATIO} - high risk`;
+      advisories.push(advisory);
+      advisoryPenalties.push(
+        advisoryPenaltyAggregator.createPenalty(
+          'Safety:RR_Critical',
+          advisory,
+          15, // -15% confidence (serious concern)
           'risk'
         )
       );
@@ -296,48 +303,73 @@ class SafetyEnforcer {
         );
       }
 
-      // Apply risk reduction for high volatility
+      // ✅ GOVERNANCE FIX (2026-02-02): Risk reduction advisory only
+      // Previously: Auto-reduced risk_pct without Alpha re-approval
+      // Now: Advisory recommendation - Alpha decides
       if (regime.is_high_risk_regime && regime.risk_reduction_factor < 1.0) {
-        const originalRisk = adjustedDecision.risk_pct;
-        adjustedDecision.risk_pct = originalRisk * regime.risk_reduction_factor;
-        adjustments.push(`Risk reduced: ${originalRisk.toFixed(2)}% → ${adjustedDecision.risk_pct.toFixed(2)}% (high volatility)`);
-        console.log(`[Safety] 🔧 Risk auto-reduced due to regime (factor: ${regime.risk_reduction_factor})`);
+        const suggestedRisk = decision.risk_pct * regime.risk_reduction_factor;
+        const advisory = `High volatility regime: Consider reducing risk from ${decision.risk_pct.toFixed(2)}% to ${suggestedRisk.toFixed(2)}% (${(regime.risk_reduction_factor * 100).toFixed(0)}% factor)`;
+        advisories.push(advisory);
+        advisoryPenalties.push(
+          advisoryPenaltyAggregator.createPenalty(
+            'Safety:High_Volatility_Risk',
+            advisory,
+            12, // -12% confidence
+            'environment'
+          )
+        );
       }
 
-      // Widen stops for high wick risk (stop hunting protection)
+      // ✅ GOVERNANCE FIX (2026-02-02): SL widening advisory only
+      // Previously: Auto-widened SL without Alpha re-approval
+      // Now: Advisory recommendation - Alpha decides
       if (regime.wick_risk === 'high') {
-        const originalSL = adjustedDecision.stopLoss;
-        const slDirection = adjustedDecision.action === 'BUY' ? -1 : 1;
+        const slDirection = decision.action === 'BUY' ? -1 : 1;
         const widening = slDistance * 0.20; // 20% wider
-        adjustedDecision.stopLoss = adjustedDecision.entry + (slDirection * (slDistance + widening));
-        adjustments.push(`SL widened 20% for high wick risk: ${originalSL.toFixed(5)} → ${adjustedDecision.stopLoss.toFixed(5)}`);
-        console.log(`[Safety] 🔧 SL widened due to high wick risk`);
+        const suggestedSL = decision.entry + (slDirection * (slDistance + widening));
+        const advisory = `High wick risk detected: Consider widening SL from ${decision.stopLoss.toFixed(5)} to ${suggestedSL.toFixed(5)} (+20% stop hunting protection)`;
+        advisories.push(advisory);
+        advisoryPenalties.push(
+          advisoryPenaltyAggregator.createPenalty(
+            'Safety:High_Wick_Risk',
+            advisory,
+            10, // -10% confidence
+            'environment'
+          )
+        );
       }
 
-      // Higher R:R requirement during volatile opens
+      // ✅ GOVERNANCE FIX (2026-02-02): TP extension advisory only
+      // Previously: Auto-extended TP to 2.0 R:R for volatile opens
+      // Now: Advisory recommendation - Alpha decides
       if ((regime.session === 'ny_open' || regime.session_open) && regime.volatility_score > 75) {
         const currentRR = tpDistance / slDistance;
         if (currentRR < 2.0) {
           const requiredTpDistance = slDistance * 2.0;
-          const oldTp = adjustedDecision.takeProfit;
-          if (adjustedDecision.action === 'BUY') {
-            adjustedDecision.takeProfit = adjustedDecision.entry + requiredTpDistance;
-          } else {
-            adjustedDecision.takeProfit = adjustedDecision.entry - requiredTpDistance;
-          }
-          adjustments.push(`R:R increased to 2.0 for volatile session open: ${currentRR.toFixed(2)} → 2.0`);
-          console.log(`[Safety] 🔧 R:R increased for volatile session open`);
+          const suggestedTp = decision.action === 'BUY'
+            ? decision.entry + requiredTpDistance
+            : decision.entry - requiredTpDistance;
+          const advisory = `Volatile session open: Consider increasing R:R from ${currentRR.toFixed(2)} to 2.0 (TP ${suggestedTp.toFixed(5)})`;
+          advisories.push(advisory);
+          advisoryPenalties.push(
+            advisoryPenaltyAggregator.createPenalty(
+              'Safety:Volatile_Open_RR',
+              advisory,
+              8, // -8% confidence
+              'environment'
+            )
+          );
         }
       }
 
       // Breakout warning during compression + range
       if (regime.atr_compression && regime.structure === 'range') {
         // Check if this looks like a breakout attempt
-        const isNearResistance = context.currentPrice > (adjustedDecision.entry * 0.998);
-        const isNearSupport = context.currentPrice < (adjustedDecision.entry * 1.002);
-        if ((isNearResistance && adjustedDecision.action === 'BUY') ||
-            (isNearSupport && adjustedDecision.action === 'SELL')) {
-          const advisory = 'Breakout attempt during ATR compression + range structure';
+        const isNearResistance = context.currentPrice > (decision.entry * 0.998);
+        const isNearSupport = context.currentPrice < (decision.entry * 1.002);
+        if ((isNearResistance && decision.action === 'BUY') ||
+            (isNearSupport && decision.action === 'SELL')) {
+          const advisory = 'Breakout attempt during ATR compression + range structure - false breakout risk';
           advisories.push(advisory);
           advisoryPenalties.push(
             advisoryPenaltyAggregator.createPenalty(
@@ -370,60 +402,60 @@ class SafetyEnforcer {
         console.log(`[Safety] ⚠️ Severe adversarial environment detected`);
       }
 
-      // Moderate level: 50% risk reduction + advisory
+      // ✅ GOVERNANCE FIX (2026-02-02): Moderate adversarial advisory only
+      // Previously: Auto-reduced risk by 50% without Alpha re-approval
+      // Now: Advisory recommendation - Alpha decides
       else if (adv.level === 'moderate') {
-        const originalRisk = adjustedDecision.risk_pct;
-        adjustedDecision.risk_pct = originalRisk * 0.5;
-        adjustments.push(`Risk reduced 50% (adversarial): ${originalRisk.toFixed(2)}% → ${adjustedDecision.risk_pct.toFixed(2)}%`);
-
-        const advisory = `Moderate adversarial environment: ${adv.notes}`;
+        const suggestedRisk = decision.risk_pct * 0.5;
+        const advisory = `Moderate adversarial environment: ${adv.notes}. Consider reducing risk from ${decision.risk_pct.toFixed(2)}% to ${suggestedRisk.toFixed(2)}% (50% reduction)`;
         advisories.push(advisory);
         advisoryPenalties.push(
           advisoryPenaltyAggregator.createPenalty(
             'Safety:Adversarial_Moderate',
             advisory,
-            12, // -12% confidence
+            15, // -15% confidence (serious concern)
             'environment'
           )
         );
-        console.log(`[Safety] 🔧 Risk reduced 50% due to moderate adversarial environment`);
       }
 
-      // Mild level: 25% risk reduction OR higher R:R requirement + advisory
+      // ✅ GOVERNANCE FIX (2026-02-02): Mild adversarial advisory only
+      // Previously: Auto-adjusted TP or risk without Alpha re-approval
+      // Now: Advisory recommendation - Alpha decides
       else if (adv.level === 'mild') {
         const currentRR = tpDistance / slDistance;
 
         if (currentRR < 1.8) {
-          // Require minimum 1.8 R:R for mild adversarial
+          // Suggest minimum 1.8 R:R for mild adversarial
           const requiredTpDistance = slDistance * 1.8;
-          const oldTp = adjustedDecision.takeProfit;
+          const suggestedTp = decision.action === 'BUY'
+            ? decision.entry + requiredTpDistance
+            : decision.entry - requiredTpDistance;
 
-          if (adjustedDecision.action === 'BUY') {
-            adjustedDecision.takeProfit = adjustedDecision.entry + requiredTpDistance;
-          } else {
-            adjustedDecision.takeProfit = adjustedDecision.entry - requiredTpDistance;
-          }
-
-          adjustments.push(`R:R increased to 1.8 (adversarial): ${currentRR.toFixed(2)} → 1.8`);
-          console.log(`[Safety] 🔧 R:R increased due to mild adversarial environment`);
+          const advisory = `Mild adversarial environment: ${adv.notes}. Consider increasing R:R from ${currentRR.toFixed(2)} to 1.8 (TP ${suggestedTp.toFixed(5)})`;
+          advisories.push(advisory);
+          advisoryPenalties.push(
+            advisoryPenaltyAggregator.createPenalty(
+              'Safety:Adversarial_Mild_RR',
+              advisory,
+              10, // -10% confidence
+              'environment'
+            )
+          );
         } else {
-          // If R:R already good, reduce risk by 25%
-          const originalRisk = adjustedDecision.risk_pct;
-          adjustedDecision.risk_pct = originalRisk * 0.75;
-          adjustments.push(`Risk reduced 25% (adversarial): ${originalRisk.toFixed(2)}% → ${adjustedDecision.risk_pct.toFixed(2)}%`);
-          console.log(`[Safety] 🔧 Risk reduced 25% due to mild adversarial environment`);
+          // If R:R already good, suggest risk reduction
+          const suggestedRisk = decision.risk_pct * 0.75;
+          const advisory = `Mild adversarial environment: ${adv.notes}. Consider reducing risk from ${decision.risk_pct.toFixed(2)}% to ${suggestedRisk.toFixed(2)}% (25% reduction)`;
+          advisories.push(advisory);
+          advisoryPenalties.push(
+            advisoryPenaltyAggregator.createPenalty(
+              'Safety:Adversarial_Mild_Risk',
+              advisory,
+              8, // -8% confidence
+              'environment'
+            )
+          );
         }
-
-        const advisory = `Mild adversarial environment: ${adv.notes}`;
-        advisories.push(advisory);
-        advisoryPenalties.push(
-          advisoryPenaltyAggregator.createPenalty(
-            'Safety:Adversarial_Mild',
-            advisory,
-            8, // -8% confidence
-            'environment'
-          )
-        );
       }
     }
 
@@ -437,13 +469,13 @@ class SafetyEnforcer {
       console.log('[Safety Enforcer] ✅ System integrity validated');
 
       if (advisories.length > 0) {
-        console.log('[Safety Enforcer] ⚠️ Advisory warnings (Alpha aware):');
+        console.log(`[Safety Enforcer] ⚠️  ${advisories.length} advisory warnings (Alpha will evaluate):`);
         advisories.forEach(a => console.log(`  • ${a}`));
       }
 
-      if (adjustments.length > 0) {
-        console.log('[Safety Enforcer] 🔧 Auto-adjustments applied:');
-        adjustments.forEach(a => console.log(`  ✓ ${a}`));
+      if (advisoryPenalties.length > 0) {
+        const totalPenalty = advisoryPenalties.reduce((sum, p) => sum + p.penaltyPercent, 0);
+        console.log(`[Safety Enforcer] 📊 Total advisory penalty: -${totalPenalty.toFixed(1)}% confidence`);
       }
     }
 
@@ -452,8 +484,6 @@ class SafetyEnforcer {
       hardBlocks,
       advisories,
       action: passed ? 'ALLOW' : 'BLOCK',
-      adjustedDecision: adjustments.length > 0 ? adjustedDecision : undefined,
-      adjustments,
       advisoryPenalties,
     };
   }

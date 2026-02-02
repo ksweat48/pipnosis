@@ -4,16 +4,22 @@
  * All trading-related thresholds and constants MUST be defined here.
  * DO NOT hardcode these values elsewhere in the codebase.
  *
+ * SSOT GOVERNANCE (2026-02-02):
+ * - Alpha-specific behavior → alpha-identity.ts (minimum confidence, advisory penalties)
+ * - Platform constants → THIS FILE (risk percentages, lot sizes, R:R ratios)
+ * - See GOVERNANCE_DECISIONS.md for conflict resolution decisions
+ *
  * Usage: import { TRADING_CONSTANTS } from '@/config/trading-constants';
  */
 
 export const TRADING_CONSTANTS = {
   RISK_REWARD_RATIOS: {
-    MINIMUM: 1.0,
-    TARGET: 1.5,
-    GOOD: 2.0,
-    EXCELLENT: 2.5,
-    EXCEPTIONAL: 3.0,
+    CATASTROPHIC_THRESHOLD: 0.5, // Below this = HARD BLOCK (system integrity failure)
+    MINIMUM: 1.0,                 // Advisory threshold (proceed with penalty)
+    TARGET: 1.5,                  // Recommended baseline
+    GOOD: 2.0,                    // Quality threshold
+    EXCELLENT: 2.5,               // High-quality setup
+    EXCEPTIONAL: 3.0,             // Elite setup
   },
 
   ATR_MULTIPLIERS: {
@@ -99,8 +105,22 @@ export const TRADING_CONSTANTS = {
   },
 } as const;
 
+/**
+ * CONFIDENCE THRESHOLDS
+ *
+ * ⚠️ SSOT GOVERNANCE NOTE (2026-02-02):
+ * MINIMUM_TO_TRADE has been DEPRECATED and removed.
+ *
+ * AUTHORITATIVE SOURCE for minimum trade confidence:
+ * → alpha-identity.ts: ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE = 60%
+ *
+ * REASON: Alpha-specific behavioral parameters belong in alpha-identity.ts
+ * See GOVERNANCE_DECISIONS.md for full rationale.
+ *
+ * These thresholds are for LABELING confidence bands only, not enforcement.
+ */
 export const CONFIDENCE_THRESHOLDS = {
-  MINIMUM_TO_TRADE: 70,
+  // MINIMUM_TO_TRADE: DEPRECATED - Use ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE instead
   GOOD: 75,
   HIGH: 80,
   VERY_HIGH: 85,

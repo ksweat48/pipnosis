@@ -22,6 +22,19 @@
 import { sessionConstraintCoordinator } from './session-constraint-coordinator';
 import { assetClassifier } from './asset-classifier';
 
+/**
+ * ✅ GOVERNANCE FIX (2026-02-02): SSOT for Regime Oracle Penalty Cap
+ *
+ * This is the MAXIMUM penalty that regime-based advisories can impose.
+ * This is a SUBSET of ALPHA_IDENTITY.MAX_ADVISORY_PENALTY (30% total).
+ *
+ * Regime penalties are capped at 15% to leave room for other advisory systems
+ * (adversarial detector, safety enforcer, etc.) to contribute to the total 30% cap.
+ *
+ * RATIONALE: Regime alone shouldn't dominate all advisory penalties.
+ */
+const REGIME_MAX_PENALTY_PERCENT = 15;
+
 export interface Candle {
   open: number;
   high: number;
@@ -446,13 +459,14 @@ class RegimeOracle {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // HARD CAP ENFORCEMENT (15% absolute maximum)
+    // HARD CAP ENFORCEMENT
+    // ✅ GOVERNANCE FIX (2026-02-02): Import from SSOT instead of hardcoded 15
     // ═══════════════════════════════════════════════════════════════════
 
-    if (finalPenalty > 15) {
-      console.error(`[Regime Oracle] 🚨 PENALTY CAP VIOLATION: ${finalPenalty}% exceeds 15% hard cap`);
-      console.error(`[Regime Oracle] Source: ${worstPenaltySource} - capping at 15%`);
-      finalPenalty = 15;
+    if (finalPenalty > REGIME_MAX_PENALTY_PERCENT) {
+      console.error(`[Regime Oracle] 🚨 PENALTY CAP VIOLATION: ${finalPenalty}% exceeds ${REGIME_MAX_PENALTY_PERCENT}% hard cap`);
+      console.error(`[Regime Oracle] Source: ${worstPenaltySource} - capping at ${REGIME_MAX_PENALTY_PERCENT}%`);
+      finalPenalty = REGIME_MAX_PENALTY_PERCENT;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -460,7 +474,7 @@ class RegimeOracle {
     // ═══════════════════════════════════════════════════════════════════
 
     let regimeClass: RegimeClassification;
-    if (finalPenalty >= 15) {
+    if (finalPenalty >= REGIME_MAX_PENALTY_PERCENT) {
       regimeClass = 'CHAOTIC';
     } else if (finalPenalty >= 10) {
       regimeClass = 'HIGH_RISK';
