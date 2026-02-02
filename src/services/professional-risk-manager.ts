@@ -45,7 +45,8 @@ export interface TradeEvaluationInputs {
 }
 
 class ProfessionalRiskManager {
-  private readonly DEFAULT_BASE_RISK = 0.01; // 1%
+  // ✅ PHASE 2 FIX (2026-02-02): Removed DEFAULT_BASE_RISK duplication
+  // Now imports from SSOT: TRADING_CONSTANTS.RISK_PERCENTAGES.DEFAULT_BASE_RISK
 
   async evaluateTrade(inputs: TradeEvaluationInputs): Promise<ComprehensiveRiskAssessment> {
     const {
@@ -54,7 +55,7 @@ class ProfessionalRiskManager {
       direction,
       currentBalance,
       proposedLotSize,
-      baseRiskPercent = this.DEFAULT_BASE_RISK,
+      baseRiskPercent = TRADING_CONSTANTS.RISK_PERCENTAGES.DEFAULT_BASE_RISK,
       stopLossPips,
       takeProfitPips,
       currentATR,

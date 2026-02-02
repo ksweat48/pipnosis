@@ -24,6 +24,7 @@ import type { TradeContext } from '../types/trade-context';
 import { validateTradeContext } from '../utils/tradeMath';
 import { getCurrencyPipInfo, calculateDollarPerPip, calculatePipDistance, roundLotSize } from '../utils/currencyHelpers';
 import { getSymbolConfig } from '../config/symbol-registry';
+import { TRADING_CONSTANTS } from '../config/trading-constants';
 import { kellyCriterionSizer } from './kelly-criterion-sizer';
 import { evGatingSystem } from './ev-gating-system';
 import { volatilityAdjustedRisk } from './volatility-adjusted-risk';
@@ -87,7 +88,8 @@ export interface RiskAssessmentResult {
 }
 
 class UnifiedRiskAuthority {
-  private readonly DEFAULT_BASE_RISK = 0.01; // 1%
+  // ✅ PHASE 2 FIX (2026-02-02): Removed DEFAULT_BASE_RISK duplication
+  // Now imports from SSOT: TRADING_CONSTANTS.RISK_PERCENTAGES.DEFAULT_BASE_RISK
   private readonly MARGIN_LEVERAGE = 1000; // 1:1000 leverage
 
   /**
@@ -104,7 +106,7 @@ class UnifiedRiskAuthority {
       takeProfit,
       userId,
       currentBalance,
-      baseRiskPercent = this.DEFAULT_BASE_RISK,
+      baseRiskPercent = TRADING_CONSTANTS.RISK_PERCENTAGES.DEFAULT_BASE_RISK,
       riskMode = 'medium',
       proposedLotSize,
       goalSessionId

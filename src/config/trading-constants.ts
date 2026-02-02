@@ -61,11 +61,18 @@ export const TRADING_CONSTANTS = {
   },
 
   RISK_PERCENTAGES: {
-    MIN_PER_TRADE: 0.01,
-    DEFAULT_PER_TRADE: 0.02,
-    MAX_PER_TRADE: 0.10,
-    MAX_TOTAL_EXPOSURE: 0.20,
-    MAX_DAILY_DRAWDOWN: 0.08,
+    /**
+     * ✅ PHASE 2 FIX (2026-02-02): Consolidated DEFAULT_BASE_RISK
+     * Was scattered across 2 files (unified-risk-authority.ts, professional-risk-manager.ts)
+     * DEFAULT_BASE_RISK = Conservative baseline when no preference specified
+     * DEFAULT_PER_TRADE = Standard/recommended risk level
+     */
+    DEFAULT_BASE_RISK: 0.01,      // 1% - Conservative baseline (SSOT)
+    MIN_PER_TRADE: 0.01,          // 1% - Minimum allowed
+    DEFAULT_PER_TRADE: 0.02,      // 2% - Recommended baseline
+    MAX_PER_TRADE: 0.10,          // 10% - Maximum allowed
+    MAX_TOTAL_EXPOSURE: 0.20,     // 20% - Total portfolio risk cap
+    MAX_DAILY_DRAWDOWN: 0.08,     // 8% - Daily loss limit
     DRAWDOWN_RISK_REDUCTION_THRESHOLD: 0.03,
     DRAWDOWN_RISK_REDUCTION_FACTOR: 0.5,
     DAILY_LOSS_CRITICAL_REMAINING: 0.02,
