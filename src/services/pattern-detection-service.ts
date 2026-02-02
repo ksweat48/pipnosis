@@ -16,6 +16,16 @@
 
 import type { CandleData } from './candle-data-service';
 import { logger } from '../lib/logger';
+import {
+  PULLBACK_THRESHOLDS,
+  SWING_THRESHOLDS,
+  REVERSAL_THRESHOLDS,
+  CONTINUATION_THRESHOLDS,
+  VWAP_THRESHOLDS,
+  STRUCTURE_BREAK_THRESHOLDS,
+  PATTERN_CONFIDENCE,
+  NOISE_FILTERING
+} from '../config/pattern-detection-thresholds';
 
 export type PatternType =
   | 'flag'
@@ -348,7 +358,10 @@ class PatternDetectionService {
     }
 
     // Bearish break-retest
-    if (recentLow < rangeLow * 0.998 && currentClose < rangeLow && recentHigh >= rangeLow * 0.995) {
+    // Using BOS break threshold (0.2%) and retest tolerance (0.5% = 2.5x break threshold)
+    const breakThreshold = 1 - STRUCTURE_BREAK_THRESHOLDS.BOS_MIN_BREAK_PERCENT; // 0.998
+    const retestTolerance = 1 - (STRUCTURE_BREAK_THRESHOLDS.BOS_MIN_BREAK_PERCENT * 2.5); // 0.995
+    if (recentLow < rangeLow * breakThreshold && currentClose < rangeLow && recentHigh >= rangeLow * retestTolerance) {
       return {
         patternType: 'break_retest',
         category: 'continuation',
@@ -575,8 +588,10 @@ class PatternDetectionService {
     const rangeSize = rangeHigh - rangeLow;
 
     // Check if price is oscillating in tight range
-    const touches = highs.filter(h => h > rangeHigh * 0.995).length +
-                    lows.filter(l => l < rangeLow * 1.005).length;
+    // Using 0.5% tolerance for range boundary touches (2.5x base pattern tolerance)
+    const rangeTouchTolerance = STRUCTURE_BREAK_THRESHOLDS.BOS_MIN_BREAK_PERCENT * 2.5; // 0.005 (0.5%)
+    const touches = highs.filter(h => h > rangeHigh * (1 - rangeTouchTolerance)).length +
+                    lows.filter(l => l < rangeLow * (1 + rangeTouchTolerance)).length;
 
     if (touches >= 4 && rangeSize < rangeHigh * 0.03) {
       return {
@@ -676,7 +691,10 @@ class PatternDetectionService {
               high: vacuumHigh,
               low: vacuumLow,
             },
-            invalidationPrice: direction === 'bullish' ? current * 0.995 : current * 1.005,
+            // Invalidation price buffer: 0.5% from current price (2.5x base pattern tolerance)
+            invalidationPrice: direction === 'bullish'
+              ? current * (1 - STRUCTURE_BREAK_THRESHOLDS.BOS_MIN_BREAK_PERCENT * 2.5)
+              : current * (1 + STRUCTURE_BREAK_THRESHOLDS.BOS_MIN_BREAK_PERCENT * 2.5),
             invalidationReasoning: 'Price reverses before reaching vacuum zone',
             liquidityTargets: direction === 'bullish' ? [vacuumHigh, vacuumHigh * 1.01] : [vacuumLow, vacuumLow * 0.99],
             candleCount: recentCandles.length,
@@ -856,7 +874,8 @@ class PatternDetectionService {
   }
 
   private findEqualLevels(levels: number[], type: 'high' | 'low'): number[] {
-    const tolerance = 0.002; // 0.2% tolerance
+    // Using double top tolerance for identifying equal levels (0.2% tolerance)
+    const tolerance = REVERSAL_THRESHOLDS.DOUBLE_TOP_TOLERANCE_PERCENT;
     const equalLevels: number[] = [];
 
     for (let i = 0; i < levels.length; i++) {

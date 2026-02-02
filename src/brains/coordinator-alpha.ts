@@ -2783,11 +2783,20 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
       // Alpha now only returns BUY, SELL, or NO_TRADE
       // If setup not ready, return NO_TRADE and scanner will re-evaluate
 
-      // Get LLM values
-      let entry = parsed.entry || currentPrice;
+      // Get LLM values with defensive null checks
+      // CRITICAL FIX: Explicit null/undefined check to prevent database insertion errors
+      // parsed.entry could be null, undefined, or 0 - only fallback if null/undefined
+      let entry = (parsed.entry !== null && parsed.entry !== undefined) ? parsed.entry : currentPrice;
       let stopLoss = parsed.stopLoss;
       let takeProfit = parsed.takeProfit;
       const isBuy = action === 'BUY';
+
+      // Additional safety check: ensure entry is a valid number
+      if (typeof entry !== 'number' || isNaN(entry) || entry <= 0) {
+        console.error(`[Alpha Coordinator] 🚨 INVALID ENTRY PRICE: ${entry} (type: ${typeof entry})`);
+        console.error(`[Alpha Coordinator] Falling back to currentPrice: ${currentPrice}`);
+        entry = currentPrice;
+      }
 
       // ═══════════════════════════════════════════════════════════════════
       // GEOMETRY VALIDATION (SSOT: alpha-geometry-validator.ts)

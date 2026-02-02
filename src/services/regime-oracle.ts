@@ -21,6 +21,15 @@
 
 import { sessionConstraintCoordinator } from './session-constraint-coordinator';
 import { assetClassifier } from './asset-classifier';
+import {
+  VOLATILITY_REGIME,
+  TREND_REGIME,
+  REGIME_PENALTIES,
+  WICK_RISK,
+  SPREAD_RISK,
+  ATR_PERIODS,
+  STRUCTURE_QUALITY
+} from '../config/regime-scoring-constants';
 
 /**
  * ✅ GOVERNANCE FIX (2026-02-02): SSOT for Regime Oracle Penalty Cap
@@ -252,15 +261,18 @@ class RegimeOracle {
    * B. VOLATILITY REGIME DETECTION
    */
   private detectVolatilityRegime(currentATR: number, candles: Candle[]): VolatilityRegime {
-    if (!candles || candles.length < 20) {
+    if (!candles || candles.length < ATR_PERIODS.MIN_CANDLES_REQUIRED) {
       return this.getDefaultVolatilityRegime();
     }
 
     const atr20Avg = this.compute20PeriodATRAvg(candles);
-    const atrCompression = currentATR < atr20Avg * 0.75;
-    const atrExpansion = currentATR > atr20Avg * 1.25;
+    const atrCompression = currentATR < atr20Avg * VOLATILITY_REGIME.ATR_COMPRESSION_THRESHOLD;
+    const atrExpansion = currentATR > atr20Avg * VOLATILITY_REGIME.ATR_EXPANSION_THRESHOLD;
 
-    const volatilityScore = Math.min(100, Math.round((currentATR / atr20Avg) * 50));
+    const volatilityScore = Math.min(
+      VOLATILITY_REGIME.VOLATILITY_SCORE_MAX,
+      Math.round((currentATR / atr20Avg) * VOLATILITY_REGIME.VOLATILITY_SCORE_MULTIPLIER)
+    );
 
     const wickRisk = this.computeWickRisk(candles);
     const avgWickSize = this.computeAvgWickSize(candles);
@@ -288,7 +300,10 @@ class RegimeOracle {
     candles: Candle[]
   ): TrendStructureRegime {
     const emaDiff = Math.abs(marketState.ema20 - marketState.ema50);
-    const trendStrength = Math.min(100, Math.round((emaDiff / marketState.atr) * 20));
+    const trendStrength = Math.min(
+      TREND_REGIME.TREND_STRENGTH_MAX,
+      Math.round((emaDiff / marketState.atr) * TREND_REGIME.TREND_STRENGTH_MULTIPLIER)
+    );
 
     const emaAlignment = this.detectEMAAlignment(marketState);
     const marketBias = this.detectMarketBias(marketState);
@@ -424,7 +439,7 @@ class RegimeOracle {
     }
 
     // 6. ATR COMPRESSION + RANGE COMBINATION (max 8%)
-    if (volatility.atr_compression && trend.structure_type === 'range' && volatility.volatility_score < 25) {
+    if (volatility.atr_compression && trend.structure_type === 'range' && volatility.volatility_score < VOLATILITY_REGIME.COMPRESSION_RANGE_THRESHOLD) {
       penalties.push({
         source: 'ATR Compression + Range',
         penalty: 8,

@@ -643,6 +643,24 @@ class AlphaOmegaOrchestrator {
       console.warn(`[Alpha+Omega] ⚠️ CONFIDENCE DEGRADED: ${confidenceResult.degradation_reason}`);
     }
 
+    // ✅ CRITICAL SAFETY CHECK: Ensure entry price is never null/undefined
+    // This prevents database insertion errors in goal_session_trades
+    if (decision.entry === null || decision.entry === undefined || typeof decision.entry !== 'number' || isNaN(decision.entry)) {
+      console.error('[Alpha+Omega] 🚨 CRITICAL: Decision has invalid entry price!');
+      console.error(`[Alpha+Omega] Entry value: ${decision.entry} (type: ${typeof decision.entry})`);
+      console.error('[Alpha+Omega] Forcing NO_TRADE to prevent database error');
+      return {
+        action: 'NO_TRADE' as const,
+        decision: 'NO_TRADE' as const,
+        entry: marketState.price,
+        stopLoss: marketState.price,
+        takeProfit: marketState.price,
+        confidence: 0,
+        reasoning: `BLOCKED: Invalid entry price (${decision.entry}) - data integrity protection`,
+        omega_summary: 'Entry price validation failed'
+      };
+    }
+
     return {
       ...decision,
       confidence: finalConfidence,

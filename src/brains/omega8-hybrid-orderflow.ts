@@ -22,6 +22,11 @@ import { openAIClient } from '../services/openai-client';
 import type { Omega8Vote } from '../types/omega';
 import { supabase } from '../lib/supabase';
 import { llmTokenTracker } from '../services/llm-token-tracker';
+import {
+  VOLUME_THRESHOLDS,
+  LIQUIDITY_ZONES,
+  SMART_MONEY
+} from '../config/orderflow-thresholds';
 
 export interface Omega8Candle {
   time: number;
@@ -100,8 +105,9 @@ export interface Omega8HybridResult {
 export class Omega8HybridBrain {
   private readonly LLM_CONFIDENCE_LOWER = 35;
   private readonly LLM_CONFIDENCE_UPPER = 65;
-  private readonly VOL_SPIKE_THRESHOLD = 1.5;
-  private readonly ABSORPTION_VOL_THRESHOLD = 1.8;
+  // Using SSOT config constants for volume analysis
+  private readonly VOL_SPIKE_THRESHOLD = VOLUME_THRESHOLDS.MODERATE_SPIKE_MULTIPLIER; // 1.5x
+  private readonly ABSORPTION_VOL_THRESHOLD = LIQUIDITY_ZONES.MIN_VOLUME_CLUSTER_MULTIPLIER; // 1.8x
 
   /**
    * Main entry point - runs hybrid analysis
