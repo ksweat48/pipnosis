@@ -122,24 +122,59 @@ class AlphaTradeExecutor {
       .from('user_token_balance')
       .select('balance')
       .eq('user_id', userId)
-      .single();
+      .maybeSingle(); // Use maybeSingle() to handle missing rows gracefully
 
-    if (balanceError || !balanceData) {
-      console.error('[AlphaTradeExecutor] Failed to fetch account balance:', {
+    if (balanceError) {
+      console.error('[AlphaTradeExecutor] Database error fetching account balance:', {
         userId,
         sessionId,
-        error: balanceError?.message
+        error: balanceError.message
       });
       return {
         success: false,
-        error: 'Failed to fetch account balance',
-        blockReason: 'Cannot assess risk without account balance data'
+        error: 'Database error fetching account balance',
+        blockReason: 'Database query failed for account balance'
       };
     }
 
-    const currentBalance = balanceData.balance;
+    let currentBalance: number;
 
-    // GOVERNANCE: Fail closed if balance is missing or invalid
+    // GOVERNANCE FIX: If user has no balance row, create one with default 50 credits
+    if (!balanceData) {
+      console.warn('[AlphaTradeExecutor] User missing balance row - creating with 50 credits:', {
+        userId,
+        sessionId
+      });
+
+      const { error: insertError } = await supabase
+        .from('user_token_balance')
+        .insert({
+          user_id: userId,
+          balance: 50.00,
+          lifetime_earned: 50.00,
+          lifetime_spent: 0.00
+        });
+
+      if (insertError) {
+        console.error('[AlphaTradeExecutor] Failed to create balance row:', {
+          userId,
+          sessionId,
+          error: insertError.message
+        });
+        return {
+          success: false,
+          error: 'Failed to initialize account balance',
+          blockReason: 'Could not create missing balance record'
+        };
+      }
+
+      // Use default balance of 50 credits for this execution
+      currentBalance = 50.00;
+    } else {
+      currentBalance = balanceData.balance;
+    }
+
+    // GOVERNANCE: Fail closed if balance is invalid
     if (currentBalance === undefined || currentBalance === null || isNaN(currentBalance)) {
       console.error('[AlphaTradeExecutor] Invalid account balance:', {
         userId,
@@ -148,7 +183,7 @@ class AlphaTradeExecutor {
       });
       return {
         success: false,
-        error: 'Account balance is invalid or missing',
+        error: 'Account balance is invalid',
         blockReason: 'Cannot assess risk without valid account balance'
       };
     }
