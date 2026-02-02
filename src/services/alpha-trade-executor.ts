@@ -82,11 +82,11 @@ class AlphaTradeExecutor {
       decision,
       {
         direction: decision.direction === 'LONG' ? 'buy' : 'sell',
-        entryPrice: decision.entry_price,
-        stopLoss: decision.stop_loss,
-        takeProfit: decision.take_profit,
-        tp1Price: decision.tp1_price,
-        tp2Price: decision.tp2_price
+        entryPrice: decision.entry,
+        stopLoss: decision.stopLoss,
+        takeProfit: decision.takeProfit,
+        tp1Price: decision.tp1Price,
+        tp2Price: decision.tp2Price
       },
       { snapshotTimestamp },
       userId
@@ -134,9 +134,9 @@ class AlphaTradeExecutor {
       tradeContext,
       symbol: decision.symbol,
       direction: decision.direction === 'LONG' ? 'long' : 'short',
-      entryPrice: decision.entry_price,
-      stopLoss: decision.stop_loss,
-      takeProfit: decision.take_profit,
+      entryPrice: decision.entry,
+      stopLoss: decision.stopLoss,
+      takeProfit: decision.takeProfit,
       userId,
       currentBalance: userProfile.account_balance,
       riskMode: session.risk_mode || 'medium',
@@ -343,7 +343,7 @@ class AlphaTradeExecutor {
       sessionId,
       lotSize,
       riskDollars,
-      entryPrice: decision.entry_price,
+      entryPrice: decision.entry,
       status: 'pending',
       openedAt: null,
       inputs
@@ -374,7 +374,7 @@ class AlphaTradeExecutor {
       sessionId,
       type: 'signal',
       title: `Trade Signal: ${decision.symbol}`,
-      message: `${decision.direction} ${lotSize.toFixed(2)} lots at ${decision.entry_price.toFixed(5)}`,
+      message: `${decision.direction} ${lotSize.toFixed(2)} lots at ${decision.entry.toFixed(5)}`,
       tradeId: trade.id
     });
 
@@ -405,9 +405,9 @@ class AlphaTradeExecutor {
         goal_session_id: sessionId,
         symbol: decision.symbol,
         direction: toDirectionDB(decision.direction === 'LONG' ? 'buy' : 'sell'),
-        entry_price_target: decision.entry_price,
-        stop_loss: decision.stop_loss,
-        take_profit: decision.take_profit,
+        entry_price_target: decision.entry,
+        stop_loss: decision.stopLoss,
+        take_profit: decision.takeProfit,
         lot_size: lotSize,
         risk_dollars: riskDollars,
         status: 'active',
@@ -427,7 +427,7 @@ class AlphaTradeExecutor {
     return {
       success: true,
       isMonitoring: true,
-      message: `Monitoring ${decision.symbol} for entry at ${decision.entry_price.toFixed(5)}`
+      message: `Monitoring ${decision.symbol} for entry at ${decision.entry.toFixed(5)}`
     };
   }
 
@@ -460,10 +460,10 @@ class AlphaTradeExecutor {
       symbol: decision.symbol,
       direction: toDirectionDB(decision.direction === 'LONG' ? 'buy' : 'sell'),
       entry_price: entryPrice,
-      stop_loss: decision.stop_loss,
-      take_profit: decision.take_profit,
-      tp1_price: decision.tp1_price,
-      tp2_price: decision.tp2_price,
+      stop_loss: decision.stopLoss,
+      take_profit: decision.takeProfit,
+      tp1_price: decision.tp1Price,
+      tp2_price: decision.tp2Price,
       position_size: lotSize,
       risk_dollars: riskDollars,
       status,
