@@ -211,6 +211,34 @@ class CoreValidationGate {
     const { direction, entryPrice, stopLoss, takeProfit, tp1Price, tp2Price } = params;
     const isBuy = direction === 'buy';
 
+    // NULL CHECKS: Fail closed if required parameters are missing
+    if (entryPrice == null) {
+      return {
+        passed: false,
+        severity: 'FATAL',
+        reason: 'Missing required parameter: entryPrice is null or undefined',
+        errorType: 'GEOMETRY_INVALID'
+      };
+    }
+
+    if (stopLoss == null) {
+      return {
+        passed: false,
+        severity: 'FATAL',
+        reason: 'Missing required parameter: stopLoss is null or undefined',
+        errorType: 'GEOMETRY_INVALID'
+      };
+    }
+
+    if (takeProfit == null) {
+      return {
+        passed: false,
+        severity: 'FATAL',
+        reason: 'Missing required parameter: takeProfit is null or undefined',
+        errorType: 'GEOMETRY_INVALID'
+      };
+    }
+
     if (isBuy) {
       // BUY trades: SL below entry, TP above entry
       if (stopLoss >= entryPrice) {
@@ -231,22 +259,26 @@ class CoreValidationGate {
         };
       }
 
-      if (tp1Price !== undefined && tp1Price <= entryPrice) {
-        return {
-          passed: false,
-          severity: 'FATAL',
-          reason: `TP1 on wrong side for BUY: Entry=${entryPrice.toFixed(5)}, TP1=${tp1Price.toFixed(5)} (TP1 must be above entry)`,
-          errorType: 'GEOMETRY_INVALID'
-        };
+      if (tp1Price !== undefined && tp1Price !== null) {
+        if (tp1Price <= entryPrice) {
+          return {
+            passed: false,
+            severity: 'FATAL',
+            reason: `TP1 on wrong side for BUY: Entry=${entryPrice.toFixed(5)}, TP1=${tp1Price.toFixed(5)} (TP1 must be above entry)`,
+            errorType: 'GEOMETRY_INVALID'
+          };
+        }
       }
 
-      if (tp2Price !== undefined && tp2Price <= entryPrice) {
-        return {
-          passed: false,
-          severity: 'FATAL',
-          reason: `TP2 on wrong side for BUY: Entry=${entryPrice.toFixed(5)}, TP2=${tp2Price.toFixed(5)} (TP2 must be above entry)`,
-          errorType: 'GEOMETRY_INVALID'
-        };
+      if (tp2Price !== undefined && tp2Price !== null) {
+        if (tp2Price <= entryPrice) {
+          return {
+            passed: false,
+            severity: 'FATAL',
+            reason: `TP2 on wrong side for BUY: Entry=${entryPrice.toFixed(5)}, TP2=${tp2Price.toFixed(5)} (TP2 must be above entry)`,
+            errorType: 'GEOMETRY_INVALID'
+          };
+        }
       }
     } else {
       // SELL trades: SL above entry, TP below entry
@@ -268,22 +300,26 @@ class CoreValidationGate {
         };
       }
 
-      if (tp1Price !== undefined && tp1Price >= entryPrice) {
-        return {
-          passed: false,
-          severity: 'FATAL',
-          reason: `TP1 on wrong side for SELL: Entry=${entryPrice.toFixed(5)}, TP1=${tp1Price.toFixed(5)} (TP1 must be below entry)`,
-          errorType: 'GEOMETRY_INVALID'
-        };
+      if (tp1Price !== undefined && tp1Price !== null) {
+        if (tp1Price >= entryPrice) {
+          return {
+            passed: false,
+            severity: 'FATAL',
+            reason: `TP1 on wrong side for SELL: Entry=${entryPrice.toFixed(5)}, TP1=${tp1Price.toFixed(5)} (TP1 must be below entry)`,
+            errorType: 'GEOMETRY_INVALID'
+          };
+        }
       }
 
-      if (tp2Price !== undefined && tp2Price >= entryPrice) {
-        return {
-          passed: false,
-          severity: 'FATAL',
-          reason: `TP2 on wrong side for SELL: Entry=${entryPrice.toFixed(5)}, TP2=${tp2Price.toFixed(5)} (TP2 must be below entry)`,
-          errorType: 'GEOMETRY_INVALID'
-        };
+      if (tp2Price !== undefined && tp2Price !== null) {
+        if (tp2Price >= entryPrice) {
+          return {
+            passed: false,
+            severity: 'FATAL',
+            reason: `TP2 on wrong side for SELL: Entry=${entryPrice.toFixed(5)}, TP2=${tp2Price.toFixed(5)} (TP2 must be below entry)`,
+            errorType: 'GEOMETRY_INVALID'
+          };
+        }
       }
     }
 
