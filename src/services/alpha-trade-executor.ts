@@ -452,10 +452,8 @@ class AlphaTradeExecutor {
       ? getRegimeBucket(inputs.regimeSnapshot, inputs.adversarialState)
       : null;
 
-    // Extract Omega data
-    const omega8Data = coreValidationGate.extractOmega8Data(decision);
-    const omega9Data = coreValidationGate.extractOmega9Data(decision);
-
+    // SSOT: goal_session_trades schema compliance (20260202)
+    // Fields omega8/omega9 removed from schema - data lives in alpha_decisions table
     return {
       user_id: userId,
       goal_session_id: sessionId,
@@ -473,13 +471,8 @@ class AlphaTradeExecutor {
       opened_at: openedAt,
       current_price: status === 'open' ? entryPrice : null,
       current_pnl: status === 'open' ? 0 : null,
-      confidence: decision.confidence,
-      regime_bucket: regimeBucket,
-      // Omega data
-      omega8_liquidity_bias: omega8Data?.liquidity_bias,
-      omega8_direction_support: omega8Data?.direction_support,
-      omega9_pass: omega9Data?.pass,
-      omega9_safety_zone: omega9Data?.safety_zone
+      trade_confidence: decision.confidence, // SSOT: Correct column name
+      regime_bucket: regimeBucket
     };
   }
 
