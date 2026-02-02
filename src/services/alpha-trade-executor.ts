@@ -117,16 +117,22 @@ class AlphaTradeExecutor {
     }
 
     // Layer 3: Risk Authority (Context + PCVL + Margin + Kelly)
-    const { data: userProfile } = await supabase
-      .from('user_profiles')
-      .select('account_balance')
-      .eq('id', userId)
-      .single();
+    // SSOT FIX (2026-02-02): Use session.account_balance as source of truth
+    // The goal_sessions table contains the authoritative account balance for the session
+    const currentBalance = session.account_balance;
 
-    if (!userProfile) {
+    // GOVERNANCE: Fail closed if balance is missing
+    if (currentBalance === undefined || currentBalance === null || isNaN(currentBalance)) {
+      console.error('[AlphaTradeExecutor] Invalid account balance:', {
+        userId,
+        sessionId,
+        sessionBalance: session.account_balance,
+        sessionData: session
+      });
       return {
         success: false,
-        error: 'User profile not found'
+        error: 'Account balance is invalid or missing from session',
+        blockReason: 'Cannot assess risk without valid account balance'
       };
     }
 
@@ -138,7 +144,7 @@ class AlphaTradeExecutor {
       stopLoss: decision.stopLoss,
       takeProfit: decision.takeProfit,
       userId,
-      currentBalance: userProfile.account_balance,
+      currentBalance: currentBalance,
       riskMode: session.risk_mode || 'medium',
       goalSessionId: sessionId
     });
