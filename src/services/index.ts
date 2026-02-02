@@ -6,6 +6,9 @@
 export * from './asset-classifier';
 export * from './session-constraint-coordinator';
 
+// SSOT Trade Execution - Single Authority for Server-Side Trade Execution
+export * from './ssot-trade-execution-adapter';
+
 // Autonomous Pipnosis Alpha Services
 export * from './ai-identity';
 export * from './reward-engine';
