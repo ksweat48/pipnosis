@@ -532,6 +532,8 @@ class GoalSessionLiveEngine {
     let tradeExecuted = false;
     // ✅ SSOT FIX: Declare at function scope so catch block can access for diagnostics
     let tradeableSnapshots: any[] | undefined;
+    // ✅ SSOT FIX: Declare at function scope for error handler access
+    let activeSession: string | null = null;
 
     try {
       // 🔍 RACE CONDITION FIX: Early exit if session is stopping or config is null
@@ -548,7 +550,7 @@ class GoalSessionLiveEngine {
       // this.config can be set to null by stop() while async operations are running
       // Using a local copy ensures we have stable references throughout execution
       const config = this.config;
-      const activeSession = this.activeSession;
+      activeSession = this.activeSession;
 
       // 🔍 CRITICAL: Log entry to processMultiSymbolCycle for debugging
       console.log('%c[PROCESS_MULTI_SYMBOL] 🚀 Entered processMultiSymbolCycle', 'color: #9c27b0; font-weight: bold', {
@@ -2009,20 +2011,32 @@ class GoalSessionLiveEngine {
         }
       } else {
         logger.error(LogCategory.AI_TRADING, `❌ Trade execution failed: ${executionResult.message}`);
+        // Exit early on execution failure to avoid accessing undefined decision/trade fields
+        return;
       }
 
       const selectionSummary = (bestSymbolResult.allEvaluations || [])
         .slice(0, 3)
-        .map((e, i) => `${i + 1}. ${e.symbol} (${e.overallScore.toFixed(1)})`)
+        .map((e, i) => {
+          const score = e.overallScore ?? 0;
+          return `${i + 1}. ${e.symbol} (${typeof score === 'number' ? score.toFixed(1) : '0.0'})`;
+        })
         .join('\n');
 
+      // Defensive checks for decision object and numeric fields
+      const entry = decision?.entry ?? 0;
+      const stopLoss = decision?.stopLoss ?? 0;
+      const takeProfit = decision?.takeProfit ?? 0;
+      const action = decision?.action ?? 'UNKNOWN';
+      const decisionReasoning = decision?.reasoning ?? 'No reasoning available';
+
       const multiTradeMessage = `🎯 Trade Signal: ${selectedSymbol}\n\n` +
-        `Direction: ${decision.action}\n` +
-        `Entry: ${decision.entry.toFixed(5)}\n` +
-        `SL: ${decision.stopLoss.toFixed(5)} | TP: ${decision.takeProfit.toFixed(5)}\n` +
-        `📊 Expected R:R = ${riskReward.toFixed(2)}:1 ($${expectedProfit.toFixed(2)})\n` +
-        `Confidence: ${decision.confidence}%\n\n` +
-        `Why ${selectedSymbol}?\n${decision.reasoning}\n\n` +
+        `Direction: ${action}\n` +
+        `Entry: ${typeof entry === 'number' ? entry.toFixed(5) : 'N/A'}\n` +
+        `SL: ${typeof stopLoss === 'number' ? stopLoss.toFixed(5) : 'N/A'} | TP: ${typeof takeProfit === 'number' ? takeProfit.toFixed(5) : 'N/A'}\n` +
+        `📊 Expected R:R = ${typeof riskReward === 'number' ? riskReward.toFixed(2) : 'N/A'}:1 ($${typeof expectedProfit === 'number' ? expectedProfit.toFixed(2) : 'N/A'})\n` +
+        `Confidence: ${decision?.confidence || 0}%\n\n` +
+        `Why ${selectedSymbol}?\n${decisionReasoning}\n\n` +
         `Symbol Rankings:\n${selectionSummary}`;
 
       await this.sendAIMessage(multiTradeMessage);
@@ -2030,18 +2044,18 @@ class GoalSessionLiveEngine {
       // CRITICAL: Also log notification for multi-trade mode (not just single-trade!)
       await this.logNotification(
         'signal',
-        `Trade Executed: ${selectedSymbol} ${decision.action}`,
+        `Trade Executed: ${selectedSymbol} ${action}`,
         multiTradeMessage,
         'urgent',
         {
           trade_id: trade.id,
           symbol: selectedSymbol,
-          direction: decision.action,
-          entry: decision.entry,
-          stop_loss: decision.stopLoss,
-          take_profit: decision.takeProfit,
+          direction: action,
+          entry: entry,
+          stop_loss: stopLoss,
+          take_profit: takeProfit,
           position_size: trade.positionSize,
-          confidence: decision.confidence,
+          confidence: decision?.confidence || 0,
           risk_reward: riskReward,
           expected_profit: expectedProfit
         }
@@ -2107,8 +2121,10 @@ class GoalSessionLiveEngine {
     } finally {
       // Record scan completion for state machine tracking
       try {
-        await scanningStateMachine.recordScanCompletion(this.activeSession!, tradeExecuted);
-        console.log(`[MULTI-SYMBOL] 📊 Scan completion recorded: Trade found = ${tradeExecuted}`);
+        if (this.activeSession) {
+          await scanningStateMachine.recordScanCompletion(this.activeSession, tradeExecuted);
+          console.log(`[MULTI-SYMBOL] 📊 Scan completion recorded: Trade found = ${tradeExecuted}`);
+        }
       } catch (error) {
         logger.error(LogCategory.AI_TRADING, 'Failed to record scan completion', { error });
       }
