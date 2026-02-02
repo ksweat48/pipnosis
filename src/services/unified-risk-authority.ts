@@ -195,18 +195,16 @@ class UnifiedRiskAuthority {
       userId
     });
 
-    // Progressive scaling
-    const scaledRisk = progressiveRiskScaling.calculateRiskPercent({
+    // Progressive scaling - SSOT: progressive-risk-scaling.ts
+    const scaledRisk = await progressiveRiskScaling.calculateRiskScaling({
       userId,
       baseRiskPercent: volatilityRisk.adjustedRiskPercent,
-      consecutiveWins: historicalStats.consecutiveWins || 0,
-      consecutiveLosses: historicalStats.consecutiveLosses || 0,
-      currentDrawdown: 0, // TODO: Get from session
-      peakBalance: currentBalance
+      goalSessionId: inputs.goalSessionId,
+      lookbackTrades: 10
     });
 
     // Apply risk scaling to lot size
-    const riskDollars = currentBalance * scaledRisk.recommendedRiskPercent;
+    const riskDollars = currentBalance * scaledRisk.adjustedRiskPercent;
     const dollarPerPip = calculateDollarPerPip(symbol, recommendedLotSize);
 
     // Recalculate lot size based on scaled risk
@@ -263,15 +261,18 @@ class UnifiedRiskAuthority {
       recommendedLotSize = Math.max(0.01, recommendedLotSize); // Minimum 0.01 lots
     }
 
-    // LAYER 5: Correlation Check (Advisory)
-    const correlationCheck = await correlationRiskManager.assessCorrelationRisk({
+    // LAYER 5: Correlation Check (Advisory) - SSOT: correlation-risk-manager.ts
+    const correlationCheck = await correlationRiskManager.checkCorrelationRisk({
+      proposedSymbol: symbol,
+      proposedDirection: inputs.direction,
+      proposedLotSize: recommendedLotSize,
       userId,
-      symbol,
-      proposedLotSize: recommendedLotSize
+      goalSessionId: inputs.goalSessionId
     });
 
-    if (correlationCheck.riskLevel === 'high' || correlationCheck.riskLevel === 'extreme') {
-      criticalWarnings.push(`High correlation risk: ${correlationCheck.correlatedSymbols.length} correlated positions`);
+    // Check total correlation risk (0-1 scale, >0.70 is high risk)
+    if (correlationCheck.totalCorrelationRisk > 0.70) {
+      criticalWarnings.push(`High correlation risk: ${correlationCheck.correlatedPositions.length} correlated positions`);
       recommendations.push(correlationCheck.recommendation);
     }
 
