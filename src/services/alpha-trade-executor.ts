@@ -120,7 +120,7 @@ class AlphaTradeExecutor {
     const { data: userProfile } = await supabase
       .from('user_profiles')
       .select('account_balance')
-      .eq('user_id', userId)
+      .eq('id', userId)
       .single();
 
     if (!userProfile) {
