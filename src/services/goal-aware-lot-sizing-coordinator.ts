@@ -93,6 +93,54 @@ class GoalAwareLotSizingCoordinator {
       tradeContext,
     } = input;
 
+    // GOVERNANCE: Input validation - prevent cascading errors from invalid balance
+    if (!Number.isFinite(accountBalance) || accountBalance <= 0) {
+      logger.error(
+        LogCategory.RISK_MANAGEMENT,
+        '[Goal-Aware Lot Sizing] Invalid account balance - cannot proceed',
+        {
+          userId,
+          goalSessionId,
+          symbol,
+          accountBalance,
+          type: typeof accountBalance,
+        }
+      );
+      // Return degraded decision with minimum safe lot size
+      return {
+        chosenLotSize: 0.01, // Minimum safe lot size
+        requiredLotForGoal: 0,
+        safeLotFromRisk: 0.01,
+        decisionReason: 'fallback_risk_constraint',
+        expectedProfitAtTP: 0,
+        expectedLossAtSL: 0,
+        expectedRiskDollars: 0,
+        reasoning: 'Account balance is invalid. Reverting to minimum safe lot size (0.01 lots).',
+      };
+    }
+
+    if (!Number.isFinite(riskPercentageAllowed) || riskPercentageAllowed <= 0) {
+      logger.error(
+        LogCategory.RISK_MANAGEMENT,
+        '[Goal-Aware Lot Sizing] Invalid risk percentage',
+        {
+          userId,
+          goalSessionId,
+          riskPercentageAllowed,
+        }
+      );
+      return {
+        chosenLotSize: 0.01,
+        requiredLotForGoal: 0,
+        safeLotFromRisk: 0.01,
+        decisionReason: 'fallback_risk_constraint',
+        expectedProfitAtTP: 0,
+        expectedLossAtSL: 0,
+        expectedRiskDollars: 0,
+        reasoning: 'Risk percentage is invalid. Reverting to minimum safe lot size (0.01 lots).',
+      };
+    }
+
     logger.info(
       LogCategory.RISK_MANAGEMENT,
       '[Goal-Aware Lot Sizing] Making lot size decision',

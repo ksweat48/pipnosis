@@ -120,34 +120,12 @@ class AlphaTradeExecutor {
     }
 
     // Layer 3: Risk Authority (Context + PCVL + Margin + Kelly)
-    // SSOT FIX (2026-02-02): Fetch balance from user_token_balance (SSOT for account balance)
-    const { data: balanceData, error: balanceError } = await supabase
-      .from('user_token_balance')
-      .select('balance')
-      .eq('user_id', userId)
-      .maybeSingle(); // Use maybeSingle() to handle missing rows gracefully
-
-    if (balanceError) {
-      console.error('[AlphaTradeExecutor] Database error fetching account balance:', {
-        userId,
-        sessionId,
-        error: balanceError.message
-      });
-      return {
-        success: false,
-        error: 'Database error fetching account balance',
-        blockReason: 'Database query failed for account balance'
-      };
-    }
-
-    let currentBalance: number;
-
-    // SSOT: Use Balance Initialization Authority (CCIP compliant)
-    // This is the ONLY place where balance should be initialized
-    // Authority handles: retrieval, creation, audit trail, governance flags
+    // SSOT RESTORATION (2026-02-02): Single source of truth for balance
+    // Authority is the ONLY place that retrieves/initializes balance
+    // No duplicate DB fetches - prevents data divergence and race conditions
     const balanceResult = await getOrInitializeUserBalance(
       userId,
-      balanceData?.balance || undefined,
+      undefined, // Let authority decide what to fetch/initialize
       'trade_execution_flow'
     );
 
@@ -168,7 +146,43 @@ class AlphaTradeExecutor {
       };
     }
 
-    currentBalance = balanceResult.balance;
+    // SSOT TYPE SAFETY: Ensure balance is a valid positive number (prevents cascading lot size errors)
+    let currentBalance: number = balanceResult.balance;
+
+    if (!Number.isFinite(currentBalance)) {
+      logger.error(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] Balance is not a finite number - invalid state',
+        {
+          userId,
+          sessionId,
+          balance: currentBalance,
+          type: typeof currentBalance,
+        }
+      );
+      return {
+        success: false,
+        error: `Account balance is invalid: ${currentBalance}`,
+        blockReason: 'Account balance data is corrupted'
+      };
+    }
+
+    if (currentBalance <= 0) {
+      logger.error(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] Account balance is zero or negative',
+        {
+          userId,
+          sessionId,
+          balance: currentBalance,
+        }
+      );
+      return {
+        success: false,
+        error: `Account balance must be positive (current: ${currentBalance})`,
+        blockReason: 'Cannot execute trades with zero or negative balance'
+      };
+    }
 
     // GOVERNANCE: Log governance flags (e.g., hardcoded default detection)
     if (balanceResult.governanceFlags?.suspectedHardcodedDefault) {
@@ -231,6 +245,26 @@ class AlphaTradeExecutor {
     let lotSizingDecision: any = null;
     let riskWarningsWithGoalContext = [...riskAssessment.criticalWarnings];
 
+    // GOVERNANCE: Pre-validation of lot sizing input (catch cascading errors early)
+    if (!Number.isFinite(finalLotSize) || finalLotSize <= 0) {
+      logger.error(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] Risk assessment returned invalid lot size',
+        {
+          userId,
+          sessionId,
+          symbol: decision.symbol,
+          lotSize: finalLotSize,
+          type: typeof finalLotSize,
+        }
+      );
+      return {
+        success: false,
+        error: `Risk assessment produced invalid lot size: ${finalLotSize}`,
+        blockReason: 'Cannot determine safe lot size for trade'
+      };
+    }
+
     if (session && session.target_value && session.current_progress !== undefined) {
       try {
         // Determine risk percentage allowed from trade style or risk mode
@@ -259,24 +293,41 @@ class AlphaTradeExecutor {
           tradeContext
         });
 
-        finalLotSize = lotSizingDecision.chosenLotSize;
+        // GOVERNANCE: Validate lot sizing decision output
+        if (!Number.isFinite(lotSizingDecision.chosenLotSize) || lotSizingDecision.chosenLotSize <= 0) {
+          logger.warn(
+            LogCategory.RISK_MANAGEMENT,
+            '[AlphaTradeExecutor] Goal-aware lot sizing produced invalid result, degrading to risk-only',
+            {
+              userId,
+              sessionId,
+              symbol: decision.symbol,
+              chosenLotSize: lotSizingDecision.chosenLotSize,
+              reason: lotSizingDecision.decisionReason,
+            }
+          );
+          // Degrade to risk assessment lot size (already validated above)
+          riskWarningsWithGoalContext.push('[Goal-Aware] Lot sizing degraded due to invalid calculation');
+        } else {
+          finalLotSize = lotSizingDecision.chosenLotSize;
 
-        // Add goal context to risk warnings
-        riskWarningsWithGoalContext.push(
-          `[Goal-Aware] ${lotSizingDecision.reasoning}`
-        );
+          // Add goal context to risk warnings
+          riskWarningsWithGoalContext.push(
+            `[Goal-Aware] ${lotSizingDecision.reasoning}`
+          );
 
-        logger.info(
-          LogCategory.RISK_MANAGEMENT,
-          '[AlphaTradeExecutor] Goal-aware lot sizing applied',
-          {
-            symbol: decision.symbol,
-            riskFromRM: riskAssessment.recommendedLotSize.toFixed(3),
-            requiredForGoal: lotSizingDecision.requiredLotForGoal.toFixed(3),
-            chosen: finalLotSize.toFixed(3),
-            reason: lotSizingDecision.decisionReason
-          }
-        );
+          logger.info(
+            LogCategory.RISK_MANAGEMENT,
+            '[AlphaTradeExecutor] Goal-aware lot sizing applied',
+            {
+              symbol: decision.symbol,
+              riskFromRM: riskAssessment.recommendedLotSize.toFixed(3),
+              requiredForGoal: lotSizingDecision.requiredLotForGoal.toFixed(3),
+              chosen: finalLotSize.toFixed(3),
+              reason: lotSizingDecision.decisionReason
+            }
+          );
+        }
       } catch (error) {
         logger.error(
           LogCategory.RISK_MANAGEMENT,
@@ -938,8 +989,31 @@ class AlphaTradeExecutor {
       throw new Error('[AlphaTradeExecutor] entry_price must be a valid number');
     }
 
-    if (typeof tradeData.lot_size !== 'number' || tradeData.lot_size <= 0) {
-      throw new Error('[AlphaTradeExecutor] lot_size must be a positive number');
+    if (typeof tradeData.lot_size !== 'number' || !isFinite(tradeData.lot_size)) {
+      throw new Error(
+        `[AlphaTradeExecutor] lot_size must be a finite number (got: ${tradeData.lot_size}, type: ${typeof tradeData.lot_size})`
+      );
+    }
+
+    // GOVERNANCE: Enforce database constraint (0.001 <= lot_size <= 1000)
+    if (tradeData.lot_size < 0.001) {
+      throw new Error(
+        `[AlphaTradeExecutor] lot_size must be >= 0.001 (got: ${tradeData.lot_size}). ` +
+        `This often indicates invalid account balance or risk calculation.`
+      );
+    }
+
+    if (tradeData.lot_size > 1000) {
+      throw new Error(
+        `[AlphaTradeExecutor] lot_size must be <= 1000 (got: ${tradeData.lot_size}). ` +
+        `This indicates corrupted risk data.`
+      );
+    }
+
+    if (tradeData.lot_size <= 0) {
+      throw new Error(
+        `[AlphaTradeExecutor] lot_size must be positive (got: ${tradeData.lot_size})`
+      );
     }
 
     if (typeof tradeData.current_pnl !== 'number' || !isFinite(tradeData.current_pnl)) {
