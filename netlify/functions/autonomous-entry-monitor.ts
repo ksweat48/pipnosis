@@ -647,7 +647,7 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
 
     // Step 6: Build enhanced market context with all required data
     const idealEntryPrice = (fullIntent.entry_zone_min + fullIntent.entry_zone_max) / 2;
-    const adjustedStopLoss = marketContext?.stop_loss || fullIntent.invalidation_price;
+    let adjustedStopLoss = marketContext?.stop_loss || fullIntent.invalidation_price;
 
     if (!adjustedStopLoss) {
       console.error(`[Entry Monitor] ❌ Missing stop loss - cannot execute`);
