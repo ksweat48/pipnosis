@@ -179,6 +179,99 @@ function normalizeEntryMode(mode: string | undefined): 'immediate' | 'wait_pullb
   return 'immediate';
 }
 
+/**
+ * SSOT Geometry Validation - Single authority for TP/SL placement validation
+ *
+ * Validates that TP and SL are on the correct side of entry price based on direction:
+ * - BUY: SL must be BELOW entry, TP must be ABOVE entry
+ * - SELL: SL must be ABOVE entry, TP must be BELOW entry
+ *
+ * This validation runs BEFORE database insertion to catch errors early.
+ * Mirrors alpha-geometry-validator logic for consistency.
+ *
+ * @returns Object with valid status, error type, and error message if invalid
+ */
+function validateTradeGeometry(
+  direction: 'buy' | 'sell',
+  entryPrice: number,
+  stopLoss: number,
+  takeProfit: number,
+  tp1Price?: number,
+  tp2Price?: number
+): { valid: boolean; errorType?: string; errorMessage?: string } {
+  const isBuy = direction === 'buy';
+
+  if (isBuy) {
+    // BUY trades: SL below entry, TP above entry
+    if (stopLoss >= entryPrice) {
+      return {
+        valid: false,
+        errorType: 'SL_WRONG_SIDE',
+        errorMessage: `Stop Loss on wrong side for BUY trade: Entry=${entryPrice.toFixed(5)}, SL=${stopLoss.toFixed(5)} (SL must be below entry)`
+      };
+    }
+
+    if (takeProfit <= entryPrice) {
+      return {
+        valid: false,
+        errorType: 'TP_WRONG_SIDE',
+        errorMessage: `Take Profit on wrong side for BUY trade: Entry=${entryPrice.toFixed(5)}, TP=${takeProfit.toFixed(5)} (TP must be above entry)`
+      };
+    }
+
+    if (tp1Price !== undefined && tp1Price <= entryPrice) {
+      return {
+        valid: false,
+        errorType: 'TP_WRONG_SIDE',
+        errorMessage: `TP1 on wrong side for BUY trade: Entry=${entryPrice.toFixed(5)}, TP1=${tp1Price.toFixed(5)} (TP1 must be above entry)`
+      };
+    }
+
+    if (tp2Price !== undefined && tp2Price <= entryPrice) {
+      return {
+        valid: false,
+        errorType: 'TP_WRONG_SIDE',
+        errorMessage: `TP2 on wrong side for BUY trade: Entry=${entryPrice.toFixed(5)}, TP2=${tp2Price.toFixed(5)} (TP2 must be above entry)`
+      };
+    }
+  } else {
+    // SELL trades: SL above entry, TP below entry
+    if (stopLoss <= entryPrice) {
+      return {
+        valid: false,
+        errorType: 'SL_WRONG_SIDE',
+        errorMessage: `Stop Loss on wrong side for SELL trade: Entry=${entryPrice.toFixed(5)}, SL=${stopLoss.toFixed(5)} (SL must be above entry)`
+      };
+    }
+
+    if (takeProfit >= entryPrice) {
+      return {
+        valid: false,
+        errorType: 'TP_WRONG_SIDE',
+        errorMessage: `Take Profit on wrong side for SELL trade: Entry=${entryPrice.toFixed(5)}, TP=${takeProfit.toFixed(5)} (TP must be below entry)`
+      };
+    }
+
+    if (tp1Price !== undefined && tp1Price >= entryPrice) {
+      return {
+        valid: false,
+        errorType: 'TP_WRONG_SIDE',
+        errorMessage: `TP1 on wrong side for SELL trade: Entry=${entryPrice.toFixed(5)}, TP1=${tp1Price.toFixed(5)} (TP1 must be below entry)`
+      };
+    }
+
+    if (tp2Price !== undefined && tp2Price >= entryPrice) {
+      return {
+        valid: false,
+        errorType: 'TP_WRONG_SIDE',
+        errorMessage: `TP2 on wrong side for SELL trade: Entry=${entryPrice.toFixed(5)}, TP2=${tp2Price.toFixed(5)} (TP2 must be below entry)`
+      };
+    }
+  }
+
+  return { valid: true };
+}
+
 class TradeExecutionEngine {
   /**
    * Fetch the CURRENT live price for a symbol at execution time
@@ -1160,6 +1253,54 @@ class TradeExecutionEngine {
     }
 
     console.log('[Trade Execution] ✅ PCVL validation passed - executing live trade');
+
+    // 🛡️ SSOT GEOMETRY VALIDATION - Verify TP/SL on correct side before insertion
+    console.log('[Trade Execution] 🛡️ Running geometry validation (TP/SL placement)...');
+    const geometryValidation = validateTradeGeometry(
+      signal.direction,
+      actualEntryPrice,
+      adjustedSL,
+      adjustedTP,
+      signal.tp1Price,
+      signal.tp2Price
+    );
+
+    if (!geometryValidation.valid) {
+      console.error('[Trade Execution] 🚫 GEOMETRY VALIDATION FAILED - Trade blocked');
+      console.error(`[Trade Execution] Error: ${geometryValidation.errorMessage}`);
+
+      // Log geometry incident for audit trail
+      try {
+        const { data: incident } = await supabase.rpc('log_geometry_incident', {
+          p_user_id: userId,
+          p_trade_id: null,
+          p_error_type: geometryValidation.errorType || 'TP_WRONG_SIDE',
+          p_direction: signal.direction,
+          p_entry_price: actualEntryPrice,
+          p_stop_loss: adjustedSL,
+          p_take_profit: adjustedTP,
+          p_tp1_price: signal.tp1Price || null,
+          p_tp2_price: signal.tp2Price || null,
+          p_details: {
+            signal_entry: signal.entryPrice,
+            live_entry: actualEntryPrice,
+            slippage: (actualEntryPrice - signal.entryPrice).toFixed(5),
+            validation_error: geometryValidation.errorMessage
+          }
+        });
+        console.log('[Trade Execution] Geometry incident logged:', incident);
+      } catch (incidentErr) {
+        console.warn('[Trade Execution] Failed to log geometry incident:', incidentErr);
+      }
+
+      return {
+        success: false,
+        error: 'GEOMETRY_VALIDATION_FAILED',
+        message: `Geometry validation failed: ${geometryValidation.errorMessage}`
+      };
+    }
+
+    console.log('[Trade Execution] ✅ Geometry validation passed - TP/SL placement correct');
 
     // CRITICAL: Convert direction to database format ('BUY'/'SELL')
     const tradeDirection = toDirectionDB(signal.direction);
