@@ -28,11 +28,13 @@
 import { supabase } from '../lib/supabase';
 import { coreValidationGate } from './core-validation-gate';
 import { unifiedRiskAuthority } from './unified-risk-authority';
+import { goalAwareLotSizingCoordinator } from './goal-aware-lot-sizing-coordinator';
 import { priceCoordinator } from './coordinators/price-coordinator';
 import { globalDialogManager } from './global-dialog-manager';
 import { toDirectionDB } from '../utils/direction-converter';
 import { getRegimeBucket } from './regime-bucketing';
 import { getMinConfidenceThreshold } from '../config/risk-levels';
+import { logger, LogCategory } from '../lib/logger';
 import type { AlphaDecision } from '../brains/coordinator-alpha';
 import type { TradeContext } from '../types/trade-context';
 
@@ -209,6 +211,69 @@ class AlphaTradeExecutor {
       };
     }
 
+    // GOAL-AWARE LOT SIZING (SSOT: Single decision authority)
+    // If goal session exists, calculate goal-aware lot size
+    let finalLotSize = riskAssessment.recommendedLotSize;
+    let lotSizingDecision: any = null;
+    let riskWarningsWithGoalContext = [...riskAssessment.criticalWarnings];
+
+    if (session && session.target_value && session.current_progress !== undefined) {
+      try {
+        // Determine risk percentage allowed from trade style or risk mode
+        // Scalp: 5%, Day: 3%, Swing: 2%, Precision: 1%
+        const tradeStyleRiskMap: { [key: string]: number } = {
+          'scalp': 5,
+          'day': 3,
+          'swing': 2,
+          'precision': 1
+        };
+        const tradeStyle = (session.trade_style || 'day').toLowerCase();
+        const riskPercentageAllowed = tradeStyleRiskMap[tradeStyle] || 3;
+
+        lotSizingDecision = await goalAwareLotSizingCoordinator.makeDecision({
+          userId,
+          goalSessionId: sessionId,
+          symbol: decision.symbol,
+          direction: decision.action === 'BUY' ? 'long' : 'short',
+          accountBalance: currentBalance,
+          goalAmount: session.target_value,
+          currentProgress: session.current_progress,
+          riskPercentageAllowed,
+          entryPrice: decision.entry,
+          stopLossPrice: decision.stopLoss,
+          takeProfitPrice: decision.takeProfit,
+          tradeContext
+        });
+
+        finalLotSize = lotSizingDecision.chosenLotSize;
+
+        // Add goal context to risk warnings
+        riskWarningsWithGoalContext.push(
+          `[Goal-Aware] ${lotSizingDecision.reasoning}`
+        );
+
+        logger.info(
+          LogCategory.RISK_MANAGEMENT,
+          '[AlphaTradeExecutor] Goal-aware lot sizing applied',
+          {
+            symbol: decision.symbol,
+            riskFromRM: riskAssessment.recommendedLotSize.toFixed(3),
+            requiredForGoal: lotSizingDecision.requiredLotForGoal.toFixed(3),
+            chosen: finalLotSize.toFixed(3),
+            reason: lotSizingDecision.decisionReason
+          }
+        );
+      } catch (error) {
+        logger.error(
+          LogCategory.RISK_MANAGEMENT,
+          '[AlphaTradeExecutor] Goal-aware lot sizing failed, falling back to risk assessment',
+          { error, sessionId }
+        );
+        // Use risk assessment lot size as fallback
+        finalLotSize = riskAssessment.recommendedLotSize;
+      }
+    }
+
     // MODE ROUTING (Execute based on selected mode)
     if (mode === 'IMMEDIATE') {
       return await this.executeImmediate({
@@ -216,10 +281,11 @@ class AlphaTradeExecutor {
         userId,
         sessionId,
         session,
-        lotSize: riskAssessment.recommendedLotSize,
+        lotSize: finalLotSize,
         riskDollars: riskAssessment.adjustedRiskDollars,
-        riskWarnings: riskAssessment.criticalWarnings,
-        inputs
+        riskWarnings: riskWarningsWithGoalContext,
+        inputs,
+        lotSizingDecisionId: lotSizingDecision?.auditRecordId
       });
     } else if (mode === 'PENDING') {
       return await this.createPending({
@@ -227,10 +293,11 @@ class AlphaTradeExecutor {
         userId,
         sessionId,
         session,
-        lotSize: riskAssessment.recommendedLotSize,
+        lotSize: finalLotSize,
         riskDollars: riskAssessment.adjustedRiskDollars,
-        riskWarnings: riskAssessment.criticalWarnings,
-        inputs
+        riskWarnings: riskWarningsWithGoalContext,
+        inputs,
+        lotSizingDecisionId: lotSizingDecision?.auditRecordId
       });
     } else {
       // MONITORED mode - create entry intent
@@ -238,8 +305,9 @@ class AlphaTradeExecutor {
         decision,
         userId,
         sessionId,
-        lotSize: riskAssessment.recommendedLotSize,
-        riskDollars: riskAssessment.adjustedRiskDollars
+        lotSize: finalLotSize,
+        riskDollars: riskAssessment.adjustedRiskDollars,
+        lotSizingDecisionId: lotSizingDecision?.auditRecordId
       });
     }
   }
@@ -307,6 +375,7 @@ class AlphaTradeExecutor {
     riskDollars: number;
     riskWarnings: string[];
     inputs: TradeExecutionInputs;
+    lotSizingDecisionId?: string;
   }): Promise<TradeExecutionResult> {
     const { decision, userId, sessionId, lotSize, riskDollars, inputs } = params;
 
@@ -435,6 +504,24 @@ class AlphaTradeExecutor {
       };
     }
 
+    // Link lot sizing decision to trade (for governance learning)
+    if (params.lotSizingDecisionId) {
+      try {
+        await goalAwareLotSizingCoordinator.linkTradeToDecision(
+          params.lotSizingDecisionId,
+          trade.id,
+          userId
+        );
+      } catch (error) {
+        logger.warn(
+          LogCategory.GOVERNANCE,
+          '[AlphaTradeExecutor] Failed to link lot sizing decision to trade',
+          { error, tradeId: trade.id }
+        );
+        // Continue execution - this is non-blocking
+      }
+    }
+
     // CCIP: Log successful trade creation
     await this.logCCIPChange({
       changeType: 'TRADE_CREATED',
@@ -446,7 +533,8 @@ class AlphaTradeExecutor {
         symbol: decision.symbol,
         mode: 'immediate',
         entryPrice: adjustedEntry,
-        lotSize
+        lotSize,
+        lotSizingDecisionId: params.lotSizingDecisionId
       }
     });
 
@@ -487,6 +575,7 @@ class AlphaTradeExecutor {
     riskDollars: number;
     riskWarnings: string[];
     inputs: TradeExecutionInputs;
+    lotSizingDecisionId?: string;
   }): Promise<TradeExecutionResult> {
     const { decision, userId, sessionId, lotSize, riskDollars, inputs } = params;
 
@@ -595,6 +684,24 @@ class AlphaTradeExecutor {
       };
     }
 
+    // Link lot sizing decision to trade (for governance learning)
+    if (params.lotSizingDecisionId) {
+      try {
+        await goalAwareLotSizingCoordinator.linkTradeToDecision(
+          params.lotSizingDecisionId,
+          trade.id,
+          userId
+        );
+      } catch (error) {
+        logger.warn(
+          LogCategory.GOVERNANCE,
+          '[AlphaTradeExecutor] Failed to link lot sizing decision to pending trade',
+          { error, tradeId: trade.id }
+        );
+        // Continue execution - this is non-blocking
+      }
+    }
+
     // CCIP: Log successful pending trade creation
     await this.logCCIPChange({
       changeType: 'TRADE_CREATED',
@@ -606,7 +713,8 @@ class AlphaTradeExecutor {
         symbol: decision.symbol,
         mode: 'pending',
         entryPrice,
-        lotSize
+        lotSize,
+        lotSizingDecisionId: params.lotSizingDecisionId
       }
     });
 
@@ -642,6 +750,7 @@ class AlphaTradeExecutor {
     sessionId: string;
     lotSize: number;
     riskDollars: number;
+    lotSizingDecisionId?: string;
   }): Promise<TradeExecutionResult> {
     const { decision, userId, sessionId, lotSize, riskDollars } = params;
 
