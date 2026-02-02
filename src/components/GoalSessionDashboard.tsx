@@ -1032,10 +1032,13 @@ export const GoalSessionDashboard: React.FC = () => {
     // Total progress = closed + open unrealized
     const totalProgress = closedProfit + openUnrealizedPnL;
 
-    // SSOT FIX: Use current trade target (Alpha's calculation) not original goal
-    const targetAmount = getCurrentTradeTarget();
+    // SSOT FIX (2026-02-03): Use SESSION GOAL not individual trade targets
+    // Session goal ($294) is the denominator for completion percentage
+    // Trade expected profit ($133) is just informational for this trade
+    // Formula: (currentProgress / sessionGoal) * 100
+    const sessionGoal = activeSession?.config?.goalAmount || 0;
 
-    return targetAmount > 0 ? (totalProgress / targetAmount) * 100 : 0;
+    return sessionGoal > 0 ? (totalProgress / sessionGoal) * 100 : 0;
   };
 
   const calculateActualRiskPercentage = (): { percentage: number; dollarRisk: number; displayText: string } => {

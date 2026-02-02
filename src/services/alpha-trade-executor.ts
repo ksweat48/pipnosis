@@ -350,7 +350,8 @@ class AlphaTradeExecutor {
         riskDollars: riskAssessment.adjustedRiskDollars,
         riskWarnings: riskWarningsWithGoalContext,
         inputs,
-        lotSizingDecisionId: lotSizingDecision?.auditRecordId
+        lotSizingDecisionId: lotSizingDecision?.auditRecordId,
+        expectedProfitAtTP: lotSizingDecision?.expectedProfitAtTP // SSOT FIX: Pass coordinator's calculation
       });
     } else if (mode === 'PENDING') {
       return await this.createPending({
@@ -362,7 +363,8 @@ class AlphaTradeExecutor {
         riskDollars: riskAssessment.adjustedRiskDollars,
         riskWarnings: riskWarningsWithGoalContext,
         inputs,
-        lotSizingDecisionId: lotSizingDecision?.auditRecordId
+        lotSizingDecisionId: lotSizingDecision?.auditRecordId,
+        expectedProfitAtTP: lotSizingDecision?.expectedProfitAtTP // SSOT FIX: Pass coordinator's calculation
       });
     } else {
       // MONITORED mode - create entry intent
@@ -430,6 +432,7 @@ class AlphaTradeExecutor {
    * Execute immediately at market price
    * SSOT: Uses priceCoordinator.extractExecutionPrice() to get correct price component
    * CCIP: Logs price extraction failures for governance audit
+   * GOAL-AWARE: Uses expectedProfitAtTP from lot sizing coordinator (SSOT fix 2026-02-03)
    */
   private async executeImmediate(params: {
     decision: AlphaDecision;
@@ -441,6 +444,7 @@ class AlphaTradeExecutor {
     riskWarnings: string[];
     inputs: TradeExecutionInputs;
     lotSizingDecisionId?: string;
+    expectedProfitAtTP?: number; // SSOT FIX: From coordinator's calculation
   }): Promise<TradeExecutionResult> {
     const { decision, userId, sessionId, lotSize, riskDollars, inputs } = params;
 
@@ -528,7 +532,8 @@ class AlphaTradeExecutor {
         entryPrice: adjustedEntry,
         status: 'open',
         openedAt: new Date().toISOString(),
-        inputs
+        inputs,
+        expectedProfitFromCoordinator: params.expectedProfitAtTP // SSOT FIX: Use coordinator's calculation
       });
     } catch (error: any) {
       console.error('[AlphaTradeExecutor] Trade record validation failed:', {
@@ -630,6 +635,7 @@ class AlphaTradeExecutor {
    * Create pending trade (awaiting user confirmation)
    * SSOT: Uses priceCoordinator.extractExecutionPrice() if decision.entry is null
    * CCIP COMPLIANCE (2026-02-02): Fetch live price and extract direction-specific component
+   * GOAL-AWARE: Uses expectedProfitAtTP from lot sizing coordinator (SSOT fix 2026-02-03)
    */
   private async createPending(params: {
     decision: AlphaDecision;
@@ -641,6 +647,7 @@ class AlphaTradeExecutor {
     riskWarnings: string[];
     inputs: TradeExecutionInputs;
     lotSizingDecisionId?: string;
+    expectedProfitAtTP?: number; // SSOT FIX: From coordinator's calculation
   }): Promise<TradeExecutionResult> {
     const { decision, userId, sessionId, lotSize, riskDollars, inputs } = params;
 
@@ -708,7 +715,8 @@ class AlphaTradeExecutor {
         entryPrice,
         status: 'pending',
         openedAt: null,
-        inputs
+        inputs,
+        expectedProfitFromCoordinator: params.expectedProfitAtTP // SSOT FIX: Use coordinator's calculation
       });
     } catch (error: any) {
       console.error('[AlphaTradeExecutor] Pending trade record validation failed:', {
@@ -871,8 +879,9 @@ class AlphaTradeExecutor {
     status: 'open' | 'pending';
     openedAt: string | null;
     inputs: TradeExecutionInputs;
+    expectedProfitFromCoordinator?: number; // SSOT FIX (2026-02-03): Use coordinator's calculation
   }): any {
-    const { decision, userId, sessionId, lotSize, riskDollars, entryPrice, status, openedAt, inputs } = params;
+    const { decision, userId, sessionId, lotSize, riskDollars, entryPrice, status, openedAt, inputs, expectedProfitFromCoordinator } = params;
 
     // GOVERNANCE: Comprehensive price validation (catches NaN from previous cascading errors)
     if (entryPrice === null || entryPrice === undefined) {
@@ -896,12 +905,24 @@ class AlphaTradeExecutor {
       ? getRegimeBucket(inputs.regimeSnapshot, inputs.adversarialState)
       : null;
 
-    // GOVERNANCE: Calculate expected_profit_for_session
-    // If TP exists, expected profit = (TP - Entry) * lotSize
-    // Otherwise, use 0 (trade intent without concrete profit target)
-    const expectedProfit = decision.takeProfit && decision.takeProfit > 0
-      ? Math.abs(decision.takeProfit - entryPrice) * lotSize
-      : 0;
+    // SSOT FIX (2026-02-03): Use coordinator's expectedProfitAtTP if available
+    // The coordinator calculates profit WITH proper pip-to-dollar conversion
+    // This ensures trade target on dashboard is accurate (~$133, not ~$1)
+    let expectedProfit: number;
+    if (expectedProfitFromCoordinator !== undefined && expectedProfitFromCoordinator > 0) {
+      expectedProfit = expectedProfitFromCoordinator;
+    } else if (decision.takeProfit && decision.takeProfit > 0) {
+      // FALLBACK: Only if coordinator profit unavailable
+      // NOTE: This fallback lacks pip conversion, so it will be inaccurate
+      // Proper fix requires passing coordinator data through all code paths
+      console.warn(
+        '[AlphaTradeExecutor] Using fallback expectedProfit calculation (lacks pip conversion). ' +
+        'Coordinator data should have been provided. Symbol:', decision.symbol
+      );
+      expectedProfit = Math.abs(decision.takeProfit - entryPrice) * lotSize;
+    } else {
+      expectedProfit = 0;
+    }
 
     // SSOT: goal_session_trades schema compliance (20260202)
     // Fields omega8/omega9 removed from schema - data lives in alpha_decisions table
