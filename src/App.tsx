@@ -18,6 +18,7 @@ import MidTradeUpdateModal from './components/MidTradeUpdateModal';
 import { MidTradeAlertListener } from './components/MidTradeAlertListener';
 import { FloatingMessageCenter } from './components/FloatingMessageCenter';
 import { WeekendProtectionBanner } from './components/WeekendProtectionBanner';
+import { realtimeTradeNotificationListener } from './services/realtime-trade-notification-listener';
 
 // Lazy load all pages for code splitting
 const LandingPage = lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
@@ -133,6 +134,26 @@ const AppRoutes: React.FC = () => {
       console.error('[App] Error initializing CCIP tracking:', error);
     });
   }, []);
+
+  // CCIP FIX (2026-02-03): Initialize realtime trade notification listener
+  // Triggers modal popups for server-side trade executions
+  useEffect(() => {
+    if (user?.id) {
+      console.log('[App] 🎯 Initializing realtime trade notification listener for user:', user.id);
+
+      realtimeTradeNotificationListener.initialize(user.id).catch(error => {
+        console.error('[App] ⚠️ Failed to initialize realtime trade listener:', error);
+        // Non-blocking - app continues without realtime modals
+      });
+
+      // Cleanup on unmount or user change
+      return () => {
+        realtimeTradeNotificationListener.cleanup().catch(error => {
+          console.warn('[App] Cleanup warning:', error);
+        });
+      };
+    }
+  }, [user?.id]);
 
   // Data quality startup - validate and repair candle data
   // DISABLED: Automatic repair on startup disabled to prevent console spam

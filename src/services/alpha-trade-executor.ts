@@ -31,6 +31,7 @@ import { unifiedRiskAuthority } from './unified-risk-authority';
 import { goalAwareLotSizingCoordinator } from './goal-aware-lot-sizing-coordinator';
 import { priceCoordinator } from './coordinators/price-coordinator';
 import { globalDialogManager } from './global-dialog-manager';
+import { notificationCoordinator } from './coordinators/notification-coordinator';
 import { getOrInitializeUserBalance, validateBalanceIsReasonable } from './balance-initialization-authority';
 import { toDirectionDB } from '../utils/direction-converter';
 import { getRegimeBucket } from './regime-bucketing';
@@ -670,15 +671,45 @@ class AlphaTradeExecutor {
       .update({ status: 'in_trade' })
       .eq('id', sessionId);
 
-    // Create notification
-    await this.createNotification({
+    // Create notification via SSOT NotificationCoordinator
+    // CCIP FIX (2026-02-03): Refactored from direct DB insert to NotificationCoordinator
+    await notificationCoordinator.send({
       userId,
       sessionId,
-      type: 'trade_entry',
+      type: 'trade_opened',
       title: `Trade Opened: ${decision.symbol}`,
       message: `${decision.action} ${lotSize.toFixed(2)} lots at ${adjustedEntry.toFixed(5)}`,
-      tradeId: trade.id
+      priority: 'critical',
+      tradeId: trade.id,
+      metadata: {
+        symbol: decision.symbol,
+        action: decision.action,
+        lotSize,
+        entryPrice: adjustedEntry,
+        stopLoss: decision.stopLoss,
+        takeProfit: decision.takeProfit,
+        expectedProfit: params.expectedProfitAtTP
+      }
     });
+
+    // Trigger modal popup (only works in browser context)
+    // CCIP FIX (2026-02-03): Added modal trigger for immediate user feedback
+    try {
+      globalDialogManager.showTradeEntry({
+        tradeId: trade.id,
+        symbol: decision.symbol,
+        action: decision.action,
+        lotSize,
+        entryPrice: adjustedEntry,
+        stopLoss: decision.stopLoss,
+        takeProfit: decision.takeProfit,
+        expectedProfit: params.expectedProfitAtTP,
+        reasoning: decision.reasoning
+      }, 'urgent');
+    } catch (err) {
+      // Non-blocking - modal manager not available in server context
+      console.debug('[AlphaTradeExecutor] Modal trigger skipped (server context)', err);
+    }
 
     return {
       success: true,
@@ -1063,7 +1094,9 @@ class AlphaTradeExecutor {
   }
 
   /**
-   * Create notification
+   * Create notification via SSOT NotificationCoordinator
+   * DEPRECATED METHOD - Use notificationCoordinator.send() directly
+   * CCIP FIX (2026-02-03): Refactored to use NotificationCoordinator
    */
   private async createNotification(params: {
     userId: string;
@@ -1074,16 +1107,14 @@ class AlphaTradeExecutor {
     tradeId?: string;
   }): Promise<void> {
     try {
-      await supabase.from('goal_notifications').insert({
-        user_id: params.userId,
-        session_id: params.sessionId,
-        type: params.type,
+      await notificationCoordinator.send({
+        userId: params.userId,
+        sessionId: params.sessionId,
+        type: params.type as any,
         title: params.title,
         message: params.message,
         priority: 'critical',
-        read: false,
-        trade_data: params.tradeId ? { tradeId: params.tradeId } : null,
-        created_at: new Date().toISOString()
+        tradeId: params.tradeId
       });
     } catch (error) {
       // Non-blocking

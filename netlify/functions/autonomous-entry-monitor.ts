@@ -6,6 +6,10 @@
  * Enables true "set and forget" entry monitoring
  *
  * Schedule: Every 1 minute (defined in netlify.toml)
+ *
+ * CCIP COMPLIANCE (2026-02-03): Uses AlphaTradeExecutor directly (SSOT)
+ * Removed SSOTTradeExecutionAdapter phantom dependency
+ * Integrated with NotificationCoordinator for modal popup triggers
  */
 
 import type { Handler } from '@netlify/functions';
@@ -713,12 +717,13 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
 
     console.log(`[Entry Monitor] 💰 Position sizing: Risk=$${riskDollars}, SL=${slPips.toFixed(1)} pips, Expected=$${expectedProfit.toFixed(2)}`);
 
-    // Step 7: SSOT - Delegate ALL trade creation to centralized adapter
-    // This ensures consistent governance, audit trails, and lot sizing decision linkage
+    // Step 7: SSOT - Execute via AlphaTradeExecutor (direct call)
+    // CCIP FIX (2026-02-03): Removed phantom SSOTTradeExecutionAdapter
+    // Now using AlphaTradeExecutor.execute() directly as SSOT authority
     if (auditId) {
       await supabase.rpc('log_execution_step', {
         p_audit_id: auditId,
-        p_step: 'DELEGATE_TO_SSOT_ADAPTER',
+        p_step: 'EXECUTE_VIA_ALPHA_TRADE_EXECUTOR',
         p_details: {
           symbol: intent.symbol,
           entry_price: entryPrice,
@@ -729,29 +734,65 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
       });
     }
 
-    const adapter = new SSOTTradeExecutionAdapter(supabase, fullIntent.user_id);
+    // Build AlphaDecision from entry intent data
+    const alphaDecision = {
+      action: fullIntent.direction === 'long' ? 'BUY' : 'SELL',
+      symbol: fullIntent.symbol,
+      entry: entryPrice,
+      stopLoss: adjustedStopLoss,
+      takeProfit: adjustedTakeProfit || (entryPrice + (fullIntent.direction === 'long' ? 1 : -1) * slPips * pipInfo.pipValue * 2),
+      tp1Price: marketContext?.tp1_price,
+      tp2Price: marketContext?.tp2_price || adjustedTakeProfit,
+      tp1Confidence: marketContext?.tp1_confidence,
+      reasoning: fullIntent.alpha_reasoning || marketContext?.omega_summary || 'Server-side auto-execution',
+      confidence: fullIntent.alpha_confidence ?? 75,
+      regime: marketContext?.regime_bucket || 'unknown',
+      patterns: marketContext?.patterns || [],
+      risks: marketContext?.risks || [],
+      omegaConsensus: marketContext?.omega_consensus,
+      timestamp: new Date()
+    };
 
-    const executionResult = await adapter.executeTradeFromEntryIntent(
-      intentForAdapter,
-      snapshot,
-      enhancedMarketContext,
-      auditId
-    );
+    // Build TradeContext
+    const tradeContext = {
+      symbol: fullIntent.symbol,
+      currentPrice: entryPrice,
+      snapshot: snapshot,
+      marketContext: enhancedMarketContext,
+      regime: marketContext?.regime_bucket || 'unknown',
+      regimeSnapshot: marketContext?.regime_snapshot
+    };
+
+    // Execute trade via AlphaTradeExecutor (SSOT)
+    const { AlphaTradeExecutor } = await import('../../src/services/alpha-trade-executor.js');
+    const executor = new AlphaTradeExecutor();
+
+    const executionResult = await executor.execute({
+      decision: alphaDecision,
+      tradeContext: tradeContext,
+      userId: fullIntent.user_id,
+      sessionId: fullIntent.session_id,
+      session: session,
+      mode: 'IMMEDIATE',
+      snapshotTimestamp: new Date(),
+      regimeSnapshot: marketContext?.regime_snapshot,
+      adversarialState: marketContext?.adversarial_state
+    });
 
     if (!executionResult.success) {
-      console.error(`[Entry Monitor] ❌ SSOT adapter execution failed:`, executionResult.error);
+      console.error(`[Entry Monitor] ❌ AlphaTradeExecutor execution failed:`, executionResult.error);
       if (auditId) {
         await supabase.rpc('fail_execution_audit', {
           p_audit_id: auditId,
-          p_failure_step: 'SSOT_ADAPTER',
+          p_failure_step: 'ALPHA_TRADE_EXECUTOR',
           p_failure_reason: executionResult.error || 'Unknown error',
-          p_error_details: { adapter_result: executionResult }
+          p_error_details: { execution_result: executionResult }
         });
       }
       return false;
     }
 
-    console.log(`[Entry Monitor] ✅ Trade executed successfully via SSOT adapter: ${executionResult.tradeId}`);
+    console.log(`[Entry Monitor] ✅ Trade executed successfully via AlphaTradeExecutor: ${executionResult.tradeId}`);
 
     // Step 8: Update session status to in_trade (adapter may have already done this)
     const { error: sessionUpdateError } = await supabase
