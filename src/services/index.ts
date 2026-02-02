@@ -23,6 +23,9 @@ export * from './platform-intelligence-service';
 export * from './credit-validation-service';
 export * from './credit-meter-service';
 
+// Balance Management Services
+export * from './balance-initialization-authority';
+
 // Scanning Cycle Services
 export * from './scanning-state-machine';
 

@@ -31,6 +31,7 @@ import { unifiedRiskAuthority } from './unified-risk-authority';
 import { goalAwareLotSizingCoordinator } from './goal-aware-lot-sizing-coordinator';
 import { priceCoordinator } from './coordinators/price-coordinator';
 import { globalDialogManager } from './global-dialog-manager';
+import { getOrInitializeUserBalance, validateBalanceIsReasonable } from './balance-initialization-authority';
 import { toDirectionDB } from '../utils/direction-converter';
 import { getRegimeBucket } from './regime-bucketing';
 import { getMinConfidenceThreshold } from '../config/risk-levels';
@@ -141,51 +142,64 @@ class AlphaTradeExecutor {
 
     let currentBalance: number;
 
-    // GOVERNANCE FIX: If user has no balance row, create one with default 50 credits
-    if (!balanceData) {
-      console.warn('[AlphaTradeExecutor] User missing balance row - creating with 50 credits:', {
-        userId,
-        sessionId
-      });
+    // SSOT: Use Balance Initialization Authority (CCIP compliant)
+    // This is the ONLY place where balance should be initialized
+    // Authority handles: retrieval, creation, audit trail, governance flags
+    const balanceResult = await getOrInitializeUserBalance(
+      userId,
+      balanceData?.balance || undefined,
+      'trade_execution_flow'
+    );
 
-      const { error: insertError } = await supabase
-        .from('user_token_balance')
-        .insert({
-          user_id: userId,
-          balance: 50.00,
-          lifetime_earned: 50.00,
-          lifetime_spent: 0.00
-        });
-
-      if (insertError) {
-        console.error('[AlphaTradeExecutor] Failed to create balance row:', {
+    if (!balanceResult.success) {
+      logger.error(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] Balance initialization failed',
+        {
           userId,
           sessionId,
-          error: insertError.message
-        });
-        return {
-          success: false,
-          error: 'Failed to initialize account balance',
-          blockReason: 'Could not create missing balance record'
-        };
-      }
+          error: balanceResult.error,
+        }
+      );
+      return {
+        success: false,
+        error: balanceResult.error || 'Failed to initialize account balance',
+        blockReason: 'Could not retrieve or create balance record'
+      };
+    }
 
-      // Use default balance of 50 credits for this execution
-      currentBalance = 50.00;
-    } else {
-      currentBalance = balanceData.balance;
+    currentBalance = balanceResult.balance;
+
+    // GOVERNANCE: Log governance flags (e.g., hardcoded default detection)
+    if (balanceResult.governanceFlags?.suspectedHardcodedDefault) {
+      logger.warn(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] GOVERNANCE: Balance initialized with hardcoded default',
+        {
+          userId,
+          sessionId,
+          balance: currentBalance,
+          message: 'This balance ($50) may be incorrect. Manual verification required before trading.'
+        }
+      );
     }
 
     // GOVERNANCE: Fail closed if balance is invalid
-    if (currentBalance === undefined || currentBalance === null || isNaN(currentBalance)) {
-      console.error('[AlphaTradeExecutor] Invalid account balance:', {
-        userId,
-        sessionId,
-        fetchedBalance: currentBalance
-      });
+    const balanceValidation = validateBalanceIsReasonable(currentBalance, userId);
+    if (!balanceValidation.valid) {
+      logger.error(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] Balance validation failed',
+        {
+          userId,
+          sessionId,
+          balance: currentBalance,
+          reason: balanceValidation.reason,
+        }
+      );
       return {
         success: false,
-        error: 'Account balance is invalid',
+        error: `Account balance validation failed: ${balanceValidation.reason}`,
         blockReason: 'Cannot assess risk without valid account balance'
       };
     }
