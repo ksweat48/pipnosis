@@ -28,6 +28,7 @@ import {
   getCurrencyPipInfo,
   calculateDollarPerPip,
 } from '../utils/currencyHelpers';
+import { percentageToRiskMode, getRiskModeDescription } from '../config/risk-percentage-mapping';
 import { TradeContext } from '../types/trade-context';
 
 export interface GoalAwareLotSizingInput {
@@ -105,7 +106,18 @@ class GoalAwareLotSizingCoordinator {
     );
 
     // STEP 1: Get required lot for goal using goal-aware calculator
-    // This function returns all three lot sizes plus feasibility assessment
+    // SSOT: Use canonical percentageToRiskMode mapping (CCIP compliant)
+    const riskMode = percentageToRiskMode(riskPercentageAllowed);
+    logger.info(
+      LogCategory.RISK_MANAGEMENT,
+      '[Goal-Aware Lot Sizing] Risk Mode Mapping',
+      {
+        percentage: riskPercentageAllowed,
+        mode: riskMode,
+        description: getRiskModeDescription(riskMode),
+      }
+    );
+
     const goalAwareResult = calculateGoalAwareLotSize(
       symbol,
       direction,
@@ -114,7 +126,7 @@ class GoalAwareLotSizingCoordinator {
       stopLossPrice,
       currentProgress,
       goalAmount,
-      riskPercentageAllowed + '%' as any // Convert to risk mode
+      riskMode  // Now using proper enum type
     );
 
     const requiredLotForGoal = goalAwareResult.lotSize;

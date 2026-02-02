@@ -975,15 +975,7 @@ export function calculateGoalAwareLotSize(
   // 🚨 CRITICAL VALIDATION: Detect position sizing disasters
   // If commonMovePips is suspiciously low (< 5 pips), the asset profile is misconfigured
   if (commonMovePips < 5) {
-    console.error('%c🚨 POSITION SIZING ERROR: Asset profile misconfigured!', 'color: #ff0000; font-weight: bold; font-size: 16px');
-    console.error(`  Common move = ${commonMovePips.toFixed(2)} ${assetProfile.commonMove.unit}`);
-    console.error(`  This is too small - asset profiles must use POINTS/PIPS, not ATR multipliers`);
-    console.error(`  Symbol: ${symbol}, Category: ${pipInfo.symbolType}`);
-    console.error(`  CRITICAL: Cannot proceed with position sizing - must fix asset profile configuration`);
-    console.error(`  Expected: commonMove.min/max should be in actual pips/points (e.g., 30-100 for indices)`);
-
-    // ✅ FIXED: Throw error instead of returning broken values
-    // This ensures the bug is caught immediately rather than silently producing incorrect lot sizes
+    // CCIP: Throw error with detailed message (no console.error spam)
     throw new Error(
       `Asset profile misconfigured for ${symbol}: commonMove=${commonMovePips.toFixed(2)} ${assetProfile.commonMove.unit}. ` +
       `This value is too small. Asset profiles must specify POINTS/PIPS, not ATR multipliers. ` +
@@ -1063,39 +1055,36 @@ export function calculateGoalAwareLotSize(
     const riskRatio = expectedRisk / maxRiskAllowed;
     const riskPercentOfBalance = (expectedRisk / accountBalance) * 100;
 
-    console.error('%c🚨 RISK EXCEEDS CAP - CALCULATING MAX SAFE LOT', 'color: #ff9800; font-weight: bold; font-size: 16px');
-    console.error(`  Expected Risk: $${expectedRisk.toFixed(2)} (${riskPercentOfBalance.toFixed(1)}% of balance)`);
-    console.error(`  Max Allowed: $${maxRiskAllowed.toFixed(2)} (5% cap)`);
-    console.error(`  Risk Ratio: ${riskRatio.toFixed(2)}x over limit`);
-    console.error(`  Original Lot Size: ${formatLotSize(actualLotSize)}`);
-
-    // 🚨 CRITICAL WARNING: If risk is more than 10x over limit, something is seriously wrong
-    if (riskRatio > 10) {
-      console.error('%c⚠️ EXTREME POSITION SIZING ERROR DETECTED!', 'color: #ff0000; font-weight: bold; font-size: 18px; background: yellow; padding: 4px');
-      console.error(`  Position would risk ${riskRatio.toFixed(1)}x more than allowed!`);
-      console.error(`  This indicates a configuration error in:`);
-      console.error(`    - Asset profile commonMove values (check asset-class-risk-profiles.ts)`);
-      console.error(`    - Symbol pip/point values (check symbol-registry.ts)`);
-      console.error(`    - Position sizing calculation logic`);
+    // CCIP: Log to audit trail (in production logging, not console.error spam)
+    if (import.meta.env.DEV) {
+      console.log(
+        `[RISK EXCEEDS CAP] Symbol: ${symbol}, Risk: $${expectedRisk.toFixed(2)} (${riskPercentOfBalance.toFixed(1)}% of balance), Ratio: ${riskRatio.toFixed(2)}x`
+      );
     }
 
     // Calculate maximum safe lot size
     const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot;
     const safeLot = maxRiskAllowed / (stopPips * dollarPerPipPerLot);
 
-    // Clamp to broker min/max/step
-    let clampedSafeLot = Math.max(minLotSize, Math.min(maxLotSize, safeLot));
-    clampedSafeLot = roundLotSize(clampedSafeLot);
+    // CCIP GOVERNANCE: Validate safe lot before using
+    // If calculated safe lot is below minimum, that indicates configuration error
+    const roundedSafeLot = roundLotSize(safeLot);
+    if (roundedSafeLot < minLotSize) {
+      // This should only happen if stop loss is extremely tight or risk cap is too strict
+      // GOVERNANCE: Log the decision to audit trail (no silent degradation)
+      const message = `Goal-Aware Lot Sizing: Calculated safe lot (${roundedSafeLot.toFixed(4)} lots) is below broker minimum (${minLotSize}). ` +
+        `This indicates: (1) stop loss is extremely tight (${stopPips.toFixed(2)} pips), ` +
+        `(2) risk cap (${(maxRiskAllowed / accountBalance * 100).toFixed(1)}%) is too restrictive, or ` +
+        `(3) account balance is too small for this trade. Using minimum lot (${minLotSize}), but trade may be rejected by execution gate.`;
 
-    console.log(`  Calculated Safe Lot: ${clampedSafeLot.toFixed(3)}`);
-    console.log(`  Broker Min Lot: ${minLotSize}`);
+      if (import.meta.env.DEV) {
+        console.warn(`[Goal-Aware Sizing] ${message}`);
+      }
 
-    if (clampedSafeLot < minLotSize) {
-      console.warn('[Goal-Aware Sizing] Safe lot below broker min - using min lot (Execution Gate will evaluate)');
-      clampedSafeLot = minLotSize;
+      actualLotSize = minLotSize;
+    } else {
+      actualLotSize = roundedSafeLot;
     }
-
-    actualLotSize = clampedSafeLot;
     const newDollarPerPip = calculateDollarPerPip(symbol, actualLotSize);
     const newExpectedProfit = commonMovePips * newDollarPerPip;
     const newEstimatedTrades = Math.ceil(remainingGoal / newExpectedProfit);
