@@ -26,6 +26,7 @@ import { getMinConfidenceThreshold } from '../config/risk-levels';
 import { priceCoordinator } from './coordinators/price-coordinator';
 import type { TradeContext } from '../types/trade-context';
 import { toDirectionDB } from '../utils/direction-converter';
+import { isPCVLEnabled, validatePositionContract } from './pcvl-position-contract-validator';
 
 interface LivePriceResult {
   price: number;
