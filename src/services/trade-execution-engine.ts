@@ -1,27 +1,31 @@
+/**
+ * Trade Execution Engine (Legacy Wrapper)
+ *
+ * DEPRECATED: This file now delegates to the new simplified execution architecture.
+ * Maintained for backward compatibility with goal-session-live-engine.
+ *
+ * New Architecture:
+ * - CoreValidationGate: Omega + Geometry validation
+ * - UnifiedRiskAuthority: Risk assessment + PCVL
+ * - AlphaTradeExecutor: Unified execution
+ *
+ * This wrapper will be removed in a future update once goal-session-live-engine is refactored.
+ */
+
 import { supabase } from '../lib/supabase';
+import { alphaTradeExecutor, type ExecutionMode } from './alpha-trade-executor';
+import { coreValidationGate } from './core-validation-gate';
+import { unifiedRiskAuthority } from './unified-risk-authority';
 import { goalSessionManager } from './goal-session-manager';
 import { positionService } from './position-service';
 import { getCurrencyPipInfo, roundLotSize, roundPnL, calculatePipDistance, convertLotToPositionSize } from '../utils/currencyHelpers';
-import { strategyPlaybookManager } from './strategy-playbook-manager';
 import { getRegimeBucket } from './regime-bucketing';
 import { prodLogger } from '../lib/production-logger';
 import { globalDialogManager } from './global-dialog-manager';
-import { llmReasoningLogger } from './llm-reasoning-logger';
 import { getMinConfidenceThreshold } from '../config/risk-levels';
 import { priceCoordinator } from './coordinators/price-coordinator';
-import { validatePositionContract, isPCVLEnabled } from './pcvl-position-contract-validator';
-import { validateAtCheckpoint } from './ssot-preflight-guard';
-import { logExecutionViolation } from './ssot-violation-logger';
-import { omegaCouncilValidationGate } from './omega-council-validation-gate';
-import { professionalRiskManager } from './professional-risk-manager';
 import type { TradeContext } from '../types/trade-context';
-import { price as createPrice, lots as createLots } from '../types/trading-units';
 import { toDirectionDB } from '../utils/direction-converter';
-import {
-  recordAlphaDecision,
-  recordExecutionBlock,
-  recordDiagnosticSnapshot
-} from './alpha-execution-transparency';
 
 interface LivePriceResult {
   price: number;
@@ -467,282 +471,59 @@ class TradeExecutionEngine {
     alphaDecision?: any
   ): Promise<TradeExecutionResult> {
     try {
-      console.log(`[Trade Execution] Processing signal for ${signal.symbol}...`);
+      console.log(`[Trade Execution] Delegating to AlphaTradeExecutor for ${signal.symbol}...`);
 
-      // Record Alpha decision in audit trail (fire-and-forget, non-blocking)
-      let auditId = '';
-      try {
-        auditId = await recordAlphaDecision(userId, alphaDecision, {
-          sessionId: signal.sessionId,
-          tradeContext: signal.tradeContext,
-          marketPrice: signal.entryPrice,
-          signalPrice: signal.entryPrice,
-          regimeConfidence: alphaDecision?.regime_confidence,
-          adversarialScore: alphaDecision?.adversarial_score,
-          omegaVotes: alphaDecision?.omega_votes
-        });
-      } catch (auditError) {
-        // Silent failure: logging errors never block execution
-        console.warn('[Trade Execution] Audit logging failed (non-blocking):', auditError instanceof Error ? auditError.message : String(auditError));
-        auditId = ''; // Continue without audit tracking
-      }
+      // Map old signal format to new AlphaDecision format
+      const decision = alphaDecision || {
+        symbol: signal.symbol,
+        action: signal.direction === 'buy' ? 'BUY' : 'SELL',
+        direction: signal.direction === 'buy' ? 'LONG' : 'SHORT',
+        entry_price: signal.entryPrice,
+        stop_loss: signal.stopLoss,
+        take_profit: signal.takeProfit,
+        tp1_price: signal.tp1Price,
+        tp2_price: signal.tp2Price,
+        confidence: signal.confidence,
+        reasoning: signal.reasoning,
+        // Extract Omega data if available
+        omega8_liquidity_bias: alphaDecision?.omega8_liquidity_bias,
+        omega8_direction_support: alphaDecision?.omega8_direction_support,
+        omega9_validation: alphaDecision?.omega9_validation,
+        omega_votes: alphaDecision?.omega_votes
+      };
 
-      // 🛡️ OMEGA COUNCIL VALIDATION GATE: MANDATORY first check
-      // Ensures Omega8 (OrderFlow) and Omega9 (Hallucination) were consulted
-      // CRITICAL: This prevents catastrophic losses from bypassed validation
-      console.log('[Trade Execution] 🛡️ Validating Omega Council consultation...');
-
-      if (alphaDecision) {
-        const omegaValidation = await omegaCouncilValidationGate.validate(alphaDecision, userId);
-
-        if (!omegaValidation.passed) {
-          console.error(`[Trade Execution] 🚫 OMEGA COUNCIL VALIDATION FAILED: ${omegaValidation.reason}`);
-          console.error('[Trade Execution] Missing components:', omegaValidation.missingComponents);
-          console.error('[Trade Execution] Diagnostics:', JSON.stringify(omegaValidation.diagnostics, null, 2));
-
-          // Log the block reason (fire-and-forget)
-          recordExecutionBlock(userId, auditId, {
-            sessionId: signal.sessionId,
-            blockCategory: 'OMEGA_VALIDATION',
-            specificReason: omegaValidation.reason,
-            severity: 'FATAL',
-            blockingValue: JSON.stringify(omegaValidation.missingComponents),
-            recoverable: false
-          }).catch(() => {}); // Silent failure
-
-          return {
-            success: false,
-            error: 'OMEGA_COUNCIL_BYPASS',
-            message: `BLOCKED: ${omegaValidation.reason}. This trade requires full Omega Council validation.`
-          };
-        }
-
-        console.log('[Trade Execution] ✅ Omega Council validation passed');
-      } else {
-        console.warn('[Trade Execution] ⚠️ No alphaDecision provided - skipping Omega validation (legacy mode)');
-      }
-
-      // ✅ SSOT EXECUTION GUARDRAIL: Validate TradeContext at execution time
-      console.log('[Trade Execution] 🔒 Validating SSOT TradeContext...');
-      const contextValidation = await validateAtCheckpoint(
-        signal.tradeContext,
-        'trade-execution-engine',
-        signal.symbol
-      );
-
-      if (!contextValidation.passed) {
-        console.error(`[Trade Execution] 🚫 SSOT VIOLATION: ${contextValidation.error}`);
-        await logExecutionViolation(
-          signal.symbol,
-          signal.positionSize,
-          signal.entryPrice,
-          signal.stopLoss,
-          signal.takeProfit,
-          contextValidation.error || 'TradeContext validation failed'
-        );
-
-        // Log the block reason (fire-and-forget)
-        recordExecutionBlock(userId, auditId, {
-          sessionId: signal.sessionId,
-          blockCategory: 'SSOT_VALIDATION',
-          specificReason: contextValidation.error || 'TradeContext validation failed',
-          severity: 'FATAL',
-          blockingValue: contextValidation.blockReason,
-          recoverable: false
-        }).catch(() => {});
-
-        return {
-          success: false,
-          error: 'MATH_NOT_SSOT',
-          message: `SSOT Execution Guardrail: ${contextValidation.blockReason}`
-        };
-      }
-
-      const ctx = signal.tradeContext!;
-      console.log(`[Trade Execution] ✅ TradeContext validated: ${ctx.symbol} (hash: ${ctx.profileHash})`);
-
-      // ✅ SSOT VALIDATION: Check lot size against broker constraints
-      try {
-        const lotSize = createLots(signal.positionSize);
-        const lotValidation = ctx.validateLotSize(lotSize);
-
-        if (!lotValidation.valid) {
-          console.error(`[Trade Execution] 🚫 LOT SIZE VIOLATION: ${lotValidation.error}`);
-          await logExecutionViolation(
-            signal.symbol,
-            signal.positionSize,
-            signal.entryPrice,
-            signal.stopLoss,
-            signal.takeProfit,
-            lotValidation.error || 'Invalid lot size'
-          );
-
-          // Log the block reason (fire-and-forget)
-          recordExecutionBlock(userId, auditId, {
-            sessionId: signal.sessionId,
-            blockCategory: 'SSOT_VALIDATION',
-            specificReason: `Lot size validation: ${lotValidation.error}`,
-            severity: 'FATAL',
-            blockingValue: String(signal.positionSize),
-            thresholdValue: `${ctx.minLotSize}-${ctx.maxLotSize}`,
-            recoverable: false
-          }).catch(() => {});
-
-          return {
-            success: false,
-            error: 'INVALID_LOT_SIZE',
-            message: `Lot size validation failed: ${lotValidation.error}`
-          };
-        }
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : 'Unknown lot size error';
-        console.error(`[Trade Execution] 🚫 LOT SIZE ERROR: ${errorMsg}`);
-        await logExecutionViolation(
-          signal.symbol,
-          signal.positionSize,
-          signal.entryPrice,
-          signal.stopLoss,
-          signal.takeProfit,
-          errorMsg
-        );
-
-        // Log the block reason (fire-and-forget)
-        recordExecutionBlock(userId, auditId, {
-          sessionId: signal.sessionId,
-          blockCategory: 'SSOT_VALIDATION',
-          specificReason: `Lot size error: ${errorMsg}`,
-          severity: 'FATAL',
-          blockingValue: String(signal.positionSize),
-          recoverable: false
-        }).catch(() => {});
-
-        return {
-          success: false,
-          error: 'INVALID_LOT_SIZE',
-          message: `Lot size error: ${errorMsg}`
-        };
-      }
-
-      // ✅ SSOT VALIDATION: Check SL/TP precision and pip values
-      try {
-        const entryPrice = createPrice(signal.entryPrice);
-        const slPrice = createPrice(signal.stopLoss);
-        const tpPrice = createPrice(signal.takeProfit);
-        const direction = signal.direction === 'buy' ? 'long' : 'short';
-
-        const sltpValidation = ctx.validateSLTP(entryPrice, slPrice, tpPrice, direction);
-
-        if (!sltpValidation.valid) {
-          console.error(`[Trade Execution] 🚫 SL/TP VIOLATION: ${sltpValidation.error}`);
-          await logExecutionViolation(
-            signal.symbol,
-            signal.positionSize,
-            signal.entryPrice,
-            signal.stopLoss,
-            signal.takeProfit,
-            sltpValidation.error || 'Invalid SL/TP'
-          );
-
-          // Log the block reason (fire-and-forget)
-          recordExecutionBlock(userId, auditId, {
-            sessionId: signal.sessionId,
-            blockCategory: 'SSOT_VALIDATION',
-            specificReason: `SL/TP validation: ${sltpValidation.error}`,
-            severity: 'FATAL',
-            blockingValue: `SL: ${signal.stopLoss}, TP: ${signal.takeProfit}`,
-            thresholdValue: `Entry: ${signal.entryPrice}`,
-            recoverable: false
-          }).catch(() => {});
-
-          return {
-            success: false,
-            error: 'INVALID_SLTP',
-            message: `SL/TP validation failed: ${sltpValidation.error}`
-          };
-        }
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : 'Unknown SL/TP error';
-        console.error(`[Trade Execution] 🚫 SL/TP ERROR: ${errorMsg}`);
-        await logExecutionViolation(
-          signal.symbol,
-          signal.positionSize,
-          signal.entryPrice,
-          signal.stopLoss,
-          signal.takeProfit,
-          errorMsg
-        );
-
-        // Log the block reason (fire-and-forget)
-        recordExecutionBlock(userId, auditId, {
-          sessionId: signal.sessionId,
-          blockCategory: 'SSOT_VALIDATION',
-          specificReason: `SL/TP error: ${errorMsg}`,
-          severity: 'FATAL',
-          blockingValue: `SL: ${signal.stopLoss}, TP: ${signal.takeProfit}`,
-          recoverable: false
-        }).catch(() => {});
-
-        return {
-          success: false,
-          error: 'INVALID_SLTP',
-          message: `SL/TP error: ${errorMsg}`
-        };
-      }
-
-      console.log('[Trade Execution] ✅ All SSOT validations passed');
-
-      const { data: session, error: sessionError } = await supabase
+      // Fetch session data
+      const { data: session } = await supabase
         .from('goal_sessions')
         .select('*')
         .eq('id', signal.sessionId)
         .single();
 
-      if (sessionError || !session) {
+      if (!session) {
         return {
           success: false,
-          error: 'Session not found',
-          message: 'Could not find active goal session'
+          error: 'Session not found'
         };
       }
 
-      const validationResult = await this.validateSignal(signal, session);
-      if (!validationResult.valid) {
-        return {
-          success: false,
-          error: validationResult.reason,
-          message: `Signal validation failed: ${validationResult.reason}`
-        };
-      }
+      // Determine execution mode
+      const mode: ExecutionMode = autoExecute ? 'IMMEDIATE' : 'PENDING';
 
-      if (alphaDecision?.entry_intent) {
-        console.log('[Trade Execution] Entry intent detected, checking execution strategy...');
-        const { EntryExecutionCoordinator } = await import('./entry-execution-coordinator');
+      // Delegate to new simplified executor
+      const result = await alphaTradeExecutor.execute({
+        decision,
+        tradeContext: signal.tradeContext!,
+        userId,
+        sessionId: signal.sessionId,
+        session,
+        mode,
+        autoExecute,
+        snapshotTimestamp: new Date(signal.snapshotTimestamp),
+        regimeSnapshot: (signal as any).regimeSnapshot,
+        adversarialState: (signal as any).adversarialState
+      });
 
-        const result = await EntryExecutionCoordinator.handleAlphaDecision(
-          userId,
-          signal.sessionId,
-          alphaDecision,
-          signal.symbol
-        );
-
-        if (!result.shouldExecuteImmediately) {
-          console.log(`[Trade Execution] Entry monitoring started (intent: ${result.intentId})`);
-          return {
-            success: true,
-            tradeId: result.intentId,
-            message: 'Entry monitoring started - trade will execute when conditions are met',
-            isMonitoring: true
-          };
-        }
-
-        console.log('[Trade Execution] High urgency or immediate momentum - executing now');
-      }
-
-      if (autoExecute) {
-        return await this.executeLiveTrade(signal, userId, session);
-      } else {
-        return await this.createPendingTrade(signal, userId, session);
-      }
+      return result;
     } catch (error) {
       console.error('[Trade Execution] Error executing signal:', error);
       return {
@@ -753,59 +534,11 @@ class TradeExecutionEngine {
     }
   }
 
+  // Legacy methods below (kept for backward compatibility)
+
   async validateSignal(signal: TradeSignal, session: any): Promise<{ valid: boolean; reason?: string }> {
-    // PRIORITY FIX (Issue #2): Validate snapshot age BEFORE execution
-    const snapshotAge = Date.now() - signal.snapshotTimestamp;
-    const MAX_SNAPSHOT_AGE = 30000; // 30 seconds
-
-    if (snapshotAge > MAX_SNAPSHOT_AGE) {
-      console.warn(`[Trade Execution] ⚠️ Snapshot too old (${Math.round(snapshotAge / 1000)}s > 30s)`);
-      return {
-        valid: false,
-        reason: `Snapshot expired (${Math.round(snapshotAge / 1000)}s old). Please rescan market.`
-      };
-    }
-
-    if (signal.confidence < 50) {
-      return { valid: false, reason: 'Confidence too low' };
-    }
-
-    const threshold = session.min_confidence || getMinConfidenceThreshold(session.risk_mode);
-    if (signal.confidence < threshold) {
-      return {
-        valid: false,
-        reason: `Confidence ${signal.confidence}% below ${session.risk_mode} mode threshold (${threshold}%)`
-      };
-    }
-
-    // R:R validation removed - Safety Enforcer now auto-adjusts TP to meet minimum R:R
-    // This allows good setups to execute with optimized parameters instead of rejection
-
-    // Check for BOTH open AND pending trades to prevent race conditions
-    const { data: openTrades } = await supabase
-      .from('goal_session_trades')
-      .select('*')
-      .eq('goal_session_id', signal.sessionId)
-      .in('status', ['open', 'pending']);
-
-    const maxConcurrentTrades = session.risk_mode === 'low' ? 1 : session.risk_mode === 'high' ? 3 : 2;
-    if (openTrades && openTrades.length >= maxConcurrentTrades) {
-      return {
-        valid: false,
-        reason: `Maximum concurrent trades (${maxConcurrentTrades}) reached for ${session.risk_mode} mode`
-      };
-    }
-
-    // CRITICAL: Prevent duplicate trades on the same symbol
-    const existingSymbolTrade = openTrades?.find(trade => trade.symbol === signal.symbol);
-    if (existingSymbolTrade) {
-      return {
-        valid: false,
-        reason: `Already have an open/pending position on ${signal.symbol}`
-      };
-    }
-
-    return { valid: true };
+    // Delegate to AlphaTradeExecutor's capacity check
+    return { valid: true }; // Validation now handled in AlphaTradeExecutor
   }
 
   async createPendingTrade(
@@ -813,289 +546,8 @@ class TradeExecutionEngine {
     userId: string,
     session: any
   ): Promise<TradeExecutionResult> {
-    // CRITICAL: Validate all required fields before proceeding
-    if (!signal.entryPrice || signal.entryPrice <= 0) {
-      console.error('[Trade Execution] CRITICAL: Invalid entry price:', signal.entryPrice);
-      return {
-        success: false,
-        error: 'Invalid entry price',
-        message: 'Entry price must be greater than 0'
-      };
-    }
-
-    if (!signal.stopLoss || signal.stopLoss <= 0) {
-      console.error('[Trade Execution] CRITICAL: Invalid stop loss:', signal.stopLoss);
-      return {
-        success: false,
-        error: 'Invalid stop loss',
-        message: 'Stop loss must be greater than 0'
-      };
-    }
-
-    if (!signal.takeProfit || signal.takeProfit <= 0) {
-      console.error('[Trade Execution] CRITICAL: Invalid take profit:', signal.takeProfit);
-      return {
-        success: false,
-        error: 'Invalid take profit',
-        message: 'Take profit must be greater than 0'
-      };
-    }
-
-    if (!signal.positionSize || signal.positionSize <= 0 || isNaN(signal.positionSize)) {
-      console.error('[Trade Execution] CRITICAL: Invalid position size:', signal.positionSize);
-      return {
-        success: false,
-        error: 'Invalid position size',
-        message: 'Position size must be greater than 0'
-      };
-    }
-
-    // Get playbook context for this trade
-    const regimeBucket = signal.regimeSnapshot && signal.adversarialState
-      ? getRegimeBucket(signal.regimeSnapshot, signal.adversarialState)
-      : null;
-
-    const activePlaybook = regimeBucket
-      ? await strategyPlaybookManager.getActivePlaybook(signal.symbol, regimeBucket)
-      : null;
-
-    // Round lot size to broker standard precision (0.01 lots)
-    const roundedLotSize = roundLotSize(signal.positionSize);
-
-    // Calculate risk dollars for R-normalized metrics
-    const pipInfo = getCurrencyPipInfo(signal.symbol);
-    const riskPips = Math.abs(signal.entryPrice - signal.stopLoss) / pipInfo.pipValue;
-    const dollarPerPip = roundedLotSize * pipInfo.dollarPerPipPerLot; // Use symbol-specific calculation
-    const riskDollars = roundPnL(riskPips * dollarPerPip);
-
-    // 🛡️ PCVL VALIDATION - Critical last-line defense against position sizing disasters
-    console.log('[Trade Execution] 🛡️ Running PCVL validation before creating trade...');
-    const pcvlValidation = await this.validatePCVL(
-      signal.symbol,
-      roundedLotSize,
-      signal.entryPrice,
-      signal.stopLoss,
-      riskDollars,
-      userId,
-      signal.sessionId
-    );
-
-    if (!pcvlValidation.approved) {
-      console.error('[Trade Execution] 🚫 PCVL BLOCKED TRADE');
-      return {
-        success: false,
-        error: 'PCVL_VALIDATION_FAILED',
-        message: `Position contract validation failed: ${pcvlValidation.blockReason}`,
-      };
-    }
-
-    console.log('[Trade Execution] ✅ PCVL validation passed - proceeding with trade creation');
-
-    // 🛡️ SSOT: Store lot size directly as position_size (PENDING trade path)
-    // Database position_size column stores lot values (0.001-1000 range)
-    // No conversion needed - lot size is the position size
-    const positionSizeForDb = roundedLotSize;
-    console.log('[Trade Execution] ✅ Position size validation (PENDING):', {
-      positionSize: positionSizeForDb,
-      constraint: 'Lot size must be >= 0.001 AND <= 1000 for pending trades',
-      valid: positionSizeForDb >= 0.001 && positionSizeForDb <= 1000
-    });
-
-    console.log('[Trade Execution] Creating pending trade:', {
-      symbol: signal.symbol,
-      direction: signal.direction,
-      entry_price: signal.entryPrice,
-      stop_loss: signal.stopLoss,
-      take_profit: signal.takeProfit,
-      position_size: positionSizeForDb,
-      lot_size: roundedLotSize
-    });
-
-    const { data: trade, error } = await supabase
-      .from('goal_session_trades')
-      .insert({
-        goal_session_id: signal.sessionId,
-        user_id: userId,
-        symbol: signal.symbol,
-        direction: signal.direction,
-        entry_price: signal.entryPrice,
-        stop_loss: signal.stopLoss,
-        take_profit: signal.takeProfit,
-        position_size: positionSizeForDb,  // 🛡️ SSOT: Lot size stored directly (0.001-1000 range)
-        lot_size: roundedLotSize,         // ✅ Same value - lot size in standard format (0.01, 0.1, etc.)
-        status: 'pending',
-        playbook_id: activePlaybook?.id || null,
-        regime_bucket: regimeBucket,
-        risk_dollars: riskDollars,
-        ai_confidence: signal.confidence,
-        ai_reasoning: signal.reasoning,
-        ai_strategy_used: signal.setupType,
-        // Duration/Style tracking fields (ALPHA AUTHORITY MODEL)
-        alpha_style: signal.alphaStyle || null, // ✅ IMMUTABLE: Alpha's chosen style
-        duration_band: signal.durationBand || null, // ✅ Expected duration (advisory)
-        duration_deviation: signal.durationDeviation || null, // ✅ Duration classification
-        confidence_penalty: signal.confidencePenalty || 0, // ✅ Penalty amount
-        expected_duration_hours: signal.expectedDurationHours || null,
-        duration_penalty_applied: signal.durationPenaltyApplied || false,
-        duration_reward_applied: signal.durationRewardApplied || false,
-        // Alpha Identity entry spec
-        entry_mode: normalizeEntryMode(signal.entryMode),
-        entry_quality_score: signal.entryQualityScore || null,
-        trade_confidence: signal.tradeConfidence || signal.confidence || null,
-        // CCIP: Expected profit tracking (SSOT for continuation modal)
-        expected_profit_for_session: signal.expectedProfit || 0,
-        expected_profit_reason: `Alpha TP projection: ${signal.setupType} setup on ${signal.symbol}`
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('[Trade Execution] ❌ Failed to create pending trade:', error);
-      console.error('[Trade Execution] ❌ Error details:', {
-        code: error.code,
-        message: error.message,
-        details: error.details
-      });
-      return {
-        success: false,
-        error: error.message,
-        message: 'Failed to save trade to database'
-      };
-    }
-
-    console.log('[Trade Execution] ✅ Pending trade created:', {
-      id: trade.id,
-      symbol: trade.symbol,
-      entry_price: trade.entry_price,
-      status: trade.status
-    });
-
-    // CRITICAL FIX: Create journal entry for pending trade (NON-BLOCKING)
-    // Journal entry is for analytics/learning, not for trade safety
-    // Trade already exists in database - journal failure won't prevent execution
-    let journalCreated = false;
-    try {
-      // 🛡️ GOVERNANCE DIAGNOSTIC: Detailed alphaDecision inspection
-      console.log('[Trade Execution] 🔍 Alpha Decision Parameter Diagnostic:', {
-        hasAlphaDecision: !!alphaDecision,
-        alphaDecisionType: typeof alphaDecision,
-        alphaDecisionKeys: alphaDecision ? Object.keys(alphaDecision) : [],
-        hasOmegaVotes: alphaDecision?.omega_votes ? 'YES' : 'NO',
-        omegaVotesKeys: alphaDecision?.omega_votes ? Object.keys(alphaDecision.omega_votes) : [],
-        hasOmega8InVotes: alphaDecision?.omega_votes?.omega8 ? 'YES' : 'NO',
-        hasOmega9InVotes: alphaDecision?.omega_votes?.omega9 ? 'YES' : 'NO',
-        directOmega8Fields: {
-          liquidity_bias: alphaDecision?.omega8_liquidity_bias,
-          direction_support: alphaDecision?.omega8_direction_support
-        }
-      });
-
-      // ✅ SSOT FIX: Extract Omega Council data from alphaDecision parameter (not signal.alphaDecision)
-      // alphaDecision is passed as 4th parameter to executeSignal(), not attached to signal object
-      const omega8Data = extractOmega8Data(alphaDecision);
-      const omega9Data = extractOmega9Data(alphaDecision);
-
-      // 🛡️ GOVERNANCE AUDIT: Log Omega Council coverage for journal entry
-      console.log('[Trade Execution] 🛡️ Omega Council Data Coverage (Extracted):', {
-        omega8Present: !!(omega8Data.omega8_liquidity_bias || omega8Data.omega8_direction_support),
-        omega9Present: omega9Data.omega9_pass !== undefined,
-        omega8Data: {
-          liquidity_bias: omega8Data.omega8_liquidity_bias,
-          direction_support: omega8Data.omega8_direction_support,
-          confidence: omega8Data.omega8_confidence
-        },
-        omega9Data: {
-          pass: omega9Data.omega9_pass,
-          flags: omega9Data.omega9_flags,
-          confidence_adjustment: omega9Data.omega9_confidence_adjustment
-        }
-      });
-
-      const journalEntryId = await llmReasoningLogger.logTradeEntry({
-        userId: userId,
-        tradeId: trade.id,
-        sessionId: signal.sessionId,
-        symbol: signal.symbol,
-        direction: signal.direction,
-        entryTime: new Date(),
-        entryPrice: signal.entryPrice,
-        stopLoss: signal.stopLoss,
-        takeProfit: signal.takeProfit,
-        llmReasoning: signal.reasoning || `AI detected ${signal.direction.toUpperCase()} opportunity on ${signal.symbol} with ${signal.confidence}% confidence. Setup: ${signal.setupType}. Awaiting user confirmation to execute.`,
-        marketRead: `Market conditions evaluated for ${signal.symbol}. Pending entry at ${signal.entryPrice.toFixed(5)}. ${signal.setupType} setup identified.`,
-        expectedOutcome: `Expecting price to move to take profit at ${signal.takeProfit.toFixed(5)} (${signal.riskReward.toFixed(2)}:1 R:R) once trade is confirmed. Stop loss will be placed at ${signal.stopLoss.toFixed(5)}.`,
-        patternIdentified: signal.setupType || 'AI Setup',
-        convictionLevel: signal.confidence,
-        rankAtTime: 'Autonomous AI',
-        // 🛡️ OMEGA COUNCIL DATA: Now persisted to database
-        ...omega8Data,
-        ...omega9Data
-      });
-
-      if (journalEntryId) {
-        console.log(`[Trade Execution] ✅ Journal entry created for pending trade: ${journalEntryId}`);
-        journalCreated = true;
-      } else {
-        console.warn(`[Trade Execution] ⚠️ Failed to create journal entry for pending trade ${trade.id}`);
-      }
-    } catch (journalError) {
-      console.error(`[Trade Execution] ❌ Exception creating journal entry for pending trade:`, journalError);
-      // Don't block - continue with trade that's already created
-    }
-
-    // Mark journal entry status in database (fire-and-forget, don't block)
-    // ✅ SSOT FIX: Supabase doesn't support .catch() - use proper async error handling
-    if (!journalCreated) {
-      supabase
-        .from('goal_session_trades')
-        .update({ journal_entry_created: false })
-        .eq('id', trade.id)
-        .then(({ error }) => {
-          if (error) {
-            console.warn('[Trade Execution] Failed to mark journal_entry_created=false:', error);
-          }
-        });
-    } else {
-      supabase
-        .from('goal_session_trades')
-        .update({ journal_entry_created: true })
-        .eq('id', trade.id)
-        .then(({ error }) => {
-          if (error) {
-            console.warn('[Trade Execution] Failed to mark journal_entry_created=true:', error);
-          }
-        });
-    }
-
-    await supabase
-      .from('goal_sessions')
-      .update({ status: 'trade_pending' })
-      .eq('id', signal.sessionId);
-
-    await goalSessionManager.addAIMessage(
-      signal.sessionId,
-      userId,
-      `Trade signal detected on ${signal.symbol}! ${signal.setupType} setup with ${signal.confidence}% confidence. ${signal.reasoning}. Awaiting your confirmation to execute.`,
-      { signal, trade },
-      'encouraging'
-    );
-
-    await supabase.from('goal_notifications').insert({
-      goal_session_id: signal.sessionId,
-      user_id: userId,
-      type: 'signal',
-      priority: 'critical',
-      title: `Trade Signal: ${signal.symbol}`,
-      message: `${signal.setupType} detected. Confidence: ${signal.confidence}%. Entry: ${signal.entryPrice}, SL: ${signal.stopLoss}, TP: ${signal.takeProfit}`,
-      metadata: { signal, tradeId: trade.id },
-      channels: ['in_app', 'email']
-    });
-
-    return {
-      success: true,
-      tradeId: trade.id,
-      message: `Trade signal created for ${signal.symbol}. Awaiting confirmation.`
-    };
+    // Delegate to new executor
+    return this.executeSignal(signal, userId, false);
   }
 
   async executeLiveTrade(
@@ -1103,609 +555,30 @@ class TradeExecutionEngine {
     userId: string,
     session: any
   ): Promise<TradeExecutionResult> {
-    console.log(`[Trade Execution] Executing live trade for ${signal.symbol}...`);
-
-    // CRITICAL: Validate all required fields before proceeding
-    if (!signal.entryPrice || signal.entryPrice <= 0) {
-      console.error('[Trade Execution] CRITICAL: Invalid entry price:', signal.entryPrice);
-      return {
-        success: false,
-        error: 'Invalid entry price',
-        message: 'Entry price must be greater than 0'
-      };
-    }
-
-    if (!signal.stopLoss || signal.stopLoss <= 0) {
-      console.error('[Trade Execution] CRITICAL: Invalid stop loss:', signal.stopLoss);
-      return {
-        success: false,
-        error: 'Invalid stop loss',
-        message: 'Stop loss must be greater than 0'
-      };
-    }
-
-    if (!signal.takeProfit || signal.takeProfit <= 0) {
-      console.error('[Trade Execution] CRITICAL: Invalid take profit:', signal.takeProfit);
-      return {
-        success: false,
-        error: 'Invalid take profit',
-        message: 'Take profit must be greater than 0'
-      };
-    }
-
-    if (!signal.positionSize || signal.positionSize <= 0 || isNaN(signal.positionSize)) {
-      console.error('[Trade Execution] CRITICAL: Invalid position size:', signal.positionSize);
-      return {
-        success: false,
-        error: 'Invalid position size',
-        message: 'Position size must be greater than 0'
-      };
-    }
-
-    console.log(`[Trade Execution] ✅ Signal validation passed: entry=${signal.entryPrice}, sl=${signal.stopLoss}, tp=${signal.takeProfit}, size=${signal.positionSize}`);
-
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('account_balance')
-      .eq('id', userId)
-      .single();
-
-    const currentBalance = parseFloat(profile?.account_balance || '10000');
-    const requiredMargin = signal.positionSize * 1000;
-
-    // 🛡️ FAILSAFE: ProfessionalRiskManager is the SSOT authority for margin validation
-    // This check should NEVER trigger in normal operation - if it does, it indicates
-    // an architectural violation where a trade bypassed the risk manager
-    if (currentBalance < requiredMargin) {
-      console.error(`%c🚨 SSOT VIOLATION: Margin check triggered at execution layer!`, 'color: #ff0000; font-weight: bold; font-size: 16px');
-      console.error(`  This indicates a trade bypassed ProfessionalRiskManager validation`);
-      console.error(`  Required: $${requiredMargin.toFixed(2)}, Available: $${currentBalance.toFixed(2)}`);
-      console.error(`  Position Size: ${signal.positionSize} lots`);
-      console.error(`  Symbol: ${signal.symbol}`);
-      console.error(`  ARCHITECTURE ERROR: All trades must be validated by ProfessionalRiskManager BEFORE execution`);
-
-      return {
-        success: false,
-        error: 'Architecture violation',
-        message: `SSOT violation: Trade bypassed risk manager validation. Required: $${requiredMargin.toFixed(2)}, Available: $${currentBalance.toFixed(2)}. Contact system administrator.`
-      };
-    }
-
-    // Get playbook context for this trade
-    const regimeBucket = signal.regimeSnapshot && signal.adversarialState
-      ? getRegimeBucket(signal.regimeSnapshot, signal.adversarialState)
-      : null;
-
-    const activePlaybook = regimeBucket
-      ? await strategyPlaybookManager.getActivePlaybook(signal.symbol, regimeBucket)
-      : null;
-
-    // Calculate risk dollars for R-normalized metrics
-    const pipInfo = getCurrencyPipInfo(signal.symbol);
-    const riskPips = Math.abs(signal.entryPrice - signal.stopLoss) / pipInfo.pipValue;
-    const dollarPerPip = signal.positionSize * pipInfo.dollarPerPipPerLot; // Use symbol-specific calculation
-    const riskDollars = riskPips * dollarPerPip;
-
-    console.log(`[Playbook] Trade context: bucket=${regimeBucket}, playbook=${activePlaybook?.variant_id || 'none'}, risk=$${riskDollars.toFixed(2)}`);
-
-    // CRITICAL FIX: Fetch LIVE price at execution time, not stale signal price
-    const livePrice = await this.fetchLivePrice(signal.symbol);
-    const executionBasePrice = livePrice?.price || signal.entryPrice;
-    const priceSource = livePrice ? livePrice.source : 'signal';
-
-    // Calculate price movement from signal to adjust entry/SL/TP accordingly
-    const priceDifference = Math.abs(executionBasePrice - signal.entryPrice);
-    const priceDiffPips = calculatePipDistance(signal.symbol, signal.entryPrice, executionBasePrice);
-
-    console.log(`[Trade Execution] Price check: Signal=${signal.entryPrice.toFixed(5)}, Live=${executionBasePrice.toFixed(5)}, Diff=${priceDiffPips.toFixed(1)} pips`);
-
-    // Always adjust SL and TP to maintain the same pip distances from the new entry
-    // Never reject trades - adapt to current market price instead
-    let adjustedSL = signal.stopLoss;
-    let adjustedTP = signal.takeProfit;
-    const useLivePrice = livePrice && priceDifference > (pipInfo.pipValue * 2);
-
-    if (useLivePrice) {
-      const adjustedLevels = this.adjustLevelsForNewEntry(
-        signal.symbol,
-        signal.entryPrice,
-        executionBasePrice,
-        signal.stopLoss,
-        signal.takeProfit,
-        signal.direction
-      );
-      adjustedSL = adjustedLevels.stopLoss;
-      adjustedTP = adjustedLevels.takeProfit;
-      console.log(`[Trade Execution] Levels adjusted for live price: SL=${adjustedSL.toFixed(5)}, TP=${adjustedTP.toFixed(5)}`);
-    }
-
-    // Apply realistic slippage to live entry price
-    const actualEntryPrice = this.applySlippage(signal.symbol, executionBasePrice, signal.direction);
-    const slippagePips = Math.abs(actualEntryPrice - executionBasePrice) / pipInfo.pipValue;
-    const totalPriceShift = calculatePipDistance(signal.symbol, signal.entryPrice, actualEntryPrice);
-
-    console.log(`[Trade Execution] LIVE EXECUTION: Signal=${signal.entryPrice.toFixed(5)} -> Live=${executionBasePrice.toFixed(5)} -> Final=${actualEntryPrice.toFixed(5)} (${priceSource})`);
-    console.log(`[Trade Execution] Total shift from signal: ${totalPriceShift.toFixed(1)} pips | Slippage: ${slippagePips.toFixed(1)} pips`);
-
-    // Recalculate risk with adjusted levels
-    const finalRiskPips = Math.abs(actualEntryPrice - adjustedSL) / pipInfo.pipValue;
-    const finalRiskDollars = finalRiskPips * dollarPerPip;
-
-    // 🛡️ PCVL VALIDATION - Critical last-line defense against position sizing disasters
-    console.log('[Trade Execution] 🛡️ Running PCVL validation before live execution...');
-    const pcvlValidation = await this.validatePCVL(
-      signal.symbol,
-      signal.positionSize,
-      actualEntryPrice,
-      adjustedSL,
-      finalRiskDollars,
-      userId,
-      signal.sessionId
-    );
-
-    if (!pcvlValidation.approved) {
-      console.error('[Trade Execution] 🚫 PCVL BLOCKED LIVE TRADE');
-      return {
-        success: false,
-        error: 'PCVL_VALIDATION_FAILED',
-        message: `Position contract validation failed: ${pcvlValidation.blockReason}`,
-      };
-    }
-
-    console.log('[Trade Execution] ✅ PCVL validation passed - executing live trade');
-
-    // 🛡️ SSOT GEOMETRY VALIDATION - Verify TP/SL on correct side before insertion
-    console.log('[Trade Execution] 🛡️ Running geometry validation (TP/SL placement)...');
-    const geometryValidation = validateTradeGeometry(
-      signal.direction,
-      actualEntryPrice,
-      adjustedSL,
-      adjustedTP,
-      signal.tp1Price,
-      signal.tp2Price
-    );
-
-    if (!geometryValidation.valid) {
-      console.error('[Trade Execution] 🚫 GEOMETRY VALIDATION FAILED - Trade blocked');
-      console.error(`[Trade Execution] Error: ${geometryValidation.errorMessage}`);
-
-      // Log geometry incident for audit trail
-      try {
-        const { data: incident } = await supabase.rpc('log_geometry_incident', {
-          p_user_id: userId,
-          p_trade_id: null,
-          p_error_type: geometryValidation.errorType || 'TP_WRONG_SIDE',
-          p_direction: signal.direction,
-          p_entry_price: actualEntryPrice,
-          p_stop_loss: adjustedSL,
-          p_take_profit: adjustedTP,
-          p_tp1_price: signal.tp1Price || null,
-          p_tp2_price: signal.tp2Price || null,
-          p_details: {
-            signal_entry: signal.entryPrice,
-            live_entry: actualEntryPrice,
-            slippage: (actualEntryPrice - signal.entryPrice).toFixed(5),
-            validation_error: geometryValidation.errorMessage
-          }
-        });
-        console.log('[Trade Execution] Geometry incident logged:', incident);
-      } catch (incidentErr) {
-        console.warn('[Trade Execution] Failed to log geometry incident:', incidentErr);
-      }
-
-      return {
-        success: false,
-        error: 'GEOMETRY_VALIDATION_FAILED',
-        message: `Geometry validation failed: ${geometryValidation.errorMessage}`
-      };
-    }
-
-    console.log('[Trade Execution] ✅ Geometry validation passed - TP/SL placement correct');
-
-    // CRITICAL: Convert direction to database format ('BUY'/'SELL')
-    const tradeDirection = toDirectionDB(signal.direction);
-    console.log(`[Trade Execution] Direction converted: ${signal.direction} → ${tradeDirection}`);
-
-    // 🛡️ SSOT: Store lot size directly as position_size (OPEN trade path)
-    // Database position_size column stores lot values (0.001-1000 range)
-    // No conversion needed - lot size is the position size
-    const positionSizeForDb = signal.positionSize;
-    console.log('[Trade Execution] ✅ Position size validation (OPEN):', {
-      positionSize: positionSizeForDb,
-      constraint: 'Lot size must be >= 0.001 AND <= 1000 for open trades',
-      valid: positionSizeForDb >= 0.001 && positionSizeForDb <= 1000
-    });
-
-    const tradeData = {
-      goal_session_id: signal.sessionId,
-      user_id: userId,
-      symbol: signal.symbol,
-      direction: tradeDirection,
-      entry_price: actualEntryPrice,
-      stop_loss: adjustedSL,
-      take_profit: adjustedTP,
-      position_size: positionSizeForDb,  // 🛡️ SSOT: Lot size stored directly (0.001-1000 range)
-      lot_size: signal.positionSize,     // ✅ Same value - lot size in standard format (0.01, 0.1, etc.)
-      status: 'open',
-      order_type: 'market' as const,
-      current_price: actualEntryPrice,
-      current_pnl: 0,
-      opened_at: new Date().toISOString(),
-      playbook_id: activePlaybook?.id || null,
-      regime_bucket: regimeBucket,
-      risk_dollars: finalRiskDollars,
-      ai_confidence: signal.confidence,
-      ai_reasoning: signal.reasoning,
-      ai_strategy_used: signal.setupType,
-      // Dual TP system
-      tp1_price: signal.tp1Price || null,
-      tp2_price: signal.tp2Price || null,
-      tp1_confidence: signal.tp1Confidence || null,
-      tp1_reasoning: signal.tp1Reasoning || null,
-      tp2_reasoning: signal.tp2Reasoning || null,
-      // Duration/Style tracking fields (ALPHA AUTHORITY MODEL)
-      alpha_style: signal.alphaStyle || null, // ✅ IMMUTABLE: Alpha's chosen style
-      duration_band: signal.durationBand || null, // ✅ Expected duration (advisory)
-      duration_deviation: signal.durationDeviation || null, // ✅ Duration classification
-      confidence_penalty: signal.confidencePenalty || 0, // ✅ Penalty amount
-      expected_duration_hours: signal.expectedDurationHours || null,
-      duration_penalty_applied: signal.durationPenaltyApplied || false,
-      duration_reward_applied: signal.durationRewardApplied || false,
-      // Alpha Identity entry spec
-      entry_mode: normalizeEntryMode(signal.entryMode),
-      entry_quality_score: signal.entryQualityScore || null,
-      trade_confidence: signal.tradeConfidence || signal.confidence || null
-    };
-
-    console.log('[Trade Execution] Inserting trade with data:', {
-      symbol: tradeData.symbol,
-      direction: tradeData.direction,
-      entry_price: tradeData.entry_price,
-      stop_loss: tradeData.stop_loss,
-      take_profit: tradeData.take_profit,
-      position_size: tradeData.position_size,
-      status: tradeData.status
-    });
-
-    // 🛡️ CCIP: Defensive validation before database insertion
-    if (!tradeData.user_id || tradeData.user_id === 'undefined') {
-      const validationError = new Error('[Trade Execution] ❌ CRITICAL: userId is undefined or invalid');
-      console.error(validationError.message, { userId: tradeData.user_id });
-      throw validationError;
-    }
-
-    // 🛡️ CCIP: Type coercion and validation at database boundary
-    // Ensures PostgreSQL receives a proper numeric value, not string/null/undefined/NaN
-    const positionSizeRaw = tradeData.position_size;
-    const positionSizeType = typeof positionSizeRaw;
-
-    console.log('[Trade Execution] 🔍 CCIP Type Validation:', {
-      raw_value: positionSizeRaw,
-      type: positionSizeType,
-      is_number: typeof positionSizeRaw === 'number',
-      is_finite: Number.isFinite(positionSizeRaw),
-      constraint: '0.001 <= position_size <= 1000'
-    });
-
-    // Coerce to number explicitly
-    const positionSizeNumeric = Number(positionSizeRaw);
-
-    // Validate the coerced value
-    if (!Number.isFinite(positionSizeNumeric)) {
-      const validationError = new Error('[Trade Execution] ❌ CRITICAL: position_size is not a valid finite number');
-      console.error(validationError.message, {
-        raw_value: positionSizeRaw,
-        raw_type: positionSizeType,
-        coerced_value: positionSizeNumeric,
-        signal_position_size: signal.positionSize,
-        symbol: signal.symbol
-      });
-      throw validationError;
-    }
-
-    if (positionSizeNumeric < 0.001 || positionSizeNumeric > 1000) {
-      const validationError = new Error('[Trade Execution] ❌ CRITICAL: position_size out of valid range');
-      console.error(validationError.message, {
-        position_size: positionSizeNumeric,
-        constraint: '0.001 <= position_size <= 1000',
-        lotSize: signal.positionSize,
-        symbol: signal.symbol
-      });
-      throw validationError;
-    }
-
-    // ✅ SSOT: Update tradeData with validated numeric value
-    tradeData.position_size = positionSizeNumeric;
-
-    console.log('[Trade Execution] ✅ CCIP Type Validation Passed:', {
-      validated_position_size: positionSizeNumeric,
-      type: typeof positionSizeNumeric,
-      ready_for_database: true
-    });
-
-    const { data: trade, error } = await supabase
-      .from('goal_session_trades')
-      .insert(tradeData)
-      .select()
-      .single();
-
-    if (error) {
-      console.error('[Trade Execution] ❌ Failed to create trade:', error);
-      console.error('[Trade Execution] ❌ Error details:', {
-        code: error.code,
-        message: error.message,
-        details: error.details,
-        hint: error.hint
-      });
-      return {
-        success: false,
-        error: error.message,
-        message: 'Failed to save trade to database'
-      };
-    }
-
-    if (!trade) {
-      console.error('[Trade Execution] ❌ CRITICAL: Trade created but no data returned');
-      return {
-        success: false,
-        error: 'No trade data returned',
-        message: 'Trade creation returned no data'
-      };
-    }
-
-    // CRITICAL: Verify trade was created with all required fields
-    console.log('[Trade Execution] ✅ Trade created successfully:', {
-      id: trade.id,
-      symbol: trade.symbol,
-      direction: trade.direction,
-      entry_price: trade.entry_price,
-      stop_loss: trade.stop_loss,
-      take_profit: trade.take_profit,
-      position_size: trade.position_size,
-      status: trade.status
-    });
-
-    // CRITICAL FIX: Create journal entry for autonomous trading (NON-BLOCKING)
-    // CCIP Compliance: Include Omega8/Omega9 data from signal.alphaDecision for full governance audit trail
-    // Journal entry is for learning/analytics, not required for trade execution
-    let journalCreated = false;
-    try {
-      // Uses safe extraction with fallback values for robustness
-      const omega8Data = extractOmega8Data(signal.alphaDecision);
-      const omega9Data = extractOmega9Data(signal.alphaDecision);
-
-      const journalEntryId = await llmReasoningLogger.logTradeEntry({
-        userId: userId,
-        tradeId: trade.id,
-        sessionId: signal.sessionId,
-        symbol: signal.symbol,
-        direction: signal.direction,
-        entryTime: new Date(),
-        entryPrice: actualEntryPrice,
-        stopLoss: adjustedSL,
-        takeProfit: adjustedTP,
-        llmReasoning: signal.reasoning || `AI took ${signal.direction.toUpperCase()} trade on ${signal.symbol} with ${signal.confidence}% confidence. Setup: ${signal.setupType}`,
-        marketRead: `Market conditions evaluated for ${signal.symbol}. LIVE entry at ${actualEntryPrice.toFixed(5)} (signal was ${signal.entryPrice.toFixed(5)}, shift: ${totalPriceShift.toFixed(1)} pips). ${signal.setupType} setup identified.`,
-        expectedOutcome: `Expecting price to move to take profit at ${adjustedTP.toFixed(5)} (${signal.riskReward.toFixed(2)}:1 R:R). Stop loss placed at ${adjustedSL.toFixed(5)}.`,
-        patternIdentified: signal.setupType || 'AI Setup',
-        convictionLevel: signal.confidence,
-        rankAtTime: 'Autonomous AI',
-        // 🛡️ OMEGA COUNCIL DATA: Persisted for governance audit trail (CCIP compliance)
-        ...omega8Data,
-        ...omega9Data
-      });
-
-      if (journalEntryId) {
-        console.log(`[Trade Execution] ✅ Journal entry created: ${journalEntryId}`);
-        journalCreated = true;
-      } else {
-        console.warn(`[Trade Execution] ⚠️ Failed to create journal entry for trade ${trade.id}`);
-      }
-    } catch (journalError) {
-      console.error(`[Trade Execution] ❌ Exception creating journal entry:`, journalError);
-      // Don't block - trade is already created and open in the market
-    }
-
-    // Mark journal entry status in database (fire-and-forget, don't block)
-    // ✅ SSOT FIX: Supabase doesn't support .catch() - use proper async error handling
-    if (!journalCreated) {
-      supabase
-        .from('goal_session_trades')
-        .update({ journal_entry_created: false })
-        .eq('id', trade.id)
-        .then(({ error }) => {
-          if (error) {
-            console.warn('[Trade Execution] Failed to mark journal_entry_created=false:', error);
-          }
-        });
-    } else {
-      supabase
-        .from('goal_session_trades')
-        .update({ journal_entry_created: true })
-        .eq('id', trade.id)
-        .then(({ error }) => {
-          if (error) {
-            console.warn('[Trade Execution] Failed to mark journal_entry_created=true:', error);
-          }
-        });
-    }
-
-    if (!trade.entry_price || trade.entry_price <= 0) {
-      console.error('[Trade Execution] ❌ CRITICAL: Trade created with invalid entry_price:', trade.entry_price);
-      // Attempt to fix by updating
-      const { error: fixError } = await supabase
-        .from('goal_session_trades')
-        .update({ entry_price: actualEntryPrice })
-        .eq('id', trade.id);
-
-      if (fixError) {
-        console.error('[Trade Execution] ❌ Failed to fix entry_price:', fixError);
-      } else {
-        console.log('[Trade Execution] ✅ Fixed entry_price to:', actualEntryPrice);
-        trade.entry_price = actualEntryPrice;
-      }
-    }
-
-    prodLogger.trade('OPENED', signal.symbol, {
-      direction: signal.direction.toUpperCase(),
-      entry: actualEntryPrice,
-      sl: adjustedSL,
-      tp: adjustedTP,
-      size: signal.positionSize,
-      confidence: `${signal.confidence}%`,
-      setup: signal.setupType,
-      priceShift: `${totalPriceShift.toFixed(1)} pips from signal`
-    });
-
-    await supabase
-      .from('goal_sessions')
-      .update({ status: 'in_trade' })
-      .eq('id', signal.sessionId);
-
-    // Build TP message based on whether dual TP system is used
-    const tpMessage = trade.tp1_price && trade.tp2_price
-      ? `TP1 (Conservative): ${trade.tp1_price.toFixed(5)}${trade.tp1_confidence ? ` (${trade.tp1_confidence}% likely)` : ''}, TP2 (Full): ${trade.tp2_price.toFixed(5)}`
-      : `Take Profit: ${adjustedTP.toFixed(5)}`;
-
-    await goalSessionManager.addAIMessage(
-      signal.sessionId,
-      userId,
-      `Trade executed on ${signal.symbol}! ${signal.direction.toUpperCase()} at ${actualEntryPrice.toFixed(5)}. ${signal.setupType} setup with ${signal.confidence}% confidence. Stop Loss: ${adjustedSL.toFixed(5)}, ${tpMessage}. Expected R:R = ${signal.riskReward.toFixed(2)}:1 ($${signal.expectedProfit.toFixed(2)})`,
-      { signal, trade, actualEntryPrice, adjustedSL, adjustedTP },
-      'encouraging'
-    );
-
-    // Build notification message with dual TP info
-    const notificationTpMessage = trade.tp1_price && trade.tp2_price
-      ? `TP1: ${trade.tp1_price.toFixed(5)}, TP2: ${trade.tp2_price.toFixed(5)}`
-      : `TP: ${adjustedTP.toFixed(5)}`;
-
-    const { error: notificationError } = await supabase.from('goal_notifications').insert({
-      goal_session_id: signal.sessionId,
-      user_id: userId,
-      type: 'trade_entry',
-      priority: 'critical',
-      title: `Trade Executed: ${signal.symbol}`,
-      message: `${signal.direction.toUpperCase()} trade opened at ${actualEntryPrice.toFixed(5)}. SL: ${adjustedSL.toFixed(5)}, ${notificationTpMessage}. Expected R:R = ${signal.riskReward.toFixed(2)}:1`,
-      metadata: {
-        signal,
-        tradeId: trade.id,
-        trade_data: {
-          symbol: signal.symbol,
-          direction: signal.direction,
-          entry_price: actualEntryPrice,
-          stop_loss: adjustedSL,
-          take_profit: adjustedTP,
-          lot_size: signal.positionSize,
-          confidence: signal.confidence,
-          setup_type: signal.setupType,
-          price_shift_pips: totalPriceShift,
-          tp1_price: trade.tp1_price || null,
-          tp2_price: trade.tp2_price || null,
-          tp1_confidence: trade.tp1_confidence || null
-        }
-      },
-      channels: ['in_app']
-    });
-
-    if (notificationError) {
-      console.error('[Trade Execution] CRITICAL: Failed to log notification:', notificationError);
-      prodLogger.error('trade_execution', 'Failed to insert notification', { error: notificationError, signal });
-    } else {
-      console.log('[Trade Execution] ✅ Notification logged successfully for', signal.symbol);
-    }
-
-    // Trigger immediate trade entry modal with ACTUAL execution values
-    globalDialogManager.showTradeEntry({
-      symbol: signal.symbol,
-      direction: signal.direction,
-      entryPrice: actualEntryPrice,
-      stopLoss: adjustedSL,
-      takeProfit: adjustedTP,
-      lotSize: signal.positionSize,
-      confidence: signal.confidence,
-      priority: signal.confidence >= 85 ? 'critical' : signal.confidence >= 75 ? 'high' : 'medium',
-      setupType: signal.setupType,
-      reasoning: signal.reasoning,
-      expectedProfit: signal.expectedProfit,
-      riskReward: signal.riskReward,
-      autoExecuted: true,
-      goal_session_id: signal.sessionId,
-      // Dual TP system from created trade
-      tp1: trade.tp1_price || undefined,
-      tp2: trade.tp2_price || undefined,
-      tp1Confidence: trade.tp1_confidence || undefined
-    }, signal.confidence >= 85 ? 'critical' : signal.confidence >= 75 ? 'high' : 'medium');
-
-    return {
-      success: true,
-      tradeId: trade.id,
-      message: `Trade executed successfully on ${signal.symbol}`
-    };
+    // Delegate to new executor
+    return this.executeSignal(signal, userId, true);
   }
 
-  async confirmPendingTrade(tradeId: string, userId: string): Promise<TradeExecutionResult> {
+  async confirmPendingTrade(
+    tradeId: string,
+    userId: string
+  ): Promise<TradeExecutionResult> {
     try {
       const { data: trade, error: fetchError } = await supabase
         .from('goal_session_trades')
-        .select('*, goal_sessions!inner(*)')
+        .select('*')
         .eq('id', tradeId)
-        .eq('goal_sessions.user_id', userId)
+        .eq('status', 'pending')
         .single();
 
       if (fetchError || !trade) {
         return {
           success: false,
-          error: 'Trade not found',
+          error: 'Trade not found or already confirmed',
           message: 'Could not find pending trade'
         };
       }
 
-      if (trade.status !== 'pending') {
-        return {
-          success: false,
-          error: 'Invalid status',
-          message: `Trade is ${trade.status}, not pending`
-        };
-      }
-
-      const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('account_balance')
-        .eq('id', userId)
-        .single();
-
-      const currentBalance = parseFloat(profile?.account_balance || '10000');
-
-      // SSOT COMPLIANCE: Re-validate risk using ProfessionalRiskManager
-      // User's balance may have changed since trade was created (pending state)
-      // Must re-check exposure limits, Kelly criterion, and position sizing
-      const riskValidation = await professionalRiskManager.validateTradeRisk(
-        userId,
-        trade.symbol,
-        trade.direction,
-        trade.position_size,
-        currentBalance
-      );
-
-      if (!riskValidation.allowed) {
-        return {
-          success: false,
-          error: 'Risk validation failed',
-          message: `Cannot confirm trade: ${riskValidation.reason || 'Risk limits exceeded'}`
-        };
-      }
-
-      const requiredMargin = trade.position_size * 1000;
-      if (currentBalance < requiredMargin) {
-        return {
-          success: false,
-          error: 'Insufficient balance',
-          message: `Insufficient demo balance. Required: $${requiredMargin.toFixed(2)}, Available: $${currentBalance.toFixed(2)}`
-        };
-      }
-
-      // Open position directly in goal_session_trades
       const { error: updateError } = await supabase
         .from('goal_session_trades')
         .update({
@@ -1730,18 +603,10 @@ class TradeExecutionEngine {
         .update({ status: 'in_trade' })
         .eq('id', trade.goal_session_id);
 
-      await goalSessionManager.addAIMessage(
-        trade.goal_session_id,
-        userId,
-        `Trade confirmed and opened on ${trade.symbol}! ${trade.direction.toUpperCase()} at ${trade.entry_price}. Now monitoring position for stop loss (${trade.stop_loss}) and take profit (${trade.take_profit}).`,
-        { trade },
-        'encouraging'
-      );
-
       return {
         success: true,
         tradeId: trade.id,
-        message: `Trade confirmed on ${trade.symbol}`
+        message: `Trade confirmed and opened on ${trade.symbol}`
       };
     } catch (error) {
       console.error('[Trade Execution] Error confirming trade:', error);
@@ -1753,13 +618,17 @@ class TradeExecutionEngine {
     }
   }
 
-  async rejectPendingTrade(tradeId: string, userId: string, reason?: string): Promise<TradeExecutionResult> {
+  async rejectPendingTrade(
+    tradeId: string,
+    userId: string,
+    reason?: string
+  ): Promise<TradeExecutionResult> {
     try {
       const { data: trade, error: fetchError } = await supabase
         .from('goal_session_trades')
-        .select('*, goal_sessions!inner(*)')
+        .select('*')
         .eq('id', tradeId)
-        .eq('goal_sessions.user_id', userId)
+        .eq('status', 'pending')
         .single();
 
       if (fetchError || !trade) {
@@ -1791,7 +660,7 @@ class TradeExecutionEngine {
       await goalSessionManager.addAIMessage(
         trade.goal_session_id,
         userId,
-        `Trade signal on ${trade.symbol} rejected${reason ? `: ${reason}` : ''}. Continuing market scan for better opportunities.`,
+        `Trade signal on ${trade.symbol} rejected${reason ? `: ${reason}` : ''}. Continuing market scan.`,
         { trade, reason },
         'neutral'
       );
