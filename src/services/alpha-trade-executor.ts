@@ -331,17 +331,34 @@ class AlphaTradeExecutor {
       : entryPrice - slippage;
 
     // Insert trade
-    const tradeData = this.buildTradeRecord({
-      decision,
-      userId,
-      sessionId,
-      lotSize,
-      riskDollars,
-      entryPrice: adjustedEntry,
-      status: 'open',
-      openedAt: new Date().toISOString(),
-      inputs
-    });
+    let tradeData: any;
+    try {
+      tradeData = this.buildTradeRecord({
+        decision,
+        userId,
+        sessionId,
+        lotSize,
+        riskDollars,
+        entryPrice: adjustedEntry,
+        status: 'open',
+        openedAt: new Date().toISOString(),
+        inputs
+      });
+    } catch (error: any) {
+      console.error('[AlphaTradeExecutor] Trade record validation failed:', {
+        error: error.message,
+        decision,
+        userId,
+        sessionId
+      });
+      return {
+        success: false,
+        error: error.message || 'Trade record validation failed'
+      };
+    }
+
+    // GOVERNANCE: Pre-insertion validation
+    this.validateTradeRecord(tradeData, 'immediate');
 
     const { data: trade, error } = await supabase
       .from('goal_session_trades')
@@ -365,6 +382,21 @@ class AlphaTradeExecutor {
         error: error?.message || error?.details || JSON.stringify(error) || 'Failed to create trade'
       };
     }
+
+    // CCIP: Log successful trade creation
+    await this.logCCIPChange({
+      changeType: 'TRADE_CREATED',
+      tableAffected: 'goal_session_trades',
+      recordId: trade.id,
+      userId,
+      metadata: {
+        sessionId,
+        symbol: decision.symbol,
+        mode: 'immediate',
+        entryPrice: adjustedEntry,
+        lotSize
+      }
+    });
 
     // Update session status
     await supabase
@@ -391,6 +423,7 @@ class AlphaTradeExecutor {
 
   /**
    * Create pending trade (awaiting user confirmation)
+   * CCIP COMPLIANCE (2026-02-02): Fetch live price if decision.entry is null
    */
   private async createPending(params: {
     decision: AlphaDecision;
@@ -404,18 +437,53 @@ class AlphaTradeExecutor {
   }): Promise<TradeExecutionResult> {
     const { decision, userId, sessionId, lotSize, riskDollars, inputs } = params;
 
+    // GOVERNANCE FIX: If decision.entry is null, fetch live price
+    let entryPrice = decision.entry;
+    if (!entryPrice) {
+      const priceResult = await priceCoordinator.getPrice(decision.symbol, {
+        allowStale: true,
+        useCacheFirst: false
+      });
+
+      if (!priceResult.success || !priceResult.price) {
+        return {
+          success: false,
+          error: 'Could not fetch live price for pending trade'
+        };
+      }
+
+      entryPrice = priceResult.price;
+    }
+
     // Insert trade
-    const tradeData = this.buildTradeRecord({
-      decision,
-      userId,
-      sessionId,
-      lotSize,
-      riskDollars,
-      entryPrice: decision.entry,
-      status: 'pending',
-      openedAt: null,
-      inputs
-    });
+    let tradeData: any;
+    try {
+      tradeData = this.buildTradeRecord({
+        decision,
+        userId,
+        sessionId,
+        lotSize,
+        riskDollars,
+        entryPrice,
+        status: 'pending',
+        openedAt: null,
+        inputs
+      });
+    } catch (error: any) {
+      console.error('[AlphaTradeExecutor] Pending trade record validation failed:', {
+        error: error.message,
+        decision,
+        userId,
+        sessionId
+      });
+      return {
+        success: false,
+        error: error.message || 'Trade record validation failed'
+      };
+    }
+
+    // GOVERNANCE: Pre-insertion validation
+    this.validateTradeRecord(tradeData, 'pending');
 
     const { data: trade, error } = await supabase
       .from('goal_session_trades')
@@ -440,19 +508,34 @@ class AlphaTradeExecutor {
       };
     }
 
+    // CCIP: Log successful pending trade creation
+    await this.logCCIPChange({
+      changeType: 'TRADE_CREATED',
+      tableAffected: 'goal_session_trades',
+      recordId: trade.id,
+      userId,
+      metadata: {
+        sessionId,
+        symbol: decision.symbol,
+        mode: 'pending',
+        entryPrice,
+        lotSize
+      }
+    });
+
     // Update session status
     await supabase
       .from('goal_sessions')
       .update({ status: 'trade_pending' })
       .eq('id', sessionId);
 
-    // Create notification
+    // Create notification (use resolved entryPrice, not decision.entry which may be null)
     await this.createNotification({
       userId,
       sessionId,
       type: 'signal',
       title: `Trade Signal: ${decision.symbol}`,
-      message: `${decision.action} ${lotSize.toFixed(2)} lots at ${decision.entry.toFixed(5)}`,
+      message: `${decision.action} ${lotSize.toFixed(2)} lots at ${entryPrice.toFixed(5)}`,
       tradeId: trade.id
     });
 
@@ -511,6 +594,11 @@ class AlphaTradeExecutor {
 
   /**
    * Build trade record for database insertion
+   * PHASE 1 GOVERNANCE COMPLIANCE (20260202):
+   * - Includes all NOT NULL fields (lot_size, expected_profit_for_session, current_pnl)
+   * - Validates entry_price is not null
+   * - Calculates expected_profit_for_session based on TP - Entry distance
+   * - current_pnl is never null (0 for open, recalculated as needed)
    */
   private buildTradeRecord(params: {
     decision: AlphaDecision;
@@ -525,10 +613,22 @@ class AlphaTradeExecutor {
   }): any {
     const { decision, userId, sessionId, lotSize, riskDollars, entryPrice, status, openedAt, inputs } = params;
 
+    // VALIDATION: entry_price must not be null (Phase 1 compliance)
+    if (entryPrice === null || entryPrice === undefined) {
+      throw new Error('[AlphaTradeExecutor] buildTradeRecord: entryPrice cannot be null');
+    }
+
     // Get regime bucket
     const regimeBucket = inputs.regimeSnapshot && inputs.adversarialState
       ? getRegimeBucket(inputs.regimeSnapshot, inputs.adversarialState)
       : null;
+
+    // GOVERNANCE: Calculate expected_profit_for_session
+    // If TP exists, expected profit = (TP - Entry) * lotSize
+    // Otherwise, use 0 (trade intent without concrete profit target)
+    const expectedProfit = decision.takeProfit && decision.takeProfit > 0
+      ? Math.abs(decision.takeProfit - entryPrice) * lotSize
+      : 0;
 
     // SSOT: goal_session_trades schema compliance (20260202)
     // Fields omega8/omega9 removed from schema - data lives in alpha_decisions table
@@ -542,13 +642,15 @@ class AlphaTradeExecutor {
       take_profit: decision.takeProfit,
       tp1_price: decision.tp1Price,
       tp2_price: decision.tp2Price,
+      lot_size: lotSize, // PHASE 1: Required NOT NULL field
       position_size: lotSize,
       risk_dollars: riskDollars,
+      expected_profit_for_session: expectedProfit, // PHASE 1: Required NOT NULL field
       status,
       order_type: status === 'open' ? 'market' : 'limit',
       opened_at: openedAt,
       current_price: status === 'open' ? entryPrice : null,
-      current_pnl: status === 'open' ? 0 : null,
+      current_pnl: 0, // PHASE 1: Always provide value, never null
       trade_confidence: decision.confidence, // SSOT: Correct column name
       regime_bucket: regimeBucket
     };
@@ -580,6 +682,76 @@ class AlphaTradeExecutor {
     } catch (error) {
       // Non-blocking
       console.warn('[AlphaTradeExecutor] Failed to create notification:', error);
+    }
+  }
+
+  /**
+   * Validate trade record has all required fields (Phase 1 Governance)
+   */
+  private validateTradeRecord(tradeData: any, mode: 'immediate' | 'pending' | 'monitored'): void {
+    const requiredFields = [
+      'user_id',
+      'goal_session_id',
+      'symbol',
+      'direction',
+      'entry_price',
+      'lot_size',
+      'current_pnl',
+      'expected_profit_for_session',
+      'status'
+    ];
+
+    const missingFields = requiredFields.filter(field => {
+      const value = tradeData[field];
+      // Allow null/undefined for optional fields, but not for required ones
+      return value === null || value === undefined;
+    });
+
+    if (missingFields.length > 0) {
+      throw new Error(`[AlphaTradeExecutor] Trade record missing required fields for ${mode} mode: ${missingFields.join(', ')}`);
+    }
+
+    // Type validations
+    if (typeof tradeData.entry_price !== 'number' || !isFinite(tradeData.entry_price)) {
+      throw new Error('[AlphaTradeExecutor] entry_price must be a valid number');
+    }
+
+    if (typeof tradeData.lot_size !== 'number' || tradeData.lot_size <= 0) {
+      throw new Error('[AlphaTradeExecutor] lot_size must be a positive number');
+    }
+
+    if (typeof tradeData.current_pnl !== 'number' || !isFinite(tradeData.current_pnl)) {
+      throw new Error('[AlphaTradeExecutor] current_pnl must be a valid number');
+    }
+
+    if (typeof tradeData.expected_profit_for_session !== 'number' || !isFinite(tradeData.expected_profit_for_session)) {
+      throw new Error('[AlphaTradeExecutor] expected_profit_for_session must be a valid number');
+    }
+  }
+
+  /**
+   * Log CCIP change event (governance tracking)
+   * CCIP Compliance (20260202): Track all database mutations for audit trail
+   */
+  private async logCCIPChange(params: {
+    changeType: string;
+    tableAffected: string;
+    recordId: string;
+    userId: string;
+    metadata?: any;
+  }): Promise<void> {
+    try {
+      await supabase.from('ccip_change_tracking').insert({
+        change_type: params.changeType,
+        table_affected: params.tableAffected,
+        record_id: params.recordId,
+        user_id: params.userId,
+        metadata: params.metadata,
+        created_at: new Date().toISOString()
+      });
+    } catch (error) {
+      // Non-blocking - CCIP tracking failure shouldn't break trade execution
+      console.warn('[AlphaTradeExecutor] Failed to log CCIP change:', error);
     }
   }
 
