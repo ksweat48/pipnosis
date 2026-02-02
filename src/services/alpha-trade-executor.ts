@@ -240,9 +240,17 @@ class AlphaTradeExecutor {
     }
 
     // GOAL-AWARE LOT SIZING (SSOT: Single decision authority)
-    // If goal session exists, calculate goal-aware lot size
+    // If goal session exists with target value, calculate goal-aware lot size
     let finalLotSize = riskAssessment.recommendedLotSize;
     let lotSizingDecision: any = null;
+    let lotSizingAuditRecord: any = {
+      sessionHadTargetValue: false,
+      sessionHadCurrentProgress: false,
+      coordinatorInvoked: false,
+      coordinatorSucceeded: false,
+      usedFallbackCalculation: false,
+      fallbackReason: null
+    };
     let riskWarningsWithGoalContext = [...riskAssessment.criticalWarnings];
 
     // GOVERNANCE: Pre-validation of lot sizing input (catch cascading errors early)
@@ -265,7 +273,12 @@ class AlphaTradeExecutor {
       };
     }
 
-    if (session && session.target_value && session.current_progress !== undefined) {
+    // SSOT FIX (2026-02-03): Always try goal-aware lot sizing if session has target value
+    // REQUIREMENT: expectedProfitAtTP must flow from coordinator to trade record
+    if (session && session.target_value) {
+      lotSizingAuditRecord.sessionHadTargetValue = true;
+      lotSizingAuditRecord.sessionHadCurrentProgress = session.current_progress !== undefined;
+
       try {
         // Determine risk percentage allowed from trade style or risk mode
         // Scalp: 5%, Day: 3%, Swing: 2%, Precision: 1%
@@ -278,6 +291,11 @@ class AlphaTradeExecutor {
         const tradeStyle = (session.trade_style || 'day').toLowerCase();
         const riskPercentageAllowed = tradeStyleRiskMap[tradeStyle] || 3;
 
+        // Use current progress if available, otherwise default to 0
+        const currentProgress = session.current_progress !== undefined ? session.current_progress : 0;
+
+        lotSizingAuditRecord.coordinatorInvoked = true;
+
         lotSizingDecision = await goalAwareLotSizingCoordinator.makeDecision({
           userId,
           goalSessionId: sessionId,
@@ -285,7 +303,7 @@ class AlphaTradeExecutor {
           direction: decision.action === 'BUY' ? 'long' : 'short',
           accountBalance: currentBalance,
           goalAmount: session.target_value,
-          currentProgress: session.current_progress,
+          currentProgress,
           riskPercentageAllowed,
           entryPrice: decision.entry,
           stopLossPrice: decision.stopLoss,
@@ -308,8 +326,12 @@ class AlphaTradeExecutor {
           );
           // Degrade to risk assessment lot size (already validated above)
           riskWarningsWithGoalContext.push('[Goal-Aware] Lot sizing degraded due to invalid calculation');
+          lotSizingAuditRecord.usedFallbackCalculation = true;
+          lotSizingAuditRecord.fallbackReason = 'Coordinator returned invalid lot size';
+          lotSizingDecision = null; // Clear so expectedProfitAtTP won't be used
         } else {
           finalLotSize = lotSizingDecision.chosenLotSize;
+          lotSizingAuditRecord.coordinatorSucceeded = true;
 
           // Add goal context to risk warnings
           riskWarningsWithGoalContext.push(
@@ -324,6 +346,7 @@ class AlphaTradeExecutor {
               riskFromRM: riskAssessment.recommendedLotSize.toFixed(3),
               requiredForGoal: lotSizingDecision.requiredLotForGoal.toFixed(3),
               chosen: finalLotSize.toFixed(3),
+              expectedProfitAtTP: lotSizingDecision.expectedProfitAtTP,
               reason: lotSizingDecision.decisionReason
             }
           );
@@ -332,11 +355,18 @@ class AlphaTradeExecutor {
         logger.error(
           LogCategory.RISK_MANAGEMENT,
           '[AlphaTradeExecutor] Goal-aware lot sizing failed, falling back to risk assessment',
-          { error, sessionId }
+          { error, userId, sessionId, symbol: decision.symbol }
         );
         // Use risk assessment lot size as fallback
         finalLotSize = riskAssessment.recommendedLotSize;
+        lotSizingAuditRecord.usedFallbackCalculation = true;
+        lotSizingAuditRecord.fallbackReason = `Coordinator error: ${error instanceof Error ? error.message : String(error)}`;
+        lotSizingDecision = null; // Clear so expectedProfitAtTP won't be used
       }
+    } else {
+      // Session has no target_value - cannot use goal-aware lot sizing
+      lotSizingAuditRecord.usedFallbackCalculation = true;
+      lotSizingAuditRecord.fallbackReason = 'Session has no target_value';
     }
 
     // MODE ROUTING (Execute based on selected mode)
@@ -351,7 +381,8 @@ class AlphaTradeExecutor {
         riskWarnings: riskWarningsWithGoalContext,
         inputs,
         lotSizingDecisionId: lotSizingDecision?.auditRecordId,
-        expectedProfitAtTP: lotSizingDecision?.expectedProfitAtTP // SSOT FIX: Pass coordinator's calculation
+        expectedProfitAtTP: lotSizingDecision?.expectedProfitAtTP, // SSOT FIX: Pass coordinator's calculation
+        lotSizingAuditRecord // CCIP: Pass audit metadata for governance logging
       });
     } else if (mode === 'PENDING') {
       return await this.createPending({
@@ -364,7 +395,8 @@ class AlphaTradeExecutor {
         riskWarnings: riskWarningsWithGoalContext,
         inputs,
         lotSizingDecisionId: lotSizingDecision?.auditRecordId,
-        expectedProfitAtTP: lotSizingDecision?.expectedProfitAtTP // SSOT FIX: Pass coordinator's calculation
+        expectedProfitAtTP: lotSizingDecision?.expectedProfitAtTP, // SSOT FIX: Pass coordinator's calculation
+        lotSizingAuditRecord // CCIP: Pass audit metadata for governance logging
       });
     } else {
       // MONITORED mode - create entry intent
@@ -445,6 +477,7 @@ class AlphaTradeExecutor {
     inputs: TradeExecutionInputs;
     lotSizingDecisionId?: string;
     expectedProfitAtTP?: number; // SSOT FIX: From coordinator's calculation
+    lotSizingAuditRecord?: any; // CCIP: Governance audit metadata
   }): Promise<TradeExecutionResult> {
     const { decision, userId, sessionId, lotSize, riskDollars, inputs } = params;
 
@@ -533,7 +566,8 @@ class AlphaTradeExecutor {
         status: 'open',
         openedAt: new Date().toISOString(),
         inputs,
-        expectedProfitFromCoordinator: params.expectedProfitAtTP // SSOT FIX: Use coordinator's calculation
+        expectedProfitFromCoordinator: params.expectedProfitAtTP, // SSOT FIX: Use coordinator's calculation
+        lotSizingAuditRecord: params.lotSizingAuditRecord // CCIP: Pass audit record
       });
     } catch (error: any) {
       console.error('[AlphaTradeExecutor] Trade record validation failed:', {
@@ -592,6 +626,28 @@ class AlphaTradeExecutor {
       }
     }
 
+    // Log lot sizing audit record for governance tracking
+    try {
+      await this.logLotSizingAudit({
+        userId,
+        sessionId,
+        tradeId: trade.id,
+        auditRecord: params.lotSizingAuditRecord,
+        expectedProfitValue: trade.expected_profit_for_session,
+        symbol: decision.symbol,
+        entryPrice: trade.entry_price,
+        takeProfit: trade.take_profit,
+        lotSize: trade.lot_size
+      });
+    } catch (error) {
+      // Non-blocking - governance logging shouldn't prevent trade execution
+      logger.warn(
+        LogCategory.GOVERNANCE,
+        '[AlphaTradeExecutor] Failed to log lot sizing audit record',
+        { error, tradeId: trade.id }
+      );
+    }
+
     // CCIP: Log successful trade creation
     await this.logCCIPChange({
       changeType: 'TRADE_CREATED',
@@ -648,6 +704,7 @@ class AlphaTradeExecutor {
     inputs: TradeExecutionInputs;
     lotSizingDecisionId?: string;
     expectedProfitAtTP?: number; // SSOT FIX: From coordinator's calculation
+    lotSizingAuditRecord?: any; // CCIP: Governance audit metadata
   }): Promise<TradeExecutionResult> {
     const { decision, userId, sessionId, lotSize, riskDollars, inputs } = params;
 
@@ -716,7 +773,8 @@ class AlphaTradeExecutor {
         status: 'pending',
         openedAt: null,
         inputs,
-        expectedProfitFromCoordinator: params.expectedProfitAtTP // SSOT FIX: Use coordinator's calculation
+        expectedProfitFromCoordinator: params.expectedProfitAtTP, // SSOT FIX: Use coordinator's calculation
+        lotSizingAuditRecord: params.lotSizingAuditRecord // CCIP: Pass audit record
       });
     } catch (error: any) {
       console.error('[AlphaTradeExecutor] Pending trade record validation failed:', {
@@ -773,6 +831,28 @@ class AlphaTradeExecutor {
         );
         // Continue execution - this is non-blocking
       }
+    }
+
+    // Log lot sizing audit record for governance tracking
+    try {
+      await this.logLotSizingAudit({
+        userId,
+        sessionId,
+        tradeId: trade.id,
+        auditRecord: params.lotSizingAuditRecord,
+        expectedProfitValue: trade.expected_profit_for_session,
+        symbol: decision.symbol,
+        entryPrice: trade.entry_price,
+        takeProfit: trade.take_profit,
+        lotSize: trade.lot_size
+      });
+    } catch (error) {
+      // Non-blocking - governance logging shouldn't prevent trade execution
+      logger.warn(
+        LogCategory.GOVERNANCE,
+        '[AlphaTradeExecutor] Failed to log lot sizing audit record for pending trade',
+        { error, tradeId: trade.id }
+      );
     }
 
     // CCIP: Log successful pending trade creation
@@ -868,6 +948,9 @@ class AlphaTradeExecutor {
    * - Validates entry_price is not null
    * - Calculates expected_profit_for_session based on TP - Entry distance
    * - current_pnl is never null (0 for open, recalculated as needed)
+   *
+   * SSOT FIX (2026-02-03): expectedProfitFromCoordinator flows from goal-aware lot sizing
+   * CCIP COMPLIANCE: lotSizingAuditRecord enables governance tracking of fallback usage
    */
   private buildTradeRecord(params: {
     decision: AlphaDecision;
@@ -880,8 +963,9 @@ class AlphaTradeExecutor {
     openedAt: string | null;
     inputs: TradeExecutionInputs;
     expectedProfitFromCoordinator?: number; // SSOT FIX (2026-02-03): Use coordinator's calculation
+    lotSizingAuditRecord?: any; // CCIP: Governance tracking of lot sizing decisions
   }): any {
-    const { decision, userId, sessionId, lotSize, riskDollars, entryPrice, status, openedAt, inputs, expectedProfitFromCoordinator } = params;
+    const { decision, userId, sessionId, lotSize, riskDollars, entryPrice, status, openedAt, inputs, expectedProfitFromCoordinator, lotSizingAuditRecord } = params;
 
     // GOVERNANCE: Comprehensive price validation (catches NaN from previous cascading errors)
     if (entryPrice === null || entryPrice === undefined) {
@@ -909,17 +993,45 @@ class AlphaTradeExecutor {
     // The coordinator calculates profit WITH proper pip-to-dollar conversion
     // This ensures trade target on dashboard is accurate (~$133, not ~$1)
     let expectedProfit: number;
-    if (expectedProfitFromCoordinator !== undefined && expectedProfitFromCoordinator > 0) {
+    let usedFallback = false;
+
+    if (expectedProfitFromCoordinator !== undefined && expectedProfitFromCoordinator >= 0) {
+      // SSOT: Coordinator's value is authoritative for goal-aware trading
       expectedProfit = expectedProfitFromCoordinator;
     } else if (decision.takeProfit && decision.takeProfit > 0) {
       // FALLBACK: Only if coordinator profit unavailable
       // NOTE: This fallback lacks pip conversion, so it will be inaccurate
-      // Proper fix requires passing coordinator data through all code paths
-      console.warn(
-        '[AlphaTradeExecutor] Using fallback expectedProfit calculation (lacks pip conversion). ' +
-        'Coordinator data should have been provided. Symbol:', decision.symbol
+      usedFallback = true;
+
+      // CCIP: Log fallback usage with full context
+      const fallbackReason = expectedProfitFromCoordinator === undefined
+        ? 'Coordinator data not available'
+        : expectedProfitFromCoordinator < 0
+        ? 'Coordinator returned negative profit'
+        : 'Unknown coordinator issue';
+
+      logger.warn(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] Using fallback expectedProfit calculation (lacks pip conversion)',
+        {
+          symbol: decision.symbol,
+          fallbackReason,
+          coordinatorValue: expectedProfitFromCoordinator,
+          fallbackCalculated: Math.abs(decision.takeProfit - entryPrice) * lotSize,
+          entryPrice,
+          takeProfit: decision.takeProfit,
+          lotSize,
+          note: 'Fallback calculation does not account for pip value differences (e.g., JPY vs USD pairs)'
+        }
       );
+
       expectedProfit = Math.abs(decision.takeProfit - entryPrice) * lotSize;
+
+      // Update audit record to track fallback usage
+      if (lotSizingAuditRecord) {
+        lotSizingAuditRecord.usedFallbackCalculation = true;
+        lotSizingAuditRecord.fallbackReason = `Coordinator data unavailable: ${fallbackReason}`;
+      }
     } else {
       expectedProfit = 0;
     }
@@ -1043,6 +1155,56 @@ class AlphaTradeExecutor {
 
     if (typeof tradeData.expected_profit_for_session !== 'number' || !isFinite(tradeData.expected_profit_for_session)) {
       throw new Error('[AlphaTradeExecutor] expected_profit_for_session must be a valid number');
+    }
+  }
+
+  /**
+   * Log lot sizing audit record for governance tracking
+   * Enables identification of trades using fallback calculations vs coordinator calculations
+   * CCIP Compliance: Governance audit trail for SSOT data flow issues
+   */
+  private async logLotSizingAudit(params: {
+    userId: string;
+    sessionId: string;
+    tradeId: string;
+    auditRecord?: any;
+    expectedProfitValue: number;
+    symbol: string;
+    entryPrice: number;
+    takeProfit: number;
+    lotSize: number;
+  }): Promise<void> {
+    if (!params.auditRecord) {
+      return; // No audit record to log
+    }
+
+    try {
+      await supabase.from('lot_sizing_audit_log').insert({
+        user_id: params.userId,
+        goal_session_id: params.sessionId,
+        trade_id: params.tradeId,
+        session_had_target_value: params.auditRecord.sessionHadTargetValue || false,
+        session_had_current_progress: params.auditRecord.sessionHadCurrentProgress || false,
+        coordinator_invoked: params.auditRecord.coordinatorInvoked || false,
+        coordinator_succeeded: params.auditRecord.coordinatorSucceeded || false,
+        coordinator_decision_id: params.auditRecord.coordinatorDecisionId,
+        used_fallback_calculation: params.auditRecord.usedFallbackCalculation || false,
+        fallback_reason: params.auditRecord.fallbackReason,
+        coordinator_expected_profit: params.auditRecord.coordinatorExpectedProfit,
+        fallback_expected_profit: params.auditRecord.fallbackExpectedProfit,
+        actual_recorded_profit: params.expectedProfitValue,
+        symbol: params.symbol,
+        entry_price: params.entryPrice,
+        take_profit: params.takeProfit,
+        lot_size: params.lotSize
+      });
+    } catch (error) {
+      // Non-blocking - log at debug level since governance logging failures shouldn't break trades
+      console.debug('[AlphaTradeExecutor] Failed to log lot sizing audit record:', {
+        error: error instanceof Error ? error.message : String(error),
+        tradeId: params.tradeId,
+        note: 'This may indicate RLS policy issue. Check lot_sizing_audit_log table permissions.'
+      });
     }
   }
 
