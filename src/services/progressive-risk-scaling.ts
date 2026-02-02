@@ -130,11 +130,16 @@ class ProgressiveRiskScaling {
       recommendations.push('Consider reviewing strategy');
     }
 
-    // Generate reasoning
-    let reasoning = `Recent performance: ${wins}/${recentTrades.length} wins (${(winRate * 100).toFixed(0)}%). `;
+    // Generate reasoning (GOVERNANCE: Defensive null checks)
+    const winRatePct = (winRate !== undefined && !isNaN(winRate)) ? (winRate * 100).toFixed(0) : '0';
+    const scalingPct = (scalingMultiplier !== undefined && !isNaN(scalingMultiplier)) ? (scalingMultiplier * 100).toFixed(0) : '100';
+    const baseRiskStr = (baseRiskPercent !== undefined && !isNaN(baseRiskPercent)) ? baseRiskPercent.toFixed(2) : '0.00';
+    const adjRiskStr = (adjustedRiskPercent !== undefined && !isNaN(adjustedRiskPercent)) ? adjustedRiskPercent.toFixed(2) : '0.00';
+
+    let reasoning = `Recent performance: ${wins}/${recentTrades.length} wins (${winRatePct}%). `;
     reasoning += `${streakAnalysis.type === 'winning' ? 'Winning' : streakAnalysis.type === 'losing' ? 'Losing' : 'Mixed'} streak of ${streakAnalysis.length}. `;
     reasoning += `Risk scaled ${scalingMultiplier > 1.0 ? 'UP' : scalingMultiplier < 1.0 ? 'DOWN' : 'MAINTAINED'} `;
-    reasoning += `to ${(scalingMultiplier * 100).toFixed(0)}% (${baseRiskPercent.toFixed(2)}% → ${adjustedRiskPercent.toFixed(2)}%). `;
+    reasoning += `to ${scalingPct}% (${baseRiskStr}% → ${adjRiskStr}%). `;
     reasoning += `Confidence: ${confidenceLevel.toUpperCase()}.`;
 
     return {

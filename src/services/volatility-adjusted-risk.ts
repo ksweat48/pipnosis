@@ -32,6 +32,41 @@ class VolatilityAdjustedRisk {
   async adjustRiskForVolatility(inputs: VolatilityRiskInputs): Promise<VolatilityRiskResult> {
     const { symbol, baseRiskPercent, currentATR, userId } = inputs;
 
+    // GOVERNANCE: Input validation (fail loudly on bad data)
+    if (baseRiskPercent === undefined || baseRiskPercent === null || isNaN(baseRiskPercent)) {
+      console.error('VolatilityAdjustedRisk: baseRiskPercent is invalid', {
+        baseRiskPercent,
+        userId,
+        symbol
+      });
+      // Return safe default
+      return {
+        adjustedRiskPercent: 0.01, // 1% default
+        riskMultiplier: 1.0,
+        volatilityState: 'normal',
+        recommendedStopLoss: currentATR * 2 || 50,
+        reasoning: 'Invalid baseRiskPercent - using default 1% risk',
+        warnings: ['CRITICAL: Base risk percent is undefined or invalid']
+      };
+    }
+
+    if (currentATR === undefined || currentATR === null || isNaN(currentATR) || currentATR <= 0) {
+      console.error('VolatilityAdjustedRisk: currentATR is invalid', {
+        currentATR,
+        userId,
+        symbol
+      });
+      // Return safe default
+      return {
+        adjustedRiskPercent: baseRiskPercent,
+        riskMultiplier: 1.0,
+        volatilityState: 'normal',
+        recommendedStopLoss: 50, // Default 50 pips
+        reasoning: 'Invalid ATR - using base risk without volatility adjustment',
+        warnings: ['CRITICAL: ATR is undefined or invalid - check market data']
+      };
+    }
+
     // Get historical volatility for comparison
     const historicalATR = await this.getHistoricalATR(symbol, userId);
 
@@ -106,14 +141,20 @@ class VolatilityAdjustedRisk {
       }
     }
 
-    // Generate reasoning
-    let reasoning = `Current ATR: ${currentATR.toFixed(1)} pips (${volatilityState} volatility). `;
-    reasoning += `Risk adjusted from ${baseRiskPercent.toFixed(2)}% to ${adjustedRiskPercent.toFixed(2)}% `;
+    // Generate reasoning (GOVERNANCE: Defensive null checks)
+    const atrStr = (currentATR !== undefined && !isNaN(currentATR)) ? currentATR.toFixed(1) : '0.0';
+    const baseRiskStr = (baseRiskPercent !== undefined && !isNaN(baseRiskPercent)) ? baseRiskPercent.toFixed(2) : '0.00';
+    const adjRiskStr = (adjustedRiskPercent !== undefined && !isNaN(adjustedRiskPercent)) ? adjustedRiskPercent.toFixed(2) : '0.00';
+    const stopStr = (recommendedStopLoss !== undefined && !isNaN(recommendedStopLoss)) ? recommendedStopLoss.toFixed(1) : '0.0';
+
+    let reasoning = `Current ATR: ${atrStr} pips (${volatilityState} volatility). `;
+    reasoning += `Risk adjusted from ${baseRiskStr}% to ${adjRiskStr}% `;
     reasoning += `(${riskMultiplier}x multiplier). `;
-    reasoning += `Recommended stop: ${recommendedStopLoss.toFixed(1)} pips (2×ATR). `;
+    reasoning += `Recommended stop: ${stopStr} pips (2×ATR). `;
 
     if (historicalATR > 0) {
-      reasoning += `30-day avg ATR: ${historicalATR.toFixed(1)} pips. `;
+      const histAtrStr = (historicalATR !== undefined && !isNaN(historicalATR)) ? historicalATR.toFixed(1) : '0.0';
+      reasoning += `30-day avg ATR: ${histAtrStr} pips. `;
     }
 
     return {

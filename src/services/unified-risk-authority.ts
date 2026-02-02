@@ -110,6 +110,119 @@ class UnifiedRiskAuthority {
       goalSessionId
     } = inputs;
 
+    // GOVERNANCE: Input validation (fail loudly on bad data)
+    if (currentBalance === undefined || currentBalance === null || isNaN(currentBalance)) {
+      prodLogger.error('UnifiedRiskAuthority: currentBalance is invalid', {
+        currentBalance,
+        userId,
+        symbol
+      });
+      return {
+        approved: false,
+        recommendedLotSize: 0.01,
+        adjustedRiskDollars: 0,
+        trueRiskDollars: 0,
+        riskVariancePercent: 0,
+        contextValid: false,
+        pcvlPassed: false,
+        marginSufficient: false,
+        criticalWarnings: ['CRITICAL: Account balance is undefined or invalid'],
+        recommendations: ['Contact support - account data corrupted'],
+        blockReason: 'Invalid account balance - cannot assess risk',
+        breakdown: {
+          kellyLotSize: 0,
+          evConfidence: 'blocked',
+          volatilityAdjustment: 0,
+          marginRequired: 0,
+          marginAvailable: 0
+        }
+      };
+    }
+
+    if (entryPrice === undefined || entryPrice === null || isNaN(entryPrice) || entryPrice <= 0) {
+      prodLogger.error('UnifiedRiskAuthority: entryPrice is invalid', {
+        entryPrice,
+        userId,
+        symbol
+      });
+      return {
+        approved: false,
+        recommendedLotSize: 0.01,
+        adjustedRiskDollars: 0,
+        trueRiskDollars: 0,
+        riskVariancePercent: 0,
+        contextValid: false,
+        pcvlPassed: false,
+        marginSufficient: false,
+        criticalWarnings: ['CRITICAL: Entry price is undefined or invalid'],
+        recommendations: ['Check market data - price feed may be stale'],
+        blockReason: 'Invalid entry price - cannot assess risk',
+        breakdown: {
+          kellyLotSize: 0,
+          evConfidence: 'blocked',
+          volatilityAdjustment: 0,
+          marginRequired: 0,
+          marginAvailable: currentBalance || 0
+        }
+      };
+    }
+
+    if (stopLoss === undefined || stopLoss === null || isNaN(stopLoss) || stopLoss <= 0) {
+      prodLogger.error('UnifiedRiskAuthority: stopLoss is invalid', {
+        stopLoss,
+        userId,
+        symbol
+      });
+      return {
+        approved: false,
+        recommendedLotSize: 0.01,
+        adjustedRiskDollars: 0,
+        trueRiskDollars: 0,
+        riskVariancePercent: 0,
+        contextValid: false,
+        pcvlPassed: false,
+        marginSufficient: false,
+        criticalWarnings: ['CRITICAL: Stop loss is undefined or invalid'],
+        recommendations: ['Check Alpha decision output - SL calculation failed'],
+        blockReason: 'Invalid stop loss - cannot assess risk',
+        breakdown: {
+          kellyLotSize: 0,
+          evConfidence: 'blocked',
+          volatilityAdjustment: 0,
+          marginRequired: 0,
+          marginAvailable: currentBalance || 0
+        }
+      };
+    }
+
+    if (takeProfit === undefined || takeProfit === null || isNaN(takeProfit) || takeProfit <= 0) {
+      prodLogger.error('UnifiedRiskAuthority: takeProfit is invalid', {
+        takeProfit,
+        userId,
+        symbol
+      });
+      return {
+        approved: false,
+        recommendedLotSize: 0.01,
+        adjustedRiskDollars: 0,
+        trueRiskDollars: 0,
+        riskVariancePercent: 0,
+        contextValid: false,
+        pcvlPassed: false,
+        marginSufficient: false,
+        criticalWarnings: ['CRITICAL: Take profit is undefined or invalid'],
+        recommendations: ['Check Alpha decision output - TP calculation failed'],
+        blockReason: 'Invalid take profit - cannot assess risk',
+        breakdown: {
+          kellyLotSize: 0,
+          evConfidence: 'blocked',
+          volatilityAdjustment: 0,
+          marginRequired: 0,
+          marginAvailable: currentBalance || 0
+        }
+      };
+    }
+
     const criticalWarnings: string[] = [];
     const recommendations: string[] = [];
     let approved = true;
@@ -253,7 +366,10 @@ class UnifiedRiskAuthority {
     const marginSufficient = currentBalance >= marginRequired;
 
     if (!marginSufficient) {
-      criticalWarnings.push(`Insufficient margin: Required $${marginRequired.toFixed(2)}, Available $${currentBalance.toFixed(2)}`);
+      // GOVERNANCE: Defensive null check before .toFixed()
+      const marginReqStr = (marginRequired !== undefined && !isNaN(marginRequired)) ? marginRequired.toFixed(2) : '0.00';
+      const balanceStr = (currentBalance !== undefined && !isNaN(currentBalance)) ? currentBalance.toFixed(2) : '0.00';
+      criticalWarnings.push(`Insufficient margin: Required $${marginReqStr}, Available $${balanceStr}`);
       recommendations.push('Reduce lot size or increase account balance');
 
       // Reduce lot size to fit available margin
@@ -362,11 +478,16 @@ class UnifiedRiskAuthority {
 
     // Check variance threshold
     if (Math.abs(riskVariancePercent) > PCVL_CONFIG.max_risk_variance_percent) {
+      // GOVERNANCE: Defensive null check before .toFixed()
+      const varianceStr = (riskVariancePercent !== undefined && !isNaN(riskVariancePercent)) ? riskVariancePercent.toFixed(2) : '0.00';
+      const intendedStr = (intendedRiskDollars !== undefined && !isNaN(intendedRiskDollars)) ? intendedRiskDollars.toFixed(2) : '0.00';
+      const trueStr = (trueRiskDollars !== undefined && !isNaN(trueRiskDollars)) ? trueRiskDollars.toFixed(2) : '0.00';
+
       return {
         approved: false,
         trueRiskDollars,
         riskVariancePercent,
-        blockReason: `Risk variance ${riskVariancePercent.toFixed(2)}% exceeds ±${PCVL_CONFIG.max_risk_variance_percent}%. Intended: $${intendedRiskDollars.toFixed(2)}, Actual: $${trueRiskDollars.toFixed(2)}`
+        blockReason: `Risk variance ${varianceStr}% exceeds ±${PCVL_CONFIG.max_risk_variance_percent}%. Intended: $${intendedStr}, Actual: $${trueStr}`
       };
     }
 
@@ -375,11 +496,13 @@ class UnifiedRiskAuthority {
     const maxLot = symbolConfig?.maxLotSize || 5.0;
 
     if (lotSize < minLot || lotSize > maxLot) {
+      // GOVERNANCE: Defensive null check before .toFixed()
+      const lotSizeStr = (lotSize !== undefined && !isNaN(lotSize)) ? lotSize.toFixed(3) : '0.000';
       return {
         approved: false,
         trueRiskDollars,
         riskVariancePercent,
-        blockReason: `Lot size ${lotSize.toFixed(3)} outside broker limits [${minLot}-${maxLot}]`
+        blockReason: `Lot size ${lotSizeStr} outside broker limits [${minLot}-${maxLot}]`
       };
     }
 
