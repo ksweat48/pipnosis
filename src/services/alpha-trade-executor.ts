@@ -81,7 +81,7 @@ class AlphaTradeExecutor {
     const coreValidation = await coreValidationGate.validateTrade(
       decision,
       {
-        direction: decision.direction === 'LONG' ? 'buy' : 'sell',
+        direction: decision.action === 'BUY' ? 'buy' : 'sell',
         entryPrice: decision.entry,
         stopLoss: decision.stopLoss,
         takeProfit: decision.takeProfit,
@@ -133,7 +133,7 @@ class AlphaTradeExecutor {
     const riskAssessment = await unifiedRiskAuthority.assessTrade({
       tradeContext,
       symbol: decision.symbol,
-      direction: decision.direction === 'LONG' ? 'long' : 'short',
+      direction: decision.action === 'BUY' ? 'long' : 'short',
       entryPrice: decision.entry,
       stopLoss: decision.stopLoss,
       takeProfit: decision.takeProfit,
@@ -268,7 +268,7 @@ class AlphaTradeExecutor {
 
     // Apply slippage adjustment (symbol-specific)
     const slippage = this.calculateSlippage(decision.symbol);
-    const adjustedEntry = decision.direction === 'LONG'
+    const adjustedEntry = decision.action === 'BUY'
       ? entryPrice + slippage
       : entryPrice - slippage;
 
@@ -292,9 +292,19 @@ class AlphaTradeExecutor {
       .single();
 
     if (error || !trade) {
+      // DIAGNOSTIC: Log full error details to identify schema mismatch
+      console.error('[AlphaTradeExecutor] Database insertion failed:', {
+        error,
+        errorMessage: error?.message,
+        errorDetails: error?.details,
+        errorHint: error?.hint,
+        errorCode: error?.code,
+        tradeData // Log the payload being sent
+      });
+
       return {
         success: false,
-        error: error?.message || 'Failed to create trade'
+        error: error?.message || error?.details || JSON.stringify(error) || 'Failed to create trade'
       };
     }
 
@@ -310,14 +320,14 @@ class AlphaTradeExecutor {
       sessionId,
       type: 'trade_entry',
       title: `Trade Opened: ${decision.symbol}`,
-      message: `${decision.direction} ${lotSize.toFixed(2)} lots at ${adjustedEntry.toFixed(5)}`,
+      message: `${decision.action} ${lotSize.toFixed(2)} lots at ${adjustedEntry.toFixed(5)}`,
       tradeId: trade.id
     });
 
     return {
       success: true,
       tradeId: trade.id,
-      message: `Trade opened: ${decision.direction} ${lotSize.toFixed(2)} lots at ${adjustedEntry.toFixed(5)}`
+      message: `Trade opened: ${decision.action} ${lotSize.toFixed(2)} lots at ${adjustedEntry.toFixed(5)}`
     };
   }
 
@@ -356,9 +366,19 @@ class AlphaTradeExecutor {
       .single();
 
     if (error || !trade) {
+      // DIAGNOSTIC: Log full error details to identify schema mismatch
+      console.error('[AlphaTradeExecutor] Pending trade creation failed:', {
+        error,
+        errorMessage: error?.message,
+        errorDetails: error?.details,
+        errorHint: error?.hint,
+        errorCode: error?.code,
+        tradeData // Log the payload being sent
+      });
+
       return {
         success: false,
-        error: error?.message || 'Failed to create pending trade'
+        error: error?.message || error?.details || JSON.stringify(error) || 'Failed to create pending trade'
       };
     }
 
@@ -374,14 +394,14 @@ class AlphaTradeExecutor {
       sessionId,
       type: 'signal',
       title: `Trade Signal: ${decision.symbol}`,
-      message: `${decision.direction} ${lotSize.toFixed(2)} lots at ${decision.entry.toFixed(5)}`,
+      message: `${decision.action} ${lotSize.toFixed(2)} lots at ${decision.entry.toFixed(5)}`,
       tradeId: trade.id
     });
 
     return {
       success: true,
       tradeId: trade.id,
-      message: `Pending trade created: ${decision.direction} ${lotSize.toFixed(2)} lots`
+      message: `Pending trade created: ${decision.action} ${lotSize.toFixed(2)} lots`
     };
   }
 
@@ -404,7 +424,7 @@ class AlphaTradeExecutor {
         user_id: userId,
         goal_session_id: sessionId,
         symbol: decision.symbol,
-        direction: toDirectionDB(decision.direction === 'LONG' ? 'buy' : 'sell'),
+        direction: toDirectionDB(decision.action === 'BUY' ? 'buy' : 'sell'),
         entry_price_target: decision.entry,
         stop_loss: decision.stopLoss,
         take_profit: decision.takeProfit,
@@ -458,7 +478,7 @@ class AlphaTradeExecutor {
       user_id: userId,
       goal_session_id: sessionId,
       symbol: decision.symbol,
-      direction: toDirectionDB(decision.direction === 'LONG' ? 'buy' : 'sell'),
+      direction: toDirectionDB(decision.action === 'BUY' ? 'buy' : 'sell'),
       entry_price: entryPrice,
       stop_loss: decision.stopLoss,
       take_profit: decision.takeProfit,
