@@ -475,17 +475,19 @@ class TradeExecutionEngine {
       console.log(`[Trade Execution] Delegating to AlphaTradeExecutor for ${signal.symbol}...`);
 
       // Map old signal format to new AlphaDecision format
+      // ✅ SSOT COMPLIANCE: Property names MUST match AlphaDecision interface exactly
       const decision = alphaDecision || {
         symbol: signal.symbol,
         action: signal.direction === 'buy' ? 'BUY' : 'SELL',
-        direction: signal.direction === 'buy' ? 'LONG' : 'SHORT',
-        entry_price: signal.entryPrice,
-        stop_loss: signal.stopLoss,
-        take_profit: signal.takeProfit,
-        tp1_price: signal.tp1Price,
-        tp2_price: signal.tp2Price,
+        decision: signal.direction === 'buy' ? 'BUY' : 'SELL', // Required by AlphaDecision interface
+        entry: signal.entryPrice, // ✅ FIXED: entry (not entry_price)
+        stopLoss: signal.stopLoss, // ✅ FIXED: stopLoss (not stop_loss)
+        takeProfit: signal.takeProfit, // ✅ FIXED: takeProfit (not take_profit)
+        tp1Price: signal.tp1Price, // ✅ FIXED: tp1Price (not tp1_price)
+        tp2Price: signal.tp2Price, // ✅ FIXED: tp2Price (not tp2_price)
         confidence: signal.confidence,
         reasoning: signal.reasoning,
+        omega_summary: 'Legacy signal execution', // Required by AlphaDecision interface
         // Extract Omega data if available
         omega8_liquidity_bias: alphaDecision?.omega8_liquidity_bias,
         omega8_direction_support: alphaDecision?.omega8_direction_support,
