@@ -3741,27 +3741,90 @@ This learning will carry forward to improve future sessions!
 
     try {
       const validatedPriority = this.validatePriority(priority);
+      const validatedType = this.validateNotificationType(type);
+
+      // Validate required fields before attempting insert
+      if (!this.activeSession || typeof this.activeSession !== 'string') {
+        console.error('[Goal Live Engine] Notification validation: Invalid goal_session_id', {
+          value: this.activeSession,
+          type: typeof this.activeSession
+        });
+        return;
+      }
+
+      if (!this.config.userId || typeof this.config.userId !== 'string') {
+        console.error('[Goal Live Engine] Notification validation: Invalid user_id', {
+          value: this.config.userId,
+          type: typeof this.config.userId
+        });
+        return;
+      }
+
+      if (!validatedType || typeof validatedType !== 'string') {
+        console.error('[Goal Live Engine] Notification validation: Invalid notification type', {
+          value: type,
+          validated: validatedType
+        });
+        return;
+      }
+
+      if (!title || typeof title !== 'string') {
+        console.error('[Goal Live Engine] Notification validation: Invalid title', {
+          value: title,
+          type: typeof title
+        });
+        return;
+      }
+
+      if (!message || typeof message !== 'string') {
+        console.error('[Goal Live Engine] Notification validation: Invalid message', {
+          value: message,
+          type: typeof message
+        });
+        return;
+      }
+
+      // Ensure metadata is a valid object
+      const notificationMetadata = data && typeof data === 'object' ? data : {};
 
       const { error } = await supabase.from('goal_notifications').insert({
-        goal_session_id: this.activeSession,
-        user_id: this.config.userId,
-        type: type,
+        goal_session_id: this.activeSession.trim(),
+        user_id: this.config.userId.trim(),
+        type: validatedType,
         priority: validatedPriority,
-        title,
-        message,
-        metadata: data || {},
+        title: title.trim(),
+        message: message.trim(),
+        metadata: notificationMetadata,
         delivered_at: new Date().toISOString(),
         channels: ['in_app']
       });
 
       if (error) {
-        console.error('[Goal Live Engine] CRITICAL: Notification insert failed:', error);
-        logger.error(LogCategory.AI_TRADING, 'Failed to insert notification', { error, title, type, priority: validatedPriority });
+        console.error('[Goal Live Engine] CRITICAL: Notification insert failed', {
+          errorMessage: error.message,
+          errorCode: (error as any).code,
+          errorDetails: (error as any).details,
+          failedRecord: {
+            type: validatedType,
+            priority: validatedPriority,
+            title,
+            goal_session_id: this.activeSession
+          }
+        });
+        logger.error(LogCategory.AI_TRADING, 'Failed to insert notification', { error, title, type: validatedType, priority: validatedPriority });
       } else {
-        console.log(`[Notification Logged] ✅ ${type.toUpperCase()}: ${title}`);
+        console.log(`[Notification Logged] ✅ ${validatedType.toUpperCase()}: ${title}`);
       }
     } catch (error) {
-      console.error('[Goal Live Engine] Failed to log notification (exception):', error);
+      console.error('[Goal Live Engine] Failed to log notification (exception)', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        context: {
+          title,
+          type,
+          priority
+        }
+      });
       logger.error(LogCategory.AI_TRADING, 'Notification logging exception', { error, title, type });
     }
   }
@@ -3776,6 +3839,45 @@ This learning will carry forward to improve future sessions!
     }
     console.warn(`[Priority Validation] Invalid priority "${priority}", defaulting to "medium"`);
     return 'medium';
+  }
+
+  /**
+   * Validate notification type against database constraint
+   * SSOT: Must match valid_notification_type CHECK constraint in goal_notifications table
+   * Source: 20251227093949_fix_notification_type_constraint_final.sql
+   */
+  private validateNotificationType(type: any): string | null {
+    const validTypes = [
+      'forecast', 'signal', 'progress', 'alert', 'completion',
+      'mid_trade_trigger', 'mid_trade_evaluation', 'mid_trade_action', 'mid_trade_alert',
+      'session_ended', 'session_started', 'continuation_required', 'scanning_timeout',
+      'trade_entry', 'trade_closed', 'goal_achieved',
+      'price_alert', 'sl_triggered', 'tp_triggered',
+      'system_alert', 'warning', 'info'
+    ];
+
+    if (validTypes.includes(type)) {
+      return type;
+    }
+
+    // Fallback mapping for common variations
+    const typeMap: Record<string, string> = {
+      'entry': 'trade_entry',
+      'closed': 'trade_closed',
+      'achieved': 'goal_achieved',
+      'timeout': 'scanning_timeout',
+      'sl': 'sl_triggered',
+      'tp': 'tp_triggered',
+      'mid_trade': 'mid_trade_alert'
+    };
+
+    if (typeMap[type]) {
+      console.warn(`[Notification Type Validation] Mapped "${type}" to "${typeMap[type]}"`);
+      return typeMap[type];
+    }
+
+    console.error(`[Notification Type Validation] Invalid notification type "${type}", will be rejected by database`);
+    return null;
   }
 
   private async sendTriggerDetectedMessage(trigger: any, latestCandle: any): Promise<void> {

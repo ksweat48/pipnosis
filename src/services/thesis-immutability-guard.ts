@@ -67,6 +67,10 @@ export function freezeThesis(thesis: AlphaMarketThesis): Readonly<AlphaMarketThe
 /**
  * Validate thesis hash integrity
  * Ensures thesis content hasn't been modified since caching
+ *
+ * NOTE: Hash mismatches from cached data are EXPECTED when regime conditions change.
+ * The system automatically regenerates fresh theses on mismatch - this is normal behavior,
+ * not an error. We log at WARN level to track frequency without alarming in production.
  */
 export function validateThesisHash(
   thesis: AlphaMarketThesis,
@@ -75,12 +79,13 @@ export function validateThesisHash(
   const computedHash = generateThesisHash(currentContent);
 
   if (computedHash !== thesis.thesisHash) {
-    logger.error('[ThesisImmutabilityGuard] SSOT VIOLATION: Thesis hash mismatch', {
+    logger.warn('[ThesisImmutabilityGuard] Thesis hash mismatch - regenerating fresh thesis', {
       symbol: thesis.symbol,
       expectedHash: thesis.thesisHash,
       computedHash,
       fromCache: thesis.fromCache,
-      cacheAgeSeconds: thesis.cacheAgeSeconds
+      cacheAgeSeconds: thesis.cacheAgeSeconds,
+      note: 'This is expected when market regime changes. Fresh thesis will be generated.'
     });
 
     return false;
