@@ -219,6 +219,37 @@ class AlphaTradeExecutor {
       };
     }
 
+    // ✅ SSOT FIX (2026-02-02): Calculate baseRiskPercent from user's selected dollar_risk
+    // CRITICAL: This ensures user's risk selection flows through to lot sizing
+    // User selects "Scalp + Aggressive 5%" → dollar_risk: $500 → baseRiskPercent: 5%
+    let baseRiskPercent: number | undefined = undefined;
+    if (session.dollar_risk && Number.isFinite(session.dollar_risk) && session.dollar_risk > 0) {
+      baseRiskPercent = (session.dollar_risk / currentBalance) * 100;
+      logger.info(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] Using user-selected risk percentage',
+        {
+          userId,
+          sessionId,
+          dollarRisk: session.dollar_risk,
+          accountBalance: currentBalance,
+          calculatedRiskPercent: baseRiskPercent.toFixed(2) + '%',
+          source: 'session.dollar_risk (SSOT)'
+        }
+      );
+    } else {
+      logger.info(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] No dollar_risk found, using default risk from UnifiedRiskAuthority',
+        {
+          userId,
+          sessionId,
+          sessionDollarRisk: session.dollar_risk,
+          willUseDefault: true
+        }
+      );
+    }
+
     const riskAssessment = await unifiedRiskAuthority.assessTrade({
       tradeContext,
       symbol: decision.symbol,
@@ -228,6 +259,7 @@ class AlphaTradeExecutor {
       takeProfit: decision.takeProfit,
       userId,
       currentBalance: currentBalance,
+      baseRiskPercent, // ✅ SSOT: Pass user's selected risk percentage
       riskMode: session.risk_mode || 'medium',
       goalSessionId: sessionId
     });
@@ -281,16 +313,46 @@ class AlphaTradeExecutor {
       lotSizingAuditRecord.sessionHadCurrentProgress = session.current_progress !== undefined;
 
       try {
-        // Determine risk percentage allowed from trade style or risk mode
-        // Scalp: 5%, Day: 3%, Swing: 2%, Precision: 1%
-        const tradeStyleRiskMap: { [key: string]: number } = {
-          'scalp': 5,
-          'day': 3,
-          'swing': 2,
-          'precision': 1
-        };
-        const tradeStyle = (session.trade_style || 'day').toLowerCase();
-        const riskPercentageAllowed = tradeStyleRiskMap[tradeStyle] || 3;
+        // ✅ SSOT FIX (2026-02-02): Use user-selected risk percentage from baseRiskPercent
+        // PRIORITY: baseRiskPercent (from session.dollar_risk) > fallback to trade style map
+        // This ensures "Scalp + Aggressive 5%" actually uses 5%, not hardcoded value
+        let riskPercentageAllowed: number;
+
+        if (baseRiskPercent !== undefined && baseRiskPercent > 0) {
+          // Use the risk percentage calculated from user's dollar_risk selection
+          riskPercentageAllowed = baseRiskPercent;
+          logger.info(
+            LogCategory.RISK_MANAGEMENT,
+            '[AlphaTradeExecutor] Using user-selected risk percentage for goal-aware lot sizing',
+            {
+              userId,
+              sessionId,
+              riskPercentageAllowed: riskPercentageAllowed.toFixed(2) + '%',
+              source: 'session.dollar_risk (SSOT)'
+            }
+          );
+        } else {
+          // Fallback: Determine risk from trade style map (legacy behavior)
+          const tradeStyleRiskMap: { [key: string]: number } = {
+            'scalp': 5,
+            'day': 3,
+            'swing': 2,
+            'precision': 1
+          };
+          const tradeStyle = (session.trade_style || 'day').toLowerCase();
+          riskPercentageAllowed = tradeStyleRiskMap[tradeStyle] || 3;
+          logger.info(
+            LogCategory.RISK_MANAGEMENT,
+            '[AlphaTradeExecutor] Using fallback trade style risk mapping',
+            {
+              userId,
+              sessionId,
+              tradeStyle,
+              riskPercentageAllowed: riskPercentageAllowed + '%',
+              source: 'trade_style_map (legacy fallback)'
+            }
+          );
+        }
 
         // Use current progress if available, otherwise default to 0
         const currentProgress = session.current_progress !== undefined ? session.current_progress : 0;
