@@ -124,7 +124,10 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
         />
       )}
 
-      {currentDialog?.type === 'trade_signal' && (
+      {currentDialog?.type === 'trade_signal' &&
+       currentDialog.data?.symbol &&
+       currentDialog.data.symbol !== 'Unknown' &&
+       currentDialog.data.entryPrice > 0 && (
         <TradeSignalNotificationBar
           signal={currentDialog.data}
           onDismiss={closeDialog}

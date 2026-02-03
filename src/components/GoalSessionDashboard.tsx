@@ -53,6 +53,7 @@ export const GoalSessionDashboard: React.FC = () => {
   const [closingPosition, setClosingPosition] = useState<string | null>(null);
   const [isClosingSession, setIsClosingSession] = useState(false);
   const [closureTimeoutId, setClosureTimeoutId] = useState<NodeJS.Timeout | null>(null);
+  const [processedTradeClosures, setProcessedTradeClosures] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadSessionData();
@@ -164,11 +165,22 @@ export const GoalSessionDashboard: React.FC = () => {
 
           if (payload.new.status === 'closed' && payload.old.status === 'open') {
             console.log('[GoalSessionDashboard] ✅ Trade closed! Preparing popup...');
+            const tradeId = payload.new.id;
+
+            // Deduplicate: Check if we already processed this closure
+            if (processedTradeClosures.has(tradeId)) {
+              console.log('[GoalSessionDashboard] ⏭️ Already processed this trade closure, skipping audio');
+              return;
+            }
+
+            // Mark as processed
+            setProcessedTradeClosures(prev => new Set(prev).add(tradeId));
+
             const closeReason = payload.new.close_reason || 'manual';
             const profitLoss = payload.new.profit_loss || 0;
             const isProfit = profitLoss > 0;
 
-            // Play sound notification
+            // Play sound notification ONCE
             import('../services/notification-manager').then(({ notificationManager }) => {
               if (closeReason === 'take_profit' && isProfit) {
                 notificationManager.playSound('trade_exit');
@@ -999,22 +1011,11 @@ export const GoalSessionDashboard: React.FC = () => {
   };
 
   /**
-   * SSOT: Get Alpha's calculated target for the current trade
-   * Returns the most recent trade's expected_profit_for_session (what Alpha calculated)
-   * Falls back to original goal amount if no active trades exist
+   * SSOT: Always return the user's session goal
+   * The user cares about their overall goal, not individual trade targets
    */
   const getCurrentTradeTarget = (): number => {
-    if (openTrades.length === 0) {
-      // No active trades - show original session goal
-      return activeSession?.config.goalAmount || 0;
-    }
-
-    // Get most recent open trade (last in array)
-    const latestTrade = openTrades[openTrades.length - 1];
-
-    // Return Alpha's calculated target for this trade
-    // This is what Alpha says the market can give (~$135 in your example)
-    return latestTrade.expected_profit_for_session || activeSession?.config.goalAmount || 0;
+    return activeSession?.config.goalAmount || 0;
   };
 
   const calculateLiveProgressPercentage = (): number => {
