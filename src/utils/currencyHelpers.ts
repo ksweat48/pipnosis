@@ -971,20 +971,21 @@ export function calculateGoalAwareLotSize(
   console.log(`  Max Position Size (risk-based): ${maxPositionSize.toFixed(3)} lots`);
 
   // REVERSE CALCULATION: What lot size gives us goal profit at target pips?
-  // FIX 2026-02-03: Use actual TP distance if provided (from Alpha), not average commonMove
-  let targetPips = commonMovePips;  // Default to average market move
-  let targetPipsSource = 'commonMove (average market move)';
-
-  if (takeProfitPrice && takeProfitPrice !== entryPrice) {
-    targetPips = Math.abs(takeProfitPrice - entryPrice) / pipInfo.pipValue;
-    targetPipsSource = 'actual TP distance (from Alpha decision)';
-    console.log(`  Using ACTUAL TP distance (${targetPips.toFixed(2)} pips) instead of commonMove average`);
+  // FIX 2026-02-03: REQUIRE actual TP distance (from Alpha) - no fallback to commonMovePips
+  if (!takeProfitPrice || takeProfitPrice === entryPrice) {
+    throw new Error(
+      `[Lot Sizing] takeProfitPrice REQUIRED for goal-aware sizing. ` +
+      `Received: ${takeProfitPrice}. Entry: ${entryPrice}. ` +
+      `Goal-aware lot sizing must use Alpha's actual TP, not estimated average moves.`
+    );
   }
 
+  const targetPips = Math.abs(takeProfitPrice - entryPrice) / pipInfo.pipValue;
   const dollarPerPipAtOneLot = calculateDollarPerPip(symbol, 1.0);
   const requiredLotSizeForOptimal = remainingGoal / (targetPips * dollarPerPipAtOneLot);
 
-  console.log(`  Required Lot Size for ${targetPips.toFixed(2)} pips (${targetPipsSource}): ${requiredLotSizeForOptimal.toFixed(3)}`);
+  console.log(`  Target Pips (ACTUAL TP from Alpha): ${targetPips.toFixed(2)}`);
+  console.log(`  Required Lot Size for goal profit: ${requiredLotSizeForOptimal.toFixed(3)}`);
 
   // 🚨 CRITICAL VALIDATION: Detect position sizing disasters
   // If commonMovePips is suspiciously low (< 5 pips), the asset profile is misconfigured
