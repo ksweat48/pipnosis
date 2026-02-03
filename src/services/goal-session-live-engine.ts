@@ -1739,21 +1739,38 @@ class GoalSessionLiveEngine {
       const tradeContext = tradeContextResult.context;
       logger.info(LogCategory.AI_TRADING, `[SSOT] TradeContext created for ${selectedSymbol} (hash: ${tradeContext.profileHash})`);
 
-      // DEPRECATED: tradeExecutionEngine is deleted - trade execution moved to alphaTradeExecutor
-      logger.warn(LogCategory.AI_TRADING, '[DEPRECATED] processMultiSymbolCycle using deleted tradeExecutionEngine - returning false result');
-      const executionResult = {
-        success: false,
-        error: 'tradeExecutionEngine is deprecated - use alphaTradeExecutor directly',
-        isMonitoring: false
-      };
-      // Disabled: Old tradeExecutionEngine.executeSignal code preserved but not executed
-      // This would have been:
-      // const executionResult = await tradeExecutionEngine.executeSignal(
-      //   { sessionId, symbol, direction, ... },
-      //   config.userId,
-      //   config.autoExecute,
-      //   decision
-      // );
+      // ✅ SSOT FIX: Fetch goal_session record for alphaTradeExecutor
+      const { data: sessionRecord, error: sessionFetchError } = await supabase
+        .from('goal_sessions')
+        .select('*')
+        .eq('id', activeSession!)
+        .single();
+
+      if (sessionFetchError || !sessionRecord) {
+        logger.error(LogCategory.AI_TRADING, '[Trade Execution] Failed to fetch goal_session record', {
+          error: sessionFetchError,
+          sessionId: activeSession
+        });
+        await this.sendAIMessage('⚠️ System error: Could not load session data. Trade execution blocked to protect account.');
+        return;
+      }
+
+      // ✅ SSOT: Execute trade using alphaTradeExecutor (unified execution authority)
+      // alphaTradeExecutor provides:
+      // - Multi-layer validation (Core + Capacity + Risk + Price + Database)
+      // - CCIP-compliant audit logging
+      // - Consistent error handling across all execution modes
+      const executionResult = await alphaTradeExecutor.execute({
+        decision,
+        tradeContext,
+        userId: config.userId,
+        sessionId: activeSession!,
+        session: sessionRecord,
+        mode: 'IMMEDIATE', // Autonomous execution
+        snapshotTimestamp: new Date(),
+        regimeSnapshot: snapshot.regime,
+        adversarialState: snapshot.adversarial
+      });
 
       if (executionResult.success) {
         if (executionResult.isMonitoring) {
@@ -1912,8 +1929,25 @@ class GoalSessionLiveEngine {
           logger.error(LogCategory.AI_TRADING, 'Error updating trade counter', { error });
         }
       } else {
-        logger.error(LogCategory.AI_TRADING, `❌ Trade execution failed: ${executionResult.message}`);
-        // Exit early on execution failure to avoid accessing undefined decision/trade fields
+        // ✅ SSOT: Trade execution blocked by validation layer - log and provide feedback
+        const blockReason = executionResult.blockReason || executionResult.error || 'Unknown reason';
+        logger.warn(LogCategory.AI_TRADING, `⚠️ Trade execution blocked: ${blockReason}`, {
+          symbol: selectedSymbol,
+          confidence: decision.confidence,
+          action: decision.action,
+          reason: blockReason
+        });
+
+        // Send user notification about why trade was blocked
+        await this.sendAIMessage(
+          `⚠️ Trade opportunity on ${selectedSymbol} was blocked:\n\n` +
+          `Reason: ${blockReason}\n\n` +
+          `Continuing to scan for other opportunities...`
+        ).catch(e => {
+          logger.warn(LogCategory.AI_TRADING, 'Failed to send execution block notification', { error: e });
+        });
+
+        // Exit early on execution failure - continue scanning
         return;
       }
 

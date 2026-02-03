@@ -488,12 +488,54 @@ async function handleLLMPositionAction(
 ): Promise<void> {
   logger.info(LogCategory.AI_TRADING, `[Core] LLM decided: ${evaluation.action} for trade ${trade.id}`);
 
+  // ✅ SSOT FIX: Update trade via database directly (tradeExecutionEngine removed)
+  // All trade mutations go through database as single source of truth
+
   if (evaluation.action === 'close') {
-    await tradeExecutionEngine.closeLivePosition(trade.id, evaluation.reasoning);
+    // Close the trade
+    const { error } = await supabase
+      .from('goal_session_trades')
+      .update({
+        status: 'closed',
+        closed_at: new Date().toISOString(),
+        close_reason: 'mid_trade_llm_decision',
+        exit_price: evaluation.exitPrice || trade.takeProfit
+      })
+      .eq('id', trade.id);
+
+    if (error) {
+      logger.error(LogCategory.AI_TRADING, `[Core] Failed to close trade ${trade.id}:`, error);
+    } else {
+      logger.info(LogCategory.AI_TRADING, `[Core] ✅ Trade ${trade.id} closed by LLM decision: ${evaluation.reasoning}`);
+    }
   } else if (evaluation.action === 'adjust_sl') {
-    await tradeExecutionEngine.adjustStopLoss(trade.id, evaluation.newStopLoss, evaluation.reasoning);
+    // Update stop loss
+    const { error } = await supabase
+      .from('goal_session_trades')
+      .update({
+        stop_loss: evaluation.newStopLoss
+      })
+      .eq('id', trade.id);
+
+    if (error) {
+      logger.error(LogCategory.AI_TRADING, `[Core] Failed to adjust SL for trade ${trade.id}:`, error);
+    } else {
+      logger.info(LogCategory.AI_TRADING, `[Core] ✅ Trade ${trade.id} SL adjusted to ${evaluation.newStopLoss}: ${evaluation.reasoning}`);
+    }
   } else if (evaluation.action === 'adjust_tp') {
-    await tradeExecutionEngine.adjustTakeProfit(trade.id, evaluation.newTakeProfit, evaluation.reasoning);
+    // Update take profit
+    const { error } = await supabase
+      .from('goal_session_trades')
+      .update({
+        take_profit: evaluation.newTakeProfit
+      })
+      .eq('id', trade.id);
+
+    if (error) {
+      logger.error(LogCategory.AI_TRADING, `[Core] Failed to adjust TP for trade ${trade.id}:`, error);
+    } else {
+      logger.info(LogCategory.AI_TRADING, `[Core] ✅ Trade ${trade.id} TP adjusted to ${evaluation.newTakeProfit}: ${evaluation.reasoning}`);
+    }
   }
 }
 
@@ -510,8 +552,24 @@ async function handleTradeClosure(
   const client = supabaseClient || supabase;
   logger.info(LogCategory.AI_TRADING, `[Core] Trade closed: ${trade.outcome} | P&L: $${trade.profitLoss.toFixed(2)}`);
 
-  // Save to trade history
-  await tradeExecutionEngine.saveTradeToHistory(trade, goalSessionId, userId);
+  // ✅ SSOT FIX: Update trade status directly in database (tradeExecutionEngine removed)
+  // Mark trade as closed and record P&L
+  const { error: updateError } = await client
+    .from('goal_session_trades')
+    .update({
+      status: 'closed',
+      closed_at: new Date().toISOString(),
+      profit_loss: trade.profitLoss,
+      outcome: trade.outcome
+    })
+    .eq('id', trade.id);
+
+  if (updateError) {
+    logger.error(LogCategory.AI_TRADING, `[Core] Failed to record trade closure for ${trade.id}:`, updateError);
+    return;
+  }
+
+  logger.debug(LogCategory.AI_TRADING, `[Core] ✅ Trade ${trade.id} closure recorded in database`);
 
   // Update goal session progress
   const { data: goalSession } = await client
@@ -548,26 +606,58 @@ async function executeLiveTrade(
   state: GoalSessionState
 ): Promise<boolean> {
   try {
-    const result = await tradeExecutionEngine.executeLiveTrade(
-      {
-        goalSessionId,
-        symbol: signal.symbol,
-        direction: signal.direction,
-        entryPrice: signal.entryPrice,
-        stopLoss: signal.stopLoss,
-        takeProfit: signal.takeProfit,
-        positionSize: signal.positionSize || 0.01,
-        confidence: signal.confidence || 0.7,
-        reasoning: signal.reasoning || 'LLM signal',
-        triggerType: signal.triggerType || 'llm_entry',
-        timestamp: new Date()
-      },
-      userId
-    );
+    // ✅ SSOT FIX: Create trade record directly in database (tradeExecutionEngine removed)
+    // All trade execution routed through database as single source of truth
 
-    if (result.success && result.trade) {
-      state.openTrades.push(result.trade);
-      logger.info(LogCategory.AI_TRADING, `[Core] Trade executed: ${signal.direction} ${signal.symbol} @ ${signal.entryPrice}`);
+    const tradeId = crypto.randomUUID();
+    const { data: insertedTrade, error: insertError } = await supabase
+      .from('goal_session_trades')
+      .insert({
+        id: tradeId,
+        goal_session_id: goalSessionId,
+        user_id: userId,
+        symbol: signal.symbol,
+        direction: signal.direction.toLowerCase(),
+        entry_price: signal.entryPrice,
+        stop_loss: signal.stopLoss,
+        take_profit: signal.takeProfit,
+        position_size: signal.positionSize || 0.01,
+        confidence: signal.confidence || 70,
+        reasoning: signal.reasoning || 'LLM signal',
+        status: 'open',
+        created_at: new Date().toISOString(),
+        entry_time: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      logger.error(LogCategory.AI_TRADING, '[Core] Failed to execute trade - insert failed:', insertError);
+      return false;
+    }
+
+    if (insertedTrade) {
+      // Create SimulatedTrade object from database record
+      const trade: SimulatedTrade = {
+        id: insertedTrade.id,
+        symbol: insertedTrade.symbol,
+        timeframe: state.watchlist?.[0] || '15m',
+        direction: insertedTrade.direction as 'buy' | 'sell',
+        entryTime: new Date(insertedTrade.entry_time),
+        entryPrice: insertedTrade.entry_price,
+        stopLoss: insertedTrade.stop_loss,
+        takeProfit: insertedTrade.take_profit,
+        positionSize: insertedTrade.position_size,
+        confidence: insertedTrade.confidence,
+        reasoning: insertedTrade.reasoning,
+        triggerType: 'llm_entry',
+        maxHoldMinutes: 240,
+        pnl: 0,
+        outcome: 'open'
+      };
+
+      state.openTrades.push(trade);
+      logger.info(LogCategory.AI_TRADING, `[Core] ✅ Trade executed: ${signal.direction} ${signal.symbol} @ ${signal.entryPrice}`);
       return true;
     }
 
