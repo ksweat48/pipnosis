@@ -41,7 +41,6 @@ import {
 import { UserManagementPanel } from '@/components/admin/UserManagementPanel';
 import { UserFeedbackPanel } from '@/components/admin/UserFeedbackPanel';
 import { PushNotificationTester } from '@/components/admin/PushNotificationTester';
-import { WebSocketStatusPanel } from '@/components/admin/WebSocketStatusPanel';
 import { SSOTViolationDashboard } from '@/components/admin/SSOTViolationDashboard';
 import { GovernanceAlertCenter } from '@/components/admin/GovernanceAlertCenter';
 import { ComplianceDashboard } from '@/components/admin/ComplianceDashboard';
@@ -653,9 +652,8 @@ export function AdminDashboard() {
 
         {activeTab === 'data' && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-6">
               <ServerSidePollingMonitor />
-              <WebSocketStatusPanel />
             </div>
             <div className="grid grid-cols-1 gap-6">
               <CandleAggregatorStatus />

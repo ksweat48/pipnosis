@@ -24,7 +24,7 @@ interface PriceAge {
 
 interface RefreshAction {
   symbol: string;
-  action: 'force_browser_poll' | 'edge_function_call' | 'websocket_reconnect';
+  action: 'force_browser_poll' | 'edge_function_call';
   reason: string;
   triggeredAt: Date;
 }
@@ -94,9 +94,6 @@ class PriceRefreshTrigger {
           break;
         case 'edge_function_call':
           await this.callEdgeFunction(symbol);
-          break;
-        case 'websocket_reconnect':
-          await this.triggerWebSocketReconnect(symbol);
           break;
       }
     } catch (error) {
@@ -208,19 +205,6 @@ class PriceRefreshTrigger {
       // For now, browser poll is sufficient
     } catch (error) {
       logger.error(LogCategory.POLLING_COORDINATOR, `Edge function call failed for ${symbol}:`, error);
-    }
-  }
-
-  /**
-   * Trigger WebSocket reconnection to get fresh prices
-   */
-  private async triggerWebSocketReconnect(symbol: string): Promise<void> {
-    try {
-      logger.info(LogCategory.POLLING_COORDINATOR, `Triggering WebSocket reconnect for ${symbol}`);
-      // This would reconnect the WebSocket manager for fresh prices
-      // Implementation in websocket-price-manager
-    } catch (error) {
-      logger.error(LogCategory.POLLING_COORDINATOR, `WebSocket reconnect failed for ${symbol}:`, error);
     }
   }
 
