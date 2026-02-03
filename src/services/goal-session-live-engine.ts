@@ -26,7 +26,7 @@ import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
 import { calculateDollarPerPip, calculatePipDistance, calculateGoalAwareLotSize, calculateLotSizeFromDollarRisk, calculateAndValidateRR, getCurrencyPipInfo, formatCurrencyPrice } from '../utils/currencyHelpers';
 import { createTradeContext, roundAlphaDecisionPrices } from '../utils/tradeMath';
-import { getRiskPercentage } from '../config/risk-levels';
+import { getRiskPercentage, getMinConfidenceThreshold } from '../config/risk-levels';
 import { postTradeAnalyzer } from './post-trade-analyzer';
 import { scanningStateMachine } from './scanning-state-machine';
 import { hasAnyOpenMarket, isSymbolMarketOpen, getEstimationReferenceSymbol } from '../utils/marketHours';
@@ -45,10 +45,16 @@ import { getActiveEntryIntent, type EntryIntentData } from './entry-intent-monit
 import { entryThesisMemoryService } from './entry-thesis-memory-service';
 import { alphaThoughtStream } from './alpha-thought-stream';
 import { MarketDataService } from './market-data-service';
+import { CCIPTradeExecutionTracker } from './ccip-trade-execution-tracker';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
 console.log('%c[Goal Session Engine] 🔍 AI_TRADING logs set to INFO for autonomous debugging', 'color: #f59e0b; font-weight: bold');
+
+// 📋 CCIP: Register trade execution SSOT enforcement on module load
+CCIPTradeExecutionTracker.initialize().catch(() => {
+  // Safe-fail: CCIP tracking is non-blocking
+});
 
 export interface GoalSessionLiveConfig {
   goalSessionId: string;
@@ -2457,7 +2463,7 @@ class GoalSessionLiveEngine {
 
         // CRITICAL FIX: Only mark as executed if trade actually went through
         // If confidence too low or other validation fails, we need to keep scanning
-        tradeExecuted = await this.handleNewTradeSignal(result.trade);
+        tradeExecuted = await this.handleNewTradeSignal(result.trade, goalSession, sortedCandles);
 
         if (tradeExecuted) {
           console.log(`[AUTONOMOUS ENGINE] ✅ Trade successfully executed - system will manage appropriately`);
@@ -2497,12 +2503,167 @@ class GoalSessionLiveEngine {
 
 
   /**
-   * Handle new trade signal - Routes through trade-execution-engine for proper goal_session_trades creation
-   * @returns true if trade was successfully executed, false if rejected
+   * Handle new trade signal - SSOT-compliant execution via alphaTradeExecutor
+   *
+   * Routes SimulatedTrade (from eventBasedLLMEngine) through the unified trade execution authority.
+   * Maps autonomous engine trade to AlphaDecision contract and executes through validation pipeline.
+   *
+   * SSOT Authority: alphaTradeExecutor is the sole entry point for all trade creation
+   * CCIP Compliance: Registered as trade execution refactor (20260203)
+   * Governance: All validation layers maintained (Core + Risk + Capacity + Price)
+   *
+   * @param trade - SimulatedTrade from eventBasedLLMEngine analysis
+   * @param goalSession - goal_sessions record for context
+   * @param candles - Historical candles for market context
+   * @returns true if trade was successfully executed, false if rejected by validation
    */
-  private async handleNewTradeSignal(trade: SimulatedTrade): Promise<boolean> {
-    logger.warn(LogCategory.AI_TRADING, '[DEPRECATED] handleNewTradeSignal uses deleted tradeExecutionEngine - returning false. Trade execution should use alphaTradeExecutor.');
-    return false;
+  private async handleNewTradeSignal(
+    trade: SimulatedTrade,
+    goalSession: any,
+    candles: any[]
+  ): Promise<boolean> {
+    try {
+      logger.info(
+        LogCategory.AI_TRADING,
+        '[Trade Execution] SSOT: Routing through alphaTradeExecutor',
+        {
+          symbol: trade.symbol,
+          direction: trade.direction,
+          confidence: trade.confidence,
+          entryPrice: trade.entryPrice,
+          source: 'eventBasedLLMEngine (autonomous)',
+          executionAuthority: 'alphaTradeExecutor'
+        }
+      );
+
+      // ✅ SSOT: Build AlphaDecision from SimulatedTrade
+      // This adapts autonomous engine's trade signal to unified execution contract
+      const alphaDecision = {
+        action: (trade.direction === 'buy' ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
+        decision: (trade.direction === 'buy' ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
+        entry: trade.entryPrice,
+        stopLoss: trade.stopLoss,
+        takeProfit: trade.takeProfit,
+        tp2Price: trade.takeProfit,
+        confidence: trade.confidence,
+        reasoning: trade.reasoning,
+        omega_summary: `Autonomous: ${trade.triggerType} (${trade.confidence}% confidence)`,
+        symbol: trade.symbol,
+        timestamp: new Date(),
+        regime_advisory: trade.regimeSnapshot,
+        adversarial_advisory: trade.adversarialSignal
+      };
+
+      // ✅ SSOT: Build TradeContext from market data
+      const tradeContext = createTradeContext(
+        trade.symbol,
+        trade.direction === 'buy' ? 'buy' : 'sell',
+        trade.entryPrice,
+        trade.stopLoss,
+        trade.takeProfit,
+        {
+          pipValue: calculateDollarPerPip(trade.symbol),
+          slDistance: calculatePipDistance(
+            trade.symbol,
+            trade.entryPrice,
+            trade.stopLoss
+          ),
+          tpDistance: calculatePipDistance(
+            trade.symbol,
+            trade.entryPrice,
+            trade.takeProfit
+          )
+        }
+      );
+
+      // ✅ GOVERNANCE: Ensure we have valid session record
+      if (!goalSession || !this.activeSession) {
+        logger.error(
+          LogCategory.AI_TRADING,
+          '[Trade Execution] BLOCKED: Invalid session context',
+          {
+            symbol: trade.symbol,
+            hasGoalSession: !!goalSession,
+            hasActiveSession: !!this.activeSession,
+            severity: 'CRITICAL'
+          }
+        );
+        return false;
+      }
+
+      // ✅ CCIP: SSOT - Execute through unified authority (alphaTradeExecutor)
+      // All validation layers run through this single point of entry
+      const executionResult = await alphaTradeExecutor.execute({
+        decision: alphaDecision,
+        tradeContext,
+        userId: this.config.userId,
+        sessionId: this.activeSession,
+        session: goalSession,
+        mode: 'IMMEDIATE', // Autonomous execution (no user confirmation required)
+        snapshotTimestamp: new Date(),
+        regimeSnapshot: trade.regimeSnapshot,
+        adversarialState: trade.adversarialSignal
+      });
+
+      if (executionResult.success) {
+        logger.info(
+          LogCategory.AI_TRADING,
+          '[Trade Execution] ✅ SUCCESS - Trade created via alphaTradeExecutor',
+          {
+            tradeId: executionResult.tradeId,
+            symbol: trade.symbol,
+            direction: trade.direction,
+            entryPrice: trade.entryPrice,
+            stopLoss: trade.stopLoss,
+            takeProfit: trade.takeProfit,
+            confidence: trade.confidence,
+            isMonitoring: executionResult.isMonitoring
+          }
+        );
+
+        // Add to memory state for immediate access
+        const dbTradeRecord: SimulatedTrade = {
+          ...trade,
+          id: executionResult.tradeId || trade.id,
+          outcome: 'open'
+        };
+        this.openTrades.push(dbTradeRecord);
+
+        return true;
+      } else {
+        logger.warn(
+          LogCategory.AI_TRADING,
+          '[Trade Execution] ❌ REJECTED - Validation failed',
+          {
+            symbol: trade.symbol,
+            direction: trade.direction,
+            confidence: trade.confidence,
+            blockReason: executionResult.blockReason,
+            error: executionResult.error,
+            confidence_vs_threshold: `${trade.confidence}% vs ${getMinConfidenceThreshold(
+              this.config.riskMode
+            )}%`
+          }
+        );
+
+        return false;
+      }
+    } catch (error) {
+      logger.error(
+        LogCategory.AI_TRADING,
+        '[Trade Execution] 🔥 CRITICAL ERROR - Execution fault',
+        {
+          symbol: trade.symbol,
+          direction: trade.direction,
+          confidence: trade.confidence,
+          error,
+          source: 'handleNewTradeSignal'
+        }
+      );
+
+      // Safety: Never silently fail - log and return false to allow continued scanning
+      return false;
+    }
   }
 
   /**
