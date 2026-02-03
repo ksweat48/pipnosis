@@ -43,6 +43,33 @@ export const SessionIntelligenceMonitor: React.FC = () => {
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const triggerIntelligenceUpdate = useCallback(async () => {
+    try {
+      // Call the edge function to update session intelligence if data is stale
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+      if (supabaseUrl && anonKey) {
+        const apiUrl = `${supabaseUrl}/functions/v1/update-session-intelligence`;
+
+        await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${anonKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({})
+        }).catch(err => {
+          // Non-blocking - if edge function unavailable, we'll still query the DB
+          console.debug('[SessionIntelligenceMonitor] Edge function unavailable:', err.message);
+        });
+      }
+    } catch (error) {
+      console.debug('[SessionIntelligenceMonitor] Failed to trigger update:', error);
+      // Non-blocking
+    }
+  }, []);
+
   const loadSessionData = useCallback(async () => {
     try {
       setLoading(true);
@@ -67,9 +94,14 @@ export const SessionIntelligenceMonitor: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // Trigger intelligence update on mount
+    triggerIntelligenceUpdate();
+
+    // Load session data immediately
     loadSessionData();
 
     let debounceTimer: ReturnType<typeof setTimeout>;
+    let refreshTimer: ReturnType<typeof setInterval>;
 
     const channel = supabase
       .channel('session-intelligence')
@@ -86,11 +118,18 @@ export const SessionIntelligenceMonitor: React.FC = () => {
       )
       .subscribe();
 
+    // Refresh data every 90 seconds (before 3-minute expiration)
+    refreshTimer = setInterval(() => {
+      triggerIntelligenceUpdate();
+      loadSessionData();
+    }, 90000);
+
     return () => {
       clearTimeout(debounceTimer);
+      clearInterval(refreshTimer);
       supabase.removeChannel(channel);
     };
-  }, [loadSessionData]);
+  }, [loadSessionData, triggerIntelligenceUpdate]);
 
   const getSessionIcon = (sessionName: string) => {
     switch (sessionName) {
