@@ -735,6 +735,7 @@ class AlphaTradeExecutor {
 
     // Create notification via SSOT NotificationCoordinator
     // CCIP FIX (2026-02-03): Refactored from direct DB insert to NotificationCoordinator
+    // SSOT FIX (2026-02-03): Include Alpha's complete decision data in metadata for UI display
     await notificationCoordinator.send({
       userId,
       sessionId,
@@ -750,23 +751,36 @@ class AlphaTradeExecutor {
         entryPrice: adjustedEntry,
         stopLoss: decision.stopLoss,
         takeProfit: decision.takeProfit,
-        expectedProfit: params.expectedProfitAtTP
+        expectedProfit: params.expectedProfitAtTP,
+        confidence: decision.confidence,
+        tp1Price: decision.tp1Price,
+        tp2Price: decision.tp2Price,
+        tp1Confidence: decision.tp1Confidence,
+        thesis: decision.thesis
       }
     });
 
     // Trigger modal popup (only works in browser context)
     // CCIP FIX (2026-02-03): Added modal trigger for immediate user feedback
+    // SSOT FIX (2026-02-03): Include Alpha's confidence and dual TP system from decision object
     try {
       globalDialogManager.showTradeEntry({
         tradeId: trade.id,
         symbol: decision.symbol,
+        direction: decision.action === 'BUY' ? 'buy' : 'sell',
         action: decision.action,
         lotSize,
         entryPrice: adjustedEntry,
         stopLoss: decision.stopLoss,
         takeProfit: decision.takeProfit,
         expectedProfit: params.expectedProfitAtTP,
-        reasoning: decision.reasoning
+        reasoning: decision.reasoning,
+        confidence: decision.confidence,
+        setupType: decision.thesis || 'Market Setup',
+        tp1: decision.tp1Price || undefined,
+        tp2: decision.tp2Price || undefined,
+        tp1Confidence: decision.tp1Confidence || undefined,
+        autoExecuted: true
       }, 'urgent');
     } catch (err) {
       // Non-blocking - modal manager not available in server context

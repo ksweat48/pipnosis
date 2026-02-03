@@ -149,13 +149,18 @@ class RealtimeTradeNotificationListener {
         globalDialogManager.showTradeEntry({
           tradeId: trade.id,
           symbol: trade.symbol,
+          direction: trade.direction === 'long' ? 'buy' : 'sell',
           action: trade.direction === 'long' ? 'BUY' : 'SELL',
           lotSize: trade.lot_size,
           entryPrice: trade.entry_price,
           stopLoss: trade.stop_loss,
           takeProfit: trade.take_profit,
           expectedProfit: trade.expected_profit_for_session,
-          reasoning: trade.alpha_reasoning || 'Trade executed'
+          reasoning: trade.alpha_reasoning || 'Trade executed',
+          confidence: trade.trade_confidence || undefined,
+          tp1: trade.tp1_price || undefined,
+          tp2: trade.tp2_price || undefined,
+          autoExecuted: true
         }, 'urgent');
       }
 
@@ -180,16 +185,24 @@ class RealtimeTradeNotificationListener {
             const tradeId = notification.metadata.tradeId;
             if (!this.recentTrades.has(tradeId)) {
               // Trade wasn't caught by realtime trade listener, trigger modal now
+              // SSOT FIX (2026-02-03): Include Alpha's confidence and TP data from notification metadata
               globalDialogManager.showTradeEntry({
                 tradeId,
                 symbol: notification.metadata.symbol,
+                direction: notification.metadata.action === 'BUY' ? 'buy' : 'sell',
                 action: notification.metadata.action,
                 lotSize: notification.metadata.lotSize,
                 entryPrice: notification.metadata.entryPrice,
                 stopLoss: notification.metadata.stopLoss,
                 takeProfit: notification.metadata.takeProfit,
                 expectedProfit: notification.metadata.expectedProfit,
-                reasoning: notification.message
+                reasoning: notification.message,
+                confidence: notification.metadata.confidence || undefined,
+                setupType: notification.metadata.thesis || undefined,
+                tp1: notification.metadata.tp1Price || undefined,
+                tp2: notification.metadata.tp2Price || undefined,
+                tp1Confidence: notification.metadata.tp1Confidence || undefined,
+                autoExecuted: true
               }, 'urgent');
             }
           }
