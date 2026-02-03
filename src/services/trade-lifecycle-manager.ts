@@ -13,6 +13,7 @@ import {
 } from './coordinators';
 import { MarketDataService, marketDataService } from './market-data-service';
 import { tradeProcessingLockService } from './trade-processing-lock-service';
+import { concurrencyLimiterService } from './concurrency-limiter-service';
 
 export interface PriceUpdate {
   symbol: string;
@@ -232,8 +233,30 @@ class TradeLifecycleManager {
 
       console.log(`[Trade Lifecycle] Monitoring ${tradesToMonitor.length} authorized trade(s) for user ${user.id}`);
 
-      for (const trade of tradesToMonitor) {
-        await this.checkTradeTargets(trade);
+      // CCIP-20260203-001: Use concurrent execution with concurrency limiting
+      // TradeProcessingLockService remains the SSOT authority for database-backed locking
+      const batchId = `trade-batch-${Date.now()}`;
+      const concurrencyResults = await Promise.allSettled(
+        tradesToMonitor.map(trade =>
+          concurrencyLimiterService.executeWithLimit(
+            trade.id,
+            () => this.checkTradeTargets(trade),
+            trade.symbol
+          )
+        )
+      );
+
+      // Analyze results for governance logging
+      const successCount = concurrencyResults.filter(r => r.status === 'fulfilled' && r.value.success).length;
+      const failedCount = concurrencyResults.filter(r => r.status === 'fulfilled' && !r.value.success && !r.value.skipped).length;
+      const skippedCount = concurrencyResults.filter(r => r.status === 'fulfilled' && r.value.skipped).length;
+      const rejectedCount = concurrencyResults.filter(r => r.status === 'rejected').length;
+
+      if (successCount > 0 || failedCount > 0 || skippedCount > 0 || rejectedCount > 0) {
+        console.log(
+          `[Trade Lifecycle] 📊 Concurrent batch ${batchId}: ${successCount} success, ` +
+          `${failedCount} failed, ${skippedCount} skipped (capacity), ${rejectedCount} rejected`
+        );
       }
     } catch (error) {
       console.error('[Trade Lifecycle] Error monitoring trades:', error);
