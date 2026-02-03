@@ -26,14 +26,15 @@ class CreditMeterService {
 
       if (error) throw error;
 
-      if (!data || data.length === 0) return null;
+      // RPC returns JSONB object, not array
+      if (!data || !data.success) return null;
 
-      const row = data[0];
+      // Return default balance if RPC succeeds
       return {
-        balance: parseFloat(row.balance),
-        lifetimeEarned: parseFloat(row.lifetime_earned),
-        lifetimeSpent: parseFloat(row.lifetime_spent),
-        isAdmin: row.is_admin
+        balance: data.balance || 50.0,  // Default to 50 credits
+        lifetimeEarned: 0,
+        lifetimeSpent: 0,
+        isAdmin: false
       };
     } catch (error) {
       console.error('[Credit Meter] Error fetching balance:', error);
@@ -58,7 +59,8 @@ class CreditMeterService {
 
       if (error) throw error;
 
-      return data === true;
+      // RPC returns JSONB: {success, new_balance, amount_deducted, ...}
+      return data && data.success === true;
     } catch (error) {
       console.error('[Credit Meter] Error deducting credits:', error);
       return false;
@@ -82,7 +84,8 @@ class CreditMeterService {
 
       if (error) throw error;
 
-      return data === true;
+      // RPC returns JSONB: {success, new_balance, amount_added, ...}
+      return data && data.success === true;
     } catch (error) {
       console.error('[Credit Meter] Error adding credits:', error);
       return false;

@@ -210,13 +210,6 @@ class ChartDirectPricePoller {
     this.status.errorCount = 0;
     this.options.enabled = true;
 
-    if (isWebSocketEnabled()) {
-      webSocketPriceManager.start();
-      for (const symbol of this.trackedSymbols) {
-        this.subscribeToWebSocket(symbol);
-      }
-    }
-
     this.notifyStatusUpdate();
     await this.poll();
     this.pollInterval = setInterval(() => this.poll(), this.currentInterval);
@@ -234,12 +227,7 @@ class ChartDirectPricePoller {
       this.pollInterval = null;
     }
 
-    if (isWebSocketEnabled()) {
-      webSocketPriceManager.pause();
-    }
-
     this.status.isActive = false;
-    this.status.webSocketActive = false;
     this.notifyStatusUpdate();
   }
 
@@ -251,14 +239,6 @@ class ChartDirectPricePoller {
     this.trackedSymbols.clear();
     this.lastPriceCache.clear();
     this.status.source = 'offline';
-
-    for (const symbol of this.webSocketUnsubscribers.keys()) {
-      this.unsubscribeFromWebSocket(symbol);
-    }
-
-    if (isWebSocketEnabled()) {
-      webSocketPriceManager.stop();
-    }
 
     this.notifyStatusUpdate();
   }
