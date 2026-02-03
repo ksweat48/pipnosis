@@ -15,6 +15,10 @@ export default function MidTradeUpdateModal({ isOpen, onClose }: MidTradeUpdateM
   const [countdown, setCountdown] = useState<number>(20);
   const [isHovering, setIsHovering] = useState<boolean>(false);
 
+  const handleDismiss = () => {
+    midTradeNotificationQueue.dismissCurrent();
+  };
+
   useEffect(() => {
     let audioPlayed = false;
 
@@ -73,11 +77,7 @@ export default function MidTradeUpdateModal({ isOpen, onClose }: MidTradeUpdateM
       isMounted = false;
       clearInterval(interval);
     };
-  }, [notification, handleDismiss]);
-
-  const handleDismiss = () => {
-    midTradeNotificationQueue.dismissCurrent();
-  };
+  }, [notification]);
 
   if (!isOpen || !notification) return null;
 
