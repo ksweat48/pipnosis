@@ -100,13 +100,17 @@ class ConcurrencyLimiterService {
 
   /**
    * Load configuration from database (SSOT)
+   * Gracefully degrades if RPC is unavailable
    */
   private async loadConfiguration(): Promise<void> {
     try {
       const { data, error } = await supabase.rpc('get_concurrency_state');
 
       if (error) {
-        console.warn('[ConcurrencyLimiter] Could not load config:', error);
+        // Graceful degradation: use default config if RPC unavailable
+        console.warn('[ConcurrencyLimiter] RPC unavailable, using defaults:', error.message);
+        this.maxConcurrent = 5;
+        this.isCircuitBroken = false;
         return;
       }
 
@@ -124,7 +128,8 @@ class ConcurrencyLimiterService {
         );
       }
     } catch (error) {
-      console.error('[ConcurrencyLimiter] Error loading configuration:', error);
+      // Network error or service unavailable - use defaults
+      console.warn('[ConcurrencyLimiter] Could not load config, using defaults');
     }
   }
 
@@ -246,6 +251,7 @@ class ConcurrencyLimiterService {
 
   /**
    * Record lock contention metrics for governance/CCIP compliance
+   * Gracefully degrades if RPC is unavailable (in-memory metrics still tracked)
    */
   private async recordLockContention(
     tradeId: string,
@@ -254,7 +260,7 @@ class ConcurrencyLimiterService {
     symbol?: string
   ): Promise<void> {
     try {
-      // Update in-memory metrics
+      // Update in-memory metrics (always works)
       if (symbol) {
         const attempts = this.lockAttempts.get(symbol) || 0;
         this.lockAttempts.set(symbol, attempts + 1);
@@ -265,21 +271,32 @@ class ConcurrencyLimiterService {
         }
       }
 
-      // Record to database for governance
-      const { error } = await supabase.rpc('record_lock_contention', {
-        p_trade_id: tradeId,
-        p_lock_system: 'ConcurrencyLimiter',
-        p_lock_acquired: acquired,
-        p_acquisition_wait_time_ms: Math.min(waitTimeMs, this.MAX_LOCK_WAIT_MS),
-        p_active_locks_at_attempt: this.activeOperations.size,
-        p_system_load_percent: (this.activeOperations.size / this.maxConcurrent) * 100
-      });
+      // Try to record to database (non-blocking if fails)
+      try {
+        const { error } = await supabase.rpc('record_lock_contention', {
+          p_trade_id: tradeId,
+          p_lock_system: 'ConcurrencyLimiter',
+          p_lock_acquired: acquired,
+          p_acquisition_wait_time_ms: Math.min(waitTimeMs, this.MAX_LOCK_WAIT_MS),
+          p_active_locks_at_attempt: this.activeOperations.size,
+          p_system_load_percent: (this.activeOperations.size / this.maxConcurrent) * 100
+        });
 
-      if (error) {
-        console.warn('[ConcurrencyLimiter] Could not record metrics:', error);
+        if (error) {
+          // Graceful degradation: in-memory metrics still tracked
+          if (error.message?.includes('Could not find the function')) {
+            // RPC function not yet deployed, that's ok
+            return;
+          }
+          console.warn('[ConcurrencyLimiter] Database metrics unavailable:', error.message);
+        }
+      } catch (rpcError) {
+        // Network error or database unavailable - in-memory metrics still tracked
+        console.debug('[ConcurrencyLimiter] Database recording failed (non-blocking)');
       }
     } catch (error) {
-      console.error('[ConcurrencyLimiter] Error recording contention:', error);
+      // Should never reach here, but handle gracefully
+      console.error('[ConcurrencyLimiter] Error in recordLockContention:', error);
     }
   }
 
@@ -311,7 +328,7 @@ class ConcurrencyLimiterService {
       this.circuitBreakerStartTime = Date.now();
       this.sequentialFallbackActive = true;
 
-      // Update database
+      // Try to update database (non-blocking if fails)
       try {
         await supabase
           .from('concurrency_circuit_breaker')
@@ -323,7 +340,9 @@ class ConcurrencyLimiterService {
             decision_id: `circuit-break-${Date.now()}`
           });
       } catch (error) {
-        console.error('[ConcurrencyLimiter] Failed to record circuit break:', error);
+        // Database unavailable, but circuit breaker still active in-memory
+        console.warn('[ConcurrencyLimiter] Database circuit break logging failed (in-memory active):',
+          error instanceof Error ? error.message : String(error));
       }
     }
 
@@ -367,15 +386,19 @@ class ConcurrencyLimiterService {
         console.log(`[ConcurrencyLimiter] 🟢 CIRCUIT RECOVERED: Failure rate ${(failureRate * 100).toFixed(1)}% <= ${(this.LOCK_FAILURE_RECOVERY_THRESHOLD * 100).toFixed(0)}%`);
         this.resetCircuitBreaker();
 
-        // Record recovery
-        await supabase
-          .from('concurrency_circuit_breaker')
-          .insert({
-            state: 'closed',
-            reason: 'Recovered - failure rate below threshold',
-            recovery_start_at: new Date().toISOString(),
-            decision_id: `circuit-recover-${Date.now()}`
-          });
+        // Try to record recovery (non-blocking if fails)
+        try {
+          await supabase
+            .from('concurrency_circuit_breaker')
+            .insert({
+              state: 'closed',
+              reason: 'Recovered - failure rate below threshold',
+              recovery_start_at: new Date().toISOString(),
+              decision_id: `circuit-recover-${Date.now()}`
+            });
+        } catch (error) {
+          console.debug('[ConcurrencyLimiter] Database recovery logging failed (in-memory recovered)');
+        }
       }
     } catch (error) {
       console.error('[ConcurrencyLimiter] Error attempting recovery:', error);
@@ -455,11 +478,12 @@ class ConcurrencyLimiterService {
         this.lockFailures.clear();
       }
 
-      // Cleanup old data from database
+      // Cleanup old data from database (non-blocking)
       try {
         await supabase.rpc('cleanup_old_concurrency_data');
       } catch (error) {
-        console.warn('[ConcurrencyLimiter] Cleanup failed:', error);
+        // Cleanup failure is non-critical - just log and continue
+        console.debug('[ConcurrencyLimiter] Database cleanup skipped');
       }
     }, 60000);
   }
