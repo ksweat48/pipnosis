@@ -51,18 +51,31 @@ export const TradeEntryModal: React.FC<TradeEntryModalProps> = ({
       return;
     }
 
+    // Reset countdown when modal opens
+    setCountdown(30);
+    let isMounted = true;
+
     const timer = setInterval(() => {
+      if (!isMounted) return;
+
       setCountdown((prev) => {
-        if (prev <= 1) {
-          onDismiss();
-          return 30;
+        const newCount = prev - 1;
+        if (newCount <= 0) {
+          // Dismiss modal after countdown ends
+          if (isMounted) {
+            onDismiss();
+          }
+          return 0;
         }
-        return prev - 1;
+        return newCount;
       });
     }, 1000);
 
-    return () => clearInterval(timer);
-  }, [isOpen, onDismiss]);
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

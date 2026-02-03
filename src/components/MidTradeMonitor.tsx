@@ -61,16 +61,18 @@ export const MidTradeMonitor: React.FC = () => {
 
     loadGuidance(false);
 
-    // SSOT COMPLIANCE: Only subscribe to meaningful trade state changes
+    // SSOT COMPLIANCE: Subscribe to both INSERT and UPDATE events
+    // - INSERT: When Alpha executes new trades
+    // - UPDATE: When trades are modified (SL/TP hit, position adjusted)
     // GOVERNANCE: Filter to avoid reacting to heartbeats/minor updates
-    // When user's trades UPDATE, fetch prices on-demand within getMidTradeGuidance()
+    // When user's trades change, fetch prices on-demand within getMidTradeGuidance()
     // Do NOT subscribe to global realtime_prices (causes platform-wide event spam)
     channel = supabase
       .channel(`mid-trade-updates-${user.id}`)
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: '*',
           schema: 'public',
           table: 'goal_session_trades',
           filter: `user_id=eq.${user.id}`,

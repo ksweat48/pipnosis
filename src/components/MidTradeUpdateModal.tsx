@@ -16,16 +16,24 @@ export default function MidTradeUpdateModal({ isOpen, onClose }: MidTradeUpdateM
   const [isHovering, setIsHovering] = useState<boolean>(false);
 
   useEffect(() => {
+    let audioPlayed = false;
+
     const handleShow = (data: { notification: MidTradeNotification; position: number; total: number }) => {
       setNotification(data.notification);
       setPosition(data.position);
       setTotal(data.total);
       setCountdown(20);
-      audioAlertService.playMidTradeAlert();
+
+      // Play audio only once per notification
+      if (!audioPlayed) {
+        audioPlayed = true;
+        audioAlertService.playMidTradeAlert();
+      }
     };
 
     const handleHide = () => {
       setNotification(null);
+      audioPlayed = false; // Reset for next notification
       onClose();
     };
 
@@ -41,18 +49,31 @@ export default function MidTradeUpdateModal({ isOpen, onClose }: MidTradeUpdateM
   useEffect(() => {
     if (!notification) return;
 
+    // Reset countdown when notification changes
+    setCountdown(20);
+    let isMounted = true;
+
     const interval = setInterval(() => {
+      if (!isMounted) return;
+
       setCountdown((prev) => {
-        if (prev <= 1) {
-          handleDismiss();
-          return 20;
+        const newCount = prev - 1;
+        if (newCount <= 0) {
+          // Auto-dismiss after countdown ends
+          if (isMounted) {
+            handleDismiss();
+          }
+          return 0;
         }
-        return prev - 1;
+        return newCount;
       });
     }, 1000);
 
-    return () => clearInterval(interval);
-  }, [notification]);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [notification, handleDismiss]);
 
   const handleDismiss = () => {
     midTradeNotificationQueue.dismissCurrent();
