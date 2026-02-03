@@ -919,7 +919,8 @@ export function calculateGoalAwareLotSize(
   stopLoss: number,
   currentProgress: number,
   targetGoal: number,
-  riskMode: 'low' | 'medium' | 'high' = 'medium'
+  riskMode: 'low' | 'medium' | 'high' = 'medium',
+  riskPercentageAllowed?: number  // SSOT: Accept user's actual risk selection
 ): {
   lotSize: number;
   expectedProfitAtCommonMove: number;
@@ -936,7 +937,7 @@ export function calculateGoalAwareLotSize(
   const symbolConfig = getSymbolConfig(symbol);
   const assetProfile = getAssetClassRiskProfile(symbol);
 
-  // Get risk profile for strategy-aware pip targets
+  // Get risk profile for strategy-aware pip targets (NOT for risk percentage)
   const riskProfile = getRiskStrategyProfile(riskMode);
 
   console.log(`[Goal Optimal Position] ${symbol}:`);
@@ -958,8 +959,11 @@ export function calculateGoalAwareLotSize(
   console.log(`  ${riskMode.toUpperCase()} Profile: ${minViablePips}-${maxViablePips} ${assetProfile.commonMove.unit} (avg ${commonMovePips.toFixed(0)})`);
   console.log(`  Daily Range: ${typicalDailyRange} points`);
 
-  // Calculate position size using risk profile base risk percent
-  const riskPercent = riskProfile.baseRiskPercent;
+  // SSOT: Use actual user risk percentage if provided, otherwise fall back to profile base
+  // GOVERNANCE: User's risk selection is the single source of truth
+  const riskPercent = riskPercentageAllowed ?? riskProfile.baseRiskPercent;
+  console.log(`  🎯 ACTUAL Risk Used: ${riskPercent}% ${riskPercentageAllowed ? '(user-selected)' : '(profile default)'}`);
+
   const maxPositionSize = calculatePositionSize(symbol, accountBalance, riskPercent, entryPrice, stopLoss);
 
   console.log(`  Risk Profile Base: ${riskPercent}%`);

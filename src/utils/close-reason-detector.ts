@@ -67,6 +67,19 @@ function pricesMatch(
 export function detectTrueCloseReason(tradeData: TradeCloseData): SmartCloseReasonResult {
   const { exitPrice, stopLoss, takeProfit, symbol, databaseCloseReason } = tradeData;
 
+  // SAFETY: Validate price data before analysis
+  // If exit price is 0 or invalid, we can't perform price-based detection
+  if (!exitPrice || !isFinite(exitPrice) || exitPrice === 0) {
+    console.log(`[Smart Close Reason Detector] ${symbol} - Invalid exit price (${exitPrice}), using database reason`);
+    const mappedReason = mapDatabaseToCloseReason(databaseCloseReason);
+    return {
+      displayReason: mappedReason,
+      isOverride: false,
+      confidence: 'low',
+      details: 'Exit price missing or invalid - using database close reason'
+    };
+  }
+
   // Calculate pip distances from exit to SL and TP
   const pipInfo = getCurrencyPipInfo(symbol);
   const exitToSL = Math.abs(exitPrice - stopLoss) / pipInfo.pipValue;

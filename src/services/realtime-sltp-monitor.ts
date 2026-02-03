@@ -159,6 +159,14 @@ class RealtimeSLTPMonitor {
     const bidPrice = parseFloat(bid);
     const askPrice = parseFloat(ask);
 
+    // GOVERNANCE: Validate parsed prices are valid numbers
+    if (!isFinite(bidPrice) || !isFinite(askPrice) || bidPrice === 0 || askPrice === 0) {
+      console.warn(
+        `[RealtimeSLTPMonitor] Invalid prices after parsing: ${symbol} bid=${bidPrice} ask=${askPrice}`
+      );
+      return;
+    }
+
     // Get all open positions for this symbol
     const positions = this.openPositions.get(symbol);
     if (!positions || positions.length === 0) {

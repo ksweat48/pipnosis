@@ -147,6 +147,24 @@ class TradeClosureCoordinator {
         };
       }
 
+      // GOVERNANCE: Validate close price before proceeding
+      // Prevents trades from being closed with invalid prices (0, NaN, undefined)
+      if (!request.currentPrice || !isFinite(request.currentPrice) || request.currentPrice === 0) {
+        console.error(
+          `[TradeClosureCoordinator] ❌ INVALID CLOSE PRICE: ${request.currentPrice} for trade ${request.tradeId}`,
+          {
+            symbol: tradeData.symbol,
+            entryPrice: tradeData.entry_price,
+            closeReason: request.closeReason,
+          }
+        );
+        return {
+          success: false,
+          tradeId: request.tradeId,
+          error: `Invalid close price: ${request.currentPrice}. Cannot close trade with zero or invalid price.`,
+        };
+      }
+
       const lotSize = tradeData.lot_size || tradeData.position_size;
       const pnl = calculatePnL(
         tradeData.direction,

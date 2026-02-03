@@ -174,7 +174,8 @@ class GoalAwareLotSizingCoordinator {
       stopLossPrice,
       currentProgress,
       goalAmount,
-      riskMode  // Now using proper enum type
+      riskMode,  // For strategy characteristics
+      riskPercentageAllowed  // SSOT: Pass user's actual risk selection
     );
 
     const requiredLotForGoal = goalAwareResult.lotSize;

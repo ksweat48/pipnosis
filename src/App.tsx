@@ -379,11 +379,16 @@ const AppRoutes: React.FC = () => {
           const notification = payload.new;
           console.log('[App] Notification received:', { type: notification.type, id: notification.id });
 
+          // SSOT: Route notifications to appropriate handlers
           if (['mid_trade_trigger', 'mid_trade_evaluation', 'mid_trade_action'].includes(notification.type)) {
             console.log('[App] Mid-trade notification added to queue!');
             midTradeNotificationQueue.addNotification(notification as any);
+          } else if (['trade_closed', 'goal_achieved', 'session_ended', 'session_timeout', 'entry_edge_loss'].includes(notification.type)) {
+            // These notifications trigger modals via pending_user_modals (handled by modalQueueManager)
+            console.log('[App] Modal notification (handled by modal queue manager):', notification.type);
           } else {
-            console.log('[App] Notification type not handled:', notification.type);
+            // Other notifications handled by NotificationCenter or specific listeners
+            console.log('[App] Standard notification:', notification.type);
           }
         }
       )

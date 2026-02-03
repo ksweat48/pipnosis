@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, TrendingUp, TrendingDown, Target, PlayCircle, PauseCircle, RotateCcw, Clock } from 'lucide-react';
+import { AlertCircle, TrendingUp, TrendingDown, Target, PlayCircle, PauseCircle, RotateCcw, Clock, X } from 'lucide-react';
 import {
   detectTrueCloseReason,
   getCloseReasonText,
@@ -203,6 +203,16 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
             {/* Header */}
             <div className="relative pt-6 pb-4 px-6">
             <div className={`absolute inset-0 bg-gradient-to-b ${reasonColor} opacity-10`} />
+
+            {/* X Close Button - SSOT: Safe default action (continue session) */}
+            <button
+              onClick={onContinueSession}
+              disabled={isLoading}
+              className="absolute top-4 right-4 p-2 rounded-lg bg-gray-800/50 hover:bg-gray-700/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed z-10"
+              title="Continue session"
+            >
+              <X className="w-5 h-5 text-gray-400" />
+            </button>
 
             <div className="relative flex items-center justify-center mb-3">
               <div className={`p-3 bg-gradient-to-r ${reasonColor} rounded-xl shadow-lg`}>
