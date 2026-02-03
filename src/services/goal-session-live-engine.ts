@@ -46,13 +46,17 @@ import { entryThesisMemoryService } from './entry-thesis-memory-service';
 import { alphaThoughtStream } from './alpha-thought-stream';
 import { MarketDataService } from './market-data-service';
 import { CCIPTradeExecutionTracker } from './ccip-trade-execution-tracker';
+import { CCIPConfidenceGateAdjustment } from './ccip-confidence-gate-adjustment';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
 console.log('%c[Goal Session Engine] 🔍 AI_TRADING logs set to INFO for autonomous debugging', 'color: #f59e0b; font-weight: bold');
 
-// 📋 CCIP: Register trade execution SSOT enforcement on module load
+// 📋 CCIP: Register governance changes on module load
 CCIPTradeExecutionTracker.initialize().catch(() => {
+  // Safe-fail: CCIP tracking is non-blocking
+});
+CCIPConfidenceGateAdjustment.initialize().catch(() => {
   // Safe-fail: CCIP tracking is non-blocking
 });
 
