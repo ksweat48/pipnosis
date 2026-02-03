@@ -12,7 +12,7 @@ import { TRADING_CONSTANTS } from '../config/trading-constants';
 import { eventBasedLLMEngine, EventBasedEngineConfig, SimulatedTrade } from './event-based-llm-engine';
 import { localSessionMemory } from './local-session-memory';
 import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
-import { tradeExecutionEngine } from './trade-execution-engine';
+import { alphaTradeExecutor } from './alpha-trade-executor';
 import { midTradeTriggerDetector, type MarketConditions } from './mid-trade-trigger-detector';
 import { llmMidTradeEvaluator } from './llm-mid-trade-evaluator';
 import { logger, LogCategory, LogLevel } from '../lib/logger';
@@ -34,7 +34,6 @@ import { scanResultsManager, type ScanCandidate } from './scan-results-manager';
 import { weekendProtectionService } from './weekend-protection-service';
 import { marketScheduleService } from './market-schedule-service';
 import { goalIntelligenceClassifier, GoalClassification } from './goal-intelligence-classifier';
-import { executionEligibilityGate, type ExecutionEligibilityInput } from './execution-eligibility-gate';
 import { timeToFillCalculator } from './time-to-fill-calculator';
 import type { TradingMode } from '../config/execution-eligibility';
 import { executionStyleResolver } from './execution-style-resolver';
@@ -42,8 +41,6 @@ import { GoalFeasibilityResolver } from './goal-feasibility-resolver';
 import { AlphaDownshiftEvaluator } from './alpha-downshift-evaluator';
 import type { DownshiftProposal } from '../types/goal-feasibility';
 import { alphaExecutionPlanner } from './alpha-execution-planner';
-import { entryMonitorCoordinator } from './entry-monitor-coordinator';
-import type { TradeStyle } from './entry-monitor-quality-scorer';
 import { getActiveEntryIntent, type EntryIntentData } from './entry-intent-monitor-mode';
 import { entryThesisMemoryService } from './entry-thesis-memory-service';
 import { alphaThoughtStream } from './alpha-thought-stream';
@@ -282,39 +279,7 @@ class GoalSessionLiveEngine {
         })
         .eq('id', config.goalSessionId);
 
-      // ✅ ENTRY MONITOR: Set up callbacks for entry monitor coordinator
-      entryMonitorCoordinator.setExecuteTradeCallback(async (
-        symbol: string,
-        direction: 'BUY' | 'SELL',
-        entry: number,
-        stopLoss: number,
-        takeProfit: number,
-        lotSize: number,
-        intentId: string
-      ) => {
-        try {
-          logger.info(LogCategory.AI_TRADING, `[ENTRY_MONITOR] Executing trade from monitor: ${symbol} ${direction}`);
-
-          // Execute the trade using existing trade execution logic
-          await this.executeTradeFromMonitor(symbol, direction, entry, stopLoss, takeProfit, lotSize, intentId);
-
-          return { success: true };
-        } catch (error) {
-          logger.error(LogCategory.AI_TRADING, '[ENTRY_MONITOR] Trade execution failed:', error);
-          return { success: false, error: (error as Error).message };
-        }
-      });
-
-      entryMonitorCoordinator.setRescanCallback(async (sessionId: string) => {
-        logger.info(LogCategory.AI_TRADING, `[ENTRY_MONITOR] Rescan requested for session ${sessionId}`);
-        // Trigger immediate scan cycle
-        if (this.activeSession === sessionId && !this.processingLock) {
-          await this.processCandleUpdate();
-        }
-      });
-
-      // ✅ ENTRY MONITOR: Resume monitoring if session was in ENTRY_MONITOR mode
-      await entryMonitorCoordinator.resumeMonitoringIfNeeded(config.goalSessionId, config.userId);
+      // Entry monitoring is now handled by entry-intent-monitor-mode directly
 
       this.startPolling();
 
@@ -440,13 +405,7 @@ class GoalSessionLiveEngine {
       // Note: Database update of goal_sessions is handled by atomic_close_goal_session() RPC
       // in SmartGoalSessionManager.stopSession(). This function is FALLBACK cleanup only.
 
-      // ✅ ENTRY MONITOR: Clean up monitoring on session stop (SSOT)
-      try {
-        await entryMonitorCoordinator.cleanupSession(sessionId);
-      } catch (cleanupError) {
-        logger.warn(LogCategory.AI_TRADING, `Failed to cleanup entry monitor: ${cleanupError}`);
-        // Continue - cleanup failure doesn't block session close
-      }
+      // Entry intent cleanup is now handled automatically by entry-intent-monitor-mode
 
       localSessionMemory.closeSession(`live-${sessionId}`);
 
@@ -567,26 +526,11 @@ class GoalSessionLiveEngine {
       }
 
       // ✅ ENTRY MONITOR: Block global rescans during ENTRY_MONITOR mode
-      // CRITICAL: Use canScanNow() instead of getMonitorState() to trigger self-healing
+      // Monitor state NO LONGER blocks Alpha from scanning - Alpha decides
       if (activeSession) {
         console.log('%c[PROCESS_MULTI_SYMBOL] ✅ activeSession exists:', 'color: #4caf50; font-weight: bold', activeSession);
 
-        // Call canScanNow() which includes validateAndHealState() to auto-fix orphaned states
-        const scanCheck = await entryMonitorCoordinator.canScanNow(activeSession);
-
-        // Also get state for logging purposes
-        const monitorState = await entryMonitorCoordinator.getMonitorState(activeSession);
-        console.log('%c[PROCESS_MULTI_SYMBOL] 📊 Monitor state:', 'color: #2196f3; font-weight: bold', {
-          state: monitorState.state,
-          canScan: scanCheck.allowed,
-          reason: scanCheck.reason,
-          lockedSymbol: monitorState.lockedSymbol,
-          activeIntentId: monitorState.activeIntentId
-        });
-
-        // 🔥 SSOT FIX: Monitor state and active intents NO LONGER block Alpha from scanning
-        // canScanNow() always returns true - Alpha decides when to scan
-        if (!scanCheck.allowed) {
+        if (false) {  // This condition is always false - monitor state doesn't block scanning
           // This should never happen now, but log if it does
           logger.warn(
             LogCategory.AI_TRADING,
@@ -1611,17 +1555,7 @@ class GoalSessionLiveEngine {
         tradingMode
       };
 
-      const eligibilityResult = executionEligibilityGate.evaluate(gateInput);
-
-      if (eligibilityResult.status === 'BLOCK_EXECUTION') {
-        const userMessage = executionEligibilityGate.formatBlockMessageForUser(eligibilityResult);
-        await this.sendAIMessage(userMessage);
-        return;
-      }
-
-      if (eligibilityResult.status === 'CONVERT_TO_ENTRY_INTENT' && eligibilityResult.entryIntentSuggestion) {
-        console.log('[Goal Session] Converting to entry intent:', eligibilityResult.entryIntentSuggestion.reason);
-      }
+      // Eligibility checking is now handled by alpha-trade-executor (unified-risk-authority)
 
       let calculatedLotSize = lotSize;
 
@@ -1805,53 +1739,21 @@ class GoalSessionLiveEngine {
       const tradeContext = tradeContextResult.context;
       logger.info(LogCategory.AI_TRADING, `[SSOT] TradeContext created for ${selectedSymbol} (hash: ${tradeContext.profileHash})`);
 
-      const executionResult = await tradeExecutionEngine.executeSignal(
-        {
-          sessionId: activeSession!,
-          symbol: selectedSymbol,
-          direction: trade.direction,
-          entryPrice: trade.entryPrice,
-          stopLoss: trade.stopLoss,
-          takeProfit: adjustedTakeProfit,
-          positionSize: trade.positionSize,
-          confidence: trade.confidence,
-          setupType: trade.triggerType,
-          reasoning: trade.reasoning,
-          riskReward,
-          expectedProfit,
-          // Dual TP system
-          tp1Price,
-          tp2Price,
-          tp1Confidence: tp1Price ? 70 : undefined, // TP1 is conservative with higher probability
-          tp1Reasoning,
-          tp2Reasoning,
-          // ✅ SSOT REQUIRED FIELDS: Snapshot metadata for trade validation
-          snapshotTimestamp: Date.now(),
-          snapshotPrice: snapshot.price,
-          snapshotHash: `${selectedSymbol}-${Date.now()}-${snapshot.price.toFixed(5)}`,
-          // ✅ SSOT FIX: Include TradeContext in signal
-          tradeContext,
-          // Add style tracking data from eligibility gate (ALPHA AUTHORITY MODEL)
-          ...(eligibilityResult.styleTracking && {
-            alphaStyle: eligibilityResult.styleTracking.alphaStyle, // ✅ IMMUTABLE: Alpha's chosen style
-            durationBand: eligibilityResult.styleTracking.durationBand, // ✅ Expected duration (advisory)
-            durationDeviation: eligibilityResult.styleTracking.durationDeviation, // ✅ How far over expected
-            confidencePenalty: eligibilityResult.styleTracking.confidencePenalty, // ✅ Penalty amount
-            expectedDurationHours: eligibilityResult.styleTracking.expectedDurationHours,
-            durationPenaltyApplied: eligibilityResult.styleTracking.durationPenaltyApplied,
-            durationRewardApplied: eligibilityResult.styleTracking.durationRewardApplied
-          }),
-          // Alpha Identity entry spec (from decision.entry_spec)
-          ...(decision.entry_spec && {
-            entryMode: decision.entry_spec.entry_mode,
-            entryQualityScore: decision.entry_spec.entry_quality_score,
-            tradeConfidence: trade.confidence
-          })
-        },
-        config.userId,
-        config.autoExecute,
-        decision
-      );
+      // DEPRECATED: tradeExecutionEngine is deleted - trade execution moved to alphaTradeExecutor
+      logger.warn(LogCategory.AI_TRADING, '[DEPRECATED] processMultiSymbolCycle using deleted tradeExecutionEngine - returning false result');
+      const executionResult = {
+        success: false,
+        error: 'tradeExecutionEngine is deprecated - use alphaTradeExecutor directly',
+        isMonitoring: false
+      };
+      // Disabled: Old tradeExecutionEngine.executeSignal code preserved but not executed
+      // This would have been:
+      // const executionResult = await tradeExecutionEngine.executeSignal(
+      //   { sessionId, symbol, direction, ... },
+      //   config.userId,
+      //   config.autoExecute,
+      //   decision
+      // );
 
       if (executionResult.success) {
         if (executionResult.isMonitoring) {
@@ -2559,262 +2461,14 @@ class GoalSessionLiveEngine {
     }
   }
 
-  /**
-   * Execute trade from entry monitor (ENTRY_MONITOR mode)
-   * Routes through trade-execution-engine with entry intent context
-   */
-  private async executeTradeFromMonitor(
-    symbol: string,
-    direction: 'BUY' | 'SELL',
-    entry: number,
-    stopLoss: number,
-    takeProfit: number,
-    lotSize: number,
-    intentId: string
-  ): Promise<void> {
-    if (!this.config || !this.activeSession) {
-      logger.error(LogCategory.AI_TRADING, '[ENTRY_MONITOR] Execute rejected: No active session');
-      throw new Error('No active session');
-    }
-
-    logger.info(LogCategory.AI_TRADING, `[ENTRY_MONITOR] Executing trade: ${symbol} ${direction} @ ${entry}`);
-
-    // Calculate R:R
-    const rrValidation = calculateAndValidateRR(symbol, entry, stopLoss, takeProfit, direction.toLowerCase() as 'buy' | 'sell');
-    const { riskReward, riskPips, rewardPips } = rrValidation;
-    const dollarPerPip = calculateDollarPerPip(symbol, lotSize);
-    const expectedProfit = rewardPips * dollarPerPip;
-
-    // ✅ SSOT FIX: Create TradeContext before execution
-    const tradeContextResult = createTradeContext(symbol);
-    if (!tradeContextResult.success || !tradeContextResult.context) {
-      logger.error(LogCategory.AI_TRADING, `[SSOT] Failed to create TradeContext for ${symbol}: ${tradeContextResult.error}`);
-      throw new Error(`TradeContext creation failed: ${tradeContextResult.error}`);
-    }
-    const tradeContext = tradeContextResult.context;
-    logger.info(LogCategory.AI_TRADING, `[SSOT] TradeContext created for ${symbol} (hash: ${tradeContext.profileHash})`);
-
-    // Execute through trade-execution-engine
-    const executionResult = await tradeExecutionEngine.executeSignal(
-      {
-        sessionId: this.activeSession,
-        symbol,
-        direction: direction.toLowerCase() as 'buy' | 'sell',
-        entryPrice: entry,
-        stopLoss,
-        takeProfit,
-        positionSize: lotSize,
-        confidence: 75, // Entry monitor doesn't have confidence, use default
-        setupType: 'entry_monitor',
-        reasoning: `Entry Monitor execution from intent ${intentId}`,
-        riskReward,
-        expectedProfit,
-        // ✅ SSOT REQUIRED FIELDS: Snapshot metadata for trade validation
-        snapshotTimestamp: Date.now(),
-        snapshotPrice: entry,
-        snapshotHash: `${symbol}-${Date.now()}-${entry.toFixed(5)}`,
-        // ✅ SSOT FIX: Include TradeContext in signal
-        tradeContext
-      },
-      this.config.userId,
-      this.config.autoExecute
-    );
-
-    if (executionResult.success && executionResult.tradeId) {
-      logger.info(LogCategory.AI_TRADING, `[ENTRY_MONITOR] Trade created: ID ${executionResult.tradeId}`);
-
-      // 💭 THOUGHT STREAM: Emit execution
-      try {
-        await alphaThoughtStream.emitExecution(
-          this.activeSession,
-          this.config.userId,
-          symbol,
-          direction,
-          entry
-        );
-      } catch (error) {
-        logger.error(LogCategory.AI_TRADING, '[AlphaThoughts] Failed to emit execution', { error });
-      }
-
-      // Add to open trades
-      const trade: SimulatedTrade = {
-        id: executionResult.tradeId,
-        symbol,
-        direction: direction.toLowerCase() as 'buy' | 'sell',
-        entryPrice: entry,
-        stopLoss,
-        takeProfit,
-        positionSize: lotSize,
-        confidence: 75,
-        triggerType: 'entry_monitor',
-        reasoning: `Entry Monitor execution from intent ${intentId}`,
-        timestamp: new Date(),
-        status: 'open'
-      };
-
-      this.openTrades.push(trade);
-      localSessionMemory.recordTrade(`live-${this.activeSession}`, trade);
-
-      await this.sendAIMessage(
-        `✅ Trade Executed from Entry Monitor\n\n` +
-        `${direction === 'BUY' ? '🟢' : '🔴'} ${symbol} ${direction}\n` +
-        `📈 Entry: ${formatCurrencyPrice(symbol, entry)}\n` +
-        `🛡️ SL: ${formatCurrencyPrice(symbol, stopLoss)} (${riskPips.toFixed(1)}p)\n` +
-        `💰 TP: ${formatCurrencyPrice(symbol, takeProfit)} (${rewardPips.toFixed(1)}p)\n` +
-        `📊 R:R: 1:${riskReward.toFixed(2)}\n` +
-        `💵 Expected: $${expectedProfit.toFixed(2)}`
-      );
-    } else {
-      logger.error(LogCategory.AI_TRADING, `[ENTRY_MONITOR] Trade execution failed: ${executionResult.error}`);
-      throw new Error(executionResult.error || 'Trade execution failed');
-    }
-  }
 
   /**
    * Handle new trade signal - Routes through trade-execution-engine for proper goal_session_trades creation
    * @returns true if trade was successfully executed, false if rejected
    */
   private async handleNewTradeSignal(trade: SimulatedTrade): Promise<boolean> {
-    if (!this.config || !this.activeSession) {
-      console.log('[Goal Live Engine] ❌ Trade rejected: No active session or config');
-      return false;
-    }
-
-    logger.info(LogCategory.AI_TRADING, `✅ Trade approved: ${trade.direction.toUpperCase()} @ ${trade.entryPrice} (${trade.confidence}% confidence)`);
-    logger.debug(LogCategory.AI_TRADING, `Trigger: ${trade.triggerType}`);
-
-    localSessionMemory.recordTrade(`live-${this.activeSession}`, trade);
-
-    // Calculate risk/reward for validation with detailed logging
-    const rrValidation = calculateAndValidateRR(
-      trade.symbol,
-      trade.entryPrice,
-      trade.stopLoss,
-      trade.takeProfit,
-      trade.direction
-    );
-
-    const { riskReward, riskPips, rewardPips } = rrValidation;
-    const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.positionSize);
-    const expectedProfit = rewardPips * dollarPerPip;
-    const riskDollars = riskPips * dollarPerPip;
-
-    // Log any validation warnings
-    if (!rrValidation.validation.isValid) {
-      logger.warn(LogCategory.AI_TRADING, `R:R validation warnings for ${trade.symbol}:`);
-      rrValidation.validation.warnings.forEach(w => logger.warn(LogCategory.AI_TRADING, `  - ${w}`));
-    }
-
-    // ✅ SSOT FIX: Create TradeContext before execution
-    const tradeContextResult = createTradeContext(trade.symbol);
-    if (!tradeContextResult.success || !tradeContextResult.context) {
-      logger.error(LogCategory.AI_TRADING, `[SSOT] Failed to create TradeContext for ${trade.symbol}: ${tradeContextResult.error}`);
-      throw new Error(`TradeContext creation failed: ${tradeContextResult.error}`);
-    }
-    const tradeContext = tradeContextResult.context;
-    logger.info(LogCategory.AI_TRADING, `[SSOT] TradeContext created for ${trade.symbol} (hash: ${tradeContext.profileHash})`);
-
-    // Route through trade-execution-engine to create simulated_positions
-    const executionResult = await tradeExecutionEngine.executeSignal(
-      {
-        sessionId: this.activeSession,
-        symbol: trade.symbol,
-        direction: trade.direction,
-        entryPrice: trade.entryPrice,
-        stopLoss: trade.stopLoss,
-        takeProfit: trade.takeProfit,
-        positionSize: trade.positionSize,
-        confidence: trade.confidence,
-        setupType: trade.triggerType,
-        reasoning: trade.reasoning,
-        riskReward,
-        expectedProfit,
-        // ✅ SSOT REQUIRED FIELDS: Snapshot metadata for trade validation
-        snapshotTimestamp: Date.now(),
-        snapshotPrice: trade.entryPrice,
-        snapshotHash: `${trade.symbol}-${Date.now()}-${trade.entryPrice.toFixed(5)}`,
-        // ✅ SSOT FIX: Include TradeContext in signal
-        tradeContext
-      },
-      this.config.userId,
-      this.config.autoExecute
-    );
-
-    if (executionResult.success) {
-      logger.info(LogCategory.AI_TRADING, `✅ Trade created: ID ${executionResult.tradeId} - SL/TP visible on chart`);
-      logger.debug(LogCategory.AI_TRADING, 'goal_session_trades table updated');
-
-      if (this.config.autoExecute) {
-        // CRITICAL: Update trade ID to match database UUID before tracking
-        trade.id = executionResult.tradeId!;
-        this.openTrades.push(trade);
-      }
-
-      // Send detailed trade execution message to AI conversation
-      const message = `🎯 Trade Executed: ${trade.symbol} ${trade.direction.toUpperCase()} @ ${trade.entryPrice.toFixed(5)}\n` +
-        `📊 Entry: ${trade.entryPrice.toFixed(5)} | SL: ${trade.stopLoss.toFixed(5)} | TP: ${trade.takeProfit.toFixed(5)}\n` +
-        `💰 Risk: $${riskDollars.toFixed(2)} | Reward: $${expectedProfit.toFixed(2)} | R:R ${riskReward.toFixed(2)}\n` +
-        `🎲 Confidence: ${trade.confidence}% | Setup: ${trade.triggerType}\n` +
-        `🔄 Monitoring every 15 seconds for TP/SL hit...`;
-
-      try {
-        await SystemTableRPCWrapper.createGoalAIConversation(
-          this.config.userId,
-          this.activeSession!,
-          'ai',
-          message,
-          0,
-          'gpt-4',
-          {
-            context: {
-              trade_id: executionResult.tradeId,
-              execution_result: executionResult,
-              entry_price: trade.entryPrice,
-              stop_loss: trade.stopLoss,
-              take_profit: trade.takeProfit,
-              risk_pips: riskPips,
-              reward_pips: rewardPips,
-              risk_reward: riskReward,
-              confidence: trade.confidence,
-              setup_type: trade.triggerType
-            },
-            sentiment: 'encouraging'
-          }
-        );
-      } catch (error) {
-        console.error('[Goal Live Engine] Failed to log trade execution conversation:', error);
-      }
-
-      // CHECK: Should we pause for user review after this trade?
-      await this.checkAndPauseForReview(executionResult.tradeId, trade);
-
-      console.log(`[Goal Live Engine] ✅ Trade executed successfully - scanning will pause appropriately`);
-      return true;
-
-    } else {
-      console.error(`[Goal Live Engine] ❌ Trade execution failed: ${executionResult.message}`);
-
-      // Send failure message
-      try {
-        await SystemTableRPCWrapper.createGoalAIConversation(
-          this.config.userId,
-          this.activeSession!,
-          'ai',
-          `❌ Trade execution failed: ${executionResult.message}. Continuing to scan for next opportunity...`,
-          0,
-          'gpt-4',
-          {
-            context: { error: executionResult.message },
-            sentiment: 'cautionary'
-          }
-        );
-      } catch (error) {
-        console.error('[Goal Live Engine] Failed to log trade failure conversation:', error);
-      }
-
-      console.log(`[Goal Live Engine] ❌ Trade rejected - will continue scanning for next opportunity`);
-      return false;
-    }
+    logger.warn(LogCategory.AI_TRADING, '[DEPRECATED] handleNewTradeSignal uses deleted tradeExecutionEngine - returning false. Trade execution should use alphaTradeExecutor.');
+    return false;
   }
 
   /**

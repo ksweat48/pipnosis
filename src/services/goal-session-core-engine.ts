@@ -9,7 +9,6 @@
 import { supabase } from '../lib/supabase';
 import { eventBasedLLMEngine, SimulatedTrade } from './event-based-llm-engine';
 import { localSessionMemory } from './local-session-memory';
-import { tradeExecutionEngine } from './trade-execution-engine';
 import { midTradeTriggerDetector, type MarketConditions } from './mid-trade-trigger-detector';
 import { llmMidTradeEvaluator } from './llm-mid-trade-evaluator';
 import { logger, LogCategory } from '../lib/logger';

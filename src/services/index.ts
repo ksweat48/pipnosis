@@ -7,7 +7,7 @@ export * from './asset-classifier';
 export * from './session-constraint-coordinator';
 
 // SSOT Trade Execution - Single Authority for Server-Side Trade Execution
-export * from './ssot-trade-execution-adapter';
+// (moved to alpha-trade-executor.ts)
 
 // Autonomous Pipnosis Alpha Services
 export * from './ai-identity';
@@ -26,16 +26,17 @@ export * from './platform-intelligence-service';
 export * from './credit-validation-service';
 export * from './credit-meter-service';
 
+// CCIP Audit Services (Change Control Intelligence Protocol)
+export * from './ccip-audit-wrapper';
+
 // Balance Management Services
 export * from './balance-initialization-authority';
 
 // Scanning Cycle Services
 export * from './scanning-state-machine';
 
-// Entry Monitor Mode Services (Zero-LLM Execution Waiting)
-export * from './entry-monitor-quality-scorer';
+// Entry Intent Services
 export * from './entry-intent-monitor-mode';
-export * from './entry-monitor-coordinator';
 export * from './llm-call-guard';
 
 // Weekend Protection Services

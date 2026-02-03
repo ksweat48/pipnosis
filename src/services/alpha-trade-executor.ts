@@ -37,6 +37,7 @@ import { toDirectionDB } from '../utils/direction-converter';
 import { getRegimeBucket } from './regime-bucketing';
 import { getMinConfidenceThreshold } from '../config/risk-levels';
 import { logger, LogCategory } from '../lib/logger';
+import { calculateDollarPerPip, calculatePipDistance } from '../utils/currencyHelpers';
 import type { AlphaDecision } from '../brains/coordinator-alpha';
 import type { TradeContext } from '../types/trade-context';
 
@@ -1132,7 +1133,12 @@ class AlphaTradeExecutor {
         }
       );
 
-      expectedProfit = Math.abs(decision.takeProfit - entryPrice) * lotSize;
+      // FIXED: Use proper pip-to-dollar conversion instead of direct price difference
+      // This ensures JPY pairs calculate profit correctly (1 pip = $10, not $0.01)
+      const pipDistance = Math.abs(decision.takeProfit - entryPrice);
+      const dollarPerPipForTp = calculateDollarPerPip(decision.symbol, lotSize);
+      const pipDifference = calculatePipDistance(decision.symbol, entryPrice, decision.takeProfit);
+      expectedProfit = Math.abs(pipDifference) * dollarPerPipForTp;
 
       // Update audit record to track fallback usage
       if (lotSizingAuditRecord) {

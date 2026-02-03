@@ -3,8 +3,6 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import type { ActiveEntryIntent } from '../types/entry';
 import { Clock, TrendingUp, TrendingDown, Target, X, Zap } from 'lucide-react';
-import { EntryExecutionCoordinator } from '../services/entry-execution-coordinator';
-import { EntryUrgencyCalculator } from '../services/entry-urgency-calculator';
 
 export function ActiveEntryIntents() {
   const { user } = useAuth();

@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { TRADING_CONSTANTS } from '@/config/trading-constants';
 
 interface DeviceFingerprint {
   ipAddress: string;
@@ -214,16 +215,19 @@ class ReferralRiskEngine {
 
   private async grantReferralRewards(referrerId: string, referredUserId: string): Promise<void> {
     try {
+      const referrerAmount = TRADING_CONSTANTS.REFERRAL_REWARDS.REFERRER_CREDITS;
+      const referredAmount = TRADING_CONSTANTS.REFERRAL_REWARDS.REFERRED_USER_CREDITS;
+
       await supabase.rpc('add_tokens', {
         p_user_id: referrerId,
-        p_amount: 5.0,
+        p_amount: referrerAmount,
         p_transaction_type: 'referral_earned',
         p_metadata: { referred_user_id: referredUserId }
       });
 
       await supabase.rpc('add_tokens', {
         p_user_id: referredUserId,
-        p_amount: 5.0,
+        p_amount: referredAmount,
         p_transaction_type: 'referral_reward',
         p_metadata: { referrer_id: referrerId }
       });

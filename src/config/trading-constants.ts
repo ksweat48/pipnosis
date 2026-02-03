@@ -110,6 +110,18 @@ export const TRADING_CONSTANTS = {
     MAX_VELOCITY_CRYPTO_PER_SECOND: 0.005,
     SUSPICIOUS_CHANGE_THRESHOLD: 0.5,
   },
+
+  REFERRAL_REWARDS: {
+    REFERRER_CREDITS: 5.0,          // Credits given to user who referred
+    REFERRED_USER_CREDITS: 5.0,     // Credits given to new referred user
+    MINIMUM_REFERRAL_AGE_HOURS: 24, // Must be active 24h before earning rewards
+  },
+
+  CREDIT_SYSTEM: {
+    INITIAL_CREDITS: 50.0,
+    TEST_DEDUCTION_AMOUNT: 0.01,
+    BALANCE_TOLERANCE: 0.02,        // For reconciliation testing
+  },
 } as const;
 
 /**

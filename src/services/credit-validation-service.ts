@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { creditMeterService } from './credit-meter-service';
 import { logger } from '../lib/logger';
+import { TRADING_CONSTANTS } from '../config/trading-constants';
 
 export interface CreditValidationResult {
   valid: boolean;
@@ -225,7 +226,7 @@ class CreditValidationService {
       const balance1 = await creditMeterService.getBalance(userId);
       if (!balance1) return { success: false };
 
-      const testAmount = 0.01;
+      const testAmount = TRADING_CONSTANTS.CREDIT_SYSTEM.TEST_DEDUCTION_AMOUNT;
       const deducted = await creditMeterService.deductCredits(
         userId,
         testAmount,
@@ -247,8 +248,9 @@ class CreditValidationService {
       const balance2 = await creditMeterService.getBalance(userId);
       if (!balance2) return { success: false };
 
+      const balanceTolerance = TRADING_CONSTANTS.CREDIT_SYSTEM.BALANCE_TOLERANCE;
       const balanceDiff = Math.abs(balance1.balance - balance2.balance);
-      if (balanceDiff > 0.02) {
+      if (balanceDiff > balanceTolerance) {
         logger.error(`[Credit Validation] Test failed - balance mismatch: ${balanceDiff}`);
         return { success: false };
       }

@@ -13,7 +13,6 @@ import React, { useState, useEffect } from 'react';
 import { Target, MapPin, ArrowUp, ArrowDown, Minus, TrendingUp, TrendingDown, AlertCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useActiveEntryIntent } from '../hooks/useEntryIntent';
-import { EntryExecutionCoordinator } from '../services/entry-execution-coordinator';
 import { globalToastManager } from '../services/global-toast-manager';
 import { logger } from '../lib/logger';
 import { getCurrencyPipInfo } from '../utils/currencyHelpers';
@@ -84,7 +83,12 @@ export const SimpleEntryMonitor: React.FC<SimpleEntryMonitorProps> = ({ sessionI
       setExecuting(true);
       logger.info(`[SimpleEntryMonitor] User clicked manual entry for ${activeIntent.symbol}`);
 
-      const result = await EntryExecutionCoordinator.executeManualEntry(activeIntent.id);
+      // DEPRECATED: EntryExecutionCoordinator is deleted - manual entry execution via deleted service
+      logger.warn('[SimpleEntryMonitor] DEPRECATED: Manual entry execution uses deleted EntryExecutionCoordinator');
+      const result = {
+        success: false,
+        error: 'EntryExecutionCoordinator is deprecated - manual entry system moved to alphaTradeExecutor'
+      };
 
       if (result.success) {
         globalToastManager.showToast(

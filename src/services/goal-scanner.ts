@@ -1,7 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { forecastEngine, MarketConditions } from './forecast-engine';
 import { goalSessionManager } from './goal-session-manager';
-import { tradeExecutionEngine, type TradeSignal } from './trade-execution-engine';
+import { alphaTradeExecutor } from './alpha-trade-executor';
 import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { scanningStateMachine } from './scanning-state-machine';
@@ -79,7 +79,7 @@ export interface ScanResult {
   snapshotHash?: string;
 }
 
-// TradeSignal is imported from trade-execution-engine.ts (SSOT)
+// Trade execution delegated to alphaTradeExecutor (SSOT)
 
 class GoalScanner {
   async scanMarket(sessionId: string, userId: string): Promise<ScanResult[]> {
@@ -314,12 +314,12 @@ class GoalScanner {
               reasoning: `Highest confidence setup with quality entry at ${setup.entry?.toFixed(5)}`
             });
 
-            const executionResult = await tradeExecutionEngine.executeSignal(
-              result.signal,
+            const executionResult = await alphaTradeExecutor.execute({
+              decision: result.alphaDecision,
               userId,
-              session.data.auto_execute,
-              result.alphaDecision
-            );
+              goalSessionId: sessionId,
+              autoExecute: session.data.auto_execute
+            });
 
             if (executionResult.success) {
               console.log(`[Goal Scanner] ✅ Trade signal executed: ${executionResult.message}`);
