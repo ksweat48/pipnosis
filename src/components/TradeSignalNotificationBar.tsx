@@ -123,7 +123,22 @@ export function TradeSignalNotificationBar({
     }
   };
 
-  const config = priorityConfig[signal.priority];
+  // ✅ Defensive check: Use fallback config if priority is not recognized
+  const config = priorityConfig[signal.priority] || {
+    bg: 'bg-gray-600',
+    border: 'border-gray-500',
+    text: 'text-gray-100',
+    glow: 'shadow-gray-500/50',
+    badge: 'bg-gray-500 text-white',
+    urgency: timeRemaining || 'Execute when ready',
+    pulse: false
+  };
+
+  // Log warning if unexpected priority value encountered
+  if (!priorityConfig[signal.priority]) {
+    console.warn(`[TradeSignalNotificationBar] Unexpected priority value: "${signal.priority}". Using fallback config. Expected: 'low' | 'medium' | 'high'`);
+  }
+
   const directionIcon = signal.direction === 'BUY' ? TrendingUp : TrendingDown;
   const DirectionIcon = directionIcon;
 

@@ -688,7 +688,8 @@ class AlphaOmegaOrchestrator {
   }
 
   /**
-   * Evaluate multiple symbols and return decisions for each
+   * Evaluate multiple symbols with early-exit pattern
+   * Stops scanning as soon as first viable trade is found
    */
   async evaluateMultipleSymbols(
     marketStates: FullMarketState[],
@@ -696,31 +697,38 @@ class AlphaOmegaOrchestrator {
     userId?: string,
     goalContext?: import('../brains/coordinator-alpha').GoalContext
   ): Promise<Map<string, AlphaDecision>> {
-    console.log(`[Alpha+Omega] 🔍 Evaluating ${marketStates.length} symbols in parallel...`);
+    console.log(`[Alpha+Omega] 🔍 Evaluating ${marketStates.length} symbols with early-exit pattern...`);
     const startTime = Date.now();
+    const decisionMap = new Map<string, AlphaDecision>();
 
-    const evaluationPromises = marketStates.map(async (marketState) => {
+    // Get minimum confidence threshold from goal context or use default
+    const minConfidence = goalContext?.minConfidence || 50;
+    console.log(`[Alpha+Omega] 🎯 Early-exit threshold: ${minConfidence}% confidence`);
+
+    // Sequential evaluation with early-exit logic
+    for (let i = 0; i < marketStates.length; i++) {
+      const marketState = marketStates[i];
+
       try {
-        console.log(`%c[Alpha+Omega Pre-Check] ${marketState.symbol}`, 'color: #00aaff; font-weight: bold');
+        console.log(`%c[Alpha+Omega Pre-Check ${i + 1}/${marketStates.length}] ${marketState.symbol}`, 'color: #00aaff; font-weight: bold');
         console.log(`  Price: ${marketState.price}, ATR: ${marketState.atr}`);
 
         if (!marketState.atr || marketState.atr <= 0) {
           console.error(`%c🚨 INVALID ATR for ${marketState.symbol}`, 'color: #ff0000; font-weight: bold');
           console.error(`  ATR value: ${marketState.atr}`);
           console.error(`  Cannot calculate stop loss with zero/invalid ATR`);
-          return {
-            symbol: marketState.symbol,
-            decision: {
-              action: 'NO_TRADE' as const,
-              decision: 'NO_TRADE' as const,
-              entry: marketState.price,
-              stopLoss: marketState.price,
-              takeProfit: marketState.price,
-              confidence: 0,
-              reasoning: `Invalid ATR (${marketState.atr}) - cannot calculate stop loss`,
-              omega_summary: 'SKIP: Invalid ATR data'
-            }
+          const noTradeDecision: AlphaDecision = {
+            action: 'NO_TRADE' as const,
+            decision: 'NO_TRADE' as const,
+            entry: marketState.price,
+            stopLoss: marketState.price,
+            takeProfit: marketState.price,
+            confidence: 0,
+            reasoning: `Invalid ATR (${marketState.atr}) - cannot calculate stop loss`,
+            omega_summary: 'SKIP: Invalid ATR data'
           };
+          decisionMap.set(marketState.symbol, noTradeDecision);
+          continue; // Skip to next symbol
         }
 
         // Calculate dynamic stop loss based on volatility regime
@@ -750,37 +758,41 @@ class AlphaOmegaOrchestrator {
           userId
         );
 
-        return {
-          symbol: marketState.symbol,
-          decision
-        };
+        decisionMap.set(marketState.symbol, decision);
+
+        // ✅ EARLY EXIT: Stop scanning if viable trade found
+        const isViableTrade = decision.action !== 'NO_TRADE' && decision.confidence >= minConfidence;
+
+        if (isViableTrade) {
+          const remainingSymbols = marketStates.length - (i + 1);
+          console.log(`[Alpha+Omega] ✅ EARLY EXIT: Found viable trade on ${marketState.symbol} (${decision.confidence}% confidence)`);
+          console.log(`[Alpha+Omega] 🚀 Stopped scanning - skipped ${remainingSymbols} remaining symbols`);
+          console.log(`[Alpha+Omega] 💰 Savings: ~${remainingSymbols * 2} LLM calls avoided`);
+          break; // Exit loop immediately
+        } else {
+          console.log(`[Alpha+Omega] ⏭️  ${marketState.symbol}: ${decision.action} @ ${decision.confidence}% - continuing scan...`);
+        }
+
       } catch (error) {
         console.error(`[Alpha+Omega] Failed to evaluate ${marketState.symbol}:`, error);
-        return {
-          symbol: marketState.symbol,
-          decision: {
-            action: 'NO_TRADE' as const,
-            decision: 'NO_TRADE' as const,
-            entry: marketState.price,
-            stopLoss: marketState.price,
-            takeProfit: marketState.price,
-            confidence: 0,
-            reasoning: `Evaluation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-            omega_summary: 'System error during evaluation'
-          }
+        const errorDecision: AlphaDecision = {
+          action: 'NO_TRADE' as const,
+          decision: 'NO_TRADE' as const,
+          entry: marketState.price,
+          stopLoss: marketState.price,
+          takeProfit: marketState.price,
+          confidence: 0,
+          reasoning: `Evaluation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          omega_summary: 'System error during evaluation'
         };
+        decisionMap.set(marketState.symbol, errorDecision);
+        continue; // Continue to next symbol on error
       }
-    });
-
-    const results = await Promise.all(evaluationPromises);
-    const decisionMap = new Map<string, AlphaDecision>();
-
-    results.forEach(result => {
-      decisionMap.set(result.symbol, result.decision);
-    });
+    }
 
     const duration = Date.now() - startTime;
-    console.log(`[Alpha+Omega] ✅ Multi-symbol evaluation complete in ${duration}ms`);
+    const evaluatedCount = decisionMap.size;
+    console.log(`[Alpha+Omega] ✅ Multi-symbol evaluation complete in ${duration}ms (evaluated ${evaluatedCount}/${marketStates.length} symbols)`);
 
     return decisionMap;
   }
