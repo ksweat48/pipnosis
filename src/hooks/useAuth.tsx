@@ -88,6 +88,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.log('[Auth] Stopped monitoring for previous user');
           }
 
+          // Initialize user risk preference (SSOT) if not already set
+          try {
+            const { userRiskPreferenceService } = await import('@/services/user-risk-preference-service');
+            await userRiskPreferenceService.initializeNewUser(session.user.id);
+          } catch (error) {
+            console.warn('[Auth] Could not initialize risk preference:', error);
+            // Don't fail auth if this fails - service will use default
+          }
+
           await fetchUserRole(session.user.id);
 
           if (!liveTradeLearningTrigger.isActive()) {

@@ -26,6 +26,10 @@ export * from './platform-intelligence-service';
 export * from './credit-validation-service';
 export * from './credit-meter-service';
 
+// Risk Management Services (SSOT - Single Source of Truth)
+export * from './user-risk-preference-service';
+export * from './risk-negotiation-auditor';
+
 // CCIP Audit Services (Change Control Intelligence Protocol)
 export * from './ccip-audit-wrapper';
 

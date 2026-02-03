@@ -9,6 +9,8 @@ import { progressiveRiskScaling, RiskScalingInputs } from './progressive-risk-sc
 import { getRiskStrategyProfile } from '../config/risk-strategy-profiles';
 import { calculateDollarPerPip } from '../utils/currencyHelpers';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
+import { userRiskPreferenceService } from './user-risk-preference-service';
+import { riskNegotiationAuditor } from './risk-negotiation-auditor';
 
 export interface ComprehensiveRiskAssessment {
   approved: boolean;
@@ -217,6 +219,34 @@ class ProfessionalRiskManager {
       }
     }
 
+    // ===== CCIP: USER MAX RISK PREFERENCE (SSOT) =====
+    // Step 9: Apply user's maximum risk preference with intelligent degradation
+    // GOVERNANCE: This respects user intent while maintaining Alpha's authority
+    const userMaxRiskPercent = (await userRiskPreferenceService.getUserMaxRiskPercent(userId)) / 100;
+    const beforeUserPreference = finalRiskPercent;
+
+    if (finalRiskPercent > userMaxRiskPercent) {
+      // User's ceiling is lower than Alpha's calculation - degrade position size
+      console.warn(
+        `%c[Professional Risk Manager] 🤝 RISK NEGOTIATION: User preference exceeded`,
+        'color: #ff8800; font-weight: bold'
+      );
+      console.warn(`  Alpha calculated: ${(finalRiskPercent * 100).toFixed(2)}%`);
+      console.warn(`  User maximum preference: ${(userMaxRiskPercent * 100).toFixed(2)}%`);
+      console.warn(`  Action: Degrading position size DOWN to respect user ceiling`);
+
+      finalRiskPercent = userMaxRiskPercent;
+
+      recommendations.push(
+        `📊 Risk negotiation: Alpha calculated ${(beforeUserPreference * 100).toFixed(2)}% risk. Your preference is ${(userMaxRiskPercent * 100).toFixed(2)}% max. Position sized for your ceiling.`
+      );
+    } else if (finalRiskPercent < userMaxRiskPercent) {
+      // Alpha is more conservative than user's ceiling - that's fine
+      console.log(
+        `[Professional Risk Manager] ✅ Risk within user preference: ${(finalRiskPercent * 100).toFixed(2)}% < ${(userMaxRiskPercent * 100).toFixed(2)}% max`
+      );
+    }
+
     // Calculate final lot size using SSOT pip values
     const riskAmount = currentBalance * finalRiskPercent;
     const dollarPerPipAt1Lot = calculateDollarPerPip(symbol, 1.0);
@@ -342,6 +372,46 @@ class ProfessionalRiskManager {
 
     if (riskScore >= 70) {
       recommendations.push('⚠️ High risk environment - be extra cautious');
+    }
+
+    // ===== CCIP: GOVERNANCE AUDIT LOGGING =====
+    // Log all risk negotiations to auditor for transparency and governance
+    if (finalRiskPercent !== beforeUserPreference) {
+      const calculatedLotSize = (currentBalance * beforeUserPreference) / (avgLossPips * calculateDollarPerPip(symbol, 1.0));
+      riskNegotiationAuditor.logNegotiation({
+        userId,
+        symbol,
+        timestamp: new Date().toISOString(),
+        alphaCalculatedRiskPercent: beforeUserPreference * 100,
+        alphaLotSize: calculatedLotSize,
+        alphaReasoning: `Calculated via Kelly criterion, volatility adjustment, correlation check`,
+        userMaxRiskPercent: userMaxRiskPercent * 100,
+        finalRiskPercent: finalRiskPercent * 100,
+        finalLotSize: finalLotSize,
+        negotiationOutcome: 'degraded',
+        degradationReason: 'User max risk preference exceeded - position sized DOWN to respect ceiling',
+        balance: currentBalance,
+        direction,
+        riskMode
+      });
+    } else {
+      // Even if no degradation, log for full audit trail
+      const calculatedLotSize = (currentBalance * finalRiskPercent) / (avgLossPips * calculateDollarPerPip(symbol, 1.0));
+      riskNegotiationAuditor.logNegotiation({
+        userId,
+        symbol,
+        timestamp: new Date().toISOString(),
+        alphaCalculatedRiskPercent: finalRiskPercent * 100,
+        alphaLotSize: calculatedLotSize,
+        alphaReasoning: `Calculated via Kelly criterion, volatility adjustment, correlation check`,
+        userMaxRiskPercent: userMaxRiskPercent * 100,
+        finalRiskPercent: finalRiskPercent * 100,
+        finalLotSize: finalLotSize,
+        negotiationOutcome: 'approved',
+        balance: currentBalance,
+        direction,
+        riskMode
+      });
     }
 
     return {
