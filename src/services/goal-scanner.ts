@@ -16,6 +16,35 @@ import { alphaThoughtStream } from './alpha-thought-stream';
 import { creditValidationService } from './credit-validation-service';
 
 /**
+ * Concurrent execution helper with concurrency limit
+ * Prevents overwhelming resources while maximizing throughput
+ */
+async function executeWithConcurrencyLimit<T>(
+  tasks: (() => Promise<T>)[],
+  limit: number = 10
+): Promise<T[]> {
+  const results: T[] = [];
+  const executing: Promise<void>[] = [];
+
+  for (let i = 0; i < tasks.length; i++) {
+    const task = tasks[i];
+    const promise = Promise.resolve().then(() => task()).then(result => {
+      results[i] = result;
+    });
+
+    executing.push(promise);
+
+    if (executing.length >= limit) {
+      await Promise.race(executing);
+      executing.splice(executing.findIndex(p => p === promise), 1);
+    }
+  }
+
+  await Promise.all(executing);
+  return results;
+}
+
+/**
  * ✅ SSOT COMPLIANCE: Removed position sizing imports
  * Position sizing is now handled exclusively by ProfessionalRiskManager at execution layer
  * Removed: calculatePositionSize, getCurrencyPipInfo, calculatePipDistance, calculateDollarPerPip,
@@ -199,7 +228,7 @@ class GoalScanner {
       const symbolsToScan = qualitySymbols.length > 0 ? qualitySymbols.map(r => r.symbol) : watchlist;
       const results: ScanResult[] = [];
 
-      console.log(`[Goal Scanner] 🔍 Scanning ${symbolsToScan.length} symbols...`);
+      console.log(`[Goal Scanner] 🔍 Scanning ${symbolsToScan.length} symbols concurrently (10 parallel limit)...`);
 
       // Emit thought: Filtering results
       if (qualitySymbols.length > 0) {
@@ -212,8 +241,16 @@ class GoalScanner {
         );
       }
 
-      for (const symbol of symbolsToScan) {
-        const scanResult = await this.scanSymbol(symbol, session.data, userId);
+      // Execute symbol analysis concurrently with 10-parallel limit
+      const scanTasks = symbolsToScan.map(
+        (symbol) => () => this.scanSymbol(symbol, session.data, userId)
+      );
+
+      const scanResults = await executeWithConcurrencyLimit(scanTasks, 10);
+
+      for (let i = 0; i < scanResults.length; i++) {
+        const scanResult = scanResults[i];
+        const symbol = symbolsToScan[i];
         results.push(scanResult);
 
         // Emit Omega Council votes thought if Alpha analyzed this symbol
@@ -226,6 +263,8 @@ class GoalScanner {
           );
         }
       }
+
+      console.log(`[Goal Scanner] ✅ Concurrent scan complete: ${scanResults.length} symbols analyzed (${Date.now() - scanStartTime}ms)`);
 
       const lastScanTime = new Date();
       const nextScanTime = new Date(lastScanTime.getTime() + (session.data.scan_interval_seconds || 300) * 1000);
