@@ -143,17 +143,13 @@ export const EDGE_LOSS_TIME_LIMITS = {
 } as const;
 
 export const ALPHA_IDENTITY = {
-  MINIMUM_TRADE_CONFIDENCE: 50,  // Lowered from 60% to 50% - allows viable trades at 52-55% confidence with intelligent degradation
-  // CCIP Justification: Production trades at 52-55% confidence were being blocked despite valid setups.
-  // New approach: Lower base threshold (50%) with intelligent degradation via EQS penalties.
-  // High EQS (good timing): Trade executes at 50%+
-  // Low EQS (poor timing): Penalties push below 50% threshold naturally (WAIT instead of hard reject)
+  MINIMUM_TRADE_CONFIDENCE: 60,
 
   CONFIDENCE_BANDS: {
     EXCELLENT: { min: 85, max: 100, description: 'Excellent setup - Strong confluence' },
     SOLID: { min: 70, max: 84, description: 'Solid setup - Good conditions' },
-    ACCEPTABLE: { min: 50, max: 69, description: 'Acceptable setup - Modest edge (was 60%)' },
-    INSUFFICIENT: { min: 0, max: 49, description: 'Insufficient edge - WAIT recommended (was <60%)' },
+    ACCEPTABLE: { min: 60, max: 69, description: 'Acceptable setup - Modest edge' },
+    INSUFFICIENT: { min: 0, max: 59, description: 'Insufficient edge - WAIT recommended' },
   },
 
   /**

@@ -175,7 +175,8 @@ class GoalAwareLotSizingCoordinator {
       currentProgress,
       goalAmount,
       riskMode,  // For strategy characteristics
-      riskPercentageAllowed  // SSOT: Pass user's actual risk selection
+      riskPercentageAllowed,  // SSOT: Pass user's actual risk selection
+      takeProfitPrice  // FIX 2026-02-03: Use actual TP distance instead of commonMove average
     );
 
     const requiredLotForGoal = goalAwareResult.lotSize;

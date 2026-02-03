@@ -920,7 +920,8 @@ export function calculateGoalAwareLotSize(
   currentProgress: number,
   targetGoal: number,
   riskMode: 'low' | 'medium' | 'high' = 'medium',
-  riskPercentageAllowed?: number  // SSOT: Accept user's actual risk selection
+  riskPercentageAllowed?: number,  // SSOT: Accept user's actual risk selection
+  takeProfitPrice?: number  // FIX 2026-02-03: Use actual TP distance instead of commonMove average
 ): {
   lotSize: number;
   expectedProfitAtCommonMove: number;
@@ -969,12 +970,21 @@ export function calculateGoalAwareLotSize(
   console.log(`  Risk Profile Base: ${riskPercent}%`);
   console.log(`  Max Position Size (risk-based): ${maxPositionSize.toFixed(3)} lots`);
 
-  // REVERSE CALCULATION: What lot size gives us goal profit at optimal pips?
-  const optimalPips = commonMovePips;
-  const dollarPerPipAtOneLot = calculateDollarPerPip(symbol, 1.0);
-  const requiredLotSizeForOptimal = remainingGoal / (optimalPips * dollarPerPipAtOneLot);
+  // REVERSE CALCULATION: What lot size gives us goal profit at target pips?
+  // FIX 2026-02-03: Use actual TP distance if provided (from Alpha), not average commonMove
+  let targetPips = commonMovePips;  // Default to average market move
+  let targetPipsSource = 'commonMove (average market move)';
 
-  console.log(`  Required Lot Size for ${optimalPips} pips: ${requiredLotSizeForOptimal.toFixed(3)}`);
+  if (takeProfitPrice && takeProfitPrice !== entryPrice) {
+    targetPips = Math.abs(takeProfitPrice - entryPrice) / pipInfo.pipValue;
+    targetPipsSource = 'actual TP distance (from Alpha decision)';
+    console.log(`  Using ACTUAL TP distance (${targetPips.toFixed(2)} pips) instead of commonMove average`);
+  }
+
+  const dollarPerPipAtOneLot = calculateDollarPerPip(symbol, 1.0);
+  const requiredLotSizeForOptimal = remainingGoal / (targetPips * dollarPerPipAtOneLot);
+
+  console.log(`  Required Lot Size for ${targetPips.toFixed(2)} pips (${targetPipsSource}): ${requiredLotSizeForOptimal.toFixed(3)}`);
 
   // 🚨 CRITICAL VALIDATION: Detect position sizing disasters
   // If commonMovePips is suspiciously low (< 5 pips), the asset profile is misconfigured
