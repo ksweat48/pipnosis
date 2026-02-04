@@ -17,12 +17,6 @@ export interface MidTradeEvaluationRequest {
   marketConditions: MarketConditions;
   trigger: TriggerDetectionResult;
   criticalLevel?: PrioritizedLevel;
-  goalContext?: {
-    goalSessionId: string;
-    targetValue: number;
-    currentProgress: number;
-    tradesRemaining: number;
-  };
 }
 
 export interface MidTradeEvaluationResult {
@@ -123,7 +117,7 @@ class LLMMidTradeEvaluator {
    * Build optimized prompt (keep under 500 tokens)
    */
   private buildOptimizedPrompt(request: MidTradeEvaluationRequest): string {
-    const { trade, marketConditions, trigger, criticalLevel, goalContext } = request;
+    const { trade, marketConditions, trigger, criticalLevel } = request;
 
     const isLong = trade.direction === 'buy';
     const currentPrice = marketConditions.currentPrice;
@@ -180,22 +174,6 @@ MARKET CONDITIONS:
 - Analysis: ${criticalLevel.actionable}
 
 **IMPORTANT:** This level has historically blocked price movement. Consider securing profits BEFORE price reaches this level if urgency is HIGH or CRITICAL.`;
-    }
-
-    if (goalContext) {
-      const totalProgressWithThisTrade = goalContext.currentProgress + pnl;
-      const goalProgressPercent = (totalProgressWithThisTrade / goalContext.targetValue) * 100;
-      const remainingToGoal = goalContext.targetValue - totalProgressWithThisTrade;
-
-      prompt += `\n\nGOAL CONTEXT:
-- Target: $${goalContext.targetValue}
-- Progress (all trades): $${goalContext.currentProgress.toFixed(2)}
-- This trade profit: $${pnl.toFixed(2)}
-- Total progress: $${totalProgressWithThisTrade.toFixed(2)} (${goalProgressPercent.toFixed(1)}% to goal)
-- Remaining to goal: $${remainingToGoal.toFixed(2)}
-- Trades Remaining: ${goalContext.tradesRemaining}
-
-**NOTE:** If this trade is near goal milestones (50%, 70%, 90%), consider the risk/reward of securing profits early vs letting it run to TP.`;
     }
 
     prompt += `\n\nYour task: Recommend ONE action based on current market conditions and trigger event.
@@ -356,12 +334,12 @@ NEW_TP: [price if MOVE_TP, else N/A]`;
     tokensUsed: number,
     processingTimeMs: number
   ): Promise<void> {
-    const { trade, marketConditions, trigger, criticalLevel, goalContext } = request;
+    const { trade, marketConditions, trigger, criticalLevel } = request;
 
     try {
       await supabase.from('mid_trade_llm_evaluations').insert({
         trade_id: trade.id,
-        goal_session_id: goalContext?.goalSessionId || null,
+        goal_session_id: null,
         user_id: userId,
         trigger_event: trigger.triggerType || 'unknown',
         trigger_reason: trigger.triggerReason || 'Unknown trigger',

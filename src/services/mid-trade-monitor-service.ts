@@ -52,8 +52,6 @@ export interface MidTradeGuidance {
 
   // Session context
   goalSessionId: string;
-  goalProgress?: number;
-  goalTarget?: number;
 }
 
 export interface MidTradeMonitorStats {

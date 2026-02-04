@@ -3804,18 +3804,10 @@ This learning will carry forward to improve future sessions!
     const currentProgress = closedTrades?.reduce((sum, t) => sum + (t.profit_loss || 0), 0) || 0;
     const targetValue = goalSession?.target_value || 100;
 
-    // Build goal context for trigger detection
-    const goalContextForTrigger: import('./mid-trade-trigger-detector').GoalContext = {
-      targetValue,
-      currentProgress,
-      remainingGoal: targetValue - currentProgress
-    };
-
-    // Check for triggers (with goal context)
+    // Check for triggers (goal feasibility is determined at execution time, not during trade)
     const triggerResult = midTradeTriggerDetector.checkForTriggers(
       trade,
-      marketConditions,
-      goalContextForTrigger
+      marketConditions
     );
 
     if (triggerResult.triggered && triggerResult.shouldCallLLM) {
@@ -3831,21 +3823,12 @@ This learning will carry forward to improve future sessions!
         confidence: triggerResult.confidence
       }, 'high');
 
-      // Get goal context
-      const goalContext = {
-        goalSessionId: this.activeSession,
-        targetValue: this.config.initialBalance,
-        currentProgress: this.calculateCurrentBalance() - this.config.initialBalance,
-        tradesRemaining: this.config.maxConcurrentTrades - this.openTrades.length
-      };
-
-      // Call LLM for evaluation
+      // Call LLM for evaluation (goal context not included - goal feasibility determined at execution time)
       const evaluation = await llmMidTradeEvaluator.evaluateTrade(
         {
           trade,
           marketConditions,
-          trigger: triggerResult,
-          goalContext
+          trigger: triggerResult
         },
         this.config.userId
       );
