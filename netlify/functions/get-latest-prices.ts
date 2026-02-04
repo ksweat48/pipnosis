@@ -55,9 +55,9 @@ export const handler: Handler = async (event) => {
     // Fetch latest prices (one per symbol, within last 2 minutes)
     const { data: prices, error } = await supabase
       .from('realtime_prices')
-      .select('symbol, bid, ask, timestamp')
-      .gte('timestamp', new Date(Date.now() - 120000).toISOString()) // Last 2 minutes
-      .order('timestamp', { ascending: false })
+      .select('symbol, bid, ask, created_at')
+      .gte('created_at', new Date(Date.now() - 120000).toISOString()) // Last 2 minutes
+      .order('created_at', { ascending: false })
       .limit(20); // Get more than we need, we'll deduplicate
 
     if (error) {
@@ -78,7 +78,13 @@ export const handler: Handler = async (event) => {
     if (prices) {
       for (const price of prices) {
         if (!latestPrices.has(price.symbol)) {
-          latestPrices.set(price.symbol, price);
+          // Map created_at to timestamp for client compatibility
+          latestPrices.set(price.symbol, {
+            symbol: price.symbol,
+            bid: price.bid,
+            ask: price.ask,
+            timestamp: price.created_at
+          });
         }
       }
     }
