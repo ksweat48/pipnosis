@@ -462,6 +462,66 @@ class MarketScheduleService {
   public async refreshCache(): Promise<void> {
     await this.loadFromDatabase();
   }
+
+  /**
+   * Get current market session for session-aware processing
+   * Returns: 'asian' | 'london' | 'nyse' | 'overlap' | 'off_hours'
+   *
+   * SSOT for market session detection - used by concurrent execution config
+   */
+  public getCurrentMarketSession(date: Date = new Date()): 'asian' | 'london' | 'nyse' | 'overlap' | 'off_hours' {
+    const estTime = this.getESTTime(date);
+    const hours = estTime.getHours();
+    const dayOfWeek = estTime.getDay();
+
+    // Weekend/off-hours
+    if (dayOfWeek === 6 || (dayOfWeek === 5 && hours >= 17) || (dayOfWeek === 0 && hours < 17)) {
+      return 'off_hours';
+    }
+
+    // Market session times (EST):
+    // Asian: 7:00 PM - 4:00 AM EST (19:00 - 04:00)
+    // London: 3:00 AM - 12:00 PM EST (03:00 - 12:00)
+    // NYSE: 8:00 AM - 5:00 PM EST (08:00 - 17:00)
+    // Overlap (London+NYSE): 8:00 AM - 12:00 PM EST (08:00 - 12:00)
+
+    // Overlap period (London and NYSE both open)
+    if (hours >= 8 && hours < 12) {
+      return 'overlap';
+    }
+
+    // London session (without overlap)
+    if (hours >= 3 && hours < 8) {
+      return 'london';
+    }
+
+    // NYSE session (without overlap)
+    if (hours >= 12 && hours < 17) {
+      return 'nyse';
+    }
+
+    // Asian session (evening to early morning)
+    if (hours >= 19 || hours < 3) {
+      return 'asian';
+    }
+
+    // Fallback to off-hours
+    return 'off_hours';
+  }
+
+  /**
+   * Get session description for logging
+   */
+  public getSessionDescription(session: 'asian' | 'london' | 'nyse' | 'overlap' | 'off_hours'): string {
+    const descriptions = {
+      asian: 'Asian Session (Lower Volatility)',
+      london: 'London Session (Moderate Complexity)',
+      nyse: 'NYSE Session (High Activity)',
+      overlap: 'London+NYSE Overlap (Highest Complexity)',
+      off_hours: 'Off-Hours/Weekend (Limited Activity)',
+    };
+    return descriptions[session];
+  }
 }
 
 export const marketScheduleService = new MarketScheduleService();

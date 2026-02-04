@@ -19,6 +19,16 @@
  * - Configuration changes require audit trail
  */
 
+export type MarketSession = 'asian' | 'london' | 'nyse' | 'overlap' | 'off_hours';
+
+export interface SessionTimeouts {
+  asian: number;      // Lower volatility = faster analysis
+  london: number;     // Moderate complexity
+  nyse: number;       // High volatility = moderate analysis time
+  overlap: number;    // Highest complexity (London+NYSE)
+  off_hours: number;  // Limited activity = fast rejections
+}
+
 export interface ConcurrentExecutionConfig {
   // Master switch for concurrent processing
   enabled: boolean;
@@ -30,13 +40,18 @@ export interface ConcurrentExecutionConfig {
     // Set to 1 for sequential (original behavior)
     maxConcurrentSymbols: number;
 
-    // Timeout per symbol analysis (milliseconds)
-    // Prevents one slow symbol from blocking others
+    // Base timeout per symbol analysis (milliseconds)
+    // Used when session-specific timeouts are disabled
     symbolTimeoutMs: number;
 
     // Total batch timeout (milliseconds)
     // Maximum time to wait for entire batch
     batchTimeoutMs: number;
+
+    // Session-specific timeouts
+    // Adjusts timeout based on market complexity
+    useSessionTimeouts: boolean;
+    sessionTimeouts: SessionTimeouts;
   };
 
   // Early-exit optimization
@@ -45,6 +60,7 @@ export interface ConcurrentExecutionConfig {
     enabled: boolean;
 
     // Confidence threshold for early-exit trigger
+    // MUST match Alpha's base confidence threshold (60%)
     minConfidenceThreshold: number;
 
     // Wait for additional symbols before exiting (in case better trade exists)
@@ -59,6 +75,7 @@ export interface ConcurrentExecutionConfig {
     enabled: boolean;
 
     // Maximum LLM calls per second (across all concurrent operations)
+    // Increased to 20 to support 9 concurrent symbols without queueing
     maxLLMCallsPerSecond: number;
 
     // Minimum delay between batches (milliseconds)
@@ -107,19 +124,29 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
 
   concurrency: {
     maxConcurrentSymbols: 0, // 0 = unlimited, analyze all symbols at once
-    symbolTimeoutMs: 15000, // 15 seconds per symbol
-    batchTimeoutMs: 30000, // 30 seconds total batch timeout
+    symbolTimeoutMs: 30000, // 30 seconds per symbol (base timeout)
+    batchTimeoutMs: 60000, // 60 seconds total batch timeout
+
+    // Session-specific timeouts for optimal performance
+    useSessionTimeouts: true,
+    sessionTimeouts: {
+      asian: 25000,     // 25s - Lower volatility, faster pattern recognition
+      london: 30000,    // 30s - Moderate complexity
+      nyse: 30000,      // 30s - High volatility but clear trends
+      overlap: 35000,   // 35s - Highest complexity (London+NYSE concurrent)
+      off_hours: 20000, // 20s - Limited market activity, faster rejections
+    },
   },
 
   earlyExit: {
     enabled: true, // Enable early-exit optimization
-    minConfidenceThreshold: 50, // Exit when confidence >= 50%
+    minConfidenceThreshold: 60, // Exit when confidence >= 60% (matches Alpha base threshold)
     gracePeriodSymbols: 0, // Exit immediately on first viable trade
   },
 
   rateLimiting: {
     enabled: true,
-    maxLLMCallsPerSecond: 10, // Conservative limit (10 calls/sec)
+    maxLLMCallsPerSecond: 20, // Increased to support 9 concurrent symbols (2-3 calls each)
     minBatchDelayMs: 100, // 100ms between batches
   },
 
@@ -137,7 +164,7 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
 
   governance: {
     enabled: true, // Enable governance tracking
-    alertThresholdMs: 20000, // Alert if batch takes > 20 seconds
+    alertThresholdMs: 45000, // Alert if batch takes > 45 seconds (adjusted for 30-35s timeouts)
     alertErrorRatePercent: 20, // Alert if > 20% of symbols fail
   },
 };
@@ -180,6 +207,29 @@ export function getEarlyExitThreshold(): number {
 }
 
 /**
+ * SSOT: Get timeout for current market session
+ * Returns session-specific timeout if enabled, otherwise base timeout
+ */
+export function getSessionTimeout(session: MarketSession): number {
+  const config = CONCURRENT_EXECUTION_CONFIG;
+
+  if (!config.concurrency.useSessionTimeouts) {
+    return config.concurrency.symbolTimeoutMs;
+  }
+
+  return config.concurrency.sessionTimeouts[session];
+}
+
+/**
+ * SSOT: Get session timeout multiplier (for logging/analysis)
+ */
+export function getSessionTimeoutMultiplier(session: MarketSession): number {
+  const sessionTimeout = getSessionTimeout(session);
+  const baseTimeout = CONCURRENT_EXECUTION_CONFIG.concurrency.symbolTimeoutMs;
+  return sessionTimeout / baseTimeout;
+}
+
+/**
  * Format config for logging (CCIP audit trail)
  */
 export function formatConcurrentConfigForLogging(): string {
@@ -189,12 +239,17 @@ export function formatConcurrentConfigForLogging(): string {
     ? 'UNLIMITED'
     : `MAX ${config.concurrency.maxConcurrentSymbols}`;
 
+  const sessionTimeoutsStr = config.concurrency.useSessionTimeouts
+    ? `Asian: ${config.concurrency.sessionTimeouts.asian}ms, London: ${config.concurrency.sessionTimeouts.london}ms, NYSE: ${config.concurrency.sessionTimeouts.nyse}ms, Overlap: ${config.concurrency.sessionTimeouts.overlap}ms, Off-Hours: ${config.concurrency.sessionTimeouts.off_hours}ms`
+    : 'DISABLED';
+
   return `
 [Concurrent Execution Config - SSOT]
 Mode: ${mode} | Concurrency: ${concurrency}
 Early-Exit: ${config.earlyExit.enabled ? `YES (${config.earlyExit.minConfidenceThreshold}% threshold)` : 'NO'}
 Rate Limiting: ${config.rateLimiting.enabled ? `${config.rateLimiting.maxLLMCallsPerSecond} calls/sec` : 'DISABLED'}
-Timeouts: ${config.concurrency.symbolTimeoutMs}ms/symbol, ${config.concurrency.batchTimeoutMs}ms/batch
+Timeouts (Base): ${config.concurrency.symbolTimeoutMs}ms/symbol, ${config.concurrency.batchTimeoutMs}ms/batch
+Session Timeouts: ${sessionTimeoutsStr}
 Tracking: ${config.tracking.enabled ? 'ENABLED' : 'DISABLED'}
 Governance: ${config.governance.enabled ? 'ENABLED' : 'DISABLED'}
 `.trim();

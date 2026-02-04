@@ -41,8 +41,11 @@ import { confidenceCalculationEngine, type ConfidenceModifier } from './confiden
 import {
   getConcurrentExecutionConfig,
   isConcurrentExecutionEnabled,
-  formatConcurrentConfigForLogging
+  formatConcurrentConfigForLogging,
+  getSessionTimeout,
+  type MarketSession
 } from '../config/concurrent-execution-config';
+import { marketScheduleService } from './market-schedule-service';
 
 export interface ConfidencePenalty {
   source: string;
@@ -758,7 +761,14 @@ class AlphaOmegaOrchestrator {
     const config = getConcurrentExecutionConfig();
     const minConfidence = goalContext?.minConfidence || config.earlyExit.minConfidenceThreshold;
 
+    // Detect current market session for session-aware timeout
+    const currentSession = marketScheduleService.getCurrentMarketSession();
+    const sessionTimeout = getSessionTimeout(currentSession);
+    const sessionDescription = marketScheduleService.getSessionDescription(currentSession);
+
     console.log(`[Alpha+Omega] 🚀 CONCURRENT MODE: Analyzing all ${marketStates.length} symbols simultaneously`);
+    console.log(`[Alpha+Omega] 🕐 Market Session: ${sessionDescription}`);
+    console.log(`[Alpha+Omega] ⏱️  Session Timeout: ${sessionTimeout}ms per symbol`);
     console.log(`[Alpha+Omega] 🎯 Early-exit threshold: ${minConfidence}% confidence`);
 
     const decisionMap = new Map<string, AlphaDecision>();
@@ -800,11 +810,11 @@ class AlphaOmegaOrchestrator {
         console.log(`  Multipliers: ${stopLossMultiplier.toFixed(2)}x SL / ${takeProfitMultiplier.toFixed(2)}x TP`);
         console.log(`  Proposed SL: ${proposedSL.toFixed(5)} (${slDistancePips.toFixed(1)} pips from entry)`);
 
-        // Evaluate with timeout
+        // Evaluate with session-aware timeout
         const decision = await Promise.race([
           this.makeTradeDecision(marketState, traderScore, proposedSL, proposedTP, goalContext, userId),
           new Promise<AlphaDecision>((_, reject) =>
-            setTimeout(() => reject(new Error('Symbol evaluation timeout')), config.concurrency.symbolTimeoutMs)
+            setTimeout(() => reject(new Error(`Symbol evaluation timeout (${sessionTimeout}ms - ${currentSession} session)`)), sessionTimeout)
           )
         ]);
 
