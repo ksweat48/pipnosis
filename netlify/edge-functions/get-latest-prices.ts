@@ -38,13 +38,27 @@ export default async (request: Request, context: Context) => {
   }
 
   try {
-    // Use context.json() for edge caching with 5-second TTL
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') || Deno.env.get('VITE_SUPABASE_URL');
-    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('VITE_SUPABASE_ANON_KEY');
+    // Edge functions have access to environment variables differently
+    // Try multiple variable names for compatibility
+    const supabaseUrl = Deno.env.get('VITE_SUPABASE_URL') || Deno.env.get('SUPABASE_URL');
+    const supabaseAnonKey = Deno.env.get('VITE_SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_ANON_KEY');
+
+    console.log('[EdgeFunction] Environment check:', {
+      hasUrl: !!supabaseUrl,
+      hasKey: !!supabaseAnonKey,
+      urlLength: supabaseUrl?.length || 0
+    });
 
     if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('[EdgeFunction] Missing Supabase configuration');
       return new Response(
-        JSON.stringify({ error: 'Supabase configuration missing' }),
+        JSON.stringify({
+          error: 'Supabase configuration missing',
+          debug: {
+            hasUrl: !!supabaseUrl,
+            hasKey: !!supabaseAnonKey
+          }
+        }),
         {
           status: 500,
           headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }

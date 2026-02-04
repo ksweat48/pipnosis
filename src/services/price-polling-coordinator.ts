@@ -51,7 +51,7 @@ class PricePollingCoordinator extends TinyEmitter {
   private readonly POLL_INTERVAL_MS = 2000; // 2 seconds = excellent UX
   private readonly MAX_CONSECUTIVE_ERRORS = 5;
   private readonly ERROR_BACKOFF_MS = 10000; // 10 seconds
-  private readonly EDGE_FUNCTION_URL = '/api/get-latest-prices';
+  private readonly FUNCTION_URL = '/.netlify/functions/get-latest-prices';
 
   /**
    * Start polling for price updates
@@ -96,8 +96,8 @@ class PricePollingCoordinator extends TinyEmitter {
   }
 
   /**
-   * Fetch prices from edge function
-   * Edge-cached responses = fast & cheap
+   * Fetch prices from Netlify function
+   * CDN-cached responses = fast & cheap
    */
   private async fetchPrices(): Promise<void> {
     // Circuit breaker: stop if too many errors
@@ -116,7 +116,7 @@ class PricePollingCoordinator extends TinyEmitter {
     }
 
     try {
-      const response = await fetch(this.EDGE_FUNCTION_URL, {
+      const response = await fetch(this.FUNCTION_URL, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json'
