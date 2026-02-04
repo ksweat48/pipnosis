@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { NavigationMenu } from '@/components/NavigationMenu';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { MarketChart } from '@/components/MarketChart';
 import { supabase } from '@/lib/supabase';
@@ -164,6 +165,8 @@ export function TradePage() {
         pullDistance={pullToRefresh.pullDistance}
         threshold={pullToRefresh.threshold}
       />
+
+      <NavigationMenu />
 
       <div className="flex-1 overflow-hidden">
         <MarketChart
