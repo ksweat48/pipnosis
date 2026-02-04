@@ -178,24 +178,44 @@ class UserRiskPreferenceService {
 
   /**
    * BULK INITIALIZE new user with default preference
-   * Called during user signup
+   * Called during user signup/login
+   *
+   * SSOT COMPLIANCE: Uses initialize_user_risk_preference_if_not_exists RPC
+   * IDEMPOTENT: Safe to call multiple times, never overwrites existing preferences
+   * RESPECTS USER CHOICES: Only creates default for new users
+   *
+   * Architecture:
+   * - If preference exists: Do nothing (preserve user's custom setting)
+   * - If preference missing: Create with 5% default
+   * - Never overwrites existing preferences
    */
   async initializeNewUser(userId: string): Promise<boolean> {
     try {
-      const { error } = await supabase
-        .from('user_max_risk_preferences')
-        .insert({
-          user_id: userId,
-          max_risk_percent: 5.0
-        });
+      // Use idempotent initialization RPC
+      const { data, error } = await supabase.rpc('initialize_user_risk_preference_if_not_exists', {
+        p_user_id: userId
+      });
 
       if (error) {
         logger.error('[UserRiskPreferenceService] Error initializing user preference:', error);
-        // Don't fail signup if this fails - service will return default
+        // Don't fail signup/login if this fails - service will use default
         return false;
       }
 
-      logger.info('[UserRiskPreferenceService] Initialized new user with default 5%:', userId);
+      if (data && data.success === false) {
+        logger.error('[UserRiskPreferenceService] RPC returned failure:', data);
+        return false;
+      }
+
+      if (data && data.action === 'created') {
+        logger.info('[UserRiskPreferenceService] ✅ Created new preference with default 5%:', userId);
+      } else if (data && data.action === 'skipped') {
+        logger.debug('[UserRiskPreferenceService] ✓ Preference already exists, preserved:', {
+          userId,
+          existingPercent: data.max_risk_percent
+        });
+      }
+
       return true;
     } catch (error) {
       logger.error('[UserRiskPreferenceService] Exception initializing user:', error);
