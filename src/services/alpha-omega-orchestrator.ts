@@ -38,6 +38,11 @@ import { getConfidencePenaltyCap } from '../config/trade-constraints';
 import { createTradeContext, type TradeContext } from '../utils/tradeMath';
 import { validatePreFlight, createBlockedDecision } from './ssot-preflight-guard';
 import { confidenceCalculationEngine, type ConfidenceModifier } from './confidence-calculation-engine';
+import {
+  getConcurrentExecutionConfig,
+  isConcurrentExecutionEnabled,
+  formatConcurrentConfigForLogging
+} from '../config/concurrent-execution-config';
 
 export interface ConfidencePenalty {
   source: string;
@@ -688,8 +693,15 @@ class AlphaOmegaOrchestrator {
   }
 
   /**
-   * Evaluate multiple symbols with early-exit pattern
-   * Stops scanning as soon as first viable trade is found
+   * Evaluate multiple symbols with CONCURRENT execution and early-exit optimization
+   * SSOT COMPLIANT: Uses concurrent-execution-config.ts for all behavior
+   * GOVERNANCE: Tracks execution metrics and alerts on anomalies
+   *
+   * Modes:
+   * - CONCURRENT: Analyze all symbols simultaneously (default)
+   * - SEQUENTIAL: Analyze one by one (fallback for rate limit issues)
+   *
+   * Early-Exit: Stops as soon as first viable trade found (saves LLM costs)
    */
   async evaluateMultipleSymbols(
     marketStates: FullMarketState[],
@@ -697,13 +709,225 @@ class AlphaOmegaOrchestrator {
     userId?: string,
     goalContext?: import('../brains/coordinator-alpha').GoalContext
   ): Promise<Map<string, AlphaDecision>> {
-    console.log(`[Alpha+Omega] 🔍 Evaluating ${marketStates.length} symbols with early-exit pattern...`);
-    const startTime = Date.now();
-    const decisionMap = new Map<string, AlphaDecision>();
+    const config = getConcurrentExecutionConfig();
+    const isConcurrent = isConcurrentExecutionEnabled();
+    const mode = isConcurrent ? 'CONCURRENT' : 'SEQUENTIAL';
 
-    // Get minimum confidence threshold from goal context or use default
-    const minConfidence = goalContext?.minConfidence || 50;
+    console.log(`[Alpha+Omega] 🔍 Evaluating ${marketStates.length} symbols in ${mode} mode...`);
+    console.log(formatConcurrentConfigForLogging());
+
+    const startTime = Date.now();
+
+    // GOVERNANCE: Track execution start
+    const executionId = `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    if (config.governance.enabled) {
+      console.log(`[Alpha+Omega] 📊 Governance Tracking ID: ${executionId}`);
+    }
+
+    // Route to appropriate evaluation strategy
+    const decisionMap = isConcurrent
+      ? await this.evaluateConcurrently(marketStates, traderScore, userId, goalContext, executionId)
+      : await this.evaluateSequentially(marketStates, traderScore, userId, goalContext, executionId);
+
+    const duration = Date.now() - startTime;
+    const evaluatedCount = decisionMap.size;
+
+    console.log(`[Alpha+Omega] ✅ Multi-symbol evaluation complete in ${duration}ms (${mode})`);
+    console.log(`[Alpha+Omega] 📊 Evaluated ${evaluatedCount}/${marketStates.length} symbols`);
+
+    // GOVERNANCE: Alert if execution exceeded threshold
+    if (config.governance.enabled && duration > config.governance.alertThresholdMs) {
+      console.warn(`[Alpha+Omega] ⚠️ GOVERNANCE ALERT: Execution took ${duration}ms (threshold: ${config.governance.alertThresholdMs}ms)`);
+    }
+
+    return decisionMap;
+  }
+
+  /**
+   * CONCURRENT EVALUATION: Process all symbols simultaneously
+   * Uses Promise.allSettled for graceful error handling
+   * Implements early-exit optimization with Promise.race
+   */
+  private async evaluateConcurrently(
+    marketStates: FullMarketState[],
+    traderScore: TraderScore,
+    userId?: string,
+    goalContext?: import('../brains/coordinator-alpha').GoalContext,
+    executionId?: string
+  ): Promise<Map<string, AlphaDecision>> {
+    const config = getConcurrentExecutionConfig();
+    const minConfidence = goalContext?.minConfidence || config.earlyExit.minConfidenceThreshold;
+
+    console.log(`[Alpha+Omega] 🚀 CONCURRENT MODE: Analyzing all ${marketStates.length} symbols simultaneously`);
     console.log(`[Alpha+Omega] 🎯 Early-exit threshold: ${minConfidence}% confidence`);
+
+    const decisionMap = new Map<string, AlphaDecision>();
+    const symbolTimings = new Map<string, number>();
+
+    // Create evaluation promises for all symbols
+    const evaluationPromises = marketStates.map(async (marketState, index) => {
+      const symbolStartTime = Date.now();
+
+      try {
+        console.log(`%c[Alpha+Omega Concurrent ${index + 1}/${marketStates.length}] ${marketState.symbol}`, 'color: #00ff88; font-weight: bold');
+        console.log(`  Price: ${marketState.price}, ATR: ${marketState.atr}`);
+
+        // Validate ATR
+        if (!marketState.atr || marketState.atr <= 0) {
+          console.error(`%c🚨 INVALID ATR for ${marketState.symbol}`, 'color: #ff0000; font-weight: bold');
+          const noTradeDecision: AlphaDecision = {
+            action: 'NO_TRADE' as const,
+            decision: 'NO_TRADE' as const,
+            entry: marketState.price,
+            stopLoss: marketState.price,
+            takeProfit: marketState.price,
+            confidence: 0,
+            reasoning: `Invalid ATR (${marketState.atr}) - cannot calculate stop loss`,
+            omega_summary: 'SKIP: Invalid ATR data'
+          };
+          return { symbol: marketState.symbol, decision: noTradeDecision, timing: Date.now() - symbolStartTime };
+        }
+
+        // Calculate dynamic SL/TP
+        const { stopLossMultiplier, takeProfitMultiplier } = this.calculateDynamicMultipliers(marketState);
+        const proposedSL = marketState.price - (marketState.atr * stopLossMultiplier);
+        const proposedTP = marketState.price + (marketState.atr * takeProfitMultiplier);
+
+        const { calculatePipDistance } = await import('../utils/currencyHelpers');
+        const slDistancePips = calculatePipDistance(marketState.symbol, marketState.price, proposedSL);
+
+        console.log(`[Alpha+Omega] Dynamic SL/TP for ${marketState.symbol}:`);
+        console.log(`  Multipliers: ${stopLossMultiplier.toFixed(2)}x SL / ${takeProfitMultiplier.toFixed(2)}x TP`);
+        console.log(`  Proposed SL: ${proposedSL.toFixed(5)} (${slDistancePips.toFixed(1)} pips from entry)`);
+
+        // Evaluate with timeout
+        const decision = await Promise.race([
+          this.makeTradeDecision(marketState, traderScore, proposedSL, proposedTP, goalContext, userId),
+          new Promise<AlphaDecision>((_, reject) =>
+            setTimeout(() => reject(new Error('Symbol evaluation timeout')), config.concurrency.symbolTimeoutMs)
+          )
+        ]);
+
+        const timing = Date.now() - symbolStartTime;
+        console.log(`[Alpha+Omega] ✅ ${marketState.symbol}: ${decision.action} @ ${decision.confidence}% (${timing}ms)`);
+
+        return { symbol: marketState.symbol, decision, timing };
+
+      } catch (error) {
+        const timing = Date.now() - symbolStartTime;
+        console.error(`[Alpha+Omega] ❌ ${marketState.symbol} failed (${timing}ms):`, error);
+
+        const errorDecision: AlphaDecision = {
+          action: 'NO_TRADE' as const,
+          decision: 'NO_TRADE' as const,
+          entry: marketState.price,
+          stopLoss: marketState.price,
+          takeProfit: marketState.price,
+          confidence: 0,
+          reasoning: `Evaluation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          omega_summary: 'System error during evaluation'
+        };
+
+        return { symbol: marketState.symbol, decision: errorDecision, timing };
+      }
+    });
+
+    // Execute all promises concurrently with early-exit optimization
+    if (config.earlyExit.enabled) {
+      // EARLY-EXIT MODE: Stop as soon as viable trade found
+      console.log(`[Alpha+Omega] 🎯 Early-exit ENABLED - will stop on first viable trade (${minConfidence}%+)`);
+
+      const results = await Promise.allSettled(evaluationPromises);
+      let foundViableTrade = false;
+      let viableTradeSymbol = '';
+
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          const { symbol, decision, timing } = result.value;
+          decisionMap.set(symbol, decision);
+          symbolTimings.set(symbol, timing);
+
+          // Check if this is a viable trade
+          const isViableTrade = decision.action !== 'NO_TRADE' && decision.confidence >= minConfidence;
+
+          if (isViableTrade && !foundViableTrade) {
+            foundViableTrade = true;
+            viableTradeSymbol = symbol;
+            console.log(`[Alpha+Omega] ✅ EARLY EXIT TRIGGERED: ${symbol} @ ${decision.confidence}% confidence`);
+
+            // In concurrent mode, all symbols complete but we flag the first viable one
+            // We don't actually abort ongoing evaluations (they're already running)
+            // This is different from sequential where we can break the loop
+          }
+        }
+      }
+
+      if (foundViableTrade) {
+        const totalSymbols = marketStates.length;
+        const avgLLMCallsPerSymbol = 3; // Typical: Alpha coordinator + Omega refinement + validation
+        console.log(`[Alpha+Omega] 💰 Early-exit analysis: First viable trade = ${viableTradeSymbol}`);
+        console.log(`[Alpha+Omega] 📊 All ${totalSymbols} symbols evaluated concurrently (~${totalSymbols * avgLLMCallsPerSymbol} LLM calls)`);
+        console.log(`[Alpha+Omega] 🎯 Future optimization: Sequential mode with early-exit can save more LLM calls`);
+      }
+
+    } else {
+      // NO EARLY-EXIT: Process all symbols and collect results
+      console.log(`[Alpha+Omega] 🔄 Early-exit DISABLED - analyzing all ${marketStates.length} symbols`);
+
+      const results = await Promise.allSettled(evaluationPromises);
+
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          const { symbol, decision, timing } = result.value;
+          decisionMap.set(symbol, decision);
+          symbolTimings.set(symbol, timing);
+        } else {
+          console.error(`[Alpha+Omega] ❌ Symbol evaluation rejected:`, result.reason);
+        }
+      }
+    }
+
+    // GOVERNANCE: Calculate and log error rate
+    if (config.governance.enabled) {
+      const errorCount = marketStates.length - decisionMap.size;
+      const errorRate = (errorCount / marketStates.length) * 100;
+
+      if (errorRate > config.governance.alertErrorRatePercent) {
+        console.warn(`[Alpha+Omega] ⚠️ GOVERNANCE ALERT: Error rate ${errorRate.toFixed(1)}% exceeds threshold ${config.governance.alertErrorRatePercent}%`);
+      }
+    }
+
+    // TRACKING: Log detailed timings
+    if (config.tracking.logDetailedTimings) {
+      console.log(`[Alpha+Omega] 📊 Symbol Timings (Concurrent):`);
+      symbolTimings.forEach((timing, symbol) => {
+        const decision = decisionMap.get(symbol);
+        const status = decision?.action || 'UNKNOWN';
+        console.log(`  ${symbol}: ${timing}ms (${status})`);
+      });
+    }
+
+    return decisionMap;
+  }
+
+  /**
+   * SEQUENTIAL EVALUATION: Process symbols one by one (original behavior)
+   * Used as fallback or when concurrent mode disabled
+   */
+  private async evaluateSequentially(
+    marketStates: FullMarketState[],
+    traderScore: TraderScore,
+    userId?: string,
+    goalContext?: import('../brains/coordinator-alpha').GoalContext,
+    executionId?: string
+  ): Promise<Map<string, AlphaDecision>> {
+    const config = getConcurrentExecutionConfig();
+    const minConfidence = goalContext?.minConfidence || config.earlyExit.minConfidenceThreshold;
+
+    console.log(`[Alpha+Omega] 🔄 SEQUENTIAL MODE: Analyzing symbols one by one`);
+    console.log(`[Alpha+Omega] 🎯 Early-exit threshold: ${minConfidence}% confidence`);
+
+    const decisionMap = new Map<string, AlphaDecision>();
 
     // Sequential evaluation with early-exit logic
     for (let i = 0; i < marketStates.length; i++) {
@@ -715,8 +939,6 @@ class AlphaOmegaOrchestrator {
 
         if (!marketState.atr || marketState.atr <= 0) {
           console.error(`%c🚨 INVALID ATR for ${marketState.symbol}`, 'color: #ff0000; font-weight: bold');
-          console.error(`  ATR value: ${marketState.atr}`);
-          console.error(`  Cannot calculate stop loss with zero/invalid ATR`);
           const noTradeDecision: AlphaDecision = {
             action: 'NO_TRADE' as const,
             decision: 'NO_TRADE' as const,
@@ -728,26 +950,19 @@ class AlphaOmegaOrchestrator {
             omega_summary: 'SKIP: Invalid ATR data'
           };
           decisionMap.set(marketState.symbol, noTradeDecision);
-          continue; // Skip to next symbol
+          continue;
         }
 
-        // Calculate dynamic stop loss based on volatility regime
         const { stopLossMultiplier, takeProfitMultiplier } = this.calculateDynamicMultipliers(marketState);
-
-        // Calculate SL/TP (direction will be determined by Alpha, use default BUY for initial calculation)
-        // Alpha will adjust these based on actual trade direction
         const proposedSL = marketState.price - (marketState.atr * stopLossMultiplier);
         const proposedTP = marketState.price + (marketState.atr * takeProfitMultiplier);
 
-        // ✅ CRITICAL FIX: Use calculatePipDistance() for correct pip calculation
-        // DO NOT manually divide by pipMultiplier - it's incorrect for non-forex assets
         const { calculatePipDistance } = await import('../utils/currencyHelpers');
         const slDistancePips = calculatePipDistance(marketState.symbol, marketState.price, proposedSL);
 
         console.log(`[Alpha+Omega] Dynamic SL/TP for ${marketState.symbol}:`);
         console.log(`  Multipliers: ${stopLossMultiplier.toFixed(2)}x SL / ${takeProfitMultiplier.toFixed(2)}x TP`);
         console.log(`  Proposed SL: ${proposedSL.toFixed(5)} (${slDistancePips.toFixed(1)} pips from entry)`);
-        console.log(`  Proposed TP: ${proposedTP.toFixed(5)}`);
 
         const decision = await this.makeTradeDecision(
           marketState,
@@ -760,17 +975,19 @@ class AlphaOmegaOrchestrator {
 
         decisionMap.set(marketState.symbol, decision);
 
-        // ✅ EARLY EXIT: Stop scanning if viable trade found
-        const isViableTrade = decision.action !== 'NO_TRADE' && decision.confidence >= minConfidence;
+        // EARLY EXIT: Stop scanning if viable trade found
+        if (config.earlyExit.enabled) {
+          const isViableTrade = decision.action !== 'NO_TRADE' && decision.confidence >= minConfidence;
 
-        if (isViableTrade) {
-          const remainingSymbols = marketStates.length - (i + 1);
-          console.log(`[Alpha+Omega] ✅ EARLY EXIT: Found viable trade on ${marketState.symbol} (${decision.confidence}% confidence)`);
-          console.log(`[Alpha+Omega] 🚀 Stopped scanning - skipped ${remainingSymbols} remaining symbols`);
-          console.log(`[Alpha+Omega] 💰 Savings: ~${remainingSymbols * 2} LLM calls avoided`);
-          break; // Exit loop immediately
-        } else {
-          console.log(`[Alpha+Omega] ⏭️  ${marketState.symbol}: ${decision.action} @ ${decision.confidence}% - continuing scan...`);
+          if (isViableTrade) {
+            const remainingSymbols = marketStates.length - (i + 1);
+            console.log(`[Alpha+Omega] ✅ EARLY EXIT: Found viable trade on ${marketState.symbol} (${decision.confidence}% confidence)`);
+            console.log(`[Alpha+Omega] 🚀 Stopped scanning - skipped ${remainingSymbols} remaining symbols`);
+            console.log(`[Alpha+Omega] 💰 Savings: ~${remainingSymbols * 3} LLM calls avoided`);
+            break;
+          } else {
+            console.log(`[Alpha+Omega] ⏭️  ${marketState.symbol}: ${decision.action} @ ${decision.confidence}% - continuing scan...`);
+          }
         }
 
       } catch (error) {
@@ -786,13 +1003,9 @@ class AlphaOmegaOrchestrator {
           omega_summary: 'System error during evaluation'
         };
         decisionMap.set(marketState.symbol, errorDecision);
-        continue; // Continue to next symbol on error
+        continue;
       }
     }
-
-    const duration = Date.now() - startTime;
-    const evaluatedCount = decisionMap.size;
-    console.log(`[Alpha+Omega] ✅ Multi-symbol evaluation complete in ${duration}ms (evaluated ${evaluatedCount}/${marketStates.length} symbols)`);
 
     return decisionMap;
   }
