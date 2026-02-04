@@ -35,6 +35,39 @@
 - ✅ All monitoring systems MUST acquire lock before closing trades
 - ✅ Governance logging: All lock operations logged to `governance_change_log`
 
+### ⏱️ Timeout & Resilience (CCIP - 2026-02-04)
+
+| Responsibility | Authority Service | Location |
+|---|---|---|
+| **Timeout configuration** | `timeout_governance_config` table | Database table (SSOT) |
+| **Timeout logging & governance** | `log_timeout_event()` RPC function | `supabase/migrations/20260204_*` |
+| **Adaptive timeout strategy** | `PriceCoordinator` | `src/services/coordinators/price-coordinator.ts` |
+| **Exponential backoff calculation** | `BULLETPROOF_CONFIG` | `src/config/chart-bulletproofing.ts` |
+| **Circuit breaker state** | `PriceCoordinator` | `src/services/coordinators/price-coordinator.ts` |
+| **Timeout error handling** | `errorHandler` | `src/lib/error-handler.ts` |
+
+**TIMEOUT GOVERNANCE (CCIP-20260204):**
+- ✅ Created `timeout_governance_config` table as SSOT for all service timeouts
+- ✅ Service-specific timeout thresholds (PRICE_COORDINATOR: 10s, POSITION_MONITOR: 15s, etc.)
+- ✅ Exponential backoff strategy (1s → 1.5s → 2.25s...) prevents thundering-herd
+- ✅ Circuit breaker pattern (activation at 5-10% failure rate) for graceful degradation
+- ✅ All timeout events logged to `governance_change_log` with `timeout_context`
+- ✅ Governance alerts created automatically when thresholds exceeded
+- ✅ Timeout configuration cached client-side (1-minute TTL) for performance
+
+**RESILIENCE STRATEGY:**
+1. **Adaptive Timeouts**: Each service reads its timeout config from database (dynamic updates without redeployment)
+2. **Exponential Backoff**: Retries use backoff to reduce load on struggling database/network
+3. **Circuit Breaker**: When failures exceed threshold, circuit opens to prevent cascading failures
+4. **Governance Logging**: Every timeout decision logged for audit trail and admin dashboards
+5. **Fallback Degradation**: PriceCoordinator falls back to candle data when circuit opens
+
+**VIOLATIONS TO PREVENT:**
+- ❌ NEVER hardcode timeout values in services (use `timeout_governance_config` instead)
+- ❌ NEVER implement retry logic outside `PriceCoordinator` (centralize through this authority)
+- ❌ NEVER query `realtime_prices` directly with timeout awareness (use `PriceCoordinator.getPrice()`)
+- ❌ NEVER suppress timeout errors silently (always log via `log_timeout_event()`)
+
 ### 💰 Position Sizing & Risk
 
 | Responsibility | Authority Service | Location |

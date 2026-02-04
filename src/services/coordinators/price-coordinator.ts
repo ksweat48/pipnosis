@@ -24,6 +24,20 @@ import { supabase } from '../../lib/supabase';
 import { TIME_CONSTANTS, TIME_MS, isOlderThan, getAgeInSeconds } from '../../config/time-constants';
 import { marketDataService } from '../market-data-service';
 
+interface TimeoutConfig {
+  timeout_ms: number;
+  retry_count: number;
+  backoff_multiplier: number;
+  circuit_breaker_threshold: number;
+}
+
+interface CircuitBreakerState {
+  isOpen: boolean;
+  failureCount: number;
+  successCount: number;
+  lastFailureTime: number;
+}
+
 export interface PriceData {
   symbol: string;
   bid: number;
@@ -59,6 +73,137 @@ class PriceCoordinator {
   private priceCache = new Map<string, CachedPrice>();
   private readonly CACHE_TTL_MS = TIME_MS.CACHE.SHORT;
   private readonly DEFAULT_MAX_AGE_SECONDS = TIME_CONSTANTS.SECONDS.PRICE_STALENESS_CRITICAL;
+  private timeoutConfig: TimeoutConfig | null = null;
+  private circuitBreaker: CircuitBreakerState = {
+    isOpen: false,
+    failureCount: 0,
+    successCount: 0,
+    lastFailureTime: 0,
+  };
+  private configLoadedAt: number = 0;
+  private readonly CONFIG_CACHE_DURATION = 60_000; // Cache config for 1 minute
+
+  constructor() {
+    this.initializeConfig();
+  }
+
+  private async initializeConfig(): Promise<void> {
+    try {
+      const { data, error } = await supabase
+        .from('timeout_governance_config')
+        .select('timeout_ms, retry_count, backoff_multiplier, circuit_breaker_threshold')
+        .eq('service', 'price-coordinator')
+        .maybeSingle();
+
+      if (!error && data) {
+        this.timeoutConfig = data as TimeoutConfig;
+        this.configLoadedAt = Date.now();
+      } else {
+        // Fallback to hardcoded config from time-constants
+        this.timeoutConfig = TIME_MS.SERVICE_TIMEOUTS?.PRICE_COORDINATOR || {
+          timeout_ms: 10_000,
+          retry_count: 3,
+          backoff_multiplier: 1.5,
+          circuit_breaker_threshold: 0.05,
+        };
+      }
+    } catch (error) {
+      // Silent fallback if config loading fails
+      this.timeoutConfig = TIME_MS.SERVICE_TIMEOUTS?.PRICE_COORDINATOR || {
+        timeout_ms: 10_000,
+        retry_count: 3,
+        backoff_multiplier: 1.5,
+        circuit_breaker_threshold: 0.05,
+      };
+    }
+  }
+
+  private async getTimeoutConfig(): Promise<TimeoutConfig> {
+    if (!this.timeoutConfig) {
+      await this.initializeConfig();
+    }
+
+    // Refresh config if cache expired
+    if (Date.now() - this.configLoadedAt > this.CONFIG_CACHE_DURATION) {
+      await this.initializeConfig();
+    }
+
+    return this.timeoutConfig!;
+  }
+
+  private async executeWithTimeout<T>(
+    operation: () => Promise<T>,
+    timeoutMs: number,
+    retryCount: number,
+    backoffMultiplier: number
+  ): Promise<T> {
+    let lastError: Error | null = null;
+    let backoffMs = 1_000; // Start with 1 second
+
+    for (let attempt = 0; attempt <= retryCount; attempt++) {
+      try {
+        // Create abort controller for timeout
+        const controller = new AbortController();
+        const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+
+        try {
+          const result = await Promise.race([
+            operation(),
+            new Promise<never>((_, reject) => {
+              if (controller.signal.aborted) {
+                reject(new Error('Timeout'));
+              }
+              controller.signal.addEventListener('abort', () => {
+                reject(new Error(`Query timeout after ${timeoutMs}ms`));
+              });
+            }),
+          ]);
+          clearTimeout(timeoutHandle);
+
+          // Success - reset circuit breaker
+          this.circuitBreaker.successCount++;
+          if (this.circuitBreaker.successCount > 5) {
+            this.circuitBreaker.isOpen = false;
+            this.circuitBreaker.failureCount = 0;
+          }
+
+          return result;
+        } finally {
+          clearTimeout(timeoutHandle);
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+
+        // Log timeout event to governance system
+        await this.logTimeoutEvent(timeoutMs, attempt, 'query_timeout');
+
+        // Update circuit breaker state
+        this.circuitBreaker.failureCount++;
+        this.circuitBreaker.lastFailureTime = Date.now();
+
+        // Exponential backoff for retries
+        if (attempt < retryCount) {
+          await new Promise(resolve => setTimeout(resolve, backoffMs));
+          backoffMs = Math.floor(backoffMs * backoffMultiplier);
+        }
+      }
+    }
+
+    throw lastError || new Error('Query failed after all retries');
+  }
+
+  private async logTimeoutEvent(timeoutMs: number, retryAttempt: number, reason: string): Promise<void> {
+    try {
+      await supabase.rpc('log_timeout_event', {
+        p_service: 'price-coordinator',
+        p_timeout_ms: timeoutMs,
+        p_retry_count: retryAttempt,
+        p_reason: reason,
+      });
+    } catch {
+      // Silent fail - don't block price fetching on logging errors
+    }
+  }
 
   async getPrice(symbol: string, options: PriceFetchOptions = {}): Promise<PriceFetchResult> {
     const {
@@ -185,19 +330,46 @@ class PriceCoordinator {
 
   private async fetchRealtimePrice(symbol: string): Promise<PriceFetchResult> {
     try {
-      const { data, error } = await supabase
-        .from('realtime_prices')
-        .select('symbol, bid, ask, broker_time, created_at')
-        .eq('symbol', symbol)
-        .order('broker_time', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const config = await this.getTimeoutConfig();
 
-      if (error || !data) {
+      // Check circuit breaker - if open, skip to fallback immediately
+      if (this.circuitBreaker.isOpen) {
+        // Try to recover after 30 seconds of no failures
+        if (Date.now() - this.circuitBreaker.lastFailureTime > 30_000) {
+          this.circuitBreaker.isOpen = false;
+          this.circuitBreaker.failureCount = 0;
+        } else {
+          return {
+            success: false,
+            price: null,
+            error: 'Circuit breaker open - falling back to candle data',
+          };
+        }
+      }
+
+      const data = await this.executeWithTimeout(
+        async () => {
+          const { data: result, error } = await supabase
+            .from('realtime_prices')
+            .select('symbol, bid, ask, broker_time, created_at')
+            .eq('symbol', symbol)
+            .order('broker_time', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (error) throw new Error(error.message);
+          return result;
+        },
+        config.timeout_ms,
+        config.retry_count,
+        config.backoff_multiplier
+      );
+
+      if (!data) {
         return {
           success: false,
           price: null,
-          error: error?.message || 'No realtime price found',
+          error: 'No realtime price found',
         };
       }
 
@@ -233,10 +405,19 @@ class PriceCoordinator {
         },
       };
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+
+      // Activate circuit breaker on repeated timeouts
+      if (errorMsg.includes('timeout') || errorMsg.includes('Timeout')) {
+        if (this.circuitBreaker.failureCount > 3) {
+          this.circuitBreaker.isOpen = true;
+        }
+      }
+
       return {
         success: false,
         price: null,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errorMsg,
       };
     }
   }

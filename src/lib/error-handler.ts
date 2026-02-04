@@ -203,6 +203,47 @@ class ErrorHandler {
   }
 
   /**
+   * Handle timeout errors with graceful degradation
+   * CCIP Governance: Logs timeout events and activates circuit breaker if needed
+   */
+  handleTimeoutError(service: string, error: any): void {
+    const message = error?.message || error?.toString() || 'Unknown timeout';
+    console.warn(`[Timeout] ${service}: ${message}`);
+
+    // Silently fail - coordinator will handle fallback (circuit breaker, candle data, etc)
+    // Governance logging happens at coordinator level to avoid double-logging
+  }
+
+  /**
+   * Check if error is a timeout
+   */
+  isTimeoutError(error: any): boolean {
+    if (!error) return false;
+    const message = error.message || error.toString();
+    return (
+      message.toLowerCase().includes('timeout') ||
+      message.toLowerCase().includes('aborted') ||
+      message.toLowerCase().includes('signal aborted') ||
+      error.name === 'AbortError'
+    );
+  }
+
+  /**
+   * Handle circuit breaker activation - gracefully degrade
+   */
+  handleCircuitBreakerOpen(service: string, fallbackAction?: () => void): void {
+    console.warn(`[CircuitBreaker] ${service} circuit is open - falling back to alternative data source`);
+
+    if (fallbackAction) {
+      try {
+        fallbackAction();
+      } catch (fallbackError) {
+        console.error(`[CircuitBreaker] Fallback action failed:`, fallbackError);
+      }
+    }
+  }
+
+  /**
    * Reset recovery state (call after successful load)
    */
   resetRecoveryState(): void {

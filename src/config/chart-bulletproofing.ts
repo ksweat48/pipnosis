@@ -40,6 +40,22 @@ export const BULLETPROOF_CONFIG = {
 
   // Phase 8: Enhanced Error Messages
   enableEnhancedErrors: true,
+
+  // Phase 9: Exponential Backoff Strategy (CCIP Governance - SSOT)
+  // Prevents thundering-herd on timeouts through exponential backoff
+  enableExponentialBackoff: true,
+  backoffInitialDelayMs: 1000,           // Start with 1 second
+  backoffMaxDelayMs: 32000,              // Cap at 32 seconds (prevents extreme wait)
+  backoffMultiplier: 1.5,                // Multiply by 1.5 on each retry: 1s, 1.5s, 2.25s, 3.375s...
+  backoffJitterEnabled: true,            // Add random jitter to prevent synchronized retries
+  backoffJitterPercentage: 0.2,          // Add 20% random jitter to delay
+
+  // Circuit Breaker Configuration
+  // Gracefully degrade under sustained load
+  enableCircuitBreaker: true,
+  circuitBreakerFailureThreshold: 5,     // Trigger after 5 consecutive failures
+  circuitBreakerRecoveryTimeMs: 30000,   // Try to recover after 30 seconds
+  circuitBreakerResetFailureCount: 2,    // Reset on 2 consecutive successes
 };
 
 export type BulletproofConfig = typeof BULLETPROOF_CONFIG;

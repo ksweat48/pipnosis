@@ -68,6 +68,48 @@ export const TIME_MS = {
     MAX_FUNCTION: 600_000,
   },
 
+  // Service-specific timeout configurations (CCIP Governance SSOT)
+  // These override TIMEOUTS above for specific services
+  // All consumers MUST use these through their respective coordinators
+  SERVICE_TIMEOUTS: {
+    PRICE_COORDINATOR: {
+      QUERY_TIMEOUT: 10_000,      // How long to wait for a price query
+      RETRY_COUNT: 3,              // Maximum retry attempts
+      BACKOFF_MULTIPLIER: 1.5,     // Exponential backoff: 1s, 1.5s, 2.25s
+      CIRCUIT_BREAKER_THRESHOLD: 0.05, // Activate at 5% timeout rate
+    },
+    POSITION_MONITOR: {
+      QUERY_TIMEOUT: 15_000,       // Extended timeout for position monitoring
+      RETRY_COUNT: 2,              // Fewer retries (position monitor is frequent)
+      BACKOFF_MULTIPLIER: 2.0,     // More aggressive backoff to reduce load
+      CIRCUIT_BREAKER_THRESHOLD: 0.1, // Activate at 10% timeout rate
+    },
+    REALTIME_SLTP_MONITOR: {
+      QUERY_TIMEOUT: 12_000,       // SL/TP monitoring needs quick response
+      RETRY_COUNT: 2,
+      BACKOFF_MULTIPLIER: 1.5,
+      CIRCUIT_BREAKER_THRESHOLD: 0.08, // 8% threshold
+    },
+    MID_TRADE_MONITOR: {
+      QUERY_TIMEOUT: 20_000,       // Less frequent but critical
+      RETRY_COUNT: 1,              // Minimal retries
+      BACKOFF_MULTIPLIER: 1.0,     // No backoff (fail fast)
+      CIRCUIT_BREAKER_THRESHOLD: 0.15, // 15% threshold
+    },
+    ENTRY_MONITORING: {
+      QUERY_TIMEOUT: 10_000,       // Entry monitoring is not time-critical
+      RETRY_COUNT: 3,
+      BACKOFF_MULTIPLIER: 1.5,
+      CIRCUIT_BREAKER_THRESHOLD: 0.05, // 5% threshold
+    },
+    GOAL_SESSION_SCANNER: {
+      QUERY_TIMEOUT: 30_000,       // Batch operation, can wait longer
+      RETRY_COUNT: 1,
+      BACKOFF_MULTIPLIER: 1.0,
+      CIRCUIT_BREAKER_THRESHOLD: 0.2, // 20% threshold (less critical)
+    },
+  },
+
   CACHE: {
     SHORT: 30_000,
     MEDIUM: 60_000,
