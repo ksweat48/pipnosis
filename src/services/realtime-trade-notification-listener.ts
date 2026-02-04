@@ -1,16 +1,20 @@
 /**
  * Realtime Trade Notification Listener
  *
- * SSOT Authority: Listens for new trades and triggers modal popups
+ * SSOT Authority: Listens for goal_notifications and triggers modal popups
  * Bridges server-side executions to browser UI
  *
- * CCIP Compliant (2026-02-03): Part of notification system fix
+ * CCIP Compliant (2026-02-04): Fixed double-modal issue by removing duplicate subscription
  *
  * Responsibilities:
- * - Subscribe to goal_session_trades INSERT events
- * - Subscribe to goal_notifications for trade_opened events
+ * - Subscribe to goal_notifications for trade-related events (SSOT)
  * - Trigger globalDialogManager modals for immediate user feedback
  * - Handle reconnection and error recovery
+ *
+ * SSOT Principle:
+ * - goal_notifications is the single source of truth for UI updates
+ * - No direct subscription to goal_session_trades to prevent duplicate modals
+ * - NotificationCoordinator creates notifications which trigger this listener
  *
  * Principles:
  * - Realtime subscription provides immediate feedback
@@ -23,21 +27,6 @@ import { supabase } from '../lib/supabase';
 import { globalDialogManager } from './global-dialog-manager';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
-interface TradeRecord {
-  id: string;
-  user_id: string;
-  goal_session_id: string;
-  symbol: string;
-  direction: string;
-  entry_price: number;
-  stop_loss: number;
-  take_profit: number;
-  lot_size: number;
-  status: string;
-  expected_profit_for_session: number;
-  alpha_reasoning?: string;
-}
-
 interface NotificationRecord {
   id: string;
   user_id: string;
@@ -49,10 +38,9 @@ interface NotificationRecord {
 }
 
 class RealtimeTradeNotificationListener {
-  private tradeChannel: RealtimeChannel | null = null;
   private notificationChannel: RealtimeChannel | null = null;
-  private recentTrades = new Set<string>();
-  private readonly DEDUPE_WINDOW_MS = 5000;
+  private recentNotifications = new Set<string>();
+  private readonly DEDUPE_WINDOW_MS = 10000; // Increased from 5s to 10s for better safety
   private isInitialized = false;
   private currentUserId: string | null = null;
 
@@ -72,28 +60,8 @@ class RealtimeTradeNotificationListener {
     this.currentUserId = userId;
 
     try {
-      // Subscribe to new trades for this user
-      this.tradeChannel = supabase
-        .channel(`trade_notifications_${userId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'goal_session_trades',
-            filter: `user_id=eq.${userId}`
-          },
-          (payload) => this.handleTradeInsert(payload.new as TradeRecord)
-        )
-        .subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            console.log('[RealtimeTradeListener] ✅ Subscribed to trade notifications');
-          } else if (status === 'CHANNEL_ERROR') {
-            console.error('[RealtimeTradeListener] ❌ Channel error');
-          }
-        });
-
-      // Subscribe to notifications for this user
+      // SSOT FIX (2026-02-04): Subscribe ONLY to goal_notifications (not goal_session_trades)
+      // This prevents duplicate modals by having a single source of truth
       this.notificationChannel = supabase
         .channel(`notifications_${userId}`)
         .on(
@@ -108,7 +76,9 @@ class RealtimeTradeNotificationListener {
         )
         .subscribe((status) => {
           if (status === 'SUBSCRIBED') {
-            console.log('[RealtimeTradeListener] ✅ Subscribed to notification events');
+            console.log('[RealtimeTradeListener] ✅ Subscribed to notification events (SSOT)');
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error('[RealtimeTradeListener] ❌ Channel error');
           }
         });
 
@@ -122,89 +92,51 @@ class RealtimeTradeNotificationListener {
   }
 
   /**
-   * Handle new trade insertion
-   * Triggers modal popup for immediate feedback
+   * Handle notification insertion (SSOT for modal triggers)
+   * Triggers appropriate modal based on notification type
+   *
+   * SSOT FIX (2026-02-04): This is now the ONLY path for triggering trade modals
+   * No direct trade subscription exists, preventing duplicate modals
    */
-  private async handleTradeInsert(trade: TradeRecord): Promise<void> {
+  private async handleNotificationInsert(notification: NotificationRecord): Promise<void> {
     try {
-      // Deduplicate: Skip if we recently processed this trade
-      if (this.recentTrades.has(trade.id)) {
-        console.debug('[RealtimeTradeListener] Skipping duplicate trade:', trade.id);
+      // Deduplication: Create composite key from notification ID + type
+      const dedupeKey = `${notification.id}-${notification.type}`;
+
+      if (this.recentNotifications.has(dedupeKey)) {
+        console.debug('[RealtimeTradeListener] Skipping duplicate notification:', dedupeKey);
         return;
       }
 
       // Add to dedupe set with auto-cleanup
-      this.recentTrades.add(trade.id);
-      setTimeout(() => this.recentTrades.delete(trade.id), this.DEDUPE_WINDOW_MS);
+      this.recentNotifications.add(dedupeKey);
+      setTimeout(() => this.recentNotifications.delete(dedupeKey), this.DEDUPE_WINDOW_MS);
 
-      console.log('[RealtimeTradeListener] 🎯 New trade detected:', {
-        id: trade.id,
-        symbol: trade.symbol,
-        direction: trade.direction,
-        status: trade.status
-      });
-
-      // Only show modal for open trades (pending trades don't need immediate modal)
-      if (trade.status === 'open') {
-        globalDialogManager.showTradeEntry({
-          tradeId: trade.id,
-          symbol: trade.symbol,
-          direction: trade.direction === 'long' ? 'buy' : 'sell',
-          action: trade.direction === 'long' ? 'BUY' : 'SELL',
-          lotSize: trade.lot_size,
-          entryPrice: trade.entry_price,
-          stopLoss: trade.stop_loss,
-          takeProfit: trade.take_profit,
-          expectedProfit: trade.expected_profit_for_session,
-          reasoning: trade.alpha_reasoning || 'Trade executed',
-          confidence: trade.trade_confidence || undefined,
-          tp1: trade.tp1_price || undefined,
-          tp2: trade.tp2_price || undefined,
-          autoExecuted: true
-        }, 'urgent');
-      }
-
-    } catch (error) {
-      console.error('[RealtimeTradeListener] ⚠️ Failed to handle trade insert:', error);
-      // Non-blocking - don't crash the app
-    }
-  }
-
-  /**
-   * Handle notification insertion
-   * Triggers appropriate modal based on notification type
-   */
-  private async handleNotificationInsert(notification: NotificationRecord): Promise<void> {
-    try {
       console.log('[RealtimeTradeListener] 📢 New notification:', notification.type);
 
       switch (notification.type) {
         case 'trade_opened':
-          // Already handled by trade insert listener, but double-check
+          // SSOT FIX (2026-02-04): This is now the ONLY path for trade entry modals
+          // No duplicate subscription exists, so we can safely trigger the modal
           if (notification.metadata?.tradeId) {
-            const tradeId = notification.metadata.tradeId;
-            if (!this.recentTrades.has(tradeId)) {
-              // Trade wasn't caught by realtime trade listener, trigger modal now
-              // SSOT FIX (2026-02-03): Include Alpha's confidence and TP data from notification metadata
-              globalDialogManager.showTradeEntry({
-                tradeId,
-                symbol: notification.metadata.symbol,
-                direction: notification.metadata.action === 'BUY' ? 'buy' : 'sell',
-                action: notification.metadata.action,
-                lotSize: notification.metadata.lotSize,
-                entryPrice: notification.metadata.entryPrice,
-                stopLoss: notification.metadata.stopLoss,
-                takeProfit: notification.metadata.takeProfit,
-                expectedProfit: notification.metadata.expectedProfit,
-                reasoning: notification.message,
-                confidence: notification.metadata.confidence || undefined,
-                setupType: notification.metadata.thesis || undefined,
-                tp1: notification.metadata.tp1Price || undefined,
-                tp2: notification.metadata.tp2Price || undefined,
-                tp1Confidence: notification.metadata.tp1Confidence || undefined,
-                autoExecuted: true
-              }, 'urgent');
-            }
+            globalDialogManager.showTradeEntry({
+              tradeId: notification.metadata.tradeId,
+              symbol: notification.metadata.symbol,
+              direction: notification.metadata.action === 'BUY' ? 'buy' : 'sell',
+              action: notification.metadata.action,
+              lotSize: notification.metadata.lotSize,
+              entryPrice: notification.metadata.entryPrice,
+              stopLoss: notification.metadata.stopLoss,
+              takeProfit: notification.metadata.takeProfit,
+              expectedProfit: notification.metadata.expectedProfit,
+              reasoning: notification.message,
+              confidence: notification.metadata.confidence || undefined,
+              setupType: notification.metadata.thesis || undefined,
+              tp1: notification.metadata.tp1Price || undefined,
+              tp2: notification.metadata.tp2Price || undefined,
+              tp1Confidence: notification.metadata.tp1Confidence || undefined,
+              autoExecuted: true
+            }, 'critical'); // Changed from 'urgent' to 'critical' to match DB constraint
           }
           break;
 
@@ -247,17 +179,12 @@ class RealtimeTradeNotificationListener {
    */
   async cleanup(): Promise<void> {
     try {
-      if (this.tradeChannel) {
-        await supabase.removeChannel(this.tradeChannel);
-        this.tradeChannel = null;
-      }
-
       if (this.notificationChannel) {
         await supabase.removeChannel(this.notificationChannel);
         this.notificationChannel = null;
       }
 
-      this.recentTrades.clear();
+      this.recentNotifications.clear();
       this.isInitialized = false;
       this.currentUserId = null;
 

@@ -4,10 +4,13 @@ import { supabase } from '../lib/supabase';
 
 export type DialogType = 'goal_achieved' | 'trade_closed' | 'trade_signal' | 'trade_entry' | 'tp1_hit';
 
+// SSOT FIX (2026-02-04): Align with database constraint - use 'critical' not 'urgent'
+export type DialogPriority = 'low' | 'medium' | 'high' | 'critical';
+
 export interface DialogData {
   type: DialogType;
   data: any;
-  priority?: 'low' | 'medium' | 'high' | 'urgent';
+  priority?: DialogPriority;
   timestamp: number;
 }
 
@@ -15,8 +18,45 @@ class GlobalDialogManager {
   private emitter = new TinyEmitter();
   private dialogQueue: DialogData[] = [];
   private currentDialog: DialogData | null = null;
+  private recentDialogs = new Set<string>();
+  private readonly DEDUPE_WINDOW_MS = 10000; // 10 second deduplication window
 
-  async showDialog(type: DialogType, data: any, priority: 'low' | 'medium' | 'high' = 'medium') {
+  /**
+   * SSOT FIX (2026-02-04): Added deduplication to prevent duplicate modals
+   * Creates a unique key for dialog deduplication based on type, symbol, and tradeId
+   */
+  private createDedupeKey(type: DialogType, data: any): string {
+    const symbol = data.symbol || '';
+    const tradeId = data.tradeId || data.trade_id || '';
+    return `${type}-${symbol}-${tradeId}`;
+  }
+
+  async showDialog(type: DialogType, data: any, priority: DialogPriority = 'medium') {
+    // SSOT FIX (2026-02-04): Deduplication safety net
+    // Prevents duplicate modals from any source
+    const dedupeKey = this.createDedupeKey(type, data);
+
+    if (this.recentDialogs.has(dedupeKey)) {
+      console.debug('[GlobalDialogManager] Skipping duplicate dialog:', dedupeKey);
+      return;
+    }
+
+    // Check if identical dialog is already in queue or current
+    const isDuplicateInQueue = this.dialogQueue.some(d =>
+      this.createDedupeKey(d.type, d.data) === dedupeKey
+    );
+    const isDuplicateCurrent = this.currentDialog &&
+      this.createDedupeKey(this.currentDialog.type, this.currentDialog.data) === dedupeKey;
+
+    if (isDuplicateInQueue || isDuplicateCurrent) {
+      console.debug('[GlobalDialogManager] Dialog already queued or displayed:', dedupeKey);
+      return;
+    }
+
+    // Add to dedupe set with auto-cleanup
+    this.recentDialogs.add(dedupeKey);
+    setTimeout(() => this.recentDialogs.delete(dedupeKey), this.DEDUPE_WINDOW_MS);
+
     const dialogData: DialogData = {
       type,
       data,
@@ -46,15 +86,16 @@ class GlobalDialogManager {
     this.showDialog('trade_closed', data, 'medium');
   }
 
-  showTradeSignal(data: any, priority: 'low' | 'medium' | 'high' = 'high') {
+  showTradeSignal(data: any, priority: DialogPriority = 'high') {
     this.showDialog('trade_signal', data, priority);
   }
 
-  showTradeEntry(data: any, priority: 'low' | 'medium' | 'high' | 'urgent' = 'urgent') {
+  // SSOT FIX (2026-02-04): Changed 'urgent' to 'critical' to match DB constraint
+  showTradeEntry(data: any, priority: DialogPriority = 'critical') {
     this.showDialog('trade_entry', data, priority);
   }
 
-  showTP1HitDialog(data: any, priority: 'low' | 'medium' | 'high' | 'urgent' = 'urgent') {
+  showTP1HitDialog(data: any, priority: DialogPriority = 'critical') {
     this.showDialog('tp1_hit', data, priority);
   }
 

@@ -1,14 +1,15 @@
 import { supabase } from '../lib/supabase';
-import type { DialogType, DialogData } from './global-dialog-manager';
+import type { DialogType, DialogData, DialogPriority } from './global-dialog-manager';
 import { pushNotificationDispatcher } from './push-notification-dispatcher';
 
+// SSOT FIX (2026-02-04): Align with database constraint - use 'critical' not 'urgent'
 interface NotificationPayload {
   user_id: string;
   goal_session_id: string | null;
   type: string;
   title: string;
   message: string;
-  priority: 'low' | 'medium' | 'high' | 'urgent';
+  priority: 'low' | 'medium' | 'high' | 'critical';
   metadata: any;
   created_at: string;
 }
@@ -114,10 +115,17 @@ class ModalNotificationBridge {
     userId: string,
     goalSessionId: string | null
   ): NotificationPayload {
+    // SSOT FIX (2026-02-04): Map 'urgent' to 'critical' for legacy compatibility
+    // This ensures any old code using 'urgent' won't cause constraint violations
+    let priority = dialogData.priority || 'medium';
+    if (priority === 'urgent' as any) {
+      priority = 'critical';
+    }
+
     const baseNotification = {
       user_id: userId,
       goal_session_id: goalSessionId,
-      priority: dialogData.priority || 'medium',
+      priority: priority as 'low' | 'medium' | 'high' | 'critical',
       metadata: dialogData.data,
       created_at: new Date(dialogData.timestamp).toISOString()
     };
