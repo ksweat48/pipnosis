@@ -61,6 +61,9 @@ export * from './goal-feasibility-audit-logger';
 export * from './goal-advisory-coordinator';
 export * from './risk-tolerance-enforcer';
 
+// CCIP Governance: Candle Persistence Authority
+export * from './candle-conflict-handler';
+
 // Existing Services
 export * from './openai-client';
 export * from './database-service';

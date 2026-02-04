@@ -103,17 +103,21 @@ export class CandleBackfillService {
         return result;
       }
 
-      // Insert in batches of 1000 to avoid payload limits
+      // CCIP FIX: Use upsert instead of insert to handle duplicates gracefully
+      // This prevents 409 Conflict errors when backfilling overlapping timeframes
       const batchSize = 1000;
       for (let i = 0; i < candlesToInsert.length; i += batchSize) {
         const batch = candlesToInsert.slice(i, i + batchSize);
 
         const { error, count } = await supabase
           .from('forex_candles')
-          .insert(batch);
+          .upsert(batch, {
+            onConflict: 'symbol,timeframe,open_time',
+            ignoreDuplicates: true
+          });
 
         if (error) {
-          logger.error('[BackfillService] Insert error:', error);
+          logger.error('[BackfillService] Upsert error:', error);
           result.errors += batch.length;
         } else {
           result.inserted += count || batch.length;

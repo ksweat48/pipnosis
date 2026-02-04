@@ -182,12 +182,17 @@ Deno.serve(async (req: Request) => {
           for (let i = 0; i < transformedCandles.length; i += BATCH_SIZE) {
             const batch = transformedCandles.slice(i, i + BATCH_SIZE);
 
+            // CCIP FIX: Use upsert instead of insert to handle duplicates
+            // This prevents 409 Conflict errors when backfilling overlapping timeframes
             const { error: insertError } = await supabase
               .from('forex_candles')
-              .insert(batch);
+              .upsert(batch, {
+                onConflict: 'symbol,timeframe,open_time',
+                ignoreDuplicates: true
+              });
 
             if (insertError) {
-              throw new Error(`Failed to insert batch: ${insertError.message}`);
+              throw new Error(`Failed to upsert batch: ${insertError.message}`);
             }
 
             savedCount += batch.length;

@@ -4,6 +4,7 @@ import { getTimeframeMinutes, CandleData } from '@/services/candle-data-service'
 import { emergencyPricePoller } from '@/services/emergency-price-poller';
 import { logger, LogCategory } from '@/lib/logger';
 import { getForexMarketStatus, isMarketOpenAt } from '@/utils/marketHours';
+import { candleConflictHandler } from '@/services/candle-conflict-handler';
 
 interface CandleState {
   time: number;
@@ -125,21 +126,41 @@ class BackgroundCandleAggregator {
       const dbTimeframe = appTimeframeToDb(timeframe);
       const dbCandleRecord = { ...candleRecord, timeframe: dbTimeframe };
 
-      const { error: forexError } = await supabase
-        .from('forex_candles')
-        .upsert(dbCandleRecord, {
-          onConflict: 'symbol,timeframe,open_time',
-          ignoreDuplicates: false
-        });
+      // CCIP GOVERNANCE: Use conflict handler for resilient upserts
+      // This implements exponential backoff, retry logic, and conflict tracking
+      const result = await candleConflictHandler.upsertCandleWithRetry(
+        dbCandleRecord,
+        {
+          authority: 'background-aggregator',
+          maxRetries: 3,
+          initialBackoffMs: 100,
+          maxBackoffMs: 2000,
+        }
+      );
 
-      if (forexError) {
-        console.error(`[BackgroundAggregator] Failed to save ${symbol} ${timeframe} (db: ${dbTimeframe}):`, forexError);
+      if (!result.success) {
+        logger.error(
+          LogCategory.BACKGROUND_AGGREGATOR,
+          `[BackgroundAggregator] Failed to save ${symbol} ${timeframe} after ${result.retryCount} retries`,
+          { error: result.error, wasConflict: result.wasConflict }
+        );
+        // Don't throw - queue for retry later
+        this.queueCandleForSave(symbol, timeframe, candle);
         return;
       }
 
-      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` ✓ Saved ${symbol} ${timeframe} candle at ${openTime.toISOString()} (${candle.tickCount} ticks)`);
+      logger.debug(
+        LogCategory.BACKGROUND_AGGREGATOR,
+        `✓ Saved ${symbol} ${timeframe} candle at ${openTime.toISOString()} (${candle.tickCount} ticks, retries: ${result.retryCount})`
+      );
     } catch (error) {
-      console.error(`[BackgroundAggregator] Error saving ${symbol} ${timeframe}:`, error);
+      logger.error(
+        LogCategory.BACKGROUND_AGGREGATOR,
+        `[BackgroundAggregator] Exception saving ${symbol} ${timeframe}:`,
+        error
+      );
+      // Queue for retry
+      this.queueCandleForSave(symbol, timeframe, candle);
     }
   }
 
