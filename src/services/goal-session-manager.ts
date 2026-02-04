@@ -163,12 +163,15 @@ class GoalSessionManager {
       // This creates a new entity (not updating existing), so coordinator delegation not required
       // All subsequent status transitions MUST use goalSessionStateMachine.transition()
       // CCIP: timeframe is validated above before storage
+      // CCIP GOVERNANCE: Set original_target_value = target_value (immutable from creation)
       const { data, error } = await supabase
         .from('goal_sessions')
         .insert({
           user_id: userId,
           goal_type: config.goalType,
           target_value: config.targetValue,
+          original_target_value: config.targetValue,
+          user_accepted_adjustment: false,
           timeframe: validatedTimeframe,
           timeframe_hours: timeframeHours,
           risk_mode: config.riskMode,

@@ -47,6 +47,7 @@ import { alphaThoughtStream } from './alpha-thought-stream';
 import { MarketDataService } from './market-data-service';
 import { CCIPTradeExecutionTracker } from './ccip-trade-execution-tracker';
 import { CCIPConfidenceGateAdjustment } from './ccip-confidence-gate-adjustment';
+import { goalAdvisoryCoordinator } from './goal-advisory-coordinator';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
@@ -1693,17 +1694,44 @@ class GoalSessionLiveEngine {
         goalWasAdjusted = dualTargets.goalAdjusted;
 
         // Store market assessment in session for transparency
+        // CCIP FIX: NEVER silently update target_value!
+        // If adjustedGoal exists, create an advisory for user to accept/reject
         if (marketAssessment && activeSession) {
+          // First, update market assessment fields only (do NOT update target_value)
           await supabase
             .from('goal_sessions')
             .update({
               predicted_profit_min: marketAssessment.predictedProfitMin,
               predicted_profit_max: marketAssessment.predictedProfitMax,
               market_assessment_confidence: marketAssessment.confidence,
-              market_assessment_reasoning: marketAssessment.reasoning,
-              ...(dualTargets.adjustedGoal && { target_value: dualTargets.adjustedGoal })
+              market_assessment_reasoning: marketAssessment.reasoning
             })
             .eq('id', activeSession);
+
+          // If there's an adjusted goal (user's goal exceeds market capability),
+          // create an advisory for user to explicitly accept or reject
+          if (dualTargets.adjustedGoal && goalContext.targetGoal > dualTargets.adjustedGoal) {
+            const advisoryResult = await goalAdvisoryCoordinator.createMarketAssessmentAdvisory(
+              activeSession,
+              session.user_id,
+              goalContext.targetGoal,
+              marketAssessment
+            );
+
+            if (advisoryResult) {
+              logger.info(
+                LogCategory.AI_TRADING,
+                '[CCIP Governance] Advisory created instead of silent mutation',
+                {
+                  advisoryId: advisoryResult.advisoryId,
+                  originalGoal: goalContext.targetGoal,
+                  advisoryRecommended: dualTargets.adjustedGoal,
+                  message: advisoryResult.message,
+                  userAction: 'User must explicitly accept or reject'
+                }
+              );
+            }
+          }
         }
 
         // Convert dollar amounts to price levels

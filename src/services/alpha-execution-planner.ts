@@ -12,6 +12,7 @@ import { normalizeTimeframeToDb } from '../utils/timeframe-utils';
 import { goalIntelligenceClassifier, GoalClassification } from './goal-intelligence-classifier';
 import { MarketDataService } from './market-data-service';
 import { getCurrencyPipInfo, calculateDollarPerPip } from '../utils/currencyHelpers';
+import { riskToleranceEnforcer } from './risk-tolerance-enforcer';
 
 export interface TradePlan {
   totalTradesNeeded: number;
@@ -503,8 +504,23 @@ Return ONLY this JSON format (no markdown, no explanations):
       const conservativeMove = currentATR * 1.5;
       const optimisticMove = currentATR * 3.0;
 
-      // Convert price moves to dollar profit (typical position size)
-      const typicalPositionSize = 0.1;
+      // CCIP FIX: Use risk-based position sizing instead of hardcoded 0.1 lots
+      // This ensures market assessment respects user's risk tolerance
+      // OLD BUG: hardcoded 0.1 lot made market estimates too conservative
+      // Assume typical SL distance of 10 pips for estimation purposes
+      const estimatedSLDistance = 10;
+      const positionSizingResult = riskToleranceEnforcer.calculatePositionSizeFromRiskTolerance(
+        symbol,
+        {
+          riskPercentage: 2.0, // Default conservative for estimation
+          riskMode: 'medium',
+          accountBalance: 1000, // Use standard account for market assessment
+        },
+        estimatedSLDistance,
+        currentATR
+      );
+
+      const typicalPositionSize = positionSizingResult.positionSizeLots;
       const pipInfo = getCurrencyPipInfo(symbol);
       const dollarPerPip = calculateDollarPerPip(symbol, typicalPositionSize);
 

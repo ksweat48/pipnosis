@@ -57,6 +57,10 @@ export * from './trade-level-integration';
 export * from './goal-feasibility-resolver';
 export * from './goal-feasibility-audit-logger';
 
+// CCIP Governance: Goal Advisory and Risk Tolerance
+export * from './goal-advisory-coordinator';
+export * from './risk-tolerance-enforcer';
+
 // Existing Services
 export * from './openai-client';
 export * from './database-service';
