@@ -51,8 +51,14 @@ function getSessionInfo(): SessionInfo {
   };
 
   const info = sessionMap[session];
+
+  // Convert session name to database format (handle both NewYork and Overlap)
+  let dbSessionName = session;
+  if (session === 'NewYork') dbSessionName = 'New York';
+  if (session === 'Overlap') dbSessionName = 'New York';
+
   return {
-    name: session === 'Overlap' ? 'New York' : session,
+    name: dbSessionName,
     startHour: info.start,
     endHour: info.end,
   };
