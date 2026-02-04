@@ -116,7 +116,7 @@ class FreshnessBlockLogger {
     this.logQueue = [];
 
     try {
-      const inserts = batch.map(entry => ({
+      const cacheStatsInserts = batch.map(entry => ({
         cache_tier: entry.cacheTier,
         event_type: 'block',
         symbol: entry.symbol,
@@ -127,21 +127,46 @@ class FreshnessBlockLogger {
         }
       }));
 
-      const { error } = await supabase
-        .from('cache_stats_log')
-        .insert(inserts);
+      const freshnessBlockInserts = batch.map(entry => ({
+        category: entry.blockCategory,
+        symbol: entry.symbol,
+        timeframe: entry.timeframe,
+        metadata: entry.blockMetadata,
+        auto_refresh_attempted: entry.blockMetadata.refreshAttempted || false,
+        auto_refresh_success: entry.blockMetadata.wasAutoRefreshed || false
+      }));
 
-      if (error) {
-        logger.error(
+      const results = await Promise.allSettled([
+        supabase.from('cache_stats_log').insert(cacheStatsInserts),
+        supabase.from('freshness_block_logs').insert(freshnessBlockInserts)
+      ]);
+
+      const cacheStatsResult = results[0];
+      const freshnessBlockResult = results[1];
+
+      const cacheStatsError = cacheStatsResult.status === 'rejected' ? cacheStatsResult.reason : (cacheStatsResult.value as any).error;
+      const freshnessBlockError = freshnessBlockResult.status === 'rejected' ? freshnessBlockResult.reason : (freshnessBlockResult.value as any).error;
+
+      const cacheStatsSuccess = cacheStatsResult.status === 'fulfilled' && !cacheStatsError;
+      const freshnessBlockSuccess = freshnessBlockResult.status === 'fulfilled' && !freshnessBlockError;
+
+      if (!cacheStatsSuccess || !freshnessBlockSuccess) {
+        logger.warn(
           LogCategory.AI_TRADING,
-          `[BlockLogger] ❌ Failed to flush ${batch.length} block events`,
-          { error: error.message }
+          `[BlockLogger] ⚠️ Partial flush of ${batch.length} block events`,
+          {
+            cacheStats: cacheStatsSuccess ? 'OK' : cacheStatsError?.message || 'Failed',
+            freshnessBlocks: freshnessBlockSuccess ? 'OK' : freshnessBlockError?.message || 'Failed'
+          }
         );
-        this.logQueue.push(...batch);
+
+        if (!cacheStatsSuccess && !freshnessBlockSuccess) {
+          this.logQueue.push(...batch);
+        }
       } else {
         logger.info(
           LogCategory.AI_TRADING,
-          `[BlockLogger] ✅ Flushed ${batch.length} block events to database`
+          `[BlockLogger] ✅ Flushed ${batch.length} block events to both analytics tiers (SSOT-compliant)`
         );
       }
     } catch (err) {

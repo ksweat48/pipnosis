@@ -112,6 +112,24 @@ const AppRoutes: React.FC = () => {
       console.error('[App] Error initializing cache:', error);
     });
 
+    // CACHE INTELLIGENCE: Initialize cache warming for SSOT compliance
+    // Pre-populates alpha thesis cache to improve hit rates (target 60-85%)
+    const initCacheWarming = async () => {
+      try {
+        const { thesisCacheWarmer } = await import('./services/thesis-cache-warmer');
+        console.log('[App] Starting cache warming for alpha thesis optimization...');
+
+        await thesisCacheWarmer.warmCache();
+
+        console.log('[App] ✅ Cache warming complete - SSOT-compliant cache ready');
+      } catch (error) {
+        console.warn('[App] Cache warming failed (non-blocking):', error);
+      }
+    };
+
+    // Run warming async - don't block app startup
+    initCacheWarming();
+
     // Initialize deployment detector in production
     if (import.meta.env.PROD) {
       const initDeploymentDetector = async () => {
