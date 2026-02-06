@@ -109,18 +109,16 @@ class CandlePersistenceService {
       const dbTimeframe = appTimeframeToDb(timeframe);
       const dbCandleRecord = { ...candleRecord, timeframe: dbTimeframe };
 
-      const { error: forexError } = await supabase
-        .from('forex_candles')
-        .upsert(dbCandleRecord, {
-          onConflict: 'symbol,timeframe,open_time',
-          ignoreDuplicates: false
-        });
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('upsert_forex_candle', {
+        candle_data: dbCandleRecord,
+      });
 
-      if (forexError) {
-        console.error(`[CandlePersistence] Failed to save to forex_candles (${timeframe} -> ${dbTimeframe}):`, forexError);
+      if (rpcError || !rpcResult?.success) {
+        const errMsg = rpcError?.message || rpcResult?.error || 'RPC upsert failed';
+        console.error(`[CandlePersistence] Failed to save to forex_candles (${timeframe} -> ${dbTimeframe}):`, errMsg);
         return {
           success: false,
-          error: forexError.message
+          error: errMsg
         };
       }
 

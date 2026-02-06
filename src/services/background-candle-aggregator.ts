@@ -141,11 +141,9 @@ class BackgroundCandleAggregator {
       if (!result.success) {
         logger.error(
           LogCategory.BACKGROUND_AGGREGATOR,
-          `[BackgroundAggregator] Failed to save ${symbol} ${timeframe} after ${result.retryCount} retries`,
+          `[BackgroundAggregator] Failed to save ${symbol} ${timeframe} after ${result.retryCount} retries - dropping candle to prevent retry flood`,
           { error: result.error, wasConflict: result.wasConflict }
         );
-        // Don't throw - queue for retry later
-        this.queueCandleForSave(symbol, timeframe, candle);
         return;
       }
 
@@ -156,11 +154,9 @@ class BackgroundCandleAggregator {
     } catch (error) {
       logger.error(
         LogCategory.BACKGROUND_AGGREGATOR,
-        `[BackgroundAggregator] Exception saving ${symbol} ${timeframe}:`,
+        `[BackgroundAggregator] Exception saving ${symbol} ${timeframe} - dropping candle to prevent retry flood`,
         error
       );
-      // Queue for retry
-      this.queueCandleForSave(symbol, timeframe, candle);
     }
   }
 
@@ -566,21 +562,14 @@ class BackgroundCandleAggregator {
 
   private async checkServerSideAggregation(): Promise<boolean> {
     try {
-      // Check if Netlify continuous-candle-aggregator is working by checking recent candles
-      const { data, error } = await supabase
-        .from('forex_candles')
-        .select('open_time, data_source')
-        .eq('data_source', 'netlify_aggregator')
-        .order('open_time', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const { data, error } = await supabase.rpc('check_server_side_aggregation' as any);
 
       if (error) {
-        logger.debug(LogCategory.BACKGROUND_AGGREGATOR, 'Server-side aggregation check: error', error.message);
+        logger.debug(LogCategory.BACKGROUND_AGGREGATOR, 'Server-side aggregation check: RPC not available, skipping');
         return false;
       }
 
-      if (!data) {
+      if (!data?.open_time) {
         logger.debug(LogCategory.BACKGROUND_AGGREGATOR, 'Server-side aggregation check: no netlify_aggregator candles found');
         return false;
       }
@@ -588,7 +577,6 @@ class BackgroundCandleAggregator {
       const lastUpdate = new Date(data.open_time).getTime();
       const ageSeconds = (Date.now() - lastUpdate) / 1000;
 
-      // Netlify aggregator runs every 5 minutes, so data within 10 minutes is considered active
       if (ageSeconds < 600) {
         logger.debug(LogCategory.BACKGROUND_AGGREGATOR, `Server-side aggregation active (last candle ${Math.round(ageSeconds)}s ago)`);
         return true;
@@ -597,7 +585,7 @@ class BackgroundCandleAggregator {
         return false;
       }
     } catch (error) {
-      console.error('[BackgroundAggregator] Error checking server-side aggregation:', error);
+      logger.debug(LogCategory.BACKGROUND_AGGREGATOR, 'Server-side aggregation check failed, assuming not active');
       return false;
     }
   }

@@ -80,25 +80,17 @@ class CandleConflictHandler {
 
     while (retryCount <= maxRetries) {
       try {
-        // Attempt upsert
-        const { data, error } = await supabase
-          .from('forex_candles')
-          .upsert(candle, {
-            onConflict: 'symbol,timeframe,open_time',
-            ignoreDuplicates: false,
-          })
-          .select()
-          .single();
+        const { data, error } = await supabase.rpc('upsert_forex_candle', {
+          candle_data: candle,
+        });
 
-        // Success
-        if (!error) {
+        if (!error && data?.success) {
           logger.debug(
             LogCategory.BACKGROUND_AGGREGATOR,
             `[Candle Conflict] SUCCESS: ${candle.symbol} ${candle.timeframe} at ${candle.open_time}`,
             { retryCount, operation: 'upsert_succeeded' }
           );
 
-          // Log to audit table
           await this.logCandleWriteAttempt(
             candle,
             authority,
@@ -116,11 +108,12 @@ class CandleConflictHandler {
           };
         }
 
-        lastError = error;
+        const rpcError = error || { message: data?.error || 'RPC returned failure', code: 'RPC_FAIL' };
 
-        // Determine if error is retryable
-        const isRetryable = this.isRetryableError(error);
-        wasConflict = error?.code === '23505' || error?.status === 409;
+        lastError = rpcError;
+
+        const isRetryable = this.isRetryableError(rpcError);
+        wasConflict = rpcError?.code === '23505' || rpcError?.status === 409;
 
         logger.warn(
           LogCategory.BACKGROUND_AGGREGATOR,
@@ -128,18 +121,17 @@ class CandleConflictHandler {
           {
             symbol: candle.symbol,
             timeframe: candle.timeframe,
-            errorCode: error?.code,
-            errorStatus: error?.status,
+            errorCode: rpcError?.code,
+            errorStatus: rpcError?.status,
             isConflict: wasConflict,
           }
         );
 
-        // Non-retryable errors: give up immediately
         if (!isRetryable) {
           logger.error(
             LogCategory.BACKGROUND_AGGREGATOR,
-            `[Candle Conflict] FATAL ERROR - not retrying: ${error?.message}`,
-            { candle, error }
+            `[Candle Conflict] FATAL ERROR - not retrying: ${rpcError?.message}`,
+            { candle, error: rpcError }
           );
 
           await this.logCandleWriteAttempt(
@@ -147,13 +139,13 @@ class CandleConflictHandler {
             authority,
             'upsert',
             true,
-            error?.message || 'Non-retryable error',
+            rpcError?.message || 'Non-retryable error',
             'fatal_error'
           );
 
           return {
             success: false,
-            error: error?.message,
+            error: rpcError?.message,
             retryCount,
             wasConflict,
             operation: 'failed',
