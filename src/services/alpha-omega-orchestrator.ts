@@ -401,16 +401,10 @@ class AlphaOmegaOrchestrator {
         vol: snapshot.volatility,
         c: snapshot.candles.slice(-5).map(c => [c.open, c.high, c.low, c.close]),
         wick_ratio: this.calculateWickRatio(snapshot.candles.slice(-5).map(c => [c.open, c.high, c.low, c.close])),
+        trend: snapshot.trend, // TIER 7: Pass trend for directional awareness
         regime: marketState.regime ? {
-          volatility_score: marketState.regime.volatility_score,
-          atr_compression: marketState.regime.atr_compression,
-          atr_expansion: marketState.regime.atr_expansion,
-          wick_risk: marketState.regime.wick_risk,
+          market_bias: marketState.regime.market_bias, // TIER 7: Pass market bias for direction
           volatility_trend: marketState.regime.volatility_trend
-        } : undefined,
-        adv: marketState.adversarial ? {
-          lvl: marketState.adversarial.level,
-          score: marketState.adversarial.suspicion_score
         } : undefined
       }), 'Omega Volatility'),
 

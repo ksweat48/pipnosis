@@ -15,6 +15,7 @@
 import { supabase } from '@/lib/supabase';
 import { calculatePnL } from '@/types/position';
 import type { GoalSessionTrade } from '@/types/position';
+import { calculatePipDistance } from '@/utils/currencyHelpers'; // TIER 7: SSOT pip calculations
 
 export interface MidTradeGuidance {
   tradeId: string;
@@ -270,6 +271,10 @@ class MidTradeMonitorService {
           stalePriceWarning = `CAUTION: Price data is ${Math.round(priceAgeSeconds / 60)} minutes old`;
         }
 
+        // TIER 7: Use SSOT pip calculation
+        const distanceToSLPips = calculatePipDistance(trade.symbol, currentPrice, trade.stop_loss);
+        const distanceToTPPips = calculatePipDistance(trade.symbol, currentPrice, trade.take_profit);
+
         guidanceList.push({
           tradeId: trade.id,
           symbol: trade.symbol,
@@ -282,8 +287,8 @@ class MidTradeMonitorService {
           takeProfit2: trade.take_profit_2,
           currentPnL: pnl,
           timeInTrade,
-          distanceToSL: distanceToSL / 0.0001, // Convert to pips
-          distanceToTP: distanceToTP / 0.0001,
+          distanceToSL: distanceToSLPips, // TIER 7: SSOT pip distance
+          distanceToTP: distanceToTPPips, // TIER 7: SSOT pip distance
           drawdownPercent,
           urgencyScore: guidance.urgencyScore,
           primaryAction: guidance.action,

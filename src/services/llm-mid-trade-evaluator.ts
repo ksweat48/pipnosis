@@ -11,6 +11,7 @@ import { openAIClient } from './openai-client';
 import type { SimulatedTrade } from '../types';
 import type { TriggerDetectionResult, MarketConditions } from './mid-trade-trigger-detector';
 import type { PrioritizedLevel } from './critical-level-detector';
+import { calculatePipDistance } from '../utils/currencyHelpers'; // TIER 7: SSOT pip calculations
 
 export interface MidTradeEvaluationRequest {
   trade: SimulatedTrade;
@@ -124,7 +125,9 @@ class LLMMidTradeEvaluator {
     const priceDiff = isLong
       ? (currentPrice - trade.entryPrice)
       : (trade.entryPrice - currentPrice);
-    const pips = priceDiff / 0.0001;
+
+    // TIER 7: Use SSOT pip calculation instead of hardcoded 0.0001
+    const pips = calculatePipDistance(trade.symbol, currentPrice, trade.entryPrice);
     const pnl = pips * 10 * trade.positionSize;
 
     const risk = Math.abs(trade.entryPrice - trade.stopLoss);
@@ -132,8 +135,9 @@ class LLMMidTradeEvaluator {
 
     const timeInTrade = Math.floor((Date.now() - trade.entryTime.getTime()) / 60000);
 
-    const distanceToSL = Math.abs(currentPrice - trade.stopLoss) / 0.0001;
-    const distanceToTP = Math.abs(currentPrice - trade.takeProfit) / 0.0001;
+    // TIER 7: Use SSOT pip calculation for distances
+    const distanceToSL = calculatePipDistance(trade.symbol, currentPrice, trade.stopLoss);
+    const distanceToTP = calculatePipDistance(trade.symbol, currentPrice, trade.takeProfit);
 
     let prompt = `ACTIVE TRADE EVALUATION
 
@@ -303,9 +307,10 @@ NEW_TP: [price if MOVE_TP, else N/A]`;
       const newTP = result.suggestedActions.newTakeProfit;
 
       // New TP should be reasonable (not beyond 200 pips)
-      const tpDistance = Math.abs(newTP - trade.entryPrice);
-      if (tpDistance > 0.02) { // 200 pips
-        violations.push(`New TP too far from entry (${(tpDistance / 0.0001).toFixed(0)} pips)`);
+      // TIER 7: Use SSOT pip calculation
+      const tpDistancePips = calculatePipDistance(trade.symbol, newTP, trade.entryPrice);
+      if (tpDistancePips > 200) { // 200 pips
+        violations.push(`New TP too far from entry (${tpDistancePips.toFixed(0)} pips)`);
       }
     }
 

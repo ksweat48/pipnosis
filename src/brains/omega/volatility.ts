@@ -24,16 +24,48 @@ export interface VolatilitySnapshot {
   c: number[][];
   wick_ratio: number;
   sensors?: OmegaSensors;
+  candidateDirection?: 'BUY' | 'SELL'; // TIER 7: Enable directional awareness
+  trend?: string; // Market trend for directional hints
+  regime?: {
+    market_bias?: string;
+    volatility_trend?: string;
+  };
 }
 
 class OmegaVolatilityBrain {
   evaluate(snapshot: VolatilitySnapshot): OmegaVote {
-    const { atr, atr_avg, vol, c, wick_ratio, sensors } = snapshot;
+    const { atr, atr_avg, vol, c, wick_ratio, sensors, candidateDirection, trend, regime } = snapshot;
 
     const atrAnalysis = analyzeATR(atr, atr_avg);
 
     let score = 0;
     const factors: string[] = [];
+
+    // TIER 7: Determine candidate direction from market context if not provided
+    let tradeDirection: 'BUY' | 'SELL' = candidateDirection || 'BUY'; // Default fallback
+
+    if (!candidateDirection) {
+      // Infer from trend or regime bias
+      const trendLower = trend?.toLowerCase() || '';
+      const biaslower = regime?.market_bias?.toLowerCase() || '';
+
+      if (trendLower.includes('bear') || biaslower.includes('bear') || biaslower.includes('short')) {
+        tradeDirection = 'SELL';
+        factors.push('BIAS_BEARISH');
+      } else if (trendLower.includes('bull') || biaslower.includes('bull') || biaslower.includes('long')) {
+        tradeDirection = 'BUY';
+        factors.push('BIAS_BULLISH');
+      } else {
+        // Neutral/sideways: favor compression breakouts in volatility expansion direction
+        if (regime?.volatility_trend?.toLowerCase().includes('up')) {
+          tradeDirection = 'BUY'; // Rising volatility often favors continuation
+          factors.push('VOL_TREND_UP');
+        } else {
+          tradeDirection = 'BUY'; // Default when no clear direction
+          factors.push('BIAS_NEUTRAL');
+        }
+      }
+    }
 
     if (atrAnalysis.regime === 'NORMAL') {
       score += 25;
@@ -116,12 +148,13 @@ class OmegaVolatilityBrain {
     let vote: 'BUY' | 'SELL' | 'NO_TRADE';
     let confidence: number;
 
+    // TIER 7 FIX: Vote in the determined trade direction (BUY/SELL) if volatility is favorable
     if (score >= 35) {
-      vote = 'BUY';
+      vote = tradeDirection; // Vote in candidate direction
       confidence = Math.min(90, 55 + score * 0.6);
       factors.push('VOL_FAVORABLE');
     } else if (score >= 20) {
-      vote = 'BUY';
+      vote = tradeDirection; // Vote in candidate direction
       confidence = Math.min(70, 45 + score * 0.5);
       factors.push('VOL_ACCEPTABLE');
     } else if (score <= -15) {
