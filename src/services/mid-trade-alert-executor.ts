@@ -56,7 +56,9 @@ class MidTradeAlertExecutor {
     this.isExecuting = true;
 
     try {
-      // Find alerts that need execution
+      // TIER 1.8 NOTE: Query fetches all expired alerts, then filters by trade status individually
+      // Trade status IS checked (line 128), just not at query level
+      // This is acceptable for small batches (limit 10) and avoids complex JSONB joins
       const { data: expiredAlerts, error: fetchError } = await supabase
         .from('goal_notifications')
         .select('*')
