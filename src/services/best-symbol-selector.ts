@@ -109,14 +109,17 @@ class BestSymbolSelector {
 
       // Gate 2: Not NO_TRADE
       if (decision.action === 'NO_TRADE') {
+        // TIER7 FIX: Classify NO_TRADE reason for better debugging
+        const noTradeClassification = this.classifyNoTrade(decision);
+
         eligibilityChecks.push({
           passed: false,
-          reason: 'NO_TRADE action',
+          reason: `NO_TRADE: ${noTradeClassification.category}`,
           gate: 'TRADEABLE_ACTION',
         });
         rejectedEvaluations.push({
           symbol: snapshot.symbol,
-          reason: 'NO_TRADE decision',
+          reason: `NO_TRADE: ${noTradeClassification.detail}`,
           gate: 'TRADEABLE_ACTION',
         });
         continue;
@@ -511,6 +514,70 @@ class BestSymbolSelector {
     }
 
     console.log('\n========================================\n');
+  }
+
+  /**
+   * TIER7 FIX: Classify NO_TRADE decisions for better debugging
+   * Distinguishes between timeout failures, market rejections, and low confidence
+   */
+  private classifyNoTrade(decision: AlphaDecision): { category: string; detail: string } {
+    const reasoning = decision.reasoning?.toLowerCase() || '';
+    const omegaSummary = decision.omega_summary?.toLowerCase() || '';
+    const errorType = (decision as any).errorType;
+
+    // Check for timeout failures
+    if (errorType === 'TIMEOUT_FAILURE' || reasoning.includes('timeout') || omegaSummary.includes('timeout')) {
+      return {
+        category: 'Timeout Failure',
+        detail: `Evaluation timeout - LLM API exceeded time limit [${reasoning.substring(0, 100)}]`
+      };
+    }
+
+    // Check for system errors
+    if (errorType === 'SYSTEM_ERROR' || reasoning.includes('failed') || reasoning.includes('error')) {
+      return {
+        category: 'System Error',
+        detail: `System error during evaluation [${reasoning.substring(0, 100)}]`
+      };
+    }
+
+    // Check for data integrity issues
+    if (reasoning.includes('ssot') || reasoning.includes('invalid') || reasoning.includes('blocked')) {
+      return {
+        category: 'Data Integrity',
+        detail: `Data validation failed [${reasoning.substring(0, 100)}]`
+      };
+    }
+
+    // Check for market condition rejections
+    if (reasoning.includes('market') || reasoning.includes('conditions') || reasoning.includes('regime')) {
+      return {
+        category: 'Market Conditions',
+        detail: `Market conditions unfavorable [${reasoning.substring(0, 100)}]`
+      };
+    }
+
+    // Check for low confidence
+    if (decision.confidence === 0 || decision.confidence < 30) {
+      return {
+        category: 'Low Confidence',
+        detail: `Alpha confidence ${decision.confidence}% - setup quality insufficient`
+      };
+    }
+
+    // Check for Omega conflicts
+    if (reasoning.includes('conflict') || reasoning.includes('disagree')) {
+      return {
+        category: 'Omega Conflict',
+        detail: `Omega council conflict - no clear directional consensus`
+      };
+    }
+
+    // Default classification
+    return {
+      category: 'General Rejection',
+      detail: decision.reasoning || 'No trade opportunity identified'
+    };
   }
 }
 

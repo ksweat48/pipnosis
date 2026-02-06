@@ -124,17 +124,18 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
 
   concurrency: {
     maxConcurrentSymbols: 0, // 0 = unlimited, analyze all symbols at once
-    symbolTimeoutMs: 30000, // 30 seconds per symbol (base timeout)
-    batchTimeoutMs: 60000, // 60 seconds total batch timeout
+    symbolTimeoutMs: 45000, // 45 seconds per symbol (increased for real-world LLM latency)
+    batchTimeoutMs: 90000, // 90 seconds total batch timeout (increased proportionally)
 
-    // Session-specific timeouts for optimal performance
+    // Session-specific timeouts optimized for real-world OpenAI API latency
+    // TIER7 FIX: Increased from 25-35s to 40-70s based on production timeout analysis
     useSessionTimeouts: true,
     sessionTimeouts: {
-      asian: 25000,     // 25s - Lower volatility, faster pattern recognition
-      london: 30000,    // 30s - Moderate complexity
-      nyse: 30000,      // 30s - High volatility but clear trends
-      overlap: 35000,   // 35s - Highest complexity (London+NYSE concurrent)
-      off_hours: 20000, // 20s - Limited market activity, faster rejections
+      asian: 40000,     // 40s - Lower volatility but accounting for API latency
+      london: 50000,    // 50s - Moderate complexity with LLM calls
+      nyse: 60000,      // 60s - High volatility + complex thesis generation
+      overlap: 70000,   // 70s - Highest complexity (London+NYSE concurrent + thesis cache misses)
+      off_hours: 35000, // 35s - Limited market activity but still allowing full LLM execution
     },
   },
 
@@ -164,7 +165,7 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
 
   governance: {
     enabled: true, // Enable governance tracking
-    alertThresholdMs: 45000, // Alert if batch takes > 45 seconds (adjusted for 30-35s timeouts)
+    alertThresholdMs: 75000, // Alert if batch takes > 75 seconds (adjusted for 40-70s timeouts)
     alertErrorRatePercent: 20, // Alert if > 20% of symbols fail
   },
 };

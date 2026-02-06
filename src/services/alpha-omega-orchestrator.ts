@@ -804,12 +804,30 @@ class AlphaOmegaOrchestrator {
         console.log(`  Multipliers: ${stopLossMultiplier.toFixed(2)}x SL / ${takeProfitMultiplier.toFixed(2)}x TP`);
         console.log(`  Proposed SL: ${proposedSL.toFixed(5)} (${slDistancePips.toFixed(1)} pips from entry)`);
 
-        // Evaluate with session-aware timeout
+        // Evaluate with session-aware timeout and progressive warnings
         const decision = await Promise.race([
           this.makeTradeDecision(marketState, traderScore, proposedSL, proposedTP, goalContext, userId),
-          new Promise<AlphaDecision>((_, reject) =>
-            setTimeout(() => reject(new Error(`Symbol evaluation timeout (${sessionTimeout}ms - ${currentSession} session)`)), sessionTimeout)
-          )
+          new Promise<AlphaDecision>((_, reject) => {
+            // Progressive timeout warnings
+            const warn50 = setTimeout(() => {
+              console.warn(`[Alpha+Omega] ⏱️  ${marketState.symbol}: 50% timeout reached (${sessionTimeout / 2}ms elapsed)`);
+            }, sessionTimeout * 0.5);
+
+            const warn75 = setTimeout(() => {
+              console.warn(`[Alpha+Omega] ⚠️  ${marketState.symbol}: 75% timeout reached (${sessionTimeout * 0.75}ms elapsed) - approaching limit`);
+            }, sessionTimeout * 0.75);
+
+            const warn90 = setTimeout(() => {
+              console.error(`[Alpha+Omega] 🚨 ${marketState.symbol}: 90% timeout reached (${sessionTimeout * 0.9}ms elapsed) - critical`);
+            }, sessionTimeout * 0.9);
+
+            setTimeout(() => {
+              clearTimeout(warn50);
+              clearTimeout(warn75);
+              clearTimeout(warn90);
+              reject(new Error(`Symbol evaluation timeout (${sessionTimeout}ms - ${currentSession} session)`));
+            }, sessionTimeout);
+          })
         ]);
 
         const timing = Date.now() - symbolStartTime;
@@ -819,7 +837,28 @@ class AlphaOmegaOrchestrator {
 
       } catch (error) {
         const timing = Date.now() - symbolStartTime;
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const isTimeout = errorMessage.includes('timeout');
+
         console.error(`[Alpha+Omega] ❌ ${marketState.symbol} failed (${timing}ms):`, error);
+
+        // Classify error type for NO_TRADE forensics
+        let errorType = 'SYSTEM_ERROR';
+        let errorReasoning = `Evaluation failed: ${errorMessage}`;
+        let errorSummary = 'System error during evaluation';
+
+        if (isTimeout) {
+          errorType = 'TIMEOUT_FAILURE';
+          errorReasoning = `Evaluation timeout after ${timing}ms - LLM API latency exceeded ${sessionTimeout}ms limit`;
+          errorSummary = `Timeout: Evaluation exceeded ${(sessionTimeout / 1000).toFixed(1)}s limit (current session: ${sessionDescription})`;
+
+          // Log detailed timeout forensics
+          console.error(`[Alpha+Omega Timeout Forensics] ${marketState.symbol}:`);
+          console.error(`  Session: ${sessionDescription} (${currentSession})`);
+          console.error(`  Timeout Limit: ${sessionTimeout}ms`);
+          console.error(`  Actual Duration: ${timing}ms`);
+          console.error(`  Overage: ${timing - sessionTimeout}ms (${((timing / sessionTimeout) * 100).toFixed(0)}% of limit)`);
+        }
 
         const errorDecision: AlphaDecision = {
           action: 'NO_TRADE' as const,
@@ -828,9 +867,10 @@ class AlphaOmegaOrchestrator {
           stopLoss: marketState.price,
           takeProfit: marketState.price,
           confidence: 0,
-          reasoning: `Evaluation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          omega_summary: 'System error during evaluation'
-        };
+          reasoning: errorReasoning,
+          omega_summary: errorSummary,
+          errorType // Add error classification for debugging
+        } as AlphaDecision & { errorType: string };
 
         return { symbol: marketState.symbol, decision: errorDecision, timing };
       }

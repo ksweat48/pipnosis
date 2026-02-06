@@ -44,6 +44,39 @@ function stableStringify(obj: any): string {
 }
 
 /**
+ * Normalize thesis content for hash comparison
+ * TIER7 FIX: Ensures regime signature is serialized consistently
+ *
+ * Problem: Database reconstructs regime signature from separate columns,
+ * causing different property ordering than original object
+ *
+ * Solution: Re-serialize with stable ordering before hash comparison
+ */
+export function normalizeThesisForHashing(thesis: AlphaMarketThesis): string {
+  // Create stable representation of thesis content for hashing
+  const stableThesis = {
+    symbol: thesis.symbol,
+    directionBias: thesis.directionBias,
+    narrative: thesis.narrative,
+    regime: thesis.regime,
+    liquidityContext: thesis.liquidityContext || '',
+    invalidationLogic: thesis.invalidationLogic || '',
+    confidenceBand: thesis.confidenceBand,
+    thesisSummary: thesis.thesisSummary,
+    // Normalize regime signature with stable ordering
+    regimeSignature: thesis.regimeSignature ? {
+      symbol: thesis.regimeSignature.symbol,
+      htfBias: thesis.regimeSignature.htfBias,
+      microRegime: thesis.regimeSignature.microRegime,
+      volatilityRegime: thesis.regimeSignature.volatilityRegime,
+      structureState: thesis.regimeSignature.structureState
+    } : null
+  };
+
+  return stableStringify(stableThesis);
+}
+
+/**
  * Freeze thesis object to prevent mutation
  * Uses Object.freeze() for runtime immutability
  */
@@ -71,12 +104,17 @@ export function freezeThesis(thesis: AlphaMarketThesis): Readonly<AlphaMarketThe
  * NOTE: Hash mismatches from cached data are EXPECTED when regime conditions change.
  * The system automatically regenerates fresh theses on mismatch - this is normal behavior,
  * not an error. We log at WARN level to track frequency without alarming in production.
+ *
+ * TIER7 FIX: Now uses normalized content for consistent hash comparison
  */
 export function validateThesisHash(
   thesis: AlphaMarketThesis,
-  currentContent: string
+  currentContent?: string
 ): boolean {
-  const computedHash = generateThesisHash(currentContent);
+  // TIER7 FIX: If no content provided, generate normalized content from thesis object
+  // This ensures consistent hashing even when regime signature property order changes
+  const contentToHash = currentContent || normalizeThesisForHashing(thesis);
+  const computedHash = generateThesisHash(contentToHash);
 
   if (computedHash !== thesis.thesisHash) {
     logger.warn('[ThesisImmutabilityGuard] Thesis hash mismatch - regenerating fresh thesis', {
@@ -85,7 +123,8 @@ export function validateThesisHash(
       computedHash,
       fromCache: thesis.fromCache,
       cacheAgeSeconds: thesis.cacheAgeSeconds,
-      note: 'This is expected when market regime changes. Fresh thesis will be generated.'
+      note: 'This is expected when market regime changes. Fresh thesis will be generated.',
+      usedNormalizedContent: !currentContent
     });
 
     return false;
@@ -236,24 +275,11 @@ export function verifyCachedThesisIntegrity(
     };
   }
 
-  // Check hash integrity with stable stringification (SSOT compliance)
-  // CRITICAL: Must use same stringification as createImmutableThesis for consistent hashing
-  // NOTE: regimeSignature is already in correct structure (from DB storage or creation)
-  // No reconstruction needed - use as-is for consistency
-  const thesisContent = stableStringify({
-    symbol: thesis.symbol,
-    timeframe: thesis.timeframe,
-    directionBias: thesis.directionBias,
-    narrative: thesis.narrative,
-    regime: thesis.regime,
-    liquidityContext: thesis.liquidityContext,
-    invalidationLogic: thesis.invalidationLogic,
-    confidenceBand: thesis.confidenceBand,
-    thesisSummary: thesis.thesisSummary,
-    regimeSignature: thesis.regimeSignature
-  });
+  // TIER7 FIX: Use normalized content for consistent hash comparison
+  // This prevents false cache invalidations due to property ordering differences
+  const normalizedContent = normalizeThesisForHashing(thesis);
 
-  if (!validateThesisHash(thesis, thesisContent)) {
+  if (!validateThesisHash(thesis, normalizedContent)) {
     return {
       valid: false,
       reason: 'Hash mismatch (thesis modified or regime changed)'
