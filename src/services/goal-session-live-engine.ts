@@ -814,9 +814,8 @@ class GoalSessionLiveEngine {
       const estimationRef = getEstimationReferenceSymbol();
 
       const ESTIMATION_REFERENCE_ENTRY = estimationRef.referenceEntry;
-      const ESTIMATION_REFERENCE_STOP = estimationRef.symbol === 'EURUSD'
-        ? ESTIMATION_REFERENCE_ENTRY - (estimationRef.referenceStopPips * 0.0001)
-        : ESTIMATION_REFERENCE_ENTRY - (estimationRef.referenceStopPips * 0.01);
+      const refPipInfo = getCurrencyPipInfo(estimationRef.symbol);
+      const ESTIMATION_REFERENCE_STOP = ESTIMATION_REFERENCE_ENTRY - (estimationRef.referenceStopPips * refPipInfo.pipValue);
 
       if (import.meta.env.DEV) {
         console.log(`[Goal Estimation] Using ${estimationRef.symbol} - ${estimationRef.reason}`);
@@ -4503,7 +4502,8 @@ Keep response under 100 words, educational tone.`;
     // Calculate target stop loss amount (inverse of R:R)
     const targetSLAmount = targetProfitPerTrade / targetRR;
 
-    // Calculate stop loss distance in pips
+    // TODO TIER7: Hardcoded 0.0001 - needs symbol parameter to use calculatePipDistance()
+    // This function signature needs refactoring to accept symbol parameter
     const stopLossPips = Math.abs(entryPrice - stopLoss) / 0.0001;
 
     // Calculate lot size to achieve target SL amount
@@ -4556,6 +4556,7 @@ Keep response under 100 words, educational tone.`;
   ): number {
     const riskPercent = getRiskPercentage(riskMode);
     const riskAmount = accountBalance * (riskPercent / 100);
+    // TODO TIER7: Hardcoded 0.0001 - needs symbol parameter to use calculatePipDistance()
     const stopLossPips = Math.abs(entryPrice - stopLoss) / 0.0001;
     const calculatedLotSize = riskAmount / (stopLossPips * 10);
     let lotSize = Math.round(calculatedLotSize * 100) / 100;

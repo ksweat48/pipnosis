@@ -13,6 +13,7 @@
 
 import { supabase } from '../lib/supabase';
 import { MarketDataService } from './market-data-service';
+import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 
 export interface SymbolScore {
   symbol: string;
@@ -78,9 +79,9 @@ class MultiSymbolRanker {
       }
 
       const currentPrice = candles[0].close;
-      const pipFactor = symbol.includes('JPY') ? 0.01 : 0.0001;
+      const pipInfo = getCurrencyPipInfo(symbol);
 
-      const atr = this.calculateATR(candles.slice(0, 20), pipFactor);
+      const atr = this.calculateATR(candles.slice(0, 20), pipInfo.pipValue);
 
       const dailyHigh = Math.max(...candles.map(c => c.high));
       const dailyLow = Math.min(...candles.map(c => c.low));

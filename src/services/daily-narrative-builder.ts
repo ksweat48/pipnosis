@@ -12,6 +12,7 @@
  */
 
 import { marketDataService } from './market-data-service';
+import { getCurrencyPipInfo, calculatePipDistance } from '../utils/currencyHelpers';
 
 export interface DailyNarrative {
   symbol: string;
@@ -80,8 +81,7 @@ class DailyNarrativeBuilder {
       const dailyOpen = candles[0].open;
 
       // Calculate daily range in pips
-      const pipFactor = symbol.includes('JPY') ? 0.01 : 0.0001;
-      const dailyRange = (dailyHigh - dailyLow) / pipFactor;
+      const dailyRange = calculatePipDistance(symbol, dailyHigh, dailyLow);
 
       // Calculate displacement (sum of absolute moves)
       let totalDisplacement = 0;
@@ -165,13 +165,13 @@ class DailyNarrativeBuilder {
    */
   private buildFallbackNarrative(symbol: string, currentPrice: number, dateStr: string): DailyNarrative {
     const currentSession = this.getCurrentSession();
-    const pipFactor = symbol.includes('JPY') ? 0.01 : 0.0001;
+    const pipInfo = getCurrencyPipInfo(symbol);
 
     const estimatedDailyRange = symbol.includes('XAU') ? 200 :
                                  symbol.includes('US30') ? 300 :
                                  symbol.includes('JPY') ? 50 : 60;
 
-    const halfRange = (estimatedDailyRange * pipFactor) / 2;
+    const halfRange = (estimatedDailyRange * pipInfo.pipValue) / 2;
     const estimatedHigh = currentPrice + halfRange;
     const estimatedLow = currentPrice - halfRange;
 

@@ -1,29 +1,26 @@
 /**
- * Mandatory Safety Validator - ONLY Allowed Blocker
+ * Mandatory Safety Validator - Data Integrity Blocker
  *
- * ALPHA SOVEREIGNTY: This is the ONLY service allowed to block trades.
+ * PIPNOSIS IS AN ASSISTANT, NOT A CONTROLLER
  *
- * Permitted blocks (4 categories):
- * 1. Margin/Drawdown Breach - Account risk limits exceeded
- * 2. Market Closed - Symbol halted or outside trading hours
- * 3. Invalid SSOT TradeContext - Missing or corrupted trade context
- * 4. Malformed Order - NaN, invalid decimals, broker format errors
+ * Permitted blocks (3 categories ONLY):
+ * 1. Malformed Order - NaN, invalid decimals, broker format errors
+ * 2. Invalid SSOT TradeContext - Missing or corrupted trade context
+ * 3. Weekend Protection - Forex markets closed (NOT general hours)
  *
- * All other concerns (confidence, distance, volatility, EQS) are ADVISORY ONLY.
+ * REMOVED:
+ * - Drawdown limits (advisory only, never block user)
+ * - Market hours (only weekends matter, not daily hours)
+ * - Margin checks (advisory only)
+ *
+ * All risk concerns are ADVISORY ONLY. User has final control.
  */
 
-import { supabase } from '../lib/supabase';
-import { TRADING_CONSTANTS } from '../config/trading-constants';
 import { logger } from '../lib/logger';
-import { marketScheduleService } from './market-schedule-service';
 import { getSymbolConfig } from '../config/symbol-registry';
 
 export type MandatorySafetyBlockReason =
-  | 'MARGIN_BREACH'
-  | 'DRAWDOWN_BREACH'
-  | 'EXPOSURE_BREACH'
-  | 'MARKET_CLOSED'
-  | 'SYMBOL_HALTED'
+  | 'WEEKEND_CLOSED'
   | 'INVALID_SSOT'
   | 'MISSING_TRADE_CONTEXT'
   | 'MALFORMED_ORDER'
@@ -55,38 +52,32 @@ export class MandatorySafetyValidator {
     lotSize: number,
     tradeContext?: Record<string, any>
   ): Promise<MandatorySafetyResult> {
-    logger.info('[MANDATORY_SAFETY] Starting validation', {
+    logger.info('[MANDATORY_SAFETY] Starting validation (data integrity only)', {
       symbol,
       direction,
       entry,
       lotSize
     });
 
-    // Check 1: Malformed Order
+    // Check 1: Malformed Order (NaN, invalid data)
     const orderCheck = this.validateOrderFormat(symbol, entry, stopLoss, takeProfit, lotSize);
     if (!orderCheck.allowed) {
       return orderCheck;
     }
 
-    // Check 2: Market Closed
-    const marketCheck = await this.validateMarketOpen(symbol);
-    if (!marketCheck.allowed) {
-      return marketCheck;
+    // Check 2: Weekend Protection (Forex only)
+    const weekendCheck = await this.validateNotWeekend(symbol);
+    if (!weekendCheck.allowed) {
+      return weekendCheck;
     }
 
-    // Check 3: Margin/Drawdown/Exposure
-    const riskCheck = await this.validateRiskLimits(userId, sessionId, symbol, lotSize);
-    if (!riskCheck.allowed) {
-      return riskCheck;
-    }
-
-    // Check 4: SSOT Trade Context
+    // Check 3: SSOT Trade Context (data structure validation)
     const ssotCheck = this.validateSSOT(tradeContext);
     if (!ssotCheck.allowed) {
       return ssotCheck;
     }
 
-    logger.info('[MANDATORY_SAFETY] ✅ All safety checks passed');
+    logger.info('[MANDATORY_SAFETY] ✅ Data integrity checks passed');
     return { allowed: true };
   }
 
@@ -156,124 +147,47 @@ export class MandatorySafetyValidator {
   }
 
   /**
-   * Check 2: Validate market is open
-   * Blocks on: Market closed, symbol halted
+   * Check 2: Validate not weekend (Forex protection only)
+   * Blocks on: Weekend (when Forex markets closed)
+   * Does NOT block on daily hours - Pipnosis is an assistant, not a controller
    */
-  private async validateMarketOpen(symbol: string): Promise<MandatorySafetyResult> {
+  private async validateNotWeekend(symbol: string): Promise<MandatorySafetyResult> {
     try {
-      const isOpen = await marketScheduleService.isMarketOpen(symbol);
+      // Only check weekends for Forex pairs
+      const isFxPair = symbol.length === 6 && !symbol.includes('USD') && !symbol.includes('XAU');
 
-      if (!isOpen) {
+      if (!isFxPair) {
+        // Crypto, indices, metals - always allow
+        return { allowed: true };
+      }
+
+      const now = new Date();
+      const day = now.getUTCDay();
+      const hour = now.getUTCHours();
+
+      // Weekend: Friday 22:00 UTC to Sunday 22:00 UTC
+      const isWeekend = (day === 5 && hour >= 22) || day === 6 || (day === 0 && hour < 22);
+
+      if (isWeekend) {
         return {
           allowed: false,
-          blockReason: 'MARKET_CLOSED',
-          message: `Market closed for ${symbol}`,
-          details: { symbol }
+          blockReason: 'WEEKEND_CLOSED',
+          message: `Forex markets closed on weekends (${symbol})`,
+          details: { symbol, day, hour }
         };
       }
 
       return { allowed: true };
     } catch (error) {
-      logger.error('[MANDATORY_SAFETY] Failed to check market hours', error);
+      logger.error('[MANDATORY_SAFETY] Failed to check weekend', error);
       // On error, allow trade (fail-open for availability)
       return { allowed: true };
     }
   }
 
-  /**
-   * Check 3: Validate risk limits
-   * Blocks on: Margin breach, drawdown breach, exposure breach
-   */
-  private async validateRiskLimits(
-    userId: string,
-    sessionId: string,
-    symbol: string,
-    lotSize: number
-  ): Promise<MandatorySafetyResult> {
-    try {
-      // Get current balance and risk metrics
-      const { data: user, error: userError } = await supabase
-        .from('users')
-        .select('balance')
-        .eq('id', userId)
-        .maybeSingle();
-
-      if (userError || !user) {
-        logger.error('[MANDATORY_SAFETY] Failed to get user balance', userError);
-        return {
-          allowed: false,
-          blockReason: 'INVALID_SSOT',
-          message: 'Cannot validate risk limits - user data unavailable'
-        };
-      }
-
-      // Get session risk limits
-      const { data: session, error: sessionError } = await supabase
-        .from('goal_sessions')
-        .select('max_daily_loss, max_position_size')
-        .eq('id', sessionId)
-        .maybeSingle();
-
-      if (sessionError || !session) {
-        logger.error('[MANDATORY_SAFETY] Failed to get session limits', sessionError);
-        // Allow if session limits not found (fail-open)
-        return { allowed: true };
-      }
-
-      // PHASE 2: Use SSOT constant for daily loss limit (already imported at top)
-      const defaultMaxDailyLoss = user.balance * TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_DAILY_DRAWDOWN; // 0.08 (8%)
-
-      // Check drawdown limit
-      const maxDailyLoss = session.max_daily_loss || defaultMaxDailyLoss;
-
-      // Get current positions to calculate exposure
-      const { data: positions, error: posError } = await supabase
-        .from('goal_trades')
-        .select('symbol, lot_size, current_pnl')
-        .eq('session_id', sessionId)
-        .eq('status', 'open');
-
-      if (posError) {
-        logger.error('[MANDATORY_SAFETY] Failed to get positions', posError);
-        // Allow if positions query fails (fail-open)
-        return { allowed: true };
-      }
-
-      // Calculate current exposure
-      const currentLoss = (positions || [])
-        .filter(p => p.current_pnl < 0)
-        .reduce((sum, p) => sum + Math.abs(p.current_pnl), 0);
-
-      if (currentLoss >= maxDailyLoss) {
-        return {
-          allowed: false,
-          blockReason: 'DRAWDOWN_BREACH',
-          message: `Daily loss limit reached: $${currentLoss.toFixed(2)} / $${maxDailyLoss.toFixed(2)}`,
-          details: { currentLoss, maxDailyLoss }
-        };
-      }
-
-      // Check position size limit
-      const maxPositionSize = session.max_position_size || 1.0;
-      if (lotSize > maxPositionSize) {
-        return {
-          allowed: false,
-          blockReason: 'EXPOSURE_BREACH',
-          message: `Position size ${lotSize} exceeds limit ${maxPositionSize}`,
-          details: { lotSize, maxPositionSize }
-        };
-      }
-
-      return { allowed: true };
-    } catch (error) {
-      logger.error('[MANDATORY_SAFETY] Risk validation error', error);
-      // On exception, allow (fail-open)
-      return { allowed: true };
-    }
-  }
 
   /**
-   * Check 4: Validate SSOT trade context
+   * Check 3: Validate SSOT trade context
    * Blocks on: Missing trade context, corrupted data
    */
   private validateSSOT(tradeContext?: Record<string, any>): MandatorySafetyResult {
