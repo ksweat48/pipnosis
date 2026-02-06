@@ -345,17 +345,22 @@ export class Omega8HybridBrain {
       return { accumulation: false, distribution: false };
     }
 
-    const wickCount = recent.filter(c => {
+    let bottomWickDominant = 0;
+    let topWickDominant = 0;
+
+    for (const c of recent) {
       const wickTop = c.high - Math.max(c.open, c.close);
       const wickBottom = Math.min(c.open, c.close) - c.low;
-      const bodySize = Math.abs(c.close - c.open);
-      return wickTop > bodySize || wickBottom > bodySize;
-    }).length;
+      const bodySize = Math.abs(c.close - c.open) || 0.0001;
 
-    const accumulation = wickCount >= 6;
-    const distribution = wickCount >= 6;
+      if (wickBottom > bodySize && wickBottom > wickTop * 1.3) {
+        bottomWickDominant++;
+      } else if (wickTop > bodySize && wickTop > wickBottom * 1.3) {
+        topWickDominant++;
+      }
+    }
 
-    return { accumulation, distribution };
+    return { accumulation: bottomWickDominant >= 5, distribution: topWickDominant >= 5 };
   }
 
   private calculateConfluence(signals: {

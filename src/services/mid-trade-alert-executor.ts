@@ -125,9 +125,8 @@ class MidTradeAlertExecutor {
         return;
       }
 
-      // Check if trade is still active
-      if (trade.status !== 'active') {
-        logger.warn('[AlertExecutor] Trade is not active:', {
+      if (trade.status !== 'open') {
+        logger.warn('[AlertExecutor] Trade is not open:', {
           trade_id: tradeId,
           status: trade.status
         });
