@@ -33,7 +33,7 @@ import { priceCoordinator } from './coordinators/price-coordinator';
 import { globalDialogManager } from './global-dialog-manager';
 import { notificationCoordinator } from './coordinators/notification-coordinator';
 import { getOrInitializeUserBalance, validateBalanceIsReasonable } from './balance-initialization-authority';
-import { toDirectionDB } from '../utils/direction-converter';
+import { toDirectionDB, toLongShort } from '../utils/direction-converter';
 import { getRegimeBucket } from './regime-bucketing';
 import { getMinConfidenceThreshold } from '../config/risk-levels';
 import { logger, LogCategory } from '../lib/logger';
@@ -788,6 +788,17 @@ class AlphaTradeExecutor {
       console.debug('[AlphaTradeExecutor] Modal trigger skipped (server context)', err);
     }
 
+    // CCIP FIX (2026-02-06): Create entry_intents record for Entry Quality Advisor
+    // SSOT: entry_intents is the authoritative record linking trade execution to quality analysis
+    // Without this record, EntryPriceMonitor shows placeholder instead of entry quality data
+    await this.createPostExecutionEntryIntent({
+      userId,
+      sessionId,
+      tradeId: trade.id,
+      decision,
+      entryPrice: adjustedEntry
+    });
+
     return {
       success: true,
       tradeId: trade.id,
@@ -995,6 +1006,16 @@ class AlphaTradeExecutor {
       tradeId: trade.id
     });
 
+    // CCIP FIX (2026-02-06): Create entry_intents record for Entry Quality Advisor
+    // Pending trades still get an entry intent so the advisor can show data once executed
+    await this.createPostExecutionEntryIntent({
+      userId,
+      sessionId,
+      tradeId: trade.id,
+      decision,
+      entryPrice
+    });
+
     return {
       success: true,
       tradeId: trade.id,
@@ -1004,6 +1025,11 @@ class AlphaTradeExecutor {
 
   /**
    * Create monitored entry intent
+   *
+   * CCIP FIX (2026-02-06): Corrected column names to match entry_intents schema
+   * SSOT: entry_intents table uses session_id (not goal_session_id),
+   *       direction as 'long'/'short' (not 'buy'/'sell'),
+   *       and requires intent_type, urgency, entry_zone_min/max, timeout_at
    */
   private async createMonitored(params: {
     decision: AlphaDecision;
@@ -1013,29 +1039,45 @@ class AlphaTradeExecutor {
     riskDollars: number;
     lotSizingDecisionId?: string;
   }): Promise<TradeExecutionResult> {
-    const { decision, userId, sessionId, lotSize, riskDollars } = params;
+    const { decision, userId, sessionId } = params;
 
-    // Create entry intent
+    const now = new Date();
+    const timeoutMinutes = decision.entry_intent?.timeout_minutes || 60;
+    const timeoutAt = new Date(now.getTime() + timeoutMinutes * 60 * 1000).toISOString();
+    const direction = toLongShort(decision.action === 'BUY' ? 'buy' : 'sell');
+
     const { data: intent, error } = await supabase
       .from('entry_intents')
       .insert({
+        session_id: sessionId,
         user_id: userId,
-        goal_session_id: sessionId,
         symbol: decision.symbol,
-        direction: toDirectionDB(decision.action === 'BUY' ? 'buy' : 'sell'),
-        entry_price_target: decision.entry,
-        stop_loss: decision.stopLoss,
-        take_profit: decision.takeProfit,
-        lot_size: lotSize,
-        risk_dollars: riskDollars,
-        status: 'active',
-        should_execute_immediately: false,
-        created_at: new Date().toISOString()
+        direction,
+        intent_type: decision.entry_intent?.intent_type || 'pullback_to_support',
+        urgency: decision.entry_intent?.urgency || 'MEDIUM',
+        entry_zone_min: decision.entry_intent?.entry_zone_min || decision.entry,
+        entry_zone_max: decision.entry_intent?.entry_zone_max || decision.entry,
+        timeout_at: timeoutAt,
+        timeout_minutes: timeoutMinutes,
+        status: 'monitoring',
+        alpha_reasoning: decision.reasoning,
+        alpha_confidence: decision.confidence,
+        market_context: {},
+        entry_mode: 'MONITORED',
+        style: decision.resolvedStyle || 'MICRO_INTRADAY',
+        thesis: decision.thesis,
+        style_intent: decision.style_intent,
+        execution_preference: decision.execution_preference || 'WAIT_PULLBACK'
       })
       .select()
       .single();
 
     if (error || !intent) {
+      logger.error(
+        LogCategory.GOVERNANCE,
+        '[AlphaTradeExecutor] Failed to create monitored entry intent',
+        { error: error?.message, userId, sessionId, symbol: decision.symbol }
+      );
       return {
         success: false,
         error: error?.message || 'Failed to create entry intent'
@@ -1416,6 +1458,100 @@ class AlphaTradeExecutor {
         error: error instanceof Error ? error.message : String(error),
         note: 'Frontend CCIP logging disabled by RLS policy. Use backend functions for governance tracking.'
       });
+    }
+  }
+
+  /**
+   * Create entry_intents record + quality advisory after trade execution
+   *
+   * CCIP FIX (2026-02-06): Bridges trade execution to Entry Quality Advisor UI
+   * SSOT: entry_intents is the authoritative record for EntryPriceMonitor
+   * GOVERNANCE: Non-blocking -- advisory creation never prevents trade execution
+   *
+   * Flow:
+   * 1. Insert entry_intents with status='executed', advisor_mode='post_execution_advisory'
+   * 2. Call record_entry_quality_advisory() RPC to calculate retrospective optimal zone
+   * 3. RPC populates entry_quality_advisories table + updates entry_intents with grade
+   */
+  private async createPostExecutionEntryIntent(params: {
+    userId: string;
+    sessionId: string;
+    tradeId: string;
+    decision: AlphaDecision;
+    entryPrice: number;
+  }): Promise<void> {
+    const { userId, sessionId, tradeId, decision, entryPrice } = params;
+
+    try {
+      const now = new Date().toISOString();
+      const direction = toLongShort(decision.action === 'BUY' ? 'buy' : 'sell');
+
+      const entryIntentData: Record<string, any> = {
+        session_id: sessionId,
+        user_id: userId,
+        symbol: decision.symbol,
+        direction,
+        intent_type: decision.entry_intent?.intent_type || 'immediate_momentum',
+        urgency: decision.entry_intent?.urgency || 'HIGH',
+        entry_zone_min: decision.entry_intent?.entry_zone_min || entryPrice,
+        entry_zone_max: decision.entry_intent?.entry_zone_max || entryPrice,
+        timeout_at: now,
+        status: 'executed',
+        executed_at: now,
+        actual_entry_price: entryPrice,
+        execution_price: entryPrice,
+        advisor_mode: 'post_execution_advisory',
+        alpha_reasoning: decision.reasoning,
+        alpha_confidence: decision.confidence,
+        market_context: {},
+        entry_mode: 'IMMEDIATE',
+        style: decision.resolvedStyle || 'MICRO_INTRADAY',
+        thesis: decision.thesis,
+        style_intent: decision.style_intent,
+        execution_preference: decision.execution_preference || 'IMMEDIATE'
+      };
+
+      const { data: entryIntent, error: intentError } = await supabase
+        .from('entry_intents')
+        .insert(entryIntentData)
+        .select('id')
+        .single();
+
+      if (intentError || !entryIntent?.id) {
+        logger.warn(
+          LogCategory.GOVERNANCE,
+          '[AlphaTradeExecutor] Entry intent creation failed (non-blocking)',
+          { error: intentError?.message, tradeId, sessionId }
+        );
+        return;
+      }
+
+      logger.info(
+        LogCategory.GOVERNANCE,
+        '[AlphaTradeExecutor] Entry intent created for quality advisory',
+        { intentId: entryIntent.id, tradeId, symbol: decision.symbol }
+      );
+
+      const { error: rpcError } = await supabase.rpc('record_entry_quality_advisory', {
+        p_user_id: userId,
+        p_entry_intent_id: entryIntent.id,
+        p_trade_id: tradeId,
+        p_session_id: sessionId
+      });
+
+      if (rpcError) {
+        logger.warn(
+          LogCategory.GOVERNANCE,
+          '[AlphaTradeExecutor] Entry quality advisory RPC failed (non-blocking)',
+          { error: rpcError.message, intentId: entryIntent.id, tradeId }
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        LogCategory.GOVERNANCE,
+        '[AlphaTradeExecutor] Post-execution entry intent pipeline failed (non-blocking)',
+        { error: err instanceof Error ? err.message : String(err), tradeId }
+      );
     }
   }
 
