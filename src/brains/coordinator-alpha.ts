@@ -112,6 +112,7 @@ import { parseStructuredAlphaResponse } from '../services/alpha-thesis-parser';
 import type { AlphaMarketThesis, RegimeSignature } from '../types/alpha-thesis';
 import { m5SwingAnalyzer, type M5SwingContext } from '../services/m5-swing-analyzer';
 import { alphaGeometryValidator } from '../services/alpha-geometry-validator';
+import { getExecutionEnvelope } from '../config/style-execution-envelopes';
 
 /**
  * Helper: Determine asset class from symbol
@@ -2900,21 +2901,65 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
         }
       }
 
-      // Calculate R:R for logging (NOT enforced here - Omega-9's job)
       const slDistance = Math.abs(entry - stopLoss);
-      const tpDistance = Math.abs(takeProfit - entry);
-      const rr = slDistance > 0 ? tpDistance / slDistance : 0;
+      let tpDistance = Math.abs(takeProfit - entry);
+      let rr = slDistance > 0 ? tpDistance / slDistance : 0;
       const slPips = calculatePipDistance(symbol, entry, stopLoss);
-      const tpPips = calculatePipDistance(symbol, entry, takeProfit);
+      let tpPips = calculatePipDistance(symbol, entry, takeProfit);
 
       console.log(`[Alpha Decision] Stop: ${slPips.toFixed(1)} pips | TP: ${tpPips.toFixed(1)} pips | R:R: ${rr.toFixed(2)}:1`);
 
-      // Calculate TP1 (conservative high-probability target) and TP2 (full target)
+      // ═══════════════════════════════════════════════════════════════════
+      // STYLE ENVELOPE TP ENFORCEMENT (SSOT: style-execution-envelopes.ts)
+      // ═══════════════════════════════════════════════════════════════════
+      // Alpha decides direction and entry. System enforces style bounds.
+      // If LLM returns a TP beyond the style envelope, cap it.
+      // Trades degrade intelligently - they do not silently over-extend.
+      const styleEnvelope = getExecutionEnvelope(resolvedStyle);
+      if (tpPips > styleEnvelope.tpPips.max) {
+        const originalTP = takeProfit;
+        const originalTPPips = tpPips;
+        const pipInfo = getCurrencyPipInfo(symbol);
+        const cappedDistance = styleEnvelope.tpPips.max * pipInfo.pipValue;
+
+        takeProfit = isBuy
+          ? entry + cappedDistance
+          : entry - cappedDistance;
+
+        tpPips = styleEnvelope.tpPips.max;
+        tpDistance = Math.abs(takeProfit - entry);
+        rr = slDistance > 0 ? tpDistance / slDistance : 0;
+
+        console.warn(
+          `[Alpha Envelope] TP CAPPED: ${originalTPPips.toFixed(1)} pips → ${tpPips.toFixed(1)} pips ` +
+          `(${resolvedStyle} max: ${styleEnvelope.tpPips.max}). ` +
+          `Original: ${originalTP.toFixed(5)}, Capped: ${takeProfit.toFixed(5)}`
+        );
+
+        logViolation({
+          violationType: 'STYLE_ENVELOPE_TP_CAP',
+          symbol,
+          attemptedOperation: 'tp_style_enforcement',
+          callLocation: 'coordinator-alpha.parseDecision',
+          blocked: false,
+          errorDetails: {
+            style: resolvedStyle,
+            originalTP,
+            cappedTP: takeProfit,
+            originalTPPips: originalTPPips,
+            cappedTPPips: tpPips,
+            envelopeMax: styleEnvelope.tpPips.max,
+            entry,
+            direction: isBuy ? 'BUY' : 'SELL',
+            resolution: 'capped_to_envelope'
+          }
+        }).catch(() => {});
+      }
+
       let tp1Result: TP1Result | null = null;
-      let tp2Price = takeProfit; // TP2 is the standard TP from LLM
+      let tp2Price = takeProfit;
       let tp2Reasoning = `Full profit target at ${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1 R:R)`;
 
-      // Only calculate TP1 if we have liquidity zones and full candle data
       if (liquidityZones.length > 0 && fullCandles && fullCandles.length > 0) {
         try {
           tp1Result = tp1ProbabilityCalculator.calculateTP1({
@@ -2926,7 +2971,7 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
             atr20: marketContext?.atr20,
             atr100: marketContext?.atr100,
             liquidityZones,
-            recentCandles: fullCandles.slice(-50), // Last 50 candles for momentum
+            recentCandles: fullCandles.slice(-50),
             rsi: fullCandles[fullCandles.length - 1]?.rsi,
             ema20: fullCandles[fullCandles.length - 1]?.ema20,
             ema50: fullCandles[fullCandles.length - 1]?.ema50
@@ -2941,6 +2986,25 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
         } catch (error) {
           console.error('[Alpha TP1/TP2] Error calculating TP1:', error);
         }
+      }
+
+      if (!tp1Result?.feasible || !tp1Result?.tp1Price) {
+        const fallbackTP1Distance = slDistance;
+        const fallbackTP1Price = isBuy
+          ? entry + fallbackTP1Distance
+          : entry - fallbackTP1Distance;
+
+        const fallbackTP1Pips = calculatePipDistance(symbol, entry, fallbackTP1Price);
+        tp1Result = {
+          feasible: true,
+          tp1Price: fallbackTP1Price,
+          tp1Confidence: 65,
+          tp1Reasoning: `1:1 R:R fallback (${fallbackTP1Pips.toFixed(1)} pips, matching SL distance)`,
+          atrMultiplier: null,
+          liquidityZoneUsed: null,
+          estimatedTimeToFillMinutes: null
+        };
+        console.log(`[Alpha TP1/TP2] TP1 fallback: 1:1 R:R at ${fallbackTP1Price.toFixed(5)} (${fallbackTP1Pips.toFixed(1)} pips)`);
       }
 
       return {

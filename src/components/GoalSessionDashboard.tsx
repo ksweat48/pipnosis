@@ -1010,36 +1010,79 @@ export const GoalSessionDashboard: React.FC = () => {
     return trade.current_pnl || trade.profit_loss || 0;
   };
 
-  /**
-   * SSOT: Always return the user's session goal
-   * The user cares about their overall goal, not individual trade targets
-   */
+  const calculateExpectedProfitAtPrice = (trade: any, targetPrice: number): number => {
+    const entryPrice = trade.entry_price || 0;
+    const lotSize = trade.lot_size || trade.position_size || 0.01;
+    const symbol = trade.symbol || '';
+    if (entryPrice <= 0 || targetPrice <= 0 || !symbol) return 0;
+    const pipDist = calculatePipDistance(symbol, entryPrice, targetPrice);
+    const dollarPerPip = calculateDollarPerPip(symbol, lotSize);
+    return pipDist * dollarPerPip;
+  };
+
   const getCurrentTradeTarget = (): number => {
+    if (openTrades.length > 0) {
+      const totalExpected = openTrades.reduce((sum, trade) => {
+        const tpPrice = trade.take_profit || trade.tp2_price || 0;
+        return sum + calculateExpectedProfitAtPrice(trade, tpPrice);
+      }, 0);
+      if (totalExpected > 0) return totalExpected;
+    }
     return activeSession?.config.goalAmount || 0;
   };
 
   const calculateLiveProgressPercentage = (): number => {
     if (!progress || !activeSession) return 0;
-
-    // Get closed trades profit
     const closedProfit = progress.stats?.closedProfit || 0;
-
-    // SINGLE SOURCE OF TRUTH: Use current_pnl from database for open trades
-    // Database updates this in real-time via position monitoring
-    const openUnrealizedPnL = openTrades.reduce((sum, trade) => {
-      return sum + (trade.current_pnl || 0);
-    }, 0);
-
-    // Total progress = closed + open unrealized
+    const openUnrealizedPnL = openTrades.reduce((sum, trade) => sum + (trade.current_pnl || 0), 0);
     const totalProgress = closedProfit + openUnrealizedPnL;
 
-    // SSOT FIX (2026-02-03): Use SESSION GOAL not individual trade targets
-    // Session goal ($294) is the denominator for completion percentage
-    // Trade expected profit ($133) is just informational for this trade
-    // Formula: (currentProgress / sessionGoal) * 100
-    const sessionGoal = activeSession?.config?.goalAmount || 0;
+    if (openTrades.length > 0) {
+      const totalExpectedAtTP = openTrades.reduce((sum, trade) => {
+        const tpPrice = trade.take_profit || trade.tp2_price || 0;
+        return sum + calculateExpectedProfitAtPrice(trade, tpPrice);
+      }, 0);
+      const denominator = closedProfit + totalExpectedAtTP;
+      if (denominator > 0) return (totalProgress / denominator) * 100;
+    }
 
+    const sessionGoal = activeSession?.config?.goalAmount || 0;
     return sessionGoal > 0 ? (totalProgress / sessionGoal) * 100 : 0;
+  };
+
+  const getTPMarkerData = () => {
+    const closedProfit = progress?.stats?.closedProfit || 0;
+
+    if (openTrades.length > 0) {
+      let totalExpectedAtTP1 = 0;
+      let totalExpectedAtTP2 = 0;
+      let hasTP1 = false;
+
+      openTrades.forEach(trade => {
+        const tp1Price = trade.tp1_price || 0;
+        const tp2Price = trade.take_profit || trade.tp2_price || 0;
+        if (tp2Price > 0) totalExpectedAtTP2 += calculateExpectedProfitAtPrice(trade, tp2Price);
+        if (tp1Price > 0) { totalExpectedAtTP1 += calculateExpectedProfitAtPrice(trade, tp1Price); hasTP1 = true; }
+      });
+
+      const denominator = closedProfit + totalExpectedAtTP2;
+      return {
+        tp1Pct: hasTP1 && denominator > 0 ? ((closedProfit + totalExpectedAtTP1) / denominator) * 100 : null,
+        tp1Label: hasTP1 ? `$${totalExpectedAtTP1.toFixed(0)}` : null,
+        tp2Label: totalExpectedAtTP2 > 0 ? `$${totalExpectedAtTP2.toFixed(0)}` : null,
+        tp1Hit: activeSession?.tp1_hit || false,
+        tp2Hit: activeSession?.tp2_hit || false,
+      };
+    }
+
+    const goalAmount = activeSession?.config?.goalAmount || 0;
+    return {
+      tp1Pct: activeSession?.tp1_target && goalAmount > 0 ? (activeSession.tp1_target / goalAmount) * 100 : null,
+      tp1Label: activeSession?.tp1_target ? `$${activeSession.tp1_target.toFixed(0)}` : null,
+      tp2Label: activeSession?.tp2_target ? `$${activeSession.tp2_target.toFixed(0)}` : null,
+      tp1Hit: activeSession?.tp1_hit || false,
+      tp2Hit: activeSession?.tp2_hit || false,
+    };
   };
 
   const calculateActualRiskPercentage = (): { percentage: number; dollarRisk: number; displayText: string } => {
@@ -1445,48 +1488,54 @@ export const GoalSessionDashboard: React.FC = () => {
             <div className="absolute inset-0 bg-gradient-to-r from-gray-700 to-gray-800" />
 
             {/* TP1 Marker (Conservative Target) */}
-            {activeSession.tp1_target && activeSession.config.goalAmount > 0 && (
-              <div
-                className="absolute top-0 bottom-0 w-1 z-10"
-                style={{ left: `${(activeSession.tp1_target / activeSession.config.goalAmount) * 100}%` }}
-                title={`TP1: $${activeSession.tp1_target.toFixed(2)} (Conservative Target)`}
-              >
-                <div className="relative h-full">
-                  <div className={`absolute inset-0 ${activeSession.tp1_hit ? 'bg-green-400' : 'bg-yellow-400'} shadow-lg`} />
-                  <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap">
-                    <div className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                      activeSession.tp1_hit
-                        ? 'bg-green-500 text-white'
-                        : 'bg-yellow-500 text-gray-900'
-                    }`}>
-                      {activeSession.tp1_hit ? `✓ TP1: $${activeSession.tp1_target.toFixed(2)}` : `TP1: $${activeSession.tp1_target.toFixed(2)}`}
+            {(() => {
+              const tpData = getTPMarkerData();
+              return tpData.tp1Pct !== null && tpData.tp1Label && (
+                <div
+                  className="absolute top-0 bottom-0 w-1 z-10"
+                  style={{ left: `${Math.min(tpData.tp1Pct, 100)}%` }}
+                  title={`TP1: ${tpData.tp1Label} (Conservative Target)`}
+                >
+                  <div className="relative h-full">
+                    <div className={`absolute inset-0 ${tpData.tp1Hit ? 'bg-green-400' : 'bg-yellow-400'} shadow-lg`} />
+                    <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap">
+                      <div className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                        tpData.tp1Hit
+                          ? 'bg-green-500 text-white'
+                          : 'bg-yellow-500 text-gray-900'
+                      }`}>
+                        {tpData.tp1Hit ? `✓ TP1: ${tpData.tp1Label}` : `TP1: ${tpData.tp1Label}`}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
-            {/* TP2 Marker (Realistic Target) */}
-            {activeSession.tp2_target && activeSession.config.goalAmount > 0 && (
-              <div
-                className="absolute top-0 bottom-0 w-1 z-10"
-                style={{ left: `100%` }}
-                title={`TP2: $${activeSession.tp2_target.toFixed(2)} (Realistic Target)`}
-              >
-                <div className="relative h-full">
-                  <div className={`absolute inset-0 ${activeSession.tp2_hit ? 'bg-green-400' : 'bg-blue-400'} shadow-lg`} />
-                  <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap">
-                    <div className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                      activeSession.tp2_hit
-                        ? 'bg-green-500 text-white'
-                        : 'bg-blue-500 text-white'
-                    }`}>
-                      {activeSession.tp2_hit ? `✓ TP2: $${activeSession.tp2_target.toFixed(2)}` : `TP2: $${activeSession.tp2_target.toFixed(2)}`}
+            {/* TP2 Marker (Full Target = 100%) */}
+            {(() => {
+              const tpData = getTPMarkerData();
+              return tpData.tp2Label && (
+                <div
+                  className="absolute top-0 bottom-0 w-1 z-10"
+                  style={{ left: `100%` }}
+                  title={`TP2: ${tpData.tp2Label} (Full Target)`}
+                >
+                  <div className="relative h-full">
+                    <div className={`absolute inset-0 ${tpData.tp2Hit ? 'bg-green-400' : 'bg-blue-400'} shadow-lg`} />
+                    <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap">
+                      <div className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                        tpData.tp2Hit
+                          ? 'bg-green-500 text-white'
+                          : 'bg-blue-500 text-white'
+                      }`}>
+                        {tpData.tp2Hit ? `✓ TP2: ${tpData.tp2Label}` : `TP2: ${tpData.tp2Label}`}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             <div
               className={`relative h-full transition-all duration-500 shadow-lg ${

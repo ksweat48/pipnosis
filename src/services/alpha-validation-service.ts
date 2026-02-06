@@ -212,9 +212,8 @@ class AlphaValidationService {
     const { symbol, entry, stopLoss, takeProfit, risk_pct } = decision;
     const { pipInfo } = context;
 
-    // Calculate distances
-    const slPips = calculatePipDistance(symbol, Math.abs(entry - stopLoss));
-    const tpPips = calculatePipDistance(symbol, Math.abs(takeProfit - entry));
+    const slPips = calculatePipDistance(symbol, entry, stopLoss);
+    const tpPips = calculatePipDistance(symbol, entry, takeProfit);
     const rr = tpPips / slPips;
 
     // 1. Check R:R constraints

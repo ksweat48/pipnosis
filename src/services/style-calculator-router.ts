@@ -14,6 +14,7 @@ import { m5SwingAnalyzer, type M5SwingContext } from './m5-swing-analyzer';
 import { riskAwareStopCalculator, type StopLossCalculation } from './risk-aware-stop-calculator';
 import { eliteProfitTargetCalculator, type LiquidityZone, type TPCalculationResult } from './profit-target-calculator';
 import { safeExtractATRValue } from '../types/atr';
+import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 import type { Candle } from '../types/candle-immutable';
 
 export interface StyleAwareStopInput {
@@ -67,8 +68,8 @@ export function calculateStyleAwareStop(input: StyleAwareStopInput): StopLossCal
       ? input.entryPrice - slDistance
       : input.entryPrice + slDistance;
 
-    // Ensure within envelope bounds
-    const slPips = Math.abs(input.entryPrice - sl) / 0.0001; // Rough pip calc
+    const pipValue = getCurrencyPipInfo(input.symbol).pipValue;
+    const slPips = Math.abs(input.entryPrice - sl) / pipValue;
     if (slPips < envelope.slPips.min || slPips > envelope.slPips.max) {
       console.warn(
         `[Style Router] SL ${slPips.toFixed(1)} pips outside ${input.style} bounds ` +
@@ -115,27 +116,26 @@ export function calculateStyleAwareTP(input: StyleAwareTPInput): TPCalculationRe
       input.entryPrice
     );
 
-    // Target ONE M5 swing completion
+    const pipValue = getCurrencyPipInfo(input.symbol).pipValue;
+
     const targetDistance = Math.min(
-      m5Context.avgSwingSize * 0.8, // 80% of avg M5 swing
-      atrValue * 3.5, // Or 3.5x M5 ATR
-      envelope.tpPips.max * 0.0001 // Cap at style max
+      m5Context.avgSwingSize * 0.8,
+      atrValue * 3.5,
+      envelope.tpPips.max * pipValue
     );
 
     const tp = input.direction === 'long'
       ? input.entryPrice + targetDistance
       : input.entryPrice - targetDistance;
 
-    // Validate against envelope
-    const tpPips = Math.abs(tp - input.entryPrice) / 0.0001;
+    const tpPips = Math.abs(tp - input.entryPrice) / pipValue;
     if (tpPips > envelope.tpPips.max) {
       console.warn(
         `[Style Router] TP ${tpPips.toFixed(1)} pips exceeds ${input.style} max ` +
         `(${envelope.tpPips.max}). Capping to M5 reality.`
       );
 
-      // Cap to max
-      const cappedDistance = envelope.tpPips.max * 0.0001;
+      const cappedDistance = envelope.tpPips.max * pipValue;
       const cappedTP = input.direction === 'long'
         ? input.entryPrice + cappedDistance
         : input.entryPrice - cappedDistance;

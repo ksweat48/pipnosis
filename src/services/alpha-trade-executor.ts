@@ -441,7 +441,7 @@ class AlphaTradeExecutor {
         sessionId,
         session,
         lotSize: finalLotSize,
-        riskDollars: riskAssessment.adjustedRiskDollars,
+        riskDollars: riskAssessment.trueRiskDollars || riskAssessment.adjustedRiskDollars,
         riskWarnings: riskWarningsWithGoalContext,
         inputs,
         lotSizingDecisionId: lotSizingDecision?.auditRecordId,
@@ -455,7 +455,7 @@ class AlphaTradeExecutor {
         sessionId,
         session,
         lotSize: finalLotSize,
-        riskDollars: riskAssessment.adjustedRiskDollars,
+        riskDollars: riskAssessment.trueRiskDollars || riskAssessment.adjustedRiskDollars,
         riskWarnings: riskWarningsWithGoalContext,
         inputs,
         lotSizingDecisionId: lotSizingDecision?.auditRecordId,
@@ -469,7 +469,7 @@ class AlphaTradeExecutor {
         userId,
         sessionId,
         lotSize: finalLotSize,
-        riskDollars: riskAssessment.adjustedRiskDollars,
+        riskDollars: riskAssessment.trueRiskDollars || riskAssessment.adjustedRiskDollars,
         lotSizingDecisionId: lotSizingDecision?.auditRecordId
       });
     }
