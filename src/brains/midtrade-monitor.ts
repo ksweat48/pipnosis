@@ -517,7 +517,7 @@ Return JSON:
       p: snapshot.p,
       e20: snapshot.e20,
       e50: snapshot.e50,
-      e200: snapshot.e50,
+      e200: snapshot.e200,
       mom: 0,
       tr: snapshot.tr,
       vol: snapshot.vol

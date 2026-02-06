@@ -162,7 +162,7 @@ export class AlphaExecutionAnalyzer {
           acc[exec.symbol] = [];
         }
         acc[exec.symbol].push(exec);
-        return {};
+        return acc;
       }, {} as Record<string, any[]>);
 
       const patterns: SlHuntingPattern[] = [];
@@ -423,14 +423,14 @@ export class AlphaExecutionAnalyzer {
       return 'fair';
     }
 
+    // Excellent: Very low in all categories (check stricter condition first)
+    if (slHuntingRate < 5 && avgSlippage < 0.5 && rejectionRate < 2) {
+      return 'excellent';
+    }
+
     // Good: Low in all categories
     if (slHuntingRate < 10 && avgSlippage < 1 && rejectionRate < 5) {
       return 'good';
-    }
-
-    // Excellent: Very low in all categories
-    if (slHuntingRate < 5 && avgSlippage < 0.5 && rejectionRate < 2) {
-      return 'excellent';
     }
 
     return 'good';

@@ -322,7 +322,7 @@ class AlphaValidationService {
       const slDistance = suggestedSLPips * pipInfo.pipValue;
 
       guidance.suggestedSLRange = {
-        min: isBuy ? entry - (constraints.maxSLPips * pipInfo.pipValue) : entry,
+        min: isBuy ? entry - (constraints.maxSLPips * pipInfo.pipValue) : entry + (constraints.minSLPips * pipInfo.pipValue),
         max: isBuy ? entry - (constraints.minSLPips * pipInfo.pipValue) : entry + (constraints.maxSLPips * pipInfo.pipValue),
       };
     }

@@ -466,7 +466,7 @@ export function isRiskHardBlock(condition: string): boolean {
     'MAX_DAILY_LOSS_EXCEEDED',
     'INSUFFICIENT_MARGIN',
     'INVALID_POSITION_SIZE',
-    'STALE_DATA',
+    'DATA_STALE',
     'MARKET_CLOSED',
     'INVALID_STOP_LOSS',
     'SPREAD_EXCEEDS_PROFIT'

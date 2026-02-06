@@ -282,7 +282,7 @@ class AlphaThoughtStream {
       vote_counts: {
         buy: buyCount,
         sell: sellCount,
-        wait: waitCount,
+        wait: 0,
         no_trade: noTradeCount
       },
       consensus,

@@ -250,7 +250,7 @@ class ThesisMonitoringAuthority {
 
     switch (invalidation.condition) {
       case 'price_breaks_below':
-        if (!isLong && currentPrice <= invalidation.level) {
+        if (isLong && currentPrice < invalidation.level) {
           return {
             condition_type: 'invalidation',
             condition_description: invalidation.reason,
@@ -260,29 +260,9 @@ class ThesisMonitoringAuthority {
             confidence_impact: invalidation.severity === 'critical' ? -1 : invalidation.severity === 'hard' ? -0.5 : -0.2,
           };
         }
-        if (isLong && currentPrice < invalidation.level) {
-          return {
-            condition_type: 'invalidation',
-            condition_description: invalidation.reason,
-            condition_status: 'triggered',
-            current_price: currentPrice,
-            reasoning: `Price ${currentPrice.toFixed(5)} dropped below invalidation level ${invalidation.level.toFixed(5)}`,
-            confidence_impact: invalidation.severity === 'critical' ? -1 : invalidation.severity === 'hard' ? -0.5 : -0.2,
-          };
-        }
         return null;
 
       case 'price_breaks_above':
-        if (isLong && currentPrice >= invalidation.level) {
-          return {
-            condition_type: 'invalidation',
-            condition_description: invalidation.reason,
-            condition_status: 'triggered',
-            current_price: currentPrice,
-            reasoning: `Price ${currentPrice.toFixed(5)} broke above invalidation level ${invalidation.level.toFixed(5)}`,
-            confidence_impact: invalidation.severity === 'critical' ? -1 : invalidation.severity === 'hard' ? -0.5 : -0.2,
-          };
-        }
         if (!isLong && currentPrice > invalidation.level) {
           return {
             condition_type: 'invalidation',
