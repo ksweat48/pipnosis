@@ -320,15 +320,11 @@ class GoalSessionManager {
 
   async stopSession(sessionId: string, userId: string): Promise<boolean> {
     try {
-      const { error } = await supabase
-        .from('goal_sessions')
-        .update({
-          status: 'user_stopped',
-          completed_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', sessionId)
-        .eq('user_id', userId);
+      const result = await goalSessionStateMachine.forceTransition(sessionId, 'stopped', {
+        reason: 'User manually stopped session',
+        triggeredBy: 'goal-session-manager',
+      });
+      const error = result.success ? null : { message: result.error };
 
       if (error) {
         console.error('Error stopping session:', error);

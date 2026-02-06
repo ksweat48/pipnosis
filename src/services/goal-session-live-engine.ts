@@ -189,15 +189,11 @@ class GoalSessionLiveEngine {
       if (this.goalClassification.shouldBlockExecution) {
         logger.warn(LogCategory.AI_TRADING, `🚫 Goal blocked: ${this.goalClassification.reasoning}`);
 
-        await supabase
-          .from('goal_sessions')
-          .update({
-            status: 'blocked',
-            goal_mode: this.goalClassification.mode,
-            goal_ratio_percent: this.goalClassification.goalRatioPercent,
-            execution_psychology: this.goalClassification.executionPsychology
-          })
-          .eq('id', config.goalSessionId);
+        const { goalSessionStateMachine } = await import('./coordinators/goal-session-state-machine');
+        await goalSessionStateMachine.forceTransition(config.goalSessionId, 'stopped', {
+          reason: `Goal blocked: ${this.goalClassification.reasoning}`,
+          triggeredBy: 'goal-session-live-engine',
+        });
 
         return {
           success: false,
@@ -280,10 +276,14 @@ class GoalSessionLiveEngine {
         }
       );
 
+      const { goalSessionStateMachine } = await import('./coordinators/goal-session-state-machine');
+      await goalSessionStateMachine.transition(config.goalSessionId, 'scanning', {
+        reason: 'Session started - beginning market scan',
+        triggeredBy: 'goal-session-live-engine',
+      });
       await supabase
         .from('goal_sessions')
         .update({
-          status: 'scanning',
           last_scan_time: new Date().toISOString(),
           execution_mode: 'client',
           client_last_seen: new Date().toISOString()
@@ -2810,15 +2810,12 @@ Your decision keeps you in control of your risk and prevents runaway trading.
 
     try {
       switch (response) {
-        case 'continue':
-          // Resume scanning for next trade
-          // SSOT: Clear continuation state and resume scanning
-          await supabase
-            .from('goal_sessions')
-            .update({
-              status: 'scanning'
-            })
-            .eq('id', this.activeSession);
+        case 'continue': {
+          const { goalSessionStateMachine: sm } = await import('./coordinators/goal-session-state-machine');
+          await sm.transition(this.activeSession!, 'scanning', {
+            reason: 'User chose to continue - resuming scan',
+            triggeredBy: 'goal-session-live-engine',
+          });
 
           logger.info(LogCategory.AI_TRADING, '✅ User chose to continue - resuming scan');
 
@@ -2840,6 +2837,7 @@ Your decision keeps you in control of your risk and prevents runaway trading.
             success: true,
             message: 'Scanning resumed'
           };
+        }
 
         case 'stop':
           // Stop entire session
@@ -3124,13 +3122,11 @@ Your decision keeps you in control of your risk and prevents runaway trading.
         // Goal achieved! Celebrate and close session
         logger.info(LogCategory.AI_TRADING, '🎉 GOAL ACHIEVED! Stopping session');
 
-        await supabase
-          .from('goal_sessions')
-          .update({
-            status: 'goal_achieved',
-            completed_at: new Date().toISOString()
-          })
-          .eq('id', this.activeSession);
+        const { goalSessionStateMachine: gsm } = await import('./coordinators/goal-session-state-machine');
+        await gsm.transition(this.activeSession!, 'goal_achieved', {
+          reason: 'Goal target reached',
+          triggeredBy: 'goal-session-live-engine',
+        });
 
         // Calculate session stats for celebration message
         const stats = localSessionMemory.getSessionStatistics(`live-${this.activeSession}`);

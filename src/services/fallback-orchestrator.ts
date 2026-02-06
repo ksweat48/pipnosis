@@ -391,10 +391,14 @@ class FallbackOrchestrator {
     });
 
     try {
+      const { goalSessionStateMachine } = await import('./coordinators/goal-session-state-machine');
+      await goalSessionStateMachine.transition(sessionId, 'scanning', {
+        reason: 'Fallback cooldown rescan',
+        triggeredBy: 'fallback-orchestrator',
+      });
       await supabase
         .from('goal_sessions')
         .update({
-          status: 'scanning',
           next_scan_time: nextScanTime.toISOString(),
           last_scan_time: new Date().toISOString()
         })

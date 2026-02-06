@@ -35,7 +35,7 @@ export interface PatternIntelligenceResult {
   // Confidence adjustment
   confidenceAdjustment: ConfidenceAdjustment;
 
-  // Actionable outputs
+  // Advisory pattern adjustment delta (not authoritative - SSOT is confidence-calculation-engine)
   finalConfidence: number;
   patternsSupportTrade: boolean;
   patternsOpposeTrade: boolean;
@@ -143,7 +143,7 @@ class MultiTimeframePatternIntelligence {
       ltfScan,
       intentAnalysis,
       confidenceAdjustment,
-      finalConfidence: confidenceAdjustment.finalConfidence,
+      finalConfidence: confidenceAdjustment.totalAdjustment,
       patternsSupportTrade,
       patternsOpposeTrade,
       liquidityTargets,

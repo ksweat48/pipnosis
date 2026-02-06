@@ -386,12 +386,11 @@ class SmartGoalSessionManager {
 
     await this.stopLiveEngine(sessionId);
 
-    await supabase
-      .from('goal_sessions')
-      .update({
-        status: 'goal_achieved'
-      })
-      .eq('id', sessionId);
+    const { goalSessionStateMachine } = await import('./coordinators/goal-session-state-machine');
+    await goalSessionStateMachine.transition(sessionId, 'goal_achieved', {
+      reason: 'Goal completed successfully',
+      triggeredBy: 'smart-goal-session-manager',
+    });
 
     console.log(`[Smart Goal] Session ${sessionId} completed successfully!`);
   }
@@ -536,13 +535,16 @@ class SmartGoalSessionManager {
       session.nextScanTime = nextScanTime;
       session.lastScanTime = new Date();
 
-      // Update database
+      const { goalSessionStateMachine } = await import('./coordinators/goal-session-state-machine');
+      await goalSessionStateMachine.transition(sessionId, 'scanning', {
+        reason: 'Scheduling next scan',
+        triggeredBy: 'smart-goal-session-manager',
+      });
       const { error } = await supabase
         .from('goal_sessions')
         .update({
           next_scan_time: nextScanTime.toISOString(),
           last_scan_time: new Date().toISOString(),
-          status: 'scanning'
         })
         .eq('id', sessionId);
 

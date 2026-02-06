@@ -15,13 +15,9 @@
 
 import { supabase } from '../../lib/supabase';
 import { calculatePnL } from '../../types/position';
-import { calculatePipDistance, calculateDollarPerPip } from '../../utils/currencyHelpers';
 import { goalAchievementCoordinator } from './goal-achievement-coordinator';
 import { goalSessionStateMachine } from './goal-session-state-machine';
 import { notificationCoordinator, NotificationType } from './notification-coordinator';
-import { postTradeAnalyzer } from '../post-trade-analyzer';
-import { rewardEngine } from '../reward-engine';
-import { strategyPlaybookManager } from '../strategy-playbook-manager';
 import { MarketDataService } from '../market-data-service';
 import { modalQueueManager } from '../modal-queue-manager';
 
@@ -219,8 +215,6 @@ class TradeClosureCoordinator {
       const goalResult = await this.checkGoalAfterClose(request.userId, request.goalSessionId);
 
       await this.updateSessionAfterClose(request.goalSessionId, request.userId, request.closeReason);
-
-      await this.runPostTradeAnalysis(request, tradeData, pnl);
 
       console.log(`[TradeClosureCoordinator] Trade ${request.tradeId} closed successfully. P&L: $${pnl.toFixed(2)}`);
 
@@ -689,144 +683,6 @@ class TradeClosureCoordinator {
     }
 
     return results;
-  }
-
-  private async runPostTradeAnalysis(
-    request: CloseTradeRequest,
-    trade: TradeData,
-    pnl: number
-  ): Promise<void> {
-    try {
-      // CRITICAL FIX: Skip post-trade analysis if viewing other users' trades
-      // In browser, we don't have service role access and RLS blocks cross-user reads
-      // This prevents "duplicate key" errors when trying to load other users' trader scores
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user && user.id !== request.userId) {
-        console.log(`[TradeClosureCoordinator] Skipping post-trade analysis - viewing other user's trade (logged in: ${user.id}, trade owner: ${request.userId})`);
-        return;
-      }
-
-      const { data: closedTrade } = await supabase
-        .from('goal_session_trades')
-        .select('opened_at, closed_at')
-        .eq('id', request.tradeId)
-        .maybeSingle();
-
-      if (!closedTrade) {
-        console.warn('[TradeClosureCoordinator] Could not fetch trade timestamps for post-trade analysis');
-        return;
-      }
-
-      const entryTime = new Date(closedTrade.opened_at);
-      const exitTime = new Date(closedTrade.closed_at || new Date());
-
-      await postTradeAnalyzer.analyzeClosedTrade({
-        id: request.tradeId,
-        userId: request.userId,
-        symbol: trade.symbol,
-        direction: trade.direction,
-        entryPrice: trade.entry_price,
-        exitPrice: request.currentPrice,
-        stopLoss: trade.stop_loss,
-        takeProfit: trade.take_profit,
-        pnl,
-        entryTime,
-        exitTime,
-      });
-
-      const outcome: 'win' | 'loss' | 'breakeven' = pnl > 0 ? 'win' : pnl < 0 ? 'loss' : 'breakeven';
-      const lotSize = trade.lot_size || trade.position_size;
-
-      // SSOT: Use currency helpers for asset-class-aware risk calculation
-      const stopDistancePips = calculatePipDistance(trade.symbol, trade.entry_price, trade.stop_loss);
-      const dollarPerPip = calculateDollarPerPip(trade.symbol, lotSize);
-      const risk = stopDistancePips * dollarPerPip;
-
-      const durationMinutes = Math.round((exitTime.getTime() - entryTime.getTime()) / 60000);
-
-      const traderScore = await rewardEngine.loadTraderScore(request.userId);
-
-      if (outcome === 'win') {
-        await rewardEngine.applyWinReward(
-          request.userId,
-          {
-            symbol: trade.symbol,
-            direction: trade.direction,
-            entry_price: trade.entry_price,
-            exit_price: request.currentPrice,
-            pnl,
-            risk_amount: risk,
-            duration_minutes: durationMinutes,
-            outcome: 'win',
-          },
-          traderScore
-        );
-      } else if (outcome === 'loss') {
-        await rewardEngine.applyLossPenalty(
-          request.userId,
-          {
-            symbol: trade.symbol,
-            direction: trade.direction,
-            entry_price: trade.entry_price,
-            exit_price: request.currentPrice,
-            pnl,
-            risk_amount: risk,
-            duration_minutes: durationMinutes,
-            outcome: 'loss',
-          },
-          traderScore
-        );
-      } else {
-        await rewardEngine.applyBreakevenResult(
-          request.userId,
-          {
-            symbol: trade.symbol,
-            direction: trade.direction,
-            entry_price: trade.entry_price,
-            exit_price: request.currentPrice,
-            pnl,
-            risk_amount: risk,
-            duration_minutes: durationMinutes,
-            outcome: 'breakeven',
-          },
-          traderScore
-        );
-      }
-
-      const { data: tradeWithPlaybook } = await supabase
-        .from('goal_session_trades')
-        .select('strategy_playbook_id')
-        .eq('id', request.tradeId)
-        .maybeSingle();
-
-      if (tradeWithPlaybook?.strategy_playbook_id) {
-        // SSOT: Calculate R (risk) and R:R properly using pip distance
-        // Risk in R = PnL / Risk in dollars (already calculated above)
-        const pnlInR = risk > 0 ? pnl / risk : 0;
-
-        // Realized R:R = Exit distance / SL distance (both in pips)
-        const exitDistancePips = calculatePipDistance(trade.symbol, trade.entry_price, request.currentPrice);
-        const realizedRR = stopDistancePips > 0 ? exitDistancePips / stopDistancePips : 0;
-
-        await strategyPlaybookManager.updatePlaybookStats(
-          tradeWithPlaybook.strategy_playbook_id,
-          request.userId,
-          {
-            pnl_r: pnlInR,
-            realized_rr: realizedRR,
-            is_win: outcome === 'win',
-            is_loss: outcome === 'loss',
-            is_breakeven: outcome === 'breakeven',
-          }
-        );
-
-        console.log(`[TradeClosureCoordinator] Playbook stats updated for ${trade.symbol}`);
-      }
-
-      console.log(`[TradeClosureCoordinator] Post-trade analysis and reward completed for ${trade.symbol}`);
-    } catch (error) {
-      console.error('[TradeClosureCoordinator] Error in post-trade analysis:', error);
-    }
   }
 
   async getTradeForClosure(tradeId: string): Promise<TradeData | null> {

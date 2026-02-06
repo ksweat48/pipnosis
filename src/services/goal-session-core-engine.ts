@@ -291,18 +291,15 @@ export async function processGoalSessionIteration(
       };
     }
 
-    // Check if goal achieved
     if (goalSession.current_progress >= goalSession.target_value && goalSession.status !== 'goal_achieved') {
-      await client
-        .from('goal_sessions')
-        .update({
-          status: 'goal_achieved',
-          goal_achieved_at: new Date().toISOString(),
-          goal_achieved_pnl: goalSession.current_progress
-        })
-        .eq('id', goalSessionId);
+      const { goalSessionStateMachine } = await import('./coordinators/goal-session-state-machine');
+      await goalSessionStateMachine.transition(goalSessionId, 'goal_achieved', {
+        reason: 'Goal target reached',
+        triggeredBy: 'goal-session-core-engine',
+        pnl: goalSession.current_progress,
+      });
 
-      logger.info(LogCategory.AI_TRADING, `🎯 GOAL ACHIEVED! Target: $${goalSession.target_value}, Achieved: $${goalSession.current_progress}`);
+      logger.info(LogCategory.AI_TRADING, `Goal achieved! Target: $${goalSession.target_value}, Achieved: $${goalSession.current_progress}`);
     }
 
     // Update session status
@@ -671,15 +668,12 @@ async function executeLiveTrade(
 /**
  * Stop goal session
  */
-async function stopGoalSession(goalSessionId: string, reason: string, supabaseClient?: any): Promise<void> {
-  const client = supabaseClient || supabase;
-  await client
-    .from('goal_sessions')
-    .update({
-      status: 'completed',
-      completion_reason: reason
-    })
-    .eq('id', goalSessionId);
+async function stopGoalSession(goalSessionId: string, reason: string, _supabaseClient?: any): Promise<void> {
+  const { goalSessionStateMachine } = await import('./coordinators/goal-session-state-machine');
+  await goalSessionStateMachine.forceTransition(goalSessionId, 'stopped', {
+    reason,
+    triggeredBy: 'goal-session-core-engine',
+  });
 
   logger.info(LogCategory.AI_TRADING, `[Core] Session stopped: ${reason}`);
 }

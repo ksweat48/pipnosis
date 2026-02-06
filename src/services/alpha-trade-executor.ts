@@ -728,15 +728,12 @@ class AlphaTradeExecutor {
       }
     });
 
-    // Update session status
-    await supabase
-      .from('goal_sessions')
-      .update({ status: 'in_trade' })
-      .eq('id', sessionId);
+    const { goalSessionStateMachine } = await import('./coordinators/goal-session-state-machine');
+    await goalSessionStateMachine.transition(sessionId, 'active', {
+      reason: 'Trade executed - session now active',
+      triggeredBy: 'alpha-trade-executor',
+    });
 
-    // Create notification via SSOT NotificationCoordinator
-    // CCIP FIX (2026-02-03): Refactored from direct DB insert to NotificationCoordinator
-    // SSOT FIX (2026-02-03): Include Alpha's complete decision data in metadata for UI display
     await notificationCoordinator.send({
       userId,
       sessionId,
@@ -990,11 +987,11 @@ class AlphaTradeExecutor {
       }
     });
 
-    // Update session status
-    await supabase
-      .from('goal_sessions')
-      .update({ status: 'trade_pending' })
-      .eq('id', sessionId);
+    const { goalSessionStateMachine } = await import('./coordinators/goal-session-state-machine');
+    await goalSessionStateMachine.transition(sessionId, 'active', {
+      reason: 'Pending trade created - session now active',
+      triggeredBy: 'alpha-trade-executor',
+    });
 
     // Create notification (use resolved entryPrice, not decision.entry which may be null)
     await this.createNotification({

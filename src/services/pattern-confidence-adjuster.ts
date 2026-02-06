@@ -84,42 +84,13 @@ class PatternConfidenceAdjuster {
     const totalPenalties = penalties.reduce((sum, p) => sum + p.amount, 0);
     const totalAdjustment = totalBoosts - totalPenalties;
 
-    let adjustedConfidence = input.baseConfidence + totalAdjustment;
-
-    // Apply caps
-    let capApplied = false;
-    let capReason: string | undefined;
-
-    // Hard cap without liquidity confirmation
-    if (adjustedConfidence > this.MAX_CONFIDENCE_WITHOUT_LIQUIDITY && !input.liquidityIntentConfirms) {
-      adjustedConfidence = this.MAX_CONFIDENCE_WITHOUT_LIQUIDITY;
-      capApplied = true;
-      capReason = 'Capped at 90% - requires liquidity intent confirmation for higher confidence';
-    }
-
-    // Absolute maximum
-    if (adjustedConfidence > this.ABSOLUTE_MAX_CONFIDENCE) {
-      adjustedConfidence = this.ABSOLUTE_MAX_CONFIDENCE;
-      capApplied = true;
-      capReason = 'Absolute maximum confidence (95%)';
-    }
-
-    // Minimum floor
-    if (adjustedConfidence < this.MIN_CONFIDENCE) {
-      adjustedConfidence = this.MIN_CONFIDENCE;
-      capApplied = true;
-      capReason = 'Minimum confidence floor (20%)';
-    }
-
-    const finalConfidence = Math.round(adjustedConfidence);
+    const adjustedConfidence = input.baseConfidence + totalAdjustment;
 
     logger.info('[Pattern Confidence] Adjustment complete', {
       base: input.baseConfidence,
       boosts: totalBoosts,
       penalties: totalPenalties,
-      adjusted: adjustedConfidence,
-      final: finalConfidence,
-      capApplied,
+      totalAdjustment,
     });
 
     return {
@@ -128,9 +99,9 @@ class PatternConfidenceAdjuster {
       totalAdjustment,
       boosts,
       penalties,
-      capApplied,
-      capReason,
-      finalConfidence,
+      capApplied: false,
+      capReason: undefined,
+      finalConfidence: adjustedConfidence,
     };
   }
 

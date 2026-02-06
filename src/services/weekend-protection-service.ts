@@ -531,14 +531,11 @@ class WeekendProtectionService {
 
       for (const session of sessions) {
         try {
-          await supabase
-            .from('goal_sessions')
-            .update({
-              status: 'force_closed_weekend',
-              completed_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', session.id);
+          const { goalSessionStateMachine } = await import('./coordinators/goal-session-state-machine');
+          await goalSessionStateMachine.forceTransition(session.id, 'weekend_shutdown', {
+            reason: 'Weekend market closure protection',
+            triggeredBy: 'weekend-protection-service',
+          });
 
           endedCount++;
 
