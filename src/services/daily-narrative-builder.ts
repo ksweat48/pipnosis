@@ -88,7 +88,8 @@ class DailyNarrativeBuilder {
       for (let i = 1; i < candles.length; i++) {
         totalDisplacement += Math.abs(candles[i].close - candles[i - 1].close);
       }
-      const dailyDisplacement = totalDisplacement / pipFactor;
+      const pipInfo = getCurrencyPipInfo(symbol);
+      const dailyDisplacement = totalDisplacement / pipInfo.pipValue;
 
       // Calculate range position (where is current price in the range?)
       const rangePosition = dailyRange > 0
