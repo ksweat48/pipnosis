@@ -16,7 +16,8 @@
  * 2. Risk Authority (Context + PCVL + Margin + Kelly)
  * 3. Trade Capacity (Confidence + Slots + Duplicates)
  * 4. Price Validation (Slippage + Staleness)
- * 5. Database Boundary (Type coercion + Range check)
+ * 5. Mandatory Safety Validator (TIER 3 FIX - ONLY allowed blocker)
+ * 6. Database Boundary (Type coercion + Range check)
  *
  * Principles:
  * - Engines validate, Alpha decides
@@ -38,6 +39,7 @@ import { getRegimeBucket } from './regime-bucketing';
 import { getMinConfidenceThreshold } from '../config/risk-levels';
 import { logger, LogCategory } from '../lib/logger';
 import { calculateDollarPerPip, calculatePipDistance } from '../utils/currencyHelpers';
+import { mandatorySafetyValidator } from './mandatory-safety-validator';
 import type { AlphaDecision } from '../brains/coordinator-alpha';
 import type { TradeContext } from '../types/trade-context';
 
@@ -649,6 +651,58 @@ class AlphaTradeExecutor {
     // GOVERNANCE: Pre-insertion validation
     this.validateTradeRecord(tradeData, 'immediate');
 
+    // TIER 3 FIX: Mandatory Safety Validator - ONLY allowed blocker
+    // CRITICAL: This is the ONLY service that can block trades for safety reasons
+    // All other checks (confidence, EQS, etc.) are advisory only
+    const safetyValidation = await mandatorySafetyValidator.validate(
+      userId,
+      sessionId,
+      decision.symbol,
+      decision.action as 'BUY' | 'SELL',
+      adjustedEntry,
+      decision.stopLoss,
+      decision.takeProfit,
+      lotSize,
+      inputs.tradeContext
+    );
+
+    if (!safetyValidation.allowed) {
+      logger.error(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] MANDATORY SAFETY BLOCK - Trade rejected',
+        {
+          userId,
+          sessionId,
+          symbol: decision.symbol,
+          blockReason: safetyValidation.blockReason,
+          message: safetyValidation.message,
+          details: safetyValidation.details
+        }
+      );
+
+      // Log to CCIP for governance tracking
+      await this.logCCIPChange({
+        changeType: 'MANDATORY_SAFETY_BLOCK',
+        tableAffected: 'goal_session_trades',
+        recordId: userId,
+        userId,
+        sessionId,
+        metadata: {
+          symbol: decision.symbol,
+          direction: decision.action,
+          blockReason: safetyValidation.blockReason,
+          message: safetyValidation.message,
+          ...safetyValidation.details
+        }
+      });
+
+      return {
+        success: false,
+        error: safetyValidation.message || 'Mandatory safety check failed',
+        blockReason: `SAFETY_BLOCK: ${safetyValidation.blockReason}`
+      };
+    }
+
     const { data: trade, error } = await supabase
       .from('goal_session_trades')
       .insert(tradeData)
@@ -907,6 +961,58 @@ class AlphaTradeExecutor {
 
     // GOVERNANCE: Pre-insertion validation
     this.validateTradeRecord(tradeData, 'pending');
+
+    // TIER 3 FIX: Mandatory Safety Validator - ONLY allowed blocker (Pending trades)
+    // CRITICAL: Even pending trades must pass safety validation before creation
+    const safetyValidation = await mandatorySafetyValidator.validate(
+      userId,
+      sessionId,
+      decision.symbol,
+      decision.action as 'BUY' | 'SELL',
+      entryPrice,
+      decision.stopLoss,
+      decision.takeProfit,
+      lotSize,
+      inputs.tradeContext
+    );
+
+    if (!safetyValidation.allowed) {
+      logger.error(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] MANDATORY SAFETY BLOCK - Pending trade rejected',
+        {
+          userId,
+          sessionId,
+          symbol: decision.symbol,
+          blockReason: safetyValidation.blockReason,
+          message: safetyValidation.message,
+          details: safetyValidation.details
+        }
+      );
+
+      // Log to CCIP for governance tracking
+      await this.logCCIPChange({
+        changeType: 'MANDATORY_SAFETY_BLOCK',
+        tableAffected: 'goal_session_trades',
+        recordId: userId,
+        userId,
+        sessionId,
+        metadata: {
+          tradeMode: 'pending',
+          symbol: decision.symbol,
+          direction: decision.action,
+          blockReason: safetyValidation.blockReason,
+          message: safetyValidation.message,
+          ...safetyValidation.details
+        }
+      });
+
+      return {
+        success: false,
+        error: safetyValidation.message || 'Mandatory safety check failed',
+        blockReason: `SAFETY_BLOCK: ${safetyValidation.blockReason}`
+      };
+    }
 
     const { data: trade, error } = await supabase
       .from('goal_session_trades')

@@ -130,7 +130,7 @@ class MidTradeTriggerDetector {
         metadata: {
           current_price: currentPrice,
           stop_loss: trade.stopLoss,
-          distance_pips: (distanceToSL / 0.0001).toFixed(1),
+          distance_pips: calculatePipDistance(trade.symbol, currentPrice, trade.stopLoss).toFixed(1),
           proximity_percent: (slProximity * 100).toFixed(1)
         }
       };
@@ -253,7 +253,7 @@ class MidTradeTriggerDetector {
           current_price: currentPrice,
           take_profit: trade.takeProfit,
           tp_progress_percent: (tpProgress * 100).toFixed(1),
-          distance_remaining_pips: (distanceToTP / 0.0001).toFixed(1)
+          distance_remaining_pips: calculatePipDistance(trade.symbol, currentPrice, trade.takeProfit).toFixed(1)
         }
       };
     }
@@ -271,7 +271,7 @@ class MidTradeTriggerDetector {
           current_price: currentPrice,
           take_profit: trade.takeProfit,
           tp_progress_percent: (tpProgress * 100).toFixed(1),
-          distance_remaining_pips: (distanceToTP / 0.0001).toFixed(1)
+          distance_remaining_pips: calculatePipDistance(trade.symbol, currentPrice, trade.takeProfit).toFixed(1)
         }
       };
     }
@@ -288,7 +288,7 @@ class MidTradeTriggerDetector {
         metadata: {
           current_price: currentPrice,
           take_profit: trade.takeProfit,
-          distance_pips: (distanceToTP / 0.0001).toFixed(1),
+          distance_pips: calculatePipDistance(trade.symbol, currentPrice, trade.takeProfit).toFixed(1),
           proximity_percent: (tpProximity * 100).toFixed(1),
           tp_progress_percent: (tpProgress * 100).toFixed(1)
         }
@@ -421,7 +421,7 @@ class MidTradeTriggerDetector {
           confidence: 65,
           shouldCallLLM: true,
           metadata: {
-            price_range_pips: (priceRange / 0.0001).toFixed(1),
+            price_range_pips: calculatePipDistance(trade.symbol, highSinceEntry, lowSinceEntry).toFixed(1),
             minutes_in_trade: minutesInTrade.toFixed(0)
           }
         };
