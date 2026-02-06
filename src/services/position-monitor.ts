@@ -30,23 +30,51 @@ class PositionMonitorService {
   private updateRetryCount: Map<string, number> = new Map();
   private maxRetries = 3;
   private lastMidTradeCheck: Map<string, number> = new Map();
-  private midTradeCheckInterval = 60000; // Check every 60 seconds per trade
-  private lastStaleWarning: Map<string, number> = new Map(); // Throttle stale price warnings
-  private staleWarningThrottle = 300000; // Only warn every 5 minutes
+  private midTradeCheckInterval = 60000;
+  private lastStaleWarning: Map<string, number> = new Map();
+  private staleWarningThrottle = 300000;
+  private cachedUser: { id: string; expiresAt: number } | null = null;
+  private lastWrittenPrices: Map<string, { price: number; writtenAt: number }> = new Map();
+  private priceWriteThrottleMs = 5000;
+  private priceChangeThreshold = 0.001;
+  private batchPriceCache: Map<string, { bid: number; ask: number; ageMs: number }> = new Map();
+  private batchPriceFetchedAt = 0;
+
+  private async getCachedUserId(): Promise<string | null> {
+    if (this.cachedUser && Date.now() < this.cachedUser.expiresAt) {
+      return this.cachedUser.id;
+    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      this.cachedUser = { id: user.id, expiresAt: Date.now() + 30000 };
+    }
+    return user?.id || null;
+  }
+
+  private shouldWritePrice(positionId: string, currentPrice: number): boolean {
+    const last = this.lastWrittenPrices.get(positionId);
+    if (!last) return true;
+    const timeSinceWrite = Date.now() - last.writtenAt;
+    if (timeSinceWrite < this.priceWriteThrottleMs) {
+      const pctChange = Math.abs(currentPrice - last.price) / last.price;
+      return pctChange >= this.priceChangeThreshold;
+    }
+    return true;
+  }
+
+  private recordPriceWrite(positionId: string, price: number): void {
+    this.lastWrittenPrices.set(positionId, { price, writtenAt: Date.now() });
+  }
 
   start() {
     if (this.isRunning) return;
 
-    logger.debug(LogCategory.POSITION_MONITOR, '🚀 Starting position monitor service with high-frequency polling');
+    logger.debug(LogCategory.POSITION_MONITOR, 'Starting position monitor service');
     this.isRunning = true;
 
     this.monitorPositions();
-    // CRITICAL: Reduced intervals for immediate SL/TP detection
-    // Critical positions (near SL/TP): 250ms polling for sub-second response
-    // Normal positions: 1000ms polling (still 3x faster than before)
-    this.criticalPositionIntervalId = setInterval(() => this.monitorCriticalPositions(), 250);
-    this.normalPositionIntervalId = setInterval(() => this.monitorNormalPositions(), 1000);
-    console.log('[PositionMonitor] ⚡ High-frequency monitoring enabled: Critical=250ms, Normal=1000ms');
+    this.criticalPositionIntervalId = setInterval(() => this.monitorCriticalPositions(), 500);
+    this.normalPositionIntervalId = setInterval(() => this.monitorNormalPositions(), 2000);
   }
 
   stop() {
@@ -66,16 +94,17 @@ class PositionMonitorService {
     this.criticalSymbols.clear();
     this.updateRetryCount.clear();
     this.lastMidTradeCheck.clear();
+    this.cachedUser = null;
+    this.lastWrittenPrices.clear();
     logger.debug(LogCategory.POSITION_MONITOR, ' Stopped position monitor service');
   }
 
   async monitorPositions() {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const userId = await this.getCachedUserId();
+      if (!userId) return;
 
-      // SSOT: Use authority for position fetching (handles authorization)
-      const result = await positionMonitoringAuthority.getMonitorablePositions(user.id, false);
+      const result = await positionMonitoringAuthority.getMonitorablePositions(userId, false);
 
       if (!result.success) {
         if (result.accessDenied) {
@@ -144,9 +173,12 @@ class PositionMonitorService {
     pnl: number,
     userId: string
   ): Promise<boolean> {
+    if (!this.shouldWritePrice(positionId, currentPrice)) {
+      return true;
+    }
+
     const currentRetries = this.updateRetryCount.get(positionId) || 0;
 
-    // First, get current max_drawdown and max_profit values
     const { data: currentPosition } = await supabase
       .from('goal_session_trades')
       .select('max_drawdown, max_profit')
@@ -156,14 +188,9 @@ class PositionMonitorService {
 
     const currentMaxDrawdown = currentPosition?.max_drawdown || 0;
     const currentMaxProfit = currentPosition?.max_profit || 0;
-
-    // Update max_drawdown if current PnL is more negative
     const newMaxDrawdown = pnl < currentMaxDrawdown ? pnl : currentMaxDrawdown;
-
-    // Update max_profit if current PnL is more positive
     const newMaxProfit = pnl > currentMaxProfit ? pnl : currentMaxProfit;
 
-    // Direct table update with proper columns including max tracking
     const { error: updateError } = await supabase
       .from('goal_session_trades')
       .update({
@@ -177,55 +204,81 @@ class PositionMonitorService {
 
     if (!updateError) {
       this.updateRetryCount.delete(positionId);
-
-      // Log when we update max values for visibility
-      if (newMaxDrawdown < currentMaxDrawdown) {
-        console.log(`[PositionMonitor] 📉 New max drawdown: ${newMaxDrawdown.toFixed(2)} (was ${currentMaxDrawdown.toFixed(2)})`);
-      }
-      if (newMaxProfit > currentMaxProfit) {
-        console.log(`[PositionMonitor] 📈 New peak profit: ${newMaxProfit.toFixed(2)} (was ${currentMaxProfit.toFixed(2)})`);
-      }
-
+      this.recordPriceWrite(positionId, currentPrice);
       return true;
     }
 
-    console.error(`[PositionMonitor] Update failed (attempt ${currentRetries + 1}/${this.maxRetries}):`, {
-      positionId,
-      error: updateError
-    });
-
-    // Increment retry count
     this.updateRetryCount.set(positionId, currentRetries + 1);
 
     if (currentRetries >= this.maxRetries) {
-      console.error(`[PositionMonitor] Max retries exceeded for position ${positionId}`);
       this.updateRetryCount.delete(positionId);
       return false;
     }
 
-    // Exponential backoff
     const backoffMs = 1000 * (currentRetries + 1);
     await new Promise(resolve => setTimeout(resolve, backoffMs));
 
     return false;
   }
 
+  private async fetchBatchPrices(symbols: string[]): Promise<void> {
+    if (symbols.length === 0) return;
+    if (Date.now() - this.batchPriceFetchedAt < 400) return;
+
+    try {
+      const { data: prices } = await supabase
+        .from('realtime_prices')
+        .select('symbol, bid, ask, created_at')
+        .in('symbol', symbols)
+        .order('created_at', { ascending: false });
+
+      if (!prices) return;
+
+      const seen = new Set<string>();
+      for (const p of prices) {
+        if (seen.has(p.symbol)) continue;
+        seen.add(p.symbol);
+        const ageMs = Date.now() - new Date(p.created_at).getTime();
+        if (ageMs < 120000) {
+          this.batchPriceCache.set(p.symbol, {
+            bid: parseFloat(p.bid),
+            ask: parseFloat(p.ask),
+            ageMs
+          });
+        }
+      }
+      this.batchPriceFetchedAt = Date.now();
+    } catch (error) {
+      logger.warn(LogCategory.POSITION_MONITOR, 'Batch price fetch failed:', error);
+    }
+  }
+
+  getBatchPrice(symbol: string): { bid: number; ask: number } | null {
+    const cached = this.batchPriceCache.get(symbol);
+    if (!cached) return null;
+    if (Date.now() - this.batchPriceFetchedAt > 5000) return null;
+    return { bid: cached.bid, ask: cached.ask };
+  }
+
   private async monitorCriticalPositions(): Promise<void> {
     if (this.criticalSymbols.size === 0) return;
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const userId = await this.getCachedUserId();
+      if (!userId) return;
 
       const { data: positions, error } = await supabase
         .from('goal_session_trades')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .eq('status', 'open')
         .in('symbol', Array.from(this.criticalSymbols));
 
       if (error) throw error;
       if (!positions || positions.length === 0) return;
+
+      const symbols = [...new Set(positions.map(p => p.symbol))];
+      await this.fetchBatchPrices(symbols);
 
       for (const position of positions) {
         await this.updatePositionWithPriority(position, 'critical');
@@ -237,17 +290,20 @@ class PositionMonitorService {
 
   private async monitorNormalPositions(): Promise<void> {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const userId = await this.getCachedUserId();
+      if (!userId) return;
 
       const { data: positions, error } = await supabase
         .from('goal_session_trades')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .in('status', ['open', 'pending']);
 
       if (error) throw error;
       if (!positions || positions.length === 0) return;
+
+      const symbols = [...new Set(positions.map(p => p.symbol))];
+      await this.fetchBatchPrices(symbols);
 
       for (const position of positions) {
         if (position.status === 'open' && !this.criticalSymbols.has(position.symbol)) {
@@ -266,49 +322,44 @@ class PositionMonitorService {
     priority: 'critical' | 'high'
   ): Promise<void> {
     try {
-      // CRITICAL: Use multiple price sources with fallbacks
       let currentPrice: number | null = null;
       let bid: number | null = null;
       let ask: number | null = null;
       let priceSource = '';
 
-      // SOURCE 1: realtime_prices table (most recent, preferred source)
-      const { data: realtimeData, error: realtimeError } = await supabase
-        .from('realtime_prices')
-        .select('bid, ask, created_at')
-        .eq('symbol', position.symbol)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const batchPrice = this.getBatchPrice(position.symbol);
+      if (batchPrice) {
+        bid = batchPrice.bid;
+        ask = batchPrice.ask;
+        currentPrice = position.direction === 'buy' ? bid : ask;
+        priceSource = 'batch_cache';
+      }
 
-      if (realtimeData && !realtimeError) {
-        const ageMinutes = (Date.now() - new Date(realtimeData.created_at).getTime()) / 1000 / 60;
-        const ageSeconds = ageMinutes * 60;
+      if (!currentPrice) {
+        const { data: realtimeData, error: realtimeError } = await supabase
+          .from('realtime_prices')
+          .select('bid, ask, created_at')
+          .eq('symbol', position.symbol)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-        // CRITICAL: Reduced freshness threshold to 2 minutes (was 5) for tighter SL/TP monitoring
-        // For positions with critical status, we need fresh data
-        if (ageMinutes < 2) {
-          bid = parseFloat(realtimeData.bid);
-          ask = parseFloat(realtimeData.ask);
-          currentPrice = position.direction === 'buy' ? bid : ask;
-          priceSource = 'realtime_prices';
-
-          // Only log for critical positions or if very fresh
-          if (this.criticalSymbols.has(position.symbol) || ageSeconds < 10) {
-            console.log(`[PositionMonitor] ${position.symbol}: Using realtime_prices (${ageSeconds.toFixed(1)}s old)`);
-          }
-        } else {
-          // Throttle stale warnings to once every 5 minutes per symbol
-          const now = Date.now();
-          const lastWarning = this.lastStaleWarning.get(position.symbol) || 0;
-          if (now - lastWarning > this.staleWarningThrottle) {
-            console.error(`[PositionMonitor] ⚠️ STALE PRICE DATA for ${position.symbol}: ${ageMinutes.toFixed(1)} minutes old (threshold: 2min)`);
-            console.error(`[PositionMonitor] This may delay SL/TP closure! Trying fallback sources...`);
-            this.lastStaleWarning.set(position.symbol, now);
+        if (realtimeData && !realtimeError) {
+          const ageMinutes = (Date.now() - new Date(realtimeData.created_at).getTime()) / 1000 / 60;
+          if (ageMinutes < 2) {
+            bid = parseFloat(realtimeData.bid);
+            ask = parseFloat(realtimeData.ask);
+            currentPrice = position.direction === 'buy' ? bid : ask;
+            priceSource = 'realtime_prices';
+          } else {
+            const now = Date.now();
+            const lastWarning = this.lastStaleWarning.get(position.symbol) || 0;
+            if (now - lastWarning > this.staleWarningThrottle) {
+              console.error(`[PositionMonitor] STALE PRICE for ${position.symbol}: ${ageMinutes.toFixed(1)}min old`);
+              this.lastStaleWarning.set(position.symbol, now);
+            }
           }
         }
-      } else if (realtimeError) {
-        console.error(`[PositionMonitor] ❌ ${position.symbol}: realtime_prices query error:`, realtimeError.message);
       }
 
       // SOURCE 2: forex_candles table (M5 close price)

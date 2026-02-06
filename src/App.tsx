@@ -38,7 +38,6 @@ const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(m => ({ 
 const SystemDiagnosticsPage = lazy(() => import('./pages/SystemDiagnosticsPage'));
 const AILearningCenterPage = lazy(() => import('./pages/AILearningCenterPage'));
 const CreditsPage = lazy(() => import('./pages/CreditsPage').then(m => ({ default: m.CreditsPage })));
-const OptimizedCandleTestPage = lazy(() => import('./pages/OptimizedCandleTestPage'));
 
 // Loading component
 const LoadingFallback = () => (
@@ -173,20 +172,6 @@ const AppRoutes: React.FC = () => {
     }
   }, [user?.id]);
 
-  // Data quality startup - validate and repair candle data
-  // DISABLED: Automatic repair on startup disabled to prevent console spam
-  // To manually run data quality checks, use: dataQualityStartup.forceRerun()
-  // useEffect(() => {
-  //   const initDataQuality = async () => {
-  //     const { dataQualityStartup } = await import('./services/data-quality-startup');
-  //     await dataQualityStartup.runStartupChecks();
-  //   };
-
-  //   // Run in background - don't block app startup
-  //   initDataQuality().catch(error => {
-  //     console.error('[App] Data quality check failed:', error);
-  //   });
-  // }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -603,14 +588,6 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute adminOnly={true}>
             <SystemDiagnosticsPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/optimized-candles"
-        element={
-          <ProtectedRoute>
-            <OptimizedCandleTestPage />
           </ProtectedRoute>
         }
       />

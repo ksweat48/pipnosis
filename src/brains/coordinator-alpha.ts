@@ -3204,6 +3204,46 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
       parts.push('\n' + intelligence.tpCalibration);
     }
 
+    const dm = intelligence.decisionMetrics;
+    if (dm.totalDecisions >= 5) {
+      parts.push('\n📈 YOUR DECISION HISTORY (Self-Learning):');
+      parts.push(`  Overall: ${dm.winRate.toFixed(1)}% WR | ${dm.profitFactor.toFixed(2)} PF (${dm.totalDecisions} decisions)`);
+      if (dm.overrideSuccessRate > 0) {
+        parts.push(`  Override success: ${dm.overrideSuccessRate.toFixed(1)}% | Consensus follow: ${dm.consensusSuccessRate.toFixed(1)}%`);
+        if (dm.overrideSuccessRate > dm.consensusSuccessRate + 5) {
+          parts.push('  -> Your overrides outperform consensus. Trust your conviction on high-confidence setups.');
+        } else if (dm.consensusSuccessRate > dm.overrideSuccessRate + 5) {
+          parts.push('  -> Consensus outperforms overrides. Be cautious when deviating from Omega agreement.');
+        }
+      }
+      if (dm.bestOverrideCategory) {
+        parts.push(`  Best override type: ${dm.bestOverrideCategory}`);
+      }
+      if (dm.worstOverrideCategory) {
+        parts.push(`  Worst override type: ${dm.worstOverrideCategory} — avoid overriding in this category`);
+      }
+    }
+
+    const tp1 = intelligence.tp1Learning;
+    if (tp1.totalTP1Events >= 3) {
+      parts.push('\n🎯 TP1 HIT LEARNING (Close vs Hold):');
+      parts.push(`  Close at TP1: ${tp1.closeEarlyWinRate.toFixed(0)}% WR, avg $${tp1.avgPnlCloseEarly.toFixed(2)}`);
+      parts.push(`  Hold to TP2: ${tp1.holdToTP2WinRate.toFixed(0)}% WR, avg $${tp1.avgPnlHoldToTP2.toFixed(2)}`);
+      if (tp1.recommendation) {
+        parts.push(`  -> ${tp1.recommendation}`);
+      }
+    }
+
+    if (intelligence.validatedInsights.length > 0) {
+      parts.push('\n🔬 VALIDATED INSIGHTS (High-Confidence Learnings):');
+      intelligence.validatedInsights.slice(0, 3).forEach(insight => {
+        parts.push(`  [${insight.confidence.toFixed(0)}%] ${insight.title}: ${insight.description}`);
+        if (insight.winRate > 0 && insight.sampleSize >= 5) {
+          parts.push(`    Evidence: ${insight.winRate.toFixed(1)}% WR over ${insight.sampleSize} trades`);
+        }
+      });
+    }
+
     return parts.join('\n');
   }
 

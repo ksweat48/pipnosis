@@ -81,6 +81,32 @@ export interface AlphaIntelligenceSnapshot {
     secondaryZoneRate: number;
   };
   tpCalibration: string;
+  decisionMetrics: {
+    totalDecisions: number;
+    overrideSuccessRate: number;
+    consensusSuccessRate: number;
+    winRate: number;
+    profitFactor: number;
+    bestOverrideCategory: string | null;
+    worstOverrideCategory: string | null;
+  };
+  tp1Learning: {
+    totalTP1Events: number;
+    closeEarlyWinRate: number;
+    holdToTP2WinRate: number;
+    avgPnlCloseEarly: number;
+    avgPnlHoldToTP2: number;
+    recommendation: string;
+  };
+  validatedInsights: Array<{
+    title: string;
+    description: string;
+    confidence: number;
+    applyWhen: string[];
+    avoidWhen: string[];
+    winRate: number;
+    sampleSize: number;
+  }>;
 }
 
 export class AlphaIntelligenceAggregator {
@@ -108,7 +134,10 @@ export class AlphaIntelligenceAggregator {
         metaInsights,
         counterfactualInsights,
         zoneMetaLearning,
-        tpCalibration
+        tpCalibration,
+        decisionMetrics,
+        tp1Learning,
+        validatedInsights
       ] = await Promise.all([
         this.getPlatformPatterns(userId),
         this.getSymbolIntelligence(userId, symbol),
@@ -119,7 +148,10 @@ export class AlphaIntelligenceAggregator {
         this.getMetaInsights(userId),
         this.getCounterfactualInsights(userId),
         this.getZoneMetaLearning(),
-        this.getTPCalibration(userId)
+        this.getTPCalibration(userId),
+        this.getDecisionMetrics(userId),
+        this.getTP1Learning(userId),
+        this.getValidatedInsights(userId)
       ]);
 
       const snapshot: AlphaIntelligenceSnapshot = {
@@ -132,7 +164,10 @@ export class AlphaIntelligenceAggregator {
         metaInsights,
         counterfactualInsights,
         zoneMetaLearning,
-        tpCalibration
+        tpCalibration,
+        decisionMetrics,
+        tp1Learning,
+        validatedInsights
       };
 
       await this.cacheIntelligence(userId, cacheKey, 'platform_patterns', snapshot);
@@ -497,7 +532,25 @@ export class AlphaIntelligenceAggregator {
         downgradeRate: 0,
         secondaryZoneRate: 0
       },
-      tpCalibration: ''
+      tpCalibration: '',
+      decisionMetrics: {
+        totalDecisions: 0,
+        overrideSuccessRate: 0,
+        consensusSuccessRate: 0,
+        winRate: 0,
+        profitFactor: 0,
+        bestOverrideCategory: null,
+        worstOverrideCategory: null
+      },
+      tp1Learning: {
+        totalTP1Events: 0,
+        closeEarlyWinRate: 0,
+        holdToTP2WinRate: 0,
+        avgPnlCloseEarly: 0,
+        avgPnlHoldToTP2: 0,
+        recommendation: ''
+      },
+      validatedInsights: []
     };
   }
 
@@ -582,6 +635,132 @@ export class AlphaIntelligenceAggregator {
     } catch (error) {
       logger.warn('[AlphaIntelligence] TP calibration fetch failed (non-blocking):', error);
       return '';
+    }
+  }
+
+  private async getDecisionMetrics(userId: string): Promise<AlphaIntelligenceSnapshot['decisionMetrics']> {
+    const empty: AlphaIntelligenceSnapshot['decisionMetrics'] = {
+      totalDecisions: 0,
+      overrideSuccessRate: 0,
+      consensusSuccessRate: 0,
+      winRate: 0,
+      profitFactor: 0,
+      bestOverrideCategory: null,
+      worstOverrideCategory: null
+    };
+
+    try {
+      const { data } = await supabase
+        .from('alpha_learning_metrics')
+        .select('total_decisions, override_success_rate, consensus_success_rate, win_rate, profit_factor, best_override_category, worst_override_category')
+        .eq('user_id', userId)
+        .order('period_start', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!data || data.total_decisions < 5) return empty;
+
+      return {
+        totalDecisions: data.total_decisions,
+        overrideSuccessRate: Number(data.override_success_rate) || 0,
+        consensusSuccessRate: Number(data.consensus_success_rate) || 0,
+        winRate: Number(data.win_rate) || 0,
+        profitFactor: Number(data.profit_factor) || 0,
+        bestOverrideCategory: data.best_override_category,
+        worstOverrideCategory: data.worst_override_category
+      };
+    } catch (error) {
+      logger.warn('[AlphaIntelligence] Decision metrics fetch failed (non-blocking):', error);
+      return empty;
+    }
+  }
+
+  private async getTP1Learning(userId: string): Promise<AlphaIntelligenceSnapshot['tp1Learning']> {
+    const empty: AlphaIntelligenceSnapshot['tp1Learning'] = {
+      totalTP1Events: 0,
+      closeEarlyWinRate: 0,
+      holdToTP2WinRate: 0,
+      avgPnlCloseEarly: 0,
+      avgPnlHoldToTP2: 0,
+      recommendation: ''
+    };
+
+    try {
+      const { data: tp1Events } = await supabase
+        .from('tp1_learning_log')
+        .select('user_decision, final_outcome, final_pnl, max_profit_after_tp1, pnl_at_tp1')
+        .eq('user_id', userId)
+        .not('final_outcome', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (!tp1Events || tp1Events.length < 3) return empty;
+
+      const closeEarly = tp1Events.filter(e => e.user_decision === 'close');
+      const holdToTP2 = tp1Events.filter(e => e.user_decision === 'hold' || e.user_decision === 'continue');
+
+      const closeEarlyWins = closeEarly.filter(e => Number(e.final_pnl) > 0).length;
+      const holdWins = holdToTP2.filter(e => Number(e.final_pnl) > 0).length;
+
+      const avgPnlClose = closeEarly.length > 0
+        ? closeEarly.reduce((sum, e) => sum + Number(e.final_pnl || 0), 0) / closeEarly.length
+        : 0;
+      const avgPnlHold = holdToTP2.length > 0
+        ? holdToTP2.reduce((sum, e) => sum + Number(e.final_pnl || 0), 0) / holdToTP2.length
+        : 0;
+
+      let recommendation = '';
+      if (closeEarly.length >= 3 && holdToTP2.length >= 3) {
+        const closeWR = closeEarlyWins / closeEarly.length;
+        const holdWR = holdWins / holdToTP2.length;
+        if (avgPnlHold > avgPnlClose * 1.2) {
+          recommendation = `Holding to TP2 outperforms closing at TP1 by ${((avgPnlHold / Math.max(avgPnlClose, 0.01) - 1) * 100).toFixed(0)}%. Favor holding.`;
+        } else if (avgPnlClose > avgPnlHold * 1.2) {
+          recommendation = `Closing at TP1 outperforms holding by ${((avgPnlClose / Math.max(avgPnlHold, 0.01) - 1) * 100).toFixed(0)}%. Favor taking profit early.`;
+        } else {
+          recommendation = `TP1 close vs hold performance is similar. Use market context to decide.`;
+        }
+      }
+
+      return {
+        totalTP1Events: tp1Events.length,
+        closeEarlyWinRate: closeEarly.length > 0 ? (closeEarlyWins / closeEarly.length) * 100 : 0,
+        holdToTP2WinRate: holdToTP2.length > 0 ? (holdWins / holdToTP2.length) * 100 : 0,
+        avgPnlCloseEarly: avgPnlClose,
+        avgPnlHoldToTP2: avgPnlHold,
+        recommendation
+      };
+    } catch (error) {
+      logger.warn('[AlphaIntelligence] TP1 learning fetch failed (non-blocking):', error);
+      return empty;
+    }
+  }
+
+  private async getValidatedInsights(userId: string): Promise<AlphaIntelligenceSnapshot['validatedInsights']> {
+    try {
+      const { data: insights } = await supabase
+        .from('ai_learning_insights')
+        .select('insight_title, insight_description, confidence_score, apply_when_conditions, avoid_when_conditions, win_rate, sample_size')
+        .eq('user_id', userId)
+        .gte('confidence_score', 60)
+        .gte('sample_size', 5)
+        .order('confidence_score', { ascending: false })
+        .limit(5);
+
+      if (!insights || insights.length === 0) return [];
+
+      return insights.map(i => ({
+        title: i.insight_title || '',
+        description: i.insight_description || '',
+        confidence: Number(i.confidence_score) || 0,
+        applyWhen: Array.isArray(i.apply_when_conditions) ? i.apply_when_conditions : [],
+        avoidWhen: Array.isArray(i.avoid_when_conditions) ? i.avoid_when_conditions : [],
+        winRate: Number(i.win_rate) || 0,
+        sampleSize: i.sample_size || 0
+      }));
+    } catch (error) {
+      logger.warn('[AlphaIntelligence] Validated insights fetch failed (non-blocking):', error);
+      return [];
     }
   }
 }

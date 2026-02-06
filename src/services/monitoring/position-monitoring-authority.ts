@@ -103,25 +103,17 @@ export interface PositionFetchResult {
 }
 
 class PositionMonitoringAuthority {
-  /**
-   * Fetch monitorable positions for a user with proper authorization
-   *
-   * AUTHORITY: This is the ONLY way to fetch positions for monitoring
-   *
-   * @param userId - User ID requesting positions
-   * @param isAdmin - Whether user has admin privileges
-   * @param targetUserId - Optional: Admin can monitor other users
-   */
+  private positionCache: Map<string, { positions: MonitoredPosition[]; fetchedAt: number }> = new Map();
+  private cacheTTLMs = 1000;
+
   async getMonitorablePositions(
     userId: string,
     isAdmin: boolean = false,
     targetUserId?: string
   ): Promise<PositionFetchResult> {
     try {
-      // AUTHORIZATION: Define clear privilege boundaries
       const monitoringUserId = targetUserId && isAdmin ? targetUserId : userId;
 
-      // SECURITY: Non-admins can ONLY monitor their own positions
       if (targetUserId && targetUserId !== userId && !isAdmin) {
         return {
           success: false,
@@ -131,7 +123,11 @@ class PositionMonitoringAuthority {
         };
       }
 
-      // Fetch positions with explicit user filter
+      const cached = this.positionCache.get(monitoringUserId);
+      if (cached && Date.now() - cached.fetchedAt < this.cacheTTLMs) {
+        return { success: true, positions: cached.positions };
+      }
+
       const { data: positions, error } = await supabase
         .from('goal_session_trades')
         .select('id, symbol, direction, entry_price, stop_loss, take_profit, tp1_price, tp2_price, tp1_hit, tp2_hit, position_size, lot_size, user_id, goal_session_id, status, current_price, opened_at')
@@ -139,23 +135,27 @@ class PositionMonitoringAuthority {
         .eq('user_id', monitoringUserId);
 
       if (error) {
-        return {
-          success: false,
-          positions: [],
-          error: error.message,
-        };
+        return { success: false, positions: [], error: error.message };
       }
 
-      return {
-        success: true,
-        positions: (positions || []) as MonitoredPosition[],
-      };
+      const result = (positions || []) as MonitoredPosition[];
+      this.positionCache.set(monitoringUserId, { positions: result, fetchedAt: Date.now() });
+
+      return { success: true, positions: result };
     } catch (error) {
       return {
         success: false,
         positions: [],
         error: error instanceof Error ? error.message : 'Unknown error',
       };
+    }
+  }
+
+  invalidateCache(userId?: string): void {
+    if (userId) {
+      this.positionCache.delete(userId);
+    } else {
+      this.positionCache.clear();
     }
   }
 
