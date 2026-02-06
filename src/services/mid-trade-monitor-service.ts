@@ -133,14 +133,28 @@ class MidTradeMonitorService {
         };
       }
 
-      // Fetch current prices for all symbols
+      // Parallelize all secondary fetches (prices, staleness, AI evaluations)
       const symbols = Array.from(new Set(trades.map(t => t.symbol)));
-      const { data: prices, error: pricesError } = await supabase
-        .from('realtime_prices')
-        .select('symbol, bid, ask, created_at')
-        .in('symbol', symbols)
-        .order('created_at', { ascending: false });
+      const [pricesResult, stalenessResult, aiEvaluationsResult] = await Promise.all([
+        supabase
+          .from('realtime_prices')
+          .select('symbol, bid, ask, created_at')
+          .in('symbol', symbols)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('polling_price_staleness')
+          .select('symbol, staleness_minutes, is_critical')
+          .in('symbol', symbols),
+        supabase
+          .from('goal_ai_conversations')
+          .select('trade_id, content, metadata, created_at')
+          .eq('user_id', userId)
+          .in('conversation_type', ['mid_trade_alert', 'periodic_wellness', 'trade_milestone'])
+          .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+          .order('created_at', { ascending: false })
+      ]);
 
+      const { data: prices, error: pricesError } = pricesResult;
       if (pricesError) {
         console.error('[MidTradeMonitor] Error fetching prices:', pricesError);
       }
@@ -163,15 +177,9 @@ class MidTradeMonitorService {
         }
       }
 
-      // Fetch price freshness status from SSOT table
-      const { data: stalenessData } = await supabase
-        .from('polling_price_staleness')
-        .select('symbol, staleness_minutes, is_critical')
-        .in('symbol', symbols);
-
       const stalenessMap = new Map<string, { staleness_minutes: number; is_critical: boolean }>();
-      if (stalenessData) {
-        stalenessData.forEach(item => {
+      if (stalenessResult.data) {
+        stalenessResult.data.forEach(item => {
           stalenessMap.set(item.symbol, {
             staleness_minutes: item.staleness_minutes,
             is_critical: item.is_critical
@@ -179,14 +187,7 @@ class MidTradeMonitorService {
         });
       }
 
-      // Fetch recent AI evaluations (last 24 hours)
-      const { data: aiEvaluations } = await supabase
-        .from('goal_ai_conversations')
-        .select('trade_id, content, metadata, created_at')
-        .eq('user_id', userId)
-        .in('conversation_type', ['mid_trade_alert', 'periodic_wellness', 'trade_milestone'])
-        .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-        .order('created_at', { ascending: false });
+      const { data: aiEvaluations } = aiEvaluationsResult;
 
       // Build AI evaluation map (most recent per trade)
       const aiMap = new Map<string, { content: string; confidence: number; timestamp: string }>();

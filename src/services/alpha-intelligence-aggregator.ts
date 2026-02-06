@@ -64,6 +64,23 @@ export interface AlphaIntelligenceSnapshot {
     actionableAdjustment: string;
     validated: boolean;
   }>;
+  counterfactualInsights: {
+    bestSlMultiplier: number | null;
+    bestTpMultiplier: number | null;
+    earlyExitRecommended: boolean;
+    holdLongerRecommended: boolean;
+    avgImprovementPct: number;
+    topRecommendation: string;
+    sampleSize: number;
+  };
+  zoneMetaLearning: {
+    unreachableByRegime: Record<string, number>;
+    zoneTypeSuccessRates: Record<string, number>;
+    reachabilityRate: number;
+    downgradeRate: number;
+    secondaryZoneRate: number;
+  };
+  tpCalibration: string;
 }
 
 export class AlphaIntelligenceAggregator {
@@ -88,7 +105,10 @@ export class AlphaIntelligenceAggregator {
         calibrationData,
         reasoningPatterns,
         overrideHistory,
-        metaInsights
+        metaInsights,
+        counterfactualInsights,
+        zoneMetaLearning,
+        tpCalibration
       ] = await Promise.all([
         this.getPlatformPatterns(userId),
         this.getSymbolIntelligence(userId, symbol),
@@ -96,7 +116,10 @@ export class AlphaIntelligenceAggregator {
         this.getCalibrationData(userId),
         this.getReasoningPatterns(userId),
         this.getOverrideHistory(userId),
-        this.getMetaInsights(userId)
+        this.getMetaInsights(userId),
+        this.getCounterfactualInsights(userId),
+        this.getZoneMetaLearning(),
+        this.getTPCalibration(userId)
       ]);
 
       const snapshot: AlphaIntelligenceSnapshot = {
@@ -106,7 +129,10 @@ export class AlphaIntelligenceAggregator {
         calibrationData,
         reasoningPatterns,
         overrideHistory,
-        metaInsights
+        metaInsights,
+        counterfactualInsights,
+        zoneMetaLearning,
+        tpCalibration
       };
 
       await this.cacheIntelligence(userId, cacheKey, 'platform_patterns', snapshot);
@@ -454,8 +480,109 @@ export class AlphaIntelligenceAggregator {
         successRate: 0,
         byType: {}
       },
-      metaInsights: []
+      metaInsights: [],
+      counterfactualInsights: {
+        bestSlMultiplier: null,
+        bestTpMultiplier: null,
+        earlyExitRecommended: false,
+        holdLongerRecommended: false,
+        avgImprovementPct: 0,
+        topRecommendation: '',
+        sampleSize: 0
+      },
+      zoneMetaLearning: {
+        unreachableByRegime: {},
+        zoneTypeSuccessRates: {},
+        reachabilityRate: 0,
+        downgradeRate: 0,
+        secondaryZoneRate: 0
+      },
+      tpCalibration: ''
     };
+  }
+
+  private async getCounterfactualInsights(userId: string): Promise<AlphaIntelligenceSnapshot['counterfactualInsights']> {
+    const empty: AlphaIntelligenceSnapshot['counterfactualInsights'] = {
+      bestSlMultiplier: null,
+      bestTpMultiplier: null,
+      earlyExitRecommended: false,
+      holdLongerRecommended: false,
+      avgImprovementPct: 0,
+      topRecommendation: '',
+      sampleSize: 0
+    };
+
+    try {
+      const { data: insights, error } = await supabase
+        .from('ai_counterfactual_insights')
+        .select('best_sl_multiplier, best_tp_multiplier, early_exit_recommended, hold_longer_recommended, estimated_improvement_pct, actionable_recommendation')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (error || !insights || insights.length === 0) return empty;
+
+      const slMultipliers = insights.filter(i => i.best_sl_multiplier).map(i => i.best_sl_multiplier as number);
+      const tpMultipliers = insights.filter(i => i.best_tp_multiplier).map(i => i.best_tp_multiplier as number);
+      const avgImprovement = insights.reduce((sum, i) => sum + (i.estimated_improvement_pct || 0), 0) / insights.length;
+      const earlyExitCount = insights.filter(i => i.early_exit_recommended).length;
+      const holdLongerCount = insights.filter(i => i.hold_longer_recommended).length;
+
+      return {
+        bestSlMultiplier: slMultipliers.length > 0 ? slMultipliers.reduce((a, b) => a + b, 0) / slMultipliers.length : null,
+        bestTpMultiplier: tpMultipliers.length > 0 ? tpMultipliers.reduce((a, b) => a + b, 0) / tpMultipliers.length : null,
+        earlyExitRecommended: earlyExitCount > insights.length * 0.4,
+        holdLongerRecommended: holdLongerCount > insights.length * 0.4,
+        avgImprovementPct: avgImprovement,
+        topRecommendation: insights[0]?.actionable_recommendation || '',
+        sampleSize: insights.length
+      };
+    } catch (error) {
+      logger.warn('[AlphaIntelligence] Counterfactual insights fetch failed (non-blocking):', error);
+      return empty;
+    }
+  }
+
+  private async getZoneMetaLearning(): Promise<AlphaIntelligenceSnapshot['zoneMetaLearning']> {
+    const empty: AlphaIntelligenceSnapshot['zoneMetaLearning'] = {
+      unreachableByRegime: {},
+      zoneTypeSuccessRates: {},
+      reachabilityRate: 0,
+      downgradeRate: 0,
+      secondaryZoneRate: 0
+    };
+
+    try {
+      const { ZoneMetaLearningService } = await import('./zone-meta-learning-service');
+
+      const [unreachableByRegime, zoneTypeSuccessRates, reachabilityMetrics, secondaryUtil] = await Promise.all([
+        ZoneMetaLearningService.getUnreachableZonesByRegime(),
+        ZoneMetaLearningService.getZoneTypeSuccessRates(),
+        ZoneMetaLearningService.getZoneReachabilityMetrics(),
+        ZoneMetaLearningService.getSecondaryZoneUtilization()
+      ]);
+
+      return {
+        unreachableByRegime,
+        zoneTypeSuccessRates,
+        reachabilityRate: reachabilityMetrics.reachabilityRate,
+        downgradeRate: reachabilityMetrics.downgradeRate,
+        secondaryZoneRate: secondaryUtil.secondaryRate
+      };
+    } catch (error) {
+      logger.warn('[AlphaIntelligence] Zone meta learning fetch failed (non-blocking):', error);
+      return empty;
+    }
+  }
+
+  private async getTPCalibration(userId: string): Promise<string> {
+    try {
+      const { tpMetaLearning } = await import('./tp-meta-learning');
+      return await tpMetaLearning.getTPCalibrationForAlpha(userId);
+    } catch (error) {
+      logger.warn('[AlphaIntelligence] TP calibration fetch failed (non-blocking):', error);
+      return '';
+    }
   }
 }
 

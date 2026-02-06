@@ -157,7 +157,7 @@ COMPLIANCE:
           completed: true,
           quality_score: qualityScore,
           issues_found: issuesFound,
-          duration_minutes: Math.round(Math.random() * 30 + 15), // Simulated duration
+          duration_minutes: 0,
           completion_notes: completionNotes
         });
     } catch (error) {

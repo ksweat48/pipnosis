@@ -1017,8 +1017,7 @@ class EventBasedLLMEngine {
           // Get current regime bucket
           const regimeBucket = getRegimeBucket(this.lastRegime, this.lastAdversarial);
 
-          // Evaluate every ~10 trades to avoid thrashing
-          const shouldEvaluate = Math.random() < 0.1; // 10% chance per trade
+          const shouldEvaluate = this.strategyPlanCount > 0 && this.strategyPlanCount % 10 === 0;
 
           if (shouldEvaluate) {
             console.log(`[Playbook] 🔍 Evaluating playbook promotion for ${this.currentConfig.symbol}/${this.currentConfig.timeframe} in ${regimeBucket}`);

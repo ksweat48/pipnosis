@@ -1048,25 +1048,29 @@ class PositionMonitorService {
 
         console.log(`[PositionMonitor] Created AI conversation message for ${reason} on ${position.symbol}`);
 
-        // Create persistent modal for user
-        const { data: closedTrades } = await supabase
-          .from('goal_session_trades')
-          .select('profit_loss')
-          .eq('goal_session_id', position.goal_session_id)
-          .eq('status', 'closed');
+        // Create persistent modal for user (parallelize independent queries)
+        const [closedTradesResult, sessionResult, tradesCountResult] = await Promise.all([
+          supabase
+            .from('goal_session_trades')
+            .select('profit_loss')
+            .eq('goal_session_id', position.goal_session_id)
+            .eq('status', 'closed'),
+          supabase
+            .from('goal_sessions')
+            .select('target_value, status')
+            .eq('id', position.goal_session_id)
+            .maybeSingle(),
+          supabase
+            .from('goal_session_trades')
+            .select('id', { count: 'exact' })
+            .eq('goal_session_id', position.goal_session_id)
+        ]);
+
+        const { data: closedTrades } = closedTradesResult;
+        const { data: session } = sessionResult;
+        const { data: tradesCount } = tradesCountResult;
 
         const cumulativeProfit = closedTrades?.reduce((sum, t) => sum + (t.profit_loss || 0), 0) || 0;
-
-        const { data: session } = await supabase
-          .from('goal_sessions')
-          .select('target_value, status')
-          .eq('id', position.goal_session_id)
-          .maybeSingle();
-
-        const { data: tradesCount } = await supabase
-          .from('goal_session_trades')
-          .select('id', { count: 'exact' })
-          .eq('goal_session_id', position.goal_session_id);
 
         const { modalQueueManager } = await import('./modal-queue-manager');
         const modalType = reason === 'goal_met' ? 'goal_achieved' : 'trade_closed';

@@ -549,60 +549,47 @@ class AlphaCoordinatorBrain {
     const consensusDescription = getConsensusDescription(riskMode);
     console.log(`[Alpha Coordinator] 🎯 Consensus Advisory: ${recommendedConsensusCount}/7 recommended for ${riskMode} risk | Actual: ${consensus.agreementCount}/7 | Strength Modifier: ${consensusStrengthModifier > 0 ? '+' : ''}${(consensusStrengthModifier * 100).toFixed(1)}%`);
 
-    // Fetch platform-wide intelligence for this symbol
+    // Fire-and-forget thought stream emissions
     if (sessionId && userId) {
-      alphaThoughtStream.emitAlphaPlatformIntel(sessionId, userId, marketContext.symbol).catch(err => {
-        console.warn('[Alpha Coordinator] Failed to emit platform intel thought:', err);
-      });
+      alphaThoughtStream.emitAlphaPlatformIntel(sessionId, userId, marketContext.symbol).catch(() => {});
+      alphaThoughtStream.emitAlphaNarrative(sessionId, userId, marketContext.symbol).catch(() => {});
+      if (goalContext) {
+        alphaThoughtStream.emitAlphaRiskCheck(sessionId, userId, marketContext.symbol).catch(() => {});
+      }
     }
-    const platformIntelligence = await this.fetchPlatformIntelligence(marketContext.symbol);
 
-    // Build daily narrative for institutional context
-    if (sessionId && userId) {
-      alphaThoughtStream.emitAlphaNarrative(sessionId, userId, marketContext.symbol).catch(err => {
-        console.warn('[Alpha Coordinator] Failed to emit narrative thought:', err);
-      });
-    }
-    const dailyNarrative = await dailyNarrativeBuilder.build(marketContext.symbol, marketContext.price);
+    // Parallelize all independent data fetches
+    const [platformIntelligence, dailyNarrative, riskResult, rrResult] = await Promise.all([
+      this.fetchPlatformIntelligence(marketContext.symbol),
+      dailyNarrativeBuilder.build(marketContext.symbol, marketContext.price),
+      (userId && goalContext) ? professionalRiskManager.evaluateTrade({
+        userId,
+        symbol: marketContext.symbol,
+        direction: consensus.direction === 'BUY' ? 'long' : 'short',
+        currentBalance: goalContext.currentBalance,
+        baseRiskPercent: 0.01,
+        currentATR: extractATRValue(marketContext.atr),
+        goalSessionId: undefined
+      }).catch(err => { console.error('[Alpha Coordinator] Failed to get risk assessment:', err); return null; }) : Promise.resolve(null),
+      userId ? rrSuccessTracker.getRecentPerformanceSummary(userId, marketContext.symbol)
+        .catch(err => { console.error('[Alpha Coordinator] Failed to fetch R:R performance:', err); return null; }) : Promise.resolve(null)
+    ]);
 
-    // Get professional risk assessment (advisory only - Alpha has final authority)
-    let riskAssessment = null;
+    // Build risk context from parallel result
+    let riskAssessment = riskResult;
     let riskContext = '';
-    if (userId && goalContext) {
-      if (sessionId) {
-        alphaThoughtStream.emitAlphaRiskCheck(sessionId, userId, marketContext.symbol).catch(err => {
-          console.warn('[Alpha Coordinator] Failed to emit risk check thought:', err);
+    if (riskAssessment) {
+      riskContext = `\n📊 PROFESSIONAL RISK ASSESSMENT (Advisory):\n`;
+      riskContext += `Risk Score: ${riskAssessment.riskScore.toFixed(0)}/100 | Confidence: ${riskAssessment.confidenceScore.toFixed(0)}/100\n`;
+      riskContext += `Recommended Lot Size: ${riskAssessment.recommendedLotSize.toFixed(2)} lots\n`;
+      riskContext += `Adjusted Risk: ${(riskAssessment.adjustedRiskPercent * 100).toFixed(2)}%\n`;
+      if (riskAssessment.criticalWarnings.length > 0) {
+        riskContext += `⚠️ WARNINGS:\n`;
+        riskAssessment.criticalWarnings.slice(0, 3).forEach((w: string) => {
+          riskContext += `  - ${w}\n`;
         });
       }
-      try {
-        const preliminaryAssessment = await professionalRiskManager.evaluateTrade({
-          userId,
-          symbol: marketContext.symbol,
-          direction: consensus.direction === 'BUY' ? 'long' : 'short',
-          currentBalance: goalContext.currentBalance,
-          baseRiskPercent: 0.01,
-          currentATR: extractATRValue(marketContext.atr), // Extract value for compatibility
-          goalSessionId: undefined
-        });
-        riskAssessment = preliminaryAssessment;
-
-        // Build risk context string
-        riskContext = `\n📊 PROFESSIONAL RISK ASSESSMENT (Advisory):\n`;
-        riskContext += `Risk Score: ${preliminaryAssessment.riskScore.toFixed(0)}/100 | Confidence: ${preliminaryAssessment.confidenceScore.toFixed(0)}/100\n`;
-        riskContext += `Recommended Lot Size: ${preliminaryAssessment.recommendedLotSize.toFixed(2)} lots\n`;
-        riskContext += `Adjusted Risk: ${(preliminaryAssessment.adjustedRiskPercent * 100).toFixed(2)}%\n`;
-
-        if (preliminaryAssessment.criticalWarnings.length > 0) {
-          riskContext += `⚠️ WARNINGS:\n`;
-          preliminaryAssessment.criticalWarnings.slice(0, 3).forEach(w => {
-            riskContext += `  - ${w}\n`;
-          });
-        }
-
-        riskContext += `Reasoning: ${preliminaryAssessment.overallReasoning}\n`;
-      } catch (error) {
-        console.error('[Alpha Coordinator] Failed to get risk assessment:', error);
-      }
+      riskContext += `Reasoning: ${riskAssessment.overallReasoning}\n`;
     }
 
     // Build compressed context
@@ -617,17 +604,10 @@ class AlphaCoordinatorBrain {
     // Build advisory context (Adversarial Detector + Regime Oracle)
     let advisoryContext = this.buildAdvisoryContext(adversarialSignal, regimeSnapshot);
 
-    // Fetch historical R:R performance data for learning
+    // Build R:R performance context from parallel result
     let rrPerformanceContext = '';
-    if (userId) {
-      try {
-        const performanceSummary = await rrSuccessTracker.getRecentPerformanceSummary(userId, marketContext.symbol);
-        if (performanceSummary && performanceSummary.length > 100) {
-          rrPerformanceContext = `\n${performanceSummary}\n`;
-        }
-      } catch (error) {
-        console.error('[Alpha Coordinator] Failed to fetch R:R performance:', error);
-      }
+    if (rrResult && rrResult.length > 100) {
+      rrPerformanceContext = `\n${rrResult}\n`;
     }
 
     // Calculate enhanced intelligence signals
@@ -3175,6 +3155,53 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
       if (intelligence.executionQuality.slHuntingSuspected) {
         parts.push(`    ⚠️ SL hunting suspected in recent executions`);
       }
+    }
+
+    if (intelligence.counterfactualInsights.sampleSize >= 5) {
+      const cf = intelligence.counterfactualInsights;
+      parts.push('\n🔄 COUNTERFACTUAL ANALYSIS (What-If Learning):');
+      if (cf.bestSlMultiplier !== null) {
+        parts.push(`  Optimal SL multiplier: ${cf.bestSlMultiplier.toFixed(2)}x (from ${cf.sampleSize} trades)`);
+      }
+      if (cf.bestTpMultiplier !== null) {
+        parts.push(`  Optimal TP multiplier: ${cf.bestTpMultiplier.toFixed(2)}x`);
+      }
+      if (cf.earlyExitRecommended) {
+        parts.push('  → Pattern: Early exits would have improved outcomes');
+      }
+      if (cf.holdLongerRecommended) {
+        parts.push('  → Pattern: Holding longer would have improved outcomes');
+      }
+      if (cf.topRecommendation) {
+        parts.push(`  Latest: ${cf.topRecommendation}`);
+      }
+    }
+
+    const zml = intelligence.zoneMetaLearning;
+    const hasZoneData = Object.keys(zml.zoneTypeSuccessRates).length > 0 || zml.reachabilityRate > 0;
+    if (hasZoneData) {
+      parts.push('\n📍 ZONE PERFORMANCE (Entry Zone Learning):');
+      const successRates = Object.entries(zml.zoneTypeSuccessRates);
+      if (successRates.length > 0) {
+        parts.push('  Execution rates by zone type:');
+        successRates.forEach(([zoneType, rate]) => {
+          parts.push(`    • ${zoneType}: ${(rate * 100).toFixed(0)}% execution rate`);
+        });
+      }
+      if (zml.reachabilityRate > 0) {
+        parts.push(`  Reachability: ${(zml.reachabilityRate * 100).toFixed(0)}% | Downgrade rate: ${(zml.downgradeRate * 100).toFixed(0)}%`);
+      }
+      const unreachable = Object.entries(zml.unreachableByRegime).filter(([, rate]) => rate > 0.3);
+      if (unreachable.length > 0) {
+        parts.push('  ⚠️ High unreachability regimes:');
+        unreachable.forEach(([regime, rate]) => {
+          parts.push(`    • ${regime}: ${(rate * 100).toFixed(0)}% unreachable — prefer tighter zones`);
+        });
+      }
+    }
+
+    if (intelligence.tpCalibration) {
+      parts.push('\n' + intelligence.tpCalibration);
     }
 
     return parts.join('\n');
