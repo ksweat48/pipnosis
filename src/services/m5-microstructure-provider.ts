@@ -17,6 +17,7 @@ import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
 import type { M5Candle } from './entry-qualification-engine';
 import { MarketDataService } from './market-data-service';
+import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 
 export interface M5Microstructure {
   candles: M5Candle[];
@@ -198,7 +199,8 @@ class M5MicrostructureProvider {
         return { currentPips: 1.5, averagePips: 1.5 };
       }
 
-      const spreads = recentCandles.map(c => (c.high - c.low) * 10000); // Convert to pips
+      const pipValue = getCurrencyPipInfo(symbol).pipValue;
+      const spreads = recentCandles.map(c => (c.high - c.low) / pipValue);
       const currentPips = spreads[0];
       const averagePips = spreads.reduce((sum, s) => sum + s, 0) / spreads.length;
 

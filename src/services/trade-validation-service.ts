@@ -6,6 +6,7 @@
  */
 
 import { PositionDirection } from '@/types/position';
+import { getCurrencyPipInfo } from '@/utils/currencyHelpers';
 
 export interface TradeValidationResult {
   isValid: boolean;
@@ -58,39 +59,39 @@ class TradeValidationService {
     }
 
     // CRITICAL: Validate TP/SL direction logic
+    const pipInfo = getCurrencyPipInfo(params.symbol);
+    const pipVal = pipInfo.pipValue;
+
     if (params.direction === 'buy') {
-      // BUY trades: SL must be BELOW entry, TP must be ABOVE entry
       if (params.stopLoss >= params.entryPrice) {
         errors.push(
           `INVALID BUY TRADE: Stop Loss (${params.stopLoss.toFixed(5)}) must be BELOW Entry (${params.entryPrice.toFixed(5)}). ` +
-          `Currently ${((params.stopLoss - params.entryPrice) * 10000).toFixed(1)} pips ABOVE entry (should be negative).`
+          `Currently ${((params.stopLoss - params.entryPrice) / pipVal).toFixed(1)} pips ABOVE entry (should be negative).`
         );
       }
 
       if (params.takeProfit <= params.entryPrice) {
         errors.push(
           `INVALID BUY TRADE: Take Profit (${params.takeProfit.toFixed(5)}) must be ABOVE Entry (${params.entryPrice.toFixed(5)}). ` +
-          `Currently ${((params.takeProfit - params.entryPrice) * 10000).toFixed(1)} pips BELOW entry (should be positive).`
+          `Currently ${((params.takeProfit - params.entryPrice) / pipVal).toFixed(1)} pips BELOW entry (should be positive).`
         );
       }
     } else if (params.direction === 'sell') {
-      // SELL trades: SL must be ABOVE entry, TP must be BELOW entry
       if (params.stopLoss <= params.entryPrice) {
         errors.push(
           `INVALID SELL TRADE: Stop Loss (${params.stopLoss.toFixed(5)}) must be ABOVE Entry (${params.entryPrice.toFixed(5)}). ` +
-          `Currently ${((params.entryPrice - params.stopLoss) * 10000).toFixed(1)} pips BELOW entry (should be above).`
+          `Currently ${((params.entryPrice - params.stopLoss) / pipVal).toFixed(1)} pips BELOW entry (should be above).`
         );
       }
 
       if (params.takeProfit >= params.entryPrice) {
         errors.push(
           `INVALID SELL TRADE: Take Profit (${params.takeProfit.toFixed(5)}) must be BELOW Entry (${params.entryPrice.toFixed(5)}). ` +
-          `Currently ${((params.takeProfit - params.entryPrice) * 10000).toFixed(1)} pips ABOVE entry (should be below).`
+          `Currently ${((params.takeProfit - params.entryPrice) / pipVal).toFixed(1)} pips ABOVE entry (should be below).`
         );
       }
     }
 
-    // Validate risk/reward ratio is reasonable
     const riskDistance = Math.abs(params.entryPrice - params.stopLoss);
     const rewardDistance = Math.abs(params.takeProfit - params.entryPrice);
     const riskRewardRatio = rewardDistance / riskDistance;
@@ -98,14 +99,14 @@ class TradeValidationService {
     if (riskRewardRatio < 0.5) {
       warnings.push(
         `Risk/Reward ratio is very low (${riskRewardRatio.toFixed(2)}:1). ` +
-        `Risk: ${(riskDistance * 10000).toFixed(1)} pips, Reward: ${(rewardDistance * 10000).toFixed(1)} pips.`
+        `Risk: ${(riskDistance / pipVal).toFixed(1)} pips, Reward: ${(rewardDistance / pipVal).toFixed(1)} pips.`
       );
     }
 
     if (riskRewardRatio > 10) {
       warnings.push(
         `Risk/Reward ratio is extremely high (${riskRewardRatio.toFixed(2)}:1). ` +
-        `This may indicate SL is too tight. Risk: ${(riskDistance * 10000).toFixed(1)} pips, Reward: ${(rewardDistance * 10000).toFixed(1)} pips.`
+        `This may indicate SL is too tight. Risk: ${(riskDistance / pipVal).toFixed(1)} pips, Reward: ${(rewardDistance / pipVal).toFixed(1)} pips.`
       );
     }
 

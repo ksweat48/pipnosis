@@ -1068,7 +1068,7 @@ You are expected to place stops that give the trade room to breathe while invali
 
 STOP-LOSS ANCHOR (DEFAULT POSITIONING)
 You are provided a professionally calculated stop-loss anchor based on:
-• Current ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${(extractATRValue(marketContext.atr) * 10000).toFixed(1)} pips)
+• Current ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${(extractATRValue(marketContext.atr) / getCurrencyPipInfo(marketContext.symbol).pipValue).toFixed(1)} pips)
 • Volatility regime: ${marketVolatilityLevel.toUpperCase()}
 • Risk mode: ${riskMode.toUpperCase()} (${stopLossAnchor.reasoning})
 • Instrument behavior: ${marketContext.symbol}

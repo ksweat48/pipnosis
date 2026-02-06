@@ -153,11 +153,10 @@ export class MandatorySafetyValidator {
    */
   private async validateNotWeekend(symbol: string): Promise<MandatorySafetyResult> {
     try {
-      // Only check weekends for Forex pairs
-      const isFxPair = symbol.length === 6 && !symbol.includes('USD') && !symbol.includes('XAU');
+      const config = getSymbolConfig(symbol);
+      const isForexSchedule = config?.marketSchedule === 'forex';
 
-      if (!isFxPair) {
-        // Crypto, indices, metals - always allow
+      if (!isForexSchedule) {
         return { allowed: true };
       }
 

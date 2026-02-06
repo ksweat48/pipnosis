@@ -306,7 +306,7 @@ class RiskAwareStopCalculator {
   /**
    * Get recommended stop width explanation for a risk mode
    */
-  getRecommendation(riskMode: 'low' | 'medium' | 'high', atr?: number): string {
+  getRecommendation(riskMode: 'low' | 'medium' | 'high', atr?: number, symbol: string = 'EURUSD'): string {
     const profile = getRiskStrategyProfile(riskMode);
     const stopRange = getTypicalStopPipsRange(riskMode);
     const atrRange = getStopLossMultiplierRange(riskMode);
@@ -315,8 +315,9 @@ class RiskAwareStopCalculator {
     recommendation += ` | ${atrRange.min}x-${atrRange.max}x ATR | ${profile.riskPercentRange.min}-${profile.riskPercentRange.max}% risk`;
 
     if (atr) {
+      const pipValue = getCurrencyPipInfo(symbol).pipValue;
       const atrMultiplier = (atrRange.min + atrRange.max) / 2;
-      const suggestedPips = (atr * 10000) * atrMultiplier; // Convert to pips
+      const suggestedPips = (atr / pipValue) * atrMultiplier;
       recommendation += ` | With current ATR: ~${suggestedPips.toFixed(0)} pips`;
     }
 

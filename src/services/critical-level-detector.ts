@@ -1,5 +1,6 @@
 import { logger } from '../lib/logger';
 import { Candle } from '../types';
+import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 
 interface CriticalLevel {
   price: number;
@@ -58,7 +59,8 @@ export class CriticalLevelDetector {
     currentPrice: number,
     direction: 'long' | 'short',
     stopLoss: number,
-    takeProfit: number
+    takeProfit: number,
+    symbol: string = 'EURUSD'
   ): PrioritizedLevel | null {
     if (levels.length === 0) return null;
 
@@ -70,7 +72,8 @@ export class CriticalLevelDetector {
 
     const scoredLevels = relevantLevels.map(level => {
       const distance = Math.abs(level.price - currentPrice);
-      const distancePips = distance * 10000;
+      const pipValue = getCurrencyPipInfo(symbol).pipValue;
+      const distancePips = distance / pipValue;
       const distancePercent = (distance / currentPrice) * 100;
 
       const tpDistance = Math.abs(takeProfit - currentPrice);

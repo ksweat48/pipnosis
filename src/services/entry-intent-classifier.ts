@@ -517,7 +517,7 @@ export class EntryIntentClassifier {
           : Math.min(baseWidth, 5 * pipValue * confidenceMultiplier);
 
         logger.debug(
-          `Entry zone width: ${(zoneWidth * 10000).toFixed(1)} pips ` +
+          `Entry zone width: ${(zoneWidth / pipValue).toFixed(1)} pips ` +
           `(volatility: ${marketContext.volatility}, confidence: ${confidence}%)`
         );
 

@@ -46,7 +46,8 @@ class TradeLevelIntegration {
         entryPrice,
         direction,
         stopLoss,
-        takeProfit
+        takeProfit,
+        symbol
       );
 
       let earlyExitLevel: number | null = null;

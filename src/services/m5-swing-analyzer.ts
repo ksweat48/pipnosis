@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import type { Timeframe, UnifiedSymbol } from '@/types';
+import { getCurrencyPipInfo } from '@/utils/currencyHelpers';
 
 export interface M5SwingContext {
   avgSwingPips: number;
@@ -37,10 +38,11 @@ class M5SwingAnalyzer {
         return this.getDefaultContext(symbol);
       }
 
-      const swings = this.detectSwings(candles);
+      const pipValue = getCurrencyPipInfo(symbol).pipValue;
+      const swings = this.detectSwings(candles, pipValue);
       const avgSwing = this.calculateAverageSwing(swings);
-      const m5ATR = this.calculateM5ATR(candles);
-      const currentProgress = this.estimateCurrentSwingProgress(candles, avgSwing);
+      const m5ATR = this.calculateM5ATR(candles, 14, pipValue);
+      const currentProgress = this.estimateCurrentSwingProgress(candles, avgSwing, pipValue);
       const session = this.detectSession();
       const sessionRange = this.getSessionTypicalRange(session, avgSwing);
 
@@ -73,7 +75,7 @@ class M5SwingAnalyzer {
     return (data || []).reverse();
   }
 
-  private detectSwings(candles: any[]): number[] {
+  private detectSwings(candles: any[], pipValue: number): number[] {
     const swings: number[] = [];
     let lastPivotHigh = candles[0].high;
     let lastPivotLow = candles[0].low;
@@ -97,7 +99,7 @@ class M5SwingAnalyzer {
       if (isLocalHigh && candle.high > lastPivotHigh * 1.001) {
         const swingSize = Math.abs(candle.high - lastPivotLow);
         if (swingSize > 0) {
-          swings.push(swingSize * 10000);
+          swings.push(swingSize / pipValue);
         }
         lastPivotHigh = candle.high;
         currentSwingStart = i;
@@ -106,7 +108,7 @@ class M5SwingAnalyzer {
       if (isLocalLow && candle.low < lastPivotLow * 0.999) {
         const swingSize = Math.abs(lastPivotHigh - candle.low);
         if (swingSize > 0) {
-          swings.push(swingSize * 10000);
+          swings.push(swingSize / pipValue);
         }
         lastPivotLow = candle.low;
         currentSwingStart = i;
@@ -121,7 +123,7 @@ class M5SwingAnalyzer {
     return swings.reduce((sum, s) => sum + s, 0) / swings.length;
   }
 
-  private calculateM5ATR(candles: any[], period: number = 14): number {
+  private calculateM5ATR(candles: any[], period: number = 14, pipValue: number = 0.0001): number {
     if (candles.length < period) return 15;
 
     const trueRanges = [];
@@ -136,20 +138,20 @@ class M5SwingAnalyzer {
         Math.abs(low - prevClose)
       );
 
-      trueRanges.push(tr * 10000);
+      trueRanges.push(tr / pipValue);
     }
 
     const recentTRs = trueRanges.slice(-period);
     return recentTRs.reduce((sum, tr) => sum + tr, 0) / recentTRs.length;
   }
 
-  private estimateCurrentSwingProgress(candles: any[], avgSwing: number): number {
+  private estimateCurrentSwingProgress(candles: any[], avgSwing: number, pipValue: number): number {
     if (candles.length < 10) return 0.5;
 
     const recent = candles.slice(-10);
     const recentHigh = Math.max(...recent.map(c => c.high));
     const recentLow = Math.min(...recent.map(c => c.low));
-    const currentMove = (recentHigh - recentLow) * 10000;
+    const currentMove = (recentHigh - recentLow) / pipValue;
 
     return Math.min(currentMove / avgSwing, 1.0);
   }

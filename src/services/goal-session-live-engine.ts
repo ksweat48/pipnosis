@@ -4466,7 +4466,8 @@ Keep response under 100 words, educational tone.`;
     accountBalance: number,
     entryPrice: number,
     stopLoss: number,
-    riskMode: 'low' | 'medium' | 'high'
+    riskMode: 'low' | 'medium' | 'high',
+    symbol: string = 'EURUSD'
   ): Promise<number> {
     // Get goal session details for context
     const { data: goalSession } = await supabase
@@ -4477,7 +4478,7 @@ Keep response under 100 words, educational tone.`;
 
     if (!goalSession) {
       console.warn('[Lot Sizing] No goal session found, using basic calculation');
-      return this.calculateBasicLotSize(accountBalance, entryPrice, stopLoss, riskMode);
+      return this.calculateBasicLotSize(accountBalance, entryPrice, stopLoss, riskMode, symbol);
     }
 
     const goalAmount = goalSession.target_value || 200;
@@ -4502,13 +4503,9 @@ Keep response under 100 words, educational tone.`;
     // Calculate target stop loss amount (inverse of R:R)
     const targetSLAmount = targetProfitPerTrade / targetRR;
 
-    // TODO TIER7: Hardcoded 0.0001 - needs symbol parameter to use calculatePipDistance()
-    // This function signature needs refactoring to accept symbol parameter
-    const stopLossPips = Math.abs(entryPrice - stopLoss) / 0.0001;
-
-    // Calculate lot size to achieve target SL amount
-    // Formula: Lot Size = Target SL Amount / (SL Pips * $10 per pip per lot)
-    let calculatedLotSize = targetSLAmount / (stopLossPips * 10);
+    const pipInfo = getCurrencyPipInfo(symbol);
+    const stopLossPips = Math.abs(entryPrice - stopLoss) / pipInfo.pipValue;
+    let calculatedLotSize = targetSLAmount / (stopLossPips * pipInfo.dollarPerPipPerLot);
 
     // Round to 2 decimal places
     calculatedLotSize = Math.round(calculatedLotSize * 100) / 100;
@@ -4552,13 +4549,15 @@ Keep response under 100 words, educational tone.`;
     accountBalance: number,
     entryPrice: number,
     stopLoss: number,
-    riskMode: 'low' | 'medium' | 'high'
+    riskMode: 'low' | 'medium' | 'high',
+    symbol: string = 'EURUSD'
   ): number {
     const riskPercent = getRiskPercentage(riskMode);
     const riskAmount = accountBalance * (riskPercent / 100);
-    // TODO TIER7: Hardcoded 0.0001 - needs symbol parameter to use calculatePipDistance()
-    const stopLossPips = Math.abs(entryPrice - stopLoss) / 0.0001;
-    const calculatedLotSize = riskAmount / (stopLossPips * 10);
+    const pipInfo = getCurrencyPipInfo(symbol);
+    const stopLossPips = Math.abs(entryPrice - stopLoss) / pipInfo.pipValue;
+    const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot || 10;
+    const calculatedLotSize = riskAmount / (stopLossPips * dollarPerPipPerLot);
     let lotSize = Math.round(calculatedLotSize * 100) / 100;
 
     const minLotSize = accountBalance > 10000 ? 0.05 : 0.01;
