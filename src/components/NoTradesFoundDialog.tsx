@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Search, XCircle, CheckCircle, Clock, AlertTriangle, X } from 'lucide-react';
+import { Search, XCircle, Clock, AlertTriangle, X } from 'lucide-react';
 
 interface NoTradesFoundDialogProps {
   isOpen: boolean;
-  onContinue: () => void;
   onClose: () => void;
   sessionId: string;
   isLoading?: boolean;
@@ -11,7 +10,6 @@ interface NoTradesFoundDialogProps {
 
 export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
   isOpen,
-  onContinue,
   onClose,
   sessionId,
   isLoading = false
@@ -29,13 +27,11 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
       setCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(interval);
-          // Auto-close when countdown reaches 0
           console.log('[NoTradesFoundDialog] Countdown reached 0 - auto-closing session');
           try {
             onClose();
           } catch (error) {
             console.error('[NoTradesFoundDialog] Error in onClose:', error);
-            // Force close even if handler fails
             setForceClosing(true);
           }
           return 0;
@@ -47,14 +43,13 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
     return () => clearInterval(interval);
   }, [isOpen, onClose]);
 
-  // ESCAPE HATCH: Force close if stuck for more than 90 seconds
   useEffect(() => {
     if (!isOpen) return;
 
     const forceCloseTimer = setTimeout(() => {
       console.warn('[NoTradesFoundDialog] EMERGENCY: Force closing stuck modal after 90s');
       setForceClosing(true);
-    }, 90000); // 90 seconds
+    }, 90000);
 
     return () => clearTimeout(forceCloseTimer);
   }, [isOpen]);
@@ -64,24 +59,12 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
   const isUrgent = countdown <= 10;
   const progressPercentage = (countdown / 60) * 100;
 
-  const handleContinueClick = () => {
-    console.log('[NoTradesFoundDialog] User clicked Continue');
-    try {
-      onContinue();
-    } catch (error) {
-      console.error('[NoTradesFoundDialog] Error in onContinue handler:', error);
-      // Force close modal on error
-      setForceClosing(true);
-    }
-  };
-
   const handleCloseClick = () => {
-    console.log('[NoTradesFoundDialog] User clicked Close');
+    console.log('[NoTradesFoundDialog] User clicked Close Session');
     try {
       onClose();
     } catch (error) {
       console.error('[NoTradesFoundDialog] Error in onClose handler:', error);
-      // Force close modal on error
       setForceClosing(true);
     }
   };
@@ -96,33 +79,21 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
     }
   };
 
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    // Only close if clicking directly on backdrop, not on modal content
-    if (e.target === e.currentTarget && countdown <= 0) {
-      console.log('[NoTradesFoundDialog] User clicked backdrop after countdown ended');
-      handleCloseClick();
-    }
-  };
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
-      onClick={handleBackdropClick}
-    >
-      <div className="relative max-w-md w-full max-h-[650px] flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="relative max-w-md w-full">
         <div className="absolute -inset-1 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-2xl opacity-20 blur animate-pulse" />
 
-        <div className="relative bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl border border-gray-700 shadow-2xl overflow-hidden flex flex-col">
-          {/* ESCAPE HATCH: Force close button */}
+        <div className="relative bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl border border-gray-700 shadow-2xl overflow-hidden">
           <button
             onClick={handleForceClose}
             className="absolute top-4 right-4 z-10 p-2 rounded-full bg-gray-700/50 hover:bg-gray-600/50 transition-colors"
-            title="Force close modal"
+            title="Close"
           >
             <X className="w-5 h-5 text-gray-400 hover:text-white" />
           </button>
 
-          <div className="p-6 overflow-y-auto flex-1" style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto' }}>
+          <div className="p-6">
             <div className="flex items-start gap-4 mb-6">
               <div className={`p-3 rounded-xl ${isUrgent ? 'bg-gradient-to-br from-red-600 to-orange-600 animate-pulse' : 'bg-gradient-to-br from-yellow-600 to-orange-600'}`}>
                 <Search className="w-6 h-6 text-white" />
@@ -132,17 +103,17 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
                   No Trades Found
                 </h3>
                 <p className="text-sm text-gray-400">
-                  15 minutes of scanning completed
+                  Scan cycle completed
                 </p>
               </div>
             </div>
 
             <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-xl p-4 mb-6">
-              <p className="text-gray-300 text-sm mb-4">
-                The AI hasn't found any high-quality trade setups in the last 15 minutes. Market conditions may not be favorable right now.
+              <p className="text-gray-300 text-sm mb-3">
+                No quality trade setups were found. Market conditions may not be favorable right now.
               </p>
-              <p className="text-gray-300 text-sm font-medium">
-                Do you want to continue scanning for another 15 minutes?
+              <p className="text-yellow-300/90 text-sm font-medium">
+                Try again in about 15 minutes.
               </p>
             </div>
 
@@ -173,36 +144,19 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
               {isUrgent && (
                 <div className="flex items-center gap-2 mt-3 text-red-400 text-xs">
                   <AlertTriangle className="w-4 h-4" />
-                  <span>Session will close automatically if no response</span>
+                  <span>Session will close automatically</span>
                 </div>
               )}
             </div>
 
-            <div className="space-y-3">
-              <button
-                onClick={handleContinueClick}
-                disabled={isLoading}
-                className="w-full flex items-center justify-center gap-3 px-4 py-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed rounded-xl text-white font-semibold transition-all duration-300 shadow-lg hover:shadow-green-500/25 hover:scale-[1.02] active:scale-[0.98]"
-              >
-                <CheckCircle className="w-5 h-5" />
-                <span>Yes, Continue Scanning</span>
-              </button>
-
-              <button
-                onClick={handleCloseClick}
-                disabled={isLoading}
-                className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-red-900/30 hover:bg-red-900/50 disabled:bg-gray-800 disabled:cursor-not-allowed rounded-xl text-red-400 font-medium transition-all duration-300 border border-red-800/50 hover:border-red-700"
-              >
-                <XCircle className="w-5 h-5" />
-                <span>No, Close Session</span>
-              </button>
-            </div>
-
-            <div className="mt-4 pt-4 border-t border-gray-700">
-              <p className="text-xs text-gray-500 text-center">
-                This prevents endless scanning when market conditions are unfavorable
-              </p>
-            </div>
+            <button
+              onClick={handleCloseClick}
+              disabled={isLoading}
+              className="w-full flex items-center justify-center gap-3 px-4 py-4 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed rounded-xl text-white font-semibold transition-all duration-300 shadow-lg hover:shadow-red-500/25 hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <XCircle className="w-5 h-5" />
+              <span>Close Session</span>
+            </button>
           </div>
         </div>
       </div>

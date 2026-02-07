@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, Cloud, Wifi, AlertTriangle, Search, Shield, Sparkles, Eye, BarChart3, Wrench, StopCircle } from 'lucide-react';
 import { smartGoalSessionManager, SmartGoalSession } from '../services/smart-goal-session-manager';
 import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/goal-scanner-trigger';
@@ -54,8 +54,6 @@ export const GoalSessionDashboard: React.FC = () => {
   const [isClosingSession, setIsClosingSession] = useState(false);
   const [closureTimeoutId, setClosureTimeoutId] = useState<NodeJS.Timeout | null>(null);
   const [processedTradeClosures, setProcessedTradeClosures] = useState<Set<string>>(new Set());
-  const lastNoTradePopupRef = useRef<number>(0);
-  const NO_TRADE_POPUP_THROTTLE_MS = 15 * 60 * 1000;
 
   useEffect(() => {
     if (!activeSession) return;
@@ -63,18 +61,15 @@ export const GoalSessionDashboard: React.FC = () => {
     const handleNoTradeFound = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail?.sessionId !== activeSession.sessionId) return;
+      if (showNoTradesModal) return;
 
-      const now = Date.now();
-      if (now - lastNoTradePopupRef.current < NO_TRADE_POPUP_THROTTLE_MS) return;
-
-      lastNoTradePopupRef.current = now;
       console.log('[GoalSessionDashboard] Scan completed with no qualifying trade - showing dialog');
       setShowNoTradesModal(true);
     };
 
     window.addEventListener('alpha-scan-no-trade', handleNoTradeFound);
     return () => window.removeEventListener('alpha-scan-no-trade', handleNoTradeFound);
-  }, [activeSession?.sessionId]);
+  }, [activeSession?.sessionId, showNoTradesModal]);
 
   useEffect(() => {
     loadSessionData();
@@ -956,35 +951,16 @@ export const GoalSessionDashboard: React.FC = () => {
     }
   };
 
-  const handleNoTradesContinue = async () => {
-    if (!activeSession) return;
-
-    setNoTradesLoading(true);
-    try {
-      console.log('[GoalSessionDashboard] User chose to continue scanning (removed timer 2026-01-30)');
-      // Sessions now continue automatically - just dismiss modal
-      setShowNoTradesModal(false);
-      loadSessionData();
-    } catch (error) {
-      console.error('[GoalSessionDashboard] Error continuing scan:', error);
-    } finally {
-      setNoTradesLoading(false);
-    }
-  };
-
   const handleNoTradesClose = async () => {
     if (!activeSession || !user) return;
 
     setNoTradesLoading(true);
     try {
-      console.log('[GoalSessionDashboard] User chose to close session');
-      // Stop the session
-      await supabase
-        .from('goal_sessions')
-        .update({ status: 'stopped' })
-        .eq('id', activeSession.sessionId);
+      console.log('[GoalSessionDashboard] No trades found - closing session via authoritative coordinator');
+      goalScannerTrigger.stopPolling();
+      await smartGoalSessionManager.stopSession(activeSession.sessionId, user.id);
       setShowNoTradesModal(false);
-      loadSessionData();
+      await loadSessionData();
     } catch (error) {
       console.error('[GoalSessionDashboard] Error closing session:', error);
     } finally {
@@ -1705,7 +1681,6 @@ export const GoalSessionDashboard: React.FC = () => {
       {activeSession && (
         <NoTradesFoundDialog
           isOpen={showNoTradesModal}
-          onContinue={handleNoTradesContinue}
           onClose={handleNoTradesClose}
           sessionId={activeSession.sessionId}
           isLoading={noTradesLoading}
