@@ -191,14 +191,13 @@ export function AdminDashboard() {
       // Get platform-wide skill tracking
       const { data: skillData } = await supabase
         .from('ai_skill_tracking')
-        .select('skill_level, updated_at')
+        .select('user_id, skill_level, updated_at')
         .order('updated_at', { ascending: false });
 
-      // Calculate average skill level across all users (latest entry per user)
       const userSkillMap = new Map();
       skillData?.forEach(skill => {
-        if (!userSkillMap.has(skill.updated_at)) {
-          userSkillMap.set(skill.updated_at, skill.skill_level);
+        if (!userSkillMap.has(skill.user_id)) {
+          userSkillMap.set(skill.user_id, skill.skill_level);
         }
       });
 
