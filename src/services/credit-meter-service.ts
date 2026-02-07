@@ -19,22 +19,45 @@ export interface CreditTransaction {
 }
 
 class CreditMeterService {
+  private adminCache: Map<string, { isAdmin: boolean; fetchedAt: number }> = new Map();
+  private readonly ADMIN_CACHE_TTL = 5 * 60 * 1000;
+
+  private async checkIsAdmin(userId: string): Promise<boolean> {
+    const cached = this.adminCache.get(userId);
+    if (cached && Date.now() - cached.fetchedAt < this.ADMIN_CACHE_TTL) {
+      return cached.isAdmin;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('is_admin')
+        .eq('id', userId)
+        .maybeSingle();
+
+      const isAdmin = !error && data?.is_admin === true;
+      this.adminCache.set(userId, { isAdmin, fetchedAt: Date.now() });
+      return isAdmin;
+    } catch {
+      return false;
+    }
+  }
+
   async getBalance(userId: string): Promise<CreditBalance | null> {
     try {
       const { data, error } = await supabase
         .rpc('get_user_token_balance', { p_user_id: userId });
 
       if (error) throw error;
-
-      // RPC returns JSONB object, not array
       if (!data || !data.success) return null;
 
-      // Return default balance if RPC succeeds
+      const isAdmin = data.is_admin === true || await this.checkIsAdmin(userId);
+
       return {
-        balance: data.balance || 50.0,  // Default to 50 credits
+        balance: isAdmin ? Infinity : (data.balance || 50.0),
         lifetimeEarned: 0,
         lifetimeSpent: 0,
-        isAdmin: false
+        isAdmin
       };
     } catch (error) {
       console.error('[Credit Meter] Error fetching balance:', error);
@@ -49,6 +72,9 @@ class CreditMeterService {
     metadata: Record<string, any> = {}
   ): Promise<boolean> {
     try {
+      const isAdmin = await this.checkIsAdmin(userId);
+      if (isAdmin) return true;
+
       const { data, error } = await supabase
         .rpc('deduct_tokens', {
           p_user_id: userId,
@@ -59,7 +85,6 @@ class CreditMeterService {
 
       if (error) throw error;
 
-      // RPC returns JSONB: {success, new_balance, amount_deducted, ...}
       return data && data.success === true;
     } catch (error) {
       console.error('[Credit Meter] Error deducting credits:', error);
