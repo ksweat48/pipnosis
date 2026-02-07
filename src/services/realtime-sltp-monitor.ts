@@ -29,11 +29,18 @@ import { tradeProcessingLockService } from './trade-processing-lock-service';
 
 class RealtimeSLTPMonitor {
   private unsubscribe: (() => void) | null = null;
-  private openPositions: Map<string, MonitoredPosition[]> = new Map(); // symbol -> positions
+  private openPositions: Map<string, MonitoredPosition[]> = new Map();
   private isRunning = false;
-  private lastCheckTime: Map<string, number> = new Map(); // tradeId -> timestamp
-  private minCheckIntervalMs = 100; // Prevent duplicate checks within 100ms
+  private lastCheckTime: Map<string, number> = new Map();
+  private minCheckIntervalMs = 100;
   private abortController: AbortController | null = null;
+  private refreshInterval: ReturnType<typeof setInterval> | null = null;
+
+  private isAbortError(error: unknown): boolean {
+    return error instanceof DOMException && error.name === 'AbortError'
+      || (error instanceof Error && error.message?.includes('AbortError'))
+      || (typeof error === 'object' && error !== null && 'code' in error && (error as any).code === 'ABORTED');
+  }
 
   async start(): Promise<void> {
     if (this.isRunning) {
@@ -41,11 +48,10 @@ class RealtimeSLTPMonitor {
       return;
     }
 
-    console.log('[RealtimeSLTPMonitor] 🚀 Starting price-polling-based SL/TP monitoring...');
-    console.log('[RealtimeSLTPMonitor] 💰 Cost savings: $442.50/month (Realtime → Polling)');
+    console.log('[RealtimeSLTPMonitor] Starting price-polling-based SL/TP monitoring...');
     this.isRunning = true;
+    this.abortController = new AbortController();
 
-    // Load current open positions
     await this.refreshOpenPositions();
 
     // Subscribe to price polling coordinator (replaces Realtime subscription)
@@ -68,8 +74,7 @@ class RealtimeSLTPMonitor {
       this.unsubscribe = null;
     }
 
-    // Refresh open positions every 5 seconds (catch new trades)
-    setInterval(() => this.refreshOpenPositions(), 5000);
+    this.refreshInterval = setInterval(() => this.refreshOpenPositions(), 5000);
   }
 
   stop(): void {
@@ -77,6 +82,11 @@ class RealtimeSLTPMonitor {
 
     console.log('[RealtimeSLTPMonitor] Stopping...');
     this.isRunning = false;
+
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+      this.refreshInterval = null;
+    }
 
     if (this.unsubscribe) {
       this.unsubscribe();
@@ -93,13 +103,13 @@ class RealtimeSLTPMonitor {
   }
 
   private async refreshOpenPositions(): Promise<void> {
-    try {
-      this.abortController = new AbortController();
+    if (!this.isRunning || this.abortController?.signal.aborted) {
+      return;
+    }
 
-      // SSOT: Use authority for position fetching with authorization
+    try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        console.warn('[RealtimeSLTPMonitor] No authenticated user - skipping position refresh');
         return;
       }
 
@@ -108,7 +118,7 @@ class RealtimeSLTPMonitor {
       if (!result.success) {
         if (result.accessDenied) {
           console.error('[RealtimeSLTPMonitor] Access denied:', result.error);
-        } else {
+        } else if (!this.isAbortError(result.error)) {
           console.error('[RealtimeSLTPMonitor] Error fetching positions:', result.error);
         }
         return;
@@ -119,7 +129,6 @@ class RealtimeSLTPMonitor {
         return;
       }
 
-      // Group by symbol
       const positionsBySymbol = new Map<string, MonitoredPosition[]>();
       for (const pos of result.positions) {
         if (!positionsBySymbol.has(pos.symbol)) {
@@ -134,6 +143,7 @@ class RealtimeSLTPMonitor {
       const symbols = Array.from(positionsBySymbol.keys());
       console.log(`[RealtimeSLTPMonitor] Monitoring ${totalPositions} positions across ${symbols.length} symbols: ${symbols.join(', ')}`);
     } catch (error) {
+      if (this.isAbortError(error)) return;
       console.error('[RealtimeSLTPMonitor] Error refreshing positions:', error);
     }
   }

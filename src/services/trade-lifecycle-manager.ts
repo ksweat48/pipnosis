@@ -166,6 +166,7 @@ class TradeLifecycleManager {
     }
 
     this.isMonitoring = true;
+    this.abortController = new AbortController();
     console.log('[Trade Lifecycle] Starting trade monitoring...');
 
     this.monitorOpenTrades();
@@ -179,22 +180,30 @@ class TradeLifecycleManager {
     if (this.monitoringInterval) {
       clearInterval(this.monitoringInterval);
       this.monitoringInterval = null;
-      this.isMonitoring = false;
-
-      if (this.abortController) {
-        this.abortController.abort();
-        this.abortController = null;
-      }
-
-      console.log('[Trade Lifecycle] Stopped monitoring');
     }
+
+    this.isMonitoring = false;
+
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
+    }
+
+    console.log('[Trade Lifecycle] Stopped monitoring');
+  }
+
+  private isAbortError(error: unknown): boolean {
+    return error instanceof DOMException && error.name === 'AbortError'
+      || (error instanceof Error && error.message?.includes('AbortError'))
+      || (typeof error === 'object' && error !== null && 'code' in error && (error as any).code === 'ABORTED');
   }
 
   async monitorOpenTrades(): Promise<void> {
-    try {
-      this.abortController = new AbortController();
+    if (!this.isMonitoring || this.abortController?.signal.aborted) {
+      return;
+    }
 
-      // CCIP-20260130-002: Get current user for authorization
+    try {
       const { data: { user } } = await supabase.auth.getUser();
 
       if (!user) {
@@ -211,7 +220,7 @@ class TradeLifecycleManager {
         });
 
       if (error) {
-        if (error.message?.includes('AbortError') || error.code === 'ABORTED') {
+        if (this.isAbortError(error) || error.message?.includes('AbortError') || error.code === 'ABORTED') {
           return;
         }
         console.error('[Trade Lifecycle] Error fetching monitorable trades:', error);
@@ -259,6 +268,7 @@ class TradeLifecycleManager {
         );
       }
     } catch (error) {
+      if (this.isAbortError(error)) return;
       console.error('[Trade Lifecycle] Error monitoring trades:', error);
     }
   }
