@@ -8,6 +8,7 @@ interface BlockLogEntry {
   blockCategory: FreshnessBlockCategory;
   blockMetadata: BlockMetadata;
   cacheTier: 'omega' | 'alpha' | 'scout';
+  userId?: string;
 }
 
 class FreshnessBlockLogger {
@@ -50,14 +51,16 @@ class FreshnessBlockLogger {
     symbol: string,
     timeframe: string,
     blockCategory: FreshnessBlockCategory,
-    metadata: BlockMetadata
+    metadata: BlockMetadata,
+    userId?: string
   ): Promise<void> {
     await this.logBlock({
       symbol,
       timeframe,
       blockCategory,
       blockMetadata: metadata,
-      cacheTier: 'omega'
+      cacheTier: 'omega',
+      userId
     });
   }
 
@@ -65,14 +68,16 @@ class FreshnessBlockLogger {
     symbol: string,
     timeframe: string,
     blockCategory: FreshnessBlockCategory,
-    metadata: BlockMetadata
+    metadata: BlockMetadata,
+    userId?: string
   ): Promise<void> {
     await this.logBlock({
       symbol,
       timeframe,
       blockCategory,
       blockMetadata: metadata,
-      cacheTier: 'alpha'
+      cacheTier: 'alpha',
+      userId
     });
   }
 
@@ -80,14 +85,16 @@ class FreshnessBlockLogger {
     symbol: string,
     timeframe: string,
     blockCategory: FreshnessBlockCategory,
-    metadata: BlockMetadata
+    metadata: BlockMetadata,
+    userId?: string
   ): Promise<void> {
     await this.logBlock({
       symbol,
       timeframe,
       blockCategory,
       blockMetadata: metadata,
-      cacheTier: 'scout'
+      cacheTier: 'scout',
+      userId
     });
   }
 
@@ -96,7 +103,8 @@ class FreshnessBlockLogger {
     timeframe: string,
     blockCategories: FreshnessBlockCategory[],
     blockMetadata: BlockMetadata[],
-    cacheTier: 'omega' | 'alpha' | 'scout' = 'omega'
+    cacheTier: 'omega' | 'alpha' | 'scout' = 'omega',
+    userId?: string
   ): Promise<void> {
     for (let i = 0; i < blockCategories.length; i++) {
       await this.logBlock({
@@ -104,7 +112,8 @@ class FreshnessBlockLogger {
         timeframe,
         blockCategory: blockCategories[i],
         blockMetadata: blockMetadata[i] || {},
-        cacheTier
+        cacheTier,
+        userId
       });
     }
   }
@@ -133,7 +142,8 @@ class FreshnessBlockLogger {
         timeframe: entry.timeframe,
         metadata: entry.blockMetadata,
         auto_refresh_attempted: entry.blockMetadata.refreshAttempted || false,
-        auto_refresh_success: entry.blockMetadata.wasAutoRefreshed || false
+        auto_refresh_success: entry.blockMetadata.wasAutoRefreshed || false,
+        ...(entry.userId ? { user_id: entry.userId } : {})
       }));
 
       const results = await Promise.allSettled([

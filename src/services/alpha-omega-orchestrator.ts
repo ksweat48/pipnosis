@@ -37,6 +37,8 @@ import { getMTFConfig, type Timeframe, type RiskMode } from '../config/timeframe
 import { getConfidencePenaltyCap } from '../config/trade-constraints';
 import { createTradeContext, type TradeContext } from '../utils/tradeMath';
 import { validatePreFlight, createBlockedDecision } from './ssot-preflight-guard';
+import { freshnessBlockLogger } from './freshness-block-logger';
+import { FreshnessBlockCategory } from '../types/freshness-block';
 import { confidenceCalculationEngine, type ConfidenceModifier } from './confidence-calculation-engine';
 import {
   getConcurrentExecutionConfig,
@@ -167,11 +169,21 @@ class AlphaOmegaOrchestrator {
     // ✅ FRESHNESS ADVISORY: Check data quality but don't block (except for critical staleness)
     const preCheck = await tradeExecutionFreshnessGate.preCheckFreshness(marketState.symbol);
 
-    // Only block on CRITICAL data staleness (>5min old) - this is a HARD constraint (data integrity)
     const isCriticallyStale = preCheck.reason?.includes('stale') && !preCheck.shouldProceed;
 
     if (isCriticallyStale) {
-      console.error(`[Alpha+Omega] 🚫 HARD BLOCK: ${preCheck.reason} (DATA INTEGRITY)`);
+      console.error(`[Alpha+Omega] HARD BLOCK: ${preCheck.reason} (DATA INTEGRITY)`);
+
+      if (userId) {
+        freshnessBlockLogger.logOmegaBlock(
+          marketState.symbol,
+          entryTimeframe,
+          FreshnessBlockCategory.BLOCK_STALE_PRICE_FEED,
+          { symbol: marketState.symbol, reason: preCheck.reason || 'critically stale', refreshAttempted: false, wasAutoRefreshed: false },
+          userId
+        );
+      }
+
       return {
         action: 'NO_TRADE',
         decision: 'NO_TRADE',
@@ -184,10 +196,19 @@ class AlphaOmegaOrchestrator {
       };
     }
 
-    // Everything else is ADVISORY - log warning but proceed
     if (!preCheck.shouldProceed) {
-      console.warn(`[Alpha+Omega] ⚠️  PRE-CHECK ADVISORY: ${preCheck.reason}`);
+      console.warn(`[Alpha+Omega] PRE-CHECK ADVISORY: ${preCheck.reason}`);
       console.warn(`[Alpha+Omega] Proceeding with Alpha's authority - advisory will be included in confidence penalties`);
+
+      if (userId) {
+        freshnessBlockLogger.logOmegaBlock(
+          marketState.symbol,
+          entryTimeframe,
+          FreshnessBlockCategory.BLOCK_STALE_PRICE_FEED,
+          { symbol: marketState.symbol, reason: preCheck.reason || 'advisory staleness', refreshAttempted: false, wasAutoRefreshed: false, advisory: true },
+          userId
+        );
+      }
     }
 
     // Capture signal price and timestamp at analysis time (for drift detection)
@@ -455,9 +476,18 @@ class AlphaOmegaOrchestrator {
     }
 
     if (snapshotAgeSeconds > 60) {
-      console.warn(`[Alpha+Omega] ⚠️ Snapshot is ${snapshotAgeSeconds}s old - may need refresh`);
-      // Invalidate and refetch if too old
+      console.warn(`[Alpha+Omega] Snapshot is ${snapshotAgeSeconds}s old - may need refresh`);
       sharedIntelligenceCoordinator.invalidateSnapshot(marketState.symbol, entryTimeframe);
+
+      if (userId) {
+        freshnessBlockLogger.logOmegaBlock(
+          marketState.symbol,
+          entryTimeframe,
+          FreshnessBlockCategory.BLOCK_STALE_OMEGA_INTELLIGENCE,
+          { symbol: marketState.symbol, ageSeconds: snapshotAgeSeconds, reason: `Snapshot ${snapshotAgeSeconds}s old`, refreshAttempted: false, wasAutoRefreshed: false, advisory: true },
+          userId
+        );
+      }
     }
 
     // ✅ DETECT Omega conflicts but DON'T BLOCK (Alpha has final authority)
