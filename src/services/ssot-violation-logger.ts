@@ -15,6 +15,26 @@
 import { supabase } from '../lib/supabase';
 import { prodLogger } from '../lib/production-logger';
 
+function deriveComponent(callLocation: string, violationType: string): string {
+  if (callLocation.includes('alpha') || violationType.startsWith('ALPHA_')) return 'alpha-brain';
+  if (callLocation.includes('omega') || violationType.startsWith('OMEGA_')) return 'omega-council';
+  if (callLocation.includes('validation') || callLocation.includes('gateway')) return 'validation-gateway';
+  if (callLocation.includes('execution') || callLocation.includes('trade-execution')) return 'trade-execution';
+  if (callLocation.includes('freshness') || violationType.includes('FRESHNESS')) return 'freshness-gate';
+  if (callLocation.includes('position') || violationType.includes('POSITION')) return 'position-manager';
+  if (callLocation.includes('style') || violationType.startsWith('STYLE_')) return 'style-engine';
+  if (callLocation.includes('constraint') || violationType.includes('CONSTRAINT')) return 'constraint-validator';
+  return callLocation || 'unknown';
+}
+
+function deriveSeverity(violationType: string): string {
+  const criticalTypes = ['ALPHA_TP_WRONG_SIDE', 'ALPHA_SL_WRONG_SIDE', 'VALIDATION_GATEWAY_BYPASSED', 'POSITION_SIZE_MISMATCH'];
+  const warningTypes = ['ALPHA_CONSTRAINT_VIOLATION_UNRESOLVED', 'EXECUTION_VALIDATION_FAILED', 'PRICE_FRESHNESS_BYPASS', 'ALPHA_SL_TP_INVERTED', 'ALPHA_ZERO_DISTANCE', 'STYLE_ENVELOPE_TP_CAP'];
+  if (criticalTypes.includes(violationType)) return 'critical';
+  if (warningTypes.includes(violationType)) return 'warning';
+  return 'info';
+}
+
 export interface ViolationLogEntry {
   violationType: string;
   symbol: string;
@@ -34,6 +54,9 @@ export interface ViolationLogEntry {
  */
 export async function logViolation(entry: ViolationLogEntry): Promise<void> {
   try {
+    const component = deriveComponent(entry.callLocation, entry.violationType);
+    const severity = deriveSeverity(entry.violationType);
+
     const { error } = await supabase
       .from('ssot_violations')
       .insert({
@@ -43,6 +66,8 @@ export async function logViolation(entry: ViolationLogEntry): Promise<void> {
         call_location: entry.callLocation,
         blocked: entry.blocked,
         error_details: entry.errorDetails,
+        component,
+        severity,
       });
 
     if (error) {

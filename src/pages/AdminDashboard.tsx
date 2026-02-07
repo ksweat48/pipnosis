@@ -41,13 +41,11 @@ import {
 import { UserManagementPanel } from '@/components/admin/UserManagementPanel';
 import { UserFeedbackPanel } from '@/components/admin/UserFeedbackPanel';
 import { PushNotificationTester } from '@/components/admin/PushNotificationTester';
-import { SSOTViolationDashboard } from '@/components/admin/SSOTViolationDashboard';
-import { GovernanceAlertCenter } from '@/components/admin/GovernanceAlertCenter';
-import { ComplianceDashboard } from '@/components/admin/ComplianceDashboard';
+import { GovernanceCenter } from '@/components/admin/GovernanceCenter';
 import { PlatformProfitsCard } from '@/components/admin/PlatformProfitsCard';
 import { userFeedbackService } from '@/services/user-feedback-service';
 
-type AdminTab = 'overview' | 'data' | 'cache' | 'api-usage' | 'users' | 'feedback' | 'push-notifications' | 'ssot-violations' | 'governance-alerts' | 'compliance';
+type AdminTab = 'overview' | 'data' | 'cache' | 'api-usage' | 'users' | 'feedback' | 'push-notifications' | 'governance';
 
 interface AIMetrics {
   skillLevel: number;
@@ -367,40 +365,16 @@ export function AdminDashboard() {
             <span className="sm:hidden">Push</span>
           </button>
           <button
-            onClick={() => handleTabChange('ssot-violations')}
+            onClick={() => handleTabChange('governance')}
             className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
-              activeTab === 'ssot-violations'
-                ? 'bg-red-600 text-white'
-                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-            }`}
-          >
-            <AlertCircle size={16} className="sm:w-[18px] sm:h-[18px]" />
-            <span className="hidden sm:inline">SSOT Violations</span>
-            <span className="sm:hidden">SSOT</span>
-          </button>
-          <button
-            onClick={() => handleTabChange('governance-alerts')}
-            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
-              activeTab === 'governance-alerts'
-                ? 'bg-purple-600 text-white'
-                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-            }`}
-          >
-            <Bell size={16} className="sm:w-[18px] sm:h-[18px]" />
-            <span className="hidden sm:inline">Alerts</span>
-            <span className="sm:hidden">Alerts</span>
-          </button>
-          <button
-            onClick={() => handleTabChange('compliance')}
-            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
-              activeTab === 'compliance'
+              activeTab === 'governance'
                 ? 'bg-emerald-600 text-white'
                 : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
             }`}
           >
-            <CheckCircle size={16} className="sm:w-[18px] sm:h-[18px]" />
-            <span className="hidden sm:inline">Compliance</span>
-            <span className="sm:hidden">Score</span>
+            <AlertCircle size={16} className="sm:w-[18px] sm:h-[18px]" />
+            <span className="hidden sm:inline">Governance</span>
+            <span className="sm:hidden">Gov</span>
           </button>
         </div>
 
@@ -730,21 +704,9 @@ export function AdminDashboard() {
           </div>
         )}
 
-        {activeTab === 'ssot-violations' && (
+        {activeTab === 'governance' && (
           <div className="space-y-6">
-            <SSOTViolationDashboard />
-          </div>
-        )}
-
-        {activeTab === 'governance-alerts' && (
-          <div className="space-y-6">
-            <GovernanceAlertCenter />
-          </div>
-        )}
-
-        {activeTab === 'compliance' && (
-          <div className="space-y-6">
-            <ComplianceDashboard />
+            <GovernanceCenter />
           </div>
         )}
       </main>

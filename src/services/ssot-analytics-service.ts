@@ -61,38 +61,39 @@ class SSOTAnalyticsService {
    */
   private isProtectiveBlock(violationType: string): boolean {
     const protectiveBlocks = [
-      'ALPHA_CONSTRAINT_VIOLATION_UNRESOLVED', // System preventing unprofessional R:R
-      'EXECUTION_VALIDATION_FAILED', // ValidationGateway catching bad params
-      'PRICE_FRESHNESS_BYPASS', // Freshness gate protecting against stale data
+      'ALPHA_CONSTRAINT_VIOLATION_UNRESOLVED',
+      'EXECUTION_VALIDATION_FAILED',
+      'PRICE_FRESHNESS_BYPASS',
     ];
     return protectiveBlocks.includes(violationType);
   }
 
   private isActualBug(violationType: string): boolean {
     const actualBugs = [
-      'ALPHA_TP_WRONG_SIDE', // Alpha hallucinated wrong geometry
-      'ALPHA_SL_WRONG_SIDE', // Alpha hallucinated wrong geometry
-      'VALIDATION_GATEWAY_BYPASSED', // Something bypassed safety
-      'POSITION_SIZE_MISMATCH', // Calculation error
+      'ALPHA_TP_WRONG_SIDE',
+      'ALPHA_SL_WRONG_SIDE',
+      'VALIDATION_GATEWAY_BYPASSED',
+      'POSITION_SIZE_MISMATCH',
     ];
     return actualBugs.includes(violationType);
   }
 
-  /**
-   * Get severity for a violation type
-   */
+  private isGeometryWarning(violationType: string): boolean {
+    const geometryWarnings = [
+      'ALPHA_SL_TP_INVERTED',
+      'ALPHA_ZERO_DISTANCE',
+      'STYLE_ENVELOPE_TP_CAP',
+    ];
+    return geometryWarnings.includes(violationType);
+  }
+
   private getSeverity(violationType: string): 'critical' | 'warning' | 'info' {
-    // Actual bugs are critical (need prompt/code fixes)
     if (this.isActualBug(violationType)) {
       return 'critical';
     }
-
-    // Protective blocks are warnings (system working correctly)
-    if (this.isProtectiveBlock(violationType)) {
+    if (this.isProtectiveBlock(violationType) || this.isGeometryWarning(violationType)) {
       return 'warning';
     }
-
-    // Everything else is info
     return 'info';
   }
 
@@ -486,6 +487,27 @@ class SSOTAnalyticsService {
       return {
         category: 'bug',
         ...(descriptions[violationType] || { title: 'System Error', description: 'Bug requiring fix' })
+      };
+    }
+
+    if (this.isGeometryWarning(violationType)) {
+      const descriptions: Record<string, { title: string; description: string }> = {
+        'ALPHA_SL_TP_INVERTED': {
+          title: 'SL/TP Inversion Detected',
+          description: 'Alpha produced inverted SL/TP levels. Geometry validator caught and blocked the trade.'
+        },
+        'ALPHA_ZERO_DISTANCE': {
+          title: 'Zero Distance SL/TP',
+          description: 'Alpha produced SL or TP at same price as entry. Geometry validator blocked execution.'
+        },
+        'STYLE_ENVELOPE_TP_CAP': {
+          title: 'Style Envelope TP Cap Applied',
+          description: 'Take profit was capped by style envelope constraints. Risk management working correctly.'
+        }
+      };
+      return {
+        category: 'protective',
+        ...(descriptions[violationType] || { title: 'Geometry Warning', description: 'Geometry validation caught an issue' })
       };
     }
 
