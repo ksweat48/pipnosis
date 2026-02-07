@@ -2814,14 +2814,45 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
         tokensUsed: undefined // Track if available
       });
 
-      // If geometry validation failed, HARD BLOCK the trade
+      if (geometryValidation.corrected && geometryValidation.correctedValues) {
+        const originalSL = stopLoss;
+        const originalTP = takeProfit;
+        stopLoss = geometryValidation.correctedValues.stopLoss;
+        takeProfit = geometryValidation.correctedValues.takeProfit;
+
+        console.warn(
+          `[Alpha Coordinator] GEOMETRY RECOVERY: SL/TP label swap corrected for ${action} ${symbol}. ` +
+          `Original: SL=${originalSL?.toFixed(5)}, TP=${originalTP?.toFixed(5)} -> ` +
+          `Corrected: SL=${stopLoss.toFixed(5)}, TP=${takeProfit.toFixed(5)}`
+        );
+
+        logViolation({
+          violationType: 'ALPHA_GEOMETRY_AUTO_CORRECTED',
+          symbol,
+          attemptedOperation: 'parse_decision',
+          callLocation: 'coordinator-alpha.parseDecision',
+          blocked: false,
+          errorDetails: {
+            recoveryType: geometryValidation.recoveryType,
+            direction: action,
+            entry,
+            originalSL,
+            originalTP,
+            correctedSL: stopLoss,
+            correctedTP: takeProfit,
+            resolution: 'auto_corrected_label_swap'
+          }
+        }).catch(error => {
+          console.error('[Alpha Coordinator] Failed to log geometry recovery to SSOT:', error);
+        });
+      }
+
       if (!geometryValidation.valid) {
-        console.error(`[Alpha Coordinator] 🚨 GEOMETRY ERROR: ${geometryValidation.errorMessage}`);
+        console.error(`[Alpha Coordinator] GEOMETRY ERROR: ${geometryValidation.errorMessage}`);
         console.error(`[Alpha Coordinator] ${action} trade: Entry=${entry.toFixed(5)}, SL=${stopLoss?.toFixed(5)}, TP=${takeProfit?.toFixed(5)}`);
         console.error(`[Alpha Coordinator] Expected: SL ${geometryValidation.expectedGeometry?.slSide}, TP ${geometryValidation.expectedGeometry?.tpSide}`);
         console.error(`[Alpha Coordinator] Error logged to alpha_geometry_errors: ${geometryValidation.errorLogId}`);
 
-        // Also log to SSOT violations for backward compatibility
         logViolation({
           violationType: `ALPHA_${geometryValidation.errorType}`,
           symbol,
@@ -2857,8 +2888,7 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
         };
       }
 
-      // Geometry validation passed - trade can proceed
-      console.log(`[Alpha Coordinator] ✅ Geometry validation passed`);
+      console.log(`[Alpha Coordinator] Geometry validation passed`);
 
       // Additional sanity check for minimum pip distance (< 5 pips survival minimum)
       const MIN_SURVIVAL_PIPS = 5;

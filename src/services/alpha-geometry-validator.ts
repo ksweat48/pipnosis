@@ -65,6 +65,12 @@ export interface GeometryValidationResult {
     slSide: 'above_entry' | 'below_entry';
     tpSide: 'above_entry' | 'below_entry';
   };
+  corrected?: boolean;
+  correctedValues?: {
+    stopLoss: number;
+    takeProfit: number;
+  };
+  recoveryType?: 'SL_TP_LABEL_SWAP';
 }
 
 class AlphaGeometryValidator {
@@ -138,12 +144,38 @@ class AlphaGeometryValidator {
     const tpOnWrongSide = (isBuy && takeProfit < entryPrice) || (!isBuy && takeProfit > entryPrice);
 
     if (slOnWrongSide && tpOnWrongSide) {
-      // Both inverted - catastrophic (log async)
+      const swappedSL = takeProfit;
+      const swappedTP = stopLoss;
+      const swappedSlValid = isBuy ? swappedSL < entryPrice : swappedSL > entryPrice;
+      const swappedTpValid = isBuy ? swappedTP > entryPrice : swappedTP < entryPrice;
+      const swappedSlNotZero = Math.abs(entryPrice - swappedSL) > 0;
+      const swappedTpNotZero = Math.abs(swappedTP - entryPrice) > 0;
+
+      if (swappedSlValid && swappedTpValid && swappedSlNotZero && swappedTpNotZero) {
+        this.logRecovery({
+          ...input,
+          correctedSL: swappedSL,
+          correctedTP: swappedTP,
+          expectedGeometry,
+          actualSlSide: this.determineSide(stopLoss, entryPrice),
+          actualTpSide: this.determineSide(takeProfit, entryPrice)
+        }).catch(err => console.error('[GeometryValidator] Recovery log failed:', err));
+
+        return {
+          valid: true,
+          blocked: false,
+          corrected: true,
+          correctedValues: { stopLoss: swappedSL, takeProfit: swappedTP },
+          recoveryType: 'SL_TP_LABEL_SWAP',
+          expectedGeometry
+        };
+      }
+
       this.logError({
         ...input,
         errorType: 'SL_TP_INVERTED',
         severity: 'catastrophic',
-        errorMessage: `BOTH Stop Loss and Take Profit on WRONG SIDE for ${direction} trade (Entry=${entryPrice.toFixed(5)}, SL=${stopLoss.toFixed(5)}, TP=${takeProfit.toFixed(5)})`,
+        errorMessage: `BOTH Stop Loss and Take Profit on WRONG SIDE for ${direction} trade (Entry=${entryPrice.toFixed(5)}, SL=${stopLoss.toFixed(5)}, TP=${takeProfit.toFixed(5)}) - swap does NOT produce valid geometry`,
         expectedGeometry,
         actualSlSide: this.determineSide(stopLoss, entryPrice),
         actualTpSide: this.determineSide(takeProfit, entryPrice)
@@ -154,7 +186,7 @@ class AlphaGeometryValidator {
         blocked: true,
         errorType: 'SL_TP_INVERTED',
         severity: 'catastrophic',
-        errorMessage: `Both SL and TP inverted for ${direction} trade`,
+        errorMessage: `Both SL and TP inverted for ${direction} trade (unrecoverable)`,
         expectedGeometry
       };
     }
@@ -335,6 +367,84 @@ class AlphaGeometryValidator {
     } catch (err) {
       console.error('[GeometryValidator] Exception logging error:', err);
       return undefined;
+    }
+  }
+
+  private async logRecovery(params: {
+    symbol: string;
+    direction: 'BUY' | 'SELL';
+    entryPrice: number;
+    stopLoss?: number;
+    takeProfit?: number;
+    currentMarketPrice: number;
+    correctedSL: number;
+    correctedTP: number;
+    expectedGeometry: { slSide: 'above_entry' | 'below_entry'; tpSide: 'above_entry' | 'below_entry' };
+    actualSlSide?: 'above_entry' | 'below_entry';
+    actualTpSide?: 'above_entry' | 'below_entry';
+    alphaConfidence?: number;
+    narrativeQuality?: string;
+    narrativeText?: string;
+    eqsScore?: number;
+    tradeStyle?: string;
+    marketRegime?: string;
+    volatilityLevel?: string;
+    sessionContext?: string;
+    userId?: string;
+    sessionId?: string;
+    scanAttemptId?: string;
+    promptVersion?: string;
+    modelUsed?: string;
+    tokensUsed?: number;
+  }): Promise<void> {
+    try {
+      await supabase
+        .from('alpha_geometry_errors')
+        .insert({
+          error_type: 'SL_TP_INVERTED',
+          severity: 'warning',
+          blocked: false,
+          recovery_applied: true,
+          recovery_type: 'SL_TP_LABEL_SWAP',
+          symbol: params.symbol,
+          direction: params.direction,
+          entry_price: params.entryPrice,
+          stop_loss: params.stopLoss,
+          take_profit: params.takeProfit,
+          current_market_price: params.currentMarketPrice,
+          expected_sl_side: params.expectedGeometry.slSide,
+          expected_tp_side: params.expectedGeometry.tpSide,
+          actual_sl_side: params.actualSlSide,
+          actual_tp_side: params.actualTpSide,
+          alpha_confidence: params.alphaConfidence,
+          narrative_quality: params.narrativeQuality,
+          narrative_text: params.narrativeText,
+          eqs_score: params.eqsScore,
+          trade_style: params.tradeStyle,
+          market_regime: params.marketRegime,
+          volatility_level: params.volatilityLevel,
+          session_context: params.sessionContext,
+          user_id: params.userId,
+          session_id: params.sessionId,
+          scan_attempt_id: params.scanAttemptId,
+          error_message: `SL/TP label swap RECOVERED: Original SL=${params.stopLoss?.toFixed(5)}, TP=${params.takeProfit?.toFixed(5)} → Corrected SL=${params.correctedSL.toFixed(5)}, TP=${params.correctedTP.toFixed(5)}`,
+          error_details: {
+            recoveryType: 'SL_TP_LABEL_SWAP',
+            originalSL: params.stopLoss,
+            originalTP: params.takeProfit,
+            correctedSL: params.correctedSL,
+            correctedTP: params.correctedTP,
+            entry: params.entryPrice,
+            market: params.currentMarketPrice,
+            expected: params.expectedGeometry,
+            actual: { slSide: params.actualSlSide, tpSide: params.actualTpSide }
+          },
+          prompt_version: params.promptVersion || 'v1.0',
+          model_used: params.modelUsed || 'gpt-4o-mini',
+          tokens_used: params.tokensUsed
+        });
+    } catch (err) {
+      console.error('[GeometryValidator] Failed to log recovery:', err);
     }
   }
 

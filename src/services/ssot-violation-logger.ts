@@ -30,6 +30,8 @@ function deriveComponent(callLocation: string, violationType: string): string {
 function deriveSeverity(violationType: string): string {
   const criticalTypes = ['ALPHA_TP_WRONG_SIDE', 'ALPHA_SL_WRONG_SIDE', 'VALIDATION_GATEWAY_BYPASSED', 'POSITION_SIZE_MISMATCH'];
   const warningTypes = ['ALPHA_CONSTRAINT_VIOLATION_UNRESOLVED', 'EXECUTION_VALIDATION_FAILED', 'PRICE_FRESHNESS_BYPASS', 'ALPHA_SL_TP_INVERTED', 'ALPHA_ZERO_DISTANCE', 'STYLE_ENVELOPE_TP_CAP'];
+  const infoTypes = ['ALPHA_GEOMETRY_AUTO_CORRECTED'];
+  if (infoTypes.includes(violationType)) return 'info';
   if (criticalTypes.includes(violationType)) return 'critical';
   if (warningTypes.includes(violationType)) return 'warning';
   return 'info';
