@@ -20,6 +20,7 @@ import { goalSessionStateMachine } from './goal-session-state-machine';
 import { notificationCoordinator, NotificationType } from './notification-coordinator';
 import { MarketDataService } from '../market-data-service';
 import { modalQueueManager } from '../modal-queue-manager';
+import { postTradeAnalyzer } from '../post-trade-analyzer';
 
 /**
  * SSOT Close Reason Types - MUST match database constraint
@@ -194,6 +195,25 @@ class TradeClosureCoordinator {
       }
 
       await this.logToAudit(request, tradeData, pnl, 'coordinator');
+
+      try {
+        await postTradeAnalyzer.analyzeClosedTrade({
+          id: request.tradeId,
+          userId: request.userId,
+          symbol: tradeData.symbol,
+          direction: tradeData.direction,
+          entryPrice: tradeData.entry_price,
+          exitPrice: request.currentPrice,
+          stopLoss: tradeData.stop_loss,
+          takeProfit: tradeData.take_profit,
+          pnl,
+          entryTime: new Date((tradeData as any).created_at || (tradeData as any).entry_time || Date.now()),
+          exitTime: new Date(),
+          closeReason: request.closeReason,
+        });
+      } catch (journalError) {
+        console.error(`[TradeClosureCoordinator] Journal creation failed (non-blocking):`, journalError);
+      }
 
       const notificationType = this.getNotificationType(request.closeReason);
       await notificationCoordinator.send({

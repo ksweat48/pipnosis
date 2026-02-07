@@ -222,9 +222,40 @@ class AlphaTradeExecutor {
       };
     }
 
-    // ✅ SSOT FIX (2026-02-02): Calculate baseRiskPercent from user's selected dollar_risk
-    // CRITICAL: This ensures user's risk selection flows through to lot sizing
-    // User selects "Scalp + Aggressive 5%" → dollar_risk: $500 → baseRiskPercent: 5%
+    // HARD-BLOCK (2026-02-07): Session data MUST be complete before any trade execution
+    // GOVERNANCE: No fallbacks. If session or target_value is missing, reject immediately.
+    if (!session || !session.id) {
+      logger.error(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] HARD-BLOCK: Session record is missing or invalid',
+        { userId, sessionId, sessionExists: !!session }
+      );
+      return {
+        success: false,
+        error: 'Session data is missing — cannot execute trade without valid session',
+        blockReason: 'HARD-BLOCK: No session record available for trade execution'
+      };
+    }
+
+    if (!session.target_value || !Number.isFinite(session.target_value) || session.target_value <= 0) {
+      logger.error(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] HARD-BLOCK: Session target_value is missing or invalid',
+        {
+          userId,
+          sessionId,
+          targetValue: session.target_value,
+          targetValueType: typeof session.target_value,
+          sessionStatus: session.status,
+        }
+      );
+      return {
+        success: false,
+        error: `Session target_value is invalid (${session.target_value}) — cannot size position without goal target`,
+        blockReason: 'HARD-BLOCK: No target_value in session — lot sizing would be incorrect'
+      };
+    }
+
     let baseRiskPercent: number | undefined = undefined;
     if (session.dollar_risk && Number.isFinite(session.dollar_risk) && session.dollar_risk > 0) {
       baseRiskPercent = (session.dollar_risk / currentBalance) * 100;
@@ -309,9 +340,9 @@ class AlphaTradeExecutor {
       };
     }
 
-    // SSOT FIX (2026-02-03): Always try goal-aware lot sizing if session has target value
-    // REQUIREMENT: expectedProfitAtTP must flow from coordinator to trade record
-    if (session && session.target_value) {
+    // SSOT (2026-02-07): Goal-aware lot sizing is MANDATORY for every trade
+    // HARD-BLOCK above guarantees session.target_value is always valid at this point
+    {
       lotSizingAuditRecord.sessionHadTargetValue = true;
       lotSizingAuditRecord.sessionHadCurrentProgress = session.current_progress !== undefined;
 
@@ -429,10 +460,6 @@ class AlphaTradeExecutor {
         lotSizingAuditRecord.fallbackReason = `Coordinator error: ${error instanceof Error ? error.message : String(error)}`;
         lotSizingDecision = null; // Clear so expectedProfitAtTP won't be used
       }
-    } else {
-      // Session has no target_value - cannot use goal-aware lot sizing
-      lotSizingAuditRecord.usedFallbackCalculation = true;
-      lotSizingAuditRecord.fallbackReason = 'Session has no target_value';
     }
 
     // MODE ROUTING (Execute based on selected mode)

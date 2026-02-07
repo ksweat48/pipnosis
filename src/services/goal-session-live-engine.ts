@@ -2428,16 +2428,27 @@ class GoalSessionLiveEngine {
         return;
       }
 
-      // Get goal session details for context
-      const { data: goalSession } = await supabase
+      const { data: goalSession, error: goalSessionError } = await supabase
         .from('goal_sessions')
         .select('*')
         .eq('id', this.activeSession)
         .single();
 
+      if (goalSessionError || !goalSession) {
+        logger.error(LogCategory.AI_TRADING, '[Autonomous Engine] Failed to load goal session — blocking all trade execution', {
+          error: goalSessionError,
+          sessionId: this.activeSession,
+        });
+        return;
+      }
 
-      // ✅ Max trades check moved earlier (line 919) to save resources
-      // Old blocker removed - was using memory count and located too late
+      if (!goalSession.target_value || !Number.isFinite(goalSession.target_value) || goalSession.target_value <= 0) {
+        logger.error(LogCategory.AI_TRADING, '[Autonomous Engine] Goal session has no valid target_value — blocking trade execution', {
+          sessionId: this.activeSession,
+          targetValue: goalSession.target_value,
+        });
+        return;
+      }
 
       const goalContext = goalSession ? {
         goalSessionId: this.activeSession,
