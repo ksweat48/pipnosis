@@ -40,6 +40,7 @@ import { getMinConfidenceThreshold } from '../config/risk-levels';
 import { logger, LogCategory } from '../lib/logger';
 import { calculateDollarPerPip, calculatePipDistance } from '../utils/currencyHelpers';
 import { mandatorySafetyValidator } from './mandatory-safety-validator';
+import { creditValidationService } from './credit-validation-service';
 import type { AlphaDecision } from '../brains/coordinator-alpha';
 import type { TradeContext } from '../types/trade-context';
 
@@ -808,6 +809,19 @@ class AlphaTradeExecutor {
         lotSizingDecisionId: params.lotSizingDecisionId
       }
     });
+
+    try {
+      await creditValidationService.deductSignalCredits(userId, sessionId, {
+        symbol: decision.symbol,
+        intentId: trade.id,
+        intentType: 'trade_executed',
+        confidence: decision.confidence
+      });
+    } catch (creditErr) {
+      logger.warn(LogCategory.GOVERNANCE, '[AlphaTradeExecutor] Credit deduction failed (non-blocking)', {
+        error: creditErr, tradeId: trade.id, userId
+      });
+    }
 
     const { goalSessionStateMachine } = await import('./coordinators/goal-session-state-machine');
     await goalSessionStateMachine.transition(sessionId, 'active', {

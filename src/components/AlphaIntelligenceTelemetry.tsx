@@ -41,23 +41,19 @@ export function AlphaIntelligenceTelemetry() {
 
   async function loadMetrics() {
     try {
-      // Load cache statistics from new governance view
-      const { data: cacheStats } = await supabase
-        .from('cache_statistics')
-        .select('*')
-        .eq('cache_tier', 'alpha_thesis');
+      const { data: rpcData, error: rpcError } = await supabase
+        .rpc('get_alpha_thesis_cache_stats');
 
-      if (cacheStats && cacheStats.length > 0) {
-        const stats = cacheStats[0];
-        const totalLookups = Number(stats.total) || 0;
-        const cacheHits = Number(stats.hits) || 0;
-        const cacheMisses = Number(stats.misses) || 0;
+      const stats = rpcData && !rpcError && rpcData.length > 0 ? rpcData[0] : null;
+
+      if (stats) {
+        const totalLookups = Number(stats.total_lookups) || 0;
+        const cacheHits = Number(stats.cache_hits) || 0;
+        const cacheMisses = Number(stats.cache_misses) || 0;
         const hitRate = Number(stats.hit_rate) || 0;
-
-        // Cost savings: cache hits × $0.20 per avoided LLM call
+        const avgAge = Number(stats.avg_cache_age_seconds) || 0;
         const costSaved = cacheHits * 0.20;
 
-        // Count unique regimes and cached theses
         const { data: theses } = await supabase
           .from('alpha_market_thesis_cache')
           .select('regime_signature_hash')
@@ -71,10 +67,10 @@ export function AlphaIntelligenceTelemetry() {
           cacheHits,
           cacheMisses,
           hitRate,
-          avgCacheAge: 300, // 5 minutes average (15min TTL / 3)
+          avgCacheAge: avgAge,
           totalCostSaved: costSaved,
           uniqueRegimes,
-          thesesGenerated: Number(stats.total) || 0
+          thesesGenerated: totalLookups
         });
       }
 
