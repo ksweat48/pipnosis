@@ -1714,7 +1714,7 @@ class GoalSessionLiveEngine {
           if (dualTargets.adjustedGoal && goalContext.targetGoal > dualTargets.adjustedGoal) {
             const advisoryResult = await goalAdvisoryCoordinator.createMarketAssessmentAdvisory(
               activeSession,
-              session.user_id,
+              config.userId,
               goalContext.targetGoal,
               marketAssessment
             );
@@ -1765,8 +1765,18 @@ class GoalSessionLiveEngine {
           );
         }
       } catch (error) {
-        logger.error(LogCategory.AI_TRADING, '[Dual TP] Error calculating dual targets:', error);
-        // Continue without dual TP system if calculation fails
+        logger.error(
+          LogCategory.AI_TRADING,
+          '[Dual TP] Error calculating dual targets — continuing without dual TP',
+          {
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+            goalTarget: goalContext?.targetGoal,
+            currentBalance: goalContext?.currentBalance,
+            symbol: selectedSymbol,
+            activeSession,
+          }
+        );
       }
 
       // ✅ SSOT FIX: Create TradeContext before execution

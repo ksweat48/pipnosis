@@ -257,6 +257,44 @@ class AlphaTradeExecutor {
       };
     }
 
+    // SSOT FIX (2026-02-07): Trading balance MUST come from goal_sessions.starting_balance
+    // The user_token_balance ($50 credit balance) is a token/credit system, NOT the trading account balance
+    // session.starting_balance is the actual broker account balance ($6404.45) set at session creation
+    const tradingBalance = parseFloat(String(session.starting_balance));
+    if (!Number.isFinite(tradingBalance) || tradingBalance <= 0) {
+      logger.error(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] HARD-BLOCK: session.starting_balance is missing or invalid',
+        {
+          userId,
+          sessionId,
+          rawStartingBalance: session.starting_balance,
+          parsedTradingBalance: tradingBalance,
+          tokenBalance: currentBalance,
+        }
+      );
+      return {
+        success: false,
+        error: `Trading balance is invalid (starting_balance: ${session.starting_balance}) — cannot size position`,
+        blockReason: 'HARD-BLOCK: No valid starting_balance in session — lot sizing would be incorrect'
+      };
+    }
+
+    // Override currentBalance with the authoritative trading balance
+    // The getOrInitializeUserBalance() result ($50 token balance) is kept for credit-system purposes only
+    logger.info(
+      LogCategory.RISK_MANAGEMENT,
+      '[AlphaTradeExecutor] SSOT: Using session.starting_balance as authoritative trading balance',
+      {
+        userId,
+        sessionId,
+        tradingBalance,
+        tokenBalance: currentBalance,
+        source: 'goal_sessions.starting_balance'
+      }
+    );
+    currentBalance = tradingBalance;
+
     let baseRiskPercent: number | undefined = undefined;
     if (session.dollar_risk && Number.isFinite(session.dollar_risk) && session.dollar_risk > 0) {
       baseRiskPercent = (session.dollar_risk / currentBalance) * 100;
@@ -450,16 +488,43 @@ class AlphaTradeExecutor {
           );
         }
       } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
         logger.error(
           LogCategory.RISK_MANAGEMENT,
-          '[AlphaTradeExecutor] Goal-aware lot sizing failed, falling back to risk assessment',
-          { error, userId, sessionId, symbol: decision.symbol }
+          '[AlphaTradeExecutor] Goal-aware lot sizing failed — degrading to risk assessment lot size',
+          {
+            error: errorMsg,
+            userId,
+            sessionId,
+            symbol: decision.symbol,
+            fallbackLotSize: riskAssessment.recommendedLotSize,
+            tradingBalance: currentBalance,
+            dollarRisk: session.dollar_risk,
+          }
         );
-        // Use risk assessment lot size as fallback
+
         finalLotSize = riskAssessment.recommendedLotSize;
         lotSizingAuditRecord.usedFallbackCalculation = true;
-        lotSizingAuditRecord.fallbackReason = `Coordinator error: ${error instanceof Error ? error.message : String(error)}`;
-        lotSizingDecision = null; // Clear so expectedProfitAtTP won't be used
+        lotSizingAuditRecord.fallbackReason = `Coordinator error: ${errorMsg}`;
+        lotSizingDecision = null;
+
+        // GOVERNANCE: Sanity check the fallback lot size against the trading balance
+        // If the fallback is suspiciously small relative to what the user's risk should produce,
+        // log a critical warning so the issue is visible (but do NOT block — degrade intelligently)
+        const expectedMinLot = (session.dollar_risk || 0) / (currentBalance * 0.10);
+        if (finalLotSize < expectedMinLot * 0.1 && expectedMinLot > 0) {
+          logger.warn(
+            LogCategory.RISK_MANAGEMENT,
+            '[AlphaTradeExecutor] GOVERNANCE: Fallback lot size is suspiciously small relative to user risk',
+            {
+              finalLotSize,
+              expectedMinLot: expectedMinLot.toFixed(4),
+              dollarRisk: session.dollar_risk,
+              tradingBalance: currentBalance,
+              message: 'Fallback degradation may be using incorrect balance or risk inputs'
+            }
+          );
+        }
       }
     }
 
