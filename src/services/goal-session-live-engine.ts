@@ -1232,6 +1232,13 @@ class GoalSessionLiveEngine {
         );
 
         await this.sendAIMessage(detailedMessage);
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('alpha-scan-no-trade', {
+            detail: { sessionId: this.activeSession, timestamp: Date.now() }
+          }));
+        }
+
         return;
       }
 
@@ -1252,6 +1259,13 @@ class GoalSessionLiveEngine {
 
       if (decision.action === 'NO_TRADE') {
         await this.sendAIMessage(`Best symbol: ${selectedSymbol}. Setup detected but confidence threshold not met. Waiting for stronger signals.`);
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('alpha-scan-no-trade', {
+            detail: { sessionId: this.activeSession, timestamp: Date.now() }
+          }));
+        }
+
         return;
       }
 

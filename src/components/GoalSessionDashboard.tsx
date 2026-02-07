@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, Cloud, Wifi, AlertTriangle, Search, Shield, Sparkles, Eye, BarChart3, Wrench, StopCircle } from 'lucide-react';
 import { smartGoalSessionManager, SmartGoalSession } from '../services/smart-goal-session-manager';
 import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/goal-scanner-trigger';
@@ -54,6 +54,27 @@ export const GoalSessionDashboard: React.FC = () => {
   const [isClosingSession, setIsClosingSession] = useState(false);
   const [closureTimeoutId, setClosureTimeoutId] = useState<NodeJS.Timeout | null>(null);
   const [processedTradeClosures, setProcessedTradeClosures] = useState<Set<string>>(new Set());
+  const lastNoTradePopupRef = useRef<number>(0);
+  const NO_TRADE_POPUP_THROTTLE_MS = 15 * 60 * 1000;
+
+  useEffect(() => {
+    if (!activeSession) return;
+
+    const handleNoTradeFound = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.sessionId !== activeSession.sessionId) return;
+
+      const now = Date.now();
+      if (now - lastNoTradePopupRef.current < NO_TRADE_POPUP_THROTTLE_MS) return;
+
+      lastNoTradePopupRef.current = now;
+      console.log('[GoalSessionDashboard] Scan completed with no qualifying trade - showing dialog');
+      setShowNoTradesModal(true);
+    };
+
+    window.addEventListener('alpha-scan-no-trade', handleNoTradeFound);
+    return () => window.removeEventListener('alpha-scan-no-trade', handleNoTradeFound);
+  }, [activeSession?.sessionId]);
 
   useEffect(() => {
     loadSessionData();
