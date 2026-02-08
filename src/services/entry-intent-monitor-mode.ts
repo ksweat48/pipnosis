@@ -300,9 +300,9 @@ export async function getActiveEntryIntent(sessionId: string): Promise<EntryInte
     return null;
   }
 
-  // Look for the most recent intent that could still be active (not canceled, not executed, not expired)
   const now = new Date();
   const activeIntent = allIntents.find(intent => {
+    if (intent.advisor_mode === 'post_execution_advisory') return true;
     const isNotFinalized = !['canceled', 'executed', 'abandoned'].includes(intent.status);
     const notExpired = !intent.timeout_at || new Date(intent.timeout_at) > now;
     return isNotFinalized && notExpired;

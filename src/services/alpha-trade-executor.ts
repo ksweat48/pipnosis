@@ -1271,7 +1271,7 @@ class AlphaTradeExecutor {
         status: 'monitoring',
         alpha_reasoning: decision.reasoning,
         alpha_confidence: decision.confidence,
-        market_context: {},
+        market_context: this.buildMarketContextForAdvisory(decision, decision.entry),
         entry_mode: 'MONITORED',
         style: decision.resolvedStyle || 'MICRO_INTRADAY',
         thesis: decision.thesis,
@@ -1712,7 +1712,7 @@ class AlphaTradeExecutor {
         advisor_mode: 'post_execution_advisory',
         alpha_reasoning: decision.reasoning,
         alpha_confidence: decision.confidence,
-        market_context: {},
+        market_context: this.buildMarketContextForAdvisory(decision, entryPrice),
         entry_mode: 'IMMEDIATE',
         style: decision.resolvedStyle || 'MICRO_INTRADAY',
         thesis: decision.thesis,
@@ -1762,6 +1762,33 @@ class AlphaTradeExecutor {
         { error: err instanceof Error ? err.message : String(err), tradeId }
       );
     }
+  }
+
+  private buildMarketContextForAdvisory(
+    decision: AlphaDecision,
+    entryPrice: number
+  ): Record<string, any> {
+    const slDistance = Math.abs(entryPrice - decision.stopLoss);
+    const regime = decision.regime_advisory;
+
+    let volatility: string = 'medium';
+    if (regime) {
+      if (regime.volatility_score > 70 || regime.atr_expansion) {
+        volatility = 'high';
+      } else if (regime.volatility_score < 30 || regime.atr_compression) {
+        volatility = 'low';
+      }
+    }
+
+    return {
+      atr_value: slDistance > 0 ? slDistance : undefined,
+      volatility,
+      structure: regime?.structure,
+      market_bias: regime?.market_bias,
+      regime_classification: regime?.regime_classification,
+      confidence: decision.confidence,
+      style: decision.resolvedStyle
+    };
   }
 
   /**
