@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useState, useEffect } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { DatabaseErrorBoundary } from './components/DatabaseErrorBoundary';
@@ -561,6 +561,9 @@ const AppRoutes: React.FC = () => {
 };
 
 export default function App() {
+  const location = useLocation();
+  const isClubPage = location.pathname.startsWith('/club');
+
   useEffect(() => {
     // CRITICAL: Clear potentially contaminated cache on startup
     const clearCache = async () => {
@@ -672,7 +675,7 @@ export default function App() {
     <DatabaseErrorBoundary>
       <ConfirmDialogProvider>
         <GlobalDialogProvider>
-          <WeekendProtectionBanner />
+          {!isClubPage && <WeekendProtectionBanner />}
           <AppRoutes />
         </GlobalDialogProvider>
       </ConfirmDialogProvider>
