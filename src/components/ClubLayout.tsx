@@ -65,7 +65,8 @@ export function ClubLayout({ children }: ClubLayoutProps) {
   if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100 pb-[4.5rem] sm:pb-0">
+    <div className="fixed inset-0 overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100 pb-[4.5rem] sm:pb-0">
       {/* Club Header */}
       <header className="sticky top-0 bg-white/80 backdrop-blur-xl border-b border-slate-200/50 z-50 shadow-sm">
         <div className="max-w-7xl mx-auto px-3 sm:px-6">
@@ -133,7 +134,7 @@ export function ClubLayout({ children }: ClubLayoutProps) {
       </header>
 
       {/* Club Content - scrollable */}
-      <main className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-8 overflow-y-auto">
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-8">
         {children}
       </main>
 
@@ -181,6 +182,8 @@ export function ClubLayout({ children }: ClubLayoutProps) {
           </div>
         </div>
       </footer>
+
+      </div>
 
       {/* Mobile Bottom Tab Bar */}
       <nav className="fixed bottom-0 left-0 right-0 sm:hidden bg-white/95 backdrop-blur-xl border-t border-slate-200/60 z-50 safe-bottom">

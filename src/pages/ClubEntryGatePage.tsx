@@ -86,10 +86,12 @@ export function ClubEntryGatePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-12 h-12 text-slate-600 animate-spin mx-auto mb-4" />
-          <p className="text-slate-600">Checking Club access...</p>
+      <div className="fixed inset-0 overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' as never }}>
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100 flex items-center justify-center">
+          <div className="text-center">
+            <Loader2 className="w-12 h-12 text-slate-600 animate-spin mx-auto mb-4" />
+            <p className="text-slate-600">Checking Club access...</p>
+          </div>
         </div>
       </div>
     );
@@ -100,7 +102,8 @@ export function ClubEntryGatePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
+    <div className="fixed inset-0 overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' as never }}>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
       <NavigationMenu />
 
       <div className="max-w-6xl mx-auto px-4 py-12">
@@ -271,6 +274,7 @@ export function ClubEntryGatePage() {
           <p>Pipnosis Club tokens are utility tokens for access and rewards.</p>
           <p>Not investment advice. No guaranteed returns.</p>
         </div>
+      </div>
       </div>
     </div>
   );
