@@ -1,6 +1,6 @@
 import React, { memo, useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target, Database, Bot, Zap, BookOpen, Activity, Coins, Layers, Smartphone, MessageSquare, Sparkles } from 'lucide-react';
+import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target, Database, Bot, Zap, BookOpen, Activity, Coins, Layers, Smartphone, MessageSquare, Sparkles, Crown } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
 import { useCreditBalance } from '@/hooks/useCreditBalance';
@@ -131,6 +131,15 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
                         >
                           <Coins size={18} />
                           <span>Credits</span>
+                        </Link>
+
+                        <Link
+                          to="/club"
+                          onClick={() => setShowProfileMenu(false)}
+                          className="w-full flex items-center gap-3 px-3 py-2 text-purple-400 hover:text-purple-300 hover:bg-purple-900/20 rounded transition-colors"
+                        >
+                          <Crown size={18} />
+                          <span>Pipnosis Club</span>
                         </Link>
 
                         <Link
