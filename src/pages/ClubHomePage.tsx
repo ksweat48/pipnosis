@@ -78,7 +78,7 @@ export function ClubHomePage() {
 
   return (
     <ClubLayout>
-      <div className="space-y-8">
+      <div className="space-y-8 pb-8">
         {/* Welcome Banner */}
         <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-2xl p-8 shadow-lg">
           <div className="flex items-center justify-between">

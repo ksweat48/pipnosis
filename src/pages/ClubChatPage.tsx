@@ -13,8 +13,8 @@ import { ClubLayout } from '@/components/ClubLayout';
 export function ClubChatPage() {
   return (
     <ClubLayout>
-      <div className="max-w-4xl mx-auto">
-        <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-2xl p-12 shadow-lg text-center">
+      <div className="max-w-4xl mx-auto flex items-center justify-center min-h-[calc(100vh-20rem)]">
+        <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-2xl p-12 shadow-lg text-center w-full">
           <div className="flex items-center justify-center mb-6">
             <div className="p-4 bg-violet-50 rounded-full">
               <MessageSquare size={64} className="text-violet-500" />

@@ -19,7 +19,7 @@ import { ClubLayout } from '@/components/ClubLayout';
 export function ClubRewardsPage() {
   return (
     <ClubLayout>
-      <div className="max-w-6xl mx-auto space-y-8">
+      <div className="max-w-6xl mx-auto space-y-8 pb-8">
         {/* Critical Disclaimer Banner */}
         <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-6 shadow-sm">
           <div className="flex items-start gap-4">
