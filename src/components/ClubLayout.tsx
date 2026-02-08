@@ -2,7 +2,7 @@
  * CLUB LAYOUT COMPONENT
  *
  * Provides consistent layout and navigation for all Club pages.
- * Mobile-first responsive design with app-like feel.
+ * Mobile-first responsive design with app-like bottom tab bar.
  *
  * NAVIGATION STRUCTURE:
  * - Home: Token balances, stats, referral dashboard
@@ -65,11 +65,10 @@ export function ClubLayout({ children }: ClubLayoutProps) {
   if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100 pb-[4.5rem] sm:pb-0">
       {/* Club Header */}
       <header className="sticky top-0 bg-white/80 backdrop-blur-xl border-b border-slate-200/50 z-50 shadow-sm">
         <div className="max-w-7xl mx-auto px-3 sm:px-6">
-          {/* Top bar */}
           <div className="flex items-center justify-between h-14 sm:h-16">
             {/* Left: Back + Logo */}
             <div className="flex items-center gap-2 sm:gap-4 min-w-0">
@@ -83,11 +82,9 @@ export function ClubLayout({ children }: ClubLayoutProps) {
 
               <div className="flex items-center gap-2 min-w-0">
                 <Crown size={22} className="text-amber-500 flex-shrink-0" />
-                <div className="min-w-0">
-                  <h1 className="text-base sm:text-xl font-bold text-slate-800 truncate">
-                    Pipnosis Club
-                  </h1>
-                </div>
+                <h1 className="text-base sm:text-xl font-bold text-slate-800 truncate">
+                  Pipnosis Club
+                </h1>
               </div>
             </div>
 
@@ -111,8 +108,8 @@ export function ClubLayout({ children }: ClubLayoutProps) {
             </div>
           </div>
 
-          {/* Navigation Tabs */}
-          <div className="flex items-center gap-1 pb-2 -mx-1">
+          {/* Desktop-only top navigation tabs */}
+          <div className="hidden sm:flex items-center gap-1 pb-2 -mx-1">
             {clubNavItems.map((item) => {
               const Icon = item.icon;
               const active = isActive(item.path);
@@ -120,7 +117,7 @@ export function ClubLayout({ children }: ClubLayoutProps) {
                 <Link
                   key={item.path}
                   to={item.path}
-                  className={`flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg transition-all flex-1 sm:flex-none ${
+                  className={`flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg transition-all ${
                     active
                       ? 'bg-slate-900 text-white shadow-md'
                       : 'text-slate-500 hover:text-slate-900 hover:bg-white/60'
@@ -135,12 +132,12 @@ export function ClubLayout({ children }: ClubLayoutProps) {
         </div>
       </header>
 
-      {/* Club Content */}
-      <main className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-8 min-h-[60vh]">
+      {/* Club Content - scrollable */}
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-8 overflow-y-auto">
         {children}
       </main>
 
-      {/* Club Footer - hidden on mobile for app-like feel */}
+      {/* Desktop Footer */}
       <footer className="hidden sm:block border-t border-slate-200/60 bg-white/40 backdrop-blur-sm mt-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -184,6 +181,35 @@ export function ClubLayout({ children }: ClubLayoutProps) {
           </div>
         </div>
       </footer>
+
+      {/* Mobile Bottom Tab Bar */}
+      <nav className="fixed bottom-0 left-0 right-0 sm:hidden bg-white/95 backdrop-blur-xl border-t border-slate-200/60 z-50 safe-bottom">
+        <div className="flex items-stretch">
+          {clubNavItems.map((item) => {
+            const Icon = item.icon;
+            const active = isActive(item.path);
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2.5 transition-colors relative ${
+                  active
+                    ? 'text-slate-900'
+                    : 'text-slate-400'
+                }`}
+              >
+                {active && (
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-slate-900 rounded-full" />
+                )}
+                <Icon size={22} strokeWidth={active ? 2.5 : 1.8} />
+                <span className={`text-[11px] leading-tight ${active ? 'font-semibold' : 'font-medium'}`}>
+                  {item.label}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
     </div>
   );
 }
