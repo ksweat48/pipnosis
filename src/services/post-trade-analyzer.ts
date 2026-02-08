@@ -23,19 +23,21 @@ interface TradeData {
   id: string;
   userId: string;
   symbol: string;
-  direction: 'buy' | 'sell';
-  entryPrice: number;
-  exitPrice: number;
-  stopLoss: number;
-  takeProfit: number;
+  direction?: 'buy' | 'sell';
+  entryPrice?: number;
+  exitPrice?: number;
+  stopLoss?: number;
+  takeProfit?: number;
   pnl: number;
-  entryTime: Date;
-  exitTime: Date;
+  entryTime?: Date;
+  exitTime?: Date;
   journalEntryId?: string;
   expectedOutcome?: string;
   convictionLevel?: number;
   patternIdentified?: string;
-  closeReason?: string;  // Added to detect system closures
+  closeReason?: string;
+  tp1Hit?: boolean;
+  tp2Hit?: boolean;
 }
 
 class PostTradeAnalyzer {
@@ -49,80 +51,161 @@ class PostTradeAnalyzer {
     try {
       console.log(`[Post-Trade Analyzer] Analyzing trade ${tradeData.id} for ${tradeData.symbol}`);
 
-      // ✅ SSOT: Use centralized learning filter
-      if (!shouldIncludeInLearning(tradeData.closeReason)) {
-        const exclusionReason = getExclusionReason(tradeData.closeReason);
-        console.log(`[Post-Trade Analyzer] ⚠️ Skipping analysis - ${exclusionReason}`);
-        return; // Do NOT analyze or learn from excluded trades
-      }
-
-      // Determine actual outcome
       const outcome = this.determineOutcome(tradeData.pnl);
 
-      // Get journal entry if exists
+      // STEP 1: ALWAYS ensure journal entry exists (user-facing record of every trade)
+      // Journal creation is DECOUPLED from learning eligibility per SSOT principles:
+      // - Journal = authoritative record of ALL trades (user-facing)
+      // - Learning = selective AI analysis (only for eligible trades)
       let journalEntry = await this.getJournalEntry(tradeData.id);
 
       if (!journalEntry) {
-        console.warn(`[Post-Trade Analyzer] No journal entry found for trade ${tradeData.id} - creating retroactive entry`);
-
-        // FALLBACK: Create retroactive journal entry from trade data
+        console.log(`[Post-Trade Analyzer] No journal entry for trade ${tradeData.id} - creating`);
         journalEntry = await this.createRetroactiveJournalEntry(tradeData);
 
         if (!journalEntry) {
-          console.error(`[Post-Trade Analyzer] Failed to create retroactive journal entry for trade ${tradeData.id}`);
+          console.error(`[Post-Trade Analyzer] Failed to create journal entry for trade ${tradeData.id}`);
           return;
         }
 
-        console.log(`[Post-Trade Analyzer] ✅ Retroactive journal entry created for trade ${tradeData.id}`);
+        console.log(`[Post-Trade Analyzer] Journal entry created for trade ${tradeData.id}`);
       }
 
-      // Analyze prediction accuracy
+      // STEP 2: Always update journal with closure data (outcome, pnl, exit info)
+      await this.updateJournalWithClosureData(journalEntry, tradeData, outcome);
+
+      // STEP 3: Check learning eligibility - only AI learning tables are gated
+      const learningEligible = shouldIncludeInLearning(tradeData.closeReason, {
+        tp1_hit: tradeData.tp1Hit,
+        tp2_hit: tradeData.tp2Hit,
+      });
+
+      if (!learningEligible) {
+        const exclusionReason = getExclusionReason(tradeData.closeReason, {
+          tp1_hit: tradeData.tp1Hit,
+          tp2_hit: tradeData.tp2Hit,
+        });
+        console.log(`[Post-Trade Analyzer] Skipping AI learning - ${exclusionReason} (journal entry preserved)`);
+        return;
+      }
+
+      // STEP 4: Full analysis pipeline (only for learning-eligible trades)
+      const fullTradeData = await this.enrichTradeData(tradeData);
+
       const { wasPredictionCorrect, accuracyScore, actualOutcome } = this.analyzePredictionAccuracy(
-        tradeData,
+        fullTradeData,
         journalEntry.expected_outcome
       );
 
-      // Generate lesson learned
       const lessonLearned = this.generateLessonLearned(
-        tradeData,
+        fullTradeData,
         journalEntry,
         wasPredictionCorrect
       );
 
-      // Identify mistakes or successes
-      const mistakeIdentified = wasPredictionCorrect ? undefined : this.identifyMistake(tradeData, journalEntry);
-      const whatWorked = wasPredictionCorrect ? this.identifyWhatWorked(tradeData, journalEntry) : undefined;
+      const mistakeIdentified = wasPredictionCorrect ? undefined : this.identifyMistake(fullTradeData, journalEntry);
+      const whatWorked = wasPredictionCorrect ? this.identifyWhatWorked(fullTradeData, journalEntry) : undefined;
 
-      // Update journal with post-trade analysis
-      const analysis: PostTradeAnalysis = {
-        journalEntryId: journalEntry.id,
-        exitTime: tradeData.exitTime,
-        exitPrice: tradeData.exitPrice,
-        pnl: tradeData.pnl,
-        outcome,
-        actualOutcome,
-        wasPredictionCorrect,
-        accuracyScore,
-        lessonLearned,
-        mistakeIdentified,
-        whatWorked
-      };
+      if (fullTradeData.exitTime && fullTradeData.exitPrice) {
+        const analysis: PostTradeAnalysis = {
+          journalEntryId: journalEntry.id,
+          exitTime: fullTradeData.exitTime,
+          exitPrice: fullTradeData.exitPrice,
+          pnl: fullTradeData.pnl,
+          outcome,
+          actualOutcome,
+          wasPredictionCorrect,
+          accuracyScore,
+          lessonLearned,
+          mistakeIdentified,
+          whatWorked
+        };
 
-      await llmReasoningLogger.logPostTradeAnalysis(analysis);
+        await llmReasoningLogger.logPostTradeAnalysis(analysis);
+      }
 
-      // Log accuracy tracking
-      await this.logAccuracyTracking(tradeData, journalEntry, wasPredictionCorrect);
+      await this.logAccuracyTracking(fullTradeData, journalEntry, wasPredictionCorrect);
+      await this.populateAILearningTables(fullTradeData, journalEntry, outcome, wasPredictionCorrect);
+      await this.trackTPOutcome(fullTradeData, outcome);
 
-      // Populate AI learning tables
-      await this.populateAILearningTables(tradeData, journalEntry, outcome, wasPredictionCorrect);
-
-      // Track TP quality outcome (Elite TP System)
-      await this.trackTPOutcome(tradeData, outcome);
-
-      console.log(`[Post-Trade Analyzer] ✅ Analysis complete for ${tradeData.symbol}`);
+      console.log(`[Post-Trade Analyzer] Analysis complete for ${tradeData.symbol}`);
     } catch (error) {
       console.error('[Post-Trade Analyzer] Error analyzing trade:', error);
     }
+  }
+
+  private async updateJournalWithClosureData(
+    journalEntry: any,
+    tradeData: TradeData,
+    outcome: 'win' | 'loss' | 'breakeven'
+  ): Promise<void> {
+    try {
+      const updateData: Record<string, any> = {
+        outcome,
+        pnl: tradeData.pnl,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (tradeData.exitPrice) {
+        updateData.exit_price = tradeData.exitPrice;
+      }
+      if (tradeData.exitTime) {
+        updateData.exit_time = tradeData.exitTime.toISOString();
+      }
+
+      const closeReasonText = tradeData.closeReason || 'unknown';
+      if (tradeData.pnl > 0) {
+        updateData.actual_outcome = `Trade closed (${closeReasonText}) with profit of $${tradeData.pnl.toFixed(2)}`;
+      } else if (tradeData.pnl < 0) {
+        updateData.actual_outcome = `Trade closed (${closeReasonText}) with loss of $${Math.abs(tradeData.pnl).toFixed(2)}`;
+      } else {
+        updateData.actual_outcome = `Trade closed (${closeReasonText}) at breakeven`;
+      }
+
+      const { error } = await supabase
+        .from('ai_trade_journal')
+        .update(updateData)
+        .eq('id', journalEntry.id);
+
+      if (error) {
+        console.error('[Post-Trade Analyzer] Failed to update journal closure data:', error);
+      }
+    } catch (error) {
+      console.error('[Post-Trade Analyzer] Error updating journal closure data:', error);
+    }
+  }
+
+  private async enrichTradeData(tradeData: TradeData): Promise<TradeData> {
+    if (tradeData.direction && tradeData.entryPrice && tradeData.exitPrice && tradeData.stopLoss && tradeData.takeProfit) {
+      return tradeData;
+    }
+
+    try {
+      const { data: trade } = await supabase
+        .from('goal_session_trades')
+        .select('direction, entry_price, exit_price, stop_loss, take_profit, created_at, closed_at, tp1_hit, tp2_hit')
+        .eq('id', tradeData.id)
+        .maybeSingle();
+
+      if (trade) {
+        return {
+          ...tradeData,
+          direction: tradeData.direction || trade.direction,
+          entryPrice: tradeData.entryPrice ?? trade.entry_price,
+          exitPrice: tradeData.exitPrice ?? trade.exit_price,
+          stopLoss: tradeData.stopLoss ?? trade.stop_loss,
+          takeProfit: tradeData.takeProfit ?? trade.take_profit,
+          entryTime: tradeData.entryTime || new Date(trade.created_at),
+          exitTime: tradeData.exitTime || (trade.closed_at ? new Date(trade.closed_at) : new Date()),
+          tp1Hit: tradeData.tp1Hit ?? trade.tp1_hit,
+          tp2Hit: tradeData.tp2Hit ?? trade.tp2_hit,
+        };
+      }
+    } catch (error) {
+      console.error('[Post-Trade Analyzer] Failed to enrich trade data:', error);
+    }
+
+    return tradeData;
   }
 
   /**
@@ -149,30 +232,42 @@ class PostTradeAnalyzer {
    */
   private async createRetroactiveJournalEntry(tradeData: TradeData): Promise<any | null> {
     try {
+      const enriched = await this.enrichTradeData(tradeData);
+      const dir = enriched.direction || 'buy';
+      const entryPrice = enriched.entryPrice || 0;
+      const stopLoss = enriched.stopLoss || 0;
+      const takeProfit = enriched.takeProfit || 0;
+
+      const insertData: Record<string, any> = {
+        user_id: enriched.userId,
+        trade_id: enriched.id,
+        symbol: enriched.symbol,
+        direction: dir,
+        entry_time: enriched.entryTime ? enriched.entryTime.toISOString() : new Date().toISOString(),
+        entry_price: entryPrice,
+        stop_loss: stopLoss,
+        take_profit: takeProfit,
+        llm_reasoning: `${dir.toUpperCase()} trade on ${enriched.symbol}. Close reason: ${enriched.closeReason || 'unknown'}.`,
+        market_read: entryPrice > 0
+          ? `Trade opened at ${entryPrice.toFixed(5)}.`
+          : 'Entry conditions were not captured at open time.',
+        expected_outcome: takeProfit > 0 && stopLoss > 0
+          ? `Expected TP at ${takeProfit.toFixed(5)}, SL at ${stopLoss.toFixed(5)}.`
+          : 'Target levels not recorded.',
+        pattern_identified: enriched.patternIdentified || 'System Trade',
+        conviction_level: enriched.convictionLevel || 70,
+        rank_at_time: 'System',
+        outcome: 'open',
+        journal_entry_type: 'trade',
+        pnl: enriched.pnl,
+      };
+
+      if (enriched.exitTime) insertData.exit_time = enriched.exitTime.toISOString();
+      if (enriched.exitPrice) insertData.exit_price = enriched.exitPrice;
+
       const { data, error } = await supabase
         .from('ai_trade_journal')
-        .insert({
-          user_id: tradeData.userId,
-          trade_id: tradeData.id,
-          symbol: tradeData.symbol,
-          direction: tradeData.direction,
-          entry_time: tradeData.entryTime.toISOString(),
-          entry_price: tradeData.entryPrice,
-          stop_loss: tradeData.stopLoss,
-          take_profit: tradeData.takeProfit,
-          llm_reasoning: `Retroactive entry: ${tradeData.direction.toUpperCase()} trade on ${tradeData.symbol}. This journal entry was created after trade closure due to missing entry data.`,
-          market_read: `Trade opened at ${tradeData.entryPrice.toFixed(5)}. Market conditions and setup details were not captured at entry time.`,
-          expected_outcome: `Expected to reach take profit at ${tradeData.takeProfit.toFixed(5)}. Stop loss placed at ${tradeData.stopLoss.toFixed(5)}.`,
-          pattern_identified: tradeData.patternIdentified || 'System Trade',
-          conviction_level: tradeData.convictionLevel || 70,
-          rank_at_time: 'System',
-          outcome: 'open',
-          journal_entry_type: 'trade',
-          // Immediately add closure data since we're doing this retroactively
-          exit_time: tradeData.exitTime.toISOString(),
-          exit_price: tradeData.exitPrice,
-          pnl: tradeData.pnl
-        })
+        .insert(insertData)
         .select()
         .single();
 
@@ -181,7 +276,6 @@ class PostTradeAnalyzer {
         return null;
       }
 
-      console.log(`[Post-Trade Analyzer] ✅ Retroactive journal entry created: ${data.id}`);
       return data;
     } catch (error) {
       console.error('[Post-Trade Analyzer] Exception creating retroactive journal:', error);
@@ -269,17 +363,16 @@ class PostTradeAnalyzer {
    * Check if trade hit take profit
    */
   private didHitTargetProfit(tradeData: TradeData): boolean {
+    if (!tradeData.exitPrice || !tradeData.takeProfit || !tradeData.entryPrice) return false;
     const priceDiff = Math.abs(tradeData.exitPrice - tradeData.takeProfit);
-    const threshold = Math.abs(tradeData.takeProfit - tradeData.entryPrice) * 0.02; // Within 2%
+    const threshold = Math.abs(tradeData.takeProfit - tradeData.entryPrice) * 0.02;
     return priceDiff <= threshold;
   }
 
-  /**
-   * Check if trade hit stop loss
-   */
   private didHitStopLoss(tradeData: TradeData): boolean {
+    if (!tradeData.exitPrice || !tradeData.stopLoss || !tradeData.entryPrice) return false;
     const priceDiff = Math.abs(tradeData.exitPrice - tradeData.stopLoss);
-    const threshold = Math.abs(tradeData.stopLoss - tradeData.entryPrice) * 0.02; // Within 2%
+    const threshold = Math.abs(tradeData.stopLoss - tradeData.entryPrice) * 0.02;
     return priceDiff <= threshold;
   }
 
@@ -376,7 +469,7 @@ class PostTradeAnalyzer {
         llm_confidence: journalEntry.conviction_level,
         pattern_name: journalEntry.pattern_identified,
         pattern_worked: predictionCorrect,
-        trade_date: tradeData.exitTime.toISOString()
+        trade_date: tradeData.exitTime ? tradeData.exitTime.toISOString() : new Date().toISOString()
       });
     } catch (error) {
       console.error('[Post-Trade Analyzer] Error logging accuracy:', error);
@@ -434,16 +527,15 @@ class PostTradeAnalyzer {
       const riskReward = this.calculateRiskReward(tradeData);
       const durationMinutes = this.calculateTradeDuration(tradeData);
 
-      // SSOT: Only insert valid schema fields
       await supabase.from('ai_trade_analysis').insert({
         user_id: tradeData.userId,
         live_trade_id: tradeData.id,
         symbol: tradeData.symbol,
-        direction: tradeData.direction,
+        direction: tradeData.direction || 'buy',
         outcome: outcome,
         pnl: tradeData.pnl,
-        entry_time: tradeData.entryTime.toISOString(),
-        exit_time: tradeData.exitTime.toISOString(),
+        entry_time: tradeData.entryTime ? tradeData.entryTime.toISOString() : new Date().toISOString(),
+        exit_time: tradeData.exitTime ? tradeData.exitTime.toISOString() : new Date().toISOString(),
         duration_minutes: durationMinutes,
         entry_confidence: journalEntry.conviction_level || 0,
         reasoning: journalEntry.llm_reasoning,  // Schema field: reasoning (not ai_reasoning)
@@ -584,13 +676,13 @@ class PostTradeAnalyzer {
         user_id: tradeData.userId,
         symbol: tradeData.symbol,
         trade_id: tradeData.id,
-        entry_time: tradeData.entryTime.toISOString(),
+        entry_time: tradeData.entryTime ? tradeData.entryTime.toISOString() : new Date().toISOString(),
         slippage_pips: 0, // Would need real-time tracking
         sl_hunting_suspected: slHunting,
         spread_at_entry: 0,
         spread_at_exit: 0,
         rejection_occurred: false,
-        session: this.determineSession(tradeData.entryTime)
+        session: this.determineSession(tradeData.entryTime || new Date())
       });
     } catch (error) {
       logger.error('[Post-Trade Analyzer] Error logging execution quality:', error);
@@ -601,15 +693,14 @@ class PostTradeAnalyzer {
    * Calculate risk-reward ratio
    */
   private calculateRiskReward(tradeData: TradeData): number {
+    if (!tradeData.entryPrice || !tradeData.stopLoss || !tradeData.takeProfit) return 0;
     const risk = Math.abs(tradeData.entryPrice - tradeData.stopLoss);
     const reward = Math.abs(tradeData.takeProfit - tradeData.entryPrice);
     return risk > 0 ? reward / risk : 0;
   }
 
-  /**
-   * Calculate trade duration in minutes
-   */
   private calculateTradeDuration(tradeData: TradeData): number {
+    if (!tradeData.entryTime || !tradeData.exitTime) return 0;
     const entryTime = tradeData.entryTime.getTime();
     const exitTime = tradeData.exitTime.getTime();
     return Math.round((exitTime - entryTime) / 60000);
@@ -663,6 +754,11 @@ class PostTradeAnalyzer {
     outcome: 'win' | 'loss' | 'breakeven'
   ): Promise<void> {
     try {
+      if (!tradeData.entryPrice || !tradeData.exitPrice || !tradeData.stopLoss || !tradeData.takeProfit) {
+        logger.debug('[Post-Trade Analyzer] Skipping TP tracking - missing price data');
+        return;
+      }
+
       let tpOutcome: 'hit' | 'stopped_out' | 'partial_hit' | 'manual_close' | 'timeout';
       let actualRR: number | undefined;
 
@@ -670,7 +766,7 @@ class PostTradeAnalyzer {
       const exitDistance = Math.abs(tradeData.exitPrice - tradeData.entryPrice);
 
       if (outcome === 'win') {
-        const tpDistance = Math.abs(tradeData.takeProfit - tradeData.entryPrice);
+        const tpDistance = Math.abs(tradeData.takeProfit! - tradeData.entryPrice!);
         const hitRatio = exitDistance / tpDistance;
 
         if (hitRatio >= 0.95) {
@@ -690,9 +786,9 @@ class PostTradeAnalyzer {
         actualRR = 0;
       }
 
-      const timeToFillMinutes = Math.round(
-        (tradeData.exitTime.getTime() - tradeData.entryTime.getTime()) / (1000 * 60)
-      );
+      const timeToFillMinutes = tradeData.exitTime && tradeData.entryTime
+        ? Math.round((tradeData.exitTime.getTime() - tradeData.entryTime.getTime()) / (1000 * 60))
+        : 0;
 
       await tpQualityTracker.updateTPOutcome(
         tradeData.id,

@@ -210,6 +210,8 @@ class TradeClosureCoordinator {
           entryTime: new Date((tradeData as any).created_at || (tradeData as any).entry_time || Date.now()),
           exitTime: new Date(),
           closeReason: request.closeReason,
+          tp1Hit: (tradeData as any).tp1_hit === true,
+          tp2Hit: (tradeData as any).tp2_hit === true,
         });
       } catch (journalError) {
         console.error(`[TradeClosureCoordinator] Journal creation failed (non-blocking):`, journalError);

@@ -116,14 +116,29 @@ export class TradeClosureEventProcessor {
         });
       }
 
-      // Step 5: Run post-trade analysis
+      // Step 5: Run post-trade analysis (fetch full trade data for journal + learning)
       try {
+        const { data: fullTrade } = await supabase
+          .from('goal_session_trades')
+          .select('direction, entry_price, exit_price, stop_loss, take_profit, created_at, closed_at, tp1_hit, tp2_hit')
+          .eq('id', event.trade_id)
+          .maybeSingle();
+
         await postTradeAnalyzer.analyzeClosedTrade({
           id: event.trade_id,
           userId: event.user_id,
           symbol: event.symbol,
+          direction: fullTrade?.direction,
+          entryPrice: fullTrade?.entry_price,
+          exitPrice: fullTrade?.exit_price ?? event.close_price,
+          stopLoss: fullTrade?.stop_loss,
+          takeProfit: fullTrade?.take_profit,
+          entryTime: fullTrade?.created_at ? new Date(fullTrade.created_at) : undefined,
+          exitTime: fullTrade?.closed_at ? new Date(fullTrade.closed_at) : new Date(),
           closeReason: event.close_reason,
           pnl: event.pnl,
+          tp1Hit: fullTrade?.tp1_hit === true,
+          tp2Hit: fullTrade?.tp2_hit === true,
         });
       } catch (error) {
         logger.warn('[TradeClosureEventProcessor] Analysis failed', {
