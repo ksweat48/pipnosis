@@ -36,7 +36,8 @@ import {
   Layers,
   DollarSign,
   TrendingUp,
-  Wallet
+  Wallet,
+  Crown
 } from 'lucide-react';
 import { UserManagementPanel } from '@/components/admin/UserManagementPanel';
 import { UserFeedbackPanel } from '@/components/admin/UserFeedbackPanel';
@@ -76,8 +77,10 @@ export function AdminDashboard() {
   const [newFeedbackCount, setNewFeedbackCount] = useState(0);
   const [tradingEnabled, setTradingEnabled] = useState(true);
   const [creditsEnabled, setCreditsEnabled] = useState(true);
+  const [tokenGateEnabled, setTokenGateEnabled] = useState(false);
   const [toggleLoading, setToggleLoading] = useState(false);
   const [creditToggleLoading, setCreditToggleLoading] = useState(false);
+  const [tokenGateToggleLoading, setTokenGateToggleLoading] = useState(false);
 
   const pullToRefresh = usePullToRefresh({
     onRefresh: async () => {
@@ -132,6 +135,7 @@ export function AdminDashboard() {
       if (data && data.length > 0) {
         setTradingEnabled(data[0].trading_enabled);
         setCreditsEnabled(data[0].credits_enabled);
+        setTokenGateEnabled(data[0].token_gate_enabled ?? false);
       }
     } catch (error) {
       console.error('Error loading platform settings:', error);
@@ -171,6 +175,24 @@ export function AdminDashboard() {
       alert('Failed to toggle credit system. Please try again.');
     } finally {
       setCreditToggleLoading(false);
+    }
+  };
+
+  const toggleTokenGate = async () => {
+    try {
+      setTokenGateToggleLoading(true);
+      const { data, error } = await supabase.rpc('admin_toggle_token_gate', {
+        enabled: !tokenGateEnabled
+      });
+
+      if (error) throw error;
+
+      setTokenGateEnabled(!tokenGateEnabled);
+    } catch (error) {
+      console.error('Error toggling token gate:', error);
+      alert('Failed to toggle token gate. Please try again.');
+    } finally {
+      setTokenGateToggleLoading(false);
     }
   };
 
@@ -479,6 +501,57 @@ export function AdminDashboard() {
                     <>
                       <Play size={16} className="sm:w-[18px] sm:h-[18px]" />
                       <span className="text-sm sm:text-base">Enable Credits</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Club Token Gate Control */}
+            <div className={`border-2 rounded-xl p-4 sm:p-6 ${
+              tokenGateEnabled
+                ? 'bg-gradient-to-r from-amber-900/30 to-yellow-900/30 border-amber-500/30'
+                : 'bg-gradient-to-r from-gray-900/30 to-slate-900/30 border-gray-500/30'
+            }`}>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="flex items-center gap-3 sm:gap-4">
+                  <div className={`p-2 sm:p-3 rounded-lg ${tokenGateEnabled ? 'bg-amber-600/20' : 'bg-gray-600/20'}`}>
+                    <Crown className={`w-6 h-6 sm:w-8 sm:h-8 ${tokenGateEnabled ? 'text-amber-400' : 'text-gray-400'}`} />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-lg sm:text-xl font-bold text-white mb-0.5 sm:mb-1">
+                      Club Token Gate: {tokenGateEnabled ? 'ENABLED' : 'DISABLED'}
+                    </h3>
+                    <p className={`text-sm ${tokenGateEnabled ? 'text-amber-200' : 'text-gray-400'}`}>
+                      {tokenGateEnabled
+                        ? 'Users must hold required tokens to enter the Club.'
+                        : 'Token gate is OFF. All users can enter the Club freely.'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={toggleTokenGate}
+                  disabled={tokenGateToggleLoading}
+                  className={`w-full sm:w-auto px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                    tokenGateEnabled
+                      ? 'bg-gray-600 hover:bg-gray-700 text-white'
+                      : 'bg-amber-600 hover:bg-amber-700 text-white'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  {tokenGateToggleLoading ? (
+                    <>
+                      <Clock className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
+                      <span className="text-sm sm:text-base">Processing...</span>
+                    </>
+                  ) : tokenGateEnabled ? (
+                    <>
+                      <Pause size={16} className="sm:w-[18px] sm:h-[18px]" />
+                      <span className="text-sm sm:text-base">Disable Gate</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play size={16} className="sm:w-[18px] sm:h-[18px]" />
+                      <span className="text-sm sm:text-base">Enable Gate</span>
                     </>
                   )}
                 </button>

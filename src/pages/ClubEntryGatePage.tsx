@@ -37,20 +37,12 @@ export function ClubEntryGatePage() {
 
     setLoading(true);
     try {
-      const result = await clubAccessGateService.validateAccess(user.id, isAdmin);
+      const [result, pkgs] = await Promise.all([
+        clubAccessGateService.validateAccess(user.id, isAdmin),
+        clubMembershipService.getActivePackages()
+      ]);
       setAccessResult(result);
-
-      // If user can access, redirect to Club home
-      if (result.canAccess) {
-        navigate('/club/home');
-        return;
-      }
-
-      // If no membership, load packages
-      if (result.status === 'no_membership') {
-        const pkgs = await clubMembershipService.getActivePackages();
-        setPackages(pkgs);
-      }
+      setPackages(pkgs);
     } catch (error) {
       console.error('[ClubEntryGate] Error loading access info:', error);
     } finally {
@@ -193,22 +185,25 @@ export function ClubEntryGatePage() {
               </div>
             )}
 
-            {accessResult.canAccess && (
-              <button
-                onClick={() => navigate('/club/home')}
-                className="w-full mt-6 px-6 py-4 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2"
-              >
-                Enter Pipnosis Club
-                <ArrowRight size={20} />
-              </button>
-            )}
+            <button
+              onClick={() => accessResult.canAccess && navigate('/club/home')}
+              disabled={!accessResult.canAccess}
+              className={`w-full mt-6 px-6 py-4 font-semibold rounded-xl transition-all flex items-center justify-center gap-2 ${
+                accessResult.canAccess
+                  ? 'bg-slate-900 hover:bg-slate-800 text-white shadow-md hover:shadow-lg cursor-pointer'
+                  : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+              }`}
+            >
+              {accessResult.canAccess ? 'Enter Pipnosis Club' : 'Insufficient Tokens to Enter'}
+              <ArrowRight size={20} />
+            </button>
         </div>
 
-        {/* Membership Packages (if no membership) */}
-        {accessResult.status === 'no_membership' && (
+        {/* Membership Packages */}
+        {packages.length > 0 && (
           <div>
             <h2 className="text-3xl font-bold text-center text-slate-900 mb-8">
-              Choose Your Membership
+              Membership Tiers
             </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -230,41 +225,41 @@ export function ClubEntryGatePage() {
                   <p className="text-slate-600 mb-6">{pkg.description}</p>
 
                   <div className="bg-white bg-opacity-60 backdrop-blur-sm border border-slate-200 rounded-xl p-4 mb-4 shadow-sm">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-slate-500">Initial Tokens</span>
-                        <span className="text-slate-900 font-bold">{pkg.initialTokenAllocation.toLocaleString()}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-500">Required Balance</span>
-                        <span className="text-slate-900 font-bold">{pkg.requiredTokenBalance.toLocaleString()}</span>
-                      </div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-slate-500">Initial Tokens</span>
+                      <span className="text-slate-900 font-bold">{pkg.initialTokenAllocation.toLocaleString()}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Required Balance</span>
+                      <span className="text-slate-900 font-bold">{pkg.requiredTokenBalance.toLocaleString()}</span>
+                    </div>
+                  </div>
+
+                  <div className="mb-6">
+                    <div className="text-slate-500 text-sm mb-2">Benefits:</div>
+                    <ul className="space-y-2">
+                      {pkg.benefits.map((benefit, idx) => (
+                        <li key={idx} className="flex items-start gap-2 text-slate-600 text-sm">
+                          <Check size={16} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+                          <span>{benefit}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="mt-auto">
+                    <div className="text-4xl font-bold text-slate-900 mb-4">
+                      ${pkg.priceUsd.toFixed(2)}
                     </div>
 
-                    <div className="mb-6">
-                      <div className="text-slate-500 text-sm mb-2">Benefits:</div>
-                      <ul className="space-y-2">
-                        {pkg.benefits.map((benefit, idx) => (
-                          <li key={idx} className="flex items-start gap-2 text-slate-600 text-sm">
-                            <Check size={16} className="text-emerald-500 flex-shrink-0 mt-0.5" />
-                            <span>{benefit}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-
-                    <div className="mt-auto">
-                      <div className="text-4xl font-bold text-slate-900 mb-4">
-                        ${pkg.priceUsd.toFixed(2)}
-                      </div>
-
-                      <button
-                        onClick={() => handlePurchaseClick(pkg)}
-                        disabled={processingPurchase === pkg.id}
-                        className="w-full px-6 py-3 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all shadow-md hover:shadow-lg"
-                      >
-                        {processingPurchase === pkg.id ? 'Processing...' : 'Purchase'}
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => handlePurchaseClick(pkg)}
+                      disabled={processingPurchase === pkg.id}
+                      className="w-full px-6 py-3 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all shadow-md hover:shadow-lg"
+                    >
+                      {processingPurchase === pkg.id ? 'Processing...' : 'Purchase'}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
