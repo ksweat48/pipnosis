@@ -14,6 +14,12 @@
 
 import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
+import {
+  isWinningTrade,
+  getTradeProfit,
+  calculateWinRate as sharedCalculateWinRate,
+  calculateProfitFactor as sharedCalculateProfitFactor
+} from '../utils/trade-outcome-classifier';
 
 export interface MetaLearningReport {
   performanceTrends: {
@@ -344,13 +350,8 @@ export class AlphaMetaLearningEngine {
     return insights;
   }
 
-  // Helper methods
   private calculateWinRate(trades: any[]): number {
-    if (trades.length === 0) return 0;
-    const wins = trades.filter(t =>
-      t.close_reason === 'tp_hit' || (t.close_reason === 'manual_close' && (t.realized_pnl || 0) > 0)
-    ).length;
-    return (wins / trades.length) * 100;
+    return sharedCalculateWinRate(trades);
   }
 
   private calculateCalibrationError(trades: any[]): number {
@@ -359,7 +360,7 @@ export class AlphaMetaLearningEngine {
     if (withConfidence.length === 0) return 0;
 
     const errors = withConfidence.map(t => {
-      const wasCorrect = t.close_reason === 'tp_hit' || (t.close_reason === 'manual_close' && (t.realized_pnl || 0) > 0);
+      const wasCorrect = isWinningTrade(t);
       const predicted = t.ai_confidence;
       const actual = wasCorrect ? 100 : 0;
       return Math.abs(predicted - actual);
@@ -369,15 +370,7 @@ export class AlphaMetaLearningEngine {
   }
 
   private calculateProfitFactor(trades: any[]): number {
-    const wins = trades.filter(t => (t.realized_pnl || 0) > 0);
-    const losses = trades.filter(t => (t.realized_pnl || 0) < 0);
-
-    if (losses.length === 0) return wins.length > 0 ? 999 : 1;
-
-    const totalWins = wins.reduce((sum, t) => sum + (t.realized_pnl || 0), 0);
-    const totalLosses = Math.abs(losses.reduce((sum, t) => sum + (t.realized_pnl || 0), 0));
-
-    return totalLosses > 0 ? totalWins / totalLosses : 1;
+    return sharedCalculateProfitFactor(trades);
   }
 
   private getEmptyReport(): MetaLearningReport {

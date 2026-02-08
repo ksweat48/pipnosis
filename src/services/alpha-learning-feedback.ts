@@ -17,6 +17,7 @@ import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
 import { shouldIncludeInLearning, getExclusionReason } from '../utils/trade-learning-filter';
 import { mapAnalysisToCloseReason } from '../utils/close-reason-mapper';
+import { isWinningTrade, calculateWinRate } from '../utils/trade-outcome-classifier';
 
 export interface TradeOutcome {
   tradeId: string;
@@ -381,11 +382,7 @@ export class AlphaLearningFeedbackService {
         return; // Need more data
       }
 
-      // Check for consistent winning or losing patterns
-      const wins = recentTrades.filter(t =>
-        t.close_reason === 'tp_hit' || (t.close_reason === 'manual_close' && (t.realized_pnl || 0) > 0)
-      ).length;
-      const winRate = (wins / recentTrades.length) * 100;
+      const winRate = calculateWinRate(recentTrades);
 
       // Generate insight if we find a pattern
       if (winRate >= 70) {

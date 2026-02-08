@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { isWinningTrade, isLosingTrade, getTradeProfit } from '../utils/trade-outcome-classifier';
 
 interface RRBucket {
   rr_range: string;
@@ -30,7 +31,7 @@ class RRSuccessTracker {
         .from('goal_session_trades')
         .select('*')
         .eq('user_id', userId)
-        .in('status', ['closed', 'tp_hit', 'sl_hit']);
+        .eq('status', 'closed');
 
       if (symbol) {
         query = query.eq('symbol', symbol);
@@ -97,8 +98,7 @@ class RRSuccessTracker {
         const bucket = buckets.get(bucketKey)!;
         bucket.total_trades++;
 
-        const isWin = trade.status === 'tp_hit' || (trade.pnl && trade.pnl > 0);
-        if (isWin) {
+        if (isWinningTrade(trade)) {
           bucket.wins++;
         } else {
           bucket.losses++;
@@ -132,7 +132,7 @@ class RRSuccessTracker {
         .from('goal_session_trades')
         .select('*')
         .eq('user_id', userId)
-        .in('status', ['closed', 'tp_hit', 'sl_hit']);
+        .eq('status', 'closed');
 
       if (symbol) {
         query = query.eq('symbol', symbol);
@@ -150,7 +150,6 @@ class RRSuccessTracker {
       for (const trade of trades) {
         if (!trade.entry_price || !trade.stop_loss || !trade.symbol) continue;
 
-        // ✅ SSOT FIX: Use calculatePipDistance() instead of hardcoded / 0.0001
         const { calculatePipDistance } = await import('../utils/currencyHelpers');
         const slPips = calculatePipDistance(trade.symbol, trade.entry_price, trade.stop_loss);
 
@@ -196,8 +195,7 @@ class RRSuccessTracker {
         const bucket = buckets.get(bucketKey)!;
         bucket.total_trades++;
 
-        const stoppedOut = trade.status === 'sl_hit' || (trade.pnl && trade.pnl < 0);
-        if (stoppedOut) {
+        if (isLosingTrade(trade)) {
           bucket.stop_outs++;
         }
       }
