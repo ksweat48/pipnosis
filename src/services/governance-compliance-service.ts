@@ -144,7 +144,7 @@ class GovernanceComplianceService {
   async getComplianceTrend(days: number = 30): Promise<ComplianceTrendPoint[]> {
     try {
       const { data, error } = await supabase
-        .rpc('get_compliance_trend', { p_days: days });
+        .rpc('get_compliance_trend', { p_days_back: days });
 
       if (error) throw error;
       return data || [];
