@@ -1,13 +1,3 @@
-/**
- * CLUB HOME PAGE
- *
- * Main dashboard for Club members featuring:
- * - Token balance and stats display
- * - Referral code generator and stats
- * - Recent transactions history
- * - Quick access to all Club features
- */
-
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Coins, TrendingUp, Users, Copy, Check, ExternalLink, History, Gift, Crown, MessageSquare } from 'lucide-react';
@@ -16,6 +6,9 @@ import { ClubLayout } from '@/components/ClubLayout';
 import { clubTokenLedgerService, type ClubTokenBalance, type TokenTransaction } from '@/services/club-token-ledger-service';
 import { clubReferralService, type ReferralStats } from '@/services/club-referral-service';
 import { clubMembershipService, type UserMembership } from '@/services/club-membership-service';
+
+const fmt = (n: number) =>
+  n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function ClubHomePage() {
   const { user } = useAuth();
@@ -102,7 +95,7 @@ export function ClubHomePage() {
           </div>
         </div>
 
-        {/* Token Balance Cards */}
+        {/* PIP Balance Cards */}
         <div className="grid grid-cols-3 sm:grid-cols-3 gap-2 sm:gap-6">
           <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-xl p-3 sm:p-6 shadow-md">
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2 sm:mb-4">
@@ -110,14 +103,14 @@ export function ClubHomePage() {
                 <Coins size={18} className="text-amber-500 sm:w-6 sm:h-6" />
               </div>
               <div>
-                <div className="text-slate-500 text-[11px] sm:text-sm">Tokens</div>
+                <div className="text-slate-500 text-[11px] sm:text-sm">PIP Balance</div>
                 <div className="text-slate-900 text-lg sm:text-2xl font-bold">
-                  {tokenBalance?.availableTokens.toLocaleString() || '0'}
+                  {fmt(tokenBalance?.availableTokens || 0)}
                 </div>
               </div>
             </div>
             <div className="text-slate-400 text-[10px] sm:text-xs">
-              {tokenBalance?.lockedTokens || 0} locked
+              {fmt(tokenBalance?.lockedTokens || 0)} locked
             </div>
           </div>
 
@@ -129,19 +122,19 @@ export function ClubHomePage() {
               <div>
                 <div className="text-slate-500 text-[11px] sm:text-sm">Earned</div>
                 <div className="text-slate-900 text-lg sm:text-2xl font-bold">
-                  {tokenBalance?.lifetimeEarned.toLocaleString() || '0'}
+                  {fmt(tokenBalance?.lifetimeEarned || 0)}
                 </div>
               </div>
             </div>
             <div className="text-slate-400 text-[10px] sm:text-xs">
-              {tokenBalance?.lifetimeSpent || 0} spent
+              {fmt(tokenBalance?.lifetimeSpent || 0)} spent
             </div>
           </div>
 
           <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-xl p-3 sm:p-6 shadow-md">
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2 sm:mb-4">
-              <div className="p-2 sm:p-3 bg-violet-50 rounded-lg w-fit">
-                <Users size={18} className="text-violet-500 sm:w-6 sm:h-6" />
+              <div className="p-2 sm:p-3 bg-blue-50 rounded-lg w-fit">
+                <Users size={18} className="text-blue-500 sm:w-6 sm:h-6" />
               </div>
               <div>
                 <div className="text-slate-500 text-[11px] sm:text-sm">Referrals</div>
@@ -204,12 +197,12 @@ export function ClubHomePage() {
               <div className="text-slate-900 text-lg sm:text-xl font-bold">{referralStats?.completedReferrals || 0}</div>
             </div>
             <div className="bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl p-3 sm:p-4 shadow-sm">
-              <div className="text-slate-500 text-[10px] sm:text-xs mb-1">Tokens Earned</div>
-              <div className="text-slate-900 text-lg sm:text-xl font-bold">{referralStats?.totalTokensEarned || 0}</div>
+              <div className="text-slate-500 text-[10px] sm:text-xs mb-1">PIP Earned</div>
+              <div className="text-slate-900 text-lg sm:text-xl font-bold">{fmt(referralStats?.totalTokensEarned || 0)}</div>
             </div>
             <div className="bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl p-3 sm:p-4 shadow-sm">
               <div className="text-slate-500 text-[10px] sm:text-xs mb-1">Cash Earned</div>
-              <div className="text-slate-900 text-lg sm:text-xl font-bold">${referralStats?.totalCashEarnedUsd.toFixed(2) || '0.00'}</div>
+              <div className="text-slate-900 text-lg sm:text-xl font-bold">${(referralStats?.totalCashEarnedUsd || 0).toFixed(2)}</div>
             </div>
           </div>
         </div>
@@ -253,7 +246,7 @@ export function ClubHomePage() {
                   </div>
 
                   <div className={`font-bold text-base sm:text-lg flex-shrink-0 ml-2 ${tx.amount > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                    {tx.amount > 0 ? '+' : ''}{tx.amount.toLocaleString()}
+                    {tx.amount > 0 ? '+' : ''}{fmt(tx.amount)}
                   </div>
                 </div>
               ))}
@@ -268,8 +261,8 @@ export function ClubHomePage() {
             className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-xl p-4 sm:p-6 shadow-md hover:shadow-lg transition-all active:scale-[0.98] group"
           >
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
-              <div className="p-3 sm:p-4 bg-violet-50 rounded-xl group-hover:bg-violet-100 transition-colors">
-                <MessageSquare size={24} className="text-violet-500 sm:w-8 sm:h-8" />
+              <div className="p-3 sm:p-4 bg-blue-50 rounded-xl group-hover:bg-blue-100 transition-colors">
+                <MessageSquare size={24} className="text-blue-500 sm:w-8 sm:h-8" />
               </div>
               <div>
                 <h3 className="text-base sm:text-xl font-bold text-slate-900 mb-0.5">Chat</h3>

@@ -6,6 +6,7 @@
  * - Membership purchase processing
  * - Access control logic
  * - Tier management
+ * - Credit discount resolution (delegates to DB)
  *
  * CRITICAL: This service is the ONLY authority for membership state.
  * All membership queries and mutations MUST go through this service.
@@ -13,6 +14,7 @@
 
 import { supabase } from '@/lib/supabase';
 import { clubTokenLedgerService } from './club-token-ledger-service';
+import { clubReferralService } from './club-referral-service';
 
 export interface MembershipPackage {
   id: string;
@@ -28,6 +30,12 @@ export interface MembershipPackage {
   stripePriceId: string | null;
   stripeProductId: string | null;
   isActive: boolean;
+  creditDiscount: number;
+  stakingEnabled: boolean;
+  votingEnabled: boolean;
+  votingWeight: number;
+  referralBonusPct: number;
+  stakingBoostMultiplier: number;
 }
 
 export interface UserMembership {
@@ -35,6 +43,7 @@ export interface UserMembership {
   userId: string;
   packageId: string;
   tierLevel: number;
+  tierName: string;
   status: 'active' | 'suspended' | 'expired' | 'cancelled';
   purchasedAt: string;
   activatedAt: string | null;
@@ -51,6 +60,13 @@ export interface MembershipAccessCheck {
   canAccess: boolean;
   tokensRequired: number;
   tokensAvailable: number;
+}
+
+export interface UserCreditDiscount {
+  creditDiscount: number;
+  tierLevel: number;
+  tierName: string;
+  stakingEnabled: boolean;
 }
 
 class ClubMembershipService {
@@ -213,6 +229,9 @@ class ClubMembershipService {
       // Lock tokens for membership requirement
       await clubTokenLedgerService.lockTokens(userId, pkg.requiredTokenBalance);
 
+      // Complete any pending referral and distribute rewards
+      await clubReferralService.completeReferral(userId, amountPaidUsd);
+
       return { success: true, membershipId: membership.id };
     } catch (error) {
       console.error('[ClubMembershipService] Error granting membership:', error);
@@ -247,8 +266,33 @@ class ClubMembershipService {
   }
 
   /**
-   * Map database record to MembershipPackage interface
+   * Get user's credit discount based on active membership tier.
+   * Returns 0 if no active membership or tier has no discount.
+   * Uses DB RPC for single source of truth.
    */
+  async getUserCreditDiscount(userId: string): Promise<UserCreditDiscount> {
+    try {
+      const { data, error } = await supabase.rpc('get_user_credit_discount', {
+        p_user_id: userId
+      });
+
+      if (error || !data || data.length === 0) {
+        return { creditDiscount: 0, tierLevel: 0, tierName: 'None', stakingEnabled: false };
+      }
+
+      const row = data[0];
+      return {
+        creditDiscount: row.credit_discount || 0,
+        tierLevel: row.tier_level || 0,
+        tierName: row.tier_name || 'None',
+        stakingEnabled: row.staking_enabled || false,
+      };
+    } catch (error) {
+      console.error('[ClubMembershipService] Error fetching credit discount:', error);
+      return { creditDiscount: 0, tierLevel: 0, tierName: 'None', stakingEnabled: false };
+    }
+  }
+
   private mapPackageFromDb(data: any): MembershipPackage {
     return {
       id: data.id,
@@ -256,32 +300,36 @@ class ClubMembershipService {
       description: data.description,
       tierLevel: data.tier_level,
       priceUsd: parseFloat(data.price_usd),
-      initialTokenAllocation: data.initial_token_allocation,
-      requiredTokenBalance: data.required_token_balance,
+      initialTokenAllocation: parseFloat(data.initial_token_allocation),
+      requiredTokenBalance: parseFloat(data.required_token_balance),
       benefits: Array.isArray(data.benefits) ? data.benefits : [],
       badgeColor: data.badge_color,
       badgeIcon: data.badge_icon,
       stripePriceId: data.stripe_price_id,
       stripeProductId: data.stripe_product_id,
-      isActive: data.is_active
+      isActive: data.is_active,
+      creditDiscount: data.credit_discount || 0,
+      stakingEnabled: data.staking_enabled || false,
+      votingEnabled: data.voting_enabled || false,
+      votingWeight: parseFloat(data.voting_weight || '0'),
+      referralBonusPct: data.referral_bonus_pct || 0,
+      stakingBoostMultiplier: parseFloat(data.staking_boost_multiplier || '1'),
     };
   }
 
-  /**
-   * Map database record to UserMembership interface
-   */
   private mapMembershipFromDb(data: any): UserMembership {
     return {
       id: data.id,
       userId: data.user_id,
       packageId: data.package_id,
       tierLevel: data.tier_level,
+      tierName: data.tier_name || '',
       status: data.status,
       purchasedAt: data.purchased_at,
       activatedAt: data.activated_at,
       expiresAt: data.expires_at,
       amountPaidUsd: parseFloat(data.amount_paid_usd),
-      tokensLocked: data.tokens_locked,
+      tokensLocked: parseFloat(data.tokens_locked),
       canAccessClub: data.can_access_club
     };
   }

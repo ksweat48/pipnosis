@@ -95,9 +95,9 @@ export function ClubLayout({ children }: ClubLayoutProps) {
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-white/80 border border-slate-200/60 rounded-lg shadow-sm">
                   <Coins size={16} className="text-amber-500" />
                   <div className="text-right">
-                    <div className="text-slate-400 text-[10px] leading-tight">Tokens</div>
+                    <div className="text-slate-400 text-[10px] leading-tight">PIP</div>
                     <div className="text-slate-900 font-bold text-sm leading-tight">
-                      {tokenBalance.availableTokens.toLocaleString()}
+                      {tokenBalance.availableTokens.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
                   </div>
                 </div>

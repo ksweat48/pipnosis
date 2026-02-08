@@ -7,6 +7,9 @@ import { clubMembershipService, type MembershipPackage } from '@/services/club-m
 import { clubReferralService } from '@/services/club-referral-service';
 import { NavigationMenu } from '@/components/NavigationMenu';
 
+const fmt = (n: number) =>
+  n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 export function ClubEntryGatePage() {
   const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
@@ -25,7 +28,6 @@ export function ClubEntryGatePage() {
 
     loadAccessInfo();
 
-    // Handle referral code from URL
     const refCode = searchParams.get('ref');
     if (refCode) {
       handleReferralCode(refCode);
@@ -52,8 +54,6 @@ export function ClubEntryGatePage() {
 
   const handleReferralCode = async (code: string) => {
     if (!user) return;
-
-    // Track referral (will be completed when user purchases membership)
     await clubReferralService.trackReferral(code, user.id);
   };
 
@@ -63,19 +63,7 @@ export function ClubEntryGatePage() {
     setProcessingPurchase(pkg.id);
 
     try {
-      // TODO: Integrate with Stripe (similar to credits purchase)
-      // For now, show placeholder message
       alert(`Stripe integration for membership packages coming soon!\n\nPackage: ${pkg.name}\nPrice: $${pkg.priceUsd}`);
-
-      // In production, this would call:
-      // const response = await fetch('/.netlify/functions/club-membership-checkout', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ packageId: pkg.id, userId: user.id })
-      // });
-      // const { url } = await response.json();
-      // window.location.href = url;
-
     } catch (error) {
       console.error('[ClubEntryGate] Purchase error:', error);
       alert('Failed to process purchase. Please try again.');
@@ -106,7 +94,7 @@ export function ClubEntryGatePage() {
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
       <NavigationMenu />
 
-      <div className="max-w-6xl mx-auto px-4 py-12">
+      <div className="max-w-7xl mx-auto px-4 py-12">
         {/* Header */}
         <div className="text-center mb-12">
           <div className="flex items-center justify-center mb-6">
@@ -156,25 +144,25 @@ export function ClubEntryGatePage() {
               </div>
             </div>
 
-            {/* Token Balance Display */}
+            {/* PIP Balance Display */}
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl p-4 shadow-sm">
                 <div className="flex items-center gap-2 text-slate-500 text-sm mb-2">
                   <Coins size={16} />
-                  Your Tokens
+                  Your PIP Balance
                 </div>
                 <div className="text-3xl font-bold text-slate-900">
-                  {accessResult.tokens.available.toLocaleString()}
+                  {fmt(accessResult.tokens.available)}
                 </div>
               </div>
 
               <div className="bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl p-4 shadow-sm">
                 <div className="flex items-center gap-2 text-slate-500 text-sm mb-2">
                   <Lock size={16} />
-                  Required Tokens
+                  Required PIP
                 </div>
                 <div className="text-3xl font-bold text-slate-900">
-                  {accessResult.tokens.required.toLocaleString()}
+                  {fmt(accessResult.tokens.required)}
                 </div>
               </div>
             </div>
@@ -182,7 +170,7 @@ export function ClubEntryGatePage() {
             {accessResult.status === 'insufficient_tokens' && (
               <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
                 <p className="text-amber-800">
-                  You need <span className="font-bold">{accessResult.tokens.deficit.toLocaleString()}</span> more tokens to access the Club.
+                  You need <span className="font-bold">{fmt(accessResult.tokens.deficit)}</span> more PIP to access the Club.
                   Purchase a higher membership tier to receive more tokens.
                 </p>
               </div>
@@ -197,7 +185,7 @@ export function ClubEntryGatePage() {
                   : 'bg-slate-200 text-slate-400 cursor-not-allowed'
               }`}
             >
-              {accessResult.canAccess ? 'Enter Pipnosis Club' : 'Insufficient Tokens to Enter'}
+              {accessResult.canAccess ? 'Enter Pipnosis Club' : 'Insufficient PIP to Enter'}
               <ArrowRight size={20} />
             </button>
         </div>
@@ -209,56 +197,67 @@ export function ClubEntryGatePage() {
               Membership Tiers
             </h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               {packages.map((pkg) => (
-                <div key={pkg.id} className="bg-white bg-opacity-70 backdrop-blur-md border border-slate-200 rounded-2xl p-6 shadow-lg hover:shadow-xl transition-shadow h-full flex flex-col">
+                <div key={pkg.id} className="bg-white bg-opacity-70 backdrop-blur-md border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-lg hover:shadow-xl transition-shadow h-full flex flex-col relative overflow-hidden">
+                  <div
+                    className="absolute top-0 left-0 right-0 h-1"
+                    style={{ backgroundColor: pkg.badgeColor }}
+                  />
+
                   <div className="flex items-center gap-3 mb-4">
                     <div
-                      className="p-3 rounded-xl"
-                      style={{ backgroundColor: `${pkg.badgeColor}20`, border: `1px solid ${pkg.badgeColor}40` }}
+                      className="p-2.5 rounded-xl"
+                      style={{ backgroundColor: `${pkg.badgeColor}15`, border: `1px solid ${pkg.badgeColor}30` }}
                     >
-                      <Crown size={28} style={{ color: pkg.badgeColor }} />
+                      <Crown size={24} style={{ color: pkg.badgeColor }} />
                     </div>
                     <div>
-                      <h3 className="text-xl font-bold text-slate-900">{pkg.name}</h3>
-                      <p className="text-slate-500 text-sm">Tier {pkg.tierLevel}</p>
+                      <h3 className="text-lg font-bold text-slate-900">{pkg.name}</h3>
+                      <p className="text-slate-500 text-xs">Tier {pkg.tierLevel}</p>
                     </div>
                   </div>
 
-                  <p className="text-slate-600 mb-6">{pkg.description}</p>
+                  <p className="text-slate-600 text-sm mb-4">{pkg.description}</p>
 
-                  <div className="bg-white bg-opacity-60 backdrop-blur-sm border border-slate-200 rounded-xl p-4 mb-4 shadow-sm">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-slate-500">Initial Tokens</span>
-                      <span className="text-slate-900 font-bold">{pkg.initialTokenAllocation.toLocaleString()}</span>
+                  <div className="bg-white bg-opacity-60 backdrop-blur-sm border border-slate-200 rounded-xl p-3 mb-4 shadow-sm space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-500">PIP Allocation</span>
+                      <span className="text-slate-900 font-bold">{fmt(pkg.initialTokenAllocation)}</span>
                     </div>
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between text-sm">
                       <span className="text-slate-500">Required Balance</span>
-                      <span className="text-slate-900 font-bold">{pkg.requiredTokenBalance.toLocaleString()}</span>
+                      <span className="text-slate-900 font-bold">{fmt(pkg.requiredTokenBalance)}</span>
                     </div>
+                    {pkg.creditDiscount > 0 && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-slate-500">Trade Cost</span>
+                        <span className="text-emerald-600 font-bold">{10 - pkg.creditDiscount} credits/trade</span>
+                      </div>
+                    )}
                   </div>
 
-                  <div className="mb-6">
-                    <div className="text-slate-500 text-sm mb-2">Benefits:</div>
-                    <ul className="space-y-2">
+                  <div className="mb-4 flex-1">
+                    <div className="text-slate-500 text-xs mb-2">Benefits:</div>
+                    <ul className="space-y-1.5">
                       {pkg.benefits.map((benefit, idx) => (
-                        <li key={idx} className="flex items-start gap-2 text-slate-600 text-sm">
-                          <Check size={16} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+                        <li key={idx} className="flex items-start gap-2 text-slate-600 text-xs">
+                          <Check size={14} className="text-emerald-500 flex-shrink-0 mt-0.5" />
                           <span>{benefit}</span>
                         </li>
                       ))}
                     </ul>
                   </div>
 
-                  <div className="mt-auto">
-                    <div className="text-4xl font-bold text-slate-900 mb-4">
-                      ${pkg.priceUsd.toFixed(2)}
+                  <div className="mt-auto pt-4 border-t border-slate-100">
+                    <div className="text-3xl font-bold text-slate-900 mb-3">
+                      ${pkg.priceUsd.toFixed(0)}
                     </div>
 
                     <button
                       onClick={() => handlePurchaseClick(pkg)}
                       disabled={processingPurchase === pkg.id}
-                      className="w-full px-6 py-3 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all shadow-md hover:shadow-lg"
+                      className="w-full px-5 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all shadow-md hover:shadow-lg text-sm"
                     >
                       {processingPurchase === pkg.id ? 'Processing...' : 'Purchase'}
                     </button>

@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { creditMeterService } from './credit-meter-service';
+import { creditDiscountEngine } from './credit-discount-engine';
 import { logger } from '../lib/logger';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
 
@@ -85,9 +86,6 @@ class CreditValidationService {
     }
   ): Promise<CreditDeductionResult> {
     try {
-      logger.info(`[Credit Deduction] Deducting ${this.SIGNAL_COST} credits for signal ${signalMetadata.intentId}`);
-
-      // CRITICAL: Check if credits are enabled platform-wide
       const creditsEnabled = await this.isCreditsEnabled();
       if (!creditsEnabled) {
         logger.info('[Credit Deduction] Credits disabled platform-wide - deduction bypassed');
@@ -100,21 +98,26 @@ class CreditValidationService {
         return { success: true, newBalance: balance.balance };
       }
 
-      if (!balance || balance.balance < this.SIGNAL_COST) {
-        logger.error(`[Credit Deduction] Insufficient balance: ${balance?.balance || 0} credits`);
+      const discount = await creditDiscountEngine.resolveTradeCredits(userId);
+      const effectiveCost = discount.finalCost;
+
+      logger.info(`[Credit Deduction] Deducting ${effectiveCost} credits (base=${discount.baseCost} discount=${discount.discountCredits}) for signal ${signalMetadata.intentId}`);
+
+      if (!balance || balance.balance < effectiveCost) {
+        logger.error(`[Credit Deduction] Insufficient balance: ${balance?.balance || 0} credits, need ${effectiveCost}`);
 
         await this.blockSessionForCredits(sessionId, signalMetadata.intentId);
 
         return {
           success: false,
-          error: `Insufficient credits. Need ${this.SIGNAL_COST} credits, have ${balance?.balance || 0}.`,
+          error: `Insufficient credits. Need ${effectiveCost} credits, have ${balance?.balance || 0}.`,
           newBalance: balance?.balance
         };
       }
 
       const deductSuccess = await creditMeterService.deductCredits(
         userId,
-        this.SIGNAL_COST,
+        effectiveCost,
         'signal_detected',
         {
           session_id: sessionId,
@@ -122,6 +125,10 @@ class CreditValidationService {
           symbol: signalMetadata.symbol,
           intent_type: signalMetadata.intentType,
           confidence: signalMetadata.confidence,
+          discount_applied: discount.discountCredits,
+          tier_name: discount.tierName,
+          base_cost: discount.baseCost,
+          final_cost: effectiveCost,
           timestamp: new Date().toISOString()
         }
       );
@@ -138,9 +145,9 @@ class CreditValidationService {
       }
 
       const newBalance = await creditMeterService.getBalance(userId);
-      logger.info(`[Credit Deduction] ✅ Successfully deducted ${this.SIGNAL_COST} credits. New balance: ${newBalance?.balance || 0}`);
+      logger.info(`[Credit Deduction] Successfully deducted ${effectiveCost} credits. New balance: ${newBalance?.balance || 0}`);
 
-      await this.recordSuccessfulDeduction(userId, sessionId, signalMetadata.intentId, this.SIGNAL_COST);
+      await this.recordSuccessfulDeduction(userId, sessionId, signalMetadata.intentId, effectiveCost);
 
       return {
         success: true,

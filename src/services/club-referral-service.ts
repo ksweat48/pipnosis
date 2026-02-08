@@ -16,6 +16,7 @@
  */
 
 import { supabase } from '@/lib/supabase';
+import { TOKENOMICS } from '@/config/tokenomics-constants';
 
 export interface ReferralCode {
   userId: string;
@@ -88,12 +89,19 @@ class ClubReferralService {
         .maybeSingle();
 
       if (!collision) {
-        break; // Code is unique
+        break;
       }
 
       code = this.generateCode();
       attempts++;
     }
+
+    await supabase.from('club_referrals').insert({
+      referrer_id: userId,
+      referral_code: code,
+      status: 'pending',
+      referred_at: new Date().toISOString(),
+    });
 
     return code;
   }
@@ -220,28 +228,26 @@ class ClubReferralService {
    * Called by membership service after successful purchase
    * Phase 1: Mark as completed only, no reward distribution
    */
-  async completeReferral(refereeId: string): Promise<boolean> {
+  async completeReferral(
+    refereeId: string,
+    membershipPriceUsd: number = 0
+  ): Promise<boolean> {
     try {
-      const { error } = await supabase
-        .from('club_referrals')
-        .update({
-          status: 'completed',
-          completed_at: new Date().toISOString()
-        })
-        .eq('referee_id', refereeId)
-        .eq('status', 'pending');
+      const pipBonus = TOKENOMICS.REFERRAL.BASE_PIP_BONUS;
+      const cashCommission = membershipPriceUsd * (TOKENOMICS.REFERRAL.BASE_CASH_COMMISSION_PCT / 100);
+
+      const { data, error } = await supabase.rpc('complete_referral_with_rewards', {
+        p_referee_id: refereeId,
+        p_referrer_pip_bonus: pipBonus,
+        p_cash_commission: cashCommission,
+      });
 
       if (error) {
         console.error('[ClubReferralService] Error completing referral:', error);
         return false;
       }
 
-      // TODO Phase 2: Distribute rewards to referrer
-      // - Award tokens via clubTokenLedgerService
-      // - Record cash earnings
-      // - Update referral stats
-
-      return true;
+      return data?.success === true;
     } catch (error) {
       console.error('[ClubReferralService] Exception completing referral:', error);
       return false;

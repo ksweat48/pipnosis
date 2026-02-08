@@ -82,7 +82,7 @@ class ClubTokenLedgerService {
   async addTokens(
     userId: string,
     amount: number,
-    transactionType: 'membership_purchase' | 'referral_reward' | 'staking_reward' | 'admin_grant' | 'promotion_bonus' | 'migration_adjustment',
+    transactionType: 'membership_purchase' | 'referral_reward' | 'staking_reward' | 'admin_grant' | 'promotion_bonus' | 'migration_adjustment' | 'staking_unlock',
     description: string,
     referenceId: string | null = null,
     referenceType: 'membership' | 'referral' | 'cashout' | 'staking' | 'admin_action' | 'promotion' | null = null,
@@ -118,7 +118,7 @@ class ClubTokenLedgerService {
   async deductTokens(
     userId: string,
     amount: number,
-    transactionType: 'cashout_deduction' | 'admin_deduct',
+    transactionType: 'cashout_deduction' | 'admin_deduct' | 'discount_burn' | 'staking_lock',
     description: string,
     referenceId: string | null = null,
     referenceType: 'membership' | 'referral' | 'cashout' | 'staking' | 'admin_action' | 'promotion' | null = null,
@@ -274,7 +274,10 @@ class ClubTokenLedgerService {
       admin_deduct: 'Admin Deduction',
       cashout_deduction: 'Cashout',
       promotion_bonus: 'Promotion Bonus',
-      migration_adjustment: 'System Adjustment'
+      migration_adjustment: 'System Adjustment',
+      staking_unlock: 'Staking Unlock',
+      discount_burn: 'Credit Discount Burn',
+      staking_lock: 'Staking Lock'
     };
 
     return typeMap[type] || type;
