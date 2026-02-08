@@ -110,9 +110,11 @@ class TickBufferService {
    */
   private async writeToDatabase(tick: TickData): Promise<void> {
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
       const mid = (tick.bid + tick.ask) / 2;
 
-      // Insert price record (RLS will handle authorization)
       const { error } = await supabase
         .from('realtime_prices')
         .insert({
@@ -126,10 +128,7 @@ class TickBufferService {
         });
 
       if (error) {
-        // Log but don't throw - price updates are best-effort
-        logger.debug(LogCategory.TICK_BUFFER, `⚠️ DB write failed for ${tick.symbol}: ${error.message}`);
-      } else {
-        logger.trace(LogCategory.TICK_BUFFER, `✅ Wrote ${tick.symbol} to database: ${tick.bid}/${tick.ask}`);
+        logger.debug(LogCategory.TICK_BUFFER, `DB write failed for ${tick.symbol}: ${error.message}`);
       }
     } catch (error) {
       logger.debug(LogCategory.TICK_BUFFER, `Error writing ${tick.symbol} to database:`, error);

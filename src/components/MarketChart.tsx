@@ -2015,21 +2015,20 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       // BID Line (red/orange - price you SELL at or close LONG at)
       bidLineRef.current = candlestickSeriesRef.current.createPriceLine({
         price: bidPrice,
-        color: '#f97316', // Orange
+        color: '#f97316',
         lineWidth: 2,
         lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: 'BID',
+        axisLabelVisible: false,
+        title: '',
       });
 
-      // ASK Line (blue/cyan - price you BUY at or close SHORT at)
       askLineRef.current = candlestickSeriesRef.current.createPriceLine({
         price: askPrice,
-        color: '#06b6d4', // Cyan
+        color: '#06b6d4',
         lineWidth: 2,
         lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: 'ASK',
+        axisLabelVisible: false,
+        title: '',
       });
     }
 
@@ -2148,47 +2147,21 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           </button>
         </div>
 
-        {/* BID/ASK/Spread row - Centered below selectors */}
         {currentPrice && (
           <div className="flex justify-center mb-3">
-            {/* Mobile: Horizontal inline layout */}
             <div className="flex sm:hidden items-center gap-2 text-xs">
-              {bidPrice && askPrice ? (
-                <>
-                  <div className="flex items-center gap-1">
-                    <span className="text-orange-400 font-medium uppercase text-[10px]">Bid</span>
-                    <span className="text-orange-400 font-bold">{formatPrice(bidPrice, symbol, true)}</span>
-                  </div>
-                  <div className="text-gray-600">/</div>
-                  <div className="flex items-center gap-1">
-                    <span className="text-cyan-400 font-medium uppercase text-[10px]">Ask</span>
-                    <span className="text-cyan-400 font-bold">{formatPrice(askPrice, symbol, true)}</span>
-                  </div>
-                  {spread !== null && (
-                    <>
-                      <div className="text-gray-600">•</div>
-                      <div className="flex items-center gap-1">
-                        <span className="text-gray-400 text-[10px]">Spread</span>
-                        <span className="text-gray-300 font-medium">{formatSpread(spread, symbol, true)}</span>
-                      </div>
-                    </>
-                  )}
-                </>
-              ) : (
-                <div className={`font-bold transition-all duration-500 ease-out ${
-                  priceUpdateFlash
-                    ? (priceChange >= 0 ? 'text-emerald-400 scale-105' : 'text-red-400 scale-105')
-                    : 'text-white scale-100'
+              <div className={`font-bold transition-all duration-500 ease-out ${
+                priceUpdateFlash
+                  ? (priceChange >= 0 ? 'text-emerald-400 scale-105' : 'text-red-400 scale-105')
+                  : 'text-white scale-100'
+              }`}>
+                {formatPrice(currentPrice, symbol, true)}
+                <span className={`ml-2 text-[10px] ${
+                  priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
                 }`}>
-                  {formatPrice(currentPrice, symbol, true)}
-                  <span className={`ml-2 text-[10px] ${
-                    priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
-                  }`}>
-                    {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
-                  </span>
-                </div>
-              )}
-              {/* Crypto source badge - mobile */}
+                  {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
+                </span>
+              </div>
               {cryptoDataSource && ['BTCUSD', 'ETHUSD'].includes(symbol) && (
                 <div className="text-[9px] text-gray-500 px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20">
                   {cryptoDataSource.replace('-live', '').toUpperCase()}
@@ -2196,69 +2169,23 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
               )}
             </div>
 
-            {/* Desktop: Horizontal layout */}
-            <div className="hidden sm:flex items-center gap-4">
-              {bidPrice && askPrice ? (
-                <>
-                  <div className="flex flex-col items-center">
-                    <span className="text-xs text-orange-400 font-medium">BID</span>
-                    <span className={`text-xl font-bold text-orange-400 transition-all duration-500 ease-out ${
-                      priceUpdateFlash ? 'scale-105' : 'scale-100'
-                    }`}>
-                      {formatPrice(bidPrice, symbol, false)}
-                    </span>
-                  </div>
-                  <div className="text-2xl text-gray-600 font-light">/</div>
-                  <div className="flex flex-col items-center">
-                    <span className="text-xs text-cyan-400 font-medium">ASK</span>
-                    <span className={`text-xl font-bold text-cyan-400 transition-all duration-500 ease-out ${
-                      priceUpdateFlash ? 'scale-105' : 'scale-100'
-                    }`}>
-                      {formatPrice(askPrice, symbol, false)}
-                    </span>
-                  </div>
-                  {spread !== null && (
-                    <div className="ml-2 px-3 py-1.5 rounded bg-gray-800/50 border border-gray-700">
-                      <div className="text-[10px] text-gray-400 text-center">SPREAD</div>
-                      <div className="text-sm text-white font-medium">{formatSpread(spread, symbol, false)}</div>
-                    </div>
-                  )}
-                  <div className="flex flex-col items-start gap-0.5">
-                    <div className={`text-sm flex items-center gap-1 ${
-                      priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
-                    }`}>
-                      <Activity size={14} />
-                      {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
-                    </div>
-                    {/* Crypto source badge - desktop */}
-                    {cryptoDataSource && ['BTCUSD', 'ETHUSD'].includes(symbol) && (
-                      <div className="px-2 py-0.5 rounded text-[10px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                        {cryptoDataSource.replace('-live', '').toUpperCase()}
-                      </div>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <div className="flex items-center gap-3">
-                  <div className={`text-2xl font-bold transition-all duration-500 ease-out ${
-                    priceUpdateFlash
-                      ? (priceChange >= 0 ? 'text-emerald-400 scale-105' : 'text-red-400 scale-105')
-                      : 'text-white scale-100'
-                  }`}>
-                    {formatPrice(currentPrice, symbol, false)}
-                  </div>
-                  <div className={`text-sm flex items-center gap-1 ${
-                    priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
-                  }`}>
-                    <Activity size={14} />
-                    {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
-                  </div>
-                  {/* Crypto source badge - desktop */}
-                  {cryptoDataSource && ['BTCUSD', 'ETHUSD'].includes(symbol) && (
-                    <div className="px-2 py-0.5 rounded text-[10px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                      {cryptoDataSource.replace('-live', '').toUpperCase()}
-                    </div>
-                  )}
+            <div className="hidden sm:flex items-center gap-3">
+              <div className={`text-2xl font-bold transition-all duration-500 ease-out ${
+                priceUpdateFlash
+                  ? (priceChange >= 0 ? 'text-emerald-400 scale-105' : 'text-red-400 scale-105')
+                  : 'text-white scale-100'
+              }`}>
+                {formatPrice(currentPrice, symbol, false)}
+              </div>
+              <div className={`text-sm flex items-center gap-1 ${
+                priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'
+              }`}>
+                <Activity size={14} />
+                {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
+              </div>
+              {cryptoDataSource && ['BTCUSD', 'ETHUSD'].includes(symbol) && (
+                <div className="px-2 py-0.5 rounded text-[10px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  {cryptoDataSource.replace('-live', '').toUpperCase()}
                 </div>
               )}
             </div>
@@ -2316,27 +2243,6 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
         <div className="relative h-full">
           <div ref={chartContainerRef} className="rounded-lg overflow-hidden h-full" />
-
-          {/* BID/ASK Legend - Top Right - Hidden on mobile to prevent chart blocking */}
-          {bidPrice && askPrice && (
-            <div className="hidden sm:block absolute top-2 right-2 z-20 pointer-events-none">
-              <div className="bg-gray-900/90 backdrop-blur-sm border border-gray-800/50 rounded px-2 py-1.5 shadow-lg">
-                <div className="text-[10px] text-gray-400 font-medium mb-1">PRICE LINES</div>
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-3 h-0.5 bg-orange-500 border-dashed" style={{ borderTop: '2px dashed #f97316' }}></div>
-                    <span className="text-[10px] text-orange-400 font-medium">BID</span>
-                    <span className="text-[9px] text-gray-500">Close LONG</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-3 h-0.5 bg-cyan-500 border-dashed" style={{ borderTop: '2px dashed #06b6d4' }}></div>
-                    <span className="text-[10px] text-cyan-400 font-medium">ASK</span>
-                    <span className="text-[9px] text-gray-500">Close SHORT</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Status Overlay - Bottom Left */}
           <div className="absolute bottom-2 left-2 z-20 pointer-events-none">
