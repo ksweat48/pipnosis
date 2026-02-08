@@ -2,7 +2,7 @@
  * CLUB LAYOUT COMPONENT
  *
  * Provides consistent layout and navigation for all Club pages.
- * Features distinct purple/pink theming to differentiate from trading interface.
+ * Mobile-first responsive design with app-like feel.
  *
  * NAVIGATION STRUCTURE:
  * - Home: Token balances, stats, referral dashboard
@@ -12,10 +12,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Home, MessageSquare, Gift, ArrowLeft, Coins, Crown, Users, TrendingUp, LogOut } from 'lucide-react';
+import { Home, MessageSquare, Gift, ArrowLeft, Coins, Crown, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { clubTokenLedgerService, type ClubTokenBalance } from '@/services/club-token-ledger-service';
-import { clubAccessGateService } from '@/services/club-access-gate-service';
 
 interface ClubLayoutProps {
   children: React.ReactNode;
@@ -24,7 +23,7 @@ interface ClubLayoutProps {
 export function ClubLayout({ children }: ClubLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, isAdmin, signOut } = useAuth();
+  const { user } = useAuth();
   const [tokenBalance, setTokenBalance] = useState<ClubTokenBalance | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -68,52 +67,52 @@ export function ClubLayout({ children }: ClubLayoutProps) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
       {/* Club Header */}
-      <header className="sticky top-0 bg-white/70 backdrop-blur-xl border-b border-slate-200/50 z-50 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="flex items-center justify-between h-16">
-            {/* Left: Back button and logo */}
-            <div className="flex items-center gap-4">
+      <header className="sticky top-0 bg-white/80 backdrop-blur-xl border-b border-slate-200/50 z-50 shadow-sm">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6">
+          {/* Top bar */}
+          <div className="flex items-center justify-between h-14 sm:h-16">
+            {/* Left: Back + Logo */}
+            <div className="flex items-center gap-2 sm:gap-4 min-w-0">
               <button
                 onClick={() => navigate('/charts')}
-                className="flex items-center gap-2 px-3 py-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 rounded-lg transition-colors"
+                className="flex items-center gap-1 p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100/80 rounded-lg transition-colors flex-shrink-0"
               >
                 <ArrowLeft size={18} />
-                <span className="hidden sm:inline">Back to Trading</span>
+                <span className="hidden sm:inline text-sm">Back</span>
               </button>
 
-              <div className="flex items-center gap-3">
-                <Crown size={28} className="text-amber-500" />
-                <div>
-                  <h1 className="text-xl font-bold text-slate-800">
+              <div className="flex items-center gap-2 min-w-0">
+                <Crown size={22} className="text-amber-500 flex-shrink-0" />
+                <div className="min-w-0">
+                  <h1 className="text-base sm:text-xl font-bold text-slate-800 truncate">
                     Pipnosis Club
                   </h1>
-                  <p className="text-slate-500 text-xs">Exclusive Member Area</p>
                 </div>
               </div>
             </div>
 
-            {/* Right: Token balance and user info */}
-            <div className="flex items-center gap-4">
+            {/* Right: Token balance + Avatar */}
+            <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
               {!loading && tokenBalance && (
-                <div className="flex items-center gap-3 px-4 py-2 bg-white/80 backdrop-blur-sm border border-slate-200/60 rounded-lg shadow-sm">
-                  <Coins size={20} className="text-amber-500" />
-                  <div className="flex flex-col items-start">
-                    <div className="text-slate-500 text-xs">Your Tokens</div>
-                    <div className="text-slate-900 font-bold text-lg">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-white/80 border border-slate-200/60 rounded-lg shadow-sm">
+                  <Coins size={16} className="text-amber-500" />
+                  <div className="text-right">
+                    <div className="text-slate-400 text-[10px] leading-tight">Tokens</div>
+                    <div className="text-slate-900 font-bold text-sm leading-tight">
                       {tokenBalance.availableTokens.toLocaleString()}
                     </div>
                   </div>
                 </div>
               )}
 
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-amber-500 flex items-center justify-center shadow-md">
-                <Users size={20} className="text-white" />
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br from-amber-400 to-amber-500 flex items-center justify-center shadow-md flex-shrink-0">
+                <Users size={16} className="text-white sm:w-5 sm:h-5" />
               </div>
             </div>
           </div>
 
-          {/* Club Navigation Tabs */}
-          <div className="flex items-center gap-2 pb-3 overflow-x-auto">
+          {/* Navigation Tabs */}
+          <div className="flex items-center gap-1 pb-2 -mx-1">
             {clubNavItems.map((item) => {
               const Icon = item.icon;
               const active = isActive(item.path);
@@ -121,14 +120,14 @@ export function ClubLayout({ children }: ClubLayoutProps) {
                 <Link
                   key={item.path}
                   to={item.path}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all whitespace-nowrap ${
+                  className={`flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg transition-all flex-1 sm:flex-none ${
                     active
                       ? 'bg-slate-900 text-white shadow-md'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                      : 'text-slate-500 hover:text-slate-900 hover:bg-white/60'
                   }`}
                 >
-                  <Icon size={18} />
-                  <span className="font-medium">{item.label}</span>
+                  <Icon size={16} />
+                  <span className="font-medium text-sm">{item.label}</span>
                 </Link>
               );
             })}
@@ -137,12 +136,12 @@ export function ClubLayout({ children }: ClubLayoutProps) {
       </header>
 
       {/* Club Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 min-h-[60vh]">
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-8 min-h-[60vh]">
         {children}
       </main>
 
-      {/* Club Footer */}
-      <footer className="border-t border-slate-200/60 bg-white/40 backdrop-blur-sm mt-16">
+      {/* Club Footer - hidden on mobile for app-like feel */}
+      <footer className="hidden sm:block border-t border-slate-200/60 bg-white/40 backdrop-blur-sm mt-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div>

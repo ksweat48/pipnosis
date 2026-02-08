@@ -19,16 +19,16 @@ import { ClubLayout } from '@/components/ClubLayout';
 export function ClubRewardsPage() {
   return (
     <ClubLayout>
-      <div className="max-w-6xl mx-auto space-y-8 pb-8">
+      <div className="max-w-6xl mx-auto space-y-4 sm:space-y-8 pb-8">
         {/* Critical Disclaimer Banner */}
-        <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-6 shadow-sm">
-          <div className="flex items-start gap-4">
-            <div className="p-3 bg-amber-100 rounded-xl flex-shrink-0">
-              <AlertCircle size={28} className="text-amber-600" />
+        <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-sm">
+          <div className="flex items-start gap-3 sm:gap-4">
+            <div className="p-2 sm:p-3 bg-amber-100 rounded-lg sm:rounded-xl flex-shrink-0">
+              <AlertCircle size={22} className="text-amber-600 sm:w-7 sm:h-7" />
             </div>
             <div>
-              <h3 className="text-xl font-bold text-amber-900 mb-2">Important Notice</h3>
-              <div className="text-amber-800 text-sm space-y-2">
+              <h3 className="text-base sm:text-xl font-bold text-amber-900 mb-1.5 sm:mb-2">Important Notice</h3>
+              <div className="text-amber-800 text-xs sm:text-sm space-y-1.5 sm:space-y-2">
                 <p>
                   Pipnosis Club tokens are <span className="font-bold">utility tokens</span> for membership access and community features only.
                 </p>
@@ -45,43 +45,43 @@ export function ClubRewardsPage() {
         </div>
 
         {/* Page Header */}
-        <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-2xl p-8 shadow-lg">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-violet-50 rounded-xl">
-              <Gift size={48} className="text-violet-500" />
+        <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-xl sm:rounded-2xl p-4 sm:p-8 shadow-lg">
+          <div className="flex items-center gap-3 sm:gap-4">
+            <div className="p-2.5 sm:p-3 bg-violet-50 rounded-xl">
+              <Gift size={28} className="text-violet-500 sm:w-12 sm:h-12" />
             </div>
             <div>
-              <h1 className="text-4xl font-bold text-slate-900">
+              <h1 className="text-2xl sm:text-4xl font-bold text-slate-900">
                 Rewards & Staking
               </h1>
-              <p className="text-slate-600 text-lg">Earn tokens through community engagement</p>
+              <p className="text-slate-600 text-sm sm:text-lg">Earn tokens through community engagement</p>
             </div>
           </div>
         </div>
 
         {/* Coming Soon Notice */}
-        <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-2xl p-12 shadow-lg text-center">
-          <div className="flex items-center justify-center mb-6">
-            <div className="p-4 bg-slate-100 rounded-full">
-              <Lock size={64} className="text-slate-500" />
+        <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-xl sm:rounded-2xl p-6 sm:p-12 shadow-lg text-center">
+          <div className="flex items-center justify-center mb-4 sm:mb-6">
+            <div className="p-3 sm:p-4 bg-slate-100 rounded-full">
+              <Lock size={40} className="text-slate-500 sm:w-16 sm:h-16" />
             </div>
           </div>
 
-          <h2 className="text-3xl font-bold text-slate-900 mb-4">Rewards System Coming Soon</h2>
+          <h2 className="text-xl sm:text-3xl font-bold text-slate-900 mb-2 sm:mb-4">Rewards System Coming Soon</h2>
 
-          <p className="text-slate-600 text-lg mb-8 max-w-2xl mx-auto">
+          <p className="text-slate-600 text-sm sm:text-lg mb-6 sm:mb-8 max-w-2xl mx-auto">
             The rewards and staking features are currently under development. Once launched, you'll have access to:
           </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left max-w-4xl mx-auto">
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 shadow-sm">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-3 bg-violet-100 rounded-lg">
-                  <Coins size={24} className="text-violet-600" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-6 text-left max-w-4xl mx-auto">
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 sm:p-6 shadow-sm">
+              <div className="flex items-center gap-2.5 sm:gap-3 mb-3 sm:mb-4">
+                <div className="p-2 sm:p-3 bg-violet-100 rounded-lg">
+                  <Coins size={20} className="text-violet-600 sm:w-6 sm:h-6" />
                 </div>
-                <h3 className="text-xl font-bold text-slate-900">Token Staking</h3>
+                <h3 className="text-base sm:text-xl font-bold text-slate-900">Token Staking</h3>
               </div>
-              <ul className="text-slate-600 text-sm space-y-2">
+              <ul className="text-slate-600 text-xs sm:text-sm space-y-1.5 sm:space-y-2">
                 <li className="flex items-start gap-2">
                   <span className="text-violet-500 font-bold mt-0.5">•</span>
                   <span>Lock tokens for specified periods</span>
@@ -101,14 +101,14 @@ export function ClubRewardsPage() {
               </ul>
             </div>
 
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 shadow-sm">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-3 bg-emerald-100 rounded-lg">
-                  <TrendingUp size={24} className="text-emerald-600" />
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 sm:p-6 shadow-sm">
+              <div className="flex items-center gap-2.5 sm:gap-3 mb-3 sm:mb-4">
+                <div className="p-2 sm:p-3 bg-emerald-100 rounded-lg">
+                  <TrendingUp size={20} className="text-emerald-600 sm:w-6 sm:h-6" />
                 </div>
-                <h3 className="text-xl font-bold text-slate-900">Community Rewards</h3>
+                <h3 className="text-base sm:text-xl font-bold text-slate-900">Community Rewards</h3>
               </div>
-              <ul className="text-slate-600 text-sm space-y-2">
+              <ul className="text-slate-600 text-xs sm:text-sm space-y-1.5 sm:space-y-2">
                 <li className="flex items-start gap-2">
                   <span className="text-emerald-500 font-bold mt-0.5">•</span>
                   <span>Earn tokens for active participation</span>
@@ -128,14 +128,14 @@ export function ClubRewardsPage() {
               </ul>
             </div>
 
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 shadow-sm">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-3 bg-amber-100 rounded-lg">
-                  <DollarSign size={24} className="text-amber-600" />
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 sm:p-6 shadow-sm">
+              <div className="flex items-center gap-2.5 sm:gap-3 mb-3 sm:mb-4">
+                <div className="p-2 sm:p-3 bg-amber-100 rounded-lg">
+                  <DollarSign size={20} className="text-amber-600 sm:w-6 sm:h-6" />
                 </div>
-                <h3 className="text-xl font-bold text-slate-900">Cashout Options</h3>
+                <h3 className="text-base sm:text-xl font-bold text-slate-900">Cashout Options</h3>
               </div>
-              <ul className="text-slate-600 text-sm space-y-2">
+              <ul className="text-slate-600 text-xs sm:text-sm space-y-1.5 sm:space-y-2">
                 <li className="flex items-start gap-2">
                   <span className="text-amber-500 font-bold mt-0.5">•</span>
                   <span>Convert earned tokens to cash rewards</span>
@@ -155,14 +155,14 @@ export function ClubRewardsPage() {
               </ul>
             </div>
 
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 shadow-sm">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-3 bg-blue-100 rounded-lg">
-                  <Gift size={24} className="text-blue-600" />
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 sm:p-6 shadow-sm">
+              <div className="flex items-center gap-2.5 sm:gap-3 mb-3 sm:mb-4">
+                <div className="p-2 sm:p-3 bg-blue-100 rounded-lg">
+                  <Gift size={20} className="text-blue-600 sm:w-6 sm:h-6" />
                 </div>
-                <h3 className="text-xl font-bold text-slate-900">Special Events</h3>
+                <h3 className="text-base sm:text-xl font-bold text-slate-900">Special Events</h3>
               </div>
-              <ul className="text-slate-600 text-sm space-y-2">
+              <ul className="text-slate-600 text-xs sm:text-sm space-y-1.5 sm:space-y-2">
                 <li className="flex items-start gap-2">
                   <span className="text-blue-500 font-bold mt-0.5">•</span>
                   <span>Limited-time bonus opportunities</span>
@@ -185,8 +185,8 @@ export function ClubRewardsPage() {
         </div>
 
         {/* Reminder Disclaimer */}
-        <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 text-center shadow-sm">
-          <p className="text-slate-600 text-sm">
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 sm:p-6 text-center shadow-sm">
+          <p className="text-slate-600 text-xs sm:text-sm">
             <span className="font-bold">Remember:</span> Pipnosis Club tokens are utility tokens for membership access and community features.
             This is not financial advice. There are no guaranteed returns.
           </p>
