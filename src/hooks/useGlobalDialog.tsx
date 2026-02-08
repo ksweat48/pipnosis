@@ -23,23 +23,41 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
     const handleDialog = (dialog: DialogData | null) => {
       setCurrentDialog(dialog);
 
-      // Play audio alert when dialog appears
       if (dialog) {
         const playAudio = async () => {
+          const tradeId = dialog.data?.tradeId || dialog.data?.trade_id || '';
+          const symbol = dialog.data?.symbol || '';
+          const contextKey = `dialog-${symbol}`;
+
           switch (dialog.type) {
             case 'goal_achieved':
-              await audioAlertService.play('critical');
+              await audioAlertService.playWithContext({
+                type: 'critical',
+                sessionId: dialog.data?.sessionId || '',
+                context: 'goal_achieved'
+              });
               break;
             case 'trade_entry':
-              await audioAlertService.play('attention');
+              await audioAlertService.playWithContext({
+                type: 'attention',
+                tradeId,
+                context: contextKey
+              });
               break;
-            case 'trade_closed':
-              // Play success or warning based on profit/loss
+            case 'trade_closed': {
               const profitLoss = dialog.data?.profitLoss || 0;
-              await audioAlertService.play(profitLoss >= 0 ? 'success' : 'warning');
+              await audioAlertService.playWithContext({
+                type: profitLoss >= 0 ? 'success' : 'warning',
+                tradeId,
+                context: contextKey
+              });
               break;
+            }
             case 'trade_signal':
-              await audioAlertService.play('attention');
+              await audioAlertService.playWithContext({
+                type: 'attention',
+                context: contextKey
+              });
               break;
           }
         };

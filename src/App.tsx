@@ -241,82 +241,6 @@ const AppRoutes: React.FC = () => {
       modalQueueManager.subscribeToModalUpdates(user.id, checkPendingModals);
     });
 
-    // Note: Goal achievement notifications are handled by GoalNotificationListener component
-    // on SmartGoalModePage to prevent duplicate dialogs
-
-    // Real-time listener for trades closing WHILE user is watching
-    // If user is not watching, modal is already persisted by position-monitor
-    const tradeClosureChannel = supabase
-      .channel('global-trade-closures')
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'goal_session_trades',
-          filter: `user_id=eq.${user.id}`
-        },
-        async (payload) => {
-          if (payload.new.status === 'closed' && payload.old.status === 'open') {
-            console.log('[App] Trade closed in real-time!', payload);
-
-            // Check if document is visible - if so, show modal immediately
-            // If not visible, the persistent modal will show when user returns
-            if (document.visibilityState === 'visible') {
-              const trade = payload.new;
-              const closeReason = trade.close_reason || 'manual';
-
-              if (closeReason === 'goal_met') {
-                return;
-              }
-
-              // Calculate cumulative profit from all closed trades
-              const { data: closedTrades } = await supabase
-                .from('goal_session_trades')
-                .select('profit_loss')
-                .eq('goal_session_id', trade.goal_session_id)
-                .eq('status', 'closed');
-
-              const cumulativeProfit = closedTrades?.reduce((sum, t) => sum + (t.profit_loss || 0), 0) || 0;
-
-              const { data: session } = await supabase
-                .from('goal_sessions')
-                .select('target_value')
-                .eq('id', trade.goal_session_id)
-                .maybeSingle();
-
-              const { data: tradesCount } = await supabase
-                .from('goal_session_trades')
-                .select('id', { count: 'exact' })
-                .eq('goal_session_id', trade.goal_session_id);
-
-              console.log('[App] Showing real-time trade closed dialog');
-
-              globalDialogManager.showTradeClosed({
-                symbol: trade.symbol,
-                direction: trade.direction,
-                entryPrice: trade.entry_price,
-                exitPrice: trade.exit_price,
-                profitLoss: trade.profit_loss,
-                closeReason: closeReason,
-                currentProgress: cumulativeProfit,
-                targetValue: session?.target_value || 0,
-                tradesInSession: tradesCount?.length || 0,
-                onStartNewSession: () => {
-                  window.location.href = '/ai-trade';
-                },
-                onContinueSession: () => {
-                  window.location.href = '/ai-trade';
-                }
-              });
-            } else {
-              console.log('[App] Document not visible - modal will be shown from queue when user returns');
-            }
-          }
-        }
-      )
-      .subscribe();
-
     const tradeSignalChannel = supabase
       .channel('global-trade-signals')
       .on(
@@ -398,7 +322,6 @@ const AppRoutes: React.FC = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(tradeClosureChannel);
       supabase.removeChannel(tradeSignalChannel);
       supabase.removeChannel(midTradeChannel);
 

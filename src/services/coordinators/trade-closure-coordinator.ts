@@ -17,7 +17,7 @@ import { supabase } from '../../lib/supabase';
 import { calculatePnL } from '../../types/position';
 import { goalAchievementCoordinator } from './goal-achievement-coordinator';
 import { goalSessionStateMachine } from './goal-session-state-machine';
-import { notificationCoordinator, NotificationType } from './notification-coordinator';
+import { notificationCoordinator } from './notification-coordinator';
 import { MarketDataService } from '../market-data-service';
 import { modalQueueManager } from '../modal-queue-manager';
 import { postTradeAnalyzer } from '../post-trade-analyzer';
@@ -214,23 +214,6 @@ class TradeClosureCoordinator {
       } catch (journalError) {
         console.error(`[TradeClosureCoordinator] Journal creation failed (non-blocking):`, journalError);
       }
-
-      const notificationType = this.getNotificationType(request.closeReason);
-      await notificationCoordinator.send({
-        userId: request.userId,
-        type: notificationType,
-        title: this.getNotificationTitle(request.closeReason, pnl),
-        message: this.getNotificationMessage(tradeData.symbol, pnl, request.closeReason),
-        tradeId: request.tradeId,
-        sessionId: request.goalSessionId,
-        priority: pnl >= 0 ? 'medium' : 'high',
-        metadata: {
-          symbol: tradeData.symbol,
-          pnl,
-          closePrice: request.currentPrice,
-          closeReason: request.closeReason,
-        },
-      });
 
       const goalResult = await this.checkGoalAfterClose(request.userId, request.goalSessionId);
 
@@ -602,56 +585,6 @@ class TradeClosureCoordinator {
       console.log('[TradeClosureCoordinator] ✅ Trade closed modal created for user decision');
     } catch (error) {
       console.error('[TradeClosureCoordinator] Error creating trade closed modal:', error);
-    }
-  }
-
-  private getNotificationType(closeReason: CloseReason): NotificationType {
-    switch (closeReason) {
-      case 'stop_loss':
-        return 'stop_loss_hit';
-      case 'take_profit':
-        return 'take_profit_hit';
-      case 'goal_achieved':
-        // ✅ REMOVED: 'goal_met' (use 'goal_achieved' instead)
-        return 'goal_achieved';
-      default:
-        return 'trade_closed';
-    }
-  }
-
-  private getNotificationTitle(closeReason: CloseReason, pnl: number): string {
-    switch (closeReason) {
-      case 'stop_loss':
-        return 'Stop Loss Triggered';
-      case 'take_profit':
-        return 'Take Profit Hit!';
-      case 'goal_achieved':
-        // ✅ REMOVED: 'goal_met' (use 'goal_achieved' instead)
-        return 'Goal Achieved!';
-      case 'manual':
-        return pnl >= 0 ? 'Trade Closed in Profit' : 'Trade Closed';
-      case 'timeout':  // ✅ FIXED: was 'session_timeout'
-        return 'Session Timeout - Trade Closed';
-      case 'force_closed':  // ✅ FIXED: was 'force_close'
-        return 'Trade Force Closed';
-      default:
-        return 'Trade Closed';
-    }
-  }
-
-  private getNotificationMessage(symbol: string, pnl: number, closeReason: CloseReason): string {
-    const pnlStr = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`;
-
-    switch (closeReason) {
-      case 'stop_loss':
-        return `${symbol} hit stop loss. Result: ${pnlStr}`;
-      case 'take_profit':
-        return `${symbol} reached take profit! Result: ${pnlStr}`;
-      case 'goal_achieved':
-        // ✅ REMOVED: 'goal_met' (use 'goal_achieved' instead)
-        return `${symbol} closed at goal achievement. Result: ${pnlStr}`;
-      default:
-        return `${symbol} closed. Result: ${pnlStr}`;
     }
   }
 

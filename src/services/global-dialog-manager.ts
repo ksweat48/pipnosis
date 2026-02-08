@@ -21,14 +21,9 @@ class GlobalDialogManager {
   private recentDialogs = new Set<string>();
   private readonly DEDUPE_WINDOW_MS = 10000; // 10 second deduplication window
 
-  /**
-   * SSOT FIX (2026-02-04): Added deduplication to prevent duplicate modals
-   * Creates a unique key for dialog deduplication based on type, symbol, and tradeId
-   */
   private createDedupeKey(type: DialogType, data: any): string {
     const symbol = data.symbol || '';
-    const tradeId = data.tradeId || data.trade_id || '';
-    return `${type}-${symbol}-${tradeId}`;
+    return `${type}-${symbol}`;
   }
 
   async showDialog(type: DialogType, data: any, priority: DialogPriority = 'medium') {
