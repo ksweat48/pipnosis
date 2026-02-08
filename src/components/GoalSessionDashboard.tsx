@@ -1082,30 +1082,49 @@ export const GoalSessionDashboard: React.FC = () => {
     };
   };
 
-  const calculateActualRiskPercentage = (): { percentage: number; dollarRisk: number; displayText: string } => {
-    if (!activeSession || openTrades.length === 0) {
-      // No open trades - show the configured risk
-      // Prioritize dollarRisk if available (new system), otherwise use risk mode (legacy)
-      if (activeSession?.config.dollarRisk) {
-        const accountBalance = activeSession.config.accountBalance || 10000;
-        const percentage = (activeSession.config.dollarRisk / accountBalance) * 100;
-        return {
-          percentage,
-          dollarRisk: activeSession.config.dollarRisk,
-          displayText: `$${activeSession.config.dollarRisk}`
-        };
-      }
+  const getTargetRisk = (): { percentage: number; dollarRisk: number } => {
+    if (!activeSession) return { percentage: 0, dollarRisk: 0 };
+    const accountBalance = activeSession.config.accountBalance || 10000;
 
-      // Legacy risk mode
-      const riskMode = getRiskPercentage(activeSession?.config.riskMode || 'medium');
+    if (activeSession.config.dollarRisk) {
       return {
-        percentage: riskMode,
-        dollarRisk: 0,
-        displayText: `${riskMode}%`
+        percentage: (activeSession.config.dollarRisk / accountBalance) * 100,
+        dollarRisk: activeSession.config.dollarRisk
       };
     }
 
-    // Calculate actual risk from open trades
+    const riskPct = getRiskPercentage(activeSession.config.riskMode || 'medium');
+    return {
+      percentage: riskPct,
+      dollarRisk: (riskPct / 100) * accountBalance
+    };
+  };
+
+  const calculateActualRiskPercentage = (): {
+    percentage: number;
+    dollarRisk: number;
+    displayText: string;
+    targetPercentage: number;
+    targetDollarRisk: number;
+    hasDiscrepancy: boolean;
+    discrepancyReason: string;
+  } => {
+    const target = getTargetRisk();
+
+    if (!activeSession || openTrades.length === 0) {
+      return {
+        percentage: target.percentage,
+        dollarRisk: target.dollarRisk,
+        displayText: activeSession?.config.dollarRisk
+          ? `$${activeSession.config.dollarRisk}`
+          : `${target.percentage}%`,
+        targetPercentage: target.percentage,
+        targetDollarRisk: target.dollarRisk,
+        hasDiscrepancy: false,
+        discrepancyReason: ''
+      };
+    }
+
     const accountBalance = activeSession.config.accountBalance || 10000;
     let totalDollarRisk = 0;
 
@@ -1115,31 +1134,39 @@ export const GoalSessionDashboard: React.FC = () => {
       const stopLoss = trade.stop_loss || 0;
 
       if (entryPrice > 0 && stopLoss > 0) {
-        // Calculate pip distance to stop loss
         const pipDistance = calculatePipDistance(trade.symbol, entryPrice, stopLoss);
-
-        // Calculate dollar value per pip for this lot size
         const dollarPerPip = calculateDollarPerPip(trade.symbol, lotSize);
-
-        // Total dollar risk for this trade
         const tradeRisk = pipDistance * dollarPerPip;
         totalDollarRisk += tradeRisk;
       }
     });
 
-    // Calculate risk percentage
     const riskPercentage = (totalDollarRisk / accountBalance) * 100;
 
-    // Display text with appropriate formatting
     let displayText = `${riskPercentage.toFixed(2)}%`;
     if (openTrades.length > 1) {
       displayText += ` (${openTrades.length} trades)`;
     }
 
+    const discrepancyThreshold = 0.30;
+    const ratio = target.percentage > 0 ? riskPercentage / target.percentage : 1;
+    const hasDiscrepancy = Math.abs(1 - ratio) > discrepancyThreshold;
+
+    let discrepancyReason = '';
+    if (hasDiscrepancy && riskPercentage < target.percentage) {
+      discrepancyReason = 'Position undersized due to lot size constraints';
+    } else if (hasDiscrepancy && riskPercentage > target.percentage) {
+      discrepancyReason = 'Position oversized relative to target risk';
+    }
+
     return {
       percentage: riskPercentage,
       dollarRisk: totalDollarRisk,
-      displayText
+      displayText,
+      targetPercentage: target.percentage,
+      targetDollarRisk: target.dollarRisk,
+      hasDiscrepancy,
+      discrepancyReason
     };
   };
 
@@ -1561,25 +1588,49 @@ export const GoalSessionDashboard: React.FC = () => {
                   riskData.percentage < 5 ? 'text-yellow-400' :
                   riskData.percentage < 10 ? 'text-orange-400' : 'text-red-400';
 
+                if (openTrades.length > 0) {
+                  return (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span className={`text-lg font-bold ${riskColor}`}>
+                          {riskData.percentage.toFixed(1)}%
+                        </span>
+                        <span className="text-xs text-gray-500">/</span>
+                        <span className="text-sm font-medium text-gray-400">
+                          {riskData.targetPercentage.toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-gray-500 leading-tight">
+                        <span className={riskColor}>${riskData.dollarRisk.toFixed(0)}</span>
+                        <span className="text-gray-600 mx-1">of</span>
+                        <span className="text-gray-400">${riskData.targetDollarRisk.toFixed(0)} target</span>
+                      </div>
+                      <div className="text-xs text-gray-400">Risk</div>
+                      {riskData.hasDiscrepancy && (
+                        <div className="flex items-center justify-center gap-1 mt-0.5" title={riskData.discrepancyReason}>
+                          <AlertTriangle className="w-3 h-3 text-amber-400" />
+                          <span className="text-[10px] text-amber-400/80 leading-tight">
+                            {riskData.discrepancyReason}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
                 return (
                   <>
                     <div className={`text-2xl font-bold ${riskColor}`}>
                       {riskData.displayText}
                     </div>
                     <div className="text-xs text-gray-400">
-                      {openTrades.length > 0 ? (
-                        <span title={`$${riskData.dollarRisk.toFixed(2)} at risk`}>
-                          Actual Risk
-                        </span>
-                      ) : (
-                        <span title={
-                          activeSession.config.dollarRisk
-                            ? `$${activeSession.config.dollarRisk} per trade${activeSession.config.tradeStyle ? ` • ${activeSession.config.tradeStyle} style` : ''}`
-                            : `Max ${getRiskPercentage(activeSession.config.riskMode)}% per trade`
-                        }>
-                          Risk Per Trade
-                        </span>
-                      )}
+                      <span title={
+                        activeSession.config.dollarRisk
+                          ? `$${activeSession.config.dollarRisk} per trade${activeSession.config.tradeStyle ? ` • ${activeSession.config.tradeStyle} style` : ''}`
+                          : `Max ${getRiskPercentage(activeSession.config.riskMode)}% per trade`
+                      }>
+                        Risk Per Trade
+                      </span>
                     </div>
                   </>
                 );

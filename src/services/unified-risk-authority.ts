@@ -327,7 +327,7 @@ class UnifiedRiskAuthority {
       const targetDollarPerPip = riskDollars / stopPips;
       const pipInfo = getCurrencyPipInfo(symbol);
       recommendedLotSize = targetDollarPerPip / pipInfo.dollarPerPipPerLot;
-      recommendedLotSize = roundLotSize(symbol, recommendedLotSize);
+      recommendedLotSize = roundLotSize(recommendedLotSize);
     }
 
     // LAYER 3: PCVL Validation
