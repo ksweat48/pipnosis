@@ -66,31 +66,28 @@ export function ClubLayout({ children }: ClubLayoutProps) {
   if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
       {/* Club Header */}
-      <header className="sticky top-0 bg-black/95 backdrop-blur-xl border-b border-amber-500/20 z-50">
+      <header className="sticky top-0 bg-white/70 backdrop-blur-xl border-b border-slate-200/50 z-50 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between h-16">
             {/* Left: Back button and logo */}
             <div className="flex items-center gap-4">
               <button
                 onClick={() => navigate('/charts')}
-                className="flex items-center gap-2 px-3 py-2 text-amber-400 hover:text-amber-300 hover:bg-amber-900/10 rounded-lg transition-colors"
+                className="flex items-center gap-2 px-3 py-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 rounded-lg transition-colors"
               >
                 <ArrowLeft size={18} />
                 <span className="hidden sm:inline">Back to Trading</span>
               </button>
 
               <div className="flex items-center gap-3">
-                <div className="relative">
-                  <div className="absolute inset-0 bg-amber-500 rounded-full blur-md opacity-40" />
-                  <Crown size={32} className="text-amber-400 relative" />
-                </div>
+                <Crown size={28} className="text-amber-500" />
                 <div>
-                  <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500">
+                  <h1 className="text-xl font-bold text-slate-800">
                     Pipnosis Club
                   </h1>
-                  <p className="text-gray-400 text-xs">Exclusive Member Area</p>
+                  <p className="text-slate-500 text-xs">Exclusive Member Area</p>
                 </div>
               </div>
             </div>
@@ -98,19 +95,19 @@ export function ClubLayout({ children }: ClubLayoutProps) {
             {/* Right: Token balance and user info */}
             <div className="flex items-center gap-4">
               {!loading && tokenBalance && (
-                <div className="flex items-center gap-3 px-4 py-2 bg-amber-900/20 border border-amber-500/30 rounded-lg">
-                  <Coins size={20} className="text-amber-400" />
+                <div className="flex items-center gap-3 px-4 py-2 bg-white/80 backdrop-blur-sm border border-slate-200/60 rounded-lg shadow-sm">
+                  <Coins size={20} className="text-amber-500" />
                   <div className="flex flex-col items-start">
-                    <div className="text-gray-400 text-xs">Your Tokens</div>
-                    <div className="text-amber-400 font-bold text-lg">
+                    <div className="text-slate-500 text-xs">Your Tokens</div>
+                    <div className="text-slate-900 font-bold text-lg">
                       {tokenBalance.availableTokens.toLocaleString()}
                     </div>
                   </div>
                 </div>
               )}
 
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-500 to-yellow-600 flex items-center justify-center border-2 border-amber-400/50">
-                <Users size={20} className="text-black" />
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-amber-500 flex items-center justify-center shadow-md">
+                <Users size={20} className="text-white" />
               </div>
             </div>
           </div>
@@ -126,8 +123,8 @@ export function ClubLayout({ children }: ClubLayoutProps) {
                   to={item.path}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all whitespace-nowrap ${
                     active
-                      ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-black shadow-lg shadow-amber-500/30 font-semibold'
-                      : 'text-gray-400 hover:text-amber-400 hover:bg-amber-900/10'
+                      ? 'bg-slate-900 text-white shadow-md'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                   }`}
                 >
                   <Icon size={18} />
@@ -145,27 +142,27 @@ export function ClubLayout({ children }: ClubLayoutProps) {
       </main>
 
       {/* Club Footer */}
-      <footer className="border-t border-amber-500/10 bg-black/50 mt-16">
+      <footer className="border-t border-slate-200/60 bg-white/40 backdrop-blur-sm mt-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div>
               <div className="flex items-center gap-2 mb-4">
-                <Crown size={24} className="text-amber-400" />
-                <h3 className="text-lg font-bold text-amber-400">Pipnosis Club</h3>
+                <Crown size={24} className="text-amber-500" />
+                <h3 className="text-lg font-bold text-slate-800">Pipnosis Club</h3>
               </div>
-              <p className="text-gray-400 text-sm">
+              <p className="text-slate-600 text-sm">
                 An exclusive membership community with utility tokens, rewards, and governance.
               </p>
             </div>
 
             <div>
-              <h4 className="text-amber-400 font-semibold mb-3">Quick Links</h4>
+              <h4 className="text-slate-800 font-semibold mb-3">Quick Links</h4>
               <ul className="space-y-2">
                 {clubNavItems.map((item) => (
                   <li key={item.path}>
                     <Link
                       to={item.path}
-                      className="text-gray-400 hover:text-amber-400 text-sm transition-colors"
+                      className="text-slate-600 hover:text-slate-900 text-sm transition-colors"
                     >
                       {item.label}
                     </Link>
@@ -175,15 +172,15 @@ export function ClubLayout({ children }: ClubLayoutProps) {
             </div>
 
             <div>
-              <h4 className="text-amber-400 font-semibold mb-3">Important Notice</h4>
-              <p className="text-gray-500 text-xs leading-relaxed">
+              <h4 className="text-slate-800 font-semibold mb-3">Important Notice</h4>
+              <p className="text-slate-500 text-xs leading-relaxed">
                 Club tokens are utility tokens for access and rewards only. Not investment advice.
                 No guaranteed returns. This is a membership community, not a financial product.
               </p>
             </div>
           </div>
 
-          <div className="border-t border-amber-500/10 mt-8 pt-6 text-center text-gray-500 text-xs">
+          <div className="border-t border-slate-200/60 mt-8 pt-6 text-center text-slate-500 text-xs">
             © 2024 Pipnosis AI. All rights reserved.
           </div>
         </div>

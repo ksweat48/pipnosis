@@ -94,10 +94,10 @@ export function ClubEntryGatePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100 flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-12 h-12 text-amber-400 animate-spin mx-auto mb-4" />
-          <p className="text-gray-400">Checking Club access...</p>
+          <Loader2 className="w-12 h-12 text-slate-600 animate-spin mx-auto mb-4" />
+          <p className="text-slate-600">Checking Club access...</p>
         </div>
       </div>
     );
@@ -108,7 +108,7 @@ export function ClubEntryGatePage() {
   }
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
       <NavigationMenu />
 
       <div className="max-w-6xl mx-auto px-4 py-12">
@@ -116,42 +116,37 @@ export function ClubEntryGatePage() {
         <div className="text-center mb-12">
           <div className="flex items-center justify-center mb-6">
             {accessResult.canAccess ? (
-              <div className="relative">
-                <div className="absolute inset-0 bg-amber-500 rounded-full blur-xl opacity-60 animate-pulse" />
-                <Unlock size={64} className="text-amber-400 relative" />
+              <div className="p-4 bg-white/70 backdrop-blur-md rounded-full shadow-lg">
+                <Unlock size={64} className="text-emerald-500" />
               </div>
             ) : (
-              <div className="relative">
-                <div className="absolute inset-0 bg-amber-500 rounded-full blur-xl opacity-40" />
-                <Lock size={64} className="text-amber-400 relative" />
+              <div className="p-4 bg-white/70 backdrop-blur-md rounded-full shadow-lg">
+                <Lock size={64} className="text-slate-400" />
               </div>
             )}
           </div>
 
-          <h1 className="text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 mb-4">
+          <h1 className="text-5xl font-bold text-slate-900 mb-4">
             Pipnosis Club
           </h1>
-          <p className="text-gray-400 text-lg max-w-2xl mx-auto">
+          <p className="text-slate-600 text-lg max-w-2xl mx-auto">
             An exclusive membership community with utility tokens, rewards, and governance
           </p>
         </div>
 
         {/* Access Status Card */}
-        <div className="relative group mb-8">
-          <div className="absolute -inset-1 bg-gradient-to-r from-amber-600 to-yellow-600 rounded-2xl opacity-20 group-hover:opacity-30 transition blur-lg" />
+        <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-2xl p-8 shadow-lg mb-8">
+          <div className="flex items-start justify-between mb-6">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-900 mb-2">Access Status</h2>
+              <p className="text-slate-600">{accessResult.message}</p>
+            </div>
 
-          <div className="relative bg-gradient-to-br from-gray-950/95 to-black/95 backdrop-blur-xl border-2 border-amber-500/30 rounded-2xl p-8">
-            <div className="flex items-start justify-between mb-6">
-              <div>
-                <h2 className="text-2xl font-bold text-amber-400 mb-2">Access Status</h2>
-                <p className="text-gray-400">{accessResult.message}</p>
-              </div>
-
-              <div className={`px-4 py-2 rounded-full font-semibold flex items-center gap-2 ${
-                accessResult.canAccess
-                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
-                  : 'bg-gray-800 text-gray-400 border border-gray-700'
-              }`}>
+            <div className={`px-4 py-2 rounded-full font-semibold flex items-center gap-2 ${
+              accessResult.canAccess
+                ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                : 'bg-slate-100 text-slate-600 border border-slate-200'
+            }`}>
                 {accessResult.canAccess ? (
                   <>
                     <Unlock size={18} />
@@ -168,30 +163,30 @@ export function ClubEntryGatePage() {
 
             {/* Token Balance Display */}
             <div className="grid grid-cols-2 gap-4">
-              <div className="bg-gray-900/50 border border-amber-500/20 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-gray-400 text-sm mb-2">
+              <div className="bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl p-4 shadow-sm">
+                <div className="flex items-center gap-2 text-slate-500 text-sm mb-2">
                   <Coins size={16} />
                   Your Tokens
                 </div>
-                <div className="text-3xl font-bold text-amber-400">
+                <div className="text-3xl font-bold text-slate-900">
                   {accessResult.tokens.available.toLocaleString()}
                 </div>
               </div>
 
-              <div className="bg-gray-900/50 border border-amber-500/20 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-gray-400 text-sm mb-2">
+              <div className="bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl p-4 shadow-sm">
+                <div className="flex items-center gap-2 text-slate-500 text-sm mb-2">
                   <Lock size={16} />
                   Required Tokens
                 </div>
-                <div className="text-3xl font-bold text-white">
+                <div className="text-3xl font-bold text-slate-900">
                   {accessResult.tokens.required.toLocaleString()}
                 </div>
               </div>
             </div>
 
             {accessResult.status === 'insufficient_tokens' && (
-              <div className="mt-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl">
-                <p className="text-amber-300">
+              <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                <p className="text-amber-800">
                   You need <span className="font-bold">{accessResult.tokens.deficit.toLocaleString()}</span> more tokens to access the Club.
                   Purchase a higher membership tier to receive more tokens.
                 </p>
@@ -201,60 +196,56 @@ export function ClubEntryGatePage() {
             {accessResult.canAccess && (
               <button
                 onClick={() => navigate('/club/home')}
-                className="w-full mt-6 px-6 py-4 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black font-semibold rounded-xl transition-all shadow-lg hover:shadow-amber-500/25 hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
+                className="w-full mt-6 px-6 py-4 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2"
               >
                 Enter Pipnosis Club
                 <ArrowRight size={20} />
               </button>
             )}
-          </div>
         </div>
 
         {/* Membership Packages (if no membership) */}
         {accessResult.status === 'no_membership' && (
           <div>
-            <h2 className="text-3xl font-bold text-center bg-clip-text text-transparent bg-gradient-to-r from-amber-400 to-yellow-400 mb-8">
+            <h2 className="text-3xl font-bold text-center text-slate-900 mb-8">
               Choose Your Membership
             </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {packages.map((pkg) => (
-                <div key={pkg.id} className="relative group">
-                  <div className="absolute -inset-0.5 bg-gradient-to-r from-amber-600 to-yellow-600 rounded-2xl opacity-20 group-hover:opacity-40 transition blur-lg" />
-
-                  <div className="relative bg-gradient-to-br from-gray-950/95 to-black/95 backdrop-blur-xl border-2 border-amber-500/30 rounded-2xl p-6 h-full flex flex-col">
-                    <div className="flex items-center gap-3 mb-4">
-                      <div
-                        className="p-3 rounded-xl"
-                        style={{ backgroundColor: `${pkg.badgeColor}20`, border: `2px solid ${pkg.badgeColor}40` }}
-                      >
-                        <Crown size={28} style={{ color: pkg.badgeColor }} />
-                      </div>
-                      <div>
-                        <h3 className="text-xl font-bold text-amber-400">{pkg.name}</h3>
-                        <p className="text-gray-400 text-sm">Tier {pkg.tierLevel}</p>
-                      </div>
+                <div key={pkg.id} className="bg-white bg-opacity-70 backdrop-blur-md border border-slate-200 rounded-2xl p-6 shadow-lg hover:shadow-xl transition-shadow h-full flex flex-col">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div
+                      className="p-3 rounded-xl"
+                      style={{ backgroundColor: `${pkg.badgeColor}20`, border: `1px solid ${pkg.badgeColor}40` }}
+                    >
+                      <Crown size={28} style={{ color: pkg.badgeColor }} />
                     </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-slate-900">{pkg.name}</h3>
+                      <p className="text-slate-500 text-sm">Tier {pkg.tierLevel}</p>
+                    </div>
+                  </div>
 
-                    <p className="text-gray-400 mb-6">{pkg.description}</p>
+                  <p className="text-slate-600 mb-6">{pkg.description}</p>
 
-                    <div className="bg-gray-900/50 border border-amber-500/20 rounded-xl p-4 mb-4">
+                  <div className="bg-white bg-opacity-60 backdrop-blur-sm border border-slate-200 rounded-xl p-4 mb-4 shadow-sm">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-gray-500">Initial Tokens</span>
-                        <span className="text-amber-400 font-bold">{pkg.initialTokenAllocation.toLocaleString()}</span>
+                        <span className="text-slate-500">Initial Tokens</span>
+                        <span className="text-slate-900 font-bold">{pkg.initialTokenAllocation.toLocaleString()}</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-gray-500">Required Balance</span>
-                        <span className="text-white font-bold">{pkg.requiredTokenBalance.toLocaleString()}</span>
+                        <span className="text-slate-500">Required Balance</span>
+                        <span className="text-slate-900 font-bold">{pkg.requiredTokenBalance.toLocaleString()}</span>
                       </div>
                     </div>
 
                     <div className="mb-6">
-                      <div className="text-gray-500 text-sm mb-2">Benefits:</div>
+                      <div className="text-slate-500 text-sm mb-2">Benefits:</div>
                       <ul className="space-y-2">
                         {pkg.benefits.map((benefit, idx) => (
-                          <li key={idx} className="flex items-start gap-2 text-gray-400 text-sm">
-                            <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                          <li key={idx} className="flex items-start gap-2 text-slate-600 text-sm">
+                            <Check size={16} className="text-emerald-500 flex-shrink-0 mt-0.5" />
                             <span>{benefit}</span>
                           </li>
                         ))}
@@ -262,19 +253,18 @@ export function ClubEntryGatePage() {
                     </div>
 
                     <div className="mt-auto">
-                      <div className="text-4xl font-bold text-amber-400 mb-4">
+                      <div className="text-4xl font-bold text-slate-900 mb-4">
                         ${pkg.priceUsd.toFixed(2)}
                       </div>
 
                       <button
                         onClick={() => handlePurchaseClick(pkg)}
                         disabled={processingPurchase === pkg.id}
-                        className="w-full px-6 py-3 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed text-black font-semibold rounded-xl transition-all shadow-lg hover:shadow-amber-500/25 hover:scale-105 active:scale-95 disabled:scale-100"
+                        className="w-full px-6 py-3 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all shadow-md hover:shadow-lg"
                       >
                         {processingPurchase === pkg.id ? 'Processing...' : 'Purchase'}
                       </button>
                     </div>
-                  </div>
                 </div>
               ))}
             </div>
@@ -282,7 +272,7 @@ export function ClubEntryGatePage() {
         )}
 
         {/* Footer */}
-        <div className="mt-12 text-center text-gray-500 text-sm">
+        <div className="mt-12 text-center text-slate-500 text-sm">
           <p>Pipnosis Club tokens are utility tokens for access and rewards.</p>
           <p>Not investment advice. No guaranteed returns.</p>
         </div>
