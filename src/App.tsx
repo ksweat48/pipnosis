@@ -37,7 +37,6 @@ const GetAppPage = lazy(() => import('./pages/GetAppPage'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
 const SystemDiagnosticsPage = lazy(() => import('./pages/SystemDiagnosticsPage'));
 const AILearningCenterPage = lazy(() => import('./pages/AILearningCenterPage'));
-const TokenTreasuryPage = lazy(() => import('./pages/TokenTreasuryPage'));
 const CreditsPage = lazy(() => import('./pages/CreditsPage').then(m => ({ default: m.CreditsPage })));
 const ClubEntryGatePage = lazy(() => import('./pages/ClubEntryGatePage').then(m => ({ default: m.ClubEntryGatePage })));
 const ClubHomePage = lazy(() => import('./pages/ClubHomePage').then(m => ({ default: m.ClubHomePage })));
@@ -557,14 +556,6 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute adminOnly={true}>
             <SystemDiagnosticsPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/token-treasury"
-        element={
-          <ProtectedRoute adminOnly={true}>
-            <TokenTreasuryPage />
           </ProtectedRoute>
         }
       />

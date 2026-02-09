@@ -323,6 +323,18 @@ export function AdminDashboard() {
             Users
           </button>
           <button
+            onClick={() => handleTabChange('club')}
+            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
+              activeTab === 'club'
+                ? 'bg-amber-600 text-white'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            <Crown size={16} className="sm:w-[18px] sm:h-[18px]" />
+            <span className="hidden sm:inline">Club</span>
+            <span className="sm:hidden">Club</span>
+          </button>
+          <button
             onClick={() => handleTabChange('data')}
             className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
               activeTab === 'data'
@@ -397,18 +409,6 @@ export function AdminDashboard() {
             <AlertCircle size={16} className="sm:w-[18px] sm:h-[18px]" />
             <span className="hidden sm:inline">Governance</span>
             <span className="sm:hidden">Gov</span>
-          </button>
-          <button
-            onClick={() => handleTabChange('club')}
-            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex-shrink-0 text-xs sm:text-sm ${
-              activeTab === 'club'
-                ? 'bg-amber-600 text-white'
-                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-            }`}
-          >
-            <Crown size={16} className="sm:w-[18px] sm:h-[18px]" />
-            <span className="hidden sm:inline">Club</span>
-            <span className="sm:hidden">Club</span>
           </button>
         </div>
 
