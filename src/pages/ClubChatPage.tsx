@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { ClubLayout } from '@/components/ClubLayout';
 import { clubChatService, type ChatMessage, type ChatReaction } from '@/services/club-chat-service';
 import { clubMembershipService } from '@/services/club-membership-service';
+import { clubAccessGateService, type ClubAccessResult } from '@/services/club-access-gate-service';
 
 const TIER_COLORS: Record<number, string> = {
   1: '#6366F1',
@@ -165,7 +166,7 @@ export function ClubChatPage() {
   const [memberTier, setMemberTier] = useState(1);
   const [memberName, setMemberName] = useState('Member');
   const [showScrollDown, setShowScrollDown] = useState(false);
-  const [hasMembership, setHasMembership] = useState<boolean | null>(null);
+  const [accessResult, setAccessResult] = useState<ClubAccessResult | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -179,16 +180,21 @@ export function ClubChatPage() {
   const initChat = async () => {
     if (!user) return;
 
-    const membership = await clubMembershipService.getUserMembership(user.id);
-    if (!membership || membership.status !== 'active') {
-      setHasMembership(false);
+    const gateResult = await clubAccessGateService.validateAccess(user.id);
+    setAccessResult(gateResult);
+
+    if (!gateResult.canAccess) {
       setLoading(false);
       return;
     }
 
-    setHasMembership(true);
-    setMemberTier(membership.tierLevel);
-    setMemberName(membership.tierName || user.email?.split('@')[0] || 'Member');
+    if (gateResult.membership?.hasMembership) {
+      setMemberTier(gateResult.membership.tierLevel);
+      setMemberName(gateResult.membership.tierName || user.email?.split('@')[0] || 'Member');
+    } else {
+      setMemberTier(1);
+      setMemberName(user.email?.split('@')[0] || 'Member');
+    }
 
     const msgs = await clubChatService.getMessages();
     setMessages(msgs);
@@ -320,16 +326,24 @@ export function ClubChatPage() {
     );
   }
 
-  if (hasMembership === false) {
+  if (accessResult && !accessResult.canAccess) {
+    const isTokenIssue = accessResult.status === 'insufficient_tokens';
     return (
       <ClubLayout>
         <div className="flex items-center justify-center min-h-[60vh]">
           <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-2xl p-8 text-center max-w-md shadow-lg">
             <MessageSquare size={48} className="text-slate-300 mx-auto mb-4" />
-            <h2 className="text-xl font-bold text-slate-900 mb-2">Membership Required</h2>
+            <h2 className="text-xl font-bold text-slate-900 mb-2">
+              {isTokenIssue ? 'Insufficient Tokens' : 'Membership Required'}
+            </h2>
             <p className="text-slate-600 text-sm">
-              An active Club membership is required to access the member chat.
+              {accessResult.message}
             </p>
+            {isTokenIssue && accessResult.tokens.deficit > 0 && (
+              <p className="text-xs text-slate-500 mt-2">
+                You need {accessResult.tokens.deficit} more PIP token{accessResult.tokens.deficit > 1 ? 's' : ''} to unlock access.
+              </p>
+            )}
           </div>
         </div>
       </ClubLayout>
