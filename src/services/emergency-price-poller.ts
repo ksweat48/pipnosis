@@ -8,6 +8,7 @@
 
 import { logger, LogCategory } from '@/lib/logger';
 import { marketDataService } from './market-data-service';
+import { TIME_CONSTANTS } from '@/config/time-constants';
 
 interface LivePrice {
   symbol: string;
@@ -33,7 +34,8 @@ class EmergencyPricePoller {
   private mode: 'database' | 'direct' | 'emergency' = 'database';
   private lastCheck: Date | null = null;
   private readonly CHECK_INTERVAL_MS = 3000;
-  private readonly DB_STALE_THRESHOLD_MS = 10000; // 10 seconds
+  // Use SSOT TIME_CONSTANTS for threshold
+  private readonly DB_STALE_THRESHOLD_MS = TIME_CONSTANTS.SECONDS.PRICE_STALENESS_WARNING * 1000;
 
   async start(): Promise<void> {
     if (this.isActive) {

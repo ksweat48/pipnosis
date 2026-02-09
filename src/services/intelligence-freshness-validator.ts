@@ -1,5 +1,7 @@
 import { logger, LogCategory } from '../lib/logger';
 import { FreshnessBlockCategory, type BlockMetadata } from '../types/freshness-block';
+import { priceFreshnessGate } from '../governance/price-freshness-gate';
+import { TIME_CONSTANTS } from '../config/time-constants';
 
 export interface FreshnessValidationResult {
   isValid: boolean;
@@ -16,23 +18,6 @@ export interface IntelligenceData {
   cacheAgeSeconds: number;
   timeframe: string;
 }
-
-const MAX_AGE_BY_TIMEFRAME: Record<string, number> = {
-  'M1': 120,
-  '1m': 120,
-  'M5': 300,
-  '5m': 300,
-  'M15': 600,
-  '15m': 600,
-  'M30': 900,
-  '30m': 900,
-  'H1': 1200,
-  '1h': 1200,
-  'H4': 2400,
-  '4h': 2400,
-  'D1': 7200,
-  '1d': 7200
-};
 
 export class IntelligenceFreshnessValidator {
   validateOmegaIntelligence(
@@ -174,8 +159,9 @@ export class IntelligenceFreshnessValidator {
   }
 
   private getMaxAgeForTimeframe(timeframe: string): number {
-    const normalized = timeframe.toUpperCase();
-    return MAX_AGE_BY_TIMEFRAME[normalized] || MAX_AGE_BY_TIMEFRAME[timeframe] || 600;
+    // Delegate to SSOT TIME_CONSTANTS
+    // Use execution context threshold as default for intelligence validation
+    return TIME_CONSTANTS.SECONDS.PRICE_STALENESS_WARNING;
   }
 
   shouldForceRefresh(

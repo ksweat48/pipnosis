@@ -14,9 +14,11 @@
 
 import { supabase } from '@/lib/supabase';
 import { logger, LogCategory } from '@/lib/logger';
+import { TIME_CONSTANTS } from '@/config/time-constants';
 
-const STALE_THRESHOLD_MINUTES = 2; // Price older than 2 minutes is considered stale
-const CRITICAL_THRESHOLD_MINUTES = 5; // Price older than 5 minutes is critical
+// Use SSOT TIME_CONSTANTS for thresholds
+const STALE_THRESHOLD_SECONDS = TIME_CONSTANTS.SECONDS.PRICE_STALENESS_CRITICAL;
+const CRITICAL_THRESHOLD_SECONDS = TIME_CONSTANTS.SECONDS.PRICE_STALENESS_BLOCK_TRADING;
 const CHECK_INTERVAL_MS = 30000; // Check every 30 seconds
 
 interface PriceStatenessStatus {
@@ -108,8 +110,9 @@ class PriceStalenessMonitor {
         const ageSeconds = Math.floor(ageMs / 1000);
         const ageMinutes = ageSeconds / 60;
 
-        const isCritical = ageMinutes > CRITICAL_THRESHOLD_MINUTES;
-        const isStale = ageMinutes > STALE_THRESHOLD_MINUTES;
+        // Use SSOT TIME_CONSTANTS for threshold comparisons
+        const isCritical = ageSeconds > CRITICAL_THRESHOLD_SECONDS;
+        const isStale = ageSeconds > STALE_THRESHOLD_SECONDS;
 
         updates.push({
           symbol,
@@ -122,12 +125,12 @@ class PriceStalenessMonitor {
         if (isCritical) {
           logger.warn(
             LogCategory.POLLING_COORDINATOR,
-            `CRITICAL: ${symbol} price is ${ageMinutes.toFixed(1)} minutes stale`
+            `CRITICAL: ${symbol} price is ${ageSeconds}s stale (threshold: ${CRITICAL_THRESHOLD_SECONDS}s)`
           );
         } else if (isStale) {
           logger.debug(
             LogCategory.POLLING_COORDINATOR,
-            `${symbol} price is ${ageMinutes.toFixed(1)} minutes stale`
+            `${symbol} price is ${ageSeconds}s stale (threshold: ${STALE_THRESHOLD_SECONDS}s)`
           );
         }
       }

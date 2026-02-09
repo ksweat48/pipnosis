@@ -19,7 +19,7 @@
 
 import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
-import { VALIDATION_RULES } from './validation-gateway';
+import { TIME_CONSTANTS, getAgeInSeconds } from '../config/time-constants';
 
 export interface PriceFreshnessResult {
   isFresh: boolean;
@@ -43,16 +43,17 @@ export interface PriceData {
 
 /**
  * Freshness Thresholds - SSOT Configuration
+ * Uses TIME_CONSTANTS as the single source of truth
  */
 export const FRESHNESS_THRESHOLDS = {
   // Default maximum age for price data
-  DEFAULT_MAX_AGE_SECONDS: 60,
+  DEFAULT_MAX_AGE_SECONDS: TIME_CONSTANTS.SECONDS.PRICE_STALENESS_CRITICAL,
 
   // Critical threshold - beyond this, always block
-  CRITICAL_MAX_AGE_SECONDS: 120,
+  CRITICAL_MAX_AGE_SECONDS: TIME_CONSTANTS.SECONDS.PRICE_STALENESS_BLOCK_TRADING,
 
   // Trading execution requires fresher data
-  EXECUTION_MAX_AGE_SECONDS: 30,
+  EXECUTION_MAX_AGE_SECONDS: TIME_CONSTANTS.SECONDS.PRICE_STALENESS_WARNING,
 
   // Analysis/scanning can use slightly older data
   ANALYSIS_MAX_AGE_SECONDS: 90,
@@ -61,10 +62,13 @@ export const FRESHNESS_THRESHOLDS = {
   CRYPTO_MAX_AGE_SECONDS: 45,
 
   // Forex markets - during active hours
-  FOREX_MAX_AGE_SECONDS: 60,
+  FOREX_MAX_AGE_SECONDS: TIME_CONSTANTS.SECONDS.PRICE_STALENESS_CRITICAL,
 
   // Indices - during market hours
-  INDEX_MAX_AGE_SECONDS: 60
+  INDEX_MAX_AGE_SECONDS: TIME_CONSTANTS.SECONDS.PRICE_STALENESS_CRITICAL,
+
+  // Absolute maximum - reject anything older
+  ABSOLUTE_MAX_AGE_SECONDS: TIME_CONSTANTS.SECONDS.PRICE_STALENESS_ABSOLUTE_MAX
 } as const;
 
 export type FreshnessContext = 'execution' | 'analysis' | 'monitoring' | 'display';
@@ -114,9 +118,9 @@ class PriceFreshnessGate {
         };
       }
 
-      // Calculate age (SSOT: use canonical created_at column)
+      // Calculate age (SSOT: use canonical created_at column + time-constants helper)
       const lastUpdate = new Date(priceData.created_at);
-      const ageSeconds = (Date.now() - lastUpdate.getTime()) / 1000;
+      const ageSeconds = getAgeInSeconds(lastUpdate);
       const maxAgeSeconds = this.getMaxAgeForContext(context, symbol);
 
       // Determine if fresh
@@ -186,7 +190,6 @@ class PriceFreshnessGate {
 
     // Process each symbol
     const priceMap = new Map(pricesData?.map(p => [p.symbol, p]) || []);
-    const now = Date.now();
 
     symbols.forEach(symbol => {
       const normalizedSymbol = symbol.toUpperCase();
@@ -203,9 +206,9 @@ class PriceFreshnessGate {
         return;
       }
 
-      // SSOT: use canonical created_at column
+      // SSOT: use canonical created_at column + time-constants helper
       const lastUpdate = new Date(priceData.created_at);
-      const ageSeconds = (now - lastUpdate.getTime()) / 1000;
+      const ageSeconds = getAgeInSeconds(lastUpdate);
       const maxAgeSeconds = this.getMaxAgeForContext(context, symbol);
       const isFresh = ageSeconds <= maxAgeSeconds;
 
@@ -223,6 +226,44 @@ class PriceFreshnessGate {
   }
 
   /**
+   * Check if a timestamp is fresh enough (no database query)
+   * Useful when caller already has timestamp
+   *
+   * @param timestamp The price timestamp to check
+   * @param context What the price will be used for
+   * @param symbol Optional symbol for symbol-specific thresholds
+   */
+  isTimestampFresh(
+    timestamp: Date | string,
+    context: FreshnessContext = 'execution',
+    symbol: string = 'UNKNOWN'
+  ): boolean {
+    const timestampDate = typeof timestamp === 'string' ? new Date(timestamp) : timestamp;
+    const ageSeconds = getAgeInSeconds(timestampDate);
+    const maxAgeSeconds = this.getMaxAgeForContext(context, symbol);
+    return ageSeconds <= maxAgeSeconds;
+  }
+
+  /**
+   * Get age and max age for a timestamp (no database query)
+   * Returns details without boolean result
+   */
+  getTimestampAge(
+    timestamp: Date | string,
+    context: FreshnessContext = 'execution',
+    symbol: string = 'UNKNOWN'
+  ): { ageSeconds: number; maxAgeSeconds: number; isFresh: boolean } {
+    const timestampDate = typeof timestamp === 'string' ? new Date(timestamp) : timestamp;
+    const ageSeconds = getAgeInSeconds(timestampDate);
+    const maxAgeSeconds = this.getMaxAgeForContext(context, symbol);
+    return {
+      ageSeconds,
+      maxAgeSeconds,
+      isFresh: ageSeconds <= maxAgeSeconds
+    };
+  }
+
+  /**
    * Validate price data object for freshness
    * Used when price is provided directly (not from DB)
    */
@@ -231,7 +272,7 @@ class PriceFreshnessGate {
       ? new Date(priceData.timestamp)
       : priceData.timestamp;
 
-    const ageSeconds = (Date.now() - timestamp.getTime()) / 1000;
+    const ageSeconds = getAgeInSeconds(timestamp);
     const maxAgeSeconds = this.getMaxAgeForContext(context, priceData.symbol);
     const isFresh = ageSeconds <= maxAgeSeconds;
 

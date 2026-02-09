@@ -13,6 +13,8 @@
 
 import { logger, LogCategory } from '@/lib/logger';
 import { tickBufferService } from './tick-buffer-service';
+import { TIME_CONSTANTS } from '@/config/time-constants';
+import { priceFreshnessGate } from '@/governance/price-freshness-gate';
 
 interface PriceAge {
   symbol: string;
@@ -30,10 +32,10 @@ interface RefreshAction {
 }
 
 class PriceRefreshTrigger {
-  // Price age thresholds (milliseconds)
-  private readonly FRESHNESS_TARGET_MS = 15000;      // Target: < 15 seconds
-  private readonly WARNING_THRESHOLD_MS = 20000;     // Alert at 20 seconds
-  private readonly HARD_LIMIT_MS = 30000;            // Execution blocks at 30 seconds
+  // Use SSOT TIME_CONSTANTS for thresholds (converted to milliseconds)
+  private readonly FRESHNESS_TARGET_MS = TIME_CONSTANTS.SECONDS.PRICE_STALENESS_WARNING * 1000;
+  private readonly WARNING_THRESHOLD_MS = TIME_CONSTANTS.SECONDS.PRICE_STALENESS_WARNING * 1000;
+  private readonly HARD_LIMIT_MS = TIME_CONSTANTS.SECONDS.PRICE_STALENESS_CRITICAL * 1000;
 
   private lastRefreshAttempt: Map<string, Date> = new Map();
   private readonly MIN_REFRESH_INTERVAL_MS = 5000;   // Don't spam refresh calls

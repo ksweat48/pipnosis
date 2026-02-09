@@ -34,6 +34,7 @@ import {
   getAtrGate,
   getSlFloor
 } from '../config/trade-constraints';
+import { TIME_CONSTANTS } from '../config/time-constants';
 
 export interface ITradeFeasibilityResolver {
   resolve(input: FeasibilityInput): FeasibilityResult;
@@ -573,8 +574,9 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
       return false;
     }
 
-    const MAX_PRICE_AGE_MS = 300000; // 5 minutes
-    const MAX_ATR_AGE_MS = 3600000;  // 1 hour
+    // Use SSOT TIME_CONSTANTS for thresholds (converted to milliseconds)
+    const MAX_PRICE_AGE_MS = TIME_CONSTANTS.SECONDS.PRICE_STALENESS_ABSOLUTE_MAX * 1000;
+    const MAX_ATR_AGE_MS = 3600000;  // 1 hour (ATR-specific threshold)
 
     if (input.dataQuality.priceAgeMs && input.dataQuality.priceAgeMs > MAX_PRICE_AGE_MS) {
       logger.warn(

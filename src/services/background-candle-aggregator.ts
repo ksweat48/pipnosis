@@ -5,6 +5,7 @@ import { emergencyPricePoller } from '@/services/emergency-price-poller';
 import { logger, LogCategory } from '@/lib/logger';
 import { getForexMarketStatus, isMarketOpenAt } from '@/utils/marketHours';
 import { candleConflictHandler } from '@/services/candle-conflict-handler';
+import { TIME_CONSTANTS } from '@/config/time-constants';
 
 interface CandleState {
   time: number;
@@ -52,7 +53,8 @@ class BackgroundCandleAggregator {
   private lastMessageTime: Date | null = null;
   private healthCheckInterval: NodeJS.Timeout | null = null;
   private readonly HEALTH_CHECK_INTERVAL_MS = 15000;
-  private readonly STALE_DATA_THRESHOLD_MS = 60000;
+  // Use SSOT TIME_CONSTANTS for threshold
+  private readonly STALE_DATA_THRESHOLD_MS = TIME_CONSTANTS.SECONDS.PRICE_STALENESS_CRITICAL * 1000;
   private connectionState: 'disconnected' | 'connected' | 'error' = 'disconnected';
   private isInitializing = false;
 

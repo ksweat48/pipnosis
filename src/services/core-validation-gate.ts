@@ -22,6 +22,7 @@
 import type { AlphaDecision } from '../brains/coordinator-alpha';
 import type { Omega8Vote, Omega9ValidationResult } from '../types/omega';
 import { logViolation, logWarning } from './ssot-violation-logger';
+import { priceFreshnessGate } from '../governance/price-freshness-gate';
 
 export interface CoreValidationResult {
   passed: boolean;
@@ -53,8 +54,6 @@ interface SnapshotParams {
 }
 
 class CoreValidationGate {
-  private readonly MAX_SNAPSHOT_AGE_MS = 30000; // 30 seconds
-
   /**
    * Complete validation pipeline
    * Runs all validation layers in sequence
@@ -332,23 +331,30 @@ class CoreValidationGate {
 
   /**
    * Validate snapshot freshness
-   * Default: Snapshot must be < 30 seconds old
+   * Delegates to SSOT priceFreshnessGate for all freshness validation
+   * Default context: 'execution' (30 seconds threshold)
    */
   validateSnapshotFreshness(params: SnapshotParams): CoreValidationResult {
-    const { snapshotTimestamp, maxAgeSeconds = 30 } = params;
-    const maxAgeMs = maxAgeSeconds * 1000;
+    const { snapshotTimestamp } = params;
 
-    const snapshotDate = typeof snapshotTimestamp === 'string'
-      ? new Date(snapshotTimestamp)
-      : snapshotTimestamp;
+    // Use SSOT price freshness gate for validation
+    const freshnessCheck = priceFreshnessGate.isTimestampFresh(
+      snapshotTimestamp,
+      'execution',
+      'SNAPSHOT'
+    );
 
-    const ageMs = Date.now() - snapshotDate.getTime();
+    if (!freshnessCheck) {
+      const ageData = priceFreshnessGate.getTimestampAge(
+        snapshotTimestamp,
+        'execution',
+        'SNAPSHOT'
+      );
 
-    if (ageMs > maxAgeMs) {
       return {
         passed: false,
         severity: 'ERROR',
-        reason: `Snapshot too old: ${(ageMs / 1000).toFixed(1)}s (max ${maxAgeSeconds}s)`,
+        reason: `Snapshot too old: ${ageData.ageSeconds.toFixed(1)}s (max ${ageData.maxAgeSeconds}s)`,
         errorType: 'SNAPSHOT_STALE'
       };
     }

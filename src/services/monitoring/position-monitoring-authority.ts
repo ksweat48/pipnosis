@@ -36,6 +36,7 @@
 import { supabase } from '@/lib/supabase';
 import { calculatePnL } from '@/types/position';
 import type { CloseReason } from '@/types/position';
+import { priceFreshnessGate } from '@/governance/price-freshness-gate';
 
 /**
  * Position data structure for monitoring
@@ -288,11 +289,11 @@ class PositionMonitoringAuthority {
    * Validate price data freshness and reasonableness
    *
    * GOVERNANCE: Prevents trading on stale or invalid data
+   * SSOT: Delegates freshness validation to priceFreshnessGate
    */
   validatePriceData(
     symbol: string,
-    priceData: PriceData,
-    maxAgeMinutes: number = 2
+    priceData: PriceData
   ): {
     valid: boolean;
     reason?: string;
@@ -313,13 +314,23 @@ class PositionMonitoringAuthority {
       };
     }
 
-    // Check freshness if timestamp provided
+    // Use SSOT price freshness gate for timestamp validation
     if (priceData.timestamp) {
-      const ageMinutes = (Date.now() - priceData.timestamp.getTime()) / 1000 / 60;
-      if (ageMinutes > maxAgeMinutes) {
+      const isFresh = priceFreshnessGate.isTimestampFresh(
+        priceData.timestamp,
+        'monitoring',
+        symbol
+      );
+
+      if (!isFresh) {
+        const ageData = priceFreshnessGate.getTimestampAge(
+          priceData.timestamp,
+          'monitoring',
+          symbol
+        );
         return {
           valid: false,
-          reason: `Stale price data for ${symbol}: ${ageMinutes.toFixed(1)} minutes old (max: ${maxAgeMinutes})`,
+          reason: `Stale price data for ${symbol}: ${ageData.ageSeconds}s old (max: ${ageData.maxAgeSeconds}s)`,
         };
       }
     }

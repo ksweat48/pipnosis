@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { adminUserService } from './admin-user-service';
+import { TIME_CONSTANTS } from '../config/time-constants';
 
 /**
  * SINGLE SOURCE OF TRUTH for Admin Dashboard Data
@@ -78,7 +79,8 @@ class AdminDataCoordinator {
   private readonly THROTTLE_MS = 2000; // Maximum 1 refresh per 2 seconds
   private readonly DEBOUNCE_MS = 1000; // Batch changes within 1 second
   private readonly POLLING_INTERVAL_MS = 15000; // Poll every 15 seconds as fallback
-  private readonly STALE_THRESHOLD_MS = 30000; // Data is stale after 30 seconds
+  // Use SSOT TIME_CONSTANTS for staleness threshold
+  private readonly STALE_THRESHOLD_MS = TIME_CONSTANTS.SECONDS.PRICE_STALENESS_WARNING * 1000;
 
   /**
    * Start the coordinator - establishes subscriptions and begins polling
