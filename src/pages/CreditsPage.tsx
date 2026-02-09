@@ -28,6 +28,7 @@ export function CreditsPage() {
   const [packages, setPackages] = useState<CreditPackage[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [processingPayment, setProcessingPayment] = useState<string | null>(null);
+  const [purchaseSuccess, setPurchaseSuccess] = useState(false);
 
   const pullToRefresh = usePullToRefresh({
     onRefresh: async () => {
@@ -35,6 +36,14 @@ export function CreditsPage() {
     },
     enabled: true
   });
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('success') === 'true') {
+      setPurchaseSuccess(true);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   useEffect(() => {
     if (user) {
@@ -91,18 +100,20 @@ export function CreditsPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          priceId: pkg.id,
           packageId: pkg.id,
           userId: user.id,
           mode: pkg.packageType === 'subscription' ? 'subscription' : 'payment',
+          purchaseType: 'credits',
         }),
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        throw new Error('Failed to create checkout session');
+        throw new Error(data.error || 'Failed to create checkout session');
       }
 
-      const { url } = await response.json();
+      const { url } = data;
 
       if (url) {
         window.location.href = url;
@@ -142,6 +153,21 @@ export function CreditsPage() {
       <NavigationMenu />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+        {purchaseSuccess && (
+          <div className="mb-6 relative bg-gradient-to-r from-emerald-900/60 to-green-900/60 border border-emerald-500/40 rounded-xl p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                <Sparkles className="w-5 h-5 text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-emerald-300 font-semibold">Payment Successful</p>
+                <p className="text-gray-400 text-sm">Your credits are being added to your account.</p>
+              </div>
+            </div>
+            <button onClick={() => setPurchaseSuccess(false)} className="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
+          </div>
+        )}
+
         <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
           <button
             onClick={() => setActiveTab('purchase')}

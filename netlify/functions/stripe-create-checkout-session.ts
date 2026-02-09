@@ -1,11 +1,12 @@
 import { Handler, HandlerEvent } from '@netlify/functions';
+import { createClient } from '@supabase/supabase-js';
 
 interface CheckoutSessionRequest {
-  priceId: string;
   packageId: string;
   userId: string;
   mode: 'payment' | 'subscription';
   purchaseType?: 'credits' | 'membership';
+  priceId?: string;
 }
 
 const headers = {
@@ -28,22 +29,21 @@ export const handler: Handler = async (event: HandlerEvent) => {
   }
 
   try {
-    const { priceId, packageId, userId, mode, purchaseType = 'credits' }: CheckoutSessionRequest = JSON.parse(
+    const { packageId, userId, mode, purchaseType = 'credits', priceId }: CheckoutSessionRequest = JSON.parse(
       event.body || '{}'
     );
 
-    if (!priceId || !packageId || !userId || !mode) {
+    if (!packageId || !userId || !mode) {
       return {
         statusCode: 400,
         headers,
         body: JSON.stringify({
-          error: 'Missing required fields: priceId, packageId, userId, mode',
+          error: 'Missing required fields: packageId, userId, mode',
         }),
       };
     }
 
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-
     if (!stripeSecretKey) {
       console.error('[Stripe] STRIPE_SECRET_KEY not configured');
       return {
@@ -52,6 +52,48 @@ export const handler: Handler = async (event: HandlerEvent) => {
         body: JSON.stringify({
           error: 'Stripe not configured. Please add STRIPE_SECRET_KEY to environment variables.',
         }),
+      };
+    }
+
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error('[Stripe] Missing Supabase configuration');
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Database not configured' }),
+      };
+    }
+
+    let stripePriceId = priceId;
+
+    if (purchaseType === 'credits') {
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      const { data: pkg, error: pkgError } = await supabase
+        .from('token_packages')
+        .select('stripe_price_id')
+        .eq('id', packageId)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (pkgError || !pkg?.stripe_price_id) {
+        console.error('[Stripe] Package not found or missing Stripe Price ID:', pkgError);
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'Invalid package or Stripe Price ID not configured' }),
+        };
+      }
+
+      stripePriceId = pkg.stripe_price_id;
+    }
+
+    if (!stripePriceId) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'No Stripe Price ID available for this package' }),
       };
     }
 
@@ -72,43 +114,27 @@ export const handler: Handler = async (event: HandlerEvent) => {
 
     const sessionConfig: any = {
       mode,
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
-        },
-      ],
+      line_items: [{ price: stripePriceId, quantity: 1 }],
       success_url: successUrl,
       cancel_url: cancelUrl,
-      metadata: {
-        userId,
-        packageId,
-        purchaseType,
-      },
+      metadata: { userId, packageId, purchaseType },
       client_reference_id: userId,
     };
 
     if (mode === 'subscription') {
       sessionConfig.subscription_data = {
-        metadata: {
-          userId,
-          packageId,
-          purchaseType,
-        },
+        metadata: { userId, packageId, purchaseType },
       };
     }
 
     const session = await stripe.checkout.sessions.create(sessionConfig);
 
-    console.log(`[Stripe] Created ${purchaseType} checkout session: ${session.id}`);
+    console.log(`[Stripe] Created ${purchaseType} checkout session: ${session.id} with price ${stripePriceId}`);
 
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({
-        sessionId: session.id,
-        url: session.url
-      }),
+      body: JSON.stringify({ sessionId: session.id, url: session.url }),
     };
   } catch (error: any) {
     console.error('[Stripe] Error creating checkout session:', error);
@@ -117,7 +143,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
       headers,
       body: JSON.stringify({
         error: 'Failed to create checkout session',
-        details: error.message
+        details: error.message,
       }),
     };
   }
