@@ -21,12 +21,9 @@
  */
 
 import type { Handler } from '@netlify/functions';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from './_shared/supabase-admin';
 
-const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabase = getSupabaseAdmin();
 
 const MAX_EXECUTION_TIME_MS = 9000; // Must complete within 9s
 

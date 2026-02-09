@@ -9,18 +9,10 @@
  */
 
 import type { Handler } from '@netlify/functions';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from './_shared/supabase-admin';
 import { processGoalSessionIteration, initializeGoalSession } from '../../src/services/goal-session-core-engine';
 
-// Note: Netlify functions use process.env without VITE_ prefix
-const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error('Missing Supabase environment variables');
-}
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabase = getSupabaseAdmin();
 
 export const handler: Handler = async (event, context) => {
   const startTime = Date.now();
