@@ -1,8 +1,5 @@
 import { Handler, schedule } from '@netlify/functions';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.VITE_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+import { getSupabaseAdmin } from './_shared/supabase-admin';
 
 /**
  * CRITICAL SERVERLESS FUNCTION
@@ -39,12 +36,7 @@ const cleanupHandler: Handler = async (event, context) => {
   console.log('[Continuation Cleanup] Starting periodic cleanup...');
 
   try {
-    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    });
+    const supabase = getSupabaseAdmin();
 
     // Find all sessions stuck in awaiting_continuation for > 60 seconds
     const { data: stuckSessions, error: fetchError } = await supabase
