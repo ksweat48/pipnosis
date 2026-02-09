@@ -7,6 +7,7 @@ import { clubTokenLedgerService, type ClubTokenBalance } from '@/services/club-t
 import { clubMembershipService, type UserMembership, type UserCreditDiscount } from '@/services/club-membership-service';
 import { userTradeDiscountSettingService } from '@/services/user-trade-discount-setting';
 import { getDisplayTradeCost, computePipBurn, computeTradeCost, TOKENOMICS } from '@/config/tokenomics-constants';
+import { PipUtilityValueDisplay } from '@/components/PipUtilityValueDisplay';
 
 const fmt = (n: number) =>
   n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -236,6 +237,9 @@ export function ClubRewardsPage() {
             </div>
           </div>
         </div>
+
+        {/* PIP Utility Value Display */}
+        <PipUtilityValueDisplay />
 
         {/* Page Header */}
         <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-xl sm:rounded-2xl p-4 sm:p-8 shadow-lg">

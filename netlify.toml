@@ -144,6 +144,14 @@
   timeout = 60  # 1 minute to scan all watchlist pairs
   schedule = "*/2 * * * *"  # 🚨 Every 2 minutes - real-time VWAP proximity detection
 
+# 💰 PHASE 3B: Daily PIP Utility Index Computation (runs daily at midnight UTC)
+# CALCULATION: Computes dynamic PIP utility value based on platform activity
+# INPUTS: 30-day credits spent, PIP burned, staked ratio, active users, liquid supply
+# OUTPUT: Daily utility index with EMA smoothing for user display
+[functions."compute-daily-pip-index"]
+  timeout = 60  # 1 minute for index calculation and storage
+  schedule = "0 0 * * *"  # 🚨 Daily at 00:00 UTC - PIP utility value update
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
