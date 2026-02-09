@@ -288,10 +288,10 @@ export function CreditsPage() {
                       <div className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-green-400 mb-4">${pkg.priceUsd.toFixed(2)}</div>
                       <button
                         onClick={() => handlePurchaseClick(pkg)}
-                        disabled={processingPayment === pkg.id || balance?.isAdmin}
+                        disabled={processingPayment === pkg.id}
                         className="w-full px-4 py-3 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all shadow-lg hover:shadow-emerald-500/25 hover:scale-105 active:scale-95 disabled:scale-100"
                       >
-                        {processingPayment === pkg.id ? 'Processing...' : balance?.isAdmin ? 'Admin Account' : 'Buy Now'}
+                        {processingPayment === pkg.id ? 'Processing...' : 'Buy Now'}
                       </button>
                     </div>
                   </div>
@@ -338,10 +338,10 @@ export function CreditsPage() {
                       <div className="text-gray-400 text-sm mb-4">/month</div>
                       <button
                         onClick={() => handlePurchaseClick(pkg)}
-                        disabled={processingPayment === pkg.id || balance?.isAdmin}
+                        disabled={processingPayment === pkg.id}
                         className="w-full px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all shadow-lg hover:shadow-blue-500/25 hover:scale-105 active:scale-95 disabled:scale-100"
                       >
-                        {processingPayment === pkg.id ? 'Processing...' : balance?.isAdmin ? 'Admin Account' : 'Subscribe'}
+                        {processingPayment === pkg.id ? 'Processing...' : 'Subscribe'}
                       </button>
                     </div>
                   </div>
