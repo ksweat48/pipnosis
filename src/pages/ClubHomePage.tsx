@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Coins, TrendingUp, Users, Copy, Check, ExternalLink, History, Gift, Crown, MessageSquare, Flame } from 'lucide-react';
+import { Users, Copy, Check, ExternalLink, History, Gift, Crown, MessageSquare, Flame, Coins } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { ClubLayout } from '@/components/ClubLayout';
-import { clubTokenLedgerService, type ClubTokenBalance, type TokenTransaction } from '@/services/club-token-ledger-service';
+import { TokenBalanceCard } from '@/components/TokenBalanceCard';
+import { useTokenBalance } from '@/hooks/useTokenBalance';
+import { clubTokenLedgerService, type TokenTransaction } from '@/services/club-token-ledger-service';
 import { clubReferralService, type ReferralStats } from '@/services/club-referral-service';
 import { clubMembershipService, type UserMembership, type UserCreditDiscount } from '@/services/club-membership-service';
 import { getDisplayTradeCost, TOKENOMICS } from '@/config/tokenomics-constants';
@@ -13,7 +15,7 @@ const fmt = (n: number) =>
 
 export function ClubHomePage() {
   const { user } = useAuth();
-  const [tokenBalance, setTokenBalance] = useState<ClubTokenBalance | null>(null);
+  const { balance: tokenBalance, stakingSummary, loading: tokenLoading } = useTokenBalance();
   const [membership, setMembership] = useState<UserMembership | null>(null);
   const [referralStats, setReferralStats] = useState<ReferralStats | null>(null);
   const [discount, setDiscount] = useState<UserCreditDiscount | null>(null);
@@ -24,24 +26,14 @@ export function ClubHomePage() {
 
   useEffect(() => {
     if (!user) return;
-
     loadDashboardData();
-
-    const unsubscribe = clubTokenLedgerService.subscribeToBalance(user.id, (balance) => {
-      setTokenBalance(balance);
-    });
-
-    return () => {
-      unsubscribe();
-    };
   }, [user]);
 
   const loadDashboardData = async () => {
     if (!user) return;
 
     try {
-      const [balance, membershipData, stats, code, txHistory, discountData] = await Promise.all([
-        clubTokenLedgerService.getBalance(user.id),
+      const [membershipData, stats, code, txHistory, discountData] = await Promise.all([
         clubMembershipService.getUserMembership(user.id),
         clubReferralService.getReferralStats(user.id),
         clubReferralService.getUserReferralCode(user.id),
@@ -49,7 +41,6 @@ export function ClubHomePage() {
         clubMembershipService.getUserCreditDiscount(user.id)
       ]);
 
-      setTokenBalance(balance);
       setMembership(membershipData);
       setReferralStats(stats);
       setReferralCode(code);
@@ -75,7 +66,6 @@ export function ClubHomePage() {
   return (
     <ClubLayout>
       <div className="space-y-4 sm:space-y-8 pb-8">
-        {/* Welcome Banner */}
         <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-xl sm:rounded-2xl p-4 sm:p-8 shadow-lg">
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
@@ -99,61 +89,13 @@ export function ClubHomePage() {
           </div>
         </div>
 
-        {/* PIP Balance Cards */}
-        <div className="grid grid-cols-3 sm:grid-cols-3 gap-2 sm:gap-6">
-          <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-xl p-3 sm:p-6 shadow-md">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2 sm:mb-4">
-              <div className="p-2 sm:p-3 bg-amber-50 rounded-lg w-fit">
-                <Coins size={18} className="text-amber-500 sm:w-6 sm:h-6" />
-              </div>
-              <div>
-                <div className="text-slate-500 text-[11px] sm:text-sm">PIP Balance</div>
-                <div className="text-slate-900 text-lg sm:text-2xl font-bold">
-                  {fmt(tokenBalance?.availableTokens || 0)}
-                </div>
-              </div>
-            </div>
-            <div className="text-slate-400 text-[10px] sm:text-xs">
-              {fmt(tokenBalance?.lockedTokens || 0)} locked
-            </div>
-          </div>
+        <TokenBalanceCard
+          balance={tokenBalance}
+          stakingSummary={stakingSummary}
+          loading={tokenLoading}
+          variant="compact"
+        />
 
-          <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-xl p-3 sm:p-6 shadow-md">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2 sm:mb-4">
-              <div className="p-2 sm:p-3 bg-emerald-50 rounded-lg w-fit">
-                <TrendingUp size={18} className="text-emerald-500 sm:w-6 sm:h-6" />
-              </div>
-              <div>
-                <div className="text-slate-500 text-[11px] sm:text-sm">Earned</div>
-                <div className="text-slate-900 text-lg sm:text-2xl font-bold">
-                  {fmt(tokenBalance?.lifetimeEarned || 0)}
-                </div>
-              </div>
-            </div>
-            <div className="text-slate-400 text-[10px] sm:text-xs">
-              {fmt(tokenBalance?.lifetimeSpent || 0)} spent
-            </div>
-          </div>
-
-          <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-xl p-3 sm:p-6 shadow-md">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2 sm:mb-4">
-              <div className="p-2 sm:p-3 bg-blue-50 rounded-lg w-fit">
-                <Users size={18} className="text-blue-500 sm:w-6 sm:h-6" />
-              </div>
-              <div>
-                <div className="text-slate-500 text-[11px] sm:text-sm">Referrals</div>
-                <div className="text-slate-900 text-lg sm:text-2xl font-bold">
-                  {referralStats?.completedReferrals || 0}
-                </div>
-              </div>
-            </div>
-            <div className="text-slate-400 text-[10px] sm:text-xs">
-              {referralStats?.pendingReferrals || 0} pending
-            </div>
-          </div>
-        </div>
-
-        {/* Trade Discount Card */}
         {discount && discount.discountPct > 0 && (
           <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-lg">
             <div className="flex items-center gap-3 mb-4">
@@ -188,7 +130,6 @@ export function ClubHomePage() {
           </div>
         )}
 
-        {/* Referral Section */}
         <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-xl sm:rounded-2xl p-4 sm:p-8 shadow-lg">
           <h2 className="text-lg sm:text-2xl font-bold text-slate-900 mb-4 sm:mb-6 flex items-center gap-2 sm:gap-3">
             <Users size={22} className="text-slate-700 sm:w-7 sm:h-7" />
@@ -207,15 +148,9 @@ export function ClubHomePage() {
                 className="flex items-center justify-center gap-2 px-5 py-2.5 sm:px-6 sm:py-3 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition-all shadow-md hover:shadow-lg active:scale-95 w-full sm:w-auto"
               >
                 {copiedLink ? (
-                  <>
-                    <Check size={18} />
-                    Copied!
-                  </>
+                  <><Check size={18} /> Copied!</>
                 ) : (
-                  <>
-                    <Copy size={18} />
-                    Copy Link
-                  </>
+                  <><Copy size={18} /> Copy Link</>
                 )}
               </button>
             </div>
@@ -225,7 +160,6 @@ export function ClubHomePage() {
             </div>
           </div>
 
-          {/* Referral Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
             <div className="bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl p-3 sm:p-4 shadow-sm">
               <div className="text-slate-500 text-[10px] sm:text-xs mb-1">Total Referrals</div>
@@ -246,7 +180,6 @@ export function ClubHomePage() {
           </div>
         </div>
 
-        {/* Recent Transactions */}
         <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-xl sm:rounded-2xl p-4 sm:p-8 shadow-lg">
           <div className="flex items-center justify-between mb-4 sm:mb-6">
             <h2 className="text-lg sm:text-2xl font-bold text-slate-900 flex items-center gap-2 sm:gap-3">
@@ -293,7 +226,6 @@ export function ClubHomePage() {
           )}
         </div>
 
-        {/* Quick Actions */}
         <div className="grid grid-cols-2 gap-3 sm:gap-6">
           <Link
             to="/club/chat"
