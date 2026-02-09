@@ -267,7 +267,7 @@ class PostTradeAnalyzer {
 
       const { data, error } = await supabase
         .from('ai_trade_journal')
-        .insert(insertData)
+        .upsert(insertData, { onConflict: 'trade_id' })
         .select()
         .single();
 

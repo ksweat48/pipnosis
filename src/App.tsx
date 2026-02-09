@@ -220,17 +220,20 @@ const AppRoutes: React.FC = () => {
             exitPrice: modalData.exit_price,
             profitLoss: modalData.profit_loss,
             closeReason: modalData.close_reason,
+            stopLoss: modalData.stop_loss,
+            takeProfit: modalData.take_profit,
             currentProgress: modalData.current_progress,
             targetValue: modalData.target_value,
             tradesInSession: modalData.trades_in_session,
-            timestamp: modalData.timestamp || modal.created_at, // Pass timestamp for "X time ago" display
+            isGoalAchieved: modalData.isGoalAchieved || false,
+            sessionId: modal.session_id,
+            timestamp: modalData.timestamp || modal.created_at,
             onStartNewSession: async () => {
               await modalQueueManager.dismissModal(modal.id, 'close');
               window.location.href = '/ai-trade';
             },
             onContinueSession: async () => {
               await modalQueueManager.dismissModal(modal.id, 'continue');
-              // Check for more pending modals
               checkPendingModals();
             }
           });

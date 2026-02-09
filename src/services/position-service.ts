@@ -18,7 +18,6 @@ import {
 } from '@/types/position';
 import { getCurrencyPipInfo, roundLotSize, roundPnL } from '@/utils/currencyHelpers';
 import { llmReasoningLogger } from './llm-reasoning-logger';
-import { postTradeAnalyzer } from './post-trade-analyzer';
 import { tradeValidationService } from './trade-validation-service';
 
 export interface OpenPositionParams {
@@ -437,28 +436,6 @@ class PositionService {
       }
 
       console.log('[PositionService] Position closed successfully:', closedTrade);
-
-      // Trigger post-trade analysis for journal entry
-      if (closedTrade && userId) {
-        try {
-          await postTradeAnalyzer.analyzeClosedTrade({
-            id: closedTrade.id,
-            userId: userId,
-            symbol: closedTrade.symbol,
-            direction: closedTrade.direction,
-            entryPrice: closedTrade.entry_price,
-            exitPrice: closePrice,
-            stopLoss: closedTrade.stop_loss,
-            takeProfit: closedTrade.take_profit,
-            pnl: closedTrade.profit_loss || 0,
-            entryTime: new Date(closedTrade.opened_at || closedTrade.created_at),
-            exitTime: new Date()
-          });
-        } catch (analysisError) {
-          console.error('[PositionService] Post-trade analysis failed:', analysisError);
-          // Don't fail the close operation if analysis fails
-        }
-      }
 
       return {
         success: true,

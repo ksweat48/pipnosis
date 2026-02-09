@@ -20,7 +20,6 @@ import { goalSessionStateMachine } from './goal-session-state-machine';
 import { notificationCoordinator } from './notification-coordinator';
 import { MarketDataService } from '../market-data-service';
 import { modalQueueManager } from '../modal-queue-manager';
-import { postTradeAnalyzer } from '../post-trade-analyzer';
 
 /**
  * SSOT Close Reason Types - MUST match database constraint
@@ -195,27 +194,6 @@ class TradeClosureCoordinator {
       }
 
       await this.logToAudit(request, tradeData, pnl, 'coordinator');
-
-      try {
-        await postTradeAnalyzer.analyzeClosedTrade({
-          id: request.tradeId,
-          userId: request.userId,
-          symbol: tradeData.symbol,
-          direction: tradeData.direction,
-          entryPrice: tradeData.entry_price,
-          exitPrice: request.currentPrice,
-          stopLoss: tradeData.stop_loss,
-          takeProfit: tradeData.take_profit,
-          pnl,
-          entryTime: new Date((tradeData as any).created_at || (tradeData as any).entry_time || Date.now()),
-          exitTime: new Date(),
-          closeReason: request.closeReason,
-          tp1Hit: (tradeData as any).tp1_hit === true,
-          tp2Hit: (tradeData as any).tp2_hit === true,
-        });
-      } catch (journalError) {
-        console.error(`[TradeClosureCoordinator] Journal creation failed (non-blocking):`, journalError);
-      }
 
       const goalResult = await this.checkGoalAfterClose(request.userId, request.goalSessionId);
 
@@ -698,7 +676,6 @@ class TradeClosureCoordinator {
 
     console.log(`[TradeClosureCoordinator] Handling closure event for trade ${event.trade_id}`);
 
-    // Process the event using the event processor
     const result = await tradeClosureEventProcessor.processEvent({
       id: event.id,
       trade_id: event.trade_id,
@@ -718,6 +695,51 @@ class TradeClosureCoordinator {
 
     if (!result.success) {
       console.warn(`[TradeClosureCoordinator] Event processing failed for ${event.trade_id}:`, result.error);
+    }
+
+    const isSystemClose = ['stop_loss', 'take_profit', 'take_profit_1', 'take_profit_2'].includes(event.close_reason);
+    if (isSystemClose && !this.closureLocks.has(event.trade_id)) {
+      try {
+        const { data: tradeData } = await supabase
+          .from('goal_session_trades')
+          .select('symbol, direction, entry_price, exit_price, profit_loss, stop_loss, take_profit')
+          .eq('id', event.trade_id)
+          .maybeSingle();
+
+        const { data: session } = await supabase
+          .from('goal_sessions')
+          .select('target_value, current_progress')
+          .eq('id', event.goal_session_id)
+          .maybeSingle();
+
+        const { count: tradesCount } = await supabase
+          .from('goal_session_trades')
+          .select('*', { count: 'exact', head: true })
+          .eq('goal_session_id', event.goal_session_id);
+
+        if (tradeData && session) {
+          const isGoalAchieved = (session.current_progress || 0) >= (session.target_value || Infinity);
+
+          const { globalDialogManager } = await import('../global-dialog-manager');
+          globalDialogManager.showTradeClosed({
+            symbol: tradeData.symbol,
+            direction: tradeData.direction,
+            entryPrice: tradeData.entry_price,
+            exitPrice: tradeData.exit_price,
+            profitLoss: tradeData.profit_loss,
+            closeReason: event.close_reason,
+            stopLoss: tradeData.stop_loss,
+            takeProfit: tradeData.take_profit,
+            currentProgress: session.current_progress || 0,
+            targetValue: session.target_value || 0,
+            tradesInSession: tradesCount || 0,
+            isGoalAchieved,
+            sessionId: event.goal_session_id,
+          });
+        }
+      } catch (dialogError) {
+        console.error(`[TradeClosureCoordinator] Failed to show closure dialog:`, dialogError);
+      }
     }
   }
 }

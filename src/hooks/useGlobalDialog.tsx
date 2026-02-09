@@ -135,9 +135,25 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
           currentProgress={currentDialog.data.currentProgress || 0}
           targetValue={currentDialog.data.targetValue || 0}
           tradesInSession={currentDialog.data.tradesInSession || 0}
+          isGoalAchieved={currentDialog.data.isGoalAchieved || false}
+          timestamp={currentDialog.data.timestamp}
           onStartNewSession={currentDialog.data.onStartNewSession || (() => {})}
           onContinueSession={currentDialog.data.onContinueSession || (() => {})}
-          onCloseForNow={closeDialog}
+          onCloseForNow={async () => {
+            const sessionId = currentDialog.data.sessionId;
+            if (sessionId) {
+              try {
+                const { goalSessionStateMachine } = await import('../services/coordinators/goal-session-state-machine');
+                await goalSessionStateMachine.transition(sessionId, 'stopped', {
+                  reason: 'User did not respond to trade closure dialog',
+                  triggeredBy: 'TradeClosedActionDialog',
+                });
+              } catch (e) {
+                console.error('[useGlobalDialog] Failed to stop session on timeout:', e);
+              }
+            }
+            closeDialog();
+          }}
           isLoading={currentDialog.data.isLoading || false}
         />
       )}

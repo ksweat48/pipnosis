@@ -183,7 +183,8 @@ function checkPositionTriggers(position: OpenPosition, price: PriceData): Monito
  */
 async function executePositionClosure(
   result: MonitoringResult,
-  position: OpenPosition
+  position: OpenPosition,
+  price: PriceData
 ): Promise<boolean> {
   try {
     if (result.action === 'close_partial_50') {
@@ -212,21 +213,25 @@ async function executePositionClosure(
 
       console.log(`[AutonomousMonitor] ${result.checkType.toUpperCase()} HIT for ${position.symbol}: Executing full close`);
 
-      // Use SSOT close_goal_session_trade function
       const { data, error } = await supabase.rpc('close_goal_session_trade', {
         p_trade_id: position.id,
         p_close_price: result.currentPrice,
         p_close_reason: closeReason,
         p_goal_session_id: position.goal_session_id,
-        p_force_close: false
+        p_closed_at: price.created_at
       });
 
       if (error) {
-        console.error(`[AutonomousMonitor] Failed to close position ${position.id}:`, error);
+        console.error(`[AutonomousMonitor] RPC error closing position ${position.id}:`, error);
         return false;
       }
 
-      console.log(`[AutonomousMonitor] ✅ Position closed: ${position.id} at ${result.currentPrice}`);
+      if (!data || !data.id) {
+        console.error(`[AutonomousMonitor] RPC returned invalid result for ${position.id}:`, JSON.stringify(data));
+        return false;
+      }
+
+      console.log(`[AutonomousMonitor] Position closed: ${position.id} at ${result.currentPrice}, PnL: ${data.profit_loss}`);
       return true;
     }
   } catch (error) {
@@ -351,7 +356,7 @@ export const handler: Handler = async (event, context) => {
           const slTrigger = results.find(r => r.checkType === 'sl');
           const triggerToExecute = slTrigger || results[0];
 
-          const executed = await executePositionClosure(triggerToExecute, position);
+          const executed = await executePositionClosure(triggerToExecute, position, price);
           if (executed) {
             closuresExecuted++;
           }

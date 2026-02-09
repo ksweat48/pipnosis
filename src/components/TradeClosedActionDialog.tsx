@@ -28,8 +28,9 @@ interface TradeClosedActionDialogProps {
   timestamp?: string; // If provided, shows "Trade closed X time ago" instead of countdown
 }
 
-const GOAL_ACHIEVED_TIMEOUT = 60 * 1000; // 60 seconds for goal achieved
-const NORMAL_TIMEOUT = 5 * 60 * 1000; // 5 minutes for normal trades
+const GOAL_ACHIEVED_TIMEOUT = 60 * 1000;
+const SYSTEM_CLOSE_TIMEOUT = 60 * 1000;
+const NORMAL_TIMEOUT = 5 * 60 * 1000;
 
 export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = ({
   isOpen,
@@ -61,7 +62,10 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
   const safeCurrentProgress = isFinite(currentProgress) ? currentProgress : 0;
   const safeTargetValue = isFinite(targetValue) && targetValue > 0 ? targetValue : 100;
   const safeTradesInSession = isFinite(tradesInSession) && tradesInSession >= 0 ? tradesInSession : 0;
-  const timeoutDuration = isGoalAchieved ? GOAL_ACHIEVED_TIMEOUT : NORMAL_TIMEOUT;
+  const isSystemClosure = ['stop_loss', 'take_profit', 'take_profit_1', 'take_profit_2'].includes(closeReason);
+  const timeoutDuration = isGoalAchieved ? GOAL_ACHIEVED_TIMEOUT
+    : isSystemClosure ? SYSTEM_CLOSE_TIMEOUT
+    : NORMAL_TIMEOUT;
   const [timeRemaining, setTimeRemaining] = useState(timeoutDuration);
   const isPendingModal = !!timestamp;
 
