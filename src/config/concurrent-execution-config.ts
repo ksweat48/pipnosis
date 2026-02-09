@@ -123,19 +123,17 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
   enabled: true, // Master switch - enable concurrent processing
 
   concurrency: {
-    maxConcurrentSymbols: 0, // 0 = unlimited, analyze all symbols at once
-    symbolTimeoutMs: 45000, // 45 seconds per symbol (increased for real-world LLM latency)
-    batchTimeoutMs: 90000, // 90 seconds total batch timeout (increased proportionally)
+    maxConcurrentSymbols: 3, // Process 3 symbols at a time to prevent LLM proxy overload
+    symbolTimeoutMs: 60000, // 60 seconds per symbol (realistic for LLM + DB round-trips)
+    batchTimeoutMs: 180000, // 180 seconds total batch timeout (3 batches of 3 symbols)
 
-    // Session-specific timeouts optimized for real-world OpenAI API latency
-    // TIER7 FIX: Increased from 25-35s to 40-70s based on production timeout analysis
     useSessionTimeouts: true,
     sessionTimeouts: {
-      asian: 40000,     // 40s - Lower volatility but accounting for API latency
-      london: 50000,    // 50s - Moderate complexity with LLM calls
-      nyse: 60000,      // 60s - High volatility + complex thesis generation
-      overlap: 70000,   // 70s - Highest complexity (London+NYSE concurrent + thesis cache misses)
-      off_hours: 35000, // 35s - Limited market activity but still allowing full LLM execution
+      asian: 60000,     // 60s - Realistic for LLM call + retries through proxy
+      london: 70000,    // 70s - Moderate complexity with LLM calls
+      nyse: 80000,      // 80s - High volatility + complex thesis generation
+      overlap: 90000,   // 90s - Highest complexity (London+NYSE concurrent)
+      off_hours: 50000, // 50s - Limited market activity
     },
   },
 
@@ -164,9 +162,9 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
   },
 
   governance: {
-    enabled: true, // Enable governance tracking
-    alertThresholdMs: 75000, // Alert if batch takes > 75 seconds (adjusted for 40-70s timeouts)
-    alertErrorRatePercent: 20, // Alert if > 20% of symbols fail
+    enabled: true,
+    alertThresholdMs: 120000, // Alert if batch takes > 120 seconds
+    alertErrorRatePercent: 30, // Alert if > 30% of symbols fail
   },
 };
 

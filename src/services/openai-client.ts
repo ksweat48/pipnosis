@@ -61,8 +61,9 @@ interface ChatCompletionResponse {
 
 class OpenAIClient {
   private readonly functionUrl: string;
-  private readonly maxRetries = 3;
-  private readonly baseDelayMs = 1000;
+  private readonly maxRetries = 2;
+  private readonly baseDelayMs = 500;
+  private readonly fetchTimeoutMs = 30000;
 
   constructor() {
     this.functionUrl = '/.netlify/functions/openai-chat';
@@ -184,6 +185,9 @@ class OpenAIClient {
 
       for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
         try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), this.fetchTimeoutMs);
+
           response = await fetch(this.functionUrl, {
             method: 'POST',
             headers: {
@@ -197,8 +201,11 @@ class OpenAIClient {
               max_tokens: options.max_tokens ?? 2000,
               requestType: options.requestType,
               endpoint: options.endpoint
-            })
+            }),
+            signal: controller.signal
           });
+
+          clearTimeout(timeoutId);
 
           if (response.ok) {
             break;
