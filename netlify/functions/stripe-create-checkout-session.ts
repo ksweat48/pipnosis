@@ -1,4 +1,5 @@
 import { Handler, HandlerEvent } from '@netlify/functions';
+import Stripe from 'stripe';
 import { getSupabaseAdmin } from './_shared/supabase-admin';
 
 interface CheckoutSessionRequest {
@@ -86,10 +87,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
       };
     }
 
-    const Stripe = (await import('stripe')).default;
-    const stripe = new Stripe(stripeSecretKey, {
-      apiVersion: '2024-12-18.acacia',
-    });
+    const stripe = new Stripe(stripeSecretKey);
 
     const origin = event.headers.origin || event.headers.referer?.replace(/\/$/, '') || 'https://pipnosis.com';
 
@@ -101,7 +99,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
       ? `${origin}/club?canceled=true`
       : `${origin}/credits?canceled=true`;
 
-    const sessionConfig: any = {
+    const sessionConfig: Stripe.Checkout.SessionCreateParams = {
       mode,
       line_items: [{ price: stripePriceId, quantity: 1 }],
       success_url: successUrl,
@@ -126,7 +124,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
       body: JSON.stringify({ sessionId: session.id, url: session.url }),
     };
   } catch (error: any) {
-    console.error('[Stripe] Error creating checkout session:', error);
+    console.error('[Stripe] Error creating checkout session:', error?.message, error?.type, error?.statusCode);
     return {
       statusCode: 500,
       headers,

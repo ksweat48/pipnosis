@@ -1,4 +1,5 @@
 import { Handler, HandlerEvent } from '@netlify/functions';
+import Stripe from 'stripe';
 import { getSupabaseAdmin } from './_shared/supabase-admin';
 
 const headers = {
@@ -27,10 +28,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
       };
     }
 
-    const Stripe = (await import('stripe')).default;
-    const stripe = new Stripe(stripeSecretKey, {
-      apiVersion: '2024-12-18.acacia',
-    });
+    const stripe = new Stripe(stripeSecretKey);
 
     const signature = event.headers['stripe-signature'];
     if (!signature) {
