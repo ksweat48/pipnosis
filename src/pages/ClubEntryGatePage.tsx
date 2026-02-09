@@ -22,6 +22,8 @@ export function ClubEntryGatePage() {
   const [processingPurchase, setProcessingPurchase] = useState<string | null>(null);
 
   const [purchaseSuccess, setPurchaseSuccess] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<{ tierName?: string; tokensAwarded?: number } | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -29,9 +31,9 @@ export function ClubEntryGatePage() {
       return;
     }
 
-    if (searchParams.get('success') === 'true') {
-      setPurchaseSuccess(true);
-      setTimeout(() => loadAccessInfo(), 2000);
+    const sessionId = searchParams.get('session_id');
+    if (searchParams.get('success') === 'true' && sessionId) {
+      verifyAndGrantPurchase(sessionId);
     } else {
       loadAccessInfo();
     }
@@ -41,6 +43,34 @@ export function ClubEntryGatePage() {
       handleReferralCode(refCode);
     }
   }, [user]);
+
+  const verifyAndGrantPurchase = async (sessionId: string) => {
+    setVerifying(true);
+    try {
+      const response = await fetch('/.netlify/functions/verify-membership-purchase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setPurchaseSuccess(true);
+        if (data.tierName) {
+          setVerifyResult({ tierName: data.tierName, tokensAwarded: data.tokensAwarded });
+        }
+      } else {
+        console.error('[ClubEntryGate] Verification failed:', data.error);
+        setPurchaseSuccess(true);
+      }
+    } catch (error) {
+      console.error('[ClubEntryGate] Verification error:', error);
+      setPurchaseSuccess(true);
+    } finally {
+      setVerifying(false);
+      await loadAccessInfo();
+    }
+  };
 
   const loadAccessInfo = async () => {
     if (!user) return;
@@ -133,10 +163,24 @@ export function ClubEntryGatePage() {
       <NavigationMenu />
 
       <div className="max-w-7xl mx-auto px-4 py-12">
-        {purchaseSuccess && (
+        {verifying && (
+          <div className="bg-blue-50 border border-blue-200 rounded-2xl p-6 mb-8 text-center">
+            <Loader2 className="w-6 h-6 text-blue-600 animate-spin mx-auto mb-2" />
+            <div className="text-blue-700 font-semibold">Verifying your purchase and granting tokens...</div>
+          </div>
+        )}
+
+        {purchaseSuccess && !verifying && (
           <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 mb-8 text-center">
             <div className="text-emerald-600 font-bold text-xl mb-2">Membership Activated</div>
-            <p className="text-emerald-700">Your Club membership is now active. Welcome to Pipnosis Club.</p>
+            {verifyResult ? (
+              <p className="text-emerald-700">
+                Your <span className="font-bold">{verifyResult.tierName}</span> membership is active.
+                You received <span className="font-bold">{verifyResult.tokensAwarded} PIP</span> tokens. Welcome to Pipnosis Club.
+              </p>
+            ) : (
+              <p className="text-emerald-700">Your Club membership is now active. Welcome to Pipnosis Club.</p>
+            )}
           </div>
         )}
 
