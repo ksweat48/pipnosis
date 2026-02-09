@@ -53,7 +53,8 @@ const TIER_COLORS: Record<number, string> = {
   1: 'bg-slate-500', 2: 'bg-sky-500', 3: 'bg-emerald-500', 4: 'bg-amber-500', 5: 'bg-red-500', 6: 'bg-fuchsia-500',
 };
 
-function fmt(n: number): string {
+function fmt(n: number | undefined | null): string {
+  if (n === null || n === undefined) return '0.00';
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
@@ -82,6 +83,7 @@ export function AdminClubPanel() {
   const [indexHistory, setIndexHistory] = useState<any[]>([]);
   const [indexChange30d, setIndexChange30d] = useState<any>(null);
   const [utilityPressure, setUtilityPressure] = useState<string>('Medium');
+  const [computingIndex, setComputingIndex] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -259,6 +261,18 @@ export function AdminClubPanel() {
     }
   };
 
+  const handleComputeFirstIndex = async () => {
+    setComputingIndex(true);
+    try {
+      await pipUtilityIndexEngine.computeDailyIndex();
+      await loadUtilityData();
+    } catch (error) {
+      logger.error('Failed to compute first index', { error });
+    } finally {
+      setComputingIndex(false);
+    }
+  };
+
   const filteredMembers = members.filter(m =>
     m.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
     m.tierName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -388,7 +402,7 @@ export function AdminClubPanel() {
                 </div>
                 <div className="bg-gray-700/50 rounded-lg p-3">
                   <div className="text-gray-400 text-xs mb-0.5">Avg Discount</div>
-                  <div className="text-cyan-400 text-lg font-bold">{(burnAnalytics.avgDiscountPct * 100).toFixed(1)}%</div>
+                  <div className="text-cyan-400 text-lg font-bold">{((burnAnalytics.avgDiscountPct || 0) * 100).toFixed(1)}%</div>
                 </div>
               </div>
 
@@ -406,7 +420,7 @@ export function AdminClubPanel() {
                           <span>{tier.tradeCount} trades</span>
                           <span className="text-orange-400">{fmt(tier.totalPipBurned)} burned</span>
                           <span className="text-emerald-400">{fmt(tier.totalCreditsSaved)} saved</span>
-                          <span className="text-cyan-400">{(tier.avgDiscountPct * 100).toFixed(0)}%</span>
+                          <span className="text-cyan-400">{((tier.avgDiscountPct || 0) * 100).toFixed(0)}%</span>
                         </div>
                       </div>
                     ))}
@@ -521,9 +535,9 @@ export function AdminClubPanel() {
                     </div>
                     {!check.passed && (
                       <p className="text-xs text-red-400 mt-1">
-                        Expected: {check.expected_value.toFixed(4)}
+                        Expected: {(check.expected_value || 0).toFixed(4)}
                         <br />
-                        Actual: {check.actual_value.toFixed(4)}
+                        Actual: {(check.actual_value || 0).toFixed(4)}
                       </p>
                     )}
                   </div>
@@ -542,24 +556,24 @@ export function AdminClubPanel() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
                 <div className="bg-blue-500/10 p-3 rounded-lg border border-blue-500/30">
                   <p className="text-xs text-blue-400 font-medium">Total Supply</p>
-                  <p className="text-xl font-bold text-white mt-1">{poolSummary.total_supply.toLocaleString()} PIP</p>
+                  <p className="text-xl font-bold text-white mt-1">{(poolSummary.total_supply || 0).toLocaleString()} PIP</p>
                 </div>
                 <div className="bg-green-500/10 p-3 rounded-lg border border-green-500/30">
                   <p className="text-xs text-green-400 font-medium">Pool Balance</p>
-                  <p className="text-xl font-bold text-white mt-1">{poolSummary.pool_sum.toLocaleString()} PIP</p>
+                  <p className="text-xl font-bold text-white mt-1">{(poolSummary.pool_sum || 0).toLocaleString()} PIP</p>
                 </div>
                 <div className="bg-red-500/10 p-3 rounded-lg border border-red-500/30">
                   <p className="text-xs text-red-400 font-medium">Burned</p>
-                  <p className="text-xl font-bold text-white mt-1">{poolSummary.burned_total.toLocaleString()} PIP</p>
+                  <p className="text-xl font-bold text-white mt-1">{(poolSummary.burned_total || 0).toLocaleString()} PIP</p>
                 </div>
                 <div className="bg-purple-500/10 p-3 rounded-lg border border-purple-500/30">
                   <p className="text-xs text-purple-400 font-medium">Circulating</p>
-                  <p className="text-xl font-bold text-white mt-1">{poolSummary.circulating_total.toLocaleString()} PIP</p>
+                  <p className="text-xl font-bold text-white mt-1">{(poolSummary.circulating_total || 0).toLocaleString()} PIP</p>
                 </div>
               </div>
 
               <div className="space-y-2.5">
-                {poolSummary.pools.map((pool: any) => (
+                {(poolSummary.pools || []).map((pool: any) => (
                   <div key={pool.pool_id} className="bg-gray-700/50 rounded-lg p-3 border border-gray-600/50">
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
@@ -568,14 +582,14 @@ export function AdminClubPanel() {
                       </div>
                       <div className="text-right">
                         <p className="text-base font-semibold text-white">
-                          {pool.current_balance.toLocaleString()} PIP
+                          {(pool.current_balance || 0).toLocaleString()} PIP
                         </p>
                         <p className="text-xs text-gray-400">
-                          {pool.percentage_of_supply.toFixed(2)}% of supply
+                          {(pool.percentage_of_supply || 0).toFixed(2)}% of supply
                         </p>
                         {pool.pool_id !== 'BURNED' && (
                           <p className="text-[10px] text-gray-500">
-                            {pool.percentage_remaining.toFixed(1)}% remaining
+                            {(pool.percentage_remaining || 0).toFixed(1)}% remaining
                           </p>
                         )}
                       </div>
@@ -600,7 +614,7 @@ export function AdminClubPanel() {
                     <p className="text-xs text-green-400 font-medium">Granted</p>
                   </div>
                   <p className="text-lg font-bold text-white">
-                    {lifecycleMetrics.tokens_granted.toLocaleString()} PIP
+                    {(lifecycleMetrics.tokens_granted || 0).toLocaleString()} PIP
                   </p>
                 </div>
 
@@ -610,7 +624,7 @@ export function AdminClubPanel() {
                     <p className="text-xs text-red-400 font-medium">Burned</p>
                   </div>
                   <p className="text-lg font-bold text-white">
-                    {lifecycleMetrics.tokens_burned.toLocaleString()} PIP
+                    {(lifecycleMetrics.tokens_burned || 0).toLocaleString()} PIP
                   </p>
                 </div>
 
@@ -620,7 +634,7 @@ export function AdminClubPanel() {
                     <p className="text-xs text-purple-400 font-medium">Staked (Net)</p>
                   </div>
                   <p className="text-lg font-bold text-white">
-                    {(lifecycleMetrics.tokens_staked - lifecycleMetrics.tokens_unstaked).toLocaleString()} PIP
+                    {((lifecycleMetrics.tokens_staked || 0) - (lifecycleMetrics.tokens_unstaked || 0)).toLocaleString()} PIP
                   </p>
                 </div>
 
@@ -630,7 +644,7 @@ export function AdminClubPanel() {
                     <p className="text-xs text-blue-400 font-medium">Rewards Accrued</p>
                   </div>
                   <p className="text-lg font-bold text-white">
-                    {lifecycleMetrics.rewards_accrued.toLocaleString()} PIP
+                    {(lifecycleMetrics.rewards_accrued || 0).toLocaleString()} PIP
                   </p>
                 </div>
 
@@ -640,7 +654,7 @@ export function AdminClubPanel() {
                     <p className="text-xs text-yellow-400 font-medium">Rewards Claimed</p>
                   </div>
                   <p className="text-lg font-bold text-white">
-                    {lifecycleMetrics.rewards_claimed.toLocaleString()} PIP
+                    {(lifecycleMetrics.rewards_claimed || 0).toLocaleString()} PIP
                   </p>
                 </div>
               </div>
@@ -650,76 +664,96 @@ export function AdminClubPanel() {
       )}
 
       {/* Utility Index Section */}
-      {activeSection === 'utility' && currentUtilityValue && (
+      {activeSection === 'utility' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-gradient-to-br from-blue-600 to-purple-600 p-5 rounded-xl text-white border border-blue-500/30">
-              <p className="text-sm opacity-90 mb-2">Current Utility Value</p>
-              <p className="text-3xl font-bold">
-                ${currentUtilityValue.display_value_usd.toFixed(4)}
+          {!currentUtilityValue ? (
+            <div className="bg-gray-800 rounded-xl p-8 border border-gray-700 text-center">
+              <Activity className="w-12 h-12 text-gray-500 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-white mb-2">No Utility Index Data Yet</h3>
+              <p className="text-gray-400 text-sm mb-5 max-w-md mx-auto">
+                The PIP Utility Index has not been computed yet. Click below to compute the first index value based on current platform metrics.
               </p>
-              <p className="text-xs mt-2 opacity-75">
-                Last updated: {new Date(currentUtilityValue.date).toLocaleDateString()}
-              </p>
+              <button
+                onClick={handleComputeFirstIndex}
+                disabled={computingIndex}
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                {computingIndex ? 'Computing...' : 'Compute First Index'}
+              </button>
             </div>
-
-            {indexChange30d && (
-              <div className={`p-5 rounded-xl border ${
-                indexChange30d.change_percentage >= 0
-                  ? 'bg-green-500/10 border-green-500/30'
-                  : 'bg-red-500/10 border-red-500/30'
-              }`}>
-                <p className="text-sm text-gray-400 mb-2">30-Day Change</p>
-                <div className="flex items-center gap-2">
-                  {indexChange30d.change_percentage >= 0 ? (
-                    <TrendingUp className="w-5 h-5 text-green-400" />
-                  ) : (
-                    <TrendingDown className="w-5 h-5 text-red-400" />
-                  )}
-                  <p className={`text-3xl font-bold ${
-                    indexChange30d.change_percentage >= 0 ? 'text-green-400' : 'text-red-400'
-                  }`}>
-                    {indexChange30d.change_percentage >= 0 ? '+' : ''}
-                    {indexChange30d.change_percentage.toFixed(2)}%
+          ) : (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-gradient-to-br from-blue-600 to-cyan-600 p-5 rounded-xl text-white border border-blue-500/30">
+                  <p className="text-sm opacity-90 mb-2">Current Utility Value</p>
+                  <p className="text-3xl font-bold">
+                    ${(currentUtilityValue.display_value_usd || 0).toFixed(4)}
+                  </p>
+                  <p className="text-xs mt-2 opacity-75">
+                    Last updated: {currentUtilityValue.date ? new Date(currentUtilityValue.date).toLocaleDateString() : 'N/A'}
                   </p>
                 </div>
-                <p className="text-xs text-gray-400 mt-2">
-                  ${indexChange30d.change_amount.toFixed(4)} absolute change
-                </p>
-              </div>
-            )}
 
-            <div className="bg-yellow-500/10 p-5 rounded-xl border border-yellow-500/30">
-              <p className="text-sm text-gray-400 mb-2">Utility Pressure</p>
-              <p className="text-3xl font-bold text-yellow-400">{utilityPressure}</p>
-              <p className="text-xs text-gray-400 mt-2">
-                Based on 90-day percentile
-              </p>
-            </div>
-          </div>
+                {indexChange30d && (
+                  <div className={`p-5 rounded-xl border ${
+                    (indexChange30d.change_percentage || 0) >= 0
+                      ? 'bg-green-500/10 border-green-500/30'
+                      : 'bg-red-500/10 border-red-500/30'
+                  }`}>
+                    <p className="text-sm text-gray-400 mb-2">30-Day Change</p>
+                    <div className="flex items-center gap-2">
+                      {(indexChange30d.change_percentage || 0) >= 0 ? (
+                        <TrendingUp className="w-5 h-5 text-green-400" />
+                      ) : (
+                        <TrendingDown className="w-5 h-5 text-red-400" />
+                      )}
+                      <p className={`text-3xl font-bold ${
+                        (indexChange30d.change_percentage || 0) >= 0 ? 'text-green-400' : 'text-red-400'
+                      }`}>
+                        {(indexChange30d.change_percentage || 0) >= 0 ? '+' : ''}
+                        {(indexChange30d.change_percentage || 0).toFixed(2)}%
+                      </p>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-2">
+                      ${(indexChange30d.change_amount || 0).toFixed(4)} absolute change
+                    </p>
+                  </div>
+                )}
 
-          {indexHistory.length > 0 && (
-            <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
-              <h3 className="text-base font-semibold text-white mb-4">90-Day History</h3>
-              <div className="h-48 flex items-end space-x-1">
-                {indexHistory.slice(-30).map((point, index) => {
-                  const maxValue = Math.max(...indexHistory.slice(-30).map(p => Number(p.display_value_usd)));
-                  const height = (Number(point.display_value_usd) / maxValue) * 100;
-                  return (
-                    <div
-                      key={index}
-                      className="flex-1 bg-blue-500 rounded-t hover:bg-blue-400 transition-colors"
-                      style={{ height: `${height}%` }}
-                      title={`${new Date(point.date).toLocaleDateString()}: $${Number(point.display_value_usd).toFixed(4)}`}
-                    />
-                  );
-                })}
+                <div className="bg-yellow-500/10 p-5 rounded-xl border border-yellow-500/30">
+                  <p className="text-sm text-gray-400 mb-2">Utility Pressure</p>
+                  <p className="text-3xl font-bold text-yellow-400">{utilityPressure}</p>
+                  <p className="text-xs text-gray-400 mt-2">
+                    Based on 90-day percentile
+                  </p>
+                </div>
               </div>
-              <div className="flex justify-between text-xs text-gray-500 mt-2">
-                <span>{new Date(indexHistory[indexHistory.length - 30]?.date || indexHistory[0].date).toLocaleDateString()}</span>
-                <span>{new Date(indexHistory[indexHistory.length - 1].date).toLocaleDateString()}</span>
-              </div>
-            </div>
+
+              {indexHistory.length > 0 && (
+                <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                  <h3 className="text-base font-semibold text-white mb-4">90-Day History</h3>
+                  <div className="h-48 flex items-end space-x-1">
+                    {indexHistory.slice(-30).map((point, index) => {
+                      const sliced = indexHistory.slice(-30);
+                      const maxValue = Math.max(...sliced.map(p => Number(p.display_value_usd || 0)), 0.0001);
+                      const height = (Number(point.display_value_usd || 0) / maxValue) * 100;
+                      return (
+                        <div
+                          key={index}
+                          className="flex-1 bg-blue-500 rounded-t hover:bg-blue-400 transition-colors"
+                          style={{ height: `${Math.max(height, 2)}%` }}
+                          title={`${new Date(point.date).toLocaleDateString()}: $${Number(point.display_value_usd || 0).toFixed(4)}`}
+                        />
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-500 mt-2">
+                    <span>{new Date(indexHistory[Math.max(indexHistory.length - 30, 0)]?.date || indexHistory[0]?.date).toLocaleDateString()}</span>
+                    <span>{new Date(indexHistory[indexHistory.length - 1]?.date).toLocaleDateString()}</span>
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           <div className="bg-blue-500/10 rounded-xl p-4 border border-blue-500/30">
