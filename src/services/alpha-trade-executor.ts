@@ -239,7 +239,7 @@ class AlphaTradeExecutor {
     // SSOT (2026-02-09): dollar_risk comes from normalized session data (already a proper number)
     let baseRiskPercent: number | undefined = undefined;
     if (sessionData.dollarRisk > 0) {
-      baseRiskPercent = (sessionData.dollarRisk / currentBalance) * 100;
+      baseRiskPercent = sessionData.dollarRisk / currentBalance;
       logger.info(
         LogCategory.RISK_MANAGEMENT,
         '[AlphaTradeExecutor] Using user-selected risk percentage',
@@ -248,7 +248,7 @@ class AlphaTradeExecutor {
           sessionId,
           dollarRisk: sessionData.dollarRisk,
           accountBalance: currentBalance,
-          calculatedRiskPercent: baseRiskPercent.toFixed(2) + '%',
+          calculatedRiskPercent: (baseRiskPercent * 100).toFixed(2) + '%',
           source: 'session.dollar_risk (SSOT normalized)'
         }
       );
@@ -329,8 +329,7 @@ class AlphaTradeExecutor {
         let riskPercentageAllowed: number;
 
         if (baseRiskPercent !== undefined && baseRiskPercent > 0) {
-          // Use the risk percentage calculated from user's dollar_risk selection
-          riskPercentageAllowed = baseRiskPercent;
+          riskPercentageAllowed = baseRiskPercent * 100;
           logger.info(
             LogCategory.RISK_MANAGEMENT,
             '[AlphaTradeExecutor] Using user-selected risk percentage for goal-aware lot sizing',
