@@ -12,12 +12,9 @@
  */
 
 import { Handler } from '@netlify/functions';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from './_shared/supabase-admin';
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabase = getSupabaseAdmin();
 
 const handler: Handler = async (event) => {
   console.log('[EmissionDistribution] Starting daily emission distribution');

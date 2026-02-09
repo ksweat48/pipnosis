@@ -14,7 +14,7 @@
  */
 
 import type { Handler } from '@netlify/functions';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAnon } from './_shared/supabase-admin';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -33,24 +33,7 @@ export const handler: Handler = async (event) => {
   }
 
   try {
-    // Get Supabase credentials from environment
-    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      console.error('[get-latest-prices] Missing Supabase configuration');
-      return {
-        statusCode: 500,
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          error: 'Supabase configuration missing',
-          timestamp: new Date().toISOString()
-        })
-      };
-    }
-
-    // Create Supabase client
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const supabase = getSupabaseAnon();
 
     // Fetch latest prices (one per symbol, within last 2 minutes)
     const { data: prices, error } = await supabase

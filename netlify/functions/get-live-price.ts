@@ -1,5 +1,5 @@
 import { Handler } from '@netlify/functions';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from './_shared/supabase-admin';
 import { fetchKrakenTicker } from './_shared/kraken-client';
 import { fetchBinanceTicker } from './_shared/binance-client';
 import { fetchCoinGeckoPrice } from './_shared/coingecko-client';
@@ -348,14 +348,7 @@ async function getKrakenPrice(symbol: string): Promise<{ bid: number; ask: numbe
 }
 
 async function getCachedPrice(symbol: string, maxAgeSeconds: number = 10): Promise<{ bid: number; ask: number; timestamp: string; source: string; ageSeconds: number; quality: number } | null> {
-  const supabaseUrl = process.env.VITE_SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !supabaseKey) {
-    return null;
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseKey);
+  const supabase = getSupabaseAdmin();
 
   const cutoffTime = new Date(Date.now() - (maxAgeSeconds * 1000)).toISOString();
 
@@ -393,14 +386,7 @@ async function getCachedPrice(symbol: string, maxAgeSeconds: number = 10): Promi
 }
 
 async function getFallbackPrice(symbol: string): Promise<{ bid: number; ask: number; timestamp: string; source: string; ageSeconds: number; quality: number } | null> {
-  const supabaseUrl = process.env.VITE_SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !supabaseKey) {
-    return null;
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseKey);
+  const supabase = getSupabaseAdmin();
 
   // Try to get last known price from fallback cache
   const { data: fallbackData, error: fallbackError } = await supabase
@@ -454,15 +440,7 @@ async function getFallbackPrice(symbol: string): Promise<{ bid: number; ask: num
 
 async function savePriceToDatabase(symbol: string, bid: number, ask: number, source: string): Promise<void> {
   try {
-    const supabaseUrl = process.env.VITE_SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !supabaseKey) {
-      console.warn('[get-live-price] Supabase credentials not configured, skipping database save');
-      return;
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = getSupabaseAdmin();
     const mid = (bid + ask) / 2;
     const spread = ask - bid;
 
