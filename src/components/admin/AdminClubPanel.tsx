@@ -509,97 +509,6 @@ export function AdminClubPanel() {
       {/* Treasury Section */}
       {activeSection === 'treasury' && (
         <div className="space-y-6">
-          {/* Integrity Checks */}
-          <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
-            <h3 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
-              <AlertCircle className="w-5 h-5 text-blue-400" />
-              System Integrity Checks
-            </h3>
-            <div className="space-y-3">
-              {integrityChecks.map((check, index) => (
-                <div
-                  key={index}
-                  className={`flex items-center justify-between p-3 rounded-lg ${
-                    check.passed ? 'bg-green-500/10 border border-green-500/30' : 'bg-red-500/10 border border-red-500/30'
-                  }`}
-                >
-                  <div className="flex-1">
-                    <p className={`font-medium ${check.passed ? 'text-green-400' : 'text-red-400'}`}>
-                      {check.check_name}
-                    </p>
-                    <p className="text-sm text-gray-400 mt-1">{check.details}</p>
-                  </div>
-                  <div className="text-right">
-                    <div className={`text-2xl ${check.passed ? 'text-green-400' : 'text-red-400'}`}>
-                      {check.passed ? '✓' : '✗'}
-                    </div>
-                    {!check.passed && (
-                      <p className="text-xs text-red-400 mt-1">
-                        Expected: {(check.expected_value || 0).toFixed(4)}
-                        <br />
-                        Actual: {(check.actual_value || 0).toFixed(4)}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Pool Allocation Summary */}
-          {poolSummary && (
-            <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
-              <h3 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
-                <Package className="w-5 h-5 text-purple-400" />
-                Token Pool Allocation
-              </h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-                <div className="bg-blue-500/10 p-3 rounded-lg border border-blue-500/30">
-                  <p className="text-xs text-blue-400 font-medium">Total Supply</p>
-                  <p className="text-xl font-bold text-white mt-1">{(poolSummary.total_supply || 0).toLocaleString()} PIP</p>
-                </div>
-                <div className="bg-green-500/10 p-3 rounded-lg border border-green-500/30">
-                  <p className="text-xs text-green-400 font-medium">Pool Balance</p>
-                  <p className="text-xl font-bold text-white mt-1">{(poolSummary.pool_sum || 0).toLocaleString()} PIP</p>
-                </div>
-                <div className="bg-red-500/10 p-3 rounded-lg border border-red-500/30">
-                  <p className="text-xs text-red-400 font-medium">Burned</p>
-                  <p className="text-xl font-bold text-white mt-1">{(poolSummary.burned_total || 0).toLocaleString()} PIP</p>
-                </div>
-                <div className="bg-purple-500/10 p-3 rounded-lg border border-purple-500/30">
-                  <p className="text-xs text-purple-400 font-medium">Circulating</p>
-                  <p className="text-xl font-bold text-white mt-1">{(poolSummary.circulating_total || 0).toLocaleString()} PIP</p>
-                </div>
-              </div>
-
-              <div className="space-y-2.5">
-                {(poolSummary.pools || []).map((pool: any) => (
-                  <div key={pool.pool_id} className="bg-gray-700/50 rounded-lg p-3 border border-gray-600/50">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <p className="font-medium text-white text-sm">{pool.pool_name}</p>
-                        <p className="text-xs text-gray-400">{pool.pool_id}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-base font-semibold text-white">
-                          {(pool.current_balance || 0).toLocaleString()} PIP
-                        </p>
-                        <p className="text-xs text-gray-400">
-                          {(pool.percentage_of_supply || 0).toFixed(2)}% of supply
-                        </p>
-                        {pool.pool_id !== 'BURNED' && (
-                          <p className="text-[10px] text-gray-500">
-                            {(pool.percentage_remaining || 0).toFixed(1)}% remaining
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* Lifecycle Flows */}
           {lifecycleMetrics && (
             <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
@@ -660,6 +569,97 @@ export function AdminClubPanel() {
               </div>
             </div>
           )}
+
+          {/* Pool Allocation Summary */}
+          {poolSummary && (
+            <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+              <h3 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
+                <Package className="w-5 h-5 text-purple-400" />
+                Token Pool Allocation
+              </h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+                <div className="bg-blue-500/10 p-3 rounded-lg border border-blue-500/30">
+                  <p className="text-xs text-blue-400 font-medium">Total Supply</p>
+                  <p className="text-xl font-bold text-white mt-1">{(poolSummary.total_supply || 0).toLocaleString()} PIP</p>
+                </div>
+                <div className="bg-green-500/10 p-3 rounded-lg border border-green-500/30">
+                  <p className="text-xs text-green-400 font-medium">Pool Balance</p>
+                  <p className="text-xl font-bold text-white mt-1">{(poolSummary.pool_sum || 0).toLocaleString()} PIP</p>
+                </div>
+                <div className="bg-red-500/10 p-3 rounded-lg border border-red-500/30">
+                  <p className="text-xs text-red-400 font-medium">Burned</p>
+                  <p className="text-xl font-bold text-white mt-1">{(poolSummary.burned_total || 0).toLocaleString()} PIP</p>
+                </div>
+                <div className="bg-purple-500/10 p-3 rounded-lg border border-purple-500/30">
+                  <p className="text-xs text-purple-400 font-medium">Circulating</p>
+                  <p className="text-xl font-bold text-white mt-1">{(poolSummary.circulating_total || 0).toLocaleString()} PIP</p>
+                </div>
+              </div>
+
+              <div className="space-y-2.5">
+                {(poolSummary.pools || []).map((pool: any) => (
+                  <div key={pool.pool_id} className="bg-gray-700/50 rounded-lg p-3 border border-gray-600/50">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <p className="font-medium text-white text-sm">{pool.pool_name}</p>
+                        <p className="text-xs text-gray-400">{pool.pool_id}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-base font-semibold text-white">
+                          {(pool.current_balance || 0).toLocaleString()} PIP
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          {(pool.percentage_of_supply || 0).toFixed(2)}% of supply
+                        </p>
+                        {pool.pool_id !== 'BURNED' && (
+                          <p className="text-[10px] text-gray-500">
+                            {(pool.percentage_remaining || 0).toFixed(1)}% remaining
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Integrity Checks */}
+          <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+            <h3 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-blue-400" />
+              System Integrity Checks
+            </h3>
+            <div className="space-y-3">
+              {integrityChecks.map((check, index) => (
+                <div
+                  key={index}
+                  className={`flex items-center justify-between p-3 rounded-lg ${
+                    check.passed ? 'bg-green-500/10 border border-green-500/30' : 'bg-red-500/10 border border-red-500/30'
+                  }`}
+                >
+                  <div className="flex-1">
+                    <p className={`font-medium ${check.passed ? 'text-green-400' : 'text-red-400'}`}>
+                      {check.check_name}
+                    </p>
+                    <p className="text-sm text-gray-400 mt-1">{check.details}</p>
+                  </div>
+                  <div className="text-right">
+                    <div className={`text-2xl ${check.passed ? 'text-green-400' : 'text-red-400'}`}>
+                      {check.passed ? '✓' : '✗'}
+                    </div>
+                    {!check.passed && (
+                      <p className="text-xs text-red-400 mt-1">
+                        Expected: {(check.expected_value || 0).toFixed(4)}
+                        <br />
+                        Actual: {(check.actual_value || 0).toFixed(4)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
