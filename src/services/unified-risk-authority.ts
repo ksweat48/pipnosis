@@ -345,7 +345,7 @@ class UnifiedRiskAuthority {
       // Recalculate actual risk with capped lot size
       const actualRiskDollars = recommendedLotSize * pipInfo.dollarPerPipPerLot * stopPips;
 
-      prodLogger.warn('Lot size capped at broker maximum', {
+      console.warn('[RISK] Lot size capped at broker maximum', {
         symbol,
         userId,
         originalLotSize: originalLot.toFixed(3),
