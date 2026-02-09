@@ -11,7 +11,7 @@
  * - Idempotent - safe to run multiple times per day
  */
 
-import { Handler, schedule } from '@netlify/functions';
+import { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL!;
