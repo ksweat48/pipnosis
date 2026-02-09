@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase';
 import { creditMeterService } from './credit-meter-service';
 import { creditDiscountEngine } from './credit-discount-engine';
 import { logger } from '../lib/logger';
+import { TOKENOMICS } from '../config/tokenomics-constants';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
 
 export interface CreditValidationResult {
@@ -14,17 +15,16 @@ export interface CreditDeductionResult {
   success: boolean;
   newBalance?: number;
   error?: string;
+  quoteId?: string;
+  pipBurned?: number;
+  discountPct?: number;
 }
 
 class CreditValidationService {
-  private readonly SIGNAL_COST = 10;
-  private readonly MIN_BALANCE_FOR_SESSION = 10;
-
   async validatePreSession(userId: string): Promise<CreditValidationResult> {
     try {
       logger.info(`[Credit Validation] Pre-session check for user ${userId}`);
 
-      // CRITICAL: Check if credits are enabled platform-wide
       const creditsEnabled = await this.isCreditsEnabled();
       if (!creditsEnabled) {
         logger.info('[Credit Validation] Credits disabled platform-wide - validation bypassed');
@@ -46,11 +46,11 @@ class CreditValidationService {
         return { valid: true, balance: balance.balance };
       }
 
-      if (balance.balance < this.MIN_BALANCE_FOR_SESSION) {
+      if (balance.balance < TOKENOMICS.CREDITS.MIN_BALANCE_FOR_SESSION) {
         logger.warn(`[Credit Validation] Insufficient balance: ${balance.balance} credits`);
         return {
           valid: false,
-          reason: `Insufficient credits. You need at least ${this.MIN_BALANCE_FOR_SESSION} credits to start a session. Current balance: ${balance.balance} credits.`,
+          reason: `Insufficient credits. You need at least ${TOKENOMICS.CREDITS.MIN_BALANCE_FOR_SESSION} credits to start a session. Current balance: ${balance.balance} credits.`,
           balance: balance.balance
         };
       }
@@ -64,7 +64,7 @@ class CreditValidationService {
         };
       }
 
-      logger.info(`[Credit Validation] ✅ Pre-session validation passed. Balance: ${balance.balance} credits`);
+      logger.info(`[Credit Validation] Pre-session validation passed. Balance: ${balance.balance} credits`);
       return { valid: true, balance: balance.balance };
     } catch (error) {
       logger.error('[Credit Validation] Error during pre-session validation:', error);
@@ -98,66 +98,68 @@ class CreditValidationService {
         return { success: true, newBalance: balance.balance };
       }
 
-      const discount = await creditDiscountEngine.resolveTradeCredits(userId);
-      const effectiveCost = discount.finalCost;
+      const quote = await creditDiscountEngine.quoteTradeCredits(userId, signalMetadata.intentId);
 
-      logger.info(`[Credit Deduction] Deducting ${effectiveCost} credits (base=${discount.baseCost} discount=${discount.discountCredits}) for signal ${signalMetadata.intentId}`);
-
-      if (!balance || balance.balance < effectiveCost) {
-        logger.error(`[Credit Deduction] Insufficient balance: ${balance?.balance || 0} credits, need ${effectiveCost}`);
-
+      if (quote.status === 'rejected') {
+        logger.error(`[Credit Deduction] Quote rejected: ${quote.rejectReason}`);
         await this.blockSessionForCredits(sessionId, signalMetadata.intentId);
-
         return {
           success: false,
-          error: `Insufficient credits. Need ${effectiveCost} credits, have ${balance?.balance || 0}.`,
-          newBalance: balance?.balance
+          error: `Insufficient credits. ${quote.rejectReason === 'INSUFFICIENT_CREDITS_NO_DISCOUNT' ? 'Even without tier discount, ' : ''}Need credits to execute trade.`,
+          newBalance: balance?.balance,
         };
       }
 
-      const deductSuccess = await creditMeterService.deductCredits(
-        userId,
-        effectiveCost,
-        'signal_detected',
-        {
-          session_id: sessionId,
-          intent_id: signalMetadata.intentId,
-          symbol: signalMetadata.symbol,
-          intent_type: signalMetadata.intentType,
-          confidence: signalMetadata.confidence,
-          discount_applied: discount.discountCredits,
-          tier_name: discount.tierName,
-          base_cost: discount.baseCost,
-          final_cost: effectiveCost,
-          timestamp: new Date().toISOString()
-        }
+      if (quote.status !== 'approved') {
+        logger.error(`[Credit Deduction] Quote not approved: ${quote.status}`);
+        await this.blockSessionForCredits(sessionId, signalMetadata.intentId);
+        return {
+          success: false,
+          error: `Credit quote failed with status: ${quote.status}`,
+          newBalance: balance?.balance,
+        };
+      }
+
+      logger.info(
+        `[Credit Deduction] Executing quote ${quote.quoteId}: cost=${quote.finalCreditCost} pipBurn=${quote.pipToBurn} discount=${quote.discountPct} tier=${quote.tierName} degraded=${quote.degraded}`
       );
 
-      if (!deductSuccess) {
-        logger.error('[Credit Deduction] Deduction failed - blocking session');
+      const execution = await creditDiscountEngine.executeQuote(quote.quoteId, userId);
 
+      if (!execution.success) {
+        logger.error(`[Credit Deduction] Execution failed: ${execution.error}`);
         await this.blockSessionForCredits(sessionId, signalMetadata.intentId);
-
         return {
           success: false,
-          error: 'Credit deduction failed. Session is now blocked until credits are resolved.'
+          error: 'Credit deduction failed. Session is now blocked until credits are resolved.',
         };
       }
 
-      const newBalance = await creditMeterService.getBalance(userId);
-      logger.info(`[Credit Deduction] Successfully deducted ${effectiveCost} credits. New balance: ${newBalance?.balance || 0}`);
+      logger.info(
+        `[Credit Deduction] Executed: credits=${execution.finalCreditCost} pipBurned=${execution.pipBurned} newBalance=${execution.newCreditBalance}`
+      );
 
-      await this.recordSuccessfulDeduction(userId, sessionId, signalMetadata.intentId, effectiveCost);
+      await this.recordSuccessfulDeduction(
+        userId,
+        sessionId,
+        signalMetadata.intentId,
+        execution.finalCreditCost,
+        quote.quoteId,
+        quote.tierLevel,
+        quote.discountPct,
+        execution.pipBurned
+      );
 
       return {
         success: true,
-        newBalance: newBalance?.balance
+        newBalance: execution.newCreditBalance,
+        quoteId: quote.quoteId,
+        pipBurned: execution.pipBurned,
+        discountPct: execution.discountPct,
       };
     } catch (error) {
       logger.error('[Credit Deduction] Unexpected error during deduction:', error);
-
       await this.blockSessionForCredits(sessionId, signalMetadata.intentId);
-
       return {
         success: false,
         error: 'Unexpected error during credit deduction. Session blocked.'
@@ -204,18 +206,18 @@ class CreditValidationService {
         };
       }
 
-      const metadata = data.pending_credit_metadata as any;
+      const metadata = data.pending_credit_metadata as Record<string, unknown>;
 
       const result = await this.deductSignalCredits(userId, sessionId, {
-        symbol: metadata?.symbol || 'UNKNOWN',
+        symbol: (metadata?.symbol as string) || 'UNKNOWN',
         intentId: data.pending_credit_intent_id,
-        intentType: metadata?.intent_type || 'unknown',
-        confidence: metadata?.confidence || 0
+        intentType: (metadata?.intent_type as string) || 'unknown',
+        confidence: (metadata?.confidence as number) || 0
       });
 
       if (result.success) {
         await this.unblockSession(sessionId);
-        logger.info(`[Credit Validation] ✅ Pending deduction resolved. Session ${sessionId} unblocked.`);
+        logger.info(`[Credit Validation] Pending deduction resolved. Session ${sessionId} unblocked.`);
       }
 
       return result;
@@ -287,7 +289,7 @@ class CreditValidationService {
       if (error) {
         logger.error('[Credit Validation] Failed to block session:', error);
       } else {
-        logger.warn(`[Credit Validation] 🔒 Session ${sessionId} blocked due to credit deduction failure`);
+        logger.warn(`[Credit Validation] Session ${sessionId} blocked due to credit deduction failure`);
       }
     } catch (error) {
       logger.error('[Credit Validation] Error blocking session:', error);
@@ -309,7 +311,7 @@ class CreditValidationService {
       if (error) {
         logger.error('[Credit Validation] Failed to unblock session:', error);
       } else {
-        logger.info(`[Credit Validation] 🔓 Session ${sessionId} unblocked`);
+        logger.info(`[Credit Validation] Session ${sessionId} unblocked`);
       }
     } catch (error) {
       logger.error('[Credit Validation] Error unblocking session:', error);
@@ -320,18 +322,28 @@ class CreditValidationService {
     userId: string,
     sessionId: string,
     intentId: string,
-    amount: number
+    amount: number,
+    quoteId: string,
+    tierLevel: number,
+    discountPct: number,
+    pipBurned: number
   ): Promise<void> {
     try {
       await supabase
         .from('credit_deduction_history')
         .insert({
-          user_id: userId,      // SSOT FIX: Required by schema and RLS policy
+          user_id: userId,
           session_id: sessionId,
           intent_id: intentId,
           amount,
           status: 'success',
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          quote_id: quoteId || null,
+          tier_level: tierLevel,
+          discount_pct: discountPct,
+          base_cost: TOKENOMICS.CREDITS.BASE_TRADE_COST,
+          final_cost: amount,
+          pip_burned: pipBurned,
         });
     } catch (error) {
       logger.error('[Credit Validation] Failed to record deduction:', error);
@@ -339,11 +351,11 @@ class CreditValidationService {
   }
 
   getSignalCost(): number {
-    return this.SIGNAL_COST;
+    return TOKENOMICS.CREDITS.BASE_TRADE_COST;
   }
 
   getMinBalanceForSession(): number {
-    return this.MIN_BALANCE_FOR_SESSION;
+    return TOKENOMICS.CREDITS.MIN_BALANCE_FOR_SESSION;
   }
 
   private async isCreditsEnabled(): Promise<boolean> {

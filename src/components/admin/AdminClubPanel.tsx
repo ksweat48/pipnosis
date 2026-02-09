@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Crown, Users, Coins, TrendingUp, RefreshCw, Search, ChevronDown, ChevronUp } from 'lucide-react';
+import { Crown, Users, Coins, TrendingUp, RefreshCw, Search, ChevronDown, ChevronUp, Flame } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
 interface MemberSummary {
@@ -25,6 +25,22 @@ interface ClubStats {
   tierBreakdown: Record<string, number>;
 }
 
+interface BurnAnalytics {
+  totalPipBurned: number;
+  totalDiscountTrades: number;
+  totalCreditsSaved: number;
+  burnVelocity24h: number;
+  avgDiscountPct: number;
+  tierBreakdown: Array<{
+    tierName: string;
+    tierLevel: number;
+    tradeCount: number;
+    totalPipBurned: number;
+    totalCreditsSaved: number;
+    avgDiscountPct: number;
+  }>;
+}
+
 const TIER_NAMES: Record<number, string> = {
   1: 'Member', 2: 'Starter', 3: 'Builder', 4: 'Pro', 5: 'Elite', 6: 'Founder',
 };
@@ -44,6 +60,7 @@ export function AdminClubPanel() {
     totalTokensLocked: 0, totalTokensStaked: 0, totalRevenue: 0, tierBreakdown: {},
   });
   const [members, setMembers] = useState<MemberSummary[]>([]);
+  const [burnAnalytics, setBurnAnalytics] = useState<BurnAnalytics | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedMember, setExpandedMember] = useState<string | null>(null);
 
@@ -53,7 +70,7 @@ export function AdminClubPanel() {
 
   const loadData = async () => {
     setLoading(true);
-    await Promise.all([loadStats(), loadMembers()]);
+    await Promise.all([loadStats(), loadMembers(), loadBurnAnalytics()]);
     setLoading(false);
   };
 
@@ -154,6 +171,35 @@ export function AdminClubPanel() {
     }
   };
 
+  const loadBurnAnalytics = async () => {
+    try {
+      const { data, error } = await supabase.rpc('get_discount_burn_analytics');
+      if (error || !data) {
+        console.error('[AdminClub] Error loading burn analytics:', error);
+        return;
+      }
+
+      const result = data as Record<string, unknown>;
+      setBurnAnalytics({
+        totalPipBurned: Number(result.total_pip_burned ?? 0),
+        totalDiscountTrades: Number(result.total_discount_trades ?? 0),
+        totalCreditsSaved: Number(result.total_credits_saved ?? 0),
+        burnVelocity24h: Number(result.burn_velocity_24h ?? 0),
+        avgDiscountPct: Number(result.avg_discount_pct ?? 0),
+        tierBreakdown: Array.isArray(result.tier_breakdown) ? (result.tier_breakdown as Array<Record<string, unknown>>).map(t => ({
+          tierName: String(t.tier_name ?? 'Unknown'),
+          tierLevel: Number(t.tier_level ?? 0),
+          tradeCount: Number(t.trade_count ?? 0),
+          totalPipBurned: Number(t.total_pip_burned ?? 0),
+          totalCreditsSaved: Number(t.total_credits_saved ?? 0),
+          avgDiscountPct: Number(t.avg_discount_pct ?? 0),
+        })) : [],
+      });
+    } catch (error) {
+      console.error('[AdminClub] Error loading burn analytics:', error);
+    }
+  };
+
   const filteredMembers = members.filter(m =>
     m.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
     m.tierName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -214,6 +260,61 @@ export function AdminClubPanel() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* Discount & Burn Analytics */}
+      {burnAnalytics && (burnAnalytics.totalDiscountTrades > 0 || burnAnalytics.totalPipBurned > 0) && (
+        <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+          <div className="flex items-center gap-2 mb-4">
+            <Flame className="w-5 h-5 text-orange-400" />
+            <h3 className="text-base font-semibold text-white">Discount & Burn Analytics</h3>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+            <div className="bg-gray-700/50 rounded-lg p-3">
+              <div className="text-gray-400 text-xs mb-0.5">PIP Burned (Total)</div>
+              <div className="text-orange-400 text-lg font-bold">{fmt(burnAnalytics.totalPipBurned)}</div>
+            </div>
+            <div className="bg-gray-700/50 rounded-lg p-3">
+              <div className="text-gray-400 text-xs mb-0.5">Discount Trades</div>
+              <div className="text-white text-lg font-bold">{burnAnalytics.totalDiscountTrades}</div>
+            </div>
+            <div className="bg-gray-700/50 rounded-lg p-3">
+              <div className="text-gray-400 text-xs mb-0.5">Credits Saved</div>
+              <div className="text-emerald-400 text-lg font-bold">{fmt(burnAnalytics.totalCreditsSaved)}</div>
+            </div>
+            <div className="bg-gray-700/50 rounded-lg p-3">
+              <div className="text-gray-400 text-xs mb-0.5">Burn Rate (24h)</div>
+              <div className="text-amber-400 text-lg font-bold">{fmt(burnAnalytics.burnVelocity24h)} PIP</div>
+            </div>
+            <div className="bg-gray-700/50 rounded-lg p-3">
+              <div className="text-gray-400 text-xs mb-0.5">Avg Discount</div>
+              <div className="text-cyan-400 text-lg font-bold">{(burnAnalytics.avgDiscountPct * 100).toFixed(1)}%</div>
+            </div>
+          </div>
+
+          {burnAnalytics.tierBreakdown.length > 0 && (
+            <div>
+              <div className="text-gray-400 text-xs mb-2">Per-Tier Breakdown</div>
+              <div className="space-y-1.5">
+                {burnAnalytics.tierBreakdown.map(tier => (
+                  <div key={tier.tierLevel} className="flex items-center justify-between bg-gray-700/30 rounded-lg px-3 py-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2.5 h-2.5 rounded-full ${TIER_COLORS[tier.tierLevel] || 'bg-gray-500'}`} />
+                      <span className="text-white font-medium">{tier.tierName}</span>
+                    </div>
+                    <div className="flex items-center gap-4 text-gray-300">
+                      <span>{tier.tradeCount} trades</span>
+                      <span className="text-orange-400">{fmt(tier.totalPipBurned)} burned</span>
+                      <span className="text-emerald-400">{fmt(tier.totalCreditsSaved)} saved</span>
+                      <span className="text-cyan-400">{(tier.avgDiscountPct * 100).toFixed(0)}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

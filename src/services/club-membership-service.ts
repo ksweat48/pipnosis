@@ -30,7 +30,7 @@ export interface MembershipPackage {
   stripePriceId: string | null;
   stripeProductId: string | null;
   isActive: boolean;
-  creditDiscount: number;
+  discountPct: number;
   stakingEnabled: boolean;
   votingEnabled: boolean;
   votingWeight: number;
@@ -63,7 +63,7 @@ export interface MembershipAccessCheck {
 }
 
 export interface UserCreditDiscount {
-  creditDiscount: number;
+  discountPct: number;
   tierLevel: number;
   tierName: string;
   stakingEnabled: boolean;
@@ -277,19 +277,19 @@ class ClubMembershipService {
       });
 
       if (error || !data || data.length === 0) {
-        return { creditDiscount: 0, tierLevel: 0, tierName: 'None', stakingEnabled: false };
+        return { discountPct: 0, tierLevel: 0, tierName: 'None', stakingEnabled: false };
       }
 
       const row = data[0];
       return {
-        creditDiscount: row.credit_discount || 0,
+        discountPct: Number(row.discount_pct ?? 0),
         tierLevel: row.tier_level || 0,
         tierName: row.tier_name || 'None',
         stakingEnabled: row.staking_enabled || false,
       };
     } catch (error) {
       console.error('[ClubMembershipService] Error fetching credit discount:', error);
-      return { creditDiscount: 0, tierLevel: 0, tierName: 'None', stakingEnabled: false };
+      return { discountPct: 0, tierLevel: 0, tierName: 'None', stakingEnabled: false };
     }
   }
 
@@ -308,7 +308,7 @@ class ClubMembershipService {
       stripePriceId: data.stripe_price_id,
       stripeProductId: data.stripe_product_id,
       isActive: data.is_active,
-      creditDiscount: data.credit_discount || 0,
+      discountPct: Number(data.discount_pct ?? 0),
       stakingEnabled: data.staking_enabled || false,
       votingEnabled: data.voting_enabled || false,
       votingWeight: parseFloat(data.voting_weight || '0'),

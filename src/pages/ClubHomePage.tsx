@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Coins, TrendingUp, Users, Copy, Check, ExternalLink, History, Gift, Crown, MessageSquare } from 'lucide-react';
+import { Coins, TrendingUp, Users, Copy, Check, ExternalLink, History, Gift, Crown, MessageSquare, Flame } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { ClubLayout } from '@/components/ClubLayout';
 import { clubTokenLedgerService, type ClubTokenBalance, type TokenTransaction } from '@/services/club-token-ledger-service';
 import { clubReferralService, type ReferralStats } from '@/services/club-referral-service';
-import { clubMembershipService, type UserMembership } from '@/services/club-membership-service';
+import { clubMembershipService, type UserMembership, type UserCreditDiscount } from '@/services/club-membership-service';
+import { getDisplayTradeCost, TOKENOMICS } from '@/config/tokenomics-constants';
 
 const fmt = (n: number) =>
   n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -15,6 +16,7 @@ export function ClubHomePage() {
   const [tokenBalance, setTokenBalance] = useState<ClubTokenBalance | null>(null);
   const [membership, setMembership] = useState<UserMembership | null>(null);
   const [referralStats, setReferralStats] = useState<ReferralStats | null>(null);
+  const [discount, setDiscount] = useState<UserCreditDiscount | null>(null);
   const [referralCode, setReferralCode] = useState<string>('');
   const [transactions, setTransactions] = useState<TokenTransaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,12 +40,13 @@ export function ClubHomePage() {
     if (!user) return;
 
     try {
-      const [balance, membershipData, stats, code, txHistory] = await Promise.all([
+      const [balance, membershipData, stats, code, txHistory, discountData] = await Promise.all([
         clubTokenLedgerService.getBalance(user.id),
         clubMembershipService.getUserMembership(user.id),
         clubReferralService.getReferralStats(user.id),
         clubReferralService.getUserReferralCode(user.id),
-        clubTokenLedgerService.getTransactionHistory(user.id, 10)
+        clubTokenLedgerService.getTransactionHistory(user.id, 10),
+        clubMembershipService.getUserCreditDiscount(user.id)
       ]);
 
       setTokenBalance(balance);
@@ -51,6 +54,7 @@ export function ClubHomePage() {
       setReferralStats(stats);
       setReferralCode(code);
       setTransactions(txHistory);
+      setDiscount(discountData);
     } catch (error) {
       console.error('[ClubHome] Error loading dashboard:', error);
     } finally {
@@ -148,6 +152,41 @@ export function ClubHomePage() {
             </div>
           </div>
         </div>
+
+        {/* Trade Discount Card */}
+        {discount && discount.discountPct > 0 && (
+          <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-lg">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2.5 bg-emerald-50 rounded-xl">
+                <Flame size={22} className="text-emerald-500" />
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-bold text-slate-900">Trade Discount Active</h3>
+                <p className="text-slate-500 text-xs sm:text-sm">{discount.tierName} tier benefit</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-3 text-center">
+                <div className="text-emerald-600 text-xl sm:text-2xl font-bold">
+                  {Math.round(discount.discountPct * 100)}%
+                </div>
+                <div className="text-slate-500 text-[10px] sm:text-xs mt-0.5">Discount</div>
+              </div>
+              <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 text-center">
+                <div className="text-slate-900 text-xl sm:text-2xl font-bold">
+                  {getDisplayTradeCost(discount.discountPct)}
+                </div>
+                <div className="text-slate-500 text-[10px] sm:text-xs mt-0.5">Credits/Trade</div>
+              </div>
+              <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 text-center">
+                <div className="text-amber-600 text-xl sm:text-2xl font-bold">
+                  {(TOKENOMICS.CREDITS.BASE_TRADE_COST - Number(getDisplayTradeCost(discount.discountPct))).toFixed(1)}
+                </div>
+                <div className="text-slate-500 text-[10px] sm:text-xs mt-0.5">PIP Burn/Trade</div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Referral Section */}
         <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-xl sm:rounded-2xl p-4 sm:p-8 shadow-lg">

@@ -4,6 +4,7 @@ import { Lock, Unlock, Coins, Crown, Check, Loader2, ArrowRight } from 'lucide-r
 import { useAuth } from '@/hooks/useAuth';
 import { clubAccessGateService, type ClubAccessResult } from '@/services/club-access-gate-service';
 import { clubMembershipService, type MembershipPackage } from '@/services/club-membership-service';
+import { getDisplayTradeCost } from '@/config/tokenomics-constants';
 import { clubReferralService } from '@/services/club-referral-service';
 import { NavigationMenu } from '@/components/NavigationMenu';
 
@@ -273,10 +274,10 @@ export function ClubEntryGatePage() {
                       <span className="text-slate-500">Required Balance</span>
                       <span className="text-slate-900 font-bold">{fmt(pkg.requiredTokenBalance)}</span>
                     </div>
-                    {pkg.creditDiscount > 0 && (
+                    {pkg.discountPct > 0 && (
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-slate-500">Trade Cost</span>
-                        <span className="text-emerald-600 font-bold">{10 - pkg.creditDiscount} credits/trade</span>
+                        <span className="text-emerald-600 font-bold">{getDisplayTradeCost(pkg.discountPct)} credits/trade</span>
                       </div>
                     )}
                   </div>

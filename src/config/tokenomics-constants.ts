@@ -1,5 +1,5 @@
 /**
- * CANONICAL TOKENOMICS v1.2.1 — SSOT CONFIGURATION
+ * CANONICAL TOKENOMICS v2.0.0 — SSOT CONFIGURATION
  *
  * This file is the single source of truth for ALL tokenomics values.
  * Every service that touches PIP tokens, credits, discounts, staking,
@@ -10,8 +10,16 @@
  * CORE PRINCIPLES (Immutable):
  * - PIP tokens are utility access units, NOT currency/equity/securities
  * - Credits are the ONLY unit used to execute trades (separate system)
- * - These two systems NEVER convert between each other
+ * - PIP tokens are BURNED when a tier discount is applied to a trade
  * - 1 PIP = $0.10 perceived utility (internal reference only)
+ *
+ * DISCOUNT MODEL (v2 — Canonical, LOCKED):
+ * - Step-based percentage discounts per tier
+ * - No staking curve, no dynamic math, no free trades
+ * - PIP burned at rate of PIP_PER_CREDIT_DISCOUNT per credit saved
+ * - Graceful degradation: insufficient PIP = no discount (full price)
+ * - Hard floor: no trade costs less than MIN_TRADE_COST (8 credits)
+ * - Hard cap: no discount exceeds MAX_DISCOUNT_PCT (20%)
  */
 
 export const TOKENOMICS = {
@@ -33,6 +41,7 @@ export const TOKENOMICS = {
 
   CREDITS: {
     BASE_TRADE_COST: 10,
+    MIN_TRADE_COST: 8,
     MIN_BALANCE_FOR_SESSION: 10,
   },
 
@@ -49,7 +58,7 @@ export const TOKENOMICS = {
       priceUsd: 99,
       tokenGrant: 100,
       requiredTokenBalance: 100,
-      creditDiscount: 0,
+      discountPct: 0.00,
       stakingEnabled: false,
       stakingMultiplier: 0,
       votingEnabled: false,
@@ -70,7 +79,7 @@ export const TOKENOMICS = {
       priceUsd: 250,
       tokenGrant: 250,
       requiredTokenBalance: 250,
-      creditDiscount: 0,
+      discountPct: 0.00,
       stakingEnabled: false,
       stakingMultiplier: 0,
       votingEnabled: false,
@@ -92,7 +101,7 @@ export const TOKENOMICS = {
       priceUsd: 500,
       tokenGrant: 500,
       requiredTokenBalance: 500,
-      creditDiscount: 1,
+      discountPct: 0.05,
       stakingEnabled: true,
       stakingMultiplier: 1.0,
       votingEnabled: false,
@@ -104,7 +113,7 @@ export const TOKENOMICS = {
         'Club access',
         '500 PIP Access Tokens',
         'Staking rewards enabled',
-        '1 credit discount per trade (9 credits/trade)',
+        '5% trade discount (9.5 credits/trade)',
         'Market Analyzer',
         'Community chat',
       ],
@@ -115,7 +124,7 @@ export const TOKENOMICS = {
       priceUsd: 1000,
       tokenGrant: 1000,
       requiredTokenBalance: 1000,
-      creditDiscount: 2,
+      discountPct: 0.10,
       stakingEnabled: true,
       stakingMultiplier: 1.5,
       votingEnabled: true,
@@ -127,7 +136,7 @@ export const TOKENOMICS = {
         'Club access',
         '1,000 PIP Access Tokens',
         'Higher staking reward multiplier',
-        '2 credit discount per trade (8 credits/trade)',
+        '10% trade discount (9 credits/trade)',
         'Advanced Market Analyzer',
         'Voting rights',
         '+5% referral bonus',
@@ -140,7 +149,7 @@ export const TOKENOMICS = {
       priceUsd: 5000,
       tokenGrant: 5000,
       requiredTokenBalance: 5000,
-      creditDiscount: 3,
+      discountPct: 0.15,
       stakingEnabled: true,
       stakingMultiplier: 2.0,
       votingEnabled: true,
@@ -152,7 +161,7 @@ export const TOKENOMICS = {
         'Club access',
         '5,000 PIP Access Tokens',
         'Enhanced staking rewards',
-        '3 credit discount per trade (7 credits/trade)',
+        '15% trade discount (8.5 credits/trade)',
         'Higher voting weight',
         '+10% referral bonus',
         'VIP access to events',
@@ -166,7 +175,7 @@ export const TOKENOMICS = {
       priceUsd: 10000,
       tokenGrant: 10000,
       requiredTokenBalance: 10000,
-      creditDiscount: 4,
+      discountPct: 0.20,
       stakingEnabled: true,
       stakingMultiplier: 3.0,
       votingEnabled: true,
@@ -178,7 +187,7 @@ export const TOKENOMICS = {
         'Club access',
         '10,000 PIP Access Tokens',
         'Maximum staking rewards',
-        '4 credit discount per trade (6 credits/trade)',
+        '20% trade discount (8 credits/trade)',
         'Highest voting weight',
         '+15% referral bonus',
         'VIP + private Founder events',
@@ -204,8 +213,10 @@ export const TOKENOMICS = {
   },
 
   DISCOUNT: {
-    formula: (creditDiscount: number): number => creditDiscount * 10,
-    MAX_DISCOUNT_CREDITS: 4,
+    MAX_DISCOUNT_PCT: 0.20,
+    MAX_DISCOUNT_CREDITS: 2.0,
+    PIP_PER_CREDIT_DISCOUNT: 10.0,
+    QUOTE_EXPIRY_SECONDS: 300,
   },
 
   WHITEPAPER_DISCLAIMER:
@@ -220,7 +231,7 @@ export interface TierConfig {
   priceUsd: number;
   tokenGrant: number;
   requiredTokenBalance: number;
-  creditDiscount: number;
+  discountPct: number;
   stakingEnabled: boolean;
   stakingMultiplier: number;
   votingEnabled: boolean;
@@ -238,4 +249,21 @@ export function getTierByLevel(level: number): TierConfig | null {
 
 export function getAllTiers(): TierConfig[] {
   return Object.values(TOKENOMICS.TIERS).sort((a, b) => a.level - b.level);
+}
+
+export function computeTradeCost(discountPct: number): number {
+  const base = TOKENOMICS.CREDITS.BASE_TRADE_COST;
+  const cappedPct = Math.min(discountPct, TOKENOMICS.DISCOUNT.MAX_DISCOUNT_PCT);
+  const savings = Math.floor(base * cappedPct * 100) / 100;
+  return Math.max(base - savings, TOKENOMICS.CREDITS.MIN_TRADE_COST);
+}
+
+export function computePipBurn(creditSavings: number): number {
+  if (creditSavings <= 0) return 0;
+  return Math.ceil(creditSavings * TOKENOMICS.DISCOUNT.PIP_PER_CREDIT_DISCOUNT * 100) / 100;
+}
+
+export function getDisplayTradeCost(discountPct: number): string {
+  const cost = computeTradeCost(discountPct);
+  return cost % 1 === 0 ? cost.toString() : cost.toFixed(1);
 }

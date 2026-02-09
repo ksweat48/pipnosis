@@ -121,7 +121,7 @@ class ClubTokenLedgerService {
     transactionType: 'cashout_deduction' | 'admin_deduct' | 'discount_burn' | 'staking_lock',
     description: string,
     referenceId: string | null = null,
-    referenceType: 'membership' | 'referral' | 'cashout' | 'staking' | 'admin_action' | 'promotion' | null = null,
+    referenceType: 'membership' | 'referral' | 'cashout' | 'staking' | 'admin_action' | 'promotion' | 'discount' | null = null,
     createdBy: string | null = null
   ): Promise<{ success: boolean; error?: string }> {
     try {
