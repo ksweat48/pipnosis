@@ -142,18 +142,6 @@ export function ClubEntryGatePage() {
 
         {/* Header */}
         <div className="text-center mb-12">
-          <div className="flex items-center justify-center mb-6">
-            {accessResult.canAccess ? (
-              <div className="p-4 bg-white/70 backdrop-blur-md rounded-full shadow-lg">
-                <Unlock size={64} className="text-emerald-500" />
-              </div>
-            ) : (
-              <div className="p-4 bg-white/70 backdrop-blur-md rounded-full shadow-lg">
-                <Lock size={64} className="text-slate-400" />
-              </div>
-            )}
-          </div>
-
           <h1 className="text-5xl font-bold text-slate-900 mb-4">
             Pipnosis Club
           </h1>
