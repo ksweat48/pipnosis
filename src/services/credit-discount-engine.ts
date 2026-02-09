@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
-import { TOKENOMICS, computeTradeCost, computePipBurn } from '@/config/tokenomics-constants';
+import { TOKENOMICS, computeTradeCost } from '@/config/tokenomics-constants';
 import { logger } from '@/lib/logger';
+import { userTradeDiscountSettingService } from './user-trade-discount-setting';
 
 export interface DiscountQuoteResult {
   quoteId: string;
@@ -127,6 +128,8 @@ class CreditDiscountEngine {
     const baseCost = TOKENOMICS.CREDITS.BASE_TRADE_COST;
 
     try {
+      const toggleEnabled = await userTradeDiscountSettingService.isEnabled(userId);
+
       const { data, error } = await supabase.rpc('get_user_credit_discount', {
         p_user_id: userId,
       });
@@ -136,12 +139,13 @@ class CreditDiscountEngine {
       }
 
       const row = data[0];
-      const discountPct = Math.min(Number(row.discount_pct ?? 0), TOKENOMICS.DISCOUNT.MAX_DISCOUNT_PCT);
+      const rawPct = Math.min(Number(row.discount_pct ?? 0), TOKENOMICS.DISCOUNT.MAX_DISCOUNT_PCT);
+      const discountPct = toggleEnabled ? rawPct : 0;
       const finalCost = computeTradeCost(discountPct);
       const discountCredits = baseCost - finalCost;
 
       logger.info(
-        `[CreditDiscountEngine] User tier=${row.tier_name} discountPct=${discountPct} finalCost=${finalCost}`
+        `[CreditDiscountEngine] User tier=${row.tier_name} toggleEnabled=${toggleEnabled} discountPct=${discountPct} finalCost=${finalCost}`
       );
 
       return {

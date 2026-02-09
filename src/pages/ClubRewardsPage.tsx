@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Gift, TrendingUp, Lock, AlertCircle, Coins, Clock, Unlock, Loader2 } from 'lucide-react';
+import { Gift, TrendingUp, Lock, AlertCircle, Coins, Clock, Unlock, Loader2, Flame, Info } from 'lucide-react';
 import { ClubLayout } from '@/components/ClubLayout';
 import { useAuth } from '@/hooks/useAuth';
 import { clubStakingService, type StakingPosition } from '@/services/club-staking-service';
 import { clubTokenLedgerService, type ClubTokenBalance } from '@/services/club-token-ledger-service';
-import { clubMembershipService, type UserMembership } from '@/services/club-membership-service';
+import { clubMembershipService, type UserMembership, type UserCreditDiscount } from '@/services/club-membership-service';
+import { userTradeDiscountSettingService } from '@/services/user-trade-discount-setting';
+import { getDisplayTradeCost, computePipBurn, computeTradeCost, TOKENOMICS } from '@/config/tokenomics-constants';
 
 const fmt = (n: number) =>
   n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -23,6 +25,10 @@ export function ClubRewardsPage() {
   const [tokenBalance, setTokenBalance] = useState<ClubTokenBalance | null>(null);
   const [membership, setMembership] = useState<UserMembership | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const [discount, setDiscount] = useState<UserCreditDiscount | null>(null);
+  const [discountToggle, setDiscountToggle] = useState(false);
+  const [discountToggleLoading, setDiscountToggleLoading] = useState(false);
 
   const [stakeAmount, setStakeAmount] = useState('');
   const [stakeDuration, setStakeDuration] = useState(30);
@@ -51,15 +57,19 @@ export function ClubRewardsPage() {
     if (!user) return;
 
     try {
-      const [balance, pos, mem] = await Promise.all([
+      const [balance, pos, mem, discountData, toggleEnabled] = await Promise.all([
         clubTokenLedgerService.getBalance(user.id),
         clubStakingService.getPositions(user.id),
         clubMembershipService.getUserMembership(user.id),
+        clubMembershipService.getUserCreditDiscount(user.id),
+        userTradeDiscountSettingService.isEnabled(user.id),
       ]);
 
       setTokenBalance(balance);
       setPositions(pos);
       setMembership(mem);
+      setDiscount(discountData);
+      setDiscountToggle(toggleEnabled);
     } catch (error) {
       console.error('[ClubRewards] Error loading data:', error);
     } finally {
@@ -115,6 +125,22 @@ export function ClubRewardsPage() {
   const totalStaked = activePositions.reduce((sum, p) => sum + p.amountStaked, 0);
   const totalRewards = positions.reduce((sum, p) => sum + p.rewardsEarned, 0);
   const maturedPositions = activePositions.filter((p) => p.isMatured);
+
+  const discountEligible = discount && discount.discountPct > 0;
+  const tradeCostIfEnabled = discount ? computeTradeCost(discount.discountPct) : TOKENOMICS.CREDITS.BASE_TRADE_COST;
+  const creditSavings = TOKENOMICS.CREDITS.BASE_TRADE_COST - tradeCostIfEnabled;
+  const pipBurnPerTrade = computePipBurn(creditSavings);
+
+  const handleDiscountToggle = async () => {
+    if (!user || !discountEligible) return;
+    setDiscountToggleLoading(true);
+    const newVal = !discountToggle;
+    const result = await userTradeDiscountSettingService.setEnabled(user.id, newVal);
+    if (result.success) {
+      setDiscountToggle(newVal);
+    }
+    setDiscountToggleLoading(false);
+  };
 
   const stakingEnabled = membership?.tierLevel && membership.tierLevel >= 3;
 
@@ -187,6 +213,90 @@ export function ClubRewardsPage() {
               {loading ? '...' : maturedPositions.length}
             </div>
           </div>
+        </div>
+
+        {/* Trade Discount Toggle */}
+        <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-lg">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2.5 bg-orange-50 rounded-xl">
+              <Flame size={22} className="text-orange-500" />
+            </div>
+            <div className="flex-1">
+              <h2 className="text-base sm:text-lg font-bold text-slate-900">Trade Credit Discounts</h2>
+              <p className="text-slate-500 text-xs sm:text-sm">Use PIP tokens to reduce your trade credit cost</p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between bg-slate-50/80 border border-slate-200/60 rounded-xl p-4">
+            <div className="flex-1 min-w-0 mr-4">
+              <div className="text-sm font-semibold text-slate-900 mb-1">
+                Use PIP tokens for trade discounts
+              </div>
+              <div className="text-xs text-slate-500">
+                When enabled, PIP tokens will be burned automatically to reduce your credit cost per trade.
+              </div>
+              {discountToggle && (
+                <div className="text-[10px] text-slate-400 mt-1">
+                  You can turn this off at any time.
+                </div>
+              )}
+            </div>
+
+            {discountEligible ? (
+              <button
+                onClick={handleDiscountToggle}
+                disabled={discountToggleLoading}
+                className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 ${
+                  discountToggle ? 'bg-emerald-500' : 'bg-slate-300'
+                } ${discountToggleLoading ? 'opacity-50 cursor-wait' : ''}`}
+                role="switch"
+                aria-checked={discountToggle}
+                aria-label="Toggle trade discounts"
+              >
+                <span
+                  className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                    discountToggle ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            ) : (
+              <div className="relative group flex-shrink-0">
+                <div className="inline-flex h-7 w-12 rounded-full bg-slate-200 cursor-not-allowed items-center">
+                  <span className="inline-block h-6 w-6 ml-0.5 rounded-full bg-white shadow-sm" />
+                </div>
+                <div className="absolute right-0 bottom-full mb-2 w-56 p-2.5 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg">
+                  <div className="flex items-start gap-1.5">
+                    <Info size={12} className="flex-shrink-0 mt-0.5 text-slate-300" />
+                    <span>Discounts are available at Builder tier and above.</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Discount info stats - only shown for eligible tiers */}
+          {discountEligible && (
+            <div className="grid grid-cols-3 gap-3 mt-4">
+              <div className="bg-white/60 border border-slate-100 rounded-xl p-3 text-center">
+                <div className="text-slate-900 text-lg sm:text-xl font-bold">
+                  {Math.round((discount?.discountPct ?? 0) * 100)}%
+                </div>
+                <div className="text-slate-500 text-[10px] sm:text-xs mt-0.5">Your Tier Discount</div>
+              </div>
+              <div className="bg-white/60 border border-slate-100 rounded-xl p-3 text-center">
+                <div className="text-slate-900 text-lg sm:text-xl font-bold">
+                  {getDisplayTradeCost(discount?.discountPct ?? 0)}
+                </div>
+                <div className="text-slate-500 text-[10px] sm:text-xs mt-0.5">Credits/Trade</div>
+              </div>
+              <div className="bg-white/60 border border-slate-100 rounded-xl p-3 text-center">
+                <div className="text-orange-600 text-lg sm:text-xl font-bold">
+                  {pipBurnPerTrade > 0 ? pipBurnPerTrade.toFixed(1) : '0'}
+                </div>
+                <div className="text-slate-500 text-[10px] sm:text-xs mt-0.5">PIP Burn/Trade</div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Stake New Tokens */}
