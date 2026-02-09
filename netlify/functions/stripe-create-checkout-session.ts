@@ -1,5 +1,5 @@
 import { Handler, HandlerEvent } from '@netlify/functions';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from './_shared/supabase-admin';
 
 interface CheckoutSessionRequest {
   packageId: string;
@@ -55,21 +55,10 @@ export const handler: Handler = async (event: HandlerEvent) => {
       };
     }
 
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!supabaseUrl || !supabaseServiceKey) {
-      console.error('[Stripe] Missing Supabase configuration');
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Database not configured' }),
-      };
-    }
-
     let stripePriceId = priceId;
 
     if (purchaseType === 'credits') {
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      const supabase = getSupabaseAdmin();
       const { data: pkg, error: pkgError } = await supabase
         .from('token_packages')
         .select('stripe_price_id')

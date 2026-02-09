@@ -1,5 +1,5 @@
 import { Handler, HandlerEvent } from '@netlify/functions';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from './_shared/supabase-admin';
 
 const headers = {
   'Content-Type': 'application/json',
@@ -17,8 +17,6 @@ export const handler: Handler = async (event: HandlerEvent) => {
   try {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!stripeSecretKey || !webhookSecret) {
       console.error('[Stripe Webhook] Missing Stripe configuration');
@@ -26,15 +24,6 @@ export const handler: Handler = async (event: HandlerEvent) => {
         statusCode: 500,
         headers,
         body: JSON.stringify({ error: 'Stripe not configured' }),
-      };
-    }
-
-    if (!supabaseUrl || !supabaseServiceKey) {
-      console.error('[Stripe Webhook] Missing Supabase configuration');
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Database not configured' }),
       };
     }
 
@@ -69,7 +58,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
       };
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = getSupabaseAdmin();
 
     console.log('[Stripe Webhook] Processing event:', stripeEvent.type);
 
