@@ -75,6 +75,15 @@ export interface TradeExecutionResult {
   blockReason?: string;
 }
 
+interface NormalizedSessionData {
+  sessionId: string;
+  targetValue: number;
+  startingBalance: number;
+  dollarRisk: number;
+  currentProgress: number;
+  raw: any;
+}
+
 class AlphaTradeExecutor {
   /**
    * Execute trade decision
@@ -82,6 +91,23 @@ class AlphaTradeExecutor {
    */
   async execute(inputs: TradeExecutionInputs): Promise<TradeExecutionResult> {
     const { decision, tradeContext, userId, sessionId, session, mode, snapshotTimestamp } = inputs;
+
+    // SSOT SESSION NORMALIZATION (2026-02-09)
+    // Supabase returns PostgreSQL `numeric` columns as JavaScript strings to avoid precision loss.
+    // Number.isFinite("324") returns false (no type coercion). All numeric session fields
+    // must be parsed ONCE here. All downstream code uses these normalized values.
+    // This single normalization point prevents inconsistent type handling across the executor.
+    const normalizedSession = this.normalizeSessionData(session, sessionId, userId);
+
+    if (!normalizedSession.valid) {
+      return {
+        success: false,
+        error: normalizedSession.error || 'Session data normalization failed',
+        blockReason: normalizedSession.blockReason || 'HARD-BLOCK: Invalid session data'
+      };
+    }
+
+    const sessionData = normalizedSession.data!;
 
     // VALIDATION PIPELINE (Run all layers in sequence)
 
@@ -113,7 +139,7 @@ class AlphaTradeExecutor {
       decision.symbol,
       decision.confidence,
       sessionId,
-      session
+      sessionData.raw
     );
 
     if (!capacityCheck.valid) {
@@ -125,12 +151,9 @@ class AlphaTradeExecutor {
     }
 
     // Layer 3: Risk Authority (Context + PCVL + Margin + Kelly)
-    // SSOT RESTORATION (2026-02-02): Single source of truth for balance
-    // Authority is the ONLY place that retrieves/initializes balance
-    // No duplicate DB fetches - prevents data divergence and race conditions
     const balanceResult = await getOrInitializeUserBalance(
       userId,
-      undefined, // Let authority decide what to fetch/initialize
+      undefined,
       'trade_execution_flow'
     );
 
@@ -138,11 +161,7 @@ class AlphaTradeExecutor {
       logger.error(
         LogCategory.RISK_MANAGEMENT,
         '[AlphaTradeExecutor] Balance initialization failed',
-        {
-          userId,
-          sessionId,
-          error: balanceResult.error,
-        }
+        { userId, sessionId, error: balanceResult.error }
       );
       return {
         success: false,
@@ -151,19 +170,13 @@ class AlphaTradeExecutor {
       };
     }
 
-    // SSOT TYPE SAFETY: Ensure balance is a valid positive number (prevents cascading lot size errors)
     let currentBalance: number = balanceResult.balance;
 
     if (!Number.isFinite(currentBalance)) {
       logger.error(
         LogCategory.RISK_MANAGEMENT,
         '[AlphaTradeExecutor] Balance is not a finite number - invalid state',
-        {
-          userId,
-          sessionId,
-          balance: currentBalance,
-          type: typeof currentBalance,
-        }
+        { userId, sessionId, balance: currentBalance, type: typeof currentBalance }
       );
       return {
         success: false,
@@ -176,11 +189,7 @@ class AlphaTradeExecutor {
       logger.error(
         LogCategory.RISK_MANAGEMENT,
         '[AlphaTradeExecutor] Account balance is zero or negative',
-        {
-          userId,
-          sessionId,
-          balance: currentBalance,
-        }
+        { userId, sessionId, balance: currentBalance }
       );
       return {
         success: false,
@@ -189,32 +198,20 @@ class AlphaTradeExecutor {
       };
     }
 
-    // GOVERNANCE: Log governance flags (e.g., hardcoded default detection)
     if (balanceResult.governanceFlags?.suspectedHardcodedDefault) {
       logger.warn(
         LogCategory.RISK_MANAGEMENT,
         '[AlphaTradeExecutor] GOVERNANCE: Balance initialized with hardcoded default',
-        {
-          userId,
-          sessionId,
-          balance: currentBalance,
-          message: 'This balance ($50) may be incorrect. Manual verification required before trading.'
-        }
+        { userId, sessionId, balance: currentBalance }
       );
     }
 
-    // GOVERNANCE: Fail closed if balance is invalid
     const balanceValidation = validateBalanceIsReasonable(currentBalance, userId);
     if (!balanceValidation.valid) {
       logger.error(
         LogCategory.RISK_MANAGEMENT,
         '[AlphaTradeExecutor] Balance validation failed',
-        {
-          userId,
-          sessionId,
-          balance: currentBalance,
-          reason: balanceValidation.reason,
-        }
+        { userId, sessionId, balance: currentBalance, reason: balanceValidation.reason }
       );
       return {
         success: false,
@@ -223,65 +220,9 @@ class AlphaTradeExecutor {
       };
     }
 
-    // HARD-BLOCK (2026-02-07): Session data MUST be complete before any trade execution
-    // GOVERNANCE: No fallbacks. If session or target_value is missing, reject immediately.
-    if (!session || !session.id) {
-      logger.error(
-        LogCategory.RISK_MANAGEMENT,
-        '[AlphaTradeExecutor] HARD-BLOCK: Session record is missing or invalid',
-        { userId, sessionId, sessionExists: !!session }
-      );
-      return {
-        success: false,
-        error: 'Session data is missing — cannot execute trade without valid session',
-        blockReason: 'HARD-BLOCK: No session record available for trade execution'
-      };
-    }
-
-    if (!session.target_value || !Number.isFinite(session.target_value) || session.target_value <= 0) {
-      logger.error(
-        LogCategory.RISK_MANAGEMENT,
-        '[AlphaTradeExecutor] HARD-BLOCK: Session target_value is missing or invalid',
-        {
-          userId,
-          sessionId,
-          targetValue: session.target_value,
-          targetValueType: typeof session.target_value,
-          sessionStatus: session.status,
-        }
-      );
-      return {
-        success: false,
-        error: `Session target_value is invalid (${session.target_value}) — cannot size position without goal target`,
-        blockReason: 'HARD-BLOCK: No target_value in session — lot sizing would be incorrect'
-      };
-    }
-
-    // SSOT FIX (2026-02-07): Trading balance MUST come from goal_sessions.starting_balance
+    // SSOT (2026-02-09): Trading balance comes from normalized session.starting_balance
     // The user_token_balance ($50 credit balance) is a token/credit system, NOT the trading account balance
-    // session.starting_balance is the actual broker account balance ($6404.45) set at session creation
-    const tradingBalance = parseFloat(String(session.starting_balance));
-    if (!Number.isFinite(tradingBalance) || tradingBalance <= 0) {
-      logger.error(
-        LogCategory.RISK_MANAGEMENT,
-        '[AlphaTradeExecutor] HARD-BLOCK: session.starting_balance is missing or invalid',
-        {
-          userId,
-          sessionId,
-          rawStartingBalance: session.starting_balance,
-          parsedTradingBalance: tradingBalance,
-          tokenBalance: currentBalance,
-        }
-      );
-      return {
-        success: false,
-        error: `Trading balance is invalid (starting_balance: ${session.starting_balance}) — cannot size position`,
-        blockReason: 'HARD-BLOCK: No valid starting_balance in session — lot sizing would be incorrect'
-      };
-    }
-
-    // Override currentBalance with the authoritative trading balance
-    // The getOrInitializeUserBalance() result ($50 token balance) is kept for credit-system purposes only
+    const tradingBalance = sessionData.startingBalance;
     logger.info(
       LogCategory.RISK_MANAGEMENT,
       '[AlphaTradeExecutor] SSOT: Using session.starting_balance as authoritative trading balance',
@@ -290,36 +231,32 @@ class AlphaTradeExecutor {
         sessionId,
         tradingBalance,
         tokenBalance: currentBalance,
-        source: 'goal_sessions.starting_balance'
+        source: 'goal_sessions.starting_balance (normalized)'
       }
     );
     currentBalance = tradingBalance;
 
+    // SSOT (2026-02-09): dollar_risk comes from normalized session data (already a proper number)
     let baseRiskPercent: number | undefined = undefined;
-    if (session.dollar_risk && Number.isFinite(session.dollar_risk) && session.dollar_risk > 0) {
-      baseRiskPercent = (session.dollar_risk / currentBalance) * 100;
+    if (sessionData.dollarRisk > 0) {
+      baseRiskPercent = (sessionData.dollarRisk / currentBalance) * 100;
       logger.info(
         LogCategory.RISK_MANAGEMENT,
         '[AlphaTradeExecutor] Using user-selected risk percentage',
         {
           userId,
           sessionId,
-          dollarRisk: session.dollar_risk,
+          dollarRisk: sessionData.dollarRisk,
           accountBalance: currentBalance,
           calculatedRiskPercent: baseRiskPercent.toFixed(2) + '%',
-          source: 'session.dollar_risk (SSOT)'
+          source: 'session.dollar_risk (SSOT normalized)'
         }
       );
     } else {
       logger.info(
         LogCategory.RISK_MANAGEMENT,
         '[AlphaTradeExecutor] No dollar_risk found, using default risk from UnifiedRiskAuthority',
-        {
-          userId,
-          sessionId,
-          sessionDollarRisk: session.dollar_risk,
-          willUseDefault: true
-        }
+        { userId, sessionId, sessionDollarRisk: sessionData.dollarRisk, willUseDefault: true }
       );
     }
 
@@ -332,8 +269,8 @@ class AlphaTradeExecutor {
       takeProfit: decision.takeProfit,
       userId,
       currentBalance: currentBalance,
-      baseRiskPercent, // ✅ SSOT: Pass user's selected risk percentage
-      riskMode: session.risk_mode || 'medium',
+      baseRiskPercent,
+      riskMode: sessionData.raw.risk_mode || 'medium',
       goalSessionId: sessionId
     });
 
@@ -383,7 +320,7 @@ class AlphaTradeExecutor {
     // HARD-BLOCK above guarantees session.target_value is always valid at this point
     {
       lotSizingAuditRecord.sessionHadTargetValue = true;
-      lotSizingAuditRecord.sessionHadCurrentProgress = session.current_progress !== undefined;
+      lotSizingAuditRecord.sessionHadCurrentProgress = sessionData.raw.current_progress !== undefined;
 
       try {
         // ✅ SSOT FIX (2026-02-02): Use user-selected risk percentage from baseRiskPercent
@@ -412,7 +349,7 @@ class AlphaTradeExecutor {
             'swing': 2,
             'precision': 1
           };
-          const tradeStyle = (session.trade_style || 'day').toLowerCase();
+          const tradeStyle = (sessionData.raw.trade_style || 'day').toLowerCase();
           riskPercentageAllowed = tradeStyleRiskMap[tradeStyle] || 3;
           logger.info(
             LogCategory.RISK_MANAGEMENT,
@@ -427,8 +364,7 @@ class AlphaTradeExecutor {
           );
         }
 
-        // Use current progress if available, otherwise default to 0
-        const currentProgress = session.current_progress !== undefined ? session.current_progress : 0;
+        const currentProgress = sessionData.currentProgress;
 
         lotSizingAuditRecord.coordinatorInvoked = true;
 
@@ -438,7 +374,7 @@ class AlphaTradeExecutor {
           symbol: decision.symbol,
           direction: decision.action === 'BUY' ? 'long' : 'short',
           accountBalance: currentBalance,
-          goalAmount: session.target_value,
+          goalAmount: sessionData.targetValue,
           currentProgress,
           riskPercentageAllowed,
           entryPrice: decision.entry,
@@ -499,7 +435,7 @@ class AlphaTradeExecutor {
             symbol: decision.symbol,
             fallbackLotSize: riskAssessment.recommendedLotSize,
             tradingBalance: currentBalance,
-            dollarRisk: session.dollar_risk,
+            dollarRisk: sessionData.dollarRisk,
           }
         );
 
@@ -511,7 +447,7 @@ class AlphaTradeExecutor {
         // GOVERNANCE: Sanity check the fallback lot size against the trading balance
         // If the fallback is suspiciously small relative to what the user's risk should produce,
         // log a critical warning so the issue is visible (but do NOT block — degrade intelligently)
-        const expectedMinLot = (session.dollar_risk || 0) / (currentBalance * 0.10);
+        const expectedMinLot = sessionData.dollarRisk / (currentBalance * 0.10);
         if (finalLotSize < expectedMinLot * 0.1 && expectedMinLot > 0) {
           logger.warn(
             LogCategory.RISK_MANAGEMENT,
@@ -519,7 +455,7 @@ class AlphaTradeExecutor {
             {
               finalLotSize,
               expectedMinLot: expectedMinLot.toFixed(4),
-              dollarRisk: session.dollar_risk,
+              dollarRisk: sessionData.dollarRisk,
               tradingBalance: currentBalance,
               message: 'Fallback degradation may be using incorrect balance or risk inputs'
             }
@@ -534,7 +470,7 @@ class AlphaTradeExecutor {
         decision,
         userId,
         sessionId,
-        session,
+        session: sessionData.raw,
         lotSize: finalLotSize,
         riskDollars: riskAssessment.trueRiskDollars || riskAssessment.adjustedRiskDollars,
         riskWarnings: riskWarningsWithGoalContext,
@@ -548,7 +484,7 @@ class AlphaTradeExecutor {
         decision,
         userId,
         sessionId,
-        session,
+        session: sessionData.raw,
         lotSize: finalLotSize,
         riskDollars: riskAssessment.trueRiskDollars || riskAssessment.adjustedRiskDollars,
         riskWarnings: riskWarningsWithGoalContext,
@@ -1788,6 +1724,130 @@ class AlphaTradeExecutor {
       regime_classification: regime?.regime_classification,
       confidence: decision.confidence,
       style: decision.resolvedStyle
+    };
+  }
+
+  /**
+   * SSOT SESSION NORMALIZATION (2026-02-09)
+   *
+   * Supabase JS client returns PostgreSQL `numeric` columns as JavaScript strings
+   * to avoid floating-point precision loss. This means:
+   *   Number.isFinite("324") === false  (no type coercion)
+   *   Number.isFinite(324)   === true
+   *
+   * This single normalization point parses ALL numeric session fields once.
+   * All downstream code in the executor uses the normalized values.
+   *
+   * Defensive recovery: If session.id is falsy (e.g., stripped during serialization),
+   * falls back to the sessionId parameter passed from the caller.
+   */
+  private normalizeSessionData(
+    session: any,
+    sessionId: string,
+    userId: string
+  ): { valid: boolean; data?: NormalizedSessionData; error?: string; blockReason?: string } {
+    if (!session) {
+      logger.error(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] Session object is null/undefined',
+        { userId, sessionId, sessionType: typeof session }
+      );
+      return {
+        valid: false,
+        error: 'Session record is null or undefined',
+        blockReason: 'HARD-BLOCK: No session data provided to executor'
+      };
+    }
+
+    const resolvedSessionId = session.id || sessionId;
+    if (!resolvedSessionId) {
+      logger.error(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] No valid session ID available',
+        { userId, sessionId, sessionObjectId: session.id }
+      );
+      return {
+        valid: false,
+        error: 'No valid session ID could be resolved',
+        blockReason: 'HARD-BLOCK: Session identification failed'
+      };
+    }
+
+    const targetValue = parseFloat(String(session.target_value ?? ''));
+    const startingBalance = parseFloat(String(session.starting_balance ?? ''));
+    const dollarRisk = parseFloat(String(session.dollar_risk ?? '0'));
+    const currentProgress = parseFloat(String(session.current_progress ?? '0'));
+
+    if (!Number.isFinite(targetValue) || targetValue <= 0) {
+      logger.error(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] Session target_value invalid after parsing',
+        {
+          userId,
+          sessionId: resolvedSessionId,
+          raw: session.target_value,
+          parsed: targetValue,
+          rawType: typeof session.target_value
+        }
+      );
+      return {
+        valid: false,
+        error: `Session target_value is invalid: raw="${session.target_value}", parsed=${targetValue}`,
+        blockReason: 'HARD-BLOCK: Goal target value is missing or invalid'
+      };
+    }
+
+    if (!Number.isFinite(startingBalance) || startingBalance <= 0) {
+      logger.error(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] Session starting_balance invalid after parsing',
+        {
+          userId,
+          sessionId: resolvedSessionId,
+          raw: session.starting_balance,
+          parsed: startingBalance,
+          rawType: typeof session.starting_balance
+        }
+      );
+      return {
+        valid: false,
+        error: `Session starting_balance is invalid: raw="${session.starting_balance}", parsed=${startingBalance}`,
+        blockReason: 'HARD-BLOCK: Starting balance is missing or invalid'
+      };
+    }
+
+    const safeDollarRisk = Number.isFinite(dollarRisk) ? dollarRisk : 0;
+    const safeCurrentProgress = Number.isFinite(currentProgress) ? currentProgress : 0;
+
+    logger.info(
+      LogCategory.RISK_MANAGEMENT,
+      '[AlphaTradeExecutor] Session data normalized successfully',
+      {
+        userId,
+        sessionId: resolvedSessionId,
+        targetValue,
+        startingBalance,
+        dollarRisk: safeDollarRisk,
+        currentProgress: safeCurrentProgress,
+        rawTypes: {
+          target_value: typeof session.target_value,
+          starting_balance: typeof session.starting_balance,
+          dollar_risk: typeof session.dollar_risk,
+          current_progress: typeof session.current_progress
+        }
+      }
+    );
+
+    return {
+      valid: true,
+      data: {
+        sessionId: resolvedSessionId,
+        targetValue,
+        startingBalance,
+        dollarRisk: safeDollarRisk,
+        currentProgress: safeCurrentProgress,
+        raw: session
+      }
     };
   }
 
