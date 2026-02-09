@@ -1630,6 +1630,12 @@ class AlphaTradeExecutor {
       const now = new Date().toISOString();
       const direction = toLongShort(decision.action === 'BUY' ? 'buy' : 'sell');
 
+      const VALID_THESIS = ['momentum_scalp', 'liquidity_sweep_reversal', 'trend_pullback', 'breakout_continuation', 'mean_reversion', 'failed_move', 'range_extreme'];
+      const VALID_STYLE_INTENT = ['SCALP', 'MICRO_INTRADAY', 'INTRADAY'];
+
+      const safeThesis = decision.thesis && VALID_THESIS.includes(decision.thesis) ? decision.thesis : null;
+      const safeStyleIntent = decision.style_intent && VALID_STYLE_INTENT.includes(decision.style_intent) ? decision.style_intent : null;
+
       const entryIntentData: Record<string, any> = {
         session_id: sessionId,
         user_id: userId,
@@ -1648,10 +1654,10 @@ class AlphaTradeExecutor {
         alpha_reasoning: decision.reasoning,
         alpha_confidence: decision.confidence,
         market_context: this.buildMarketContextForAdvisory(decision, entryPrice),
-        entry_mode: 'IMMEDIATE',
+        entry_mode: 'immediate',
         style: decision.resolvedStyle || 'MICRO_INTRADAY',
-        thesis: decision.thesis,
-        style_intent: decision.style_intent,
+        thesis: safeThesis,
+        style_intent: safeStyleIntent,
         execution_preference: decision.execution_preference || 'IMMEDIATE'
       };
 
@@ -1662,10 +1668,10 @@ class AlphaTradeExecutor {
         .single();
 
       if (intentError || !entryIntent?.id) {
-        logger.warn(
+        logger.error(
           LogCategory.GOVERNANCE,
-          '[AlphaTradeExecutor] Entry intent creation failed (non-blocking)',
-          { error: intentError?.message, tradeId, sessionId }
+          '[AlphaTradeExecutor] GOVERNANCE ALERT: Entry intent INSERT failed - Entry Price Monitor will not function',
+          { error: intentError?.message, code: intentError?.code, details: intentError?.details, tradeId, sessionId, symbol: decision.symbol }
         );
         return;
       }
@@ -1691,10 +1697,10 @@ class AlphaTradeExecutor {
         );
       }
     } catch (err) {
-      logger.warn(
+      logger.error(
         LogCategory.GOVERNANCE,
-        '[AlphaTradeExecutor] Post-execution entry intent pipeline failed (non-blocking)',
-        { error: err instanceof Error ? err.message : String(err), tradeId }
+        '[AlphaTradeExecutor] GOVERNANCE ALERT: Post-execution entry intent pipeline threw exception',
+        { error: err instanceof Error ? err.message : String(err), tradeId, sessionId }
       );
     }
   }
