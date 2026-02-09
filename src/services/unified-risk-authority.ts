@@ -323,9 +323,9 @@ class UnifiedRiskAuthority {
     const dollarPerPip = calculateDollarPerPip(symbol, recommendedLotSize);
 
     // Recalculate lot size based on scaled risk
+    const pipInfo = getCurrencyPipInfo(symbol);
     if (dollarPerPip > 0 && stopPips > 0) {
       const targetDollarPerPip = riskDollars / stopPips;
-      const pipInfo = getCurrencyPipInfo(symbol);
       recommendedLotSize = targetDollarPerPip / pipInfo.dollarPerPipPerLot;
       recommendedLotSize = roundLotSize(recommendedLotSize);
     }
