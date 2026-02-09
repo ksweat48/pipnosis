@@ -16,7 +16,7 @@ export const PCVL_CONFIG: PCVLConfig = {
   enabled: true,
 
   // Maximum allowed variance between intended and actual risk
-  // If variance exceeds this, trade is HARD BLOCKED
+  // If variance exceeds this, a critical warning is added (advisory mode)
   max_risk_variance_percent: 2.0,  // ±2%
 
   // Variance thresholds for different alert levels
