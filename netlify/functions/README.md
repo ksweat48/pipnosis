@@ -211,7 +211,7 @@ This script:
 - `METAAPI_ADMIN_TOKEN`
 - `METAAPI_ACCOUNT_ID`
 - `METAAPI_REGION` (optional, defaults to new-york)
-- `VITE_SUPABASE_URL`
+- `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
 ## Troubleshooting

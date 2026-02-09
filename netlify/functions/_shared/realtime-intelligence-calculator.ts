@@ -23,7 +23,7 @@
  * - Results stored for display only
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from './supabase-admin';
 import type {
   Session,
   MarketRegime,
@@ -34,9 +34,7 @@ import {
   getCurrentSession,
 } from '../../../src/config/intelligent-indicator-weights';
 
-const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabase = getSupabaseAdmin();
 
 interface IndicatorResult {
   vwap: boolean;
