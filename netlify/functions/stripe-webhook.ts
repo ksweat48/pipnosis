@@ -78,6 +78,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
         const session = stripeEvent.data.object;
         const userId = session.metadata?.userId || session.client_reference_id;
         const packageId = session.metadata?.packageId;
+        const purchaseType = session.metadata?.purchaseType || 'credits';
 
         if (!userId || !packageId) {
           console.error('[Stripe Webhook] Missing userId or packageId in metadata');
@@ -86,6 +87,42 @@ export const handler: Handler = async (event: HandlerEvent) => {
             headers,
             body: JSON.stringify({ error: 'Missing metadata' }),
           };
+        }
+
+        if (purchaseType === 'membership') {
+          console.log(`[Stripe Webhook] Processing Club membership purchase for user ${userId}`);
+
+          const amountPaid = (session.amount_total || 0) / 100;
+
+          const { data: grantResult, error: grantError } = await supabase.rpc('grant_club_membership', {
+            p_user_id: userId,
+            p_package_id: packageId,
+            p_stripe_session_id: session.id,
+            p_stripe_payment_intent_id: session.payment_intent || '',
+            p_amount_paid_usd: amountPaid,
+          });
+
+          if (grantError) {
+            console.error('[Stripe Webhook] Failed to grant membership:', grantError);
+            return {
+              statusCode: 500,
+              headers,
+              body: JSON.stringify({ error: 'Failed to grant membership' }),
+            };
+          }
+
+          const result = grantResult as any;
+          if (!result?.success) {
+            console.error('[Stripe Webhook] Membership grant returned failure:', result?.error);
+            return {
+              statusCode: 500,
+              headers,
+              body: JSON.stringify({ error: result?.error || 'Membership grant failed' }),
+            };
+          }
+
+          console.log(`[Stripe Webhook] Granted ${result.tier_name} membership to user ${userId}`);
+          break;
         }
 
         const { data: pkg, error: pkgError } = await supabase

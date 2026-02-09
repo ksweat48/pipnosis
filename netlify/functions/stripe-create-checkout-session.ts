@@ -5,6 +5,7 @@ interface CheckoutSessionRequest {
   packageId: string;
   userId: string;
   mode: 'payment' | 'subscription';
+  purchaseType?: 'credits' | 'membership';
 }
 
 const headers = {
@@ -27,7 +28,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
   }
 
   try {
-    const { priceId, packageId, userId, mode }: CheckoutSessionRequest = JSON.parse(
+    const { priceId, packageId, userId, mode, purchaseType = 'credits' }: CheckoutSessionRequest = JSON.parse(
       event.body || '{}'
     );
 
@@ -61,6 +62,14 @@ export const handler: Handler = async (event: HandlerEvent) => {
 
     const origin = event.headers.origin || event.headers.referer?.replace(/\/$/, '') || 'https://pipnosis.com';
 
+    const isMembership = purchaseType === 'membership';
+    const successUrl = isMembership
+      ? `${origin}/club?success=true&session_id={CHECKOUT_SESSION_ID}`
+      : `${origin}/credits?success=true&session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = isMembership
+      ? `${origin}/club?canceled=true`
+      : `${origin}/credits?canceled=true`;
+
     const sessionConfig: any = {
       mode,
       line_items: [
@@ -69,11 +78,12 @@ export const handler: Handler = async (event: HandlerEvent) => {
           quantity: 1,
         },
       ],
-      success_url: `${origin}/credits?success=true&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}/credits?canceled=true`,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
       metadata: {
         userId,
         packageId,
+        purchaseType,
       },
       client_reference_id: userId,
     };
@@ -83,11 +93,14 @@ export const handler: Handler = async (event: HandlerEvent) => {
         metadata: {
           userId,
           packageId,
+          purchaseType,
         },
       };
     }
 
     const session = await stripe.checkout.sessions.create(sessionConfig);
+
+    console.log(`[Stripe] Created ${purchaseType} checkout session: ${session.id}`);
 
     return {
       statusCode: 200,

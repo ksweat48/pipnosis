@@ -12,7 +12,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Home, MessageSquare, Gift, ArrowLeft, Coins, Crown, Users } from 'lucide-react';
+import { Home, MessageSquare, Gift, Vote, ArrowLeft, Coins, Crown, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { clubTokenLedgerService, type ClubTokenBalance } from '@/services/club-token-ledger-service';
 
@@ -31,6 +31,7 @@ export function ClubLayout({ children }: ClubLayoutProps) {
     { path: '/club/home', label: 'Home', icon: Home },
     { path: '/club/chat', label: 'Chat', icon: MessageSquare },
     { path: '/club/rewards', label: 'Rewards', icon: Gift },
+    { path: '/club/governance', label: 'Vote', icon: Vote },
   ];
 
   const isActive = (path: string) => location.pathname === path;

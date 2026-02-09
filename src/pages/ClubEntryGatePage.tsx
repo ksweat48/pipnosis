@@ -20,13 +20,20 @@ export function ClubEntryGatePage() {
   const [packages, setPackages] = useState<MembershipPackage[]>([]);
   const [processingPurchase, setProcessingPurchase] = useState<string | null>(null);
 
+  const [purchaseSuccess, setPurchaseSuccess] = useState(false);
+
   useEffect(() => {
     if (!user) {
       navigate('/auth');
       return;
     }
 
-    loadAccessInfo();
+    if (searchParams.get('success') === 'true') {
+      setPurchaseSuccess(true);
+      setTimeout(() => loadAccessInfo(), 2000);
+    } else {
+      loadAccessInfo();
+    }
 
     const refCode = searchParams.get('ref');
     if (refCode) {
@@ -60,10 +67,40 @@ export function ClubEntryGatePage() {
   const handlePurchaseClick = async (pkg: MembershipPackage) => {
     if (!user) return;
 
+    if (!pkg.stripePriceId) {
+      alert('This membership tier is not yet available for purchase. Please contact support.');
+      return;
+    }
+
+    const stripePublishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+    if (!stripePublishableKey) {
+      alert('Payment system not configured. Please contact support.');
+      return;
+    }
+
     setProcessingPurchase(pkg.id);
 
     try {
-      alert(`Stripe integration for membership packages coming soon!\n\nPackage: ${pkg.name}\nPrice: $${pkg.priceUsd}`);
+      const response = await fetch('/.netlify/functions/stripe-create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          priceId: pkg.stripePriceId,
+          packageId: pkg.id,
+          userId: user.id,
+          mode: 'payment',
+          purchaseType: 'membership',
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create checkout session');
+      }
+
+      const { url } = await response.json();
+      if (url) {
+        window.location.href = url;
+      }
     } catch (error) {
       console.error('[ClubEntryGate] Purchase error:', error);
       alert('Failed to process purchase. Please try again.');
@@ -95,6 +132,13 @@ export function ClubEntryGatePage() {
       <NavigationMenu />
 
       <div className="max-w-7xl mx-auto px-4 py-12">
+        {purchaseSuccess && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 mb-8 text-center">
+            <div className="text-emerald-600 font-bold text-xl mb-2">Membership Activated</div>
+            <p className="text-emerald-700">Your Club membership is now active. Welcome to Pipnosis Club.</p>
+          </div>
+        )}
+
         {/* Header */}
         <div className="text-center mb-12">
           <div className="flex items-center justify-center mb-6">
