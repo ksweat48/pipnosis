@@ -1,12 +1,3 @@
-/**
- * Realtime Prices Cleanup
- *
- * Scheduled function that runs every hour to clean up old price data.
- * Prevents the realtime_prices table from accumulating stale data.
- *
- * CRITICAL: This must run regularly to prevent "Price data is XXXXXs old" errors
- */
-
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 
@@ -15,59 +6,40 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-export const handler: Handler = async (event, context) => {
+export const handler: Handler = async () => {
   const executionId = `cleanup_${Date.now()}`;
   const startTime = Date.now();
 
-  console.log(`[PriceCleanup:${executionId}] Starting realtime_prices cleanup...`);
+  console.log(`[Cleanup:${executionId}] Starting hourly data cleanup...`);
 
   try {
-    // Call the batched cleanup function that deletes data older than 24 hours
-    const { data, error } = await supabase.rpc('cleanup_old_realtime_prices_batch', {
-      batch_size: 10000
-    });
+    const { data: priceResult, error: priceError } = await supabase.rpc(
+      'cleanup_old_realtime_prices_batch',
+      { batch_size: 10000 }
+    );
 
-    if (error) {
-      console.error(`[PriceCleanup:${executionId}] ❌ Cleanup function error:`, error);
-      return {
-        statusCode: 500,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          success: false,
-          executionId,
-          error: error.message,
-          timestamp: new Date().toISOString()
-        })
-      };
+    if (priceError) {
+      console.error(`[Cleanup:${executionId}] Price cleanup error:`, priceError.message);
+    } else {
+      console.log(`[Cleanup:${executionId}] Price cleanup: ${priceResult || 0} rows deleted`);
     }
 
-    const recordsDeleted = data || 0;
+    const { data: logResult, error: logError } = await supabase.rpc(
+      'cleanup_old_log_data_batched',
+      { max_rows_per_table: 50000 }
+    );
+
+    if (logError) {
+      console.error(`[Cleanup:${executionId}] Log cleanup error:`, logError.message);
+    } else {
+      console.log(`[Cleanup:${executionId}] Log cleanup results:`, JSON.stringify(logResult));
+
+      if (logResult?.has_more) {
+        console.log(`[Cleanup:${executionId}] More rows to clean - will continue next hour`);
+      }
+    }
+
     const duration = Date.now() - startTime;
-
-    console.log(`[PriceCleanup:${executionId}] ✅ Cleanup complete:`);
-    console.log(`[PriceCleanup:${executionId}]   - Records deleted: ${recordsDeleted}`);
-    console.log(`[PriceCleanup:${executionId}]   - Duration: ${duration}ms`);
-
-    // Get current table stats
-    const { data: stats, error: statsError } = await supabase
-      .from('realtime_prices')
-      .select('symbol, created_at', { count: 'exact', head: false })
-      .order('created_at', { ascending: false })
-      .limit(1);
-
-    let tableStats = {};
-    if (!statsError && stats && stats.length > 0) {
-      const newestPrice = stats[0];
-      const ageSeconds = Math.floor((Date.now() - new Date(newestPrice.created_at).getTime()) / 1000);
-
-      tableStats = {
-        newestPrice: newestPrice.created_at,
-        newestPriceAgeSeconds: ageSeconds,
-        symbol: newestPrice.symbol
-      };
-
-      console.log(`[PriceCleanup:${executionId}]   - Newest price: ${newestPrice.created_at} (${ageSeconds}s old)`);
-    }
 
     return {
       statusCode: 200,
@@ -75,14 +47,14 @@ export const handler: Handler = async (event, context) => {
       body: JSON.stringify({
         success: true,
         executionId,
-        recordsDeleted,
+        priceRecordsDeleted: priceResult || 0,
+        logCleanupResults: logResult || {},
         durationMs: duration,
-        tableStats,
         timestamp: new Date().toISOString()
       })
     };
   } catch (error) {
-    console.error(`[PriceCleanup:${executionId}] ❌ Unexpected error:`, error);
+    console.error(`[Cleanup:${executionId}] Unexpected error:`, error);
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json' },

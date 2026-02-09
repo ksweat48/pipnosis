@@ -82,12 +82,11 @@
   timeout = 30
   schedule = "* * * * *"  # 🚨 5-field format ONLY - final safety net for stuck positions
 
-# 🔧 AUTOMATIC GAP FILLER: Detects and fills gaps every 1 minute
-# OPTIMIZED: Client-side filler handles 0-5min gaps, backend catches anything missed
-# Works with realtime gap detector for comprehensive coverage
+# AUTOMATIC GAP FILLER: Detects and fills gaps every 3 minutes
+# Client-side filler handles 0-5min gaps, backend catches anything missed
 [functions."automatic-gap-filler"]
-  timeout = 120  # 2 minutes to detect and fill gaps
-  schedule = "* * * * *"  # 🚨 Every 1 minute - comprehensive backend coverage
+  timeout = 120
+  schedule = "*/3 * * * *"
 
 # 🧹 CRITICAL: Automatic price data cleanup (runs every hour)
 # PREVENTS STALE DATA: Removes prices older than 24 hours to prevent "Price data is XXXXs old" errors
@@ -118,31 +117,27 @@
   timeout = 120  # 2 minutes for comprehensive wellness evaluation
   schedule = "*/15 * * * *"  # 🚨 Every 15 minutes - periodic health checks
 
-# 🧹 CRITICAL: Stuck Continuation Session Cleanup (runs every 1 minute)
-# PREVENTS STUCK MODALS: Auto-closes sessions stuck in 'awaiting_continuation' after 15 minutes
-# SSOT COMPLIANCE: Enforces server-side timeout when JS timer stops (phone sleep, etc.)
-# SAFETY: Never closes sessions with open trades (defense-in-depth)
+# Stuck Continuation Session Cleanup (every 5 minutes)
+# Auto-closes sessions stuck in 'awaiting_continuation' after 15 minutes
 [functions."cleanup-stuck-continuation-sessions"]
-  timeout = 30  # Fast cleanup for stuck sessions
-  schedule = "* * * * *"  # 🚨 Every minute - ensures modals never stuck forever
+  timeout = 30
+  schedule = "*/5 * * * *"
 
 # 📊 COMPREHENSIVE BACKFILL: Backfill all timeframes for new currency pairs
 [functions."backfill-all-timeframes-new-pairs"]
   timeout = 900
 
-# 🧠 EDUCATIONAL: Session Intelligence Populator (runs every hour)
-# ADVISORY ONLY: Analyzes current trading session and recommends optimal pairs
-# Does not affect Alpha's autonomous trading decisions
+# Session Intelligence Populator (every 10 minutes)
+# ADVISORY ONLY: Analyzes current session and recommends optimal pairs
 [functions."populate-session-intelligence"]
   timeout = 60
-  schedule = "*/3 * * * *"  # 🚨 Every 3 minutes - provides real-time trading intelligence
+  schedule = "*/10 * * * *"
 
-# 📊 EDUCATIONAL: VWAP Kiss Scanner (runs every 2 minutes)
+# VWAP Kiss Scanner (every 5 minutes)
 # ADVISORY ONLY: Detects when price is near VWAP for scalp opportunities
-# Does not affect Alpha's autonomous trading decisions
 [functions."scan-vwap-kisses"]
-  timeout = 60  # 1 minute to scan all watchlist pairs
-  schedule = "*/2 * * * *"  # 🚨 Every 2 minutes - real-time VWAP proximity detection
+  timeout = 60
+  schedule = "*/5 * * * *"
 
 # 💰 PHASE 3B: Daily PIP Utility Index Computation (runs daily at midnight UTC)
 # CALCULATION: Computes dynamic PIP utility value based on platform activity
