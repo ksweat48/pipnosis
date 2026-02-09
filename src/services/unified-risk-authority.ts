@@ -330,6 +330,41 @@ class UnifiedRiskAuthority {
       recommendedLotSize = roundLotSize(recommendedLotSize);
     }
 
+    // CRITICAL FIX: Cap lot size at broker limits BEFORE execution
+    const symbolConfig = getSymbolConfig(symbol);
+    const maxBrokerLot = symbolConfig?.maxLotSize || 10.0;
+    const minBrokerLot = symbolConfig?.minLotSize || 0.01;
+
+    if (recommendedLotSize > maxBrokerLot) {
+      const originalLot = recommendedLotSize;
+      const originalRisk = riskDollars;
+
+      // Cap at broker maximum
+      recommendedLotSize = maxBrokerLot;
+
+      // Recalculate actual risk with capped lot size
+      const actualRiskDollars = recommendedLotSize * pipInfo.dollarPerPipPerLot * stopPips;
+
+      prodLogger.warn('Lot size capped at broker maximum', {
+        symbol,
+        userId,
+        originalLotSize: originalLot.toFixed(3),
+        cappedLotSize: recommendedLotSize.toFixed(3),
+        originalRiskDollars: originalRisk.toFixed(2),
+        actualRiskDollars: actualRiskDollars.toFixed(2),
+        originalRiskPercent: (originalRisk / currentBalance * 100).toFixed(2) + '%',
+        actualRiskPercent: (actualRiskDollars / currentBalance * 100).toFixed(2) + '%'
+      });
+
+      criticalWarnings.push(`⚠️ Risk reduced from $${originalRisk.toFixed(2)} to $${actualRiskDollars.toFixed(2)} due to broker lot size limit (max ${maxBrokerLot} lots)`);
+      recommendations.push('Consider lowering your max risk % setting to avoid hitting broker limits');
+    }
+
+    if (recommendedLotSize < minBrokerLot) {
+      recommendedLotSize = minBrokerLot;
+      criticalWarnings.push(`⚠️ Lot size increased to broker minimum (${minBrokerLot} lots)`);
+    }
+
     // LAYER 3: PCVL Validation
     const pcvlResult = this.validatePCVL({
       symbol,
