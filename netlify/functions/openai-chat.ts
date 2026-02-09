@@ -1,11 +1,9 @@
 import type { Handler } from '@netlify/functions';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from './_shared/supabase-admin';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+const supabase = getSupabaseAdmin();
 
 // Timeout configuration
 const FUNCTION_TIMEOUT_MS = 25000; // 25 seconds (Netlify has 26s timeout)

@@ -9,18 +9,15 @@
  */
 
 import type { Handler } from '@netlify/functions';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from './_shared/supabase-admin';
 import { createFinnhubClient } from './_shared/finnhub-client';
 import { fetchKrakenTicker } from './_shared/kraken-client';
 
-// Netlify functions use non-prefixed env vars, fallback to VITE_ for compatibility
-const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const metaApiToken = process.env.METAAPI_TOKEN!;
 const metaApiRegion = process.env.METAAPI_REGION || 'london';
 const metaApiAccountId = process.env.METAAPI_ACCOUNT_ID || '';
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabase = getSupabaseAdmin();
 
 const FOREX_SYMBOLS = ['XAUUSD', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'NAS100', 'SPX500'];
 const CRYPTO_SYMBOLS = ['BTCUSD', 'ETHUSD'];
