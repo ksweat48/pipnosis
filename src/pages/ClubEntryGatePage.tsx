@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Lock, Unlock, Coins, Crown, Check, Loader2, ArrowRight } from 'lucide-react';
+import { Lock, Unlock, Coins, Crown, Check, Loader2, ArrowRight, ArrowUpCircle, Shield } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { clubAccessGateService, type ClubAccessResult } from '@/services/club-access-gate-service';
 import { clubMembershipService, type MembershipPackage } from '@/services/club-membership-service';
@@ -24,7 +24,13 @@ export function ClubEntryGatePage() {
   const [purchaseSuccess, setPurchaseSuccess] = useState(false);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
-  const [verifyResult, setVerifyResult] = useState<{ tierName?: string; tokensAwarded?: number } | null>(null);
+  const [verifyResult, setVerifyResult] = useState<{
+    tierName?: string;
+    tokensAwarded?: number;
+    isUpgrade?: boolean;
+    fromTierName?: string;
+    tokensReleased?: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -56,7 +62,13 @@ export function ClubEntryGatePage() {
       if (response.ok && data.success) {
         setPurchaseSuccess(true);
         if (data.tierName) {
-          setVerifyResult({ tierName: data.tierName, tokensAwarded: data.tokensAwarded });
+          setVerifyResult({
+            tierName: data.tierName,
+            tokensAwarded: data.tokensAwarded,
+            isUpgrade: data.isUpgrade,
+            fromTierName: data.fromTierName,
+            tokensReleased: data.tokensReleased,
+          });
         }
       } else {
         console.error('[ClubEntryGate] Verification failed:', data.error);
@@ -108,6 +120,13 @@ export function ClubEntryGatePage() {
       return;
     }
 
+    const isUpgrade = accessResult?.membership?.hasMembership && accessResult.membership.isActive;
+    const currentTier = accessResult?.membership?.tierLevel || 0;
+
+    if (isUpgrade && pkg.tierLevel <= currentTier) {
+      return;
+    }
+
     setProcessingPurchase(pkg.id);
 
     try {
@@ -119,7 +138,7 @@ export function ClubEntryGatePage() {
           packageId: pkg.id,
           userId: user.id,
           mode: 'payment',
-          purchaseType: 'membership',
+          purchaseType: isUpgrade ? 'membership_upgrade' : 'membership',
         }),
       });
 
@@ -171,8 +190,22 @@ export function ClubEntryGatePage() {
 
         {purchaseSuccess && !verifying && (
           <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 mb-8 text-center">
-            <div className="text-emerald-600 font-bold text-xl mb-2">Membership Activated</div>
-            {verifyResult ? (
+            <div className="text-emerald-600 font-bold text-xl mb-2">
+              {verifyResult?.isUpgrade ? 'Membership Upgraded' : 'Membership Activated'}
+            </div>
+            {verifyResult?.isUpgrade ? (
+              <div className="text-emerald-700 space-y-1">
+                <p>
+                  Upgraded from <span className="font-bold">{verifyResult.fromTierName}</span> to <span className="font-bold">{verifyResult.tierName}</span>.
+                </p>
+                <p>
+                  You received <span className="font-bold">{verifyResult.tokensAwarded} PIP</span> new tokens.
+                  {verifyResult.tokensReleased ? (
+                    <> Your previous <span className="font-bold">{verifyResult.tokensReleased} PIP</span> locked tokens have been released to your available balance.</>
+                  ) : null}
+                </p>
+              </div>
+            ) : verifyResult ? (
               <p className="text-emerald-700">
                 Your <span className="font-bold">{verifyResult.tierName}</span> membership is active.
                 You received <span className="font-bold">{verifyResult.tokensAwarded} PIP</span> tokens. Welcome to Pipnosis Club.
@@ -287,72 +320,119 @@ export function ClubEntryGatePage() {
             </h2>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-              {packages.map((pkg) => (
-                <div key={pkg.id} className="bg-white bg-opacity-70 backdrop-blur-md border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-lg hover:shadow-xl transition-shadow h-full flex flex-col relative overflow-hidden">
+              {packages.map((pkg) => {
+                const currentTier = accessResult?.membership?.tierLevel || 0;
+                const hasMembership = accessResult?.membership?.hasMembership && accessResult.membership.isActive;
+                const isCurrentTier = hasMembership && pkg.tierLevel === currentTier;
+                const isLowerTier = hasMembership && pkg.tierLevel < currentTier;
+                const isUpgradeTier = hasMembership && pkg.tierLevel > currentTier;
+
+                return (
                   <div
-                    className="absolute top-0 left-0 right-0 h-1"
-                    style={{ backgroundColor: pkg.badgeColor }}
-                  />
-
-                  <div className="flex items-center gap-3 mb-4">
+                    key={pkg.id}
+                    className={`bg-white bg-opacity-70 backdrop-blur-md border rounded-2xl p-5 sm:p-6 shadow-lg transition-shadow h-full flex flex-col relative overflow-hidden ${
+                      isCurrentTier
+                        ? 'border-emerald-300 ring-2 ring-emerald-200'
+                        : isLowerTier
+                        ? 'border-slate-200 opacity-60'
+                        : 'border-slate-200 hover:shadow-xl'
+                    }`}
+                  >
                     <div
-                      className="p-2.5 rounded-xl"
-                      style={{ backgroundColor: `${pkg.badgeColor}15`, border: `1px solid ${pkg.badgeColor}30` }}
-                    >
-                      <Crown size={24} style={{ color: pkg.badgeColor }} />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-slate-900">{pkg.name}</h3>
-                      <p className="text-slate-500 text-xs">Tier {pkg.tierLevel}</p>
-                    </div>
-                  </div>
+                      className="absolute top-0 left-0 right-0 h-1"
+                      style={{ backgroundColor: pkg.badgeColor }}
+                    />
 
-                  <p className="text-slate-600 text-sm mb-4">{pkg.description}</p>
-
-                  <div className="bg-white bg-opacity-60 backdrop-blur-sm border border-slate-200 rounded-xl p-3 mb-4 shadow-sm space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-slate-500">PIP Allocation</span>
-                      <span className="text-slate-900 font-bold">{fmt(pkg.initialTokenAllocation)}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-slate-500">Required Balance</span>
-                      <span className="text-slate-900 font-bold">{fmt(pkg.requiredTokenBalance)}</span>
-                    </div>
-                    {pkg.discountPct > 0 && (
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-500">Trade Cost</span>
-                        <span className="text-emerald-600 font-bold">{getDisplayTradeCost(pkg.discountPct)} credits/trade</span>
+                    {isCurrentTier && (
+                      <div className="absolute top-3 right-3 bg-emerald-100 text-emerald-700 text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
+                        <Shield size={12} />
+                        Current Tier
                       </div>
                     )}
-                  </div>
 
-                  <div className="mb-4 flex-1">
-                    <div className="text-slate-500 text-xs mb-2">Benefits:</div>
-                    <ul className="space-y-1.5">
-                      {pkg.benefits.map((benefit, idx) => (
-                        <li key={idx} className="flex items-start gap-2 text-slate-600 text-xs">
-                          <Check size={14} className="text-emerald-500 flex-shrink-0 mt-0.5" />
-                          <span>{benefit}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div className="mt-auto pt-4 border-t border-slate-100">
-                    <div className="text-3xl font-bold text-slate-900 mb-3">
-                      ${pkg.priceUsd.toFixed(0)}
+                    <div className="flex items-center gap-3 mb-4">
+                      <div
+                        className="p-2.5 rounded-xl"
+                        style={{ backgroundColor: `${pkg.badgeColor}15`, border: `1px solid ${pkg.badgeColor}30` }}
+                      >
+                        <Crown size={24} style={{ color: pkg.badgeColor }} />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-900">{pkg.name}</h3>
+                        <p className="text-slate-500 text-xs">Tier {pkg.tierLevel}</p>
+                      </div>
                     </div>
 
-                    <button
-                      onClick={() => handlePurchaseClick(pkg)}
-                      disabled={processingPurchase === pkg.id}
-                      className="w-full px-5 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all shadow-md hover:shadow-lg text-sm"
-                    >
-                      {processingPurchase === pkg.id ? 'Processing...' : 'Purchase'}
-                    </button>
+                    <p className="text-slate-600 text-sm mb-4">{pkg.description}</p>
+
+                    <div className="bg-white bg-opacity-60 backdrop-blur-sm border border-slate-200 rounded-xl p-3 mb-4 shadow-sm space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-slate-500">PIP Allocation</span>
+                        <span className="text-slate-900 font-bold">{fmt(pkg.initialTokenAllocation)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-slate-500">Required Balance</span>
+                        <span className="text-slate-900 font-bold">{fmt(pkg.requiredTokenBalance)}</span>
+                      </div>
+                      {pkg.discountPct > 0 && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-500">Trade Cost</span>
+                          <span className="text-emerald-600 font-bold">{getDisplayTradeCost(pkg.discountPct)} credits/trade</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mb-4 flex-1">
+                      <div className="text-slate-500 text-xs mb-2">Benefits:</div>
+                      <ul className="space-y-1.5">
+                        {pkg.benefits.map((benefit, idx) => (
+                          <li key={idx} className="flex items-start gap-2 text-slate-600 text-xs">
+                            <Check size={14} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+                            <span>{benefit}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div className="mt-auto pt-4 border-t border-slate-100">
+                      <div className="text-3xl font-bold text-slate-900 mb-3">
+                        ${pkg.priceUsd.toFixed(0)}
+                      </div>
+
+                      {isCurrentTier ? (
+                        <div className="w-full px-5 py-2.5 bg-emerald-50 text-emerald-700 font-semibold rounded-xl text-sm text-center border border-emerald-200">
+                          Active Membership
+                        </div>
+                      ) : isLowerTier ? (
+                        <div className="w-full px-5 py-2.5 bg-slate-100 text-slate-400 font-semibold rounded-xl text-sm text-center cursor-not-allowed">
+                          Lower Tier
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handlePurchaseClick(pkg)}
+                          disabled={processingPurchase === pkg.id}
+                          className={`w-full px-5 py-2.5 font-semibold rounded-xl transition-all shadow-md hover:shadow-lg text-sm flex items-center justify-center gap-2 ${
+                            isUpgradeTier
+                              ? 'bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white'
+                              : 'bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white'
+                          }`}
+                        >
+                          {processingPurchase === pkg.id ? (
+                            'Processing...'
+                          ) : isUpgradeTier ? (
+                            <>
+                              <ArrowUpCircle size={16} />
+                              Upgrade
+                            </>
+                          ) : (
+                            'Purchase'
+                          )}
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

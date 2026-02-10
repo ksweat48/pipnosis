@@ -268,6 +268,10 @@ class ClubTokenLedgerService {
   formatTransactionType(type: string): string {
     const typeMap: Record<string, string> = {
       membership_purchase: 'Membership Purchase',
+      membership_lock: 'Membership Lock',
+      membership_upgrade_unlock: 'Upgrade - Tokens Released',
+      membership_upgrade_grant: 'Upgrade - Tokens Awarded',
+      membership_upgrade_lock: 'Upgrade - Tokens Locked',
       referral_reward: 'Referral Reward',
       staking_reward: 'Staking Reward',
       admin_grant: 'Admin Grant',

@@ -80,25 +80,37 @@ export const handler: Handler = async (event: HandlerEvent) => {
           };
         }
 
-        if (purchaseType === 'membership') {
+        if (purchaseType === 'membership' || purchaseType === 'membership_upgrade') {
           const amountPaid = (session.amount_total || 0) / 100;
-          console.log(`[Stripe Webhook] Processing Club membership: user=${userId}, package=${packageId}, amount=$${amountPaid}, session=${session.id}`);
+          const isUpgrade = purchaseType === 'membership_upgrade';
+          const rpcName = isUpgrade ? 'upgrade_club_membership' : 'grant_club_membership';
+          const rpcParams = isUpgrade
+            ? {
+                p_user_id: userId,
+                p_new_package_id: packageId,
+                p_stripe_session_id: session.id,
+                p_stripe_payment_intent_id: session.payment_intent || '',
+                p_amount_paid_usd: amountPaid,
+              }
+            : {
+                p_user_id: userId,
+                p_package_id: packageId,
+                p_stripe_session_id: session.id,
+                p_stripe_payment_intent_id: session.payment_intent || '',
+                p_amount_paid_usd: amountPaid,
+              };
 
-          const { data: grantResult, error: grantError } = await supabase.rpc('grant_club_membership', {
-            p_user_id: userId,
-            p_package_id: packageId,
-            p_stripe_session_id: session.id,
-            p_stripe_payment_intent_id: session.payment_intent || '',
-            p_amount_paid_usd: amountPaid,
-          });
+          console.log(`[Stripe Webhook] Processing Club ${isUpgrade ? 'upgrade' : 'membership'}: user=${userId}, package=${packageId}, amount=$${amountPaid}, session=${session.id}`);
+
+          const { data: grantResult, error: grantError } = await supabase.rpc(rpcName, rpcParams);
 
           if (grantError) {
-            console.error('[Stripe Webhook] Failed to grant membership:', JSON.stringify(grantError));
+            console.error(`[Stripe Webhook] Failed to ${isUpgrade ? 'upgrade' : 'grant'} membership:`, JSON.stringify(grantError));
             return {
               statusCode: 500,
               headers,
               body: JSON.stringify({
-                error: 'Failed to grant membership',
+                error: `Failed to ${isUpgrade ? 'upgrade' : 'grant'} membership`,
                 pg_message: grantError.message,
                 pg_code: grantError.code,
                 pg_details: grantError.details,
@@ -109,18 +121,18 @@ export const handler: Handler = async (event: HandlerEvent) => {
 
           const result = grantResult as any;
           if (!result?.success) {
-            console.error('[Stripe Webhook] Membership grant returned failure:', JSON.stringify(result));
+            console.error(`[Stripe Webhook] Membership ${isUpgrade ? 'upgrade' : 'grant'} returned failure:`, JSON.stringify(result));
             return {
               statusCode: 500,
               headers,
               body: JSON.stringify({
-                error: result?.error || 'Membership grant failed',
+                error: result?.error || `Membership ${isUpgrade ? 'upgrade' : 'grant'} failed`,
                 rpc_result: result,
               }),
             };
           }
 
-          console.log(`[Stripe Webhook] Granted ${result.tier_name} membership to user ${userId}`);
+          console.log(`[Stripe Webhook] ${isUpgrade ? 'Upgraded to' : 'Granted'} ${result.to_tier_name || result.tier_name} membership for user ${userId}`);
           break;
         }
 

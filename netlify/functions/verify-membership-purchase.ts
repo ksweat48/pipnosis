@@ -70,63 +70,88 @@ export const handler: Handler = async (event: HandlerEvent) => {
 
     const supabase = getSupabaseAdmin();
 
-    if (purchaseType === 'membership') {
-      const { data: existing } = await supabase
-        .from('club_memberships')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('status', 'active')
-        .maybeSingle();
-
-      if (existing) {
-        console.log(`[VerifyPurchase] Membership already granted for user ${userId}`);
-        return {
-          statusCode: 200,
-          headers,
-          body: JSON.stringify({ success: true, alreadyGranted: true }),
-        };
-      }
-
+    if (purchaseType === 'membership' || purchaseType === 'membership_upgrade') {
+      const isUpgrade = purchaseType === 'membership_upgrade';
       const amountPaid = (session.amount_total || 0) / 100;
 
-      const { data: grantResult, error: grantError } = await supabase.rpc('grant_club_membership', {
-        p_user_id: userId,
-        p_package_id: packageId,
-        p_stripe_session_id: session.id,
-        p_stripe_payment_intent_id: (session.payment_intent as string) || '',
-        p_amount_paid_usd: amountPaid,
-      });
+      if (!isUpgrade) {
+        const { data: existing } = await supabase
+          .from('club_memberships')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('status', 'active')
+          .maybeSingle();
+
+        if (existing) {
+          console.log(`[VerifyPurchase] Membership already granted for user ${userId}`);
+          return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify({ success: true, alreadyGranted: true }),
+          };
+        }
+      }
+
+      const rpcName = isUpgrade ? 'upgrade_club_membership' : 'grant_club_membership';
+      const rpcParams = isUpgrade
+        ? {
+            p_user_id: userId,
+            p_new_package_id: packageId,
+            p_stripe_session_id: session.id,
+            p_stripe_payment_intent_id: (session.payment_intent as string) || '',
+            p_amount_paid_usd: amountPaid,
+          }
+        : {
+            p_user_id: userId,
+            p_package_id: packageId,
+            p_stripe_session_id: session.id,
+            p_stripe_payment_intent_id: (session.payment_intent as string) || '',
+            p_amount_paid_usd: amountPaid,
+          };
+
+      const { data: grantResult, error: grantError } = await supabase.rpc(rpcName, rpcParams);
 
       if (grantError) {
-        console.error('[VerifyPurchase] Failed to grant membership:', grantError);
+        console.error(`[VerifyPurchase] Failed to ${isUpgrade ? 'upgrade' : 'grant'} membership:`, grantError);
         return {
           statusCode: 500,
           headers,
-          body: JSON.stringify({ error: 'Failed to grant membership', details: grantError.message }),
+          body: JSON.stringify({ error: `Failed to ${isUpgrade ? 'upgrade' : 'grant'} membership`, details: grantError.message }),
         };
       }
 
       const result = grantResult as any;
       if (!result?.success) {
-        console.error('[VerifyPurchase] Grant returned failure:', result?.error);
+        console.error(`[VerifyPurchase] ${isUpgrade ? 'Upgrade' : 'Grant'} returned failure:`, result?.error);
         return {
           statusCode: 500,
           headers,
-          body: JSON.stringify({ error: result?.error || 'Membership grant failed' }),
+          body: JSON.stringify({ error: result?.error || `Membership ${isUpgrade ? 'upgrade' : 'grant'} failed` }),
         };
       }
 
-      console.log(`[VerifyPurchase] Granted ${result.tier_name} to user ${userId} (tokens: ${result.tokens_awarded})`);
+      const tierName = isUpgrade ? result.to_tier_name : result.tier_name;
+      const tierLevel = isUpgrade ? result.to_tier : result.tier_level;
+      const tokensAwarded = isUpgrade ? result.tokens_granted : result.tokens_awarded;
+      const tokensLocked = result.tokens_locked;
+
+      console.log(`[VerifyPurchase] ${isUpgrade ? 'Upgraded to' : 'Granted'} ${tierName} for user ${userId} (tokens: ${tokensAwarded})`);
 
       return {
         statusCode: 200,
         headers,
         body: JSON.stringify({
           success: true,
-          tierName: result.tier_name,
-          tierLevel: result.tier_level,
-          tokensAwarded: result.tokens_awarded,
-          tokensLocked: result.tokens_locked,
+          isUpgrade,
+          tierName,
+          tierLevel,
+          tokensAwarded,
+          tokensLocked,
+          ...(isUpgrade ? {
+            fromTierName: result.from_tier_name,
+            tokensReleased: result.tokens_released,
+            availableTokens: result.available_tokens,
+          } : {}),
         }),
       };
     }
