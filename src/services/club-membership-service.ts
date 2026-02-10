@@ -60,6 +60,7 @@ export interface MembershipAccessCheck {
   canAccess: boolean;
   tokensRequired: number;
   tokensAvailable: number;
+  tokensTotal: number;
 }
 
 export interface UserCreditDiscount {
@@ -142,11 +143,11 @@ class ClubMembershipService {
         hasSufficientTokens: false,
         canAccess: false,
         tokensRequired: 0,
-        tokensAvailable: 0
+        tokensAvailable: 0,
+        tokensTotal: 0
       };
     }
 
-    // RPC returns array with single row
     const result = data && data.length > 0 ? data[0] : null;
 
     return {
@@ -155,7 +156,8 @@ class ClubMembershipService {
       hasSufficientTokens: result?.has_sufficient_tokens || false,
       canAccess: result?.can_access || false,
       tokensRequired: result?.tokens_required || 0,
-      tokensAvailable: result?.tokens_available || 0
+      tokensAvailable: result?.tokens_available || 0,
+      tokensTotal: result?.tokens_total || 0
     };
   }
 

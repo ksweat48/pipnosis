@@ -9,7 +9,7 @@
  *    - If OFF: all users can enter freely (canAccess = true)
  *    - If ON: proceed with membership + token validation
  * 2. User must have an active membership
- * 3. User must have sufficient available tokens (>= locked tokens requirement)
+ * 3. User must have sufficient total tokens (>= locked tokens requirement)
  *
  * GOVERNANCE:
  * - Token gate state is managed exclusively via admin_toggle_token_gate RPC
@@ -38,6 +38,7 @@ export interface ClubAccessResult {
     tierName: string;
   } | null;
   tokens: {
+    total: number;
     required: number;
     available: number;
     deficit: number;
@@ -90,9 +91,10 @@ class ClubAccessGateService {
         status: 'unlocked',
         membership: membershipDetails,
         tokens: {
+          total: accessCheck.tokensTotal,
           required: accessCheck.tokensRequired,
           available: accessCheck.tokensAvailable,
-          deficit: Math.max(0, accessCheck.tokensRequired - accessCheck.tokensAvailable)
+          deficit: Math.max(0, accessCheck.tokensRequired - accessCheck.tokensTotal)
         },
         message: 'Club access is open to all members'
       };
@@ -106,7 +108,7 @@ class ClubAccessGateService {
       message = 'Purchase a membership to access Pipnosis Club';
     } else if (!accessCheck.hasSufficientTokens) {
       status = 'insufficient_tokens';
-      const deficit = accessCheck.tokensRequired - accessCheck.tokensAvailable;
+      const deficit = accessCheck.tokensRequired - accessCheck.tokensTotal;
       message = `You need ${deficit} more token${deficit > 1 ? 's' : ''} to access the Club`;
     } else {
       status = 'unlocked';
@@ -118,9 +120,10 @@ class ClubAccessGateService {
       status,
       membership: membershipDetails,
       tokens: {
+        total: accessCheck.tokensTotal,
         required: accessCheck.tokensRequired,
         available: accessCheck.tokensAvailable,
-        deficit: Math.max(0, accessCheck.tokensRequired - accessCheck.tokensAvailable)
+        deficit: Math.max(0, accessCheck.tokensRequired - accessCheck.tokensTotal)
       },
       message
     };

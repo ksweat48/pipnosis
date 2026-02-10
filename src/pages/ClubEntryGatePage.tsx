@@ -228,22 +228,27 @@ export function ClubEntryGatePage() {
               </div>
             </div>
 
-            {/* PIP Balance Display */}
+            {/* PIP Token Comparison */}
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl p-4 shadow-sm">
                 <div className="flex items-center gap-2 text-slate-500 text-sm mb-2">
                   <Coins size={16} />
-                  Your PIP Balance
+                  Your PIP Tokens
                 </div>
                 <div className="text-3xl font-bold text-slate-900">
-                  {fmt(accessResult.tokens.available)}
+                  {fmt(accessResult.tokens.total)}
                 </div>
+                {accessResult.tokens.available < accessResult.tokens.total && (
+                  <div className="text-xs text-slate-400 mt-1">
+                    {fmt(accessResult.tokens.available)} available
+                  </div>
+                )}
               </div>
 
               <div className="bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl p-4 shadow-sm">
                 <div className="flex items-center gap-2 text-slate-500 text-sm mb-2">
                   <Lock size={16} />
-                  Required PIP
+                  Required PIP Tokens
                 </div>
                 <div className="text-3xl font-bold text-slate-900">
                   {fmt(accessResult.tokens.required)}
