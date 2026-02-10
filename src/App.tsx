@@ -16,7 +16,7 @@ import { supabase } from './lib/supabase';
 import { midTradeNotificationQueue } from './services/mid-trade-notification-queue';
 import MidTradeUpdateModal from './components/MidTradeUpdateModal';
 import { MidTradeAlertListener } from './components/MidTradeAlertListener';
-import { FloatingMessageCenter } from './components/FloatingMessageCenter';
+import { ClubAccessButton } from './components/ClubAccessButton';
 import { WeekendProtectionBanner } from './components/WeekendProtectionBanner';
 import { realtimeTradeNotificationListener } from './services/realtime-trade-notification-listener';
 
@@ -394,7 +394,7 @@ const AppRoutes: React.FC = () => {
       <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
       <PWAInstallPrompt />
       {user && <MidTradeAlertListener userId={user.id} />}
-      {user && <FloatingMessageCenter userId={user.id} />}
+      {user && <ClubAccessButton userId={user.id} />}
       <Suspense fallback={<LoadingFallback />}>
         <Routes>
       <Route path="/auth" element={<AuthPage />} />

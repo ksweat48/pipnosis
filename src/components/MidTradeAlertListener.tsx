@@ -32,10 +32,12 @@ export function MidTradeAlertListener({ userId }: MidTradeAlertListenerProps) {
           const alert = pendingAlerts[0];
           setActiveAlert(alert);
 
-          // Play alert sound
-          audioAlertService.playWithContext({ type: 'critical', context: 'mid_trade_alert' });
+          // SOUND FIX (2026-02-10): Don't play sound on mount for already-pending alerts
+          // Sound was already played when the alert was first created
+          // Playing again creates jarring unexpected sounds when navigating to/refreshing page
+          // audioAlertService.playWithContext({ type: 'critical', context: 'mid_trade_alert' });
 
-          logger.info('[MidTradeAlert] Loaded pending alert:', {
+          logger.info('[MidTradeAlert] Loaded pending alert (no sound on mount):', {
             notification_id: alert.id,
             recommendation: alert.recommendation_data?.recommendation
           });

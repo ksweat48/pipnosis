@@ -65,13 +65,17 @@ export function TradeSignalNotificationBar({
 
   useEffect(() => {
     if (signal.priority === 'high') {
-      try {
-        const audio = new Audio('/notification-sound.mp3');
-        audio.volume = 0.5;
-        audio.play().catch(() => {});
-      } catch (error) {
-        console.log('[TradeSignal] Could not play notification sound');
-      }
+      // SOUND FIX (2026-02-10): Route through central audio service
+      // This leverages 10-second deduplication window and prevents duplicate sounds
+      // when global dialog also plays sound for same event
+      import('@/services/audio-alert-service').then(({ audioAlertService }) => {
+        audioAlertService.playWithContext({
+          type: 'attention',
+          context: `trade_signal:${signal.symbol}:${Date.now()}`
+        });
+      }).catch(error => {
+        console.log('[TradeSignal] Could not play notification sound:', error);
+      });
     }
 
     if (signal.priority === 'low') {
