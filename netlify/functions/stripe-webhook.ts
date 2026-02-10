@@ -81,9 +81,8 @@ export const handler: Handler = async (event: HandlerEvent) => {
         }
 
         if (purchaseType === 'membership') {
-          console.log(`[Stripe Webhook] Processing Club membership purchase for user ${userId}`);
-
           const amountPaid = (session.amount_total || 0) / 100;
+          console.log(`[Stripe Webhook] Processing Club membership: user=${userId}, package=${packageId}, amount=$${amountPaid}, session=${session.id}`);
 
           const { data: grantResult, error: grantError } = await supabase.rpc('grant_club_membership', {
             p_user_id: userId,
@@ -94,21 +93,30 @@ export const handler: Handler = async (event: HandlerEvent) => {
           });
 
           if (grantError) {
-            console.error('[Stripe Webhook] Failed to grant membership:', grantError);
+            console.error('[Stripe Webhook] Failed to grant membership:', JSON.stringify(grantError));
             return {
               statusCode: 500,
               headers,
-              body: JSON.stringify({ error: 'Failed to grant membership' }),
+              body: JSON.stringify({
+                error: 'Failed to grant membership',
+                pg_message: grantError.message,
+                pg_code: grantError.code,
+                pg_details: grantError.details,
+                pg_hint: grantError.hint,
+              }),
             };
           }
 
           const result = grantResult as any;
           if (!result?.success) {
-            console.error('[Stripe Webhook] Membership grant returned failure:', result?.error);
+            console.error('[Stripe Webhook] Membership grant returned failure:', JSON.stringify(result));
             return {
               statusCode: 500,
               headers,
-              body: JSON.stringify({ error: result?.error || 'Membership grant failed' }),
+              body: JSON.stringify({
+                error: result?.error || 'Membership grant failed',
+                rpc_result: result,
+              }),
             };
           }
 
