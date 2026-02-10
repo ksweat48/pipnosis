@@ -26,6 +26,7 @@ export enum LogCategory {
   TRADE_LIFECYCLE = 'Trade Lifecycle',
   LIVE_TRADE_LEARNING = 'LiveTradeLearningTrigger',
   AUTO_REFRESH = 'AutoRefresh',
+  SLTP_DIAGNOSTICS = 'SLTPDiagnostics',
   SYSTEM = 'System'
 }
 

@@ -1,24 +1,16 @@
-/**
- * SL/TP Diagnostic Service
- *
- * Monitors the health of stop loss and take profit monitoring systems.
- * Detects issues that could prevent proper trade closure.
- *
- * CRITICAL ALERTS:
- * - Stale price data (>2 minutes old)
- * - No price data available for open positions
- * - Position monitor not running
- * - Realtime monitor not connected
- * - Price update frequency too slow
- */
-
 import { supabase } from '@/lib/supabase';
+import { logger, LogCategory } from '@/lib/logger';
+import { TIME_CONSTANTS, TIME_MS } from '@/config/time-constants';
 import { notificationCoordinator } from './coordinators/notification-coordinator';
+
+const CAT = LogCategory.SLTP_DIAGNOSTICS;
+
+const MIN_UPDATE_FREQUENCY = 3;
 
 interface PriceHealthStatus {
   symbol: string;
-  latestPriceAge: number; // seconds
-  priceUpdateFrequency: number; // updates per minute
+  latestPriceAge: number;
+  priceUpdateFrequency: number;
   isHealthy: boolean;
   issues: string[];
 }
@@ -31,22 +23,21 @@ interface MonitoringHealth {
   priceHealth: PriceHealthStatus[];
   overallStatus: 'healthy' | 'degraded' | 'critical';
   recommendations: string[];
+  issues: string[];
 }
 
 class SLTPDiagnosticService {
   private diagnosticInterval: NodeJS.Timeout | null = null;
   private lastAlertTime: Map<string, number> = new Map();
-  private alertThrottleMs = 300000; // 5 minutes
+  private alertThrottleMs = TIME_MS.TIMEOUTS.EXTENDED;
 
   async startDiagnostics(): Promise<void> {
-    console.log('[SLTPDiagnostics] Starting health monitoring...');
+    logger.info(CAT, 'Starting health monitoring');
 
-    // Run diagnostic check every 60 seconds
     this.diagnosticInterval = setInterval(() => {
       this.runDiagnosticCheck();
-    }, 60000);
+    }, TIME_MS.TIMEOUTS.STANDARD);
 
-    // Run immediately on start
     await this.runDiagnosticCheck();
   }
 
@@ -55,34 +46,47 @@ class SLTPDiagnosticService {
       clearInterval(this.diagnosticInterval);
       this.diagnosticInterval = null;
     }
-    console.log('[SLTPDiagnostics] Stopped health monitoring');
+    logger.info(CAT, 'Stopped health monitoring');
+  }
+
+  private isTabHidden(): boolean {
+    return typeof document !== 'undefined' && document.hidden === true;
   }
 
   private async runDiagnosticCheck(): Promise<void> {
+    if (this.isTabHidden()) {
+      return;
+    }
+
     try {
       const health = await this.checkMonitoringHealth();
 
-      // Log status
-      const statusEmoji = health.overallStatus === 'healthy' ? '✅' :
-                         health.overallStatus === 'degraded' ? '⚠️' : '🚨';
+      if (health.overallStatus === 'healthy') {
+        logger.debug(CAT, `Status: HEALTHY | Positions: ${health.totalOpenPositions}`);
+        return;
+      }
 
-      console.log(`[SLTPDiagnostics] ${statusEmoji} Status: ${health.overallStatus.toUpperCase()}`);
-      console.log(`[SLTPDiagnostics] Open positions: ${health.totalOpenPositions}, At risk: ${health.positionsAtRisk}`);
+      if (health.overallStatus === 'degraded') {
+        logger.info(CAT, `Status: DEGRADED | Positions: ${health.totalOpenPositions}, At risk: ${health.positionsAtRisk}`);
+        if (health.issues.length > 0) {
+          logger.info(CAT, 'Issues:', health.issues);
+        }
+        return;
+      }
 
+      logger.warn(CAT, `Status: CRITICAL | Positions: ${health.totalOpenPositions}, At risk: ${health.positionsAtRisk}`);
       if (health.issues.length > 0) {
-        console.warn(`[SLTPDiagnostics] Issues detected:`, health.issues);
+        logger.warn(CAT, 'Issues:', health.issues);
       }
-
       if (health.recommendations.length > 0) {
-        console.log(`[SLTPDiagnostics] Recommendations:`, health.recommendations);
+        logger.warn(CAT, 'Recommendations:', health.recommendations);
       }
 
-      // Send critical alerts to users
-      if (health.overallStatus === 'critical' && health.positionsAtRisk > 0) {
+      if (health.positionsAtRisk > 0) {
         await this.sendCriticalAlert(health);
       }
     } catch (error) {
-      console.error('[SLTPDiagnostics] Diagnostic check failed:', error);
+      logger.error(CAT, 'Diagnostic check failed:', error);
     }
   }
 
@@ -98,7 +102,6 @@ class SLTPDiagnosticService {
       recommendations: [],
     };
 
-    // Check open positions
     const { data: positions, error: posError } = await supabase
       .from('goal_session_trades')
       .select('id, symbol, user_id, goal_session_id')
@@ -113,11 +116,9 @@ class SLTPDiagnosticService {
     health.totalOpenPositions = positions.length;
 
     if (positions.length === 0) {
-      // No positions to monitor - system is healthy
       return health;
     }
 
-    // Check price data health for each unique symbol
     const symbols = [...new Set(positions.map(p => p.symbol))];
 
     for (const symbol of symbols) {
@@ -128,16 +129,19 @@ class SLTPDiagnosticService {
         const positionsForSymbol = positions.filter(p => p.symbol === symbol);
         health.positionsAtRisk += positionsForSymbol.length;
 
-        // Send individual alerts for each affected position
         for (const pos of positionsForSymbol) {
           await this.sendStaleDataAlert(pos.user_id, pos.symbol, priceHealth, pos.id, pos.goal_session_id);
         }
       }
     }
 
-    // Determine overall status
     if (health.positionsAtRisk > 0) {
-      health.overallStatus = 'critical';
+      const riskRatio = health.positionsAtRisk / health.totalOpenPositions;
+      if (riskRatio > 0.5) {
+        health.overallStatus = 'critical';
+      } else {
+        health.overallStatus = 'degraded';
+      }
       health.issues.push(`${health.positionsAtRisk} position(s) have stale/missing price data`);
       health.recommendations.push('Check WebSocket connections and server-side price polling');
     }
@@ -154,7 +158,6 @@ class SLTPDiagnosticService {
       issues: [],
     };
 
-    // Check latest price age
     const { data: latestPrice, error } = await supabase
       .from('realtime_prices')
       .select('created_at')
@@ -173,13 +176,11 @@ class SLTPDiagnosticService {
     const ageSeconds = (Date.now() - new Date(latestPrice.created_at).getTime()) / 1000;
     health.latestPriceAge = ageSeconds;
 
-    // CRITICAL: Price data older than 2 minutes is stale
-    if (ageSeconds > 120) {
+    if (ageSeconds > TIME_CONSTANTS.SECONDS.PRICE_STALENESS_BLOCK_TRADING) {
       health.isHealthy = false;
-      health.issues.push(`Price data ${(ageSeconds / 60).toFixed(1)} minutes old (threshold: 2 min)`);
+      health.issues.push(`Price data ${(ageSeconds / 60).toFixed(1)} minutes old (threshold: ${TIME_CONSTANTS.SECONDS.PRICE_STALENESS_BLOCK_TRADING}s)`);
     }
 
-    // Check update frequency (last minute)
     const oneMinuteAgo = new Date(Date.now() - 60000).toISOString();
     const { count } = await supabase
       .from('realtime_prices')
@@ -189,10 +190,9 @@ class SLTPDiagnosticService {
 
     health.priceUpdateFrequency = count || 0;
 
-    // Expect at least 10 updates per minute for healthy data
-    if ((count || 0) < 10) {
+    if ((count || 0) < MIN_UPDATE_FREQUENCY) {
       health.isHealthy = false;
-      health.issues.push(`Low update frequency: ${count || 0}/min (expected: >10/min)`);
+      health.issues.push(`Low update frequency: ${count || 0}/min (expected: >${MIN_UPDATE_FREQUENCY}/min)`);
     }
 
     return health;
@@ -205,13 +205,12 @@ class SLTPDiagnosticService {
     tradeId: string,
     sessionId: string
   ): Promise<void> {
-    // Throttle alerts
     const alertKey = `${userId}-${symbol}`;
     const now = Date.now();
     const lastAlert = this.lastAlertTime.get(alertKey) || 0;
 
     if (now - lastAlert < this.alertThrottleMs) {
-      return; // Too soon since last alert
+      return;
     }
 
     this.lastAlertTime.set(alertKey, now);
@@ -237,21 +236,17 @@ class SLTPDiagnosticService {
       },
     });
 
-    console.warn(`[SLTPDiagnostics] 🚨 Sent stale data alert for ${symbol} to user ${userId}`);
+    logger.warn(CAT, `Sent stale data alert for ${symbol} to user ${userId}`);
   }
 
   private async sendCriticalAlert(health: MonitoringHealth): Promise<void> {
-    // This would send a system-wide alert to admin/monitoring
-    console.error('[SLTPDiagnostics] 🚨 CRITICAL: SL/TP monitoring degraded', {
+    logger.error(CAT, 'SL/TP monitoring degraded', {
       positionsAtRisk: health.positionsAtRisk,
       totalPositions: health.totalOpenPositions,
       issues: health.issues,
     });
   }
 
-  /**
-   * Manual diagnostic check - can be called from console
-   */
   async runManualCheck(): Promise<MonitoringHealth> {
     const health = await this.checkMonitoringHealth();
 
@@ -263,22 +258,22 @@ class SLTPDiagnosticService {
     if (health.priceHealth.length > 0) {
       console.log('\nPrice Health by Symbol:');
       health.priceHealth.forEach(ph => {
-        const status = ph.isHealthy ? '✅' : '❌';
-        console.log(`  ${status} ${ph.symbol}: Age=${ph.latestPriceAge.toFixed(0)}s, Freq=${ph.priceUpdateFrequency}/min`);
+        const status = ph.isHealthy ? 'OK' : 'ISSUE';
+        console.log(`  [${status}] ${ph.symbol}: Age=${ph.latestPriceAge.toFixed(0)}s, Freq=${ph.priceUpdateFrequency}/min`);
         if (ph.issues.length > 0) {
-          ph.issues.forEach(issue => console.log(`    ⚠️ ${issue}`));
+          ph.issues.forEach(issue => console.log(`    - ${issue}`));
         }
       });
     }
 
     if (health.issues.length > 0) {
       console.log('\nIssues:');
-      health.issues.forEach(issue => console.log(`  ❌ ${issue}`));
+      health.issues.forEach(issue => console.log(`  - ${issue}`));
     }
 
     if (health.recommendations.length > 0) {
       console.log('\nRecommendations:');
-      health.recommendations.forEach(rec => console.log(`  💡 ${rec}`));
+      health.recommendations.forEach(rec => console.log(`  - ${rec}`));
     }
 
     console.log('\n=====================================\n');
