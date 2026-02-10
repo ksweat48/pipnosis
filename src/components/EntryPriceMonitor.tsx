@@ -186,17 +186,28 @@ export const EntryPriceMonitor: React.FC = () => {
     );
   }
 
-  if (!activeIntent) {
-    return null;
+  if (!activeIntent || !['executed', 'monitoring'].includes(activeIntent.status)) {
+    return (
+      <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 rounded-xl p-6 border border-gray-700/50">
+        <div className="flex items-start gap-4">
+          <div className="p-3 bg-gray-700/50 rounded-lg">
+            <Target className="w-6 h-6 text-gray-400" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-lg font-bold text-white mb-2">Entry Advisory</h3>
+            <p className="text-sm text-gray-400">
+              No active entry signals. Entry advisory activates when Alpha identifies a trade opportunity,
+              comparing live price to Alpha's entry so you can time your own entry on an external platform.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const alphaEntry = activeIntent.actual_entry_price || activeIntent.execution_price || null;
   const isExecuted = activeIntent.status === 'executed';
   const isMonitoring = activeIntent.status === 'monitoring';
-
-  if (!isExecuted && !isMonitoring) {
-    return null;
-  }
 
   if (isMonitoring) {
     return <MonitoringView intent={activeIntent} currentPrice={currentPrice} previousPrice={previousPrice} formatPrice={formatPrice} />;
