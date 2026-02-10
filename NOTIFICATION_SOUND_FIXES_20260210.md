@@ -9,9 +9,12 @@ Fixed random notification sounds on AI Trade page and converted FloatingMessageC
 
 **Created:** `/src/components/ClubAccessButton.tsx`
 - Simple button with door icon (DoorOpen from lucide-react)
-- Navigates directly to /club page
+- Context-aware navigation:
+  - When in main app → navigates to /club
+  - When in club → navigates back to /trade (AI Trading page)
 - Removed all messaging functionality, realtime subscriptions, and sound triggers
 - Purple gradient styling to match club branding
+- Uses useLocation to detect current route (SSOT)
 
 **Deleted:** `/src/components/FloatingMessageCenter.tsx` (400+ lines removed)
 - Removed AI conversation monitoring
