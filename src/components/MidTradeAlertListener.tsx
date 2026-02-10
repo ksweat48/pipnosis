@@ -33,7 +33,7 @@ export function MidTradeAlertListener({ userId }: MidTradeAlertListenerProps) {
           setActiveAlert(alert);
 
           // Play alert sound
-          audioAlertService.playAlert('critical');
+          audioAlertService.playWithContext({ type: 'critical', context: 'mid_trade_alert' });
 
           logger.info('[MidTradeAlert] Loaded pending alert:', {
             notification_id: alert.id,
@@ -72,7 +72,7 @@ export function MidTradeAlertListener({ userId }: MidTradeAlertListenerProps) {
             setActiveAlert(notification);
 
             // Play alert sound
-            audioAlertService.playAlert('critical');
+            audioAlertService.playWithContext({ type: 'critical', context: 'mid_trade_alert' });
           }
         }
       )

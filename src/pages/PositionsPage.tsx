@@ -13,7 +13,7 @@ import { supabase } from '@/lib/supabase';
 import { positionService } from '@/services/position-service';
 import { calculatePnL } from '@/types/position';
 import { pollingConfigService } from '@/services/polling-config-service';
-import { notificationManager } from '@/services/notification-manager';
+import { audioAlertService } from '@/services/audio-alert-service';
 import { pageContext } from '@/services/page-context';
 import { smartGoalSessionManager } from '@/services/smart-goal-session-manager';
 import {
@@ -325,7 +325,7 @@ export function PositionsPage() {
       );
 
       if (result.success) {
-        notificationManager.playSound('trade_exit');
+        audioAlertService.playWithContext({ type: 'success', context: 'trade_exit' });
         toast.success('Position Closed', result.message || 'Position closed successfully');
 
         // Refresh data
@@ -512,7 +512,7 @@ export function PositionsPage() {
     }
 
     if (successCount > 0) {
-      notificationManager.playSound('trade_exit');
+      audioAlertService.playWithContext({ type: 'success', context: 'trade_exit' });
       toast.success('Positions Closed', `Successfully closed ${successCount} position(s)`);
     }
     if (failCount > 0) {
@@ -560,7 +560,7 @@ export function PositionsPage() {
       );
     }
 
-    notificationManager.playSound('trade_exit');
+    audioAlertService.playWithContext({ type: 'success', context: 'trade_exit' });
     toast.success('Winners Closed', `Closed ${winningPositions.length} winning position(s)`);
     await fetchAllData();
     await refreshBalance();
@@ -586,7 +586,7 @@ export function PositionsPage() {
         .eq('user_id', user!.id);
 
       if (!error) {
-        notificationManager.playSound('trade_exit');
+        audioAlertService.playWithContext({ type: 'success', context: 'trade_exit' });
         toast.success('Order Cancelled', 'Pending order cancelled successfully');
         await fetchAllData();
       } else {

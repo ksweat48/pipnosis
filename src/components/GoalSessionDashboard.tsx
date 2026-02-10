@@ -116,11 +116,8 @@ export const GoalSessionDashboard: React.FC = () => {
         (payload) => {
           console.log('[GoalSessionDashboard] Goal achievement detected!', payload);
 
-          // Play celebration sound for goal achievement
-          import('../services/notification-manager').then(({ notificationManager }) => {
-            notificationManager.playSound('trade_entry');
-            setTimeout(() => notificationManager.playSound('trade_exit'), 200);
-            console.log('[GoalSessionDashboard] 🏆 Played celebration sound for goal achievement!');
+          import('../services/audio-alert-service').then(({ audioAlertService }) => {
+            audioAlertService.playGoalAchieved(activeSession.sessionId);
           }).catch(err => console.error('[GoalSessionDashboard] Failed to play sound:', err));
 
           loadSessionData();
@@ -195,16 +192,11 @@ export const GoalSessionDashboard: React.FC = () => {
             const profitLoss = payload.new.profit_loss || 0;
             const isProfit = profitLoss > 0;
 
-            // Play sound notification ONCE
-            import('../services/notification-manager').then(({ notificationManager }) => {
-              if (closeReason === 'take_profit' && isProfit) {
-                notificationManager.playSound('trade_exit');
-                console.log('[GoalSessionDashboard] 🎉 Played celebration sound for TP hit!');
-              } else if (closeReason === 'stop_loss') {
-                notificationManager.playSound('alarm');
-                console.log('[GoalSessionDashboard] 🔔 Played alert sound for SL hit');
+            import('../services/audio-alert-service').then(({ audioAlertService }) => {
+              if (isProfit) {
+                audioAlertService.playTradeProfit(tradeId);
               } else {
-                notificationManager.playSound('notification');
+                audioAlertService.playTradeLoss(tradeId);
               }
             }).catch(err => console.error('[GoalSessionDashboard] Failed to play sound:', err));
 

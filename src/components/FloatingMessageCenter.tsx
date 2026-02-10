@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageCircle, X, Bot, TrendingUp, AlertTriangle, CheckCircle, Clock, Target, BarChart3, Play, StopCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { notificationManager } from '@/services/notification-manager';
+import { audioAlertService } from '@/services/audio-alert-service';
 
 interface Message {
   id: string;
@@ -158,7 +158,7 @@ export const FloatingMessageCenter: React.FC<FloatingMessageCenterProps> = ({ us
     }
 
     if (!hasPlayedSoundRef.current.has(newMessage.id)) {
-      notificationManager.playSound('notification');
+      audioAlertService.playWithContext({ type: 'attention', context: `msg:${newMessage.id}` });
       hasPlayedSoundRef.current.add(newMessage.id);
 
       setShowPulse(true);

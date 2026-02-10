@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
-import { notificationManager } from './notification-manager';
+import { audioAlertService } from './audio-alert-service';
 import { goalAchievementCoordinator } from './coordinators/goal-achievement-coordinator';
 import { goalSessionStateMachine } from './coordinators/goal-session-state-machine';
 import { postTradeAnalyzer } from './post-trade-analyzer';
@@ -271,68 +271,13 @@ export class TradeClosureEventProcessor {
    * Send notification for closed trade
    */
   private async sendNotification(event: TradeClosureEvent): Promise<void> {
-    const notificationType = this.determineNotificationType(event.close_reason);
     const isProfitable = event.pnl >= 0;
 
-    await notificationManager.sendNotification({
-      userId: event.user_id,
-      type: notificationType,
-      title: this.getNotificationTitle(event.close_reason),
-      message: `${event.symbol} closed with P&L: ${isProfitable ? '+' : ''}$${event.pnl.toFixed(2)}`,
-      metadata: {
-        tradeId: event.trade_id,
-        symbol: event.symbol,
-        pnl: event.pnl,
-        closeReason: event.close_reason,
-        closePrice: event.close_price,
-      },
-      priority: isProfitable ? 'medium' : 'high',
-    });
-  }
-
-  /**
-   * Determine notification type from close reason
-   */
-  private determineNotificationType(
-    closeReason: string
-  ): 'stop_loss_hit' | 'take_profit_hit' | 'goal_achieved' | 'trade_closed' {
-    switch (closeReason) {
-      case 'stop_loss':
-        return 'stop_loss_hit';
-      case 'take_profit':
-      case 'take_profit_1':
-      case 'take_profit_2':
-        return 'take_profit_hit';
-      case 'goal_achieved':
-        return 'goal_achieved';
-      default:
-        return 'trade_closed';
+    if (isProfitable) {
+      await audioAlertService.playTradeProfit(event.trade_id);
+    } else {
+      await audioAlertService.playTradeLoss(event.trade_id);
     }
-  }
-
-  /**
-   * Get human-readable notification title
-   */
-  private getNotificationTitle(closeReason: string): string {
-    const titles: Record<string, string> = {
-      manual: 'Trade Closed',
-      stop_loss: 'Stop Loss Hit',
-      take_profit: 'Take Profit Hit',
-      take_profit_1: 'TP1 Reached',
-      take_profit_2: 'TP2 Reached',
-      goal_achieved: 'Goal Achieved!',
-      timeout: 'Session Timeout',
-      weekend_protection: 'Weekend Closure',
-      force_closed: 'Force Closed',
-      goal_expired: 'Goal Expired',
-      session_ended: 'Session Ended',
-      risk_limit: 'Risk Limit Exceeded',
-      trailing_stop: 'Trailing Stop',
-      holiday_closure: 'Holiday Closure',
-      market_closed: 'Market Closed',
-    };
-
-    return titles[closeReason] || 'Trade Closed';
   }
 
   /**
