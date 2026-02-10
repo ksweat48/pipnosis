@@ -153,8 +153,8 @@ export const handler: Handler = async (event: HandlerEvent) => {
 
         await supabase.from('goal_notifications').insert({
           user_id: userId,
-          type: 'system',
-          priority: 'normal',
+          type: 'system_alert',
+          priority: 'medium',
           title: 'Credits Purchased',
           message: `Successfully added ${creditAmount} credits to your account. Thank you for your purchase!`,
           metadata: {
@@ -206,8 +206,8 @@ export const handler: Handler = async (event: HandlerEvent) => {
 
           await supabase.from('goal_notifications').insert({
             user_id: userId,
-            type: 'system',
-            priority: 'normal',
+            type: 'system_alert',
+            priority: 'medium',
             title: 'Subscription Renewed',
             message: `Your subscription has been renewed. ${creditAmount} credits have been added to your account.`,
             metadata: {
@@ -228,8 +228,8 @@ export const handler: Handler = async (event: HandlerEvent) => {
         if (userId) {
           await supabase.from('goal_notifications').insert({
             user_id: userId,
-            type: 'system',
-            priority: 'normal',
+            type: 'system_alert',
+            priority: 'medium',
             title: 'Subscription Canceled',
             message: 'Your subscription has been canceled. You can still use your remaining credits.',
             metadata: {
