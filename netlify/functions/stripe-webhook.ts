@@ -40,10 +40,14 @@ export const handler: Handler = async (event: HandlerEvent) => {
       };
     }
 
+    const rawBody = event.isBase64Encoded
+      ? Buffer.from(event.body || '', 'base64').toString('utf8')
+      : event.body || '';
+
     let stripeEvent: any;
     try {
       stripeEvent = stripe.webhooks.constructEvent(
-        event.body || '',
+        rawBody,
         signature,
         webhookSecret
       );

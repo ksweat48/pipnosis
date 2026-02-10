@@ -22,14 +22,12 @@ export function ClubEntryGatePage() {
   const [processingPurchase, setProcessingPurchase] = useState<string | null>(null);
 
   const [purchaseSuccess, setPurchaseSuccess] = useState(false);
+  const [purchaseError, setPurchaseError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<{ tierName?: string; tokensAwarded?: number } | null>(null);
 
   useEffect(() => {
-    if (!user) {
-      navigate('/auth');
-      return;
-    }
+    if (!user) return;
 
     const sessionId = searchParams.get('session_id');
     if (searchParams.get('success') === 'true' && sessionId) {
@@ -46,6 +44,7 @@ export function ClubEntryGatePage() {
 
   const verifyAndGrantPurchase = async (sessionId: string) => {
     setVerifying(true);
+    setPurchaseError(null);
     try {
       const response = await fetch('/.netlify/functions/verify-membership-purchase', {
         method: 'POST',
@@ -61,11 +60,11 @@ export function ClubEntryGatePage() {
         }
       } else {
         console.error('[ClubEntryGate] Verification failed:', data.error);
-        setPurchaseSuccess(true);
+        setPurchaseError(data.error || 'Verification failed. Your payment was received -- the webhook will grant your membership shortly.');
       }
     } catch (error) {
       console.error('[ClubEntryGate] Verification error:', error);
-      setPurchaseSuccess(true);
+      setPurchaseError('Could not verify purchase right now. Your payment was received -- the webhook will grant your membership shortly.');
     } finally {
       setVerifying(false);
       await loadAccessInfo();
@@ -181,6 +180,14 @@ export function ClubEntryGatePage() {
             ) : (
               <p className="text-emerald-700">Your Club membership is now active. Welcome to Pipnosis Club.</p>
             )}
+          </div>
+        )}
+
+        {purchaseError && !verifying && !purchaseSuccess && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 mb-8 text-center">
+            <div className="text-amber-700 font-bold text-lg mb-2">Verifying Your Purchase</div>
+            <p className="text-amber-600 text-sm">{purchaseError}</p>
+            <p className="text-amber-500 text-xs mt-2">If your membership does not appear within a few minutes, please contact support.</p>
           </div>
         )}
 
