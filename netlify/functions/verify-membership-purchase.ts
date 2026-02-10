@@ -71,71 +71,47 @@ export const handler: Handler = async (event: HandlerEvent) => {
     const supabase = getSupabaseAdmin();
 
     if (purchaseType === 'membership' || purchaseType === 'membership_upgrade') {
-      const isUpgrade = purchaseType === 'membership_upgrade';
       const amountPaid = (session.amount_total || 0) / 100;
 
-      if (!isUpgrade) {
-        const { data: existing } = await supabase
-          .from('club_memberships')
-          .select('id')
-          .eq('user_id', userId)
-          .eq('status', 'active')
-          .maybeSingle();
-
-        if (existing) {
-          console.log(`[VerifyPurchase] Membership already granted for user ${userId}`);
-          return {
-            statusCode: 200,
-            headers,
-            body: JSON.stringify({ success: true, alreadyGranted: true }),
-          };
-        }
-      }
-
-      const rpcName = isUpgrade ? 'upgrade_club_membership' : 'grant_club_membership';
-      const rpcParams = isUpgrade
-        ? {
-            p_user_id: userId,
-            p_new_package_id: packageId,
-            p_stripe_session_id: session.id,
-            p_stripe_payment_intent_id: (session.payment_intent as string) || '',
-            p_amount_paid_usd: amountPaid,
-          }
-        : {
-            p_user_id: userId,
-            p_package_id: packageId,
-            p_stripe_session_id: session.id,
-            p_stripe_payment_intent_id: (session.payment_intent as string) || '',
-            p_amount_paid_usd: amountPaid,
-          };
-
-      const { data: grantResult, error: grantError } = await supabase.rpc(rpcName, rpcParams);
+      // Use grant_club_membership for both new purchases and upgrades
+      // The function now handles upgrade detection and cumulative token allocation internally
+      const { data: grantResult, error: grantError } = await supabase.rpc('grant_club_membership', {
+        p_user_id: userId,
+        p_package_id: packageId,
+        p_stripe_session_id: session.id,
+        p_stripe_payment_intent_id: (session.payment_intent as string) || '',
+        p_amount_paid_usd: amountPaid,
+      });
 
       if (grantError) {
-        console.error(`[VerifyPurchase] Failed to ${isUpgrade ? 'upgrade' : 'grant'} membership:`, grantError);
+        console.error(`[VerifyPurchase] Failed to process membership:`, grantError);
         return {
           statusCode: 500,
           headers,
-          body: JSON.stringify({ error: `Failed to ${isUpgrade ? 'upgrade' : 'grant'} membership`, details: grantError.message }),
+          body: JSON.stringify({ error: 'Failed to process membership purchase', details: grantError.message }),
         };
       }
 
       const result = grantResult as any;
       if (!result?.success) {
-        console.error(`[VerifyPurchase] ${isUpgrade ? 'Upgrade' : 'Grant'} returned failure:`, result?.error);
+        console.error(`[VerifyPurchase] Membership processing returned failure:`, result?.error);
         return {
           statusCode: 500,
           headers,
-          body: JSON.stringify({ error: result?.error || `Membership ${isUpgrade ? 'upgrade' : 'grant'} failed` }),
+          body: JSON.stringify({ error: result?.error || 'Membership processing failed' }),
         };
       }
 
-      const tierName = isUpgrade ? result.to_tier_name : result.tier_name;
-      const tierLevel = isUpgrade ? result.to_tier : result.tier_level;
-      const tokensAwarded = isUpgrade ? result.tokens_granted : result.tokens_awarded;
+      const isUpgrade = result.is_upgrade || false;
+      const tierName = result.tier_name;
+      const tierLevel = result.tier_level;
+      const totalTokensAwarded = result.total_tokens_awarded;
       const tokensLocked = result.tokens_locked;
+      const tokensAvailable = result.tokens_available;
+      const tiersAwardedCount = result.tiers_awarded_count;
 
-      console.log(`[VerifyPurchase] ${isUpgrade ? 'Upgraded to' : 'Granted'} ${tierName} for user ${userId} (tokens: ${tokensAwarded})`);
+      console.log(`[VerifyPurchase] ${isUpgrade ? 'Upgraded to' : 'Granted'} ${tierName} (Tier ${tierLevel}) for user ${userId}`);
+      console.log(`[VerifyPurchase] Cumulative tokens: ${totalTokensAwarded} PIP from ${tiersAwardedCount} tier(s), ${tokensAvailable} available`);
 
       return {
         statusCode: 200,
@@ -145,13 +121,12 @@ export const handler: Handler = async (event: HandlerEvent) => {
           isUpgrade,
           tierName,
           tierLevel,
-          tokensAwarded,
+          totalTokensAwarded,
           tokensLocked,
-          ...(isUpgrade ? {
-            fromTierName: result.from_tier_name,
-            tokensReleased: result.tokens_released,
-            availableTokens: result.available_tokens,
-          } : {}),
+          tokensAvailable,
+          tiersAwardedCount,
+          tierBreakdown: result.tier_breakdown,
+          previousTierLevel: result.previous_tier_level,
         }),
       };
     }
