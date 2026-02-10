@@ -3,7 +3,6 @@ import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarCh
 import { smartGoalSessionManager, SmartGoalSession } from '../services/smart-goal-session-manager';
 import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/goal-scanner-trigger';
 import { useAuth } from '../hooks/useAuth';
-import { SimpleEntryMonitor } from './SimpleEntryMonitor';
 import { AlphaScanningFeed } from './AlphaScanningFeed';
 import { TradingMonitorStack } from './TradingMonitorStack';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
@@ -1710,10 +1709,7 @@ export const GoalSessionDashboard: React.FC = () => {
       )}
 
       {activeSession && (
-        <>
-          <SimpleEntryMonitor sessionId={activeSession.sessionId} />
-          <TradingMonitorStack />
-        </>
+        <TradingMonitorStack />
       )}
 
       {continuationData && progress && activeSession && (

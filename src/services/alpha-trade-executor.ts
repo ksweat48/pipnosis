@@ -1636,6 +1636,17 @@ class AlphaTradeExecutor {
       const safeThesis = decision.thesis && VALID_THESIS.includes(decision.thesis) ? decision.thesis : null;
       const safeStyleIntent = decision.style_intent && VALID_STYLE_INTENT.includes(decision.style_intent) ? decision.style_intent : null;
 
+      const classifierZoneMin = decision.entry_intent?.entry_zone_min;
+      const classifierZoneMax = decision.entry_intent?.entry_zone_max;
+      let advisoryZoneMin = entryPrice;
+      let advisoryZoneMax = entryPrice;
+
+      if (classifierZoneMin != null && classifierZoneMax != null) {
+        const zoneHalfWidth = (classifierZoneMax - classifierZoneMin) / 2;
+        advisoryZoneMin = entryPrice - zoneHalfWidth;
+        advisoryZoneMax = entryPrice + zoneHalfWidth;
+      }
+
       const entryIntentData: Record<string, any> = {
         session_id: sessionId,
         user_id: userId,
@@ -1643,8 +1654,8 @@ class AlphaTradeExecutor {
         direction,
         intent_type: decision.entry_intent?.intent_type || 'immediate_momentum',
         urgency: decision.entry_intent?.urgency || 'HIGH',
-        entry_zone_min: decision.entry_intent?.entry_zone_min || entryPrice,
-        entry_zone_max: decision.entry_intent?.entry_zone_max || entryPrice,
+        entry_zone_min: advisoryZoneMin,
+        entry_zone_max: advisoryZoneMax,
         timeout_at: now,
         status: 'executed',
         executed_at: now,
