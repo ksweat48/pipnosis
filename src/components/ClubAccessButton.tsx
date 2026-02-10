@@ -24,7 +24,7 @@ export const ClubAccessButton: React.FC<ClubAccessButtonProps> = ({ userId }) =>
   return (
     <button
       onClick={handleClick}
-      className="fixed bottom-20 right-4 z-50 bg-gradient-to-br from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600 text-white rounded-full p-4 shadow-lg transition-all duration-300 hover:scale-110"
+      className="fixed bottom-20 right-6 md:right-8 lg:right-12 z-50 bg-gradient-to-br from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600 text-white rounded-full p-4 shadow-lg transition-all duration-300 hover:scale-110"
       aria-label={buttonLabel}
       title={buttonLabel}
     >
