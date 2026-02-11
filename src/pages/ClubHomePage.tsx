@@ -71,7 +71,7 @@ export function ClubHomePage() {
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
               <h1 className="text-xl sm:text-3xl font-bold text-slate-900 mb-1">
-                Welcome {membership ? `(${membership.tierName})` : ''}
+                {loading ? 'Welcome' : membership?.tierName ? `Welcome (${membership.tierName})` : 'Welcome'}
               </h1>
             </div>
 
