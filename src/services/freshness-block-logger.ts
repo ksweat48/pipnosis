@@ -2,12 +2,35 @@ import { supabase } from '../lib/supabase';
 import { logger, LogCategory } from '../lib/logger';
 import { FreshnessBlockCategory, BlockMetadata } from '../types/freshness-block';
 
+/**
+ * SSOT Cache Tier Mapping
+ *
+ * Maps legacy cache tier names to current database schema.
+ * Database constraint (migration 20260118032110): cache_tier IN ('alpha_thesis', 'snapshot')
+ *
+ * Mapping logic:
+ * - 'omega' → 'alpha_thesis' (omega intelligence merged into alpha thesis)
+ * - 'alpha' → 'alpha_thesis' (alpha intelligence is the thesis)
+ * - 'scout' → 'snapshot' (scout replaced by snapshot caching)
+ */
+type LegacyCacheTier = 'omega' | 'alpha' | 'scout';
+type DatabaseCacheTier = 'alpha_thesis' | 'snapshot';
+
+function mapCacheTierToDatabase(legacyTier: LegacyCacheTier): DatabaseCacheTier {
+  const mapping: Record<LegacyCacheTier, DatabaseCacheTier> = {
+    'omega': 'alpha_thesis',
+    'alpha': 'alpha_thesis',
+    'scout': 'snapshot'
+  };
+  return mapping[legacyTier];
+}
+
 interface BlockLogEntry {
   symbol: string;
   timeframe: string;
   blockCategory: FreshnessBlockCategory;
   blockMetadata: BlockMetadata;
-  cacheTier: 'omega' | 'alpha' | 'scout';
+  cacheTier: LegacyCacheTier;
   userId?: string;
 }
 
@@ -125,8 +148,9 @@ class FreshnessBlockLogger {
     this.logQueue = [];
 
     try {
+      // SSOT: Map legacy cache tier values to database-compliant values
       const cacheStatsInserts = batch.map(entry => ({
-        cache_tier: entry.cacheTier,
+        cache_tier: mapCacheTierToDatabase(entry.cacheTier),
         event_type: 'block',
         symbol: entry.symbol,
         timeframe: entry.timeframe,

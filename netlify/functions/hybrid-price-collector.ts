@@ -336,19 +336,7 @@ export const handler: Handler = async (event, context) => {
   let totalTicksFailed = 0;
   const sourceStats: Record<string, number> = { metaapi: 0, finnhub: 0, kraken: 0 };
 
-  // VALIDATION: Ensure critical environment variables exist
-  if (!supabaseUrl || !supabaseServiceKey) {
-    console.error('[HybridCollector] FATAL: Missing Supabase credentials');
-    return {
-      statusCode: 500,
-      body: JSON.stringify({
-        success: false,
-        error: 'Missing Supabase configuration',
-        timestamp: new Date().toISOString()
-      })
-    };
-  }
-
+  // VALIDATION: Check MetaAPI credentials (Supabase credentials validated by getSupabaseAdmin())
   if (!metaApiToken || !metaApiAccountId) {
     console.error('[HybridCollector] ❌ CRITICAL: Missing MetaAPI credentials!');
     console.error('[HybridCollector] Looking for: process.env.METAAPI_TOKEN');
