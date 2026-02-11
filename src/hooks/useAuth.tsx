@@ -53,18 +53,70 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
+    const validateAccountIntegrity = async (userId: string): Promise<boolean> => {
+      // SSOT: Account Integrity Validation
+      // GOVERNANCE: Prevent broken accounts from accessing the system
+      try {
+        console.log('🔍 [useAuth] Validating account integrity for:', userId);
+
+        const { data, error } = await supabase
+          .rpc('check_account_integrity', { check_user_id: userId });
+
+        if (error) {
+          console.error('❌ [useAuth] Failed to check account integrity:', error);
+          return false;
+        }
+
+        if (!data || !data.valid) {
+          console.error('❌ [useAuth] Account integrity check failed:', data);
+          console.error('Issues:', data?.issues);
+
+          // Force logout if account is broken
+          await supabase.auth.signOut();
+
+          // Show error to user
+          alert('Account setup is incomplete. Please contact support or try signing up again.');
+
+          return false;
+        }
+
+        console.log('✅ [useAuth] Account integrity validated');
+        return true;
+      } catch (error) {
+        console.error('❌ [useAuth] Error validating account integrity:', error);
+        return false;
+      }
+    };
+
     console.log('🔍 [useAuth] Getting session...');
     supabase.auth.getSession()
-      .then(({ data: { session } }) => {
+      .then(async ({ data: { session } }) => {
         console.log('📋 [useAuth] Session retrieved:', session ? 'Logged in' : 'Not logged in');
-        setSession(session);
-        setUser(session?.user ?? null);
+
         if (session?.user) {
+          // CRITICAL: Validate account integrity before allowing access
+          const isValid = await validateAccountIntegrity(session.user.id);
+
+          if (!isValid) {
+            // Account is broken - don't set session/user
+            console.error('🚫 [useAuth] Account integrity validation failed - blocking access');
+            setSession(null);
+            setUser(null);
+            setLoading(false);
+            return;
+          }
+
+          // Account is valid - proceed normally
+          setSession(session);
+          setUser(session.user);
+
           fetchUserRole(session.user.id).finally(() => {
             console.log('✅ [useAuth] Auth initialization complete (with user)');
             setLoading(false);
           });
         } else {
+          setSession(null);
+          setUser(null);
           console.log('✅ [useAuth] Auth initialization complete (no user)');
           setLoading(false);
         }
@@ -79,9 +131,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       (async () => {
         const previousUser = user;
 
-        setSession(session);
-        setUser(session?.user ?? null);
         if (session?.user) {
+          // CRITICAL: Validate account integrity on auth state change
+          const isValid = await validateAccountIntegrity(session.user.id);
+
+          if (!isValid) {
+            // Account is broken - block access
+            console.error('🚫 [useAuth] Account integrity validation failed on state change');
+            setSession(null);
+            setUser(null);
+            setIsAdmin(false);
+            setLoading(false);
+            return;
+          }
+
+          // Account is valid - proceed
+          setSession(session);
+          setUser(session.user);
+
           if (previousUser?.id !== session.user.id) {
             const { unifiedEntryMonitor } = await import('@/services/unified-entry-monitor');
             unifiedEntryMonitor.stopAllMonitoring();
@@ -142,6 +209,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             unifiedEntryMonitor.stopAllMonitoring();
             console.log('[Auth] Stopped all entry monitoring');
           }).catch(console.error);
+
+          // No session - clear everything
+          setSession(null);
+          setUser(null);
         }
         setLoading(false);
       })();
