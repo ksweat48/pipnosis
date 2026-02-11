@@ -62,7 +62,7 @@ export function TokenBalanceCard({
         <div className="grid grid-cols-3 gap-2 sm:gap-4">
           <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-100/80 rounded-xl p-3 sm:p-4">
             <div className="text-slate-500 text-[10px] sm:text-xs mb-1">Available</div>
-            <div className="text-slate-900 text-lg sm:text-2xl font-bold">{fmt(available)}</div>
+            <div className="text-slate-900 text-base sm:text-xl md:text-2xl font-bold break-words">{fmt(available)}</div>
             <div className="text-amber-600 text-[10px] sm:text-xs mt-0.5">
               ~${utilityValue.toFixed(2)} value
             </div>
@@ -70,13 +70,13 @@ export function TokenBalanceCard({
 
           <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 sm:p-4">
             <div className="text-slate-500 text-[10px] sm:text-xs mb-1">Locked</div>
-            <div className="text-slate-900 text-lg sm:text-2xl font-bold">{fmt(locked)}</div>
+            <div className="text-slate-900 text-base sm:text-xl md:text-2xl font-bold break-words">{fmt(locked)}</div>
             <div className="text-slate-400 text-[10px] sm:text-xs mt-0.5">Membership</div>
           </div>
 
           <div className="bg-blue-50 border border-blue-100/80 rounded-xl p-3 sm:p-4">
             <div className="text-slate-500 text-[10px] sm:text-xs mb-1">Staked</div>
-            <div className="text-blue-600 text-lg sm:text-2xl font-bold">{fmt(staked)}</div>
+            <div className="text-blue-600 text-base sm:text-xl md:text-2xl font-bold break-words">{fmt(staked)}</div>
             <div className="text-blue-500 text-[10px] sm:text-xs mt-0.5">
               {rewardsPending > 0 ? `+${fmt(rewardsPending)} pending` : 'Earning rewards'}
             </div>
@@ -143,7 +143,7 @@ export function TokenBalanceCard({
             <Coins size={16} className="text-amber-500" />
             <span className="text-slate-500 text-[10px] sm:text-xs">Available</span>
           </div>
-          <div className="text-slate-900 text-xl sm:text-3xl font-bold">{fmt(available)}</div>
+          <div className="text-slate-900 text-lg sm:text-2xl md:text-3xl font-bold break-words">{fmt(available)}</div>
           <div className="text-amber-600 text-[10px] sm:text-xs mt-1">
             ~${utilityValue.toFixed(2)} utility value
           </div>
@@ -154,7 +154,7 @@ export function TokenBalanceCard({
             <Lock size={16} className="text-slate-400" />
             <span className="text-slate-500 text-[10px] sm:text-xs">Locked</span>
           </div>
-          <div className="text-slate-900 text-xl sm:text-3xl font-bold">{fmt(locked)}</div>
+          <div className="text-slate-900 text-lg sm:text-2xl md:text-3xl font-bold break-words">{fmt(locked)}</div>
           <div className="text-slate-400 text-[10px] sm:text-xs mt-1">Membership requirement</div>
         </div>
 
@@ -163,7 +163,7 @@ export function TokenBalanceCard({
             <TrendingUp size={16} className="text-blue-500" />
             <span className="text-slate-500 text-[10px] sm:text-xs">Staked</span>
           </div>
-          <div className="text-blue-600 text-xl sm:text-3xl font-bold">{fmt(staked)}</div>
+          <div className="text-blue-600 text-lg sm:text-2xl md:text-3xl font-bold break-words">{fmt(staked)}</div>
           <div className="text-blue-500 text-[10px] sm:text-xs mt-1">Earning rewards</div>
         </div>
 
@@ -172,7 +172,7 @@ export function TokenBalanceCard({
             <Gift size={16} className="text-emerald-500" />
             <span className="text-slate-500 text-[10px] sm:text-xs">Rewards</span>
           </div>
-          <div className="text-emerald-600 text-xl sm:text-3xl font-bold">{fmt(rewardsPending)}</div>
+          <div className="text-emerald-600 text-lg sm:text-2xl md:text-3xl font-bold break-words">{fmt(rewardsPending)}</div>
           <div className="text-emerald-500 text-[10px] sm:text-xs mt-1">
             {fmt(rewardsClaimed)} claimed lifetime
           </div>

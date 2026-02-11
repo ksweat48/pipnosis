@@ -73,16 +73,16 @@ export function ClubHomePage() {
                 Welcome to Pipnosis Club
               </h1>
               <p className="text-slate-600 text-sm sm:text-base">
-                {membership ? `${membership.tierName} Member` : 'Member Dashboard'}
+                {membership ? membership.tierName : 'Member'}
               </p>
             </div>
 
             {membership && (
-              <div className="hidden sm:flex items-center gap-3 px-6 py-3 bg-white/80 backdrop-blur-sm border border-slate-200/60 rounded-xl shadow-sm flex-shrink-0">
-                <Crown size={28} className="text-amber-500" />
+              <div className="flex items-center gap-2 sm:gap-3 px-3 py-2 sm:px-6 sm:py-3 bg-white/80 backdrop-blur-sm border border-slate-200/60 rounded-xl shadow-sm flex-shrink-0">
+                <Crown size={20} className="text-amber-500 sm:w-7 sm:h-7" />
                 <div>
-                  <div className="text-slate-500 text-sm">Tier Level</div>
-                  <div className="text-slate-900 font-bold text-2xl">{membership.tierLevel}</div>
+                  <div className="text-slate-500 text-xs sm:text-sm">Tier Level</div>
+                  <div className="text-slate-900 font-bold text-lg sm:text-2xl">{membership.tierLevel}</div>
                 </div>
               </div>
             )}
@@ -163,19 +163,19 @@ export function ClubHomePage() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
             <div className="bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl p-3 sm:p-4 shadow-sm">
               <div className="text-slate-500 text-[10px] sm:text-xs mb-1">Total Referrals</div>
-              <div className="text-slate-900 text-lg sm:text-xl font-bold">{referralStats?.totalReferrals || 0}</div>
+              <div className="text-slate-900 text-base sm:text-lg md:text-xl font-bold break-words">{referralStats?.totalReferrals || 0}</div>
             </div>
             <div className="bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl p-3 sm:p-4 shadow-sm">
               <div className="text-slate-500 text-[10px] sm:text-xs mb-1">Completed</div>
-              <div className="text-slate-900 text-lg sm:text-xl font-bold">{referralStats?.completedReferrals || 0}</div>
+              <div className="text-slate-900 text-base sm:text-lg md:text-xl font-bold break-words">{referralStats?.completedReferrals || 0}</div>
             </div>
             <div className="bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl p-3 sm:p-4 shadow-sm">
               <div className="text-slate-500 text-[10px] sm:text-xs mb-1">PIP Earned</div>
-              <div className="text-slate-900 text-lg sm:text-xl font-bold">{fmt(referralStats?.totalTokensEarned || 0)}</div>
+              <div className="text-slate-900 text-base sm:text-lg md:text-xl font-bold break-words">{fmt(referralStats?.totalTokensEarned || 0)}</div>
             </div>
             <div className="bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl p-3 sm:p-4 shadow-sm">
               <div className="text-slate-500 text-[10px] sm:text-xs mb-1">Cash Earned</div>
-              <div className="text-slate-900 text-lg sm:text-xl font-bold">${(referralStats?.totalCashEarnedUsd || 0).toFixed(2)}</div>
+              <div className="text-slate-900 text-base sm:text-lg md:text-xl font-bold break-words">${(referralStats?.totalCashEarnedUsd || 0).toFixed(2)}</div>
             </div>
           </div>
         </div>

@@ -268,7 +268,7 @@ export function ClubEntryGatePage() {
                   <Coins size={16} />
                   Your PIP Tokens
                 </div>
-                <div className="text-3xl font-bold text-slate-900">
+                <div className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-900 break-words">
                   {fmt(accessResult.tokens.total)}
                 </div>
                 {accessResult.tokens.available < accessResult.tokens.total && (
@@ -283,7 +283,7 @@ export function ClubEntryGatePage() {
                   <Lock size={16} />
                   Required PIP Tokens
                 </div>
-                <div className="text-3xl font-bold text-slate-900">
+                <div className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-900 break-words">
                   {fmt(accessResult.tokens.required)}
                 </div>
               </div>
