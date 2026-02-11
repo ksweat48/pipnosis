@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Crown, Users, Coins, TrendingUp, RefreshCw, Search, ChevronDown, ChevronUp, Flame, Package, AlertCircle, Lock, DollarSign, Activity, TrendingDown } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { tokenPoolAuthority } from '@/services/token-pool-authority';
-import { tokenLifecycleCoordinator } from '@/services/token-lifecycle-coordinator';
+import { clubTokenLedgerCoordinator } from '@/services/club-token-ledger-coordinator';
 import { pipUtilityIndexEngine } from '@/services/pip-utility-index-engine';
 import { logger } from '@/lib/logger';
 
@@ -232,7 +232,7 @@ export function AdminClubPanel() {
       const [summary, integrity, lifecycle30d] = await Promise.all([
         tokenPoolAuthority.getPoolAllocationSummary(),
         tokenPoolAuthority.verifySupplyIntegrity(),
-        tokenLifecycleCoordinator.getLifecycleFlowMetrics(30)
+        clubTokenLedgerCoordinator.getLifecycleFlowMetrics(30)
       ]);
 
       setPoolSummary(summary);
