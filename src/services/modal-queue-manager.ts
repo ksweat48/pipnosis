@@ -6,7 +6,7 @@ export interface PendingModal {
   id: string;
   user_id: string;
   goal_session_id: string | null;
-  modal_type: 'trade_closed' | 'goal_achieved' | 'session_update' | 'session_ended' | 'entry_edge_loss';
+  modal_type: 'trade_closed' | 'goal_achieved' | 'goal_achieved_countdown' | 'session_update' | 'session_ended' | 'entry_edge_loss';
   modal_data: {
     symbol?: string;
     direction?: 'buy' | 'sell' | 'long' | 'short';
@@ -46,7 +46,7 @@ class ModalQueueManager extends TinyEmitter {
   async createPendingModal(
     userId: string,
     goalSessionId: string | null,
-    modalType: 'trade_closed' | 'goal_achieved' | 'session_update' | 'session_ended' | 'entry_edge_loss',
+    modalType: 'trade_closed' | 'goal_achieved' | 'goal_achieved_countdown' | 'session_update' | 'session_ended' | 'entry_edge_loss',
     modalData: PendingModal['modal_data']
   ): Promise<{ success: boolean; modalId?: string; error?: any }> {
     try {
@@ -206,7 +206,7 @@ class ModalQueueManager extends TinyEmitter {
    */
   async hasSessionPendingModal(
     goalSessionId: string,
-    modalType: 'trade_closed' | 'goal_achieved' | 'session_update' | 'session_ended'
+    modalType: 'trade_closed' | 'goal_achieved' | 'goal_achieved_countdown' | 'session_update' | 'session_ended'
   ): Promise<boolean> {
     try {
       const { data, error } = await supabase

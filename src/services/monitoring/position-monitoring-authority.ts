@@ -197,7 +197,9 @@ class PositionMonitoringAuthority {
     const hasDualTP = position.tp1_price && position.tp2_price;
 
     if (hasDualTP) {
-      // Check TP1 (first milestone - 70% close, continue monitoring)
+      // Check TP1 (ADVISORY MILESTONE ONLY - NO PARTIAL CLOSE)
+      // TP1 is used for Alpha learning and progress tracking only
+      // Position stays 100% open and continues to TP2
       const shouldHitTP1 = !position.tp1_hit && (position.direction === 'buy'
         ? price >= position.tp1_price!
         : price <= position.tp1_price!);
@@ -206,11 +208,12 @@ class PositionMonitoringAuthority {
         return {
           milestone: 'tp1',
           price,
-          shouldContinue: true, // Keep monitoring for TP2
+          shouldContinue: true, // Keep monitoring for TP2 with full position (100%)
         };
       }
 
-      // Check TP2 (second milestone - 30% close, full close)
+      // Check TP2 (second milestone - FULL CLOSE at 100%)
+      // TP2 closes the entire position (not just remaining 30%)
       const shouldHitTP2 = position.tp1_hit && !position.tp2_hit && (position.direction === 'buy'
         ? price >= position.tp2_price!
         : price <= position.tp2_price!);
@@ -356,8 +359,10 @@ class PositionMonitoringAuthority {
   }
 
   /**
-   * Mark TP1 milestone in database
-   * CRITICAL: Position size NEVER changes - only flag is set
+   * Mark TP1 milestone in database (ADVISORY ONLY)
+   * CRITICAL: Position size NEVER changes - only flag is set for Alpha learning
+   * TP1 is NOT a closure event - it's a progress tracking milestone
+   * Position continues 100% open to TP2
    */
   async markTP1Hit(positionId: string, userId: string, tp1Price: number): Promise<{ success: boolean; error?: string }> {
     try {
@@ -366,7 +371,7 @@ class PositionMonitoringAuthority {
         .update({
           tp1_hit: true,
           tp1_hit_at: new Date().toISOString(),
-          tp1_action_taken: 'continued', // Continued to TP2 with full position
+          tp1_action_taken: 'advisory_only', // Advisory milestone only - no position change
         })
         .eq('id', positionId)
         .eq('user_id', userId); // Security: User can only update own trades
@@ -378,7 +383,7 @@ class PositionMonitoringAuthority {
         };
       }
 
-      console.log(`[PositionMonitoringAuthority] TP1 marked for ${positionId} at ${tp1Price.toFixed(5)}`);
+      console.log(`[PositionMonitoringAuthority] TP1 advisory milestone logged for ${positionId} at ${tp1Price.toFixed(5)} - position continues 100% open`);
       return { success: true };
     } catch (error) {
       return {

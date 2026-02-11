@@ -377,8 +377,6 @@ class TradeLifecycleManager {
               }
             }
           }
-        } else if (goalSession?.goal_achieved_at) {
-          await this.checkDefaultAction(trade, goalSession, unrealizedPnL);
         }
       }
 
@@ -847,19 +845,13 @@ class TradeLifecycleManager {
             icon: '💰'
           },
           {
-            id: 'continue_breakeven',
-            label: `Continue to TP ($${tpPotential.toFixed(0)}) - Breakeven Protection`,
-            description: `Move stop loss to entry (${breakevenPrice.toFixed(5)}). Worst case: $0, Best case: $${tpPotential.toFixed(0)}`,
-            icon: '🛡️'
-          },
-          {
-            id: 'continue_safety',
-            label: `Continue to TP ($${tpPotential.toFixed(0)}) - Lock 50%`,
-            description: `Move stop loss to ${safetyPrice.toFixed(5)}. Worst case: Keep $${(currentPnL * 0.5).toFixed(0)}, Best case: $${tpPotential.toFixed(0)}`,
-            icon: '⚡'
+            id: 'continue_to_tp',
+            label: `Continue to TP ($${tpPotential.toFixed(0)})`,
+            description: `Let trade run to Take Profit. Potential additional profit: $${(tpPotential - currentPnL).toFixed(0)}`,
+            icon: '🎯'
           }
         ],
-        expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() // 5 minutes
+        expires_at: new Date(Date.now() + 1 * 60 * 1000).toISOString() // 1 minute countdown
       };
 
       await supabase
@@ -872,104 +864,6 @@ class TradeLifecycleManager {
     }
   }
 
-  async checkDefaultAction(trade: any, goalSession: any, currentPnL: number): Promise<void> {
-    try {
-      // Check if user has made a choice
-      if (goalSession.user_choice) {
-        return; // User already chose, nothing to do
-      }
-
-      // Check if notification has expired (5 minutes)
-      const achievedAt = new Date(goalSession.goal_achieved_at);
-      const now = new Date();
-      const minutesElapsed = (now.getTime() - achievedAt.getTime()) / (1000 * 60);
-
-      if (minutesElapsed >= 5) {
-        console.log(`[Trade Lifecycle] ⏱️  No response after 5 minutes - applying default breakeven protection`);
-
-        // Default action: Move SL to breakeven
-        await this.moveStopLossToBreakeven(trade, goalSession);
-
-        // Update goal session
-        await supabase
-          .from('goal_sessions')
-          .update({
-            user_choice: 'default_breakeven'
-          })
-          .eq('id', goalSession.id);
-
-        // Send notification about auto-action
-        await supabase
-          .from('goal_notifications')
-          .insert({
-            user_id: goalSession.user_id,
-            goal_session_id: goalSession.id,
-            type: 'alert',
-            priority: 'medium',
-            title: '🛡️ Breakeven Protection Applied',
-            message: 'No action was taken within 5 minutes, so we automatically moved your stop loss to breakeven to protect your profits.',
-            metadata: {
-              trade_id: trade.id,
-              new_stop_loss: trade.entry_price,
-              action: 'default_breakeven'
-            }
-          });
-      }
-
-      // Check if P&L is fading
-      if (currentPnL < goalSession.goal_achieved_pnl * 0.75) {
-        console.log(`[Trade Lifecycle] ⚠️  Profit fading! Was $${goalSession.goal_achieved_pnl}, now $${currentPnL.toFixed(2)}`);
-
-        // Send urgent notification
-        await supabase
-          .from('goal_notifications')
-          .insert({
-            user_id: goalSession.user_id,
-            goal_session_id: goalSession.id,
-            type: 'alert',
-            priority: 'critical',
-            title: '⚠️ Profit Fading!',
-            message: `Your profit has dropped from $${goalSession.goal_achieved_pnl.toFixed(2)} to $${currentPnL.toFixed(2)}. Consider closing or protecting your position!`,
-            metadata: {
-              trade_id: trade.id,
-              peak_pnl: goalSession.goal_achieved_pnl,
-              current_pnl: currentPnL,
-              fade_percentage: ((1 - currentPnL / goalSession.goal_achieved_pnl) * 100).toFixed(1)
-            }
-          });
-      }
-    } catch (error) {
-      console.error('[Trade Lifecycle] Error checking default action:', error);
-    }
-  }
-
-  async moveStopLossToBreakeven(trade: any, goalSession: any): Promise<void> {
-    try {
-      const breakevenPrice = trade.entry_price;
-
-      console.log(`[Trade Lifecycle] Moving SL to breakeven: ${trade.stop_loss} → ${breakevenPrice}`);
-
-      await supabase
-        .from('goal_session_trades')
-        .update({
-          stop_loss: breakevenPrice
-        })
-        .eq('id', trade.id);
-
-      await supabase
-        .from('goal_achievements')
-        .update({
-          stop_loss_after: breakevenPrice,
-          user_choice: 'default_breakeven',
-          choice_made_at: new Date().toISOString()
-        })
-        .eq('goal_session_id', goalSession.id);
-
-      console.log(`[Trade Lifecycle] ✅ Stop loss moved to breakeven successfully`);
-    } catch (error) {
-      console.error('[Trade Lifecycle] Error moving stop loss to breakeven:', error);
-    }
-  }
 
   /**
    * Run counterfactual analysis on closed trade (async, non-blocking)
