@@ -41,6 +41,7 @@ import { logger, LogCategory } from '../lib/logger';
 import { calculateDollarPerPip, calculatePipDistance } from '../utils/currencyHelpers';
 import { mandatorySafetyValidator } from './mandatory-safety-validator';
 import { creditValidationService } from './credit-validation-service';
+import { EntryOverextensionValidator } from './entry-overextension-validator';
 import type { AlphaDecision } from '../brains/coordinator-alpha';
 import type { TradeContext } from '../types/trade-context';
 
@@ -463,6 +464,121 @@ class AlphaTradeExecutor {
       }
     }
 
+    // LAYER 6: ENTRY OVEREXTENSION VALIDATOR (CCIP 2026-02-11)
+    // Validates if current price is overextended beyond optimal zone
+    // Applies intelligent degradation to position size if needed
+    // Governance: Logs all events for audit trail
+    let overextensionEventId: string | null = null;
+    let originalLotSize = finalLotSize;
+
+    // Calculate optimal zone using ATR if available, otherwise use percentage-based
+    let optimalZoneMin: number;
+    let optimalZoneMax: number;
+
+    if (tradeContext.atr && tradeContext.atr.value) {
+      // ATR-based zone (optimal entry is ±0.3 ATR from decision entry price)
+      const atrBuffer = tradeContext.atr.value * 0.3;
+      optimalZoneMin = decision.entry - atrBuffer;
+      optimalZoneMax = decision.entry + atrBuffer;
+    } else {
+      // Percentage-based fallback (±0.15% for forex, ±0.25% for indices/commodities)
+      const percentBuffer = decision.symbol.includes('USD') || decision.symbol.includes('EUR') || decision.symbol.includes('GBP') || decision.symbol.includes('JPY')
+        ? 0.0015 // 0.15% for forex pairs
+        : 0.0025; // 0.25% for indices/commodities/metals
+      optimalZoneMin = decision.entry * (1 - percentBuffer);
+      optimalZoneMax = decision.entry * (1 + percentBuffer);
+    }
+
+    const overextensionAnalysis = EntryOverextensionValidator.analyzeOverextension({
+      symbol: decision.symbol,
+      direction: decision.action === 'BUY' ? 'buy' : 'sell',
+      currentPrice: decision.entry, // Current market price at decision time
+      optimalZoneMin,
+      optimalZoneMax,
+      alphaConfidence: decision.confidence,
+      omegaConsensusCount: decision.omegaConsensusCount
+    });
+
+    // Apply intelligent degradation if overextended
+    if (overextensionAnalysis.isOverextended) {
+      logger.warn(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] Entry overextension detected - applying intelligent degradation',
+        {
+          userId,
+          sessionId,
+          symbol: decision.symbol,
+          overextensionType: overextensionAnalysis.overextensionType,
+          severity: overextensionAnalysis.severity,
+          degradationAction: overextensionAnalysis.degradationAction,
+          originalLotSize,
+          multiplier: overextensionAnalysis.positionSizeMultiplier,
+          reasoning: overextensionAnalysis.reasoning
+        }
+      );
+
+      // Apply position size degradation
+      if (overextensionAnalysis.degradationAction === 'entry_blocked') {
+        // EXTREME OVEREXTENSION: Block entry
+        return {
+          success: false,
+          error: overextensionAnalysis.recommendation,
+          blockReason: `EXTREME OVEREXTENSION: ${overextensionAnalysis.reasoning}`
+        };
+      } else if (overextensionAnalysis.degradationAction === 'position_reduction') {
+        // Apply degradation multiplier
+        finalLotSize = originalLotSize * overextensionAnalysis.positionSizeMultiplier;
+
+        logger.info(
+          LogCategory.RISK_MANAGEMENT,
+          '[AlphaTradeExecutor] Position size degraded due to overextension',
+          {
+            userId,
+            sessionId,
+            symbol: decision.symbol,
+            originalLotSize,
+            degradedLotSize: finalLotSize,
+            reductionPercent: ((1 - overextensionAnalysis.positionSizeMultiplier) * 100).toFixed(1) + '%',
+            severity: overextensionAnalysis.severity
+          }
+        );
+
+        // Add warning to risk warnings
+        riskWarningsWithGoalContext.push(
+          `[Overextension] ${overextensionAnalysis.severity.toUpperCase()}: Position reduced by ${((1 - overextensionAnalysis.positionSizeMultiplier) * 100).toFixed(0)}% due to ${overextensionAnalysis.overextensionType.replace('_', ' ')}`
+        );
+      }
+
+      // Log overextension event for governance
+      overextensionEventId = await EntryOverextensionValidator.logOverextensionEvent(
+        sessionId,
+        overextensionAnalysis,
+        {
+          symbol: decision.symbol,
+          direction: decision.action === 'BUY' ? 'buy' : 'sell',
+          currentPrice: decision.entry,
+          optimalZoneMin,
+          optimalZoneMax,
+          alphaConfidence: decision.confidence,
+          omegaConsensusCount: decision.omegaConsensusCount
+        },
+        originalLotSize,
+        finalLotSize
+      );
+    } else {
+      logger.info(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] Entry within optimal zone - no degradation needed',
+        {
+          userId,
+          sessionId,
+          symbol: decision.symbol,
+          currentPrice: decision.entry,
+          optimalZone: `[${optimalZoneMin.toFixed(5)}, ${optimalZoneMax.toFixed(5)}]`
+        }
+      );
+    }
+
     // MODE ROUTING (Execute based on selected mode)
     if (mode === 'IMMEDIATE') {
       return await this.executeImmediate({
@@ -476,7 +592,9 @@ class AlphaTradeExecutor {
         inputs,
         lotSizingDecisionId: lotSizingDecision?.auditRecordId,
         expectedProfitAtTP: lotSizingDecision?.expectedProfitAtTP, // SSOT FIX: Pass coordinator's calculation
-        lotSizingAuditRecord // CCIP: Pass audit metadata for governance logging
+        lotSizingAuditRecord, // CCIP: Pass audit metadata for governance logging
+        overextensionEventId, // CCIP 2026-02-11: Link trade to overextension event
+        overextensionAnalysis: overextensionAnalysis.isOverextended ? overextensionAnalysis : undefined
       });
     } else if (mode === 'PENDING') {
       return await this.createPending({
@@ -490,7 +608,9 @@ class AlphaTradeExecutor {
         inputs,
         lotSizingDecisionId: lotSizingDecision?.auditRecordId,
         expectedProfitAtTP: lotSizingDecision?.expectedProfitAtTP, // SSOT FIX: Pass coordinator's calculation
-        lotSizingAuditRecord // CCIP: Pass audit metadata for governance logging
+        lotSizingAuditRecord, // CCIP: Pass audit metadata for governance logging
+        overextensionEventId, // CCIP 2026-02-11: Link trade to overextension event
+        overextensionAnalysis: overextensionAnalysis.isOverextended ? overextensionAnalysis : undefined
       });
     } else {
       // MONITORED mode - create entry intent
@@ -500,7 +620,8 @@ class AlphaTradeExecutor {
         sessionId,
         lotSize: finalLotSize,
         riskDollars: riskAssessment.trueRiskDollars || riskAssessment.adjustedRiskDollars,
-        lotSizingDecisionId: lotSizingDecision?.auditRecordId
+        lotSizingDecisionId: lotSizingDecision?.auditRecordId,
+        overextensionEventId // CCIP 2026-02-11: Link intent to overextension event
       });
     }
   }
