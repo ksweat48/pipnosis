@@ -7,6 +7,7 @@ import { clubMembershipService, type MembershipPackage } from '@/services/club-m
 import { getDisplayTradeCost } from '@/config/tokenomics-constants';
 import { clubReferralService } from '@/services/club-referral-service';
 import { NavigationMenu } from '@/components/NavigationMenu';
+import { FormattedTokenNumber } from '@/components/FormattedTokenNumber';
 
 const fmt = (n: number) =>
   n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -275,9 +276,11 @@ export function ClubEntryGatePage() {
                   <Coins size={16} />
                   Your PIP Tokens
                 </div>
-                <div className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-900 break-words">
-                  {fmt(accessResult.tokens.total)}
-                </div>
+                <FormattedTokenNumber
+                  value={accessResult.tokens.total}
+                  wholeClassName="text-xl sm:text-2xl md:text-3xl font-bold text-slate-900"
+                  decimalClassName="text-xs sm:text-sm text-slate-600"
+                />
                 {accessResult.tokens.available < accessResult.tokens.total && (
                   <div className="text-xs text-slate-400 mt-1">
                     {fmt(accessResult.tokens.available)} available
@@ -290,9 +293,11 @@ export function ClubEntryGatePage() {
                   <Lock size={16} />
                   Required PIP Tokens
                 </div>
-                <div className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-900 break-words">
-                  {fmt(accessResult.tokens.required)}
-                </div>
+                <FormattedTokenNumber
+                  value={accessResult.tokens.required}
+                  wholeClassName="text-xl sm:text-2xl md:text-3xl font-bold text-slate-900"
+                  decimalClassName="text-xs sm:text-sm text-slate-600"
+                />
               </div>
             </div>
 

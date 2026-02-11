@@ -9,6 +9,7 @@ import { clubTokenLedgerService, type TokenTransaction } from '@/services/club-t
 import { clubReferralService, type ReferralStats } from '@/services/club-referral-service';
 import { clubMembershipService, type UserMembership, type UserCreditDiscount } from '@/services/club-membership-service';
 import { getDisplayTradeCost, TOKENOMICS } from '@/config/tokenomics-constants';
+import { FormattedTokenNumber } from '@/components/FormattedTokenNumber';
 
 const fmt = (n: number) =>
   n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -174,7 +175,11 @@ export function ClubHomePage() {
             </div>
             <div className="bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl p-3 sm:p-4 shadow-sm">
               <div className="text-slate-500 text-[10px] sm:text-xs mb-1">PIP Earned</div>
-              <div className="text-slate-900 text-base sm:text-lg md:text-xl font-bold break-words">{fmt(referralStats?.totalTokensEarned || 0)}</div>
+              <FormattedTokenNumber
+                value={referralStats?.totalTokensEarned || 0}
+                wholeClassName="text-base sm:text-lg md:text-xl font-bold text-slate-900"
+                decimalClassName="text-[10px] sm:text-xs text-slate-600"
+              />
             </div>
             <div className="bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl p-3 sm:p-4 shadow-sm">
               <div className="text-slate-500 text-[10px] sm:text-xs mb-1">Cash Earned</div>
