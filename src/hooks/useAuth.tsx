@@ -237,13 +237,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: undefined, // No email confirmation needed
       }
     });
+
+    // SSOT: Process referral code if one was captured during signup
+    if (!error && data.user) {
+      const pendingRefCode = sessionStorage.getItem('pending_referral_code');
+      if (pendingRefCode) {
+        try {
+          console.log('[Auth] Processing referral code for new user:', pendingRefCode);
+          const { data: refResult, error: refError } = await supabase.rpc('process_signup_referral', {
+            p_referee_user_id: data.user.id,
+            p_referral_code: pendingRefCode
+          });
+
+          if (refError) {
+            console.error('[Auth] Failed to process referral:', refError);
+          } else if (refResult?.success) {
+            console.log('[Auth] Referral processed successfully:', refResult);
+            sessionStorage.removeItem('pending_referral_code');
+          } else {
+            console.warn('[Auth] Referral processing returned error:', refResult?.error);
+            sessionStorage.removeItem('pending_referral_code');
+          }
+        } catch (err) {
+          console.error('[Auth] Exception processing referral:', err);
+          sessionStorage.removeItem('pending_referral_code');
+        }
+      }
+    }
+
     return { error };
   };
 
