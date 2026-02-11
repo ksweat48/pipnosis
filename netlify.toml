@@ -147,6 +147,14 @@
   timeout = 60  # 1 minute for index calculation and storage
   schedule = "0 0 * * *"  # 🚨 Daily at 00:00 UTC - PIP utility value update
 
+# Service Worker - must be served with correct MIME type and no aggressive caching
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Content-Type = "application/javascript; charset=utf-8"
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Service-Worker-Allowed = "/"
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
