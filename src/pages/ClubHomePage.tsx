@@ -81,8 +81,11 @@ export function ClubHomePage() {
               <div className="flex items-center gap-2 sm:gap-3 px-3 py-2 sm:px-6 sm:py-3 bg-white/80 backdrop-blur-sm border border-slate-200/60 rounded-xl shadow-sm flex-shrink-0">
                 <Crown size={20} className="text-amber-500 sm:w-7 sm:h-7" />
                 <div>
-                  <div className="text-slate-500 text-xs sm:text-sm">Tier Level</div>
-                  <div className="text-slate-900 font-bold text-lg sm:text-2xl">{membership.tierLevel}</div>
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <span className="text-slate-500 text-xs sm:text-sm">Tier Level</span>
+                    <span className="text-slate-900 font-bold text-lg sm:text-2xl">{membership.tierLevel}</span>
+                  </div>
+                  <div className="text-slate-700 text-xs sm:text-sm font-semibold">{membership.tierName}</div>
                 </div>
               </div>
             )}

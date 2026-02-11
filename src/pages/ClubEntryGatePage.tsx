@@ -242,21 +242,28 @@ export function ClubEntryGatePage() {
               <p className="text-slate-600">{accessResult.message}</p>
             </div>
 
-            <div className={`px-4 py-2 rounded-full font-semibold flex items-center gap-2 ${
-              accessResult.canAccess
-                ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
-                : 'bg-slate-100 text-slate-600 border border-slate-200'
-            }`}>
-                {accessResult.canAccess ? (
-                  <>
-                    <Unlock size={18} />
-                    UNLOCKED
-                  </>
-                ) : (
-                  <>
-                    <Lock size={18} />
-                    LOCKED
-                  </>
+            <div className="flex flex-col items-end gap-2">
+              <div className={`px-4 py-2 rounded-full font-semibold flex items-center gap-2 ${
+                accessResult.canAccess
+                  ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                  : 'bg-slate-100 text-slate-600 border border-slate-200'
+              }`}>
+                  {accessResult.canAccess ? (
+                    <>
+                      <Unlock size={18} />
+                      UNLOCKED
+                    </>
+                  ) : (
+                    <>
+                      <Lock size={18} />
+                      LOCKED
+                    </>
+                  )}
+                </div>
+                {accessResult.membership && accessResult.membership.hasMembership && (
+                  <div className="text-slate-700 text-sm font-semibold">
+                    {accessResult.membership.tierName}
+                  </div>
                 )}
               </div>
             </div>
