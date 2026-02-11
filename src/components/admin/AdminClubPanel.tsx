@@ -104,21 +104,25 @@ export function AdminClubPanel() {
 
   const loadStats = async () => {
     try {
+      // Use RPC function to bypass RLS
+      const { data: clubStats, error: statsError } = await supabase.rpc('admin_get_club_stats');
+
+      if (statsError) {
+        console.error('[AdminClub] Error loading stats:', statsError);
+        return;
+      }
+
+      // Get additional data for revenue and tier breakdown
       const { data: memberships } = await supabase
         .from('club_memberships')
-        .select('tier_level, status, amount_paid_usd, tokens_locked');
-
-      const { data: balances } = await supabase
-        .from('club_token_balances')
-        .select('total_tokens, locked_tokens, available_tokens');
+        .select('tier_level, status, amount_paid_usd')
+        .eq('status', 'active');
 
       const { data: stakes } = await supabase
         .from('club_staking_positions')
         .select('amount_staked')
         .eq('status', 'active');
 
-      const totalMembers = memberships?.length || 0;
-      const activeMembers = memberships?.filter(m => m.status === 'active').length || 0;
       const totalRevenue = memberships?.reduce((sum, m) => sum + parseFloat(m.amount_paid_usd || '0'), 0) || 0;
 
       const tierBreakdown: Record<string, number> = {};
@@ -127,12 +131,17 @@ export function AdminClubPanel() {
         tierBreakdown[name] = (tierBreakdown[name] || 0) + 1;
       });
 
-      // Circulating PIP = available (unlocked) tokens only
-      const totalTokensCirculating = balances?.reduce((sum, b) => sum + parseFloat(b.available_tokens || '0'), 0) || 0;
-      const totalTokensLocked = balances?.reduce((sum, b) => sum + parseFloat(b.locked_tokens || '0'), 0) || 0;
       const totalTokensStaked = stakes?.reduce((sum, s) => sum + parseFloat(s.amount_staked || '0'), 0) || 0;
 
-      setStats({ totalMembers, activeMembers, totalTokensCirculating, totalTokensLocked, totalTokensStaked, totalRevenue, tierBreakdown });
+      setStats({
+        totalMembers: clubStats.total_members || 0,
+        activeMembers: clubStats.total_members || 0,
+        totalTokensCirculating: parseFloat(clubStats.circulating_pip || '0'),
+        totalTokensLocked: parseFloat(clubStats.locked_pip || '0'),
+        totalTokensStaked,
+        totalRevenue,
+        tierBreakdown
+      });
     } catch (error) {
       console.error('[AdminClub] Error loading stats:', error);
     }
@@ -140,36 +149,27 @@ export function AdminClubPanel() {
 
   const loadMembers = async () => {
     try {
-      const { data: memberships } = await supabase
-        .from('club_memberships')
-        .select('id, user_id, tier_level, status, amount_paid_usd, purchased_at, tokens_locked')
-        .order('purchased_at', { ascending: false });
+      // Use RPC function to bypass RLS
+      const { data: memberData, error: membersError } = await supabase.rpc('admin_get_club_members');
 
-      if (!memberships || memberships.length === 0) {
+      if (membersError) {
+        console.error('[AdminClub] Error loading members:', membersError);
         setMembers([]);
         return;
       }
 
-      const userIds = memberships.map(m => m.user_id);
+      if (!memberData || memberData.length === 0) {
+        setMembers([]);
+        return;
+      }
 
-      const { data: profiles } = await supabase
-        .from('user_profiles')
-        .select('id, email')
-        .in('id', userIds);
-
-      const { data: balances } = await supabase
-        .from('club_token_balances')
-        .select('user_id, available_tokens, locked_tokens')
-        .in('user_id', userIds);
-
+      // Get staking data separately
+      const userIds = memberData.map((m: any) => m.user_id);
       const { data: stakes } = await supabase
         .from('club_staking_positions')
         .select('user_id, amount_staked')
         .eq('status', 'active')
         .in('user_id', userIds);
-
-      const profileMap = new Map(profiles?.map(p => [p.id, p]) || []);
-      const balanceMap = new Map(balances?.map(b => [b.user_id, b]) || []);
 
       const stakeMap = new Map<string, number>();
       stakes?.forEach(s => {
@@ -177,18 +177,16 @@ export function AdminClubPanel() {
         stakeMap.set(s.user_id, current + parseFloat(s.amount_staked || '0'));
       });
 
-      const mapped: MemberSummary[] = memberships.map(m => {
-        const profile = profileMap.get(m.user_id);
-        const balance = balanceMap.get(m.user_id);
+      const mapped: MemberSummary[] = memberData.map((m: any) => {
         return {
-          id: m.id,
+          id: `${m.user_id}-${m.tier_level}`,
           userId: m.user_id,
-          email: profile?.email || 'Unknown',
+          email: m.email || 'Unknown',
           tierLevel: m.tier_level,
-          tierName: TIER_NAMES[m.tier_level] || `Tier ${m.tier_level}`,
+          tierName: m.tier_name,
           status: m.status,
-          availableTokens: parseFloat(balance?.available_tokens || '0'),
-          lockedTokens: parseFloat(balance?.locked_tokens || '0'),
+          availableTokens: parseFloat(m.available_tokens || '0'),
+          lockedTokens: parseFloat(m.locked_tokens || '0'),
           stakedTokens: stakeMap.get(m.user_id) || 0,
           purchasedAt: m.purchased_at,
         };
