@@ -464,12 +464,12 @@ class AlphaTradeExecutor {
       }
     }
 
-    // LAYER 6: ENTRY OVEREXTENSION VALIDATOR (CCIP 2026-02-11)
+    // LAYER 6: ENTRY OVEREXTENSION VALIDATOR (CCIP 2026-02-11 - HARD INVALIDATION)
     // Validates if current price is overextended beyond optimal zone
-    // Applies intelligent degradation to position size if needed
+    // PRINCIPLE: Overextension is a precision violation, not a risk parameter
+    // Alpha must either enter correctly or not enter. No "enter badly but smaller."
     // Governance: Logs all events for audit trail
     let overextensionEventId: string | null = null;
-    let originalLotSize = finalLotSize;
 
     // Calculate optimal zone using ATR if available, otherwise use percentage-based
     let optimalZoneMin: number;
@@ -489,95 +489,78 @@ class AlphaTradeExecutor {
       optimalZoneMax = decision.entry * (1 + percentBuffer);
     }
 
-    const overextensionAnalysis = EntryOverextensionValidator.analyzeOverextension({
+    // Get trade style for threshold determination
+    const tradeStyle = EntryOverextensionValidator.normalizeStyle(sessionData.raw.trade_style);
+
+    // HARD INVALIDATION: Binary VALID/INVALID decision
+    const overextensionValidation = EntryOverextensionValidator.validateEntry({
       symbol: decision.symbol,
       direction: decision.action === 'BUY' ? 'buy' : 'sell',
       currentPrice: decision.entry, // Current market price at decision time
       optimalZoneMin,
       optimalZoneMax,
+      style: tradeStyle,
       alphaConfidence: decision.confidence,
       omegaConsensusCount: decision.omegaConsensusCount
     });
 
-    // Apply intelligent degradation if overextended
-    if (overextensionAnalysis.isOverextended) {
-      logger.warn(
-        LogCategory.RISK_MANAGEMENT,
-        '[AlphaTradeExecutor] Entry overextension detected - applying intelligent degradation',
-        {
-          userId,
-          sessionId,
-          symbol: decision.symbol,
-          overextensionType: overextensionAnalysis.overextensionType,
-          severity: overextensionAnalysis.severity,
-          degradationAction: overextensionAnalysis.degradationAction,
-          originalLotSize,
-          multiplier: overextensionAnalysis.positionSizeMultiplier,
-          reasoning: overextensionAnalysis.reasoning
-        }
-      );
-
-      // Apply position size degradation
-      if (overextensionAnalysis.degradationAction === 'entry_blocked') {
-        // EXTREME OVEREXTENSION: Block entry
-        return {
-          success: false,
-          error: overextensionAnalysis.recommendation,
-          blockReason: `EXTREME OVEREXTENSION: ${overextensionAnalysis.reasoning}`
-        };
-      } else if (overextensionAnalysis.degradationAction === 'position_reduction') {
-        // Apply degradation multiplier
-        finalLotSize = originalLotSize * overextensionAnalysis.positionSizeMultiplier;
-
-        logger.info(
-          LogCategory.RISK_MANAGEMENT,
-          '[AlphaTradeExecutor] Position size degraded due to overextension',
-          {
-            userId,
-            sessionId,
-            symbol: decision.symbol,
-            originalLotSize,
-            degradedLotSize: finalLotSize,
-            reductionPercent: ((1 - overextensionAnalysis.positionSizeMultiplier) * 100).toFixed(1) + '%',
-            severity: overextensionAnalysis.severity
-          }
-        );
-
-        // Add warning to risk warnings
-        riskWarningsWithGoalContext.push(
-          `[Overextension] ${overextensionAnalysis.severity.toUpperCase()}: Position reduced by ${((1 - overextensionAnalysis.positionSizeMultiplier) * 100).toFixed(0)}% due to ${overextensionAnalysis.overextensionType.replace('_', ' ')}`
-        );
+    // Log overextension event for governance (always log, even if valid)
+    overextensionEventId = await EntryOverextensionValidator.logOverextensionEvent(
+      sessionId,
+      overextensionValidation,
+      {
+        symbol: decision.symbol,
+        direction: decision.action === 'BUY' ? 'buy' : 'sell',
+        currentPrice: decision.entry,
+        optimalZoneMin,
+        optimalZoneMax,
+        style: tradeStyle,
+        alphaConfidence: decision.confidence,
+        omegaConsensusCount: decision.omegaConsensusCount
       }
+    );
 
-      // Log overextension event for governance
-      overextensionEventId = await EntryOverextensionValidator.logOverextensionEvent(
-        sessionId,
-        overextensionAnalysis,
-        {
-          symbol: decision.symbol,
-          direction: decision.action === 'BUY' ? 'buy' : 'sell',
-          currentPrice: decision.entry,
-          optimalZoneMin,
-          optimalZoneMax,
-          alphaConfidence: decision.confidence,
-          omegaConsensusCount: decision.omegaConsensusCount
-        },
-        originalLotSize,
-        finalLotSize
-      );
-    } else {
-      logger.info(
+    // BLOCK TRADE if invalid (no position size mutation)
+    if (!overextensionValidation.isValid) {
+      logger.error(
         LogCategory.RISK_MANAGEMENT,
-        '[AlphaTradeExecutor] Entry within optimal zone - no degradation needed',
+        '[AlphaTradeExecutor] ENTRY INVALID - Overextension exceeds threshold',
         {
           userId,
           sessionId,
           symbol: decision.symbol,
-          currentPrice: decision.entry,
-          optimalZone: `[${optimalZoneMin.toFixed(5)}, ${optimalZoneMax.toFixed(5)}]`
+          style: tradeStyle,
+          overextensionType: overextensionValidation.overextensionType,
+          overextensionPct: overextensionValidation.overextensionPercentage.toFixed(1),
+          threshold: overextensionValidation.maxAllowedOverextension,
+          severity: overextensionValidation.severity,
+          reasoning: overextensionValidation.reasoning
         }
       );
+
+      // HARD BLOCK - No execution, Alpha must re-evaluate
+      return {
+        success: false,
+        error: overextensionValidation.blockReason || 'Entry overextension exceeds threshold',
+        blockReason: overextensionValidation.blockReason || 'PRECISION VIOLATION: Entry outside acceptable zone'
+      };
     }
+
+    // Entry is VALID - proceed with execution
+    logger.info(
+      LogCategory.RISK_MANAGEMENT,
+      '[AlphaTradeExecutor] Entry validation passed',
+      {
+        userId,
+        sessionId,
+        symbol: decision.symbol,
+        style: tradeStyle,
+        overextensionType: overextensionValidation.overextensionType,
+        overextensionPct: overextensionValidation.overextensionPercentage.toFixed(1),
+        threshold: overextensionValidation.maxAllowedOverextension,
+        optimalZone: `[${optimalZoneMin.toFixed(5)}, ${optimalZoneMax.toFixed(5)}]`
+      }
+    );
 
     // MODE ROUTING (Execute based on selected mode)
     if (mode === 'IMMEDIATE') {
@@ -593,8 +576,7 @@ class AlphaTradeExecutor {
         lotSizingDecisionId: lotSizingDecision?.auditRecordId,
         expectedProfitAtTP: lotSizingDecision?.expectedProfitAtTP, // SSOT FIX: Pass coordinator's calculation
         lotSizingAuditRecord, // CCIP: Pass audit metadata for governance logging
-        overextensionEventId, // CCIP 2026-02-11: Link trade to overextension event
-        overextensionAnalysis: overextensionAnalysis.isOverextended ? overextensionAnalysis : undefined
+        overextensionEventId // CCIP 2026-02-11: Link trade to overextension event
       });
     } else if (mode === 'PENDING') {
       return await this.createPending({
@@ -609,8 +591,7 @@ class AlphaTradeExecutor {
         lotSizingDecisionId: lotSizingDecision?.auditRecordId,
         expectedProfitAtTP: lotSizingDecision?.expectedProfitAtTP, // SSOT FIX: Pass coordinator's calculation
         lotSizingAuditRecord, // CCIP: Pass audit metadata for governance logging
-        overextensionEventId, // CCIP 2026-02-11: Link trade to overextension event
-        overextensionAnalysis: overextensionAnalysis.isOverextended ? overextensionAnalysis : undefined
+        overextensionEventId // CCIP 2026-02-11: Link trade to overextension event
       });
     } else {
       // MONITORED mode - create entry intent
