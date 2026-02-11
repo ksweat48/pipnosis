@@ -71,11 +71,8 @@ export function ClubHomePage() {
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
               <h1 className="text-xl sm:text-3xl font-bold text-slate-900 mb-1">
-                Welcome to Pipnosis Club
+                Welcome {membership ? `(${membership.tierName})` : ''}
               </h1>
-              <p className="text-slate-600 text-sm sm:text-base">
-                {membership ? membership.tierName : 'Member'}
-              </p>
             </div>
 
             {membership && (

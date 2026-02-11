@@ -237,13 +237,13 @@ export function ClubEntryGatePage() {
 
         {/* Access Status Card */}
         <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-2xl p-8 shadow-lg mb-8">
-          <div className="flex items-start justify-between mb-6">
+          <div className="flex flex-col items-center text-center gap-4 mb-6">
             <div>
               <h2 className="text-2xl font-bold text-slate-900 mb-2">Access Status</h2>
               <p className="text-slate-600">{accessResult.message}</p>
             </div>
 
-            <div className="flex flex-col items-end gap-2">
+            <div className="flex flex-col items-center gap-2">
               <div className={`px-4 py-2 rounded-full font-semibold flex items-center gap-2 ${
                 accessResult.canAccess
                   ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
