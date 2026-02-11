@@ -127,7 +127,8 @@ export function AdminClubPanel() {
         tierBreakdown[name] = (tierBreakdown[name] || 0) + 1;
       });
 
-      const totalTokensCirculating = balances?.reduce((sum, b) => sum + parseFloat(b.total_tokens || '0'), 0) || 0;
+      // Circulating PIP = available (unlocked) tokens only
+      const totalTokensCirculating = balances?.reduce((sum, b) => sum + parseFloat(b.available_tokens || '0'), 0) || 0;
       const totalTokensLocked = balances?.reduce((sum, b) => sum + parseFloat(b.locked_tokens || '0'), 0) || 0;
       const totalTokensStaked = stakes?.reduce((sum, s) => sum + parseFloat(s.amount_staked || '0'), 0) || 0;
 
