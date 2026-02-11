@@ -289,9 +289,14 @@ export function PositionsPage() {
     let pnl = calculateCurrentPnL(position);
 
     if (livePrices[position.symbol]) {
-      currentPrice = position.positionType === 'buy'
+      const rawPrice = position.positionType === 'buy'
         ? livePrices[position.symbol].bid
         : livePrices[position.symbol].ask;
+
+      // Validate live price
+      currentPrice = (rawPrice && !isNaN(rawPrice) && rawPrice > 0)
+        ? rawPrice
+        : position.currentPrice || position.entryPrice || 0;
     } else {
       const { data } = await supabase
         .from('forex_candles')
@@ -302,6 +307,12 @@ export function PositionsPage() {
         .maybeSingle();
 
       currentPrice = data ? parseFloat(data.close) : (position.currentPrice || position.entryPrice || 0);
+    }
+
+    // CRITICAL: Final validation that we have a valid close price
+    if (!currentPrice || isNaN(currentPrice) || currentPrice <= 0) {
+      toast.error('Close Failed', `Cannot close ${position.symbol}: No valid market price available.`);
+      return;
     }
 
     const confirmed = await confirm({
@@ -487,11 +498,18 @@ export function PositionsPage() {
 
     for (const position of openPositions) {
       try {
-        const currentPrice = livePrices[position.symbol]
+        let currentPrice = livePrices[position.symbol]
           ? (position.positionType === 'buy'
               ? livePrices[position.symbol].bid
               : livePrices[position.symbol].ask)
           : (position.currentPrice || position.entryPrice || 0);
+
+        // Validate price before closing
+        if (!currentPrice || isNaN(currentPrice) || currentPrice <= 0) {
+          console.warn(`[PositionsPage] Skipping ${position.symbol}: Invalid price ${currentPrice}`);
+          failCount++;
+          continue;
+        }
 
         const result = await positionService.closePosition(
           position.id,
@@ -545,19 +563,29 @@ export function PositionsPage() {
     if (!confirmed) return;
 
     for (const position of winningPositions) {
-      const currentPrice = livePrices[position.symbol]
-        ? (position.positionType === 'buy'
-            ? livePrices[position.symbol].bid
-            : livePrices[position.symbol].ask)
-        : (position.currentPrice || position.entryPrice || 0);
+      try {
+        let currentPrice = livePrices[position.symbol]
+          ? (position.positionType === 'buy'
+              ? livePrices[position.symbol].bid
+              : livePrices[position.symbol].ask)
+          : (position.currentPrice || position.entryPrice || 0);
 
-      await positionService.closePosition(
-        position.id,
-        currentPrice,
-        'manual',
-        user?.id,
-        position.goal_session_id
-      );
+        // Validate price before closing
+        if (!currentPrice || isNaN(currentPrice) || currentPrice <= 0) {
+          console.warn(`[PositionsPage] Skipping ${position.symbol}: Invalid price ${currentPrice}`);
+          continue;
+        }
+
+        await positionService.closePosition(
+          position.id,
+          currentPrice,
+          'manual',
+          user?.id,
+          position.goal_session_id
+        );
+      } catch (error) {
+        console.error(`[PositionsPage] Error closing ${position.symbol}:`, error);
+      }
     }
 
     audioAlertService.playWithContext({ type: 'success', context: 'trade_exit' });

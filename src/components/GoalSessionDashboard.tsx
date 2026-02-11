@@ -825,7 +825,16 @@ export const GoalSessionDashboard: React.FC = () => {
       }
 
       // Use bid for long positions, ask for short positions
-      const closePrice = trade.direction === 'buy' ? priceData.bid : priceData.ask;
+      const rawClosePrice = trade.direction === 'buy' ? priceData.bid : priceData.ask;
+
+      // CRITICAL: Validate price is a valid number, fallback to trade's current price
+      const closePrice = (rawClosePrice && !isNaN(rawClosePrice) && rawClosePrice > 0)
+        ? rawClosePrice
+        : trade.current_price || trade.currentPrice;
+
+      if (!closePrice || isNaN(closePrice) || closePrice <= 0) {
+        throw new Error(`Invalid close price for ${trade.symbol}. No valid market price available. Current price from trade: ${trade.current_price || trade.currentPrice}`);
+      }
 
       console.log('[GoalSessionDashboard] 💵 Closing at price:', closePrice);
 
