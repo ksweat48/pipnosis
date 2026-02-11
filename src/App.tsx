@@ -19,6 +19,7 @@ import { MidTradeAlertListener } from './components/MidTradeAlertListener';
 import { ClubAccessButton } from './components/ClubAccessButton';
 import { WeekendProtectionBanner } from './components/WeekendProtectionBanner';
 import { realtimeTradeNotificationListener } from './services/realtime-trade-notification-listener';
+import { GoalAchievedCountdownModal } from './components/GoalAchievedCountdownModal';
 
 // Lazy load all pages for code splitting
 const LandingPage = lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
@@ -60,6 +61,14 @@ const AppRoutes: React.FC = () => {
   const toast = useToast();
   const [showMidTradeModal, setShowMidTradeModal] = useState(false);
   const [loadingTimeout, setLoadingTimeout] = useState(false);
+  const [countdownModalData, setCountdownModalData] = useState<{
+    isOpen: boolean;
+    modalId: string;
+    sessionId: string;
+    goalAmount: number;
+    currentProfit: number;
+    symbol?: string;
+  } | null>(null);
 
   // Add loading timeout to prevent infinite loading state
   useEffect(() => {
@@ -198,7 +207,17 @@ const AppRoutes: React.FC = () => {
         const modal = pendingModals[0];
         const modalData = modal.modal_data;
 
-        if (modal.modal_type === 'goal_achieved') {
+        if (modal.modal_type === 'goal_achieved_countdown') {
+          // Show goal achievement countdown modal (1 minute to decide)
+          setCountdownModalData({
+            isOpen: true,
+            modalId: modal.id,
+            sessionId: modal.goal_session_id || modalData.session_id,
+            goalAmount: modalData.target_value,
+            currentProfit: modalData.current_progress,
+            symbol: modalData.symbol,
+          });
+        } else if (modal.modal_type === 'goal_achieved') {
           // Show goal achieved celebration
           globalDialogManager.showGoalAchieved({
             symbol: modalData.symbol,
@@ -568,6 +587,28 @@ const AppRoutes: React.FC = () => {
         isOpen={showMidTradeModal}
         onClose={() => setShowMidTradeModal(false)}
       />
+      {countdownModalData && (
+        <GoalAchievedCountdownModal
+          isOpen={countdownModalData.isOpen}
+          modalId={countdownModalData.modalId}
+          sessionId={countdownModalData.sessionId}
+          goalAmount={countdownModalData.goalAmount}
+          currentProfit={countdownModalData.currentProfit}
+          symbol={countdownModalData.symbol}
+          onClose={() => {
+            setCountdownModalData(null);
+            // Check for more pending modals
+            (async () => {
+              const { modalQueueManager } = await import('./services/modal-queue-manager');
+              const pendingModals = await modalQueueManager.getPendingModals(user?.id || '');
+              if (pendingModals.length > 0) {
+                // Trigger checkPendingModals again
+                window.location.reload();
+              }
+            })();
+          }}
+        />
+      )}
     </>
   );
 };

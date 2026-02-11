@@ -99,7 +99,9 @@ function checkPositionTriggers(position: OpenPosition, price: PriceData): Monito
   const results: MonitoringResult[] = [];
   const executionPrice = position.direction === 'buy' ? price.bid : price.ask;
 
-  // Check TP1 (partial close 50%)
+  // Check TP1 (advisory milestone only - NO partial close)
+  // TP1 is now used ONLY for Alpha learning and progress tracking
+  // Position stays 100% open and continues to TP2
   if (position.tp1_price && !position.tp1_hit) {
     const tp1Hit = position.direction === 'buy'
       ? executionPrice >= position.tp1_price
@@ -113,7 +115,7 @@ function checkPositionTriggers(position: OpenPosition, price: PriceData): Monito
         triggered: true,
         currentPrice: executionPrice,
         triggerPrice: position.tp1_price,
-        action: 'close_partial_50'
+        action: 'mark_milestone_only' // Changed from 'close_partial_50' to advisory-only
       });
     }
   }
@@ -184,21 +186,22 @@ async function executePositionClosure(
   price: PriceData
 ): Promise<boolean> {
   try {
-    if (result.action === 'close_partial_50') {
-      // TP1 hit - Mark milestone flag ONLY (no position_size change)
+    if (result.action === 'mark_milestone_only') {
+      // TP1 hit - Advisory milestone ONLY (no position close, no position_size change)
       // ✅ SSOT COMPLIANCE: Use mark_tp1_milestone RPC for all TP1 updates
-      // Position continues to TP2 for full closure
-      console.log(`[AutonomousMonitor] TP1 HIT for ${position.symbol}: Marking milestone (no partial close)`);
+      // Position continues 100% open to TP2 for full closure
+      // Data logged for Alpha learning only
+      console.log(`[AutonomousMonitor] TP1 ADVISORY MILESTONE for ${position.symbol}: Logging for Alpha learning (position stays 100% open)`);
 
-      const { data: result, error: updateError } = await supabase
+      const { data: rpcResult, error: updateError } = await supabase
         .rpc('mark_tp1_milestone', { trade_id: position.id });
 
-      if (updateError || !result?.success) {
-        console.error(`[AutonomousMonitor] Failed to mark TP1 for ${position.id}:`, updateError || result?.error);
+      if (updateError || !rpcResult?.success) {
+        console.error(`[AutonomousMonitor] Failed to mark TP1 milestone for ${position.id}:`, updateError || rpcResult?.error);
         return false;
       }
 
-      console.log(`[AutonomousMonitor] ✅ TP1 milestone marked via RPC: Position ${position.id} continues to TP2`);
+      console.log(`[AutonomousMonitor] ✅ TP1 advisory milestone logged: Position ${position.id} continues 100% open to TP2`);
       return true;
 
     } else {
