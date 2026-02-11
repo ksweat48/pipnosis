@@ -5,6 +5,7 @@ import { tokenPoolAuthority } from '@/services/token-pool-authority';
 import { clubTokenLedgerCoordinator } from '@/services/club-token-ledger-coordinator';
 import { pipUtilityIndexEngine } from '@/services/pip-utility-index-engine';
 import { logger } from '@/lib/logger';
+import { TokenPoolManagement } from './TokenPoolManagement';
 
 interface MemberSummary {
   id: string;
@@ -58,7 +59,7 @@ function fmt(n: number | undefined | null): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-type Section = 'members' | 'treasury' | 'utility';
+type Section = 'members' | 'treasury' | 'pools' | 'utility';
 
 export function AdminClubPanel() {
   const [loading, setLoading] = useState(true);
@@ -325,12 +326,23 @@ export function AdminClubPanel() {
           onClick={() => setActiveSection('treasury')}
           className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-md font-medium transition-all text-sm ${
             activeSection === 'treasury'
-              ? 'bg-purple-600 text-white'
+              ? 'bg-emerald-600 text-white'
               : 'text-gray-400 hover:text-white hover:bg-gray-700'
           }`}
         >
           <Package className="w-4 h-4" />
           Token Treasury
+        </button>
+        <button
+          onClick={() => setActiveSection('pools')}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-md font-medium transition-all text-sm ${
+            activeSection === 'pools'
+              ? 'bg-sky-600 text-white'
+              : 'text-gray-400 hover:text-white hover:bg-gray-700'
+          }`}
+        >
+          <Coins className="w-4 h-4" />
+          Pool Grants
         </button>
         <button
           onClick={() => setActiveSection('utility')}
@@ -662,6 +674,9 @@ export function AdminClubPanel() {
           </div>
         </div>
       )}
+
+      {/* Pool Grants Section */}
+      {activeSection === 'pools' && <TokenPoolManagement />}
 
       {/* Utility Index Section */}
       {activeSection === 'utility' && (
