@@ -166,7 +166,18 @@ class AlphaOmegaOrchestrator {
 
     console.log('[Alpha+Omega] ✅ SSOT pre-flight passed - TradeContext validated');
 
-    // ✅ FRESHNESS ADVISORY: Check data quality but don't block (except for critical staleness)
+    // SSOT: Get dynamic timeframe based on risk mode BEFORE any usage
+    const riskMode: RiskMode = goalContext?.riskMode || 'medium';
+    const mtfConfig = getMTFConfig(riskMode);
+    const entryTimeframe: Timeframe = mtfConfig.entryTimeframe;
+    console.log(`[Alpha+Omega] Risk Mode: ${riskMode.toUpperCase()} -> Entry Timeframe: ${entryTimeframe}`);
+
+    // Capture signal price and timestamp at analysis time (for drift detection)
+    const signalPrice = marketState.price;
+    const signalTimestamp = Date.now();
+    console.log(`[Alpha+Omega] Signal captured: ${signalPrice} at ${new Date(signalTimestamp).toISOString()}`);
+
+    // FRESHNESS ADVISORY: Check data quality but don't block (except for critical staleness)
     const preCheck = await tradeExecutionFreshnessGate.preCheckFreshness(marketState.symbol);
 
     const isCriticallyStale = preCheck.reason?.includes('stale') && !preCheck.shouldProceed;
@@ -210,17 +221,6 @@ class AlphaOmegaOrchestrator {
         );
       }
     }
-
-    // Capture signal price and timestamp at analysis time (for drift detection)
-    const signalPrice = marketState.price;
-    const signalTimestamp = Date.now();
-    console.log(`[Alpha+Omega] 📍 Signal captured: ${signalPrice} at ${new Date(signalTimestamp).toISOString()}`);
-
-    // SSOT: Get dynamic timeframe based on risk mode (no more hardcoded M15)
-    const riskMode: RiskMode = goalContext?.riskMode || 'medium';
-    const mtfConfig = getMTFConfig(riskMode);
-    const entryTimeframe: Timeframe = mtfConfig.entryTimeframe;
-    console.log(`[Alpha+Omega] 📊 Risk Mode: ${riskMode.toUpperCase()} → Entry Timeframe: ${entryTimeframe}`);
 
     // ✅ STEP 0: Get Market Context from Regime Analysis (if not already provided)
     let sentiment = marketState.sentiment;

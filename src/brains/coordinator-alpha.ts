@@ -112,7 +112,7 @@ import { parseStructuredAlphaResponse } from '../services/alpha-thesis-parser';
 import type { AlphaMarketThesis, RegimeSignature } from '../types/alpha-thesis';
 import { m5SwingAnalyzer, type M5SwingContext } from '../services/m5-swing-analyzer';
 import { alphaGeometryValidator } from '../services/alpha-geometry-validator';
-import { getExecutionEnvelope } from '../config/style-execution-envelopes';
+import { getExecutionEnvelope, validateTPSLAgainstEnvelope } from '../config/style-execution-envelopes';
 
 /**
  * Helper: Determine asset class from symbol
@@ -229,6 +229,7 @@ export interface GoalContext {
   riskMode?: 'low' | 'medium' | 'high'; // User's selected risk tolerance
   riskPercent?: number; // Actual risk percentage (3%, 5%, 10%)
   sessionId?: string; // Goal session ID for progress thought emissions (optional)
+  tradeStyle?: string; // User's selected trade style from goal session (scalper, micro, intraday)
 }
 
 export interface AlphaOverride {
@@ -625,7 +626,10 @@ class AlphaCoordinatorBrain {
       // Add comprehensive risk profile strategy (riskMode already declared at function scope)
       riskProfileText = formatRiskProfileForLLM(riskMode);
 
-      goalContextText = `\n🎯 GOAL: $${goalContext.currentBalance.toFixed(0)} → +$${goalContext.targetGoal.toFixed(0)} (${goalContext.goalPercentage.toFixed(3)}% gain) | Progress: $${goalContext.currentProgress.toFixed(0)}/${goalContext.targetGoal.toFixed(0)} | Remaining: $${goalContext.remainingGoal.toFixed(0)}\n${riskProfileText}\n`;
+      const styleDirective = goalContext.tradeStyle
+        ? `\nTRADE STYLE DIRECTIVE: User has selected "${goalContext.tradeStyle.toUpperCase()}" style. You MUST output this style in your response. Your SL and TP MUST conform to this style's execution envelope. Do NOT override the user's style preference.\n`
+        : '';
+      goalContextText = `\nGOAL: $${goalContext.currentBalance.toFixed(0)} -> +$${goalContext.targetGoal.toFixed(0)} (${goalContext.goalPercentage.toFixed(3)}% gain) | Progress: $${goalContext.currentProgress.toFixed(0)}/${goalContext.targetGoal.toFixed(0)} | Remaining: $${goalContext.remainingGoal.toFixed(0)}\n${riskProfileText}${styleDirective}\n`;
     }
 
     // Build intelligence context
@@ -2676,7 +2680,16 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
       const tradeConfidence = parsed.trade_confidence ?? parsed.confidence ?? 0;
       const entryQualityScore = parsed.entry_quality_score ?? 0;
       const entryMode = parsed.entry_mode ?? 'wait_confirmation';
-      const resolvedStyle = parsed.style ?? 'SCALP';
+
+      const STYLE_MAP: Record<string, 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'> = {
+        'scalper': 'SCALP', 'SCALPER': 'SCALP', 'scalp': 'SCALP', 'SCALP': 'SCALP',
+        'micro': 'MICRO_INTRADAY', 'MICRO': 'MICRO_INTRADAY', 'MICRO_INTRADAY': 'MICRO_INTRADAY',
+        'intraday': 'INTRADAY', 'INTRADAY': 'INTRADAY', 'day': 'INTRADAY',
+      };
+      const userStylePreference = goalContext?.tradeStyle
+        ? (STYLE_MAP[goalContext.tradeStyle] || 'SCALP')
+        : 'SCALP';
+      const resolvedStyle = parsed.style ?? userStylePreference;
 
       // Extract thesis-aware fields (Phase 2: Integration)
       const thesis = parsed.thesis || null;
@@ -2911,10 +2924,10 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
         }
       }
 
-      const slDistance = Math.abs(entry - stopLoss);
+      let slDistance = Math.abs(entry - stopLoss);
       let tpDistance = Math.abs(takeProfit - entry);
       let rr = slDistance > 0 ? tpDistance / slDistance : 0;
-      const slPips = calculatePipDistance(symbol, entry, stopLoss);
+      let slPips = calculatePipDistance(symbol, entry, stopLoss);
       let tpPips = calculatePipDistance(symbol, entry, takeProfit);
 
       console.log(`[Alpha Decision] Stop: ${slPips.toFixed(1)} pips | TP: ${tpPips.toFixed(1)} pips | R:R: ${rr.toFixed(2)}:1`);
@@ -2966,6 +2979,53 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
         }).catch(() => {});
       }
 
+      // STYLE ENVELOPE SL ENFORCEMENT (SSOT: style-execution-envelopes.ts)
+      if (slPips > styleEnvelope.slPips.max) {
+        const originalSL = stopLoss;
+        const originalSLPips = slPips;
+        const pipInfo = getCurrencyPipInfo(symbol);
+        const cappedSLDistance = styleEnvelope.slPips.max * pipInfo.pipValue;
+
+        stopLoss = isBuy
+          ? entry - cappedSLDistance
+          : entry + cappedSLDistance;
+
+        slPips = styleEnvelope.slPips.max;
+        slDistance = Math.abs(stopLoss - entry);
+        rr = slDistance > 0 ? tpDistance / slDistance : 0;
+
+        console.warn(
+          `[Alpha Envelope] SL CAPPED: ${originalSLPips.toFixed(1)} pips -> ${slPips.toFixed(1)} pips ` +
+          `(${resolvedStyle} max: ${styleEnvelope.slPips.max}). ` +
+          `Original: ${originalSL.toFixed(5)}, Capped: ${stopLoss.toFixed(5)}`
+        );
+
+        logViolation({
+          violationType: 'STYLE_ENVELOPE_SL_CAP',
+          symbol,
+          attemptedOperation: 'sl_style_enforcement',
+          callLocation: 'coordinator-alpha.parseDecision',
+          blocked: false,
+          errorDetails: {
+            style: resolvedStyle,
+            originalSL,
+            cappedSL: stopLoss,
+            originalSLPips,
+            cappedSLPips: styleEnvelope.slPips.max,
+            envelopeMax: styleEnvelope.slPips.max,
+            entry,
+            direction: isBuy ? 'BUY' : 'SELL',
+            resolution: 'capped_to_envelope'
+          }
+        }).catch(() => {});
+      }
+
+      // Full envelope validation logging (both SL and TP)
+      const envelopeValidation = validateTPSLAgainstEnvelope(resolvedStyle, tpPips, Math.abs(calculatePipDistance(symbol, entry, stopLoss)));
+      if (!envelopeValidation.valid) {
+        console.warn(`[Alpha Envelope] Remaining violations after enforcement: ${envelopeValidation.violations.join('; ')}`);
+      }
+
       let tp1Result: TP1Result | null = null;
       let tp2Price = takeProfit;
       let tp2Reasoning = `Full profit target at ${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1 R:R)`;
@@ -2999,7 +3059,7 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
       }
 
       if (!tp1Result?.feasible || !tp1Result?.tp1Price) {
-        const fallbackTP1Distance = slDistance;
+        const fallbackTP1Distance = Math.min(slDistance, tpDistance * 0.6);
         const fallbackTP1Price = isBuy
           ? entry + fallbackTP1Distance
           : entry - fallbackTP1Distance;
@@ -3009,12 +3069,26 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
           feasible: true,
           tp1Price: fallbackTP1Price,
           tp1Confidence: 65,
-          tp1Reasoning: `1:1 R:R fallback (${fallbackTP1Pips.toFixed(1)} pips, matching SL distance)`,
+          tp1Reasoning: `Conservative partial target (${fallbackTP1Pips.toFixed(1)} pips, 60% of full TP)`,
           atrMultiplier: null,
           liquidityZoneUsed: null,
           estimatedTimeToFillMinutes: null
         };
-        console.log(`[Alpha TP1/TP2] TP1 fallback: 1:1 R:R at ${fallbackTP1Price.toFixed(5)} (${fallbackTP1Pips.toFixed(1)} pips)`);
+        console.log(`[Alpha TP1/TP2] TP1 fallback: ${fallbackTP1Price.toFixed(5)} (${fallbackTP1Pips.toFixed(1)} pips)`);
+      }
+
+      // INVARIANT: TP1 must be between entry and TP2 (closer to entry)
+      if (tp1Result?.tp1Price && tp2Price) {
+        const tp1Dist = Math.abs(tp1Result.tp1Price - entry);
+        const tp2Dist = Math.abs(tp2Price - entry);
+        if (tp1Dist >= tp2Dist) {
+          const correctedTP1 = isBuy
+            ? entry + (tp2Dist * 0.6)
+            : entry - (tp2Dist * 0.6);
+          console.warn(`[Alpha TP1/TP2] TP1 (${tp1Dist.toFixed(5)}) >= TP2 (${tp2Dist.toFixed(5)}), correcting TP1 to 60% of TP2 distance`);
+          tp1Result.tp1Price = correctedTP1;
+          tp1Result.tp1Reasoning = `Corrected: TP1 set to 60% of TP2 distance to maintain proper partial ordering`;
+        }
       }
 
       return {

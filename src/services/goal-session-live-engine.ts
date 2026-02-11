@@ -848,7 +848,8 @@ class GoalSessionLiveEngine {
         pipsNeededEstimate,
         riskMode: config.riskMode,
         riskPercent: getRiskPercentage(config.riskMode),
-        sessionId: this.activeSession ?? undefined
+        sessionId: this.activeSession ?? undefined,
+        tradeStyle: config.tradeStyle
       };
 
       if (import.meta.env.DEV) {
@@ -921,15 +922,23 @@ class GoalSessionLiveEngine {
             continue;
           }
 
+          const actualOmegaVotes = decision.omega_votes || {};
+          const voteEntries = Object.values(actualOmegaVotes).filter(Boolean);
+          const buyVotes = voteEntries.filter((v: any) => v?.direction === 'BUY' || v?.bias === 'BUY').length;
+          const sellVotes = voteEntries.filter((v: any) => v?.direction === 'SELL' || v?.bias === 'SELL').length;
+          const noTradeVotes = voteEntries.filter((v: any) => v?.direction === 'NO_TRADE' || v?.bias === 'NO_TRADE').length;
+          const majorityDirection = buyVotes > sellVotes ? 'BUY' : sellVotes > buyVotes ? 'SELL' : 'NO_TRADE';
+          const agreementCount = Math.max(buyVotes, sellVotes, noTradeVotes);
+
           const decisionId = await alphaLearningTracker.logDecision(
             config.userId,
             decision,
-            marketState.omegaVotes || {},
+            actualOmegaVotes as any,
             {
-              direction: decision.action || 'NO_TRADE',
+              direction: (majorityDirection as 'BUY' | 'SELL' | 'NO_TRADE'),
               confidence: decision.confidence || 0,
-              agreement_count: 0,
-              total_votes: 0,
+              agreement_count: agreementCount,
+              total_votes: voteEntries.length,
             },
             {
               detected: false,
