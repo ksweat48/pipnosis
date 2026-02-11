@@ -24,12 +24,12 @@ import { getCurrencyPipInfo } from './currencyHelpers';
  * Scalp requires strictest precision, Intraday allows more tolerance
  */
 export const STYLE_OVEREXTENSION_THRESHOLDS = {
-  SCALP: 15,           // Scalp: Maximum 15% overextension (strictest)
-  MICRO_INTRADAY: 30,  // Micro: Maximum 30% overextension
-  INTRADAY: 50,        // Day/Intraday: Maximum 50% overextension
-  DAY: 50,             // Day: Maximum 50% overextension (same as intraday)
-  SWING: 50,           // Swing: Maximum 50% overextension (most tolerant)
-  PRECISION: 15        // Precision: Maximum 15% overextension (strict like scalp)
+  SCALP: 10,           // Scalp: Maximum 10% overextension (strictest)
+  MICRO_INTRADAY: 15,  // Micro: Maximum 15% overextension
+  INTRADAY: 20,        // Day/Intraday: Maximum 20% overextension
+  DAY: 20,             // Day: Maximum 20% overextension (same as intraday)
+  SWING: 20,           // Swing: Maximum 20% overextension
+  PRECISION: 10        // Precision: Maximum 10% overextension (strict like scalp)
 } as const;
 
 export type TradeStyle = keyof typeof STYLE_OVEREXTENSION_THRESHOLDS;

@@ -29,11 +29,11 @@ import { logger } from '../lib/logger';
  * Scalp requires strictest precision, Intraday allows more tolerance
  */
 export const STYLE_OVEREXTENSION_THRESHOLDS = {
-  scalp: 15,      // Scalp: Maximum 15% overextension (strictest)
-  micro: 30,      // Micro: Maximum 30% overextension
-  day: 50,        // Day/Intraday: Maximum 50% overextension
-  swing: 50,      // Swing: Maximum 50% overextension (most tolerant)
-  precision: 15   // Precision: Maximum 15% overextension (strict like scalp)
+  scalp: 10,      // Scalp: Maximum 10% overextension (strictest)
+  micro: 15,      // Micro: Maximum 15% overextension
+  day: 20,        // Day/Intraday: Maximum 20% overextension
+  swing: 20,      // Swing: Maximum 20% overextension
+  precision: 10   // Precision: Maximum 10% overextension (strict like scalp)
 } as const;
 
 export type TradeStyle = keyof typeof STYLE_OVEREXTENSION_THRESHOLDS;
