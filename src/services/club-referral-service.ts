@@ -236,32 +236,118 @@ class ClubReferralService {
   }
 
   /**
-   * Complete referral when referee purchases membership
-   * Called by membership service after successful purchase
-   * Phase 1: Mark as completed only, no reward distribution
+   * Get detailed referral list with referee information
+   * SSOT: Delegates to database view for consistent data
    */
-  async completeReferral(
-    refereeId: string,
-    membershipPriceUsd: number = 0
-  ): Promise<boolean> {
+  async getReferralDetails(
+    userId: string,
+    limit: number = 50,
+    offset: number = 0
+  ): Promise<any[]> {
     try {
-      const pipBonus = TOKENOMICS.REFERRAL.BASE_PIP_BONUS;
-      const cashCommission = membershipPriceUsd * (TOKENOMICS.REFERRAL.BASE_CASH_COMMISSION_PCT / 100);
-
-      const { data, error } = await supabase.rpc('complete_referral_with_rewards', {
-        p_referee_id: refereeId,
-        p_referrer_pip_bonus: pipBonus,
-        p_cash_commission: cashCommission,
+      const { data, error } = await supabase.rpc('get_user_referral_details', {
+        p_user_id: userId,
+        p_limit: limit,
+        p_offset: offset
       });
 
       if (error) {
-        console.error('[ClubReferralService] Error completing referral:', error);
+        console.error('[ClubReferralService] Error fetching referral details:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('[ClubReferralService] Exception fetching referral details:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Request cash payout from referral earnings
+   * SSOT: Delegates to database for validation and creation
+   */
+  async requestCashPayout(
+    userId: string,
+    requestedAmount: number
+  ): Promise<{ success: boolean; payoutId?: string; error?: string }> {
+    try {
+      const { data, error } = await supabase.rpc('request_referral_cash_payout', {
+        p_user_id: userId,
+        p_requested_amount: requestedAmount
+      });
+
+      if (error) {
+        console.error('[ClubReferralService] Error requesting payout:', error);
+        return { success: false, error: error.message };
+      }
+
+      if (data && !data.success) {
+        return { success: false, error: data.error };
+      }
+
+      return {
+        success: true,
+        payoutId: data?.payout_id
+      };
+    } catch (error) {
+      console.error('[ClubReferralService] Exception requesting payout:', error);
+      return { success: false, error: 'Internal error' };
+    }
+  }
+
+  /**
+   * Get user's payout history
+   */
+  async getPayoutHistory(userId: string): Promise<any[]> {
+    try {
+      const { data, error } = await supabase
+        .from('club_referral_cash_payouts')
+        .select('*')
+        .eq('user_id', userId)
+        .order('requested_at', { ascending: false });
+
+      if (error) {
+        console.error('[ClubReferralService] Error fetching payout history:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('[ClubReferralService] Exception fetching payout history:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Cancel a pending payout request
+   */
+  async cancelPayoutRequest(
+    userId: string,
+    payoutId: string,
+    reason: string
+  ): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('club_referral_cash_payouts')
+        .update({
+          status: 'cancelled',
+          cancelled_at: new Date().toISOString(),
+          cancellation_reason: reason,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', payoutId)
+        .eq('user_id', userId)
+        .eq('status', 'pending');
+
+      if (error) {
+        console.error('[ClubReferralService] Error cancelling payout:', error);
         return false;
       }
 
-      return data?.success === true;
+      return true;
     } catch (error) {
-      console.error('[ClubReferralService] Exception completing referral:', error);
+      console.error('[ClubReferralService] Exception cancelling payout:', error);
       return false;
     }
   }

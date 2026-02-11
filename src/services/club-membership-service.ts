@@ -234,8 +234,21 @@ class ClubMembershipService {
       // Lock tokens for membership requirement
       await clubTokenLedgerService.lockTokens(userId, pkg.requiredTokenBalance);
 
-      // Complete any pending referral and distribute rewards
-      await clubReferralService.completeReferral(userId, amountPaidUsd);
+      // Pay referral commission (if user was referred)
+      // Database function handles 10% PIP + 20% cash commission calculation
+      try {
+        const { error: commissionError } = await supabase.rpc('pay_referral_commission', {
+          p_referee_id: userId,
+          p_membership_price_usd: amountPaidUsd
+        });
+
+        if (commissionError) {
+          console.warn('[ClubMembershipService] Referral commission failed:', commissionError);
+          // Don't fail membership grant if commission fails
+        }
+      } catch (error) {
+        console.warn('[ClubMembershipService] Exception paying referral commission:', error);
+      }
 
       return { success: true, membershipId: membership.id };
     } catch (error) {

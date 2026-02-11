@@ -132,10 +132,19 @@ export function ClubHomePage() {
         )}
 
         <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-xl sm:rounded-2xl p-4 sm:p-8 shadow-lg">
-          <h2 className="text-lg sm:text-2xl font-bold text-slate-900 mb-4 sm:mb-6 flex items-center gap-2 sm:gap-3">
-            <Users size={22} className="text-slate-700 sm:w-7 sm:h-7" />
-            Your Referral Code
-          </h2>
+          <div className="flex items-center justify-between mb-4 sm:mb-6">
+            <h2 className="text-lg sm:text-2xl font-bold text-slate-900 flex items-center gap-2 sm:gap-3">
+              <Users size={22} className="text-slate-700 sm:w-7 sm:h-7" />
+              Your Referral Code
+            </h2>
+            <Link
+              to="/club/referrals"
+              className="text-slate-600 hover:text-slate-900 text-xs sm:text-sm flex items-center gap-1"
+            >
+              View Details
+              <ExternalLink size={14} />
+            </Link>
+          </div>
 
           <div className="bg-gradient-to-br from-slate-50 to-blue-50 rounded-xl p-4 sm:p-6 mb-4 sm:mb-6 border border-slate-200/60 shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-3 sm:mb-4">

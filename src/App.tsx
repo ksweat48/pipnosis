@@ -44,6 +44,7 @@ const ClubHomePage = lazy(() => import('./pages/ClubHomePage').then(m => ({ defa
 const ClubChatPage = lazy(() => import('./pages/ClubChatPage').then(m => ({ default: m.ClubChatPage })));
 const ClubRewardsPage = lazy(() => import('./pages/ClubRewardsPage').then(m => ({ default: m.ClubRewardsPage })));
 const ClubGovernancePage = lazy(() => import('./pages/ClubGovernancePage').then(m => ({ default: m.ClubGovernancePage })));
+const ClubReferralsPage = lazy(() => import('./pages/ClubReferralsPage').then(m => ({ default: m.ClubReferralsPage })));
 
 // Loading component
 const LoadingFallback = () => (
@@ -537,6 +538,14 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute>
             <ClubGovernancePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/club/referrals"
+        element={
+          <ProtectedRoute>
+            <ClubReferralsPage />
           </ProtectedRoute>
         }
       />
