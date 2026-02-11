@@ -113,7 +113,10 @@ class ClubMembershipService {
   async getUserMembership(userId: string): Promise<UserMembership | null> {
     const { data, error } = await supabase
       .from('club_memberships')
-      .select('*')
+      .select(`
+        *,
+        club_membership_packages!inner(name)
+      `)
       .eq('user_id', userId)
       .maybeSingle();
 
@@ -325,7 +328,7 @@ class ClubMembershipService {
       userId: data.user_id,
       packageId: data.package_id,
       tierLevel: data.tier_level,
-      tierName: data.tier_name || '',
+      tierName: data.club_membership_packages?.name || '',
       status: data.status,
       purchasedAt: data.purchased_at,
       activatedAt: data.activated_at,
