@@ -1,70 +1,50 @@
 /**
  * ENTRY PRICE MONITOR - Real-Time Entry Advisory System
  *
- * CCIP CHANGE NOTICE (2026-02-10):
- * Consolidated from two monitors (SimpleEntryMonitor + EntryPriceMonitor) into one.
- * Now serves as a REAL-TIME entry advisory for users trading manually on external platforms.
+ * CCIP CHANGE NOTICE (2026-02-11):
+ * Updated to use overextension percentage thresholds aligned with hard invalidation system.
  *
  * PURPOSE:
  * After Alpha enters a trade, this monitor advises the user whether to:
- * 1. Enter NOW (price is at or better than Alpha's entry - GREEN)
- * 2. WAIT for a pullback to Alpha's entry for less drawdown (WAITING)
- * 3. Price is aligned with Alpha's entry (AT ALPHA)
+ * 1. PERFECT ENTRY: Price at 0-2% overextension (optimal)
+ * 2. WITHIN OPTIMAL ZONE: Price within style threshold (can wait for pullback)
+ * 3. OPPORTUNITY PASSED: Price beyond threshold (entry window closed)
+ *
+ * STYLE-SPECIFIC THRESHOLDS:
+ * - SCALP: 15% max overextension (strictest)
+ * - MICRO: 30% max overextension
+ * - INTRADAY: 50% max overextension (most relaxed)
  *
  * SSOT COMPLIANCE:
- * - Uses useActiveEntryIntent hook for entry intent data (SSOT: entry-intent-monitor-mode.ts)
+ * - Uses entry-overextension-calculator.ts for zone calculation (same as executor)
  * - Uses realtime_prices for live price tracking (SSOT: realtime_prices table)
- * - Uses currencyHelpers for pip calculations (SSOT: currencyHelpers.ts)
- * - Style-aware tolerances sourced from intent record (SSOT: entry_intents.style)
+ * - Style-aware thresholds match hard invalidation system exactly
+ * - No business logic - purely presentation of overextension analysis
  *
  * GOVERNANCE COMPLIANCE:
  * - Advisory mode is non-blocking and informational
- * - No business logic - purely presentation of price vs Alpha's entry
+ * - Aligns with EntryOverextensionValidator for consistency
  * - Real-time subscriptions for price updates
  * - Fails gracefully with clear messages
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { TrendingUp, TrendingDown, CheckCircle, ArrowUp, ArrowDown, Minus, Target, MapPin, Activity } from 'lucide-react';
+import { TrendingUp, TrendingDown, CheckCircle, ArrowUp, ArrowDown, Minus, Target, MapPin, Activity, XCircle, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useActiveEntryIntent } from '@/hooks/useEntryIntent';
-import { getCurrencyPipInfo, calculatePipDistance, formatCurrencyPrice } from '@/utils/currencyHelpers';
+import { formatCurrencyPrice } from '@/utils/currencyHelpers';
+import {
+  calculateOverextension,
+  normalizeStyle,
+  formatOverextensionPct,
+  type EntryQualityState,
+  type OverextensionResult,
+  STYLE_OVEREXTENSION_THRESHOLDS
+} from '@/utils/entry-overextension-calculator';
 
 interface ActiveGoalSession {
   id: string;
   status: string;
-}
-
-type AdvisoryState = 'ENTER_NOW' | 'WAIT_PULLBACK' | 'AT_ALPHA';
-
-const STYLE_TOLERANCES: Record<string, { atAlphaPips: number; betterZonePips: number }> = {
-  SCALP: { atAlphaPips: 1.5, betterZonePips: 4 },
-  MICRO_INTRADAY: { atAlphaPips: 3, betterZonePips: 7 },
-  INTRADAY: { atAlphaPips: 5, betterZonePips: 12 },
-};
-
-function getTolerances(style: string) {
-  return STYLE_TOLERANCES[style] || STYLE_TOLERANCES.MICRO_INTRADAY;
-}
-
-function determineAdvisoryState(
-  direction: string,
-  currentPrice: number,
-  alphaEntry: number,
-  distancePips: number,
-  tolerances: { atAlphaPips: number }
-): AdvisoryState {
-  const isBuy = direction === 'long';
-
-  if (distancePips <= tolerances.atAlphaPips) {
-    return 'AT_ALPHA';
-  }
-
-  const isBetterEntry = isBuy
-    ? currentPrice < alphaEntry
-    : currentPrice > alphaEntry;
-
-  return isBetterEntry ? 'ENTER_NOW' : 'WAIT_PULLBACK';
 }
 
 export const EntryPriceMonitor: React.FC = () => {
@@ -232,19 +212,12 @@ interface PostExecutionViewProps extends ViewProps {
 }
 
 const MonitoringView: React.FC<ViewProps> = ({ intent, currentPrice, previousPrice, formatPrice }) => {
-  const pipInfo = getCurrencyPipInfo(intent.symbol);
   const zoneMin = intent.entry_zone_min;
   const zoneMax = intent.entry_zone_max;
 
   const inZone = currentPrice
     ? currentPrice >= zoneMin && currentPrice <= zoneMax
     : false;
-
-  const distancePips = !inZone && currentPrice
-    ? (currentPrice < zoneMin
-      ? (zoneMin - currentPrice) / pipInfo.pipValue
-      : (currentPrice - zoneMax) / pipInfo.pipValue)
-    : 0;
 
   return (
     <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-xl p-4 sm:p-5 border border-gray-700/50">
@@ -285,7 +258,7 @@ const MonitoringView: React.FC<ViewProps> = ({ intent, currentPrice, previousPri
             <div className="text-xs text-gray-300 mt-0.5">
               {inZone
                 ? 'Price is in the target zone. Alpha is evaluating entry quality.'
-                : `Price needs to ${intent.direction === 'long' ? 'pull back' : 'rally'} ${distancePips.toFixed(1)} pips`
+                : `Waiting for price to reach entry zone`
               }
             </div>
           </div>
@@ -316,57 +289,41 @@ const MonitoringView: React.FC<ViewProps> = ({ intent, currentPrice, previousPri
 };
 
 const PostExecutionView: React.FC<PostExecutionViewProps> = ({ intent, alphaEntry, currentPrice, previousPrice, formatPrice }) => {
-  const style = intent.style || intent.market_context?.style || 'MICRO_INTRADAY';
-  const tolerances = getTolerances(style);
-  const isLong = intent.direction === 'long';
+  const style = normalizeStyle(intent.style || intent.market_context?.style);
+  const direction = intent.direction === 'long' ? 'long' : 'short';
+  const atrValue = intent.market_context?.atr_value || undefined;
 
-  const distancePips = currentPrice
-    ? calculatePipDistance(intent.symbol, currentPrice, alphaEntry)
-    : 0;
+  // Calculate overextension using shared utility
+  const overextensionResult: OverextensionResult | null = currentPrice
+    ? calculateOverextension(
+        currentPrice,
+        alphaEntry,
+        intent.symbol,
+        direction,
+        style,
+        atrValue
+      )
+    : null;
 
-  const advisoryState: AdvisoryState = currentPrice
-    ? determineAdvisoryState(intent.direction, currentPrice, alphaEntry, distancePips, tolerances)
-    : 'WAIT_PULLBACK';
+  if (!overextensionResult) {
+    return (
+      <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-xl p-4 sm:p-5 border border-gray-700/50">
+        <div className="flex items-center gap-2 text-gray-400">
+          <Activity className="w-5 h-5 animate-pulse" />
+          <span className="text-sm">Awaiting price data...</span>
+        </div>
+      </div>
+    );
+  }
 
-  const pullbackTarget = alphaEntry;
+  const { qualityState, overextensionPercentage, maxAllowedPercentage, headroomPercentage, optimalZone, advisoryMessage } = overextensionResult;
 
-  const pullbackDistancePips = currentPrice
-    ? calculatePipDistance(intent.symbol, currentPrice, pullbackTarget)
-    : 0;
-
-  const stateConfig = {
-    ENTER_NOW: {
-      bgClass: 'bg-emerald-900/25 border-emerald-500/40',
-      iconColor: 'text-emerald-400',
-      textColor: 'text-emerald-300',
-      label: 'Enter Now',
-      sublabel: isLong
-        ? 'Price is below Alpha\'s entry -- better buy price available'
-        : 'Price is above Alpha\'s entry -- better sell price available',
-      badge: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-    },
-    AT_ALPHA: {
-      bgClass: 'bg-emerald-900/20 border-emerald-500/30',
-      iconColor: 'text-emerald-400',
-      textColor: 'text-emerald-300',
-      label: 'Aligned with Alpha',
-      sublabel: `Price is within ${tolerances.atAlphaPips} pips of Alpha's entry`,
-      badge: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-    },
-    WAIT_PULLBACK: {
-      bgClass: 'bg-amber-900/20 border-amber-500/30',
-      iconColor: 'text-amber-400',
-      textColor: 'text-amber-300',
-      label: 'Wait for Pullback',
-      sublabel: `Wait for ${pullbackDistancePips.toFixed(1)} pip ${isLong ? 'pullback' : 'rally'} to Alpha's entry for less drawdown`,
-      badge: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-    },
-  };
-
-  const config = stateConfig[advisoryState];
+  // Determine UI state config
+  const stateConfig = getStateConfig(qualityState, direction, overextensionPercentage, maxAllowedPercentage);
 
   return (
     <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-xl p-4 sm:p-5 border border-gray-700/50">
+      {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Target className="w-5 h-5 text-cyan-400" />
@@ -377,38 +334,36 @@ const PostExecutionView: React.FC<PostExecutionViewProps> = ({ intent, alphaEntr
         </div>
         <div className="flex items-center gap-1.5">
           <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-            isLong
+            direction === 'long'
               ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
               : 'bg-red-500/20 text-red-400 border border-red-500/30'
           }`}>
-            {isLong ? 'BUY' : 'SELL'} {intent.symbol}
+            {direction === 'long' ? 'BUY' : 'SELL'} {intent.symbol}
           </span>
         </div>
       </div>
 
-      <div className={`p-3 rounded-lg border mb-3 ${config.bgClass}`}>
+      {/* Quality State Banner */}
+      <div className={`p-3 rounded-lg border mb-3 ${stateConfig.bgClass}`}>
         <div className="flex items-center gap-2">
-          {advisoryState === 'WAIT_PULLBACK' ? (
-            <Activity className={`w-5 h-5 ${config.iconColor} animate-pulse`} />
-          ) : (
-            <CheckCircle className={`w-5 h-5 ${config.iconColor}`} />
-          )}
+          {stateConfig.icon}
           <div className="flex-1">
             <div className="flex items-center gap-2">
-              <span className={`font-semibold text-sm ${config.textColor}`}>
-                {config.label}
+              <span className={`font-semibold text-sm ${stateConfig.textColor}`}>
+                {stateConfig.label}
               </span>
-              <span className={`text-xs px-1.5 py-0.5 rounded border ${config.badge}`}>
-                {advisoryState === 'ENTER_NOW' ? 'BETTER PRICE' : advisoryState === 'AT_ALPHA' ? 'GOOD' : 'WAITING'}
+              <span className={`text-xs px-1.5 py-0.5 rounded border ${stateConfig.badge}`}>
+                {stateConfig.badgeText}
               </span>
             </div>
             <div className="text-xs text-gray-300 mt-0.5">
-              {config.sublabel}
+              {advisoryMessage}
             </div>
           </div>
         </div>
       </div>
 
+      {/* Metrics Grid */}
       <div className="grid grid-cols-3 gap-2 mb-3">
         <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700/40">
           <p className="text-xs text-gray-400 mb-1">Current Price</p>
@@ -416,9 +371,9 @@ const PostExecutionView: React.FC<PostExecutionViewProps> = ({ intent, alphaEntr
             <div className="flex items-center gap-1">
               <PriceDirectionIcon current={currentPrice} previous={previousPrice} />
               <span className={`text-base font-bold font-mono ${
-                advisoryState === 'ENTER_NOW' ? 'text-emerald-400'
-                : advisoryState === 'AT_ALPHA' ? 'text-emerald-300'
-                : 'text-white'
+                qualityState === 'PERFECT_ENTRY' ? 'text-emerald-400'
+                : qualityState === 'WITHIN_OPTIMAL_ZONE' ? 'text-amber-400'
+                : 'text-red-400'
               }`}>
                 {formatPrice(currentPrice, intent.symbol)}
               </span>
@@ -436,46 +391,79 @@ const PostExecutionView: React.FC<PostExecutionViewProps> = ({ intent, alphaEntr
         </div>
 
         <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700/40">
-          <p className="text-xs text-gray-400 mb-1">Distance</p>
+          <p className="text-xs text-gray-400 mb-1">Overextension</p>
           <div className="flex items-baseline gap-1">
             <span className={`text-base font-bold font-mono ${
-              advisoryState === 'ENTER_NOW' ? 'text-emerald-400'
-              : advisoryState === 'AT_ALPHA' ? 'text-emerald-300'
-              : 'text-amber-400'
+              qualityState === 'PERFECT_ENTRY' ? 'text-emerald-400'
+              : qualityState === 'WITHIN_OPTIMAL_ZONE' ? 'text-amber-400'
+              : 'text-red-400'
             }`}>
-              {distancePips.toFixed(1)}
+              {formatOverextensionPct(overextensionPercentage)}
             </span>
-            <span className="text-xs text-gray-400">pips</span>
+            <span className="text-xs text-gray-400">of {maxAllowedPercentage}%</span>
           </div>
         </div>
       </div>
 
-      {advisoryState === 'WAIT_PULLBACK' && currentPrice && (
-        <div className="bg-gray-900/40 rounded-lg p-3 border border-gray-700/30">
-          <div className="flex items-center justify-between text-xs mb-2">
-            <span className="text-gray-400">
-              {isLong ? 'Need pullback' : 'Need rally'}
-            </span>
-            <span className="font-mono font-bold text-amber-400">
-              {pullbackDistancePips.toFixed(1)} pips to target
-            </span>
+      {/* Optimal Zone Details (show for WITHIN_OPTIMAL_ZONE and OPPORTUNITY_PASSED) */}
+      {qualityState !== 'PERFECT_ENTRY' && (
+        <div className="bg-gray-900/40 rounded-lg p-3 border border-gray-700/30 mb-3">
+          <div className="text-xs text-gray-400 mb-2 font-semibold">Optimal Entry Zone</div>
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <div>
+              <span className="text-gray-500 block mb-0.5">Min</span>
+              <span className="text-white font-mono">{formatPrice(optimalZone.min, intent.symbol)}</span>
+            </div>
+            <div>
+              <span className="text-gray-500 block mb-0.5">Center</span>
+              <span className="text-cyan-400 font-mono">{formatPrice(optimalZone.center, intent.symbol)}</span>
+            </div>
+            <div>
+              <span className="text-gray-500 block mb-0.5">Max</span>
+              <span className="text-white font-mono">{formatPrice(optimalZone.max, intent.symbol)}</span>
+            </div>
           </div>
-          <PullbackProgressBar
-            currentPrice={currentPrice}
-            alphaEntry={alphaEntry}
-            isLong={isLong}
-            tolerancePips={tolerances.atAlphaPips}
-            symbol={intent.symbol}
-          />
         </div>
       )}
 
-      {advisoryState === 'ENTER_NOW' && currentPrice && (
+      {/* Threshold Progress Bar (show for WITHIN_OPTIMAL_ZONE) */}
+      {qualityState === 'WITHIN_OPTIMAL_ZONE' && (
+        <div className="bg-gray-900/40 rounded-lg p-3 border border-gray-700/30">
+          <div className="flex items-center justify-between text-xs mb-2">
+            <span className="text-gray-400">Threshold Headroom</span>
+            <span className="font-mono font-bold text-amber-400">
+              {formatOverextensionPct(headroomPercentage)} remaining
+            </span>
+          </div>
+          <OverextensionProgressBar
+            currentPct={overextensionPercentage}
+            maxPct={maxAllowedPercentage}
+          />
+          <div className="text-xs text-gray-500 mt-2">
+            Can wait for pullback to improve entry. Entry window closes at {maxAllowedPercentage}% for {style} style.
+          </div>
+        </div>
+      )}
+
+      {/* Perfect Entry Confirmation */}
+      {qualityState === 'PERFECT_ENTRY' && (
         <div className="bg-emerald-900/15 rounded-lg p-3 border border-emerald-500/20">
           <div className="flex items-center gap-2 text-xs text-emerald-300">
             <CheckCircle className="w-3.5 h-3.5" />
             <span>
-              You can get a {distancePips.toFixed(1)} pip better entry than Alpha right now
+              Optimal entry precision! Overextension is minimal at {formatOverextensionPct(overextensionPercentage)}.
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Opportunity Passed Warning */}
+      {qualityState === 'OPPORTUNITY_PASSED' && (
+        <div className="bg-red-900/15 rounded-lg p-3 border border-red-500/20">
+          <div className="flex items-center gap-2 text-xs text-red-300">
+            <XCircle className="w-3.5 h-3.5" />
+            <span>
+              Entry window closed. Price exceeded {maxAllowedPercentage}% threshold for {style} style. Wait for new setup.
             </span>
           </div>
         </div>
@@ -484,6 +472,54 @@ const PostExecutionView: React.FC<PostExecutionViewProps> = ({ intent, alphaEntr
   );
 };
 
+interface StateConfig {
+  bgClass: string;
+  icon: React.ReactNode;
+  textColor: string;
+  label: string;
+  badge: string;
+  badgeText: string;
+}
+
+function getStateConfig(
+  qualityState: EntryQualityState,
+  direction: 'long' | 'short',
+  overextensionPct: number,
+  maxAllowedPct: number
+): StateConfig {
+  switch (qualityState) {
+    case 'PERFECT_ENTRY':
+      return {
+        bgClass: 'bg-emerald-900/25 border-emerald-500/40',
+        icon: <CheckCircle className="w-5 h-5 text-emerald-400" />,
+        textColor: 'text-emerald-300',
+        label: 'Perfect Entry',
+        badge: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+        badgeText: 'OPTIMAL'
+      };
+
+    case 'WITHIN_OPTIMAL_ZONE':
+      return {
+        bgClass: 'bg-amber-900/20 border-amber-500/30',
+        icon: <AlertTriangle className="w-5 h-5 text-amber-400" />,
+        textColor: 'text-amber-300',
+        label: 'Within Optimal Zone',
+        badge: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+        badgeText: `${overextensionPct.toFixed(0)}% of ${maxAllowedPct}%`
+      };
+
+    case 'OPPORTUNITY_PASSED':
+      return {
+        bgClass: 'bg-red-900/20 border-red-500/30',
+        icon: <XCircle className="w-5 h-5 text-red-400" />,
+        textColor: 'text-red-300',
+        label: 'Entry Opportunity Passed',
+        badge: 'bg-red-500/20 text-red-400 border-red-500/30',
+        badgeText: 'EXCEEDED THRESHOLD'
+      };
+  }
+}
+
 const PriceDirectionIcon: React.FC<{ current: number | null; previous: number | null }> = ({ current, previous }) => {
   if (!current || !previous) return <Minus className="w-3 h-3 text-gray-400" />;
   if (current > previous) return <ArrowUp className="w-3 h-3 text-emerald-400" />;
@@ -491,34 +527,27 @@ const PriceDirectionIcon: React.FC<{ current: number | null; previous: number | 
   return <Minus className="w-3 h-3 text-gray-400" />;
 };
 
-const PullbackProgressBar: React.FC<{
-  currentPrice: number;
-  alphaEntry: number;
-  isLong: boolean;
-  tolerancePips: number;
-  symbol: string;
-}> = ({ currentPrice, alphaEntry, isLong, tolerancePips, symbol }) => {
-  const pipInfo = getCurrencyPipInfo(symbol);
-  const totalDistance = Math.abs(currentPrice - alphaEntry) / pipInfo.pipValue;
-  const toleranceDistance = tolerancePips;
-
-  const progress = totalDistance > 0
-    ? Math.max(0, Math.min(100, ((totalDistance - toleranceDistance) / totalDistance) * 100))
-    : 100;
-
-  const remaining = Math.max(0, totalDistance - toleranceDistance);
+const OverextensionProgressBar: React.FC<{
+  currentPct: number;
+  maxPct: number;
+}> = ({ currentPct, maxPct }) => {
+  const progress = Math.min(100, (currentPct / maxPct) * 100);
 
   return (
     <div>
       <div className="w-full bg-gray-700/50 rounded-full h-2 overflow-hidden">
         <div
-          className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-amber-500 to-emerald-500"
-          style={{ width: `${100 - progress}%` }}
+          className={`h-full rounded-full transition-all duration-500 ${
+            progress < 50 ? 'bg-emerald-500' :
+            progress < 80 ? 'bg-amber-500' :
+            'bg-red-500'
+          }`}
+          style={{ width: `${progress}%` }}
         />
       </div>
       <div className="flex justify-between mt-1">
-        <span className="text-[10px] text-gray-500">Current</span>
-        <span className="text-[10px] text-gray-500">Alpha's Entry</span>
+        <span className="text-[10px] text-gray-500">0%</span>
+        <span className="text-[10px] text-gray-500">{maxPct}% Max</span>
       </div>
     </div>
   );
