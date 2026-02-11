@@ -91,9 +91,8 @@ export const handler: Handler = async (event: HandlerEvent) => {
           const { data: grantResult, error: grantError } = await supabase.rpc('grant_club_membership', {
             p_user_id: userId,
             p_package_id: packageId,
+            p_amount_paid: amountPaid,
             p_stripe_session_id: session.id,
-            p_stripe_payment_intent_id: session.payment_intent || '',
-            p_amount_paid_usd: amountPaid,
           });
 
           if (grantError) {
