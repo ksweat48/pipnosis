@@ -2904,39 +2904,24 @@ Your decision keeps you in control of your risk and prevents runaway trading.
       return;
     }
 
-    // 🚨 CRITICAL: Validate and recalculate PnL if needed
-    let finalPnL = trade.pnl;
-
-    if (!finalPnL || finalPnL === 0) {
-      console.warn(`%c⚠️ PnL is $0.00 for trade ${trade.id} - Recalculating!`, 'color: #ff9800; font-weight: bold');
-
-      // Recalculate PnL using the same method as event-based-llm-engine
-      if (trade.exitPrice && trade.entryPrice && trade.positionSize) {
-        const pipDistance = calculatePipDistance(trade.symbol, trade.entryPrice, trade.exitPrice);
-        const dollarPerPip = calculateDollarPerPip(trade.symbol, trade.positionSize);
-
-        finalPnL = trade.direction === 'buy'
-          ? pipDistance * dollarPerPip
-          : -pipDistance * dollarPerPip;
-
-        console.log(`%c✅ RECALCULATED PnL: $${finalPnL.toFixed(2)}`, 'color: #4caf50; font-weight: bold');
-        console.log(`  Pip Distance: ${pipDistance.toFixed(1)} pips`);
-        console.log(`  Dollar Per Pip: $${dollarPerPip.toFixed(2)}`);
-        console.log(`  Position Size: ${trade.positionSize} lots`);
-
-        // Update the trade object for downstream systems
-        trade.pnl = finalPnL;
-      } else {
-        console.error(`%c🚨 CANNOT RECALCULATE PnL - Missing data:`, 'color: #ff0000; font-weight: bold');
-        console.error(`  Exit Price: ${trade.exitPrice}`);
-        console.error(`  Entry Price: ${trade.entryPrice}`);
-        console.error(`  Position Size: ${trade.positionSize}`);
-      }
-    }
+    /**
+     * SSOT ENFORCEMENT: PNL calculation handled by RPC
+     *
+     * REMOVED: Client-side PNL recalculation logic (2026-02-11)
+     * The close_goal_session_trade RPC is the SINGLE SOURCE OF TRUTH for PNL.
+     * It uses calculate_pnl_universal() which is the canonical formula.
+     *
+     * Previous bug: Client calculated PNL here, which could differ from server.
+     * This caused 10,000x errors and balance discrepancies.
+     *
+     * Trade object PNL is only used for display purposes below.
+     * The authoritative PNL comes from the RPC response.
+     */
+    const finalPnL = trade.pnl;
 
     // 🔍 USER ISOLATION AUDIT: Log user_id to verify trades are per-user
     logger.info(LogCategory.AI_TRADING,
-      `Trade closed: ${trade.outcome.toUpperCase()} - PnL: $${finalPnL.toFixed(2)} | ` +
+      `Trade closing: ${trade.outcome.toUpperCase()} - Estimated PNL: $${finalPnL.toFixed(2)} | ` +
       `User: ${this.config.userId.substring(0, 8)} | Session: ${this.activeSession.substring(0, 8)}`
     );
 
@@ -2948,23 +2933,45 @@ Your decision keeps you in control of your risk and prevents runaway trading.
 
     localSessionMemory.recordTradeClosure(`live-${this.activeSession}`, trade);
 
-    // CRITICAL: Use trade.id to ensure we only close THIS specific trade
-    // Using symbol + entry_price could close multiple positions!
-    const { error } = await supabase
-      .from('goal_session_trades')
-      .update({
-        exit_price: trade.exitPrice,
-        profit_loss: finalPnL,
-        status: 'closed',
-        closed_at: new Date().toISOString(),
-        close_reason: trade.outcome === 'win' ? 'take_profit' : 'stop_loss'
-      })
-      .eq('id', trade.id)
-      .eq('goal_session_id', this.activeSession)
-      .eq('status', 'open');
+    /**
+     * SSOT ENFORCEMENT: Use close_goal_session_trade RPC
+     *
+     * CRITICAL FIX (2026-02-11): Previously used direct database UPDATE
+     * This caused multiple bugs:
+     * 1. Balance was NOT updated (user lost profit)
+     * 2. PNL calculation was incorrect (10,000x error)
+     * 3. No trade_closure_events created (missing audit trail)
+     * 4. Violated SSOT principle (multiple closure paths)
+     *
+     * The RPC ensures:
+     * - Correct PNL calculation via calculate_pnl_universal()
+     * - Atomic balance update
+     * - Trade closure event creation
+     * - CCIP governance tracking
+     * - Single source of truth
+     */
+    const { data: closureResult, error } = await supabase.rpc('close_goal_session_trade', {
+      p_trade_id: trade.id,
+      p_close_price: trade.exitPrice!,
+      p_close_reason: trade.outcome === 'win' ? 'take_profit' : 'stop_loss',
+      p_goal_session_id: this.activeSession,
+      p_force_close: false,
+      p_closed_at: trade.exitTime?.toISOString() || new Date().toISOString()
+    });
 
     if (error) {
-      console.error('[Goal Live Engine] Error updating closed trade:', error);
+      console.error('[Goal Live Engine] ❌ Error closing trade via RPC:', error);
+      logger.error(LogCategory.AI_TRADING, 'Trade closure RPC failed', {
+        tradeId: trade.id,
+        error: error.message
+      });
+
+      // Log governance violation
+      console.error('[Goal Live Engine] 🚨 SSOT VIOLATION: RPC closure failed, trade may be in inconsistent state');
+    } else {
+      logger.info(LogCategory.AI_TRADING,
+        `✅ Trade closed via SSOT RPC | PNL: $${closureResult.profit_loss} | Balance: $${closureResult.balance_after}`
+      );
     }
 
     // CRITICAL FIX: Write journal entry for this trade closure
