@@ -262,6 +262,7 @@ class CandleConflictHandler {
     resolved: string
   ): Promise<void> {
     try {
+      // Attempt to log audit trail (non-critical, best-effort)
       await supabase.from('candle_write_audit').insert({
         symbol: candle.symbol,
         timeframe: candle.timeframe,
@@ -282,11 +283,9 @@ class CandleConflictHandler {
         },
       });
     } catch (error) {
-      logger.error(
-        LogCategory.BACKGROUND_AGGREGATOR,
-        '[Candle Conflict] Failed to log write attempt',
-        { error }
-      );
+      // Silently ignore all audit logging failures
+      // Common during page load before auth completes (401 errors)
+      // Audit logging is nice-to-have for debugging, not critical
     }
   }
 
