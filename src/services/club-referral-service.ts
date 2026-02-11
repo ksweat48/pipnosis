@@ -198,6 +198,17 @@ class ClubReferralService {
         return { success: false, error: 'Already referred by someone else' };
       }
 
+      // CRITICAL: Set permanent referrer relationship in user_profiles (SSOT for referral commissions)
+      const { error: profileError } = await supabase
+        .from('user_profiles')
+        .update({ referred_by_user_id: referrerId })
+        .eq('id', refereeId);
+
+      if (profileError) {
+        console.error('[ClubReferralService] Failed to set referred_by_user_id:', profileError);
+        return { success: false, error: 'Failed to establish referral relationship' };
+      }
+
       // Create referral record
       const { error: insertError } = await supabase
         .from('club_referrals')
@@ -208,7 +219,8 @@ class ClubReferralService {
           status: 'pending',
           referred_at: new Date().toISOString(),
           referee_ip_hash: ipHash,
-          referee_fingerprint_hash: fingerprintHash
+          referee_fingerprint_hash: fingerprintHash,
+          commission_model: 'ongoing' // NEW: Mark as ongoing commission (pays on all purchases/upgrades)
         });
 
       if (insertError) {
