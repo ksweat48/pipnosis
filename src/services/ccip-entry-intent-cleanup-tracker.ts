@@ -35,6 +35,12 @@ export class CCIPEntryIntentCleanupTracker {
    */
   static async registerChangeRequest(): Promise<string | null> {
     try {
+      // Skip CCIP tracking if user not authenticated (prevents 401 errors on startup)
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        return null; // Skip silently - CCIP tracking requires authentication
+      }
+
       const changeRecord: CCIPChangeRecord = {
         change_type: 'bugfix',
         priority: 'critical',

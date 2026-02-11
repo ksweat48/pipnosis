@@ -262,6 +262,12 @@ class CandleConflictHandler {
     resolved: string
   ): Promise<void> {
     try {
+      // Skip audit logging if user not authenticated (prevents 401 errors)
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        return; // Skip silently - audit logging requires authentication
+      }
+
       // Attempt to log audit trail (non-critical, best-effort)
       await supabase.from('candle_write_audit').insert({
         symbol: candle.symbol,
@@ -284,7 +290,6 @@ class CandleConflictHandler {
       });
     } catch (error) {
       // Silently ignore all audit logging failures
-      // Common during page load before auth completes (401 errors)
       // Audit logging is nice-to-have for debugging, not critical
     }
   }
