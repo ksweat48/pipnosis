@@ -10,7 +10,7 @@ import { supabase } from '../lib/supabase';
 import SystemTableRPCWrapper from './system-table-rpc-wrapper';
 import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
 import { triggerDetectionRules, TriggerEvent, MarketSnapshot } from './trigger-detection-rules';
-import { llmSnapshotBuilder, LLMSnapshot, LLMTradeDecision } from './llm-snapshot-builder';
+import { llmSnapshotBuilder, LLMTradeDecision } from './llm-snapshot-builder';
 import { rewardEngine, TraderScore } from './reward-engine';
 import { llmStrategyBrain, StrategyPlan } from './llm-strategy-brain';
 import { strategyMemoryService } from './strategy-memory-service';
@@ -21,7 +21,6 @@ import type { MidTradeDecision } from '../brains/midtrade-monitor';
 import { safetyEnforcer } from './safety-enforcer';
 import { performanceAnalyzer } from './performance-analyzer';
 import { developerModeLogger } from './developer-mode-logger';
-import { openAIClient } from './openai-client';
 import { getCurrencyPipInfo, calculateDollarPerPip } from '../utils/currencyHelpers';
 import { alphaThoughtStream } from './alpha-thought-stream';
 

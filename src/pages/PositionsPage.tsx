@@ -33,9 +33,7 @@ import {
   Zap,
   CheckCircle,
   XCircle,
-  Percent,
   History,
-  Sparkles,
   ArrowDown,
   ArrowUp,
   BarChart3

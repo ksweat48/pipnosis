@@ -19,8 +19,6 @@ import type { MonitoredPosition, PriceData } from './monitoring/position-monitor
 
 logger.setCategoryLevel(LogCategory.POSITION_MONITOR, LogLevel.ERROR);
 
-type MonitoredPosition = GoalSessionTrade;
-
 class PositionMonitorService {
   private intervalId: NodeJS.Timeout | null = null;
   private isRunning = false;

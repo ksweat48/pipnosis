@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, BarChart2, Cloud, Wifi, AlertTriangle, Search, Shield, Sparkles, Eye, BarChart3, Wrench, StopCircle } from 'lucide-react';
+import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, AlertTriangle, Shield, Sparkles, Eye, BarChart3, Wrench, StopCircle } from 'lucide-react';
 import { smartGoalSessionManager, SmartGoalSession } from '../services/smart-goal-session-manager';
 import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/goal-scanner-trigger';
 import { useAuth } from '../hooks/useAuth';

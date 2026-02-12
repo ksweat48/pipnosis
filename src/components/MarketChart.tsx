@@ -48,6 +48,7 @@ import { ChartDataGuarantor } from '@/services/chart-data-guarantor';
 import { currentCandleReconstructor } from '@/services/current-candle-reconstructor';
 import { shouldDisableMetaAPI, isWebContainer } from '@/lib/environment';
 import { circuitBreakerService } from '@/services/circuit-breaker-service';
+import { formatPrice, formatSpread } from '@/utils/chartFormatters';
 
 interface MarketChartProps {
   symbol: string;
@@ -72,54 +73,6 @@ interface CurrentCandle {
   low: number;
   close: number;
   startTime: number;
-}
-
-// Helper function to format prices based on symbol type and screen size
-function formatPrice(price: number, symbol: string, isMobile: boolean = false): string {
-  const isCrypto = ['BTCUSD', 'ETHUSD'].includes(symbol);
-  const isGold = symbol === 'XAUUSD';
-
-  if (isMobile) {
-    // Mobile: Use compact formatting
-    if (isCrypto) {
-      // BTC/ETH: Show 2 decimals with K suffix if over 1000
-      if (price >= 10000) {
-        return `${(price / 1000).toFixed(2)}K`;
-      }
-      return price.toFixed(2);
-    } else if (isGold) {
-      // Gold: Show 2 decimals
-      return price.toFixed(2);
-    } else {
-      // Forex: Show 4-5 decimals with comma separators
-      return price.toLocaleString('en-US', {
-        minimumFractionDigits: 4,
-        maximumFractionDigits: 5
-      });
-    }
-  } else {
-    // Desktop: Use full precision
-    if (isCrypto) {
-      return price.toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-      });
-    } else if (isGold) {
-      return price.toFixed(2);
-    } else {
-      return price.toFixed(5);
-    }
-  }
-}
-
-// Helper to format spread
-function formatSpread(spread: number, symbol: string, isMobile: boolean = false): string {
-  const isCrypto = ['BTCUSD', 'ETHUSD'].includes(symbol);
-
-  if (isMobile && isCrypto && spread >= 10) {
-    return spread.toFixed(1);
-  }
-  return spread.toFixed(isCrypto ? 2 : 5);
 }
 
 export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecuted, onPriceUpdate }: MarketChartProps) {
