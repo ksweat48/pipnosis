@@ -43,7 +43,7 @@ export function ClubEntryGatePage() {
       loadAccessInfo();
     }
 
-    const refCode = searchParams.get('ref');
+    const refCode = searchParams.get('ref') || localStorage.getItem('pending_referral_code');
     if (refCode) {
       handleReferralCode(refCode);
     }

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Crown, Users, Coins, TrendingUp, RefreshCw, Search, ChevronDown, ChevronUp, Flame, Package, AlertCircle, Lock, DollarSign, Activity, TrendingDown } from 'lucide-react';
+import { Crown, Users, Coins, TrendingUp, RefreshCw, Search, ChevronDown, ChevronUp, Flame, Package, AlertCircle, Lock, DollarSign, Activity, TrendingDown, Link2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { tokenPoolAuthority } from '@/services/token-pool-authority';
 import { clubTokenLedgerCoordinator } from '@/services/club-token-ledger-coordinator';
 import { pipUtilityIndexEngine } from '@/services/pip-utility-index-engine';
 import { logger } from '@/lib/logger';
 import { TokenPoolManagement } from './TokenPoolManagement';
+import { LinkReferralDialog } from './LinkReferralDialog';
 
 interface MemberSummary {
   id: string;
@@ -64,6 +65,7 @@ type Section = 'members' | 'treasury' | 'pools' | 'utility';
 export function AdminClubPanel() {
   const [loading, setLoading] = useState(true);
   const [activeSection, setActiveSection] = useState<Section>('members');
+  const [showLinkReferral, setShowLinkReferral] = useState(false);
 
   const [stats, setStats] = useState<ClubStats>({
     totalMembers: 0, activeMembers: 0, totalTokensCirculating: 0,
@@ -299,13 +301,22 @@ export function AdminClubPanel() {
             <p className="text-gray-400 text-sm">Memberships, treasury, and utility ecosystem</p>
           </div>
         </div>
-        <button
-          onClick={loadData}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowLinkReferral(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors text-sm"
+          >
+            <Link2 className="w-4 h-4" />
+            Link Referral
+          </button>
+          <button
+            onClick={loadData}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Section Tabs */}
@@ -779,6 +790,11 @@ export function AdminClubPanel() {
           </div>
         </div>
       )}
+
+      <LinkReferralDialog
+        isOpen={showLinkReferral}
+        onClose={() => setShowLinkReferral(false)}
+      />
     </div>
   );
 }

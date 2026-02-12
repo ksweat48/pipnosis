@@ -217,7 +217,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     if (!error && data.user) {
-      const pendingRefCode = sessionStorage.getItem('pending_referral_code');
+      const pendingRefCode = localStorage.getItem('pending_referral_code');
       if (pendingRefCode) {
         try {
           const { data: refResult, error: refError } = await supabase.rpc('process_signup_referral', {
@@ -228,13 +228,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (refError) {
             console.error('[Auth] Failed to process referral:', refError);
           } else if (refResult?.success) {
-            sessionStorage.removeItem('pending_referral_code');
+            localStorage.removeItem('pending_referral_code');
           } else {
-            sessionStorage.removeItem('pending_referral_code');
+            localStorage.removeItem('pending_referral_code');
           }
         } catch (err) {
           console.error('[Auth] Exception processing referral:', err);
-          sessionStorage.removeItem('pending_referral_code');
+          localStorage.removeItem('pending_referral_code');
         }
       }
     }

@@ -57,6 +57,20 @@ const LoadingFallback = () => (
 );
 
 
+const ReferralCodeCapture: React.FC = () => {
+  const location = useLocation();
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const refCode = searchParams.get('ref');
+    if (refCode) {
+      localStorage.setItem('pending_referral_code', refCode);
+    }
+  }, [location.search]);
+
+  return null;
+};
+
 const AppRoutes: React.FC = () => {
   const { user, loading } = useAuth();
   const toast = useToast();
@@ -415,6 +429,7 @@ const AppRoutes: React.FC = () => {
       <PWAInstallPrompt />
       {user && <MidTradeAlertListener userId={user.id} />}
       {user && <ClubAccessButton userId={user.id} />}
+      <ReferralCodeCapture />
       <Suspense fallback={<LoadingFallback />}>
         <Routes>
       <Route path="/auth" element={<AuthPage />} />

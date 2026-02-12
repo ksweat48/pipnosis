@@ -29,7 +29,7 @@ export function AuthPage() {
   useEffect(() => {
     const refCode = searchParams.get('ref');
     if (refCode) {
-      sessionStorage.setItem('pending_referral_code', refCode);
+      localStorage.setItem('pending_referral_code', refCode);
     }
   }, [searchParams]);
 

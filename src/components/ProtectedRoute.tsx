@@ -1,5 +1,5 @@
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 
 interface ProtectedRouteProps {
@@ -9,6 +9,7 @@ interface ProtectedRouteProps {
 
 export function ProtectedRoute({ children, adminOnly = false }: ProtectedRouteProps) {
   const { user, loading, adminLoading, isAdmin } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -19,7 +20,13 @@ export function ProtectedRoute({ children, adminOnly = false }: ProtectedRoutePr
   }
 
   if (!user) {
-    return <Navigate to="/auth" replace />;
+    const searchParams = new URLSearchParams(location.search);
+    const refCode = searchParams.get('ref');
+    if (refCode) {
+      localStorage.setItem('pending_referral_code', refCode);
+    }
+    const authTarget = refCode ? `/auth?ref=${encodeURIComponent(refCode)}` : '/auth';
+    return <Navigate to={authTarget} replace />;
   }
 
   if (adminOnly) {
