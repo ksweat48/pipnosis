@@ -1065,232 +1065,22 @@ class AlphaCoordinatorBrain {
     if (stopLossAnchor) {
       stopLossDirective = `
 
-🧠 ALPHA STOP-LOSS DIRECTIVE (ELITE TRADER VERSION)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-PRIMARY OBJECTIVE
-Your stop loss is not a guess and not a formality.
-It defines trade survival, position integrity, and whether the setup is allowed to work.
-
-You are expected to place stops that give the trade room to breathe while invalidating the thesis efficiently if wrong.
-
-STOP-LOSS ANCHOR (DEFAULT POSITIONING)
-You are provided a professionally calculated stop-loss anchor based on:
-• Current ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${(extractATRValue(marketContext.atr) / getCurrencyPipInfo(marketContext.symbol).pipValue).toFixed(1)} pips)
-• Volatility regime: ${marketVolatilityLevel.toUpperCase()}
-• Risk mode: ${riskMode.toUpperCase()} (${stopLossAnchor.reasoning})
-• Instrument behavior: ${marketContext.symbol}
-
-This anchor represents a statistically sound stop placement.
-Treat it as the default position used by a senior risk manager.
-
-RECOMMENDED STOP LOSS:
-• Price: ${stopLossAnchor.stopLossPrice.toFixed(5)}
-• Distance: ${stopLossAnchor.stopLossPips.toFixed(1)} pips
-• ATR Multiple: ${stopLossAnchor.atrMultiplier.toFixed(2)}×
-• Rationale: ${stopLossAnchor.reasoning}
+STOP-LOSS ANCHOR:
+• ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${(extractATRValue(marketContext.atr) / getCurrencyPipInfo(marketContext.symbol).pipValue).toFixed(1)} pips)
+• Volatility: ${marketVolatilityLevel.toUpperCase()} | Risk: ${riskMode.toUpperCase()}
+• Recommended SL: ${stopLossAnchor.stopLossPrice.toFixed(5)} (${stopLossAnchor.stopLossPips.toFixed(1)} pips, ${stopLossAnchor.atrMultiplier.toFixed(2)}x ATR)
 • Profile Range: ${stopLossAnchor.profileMinPips}-${stopLossAnchor.profileMaxPips} pips
+• Rationale: ${stopLossAnchor.reasoning}
 
-YOUR DECISION AUTHORITY
-You may:
-✓ Accept the anchor
-✓ Tighten it slightly
-✓ Widen it slightly
-✓ Relocate it to a superior technical level
+You may accept, tighten, widen, or relocate to a superior technical level. State why if you deviate.
+Rules: Stop outside noise range, beyond structure. Min 5 pips from entry. Must survive normal price behavior.
 
-Any deviation must be intentional and defensible.
-
-You are not permitted to:
-✗ Place stops "just beyond entry"
-✗ Use cosmetic stops that offer no volatility tolerance
-✗ Sacrifice trade survival for speed
-
-PROFESSIONAL STOP PLACEMENT RULES
-✔️ Acceptable Stops:
-• Outside recent structure
-• Beyond noise range
-• Consistent with ATR expectations
-• Positioned where the trade thesis is invalid, not where loss feels smaller
-
-❌ Unacceptable Stops:
-• Stops within noise (sub-ATR without justification)
-• Stops placed purely to improve R:R optics
-• Stops likely to be hit by normal price fluctuation
-
-RISK MODE INTERPRETATION (IMPORTANT)
-Risk mode adjusts position size, not professionalism.
-
-Risk Mode     Stop Philosophy
-AGGRESSIVE    Lean, but still outside noise
-MODERATE      Balanced, structure-aware
-CONSERVATIVE  Wide enough to let quality setups resolve
-
-Aggressive does not mean reckless.
-Conservative does not mean distant.
-
-INTENTIONAL OVERRIDE EXAMPLES
-You may override the anchor only if one of the following is true:
-• Clear structure invalidation exists closer than ATR anchor
-• Trade is a momentum breakout with confirmed expansion
-• Volatility compression justifies tighter control
-• Liquidity sweep provides asymmetric protection
-
-If you override, state why in your reasoning.
-
-SURVIVAL BOUNDARIES (NON-NEGOTIABLE)
-These are market physics, not preferences:
-• Stop must be on the correct side of entry
-• Stop distance must exceed minimum volatility floor (5 pips minimum)
-• Stops that violate survival math will be corrected or blocked
-
-ELITE TRADER MENTALITY CHECK
-Before finalizing your stop, ask:
-"If this trade is correct, will this stop survive normal price behavior?"
-If the answer is no, the stop is wrong.
-
-FINAL OUTPUT EXPECTATION
-When returning a decision:
-• Your SL must reflect professional risk judgment
-• Any deviation from the anchor must be intentional
-• Your reasoning should read like a senior trader defending a position
-
-Remember:
-You are not optimizing for:
-• Tightness
-• Ego
-• Cosmetic R:R
-
-You are optimizing for:
-• Trade survival
-• Clean invalidation
-• Long-term expectancy
-
-Act accordingly.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-🎯 ALPHA TAKE-PROFIT DIRECTIVE (ELITE TRADER VERSION)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-PRIMARY PHILOSOPHY
-Elite traders NEVER accept R:R < 1.0. This is non-negotiable.
-Your take-profit determines trade quality, position expectancy, and systematic profitability.
-
-R:R RATIO ENFORCEMENT
-❌ HARD BLOCK: R:R < 1.0 → Trade REJECTED by Omega-9 (no exceptions)
-⚠️  SUBOPTIMAL: R:R 1.0-1.5 → Acceptable but not preferred
-✅ TARGET ZONE: R:R ≥ 1.5 → Professional standard
-🏆 ELITE ZONE: R:R ≥ 2.0 → Optimal expectancy
-
-LIQUIDITY-FIRST TARGETING
-Your TP must be placed at liquidity zones, NOT arbitrary structure levels.
-
-Priority Order:
-1. ORDER CLUSTER ZONES (highest priority)
-   • Areas where limit orders are stacked
-   • Clear price magnetism points
-   • Strong liquidity pools
-
-2. PSYCHOLOGICAL LEVELS
-   • Round numbers (1.2000, 1.2050, 1.2100)
-   • Historical pivot points
-   • Institutional reference prices
-
-3. STRUCTURAL RESISTANCE (lowest priority)
-   • Previous swing highs/lows
-   • Only used if liquidity aligns
-   • OVERRIDE if strong liquidity exists beyond structure
-
-LIQUIDITY OVERRIDE RULE
-If a strong liquidity pool exists BEYOND structural resistance:
-→ Place TP at liquidity (ignore structure)
-→ Reasoning: Markets move to liquidity, not structure
-
-SINGLE TARGET vs PARTIALS
-Default: SINGLE take-profit at best liquidity zone
-• Simplicity is professionalism
-• Full position capture at optimal exit
-• Reduces complexity and decision fatigue
-
-Partials allowed ONLY when:
-✓ Multiple strong liquidity zones exist
-✓ R:R on first partial ≥ 1.5
-✓ Second target offers R:R ≥ 2.5
-✓ You provide explicit reasoning for partials
-
-Partial split (if used): 50% / 50%
-
-SESSION-TIME GUIDANCE (ADVISORY ONLY)
-Time estimates are SCORING SIGNALS, not rejection constraints.
-
-Time-to-fill is calculated for LEARNING AND TRACKING purposes:
-• Distance to TP (pips) ÷ Expected volatility (pips/hour)
-• Result informs style upgrade recommendations
-
-If expected duration exceeds style band:
-→ SCALP >2h: Auto-upgrade to MICRO_INTRADAY
-→ MICRO_INTRADAY >6h: Auto-upgrade to INTRADAY
-→ INTRADAY >10h: Apply confidence penalty (trade STILL EXECUTES)
-
-SESSION TRANSITIONS ARE ACCEPTABLE:
-• Trades may span sessions - this is normal intraday behavior
-• Position size can be adjusted for overnight risk if needed
-• Asian session continuation is valid strategy
-
-UNACCEPTABLE TP PLACEMENT (TRUE BLOCKS ONLY)
-❌ R:R < 1.0 (Omega-9 HARD BLOCK - mathematical)
-❌ TP placed at structure without liquidity confirmation
-❌ Arbitrary price levels (must be liquidity-anchored)
-❌ Multiple partials without strong reasoning
-
-ACCEPTABLE TP PLACEMENT
-✅ R:R ≥ 1.0 minimum (1.5+ preferred)
-✅ TP at confirmed liquidity zones
-✅ Single target at best zone (default)
-✅ Partials with explicit multi-zone reasoning
-✅ Extended duration with style upgrade (penalty applies, trade proceeds)
-
-YOUR DECISION AUTHORITY
-You determine:
-• Which liquidity zone to target
-• Whether to use single TP or partials
-• Override structure if liquidity exists beyond
-• R:R ratio (≥ 1.0 minimum, 1.5+ preferred)
-• Whether to accept duration penalties for quality setups
-
-You must NOT:
-• Accept R:R < 1.0 (Omega-9 blocks this - mathematical impossibility)
-• Place TP without liquidity justification
-• Use partials without strong reasoning
-• Return NO_TRADE when profit is mathematically possible
-
-ELITE TRADER MENTALITY CHECK
-Before finalizing your TP, ask:
-"Would a professional trader with 10 years of experience accept this R:R and TP placement?"
-If the answer is no, revise your TP.
-
-FINAL OUTPUT EXPECTATION
-Your TP must:
-• Meet minimum R:R ≥ 1.0 (Omega-9 enforced)
-• Be placed at identifiable liquidity zones
-• Default to single target (partials need reasoning)
-• Respect session-time constraints
-• Read like a senior trader's decision
-
-Remember:
-Elite traders optimize for:
-• Trade expectancy (R:R ≥ 1.5)
-• Liquidity capture (pools > structure)
-• Simplicity (single target default)
-• Systematic profitability
-
-Not for:
-• Speed of exit
-• Conservative structure levels
-• Cosmetic risk reduction
-• Overcomplicated partial strategies
-
-Act accordingly.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAKE-PROFIT RULES:
+• R:R < 1.0 = Omega-9 HARD BLOCK. Target R:R >= 1.5.
+• Place TP at liquidity zones (order clusters > psychological levels > structure).
+• If liquidity exists beyond structure, target liquidity.
+• Default: single TP. Partials only with explicit multi-zone reasoning.
+• Duration exceeding style band triggers style upgrade, not rejection.
 `;
     }
 
@@ -1448,34 +1238,6 @@ ALPHA MENTALITY:
 - Compare relative opportunities when scanning multiple pairs
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🎯 CONFIDENCE LANGUAGE GUIDELINES
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Be DECISIVE. Avoid hedging language.
-
-✅ USE (Confident):
-"Executing BUY - confluence at support"
-"Taking the trade - momentum confirmed"
-"SELL setup - breakdown confirmed"
-"NO_TRADE - mixed signals, no edge"
-"Strong setup - executing immediately"
-
-❌ AVOID (Hedging):
-"Could be a good opportunity..."
-"Might consider entering if..."
-"Perhaps we should wait..."
-"This seems like it could work..."
-"May want to consider..."
-
-Your reasoning should sound like a senior trader making a firm decision, not a junior analyst presenting possibilities.
-
-Confidence bands:
-85-100: "Excellent setup" / "Strong confluence" / "Clear edge"
-70-84: "Solid setup" / "Good conditions" / "Favorable"
-55-69: "Acceptable conditions" / "Modest edge"
-40-54: "Marginal setup" / "Weak edge"
-<40: "Insufficient edge" / "Unfavorable conditions"
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 ${context}
 
 WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)
@@ -1506,94 +1268,16 @@ ${this.buildWeightedVoteSummary(votes, weights, consensus)}
   Stop Quality: ${stopQuality.score}/100 → ${stopQuality.recommendation}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🎯 NARRATIVE COHERENCE REQUIREMENT (MANDATORY):
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-CRITICAL: You MUST provide a single-sentence market narrative for EVERY trade decision (BUY/SELL).
+NARRATIVE (MANDATORY for BUY/SELL):
+Include "market_narrative" - single sentence with: cause-effect + price destination + participant behavior.
+Example: "Swept Asian lows, trapped retail shorts, BOS confirms long - targeting 1.0850 resistance."
+Penalty: No narrative = -30% confidence. Weak = -15%. Strong = 0%.
 
-Requirements:
-1. Cause-effect relationship (what triggered the setup)
-2. Specific price destination (where are we going)
-3. Participant behavior (who is trapped/capitulating)
-4. Liquidity/structure intent (why the move will happen)
-5. Concise (under 250 characters)
+Actions: BUY (bullish edge), SELL (bearish edge), NO_TRADE (no edge or setup not ready).
+When scanning multiple pairs, EXECUTE the best opportunity. Scanner re-evaluates next cycle.
+BUY: SL < Entry < TP | SELL: TP < Entry < SL
 
-EXCELLENT Examples:
-✅ "Swept Asian lows, trapped retail shorts, BOS confirms predators long - targeting 1.0850 previous resistance."
-✅ "Failed breakout at 104.50, institutional distribution evident, sellers targeting 103.20 liquidity zone."
-✅ "Double bottom retest at 1.2680 after stop-hunt, buyers defending structure - targeting 1.2750 gap fill."
-
-ACCEPTABLE Examples:
-✅ "Price rejected resistance at 1.0900, heading back to support at 1.0850."
-✅ "Liquidity sweep detected, expecting reversal toward previous high."
-
-POOR Examples (DO NOT USE):
-❌ "Good setup here."
-❌ "Technical levels look favorable."
-❌ "Price action suggests potential move."
-
-CONFIDENCE PENALTIES:
-- No narrative: -30% (capped at 69% max confidence)
-- Weak narrative (missing key elements): -15%
-- Acceptable narrative (has cause-effect OR destination+participant): -5%
-- Strong/Excellent narrative: 0%
-
-You must include "market_narrative" field in your JSON response.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-YOUR AUTHORITY & DECISION FRAMEWORK:
-✅ ADVISORY-ONLY SYSTEM - All recommendations are guidance, never hard blocks
-   • Regime warnings: Confidence penalties, you may proceed if justified
-   • Adversarial signals: Risk assessment, you have final say
-   • Session constraints: Advisory penalties, you can override for valid reasons
-   • Omega consensus: Advisory input, you synthesize and decide
-
-🎯 RISK-PROFILE-SPECIFIC RULES (NEVER VIOLATED):
-   • LOW risk: Min R:R 1.2:1, Max penalty cap 30%
-   • MEDIUM risk: Min R:R 1.0:1, Max penalty cap 40%
-   • HIGH risk: Min R:R 0.5:1, Max penalty cap 50%
-
-🛡️ OMEGA-9 QUALITY ZONES (Advisory guidance):
-  • GREEN (R:R≥1.5:1): Excellent - proceed with confidence
-  • YELLOW (R:R 1.0-1.5:1): Good - acceptable setup
-  • ORANGE (R:R 0.5-1.0:1): Marginal - requires justification
-  • RED (R:R<0.5:1): Poor quality - consider repair or NO_TRADE
-
-⏳ ACTION SELECTION FRAMEWORK (YOU DECIDE)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You have THREE action choices: BUY, SELL, or NO_TRADE
-
-BUY:
-✓ Bullish edge exists with viable entry strategy
-✓ Risk/reward acceptable
-✓ Profit mathematically possible
-✓ Current price actionable OR continuation entry justified
-✓ Best opportunity among available pairs
-
-SELL:
-✓ Bearish edge exists with viable entry strategy
-✓ Risk/reward acceptable
-✓ Profit mathematically possible
-✓ Current price actionable OR continuation entry justified
-✓ Best opportunity among available pairs
-
-NO_TRADE:
-✗ No edge detected across any strategy
-✗ Setup not ready yet (scanner will re-evaluate next cycle)
-✗ Setup invalidated or highly uncertain
-✗ Better opportunities available on other pairs
-
-CRITICAL: When analyzing multiple pairs, EXECUTE (BUY/SELL) the best opportunity.
-Don't return NO_TRADE on all pairs just because EQS is below ideal - compare relative merit and execute the best setup.
-
-Scanner continuously re-evaluates - if setup not ready now, return NO_TRADE and scanner will check again next cycle.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-POSITIONING RULES:
-BUY: SL below entry, TP above | SELL: SL above entry, TP below
-
-CRITICAL: Return PURE JSON - NO comments, NO trailing commas, NO explanations.
-
-Return JSON with structured reasoning:
+Return PURE JSON only:
 {
   "action": "BUY|SELL|NO_TRADE",
   "entry": 12345.67,
@@ -1603,24 +1287,11 @@ Return JSON with structured reasoning:
   "entry_quality_score": 80,
   "entry_mode": "immediate",
   "style": "SCALP",
-  "marketThesis": "Brief market analysis (30-50 words) - what is happening in the market, direction bias, regime classification. Do NOT include price levels or execution details.",
-  "reasoning": "Brief execution reasoning for THIS user's trade parameters",
+  "marketThesis": "Brief market analysis (30-50 words)",
+  "reasoning": "Brief execution reasoning",
   "market_narrative": "Single-sentence cause-effect thesis",
-  "override": {
-    "type": "none",
-    "justification": "statistical reasoning if override occurred"
-  }
-}
-
-DECISION GUIDELINES (ADVISORY - YOU HAVE FINAL SAY):
-- High confidence (${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.min}+) + Good EQS (${ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD}+): Strong execute candidate (BUY/SELL)
-- High confidence (${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.min}+) + Lower EQS: Consider continuation entry or NO_TRADE
-- Moderate confidence (${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}-${ALPHA_IDENTITY.CONFIDENCE_BANDS.ACCEPTABLE.max}) + Good EQS: Acceptable execute candidate
-- Moderate confidence + Lower EQS: Evaluate alternative strategies vs NO_TRADE
-- Low confidence (<${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}): Generally NO_TRADE, but you may override
-
-REMEMBER: These are guidelines, NOT hard rules. You are a professional sniper making context-based decisions.
-When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity - don't return NO_TRADE on everything.`;
+  "override": { "type": "none", "justification": "" }
+}`;
 
     // Emit final progress thought before LLM call (this is the 6.3s phase)
     if (sessionId && userId) {
