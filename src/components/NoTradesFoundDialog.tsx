@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Search, XCircle, Clock, AlertTriangle, X } from 'lucide-react';
+import { Search, XCircle, Clock, AlertTriangle, X, RefreshCw } from 'lucide-react';
 
 interface NoTradesFoundDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  onTryAgain: () => void;
   sessionId: string;
   isLoading?: boolean;
 }
@@ -11,6 +12,7 @@ interface NoTradesFoundDialogProps {
 export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
   isOpen,
   onClose,
+  onTryAgain,
   sessionId,
   isLoading = false
 }) => {
@@ -69,6 +71,15 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
     }
   };
 
+  const handleTryAgainClick = () => {
+    console.log('[NoTradesFoundDialog] User clicked Try Again');
+    try {
+      onTryAgain();
+    } catch (error) {
+      console.error('[NoTradesFoundDialog] Error in onTryAgain handler:', error);
+    }
+  };
+
   const handleForceClose = () => {
     console.warn('[NoTradesFoundDialog] User force-closed modal via X button');
     setForceClosing(true);
@@ -103,17 +114,17 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
                   No Trades Found
                 </h3>
                 <p className="text-sm text-gray-400">
-                  Scan cycle completed
+                  All pairs scanned - no qualifying setups
                 </p>
               </div>
             </div>
 
             <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-xl p-4 mb-6">
               <p className="text-gray-300 text-sm mb-3">
-                No quality trade setups were found. Market conditions may not be favorable right now.
+                Alpha scanned all pairs and found no quality trade setups. Market conditions may not be favorable right now.
               </p>
               <p className="text-yellow-300/90 text-sm font-medium">
-                Try again in about 15 minutes.
+                Try again in about 15 minutes when conditions may improve.
               </p>
             </div>
 
@@ -149,14 +160,25 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
               )}
             </div>
 
-            <button
-              onClick={handleCloseClick}
-              disabled={isLoading}
-              className="w-full flex items-center justify-center gap-3 px-4 py-4 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed rounded-xl text-white font-semibold transition-all duration-300 shadow-lg hover:shadow-red-500/25 hover:scale-[1.02] active:scale-[0.98]"
-            >
-              <XCircle className="w-5 h-5" />
-              <span>Close Session</span>
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={handleTryAgainClick}
+                disabled={isLoading}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed rounded-xl text-white font-semibold transition-all duration-300 shadow-lg hover:shadow-emerald-500/25 hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <RefreshCw className="w-5 h-5" />
+                <span>Try Again</span>
+              </button>
+
+              <button
+                onClick={handleCloseClick}
+                disabled={isLoading}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-4 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed rounded-xl text-white font-semibold transition-all duration-300 shadow-lg hover:shadow-red-500/25 hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <XCircle className="w-5 h-5" />
+                <span>Close Session</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

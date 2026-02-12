@@ -121,6 +121,7 @@ class GoalSessionLiveEngine {
   private tradesOpenAtExpiration = 0;
   private goalClassification: GoalClassification | null = null;
   private isStopping = false; // RACE CONDITION FIX: Track session shutdown state
+  private scanCompleteNoTrade = false; // SSOT: Halt polling after full scan finds no executable trades
 
   private readonly POLLING_INTERVAL_MS = 60000; // 60s = 75% fewer LLM calls
   private readonly MAX_DAILY_LOSS_PERCENT = 10;
@@ -254,6 +255,7 @@ class GoalSessionLiveEngine {
       this.tradesOpenAtExpiration = 0;
       this.monitoringModeMessageSent = false;
       this.isStopping = false; // RACE CONDITION FIX: Reset stopping flag for new session
+      this.scanCompleteNoTrade = false; // SSOT: Reset scan-halt flag for new session
 
       // ✅ CRITICAL: Initialize autonomous Pipnosis Alpha brain
       await eventBasedLLMEngine.initialize(config.userId, config.goalSessionId);
@@ -467,8 +469,12 @@ class GoalSessionLiveEngine {
    * Process candle update with mutex to prevent race conditions
    */
   private async processCandleUpdate(): Promise<void> {
-    // RACE CONDITION FIX: Early exit if session is stopping or config is null
     if (this.isStopping || !this.config || !this.activeSession) {
+      return;
+    }
+
+    if (this.scanCompleteNoTrade) {
+      logger.debug(LogCategory.AI_TRADING, 'Scan already completed with no trades - polling halted');
       return;
     }
 
@@ -3561,13 +3567,17 @@ This learning will carry forward to improve future sessions!
 
     parts.push('');
     if (blockedCount + noTradeCount === evaluated.length) {
-      parts.push('No high-quality setups found. Continuing to scan for opportunities...');
+      parts.push('No high-quality setups found across all pairs. Try again in ~15 minutes when conditions may improve.');
     }
 
     return parts.join('\n');
   }
 
   private emitNoTradeEvent(): void {
+    this.scanCompleteNoTrade = true;
+    this.stopPolling();
+    logger.info(LogCategory.AI_TRADING, 'Full scan complete - no executable trades found. Polling halted.');
+
     if (typeof window !== 'undefined' && this.activeSession) {
       window.dispatchEvent(new CustomEvent('alpha-scan-no-trade', {
         detail: { sessionId: this.activeSession, timestamp: Date.now() }

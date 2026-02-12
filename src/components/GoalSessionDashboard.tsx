@@ -924,6 +924,23 @@ export const GoalSessionDashboard: React.FC = () => {
     }
   };
 
+  const handleNoTradesTryAgain = async () => {
+    if (!activeSession || !user) return;
+
+    setNoTradesLoading(true);
+    try {
+      console.log('[GoalSessionDashboard] Try Again - stopping current session and starting fresh');
+      goalScannerTrigger.stopPolling();
+      await smartGoalSessionManager.stopSession(activeSession.sessionId, user.id);
+      setShowNoTradesModal(false);
+      await handleStartNewSession();
+    } catch (error) {
+      console.error('[GoalSessionDashboard] Error restarting session:', error);
+    } finally {
+      setNoTradesLoading(false);
+    }
+  };
+
   const formatTimeRemaining = (endTime: string) => {
     const end = new Date(endTime).getTime();
     const now = Date.now();
@@ -1663,6 +1680,7 @@ export const GoalSessionDashboard: React.FC = () => {
         <NoTradesFoundDialog
           isOpen={showNoTradesModal}
           onClose={handleNoTradesClose}
+          onTryAgain={handleNoTradesTryAgain}
           sessionId={activeSession.sessionId}
           isLoading={noTradesLoading}
         />
