@@ -263,6 +263,9 @@ export interface AlphaDecision {
   timestamp?: Date;
   risk_pct?: number;
   resolvedStyle?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+  omegaConsensusPercent?: number;
+  expectedFillTimeHours?: number;
+  atrPercent?: number;
   goal_context?: GoalContext;
   override?: AlphaOverride;
   intelligence_snapshot?: Partial<AlphaIntelligenceSnapshot>;
@@ -900,6 +903,7 @@ class AlphaCoordinatorBrain {
     // Validates if requested style/risk is feasible given current market conditions
     let feasibilityResult = null;
     let resolvedPlan = null;
+    let computedAtrPercent = 0;
 
     if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED' && consensus.direction !== 'WAIT') {
       const assetClass = getAssetClass(marketContext.symbol);
@@ -916,9 +920,9 @@ class AlphaCoordinatorBrain {
         undefined // TODO: Add user time preference from settings
       );
 
-      // Extract ATR value for feasibility check
       const atrValue = extractATRValue(marketContext.atr);
       const atrPercent = (atrValue / marketContext.price) * 100;
+      computedAtrPercent = atrPercent;
       logATRUsage('Feasibility check', marketContext.atr);
 
       if (sessionId && userId) {
@@ -1880,9 +1884,10 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
         console.log('[Alpha Stop Analysis] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       }
 
-      // Add omega summary and votes for transparency
       decision.omega_summary = this.generateOmegaSummary(votes, weights);
       decision.omega_votes = votes;
+      decision.omegaConsensusPercent = consensus.score;
+      decision.atrPercent = computedAtrPercent;
 
       // Add goal context if provided
       if (goalContext) {
@@ -2126,6 +2131,7 @@ When scanning multiple pairs, EXECUTE (BUY/SELL) the best relative opportunity -
         console.log(`[Alpha Coordinator] ⏱️  Expected fill: ${timeToFill.expectedMinutes}min (${timeToFill.viability})`);
         console.log(`[Alpha Coordinator] ⏱️  ${timeToFill.reasoning}`);
 
+        decision.expectedFillTimeHours = timeToFill.expectedMinutes / 60;
         decision.reasoning += ` [Expected fill: ${timeToFill.expectedMinutes}min - ${timeToFill.viability}]`;
 
         if (timeToFill.recommendedAction === 'REJECT') {

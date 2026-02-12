@@ -22,13 +22,13 @@
 
 import { logger, LogCategory } from '../lib/logger';
 import { supabaseAdmin } from '../lib/supabase-admin';
-import { ALPHA_IDENTITY } from '../config/alpha-identity';
 import { getAtrGate } from '../config/trade-constraints';
-import type { TradeStyle } from '../types';
+
+type CanonicalStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
 
 export interface StyleQualificationInput {
   symbol: string;
-  style: TradeStyle;
+  style: CanonicalStyle;
   assetClass: 'FOREX' | 'CRYPTO' | 'METAL' | 'INDEX';
 
   // Duration validation
@@ -161,7 +161,8 @@ export async function validateStyleQualification(
   }
 
   // VALIDATION 3: ATR Gate (MAJOR)
-  const atrGateThreshold = getAtrGate(input.assetClass, input.style);
+  const atrLookupStyle = input.style === 'MICRO_INTRADAY' ? 'INTRADAY' : input.style;
+  const atrGateThreshold = getAtrGate(input.assetClass, atrLookupStyle as any);
   if (input.atrPercent < atrGateThreshold) {
     violations.push({
       type: 'ATR_GATE',
@@ -303,27 +304,21 @@ async function logStyleGateBlock(
  * Get style contract details for a specific style
  * Useful for displaying contract requirements to Alpha
  */
-export function getStyleContract(style: TradeStyle) {
+export function getStyleContract(style: CanonicalStyle) {
   return STYLE_CONTRACTS[style];
 }
 
-/**
- * Check if Omega consensus meets style requirements
- */
 export function meetsConsensusRequirement(
   omegaConsensusPercent: number,
-  style: TradeStyle
+  style: CanonicalStyle
 ): boolean {
   const contract = STYLE_CONTRACTS[style];
   return omegaConsensusPercent >= contract.minOmegaConsensus;
 }
 
-/**
- * Check if expected fill time meets style requirements
- */
 export function meetsDurationRequirement(
   expectedFillTimeHours: number,
-  style: TradeStyle
+  style: CanonicalStyle
 ): boolean {
   const contract = STYLE_CONTRACTS[style];
   const fillMinutes = expectedFillTimeHours * 60;

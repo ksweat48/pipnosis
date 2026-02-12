@@ -81,10 +81,10 @@ export const TRADE_CONSTRAINTS = {
   styleValidity: {
     // ATR% gates for style viability (advisory thresholds)
     atrGates: {
-      FOREX: { SCALP: 0.05, INTRADAY: 0.03, SWING: 0.02 },
-      CRYPTO: { SCALP: 0.20, INTRADAY: 0.10, SWING: 0.05 },
-      METAL: { SCALP: 0.08, INTRADAY: 0.05, SWING: 0.03 },
-      INDEX: { SCALP: 0.06, INTRADAY: 0.04, SWING: 0.02 }
+      FOREX: { SCALP: 0.05, MICRO_INTRADAY: 0.04, INTRADAY: 0.03, SWING: 0.02 },
+      CRYPTO: { SCALP: 0.20, MICRO_INTRADAY: 0.15, INTRADAY: 0.10, SWING: 0.05 },
+      METAL: { SCALP: 0.08, MICRO_INTRADAY: 0.06, INTRADAY: 0.05, SWING: 0.03 },
+      INDEX: { SCALP: 0.06, MICRO_INTRADAY: 0.05, INTRADAY: 0.04, SWING: 0.02 }
     },
     authority: 'ADVISORY' as ConstraintAuthority,
     description: 'ATR% minimums for each style - advisory only, Alpha may override with justification',

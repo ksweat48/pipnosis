@@ -50,6 +50,16 @@ import type { TradeContext } from '../types/trade-context';
 
 export type ExecutionMode = 'IMMEDIATE' | 'PENDING' | 'MONITORED';
 
+type CanonicalStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+
+function normalizeToCanonicalStyle(input: string): CanonicalStyle {
+  const normalized = (input || '').toLowerCase().trim();
+  if (normalized === 'scalp' || normalized === 'scalper') return 'SCALP';
+  if (normalized === 'micro' || normalized === 'micro_intraday') return 'MICRO_INTRADAY';
+  if (normalized === 'day' || normalized === 'intraday') return 'INTRADAY';
+  return 'SCALP';
+}
+
 export interface TradeExecutionInputs {
   // Alpha decision
   decision: AlphaDecision;
@@ -573,6 +583,8 @@ class AlphaTradeExecutor {
     // - INTRADAY must execute like INTRADAY (H1, 2-10 hour duration)
     // Blocks trades that violate style execution boundaries
 
+    const canonicalStyle = decision.resolvedStyle || normalizeToCanonicalStyle(tradeStyle);
+
     logger.info(
       LogCategory.AI_TRADING,
       '[Style Gate] Validating trade qualification for style execution contract',
@@ -580,37 +592,33 @@ class AlphaTradeExecutor {
         userId,
         sessionId,
         symbol: decision.symbol,
-        style: tradeStyle,
+        style: canonicalStyle,
         confidence: decision.confidence,
         omegaConsensus: decision.omegaConsensusPercent
       }
     );
 
-    // Calculate expected fill time (if available from decision)
     const expectedFillTimeHours = decision.expectedFillTimeHours || 0;
 
-    // Calculate target and stop in pips for validation
     const targetPips = calculatePipDistance(
+      tradeContext.symbol,
       decision.entry,
-      decision.takeProfit,
-      tradeContext.symbol
+      decision.takeProfit
     );
     const stopPips = calculatePipDistance(
+      tradeContext.symbol,
       decision.entry,
-      decision.stopLoss,
-      tradeContext.symbol
+      decision.stopLoss
     );
 
-    // Get asset class from symbol config
     const symbolConfig = getSymbolConfig(tradeContext.symbol);
-    const assetClass = symbolConfig?.category === 'FOREX' ? 'FOREX' :
-                       symbolConfig?.category === 'CRYPTO' ? 'CRYPTO' :
-                       symbolConfig?.category === 'METAL' ? 'METAL' : 'INDEX';
+    const assetClass = symbolConfig?.category === 'forex' ? 'FOREX' :
+                       symbolConfig?.category === 'crypto' ? 'CRYPTO' :
+                       symbolConfig?.category === 'metal' ? 'METAL' : 'INDEX';
 
-    // Run style qualification validation
     const styleQualification = await validateStyleQualification({
       symbol: decision.symbol,
-      style: tradeStyle as any,
+      style: canonicalStyle,
       assetClass,
       expectedFillTimeHours,
       omegaConsensusPercent: decision.omegaConsensusPercent || 0,
@@ -627,12 +635,12 @@ class AlphaTradeExecutor {
     if (!styleQualification.qualified) {
       logger.error(
         LogCategory.AI_TRADING,
-        '[Style Gate] 🚫 TRADE BLOCKED - Style qualification failed',
+        '[Style Gate] TRADE BLOCKED - Style qualification failed',
         {
           userId,
           sessionId,
           symbol: decision.symbol,
-          style: tradeStyle,
+          style: canonicalStyle,
           blockReason: styleQualification.blockReason,
           violations: styleQualification.violations.map(v => ({
             type: v.type,
@@ -653,12 +661,12 @@ class AlphaTradeExecutor {
 
     logger.info(
       LogCategory.AI_TRADING,
-      '[Style Gate] ✅ Trade qualified for style execution',
+      '[Style Gate] Trade qualified for style execution',
       {
         userId,
         sessionId,
         symbol: decision.symbol,
-        style: tradeStyle,
+        style: canonicalStyle,
         violations: styleQualification.violations.length,
         advisory: styleQualification.advisory
       }
