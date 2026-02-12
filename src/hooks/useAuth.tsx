@@ -1,8 +1,6 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
-import { liveTradeLearningTrigger } from '@/services/live-trade-learning-trigger';
-import { continuousLearningLoop } from '@/services/continuous-learning-loop';
 
 interface AuthContextType {
   user: User | null;
@@ -24,212 +22,187 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [adminLoading, setAdminLoading] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const mountedRef = useRef(true);
+  const validatingRef = useRef(false);
 
-  useEffect(() => {
-    console.log('🔐 [useAuth] Initializing auth...');
+  const fetchUserRole = useCallback(async (userId: string) => {
+    setAdminLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('is_admin')
+        .eq('id', userId)
+        .maybeSingle();
 
-    const fetchUserRole = async (userId: string) => {
-      console.log('👤 [useAuth] Fetching user role for:', userId);
-      setAdminLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from('user_profiles')
-          .select('is_admin')
-          .eq('id', userId)
-          .single();
-
-        if (!error && data) {
-          console.log('✅ [useAuth] User admin status:', data.is_admin);
-          setIsAdmin(data.is_admin === true);
-        } else {
-          console.log('ℹ️ [useAuth] No user profile found or not admin, treating as regular user');
-          setIsAdmin(false);
-        }
-      } catch (error) {
-        console.error('❌ [useAuth] Error fetching user role:', error);
+      if (!mountedRef.current) return;
+      if (!error && data) {
+        setIsAdmin(data.is_admin === true);
+      } else {
         setIsAdmin(false);
-      } finally {
-        setAdminLoading(false);
       }
-    };
+    } catch {
+      if (mountedRef.current) setIsAdmin(false);
+    } finally {
+      if (mountedRef.current) setAdminLoading(false);
+    }
+  }, []);
 
-    const validateAccountIntegrity = async (userId: string): Promise<boolean> => {
-      // SSOT: Account Integrity Validation
-      // GOVERNANCE: Prevent broken accounts from accessing the system
-      try {
-        console.log('🔍 [useAuth] Validating account integrity for:', userId);
+  const validateAccountIntegrity = useCallback(async (userId: string): Promise<boolean> => {
+    try {
+      const { data, error } = await supabase
+        .rpc('check_account_integrity', { check_user_id: userId });
 
-        const { data, error } = await supabase
-          .rpc('check_account_integrity', { check_user_id: userId });
-
-        if (error) {
-          console.error('❌ [useAuth] Failed to check account integrity:', error);
-          return false;
-        }
-
-        if (!data || !data.valid) {
-          console.error('❌ [useAuth] Account integrity check failed:', data);
-          console.error('Issues:', data?.issues);
-
-          // Force logout if account is broken
-          await supabase.auth.signOut();
-
-          // Show error to user
-          alert('Account setup is incomplete. Please contact support or try signing up again.');
-
-          return false;
-        }
-
-        console.log('✅ [useAuth] Account integrity validated');
-        return true;
-      } catch (error) {
-        console.error('❌ [useAuth] Error validating account integrity:', error);
+      if (error) {
+        console.error('[Auth] Account integrity check error:', error);
         return false;
       }
-    };
 
-    console.log('🔍 [useAuth] Getting session...');
-    supabase.auth.getSession()
-      .then(async ({ data: { session } }) => {
-        console.log('📋 [useAuth] Session retrieved:', session ? 'Logged in' : 'Not logged in');
+      if (!data || !data.valid) {
+        console.error('[Auth] Account integrity failed:', data?.issues);
+        await supabase.auth.signOut();
+        alert('Account setup is incomplete. Please contact support or try signing up again.');
+        return false;
+      }
 
-        if (session?.user) {
-          // CRITICAL: Validate account integrity before allowing access
-          const isValid = await validateAccountIntegrity(session.user.id);
+      return true;
+    } catch (err) {
+      console.error('[Auth] Account integrity exception:', err);
+      return false;
+    }
+  }, []);
 
-          if (!isValid) {
-            // Account is broken - don't set session/user
-            console.error('🚫 [useAuth] Account integrity validation failed - blocking access');
-            setSession(null);
-            setUser(null);
-            setLoading(false);
-            return;
-          }
+  // SSOT: Single auth state management
+  // getSession() handles initial hydration from persisted session (no heavy validation)
+  // onAuthStateChange handles sign-in/sign-out/refresh events
+  // This eliminates the race condition where both paths validated simultaneously
+  useEffect(() => {
+    mountedRef.current = true;
 
-          // Account is valid - proceed normally
-          setSession(session);
-          setUser(session.user);
+    supabase.auth.getSession().then(async ({ data: { session: currentSession } }) => {
+      if (!mountedRef.current) return;
 
-          fetchUserRole(session.user.id).finally(() => {
-            console.log('✅ [useAuth] Auth initialization complete (with user)');
-            setLoading(false);
-          });
-        } else {
-          setSession(null);
-          setUser(null);
-          console.log('✅ [useAuth] Auth initialization complete (no user)');
-          setLoading(false);
-        }
-      })
-      .catch((error) => {
-        console.error('❌ [useAuth] Failed to get session:', error);
-        // Continue anyway - don't block the app
+      if (currentSession?.user) {
+        setSession(currentSession);
+        setUser(currentSession.user);
+        await fetchUserRole(currentSession.user.id);
+      } else {
+        setSession(null);
+        setUser(null);
+      }
+
+      if (mountedRef.current) setLoading(false);
+    }).catch(() => {
+      if (mountedRef.current) setLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+      if (event === 'INITIAL_SESSION') return;
+
+      if ((event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') && newSession?.user) {
+        setSession(newSession);
+        setUser(newSession.user);
+        return;
+      }
+
+      if (event === 'SIGNED_OUT' || !newSession?.user) {
+        setSession(null);
+        setUser(null);
+        setIsAdmin(false);
         setLoading(false);
-      });
+        return;
+      }
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       (async () => {
-        const previousUser = user;
+        if (validatingRef.current) return;
+        validatingRef.current = true;
 
-        if (session?.user) {
-          // CRITICAL: Validate account integrity on auth state change
-          const isValid = await validateAccountIntegrity(session.user.id);
-
-          if (!isValid) {
-            // Account is broken - block access
-            console.error('🚫 [useAuth] Account integrity validation failed on state change');
+        try {
+          const isValid = await validateAccountIntegrity(newSession.user.id);
+          if (!isValid || !mountedRef.current) {
             setSession(null);
             setUser(null);
-            setIsAdmin(false);
             setLoading(false);
             return;
           }
 
-          // Account is valid - proceed
-          setSession(session);
-          setUser(session.user);
-
-          if (previousUser?.id !== session.user.id) {
-            const { unifiedEntryMonitor } = await import('@/services/unified-entry-monitor');
-            unifiedEntryMonitor.stopAllMonitoring();
-            console.log('[Auth] Stopped monitoring for previous user');
-          }
-
-          // Initialize user risk preference (SSOT) if not already set
-          try {
-            const { userRiskPreferenceService } = await import('@/services/user-risk-preference-service');
-            await userRiskPreferenceService.initializeNewUser(session.user.id);
-          } catch (error) {
-            console.warn('[Auth] Could not initialize risk preference:', error);
-            // Don't fail auth if this fails - service will use default
-          }
-
-          await fetchUserRole(session.user.id);
-
-          if (!liveTradeLearningTrigger.isActive()) {
-            console.log('[Auth] Starting live trade learning trigger for user:', session.user.id);
-            liveTradeLearningTrigger.start(session.user.id);
-          }
-
-          if (!continuousLearningLoop.isActive()) {
-            console.log('[Auth] Starting continuous learning loop for user:', session.user.id);
-            continuousLearningLoop.start(session.user.id);
-          }
-
-          try {
-            // STEP 1: Clean up stale intents before resuming
-            const { entryIntentCleanupService } = await import('@/services/entry-intent-cleanup');
-            const cleanupResult = await entryIntentCleanupService.performFullCleanup(session.user.id);
-
-            if (cleanupResult.totalCleaned > 0) {
-              console.log('[Auth] 🧹 Cleaned up stale intents:', cleanupResult);
-            }
-
-            // STEP 2: Resume only valid, active intents
-            const { unifiedEntryMonitor } = await import('@/services/unified-entry-monitor');
-            await unifiedEntryMonitor.resumeAllActiveIntents(session.user.id);
-            console.log('[Auth] ✅ Resumed entry intent monitoring');
-          } catch (error) {
-            console.error('[Auth] Failed to resume entry monitoring:', error);
-          }
-        } else {
-          setIsAdmin(false);
-
-          if (liveTradeLearningTrigger.isActive()) {
-            console.log('[Auth] Stopping live trade learning trigger');
-            liveTradeLearningTrigger.stop();
-          }
-
-          if (continuousLearningLoop.isActive()) {
-            console.log('[Auth] Stopping continuous learning loop');
-            continuousLearningLoop.stop();
-          }
-
-          import('@/services/unified-entry-monitor').then(({ unifiedEntryMonitor }) => {
-            unifiedEntryMonitor.stopAllMonitoring();
-            console.log('[Auth] Stopped all entry monitoring');
-          }).catch(console.error);
-
-          // No session - clear everything
-          setSession(null);
-          setUser(null);
+          setSession(newSession);
+          setUser(newSession.user);
+          await fetchUserRole(newSession.user.id);
+        } finally {
+          validatingRef.current = false;
+          if (mountedRef.current) setLoading(false);
         }
-        setLoading(false);
       })();
     });
 
     return () => {
+      mountedRef.current = false;
       subscription.unsubscribe();
-      // Clean up learning trigger on component unmount
-      if (liveTradeLearningTrigger.isActive()) {
-        liveTradeLearningTrigger.stop();
-      }
-      // Clean up continuous learning loop on component unmount
-      if (continuousLearningLoop.isActive()) {
-        continuousLearningLoop.stop();
-      }
     };
-  }, []);
+  }, [fetchUserRole, validateAccountIntegrity]);
+
+  // SSOT: Service initialization - decoupled from auth settlement
+  // Runs after user state settles, does not block auth or navigation
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const userId = user.id;
+    let cancelled = false;
+
+    const initServices = async () => {
+      await new Promise(r => setTimeout(r, 100));
+      if (cancelled) return;
+
+      try {
+        const { userRiskPreferenceService } = await import('@/services/user-risk-preference-service');
+        await userRiskPreferenceService.initializeNewUser(userId);
+      } catch { /* non-blocking */ }
+
+      if (cancelled) return;
+
+      try {
+        const { liveTradeLearningTrigger } = await import('@/services/live-trade-learning-trigger');
+        if (!liveTradeLearningTrigger.isActive()) liveTradeLearningTrigger.start(userId);
+      } catch { /* non-blocking */ }
+
+      if (cancelled) return;
+
+      try {
+        const { continuousLearningLoop } = await import('@/services/continuous-learning-loop');
+        if (!continuousLearningLoop.isActive()) continuousLearningLoop.start(userId);
+      } catch { /* non-blocking */ }
+
+      if (cancelled) return;
+
+      try {
+        const { entryIntentCleanupService } = await import('@/services/entry-intent-cleanup');
+        const cleanupResult = await entryIntentCleanupService.performFullCleanup(userId);
+        if (cleanupResult.totalCleaned > 0) {
+          console.log('[Auth] Cleaned up stale intents:', cleanupResult);
+        }
+
+        if (cancelled) return;
+
+        const { unifiedEntryMonitor } = await import('@/services/unified-entry-monitor');
+        await unifiedEntryMonitor.resumeAllActiveIntents(userId);
+      } catch { /* non-blocking */ }
+    };
+
+    initServices();
+
+    return () => {
+      cancelled = true;
+      import('@/services/live-trade-learning-trigger').then(({ liveTradeLearningTrigger }) => {
+        if (liveTradeLearningTrigger.isActive()) liveTradeLearningTrigger.stop();
+      }).catch(() => {});
+      import('@/services/continuous-learning-loop').then(({ continuousLearningLoop }) => {
+        if (continuousLearningLoop.isActive()) continuousLearningLoop.stop();
+      }).catch(() => {});
+      import('@/services/unified-entry-monitor').then(({ unifiedEntryMonitor }) => {
+        unifiedEntryMonitor.stopAllMonitoring();
+      }).catch(() => {});
+    };
+  }, [user?.id]);
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -240,17 +213,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        emailRedirectTo: undefined, // No email confirmation needed
-      }
+      options: { emailRedirectTo: undefined }
     });
 
-    // SSOT: Process referral code if one was captured during signup
     if (!error && data.user) {
       const pendingRefCode = sessionStorage.getItem('pending_referral_code');
       if (pendingRefCode) {
         try {
-          console.log('[Auth] Processing referral code for new user:', pendingRefCode);
           const { data: refResult, error: refError } = await supabase.rpc('process_signup_referral', {
             p_referee_user_id: data.user.id,
             p_referral_code: pendingRefCode
@@ -259,10 +228,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (refError) {
             console.error('[Auth] Failed to process referral:', refError);
           } else if (refResult?.success) {
-            console.log('[Auth] Referral processed successfully:', refResult);
             sessionStorage.removeItem('pending_referral_code');
           } else {
-            console.warn('[Auth] Referral processing returned error:', refResult?.error);
             sessionStorage.removeItem('pending_referral_code');
           }
         } catch (err) {
@@ -293,10 +260,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { error: { message: 'Current password is incorrect' } };
     }
 
-    const { error } = await supabase.auth.updateUser({
-      password: newPassword,
-    });
-
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
     return { error };
   };
 

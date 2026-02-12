@@ -16,18 +16,31 @@ export function AuthPage() {
   const [acceptedDisclaimer, setAcceptedDisclaimer] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [showDisclaimerModal, setShowDisclaimerModal] = useState(false);
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  // SSOT: Capture referral code from URL and store it for signup processing
+  useEffect(() => {
+    if (user) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [user, navigate]);
+
   useEffect(() => {
     const refCode = searchParams.get('ref');
     if (refCode) {
       sessionStorage.setItem('pending_referral_code', refCode);
-      console.log('[AuthPage] Captured referral code:', refCode);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    if (!loading || error) return;
+    const timeout = setTimeout(() => {
+      setLoading(false);
+      setError('Sign in is taking longer than expected. Please try again.');
+    }, 15000);
+    return () => clearTimeout(timeout);
+  }, [loading, error]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,12 +58,10 @@ export function AuthPage() {
 
       if (result.error) {
         setError(result.error.message);
-      } else {
-        navigate('/dashboard');
+        setLoading(false);
       }
     } catch (err) {
       setError('An error occurred');
-    } finally {
       setLoading(false);
     }
   };
