@@ -6,20 +6,17 @@ import { useAuth } from '../hooks/useAuth';
 import { AlphaScanningFeed } from './AlphaScanningFeed';
 import { TradingMonitorStack } from './TradingMonitorStack';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
-import { ContinuationDialog } from './ContinuationDialog';
 import { GoalAchievedDialog } from './GoalAchievedDialog';
 import { TradeClosedActionDialog } from './TradeClosedActionDialog';
 import { NoTradesFoundDialog } from './NoTradesFoundDialog';
 import { goalSessionLiveEngine } from '../services/goal-session-live-engine';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
-// Removed: simpleScanningTimer (continuation modal system removed 2026-01-30)
 import { getRiskPercentage } from '../config/risk-levels';
 import { calculatePipDistance, calculateDollarPerPip, getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { useToast } from '../hooks/useToast';
 import { calculatePnL } from '../types/position';
 import { positionService } from '../services/position-service';
-// Removed: continuationHandler (continuation modal system removed 2026-01-30)
 import { getForexMarketStatus } from '../utils/marketHours';
 // GoalScanReadinessIndicator removed - using simple indicator
 
@@ -32,12 +29,6 @@ export const GoalSessionDashboard: React.FC = () => {
   const [progress, setProgress] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [scanStatus, setScanStatus] = useState<ScanStatus>(goalScannerTrigger.getStatus());
-  const [continuationData, setContinuationData] = useState<{
-    isAwaiting: boolean;
-    prompt: string;
-    tradesInSession: number;
-  } | null>(null);
-  const [continuationLoading, setContinuationLoading] = useState(false);
   const [openTrades, setOpenTrades] = useState<any[]>([]);
   const [livePrices, setLivePrices] = useState<Record<string, { bid: number; ask: number }>>({});
   const [showGoalAchieved, setShowGoalAchieved] = useState(false);
@@ -394,11 +385,8 @@ export const GoalSessionDashboard: React.FC = () => {
             .eq('id', session.sessionId)
             .single();
 
-          // Removed continuation modal checks (2026-01-30) - sessions continue automatically
         } catch (error) {
-          console.error('[GoalSessionDashboard] Error checking continuation status:', error);
-          setContinuationData(null);
-          setShowNoTradesModal(false);
+          console.error('[GoalSessionDashboard] Error checking session status:', error);
         }
 
         // Check session health for stuck detection
@@ -498,35 +486,6 @@ export const GoalSessionDashboard: React.FC = () => {
     return filteredList;
   };
 
-  const handleContinuationResponse = async (response: 'continue' | 'stop') => {
-    if (!activeSession || !user) return;
-
-    setContinuationLoading(true);
-    try {
-      // Removed continuation handler (2026-01-30) - sessions continue automatically
-      // Update session status based on user choice
-      if (response === 'continue') {
-        await supabase
-          .from('goal_sessions')
-          .update({ status: 'scanning' })
-          .eq('id', activeSession.sessionId);
-        console.log('[GoalSessionDashboard] User chose to continue - session resumed');
-      } else {
-        await supabase
-          .from('goal_sessions')
-          .update({ status: 'stopped' })
-          .eq('id', activeSession.sessionId);
-        console.log('[GoalSessionDashboard] User chose to stop - session ended');
-      }
-
-      setContinuationData(null);
-      await loadSessionData();
-    } catch (error) {
-      console.error('[GoalSessionDashboard] Error handling continuation response:', error);
-    } finally {
-      setContinuationLoading(false);
-    }
-  };
 
   const handleStartNewSession = async () => {
     if (!user) return;
@@ -562,7 +521,7 @@ export const GoalSessionDashboard: React.FC = () => {
         });
       }
 
-      // Resume the session by updating status to 'scanning' (removed continuation handler 2026-01-30)
+      // Resume scanning
       await supabase
         .from('goal_sessions')
         .update({ status: 'scanning' })
@@ -641,7 +600,6 @@ export const GoalSessionDashboard: React.FC = () => {
   const handleStopSession = async () => {
     if (!activeSession || !user) return;
 
-    // Removed special handling for awaiting_continuation status (2026-01-30)
     // All sessions now use standard stop flow
     if (false) { // Disabled code path
       const confirmed = await confirm({
@@ -676,8 +634,7 @@ export const GoalSessionDashboard: React.FC = () => {
             message: 'Goal session has been stopped successfully'
           });
           setShowNoTradesModal(false);
-          setContinuationData(null);
-          await loadSessionData();
+                    await loadSessionData();
         } else {
           // Fall back to normal stop flow if function returns error
           console.log('[GoalSessionDashboard] Falling back to normal stop flow');
@@ -930,8 +887,7 @@ export const GoalSessionDashboard: React.FC = () => {
         });
         setSessionHealth(null);
         setShowNoTradesModal(false);
-        setContinuationData(null);
-        await loadSessionData();
+                await loadSessionData();
       } else {
         showToast({
           type: 'error',
@@ -1686,16 +1642,6 @@ export const GoalSessionDashboard: React.FC = () => {
                 </div>
               </div>
             </div>
-          ) : continuationData?.isAwaiting ? (
-            <div className="bg-amber-900/20 border border-amber-500/30 rounded-lg p-4 text-amber-200">
-              <div className="flex items-center gap-2">
-                <Pause className="w-5 h-5" />
-                <span>Trade closed - Decision required</span>
-              </div>
-              <div className="mt-2 text-xs text-amber-200/70">
-                Your trade has closed. Review the dialog below to continue, wait, or stop.
-              </div>
-            </div>
           ) : (
             <AlphaScanningFeed
               sessionId={activeSession.sessionId}
@@ -1711,19 +1657,6 @@ export const GoalSessionDashboard: React.FC = () => {
 
       {activeSession && (
         <TradingMonitorStack />
-      )}
-
-      {continuationData && progress && activeSession && (
-        <ContinuationDialog
-          isOpen={continuationData.isAwaiting}
-          continuationPrompt={continuationData.prompt}
-          tradesInSession={continuationData.tradesInSession}
-          currentProgress={progress.stats?.totalProfit || 0}
-          targetValue={activeSession.config?.goalAmount || 0}
-          onContinue={() => handleContinuationResponse('continue')}
-          onStop={() => handleContinuationResponse('stop')}
-          isLoading={continuationLoading}
-        />
       )}
 
       {activeSession && (

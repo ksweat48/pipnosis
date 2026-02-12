@@ -28,7 +28,6 @@ import { calculateDollarPerPip, calculatePipDistance, calculateGoalAwareLotSize,
 import { createTradeContext, roundAlphaDecisionPrices } from '../utils/tradeMath';
 import { getRiskPercentage, getMinConfidenceThreshold } from '../config/risk-levels';
 import { postTradeAnalyzer } from './post-trade-analyzer';
-import { scanningStateMachine } from './scanning-state-machine';
 import { hasAnyOpenMarket, isSymbolMarketOpen, getEstimationReferenceSymbol } from '../utils/marketHours';
 import { scanResultsManager, type ScanCandidate } from './scan-results-manager';
 import { weekendProtectionService } from './weekend-protection-service';
@@ -2113,15 +2112,6 @@ class GoalSessionLiveEngine {
         console.error('[MULTI-SYMBOL] Failed to send error message:', e);
       });
     } finally {
-      // Record scan completion for state machine tracking
-      try {
-        if (this.activeSession) {
-          await scanningStateMachine.recordScanCompletion(this.activeSession, tradeExecuted);
-          console.log(`[MULTI-SYMBOL] 📊 Scan completion recorded: Trade found = ${tradeExecuted}`);
-        }
-      } catch (error) {
-        logger.error(LogCategory.AI_TRADING, 'Failed to record scan completion', { error });
-      }
     }
     // NOTE: Parent function manages the lock - do not modify it here
   }
@@ -2206,42 +2196,8 @@ class GoalSessionLiveEngine {
 
       // 🔍 DEFENSIVE: Log trade array contents for desync detection
 
-      // CHECK: Is session awaiting user continuation?
-      // SSOT: Status field is the single source of truth for session state
-      const { data: sessionCheck } = await supabase
-        .from('goal_sessions')
-        .select('status')
-        .eq('id', this.activeSession)
-        .single();
-
-      // Removed awaiting_continuation check - no longer used (removed 2026-01-30)
-      // Sessions now continue automatically without modal interruptions
-
-      // ⏱️ CHECK: Scanning frequency control via state machine
-      const scanState = await scanningStateMachine.canScanNow(this.activeSession);
-
-      console.log('%c[AUTONOMOUS ENGINE] ⏱️ Scanning State Machine Check:', 'color: #3b82f6; font-weight: bold', {
-        allowed: scanState.allowed,
-        status: scanState.status,
-        reason: scanState.reason,
-        message: scanState.message,
-        sessionNumber: scanState.sessionNumber,
-        scansRemaining: scanState.scansRemaining,
-        secondsRemaining: scanState.secondsRemaining
-      });
-
-      if (!scanState.allowed) {
-        logger.debug(LogCategory.AI_TRADING, `⏸️ Scanning blocked by state machine: ${scanState.reason}`);
-        if (import.meta.env.DEV) {
-          console.log(`[AUTONOMOUS] Scan blocked: ${scanState.message}`);
-        }
-
-        // Still monitor open positions during cooldown/lockdown
-        await this.monitorOpenPositionsOnly();
-        return;
-      }
-
-      // ✅ Scanning allowed - proceed with market evaluation
+      // Scan proceeds immediately - no state machine gate needed
+      // Flow: scan all pairs -> trade or show NoTradesFoundDialog -> done
 
       // 🚨 CRITICAL: Sync with database before checking max trades
       // Prevents memory desync from losing track of open positions
@@ -2549,13 +2505,6 @@ class GoalSessionLiveEngine {
         })
         .eq('id', this.activeSession);
 
-      // Record scan completion for state machine tracking
-      try {
-        await scanningStateMachine.recordScanCompletion(this.activeSession, tradeExecuted);
-        console.log(`[AUTONOMOUS ENGINE] 📊 Scan completion recorded: Trade found = ${tradeExecuted}`);
-      } catch (error) {
-        logger.error(LogCategory.AI_TRADING, 'Failed to record scan completion', { error });
-      }
 
     } catch (error) {
       console.error('[Goal Live Engine] Autonomous processing error:', error);
