@@ -26,7 +26,8 @@ export type MandatorySafetyBlockReason =
   | 'MALFORMED_ORDER'
   | 'NAN_VALUE'
   | 'INVALID_DECIMALS'
-  | 'BROKER_REJECTION';
+  | 'BROKER_REJECTION'
+  | 'GEOMETRY_INVERSION';
 
 export interface MandatorySafetyResult {
   allowed: boolean;
@@ -65,19 +66,25 @@ export class MandatorySafetyValidator {
       return orderCheck;
     }
 
-    // Check 2: Weekend Protection (Forex only)
+    // Check 2: SL/TP Geometry (data integrity - prevents instant SL hit)
+    const geometryCheck = this.validateGeometry(direction, entry, stopLoss, takeProfit);
+    if (!geometryCheck.allowed) {
+      return geometryCheck;
+    }
+
+    // Check 3: Weekend Protection (Forex only)
     const weekendCheck = await this.validateNotWeekend(symbol);
     if (!weekendCheck.allowed) {
       return weekendCheck;
     }
 
-    // Check 3: SSOT Trade Context (data structure validation)
+    // Check 4: SSOT Trade Context (data structure validation)
     const ssotCheck = this.validateSSOT(tradeContext);
     if (!ssotCheck.allowed) {
       return ssotCheck;
     }
 
-    logger.info('[MANDATORY_SAFETY] ✅ Data integrity checks passed');
+    logger.info('[MANDATORY_SAFETY] Data integrity checks passed');
     return { allowed: true };
   }
 
@@ -147,7 +154,58 @@ export class MandatorySafetyValidator {
   }
 
   /**
-   * Check 2: Validate not weekend (Forex protection only)
+   * Check 2: Validate SL/TP geometry
+   * Blocks on: SL on wrong side of entry (would trigger immediately)
+   * This is a data integrity check, not a risk management check.
+   * A BUY with SL above entry is a self-contradictory order.
+   */
+  private validateGeometry(
+    direction: 'BUY' | 'SELL',
+    entry: number,
+    stopLoss: number,
+    takeProfit: number
+  ): MandatorySafetyResult {
+    if (direction === 'BUY') {
+      if (stopLoss >= entry) {
+        return {
+          allowed: false,
+          blockReason: 'GEOMETRY_INVERSION',
+          message: `BUY: SL (${stopLoss}) at or above entry (${entry}) - would trigger immediately`,
+          details: { direction, entry, stopLoss, takeProfit }
+        };
+      }
+      if (takeProfit <= entry) {
+        return {
+          allowed: false,
+          blockReason: 'GEOMETRY_INVERSION',
+          message: `BUY: TP (${takeProfit}) at or below entry (${entry}) - impossible target`,
+          details: { direction, entry, stopLoss, takeProfit }
+        };
+      }
+    } else {
+      if (stopLoss <= entry) {
+        return {
+          allowed: false,
+          blockReason: 'GEOMETRY_INVERSION',
+          message: `SELL: SL (${stopLoss}) at or below entry (${entry}) - would trigger immediately`,
+          details: { direction, entry, stopLoss, takeProfit }
+        };
+      }
+      if (takeProfit >= entry) {
+        return {
+          allowed: false,
+          blockReason: 'GEOMETRY_INVERSION',
+          message: `SELL: TP (${takeProfit}) at or above entry (${entry}) - impossible target`,
+          details: { direction, entry, stopLoss, takeProfit }
+        };
+      }
+    }
+
+    return { allowed: true };
+  }
+
+  /**
+   * Check 3: Validate not weekend (Forex protection only)
    * Blocks on: Weekend (when Forex markets closed)
    * Does NOT block on daily hours - Pipnosis is an assistant, not a controller
    */

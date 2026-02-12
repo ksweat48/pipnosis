@@ -37,6 +37,7 @@ import { getOrInitializeUserBalance, validateBalanceIsReasonable } from './balan
 import { toDirectionDB, toLongShort } from '../utils/direction-converter';
 import { getRegimeBucket } from './regime-bucketing';
 import { getMinConfidenceThreshold } from '../config/risk-levels';
+import { getSymbolConfig } from '../config/symbol-registry';
 import { logger, LogCategory } from '../lib/logger';
 import { calculateDollarPerPip, calculatePipDistance } from '../utils/currencyHelpers';
 import { mandatorySafetyValidator } from './mandatory-safety-validator';
@@ -749,6 +750,50 @@ class AlphaTradeExecutor {
       };
     }
 
+    // CCIP (2026-02-12): Preserve Alpha's intended risk geometry at actual fill price
+    // Alpha's decision authority is the risk DISTANCE (pips), not absolute price levels.
+    // When actual fill differs from planned entry, shift SL/TP to maintain planned distances.
+    // This is NOT mutation of Alpha's decision - it preserves Alpha's intent.
+    const plannedEntry = decision.entry;
+    const entryDeviation = adjustedEntry - plannedEntry;
+    let executionSL = decision.stopLoss;
+    let executionTP = decision.takeProfit;
+    let executionTP1 = decision.tp1Price;
+    let executionTP2 = decision.tp2Price;
+    let slTpRecalculated = false;
+
+    if (Number.isFinite(entryDeviation) && Math.abs(entryDeviation) > 1e-8) {
+      executionSL = decision.stopLoss + entryDeviation;
+      executionTP = decision.takeProfit + entryDeviation;
+      if (decision.tp1Price != null && Number.isFinite(decision.tp1Price)) {
+        executionTP1 = decision.tp1Price + entryDeviation;
+      }
+      if (decision.tp2Price != null && Number.isFinite(decision.tp2Price)) {
+        executionTP2 = decision.tp2Price + entryDeviation;
+      }
+      slTpRecalculated = true;
+
+      const symbolConfig = getSymbolConfig(decision.symbol);
+      const pipSize = symbolConfig?.pipValue || 0.0001;
+      const deviationPips = entryDeviation / pipSize;
+
+      logger.info(
+        LogCategory.TRADE_EXECUTION,
+        '[AlphaTradeExecutor] SL/TP recalculated to preserve Alpha risk geometry',
+        {
+          symbol: decision.symbol,
+          plannedEntry,
+          actualEntry: adjustedEntry,
+          deviationPips: Math.round(deviationPips * 10) / 10,
+          originalSL: decision.stopLoss,
+          executionSL,
+          originalTP: decision.takeProfit,
+          executionTP,
+          recalculationReason: 'Actual fill price differs from Alpha planned entry'
+        }
+      );
+    }
+
     // Insert trade
     let tradeData: any;
     try {
@@ -763,7 +808,11 @@ class AlphaTradeExecutor {
         openedAt: new Date().toISOString(),
         inputs,
         expectedProfitFromCoordinator: params.expectedProfitAtTP, // SSOT FIX: Use coordinator's calculation
-        lotSizingAuditRecord: params.lotSizingAuditRecord // CCIP: Pass audit record
+        lotSizingAuditRecord: params.lotSizingAuditRecord, // CCIP: Pass audit record
+        executionStopLoss: slTpRecalculated ? executionSL : undefined,
+        executionTakeProfit: slTpRecalculated ? executionTP : undefined,
+        executionTP1: slTpRecalculated ? executionTP1 : undefined,
+        executionTP2: slTpRecalculated ? executionTP2 : undefined,
       });
     } catch (error: any) {
       console.error('[AlphaTradeExecutor] Trade record validation failed:', {
@@ -784,14 +833,15 @@ class AlphaTradeExecutor {
     // TIER 3 FIX: Mandatory Safety Validator - ONLY allowed blocker
     // CRITICAL: This is the ONLY service that can block trades for safety reasons
     // All other checks (confidence, EQS, etc.) are advisory only
+    // CCIP (2026-02-12): Pass execution SL/TP (recalculated if needed), not Alpha's planned levels
     const safetyValidation = await mandatorySafetyValidator.validate(
       userId,
       sessionId,
       decision.symbol,
       decision.action as 'BUY' | 'SELL',
       adjustedEntry,
-      decision.stopLoss,
-      decision.takeProfit,
+      executionSL,
+      executionTP,
       lotSize,
       inputs.tradeContext
     );
@@ -1360,8 +1410,16 @@ class AlphaTradeExecutor {
     inputs: TradeExecutionInputs;
     expectedProfitFromCoordinator?: number; // SSOT FIX (2026-02-03): Use coordinator's calculation
     lotSizingAuditRecord?: any; // CCIP: Governance tracking of lot sizing decisions
+    executionStopLoss?: number; // CCIP (2026-02-12): Recalculated SL for actual fill
+    executionTakeProfit?: number; // CCIP (2026-02-12): Recalculated TP for actual fill
+    executionTP1?: number | null; // CCIP (2026-02-12): Recalculated TP1
+    executionTP2?: number; // CCIP (2026-02-12): Recalculated TP2
   }): any {
-    const { decision, userId, sessionId, lotSize, riskDollars, entryPrice, status, openedAt, inputs, expectedProfitFromCoordinator, lotSizingAuditRecord } = params;
+    const {
+      decision, userId, sessionId, lotSize, riskDollars, entryPrice, status, openedAt,
+      inputs, expectedProfitFromCoordinator, lotSizingAuditRecord,
+      executionStopLoss, executionTakeProfit, executionTP1, executionTP2
+    } = params;
 
     // GOVERNANCE: Comprehensive price validation (catches NaN from previous cascading errors)
     if (entryPrice === null || entryPrice === undefined) {
@@ -1439,27 +1497,36 @@ class AlphaTradeExecutor {
 
     // SSOT: goal_session_trades schema compliance (20260202)
     // Fields omega8/omega9 removed from schema - data lives in alpha_decisions table
+    // CCIP (2026-02-12): Use execution SL/TP overrides if provided (recalculated for actual fill)
+    const finalSL = executionStopLoss ?? decision.stopLoss;
+    const finalTP = executionTakeProfit ?? decision.takeProfit;
+    const finalTP1 = executionTP1 !== undefined ? executionTP1 : decision.tp1Price;
+    const finalTP2 = executionTP2 ?? decision.tp2Price;
+
     return {
       user_id: userId,
       goal_session_id: sessionId,
       symbol: decision.symbol,
       direction: toDirectionDB(decision.action === 'BUY' ? 'buy' : 'sell'),
       entry_price: entryPrice,
-      stop_loss: decision.stopLoss,
-      take_profit: decision.takeProfit,
-      tp1_price: decision.tp1Price,
-      tp2_price: decision.tp2Price,
-      lot_size: lotSize, // PHASE 1: Required NOT NULL field
+      stop_loss: finalSL,
+      take_profit: finalTP,
+      tp1_price: finalTP1,
+      tp2_price: finalTP2,
+      lot_size: lotSize,
       position_size: lotSize,
       risk_dollars: riskDollars,
-      expected_profit_for_session: expectedProfit, // PHASE 1: Required NOT NULL field
+      expected_profit_for_session: expectedProfit,
       status,
       order_type: status === 'open' ? 'market' : 'limit',
       opened_at: openedAt,
       current_price: status === 'open' ? entryPrice : null,
-      current_pnl: 0, // PHASE 1: Always provide value, never null
-      trade_confidence: decision.confidence, // SSOT: Correct column name
-      regime_bucket: regimeBucket
+      current_pnl: 0,
+      trade_confidence: decision.confidence,
+      regime_bucket: regimeBucket,
+      planned_entry_price: decision.entry,
+      planned_stop_loss: decision.stopLoss,
+      planned_take_profit: decision.takeProfit,
     };
   }
 
