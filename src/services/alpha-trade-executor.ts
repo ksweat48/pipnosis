@@ -16,8 +16,9 @@
  * 2. Risk Authority (Context + PCVL + Margin + Kelly)
  * 3. Trade Capacity (Confidence + Slots + Duplicates)
  * 4. Price Validation (Slippage + Staleness)
- * 5. Mandatory Safety Validator (TIER 3 FIX - ONLY allowed blocker)
- * 6. Database Boundary (Type coercion + Range check)
+ * 5. Style Qualification Gate (Duration + Consensus + ATR + Targets) - HARD ENFORCEMENT
+ * 6. Mandatory Safety Validator (TIER 3 FIX - ONLY allowed blocker)
+ * 7. Database Boundary (Type coercion + Range check)
  *
  * Principles:
  * - Engines validate, Alpha decides
@@ -43,6 +44,7 @@ import { calculateDollarPerPip, calculatePipDistance } from '../utils/currencyHe
 import { mandatorySafetyValidator } from './mandatory-safety-validator';
 import { creditValidationService } from './credit-validation-service';
 import { EntryOverextensionValidator } from './entry-overextension-validator';
+import { validateStyleQualification } from './style-qualification-gate';
 import type { AlphaDecision } from '../brains/coordinator-alpha';
 import type { TradeContext } from '../types/trade-context';
 
@@ -560,6 +562,105 @@ class AlphaTradeExecutor {
         overextensionPct: overextensionValidation.overextensionPercentage.toFixed(1),
         threshold: overextensionValidation.maxAllowedOverextension,
         optimalZone: `[${optimalZoneMin.toFixed(5)}, ${optimalZoneMax.toFixed(5)}]`
+      }
+    );
+
+    // ============================================================================
+    // Layer 6: Style Qualification Gate (HARD ENFORCEMENT)
+    // ============================================================================
+    // Validates that trade characteristics match the selected style's execution contract
+    // - SCALP must execute like SCALP (M5, 15-60 min duration, appropriate targets)
+    // - INTRADAY must execute like INTRADAY (H1, 2-10 hour duration)
+    // Blocks trades that violate style execution boundaries
+
+    logger.info(
+      LogCategory.AI_TRADING,
+      '[Style Gate] Validating trade qualification for style execution contract',
+      {
+        userId,
+        sessionId,
+        symbol: decision.symbol,
+        style: tradeStyle,
+        confidence: decision.confidence,
+        omegaConsensus: decision.omegaConsensusPercent
+      }
+    );
+
+    // Calculate expected fill time (if available from decision)
+    const expectedFillTimeHours = decision.expectedFillTimeHours || 0;
+
+    // Calculate target and stop in pips for validation
+    const targetPips = calculatePipDistance(
+      decision.entry,
+      decision.takeProfit,
+      tradeContext.symbol
+    );
+    const stopPips = calculatePipDistance(
+      decision.entry,
+      decision.stopLoss,
+      tradeContext.symbol
+    );
+
+    // Get asset class from symbol config
+    const symbolConfig = getSymbolConfig(tradeContext.symbol);
+    const assetClass = symbolConfig?.category === 'FOREX' ? 'FOREX' :
+                       symbolConfig?.category === 'CRYPTO' ? 'CRYPTO' :
+                       symbolConfig?.category === 'METAL' ? 'METAL' : 'INDEX';
+
+    // Run style qualification validation
+    const styleQualification = await validateStyleQualification({
+      symbol: decision.symbol,
+      style: tradeStyle as any,
+      assetClass,
+      expectedFillTimeHours,
+      omegaConsensusPercent: decision.omegaConsensusPercent || 0,
+      alphaFinalConfidence: decision.confidence,
+      atrPercent: decision.atrPercent || 0,
+      targetPips,
+      stopPips,
+      sessionId,
+      userId,
+      goalAmount: sessionData.targetValue
+    });
+
+    // BLOCK if style qualification fails
+    if (!styleQualification.qualified) {
+      logger.error(
+        LogCategory.AI_TRADING,
+        '[Style Gate] 🚫 TRADE BLOCKED - Style qualification failed',
+        {
+          userId,
+          sessionId,
+          symbol: decision.symbol,
+          style: tradeStyle,
+          blockReason: styleQualification.blockReason,
+          violations: styleQualification.violations.map(v => ({
+            type: v.type,
+            severity: v.severity,
+            actual: v.actual,
+            required: v.required,
+            detail: v.detail
+          }))
+        }
+      );
+
+      return {
+        success: false,
+        error: styleQualification.blockReason,
+        blockReason: `STYLE QUALIFICATION FAILED: ${styleQualification.blockReason}`
+      };
+    }
+
+    logger.info(
+      LogCategory.AI_TRADING,
+      '[Style Gate] ✅ Trade qualified for style execution',
+      {
+        userId,
+        sessionId,
+        symbol: decision.symbol,
+        style: tradeStyle,
+        violations: styleQualification.violations.length,
+        advisory: styleQualification.advisory
       }
     );
 
