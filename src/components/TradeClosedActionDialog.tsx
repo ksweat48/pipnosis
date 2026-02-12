@@ -22,7 +22,7 @@ interface TradeClosedActionDialogProps {
   tradesInSession: number;
   isGoalAchieved: boolean;
   onStartNewSession: () => void;
-  onContinueSession: () => void;
+  onContinueSession?: () => void;
   onCloseForNow: () => void;
   isLoading?: boolean;
   timestamp?: string; // If provided, shows "Trade closed X time ago" instead of countdown
@@ -47,7 +47,6 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
   tradesInSession = 0,
   isGoalAchieved = false,
   onStartNewSession,
-  onContinueSession,
   onCloseForNow,
   isLoading = false,
   timestamp
@@ -139,18 +138,13 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
 
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        // If goal achieved, close session; otherwise continue
-        if (isGoalAchieved) {
-          onCloseForNow();
-        } else {
-          onContinueSession();
-        }
+        onCloseForNow();
       }
     };
 
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
-  }, [isOpen, isGoalAchieved, onContinueSession, onCloseForNow]);
+  }, [isOpen, onCloseForNow]);
 
   if (!isOpen) return null;
 
@@ -208,12 +202,11 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
             <div className="relative pt-6 pb-4 px-6">
             <div className={`absolute inset-0 bg-gradient-to-b ${reasonColor} opacity-10`} />
 
-            {/* X Close Button - SSOT: Safe default action (continue session) */}
             <button
-              onClick={onContinueSession}
+              onClick={onCloseForNow}
               disabled={isLoading}
               className="absolute top-4 right-4 p-2 rounded-lg bg-gray-800/50 hover:bg-gray-700/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed z-10"
-              title="Continue session"
+              title="Close session"
             >
               <X className="w-5 h-5 text-gray-400" />
             </button>
@@ -236,7 +229,7 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
               </p>
             )}
             <p className="text-gray-400 text-sm text-center mb-2">
-              What would you like to do next?
+              {isSystemClosure ? 'Your session has ended.' : 'What would you like to do next?'}
             </p>
 
             {/* Countdown Timer or Timestamp */}
@@ -334,50 +327,77 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
               </div>
             </div>
 
-            {/* Action Buttons - SSOT: Clear button purposes and consequences */}
+            {/* Action Buttons */}
             <div className="space-y-3 pb-6">
-              {!isGoalAchieved && (
-                <div>
+              {isSystemClosure && !isGoalAchieved ? (
+                <>
+                  <div>
+                    <button
+                      onClick={onStartNewSession}
+                      disabled={isLoading}
+                      className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-500 hover:to-blue-500 rounded-xl font-semibold text-white transition-all duration-300 shadow-lg hover:shadow-emerald-500/25 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      <RotateCcw className="w-5 h-5" />
+                      Start New Session
+                    </button>
+                    <p className="text-xs text-gray-500 mt-2 text-center">
+                      Begin a fresh trading session with a new goal
+                    </p>
+                  </div>
+                  <div>
+                    <button
+                      onClick={onCloseForNow}
+                      disabled={isLoading}
+                      className="w-full py-3 px-4 bg-gray-700/50 hover:bg-gray-700 rounded-xl font-semibold text-white transition-all duration-300 border border-gray-600/50 hover:border-gray-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      <PauseCircle className="w-4 h-4" />
+                      Close Session
+                    </button>
+                    <p className="text-xs text-gray-500 mt-2 text-center">
+                      Done for now. Start a new session later.
+                    </p>
+                  </div>
+                </>
+              ) : isGoalAchieved ? (
+                <>
+                  <div>
+                    <button
+                      onClick={onCloseForNow}
+                      disabled={isLoading}
+                      className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-500 hover:to-blue-500 rounded-xl font-semibold text-white transition-all duration-300 shadow-lg hover:shadow-emerald-500/25 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      <PauseCircle className="w-5 h-5" />
+                      Close Session
+                    </button>
+                    <p className="text-xs text-gray-500 mt-2 text-center">
+                      Permanently close this session. Start a new one when ready.
+                    </p>
+                  </div>
                   <button
-                    onClick={onContinueSession}
+                    onClick={onStartNewSession}
                     disabled={isLoading}
-                    className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-500 hover:to-blue-500 rounded-xl font-semibold text-white transition-all duration-300 shadow-lg hover:shadow-emerald-500/25 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    className="w-full py-2 px-4 text-emerald-400 hover:text-emerald-300 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
-                    <PlayCircle className="w-5 h-5" />
-                    Continue This Session
+                    <RotateCcw className="w-4 h-4" />
+                    Start New Session Immediately
                   </button>
-                  <p className="text-xs text-gray-500 mt-2 text-center">
-                    Keep scanning for the next trading opportunity in this session
-                  </p>
-                </div>
-              )}
-
-              <div>
-                <button
-                  onClick={onCloseForNow}
-                  disabled={isLoading}
-                  className="w-full py-3 px-4 bg-gray-700/50 hover:bg-gray-700 rounded-xl font-semibold text-white transition-all duration-300 border border-gray-600/50 hover:border-gray-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  <PauseCircle className="w-4 h-4" />
-                  {isGoalAchieved ? 'Close Session' : 'End Session Now'}
-                </button>
-                <p className="text-xs text-gray-500 mt-2 text-center">
-                  {isGoalAchieved
-                    ? 'Permanently close this session. Start a new one when ready.'
-                    : 'Permanently close this session (cannot be resumed). Start a fresh session later.'}
-                </p>
-              </div>
-
-              {/* Show "Start New Session" for goal achieved case */}
-              {isGoalAchieved && (
-                <button
-                  onClick={onStartNewSession}
-                  disabled={isLoading}
-                  className="w-full py-2 px-4 text-emerald-400 hover:text-emerald-300 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                  Start New Session Immediately
-                </button>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <button
+                      onClick={onCloseForNow}
+                      disabled={isLoading}
+                      className="w-full py-3 px-4 bg-gray-700/50 hover:bg-gray-700 rounded-xl font-semibold text-white transition-all duration-300 border border-gray-600/50 hover:border-gray-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      <PauseCircle className="w-4 h-4" />
+                      Close Session
+                    </button>
+                    <p className="text-xs text-gray-500 mt-2 text-center">
+                      Permanently close this session (cannot be resumed).
+                    </p>
+                  </div>
+                </>
               )}
             </div>
           </div>

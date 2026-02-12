@@ -433,7 +433,7 @@ class TradeClosureCoordinator {
       isTimeout,
     });
 
-    let targetStatus: 'scanning' | 'stopped' | 'weekend_shutdown' | 'timeout' = 'stopped';
+    let targetStatus: 'stopped' | 'weekend_shutdown' | 'timeout' = 'stopped';
     let transitionReason = 'All execution channels empty';
 
     if (isManualClose) {
@@ -442,15 +442,9 @@ class TradeClosureCoordinator {
       transitionReason = 'User manually closed all trades';
       console.log(`[TradeClosureCoordinator] Manual close detected → will stop session`);
     } else if (isSystemClose) {
-      // System closure (SL/TP) → continue scanning automatically (removed continuation modal 2026-01-30)
-      targetStatus = 'scanning';
-      transitionReason = 'Trade closed by system, resuming scanning automatically';
-      console.log(`[TradeClosureCoordinator] System close (${closeReason}) detected → will resume scanning automatically`);
-
-      // Create trade_closed modal for notification only (non-blocking)
-      console.log(`[TradeClosureCoordinator] Creating trade_closed notification`);
-      await this.createTradeClosedModal(sessionId, userId, closeReason);
-      console.log(`[TradeClosureCoordinator] Notification created successfully`);
+      targetStatus = 'stopped';
+      transitionReason = `Trade closed by ${closeReason} - session ended`;
+      console.log(`[TradeClosureCoordinator] System close (${closeReason}) detected → will stop session`);
     } else if (isWeekendShutdown) {
       targetStatus = 'weekend_shutdown';
       transitionReason = 'Weekend protection activated';
@@ -488,6 +482,8 @@ class TradeClosureCoordinator {
           title: 'Session Ended',
           message: isManualClose
             ? 'Your trading session has ended because you closed all trades.'
+            : isSystemClose
+            ? `Your trading session has ended. Trade closed by ${closeReason === 'stop_loss' ? 'Stop Loss' : 'Take Profit'}.`
             : 'Your trading session has ended.',
           sessionId,
           priority: 'medium',

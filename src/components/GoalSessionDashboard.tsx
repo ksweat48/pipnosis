@@ -418,6 +418,20 @@ export const GoalSessionDashboard: React.FC = () => {
             .order('opened_at', { ascending: false });
 
           setOpenTrades(trades || []);
+
+          if ((!trades || trades.length === 0) && session.status === 'active') {
+            const updatedMs = new Date(session.lastUpdated || session.startTime).getTime();
+            const staleForMs = Date.now() - updatedMs;
+            if (staleForMs > 2 * 60 * 1000) {
+              console.warn('[GoalSessionDashboard] Orphan detected: active session with 0 open trades, stale >2min. Running cleanup.');
+              const { data: cleanupResult } = await supabase.rpc('cleanup_orphaned_sessions');
+              if (cleanupResult?.sessions_cleaned > 0) {
+                console.log('[GoalSessionDashboard] Orphan cleanup result:', cleanupResult);
+                await loadSessionData();
+                return;
+              }
+            }
+          }
         } catch (error) {
           console.error('[GoalSessionDashboard] Error loading open trades:', error);
           setOpenTrades([]);

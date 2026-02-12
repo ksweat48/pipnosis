@@ -52,8 +52,25 @@ const VALID_TRANSITIONS: Record<GoalSessionStatus, GoalSessionStatus[]> = {
 
 const TERMINAL_STATES: GoalSessionStatus[] = ['goal_achieved', 'stopped', 'timeout'];
 
+const DB_STATUS_MAP: Partial<Record<GoalSessionStatus, string>> = {
+  'stopped': 'user_stopped',
+};
+
+const DB_STATUS_REVERSE: Record<string, GoalSessionStatus> = {
+  'user_stopped': 'stopped',
+  'system_stopped': 'stopped',
+};
+
 class GoalSessionStateMachine {
   private transitionLocks = new Map<string, boolean>();
+
+  private toDbStatus(status: GoalSessionStatus): string {
+    return DB_STATUS_MAP[status] ?? status;
+  }
+
+  private fromDbStatus(dbStatus: string): GoalSessionStatus {
+    return DB_STATUS_REVERSE[dbStatus] ?? (dbStatus as GoalSessionStatus);
+  }
 
   isValidTransition(from: GoalSessionStatus, to: GoalSessionStatus): boolean {
     return VALID_TRANSITIONS[from]?.includes(to) ?? false;
@@ -99,7 +116,8 @@ class GoalSessionStateMachine {
         };
       }
 
-      const currentStatus = session.status as GoalSessionStatus;
+      const rawDbStatus = session.status as string;
+      const currentStatus = this.fromDbStatus(rawDbStatus);
 
       if (currentStatus === newStatus) {
         return {
@@ -121,8 +139,10 @@ class GoalSessionStateMachine {
         };
       }
 
+      const dbStatus = this.toDbStatus(newStatus);
+
       const updateData: Record<string, unknown> = {
-        status: newStatus,
+        status: dbStatus,
         updated_at: new Date().toISOString(),
       };
 
@@ -141,7 +161,7 @@ class GoalSessionStateMachine {
         .from('goal_sessions')
         .update(updateData)
         .eq('id', sessionId)
-        .eq('status', currentStatus);
+        .eq('status', rawDbStatus);
 
       if (updateError) {
         return {
@@ -193,10 +213,11 @@ class GoalSessionStateMachine {
       };
     }
 
-    const currentStatus = session.status as GoalSessionStatus;
+    const currentStatus = this.fromDbStatus(session.status);
+    const dbStatus = this.toDbStatus(newStatus);
 
     const updateData: Record<string, unknown> = {
-      status: newStatus,
+      status: dbStatus,
       updated_at: new Date().toISOString(),
     };
 
@@ -240,7 +261,7 @@ class GoalSessionStateMachine {
       .maybeSingle();
 
     if (error || !data) return null;
-    return data.status as GoalSessionStatus;
+    return this.fromDbStatus(data.status);
   }
 
   async canTransitionTo(sessionId: string, targetStatus: GoalSessionStatus): Promise<boolean> {
