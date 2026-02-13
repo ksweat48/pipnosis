@@ -32,7 +32,6 @@ import { coreValidationGate } from './core-validation-gate';
 import { unifiedRiskAuthority } from './unified-risk-authority';
 import { goalAwareLotSizingCoordinator } from './goal-aware-lot-sizing-coordinator';
 import { priceCoordinator } from './coordinators/price-coordinator';
-import { globalDialogManager } from './global-dialog-manager';
 import { notificationCoordinator } from './coordinators/notification-coordinator';
 import { getOrInitializeUserBalance, validateBalanceIsReasonable } from './balance-initialization-authority';
 import { toDirectionDB, toLongShort } from '../utils/direction-converter';
@@ -1158,32 +1157,11 @@ class AlphaTradeExecutor {
       }
     });
 
-    // Trigger modal popup (only works in browser context)
-    // CCIP FIX (2026-02-03): Added modal trigger for immediate user feedback
-    // SSOT FIX (2026-02-03): Include Alpha's confidence and dual TP system from decision object
-    try {
-      globalDialogManager.showTradeEntry({
-        tradeId: trade.id,
-        symbol: decision.symbol,
-        direction: decision.action === 'BUY' ? 'buy' : 'sell',
-        action: decision.action,
-        lotSize,
-        entryPrice: adjustedEntry,
-        stopLoss: decision.stopLoss,
-        takeProfit: decision.takeProfit,
-        expectedProfit: params.expectedProfitAtTP,
-        reasoning: decision.reasoning,
-        confidence: decision.confidence,
-        setupType: decision.thesis || 'Market Setup',
-        tp1: decision.tp1Price || undefined,
-        tp2: decision.tp2Price || undefined,
-        tp1Confidence: decision.tp1Confidence || undefined,
-        autoExecuted: true
-      }, 'urgent');
-    } catch (err) {
-      // Non-blocking - modal manager not available in server context
-      console.debug('[AlphaTradeExecutor] Modal trigger skipped (server context)', err);
-    }
+    // SSOT FIX (2026-02-13): Removed direct showTradeEntry call
+    // The realtime-trade-notification-listener is the SINGLE authority for trade entry modals
+    // The notificationCoordinator.send above creates the goal_notification record
+    // which the realtime listener picks up to show the modal with full metadata
+    // This eliminates the duplicate modal/sound that occurred when both paths triggered
 
     // CCIP FIX (2026-02-06): Create entry_intents record for Entry Quality Advisor
     // SSOT: entry_intents is the authoritative record linking trade execution to quality analysis
