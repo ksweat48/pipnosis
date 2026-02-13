@@ -910,7 +910,7 @@ class AlphaCoordinatorBrain {
           timeHorizon: 'TODAY'
         } : undefined,
         policy: {
-          minRR: 1.0,
+          minRR: 1.5,
           maxTpAtrMultiple: 12,
           minSlPercentByAssetRisk: {
             'CRYPTO:HIGH': 0.50,

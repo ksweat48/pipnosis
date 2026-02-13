@@ -128,20 +128,20 @@ export const TRADE_CONSTRAINTS = {
       description: 'Excellent setup quality'
     },
     YELLOW: {
-      minRR: 1.0,
+      minRR: 1.5,
       minTpAtr: 3.0,
       confidence: 'medium',
-      description: 'Acceptable setup quality'
+      description: 'Minimum acceptable setup quality'
     },
     ORANGE: {
-      minRR: 0.5,
+      minRR: 1.5,
       minTpAtr: 2.0,
       requiresJustification: true,
       confidence: 'low',
       description: 'Marginal setup - requires explicit reasoning'
     },
     RED: {
-      minRR: 0.3,
+      minRR: 1.5,
       minTpAtr: 1.0,
       requiresJustification: true,
       confidence: 'very-low',

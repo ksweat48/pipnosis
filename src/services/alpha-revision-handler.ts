@@ -182,7 +182,7 @@ class AlphaRevisionHandler {
     }
 
     // Check 4: R:R requirement vs available TP range
-    // If minRR = 1.0 and maxSL = 50 pips, then minTP must be >= 50 pips
+    // If minRR = 1.5 and maxSL = 50 pips, then minTP must be >= 75 pips
     // If maxTP < minTP required by R:R, it's infeasible
     const minTPRequiredByRR = constraints.maxStopLossPips * constraints.minRiskReward;
     if (minTPRequiredByRR > constraints.maxTakeProfitPips) {

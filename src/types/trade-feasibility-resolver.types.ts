@@ -64,7 +64,7 @@ export interface FeasibilityInput {
 
   // Constraints / policy inputs
   policy: {
-    minRR: number;               // e.g. 1.0
+    minRR: number;               // e.g. 1.5
     maxTpAtrMultiple: number;    // e.g. 12
     minSlPercentByAssetRisk: Record<string, number>; // keyed by `${assetClass}:${riskMode}`
     maxSlPercentByAsset?: Record<AssetClass, number>; // optional cap

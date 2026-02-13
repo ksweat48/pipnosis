@@ -175,8 +175,8 @@ class Omega9ConstraintProvider {
       ? calculatePipDistance(symbol, entry, proposedStopLoss)
       : stopLossCalc.stopLossPips;
 
-    // Use resolved minimum R:R if provided, otherwise default to 1.0
-    const minRiskReward = resolvedPlan?.minRR ?? 1.0;
+    // Use resolved minimum R:R if provided, otherwise default to 1.5
+    const minRiskReward = resolvedPlan?.minRR ?? 1.5;
 
     // Calculate MINIMUM TP for the resolved minimum R:R
     const idealMinTakeProfitPips = referenceSLPips * minRiskReward;

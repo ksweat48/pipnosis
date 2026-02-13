@@ -44,7 +44,7 @@ export interface TPCalculationResult {
 }
 
 export class EliteProfitTargetCalculator {
-  private readonly MIN_RR_RATIO = 1.0;
+  private readonly MIN_RR_RATIO = 1.5;
   private readonly PSYCHOLOGICAL_LEVELS = [0, 20, 50, 80, 100];
 
   private readonly PARTIAL_TP_SPLIT = {

@@ -15,7 +15,7 @@
 export const TRADING_CONSTANTS = {
   RISK_REWARD_RATIOS: {
     CATASTROPHIC_THRESHOLD: 0.5, // Below this = HARD BLOCK (system integrity failure)
-    MINIMUM: 1.0,                 // Advisory threshold (proceed with penalty)
+    MINIMUM: 1.5,                 // Hard minimum - no trades below 1.5 R:R
     TARGET: 1.5,                  // Recommended baseline
     GOOD: 2.0,                    // Quality threshold
     EXCELLENT: 2.5,               // High-quality setup
