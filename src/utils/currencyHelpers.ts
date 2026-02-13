@@ -1,8 +1,11 @@
 /**
- * Currency Helpers
+ * Currency Helpers (TIER 3 FIX - Dynamic JPY Pip Calculations)
  *
  * Utility functions for handling currency-specific calculations
  * Particularly important for JPY pairs which use different pip values
+ *
+ * TIER 3 Enhancement: Now supports dynamic pip value calculation for JPY pairs
+ * using live USDJPY exchange rates with intelligent fallback to static values.
  */
 
 import { supabase } from '../lib/supabase';
@@ -12,6 +15,7 @@ import { getSymbolConfig } from '../config/symbol-registry';
 import { getAssetClassRiskProfile } from '../config/asset-class-risk-profiles';
 import { validateStopLossDistance } from '../config/trade-parameter-constraints';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
+import { calculateDynamicJPYPipValue } from '../services/dynamic-pip-calculator';
 
 export interface CurrencyPipInfo {
   pipValue: number;
@@ -20,6 +24,8 @@ export interface CurrencyPipInfo {
   contractSize: number;
   dollarPerPipPerLot: number;
   symbolType: 'forex' | 'metal' | 'index' | 'crypto';
+  source?: 'dynamic' | 'static' | 'static_fallback'; // TIER 3: Track value source
+  usdjpyRate?: number; // TIER 3: Include rate used for dynamic calculation
 }
 
 /**
@@ -192,8 +198,9 @@ export function getCurrencyPipInfo(symbol: string): CurrencyPipInfo {
       pipMultiplier: 100,
       decimalPlaces: 2,
       contractSize: 100000,     // Standard lot = 100,000 units
-      dollarPerPipPerLot: 10,   // $10 per pip per 0.1 lot
-      symbolType: 'forex'
+      dollarPerPipPerLot: 10,   // $10 per pip per 0.1 lot (static fallback)
+      symbolType: 'forex',
+      source: 'static' as const
     };
   }
 
@@ -204,7 +211,40 @@ export function getCurrencyPipInfo(symbol: string): CurrencyPipInfo {
     decimalPlaces: 5,           // Most brokers use 5 decimals now
     contractSize: 100000,       // Standard lot = 100,000 units
     dollarPerPipPerLot: 10,     // $10 per pip per 0.1 lot
-    symbolType: 'forex'
+    symbolType: 'forex',
+    source: 'static' as const
+  };
+}
+
+/**
+ * TIER 3 FIX: Get currency pip info with dynamic JPY calculation
+ *
+ * Async version that fetches live USDJPY rate for accurate pip values.
+ * Falls back to static values if rate unavailable (intelligent degradation).
+ *
+ * Use this in Alpha execution planning for maximum accuracy.
+ * Use getCurrencyPipInfo() for non-critical paths or when async not possible.
+ *
+ * @param symbol Currency pair
+ * @returns Promise<CurrencyPipInfo> with source tracking
+ */
+export async function getCurrencyPipInfoAsync(symbol: string): Promise<CurrencyPipInfo> {
+  // Get base info (synchronous)
+  const baseInfo = getCurrencyPipInfo(symbol);
+
+  // Only enhance JPY pairs with dynamic calculation
+  if (!isJPYPair(symbol)) {
+    return baseInfo;
+  }
+
+  // Fetch dynamic pip value
+  const dynamicResult = await calculateDynamicJPYPipValue(symbol);
+
+  return {
+    ...baseInfo,
+    dollarPerPipPerLot: dynamicResult.dollarPerPipPerLot,
+    source: dynamicResult.source,
+    usdjpyRate: dynamicResult.usdjpyRate
   };
 }
 

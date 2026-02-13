@@ -1,8 +1,11 @@
 /**
- * LLM Snapshot Builder
+ * LLM Snapshot Builder (TIER 3 FIX - Style Personality Injection)
  *
  * Converts market data, indicators, and trigger events into compact JSON
- * formatted for LLM consumption in the event-based trading system
+ * formatted for LLM consumption in the event-based trading system.
+ *
+ * TIER 3 Enhancement: Now includes style personality context to guide Alpha's
+ * decision-making with style-aware entry timing, TP/SL sizing, and duration expectations.
  */
 
 import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
@@ -11,6 +14,7 @@ import { validateSLTPDistances, calculatePipDistance } from '../utils/currencyHe
 import { computeOmegaSensors, formatSensorsForLogging, type OmegaSensors } from './omega-sensors';
 import { getEnv } from '../lib/environment';
 import { tradeValidationService } from './trade-validation-service';
+import { buildStyleContext } from './style-context-builder';
 
 export interface LLMSnapshot {
   pipnosisIdentity: string;
@@ -89,6 +93,16 @@ export interface LLMSnapshot {
     warnings: string[];
     recommendation: string;
   };
+  stylePersonality?: {
+    style: string;
+    mindset: string;
+    description: string;
+    targetDurationHours: number;
+    entryBias: string;
+    typicalTPPips: { low: number; mid: number; high: number };
+    typicalSLPips: { low: number; mid: number; high: number };
+    guidance: string;
+  };
 }
 
 export interface LLMTradeDecision {
@@ -121,7 +135,8 @@ class LLMSnapshotBuilder {
       volatility: 'low' | 'medium' | 'high';
       momentum: number;
     },
-    openPositions: any[] = []
+    openPositions: any[] = [],
+    style?: string // TIER 3 FIX: Optional style parameter for personality injection
   ): LLMSnapshot {
     const currentCandle = candles[candles.length - 1];
     const currentPrice = currentCandle.close;
@@ -131,6 +146,9 @@ class LLMSnapshotBuilder {
     const priceActionSummary = this.formatPriceAction(priceAction, candles);
     const supportResistance = this.calculateSupportResistance(candles, currentPrice);
     const portfolioSummary = this.formatPortfolio(openPositions, currentPrice);
+
+    // TIER 3 FIX: Build style personality context if style provided
+    const stylePersonality = style ? buildStyleContext(style) : undefined;
 
     return {
       pipnosisIdentity: this.getPipnosisIdentity(),
@@ -155,7 +173,8 @@ class LLMSnapshotBuilder {
         maxTradePercent: PIPNOSIS_CORE_RULES.MAX_SINGLE_TRADE_PROFIT_PERCENT,
         mustCloseBeforeEOD: PIPNOSIS_CORE_RULES.ENFORCE_END_OF_DAY_CLOSURE,
         noOvernightHolds: !PIPNOSIS_CORE_RULES.ALLOW_OVERNIGHT_HOLDS
-      }
+      },
+      stylePersonality // TIER 3 FIX: Include style personality context
     };
   }
 

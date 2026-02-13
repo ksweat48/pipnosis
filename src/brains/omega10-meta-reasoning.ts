@@ -230,6 +230,53 @@ function detectContradictions(
         omegaStances: [`Low avg confidence: ${avgOmegaConfidence.toFixed(0)}`]
       });
     }
+
+    // TIER 3 FIX: Trend+Reversal exhaustion conflict detector
+    // Detects when trend strength conflicts with reversal signals (potential exhaustion)
+    const trendVote = omegas.trend;
+    const reversalVote = omegas.reversal;
+
+    if (trendVote && reversalVote && trendVote.confidence >= 70 && reversalVote.confidence >= 60) {
+      // Trend says BUY but Reversal says SELL = bullish exhaustion
+      if (trendVote.vote === 'BUY' && reversalVote.vote === 'SELL') {
+        contradictions.push({
+          type: 'exhaustion_risk',
+          severity: 'high',
+          source1: 'Trend Omega',
+          source2: 'Reversal Omega',
+          description: `Trend bullish (${trendVote.confidence}) but Reversal detecting bearish exhaustion (${reversalVote.confidence}) - potential trend reversal`,
+          alphaStance: alpha.decision === 'BUY'
+            ? `Aligned with trend (BUY, conf: ${alpha.confidence})`
+            : alpha.decision === 'SELL'
+            ? `Aligned with reversal (SELL, conf: ${alpha.confidence})`
+            : `Sided with caution (NO_TRADE, conf: ${alpha.confidence})`,
+          omegaStances: [
+            `Trend: ${trendVote.vote} (${trendVote.confidence})`,
+            `Reversal: ${reversalVote.vote} (${reversalVote.confidence})`
+          ]
+        });
+      }
+
+      // Trend says SELL but Reversal says BUY = bearish exhaustion
+      if (trendVote.vote === 'SELL' && reversalVote.vote === 'BUY') {
+        contradictions.push({
+          type: 'exhaustion_risk',
+          severity: 'high',
+          source1: 'Trend Omega',
+          source2: 'Reversal Omega',
+          description: `Trend bearish (${trendVote.confidence}) but Reversal detecting bullish exhaustion (${reversalVote.confidence}) - potential trend reversal`,
+          alphaStance: alpha.decision === 'SELL'
+            ? `Aligned with trend (SELL, conf: ${alpha.confidence})`
+            : alpha.decision === 'BUY'
+            ? `Aligned with reversal (BUY, conf: ${alpha.confidence})`
+            : `Sided with caution (NO_TRADE, conf: ${alpha.confidence})`,
+          omegaStances: [
+            `Trend: ${trendVote.vote} (${trendVote.confidence})`,
+            `Reversal: ${reversalVote.vote} (${reversalVote.confidence})`
+          ]
+        });
+      }
+    }
   }
 
   return contradictions;

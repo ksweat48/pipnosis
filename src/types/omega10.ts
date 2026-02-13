@@ -8,7 +8,7 @@
 import type { AlphaDecision, OmegaCouncilVotes } from '../brains/coordinator-alpha';
 
 export interface Contradiction {
-  type: 'directional_conflict' | 'confidence_mismatch' | 'risk_inconsistency';
+  type: 'directional_conflict' | 'confidence_mismatch' | 'risk_inconsistency' | 'exhaustion_risk'; // TIER 3 FIX: Added exhaustion_risk
   severity: 'low' | 'medium' | 'high' | 'critical';
   source1: string;
   source2: string;
