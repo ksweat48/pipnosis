@@ -44,6 +44,7 @@ import { calculateDollarPerPip, calculatePipDistance } from '../utils/currencyHe
 import { mandatorySafetyValidator } from './mandatory-safety-validator';
 import { creditValidationService } from './credit-validation-service';
 import { EntryOverextensionValidator } from './entry-overextension-validator';
+import { normalizeStyle } from '../utils/entry-overextension-calculator';
 import { validateStyleQualification } from './style-qualification-gate';
 import type { AlphaDecision } from '../brains/coordinator-alpha';
 import type { TradeContext } from '../types/trade-context';
@@ -502,8 +503,8 @@ class AlphaTradeExecutor {
       optimalZoneMax = decision.entry * (1 + percentBuffer);
     }
 
-    // Get trade style for threshold determination
-    const tradeStyle = EntryOverextensionValidator.normalizeStyle(sessionData.raw.trade_style);
+    // Get trade style for threshold determination (TIER 3 FIX: Uses SSOT normalizeStyle)
+    const tradeStyle = normalizeStyle(sessionData.raw.trade_style);
 
     // HARD INVALIDATION: Binary VALID/INVALID decision
     const overextensionValidation = EntryOverextensionValidator.validateEntry({

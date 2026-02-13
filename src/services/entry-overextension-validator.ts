@@ -19,24 +19,22 @@
  * - No confidence overrides
  * - No silent execution
  * - Full audit trail
+ *
+ * TIER 3 FIX: Consolidated to use SSOT definitions from entry-overextension-calculator.ts
+ * - Removed duplicate STYLE_OVEREXTENSION_THRESHOLDS
+ * - Removed duplicate TradeStyle type
+ * - Removed duplicate normalizeStyle function
+ * - Uses shared calculation logic for consistency
  */
 
 import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
-
-/**
- * Style-specific overextension thresholds
- * Scalp requires strictest precision, Intraday allows more tolerance
- */
-export const STYLE_OVEREXTENSION_THRESHOLDS = {
-  scalp: 10,      // Scalp: Maximum 10% overextension (strictest)
-  micro: 15,      // Micro: Maximum 15% overextension
-  day: 20,        // Day/Intraday: Maximum 20% overextension
-  swing: 20,      // Swing: Maximum 20% overextension
-  precision: 10   // Precision: Maximum 10% overextension (strict like scalp)
-} as const;
-
-export type TradeStyle = keyof typeof STYLE_OVEREXTENSION_THRESHOLDS;
+import {
+  STYLE_OVEREXTENSION_THRESHOLDS,
+  type TradeStyle,
+  calculateOverextension,
+  normalizeStyle
+} from '../utils/entry-overextension-calculator';
 
 export interface OverextensionValidation {
   isValid: boolean;
@@ -75,6 +73,8 @@ export class EntryOverextensionValidator {
   /**
    * Validates if entry is within acceptable overextension threshold
    * Returns VALID or INVALID (no degradation)
+   *
+   * TIER 3 FIX: Delegates calculation to SSOT calculator module
    */
   static validateEntry(input: ValidationInput): OverextensionValidation {
     const {
@@ -88,96 +88,81 @@ export class EntryOverextensionValidator {
       omegaConsensusCount
     } = input;
 
-    const optimalCenter = (optimalZoneMin + optimalZoneMax) / 2;
-    const zoneWidth = optimalZoneMax - optimalZoneMin;
+    // Normalize style to SSOT format
+    const normalizedStyle = normalizeStyle(style);
 
-    // Calculate overextension
-    let overextensionDistance = 0;
-    let overextensionType: 'within_zone' | 'bought_high' | 'sold_low' = 'within_zone';
+    // Calculate optimal zone center for alphaEntry parameter
+    const alphaEntry = (optimalZoneMin + optimalZoneMax) / 2;
 
-    if (direction === 'buy') {
-      if (currentPrice > optimalZoneMax) {
-        overextensionDistance = currentPrice - optimalZoneMax;
-        overextensionType = 'bought_high';
+    // Delegate core calculation to SSOT calculator
+    const calculationResult = calculateOverextension(
+      currentPrice,
+      alphaEntry,
+      symbol,
+      direction === 'buy' ? 'long' : 'short',
+      normalizedStyle,
+      undefined // atrValue - zone is already provided, so ATR recalculation not needed
+    );
+
+    // Override optimal zone with provided values (validator receives explicit zone from caller)
+    const overextensionResult = {
+      ...calculationResult,
+      optimalZone: {
+        min: optimalZoneMin,
+        max: optimalZoneMax,
+        center: alphaEntry,
+        width: optimalZoneMax - optimalZoneMin,
+        calculationMethod: 'provided' as const
       }
-    } else { // sell
-      if (currentPrice < optimalZoneMin) {
-        overextensionDistance = optimalZoneMin - currentPrice;
-        overextensionType = 'sold_low';
-      }
-    }
-
-    const overextensionPercentage = zoneWidth > 0
-      ? (overextensionDistance / zoneWidth) * 100
-      : 0;
-
-    // Get style-specific threshold
-    const maxAllowedOverextension = STYLE_OVEREXTENSION_THRESHOLDS[style] || 25;
-
-    // Classify severity (informational only, does not affect decision)
-    let severity: OverextensionValidation['severity'] = 'none';
-    if (overextensionPercentage === 0) {
-      severity = 'none';
-    } else if (overextensionPercentage <= 25) {
-      severity = 'minor';
-    } else if (overextensionPercentage <= 50) {
-      severity = 'moderate';
-    } else if (overextensionPercentage <= 100) {
-      severity = 'severe';
-    } else {
-      severity = 'extreme';
-    }
-
-    // HARD INVALIDATION: Binary decision
-    const isValid = overextensionPercentage <= maxAllowedOverextension;
+    };
 
     // Generate block reason if invalid
     let blockReason: string | null = null;
-    if (!isValid) {
+    if (!overextensionResult.isValid) {
       const actionVerb = direction === 'buy' ? 'BUYING HIGH' : 'SELLING LOW';
-      blockReason = `ENTRY INVALID: ${actionVerb} - ${overextensionPercentage.toFixed(1)}% overextended (max allowed: ${maxAllowedOverextension}% for ${style} style). ` +
+      blockReason = `ENTRY INVALID: ${actionVerb} - ${overextensionResult.overextensionPercentage.toFixed(1)}% overextended (max allowed: ${overextensionResult.maxAllowedPercentage}% for ${normalizedStyle} style). ` +
         `Entry price ${currentPrice.toFixed(5)} is outside optimal zone [${optimalZoneMin.toFixed(5)} - ${optimalZoneMax.toFixed(5)}]. ` +
         `Alpha must wait for pullback into optimal zone or abort trade.`;
     }
 
     // Generate reasoning
     const reasoning = this.generateReasoning(
-      overextensionType,
-      severity,
-      overextensionDistance,
-      overextensionPercentage,
+      overextensionResult.overextensionType,
+      overextensionResult.severity,
+      overextensionResult.overextensionDistance,
+      overextensionResult.overextensionPercentage,
       direction,
       currentPrice,
       optimalZoneMin,
       optimalZoneMax,
-      isValid,
-      maxAllowedOverextension,
-      style
+      overextensionResult.isValid,
+      overextensionResult.maxAllowedPercentage,
+      normalizedStyle
     );
 
     logger.info('[EntryOverextensionValidator] Validation result', {
       symbol,
       direction,
-      style,
-      isValid,
-      overextensionPct: overextensionPercentage.toFixed(1),
-      threshold: maxAllowedOverextension,
-      overextensionType,
-      severity
+      style: normalizedStyle,
+      isValid: overextensionResult.isValid,
+      overextensionPct: overextensionResult.overextensionPercentage.toFixed(1),
+      threshold: overextensionResult.maxAllowedPercentage,
+      overextensionType: overextensionResult.overextensionType,
+      severity: overextensionResult.severity
     });
 
     return {
-      isValid,
-      overextensionType,
-      severity,
+      isValid: overextensionResult.isValid,
+      overextensionType: overextensionResult.overextensionType,
+      severity: overextensionResult.severity,
       currentPrice,
       optimalZoneMin,
       optimalZoneMax,
-      optimalCenter,
-      overextensionDistance,
-      overextensionPercentage,
-      maxAllowedOverextension,
-      style,
+      optimalCenter: alphaEntry,
+      overextensionDistance: overextensionResult.overextensionDistance,
+      overextensionPercentage: overextensionResult.overextensionPercentage,
+      maxAllowedOverextension: overextensionResult.maxAllowedPercentage,
+      style: normalizedStyle,
       blockReason,
       reasoning
     };
@@ -309,26 +294,4 @@ export class EntryOverextensionValidator {
     }
   }
 
-  /**
-   * Get style from session data with fallback
-   */
-  static normalizeStyle(styleInput: string | undefined): TradeStyle {
-    if (!styleInput) return 'day'; // Default fallback
-
-    const normalized = styleInput.toLowerCase().trim();
-
-    // Map common variations
-    if (normalized === 'scalp' || normalized === 'scalper') return 'scalp';
-    if (normalized === 'micro') return 'micro';
-    if (normalized === 'day' || normalized === 'intraday') return 'day';
-    if (normalized === 'swing') return 'swing';
-    if (normalized === 'precision') return 'precision';
-
-    // Default to day if unknown
-    logger.warn('[EntryOverextensionValidator] Unknown style, defaulting to day', {
-      styleInput,
-      normalized
-    });
-    return 'day';
-  }
 }
