@@ -715,6 +715,8 @@ class AlphaTradeExecutor {
       }
     );
 
+    const rawTradeStyle = sessionData.raw.trade_style || '';
+
     // MODE ROUTING (Execute based on selected mode)
     if (mode === 'IMMEDIATE') {
       return await this.executeImmediate({
@@ -727,9 +729,11 @@ class AlphaTradeExecutor {
         riskWarnings: riskWarningsWithGoalContext,
         inputs,
         lotSizingDecisionId: lotSizingDecision?.auditRecordId,
-        expectedProfitAtTP: lotSizingDecision?.expectedProfitAtTP, // SSOT FIX: Pass coordinator's calculation
-        lotSizingAuditRecord, // CCIP: Pass audit metadata for governance logging
-        overextensionEventId // CCIP 2026-02-11: Link trade to overextension event
+        expectedProfitAtTP: lotSizingDecision?.expectedProfitAtTP,
+        lotSizingAuditRecord,
+        overextensionEventId,
+        canonicalStyle,
+        rawTradeStyle
       });
     } else if (mode === 'PENDING') {
       return await this.createPending({
@@ -742,12 +746,13 @@ class AlphaTradeExecutor {
         riskWarnings: riskWarningsWithGoalContext,
         inputs,
         lotSizingDecisionId: lotSizingDecision?.auditRecordId,
-        expectedProfitAtTP: lotSizingDecision?.expectedProfitAtTP, // SSOT FIX: Pass coordinator's calculation
-        lotSizingAuditRecord, // CCIP: Pass audit metadata for governance logging
-        overextensionEventId // CCIP 2026-02-11: Link trade to overextension event
+        expectedProfitAtTP: lotSizingDecision?.expectedProfitAtTP,
+        lotSizingAuditRecord,
+        overextensionEventId,
+        canonicalStyle,
+        rawTradeStyle
       });
     } else {
-      // MONITORED mode - create entry intent
       return await this.createMonitored({
         decision,
         userId,
@@ -755,7 +760,9 @@ class AlphaTradeExecutor {
         lotSize: finalLotSize,
         riskDollars: riskAssessment.trueRiskDollars || riskAssessment.adjustedRiskDollars,
         lotSizingDecisionId: lotSizingDecision?.auditRecordId,
-        overextensionEventId // CCIP 2026-02-11: Link intent to overextension event
+        overextensionEventId,
+        canonicalStyle,
+        rawTradeStyle
       });
     }
   }
@@ -825,8 +832,11 @@ class AlphaTradeExecutor {
     riskWarnings: string[];
     inputs: TradeExecutionInputs;
     lotSizingDecisionId?: string;
-    expectedProfitAtTP?: number; // SSOT FIX: From coordinator's calculation
-    lotSizingAuditRecord?: any; // CCIP: Governance audit metadata
+    expectedProfitAtTP?: number;
+    lotSizingAuditRecord?: any;
+    overextensionEventId?: string | null;
+    canonicalStyle: CanonicalStyle;
+    rawTradeStyle: string;
   }): Promise<TradeExecutionResult> {
     const { decision, userId, sessionId, lotSize, riskDollars, inputs } = params;
 
@@ -959,12 +969,14 @@ class AlphaTradeExecutor {
         status: 'open',
         openedAt: new Date().toISOString(),
         inputs,
-        expectedProfitFromCoordinator: params.expectedProfitAtTP, // SSOT FIX: Use coordinator's calculation
-        lotSizingAuditRecord: params.lotSizingAuditRecord, // CCIP: Pass audit record
+        expectedProfitFromCoordinator: params.expectedProfitAtTP,
+        lotSizingAuditRecord: params.lotSizingAuditRecord,
         executionStopLoss: slTpRecalculated ? executionSL : undefined,
         executionTakeProfit: slTpRecalculated ? executionTP : undefined,
         executionTP1: slTpRecalculated ? executionTP1 : undefined,
         executionTP2: slTpRecalculated ? executionTP2 : undefined,
+        canonicalStyle: params.canonicalStyle,
+        rawTradeStyle: params.rawTradeStyle,
       });
     } catch (error: any) {
       console.error('[AlphaTradeExecutor] Trade record validation failed:', {
@@ -1171,7 +1183,8 @@ class AlphaTradeExecutor {
       sessionId,
       tradeId: trade.id,
       decision,
-      entryPrice: adjustedEntry
+      entryPrice: adjustedEntry,
+      canonicalStyle: params.canonicalStyle
     });
 
     return {
@@ -1197,8 +1210,11 @@ class AlphaTradeExecutor {
     riskWarnings: string[];
     inputs: TradeExecutionInputs;
     lotSizingDecisionId?: string;
-    expectedProfitAtTP?: number; // SSOT FIX: From coordinator's calculation
-    lotSizingAuditRecord?: any; // CCIP: Governance audit metadata
+    expectedProfitAtTP?: number;
+    lotSizingAuditRecord?: any;
+    overextensionEventId?: string | null;
+    canonicalStyle: CanonicalStyle;
+    rawTradeStyle: string;
   }): Promise<TradeExecutionResult> {
     const { decision, userId, sessionId, lotSize, riskDollars, inputs } = params;
 
@@ -1267,8 +1283,10 @@ class AlphaTradeExecutor {
         status: 'pending',
         openedAt: null,
         inputs,
-        expectedProfitFromCoordinator: params.expectedProfitAtTP, // SSOT FIX: Use coordinator's calculation
-        lotSizingAuditRecord: params.lotSizingAuditRecord // CCIP: Pass audit record
+        expectedProfitFromCoordinator: params.expectedProfitAtTP,
+        lotSizingAuditRecord: params.lotSizingAuditRecord,
+        canonicalStyle: params.canonicalStyle,
+        rawTradeStyle: params.rawTradeStyle,
       });
     } catch (error: any) {
       console.error('[AlphaTradeExecutor] Pending trade record validation failed:', {
@@ -1440,7 +1458,8 @@ class AlphaTradeExecutor {
       sessionId,
       tradeId: trade.id,
       decision,
-      entryPrice
+      entryPrice,
+      canonicalStyle: params.canonicalStyle
     });
 
     return {
@@ -1465,6 +1484,9 @@ class AlphaTradeExecutor {
     lotSize: number;
     riskDollars: number;
     lotSizingDecisionId?: string;
+    overextensionEventId?: string | null;
+    canonicalStyle: CanonicalStyle;
+    rawTradeStyle: string;
   }): Promise<TradeExecutionResult> {
     const { decision, userId, sessionId } = params;
 
@@ -1491,7 +1513,7 @@ class AlphaTradeExecutor {
         alpha_confidence: decision.confidence,
         market_context: this.buildMarketContextForAdvisory(decision, decision.entry),
         entry_mode: 'MONITORED',
-        style: normalizeToCanonicalStyle(tradeStyle),
+        style: params.canonicalStyle,
         thesis: decision.thesis,
         style_intent: decision.style_intent,
         execution_preference: decision.execution_preference || 'WAIT_PULLBACK'
@@ -1539,17 +1561,20 @@ class AlphaTradeExecutor {
     status: 'open' | 'pending';
     openedAt: string | null;
     inputs: TradeExecutionInputs;
-    expectedProfitFromCoordinator?: number; // SSOT FIX (2026-02-03): Use coordinator's calculation
-    lotSizingAuditRecord?: any; // CCIP: Governance tracking of lot sizing decisions
-    executionStopLoss?: number; // CCIP (2026-02-12): Recalculated SL for actual fill
-    executionTakeProfit?: number; // CCIP (2026-02-12): Recalculated TP for actual fill
-    executionTP1?: number | null; // CCIP (2026-02-12): Recalculated TP1
-    executionTP2?: number; // CCIP (2026-02-12): Recalculated TP2
+    expectedProfitFromCoordinator?: number;
+    lotSizingAuditRecord?: any;
+    executionStopLoss?: number;
+    executionTakeProfit?: number;
+    executionTP1?: number | null;
+    executionTP2?: number;
+    canonicalStyle: CanonicalStyle;
+    rawTradeStyle: string;
   }): any {
     const {
       decision, userId, sessionId, lotSize, riskDollars, entryPrice, status, openedAt,
       inputs, expectedProfitFromCoordinator, lotSizingAuditRecord,
-      executionStopLoss, executionTakeProfit, executionTP1, executionTP2
+      executionStopLoss, executionTakeProfit, executionTP1, executionTP2,
+      canonicalStyle, rawTradeStyle
     } = params;
 
     // GOVERNANCE: Comprehensive price validation (catches NaN from previous cascading errors)
@@ -1658,6 +1683,8 @@ class AlphaTradeExecutor {
       planned_entry_price: decision.entry,
       planned_stop_loss: decision.stopLoss,
       planned_take_profit: decision.takeProfit,
+      requested_style: normalizeToCanonicalStyle(rawTradeStyle),
+      resolved_style: canonicalStyle,
     };
   }
 
@@ -1923,6 +1950,7 @@ class AlphaTradeExecutor {
     tradeId: string;
     decision: AlphaDecision;
     entryPrice: number;
+    canonicalStyle: CanonicalStyle;
   }): Promise<void> {
     const { userId, sessionId, tradeId, decision, entryPrice } = params;
 
@@ -1966,7 +1994,7 @@ class AlphaTradeExecutor {
         alpha_confidence: decision.confidence,
         market_context: this.buildMarketContextForAdvisory(decision, entryPrice),
         entry_mode: 'immediate',
-        style: normalizeToCanonicalStyle(tradeStyle),
+        style: params.canonicalStyle,
         thesis: safeThesis,
         style_intent: safeStyleIntent,
         execution_preference: decision.execution_preference || 'IMMEDIATE'
