@@ -630,7 +630,7 @@ class AlphaCoordinatorBrain {
       riskProfileText = formatRiskProfileForLLM(riskMode);
 
       const styleDirective = goalContext.tradeStyle
-        ? `\nTRADE STYLE DIRECTIVE: User has selected "${goalContext.tradeStyle.toUpperCase()}" style. You MUST output this style in your response. Your SL and TP MUST conform to this style's execution envelope. Do NOT override the user's style preference.\n`
+        ? `\nTRADE STYLE: ${goalContext.tradeStyle.toUpperCase()} (full style identity and duration constraints provided below)\n`
         : '';
       goalContextText = `\nGOAL: $${goalContext.currentBalance.toFixed(0)} -> +$${goalContext.targetGoal.toFixed(0)} (${goalContext.goalPercentage.toFixed(3)}% gain) | Progress: $${goalContext.currentProgress.toFixed(0)}/${goalContext.targetGoal.toFixed(0)} | Remaining: $${goalContext.remainingGoal.toFixed(0)}\n${riskProfileText}${styleDirective}\n`;
     }
@@ -1061,6 +1061,33 @@ class AlphaCoordinatorBrain {
       constraintsText = omega9ConstraintProvider.formatConstraintsForPrompt(omega9Constraints);
     }
 
+    const stylePersonality = getStylePromptContext(tradeStyle);
+    const styleEnvelope = getExecutionEnvelope(tradeStyle);
+    const styleIdentityPrompt = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STYLE IDENTITY CONTRACT: ${tradeStyle}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${stylePersonality}
+
+EXECUTION ENVELOPE (HARD CONSTRAINTS):
+- Timeframe: ${styleEnvelope.timeframe}
+- Target Candles: ${styleEnvelope.targetCandles.min}-${styleEnvelope.targetCandles.max}
+- TP Range: ${styleEnvelope.tpPips.min}-${styleEnvelope.tpPips.max} pips
+- SL Range: ${styleEnvelope.slPips.min}-${styleEnvelope.slPips.max} pips
+- Expected Duration: ${styleEnvelope.typicalDuration.min}-${styleEnvelope.typicalDuration.max} minutes
+- Entry Mode: ${styleEnvelope.entryMode}
+
+DURATION FILTERING (MANDATORY):
+You MUST select setups that fit within the ${tradeStyle} duration band (${styleEnvelope.typicalDuration.min}-${styleEnvelope.typicalDuration.max} min).
+- BEFORE choosing TP/SL, estimate how long the trade will take to reach target
+- If the best available setup would take longer than ${styleEnvelope.typicalDuration.max} minutes, return NO_TRADE
+- Do NOT propose trades that belong to a longer-duration style
+- Think in ${styleEnvelope.timeframe} terms: target ${styleEnvelope.targetCandles.min}-${styleEnvelope.targetCandles.max} ${styleEnvelope.timeframe} candles
+- Scanner will re-evaluate next cycle if no ${tradeStyle}-appropriate setup exists now
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+
     // Build Elite Trader Stop-Loss Directive
     if (stopLossAnchor) {
       stopLossDirective = `
@@ -1080,7 +1107,7 @@ TAKE-PROFIT RULES:
 • Place TP at liquidity zones (order clusters > psychological levels > structure).
 • If liquidity exists beyond structure, target liquidity.
 • Default: single TP. Partials only with explicit multi-zone reasoning.
-• Duration exceeding style band triggers style upgrade, not rejection.
+• If estimated duration exceeds style band, return NO_TRADE. Do NOT silently upgrade style.
 `;
     }
 
@@ -1191,6 +1218,7 @@ IMPORTANT REMINDERS:
     }
 
     const prompt = `${getAlphaSystemPrompt()}
+${styleIdentityPrompt}
 ${cachedThesisPrompt}
 ${m5ContextPrompt}
 

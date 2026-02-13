@@ -19,7 +19,7 @@
  */
 
 export interface StyleExecutionEnvelope {
-  style: 'SCALP' | 'INTRADAY' | 'SWING';
+  style: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'SWING';
   timeframe: string;                    // Primary execution timeframe
   validationTimeframes: string[];       // HTF for validation only
 
@@ -71,6 +71,35 @@ export const SCALP_ENVELOPE: StyleExecutionEnvelope = {
 
   entryMode: 'IMMEDIATE',
   requiresHighEQS: false, // SCALP = momentum, not perfection
+};
+
+/**
+ * MICRO_INTRADAY - M15 Tactical Execution
+ *
+ * Identity:
+ * - Captures structural M15 moves
+ * - Typically 4-8 M15 candles
+ * - Medium TP (40-120 pips)
+ * - Moderate SL (15-40 pips)
+ * - M15 structure primary, H1 for validation
+ * - Pullback entry preferred
+ */
+export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
+  style: 'MICRO_INTRADAY',
+  timeframe: 'M15',
+  validationTimeframes: ['H1', 'H4'],
+
+  targetCandles: { min: 4, max: 8 },
+
+  tpPips: { min: 40, max: 120 },
+  slPips: { min: 15, max: 40 },
+
+  atrTimeframe: 'M15',
+
+  typicalDuration: { min: 60, max: 360 },
+
+  entryMode: 'PATIENT',
+  requiresHighEQS: false,
 };
 
 /**
@@ -138,6 +167,8 @@ export function getExecutionEnvelope(style: string): StyleExecutionEnvelope {
   switch (style.toUpperCase()) {
     case 'SCALP':
       return SCALP_ENVELOPE;
+    case 'MICRO_INTRADAY':
+      return MICRO_INTRADAY_ENVELOPE;
     case 'INTRADAY':
       return INTRADAY_ENVELOPE;
     case 'SWING':

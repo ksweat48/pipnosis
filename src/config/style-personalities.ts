@@ -295,5 +295,5 @@ Duration Target: ${personality.durationBand.targetHours}h (${personality.duratio
 Entry Bias: ${personality.entryBias.preferredEntryType} (aggression: ${personality.entryBias.aggressionLevel})
 EQS Execute: >= ${personality.eqsInterpretation.executeThreshold}
 EQS Wait Pullback: ${personality.eqsInterpretation.waitPullbackMin}-${personality.eqsInterpretation.waitPullbackMax}
-Style Upgrade: ${personality.upgradeCondition.targetStyle ? `Auto-upgrade to ${personality.upgradeCondition.targetStyle} if > ${personality.upgradeCondition.hoursThreshold}h` : `Apply penalty if > ${personality.upgradeCondition.hoursThreshold}h (no further upgrade)`}`;
+Duration Enforcement: If setup exceeds ${personality.durationBand.maxHours}h, return NO_TRADE (do NOT upgrade style)`;
 }
