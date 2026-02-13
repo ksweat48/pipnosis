@@ -928,7 +928,6 @@ class AlphaCoordinatorBrain {
             'INDEX:LOW': 0.25
           },
           allowAutoDowngradeRisk: true,
-          allowAutoSwitchStyle: true,
           allowBoundedSlRelaxation: true
         }
       });
@@ -979,7 +978,6 @@ class AlphaCoordinatorBrain {
     let omega9Constraints: Omega9Constraints | null = null;
     let constraintsText = '';
 
-    // SSOT: User's chosen style is IMMUTABLE - never override with defaults
     const USER_STYLE_MAP: Record<string, 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'> = {
       'scalper': 'SCALP', 'SCALPER': 'SCALP', 'scalp': 'SCALP', 'SCALP': 'SCALP',
       'micro': 'MICRO_INTRADAY', 'MICRO': 'MICRO_INTRADAY', 'MICRO_INTRADAY': 'MICRO_INTRADAY',
@@ -988,10 +986,15 @@ class AlphaCoordinatorBrain {
     const userChosenStyle = goalContext?.tradeStyle
       ? USER_STYLE_MAP[goalContext.tradeStyle]
       : undefined;
-    let tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' =
-      userChosenStyle || resolvedPlan?.style || 'SCALP';
 
-    console.log(`[Alpha Coordinator] [Style SSOT] User chose: ${goalContext?.tradeStyle || 'none'} => Canonical: ${tradeStyle} (IMMUTABLE)`);
+    const tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = userChosenStyle || 'SCALP';
+
+    if (resolvedPlan?.style && resolvedPlan.style !== tradeStyle) {
+      console.warn(`[Alpha Coordinator] [GOVERNANCE VIOLATION BLOCKED] Feasibility resolver attempted style promotion: ${tradeStyle} -> ${resolvedPlan.style}. User style is IMMUTABLE. Overriding back to ${tradeStyle}.`);
+      resolvedPlan.style = tradeStyle;
+    }
+
+    console.log(`[Alpha Coordinator] [Style SSOT] User chose: ${goalContext?.tradeStyle || 'none'} => Canonical: ${tradeStyle} (IMMUTABLE - no promotion allowed)`);
 
     if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED' && consensus.direction !== 'WAIT') {
       if (sessionId && userId) {

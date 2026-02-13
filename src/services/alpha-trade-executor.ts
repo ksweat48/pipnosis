@@ -584,7 +584,17 @@ class AlphaTradeExecutor {
     // - INTRADAY must execute like INTRADAY (H1, 2-10 hour duration)
     // Blocks trades that violate style execution boundaries
 
-    const canonicalStyle = decision.resolvedStyle || normalizeToCanonicalStyle(tradeStyle);
+    const userSessionStyle = normalizeToCanonicalStyle(tradeStyle);
+    const canonicalStyle = userSessionStyle;
+
+    if (decision.resolvedStyle && decision.resolvedStyle !== userSessionStyle) {
+      logger.error(
+        LogCategory.AI_TRADING,
+        `[STYLE IMMUTABILITY GUARD] BLOCKED: Decision resolvedStyle "${decision.resolvedStyle}" differs from user session style "${userSessionStyle}". Enforcing user style. This is a governance violation that was caught at the executor level.`,
+        { userId, sessionId, symbol: decision.symbol, decisionStyle: decision.resolvedStyle, userStyle: userSessionStyle }
+      );
+      decision.resolvedStyle = userSessionStyle;
+    }
 
     logger.info(
       LogCategory.AI_TRADING,
@@ -1503,7 +1513,7 @@ class AlphaTradeExecutor {
         alpha_confidence: decision.confidence,
         market_context: this.buildMarketContextForAdvisory(decision, decision.entry),
         entry_mode: 'MONITORED',
-        style: decision.resolvedStyle || 'MICRO_INTRADAY',
+        style: normalizeToCanonicalStyle(tradeStyle),
         thesis: decision.thesis,
         style_intent: decision.style_intent,
         execution_preference: decision.execution_preference || 'WAIT_PULLBACK'
@@ -1978,7 +1988,7 @@ class AlphaTradeExecutor {
         alpha_confidence: decision.confidence,
         market_context: this.buildMarketContextForAdvisory(decision, entryPrice),
         entry_mode: 'immediate',
-        style: decision.resolvedStyle || 'MICRO_INTRADAY',
+        style: normalizeToCanonicalStyle(tradeStyle),
         thesis: safeThesis,
         style_intent: safeStyleIntent,
         execution_preference: decision.execution_preference || 'IMMEDIATE'

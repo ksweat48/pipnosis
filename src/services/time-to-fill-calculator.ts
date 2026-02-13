@@ -106,10 +106,10 @@ class TimeToFillCalculator {
     EXTENDED: { min: 10.0, max: Infinity }    // >10hrs (penalty zone)
   };
 
-  // Use consolidated upgrade thresholds from pipnosis-core-rules (SSOT)
-  private readonly SCALP_MAX = PIPNOSIS_CORE_RULES.STYLE_UPGRADE_THRESHOLDS.SCALP_TO_MICRO_HOURS;
-  private readonly MICRO_INTRADAY_MAX = PIPNOSIS_CORE_RULES.STYLE_UPGRADE_THRESHOLDS.MICRO_TO_INTRADAY_HOURS;
-  private readonly INTRADAY_MAX = PIPNOSIS_CORE_RULES.STYLE_UPGRADE_THRESHOLDS.PENALTY_THRESHOLD_HOURS;
+  // Duration penalty thresholds (advisory only, style is IMMUTABLE)
+  private readonly SCALP_MAX = PIPNOSIS_CORE_RULES.STYLE_DURATION_PENALTY_THRESHOLDS.SCALP_PENALTY_HOURS;
+  private readonly MICRO_INTRADAY_MAX = PIPNOSIS_CORE_RULES.STYLE_DURATION_PENALTY_THRESHOLDS.MICRO_PENALTY_HOURS;
+  private readonly INTRADAY_MAX = PIPNOSIS_CORE_RULES.STYLE_DURATION_PENALTY_THRESHOLDS.INTRADAY_PENALTY_HOURS;
 
   /**
    * Calculate time-to-fill from ATR in price units (RECOMMENDED)

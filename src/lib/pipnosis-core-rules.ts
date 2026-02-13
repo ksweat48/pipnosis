@@ -28,7 +28,7 @@ export const PIPNOSIS_CORE_RULES = {
   // DURATION PHILOSOPHY (v2.0):
   // - Time is a SCORING SIGNAL, not a rejection constraint
   // - NEVER hard-block trades due to time/duration
-  // - Use style upgrades + reward/penalty model instead
+  // - Apply confidence penalties for duration deviations (not style changes)
 
   // Duration Target Bands (for learning/scoring, NOT blocking)
   STYLE_DURATION_BANDS: {
@@ -37,11 +37,11 @@ export const PIPNOSIS_CORE_RULES = {
     INTRADAY: { min: 2.0, max: 10.0 },        // 2hrs - 10hrs (reward band)
   } as const,
 
-  // Auto-upgrade thresholds (NEVER block, just upgrade style)
-  STYLE_UPGRADE_THRESHOLDS: {
-    SCALP_TO_MICRO_HOURS: 2.0,       // >2h expected → upgrade to MICRO_INTRADAY
-    MICRO_TO_INTRADAY_HOURS: 6.0,    // >6h expected → upgrade to INTRADAY
-    PENALTY_THRESHOLD_HOURS: 10.0,   // >10h expected → apply penalty, STILL EXECUTE
+  // Duration penalty thresholds (advisory only, style is IMMUTABLE)
+  STYLE_DURATION_PENALTY_THRESHOLDS: {
+    SCALP_PENALTY_HOURS: 2.0,
+    MICRO_PENALTY_HOURS: 6.0,
+    INTRADAY_PENALTY_HOURS: 10.0,
   } as const,
 
   // Legacy constants (kept for backward compatibility, NOT used for blocking)

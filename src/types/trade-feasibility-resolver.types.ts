@@ -69,7 +69,6 @@ export interface FeasibilityInput {
     minSlPercentByAssetRisk: Record<string, number>; // keyed by `${assetClass}:${riskMode}`
     maxSlPercentByAsset?: Record<AssetClass, number>; // optional cap
     allowAutoDowngradeRisk: boolean;
-    allowAutoSwitchStyle: boolean;
     allowBoundedSlRelaxation: boolean;
   };
 
@@ -121,7 +120,7 @@ export interface FeasibilityResult {
 
   // Explains exactly what changed and why
   adjustments: Array<{
-    field: "style" | "riskMode" | "sl.minPercent" | "tp.maxAtrMultiple" | "rr";
+    field: "riskMode" | "sl.minPercent" | "tp.maxAtrMultiple" | "rr" | "tp.mode";
     from: any;
     to: any;
     reason: AdjustmentReason;

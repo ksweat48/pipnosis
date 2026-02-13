@@ -84,43 +84,19 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
     );
 
     if (!styleValid) {
-      // ADVISORY: Suggest auto-switching to less aggressive style
-      const switchResult = this.autoSwitchStyle(
-        input.assetClass,
-        resolvedStyle,
-        input.atrPercent,
-        input.policy.allowAutoSwitchStyle
+      const gate = getAtrGate(input.assetClass, resolvedStyle);
+      adjustments.push({
+        field: 'rr',
+        from: resolvedStyle,
+        to: resolvedStyle,
+        reason: 'LOW_VOLATILITY_FOR_STYLE',
+        advisory: true,
+        detail: `ADVISORY: ${resolvedStyle} typically requires ATR >= ${(gate * 100).toFixed(2)}%, current: ${(input.atrPercent * 100).toFixed(2)}%. Style remains IMMUTABLE per user selection. Alpha may proceed with justification.`
+      });
+      logger.warn(
+        LogCategory.AI_TRADING,
+        `[Feasibility Resolver] ADVISORY: ${resolvedStyle} below optimal ATR gate (${(gate * 100).toFixed(2)}% vs ${(input.atrPercent * 100).toFixed(2)}%). Style IMMUTABLE - no promotion allowed.`
       );
-
-      if (switchResult.newStyle && input.policy.allowAutoSwitchStyle) {
-        // Auto-switch enabled - adjust to better style
-        adjustments.push({
-          field: 'style',
-          from: resolvedStyle,
-          to: switchResult.newStyle,
-          reason: 'LOW_VOLATILITY_FOR_STYLE'
-        });
-        resolvedStyle = switchResult.newStyle;
-        logger.info(
-          LogCategory.AI_TRADING,
-          `[Feasibility Resolver] ADVISORY: Auto-switched ${input.requestedStyle} → ${switchResult.newStyle} due to low ATR ${input.atrPercent.toFixed(2)}%`
-        );
-      } else {
-        // No auto-switch - add advisory warning but DO NOT BLOCK
-        const gate = getAtrGate(input.assetClass, resolvedStyle);
-        adjustments.push({
-          field: 'style',
-          from: resolvedStyle,
-          to: resolvedStyle, // No change
-          reason: 'LOW_VOLATILITY_FOR_STYLE',
-          advisory: true,
-          detail: `⚠️ ADVISORY: ${resolvedStyle} typically requires ATR >= ${(gate * 100).toFixed(2)}%, current: ${(input.atrPercent * 100).toFixed(2)}%. Consider INTRADAY for current volatility. Alpha may proceed with justification.`
-        });
-        logger.warn(
-          LogCategory.AI_TRADING,
-          `[Feasibility Resolver] ADVISORY WARNING: ${resolvedStyle} below optimal ATR gate (${(gate * 100).toFixed(2)}% vs ${(input.atrPercent * 100).toFixed(2)}%). Proceeding with advisory.`
-        );
-      }
     }
 
     // Step 4: Get initial SL/TP constraints for the resolved style/risk
@@ -269,43 +245,6 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
     return getSlFloor(assetClass, riskMode);
   }
 
-  /**
-   * Auto-switch style if current style is below ADVISORY threshold
-   * Returns suggestion, does not enforce
-   */
-  private autoSwitchStyle(
-    assetClass: FeasibilityInput['assetClass'],
-    currentStyle: TradeStyle,
-    atrPercent: number,
-    allowAutoSwitch: boolean
-  ): { newStyle: TradeStyle | null; advisoryMessage?: string } {
-    if (!allowAutoSwitch) {
-      return {
-        newStyle: null,
-        advisoryMessage: `Style switching disabled. ${currentStyle} below recommended ATR threshold.`
-      };
-    }
-
-    const cascade: TradeStyle[] = ['SCALP', 'MICRO_INTRADAY', 'INTRADAY'];
-    const currentIndex = cascade.indexOf(currentStyle);
-
-    for (let i = currentIndex + 1; i < cascade.length; i++) {
-      const candidateStyle = cascade[i];
-      if (this.isStyleValid(assetClass, candidateStyle, atrPercent)) {
-        logger.info(
-          LogCategory.AI_TRADING,
-          `[Feasibility Resolver] Auto-switch suggestion: ${currentStyle} → ${candidateStyle}`
-        );
-        return { newStyle: candidateStyle };
-      }
-    }
-
-    const intradayGate = getAtrGate(assetClass, 'INTRADAY');
-    return {
-      newStyle: null,
-      advisoryMessage: `Even INTRADAY style requires ATR >= ${(intradayGate * 100).toFixed(2)}%, current: ${(atrPercent * 100).toFixed(2)}%. Market volatility too low for execution.`
-    };
-  }
 
   /**
    * REPAIR CASCADE: Try multiple adjustments to find viable trade
@@ -316,9 +255,9 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
    * 2. Risk downgrade (tighter stops)
    * 3. SL relaxation (crypto only)
    * 4. TP1-only mode (partial profit target)
-   * 5. Style upgrade (longer duration)
    *
-   * Only gives up if ALL repairs fail
+   * GOVERNANCE: Style is IMMUTABLE. No style promotion/upgrade is permitted.
+   * If all repairs fail, the trade is rejected for the requested style.
    */
   private adjustmentCascade(
     input: FeasibilityInput,
@@ -477,41 +416,8 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
     }
     logger.info(LogCategory.AI_TRADING, `[Repair Cascade] ❌ REPAIR 4 FAILED: TP1-only mode didn't achieve acceptable R:R`);
 
-    // REPAIR 5: Style Upgrade (longer duration, more room to breathe)
-    if ((currentStyle === 'SCALP' || currentStyle === 'MICRO_INTRADAY') && input.policy.allowAutoSwitchStyle) {
-      const upgradedStyle: TradeStyle = currentStyle === 'SCALP' ? 'MICRO_INTRADAY' : 'INTRADAY';
-      if (this.isStyleValid(input.assetClass, upgradedStyle, input.atrPercent)) {
-        adjustments.push({
-          field: 'style',
-          from: currentStyle,
-          to: upgradedStyle,
-          reason: 'LOW_VOLATILITY_FOR_STYLE',
-          advisory: false,
-          detail: `Upgraded from ${currentStyle} to ${upgradedStyle} for better feasibility`
-        });
-
-        logger.info(
-          LogCategory.AI_TRADING,
-          `[Repair Cascade] ✅ REPAIR 5 SUCCESS: Style upgrade ${currentStyle} → ${upgradedStyle}`
-        );
-
-        // Recalculate with upgraded style
-        const upgradedSlMin = this.getSlMinPercent(input.assetClass, currentRiskMode);
-        const upgradedTpCeiling = input.atrPercent * tpMaxMultiple;
-        const upgradedRR = upgradedSlMin > 0 ? upgradedTpCeiling / upgradedSlMin : 0;
-
-        return {
-          style: upgradedStyle,
-          riskMode: currentRiskMode,
-          finalSlMinPercent: upgradedSlMin,
-          finalRR: upgradedRR,
-          repairUsed: 'STYLE_UPGRADE'
-        };
-      }
-      logger.info(LogCategory.AI_TRADING, `[Repair Cascade] ❌ REPAIR 5 FAILED: Style upgrade not valid for current ATR`);
-    }
-
     // ALL REPAIRS FAILED - Return advisory with best available
+    // NOTE: Style promotion (REPAIR 5) permanently removed. User's style is IMMUTABLE.
     const maxRR = ((input.atrPercent * tpMaxMultiple) / currentSlMin).toFixed(2);
     logger.warn(
       LogCategory.AI_TRADING,
@@ -671,9 +577,6 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
 
     if (status === 'ADJUSTED') {
       const changes = adjustments.map(adj => {
-        if (adj.field === 'style') {
-          return `switched from ${adj.from} to ${adj.to} style`;
-        }
         if (adj.field === 'riskMode') {
           return `reduced risk from ${adj.from} to ${adj.to}`;
         }

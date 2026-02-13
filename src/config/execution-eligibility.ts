@@ -67,7 +67,7 @@ export const EXECUTION_ELIGIBILITY_CONFIG: ExecutionEligibilityConfig = {
       timeToFill: {
         hardBlockMinutes: 9999,     // DISABLED - time is scoring signal only, not block
         warningMinutes: 120,        // Advisory threshold only
-        description: 'Time-to-fill is advisory only - trades execute with style upgrades',
+        description: 'Time-to-fill is advisory only - style is IMMUTABLE per user selection',
         toleranceBySession: {
           asian: 1.1,   // 10% more time allowed (lower volatility) - for scoring
           london: 1.0,  // Standard - for scoring
