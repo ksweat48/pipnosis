@@ -1,5 +1,6 @@
 import { logger } from '../lib/logger';
 import { getCurrencyPipInfo } from '../utils/currencyHelpers';
+import { TRADING_CONSTANTS } from '../config/trading-constants';
 
 export type TPPlacement = 'single' | 'partial';
 
@@ -44,7 +45,7 @@ export interface TPCalculationResult {
 }
 
 export class EliteProfitTargetCalculator {
-  private readonly MIN_RR_RATIO = 1.5;
+  private readonly MIN_RR_RATIO = TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM;
   private readonly PSYCHOLOGICAL_LEVELS = [0, 20, 50, 80, 100];
 
   private readonly PARTIAL_TP_SPLIT = {

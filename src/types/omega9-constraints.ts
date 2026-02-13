@@ -32,7 +32,7 @@ export interface Omega9Constraints {
   takeProfitReasoning: string;
 
   // Risk:Reward Constraints
-  minRiskReward: number;      // Hard floor (1.0)
+  minRiskReward: number;      // Hard floor (1.5) - SSOT: TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM
   targetRiskReward: number;   // Professional target (1.5+)
   optimalRiskReward: number;  // Elite target (2.0+)
 

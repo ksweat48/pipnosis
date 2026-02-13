@@ -1,4 +1,5 @@
 import { TradeStyle, RiskMode } from '../types';
+import { TRADING_CONSTANTS } from './trading-constants';
 
 /**
  * Centralized Trade Constraints Configuration
@@ -42,8 +43,8 @@ export const TRADE_CONSTRAINTS = {
 
   riskReward: {
     // DEPRECATED: Use MINIMUM_RR_BY_RISK for risk-profile-specific minimums
-    minimum: 1.0,         // Professional floor (advisory) - MEDIUM risk default
-    target: 1.5,          // Professional target (advisory)
+    minimum: TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM,
+    target: TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM,
     optimal: 2.0,         // Elite standard (advisory)
     criticalWarning: 0.3, // Severe advisory below this
     authority: 'ADVISORY' as ConstraintAuthority,
@@ -122,26 +123,26 @@ export const TRADE_CONSTRAINTS = {
 
   safetyZones: {
     GREEN: {
-      minRR: 1.5,
+      minRR: TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM,
       minTpAtr: 5.0,
       confidence: 'high',
       description: 'Excellent setup quality'
     },
     YELLOW: {
-      minRR: 1.5,
+      minRR: TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM,
       minTpAtr: 3.0,
       confidence: 'medium',
       description: 'Minimum acceptable setup quality'
     },
     ORANGE: {
-      minRR: 1.5,
+      minRR: TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM,
       minTpAtr: 2.0,
       requiresJustification: true,
       confidence: 'low',
       description: 'Marginal setup - requires explicit reasoning'
     },
     RED: {
-      minRR: 1.5,
+      minRR: TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM,
       minTpAtr: 1.0,
       requiresJustification: true,
       confidence: 'very-low',

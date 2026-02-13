@@ -30,6 +30,7 @@ import { riskAwareStopCalculator } from './risk-aware-stop-calculator';
 import { sessionConstraintCoordinator } from './session-constraint-coordinator';
 import { assetClassifier } from './asset-classifier';
 import { constraintFeasibilityValidator } from './constraint-feasibility-validator';
+import { TRADING_CONSTANTS } from '../config/trading-constants';
 import type {
   Omega9Constraints,
   Omega9ConstraintInput,
@@ -176,11 +177,11 @@ class Omega9ConstraintProvider {
       : stopLossCalc.stopLossPips;
 
     // Use resolved minimum R:R if provided, otherwise default to 1.5
-    const minRiskReward = resolvedPlan?.minRR ?? 1.5;
+    const minRiskReward = resolvedPlan?.minRR ?? TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM;
 
     // Calculate MINIMUM TP for the resolved minimum R:R
     const idealMinTakeProfitPips = referenceSLPips * minRiskReward;
-    const targetTakeProfitPips = referenceSLPips * 1.5; // Professional target
+    const targetTakeProfitPips = referenceSLPips * TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM;
     const optimalTakeProfitPips = Math.min(referenceSLPips * 2.0, maxTakeProfitPips); // Elite target, capped by maximum
 
     // Build constraint violations (empty initially, used for validation later)
@@ -513,7 +514,7 @@ class Omega9ConstraintProvider {
     const decimalPlaces = symbolConfig?.decimalPlaces || 5;
 
     // Determine if constraints are tight (R:R below standard)
-    const tightConstraints = constraints.minRiskReward < 1.0;
+    const tightConstraints = constraints.minRiskReward < TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM;
 
     // CRITICAL: Build feasibility advisory from SSOT validator
     let advisoryNote = '';
@@ -548,10 +549,10 @@ You retain FULL AUTHORITY to decide:
 Remember: Reduced profit > NO_TRADE > Forced compliance with impossible constraints.
 ═══════════════════════════════════════════════════════════════════════
 `;
-    } else if (constraints.minRiskReward < 1.0) {
+    } else if (constraints.minRiskReward < TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM) {
       advisoryNote = `
 ⚠️ ADVISORY: Tight Market Conditions
-Maximum achievable R:R is ${constraints.minRiskReward.toFixed(2)}:1 (below standard 1:1).
+Maximum achievable R:R is ${constraints.minRiskReward.toFixed(2)}:1 (below minimum ${TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM}:1).
 ADVISORY: Consider accepting lower R:R if setup quality justifies, or tighten SL.
 Remember: Reduced profit > NO_TRADE. You have FINAL AUTHORITY to proceed.
 `;
