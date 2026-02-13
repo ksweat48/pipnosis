@@ -1391,9 +1391,10 @@ Return PURE JSON only:
         marketContext,
         riskMode,
         goalContext,
-        regimeSnapshot, // SSOT: Pass regime data for entry quality tracking
-        userId, // SSOT: Pass userId for geometry error logging
-        sessionId // SSOT: Pass sessionId for geometry error logging
+        regimeSnapshot,
+        userId,
+        sessionId,
+        tradeStyle
       );
 
       // CONSTRAINT-FIRST VALIDATION (Phase 1: Check violations, Phase 2: Revision loop, Phase 3: Auto-correction)
@@ -2314,9 +2315,10 @@ Return PURE JSON only:
     marketContext?: MarketContext,
     riskMode: 'low' | 'medium' | 'high' = 'medium',
     goalContext?: GoalContext,
-    regimeSnapshot?: RegimeSnapshot, // SSOT: Required for entry quality tracking
-    userId?: string, // SSOT: Required for geometry error logging
-    sessionId?: string // SSOT: Required for geometry error logging
+    regimeSnapshot?: RegimeSnapshot,
+    userId?: string,
+    sessionId?: string,
+    tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = 'SCALP'
   ): AlphaDecision {
     try {
       // ✅ SSOT FIX: Use centralized sanitizer (handles markdown, comment removal, and JSON extraction)
