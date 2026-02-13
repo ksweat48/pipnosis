@@ -2,8 +2,20 @@ import { supabase } from '../lib/supabase';
 import { TRADE_CONSTRAINTS } from '../config/trade-constraints';
 import { calculateDollarPerPip } from '../utils/currencyHelpers';
 
+export type EVTradeStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+
+export interface SymbolEdgeData {
+  style: string;
+  symbol: string;
+  winRate: number;
+  avgWinPips: number;
+  avgLossPips: number;
+  evPerTrade: number;
+  trades: number;
+}
+
 export interface EVGateInputs {
-  winRate: number; // 0-1
+  winRate: number;
   avgWinPips: number;
   avgLossPips: number;
   proposedLotSize: number;
@@ -11,127 +23,139 @@ export interface EVGateInputs {
   userId: string;
   marketCondition?: 'trending' | 'ranging' | 'volatile' | 'normal';
   sessionQuality?: 'london' | 'newyork' | 'overlap' | 'asian' | 'off-hours';
+  tradeStyle?: EVTradeStyle;
+  stopLossPips?: number;
+  symbolEdge?: SymbolEdgeData;
 }
 
 export interface EVGateResult {
-  approved: boolean; // Now ALWAYS true (advisory mode)
-  expectedValue: number; // In pips per trade
-  expectedValueMoney: number; // In account currency
+  approved: boolean;
+  expectedValue: number;
+  expectedValueMoney: number;
   confidenceLevel: 'high' | 'medium' | 'low' | 'very-low';
-  minimumWinRateNeeded: number; // Given current RR
+  minimumWinRateNeeded: number;
   reasoning: string;
   recommendations: string[];
+  symbolEdgeSummary?: string;
 }
 
 class EVGatingSystem {
-  // Pull constants from centralized config
-  private readonly MIN_EV_THRESHOLD = TRADE_CONSTRAINTS.positionSizing.expectedValue.threshold; // 0 = breakeven (advisory)
-  private readonly MIN_EV_COMFORTABLE = TRADE_CONSTRAINTS.positionSizing.expectedValue.minComfortable; // 5 pips
-  private readonly MIN_EV_EXCELLENT = TRADE_CONSTRAINTS.positionSizing.expectedValue.minExcellent; // 10 pips
+  private getStyleThresholds(tradeStyle?: EVTradeStyle, slPips?: number) {
+    const style = tradeStyle || 'INTRADAY';
+    const config = TRADE_CONSTRAINTS.positionSizing.expectedValue;
+    const styleConfig = config.styleThresholds[style] || config.styleThresholds['INTRADAY'];
+    const sl = slPips && slPips > 0 ? slPips : 1;
+
+    return {
+      minimumEV: sl * styleConfig.minimumEvPercent,
+      comfortableEV: sl * styleConfig.comfortableEvPercent,
+      excellentEV: sl * styleConfig.excellentEvPercent
+    };
+  }
 
   evaluateTrade(inputs: EVGateInputs): EVGateResult {
-    const { winRate, avgWinPips, avgLossPips, proposedLotSize, symbol, marketCondition, sessionQuality } = inputs;
+    const { winRate, avgWinPips, avgLossPips, proposedLotSize, symbol, marketCondition, sessionQuality, tradeStyle, stopLossPips, symbolEdge } = inputs;
 
-    // Calculate base Expected Value (EV)
-    // EV = (Win% × Avg Win) - (Loss% × Avg Loss)
     const lossRate = 1 - winRate;
     const baseEV = (winRate * avgWinPips) - (lossRate * avgLossPips);
 
-    // Apply market condition adjustments
     let adjustedEV = baseEV;
     const adjustments: string[] = [];
 
     if (marketCondition === 'volatile') {
-      adjustedEV *= 0.85; // Reduce EV expectation in volatile markets
+      adjustedEV *= 0.85;
       adjustments.push('Volatile market (-15% EV)');
     } else if (marketCondition === 'trending') {
-      adjustedEV *= 1.10; // Increase EV in trending markets
+      adjustedEV *= 1.10;
       adjustments.push('Trending market (+10% EV)');
     } else if (marketCondition === 'ranging') {
-      adjustedEV *= 0.90; // Slightly reduce in ranging markets
+      adjustedEV *= 0.90;
       adjustments.push('Ranging market (-10% EV)');
     }
 
-    // Apply session quality adjustments
     if (sessionQuality === 'overlap') {
-      adjustedEV *= 1.05; // Best liquidity
+      adjustedEV *= 1.05;
       adjustments.push('Session overlap (+5% EV)');
     } else if (sessionQuality === 'off-hours') {
-      adjustedEV *= 0.80; // Worst liquidity
+      adjustedEV *= 0.80;
       adjustments.push('Off-hours trading (-20% EV)');
     } else if (sessionQuality === 'asian') {
-      adjustedEV *= 0.85; // Lower volatility
+      adjustedEV *= 0.85;
       adjustments.push('Asian session (-15% EV)');
     }
 
-    // Calculate in money terms using SSOT
     const dollarPerPipAt1Lot = calculateDollarPerPip(symbol, 1.0);
     const evInMoney = adjustedEV * dollarPerPipAt1Lot * proposedLotSize;
 
-    // Calculate minimum win rate needed for breakeven
     const rewardRiskRatio = avgWinPips / avgLossPips;
     const minWinRateNeeded = 1 / (1 + rewardRiskRatio);
 
-    // Determine confidence level
+    const thresholds = this.getStyleThresholds(tradeStyle, stopLossPips || avgLossPips);
+
     let confidenceLevel: 'high' | 'medium' | 'low' | 'very-low';
-    if (adjustedEV >= this.MIN_EV_EXCELLENT) {
+    if (adjustedEV >= thresholds.excellentEV) {
       confidenceLevel = 'high';
-    } else if (adjustedEV >= this.MIN_EV_COMFORTABLE) {
+    } else if (adjustedEV >= thresholds.comfortableEV) {
       confidenceLevel = 'medium';
-    } else if (adjustedEV > this.MIN_EV_THRESHOLD) {
+    } else if (adjustedEV > thresholds.minimumEV) {
       confidenceLevel = 'low';
     } else {
       confidenceLevel = 'very-low';
     }
 
-    // ADVISORY MODE: Always approve, but provide strong warnings for negative EV
-    const approved = true; // ALWAYS true - Alpha has final authority
+    const approved = adjustedEV >= thresholds.minimumEV;
 
-    // Generate reasoning
     let reasoning = '';
-    if (adjustedEV > this.MIN_EV_THRESHOLD) {
-      // Positive EV
-      reasoning = `✅ Positive EV of ${adjustedEV.toFixed(2)} pips per trade. `;
-      if (adjustedEV >= this.MIN_EV_EXCELLENT) {
-        reasoning += 'Excellent trade opportunity! ';
-      } else if (adjustedEV >= this.MIN_EV_COMFORTABLE) {
-        reasoning += 'Good trade opportunity. ';
+    if (approved && adjustedEV > 0) {
+      const evAsPercentOfSL = stopLossPips && stopLossPips > 0
+        ? ((adjustedEV / stopLossPips) * 100).toFixed(1)
+        : 'N/A';
+      reasoning = `EV: +${adjustedEV.toFixed(2)} pips (${evAsPercentOfSL}% of SL). `;
+      if (confidenceLevel === 'high') {
+        reasoning += 'Excellent edge. ';
+      } else if (confidenceLevel === 'medium') {
+        reasoning += 'Good edge. ';
       } else {
-        reasoning += 'Marginal EV - proceed with caution. ';
+        reasoning += 'Marginal edge - proceed with caution. ';
       }
+    } else if (!approved) {
+      const neededRR = ((1 - winRate) / winRate);
+      reasoning = `BLOCKED: EV ${adjustedEV.toFixed(2)} pips is below minimum ${thresholds.minimumEV.toFixed(2)} pips (3% of SL). `;
+      reasoning += `Your ${tradeStyle || 'INTRADAY'} win rate of ${(winRate * 100).toFixed(1)}% needs RR >= ${neededRR.toFixed(2)}:1 to break even. Current RR: ${rewardRiskRatio.toFixed(2)}:1. `;
+      reasoning += `Adjust TP or SL to bring EV above ${thresholds.minimumEV.toFixed(2)} pips. `;
     } else {
-      // Negative or zero EV - CRITICAL ADVISORY
-      reasoning = `⚠️ ADVISORY: Negative EV of ${adjustedEV.toFixed(2)} pips per trade. `;
-      reasoning += `This trade is expected to lose money over time. Strongly consider NO_TRADE unless high-confidence setup justifies override. `;
+      reasoning = `EV: ${adjustedEV.toFixed(2)} pips (near breakeven). `;
     }
 
     reasoning += `Win rate: ${(winRate * 100).toFixed(1)}% (need ${(minWinRateNeeded * 100).toFixed(1)}% to break even). `;
     reasoning += `RR: ${rewardRiskRatio.toFixed(2)}:1. `;
 
-    // Generate recommendations
+    let symbolEdgeSummary: string | undefined;
+    if (symbolEdge && symbolEdge.trades >= 5) {
+      const edgeLabel = symbolEdge.evPerTrade >= 0 ? '+' : '';
+      symbolEdgeSummary = `${symbolEdge.style} on ${symbolEdge.symbol}: ${(symbolEdge.winRate * 100).toFixed(1)}% WR, ${edgeLabel}${symbolEdge.evPerTrade.toFixed(2)} pips/trade (${symbolEdge.trades} trades)`;
+      reasoning += symbolEdgeSummary + '. ';
+    }
+
     const recommendations: string[] = [];
 
-    if (adjustedEV <= this.MIN_EV_THRESHOLD) {
-      // Negative EV - critical advisory
-      recommendations.push(`⚠️ CRITICAL: Negative expected value`);
-      recommendations.push(`Increase win rate to at least ${(minWinRateNeeded * 100).toFixed(0)}%`);
-      recommendations.push(`Improve RR ratio to at least ${(1 / winRate - 1).toFixed(2)}:1`);
-      recommendations.push('Strongly recommend waiting for better setup with clearer edge');
-      recommendations.push('If proceeding, use minimum lot size');
+    if (!approved) {
+      recommendations.push(`BLOCKED: EV below 3% of SL minimum threshold`);
+      recommendations.push(`Need win rate >= ${(minWinRateNeeded * 100).toFixed(0)}% OR RR >= ${((1 - winRate) / winRate).toFixed(2)}:1`);
+      recommendations.push('Widen TP or tighten SL to improve edge');
+    } else if (confidenceLevel === 'very-low') {
+      recommendations.push('Near-zero edge - strongly consider waiting for better setup');
+      recommendations.push('Use minimum lot size if proceeding');
     } else if (confidenceLevel === 'low') {
-      recommendations.push('Consider waiting for higher EV setup');
-      recommendations.push('Reduce position size due to marginal edge');
-      recommendations.push('Set tight stop-loss to limit risk');
+      recommendations.push('Thin edge - consider reduced position size');
     } else if (confidenceLevel === 'medium') {
       recommendations.push('Standard position sizing appropriate');
-      recommendations.push('Monitor trade closely');
     } else {
-      recommendations.push('Strong setup - full position size acceptable');
-      recommendations.push('Consider scaling in if opportunity allows');
+      recommendations.push('Strong edge - full position size acceptable');
     }
 
     if (adjustments.length > 0) {
-      recommendations.push(`Adjustments applied: ${adjustments.join(', ')}`);
+      recommendations.push(`Adjustments: ${adjustments.join(', ')}`);
     }
 
     return {
@@ -141,7 +165,8 @@ class EVGatingSystem {
       confidenceLevel,
       minimumWinRateNeeded: minWinRateNeeded,
       reasoning,
-      recommendations
+      recommendations,
+      symbolEdgeSummary
     };
   }
 
@@ -175,6 +200,7 @@ class EVGatingSystem {
         user_id: userId,
         goal_session_id: goalSessionId,
         symbol,
+        trade_style: inputs.tradeStyle || null,
         win_rate: inputs.winRate,
         avg_win_pips: inputs.avgWinPips,
         avg_loss_pips: inputs.avgLossPips,

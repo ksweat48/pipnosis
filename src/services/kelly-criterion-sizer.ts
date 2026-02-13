@@ -1,7 +1,9 @@
 import { supabase } from '../lib/supabase';
 import { TRADE_CONSTRAINTS } from '../config/trade-constraints';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
-import { calculateDollarPerPip } from '../utils/currencyHelpers';
+import { calculateDollarPerPip, calculatePipDistance } from '../utils/currencyHelpers';
+
+export type KellyTradeStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
 
 export interface KellyInputs {
   winRate: number; // 0-1 (e.g., 0.55 for 55%)
@@ -10,6 +12,7 @@ export interface KellyInputs {
   currentBalance: number;
   symbol: string;
   userId: string;
+  tradeStyle?: KellyTradeStyle;
 }
 
 export interface KellySizingResult {
@@ -140,19 +143,40 @@ class KellyCriterionSizer {
     };
   }
 
-  async getHistoricalStats(userId: string, symbol?: string): Promise<{
+  async getHistoricalStats(userId: string, symbol?: string, tradeStyle?: KellyTradeStyle): Promise<{
     winRate: number;
     avgWinPips: number;
     avgLossPips: number;
     totalTrades: number;
+    styleSymbolBreakdown?: {
+      style: string;
+      symbol: string;
+      winRate: number;
+      avgWinPips: number;
+      avgLossPips: number;
+      evPerTrade: number;
+      trades: number;
+    };
   }> {
+    const CONSERVATIVE_DEFAULTS = {
+      winRate: 0.45,
+      avgWinPips: 20,
+      avgLossPips: 15,
+      totalTrades: 0
+    };
+
     try {
-      // Query goal_session_trades for historical performance
       let query = supabase
         .from('goal_session_trades')
-        .select('status, entry_price, exit_price, direction, stop_loss, take_profit')
+        .select('symbol, entry_price, exit_price, direction, stop_loss, take_profit, current_pnl, resolved_style')
         .eq('user_id', userId)
-        .in('status', ['win', 'loss']);
+        .eq('status', 'closed')
+        .not('exit_price', 'is', null)
+        .not('current_pnl', 'is', null);
+
+      if (tradeStyle) {
+        query = query.eq('resolved_style', tradeStyle);
+      }
 
       if (symbol) {
         query = query.eq('symbol', symbol);
@@ -160,53 +184,57 @@ class KellyCriterionSizer {
 
       const { data: trades, error } = await query.limit(100).order('created_at', { ascending: false });
 
-      if (error || !trades || trades.length < 10) {
-        // Not enough data, return conservative defaults
-        return {
-          winRate: 0.45, // Conservative default
-          avgWinPips: 20,
-          avgLossPips: 15,
-          totalTrades: 0
-        };
+      if (error || !trades || trades.length < 5) {
+        if (tradeStyle && !symbol) {
+          return this.getHistoricalStats(userId);
+        }
+        if (tradeStyle && symbol) {
+          return this.getHistoricalStats(userId, undefined, tradeStyle);
+        }
+        return CONSERVATIVE_DEFAULTS;
       }
 
-      // Calculate statistics
-      const wins = trades.filter(t => t.status === 'win');
-      const losses = trades.filter(t => t.status === 'loss');
+      const wins = trades.filter(t => Number(t.current_pnl) > 0);
+      const losses = trades.filter(t => Number(t.current_pnl) <= 0);
 
       const winRate = wins.length / trades.length;
 
-      // Calculate average win/loss in pips
-      // ✅ SSOT FIX: Use calculatePipDistance() instead of hardcoded * 10000
-      const { calculatePipDistance } = await import('../utils/currencyHelpers');
+      const avgWinPips = wins.length > 0
+        ? wins.reduce((sum, t) => {
+            if (!t.symbol || !t.entry_price || !t.exit_price) return sum;
+            return sum + calculatePipDistance(t.symbol, Number(t.entry_price), Number(t.exit_price));
+          }, 0) / wins.length
+        : 20;
 
-      const avgWinPips = wins.reduce((sum, t) => {
-        if (!t.symbol || !t.entry_price || !t.exit_price) return sum;
-        const pips = calculatePipDistance(t.symbol, t.entry_price, t.exit_price);
-        return sum + pips;
-      }, 0) / (wins.length || 1);
+      const avgLossPips = losses.length > 0
+        ? losses.reduce((sum, t) => {
+            if (!t.symbol || !t.entry_price || !t.exit_price) return sum;
+            return sum + calculatePipDistance(t.symbol, Number(t.entry_price), Number(t.exit_price));
+          }, 0) / losses.length
+        : 15;
 
-      const avgLossPips = losses.reduce((sum, t) => {
-        if (!t.symbol || !t.entry_price || !t.exit_price) return sum;
-        const pips = calculatePipDistance(t.symbol, t.entry_price, t.exit_price);
-        return sum + pips;
-      }, 0) / (losses.length || 1);
+      const evPerTrade = (winRate * avgWinPips) - ((1 - winRate) * avgLossPips);
 
-      return {
-        winRate: Math.max(0.35, Math.min(0.75, winRate)), // Clamp between 35-75%
-        avgWinPips: Math.max(10, avgWinPips), // Minimum 10 pips
-        avgLossPips: Math.max(10, avgLossPips),
-        totalTrades: trades.length
+      const result = {
+        winRate: Math.max(0.15, Math.min(0.85, winRate)),
+        avgWinPips: Math.max(5, avgWinPips),
+        avgLossPips: Math.max(5, avgLossPips),
+        totalTrades: trades.length,
+        styleSymbolBreakdown: (tradeStyle || symbol) ? {
+          style: tradeStyle || 'ALL',
+          symbol: symbol || 'ALL',
+          winRate,
+          avgWinPips,
+          avgLossPips,
+          evPerTrade,
+          trades: trades.length
+        } : undefined
       };
+
+      return result;
     } catch (error) {
       console.error('Error fetching historical stats:', error);
-      // Return conservative defaults
-      return {
-        winRate: 0.45,
-        avgWinPips: 20,
-        avgLossPips: 15,
-        totalTrades: 0
-      };
+      return CONSERVATIVE_DEFAULTS;
     }
   }
 
@@ -222,6 +250,7 @@ class KellyCriterionSizer {
         user_id: userId,
         goal_session_id: goalSessionId,
         symbol,
+        trade_style: inputs.tradeStyle || null,
         win_rate: inputs.winRate,
         avg_win_pips: inputs.avgWinPips,
         avg_loss_pips: inputs.avgLossPips,

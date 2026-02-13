@@ -36,28 +36,26 @@ import { PCVL_CONFIG } from '../config/pcvl-config';
 import { logViolation } from './ssot-violation-logger';
 import { prodLogger } from '../lib/production-logger';
 
+export type URATradeStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+
 export interface RiskAssessmentInputs {
-  // Context validation
   tradeContext?: TradeContext;
   symbol: string;
 
-  // Position details
   direction: 'long' | 'short';
   entryPrice: number;
   stopLoss: number;
   takeProfit: number;
 
-  // User & account
   userId: string;
   currentBalance: number;
 
-  // Risk parameters
   baseRiskPercent?: number;
   riskMode?: 'low' | 'medium' | 'high';
   proposedLotSize?: number;
 
-  // Session context
   goalSessionId?: string;
+  tradeStyle?: URATradeStyle;
 }
 
 export interface RiskAssessmentResult {
@@ -109,7 +107,8 @@ class UnifiedRiskAuthority {
       baseRiskPercent = TRADING_CONSTANTS.RISK_PERCENTAGES.DEFAULT_BASE_RISK,
       riskMode = 'medium',
       proposedLotSize,
-      goalSessionId
+      goalSessionId,
+      tradeStyle
     } = inputs;
 
     // GOVERNANCE: Input validation (fail loudly on bad data)
@@ -254,22 +253,20 @@ class UnifiedRiskAuthority {
       };
     }
 
-    // LAYER 2: Position Sizing (Kelly + Risk Scaling)
     const riskProfile = getRiskStrategyProfile(riskMode);
-    const historicalStats = await kellyCriterionSizer.getHistoricalStats(userId, symbol);
+    const historicalStats = await kellyCriterionSizer.getHistoricalStats(userId, symbol, tradeStyle);
 
-    // Calculate stop distance
     const stopPips = calculatePipDistance(symbol, entryPrice, stopLoss);
     const takeProfitPips = calculatePipDistance(symbol, entryPrice, takeProfit);
 
-    // Kelly position sizing
     const kelly = kellyCriterionSizer.calculateOptimalSize({
       winRate: historicalStats.winRate,
       avgWinPips: takeProfitPips,
       avgLossPips: stopPips,
       currentBalance,
       symbol,
-      userId
+      userId,
+      tradeStyle
     });
 
     if (kelly.advisory) {
@@ -294,10 +291,16 @@ class UnifiedRiskAuthority {
       symbol,
       userId,
       marketCondition: 'normal',
-      sessionQuality: marketCondition.sessionQuality
+      sessionQuality: marketCondition.sessionQuality,
+      tradeStyle,
+      stopLossPips: stopPips,
+      symbolEdge: historicalStats.styleSymbolBreakdown
     });
 
-    if (evGate.confidenceLevel === 'very-low') {
+    if (!evGate.approved) {
+      criticalWarnings.push(evGate.reasoning);
+      recommendations.push(...evGate.recommendations);
+    } else if (evGate.confidenceLevel === 'very-low') {
       criticalWarnings.push('Negative expected value - high risk trade');
       recommendations.push(...evGate.recommendations);
     }

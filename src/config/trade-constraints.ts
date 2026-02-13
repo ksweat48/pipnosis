@@ -96,11 +96,30 @@ export const TRADE_CONSTRAINTS = {
     },
 
     expectedValue: {
-      minComfortable: 5,    // 5 pips for medium confidence
-      minExcellent: 10,     // 10 pips for high confidence
-      threshold: 0,         // 0 pips = breakeven (advisory, not blocking)
-      authority: 'ADVISORY' as ConstraintAuthority,
-      description: 'Expected Value thresholds - guide toward positive expectancy setups'
+      minComfortable: 5,
+      minExcellent: 10,
+      threshold: 0,
+
+      styleThresholds: {
+        SCALP: {
+          minimumEvPercent: 0.03,
+          comfortableEvPercent: 0.10,
+          excellentEvPercent: 0.25
+        },
+        MICRO_INTRADAY: {
+          minimumEvPercent: 0.03,
+          comfortableEvPercent: 0.12,
+          excellentEvPercent: 0.28
+        },
+        INTRADAY: {
+          minimumEvPercent: 0.03,
+          comfortableEvPercent: 0.15,
+          excellentEvPercent: 0.30
+        }
+      } as Record<string, { minimumEvPercent: number; comfortableEvPercent: number; excellentEvPercent: number }>,
+
+      authority: 'HARD' as ConstraintAuthority,
+      description: 'Expected Value thresholds as percentage-of-risk (SL distance). minimumEvPercent is the only hard block - catches mathematically negative trades.'
     },
 
     correlation: {

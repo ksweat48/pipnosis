@@ -274,6 +274,8 @@ class AlphaTradeExecutor {
       );
     }
 
+    const riskStyleForEV = normalizeToCanonicalStyle(sessionData.raw.trade_style || '');
+
     const riskAssessment = await unifiedRiskAuthority.assessTrade({
       tradeContext,
       symbol: decision.symbol,
@@ -285,7 +287,8 @@ class AlphaTradeExecutor {
       currentBalance: currentBalance,
       baseRiskPercent,
       riskMode: sessionData.raw.risk_mode || 'medium',
-      goalSessionId: sessionId
+      goalSessionId: sessionId,
+      tradeStyle: riskStyleForEV
     });
 
     if (!riskAssessment.approved) {
