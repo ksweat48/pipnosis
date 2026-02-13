@@ -122,7 +122,7 @@ export class EliteProfitTargetCalculator {
 
     if (!time_constraint_met) {
       // ADVISORY ONLY: No blocking - just informational warning
-      warnings.push('ADVISORY: TP may extend beyond session - style upgrade may apply (NOT blocking)');
+      warnings.push('ADVISORY: TP may extend beyond session. If duration exceeds style band, return NO_TRADE (NOT blocking)');
     }
 
     if (input.allow_partials && primary_rr > 2.0 && this.shouldUsePartials(input)) {

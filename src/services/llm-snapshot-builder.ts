@@ -184,7 +184,7 @@ class LLMSnapshotBuilder {
    * ARCHITECTURAL PRINCIPLE (v2.0):
    * - Time is a SCORING SIGNAL, not a rejection constraint
    * - ALWAYS attempt a trade if profit is mathematically possible
-   * - Style upgrades replace time-based blocking
+   * - Style is IMMUTABLE. If duration exceeds style band, return NO_TRADE.
    */
   private getPipnosisIdentity(): string {
     return `You are Pipnosis, an elite INTRADAY AI trader with FULL AUTHORITY to execute trades.
@@ -192,7 +192,7 @@ class LLMSnapshotBuilder {
 CORE PRINCIPLES:
 (1) ALWAYS attempt a trade if profit is mathematically possible
 (2) TIME IS A SCORING SIGNAL - never hard-block due to duration
-(3) Use style upgrades: SCALP (≤2h) → MICRO_INTRADAY (≤6h) → INTRADAY (≤10h)
+(3) Style is IMMUTABLE. If duration exceeds style band, return NO_TRADE. NEVER upgrade style.
 (4) NEVER hold overnight (weekend market closure enforced)
 (5) Partial success is ALWAYS better than NO_TRADE
 (6) Reduce TP if goal infeasible - never refuse

@@ -9,7 +9,7 @@
  * - Entry timing preferences
  * - EQS threshold interpretation
  * - Duration expectations
- * - Style upgrade/downgrade logic
+ * - Duration expectations (style is IMMUTABLE, no upgrades)
  *
  * SSOT COMPLIANCE:
  * - Style personalities: THIS FILE
@@ -40,11 +40,6 @@ export interface StylePersonality {
     waitPullbackMin: number;
     waitPullbackMax: number;
     description: string;
-  };
-  upgradeCondition: {
-    hoursThreshold: number;
-    targetStyle: StyleDisplayName | null;
-    penalty: number;
   };
   rewards: {
     withinBandBonus: number;
@@ -88,11 +83,6 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
       waitPullbackMax: ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.WAIT_PULLBACK.max,
       description: 'Strong acceptance required, immediate execution preferred',
     },
-    upgradeCondition: {
-      hoursThreshold: 2.0,
-      targetStyle: 'MICRO_INTRADAY',
-      penalty: 0,
-    },
     rewards: {
       withinBandBonus: 5,
       belowBandBonus: 10,
@@ -133,11 +123,6 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
       waitPullbackMin: ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.WAIT_PULLBACK.min,
       waitPullbackMax: ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.WAIT_PULLBACK.max,
       description: 'Pullback quality weighted higher, liquidity reaction important',
-    },
-    upgradeCondition: {
-      hoursThreshold: 6.0,
-      targetStyle: 'INTRADAY',
-      penalty: 0,
     },
     rewards: {
       withinBandBonus: 5,
@@ -180,11 +165,6 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
       waitPullbackMax: ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.INTRADAY.WAIT_PULLBACK.max,
       description: 'Structure/location over speed, wider pullbacks acceptable',
     },
-    upgradeCondition: {
-      hoursThreshold: 10.0,
-      targetStyle: null,
-      penalty: -5,
-    },
     rewards: {
       withinBandBonus: 5,
       belowBandBonus: 5,
@@ -211,32 +191,22 @@ export function getStylePersonality(style: StyleDisplayName): StylePersonality {
   return STYLE_PERSONALITIES[style];
 }
 
-export function shouldUpgradeStyle(
+export function exceedsStyleDurationBand(
   currentStyle: StyleDisplayName,
   expectedDurationHours: number
-): { shouldUpgrade: boolean; targetStyle: StyleDisplayName | null; reason: string } {
+): { exceeds: boolean; reason: string } {
   const personality = STYLE_PERSONALITIES[currentStyle];
-  const { upgradeCondition } = personality;
+  const { durationBand } = personality;
 
-  if (expectedDurationHours > upgradeCondition.hoursThreshold) {
-    if (upgradeCondition.targetStyle) {
-      return {
-        shouldUpgrade: true,
-        targetStyle: upgradeCondition.targetStyle,
-        reason: `Duration ${expectedDurationHours.toFixed(1)}h exceeds ${currentStyle} band (${upgradeCondition.hoursThreshold}h) - upgrading to ${upgradeCondition.targetStyle}`,
-      };
-    } else {
-      return {
-        shouldUpgrade: false,
-        targetStyle: null,
-        reason: `Duration ${expectedDurationHours.toFixed(1)}h exceeds ${currentStyle} band (${upgradeCondition.hoursThreshold}h) - applying penalty, no further upgrade available`,
-      };
-    }
+  if (expectedDurationHours > durationBand.maxHours) {
+    return {
+      exceeds: true,
+      reason: `Duration ${expectedDurationHours.toFixed(1)}h exceeds ${currentStyle} band (${durationBand.maxHours}h). Style is IMMUTABLE - return NO_TRADE.`,
+    };
   }
 
   return {
-    shouldUpgrade: false,
-    targetStyle: null,
+    exceeds: false,
     reason: `Duration ${expectedDurationHours.toFixed(1)}h within ${currentStyle} band`,
   };
 }

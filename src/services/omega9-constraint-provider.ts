@@ -12,7 +12,7 @@
  * - TIME IS A SCORING SIGNAL, NOT A REJECTION CONSTRAINT
  * - Session time NEVER limits TP or blocks trades
  * - Session constraints are ADVISORY ONLY for confidence scoring
- * - Style upgrades replace time-based blocking
+ * - Style is IMMUTABLE. If duration exceeds band, return NO_TRADE.
  *
  * This separates:
  * 1. Constraint Generation (this service) - runs BEFORE Alpha decides
@@ -84,7 +84,7 @@ class Omega9ConstraintProvider {
     const volatilityPerHour = this.estimateVolatilityPerHour(symbol, atr, volatilityRegime, currentSession);
     const feasibleTravelPips = (sessionTimeRemainingMinutes / 60) * volatilityPerHour * 0.8; // 80% safety factor
 
-    // ADVISORY ONLY: feasibleTravelPips informs style upgrades and confidence scoring.
+    // ADVISORY ONLY: feasibleTravelPips informs confidence scoring.
     // It does NOT limit TP or block trades - Alpha has final authority.
 
     // ✅ CRITICAL FIX: Convert ATR-based TP from PRICE UNITS to PIPS
@@ -124,9 +124,9 @@ class Omega9ConstraintProvider {
 
     // ARCHITECTURAL CHANGE (v2.0): Session time is ADVISORY ONLY
     // Session time NEVER limits TP - it only provides information for:
-    // - Style upgrade recommendations
     // - Confidence scoring adjustments
     // - Learning/tracking purposes
+    // - NO_TRADE decisions when style band is exceeded (style is IMMUTABLE)
     let maxTakeProfitPips: number = atrBasedMaxTP_PIPS; // ALWAYS use ATR-based max (NOW IN PIPS), no session cap
     let sessionConstraintMode: 'ADVISORY' | 'NONE';
     let tpReasoningSuffix = '';
@@ -144,7 +144,7 @@ class Omega9ConstraintProvider {
           sessionConstraintMode = 'ADVISORY';
 
           if (feasibleTravelPips < atrBasedMaxTP_PIPS) {
-            tpReasoningSuffix = ` | ℹ️ ADVISORY: ${tradeStyle} may extend beyond session (${feasibleTravelPips.toFixed(1)} pips in ${sessionTimeRemainingMinutes}min remaining). Style upgrade may apply.`;
+            tpReasoningSuffix = ` | ADVISORY: ${tradeStyle} may extend beyond session (${feasibleTravelPips.toFixed(1)} pips in ${sessionTimeRemainingMinutes}min remaining). Consider NO_TRADE if not viable within style band.`;
           }
           break;
 
@@ -542,9 +542,11 @@ CRITICAL PRINCIPLE:
 This is NOT a trade error. This is market reality speaking.
 You retain FULL AUTHORITY to decide:
 ✓ Accept reduced R:R if setup quality justifies it
-✓ Change style to get better R:R potential
-✓ Skip this trade and wait for better conditions
+✓ Skip this trade and wait for better conditions (NO_TRADE)
+✓ Widen stop loss to improve R:R at current constraints
 ✓ Accept higher position risk with lower R:R
+
+STYLE IMMUTABILITY: You MUST NOT upgrade or change the trade style. If the style cannot accommodate this trade, return NO_TRADE.
 
 Remember: Reduced profit > NO_TRADE > Forced compliance with impossible constraints.
 ═══════════════════════════════════════════════════════════════════════

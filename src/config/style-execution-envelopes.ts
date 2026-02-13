@@ -237,42 +237,44 @@ export function getAssetClassEnvelopeBounds(
 }
 
 /**
- * Validate TP/SL against style envelope
+ * Validate TP/SL against style envelope (asset-class-aware)
  *
- * Returns revision request if outside bounds
+ * Returns revision request if outside bounds.
+ * When assetClass is provided, uses asset-class-specific bounds.
  */
 export function validateTPSLAgainstEnvelope(
   style: string,
   tpPips: number,
-  slPips: number
+  slPips: number,
+  assetClass?: EnvelopeAssetClass
 ): { valid: boolean; violations: string[]; envelope: StyleExecutionEnvelope } {
   const envelope = getExecutionEnvelope(style);
+  const bounds = getAssetClassEnvelopeBounds(style, assetClass);
   const violations: string[] = [];
+  const boundsLabel = assetClass ? `${style} ${assetClass}` : style;
 
-  // TP validation
-  if (tpPips < envelope.tpPips.min) {
+  if (tpPips < bounds.tpPips.min) {
     violations.push(
-      `TP ${tpPips.toFixed(1)} pips below ${style} minimum ${envelope.tpPips.min} pips`
+      `TP ${tpPips.toFixed(1)} pips below ${boundsLabel} minimum ${bounds.tpPips.min} pips`
     );
   }
 
-  if (tpPips > envelope.tpPips.max) {
+  if (tpPips > bounds.tpPips.max) {
     violations.push(
-      `TP ${tpPips.toFixed(1)} pips exceeds ${style} maximum ${envelope.tpPips.max} pips. ` +
+      `TP ${tpPips.toFixed(1)} pips exceeds ${boundsLabel} maximum ${bounds.tpPips.max} pips. ` +
       `This is ${envelope.timeframe} ${style} trading, not ${tpPips > 150 ? 'SWING' : 'INTRADAY'}.`
     );
   }
 
-  // SL validation
-  if (slPips < envelope.slPips.min) {
+  if (slPips < bounds.slPips.min) {
     violations.push(
-      `SL ${slPips.toFixed(1)} pips below ${style} minimum ${envelope.slPips.min} pips (too tight)`
+      `SL ${slPips.toFixed(1)} pips below ${boundsLabel} minimum ${bounds.slPips.min} pips (too tight)`
     );
   }
 
-  if (slPips > envelope.slPips.max) {
+  if (slPips > bounds.slPips.max) {
     violations.push(
-      `SL ${slPips.toFixed(1)} pips exceeds ${style} maximum ${envelope.slPips.max} pips. ` +
+      `SL ${slPips.toFixed(1)} pips exceeds ${boundsLabel} maximum ${bounds.slPips.max} pips. ` +
       `This is ${envelope.timeframe} ${style} trading, not wider timeframe.`
     );
   }
@@ -282,6 +284,40 @@ export function validateTPSLAgainstEnvelope(
     violations,
     envelope,
   };
+}
+
+/**
+ * Constraint Sandwich Detection (SSOT)
+ *
+ * Detects when a style's envelope SL cap is below the noise floor for a given instrument,
+ * making the style mathematically impossible. This is the "envelope cap vs noise floor"
+ * conflict (Constraint Sandwich).
+ *
+ * GOVERNANCE: When detected, the ONLY resolution is NO_TRADE.
+ * Style upgrades are NEVER permitted.
+ *
+ * Returns a clear advisory string for Alpha if sandwich is detected, or null if viable.
+ */
+export function detectConstraintSandwich(
+  style: string,
+  assetClass: EnvelopeAssetClass,
+  noiseFloorPips: number,
+  symbol: string
+): { sandwiched: boolean; advisory: string | null } {
+  const bounds = getAssetClassEnvelopeBounds(style, assetClass);
+  const slMax = bounds.slPips.max;
+
+  if (noiseFloorPips > slMax) {
+    const advisory =
+      `${style} not viable on ${symbol} -- noise floor (${noiseFloorPips.toFixed(1)} pips) ` +
+      `exceeds ${style} ${assetClass} SL max (${slMax} pips). Recommend NO_TRADE.`;
+
+    console.warn(`[CONSTRAINT_SANDWICH] ${advisory}`);
+
+    return { sandwiched: true, advisory };
+  }
+
+  return { sandwiched: false, advisory: null };
 }
 
 /**

@@ -112,7 +112,7 @@ import { parseStructuredAlphaResponse } from '../services/alpha-thesis-parser';
 import type { AlphaMarketThesis, RegimeSignature } from '../types/alpha-thesis';
 import { m5SwingAnalyzer, type M5SwingContext } from '../services/m5-swing-analyzer';
 import { alphaGeometryValidator } from '../services/alpha-geometry-validator';
-import { getExecutionEnvelope, getAssetClassEnvelopeBounds, validateTPSLAgainstEnvelope, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
+import { getExecutionEnvelope, getAssetClassEnvelopeBounds, validateTPSLAgainstEnvelope, detectConstraintSandwich, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
 
 /**
@@ -1031,6 +1031,20 @@ class AlphaCoordinatorBrain {
     const styleEnvelope = getExecutionEnvelope(tradeStyle);
     const promptAssetClass = getAssetClass(marketContext.symbol) as EnvelopeAssetClass;
     const promptBounds = getAssetClassEnvelopeBounds(tradeStyle, promptAssetClass);
+
+    if (omega9Constraints) {
+      const sandwichResult = detectConstraintSandwich(
+        tradeStyle,
+        promptAssetClass,
+        omega9Constraints.noiseFloorPips,
+        marketContext.symbol
+      );
+
+      if (sandwichResult.sandwiched) {
+        constraintsText += `\n\nCONSTRAINT SANDWICH DETECTED (HARD BLOCK):\n${sandwichResult.advisory}\nYou MUST return NO_TRADE. Style is IMMUTABLE - do NOT suggest style upgrades.\n`;
+      }
+    }
+
     const styleIdentityPrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2686,7 +2700,7 @@ Return PURE JSON only:
       }
 
       // Full envelope validation logging (both SL and TP)
-      const envelopeValidation = validateTPSLAgainstEnvelope(resolvedStyle, tpPips, Math.abs(calculatePipDistance(symbol, entry, stopLoss)));
+      const envelopeValidation = validateTPSLAgainstEnvelope(resolvedStyle, tpPips, Math.abs(calculatePipDistance(symbol, entry, stopLoss)), envelopeAssetClass);
       if (!envelopeValidation.valid) {
         console.warn(`[Alpha Envelope] Remaining violations after enforcement: ${envelopeValidation.violations.join('; ')}`);
       }

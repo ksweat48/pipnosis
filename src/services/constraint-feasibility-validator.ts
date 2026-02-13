@@ -20,7 +20,7 @@
  * ARCHITECTURE:
  * Input: minTP (from R:R requirements), maxTP (from market reality)
  * Output: Feasibility status + advisory state
- * Alpha then DECIDES: Accept reduced R:R, change style, skip trade, etc.
+ * Alpha then DECIDES: Accept reduced R:R, skip trade (NO_TRADE), etc. Style is IMMUTABLE.
  */
 
 import type { ConstraintFeasibilityStatus } from '../types/omega9-constraints';
@@ -106,9 +106,8 @@ Alpha retains full authority to decide how to proceed.
       advisoryMessage,
       alphaOptions: [
         `Accept reduced R:R of ${maxAchievableRR.toFixed(2)}:1 (market reality)`,
-        `Change trade style to ${this.suggestStyleDowngrade(tradeStyle)}`,
+        `Skip this trade and return NO_TRADE (style is IMMUTABLE - cannot change)`,
         `Widen stop loss to improve R:R at current market constraints`,
-        `Skip this trade and wait for better market conditions`,
         `Accept higher position risk with lower R:R (if setup quality justifies)`
       ]
     };
@@ -129,21 +128,10 @@ Alpha retains full authority to decide how to proceed.
   }
 
   /**
-   * Suggest style downgrade when current style creates infeasible constraints
+   * GOVERNANCE: Style is IMMUTABLE. No style promotion/downgrade is permitted.
+   * If constraints are infeasible for the current style, the only option is NO_TRADE.
+   * This method is retained as dead code reference but is no longer called.
    */
-  private suggestStyleDowngrade(currentStyle: string): string {
-    // Simple logic: if scalp is tight, suggest micro. If micro is tight, suggest intraday.
-    switch (currentStyle.toLowerCase()) {
-      case 'scalper':
-        return 'micro (allows slightly wider TP)';
-      case 'micro':
-        return 'intraday (allows multi-session holding)';
-      case 'intraday':
-        return 'waiting for next session (if feasible)';
-      default:
-        return 'a longer timeframe or session';
-    }
-  }
 
   /**
    * Get conflict severity level for governance tracking

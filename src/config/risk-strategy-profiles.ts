@@ -20,7 +20,7 @@
  *   1. Market conditions (volatility, session, structure)
  *   2. Setup characteristics (TP distance, time-to-fill)
  *   3. User preference (if specified)
- *   4. Style progression logic (auto-upgrade when duration exceeds band)
+ *   4. User preference (style is IMMUTABLE once chosen - no auto-upgrade)
  *
  * VALID COMBINATIONS (ALL SUPPORTED):
  * - "Low risk + SCALP" = Small position, fast exit
