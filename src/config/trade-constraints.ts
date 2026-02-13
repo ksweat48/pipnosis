@@ -23,15 +23,7 @@ export const TRADE_CONSTRAINTS = {
   // ============================================================================
   // HARD CONSTRAINTS (Safety & Mathematical Impossibility)
   // ============================================================================
-
-  drawdown: {
-    warning: 0.05,        // 5% - reduce sizing (advisory)
-    softStop: 0.10,       // 10% - 50% risk reduction (advisory)
-    hardStop: 0.20,       // 20% - trading suspended (HARD BLOCK)
-    recoveryThreshold: 0.05, // Need 5% recovery to resume
-    authority: 'HARD' as ConstraintAuthority,
-    description: 'Account survival - hard stop at 20% drawdown prevents catastrophic loss'
-  },
+  // TIER 4 FIX: Removed drawdown protection - users can reload balance freely
 
   positioning: {
     authority: 'HARD' as ConstraintAuthority,
@@ -303,22 +295,6 @@ export function classifyRRToZone(rrRatio: number, tpAtrMultiple: number): 'GREEN
     return 'ORANGE';
   }
   return 'RED';
-}
-
-/**
- * Check if drawdown blocks trading (HARD constraint)
- * @deprecated Drawdown protection removed - always returns false
- */
-export function isDrawdownBlocking(drawdownPercent: number): boolean {
-  return false;
-}
-
-/**
- * Get drawdown protection level
- * @deprecated Drawdown protection removed - always returns 'none'
- */
-export function getDrawdownLevel(drawdownPercent: number): 'none' | 'warning' | 'soft-stop' | 'hard-stop' {
-  return 'none';
 }
 
 /**
