@@ -632,32 +632,56 @@ class AlphaTradeExecutor {
       goalAmount: sessionData.targetValue
     });
 
-    // BLOCK if style qualification fails
+    // ✅ GOVERNANCE FIX: Style Gate is ADVISORY, not BLOCKING
+    // Philosophy: "Engines validate. Alpha decides. Trades degrade intelligently."
+    // Style mismatches (duration too long) are warnings, not safety violations.
     if (!styleQualification.qualified) {
-      logger.error(
+      logger.warn(
         LogCategory.AI_TRADING,
-        '[Style Gate] TRADE BLOCKED - Style qualification failed',
+        '[Style Gate] ⚠️ STYLE ADVISORY - Trade proceeds with style mismatch warning',
         {
           userId,
           sessionId,
           symbol: decision.symbol,
           style: canonicalStyle,
-          blockReason: styleQualification.blockReason,
+          advisory: styleQualification.blockReason,
           violations: styleQualification.violations.map(v => ({
             type: v.type,
             severity: v.severity,
             actual: v.actual,
             required: v.required,
             detail: v.detail
-          }))
+          })),
+          decision: 'PROCEED - Alpha has final authority'
         }
       );
 
-      return {
-        success: false,
-        error: styleQualification.blockReason,
-        blockReason: `STYLE QUALIFICATION FAILED: ${styleQualification.blockReason}`
-      };
+      // Check if there are actual SAFETY violations (not just style mismatches)
+      const safetyViolations = styleQualification.violations.filter(v =>
+        v.type === 'ATR_GATE' || // ATR gate is a real safety concern
+        (v.type === 'STOP_SIZE' && v.severity === 'CRITICAL') // Critically bad stops
+      );
+
+      if (safetyViolations.length > 0) {
+        // Only block on actual safety concerns
+        logger.error(
+          LogCategory.AI_TRADING,
+          '[Style Gate] 🚫 SAFETY BLOCK - Critical safety violations detected',
+          { safetyViolations }
+        );
+        return {
+          success: false,
+          error: `SAFETY VIOLATION: ${safetyViolations.map(v => v.detail).join('; ')}`,
+          blockReason: `SAFETY VIOLATION: ${safetyViolations.map(v => v.detail).join('; ')}`
+        };
+      }
+
+      // Duration/consensus mismatches: Log but proceed
+      // This is Alpha's decision - we just track it for learning
+      logger.info(
+        LogCategory.AI_TRADING,
+        '[Style Gate] Trade proceeding despite style mismatch - Alpha authority upheld'
+      );
     }
 
     logger.info(

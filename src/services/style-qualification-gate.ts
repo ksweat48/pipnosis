@@ -1,23 +1,25 @@
 /**
  * Style Qualification Gate Service
  *
- * AUTHORITY: HARD ENFORCEMENT
- * This service enforces style execution contracts. It validates that a trade's
- * characteristics (duration, momentum, consensus, targets) match the selected style.
+ * AUTHORITY: ADVISORY + SAFETY GATING
  *
- * CRITICAL DISTINCTION:
- * - Alpha has AUTHORITY to choose direction, timing, and specific parameters
- * - Alpha does NOT have authority to REDEFINE what a style means
- * - SCALP must execute like SCALP (M5 reality, 15-60 min duration)
- * - INTRADAY must execute like INTRADAY (H1 reality, 2-10 hour duration)
+ * ✅ GOVERNANCE MODEL (Updated):
+ * - "Engines validate. Alpha decides. Trades degrade intelligently."
+ * - Style mismatches (duration, consensus) are ADVISORY warnings
+ * - Safety violations (extreme ATR, dangerous stops) may block
+ * - Alpha has FINAL AUTHORITY on trade execution
  *
- * ENFORCEMENT LOGIC:
- * 1. Expected Fill Time validation (style duration contracts)
+ * VALIDATION TIERS:
+ * 1. ADVISORY (MAJOR): Duration mismatches, consensus issues → WARN but allow
+ * 2. SAFETY (CRITICAL): Extreme volatility, dangerous stops → May block
+ *
+ * VALIDATION CHECKS:
+ * 1. Expected Fill Time validation (style duration appropriateness)
  * 2. Omega Consensus validation (minimum agreement threshold)
- * 3. ATR Gate validation (volatility appropriateness)
- * 4. Target/Stop appropriateness (style swing size contracts)
+ * 3. ATR Gate validation (volatility safety check)
+ * 4. Target/Stop appropriateness (style swing size validation)
  *
- * Rejected trades are logged to `style_gate_blocks` table for governance tracking.
+ * All violations logged to `style_gate_blocks` for governance tracking.
  */
 
 import { logger, LogCategory } from '../lib/logger';
@@ -61,6 +63,9 @@ export interface StyleQualificationResult {
 export interface StyleViolation {
   type: 'DURATION' | 'CONSENSUS' | 'ATR_GATE' | 'TARGET_SIZE' | 'STOP_SIZE';
   severity: 'CRITICAL' | 'MAJOR' | 'MINOR';
+  // CRITICAL = Safety violation (may block)
+  // MAJOR = Style advisory (warns, does not block)
+  // MINOR = Informational note
   actual: number;
   required: number;
   detail: string;
@@ -124,7 +129,8 @@ export async function validateStyleQualification(
   const violations: StyleViolation[] = [];
   const contract = STYLE_CONTRACTS[input.style];
 
-  // VALIDATION 1: Expected Fill Time (CRITICAL)
+  // VALIDATION 1: Expected Fill Time (ADVISORY - MAJOR)
+  // ✅ Duration mismatches are style preference issues, not safety violations
   const expectedFillMinutes = input.expectedFillTimeHours * 60;
   if (
     expectedFillMinutes < contract.minFillTimeMinutes ||
@@ -132,15 +138,15 @@ export async function validateStyleQualification(
   ) {
     violations.push({
       type: 'DURATION',
-      severity: 'CRITICAL',
+      severity: 'MAJOR', // Changed from CRITICAL - this is advisory, not blocking
       actual: expectedFillMinutes,
       required: contract.maxFillTimeMinutes,
-      detail: `${input.style} requires ${contract.typicalDurationMinutes} min fill time. Actual: ${expectedFillMinutes.toFixed(0)} min (${input.expectedFillTimeHours.toFixed(1)}h). This violates style execution contract.`
+      detail: `${input.style} typically ${contract.typicalDurationMinutes} min duration. Actual: ${expectedFillMinutes.toFixed(0)} min (${input.expectedFillTimeHours.toFixed(1)}h). Consider style adjustment.`
     });
 
-    logger.error(
+    logger.warn(
       LogCategory.AI_TRADING,
-      `[Style Gate] DURATION VIOLATION: ${input.style} expected fill ${expectedFillMinutes.toFixed(0)}min exceeds max ${contract.maxFillTimeMinutes}min`
+      `[Style Gate] DURATION ADVISORY: ${input.style} expected fill ${expectedFillMinutes.toFixed(0)}min vs typical ${contract.maxFillTimeMinutes}min (proceeding)`
     );
   }
 
@@ -178,21 +184,22 @@ export async function validateStyleQualification(
     );
   }
 
-  // VALIDATION 4: Target Size (CRITICAL)
+  // VALIDATION 4: Target Size (ADVISORY - MAJOR)
+  // ✅ Oversized targets are style preference issues, not safety violations
   const minTarget = contract.minTargetPips[input.assetClass];
   const maxTarget = contract.maxTargetPips[input.assetClass];
   if (input.targetPips < minTarget || input.targetPips > maxTarget) {
     violations.push({
       type: 'TARGET_SIZE',
-      severity: 'CRITICAL',
+      severity: 'MAJOR', // Changed from CRITICAL - oversized targets are advisory
       actual: input.targetPips,
       required: maxTarget,
-      detail: `Target ${input.targetPips.toFixed(0)} pips outside ${input.style} range ${minTarget}-${maxTarget} pips for ${input.assetClass}. Style execution contract violated.`
+      detail: `Target ${input.targetPips.toFixed(0)} pips outside ${input.style} typical range ${minTarget}-${maxTarget} pips for ${input.assetClass}. Consider style adjustment.`
     });
 
-    logger.error(
+    logger.warn(
       LogCategory.AI_TRADING,
-      `[Style Gate] TARGET VIOLATION: ${input.targetPips.toFixed(0)} pips outside ${input.style} bounds ${minTarget}-${maxTarget}`
+      `[Style Gate] TARGET ADVISORY: ${input.targetPips.toFixed(0)} pips vs ${input.style} typical ${minTarget}-${maxTarget} (proceeding)`
     );
   }
 
@@ -214,22 +221,27 @@ export async function validateStyleQualification(
     );
   }
 
-  // DECISION LOGIC: Block on CRITICAL violations
+  // ✅ DECISION LOGIC (Updated): Advisory flagging, not hard blocking
+  // Philosophy: "Engines validate. Alpha decides."
+  // - Style Gate provides advisory warnings
+  // - Executor determines if violations are actual safety concerns
+  // - Alpha has final authority on execution
   const criticalViolations = violations.filter(v => v.severity === 'CRITICAL');
   const majorViolations = violations.filter(v => v.severity === 'MAJOR');
 
+  // "Qualified" means < 2 advisory warnings (still proceeds, just flagged)
   const qualified = criticalViolations.length === 0 && majorViolations.length < 2;
 
   let blockReason: string | undefined;
   if (!qualified) {
     if (criticalViolations.length > 0) {
-      blockReason = `CRITICAL STYLE VIOLATION: ${criticalViolations.map(v => v.detail).join(' | ')}`;
+      blockReason = `SAFETY CONCERN: ${criticalViolations.map(v => v.detail).join(' | ')}`;
     } else {
-      blockReason = `MULTIPLE MAJOR VIOLATIONS: ${majorViolations.map(v => v.detail).join(' | ')}`;
+      blockReason = `STYLE ADVISORY: ${majorViolations.map(v => v.detail).join(' | ')}`;
     }
   }
 
-  // Log to database if blocked
+  // Log to database for governance tracking (not blocking)
   if (!qualified && input.sessionId) {
     await logStyleGateBlock(input, violations, blockReason);
   }
@@ -238,14 +250,14 @@ export async function validateStyleQualification(
     qualified,
     blockReason,
     violations,
-    advisory: violations.length > 0 && qualified ?
-      `Trade qualified with ${violations.length} minor violations. Review style appropriateness.` :
+    advisory: violations.length > 0 ?
+      `${violations.length} style ${violations.length === 1 ? 'advisory' : 'advisories'}: ${violations.map(v => v.type).join(', ')}` :
       undefined
   };
 
   logger.info(
     LogCategory.AI_TRADING,
-    `[Style Gate] ${input.symbol} ${input.style}: ${qualified ? '✅ QUALIFIED' : '🚫 BLOCKED'} (${violations.length} violations, ${criticalViolations.length} critical)`
+    `[Style Gate] ${input.symbol} ${input.style}: ${qualified ? '✅ ADVISORY' : '⚠️ FLAGGED'} (${violations.length} advisories, ${criticalViolations.length} safety concerns)`
   );
 
   return result;
