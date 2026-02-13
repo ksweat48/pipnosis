@@ -272,6 +272,13 @@ async function logStyleGateBlock(
   blockReason?: string
 ): Promise<void> {
   try {
+    if (!supabaseAdmin) {
+      logger.warn(
+        LogCategory.DATABASE,
+        '[Style Gate] supabaseAdmin not available - skipping block log'
+      );
+      return;
+    }
     const { error } = await supabaseAdmin
       .from('style_gate_blocks')
       .insert({

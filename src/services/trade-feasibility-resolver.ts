@@ -286,8 +286,7 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
       };
     }
 
-    // Try cascade: SCALP → INTRADAY (No SWING - Pipnosis is intraday-only)
-    const cascade: TradeStyle[] = ['SCALP', 'INTRADAY'];
+    const cascade: TradeStyle[] = ['SCALP', 'MICRO_INTRADAY', 'INTRADAY'];
     const currentIndex = cascade.indexOf(currentStyle);
 
     for (let i = currentIndex + 1; i < cascade.length; i++) {
@@ -479,9 +478,8 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
     logger.info(LogCategory.AI_TRADING, `[Repair Cascade] ❌ REPAIR 4 FAILED: TP1-only mode didn't achieve acceptable R:R`);
 
     // REPAIR 5: Style Upgrade (longer duration, more room to breathe)
-    // Only try if we're currently at SCALP
-    if (currentStyle === 'SCALP' && input.policy.allowAutoSwitchStyle) {
-      const upgradedStyle: TradeStyle = 'INTRADAY';
+    if ((currentStyle === 'SCALP' || currentStyle === 'MICRO_INTRADAY') && input.policy.allowAutoSwitchStyle) {
+      const upgradedStyle: TradeStyle = currentStyle === 'SCALP' ? 'MICRO_INTRADAY' : 'INTRADAY';
       if (this.isStyleValid(input.assetClass, upgradedStyle, input.atrPercent)) {
         adjustments.push({
           field: 'style',

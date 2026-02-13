@@ -155,42 +155,6 @@ function getAssetClass(symbol: string): AssetClass {
  * ═══════════════════════════════════════════════════════════════════
  */
 
-/**
- * Helper: Select default trade style based on time availability
- * This is time-based, NOT risk-based.
- *
- * @param sessionContext - Current market session timing
- * @param availableTime - Hours available (optional, from user preferences)
- * @returns Recommended style based on timing, not risk
- */
-function selectDefaultTradeStyle(
-  sessionContext?: { session: string; hours_until_close?: number },
-  availableTime?: number
-): 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' {
-  // If user has limited time, default to SCALP
-  if (availableTime && availableTime <= 2) {
-    return 'SCALP';
-  }
-
-  // If session is closing soon, use SCALP
-  if (sessionContext?.hours_until_close && sessionContext.hours_until_close <= 2) {
-    return 'SCALP';
-  }
-
-  // If moderate time available (2-6 hours), use MICRO_INTRADAY
-  if (availableTime && availableTime <= 6) {
-    return 'MICRO_INTRADAY';
-  }
-
-  // If longer time available, use INTRADAY
-  if (availableTime && availableTime > 6) {
-    return 'INTRADAY';
-  }
-
-  // Default to MICRO_INTRADAY for most trading (good balance)
-  return 'MICRO_INTRADAY';
-}
-
 export interface OmegaCouncilVotes {
   trend: OmegaVote | null;
   scalper: OmegaVote | null;
@@ -908,17 +872,15 @@ class AlphaCoordinatorBrain {
     if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED' && consensus.direction !== 'WAIT') {
       const assetClass = getAssetClass(marketContext.symbol);
 
-      // Get current session context for time-based style selection
-      const sessionContext = calculateSessionContext();
-
-      // Select style based on TIME availability, not risk mode
-      const requestedStyle = selectDefaultTradeStyle(
-        {
-          session: sessionContext.sessionName,
-          hours_until_close: sessionContext.sessionTimeRemainingMinutes / 60
-        },
-        undefined // TODO: Add user time preference from settings
-      );
+      // SSOT: Use user's chosen style for feasibility check (same as tradeStyle resolved above)
+      const PRE_STYLE_MAP: Record<string, 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'> = {
+        'scalper': 'SCALP', 'SCALPER': 'SCALP', 'scalp': 'SCALP', 'SCALP': 'SCALP',
+        'micro': 'MICRO_INTRADAY', 'MICRO': 'MICRO_INTRADAY', 'MICRO_INTRADAY': 'MICRO_INTRADAY',
+        'intraday': 'INTRADAY', 'INTRADAY': 'INTRADAY', 'day': 'INTRADAY',
+      };
+      const requestedStyle = goalContext?.tradeStyle
+        ? (PRE_STYLE_MAP[goalContext.tradeStyle] || 'SCALP')
+        : 'SCALP';
 
       const atrValue = extractATRValue(marketContext.atr);
       const atrPercent = (atrValue / marketContext.price) * 100;
@@ -1016,9 +978,19 @@ class AlphaCoordinatorBrain {
     let omega9Constraints: Omega9Constraints | null = null;
     let constraintsText = '';
 
-    // SSOT: Declare tradeStyle at function scope for accessibility throughout decision process
-    // Default to resolvedPlan's style, or MICRO_INTRADAY as safe fallback
-    let tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = resolvedPlan?.style || 'MICRO_INTRADAY';
+    // SSOT: User's chosen style is IMMUTABLE - never override with defaults
+    const USER_STYLE_MAP: Record<string, 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'> = {
+      'scalper': 'SCALP', 'SCALPER': 'SCALP', 'scalp': 'SCALP', 'SCALP': 'SCALP',
+      'micro': 'MICRO_INTRADAY', 'MICRO': 'MICRO_INTRADAY', 'MICRO_INTRADAY': 'MICRO_INTRADAY',
+      'intraday': 'INTRADAY', 'INTRADAY': 'INTRADAY', 'day': 'INTRADAY',
+    };
+    const userChosenStyle = goalContext?.tradeStyle
+      ? USER_STYLE_MAP[goalContext.tradeStyle]
+      : undefined;
+    let tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' =
+      userChosenStyle || resolvedPlan?.style || 'SCALP';
+
+    console.log(`[Alpha Coordinator] [Style SSOT] User chose: ${goalContext?.tradeStyle || 'none'} => Canonical: ${tradeStyle} (IMMUTABLE)`);
 
     if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED' && consensus.direction !== 'WAIT') {
       if (sessionId && userId) {
@@ -1027,18 +999,8 @@ class AlphaCoordinatorBrain {
         });
       }
 
-      // Calculate actual current session context (NO hardcoded values)
       const sessionContext = calculateSessionContext();
-      console.log(`[Alpha Coordinator] 📅 Session Context: ${sessionContext.sessionName} (${sessionContext.sessionTimeRemainingMinutes}min remaining)`);
-
-      // Refine trade style with session context if needed (time-based, NOT risk-based)
-      tradeStyle = resolvedPlan?.style || selectDefaultTradeStyle(
-        {
-          session: sessionContext.sessionName,
-          hours_until_close: sessionContext.sessionTimeRemainingMinutes / 60
-        },
-        undefined // TODO: Add user time preference from settings
-      );
+      console.log(`[Alpha Coordinator] Session Context: ${sessionContext.sessionName} (${sessionContext.sessionTimeRemainingMinutes}min remaining)`);
 
       omega9Constraints = omega9ConstraintProvider.generateConstraints({
         symbol: marketContext.symbol,
@@ -2386,15 +2348,9 @@ Return PURE JSON only:
       const entryQualityScore = parsed.entry_quality_score ?? 0;
       const entryMode = parsed.entry_mode ?? 'wait_confirmation';
 
-      const STYLE_MAP: Record<string, 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'> = {
-        'scalper': 'SCALP', 'SCALPER': 'SCALP', 'scalp': 'SCALP', 'SCALP': 'SCALP',
-        'micro': 'MICRO_INTRADAY', 'MICRO': 'MICRO_INTRADAY', 'MICRO_INTRADAY': 'MICRO_INTRADAY',
-        'intraday': 'INTRADAY', 'INTRADAY': 'INTRADAY', 'day': 'INTRADAY',
-      };
-      const userStylePreference = goalContext?.tradeStyle
-        ? (STYLE_MAP[goalContext.tradeStyle] || 'SCALP')
-        : 'SCALP';
-      const resolvedStyle = parsed.style ?? userStylePreference;
+      // SSOT: User's chosen style is IMMUTABLE - LLM cannot override it
+      // tradeStyle was already resolved from user's choice at function scope
+      const resolvedStyle = tradeStyle;
 
       // Extract thesis-aware fields (Phase 2: Integration)
       const thesis = parsed.thesis || null;
