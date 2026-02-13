@@ -112,7 +112,7 @@ import { parseStructuredAlphaResponse } from '../services/alpha-thesis-parser';
 import type { AlphaMarketThesis, RegimeSignature } from '../types/alpha-thesis';
 import { m5SwingAnalyzer, type M5SwingContext } from '../services/m5-swing-analyzer';
 import { alphaGeometryValidator } from '../services/alpha-geometry-validator';
-import { getExecutionEnvelope, validateTPSLAgainstEnvelope } from '../config/style-execution-envelopes';
+import { getExecutionEnvelope, getAssetClassEnvelopeBounds, validateTPSLAgainstEnvelope, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
 
 /**
@@ -1029,6 +1029,8 @@ class AlphaCoordinatorBrain {
 
     const stylePersonality = getStylePromptContext(tradeStyle);
     const styleEnvelope = getExecutionEnvelope(tradeStyle);
+    const promptAssetClass = getAssetClass(marketContext.symbol) as EnvelopeAssetClass;
+    const promptBounds = getAssetClassEnvelopeBounds(tradeStyle, promptAssetClass);
     const styleIdentityPrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1036,11 +1038,11 @@ STYLE IDENTITY CONTRACT: ${tradeStyle}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${stylePersonality}
 
-EXECUTION ENVELOPE (HARD CONSTRAINTS):
+EXECUTION ENVELOPE (HARD CONSTRAINTS - ${promptAssetClass}):
 - Timeframe: ${styleEnvelope.timeframe}
 - Target Candles: ${styleEnvelope.targetCandles.min}-${styleEnvelope.targetCandles.max}
-- TP Range: ${styleEnvelope.tpPips.min}-${styleEnvelope.tpPips.max} pips
-- SL Range: ${styleEnvelope.slPips.min}-${styleEnvelope.slPips.max} pips
+- TP Range: ${promptBounds.tpPips.min}-${promptBounds.tpPips.max} pips
+- SL Range: ${promptBounds.slPips.min}-${promptBounds.slPips.max} pips
 - Expected Duration: ${styleEnvelope.typicalDuration.min}-${styleEnvelope.typicalDuration.max} minutes
 - Entry Mode: ${styleEnvelope.entryMode}
 
@@ -2598,23 +2600,26 @@ Return PURE JSON only:
       // If LLM returns a TP beyond the style envelope, cap it.
       // Trades degrade intelligently - they do not silently over-extend.
       const styleEnvelope = getExecutionEnvelope(resolvedStyle);
-      if (tpPips > styleEnvelope.tpPips.max) {
+      const envelopeAssetClass = getAssetClass(symbol) as EnvelopeAssetClass;
+      const assetBounds = getAssetClassEnvelopeBounds(resolvedStyle, envelopeAssetClass);
+
+      if (tpPips > assetBounds.tpPips.max) {
         const originalTP = takeProfit;
         const originalTPPips = tpPips;
         const pipInfo = getCurrencyPipInfo(symbol);
-        const cappedDistance = styleEnvelope.tpPips.max * pipInfo.pipValue;
+        const cappedDistance = assetBounds.tpPips.max * pipInfo.pipValue;
 
         takeProfit = isBuy
           ? entry + cappedDistance
           : entry - cappedDistance;
 
-        tpPips = styleEnvelope.tpPips.max;
+        tpPips = assetBounds.tpPips.max;
         tpDistance = Math.abs(takeProfit - entry);
         rr = slDistance > 0 ? tpDistance / slDistance : 0;
 
         console.warn(
-          `[Alpha Envelope] TP CAPPED: ${originalTPPips.toFixed(1)} pips → ${tpPips.toFixed(1)} pips ` +
-          `(${resolvedStyle} max: ${styleEnvelope.tpPips.max}). ` +
+          `[Alpha Envelope] TP CAPPED: ${originalTPPips.toFixed(1)} pips -> ${tpPips.toFixed(1)} pips ` +
+          `(${resolvedStyle} ${envelopeAssetClass} max: ${assetBounds.tpPips.max}). ` +
           `Original: ${originalTP.toFixed(5)}, Capped: ${takeProfit.toFixed(5)}`
         );
 
@@ -2626,11 +2631,12 @@ Return PURE JSON only:
           blocked: false,
           errorDetails: {
             style: resolvedStyle,
+            assetClass: envelopeAssetClass,
             originalTP,
             cappedTP: takeProfit,
             originalTPPips: originalTPPips,
             cappedTPPips: tpPips,
-            envelopeMax: styleEnvelope.tpPips.max,
+            envelopeMax: assetBounds.tpPips.max,
             entry,
             direction: isBuy ? 'BUY' : 'SELL',
             resolution: 'capped_to_envelope'
@@ -2638,24 +2644,23 @@ Return PURE JSON only:
         }).catch(() => {});
       }
 
-      // STYLE ENVELOPE SL ENFORCEMENT (SSOT: style-execution-envelopes.ts)
-      if (slPips > styleEnvelope.slPips.max) {
+      if (slPips > assetBounds.slPips.max) {
         const originalSL = stopLoss;
         const originalSLPips = slPips;
         const pipInfo = getCurrencyPipInfo(symbol);
-        const cappedSLDistance = styleEnvelope.slPips.max * pipInfo.pipValue;
+        const cappedSLDistance = assetBounds.slPips.max * pipInfo.pipValue;
 
         stopLoss = isBuy
           ? entry - cappedSLDistance
           : entry + cappedSLDistance;
 
-        slPips = styleEnvelope.slPips.max;
+        slPips = assetBounds.slPips.max;
         slDistance = Math.abs(stopLoss - entry);
         rr = slDistance > 0 ? tpDistance / slDistance : 0;
 
         console.warn(
           `[Alpha Envelope] SL CAPPED: ${originalSLPips.toFixed(1)} pips -> ${slPips.toFixed(1)} pips ` +
-          `(${resolvedStyle} max: ${styleEnvelope.slPips.max}). ` +
+          `(${resolvedStyle} ${envelopeAssetClass} max: ${assetBounds.slPips.max}). ` +
           `Original: ${originalSL.toFixed(5)}, Capped: ${stopLoss.toFixed(5)}`
         );
 
@@ -2667,11 +2672,12 @@ Return PURE JSON only:
           blocked: false,
           errorDetails: {
             style: resolvedStyle,
+            assetClass: envelopeAssetClass,
             originalSL,
             cappedSL: stopLoss,
             originalSLPips,
-            cappedSLPips: styleEnvelope.slPips.max,
-            envelopeMax: styleEnvelope.slPips.max,
+            cappedSLPips: assetBounds.slPips.max,
+            envelopeMax: assetBounds.slPips.max,
             entry,
             direction: isBuy ? 'BUY' : 'SELL',
             resolution: 'capped_to_envelope'

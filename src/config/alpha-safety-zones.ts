@@ -12,8 +12,10 @@
  * This system allows Alpha to be creative and adaptive while maintaining survival boundaries.
  */
 
+import { getCurrencyPipInfo } from '../utils/currencyHelpers';
+
 export type SafetyZone = 'GREEN' | 'YELLOW' | 'ORANGE' | 'RED';
-export type TradeStyle = 'SCALP' | 'INTRADAY' | 'SWING';
+export type TradeStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'SWING';
 
 export interface SafetyZoneConfig {
   zone: SafetyZone;
@@ -34,15 +36,17 @@ export interface SafetyZoneConfig {
  * SWING: 0.5:1 minimum (patient, higher targets)
  */
 export function getSafetyZones(tradeStyle: TradeStyle = 'INTRADAY'): SafetyZoneConfig[] {
-  // Adjust RED ZONE threshold based on trade style
-  let redZoneMinRR = 0.3; // Default INTRADAY
+  let redZoneMinRR = 0.3;
   let redZoneMinTPAtr = 1.0;
 
   if (tradeStyle === 'SCALP') {
-    redZoneMinRR = 0.2; // Scalp: Lower minimum for fast trades
-    redZoneMinTPAtr = 0.8;
+    redZoneMinRR = 0.2;
+    redZoneMinTPAtr = 0.5;
+  } else if (tradeStyle === 'MICRO_INTRADAY') {
+    redZoneMinRR = 0.25;
+    redZoneMinTPAtr = 0.7;
   } else if (tradeStyle === 'SWING') {
-    redZoneMinRR = 0.5; // Swing: Higher minimum for patient trades
+    redZoneMinRR = 0.5;
     redZoneMinTPAtr = 1.5;
   }
 
@@ -122,14 +126,35 @@ export class AlphaSafetyZoneEvaluator {
     symbol: string;
     estimatedDurationSeconds?: number;
     tradeStyle?: TradeStyle;
+    envelopeMaxTPPips?: number;
   }): SafetyEvaluation {
-    const { rrRatio, tpDistancePips, atr, estimatedDurationSeconds = 0, tradeStyle = 'INTRADAY' } = params;
+    const { rrRatio, tpDistancePips, atr, estimatedDurationSeconds = 0, tradeStyle = 'INTRADAY', symbol, envelopeMaxTPPips } = params;
 
-    // Get style-specific safety zones
     const safetyZones = getSafetyZones(tradeStyle);
-    console.log(`[Alpha Safety] Evaluating ${tradeStyle} trade: R:R ${rrRatio.toFixed(2)}:1, RED zone minimum: ${safetyZones[3].min_rr_ratio}:1`);
 
-    const tpDistanceATR = tpDistancePips / (atr || 1);
+    const pipInfo = getCurrencyPipInfo(symbol);
+    const atrInPips = atr / pipInfo.pipValue;
+    const tpDistanceATR = tpDistancePips / (atrInPips || 1);
+
+    if (envelopeMaxTPPips && atrInPips > 0) {
+      const maxPossibleATR = envelopeMaxTPPips / atrInPips;
+      const redZone = safetyZones[safetyZones.length - 1];
+      if (redZone.zone === 'RED' && redZone.min_tp_distance_atr > maxPossibleATR * 0.85) {
+        const adjusted = maxPossibleATR * 0.65;
+        console.log(
+          `[Alpha Safety] Envelope-aware RED ZONE adjustment: ${tradeStyle} on ${symbol} ` +
+          `envelope max TP=${envelopeMaxTPPips} pips, ATR=${atrInPips.toFixed(1)} pips, ` +
+          `maxPossibleATR=${maxPossibleATR.toFixed(2)}, RED min adjusted ${redZone.min_tp_distance_atr.toFixed(2)} -> ${adjusted.toFixed(2)}`
+        );
+        redZone.min_tp_distance_atr = adjusted;
+      }
+    }
+
+    console.log(
+      `[Alpha Safety] Evaluating ${tradeStyle} trade on ${symbol}: R:R ${rrRatio.toFixed(2)}:1, ` +
+      `TP ${tpDistancePips.toFixed(1)} pips = ${tpDistanceATR.toFixed(2)} ATR (ATR=${atrInPips.toFixed(1)} pips), ` +
+      `RED zone min: R:R ${safetyZones[safetyZones.length - 1].min_rr_ratio}:1, TP ${safetyZones[safetyZones.length - 1].min_tp_distance_atr.toFixed(2)} ATR`
+    );
     const violations: SafetyViolation[] = [];
     let currentZone: SafetyZone = 'GREEN';
 

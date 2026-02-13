@@ -26,10 +26,12 @@ import { openAIClient } from '../services/openai-client';
 import type { Omega9ValidationResult, Omega9Corrections, OmegaVote } from '../types/omega';
 import type { AlphaDecision } from './coordinator-alpha';
 import { llmTokenTracker } from '../services/llm-token-tracker';
-import { alphaSafetyZoneEvaluator, type SafetyEvaluation } from '../config/alpha-safety-zones';
+import { alphaSafetyZoneEvaluator, type SafetyEvaluation, type TradeStyle } from '../config/alpha-safety-zones';
 import { calculatePipDistance } from '../utils/currencyHelpers';
 import { safeExtractATRValue, type ATRValue } from '../types/atr';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
+import { getAssetClassEnvelopeBounds, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
+import { assetClassifier } from '../services/asset-classifier';
 
 export interface Omega9Input {
   alphaDecision: AlphaDecision;
@@ -273,13 +275,31 @@ class Omega9HallucinationBrain {
 
     const atrValue = safeExtractATRValue(marketContext.atr, 'Omega9.performLocalValidation');
 
+    const rawStyle = input.alphaDecision.resolvedStyle;
+    const safetyTradeStyle: TradeStyle = rawStyle === 'SCALP' ? 'SCALP'
+      : rawStyle === 'MICRO_INTRADAY' ? 'MICRO_INTRADAY'
+      : rawStyle === 'INTRADAY' ? 'INTRADAY'
+      : 'INTRADAY';
+
+    let envelopeMaxTP: number | undefined;
+    try {
+      const category = assetClassifier.getAssetCategory(marketContext.symbol);
+      const assetClass = category.toUpperCase() as EnvelopeAssetClass;
+      const bounds = getAssetClassEnvelopeBounds(safetyTradeStyle, assetClass);
+      envelopeMaxTP = bounds.tpPips.max;
+    } catch {
+      envelopeMaxTP = undefined;
+    }
+
     const safetyEval = alphaSafetyZoneEvaluator.evaluateTrade({
       rrRatio: rr,
       tpDistancePips: tpDistancePips,
       slDistancePips: slDistancePips,
       atr: atrValue,
       symbol: marketContext.symbol,
-      estimatedDurationSeconds: 0
+      estimatedDurationSeconds: 0,
+      tradeStyle: safetyTradeStyle,
+      envelopeMaxTPPips: envelopeMaxTP,
     });
 
     console.log(`[Omega-9] 🛡️ Safety Zone: ${safetyEval.zone} | Score: ${safetyEval.safety_score}/100 | R:R: ${rr.toFixed(3)}`);

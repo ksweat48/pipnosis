@@ -18,28 +18,31 @@
  * - Authority to REDEFINE a style: ❌ System enforces
  */
 
+export type EnvelopeAssetClass = 'FOREX' | 'CRYPTO' | 'METAL' | 'INDEX';
+
+export interface AssetClassBounds {
+  tpPips: { min: number; max: number };
+  slPips: { min: number; max: number };
+}
+
 export interface StyleExecutionEnvelope {
   style: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'SWING';
-  timeframe: string;                    // Primary execution timeframe
-  validationTimeframes: string[];       // HTF for validation only
+  timeframe: string;
+  validationTimeframes: string[];
 
-  // Target parameters (instrument will be scaled)
   targetCandles: { min: number; max: number };
 
-  // TP/SL bounds (in pips/points, will be instrument-adjusted)
   tpPips: { min: number; max: number };
   slPips: { min: number; max: number };
 
-  // ATR source (must match timeframe)
+  assetClassBounds: Record<EnvelopeAssetClass, AssetClassBounds>;
+
   atrTimeframe: string;
 
-  // Duration expectations (minutes)
   typicalDuration: { min: number; max: number };
 
-  // Entry urgency
   entryMode: 'IMMEDIATE' | 'PATIENT';
 
-  // EQS requirement
   requiresHighEQS: boolean;
 }
 
@@ -65,12 +68,19 @@ export const SCALP_ENVELOPE: StyleExecutionEnvelope = {
   tpPips: { min: 15, max: 60 },
   slPips: { min: 8, max: 20 },
 
+  assetClassBounds: {
+    FOREX: { tpPips: { min: 10, max: 60 }, slPips: { min: 5, max: 25 } },
+    CRYPTO: { tpPips: { min: 30, max: 150 }, slPips: { min: 15, max: 80 } },
+    METAL: { tpPips: { min: 10, max: 60 }, slPips: { min: 5, max: 25 } },
+    INDEX: { tpPips: { min: 15, max: 80 }, slPips: { min: 8, max: 35 } },
+  },
+
   atrTimeframe: 'M5',
 
   typicalDuration: { min: 15, max: 60 },
 
   entryMode: 'IMMEDIATE',
-  requiresHighEQS: false, // SCALP = momentum, not perfection
+  requiresHighEQS: false,
 };
 
 /**
@@ -93,6 +103,13 @@ export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
 
   tpPips: { min: 40, max: 120 },
   slPips: { min: 15, max: 40 },
+
+  assetClassBounds: {
+    FOREX: { tpPips: { min: 30, max: 120 }, slPips: { min: 15, max: 50 } },
+    CRYPTO: { tpPips: { min: 80, max: 300 }, slPips: { min: 40, max: 150 } },
+    METAL: { tpPips: { min: 30, max: 120 }, slPips: { min: 15, max: 50 } },
+    INDEX: { tpPips: { min: 40, max: 150 }, slPips: { min: 20, max: 70 } },
+  },
 
   atrTimeframe: 'M15',
 
@@ -123,12 +140,19 @@ export const INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
   tpPips: { min: 60, max: 150 },
   slPips: { min: 30, max: 60 },
 
+  assetClassBounds: {
+    FOREX: { tpPips: { min: 50, max: 200 }, slPips: { min: 25, max: 80 } },
+    CRYPTO: { tpPips: { min: 150, max: 500 }, slPips: { min: 80, max: 250 } },
+    METAL: { tpPips: { min: 50, max: 200 }, slPips: { min: 25, max: 80 } },
+    INDEX: { tpPips: { min: 60, max: 250 }, slPips: { min: 30, max: 100 } },
+  },
+
   atrTimeframe: 'H1',
 
   typicalDuration: { min: 120, max: 720 },
 
   entryMode: 'PATIENT',
-  requiresHighEQS: true, // INTRADAY can wait for quality
+  requiresHighEQS: true,
 };
 
 /**
@@ -152,16 +176,23 @@ export const SWING_ENVELOPE: StyleExecutionEnvelope = {
   tpPips: { min: 150, max: 500 },
   slPips: { min: 60, max: 150 },
 
+  assetClassBounds: {
+    FOREX: { tpPips: { min: 150, max: 500 }, slPips: { min: 60, max: 150 } },
+    CRYPTO: { tpPips: { min: 300, max: 1000 }, slPips: { min: 150, max: 400 } },
+    METAL: { tpPips: { min: 150, max: 500 }, slPips: { min: 60, max: 150 } },
+    INDEX: { tpPips: { min: 200, max: 600 }, slPips: { min: 80, max: 200 } },
+  },
+
   atrTimeframe: 'H4',
 
-  typicalDuration: { min: 1440, max: 10080 }, // Days to weeks
+  typicalDuration: { min: 1440, max: 10080 },
 
   entryMode: 'PATIENT',
-  requiresHighEQS: true, // SWING must be high quality
+  requiresHighEQS: true,
 };
 
 /**
- * Get execution envelope for a style
+ * Get execution envelope for a style (base defaults)
  */
 export function getExecutionEnvelope(style: string): StyleExecutionEnvelope {
   switch (style.toUpperCase()) {
@@ -177,6 +208,32 @@ export function getExecutionEnvelope(style: string): StyleExecutionEnvelope {
       console.warn(`[Style Envelope] Unknown style '${style}', defaulting to INTRADAY`);
       return INTRADAY_ENVELOPE;
   }
+}
+
+/**
+ * Get asset-class-resolved TP/SL bounds for a style.
+ *
+ * SSOT: The Style Qualification Gate already defines per-asset-class contracts.
+ * This function aligns the execution envelope with those contracts so that
+ * the capping logic uses the correct bounds for each instrument category.
+ *
+ * Falls back to the base envelope defaults if no asset class is provided.
+ */
+export function getAssetClassEnvelopeBounds(
+  style: string,
+  assetClass?: EnvelopeAssetClass
+): AssetClassBounds {
+  const envelope = getExecutionEnvelope(style);
+  if (!assetClass) {
+    return {
+      tpPips: envelope.tpPips,
+      slPips: envelope.slPips,
+    };
+  }
+  return envelope.assetClassBounds[assetClass] || {
+    tpPips: envelope.tpPips,
+    slPips: envelope.slPips,
+  };
 }
 
 /**
