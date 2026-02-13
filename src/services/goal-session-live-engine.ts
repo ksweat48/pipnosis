@@ -28,7 +28,7 @@ import { calculateDollarPerPip, calculatePipDistance, calculateGoalAwareLotSize,
 import { createTradeContext, roundAlphaDecisionPrices } from '../utils/tradeMath';
 import { getRiskPercentage, getMinConfidenceThreshold } from '../config/risk-levels';
 import { postTradeAnalyzer } from './post-trade-analyzer';
-import { hasAnyOpenMarket, isSymbolMarketOpen, getEstimationReferenceSymbol } from '../utils/marketHours';
+import { hasAnyOpenMarket, isSymbolMarketOpen, getEstimationReferenceSymbol, calculateSessionContext } from '../utils/marketHours';
 import { scanResultsManager, type ScanCandidate } from './scan-results-manager';
 import { weekendProtectionService } from './weekend-protection-service';
 import { marketScheduleService } from './market-schedule-service';
@@ -1421,14 +1421,7 @@ class GoalSessionLiveEngine {
         console.log(`[Trade] ${decision.symbol} ${safeLotSize.toFixed(3)} lots, TP: ${safeTakeProfitPips.toFixed(1)}p ($${safeExpectedProfit.toFixed(2)})`);
       }
 
-      const hour = new Date().getUTCHours();
-      let currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed';
-      if (hour >= 8 && hour < 12) currentSession = 'london';
-      else if (hour >= 13 && hour < 17) currentSession = 'ny';
-      else if (hour >= 12 && hour < 13) currentSession = 'overlap';
-      else if (hour >= 0 && hour < 8) currentSession = 'asian';
-      else if ((hour >= 22 && hour < 24) || (hour >= 0 && hour < 1)) currentSession = 'sydney';
-      else currentSession = 'closed';
+      const { currentSession } = calculateSessionContext();
 
       // ✅ CRITICAL FIX: Convert ATR from price units to pips
       // snapshot.atr is ATRValue type with .value property in price units (e.g., 0.04370 for USDJPY)

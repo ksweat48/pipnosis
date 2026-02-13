@@ -656,32 +656,41 @@ class AlphaTradeExecutor {
         }
       );
 
-      // Check if there are actual SAFETY violations (not just style mismatches)
-      const safetyViolations = styleQualification.violations.filter(v =>
-        v.type === 'ATR_GATE' || // ATR gate is a real safety concern
-        (v.type === 'STOP_SIZE' && v.severity === 'CRITICAL') // Critically bad stops
+      const criticalViolations = styleQualification.violations.filter(v =>
+        v.severity === 'CRITICAL'
       );
 
-      if (safetyViolations.length > 0) {
-        // Only block on actual safety concerns
+      if (criticalViolations.length > 0) {
         logger.error(
           LogCategory.AI_TRADING,
-          '[Style Gate] 🚫 SAFETY BLOCK - Critical safety violations detected',
-          { safetyViolations }
+          '[Style Gate] SAFETY BLOCK - Critical severity violations detected',
+          { criticalViolations }
         );
         return {
           success: false,
-          error: `SAFETY VIOLATION: ${safetyViolations.map(v => v.detail).join('; ')}`,
-          blockReason: `SAFETY VIOLATION: ${safetyViolations.map(v => v.detail).join('; ')}`
+          error: `SAFETY VIOLATION: ${criticalViolations.map(v => v.detail).join('; ')}`,
+          blockReason: `SAFETY VIOLATION: ${criticalViolations.map(v => v.detail).join('; ')}`
         };
       }
 
-      // Duration/consensus mismatches: Log but proceed
-      // This is Alpha's decision - we just track it for learning
-      logger.info(
-        LogCategory.AI_TRADING,
-        '[Style Gate] Trade proceeding despite style mismatch - Alpha authority upheld'
+      const advisoryViolations = styleQualification.violations.filter(v =>
+        v.severity !== 'CRITICAL'
       );
+      if (advisoryViolations.length > 0) {
+        logger.warn(
+          LogCategory.AI_TRADING,
+          '[Style Gate] Advisory violations logged - Alpha authority upheld, trade proceeds',
+          {
+            advisoryCount: advisoryViolations.length,
+            advisories: advisoryViolations.map(v => `${v.type}(${v.severity}): ${v.detail}`)
+          }
+        );
+      } else {
+        logger.info(
+          LogCategory.AI_TRADING,
+          '[Style Gate] Trade proceeding - Alpha authority upheld'
+        );
+      }
     }
 
     logger.info(

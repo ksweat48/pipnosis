@@ -1774,15 +1774,7 @@ Return PURE JSON only:
         const pipInfo = getCurrencyPipInfo(marketContext.symbol);
         const atrPips = extractATRValue(marketContext.atr) / pipInfo.pipValue;
 
-        // Determine current session
-        const hour = new Date().getUTCHours();
-        let currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed';
-        if (hour >= 8 && hour < 12) currentSession = 'london';
-        else if (hour >= 13 && hour < 17) currentSession = 'ny';
-        else if (hour >= 12 && hour < 13) currentSession = 'overlap';
-        else if (hour >= 0 && hour < 8) currentSession = 'asian';
-        else if ((hour >= 22 && hour < 24) || (hour >= 0 && hour < 1)) currentSession = 'sydney';
-        else currentSession = 'closed';
+        const { currentSession } = calculateSessionContext();
 
         const timeToFill = timeToFillCalculator.calculate({
           tpDistancePips,
