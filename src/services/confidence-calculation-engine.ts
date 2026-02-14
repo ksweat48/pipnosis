@@ -23,7 +23,7 @@
  * - EQS: entry quality signal (0-15%, soft)
  * - Narrative: coherence penalty (0-12%)
  * - AdversarialDetector: manipulation & sweep risk (0-10%)
- * - SessionAdvisor: time-based warnings ONLY (0-5%, advisory)
+ * - SessionAdvisor: time-based warnings + fill-time ratio (0-15%, advisory)
  * - PatternConfidence: technical setup quality (±5%)
  */
 
@@ -110,7 +110,7 @@ const DOMAIN_AUTHORITIES = {
   EQS: { name: 'EQS Quality Gate', max_penalty: 0.15 },
   NARRATIVE: { name: 'Narrative Validator', max_penalty: 0.12 },
   ADVERSARIAL: { name: 'Adversarial Detector', max_penalty: 0.1 },
-  SESSION_ADVISOR: { name: 'Session Advisor', max_penalty: 0.05 },
+  SESSION_ADVISOR: { name: 'Session Advisor', max_penalty: 0.15 },
   PATTERN_CONFIDENCE: { name: 'Pattern Confidence', max_penalty: 0.1 }
 };
 

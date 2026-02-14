@@ -173,21 +173,9 @@ class GoalAchievementCoordinator {
         return null;
       }
 
-      // Send push notification as fallback
-      await notificationCoordinator.send({
-        userId: context.userId,
-        type: 'goal_achieved',
-        title: 'Goal Achieved!',
-        message: `Congratulations! You reached your $${goalAmount.toFixed(2)} goal with $${finalPnL.toFixed(2)} profit! Choose your next action within 1 minute.`,
-        metadata: {
-          sessionId: context.sessionId,
-          finalPnL,
-          goalTarget: goalAmount,
-          modalId: modalResult.modalId,
-          countdownSeconds: 60,
-        },
-        priority: 'critical',
-      });
+      // SSOT: Notification is created by modalNotificationBridge.captureDialog() when the modal is shown.
+      // DO NOT call notificationCoordinator.send() here - it creates a duplicate goal_notifications
+      // record AND a duplicate push notification. The bridge handles both DB insert + push dispatch.
 
       console.log(`[GoalAchievementCoordinator] ✅ Goal countdown modal created for session ${context.sessionId} - user has 1 minute to respond`);
 

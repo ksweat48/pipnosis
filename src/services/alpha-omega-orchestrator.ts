@@ -619,17 +619,22 @@ class AlphaOmegaOrchestrator {
       });
     }
 
-    // Session Advisory Penalty (0-5% max, purely advisory)
-    // This is extracted from regime if present
-    if (marketState.regime?.session === 'dead_zone') {
+    // Session Advisory Penalty (0-15% max, advisory)
+    // Graduated penalty based on fill-time-to-session-remaining ratio
+    // SSOT: SessionAdvisor is the sole authority for time-based confidence adjustments
+    const sessionPenalty = this.calculateSessionAdvisoryPenalty(
+      marketState.regime,
+      decision.expectedFillTimeHours
+    );
+    if (sessionPenalty.value > 0) {
       confidenceModifiers.push({
         domain: 'session_advisor',
         domain_owner: 'Session Advisor',
         penalty_type: 'additive',
-        value: 0.03, // Small penalty for dead zone
-        reason: 'Dead zone trading - reduced liquidity',
+        value: sessionPenalty.value,
+        reason: sessionPenalty.reason,
         source_file: 'alpha-omega-orchestrator.ts',
-        severity: 'low'
+        severity: sessionPenalty.severity
       });
     }
 
@@ -1739,6 +1744,80 @@ class AlphaOmegaOrchestrator {
     } else {
       console.log(`  OrderFlow:  N/A`);
     }
+  }
+
+  private readonly SESSION_DURATIONS_MIN: Record<string, number> = {
+    asian: 420,
+    london: 480,
+    ny: 480,
+    dead: 180,
+    dead_zone: 180,
+  };
+
+  private calculateSessionAdvisoryPenalty(
+    regime: RegimeSnapshot | undefined,
+    expectedFillTimeHours: number | undefined
+  ): { value: number; reason: string; severity: 'low' | 'medium' | 'high' } {
+    if (!regime) {
+      return { value: 0, reason: '', severity: 'low' };
+    }
+
+    const session = regime.session;
+    const minutesIntoSession = regime.minutes_into_session || 0;
+
+    const sessionDurationMin = this.SESSION_DURATIONS_MIN[session] || 420;
+    const sessionRemainingMin = Math.max(0, sessionDurationMin - minutesIntoSession);
+
+    const expectedFillMin = (expectedFillTimeHours || 0) * 60;
+
+    if (expectedFillMin <= 0) {
+      if (session === 'dead' || session === 'dead_zone') {
+        return {
+          value: 0.05,
+          reason: `Dead zone trading - reduced liquidity (${session} session, ${minutesIntoSession}min in)`,
+          severity: 'low'
+        };
+      }
+      return { value: 0, reason: '', severity: 'low' };
+    }
+
+    const fillTimeRatio = sessionRemainingMin / expectedFillMin;
+
+    if (fillTimeRatio >= 1.0) {
+      return { value: 0, reason: '', severity: 'low' };
+    }
+
+    let penalty: number;
+    let severity: 'low' | 'medium' | 'high';
+    let label: string;
+
+    if (fillTimeRatio >= 0.75) {
+      penalty = 0.03;
+      severity = 'low';
+      label = 'tight';
+    } else if (fillTimeRatio >= 0.50) {
+      penalty = 0.07;
+      severity = 'medium';
+      label = 'constrained';
+    } else if (fillTimeRatio >= 0.25) {
+      penalty = 0.12;
+      severity = 'high';
+      label = 'severely constrained';
+    } else {
+      penalty = 0.15;
+      severity = 'high';
+      label = 'critically insufficient';
+    }
+
+    if (session === 'dead' || session === 'dead_zone') {
+      penalty = Math.max(penalty, 0.05);
+    }
+
+    return {
+      value: penalty,
+      reason: `Session time ${label}: ${Math.round(sessionRemainingMin)}min remaining vs ${Math.round(expectedFillMin)}min expected fill (ratio: ${fillTimeRatio.toFixed(2)}, ${session} session)`,
+      severity
+    };
   }
 }
 
