@@ -60,12 +60,6 @@ export const MINIMUM_SL_DISTANCE_BY_SYMBOL: Record<string, MinimumStopLossConstr
     minSpreadMultiple: 2,
     reason: 'Gold - higher minimum due to volatility and pip value'
   },
-  XAGUSD: {
-    minPips: 5,
-    minAtrMultiple: 0.3,
-    minSpreadMultiple: 2,
-    reason: 'Silver - higher minimum due to volatility'
-  },
   BTCUSD: {
     minPips: 50,
     minAtrMultiple: 0.2,

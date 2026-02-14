@@ -22,7 +22,6 @@ export type ValidatedSymbol = string & { readonly __brand: 'ValidatedSymbol' };
 export const KNOWN_SYMBOLS = [
   // Metals
   'XAUUSD',  // Gold
-  'XAGUSD',  // Silver
   'XPTUSD',  // Platinum
   'XPDUSD',  // Palladium
   // Indices

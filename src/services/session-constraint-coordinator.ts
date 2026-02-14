@@ -189,7 +189,6 @@ class SessionConstraintCoordinator {
         return 1.0;
 
       case 'XAUUSD':
-      case 'XAGUSD':
         // Metals - semi-active in all sessions
         if (hour >= 21 || hour < 0) return 0.85;  // Still trades but lower liquidity
         return 1.0;

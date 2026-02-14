@@ -259,7 +259,6 @@ class EntryStructureAnalyzer {
     const s = symbol.toUpperCase();
     if (s.includes('JPY')) return 3;
     if (s === 'XAUUSD') return 2;
-    if (s === 'XAGUSD') return 4;
     if (s.includes('BTC') || s.includes('ETH')) return 2;
     if (s === 'US30' || s === 'SPX500' || s === 'NAS100') return 1;
     return 5;

@@ -79,6 +79,8 @@ export const SCALP_ENVELOPE: StyleExecutionEnvelope = {
 
   symbolOverrides: {
     BTCUSD: { tpPips: { min: 80, max: 400 }, slPips: { min: 40, max: 250 } },
+    US30: { tpPips: { min: 30, max: 200 }, slPips: { min: 20, max: 100 } },
+    NAS100: { tpPips: { min: 25, max: 150 }, slPips: { min: 15, max: 70 } },
   },
 
   atrTimeframe: 'M5',
@@ -119,6 +121,8 @@ export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
 
   symbolOverrides: {
     BTCUSD: { tpPips: { min: 200, max: 800 }, slPips: { min: 100, max: 400 } },
+    US30: { tpPips: { min: 60, max: 400 }, slPips: { min: 35, max: 150 } },
+    NAS100: { tpPips: { min: 50, max: 300 }, slPips: { min: 25, max: 110 } },
   },
 
   atrTimeframe: 'M15',
@@ -159,6 +163,8 @@ export const INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
 
   symbolOverrides: {
     BTCUSD: { tpPips: { min: 400, max: 1500 }, slPips: { min: 200, max: 700 } },
+    US30: { tpPips: { min: 120, max: 600 }, slPips: { min: 50, max: 250 } },
+    NAS100: { tpPips: { min: 100, max: 500 }, slPips: { min: 40, max: 180 } },
   },
 
   atrTimeframe: 'H1',
@@ -199,6 +205,8 @@ export const SWING_ENVELOPE: StyleExecutionEnvelope = {
 
   symbolOverrides: {
     BTCUSD: { tpPips: { min: 800, max: 3000 }, slPips: { min: 400, max: 1200 } },
+    US30: { tpPips: { min: 250, max: 1200 }, slPips: { min: 100, max: 400 } },
+    NAS100: { tpPips: { min: 250, max: 1000 }, slPips: { min: 80, max: 350 } },
   },
 
   atrTimeframe: 'H4',

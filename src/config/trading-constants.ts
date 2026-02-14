@@ -50,8 +50,6 @@ export const TRADING_CONSTANTS = {
 
     // Metals
     XAUUSD: 0.20,     // Gold: $0.20 minimum
-    XAGUSD: 0.003,    // Silver: $0.003 minimum
-
     // Crypto
     BTCUSD: 20.0,     // Bitcoin: $20 minimum
     ETHUSD: 1.0,      // Ethereum: $1 minimum

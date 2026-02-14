@@ -122,7 +122,6 @@ describe('Symbol Validation - Type System Protection', () => {
 
     test('should categorize metals', () => {
       expect(getSymbolCategory('XAUUSD' as any)).toBe('metal');
-      expect(getSymbolCategory('XAGUSD' as any)).toBe('metal');
       expect(getSymbolCategory('XPTUSD' as any)).toBe('metal');
     });
 

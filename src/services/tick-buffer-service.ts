@@ -163,7 +163,7 @@ class TickBufferService {
     const symbols = [
       'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD',
       'NZDUSD', 'USDCHF', 'EURJPY', 'GBPJPY',
-      'XAUUSD', 'XAGUSD',
+      'XAUUSD',
       'US30', 'NAS100', 'SPX500',
       'BTCUSD', 'ETHUSD'
     ];
@@ -215,7 +215,7 @@ class TickBufferService {
     const symbols = [
       'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD',
       'NZDUSD', 'USDCHF', 'EURJPY', 'GBPJPY',
-      'XAUUSD', 'XAGUSD',
+      'XAUUSD',
       'US30', 'NAS100', 'SPX500',
       'BTCUSD', 'ETHUSD'
     ];

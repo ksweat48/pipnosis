@@ -173,7 +173,7 @@ function assessLiquidity(
   const mediumLiquidity = [
     'EURJPY', 'GBPJPY', 'EURGBP', 'AUDJPY',
     'EURAUD', 'GBPAUD', 'AUDNZD',
-    'XAUUSD', 'XAGUSD',
+    'XAUUSD',
     'SOLUSD', 'BNBUSD'
   ];
 

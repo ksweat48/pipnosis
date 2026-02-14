@@ -47,7 +47,6 @@ const SYMBOL_PRICE_RANGES_FALLBACK: Record<string, PriceRange> = {
 
   // Commodities
   XAUUSD: { min: 2000, max: 5500, typical: 4500 },
-  XAGUSD: { min: 18, max: 50, typical: 30 },
   XPTUSD: { min: 700, max: 1300, typical: 950 },
   XPDUSD: { min: 700, max: 1800, typical: 1000 },
 

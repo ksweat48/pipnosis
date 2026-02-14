@@ -61,24 +61,6 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     typicalSessionMovePoints: 150,
     atrMultiplierForStop: 1.5,
   },
-  XAGUSD: {
-    symbol: 'XAGUSD',
-    category: 'metal',
-    displayName: 'Silver',
-    marketSchedule: 'forex',
-    dataProvider: 'metaapi',
-    pipValue: 0.001,
-    pipMultiplier: 1,
-    decimalPlaces: 3,
-    contractSize: 5000,
-    dollarPerPipPerLot: 5.0,
-    minLotSize: 0.01,
-    maxLotSize: 10.0,
-    typicalDailyRangePoints: 500,    // FIXED: 50 cents = 500 points (at 0.001 tick size)
-    typicalSessionMovePoints: 250,   // FIXED: 25 cents = 250 points
-    atrMultiplierForStop: 1.5,
-  },
-
   // Indices - Forex Hours
   US30: {
     symbol: 'US30',
