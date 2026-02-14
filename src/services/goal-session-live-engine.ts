@@ -759,7 +759,7 @@ class GoalSessionLiveEngine {
         ema200: snapshot.ema200,
         rsi: snapshot.rsi,
         stochRsi: snapshot.stochRsi,
-        atr: snapshot.atr,
+        atr: safeExtractATRValue(snapshot.atr, `FullMarketState.${snapshot.symbol}`),
         vwap: snapshot.vwap,
         trend: snapshot.trend,
         volatility: snapshot.volatility,
