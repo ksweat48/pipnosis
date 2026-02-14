@@ -47,6 +47,15 @@ interface IndicatorResult {
   momentum: boolean;
 }
 
+export type TradeStyle = 'scalp' | 'micro' | 'intraday';
+export type TradeDirection = 'buy' | 'sell';
+
+export const STYLE_TIMEFRAME_MAP: Record<TradeStyle, string> = {
+  scalp: 'M5',
+  micro: 'M15',
+  intraday: 'H1',
+};
+
 export interface IntelligencePairResult {
   symbol: string;
   confidence: number;
@@ -55,6 +64,9 @@ export interface IntelligencePairResult {
   indicatorBreakdown: Record<string, { aligned: boolean; weight: number }>;
   reasoning: string[];
   lastCalculated: string;
+  tradeStyle: TradeStyle;
+  timeframe: string;
+  direction: TradeDirection;
 }
 
 interface Candle {
@@ -85,7 +97,7 @@ export class RealTimeIntelligenceCalculator {
 
     for (const symbol of symbols) {
       try {
-        const result = await this.calculateForSymbol(symbol, session, marketCondition);
+        const result = await this.calculateForSymbol(symbol, session, marketCondition, 'micro');
 
         if (result.confidence >= this.PROBABILITY_THRESHOLD) {
           results.push(result);
@@ -122,7 +134,9 @@ export class RealTimeIntelligenceCalculator {
       failureReasons: Record<string, string>;
     };
   }> {
-    console.log(`[RealTimeIntelligence] Calculating ALL pair scores for ${symbols.length} symbols...`);
+    const styles: TradeStyle[] = ['scalp', 'micro', 'intraday'];
+    const totalAnalyses = symbols.length * styles.length;
+    console.log(`[RealTimeIntelligence] Calculating ALL pair scores: ${symbols.length} symbols x ${styles.length} styles = ${totalAnalyses} analyses...`);
 
     const session = getCurrentSession();
     const marketCondition = await this.detectMarketRegime(symbols);
@@ -131,13 +145,25 @@ export class RealTimeIntelligenceCalculator {
     const failureReasons: Record<string, string> = {};
 
     for (const symbol of symbols) {
-      try {
-        const result = await this.calculateForSymbol(symbol, session, marketCondition);
-        allResults.push(result);
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        failureReasons[symbol] = errorMessage;
-        console.error(`[RealTimeIntelligence] Error calculating ${symbol}:`, errorMessage);
+      const stylePromises = styles.map(async (style) => {
+        try {
+          const result = await this.calculateForSymbol(symbol, session, marketCondition, style);
+          return { result, error: null, style };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return { result: null, error: errorMessage, style };
+        }
+      });
+
+      const styleResults = await Promise.all(stylePromises);
+
+      for (const { result, error, style } of styleResults) {
+        if (result) {
+          allResults.push(result);
+        } else if (error) {
+          const key = `${symbol}:${style}`;
+          failureReasons[key] = error;
+        }
       }
     }
 
@@ -145,15 +171,15 @@ export class RealTimeIntelligenceCalculator {
 
     const highConfidencePairs = allResults.filter((p) => p.confidence >= this.PROBABILITY_THRESHOLD);
     const heatingPairs = allResults.filter((p) => p.confidence >= 50 && p.confidence < this.PROBABILITY_THRESHOLD);
-    const topPairs = allResults.slice(0, 3);
+    const topPairs = allResults.slice(0, 5);
 
     console.log(
-      `[RealTimeIntelligence] All pairs calculated: ${allResults.length} total | ${highConfidencePairs.length} ≥70% | ${heatingPairs.length} heating (50-70%)`
+      `[RealTimeIntelligence] Multi-style analysis complete: ${allResults.length} total | ${highConfidencePairs.length} ≥70% | ${heatingPairs.length} heating (50-70%)`
     );
 
     if (Object.keys(failureReasons).length > 0) {
       console.warn(
-        `[RealTimeIntelligence] Failed symbols: ${Object.keys(failureReasons).join(', ')}`
+        `[RealTimeIntelligence] Failed analyses: ${Object.keys(failureReasons).join(', ')}`
       );
     }
 
@@ -167,7 +193,7 @@ export class RealTimeIntelligenceCalculator {
       diagnostics: {
         symbolsAttempted: symbols.length,
         symbolsSuccessful: allResults.length,
-        symbolsFailed: symbols.length - allResults.length,
+        symbolsFailed: Object.keys(failureReasons).length,
         failureReasons,
       },
     };
@@ -176,8 +202,11 @@ export class RealTimeIntelligenceCalculator {
   private async calculateForSymbol(
     symbol: string,
     session: Session,
-    regime: MarketRegime
+    regime: MarketRegime,
+    style: TradeStyle = 'micro'
   ): Promise<IntelligencePairResult> {
+    const timeframe = STYLE_TIMEFRAME_MAP[style];
+
     const { data: priceData } = await supabase
       .from('realtime_prices')
       .select('mid, created_at')
@@ -196,12 +225,12 @@ export class RealTimeIntelligenceCalculator {
       .from('forex_candles_best')
       .select('open_time, open, high, low, close, volume')
       .eq('symbol', symbol)
-      .eq('timeframe', 'M15')
+      .eq('timeframe', timeframe)
       .order('open_time', { ascending: false })
       .limit(200);
 
     if (!candlesData || candlesData.length < this.MIN_CANDLES) {
-      throw new Error(`Insufficient candles for ${symbol}: ${candlesData?.length || 0}`);
+      throw new Error(`Insufficient ${timeframe} candles for ${symbol}: ${candlesData?.length || 0}`);
     }
 
     const candles: Candle[] = candlesData.reverse().map((c) => ({
@@ -234,6 +263,9 @@ export class RealTimeIntelligenceCalculator {
       indicatorBreakdown,
       reasoning,
       lastCalculated: new Date().toISOString(),
+      tradeStyle: style,
+      timeframe,
+      direction,
     };
   }
 

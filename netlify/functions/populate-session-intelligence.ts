@@ -147,6 +147,9 @@ export const handler: Handler = async (event) => {
         {} as Record<string, boolean>
       ),
       lastCalculated: pair.lastCalculated,
+      tradeStyle: pair.tradeStyle ?? 'micro',
+      timeframe: pair.timeframe ?? 'M15',
+      direction: pair.direction ?? 'buy',
     });
 
     const bestPairs = highConfidencePairs.map((pair) => formatPairData(pair, 'ready'));
@@ -169,17 +172,19 @@ export const handler: Handler = async (event) => {
       return formatPairData(pair, status);
     });
 
+    const styleLabel = (s: string) => s === 'scalp' ? 'Scalp' : s === 'micro' ? 'Micro' : 'Intraday';
+
     let recommendationText = '';
     if (isTradable && bestPairs.length > 0) {
+      const uniqueStyles = [...new Set(bestPairs.map(p => p.tradeStyle))];
+      const stylesSummary = uniqueStyles.map(s => styleLabel(s)).join(', ');
       if (bestPairs.length === 1) {
-        recommendationText = `${bestPairs[0].symbol} showing ${bestPairs[0].confidence}% probability right now. Market is ${marketCondition}.`;
-      } else if (bestPairs.length === 2) {
-        recommendationText = `${bestPairs[0].symbol} and ${bestPairs[1].symbol} showing high probability setups right now. Market is ${marketCondition}.`;
+        recommendationText = `${bestPairs[0].symbol} ${styleLabel(bestPairs[0].tradeStyle)} setup at ${bestPairs[0].confidence}%. Market is ${marketCondition}.`;
       } else {
-        recommendationText = `${bestPairs.length} pairs showing ≥70% probability right now. Top opportunities: ${bestPairs[0].symbol}, ${bestPairs[1].symbol}. Market is ${marketCondition}.`;
+        recommendationText = `${bestPairs.length} setups ≥70% across ${stylesSummary} styles. Top: ${bestPairs[0].symbol} ${styleLabel(bestPairs[0].tradeStyle)} (${bestPairs[0].confidence}%). Market is ${marketCondition}.`;
       }
     } else {
-      recommendationText = `No high-probability setups detected right now. Market is ${marketCondition}. Wait for indicator alignment ≥70%.`;
+      recommendationText = `No high-probability setups detected right now. Market is ${marketCondition}. Scanning Scalp, Micro and Intraday timeframes for ≥70% alignment.`;
     }
 
     const expiresAt = new Date(Date.now() + 12 * 60 * 1000);
@@ -277,7 +282,7 @@ export const handler: Handler = async (event) => {
     console.log('[RealTimeIntelligence] Successfully updated real-time intelligence');
     if (topPairsFormatted.length > 0) {
       console.log(
-        `[RealTimeIntelligence] Top 3 pairs: ${topPairsFormatted.map((p) => `${p.symbol}(${p.confidence}% ${p.status})`).join(', ')}`
+        `[RealTimeIntelligence] Top setups: ${topPairsFormatted.map((p) => `${p.symbol} ${p.tradeStyle}/${p.timeframe}(${p.confidence}% ${p.status})`).join(', ')}`
       );
     }
 
@@ -290,7 +295,7 @@ export const handler: Handler = async (event) => {
         readyPairs: highConfidencePairs.length,
         heatingPairs: heatingPairs.length,
         allPairsAnalyzed: allPairs.length,
-        topPairs: topPairsFormatted.slice(0, 3).map((p) => ({ symbol: p.symbol, confidence: p.confidence, status: p.status })),
+        topPairs: topPairsFormatted.slice(0, 5).map((p) => ({ symbol: p.symbol, confidence: p.confidence, status: p.status, tradeStyle: p.tradeStyle, timeframe: p.timeframe })),
       }),
     };
   } catch (error) {
