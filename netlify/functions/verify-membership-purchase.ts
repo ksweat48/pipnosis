@@ -79,8 +79,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
         p_user_id: userId,
         p_package_id: packageId,
         p_stripe_session_id: session.id,
-        p_stripe_payment_intent_id: (session.payment_intent as string) || '',
-        p_amount_paid_usd: amountPaid,
+        p_amount_paid: amountPaid,
       });
 
       if (grantError) {
