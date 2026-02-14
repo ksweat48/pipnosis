@@ -10,6 +10,7 @@ import { GoalAchievedDialog } from './GoalAchievedDialog';
 import { TradeClosedActionDialog } from './TradeClosedActionDialog';
 import { NoTradesFoundDialog } from './NoTradesFoundDialog';
 import { goalSessionLiveEngine } from '../services/goal-session-live-engine';
+import type { NoTradeRejectionContext } from '../services/goal-session-live-engine';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { getRiskPercentage } from '../config/risk-levels';
@@ -37,6 +38,7 @@ export const GoalSessionDashboard: React.FC = () => {
   const [tradeClosedData, setTradeClosedData] = useState<any>(null);
   const [showNoTradesModal, setShowNoTradesModal] = useState(false);
   const [noTradesLoading, setNoTradesLoading] = useState(false);
+  const [noTradeRejectionContext, setNoTradeRejectionContext] = useState<NoTradeRejectionContext | null>(null);
   const [forceCloseAttempted, setForceCloseAttempted] = useState<string | null>(null);
   const [sessionHealth, setSessionHealth] = useState<any>(null);
   const [unstickLoading, setUnstickLoading] = useState(false);
@@ -54,6 +56,7 @@ export const GoalSessionDashboard: React.FC = () => {
       if (showNoTradesModal) return;
 
       console.log('[GoalSessionDashboard] Scan completed with no qualifying trade - showing dialog');
+      setNoTradeRejectionContext(detail?.rejectionContext || null);
       setShowNoTradesModal(true);
     };
 
@@ -938,23 +941,6 @@ export const GoalSessionDashboard: React.FC = () => {
     }
   };
 
-  const handleNoTradesTryAgain = async () => {
-    if (!activeSession || !user) return;
-
-    setNoTradesLoading(true);
-    try {
-      console.log('[GoalSessionDashboard] Try Again - stopping current session and starting fresh');
-      goalScannerTrigger.stopPolling();
-      await smartGoalSessionManager.stopSession(activeSession.sessionId, user.id);
-      setShowNoTradesModal(false);
-      await handleStartNewSession();
-    } catch (error) {
-      console.error('[GoalSessionDashboard] Error restarting session:', error);
-    } finally {
-      setNoTradesLoading(false);
-    }
-  };
-
   const formatTimeRemaining = (endTime: string) => {
     const end = new Date(endTime).getTime();
     const now = Date.now();
@@ -1694,9 +1680,9 @@ export const GoalSessionDashboard: React.FC = () => {
         <NoTradesFoundDialog
           isOpen={showNoTradesModal}
           onClose={handleNoTradesClose}
-          onTryAgain={handleNoTradesTryAgain}
           sessionId={activeSession.sessionId}
           isLoading={noTradesLoading}
+          rejectionContext={noTradeRejectionContext}
         />
       )}
 

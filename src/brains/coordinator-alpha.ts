@@ -1030,7 +1030,7 @@ class AlphaCoordinatorBrain {
     const stylePersonality = getStylePromptContext(tradeStyle);
     const styleEnvelope = getExecutionEnvelope(tradeStyle);
     const promptAssetClass = getAssetClass(marketContext.symbol) as EnvelopeAssetClass;
-    const promptBounds = getAssetClassEnvelopeBounds(tradeStyle, promptAssetClass);
+    const promptBounds = getAssetClassEnvelopeBounds(tradeStyle, promptAssetClass, marketContext.symbol);
 
     if (omega9Constraints) {
       const sandwichResult = detectConstraintSandwich(
@@ -2615,7 +2615,7 @@ Return PURE JSON only:
       // Trades degrade intelligently - they do not silently over-extend.
       const styleEnvelope = getExecutionEnvelope(resolvedStyle);
       const envelopeAssetClass = getAssetClass(symbol) as EnvelopeAssetClass;
-      const assetBounds = getAssetClassEnvelopeBounds(resolvedStyle, envelopeAssetClass);
+      const assetBounds = getAssetClassEnvelopeBounds(resolvedStyle, envelopeAssetClass, symbol);
 
       if (tpPips > assetBounds.tpPips.max) {
         const originalTP = takeProfit;

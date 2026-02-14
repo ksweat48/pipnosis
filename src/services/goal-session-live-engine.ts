@@ -47,6 +47,7 @@ import { MarketDataService } from './market-data-service';
 import { CCIPTradeExecutionTracker } from './ccip-trade-execution-tracker';
 import { CCIPConfidenceGateAdjustment } from './ccip-confidence-gate-adjustment';
 import { goalAdvisoryCoordinator } from './goal-advisory-coordinator';
+import { detectConstraintSandwich, getViableStyles, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
@@ -74,6 +75,13 @@ export interface GoalSessionLiveConfig {
   minConfidence?: number; // Minimum confidence threshold for trades
   dollarRisk?: number; // Fixed dollar risk for Trade Styles system
   tradeStyle?: string; // Trade style (Sniper, Scalper, Day Trader, Swing Trader)
+}
+
+export interface NoTradeRejectionContext {
+  currentStyle: string;
+  constraintSandwichSymbols: { symbol: string; noiseFloor: number; slMax: number }[];
+  suggestedStyles: string[];
+  hasWeakConsensus: boolean;
 }
 
 export interface LiveTradeSignal {
@@ -1246,7 +1254,8 @@ class GoalSessionLiveEngine {
         );
 
         await this.sendAIMessage(detailedMessage);
-        this.emitNoTradeEvent();
+        const rejectionContext = this.buildRejectionContext(omegaDecisions, snapshotResult.snapshots);
+        this.emitNoTradeEvent(rejectionContext);
         return;
       }
 
@@ -1267,7 +1276,8 @@ class GoalSessionLiveEngine {
 
       if (decision.action === 'NO_TRADE') {
         await this.sendAIMessage(`Best symbol: ${selectedSymbol}. Setup detected but confidence threshold not met. Waiting for stronger signals.`);
-        this.emitNoTradeEvent();
+        const rejectionContext = this.buildRejectionContext(omegaDecisions, snapshotResult.snapshots);
+        this.emitNoTradeEvent(rejectionContext);
         return;
       }
 
@@ -3566,14 +3576,63 @@ This learning will carry forward to improve future sessions!
     return parts.join('\n');
   }
 
-  private emitNoTradeEvent(): void {
+  private buildRejectionContext(
+    omegaDecisions: Map<string, any>,
+    snapshots: SymbolSnapshot[]
+  ): NoTradeRejectionContext {
+    const currentStyle = this.config?.tradeStyle?.toUpperCase() || 'SCALP';
+    const constraintSandwichSymbols: { symbol: string; noiseFloor: number; slMax: number }[] = [];
+    let hasWeakConsensus = false;
+
+    for (const [symbol, decision] of omegaDecisions) {
+      const reasoning = (decision?.reasoning || '').toLowerCase();
+
+      if (reasoning.includes('constraint sandwich') || reasoning.includes('noise floor') || reasoning.includes('not viable on')) {
+        const noiseMatch = reasoning.match(/noise floor.*?(\d+\.?\d*)\s*pips/);
+        const slMatch = reasoning.match(/sl max.*?(\d+\.?\d*)\s*pips/);
+        constraintSandwichSymbols.push({
+          symbol,
+          noiseFloor: noiseMatch ? parseFloat(noiseMatch[1]) : 0,
+          slMax: slMatch ? parseFloat(slMatch[1]) : 0,
+        });
+      }
+
+      if (reasoning.includes('conflict') || reasoning.includes('disagree') || reasoning.includes('weak consensus')) {
+        hasWeakConsensus = true;
+      }
+    }
+
+    let suggestedStyles: string[] = [];
+    if (constraintSandwichSymbols.length > 0) {
+      const firstSandwiched = constraintSandwichSymbols[0];
+      const assetClass: EnvelopeAssetClass = isCrypto(firstSandwiched.symbol) ? 'CRYPTO'
+        : isXAUUSD(firstSandwiched.symbol) ? 'METAL'
+        : isIndex(firstSandwiched.symbol) ? 'INDEX' : 'FOREX';
+      const noiseFloor = firstSandwiched.noiseFloor || 200;
+      suggestedStyles = getViableStyles(firstSandwiched.symbol, assetClass, noiseFloor)
+        .filter(s => s !== currentStyle);
+    }
+
+    return {
+      currentStyle,
+      constraintSandwichSymbols,
+      suggestedStyles,
+      hasWeakConsensus,
+    };
+  }
+
+  private emitNoTradeEvent(rejectionContext?: NoTradeRejectionContext): void {
     this.scanCompleteNoTrade = true;
     this.stopPolling();
     logger.info(LogCategory.AI_TRADING, 'Full scan complete - no executable trades found. Polling halted.');
 
     if (typeof window !== 'undefined' && this.activeSession) {
       window.dispatchEvent(new CustomEvent('alpha-scan-no-trade', {
-        detail: { sessionId: this.activeSession, timestamp: Date.now() }
+        detail: {
+          sessionId: this.activeSession,
+          timestamp: Date.now(),
+          rejectionContext: rejectionContext || null
+        }
       }));
     }
   }

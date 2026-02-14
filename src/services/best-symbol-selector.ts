@@ -525,7 +525,13 @@ class BestSymbolSelector {
     const omegaSummary = decision.omega_summary?.toLowerCase() || '';
     const errorType = (decision as any).errorType;
 
-    // Check for timeout failures
+    if (reasoning.includes('constraint sandwich') || reasoning.includes('noise floor') || reasoning.includes('not viable on')) {
+      return {
+        category: 'Constraint Sandwich',
+        detail: `Style envelope SL cap exceeded by instrument noise floor [${reasoning.substring(0, 150)}]`
+      };
+    }
+
     if (errorType === 'TIMEOUT_FAILURE' || reasoning.includes('timeout') || omegaSummary.includes('timeout')) {
       return {
         category: 'Timeout Failure',
@@ -533,7 +539,6 @@ class BestSymbolSelector {
       };
     }
 
-    // Check for system errors
     if (errorType === 'SYSTEM_ERROR' || reasoning.includes('failed') || reasoning.includes('error')) {
       return {
         category: 'System Error',
@@ -541,7 +546,6 @@ class BestSymbolSelector {
       };
     }
 
-    // Check for data integrity issues
     if (reasoning.includes('ssot') || reasoning.includes('invalid') || reasoning.includes('blocked')) {
       return {
         category: 'Data Integrity',
@@ -549,7 +553,6 @@ class BestSymbolSelector {
       };
     }
 
-    // Check for market condition rejections
     if (reasoning.includes('market') || reasoning.includes('conditions') || reasoning.includes('regime')) {
       return {
         category: 'Market Conditions',
@@ -557,7 +560,6 @@ class BestSymbolSelector {
       };
     }
 
-    // Check for low confidence
     if (decision.confidence === 0 || decision.confidence < 30) {
       return {
         category: 'Low Confidence',
@@ -565,7 +567,6 @@ class BestSymbolSelector {
       };
     }
 
-    // Check for Omega conflicts
     if (reasoning.includes('conflict') || reasoning.includes('disagree')) {
       return {
         category: 'Omega Conflict',
@@ -573,7 +574,6 @@ class BestSymbolSelector {
       };
     }
 
-    // Default classification
     return {
       category: 'General Rejection',
       detail: decision.reasoning || 'No trade opportunity identified'

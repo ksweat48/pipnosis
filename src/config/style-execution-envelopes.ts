@@ -37,6 +37,8 @@ export interface StyleExecutionEnvelope {
 
   assetClassBounds: Record<EnvelopeAssetClass, AssetClassBounds>;
 
+  symbolOverrides?: Record<string, AssetClassBounds>;
+
   atrTimeframe: string;
 
   typicalDuration: { min: number; max: number };
@@ -75,6 +77,10 @@ export const SCALP_ENVELOPE: StyleExecutionEnvelope = {
     INDEX: { tpPips: { min: 15, max: 80 }, slPips: { min: 8, max: 35 } },
   },
 
+  symbolOverrides: {
+    BTCUSD: { tpPips: { min: 80, max: 400 }, slPips: { min: 40, max: 250 } },
+  },
+
   atrTimeframe: 'M5',
 
   typicalDuration: { min: 15, max: 60 },
@@ -109,6 +115,10 @@ export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
     CRYPTO: { tpPips: { min: 80, max: 300 }, slPips: { min: 40, max: 150 } },
     METAL: { tpPips: { min: 30, max: 120 }, slPips: { min: 15, max: 50 } },
     INDEX: { tpPips: { min: 40, max: 150 }, slPips: { min: 20, max: 70 } },
+  },
+
+  symbolOverrides: {
+    BTCUSD: { tpPips: { min: 200, max: 800 }, slPips: { min: 100, max: 400 } },
   },
 
   atrTimeframe: 'M15',
@@ -147,6 +157,10 @@ export const INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
     INDEX: { tpPips: { min: 60, max: 250 }, slPips: { min: 30, max: 100 } },
   },
 
+  symbolOverrides: {
+    BTCUSD: { tpPips: { min: 400, max: 1500 }, slPips: { min: 200, max: 700 } },
+  },
+
   atrTimeframe: 'H1',
 
   typicalDuration: { min: 120, max: 720 },
@@ -183,6 +197,10 @@ export const SWING_ENVELOPE: StyleExecutionEnvelope = {
     INDEX: { tpPips: { min: 200, max: 600 }, slPips: { min: 80, max: 200 } },
   },
 
+  symbolOverrides: {
+    BTCUSD: { tpPips: { min: 800, max: 3000 }, slPips: { min: 400, max: 1200 } },
+  },
+
   atrTimeframe: 'H4',
 
   typicalDuration: { min: 1440, max: 10080 },
@@ -217,13 +235,24 @@ export function getExecutionEnvelope(style: string): StyleExecutionEnvelope {
  * This function aligns the execution envelope with those contracts so that
  * the capping logic uses the correct bounds for each instrument category.
  *
- * Falls back to the base envelope defaults if no asset class is provided.
+ * Resolution order:
+ * 1. Per-symbol overrides (e.g., BTCUSD has wider bounds than generic CRYPTO)
+ * 2. Asset class bounds (FOREX, CRYPTO, METAL, INDEX)
+ * 3. Base envelope defaults
  */
 export function getAssetClassEnvelopeBounds(
   style: string,
-  assetClass?: EnvelopeAssetClass
+  assetClass?: EnvelopeAssetClass,
+  symbol?: string
 ): AssetClassBounds {
   const envelope = getExecutionEnvelope(style);
+
+  if (symbol) {
+    const normalized = symbol.toUpperCase();
+    const override = envelope.symbolOverrides?.[normalized];
+    if (override) return override;
+  }
+
   if (!assetClass) {
     return {
       tpPips: envelope.tpPips,
@@ -246,10 +275,11 @@ export function validateTPSLAgainstEnvelope(
   style: string,
   tpPips: number,
   slPips: number,
-  assetClass?: EnvelopeAssetClass
+  assetClass?: EnvelopeAssetClass,
+  symbol?: string
 ): { valid: boolean; violations: string[]; envelope: StyleExecutionEnvelope } {
   const envelope = getExecutionEnvelope(style);
-  const bounds = getAssetClassEnvelopeBounds(style, assetClass);
+  const bounds = getAssetClassEnvelopeBounds(style, assetClass, symbol);
   const violations: string[] = [];
   const boundsLabel = assetClass ? `${style} ${assetClass}` : style;
 
@@ -303,8 +333,8 @@ export function detectConstraintSandwich(
   assetClass: EnvelopeAssetClass,
   noiseFloorPips: number,
   symbol: string
-): { sandwiched: boolean; advisory: string | null } {
-  const bounds = getAssetClassEnvelopeBounds(style, assetClass);
+): { sandwiched: boolean; advisory: string | null; slMax?: number; noiseFloor?: number } {
+  const bounds = getAssetClassEnvelopeBounds(style, assetClass, symbol);
   const slMax = bounds.slPips.max;
 
   if (noiseFloorPips > slMax) {
@@ -314,7 +344,7 @@ export function detectConstraintSandwich(
 
     console.warn(`[CONSTRAINT_SANDWICH] ${advisory}`);
 
-    return { sandwiched: true, advisory };
+    return { sandwiched: true, advisory, slMax, noiseFloor: noiseFloorPips };
   }
 
   return { sandwiched: false, advisory: null };
@@ -362,4 +392,17 @@ export function requiresEQSGate(style: string): boolean {
 export function getStyleATRTimeframe(style: string): string {
   const envelope = getExecutionEnvelope(style);
   return envelope.atrTimeframe;
+}
+
+const ALL_TRADEABLE_STYLES = ['SCALP', 'MICRO_INTRADAY', 'INTRADAY'] as const;
+
+export function getViableStyles(
+  symbol: string,
+  assetClass: EnvelopeAssetClass,
+  noiseFloorPips: number
+): string[] {
+  return ALL_TRADEABLE_STYLES.filter(style => {
+    const result = detectConstraintSandwich(style, assetClass, noiseFloorPips, symbol);
+    return !result.sandwiched;
+  });
 }

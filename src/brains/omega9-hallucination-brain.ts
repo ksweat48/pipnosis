@@ -285,7 +285,7 @@ class Omega9HallucinationBrain {
     try {
       const category = assetClassifier.getAssetCategory(marketContext.symbol);
       const assetClass = category.toUpperCase() as EnvelopeAssetClass;
-      const bounds = getAssetClassEnvelopeBounds(safetyTradeStyle, assetClass);
+      const bounds = getAssetClassEnvelopeBounds(safetyTradeStyle, assetClass, marketContext.symbol);
       envelopeMaxTP = bounds.tpPips.max;
     } catch {
       envelopeMaxTP = undefined;
