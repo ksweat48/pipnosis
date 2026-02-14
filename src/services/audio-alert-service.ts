@@ -109,6 +109,15 @@ class AudioAlertService {
 
     try {
       this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+
+      // SSOT FIX (2026-02-14): Modern browsers create AudioContexts in suspended state
+      // Without .resume(), scheduled oscillators may not play until a user gesture
+      // This ensures the first sound plays reliably when the modal appears
+      if (this.audioContext.state === 'suspended') {
+        await this.audioContext.resume();
+        console.log('[AudioAlert] Audio context resumed from suspended state');
+      }
+
       this.isInitialized = true;
       console.log('[AudioAlert] Audio context initialized');
     } catch (error) {

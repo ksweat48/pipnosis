@@ -116,8 +116,9 @@ class RealtimeTradeNotificationListener {
 
       switch (notification.type) {
         case 'trade_opened':
-          // SSOT FIX (2026-02-04): This is now the ONLY path for trade entry modals
-          // No duplicate subscription exists, so we can safely trigger the modal
+          // SSOT FIX (2026-02-14): Skip database persist - notification already exists
+          // This realtime event IS the notification insert, so skipPersist prevents circular insert
+          // The notificationCoordinator already created the goal_notifications record
           if (notification.metadata?.tradeId) {
             globalDialogManager.showTradeEntry({
               tradeId: notification.metadata.tradeId,
@@ -136,7 +137,7 @@ class RealtimeTradeNotificationListener {
               tp2: notification.metadata.tp2Price || undefined,
               tp1Confidence: notification.metadata.tp1Confidence || undefined,
               autoExecuted: true
-            }, 'critical'); // Changed from 'urgent' to 'critical' to match DB constraint
+            }, 'critical', { skipPersist: true }); // SSOT: Notification record already exists
           }
           break;
 
@@ -150,7 +151,7 @@ class RealtimeTradeNotificationListener {
             pnl: notification.metadata?.pnl,
             title: notification.title,
             message: notification.message
-          });
+          }, { skipPersist: true }); // SSOT: Notification record already exists
           break;
 
         case 'tp1_hit':
@@ -161,7 +162,7 @@ class RealtimeTradeNotificationListener {
             title: notification.title,
             message: notification.message,
             tradeId: notification.metadata?.tradeId
-          }, 'high');
+          }, 'high', { skipPersist: true }); // SSOT: Notification record already exists
           break;
 
         // Add more notification types as needed

@@ -63,21 +63,12 @@ export function TradeSignalNotificationBar({
     }
   }, [signal.executionUrgency]);
 
-  useEffect(() => {
-    if (signal.priority === 'high') {
-      // SOUND FIX (2026-02-10): Route through central audio service
-      // This leverages 10-second deduplication window and prevents duplicate sounds
-      // when global dialog also plays sound for same event
-      import('@/services/audio-alert-service').then(({ audioAlertService }) => {
-        audioAlertService.playWithContext({
-          type: 'attention',
-          context: `trade_signal:${signal.symbol}:${Date.now()}`
-        });
-      }).catch(error => {
-        console.log('[TradeSignal] Could not play notification sound:', error);
-      });
-    }
+  // SSOT FIX (2026-02-14): Audio is handled by useGlobalDialog hook
+  // DO NOT play audio here - it creates double sound with the hook's audio
+  // The hook is the SSOT for all dialog audio triggers
+  // Component responsibility: UI rendering only
 
+  useEffect(() => {
     if (signal.priority === 'low') {
       const timer = setTimeout(() => {
         handleDismiss();

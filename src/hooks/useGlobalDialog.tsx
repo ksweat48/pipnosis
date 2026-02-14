@@ -24,6 +24,14 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
       setCurrentDialog(dialog);
 
       if (dialog) {
+        // SSOT FIX (2026-02-14): Skip audio for queue-advanced dialogs
+        // When user clicks "Got It", the next dialog appears silently
+        // Audio should only play for NEW events, not automatic queue advancement
+        if (dialog._fromQueue) {
+          console.debug('[GlobalDialog] Skipping audio for queue-advanced dialog');
+          return;
+        }
+
         const playAudio = async () => {
           const tradeId = dialog.data?.tradeId || dialog.data?.trade_id || '';
           const symbol = dialog.data?.symbol || '';
