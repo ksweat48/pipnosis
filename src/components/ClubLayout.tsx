@@ -10,11 +10,13 @@
  * - Rewards: Staking displays and rewards (Phase 1: display only)
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Home, MessageSquare, Gift, Vote, ArrowLeft, Coins, Crown, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { clubTokenLedgerService, type ClubTokenBalance } from '@/services/club-token-ledger-service';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 
 interface ClubLayoutProps {
   children: React.ReactNode;
@@ -63,10 +65,25 @@ export function ClubLayout({ children }: ClubLayoutProps) {
     }
   };
 
+  const handleRefresh = useCallback(async () => {
+    window.location.reload();
+  }, []);
+
+  const pullToRefresh = usePullToRefresh({
+    onRefresh: handleRefresh,
+    enabled: true,
+  });
+
   if (!user) return null;
 
   return (
-    <div className="fixed inset-0 overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+    <div ref={pullToRefresh.containerRef} className="fixed inset-0 overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+      <PullToRefreshIndicator
+        isPulling={pullToRefresh.isPulling}
+        isRefreshing={pullToRefresh.isRefreshing}
+        pullDistance={pullToRefresh.pullDistance}
+        threshold={pullToRefresh.threshold}
+      />
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100 pb-[4.5rem] sm:pb-0">
       {/* Club Header */}
       <header className="sticky top-0 bg-white/80 backdrop-blur-xl border-b border-slate-200/50 z-50 shadow-sm">

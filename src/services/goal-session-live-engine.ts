@@ -968,7 +968,7 @@ class GoalSessionLiveEngine {
               symbol,
               timeframe: config.timeframe,
               currentPrice: marketState.currentPrice,
-              atr: safeExtractATRValue(marketState?.atr, `goal-engine.logDecision.${symbol}`),
+              atr: marketState?.atr ?? 0,
               session: marketState.regime?.session || 'unknown',
             },
             traderScore,
