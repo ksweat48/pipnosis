@@ -104,7 +104,10 @@ export function ClubEntryGatePage() {
 
   const handleReferralCode = async (code: string) => {
     if (!user) return;
-    await clubReferralService.trackReferral(code, user.id);
+    const result = await clubReferralService.trackReferral(code, user.id);
+    if (result.success) {
+      localStorage.removeItem('pending_referral_code');
+    }
   };
 
   const handlePurchaseClick = async (pkg: MembershipPackage) => {

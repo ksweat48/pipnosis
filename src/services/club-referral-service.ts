@@ -60,15 +60,12 @@ class ClubReferralService {
     return code;
   }
 
-  /**
-   * Get or create referral code for user
-   */
   async getUserReferralCode(userId: string): Promise<string> {
-    // Check if code already exists
     const { data: existing } = await supabase
       .from('club_referrals')
       .select('referral_code')
       .eq('referrer_id', userId)
+      .is('referee_id', null)
       .limit(1)
       .maybeSingle();
 
@@ -76,7 +73,6 @@ class ClubReferralService {
       return existing.referral_code;
     }
 
-    // Generate new code (ensure uniqueness)
     let code = this.generateCode();
     let attempts = 0;
     const maxAttempts = 10;
@@ -86,6 +82,8 @@ class ClubReferralService {
         .from('club_referrals')
         .select('id')
         .eq('referral_code', code)
+        .is('referee_id', null)
+        .limit(1)
         .maybeSingle();
 
       if (!collision) {
@@ -146,6 +144,7 @@ class ClubReferralService {
       .from('club_referrals')
       .select('*')
       .eq('referrer_id', userId)
+      .not('referee_id', 'is', null)
       .order('referred_at', { ascending: false })
       .limit(limit);
 
@@ -157,75 +156,23 @@ class ClubReferralService {
     return (data || []).map(this.mapReferralFromDb);
   }
 
-  /**
-   * Track new referral (called when new user signs up with ref code)
-   * Phase 1: Tracking only, no reward distribution
-   */
   async trackReferral(
     referralCode: string,
-    refereeId: string,
-    ipHash: string | null = null,
-    fingerprintHash: string | null = null
+    refereeId: string
   ): Promise<{ success: boolean; error?: string }> {
     try {
-      // Find referrer by code
-      const { data: existingReferral, error: findError } = await supabase
-        .from('club_referrals')
-        .select('referrer_id, referral_code')
-        .eq('referral_code', referralCode)
-        .limit(1)
-        .maybeSingle();
+      const { data, error } = await supabase.rpc('process_signup_referral', {
+        p_referee_user_id: refereeId,
+        p_referral_code: referralCode
+      });
 
-      if (findError || !existingReferral) {
-        return { success: false, error: 'Invalid referral code' };
+      if (error) {
+        console.error('[ClubReferralService] RPC error tracking referral:', error);
+        return { success: false, error: error.message };
       }
 
-      const referrerId = existingReferral.referrer_id;
-
-      // Prevent self-referral
-      if (referrerId === refereeId) {
-        return { success: false, error: 'Cannot refer yourself' };
-      }
-
-      // Check if referee already used a referral
-      const { data: existingReferee } = await supabase
-        .from('club_referrals')
-        .select('id')
-        .eq('referee_id', refereeId)
-        .maybeSingle();
-
-      if (existingReferee) {
-        return { success: false, error: 'Already referred by someone else' };
-      }
-
-      // CRITICAL: Set permanent referrer relationship in user_profiles (SSOT for referral commissions)
-      const { error: profileError } = await supabase
-        .from('user_profiles')
-        .update({ referred_by_user_id: referrerId })
-        .eq('id', refereeId);
-
-      if (profileError) {
-        console.error('[ClubReferralService] Failed to set referred_by_user_id:', profileError);
-        return { success: false, error: 'Failed to establish referral relationship' };
-      }
-
-      // Create referral record
-      const { error: insertError } = await supabase
-        .from('club_referrals')
-        .insert({
-          referrer_id: referrerId,
-          referee_id: refereeId,
-          referral_code: referralCode,
-          status: 'pending',
-          referred_at: new Date().toISOString(),
-          referee_ip_hash: ipHash,
-          referee_fingerprint_hash: fingerprintHash,
-          commission_model: 'ongoing' // NEW: Mark as ongoing commission (pays on all purchases/upgrades)
-        });
-
-      if (insertError) {
-        console.error('[ClubReferralService] Error creating referral:', insertError);
-        return { success: false, error: 'Failed to create referral' };
+      if (data && !data.success) {
+        return { success: false, error: data.error };
       }
 
       return { success: true };
