@@ -352,7 +352,7 @@ export function ClubChatPage() {
 
   return (
     <ClubLayout>
-      <div className="flex flex-col h-[calc(100vh-12rem)] sm:h-[calc(100vh-14rem)] bg-white/50 backdrop-blur-md border border-slate-200/60 rounded-xl sm:rounded-2xl shadow-lg overflow-hidden">
+      <div className="flex flex-col h-[calc(100vh-16rem)] sm:h-[calc(100vh-14rem)] bg-white/50 backdrop-blur-md border border-slate-200/60 rounded-xl sm:rounded-2xl shadow-lg overflow-hidden">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-200/60 bg-white/80 backdrop-blur-sm">
           <div className="p-2 bg-slate-100 rounded-lg">
             <MessageSquare size={18} className="text-slate-700" />

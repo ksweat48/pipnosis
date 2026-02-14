@@ -42,65 +42,82 @@ interface SessionData {
 export const SessionIntelligenceMonitor: React.FC = () => {
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const triggerIntelligenceUpdate = useCallback(async () => {
+  const triggerIntelligenceUpdate = useCallback(async (): Promise<boolean> => {
     try {
-      // Call the edge function to update session intelligence if data is stale
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-      if (supabaseUrl && anonKey) {
-        const apiUrl = `${supabaseUrl}/functions/v1/update-session-intelligence`;
+      if (!supabaseUrl || !anonKey) return false;
 
-        await fetch(apiUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${anonKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({})
-        }).catch(err => {
-          // Non-blocking - if edge function unavailable, we'll still query the DB
-          console.debug('[SessionIntelligenceMonitor] Edge function unavailable:', err.message);
-        });
-      }
+      const apiUrl = `${supabaseUrl}/functions/v1/update-session-intelligence`;
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${anonKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({})
+      });
+
+      return response.ok;
     } catch (error) {
-      console.debug('[SessionIntelligenceMonitor] Failed to trigger update:', error);
-      // Non-blocking
+      console.debug('[SessionIntelligenceMonitor] Edge function unavailable:', error);
+      return false;
     }
   }, []);
 
-  const loadSessionData = useCallback(async () => {
+  const loadSessionData = useCallback(async (allowExpired = false) => {
     try {
-      setLoading(true);
-      const { data, error } = await supabase
+      let query = supabase
         .from('session_intelligence_data')
         .select('id, session_name, session_start_hour, session_end_hour, best_pairs, top_pairs, all_pair_scores, heating_pairs, market_condition, is_tradable, recommendation_text, created_at, expires_at')
-        .gt('expires_at', new Date().toISOString())
         .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .limit(1);
+
+      if (!allowExpired) {
+        query = query.gt('expires_at', new Date().toISOString());
+      }
+
+      const { data, error } = await query.maybeSingle();
 
       if (error) {
         console.error('[SessionIntelligenceMonitor] Error loading session data:', error);
-      } else {
+        return;
+      }
+
+      if (data) {
         setSessionData(data);
+      } else if (!allowExpired) {
+        await loadSessionData(true);
+        return;
       }
     } catch (error) {
       console.error('[SessionIntelligenceMonitor] Error:', error);
-    } finally {
-      setLoading(false);
     }
   }, []);
 
+  const handleManualRefresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await triggerIntelligenceUpdate();
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      await loadSessionData();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshing, triggerIntelligenceUpdate, loadSessionData]);
+
   useEffect(() => {
-    // Trigger intelligence update on mount
-    triggerIntelligenceUpdate();
+    const init = async () => {
+      await loadSessionData();
+      setLoading(false);
+      triggerIntelligenceUpdate().catch(() => {});
+    };
+    init();
 
-    // Load session data immediately
-    loadSessionData();
-
-    let debounceTimer: ReturnType<typeof setTimeout>;
     let refreshTimer: ReturnType<typeof setInterval>;
 
     const channel = supabase
@@ -108,24 +125,23 @@ export const SessionIntelligenceMonitor: React.FC = () => {
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*',
           schema: 'public',
           table: 'session_intelligence_data',
         },
         (payload) => {
-          setSessionData(payload.new as SessionData);
+          if (payload.new && typeof payload.new === 'object' && 'id' in payload.new) {
+            setSessionData(payload.new as SessionData);
+          }
         }
       )
       .subscribe();
 
-    // Refresh data every 90 seconds (before 3-minute expiration)
     refreshTimer = setInterval(() => {
-      triggerIntelligenceUpdate();
       loadSessionData();
-    }, 90000);
+    }, 120000);
 
     return () => {
-      clearTimeout(debounceTimer);
       clearInterval(refreshTimer);
       supabase.removeChannel(channel);
     };
@@ -270,17 +286,18 @@ export const SessionIntelligenceMonitor: React.FC = () => {
             <div>
               <h3 className="text-lg font-bold text-white">Real-Time Intelligence</h3>
               <p className="text-sm text-blue-300">
-                Updated every 3 minutes • Last: {new Date(sessionData.created_at).toLocaleTimeString()}
+                Updated every 10 minutes • Last: {new Date(sessionData.created_at).toLocaleTimeString()}
               </p>
             </div>
           </div>
 
           <button
-            onClick={loadSessionData}
-            className="p-2 hover:bg-blue-500/20 rounded-lg transition-colors"
-            title="Refresh"
+            onClick={handleManualRefresh}
+            disabled={refreshing}
+            className="p-2 hover:bg-blue-500/20 rounded-lg transition-colors disabled:opacity-50"
+            title="Refresh intelligence"
           >
-            <RefreshCw className="w-4 h-4 text-blue-300" />
+            <RefreshCw className={`w-4 h-4 text-blue-300 ${refreshing ? 'animate-spin' : ''}`} />
           </button>
         </div>
 

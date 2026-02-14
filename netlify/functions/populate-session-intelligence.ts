@@ -182,7 +182,7 @@ export const handler: Handler = async (event) => {
       recommendationText = `No high-probability setups detected right now. Market is ${marketCondition}. Wait for indicator alignment ≥70%.`;
     }
 
-    const expiresAt = new Date(Date.now() + 3 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + 12 * 60 * 1000);
 
     const totalPairsAnalyzed = allPairs.length;
     const readyPairsCount = highConfidencePairs.length;
@@ -191,30 +191,44 @@ export const handler: Handler = async (event) => {
     const hasEnoughData = totalPairsAnalyzed >= 3 && (readyPairsCount > 0 || heatingPairsCount > 0);
 
     if (!hasEnoughData) {
-      const executionTimeMs = Date.now() - executionStart;
-      const errorMessage = `Insufficient data for insertion: ${totalPairsAnalyzed} analyzed, ${readyPairsCount} ready, ${heatingPairsCount} heating`;
-      console.warn(`[RealTimeIntelligence] ${errorMessage}`);
+      console.warn(`[RealTimeIntelligence] Low confidence market: ${totalPairsAnalyzed} analyzed, ${readyPairsCount} ready, ${heatingPairsCount} heating - inserting advisory record`);
 
+      const { error: lowConfUpsertError } = await supabase
+        .from('session_intelligence_data')
+        .upsert(
+          {
+            session_name: sessionInfo.name as 'London' | 'New York' | 'Asian',
+            session_start_hour: sessionInfo.startHour,
+            session_end_hour: sessionInfo.endHour,
+            best_pairs: [],
+            top_pairs: allPairsFormatted.slice(0, 3),
+            all_pair_scores: allPairsFormatted,
+            heating_pairs: [],
+            market_condition: marketCondition,
+            is_tradable: false,
+            recommendation_text: `No clear setups at this moment. System continuously scanning all watchlist pairs. High probability setups appear during peak volatility and transition periods.`,
+            expires_at: expiresAt.toISOString(),
+          },
+          { onConflict: 'session_name' }
+        );
+
+      const executionTimeMs = Date.now() - executionStart;
       await logExecutionMetrics(
         'stale',
         watchlist.length,
         totalPairsAnalyzed,
         0,
         executionTimeMs,
-        errorMessage
+        lowConfUpsertError?.message
       );
 
       return {
-        statusCode: 202,
+        statusCode: 200,
         body: JSON.stringify({
-          message: 'Insufficient data for meaningful intelligence',
-          diagnostics: {
-            totalAttempted: watchlist.length,
-            successfulCalculations: totalPairsAnalyzed,
-            readyPairs: readyPairsCount,
-            heatingPairs: heatingPairsCount,
-            failures: diagnostics?.failureReasons || {},
-          },
+          message: 'Low confidence market - advisory record inserted',
+          session: sessionInfo.name,
+          marketCondition,
+          allPairsAnalyzed: totalPairsAnalyzed,
         }),
       };
     }
