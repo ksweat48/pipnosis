@@ -1,7 +1,7 @@
 /**
  * Autonomous Position Monitor - CRITICAL CAPITAL PROTECTION
  *
- * SSOT Authority for Position SL/TP/TP1/TP2 Monitoring
+ * SSOT Authority for Position SL/TP/TP1/TP2 Monitoring + Market-Close Enforcement
  *
  * Runs every 5 seconds via Netlify scheduled function.
  * Monitors ALL open positions across ALL users for SL/TP hits.
@@ -11,19 +11,31 @@
  * Browser-based monitoring is view-only and secondary.
  *
  * Architecture:
- * 1. Fetch all open positions from database
- * 2. Get current price for each symbol (via price-coordinator SSOT)
- * 3. Check if SL/TP/TP1/TP2 has been hit
- * 4. Delegate closure to trade-closure-coordinator (SSOT)
- * 5. Log all checks to position_monitoring_logs
+ * 1. Check if forex market is closed (via market-hours-checker SSOT)
+ * 2. If closed + 5min grace period elapsed: auto-close all non-crypto positions
+ * 3. Fetch all open positions from database
+ * 4. Get current price for each symbol (via price-coordinator SSOT)
+ * 5. Check if SL/TP/TP1/TP2 has been hit
+ * 6. Delegate closure to trade-closure-coordinator (SSOT)
+ * 7. Log all checks to position_monitoring_logs
+ *
+ * Market-Close Protocol (CCIP Governance):
+ * - 5-minute grace period after market close for final price settlement
+ * - Non-crypto positions auto-closed with close_reason='market_closed'
+ * - Crypto (24/7) positions continue normal SL/TP monitoring
+ * - Uses last known price from realtime_prices as exit price
  *
  * Response Time: Sub-10-second from SL/TP hit to closure execution
  */
 
 import type { Handler } from '@netlify/functions';
 import { getSupabaseAdmin } from './_shared/supabase-admin';
+import { isForexMarketOpen } from './_shared/market-hours-checker';
+import { isCryptoSymbol } from './_shared/crypto-symbol-checker';
 
 const supabase = getSupabaseAdmin();
+
+const MARKET_CLOSE_GRACE_PERIOD_MS = 5 * 60 * 1000;
 
 const MAX_EXECUTION_TIME_MS = 9000; // Must complete within 9s
 
@@ -271,6 +283,119 @@ async function logMonitoringCheck(
   }
 }
 
+/**
+ * Auto-close non-crypto positions when forex market is closed.
+ * Uses 5-minute grace period after market close for price settlement.
+ * Returns count of positions closed.
+ */
+async function enforceMarketCloseClosure(
+  executionId: string,
+  positions: OpenPosition[]
+): Promise<{ marketClosuresExecuted: number; nonCryptoOpen: number }> {
+  const nonCryptoPositions = positions.filter(p => !isCryptoSymbol(p.symbol));
+
+  if (nonCryptoPositions.length === 0) {
+    return { marketClosuresExecuted: 0, nonCryptoOpen: 0 };
+  }
+
+  console.log(`[AutonomousMonitor:${executionId}] MARKET CLOSED: Found ${nonCryptoPositions.length} non-crypto position(s) to auto-close`);
+
+  let closed = 0;
+
+  for (const position of nonCryptoPositions) {
+    try {
+      const price = await getLastKnownPrice(position.symbol);
+      if (!price) {
+        console.error(`[AutonomousMonitor:${executionId}] No price for ${position.symbol} - cannot market-close position ${position.id}`);
+        continue;
+      }
+
+      const executionPrice = position.direction === 'buy' ? price.bid : price.ask;
+
+      console.log(`[AutonomousMonitor:${executionId}] Market-close: ${position.symbol} ${position.direction} @ ${executionPrice} (position ${position.id})`);
+
+      const { data, error } = await supabase.rpc('close_goal_session_trade', {
+        p_trade_id: position.id,
+        p_close_price: executionPrice,
+        p_close_reason: 'market_closed',
+        p_goal_session_id: position.goal_session_id,
+        p_force_close: true
+      });
+
+      if (error) {
+        console.error(`[AutonomousMonitor:${executionId}] RPC error market-closing ${position.id}:`, error);
+        continue;
+      }
+
+      if (!data || !data.id) {
+        console.error(`[AutonomousMonitor:${executionId}] RPC invalid result for market-close ${position.id}:`, JSON.stringify(data));
+        continue;
+      }
+
+      console.log(`[AutonomousMonitor:${executionId}] Market-closed: ${position.symbol} PnL: ${data.profit_loss}`);
+      closed++;
+
+      await logMonitoringCheck(executionId, position, price, [], true);
+    } catch (err) {
+      console.error(`[AutonomousMonitor:${executionId}] Exception market-closing ${position.id}:`, err);
+    }
+  }
+
+  return { marketClosuresExecuted: closed, nonCryptoOpen: nonCryptoPositions.length };
+}
+
+/**
+ * Get last known price for a symbol (relaxed staleness for market-close scenarios).
+ * During market close, prices may be up to 30 minutes old (last traded price).
+ */
+async function getLastKnownPrice(symbol: string): Promise<PriceData | null> {
+  try {
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+
+    const { data, error } = await supabase
+      .from('realtime_prices')
+      .select('symbol, bid, ask, mid, created_at')
+      .eq('symbol', symbol)
+      .gte('created_at', thirtyMinutesAgo)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data) {
+      console.warn(`[AutonomousMonitor] No recent price for ${symbol} within 30min window`);
+      return null;
+    }
+
+    return data as PriceData;
+  } catch (error) {
+    console.error(`[AutonomousMonitor] Error fetching last known price for ${symbol}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Check if we are past the 5-minute grace period after market close.
+ * Returns true if market is closed AND at least 5 minutes have elapsed since close.
+ */
+function isPastMarketCloseGracePeriod(): boolean {
+  const now = new Date();
+  const estString = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
+  const estTime = new Date(estString);
+  const dayOfWeek = estTime.getDay();
+  const hours = estTime.getHours();
+  const minutes = estTime.getMinutes();
+  const totalMinutes = hours * 60 + minutes;
+
+  const fridayCloseMinutes = 17 * 60;
+  const gracePeriodMinutes = 5;
+
+  if (dayOfWeek === 6) return true;
+  if (dayOfWeek === 5 && totalMinutes >= fridayCloseMinutes + gracePeriodMinutes) return true;
+  if (dayOfWeek === 0 && totalMinutes < 17 * 60) return true;
+
+  return false;
+}
+
 export const handler: Handler = async (event, context) => {
   const executionId = `pos_monitor_${Date.now()}`;
   const startTime = Date.now();
@@ -308,12 +433,57 @@ export const handler: Handler = async (event, context) => {
           executionId,
           positionsMonitored: 0,
           triggersDetected: 0,
-          closuresExecuted: 0
+          closuresExecuted: 0,
+          marketClosuresExecuted: 0
         })
       };
     }
 
     console.log(`[AutonomousMonitor:${executionId}] Monitoring ${positions.length} open positions`);
+
+    // MARKET-CLOSE ENFORCEMENT: Check if forex market is closed (with 5min grace)
+    const forexMarketOpen = await isForexMarketOpen();
+    let marketClosuresExecuted = 0;
+
+    if (!forexMarketOpen && isPastMarketCloseGracePeriod()) {
+      console.log(`[AutonomousMonitor:${executionId}] Forex market CLOSED + grace period elapsed - enforcing market-close protocol`);
+
+      const result = await enforceMarketCloseClosure(executionId, positions as OpenPosition[]);
+      marketClosuresExecuted = result.marketClosuresExecuted;
+
+      if (result.marketClosuresExecuted > 0) {
+        console.log(`[AutonomousMonitor:${executionId}] Market-close enforcement: ${result.marketClosuresExecuted}/${result.nonCryptoOpen} positions closed`);
+      }
+
+      // Re-fetch positions (some may have been closed by market-close enforcement)
+      const { data: remainingPositions } = await supabase
+        .from('goal_session_trades')
+        .select('*')
+        .eq('status', 'open')
+        .not('entry_price', 'is', null)
+        .order('created_at', { ascending: true });
+
+      if (!remainingPositions || remainingPositions.length === 0) {
+        const duration = Date.now() - startTime;
+        return {
+          statusCode: 200,
+          body: JSON.stringify({
+            success: true,
+            executionId,
+            positionsMonitored: positions.length,
+            marketClosuresExecuted,
+            triggersDetected: 0,
+            closuresExecuted: 0,
+            durationMs: duration,
+            timestamp: new Date().toISOString()
+          })
+        };
+      }
+
+      // Continue with remaining (crypto) positions for SL/TP monitoring
+      positions.length = 0;
+      positions.push(...remainingPositions);
+    }
 
     let triggersDetected = 0;
     let closuresExecuted = 0;
@@ -330,29 +500,25 @@ export const handler: Handler = async (event, context) => {
 
     // Process each symbol's positions
     for (const [symbol, symbolPositions] of positionsBySymbol) {
-      // Check if approaching timeout
       if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
-        console.warn(`[AutonomousMonitor:${executionId}] ⏱️ Approaching timeout, stopping early`);
+        console.warn(`[AutonomousMonitor:${executionId}] Approaching timeout, stopping early`);
         break;
       }
 
       symbolsMonitored.add(symbol);
 
-      // Get current price for this symbol
       const price = await getCurrentPrice(symbol);
       if (!price) {
         console.warn(`[AutonomousMonitor:${executionId}] Skipping ${symbol}: No price data`);
         continue;
       }
 
-      // Check each position for this symbol
       for (const position of symbolPositions) {
         const results = checkPositionTriggers(position, price);
 
         if (results.length > 0) {
           triggersDetected += results.length;
 
-          // Execute closures (SL has priority)
           const slTrigger = results.find(r => r.checkType === 'sl');
           const triggerToExecute = slTrigger || results[0];
 
@@ -361,10 +527,8 @@ export const handler: Handler = async (event, context) => {
             closuresExecuted++;
           }
 
-          // Log monitoring check
           await logMonitoringCheck(executionId, position, price, results, executed);
         } else {
-          // Log normal check (no trigger)
           await logMonitoringCheck(executionId, position, price, [], false);
         }
       }
@@ -372,8 +536,8 @@ export const handler: Handler = async (event, context) => {
 
     const duration = Date.now() - startTime;
 
-    console.log(`[AutonomousMonitor:${executionId}] ✅ Completed in ${duration}ms`);
-    console.log(`[AutonomousMonitor:${executionId}] Positions: ${positions.length}, Triggers: ${triggersDetected}, Closures: ${closuresExecuted}`);
+    console.log(`[AutonomousMonitor:${executionId}] Completed in ${duration}ms`);
+    console.log(`[AutonomousMonitor:${executionId}] Positions: ${positions.length}, Triggers: ${triggersDetected}, Closures: ${closuresExecuted}, MarketClose: ${marketClosuresExecuted}`);
     console.log(`[AutonomousMonitor:${executionId}] Symbols monitored: ${Array.from(symbolsMonitored).join(', ')}`);
 
     return {
@@ -385,13 +549,15 @@ export const handler: Handler = async (event, context) => {
         symbolsMonitored: symbolsMonitored.size,
         triggersDetected,
         closuresExecuted,
+        marketClosuresExecuted,
+        forexMarketOpen,
         durationMs: duration,
         timestamp: new Date().toISOString()
       })
     };
 
   } catch (error) {
-    console.error(`[AutonomousMonitor:${executionId}] ❌ Critical error:`, error);
+    console.error(`[AutonomousMonitor:${executionId}] Critical error:`, error);
     return {
       statusCode: 500,
       body: JSON.stringify({
