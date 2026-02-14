@@ -115,25 +115,67 @@ export class MarketDataService {
 
   /**
    * Get recent candles from forex_candles (SSOT for candles)
+   * CCIP COMPLIANCE: Comprehensive diagnostic logging
+   * SSOT COMPLIANCE: Single authority for candle data retrieval
    */
   async getCandles(symbol: string, timeframe: string, limit: number = 10): Promise<CandleData[]> {
     try {
+      const normalizedTimeframe = normalizeTimeframeToDb(timeframe);
+
+      logger.debug(`[MarketData] Fetching candles from forex_candles`, {
+        symbol,
+        requestedTimeframe: timeframe,
+        normalizedTimeframe,
+        limit,
+        table: 'forex_candles'
+      });
+
       const { data, error } = await supabase
         .from('forex_candles')
         .select('*')
         .eq('symbol', symbol)
-        .eq('timeframe', normalizeTimeframeToDb(timeframe))
+        .eq('timeframe', normalizedTimeframe)
         .order('open_time', { ascending: false })
         .limit(limit);
 
-      if (error || !data) {
-        logger.warn(`[MarketData] No candle data for ${symbol} ${timeframe}`);
+      if (error) {
+        logger.error('[MarketData] Database error fetching candles', {
+          symbol,
+          timeframe: normalizedTimeframe,
+          error: error.message,
+          errorCode: error.code,
+          errorDetails: error.details
+        });
         return [];
       }
 
+      if (!data || data.length === 0) {
+        logger.warn(`[MarketData] No candle data found`, {
+          symbol,
+          timeframe: normalizedTimeframe,
+          requestedLimit: limit,
+          note: 'Database returned empty result. Check if symbol/timeframe combination exists in forex_candles table.'
+        });
+        return [];
+      }
+
+      logger.debug(`[MarketData] Candles fetched successfully`, {
+        symbol,
+        timeframe: normalizedTimeframe,
+        candlesReturned: data.length,
+        requestedLimit: limit,
+        oldestCandle: data[data.length - 1]?.open_time,
+        newestCandle: data[0]?.open_time
+      });
+
       return data as CandleData[];
     } catch (error) {
-      logger.error('[MarketData] Error fetching candles:', error);
+      logger.error('[MarketData] Unexpected error fetching candles:', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        symbol,
+        timeframe
+      });
       return [];
     }
   }

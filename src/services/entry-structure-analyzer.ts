@@ -62,13 +62,43 @@ const ATR_PROXIMITY_THRESHOLD = 0.5;
 
 class EntryStructureAnalyzer {
 
+  /**
+   * Analyze entry structure with comprehensive diagnostics
+   * CCIP COMPLIANCE: Full logging for governance audit trail
+   * SSOT COMPLIANCE: Uses CriticalLevelDetector as single authority for S/R
+   */
   analyze(input: AnalysisInput): StructuralAnalysisResult {
     const { entryPrice, direction, symbol, candles, atrValue, stopLoss, takeProfit } = input;
     const pipInfo = getCurrencyPipInfo(symbol);
 
-    if (!candles || candles.length < 20 || !atrValue || atrValue <= 0) {
-      return this.buildFallbackResult(entryPrice, direction, symbol);
+    // GOVERNANCE: Log analysis input validation
+    const validationErrors: string[] = [];
+    if (!candles || candles.length < 20) {
+      validationErrors.push(`Insufficient candles: ${candles?.length || 0}/20 required`);
     }
+    if (!atrValue || atrValue <= 0) {
+      validationErrors.push(`Invalid ATR: ${atrValue} (must be > 0)`);
+    }
+
+    if (validationErrors.length > 0) {
+      logger.warn('[EntryStructureAnalyzer] Analysis validation failed', {
+        symbol,
+        direction,
+        entryPrice,
+        validationErrors,
+        candleCount: candles?.length || 0,
+        atrValue: atrValue || 'undefined'
+      });
+      return this.buildFallbackResult(entryPrice, direction, symbol, validationErrors);
+    }
+
+    logger.info('[EntryStructureAnalyzer] Starting structural analysis', {
+      symbol,
+      direction,
+      entryPrice,
+      candleCount: candles.length,
+      atrValue: atrValue.toFixed(5)
+    });
 
     const criticalLevels = criticalLevelDetector.detectCriticalLevels(
       candles,
@@ -233,14 +263,31 @@ class EntryStructureAnalyzer {
     };
   }
 
+  /**
+   * Build fallback result when structural analysis cannot be performed
+   * CCIP COMPLIANCE: Detailed reasoning for governance audit
+   * GOVERNANCE: Provides specific errors to help diagnose data pipeline issues
+   */
   private buildFallbackResult(
     entryPrice: number,
     direction: 'long' | 'short',
-    symbol: string
+    symbol: string,
+    validationErrors?: string[]
   ): StructuralAnalysisResult {
+    const errorDetails = validationErrors && validationErrors.length > 0
+      ? validationErrors.join('; ')
+      : 'Unknown data validation issue';
+
     logger.warn('[EntryStructureAnalyzer] Insufficient data for structural analysis, defaulting to neutral', {
-      symbol, direction
+      symbol,
+      direction,
+      validationErrors: errorDetails
     });
+
+    // GOVERNANCE: Provide detailed reasoning that includes specific validation failures
+    const reasoning = validationErrors && validationErrors.length > 0
+      ? `Structural analysis unavailable: ${errorDetails}. Entry advisory based on Alpha confidence only.`
+      : 'Insufficient candle data for structural analysis. Entry advisory based on Alpha confidence only.';
 
     return {
       verdict: 'OPTIMAL_ENTRY',
@@ -250,7 +297,7 @@ class EntryStructureAnalyzer {
       drawdownReductionEstimate: 0,
       distanceFromLevelPips: 0,
       allRelevantLevels: [],
-      reasoning: 'Insufficient candle data for structural analysis. Entry advisory based on Alpha confidence only.',
+      reasoning,
       analyzedAt: new Date().toISOString()
     };
   }

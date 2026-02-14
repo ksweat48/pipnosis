@@ -1502,7 +1502,34 @@ class AlphaTradeExecutor {
 
     let structuralAnalysis: StructuralAnalysisResult | null = null;
     try {
+      // CCIP COMPLIANCE: Comprehensive diagnostic logging for snapshot retrieval
+      logger.info(
+        LogCategory.GOVERNANCE,
+        '[AlphaTradeExecutor] Fetching market snapshot for structural analysis',
+        {
+          symbol: decision.symbol,
+          timeframe: 'M15',
+          mode: 'MONITORED',
+          userId,
+          sessionId
+        }
+      );
+
       const snapshot = await marketSnapshotCache.getSnapshot(decision.symbol || '', 'M15');
+
+      // GOVERNANCE: Log snapshot retrieval result
+      logger.info(
+        LogCategory.GOVERNANCE,
+        '[AlphaTradeExecutor] Snapshot retrieved',
+        {
+          symbol: decision.symbol,
+          candleCount: snapshot?.candles?.length || 0,
+          hasATR: !!snapshot?.atr,
+          atrValue: snapshot?.atr?.value || 'undefined',
+          snapshotValid: !!(snapshot?.candles?.length >= 20 && snapshot.atr?.value > 0)
+        }
+      );
+
       if (snapshot?.candles?.length >= 20 && snapshot.atr?.value > 0) {
         structuralAnalysis = entryStructureAnalyzer.analyze({
           entryPrice: decision.entry,
@@ -1513,11 +1540,48 @@ class AlphaTradeExecutor {
           stopLoss: decision.stopLoss,
           takeProfit: decision.takeProfit
         });
+
+        logger.info(
+          LogCategory.GOVERNANCE,
+          '[AlphaTradeExecutor] Structural analysis completed',
+          {
+            symbol: decision.symbol,
+            verdict: structuralAnalysis.verdict,
+            hasBackingLevel: !!structuralAnalysis.backingLevel,
+            reasoning: structuralAnalysis.reasoning
+          }
+        );
+      } else {
+        // GOVERNANCE: Log why structural analysis was skipped
+        const skipReasons: string[] = [];
+        if (!snapshot?.candles || snapshot.candles.length < 20) {
+          skipReasons.push(`Insufficient candles: ${snapshot?.candles?.length || 0}/20`);
+        }
+        if (!snapshot?.atr || snapshot.atr.value <= 0) {
+          skipReasons.push(`Invalid ATR: ${snapshot?.atr?.value || 'undefined'}`);
+        }
+
+        logger.warn(
+          LogCategory.GOVERNANCE,
+          '[AlphaTradeExecutor] Structural analysis skipped in monitored mode',
+          {
+            symbol: decision.symbol,
+            skipReasons: skipReasons.join('; '),
+            note: 'Entry will proceed without structural advisory'
+          }
+        );
       }
     } catch (err) {
-      logger.warn(LogCategory.GOVERNANCE, '[AlphaTradeExecutor] Structural analysis failed in monitored mode (non-blocking)', {
-        error: err instanceof Error ? err.message : String(err)
-      });
+      logger.error(
+        LogCategory.GOVERNANCE,
+        '[AlphaTradeExecutor] Structural analysis failed in monitored mode (non-blocking)',
+        {
+          symbol: decision.symbol,
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+          note: 'This indicates a data pipeline issue that should be investigated'
+        }
+      );
     }
 
     const { data: intent, error } = await supabase
@@ -2009,7 +2073,34 @@ class AlphaTradeExecutor {
 
       let structuralAnalysis: StructuralAnalysisResult | null = null;
       try {
+        // CCIP COMPLIANCE: Comprehensive diagnostic logging for snapshot retrieval
+        logger.info(
+          LogCategory.GOVERNANCE,
+          '[AlphaTradeExecutor] Fetching market snapshot for structural analysis',
+          {
+            symbol: decision.symbol,
+            timeframe: 'M15',
+            mode: 'POST_EXECUTION',
+            userId,
+            sessionId
+          }
+        );
+
         const snapshot = await marketSnapshotCache.getSnapshot(decision.symbol || '', 'M15');
+
+        // GOVERNANCE: Log snapshot retrieval result
+        logger.info(
+          LogCategory.GOVERNANCE,
+          '[AlphaTradeExecutor] Snapshot retrieved',
+          {
+            symbol: decision.symbol,
+            candleCount: snapshot?.candles?.length || 0,
+            hasATR: !!snapshot?.atr,
+            atrValue: snapshot?.atr?.value || 'undefined',
+            snapshotValid: !!(snapshot?.candles?.length >= 20 && snapshot.atr?.value > 0)
+          }
+        );
+
         if (snapshot?.candles?.length >= 20 && snapshot.atr?.value > 0) {
           structuralAnalysis = entryStructureAnalyzer.analyze({
             entryPrice,
@@ -2020,11 +2111,48 @@ class AlphaTradeExecutor {
             stopLoss: decision.stopLoss,
             takeProfit: decision.takeProfit
           });
+
+          logger.info(
+            LogCategory.GOVERNANCE,
+            '[AlphaTradeExecutor] Structural analysis completed',
+            {
+              symbol: decision.symbol,
+              verdict: structuralAnalysis.verdict,
+              hasBackingLevel: !!structuralAnalysis.backingLevel,
+              reasoning: structuralAnalysis.reasoning
+            }
+          );
+        } else {
+          // GOVERNANCE: Log why structural analysis was skipped
+          const skipReasons: string[] = [];
+          if (!snapshot?.candles || snapshot.candles.length < 20) {
+            skipReasons.push(`Insufficient candles: ${snapshot?.candles?.length || 0}/20`);
+          }
+          if (!snapshot?.atr || snapshot.atr.value <= 0) {
+            skipReasons.push(`Invalid ATR: ${snapshot?.atr?.value || 'undefined'}`);
+          }
+
+          logger.warn(
+            LogCategory.GOVERNANCE,
+            '[AlphaTradeExecutor] Structural analysis skipped in post-execution mode',
+            {
+              symbol: decision.symbol,
+              skipReasons: skipReasons.join('; '),
+              note: 'Entry quality advisory will show limited information'
+            }
+          );
         }
       } catch (err) {
-        logger.warn(LogCategory.GOVERNANCE, '[AlphaTradeExecutor] Structural analysis failed (non-blocking)', {
-          error: err instanceof Error ? err.message : String(err)
-        });
+        logger.error(
+          LogCategory.GOVERNANCE,
+          '[AlphaTradeExecutor] Structural analysis failed (non-blocking)',
+          {
+            symbol: decision.symbol,
+            error: err instanceof Error ? err.message : String(err),
+            stack: err instanceof Error ? err.stack : undefined,
+            note: 'This indicates a data pipeline issue that should be investigated'
+          }
+        );
       }
 
       const entryIntentData: Record<string, any> = {

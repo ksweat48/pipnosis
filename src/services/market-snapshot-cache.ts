@@ -173,6 +173,9 @@ class MarketSnapshotCache {
   /**
    * Build a fresh snapshot from scratch
    * This is the EXPENSIVE operation we want to do ONCE per cycle
+   *
+   * CCIP COMPLIANCE: Comprehensive diagnostic logging for governance tracking
+   * SSOT COMPLIANCE: Single authority for market snapshot construction
    */
   private async buildFreshSnapshot(
     symbol: string,
@@ -183,12 +186,51 @@ class MarketSnapshotCache {
     // Step 1: Fetch candles (ONE DB QUERY)
     const candles = await this.fetchCandles(symbol, timeframe);
 
+    // GOVERNANCE: Comprehensive logging of candle fetch results
+    console.log(`[SnapshotCache] Candle fetch result:`, {
+      symbol,
+      timeframe,
+      candlesReturned: candles.length,
+      requiredMinimum: 50,
+      hasData: candles.length > 0,
+      oldestCandle: candles.length > 0 ? candles[0].open_time : null,
+      newestCandle: candles.length > 0 ? candles[candles.length - 1].open_time : null
+    });
+
     if (candles.length < 50) {
-      throw new Error(`Insufficient candle data for ${symbol}@${timeframe}: ${candles.length} candles`);
+      const errorMsg = `Insufficient candle data for ${symbol}@${timeframe}: Found ${candles.length} candles, need at least 50. Database may need backfill for this symbol/timeframe.`;
+      console.error(`[SnapshotCache] ❌ ${errorMsg}`);
+      throw new Error(errorMsg);
     }
 
     // Step 2: Compute technical indicators (ONCE)
-    const indicators = this.computeIndicators(candles, timeframe, symbol);
+    let indicators;
+    try {
+      indicators = this.computeIndicators(candles, timeframe, symbol);
+
+      // GOVERNANCE: Validate ATR calculation succeeded
+      if (!indicators.atr || indicators.atr.value <= 0) {
+        console.error(`[SnapshotCache] ❌ ATR calculation failed for ${symbol}@${timeframe}`, {
+          atrValue: indicators.atr?.value || 'undefined',
+          candleCount: candles.length,
+          note: 'ATR must be positive for structural analysis'
+        });
+      } else {
+        console.log(`[SnapshotCache] ✅ ATR calculated:`, {
+          symbol,
+          timeframe,
+          atrValue: indicators.atr.value.toFixed(5),
+          atrPeriod: indicators.atr.period
+        });
+      }
+    } catch (error: any) {
+      console.error(`[SnapshotCache] ❌ Indicator computation failed for ${symbol}@${timeframe}:`, {
+        error: error.message,
+        stack: error.stack,
+        candleCount: candles.length
+      });
+      throw new Error(`Indicator computation failed for ${symbol}@${timeframe}: ${error.message}`);
+    }
 
     // Step 3: Compute OmegaSensors (ONCE)
     const omegaSensors = computeOmegaSensors(
@@ -328,17 +370,36 @@ class MarketSnapshotCache {
   /**
    * Fetch candles from database
    * ✅ SSOT: Uses MarketDataService
+   * CCIP COMPLIANCE: Comprehensive diagnostic logging
    */
   private async fetchCandles(symbol: string, timeframe: Timeframe): Promise<Candle[]> {
+    console.log(`[SnapshotCache] Fetching candles:`, {
+      symbol,
+      timeframe,
+      requestedLimit: 300,
+      source: 'marketDataService.getCandles'
+    });
+
     const candles = await marketDataService.getCandles(symbol, timeframe, 300);
 
+    // GOVERNANCE: Log fetch result details
+    console.log(`[SnapshotCache] MarketDataService returned:`, {
+      symbol,
+      timeframe,
+      candleCount: candles?.length || 0,
+      isEmptyArray: Array.isArray(candles) && candles.length === 0,
+      isNull: candles === null,
+      isUndefined: candles === undefined
+    });
+
     if (!candles || candles.length === 0) {
-      console.error(`[SnapshotCache] ❌ No candle data found for ${symbol}@${timeframe}`);
-      throw new Error(`No candle data found for ${symbol}@${timeframe}`);
+      const errorMsg = `No candle data found for ${symbol}@${timeframe}. Database query returned empty. Check forex_candles table for this symbol/timeframe combination.`;
+      console.error(`[SnapshotCache] ❌ ${errorMsg}`);
+      throw new Error(errorMsg);
     }
 
     // Reverse to chronological order (MarketDataService returns newest first)
-    return candles.reverse().map(c => ({
+    const reversedCandles = candles.reverse().map(c => ({
       open_time: c.open_time,
       open: c.open,
       high: c.high,
@@ -346,6 +407,16 @@ class MarketSnapshotCache {
       close: c.close,
       volume: c.volume || undefined
     }));
+
+    console.log(`[SnapshotCache] ✅ Candles processed:`, {
+      symbol,
+      timeframe,
+      totalCandles: reversedCandles.length,
+      oldestTime: reversedCandles[0]?.open_time,
+      newestTime: reversedCandles[reversedCandles.length - 1]?.open_time
+    });
+
+    return reversedCandles;
   }
 
   /**
@@ -441,10 +512,24 @@ class MarketSnapshotCache {
     return rsi; // Return RSI as approximation
   }
 
+  /**
+   * Calculate ATR with comprehensive error handling
+   * CCIP COMPLIANCE: Full diagnostic logging for governance
+   * SSOT COMPLIANCE: Single authority for ATR calculation in snapshot cache
+   */
   private calculateATR(candles: Candle[]): number {
-    if (candles.length < 14) return 0.001;
+    if (candles.length < 14) {
+      console.warn(`[SnapshotCache] ATR calculation: Insufficient candles`, {
+        candleCount: candles.length,
+        requiredMinimum: 14,
+        returnedFallback: 0.001
+      });
+      return 0.001;
+    }
 
     const trs: number[] = [];
+    let zeroRangeCount = 0;
+
     for (let i = 1; i < candles.length; i++) {
       const high = candles[i].high;
       const low = candles[i].low;
@@ -460,25 +545,59 @@ class MarketSnapshotCache {
       // These pollute the ATR with artificial zeros
       if (tr > 0) {
         trs.push(tr);
+      } else {
+        zeroRangeCount++;
       }
     }
 
+    // GOVERNANCE: Log ATR calculation details
+    console.log(`[SnapshotCache] ATR calculation details:`, {
+      totalCandles: candles.length,
+      validRanges: trs.length,
+      zeroRangeCandles: zeroRangeCount,
+      percentValid: ((trs.length / (candles.length - 1)) * 100).toFixed(1) + '%'
+    });
+
     // Need at least 10 non-zero ranges for valid ATR
     if (trs.length < 10) {
-      console.warn(`[SnapshotCache] ⚠️ Insufficient valid candles for ATR (${trs.length}/14 non-zero)`);
+      console.warn(`[SnapshotCache] ⚠️ Insufficient valid candles for ATR`, {
+        validRanges: trs.length,
+        requiredMinimum: 10,
+        zeroRangeCandles: zeroRangeCount,
+        note: 'This may indicate data quality issues or low-liquidity symbol',
+        returnedFallback: 0.001
+      });
       return 0.001;
     }
 
     // Use last 14 valid (non-zero) ranges
     const validTRs = trs.slice(-14);
-    return validTRs.reduce((sum, tr) => sum + tr, 0) / validTRs.length;
+    const atr = validTRs.reduce((sum, tr) => sum + tr, 0) / validTRs.length;
+
+    console.log(`[SnapshotCache] ATR calculated:`, {
+      rawATR: atr.toFixed(6),
+      rangesUsed: validTRs.length,
+      minRange: Math.min(...validTRs).toFixed(6),
+      maxRange: Math.max(...validTRs).toFixed(6)
+    });
+
+    return atr;
   }
 
   /**
    * Enforce instrument-specific ATR minimums
    * Prevents impossibly low ATR values caused by bad data
+   * CCIP COMPLIANCE: Comprehensive logging for governance audit trail
+   * SSOT COMPLIANCE: Uses TRADING_CONSTANTS as single source for ATR minimums
    */
   private enforceATRMinimum(atr: number, symbol: string, currentPrice: number): number {
+    console.log(`[SnapshotCache] ATR minimum enforcement check:`, {
+      symbol,
+      rawATR: atr.toFixed(6),
+      currentPrice: currentPrice.toFixed(5),
+      hasSpecificMinimum: !!TRADING_CONSTANTS.ATR_MINIMUMS[symbol as keyof typeof TRADING_CONSTANTS.ATR_MINIMUMS]
+    });
+
     // Check if we have a specific minimum for this symbol
     const specificMin = TRADING_CONSTANTS.ATR_MINIMUMS[symbol as keyof typeof TRADING_CONSTANTS.ATR_MINIMUMS];
 
@@ -486,23 +605,46 @@ class MarketSnapshotCache {
       if (atr < specificMin) {
         console.warn(
           `[SnapshotCache] ⚠️ ATR too low for ${symbol}: ${atr.toFixed(6)} < ${specificMin}. ` +
-          `Enforcing minimum. Likely caused by flat placeholder candles.`
+          `Enforcing symbol-specific minimum. Likely caused by flat placeholder candles or low liquidity.`
         );
+        console.log(`[SnapshotCache] ATR enforcement applied:`, {
+          symbol,
+          originalATR: atr.toFixed(6),
+          enforcedATR: specificMin.toFixed(6),
+          reason: 'Symbol-specific minimum'
+        });
         return specificMin;
       }
+      console.log(`[SnapshotCache] ✅ ATR above symbol-specific minimum`, {
+        symbol,
+        atr: atr.toFixed(6),
+        minimum: specificMin.toFixed(6)
+      });
       return atr;
     }
 
-    // Fallback: use percentage-based minimum
+    // Fallback: use percentage-based minimum (0.02% of price)
     const percentMin = currentPrice * TRADING_CONSTANTS.ATR_MINIMUMS.DEFAULT_PERCENT;
     if (atr < percentMin) {
       console.warn(
         `[SnapshotCache] ⚠️ ATR too low for ${symbol}: ${atr.toFixed(6)} < ${percentMin.toFixed(6)} (0.02% of price). ` +
-        `Enforcing minimum.`
+        `Enforcing percentage-based minimum.`
       );
+      console.log(`[SnapshotCache] ATR enforcement applied:`, {
+        symbol,
+        originalATR: atr.toFixed(6),
+        enforcedATR: percentMin.toFixed(6),
+        calculationBasis: `${(TRADING_CONSTANTS.ATR_MINIMUMS.DEFAULT_PERCENT * 100).toFixed(2)}% of ${currentPrice.toFixed(5)}`,
+        reason: 'Percentage-based fallback'
+      });
       return percentMin;
     }
 
+    console.log(`[SnapshotCache] ✅ ATR above all minimum thresholds`, {
+      symbol,
+      atr: atr.toFixed(6),
+      percentageMin: percentMin.toFixed(6)
+    });
     return atr;
   }
 
