@@ -45,6 +45,8 @@ import { creditValidationService } from './credit-validation-service';
 import { EntryOverextensionValidator } from './entry-overextension-validator';
 import { normalizeStyle } from '../utils/entry-overextension-calculator';
 import { validateStyleQualification } from './style-qualification-gate';
+import { entryStructureAnalyzer, type StructuralAnalysisResult } from './entry-structure-analyzer';
+import { marketSnapshotCache } from './market-snapshot-cache';
 import type { AlphaDecision } from '../brains/coordinator-alpha';
 import type { TradeContext } from '../types/trade-context';
 
@@ -1498,6 +1500,26 @@ class AlphaTradeExecutor {
     const timeoutAt = new Date(now.getTime() + timeoutMinutes * 60 * 1000).toISOString();
     const direction = toLongShort(decision.action === 'BUY' ? 'buy' : 'sell');
 
+    let structuralAnalysis: StructuralAnalysisResult | null = null;
+    try {
+      const snapshot = await marketSnapshotCache.getSnapshot(decision.symbol || '', 'M15');
+      if (snapshot?.candles?.length >= 20 && snapshot.atr?.value > 0) {
+        structuralAnalysis = entryStructureAnalyzer.analyze({
+          entryPrice: decision.entry,
+          direction: direction as 'long' | 'short',
+          symbol: decision.symbol || '',
+          candles: snapshot.candles,
+          atrValue: snapshot.atr.value,
+          stopLoss: decision.stopLoss,
+          takeProfit: decision.takeProfit
+        });
+      }
+    } catch (err) {
+      logger.warn(LogCategory.GOVERNANCE, '[AlphaTradeExecutor] Structural analysis failed in monitored mode (non-blocking)', {
+        error: err instanceof Error ? err.message : String(err)
+      });
+    }
+
     const { data: intent, error } = await supabase
       .from('entry_intents')
       .insert({
@@ -1514,12 +1536,19 @@ class AlphaTradeExecutor {
         status: 'monitoring',
         alpha_reasoning: decision.reasoning,
         alpha_confidence: decision.confidence,
-        market_context: this.buildMarketContextForAdvisory(decision, decision.entry),
+        market_context: this.buildMarketContextForAdvisory(decision, decision.entry, structuralAnalysis),
         entry_mode: 'MONITORED',
         style: params.canonicalStyle,
         thesis: decision.thesis,
         style_intent: decision.style_intent,
-        execution_preference: decision.execution_preference || 'WAIT_PULLBACK'
+        execution_preference: decision.execution_preference || 'WAIT_PULLBACK',
+        structural_verdict: structuralAnalysis?.verdict || null,
+        structural_level_price: structuralAnalysis?.backingLevel?.price || null,
+        structural_level_type: structuralAnalysis?.backingLevel?.type || null,
+        structural_level_strength: structuralAnalysis?.backingLevel?.strength || null,
+        structural_level_touches: structuralAnalysis?.backingLevel?.touches || null,
+        pullback_target_price: structuralAnalysis?.pullbackTarget || null,
+        pullback_improvement_pips: structuralAnalysis?.pullbackImprovementPips || null
       })
       .select()
       .single();
@@ -1978,6 +2007,26 @@ class AlphaTradeExecutor {
         advisoryZoneMax = entryPrice + zoneHalfWidth;
       }
 
+      let structuralAnalysis: StructuralAnalysisResult | null = null;
+      try {
+        const snapshot = await marketSnapshotCache.getSnapshot(decision.symbol || '', 'M15');
+        if (snapshot?.candles?.length >= 20 && snapshot.atr?.value > 0) {
+          structuralAnalysis = entryStructureAnalyzer.analyze({
+            entryPrice,
+            direction: direction as 'long' | 'short',
+            symbol: decision.symbol || '',
+            candles: snapshot.candles,
+            atrValue: snapshot.atr.value,
+            stopLoss: decision.stopLoss,
+            takeProfit: decision.takeProfit
+          });
+        }
+      } catch (err) {
+        logger.warn(LogCategory.GOVERNANCE, '[AlphaTradeExecutor] Structural analysis failed (non-blocking)', {
+          error: err instanceof Error ? err.message : String(err)
+        });
+      }
+
       const entryIntentData: Record<string, any> = {
         session_id: sessionId,
         user_id: userId,
@@ -1995,12 +2044,19 @@ class AlphaTradeExecutor {
         advisor_mode: 'post_execution_advisory',
         alpha_reasoning: decision.reasoning,
         alpha_confidence: decision.confidence,
-        market_context: this.buildMarketContextForAdvisory(decision, entryPrice),
+        market_context: this.buildMarketContextForAdvisory(decision, entryPrice, structuralAnalysis),
         entry_mode: 'immediate',
         style: params.canonicalStyle,
         thesis: safeThesis,
         style_intent: safeStyleIntent,
-        execution_preference: decision.execution_preference || 'IMMEDIATE'
+        execution_preference: decision.execution_preference || 'IMMEDIATE',
+        structural_verdict: structuralAnalysis?.verdict || null,
+        structural_level_price: structuralAnalysis?.backingLevel?.price || null,
+        structural_level_type: structuralAnalysis?.backingLevel?.type || null,
+        structural_level_strength: structuralAnalysis?.backingLevel?.strength || null,
+        structural_level_touches: structuralAnalysis?.backingLevel?.touches || null,
+        pullback_target_price: structuralAnalysis?.pullbackTarget || null,
+        pullback_improvement_pips: structuralAnalysis?.pullbackImprovementPips || null
       };
 
       const { data: entryIntent, error: intentError } = await supabase
@@ -2049,7 +2105,8 @@ class AlphaTradeExecutor {
 
   private buildMarketContextForAdvisory(
     decision: AlphaDecision,
-    entryPrice: number
+    entryPrice: number,
+    structuralAnalysis?: StructuralAnalysisResult | null
   ): Record<string, any> {
     const slDistance = Math.abs(entryPrice - decision.stopLoss);
     const regime = decision.regime_advisory;
@@ -2063,7 +2120,7 @@ class AlphaTradeExecutor {
       }
     }
 
-    return {
+    const context: Record<string, any> = {
       atr_value: slDistance > 0 ? slDistance : undefined,
       volatility,
       structure: regime?.structure,
@@ -2072,6 +2129,27 @@ class AlphaTradeExecutor {
       confidence: decision.confidence,
       style: decision.resolvedStyle
     };
+
+    if (structuralAnalysis) {
+      context.structural_analysis = {
+        verdict: structuralAnalysis.verdict,
+        backing_level: structuralAnalysis.backingLevel ? {
+          price: structuralAnalysis.backingLevel.price,
+          type: structuralAnalysis.backingLevel.type,
+          strength: structuralAnalysis.backingLevel.strength,
+          touches: structuralAnalysis.backingLevel.touches,
+          reason: structuralAnalysis.backingLevel.reason
+        } : null,
+        pullback_target: structuralAnalysis.pullbackTarget,
+        pullback_improvement_pips: structuralAnalysis.pullbackImprovementPips,
+        drawdown_reduction_estimate: structuralAnalysis.drawdownReductionEstimate,
+        distance_from_level_pips: structuralAnalysis.distanceFromLevelPips,
+        reasoning: structuralAnalysis.reasoning,
+        analyzed_at: structuralAnalysis.analyzedAt
+      };
+    }
+
+    return context;
   }
 
   /**

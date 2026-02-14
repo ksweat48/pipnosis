@@ -73,6 +73,24 @@ export interface EntryIntentData {
   zone_reachability_distance_pips?: number | null;
   zone_downgrade_applied?: boolean | null;
   position_size_multiplier?: number | null;
+
+  // Structural Entry Analysis (SSOT: EntryStructureAnalyzer)
+  structural_verdict?: 'OPTIMAL_ENTRY' | 'WAIT_FOR_PULLBACK' | null;
+  structural_level_price?: number | null;
+  structural_level_type?: 'support' | 'resistance' | null;
+  structural_level_strength?: number | null;
+  structural_level_touches?: number | null;
+  pullback_target_price?: number | null;
+  pullback_improvement_pips?: number | null;
+  pullback_reached_at?: string | null;
+
+  // Fields returned by select('*') but missing from original interface
+  status: string;
+  actual_entry_price?: number | null;
+  execution_price?: number | null;
+  alpha_confidence?: number | null;
+  advisor_mode?: string | null;
+  entry_mode?: string | null;
 }
 
 export interface MonitorCheckResult {
