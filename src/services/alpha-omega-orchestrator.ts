@@ -28,6 +28,8 @@ import { omegaAlphaLogger } from './omega-alpha-logger';
 import type { OmegaSensors } from './omega-sensors';
 import type { RegimeSnapshot } from './regime-oracle';
 import type { AdversarialSignal } from './adversarial-detector';
+import type { ATRValue } from '../types/atr';
+import { safeExtractATRValue } from '../types/atr';
 import { sentimentCoordinator } from './sentiment-coordinator';
 import type { AggregatedSentiment } from './sentiment-aggregator';
 import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator';
@@ -80,7 +82,7 @@ export interface FullMarketState {
   ema200: number;
   rsi: number;
   stochRsi: number;
-  atr: number;
+  atr: number | ATRValue;
   vwap: number;
   trend: string;
   volatility: string;
@@ -808,9 +810,10 @@ class AlphaOmegaOrchestrator {
 
     return new Promise(async (resolve) => {
       try {
-        console.log(`[Alpha+Omega Batch ${(index || 0) + 1}/${total || '?'}] ${marketState.symbol} | Price: ${marketState.price}, ATR: ${marketState.atr}`);
+        const atrNumeric = safeExtractATRValue(marketState.atr, `orchestrator.batch.${marketState.symbol}`);
+        console.log(`[Alpha+Omega Batch ${(index || 0) + 1}/${total || '?'}] ${marketState.symbol} | Price: ${marketState.price}, ATR: ${atrNumeric}`);
 
-        if (!marketState.atr || marketState.atr <= 0) {
+        if (!atrNumeric || atrNumeric <= 0) {
           const noTradeDecision: AlphaDecision = {
             action: 'NO_TRADE' as const,
             decision: 'NO_TRADE' as const,
@@ -818,7 +821,7 @@ class AlphaOmegaOrchestrator {
             stopLoss: marketState.price,
             takeProfit: marketState.price,
             confidence: 0,
-            reasoning: `Invalid ATR (${marketState.atr}) - cannot calculate stop loss`,
+            reasoning: `Invalid ATR (${atrNumeric}) - cannot calculate stop loss`,
             omega_summary: 'SKIP: Invalid ATR data'
           };
           resolve({ symbol: marketState.symbol, decision: noTradeDecision, timing: Date.now() - symbolStartTime });
@@ -826,8 +829,8 @@ class AlphaOmegaOrchestrator {
         }
 
         const { stopLossMultiplier, takeProfitMultiplier } = this.calculateDynamicMultipliers(marketState);
-        const proposedSL = marketState.price - (marketState.atr * stopLossMultiplier);
-        const proposedTP = marketState.price + (marketState.atr * takeProfitMultiplier);
+        const proposedSL = marketState.price - (atrNumeric * stopLossMultiplier);
+        const proposedTP = marketState.price + (atrNumeric * takeProfitMultiplier);
 
         let timeoutId: ReturnType<typeof setTimeout>;
         let warn50Id: ReturnType<typeof setTimeout>;
@@ -1019,11 +1022,12 @@ class AlphaOmegaOrchestrator {
       const marketState = marketStates[i];
 
       try {
+        const seqAtrNumeric = safeExtractATRValue(marketState.atr, `orchestrator.sequential.${marketState.symbol}`);
         console.log(`%c[Alpha+Omega Pre-Check ${i + 1}/${marketStates.length}] ${marketState.symbol}`, 'color: #00aaff; font-weight: bold');
-        console.log(`  Price: ${marketState.price}, ATR: ${marketState.atr}`);
+        console.log(`  Price: ${marketState.price}, ATR: ${seqAtrNumeric}`);
 
-        if (!marketState.atr || marketState.atr <= 0) {
-          console.error(`%c🚨 INVALID ATR for ${marketState.symbol}`, 'color: #ff0000; font-weight: bold');
+        if (!seqAtrNumeric || seqAtrNumeric <= 0) {
+          console.error(`%c INVALID ATR for ${marketState.symbol}`, 'color: #ff0000; font-weight: bold');
           const noTradeDecision: AlphaDecision = {
             action: 'NO_TRADE' as const,
             decision: 'NO_TRADE' as const,
@@ -1031,7 +1035,7 @@ class AlphaOmegaOrchestrator {
             stopLoss: marketState.price,
             takeProfit: marketState.price,
             confidence: 0,
-            reasoning: `Invalid ATR (${marketState.atr}) - cannot calculate stop loss`,
+            reasoning: `Invalid ATR (${seqAtrNumeric}) - cannot calculate stop loss`,
             omega_summary: 'SKIP: Invalid ATR data'
           };
           decisionMap.set(marketState.symbol, noTradeDecision);
@@ -1039,8 +1043,8 @@ class AlphaOmegaOrchestrator {
         }
 
         const { stopLossMultiplier, takeProfitMultiplier } = this.calculateDynamicMultipliers(marketState);
-        const proposedSL = marketState.price - (marketState.atr * stopLossMultiplier);
-        const proposedTP = marketState.price + (marketState.atr * takeProfitMultiplier);
+        const proposedSL = marketState.price - (seqAtrNumeric * stopLossMultiplier);
+        const proposedTP = marketState.price + (seqAtrNumeric * takeProfitMultiplier);
 
         const { calculatePipDistance } = await import('../utils/currencyHelpers');
         const slDistancePips = calculatePipDistance(marketState.symbol, marketState.price, proposedSL);

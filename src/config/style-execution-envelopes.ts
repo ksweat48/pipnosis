@@ -78,7 +78,7 @@ export const SCALP_ENVELOPE: StyleExecutionEnvelope = {
   },
 
   symbolOverrides: {
-    BTCUSD: { tpPips: { min: 80, max: 400 }, slPips: { min: 40, max: 250 } },
+    BTCUSD: { tpPips: { min: 80, max: 500 }, slPips: { min: 40, max: 350 } },
     US30: { tpPips: { min: 30, max: 200 }, slPips: { min: 20, max: 100 } },
     NAS100: { tpPips: { min: 25, max: 150 }, slPips: { min: 15, max: 70 } },
   },

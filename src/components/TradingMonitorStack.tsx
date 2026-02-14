@@ -81,10 +81,7 @@ export const TradingMonitorStack: React.FC = () => {
     }
   }, [userId, loadPreferences]);
 
-  console.log('[TradingMonitorStack] Rendering - loading:', loading, 'preferences:', preferences);
-
   if (loading) {
-    console.log('[TradingMonitorStack] Loading preferences...');
     return (
       <div className="space-y-4">
         <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700/50 animate-pulse">
@@ -101,18 +98,9 @@ export const TradingMonitorStack: React.FC = () => {
     preferences.mid_trade_monitor_enabled ||
     preferences.session_intelligence_enabled;
 
-  console.log('[TradingMonitorStack] hasAnyMonitorEnabled:', hasAnyMonitorEnabled);
-
   if (!hasAnyMonitorEnabled) {
-    console.log('[TradingMonitorStack] No monitors enabled - returning null');
     return null;
   }
-
-  console.log('[TradingMonitorStack] Rendering monitors:', {
-    entry: preferences.entry_price_monitor_enabled,
-    midTrade: preferences.mid_trade_monitor_enabled,
-    session: preferences.session_intelligence_enabled
-  });
 
   return (
     <div className="space-y-4">

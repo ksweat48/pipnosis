@@ -636,11 +636,9 @@ Return ONLY this JSON format (no markdown, no explanations):
           `[Alpha TP Calculator - Market Aligned] Market Range: $${marketAssessment.predictedProfitMin}-$${marketAssessment.predictedProfitMax} | User Goal: $${userGoal}${goalAdjusted ? ` → Adjusted: $${adjustedGoal}` : ''} | TP1: $${tp1} | TP2: $${tp2}`
         );
       } else {
-        // FALLBACK: No market assessment provided - use legacy goal-based calculation
-        // This should rarely happen after market assessment integration
-        logger.warn(
+        logger.debug(
           LogCategory.AI_TRADING,
-          `[Alpha TP Calculator] No market assessment provided, using legacy goal-based calculation`
+          `[Alpha TP Calculator] Session-level calculation (no symbol selected yet), using goal-based targets`
         );
 
         const classification = goalIntelligenceClassifier.classify({

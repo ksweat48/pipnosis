@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Target, TrendingUp, Clock, Activity, CheckCircle, XCircle, Pause, AlertTriangle, Shield, Sparkles, Eye, BarChart3, Wrench, StopCircle } from 'lucide-react';
 import { smartGoalSessionManager, SmartGoalSession } from '../services/smart-goal-session-manager';
 import { goalScannerTrigger, ScanStatus, MarketDataStatus } from '../services/goal-scanner-trigger';
@@ -33,6 +33,8 @@ export const GoalSessionDashboard: React.FC = () => {
   const [openTrades, setOpenTrades] = useState<any[]>([]);
   const [livePrices, setLivePrices] = useState<Record<string, { bid: number; ask: number }>>({});
   const [showGoalAchieved, setShowGoalAchieved] = useState(false);
+  const showGoalAchievedRef = useRef(showGoalAchieved);
+  showGoalAchievedRef.current = showGoalAchieved;
   const [showTradeClosedAction, setShowTradeClosedAction] = useState(false);
   const [goalAchievementData, setGoalAchievementData] = useState<any>(null);
   const [tradeClosedData, setTradeClosedData] = useState<any>(null);
@@ -195,7 +197,7 @@ export const GoalSessionDashboard: React.FC = () => {
             }).catch(err => console.error('[GoalSessionDashboard] Failed to play sound:', err));
 
             // Don't show action dialog if goal was met (already showing goal achieved)
-            if (closeReason !== 'goal_met' && !showGoalAchieved) {
+            if (closeReason !== 'goal_met' && !showGoalAchievedRef.current) {
               console.log('[GoalSessionDashboard] 🎯 Showing TradeClosedActionDialog');
               loadSessionData().then(() => {
                 // Parse SL/TP with proper null handling
@@ -244,7 +246,7 @@ export const GoalSessionDashboard: React.FC = () => {
       console.log('[GoalSessionDashboard] 🔌 Cleaning up realtime subscription');
       supabase.removeChannel(channel);
     };
-  }, [user, activeSession, showGoalAchieved]);
+  }, [user, activeSession]);
 
   useEffect(() => {
     if (!activeSession) {
@@ -488,21 +490,15 @@ export const GoalSessionDashboard: React.FC = () => {
    */
   const getActiveWatchlist = (fullWatchlist: string[]): string[] => {
     const forexStatus = getForexMarketStatus();
-
-    if (forexStatus.isOpen) {
-      // All markets open - return full watchlist
-      return fullWatchlist;
-    }
-
-    // Forex closed - return only crypto pairs
+    if (forexStatus.isOpen) return fullWatchlist;
     const cryptoSymbols = ['BTCUSD', 'ETHUSD'];
-    const filteredList = fullWatchlist.filter(symbol => cryptoSymbols.includes(symbol));
-
-    console.log(`[GoalSessionDashboard] Forex closed - filtering watchlist: ${fullWatchlist.length} → ${filteredList.length} (crypto only)`);
-
-    return filteredList;
+    return fullWatchlist.filter(symbol => cryptoSymbols.includes(symbol));
   };
 
+  const activeWatchlist = useMemo(
+    () => activeSession ? getActiveWatchlist(activeSession.config.watchlist) : [],
+    [activeSession?.config?.watchlist]
+  );
 
   const handleStartNewSession = async () => {
     if (!user) return;
@@ -1664,9 +1660,9 @@ export const GoalSessionDashboard: React.FC = () => {
               sessionId={activeSession.sessionId}
               hasActiveTrades={openTrades.length > 0}
               isScanning={true}
-              activePairsCount={activeSession.activePairsCount || getActiveWatchlist(activeSession.config.watchlist).length}
+              activePairsCount={activeSession.activePairsCount || activeWatchlist.length}
               totalPairs={activeSession.config.watchlist.length}
-              watchlist={getActiveWatchlist(activeSession.config.watchlist)}
+              watchlist={activeWatchlist}
             />
           )}
         </div>

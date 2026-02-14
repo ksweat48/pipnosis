@@ -24,7 +24,7 @@ import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orch
 import { bestSymbolSelector } from './best-symbol-selector';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
-import { calculateDollarPerPip, calculatePipDistance, calculateGoalAwareLotSize, calculateLotSizeFromDollarRisk, calculateAndValidateRR, getCurrencyPipInfo, formatCurrencyPrice } from '../utils/currencyHelpers';
+import { calculateDollarPerPip, calculatePipDistance, calculateGoalAwareLotSize, calculateLotSizeFromDollarRisk, calculateAndValidateRR, getCurrencyPipInfo, formatCurrencyPrice, isCrypto, isXAUUSD, isIndex } from '../utils/currencyHelpers';
 import { createTradeContext, roundAlphaDecisionPrices } from '../utils/tradeMath';
 import { getRiskPercentage, getMinConfidenceThreshold } from '../config/risk-levels';
 import { postTradeAnalyzer } from './post-trade-analyzer';
@@ -48,6 +48,7 @@ import { CCIPTradeExecutionTracker } from './ccip-trade-execution-tracker';
 import { CCIPConfidenceGateAdjustment } from './ccip-confidence-gate-adjustment';
 import { goalAdvisoryCoordinator } from './goal-advisory-coordinator';
 import { detectConstraintSandwich, getViableStyles, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
+import { safeExtractATRValue } from '../types/atr';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
@@ -758,10 +759,7 @@ class GoalSessionLiveEngine {
         ema200: snapshot.ema200,
         rsi: snapshot.rsi,
         stochRsi: snapshot.stochRsi,
-        // CRITICAL FIX: Extract raw value from ATRValue type
-        // snapshot.atr is ATRValue { value, timeframe, period }
-        // FullMarketState expects number
-        atr: snapshot.atr.value,
+        atr: snapshot.atr,
         vwap: snapshot.vwap,
         trend: snapshot.trend,
         volatility: snapshot.volatility,
@@ -970,7 +968,7 @@ class GoalSessionLiveEngine {
               symbol,
               timeframe: config.timeframe,
               currentPrice: marketState.currentPrice,
-              atr: marketState.atr?.value || 0,
+              atr: safeExtractATRValue(marketState?.atr, `goal-engine.logDecision.${symbol}`),
               session: marketState.regime?.session || 'unknown',
             },
             traderScore,
