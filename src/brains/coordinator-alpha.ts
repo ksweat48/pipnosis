@@ -97,6 +97,7 @@ import { tradeExecutionFreshnessGate } from '../services/trade-execution-freshne
 import { tradeFeasibilityResolver } from '../services/trade-feasibility-resolver';
 import type { AssetClass, TradeStyle as FeasibilityTradeStyle } from '../types/trade-feasibility-resolver.types';
 import { isCrypto, isIndex, isXAUUSD } from '../utils/currencyHelpers';
+import type { ConflictInfo } from '../types/alpha-thesis';
 import { calculateSessionContext } from '../utils/marketHours';
 import type { EntrySpec, AlphaOutputFormat, StyleDisplayName } from '../types/entry';
 import { ALPHA_IDENTITY, getAlphaSystemPrompt, getEntryMode } from '../config/alpha-identity';
@@ -236,6 +237,7 @@ export interface AlphaDecision {
   intelligence_snapshot?: Partial<AlphaIntelligenceSnapshot>;
   adversarial_advisory?: AdversarialSignal;
   regime_advisory?: RegimeSnapshot;
+  conflictInfo?: ConflictInfo; // CCIP 2026-02-14: Omega conflict detection data from orchestrator
   entry_spec?: EntrySpec; // NEW: Alpha's explicit entry specification
   thesis?: string; // Trade thesis type (momentum_scalp, liquidity_sweep_reversal, etc.)
   style_intent?: string; // Style intent (SCALP, MICRO_INTRADAY, INTRADAY)

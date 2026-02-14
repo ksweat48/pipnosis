@@ -210,6 +210,29 @@ export interface ThesisRejectionEvent {
 }
 
 /**
+ * Conflict Information from Omega Council
+ *
+ * SSOT: Detected by alpha-omega-orchestrator.detectOmegaConflicts()
+ * Attached to AlphaDecision for learning system tracking
+ */
+export interface ConflictInfo {
+  /** Whether a conflict was detected */
+  detected: boolean;
+
+  /** Type of conflict detected */
+  type: 'HARD' | 'SOFT' | 'NONE';
+
+  /** Severity of the conflict */
+  severity?: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
+
+  /** Human-readable description of the conflict */
+  description?: string;
+
+  /** Confidence penalty multiplier applied (1.0 = no penalty, 0.75 = -25% penalty) */
+  penalty?: number;
+}
+
+/**
  * Parsed Alpha response with thesis/execution separation
  */
 export interface ParsedAlphaResponse {

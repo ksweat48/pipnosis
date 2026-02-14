@@ -943,6 +943,18 @@ class GoalSessionLiveEngine {
           const majorityDirection = buyVotes > sellVotes ? 'BUY' : sellVotes > buyVotes ? 'SELL' : 'NO_TRADE';
           const agreementCount = Math.max(buyVotes, sellVotes, noTradeVotes);
 
+          // ✅ CCIP 2026-02-14: Extract real conflict data from decision
+          // SSOT: Orchestrator is the authority for conflict detection
+          const conflictInfo = decision.conflictInfo || {
+            detected: false,
+            type: 'NONE' as const
+          };
+
+          console.log(`[CONFLICT TRACKING] ${symbol}: Logging decision with conflict_detected=${conflictInfo.detected}, type=${conflictInfo.type}`);
+          if (conflictInfo.detected) {
+            console.log(`[CONFLICT TRACKING] ${symbol}: Conflict severity=${conflictInfo.severity}, penalty=${conflictInfo.penalty}`);
+          }
+
           const decisionId = await alphaLearningTracker.logDecision(
             config.userId,
             decision,
@@ -953,10 +965,7 @@ class GoalSessionLiveEngine {
               agreement_count: agreementCount,
               total_votes: voteEntries.length,
             },
-            {
-              detected: false,
-              type: 'NONE',
-            },
+            conflictInfo, // ✅ Real conflict data from orchestrator (not hardcoded)
             {
               symbol,
               timeframe: config.timeframe,

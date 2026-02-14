@@ -698,6 +698,18 @@ class AlphaOmegaOrchestrator {
       };
     }
 
+    // ✅ CCIP 2026-02-14: Attach Omega conflict information to decision
+    // This enables Alpha learning system to track conflict scenarios
+    const conflictInfo: import('../types/alpha-thesis').ConflictInfo = {
+      detected: conflictCheck.hasConflict,
+      type: conflictCheck.conflictType,
+      severity: conflictCheck.severity,
+      description: conflictCheck.conflictDescription,
+      penalty: conflictCheck.confidencePenalty
+    };
+
+    console.log(`[Alpha+Omega] 📝 Conflict Info: detected=${conflictInfo.detected}, type=${conflictInfo.type}, severity=${conflictInfo.severity}`);
+
     return {
       ...decision,
       confidence: finalConfidence,
@@ -720,7 +732,8 @@ class AlphaOmegaOrchestrator {
         riskMode: riskMode.toUpperCase(),
         passesThreshold: confidenceResult.passes_threshold,
         executionThreshold: confidenceResult.execution_threshold
-      }
+      },
+      conflictInfo // SSOT: Conflict detection flows from orchestrator → learning system
     };
   }
 
