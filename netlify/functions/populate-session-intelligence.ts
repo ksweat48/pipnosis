@@ -150,6 +150,8 @@ export const handler: Handler = async (event) => {
       tradeStyle: pair.tradeStyle ?? 'micro',
       timeframe: pair.timeframe ?? 'M15',
       direction: pair.direction ?? 'buy',
+      constraintFeasible: pair.constraintFeasible ?? true,
+      constraintWarning: pair.constraintWarning,
     });
 
     const bestPairs = highConfidencePairs.map((pair) => formatPairData(pair, 'ready'));

@@ -11,18 +11,30 @@
  * - Candle horizon
  * - TP/SL ranges
  *
- * That's not "authority removal" — that's style identity enforcement.
+ * That's not "authority removal" -- that's style identity enforcement.
  *
  * CRITICAL DISTINCTION:
- * - Authority WITHIN a style: ✅ Alpha decides
- * - Authority to REDEFINE a style: ❌ System enforces
+ * - Authority WITHIN a style: Alpha decides
+ * - Authority to REDEFINE a style: System enforces
+ *
+ * DYNAMIC BOUNDS (CCIP-2026-02-15):
+ * All TP/SL bounds are now PERCENTAGE-BASED, computed dynamically from current price.
+ * This eliminates static pip limits that break when asset prices change.
+ * Formula: pipBound = (currentPrice * percentBound / 100) / pipValue
  */
+
+import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 
 export type EnvelopeAssetClass = 'FOREX' | 'CRYPTO' | 'METAL' | 'INDEX';
 
 export interface AssetClassBounds {
   tpPips: { min: number; max: number };
   slPips: { min: number; max: number };
+}
+
+export interface AssetClassPercentBounds {
+  tpPercent: { min: number; max: number };
+  slPercent: { min: number; max: number };
 }
 
 export interface StyleExecutionEnvelope {
@@ -35,9 +47,7 @@ export interface StyleExecutionEnvelope {
   tpPips: { min: number; max: number };
   slPips: { min: number; max: number };
 
-  assetClassBounds: Record<EnvelopeAssetClass, AssetClassBounds>;
-
-  symbolOverrides?: Record<string, AssetClassBounds>;
+  assetClassPercentBounds: Record<EnvelopeAssetClass, AssetClassPercentBounds>;
 
   atrTimeframe: string;
 
@@ -54,8 +64,6 @@ export interface StyleExecutionEnvelope {
  * Identity:
  * - Captures ONE M5 swing leg
  * - Typically 3-5 candles
- * - Quick TP (20-60 pips/points)
- * - Tight SL (8-20 pips)
  * - M5 structure ONLY
  * - HTF is validation, not execution anchor
  * - Entry = NOW or NO TRADE
@@ -70,17 +78,11 @@ export const SCALP_ENVELOPE: StyleExecutionEnvelope = {
   tpPips: { min: 15, max: 60 },
   slPips: { min: 8, max: 20 },
 
-  assetClassBounds: {
-    FOREX: { tpPips: { min: 10, max: 60 }, slPips: { min: 5, max: 25 } },
-    CRYPTO: { tpPips: { min: 30, max: 150 }, slPips: { min: 15, max: 80 } },
-    METAL: { tpPips: { min: 10, max: 60 }, slPips: { min: 5, max: 25 } },
-    INDEX: { tpPips: { min: 15, max: 80 }, slPips: { min: 8, max: 35 } },
-  },
-
-  symbolOverrides: {
-    BTCUSD: { tpPips: { min: 80, max: 500 }, slPips: { min: 40, max: 350 } },
-    US30: { tpPips: { min: 30, max: 200 }, slPips: { min: 20, max: 100 } },
-    NAS100: { tpPips: { min: 25, max: 150 }, slPips: { min: 15, max: 70 } },
+  assetClassPercentBounds: {
+    FOREX: { tpPercent: { min: 0.08, max: 0.60 }, slPercent: { min: 0.04, max: 0.25 } },
+    CRYPTO: { tpPercent: { min: 0.50, max: 3.00 }, slPercent: { min: 0.30, max: 1.50 } },
+    METAL: { tpPercent: { min: 0.30, max: 2.50 }, slPercent: { min: 0.15, max: 1.00 } },
+    INDEX: { tpPercent: { min: 0.06, max: 0.50 }, slPercent: { min: 0.04, max: 0.25 } },
   },
 
   atrTimeframe: 'M5',
@@ -97,8 +99,6 @@ export const SCALP_ENVELOPE: StyleExecutionEnvelope = {
  * Identity:
  * - Captures structural M15 moves
  * - Typically 4-8 M15 candles
- * - Medium TP (40-120 pips)
- * - Moderate SL (15-40 pips)
  * - M15 structure primary, H1 for validation
  * - Pullback entry preferred
  */
@@ -112,17 +112,11 @@ export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
   tpPips: { min: 40, max: 120 },
   slPips: { min: 15, max: 40 },
 
-  assetClassBounds: {
-    FOREX: { tpPips: { min: 30, max: 120 }, slPips: { min: 15, max: 50 } },
-    CRYPTO: { tpPips: { min: 80, max: 300 }, slPips: { min: 40, max: 150 } },
-    METAL: { tpPips: { min: 30, max: 120 }, slPips: { min: 15, max: 50 } },
-    INDEX: { tpPips: { min: 40, max: 150 }, slPips: { min: 20, max: 70 } },
-  },
-
-  symbolOverrides: {
-    BTCUSD: { tpPips: { min: 200, max: 800 }, slPips: { min: 100, max: 400 } },
-    US30: { tpPips: { min: 60, max: 400 }, slPips: { min: 35, max: 150 } },
-    NAS100: { tpPips: { min: 50, max: 300 }, slPips: { min: 25, max: 110 } },
+  assetClassPercentBounds: {
+    FOREX: { tpPercent: { min: 0.25, max: 1.20 }, slPercent: { min: 0.12, max: 0.50 } },
+    CRYPTO: { tpPercent: { min: 1.50, max: 5.00 }, slPercent: { min: 0.80, max: 2.50 } },
+    METAL: { tpPercent: { min: 1.00, max: 5.00 }, slPercent: { min: 0.50, max: 2.00 } },
+    INDEX: { tpPercent: { min: 0.12, max: 1.00 }, slPercent: { min: 0.08, max: 0.40 } },
   },
 
   atrTimeframe: 'M15',
@@ -139,8 +133,6 @@ export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
  * Identity:
  * - Captures multi-swing moves
  * - Typically 6-12 H1 candles
- * - Medium TP (60-150 pips)
- * - Standard SL (30-60 pips)
  * - H1 structure primary
  * - Can wait for optimal entry
  */
@@ -154,17 +146,11 @@ export const INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
   tpPips: { min: 60, max: 150 },
   slPips: { min: 30, max: 60 },
 
-  assetClassBounds: {
-    FOREX: { tpPips: { min: 50, max: 200 }, slPips: { min: 25, max: 80 } },
-    CRYPTO: { tpPips: { min: 150, max: 500 }, slPips: { min: 80, max: 250 } },
-    METAL: { tpPips: { min: 50, max: 200 }, slPips: { min: 25, max: 80 } },
-    INDEX: { tpPips: { min: 60, max: 250 }, slPips: { min: 30, max: 100 } },
-  },
-
-  symbolOverrides: {
-    BTCUSD: { tpPips: { min: 400, max: 1500 }, slPips: { min: 200, max: 700 } },
-    US30: { tpPips: { min: 120, max: 600 }, slPips: { min: 50, max: 250 } },
-    NAS100: { tpPips: { min: 100, max: 500 }, slPips: { min: 40, max: 180 } },
+  assetClassPercentBounds: {
+    FOREX: { tpPercent: { min: 0.40, max: 2.00 }, slPercent: { min: 0.20, max: 0.80 } },
+    CRYPTO: { tpPercent: { min: 3.00, max: 10.00 }, slPercent: { min: 1.50, max: 4.00 } },
+    METAL: { tpPercent: { min: 1.60, max: 8.00 }, slPercent: { min: 0.80, max: 3.20 } },
+    INDEX: { tpPercent: { min: 0.25, max: 1.50 }, slPercent: { min: 0.10, max: 0.60 } },
   },
 
   atrTimeframe: 'H1',
@@ -181,8 +167,6 @@ export const INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
  * Identity:
  * - Captures major trend legs
  * - Days to weeks holding
- * - Large TP (150-500+ pips)
- * - Wide SL (60-150 pips)
  * - D1 structure primary
  * - High patience required
  */
@@ -196,17 +180,11 @@ export const SWING_ENVELOPE: StyleExecutionEnvelope = {
   tpPips: { min: 150, max: 500 },
   slPips: { min: 60, max: 150 },
 
-  assetClassBounds: {
-    FOREX: { tpPips: { min: 150, max: 500 }, slPips: { min: 60, max: 150 } },
-    CRYPTO: { tpPips: { min: 300, max: 1000 }, slPips: { min: 150, max: 400 } },
-    METAL: { tpPips: { min: 150, max: 500 }, slPips: { min: 60, max: 150 } },
-    INDEX: { tpPips: { min: 200, max: 600 }, slPips: { min: 80, max: 200 } },
-  },
-
-  symbolOverrides: {
-    BTCUSD: { tpPips: { min: 800, max: 3000 }, slPips: { min: 400, max: 1200 } },
-    US30: { tpPips: { min: 250, max: 1200 }, slPips: { min: 100, max: 400 } },
-    NAS100: { tpPips: { min: 250, max: 1000 }, slPips: { min: 80, max: 350 } },
+  assetClassPercentBounds: {
+    FOREX: { tpPercent: { min: 1.20, max: 5.00 }, slPercent: { min: 0.50, max: 1.50 } },
+    CRYPTO: { tpPercent: { min: 5.00, max: 15.00 }, slPercent: { min: 3.00, max: 7.00 } },
+    METAL: { tpPercent: { min: 5.00, max: 20.00 }, slPercent: { min: 2.00, max: 6.00 } },
+    INDEX: { tpPercent: { min: 0.50, max: 3.00 }, slPercent: { min: 0.20, max: 1.00 } },
   },
 
   atrTimeframe: 'H4',
@@ -217,9 +195,6 @@ export const SWING_ENVELOPE: StyleExecutionEnvelope = {
   requiresHighEQS: true,
 };
 
-/**
- * Get execution envelope for a style (base defaults)
- */
 export function getExecutionEnvelope(style: string): StyleExecutionEnvelope {
   switch (style.toUpperCase()) {
     case 'SCALP':
@@ -236,29 +211,46 @@ export function getExecutionEnvelope(style: string): StyleExecutionEnvelope {
   }
 }
 
+function computePipBounds(
+  percentBounds: AssetClassPercentBounds,
+  currentPrice: number,
+  pipValue: number
+): AssetClassBounds {
+  return {
+    tpPips: {
+      min: Math.round((currentPrice * percentBounds.tpPercent.min / 100) / pipValue * 10) / 10,
+      max: Math.round((currentPrice * percentBounds.tpPercent.max / 100) / pipValue * 10) / 10,
+    },
+    slPips: {
+      min: Math.round((currentPrice * percentBounds.slPercent.min / 100) / pipValue * 10) / 10,
+      max: Math.round((currentPrice * percentBounds.slPercent.max / 100) / pipValue * 10) / 10,
+    },
+  };
+}
+
 /**
  * Get asset-class-resolved TP/SL bounds for a style.
  *
- * SSOT: The Style Qualification Gate already defines per-asset-class contracts.
- * This function aligns the execution envelope with those contracts so that
- * the capping logic uses the correct bounds for each instrument category.
+ * SSOT: Bounds are computed dynamically from percentage-of-price.
+ * This ensures envelopes scale automatically with asset price changes.
  *
- * Resolution order:
- * 1. Per-symbol overrides (e.g., BTCUSD has wider bounds than generic CRYPTO)
- * 2. Asset class bounds (FOREX, CRYPTO, METAL, INDEX)
- * 3. Base envelope defaults
+ * When currentPrice is provided: computes dynamic pip bounds from percentages.
+ * When currentPrice is NOT provided: returns base envelope defaults (fallback).
  */
 export function getAssetClassEnvelopeBounds(
   style: string,
   assetClass?: EnvelopeAssetClass,
-  symbol?: string
+  symbol?: string,
+  currentPrice?: number
 ): AssetClassBounds {
   const envelope = getExecutionEnvelope(style);
 
-  if (symbol) {
-    const normalized = symbol.toUpperCase();
-    const override = envelope.symbolOverrides?.[normalized];
-    if (override) return override;
+  if (currentPrice && currentPrice > 0 && assetClass) {
+    const pipValue = symbol ? getCurrencyPipInfo(symbol).pipValue : 1.0;
+    const percentBounds = envelope.assetClassPercentBounds[assetClass];
+    if (percentBounds) {
+      return computePipBounds(percentBounds, currentPrice, pipValue);
+    }
   }
 
   if (!assetClass) {
@@ -267,52 +259,74 @@ export function getAssetClassEnvelopeBounds(
       slPips: envelope.slPips,
     };
   }
-  return envelope.assetClassBounds[assetClass] || {
+
+  const percentBounds = envelope.assetClassPercentBounds[assetClass];
+  if (!percentBounds) {
+    return {
+      tpPips: envelope.tpPips,
+      slPips: envelope.slPips,
+    };
+  }
+
+  return {
     tpPips: envelope.tpPips,
     slPips: envelope.slPips,
   };
 }
 
 /**
- * Validate TP/SL against style envelope (asset-class-aware)
+ * Get the raw percentage bounds for a style and asset class.
+ * Used by systems that need to communicate percentages directly (e.g., Intelligence Monitor).
+ */
+export function getEnvelopePercentBounds(
+  style: string,
+  assetClass: EnvelopeAssetClass
+): AssetClassPercentBounds | null {
+  const envelope = getExecutionEnvelope(style);
+  return envelope.assetClassPercentBounds[assetClass] || null;
+}
+
+/**
+ * Validate TP/SL against style envelope (asset-class-aware, price-dynamic)
  *
  * Returns revision request if outside bounds.
- * When assetClass is provided, uses asset-class-specific bounds.
+ * When currentPrice is provided, uses dynamic percentage-based bounds.
  */
 export function validateTPSLAgainstEnvelope(
   style: string,
   tpPips: number,
   slPips: number,
   assetClass?: EnvelopeAssetClass,
-  symbol?: string
+  symbol?: string,
+  currentPrice?: number
 ): { valid: boolean; violations: string[]; envelope: StyleExecutionEnvelope } {
   const envelope = getExecutionEnvelope(style);
-  const bounds = getAssetClassEnvelopeBounds(style, assetClass, symbol);
+  const bounds = getAssetClassEnvelopeBounds(style, assetClass, symbol, currentPrice);
   const violations: string[] = [];
   const boundsLabel = assetClass ? `${style} ${assetClass}` : style;
 
   if (tpPips < bounds.tpPips.min) {
     violations.push(
-      `TP ${tpPips.toFixed(1)} pips below ${boundsLabel} minimum ${bounds.tpPips.min} pips`
+      `TP ${tpPips.toFixed(1)} pips below ${boundsLabel} minimum ${bounds.tpPips.min.toFixed(1)} pips`
     );
   }
 
   if (tpPips > bounds.tpPips.max) {
     violations.push(
-      `TP ${tpPips.toFixed(1)} pips exceeds ${boundsLabel} maximum ${bounds.tpPips.max} pips. ` +
+      `TP ${tpPips.toFixed(1)} pips exceeds ${boundsLabel} maximum ${bounds.tpPips.max.toFixed(1)} pips. ` +
       `This is ${envelope.timeframe} ${style} trading, not ${tpPips > 150 ? 'SWING' : 'INTRADAY'}.`
     );
   }
 
   if (slPips < bounds.slPips.min) {
     violations.push(
-      `SL ${slPips.toFixed(1)} pips below ${boundsLabel} minimum ${bounds.slPips.min} pips (too tight)`
+      `SL ${slPips.toFixed(1)} pips below ${boundsLabel} minimum ${bounds.slPips.min.toFixed(1)} pips (too tight)`
     );
   }
 
   if (slPips > bounds.slPips.max) {
     violations.push(
-      `SL ${slPips.toFixed(1)} pips exceeds ${boundsLabel} maximum ${bounds.slPips.max} pips. ` +
+      `SL ${slPips.toFixed(1)} pips exceeds ${boundsLabel} maximum ${bounds.slPips.max.toFixed(1)} pips. ` +
       `This is ${envelope.timeframe} ${style} trading, not wider timeframe.`
     );
   }
@@ -328,27 +342,25 @@ export function validateTPSLAgainstEnvelope(
  * Constraint Sandwich Detection (SSOT)
  *
  * Detects when a style's envelope SL cap is below the noise floor for a given instrument,
- * making the style mathematically impossible. This is the "envelope cap vs noise floor"
- * conflict (Constraint Sandwich).
+ * making the style mathematically impossible.
  *
  * GOVERNANCE: When detected, the ONLY resolution is NO_TRADE.
  * Style upgrades are NEVER permitted.
- *
- * Returns a clear advisory string for Alpha if sandwich is detected, or null if viable.
  */
 export function detectConstraintSandwich(
   style: string,
   assetClass: EnvelopeAssetClass,
   noiseFloorPips: number,
-  symbol: string
+  symbol: string,
+  currentPrice?: number
 ): { sandwiched: boolean; advisory: string | null; slMax?: number; noiseFloor?: number } {
-  const bounds = getAssetClassEnvelopeBounds(style, assetClass, symbol);
+  const bounds = getAssetClassEnvelopeBounds(style, assetClass, symbol, currentPrice);
   const slMax = bounds.slPips.max;
 
   if (noiseFloorPips > slMax) {
     const advisory =
       `${style} not viable on ${symbol} -- noise floor (${noiseFloorPips.toFixed(1)} pips) ` +
-      `exceeds ${style} ${assetClass} SL max (${slMax} pips). Recommend NO_TRADE.`;
+      `exceeds ${style} ${assetClass} SL max (${slMax.toFixed(1)} pips). Recommend NO_TRADE.`;
 
     console.warn(`[CONSTRAINT_SANDWICH] ${advisory}`);
 
@@ -358,9 +370,6 @@ export function detectConstraintSandwich(
   return { sandwiched: false, advisory: null };
 }
 
-/**
- * Get revision prompt for out-of-bounds TP/SL
- */
 export function getRevisionPrompt(
   style: string,
   violations: string[]
@@ -386,17 +395,11 @@ Use ${envelope.timeframe} structure, not higher timeframe targets.
 `.trim();
 }
 
-/**
- * Check if style requires EQS gating
- */
 export function requiresEQSGate(style: string): boolean {
   const envelope = getExecutionEnvelope(style);
   return envelope.requiresHighEQS;
 }
 
-/**
- * Get appropriate ATR timeframe for style
- */
 export function getStyleATRTimeframe(style: string): string {
   const envelope = getExecutionEnvelope(style);
   return envelope.atrTimeframe;
@@ -407,10 +410,11 @@ const ALL_TRADEABLE_STYLES = ['SCALP', 'MICRO_INTRADAY', 'INTRADAY'] as const;
 export function getViableStyles(
   symbol: string,
   assetClass: EnvelopeAssetClass,
-  noiseFloorPips: number
+  noiseFloorPips: number,
+  currentPrice?: number
 ): string[] {
   return ALL_TRADEABLE_STYLES.filter(style => {
-    const result = detectConstraintSandwich(style, assetClass, noiseFloorPips, symbol);
+    const result = detectConstraintSandwich(style, assetClass, noiseFloorPips, symbol, currentPrice);
     return !result.sandwiched;
   });
 }

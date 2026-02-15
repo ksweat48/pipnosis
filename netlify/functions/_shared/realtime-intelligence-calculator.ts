@@ -33,6 +33,9 @@ import {
   getIntelligentWeights,
   getCurrentSession,
 } from '../../../src/config/intelligent-indicator-weights';
+import { detectConstraintSandwich, type EnvelopeAssetClass } from '../../../src/config/style-execution-envelopes';
+import { getSymbolConfig } from '../../../src/config/symbol-registry';
+import { getCurrencyPipInfo } from '../../../src/utils/currencyHelpers';
 
 const supabase = getSupabaseAdmin();
 
@@ -56,6 +59,12 @@ export const STYLE_TIMEFRAME_MAP: Record<TradeStyle, string> = {
   intraday: 'H1',
 };
 
+const STYLE_TO_ENVELOPE: Record<TradeStyle, string> = {
+  scalp: 'SCALP',
+  micro: 'MICRO_INTRADAY',
+  intraday: 'INTRADAY',
+};
+
 export interface IntelligencePairResult {
   symbol: string;
   confidence: number;
@@ -67,6 +76,8 @@ export interface IntelligencePairResult {
   tradeStyle: TradeStyle;
   timeframe: string;
   direction: TradeDirection;
+  constraintFeasible: boolean;
+  constraintWarning?: string;
 }
 
 interface Candle {
@@ -255,6 +266,17 @@ export class RealTimeIntelligenceCalculator {
 
     const reasoning = this.generateReasoning(symbol, alignedCount, indicators, confidence);
 
+    const envelopeStyle = STYLE_TO_ENVELOPE[style];
+    const envelopeAssetClass = this.getEnvelopeAssetClass(symbol);
+    const pipInfo = getCurrencyPipInfo(symbol);
+    const noiseFloorPips = this.calculateNoiseFloorPips(candles, pipInfo.pipValue);
+    const sandwichCheck = detectConstraintSandwich(envelopeStyle, envelopeAssetClass, noiseFloorPips, symbol, currentPrice);
+    const constraintFeasible = !sandwichCheck.sandwiched;
+
+    if (!constraintFeasible) {
+      reasoning.push('Style blocked by constraint geometry at current price');
+    }
+
     return {
       symbol,
       confidence: Math.round(confidence),
@@ -266,6 +288,8 @@ export class RealTimeIntelligenceCalculator {
       tradeStyle: style,
       timeframe,
       direction,
+      constraintFeasible,
+      constraintWarning: sandwichCheck.advisory || undefined,
     };
   }
 
@@ -578,6 +602,33 @@ export class RealTimeIntelligenceCalculator {
     if (trendingCount / total > 0.5) return 'trending';
     if (volatileCount / total > 0.5) return 'volatile';
     return 'ranging';
+  }
+
+  private calculateNoiseFloorPips(candles: Candle[], pipValue: number): number {
+    const period = 14;
+    if (candles.length < period + 1) return 0;
+    const recent = candles.slice(-(period + 1));
+    let atrSum = 0;
+    for (let i = 1; i < recent.length; i++) {
+      const tr = Math.max(
+        recent[i].high - recent[i].low,
+        Math.abs(recent[i].high - recent[i - 1].close),
+        Math.abs(recent[i].low - recent[i - 1].close)
+      );
+      atrSum += tr;
+    }
+    return (atrSum / period) / pipValue;
+  }
+
+  private getEnvelopeAssetClass(symbol: string): EnvelopeAssetClass {
+    const config = getSymbolConfig(symbol);
+    if (!config) return 'FOREX';
+    switch (config.category) {
+      case 'crypto': return 'CRYPTO';
+      case 'metal': return 'METAL';
+      case 'index': return 'INDEX';
+      default: return 'FOREX';
+    }
   }
 }
 

@@ -1032,14 +1032,15 @@ class AlphaCoordinatorBrain {
     const stylePersonality = getStylePromptContext(tradeStyle);
     const styleEnvelope = getExecutionEnvelope(tradeStyle);
     const promptAssetClass = getAssetClass(marketContext.symbol) as EnvelopeAssetClass;
-    const promptBounds = getAssetClassEnvelopeBounds(tradeStyle, promptAssetClass, marketContext.symbol);
+    const promptBounds = getAssetClassEnvelopeBounds(tradeStyle, promptAssetClass, marketContext.symbol, marketContext.price);
 
     if (omega9Constraints) {
       const sandwichResult = detectConstraintSandwich(
         tradeStyle,
         promptAssetClass,
         omega9Constraints.noiseFloorPips,
-        marketContext.symbol
+        marketContext.symbol,
+        marketContext.price
       );
 
       if (sandwichResult.sandwiched) {
@@ -1057,8 +1058,8 @@ ${stylePersonality}
 EXECUTION ENVELOPE (HARD CONSTRAINTS - ${promptAssetClass}):
 - Timeframe: ${styleEnvelope.timeframe}
 - Target Candles: ${styleEnvelope.targetCandles.min}-${styleEnvelope.targetCandles.max}
-- TP Range: ${promptBounds.tpPips.min}-${promptBounds.tpPips.max} pips
-- SL Range: ${promptBounds.slPips.min}-${promptBounds.slPips.max} pips
+- TP Range: ${promptBounds.tpPips.min.toFixed(1)}-${promptBounds.tpPips.max.toFixed(1)} pips
+- SL Range: ${promptBounds.slPips.min.toFixed(1)}-${promptBounds.slPips.max.toFixed(1)} pips
 - Expected Duration: ${styleEnvelope.typicalDuration.min}-${styleEnvelope.typicalDuration.max} minutes
 - Entry Mode: ${styleEnvelope.entryMode}
 
@@ -2609,102 +2610,12 @@ Return PURE JSON only:
 
       console.log(`[Alpha Decision] Stop: ${slPips.toFixed(1)} pips | TP: ${tpPips.toFixed(1)} pips | R:R: ${rr.toFixed(2)}:1`);
 
-      // ═══════════════════════════════════════════════════════════════════
-      // STYLE ENVELOPE TP ENFORCEMENT (SSOT: style-execution-envelopes.ts)
-      // ═══════════════════════════════════════════════════════════════════
-      // Alpha decides direction and entry. System enforces style bounds.
-      // If LLM returns a TP beyond the style envelope, cap it.
-      // Trades degrade intelligently - they do not silently over-extend.
-      const styleEnvelope = getExecutionEnvelope(resolvedStyle);
       const envelopeAssetClass = getAssetClass(symbol) as EnvelopeAssetClass;
-      const assetBounds = getAssetClassEnvelopeBounds(resolvedStyle, envelopeAssetClass, symbol);
-
-      if (tpPips > assetBounds.tpPips.max) {
-        const originalTP = takeProfit;
-        const originalTPPips = tpPips;
-        const pipInfo = getCurrencyPipInfo(symbol);
-        const cappedDistance = assetBounds.tpPips.max * pipInfo.pipValue;
-
-        takeProfit = isBuy
-          ? entry + cappedDistance
-          : entry - cappedDistance;
-
-        tpPips = assetBounds.tpPips.max;
-        tpDistance = Math.abs(takeProfit - entry);
-        rr = slDistance > 0 ? tpDistance / slDistance : 0;
-
-        console.warn(
-          `[Alpha Envelope] TP CAPPED: ${originalTPPips.toFixed(1)} pips -> ${tpPips.toFixed(1)} pips ` +
-          `(${resolvedStyle} ${envelopeAssetClass} max: ${assetBounds.tpPips.max}). ` +
-          `Original: ${originalTP.toFixed(5)}, Capped: ${takeProfit.toFixed(5)}`
-        );
-
-        logViolation({
-          violationType: 'STYLE_ENVELOPE_TP_CAP',
-          symbol,
-          attemptedOperation: 'tp_style_enforcement',
-          callLocation: 'coordinator-alpha.parseDecision',
-          blocked: false,
-          errorDetails: {
-            style: resolvedStyle,
-            assetClass: envelopeAssetClass,
-            originalTP,
-            cappedTP: takeProfit,
-            originalTPPips: originalTPPips,
-            cappedTPPips: tpPips,
-            envelopeMax: assetBounds.tpPips.max,
-            entry,
-            direction: isBuy ? 'BUY' : 'SELL',
-            resolution: 'capped_to_envelope'
-          }
-        }).catch(() => {});
-      }
-
-      if (slPips > assetBounds.slPips.max) {
-        const originalSL = stopLoss;
-        const originalSLPips = slPips;
-        const pipInfo = getCurrencyPipInfo(symbol);
-        const cappedSLDistance = assetBounds.slPips.max * pipInfo.pipValue;
-
-        stopLoss = isBuy
-          ? entry - cappedSLDistance
-          : entry + cappedSLDistance;
-
-        slPips = assetBounds.slPips.max;
-        slDistance = Math.abs(stopLoss - entry);
-        rr = slDistance > 0 ? tpDistance / slDistance : 0;
-
-        console.warn(
-          `[Alpha Envelope] SL CAPPED: ${originalSLPips.toFixed(1)} pips -> ${slPips.toFixed(1)} pips ` +
-          `(${resolvedStyle} ${envelopeAssetClass} max: ${assetBounds.slPips.max}). ` +
-          `Original: ${originalSL.toFixed(5)}, Capped: ${stopLoss.toFixed(5)}`
-        );
-
-        logViolation({
-          violationType: 'STYLE_ENVELOPE_SL_CAP',
-          symbol,
-          attemptedOperation: 'sl_style_enforcement',
-          callLocation: 'coordinator-alpha.parseDecision',
-          blocked: false,
-          errorDetails: {
-            style: resolvedStyle,
-            assetClass: envelopeAssetClass,
-            originalSL,
-            cappedSL: stopLoss,
-            originalSLPips,
-            cappedSLPips: assetBounds.slPips.max,
-            envelopeMax: assetBounds.slPips.max,
-            entry,
-            direction: isBuy ? 'BUY' : 'SELL',
-            resolution: 'capped_to_envelope'
-          }
-        }).catch(() => {});
-      }
-
-      // Full envelope validation logging (both SL and TP)
-      const envelopeValidation = validateTPSLAgainstEnvelope(resolvedStyle, tpPips, Math.abs(calculatePipDistance(symbol, entry, stopLoss)), envelopeAssetClass);
+      const dynamicBounds = getAssetClassEnvelopeBounds(resolvedStyle, envelopeAssetClass, symbol, currentPrice);
+      const envelopeValidation = validateTPSLAgainstEnvelope(resolvedStyle, tpPips, slPips, envelopeAssetClass, symbol, currentPrice);
       if (!envelopeValidation.valid) {
-        console.warn(`[Alpha Envelope] Remaining violations after enforcement: ${envelopeValidation.violations.join('; ')}`);
+        console.warn(`[Alpha Envelope] Decision outside dynamic bounds (informational): ${envelopeValidation.violations.join('; ')}`);
+        console.log(`[Alpha Envelope] Dynamic bounds for ${resolvedStyle} ${envelopeAssetClass} @ ${currentPrice.toFixed(2)}: TP ${dynamicBounds.tpPips.min.toFixed(1)}-${dynamicBounds.tpPips.max.toFixed(1)}, SL ${dynamicBounds.slPips.min.toFixed(1)}-${dynamicBounds.slPips.max.toFixed(1)}`);
       }
 
       let tp1Result: TP1Result | null = null;

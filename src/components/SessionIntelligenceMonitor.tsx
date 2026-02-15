@@ -39,6 +39,8 @@ interface BestPair {
   tradeStyle?: TradeStyle;
   timeframe?: string;
   direction?: TradeDirection;
+  constraintFeasible?: boolean;
+  constraintWarning?: string;
 }
 
 interface SessionData {
@@ -387,6 +389,15 @@ export const SessionIntelligenceMonitor: React.FC = () => {
                         : key.charAt(0).toUpperCase() + key.slice(1)}
               </span>
             ))}
+          </div>
+        )}
+
+        {pair.constraintFeasible === false && (
+          <div className="mt-1.5 mb-1 px-2 py-1 rounded bg-red-500/10 border border-red-500/20 flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
+            <p className="text-[10px] text-red-400 font-medium leading-tight">
+              Style blocked by constraint geometry at current price
+            </p>
           </div>
         )}
 

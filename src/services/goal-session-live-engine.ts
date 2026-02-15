@@ -3616,7 +3616,8 @@ This learning will carry forward to improve future sessions!
         : isXAUUSD(firstSandwiched.symbol) ? 'METAL'
         : isIndex(firstSandwiched.symbol) ? 'INDEX' : 'FOREX';
       const noiseFloor = firstSandwiched.noiseFloor || 200;
-      suggestedStyles = getViableStyles(firstSandwiched.symbol, assetClass, noiseFloor)
+      const snapshotPrice = snapshots.find(s => s.symbol === firstSandwiched.symbol)?.price;
+      suggestedStyles = getViableStyles(firstSandwiched.symbol, assetClass, noiseFloor, snapshotPrice)
         .filter(s => s !== currentStyle);
     }
 
