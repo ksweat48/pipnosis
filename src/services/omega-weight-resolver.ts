@@ -146,21 +146,29 @@ class OmegaWeightResolver {
 
       const finalWeight = base * confMultiplier * regimeMult * riskModeAdjust;
 
-      const voteDirection = entry.vote?.vote || 'NO_VOTE';
+      // GOVERNANCE FIX: Never use 'NO_VOTE' - all omegas must vote BUY or SELL
+      // If vote is missing, use null (architectural violation but don't break audit log)
+      const voteDirection = entry.vote?.vote || null;
       const weightedContribution = finalWeight * confidence;
+
+      // Defensive check: Ensure no NaN values propagate
+      if (isNaN(finalWeight) || isNaN(weightedContribution)) {
+        console.error(`[OmegaWeightResolver] NaN detected for ${entry.name}: finalWeight=${finalWeight}, weightedContribution=${weightedContribution}`);
+        console.error(`[OmegaWeightResolver] Debug: base=${base}, confMultiplier=${confMultiplier}, regimeMult=${regimeMult}, confidence=${confidence}`);
+      }
 
       breakdown[entry.name] = {
         baseWeight: base,
         confidenceMultiplier: confMultiplier,
         styleMultiplier: 1.0,
         regimeMultiplier: regimeMult,
-        finalWeight,
+        finalWeight: isNaN(finalWeight) ? 0 : finalWeight,
         omegaVote: voteDirection,
         omegaConfidence: confidence,
-        weightedContribution
+        weightedContribution: isNaN(weightedContribution) ? 0 : weightedContribution
       };
 
-      finalWeights[entry.name] = finalWeight;
+      finalWeights[entry.name] = isNaN(finalWeight) ? 0 : finalWeight;
     }
 
     if (userId) {
@@ -293,25 +301,40 @@ class OmegaWeightResolver {
     breakdown: Record<string, WeightBreakdown>
   ): Promise<void> {
     try {
-      const rows = Object.entries(breakdown).map(([omegaName, info]) => ({
-        user_id: userId,
-        session_id: sessionId || null,
-        style,
-        risk_mode: riskMode,
-        omega_name: omegaName,
-        base_weight: info.baseWeight,
-        confidence_multiplier: info.confidenceMultiplier,
-        style_multiplier: info.styleMultiplier,
-        regime_multiplier: info.regimeMultiplier,
-        final_weight: info.finalWeight,
-        omega_vote: info.omegaVote || null,
-        omega_confidence: info.omegaConfidence || 0,
-        weighted_contribution: info.weightedContribution || 0
-      }));
+      const rows = Object.entries(breakdown).map(([omegaName, info]) => {
+        // SSOT COMPLIANCE: Validate all required NOT NULL fields before insert
+        const row = {
+          user_id: userId,
+          session_id: sessionId || null,
+          style,
+          risk_mode: riskMode,
+          omega_name: omegaName,
+          base_weight: isNaN(info.baseWeight) ? 0.1 : info.baseWeight,
+          confidence_multiplier: isNaN(info.confidenceMultiplier) ? 1.0 : info.confidenceMultiplier,
+          style_multiplier: isNaN(info.styleMultiplier) ? 1.0 : info.styleMultiplier,
+          regime_multiplier: isNaN(info.regimeMultiplier) ? 1.0 : info.regimeMultiplier,
+          final_weight: isNaN(info.finalWeight) ? 0 : info.finalWeight,
+          omega_vote: info.omegaVote || null,
+          omega_confidence: info.omegaConfidence || 0,
+          weighted_contribution: isNaN(info.weightedContribution || 0) ? 0 : (info.weightedContribution || 0)
+        };
 
-      await supabase.from('omega_weight_audit_log').insert(rows);
+        // Defensive validation: Log if any omega_vote is not BUY/SELL (architectural violation)
+        if (row.omega_vote !== null && row.omega_vote !== 'BUY' && row.omega_vote !== 'SELL') {
+          console.error(`[OmegaWeightResolver] GOVERNANCE VIOLATION: ${omegaName} has invalid vote "${row.omega_vote}". All omegas must vote BUY or SELL.`);
+        }
+
+        return row;
+      });
+
+      const { error } = await supabase.from('omega_weight_audit_log').insert(rows);
+
+      if (error) {
+        console.error('[OmegaWeightResolver] Audit insert failed with database error:', error);
+        console.error('[OmegaWeightResolver] Attempted to insert:', JSON.stringify(rows, null, 2));
+      }
     } catch (err) {
-      console.warn('[OmegaWeightResolver] Audit insert failed:', err);
+      console.error('[OmegaWeightResolver] Audit insert failed with exception:', err);
     }
   }
 
