@@ -89,9 +89,11 @@ class AlphaLearningTracker {
       const votesList = [
         omegaVotes.trend,
         omegaVotes.scalper,
+        omegaVotes.confirmation,
         omegaVotes.reversal,
         omegaVotes.volatility,
-        omegaVotes.risk
+        omegaVotes.risk,
+        omegaVotes.omega8
       ].filter(Boolean);
 
       const buyVotes = votesList.filter((v: any) => v?.vote === 'BUY').length;
@@ -100,7 +102,7 @@ class AlphaLearningTracker {
 
       const voteDetails: Record<string, any> = {};
       const voteWeights: Record<string, number> = {};
-      const specialists = ['trend', 'scalper', 'reversal', 'volatility', 'risk'] as const;
+      const specialists = ['trend', 'scalper', 'confirmation', 'reversal', 'volatility', 'risk', 'omega8'] as const;
       for (const name of specialists) {
         const v = omegaVotes[name];
         if (v) {
@@ -109,7 +111,7 @@ class AlphaLearningTracker {
         }
       }
 
-      const log: AlphaDecisionLog = {
+      const log: Record<string, any> = {
         user_id: userId,
         session_id: sessionId,
         symbol: decision.symbol || marketContext.symbol,
@@ -135,6 +137,12 @@ class AlphaLearningTracker {
         stop_loss: decision.stopLoss,
         take_profit: decision.takeProfit,
       };
+
+      if (decision.consensusGateResult) {
+        log.consensus_gate_blocked = !decision.consensusGateResult.allowDirectionalTrade;
+        log.consensus_gate_reason = decision.consensusGateResult.blockReason;
+        log.no_trade_quorum_percent = decision.consensusGateResult.noTradePercent;
+      }
 
       const { data, error } = await supabase
         .from('alpha_decisions')

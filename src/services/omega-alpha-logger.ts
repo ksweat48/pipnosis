@@ -111,26 +111,28 @@ class OmegaAlphaLogger {
       return null;
     }
 
-    // Count votes
     const votesList = [
       votes.trend,
       votes.scalper,
+      votes.confirmation,
       votes.reversal,
       votes.volatility,
-      votes.risk
+      votes.risk,
+      votes.omega8
     ].filter(v => v !== null) as OmegaVote[];
 
     const buyVotes = votesList.filter(v => v.vote === 'BUY').length;
     const sellVotes = votesList.filter(v => v.vote === 'SELL').length;
     const noTradeVotes = votesList.filter(v => v.vote === 'NO_TRADE').length;
 
-    // Prepare vote details
     const voteDetails = {
       trend: votes.trend ? { vote: votes.trend.vote, confidence: votes.trend.confidence, reasoning: votes.trend.reasoning } : null,
       scalper: votes.scalper ? { vote: votes.scalper.vote, confidence: votes.scalper.confidence, reasoning: votes.scalper.reasoning } : null,
+      confirmation: votes.confirmation ? { vote: votes.confirmation.vote, confidence: votes.confirmation.confidence, reasoning: votes.confirmation.reasoning } : null,
       reversal: votes.reversal ? { vote: votes.reversal.vote, confidence: votes.reversal.confidence, reasoning: votes.reversal.reasoning } : null,
       volatility: votes.volatility ? { vote: votes.volatility.vote, confidence: votes.volatility.confidence, reasoning: votes.volatility.reasoning } : null,
-      risk: votes.risk ? { vote: votes.risk.vote, confidence: votes.risk.confidence, reasoning: votes.risk.reasoning } : null
+      risk: votes.risk ? { vote: votes.risk.vote, confidence: votes.risk.confidence, reasoning: votes.risk.reasoning } : null,
+      omega8: votes.omega8 ? { vote: votes.omega8.vote, confidence: votes.omega8.confidence, reasoning: votes.omega8.reasoning } : null
     };
 
     // Prepare Phase 1-4 upgrade fields
@@ -175,12 +177,17 @@ class OmegaAlphaLogger {
       insertData.liquidity_conviction = decision.liquidityIntent.overallConviction;
     }
 
-    // Add narrative coherence fields
     if (decision.narrativeValidation) {
       insertData.market_narrative = decision.narrativeValidation.narrative;
       insertData.narrative_strength_score = decision.narrativeValidation.strengthScore;
       insertData.narrative_confidence_penalty = decision.narrativeValidation.confidencePenalty;
       insertData.narrative_quality_tier = decision.narrativeValidation.qualityTier;
+    }
+
+    if (decision.consensusGateResult) {
+      insertData.consensus_gate_blocked = !decision.consensusGateResult.allowDirectionalTrade;
+      insertData.consensus_gate_reason = decision.consensusGateResult.blockReason;
+      insertData.no_trade_quorum_percent = decision.consensusGateResult.noTradePercent;
     }
 
     const { data, error } = await supabase

@@ -93,7 +93,7 @@ import { EntryIntentClassifier } from '../services/entry-intent-classifier';
 import { omega9ConstraintProvider } from '../services/omega9-constraint-provider';
 import { alphaRevisionHandler } from '../services/alpha-revision-handler';
 import type { Omega9Constraints } from '../types/omega9-constraints';
-import { getRecommendedConsensusCount, calculateConsensusStrengthModifier, getConsensusDescription } from '../services/omega-consensus-advisory';
+import { getRecommendedConsensusCount, calculateConsensusStrengthModifier, getConsensusDescription, evaluateConsensusGate } from '../services/omega-consensus-advisory';
 import { tradeExecutionFreshnessGate } from '../services/trade-execution-freshness-gate';
 import { tradeFeasibilityResolver } from '../services/trade-feasibility-resolver';
 import type { AssetClass, TradeStyle as FeasibilityTradeStyle } from '../types/trade-feasibility-resolver.types';
@@ -284,6 +284,13 @@ export interface AlphaDecision {
     liquidityTargets: number[];
     invalidationPoint: { price: number; reasoning: string } | null;
     warnings: string[];
+  };
+  // CCIP-2026-02-15: Consensus gate audit trail
+  consensusGateResult?: {
+    allowDirectionalTrade: boolean;
+    blockReason: string | null;
+    noTradeCount: number;
+    noTradePercent: number;
   };
 }
 
@@ -523,15 +530,53 @@ class AlphaCoordinatorBrain {
     const weights = resolvedWeights.weights;
     console.log(`[Alpha Coordinator] Omega weights resolved [Style: ${tradeStyle}] [Source: ${resolvedWeights.metadata.source}]`);
 
-    // Calculate weighted consensus score
+    // Calculate weighted consensus score (includes NO_TRADE quorum + minimum vote gate)
     const consensus = this.calculateWeightedConsensus(votes, weights);
     console.log(`[Alpha Coordinator] Weighted Consensus: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} Omegas)`);
+
+    if (consensus.consensusGateResult) {
+      const gate = consensus.consensusGateResult;
+      if (!gate.allowDirectionalTrade) {
+        console.log(`[Alpha Coordinator] CONSENSUS GATE: BLOCKED | Reason: ${gate.blockReason}`);
+        console.log(`[Alpha Coordinator] NO_TRADE votes: ${gate.noTradeCount}/${consensus.totalVotes} (${(gate.noTradePercent * 100).toFixed(0)}%) | Threshold: 60%`);
+      } else {
+        console.log(`[Alpha Coordinator] CONSENSUS GATE: PASSED | NO_TRADE: ${gate.noTradeCount}/${consensus.totalVotes} (${(gate.noTradePercent * 100).toFixed(0)}%)`);
+      }
+    }
 
     // Calculate consensus strength modifier and advisory recommendation
     const recommendedConsensusCount = getRecommendedConsensusCount(riskMode);
     const consensusStrengthModifier = calculateConsensusStrengthModifier(consensus.agreementCount, riskMode);
     const consensusDescription = getConsensusDescription(riskMode);
-    console.log(`[Alpha Coordinator] 🎯 Consensus Advisory: ${recommendedConsensusCount}/7 recommended for ${riskMode} risk | Actual: ${consensus.agreementCount}/7 | Strength Modifier: ${consensusStrengthModifier > 0 ? '+' : ''}${(consensusStrengthModifier * 100).toFixed(1)}%`);
+    console.log(`[Alpha Coordinator] Consensus Advisory: ${recommendedConsensusCount}/7 recommended for ${riskMode} risk | Actual: ${consensus.agreementCount}/7 | Strength Modifier: ${consensusStrengthModifier > 0 ? '+' : ''}${(consensusStrengthModifier * 100).toFixed(1)}%`);
+
+    // CCIP-2026-02-15: Early return when consensus gate blocks directional trade
+    if (consensus.consensusGateResult && !consensus.consensusGateResult.allowDirectionalTrade) {
+      const gateReason = consensus.consensusGateResult.blockReason || 'Consensus gate blocked directional trade';
+      console.log(`[Alpha Coordinator] EARLY RETURN: NO_TRADE due to consensus gate - ${gateReason}`);
+      return {
+        action: 'NO_TRADE',
+        entry: marketContext.price,
+        stopLoss: 0,
+        takeProfit: 0,
+        confidence: 0,
+        reasoning: `Consensus gate: ${gateReason}. The Omega council does not support a directional trade at this time.`,
+        tradeQuality: 'POOR',
+        adjustments: [],
+        constraints: null,
+        hasConflict: false,
+        omega9Result: null,
+        conflictResolution: null,
+        riskPercentage: 0,
+        positionSize: 0,
+        rrRatio: 0,
+        estimatedDurationMinutes: 0,
+        entryIntentClassification: null,
+        stopLossAnchor: null,
+        takeProfitCalculation: null,
+        consensusGateResult: consensus.consensusGateResult
+      };
+    }
 
     // Fire-and-forget thought stream emissions
     if (sessionId && userId) {
@@ -1968,6 +2013,12 @@ Return PURE JSON only:
 
   /**
    * Calculate weighted consensus from Omega votes
+   *
+   * CCIP-2026-02-15: Added NO_TRADE quorum enforcement and minimum vote requirement.
+   * Before computing weighted scores, checks:
+   * 1. Minimum 3 Omega votes received (insufficient data = NO_TRADE)
+   * 2. NO_TRADE quorum: if >= 60% of Omegas vote NO_TRADE, consensus = NO_TRADE
+   * 3. Minimum 3 directional votes in same direction for BUY/SELL consensus
    */
   private calculateWeightedConsensus(
     votes: OmegaCouncilVotes,
@@ -1978,6 +2029,12 @@ Return PURE JSON only:
     agreementCount: number;
     totalVotes: number;
     strongAgreement: boolean;
+    consensusGateResult?: {
+      allowDirectionalTrade: boolean;
+      blockReason: string | null;
+      noTradeCount: number;
+      noTradePercent: number;
+    };
   } {
     let buyScore = 0;
     let sellScore = 0;
@@ -1997,6 +2054,31 @@ Return PURE JSON only:
       { name: 'risk', vote: votes.risk, weight: weights.risk ?? 0 },
       { name: 'omega8', vote: votes.omega8, weight: weights.omega8 ?? 0 }
     ];
+
+    const flatVotes = voteEntries
+      .map(e => e.vote ? { vote: e.vote.vote, confidence: e.vote.confidence } : null);
+
+    const consensusGate = evaluateConsensusGate(flatVotes);
+
+    if (!consensusGate.allowDirectionalTrade) {
+      const validVoteCount = flatVotes.filter(v => v !== null).length;
+      console.log(`[Alpha Coordinator] CONSENSUS GATE BLOCKED: ${consensusGate.blockReason}`);
+      console.log(`[Alpha Coordinator] NO_TRADE quorum: ${consensusGate.noTradeQuorum.noTradeCount}/${consensusGate.noTradeQuorum.totalVotes} (${(consensusGate.noTradeQuorum.noTradePercent * 100).toFixed(0)}%)`);
+
+      return {
+        direction: 'NO_TRADE',
+        score: 0,
+        agreementCount: consensusGate.noTradeQuorum.noTradeCount,
+        totalVotes: validVoteCount,
+        strongAgreement: false,
+        consensusGateResult: {
+          allowDirectionalTrade: false,
+          blockReason: consensusGate.blockReason,
+          noTradeCount: consensusGate.noTradeQuorum.noTradeCount,
+          noTradePercent: consensusGate.noTradeQuorum.noTradePercent
+        }
+      };
+    }
 
     for (const entry of voteEntries) {
       if (!entry.vote) continue;
@@ -2051,7 +2133,13 @@ Return PURE JSON only:
       score,
       agreementCount,
       totalVotes,
-      strongAgreement
+      strongAgreement,
+      consensusGateResult: {
+        allowDirectionalTrade: true,
+        blockReason: null,
+        noTradeCount: consensusGate.noTradeQuorum.noTradeCount,
+        noTradePercent: consensusGate.noTradeQuorum.noTradePercent
+      }
     };
   }
 

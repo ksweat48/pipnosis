@@ -1,5 +1,5 @@
 /**
- * SIMPLIFIED OMEGA CONSENSUS SYSTEM
+ * OMEGA CONSENSUS SYSTEM WITH NO_TRADE QUORUM ENFORCEMENT
  *
  * Fixed baseline consensus with Alpha override capability:
  * - STANDARD: 4/7 Omegas (57% consensus) - Baseline, no confidence adjustment
@@ -7,6 +7,12 @@
  * - LOOSE: 3/7 Omegas (43% consensus) - Alpha accepts more risk, -5 confidence
  *
  * Alpha can override consensus based on market conditions and conviction.
+ *
+ * CCIP-2026-02-15: NO_TRADE QUORUM ENFORCEMENT
+ * - When >= 60% of voting Omegas return NO_TRADE, consensus is forced to NO_TRADE
+ * - Minimum 3 Omega votes required for any directional consensus
+ * - If fewer than 3 Omegas vote, consensus defaults to NO_TRADE (insufficient data)
+ * - NO_TRADE votes are treated as dissenting signals, not abstentions
  *
  * TIER 4 FIX: Added consensus quality metric
  * - Distinguishes "5 weak agrees" from "3 strong agrees"
@@ -16,11 +22,29 @@
 
 export type AlphaConsensusOverride = 'strict' | 'standard' | 'loose';
 
+export const NO_TRADE_QUORUM_THRESHOLD = 0.60;
+export const MINIMUM_DIRECTIONAL_VOTES = 3;
+
+export interface NoTradeQuorumResult {
+  quorumTriggered: boolean;
+  noTradeCount: number;
+  totalVotes: number;
+  noTradePercent: number;
+  reason: string;
+}
+
+export interface MinimumVoteResult {
+  sufficient: boolean;
+  totalVotes: number;
+  minimumRequired: number;
+  reason: string;
+}
+
 export interface ConsensusQualityMetric {
   voteCount: number;
   averageConfidence: number;
-  confidenceSpread: number; // Standard deviation of confidence values
-  weightedQuality: number; // 0-100 score combining count and confidence
+  confidenceSpread: number;
+  weightedQuality: number;
   quality: 'WEAK' | 'MODERATE' | 'STRONG' | 'ELITE';
   interpretation: string;
 }
@@ -212,4 +236,144 @@ export function getConsensusQualityAdjustment(quality: ConsensusQualityMetric['q
   };
 
   return adjustments[quality];
+}
+
+/**
+ * CCIP-2026-02-15: NO_TRADE QUORUM CHECK
+ *
+ * When >= 60% of voting Omegas return NO_TRADE, the consensus MUST be NO_TRADE.
+ * NO_TRADE votes are dissenting signals -- they mean "do not trade" not "I abstain."
+ *
+ * This prevents a single high-confidence directional Omega from overriding
+ * the majority council's judgment that market conditions are unfavorable.
+ *
+ * Example that triggered this fix:
+ *   4/6 Omegas voted NO_TRADE (67%), 2 voted BUY
+ *   Old behavior: BUY at 70% confidence (Scalper's 90% dominated weighted calc)
+ *   New behavior: NO_TRADE (quorum enforced, 67% >= 60% threshold)
+ */
+export function checkNoTradeQuorum(
+  votes: Array<{ vote: string; confidence: number } | null>
+): NoTradeQuorumResult {
+  const validVotes = votes.filter((v): v is { vote: string; confidence: number } => v !== null);
+  const totalVotes = validVotes.length;
+
+  if (totalVotes === 0) {
+    return {
+      quorumTriggered: true,
+      noTradeCount: 0,
+      totalVotes: 0,
+      noTradePercent: 0,
+      reason: 'No Omega votes received - defaulting to NO_TRADE'
+    };
+  }
+
+  const noTradeCount = validVotes.filter(v => v.vote === 'NO_TRADE').length;
+  const noTradePercent = noTradeCount / totalVotes;
+
+  const quorumTriggered = noTradePercent >= NO_TRADE_QUORUM_THRESHOLD;
+
+  return {
+    quorumTriggered,
+    noTradeCount,
+    totalVotes,
+    noTradePercent,
+    reason: quorumTriggered
+      ? `NO_TRADE quorum reached: ${noTradeCount}/${totalVotes} Omegas (${(noTradePercent * 100).toFixed(0)}%) voted NO_TRADE (threshold: ${(NO_TRADE_QUORUM_THRESHOLD * 100).toFixed(0)}%)`
+      : `NO_TRADE quorum not reached: ${noTradeCount}/${totalVotes} Omegas (${(noTradePercent * 100).toFixed(0)}%) voted NO_TRADE (threshold: ${(NO_TRADE_QUORUM_THRESHOLD * 100).toFixed(0)}%)`
+  };
+}
+
+/**
+ * CCIP-2026-02-15: MINIMUM DIRECTIONAL VOTE CHECK
+ *
+ * At least 3 Omegas must vote in the same direction (BUY or SELL)
+ * for a directional consensus to be valid. This prevents thin consensus
+ * where 1-2 Omegas drive a trade decision.
+ *
+ * If fewer than MINIMUM_DIRECTIONAL_VOTES agree on a direction,
+ * the consensus defaults to NO_TRADE regardless of individual confidence.
+ */
+export function checkMinimumDirectionalVotes(
+  votes: Array<{ vote: string; confidence: number } | null>
+): MinimumVoteResult {
+  const validVotes = votes.filter((v): v is { vote: string; confidence: number } => v !== null);
+  const totalVotes = validVotes.length;
+
+  if (totalVotes < MINIMUM_DIRECTIONAL_VOTES) {
+    return {
+      sufficient: false,
+      totalVotes,
+      minimumRequired: MINIMUM_DIRECTIONAL_VOTES,
+      reason: `Insufficient Omega votes: ${totalVotes} received, minimum ${MINIMUM_DIRECTIONAL_VOTES} required for any directional consensus`
+    };
+  }
+
+  const buyCount = validVotes.filter(v => v.vote === 'BUY').length;
+  const sellCount = validVotes.filter(v => v.vote === 'SELL').length;
+  const maxDirectional = Math.max(buyCount, sellCount);
+
+  if (maxDirectional < MINIMUM_DIRECTIONAL_VOTES) {
+    return {
+      sufficient: false,
+      totalVotes,
+      minimumRequired: MINIMUM_DIRECTIONAL_VOTES,
+      reason: `No direction has ${MINIMUM_DIRECTIONAL_VOTES}+ votes: BUY=${buyCount}, SELL=${sellCount}. Directional consensus cannot be formed.`
+    };
+  }
+
+  return {
+    sufficient: true,
+    totalVotes,
+    minimumRequired: MINIMUM_DIRECTIONAL_VOTES,
+    reason: `Sufficient directional votes: ${maxDirectional >= buyCount ? 'BUY' : 'SELL'}=${maxDirectional}/${totalVotes} (minimum ${MINIMUM_DIRECTIONAL_VOTES} met)`
+  };
+}
+
+/**
+ * CCIP-2026-02-15: COMBINED CONSENSUS GATE
+ *
+ * Runs both the NO_TRADE quorum check and minimum directional vote check.
+ * Returns whether a directional trade should proceed and the combined reasoning.
+ *
+ * Order of checks:
+ * 1. Minimum vote count (need at least 3 Omegas voting)
+ * 2. NO_TRADE quorum (if >= 60% say NO_TRADE, block the trade)
+ * 3. Minimum directional agreement (need at least 3 in same direction)
+ */
+export function evaluateConsensusGate(
+  votes: Array<{ vote: string; confidence: number } | null>
+): {
+  allowDirectionalTrade: boolean;
+  noTradeQuorum: NoTradeQuorumResult;
+  minimumVotes: MinimumVoteResult;
+  blockReason: string | null;
+} {
+  const noTradeQuorum = checkNoTradeQuorum(votes);
+  const minimumVotes = checkMinimumDirectionalVotes(votes);
+
+  if (!minimumVotes.sufficient) {
+    return {
+      allowDirectionalTrade: false,
+      noTradeQuorum,
+      minimumVotes,
+      blockReason: minimumVotes.reason
+    };
+  }
+
+  if (noTradeQuorum.quorumTriggered) {
+    return {
+      allowDirectionalTrade: false,
+      noTradeQuorum,
+      minimumVotes,
+      blockReason: noTradeQuorum.reason
+    };
+  }
+
+  return {
+    allowDirectionalTrade: true,
+    noTradeQuorum,
+    minimumVotes,
+    blockReason: null
+  };
 }
