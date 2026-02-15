@@ -28,6 +28,8 @@ import { omegaAlphaLogger } from './omega-alpha-logger';
 import type { OmegaSensors } from './omega-sensors';
 import type { RegimeSnapshot } from './regime-oracle';
 import type { AdversarialSignal } from './adversarial-detector';
+import { buildMarketBriefing } from './market-briefing-builder';
+import type { MarketSnapshotInput } from '../types/market-briefing';
 import { sentimentCoordinator } from './sentiment-coordinator';
 import type { AggregatedSentiment } from './sentiment-aggregator';
 import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator';
@@ -529,25 +531,56 @@ class AlphaOmegaOrchestrator {
       atr: marketState.atr
     };
 
+    // Build market briefing from raw snapshot data (replaces vote-based context)
+    const snapshotInput: MarketSnapshotInput = {
+      symbol: snapshot.symbol,
+      price: snapshot.price,
+      ema20: snapshot.ema20,
+      ema50: snapshot.ema50,
+      ema200: snapshot.ema200,
+      rsi: snapshot.rsi,
+      momentum: snapshot.momentum,
+      stochastic: snapshot.stochRsi,
+      macd: snapshot.omegaSensors.mdif,
+      macdSignal: 0,
+      vwap: snapshot.vwap,
+      atr: snapshot.atr.value,
+      support: snapshot.support,
+      resistance: snapshot.resistance,
+      swingHigh: snapshot.swingHigh,
+      swingLow: snapshot.swingLow,
+      trend: snapshot.trend,
+      volatility: snapshot.volatility,
+      regime: snapshot.regime?.structure || 'unknown',
+      session: 'active',
+      sensors: snapshot.omegaSensors,
+      candles: snapshot.candles.map(c => ({ open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume })),
+    };
+    const marketBriefing = buildMarketBriefing(snapshotInput, omega8Vote as any);
+
     // Alpha coordinates the decision (with full authority)
     console.log('[Alpha+Omega] 🧠 Alpha making final decision...');
     const alphaStart = Date.now();
 
     const decision = await alphaCoordinator.coordinate(
+      marketBriefing,
       {
         trend: trendVote,
         scalper: scalperVote,
         confirmation: confirmationVote,
         reversal: reversalVote,
         volatility: volatilityVote,
-        risk: null, // Risk is now a pre-flight gate
+        risk: null,
         omega8: omega8Vote
       },
       marketContext,
       traderScore,
-      userId, // Pass userId for confidence calibration
-      conflictCheck, // Pass conflict info to Alpha
-      goalContext // Pass goal context for smart position sizing
+      userId,
+      conflictCheck,
+      goalContext,
+      marketState.adversarial,
+      marketState.regime,
+      snapshot.candles
     );
 
     const alphaTime = Date.now() - alphaStart;

@@ -2,10 +2,9 @@
  * Alpha Coordinator - The Decision Maker
  *
  * Responsibilities:
- * - Collect votes from 6 Omega specialists
- * - Weight votes by confidence and trader personality
- * - Adjust weights based on market regime
- * - Make final arbitrated decision
+ * - Receive raw market intelligence briefing (not pre-digested votes)
+ * - Analyze all indicators, sensors, and market structure directly
+ * - Make final trading decision with full market context
  * - Handle conflicts intelligently
  *
  * Uses ultra-compressed prompts for cost efficiency
@@ -79,7 +78,7 @@ import type { AdversarialSignal } from '../services/adversarial-detector';
 import type { RegimeSnapshot } from '../services/regime-oracle';
 import { rrSuccessTracker } from '../services/rr-success-tracker';
 import { formatRiskProfileForLLM } from '../config/risk-strategy-profiles';
-import { omegaWeightResolver, type StyleIntent, type WeightResolutionMetadata } from '../services/omega-weight-resolver';
+import type { MarketBriefing } from '../types/market-briefing';
 import { timeToFillCalculator, type TimeToFillInput } from '../services/time-to-fill-calculator';
 import { dailyNarrativeBuilder, type DailyNarrative } from '../services/daily-narrative-builder';
 import { multiSymbolRanker, type SymbolScore } from '../services/multi-symbol-ranker';
@@ -93,7 +92,6 @@ import { EntryIntentClassifier } from '../services/entry-intent-classifier';
 import { omega9ConstraintProvider } from '../services/omega9-constraint-provider';
 import { alphaRevisionHandler } from '../services/alpha-revision-handler';
 import type { Omega9Constraints } from '../types/omega9-constraints';
-import { getRecommendedConsensusCount, calculateConsensusStrengthModifier, getConsensusDescription, evaluateDirectionalStrength } from '../services/omega-consensus-advisory';
 import { tradeExecutionFreshnessGate } from '../services/trade-execution-freshness-gate';
 import { tradeFeasibilityResolver } from '../services/trade-feasibility-resolver';
 import type { AssetClass, TradeStyle as FeasibilityTradeStyle } from '../types/trade-feasibility-resolver.types';
@@ -327,42 +325,27 @@ function logATRUsage(context: string, atr: number | ATRValue | undefined): void 
 }
 
 class AlphaCoordinatorBrain {
-  /**
-   * Calculate Omega confidence spread (standard deviation)
-   * High spread = disagreement, tighten R:R
-   * Low spread = consensus, can use wider R:R
-   */
-  private calculateConfidenceSpread(votes: OmegaCouncilVotes): {
-    stdDev: number;
-    avgConfidence: number;
-    isHighAgreement: boolean;
-  } {
-    const confidences: number[] = [];
+  private derivePreliminaryDirection(briefing: MarketBriefing): 'BUY' | 'SELL' {
+    const intel = briefing.intelligence;
+    let buySignals = 0;
+    let sellSignals = 0;
 
-    if (votes.trend) confidences.push(votes.trend.confidence);
-    if (votes.scalper) confidences.push(votes.scalper.confidence);
-    if (votes.confirmation) confidences.push(votes.confirmation.confidence);
-    if (votes.reversal) confidences.push(votes.reversal.confidence);
-    if (votes.volatility) confidences.push(votes.volatility.confidence);
-    if (votes.risk) confidences.push(votes.risk.confidence);
-    if (votes.omega8) confidences.push(votes.omega8.confidence);
+    if (intel.trend.emaAlignment === 'bull') buySignals += 2;
+    else if (intel.trend.emaAlignment === 'bear') sellSignals += 2;
 
-    if (confidences.length === 0) {
-      return { stdDev: 0, avgConfidence: 0, isHighAgreement: false };
-    }
+    if (intel.trend.momentum === 'strong_bull' || intel.trend.momentum === 'bull') buySignals += 1;
+    else if (intel.trend.momentum === 'strong_bear' || intel.trend.momentum === 'bear') sellSignals += 1;
 
-    // Calculate mean
-    const mean = confidences.reduce((sum, val) => sum + val, 0) / confidences.length;
+    if (intel.trend.bos === 'bull') buySignals += 2;
+    else if (intel.trend.bos === 'bear') sellSignals += 2;
 
-    // Calculate standard deviation
-    const squaredDiffs = confidences.map(val => Math.pow(val - mean, 2));
-    const variance = squaredDiffs.reduce((sum, val) => sum + val, 0) / confidences.length;
-    const stdDev = Math.sqrt(variance);
+    if (intel.orderFlow.bias === 'buy') buySignals += 1;
+    else if (intel.orderFlow.bias === 'sell') sellSignals += 1;
 
-    // High agreement = low std dev (< 10)
-    const isHighAgreement = stdDev < 10;
+    if (intel.confirmation.bosDirection === 'bull') buySignals += 1;
+    else if (intel.confirmation.bosDirection === 'bear') sellSignals += 1;
 
-    return { stdDev, avgConfidence: mean, isHighAgreement };
+    return buySignals >= sellSignals ? 'BUY' : 'SELL';
   }
 
   /**
@@ -478,6 +461,7 @@ class AlphaCoordinatorBrain {
    * Alpha has FULL AUTHORITY - can override any Omega recommendation
    */
   async coordinate(
+    briefing: MarketBriefing,
     votes: OmegaCouncilVotes,
     marketContext: MarketContext,
     traderScore: TraderScore,
@@ -517,61 +501,15 @@ class AlphaCoordinatorBrain {
     // Declare risk mode at function scope (used throughout function)
     const riskMode = goalContext?.riskMode || 'medium';
 
-    // Resolve trade style early (needed for style-aware omega weighting)
-    const EARLY_STYLE_MAP: Record<string, StyleIntent> = {
+    const EARLY_STYLE_MAP: Record<string, 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'> = {
       'scalper': 'SCALP', 'SCALPER': 'SCALP', 'scalp': 'SCALP', 'SCALP': 'SCALP',
       'micro': 'MICRO_INTRADAY', 'MICRO': 'MICRO_INTRADAY', 'MICRO_INTRADAY': 'MICRO_INTRADAY',
       'intraday': 'INTRADAY', 'INTRADAY': 'INTRADAY', 'day': 'INTRADAY',
     };
-    const tradeStyle: StyleIntent = (goalContext?.tradeStyle ? EARLY_STYLE_MAP[goalContext.tradeStyle] : undefined) || 'SCALP';
+    const tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = (goalContext?.tradeStyle ? EARLY_STYLE_MAP[goalContext.tradeStyle] : undefined) || 'SCALP';
 
-    // Calculate style-aware vote weights via SSOT Weight Resolver
-    const resolvedWeights = await omegaWeightResolver.resolveWeights(
-      votes, marketContext, tradeStyle, riskMode, userId, sessionId
-    );
-    const weights = resolvedWeights.weights;
-    console.log(`[Alpha Coordinator] Omega weights resolved [Style: ${tradeStyle}] [Source: ${resolvedWeights.metadata.source}]`);
-
-    const consensus = this.calculateWeightedConsensus(votes, weights, tradeStyle);
-    console.log(`[Alpha Coordinator] Weighted Consensus: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} Omegas)`);
-
-    if (consensus.directionalStrengthResult) {
-      const ds = consensus.directionalStrengthResult;
-      console.log(`[Alpha Coordinator] Directional Strength: NET=${ds.netStrength.toFixed(1)} (BUY=${ds.buyScore.toFixed(1)} vs SELL=${ds.sellScore.toFixed(1)}) | Threshold: ${ds.threshold} [${ds.style}] | ${ds.meetsThreshold ? 'PASSED' : 'BLOCKED'}`);
-    }
-
-    // Calculate consensus strength modifier and advisory recommendation
-    const recommendedConsensusCount = getRecommendedConsensusCount(riskMode);
-    const consensusStrengthModifier = calculateConsensusStrengthModifier(consensus.agreementCount, riskMode);
-    const consensusDescription = getConsensusDescription(riskMode);
-    console.log(`[Alpha Coordinator] Consensus Advisory: ${recommendedConsensusCount}/7 recommended for ${riskMode} risk | Actual: ${consensus.agreementCount}/7 | Strength Modifier: ${consensusStrengthModifier > 0 ? '+' : ''}${(consensusStrengthModifier * 100).toFixed(1)}%`);
-
-    if (consensus.directionalStrengthResult && !consensus.directionalStrengthResult.meetsThreshold) {
-      const dsReason = consensus.directionalStrengthResult.reason || 'Insufficient directional conviction';
-      console.log(`[Alpha Coordinator] EARLY RETURN: NO_TRADE due to weak directional strength - ${dsReason}`);
-      return {
-        action: 'NO_TRADE',
-        entry: marketContext.price,
-        stopLoss: 0,
-        takeProfit: 0,
-        confidence: 0,
-        reasoning: `Directional strength: ${dsReason}. The Omega council lacks sufficient directional conviction for a trade.`,
-        tradeQuality: 'POOR',
-        adjustments: [],
-        constraints: null,
-        hasConflict: false,
-        omega9Result: null,
-        conflictResolution: null,
-        riskPercentage: 0,
-        positionSize: 0,
-        rrRatio: 0,
-        estimatedDurationMinutes: 0,
-        entryIntentClassification: null,
-        stopLossAnchor: null,
-        takeProfitCalculation: null,
-        directionalStrengthResult: consensus.directionalStrengthResult
-      };
-    }
+    const preliminaryDirection = this.derivePreliminaryDirection(briefing);
+    console.log(`[Alpha Coordinator] Preliminary direction from briefing: ${preliminaryDirection} [Style: ${tradeStyle}]`);
 
     // Fire-and-forget thought stream emissions
     if (sessionId && userId) {
@@ -583,13 +521,13 @@ class AlphaCoordinatorBrain {
     }
 
     // Parallelize all independent data fetches
-    const [platformIntelligence, dailyNarrative, riskResult, rrResult] = await Promise.all([
+    const [, dailyNarrative, riskResult, rrResult] = await Promise.all([
       this.fetchPlatformIntelligence(marketContext.symbol),
       dailyNarrativeBuilder.build(marketContext.symbol, marketContext.price),
       (userId && goalContext) ? professionalRiskManager.evaluateTrade({
         userId,
         symbol: marketContext.symbol,
-        direction: consensus.direction === 'BUY' ? 'long' : 'short',
+        direction: preliminaryDirection === 'BUY' ? 'long' : 'short',
         currentBalance: goalContext.currentBalance,
         baseRiskPercent: 0.01,
         currentATR: extractATRValue(marketContext.atr),
@@ -616,21 +554,9 @@ class AlphaCoordinatorBrain {
       riskContext += `Reasoning: ${riskAssessment.overallReasoning}\n`;
     }
 
-    // Build directional conflict alert (highest-conf omega vs consensus)
-    const directionalConflictAlert = omegaWeightResolver.buildDirectionalConflictAlert(
-      votes, resolvedWeights.metadata, consensus.direction
-    );
-
-    // Build compressed context
-    const context = this.buildCoordinationContext(votes, weights, marketContext, traderScore, consensus, platformIntelligence);
-
-    // Build conflict context
     let conflictContext = '';
     if (conflictInfo && conflictInfo.hasConflict) {
       conflictContext = `\nOMEGA CONFLICT DETECTED:\nType: ${conflictInfo.conflictType} | Severity: ${conflictInfo.severity}\n${conflictInfo.conflictDescription}\n\nYou have authority to override if justified.\n`;
-    }
-    if (directionalConflictAlert) {
-      conflictContext += `\n${directionalConflictAlert}\n`;
     }
 
     // Build advisory context (Adversarial Detector + Regime Oracle)
@@ -642,10 +568,8 @@ class AlphaCoordinatorBrain {
       rrPerformanceContext = `\n${rrResult}\n`;
     }
 
-    // Calculate enhanced intelligence signals
-    const confidenceSpread = this.calculateConfidenceSpread(votes);
     const volatilityRegime = this.detectVolatilityRegime(marketContext);
-    const stopQuality = this.calculateStopQualityScore(votes.omega8, null); // omega9 validation happens later
+    const stopQuality = this.calculateStopQualityScore(votes.omega8, null);
 
     // Build goal context with RISK PROFILE STRATEGY (if trading with a goal)
     let goalContextText = '';
@@ -811,22 +735,21 @@ class AlphaCoordinatorBrain {
     // ═══════════════════════════════════════════════════════════════════
     let patternIntelligence: PatternIntelligenceResult | null = null;
     let patternContext = '';
-    if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED') {
+    {
       if (sessionId && userId) {
         alphaThoughtStream.emitAlphaPatternAnalysis(sessionId, userId, marketContext.symbol).catch(err => {
           console.warn('[Alpha Coordinator] Failed to emit pattern analysis thought:', err);
         });
       }
       try {
-        const tradeDirection = consensus.direction === 'BUY' ? 'long' : 'short';
+        const tradeDirection = preliminaryDirection === 'BUY' ? 'long' : 'short';
 
         console.log('[Alpha Coordinator] 🔍 Analyzing multi-timeframe patterns...');
 
-        // Run pattern intelligence analysis
         patternIntelligence = await multiTimeframePatternIntelligence.analyzePatterns({
           symbol: marketContext.symbol,
           riskMode,
-          baseConfidence: consensus.score,
+          baseConfidence: 55,
           tradeDirection,
           liquidityIntentConfirms: liquidityIntent ? liquidityIntent.overallConviction >= 70 : false,
         });
@@ -851,8 +774,8 @@ class AlphaCoordinatorBrain {
     // Detect liquidity zones for Elite TP System (now enhanced with pattern intelligence)
     let liquidityZones: LiquidityZone[] = [];
     let liquidityContext = '';
-    if (fullCandles && fullCandles.length > 0 && consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED') {
-      const direction = consensus.direction === 'BUY' ? 'long' : 'short';
+    if (fullCandles && fullCandles.length > 0) {
+      const direction = preliminaryDirection === 'BUY' ? 'long' : 'short';
       liquidityZones = eliteProfitTargetCalculator.detectLiquidityZones(
         fullCandles,
         marketContext.price,
@@ -901,14 +824,14 @@ class AlphaCoordinatorBrain {
     // Calculate professional stop-loss anchor for Alpha
     let stopLossAnchor: StopLossCalculation | null = null;
     let stopLossDirective = '';
-    if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED') {
+    {
       if (sessionId && userId) {
         alphaThoughtStream.emitAlphaStopCalculation(sessionId, userId, marketContext.symbol).catch(err => {
           console.warn('[Alpha Coordinator] Failed to emit stop calculation thought:', err);
         });
       }
       const entryPrice = marketContext.price;
-      const direction = consensus.direction === 'BUY' ? 'buy' : 'sell';
+      const direction = preliminaryDirection === 'BUY' ? 'buy' : 'sell';
 
       // riskMode already declared at function scope
       // Extract ATR value for stop loss calculation
@@ -933,7 +856,7 @@ class AlphaCoordinatorBrain {
     let resolvedPlan = null;
     let computedAtrPercent = 0;
 
-    if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED' && consensus.direction !== 'WAIT') {
+    {
       const assetClass = getAssetClass(marketContext.symbol);
 
       // SSOT: Use user's chosen style for feasibility check (same as tradeStyle resolved above)
@@ -1050,7 +973,7 @@ class AlphaCoordinatorBrain {
 
     console.log(`[Alpha Coordinator] [Style SSOT] User chose: ${goalContext?.tradeStyle || 'none'} => Canonical: ${tradeStyle} (IMMUTABLE - no promotion allowed)`);
 
-    if (consensus.direction !== 'NO_TRADE' && consensus.direction !== 'MIXED' && consensus.direction !== 'WAIT') {
+    {
       if (sessionId && userId) {
         alphaThoughtStream.emitAlphaConstraints(sessionId, userId, marketContext.symbol).catch(err => {
           console.warn('[Alpha Coordinator] Failed to emit constraints thought:', err);
@@ -1063,7 +986,7 @@ class AlphaCoordinatorBrain {
       omega9Constraints = omega9ConstraintProvider.generateConstraints({
         symbol: marketContext.symbol,
         entry: marketContext.price,
-        direction: consensus.direction as 'BUY' | 'SELL',
+        direction: preliminaryDirection,
         atr: extractATRValue(marketContext.atr),
         riskMode,
         tradeStyle,  // CRITICAL: Pass trade style for session constraint behavior
@@ -1303,34 +1226,20 @@ ALPHA MENTALITY:
 - Compare relative opportunities when scanning multiple pairs
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-${context}
+MARKET INTELLIGENCE BRIEFING:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${briefing.briefingText}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-WEIGHTED CONSENSUS: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} agree)
-
-🎯 CONSENSUS STRENGTH ANALYSIS:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Risk Mode: ${riskMode.toUpperCase()} (${consensusDescription})
-Advisory Minimum: ${recommendedConsensusCount}/7 Omegas
-Actual Consensus: ${consensus.agreementCount}/7 Omegas
-Strength Modifier: ${consensusStrengthModifier > 0 ? '+' : ''}${(consensusStrengthModifier * 100).toFixed(1)}% confidence adjustment
-
-${consensus.agreementCount === 7 ? '🏆 UNANIMOUS (7/7) - Maximum consensus strength' :
-  consensus.agreementCount === 6 ? '✅ STRONG (6/7) - High agreement' :
-  consensus.agreementCount >= recommendedConsensusCount ? '✓ MEETS ADVISORY - Adequate consensus' :
-  '⚠️ BELOW ADVISORY - Proceed with caution'}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Preliminary Direction Lean: ${preliminaryDirection}
+Risk Mode: ${riskMode.toUpperCase()}
 
 ${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${patternContext}${intelligenceContext}${goalContextText}${liquidityContext}${constraintsText}${stopLossDirective}
 
-🎯 ALPHA DECISION INTELLIGENCE:
+MARKET CONDITIONS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 Omega Weighted Contributions:
-${omegaWeightResolver.buildWeightSummaryForAlpha(resolvedWeights.metadata)}
-
-📈 Market Intelligence:
-  Confidence Spread: ${confidenceSpread.stdDev.toFixed(1)}% (Avg: ${confidenceSpread.avgConfidence.toFixed(0)}%) → ${confidenceSpread.isHighAgreement ? '✅ HIGH CONSENSUS - wider R:R viable (2.5-3.5:1)' : '⚠️ DISAGREEMENT - tighten to 1.5-2.0:1'}
-  Volatility: ${volatilityRegime.regime.toUpperCase()} ${volatilityRegime.ratio !== 1.0 ? `(${volatilityRegime.ratio.toFixed(2)}x)` : ''} → ${volatilityRegime.recommendation}
-  Stop Quality: ${stopQuality.score}/100 → ${stopQuality.recommendation}
+  Volatility: ${volatilityRegime.regime.toUpperCase()} ${volatilityRegime.ratio !== 1.0 ? `(${volatilityRegime.ratio.toFixed(2)}x)` : ''} | ${volatilityRegime.recommendation}
+  Stop Quality: ${stopQuality.score}/100 | ${stopQuality.recommendation}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 NARRATIVE (MANDATORY for BUY/SELL):
@@ -1370,7 +1279,7 @@ Return PURE JSON only:
         [
           {
             role: 'system',
-            content: 'You are Alpha Coordinator. Synthesize Omega votes. Return JSON only.'
+            content: 'You are Alpha Coordinator. Analyze raw market intelligence and make trading decisions. Return JSON only.'
           },
           {
             role: 'user',
@@ -1621,9 +1530,8 @@ Return PURE JSON only:
         console.log('[Alpha Stop Analysis] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       }
 
-      decision.omega_summary = this.generateOmegaSummary(votes, weights);
+      decision.omega_summary = this.generateOmegaSummary(votes);
       decision.omega_votes = votes;
-      decision.omegaConsensusPercent = consensus.score;
       decision.atrPercent = computedAtrPercent;
 
       // Add goal context if provided
@@ -2007,122 +1915,6 @@ Return PURE JSON only:
   }
 
   /**
-   * Calculate weighted consensus from Omega votes
-   *
-   * CCIP-2026-02-15: DIRECTIONAL STRENGTH MODEL
-   * All Omegas now vote BUY or SELL with confidence 1-100%.
-   * NO_TRADE is exclusively an Alpha-level decision.
-   *
-   * Computes weighted directional scores and evaluates net strength
-   * against style-aware thresholds. If net strength is below threshold,
-   * Alpha returns NO_TRADE (insufficient directional conviction).
-   */
-  private calculateWeightedConsensus(
-    votes: OmegaCouncilVotes,
-    weights: Record<string, number>,
-    style: string = 'MICRO_INTRADAY'
-  ): {
-    direction: 'BUY' | 'SELL' | 'NO_TRADE' | 'MIXED' | 'WAIT';
-    score: number;
-    agreementCount: number;
-    totalVotes: number;
-    strongAgreement: boolean;
-    directionalStrengthResult?: {
-      buyScore: number;
-      sellScore: number;
-      netStrength: number;
-      winningDirection: 'BUY' | 'SELL';
-      meetsThreshold: boolean;
-      threshold: number;
-      style: string;
-      reason: string;
-    };
-  } {
-    let buyScore = 0;
-    let sellScore = 0;
-    let totalWeight = 0;
-    let buyWeightSum = 0;
-    let sellWeightSum = 0;
-    let totalVotes = 0;
-
-    const voteEntries = [
-      { name: 'trend', vote: votes.trend, weight: weights.trend ?? 0 },
-      { name: 'scalper', vote: votes.scalper, weight: weights.scalper ?? 0 },
-      { name: 'confirmation', vote: votes.confirmation, weight: weights.confirmation ?? 0 },
-      { name: 'reversal', vote: votes.reversal, weight: weights.reversal ?? 0 },
-      { name: 'volatility', vote: votes.volatility, weight: weights.volatility ?? 0 },
-      { name: 'risk', vote: votes.risk, weight: weights.risk ?? 0 },
-      { name: 'omega8', vote: votes.omega8, weight: weights.omega8 ?? 0 }
-    ];
-
-    for (const entry of voteEntries) {
-      if (!entry.vote) continue;
-
-      totalVotes++;
-      const w = entry.weight ?? 0;
-      const weightedConfidence = w * entry.vote.confidence;
-      totalWeight += w;
-
-      if (entry.vote.vote === 'BUY') {
-        buyScore += weightedConfidence;
-        buyWeightSum += w;
-      } else if (entry.vote.vote === 'SELL') {
-        sellScore += weightedConfidence;
-        sellWeightSum += w;
-      }
-    }
-
-    if (totalWeight > 0) {
-      buyScore = buyScore / totalWeight;
-      sellScore = sellScore / totalWeight;
-    }
-
-    const dsResult = evaluateDirectionalStrength(buyScore, sellScore, style);
-
-    if (!dsResult.meetsThreshold) {
-      console.log(`[Alpha Coordinator] DIRECTIONAL STRENGTH BLOCKED: ${dsResult.reason}`);
-
-      return {
-        direction: 'NO_TRADE',
-        score: Math.max(buyScore, sellScore),
-        agreementCount: totalVotes,
-        totalVotes,
-        strongAgreement: false,
-        directionalStrengthResult: dsResult
-      };
-    }
-
-    let direction: 'BUY' | 'SELL' | 'NO_TRADE' | 'MIXED' = dsResult.winningDirection;
-    const score = Math.max(buyScore, sellScore);
-    const winningWeightSum = direction === 'BUY' ? buyWeightSum : sellWeightSum;
-    const winningWeightShare = totalWeight > 0 ? winningWeightSum / totalWeight : 0;
-
-    if (buyScore > 50 && sellScore > 50 && dsResult.netStrength < dsResult.threshold * 1.5) {
-      direction = 'MIXED';
-    }
-
-    const agreementCount = Math.round(winningWeightShare * totalVotes);
-    const strongAgreement = winningWeightShare >= 0.45 && score >= 50;
-
-    return {
-      direction,
-      score,
-      agreementCount,
-      totalVotes,
-      strongAgreement,
-      directionalStrengthResult: dsResult
-    };
-  }
-
-  // REMOVED: calculateWeights() - replaced by omegaWeightResolver.resolveWeights() (SSOT)
-  // Weight computation now lives in src/services/omega-weight-resolver.ts
-  // This eliminates: special-case Omega-8 1.5x boost, risk-mode-coupled weights,
-  // and personality-based adjustments that violated symmetric confidence amplification.
-
-  /**
-   * Build compressed coordination context
-   */
-  /**
    * Fetch platform-wide intelligence for symbol
    */
   private async fetchPlatformIntelligence(symbol: string): Promise<string> {
@@ -2165,91 +1957,7 @@ Return PURE JSON only:
     }
   }
 
-  private buildCoordinationContext(
-    votes: OmegaCouncilVotes,
-    weights: Record<string, number>,
-    marketContext: MarketContext,
-    traderScore: TraderScore,
-    consensus: any,
-    platformIntelligence?: string
-  ): string {
-    const parts: string[] = [];
-
-    parts.push(`Market: ${marketContext.symbol} | ${marketContext.regime} | ${marketContext.volatility} vol`);
-    parts.push(`Price: ${marketContext.price} | ATR: ${extractATRValue(marketContext.atr)}`);
-    parts.push(`Trader: ${traderScore.confidence_level} (Score: ${traderScore.current_score}, Win Rate: ${(traderScore.win_rate * 100).toFixed(1)}%)`);
-
-    if (platformIntelligence) {
-      parts.push('');
-      parts.push(platformIntelligence);
-    }
-
-    parts.push('');
-    parts.push('Omega Votes (weighted):');
-
-    const voteEntries = [
-      { name: 'Trend', vote: votes.trend, weight: weights.trend },
-      { name: 'Scalper', vote: votes.scalper, weight: weights.scalper },
-      { name: 'Confirmation', vote: votes.confirmation, weight: weights.confirmation },
-      { name: 'Reversal', vote: votes.reversal, weight: weights.reversal },
-      { name: 'Volatility', vote: votes.volatility, weight: weights.volatility },
-      { name: 'Risk', vote: votes.risk, weight: weights.risk },
-      { name: 'OrderFlow', vote: votes.omega8, weight: weights.omega8 }
-    ];
-
-    for (const entry of voteEntries) {
-      if (entry.vote) {
-        const baseInfo = `${entry.name} (${entry.weight.toFixed(1)}x): ${entry.vote.vote} @ ${entry.vote.confidence}% - ${entry.vote.reasoning}`;
-
-        // Add Omega-8 specific details
-        if (entry.name === 'OrderFlow' && votes.omega8) {
-          parts.push(`${baseInfo} | Liq: ${votes.omega8.liquidity_bias}`);
-        } else {
-          parts.push(baseInfo);
-        }
-      } else {
-        parts.push(`${entry.name} (${entry.weight.toFixed(1)}x): UNAVAILABLE`);
-      }
-    }
-
-    return parts.join('\n');
-  }
-
-  /**
-   * Build weighted vote summary showing each Omega's contribution
-   */
-  private buildWeightedVoteSummary(
-    votes: OmegaCouncilVotes,
-    weights: Record<string, number>,
-    consensus: any
-  ): string {
-    const parts: string[] = [];
-
-    const voteEntries = [
-      { name: 'Trend', vote: votes.trend, weight: weights.trend },
-      { name: 'Scalper', vote: votes.scalper, weight: weights.scalper },
-      { name: 'Confirmation', vote: votes.confirmation, weight: weights.confirmation },
-      { name: 'Reversal', vote: votes.reversal, weight: weights.reversal },
-      { name: 'Volatility', vote: votes.volatility, weight: weights.volatility },
-      { name: 'Risk', vote: votes.risk, weight: weights.risk },
-      { name: 'OrderFlow', vote: votes.omega8, weight: weights.omega8 }
-    ];
-
-    for (const entry of voteEntries) {
-      if (entry.vote) {
-        const weightedContribution = (entry.weight * entry.vote.confidence / 100).toFixed(1);
-        const voteIcon = entry.vote.vote === 'BUY' ? '📈' : entry.vote.vote === 'SELL' ? '📉' : '⏸️';
-        parts.push(`  ${voteIcon} ${entry.name} (${entry.weight.toFixed(1)}x): ${entry.vote.vote} ${entry.vote.confidence}% → ${weightedContribution} pts`);
-      }
-    }
-
-    return parts.join('\n');
-  }
-
-  /**
-   * Generate omega vote summary
-   */
-  private generateOmegaSummary(votes: OmegaCouncilVotes, weights: Record<string, number>): string {
+  private generateOmegaSummary(votes: OmegaCouncilVotes): string {
     const summary: string[] = [];
 
     let buyVotes = 0;
