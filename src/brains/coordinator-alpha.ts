@@ -115,7 +115,7 @@ import type { AlphaMarketThesis, RegimeSignature } from '../types/alpha-thesis';
 import { m5SwingAnalyzer, type M5SwingContext } from '../services/m5-swing-analyzer';
 import { alphaGeometryValidator } from '../services/alpha-geometry-validator';
 import { getExecutionEnvelope, getAssetClassEnvelopeBounds, validateTPSLAgainstEnvelope, detectConstraintSandwich, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
-import { TRADING_CONSTANTS } from '../config/trading-constants';
+import { TRADING_CONSTANTS, getMinRRForStyle } from '../config/trading-constants';
 
 /**
  * Helper: Determine asset class from symbol
@@ -934,7 +934,7 @@ class AlphaCoordinatorBrain {
           timeHorizon: 'TODAY'
         } : undefined,
         policy: {
-          minRR: TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM,
+          minRR: getMinRRForStyle(requestedStyle),
           maxTpAtrMultiple: 12,
           minSlPercentByAssetRisk: {
             'CRYPTO:HIGH': 0.50,
@@ -1690,7 +1690,7 @@ Return PURE JSON only:
           },
           safetyRules: {
             maxRiskPct: 5,
-            minRR: TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM,
+            minRR: getMinRRForStyle(tradeStyle),
             maxExposure: 10
           }
         };
