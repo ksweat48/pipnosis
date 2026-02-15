@@ -191,6 +191,34 @@ class OmegaAlphaLogger {
       insertData.directional_strength_style = decision.directionalStrengthResult.style;
     }
 
+    if (decision.patternIntelligence) {
+      insertData.htf_intent = decision.patternIntelligence.htfIntent;
+      insertData.mtf_intent = decision.patternIntelligence.mtfIntent;
+      insertData.ltf_intent = decision.patternIntelligence.ltfIntent;
+      insertData.htf_pattern = decision.patternIntelligence.htfPattern;
+      insertData.mtf_pattern = decision.patternIntelligence.mtfPattern;
+      insertData.ltf_pattern = decision.patternIntelligence.ltfPattern;
+      insertData.pattern_alignment_score = decision.patternIntelligence.alignmentScore;
+      insertData.pattern_overall_intent = decision.patternIntelligence.overallIntent;
+      insertData.pattern_direction_bias = decision.patternIntelligence.directionBias;
+      if (decision.patternIntelligence.warnings && decision.patternIntelligence.warnings.length > 0) {
+        insertData.pattern_warnings = decision.patternIntelligence.warnings;
+      }
+      if (decision.patternIntelligence.liquidityTargets && decision.patternIntelligence.liquidityTargets.length > 0) {
+        insertData.pattern_liquidity_targets = decision.patternIntelligence.liquidityTargets;
+      }
+      if (decision.patternIntelligence.confidenceBoosts && decision.patternIntelligence.confidenceBoosts.length > 0) {
+        insertData.pattern_confidence_boosts = decision.patternIntelligence.confidenceBoosts;
+      }
+      if (decision.patternIntelligence.confidencePenalties && decision.patternIntelligence.confidencePenalties.length > 0) {
+        insertData.pattern_confidence_penalties = decision.patternIntelligence.confidencePenalties;
+      }
+      if (decision.patternIntelligence.invalidationPoint) {
+        insertData.pattern_invalidation_price = decision.patternIntelligence.invalidationPoint.price;
+        insertData.pattern_invalidation_reasoning = decision.patternIntelligence.invalidationPoint.reasoning;
+      }
+    }
+
     const { data, error } = await supabase
       .from('alpha_decisions')
       .insert(insertData)

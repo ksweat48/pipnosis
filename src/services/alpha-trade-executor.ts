@@ -894,20 +894,9 @@ class AlphaTradeExecutor {
       };
     }
 
-    // Apply slippage adjustment (symbol-specific)
-    const slippage = this.calculateSlippage(decision.symbol);
-
-    // GOVERNANCE: Validate slippage before arithmetic
-    if (!Number.isFinite(slippage)) {
-      return {
-        success: false,
-        error: `Invalid slippage calculated for ${decision.symbol}: ${slippage}`
-      };
-    }
-
-    const adjustedEntry = decision.action === 'BUY'
-      ? entryPrice + slippage
-      : entryPrice - slippage;
+    // Directional pricing (ASK for BUY, BID for SELL) already accounts for spread.
+    // No additional static slippage is applied to avoid double-counting.
+    const adjustedEntry = entryPrice;
 
     // GOVERNANCE: Validate adjusted entry is valid number
     if (!Number.isFinite(adjustedEntry)) {
@@ -1755,6 +1744,15 @@ class AlphaTradeExecutor {
     const finalTP1 = executionTP1 !== undefined ? executionTP1 : decision.tp1Price;
     const finalTP2 = executionTP2 ?? decision.tp2Price;
 
+    // Calculate total confidence penalty from all adjustments (0-100 range)
+    let totalPenalty = 0;
+    if (decision.confidenceAdjustments && Array.isArray(decision.confidenceAdjustments)) {
+      totalPenalty = Math.round(
+        decision.confidenceAdjustments.reduce((sum: number, adj: any) => sum + (adj.penalty || 0), 0) * 100
+      );
+      totalPenalty = Math.max(0, Math.min(100, totalPenalty));
+    }
+
     return {
       user_id: userId,
       goal_session_id: sessionId,
@@ -1775,6 +1773,7 @@ class AlphaTradeExecutor {
       current_price: status === 'open' ? entryPrice : null,
       current_pnl: 0,
       trade_confidence: decision.confidence,
+      confidence_penalty: totalPenalty,
       regime_bucket: regimeBucket,
       planned_entry_price: decision.entry,
       planned_stop_loss: decision.stopLoss,

@@ -325,27 +325,82 @@ function logATRUsage(context: string, atr: number | ATRValue | undefined): void 
 }
 
 class AlphaCoordinatorBrain {
-  private derivePreliminaryDirection(briefing: MarketBriefing): 'BUY' | 'SELL' {
+  private derivePreliminaryDirection(briefing: MarketBriefing): 'BUY' | 'SELL' | 'NO_TRADE' {
     const intel = briefing.intelligence;
-    let buySignals = 0;
-    let sellSignals = 0;
+    let buyScore = 0;
+    let sellScore = 0;
+    let noTradeSignals = 0;
 
-    if (intel.trend.emaAlignment === 'bull') buySignals += 2;
-    else if (intel.trend.emaAlignment === 'bear') sellSignals += 2;
+    // Trend structure (weight: 2)
+    if (intel.trend.emaAlignment === 'bull') buyScore += 2;
+    else if (intel.trend.emaAlignment === 'bear') sellScore += 2;
+    else noTradeSignals += 1; // mixed alignment = unclear
 
-    if (intel.trend.momentum === 'strong_bull' || intel.trend.momentum === 'bull') buySignals += 1;
-    else if (intel.trend.momentum === 'strong_bear' || intel.trend.momentum === 'bear') sellSignals += 1;
+    // Momentum (weight: 1)
+    if (intel.trend.momentum === 'strong_bull' || intel.trend.momentum === 'bull') buyScore += 1;
+    else if (intel.trend.momentum === 'strong_bear' || intel.trend.momentum === 'bear') sellScore += 1;
+    else noTradeSignals += 1; // neutral momentum
 
-    if (intel.trend.bos === 'bull') buySignals += 2;
-    else if (intel.trend.bos === 'bear') sellSignals += 2;
+    // Break of structure (weight: 2)
+    if (intel.trend.bos === 'bull') buyScore += 2;
+    else if (intel.trend.bos === 'bear') sellScore += 2;
 
-    if (intel.orderFlow.bias === 'buy') buySignals += 1;
-    else if (intel.orderFlow.bias === 'sell') sellSignals += 1;
+    // Order flow (weight: 1)
+    if (intel.orderFlow.bias === 'buy') buyScore += 1;
+    else if (intel.orderFlow.bias === 'sell') sellScore += 1;
 
-    if (intel.confirmation.bosDirection === 'bull') buySignals += 1;
-    else if (intel.confirmation.bosDirection === 'bear') sellSignals += 1;
+    // Confirmation BOS (weight: 1)
+    if (intel.confirmation.bosDirection === 'bull') buyScore += 1;
+    else if (intel.confirmation.bosDirection === 'bear') sellScore += 1;
 
-    return buySignals >= sellSignals ? 'BUY' : 'SELL';
+    // Reversal signals (counter-trend flags)
+    const bullReversal = intel.reversal.rsiDivergence === 'bull' || intel.reversal.engulfingBull || intel.reversal.pinBarBull;
+    const bearReversal = intel.reversal.rsiDivergence === 'bear' || intel.reversal.engulfingSell || intel.reversal.pinBarSell;
+    if (bullReversal) { buyScore += 1; sellScore -= 1; }
+    if (bearReversal) { sellScore += 1; buyScore -= 1; }
+
+    // Support/resistance proximity check
+    const price = intel.price;
+    const atr = intel.atr;
+    if (atr > 0) {
+      const nearestResistance = intel.resistance.length > 0
+        ? Math.min(...intel.resistance.filter(r => r > price))
+        : Infinity;
+      const nearestSupport = intel.support.length > 0
+        ? Math.max(...intel.support.filter(s => s < price))
+        : -Infinity;
+
+      const resistanceProximity = nearestResistance !== Infinity ? (nearestResistance - price) / atr : Infinity;
+      const supportProximity = nearestSupport !== -Infinity ? (price - nearestSupport) / atr : Infinity;
+
+      // Buying into resistance or selling into support = danger
+      if (resistanceProximity < 0.5 && buyScore > sellScore) noTradeSignals += 2;
+      if (supportProximity < 0.5 && sellScore > buyScore) noTradeSignals += 2;
+    }
+
+    // Volatility regime check
+    if (intel.volatility.regime === 'low' && intel.volatility.atrTrend === 'down') {
+      noTradeSignals += 1; // compressing volatility = poor trade conditions
+    }
+
+    // Doji = indecision
+    if (intel.reversal.doji) noTradeSignals += 1;
+
+    // Calculate signal strength
+    const maxScore = Math.max(buyScore, sellScore);
+    const minScore = Math.min(buyScore, sellScore);
+    const conviction = maxScore - minScore;
+    const totalConflicts = noTradeSignals;
+
+    // NO_TRADE conditions:
+    // 1. Both sides equally weak or both have 0 signals
+    // 2. Too many conflicting/no-trade signals relative to conviction
+    // 3. Maximum score too low (no clear edge)
+    if (conviction <= 1 && totalConflicts >= 2) return 'NO_TRADE';
+    if (maxScore <= 1) return 'NO_TRADE';
+    if (totalConflicts >= 4) return 'NO_TRADE';
+
+    return buyScore >= sellScore ? 'BUY' : 'SELL';
   }
 
   /**
@@ -510,6 +565,31 @@ class AlphaCoordinatorBrain {
 
     const preliminaryDirection = this.derivePreliminaryDirection(briefing);
     console.log(`[Alpha Coordinator] Preliminary direction from briefing: ${preliminaryDirection} [Style: ${tradeStyle}]`);
+
+    if (preliminaryDirection === 'NO_TRADE') {
+      console.log('[Alpha Coordinator] Preliminary direction is NO_TRADE - insufficient directional conviction from market intelligence');
+      return {
+        action: 'NO_TRADE',
+        entry: marketContext.price,
+        stopLoss: 0,
+        takeProfit: 0,
+        confidence: 0,
+        reasoning: 'Preliminary market analysis shows insufficient directional conviction - conflicting signals or proximity to key levels',
+        tradeQuality: 'POOR',
+        adjustments: [],
+        constraints: null,
+        hasConflict: false,
+        omega9Result: null,
+        conflictResolution: null,
+        riskPercentage: 0,
+        positionSize: 0,
+        rrRatio: 0,
+        estimatedDurationMinutes: 0,
+        entryIntentClassification: null,
+        stopLossAnchor: null,
+        takeProfitCalculation: null
+      };
+    }
 
     // Fire-and-forget thought stream emissions
     if (sessionId && userId) {
@@ -1289,7 +1369,7 @@ Return PURE JSON only:
         {
           model: 'gpt-4o-mini',
           temperature: 0.3,
-          max_tokens: 300,
+          max_tokens: 500,
           requestType: 'alpha_coordination',
           endpoint: 'alpha-coordinator'
         }
