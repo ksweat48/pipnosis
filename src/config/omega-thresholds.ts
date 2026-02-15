@@ -12,6 +12,7 @@ import { TRADING_CONSTANTS } from './trading-constants';
 export const OMEGA_CONFIG_VERSION = '1.0.0';
 
 export const TREND_THRESHOLDS = {
+  SCORE_THRESHOLD: 20,
   EMA_SLOPE_STRONG: 0.15,
   EMA_SLOPE_WEAK: 0.05,
   ALIGNMENT_STRONG: 70,

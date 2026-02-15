@@ -935,9 +935,9 @@ class GoalSessionLiveEngine {
 
           const actualOmegaVotes = decision.omega_votes || {};
           const voteEntries = Object.values(actualOmegaVotes).filter(Boolean);
-          const buyVotes = voteEntries.filter((v: any) => v?.direction === 'BUY' || v?.bias === 'BUY').length;
-          const sellVotes = voteEntries.filter((v: any) => v?.direction === 'SELL' || v?.bias === 'SELL').length;
-          const noTradeVotes = voteEntries.filter((v: any) => v?.direction === 'NO_TRADE' || v?.bias === 'NO_TRADE').length;
+          const buyVotes = voteEntries.filter((v: any) => v?.vote === 'BUY' || v?.direction === 'BUY' || v?.bias === 'BUY').length;
+          const sellVotes = voteEntries.filter((v: any) => v?.vote === 'SELL' || v?.direction === 'SELL' || v?.bias === 'SELL').length;
+          const noTradeVotes = voteEntries.filter((v: any) => v?.vote === 'NO_TRADE' || v?.direction === 'NO_TRADE' || v?.bias === 'NO_TRADE').length;
           const majorityDirection = buyVotes > sellVotes ? 'BUY' : sellVotes > buyVotes ? 'SELL' : 'NO_TRADE';
           const agreementCount = Math.max(buyVotes, sellVotes, noTradeVotes);
 

@@ -29,7 +29,7 @@ import { llmTokenTracker } from '../services/llm-token-tracker';
 import { alphaSafetyZoneEvaluator, type SafetyEvaluation, type TradeStyle } from '../config/alpha-safety-zones';
 import { calculatePipDistance } from '../utils/currencyHelpers';
 import { safeExtractATRValue, type ATRValue } from '../types/atr';
-import { TRADING_CONSTANTS } from '../config/trading-constants';
+import { TRADING_CONSTANTS, getMinRRForStyle } from '../config/trading-constants';
 import { getAssetClassEnvelopeBounds, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
 import { assetClassifier } from '../services/asset-classifier';
 
@@ -259,15 +259,11 @@ class Omega9HallucinationBrain {
       };
     }
 
-    // CONSTRAINT VIOLATION (not hard block): R:R < MINIMUM ADVISORY
-    // ✅ GOVERNANCE FIX (2026-02-02): Import from SSOT instead of hardcoded 1.0
-    // Will be auto-corrected by constraint system, but Alpha can override
-    const MINIMUM_RR = TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM;
+    const resolvedStyle = input.alphaDecision.resolvedStyle;
+    const MINIMUM_RR = getMinRRForStyle(resolvedStyle);
     if (rr < MINIMUM_RR) {
-      flags.push('RR_BELOW_1_ADVISORY');
-      console.log(`[Omega-9] ⚠️ R:R ${rr.toFixed(3)} < ${MINIMUM_RR} - ADVISORY (will be auto-corrected if not revised)`);
-      // DO NOT return early - let other validations run
-      // Auto-correction happens in coordinator-alpha via constraint provider
+      flags.push('RR_BELOW_STYLE_MIN_ADVISORY');
+      console.log(`[Omega-9] R:R ${rr.toFixed(3)} < ${MINIMUM_RR} (${resolvedStyle || 'default'}) - ADVISORY (will be auto-corrected if not revised)`);
     }
 
     // REMOVED: Vote conflict detection - Alpha has final authority on direction

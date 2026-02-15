@@ -14,12 +14,15 @@
 
 export const TRADING_CONSTANTS = {
   RISK_REWARD_RATIOS: {
-    CATASTROPHIC_THRESHOLD: 0.5, // Below this = HARD BLOCK (system integrity failure)
-    MINIMUM: 1.5,                 // Hard minimum - no trades below 1.5 R:R
-    TARGET: 1.5,                  // Recommended baseline
-    GOOD: 2.0,                    // Quality threshold
-    EXCELLENT: 2.5,               // High-quality setup
-    EXCEPTIONAL: 3.0,             // Elite setup
+    CATASTROPHIC_THRESHOLD: 0.5,
+    MINIMUM: 1.5,
+    MINIMUM_SCALP: 1.5,
+    MINIMUM_MICRO_INTRADAY: 2.0,
+    MINIMUM_INTRADAY: 2.0,
+    TARGET: 2.0,
+    GOOD: 2.0,
+    EXCELLENT: 2.5,
+    EXCEPTIONAL: 3.0,
   },
 
   ATR_MULTIPLIERS: {
@@ -192,3 +195,16 @@ export const SCALING_MULTIPLIERS = {
 
 export type RiskRewardRatio = typeof TRADING_CONSTANTS.RISK_REWARD_RATIOS[keyof typeof TRADING_CONSTANTS.RISK_REWARD_RATIOS];
 export type ConfidenceThreshold = typeof CONFIDENCE_THRESHOLDS[keyof typeof CONFIDENCE_THRESHOLDS];
+
+export function getMinRRForStyle(style?: string): number {
+  switch (style) {
+    case 'SCALP':
+      return TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM_SCALP;
+    case 'MICRO_INTRADAY':
+      return TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM_MICRO_INTRADAY;
+    case 'INTRADAY':
+      return TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM_INTRADAY;
+    default:
+      return TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM;
+  }
+}

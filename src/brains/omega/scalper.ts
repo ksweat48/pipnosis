@@ -47,6 +47,26 @@ class OmegaScalperBrain {
     } else if (vwapAnalysis.favorableForSell && !vwapAnalysis.favorableForBuy) {
       candidateDirection = 'SELL';
       factors.push(`VWAP_FAV_SELL(${vwapAnalysis.zone})`);
+    } else if (vwapAnalysis.favorableForBuy && vwapAnalysis.favorableForSell) {
+      if (rsi < 45) {
+        candidateDirection = 'BUY';
+        factors.push('VWAP_NEAR_RSI_BUY');
+      } else if (rsi > 55) {
+        candidateDirection = 'SELL';
+        factors.push('VWAP_NEAR_RSI_SELL');
+      } else if (momentum < 0) {
+        candidateDirection = 'BUY';
+        factors.push('VWAP_NEAR_MOM_BUY');
+      } else if (momentum > 0) {
+        candidateDirection = 'SELL';
+        factors.push('VWAP_NEAR_MOM_SELL');
+      } else if (sensors?.bos === 'bull') {
+        candidateDirection = 'BUY';
+        factors.push('VWAP_NEAR_BOS_BUY');
+      } else if (sensors?.bos === 'bear') {
+        candidateDirection = 'SELL';
+        factors.push('VWAP_NEAR_BOS_SELL');
+      }
     }
 
     if (candidateDirection) {

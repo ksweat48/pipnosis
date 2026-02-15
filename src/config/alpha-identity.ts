@@ -440,7 +440,7 @@ Rewards: 75+ → +5, 70-74 → +4, 65-69 → +3, 60-64 → +2, 55-59 → +1, 50-
 Penalties: 45-49 → -2, 40-44 → -5, 35-39 → -10, 30-34 → -15, 25-29 → -20, <25 → -25 to -30
 SCALP EXCEPTION: EQS is NOT a gate for SCALP. Execute immediately if confidence > 60%.
 
-CONSTRAINTS: You receive calibrated SL/TP constraints. R:R >= 1.0 minimum. If violated, you get ONE revision opportunity. Declining = block.
+CONSTRAINTS: You receive calibrated SL/TP constraints. R:R minimums by style: SCALP >= 1.5, MICRO_INTRADAY >= 2.0, INTRADAY >= 2.0. If violated, you get ONE revision opportunity. Declining = block.
 
 ENTRY STRATEGIES (choose one):
 1. IMMEDIATE: Distance < 0.5 ATR, execute now
@@ -492,11 +492,13 @@ OUTPUT FORMAT:
 
 RULES: Never calculate EQS. Never block on session/volatility/time. Downgrade instead of rejecting. Invalid geometry = immediate rejection.
 
-STYLE CONTRACTS (TP/SL must match style's timeframe reality):
-SCALP: M5 chart. ONE M5 swing leg, 15-60 pip TP, 8-20 pip SL, 15-60 min. Use M5 ATR only. Do NOT target H1 pools or plan multi-swing moves.
-MICRO_INTRADAY: M15/H1 structure. 40-100 pip TP, 20-40 pip SL, 1-4 hours. Uses M15 ATR.
-INTRADAY: H1 price action. 60-150 pip TP, 30-60 pip SL, 2-10 hours. Uses H1 ATR.
-Out-of-range TP/SL triggers revision request. You choose direction, timing, exact SL/TP within bounds. System enforces style definition.
+SL/TP PLACEMENT (NON-NEGOTIABLE):
+Place stop losses at structural levels: below the nearest swing low for BUY, above the nearest swing high for SELL. NEVER place stops at arbitrary pip distances from entry. The stop must be at a price where your thesis is invalidated. Take profit targets must be at the next significant structure level (prior highs/lows, liquidity pools, S/R zones). If placing SL at the correct structure level pushes R:R below style minimum (SCALP: 1.5, MICRO_INTRADAY/INTRADAY: 2.0), reject the trade as NO_TRADE. Do NOT tighten the stop to a non-structural level to force R:R compliance.
+
+STYLE CONTRACTS (timeframe and duration):
+SCALP: M5 chart. ONE M5 swing leg, 15-60 min. Use M5 ATR. Do NOT target H1 pools or plan multi-swing moves. R:R >= 1.5.
+MICRO_INTRADAY: M15/H1 structure. 1-4 hours. Uses M15 ATR. R:R >= 2.0.
+INTRADAY: H1 price action. 2-10 hours. Uses H1 ATR. R:R >= 2.0.
 
 ═══════════════════════════════════════════════════════════════════`;
 }

@@ -17,7 +17,7 @@ export interface AlphaDecisionLog {
   user_id: string;
   session_id?: string;
   symbol: string;
-  action: 'BUY' | 'SELL' | 'NO_TRADE'; // SSOT: Database column is 'action', not 'decision'
+  action: 'BUY' | 'SELL' | 'NO_TRADE';
   confidence: number;
   omega_consensus: {
     direction: 'BUY' | 'SELL' | 'NO_TRADE' | 'MIXED';
@@ -26,6 +26,13 @@ export interface AlphaDecisionLog {
     total_votes: number;
   };
   omega_votes: OmegaCouncilVotes;
+  buy_votes: number;
+  sell_votes: number;
+  no_trade_votes: number;
+  omega_votes_count: number;
+  omega_vote_details: Record<string, any>;
+  vote_weights: Record<string, number>;
+  trade_executed: boolean;
   alpha_override: boolean;
   override_reason?: string;
   conflict_detected: boolean;
@@ -33,6 +40,9 @@ export interface AlphaDecisionLog {
   reasoning: string;
   market_context: Record<string, any>;
   trader_personality: string;
+  entry_price?: number;
+  stop_loss?: number;
+  take_profit?: number;
   created_at?: Date;
 }
 
@@ -73,25 +83,57 @@ class AlphaLearningTracker {
     sessionId?: string
   ): Promise<string | null> {
     try {
-      // Determine if Alpha overrode Omega consensus
       const alpha_override = this.determineOverride(decision, omegaConsensus);
       const override_reason = alpha_override ? this.explainOverride(decision, omegaConsensus, omegaVotes) : undefined;
+
+      const votesList = [
+        omegaVotes.trend,
+        omegaVotes.scalper,
+        omegaVotes.reversal,
+        omegaVotes.volatility,
+        omegaVotes.risk
+      ].filter(Boolean);
+
+      const buyVotes = votesList.filter((v: any) => v?.vote === 'BUY').length;
+      const sellVotes = votesList.filter((v: any) => v?.vote === 'SELL').length;
+      const noTradeVotes = votesList.filter((v: any) => v?.vote === 'NO_TRADE').length;
+
+      const voteDetails: Record<string, any> = {};
+      const voteWeights: Record<string, number> = {};
+      const specialists = ['trend', 'scalper', 'reversal', 'volatility', 'risk'] as const;
+      for (const name of specialists) {
+        const v = omegaVotes[name];
+        if (v) {
+          voteDetails[name] = { vote: v.vote, confidence: v.confidence, reasoning: v.reasoning };
+          voteWeights[name] = 1.0;
+        }
+      }
 
       const log: AlphaDecisionLog = {
         user_id: userId,
         session_id: sessionId,
         symbol: decision.symbol || marketContext.symbol,
-        action: decision.action, // SSOT: Correctly maps to database 'action' column
+        action: decision.action,
         confidence: decision.confidence,
         omega_consensus: omegaConsensus,
         omega_votes: omegaVotes,
+        buy_votes: buyVotes,
+        sell_votes: sellVotes,
+        no_trade_votes: noTradeVotes,
+        omega_votes_count: votesList.length,
+        omega_vote_details: voteDetails,
+        vote_weights: voteWeights,
+        trade_executed: decision.action !== 'NO_TRADE',
         alpha_override,
         override_reason,
         conflict_detected: conflictInfo.detected,
         conflict_type: conflictInfo.type,
         reasoning: decision.reasoning,
         market_context: marketContext,
-        trader_personality: traderScore.personality
+        trader_personality: traderScore.personality,
+        entry_price: decision.entry,
+        stop_loss: decision.stopLoss,
+        take_profit: decision.takeProfit,
       };
 
       const { data, error } = await supabase
@@ -105,7 +147,7 @@ class AlphaLearningTracker {
         return null;
       }
 
-      console.log(`[Alpha Learning] Decision logged: ${decision.action} (Override: ${alpha_override})`);
+      console.log(`[Alpha Learning] Decision logged: ${decision.action} | Votes: ${buyVotes}B/${sellVotes}S/${noTradeVotes}N (Override: ${alpha_override})`);
       return data.id;
     } catch (error) {
       console.error('[Alpha Learning] Exception logging decision:', error);

@@ -19,7 +19,7 @@ import { safeExtractATRValue } from '../types/atr';
 import { calculatePipDistance } from '../utils/currencyHelpers';
 import { RISK_GATE_THRESHOLDS } from '../config/omega-thresholds';
 import { validateRiskPercentForMode, PLATFORM_ABSOLUTE_RISK_CAP, type RiskMode } from '../config/risk-mode-policy';
-import { TRADING_CONSTANTS } from '../config/trading-constants';
+import { TRADING_CONSTANTS, getMinRRForStyle } from '../config/trading-constants';
 import { tradeValidationService } from './trade-validation-service';
 
 export interface RiskGateInput {
@@ -33,6 +33,7 @@ export interface RiskGateInput {
   riskPercent: number;
   riskMode?: RiskMode;
   existingExposure?: number;
+  style?: string;
 }
 
 export interface RiskGateResult {
@@ -109,25 +110,26 @@ class RiskPreflightGate {
       riskScore = 0;
     }
 
-    if (rrRatio < RISK_GATE_THRESHOLDS.MIN_RR_RATIO) {
+    const styleMinRR = getMinRRForStyle(input.style);
+    if (rrRatio < styleMinRR) {
       violations.push({
         type: 'BLOCKING',
         code: 'RR_TOO_LOW',
-        message: `R:R ratio ${rrRatio.toFixed(2)} below minimum ${RISK_GATE_THRESHOLDS.MIN_RR_RATIO}`,
+        message: `R:R ratio ${rrRatio.toFixed(2)} below minimum ${styleMinRR} for ${input.style || 'default'}`,
         value: rrRatio,
-        threshold: RISK_GATE_THRESHOLDS.MIN_RR_RATIO
+        threshold: styleMinRR
       });
       riskScore -= 40;
-    } else if (rrRatio < RISK_GATE_THRESHOLDS.IDEAL_RR_RATIO) {
+    } else if (rrRatio < TRADING_CONSTANTS.RISK_REWARD_RATIOS.TARGET) {
       warnings.push({
         type: 'CAUTION',
         code: 'RR_SUBOPTIMAL',
-        message: `R:R ratio ${rrRatio.toFixed(2)} below ideal ${RISK_GATE_THRESHOLDS.IDEAL_RR_RATIO}`,
+        message: `R:R ratio ${rrRatio.toFixed(2)} below target ${TRADING_CONSTANTS.RISK_REWARD_RATIOS.TARGET}`,
         value: rrRatio,
-        threshold: RISK_GATE_THRESHOLDS.IDEAL_RR_RATIO
+        threshold: TRADING_CONSTANTS.RISK_REWARD_RATIOS.TARGET
       });
       riskScore -= 10;
-    } else if (rrRatio >= 2.0) {
+    } else if (rrRatio >= TRADING_CONSTANTS.RISK_REWARD_RATIOS.EXCELLENT) {
       riskScore += 10;
     }
 
@@ -230,14 +232,15 @@ class RiskPreflightGate {
     const rrViolation = violations.find(v => v.code === 'RR_TOO_LOW');
     if (rrViolation) {
       const slDistance = Math.abs(input.entry - input.stopLoss);
-      const minTpDistance = slDistance * RISK_GATE_THRESHOLDS.MIN_RR_RATIO;
+      const minRR = getMinRRForStyle(input.style);
+      const minTpDistance = slDistance * minRR;
 
       if (isBuy) {
         adjustments.suggestedTP = input.entry + minTpDistance;
       } else {
         adjustments.suggestedTP = input.entry - minTpDistance;
       }
-      reasons.push(`TP adjusted for ${RISK_GATE_THRESHOLDS.MIN_RR_RATIO}:1 R:R`);
+      reasons.push(`TP adjusted for ${minRR}:1 R:R (${input.style || 'default'})`);
     }
 
     const riskViolation = violations.find(v => v.code === 'RISK_PCT_POLICY_VIOLATION' || v.code === 'RISK_PCT_TOO_HIGH');
@@ -290,7 +293,8 @@ class RiskPreflightGate {
     direction: 'BUY' | 'SELL',
     entry: number,
     stopLoss: number,
-    takeProfit: number
+    takeProfit: number,
+    style?: string
   ): { valid: boolean; reason?: string } {
     const isBuy = direction === 'BUY';
 
@@ -310,9 +314,10 @@ class RiskPreflightGate {
     const slDistance = Math.abs(entry - stopLoss);
     const tpDistance = Math.abs(takeProfit - entry);
     const rrRatio = slDistance > 0 ? tpDistance / slDistance : 0;
+    const minRR = getMinRRForStyle(style);
 
-    if (rrRatio < RISK_GATE_THRESHOLDS.MIN_RR_RATIO) {
-      return { valid: false, reason: `R:R ${rrRatio.toFixed(2)} below minimum ${RISK_GATE_THRESHOLDS.MIN_RR_RATIO}` };
+    if (rrRatio < minRR) {
+      return { valid: false, reason: `R:R ${rrRatio.toFixed(2)} below minimum ${minRR} for ${style || 'default'}` };
     }
 
     return { valid: true };

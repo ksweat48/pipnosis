@@ -51,6 +51,15 @@ class OmegaTrendBrain {
     } else if (emaAlignment.stack === 'BEAR') {
       score -= emaAlignment.strength * 0.4;
       factors.push(`EMA_BEAR(${emaAlignment.strength})`);
+    } else if (emaAlignment.strength >= 40) {
+      const partialBullish = emaAlignment.e20_above_e50 && emaAlignment.e20_above_e200;
+      if (partialBullish) {
+        score += emaAlignment.strength * 0.25;
+        factors.push(`EMA_PARTIAL_BULL(${emaAlignment.strength})`);
+      } else {
+        score -= emaAlignment.strength * 0.25;
+        factors.push(`EMA_PARTIAL_BEAR(${emaAlignment.strength})`);
+      }
     } else {
       factors.push('EMA_MIXED');
     }
@@ -110,10 +119,11 @@ class OmegaTrendBrain {
     let vote: 'BUY' | 'SELL' | 'NO_TRADE';
     let confidence: number;
 
-    if (score >= 30) {
+    const scoreThreshold = TREND_THRESHOLDS.SCORE_THRESHOLD;
+    if (score >= scoreThreshold) {
       vote = 'BUY';
       confidence = Math.min(95, 55 + score);
-    } else if (score <= -30) {
+    } else if (score <= -scoreThreshold) {
       vote = 'SELL';
       confidence = Math.min(95, 55 + Math.abs(score));
     } else {
