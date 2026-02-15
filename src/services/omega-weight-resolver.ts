@@ -35,8 +35,9 @@ interface WeightProfile {
 }
 
 interface ConfidenceAmplificationTiers {
-  below_20: number;
-  '20_to_49': number;
+  below_20?: number;
+  below_50?: number;
+  '20_to_49'?: number;
   '50_to_69': number;
   '70_to_79': number;
   '80_to_89': number;
@@ -139,12 +140,16 @@ class OmegaWeightResolver {
     for (const entry of omegaEntries) {
       const base = baseWeights[entry.name] ?? 0.1;
       const confidence = entry.vote?.confidence ?? 0;
-      const confMultiplier = this.getConfidenceMultiplier(confidence, confidenceTiers);
+      const confMultiplier = this.getConfidenceMultiplier(confidence, confidenceTiers) ?? 1.0;
       const regimeMult = regimeModifier[entry.name] ?? 1.0;
 
       const riskModeAdjust = entry.name === 'risk' ? 0.5 : 1.0;
 
-      const finalWeight = base * confMultiplier * regimeMult * riskModeAdjust;
+      const safeBase = typeof base === 'number' && !isNaN(base) ? base : 0.1;
+      const safeConf = typeof confMultiplier === 'number' && !isNaN(confMultiplier) ? confMultiplier : 1.0;
+      const safeRegime = typeof regimeMult === 'number' && !isNaN(regimeMult) ? regimeMult : 1.0;
+
+      const finalWeight = safeBase * safeConf * safeRegime * riskModeAdjust;
 
       // GOVERNANCE FIX: Never use 'NO_VOTE' - all omegas must vote BUY or SELL
       // If vote is missing, use null (architectural violation but don't break audit log)
@@ -158,10 +163,10 @@ class OmegaWeightResolver {
       }
 
       breakdown[entry.name] = {
-        baseWeight: base,
-        confidenceMultiplier: confMultiplier,
+        baseWeight: safeBase,
+        confidenceMultiplier: safeConf,
         styleMultiplier: 1.0,
-        regimeMultiplier: regimeMult,
+        regimeMultiplier: safeRegime,
         finalWeight: isNaN(finalWeight) ? 0 : finalWeight,
         omegaVote: voteDirection,
         omegaConfidence: confidence,
@@ -197,10 +202,15 @@ class OmegaWeightResolver {
 
     for (const [name, info] of sorted) {
       const confTag = info.omegaConfidence && info.omegaConfidence >= 80 ? ' [HIGH_CONF]' : '';
+      const bw = (info.baseWeight ?? 0).toFixed(2);
+      const cm = (info.confidenceMultiplier ?? 1).toFixed(1);
+      const rm = (info.regimeMultiplier ?? 1).toFixed(2);
+      const fw = (info.finalWeight ?? 0).toFixed(3);
+      const wc = (info.weightedContribution ?? 0).toFixed(1);
       parts.push(
-        `  ${name}: ${info.omegaVote} ${info.omegaConfidence}% | ` +
-        `base=${info.baseWeight.toFixed(2)} x conf=${info.confidenceMultiplier.toFixed(1)} x regime=${info.regimeMultiplier.toFixed(2)} ` +
-        `= ${info.finalWeight.toFixed(3)}${confTag} → ${info.weightedContribution?.toFixed(1)} pts`
+        `  ${name}: ${info.omegaVote} ${info.omegaConfidence ?? 0}% | ` +
+        `base=${bw} x conf=${cm} x regime=${rm} ` +
+        `= ${fw}${confTag} → ${wc} pts`
       );
     }
 
@@ -253,12 +263,12 @@ class OmegaWeightResolver {
   }
 
   private getConfidenceMultiplier(confidence: number, tiers: ConfidenceAmplificationTiers): number {
-    if (confidence >= 90) return tiers['90_to_100'];
-    if (confidence >= 80) return tiers['80_to_89'];
-    if (confidence >= 70) return tiers['70_to_79'];
-    if (confidence >= 50) return tiers['50_to_69'];
-    if (confidence >= 20) return tiers['20_to_49'];
-    return tiers.below_20;
+    if (confidence >= 90) return tiers['90_to_100'] ?? 2.0;
+    if (confidence >= 80) return tiers['80_to_89'] ?? 1.5;
+    if (confidence >= 70) return tiers['70_to_79'] ?? 1.2;
+    if (confidence >= 50) return tiers['50_to_69'] ?? 1.0;
+    if (confidence >= 20) return tiers['20_to_49'] ?? tiers.below_50 ?? 0.7;
+    return tiers.below_20 ?? tiers.below_50 ?? 0.4;
   }
 
   private async getWeightProfiles(style: StyleIntent): Promise<WeightProfile[]> {
