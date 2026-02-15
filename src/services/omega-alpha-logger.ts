@@ -6,7 +6,7 @@
  */
 
 import { supabase } from '../lib/supabase';
-import type { OmegaVote } from '../brains/omega/trend';
+import type { OmegaVote } from '../types/omega-vote';
 import type { AlphaDecision, OmegaCouncilVotes } from '../brains/coordinator-alpha';
 import type { MidTradeDecision } from '../brains/midtrade-monitor';
 
@@ -123,7 +123,6 @@ class OmegaAlphaLogger {
 
     const buyVotes = votesList.filter(v => v.vote === 'BUY').length;
     const sellVotes = votesList.filter(v => v.vote === 'SELL').length;
-    const noTradeVotes = votesList.filter(v => v.vote === 'NO_TRADE').length;
 
     const voteDetails = {
       trend: votes.trend ? { vote: votes.trend.vote, confidence: votes.trend.confidence, reasoning: votes.trend.reasoning } : null,
@@ -152,7 +151,6 @@ class OmegaAlphaLogger {
       omega_votes_count: votesList.length,
       buy_votes: buyVotes,
       sell_votes: sellVotes,
-      no_trade_votes: noTradeVotes,
       omega_vote_details: voteDetails,
       vote_weights: weights,
       trade_executed: decision.action !== 'NO_TRADE' && !safetyBlocked,
@@ -184,10 +182,13 @@ class OmegaAlphaLogger {
       insertData.narrative_quality_tier = decision.narrativeValidation.qualityTier;
     }
 
-    if (decision.consensusGateResult) {
-      insertData.consensus_gate_blocked = !decision.consensusGateResult.allowDirectionalTrade;
-      insertData.consensus_gate_reason = decision.consensusGateResult.blockReason;
-      insertData.no_trade_quorum_percent = decision.consensusGateResult.noTradePercent;
+    if (decision.directionalStrengthResult) {
+      insertData.directional_strength_net = decision.directionalStrengthResult.netStrength;
+      insertData.directional_strength_buy = decision.directionalStrengthResult.buyScore;
+      insertData.directional_strength_sell = decision.directionalStrengthResult.sellScore;
+      insertData.directional_strength_threshold = decision.directionalStrengthResult.threshold;
+      insertData.directional_strength_meets = decision.directionalStrengthResult.meetsThreshold;
+      insertData.directional_strength_style = decision.directionalStrengthResult.style;
     }
 
     const { data, error } = await supabase
@@ -280,9 +281,7 @@ class OmegaAlphaLogger {
     }
 
     // Calculate if each vote was correct
-    // A vote is correct if:
-    // - It voted in direction of trade AND trade won
-    // - It voted NO_TRADE and trade lost
+    // A vote is correct if it voted in the direction of trade AND trade won
     const { data: votes } = await supabase
       .from('omega_votes')
       .select('*')
@@ -294,15 +293,11 @@ class OmegaAlphaLogger {
         let voteCorrect = false;
 
         if (outcome === 'win') {
-          // Trade won - votes in direction of trade were correct
           voteCorrect = vote.vote.toUpperCase() === tradeDirection.toUpperCase();
         } else if (outcome === 'loss') {
-          // Trade lost - NO_TRADE votes or opposite direction were correct
-          voteCorrect = vote.vote === 'NO_TRADE' ||
-            vote.vote.toUpperCase() !== tradeDirection.toUpperCase();
+          voteCorrect = vote.vote.toUpperCase() !== tradeDirection.toUpperCase();
         } else {
-          // Breakeven - consider NO_TRADE correct
-          voteCorrect = vote.vote === 'NO_TRADE';
+          voteCorrect = false;
         }
 
         await supabase

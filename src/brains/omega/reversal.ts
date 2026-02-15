@@ -132,13 +132,14 @@ class OmegaReversalBrain {
       factors.push('WITH_TREND_CAUTION');
     }
 
-    let vote: 'BUY' | 'SELL' | 'NO_TRADE';
+    let vote: 'BUY' | 'SELL';
     let confidence: number;
 
     if (!candidateDirection) {
-      vote = 'NO_TRADE';
-      confidence = 25;
-      factors.push('NO_REVERSAL_SIGNAL');
+      const trendLower = tr.toLowerCase();
+      vote = trendLower === 'bull' ? 'SELL' : 'BUY';
+      confidence = Math.max(1, 5 + rsi * 0.05);
+      factors.push('WEAK_LEAN');
     } else if (score >= 35) {
       vote = candidateDirection;
       confidence = Math.min(85, 55 + score * 0.7);
@@ -146,14 +147,9 @@ class OmegaReversalBrain {
       vote = candidateDirection;
       confidence = Math.min(65, 45 + score * 0.6);
     } else {
-      vote = 'NO_TRADE';
-      confidence = Math.max(20, 30 - Math.abs(score));
+      vote = candidateDirection;
+      confidence = Math.max(1, Math.min(25, 10 + score * 0.5));
       factors.push('WEAK_REVERSAL');
-    }
-
-    if (vote !== 'NO_TRADE' && confidence < REVERSAL_THRESHOLDS.MIN_CONFIDENCE_FOR_TRADE) {
-      vote = 'NO_TRADE';
-      factors.push('BELOW_MIN_CONF');
     }
 
     const evidence = [

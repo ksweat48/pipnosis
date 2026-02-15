@@ -133,13 +133,14 @@ class OmegaConfirmationBrain {
       score -= 5;
     }
 
-    let vote: 'BUY' | 'SELL' | 'NO_TRADE';
+    let vote: 'BUY' | 'SELL';
     let confidence: number;
 
     if (!candidateDirection) {
-      vote = 'NO_TRADE';
-      confidence = 30;
-      factors.push('NO_SETUP');
+      const trendLower = tr.toLowerCase();
+      vote = trendLower === 'bear' ? 'SELL' : 'BUY';
+      confidence = Math.max(1, 8 + Math.abs(score) * 0.3);
+      factors.push('WEAK_LEAN');
     } else if (score >= 35) {
       vote = candidateDirection;
       confidence = Math.min(90, 55 + score * 0.8);
@@ -147,14 +148,9 @@ class OmegaConfirmationBrain {
       vote = candidateDirection;
       confidence = Math.min(70, 45 + score);
     } else {
-      vote = 'NO_TRADE';
-      confidence = Math.max(25, 35 - Math.abs(score));
+      vote = candidateDirection;
+      confidence = Math.max(1, Math.min(30, 15 + score * 0.5));
       factors.push('WEAK_CONFIRMATION');
-    }
-
-    if (vote !== 'NO_TRADE' && confidence < CONFIRMATION_THRESHOLDS.MIN_CONFIDENCE_FOR_TRADE) {
-      vote = 'NO_TRADE';
-      factors.push('BELOW_MIN_CONF');
     }
 
     const evidence = [

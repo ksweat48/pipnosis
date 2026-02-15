@@ -937,9 +937,8 @@ class GoalSessionLiveEngine {
           const voteEntries = Object.values(actualOmegaVotes).filter(Boolean);
           const buyVotes = voteEntries.filter((v: any) => v?.vote === 'BUY' || v?.direction === 'BUY' || v?.bias === 'BUY').length;
           const sellVotes = voteEntries.filter((v: any) => v?.vote === 'SELL' || v?.direction === 'SELL' || v?.bias === 'SELL').length;
-          const noTradeVotes = voteEntries.filter((v: any) => v?.vote === 'NO_TRADE' || v?.direction === 'NO_TRADE' || v?.bias === 'NO_TRADE').length;
-          const majorityDirection = buyVotes > sellVotes ? 'BUY' : sellVotes > buyVotes ? 'SELL' : 'NO_TRADE';
-          const agreementCount = Math.max(buyVotes, sellVotes, noTradeVotes);
+          const majorityDirection = buyVotes > sellVotes ? 'BUY' : sellVotes > buyVotes ? 'SELL' : 'MIXED';
+          const agreementCount = Math.max(buyVotes, sellVotes);
 
           // ✅ CCIP 2026-02-14: Extract real conflict data from decision
           // SSOT: Orchestrator is the authority for conflict detection
@@ -958,7 +957,7 @@ class GoalSessionLiveEngine {
             decision,
             actualOmegaVotes as any,
             {
-              direction: (majorityDirection as 'BUY' | 'SELL' | 'NO_TRADE'),
+              direction: (majorityDirection as 'BUY' | 'SELL' | 'MIXED'),
               confidence: decision.confidence || 0,
               agreement_count: agreementCount,
               total_votes: voteEntries.length,
@@ -3560,14 +3559,12 @@ This learning will carry forward to improve future sessions!
             .filter(v => v?.vote === 'BUY').length;
           const sellVotes = [votes.trend, votes.scalper, votes.reversal, votes.volatility, votes.omega8]
             .filter(v => v?.vote === 'SELL').length;
-          const noTrade = 6 - buyVotes - sellVotes;
-
-          parts.push(`⚠️ ${symbol}: Alpha declined - ${decision.reasoning}`);
-          parts.push(`   → Omega Council: ${buyVotes} BUY, ${sellVotes} SELL, ${noTrade} NO_TRADE`);
+          parts.push(`${symbol}: Alpha declined - ${decision.reasoning}`);
+          parts.push(`   -> Omega Council: ${buyVotes} BUY, ${sellVotes} SELL`);
 
           // Highlight Risk concerns if present
-          if (votes.risk && votes.risk.vote === 'NO_TRADE') {
-            parts.push(`   → Risk Advisory: ${votes.risk.reasoning}`);
+          if (votes.risk && votes.risk.confidence < 30) {
+            parts.push(`   -> Risk Advisory (low conf ${votes.risk.confidence}%): ${votes.risk.reasoning}`);
           }
         } else {
           parts.push(`⚠️ ${symbol}: No tradeable setup detected`);

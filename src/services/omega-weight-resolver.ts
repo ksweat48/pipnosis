@@ -35,7 +35,8 @@ interface WeightProfile {
 }
 
 interface ConfidenceAmplificationTiers {
-  below_50: number;
+  below_20: number;
+  '20_to_49': number;
   '50_to_69': number;
   '70_to_79': number;
   '80_to_89': number;
@@ -81,7 +82,8 @@ const FALLBACK_STYLE_WEIGHTS: Record<StyleIntent, Record<string, number>> = {
 };
 
 const DEFAULT_CONFIDENCE_TIERS: ConfidenceAmplificationTiers = {
-  below_50: 0.7,
+  below_20: 0.4,
+  '20_to_49': 0.7,
   '50_to_69': 1.0,
   '70_to_79': 1.2,
   '80_to_89': 1.5,
@@ -214,7 +216,7 @@ class OmegaWeightResolver {
     ];
 
     for (const entry of omegaEntries) {
-      if (!entry.vote || entry.vote.vote === 'NO_TRADE') continue;
+      if (!entry.vote) continue;
       const conf = entry.vote.confidence ?? 0;
       if (!highestConfOmega || conf > highestConfOmega.confidence) {
         const accuracy = metadata.breakdown[entry.name]?.baseWeight ?? 0;
@@ -247,7 +249,8 @@ class OmegaWeightResolver {
     if (confidence >= 80) return tiers['80_to_89'];
     if (confidence >= 70) return tiers['70_to_79'];
     if (confidence >= 50) return tiers['50_to_69'];
-    return tiers.below_50;
+    if (confidence >= 20) return tiers['20_to_49'];
+    return tiers.below_20;
   }
 
   private async getWeightProfiles(style: StyleIntent): Promise<WeightProfile[]> {

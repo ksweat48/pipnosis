@@ -180,7 +180,6 @@ function detectContradictions(
 
     const buyVotes = omegaVoteArray.filter(v => v?.vote === 'BUY').length;
     const sellVotes = omegaVoteArray.filter(v => v?.vote === 'SELL').length;
-    const noTradeVotes = omegaVoteArray.filter(v => v?.vote === 'NO_TRADE').length;
 
     if (alpha.decision === 'BUY' && sellVotes >= 4) {
       contradictions.push({
@@ -206,13 +205,14 @@ function detectContradictions(
       });
     }
 
-    if ((alpha.decision === 'BUY' || alpha.decision === 'SELL') && noTradeVotes >= 4) {
+    const lowConfVotes = omegaVoteArray.filter(v => (v?.confidence || 0) < 20).length;
+    if ((alpha.decision === 'BUY' || alpha.decision === 'SELL') && lowConfVotes >= 4) {
       contradictions.push({
         type: 'risk_inconsistency',
         severity: 'critical',
         source1: 'Alpha',
-        source2: 'Risk Managers',
-        description: `Alpha decided to trade but ${noTradeVotes} Omegas said NO_TRADE`,
+        source2: 'Omega Council',
+        description: `Alpha decided to trade but ${lowConfVotes} Omegas have very low confidence (<20%)`,
         alphaStance: `${alpha.decision} (conf: ${alpha.confidence})`,
         omegaStances: omegaVoteArray.map(v => `${v?.vote} (${v?.confidence})`)
       });

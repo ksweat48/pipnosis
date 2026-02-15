@@ -553,7 +553,7 @@ Return JSON:
 
     // Count votes
     const votes = [trendVote, volVote, reversalVote, confirmationVote].filter(v => v !== null) as OmegaVote[];
-    const exitVotes = votes.filter(v => v.vote === 'NO_TRADE' || v.vote !== snapshot.dir.toUpperCase()).length;
+    const exitVotes = votes.filter(v => v.vote !== snapshot.dir.toUpperCase() || v.confidence < 20).length;
     const holdVotes = votes.filter(v => v.vote === snapshot.dir.toUpperCase()).length;
 
     console.log(`[MidTrade Emergency] Omega Council: ${exitVotes} EXIT, ${holdVotes} HOLD (of ${votes.length})`);

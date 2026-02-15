@@ -31,8 +31,8 @@ describe('Omega-10 Meta-Reasoning Brain', () => {
             trend: { vote: 'SELL', confidence: 80, reasoning: 'Downtrend' },
             scalper: { vote: 'SELL', confidence: 75, reasoning: 'Short setup' },
             reversal: { vote: 'SELL', confidence: 85, reasoning: 'Exhaustion' },
-            volatility: { vote: 'NO_TRADE', confidence: 60, reasoning: 'High vol' },
-            risk: { vote: 'NO_TRADE', confidence: 90, reasoning: 'Risk too high' },
+            volatility: { vote: 'SELL', confidence: 10, reasoning: 'High vol - weak lean' },
+            risk: { vote: 'SELL', confidence: 15, reasoning: 'Risk elevated - weak lean' },
             omega8: null
           }
         ],

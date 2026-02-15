@@ -145,31 +145,25 @@ class OmegaVolatilityBrain {
       }
     }
 
-    let vote: 'BUY' | 'SELL' | 'NO_TRADE';
+    let vote: 'BUY' | 'SELL';
     let confidence: number;
 
-    // TIER 7 FIX: Vote in the determined trade direction (BUY/SELL) if volatility is favorable
     if (score >= 35) {
-      vote = tradeDirection; // Vote in candidate direction
+      vote = tradeDirection;
       confidence = Math.min(90, 55 + score * 0.6);
       factors.push('VOL_FAVORABLE');
     } else if (score >= 20) {
-      vote = tradeDirection; // Vote in candidate direction
+      vote = tradeDirection;
       confidence = Math.min(70, 45 + score * 0.5);
       factors.push('VOL_ACCEPTABLE');
     } else if (score <= -15) {
-      vote = 'NO_TRADE';
-      confidence = Math.max(20, 35 - Math.abs(score));
+      vote = tradeDirection;
+      confidence = Math.max(1, Math.min(20, 10 + Math.abs(score) * 0.2));
       factors.push('VOL_UNFAVORABLE');
     } else {
-      vote = 'NO_TRADE';
-      confidence = 40;
+      vote = tradeDirection;
+      confidence = Math.max(1, Math.min(35, 18 + score * 0.4));
       factors.push('VOL_UNCLEAR');
-    }
-
-    if (vote !== 'NO_TRADE' && confidence < VOLATILITY_THRESHOLDS.MIN_CONFIDENCE_FOR_TRADE) {
-      vote = 'NO_TRADE';
-      factors.push('BELOW_MIN_CONF');
     }
 
     const evidence = [

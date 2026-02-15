@@ -5,7 +5,7 @@
 import type { SafetyZone, SafetyEvaluation } from '../config/alpha-safety-zones';
 
 export interface OmegaVote {
-  vote: 'BUY' | 'SELL' | 'NO_TRADE';
+  vote: 'BUY' | 'SELL';
   confidence: number;
   reasoning: string;
 }

@@ -20,7 +20,7 @@ export interface AlphaDecisionLog {
   action: 'BUY' | 'SELL' | 'NO_TRADE';
   confidence: number;
   omega_consensus: {
-    direction: 'BUY' | 'SELL' | 'NO_TRADE' | 'MIXED';
+    direction: 'BUY' | 'SELL' | 'MIXED';
     confidence: number;
     agreement_count: number;
     total_votes: number;
@@ -28,7 +28,6 @@ export interface AlphaDecisionLog {
   omega_votes: OmegaCouncilVotes;
   buy_votes: number;
   sell_votes: number;
-  no_trade_votes: number;
   omega_votes_count: number;
   omega_vote_details: Record<string, any>;
   vote_weights: Record<string, number>;
@@ -69,7 +68,7 @@ class AlphaLearningTracker {
     decision: AlphaDecision,
     omegaVotes: OmegaCouncilVotes,
     omegaConsensus: {
-      direction: 'BUY' | 'SELL' | 'NO_TRADE' | 'MIXED';
+      direction: 'BUY' | 'SELL' | 'MIXED';
       confidence: number;
       agreement_count: number;
       total_votes: number;
@@ -98,7 +97,6 @@ class AlphaLearningTracker {
 
       const buyVotes = votesList.filter((v: any) => v?.vote === 'BUY').length;
       const sellVotes = votesList.filter((v: any) => v?.vote === 'SELL').length;
-      const noTradeVotes = votesList.filter((v: any) => v?.vote === 'NO_TRADE').length;
 
       const voteDetails: Record<string, any> = {};
       const voteWeights: Record<string, number> = {};
@@ -121,7 +119,6 @@ class AlphaLearningTracker {
         omega_votes: omegaVotes,
         buy_votes: buyVotes,
         sell_votes: sellVotes,
-        no_trade_votes: noTradeVotes,
         omega_votes_count: votesList.length,
         omega_vote_details: voteDetails,
         vote_weights: voteWeights,
@@ -138,10 +135,13 @@ class AlphaLearningTracker {
         take_profit: decision.takeProfit,
       };
 
-      if (decision.consensusGateResult) {
-        log.consensus_gate_blocked = !decision.consensusGateResult.allowDirectionalTrade;
-        log.consensus_gate_reason = decision.consensusGateResult.blockReason;
-        log.no_trade_quorum_percent = decision.consensusGateResult.noTradePercent;
+      if (decision.directionalStrengthResult) {
+        log.directional_strength_net = decision.directionalStrengthResult.netStrength;
+        log.directional_strength_buy = decision.directionalStrengthResult.buyScore;
+        log.directional_strength_sell = decision.directionalStrengthResult.sellScore;
+        log.directional_strength_threshold = decision.directionalStrengthResult.threshold;
+        log.directional_strength_meets = decision.directionalStrengthResult.meetsThreshold;
+        log.directional_strength_style = decision.directionalStrengthResult.style;
       }
 
       const { data, error } = await supabase
@@ -155,7 +155,7 @@ class AlphaLearningTracker {
         return null;
       }
 
-      console.log(`[Alpha Learning] Decision logged: ${decision.action} | Votes: ${buyVotes}B/${sellVotes}S/${noTradeVotes}N (Override: ${alpha_override})`);
+      console.log(`[Alpha Learning] Decision logged: ${decision.action} | Votes: ${buyVotes}B/${sellVotes}S (Override: ${alpha_override})`);
       return data.id;
     } catch (error) {
       console.error('[Alpha Learning] Exception logging decision:', error);
@@ -229,15 +229,6 @@ class AlphaLearningTracker {
     decision: AlphaDecision,
     consensus: { direction: string; confidence: number; agreement_count: number }
   ): boolean {
-    // Alpha overrode if:
-    // 1. Consensus said NO_TRADE but Alpha took trade
-    // 2. Consensus said BUY/SELL but Alpha did opposite or NO_TRADE
-    // 3. Consensus confidence > 65% and Alpha went against it
-
-    if (consensus.direction === 'NO_TRADE' && decision.action !== 'NO_TRADE') {
-      return true;
-    }
-
     if (consensus.direction === 'BUY' && decision.action !== 'BUY' && consensus.confidence > 65) {
       return true;
     }
@@ -259,10 +250,6 @@ class AlphaLearningTracker {
   ): string {
     const reasons: string[] = [];
 
-    if (consensus.direction === 'NO_TRADE' && decision.action !== 'NO_TRADE') {
-      reasons.push(`Alpha saw opportunity where Omegas voted NO_TRADE`);
-    }
-
     if (consensus.direction === 'BUY' && decision.action === 'SELL') {
       reasons.push(`Alpha reversed BUY consensus to SELL`);
     }
@@ -271,13 +258,16 @@ class AlphaLearningTracker {
       reasons.push(`Alpha reversed SELL consensus to BUY`);
     }
 
-    if (decision.confidence > consensus.confidence + 15) {
-      reasons.push(`Alpha more confident (${decision.confidence}%) than consensus (${consensus.confidence}%)`);
+    if (consensus.direction === 'BUY' && decision.action === 'NO_TRADE') {
+      reasons.push(`Alpha declared NO_TRADE despite BUY consensus (insufficient directional strength)`);
     }
 
-    // Check if Risk Omega was ignored
-    if (votes.risk && votes.risk.vote === 'NO_TRADE' && votes.risk.confidence >= 70 && decision.action !== 'NO_TRADE') {
-      reasons.push(`Alpha overrode Risk Omega veto (${votes.risk.confidence}%)`);
+    if (consensus.direction === 'SELL' && decision.action === 'NO_TRADE') {
+      reasons.push(`Alpha declared NO_TRADE despite SELL consensus (insufficient directional strength)`);
+    }
+
+    if (decision.confidence > consensus.confidence + 15) {
+      reasons.push(`Alpha more confident (${decision.confidence}%) than consensus (${consensus.confidence}%)`);
     }
 
     return reasons.join('; ');

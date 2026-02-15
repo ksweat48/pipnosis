@@ -141,29 +141,24 @@ class OmegaScalperBrain {
       }
     }
 
-    let vote: 'BUY' | 'SELL' | 'NO_TRADE';
+    let vote: 'BUY' | 'SELL';
     let confidence: number;
 
     if (!candidateDirection) {
-      vote = 'NO_TRADE';
-      confidence = 30;
-      factors.push('NO_CLEAR_DIR');
+      vote = rsi < 50 ? 'BUY' : 'SELL';
+      confidence = Math.max(1, 10 + Math.abs(50 - rsi) * 0.2);
+      factors.push('WEAK_LEAN');
     } else if (score >= 20) {
       vote = candidateDirection;
       confidence = Math.min(90, 55 + score);
     } else if (score <= -15) {
-      vote = 'NO_TRADE';
-      confidence = Math.max(25, 40 - Math.abs(score));
-      factors.push('UNFAVORABLE');
+      vote = candidateDirection === 'BUY' ? 'SELL' : 'BUY';
+      confidence = Math.max(1, Math.min(25, 12 + Math.abs(score) * 0.3));
+      factors.push('CONTRARY_LEAN');
     } else {
-      vote = 'NO_TRADE';
-      confidence = 40;
-      factors.push('UNCLEAR');
-    }
-
-    if (vote !== 'NO_TRADE' && confidence < SCALPER_THRESHOLDS.MIN_CONFIDENCE_FOR_TRADE) {
-      vote = 'NO_TRADE';
-      factors.push('BELOW_MIN_CONF');
+      vote = candidateDirection;
+      confidence = Math.max(1, Math.min(40, 20 + score * 0.5));
+      factors.push('WEAK_LEAN');
     }
 
     const evidence = [

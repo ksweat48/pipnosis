@@ -182,13 +182,13 @@ describe('Refined Omega Conflict Resolution', () => {
   });
 
   test('NO CONFLICT: All Omegas agree', () => {
-    // Example: All Omegas vote BUY or NO_TRADE
+    // Example: All Omegas vote BUY with varying confidence
     // Expected: No conflict, normal execution
     expect(true).toBe(true); // Placeholder
   });
 
-  test('NO CONFLICT: Only one directional vote', () => {
-    // Example: OmegaTrend (BUY 75%), others NO_TRADE
+  test('NO CONFLICT: Only one high-confidence directional vote', () => {
+    // Example: OmegaTrend (BUY 75%), others weak lean BUY/SELL
     // Expected: No conflict, normal execution
     expect(true).toBe(true); // Placeholder
   });

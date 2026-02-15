@@ -91,7 +91,7 @@ export interface Omega8HybridResult {
   patterns: Omega8Patterns;
   signals: string[];
   reason: string;
-  vote: 'BUY' | 'SELL' | 'NO_TRADE';
+  vote: 'BUY' | 'SELL';
   reasoning: string;
   liquidity_bias: 'clean' | 'stoprun_risk' | 'stoprun_entry' | 'reaccumulation' | 'distribution';
   direction_support: 'buy' | 'sell' | 'neutral';
@@ -133,7 +133,7 @@ export class Omega8HybridBrain {
       console.log(`[Omega-8 Hybrid] ✅ Deterministic decision (conf=${deterministic.confidence}) - skipping LLM`);
     }
 
-    const vote = this.biasToVote(finalBias);
+    const vote = this.biasToVote(finalBias, snapshot);
     const liquidityAnalysis = this.determineLiquidityBias(patterns, deterministic, snapshot.candles);
     const signals = this.generateSignals(patterns);
     const reason = this.buildReason(deterministic, llmRefinement, patterns);
@@ -496,9 +496,15 @@ export class Omega8HybridBrain {
     } else if (score <= -20) {
       baseBias = 'sell';
       confidence = Math.min(90, 50 + Math.abs(score));
+    } else if (score > 0) {
+      baseBias = 'buy';
+      confidence = Math.max(1, Math.min(25, 10 + score * 0.5));
+    } else if (score < 0) {
+      baseBias = 'sell';
+      confidence = Math.max(1, Math.min(25, 10 + Math.abs(score) * 0.5));
     } else {
       baseBias = 'neutral';
-      confidence = Math.max(20, 40 - Math.abs(score));
+      confidence = 5;
     }
 
     return { baseBias, confidence, scoreDetails, rawScore: score };
@@ -656,10 +662,10 @@ Return JSON:
   /**
    * HELPER METHODS
    */
-  private biasToVote(bias: 'buy' | 'sell' | 'neutral'): 'BUY' | 'SELL' | 'NO_TRADE' {
+  private biasToVote(bias: 'buy' | 'sell' | 'neutral', snapshot: Omega8MarketSnapshot): 'BUY' | 'SELL' {
     if (bias === 'buy') return 'BUY';
     if (bias === 'sell') return 'SELL';
-    return 'NO_TRADE';
+    return snapshot.trendBias === 'down' ? 'SELL' : 'BUY';
   }
 
   private determineLiquidityBias(

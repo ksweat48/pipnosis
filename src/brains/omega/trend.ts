@@ -116,7 +116,7 @@ class OmegaTrendBrain {
       }
     }
 
-    let vote: 'BUY' | 'SELL' | 'NO_TRADE';
+    let vote: 'BUY' | 'SELL';
     let confidence: number;
 
     const scoreThreshold = TREND_THRESHOLDS.SCORE_THRESHOLD;
@@ -127,13 +127,9 @@ class OmegaTrendBrain {
       vote = 'SELL';
       confidence = Math.min(95, 55 + Math.abs(score));
     } else {
-      vote = 'NO_TRADE';
-      confidence = Math.max(20, 40 - Math.abs(score));
-    }
-
-    if (vote !== 'NO_TRADE' && confidence < TREND_THRESHOLDS.MIN_CONFIDENCE_FOR_TRADE) {
-      vote = 'NO_TRADE';
-      factors.push('BELOW_MIN_CONF');
+      vote = score >= 0 ? 'BUY' : 'SELL';
+      confidence = Math.max(1, Math.min(30, 15 + Math.abs(score) * 0.5));
+      factors.push('WEAK_LEAN');
     }
 
     const evidence = [

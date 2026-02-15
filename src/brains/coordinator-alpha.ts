@@ -93,7 +93,7 @@ import { EntryIntentClassifier } from '../services/entry-intent-classifier';
 import { omega9ConstraintProvider } from '../services/omega9-constraint-provider';
 import { alphaRevisionHandler } from '../services/alpha-revision-handler';
 import type { Omega9Constraints } from '../types/omega9-constraints';
-import { getRecommendedConsensusCount, calculateConsensusStrengthModifier, getConsensusDescription, evaluateConsensusGate } from '../services/omega-consensus-advisory';
+import { getRecommendedConsensusCount, calculateConsensusStrengthModifier, getConsensusDescription, evaluateDirectionalStrength } from '../services/omega-consensus-advisory';
 import { tradeExecutionFreshnessGate } from '../services/trade-execution-freshness-gate';
 import { tradeFeasibilityResolver } from '../services/trade-feasibility-resolver';
 import type { AssetClass, TradeStyle as FeasibilityTradeStyle } from '../types/trade-feasibility-resolver.types';
@@ -285,12 +285,14 @@ export interface AlphaDecision {
     invalidationPoint: { price: number; reasoning: string } | null;
     warnings: string[];
   };
-  // CCIP-2026-02-15: Consensus gate audit trail
-  consensusGateResult?: {
-    allowDirectionalTrade: boolean;
-    blockReason: string | null;
-    noTradeCount: number;
-    noTradePercent: number;
+  directionalStrengthResult?: {
+    buyScore: number;
+    sellScore: number;
+    netStrength: number;
+    winningDirection: 'BUY' | 'SELL';
+    meetsThreshold: boolean;
+    threshold: number;
+    style: string;
   };
 }
 
@@ -530,18 +532,12 @@ class AlphaCoordinatorBrain {
     const weights = resolvedWeights.weights;
     console.log(`[Alpha Coordinator] Omega weights resolved [Style: ${tradeStyle}] [Source: ${resolvedWeights.metadata.source}]`);
 
-    // Calculate weighted consensus score (includes NO_TRADE quorum + minimum vote gate)
-    const consensus = this.calculateWeightedConsensus(votes, weights);
+    const consensus = this.calculateWeightedConsensus(votes, weights, tradeStyle);
     console.log(`[Alpha Coordinator] Weighted Consensus: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} Omegas)`);
 
-    if (consensus.consensusGateResult) {
-      const gate = consensus.consensusGateResult;
-      if (!gate.allowDirectionalTrade) {
-        console.log(`[Alpha Coordinator] CONSENSUS GATE: BLOCKED | Reason: ${gate.blockReason}`);
-        console.log(`[Alpha Coordinator] NO_TRADE votes: ${gate.noTradeCount}/${consensus.totalVotes} (${(gate.noTradePercent * 100).toFixed(0)}%) | Threshold: 60%`);
-      } else {
-        console.log(`[Alpha Coordinator] CONSENSUS GATE: PASSED | NO_TRADE: ${gate.noTradeCount}/${consensus.totalVotes} (${(gate.noTradePercent * 100).toFixed(0)}%)`);
-      }
+    if (consensus.directionalStrengthResult) {
+      const ds = consensus.directionalStrengthResult;
+      console.log(`[Alpha Coordinator] Directional Strength: NET=${ds.netStrength.toFixed(1)} (BUY=${ds.buyScore.toFixed(1)} vs SELL=${ds.sellScore.toFixed(1)}) | Threshold: ${ds.threshold} [${ds.style}] | ${ds.meetsThreshold ? 'PASSED' : 'BLOCKED'}`);
     }
 
     // Calculate consensus strength modifier and advisory recommendation
@@ -550,17 +546,16 @@ class AlphaCoordinatorBrain {
     const consensusDescription = getConsensusDescription(riskMode);
     console.log(`[Alpha Coordinator] Consensus Advisory: ${recommendedConsensusCount}/7 recommended for ${riskMode} risk | Actual: ${consensus.agreementCount}/7 | Strength Modifier: ${consensusStrengthModifier > 0 ? '+' : ''}${(consensusStrengthModifier * 100).toFixed(1)}%`);
 
-    // CCIP-2026-02-15: Early return when consensus gate blocks directional trade
-    if (consensus.consensusGateResult && !consensus.consensusGateResult.allowDirectionalTrade) {
-      const gateReason = consensus.consensusGateResult.blockReason || 'Consensus gate blocked directional trade';
-      console.log(`[Alpha Coordinator] EARLY RETURN: NO_TRADE due to consensus gate - ${gateReason}`);
+    if (consensus.directionalStrengthResult && !consensus.directionalStrengthResult.meetsThreshold) {
+      const dsReason = consensus.directionalStrengthResult.reason || 'Insufficient directional conviction';
+      console.log(`[Alpha Coordinator] EARLY RETURN: NO_TRADE due to weak directional strength - ${dsReason}`);
       return {
         action: 'NO_TRADE',
         entry: marketContext.price,
         stopLoss: 0,
         takeProfit: 0,
         confidence: 0,
-        reasoning: `Consensus gate: ${gateReason}. The Omega council does not support a directional trade at this time.`,
+        reasoning: `Directional strength: ${dsReason}. The Omega council lacks sufficient directional conviction for a trade.`,
         tradeQuality: 'POOR',
         adjustments: [],
         constraints: null,
@@ -574,7 +569,7 @@ class AlphaCoordinatorBrain {
         entryIntentClassification: null,
         stopLossAnchor: null,
         takeProfitCalculation: null,
-        consensusGateResult: consensus.consensusGateResult
+        directionalStrengthResult: consensus.directionalStrengthResult
       };
     }
 
@@ -2014,35 +2009,40 @@ Return PURE JSON only:
   /**
    * Calculate weighted consensus from Omega votes
    *
-   * CCIP-2026-02-15: Added NO_TRADE quorum enforcement and minimum vote requirement.
-   * Before computing weighted scores, checks:
-   * 1. Minimum 3 Omega votes received (insufficient data = NO_TRADE)
-   * 2. NO_TRADE quorum: if >= 60% of Omegas vote NO_TRADE, consensus = NO_TRADE
-   * 3. Minimum 3 directional votes in same direction for BUY/SELL consensus
+   * CCIP-2026-02-15: DIRECTIONAL STRENGTH MODEL
+   * All Omegas now vote BUY or SELL with confidence 1-100%.
+   * NO_TRADE is exclusively an Alpha-level decision.
+   *
+   * Computes weighted directional scores and evaluates net strength
+   * against style-aware thresholds. If net strength is below threshold,
+   * Alpha returns NO_TRADE (insufficient directional conviction).
    */
   private calculateWeightedConsensus(
     votes: OmegaCouncilVotes,
-    weights: Record<string, number>
+    weights: Record<string, number>,
+    style: string = 'MICRO_INTRADAY'
   ): {
     direction: 'BUY' | 'SELL' | 'NO_TRADE' | 'MIXED' | 'WAIT';
     score: number;
     agreementCount: number;
     totalVotes: number;
     strongAgreement: boolean;
-    consensusGateResult?: {
-      allowDirectionalTrade: boolean;
-      blockReason: string | null;
-      noTradeCount: number;
-      noTradePercent: number;
+    directionalStrengthResult?: {
+      buyScore: number;
+      sellScore: number;
+      netStrength: number;
+      winningDirection: 'BUY' | 'SELL';
+      meetsThreshold: boolean;
+      threshold: number;
+      style: string;
+      reason: string;
     };
   } {
     let buyScore = 0;
     let sellScore = 0;
-    let noTradeScore = 0;
     let totalWeight = 0;
     let buyWeightSum = 0;
     let sellWeightSum = 0;
-    let noTradeWeightSum = 0;
     let totalVotes = 0;
 
     const voteEntries = [
@@ -2054,31 +2054,6 @@ Return PURE JSON only:
       { name: 'risk', vote: votes.risk, weight: weights.risk ?? 0 },
       { name: 'omega8', vote: votes.omega8, weight: weights.omega8 ?? 0 }
     ];
-
-    const flatVotes = voteEntries
-      .map(e => e.vote ? { vote: e.vote.vote, confidence: e.vote.confidence } : null);
-
-    const consensusGate = evaluateConsensusGate(flatVotes);
-
-    if (!consensusGate.allowDirectionalTrade) {
-      const validVoteCount = flatVotes.filter(v => v !== null).length;
-      console.log(`[Alpha Coordinator] CONSENSUS GATE BLOCKED: ${consensusGate.blockReason}`);
-      console.log(`[Alpha Coordinator] NO_TRADE quorum: ${consensusGate.noTradeQuorum.noTradeCount}/${consensusGate.noTradeQuorum.totalVotes} (${(consensusGate.noTradeQuorum.noTradePercent * 100).toFixed(0)}%)`);
-
-      return {
-        direction: 'NO_TRADE',
-        score: 0,
-        agreementCount: consensusGate.noTradeQuorum.noTradeCount,
-        totalVotes: validVoteCount,
-        strongAgreement: false,
-        consensusGateResult: {
-          allowDirectionalTrade: false,
-          blockReason: consensusGate.blockReason,
-          noTradeCount: consensusGate.noTradeQuorum.noTradeCount,
-          noTradePercent: consensusGate.noTradeQuorum.noTradePercent
-        }
-      };
-    }
 
     for (const entry of voteEntries) {
       if (!entry.vote) continue;
@@ -2094,38 +2069,39 @@ Return PURE JSON only:
       } else if (entry.vote.vote === 'SELL') {
         sellScore += weightedConfidence;
         sellWeightSum += w;
-      } else {
-        noTradeScore += weightedConfidence;
-        noTradeWeightSum += w;
       }
     }
 
     if (totalWeight > 0) {
-      buyScore = (buyScore / totalWeight);
-      sellScore = (sellScore / totalWeight);
-      noTradeScore = (noTradeScore / totalWeight);
+      buyScore = buyScore / totalWeight;
+      sellScore = sellScore / totalWeight;
     }
 
-    let direction: 'BUY' | 'SELL' | 'NO_TRADE' | 'MIXED' = 'NO_TRADE';
-    let score = noTradeScore;
-    let winningWeightShare = totalWeight > 0 ? noTradeWeightSum / totalWeight : 0;
+    const dsResult = evaluateDirectionalStrength(buyScore, sellScore, style);
 
-    if (buyScore > sellScore && buyScore > noTradeScore) {
-      direction = 'BUY';
-      score = buyScore;
-      winningWeightShare = totalWeight > 0 ? buyWeightSum / totalWeight : 0;
-    } else if (sellScore > buyScore && sellScore > noTradeScore) {
-      direction = 'SELL';
-      score = sellScore;
-      winningWeightShare = totalWeight > 0 ? sellWeightSum / totalWeight : 0;
-    } else if (buyScore > 50 && sellScore > 50) {
+    if (!dsResult.meetsThreshold) {
+      console.log(`[Alpha Coordinator] DIRECTIONAL STRENGTH BLOCKED: ${dsResult.reason}`);
+
+      return {
+        direction: 'NO_TRADE',
+        score: Math.max(buyScore, sellScore),
+        agreementCount: totalVotes,
+        totalVotes,
+        strongAgreement: false,
+        directionalStrengthResult: dsResult
+      };
+    }
+
+    let direction: 'BUY' | 'SELL' | 'NO_TRADE' | 'MIXED' = dsResult.winningDirection;
+    const score = Math.max(buyScore, sellScore);
+    const winningWeightSum = direction === 'BUY' ? buyWeightSum : sellWeightSum;
+    const winningWeightShare = totalWeight > 0 ? winningWeightSum / totalWeight : 0;
+
+    if (buyScore > 50 && sellScore > 50 && dsResult.netStrength < dsResult.threshold * 1.5) {
       direction = 'MIXED';
-      score = Math.max(buyScore, sellScore);
-      winningWeightShare = totalWeight > 0 ? Math.max(buyWeightSum, sellWeightSum) / totalWeight : 0;
     }
 
     const agreementCount = Math.round(winningWeightShare * totalVotes);
-
     const strongAgreement = winningWeightShare >= 0.45 && score >= 50;
 
     return {
@@ -2134,12 +2110,7 @@ Return PURE JSON only:
       agreementCount,
       totalVotes,
       strongAgreement,
-      consensusGateResult: {
-        allowDirectionalTrade: true,
-        blockReason: null,
-        noTradeCount: consensusGate.noTradeQuorum.noTradeCount,
-        noTradePercent: consensusGate.noTradeQuorum.noTradePercent
-      }
+      directionalStrengthResult: dsResult
     };
   }
 
@@ -2283,20 +2254,18 @@ Return PURE JSON only:
 
     let buyVotes = 0;
     let sellVotes = 0;
-    let noTradeVotes = 0;
 
     for (const [key, vote] of Object.entries(votes)) {
       if (vote) {
         if (vote.vote === 'BUY') buyVotes++;
         else if (vote.vote === 'SELL') sellVotes++;
-        else noTradeVotes++;
       }
     }
 
-    summary.push(`Council: ${buyVotes} BUY, ${sellVotes} SELL, ${noTradeVotes} NO_TRADE`);
+    summary.push(`Council: ${buyVotes} BUY, ${sellVotes} SELL`);
 
-    if (votes.risk && votes.risk.vote === 'NO_TRADE') {
-      summary.push(`⚠️ Risk specialist vetoed (${votes.risk.reasoning})`);
+    if (votes.risk && votes.risk.confidence < 30) {
+      summary.push(`Risk specialist low confidence (${votes.risk.confidence}%): ${votes.risk.reasoning}`);
     }
 
     if (votes.omega8) {
