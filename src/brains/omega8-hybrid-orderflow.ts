@@ -381,7 +381,19 @@ export class Omega8HybridBrain {
     if (signals.volSpikeBullish) bullishSignals++;
     if (signals.absorptionBullish) bullishSignals++;
 
-    if (signals.sweptHighs > 0) bearishSignals++;
+    const sweepRatio = signals.sweptHighs / Math.max(signals.sweptLows, 1);
+    const inverseSweepRatio = signals.sweptLows / Math.max(signals.sweptHighs, 1);
+
+    if (sweepRatio >= 3) {
+      bullishSignals++;
+    } else if (signals.sweptHighs > 0) {
+      bearishSignals++;
+    }
+
+    if (inverseSweepRatio >= 3) {
+      bearishSignals++;
+    }
+
     if (signals.fvgBearish > 0) bearishSignals++;
     if (signals.volSpikeBearish) bearishSignals++;
     if (signals.absorptionBearish) bearishSignals++;
@@ -396,16 +408,35 @@ export class Omega8HybridBrain {
     let score = 0;
     const scoreDetails: string[] = [];
 
-    if (patterns.sweptLows > 0 && trendBias === 'up') {
-      const points = 20 * patterns.sweptLows;
-      score += points;
-      scoreDetails.push(`+${points} (bullish liq sweep in uptrend)`);
+    const sweepRatio = patterns.sweptHighs / Math.max(patterns.sweptLows, 1);
+    const inverseSweepRatio = patterns.sweptLows / Math.max(patterns.sweptHighs, 1);
+
+    if (patterns.sweptLows > 0) {
+      if (inverseSweepRatio >= 3) {
+        const points = 20 * patterns.sweptLows;
+        score -= points;
+        scoreDetails.push(`-${points} (bearish momentum: ${patterns.sweptLows}L/${patterns.sweptHighs}H ratio)`);
+      } else if (trendBias === 'up') {
+        const points = 15 * patterns.sweptLows;
+        score += points;
+        scoreDetails.push(`+${points} (bullish liq sweep in uptrend)`);
+      }
     }
 
-    if (patterns.sweptHighs > 0 && trendBias === 'down') {
-      const points = 20 * patterns.sweptHighs;
-      score -= points;
-      scoreDetails.push(`-${points} (bearish liq sweep in downtrend)`);
+    if (patterns.sweptHighs > 0) {
+      if (sweepRatio >= 3) {
+        const points = 15 * patterns.sweptHighs;
+        score += points;
+        scoreDetails.push(`+${points} (bullish momentum: ${patterns.sweptHighs}H/${patterns.sweptLows}L ratio)`);
+      } else if (trendBias === 'down') {
+        const points = 20 * patterns.sweptHighs;
+        score -= points;
+        scoreDetails.push(`-${points} (bearish liq sweep in downtrend)`);
+      } else if (trendBias === 'sideways' && sweepRatio >= 2) {
+        const points = 10 * patterns.sweptHighs;
+        score += points;
+        scoreDetails.push(`+${points} (upward breakout momentum in range)`);
+      }
     }
 
     if (patterns.fvgBullish > 0) {
@@ -505,11 +536,21 @@ export class Omega8HybridBrain {
       v: c.volume
     }));
 
+    const sweepRatio = patterns.sweptHighs / Math.max(patterns.sweptLows, 1);
+    const sweepContext = sweepRatio >= 3
+      ? `sweepRatio:${patterns.sweptHighs}H/${patterns.sweptLows}L=BULLISH_MOMENTUM`
+      : sweepRatio <= 0.33 && patterns.sweptLows > 0
+        ? `sweepRatio:${patterns.sweptHighs}H/${patterns.sweptLows}L=BEARISH_MOMENTUM`
+        : `sweepRatio:${patterns.sweptHighs}H/${patterns.sweptLows}L=BALANCED`;
+
     const prompt = `sym:${snapshot.symbol} tf:${snapshot.timeframe}
 trend:${snapshot.trendBias}
-patterns:{eh:${patterns.equalHighs},el:${patterns.equalLows},sh:${patterns.sweptHighs},sl:${patterns.sweptLows},fvgB:${patterns.fvgBullish},fvgBr:${patterns.fvgBearish},volB:${patterns.volSpikeBullish},volBr:${patterns.volSpikeBearish},acc:${patterns.accumulationZone},dist:${patterns.distributionZone}}
+patterns:{eh:${patterns.equalHighs},el:${patterns.equalLows},sh:${patterns.sweptHighs}(=price pushed UP to grab liquidity above highs),sl:${patterns.sweptLows}(=price pushed DOWN to grab liquidity below lows),fvgB:${patterns.fvgBullish},fvgBr:${patterns.fvgBearish},volB:${patterns.volSpikeBullish},volBr:${patterns.volSpikeBearish},acc:${patterns.accumulationZone},dist:${patterns.distributionZone}}
+${sweepContext}
 detBias:${deterministic.baseBias} detConf:${deterministic.confidence}
 candles:${JSON.stringify(recentCandles)}
+
+IMPORTANT: sweptHighs=price going UP to sweep above previous highs. High ratio of sweptHighs:sweptLows indicates bullish momentum, not bearish reversal, unless BOS (break of structure below) is confirmed.
 
 Task: interpret orderflow patterns, decide: buy/sell/neutral. Be decisive if clear.
 

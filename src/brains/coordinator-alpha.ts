@@ -78,7 +78,8 @@ import { supabase } from '../lib/supabase';
 import type { AdversarialSignal } from '../services/adversarial-detector';
 import type { RegimeSnapshot } from '../services/regime-oracle';
 import { rrSuccessTracker } from '../services/rr-success-tracker';
-import { formatRiskProfileForLLM, getOmegaWeights } from '../config/risk-strategy-profiles';
+import { formatRiskProfileForLLM } from '../config/risk-strategy-profiles';
+import { omegaWeightResolver, type StyleIntent, type WeightResolutionMetadata } from '../services/omega-weight-resolver';
 import { timeToFillCalculator, type TimeToFillInput } from '../services/time-to-fill-calculator';
 import { dailyNarrativeBuilder, type DailyNarrative } from '../services/daily-narrative-builder';
 import { multiSymbolRanker, type SymbolScore } from '../services/multi-symbol-ranker';
@@ -507,12 +508,24 @@ class AlphaCoordinatorBrain {
     // Declare risk mode at function scope (used throughout function)
     const riskMode = goalContext?.riskMode || 'medium';
 
-    // Calculate vote weights (with Omega-10 overrides if available)
-    const weights = await this.calculateWeights(votes, marketContext, traderScore, riskMode, userId);
+    // Resolve trade style early (needed for style-aware omega weighting)
+    const EARLY_STYLE_MAP: Record<string, StyleIntent> = {
+      'scalper': 'SCALP', 'SCALPER': 'SCALP', 'scalp': 'SCALP', 'SCALP': 'SCALP',
+      'micro': 'MICRO_INTRADAY', 'MICRO': 'MICRO_INTRADAY', 'MICRO_INTRADAY': 'MICRO_INTRADAY',
+      'intraday': 'INTRADAY', 'INTRADAY': 'INTRADAY', 'day': 'INTRADAY',
+    };
+    const tradeStyle: StyleIntent = (goalContext?.tradeStyle ? EARLY_STYLE_MAP[goalContext.tradeStyle] : undefined) || 'SCALP';
+
+    // Calculate style-aware vote weights via SSOT Weight Resolver
+    const resolvedWeights = await omegaWeightResolver.resolveWeights(
+      votes, marketContext, tradeStyle, riskMode, userId, sessionId
+    );
+    const weights = resolvedWeights.weights;
+    console.log(`[Alpha Coordinator] Omega weights resolved [Style: ${tradeStyle}] [Source: ${resolvedWeights.metadata.source}]`);
 
     // Calculate weighted consensus score
     const consensus = this.calculateWeightedConsensus(votes, weights);
-    console.log(`[Alpha Coordinator] 📊 Weighted Consensus: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} Omegas)`);
+    console.log(`[Alpha Coordinator] Weighted Consensus: ${consensus.direction} ${consensus.score.toFixed(1)}% (${consensus.agreementCount}/${consensus.totalVotes} Omegas)`);
 
     // Calculate consensus strength modifier and advisory recommendation
     const recommendedConsensusCount = getRecommendedConsensusCount(riskMode);
@@ -563,13 +576,21 @@ class AlphaCoordinatorBrain {
       riskContext += `Reasoning: ${riskAssessment.overallReasoning}\n`;
     }
 
+    // Build directional conflict alert (highest-conf omega vs consensus)
+    const directionalConflictAlert = omegaWeightResolver.buildDirectionalConflictAlert(
+      votes, resolvedWeights.metadata, consensus.direction
+    );
+
     // Build compressed context
     const context = this.buildCoordinationContext(votes, weights, marketContext, traderScore, consensus, platformIntelligence);
 
     // Build conflict context
     let conflictContext = '';
     if (conflictInfo && conflictInfo.hasConflict) {
-      conflictContext = `\n⚠️ OMEGA CONFLICT DETECTED:\nType: ${conflictInfo.conflictType} | Severity: ${conflictInfo.severity}\n${conflictInfo.conflictDescription}\n\nYou have authority to override if justified.\n`;
+      conflictContext = `\nOMEGA CONFLICT DETECTED:\nType: ${conflictInfo.conflictType} | Severity: ${conflictInfo.severity}\n${conflictInfo.conflictDescription}\n\nYou have authority to override if justified.\n`;
+    }
+    if (directionalConflictAlert) {
+      conflictContext += `\n${directionalConflictAlert}\n`;
     }
 
     // Build advisory context (Adversarial Detector + Regime Oracle)
@@ -980,16 +1001,7 @@ class AlphaCoordinatorBrain {
     let omega9Constraints: Omega9Constraints | null = null;
     let constraintsText = '';
 
-    const USER_STYLE_MAP: Record<string, 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'> = {
-      'scalper': 'SCALP', 'SCALPER': 'SCALP', 'scalp': 'SCALP', 'SCALP': 'SCALP',
-      'micro': 'MICRO_INTRADAY', 'MICRO': 'MICRO_INTRADAY', 'MICRO_INTRADAY': 'MICRO_INTRADAY',
-      'intraday': 'INTRADAY', 'INTRADAY': 'INTRADAY', 'day': 'INTRADAY',
-    };
-    const userChosenStyle = goalContext?.tradeStyle
-      ? USER_STYLE_MAP[goalContext.tradeStyle]
-      : undefined;
-
-    const tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = userChosenStyle || 'SCALP';
+    // tradeStyle already resolved earlier (before weight calculation) for SSOT compliance
 
     if (resolvedPlan?.style && resolvedPlan.style !== tradeStyle) {
       console.warn(`[Alpha Coordinator] [GOVERNANCE VIOLATION BLOCKED] Feasibility resolver attempted style promotion: ${tradeStyle} -> ${resolvedPlan.style}. User style is IMMUTABLE. Overriding back to ${tradeStyle}.`);
@@ -1273,7 +1285,7 @@ ${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recen
 🎯 ALPHA DECISION INTELLIGENCE:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 Omega Weighted Contributions:
-${this.buildWeightedVoteSummary(votes, weights, consensus)}
+${omegaWeightResolver.buildWeightSummaryForAlpha(resolvedWeights.metadata)}
 
 📈 Market Intelligence:
   Confidence Spread: ${confidenceSpread.stdDev.toFixed(1)}% (Avg: ${confidenceSpread.avgConfidence.toFixed(0)}%) → ${confidenceSpread.isHighAgreement ? '✅ HIGH CONSENSUS - wider R:R viable (2.5-3.5:1)' : '⚠️ DISAGREEMENT - tighten to 1.5-2.0:1'}
@@ -1971,9 +1983,9 @@ Return PURE JSON only:
     let sellScore = 0;
     let noTradeScore = 0;
     let totalWeight = 0;
-    let buyCount = 0;
-    let sellCount = 0;
-    let noTradeCount = 0;
+    let buyWeightSum = 0;
+    let sellWeightSum = 0;
+    let noTradeWeightSum = 0;
     let totalVotes = 0;
 
     const voteEntries = [
@@ -1982,7 +1994,7 @@ Return PURE JSON only:
       { name: 'confirmation', vote: votes.confirmation, weight: weights.confirmation ?? 0 },
       { name: 'reversal', vote: votes.reversal, weight: weights.reversal ?? 0 },
       { name: 'volatility', vote: votes.volatility, weight: weights.volatility ?? 0 },
-      { name: 'risk', vote: votes.risk, weight: (weights.risk ?? 0) * 0.5 }, // Reduce Risk weight to advisory level
+      { name: 'risk', vote: votes.risk, weight: weights.risk ?? 0 },
       { name: 'omega8', vote: votes.omega8, weight: weights.omega8 ?? 0 }
     ];
 
@@ -1990,51 +2002,49 @@ Return PURE JSON only:
       if (!entry.vote) continue;
 
       totalVotes++;
-      const weightedConfidence = (entry.weight ?? 0) * entry.vote.confidence;
-      totalWeight += (entry.weight ?? 0);
+      const w = entry.weight ?? 0;
+      const weightedConfidence = w * entry.vote.confidence;
+      totalWeight += w;
 
       if (entry.vote.vote === 'BUY') {
         buyScore += weightedConfidence;
-        buyCount++;
+        buyWeightSum += w;
       } else if (entry.vote.vote === 'SELL') {
         sellScore += weightedConfidence;
-        sellCount++;
+        sellWeightSum += w;
       } else {
         noTradeScore += weightedConfidence;
-        noTradeCount++;
+        noTradeWeightSum += w;
       }
     }
 
-    // Normalize scores
     if (totalWeight > 0) {
       buyScore = (buyScore / totalWeight);
       sellScore = (sellScore / totalWeight);
       noTradeScore = (noTradeScore / totalWeight);
     }
 
-    // Determine direction
     let direction: 'BUY' | 'SELL' | 'NO_TRADE' | 'MIXED' = 'NO_TRADE';
     let score = noTradeScore;
-    let agreementCount = noTradeCount;
+    let winningWeightShare = totalWeight > 0 ? noTradeWeightSum / totalWeight : 0;
 
     if (buyScore > sellScore && buyScore > noTradeScore) {
       direction = 'BUY';
       score = buyScore;
-      agreementCount = buyCount;
+      winningWeightShare = totalWeight > 0 ? buyWeightSum / totalWeight : 0;
     } else if (sellScore > buyScore && sellScore > noTradeScore) {
       direction = 'SELL';
       score = sellScore;
-      agreementCount = sellCount;
+      winningWeightShare = totalWeight > 0 ? sellWeightSum / totalWeight : 0;
     } else if (buyScore > 50 && sellScore > 50) {
       direction = 'MIXED';
       score = Math.max(buyScore, sellScore);
-      agreementCount = Math.max(buyCount, sellCount);
+      winningWeightShare = totalWeight > 0 ? Math.max(buyWeightSum, sellWeightSum) / totalWeight : 0;
     }
 
-    // Strong agreement = 3+ Omegas agree AND weighted score > 50%
-    // LOWERED from 55% to 50% to reduce paralysis and allow Alpha override authority
-    // Alpha can override between 45-55% with high conviction reasoning
-    const strongAgreement = agreementCount >= 3 && score >= 50;
+    const agreementCount = Math.round(winningWeightShare * totalVotes);
+
+    const strongAgreement = winningWeightShare >= 0.45 && score >= 50;
 
     return {
       direction,
@@ -2045,110 +2055,10 @@ Return PURE JSON only:
     };
   }
 
-  /**
-   * Calculate vote weights based on regime, personality, and RISK MODE
-   * Includes Omega-10 meta-reasoning overrides
-   *
-   * CRITICAL: Risk mode determines BASE weights (scalper dominant for aggressive, swing for conservative)
-   */
-  private async calculateWeights(
-    votes: OmegaCouncilVotes,
-    marketContext: MarketContext,
-    traderScore: TraderScore,
-    riskMode: 'low' | 'medium' | 'high',
-    userId?: string
-  ): Promise<Record<string, number>> {
-    // Start with risk profile base weights
-    const riskProfileWeights = getOmegaWeights(riskMode);
-
-    console.log(`[Alpha Coordinator] 🎯 Applying ${riskMode.toUpperCase()} risk profile base weights:`, riskProfileWeights);
-
-    const weights: Record<string, number> = {
-      trend: riskProfileWeights.trend ?? 1.0,
-      scalper: riskProfileWeights.scalper ?? 1.0,
-      confirmation: riskProfileWeights.confirmation ?? 1.0,
-      reversal: riskProfileWeights.reversal ?? 1.0,
-      volatility: riskProfileWeights.volatility ?? 1.0,
-      risk: riskProfileWeights.risk ?? 1.0,
-      omega8: 1.0  // Omega8 weighted separately
-    };
-
-    // Adjust by market regime (multiplicative to preserve risk profile intent)
-    if (marketContext.regime === 'bull' || marketContext.regime === 'bear') {
-      weights.trend = (weights.trend ?? 1.0) * 1.3;      // Trending - boost trend specialist
-      weights.confirmation = (weights.confirmation ?? 1.0) * 1.2;      // Structure matters in trends
-      weights.scalper = (weights.scalper ?? 1.0) * 0.9;    // Slightly reduce scalping in strong trends
-    } else if (marketContext.regime === 'side') {
-      weights.scalper = (weights.scalper ?? 1.0) * 1.3;    // Ranging - boost scalper
-      weights.reversal = (weights.reversal ?? 1.0) * 1.2;   // Reversals common in ranges
-      weights.trend = (weights.trend ?? 1.0) * 0.9;      // Slightly reduce trend following
-    }
-
-    // Adjust by volatility (multiplicative)
-    if (marketContext.volatility === 'high') {
-      weights.volatility = (weights.volatility ?? 1.0) * 1.4; // Boost volatility specialist
-      weights.risk = (weights.risk ?? 1.0) * 1.3;       // Risk is critical in volatility
-      weights.scalper = (weights.scalper ?? 1.0) * 0.8;    // Scalping riskier in high vol
-    } else if (marketContext.volatility === 'low') {
-      weights.scalper = (weights.scalper ?? 1.0) * 1.2;    // Scalping good in low vol
-      weights.volatility = (weights.volatility ?? 1.0) * 0.95;
-    }
-
-    // Adjust by trader personality
-    if (traderScore.confidence_level === 'aggressive') {
-      weights.scalper = (weights.scalper ?? 1.0) * 1.2;
-      weights.reversal = (weights.reversal ?? 1.0) * 1.1;
-      weights.risk = (weights.risk ?? 1.0) * 0.9;
-    } else if (traderScore.confidence_level === 'cautious') {
-      weights.risk = (weights.risk ?? 1.0) * 1.5;     // Risk is VERY important
-      weights.confirmation = (weights.confirmation ?? 1.0) * 1.2;   // Structure confirmation
-      weights.scalper = (weights.scalper ?? 1.0) * 0.8;
-    }
-
-    // Losing streak - weight risk more heavily (but still advisory)
-    if (traderScore.win_rate < 0.5) {
-      weights.risk = (weights.risk ?? 1.0) * 1.3;
-    }
-
-    // High score - trust trend more
-    if (traderScore.current_score >= 85) {
-      weights.trend = (weights.trend ?? 1.0) * 1.2;
-    }
-
-    // Risk remains advisory - do NOT enforce minimum weight
-    // Line 807 applies 0.5x multiplier to keep Risk advisory, not blocking
-
-    // Omega-8 OrderFlow adjustments
-    if (votes.omega8 && votes.omega8.confidence >= 70) {
-      weights.omega8 = 1.5;  // High confidence orderflow analysis
-    }
-    if (marketContext.regime === 'side') {
-      weights.omega8 = (weights.omega8 ?? 1.0) * 1.2;  // Boost in ranging markets (stop-run risk higher)
-    }
-    if (marketContext.volatility === 'high') {
-      weights.omega8 = (weights.omega8 ?? 1.0) * 1.15;  // Boost in high volatility (liquidity matters more)
-    }
-    if (traderScore.confidence_level === 'cautious') {
-      weights.omega8 = (weights.omega8 ?? 1.0) * 1.1;  // Cautious traders value liquidity analysis
-    }
-
-    // Omega-10 Meta-Reasoning Overrides (System-Level Intelligence)
-    if (userId) {
-      const omega10Overrides = await omega10Scheduler.getActiveOverrides(userId);
-      if (Object.keys(omega10Overrides).length > 0) {
-        console.log('[Alpha Coordinator] 🧠 Applying Omega-10 meta-reasoning overrides...');
-        for (const [omegaName, multiplier] of Object.entries(omega10Overrides)) {
-          if (weights[omegaName] !== undefined) {
-            const originalWeight = weights[omegaName];
-            weights[omegaName] *= multiplier;
-            console.log(`[Alpha Coordinator]   - ${omegaName}: ${originalWeight.toFixed(2)} → ${weights[omegaName].toFixed(2)} (${multiplier}x)`);
-          }
-        }
-      }
-    }
-
-    return weights;
-  }
+  // REMOVED: calculateWeights() - replaced by omegaWeightResolver.resolveWeights() (SSOT)
+  // Weight computation now lives in src/services/omega-weight-resolver.ts
+  // This eliminates: special-case Omega-8 1.5x boost, risk-mode-coupled weights,
+  // and personality-based adjustments that violated symmetric confidence amplification.
 
   /**
    * Build compressed coordination context
