@@ -88,8 +88,7 @@ class GoalAdvisoryCoordinator {
         return null;
       }
 
-      // GOVERNANCE CHECK: original_target_value must be set (immutable)
-      if (!session.original_target_value) {
+      if (session.original_target_value == null) {
         logger.error('[Goal Advisory] original_target_value not set - cannot create advisory', {
           goalSessionId,
         });

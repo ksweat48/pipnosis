@@ -329,22 +329,38 @@ class CreditValidationService {
     pipBurned: number
   ): Promise<void> {
     try {
-      await supabase
+      const record = {
+        user_id: userId,
+        session_id: sessionId,
+        intent_id: intentId || null,
+        amount,
+        status: 'success',
+        timestamp: new Date().toISOString(),
+        quote_id: quoteId || null,
+        tier_level: tierLevel,
+        discount_pct: discountPct,
+        base_cost: TOKENOMICS.CREDITS.BASE_TRADE_COST,
+        final_cost: amount,
+        pip_burned: pipBurned,
+      };
+
+      const { error } = await supabase
         .from('credit_deduction_history')
-        .insert({
-          user_id: userId,
-          session_id: sessionId,
-          intent_id: intentId,
-          amount,
-          status: 'success',
-          timestamp: new Date().toISOString(),
-          quote_id: quoteId || null,
-          tier_level: tierLevel,
-          discount_pct: discountPct,
-          base_cost: TOKENOMICS.CREDITS.BASE_TRADE_COST,
-          final_cost: amount,
-          pip_burned: pipBurned,
-        });
+        .insert(record);
+
+      if (error) {
+        if (error.code === '23503' || error.message?.includes('violates foreign key')) {
+          logger.warn('[Credit Validation] Intent cleaned up before deduction recorded, retrying without intent_id');
+          const { error: retryError } = await supabase
+            .from('credit_deduction_history')
+            .insert({ ...record, intent_id: null });
+          if (retryError) {
+            logger.error('[Credit Validation] Retry without intent_id also failed:', retryError);
+          }
+        } else {
+          logger.error('[Credit Validation] Failed to record deduction:', error);
+        }
+      }
     } catch (error) {
       logger.error('[Credit Validation] Failed to record deduction:', error);
     }
