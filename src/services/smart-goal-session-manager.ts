@@ -284,9 +284,12 @@ class SmartGoalSessionManager {
       watchlist = marketCheck.openSymbols;
     }
 
+    const riskMode = this.deriveRiskModeFromDollarAmount(dollarRisk, accountBalance);
+
     return {
       goalAmount,
       timeframe: generateTimeframe('1 day'),
+      riskMode,
       tradeStyle,
       dollarRisk,
       watchlist,

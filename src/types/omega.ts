@@ -3,12 +3,8 @@
  */
 
 import type { SafetyZone, SafetyEvaluation } from '../config/alpha-safety-zones';
-
-export interface OmegaVote {
-  vote: 'BUY' | 'SELL';
-  confidence: number;
-  reasoning: string;
-}
+import type { OmegaVote } from './omega-vote';
+export type { OmegaVote };
 
 export type Omega8LiquidityBias = 'clean' | 'stoprun_risk' | 'stoprun_entry' | 'reaccumulation' | 'distribution';
 

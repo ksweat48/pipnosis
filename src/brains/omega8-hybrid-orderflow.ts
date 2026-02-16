@@ -91,7 +91,8 @@ export interface Omega8HybridResult {
   patterns: Omega8Patterns;
   signals: string[];
   reason: string;
-  vote: 'BUY' | 'SELL';
+  /** @deprecated Omegas no longer vote. Use bias + direction_support instead. */
+  vote?: 'BUY' | 'SELL';
   reasoning: string;
   liquidity_bias: 'clean' | 'stoprun_risk' | 'stoprun_entry' | 'reaccumulation' | 'distribution';
   direction_support: 'buy' | 'sell' | 'neutral';
@@ -133,7 +134,6 @@ export class Omega8HybridBrain {
       console.log(`[Omega-8 Hybrid] ✅ Deterministic decision (conf=${deterministic.confidence}) - skipping LLM`);
     }
 
-    const vote = this.biasToVote(finalBias, snapshot);
     const liquidityAnalysis = this.determineLiquidityBias(patterns, deterministic, snapshot.candles);
     const signals = this.generateSignals(patterns);
     const reason = this.buildReason(deterministic, llmRefinement, patterns);
@@ -153,7 +153,6 @@ export class Omega8HybridBrain {
       patterns,
       signals,
       reason,
-      vote,
       reasoning: reason,
       liquidity_bias: liquidityAnalysis.bias,
       direction_support: finalBias,

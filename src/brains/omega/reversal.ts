@@ -132,23 +132,16 @@ class OmegaReversalBrain {
       factors.push('WITH_TREND_CAUTION');
     }
 
-    let vote: 'BUY' | 'SELL';
-    let confidence: number;
-
+    let bias: string;
     if (!candidateDirection) {
-      const trendLower = tr.toLowerCase();
-      vote = trendLower === 'bull' ? 'SELL' : 'BUY';
-      confidence = Math.max(1, 5 + rsi * 0.05);
+      bias = 'NO_REVERSAL';
       factors.push('WEAK_LEAN');
     } else if (score >= 35) {
-      vote = candidateDirection;
-      confidence = Math.min(85, 55 + score * 0.7);
+      bias = candidateDirection === 'BUY' ? 'STRONG_BULLISH_REVERSAL' : 'STRONG_BEARISH_REVERSAL';
     } else if (score >= 20) {
-      vote = candidateDirection;
-      confidence = Math.min(65, 45 + score * 0.6);
+      bias = candidateDirection === 'BUY' ? 'MODERATE_BULLISH_REVERSAL' : 'MODERATE_BEARISH_REVERSAL';
     } else {
-      vote = candidateDirection;
-      confidence = Math.max(1, Math.min(25, 10 + score * 0.5));
+      bias = 'WEAK_REVERSAL';
       factors.push('WEAK_REVERSAL');
     }
 
@@ -161,13 +154,11 @@ class OmegaReversalBrain {
       sensors?.mdiv ? `MDIV=${sensors.mdiv}` : ''
     ].filter(Boolean).join('|');
 
-    const reasoning = `[DET] ${vote} @ ${confidence}% | ${factors.slice(0, 4).join(', ')}`;
+    const reasoning = `[DET] Reversal ${bias} (score: ${score.toFixed(0)}) | ${factors.slice(0, 4).join(', ')}`;
 
-    console.log(`[Omega-4 Reversal] [DET] Vote: ${vote} | Confidence: ${confidence}% | Factors: ${factors.join(', ')}`);
+    console.log(`[Omega-4 Reversal] [DET] Intelligence: ${bias} | Score: ${score.toFixed(0)} | Factors: ${factors.join(', ')}`);
 
     return {
-      vote,
-      confidence: Math.round(confidence),
       reasoning,
       evidence,
       keyFactors: factors

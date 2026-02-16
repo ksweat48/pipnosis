@@ -492,24 +492,13 @@ class AlphaOmegaOrchestrator {
       }
     }
 
-    // ✅ DETECT Omega conflicts but DON'T BLOCK (Alpha has final authority)
-    const conflictCheck = this.detectOmegaConflicts({
-      trend: trendVote,
-      scalper: scalperVote,
-      confirmation: confirmationVote,
-      reversal: reversalVote,
-      volatility: volatilityVote,
-      risk: null, // Risk is now a pre-flight gate
-      omega8: omega8Vote
-    }, traderScore);
-
-    // Log conflicts for Alpha's awareness (advisory only)
-    if (conflictCheck.hasConflict) {
-      console.warn(`[Alpha+Omega] ⚠️  OMEGA CONFLICT DETECTED (ADVISORY)`);
-      console.warn(`[Alpha+Omega] Type: ${conflictCheck.conflictType}, Severity: ${conflictCheck.severity}`);
-      console.warn(`[Alpha+Omega] Conflict: ${conflictCheck.conflictDescription}`);
-      console.warn(`[Alpha+Omega] Alpha has final authority to override`);
-    }
+    const conflictCheck = {
+      hasConflict: false,
+      conflictType: 'NONE' as const,
+      severity: 'NONE' as const,
+      conflictDescription: 'Omegas provide intelligence only',
+      confidencePenalty: 1.0
+    };
 
     // Risk is now handled by pre-flight gate (already validated above)
     // Risk warnings are surfaced earlier in the pipeline
@@ -1644,13 +1633,7 @@ class AlphaOmegaOrchestrator {
   ): ConfidencePenaltyResult {
     const penalties: ConfidencePenalty[] = [];
 
-    if (conflictCheck.confidencePenalty < 1.0) {
-      penalties.push({
-        source: 'Omega Conflict',
-        multiplier: conflictCheck.confidencePenalty,
-        reason: conflictCheck.conflictDescription
-      });
-    }
+    // Omega conflict penalties removed - omegas are intelligence providers, not voters
 
     if (freshnessAdvisory && freshnessAdvisory.confidenceReduction > 0) {
       const multiplier = 1 - (freshnessAdvisory.confidenceReduction / 100);
@@ -1778,15 +1761,14 @@ class AlphaOmegaOrchestrator {
   }
 
   private logOmegaVotes(votes: OmegaCouncilVotes): void {
-    console.log('[Omega Council Votes]:');
-    console.log(`  Trend:      ${votes.trend?.vote || 'N/A'} @ ${votes.trend?.confidence || 0}% - ${votes.trend?.reasoning || ''}`);
-    console.log(`  Scalper:    ${votes.scalper?.vote || 'N/A'} @ ${votes.scalper?.confidence || 0}% - ${votes.scalper?.reasoning || ''}`);
-    console.log(`  Reversal:   ${votes.reversal?.vote || 'N/A'} @ ${votes.reversal?.confidence || 0}% - ${votes.reversal?.reasoning || ''}`);
-    console.log(`  Volatility: ${votes.volatility?.vote || 'N/A'} @ ${votes.volatility?.confidence || 0}% - ${votes.volatility?.reasoning || ''}`);
-    console.log(`  Risk:       ${votes.risk?.vote || 'N/A'} @ ${votes.risk?.confidence || 0}% - ${votes.risk?.reasoning || ''}`);
+    console.log('[Omega Intelligence Reports]:');
+    console.log(`  Trend:      ${votes.trend?.reasoning || 'N/A'}`);
+    console.log(`  Scalper:    ${votes.scalper?.reasoning || 'N/A'}`);
+    console.log(`  Reversal:   ${votes.reversal?.reasoning || 'N/A'}`);
+    console.log(`  Volatility: ${votes.volatility?.reasoning || 'N/A'}`);
     if (votes.omega8) {
       const usedLLM = (votes.omega8 as any).usedLLM ? ' [LLM]' : ' [DET]';
-      console.log(`  OrderFlow:  ${votes.omega8.vote || 'N/A'} @ ${votes.omega8.confidence || 0}%${usedLLM} - ${votes.omega8.reasoning || ''} | Liq: ${votes.omega8.liquidity_bias}`);
+      console.log(`  OrderFlow:  ${votes.omega8.reasoning || 'N/A'}${usedLLM} | Liq: ${votes.omega8.liquidity_bias}`);
     } else {
       console.log(`  OrderFlow:  N/A`);
     }

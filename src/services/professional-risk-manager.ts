@@ -201,49 +201,29 @@ class ProfessionalRiskManager {
     const kellyRisk = kelly.conservativeFraction;
     finalRiskPercent = Math.min(finalRiskPercent, kellyRisk);
 
-    // CRITICAL: Apply risk profile floor and ceiling
-    // Convert percent to decimal for comparison (e.g., 1.5% -> 0.015)
+    // ===== CCIP: USER MAX RISK PREFERENCE IS THE TRUE CEILING (SSOT) =====
+    // GOVERNANCE: The user's stated risk preference is the authoritative ceiling.
+    // Risk profile ranges serve as advisory operating bands, NOT hard limits.
+    // If user chose 5% aggressive, we size up to 5% -- not cap at profile's 3%.
+    const userMaxRiskPercent = (await userRiskPreferenceService.getUserMaxRiskPercent(userId)) / 100;
+
     const minRiskDecimal = riskProfile.riskPercentRange.min / 100;
-    const maxRiskDecimal = riskProfile.riskPercentRange.max / 100;
+    const effectiveCeiling = Math.max(userMaxRiskPercent, minRiskDecimal);
 
-    const beforeFloorCeiling = finalRiskPercent;
-    finalRiskPercent = Math.max(minRiskDecimal, Math.min(maxRiskDecimal, finalRiskPercent));
+    const beforeCeiling = finalRiskPercent;
+    finalRiskPercent = Math.max(minRiskDecimal, Math.min(effectiveCeiling, finalRiskPercent));
 
-    if (finalRiskPercent !== beforeFloorCeiling) {
-      console.log(`[Professional Risk Manager] 🎯 Risk profile ${riskMode.toUpperCase()} adjusted risk: ${(beforeFloorCeiling * 100).toFixed(2)}% → ${(finalRiskPercent * 100).toFixed(2)}%`);
+    if (finalRiskPercent !== beforeCeiling) {
+      console.log(`[Professional Risk Manager] Risk adjusted: ${(beforeCeiling * 100).toFixed(2)}% → ${(finalRiskPercent * 100).toFixed(2)}% (user ceiling: ${(userMaxRiskPercent * 100).toFixed(2)}%)`);
 
       if (finalRiskPercent === minRiskDecimal) {
         recommendations.push(`Risk profile floor applied: minimum ${riskProfile.riskPercentRange.min}% for ${riskMode} mode`);
-      } else if (finalRiskPercent === maxRiskDecimal) {
-        recommendations.push(`Risk profile ceiling applied: maximum ${riskProfile.riskPercentRange.max}% for ${riskMode} mode`);
+      } else if (finalRiskPercent === effectiveCeiling) {
+        recommendations.push(`User risk preference ceiling applied: ${(userMaxRiskPercent * 100).toFixed(2)}% max`);
       }
-    }
-
-    // ===== CCIP: USER MAX RISK PREFERENCE (SSOT) =====
-    // Step 9: Apply user's maximum risk preference with intelligent degradation
-    // GOVERNANCE: This respects user intent while maintaining Alpha's authority
-    const userMaxRiskPercent = (await userRiskPreferenceService.getUserMaxRiskPercent(userId)) / 100;
-    const beforeUserPreference = finalRiskPercent;
-
-    if (finalRiskPercent > userMaxRiskPercent) {
-      // User's ceiling is lower than Alpha's calculation - degrade position size
-      console.warn(
-        `%c[Professional Risk Manager] 🤝 RISK NEGOTIATION: User preference exceeded`,
-        'color: #ff8800; font-weight: bold'
-      );
-      console.warn(`  Alpha calculated: ${(finalRiskPercent * 100).toFixed(2)}%`);
-      console.warn(`  User maximum preference: ${(userMaxRiskPercent * 100).toFixed(2)}%`);
-      console.warn(`  Action: Degrading position size DOWN to respect user ceiling`);
-
-      finalRiskPercent = userMaxRiskPercent;
-
-      recommendations.push(
-        `📊 Risk negotiation: Alpha calculated ${(beforeUserPreference * 100).toFixed(2)}% risk. Your preference is ${(userMaxRiskPercent * 100).toFixed(2)}% max. Position sized for your ceiling.`
-      );
-    } else if (finalRiskPercent < userMaxRiskPercent) {
-      // Alpha is more conservative than user's ceiling - that's fine
+    } else {
       console.log(
-        `[Professional Risk Manager] ✅ Risk within user preference: ${(finalRiskPercent * 100).toFixed(2)}% < ${(userMaxRiskPercent * 100).toFixed(2)}% max`
+        `[Professional Risk Manager] Risk within user preference: ${(finalRiskPercent * 100).toFixed(2)}% (ceiling: ${(userMaxRiskPercent * 100).toFixed(2)}%)`
       );
     }
 
@@ -375,27 +355,25 @@ class ProfessionalRiskManager {
     }
 
     // ===== CCIP: GOVERNANCE AUDIT LOGGING =====
-    // Log all risk negotiations to auditor for transparency and governance
-    if (finalRiskPercent !== beforeUserPreference) {
-      const calculatedLotSize = (currentBalance * beforeUserPreference) / (avgLossPips * calculateDollarPerPip(symbol, 1.0));
+    if (finalRiskPercent !== beforeCeiling) {
+      const calculatedLotSize = (currentBalance * beforeCeiling) / (avgLossPips * calculateDollarPerPip(symbol, 1.0));
       riskNegotiationAuditor.logNegotiation({
         userId,
         symbol,
         timestamp: new Date().toISOString(),
-        alphaCalculatedRiskPercent: beforeUserPreference * 100,
+        alphaCalculatedRiskPercent: beforeCeiling * 100,
         alphaLotSize: calculatedLotSize,
         alphaReasoning: `Calculated via Kelly criterion, volatility adjustment, correlation check`,
         userMaxRiskPercent: userMaxRiskPercent * 100,
         finalRiskPercent: finalRiskPercent * 100,
         finalLotSize: finalLotSize,
         negotiationOutcome: 'degraded',
-        degradationReason: 'User max risk preference exceeded - position sized DOWN to respect ceiling',
+        degradationReason: 'Risk adjusted to fit user preference ceiling',
         balance: currentBalance,
         direction,
         riskMode
       });
     } else {
-      // Even if no degradation, log for full audit trail
       const calculatedLotSize = (currentBalance * finalRiskPercent) / (avgLossPips * calculateDollarPerPip(symbol, 1.0));
       riskNegotiationAuditor.logNegotiation({
         userId,

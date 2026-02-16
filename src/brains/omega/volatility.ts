@@ -41,29 +41,17 @@ class OmegaVolatilityBrain {
     let score = 0;
     const factors: string[] = [];
 
-    // TIER 7: Determine candidate direction from market context if not provided
-    let tradeDirection: 'BUY' | 'SELL' = candidateDirection || 'BUY'; // Default fallback
-
     if (!candidateDirection) {
-      // Infer from trend or regime bias
       const trendLower = trend?.toLowerCase() || '';
       const biaslower = regime?.market_bias?.toLowerCase() || '';
-
       if (trendLower.includes('bear') || biaslower.includes('bear') || biaslower.includes('short')) {
-        tradeDirection = 'SELL';
         factors.push('BIAS_BEARISH');
       } else if (trendLower.includes('bull') || biaslower.includes('bull') || biaslower.includes('long')) {
-        tradeDirection = 'BUY';
         factors.push('BIAS_BULLISH');
+      } else if (regime?.volatility_trend?.toLowerCase().includes('up')) {
+        factors.push('VOL_TREND_UP');
       } else {
-        // Neutral/sideways: favor compression breakouts in volatility expansion direction
-        if (regime?.volatility_trend?.toLowerCase().includes('up')) {
-          tradeDirection = 'BUY'; // Rising volatility often favors continuation
-          factors.push('VOL_TREND_UP');
-        } else {
-          tradeDirection = 'BUY'; // Default when no clear direction
-          factors.push('BIAS_NEUTRAL');
-        }
+        factors.push('BIAS_NEUTRAL');
       }
     }
 
@@ -145,24 +133,18 @@ class OmegaVolatilityBrain {
       }
     }
 
-    let vote: 'BUY' | 'SELL';
-    let confidence: number;
-
+    let bias: string;
     if (score >= 35) {
-      vote = tradeDirection;
-      confidence = Math.min(90, 55 + score * 0.6);
+      bias = 'FAVORABLE';
       factors.push('VOL_FAVORABLE');
     } else if (score >= 20) {
-      vote = tradeDirection;
-      confidence = Math.min(70, 45 + score * 0.5);
+      bias = 'ACCEPTABLE';
       factors.push('VOL_ACCEPTABLE');
     } else if (score <= -15) {
-      vote = tradeDirection;
-      confidence = Math.max(1, Math.min(20, 10 + Math.abs(score) * 0.2));
+      bias = 'UNFAVORABLE';
       factors.push('VOL_UNFAVORABLE');
     } else {
-      vote = tradeDirection;
-      confidence = Math.max(1, Math.min(35, 18 + score * 0.4));
+      bias = 'UNCLEAR';
       factors.push('VOL_UNCLEAR');
     }
 
@@ -172,13 +154,11 @@ class OmegaVolatilityBrain {
       `VOL_STATE=${vol}`
     ].join('|');
 
-    const reasoning = `[DET] ${vote} @ ${confidence}% | ${factors.slice(0, 4).join(', ')}`;
+    const reasoning = `[DET] Volatility ${bias} (score: ${score.toFixed(0)}) | ${factors.slice(0, 4).join(', ')}`;
 
-    console.log(`[Omega-5 Volatility] [DET] Vote: ${vote} | Confidence: ${confidence}% | Factors: ${factors.join(', ')}`);
+    console.log(`[Omega-5 Volatility] [DET] Intelligence: ${bias} | Score: ${score.toFixed(0)} | Factors: ${factors.join(', ')}`);
 
     return {
-      vote,
-      confidence: Math.round(confidence),
       reasoning,
       evidence,
       keyFactors: factors

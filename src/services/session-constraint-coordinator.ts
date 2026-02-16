@@ -52,16 +52,15 @@ class SessionConstraintCoordinator {
    */
   getSessionConstraintPolicy(
     symbol: string,
-    tradeStyle: 'MICRO_INTRADAY' | 'SCALP' | 'INTRADAY' | 'SWING'
+    tradeStyle: string
   ): SessionConstraintPolicy {
-    // 24/7 markets NEVER have session constraints, regardless of style
     if (assetClassifier.is24HourMarket(symbol)) {
       console.log(`[Session Constraints - ADVISORY] ${symbol}: NONE (24/7 market)`);
       return 'NONE';
     }
 
-    // Forex-hours markets: policy depends on trade style
-    switch (tradeStyle) {
+    const normalized = this.normalizeTradeStyle(tradeStyle);
+    switch (normalized) {
       case 'MICRO_INTRADAY':
         // MICRO_INTRADAY: Very fast trades, ADVISORY with HEAVIEST penalties
         // Applies -20% confidence penalty if exceeds session (worse than SCALP)
@@ -90,6 +89,15 @@ class SessionConstraintCoordinator {
         console.warn(`[Session Constraints - ADVISORY] Unknown trade style: ${tradeStyle}, defaulting to ADVISORY`);
         return 'ADVISORY';
     }
+  }
+
+  private normalizeTradeStyle(raw: string): 'MICRO_INTRADAY' | 'SCALP' | 'INTRADAY' | 'SWING' {
+    const upper = raw.toUpperCase();
+    if (upper === 'SCALP' || upper === 'SCALPER') return 'SCALP';
+    if (upper === 'MICRO_INTRADAY' || upper === 'MICRO') return 'MICRO_INTRADAY';
+    if (upper === 'INTRADAY') return 'INTRADAY';
+    if (upper === 'SWING') return 'SWING';
+    return 'INTRADAY';
   }
 
   /**

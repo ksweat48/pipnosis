@@ -292,6 +292,8 @@ export interface AlphaDecision {
     threshold: number;
     style: string;
   };
+  arena_chosen?: 'LONG' | 'SHORT' | 'NO_TRADE';
+  wall_violations?: string[];
 }
 
 /**
@@ -1315,6 +1317,7 @@ Return PURE JSON only:
       // DUAL-ARENA WALL CHECK: Simple pass/fail - within walls = proceed, outside = block
       // No revision loop, no corrections. Alpha had the walls in the prompt.
       if (decision.action !== 'NO_TRADE' && dualArenaWalls) {
+        decision.arena_chosen = decision.action === 'BUY' ? 'LONG' : 'SHORT';
         const arena = decision.action === 'BUY' ? dualArenaWalls.long : dualArenaWalls.short;
         const slPipsCheck = calculatePipDistance(marketContext.symbol, decision.entry, decision.stopLoss);
         const tpPipsCheck = calculatePipDistance(marketContext.symbol, decision.entry, decision.takeProfit);
@@ -1324,6 +1327,7 @@ Return PURE JSON only:
         if (slPipsCheck > arena.slPips.max) wallViolations.push(`SL ${slPipsCheck.toFixed(1)} pips above wall max ${arena.slPips.max.toFixed(1)}`);
         if (tpPipsCheck < arena.tpPips.min) wallViolations.push(`TP ${tpPipsCheck.toFixed(1)} pips below wall min ${arena.tpPips.min.toFixed(1)}`);
         if (tpPipsCheck > arena.tpPips.max) wallViolations.push(`TP ${tpPipsCheck.toFixed(1)} pips above wall max ${arena.tpPips.max.toFixed(1)}`);
+        decision.wall_violations = wallViolations;
 
         if (wallViolations.length > 0) {
           console.warn(`[Alpha Coordinator] WALL VIOLATION: ${wallViolations.join('; ')}`);
@@ -1762,27 +1766,19 @@ Return PURE JSON only:
   private generateOmegaSummary(votes: OmegaCouncilVotes): string {
     const summary: string[] = [];
 
-    let buyVotes = 0;
-    let sellVotes = 0;
-
+    const intelligenceReports: string[] = [];
     for (const [key, vote] of Object.entries(votes)) {
-      if (vote) {
-        if (vote.vote === 'BUY') buyVotes++;
-        else if (vote.vote === 'SELL') sellVotes++;
+      if (vote && vote.reasoning && key !== 'omega9') {
+        intelligenceReports.push(`${key}: ${vote.reasoning}`);
       }
     }
-
-    summary.push(`Council: ${buyVotes} BUY, ${sellVotes} SELL`);
-
-    if (votes.risk && votes.risk.confidence < 30) {
-      summary.push(`Risk specialist low confidence (${votes.risk.confidence}%): ${votes.risk.reasoning}`);
-    }
+    summary.push(`Intelligence: ${intelligenceReports.length} specialists reporting`);
 
     if (votes.omega8) {
       if (votes.omega8.liquidity_bias === 'stoprun_risk') {
-        summary.push(`⚠️ OrderFlow: Stop-run risk detected`);
+        summary.push(`OrderFlow: Stop-run risk detected`);
       } else if (votes.omega8.liquidity_bias === 'clean') {
-        summary.push(`✓ OrderFlow: Clean liquidity`);
+        summary.push(`OrderFlow: Clean liquidity`);
       } else {
         summary.push(`OrderFlow: ${votes.omega8.liquidity_bias}`);
       }

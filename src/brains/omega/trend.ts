@@ -116,34 +116,23 @@ class OmegaTrendBrain {
       }
     }
 
-    let vote: 'BUY' | 'SELL';
-    let confidence: number;
-
     const scoreThreshold = TREND_THRESHOLDS.SCORE_THRESHOLD;
-    if (score >= scoreThreshold) {
-      vote = 'BUY';
-      confidence = Math.min(95, 55 + score);
-    } else if (score <= -scoreThreshold) {
-      vote = 'SELL';
-      confidence = Math.min(95, 55 + Math.abs(score));
-    } else {
-      vote = score >= 0 ? 'BUY' : 'SELL';
-      confidence = Math.max(1, Math.min(30, 15 + Math.abs(score) * 0.5));
+    if (Math.abs(score) < scoreThreshold) {
       factors.push('WEAK_LEAN');
     }
+
+    const bias = score >= scoreThreshold ? 'BULLISH' : score <= -scoreThreshold ? 'BEARISH' : 'NEUTRAL';
 
     const evidence = [
       formatEMAEvidence(emaAlignment, emaSlope),
       formatMomentumEvidence(momentum)
     ].join('|');
 
-    const reasoning = `[DET] ${vote} @ ${confidence}% | ${factors.slice(0, 4).join(', ')}`;
+    const reasoning = `[DET] Trend ${bias} (score: ${score.toFixed(0)}) | ${factors.slice(0, 4).join(', ')}`;
 
-    console.log(`[Omega-1 Trend] [DET] Vote: ${vote} | Confidence: ${confidence}% | Factors: ${factors.join(', ')}`);
+    console.log(`[Omega-1 Trend] [DET] Intelligence: ${bias} | Score: ${score.toFixed(0)} | Factors: ${factors.join(', ')}`);
 
     return {
-      vote,
-      confidence: Math.round(confidence),
       reasoning,
       evidence,
       keyFactors: factors

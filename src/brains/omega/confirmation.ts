@@ -133,23 +133,16 @@ class OmegaConfirmationBrain {
       score -= 5;
     }
 
-    let vote: 'BUY' | 'SELL';
-    let confidence: number;
-
+    let bias: string;
     if (!candidateDirection) {
-      const trendLower = tr.toLowerCase();
-      vote = trendLower === 'bear' ? 'SELL' : 'BUY';
-      confidence = Math.max(1, 8 + Math.abs(score) * 0.3);
+      bias = 'NEUTRAL';
       factors.push('WEAK_LEAN');
     } else if (score >= 35) {
-      vote = candidateDirection;
-      confidence = Math.min(90, 55 + score * 0.8);
+      bias = candidateDirection === 'BUY' ? 'CONFIRMED_BULLISH' : 'CONFIRMED_BEARISH';
     } else if (score >= 15) {
-      vote = candidateDirection;
-      confidence = Math.min(70, 45 + score);
+      bias = candidateDirection === 'BUY' ? 'LEAN_BULLISH' : 'LEAN_BEARISH';
     } else {
-      vote = candidateDirection;
-      confidence = Math.max(1, Math.min(30, 15 + score * 0.5));
+      bias = 'WEAK_CONFIRMATION';
       factors.push('WEAK_CONFIRMATION');
     }
 
@@ -160,13 +153,11 @@ class OmegaConfirmationBrain {
       `TREND=${tr}`
     ].join('|');
 
-    const reasoning = `[DET] ${vote} @ ${confidence}% | ${factors.slice(0, 4).join(', ')}`;
+    const reasoning = `[DET] Confirmation ${bias} (score: ${score.toFixed(0)}) | ${factors.slice(0, 4).join(', ')}`;
 
-    console.log(`[Omega-3 Confirmation] [DET] Vote: ${vote} | Confidence: ${confidence}% | Factors: ${factors.join(', ')}`);
+    console.log(`[Omega-3 Confirmation] [DET] Intelligence: ${bias} | Score: ${score.toFixed(0)} | Factors: ${factors.join(', ')}`);
 
     return {
-      vote,
-      confidence: Math.round(confidence),
       reasoning,
       evidence,
       keyFactors: factors

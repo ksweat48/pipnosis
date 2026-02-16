@@ -1,26 +1,27 @@
 /**
  * SSOT: OmegaVote Type Definition
  *
- * Single source of truth for all Omega voting types.
+ * Single source of truth for all Omega intelligence types.
  * All Omega brains must import from this file.
  *
- * CCIP-2026-02-15: MANDATORY DIRECTIONAL VOTING
- * Omegas are ADVISORS that MUST always provide a directional lean (BUY or SELL)
- * with a confidence level from 1-100:
- *   - 1% = effectively guessing, near-zero conviction
- *   - 50% = moderate conviction
- *   - 100% = maximum conviction
+ * CCIP-2026-02-16: INTELLIGENCE PROVIDERS (NOT VOTERS)
+ * Omegas provide structured market intelligence reports.
+ * They DO NOT vote on direction -- Alpha synthesizes raw data and decides.
  *
- * ONLY Alpha (the decision maker) can declare NO_TRADE.
- * Omegas provide directional intelligence; Alpha synthesizes and decides.
+ * Each omega returns:
+ *   - reasoning: structured text summary of their domain analysis
+ *   - evidence: raw metrics and calculations
+ *   - keyFactors: machine-readable array of detected signals
  *
- * Low-confidence directional votes (e.g., BUY at 5%) are naturally discounted
- * by the weight resolver's confidence amplification tiers.
+ * Alpha reads the market briefing (built from omega intelligence)
+ * and makes the sole directional decision.
  */
 
 export interface OmegaVote {
-  vote: 'BUY' | 'SELL';
-  confidence: number;
+  /** @deprecated Omegas no longer vote. Field kept for backward compatibility during transition. */
+  vote?: 'BUY' | 'SELL';
+  /** @deprecated Omegas no longer provide confidence. Alpha determines its own confidence. */
+  confidence?: number;
   reasoning: string;
   evidence?: string;
   keyFactors?: string[];

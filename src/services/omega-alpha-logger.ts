@@ -125,13 +125,13 @@ class OmegaAlphaLogger {
     const sellVotes = votesList.filter(v => v.vote === 'SELL').length;
 
     const voteDetails = {
-      trend: votes.trend ? { vote: votes.trend.vote, confidence: votes.trend.confidence, reasoning: votes.trend.reasoning } : null,
-      scalper: votes.scalper ? { vote: votes.scalper.vote, confidence: votes.scalper.confidence, reasoning: votes.scalper.reasoning } : null,
-      confirmation: votes.confirmation ? { vote: votes.confirmation.vote, confidence: votes.confirmation.confidence, reasoning: votes.confirmation.reasoning } : null,
-      reversal: votes.reversal ? { vote: votes.reversal.vote, confidence: votes.reversal.confidence, reasoning: votes.reversal.reasoning } : null,
-      volatility: votes.volatility ? { vote: votes.volatility.vote, confidence: votes.volatility.confidence, reasoning: votes.volatility.reasoning } : null,
-      risk: votes.risk ? { vote: votes.risk.vote, confidence: votes.risk.confidence, reasoning: votes.risk.reasoning } : null,
-      omega8: votes.omega8 ? { vote: votes.omega8.vote, confidence: votes.omega8.confidence, reasoning: votes.omega8.reasoning } : null
+      trend: votes.trend ? { reasoning: votes.trend.reasoning, keyFactors: votes.trend.keyFactors } : null,
+      scalper: votes.scalper ? { reasoning: votes.scalper.reasoning, keyFactors: votes.scalper.keyFactors } : null,
+      confirmation: votes.confirmation ? { reasoning: votes.confirmation.reasoning, keyFactors: votes.confirmation.keyFactors } : null,
+      reversal: votes.reversal ? { reasoning: votes.reversal.reasoning, keyFactors: votes.reversal.keyFactors } : null,
+      volatility: votes.volatility ? { reasoning: votes.volatility.reasoning, keyFactors: votes.volatility.keyFactors } : null,
+      risk: votes.risk ? { reasoning: votes.risk.reasoning, keyFactors: votes.risk.keyFactors } : null,
+      omega8: votes.omega8 ? { reasoning: votes.omega8.reasoning, liquidity_bias: votes.omega8.liquidity_bias, direction_support: votes.omega8.direction_support } : null
     };
 
     // Prepare Phase 1-4 upgrade fields
@@ -189,6 +189,13 @@ class OmegaAlphaLogger {
       insertData.directional_strength_threshold = decision.directionalStrengthResult.threshold;
       insertData.directional_strength_meets = decision.directionalStrengthResult.meetsThreshold;
       insertData.directional_strength_style = decision.directionalStrengthResult.style;
+    }
+
+    if (decision.arena_chosen) {
+      insertData.arena_chosen = decision.arena_chosen;
+    }
+    if (decision.wall_violations && decision.wall_violations.length > 0) {
+      insertData.wall_violations = decision.wall_violations;
     }
 
     if (decision.patternIntelligence) {

@@ -141,23 +141,17 @@ class OmegaScalperBrain {
       }
     }
 
-    let vote: 'BUY' | 'SELL';
-    let confidence: number;
-
+    let bias: string;
     if (!candidateDirection) {
-      vote = rsi < 50 ? 'BUY' : 'SELL';
-      confidence = Math.max(1, 10 + Math.abs(50 - rsi) * 0.2);
+      bias = 'NEUTRAL';
       factors.push('WEAK_LEAN');
     } else if (score >= 20) {
-      vote = candidateDirection;
-      confidence = Math.min(90, 55 + score);
+      bias = candidateDirection === 'BUY' ? 'BULLISH' : 'BEARISH';
     } else if (score <= -15) {
-      vote = candidateDirection === 'BUY' ? 'SELL' : 'BUY';
-      confidence = Math.max(1, Math.min(25, 12 + Math.abs(score) * 0.3));
+      bias = 'UNFAVORABLE';
       factors.push('CONTRARY_LEAN');
     } else {
-      vote = candidateDirection;
-      confidence = Math.max(1, Math.min(40, 20 + score * 0.5));
+      bias = candidateDirection === 'BUY' ? 'LEAN_BULLISH' : 'LEAN_BEARISH';
       factors.push('WEAK_LEAN');
     }
 
@@ -167,13 +161,11 @@ class OmegaScalperBrain {
       `RSI=${rsi}`
     ].join('|');
 
-    const reasoning = `[DET] ${vote} @ ${confidence}% | ${factors.slice(0, 4).join(', ')}`;
+    const reasoning = `[DET] Scalper ${bias} (score: ${score.toFixed(0)}) | ${factors.slice(0, 4).join(', ')}`;
 
-    console.log(`[Omega-2 Scalper] [DET] Vote: ${vote} | Confidence: ${confidence}% | Factors: ${factors.join(', ')}`);
+    console.log(`[Omega-2 Scalper] [DET] Intelligence: ${bias} | Score: ${score.toFixed(0)} | Factors: ${factors.join(', ')}`);
 
     return {
-      vote,
-      confidence: Math.round(confidence),
       reasoning,
       evidence,
       keyFactors: factors
