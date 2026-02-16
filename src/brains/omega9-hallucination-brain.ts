@@ -1,35 +1,35 @@
 /**
- * Omega-9: Hallucination Defense Specialist
+ * Omega-9: Catastrophic Error Defense
  *
- * Final safety validator that prevents CATASTROPHIC LLM mistakes.
- * LIGHT TOUCH - Alpha is educated via Elite Trader Directive with professional anchor.
+ * DUAL-ARENA ARCHITECTURE (v3.0):
+ * Alpha receives both arenas (long/short walls) and makes decisions within them.
+ * Omega-9's ONLY role is catching mathematical impossibilities that would
+ * corrupt the trade execution pipeline.
  *
- * Validates:
- * - Mathematical correctness (SL/TP on correct side of entry)
- * - Direction logic consistency
- * - Internal Omega vote conflicts
- * - Impossible scenarios (< 5 pips stops, zero distance)
- * - GRADUATED SAFETY ZONES (Green/Yellow/Orange/Red)
+ * SCOPE (exhaustive):
+ * - SL on wrong side of entry
+ * - TP on wrong side of entry
+ * - Zero distance (SL or TP at entry)
+ * - Stop inside spread (impossible to survive)
+ * - R:R below catastrophic threshold
+ * - RED zone safety violations
  *
- * Can repair catastrophic positioning errors or block unfixable hallucinations.
+ * WHAT OMEGA-9 DOES NOT DO:
+ * - No confidence adjustments
+ * - No SL/TP corrections or repairs
+ * - No LLM validation calls
+ * - No directional consensus checking
+ * - No advisory warnings that modify the decision
  *
- * SAFETY ZONE ENFORCEMENT:
- * - GREEN: Full Alpha authority
- * - YELLOW: Advisory warning (proceed)
- * - ORANGE: Advisory caution (proceed with Alpha reasoning)
- * - RED: HARD BLOCK - Cannot proceed (mathematical survival violation)
- *
- * PHILOSOPHY: Trust Alpha's elite trader judgment unless catastrophic error detected.
+ * Binary outcome: PASS or HARD BLOCK.
  */
 
-import { openAIClient } from '../services/openai-client';
-import type { Omega9ValidationResult, Omega9Corrections, OmegaVote } from '../types/omega';
+import type { Omega9ValidationResult, OmegaVote } from '../types/omega';
 import type { AlphaDecision } from './coordinator-alpha';
-import { llmTokenTracker } from '../services/llm-token-tracker';
-import { alphaSafetyZoneEvaluator, type SafetyEvaluation, type TradeStyle } from '../config/alpha-safety-zones';
+import { alphaSafetyZoneEvaluator, type TradeStyle } from '../config/alpha-safety-zones';
 import { calculatePipDistance } from '../utils/currencyHelpers';
 import { safeExtractATRValue, type ATRValue } from '../types/atr';
-import { TRADING_CONSTANTS, getMinRRForStyle } from '../config/trading-constants';
+import { TRADING_CONSTANTS } from '../config/trading-constants';
 import { getAssetClassEnvelopeBounds, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
 import { assetClassifier } from '../services/asset-classifier';
 
@@ -56,114 +56,32 @@ export interface Omega9Input {
 }
 
 class Omega9HallucinationBrain {
-  /**
-   * Validate Alpha decision and all Omega votes for consistency and safety
-   */
   async validate(input: Omega9Input): Promise<Omega9ValidationResult> {
-    const localValidation = this.performLocalValidation(input);
-
-    if (localValidation.flags.length === 0) {
-      console.log('[Omega-9] ✅ Local validation passed');
-      return localValidation;
-    }
-
-    const fixableIssues = localValidation.flags.filter(f =>
-      f.includes('SL_POSITION') ||
-      f.includes('TP_POSITION') ||
-      f.includes('RISK_TOO_HIGH')
-    );
-
-    // ALPHA AUTHORITY: Omega-9 detects but does NOT repair
-    // Only Alpha may decide SL/TP values
-    // If geometry errors detected, block and log for Alpha learning
-    if (fixableIssues.length > 0 && localValidation.flags.length === fixableIssues.length) {
-      console.log('[Omega-9] ⚠️ Geometry errors detected - blocking (no repair)');
-      console.log('[Omega-9] Flags:', localValidation.flags);
-      console.log('[Omega-9] Only Alpha may decide SL/TP values');
-      // Continue to validation result (will block with flags)
-    }
-
-    if (!localValidation.pass) {
-      console.log('[Omega-9] ❌ Critical validation failure - blocking trade');
-      return localValidation;
-    }
-
-    const safetyZone = localValidation.safety_zone || 'YELLOW';
-    const safetyScore = localValidation.safety_evaluation?.safety_score ?? 0;
-
-    // If safety score is invalid (NaN), treat as a critical issue
-    if (!isFinite(safetyScore)) {
-      console.log('[Omega-9] ⚠️ Invalid safety score detected - blocking trade');
-      return {
-        pass: false,
-        flags: [...localValidation.flags, 'INVALID_SAFETY_SCORE'],
-        confidence_adjustment: -100,
-        corrections: { sl: null, tp: null, risk_pct: null },
-        reasoning: 'Invalid safety score calculation - trade blocked',
-        safety_zone: 'RED',
-        safety_evaluation: localValidation.safety_evaluation
-      };
-    }
-
-    const onlyAdvisoryFlags = localValidation.flags.every(f =>
-      f.includes('ADVISORY') ||
-      f.includes('YELLOW_ZONE') ||
-      f.includes('ORANGE_ZONE')
-    );
-
-    if (safetyZone === 'GREEN' && onlyAdvisoryFlags) {
-      console.log('[Omega-9] ✅ GREEN zone with advisory flags only - trusting Alpha decision (skipping LLM)');
-      console.log('[Omega-9] Alpha has final authority on strategic decisions');
-      return localValidation;
-    }
-
-    if (safetyZone === 'YELLOW' && onlyAdvisoryFlags) {
-      console.log('[Omega-9] ⚡ YELLOW zone with advisory flags only - trusting Alpha decision (skipping LLM)');
-      return localValidation;
-    }
-
-    console.log('[Omega-9] 🔍 Requesting LLM validation...');
-    return await this.llmValidation(input, localValidation.flags);
+    return this.performLocalValidation(input);
   }
 
-  /**
-   * Estimate spread for a symbol (in pips)
-   * Used to determine if stop is literally inside spread (impossible to hit)
-   */
   private estimateSpread(symbol: string): number {
-    // Typical spreads in pips during normal market hours
-    if (symbol.startsWith('EUR') || symbol.startsWith('GBP')) return 1.5; // Major pairs
-    if (symbol.startsWith('USD')) return 2.0; // USD crosses
-    if (symbol === 'XAUUSD') return 3.0; // Gold
-    if (symbol.includes('JPY')) return 2.0; // JPY pairs
-    if (symbol === 'NAS100' || symbol === 'US100') return 2.0; // NAS100
-    if (symbol === 'SPX500' || symbol === 'US500') return 1.0; // S&P500
-    if (symbol === 'BTCUSD' || symbol === 'ETHUSD') return 5.0; // Crypto (higher spread)
-    return 3.0; // Default conservative estimate
+    if (symbol.startsWith('EUR') || symbol.startsWith('GBP')) return 1.5;
+    if (symbol.startsWith('USD')) return 2.0;
+    if (symbol === 'XAUUSD') return 3.0;
+    if (symbol.includes('JPY')) return 2.0;
+    if (symbol === 'NAS100' || symbol === 'US100') return 2.0;
+    if (symbol === 'SPX500' || symbol === 'US500') return 1.0;
+    if (symbol === 'BTCUSD' || symbol === 'ETHUSD') return 5.0;
+    return 3.0;
   }
 
-  /**
-   * Perform local mathematical and logical validation without LLM
-   * Includes GRADUATED SAFETY ZONE enforcement
-   *
-   * SCOPE: Mathematical safety ONLY - no directional consensus validation
-   * Alpha has final authority on direction, timing, and strategic decisions
-   *
-   * NEW ARCHITECTURE:
-   * - Only HARD BLOCKS for catastrophic mathematical errors
-   * - Everything else = constraint violations for Alpha to handle
-   */
   private performLocalValidation(input: Omega9Input): Omega9ValidationResult {
     const flags: string[] = [];
-    const constraintViolations: import('../types/omega').Omega9ConstraintViolation[] = [];
-    const { alphaDecision, marketContext, safetyRules, omegaVotes } = input;
+    const { alphaDecision, marketContext } = input;
+    const NO_CORRECTIONS = { sl: null, tp: null, risk_pct: null };
 
     if (alphaDecision.action === 'NO_TRADE') {
       return {
         pass: true,
         flags: [],
         confidence_adjustment: 0,
-        corrections: { sl: null, tp: null, risk_pct: null },
+        corrections: NO_CORRECTIONS,
         reasoning: 'NO_TRADE requires no validation',
         safety_zone: 'GREEN' as const,
         safety_evaluation: undefined
@@ -175,103 +93,58 @@ class Omega9HallucinationBrain {
     const sl = alphaDecision.stopLoss;
     const tp = alphaDecision.takeProfit;
 
-    // MATHEMATICAL VALIDATION: Stop Loss positioning
-    if (isBuy && sl >= entry) {
-      flags.push('SL_POSITION_ERROR_BUY');
-    }
-    if (!isBuy && sl <= entry) {
-      flags.push('SL_POSITION_ERROR_SELL');
-    }
+    if (isBuy && sl >= entry) flags.push('SL_POSITION_ERROR_BUY');
+    if (!isBuy && sl <= entry) flags.push('SL_POSITION_ERROR_SELL');
+    if (isBuy && tp <= entry) flags.push('TP_POSITION_ERROR_BUY');
+    if (!isBuy && tp >= entry) flags.push('TP_POSITION_ERROR_SELL');
+    if (sl === entry || tp === entry) flags.push('ZERO_DISTANCE_ERROR');
 
-    // MATHEMATICAL VALIDATION: Take Profit positioning
-    if (isBuy && tp <= entry) {
-      flags.push('TP_POSITION_ERROR_BUY');
-    }
-    if (!isBuy && tp >= entry) {
-      flags.push('TP_POSITION_ERROR_SELL');
-    }
-
-    // MATHEMATICAL VALIDATION: Zero distance check
-    if (sl === entry || tp === entry) {
-      flags.push('ZERO_DISTANCE_ERROR');
+    const hasGeometryError = flags.length > 0;
+    if (hasGeometryError) {
+      console.error(`[Omega-9] CATASTROPHIC GEOMETRY: ${flags.join(', ')}`);
+      return {
+        pass: false,
+        flags,
+        confidence_adjustment: 0,
+        corrections: NO_CORRECTIONS,
+        reasoning: `HARD BLOCK: Geometry error - ${flags.join(', ')}`,
+        safety_zone: 'RED' as const,
+        safety_evaluation: undefined
+      };
     }
 
     const slDistance = Math.abs(entry - sl);
     const tpDistance = Math.abs(tp - entry);
     const rr = slDistance > 0 ? tpDistance / slDistance : 0;
-
-    // Calculate distances in pips for precise validation
-    const slDistancePips = calculatePipDistance(marketContext.symbol, alphaDecision.entry, alphaDecision.stopLoss);
-    const tpDistancePips = calculatePipDistance(marketContext.symbol, alphaDecision.entry, alphaDecision.takeProfit);
+    const slDistancePips = calculatePipDistance(marketContext.symbol, entry, sl);
+    const tpDistancePips = calculatePipDistance(marketContext.symbol, entry, tp);
     const spreadPips = this.estimateSpread(marketContext.symbol);
 
-    // HARD BLOCK 1: Stop inside spread (literally impossible to hit)
     if (slDistancePips < spreadPips * 1.5) {
-      flags.push('HARD_BLOCK_STOP_INSIDE_SPREAD');
-      constraintViolations.push({
-        type: 'STOP_INSIDE_SPREAD',
-        severity: 'HARD_BLOCK',
-        currentValue: slDistancePips,
-        minimumValue: spreadPips * 1.5,
-        message: `Stop ${slDistancePips.toFixed(1)} pips is inside spread (${spreadPips.toFixed(1)} pips × 1.5 safety). Mathematically impossible to hit.`,
-        suggestedActions: [
-          `Increase stop to at least ${(spreadPips * 1.5).toFixed(1)} pips`,
-          `Choose different symbol with tighter spread`,
-          `Wait for lower spread conditions`
-        ]
-      });
-
+      console.error(`[Omega-9] HARD BLOCK: Stop inside spread (${slDistancePips.toFixed(1)} < ${(spreadPips * 1.5).toFixed(1)})`);
       return {
         pass: false,
-        flags,
-        confidence_adjustment: -100,
-        corrections: { sl: null, tp: null, risk_pct: null },
-        reasoning: `HARD BLOCK: Stop inside spread (${slDistancePips.toFixed(1)} pips < ${(spreadPips * 1.5).toFixed(1)} pips minimum)`,
-        constraintViolations
+        flags: ['HARD_BLOCK_STOP_INSIDE_SPREAD'],
+        confidence_adjustment: 0,
+        corrections: NO_CORRECTIONS,
+        reasoning: `HARD BLOCK: Stop inside spread (${slDistancePips.toFixed(1)} pips < ${(spreadPips * 1.5).toFixed(1)} pips minimum)`
       };
     }
 
-    // HARD BLOCK 2: R:R < CATASTROPHIC_THRESHOLD (catastrophically poor risk/reward)
-    // ✅ GOVERNANCE FIX (2026-02-02): Import from SSOT instead of hardcoded 0.5
     const CATASTROPHIC_RR = TRADING_CONSTANTS.RISK_REWARD_RATIOS.CATASTROPHIC_THRESHOLD;
     if (rr < CATASTROPHIC_RR) {
-      flags.push('HARD_BLOCK_RR_CATASTROPHIC');
-      constraintViolations.push({
-        type: 'RR_CATASTROPHIC',
-        severity: 'HARD_BLOCK',
-        currentValue: rr,
-        minimumValue: CATASTROPHIC_RR,
-        message: `R:R ${rr.toFixed(2)}:1 is catastrophically low (< ${CATASTROPHIC_RR}:1). Cannot proceed.`,
-        suggestedActions: [
-          `Increase TP to achieve minimum ${CATASTROPHIC_RR}:1 R:R`,
-          `Tighten stop loss`,
-          `Choose different setup with better R:R`
-        ]
-      });
-
+      console.error(`[Omega-9] HARD BLOCK: R:R catastrophic (${rr.toFixed(2)} < ${CATASTROPHIC_RR})`);
       return {
         pass: false,
-        flags,
-        confidence_adjustment: -100,
-        corrections: { sl: null, tp: null, risk_pct: null },
-        reasoning: `HARD BLOCK: R:R catastrophic (${rr.toFixed(2)}:1 < ${CATASTROPHIC_RR}:1 minimum)`,
-        constraintViolations
+        flags: ['HARD_BLOCK_RR_CATASTROPHIC'],
+        confidence_adjustment: 0,
+        corrections: NO_CORRECTIONS,
+        reasoning: `HARD BLOCK: R:R catastrophic (${rr.toFixed(2)}:1 < ${CATASTROPHIC_RR}:1 minimum)`
       };
     }
 
-    const resolvedStyle = input.alphaDecision.resolvedStyle;
-    const MINIMUM_RR = getMinRRForStyle(resolvedStyle);
-    if (rr < MINIMUM_RR) {
-      flags.push('RR_BELOW_STYLE_MIN_ADVISORY');
-      console.log(`[Omega-9] R:R ${rr.toFixed(3)} < ${MINIMUM_RR} (${resolvedStyle || 'default'}) - ADVISORY (will be auto-corrected if not revised)`);
-    }
-
-    // REMOVED: Vote conflict detection - Alpha has final authority on direction
-    // Omega-9's role is MATHEMATICAL SAFETY ONLY, not strategic direction validation
-
     const atrValue = safeExtractATRValue(marketContext.atr, 'Omega9.performLocalValidation');
-
-    const rawStyle = input.alphaDecision.resolvedStyle;
+    const rawStyle = alphaDecision.resolvedStyle;
     const safetyTradeStyle: TradeStyle = rawStyle === 'SCALP' ? 'SCALP'
       : rawStyle === 'MICRO_INTRADAY' ? 'MICRO_INTRADAY'
       : rawStyle === 'INTRADAY' ? 'INTRADAY'
@@ -289,8 +162,8 @@ class Omega9HallucinationBrain {
 
     const safetyEval = alphaSafetyZoneEvaluator.evaluateTrade({
       rrRatio: rr,
-      tpDistancePips: tpDistancePips,
-      slDistancePips: slDistancePips,
+      tpDistancePips,
+      slDistancePips,
       atr: atrValue,
       symbol: marketContext.symbol,
       estimatedDurationSeconds: 0,
@@ -298,199 +171,33 @@ class Omega9HallucinationBrain {
       envelopeMaxTPPips: envelopeMaxTP,
     });
 
-    console.log(`[Omega-9] 🛡️ Safety Zone: ${safetyEval.zone} | Score: ${safetyEval.safety_score}/100 | R:R: ${rr.toFixed(3)}`);
+    console.log(`[Omega-9] Safety Zone: ${safetyEval.zone} | Score: ${safetyEval.safety_score}/100 | R:R: ${rr.toFixed(3)}`);
 
     if (safetyEval.zone === 'RED' && !safetyEval.can_proceed) {
-      flags.push(`SAFETY_RED_ZONE_HARD_BLOCK`);
-      console.log(`[Omega-9] 🚨 RED ZONE VIOLATION - HARD BLOCKING TRADE`);
       safetyEval.violations.forEach(v => {
-        console.log(`  ❌ ${v.violation_type}: ${v.message}`);
         flags.push(`RED_ZONE_${v.violation_type.toUpperCase()}`);
       });
 
       return {
         pass: false,
-        flags,
-        confidence_adjustment: -100,
-        corrections: { sl: null, tp: null, risk_pct: null },
-        reasoning: `RED ZONE HARD BLOCK: ${safetyEval.violations.map(v => v.message).join('; ')}. Trade cannot proceed even with Alpha override.`,
+        flags: ['SAFETY_RED_ZONE_HARD_BLOCK', ...flags],
+        confidence_adjustment: 0,
+        corrections: NO_CORRECTIONS,
+        reasoning: `RED ZONE HARD BLOCK: ${safetyEval.violations.map(v => v.message).join('; ')}`,
         safety_zone: safetyEval.zone,
         safety_evaluation: safetyEval
       };
     }
 
-    if (safetyEval.zone === 'ORANGE') {
-      console.log(`[Omega-9] ⚠️ ORANGE ZONE: Alpha override required with reasoning`);
-      safetyEval.violations.forEach(v => {
-        console.log(`  ⚠️ ${v.violation_type}: ${v.message}`);
-        flags.push(`ORANGE_ZONE_${v.violation_type.toUpperCase()}`);
-      });
-    }
-
-    if (safetyEval.zone === 'YELLOW') {
-      console.log(`[Omega-9] ⚡ YELLOW ZONE: Suboptimal conditions detected`);
-      safetyEval.violations.forEach(v => {
-        console.log(`  ⚡ ${v.violation_type}: ${v.message}`);
-        flags.push(`YELLOW_ZONE_${v.violation_type.toUpperCase()}`);
-      });
-    }
-
-    // REMOVED SL_TOO_WIDE and SL_TOO_TIGHT checks
-    // Alpha is now educated via Elite Trader Directive with professional anchor
-    // Trust Alpha's judgment unless catastrophic error
-
-    // Only HARD_BLOCK flags prevent trade (catastrophic errors only)
-    // Advisory flags (like RR_BELOW_1_ADVISORY) do NOT block - they trigger auto-correction
-    const hasHardBlock = flags.some(f => f.includes('HARD_BLOCK') && !f.includes('ADVISORY'));
-    const pass = flags.length === 0 || (!hasHardBlock && safetyEval.can_proceed);
-
-    let confidenceAdjustment = 0;
-    if (safetyEval.zone === 'RED') confidenceAdjustment = -100; // HARD BLOCK
-    else if (safetyEval.zone === 'ORANGE') confidenceAdjustment = -10; // ADVISORY (reduced from -30)
-    else if (safetyEval.zone === 'YELLOW') confidenceAdjustment = -5; // ADVISORY (reduced from -15)
-    else if (flags.length > 0) confidenceAdjustment = -5; // MINIMAL (reduced from -20)
-
     return {
-      pass,
-      flags,
-      confidence_adjustment: confidenceAdjustment,
-      corrections: { sl: null, tp: null, risk_pct: null }, // No auto-corrections - Alpha decides
-      reasoning: pass ?
-        (safetyEval.zone === 'GREEN' ? 'All validations passed' : `${safetyEval.zone} ZONE: ${flags.join(', ')}`) :
-        `Failed: ${flags.join(', ')}`,
+      pass: true,
+      flags: [],
+      confidence_adjustment: 0,
+      corrections: NO_CORRECTIONS,
+      reasoning: safetyEval.zone === 'GREEN' ? 'All validations passed' : `${safetyEval.zone} zone (advisory only)`,
       safety_zone: safetyEval.zone,
-      safety_evaluation: safetyEval,
-      constraintViolations
+      safety_evaluation: safetyEval
     };
-  }
-
-  /**
-   * REMOVED: Vote conflict detection
-   *
-   * Omega-9's role is MATHEMATICAL SAFETY ONLY, not strategic direction validation.
-   * Alpha has final authority on direction synthesis from Omega votes.
-   * Vote conflicts are Alpha's responsibility to resolve via weighted consensus.
-   */
-
-  /**
-   * REMOVED: attemptRepair() method
-   *
-   * ALPHA AUTHORITY PRINCIPLE:
-   * Omega-9 detects catastrophic errors but does NOT repair them.
-   * Only Alpha may decide SL/TP values.
-   *
-   * Previous behavior: Calculated SL using 1.5x ATR, TP using 2.5x ATR
-   * New behavior: Block with clear error flags for Alpha to learn from
-   */
-
-  /**
-   * Request LLM validation for complex scenarios
-   * SCOPE: Mathematical safety only - no directional override
-   */
-  private async llmValidation(input: Omega9Input, localFlags: string[]): Promise<Omega9ValidationResult> {
-    const prompt = `Validation (Mathematical Safety Only):
-Decision: ${input.alphaDecision.action} @ ${input.alphaDecision.entry}
-SL: ${input.alphaDecision.stopLoss}, TP: ${input.alphaDecision.takeProfit}
-LocalFlags: ${localFlags.join(', ')}
-
-SCOPE: Check ONLY mathematical correctness and impossible scenarios:
-- SL/TP on correct side of entry
-- No zero-distance stops
-- No catastrophic positioning errors
-
-DO NOT validate directional consensus or vote conflicts - Alpha has final authority on direction.
-
-Can this be repaired or must it be blocked?
-
-Return JSON only:
-{
-  "pass": true|false,
-  "flags": ["flag1", "flag2"],
-  "confidence_adjustment": -20 to 0,
-  "corrections": {"sl": num|null, "tp": num|null, "risk_pct": num|null},
-  "reasoning": "brief explanation"
-}`;
-
-    try {
-      const response = await openAIClient.chat(
-        [
-          {
-            role: 'system',
-            content: 'You are Omega-9, mathematical safety validator. Your ONLY role is catching catastrophic mathematical errors (SL/TP wrong side, zero distances, impossible positioning). Alpha has final authority on direction and strategy. Return JSON only.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        {
-          model: 'gpt-4o-mini',
-          temperature: 0.1,
-          max_tokens: 150,
-          requestType: 'omega9_validation',
-          endpoint: 'omega9-hallucination'
-        }
-      );
-
-      // Log token usage
-      await llmTokenTracker.logUsage({
-        brainName: 'Omega-9',
-        model: 'gpt-4o-mini',
-        promptTokens: response.usage?.prompt_tokens || 0,
-        completionTokens: response.usage?.completion_tokens || 0,
-        totalTokens: response.usage?.total_tokens || 0,
-        contextType: 'risk_assessment',
-        userId: undefined,
-        sessionId: undefined
-      });
-
-      const content = response.choices[0]?.message?.content || '{}';
-      return this.parseValidation(content);
-    } catch (error) {
-      console.error('[Omega-9] LLM validation error:', error);
-      return {
-        pass: false,
-        flags: ['LLM_VALIDATION_FAILED', ...localFlags],
-        confidence_adjustment: -30,
-        corrections: { sl: null, tp: null, risk_pct: null },
-        reasoning: 'LLM validation failed - blocking for safety'
-      };
-    }
-  }
-
-  /**
-   * Parse LLM validation response
-   */
-  private parseValidation(response: string): Omega9ValidationResult {
-    try {
-      const cleaned = response
-        .replace(/```json\n?/g, '')
-        .replace(/```\n?/g, '')
-        .trim();
-
-      const parsed = JSON.parse(cleaned);
-
-      return {
-        pass: parsed.pass === true,
-        flags: Array.isArray(parsed.flags) ? parsed.flags : [],
-        confidence_adjustment: Math.max(-50, Math.min(0, parsed.confidence_adjustment || -20)),
-        corrections: {
-          sl: parsed.corrections?.sl || null,
-          tp: parsed.corrections?.tp || null,
-          risk_pct: parsed.corrections?.risk_pct || null
-        },
-        reasoning: parsed.reasoning || 'No reasoning provided'
-      };
-    } catch (error) {
-      console.error('[Omega-9] Parse error:', error);
-      return {
-        pass: false,
-        flags: ['PARSE_ERROR'],
-        confidence_adjustment: -30,
-        corrections: { sl: null, tp: null, risk_pct: null },
-        reasoning: 'Parse failed - blocking for safety'
-      };
-    }
   }
 }
 

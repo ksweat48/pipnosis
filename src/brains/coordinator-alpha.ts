@@ -90,8 +90,8 @@ import { tp1ProbabilityCalculator, type TP1Result } from '../services/tp1-probab
 import { calculatePipDistance, getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { EntryIntentClassifier } from '../services/entry-intent-classifier';
 import { omega9ConstraintProvider } from '../services/omega9-constraint-provider';
-import { alphaRevisionHandler } from '../services/alpha-revision-handler';
-import type { Omega9Constraints } from '../types/omega9-constraints';
+// alphaRevisionHandler removed - dual-arena wall check replaces revision loop
+import type { Omega9Constraints, DualArenaWalls } from '../types/omega9-constraints';
 import { tradeExecutionFreshnessGate } from '../services/trade-execution-freshness-gate';
 import { tradeFeasibilityResolver } from '../services/trade-feasibility-resolver';
 import type { AssetClass, TradeStyle as FeasibilityTradeStyle } from '../types/trade-feasibility-resolver.types';
@@ -325,84 +325,6 @@ function logATRUsage(context: string, atr: number | ATRValue | undefined): void 
 }
 
 class AlphaCoordinatorBrain {
-  private derivePreliminaryDirection(briefing: MarketBriefing): 'BUY' | 'SELL' | 'NO_TRADE' {
-    const intel = briefing.intelligence;
-    let buyScore = 0;
-    let sellScore = 0;
-    let noTradeSignals = 0;
-
-    // Trend structure (weight: 2)
-    if (intel.trend.emaAlignment === 'bull') buyScore += 2;
-    else if (intel.trend.emaAlignment === 'bear') sellScore += 2;
-    else noTradeSignals += 1; // mixed alignment = unclear
-
-    // Momentum (weight: 1)
-    if (intel.trend.momentum === 'strong_bull' || intel.trend.momentum === 'bull') buyScore += 1;
-    else if (intel.trend.momentum === 'strong_bear' || intel.trend.momentum === 'bear') sellScore += 1;
-    else noTradeSignals += 1; // neutral momentum
-
-    // Break of structure (weight: 2)
-    if (intel.trend.bos === 'bull') buyScore += 2;
-    else if (intel.trend.bos === 'bear') sellScore += 2;
-
-    // Order flow (weight: 1)
-    if (intel.orderFlow.bias === 'buy') buyScore += 1;
-    else if (intel.orderFlow.bias === 'sell') sellScore += 1;
-
-    // Confirmation BOS (weight: 1)
-    if (intel.confirmation.bosDirection === 'bull') buyScore += 1;
-    else if (intel.confirmation.bosDirection === 'bear') sellScore += 1;
-
-    // Reversal signals (counter-trend flags)
-    const bullReversal = intel.reversal.rsiDivergence === 'bull' || intel.reversal.engulfingBull || intel.reversal.pinBarBull;
-    const bearReversal = intel.reversal.rsiDivergence === 'bear' || intel.reversal.engulfingSell || intel.reversal.pinBarSell;
-    if (bullReversal) { buyScore += 1; sellScore -= 1; }
-    if (bearReversal) { sellScore += 1; buyScore -= 1; }
-
-    // Support/resistance proximity check
-    const price = intel.price;
-    const atr = intel.atr;
-    if (atr > 0) {
-      const nearestResistance = intel.resistance.length > 0
-        ? Math.min(...intel.resistance.filter(r => r > price))
-        : Infinity;
-      const nearestSupport = intel.support.length > 0
-        ? Math.max(...intel.support.filter(s => s < price))
-        : -Infinity;
-
-      const resistanceProximity = nearestResistance !== Infinity ? (nearestResistance - price) / atr : Infinity;
-      const supportProximity = nearestSupport !== -Infinity ? (price - nearestSupport) / atr : Infinity;
-
-      // Buying into resistance or selling into support = danger
-      if (resistanceProximity < 0.5 && buyScore > sellScore) noTradeSignals += 2;
-      if (supportProximity < 0.5 && sellScore > buyScore) noTradeSignals += 2;
-    }
-
-    // Volatility regime check
-    if (intel.volatility.regime === 'low' && intel.volatility.atrTrend === 'down') {
-      noTradeSignals += 1; // compressing volatility = poor trade conditions
-    }
-
-    // Doji = indecision
-    if (intel.reversal.doji) noTradeSignals += 1;
-
-    // Calculate signal strength
-    const maxScore = Math.max(buyScore, sellScore);
-    const minScore = Math.min(buyScore, sellScore);
-    const conviction = maxScore - minScore;
-    const totalConflicts = noTradeSignals;
-
-    // NO_TRADE conditions:
-    // 1. Both sides equally weak or both have 0 signals
-    // 2. Too many conflicting/no-trade signals relative to conviction
-    // 3. Maximum score too low (no clear edge)
-    if (conviction <= 1 && totalConflicts >= 2) return 'NO_TRADE';
-    if (maxScore <= 1) return 'NO_TRADE';
-    if (totalConflicts >= 4) return 'NO_TRADE';
-
-    return buyScore >= sellScore ? 'BUY' : 'SELL';
-  }
-
   /**
    * Detect volatility expansion/compression
    * Expanding volatility = trending market, wider TP viable
@@ -563,33 +485,7 @@ class AlphaCoordinatorBrain {
     };
     const tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = (goalContext?.tradeStyle ? EARLY_STYLE_MAP[goalContext.tradeStyle] : undefined) || 'SCALP';
 
-    const preliminaryDirection = this.derivePreliminaryDirection(briefing);
-    console.log(`[Alpha Coordinator] Preliminary direction from briefing: ${preliminaryDirection} [Style: ${tradeStyle}]`);
-
-    if (preliminaryDirection === 'NO_TRADE') {
-      console.log('[Alpha Coordinator] Preliminary direction is NO_TRADE - insufficient directional conviction from market intelligence');
-      return {
-        action: 'NO_TRADE',
-        entry: marketContext.price,
-        stopLoss: 0,
-        takeProfit: 0,
-        confidence: 0,
-        reasoning: 'Preliminary market analysis shows insufficient directional conviction - conflicting signals or proximity to key levels',
-        tradeQuality: 'POOR',
-        adjustments: [],
-        constraints: null,
-        hasConflict: false,
-        omega9Result: null,
-        conflictResolution: null,
-        riskPercentage: 0,
-        positionSize: 0,
-        rrRatio: 0,
-        estimatedDurationMinutes: 0,
-        entryIntentClassification: null,
-        stopLossAnchor: null,
-        takeProfitCalculation: null
-      };
-    }
+    console.log(`[Alpha Coordinator] Dual-Arena mode [Style: ${tradeStyle}] - Alpha chooses direction`);
 
     // Fire-and-forget thought stream emissions
     if (sessionId && userId) {
@@ -600,39 +496,52 @@ class AlphaCoordinatorBrain {
       }
     }
 
-    // Parallelize all independent data fetches
-    const [, dailyNarrative, riskResult, rrResult] = await Promise.all([
+    // Parallelize all independent data fetches (bidirectional for dual-arena)
+    const [, dailyNarrative, riskResultLong, riskResultShort, rrResult] = await Promise.all([
       this.fetchPlatformIntelligence(marketContext.symbol),
       dailyNarrativeBuilder.build(marketContext.symbol, marketContext.price),
       (userId && goalContext) ? professionalRiskManager.evaluateTrade({
         userId,
         symbol: marketContext.symbol,
-        direction: preliminaryDirection === 'BUY' ? 'long' : 'short',
+        direction: 'long',
         currentBalance: goalContext.currentBalance,
         baseRiskPercent: 0.01,
         currentATR: extractATRValue(marketContext.atr),
         goalSessionId: undefined
-      }).catch(err => { console.error('[Alpha Coordinator] Failed to get risk assessment:', err); return null; }) : Promise.resolve(null),
+      }).catch(err => { console.error('[Alpha Coordinator] Failed to get long risk assessment:', err); return null; }) : Promise.resolve(null),
+      (userId && goalContext) ? professionalRiskManager.evaluateTrade({
+        userId,
+        symbol: marketContext.symbol,
+        direction: 'short',
+        currentBalance: goalContext.currentBalance,
+        baseRiskPercent: 0.01,
+        currentATR: extractATRValue(marketContext.atr),
+        goalSessionId: undefined
+      }).catch(err => { console.error('[Alpha Coordinator] Failed to get short risk assessment:', err); return null; }) : Promise.resolve(null),
       userId ? rrSuccessTracker.getRecentPerformanceSummary(userId, marketContext.symbol)
         .catch(err => { console.error('[Alpha Coordinator] Failed to fetch R:R performance:', err); return null; }) : Promise.resolve(null)
     ]);
 
-    // Build risk context from parallel result
-    let riskAssessment = riskResult;
     let riskContext = '';
+    const riskAssessment = riskResultLong || riskResultShort;
     if (riskAssessment) {
-      riskContext = `\n📊 PROFESSIONAL RISK ASSESSMENT (Advisory):\n`;
+      riskContext = `\nPROFESSIONAL RISK ASSESSMENT (Advisory):\n`;
       riskContext += `Risk Score: ${riskAssessment.riskScore.toFixed(0)}/100 | Confidence: ${riskAssessment.confidenceScore.toFixed(0)}/100\n`;
       riskContext += `Recommended Lot Size: ${riskAssessment.recommendedLotSize.toFixed(2)} lots\n`;
       riskContext += `Adjusted Risk: ${(riskAssessment.adjustedRiskPercent * 100).toFixed(2)}%\n`;
       if (riskAssessment.criticalWarnings.length > 0) {
-        riskContext += `⚠️ WARNINGS:\n`;
+        riskContext += `WARNINGS:\n`;
         riskAssessment.criticalWarnings.slice(0, 3).forEach((w: string) => {
           riskContext += `  - ${w}\n`;
         });
       }
       riskContext += `Reasoning: ${riskAssessment.overallReasoning}\n`;
     }
+
+    const correlationExposure: DualArenaWalls['correlationExposure'] = (riskResultLong || riskResultShort) ? {
+      longWarnings: riskResultLong?.criticalWarnings?.filter((w: string) => w.toLowerCase().includes('correlat')) || [],
+      shortWarnings: riskResultShort?.criticalWarnings?.filter((w: string) => w.toLowerCase().includes('correlat')) || [],
+    } : null;
 
     let conflictContext = '';
     if (conflictInfo && conflictInfo.hasConflict) {
@@ -822,9 +731,9 @@ class AlphaCoordinatorBrain {
         });
       }
       try {
-        const tradeDirection = preliminaryDirection === 'BUY' ? 'long' : 'short';
+        const tradeDirection = 'long' as const;
 
-        console.log('[Alpha Coordinator] 🔍 Analyzing multi-timeframe patterns...');
+        console.log('[Alpha Coordinator] Analyzing multi-timeframe patterns (structural)...');
 
         patternIntelligence = await multiTimeframePatternIntelligence.analyzePatterns({
           symbol: marketContext.symbol,
@@ -851,45 +760,46 @@ class AlphaCoordinatorBrain {
       }
     }
 
-    // Detect liquidity zones for Elite TP System (now enhanced with pattern intelligence)
+    let longLiquidityZones: LiquidityZone[] = [];
+    let shortLiquidityZones: LiquidityZone[] = [];
     let liquidityZones: LiquidityZone[] = [];
     let liquidityContext = '';
     if (fullCandles && fullCandles.length > 0) {
-      const direction = preliminaryDirection === 'BUY' ? 'long' : 'short';
-      liquidityZones = eliteProfitTargetCalculator.detectLiquidityZones(
-        fullCandles,
-        marketContext.price,
-        direction
+      longLiquidityZones = eliteProfitTargetCalculator.detectLiquidityZones(
+        fullCandles, marketContext.price, 'long', marketContext.symbol
       );
+      shortLiquidityZones = eliteProfitTargetCalculator.detectLiquidityZones(
+        fullCandles, marketContext.price, 'short', marketContext.symbol
+      );
+      liquidityZones = [...longLiquidityZones, ...shortLiquidityZones];
 
-      // Enhance liquidity zones with pattern-identified targets
       if (patternIntelligence && patternIntelligence.liquidityTargets.length > 0) {
         const patternZones = patternLiquidityAdapter.convertToLiquidityZones(
-          patternIntelligence,
-          marketContext.symbol,
-          marketContext.price
+          patternIntelligence, marketContext.symbol, marketContext.price
         );
-
-        // Merge pattern zones with standard liquidity zones (dedupe by price)
         for (const patternZone of patternZones) {
           const isDuplicate = liquidityZones.some(
             z => Math.abs(z.price - patternZone.price) < patternZone.price * 0.001
           );
           if (!isDuplicate) {
             liquidityZones.push(patternZone);
+            if (patternZone.price > marketContext.price) longLiquidityZones.push(patternZone);
+            else shortLiquidityZones.push(patternZone);
           }
         }
-
-        console.log(`[Alpha Coordinator] 🎯 Added ${patternZones.length} pattern liquidity zones to standard zones`);
+        console.log(`[Alpha Coordinator] Added ${patternZones.length} pattern liquidity zones`);
       }
 
       if (liquidityZones.length > 0) {
-        liquidityContext = `\n🎯 ELITE TP SYSTEM - LIQUIDITY ZONES:\n`;
-        liquidityContext += `Direction: ${direction.toUpperCase()}\n`;
-        liquidityZones.slice(0, 5).forEach((zone, idx) => {
-          liquidityContext += `${idx + 1}. ${zone.type.toUpperCase()} @ ${zone.price.toFixed(5)} (${zone.distance_pips.toFixed(1)} pips, ${zone.strength})\n`;
+        liquidityContext = `\nLIQUIDITY ZONES (Both Directions):\n`;
+        liquidityContext += `ABOVE PRICE (Long targets):\n`;
+        longLiquidityZones.slice(0, 3).forEach((zone, idx) => {
+          liquidityContext += `  ${idx + 1}. ${zone.type.toUpperCase()} @ ${zone.price.toFixed(5)} (${zone.distance_pips.toFixed(1)} pips, ${zone.strength})\n`;
         });
-        liquidityContext += `Use these zones for TP placement (prioritize strong liquidity pools)\n`;
+        liquidityContext += `BELOW PRICE (Short targets):\n`;
+        shortLiquidityZones.slice(0, 3).forEach((zone, idx) => {
+          liquidityContext += `  ${idx + 1}. ${zone.type.toUpperCase()} @ ${zone.price.toFixed(5)} (${zone.distance_pips.toFixed(1)} pips, ${zone.strength})\n`;
+        });
       }
     }
 
@@ -901,8 +811,9 @@ class AlphaCoordinatorBrain {
       marketVolatilityLevel = 'low';
     }
 
-    // Calculate professional stop-loss anchor for Alpha
     let stopLossAnchor: StopLossCalculation | null = null;
+    let buyStopAnchor: StopLossCalculation | null = null;
+    let sellStopAnchor: StopLossCalculation | null = null;
     let stopLossDirective = '';
     {
       if (sessionId && userId) {
@@ -911,23 +822,20 @@ class AlphaCoordinatorBrain {
         });
       }
       const entryPrice = marketContext.price;
-      const direction = preliminaryDirection === 'BUY' ? 'buy' : 'sell';
-
-      // riskMode already declared at function scope
-      // Extract ATR value for stop loss calculation
       const atrForStopLoss = extractATRValue(marketContext.atr);
       logATRUsage('Stop-Loss calculation', marketContext.atr);
 
-      stopLossAnchor = riskAwareStopCalculator.calculateStopLoss({
-        symbol: marketContext.symbol,
-        entryPrice,
-        direction,
-        riskMode,
-        atr: atrForStopLoss, // Pass raw value for backward compatibility
-        marketVolatility: marketVolatilityLevel
+      buyStopAnchor = riskAwareStopCalculator.calculateStopLoss({
+        symbol: marketContext.symbol, entryPrice, direction: 'buy',
+        riskMode, atr: atrForStopLoss, marketVolatility: marketVolatilityLevel
       });
+      sellStopAnchor = riskAwareStopCalculator.calculateStopLoss({
+        symbol: marketContext.symbol, entryPrice, direction: 'sell',
+        riskMode, atr: atrForStopLoss, marketVolatility: marketVolatilityLevel
+      });
+      stopLossAnchor = buyStopAnchor;
 
-      console.log(`[Alpha Coordinator] 🎯 Stop-Loss Anchor Calculated: ${stopLossAnchor.stopLossPrice.toFixed(5)} (${stopLossAnchor.stopLossPips.toFixed(1)} pips, ${stopLossAnchor.atrMultiplier.toFixed(2)}x ATR)`);
+      console.log(`[Alpha Coordinator] Stop Anchors: BUY SL=${buyStopAnchor.stopLossPrice.toFixed(5)} (${buyStopAnchor.stopLossPips.toFixed(1)}p) | SELL SL=${sellStopAnchor.stopLossPrice.toFixed(5)} (${sellStopAnchor.stopLossPips.toFixed(1)}p)`);
     }
 
     // ✅ FEASIBILITY RESOLVER (SSOT) - Runs BEFORE constraint generation
@@ -998,35 +906,11 @@ class AlphaCoordinatorBrain {
         }
       });
 
-      console.log(`[Alpha Coordinator] ✅ Feasibility Status: ${feasibilityResult.status}`);
-      console.log(`[Alpha Coordinator] 💬 ${feasibilityResult.userMessage}`);
+      console.log(`[Alpha Coordinator] Feasibility Status: ${feasibilityResult.status} (advisory)`);
+      console.log(`[Alpha Coordinator] ${feasibilityResult.userMessage}`);
 
       if (feasibilityResult.status === 'NO_TRADE') {
-        console.warn('[Alpha Coordinator] ⛔ Trade blocked by feasibility resolver');
-        console.warn(`[Alpha Coordinator] Blockers: ${feasibilityResult.blockers?.map(b => b.detail).join('; ')}`);
-
-        // Return NO_TRADE decision with explanation
-        return {
-          action: 'NO_TRADE',
-          entry: marketContext.price,
-          stopLoss: 0,
-          takeProfit: 0,
-          confidence: 0,
-          reasoning: feasibilityResult.userMessage,
-          tradeQuality: 'POOR',
-          adjustments: feasibilityResult.adjustments,
-          constraints: null,
-          hasConflict: false,
-          omega9Result: null,
-          conflictResolution: null,
-          riskPercentage: 0,
-          positionSize: 0,
-          rrRatio: 0,
-          estimatedDurationMinutes: 0,
-          entryIntentClassification: null,
-          stopLossAnchor: null,
-          takeProfitCalculation: null
-        };
+        console.warn(`[Alpha Coordinator] Feasibility advisory: NO_TRADE recommended - ${feasibilityResult.blockers?.map(b => b.detail).join('; ')}`);
       }
 
       if (feasibilityResult.status === 'ADJUSTED') {
@@ -1039,19 +923,16 @@ class AlphaCoordinatorBrain {
       resolvedPlan = feasibilityResult.plan;
     }
 
-    // Generate Omega-9 constraints (constraint-first approach)
-    // Now receives resolved plan from feasibility resolver
     let omega9Constraints: Omega9Constraints | null = null;
+    let dualArenaWalls: DualArenaWalls | null = null;
     let constraintsText = '';
 
-    // tradeStyle already resolved earlier (before weight calculation) for SSOT compliance
-
     if (resolvedPlan?.style && resolvedPlan.style !== tradeStyle) {
-      console.warn(`[Alpha Coordinator] [GOVERNANCE VIOLATION BLOCKED] Feasibility resolver attempted style promotion: ${tradeStyle} -> ${resolvedPlan.style}. User style is IMMUTABLE. Overriding back to ${tradeStyle}.`);
+      console.warn(`[Alpha Coordinator] [GOVERNANCE VIOLATION BLOCKED] Feasibility resolver attempted style promotion: ${tradeStyle} -> ${resolvedPlan.style}. User style is IMMUTABLE.`);
       resolvedPlan.style = tradeStyle;
     }
 
-    console.log(`[Alpha Coordinator] [Style SSOT] User chose: ${goalContext?.tradeStyle || 'none'} => Canonical: ${tradeStyle} (IMMUTABLE - no promotion allowed)`);
+    console.log(`[Alpha Coordinator] [Style SSOT] User chose: ${goalContext?.tradeStyle || 'none'} => Canonical: ${tradeStyle} (IMMUTABLE)`);
 
     {
       if (sessionId && userId) {
@@ -1063,17 +944,19 @@ class AlphaCoordinatorBrain {
       const sessionContext = calculateSessionContext();
       console.log(`[Alpha Coordinator] Session Context: ${sessionContext.sessionName} (${sessionContext.sessionTimeRemainingMinutes}min remaining)`);
 
-      omega9Constraints = omega9ConstraintProvider.generateConstraints({
+      const STYLE_TO_TRADE_STYLE: Record<string, 'scalper' | 'micro' | 'intraday'> = {
+        'SCALP': 'scalper', 'MICRO_INTRADAY': 'micro', 'INTRADAY': 'intraday',
+      };
+
+      dualArenaWalls = omega9ConstraintProvider.generateDualArenaWalls({
         symbol: marketContext.symbol,
         entry: marketContext.price,
-        direction: preliminaryDirection,
         atr: extractATRValue(marketContext.atr),
+        tradeStyle: STYLE_TO_TRADE_STYLE[tradeStyle] || 'scalper',
         riskMode,
-        tradeStyle,  // CRITICAL: Pass trade style for session constraint behavior
         currentSession: sessionContext.currentSession,
         sessionTimeRemainingMinutes: sessionContext.sessionTimeRemainingMinutes,
         volatilityRegime: marketContext.volatility as 'low' | 'medium' | 'high',
-        proposedStopLoss: stopLossAnchor?.stopLossPrice,
         resolvedPlan: resolvedPlan ? {
           slMinPercent: resolvedPlan.sl.minPercent,
           tpMaxAtrMultiple: resolvedPlan.tp.maxAtrMultiple,
@@ -1081,73 +964,43 @@ class AlphaCoordinatorBrain {
         } : undefined
       });
 
-      constraintsText = omega9ConstraintProvider.formatConstraintsForPrompt(omega9Constraints);
+      if (correlationExposure) {
+        dualArenaWalls.correlationExposure = correlationExposure;
+      }
+
+      constraintsText = omega9ConstraintProvider.formatDualArenaForPrompt(dualArenaWalls);
+
+      omega9Constraints = omega9ConstraintProvider.generateConstraints({
+        symbol: marketContext.symbol,
+        entry: marketContext.price,
+        direction: 'BUY',
+        atr: extractATRValue(marketContext.atr),
+        riskMode,
+        tradeStyle,
+        currentSession: sessionContext.currentSession,
+        sessionTimeRemainingMinutes: sessionContext.sessionTimeRemainingMinutes,
+        volatilityRegime: marketContext.volatility as 'low' | 'medium' | 'high',
+        proposedStopLoss: buyStopAnchor?.stopLossPrice,
+        resolvedPlan: resolvedPlan ? {
+          slMinPercent: resolvedPlan.sl.minPercent,
+          tpMaxAtrMultiple: resolvedPlan.tp.maxAtrMultiple,
+          minRR: resolvedPlan.rr.min
+        } : undefined
+      });
     }
 
-    const stylePersonality = getStylePromptContext(tradeStyle);
     const styleEnvelope = getExecutionEnvelope(tradeStyle);
     const promptAssetClass = getAssetClass(marketContext.symbol) as EnvelopeAssetClass;
-    const promptBounds = getAssetClassEnvelopeBounds(tradeStyle, promptAssetClass, marketContext.symbol, marketContext.price);
 
-    if (omega9Constraints) {
-      const sandwichResult = detectConstraintSandwich(
-        tradeStyle,
-        promptAssetClass,
-        omega9Constraints.noiseFloorPips,
-        marketContext.symbol,
-        marketContext.price
-      );
+    const styleIdentityPrompt = '';
 
-      if (sandwichResult.sandwiched) {
-        constraintsText += `\n\nCONSTRAINT SANDWICH DETECTED (HARD BLOCK):\n${sandwichResult.advisory}\nYou MUST return NO_TRADE. Style is IMMUTABLE - do NOT suggest style upgrades.\n`;
-      }
-    }
-
-    const styleIdentityPrompt = `
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STYLE IDENTITY CONTRACT: ${tradeStyle}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${stylePersonality}
-
-EXECUTION ENVELOPE (HARD CONSTRAINTS - ${promptAssetClass}):
-- Timeframe: ${styleEnvelope.timeframe}
-- Target Candles: ${styleEnvelope.targetCandles.min}-${styleEnvelope.targetCandles.max}
-- TP Range: ${promptBounds.tpPips.min.toFixed(1)}-${promptBounds.tpPips.max.toFixed(1)} pips
-- SL Range: ${promptBounds.slPips.min.toFixed(1)}-${promptBounds.slPips.max.toFixed(1)} pips
-- Expected Duration: ${styleEnvelope.typicalDuration.min}-${styleEnvelope.typicalDuration.max} minutes
-- Entry Mode: ${styleEnvelope.entryMode}
-
-DURATION FILTERING (MANDATORY):
-You MUST select setups that fit within the ${tradeStyle} duration band (${styleEnvelope.typicalDuration.min}-${styleEnvelope.typicalDuration.max} min).
-- BEFORE choosing TP/SL, estimate how long the trade will take to reach target
-- If the best available setup would take longer than ${styleEnvelope.typicalDuration.max} minutes, return NO_TRADE
-- Do NOT propose trades that belong to a longer-duration style
-- Think in ${styleEnvelope.timeframe} terms: target ${styleEnvelope.targetCandles.min}-${styleEnvelope.targetCandles.max} ${styleEnvelope.timeframe} candles
-- Scanner will re-evaluate next cycle if no ${tradeStyle}-appropriate setup exists now
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-`;
-
-    // Build Elite Trader Stop-Loss Directive
-    if (stopLossAnchor) {
+    if (buyStopAnchor && sellStopAnchor) {
+      const atrPips = (extractATRValue(marketContext.atr) / getCurrencyPipInfo(marketContext.symbol).pipValue).toFixed(1);
       stopLossDirective = `
-
-STOP-LOSS ANCHOR:
-• ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${(extractATRValue(marketContext.atr) / getCurrencyPipInfo(marketContext.symbol).pipValue).toFixed(1)} pips)
-• Volatility: ${marketVolatilityLevel.toUpperCase()} | Risk: ${riskMode.toUpperCase()}
-• Recommended SL: ${stopLossAnchor.stopLossPrice.toFixed(5)} (${stopLossAnchor.stopLossPips.toFixed(1)} pips, ${stopLossAnchor.atrMultiplier.toFixed(2)}x ATR)
-• Profile Range: ${stopLossAnchor.profileMinPips}-${stopLossAnchor.profileMaxPips} pips
-• Rationale: ${stopLossAnchor.reasoning}
-
-You may accept, tighten, widen, or relocate to a superior technical level. State why if you deviate.
-Rules: Stop outside noise range, beyond structure. Min 5 pips from entry. Must survive normal price behavior.
-
-TAKE-PROFIT RULES:
-• R:R < 1.0 = Omega-9 HARD BLOCK. Target R:R >= 1.5.
-• Place TP at liquidity zones (order clusters > psychological levels > structure).
-• If liquidity exists beyond structure, target liquidity.
-• Default: single TP. Partials only with explicit multi-zone reasoning.
-• If estimated duration exceeds style band, return NO_TRADE. Do NOT silently upgrade style.
+ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips) | Volatility: ${marketVolatilityLevel.toUpperCase()} | Risk: ${riskMode.toUpperCase()}
+IF LONG SL Anchor: ${buyStopAnchor.stopLossPrice.toFixed(5)} (${buyStopAnchor.stopLossPips.toFixed(1)}p, ${buyStopAnchor.atrMultiplier.toFixed(2)}x ATR)
+IF SHORT SL Anchor: ${sellStopAnchor.stopLossPrice.toFixed(5)} (${sellStopAnchor.stopLossPips.toFixed(1)}p, ${sellStopAnchor.atrMultiplier.toFixed(2)}x ATR)
+Profile Range: ${buyStopAnchor.profileMinPips}-${buyStopAnchor.profileMaxPips} pips
 `;
     }
 
@@ -1311,7 +1164,6 @@ MARKET INTELLIGENCE BRIEFING:
 ${briefing.briefingText}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Preliminary Direction Lean: ${preliminaryDirection}
 Risk Mode: ${riskMode.toUpperCase()}
 
 ${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${patternContext}${intelligenceContext}${goalContextText}${liquidityContext}${constraintsText}${stopLossDirective}
@@ -1460,86 +1312,46 @@ Return PURE JSON only:
         tradeStyle
       );
 
-      // CONSTRAINT-FIRST VALIDATION (Phase 1: Check violations, Phase 2: Revision loop, Phase 3: Auto-correction)
-      if (decision.action !== 'NO_TRADE' && decision.action !== 'WAIT' && omega9Constraints) {
-        console.log('[Alpha Coordinator] 🔍 Checking decision against constraints...');
+      // DUAL-ARENA WALL CHECK: Simple pass/fail - within walls = proceed, outside = block
+      // No revision loop, no corrections. Alpha had the walls in the prompt.
+      if (decision.action !== 'NO_TRADE' && dualArenaWalls) {
+        const arena = decision.action === 'BUY' ? dualArenaWalls.long : dualArenaWalls.short;
+        const slPipsCheck = calculatePipDistance(marketContext.symbol, decision.entry, decision.stopLoss);
+        const tpPipsCheck = calculatePipDistance(marketContext.symbol, decision.entry, decision.takeProfit);
 
-        // Validate decision against constraints
-        const violations = omega9ConstraintProvider.validateAgainstConstraints(
-          {
-            entry: decision.entry,
-            stopLoss: decision.stopLoss,
-            takeProfit: decision.takeProfit,
-            direction: decision.action as 'BUY' | 'SELL'
-          },
-          omega9Constraints,
-          marketContext.symbol
-        );
+        const wallViolations: string[] = [];
+        if (slPipsCheck < arena.slPips.min) wallViolations.push(`SL ${slPipsCheck.toFixed(1)} pips below wall min ${arena.slPips.min.toFixed(1)}`);
+        if (slPipsCheck > arena.slPips.max) wallViolations.push(`SL ${slPipsCheck.toFixed(1)} pips above wall max ${arena.slPips.max.toFixed(1)}`);
+        if (tpPipsCheck < arena.tpPips.min) wallViolations.push(`TP ${tpPipsCheck.toFixed(1)} pips below wall min ${arena.tpPips.min.toFixed(1)}`);
+        if (tpPipsCheck > arena.tpPips.max) wallViolations.push(`TP ${tpPipsCheck.toFixed(1)} pips above wall max ${arena.tpPips.max.toFixed(1)}`);
 
-        if (violations.length > 0) {
-          console.log(`[Alpha Coordinator] ⚠️ ${violations.length} constraint violation(s) detected`);
+        if (wallViolations.length > 0) {
+          console.warn(`[Alpha Coordinator] WALL VIOLATION: ${wallViolations.join('; ')}`);
+          decision.action = 'NO_TRADE';
+          decision.decision = 'NO_TRADE';
+          decision.confidence = 0;
+          decision.reasoning = `Blocked: Decision outside arena walls. ${wallViolations.join('; ')}`;
 
-          // Phase 2: Trigger revision loop (ONE OPPORTUNITY for Alpha to adjust)
-          const revisionResponse = await alphaRevisionHandler.requestRevision(
-            decision,
-            violations,
-            omega9Constraints,
-            marketContext.symbol,
-            userId
-          );
-
-          if (revisionResponse.revised && revisionResponse.revisedDecision) {
-            console.log('[Alpha Coordinator] ✅ Alpha revised decision');
-            // Update decision with revised values
-            decision.stopLoss = revisionResponse.revisedDecision.stopLoss;
-            decision.takeProfit = revisionResponse.revisedDecision.takeProfit;
-            decision.confidence = revisionResponse.revisedDecision.confidence;
-            decision.reasoning = revisionResponse.revisedDecision.reasoning;
-
-            // Apply small confidence boost for accepting revision (+5%)
-            decision.confidence = Math.min(100, decision.confidence + 5);
-            decision.reasoning += ` [Revised based on constraints: ${revisionResponse.revisionReasoning}]`;
-          } else {
-            // ALPHA AUTHORITY PRINCIPLE: If Alpha declined revision, block the trade
-            // Do NOT silently correct. Only Alpha decides SL/TP.
-            console.log('[Alpha Coordinator] ❌ Alpha declined revision - blocking trade');
-            console.log('[Alpha Coordinator] Constraint violations unresolved:');
-            violations.forEach(v => console.log(`  - ${v.message}`));
-
-            // Block trade
-            decision.action = 'NO_TRADE';
-            decision.decision = 'NO_TRADE';
-            decision.confidence = 0;
-            decision.reasoning = `Constraint violations not resolved by Alpha: ${violations.map(v => v.message).join('; ')}`;
-
-            // Log SSOT violation for learning and prompt improvement (fire-and-forget)
-            logViolation({
-              violationType: 'ALPHA_CONSTRAINT_VIOLATION_UNRESOLVED',
-              symbol: marketContext.symbol,
-              attemptedOperation: 'constraint_validation',
-              callLocation: 'coordinator-alpha.constraint_validation',
-              blocked: true,
-              errorDetails: {
-                severity: 'high',
-                violations: violations.map(v => ({ type: v.type, message: v.message, severity: v.severity })),
-                originalDecision: {
-                  action: decision.action,
-                  entry: decision.entry,
-                  stopLoss: decision.stopLoss,
-                  takeProfit: decision.takeProfit,
-                  risk_pct: decision.risk_pct,
-                  confidence: decision.confidence
-                },
-                userId: userId || null,
-                sessionId: goalContext?.sessionId || null,
-                resolution: 'blocked_no_repair'
-              }
-            }).catch(error => {
-              console.error('[Alpha Coordinator] Failed to log SSOT violation:', error);
-            });
-          }
+          logViolation({
+            violationType: 'ALPHA_WALL_VIOLATION',
+            symbol: marketContext.symbol,
+            attemptedOperation: 'wall_check',
+            callLocation: 'coordinator-alpha.wall_check',
+            blocked: true,
+            errorDetails: {
+              wallViolations,
+              slPips: slPipsCheck,
+              tpPips: tpPipsCheck,
+              arenaMin: { sl: arena.slPips.min, tp: arena.tpPips.min },
+              arenaMax: { sl: arena.slPips.max, tp: arena.tpPips.max },
+              userId: userId || null,
+              sessionId: goalContext?.sessionId || null,
+            }
+          }).catch(error => {
+            console.error('[Alpha Coordinator] Failed to log wall violation:', error);
+          });
         } else {
-          console.log('[Alpha Coordinator] ✅ Decision within all constraints');
+          console.log('[Alpha Coordinator] Decision within arena walls');
         }
       }
 
@@ -1671,28 +1483,19 @@ Return PURE JSON only:
         // Override parsing failed, continue without it
       }
 
-      // Check Omega-10 recommendations (ADVISORY - reduced penalty)
+      // Omega-10 risk horizon (ADVISORY ONLY - no confidence modification)
       if (userId) {
         const omega10Analysis = await omega10Scheduler.getLatestAnalysis(userId);
         if (omega10Analysis && omega10Analysis.riskHorizon.level === 'high') {
-          console.log('[Alpha Coordinator] ⚠️ Omega-10 risk horizon: HIGH - advisory caution');
-          decision.confidence = Math.max(0, decision.confidence - 5);
+          console.log('[Alpha Coordinator] Omega-10 risk horizon: HIGH (advisory only, no confidence change)');
           decision.omega10_applied = true;
-          decision.reasoning += ' [Omega-10: High risk horizon advisory]';
         }
       }
 
       if (votes.omega8) {
         decision.omega8_liquidity_bias = votes.omega8.liquidity_bias;
         decision.omega8_direction_support = votes.omega8.direction_support;
-
-        if (votes.omega8.liquidity_bias === 'stoprun_risk') {
-          decision.confidence = Math.max(0, decision.confidence - 15);
-          console.log('[Alpha Coordinator] Omega-8 flags stop-run risk (no BOS) - reducing confidence');
-        } else if (votes.omega8.liquidity_bias === 'stoprun_entry') {
-          decision.confidence = Math.min(100, decision.confidence + 10);
-          console.log('[Alpha Coordinator] Omega-8 confirms stop-run WITH BOS - good entry setup, boosting confidence');
-        }
+        // Omega-8 data attached for telemetry only - no confidence manipulation
       }
 
       // Omega-9 validation (final safety check) - skip for WAIT since we're not executing yet
@@ -1753,78 +1556,19 @@ Return PURE JSON only:
           };
         }
 
-        // Check for other validation failures
+        // Non-RED failures: log for telemetry but do NOT block or modify
         if (!validation.pass) {
-          console.log('[Alpha Coordinator] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          console.log('[Alpha Coordinator] ❌ OMEGA-9 BLOCKED TRADE');
-          console.log('[Alpha Coordinator] ❌ Alpha\'s decision was BLOCKED by Omega-9');
-          console.log(`[Alpha Coordinator] ❌ Reason: ${validation.reasoning}`);
-          console.log('[Alpha Coordinator] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          return {
-            action: 'NO_TRADE',
-            decision: 'NO_TRADE',
-            entry: marketContext.price,
-            stopLoss: marketContext.price,
-            takeProfit: marketContext.price,
-            confidence: 0,
-            reasoning: `❌ OMEGA-9 VETO: ${validation.reasoning}. Alpha's decision blocked due to mathematical safety violation.`,
-            omega_summary: decision.omega_summary,
-            omega8_liquidity_bias: decision.omega8_liquidity_bias,
-            omega8_direction_support: decision.omega8_direction_support,
-            omega9_validation: validation
-          };
+          console.warn(`[Alpha Coordinator] Omega-9 non-RED failure (advisory): ${validation.reasoning}`);
         }
 
-        // Log safety zone status
+        // Log safety zone for telemetry (no modifications to Alpha's decision)
         if (validation.safety_zone) {
-          const zoneEmoji = validation.safety_zone === 'GREEN' ? '✅' : validation.safety_zone === 'YELLOW' ? '⚡' : validation.safety_zone === 'ORANGE' ? '⚠️' : '🚨';
-          console.log('[Alpha Coordinator] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          console.log(`[Alpha Coordinator] ${zoneEmoji} OMEGA-9 VALIDATION RESULT`);
-          console.log(`[Alpha Coordinator] ${zoneEmoji} Safety Zone: ${validation.safety_zone} | Safety Score: ${validation.safety_evaluation?.safety_score || 0}/100`);
-
-          if (validation.safety_zone === 'GREEN') {
-            console.log('[Alpha Coordinator] ✅ Alpha\'s decision APPROVED by Omega-9 (no modifications)');
-          } else if (validation.safety_zone === 'ORANGE') {
-            console.log('[Alpha Coordinator] ⚠️ ORANGE ZONE: Alpha\'s decision APPROVED with advisory caution');
-            console.log('[Alpha Coordinator] ⚠️ Trade requires Alpha override reasoning');
-          } else if (validation.safety_zone === 'YELLOW') {
-            console.log('[Alpha Coordinator] ⚡ YELLOW ZONE: Alpha\'s decision APPROVED with advisory warning');
-            console.log('[Alpha Coordinator] ⚡ Suboptimal conditions detected, proceeding with caution');
-          }
-          console.log('[Alpha Coordinator] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.log(`[Alpha Coordinator] Omega-9 safety zone: ${validation.safety_zone} | Score: ${validation.safety_evaluation?.safety_score || 0}/100`);
         }
 
-        // Apply Omega-9 corrections if provided (Mathematical repairs only)
-        const hasCorrections = validation.corrections.sl !== null || validation.corrections.tp !== null;
-        if (hasCorrections) {
-          console.log('[Alpha Coordinator] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          console.log('[Alpha Coordinator] 🔧 OMEGA-9 APPLIED MATHEMATICAL CORRECTIONS');
-          console.log('[Alpha Coordinator] (Catastrophic positioning error detected and repaired)');
-        }
-
-        if (validation.corrections.sl !== null) {
-          console.log(`[Alpha Coordinator] 🔧 Stop Loss: ${decision.stopLoss.toFixed(5)} → ${validation.corrections.sl.toFixed(5)}`);
-          decision.stopLoss = validation.corrections.sl;
-        }
-        if (validation.corrections.tp !== null) {
-          console.log(`[Alpha Coordinator] 🔧 Take Profit: ${decision.takeProfit.toFixed(5)} → ${validation.corrections.tp.toFixed(5)}`);
-          decision.takeProfit = validation.corrections.tp;
-        }
-
-        if (hasCorrections) {
-          console.log('[Alpha Coordinator] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        }
-
-        // Apply confidence adjustment
-        if (validation.confidence_adjustment !== 0) {
-          const oldConfidence = decision.confidence;
-          decision.confidence = Math.max(0, Math.min(100, decision.confidence + validation.confidence_adjustment));
-          console.log(`[Alpha Coordinator] 📊 Confidence adjusted: ${oldConfidence}% → ${decision.confidence}% (${validation.confidence_adjustment > 0 ? '+' : ''}${validation.confidence_adjustment}%)`);
-        }
-
-        if (!hasCorrections) {
-          console.log('[Alpha Coordinator] ✅ Omega-9 validation passed (no modifications to Alpha\'s decision)');
-        }
+        // No SL/TP corrections applied - Alpha's values are final
+        // No confidence adjustments - Alpha's confidence is final
+        console.log('[Alpha Coordinator] Omega-9 validation complete (catastrophic-only enforcement)');
       }
 
       // Time-to-Fill validation (CRITICAL FOR INTRADAY FOCUS) - skip for WAIT
@@ -1953,30 +1697,8 @@ Return PURE JSON only:
         }
       }
 
-      // CRITICAL: Apply confidence calibration based on historical accuracy
-      // This ensures Alpha's confidence reflects actual win rates, not just predicted
-      if (decision.action !== 'NO_TRADE' && decision.confidence > 0) {
-        try {
-          const rawConfidence = decision.confidence;
-          // Derive market condition from regime (trending vs ranging)
-          const marketCondition = marketContext.regime === 'side' ? 'ranging' : 'trending';
-          const calibratedConfidence = await alphaLearningFeedback.getCalibratedConfidence(
-            userId,
-            rawConfidence,
-            marketCondition,
-            marketContext.symbol
-          );
-
-          if (calibratedConfidence !== rawConfidence) {
-            console.log(`[Alpha Coordinator] 🎯 Confidence calibration applied: ${rawConfidence.toFixed(1)}% → ${calibratedConfidence.toFixed(1)}%`);
-            decision.confidence = calibratedConfidence;
-            decision.reasoning += ` [Calibrated from ${rawConfidence.toFixed(0)}% based on historical accuracy]`;
-          }
-        } catch (error) {
-          console.error('[Alpha Coordinator] Failed to apply confidence calibration:', error);
-          // Continue with uncalibrated confidence rather than block the trade
-        }
-      }
+      // Historical accuracy data is now fed INTO the prompt (buildIntelligenceContext)
+      // Alpha's confidence output is final - no post-LLM calibration
 
       return decision;
     } catch (error) {
@@ -2160,24 +1882,12 @@ Return PURE JSON only:
       let narrativeValidation: NarrativeValidation | null = null;
       let adjustedConfidence = tradeConfidence;
 
-      // Validate narrative for BUY/SELL actions
+      // Narrative validation for telemetry (no confidence modification)
       if (action === 'BUY' || action === 'SELL') {
         const marketNarrative = parsed.market_narrative;
         narrativeValidation = narrativeCoherenceValidator.validate(marketNarrative);
-
-        console.log(`[Alpha Coordinator] 📖 Narrative Quality: ${narrativeValidation.qualityTier.toUpperCase()} | Strength: ${narrativeValidation.strengthScore}/100 | Penalty: ${narrativeValidation.confidencePenalty}%`);
-        console.log(`[Alpha Coordinator] 📖 Narrative: "${narrativeValidation.narrative || '(none)'}"`);
-
-        // Apply confidence penalty
-        adjustedConfidence = Math.max(0, tradeConfidence + narrativeValidation.confidencePenalty);
-
-        // Cap confidence at 69% if narrative doesn't pass gate
-        if (!narrativeValidation.passesGate) {
-          adjustedConfidence = Math.min(adjustedConfidence, 69);
-          console.warn(`[Alpha Coordinator] ⚠️ Narrative quality below threshold - confidence capped at 69%`);
-        }
-
-        console.log(`[Alpha Coordinator] 📊 Confidence adjustment: ${tradeConfidence}% → ${adjustedConfidence}% (narrative penalty: ${narrativeValidation.confidencePenalty}%)`);
+        console.log(`[Alpha Coordinator] Narrative Quality: ${narrativeValidation.qualityTier.toUpperCase()} | Strength: ${narrativeValidation.strengthScore}/100`);
+        // Alpha's confidence is final - no penalties or caps applied
       }
 
       // If NO_TRADE, return simple response
@@ -2260,37 +1970,9 @@ Return PURE JSON only:
         tokensUsed: undefined // Track if available
       });
 
-      if (geometryValidation.corrected && geometryValidation.correctedValues) {
-        const originalSL = stopLoss;
-        const originalTP = takeProfit;
-        stopLoss = geometryValidation.correctedValues.stopLoss;
-        takeProfit = geometryValidation.correctedValues.takeProfit;
-
-        console.warn(
-          `[Alpha Coordinator] GEOMETRY RECOVERY: SL/TP label swap corrected for ${action} ${symbol}. ` +
-          `Original: SL=${originalSL?.toFixed(5)}, TP=${originalTP?.toFixed(5)} -> ` +
-          `Corrected: SL=${stopLoss.toFixed(5)}, TP=${takeProfit.toFixed(5)}`
-        );
-
-        logViolation({
-          violationType: 'ALPHA_GEOMETRY_AUTO_CORRECTED',
-          symbol,
-          attemptedOperation: 'parse_decision',
-          callLocation: 'coordinator-alpha.parseDecision',
-          blocked: false,
-          errorDetails: {
-            recoveryType: geometryValidation.recoveryType,
-            direction: action,
-            entry,
-            originalSL,
-            originalTP,
-            correctedSL: stopLoss,
-            correctedTP: takeProfit,
-            resolution: 'auto_corrected_label_swap'
-          }
-        }).catch(error => {
-          console.error('[Alpha Coordinator] Failed to log geometry recovery to SSOT:', error);
-        });
+      // No auto-correction of geometry errors. Block instead.
+      if (geometryValidation.corrected) {
+        console.error(`[Alpha Coordinator] GEOMETRY ERROR (would-be correction blocked): ${action} ${symbol} SL=${stopLoss?.toFixed(5)}, TP=${takeProfit?.toFixed(5)}`);
       }
 
       if (!geometryValidation.valid) {
@@ -2424,17 +2106,13 @@ Return PURE JSON only:
         console.log(`[Alpha TP1/TP2] TP1 fallback: ${fallbackTP1Price.toFixed(5)} (${fallbackTP1Pips.toFixed(1)} pips)`);
       }
 
-      // INVARIANT: TP1 must be between entry and TP2 (closer to entry)
+      // TP1 ordering check: if TP1 >= TP2, discard TP1 rather than auto-correct
       if (tp1Result?.tp1Price && tp2Price) {
         const tp1Dist = Math.abs(tp1Result.tp1Price - entry);
         const tp2Dist = Math.abs(tp2Price - entry);
         if (tp1Dist >= tp2Dist) {
-          const correctedTP1 = isBuy
-            ? entry + (tp2Dist * 0.6)
-            : entry - (tp2Dist * 0.6);
-          console.warn(`[Alpha TP1/TP2] TP1 (${tp1Dist.toFixed(5)}) >= TP2 (${tp2Dist.toFixed(5)}), correcting TP1 to 60% of TP2 distance`);
-          tp1Result.tp1Price = correctedTP1;
-          tp1Result.tp1Reasoning = `Corrected: TP1 set to 60% of TP2 distance to maintain proper partial ordering`;
+          console.warn(`[Alpha TP1/TP2] TP1 (${tp1Dist.toFixed(5)}) >= TP2 (${tp2Dist.toFixed(5)}), discarding invalid TP1`);
+          tp1Result = { feasible: false, tp1Price: null, tp1Confidence: 0, tp1Reasoning: 'Discarded: TP1 distance exceeded TP2', atrMultiplier: null, liquidityZoneUsed: null, estimatedTimeToFillMinutes: null };
         }
       }
 

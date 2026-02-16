@@ -1,12 +1,17 @@
 /**
  * Omega-9 Constraint System Types
  *
- * Defines the constraint-first architecture where Omega-9 provides boundaries
- * up-front, and Alpha optimizes within those boundaries.
+ * DUAL-ARENA ARCHITECTURE (v3.0):
+ * The system computes boundary walls for BOTH long and short directions.
+ * Alpha sees both arenas side-by-side and decides which to trade in,
+ * or returns NO_TRADE on its own authority.
  *
- * This separates:
- * - CONSTRAINTS (optimization boundaries) from CATASTROPHIC BLOCKS (survival violations)
- * - PRE-DECISION guidance from POST-DECISION validation
+ * Arena walls are computed from three immutable sources:
+ * 1. User risk settings (risk mode, max risk %)
+ * 2. Style parameters (SL/TP ranges, duration, R:R minimum)
+ * 3. Market math (ATR, noise floor, current price)
+ *
+ * No engine interprets or judges. The walls are physics. Alpha is the trader.
  */
 
 export interface Omega9Constraints {
@@ -101,32 +106,65 @@ export interface Omega9ConstraintInput {
   };
 }
 
-export interface AlphaRevisionRequest {
-  originalDecision: {
-    action: 'BUY' | 'SELL';
-    entry: number;
-    stopLoss: number;
-    takeProfit: number;
-    confidence: number;
-    reasoning: string;
-  };
-  constraintViolations: ConstraintViolation[];
-  constraints: Omega9Constraints;
-  revisionSuggestions: string[];
+export interface ArenaWalls {
+  direction: 'BUY' | 'SELL';
+
+  slPrice: { min: number; max: number; recommended: number };
+  tpPrice: { min: number; max: number; recommended: number };
+
+  slPips: { min: number; max: number; recommended: number };
+  tpPips: { min: number; max: number; recommended: number };
+
+  noiseFloorPips: number;
+  minRiskReward: number;
+
+  feasible: boolean;
+  sandwiched: boolean;
+  sandwichAdvisory: string | null;
+  feasibilityAdvisory: string | null;
 }
 
-export interface AlphaRevisionResponse {
-  revised: boolean;
-  revisedDecision?: {
-    action: 'BUY' | 'SELL';
-    entry: number;
-    stopLoss: number;
-    takeProfit: number;
-    confidence: number;
-    reasoning: string;
+export interface DualArenaWalls {
+  symbol: string;
+  entryPrice: number;
+  style: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+  riskMode: 'low' | 'medium' | 'high';
+
+  long: ArenaWalls;
+  short: ArenaWalls;
+
+  sessionTimeRemaining: number;
+  volatilityPerHour: number;
+  feasibleTravelPips: number;
+  sessionConstraintMode: 'ADVISORY' | 'NONE';
+
+  durationBand: { min: number; max: number };
+  targetCandles: { min: number; max: number };
+  timeframe: string;
+  entryMode: 'IMMEDIATE' | 'PATIENT';
+
+  correlationExposure: {
+    longWarnings: string[];
+    shortWarnings: string[];
+  } | null;
+
+  violations: ConstraintViolation[];
+}
+
+export interface DualArenaInput {
+  symbol: string;
+  entry: number;
+  atr: number;
+  tradeStyle: TradeStyle;
+  riskMode: LegacyRiskMode;
+  currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed';
+  sessionTimeRemainingMinutes: number;
+  volatilityRegime: 'low' | 'medium' | 'high';
+  resolvedPlan?: {
+    slMinPercent?: number;
+    tpMaxAtrMultiple?: number;
+    minRR?: number;
   };
-  revisionReasoning?: string;
-  acceptedConstraints: string[];
 }
 
 export interface CatastrophicValidation {

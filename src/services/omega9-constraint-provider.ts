@@ -34,8 +34,12 @@ import { TRADING_CONSTANTS } from '../config/trading-constants';
 import type {
   Omega9Constraints,
   Omega9ConstraintInput,
-  ConstraintViolation
+  ConstraintViolation,
+  ArenaWalls,
+  DualArenaWalls,
+  DualArenaInput,
 } from '../types/omega9-constraints';
+import { getExecutionEnvelope, detectConstraintSandwich, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
 
 class Omega9ConstraintProvider {
   /**
@@ -634,6 +638,190 @@ WHAT HAPPENS IF YOU VIOLATE:
 Core Principle: If the market can offer some profit, you should take it.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
+  }
+
+  // ============================================================================
+  // DUAL-ARENA WALL COMPUTATION (v3.0)
+  // ============================================================================
+
+  generateDualArenaWalls(input: DualArenaInput): DualArenaWalls {
+    const envelopeStyle = this.mapTradeStyleToEnvelopeStyle(input.tradeStyle);
+    const envelope = getExecutionEnvelope(envelopeStyle);
+    const assetCategory = assetClassifier.getAssetCategory(input.symbol);
+    const envelopeAssetClass = this.mapAssetCategoryToEnvelope(assetCategory);
+
+    const sharedInput = {
+      symbol: input.symbol,
+      entry: input.entry,
+      atr: input.atr,
+      tradeStyle: input.tradeStyle,
+      dollarRisk: 0,
+      riskMode: input.riskMode,
+      currentSession: input.currentSession,
+      sessionTimeRemainingMinutes: input.sessionTimeRemainingMinutes,
+      volatilityRegime: input.volatilityRegime,
+      resolvedPlan: input.resolvedPlan,
+    };
+
+    const buyConstraints = this.generateConstraints({ ...sharedInput, direction: 'BUY' });
+    const sellConstraints = this.generateConstraints({ ...sharedInput, direction: 'SELL' });
+
+    const longWalls = this.buildArenaWalls(buyConstraints, envelopeStyle, envelopeAssetClass, input.symbol, input.entry);
+    const shortWalls = this.buildArenaWalls(sellConstraints, envelopeStyle, envelopeAssetClass, input.symbol, input.entry);
+
+    console.log(`[Dual-Arena] ${input.symbol} walls computed | Long viable: ${longWalls.feasible} | Short viable: ${shortWalls.feasible}`);
+
+    return {
+      symbol: input.symbol,
+      entryPrice: input.entry,
+      style: envelopeStyle,
+      riskMode: input.riskMode,
+      long: longWalls,
+      short: shortWalls,
+      sessionTimeRemaining: buyConstraints.sessionTimeRemaining,
+      volatilityPerHour: buyConstraints.volatilityPerHour,
+      feasibleTravelPips: buyConstraints.feasibleTravelPips,
+      sessionConstraintMode: buyConstraints.sessionConstraintMode === 'BLOCKING'
+        ? 'ADVISORY'
+        : buyConstraints.sessionConstraintMode as 'ADVISORY' | 'NONE',
+      durationBand: envelope.typicalDuration,
+      targetCandles: envelope.targetCandles,
+      timeframe: envelope.timeframe,
+      entryMode: envelope.entryMode,
+      correlationExposure: null,
+      violations: [...buyConstraints.violations, ...sellConstraints.violations],
+    };
+  }
+
+  private buildArenaWalls(
+    constraints: Omega9Constraints,
+    envelopeStyle: string,
+    envelopeAssetClass: EnvelopeAssetClass,
+    symbol: string,
+    entryPrice: number
+  ): ArenaWalls {
+    const absolutePrices = this.calculateAbsolutePriceRanges(constraints);
+
+    const sandwich = detectConstraintSandwich(
+      envelopeStyle,
+      envelopeAssetClass,
+      constraints.noiseFloorPips,
+      symbol,
+      entryPrice
+    );
+
+    const feasible = !sandwich.sandwiched &&
+      (constraints.feasibilityStatus?.isFeasible !== false);
+
+    const feasibilityAdvisory = constraints.feasibilityStatus && !constraints.feasibilityStatus.isFeasible
+      ? constraints.feasibilityStatus.advisoryMessage
+      : null;
+
+    return {
+      direction: constraints.direction,
+      slPrice: absolutePrices.stopLoss,
+      tpPrice: absolutePrices.takeProfit,
+      slPips: {
+        min: constraints.minStopLossPips,
+        max: constraints.maxStopLossPips,
+        recommended: constraints.recommendedStopLossPips,
+      },
+      tpPips: {
+        min: constraints.minTakeProfitPips,
+        max: constraints.maxTakeProfitPips,
+        recommended: constraints.recommendedTakeProfitPips,
+      },
+      noiseFloorPips: constraints.noiseFloorPips,
+      minRiskReward: constraints.minRiskReward,
+      feasible,
+      sandwiched: sandwich.sandwiched,
+      sandwichAdvisory: sandwich.advisory,
+      feasibilityAdvisory,
+    };
+  }
+
+  formatDualArenaForPrompt(walls: DualArenaWalls): string {
+    const { symbol, entryPrice, style } = walls;
+    const symbolConfig = getSymbolConfig(symbol);
+    const dp = symbolConfig?.decimalPlaces || 5;
+
+    const formatArena = (arena: ArenaWalls, label: string): string => {
+      if (arena.sandwiched) {
+        return [
+          `${label}:`,
+          `  NOT VIABLE -- noise floor (${arena.noiseFloorPips.toFixed(1)} pips) exceeds style SL ceiling.`,
+          arena.sandwichAdvisory ? `  ${arena.sandwichAdvisory}` : '',
+        ].filter(Boolean).join('\n');
+      }
+
+      const lines = [
+        `${label}:`,
+        `  SL Wall: ${arena.slPrice.min.toFixed(dp)} to ${arena.slPrice.max.toFixed(dp)} (${arena.slPips.min.toFixed(1)}-${arena.slPips.max.toFixed(1)} pips, rec: ${arena.slPips.recommended.toFixed(1)})`,
+        `  TP Wall: ${arena.tpPrice.min.toFixed(dp)} to ${arena.tpPrice.max.toFixed(dp)} (${arena.tpPips.min.toFixed(1)}-${arena.tpPips.max.toFixed(1)} pips, rec: ${arena.tpPips.recommended.toFixed(1)})`,
+        `  Noise Floor: ${arena.noiseFloorPips.toFixed(1)} pips`,
+        `  Min R:R: ${arena.minRiskReward.toFixed(2)}:1`,
+        `  Viable: ${arena.feasible ? 'YES' : 'NO'}`,
+      ];
+
+      if (arena.feasibilityAdvisory) {
+        lines.push(`  Advisory: ${arena.feasibilityAdvisory}`);
+      }
+
+      return lines.join('\n');
+    };
+
+    const sections = [
+      'DUAL-ARENA CONSTRAINT WALLS',
+      `Symbol: ${symbolConfig?.displayName || symbol} | Entry: ${entryPrice.toFixed(dp)} | Style: ${style} (${walls.timeframe}) | Risk: ${walls.riskMode.toUpperCase()}`,
+      '',
+      formatArena(walls.long, 'IF LONG (BUY)'),
+      '',
+      formatArena(walls.short, 'IF SHORT (SELL)'),
+      '',
+      'STYLE IDENTITY:',
+      `  Timeframe: ${walls.timeframe} | Candles: ${walls.targetCandles.min}-${walls.targetCandles.max} | Duration: ${walls.durationBand.min}-${walls.durationBand.max} min | Entry: ${walls.entryMode}`,
+      '',
+      'SESSION:',
+      `  Time Remaining: ${walls.sessionTimeRemaining} min | Volatility: ${walls.volatilityPerHour.toFixed(1)} pips/hr | Feasible Travel: ${walls.feasibleTravelPips.toFixed(1)} pips`,
+    ];
+
+    if (walls.correlationExposure) {
+      sections.push('');
+      sections.push('CORRELATION EXPOSURE:');
+      sections.push(`  Long risks: ${walls.correlationExposure.longWarnings.length > 0 ? walls.correlationExposure.longWarnings.join('; ') : 'None'}`);
+      sections.push(`  Short risks: ${walls.correlationExposure.shortWarnings.length > 0 ? walls.correlationExposure.shortWarnings.join('; ') : 'None'}`);
+    }
+
+    if (walls.violations.length > 0) {
+      sections.push('');
+      sections.push('CONSTRAINT NOTES:');
+      walls.violations.forEach(v => {
+        sections.push(`  [${v.severity}] ${v.message}`);
+      });
+    }
+
+    sections.push('');
+    sections.push('WALLS ARE PHYSICS. Choose LONG, SHORT, or NO_TRADE. Place SL/TP within the chosen arena.');
+
+    return sections.join('\n');
+  }
+
+  private mapTradeStyleToEnvelopeStyle(tradeStyle: string): 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' {
+    switch (tradeStyle) {
+      case 'scalper': return 'SCALP';
+      case 'micro': return 'MICRO_INTRADAY';
+      case 'intraday': return 'INTRADAY';
+      default: return 'INTRADAY';
+    }
+  }
+
+  private mapAssetCategoryToEnvelope(category: string): EnvelopeAssetClass {
+    switch (category) {
+      case 'crypto': return 'CRYPTO';
+      case 'metal': return 'METAL';
+      case 'index': return 'INDEX';
+      default: return 'FOREX';
+    }
   }
 
   /**
