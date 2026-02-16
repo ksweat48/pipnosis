@@ -80,8 +80,9 @@ class Omega9ConstraintProvider {
       marketVolatility: volatilityRegime
     });
 
-    // Calculate noise floor - the statistical minimum to survive spread + volatility
-    const noiseFloor = riskAwareStopCalculator.calculateNoiseFloor(symbol, entry, atr);
+    const STYLE_MAP: Record<string, string> = { 'scalper': 'SCALP', 'micro': 'MICRO_INTRADAY', 'intraday': 'INTRADAY' };
+    const mappedStyle = STYLE_MAP[tradeStyle] || tradeStyle;
+    const noiseFloor = riskAwareStopCalculator.calculateNoiseFloor(symbol, entry, atr, mappedStyle);
 
     // Calculate feasible travel distance (used for all styles, applied differently)
     // SSOT: volatility calculation delegates to session constraint coordinator

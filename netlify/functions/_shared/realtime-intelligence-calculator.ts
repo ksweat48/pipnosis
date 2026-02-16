@@ -273,13 +273,15 @@ export class RealTimeIntelligenceCalculator {
     const sandwichCheck = detectConstraintSandwich(envelopeStyle, envelopeAssetClass, noiseFloorPips, symbol, currentPrice);
     const constraintFeasible = !sandwichCheck.sandwiched;
 
+    let adjustedConfidence = confidence;
     if (!constraintFeasible) {
-      reasoning.push('Style blocked by constraint geometry at current price');
+      adjustedConfidence = Math.min(confidence, 50);
+      reasoning.push(`Style blocked by constraint geometry at current price (confidence capped from ${Math.round(confidence)}% to ${Math.round(adjustedConfidence)}%)`);
     }
 
     return {
       symbol,
-      confidence: Math.round(confidence),
+      confidence: Math.round(adjustedConfidence),
       alignedIndicators: alignedCount,
       totalIndicators: this.INDICATOR_COUNT,
       indicatorBreakdown,

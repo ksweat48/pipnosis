@@ -1311,7 +1311,8 @@ Return PURE JSON only:
         regimeSnapshot,
         userId,
         sessionId,
-        tradeStyle
+        tradeStyle,
+        dualArenaWalls
       );
 
       // DUAL-ARENA WALL CHECK: Simple pass/fail - within walls = proceed, outside = block
@@ -1805,7 +1806,8 @@ Return PURE JSON only:
     regimeSnapshot?: RegimeSnapshot,
     userId?: string,
     sessionId?: string,
-    tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = 'SCALP'
+    tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = 'SCALP',
+    dualArenaWalls?: DualArenaWalls | null
   ): AlphaDecision {
     try {
       // ✅ SSOT FIX: Use centralized sanitizer (handles markdown, comment removal, and JSON extraction)
@@ -2083,13 +2085,30 @@ Return PURE JSON only:
         }
       }
 
+      const wallMinTPPips = this.getArenaWallTPMin(dualArenaWalls, action, symbol);
+      const originalTpPips = tpPips;
+      const originalTpDistance = tpDistance;
+
       if (!tp1Result?.feasible || !tp1Result?.tp1Price) {
-        const fallbackTP1Distance = Math.min(slDistance, tpDistance * 0.6);
-        const fallbackTP1Price = isBuy
+        let fallbackTP1Distance = Math.min(slDistance, tpDistance * 0.6);
+        let fallbackTP1Price = isBuy
           ? entry + fallbackTP1Distance
           : entry - fallbackTP1Distance;
+        let fallbackTP1Pips = calculatePipDistance(symbol, entry, fallbackTP1Price);
 
-        const fallbackTP1Pips = calculatePipDistance(symbol, entry, fallbackTP1Price);
+        if (wallMinTPPips > 0 && fallbackTP1Pips < wallMinTPPips) {
+          const pipInfo = getCurrencyPipInfo(symbol);
+          const wallMinTPDistance = wallMinTPPips * pipInfo.pipValue;
+          if (wallMinTPDistance <= tpDistance) {
+            fallbackTP1Distance = wallMinTPDistance;
+            fallbackTP1Price = isBuy
+              ? entry + fallbackTP1Distance
+              : entry - fallbackTP1Distance;
+            fallbackTP1Pips = calculatePipDistance(symbol, entry, fallbackTP1Price);
+            console.log(`[Alpha TP1/TP2] TP1 fallback clamped to wall min: ${fallbackTP1Pips.toFixed(1)} pips (was ${Math.min(slPips, tpPips * 0.6).toFixed(1)} pips)`);
+          }
+        }
+
         tp1Result = {
           feasible: true,
           tp1Price: fallbackTP1Price,
@@ -2102,7 +2121,6 @@ Return PURE JSON only:
         console.log(`[Alpha TP1/TP2] TP1 fallback: ${fallbackTP1Price.toFixed(5)} (${fallbackTP1Pips.toFixed(1)} pips)`);
       }
 
-      // TP1 ordering check: if TP1 >= TP2, discard TP1 rather than auto-correct
       if (tp1Result?.tp1Price && tp2Price) {
         const tp1Dist = Math.abs(tp1Result.tp1Price - entry);
         const tp2Dist = Math.abs(tp2Price - entry);
@@ -2113,20 +2131,29 @@ Return PURE JSON only:
       }
 
       // CCIP GOVERNANCE (2026-02-16): Scalp trades use single TP (TP1 only)
-      // TP2 keeps scalp trades open longer than the style warrants.
-      // TP1 is most frequently hit in scalp trades and IS the sole target.
-      // SSOT: Only MICRO_INTRADAY and INTRADAY styles receive dual TP targets.
+      // TP2 suppressed. SSOT: Only MICRO_INTRADAY and INTRADAY receive dual TP targets.
+      // WALL-AWARE GUARD (2026-02-16): If TP1 would fall below arena wall minimum,
+      // retain Alpha's original TP to prevent guaranteed wall violation cascade.
       if (tradeStyle === 'SCALP') {
         if (tp1Result?.feasible && tp1Result.tp1Price) {
-          takeProfit = tp1Result.tp1Price;
-          tpDistance = Math.abs(takeProfit - entry);
-          rr = slDistance > 0 ? tpDistance / slDistance : 0;
-          tpPips = calculatePipDistance(symbol, entry, takeProfit);
+          const candidateTPPips = calculatePipDistance(symbol, entry, tp1Result.tp1Price);
+
+          if (wallMinTPPips > 0 && candidateTPPips < wallMinTPPips) {
+            console.log(`[Alpha TP Policy] SCALP wall guard: TP1 ${candidateTPPips.toFixed(1)} pips < wall min ${wallMinTPPips.toFixed(1)} pips. Retaining Alpha original TP (${originalTpPips.toFixed(1)} pips)`);
+          } else {
+            takeProfit = tp1Result.tp1Price;
+            tpDistance = Math.abs(takeProfit - entry);
+            rr = slDistance > 0 ? tpDistance / slDistance : 0;
+            tpPips = calculatePipDistance(symbol, entry, takeProfit);
+          }
         }
         tp2Price = null as any;
         tp2Reasoning = null as any;
-        console.log(`[Alpha TP Policy] SCALP: TP2 suppressed. Single target at TP1 (${tpPips.toFixed(1)} pips, ${rr.toFixed(2)}:1 R:R)`);
+        console.log(`[Alpha TP Policy] SCALP: TP2 suppressed. Single target at TP (${tpPips.toFixed(1)} pips, ${rr.toFixed(2)}:1 R:R)`);
       }
+
+      console.log(`[Alpha Cascade] ${symbol}: Original TP=${originalTpPips.toFixed(1)} pips -> TP1=${tp1Result?.tp1Price ? calculatePipDistance(symbol, entry, tp1Result.tp1Price).toFixed(1) : 'N/A'} pips -> Final TP=${tpPips.toFixed(1)} pips${wallMinTPPips > 0 ? ` | Wall min=${wallMinTPPips.toFixed(1)} pips` : ''}`);
+
 
       return {
         action,
@@ -2174,6 +2201,16 @@ Return PURE JSON only:
         narrativeValidation: undefined
       };
     }
+  }
+
+  private getArenaWallTPMin(
+    walls: DualArenaWalls | null | undefined,
+    action: string,
+    symbol: string
+  ): number {
+    if (!walls || action === 'NO_TRADE') return 0;
+    const arena = action === 'BUY' ? walls.long : walls.short;
+    return arena?.tpPips?.min ?? 0;
   }
 
   /**

@@ -211,7 +211,9 @@ export const SessionIntelligenceMonitor: React.FC = () => {
 
   const getReadyPairs = (): BestPair[] => {
     if (!sessionData) return [];
-    const ready = (sessionData.best_pairs ?? []).filter((p) => (p.confidence ?? 0) >= 80);
+    const ready = (sessionData.best_pairs ?? []).filter(
+      (p) => (p.confidence ?? 0) >= 80 && p.constraintFeasible !== false
+    );
     if (activeFilter === 'all') return ready;
     return ready.filter((p) => resolveStyle(p) === activeFilter);
   };
@@ -237,7 +239,9 @@ export const SessionIntelligenceMonitor: React.FC = () => {
 
   const getStyleCounts = (): Record<TradeStyle, number> => {
     const counts: Record<TradeStyle, number> = { scalp: 0, micro: 0, intraday: 0 };
-    const allReady = (sessionData?.best_pairs ?? []).filter((p) => (p.confidence ?? 0) >= 80);
+    const allReady = (sessionData?.best_pairs ?? []).filter(
+      (p) => (p.confidence ?? 0) >= 80 && p.constraintFeasible !== false
+    );
     for (const pair of allReady) {
       counts[resolveStyle(pair)]++;
     }

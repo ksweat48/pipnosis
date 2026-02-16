@@ -59,7 +59,8 @@ class TP1ProbabilityCalculator {
       stopPips: stopDistancePips.toFixed(1)
     });
 
-    // Step 1: Detect volatility regime
+    let expandedSearchUsed = false;
+
     const volatilityRegime = this.detectVolatilityRegime(input.atr, input.atr20, input.atr100);
 
     // Step 2: Calculate ATR-based TP1 range
@@ -81,25 +82,43 @@ class TP1ProbabilityCalculator {
     );
 
     if (!liquidityZone) {
-      logger.warn('[TP1 Calculator] No suitable liquidity zone found within TP1 ATR range');
-      return {
-        feasible: false,
-        tp1Price: null,
-        tp1Confidence: 0,
-        tp1Reasoning: 'No high-probability liquidity zone within conservative ATR range (0.8-1.5x ATR)',
-        atrMultiplier: null,
-        liquidityZoneUsed: null,
-        estimatedTimeToFillMinutes: null
-      };
+      const expandedRange = this.calculateExpandedTP1Range(
+        input.entryPrice, input.direction, input.atr, volatilityRegime
+      );
+      liquidityZone = this.findBestLiquidityZoneForTP1(
+        input.liquidityZones, input.entryPrice, input.direction,
+        expandedRange, stopDistance, pipValue
+      );
+
+      if (liquidityZone) {
+        logger.info('[TP1 Calculator] Found zone in expanded range (0.6-2.0x ATR)');
+        expandedSearchUsed = true;
+      } else {
+        logger.warn('[TP1 Calculator] No suitable liquidity zone found within expanded ATR range');
+        return {
+          feasible: false,
+          tp1Price: null,
+          tp1Confidence: 0,
+          tp1Reasoning: 'No high-probability liquidity zone within expanded ATR range (0.6-2.0x ATR)',
+          atrMultiplier: null,
+          liquidityZoneUsed: null,
+          estimatedTimeToFillMinutes: null
+        };
+      }
     }
 
-    // Step 4: Calculate confidence score
-    const confidence = this.calculateTP1Confidence(
+    let confidence = this.calculateTP1Confidence(
       input,
       liquidityZone,
       stopDistance,
       volatilityRegime
     );
+
+    if (expandedSearchUsed) {
+      const penalty = 10;
+      confidence = Math.max(0, confidence - penalty);
+      logger.info(`[TP1 Calculator] Expanded search penalty applied: -${penalty}% (now ${confidence.toFixed(0)}%)`);
+    }
 
     if (confidence < this.MIN_CONFIDENCE_THRESHOLD) {
       logger.warn('[TP1 Calculator] Confidence below threshold', {
@@ -202,6 +221,24 @@ class TP1ProbabilityCalculator {
         min: entryPrice - maxDistance,
         max: entryPrice - minDistance
       };
+    }
+  }
+
+  private calculateExpandedTP1Range(
+    entryPrice: number,
+    direction: 'long' | 'short',
+    atr: number,
+    _volatilityRegime: 'expanding' | 'compressing' | 'stable'
+  ): { min: number; max: number } {
+    const minMultiplier = 0.6;
+    const maxMultiplier = 2.0;
+    const minDistance = atr * minMultiplier;
+    const maxDistance = atr * maxMultiplier;
+
+    if (direction === 'long') {
+      return { min: entryPrice + minDistance, max: entryPrice + maxDistance };
+    } else {
+      return { min: entryPrice - maxDistance, max: entryPrice - minDistance };
     }
   }
 

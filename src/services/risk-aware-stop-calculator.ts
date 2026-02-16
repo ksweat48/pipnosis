@@ -334,52 +334,64 @@ class RiskAwareStopCalculator {
    * 1. Percentage of price (prevents microscopic stops on high-value instruments)
    * 2. ATR multiplier (prevents stops inside volatility noise)
    */
-  calculateNoiseFloor(symbol: string, entryPrice: number, atr: number | ATRValue): {
+  calculateNoiseFloor(symbol: string, entryPrice: number, atr: number | ATRValue, tradeStyle?: string): {
     noiseFloorPips: number;
     reasoning: string;
   } {
     const pipInfo = getCurrencyPipInfo(symbol);
 
-    // Extract ATR value
     const atrValue = typeof atr === 'number' ? atr : atr.value;
     const atrTimeframe = typeof atr === 'number' ? undefined : atr.timeframe;
 
-    // Minimum stops as percentage of price (asset-class specific)
     let minPercentOfPrice: number;
     let assetClassName: string;
 
     if (isIndex(symbol)) {
-      minPercentOfPrice = 0.15; // 0.15% minimum for indices (e.g., 38 pips on NAS100 @ $25,491)
+      minPercentOfPrice = 0.15;
       assetClassName = 'INDEX';
     } else if (isCrypto(symbol)) {
-      minPercentOfPrice = 0.20; // 0.20% minimum for crypto (e.g., $180 on $90k BTC)
+      minPercentOfPrice = 0.20;
       assetClassName = 'CRYPTO';
     } else if (isXAUUSD(symbol)) {
-      minPercentOfPrice = 0.20; // 0.20% for gold (e.g., $5.20 on $2,600)
+      minPercentOfPrice = 0.20;
       assetClassName = 'GOLD';
     } else {
-      minPercentOfPrice = 0.05; // 0.05% for forex (e.g., 5 pips on EURUSD @ 1.0000)
+      minPercentOfPrice = 0.05;
       assetClassName = 'FOREX';
     }
 
-    // Minimum stops as ATR multiplier (prevents stops inside volatility)
     const minATRMultiplier = 1.25;
 
-    // Calculate both methods
     const percentFloorPips = (entryPrice * minPercentOfPrice / 100) / pipInfo.pipValue;
     const atrInPips = atrValue / pipInfo.pipValue;
     const atrFloorPips = atrInPips * minATRMultiplier;
 
-    // Use the LARGER of the two (more conservative = safer)
-    const noiseFloorPips = Math.max(percentFloorPips, atrFloorPips);
+    let noiseFloorPips = Math.max(percentFloorPips, atrFloorPips);
+    let controllingMethod = percentFloorPips > atrFloorPips ? 'price-based' : 'volatility-based';
+    let styleCapApplied = false;
 
-    // Determine which method was controlling
-    const controllingMethod = percentFloorPips > atrFloorPips ? 'price-based' : 'volatility-based';
+    // CCIP (2026-02-16): Style-aware noise floor cap for SCALP
+    // When the percentage-based floor is controlling and dramatically exceeds ATR,
+    // cap at 3x ATR to prevent permanent SCALP infeasibility on high-price instruments.
+    // Example: US30 @ 49557 has noise floor 74.3 pips (0.15%) vs ATR 14.9 pips.
+    // Without cap: SCALP SL max ~25 pips is always sandwich-blocked by 74 pip floor.
+    // With cap: floor = 3 * 14.9 = 44.7 pips, which envelope expansion can accommodate.
+    const SCALP_MAX_ATR_MULTIPLIER = 3.0;
+    if (tradeStyle?.toUpperCase() === 'SCALP' && controllingMethod === 'price-based') {
+      const scalpCap = atrInPips * SCALP_MAX_ATR_MULTIPLIER;
+      if (noiseFloorPips > scalpCap && scalpCap > atrFloorPips) {
+        console.log(`[Noise Floor] SCALP cap applied: ${noiseFloorPips.toFixed(1)} -> ${scalpCap.toFixed(1)} pips (${SCALP_MAX_ATR_MULTIPLIER}x ATR cap)`);
+        noiseFloorPips = scalpCap;
+        controllingMethod = 'scalp-atr-capped';
+        styleCapApplied = true;
+      }
+    }
 
     const reasoning =
       `${assetClassName} noise floor: ${noiseFloorPips.toFixed(1)} pips ` +
       `(${controllingMethod}: ${minPercentOfPrice}% of price = ${percentFloorPips.toFixed(1)} pips OR ` +
-      `${minATRMultiplier}x ATR${atrTimeframe ? `[${atrTimeframe}]` : ''} = ${atrFloorPips.toFixed(1)} pips, whichever larger)`;
+      `${minATRMultiplier}x ATR${atrTimeframe ? `[${atrTimeframe}]` : ''} = ${atrFloorPips.toFixed(1)} pips` +
+      `${styleCapApplied ? `, SCALP capped at ${SCALP_MAX_ATR_MULTIPLIER}x ATR` : ''})`;
 
     console.log(`[Noise Floor] ${symbol} @ ${entryPrice.toFixed(pipInfo.decimalPlaces)}: ${reasoning}`);
 
