@@ -39,14 +39,15 @@ import { executionStyleResolver } from './execution-style-resolver';
 import { GoalFeasibilityResolver } from './goal-feasibility-resolver';
 import { AlphaDownshiftEvaluator } from './alpha-downshift-evaluator';
 import type { DownshiftProposal } from '../types/goal-feasibility';
-import { alphaExecutionPlanner } from './alpha-execution-planner';
+// alphaExecutionPlanner REMOVED (CCIP 2026-02-16): Alpha is sole TP authority
+// Goal session engine no longer computes its own TP1/TP2 values.
 import { getActiveEntryIntent, type EntryIntentData } from './entry-intent-monitor-mode';
 import { entryThesisMemoryService } from './entry-thesis-memory-service';
 import { alphaThoughtStream } from './alpha-thought-stream';
 import { MarketDataService } from './market-data-service';
 import { CCIPTradeExecutionTracker } from './ccip-trade-execution-tracker';
 import { CCIPConfidenceGateAdjustment } from './ccip-confidence-gate-adjustment';
-import { goalAdvisoryCoordinator } from './goal-advisory-coordinator';
+// goalAdvisoryCoordinator import removed - dual TP calculation removed (CCIP 2026-02-16)
 import { detectConstraintSandwich, getViableStyles, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
 import { safeExtractATRValue } from '../types/atr';
 
@@ -1688,132 +1689,14 @@ class GoalSessionLiveEngine {
         rrValidation.validation.warnings.forEach(w => logger.warn(LogCategory.AI_TRADING, `  - ${w}`));
       }
 
-      // 🎯 DUAL TAKE-PROFIT SYSTEM
-      // Calculate TP1 (conservative target) and TP2 (realistic target) based on market assessment
-      // ✅ SSOT: Market assessment is authoritative source for TP calculations
-      // ✅ GOVERNANCE: Market capability overrides user goal if goal exceeds market potential
-      let tp1Price: number | undefined;
-      let tp2Price: number | undefined;
-      let tp1Reasoning: string | undefined;
-      let tp2Reasoning: string | undefined;
-      let marketAssessment: any;
-      let goalWasAdjusted = false;
-
-      try {
-        const dualTargets = await alphaExecutionPlanner.calculateDualTargets(
-          goalContext.targetGoal,
-          goalContext.currentBalance,
-          config.riskMode,
-          {
-            symbol: selectedSymbol,
-            direction: trade.direction,
-            entryPrice: trade.entryPrice,
-            atr: trade.marketContext?.atr,
-            // If Alpha provided market assessment in decision, use it
-            marketAssessment: decision.marketAssessment
-          }
-        );
-
-        marketAssessment = dualTargets.marketAssessment;
-        goalWasAdjusted = dualTargets.goalAdjusted;
-
-        // Store market assessment in session for transparency
-        // CCIP FIX: NEVER silently update target_value!
-        // If adjustedGoal exists, create an advisory for user to accept/reject
-        if (marketAssessment && activeSession) {
-          // First, update market assessment fields only (do NOT update target_value)
-          await supabase
-            .from('goal_sessions')
-            .update({
-              predicted_profit_min: marketAssessment.predictedProfitMin,
-              predicted_profit_max: marketAssessment.predictedProfitMax,
-              market_assessment_confidence: marketAssessment.confidence,
-              market_assessment_reasoning: marketAssessment.reasoning
-            })
-            .eq('id', activeSession);
-
-          // If there's an adjusted goal (user's goal exceeds market capability),
-          // create an advisory for user to explicitly accept or reject
-          if (dualTargets.adjustedGoal && goalContext.targetGoal > dualTargets.adjustedGoal) {
-            const advisoryResult = await goalAdvisoryCoordinator.createMarketAssessmentAdvisory(
-              activeSession,
-              config.userId,
-              goalContext.targetGoal,
-              marketAssessment
-            );
-
-            if (advisoryResult) {
-              logger.info(
-                LogCategory.AI_TRADING,
-                '[CCIP Governance] Advisory created instead of silent mutation',
-                {
-                  advisoryId: advisoryResult.advisoryId,
-                  originalGoal: goalContext.targetGoal,
-                  advisoryRecommended: dualTargets.adjustedGoal,
-                  message: advisoryResult.message,
-                  userAction: 'User must explicitly accept or reject'
-                }
-              );
-            }
-          }
-        }
-
-        // Convert dollar amounts to price levels
-        // ✅ SSOT FIX: Use dollarPerPipForProfit (calculated with actual trade.positionSize)
-        // NOT dollarPerPip (old value calculated with original lotSize)
-        const pipInfo = getCurrencyPipInfo(selectedSymbol);
-        const tp1Pips = dualTargets.tp1 / dollarPerPipForProfit;
-        const tp2Pips = dualTargets.tp2 / dollarPerPipForProfit;
-
-        if (trade.direction === 'buy') {
-          tp1Price = trade.entryPrice + (tp1Pips * pipInfo.pipValue);
-          tp2Price = trade.entryPrice + (tp2Pips * pipInfo.pipValue);
-        } else {
-          tp1Price = trade.entryPrice - (tp1Pips * pipInfo.pipValue);
-          tp2Price = trade.entryPrice - (tp2Pips * pipInfo.pipValue);
-        }
-
-        tp1Reasoning = `TP1 at $${dualTargets.tp1.toFixed(2)} profit - Conservative target with high probability`;
-        tp2Reasoning = `TP2 at $${dualTargets.tp2.toFixed(2)} profit - ${marketAssessment ? 'Market maximum capability' : 'Realistic market target'}`;
-
-        // CCIP GOVERNANCE (2026-02-16): Suppress TP2 for scalp sessions
-        // Scalp trades close at TP1 only. Dual TP reserved for Micro and Intraday.
-        const isScalpSession = config.tradeStyle === 'scalper' || config.tradeStyle === 'scalp'
-          || config.tradeStyle === 'SCALP' || config.tradeStyle === 'SCALPER';
-        if (isScalpSession) {
-          tp2Price = undefined;
-          tp2Reasoning = undefined;
-          logger.info(
-            LogCategory.AI_TRADING,
-            `[CCIP TP Policy] SCALP session: TP2 suppressed. TP1 at ${formatCurrencyPrice(selectedSymbol, tp1Price)} ($${dualTargets.tp1.toFixed(2)}) is sole target`
-          );
-        }
-
-        logger.info(
-          LogCategory.AI_TRADING,
-          `[Dual TP - Market Aligned] ${marketAssessment ? `Market Range: $${marketAssessment.predictedProfitMin}-$${marketAssessment.predictedProfitMax} | ` : ''}User Goal: $${goalContext.targetGoal}${goalWasAdjusted ? ` → Adjusted: $${dualTargets.adjustedGoal}` : ''} | TP1: ${formatCurrencyPrice(selectedSymbol, tp1Price)} ($${dualTargets.tp1.toFixed(2)})${tp2Price ? ` | TP2: ${formatCurrencyPrice(selectedSymbol, tp2Price)} ($${dualTargets.tp2.toFixed(2)})` : ' | TP2: suppressed (SCALP)'}`
-        );
-
-        if (goalWasAdjusted) {
-          logger.warn(
-            LogCategory.AI_TRADING,
-            `[Goal Adjusted] User's goal ($${goalContext.targetGoal}) exceeded market capability. Alpha adjusted to $${dualTargets.adjustedGoal} based on market assessment.`
-          );
-        }
-      } catch (error) {
-        logger.error(
-          LogCategory.AI_TRADING,
-          '[Dual TP] Error calculating dual targets — continuing without dual TP',
-          {
-            error: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined,
-            goalTarget: goalContext?.targetGoal,
-            currentBalance: goalContext?.currentBalance,
-            symbol: selectedSymbol,
-            activeSession,
-          }
-        );
-      }
+      // CCIP GOVERNANCE (2026-02-16): Alpha is SOLE AUTHORITY for all TP values.
+      // TP1/TP2 are set by Alpha in coordinator-alpha.ts and passed through decision object.
+      // The goal session engine does NOT compute or override TP values.
+      // decision.tp1Price and decision.tp2Price are Alpha's choices.
+      logger.info(
+        LogCategory.AI_TRADING,
+        `[Alpha TP Authority] ${selectedSymbol}: TP1=${decision.tp1Price ? formatCurrencyPrice(selectedSymbol, decision.tp1Price) : 'N/A'} | TP2=${decision.tp2Price ? formatCurrencyPrice(selectedSymbol, decision.tp2Price) : 'N/A (SCALP)'} | takeProfit=${formatCurrencyPrice(selectedSymbol, decision.takeProfit)}`
+      );
 
       // ✅ SSOT FIX: Create TradeContext before execution
       const tradeContextResult = createTradeContext(selectedSymbol);

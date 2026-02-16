@@ -86,7 +86,8 @@ import { riskAwareStopCalculator, type StopLossCalculation } from '../services/r
 import { multiTimeframePatternIntelligence, type PatternIntelligenceResult } from '../services/multi-timeframe-pattern-intelligence';
 import { patternLiquidityAdapter } from '../services/pattern-liquidity-adapter';
 import { eliteProfitTargetCalculator, type LiquidityZone, type TPCalculationResult } from '../services/profit-target-calculator';
-import { tp1ProbabilityCalculator, type TP1Result } from '../services/tp1-probability-calculator';
+// tp1ProbabilityCalculator REMOVED (CCIP 2026-02-16): Alpha is sole TP authority
+// System never computes TP values. All TP decisions come from Alpha's LLM response.
 import { calculatePipDistance, getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { EntryIntentClassifier } from '../services/entry-intent-classifier';
 import { omega9ConstraintProvider } from '../services/omega9-constraint-provider';
@@ -1185,8 +1186,16 @@ Actions: BUY (bullish edge), SELL (bearish edge), NO_TRADE (no edge or setup not
 When scanning multiple pairs, EXECUTE the best opportunity. Scanner re-evaluates next cycle.
 BUY: SL < Entry < TP | SELL: TP < Entry < SL
 
+TAKE-PROFIT RULES (ALPHA SOLE AUTHORITY):
+You choose ALL profit targets. The system NEVER calculates TP for you.
+- SCALP: You choose ONE take-profit ("takeProfit"). This is your single TP target. No tp2.
+- MICRO_INTRADAY / INTRADAY: You choose TWO take-profits:
+  "tp1" = Conservative partial target (high probability, closer to entry)
+  "tp2" = Full profit target (realistic market maximum)
+  Both MUST be within the arena walls. tp1 MUST be closer to entry than tp2.
+
 Return PURE JSON only:
-{
+${tradeStyle === 'SCALP' ? `{
   "action": "BUY|SELL|NO_TRADE",
   "entry": 12345.67,
   "stopLoss": 12300.00,
@@ -1199,7 +1208,21 @@ Return PURE JSON only:
   "reasoning": "Brief execution reasoning",
   "market_narrative": "Single-sentence cause-effect thesis",
   "override": { "type": "none", "justification": "" }
-}`;
+}` : `{
+  "action": "BUY|SELL|NO_TRADE",
+  "entry": 12345.67,
+  "stopLoss": 12300.00,
+  "tp1": 12370.00,
+  "tp2": 12400.00,
+  "trade_confidence": 75,
+  "entry_quality_score": 80,
+  "entry_mode": "immediate",
+  "style": "${tradeStyle}",
+  "marketThesis": "Brief market analysis (30-50 words)",
+  "reasoning": "Brief execution reasoning",
+  "market_narrative": "Single-sentence cause-effect thesis",
+  "override": { "type": "none", "justification": "" }
+}`}`;
 
     // Emit final progress thought before LLM call (this is the 6.3s phase)
     if (sessionId && userId) {
@@ -1918,13 +1941,23 @@ Return PURE JSON only:
       // Alpha now only returns BUY, SELL, or NO_TRADE
       // If setup not ready, return NO_TRADE and scanner will re-evaluate
 
-      // Get LLM values with defensive null checks
-      // CRITICAL FIX: Explicit null/undefined check to prevent database insertion errors
-      // parsed.entry could be null, undefined, or 0 - only fallback if null/undefined
+      // CCIP GOVERNANCE (2026-02-16): Alpha is SOLE AUTHORITY for all trade parameters
+      // Alpha chooses entry, SL, and ALL take-profit levels. System never computes TP.
+      // SCALP: Alpha returns "takeProfit" (single TP target)
+      // MICRO_INTRADAY/INTRADAY: Alpha returns "tp1" (conservative) and "tp2" (full target)
       let entry = (parsed.entry !== null && parsed.entry !== undefined) ? parsed.entry : currentPrice;
       let stopLoss = parsed.stopLoss;
-      let takeProfit = parsed.takeProfit;
+      let takeProfit: number;
       const isBuy = action === 'BUY';
+
+      // Extract Alpha's TP decisions based on style
+      if (tradeStyle === 'SCALP') {
+        takeProfit = parsed.takeProfit;
+      } else {
+        // MICRO_INTRADAY / INTRADAY: Alpha provides tp1 and tp2
+        // Backward compat: if Alpha returns old format with takeProfit, use it as tp2
+        takeProfit = parsed.tp2 || parsed.takeProfit;
+      }
 
       // Additional safety check: ensure entry is a valid number
       if (typeof entry !== 'number' || isNaN(entry) || entry <= 0) {
@@ -2053,117 +2086,46 @@ Return PURE JSON only:
         console.log(`[Alpha Envelope] Dynamic bounds for ${resolvedStyle} ${envelopeAssetClass} @ ${currentPrice.toFixed(2)}: TP ${dynamicBounds.tpPips.min.toFixed(1)}-${dynamicBounds.tpPips.max.toFixed(1)}, SL ${dynamicBounds.slPips.min.toFixed(1)}-${dynamicBounds.slPips.max.toFixed(1)}`);
       }
 
-      let tp1Result: TP1Result | null = null;
-      let tp2Price = takeProfit;
-      let tp2Reasoning = `Full profit target at ${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1 R:R)`;
+      // CCIP GOVERNANCE (2026-02-16): Alpha is SOLE AUTHORITY for TP placement.
+      // System NEVER computes, overrides, or fallback-calculates TP values.
+      // tp1ProbabilityCalculator call REMOVED - violated Alpha's decision authority.
+      // All TP values come directly from Alpha's LLM response.
+      let tp1Price: number | null = null;
+      let tp1Reasoning: string | null = null;
+      let tp2Price: number | null = null;
+      let tp2Reasoning: string | null = null;
 
-      if (liquidityZones.length > 0 && fullCandles && fullCandles.length > 0) {
-        try {
-          tp1Result = tp1ProbabilityCalculator.calculateTP1({
-            symbol,
-            entryPrice: entry,
-            stopLoss,
-            direction: isBuy ? 'long' : 'short',
-            atr: marketContext?.atr || atr,
-            atr20: marketContext?.atr20,
-            atr100: marketContext?.atr100,
-            liquidityZones,
-            recentCandles: fullCandles.slice(-50),
-            rsi: fullCandles[fullCandles.length - 1]?.rsi,
-            ema20: fullCandles[fullCandles.length - 1]?.ema20,
-            ema50: fullCandles[fullCandles.length - 1]?.ema50
-          });
-
-          if (tp1Result.feasible && tp1Result.tp1Price) {
-            console.log(`[Alpha TP1/TP2] TP1 calculated: ${tp1Result.tp1Price.toFixed(5)} (${tp1Result.tp1Confidence}% confidence)`);
-            console.log(`[Alpha TP1/TP2] ${tp1Result.tp1Reasoning}`);
-          } else {
-            console.log(`[Alpha TP1/TP2] No high-probability TP1 available: ${tp1Result.tp1Reasoning}`);
-          }
-        } catch (error) {
-          console.error('[Alpha TP1/TP2] Error calculating TP1:', error);
-        }
-      }
-
-      const wallMinTPPips = this.getArenaWallTPMin(dualArenaWalls, action, symbol);
-      const originalTpPips = tpPips;
-      const originalTpDistance = tpDistance;
-
-      if (!tp1Result?.feasible || !tp1Result?.tp1Price) {
-        let fallbackTP1Distance = Math.min(slDistance, tpDistance * 0.6);
-        let fallbackTP1Price = isBuy
-          ? entry + fallbackTP1Distance
-          : entry - fallbackTP1Distance;
-        let fallbackTP1Pips = calculatePipDistance(symbol, entry, fallbackTP1Price);
-
-        if (wallMinTPPips > 0 && fallbackTP1Pips < wallMinTPPips) {
-          const pipInfo = getCurrencyPipInfo(symbol);
-          const wallMinTPDistance = wallMinTPPips * pipInfo.pipValue;
-          if (wallMinTPDistance <= tpDistance) {
-            fallbackTP1Distance = wallMinTPDistance;
-            fallbackTP1Price = isBuy
-              ? entry + fallbackTP1Distance
-              : entry - fallbackTP1Distance;
-            fallbackTP1Pips = calculatePipDistance(symbol, entry, fallbackTP1Price);
-            console.log(`[Alpha TP1/TP2] TP1 fallback clamped to wall min: ${fallbackTP1Pips.toFixed(1)} pips (was ${Math.min(slPips, tpPips * 0.6).toFixed(1)} pips)`);
-          }
-        }
-
-        tp1Result = {
-          feasible: true,
-          tp1Price: fallbackTP1Price,
-          tp1Confidence: 65,
-          tp1Reasoning: `Conservative partial target (${fallbackTP1Pips.toFixed(1)} pips, 60% of full TP)`,
-          atrMultiplier: null,
-          liquidityZoneUsed: null,
-          estimatedTimeToFillMinutes: null
-        };
-        console.log(`[Alpha TP1/TP2] TP1 fallback: ${fallbackTP1Price.toFixed(5)} (${fallbackTP1Pips.toFixed(1)} pips)`);
-      }
-
-      if (tp1Result?.tp1Price && tp2Price) {
-        const tp1Dist = Math.abs(tp1Result.tp1Price - entry);
-        const tp2Dist = Math.abs(tp2Price - entry);
-        if (tp1Dist >= tp2Dist) {
-          console.warn(`[Alpha TP1/TP2] TP1 (${tp1Dist.toFixed(5)}) >= TP2 (${tp2Dist.toFixed(5)}), discarding invalid TP1`);
-          tp1Result = { feasible: false, tp1Price: null, tp1Confidence: 0, tp1Reasoning: 'Discarded: TP1 distance exceeded TP2', atrMultiplier: null, liquidityZoneUsed: null, estimatedTimeToFillMinutes: null };
-        }
-      }
-
-      // CCIP GOVERNANCE (2026-02-16): Scalp trades use single TP (TP1 only)
-      // TP2 suppressed. SSOT: Only MICRO_INTRADAY and INTRADAY receive dual TP targets.
-      // WALL-AWARE GUARD (2026-02-16): If TP1 would fall below arena wall minimum,
-      // retain Alpha's original TP to prevent guaranteed wall violation cascade.
       if (tradeStyle === 'SCALP') {
-        if (tp1Result?.feasible && tp1Result.tp1Price) {
-          const candidateTPPips = calculatePipDistance(symbol, entry, tp1Result.tp1Price);
-
-          if (wallMinTPPips > 0 && candidateTPPips < wallMinTPPips) {
-            console.log(`[Alpha TP Policy] SCALP wall guard: TP1 ${candidateTPPips.toFixed(1)} pips < wall min ${wallMinTPPips.toFixed(1)} pips. Retaining Alpha original TP (${originalTpPips.toFixed(1)} pips)`);
-          } else {
-            takeProfit = tp1Result.tp1Price;
-            tpDistance = Math.abs(takeProfit - entry);
-            rr = slDistance > 0 ? tpDistance / slDistance : 0;
-            tpPips = calculatePipDistance(symbol, entry, takeProfit);
-          }
+        // SCALP: Alpha chose ONE target (takeProfit). This is TP1 (the sole target).
+        tp1Price = takeProfit;
+        tp1Reasoning = parsed.reasoning || `Alpha SCALP target at ${tpPips.toFixed(1)} pips`;
+        tp2Price = null;
+        tp2Reasoning = null;
+        console.log(`[Alpha TP Authority] SCALP: Single target at ${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1 R:R)`);
+      } else {
+        // MICRO_INTRADAY / INTRADAY: Alpha chose tp1 and tp2
+        const alphaTP1 = parsed.tp1;
+        if (alphaTP1 != null && Number.isFinite(alphaTP1)) {
+          tp1Price = alphaTP1;
+          const tp1Pips = calculatePipDistance(symbol, entry, alphaTP1);
+          tp1Reasoning = `Alpha conservative target at ${tp1Pips.toFixed(1)} pips`;
+          console.log(`[Alpha TP Authority] ${tradeStyle}: TP1=${tp1Pips.toFixed(1)} pips | TP2=${tpPips.toFixed(1)} pips`);
+        } else {
+          console.log(`[Alpha TP Authority] ${tradeStyle}: No TP1 in response, using single TP at ${tpPips.toFixed(1)} pips`);
         }
-        tp2Price = null as any;
-        tp2Reasoning = null as any;
-        console.log(`[Alpha TP Policy] SCALP: TP2 suppressed. Single target at TP (${tpPips.toFixed(1)} pips, ${rr.toFixed(2)}:1 R:R)`);
+        tp2Price = takeProfit;
+        tp2Reasoning = `Alpha full target at ${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1 R:R)`;
       }
-
-      console.log(`[Alpha Cascade] ${symbol}: Original TP=${originalTpPips.toFixed(1)} pips -> TP1=${tp1Result?.tp1Price ? calculatePipDistance(symbol, entry, tp1Result.tp1Price).toFixed(1) : 'N/A'} pips -> Final TP=${tpPips.toFixed(1)} pips${wallMinTPPips > 0 ? ` | Wall min=${wallMinTPPips.toFixed(1)} pips` : ''}`);
-
 
       return {
         action,
         decision: action,
         entry,
         stopLoss,
-        takeProfit, // Legacy field for backward compatibility
-        tp1Price: tp1Result?.feasible ? tp1Result.tp1Price : null,
-        tp1Confidence: tp1Result?.tp1Confidence || null,
-        tp1Reasoning: tp1Result?.tp1Reasoning || null,
+        takeProfit,
+        tp1Price,
+        tp1Confidence: tp1Price != null ? 80 : null,
+        tp1Reasoning,
         tp2Price,
         tp2Reasoning,
         confidence: Math.round(Math.min(100, Math.max(0, adjustedConfidence))),
@@ -2201,16 +2163,6 @@ Return PURE JSON only:
         narrativeValidation: undefined
       };
     }
-  }
-
-  private getArenaWallTPMin(
-    walls: DualArenaWalls | null | undefined,
-    action: string,
-    symbol: string
-  ): number {
-    if (!walls || action === 'NO_TRADE') return 0;
-    const arena = action === 'BUY' ? walls.long : walls.short;
-    return arena?.tpPips?.min ?? 0;
   }
 
   /**
