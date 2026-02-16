@@ -230,7 +230,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
 
   const getReadyPairs = (): BestPair[] => {
     if (!sessionData) return [];
-    const ready = (sessionData.best_pairs ?? []).filter((p) => (p.confidence ?? 0) >= 70);
+    const ready = (sessionData.best_pairs ?? []).filter((p) => (p.confidence ?? 0) >= 80);
     if (activeFilter === 'all') return ready;
     return ready.filter((p) => resolveStyle(p) === activeFilter);
   };
@@ -238,15 +238,25 @@ export const SessionIntelligenceMonitor: React.FC = () => {
   const getHeatingPairs = (): BestPair[] => {
     if (!sessionData) return [];
     const heating = (sessionData.heating_pairs ?? []).filter(
-      (p) => (p.confidence ?? 0) >= 50 && (p.confidence ?? 0) < 70
+      (p) => (p.confidence ?? 0) >= 50 && (p.confidence ?? 0) < 80
     );
     if (activeFilter === 'all') return heating;
     return heating.filter((p) => resolveStyle(p) === activeFilter);
   };
 
+  const getHeatingCount = (): number => {
+    if (!sessionData) return 0;
+    const allPairs = [...(sessionData.best_pairs ?? []), ...(sessionData.heating_pairs ?? [])];
+    const heating = allPairs.filter(
+      (p) => (p.confidence ?? 0) >= 50 && (p.confidence ?? 0) < 80
+    );
+    if (activeFilter === 'all') return heating.length;
+    return heating.filter((p) => resolveStyle(p) === activeFilter).length;
+  };
+
   const getStyleCounts = (): Record<TradeStyle, number> => {
     const counts: Record<TradeStyle, number> = { scalp: 0, micro: 0, intraday: 0 };
-    const allReady = (sessionData?.best_pairs ?? []).filter((p) => (p.confidence ?? 0) >= 70);
+    const allReady = (sessionData?.best_pairs ?? []).filter((p) => (p.confidence ?? 0) >= 80);
     for (const pair of allReady) {
       counts[resolveStyle(pair)]++;
     }
@@ -289,6 +299,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
 
   const readyPairs = getReadyPairs();
   const heatingPairs = getHeatingPairs();
+  const heatingCount = getHeatingCount();
   const styleCounts = getStyleCounts();
 
   const renderPairCard = (pair: BestPair) => {
@@ -446,11 +457,15 @@ export const SessionIntelligenceMonitor: React.FC = () => {
             <p className="text-sm font-semibold capitalize">{sessionData.market_condition}</p>
           </div>
 
-          {sessionData.is_tradable ? (
+          {readyPairs.length > 0 ? (
             <div className="px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/20">
               <p className="text-sm font-semibold text-emerald-400">
-                {readyPairs.length} Setup{readyPairs.length !== 1 ? 's' : ''} Ready
+                {readyPairs.length} Setup{readyPairs.length !== 1 ? 's' : ''} Ready (80%+)
               </p>
+            </div>
+          ) : sessionData.is_tradable ? (
+            <div className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/20">
+              <p className="text-sm font-semibold text-amber-400">Building Setups</p>
             </div>
           ) : (
             <div className="px-3 py-1.5 rounded-lg border border-red-500/30 bg-red-500/20">
@@ -502,7 +517,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
         {readyPairs.length > 0 && (
           <div className="mb-4">
             <p className="text-sm font-semibold text-blue-200 mb-3">
-              Ready to Trade
+              Ready to Trade (80%+)
             </p>
             <div className="space-y-3">
               {readyPairs.map((pair) => renderPairCard(pair))}
@@ -510,18 +525,27 @@ export const SessionIntelligenceMonitor: React.FC = () => {
           </div>
         )}
 
-        {heatingPairs.length > 0 && (
+        {heatingCount > 0 && (
           <div className="mb-4">
-            <p className="text-sm font-semibold text-gray-400 mb-3">
-              Heating Up (50-70%)
-            </p>
-            <div className="space-y-2">
-              {heatingPairs.map((pair) => renderPairCard(pair))}
+            <div className="bg-amber-900/20 rounded-lg p-4 border border-amber-500/30">
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-amber-500/20 rounded-lg flex-shrink-0">
+                  <Activity className="w-4 h-4 text-amber-400" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-amber-300 mb-1">
+                    {heatingCount} {heatingCount === 1 ? 'pair' : 'pairs'} heating up
+                  </p>
+                  <p className="text-sm text-amber-200/70">
+                    {heatingCount === 1 ? 'This setup is' : 'These setups are'} building momentum but not yet at 80%+ confidence threshold. Alpha will monitor automatically.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         )}
 
-        {readyPairs.length === 0 && heatingPairs.length === 0 && (
+        {readyPairs.length === 0 && heatingCount === 0 && (
           <div className="bg-blue-900/20 rounded-lg p-4 border border-blue-500/30 mb-4">
             <div className="flex items-start gap-3">
               <Clock className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
@@ -530,7 +554,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
                   Scanning All Timeframes
                 </p>
                 <p className="text-sm text-blue-200/80">
-                  Analyzing Scalp (M5), Micro (M15) and Intraday (H1) for setups with 70%+
+                  Analyzing Scalp (M5), Micro (M15) and Intraday (H1) for setups with 80%+
                   indicator alignment.
                 </p>
               </div>
