@@ -1742,7 +1742,11 @@ class AlphaTradeExecutor {
     const finalSL = executionStopLoss ?? decision.stopLoss;
     const finalTP = executionTakeProfit ?? decision.takeProfit;
     const finalTP1 = executionTP1 !== undefined ? executionTP1 : decision.tp1Price;
-    const finalTP2 = executionTP2 ?? decision.tp2Price;
+
+    // CCIP GOVERNANCE (2026-02-16): Defensive guard — scalp trades never have TP2
+    // coordinator-alpha.ts is SSOT, but executor enforces as defensive layer
+    const isScalpTrade = canonicalStyle === 'SCALP';
+    const finalTP2 = isScalpTrade ? null : (executionTP2 ?? decision.tp2Price);
 
     // Calculate total confidence penalty from all adjustments (0-100 range)
     let totalPenalty = 0;

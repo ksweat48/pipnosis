@@ -146,6 +146,11 @@ class SmartGoalSessionManager {
       effectiveRiskMode
     );
 
+    // CCIP GOVERNANCE (2026-02-16): Scalp sessions use TP1 only — no TP2 target
+    const isScalpStyle = config.tradeStyle === 'scalper' || config.tradeStyle === 'scalp'
+      || config.tradeStyle === 'SCALP' || config.tradeStyle === 'SCALPER';
+    const sessionTP2 = isScalpStyle ? null : dualTargets.tp2;
+
     console.log('[Smart Goal] Creating session with settings:', {
       sessionId,
       multi_trade_enabled: multiTradeEnabled,
@@ -154,7 +159,8 @@ class SmartGoalSessionManager {
       dollar_risk: config.dollarRisk,
       risk_mode_legacy: config.riskMode,
       tp1_target: dualTargets.tp1,
-      tp2_target: dualTargets.tp2,
+      tp2_target: sessionTP2,
+      tp2_suppressed: isScalpStyle ? 'CCIP: Scalp trades use TP1 only' : false,
       tp_reasoning: dualTargets.reasoning,
       min_confidence: minConfidence
     });
@@ -165,7 +171,7 @@ class SmartGoalSessionManager {
       goal_type: 'profit_target',
       target_value: config.goalAmount,
       tp1_target: dualTargets.tp1,
-      tp2_target: dualTargets.tp2,
+      tp2_target: sessionTP2,
       timeframe: generateTimeframe(config.timeframe),
       risk_mode: effectiveRiskMode, // Still store for legacy compatibility
       trade_style: config.tradeStyle, // New field

@@ -1021,31 +1021,35 @@ export const GoalSessionDashboard: React.FC = () => {
 
     if (openTrades.length > 0) {
       let totalExpectedAtTP1 = 0;
-      let totalExpectedAtTP2 = 0;
+      let totalExpectedAtFullTP = 0;
       let hasTP1 = false;
+      let hasAnyDualTP = false;
 
       openTrades.forEach(trade => {
         const tp1Price = trade.tp1_price || 0;
-        const tp2Price = trade.take_profit || trade.tp2_price || 0;
-        if (tp2Price > 0) totalExpectedAtTP2 += calculateExpectedProfitAtPrice(trade, tp2Price);
-        if (tp1Price > 0) { totalExpectedAtTP1 += calculateExpectedProfitAtPrice(trade, tp1Price); hasTP1 = true; }
+        const hasDualTP = !!trade.tp2_price;
+        const fullTargetPrice = trade.take_profit || trade.tp2_price || 0;
+        if (fullTargetPrice > 0) totalExpectedAtFullTP += calculateExpectedProfitAtPrice(trade, fullTargetPrice);
+        if (tp1Price > 0 && hasDualTP) { totalExpectedAtTP1 += calculateExpectedProfitAtPrice(trade, tp1Price); hasTP1 = true; }
+        if (hasDualTP) hasAnyDualTP = true;
       });
 
-      const denominator = closedProfit + totalExpectedAtTP2;
+      const denominator = closedProfit + totalExpectedAtFullTP;
       return {
         tp1Pct: hasTP1 && denominator > 0 ? ((closedProfit + totalExpectedAtTP1) / denominator) * 100 : null,
         tp1Label: hasTP1 ? `$${totalExpectedAtTP1.toFixed(0)}` : null,
-        tp2Label: totalExpectedAtTP2 > 0 ? `$${totalExpectedAtTP2.toFixed(0)}` : null,
+        tp2Label: hasAnyDualTP && totalExpectedAtFullTP > 0 ? `$${totalExpectedAtFullTP.toFixed(0)}` : null,
         tp1Hit: activeSession?.tp1_hit || false,
         tp2Hit: activeSession?.tp2_hit || false,
       };
     }
 
     const goalAmount = activeSession?.config?.goalAmount || 0;
+    const hasDualTPSession = !!activeSession?.tp2_target;
     return {
-      tp1Pct: activeSession?.tp1_target && goalAmount > 0 ? (activeSession.tp1_target / goalAmount) * 100 : null,
-      tp1Label: activeSession?.tp1_target ? `$${activeSession.tp1_target.toFixed(0)}` : null,
-      tp2Label: activeSession?.tp2_target ? `$${activeSession.tp2_target.toFixed(0)}` : null,
+      tp1Pct: hasDualTPSession && activeSession?.tp1_target && goalAmount > 0 ? (activeSession.tp1_target / goalAmount) * 100 : null,
+      tp1Label: hasDualTPSession && activeSession?.tp1_target ? `$${activeSession.tp1_target.toFixed(0)}` : null,
+      tp2Label: hasDualTPSession && activeSession?.tp2_target ? `$${activeSession.tp2_target.toFixed(0)}` : null,
       tp1Hit: activeSession?.tp1_hit || false,
       tp2Hit: activeSession?.tp2_hit || false,
     };
@@ -1349,8 +1353,8 @@ export const GoalSessionDashboard: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Mobile-Optimized Trading Levels - Dual TP System */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {/* Mobile-Optimized Trading Levels - Dual TP for Micro/Intraday, Single TP for Scalp */}
+                    <div className={`grid grid-cols-2 ${trade.tp2_price ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-3`}>
                       {/* Entry Price */}
                       <div className="bg-gray-800/70 rounded-lg p-3 sm:p-4 border border-gray-700/50">
                         <div className="text-xs font-medium text-gray-400 mb-2">Entry</div>
@@ -1367,11 +1371,11 @@ export const GoalSessionDashboard: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* TP1 - Conservative Target */}
+                      {/* TP1 / Target - Shows as "Target" for scalp (single TP), "TP1" for dual TP */}
                       <div className={`bg-gradient-to-br from-cyan-900/20 to-blue-900/20 rounded-lg p-3 sm:p-4 border ${trade.tp1_hit ? 'border-cyan-400/70 shadow-lg shadow-cyan-500/20' : 'border-cyan-500/30'}`}>
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-medium text-cyan-300">TP1</span>
-                          {trade.tp1_confidence && (
+                          <span className="text-xs font-medium text-cyan-300">{trade.tp2_price ? 'TP1' : 'Target'}</span>
+                          {trade.tp1_confidence && trade.tp2_price && (
                             <span className="text-xs text-cyan-400 font-semibold">{Math.round(trade.tp1_confidence)}%</span>
                           )}
                           {trade.tp1_hit && (
@@ -1379,22 +1383,24 @@ export const GoalSessionDashboard: React.FC = () => {
                           )}
                         </div>
                         <div className="text-2xl sm:text-xl md:text-lg font-bold text-cyan-400 font-mono tracking-tight">
-                          {trade.tp1_price ? formatTradingPrice(trade.symbol, trade.tp1_price) : 'N/A'}
+                          {trade.tp1_price ? formatTradingPrice(trade.symbol, trade.tp1_price) : formatTradingPrice(trade.symbol, trade.take_profit)}
                         </div>
                       </div>
 
-                      {/* TP2 - Full Target */}
-                      <div className={`bg-gradient-to-br from-emerald-900/20 to-green-900/20 rounded-lg p-3 sm:p-4 border ${trade.tp2_hit ? 'border-emerald-400/70 shadow-lg shadow-emerald-500/20' : 'border-emerald-500/30'}`}>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-medium text-emerald-300">TP2</span>
-                          {trade.tp2_hit && (
-                            <span className="text-xs text-emerald-400 font-bold">✓ HIT</span>
-                          )}
+                      {/* TP2 - Full Target (only for Micro/Intraday styles with dual TP) */}
+                      {trade.tp2_price && (
+                        <div className={`bg-gradient-to-br from-emerald-900/20 to-green-900/20 rounded-lg p-3 sm:p-4 border ${trade.tp2_hit ? 'border-emerald-400/70 shadow-lg shadow-emerald-500/20' : 'border-emerald-500/30'}`}>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-medium text-emerald-300">TP2</span>
+                            {trade.tp2_hit && (
+                              <span className="text-xs text-emerald-400 font-bold">✓ HIT</span>
+                            )}
+                          </div>
+                          <div className="text-2xl sm:text-xl md:text-lg font-bold text-emerald-400 font-mono tracking-tight">
+                            {formatTradingPrice(trade.symbol, trade.tp2_price)}
+                          </div>
                         </div>
-                        <div className="text-2xl sm:text-xl md:text-lg font-bold text-emerald-400 font-mono tracking-tight">
-                          {trade.tp2_price ? formatTradingPrice(trade.symbol, trade.tp2_price) : formatTradingPrice(trade.symbol, trade.take_profit)}
-                        </div>
-                      </div>
+                      )}
                     </div>
 
                     {/* Current P&L */}

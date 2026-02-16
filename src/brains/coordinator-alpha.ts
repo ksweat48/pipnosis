@@ -2112,6 +2112,22 @@ Return PURE JSON only:
         }
       }
 
+      // CCIP GOVERNANCE (2026-02-16): Scalp trades use single TP (TP1 only)
+      // TP2 keeps scalp trades open longer than the style warrants.
+      // TP1 is most frequently hit in scalp trades and IS the sole target.
+      // SSOT: Only MICRO_INTRADAY and INTRADAY styles receive dual TP targets.
+      if (tradeStyle === 'SCALP') {
+        if (tp1Result?.feasible && tp1Result.tp1Price) {
+          takeProfit = tp1Result.tp1Price;
+          tpDistance = Math.abs(takeProfit - entry);
+          rr = slDistance > 0 ? tpDistance / slDistance : 0;
+          tpPips = calculatePipDistance(symbol, entry, takeProfit);
+        }
+        tp2Price = null as any;
+        tp2Reasoning = null as any;
+        console.log(`[Alpha TP Policy] SCALP: TP2 suppressed. Single target at TP1 (${tpPips.toFixed(1)} pips, ${rr.toFixed(2)}:1 R:R)`);
+      }
+
       return {
         action,
         decision: action,

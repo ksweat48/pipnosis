@@ -1776,9 +1776,22 @@ class GoalSessionLiveEngine {
         tp1Reasoning = `TP1 at $${dualTargets.tp1.toFixed(2)} profit - Conservative target with high probability`;
         tp2Reasoning = `TP2 at $${dualTargets.tp2.toFixed(2)} profit - ${marketAssessment ? 'Market maximum capability' : 'Realistic market target'}`;
 
+        // CCIP GOVERNANCE (2026-02-16): Suppress TP2 for scalp sessions
+        // Scalp trades close at TP1 only. Dual TP reserved for Micro and Intraday.
+        const isScalpSession = config.tradeStyle === 'scalper' || config.tradeStyle === 'scalp'
+          || config.tradeStyle === 'SCALP' || config.tradeStyle === 'SCALPER';
+        if (isScalpSession) {
+          tp2Price = undefined;
+          tp2Reasoning = undefined;
+          logger.info(
+            LogCategory.AI_TRADING,
+            `[CCIP TP Policy] SCALP session: TP2 suppressed. TP1 at ${formatCurrencyPrice(selectedSymbol, tp1Price)} ($${dualTargets.tp1.toFixed(2)}) is sole target`
+          );
+        }
+
         logger.info(
           LogCategory.AI_TRADING,
-          `[Dual TP - Market Aligned] ${marketAssessment ? `Market Range: $${marketAssessment.predictedProfitMin}-$${marketAssessment.predictedProfitMax} | ` : ''}User Goal: $${goalContext.targetGoal}${goalWasAdjusted ? ` → Adjusted: $${dualTargets.adjustedGoal}` : ''} | TP1: ${formatCurrencyPrice(selectedSymbol, tp1Price)} ($${dualTargets.tp1.toFixed(2)}) | TP2: ${formatCurrencyPrice(selectedSymbol, tp2Price)} ($${dualTargets.tp2.toFixed(2)})`
+          `[Dual TP - Market Aligned] ${marketAssessment ? `Market Range: $${marketAssessment.predictedProfitMin}-$${marketAssessment.predictedProfitMax} | ` : ''}User Goal: $${goalContext.targetGoal}${goalWasAdjusted ? ` → Adjusted: $${dualTargets.adjustedGoal}` : ''} | TP1: ${formatCurrencyPrice(selectedSymbol, tp1Price)} ($${dualTargets.tp1.toFixed(2)})${tp2Price ? ` | TP2: ${formatCurrencyPrice(selectedSymbol, tp2Price)} ($${dualTargets.tp2.toFixed(2)})` : ' | TP2: suppressed (SCALP)'}`
         );
 
         if (goalWasAdjusted) {
