@@ -2495,8 +2495,6 @@ class GoalSessionLiveEngine {
         logger.debug(LogCategory.AI_TRADING, `🎯 Trade decision: ${result.trade.direction} @ ${result.trade.entryPrice}`);
         logger.debug(LogCategory.AI_TRADING, `SL: ${result.trade.stopLoss} | TP: ${result.trade.takeProfit} | R:R 1:${((result.trade.takeProfit - result.trade.entryPrice) / (result.trade.entryPrice - result.trade.stopLoss)).toFixed(2)}`);
 
-        // CRITICAL FIX: Only mark as executed if trade actually went through
-        // If confidence too low or other validation fails, we need to keep scanning
         tradeExecuted = await this.handleNewTradeSignal(result.trade, goalSession, sortedCandles);
 
         if (tradeExecuted) {
@@ -2506,7 +2504,13 @@ class GoalSessionLiveEngine {
         }
       }
 
-      // Send AI thinking update every scan when no open trades
+      if (!result.trade && !result.trigger && this.openTrades.length === 0) {
+        logger.info(LogCategory.AI_TRADING, `Single-symbol scan complete for ${symbol} - no qualifying trade found. Showing no-trade dialog.`);
+        await this.sendAIMessage(`Scanned ${symbol} - no qualifying trade setup found in current market conditions. Try again in 15 minutes or choose a different trade style.`);
+        this.emitNoTradeEvent();
+        return;
+      }
+
       if (this.openTrades.length === 0) {
         await this.sendAIThinkingUpdate(latestCandle, sortedCandles, result);
       }

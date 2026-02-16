@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Search, XCircle, AlertTriangle, Info, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Search, XCircle, AlertTriangle, Info, ArrowRight, Clock } from 'lucide-react';
 import type { NoTradeRejectionContext } from '../services/goal-session-live-engine';
 
 interface NoTradesFoundDialogProps {
@@ -10,6 +10,8 @@ interface NoTradesFoundDialogProps {
   rejectionContext?: NoTradeRejectionContext | null;
 }
 
+const COUNTDOWN_SECONDS = 60;
+
 export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
   isOpen,
   onClose,
@@ -17,6 +19,38 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
   rejectionContext
 }) => {
   const [forceClosing, setForceClosing] = useState(false);
+  const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasAutoClosedRef = useRef(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setCountdown(COUNTDOWN_SECONDS);
+      hasAutoClosedRef.current = false;
+      return;
+    }
+
+    intervalRef.current = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (countdown === 0 && isOpen && !hasAutoClosedRef.current) {
+      hasAutoClosedRef.current = true;
+      onClose();
+    }
+  }, [countdown, isOpen, onClose]);
 
   if (!isOpen || forceClosing) return null;
 
@@ -27,6 +61,7 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
 
   const handleCloseClick = () => {
     try {
+      if (intervalRef.current) clearInterval(intervalRef.current);
       onClose();
     } catch (error) {
       console.error('[NoTradesFoundDialog] Error in onClose handler:', error);
@@ -42,6 +77,8 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
       default: return style;
     }
   };
+
+  const progressPercent = (countdown / COUNTDOWN_SECONDS) * 100;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
@@ -132,6 +169,22 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
                 </p>
               </div>
             )}
+
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2 text-gray-400 text-xs">
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>Session closing automatically</span>
+                </div>
+                <span className="text-gray-300 text-sm font-mono font-semibold">{countdown}s</span>
+              </div>
+              <div className="w-full h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full transition-all duration-1000 ease-linear"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+            </div>
 
             <button
               onClick={handleCloseClick}

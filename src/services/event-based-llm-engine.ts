@@ -309,7 +309,7 @@ class EventBasedLLMEngine {
             await alphaThoughtStream.emitConditionEvaluation(
               this.sessionId,
               this.userId,
-              this.symbol,
+              config.symbol,
               conditionCheck.alphaThoughts,
               conditionCheck.conditionsMet.length,
               conditionCheck.conditionsMet.length + conditionCheck.conditionsFailed.length
