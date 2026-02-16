@@ -52,15 +52,12 @@ export class ZoneCalculationInputProvider {
     currentPrice: number
   ): Promise<ZoneCalculationInputs> {
     try {
-      // Get cached snapshot if available
-      const snapshot = await marketSnapshotCache.get(symbol);
+      const snapshot = await marketSnapshotCache.getSnapshot(symbol, 'M15');
 
-      // Get ATR values (15m and 1h)
-      const atr15m = snapshot?.indicators?.atr || await this.getATR(symbol, '15m');
+      const atr15m = (snapshot?.atr?.value) || await this.getATR(symbol, '15m');
       const atr1h = await this.getATR(symbol, '1h');
 
-      // Get VWAP
-      const vwap = snapshot?.indicators?.vwap;
+      const vwap = snapshot?.vwap;
 
       // Get EMAs from candle data
       const { ema20, ema50 } = await this.getEMAs(symbol);

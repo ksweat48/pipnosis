@@ -486,32 +486,36 @@ class EventBasedLLMEngine {
       regimeBucket = getRegimeBucket(conditionCheck.regime, conditionCheck.adversarial);
 
       const activePlaybook = await strategyPlaybookManager.getActivePlaybook(
+        this.userId || 'event-engine',
         config.symbol,
         config.timeframe,
-        conditionCheck.regime?.structure || 'unknown',
-        conditionCheck.adversarial
+        this.currentStrategy.mode,
+        regimeBucket || 'unknown'
       );
 
       if (activePlaybook) {
         playbookId = activePlaybook.id;
       } else if (this.userId) {
         // Auto-create playbook entry for this new strategy variant
-        console.log(`[Playbook] 🆕 No playbook found - creating entry for ${this.currentStrategy.mode} in ${regimeBucket}`);
-        const newPlaybook = await strategyPlaybookManager.createPlaybookEntry(
+        console.log(`[Playbook] No playbook found - creating variant for ${this.currentStrategy.mode} in ${regimeBucket}`);
+        const rrTarget = takeProfitPips / Math.max(stopPips, 0.01);
+        const newPlaybookId = await strategyPlaybookManager.createPlaybookVariant(
           this.userId,
           config.symbol,
           config.timeframe,
           this.currentStrategy.mode,
-          regimeBucket,
+          regimeBucket || 'unknown',
           {
-            rules: finalDecision.reasoning,
-            entry_conditions: this.currentStrategy.conditions?.join(', ') || '',
-            exit_rules: `SL: ${finalDecision.stopLoss}, TP: ${finalDecision.takeProfit}`,
-            risk_params: `Risk: ${riskPercent}%, Size: ${positionSize}`
-          }
+            rr_target: parseFloat(rrTarget.toFixed(2)),
+            sl_factor_atr: 1.0,
+            tp_factor_atr: rrTarget,
+            risk_pct: baseRiskPercent,
+            entry_filters: this.currentStrategy.conditions || []
+          },
+          finalDecision.reasoning
         );
-        playbookId = newPlaybook.id;
-        console.log(`[Playbook] ✅ Created playbook entry: ${playbookId}`);
+        playbookId = newPlaybookId || undefined;
+        console.log(`[Playbook] Created playbook variant: ${playbookId}`);
       }
     } catch (err) {
       console.warn('[Autonomous] Failed to load playbook context:', err);
