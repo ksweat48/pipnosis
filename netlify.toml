@@ -127,11 +127,12 @@
 [functions."backfill-all-timeframes-new-pairs"]
   timeout = 900
 
-# Session Intelligence Populator (every 10 minutes)
+# Session Intelligence Populator (every 5 minutes)
 # ADVISORY ONLY: Analyzes current session and recommends optimal pairs
+# Uses real indicator alignment (VWAP, EMA20, EMA50, RSI, Volume, Pattern, Structure, Momentum)
 [functions."populate-session-intelligence"]
   timeout = 60
-  schedule = "*/10 * * * *"
+  schedule = "*/5 * * * *"
 
 # VWAP Kiss Scanner (every 5 minutes)
 # ADVISORY ONLY: Detects when price is near VWAP for scalp opportunities

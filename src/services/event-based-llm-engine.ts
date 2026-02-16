@@ -31,6 +31,7 @@ export interface EventBasedEngineConfig {
   riskMode: 'low' | 'medium' | 'high';
   maxConcurrentTrades: number;
   initialBalance?: number;
+  tradeStyle?: string;
   goalContext?: {
     goalSessionId?: string;
     targetAmount: number;
@@ -241,9 +242,10 @@ class EventBasedLLMEngine {
       this.currentStrategy = await llmStrategyBrain.planStrategy(
         strategySnapshot,
         this.traderScore!,
-        this.userId || undefined, // Pass userId for memory loading
-        prelimCheck.regime, // Pass regime context
-        prelimCheck.adversarial // Pass adversarial context
+        this.userId || undefined,
+        prelimCheck.regime,
+        prelimCheck.adversarial,
+        config.tradeStyle
       );
 
       // Save strategy to memory

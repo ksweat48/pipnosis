@@ -2467,6 +2467,7 @@ class GoalSessionLiveEngine {
         riskMode: this.config.riskMode,
         maxConcurrentTrades: this.config.maxConcurrentTrades,
         initialBalance: this.config.initialBalance,
+        tradeStyle: this.config.tradeStyle,
         goalContext
       };
 

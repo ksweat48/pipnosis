@@ -81,7 +81,8 @@ class LLMStrategyBrain {
     traderScore: TraderScore,
     userId?: string,
     regime?: RegimeSnapshot,
-    adversarial?: AdversarialSignal
+    adversarial?: AdversarialSignal,
+    tradeStyle?: string
   ): Promise<StrategyPlan> {
     const identity = getStrategyPlanningIdentity(traderScore);
 
@@ -162,11 +163,12 @@ class LLMStrategyBrain {
       }
     }
 
-    // Ultra-compressed prompt with playbook + memory context
+    const styleDirective = this.buildImmutableStyleDirective(tradeStyle);
+
     const prompt = `${identity}
 
 Market Snapshot:
-${JSON.stringify(snapshot)}${regimeSection}${adversarialSection}${playbookSection}${memorySection}
+${JSON.stringify(snapshot)}${regimeSection}${adversarialSection}${playbookSection}${memorySection}${styleDirective}
 
 Analyze market, regime, adversarial, playbook, AND your memory. Define strategy for next 50-100 candles.
 
@@ -250,12 +252,94 @@ Max 200 tokens.`;
     const content = response.choices[0]?.message?.content || '{}';
     const plan = this.parseStrategyResponse(content);
 
+    this.enforceImmutableStyle(plan, tradeStyle);
+
     console.log(`[Strategy Brain] ✅ Strategy: ${plan.mode}`);
     console.log(`[Strategy Brain] Conditions: ${plan.conditions.join(', ')}`);
     console.log(`[Strategy Brain] Risk: ${plan.risk_pct}% | Confidence: ${plan.confidence}%`);
     console.log(`[Strategy Brain] Rationale: ${plan.rationale}`);
 
     return plan;
+  }
+
+  private readonly STYLE_ALLOWED_MODES: Record<string, string[]> = {
+    scalper: ['trend', 'breakout', 'pullback'],
+    scalp: ['trend', 'breakout', 'pullback'],
+    micro: ['trend', 'pullback', 'range', 'breakout'],
+    intraday: ['trend', 'reversal', 'pullback', 'breakout'],
+  };
+
+  private enforceImmutableStyle(plan: StrategyPlan, tradeStyle?: string): void {
+    if (!tradeStyle) return;
+
+    const normalized = tradeStyle.toLowerCase();
+    const allowedModes = this.STYLE_ALLOWED_MODES[normalized];
+    if (!allowedModes) return;
+
+    if (!allowedModes.includes(plan.mode)) {
+      console.warn(`[GOVERNANCE] Style enforcement: LLM returned "${plan.mode}" but ${normalized} only allows [${allowedModes.join(', ')}]. Overriding to "${allowedModes[0]}".`);
+      plan.mode = allowedModes[0] as StrategyPlan['mode'];
+    }
+  }
+
+  private buildImmutableStyleDirective(tradeStyle?: string): string {
+    if (!tradeStyle) return '';
+
+    const normalized = tradeStyle.toLowerCase();
+
+    const STYLE_CONSTRAINTS: Record<string, {
+      label: string;
+      allowedModes: string[];
+      durationRange: string;
+      riskRange: string;
+      conditions: string;
+    }> = {
+      scalper: {
+        label: 'SCALP',
+        allowedModes: ['trend', 'breakout', 'pullback'],
+        durationRange: '5-60 minutes',
+        riskRange: '1-2%',
+        conditions: 'Focus on momentum, VWAP proximity, tight RSI windows (30-70), volume spikes, quick confirmations. Prefer fast setups near key levels.',
+      },
+      scalp: {
+        label: 'SCALP',
+        allowedModes: ['trend', 'breakout', 'pullback'],
+        durationRange: '5-60 minutes',
+        riskRange: '1-2%',
+        conditions: 'Focus on momentum, VWAP proximity, tight RSI windows (30-70), volume spikes, quick confirmations. Prefer fast setups near key levels.',
+      },
+      micro: {
+        label: 'MICRO_INTRADAY',
+        allowedModes: ['trend', 'pullback', 'range', 'breakout'],
+        durationRange: '30 minutes - 4 hours',
+        riskRange: '2-5%',
+        conditions: 'Focus on EMA alignment, trend confirmation, structure-based entries. Allow range strategies in sideways markets.',
+      },
+      intraday: {
+        label: 'INTRADAY',
+        allowedModes: ['trend', 'reversal', 'pullback', 'breakout'],
+        durationRange: '2-10 hours',
+        riskRange: '3-7%',
+        conditions: 'Focus on higher timeframe alignment, EMA50/200 trends, strong directional moves. Wait for confirmed reversals.',
+      },
+    };
+
+    const config = STYLE_CONSTRAINTS[normalized];
+    if (!config) return '';
+
+    console.log(`[Strategy Brain] IMMUTABLE STYLE: ${config.label} (user selection locked)`);
+
+    return `
+
+IMMUTABLE TRADE STYLE (NON-NEGOTIABLE):
+Style: ${config.label}
+Duration: ${config.durationRange}
+Risk: ${config.riskRange}
+Allowed modes: ${config.allowedModes.join(', ')}
+${config.conditions}
+YOU MUST choose "mode" from: ${config.allowedModes.map(m => `"${m}"`).join(' | ')}
+YOU MUST NOT use any mode outside this list. This is the user's locked trade style.
+YOU MUST generate conditions appropriate for ${config.label} duration and risk profile.`;
   }
 
   /**

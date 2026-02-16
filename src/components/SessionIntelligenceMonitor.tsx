@@ -109,18 +109,9 @@ export const SessionIntelligenceMonitor: React.FC = () => {
 
   const triggerIntelligenceUpdate = useCallback(async (): Promise<boolean> => {
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      if (!supabaseUrl || !anonKey) return false;
-
-      const apiUrl = `${supabaseUrl}/functions/v1/update-session-intelligence`;
-      const response = await fetch(apiUrl, {
+      const response = await fetch('/.netlify/functions/populate-session-intelligence', {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${anonKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({}),
+        headers: { 'Content-Type': 'application/json' },
       });
       return response.ok;
     } catch {
@@ -171,30 +162,20 @@ export const SessionIntelligenceMonitor: React.FC = () => {
     const init = async () => {
       await loadSessionData();
       setLoading(false);
-      triggerIntelligenceUpdate().catch(() => {});
     };
     init();
 
-    const channel = supabase
-      .channel('session-intelligence')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'session_intelligence_data' },
-        (payload) => {
-          if (payload.new && typeof payload.new === 'object' && 'id' in payload.new) {
-            setSessionData(payload.new as SessionData);
-          }
-        }
-      )
-      .subscribe();
-
-    const refreshTimer = setInterval(() => {
+    const dataReadTimer = setInterval(() => {
       loadSessionData();
-    }, 120000);
+    }, 60000);
+
+    const intelligenceRefreshTimer = setInterval(() => {
+      triggerIntelligenceUpdate().catch(() => {});
+    }, 300000);
 
     return () => {
-      clearInterval(refreshTimer);
-      supabase.removeChannel(channel);
+      clearInterval(dataReadTimer);
+      clearInterval(intelligenceRefreshTimer);
     };
   }, [loadSessionData, triggerIntelligenceUpdate]);
 
