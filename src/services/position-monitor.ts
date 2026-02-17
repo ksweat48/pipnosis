@@ -198,7 +198,8 @@ class PositionMonitorService {
         max_profit: newMaxProfit
       })
       .eq('id', positionId)
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .eq('status', 'open');
 
     if (!updateError) {
       this.updateRetryCount.delete(positionId);
