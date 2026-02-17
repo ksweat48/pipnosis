@@ -110,13 +110,13 @@ export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
   targetCandles: { min: 4, max: 8 },
 
   tpPips: { min: 40, max: 120 },
-  slPips: { min: 15, max: 40 },
+  slPips: { min: 15, max: 50 },
 
   assetClassPercentBounds: {
     FOREX: { tpPercent: { min: 0.25, max: 1.20 }, slPercent: { min: 0.12, max: 0.50 } },
     CRYPTO: { tpPercent: { min: 1.50, max: 5.00 }, slPercent: { min: 0.80, max: 2.50 } },
     METAL: { tpPercent: { min: 1.00, max: 5.00 }, slPercent: { min: 0.50, max: 2.00 } },
-    INDEX: { tpPercent: { min: 0.12, max: 1.00 }, slPercent: { min: 0.08, max: 0.40 } },
+    INDEX: { tpPercent: { min: 0.12, max: 1.00 }, slPercent: { min: 0.08, max: 0.12 } },
   },
 
   atrTimeframe: 'M15',

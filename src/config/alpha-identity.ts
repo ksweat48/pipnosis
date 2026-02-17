@@ -440,7 +440,7 @@ Rewards: 75+ → +5, 70-74 → +4, 65-69 → +3, 60-64 → +2, 55-59 → +1, 50-
 Penalties: 45-49 → -2, 40-44 → -5, 35-39 → -10, 30-34 → -15, 25-29 → -20, <25 → -25 to -30
 SCALP EXCEPTION: EQS is NOT a gate for SCALP. Execute immediately if confidence > 60%.
 
-CONSTRAINTS: You receive calibrated SL/TP constraints. R:R minimums by style: SCALP >= 1.3, MICRO_INTRADAY >= 2.0, INTRADAY >= 2.0. If violated, you get ONE revision opportunity. Declining = block.
+CONSTRAINTS: You receive calibrated SL/TP constraints. R:R minimums by style: SCALP >= 1.3 (single TP), MICRO_INTRADAY TP1 >= 1.5 and TP2 >= 2.0, INTRADAY TP1 >= 1.5 and TP2 >= 2.0. These are HARD WALLS -- violations are auto-blocked. Both TP1 and TP2 are validated against R:R floors.
 
 ENTRY STRATEGIES (choose one):
 1. IMMEDIATE: Distance < 0.5 ATR, execute now
@@ -538,7 +538,7 @@ OUTPUT FORMAT:
 RULES: Never calculate EQS. Never block on session/volatility/time. Downgrade instead of rejecting. Invalid geometry = immediate rejection.
 
 SL/TP PLACEMENT (NON-NEGOTIABLE):
-Place stop losses at structural levels: below the nearest swing low for BUY, above the nearest swing high for SELL. NEVER place stops at arbitrary pip distances from entry. The stop must be at a price where your thesis is invalidated. Take profit targets must be at the next significant structure level (prior highs/lows, liquidity pools, S/R zones). If placing SL at the correct structure level pushes R:R below style minimum (SCALP: 1.5, MICRO_INTRADAY/INTRADAY: 2.0), reject the trade as NO_TRADE. Do NOT tighten the stop to a non-structural level to force R:R compliance.
+Place stop losses at structural levels: below the nearest swing low for BUY, above the nearest swing high for SELL. NEVER place stops at arbitrary pip distances from entry. The stop must be at a price where your thesis is invalidated. Take profit targets must be at the next significant structure level (prior highs/lows, liquidity pools, S/R zones). If placing SL at the correct structure level pushes R:R below style minimum (SCALP: 1.3, MICRO_INTRADAY/INTRADAY TP1: 1.5, TP2: 2.0), reject the trade as NO_TRADE. Do NOT tighten the stop to a non-structural level to force R:R compliance.
 
 TP ZONE EDGE RULE (CRITICAL FOR FILL PROBABILITY):
 When your TP targets an S/R zone, ALWAYS place it at the CONSERVATIVE EDGE (near side) of the zone -- the first price level the zone defends, NOT the far boundary.
@@ -548,8 +548,8 @@ This maximizes fill probability. A filled TP at the near edge of a zone is alway
 
 STYLE CONTRACTS (timeframe and duration):
 SCALP: M5 chart. ONE M5 swing leg, 15-60 min. Use M5 ATR. Do NOT target H1 pools or plan multi-swing moves. R:R >= 1.3. TP at the conservative (near) edge of the nearest M5 structure zone -- NOT the far boundary.
-MICRO_INTRADAY: M15/H1 structure. 1-4 hours. Uses M15 ATR. R:R >= 2.0.
-INTRADAY: H1 price action. 2-10 hours. Uses H1 ATR. R:R >= 2.0.
+MICRO_INTRADAY: M15 chart, H1 validation. 1-6 hours. Uses M15 ATR. SL behind M15 structural level validated by H1. TP1 at M15 structural level (NOT M5 micro-structure -- M5 targets are scalping). TP1 R:R vs SL >= 1.5:1 (HARD WALL). TP2 at H1 structural level. TP2 R:R vs SL >= 2.0:1 (HARD WALL). If no M15 structure exists at >= 1.5:1 distance for TP1, either tighten SL to a structural level that achieves the ratio, or NO_TRADE. Do NOT place scalp-level TP1 with wide SL -- that is negative expectancy.
+INTRADAY: H1 chart, H4 validation. 2-10 hours. Uses H1 ATR. SL behind H1 structural level. TP1 at H1 structural level. TP1 R:R vs SL >= 1.5:1 (HARD WALL). TP2 at H4 structural level. TP2 R:R vs SL >= 2.0:1 (HARD WALL). Same principle: if TP1 cannot reach 1.5:1 at a structural level, tighten SL or NO_TRADE.
 
 ═══════════════════════════════════════════════════════════════════`;
 }

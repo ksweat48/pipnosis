@@ -19,6 +19,8 @@ export const TRADING_CONSTANTS = {
     MINIMUM_SCALP: 1.3,
     MINIMUM_MICRO_INTRADAY: 2.0,
     MINIMUM_INTRADAY: 2.0,
+    MINIMUM_TP1_MICRO_INTRADAY: 1.5,
+    MINIMUM_TP1_INTRADAY: 1.5,
     TARGET: 2.0,
     GOOD: 2.0,
     EXCELLENT: 2.5,
@@ -206,5 +208,16 @@ export function getMinRRForStyle(style?: string): number {
       return TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM_INTRADAY;
     default:
       return TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM;
+  }
+}
+
+export function getMinTP1RRForStyle(style?: string): number | null {
+  switch (style) {
+    case 'MICRO_INTRADAY':
+      return TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM_TP1_MICRO_INTRADAY;
+    case 'INTRADAY':
+      return TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM_TP1_INTRADAY;
+    default:
+      return null;
   }
 }

@@ -115,7 +115,7 @@ import { m5SwingAnalyzer, type M5SwingContext } from '../services/m5-swing-analy
 import { MarketDataService } from '../services/market-data-service';
 import { alphaGeometryValidator } from '../services/alpha-geometry-validator';
 import { getExecutionEnvelope, getAssetClassEnvelopeBounds, validateTPSLAgainstEnvelope, detectConstraintSandwich, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
-import { TRADING_CONSTANTS, getMinRRForStyle } from '../config/trading-constants';
+import { TRADING_CONSTANTS, getMinRRForStyle, getMinTP1RRForStyle } from '../config/trading-constants';
 
 /**
  * Helper: Determine asset class from symbol
@@ -1268,9 +1268,10 @@ You choose ALL profit targets. The system NEVER calculates TP for you.
   For BUY: TP at the BOTTOM of the resistance zone (lower boundary of candle cluster), NOT the top.
   A filled TP at the near edge beats an unfilled TP at the far edge every time.
 - MICRO_INTRADAY / INTRADAY: You choose TWO take-profits:
-  "tp1" = Conservative partial target (high probability, closer to entry) -- at the NEAR EDGE of the target zone
-  "tp2" = Full profit target (realistic market maximum)
+  "tp1" = Conservative partial target at a STYLE-APPROPRIATE structural level. For MICRO_INTRADAY: target M15 structure (NOT M5 micro-structure -- that is scalping). For INTRADAY: target H1 structure. TP1 R:R vs SL MUST be >= 1.5:1 (HARD WALL -- violations are auto-blocked).
+  "tp2" = Full profit target at the next higher timeframe structure. TP2 R:R vs SL MUST be >= 2.0:1 (HARD WALL).
   Both MUST be within the arena walls. tp1 MUST be closer to entry than tp2.
+  If no structural level exists at >= 1.5:1 distance for tp1, either tighten SL to a structural level that achieves the ratio, or issue NO_TRADE.
 
 Return PURE JSON only:
 ${tradeStyle === 'SCALP' ? `{
@@ -1429,8 +1430,14 @@ ${tradeStyle === 'SCALP' ? `{
         const wallViolations: string[] = [];
         if (slPipsCheck < arena.slPips.min) wallViolations.push(`SL ${slPipsCheck.toFixed(1)} pips below wall min ${arena.slPips.min.toFixed(1)}`);
         if (slPipsCheck > arena.slPips.max) wallViolations.push(`SL ${slPipsCheck.toFixed(1)} pips above wall max ${arena.slPips.max.toFixed(1)}`);
-        if (tpPipsCheck < arena.tpPips.min) wallViolations.push(`TP ${tpPipsCheck.toFixed(1)} pips below wall min ${arena.tpPips.min.toFixed(1)}`);
-        if (tpPipsCheck > arena.tpPips.max) wallViolations.push(`TP ${tpPipsCheck.toFixed(1)} pips above wall max ${arena.tpPips.max.toFixed(1)}`);
+        if (tpPipsCheck < arena.tpPips.min) wallViolations.push(`TP2 ${tpPipsCheck.toFixed(1)} pips below wall min ${arena.tpPips.min.toFixed(1)}`);
+        if (tpPipsCheck > arena.tpPips.max) wallViolations.push(`TP2 ${tpPipsCheck.toFixed(1)} pips above wall max ${arena.tpPips.max.toFixed(1)}`);
+
+        if (decision.tp1Price != null) {
+          const tp1PipsCheck = calculatePipDistance(marketContext.symbol, decision.entry, decision.tp1Price);
+          if (tp1PipsCheck < arena.tpPips.min) wallViolations.push(`TP1 ${tp1PipsCheck.toFixed(1)} pips below wall min ${arena.tpPips.min.toFixed(1)}`);
+          if (tp1PipsCheck > arena.tpPips.max) wallViolations.push(`TP1 ${tp1PipsCheck.toFixed(1)} pips above wall max ${arena.tpPips.max.toFixed(1)}`);
+        }
         decision.wall_violations = wallViolations;
 
         if (wallViolations.length > 0) {
@@ -2192,13 +2199,54 @@ ${tradeStyle === 'SCALP' ? `{
         tp2Reasoning = null;
         console.log(`[Alpha TP Authority] SCALP: Single target at ${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1 R:R)`);
       } else {
-        // MICRO_INTRADAY / INTRADAY: Alpha chose tp1 and tp2
         const alphaTP1 = parsed.tp1;
+        const minTP1RR = getMinTP1RRForStyle(tradeStyle);
         if (alphaTP1 != null && Number.isFinite(alphaTP1)) {
           tp1Price = alphaTP1;
           const tp1Pips = calculatePipDistance(symbol, entry, alphaTP1);
-          tp1Reasoning = `Alpha conservative target at ${tp1Pips.toFixed(1)} pips`;
-          console.log(`[Alpha TP Authority] ${tradeStyle}: TP1=${tp1Pips.toFixed(1)} pips | TP2=${tpPips.toFixed(1)} pips`);
+          const tp1Distance = Math.abs(alphaTP1 - entry);
+          const tp1RR = slDistance > 0 ? tp1Distance / slDistance : 0;
+          tp1Reasoning = `Alpha conservative target at ${tp1Pips.toFixed(1)} pips (${tp1RR.toFixed(2)}:1 R:R)`;
+          console.log(`[Alpha TP Authority] ${tradeStyle}: TP1=${tp1Pips.toFixed(1)} pips (${tp1RR.toFixed(2)}:1) | TP2=${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1)`);
+
+          if (minTP1RR != null && tp1RR < minTP1RR) {
+            console.error(`[Alpha TP1 Wall] BLOCKED: TP1 R:R ${tp1RR.toFixed(2)}:1 below ${tradeStyle} minimum ${minTP1RR.toFixed(1)}:1 (TP1=${tp1Pips.toFixed(1)} pips, SL=${slPips.toFixed(1)} pips)`);
+            logViolation({
+              violationType: 'ALPHA_TP1_RR_WALL_VIOLATION',
+              symbol,
+              attemptedOperation: 'tp1_rr_check',
+              callLocation: 'coordinator-alpha.tp1_wall_check',
+              blocked: true,
+              errorDetails: {
+                tp1Price: alphaTP1,
+                tp1Pips,
+                tp1RR,
+                minTP1RR,
+                slPips,
+                tradeStyle,
+                userId: userId || null,
+                sessionId: goalContext?.sessionId || null,
+              }
+            }).catch(error => {
+              console.error('[Alpha Coordinator] Failed to log TP1 wall violation:', error);
+            });
+            return {
+              action: 'NO_TRADE',
+              decision: 'NO_TRADE',
+              entry: currentPrice,
+              stopLoss: currentPrice,
+              takeProfit: currentPrice,
+              tp1Price: null,
+              tp1Confidence: null,
+              tp1Reasoning: null,
+              tp2Price: null,
+              tp2Reasoning: null,
+              confidence: 0,
+              reasoning: `Blocked: TP1 R:R ${tp1RR.toFixed(2)}:1 below ${tradeStyle} hard wall minimum ${minTP1RR.toFixed(1)}:1. TP1 at ${tp1Pips.toFixed(1)} pips with SL at ${slPips.toFixed(1)} pips is scalp-level targeting on a ${tradeStyle} trade.`,
+              omega_summary: '',
+              risk_pct: riskPct,
+            };
+          }
         } else {
           console.log(`[Alpha TP Authority] ${tradeStyle}: No TP1 in response, using single TP at ${tpPips.toFixed(1)} pips`);
         }
