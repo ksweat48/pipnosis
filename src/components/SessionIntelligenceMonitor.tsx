@@ -212,7 +212,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
   const getReadyPairs = (): BestPair[] => {
     if (!sessionData) return [];
     const ready = (sessionData.best_pairs ?? []).filter(
-      (p) => (p.confidence ?? 0) >= 80 && p.constraintFeasible !== false
+      (p) => (p.confidence ?? 0) >= 70 && p.constraintFeasible !== false
     );
     if (activeFilter === 'all') return ready;
     return ready.filter((p) => resolveStyle(p) === activeFilter);
@@ -221,7 +221,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
   const getHeatingPairs = (): BestPair[] => {
     if (!sessionData) return [];
     const heating = (sessionData.heating_pairs ?? []).filter(
-      (p) => (p.confidence ?? 0) >= 50 && (p.confidence ?? 0) < 80
+      (p) => (p.confidence ?? 0) >= 50 && (p.confidence ?? 0) < 70
     );
     if (activeFilter === 'all') return heating;
     return heating.filter((p) => resolveStyle(p) === activeFilter);
@@ -231,7 +231,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
     if (!sessionData) return 0;
     const allPairs = [...(sessionData.best_pairs ?? []), ...(sessionData.heating_pairs ?? [])];
     const heating = allPairs.filter(
-      (p) => (p.confidence ?? 0) >= 50 && (p.confidence ?? 0) < 80
+      (p) => (p.confidence ?? 0) >= 50 && (p.confidence ?? 0) < 70
     );
     if (activeFilter === 'all') return heating.length;
     return heating.filter((p) => resolveStyle(p) === activeFilter).length;
@@ -240,7 +240,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
   const getStyleCounts = (): Record<TradeStyle, number> => {
     const counts: Record<TradeStyle, number> = { scalp: 0, micro: 0, intraday: 0 };
     const allReady = (sessionData?.best_pairs ?? []).filter(
-      (p) => (p.confidence ?? 0) >= 80 && p.constraintFeasible !== false
+      (p) => (p.confidence ?? 0) >= 70 && p.constraintFeasible !== false
     );
     for (const pair of allReady) {
       counts[resolveStyle(pair)]++;
@@ -342,10 +342,10 @@ export const SessionIntelligenceMonitor: React.FC = () => {
 
           <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-3">
             <div className="flex items-center gap-1.5">
-              <BarChart3 className={`w-4 h-4 ${confidence >= 80 ? 'text-green-400' : confidence >= 70 ? 'text-yellow-400' : 'text-blue-400'}`} />
+              <BarChart3 className={`w-4 h-4 ${confidence >= 85 ? 'text-green-400' : confidence >= 70 ? 'text-yellow-400' : 'text-blue-400'}`} />
               <span
                 className={`text-lg font-bold ${
-                  confidence >= 80
+                  confidence >= 85
                     ? 'text-green-400'
                     : confidence >= 70
                       ? 'text-yellow-400'
@@ -445,7 +445,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
           {readyPairs.length > 0 ? (
             <div className="px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/20">
               <p className="text-sm font-semibold text-emerald-400">
-                {readyPairs.length} Setup{readyPairs.length !== 1 ? 's' : ''} Ready (80%+)
+                {readyPairs.length} Setup{readyPairs.length !== 1 ? 's' : ''} Ready (70%+)
               </p>
             </div>
           ) : sessionData.is_tradable ? (
@@ -502,7 +502,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
         {readyPairs.length > 0 && (
           <div className="mb-4">
             <p className="text-sm font-semibold text-blue-200 mb-3">
-              Ready to Trade (80%+)
+              Ready to Trade (70%+)
             </p>
             <div className="space-y-3">
               {readyPairs.map((pair) => renderPairCard(pair))}
@@ -522,7 +522,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
                     {heatingCount} {heatingCount === 1 ? 'pair' : 'pairs'} heating up
                   </p>
                   <p className="text-sm text-amber-200/70">
-                    {heatingCount === 1 ? 'This setup is' : 'These setups are'} building momentum but not yet at 80%+ confidence threshold. Alpha will monitor automatically.
+                    {heatingCount === 1 ? 'This setup is' : 'These setups are'} building momentum but not yet at 70%+ confidence threshold. Alpha will monitor automatically.
                   </p>
                 </div>
               </div>
@@ -539,7 +539,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
                   Scanning All Timeframes
                 </p>
                 <p className="text-sm text-blue-200/80">
-                  Analyzing Scalp (M5), Micro (M15) and Intraday (H1) for setups with 80%+
+                  Analyzing Scalp (M5), Micro (M15) and Intraday (H1) for setups with 70%+
                   indicator alignment.
                 </p>
               </div>
