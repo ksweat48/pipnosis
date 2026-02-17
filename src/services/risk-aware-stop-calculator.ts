@@ -377,7 +377,10 @@ class RiskAwareStopCalculator {
     // Without cap: SCALP SL max ~25 pips is always sandwich-blocked by 74 pip floor.
     // With cap: floor = 3 * 14.9 = 44.7 pips, which envelope expansion can accommodate.
     const SCALP_MAX_ATR_MULTIPLIER = 3.0;
-    if (tradeStyle?.toUpperCase() === 'SCALP' && controllingMethod === 'price-based') {
+    const MICRO_MAX_ATR_MULTIPLIER = 4.0;
+    const normalizedStyle = tradeStyle?.toUpperCase();
+
+    if (normalizedStyle === 'SCALP' && controllingMethod === 'price-based') {
       const scalpCap = atrInPips * SCALP_MAX_ATR_MULTIPLIER;
       if (noiseFloorPips > scalpCap && scalpCap > atrFloorPips) {
         console.log(`[Noise Floor] SCALP cap applied: ${noiseFloorPips.toFixed(1)} -> ${scalpCap.toFixed(1)} pips (${SCALP_MAX_ATR_MULTIPLIER}x ATR cap)`);
@@ -387,11 +390,30 @@ class RiskAwareStopCalculator {
       }
     }
 
+    // CCIP (2026-02-17): Style-aware noise floor cap for MICRO_INTRADAY
+    // Same principle as SCALP but with wider 4x ATR multiplier to reflect M15 timeframe.
+    // Prevents permanent constraint sandwiches on high-priced INDEX instruments
+    // where 0.15% price-based floor exceeds the envelope SL max.
+    if (normalizedStyle === 'MICRO_INTRADAY' && controllingMethod === 'price-based') {
+      const microCap = atrInPips * MICRO_MAX_ATR_MULTIPLIER;
+      if (noiseFloorPips > microCap && microCap > atrFloorPips) {
+        console.log(`[Noise Floor] MICRO_INTRADAY cap applied: ${noiseFloorPips.toFixed(1)} -> ${microCap.toFixed(1)} pips (${MICRO_MAX_ATR_MULTIPLIER}x ATR cap)`);
+        noiseFloorPips = microCap;
+        controllingMethod = 'micro-atr-capped';
+        styleCapApplied = true;
+      }
+    }
+
+    const capLabel = controllingMethod === 'scalp-atr-capped'
+      ? `, SCALP capped at ${SCALP_MAX_ATR_MULTIPLIER}x ATR`
+      : controllingMethod === 'micro-atr-capped'
+        ? `, MICRO capped at ${MICRO_MAX_ATR_MULTIPLIER}x ATR`
+        : '';
     const reasoning =
       `${assetClassName} noise floor: ${noiseFloorPips.toFixed(1)} pips ` +
       `(${controllingMethod}: ${minPercentOfPrice}% of price = ${percentFloorPips.toFixed(1)} pips OR ` +
       `${minATRMultiplier}x ATR${atrTimeframe ? `[${atrTimeframe}]` : ''} = ${atrFloorPips.toFixed(1)} pips` +
-      `${styleCapApplied ? `, SCALP capped at ${SCALP_MAX_ATR_MULTIPLIER}x ATR` : ''})`;
+      `${styleCapApplied ? capLabel : ''})`;
 
     console.log(`[Noise Floor] ${symbol} @ ${entryPrice.toFixed(pipInfo.decimalPlaces)}: ${reasoning}`);
 

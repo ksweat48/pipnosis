@@ -39,7 +39,7 @@ import type {
   DualArenaWalls,
   DualArenaInput,
 } from '../types/omega9-constraints';
-import { getExecutionEnvelope, detectConstraintSandwich, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
+import { getExecutionEnvelope, detectConstraintSandwich, getAssetClassEnvelopeBounds, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
 
 class Omega9ConstraintProvider {
   /**
@@ -192,8 +192,14 @@ class Omega9ConstraintProvider {
     // Build constraint violations (empty initially, used for validation later)
     const violations: ConstraintViolation[] = [];
 
-    // Set minimum TP (no infeasibility check - that's handled by feasibility resolver)
-    const minTakeProfitPips = Math.min(idealMinTakeProfitPips, maxTakeProfitPips);
+    // Set minimum TP, ensuring it respects the envelope TP floor
+    // CCIP (2026-02-17): Use envelope TP min as floor to prevent Alpha from proposing
+    // TP values that satisfy R:R but violate the style envelope wall
+    const envelopeTpMin = envelopeBounds.tpPips.min;
+    const minTakeProfitPips = Math.min(
+      Math.max(idealMinTakeProfitPips, envelopeTpMin),
+      maxTakeProfitPips
+    );
     const constraintFeasibilityWarning = resolvedPlan
       ? '✅ Constraints validated by feasibility resolver'
       : '';
@@ -202,11 +208,32 @@ class Omega9ConstraintProvider {
     const baseTpReasoning = `Minimum: ${minTakeProfitPips.toFixed(1)} pips (R:R ≥ ${minRiskReward.toFixed(1)}:1). Target: ${targetTakeProfitPips.toFixed(1)} pips (R:R ≥ ${TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM}:1). Maximum: ${maxTakeProfitPips.toFixed(1)} pips (12x ATR)`;
     const fullTpReasoning = constraintFeasibilityWarning || (baseTpReasoning + tpReasoningSuffix);
 
+    // CCIP (2026-02-17): Align Omega-9 constraint ranges with envelope wall bounds
+    // This prevents Alpha from receiving conflicting guidance where Omega-9 says
+    // "SL 10-20 pips" but the envelope wall requires "SL >= 14 pips".
+    // SSOT: Envelope bounds are the authoritative source for style SL/TP ranges.
+    const assetCategory = assetClassifier.getAssetCategory(symbol);
+    const envelopeAssetClass = this.mapAssetCategoryToEnvelope(assetCategory);
+    const envelopeBounds = getAssetClassEnvelopeBounds(mappedStyle, envelopeAssetClass, symbol, entry);
+
+    let envelopeAlignedProfileMin = stopLossCalc.profileMinPips;
+    let envelopeAlignedProfileMax = stopLossCalc.profileMaxPips;
+
+    if (envelopeBounds.slPips.min > envelopeAlignedProfileMin) {
+      console.log(`[Omega-9 Envelope Align] ${symbol}: Raising SL min from ${envelopeAlignedProfileMin.toFixed(1)} to ${envelopeBounds.slPips.min.toFixed(1)} pips (envelope floor for ${mappedStyle} ${envelopeAssetClass})`);
+      envelopeAlignedProfileMin = envelopeBounds.slPips.min;
+    }
+
+    if (envelopeBounds.slPips.max > envelopeAlignedProfileMax) {
+      console.log(`[Omega-9 Envelope Align] ${symbol}: Raising SL max from ${envelopeAlignedProfileMax.toFixed(1)} to ${envelopeBounds.slPips.max.toFixed(1)} pips (envelope ceiling for ${mappedStyle} ${envelopeAssetClass})`);
+      envelopeAlignedProfileMax = envelopeBounds.slPips.max;
+    }
+
     // ✅ CRITICAL FIX: Ensure min <= max for SL range (SECONDARY BUG)
     // BUG: noiseFloor can exceed profileMax, creating invalid range (min > max)
     // Example: NAS100 noiseFloor=38.6 pips, profileMax=35 pips → INVALID (38.6 > 35)
-    const rawMinStopLoss = Math.max(stopLossCalc.profileMinPips, noiseFloor.noiseFloorPips);
-    const rawMaxStopLoss = stopLossCalc.profileMaxPips;
+    const rawMinStopLoss = Math.max(envelopeAlignedProfileMin, noiseFloor.noiseFloorPips);
+    const rawMaxStopLoss = envelopeAlignedProfileMax;
 
     let finalMinStopLoss = rawMinStopLoss;
     let finalMaxStopLoss = rawMaxStopLoss;
@@ -217,15 +244,14 @@ class Omega9ConstraintProvider {
         severity: 'WARNING',
         symbol,
         noiseFloor: noiseFloor.noiseFloorPips,
-        profileMin: stopLossCalc.profileMinPips,
+        profileMin: envelopeAlignedProfileMin,
         profileMax: rawMaxStopLoss,
         correction: 'Expanding max to accommodate noise floor',
-        callsite: 'omega9-constraint-provider.ts:161'
+        callsite: 'omega9-constraint-provider.ts:generateConstraints'
       });
 
-      // Expand max by 50% above noise floor to create valid range
       finalMaxStopLoss = rawMinStopLoss * 1.5;
-      console.log(`[Omega-9 Constraints] SL range corrected: ${rawMinStopLoss.toFixed(1)}-${rawMaxStopLoss.toFixed(1)} → ${finalMinStopLoss.toFixed(1)}-${finalMaxStopLoss.toFixed(1)} pips`);
+      console.log(`[Omega-9 Constraints] SL range corrected: ${rawMinStopLoss.toFixed(1)}-${rawMaxStopLoss.toFixed(1)} -> ${finalMinStopLoss.toFixed(1)}-${finalMaxStopLoss.toFixed(1)} pips`);
     }
 
     const constraints: Omega9Constraints = {

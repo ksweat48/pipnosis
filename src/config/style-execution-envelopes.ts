@@ -101,6 +101,17 @@ export const SCALP_ENVELOPE: StyleExecutionEnvelope = {
  * - Typically 4-8 M15 candles
  * - M15 structure primary, H1 for validation
  * - Pullback entry preferred
+ *
+ * CCIP (2026-02-17): Recalibrated percentage bounds to prevent permanent infeasibility.
+ * Previous bounds were set too aggressively, causing ALL 9 symbols to be envelope-blocked
+ * during low/normal volatility conditions:
+ * - FOREX SL min 0.12% produced ~14 pip minimum vs ATR-based stops of ~5-10 pips
+ * - INDEX SL max 0.12% was BELOW the 0.15% noise floor, creating permanent sandwiches
+ * - METAL SL min 0.50% produced ~25 pip minimum vs ATR-based stops of ~10 pips
+ * - CRYPTO SL min 0.80% produced ~542 pip minimum for BTCUSD vs ~339 pip ATR stops
+ *
+ * New bounds maintain style hierarchy (wider than SCALP, tighter than INTRADAY)
+ * while being achievable in normal market conditions.
  */
 export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
   style: 'MICRO_INTRADAY',
@@ -113,10 +124,10 @@ export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
   slPips: { min: 15, max: 50 },
 
   assetClassPercentBounds: {
-    FOREX: { tpPercent: { min: 0.25, max: 1.20 }, slPercent: { min: 0.12, max: 0.50 } },
-    CRYPTO: { tpPercent: { min: 1.50, max: 5.00 }, slPercent: { min: 0.80, max: 2.50 } },
-    METAL: { tpPercent: { min: 1.00, max: 5.00 }, slPercent: { min: 0.50, max: 2.00 } },
-    INDEX: { tpPercent: { min: 0.12, max: 1.00 }, slPercent: { min: 0.08, max: 0.12 } },
+    FOREX: { tpPercent: { min: 0.12, max: 1.20 }, slPercent: { min: 0.06, max: 0.50 } },
+    CRYPTO: { tpPercent: { min: 0.75, max: 5.00 }, slPercent: { min: 0.40, max: 2.50 } },
+    METAL: { tpPercent: { min: 0.50, max: 5.00 }, slPercent: { min: 0.25, max: 2.00 } },
+    INDEX: { tpPercent: { min: 0.08, max: 1.00 }, slPercent: { min: 0.05, max: 0.25 } },
   },
 
   atrTimeframe: 'M15',
