@@ -1017,7 +1017,7 @@ class AlphaCoordinatorBrain {
 
     const styleEnvelope = getExecutionEnvelope(tradeStyle);
     const promptAssetClass = getAssetClass(marketContext.symbol) as EnvelopeAssetClass;
-    const promptEnvelopeBounds = getAssetClassEnvelopeBounds(tradeStyle, promptAssetClass, marketContext.symbol, currentPrice);
+    const promptEnvelopeBounds = getAssetClassEnvelopeBounds(tradeStyle, promptAssetClass, marketContext.symbol, marketContext.price);
 
     const styleIdentityPrompt = '';
 
@@ -1028,7 +1028,7 @@ ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips) | Volati
 IF LONG SL Anchor: ${buyStopAnchor.stopLossPrice.toFixed(5)} (${buyStopAnchor.stopLossPips.toFixed(1)}p, ${buyStopAnchor.atrMultiplier.toFixed(2)}x ATR)
 IF SHORT SL Anchor: ${sellStopAnchor.stopLossPrice.toFixed(5)} (${sellStopAnchor.stopLossPips.toFixed(1)}p, ${sellStopAnchor.atrMultiplier.toFixed(2)}x ATR)
 Profile Range: ${buyStopAnchor.profileMinPips}-${buyStopAnchor.profileMaxPips} pips
-HARD WALLS (${tradeStyle} ${promptAssetClass} @ ${currentPrice.toFixed(2)}): SL MUST be ${promptEnvelopeBounds.slPips.min.toFixed(1)}-${promptEnvelopeBounds.slPips.max.toFixed(1)} pips | TP MUST be ${promptEnvelopeBounds.tpPips.min.toFixed(1)}-${promptEnvelopeBounds.tpPips.max.toFixed(1)} pips. Trades outside these walls are AUTO-REJECTED. You have FULL authority inside these bounds.
+HARD WALLS (${tradeStyle} ${promptAssetClass} @ ${marketContext.price.toFixed(2)}): SL MUST be ${promptEnvelopeBounds.slPips.min.toFixed(1)}-${promptEnvelopeBounds.slPips.max.toFixed(1)} pips | TP MUST be ${promptEnvelopeBounds.tpPips.min.toFixed(1)}-${promptEnvelopeBounds.tpPips.max.toFixed(1)} pips. Trades outside these walls are AUTO-REJECTED. You have FULL authority inside these bounds.
 `;
     }
 
