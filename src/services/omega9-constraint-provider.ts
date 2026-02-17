@@ -803,9 +803,9 @@ Core Principle: If the market can offer some profit, you should take it.
 
     sections.push('');
     sections.push('TP1/TP2 R:R WALLS (HARD ENFORCEMENT):');
-    sections.push('  MICRO_INTRADAY: TP1 R:R vs SL >= 1.5:1, TP2 R:R vs SL >= 2.0:1');
-    sections.push('  INTRADAY: TP1 R:R vs SL >= 1.5:1, TP2 R:R vs SL >= 2.0:1');
     sections.push('  SCALP: Single TP R:R vs SL >= 1.3:1');
+    sections.push('  MICRO_INTRADAY: TP1 R:R vs SL >= 1.5:1, TP2 R:R vs SL >= 2.0:1');
+    sections.push('  INTRADAY: TP1 R:R vs SL >= 2.0:1, TP2 R:R vs SL >= 2.5:1');
     sections.push('  Both TP1 and TP2 must be within the TP Wall range. Violations are auto-blocked.');
     sections.push('');
     sections.push('WALLS ARE PHYSICS. Choose LONG, SHORT, or NO_TRADE. Place SL/TP within the chosen arena.');

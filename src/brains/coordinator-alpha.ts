@@ -1267,11 +1267,16 @@ You choose ALL profit targets. The system NEVER calculates TP for you.
   For SELL: TP at the TOP of the support zone (upper boundary of candle cluster), NOT the bottom.
   For BUY: TP at the BOTTOM of the resistance zone (lower boundary of candle cluster), NOT the top.
   A filled TP at the near edge beats an unfilled TP at the far edge every time.
-- MICRO_INTRADAY / INTRADAY: You choose TWO take-profits:
-  "tp1" = Conservative partial target at a STYLE-APPROPRIATE structural level. For MICRO_INTRADAY: target M15 structure (NOT M5 micro-structure -- that is scalping). For INTRADAY: target H1 structure. TP1 R:R vs SL MUST be >= 1.5:1 (HARD WALL -- violations are auto-blocked).
-  "tp2" = Full profit target at the next higher timeframe structure. TP2 R:R vs SL MUST be >= 2.0:1 (HARD WALL).
+- MICRO_INTRADAY: You choose TWO take-profits:
+  "tp1" = Conservative partial target at the CONSERVATIVE EDGE (near side) of the nearest M15 structural zone (NOT M5 micro-structure -- that is scalping). TP1 R:R vs SL MUST be >= 1.5:1 (HARD WALL -- violations are auto-blocked).
+  "tp2" = Full profit target at the CONSERVATIVE EDGE of the nearest H1 structural zone. TP2 R:R vs SL MUST be >= 2.0:1 (HARD WALL).
   Both MUST be within the arena walls. tp1 MUST be closer to entry than tp2.
-  If no structural level exists at >= 1.5:1 distance for tp1, either tighten SL to a structural level that achieves the ratio, or issue NO_TRADE.
+  If no M15 structural level exists at >= 1.5:1 distance for tp1, either tighten SL to a structural level that achieves the ratio, or issue NO_TRADE.
+- INTRADAY: You choose TWO take-profits:
+  "tp1" = Conservative partial target at the CONSERVATIVE EDGE (near side) of the nearest H1 structural zone (NOT M15 micro-structure -- that is MICRO_INTRADAY). TP1 R:R vs SL MUST be >= 2.0:1 (HARD WALL -- violations are auto-blocked).
+  "tp2" = Full profit target at the CONSERVATIVE EDGE of the nearest H4 structural zone. TP2 R:R vs SL MUST be >= 2.5:1 (HARD WALL).
+  Both MUST be within the arena walls. tp1 MUST be closer to entry than tp2.
+  If no H1 structural level exists at >= 2.0:1 distance for tp1, either tighten SL to a structural level that achieves the ratio, or issue NO_TRADE.
 
 Return PURE JSON only:
 ${tradeStyle === 'SCALP' ? `{

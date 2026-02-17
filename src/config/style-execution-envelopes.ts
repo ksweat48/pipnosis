@@ -150,7 +150,7 @@ export const INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
     FOREX: { tpPercent: { min: 0.40, max: 2.00 }, slPercent: { min: 0.20, max: 0.80 } },
     CRYPTO: { tpPercent: { min: 3.00, max: 10.00 }, slPercent: { min: 1.50, max: 4.00 } },
     METAL: { tpPercent: { min: 1.60, max: 8.00 }, slPercent: { min: 0.80, max: 3.20 } },
-    INDEX: { tpPercent: { min: 0.25, max: 1.50 }, slPercent: { min: 0.10, max: 0.60 } },
+    INDEX: { tpPercent: { min: 0.25, max: 0.45 }, slPercent: { min: 0.10, max: 0.20 } },
   },
 
   atrTimeframe: 'H1',
