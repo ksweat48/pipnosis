@@ -1446,90 +1446,50 @@ ${tradeStyle === 'SCALP' ? `{
         dualArenaWalls
       );
 
-      // DUAL-ARENA WALL CHECK with marginal-violation auto-clamping
-      // CCIP (2026-02-17): LLMs are inherently imprecise with numeric values.
-      // Marginal violations (within tolerance) are auto-clamped to the wall boundary.
-      // Significant violations (beyond tolerance) are hard-blocked.
+      // DUAL-ARENA WALL CHECK — Pure binary pass/fail enforcement
+      // CCIP (2026-02-17): Walls are physics. Alpha's values are NEVER auto-adjusted.
+      // If Alpha proposes values outside walls, the trade is blocked. Period.
+      // Alpha must learn to propose correct values within the arena boundaries.
       // SSOT: Dual-arena walls are the single validation authority.
       if (decision.action !== 'NO_TRADE' && dualArenaWalls) {
         decision.arena_chosen = decision.action === 'BUY' ? 'LONG' : 'SHORT';
         const arena = decision.action === 'BUY' ? dualArenaWalls.long : dualArenaWalls.short;
-        const pipInfo = getCurrencyPipInfo(marketContext.symbol);
-        const isBuy = decision.action === 'BUY';
-        let slPipsCheck = calculatePipDistance(marketContext.symbol, decision.entry, decision.stopLoss);
-        let tpPipsCheck = calculatePipDistance(marketContext.symbol, decision.entry, decision.takeProfit);
+        const slPips = calculatePipDistance(marketContext.symbol, decision.entry, decision.stopLoss);
+        const tpPips = calculatePipDistance(marketContext.symbol, decision.entry, decision.takeProfit);
 
-        const getWallTolerance = (boundary: number): number =>
-          Math.min(Math.max(boundary * 0.05, 0.5), 3.0);
+        const wallViolations: string[] = [];
 
-        const hardViolations: string[] = [];
-        const clampedAdjustments: string[] = [];
-
-        const checkAndClamp = (
-          valuePips: number,
-          wallMin: number,
-          wallMax: number,
-          label: string
-        ): { pips: number; clamped: boolean } => {
-          if (valuePips < wallMin) {
-            const gap = wallMin - valuePips;
-            const tolerance = getWallTolerance(wallMin);
-            if (gap <= tolerance) {
-              clampedAdjustments.push(`${label} clamped ${valuePips.toFixed(1)} -> ${wallMin.toFixed(1)} pips (${gap.toFixed(1)} pip marginal)`);
-              return { pips: wallMin, clamped: true };
-            }
-            hardViolations.push(`${label} ${valuePips.toFixed(1)} pips below wall min ${wallMin.toFixed(1)}`);
-          }
-          if (valuePips > wallMax) {
-            const gap = valuePips - wallMax;
-            const tolerance = getWallTolerance(wallMax);
-            if (gap <= tolerance) {
-              clampedAdjustments.push(`${label} clamped ${valuePips.toFixed(1)} -> ${wallMax.toFixed(1)} pips (${gap.toFixed(1)} pip marginal)`);
-              return { pips: wallMax, clamped: true };
-            }
-            hardViolations.push(`${label} ${valuePips.toFixed(1)} pips above wall max ${wallMax.toFixed(1)}`);
-          }
-          return { pips: valuePips, clamped: false };
-        };
-
-        const slResult = checkAndClamp(slPipsCheck, arena.slPips.min, arena.slPips.max, 'SL');
-        if (slResult.clamped) {
-          decision.stopLoss = isBuy
-            ? decision.entry - slResult.pips * pipInfo.pipValue
-            : decision.entry + slResult.pips * pipInfo.pipValue;
-          slPipsCheck = slResult.pips;
+        if (slPips < arena.slPips.min) {
+          wallViolations.push(`SL ${slPips.toFixed(1)} pips below wall min ${arena.slPips.min.toFixed(1)}`);
         }
-
-        const tpResult = checkAndClamp(tpPipsCheck, arena.tpPips.min, arena.tpPips.max, 'TP2');
-        if (tpResult.clamped) {
-          decision.takeProfit = isBuy
-            ? decision.entry + tpResult.pips * pipInfo.pipValue
-            : decision.entry - tpResult.pips * pipInfo.pipValue;
-          tpPipsCheck = tpResult.pips;
+        if (slPips > arena.slPips.max) {
+          wallViolations.push(`SL ${slPips.toFixed(1)} pips above wall max ${arena.slPips.max.toFixed(1)}`);
+        }
+        if (tpPips < arena.tpPips.min) {
+          wallViolations.push(`TP ${tpPips.toFixed(1)} pips below wall min ${arena.tpPips.min.toFixed(1)}`);
+        }
+        if (tpPips > arena.tpPips.max) {
+          wallViolations.push(`TP ${tpPips.toFixed(1)} pips above wall max ${arena.tpPips.max.toFixed(1)}`);
         }
 
         if (decision.tp1Price != null) {
-          let tp1PipsCheck = calculatePipDistance(marketContext.symbol, decision.entry, decision.tp1Price);
-          const tp1Result = checkAndClamp(tp1PipsCheck, arena.tpPips.min, arena.tpPips.max, 'TP1');
-          if (tp1Result.clamped) {
-            decision.tp1Price = isBuy
-              ? decision.entry + tp1Result.pips * pipInfo.pipValue
-              : decision.entry - tp1Result.pips * pipInfo.pipValue;
+          const tp1Pips = calculatePipDistance(marketContext.symbol, decision.entry, decision.tp1Price);
+          if (tp1Pips < arena.tpPips.min) {
+            wallViolations.push(`TP1 ${tp1Pips.toFixed(1)} pips below wall min ${arena.tpPips.min.toFixed(1)}`);
+          }
+          if (tp1Pips > arena.tpPips.max) {
+            wallViolations.push(`TP1 ${tp1Pips.toFixed(1)} pips above wall max ${arena.tpPips.max.toFixed(1)}`);
           }
         }
 
-        if (clampedAdjustments.length > 0) {
-          console.warn(`[Alpha Coordinator] Wall auto-clamp: ${clampedAdjustments.join('; ')}`);
-        }
+        decision.wall_violations = wallViolations;
 
-        decision.wall_violations = hardViolations;
-
-        if (hardViolations.length > 0) {
-          console.warn(`[Alpha Coordinator] WALL VIOLATION: ${hardViolations.join('; ')}`);
+        if (wallViolations.length > 0) {
+          console.warn(`[Alpha Coordinator] WALL VIOLATION: ${wallViolations.join('; ')}`);
           decision.action = 'NO_TRADE';
           decision.decision = 'NO_TRADE';
           decision.confidence = 0;
-          decision.reasoning = `Blocked: Decision outside arena walls. ${hardViolations.join('; ')}`;
+          decision.reasoning = `Blocked: Decision outside arena walls. ${wallViolations.join('; ')}`;
 
           logViolation({
             violationType: 'ALPHA_WALL_VIOLATION',
@@ -1538,10 +1498,9 @@ ${tradeStyle === 'SCALP' ? `{
             callLocation: 'coordinator-alpha.wall_check',
             blocked: true,
             errorDetails: {
-              hardViolations,
-              clampedAdjustments,
-              slPips: slPipsCheck,
-              tpPips: tpPipsCheck,
+              wallViolations,
+              slPips,
+              tpPips,
               arenaMin: { sl: arena.slPips.min, tp: arena.tpPips.min },
               arenaMax: { sl: arena.slPips.max, tp: arena.tpPips.max },
               userId: userId || null,
@@ -1551,7 +1510,7 @@ ${tradeStyle === 'SCALP' ? `{
             console.error('[Alpha Coordinator] Failed to log wall violation:', error);
           });
         } else {
-          console.log(`[Alpha Coordinator] Decision within arena walls${clampedAdjustments.length > 0 ? ' (after clamping)' : ''}`);
+          console.log(`[Alpha Coordinator] Decision within arena walls`);
         }
       }
 
