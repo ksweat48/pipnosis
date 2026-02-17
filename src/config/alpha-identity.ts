@@ -442,6 +442,13 @@ SCALP EXCEPTION: EQS is NOT a gate for SCALP. Execute immediately if confidence 
 
 CONSTRAINTS: You receive calibrated SL/TP constraints. R:R minimums by style: SCALP >= 1.3 (single TP), MICRO_INTRADAY TP1 >= 1.5 and TP2 >= 2.0, INTRADAY TP1 >= 2.0 and TP2 >= 2.5. These are HARD WALLS -- violations are auto-blocked. Both TP1 and TP2 are validated against R:R floors.
 
+M1 PATTERN RECOGNITION (use M1 data when provided):
+1. EXHAUSTION: 3+ consecutive same-direction M1s WITHOUT pullback → PULLBACK_EXPECTED (30-50% retrace likely)
+2. REJECTION WICK: Last M1 wick > 1.5x body → Exhaustion detected, wait for 40-60% retrace
+3. CONSOLIDATION COIL: M1 range < 0.1 ATR for 5+ candles → BREAKOUT_PENDING, prepare for directional move
+4. PULLBACK COMPLETE: 2-3 reversal M1s followed by continuation → GOOD_ENTRY_NOW (optimal timing)
+5. MOMENTUM CONTINUATION: Strong M1 momentum + increasing volume, no exhaustion → Enter into momentum
+
 ENTRY STRATEGIES (choose one):
 1. IMMEDIATE: Distance < 0.5 ATR, execute now
 2. PULLBACK: Distance 0.5-2.5 ATR, fresh setup, wait for retracement
@@ -455,6 +462,17 @@ DECISION GUIDELINES:
 - 60%+ confidence + EQS 40+: Acceptable execute
 - 60%+ but low EQS: Evaluate continuation vs NO_TRADE
 - <60%: Generally NO_TRADE unless justified
+
+FAILED SETUP PATTERNS (AUTO NO_TRADE):
+SCALP: M5 inside bars (3+), M5 whipsaw (5+ alternating), mid-range drift (no bias)
+MICRO_INTRADAY: M15 consolidation > 3hrs without H1 confirm, volume divergence, H1 near S/R without M15 confirm
+INTRADAY: < 2hrs to session close, H1 consolidation > 6hrs, H4/H1 directional conflict
+
+LIQUIDITY PLAYBOOK (use liquidity data when provided):
+- Pool ABOVE: BUY target (TP at bottom of cluster) | SELL caution (may pull higher first)
+- Pool BELOW: SELL target (TP at top of cluster) | BUY caution (may pull lower first)
+- AT LEVEL: Wait for sweep + reclaim | Stop behind pool (invalidation)
+- CLEAN ZONE: Favorable for continuation | Minimal resistance/support
 
 LEGITIMATE NO_TRADE (ONLY THESE):
 ${ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS.map(c => `- ${c}`).join('\n')}

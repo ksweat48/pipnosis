@@ -98,6 +98,14 @@ import { tradeFeasibilityResolver } from '../services/trade-feasibility-resolver
 import type { AssetClass, TradeStyle as FeasibilityTradeStyle } from '../types/trade-feasibility-resolver.types';
 import { isCrypto, isIndex, isXAUUSD } from '../utils/currencyHelpers';
 import type { ConflictInfo } from '../types/alpha-thesis';
+import {
+  REGIME_STYLE_ADAPTATIONS,
+  SESSION_PROFILES,
+  LIQUIDITY_PLAYBOOK,
+  type RegimeType,
+  type SessionName,
+  type LiquidityPosition
+} from '../config/alpha-advanced-patterns';
 import { calculateSessionContext } from '../utils/marketHours';
 import type { EntrySpec, AlphaOutputFormat, StyleDisplayName } from '../types/entry';
 import { ALPHA_IDENTITY, getAlphaSystemPrompt, getEntryMode } from '../config/alpha-identity';
@@ -560,6 +568,14 @@ class AlphaCoordinatorBrain {
 
     // Build advisory context (Adversarial Detector + Regime Oracle)
     let advisoryContext = this.buildAdvisoryContext(adversarialSignal, regimeSnapshot);
+
+    // CCIP 2026-02-17: Build Advanced Patterns Context (Priority 1 & 2 Upgrades)
+    let advancedPatternsContext = this.buildAdvancedPatternsContext(
+      tradeStyle,
+      regimeSnapshot,
+      dailyNarrative,
+      votes.omega8
+    );
 
     // Build R:R performance context from parallel result
     let rrPerformanceContext = '';
@@ -1243,7 +1259,7 @@ ${briefing.briefingText}
 
 Risk Mode: ${riskMode.toUpperCase()}
 
-${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${patternContext}${intelligenceContext}${goalContextText}${liquidityContext}${constraintsText}${stopLossDirective}
+${conflictContext}${advisoryContext}${advancedPatternsContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${patternContext}${intelligenceContext}${goalContextText}${liquidityContext}${constraintsText}${stopLossDirective}
 
 MARKET CONDITIONS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2518,6 +2534,124 @@ ${tradeStyle === 'SCALP' ? `{
     }
 
     return parts.join('\n');
+  }
+
+  /**
+   * CCIP 2026-02-17: Build Advanced Patterns Context
+   * Priority 1 & 2 Upgrades: Regime Adaptations + Session Profiles + Liquidity Playbook
+   *
+   * This provides Alpha with context-aware guidance based on:
+   * - Current regime type (trending, ranging, volatile, compressed)
+   * - Current session (London open, NY open, overlap, dead zone, etc.)
+   * - Liquidity positioning (pools above/below, clean zones)
+   *
+   * SSOT: All pattern definitions come from alpha-advanced-patterns.ts
+   */
+  private buildAdvancedPatternsContext(
+    tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY',
+    regimeSnapshot?: RegimeSnapshot,
+    dailyNarrative?: DailyNarrative | null,
+    omega8Vote?: Omega8Vote
+  ): string {
+    const parts: string[] = ['\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'];
+    parts.push('🎯 ADVANCED CONTEXT-AWARE INTELLIGENCE');
+    parts.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    // Regime Adaptation Context
+    if (regimeSnapshot && regimeSnapshot.currentRegime) {
+      const regimeType = this.mapRegimeToType(regimeSnapshot.currentRegime);
+      const adaptation = REGIME_STYLE_ADAPTATIONS[tradeStyle][regimeType];
+
+      parts.push(`\n📊 REGIME ADAPTATION (${tradeStyle} in ${regimeType}):`);
+      parts.push(`  Strategy: ${adaptation.strategy}`);
+      parts.push(`  TP Target Range: ${adaptation.tp_target_range}`);
+      parts.push(`  Entry Bias: ${adaptation.entry_bias}`);
+      parts.push(`  Stop Adjustment: ${adaptation.stop_adjustment}`);
+      if (adaptation.confidence_adjustment !== 0) {
+        parts.push(`  Confidence Adjustment: ${adaptation.confidence_adjustment > 0 ? '+' : ''}${adaptation.confidence_adjustment}%`);
+      }
+      parts.push(`  Notes: ${adaptation.notes}`);
+    }
+
+    // Session Behavior Profile
+    if (dailyNarrative && dailyNarrative.currentSession) {
+      const sessionProfiles = SESSION_PROFILES[tradeStyle];
+      const sessionName = this.mapSessionName(dailyNarrative.currentSession);
+      const sessionProfile = Object.values(sessionProfiles).find(p => p.session === sessionName);
+
+      if (sessionProfile) {
+        parts.push(`\n⏰ SESSION PROFILE (${sessionProfile.session}):`);
+        parts.push(`  Time: ${sessionProfile.time_utc} UTC`);
+        parts.push(`  Characteristics: ${sessionProfile.characteristics}`);
+        if ('typical_m5_leg' in sessionProfile) {
+          parts.push(`  Typical Move: ${sessionProfile.typical_m5_leg}`);
+        }
+        parts.push(`  Strategy: ${sessionProfile.strategy}`);
+        if (sessionProfile.confidence_adjustment !== 0) {
+          parts.push(`  Confidence Adjustment: ${sessionProfile.confidence_adjustment > 0 ? '+' : ''}${sessionProfile.confidence_adjustment}%`);
+        }
+        parts.push(`  Notes: ${sessionProfile.notes}`);
+      }
+    }
+
+    // Liquidity Positioning Playbook
+    if (omega8Vote && omega8Vote.liquidity_bias) {
+      const liquidityPosition = this.determineLiquidityPosition(omega8Vote);
+      const playbook = LIQUIDITY_PLAYBOOK[liquidityPosition];
+
+      parts.push(`\n💧 LIQUIDITY PLAYBOOK (Position: ${liquidityPosition}):`);
+      parts.push(`  Context: ${playbook.description}`);
+      parts.push(`  Bullish View: ${playbook.bullish_interpretation}`);
+      parts.push(`  Bearish View: ${playbook.bearish_interpretation}`);
+      parts.push(`  Long Strategy: ${playbook.recommended_strategy.for_longs}`);
+      parts.push(`  Short Strategy: ${playbook.recommended_strategy.for_shorts}`);
+      parts.push(`  TP Placement: ${playbook.tp_placement}`);
+      parts.push(`  Stop Placement: ${playbook.stop_placement}`);
+    }
+
+    parts.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Helper: Map regime snapshot to RegimeType for advanced patterns
+   */
+  private mapRegimeToType(regime: string): RegimeType {
+    const lower = regime.toLowerCase();
+    if (lower.includes('trend')) return 'TRENDING';
+    if (lower.includes('range') || lower.includes('consolidat')) return 'RANGING';
+    if (lower.includes('volatile') || lower.includes('expand')) return 'VOLATILE_EXPANSION';
+    if (lower.includes('compress') || lower.includes('low_vol')) return 'COMPRESSED';
+    return 'RANGING'; // Default fallback
+  }
+
+  /**
+   * Helper: Map daily narrative session to SessionName
+   */
+  private mapSessionName(session: string): SessionName {
+    const lower = session.toLowerCase();
+    if (lower.includes('london') && lower.includes('open')) return 'LONDON_OPEN';
+    if (lower.includes('london')) return 'LONDON_ACTIVE';
+    if (lower.includes('ny') && lower.includes('open')) return 'NY_OPEN';
+    if (lower.includes('overlap')) return 'OVERLAP';
+    if (lower.includes('afternoon')) return 'NY_AFTERNOON';
+    if (lower.includes('lunch')) return 'NY_LUNCH';
+    if (lower.includes('dead') || lower.includes('quiet')) return 'DEAD_ZONE';
+    if (lower.includes('asia')) return 'ASIA_CONSOLIDATION';
+    return 'LONDON_ACTIVE'; // Default fallback
+  }
+
+  /**
+   * Helper: Determine liquidity position from Omega-8 vote
+   */
+  private determineLiquidityPosition(omega8Vote: Omega8Vote): LiquidityPosition {
+    const bias = omega8Vote.liquidity_bias?.toLowerCase() || '';
+
+    if (bias.includes('above') || bias.includes('overhead')) return 'ABOVE';
+    if (bias.includes('below') || bias.includes('underneath')) return 'BELOW';
+    if (bias.includes('at') || bias.includes('near') || bias.includes('sitting')) return 'AT_LEVEL';
+    return 'DISPERSED'; // Clean zone / no concentration
   }
 
   /**
