@@ -69,7 +69,10 @@ class MidTradeAlertExecutor {
         .limit(10);
 
       if (fetchError) {
-        logger.error('[AlertExecutor] Error fetching expired alerts:', fetchError);
+        // Suppress AbortError during initialization
+        if (!(fetchError.message && fetchError.message.includes('AbortError'))) {
+          logger.error('[AlertExecutor] Error fetching expired alerts:', fetchError);
+        }
         this.isExecuting = false;
         return;
       }

@@ -151,7 +151,14 @@ class PricePollingCoordinator extends TinyEmitter {
       this.consecutiveErrors++;
 
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error(`[PriceCoordinator] Fetch error (${this.consecutiveErrors}/${this.MAX_CONSECUTIVE_ERRORS}):`, errorMessage);
+
+      // Only log first error loudly to avoid console spam
+      if (this.consecutiveErrors === 1) {
+        console.warn(`[PriceCoordinator] Price fetch failed:`, errorMessage);
+        console.warn(`[PriceCoordinator] Will retry silently...`);
+      } else if (this.consecutiveErrors >= this.MAX_CONSECUTIVE_ERRORS) {
+        console.error(`[PriceCoordinator] Max errors reached (${this.MAX_CONSECUTIVE_ERRORS}), backing off`);
+      }
 
       // Emit error to subscribers
       this.emit('error', error);

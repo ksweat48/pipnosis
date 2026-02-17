@@ -97,6 +97,9 @@ const AppRoutes: React.FC = () => {
       return () => {
         clearTimeout(timer);
       };
+    } else {
+      // Clear timeout flag when loading completes
+      setLoadingTimeout(false);
     }
   }, [loading]);
 
@@ -140,25 +143,48 @@ const AppRoutes: React.FC = () => {
       console.error('[App] Error initializing cache:', error);
     });
 
-    // CACHE INTELLIGENCE: Initialize cache warming for SSOT compliance
-    // Pre-populates alpha thesis cache to improve hit rates (target 60-85%)
-    const initCacheWarming = async () => {
-      try {
-        const { thesisCacheWarmer } = await import('./services/thesis-cache-warmer');
-        console.log('[App] Starting cache warming for alpha thesis optimization...');
-
-        await thesisCacheWarmer.warmCache();
-
-        console.log('[App] ✅ Cache warming complete - SSOT-compliant cache ready');
-      } catch (error) {
-        console.warn('[App] Cache warming failed (non-blocking):', error);
+    // Wait for auth to be ready before starting database-dependent services
+    const initDatabaseServices = async () => {
+      // Don't start services until loading is false (auth initialized)
+      if (loading) {
+        console.log('[App] Waiting for auth to initialize before starting services...');
+        return;
       }
+
+      // CACHE INTELLIGENCE: Initialize cache warming for SSOT compliance
+      // Pre-populates alpha thesis cache to improve hit rates (target 60-85%)
+      const initCacheWarming = async () => {
+        try {
+          const { thesisCacheWarmer } = await import('./services/thesis-cache-warmer');
+          console.log('[App] Starting cache warming for alpha thesis optimization...');
+
+          await thesisCacheWarmer.warmCache();
+
+          console.log('[App] ✅ Cache warming complete - SSOT-compliant cache ready');
+        } catch (error) {
+          console.warn('[App] Cache warming failed (non-blocking):', error);
+        }
+      };
+
+      // Run warming async - don't block app startup
+      initCacheWarming();
+
+      // Initialize CCIP change tracking for entry intent cleanup fix
+      const initCCIPTracking = async () => {
+        try {
+          const { ccipEntryIntentCleanupTracker } = await import('./services/ccip-entry-intent-cleanup-tracker');
+          await ccipEntryIntentCleanupTracker.initializeTracking();
+        } catch (error) {
+          console.warn('[[CCIP] Governance tables unavailable during init (will continue without tracking)]', { errorMessage: error instanceof Error ? error.message : 'Unknown error' });
+        }
+      };
+
+      initCCIPTracking();
     };
 
-    // Run warming async - don't block app startup
-    initCacheWarming();
+    initDatabaseServices();
 
-    // Initialize deployment detector in production
+    // Initialize deployment detector in production (doesn't require auth)
     if (import.meta.env.PROD) {
       const initDeploymentDetector = async () => {
         const { deploymentDetector } = await import('./services/deployment-detector');
@@ -169,17 +195,7 @@ const AppRoutes: React.FC = () => {
         console.error('[App] Error initializing deployment detector:', error);
       });
     }
-
-    // Initialize CCIP change tracking for entry intent cleanup fix
-    const initCCIPTracking = async () => {
-      const { ccipEntryIntentCleanupTracker } = await import('./services/ccip-entry-intent-cleanup-tracker');
-      await ccipEntryIntentCleanupTracker.initializeTracking();
-    };
-
-    initCCIPTracking().catch(error => {
-      console.error('[App] Error initializing CCIP tracking:', error);
-    });
-  }, []);
+  }, [loading]);
 
   // CCIP FIX (2026-02-03): Initialize realtime trade notification listener
   // Triggers modal popups for server-side trade executions

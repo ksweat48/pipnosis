@@ -126,6 +126,10 @@ class PositionMonitorService {
 
       this.updateCriticalSymbols(result.positions as any[]); // Cast needed for legacy compatibility
     } catch (error) {
+      // Suppress AbortError - it's expected when database is initializing
+      if (error instanceof Error && error.name === 'AbortError') {
+        return;
+      }
       logger.error(LogCategory.POSITION_MONITOR, 'Error monitoring positions:', error);
     }
   }
@@ -312,6 +316,10 @@ class PositionMonitorService {
         }
       }
     } catch (error) {
+      // Suppress AbortError - it's expected when database is initializing
+      if (error instanceof Error && error.name === 'AbortError') {
+        return;
+      }
       console.error('[PositionMonitor] Error monitoring normal positions:', error);
     }
   }

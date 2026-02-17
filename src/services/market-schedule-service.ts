@@ -117,7 +117,10 @@ class MarketScheduleService {
         }
         logger.debug(LogCategory.TRADING, `Loaded ${holidays.length} holidays from database`);
       } else {
-        logger.warn(LogCategory.TRADING, 'Failed to load holidays from database, using hardcoded fallback', holidayError);
+        // Suppress AbortError during initialization
+        if (!(holidayError && holidayError.message && holidayError.message.includes('AbortError'))) {
+          logger.warn(LogCategory.TRADING, 'Failed to load holidays from database, using hardcoded fallback', holidayError);
+        }
         // Use hardcoded holidays as fallback
         this.holidayCache.clear();
         for (const holiday of this.HARDCODED_HOLIDAYS) {

@@ -78,7 +78,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     mountedRef.current = true;
 
-    supabase.auth.getSession().then(async ({ data: { session: currentSession } }) => {
+    // Add timeout wrapper to prevent hanging on failed auth
+    const getSessionWithTimeout = (timeoutMs = 5000) => {
+      return Promise.race([
+        supabase.auth.getSession(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Auth timeout')), timeoutMs)
+        )
+      ]) as Promise<{ data: { session: Session | null } }>;
+    };
+
+    getSessionWithTimeout().then(async ({ data: { session: currentSession } }) => {
       if (!mountedRef.current) return;
 
       if (currentSession?.user) {
@@ -91,8 +101,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (mountedRef.current) setLoading(false);
-    }).catch(() => {
-      if (mountedRef.current) setLoading(false);
+    }).catch((error) => {
+      console.error('[Auth] Session initialization failed:', error);
+      if (mountedRef.current) {
+        setSession(null);
+        setUser(null);
+        setLoading(false);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {

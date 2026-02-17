@@ -236,6 +236,12 @@ if (typeof window !== 'undefined') {
 window.addEventListener('unhandledrejection', (event) => {
   const reason = event.reason?.message || event.reason?.toString() || '';
 
+  // Suppress AbortError - it's expected during initialization
+  if (event.reason?.name === 'AbortError' || reason.includes('AbortError')) {
+    event.preventDefault();
+    return;
+  }
+
   // Log ALL unhandled rejections for debugging
   console.error('🔴 UNHANDLED PROMISE REJECTION:', {
     reason: event.reason,

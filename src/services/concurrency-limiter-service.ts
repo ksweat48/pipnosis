@@ -108,7 +108,10 @@ class ConcurrencyLimiterService {
 
       if (error) {
         // Graceful degradation: use default config if RPC unavailable
-        console.warn('[ConcurrencyLimiter] RPC unavailable, using defaults:', error.message);
+        // Suppress AbortError during initialization
+        if (!error.message?.includes('AbortError')) {
+          console.warn('[ConcurrencyLimiter] RPC unavailable, using defaults:', error.message);
+        }
         this.maxConcurrent = 5;
         this.isCircuitBroken = false;
         return;

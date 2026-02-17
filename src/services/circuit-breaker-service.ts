@@ -76,7 +76,10 @@ class CircuitBreakerService {
         .maybeSingle();
 
       if (error) {
-        console.warn('[CircuitBreaker] Could not load state from DB:', error.message);
+        // Suppress AbortError during initialization
+        if (!error.message?.includes('AbortError')) {
+          console.warn('[CircuitBreaker] Could not load state from DB:', error.message);
+        }
         return;
       }
 

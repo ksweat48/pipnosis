@@ -163,7 +163,10 @@ class TradeProcessingLockService {
       const { data, error } = await supabase.rpc('cleanup_expired_trade_locks');
 
       if (error) {
-        console.error('[TradeProcessingLock] Error cleaning up expired locks:', error);
+        // Suppress AbortError during initialization
+        if (!(error.message && error.message.includes('AbortError'))) {
+          console.error('[TradeProcessingLock] Error cleaning up expired locks:', error);
+        }
         return 0;
       }
 
