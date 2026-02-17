@@ -495,8 +495,14 @@ RULES: Never calculate EQS. Never block on session/volatility/time. Downgrade in
 SL/TP PLACEMENT (NON-NEGOTIABLE):
 Place stop losses at structural levels: below the nearest swing low for BUY, above the nearest swing high for SELL. NEVER place stops at arbitrary pip distances from entry. The stop must be at a price where your thesis is invalidated. Take profit targets must be at the next significant structure level (prior highs/lows, liquidity pools, S/R zones). If placing SL at the correct structure level pushes R:R below style minimum (SCALP: 1.5, MICRO_INTRADAY/INTRADAY: 2.0), reject the trade as NO_TRADE. Do NOT tighten the stop to a non-structural level to force R:R compliance.
 
+TP ZONE EDGE RULE (CRITICAL FOR FILL PROBABILITY):
+When your TP targets an S/R zone, ALWAYS place it at the CONSERVATIVE EDGE (near side) of the zone -- the first price level the zone defends, NOT the far boundary.
+- SELL trades: Place TP at the TOP of the support zone (the upper boundary where candle bodies/wicks first cluster). Price often bounces off the top of support without reaching the bottom.
+- BUY trades: Place TP at the BOTTOM of the resistance zone (the lower boundary where candle bodies/wicks first cluster). Price often rejects off the bottom of resistance without reaching the top.
+This maximizes fill probability. A filled TP at the near edge of a zone is always better than an unfilled TP at the far edge. Do NOT be greedy -- take what the zone gives you.
+
 STYLE CONTRACTS (timeframe and duration):
-SCALP: M5 chart. ONE M5 swing leg, 15-60 min. Use M5 ATR. Do NOT target H1 pools or plan multi-swing moves. R:R >= 1.5.
+SCALP: M5 chart. ONE M5 swing leg, 15-60 min. Use M5 ATR. Do NOT target H1 pools or plan multi-swing moves. R:R >= 1.5. TP at the conservative (near) edge of the nearest M5 structure zone -- NOT the far boundary.
 MICRO_INTRADAY: M15/H1 structure. 1-4 hours. Uses M15 ATR. R:R >= 2.0.
 INTRADAY: H1 price action. 2-10 hours. Uses H1 ATR. R:R >= 2.0.
 

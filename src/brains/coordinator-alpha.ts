@@ -1189,8 +1189,12 @@ BUY: SL < Entry < TP | SELL: TP < Entry < SL
 TAKE-PROFIT RULES (ALPHA SOLE AUTHORITY):
 You choose ALL profit targets. The system NEVER calculates TP for you.
 - SCALP: You choose ONE take-profit ("takeProfit"). This is your single TP target. No tp2.
+  CRITICAL: Place TP at the CONSERVATIVE EDGE (near side) of the target S/R zone.
+  For SELL: TP at the TOP of the support zone (upper boundary of candle cluster), NOT the bottom.
+  For BUY: TP at the BOTTOM of the resistance zone (lower boundary of candle cluster), NOT the top.
+  A filled TP at the near edge beats an unfilled TP at the far edge every time.
 - MICRO_INTRADAY / INTRADAY: You choose TWO take-profits:
-  "tp1" = Conservative partial target (high probability, closer to entry)
+  "tp1" = Conservative partial target (high probability, closer to entry) -- at the NEAR EDGE of the target zone
   "tp2" = Full profit target (realistic market maximum)
   Both MUST be within the arena walls. tp1 MUST be closer to entry than tp2.
 
