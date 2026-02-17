@@ -17,6 +17,23 @@
  * - IMPACT: Fixes "Insufficient candles" errors that prevented all pairs from showing (0 pairs before fix)
  * - SSOT PRINCIPLE: Database schema is authoritative source of truth
  *
+ * CCIP GOVERNANCE FIX (2026-02-17):
+ * - ISSUE: All 8 indicator checks had overly loose thresholds causing near-universal 100% / 8-of-8 alignment
+ * - ROOT CAUSE: VWAP allowed 0.5% wrong-side tolerance, EMA20 allowed 1%, RSI used 30-point windows,
+ *   volume only needed 2/5 candles with self-referencing average, pattern just checked candle direction,
+ *   structure used alternating-index comparison, momentum threshold was 0.1%
+ * - FIX: Tightened all 8 indicators to institutional-grade discrimination:
+ *   1. VWAP: Strict side-of-VWAP (no tolerance for wrong-side positions)
+ *   2. EMA20: Strict side-of-EMA (removed 1% wrong-side allowance)
+ *   3. EMA50: Added EMA20/EMA50 cross confirmation (trend alignment)
+ *   4. RSI: Narrowed to 15-point windows (buy: 50-65, sell: 35-50)
+ *   5. Volume: 20-candle baseline, 3/5 directional candles with above-average volume, missing data = fail
+ *   6. Pattern: Requires >50% body ratio AND close beyond previous candle extreme (engulfing-grade)
+ *   7. Structure: Consecutive transition counting (3/4 HH + 2/4 HL for buy, inverse for sell)
+ *   8. Momentum: 0.3% threshold (3x previous) + short-term momentum confirmation
+ * - IMPACT: 8/8 alignment now represents genuine institutional-grade confluence, not noise
+ * - SSOT PRINCIPLE: This calculator is sole authority for real-time intelligence thresholds
+ *
  * Governance:
  * - No database business logic
  * - Pure calculation service
@@ -329,9 +346,9 @@ export class RealTimeIntelligenceCalculator {
     const vwap = this.calculateVWAP(candles.slice(-50));
 
     if (direction === 'buy') {
-      return price >= vwap * 0.995;
+      return price > vwap;
     } else {
-      return price <= vwap * 1.005;
+      return price < vwap;
     }
   }
 
@@ -341,9 +358,9 @@ export class RealTimeIntelligenceCalculator {
     const ema20 = this.calculateEMA(candles, 20);
 
     if (direction === 'buy') {
-      return price >= ema20 * 0.99;
+      return price > ema20;
     } else {
-      return price <= ema20 * 1.01;
+      return price < ema20;
     }
   }
 
@@ -351,11 +368,12 @@ export class RealTimeIntelligenceCalculator {
     if (candles.length < 50) return false;
 
     const ema50 = this.calculateEMA(candles, 50);
+    const ema20 = this.calculateEMA(candles, 20);
 
     if (direction === 'buy') {
-      return price > ema50;
+      return price > ema50 && ema20 > ema50;
     } else {
-      return price < ema50;
+      return price < ema50 && ema20 < ema50;
     }
   }
 
@@ -365,46 +383,49 @@ export class RealTimeIntelligenceCalculator {
     const rsi = this.calculateRSI(candles, 14);
 
     if (direction === 'buy') {
-      return rsi > 40 && rsi < 70;
+      return rsi > 50 && rsi < 65;
     } else {
-      return rsi > 30 && rsi < 60;
+      return rsi > 35 && rsi < 50;
     }
   }
 
   private checkVolume(candles: Candle[], direction: string): boolean {
-    if (candles.length < 5) return false;
+    if (candles.length < 20) return false;
 
+    const lookback = candles.slice(-20);
+    const volumeCandles = lookback.filter(c => c.volume && c.volume > 0);
+    if (volumeCandles.length < 10) return false;
+
+    const avgVolume = volumeCandles.reduce((sum, c) => sum + (c.volume || 0), 0) / volumeCandles.length;
     const recentCandles = candles.slice(-5);
-    const avgVolume = recentCandles.reduce((sum, c) => sum + (c.volume || 0), 0) / 5;
 
-    let bullishCandles = 0;
+    let matchingCandles = 0;
     for (const candle of recentCandles) {
       const isBullish = candle.close > candle.open;
-      const isHighVolume = (candle.volume || 0) > avgVolume * 0.8;
+      const hasAboveAvgVolume = (candle.volume || 0) > avgVolume;
 
-      if (isBullish && isHighVolume) bullishCandles++;
+      if (direction === 'buy' && isBullish && hasAboveAvgVolume) matchingCandles++;
+      if (direction === 'sell' && !isBullish && hasAboveAvgVolume) matchingCandles++;
     }
 
-    if (direction === 'buy') {
-      return bullishCandles >= 2;
-    } else {
-      return recentCandles.length - bullishCandles >= 2;
-    }
+    return matchingCandles >= 3;
   }
 
   private checkPattern(candles: Candle[], direction: string): boolean {
     if (candles.length < 3) return false;
 
-    const recentCandle = candles[candles.length - 1];
-    const previousCandle = candles[candles.length - 2];
+    const current = candles[candles.length - 1];
+    const previous = candles[candles.length - 2];
 
-    const recentIsBullish = recentCandle.close > recentCandle.open;
-    const recentIsGrowing = recentCandle.close > previousCandle.close;
+    const body = Math.abs(current.close - current.open);
+    const range = current.high - current.low;
+    if (range === 0) return false;
+    const bodyRatio = body / range;
 
     if (direction === 'buy') {
-      return recentIsBullish && recentIsGrowing;
+      return current.close > current.open && bodyRatio > 0.5 && current.close > previous.high;
     } else {
-      return !recentIsBullish && !recentIsGrowing;
+      return current.close < current.open && bodyRatio > 0.5 && current.close < previous.low;
     }
   }
 
@@ -412,18 +433,22 @@ export class RealTimeIntelligenceCalculator {
     if (candles.length < 5) return false;
 
     const recent = candles.slice(-5);
-    const highs = recent.map((c) => c.high);
-    const lows = recent.map((c) => c.low);
+    let higherHighs = 0;
+    let higherLows = 0;
+    let lowerHighs = 0;
+    let lowerLows = 0;
 
-    const isHigherHighs = highs[4] > highs[2] && highs[2] > highs[0];
-    const isHigherLows = lows[4] > lows[2] && lows[2] > lows[0];
+    for (let i = 1; i < recent.length; i++) {
+      if (recent[i].high > recent[i - 1].high) higherHighs++;
+      if (recent[i].low > recent[i - 1].low) higherLows++;
+      if (recent[i].high < recent[i - 1].high) lowerHighs++;
+      if (recent[i].low < recent[i - 1].low) lowerLows++;
+    }
 
     if (direction === 'buy') {
-      return isHigherHighs || isHigherLows;
+      return higherHighs >= 3 && higherLows >= 2;
     } else {
-      const isLowerHighs = highs[4] < highs[2] && highs[2] < highs[0];
-      const isLowerLows = lows[4] < lows[2] && lows[2] < lows[0];
-      return isLowerHighs || isLowerLows;
+      return lowerLows >= 3 && lowerHighs >= 2;
     }
   }
 
@@ -431,12 +456,15 @@ export class RealTimeIntelligenceCalculator {
     if (candles.length < 10) return false;
 
     const recent = candles.slice(-10);
-    const change = (recent[9].close - recent[0].close) / recent[0].close;
+    const longChange = (recent[9].close - recent[0].close) / recent[0].close;
+
+    const short = candles.slice(-3);
+    const shortChange = (short[short.length - 1].close - short[0].close) / short[0].close;
 
     if (direction === 'buy') {
-      return change > 0.001;
+      return longChange > 0.003 && shortChange > 0;
     } else {
-      return change < -0.001;
+      return longChange < -0.003 && shortChange < 0;
     }
   }
 
