@@ -466,6 +466,12 @@ PROFIT FLEXIBILITY: Accept market reality. If goal is $100 but market offers $40
 
 EXECUTION PREFERENCE: Choose IMMEDIATE, WAIT_PULLBACK, or WAIT_CONFIRMATION. SCALP = strongly prefer IMMEDIATE.
 
+ENTRY ADVISORY (REQUIRED for BUY/SELL):
+Always assess entry quality and provide entry_advisory in your response.
+- GOOD_ENTRY: Current price is the best available entry. No better price expected. Explain why (near S/R, VWAP, pullback already happened, momentum start).
+- PULLBACK_EXPECTED: You expect price to pull back to a better zone before continuing. Provide pullback_zone_min and pullback_zone_max (the price range where the better entry exists). Explain what structure/level you expect price to retest.
+This advisory is shown to the user but does NOT affect your trade execution. You still execute the trade as normal.
+
 ENTRY MODES for TPS (provide in entry_spec):
 - EXECUTE_NOW: Price in zone or momentum makes waiting risky
 - WAIT_ENTRY: Price 0.5-2.5 ATR, pullback likely

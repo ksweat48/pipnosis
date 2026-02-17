@@ -295,6 +295,12 @@ export interface AlphaDecision {
   };
   arena_chosen?: 'LONG' | 'SHORT' | 'NO_TRADE';
   wall_violations?: string[];
+  entry_advisory?: {
+    verdict: 'GOOD_ENTRY' | 'PULLBACK_EXPECTED';
+    pullback_zone_min: number | null;
+    pullback_zone_max: number | null;
+    reasoning: string;
+  };
 }
 
 /**
@@ -1211,6 +1217,7 @@ ${tradeStyle === 'SCALP' ? `{
   "marketThesis": "Brief market analysis (30-50 words)",
   "reasoning": "Brief execution reasoning",
   "market_narrative": "Single-sentence cause-effect thesis",
+  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "Why entry is good OR where pullback expected" },
   "override": { "type": "none", "justification": "" }
 }` : `{
   "action": "BUY|SELL|NO_TRADE",
@@ -1225,6 +1232,7 @@ ${tradeStyle === 'SCALP' ? `{
   "marketThesis": "Brief market analysis (30-50 words)",
   "reasoning": "Brief execution reasoning",
   "market_narrative": "Single-sentence cause-effect thesis",
+  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "Why entry is good OR where pullback expected" },
   "override": { "type": "none", "justification": "" }
 }`}`;
 
@@ -1250,7 +1258,7 @@ ${tradeStyle === 'SCALP' ? `{
         {
           model: 'gpt-4o-mini',
           temperature: 0.3,
-          max_tokens: 500,
+          max_tokens: 700,
           requestType: 'alpha_coordination',
           endpoint: 'alpha-coordinator'
         }
@@ -1877,6 +1885,15 @@ ${tradeStyle === 'SCALP' ? `{
       const executionPreference = parsed.execution_preference || null;
       const acceptableProfitRange = parsed.acceptable_profit_range || null;
 
+      // CCIP 2026-02-17: Extract Alpha's entry advisory (SSOT for Entry Monitor)
+      const rawAdvisory = parsed.entry_advisory;
+      const entryAdvisory = rawAdvisory && typeof rawAdvisory === 'object' ? {
+        verdict: rawAdvisory.verdict === 'PULLBACK_EXPECTED' ? 'PULLBACK_EXPECTED' as const : 'GOOD_ENTRY' as const,
+        pullback_zone_min: typeof rawAdvisory.pullback_zone_min === 'number' ? rawAdvisory.pullback_zone_min : null,
+        pullback_zone_max: typeof rawAdvisory.pullback_zone_max === 'number' ? rawAdvisory.pullback_zone_max : null,
+        reasoning: typeof rawAdvisory.reasoning === 'string' ? rawAdvisory.reasoning : ''
+      } : null;
+
       // ═══════════════════════════════════════════════════════════════════
       // CALCULATE RISK PERCENTAGE (SSOT)
       // ═══════════════════════════════════════════════════════════════════
@@ -2146,7 +2163,8 @@ ${tradeStyle === 'SCALP' ? `{
           entry_mode: entryMode,
           style: resolvedStyle,
         },
-        narrativeValidation: narrativeValidation || undefined
+        narrativeValidation: narrativeValidation || undefined,
+        entry_advisory: entryAdvisory || undefined
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);

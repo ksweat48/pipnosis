@@ -1,27 +1,24 @@
 /**
- * ENTRY PRICE MONITOR - Structural Entry Validation & Pullback Advisory
+ * ENTRY PRICE MONITOR - Alpha's Entry Advisory Intelligence
  *
- * SSOT Authority: Single UI for entry advisory verdicts
- * Data Source: entry_intents.structural_verdict + entry_intents.market_context.structural_analysis
+ * SSOT Authority: Single UI for Alpha's entry quality assessment
+ * Data Source: entry_intents.market_context.alpha_entry_advisory (SOLE authority)
  *
- * TWO VERDICTS:
- * 1. OPTIMAL_ENTRY - Alpha's entry aligns with key S/R. Enter now.
- * 2. WAIT_FOR_PULLBACK - Entry not at S/R. Wait for pullback to target price.
+ * TWO VERDICTS (from Alpha's LLM):
+ * 1. GOOD_ENTRY - Alpha confirms this is the best available entry
+ * 2. PULLBACK_EXPECTED - Alpha expects a pullback to a better zone
+ *    When price reaches the pullback zone, UI flips to GOOD_ENTRY
  *
- * CCIP COMPLIANCE:
- * - No business logic - purely presentation of EntryStructureAnalyzer results
- * - Real-time price tracking via realtime_prices table (polled every 2s)
- * - Pullback tracking is client-side only (no server-side state changes)
- *
- * GOVERNANCE COMPLIANCE:
+ * CCIP COMPLIANCE (2026-02-17):
+ * - Alpha's LLM is the SOLE authority for entry advisory
+ * - EntryStructureAnalyzer is NOT used (deprecated as data source)
  * - Advisory only - never blocks or modifies trade execution
- * - All structural data comes from entry_intents (SSOT)
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Target, CheckCircle, ArrowUp, ArrowDown, Minus,
-  Shield, Clock, Activity, Crosshair
+  Clock, TrendingUp
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useActiveEntryIntent } from '@/hooks/useEntryIntent';
@@ -156,17 +153,12 @@ export const EntryPriceMonitor: React.FC = () => {
     return <EmptyState />;
   }
 
-  const structuralVerdict = activeIntent.structural_verdict
-    || activeIntent.market_context?.structural_analysis?.verdict
-    || null;
-
-  const structuralData = activeIntent.market_context?.structural_analysis || null;
+  const alphaAdvisory = activeIntent.market_context?.alpha_entry_advisory || null;
 
   return (
-    <StructuralAdvisoryView
+    <AlphaEntryAdvisoryView
       intent={activeIntent}
-      structuralVerdict={structuralVerdict}
-      structuralData={structuralData}
+      advisory={alphaAdvisory}
       currentPrice={currentPrice}
       previousPrice={previousPrice}
     />
@@ -190,18 +182,23 @@ const EmptyState: React.FC = () => (
   </div>
 );
 
-interface StructuralAdvisoryViewProps {
+interface AlphaAdvisory {
+  verdict: string;
+  pullback_zone_min: number | null;
+  pullback_zone_max: number | null;
+  reasoning: string;
+}
+
+interface AlphaEntryAdvisoryViewProps {
   intent: any;
-  structuralVerdict: string | null;
-  structuralData: any;
+  advisory: AlphaAdvisory | null;
   currentPrice: number | null;
   previousPrice: number | null;
 }
 
-const StructuralAdvisoryView: React.FC<StructuralAdvisoryViewProps> = ({
+const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
   intent,
-  structuralVerdict,
-  structuralData,
+  advisory,
   currentPrice,
   previousPrice
 }) => {
@@ -211,48 +208,35 @@ const StructuralAdvisoryView: React.FC<StructuralAdvisoryViewProps> = ({
   const alphaConfidence = intent.alpha_confidence || intent.market_context?.confidence || null;
   const style = intent.style || intent.market_context?.style || 'SCALP';
 
-  const backingLevel = structuralData?.backing_level || (intent.structural_level_price ? {
-    price: intent.structural_level_price,
-    type: intent.structural_level_type,
-    strength: intent.structural_level_strength,
-    touches: intent.structural_level_touches
-  } : null);
-
-  const pullbackTarget = intent.pullback_target_price || structuralData?.pullback_target || null;
-  const improvementPips = intent.pullback_improvement_pips || structuralData?.pullback_improvement_pips || 0;
-  const reasoning = structuralData?.reasoning || null;
-
-  const isOptimal = structuralVerdict === 'OPTIMAL_ENTRY';
-  const isWaitPullback = structuralVerdict === 'WAIT_FOR_PULLBACK';
+  const verdict = advisory?.verdict || 'GOOD_ENTRY';
+  const isPullbackExpected = verdict === 'PULLBACK_EXPECTED' || verdict === 'WAIT_FOR_PULLBACK';
+  const pullbackZoneMin = advisory?.pullback_zone_min ?? intent.entry_zone_min ?? null;
+  const pullbackZoneMax = advisory?.pullback_zone_max ?? intent.entry_zone_max ?? null;
+  const advisoryReasoning = advisory?.reasoning || null;
 
   const pullbackState = useMemo((): PullbackTrackingState | null => {
-    if (!isWaitPullback || !currentPrice || !pullbackTarget) return null;
+    if (!isPullbackExpected || !currentPrice || !pullbackZoneMin || !pullbackZoneMax) return null;
 
     if (direction === 'long') {
-      if (currentPrice <= pullbackTarget) return 'REACHED';
-      const distNow = currentPrice - pullbackTarget;
-      const distEntry = (alphaEntry || currentPrice) - pullbackTarget;
+      if (currentPrice <= pullbackZoneMax && currentPrice >= pullbackZoneMin) return 'REACHED';
+      if (currentPrice < pullbackZoneMin) return 'REACHED';
+      const distNow = currentPrice - pullbackZoneMax;
+      const distEntry = (alphaEntry || currentPrice) - pullbackZoneMax;
       return distNow < distEntry * 0.7 ? 'APPROACHING' : 'RETREATING';
     } else {
-      if (currentPrice >= pullbackTarget) return 'REACHED';
-      const distNow = pullbackTarget - currentPrice;
-      const distEntry = pullbackTarget - (alphaEntry || currentPrice);
+      if (currentPrice >= pullbackZoneMin && currentPrice <= pullbackZoneMax) return 'REACHED';
+      if (currentPrice > pullbackZoneMax) return 'REACHED';
+      const distNow = pullbackZoneMin - currentPrice;
+      const distEntry = pullbackZoneMin - (alphaEntry || currentPrice);
       return distNow < distEntry * 0.7 ? 'APPROACHING' : 'RETREATING';
     }
-  }, [isWaitPullback, currentPrice, pullbackTarget, alphaEntry, direction]);
+  }, [isPullbackExpected, currentPrice, pullbackZoneMin, pullbackZoneMax, alphaEntry, direction]);
 
-  const distanceToPullback = useMemo(() => {
-    if (!currentPrice || !pullbackTarget) return null;
-    return Math.abs(currentPrice - pullbackTarget);
-  }, [currentPrice, pullbackTarget]);
+  const isGoodEntry = !isPullbackExpected || pullbackState === 'REACHED';
 
   const formatPrice = useCallback((price: number): string => {
     return formatCurrencyPrice(symbol, price);
   }, [symbol]);
-
-  if (!structuralVerdict) {
-    return <FallbackView intent={intent} currentPrice={currentPrice} previousPrice={previousPrice} />;
-  }
 
   return (
     <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-xl p-4 sm:p-5 border border-gray-700/50">
@@ -275,28 +259,21 @@ const StructuralAdvisoryView: React.FC<StructuralAdvisoryViewProps> = ({
         </div>
       </div>
 
-      {isOptimal && (
-        <OptimalEntryBanner
-          backingLevel={backingLevel}
-          alphaConfidence={alphaConfidence}
-          direction={direction}
-          symbol={symbol}
-          formatPrice={formatPrice}
-          reasoning={reasoning}
+      {isGoodEntry ? (
+        <GoodEntryBanner
+          reasoning={advisoryReasoning}
+          pullbackReached={isPullbackExpected && pullbackState === 'REACHED'}
         />
-      )}
-
-      {isWaitPullback && (
-        <PullbackAdvisoryBanner
-          pullbackTarget={pullbackTarget}
-          improvementPips={improvementPips}
-          backingLevel={backingLevel}
+      ) : (
+        <PullbackExpectedBanner
+          pullbackZoneMin={pullbackZoneMin}
+          pullbackZoneMax={pullbackZoneMax}
           pullbackState={pullbackState}
-          distanceToPullback={distanceToPullback}
           direction={direction}
-          symbol={symbol}
+          alphaEntry={alphaEntry}
+          currentPrice={currentPrice}
           formatPrice={formatPrice}
-          reasoning={reasoning}
+          reasoning={advisoryReasoning}
         />
       )}
 
@@ -328,17 +305,19 @@ const StructuralAdvisoryView: React.FC<StructuralAdvisoryViewProps> = ({
 
         <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700/40">
           <p className="text-xs text-gray-400 mb-1">
-            {isOptimal ? 'S/R Level' : 'Pullback To'}
+            {isPullbackExpected && !isGoodEntry ? 'Best Entry Zone' : 'Confidence'}
           </p>
-          {isOptimal && backingLevel?.price ? (
-            <span className="text-base font-bold font-mono text-emerald-400">
-              {formatPrice(backingLevel.price)}
-            </span>
-          ) : pullbackTarget ? (
-            <span className={`text-base font-bold font-mono ${
-              pullbackState === 'REACHED' ? 'text-emerald-400' : 'text-amber-400'
+          {isPullbackExpected && !isGoodEntry && pullbackZoneMin && pullbackZoneMax ? (
+            <span className={`text-sm font-bold font-mono ${
+              pullbackState === 'APPROACHING' ? 'text-blue-400' : 'text-amber-400'
             }`}>
-              {formatPrice(pullbackTarget)}
+              {formatPrice(pullbackZoneMin)} - {formatPrice(pullbackZoneMax)}
+            </span>
+          ) : alphaConfidence ? (
+            <span className={`text-base font-bold ${
+              alphaConfidence >= 85 ? 'text-emerald-400' : alphaConfidence >= 70 ? 'text-yellow-400' : 'text-blue-400'
+            }`}>
+              {alphaConfidence}%
             </span>
           ) : (
             <span className="text-sm text-gray-500">--</span>
@@ -346,44 +325,15 @@ const StructuralAdvisoryView: React.FC<StructuralAdvisoryViewProps> = ({
         </div>
       </div>
 
-      {backingLevel && (
-        <div className="mt-3 bg-gray-900/40 rounded-lg p-3 border border-gray-700/30">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-gray-400">Structural Level</span>
-            <div className="flex items-center gap-2">
-              <span className="text-gray-300 font-mono">{formatPrice(backingLevel.price)}</span>
-              <span className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${
-                backingLevel.type === 'support'
-                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                  : 'bg-red-500/15 text-red-400 border-red-500/30'
-              }`}>
-                {(backingLevel.type || '').toUpperCase()}
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-4 mt-2">
-            <div className="flex items-center gap-1 text-xs">
-              <Shield className="w-3 h-3 text-gray-400" />
-              <span className="text-gray-400">Strength:</span>
-              <StrengthIndicator strength={backingLevel.strength || 0} />
-            </div>
-            {backingLevel.touches && (
-              <div className="flex items-center gap-1 text-xs">
-                <Crosshair className="w-3 h-3 text-gray-400" />
-                <span className="text-gray-400">Tested:</span>
-                <span className="text-white font-bold">{backingLevel.touches}x</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {alphaConfidence && (
         <div className="mt-2 flex items-center justify-between text-xs text-gray-500 px-1">
           <span>Alpha Confidence: {alphaConfidence}%</span>
-          {isWaitPullback && improvementPips > 0 && (
-            <span className="text-amber-400">
-              Potential improvement: {improvementPips.toFixed(1)} pips
+          {isPullbackExpected && !isGoodEntry && pullbackZoneMin && pullbackZoneMax && currentPrice && (
+            <span className={`${pullbackState === 'APPROACHING' ? 'text-blue-400' : 'text-amber-400'}`}>
+              {direction === 'long'
+                ? `${formatPrice(Math.abs(currentPrice - pullbackZoneMax))} away`
+                : `${formatPrice(Math.abs(pullbackZoneMin - currentPrice))} away`
+              }
             </span>
           )}
         </div>
@@ -392,211 +342,129 @@ const StructuralAdvisoryView: React.FC<StructuralAdvisoryViewProps> = ({
   );
 };
 
-interface OptimalEntryBannerProps {
-  backingLevel: any;
-  alphaConfidence: number | null;
-  direction: string;
-  symbol: string;
-  formatPrice: (price: number) => string;
+interface GoodEntryBannerProps {
   reasoning: string | null;
+  pullbackReached: boolean;
 }
 
-const OptimalEntryBanner: React.FC<OptimalEntryBannerProps> = ({
-  backingLevel,
-  direction,
-  formatPrice,
-  reasoning
-}) => {
-  const levelLabel = direction === 'long' ? 'support' : 'resistance';
-  const strengthLabel = backingLevel?.strength >= 0.7 ? 'strong' : backingLevel?.strength >= 0.5 ? 'moderate' : 'developing';
-
-  return (
-    <div className="p-3 rounded-lg border bg-emerald-900/25 border-emerald-500/40">
-      <div className="flex items-start gap-2.5">
-        <CheckCircle className="w-5 h-5 text-emerald-400 mt-0.5 flex-shrink-0" />
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="font-semibold text-sm text-emerald-300">Optimal Entry</span>
-            <span className="text-xs px-1.5 py-0.5 rounded border bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
-              ENTER NOW
-            </span>
-          </div>
-          <p className="text-xs text-gray-300 leading-relaxed">
-            {reasoning || (backingLevel
-              ? `Entry aligns with ${strengthLabel} ${levelLabel} at ${formatPrice(backingLevel.price)} (tested ${backingLevel.touches || 0} times). Structurally backed entry.`
-              : 'Entry quality verified. Enter on your external platform.'
-            )}
-          </p>
+const GoodEntryBanner: React.FC<GoodEntryBannerProps> = ({ reasoning, pullbackReached }) => (
+  <div className={`p-3 rounded-lg border ${
+    pullbackReached
+      ? 'bg-emerald-900/30 border-emerald-500/50 animate-pulse'
+      : 'bg-emerald-900/25 border-emerald-500/40'
+  }`}>
+    <div className="flex items-start gap-2.5">
+      <CheckCircle className="w-5 h-5 text-emerald-400 mt-0.5 flex-shrink-0" />
+      <div className="flex-1">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="font-semibold text-sm text-emerald-300">
+            {pullbackReached ? 'Pullback Zone Reached' : 'Good Entry'}
+          </span>
+          <span className="text-xs px-1.5 py-0.5 rounded border bg-emerald-500/20 text-emerald-400 border-emerald-500/30 font-bold">
+            {pullbackReached ? 'ENTER NOW' : 'CONFIRMED'}
+          </span>
         </div>
+        <p className="text-xs text-gray-300 leading-relaxed">
+          {pullbackReached
+            ? 'Price has pulled back into Alpha\'s predicted zone. This is the better entry Alpha identified.'
+            : reasoning || 'Alpha confirms this is the best available entry. No better price expected at this time.'
+          }
+        </p>
       </div>
     </div>
-  );
-};
+  </div>
+);
 
-interface PullbackAdvisoryBannerProps {
-  pullbackTarget: number | null;
-  improvementPips: number;
-  backingLevel: any;
+interface PullbackExpectedBannerProps {
+  pullbackZoneMin: number | null;
+  pullbackZoneMax: number | null;
   pullbackState: PullbackTrackingState | null;
-  distanceToPullback: number | null;
   direction: string;
-  symbol: string;
+  alphaEntry: number | null;
+  currentPrice: number | null;
   formatPrice: (price: number) => string;
   reasoning: string | null;
 }
 
-const PullbackAdvisoryBanner: React.FC<PullbackAdvisoryBannerProps> = ({
-  pullbackTarget,
-  improvementPips,
+const PullbackExpectedBanner: React.FC<PullbackExpectedBannerProps> = ({
+  pullbackZoneMin,
+  pullbackZoneMax,
   pullbackState,
-  distanceToPullback,
   direction,
+  alphaEntry,
+  currentPrice,
   formatPrice,
   reasoning
 }) => {
-  if (pullbackState === 'REACHED') {
-    return (
-      <div className="p-3 rounded-lg border bg-emerald-900/30 border-emerald-500/50 animate-pulse">
-        <div className="flex items-start gap-2.5">
-          <CheckCircle className="w-5 h-5 text-emerald-400 mt-0.5 flex-shrink-0" />
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="font-semibold text-sm text-emerald-300">Pullback Reached</span>
-              <span className="text-xs px-1.5 py-0.5 rounded border bg-emerald-500/20 text-emerald-400 border-emerald-500/30 font-bold">
-                ENTER NOW
-              </span>
-            </div>
-            <p className="text-xs text-emerald-200">
-              Price has pulled back to the target zone. Enter now for a better entry
-              {improvementPips > 0 ? ` with ~${improvementPips.toFixed(1)} pips improvement.` : '.'}
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   const actionLabel = direction === 'long' ? 'pullback' : 'rally';
+  const isApproaching = pullbackState === 'APPROACHING';
+
+  const progress = useMemo(() => {
+    if (!currentPrice || !alphaEntry || !pullbackZoneMin || !pullbackZoneMax) return 0;
+    const targetMid = (pullbackZoneMin + pullbackZoneMax) / 2;
+    const totalDist = Math.abs(alphaEntry - targetMid);
+    if (totalDist === 0) return 100;
+    const currentDist = Math.abs(currentPrice - targetMid);
+    return Math.max(0, Math.min(100, ((totalDist - currentDist) / totalDist) * 100));
+  }, [currentPrice, alphaEntry, pullbackZoneMin, pullbackZoneMax]);
 
   return (
     <div className={`p-3 rounded-lg border ${
-      pullbackState === 'APPROACHING'
+      isApproaching
         ? 'bg-blue-900/25 border-blue-500/40'
         : 'bg-amber-900/20 border-amber-500/30'
     }`}>
       <div className="flex items-start gap-2.5">
         <Clock className={`w-5 h-5 mt-0.5 flex-shrink-0 ${
-          pullbackState === 'APPROACHING' ? 'text-blue-400' : 'text-amber-400'
+          isApproaching ? 'text-blue-400' : 'text-amber-400'
         }`} />
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
             <span className={`font-semibold text-sm ${
-              pullbackState === 'APPROACHING' ? 'text-blue-300' : 'text-amber-300'
+              isApproaching ? 'text-blue-300' : 'text-amber-300'
             }`}>
-              Wait for {actionLabel.charAt(0).toUpperCase() + actionLabel.slice(1)}
+              Better Entry Expected
             </span>
             <span className={`text-xs px-1.5 py-0.5 rounded border ${
-              pullbackState === 'APPROACHING'
+              isApproaching
                 ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
                 : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
             }`}>
-              {pullbackState === 'APPROACHING' ? 'APPROACHING' : 'MONITORING'}
+              {isApproaching ? 'APPROACHING' : 'MONITORING'}
             </span>
           </div>
           <p className="text-xs text-gray-300 leading-relaxed">
-            {reasoning || (pullbackTarget
-              ? `Wait for ${actionLabel} to ${formatPrice(pullbackTarget)} for a better entry. Potential improvement: ${improvementPips.toFixed(1)} pips less drawdown.`
-              : `Monitoring for ${actionLabel} opportunity.`
+            {reasoning || (pullbackZoneMin && pullbackZoneMax
+              ? `Alpha expects a ${actionLabel} to ${formatPrice(pullbackZoneMin)} - ${formatPrice(pullbackZoneMax)} for a better entry.`
+              : `Alpha expects a ${actionLabel} opportunity. Monitoring price action.`
             )}
           </p>
         </div>
       </div>
 
-      {pullbackTarget && distanceToPullback != null && (
+      {pullbackZoneMin && pullbackZoneMax && (
         <div className="mt-2.5 pt-2 border-t border-gray-700/40">
           <div className="flex items-center justify-between text-xs mb-1.5">
-            <span className="text-gray-400">Distance to target</span>
+            <div className="flex items-center gap-1.5">
+              <TrendingUp className="w-3 h-3 text-gray-400" />
+              <span className="text-gray-400">Target zone</span>
+            </div>
             <span className={`font-mono font-bold ${
-              pullbackState === 'APPROACHING' ? 'text-blue-400' : 'text-amber-400'
+              isApproaching ? 'text-blue-400' : 'text-amber-400'
             }`}>
-              {formatPrice(distanceToPullback)}
+              {formatPrice(pullbackZoneMin)} - {formatPrice(pullbackZoneMax)}
             </span>
           </div>
-          <PullbackProgressBar
-            currentPrice={distanceToPullback}
-            totalDistance={improvementPips > 0 ? improvementPips : undefined}
-            state={pullbackState}
-          />
+          <div className="w-full bg-gray-700/50 rounded-full h-1.5 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-700 ${
+                isApproaching ? 'bg-blue-500' : 'bg-amber-500'
+              }`}
+              style={{ width: `${progress}%` }}
+            />
+          </div>
         </div>
       )}
-    </div>
-  );
-};
-
-const FallbackView: React.FC<{
-  intent: any;
-  currentPrice: number | null;
-  previousPrice: number | null;
-}> = ({ intent, currentPrice, previousPrice }) => {
-  const direction = intent.direction === 'long' ? 'long' : 'short';
-  const symbol = intent.symbol || '';
-  const alphaEntry = intent.actual_entry_price || intent.execution_price || null;
-  const style = intent.style || 'SCALP';
-
-  return (
-    <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-xl p-4 sm:p-5 border border-gray-700/50">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <Target className="w-5 h-5 text-cyan-400" />
-          <h3 className="text-base font-bold text-white">Entry Advisory</h3>
-          <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
-            {style}
-          </span>
-        </div>
-        <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-          direction === 'long'
-            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-            : 'bg-red-500/20 text-red-400 border border-red-500/30'
-        }`}>
-          {direction === 'long' ? 'BUY' : 'SELL'} {symbol}
-        </span>
-      </div>
-
-      <div className="p-3 rounded-lg border bg-gray-900/30 border-gray-600/40 mb-3">
-        <div className="flex items-center gap-2">
-          <Activity className="w-5 h-5 text-gray-400" />
-          <div>
-            <span className="font-semibold text-sm text-gray-300">Analyzing Structure</span>
-            <p className="text-xs text-gray-400 mt-0.5">
-              Structural analysis pending. Use Alpha's confidence for entry timing.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700/40">
-          <p className="text-xs text-gray-400 mb-1">Live Price</p>
-          {currentPrice ? (
-            <div className="flex items-center gap-1">
-              <PriceDirectionIcon current={currentPrice} previous={previousPrice} />
-              <span className="text-base font-bold font-mono text-white">
-                {formatCurrencyPrice(symbol, currentPrice)}
-              </span>
-            </div>
-          ) : (
-            <span className="text-sm text-gray-500">--</span>
-          )}
-        </div>
-        {alphaEntry && (
-          <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700/40">
-            <p className="text-xs text-gray-400 mb-1">Alpha Entry</p>
-            <span className="text-base font-bold font-mono text-cyan-400">
-              {formatCurrencyPrice(symbol, alphaEntry)}
-            </span>
-          </div>
-        )}
-      </div>
     </div>
   );
 };
@@ -606,39 +474,4 @@ const PriceDirectionIcon: React.FC<{ current: number | null; previous: number | 
   if (current > previous) return <ArrowUp className="w-3 h-3 text-emerald-400" />;
   if (current < previous) return <ArrowDown className="w-3 h-3 text-red-400" />;
   return <Minus className="w-3 h-3 text-gray-400" />;
-};
-
-const StrengthIndicator: React.FC<{ strength: number }> = ({ strength }) => {
-  const pct = Math.round(strength * 100);
-  const label = strength >= 0.7 ? 'Strong' : strength >= 0.5 ? 'Moderate' : 'Developing';
-  const color = strength >= 0.7 ? 'text-emerald-400' : strength >= 0.5 ? 'text-amber-400' : 'text-gray-400';
-
-  return (
-    <span className={`font-bold ${color}`}>{label} ({pct}%)</span>
-  );
-};
-
-const PullbackProgressBar: React.FC<{
-  currentPrice: number;
-  totalDistance?: number;
-  state: PullbackTrackingState | null;
-}> = ({ currentPrice, totalDistance, state }) => {
-  const progress = totalDistance && totalDistance > 0
-    ? Math.max(0, Math.min(100, ((totalDistance - currentPrice) / totalDistance) * 100))
-    : 0;
-
-  const barColor = state === 'APPROACHING'
-    ? 'bg-blue-500'
-    : state === 'REACHED'
-      ? 'bg-emerald-500'
-      : 'bg-amber-500';
-
-  return (
-    <div className="w-full bg-gray-700/50 rounded-full h-1.5 overflow-hidden">
-      <div
-        className={`h-full rounded-full transition-all duration-700 ${barColor}`}
-        style={{ width: `${progress}%` }}
-      />
-    </div>
-  );
 };

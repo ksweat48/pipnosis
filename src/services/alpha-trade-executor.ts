@@ -45,8 +45,8 @@ import { creditValidationService } from './credit-validation-service';
 import { EntryOverextensionValidator } from './entry-overextension-validator';
 import { normalizeStyle } from '../utils/entry-overextension-calculator';
 import { validateStyleQualification } from './style-qualification-gate';
-import { entryStructureAnalyzer, type StructuralAnalysisResult } from './entry-structure-analyzer';
-import { marketSnapshotCache } from './market-snapshot-cache';
+// entryStructureAnalyzer removed (CCIP 2026-02-17): Alpha's LLM entry advisory is sole authority
+// marketSnapshotCache removed (CCIP 2026-02-17): No longer needed for entry advisory
 import type { AlphaDecision } from '../brains/coordinator-alpha';
 import type { TradeContext } from '../types/trade-context';
 
@@ -1489,89 +1489,26 @@ class AlphaTradeExecutor {
     const timeoutAt = new Date(now.getTime() + timeoutMinutes * 60 * 1000).toISOString();
     const direction = toLongShort(decision.action === 'BUY' ? 'buy' : 'sell');
 
-    let structuralAnalysis: StructuralAnalysisResult | null = null;
-    try {
-      // CCIP COMPLIANCE: Comprehensive diagnostic logging for snapshot retrieval
-      logger.info(
-        LogCategory.GOVERNANCE,
-        '[AlphaTradeExecutor] Fetching market snapshot for structural analysis',
-        {
-          symbol: decision.symbol,
-          timeframe: 'M15',
-          mode: 'MONITORED',
-          userId,
-          sessionId
-        }
-      );
+    // CCIP 2026-02-17: Alpha's LLM entry advisory is SOLE authority for Entry Monitor
+    const monitorAdvisory = decision.entry_advisory || null;
+    const monitorIsGoodEntry = !monitorAdvisory || monitorAdvisory.verdict === 'GOOD_ENTRY';
+    const monitorVerdict = monitorIsGoodEntry ? 'OPTIMAL_ENTRY' : 'WAIT_FOR_PULLBACK';
+    const monitorPullbackMin = monitorAdvisory?.pullback_zone_min ?? null;
+    const monitorPullbackMax = monitorAdvisory?.pullback_zone_max ?? null;
+    const monitorPullbackMid = (monitorPullbackMin != null && monitorPullbackMax != null)
+      ? (monitorPullbackMin + monitorPullbackMax) / 2
+      : null;
 
-      const snapshot = await marketSnapshotCache.getSnapshot(decision.symbol || '', 'M15');
-
-      // GOVERNANCE: Log snapshot retrieval result
-      logger.info(
-        LogCategory.GOVERNANCE,
-        '[AlphaTradeExecutor] Snapshot retrieved',
-        {
-          symbol: decision.symbol,
-          candleCount: snapshot?.candles?.length || 0,
-          hasATR: !!snapshot?.atr,
-          atrValue: snapshot?.atr?.value || 'undefined',
-          snapshotValid: !!(snapshot?.candles?.length >= 20 && snapshot.atr?.value > 0)
-        }
-      );
-
-      if (snapshot?.candles?.length >= 20 && snapshot.atr?.value > 0) {
-        structuralAnalysis = entryStructureAnalyzer.analyze({
-          entryPrice: decision.entry,
-          direction: direction as 'long' | 'short',
-          symbol: decision.symbol || '',
-          candles: snapshot.candles,
-          atrValue: snapshot.atr.value,
-          stopLoss: decision.stopLoss,
-          takeProfit: decision.takeProfit
-        });
-
-        logger.info(
-          LogCategory.GOVERNANCE,
-          '[AlphaTradeExecutor] Structural analysis completed',
-          {
-            symbol: decision.symbol,
-            verdict: structuralAnalysis.verdict,
-            hasBackingLevel: !!structuralAnalysis.backingLevel,
-            reasoning: structuralAnalysis.reasoning
-          }
-        );
-      } else {
-        // GOVERNANCE: Log why structural analysis was skipped
-        const skipReasons: string[] = [];
-        if (!snapshot?.candles || snapshot.candles.length < 20) {
-          skipReasons.push(`Insufficient candles: ${snapshot?.candles?.length || 0}/20`);
-        }
-        if (!snapshot?.atr || snapshot.atr.value <= 0) {
-          skipReasons.push(`Invalid ATR: ${snapshot?.atr?.value || 'undefined'}`);
-        }
-
-        logger.warn(
-          LogCategory.GOVERNANCE,
-          '[AlphaTradeExecutor] Structural analysis skipped in monitored mode',
-          {
-            symbol: decision.symbol,
-            skipReasons: skipReasons.join('; '),
-            note: 'Entry will proceed without structural advisory'
-          }
-        );
+    logger.info(
+      LogCategory.GOVERNANCE,
+      '[AlphaTradeExecutor] Alpha entry advisory applied (MONITORED mode)',
+      {
+        symbol: decision.symbol,
+        verdict: monitorVerdict,
+        alphaVerdict: monitorAdvisory?.verdict || 'GOOD_ENTRY (default)',
+        pullbackZone: monitorPullbackMin && monitorPullbackMax ? `${monitorPullbackMin}-${monitorPullbackMax}` : 'none'
       }
-    } catch (err) {
-      logger.error(
-        LogCategory.GOVERNANCE,
-        '[AlphaTradeExecutor] Structural analysis failed in monitored mode (non-blocking)',
-        {
-          symbol: decision.symbol,
-          error: err instanceof Error ? err.message : String(err),
-          stack: err instanceof Error ? err.stack : undefined,
-          note: 'This indicates a data pipeline issue that should be investigated'
-        }
-      );
-    }
+    );
 
     const { data: intent, error } = await supabase
       .from('entry_intents')
@@ -1582,26 +1519,26 @@ class AlphaTradeExecutor {
         direction,
         intent_type: decision.entry_intent?.intent_type || 'pullback_to_support',
         urgency: decision.entry_intent?.urgency || 'MEDIUM',
-        entry_zone_min: decision.entry_intent?.entry_zone_min || decision.entry,
-        entry_zone_max: decision.entry_intent?.entry_zone_max || decision.entry,
+        entry_zone_min: monitorPullbackMin ?? (decision.entry_intent?.entry_zone_min || decision.entry),
+        entry_zone_max: monitorPullbackMax ?? (decision.entry_intent?.entry_zone_max || decision.entry),
         timeout_at: timeoutAt,
         timeout_minutes: timeoutMinutes,
         status: 'monitoring',
         alpha_reasoning: decision.reasoning,
         alpha_confidence: decision.confidence,
-        market_context: this.buildMarketContextForAdvisory(decision, decision.entry, structuralAnalysis),
+        market_context: this.buildAlphaAdvisoryContext(decision, decision.entry, monitorAdvisory),
         entry_mode: 'MONITORED',
         style: params.canonicalStyle,
         thesis: decision.thesis,
         style_intent: decision.style_intent,
         execution_preference: decision.execution_preference || 'WAIT_PULLBACK',
-        structural_verdict: structuralAnalysis?.verdict || null,
-        structural_level_price: structuralAnalysis?.backingLevel?.price || null,
-        structural_level_type: structuralAnalysis?.backingLevel?.type || null,
-        structural_level_strength: structuralAnalysis?.backingLevel?.strength || null,
-        structural_level_touches: structuralAnalysis?.backingLevel?.touches || null,
-        pullback_target_price: structuralAnalysis?.pullbackTarget || null,
-        pullback_improvement_pips: structuralAnalysis?.pullbackImprovementPips || null
+        structural_verdict: monitorVerdict,
+        structural_level_price: null,
+        structural_level_type: null,
+        structural_level_strength: null,
+        structural_level_touches: null,
+        pullback_target_price: monitorPullbackMid,
+        pullback_improvement_pips: null
       })
       .select()
       .single();
@@ -2074,89 +2011,34 @@ class AlphaTradeExecutor {
         advisoryZoneMax = entryPrice + zoneHalfWidth;
       }
 
-      let structuralAnalysis: StructuralAnalysisResult | null = null;
-      try {
-        // CCIP COMPLIANCE: Comprehensive diagnostic logging for snapshot retrieval
-        logger.info(
-          LogCategory.GOVERNANCE,
-          '[AlphaTradeExecutor] Fetching market snapshot for structural analysis',
-          {
-            symbol: decision.symbol,
-            timeframe: 'M15',
-            mode: 'POST_EXECUTION',
-            userId,
-            sessionId
-          }
-        );
+      // CCIP 2026-02-17: Alpha's LLM entry advisory is the SOLE authority for Entry Monitor
+      // EntryStructureAnalyzer is deprecated as SSOT - Alpha's intelligence drives the UI
+      const alphaAdvisory = decision.entry_advisory || null;
+      const isGoodEntry = !alphaAdvisory || alphaAdvisory.verdict === 'GOOD_ENTRY';
+      const structuralVerdict = isGoodEntry ? 'OPTIMAL_ENTRY' : 'WAIT_FOR_PULLBACK';
 
-        const snapshot = await marketSnapshotCache.getSnapshot(decision.symbol || '', 'M15');
-
-        // GOVERNANCE: Log snapshot retrieval result
-        logger.info(
-          LogCategory.GOVERNANCE,
-          '[AlphaTradeExecutor] Snapshot retrieved',
-          {
-            symbol: decision.symbol,
-            candleCount: snapshot?.candles?.length || 0,
-            hasATR: !!snapshot?.atr,
-            atrValue: snapshot?.atr?.value || 'undefined',
-            snapshotValid: !!(snapshot?.candles?.length >= 20 && snapshot.atr?.value > 0)
-          }
-        );
-
-        if (snapshot?.candles?.length >= 20 && snapshot.atr?.value > 0) {
-          structuralAnalysis = entryStructureAnalyzer.analyze({
-            entryPrice,
-            direction: direction as 'long' | 'short',
-            symbol: decision.symbol || '',
-            candles: snapshot.candles,
-            atrValue: snapshot.atr.value,
-            stopLoss: decision.stopLoss,
-            takeProfit: decision.takeProfit
-          });
-
-          logger.info(
-            LogCategory.GOVERNANCE,
-            '[AlphaTradeExecutor] Structural analysis completed',
-            {
-              symbol: decision.symbol,
-              verdict: structuralAnalysis.verdict,
-              hasBackingLevel: !!structuralAnalysis.backingLevel,
-              reasoning: structuralAnalysis.reasoning
-            }
-          );
-        } else {
-          // GOVERNANCE: Log why structural analysis was skipped
-          const skipReasons: string[] = [];
-          if (!snapshot?.candles || snapshot.candles.length < 20) {
-            skipReasons.push(`Insufficient candles: ${snapshot?.candles?.length || 0}/20`);
-          }
-          if (!snapshot?.atr || snapshot.atr.value <= 0) {
-            skipReasons.push(`Invalid ATR: ${snapshot?.atr?.value || 'undefined'}`);
-          }
-
-          logger.warn(
-            LogCategory.GOVERNANCE,
-            '[AlphaTradeExecutor] Structural analysis skipped in post-execution mode',
-            {
-              symbol: decision.symbol,
-              skipReasons: skipReasons.join('; '),
-              note: 'Entry quality advisory will show limited information'
-            }
-          );
-        }
-      } catch (err) {
-        logger.error(
-          LogCategory.GOVERNANCE,
-          '[AlphaTradeExecutor] Structural analysis failed (non-blocking)',
-          {
-            symbol: decision.symbol,
-            error: err instanceof Error ? err.message : String(err),
-            stack: err instanceof Error ? err.stack : undefined,
-            note: 'This indicates a data pipeline issue that should be investigated'
-          }
-        );
+      let pullbackZoneMin: number | null = null;
+      let pullbackZoneMax: number | null = null;
+      if (alphaAdvisory?.verdict === 'PULLBACK_EXPECTED') {
+        pullbackZoneMin = alphaAdvisory.pullback_zone_min;
+        pullbackZoneMax = alphaAdvisory.pullback_zone_max;
       }
+
+      const pullbackMidpoint = (pullbackZoneMin != null && pullbackZoneMax != null)
+        ? (pullbackZoneMin + pullbackZoneMax) / 2
+        : null;
+
+      logger.info(
+        LogCategory.GOVERNANCE,
+        '[AlphaTradeExecutor] Alpha entry advisory applied to Entry Monitor',
+        {
+          symbol: decision.symbol,
+          verdict: structuralVerdict,
+          alphaVerdict: alphaAdvisory?.verdict || 'GOOD_ENTRY (default)',
+          pullbackZone: pullbackZoneMin && pullbackZoneMax ? `${pullbackZoneMin}-${pullbackZoneMax}` : 'none',
+          reasoning: alphaAdvisory?.reasoning || 'Alpha assessed good entry'
+        }
+      );
 
       const entryIntentData: Record<string, any> = {
         session_id: sessionId,
@@ -2165,8 +2047,8 @@ class AlphaTradeExecutor {
         direction,
         intent_type: decision.entry_intent?.intent_type || 'immediate_momentum',
         urgency: decision.entry_intent?.urgency || 'HIGH',
-        entry_zone_min: advisoryZoneMin,
-        entry_zone_max: advisoryZoneMax,
+        entry_zone_min: pullbackZoneMin ?? advisoryZoneMin,
+        entry_zone_max: pullbackZoneMax ?? advisoryZoneMax,
         timeout_at: now,
         status: 'executed',
         executed_at: now,
@@ -2175,19 +2057,19 @@ class AlphaTradeExecutor {
         advisor_mode: 'post_execution_advisory',
         alpha_reasoning: decision.reasoning,
         alpha_confidence: decision.confidence,
-        market_context: this.buildMarketContextForAdvisory(decision, entryPrice, structuralAnalysis),
+        market_context: this.buildAlphaAdvisoryContext(decision, entryPrice, alphaAdvisory),
         entry_mode: 'immediate',
         style: params.canonicalStyle,
         thesis: safeThesis,
         style_intent: safeStyleIntent,
         execution_preference: decision.execution_preference || 'IMMEDIATE',
-        structural_verdict: structuralAnalysis?.verdict || null,
-        structural_level_price: structuralAnalysis?.backingLevel?.price || null,
-        structural_level_type: structuralAnalysis?.backingLevel?.type || null,
-        structural_level_strength: structuralAnalysis?.backingLevel?.strength || null,
-        structural_level_touches: structuralAnalysis?.backingLevel?.touches || null,
-        pullback_target_price: structuralAnalysis?.pullbackTarget || null,
-        pullback_improvement_pips: structuralAnalysis?.pullbackImprovementPips || null
+        structural_verdict: structuralVerdict,
+        structural_level_price: null,
+        structural_level_type: null,
+        structural_level_strength: null,
+        structural_level_touches: null,
+        pullback_target_price: pullbackMidpoint,
+        pullback_improvement_pips: null
       };
 
       const { data: entryIntent, error: intentError } = await supabase
@@ -2234,10 +2116,10 @@ class AlphaTradeExecutor {
     }
   }
 
-  private buildMarketContextForAdvisory(
+  private buildAlphaAdvisoryContext(
     decision: AlphaDecision,
     entryPrice: number,
-    structuralAnalysis?: StructuralAnalysisResult | null
+    alphaAdvisory?: { verdict: string; pullback_zone_min: number | null; pullback_zone_max: number | null; reasoning: string } | null
   ): Record<string, any> {
     const slDistance = Math.abs(entryPrice - decision.stopLoss);
     const regime = decision.regime_advisory;
@@ -2258,27 +2140,14 @@ class AlphaTradeExecutor {
       market_bias: regime?.market_bias,
       regime_classification: regime?.regime_classification,
       confidence: decision.confidence,
-      style: decision.resolvedStyle
+      style: decision.resolvedStyle,
+      alpha_entry_advisory: {
+        verdict: alphaAdvisory?.verdict || 'GOOD_ENTRY',
+        pullback_zone_min: alphaAdvisory?.pullback_zone_min || null,
+        pullback_zone_max: alphaAdvisory?.pullback_zone_max || null,
+        reasoning: alphaAdvisory?.reasoning || 'Alpha assessed this as a good entry point'
+      }
     };
-
-    if (structuralAnalysis) {
-      context.structural_analysis = {
-        verdict: structuralAnalysis.verdict,
-        backing_level: structuralAnalysis.backingLevel ? {
-          price: structuralAnalysis.backingLevel.price,
-          type: structuralAnalysis.backingLevel.type,
-          strength: structuralAnalysis.backingLevel.strength,
-          touches: structuralAnalysis.backingLevel.touches,
-          reason: structuralAnalysis.backingLevel.reason
-        } : null,
-        pullback_target: structuralAnalysis.pullbackTarget,
-        pullback_improvement_pips: structuralAnalysis.pullbackImprovementPips,
-        drawdown_reduction_estimate: structuralAnalysis.drawdownReductionEstimate,
-        distance_from_level_pips: structuralAnalysis.distanceFromLevelPips,
-        reasoning: structuralAnalysis.reasoning,
-        analyzed_at: structuralAnalysis.analyzedAt
-      };
-    }
 
     return context;
   }
