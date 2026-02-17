@@ -567,11 +567,10 @@ class EventBasedLLMEngine {
     candles: any[]
   ): Promise<SimulatedTrade[]> {
     const currentPrice = currentCandle.close;
-    const currentTime = new Date(currentCandle.open_time);
+    const candleTime = new Date(currentCandle.open_time);
     const updatedTrades: SimulatedTrade[] = [];
 
     for (const trade of openTrades) {
-      // Check for TP/SL hits first
       const isTP = trade.direction === 'buy'
         ? currentPrice >= trade.takeProfit
         : currentPrice <= trade.takeProfit;
@@ -580,17 +579,17 @@ class EventBasedLLMEngine {
         ? currentPrice <= trade.stopLoss
         : currentPrice >= trade.stopLoss;
 
-      const holdingMinutes = Math.floor((currentTime.getTime() - trade.entryTime.getTime()) / 60000);
+      const holdingMinutes = Math.floor((candleTime.getTime() - trade.entryTime.getTime()) / 60000);
       const maxDurationExceeded = holdingMinutes >= trade.maxHoldMinutes;
 
       if (isTP) {
-        this.closeTrade(trade, trade.takeProfit, currentTime, 'take_profit');
+        this.closeTrade(trade, trade.takeProfit, new Date(), 'take_profit');
         continue;
       } else if (isSL) {
-        this.closeTrade(trade, trade.stopLoss, currentTime, 'stop_loss');
+        this.closeTrade(trade, trade.stopLoss, new Date(), 'stop_loss');
         continue;
       } else if (maxDurationExceeded) {
-        this.closeTrade(trade, currentPrice, currentTime, 'max_duration');
+        this.closeTrade(trade, currentPrice, new Date(), 'max_duration');
         continue;
       }
 
@@ -662,7 +661,7 @@ class EventBasedLLMEngine {
    */
   updateOpenTrades(openTrades: SimulatedTrade[], currentCandle: any): SimulatedTrade[] {
     const currentPrice = currentCandle.close;
-    const currentTime = new Date(currentCandle.open_time);
+    const candleTime = new Date(currentCandle.open_time);
     const updatedTrades: SimulatedTrade[] = [];
 
     for (const trade of openTrades) {
@@ -674,15 +673,15 @@ class EventBasedLLMEngine {
         ? currentPrice <= trade.stopLoss
         : currentPrice >= trade.stopLoss;
 
-      const holdingMinutes = Math.floor((currentTime.getTime() - trade.entryTime.getTime()) / 60000);
+      const holdingMinutes = Math.floor((candleTime.getTime() - trade.entryTime.getTime()) / 60000);
       const maxDurationExceeded = holdingMinutes >= trade.maxHoldMinutes;
 
       if (isTP) {
-        this.closeTrade(trade, trade.takeProfit, currentTime, 'take_profit');
+        this.closeTrade(trade, trade.takeProfit, new Date(), 'take_profit');
       } else if (isSL) {
-        this.closeTrade(trade, trade.stopLoss, currentTime, 'stop_loss');
+        this.closeTrade(trade, trade.stopLoss, new Date(), 'stop_loss');
       } else if (maxDurationExceeded) {
-        this.closeTrade(trade, currentPrice, currentTime, 'max_duration');
+        this.closeTrade(trade, currentPrice, new Date(), 'max_duration');
       } else {
         updatedTrades.push(trade);
       }
@@ -707,7 +706,7 @@ class EventBasedLLMEngine {
       case 'CLOSE':
         // Early exit before SL
         console.log(`[MidTrade] \u26a0\ufe0f Closing trade early @ ${currentPrice}`);
-        this.closeTrade(trade, currentPrice, currentTime, 'midtrade_exit');
+        this.closeTrade(trade, currentPrice, new Date(), 'midtrade_exit');
         break;
 
       case 'TRAIL_SL':

@@ -1017,6 +1017,7 @@ class AlphaCoordinatorBrain {
 
     const styleEnvelope = getExecutionEnvelope(tradeStyle);
     const promptAssetClass = getAssetClass(marketContext.symbol) as EnvelopeAssetClass;
+    const promptEnvelopeBounds = getAssetClassEnvelopeBounds(tradeStyle, promptAssetClass, marketContext.symbol, currentPrice);
 
     const styleIdentityPrompt = '';
 
@@ -1027,6 +1028,7 @@ ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips) | Volati
 IF LONG SL Anchor: ${buyStopAnchor.stopLossPrice.toFixed(5)} (${buyStopAnchor.stopLossPips.toFixed(1)}p, ${buyStopAnchor.atrMultiplier.toFixed(2)}x ATR)
 IF SHORT SL Anchor: ${sellStopAnchor.stopLossPrice.toFixed(5)} (${sellStopAnchor.stopLossPips.toFixed(1)}p, ${sellStopAnchor.atrMultiplier.toFixed(2)}x ATR)
 Profile Range: ${buyStopAnchor.profileMinPips}-${buyStopAnchor.profileMaxPips} pips
+HARD WALLS (${tradeStyle} ${promptAssetClass} @ ${currentPrice.toFixed(2)}): SL MUST be ${promptEnvelopeBounds.slPips.min.toFixed(1)}-${promptEnvelopeBounds.slPips.max.toFixed(1)} pips | TP MUST be ${promptEnvelopeBounds.tpPips.min.toFixed(1)}-${promptEnvelopeBounds.tpPips.max.toFixed(1)} pips. Trades outside these walls are AUTO-REJECTED. You have FULL authority inside these bounds.
 `;
     }
 
@@ -1288,6 +1290,7 @@ You choose ALL profit targets. The system NEVER calculates TP for you.
   "tp2" = Full profit target at the CONSERVATIVE EDGE of the nearest H1 structural zone. TP2 R:R vs SL MUST be >= 2.0:1 (HARD WALL).
   Both MUST be within the arena walls. tp1 MUST be closer to entry than tp2.
   If no M15 structural level exists at >= 1.5:1 distance for tp1, either tighten SL to a structural level that achieves the ratio, or issue NO_TRADE.
+  MICRO SL HARD WALL: Your stop loss MUST respect the HARD WALLS shown above. SL that is too tight will be auto-rejected -- do NOT place scalp-sized stops on MICRO trades. Place SL behind genuine M15 structural levels with enough breathing room to survive normal price oscillation.
 - INTRADAY: You choose TWO take-profits:
   "tp1" = Conservative partial target at the CONSERVATIVE EDGE (near side) of the nearest H1 structural zone (NOT M15 micro-structure -- that is MICRO_INTRADAY). TP1 R:R vs SL MUST be >= 2.0:1 (HARD WALL -- violations are auto-blocked).
   "tp2" = Full profit target at the CONSERVATIVE EDGE of the nearest H4 structural zone. TP2 R:R vs SL MUST be >= 2.5:1 (HARD WALL).
@@ -2199,8 +2202,59 @@ ${tradeStyle === 'SCALP' ? `{
       const dynamicBounds = getAssetClassEnvelopeBounds(resolvedStyle, envelopeAssetClass, symbol, currentPrice);
       const envelopeValidation = validateTPSLAgainstEnvelope(resolvedStyle, tpPips, slPips, envelopeAssetClass, symbol, currentPrice);
       if (!envelopeValidation.valid) {
-        console.warn(`[Alpha Envelope] Decision outside dynamic bounds (informational): ${envelopeValidation.violations.join('; ')}`);
-        console.log(`[Alpha Envelope] Dynamic bounds for ${resolvedStyle} ${envelopeAssetClass} @ ${currentPrice.toFixed(2)}: TP ${dynamicBounds.tpPips.min.toFixed(1)}-${dynamicBounds.tpPips.max.toFixed(1)}, SL ${dynamicBounds.slPips.min.toFixed(1)}-${dynamicBounds.slPips.max.toFixed(1)}`);
+        const slTooTight = slPips < dynamicBounds.slPips.min;
+        const slTooWide = slPips > dynamicBounds.slPips.max;
+        const tpTooTight = tpPips < dynamicBounds.tpPips.min;
+        const tpTooWide = tpPips > dynamicBounds.tpPips.max;
+
+        if (slTooTight || slTooWide || tpTooTight || tpTooWide) {
+          console.error(`[Alpha Envelope WALL] BLOCKED: ${envelopeValidation.violations.join('; ')}`);
+          console.error(`[Alpha Envelope WALL] ${resolvedStyle} ${envelopeAssetClass} bounds @ ${currentPrice.toFixed(2)}: SL ${dynamicBounds.slPips.min.toFixed(1)}-${dynamicBounds.slPips.max.toFixed(1)} pips, TP ${dynamicBounds.tpPips.min.toFixed(1)}-${dynamicBounds.tpPips.max.toFixed(1)} pips`);
+          console.error(`[Alpha Envelope WALL] Alpha attempted: SL ${slPips.toFixed(1)} pips, TP ${tpPips.toFixed(1)} pips`);
+
+          logViolation({
+            violationType: 'ALPHA_ENVELOPE_WALL_VIOLATION',
+            symbol,
+            attemptedOperation: 'envelope_wall_check',
+            callLocation: 'coordinator-alpha.envelope_wall_enforcement',
+            blocked: true,
+            errorDetails: {
+              slPips,
+              tpPips,
+              slMin: dynamicBounds.slPips.min,
+              slMax: dynamicBounds.slPips.max,
+              tpMin: dynamicBounds.tpPips.min,
+              tpMax: dynamicBounds.tpPips.max,
+              violations: envelopeValidation.violations,
+              resolvedStyle,
+              envelopeAssetClass,
+              currentPrice,
+              userId: userId || null,
+              sessionId: goalContext?.sessionId || null,
+            }
+          }).catch(error => {
+            console.error('[Alpha Coordinator] Failed to log envelope wall violation:', error);
+          });
+
+          return {
+            action: 'NO_TRADE',
+            decision: 'NO_TRADE',
+            entry: currentPrice,
+            stopLoss: currentPrice,
+            takeProfit: currentPrice,
+            tp1Price: null,
+            tp1Confidence: null,
+            tp1Reasoning: null,
+            tp2Price: null,
+            tp2Reasoning: null,
+            confidence: 0,
+            reasoning: `Blocked by ${resolvedStyle} envelope wall: ${envelopeValidation.violations.join('; ')}. ` +
+              `Alpha has full authority INSIDE the walls (SL ${dynamicBounds.slPips.min.toFixed(1)}-${dynamicBounds.slPips.max.toFixed(1)} pips, ` +
+              `TP ${dynamicBounds.tpPips.min.toFixed(1)}-${dynamicBounds.tpPips.max.toFixed(1)} pips) but MUST NOT breach them.`,
+            omega_summary: '',
+            risk_pct: riskPct,
+          };
+        }
       }
 
       // CCIP GOVERNANCE (2026-02-16): Alpha is SOLE AUTHORITY for TP placement.
