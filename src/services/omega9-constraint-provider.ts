@@ -192,6 +192,14 @@ class Omega9ConstraintProvider {
     // Build constraint violations (empty initially, used for validation later)
     const violations: ConstraintViolation[] = [];
 
+    // CCIP (2026-02-17): Align Omega-9 constraint ranges with envelope wall bounds
+    // This prevents Alpha from receiving conflicting guidance where Omega-9 says
+    // "SL 10-20 pips" but the envelope wall requires "SL >= 14 pips".
+    // SSOT: Envelope bounds are the authoritative source for style SL/TP ranges.
+    const assetCategory = assetClassifier.getAssetCategory(symbol);
+    const envelopeAssetClass = this.mapAssetCategoryToEnvelope(assetCategory);
+    const envelopeBounds = getAssetClassEnvelopeBounds(mappedStyle, envelopeAssetClass, symbol, entry);
+
     // Set minimum TP, ensuring it respects the envelope TP floor
     // CCIP (2026-02-17): Use envelope TP min as floor to prevent Alpha from proposing
     // TP values that satisfy R:R but violate the style envelope wall
@@ -207,14 +215,6 @@ class Omega9ConstraintProvider {
     // Build take-profit reasoning with style-aware session context
     const baseTpReasoning = `Minimum: ${minTakeProfitPips.toFixed(1)} pips (R:R ≥ ${minRiskReward.toFixed(1)}:1). Target: ${targetTakeProfitPips.toFixed(1)} pips (R:R ≥ ${TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM}:1). Maximum: ${maxTakeProfitPips.toFixed(1)} pips (12x ATR)`;
     const fullTpReasoning = constraintFeasibilityWarning || (baseTpReasoning + tpReasoningSuffix);
-
-    // CCIP (2026-02-17): Align Omega-9 constraint ranges with envelope wall bounds
-    // This prevents Alpha from receiving conflicting guidance where Omega-9 says
-    // "SL 10-20 pips" but the envelope wall requires "SL >= 14 pips".
-    // SSOT: Envelope bounds are the authoritative source for style SL/TP ranges.
-    const assetCategory = assetClassifier.getAssetCategory(symbol);
-    const envelopeAssetClass = this.mapAssetCategoryToEnvelope(assetCategory);
-    const envelopeBounds = getAssetClassEnvelopeBounds(mappedStyle, envelopeAssetClass, symbol, entry);
 
     let envelopeAlignedProfileMin = stopLossCalc.profileMinPips;
     let envelopeAlignedProfileMax = stopLossCalc.profileMaxPips;
