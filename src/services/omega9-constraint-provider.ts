@@ -199,7 +199,7 @@ class Omega9ConstraintProvider {
       : '';
 
     // Build take-profit reasoning with style-aware session context
-    const baseTpReasoning = `Minimum: ${minTakeProfitPips.toFixed(1)} pips (R:R ≥ ${minRiskReward.toFixed(1)}:1). Target: ${targetTakeProfitPips.toFixed(1)} pips (R:R ≥ 1.5:1). Maximum: ${maxTakeProfitPips.toFixed(1)} pips (12x ATR)`;
+    const baseTpReasoning = `Minimum: ${minTakeProfitPips.toFixed(1)} pips (R:R ≥ ${minRiskReward.toFixed(1)}:1). Target: ${targetTakeProfitPips.toFixed(1)} pips (R:R ≥ ${TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM}:1). Maximum: ${maxTakeProfitPips.toFixed(1)} pips (12x ATR)`;
     const fullTpReasoning = constraintFeasibilityWarning || (baseTpReasoning + tpReasoningSuffix);
 
     // ✅ CRITICAL FIX: Ensure min <= max for SL range (SECONDARY BUG)

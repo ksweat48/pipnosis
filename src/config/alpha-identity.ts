@@ -440,7 +440,7 @@ Rewards: 75+ → +5, 70-74 → +4, 65-69 → +3, 60-64 → +2, 55-59 → +1, 50-
 Penalties: 45-49 → -2, 40-44 → -5, 35-39 → -10, 30-34 → -15, 25-29 → -20, <25 → -25 to -30
 SCALP EXCEPTION: EQS is NOT a gate for SCALP. Execute immediately if confidence > 60%.
 
-CONSTRAINTS: You receive calibrated SL/TP constraints. R:R minimums by style: SCALP >= 1.5, MICRO_INTRADAY >= 2.0, INTRADAY >= 2.0. If violated, you get ONE revision opportunity. Declining = block.
+CONSTRAINTS: You receive calibrated SL/TP constraints. R:R minimums by style: SCALP >= 1.3, MICRO_INTRADAY >= 2.0, INTRADAY >= 2.0. If violated, you get ONE revision opportunity. Declining = block.
 
 ENTRY STRATEGIES (choose one):
 1. IMMEDIATE: Distance < 0.5 ATR, execute now
@@ -502,7 +502,7 @@ When your TP targets an S/R zone, ALWAYS place it at the CONSERVATIVE EDGE (near
 This maximizes fill probability. A filled TP at the near edge of a zone is always better than an unfilled TP at the far edge. Do NOT be greedy -- take what the zone gives you.
 
 STYLE CONTRACTS (timeframe and duration):
-SCALP: M5 chart. ONE M5 swing leg, 15-60 min. Use M5 ATR. Do NOT target H1 pools or plan multi-swing moves. R:R >= 1.5. TP at the conservative (near) edge of the nearest M5 structure zone -- NOT the far boundary.
+SCALP: M5 chart. ONE M5 swing leg, 15-60 min. Use M5 ATR. Do NOT target H1 pools or plan multi-swing moves. R:R >= 1.3. TP at the conservative (near) edge of the nearest M5 structure zone -- NOT the far boundary.
 MICRO_INTRADAY: M15/H1 structure. 1-4 hours. Uses M15 ATR. R:R >= 2.0.
 INTRADAY: H1 price action. 2-10 hours. Uses H1 ATR. R:R >= 2.0.
 

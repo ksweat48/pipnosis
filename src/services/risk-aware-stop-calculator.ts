@@ -360,7 +360,7 @@ class RiskAwareStopCalculator {
       assetClassName = 'FOREX';
     }
 
-    const minATRMultiplier = 1.25;
+    const minATRMultiplier = 1.15;
 
     const percentFloorPips = (entryPrice * minPercentOfPrice / 100) / pipInfo.pipValue;
     const atrInPips = atrValue / pipInfo.pipValue;

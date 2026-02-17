@@ -692,14 +692,15 @@ class AlphaOmegaOrchestrator {
     const finalConfidence = confidenceResult.final_confidence;
     const rewardedConfidence = confidenceResult.after_rewards;
     const preCapConfidence = confidenceResult.pre_cap_confidence;
+    const advisoryConfidence = confidenceResult.advisory_adjusted_confidence;
 
-    console.log(`[Alpha+Omega] ⚡ Alpha decision complete (${alphaTime}ms)`);
-    console.log(`[Alpha+Omega] 📊 Total pipeline: ${totalTime}ms`);
-    console.log(`[Alpha+Omega] 🎯 Alpha decided: ${decision.action} @ ${originalConfidence}%`);
-    console.log(`[Alpha+Omega] ✅ SSOT Confidence Engine: ${originalConfidence}% → ${finalConfidence}% (audit: ${confidenceResult.audit_id?.substring(0, 8)})`);
+    console.log(`[Alpha+Omega] Alpha decision complete (${alphaTime}ms)`);
+    console.log(`[Alpha+Omega] Total pipeline: ${totalTime}ms`);
+    console.log(`[Alpha+Omega] Alpha decided: ${decision.action} @ ${originalConfidence}%`);
+    console.log(`[Alpha+Omega] Execution confidence: ${finalConfidence}% | Advisory-adjusted: ${advisoryConfidence}% (audit: ${confidenceResult.audit_id?.substring(0, 8)})`);
 
     if (confidenceResult.is_degraded) {
-      console.warn(`[Alpha+Omega] ⚠️ CONFIDENCE DEGRADED: ${confidenceResult.degradation_reason}`);
+      console.log(`[Alpha+Omega] Advisory penalties would degrade to ${advisoryConfidence}% (logged, not enforced): ${confidenceResult.degradation_reason}`);
     }
 
     // ✅ CRITICAL SAFETY CHECK: Ensure entry price is never null/undefined

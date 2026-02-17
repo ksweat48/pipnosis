@@ -75,7 +75,7 @@ export const SCALP_ENVELOPE: StyleExecutionEnvelope = {
 
   targetCandles: { min: 3, max: 5 },
 
-  tpPips: { min: 15, max: 60 },
+  tpPips: { min: 12, max: 60 },
   slPips: { min: 8, max: 20 },
 
   assetClassPercentBounds: {

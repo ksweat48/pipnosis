@@ -1,30 +1,30 @@
 /**
  * Confidence Calculation Engine - SSOT (Single Source of Truth)
  *
- * Central authority for ALL confidence modifications in Pipnosis.
- * This is the ONLY place where confidence values are adjusted or clamped.
+ * ADVISORY-ONLY confidence analytics engine.
+ * Alpha is the SOLE trade authority within arena walls.
  *
- * Philosophy:
- * - Engines validate. Alpha decides. Trades degrade intelligently, never silently.
- * - Explicit penalties with audit trails (no hidden confidence mutations)
- * - Domain isolation (each responsibility owns ONE penalty type)
- * - Bounded penalties (ceilings prevent "90% confidence in chaos")
- * - SSOT compliance (no duplicate logic across files)
+ * CCIP 2026-02-17: ARCHITECTURAL CORRECTION
+ * All domain penalties (adversarial, regime, session, etc.) are ADVISORY ONLY.
+ * They are calculated, logged, and audited for monitoring/dashboards,
+ * but they do NOT reduce Alpha's execution confidence.
+ * Alpha's raw confidence + rewards = final execution confidence.
+ * Penalties cannot veto Alpha's trade decisions.
  *
  * Confidence Flow:
- * 1. Base Confidence (from weighted Omega votes)
+ * 1. Base Confidence (Alpha's raw decision)
  * 2. + Rewards (additive bonuses for alignment, optimal conditions)
- * 3. - Penalties (each domain applies its single penalty)
- * 4. Clamp to [0, 100]
- * 5. Execute if >= threshold (default 60%)
+ * 3. = Final Execution Confidence (used for threshold gating)
+ * 4. Advisory penalties calculated and logged (monitoring only)
+ * 5. Execute if final >= threshold (default 60%)
  *
- * Domain Authorities (SSOT):
+ * Domain Authorities (ADVISORY, logged for analytics):
  * - RegimeOracle: volatility, session effects, spread risk (0-15%)
  * - EQS: entry quality signal (0-15%, soft)
  * - Narrative: coherence penalty (0-12%)
  * - AdversarialDetector: manipulation & sweep risk (0-10%)
- * - SessionAdvisor: time-based warnings + fill-time ratio (0-15%, advisory)
- * - PatternConfidence: technical setup quality (±5%)
+ * - SessionAdvisor: time-based warnings + fill-time ratio (0-15%)
+ * - PatternConfidence: technical setup quality (+-5%)
  */
 
 import { supabase } from '../lib/supabase';
@@ -81,6 +81,7 @@ export interface ConfidenceCalculationResult {
   // Final calculation
   pre_cap_confidence: number;
   risk_mode_floor: number;
+  advisory_adjusted_confidence: number;
   final_confidence: number;
   execution_threshold: number;
   passes_threshold: boolean;
@@ -164,16 +165,20 @@ class ConfidenceCalculationEngine {
         );
       }
 
-      // PHASE 5: Apply risk-mode penalty floor
+      // PHASE 5: Calculate advisory-adjusted confidence (for analytics/dashboards only)
+      // CCIP 2026-02-17: Penalties are ADVISORY ONLY -- they do NOT reduce Alpha's
+      // execution confidence. Alpha is the sole trade authority within arena walls.
+      // Advisory penalties are logged for monitoring but cannot veto Alpha's decisions.
       const riskModeFloor = RISK_MODE_FLOORS[input.risk_mode] || 0.6;
-      const finalMultiplier = Math.max(riskModeFloor, penaltyResult.final_multiplier);
-      const finalConfidence = Math.round(afterRewards * finalMultiplier);
+      const advisoryMultiplier = Math.max(riskModeFloor, penaltyResult.final_multiplier);
+      const advisoryAdjustedConfidence = Math.max(0, Math.min(100, Math.round(afterRewards * advisoryMultiplier)));
 
-      // PHASE 6: Clamp to [0, 100]
-      const clampedConfidence = Math.max(0, Math.min(100, finalConfidence));
+      // PHASE 6: Final confidence = Alpha's confidence + rewards (NO penalty reduction)
+      // Alpha's raw confidence is the execution-gating value. Penalties inform, not override.
+      const finalConfidence = Math.max(0, Math.min(100, Math.round(afterRewards)));
 
-      // PHASE 7: Determine if degraded
-      const isDegraded = this.isDegraded(input.base_confidence, clampedConfidence);
+      // PHASE 7: Determine if penalties WOULD HAVE degraded (for monitoring)
+      const isDegraded = this.isDegraded(input.base_confidence, advisoryAdjustedConfidence);
 
       const result: ConfidenceCalculationResult = {
         base_confidence: input.base_confidence,
@@ -191,11 +196,12 @@ class ConfidenceCalculationEngine {
         isolated_domains: penaltyResult.domains_applied,
         domain_violations: domainViolations,
 
-        pre_cap_confidence: finalConfidence,
+        pre_cap_confidence: Math.round(afterRewards * advisoryMultiplier),
         risk_mode_floor: riskModeFloor,
-        final_confidence: clampedConfidence,
+        advisory_adjusted_confidence: advisoryAdjustedConfidence,
+        final_confidence: finalConfidence,
         execution_threshold: EXECUTION_THRESHOLD,
-        passes_threshold: clampedConfidence >= EXECUTION_THRESHOLD,
+        passes_threshold: finalConfidence >= EXECUTION_THRESHOLD,
 
         degradation_reason: isDegraded ? penaltyResult.degradation_reason : undefined,
         is_degraded: isDegraded,
@@ -207,23 +213,24 @@ class ConfidenceCalculationEngine {
         console.error('[ConfidenceEngine] Failed to log audit:', err)
       );
 
-      // Log to console with domain breakdown
       console.log(
-        `[ConfidenceEngine] ✅ Confidence Calculation Complete (${Date.now() - startTime}ms)`,
+        `[ConfidenceEngine] Confidence Calculation Complete (${Date.now() - startTime}ms)`,
         {
           base: input.base_confidence,
           rewards: totalRewards,
           after_rewards: afterRewards,
-          regime_penalty: -penaltyResult.regime_oracle_penalty * 100,
-          eqs_penalty: -penaltyResult.eqs_penalty * 100,
-          narrative_penalty: -penaltyResult.narrative_penalty * 100,
-          adversarial_penalty: -penaltyResult.adversarial_penalty * 100,
-          session_penalty: -penaltyResult.session_advisory_penalty * 100,
-          pattern_penalty: -penaltyResult.pattern_confidence_penalty * 100,
-          final_multiplier: finalMultiplier,
-          final: clampedConfidence,
-          passes: result.passes_threshold ? '✅' : '❌',
-          degraded: isDegraded ? '⚠️' : '✓',
+          advisory_penalties: {
+            regime: -penaltyResult.regime_oracle_penalty * 100,
+            eqs: -penaltyResult.eqs_penalty * 100,
+            narrative: -penaltyResult.narrative_penalty * 100,
+            adversarial: -penaltyResult.adversarial_penalty * 100,
+            session: -penaltyResult.session_advisory_penalty * 100,
+            pattern: -penaltyResult.pattern_confidence_penalty * 100,
+          },
+          advisory_adjusted: advisoryAdjustedConfidence,
+          final_execution: finalConfidence,
+          passes: result.passes_threshold ? 'YES' : 'NO',
+          advisory_would_degrade: isDegraded ? 'YES' : 'NO',
           audit_id: auditId.substring(0, 8)
         }
       );
@@ -427,6 +434,7 @@ class ConfidenceCalculationEngine {
       domain_violations: [],
       pre_cap_confidence: degradedConfidence,
       risk_mode_floor: 0.5,
+      advisory_adjusted_confidence: degradedConfidence,
       final_confidence: degradedConfidence,
       execution_threshold: EXECUTION_THRESHOLD,
       passes_threshold: false,
@@ -466,7 +474,7 @@ class ConfidenceCalculationEngine {
         penalty_isolation_check: result.domain_violations.length === 0,
         pre_cap_confidence: result.pre_cap_confidence,
         risk_mode_floor: result.risk_mode_floor,
-        post_risk_mode_cap: result.final_confidence,
+        post_risk_mode_cap: result.advisory_adjusted_confidence,
         final_clamped_confidence: result.final_confidence,
         execution_threshold: result.execution_threshold,
         passes_threshold: result.passes_threshold,
