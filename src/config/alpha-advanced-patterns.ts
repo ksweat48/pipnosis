@@ -378,9 +378,17 @@ export const FAILED_SETUP_PATTERNS = {
  *
  * Liquidity pool positioning and trading playbook.
  */
-export const LIQUIDITY_PLAYBOOK = {
-  POOL_ABOVE: {
-    position: 'ABOVE' as LiquidityPosition,
+export const LIQUIDITY_PLAYBOOK: Record<LiquidityPosition, {
+  position: LiquidityPosition;
+  description: string;
+  bullish_interpretation: string;
+  bearish_interpretation: string;
+  recommended_strategy: { for_longs: string; for_shorts: string };
+  tp_placement: string;
+  stop_placement: string;
+}> = {
+  ABOVE: {
+    position: 'ABOVE',
     description: 'Liquidity pool clustered ABOVE current price',
     bullish_interpretation: 'Magnet for price - target for longs',
     bearish_interpretation: 'Potential stop run area before reversal',
@@ -392,8 +400,8 @@ export const LIQUIDITY_PLAYBOOK = {
     stop_placement: 'Avoid placing stops just below cluster (stop run risk)',
   },
 
-  POOL_BELOW: {
-    position: 'BELOW' as LiquidityPosition,
+  BELOW: {
+    position: 'BELOW',
     description: 'Liquidity pool clustered BELOW current price',
     bullish_interpretation: 'Potential stop run area before continuation up',
     bearish_interpretation: 'Magnet for price - target for shorts',
@@ -406,7 +414,7 @@ export const LIQUIDITY_PLAYBOOK = {
   },
 
   AT_LEVEL: {
-    position: 'AT_LEVEL' as LiquidityPosition,
+    position: 'AT_LEVEL',
     description: 'Price currently AT a liquidity concentration',
     bullish_interpretation: 'Potential sweep and reclaim for long entry',
     bearish_interpretation: 'Potential sweep and reclaim for short entry',
@@ -418,8 +426,8 @@ export const LIQUIDITY_PLAYBOOK = {
     stop_placement: 'Behind the liquidity pool (invalidation level)',
   },
 
-  CLEAN_ZONE: {
-    position: 'DISPERSED' as LiquidityPosition,
+  DISPERSED: {
+    position: 'DISPERSED',
     description: 'Clean price area with minimal liquidity clusters',
     bullish_interpretation: 'Low resistance zone - price can move freely',
     bearish_interpretation: 'Low support zone - price can fall freely',
@@ -430,7 +438,7 @@ export const LIQUIDITY_PLAYBOOK = {
     tp_placement: 'Target next structural level or liquidity pool',
     stop_placement: 'Standard structural placement',
   },
-} as const;
+};
 
 /**
  * ═══════════════════════════════════════════════════════════════════
@@ -598,25 +606,9 @@ export function getSessionProfile(style: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'
 }
 
 export function getLiquidityStrategy(position: LiquidityPosition, tradeDirection: 'BUY' | 'SELL') {
-  const playbook = LIQUIDITY_PLAYBOOK;
-
-  if (position === 'ABOVE') {
-    return tradeDirection === 'BUY'
-      ? playbook.POOL_ABOVE.recommended_strategy.for_longs
-      : playbook.POOL_ABOVE.recommended_strategy.for_shorts;
-  }
-
-  if (position === 'BELOW') {
-    return tradeDirection === 'BUY'
-      ? playbook.POOL_BELOW.recommended_strategy.for_longs
-      : playbook.POOL_BELOW.recommended_strategy.for_shorts;
-  }
-
-  if (position === 'AT_LEVEL') {
-    return tradeDirection === 'BUY'
-      ? playbook.AT_LEVEL.recommended_strategy.for_longs
-      : playbook.AT_LEVEL.recommended_strategy.for_shorts;
-  }
-
-  return playbook.CLEAN_ZONE.recommended_strategy[tradeDirection === 'BUY' ? 'for_longs' : 'for_shorts'];
+  const entry = LIQUIDITY_PLAYBOOK[position];
+  if (!entry) return 'No liquidity context available';
+  return tradeDirection === 'BUY'
+    ? entry.recommended_strategy.for_longs
+    : entry.recommended_strategy.for_shorts;
 }

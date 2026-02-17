@@ -2557,56 +2557,67 @@ ${tradeStyle === 'SCALP' ? `{
     parts.push('🎯 ADVANCED CONTEXT-AWARE INTELLIGENCE');
     parts.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-    // Regime Adaptation Context
-    if (regimeSnapshot && regimeSnapshot.currentRegime) {
-      const regimeType = this.mapRegimeToType(regimeSnapshot.currentRegime);
-      const adaptation = REGIME_STYLE_ADAPTATIONS[tradeStyle][regimeType];
+    try {
+      // Regime Adaptation Context
+      if (regimeSnapshot && regimeSnapshot.structure) {
+        const regimeType = this.mapRegimeToType(regimeSnapshot.structure, regimeSnapshot.atr_compression, regimeSnapshot.atr_expansion);
+        const adaptation = REGIME_STYLE_ADAPTATIONS[tradeStyle]?.[regimeType];
 
-      parts.push(`\n📊 REGIME ADAPTATION (${tradeStyle} in ${regimeType}):`);
-      parts.push(`  Strategy: ${adaptation.strategy}`);
-      parts.push(`  TP Target Range: ${adaptation.tp_target_range}`);
-      parts.push(`  Entry Bias: ${adaptation.entry_bias}`);
-      parts.push(`  Stop Adjustment: ${adaptation.stop_adjustment}`);
-      if (adaptation.confidence_adjustment !== 0) {
-        parts.push(`  Confidence Adjustment: ${adaptation.confidence_adjustment > 0 ? '+' : ''}${adaptation.confidence_adjustment}%`);
-      }
-      parts.push(`  Notes: ${adaptation.notes}`);
-    }
-
-    // Session Behavior Profile
-    if (dailyNarrative && dailyNarrative.currentSession) {
-      const sessionProfiles = SESSION_PROFILES[tradeStyle];
-      const sessionName = this.mapSessionName(dailyNarrative.currentSession);
-      const sessionProfile = Object.values(sessionProfiles).find(p => p.session === sessionName);
-
-      if (sessionProfile) {
-        parts.push(`\n⏰ SESSION PROFILE (${sessionProfile.session}):`);
-        parts.push(`  Time: ${sessionProfile.time_utc} UTC`);
-        parts.push(`  Characteristics: ${sessionProfile.characteristics}`);
-        if ('typical_m5_leg' in sessionProfile) {
-          parts.push(`  Typical Move: ${sessionProfile.typical_m5_leg}`);
+        if (adaptation) {
+          parts.push(`\nREGIME ADAPTATION (${tradeStyle} in ${regimeType}):`);
+          parts.push(`  Strategy: ${adaptation.strategy}`);
+          parts.push(`  TP Target Range: ${adaptation.tp_target_range}`);
+          parts.push(`  Entry Bias: ${adaptation.entry_bias}`);
+          parts.push(`  Stop Adjustment: ${adaptation.stop_adjustment}`);
+          if (adaptation.confidence_adjustment !== 0) {
+            parts.push(`  Confidence Adjustment: ${adaptation.confidence_adjustment > 0 ? '+' : ''}${adaptation.confidence_adjustment}%`);
+          }
+          parts.push(`  Notes: ${adaptation.notes}`);
         }
-        parts.push(`  Strategy: ${sessionProfile.strategy}`);
-        if (sessionProfile.confidence_adjustment !== 0) {
-          parts.push(`  Confidence Adjustment: ${sessionProfile.confidence_adjustment > 0 ? '+' : ''}${sessionProfile.confidence_adjustment}%`);
-        }
-        parts.push(`  Notes: ${sessionProfile.notes}`);
       }
-    }
 
-    // Liquidity Positioning Playbook
-    if (omega8Vote && omega8Vote.liquidity_bias) {
-      const liquidityPosition = this.determineLiquidityPosition(omega8Vote);
-      const playbook = LIQUIDITY_PLAYBOOK[liquidityPosition];
+      // Session Behavior Profile
+      if (dailyNarrative && dailyNarrative.currentSession) {
+        const sessionProfiles = SESSION_PROFILES[tradeStyle];
+        if (sessionProfiles) {
+          const sessionName = this.mapSessionName(dailyNarrative.currentSession);
+          const sessionProfile = Object.values(sessionProfiles).find(p => p.session === sessionName);
 
-      parts.push(`\n💧 LIQUIDITY PLAYBOOK (Position: ${liquidityPosition}):`);
-      parts.push(`  Context: ${playbook.description}`);
-      parts.push(`  Bullish View: ${playbook.bullish_interpretation}`);
-      parts.push(`  Bearish View: ${playbook.bearish_interpretation}`);
-      parts.push(`  Long Strategy: ${playbook.recommended_strategy.for_longs}`);
-      parts.push(`  Short Strategy: ${playbook.recommended_strategy.for_shorts}`);
-      parts.push(`  TP Placement: ${playbook.tp_placement}`);
-      parts.push(`  Stop Placement: ${playbook.stop_placement}`);
+          if (sessionProfile) {
+            parts.push(`\nSESSION PROFILE (${sessionProfile.session}):`);
+            parts.push(`  Time: ${sessionProfile.time_utc} UTC`);
+            parts.push(`  Characteristics: ${sessionProfile.characteristics}`);
+            if ('typical_m5_leg' in sessionProfile) {
+              parts.push(`  Typical Move: ${(sessionProfile as { typical_m5_leg: string }).typical_m5_leg}`);
+            }
+            parts.push(`  Strategy: ${sessionProfile.strategy}`);
+            if (sessionProfile.confidence_adjustment !== 0) {
+              parts.push(`  Confidence Adjustment: ${sessionProfile.confidence_adjustment > 0 ? '+' : ''}${sessionProfile.confidence_adjustment}%`);
+            }
+            parts.push(`  Notes: ${sessionProfile.notes}`);
+          }
+        }
+      }
+
+      // Liquidity Positioning Playbook
+      if (omega8Vote && omega8Vote.liquidity_bias) {
+        const liquidityPosition = this.determineLiquidityPosition(omega8Vote);
+        const playbook = LIQUIDITY_PLAYBOOK[liquidityPosition];
+
+        if (playbook) {
+          parts.push(`\nLIQUIDITY PLAYBOOK (Position: ${liquidityPosition}):`);
+          parts.push(`  Context: ${playbook.description}`);
+          parts.push(`  Bullish View: ${playbook.bullish_interpretation}`);
+          parts.push(`  Bearish View: ${playbook.bearish_interpretation}`);
+          parts.push(`  Long Strategy: ${playbook.recommended_strategy.for_longs}`);
+          parts.push(`  Short Strategy: ${playbook.recommended_strategy.for_shorts}`);
+          parts.push(`  TP Placement: ${playbook.tp_placement}`);
+          parts.push(`  Stop Placement: ${playbook.stop_placement}`);
+        }
+      }
+    } catch (err) {
+      // Non-blocking: advanced context is advisory only, Alpha must never be blocked
+      console.warn('[Alpha] Advanced patterns context build failed (non-blocking):', err instanceof Error ? err.message : err);
     }
 
     parts.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -2614,44 +2625,54 @@ ${tradeStyle === 'SCALP' ? `{
     return parts.join('\n');
   }
 
-  /**
-   * Helper: Map regime snapshot to RegimeType for advanced patterns
-   */
-  private mapRegimeToType(regime: string): RegimeType {
-    const lower = regime.toLowerCase();
-    if (lower.includes('trend')) return 'TRENDING';
-    if (lower.includes('range') || lower.includes('consolidat')) return 'RANGING';
-    if (lower.includes('volatile') || lower.includes('expand')) return 'VOLATILE_EXPANSION';
-    if (lower.includes('compress') || lower.includes('low_vol')) return 'COMPRESSED';
-    return 'RANGING'; // Default fallback
+  private mapRegimeToType(
+    structure: 'trend' | 'range' | 'accumulation' | 'distribution',
+    atrCompression?: boolean,
+    atrExpansion?: boolean,
+  ): RegimeType {
+    if (structure === 'trend') return 'TRENDING';
+    if (structure === 'range') {
+      if (atrCompression) return 'COMPRESSED';
+      return 'RANGING';
+    }
+    if (structure === 'accumulation') return 'COMPRESSED';
+    if (structure === 'distribution') {
+      if (atrExpansion) return 'VOLATILE_EXPANSION';
+      return 'RANGING';
+    }
+    return 'RANGING';
   }
 
-  /**
-   * Helper: Map daily narrative session to SessionName
-   */
   private mapSessionName(session: string): SessionName {
     const lower = session.toLowerCase();
+    if (lower === 'overlap') return 'OVERLAP';
+    if (lower === 'asian') return 'ASIA_CONSOLIDATION';
+    if (lower === 'london') return 'LONDON_ACTIVE';
+    if (lower === 'ny') return 'NY_OPEN';
+    if (lower === 'closed') return 'DEAD_ZONE';
     if (lower.includes('london') && lower.includes('open')) return 'LONDON_OPEN';
     if (lower.includes('london')) return 'LONDON_ACTIVE';
-    if (lower.includes('ny') && lower.includes('open')) return 'NY_OPEN';
     if (lower.includes('overlap')) return 'OVERLAP';
     if (lower.includes('afternoon')) return 'NY_AFTERNOON';
     if (lower.includes('lunch')) return 'NY_LUNCH';
     if (lower.includes('dead') || lower.includes('quiet')) return 'DEAD_ZONE';
     if (lower.includes('asia')) return 'ASIA_CONSOLIDATION';
-    return 'LONDON_ACTIVE'; // Default fallback
+    if (lower.includes('ny')) return 'NY_OPEN';
+    return 'LONDON_ACTIVE';
   }
 
-  /**
-   * Helper: Determine liquidity position from Omega-8 vote
-   */
   private determineLiquidityPosition(omega8Vote: Omega8Vote): LiquidityPosition {
-    const bias = omega8Vote.liquidity_bias?.toLowerCase() || '';
+    const bias = omega8Vote.liquidity_bias;
+    if (!bias) return 'DISPERSED';
 
-    if (bias.includes('above') || bias.includes('overhead')) return 'ABOVE';
-    if (bias.includes('below') || bias.includes('underneath')) return 'BELOW';
-    if (bias.includes('at') || bias.includes('near') || bias.includes('sitting')) return 'AT_LEVEL';
-    return 'DISPERSED'; // Clean zone / no concentration
+    switch (bias) {
+      case 'clean': return 'DISPERSED';
+      case 'stoprun_risk': return 'AT_LEVEL';
+      case 'stoprun_entry': return 'AT_LEVEL';
+      case 'reaccumulation': return 'BELOW';
+      case 'distribution': return 'ABOVE';
+      default: return 'DISPERSED';
+    }
   }
 
   /**
