@@ -1285,7 +1285,7 @@ ${tradeStyle === 'SCALP' ? `{
   "marketThesis": "Brief market analysis (30-50 words)",
   "reasoning": "Brief execution reasoning",
   "market_narrative": "Single-sentence cause-effect thesis",
-  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null_or_price, "pullback_zone_max": null_or_price, "reasoning": "MUST cite specific level+distance. E.g. SELL: 'Nearest resistance at 4963.28 is 10 pips above entry (0.8 ATR). M1 shows 4 consecutive bearish candles with no retrace - price likely to rally to 4960-4963 zone before continuing down. ~7 pip improvement.' BUY: 'Price at VWAP 1.0842 with support at 1.0838 just 4 pips below (0.2 ATR). M1 shows pullback already happened - good entry now.'" },
+  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null_or_price, "pullback_zone_max": null_or_price, "reasoning": "MUST use 50% DISTANCE RULE. E.g. SELL: 'Nearest resistance at 4963 is 10 pips above entry. 50% distance = 5 pips. Zone: 4958-4960. Realistic ~5 pip improvement.' BUY: 'Support at 1.0838 is 4 pips below (0.2 ATR). M1 pullback already happened - good entry now.'" },
   "override": { "type": "none", "justification": "" }
 }` : `{
   "action": "BUY|SELL|NO_TRADE",
@@ -1300,7 +1300,7 @@ ${tradeStyle === 'SCALP' ? `{
   "marketThesis": "Brief market analysis (30-50 words)",
   "reasoning": "Brief execution reasoning",
   "market_narrative": "Single-sentence cause-effect thesis",
-  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null_or_price, "pullback_zone_max": null_or_price, "reasoning": "MUST cite specific level+distance. E.g. 'Nearest resistance at 1.0870 is 15 pips above (1.2 ATR). M1 shows impulsive drop with no retrace - expect rally to 1.0865-1.0870 before continuation. ~12 pip improvement.'" },
+  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null_or_price, "pullback_zone_max": null_or_price, "reasoning": "MUST use 50% DISTANCE RULE. E.g. 'Nearest resistance at 1.0870 is 15 pips above. 50% distance = ~7.5 pips. Zone: 1.0849-1.0852. Realistic ~8 pip improvement.'" },
   "override": { "type": "none", "justification": "" }
 }`}`;
 

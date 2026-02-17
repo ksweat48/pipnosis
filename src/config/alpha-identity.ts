@@ -493,15 +493,23 @@ VERDICTS:
   Your reasoning MUST cite the specific level/evidence. "Aligns with structural levels" is NOT acceptable.
 
 - PULLBACK_EXPECTED: Use when price is likely to retrace before continuing in your trade direction.
-  For SELL: pullback = price rallying UP before continuing down. Set pullback_zone ABOVE entry near the resistance level.
-  For BUY: pullback = price dipping DOWN before continuing up. Set pullback_zone BELOW entry near the support level.
-  Set pullback_zone_min and pullback_zone_max around the target level with a small buffer.
-  Your reasoning MUST name: (1) the specific level price will retrace to, (2) why retrace is expected, (3) the estimated improvement in pips.
+  For SELL: pullback = price rallying UP before continuing down. Set pullback_zone ABOVE entry.
+  For BUY: pullback = price dipping DOWN before continuing up. Set pullback_zone BELOW entry.
+
+  CRITICAL — 50% DISTANCE RULE (NON-NEGOTIABLE):
+  Markets rarely retrace 100% to a structural level before continuing. Targeting the full level causes users to MISS trades.
+  You MUST set the pullback zone at approximately 50% of the distance between entry and the identified structural level.
+  Steps: (1) Identify the structural level (S/R, VWAP, EMA). (2) Calculate the pip distance from entry to that level. (3) Set the pullback zone at 50% of that distance from entry, with a tight +/- 2-5 pip band.
+  Example SELL: Entry at 24532, nearest resistance at 24555 (23 pips above). 50% = ~11.5 pips. Zone = 24543-24546. NOT 24550-24555.
+  Example BUY: Entry at 1.0842, nearest support at 1.0820 (22 pips below). 50% = ~11 pips. Zone = 1.0831-1.0834. NOT 1.0820-1.0825.
+  This gives users a realistic better entry they can actually catch, rather than an ambitious zone that never fills.
+
+  Your reasoning MUST name: (1) the structural level identified, (2) the full distance in pips, (3) the 50% target zone calculation, (4) the estimated realistic improvement in pips.
 
 STYLE-SPECIFIC ENTRY ADVISORY:
-- SCALP: Focus on M1/M5 micro-structure. Even 3-5 pip improvement matters. Check if last M1 candles show exhaustion (wicks, dojis) suggesting imminent retrace. Fast entries need precise levels.
-- MICRO_INTRADAY: Focus on M15 structure and VWAP reversion. A 10-20 pip pullback to VWAP or EMA20 is common. Check higher-timeframe S/R for pullback targets.
-- INTRADAY: Focus on H1 structure. Major S/R levels and EMA50 are natural pullback zones. Expect 20-50 pip retraces on extended moves before trend continuation.
+- SCALP: Focus on M1/M5 micro-structure. Target 50% of distance to nearest structural level. A realistic 2-4 pip improvement that fills beats a theoretical 5-10 pip zone that never reaches. Check if last M1 candles show exhaustion suggesting imminent retrace.
+- MICRO_INTRADAY: Focus on M15 structure and VWAP reversion. Target 50% of distance to VWAP/EMA20. A caught 8-12 pip improvement beats waiting for a 20 pip pullback that misses the move.
+- INTRADAY: Focus on H1 structure. Target 50% of distance to major S/R/EMA50. A filled 15-25 pip retrace beats an ambitious 40-50 pip zone that never completes.
 
 ENTRY MODES for TPS (provide in entry_spec):
 - EXECUTE_NOW: Price in zone or momentum makes waiting risky
