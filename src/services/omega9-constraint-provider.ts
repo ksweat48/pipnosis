@@ -30,7 +30,7 @@ import { riskAwareStopCalculator } from './risk-aware-stop-calculator';
 import { sessionConstraintCoordinator } from './session-constraint-coordinator';
 import { assetClassifier } from './asset-classifier';
 import { constraintFeasibilityValidator } from './constraint-feasibility-validator';
-import { TRADING_CONSTANTS } from '../config/trading-constants';
+import { TRADING_CONSTANTS, getMinTP1RRForStyle } from '../config/trading-constants';
 import type {
   Omega9Constraints,
   Omega9ConstraintInput,
@@ -829,9 +829,17 @@ Core Principle: If the market can offer some profit, you should take it.
 
     sections.push('');
     sections.push('TP1/TP2 R:R WALLS (HARD ENFORCEMENT):');
-    sections.push('  SCALP: Single TP R:R vs SL >= 1.3:1');
-    sections.push('  MICRO_INTRADAY: TP1 R:R vs SL >= 1.5:1, TP2 R:R vs SL >= 2.0:1');
-    sections.push('  INTRADAY: TP1 R:R vs SL >= 2.0:1, TP2 R:R vs SL >= 2.5:1');
+    const minTP1RR = getMinTP1RRForStyle(style);
+    if (style === 'SCALP') {
+      sections.push('  SCALP: Single TP R:R vs SL >= 1.3:1');
+    } else if (minTP1RR != null) {
+      const longMinTP1Pips = walls.long.slPips.min * minTP1RR;
+      const shortMinTP1Pips = walls.short.slPips.min * minTP1RR;
+      const minTP2RR = style === 'MICRO_INTRADAY' ? 2.0 : 2.5;
+      sections.push(`  ${style}: TP1 R:R vs SL >= ${minTP1RR.toFixed(1)}:1, TP2 R:R vs SL >= ${minTP2RR.toFixed(1)}:1`);
+      sections.push(`  CONCRETE TP1 MINIMUM: IF LONG TP1 >= ${longMinTP1Pips.toFixed(1)} pips | IF SHORT TP1 >= ${shortMinTP1Pips.toFixed(1)} pips`);
+      sections.push(`  (Derived from: SL wall min * ${minTP1RR.toFixed(1)} R:R. Alpha MUST place TP1 at or beyond this distance.)`);
+    }
     sections.push('  Both TP1 and TP2 must be within the TP Wall range. Violations are auto-blocked.');
     sections.push('');
     sections.push('WALLS ARE PHYSICS. Choose LONG, SHORT, or NO_TRADE. Place SL/TP within the chosen arena.');

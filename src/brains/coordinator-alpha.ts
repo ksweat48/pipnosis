@@ -1017,18 +1017,21 @@ class AlphaCoordinatorBrain {
 
     const styleEnvelope = getExecutionEnvelope(tradeStyle);
     const promptAssetClass = getAssetClass(marketContext.symbol) as EnvelopeAssetClass;
-    const promptEnvelopeBounds = getAssetClassEnvelopeBounds(tradeStyle, promptAssetClass, marketContext.symbol, marketContext.price);
 
     const styleIdentityPrompt = '';
 
     if (buyStopAnchor && sellStopAnchor) {
       const atrPips = (extractATRValue(marketContext.atr) / getCurrencyPipInfo(marketContext.symbol).pipValue).toFixed(1);
+      const wallSlMin = dualArenaWalls ? Math.min(dualArenaWalls.long.slPips.min, dualArenaWalls.short.slPips.min).toFixed(1) : buyStopAnchor.profileMinPips;
+      const wallSlMax = dualArenaWalls ? Math.max(dualArenaWalls.long.slPips.max, dualArenaWalls.short.slPips.max).toFixed(1) : buyStopAnchor.profileMaxPips;
+      const wallTpMin = dualArenaWalls ? Math.min(dualArenaWalls.long.tpPips.min, dualArenaWalls.short.tpPips.min).toFixed(1) : '0';
+      const wallTpMax = dualArenaWalls ? Math.max(dualArenaWalls.long.tpPips.max, dualArenaWalls.short.tpPips.max).toFixed(1) : '999';
       stopLossDirective = `
 ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips) | Volatility: ${marketVolatilityLevel.toUpperCase()} | Risk: ${riskMode.toUpperCase()}
 IF LONG SL Anchor: ${buyStopAnchor.stopLossPrice.toFixed(5)} (${buyStopAnchor.stopLossPips.toFixed(1)}p, ${buyStopAnchor.atrMultiplier.toFixed(2)}x ATR)
 IF SHORT SL Anchor: ${sellStopAnchor.stopLossPrice.toFixed(5)} (${sellStopAnchor.stopLossPips.toFixed(1)}p, ${sellStopAnchor.atrMultiplier.toFixed(2)}x ATR)
 Profile Range: ${buyStopAnchor.profileMinPips}-${buyStopAnchor.profileMaxPips} pips
-HARD WALLS (${tradeStyle} ${promptAssetClass} @ ${marketContext.price.toFixed(2)}): SL MUST be ${promptEnvelopeBounds.slPips.min.toFixed(1)}-${promptEnvelopeBounds.slPips.max.toFixed(1)} pips | TP MUST be ${promptEnvelopeBounds.tpPips.min.toFixed(1)}-${promptEnvelopeBounds.tpPips.max.toFixed(1)} pips. Trades outside these walls are AUTO-REJECTED. You have FULL authority inside these bounds.
+HARD WALLS (${tradeStyle} ${promptAssetClass} @ ${marketContext.price.toFixed(2)}): SL MUST be ${wallSlMin}-${wallSlMax} pips | TP MUST be ${wallTpMin}-${wallTpMax} pips. Trades outside these walls are AUTO-REJECTED. You have FULL authority inside these bounds.
 `;
     }
 
@@ -1443,33 +1446,90 @@ ${tradeStyle === 'SCALP' ? `{
         dualArenaWalls
       );
 
-      // DUAL-ARENA WALL CHECK: Simple pass/fail - within walls = proceed, outside = block
-      // No revision loop, no corrections. Alpha had the walls in the prompt.
+      // DUAL-ARENA WALL CHECK with marginal-violation auto-clamping
+      // CCIP (2026-02-17): LLMs are inherently imprecise with numeric values.
+      // Marginal violations (within tolerance) are auto-clamped to the wall boundary.
+      // Significant violations (beyond tolerance) are hard-blocked.
+      // SSOT: Dual-arena walls are the single validation authority.
       if (decision.action !== 'NO_TRADE' && dualArenaWalls) {
         decision.arena_chosen = decision.action === 'BUY' ? 'LONG' : 'SHORT';
         const arena = decision.action === 'BUY' ? dualArenaWalls.long : dualArenaWalls.short;
-        const slPipsCheck = calculatePipDistance(marketContext.symbol, decision.entry, decision.stopLoss);
-        const tpPipsCheck = calculatePipDistance(marketContext.symbol, decision.entry, decision.takeProfit);
+        const pipInfo = getCurrencyPipInfo(marketContext.symbol);
+        const isBuy = decision.action === 'BUY';
+        let slPipsCheck = calculatePipDistance(marketContext.symbol, decision.entry, decision.stopLoss);
+        let tpPipsCheck = calculatePipDistance(marketContext.symbol, decision.entry, decision.takeProfit);
 
-        const wallViolations: string[] = [];
-        if (slPipsCheck < arena.slPips.min) wallViolations.push(`SL ${slPipsCheck.toFixed(1)} pips below wall min ${arena.slPips.min.toFixed(1)}`);
-        if (slPipsCheck > arena.slPips.max) wallViolations.push(`SL ${slPipsCheck.toFixed(1)} pips above wall max ${arena.slPips.max.toFixed(1)}`);
-        if (tpPipsCheck < arena.tpPips.min) wallViolations.push(`TP2 ${tpPipsCheck.toFixed(1)} pips below wall min ${arena.tpPips.min.toFixed(1)}`);
-        if (tpPipsCheck > arena.tpPips.max) wallViolations.push(`TP2 ${tpPipsCheck.toFixed(1)} pips above wall max ${arena.tpPips.max.toFixed(1)}`);
+        const getWallTolerance = (boundary: number): number =>
+          Math.min(Math.max(boundary * 0.05, 0.5), 3.0);
+
+        const hardViolations: string[] = [];
+        const clampedAdjustments: string[] = [];
+
+        const checkAndClamp = (
+          valuePips: number,
+          wallMin: number,
+          wallMax: number,
+          label: string
+        ): { pips: number; clamped: boolean } => {
+          if (valuePips < wallMin) {
+            const gap = wallMin - valuePips;
+            const tolerance = getWallTolerance(wallMin);
+            if (gap <= tolerance) {
+              clampedAdjustments.push(`${label} clamped ${valuePips.toFixed(1)} -> ${wallMin.toFixed(1)} pips (${gap.toFixed(1)} pip marginal)`);
+              return { pips: wallMin, clamped: true };
+            }
+            hardViolations.push(`${label} ${valuePips.toFixed(1)} pips below wall min ${wallMin.toFixed(1)}`);
+          }
+          if (valuePips > wallMax) {
+            const gap = valuePips - wallMax;
+            const tolerance = getWallTolerance(wallMax);
+            if (gap <= tolerance) {
+              clampedAdjustments.push(`${label} clamped ${valuePips.toFixed(1)} -> ${wallMax.toFixed(1)} pips (${gap.toFixed(1)} pip marginal)`);
+              return { pips: wallMax, clamped: true };
+            }
+            hardViolations.push(`${label} ${valuePips.toFixed(1)} pips above wall max ${wallMax.toFixed(1)}`);
+          }
+          return { pips: valuePips, clamped: false };
+        };
+
+        const slResult = checkAndClamp(slPipsCheck, arena.slPips.min, arena.slPips.max, 'SL');
+        if (slResult.clamped) {
+          decision.stopLoss = isBuy
+            ? decision.entry - slResult.pips * pipInfo.pipValue
+            : decision.entry + slResult.pips * pipInfo.pipValue;
+          slPipsCheck = slResult.pips;
+        }
+
+        const tpResult = checkAndClamp(tpPipsCheck, arena.tpPips.min, arena.tpPips.max, 'TP2');
+        if (tpResult.clamped) {
+          decision.takeProfit = isBuy
+            ? decision.entry + tpResult.pips * pipInfo.pipValue
+            : decision.entry - tpResult.pips * pipInfo.pipValue;
+          tpPipsCheck = tpResult.pips;
+        }
 
         if (decision.tp1Price != null) {
-          const tp1PipsCheck = calculatePipDistance(marketContext.symbol, decision.entry, decision.tp1Price);
-          if (tp1PipsCheck < arena.tpPips.min) wallViolations.push(`TP1 ${tp1PipsCheck.toFixed(1)} pips below wall min ${arena.tpPips.min.toFixed(1)}`);
-          if (tp1PipsCheck > arena.tpPips.max) wallViolations.push(`TP1 ${tp1PipsCheck.toFixed(1)} pips above wall max ${arena.tpPips.max.toFixed(1)}`);
+          let tp1PipsCheck = calculatePipDistance(marketContext.symbol, decision.entry, decision.tp1Price);
+          const tp1Result = checkAndClamp(tp1PipsCheck, arena.tpPips.min, arena.tpPips.max, 'TP1');
+          if (tp1Result.clamped) {
+            decision.tp1Price = isBuy
+              ? decision.entry + tp1Result.pips * pipInfo.pipValue
+              : decision.entry - tp1Result.pips * pipInfo.pipValue;
+          }
         }
-        decision.wall_violations = wallViolations;
 
-        if (wallViolations.length > 0) {
-          console.warn(`[Alpha Coordinator] WALL VIOLATION: ${wallViolations.join('; ')}`);
+        if (clampedAdjustments.length > 0) {
+          console.warn(`[Alpha Coordinator] Wall auto-clamp: ${clampedAdjustments.join('; ')}`);
+        }
+
+        decision.wall_violations = hardViolations;
+
+        if (hardViolations.length > 0) {
+          console.warn(`[Alpha Coordinator] WALL VIOLATION: ${hardViolations.join('; ')}`);
           decision.action = 'NO_TRADE';
           decision.decision = 'NO_TRADE';
           decision.confidence = 0;
-          decision.reasoning = `Blocked: Decision outside arena walls. ${wallViolations.join('; ')}`;
+          decision.reasoning = `Blocked: Decision outside arena walls. ${hardViolations.join('; ')}`;
 
           logViolation({
             violationType: 'ALPHA_WALL_VIOLATION',
@@ -1478,7 +1538,8 @@ ${tradeStyle === 'SCALP' ? `{
             callLocation: 'coordinator-alpha.wall_check',
             blocked: true,
             errorDetails: {
-              wallViolations,
+              hardViolations,
+              clampedAdjustments,
               slPips: slPipsCheck,
               tpPips: tpPipsCheck,
               arenaMin: { sl: arena.slPips.min, tp: arena.tpPips.min },
@@ -1490,7 +1551,7 @@ ${tradeStyle === 'SCALP' ? `{
             console.error('[Alpha Coordinator] Failed to log wall violation:', error);
           });
         } else {
-          console.log('[Alpha Coordinator] Decision within arena walls');
+          console.log(`[Alpha Coordinator] Decision within arena walls${clampedAdjustments.length > 0 ? ' (after clamping)' : ''}`);
         }
       }
 
@@ -2198,63 +2259,15 @@ ${tradeStyle === 'SCALP' ? `{
 
       console.log(`[Alpha Decision] Stop: ${slPips.toFixed(1)} pips | TP: ${tpPips.toFixed(1)} pips | R:R: ${rr.toFixed(2)}:1`);
 
+      // CCIP (2026-02-17): Envelope check is now DIAGNOSTIC ONLY (not blocking).
+      // SSOT: Dual-arena wall check in coordinate() is the single validation authority.
+      // The dual-arena walls already incorporate envelope bounds + noise floor.
+      // This check logs discrepancies for monitoring but does NOT block trades.
       const envelopeAssetClass = getAssetClass(symbol) as EnvelopeAssetClass;
       const dynamicBounds = getAssetClassEnvelopeBounds(resolvedStyle, envelopeAssetClass, symbol, currentPrice);
       const envelopeValidation = validateTPSLAgainstEnvelope(resolvedStyle, tpPips, slPips, envelopeAssetClass, symbol, currentPrice);
       if (!envelopeValidation.valid) {
-        const slTooTight = slPips < dynamicBounds.slPips.min;
-        const slTooWide = slPips > dynamicBounds.slPips.max;
-        const tpTooTight = tpPips < dynamicBounds.tpPips.min;
-        const tpTooWide = tpPips > dynamicBounds.tpPips.max;
-
-        if (slTooTight || slTooWide || tpTooTight || tpTooWide) {
-          console.error(`[Alpha Envelope WALL] BLOCKED: ${envelopeValidation.violations.join('; ')}`);
-          console.error(`[Alpha Envelope WALL] ${resolvedStyle} ${envelopeAssetClass} bounds @ ${currentPrice.toFixed(2)}: SL ${dynamicBounds.slPips.min.toFixed(1)}-${dynamicBounds.slPips.max.toFixed(1)} pips, TP ${dynamicBounds.tpPips.min.toFixed(1)}-${dynamicBounds.tpPips.max.toFixed(1)} pips`);
-          console.error(`[Alpha Envelope WALL] Alpha attempted: SL ${slPips.toFixed(1)} pips, TP ${tpPips.toFixed(1)} pips`);
-
-          logViolation({
-            violationType: 'ALPHA_ENVELOPE_WALL_VIOLATION',
-            symbol,
-            attemptedOperation: 'envelope_wall_check',
-            callLocation: 'coordinator-alpha.envelope_wall_enforcement',
-            blocked: true,
-            errorDetails: {
-              slPips,
-              tpPips,
-              slMin: dynamicBounds.slPips.min,
-              slMax: dynamicBounds.slPips.max,
-              tpMin: dynamicBounds.tpPips.min,
-              tpMax: dynamicBounds.tpPips.max,
-              violations: envelopeValidation.violations,
-              resolvedStyle,
-              envelopeAssetClass,
-              currentPrice,
-              userId: userId || null,
-              sessionId: goalContext?.sessionId || null,
-            }
-          }).catch(error => {
-            console.error('[Alpha Coordinator] Failed to log envelope wall violation:', error);
-          });
-
-          return {
-            action: 'NO_TRADE',
-            decision: 'NO_TRADE',
-            entry: currentPrice,
-            stopLoss: currentPrice,
-            takeProfit: currentPrice,
-            tp1Price: null,
-            tp1Confidence: null,
-            tp1Reasoning: null,
-            tp2Price: null,
-            tp2Reasoning: null,
-            confidence: 0,
-            reasoning: `Blocked by ${resolvedStyle} envelope wall: ${envelopeValidation.violations.join('; ')}. ` +
-              `Alpha has full authority INSIDE the walls (SL ${dynamicBounds.slPips.min.toFixed(1)}-${dynamicBounds.slPips.max.toFixed(1)} pips, ` +
-              `TP ${dynamicBounds.tpPips.min.toFixed(1)}-${dynamicBounds.tpPips.max.toFixed(1)} pips) but MUST NOT breach them.`,
-            omega_summary: '',
-            risk_pct: riskPct,
-          };
-        }
+        console.warn(`[Alpha Envelope DIAGNOSTIC] ${envelopeValidation.violations.join('; ')} (non-blocking, dual-arena is SSOT)`);
       }
 
       // CCIP GOVERNANCE (2026-02-16): Alpha is SOLE AUTHORITY for TP placement.
