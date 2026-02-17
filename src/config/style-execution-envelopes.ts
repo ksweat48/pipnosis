@@ -350,13 +350,13 @@ export function validateTPSLAgainstEnvelope(
 }
 
 /**
- * Constraint Sandwich Detection (SSOT)
+ * Noise Floor Advisory (Diagnostic Only)
  *
- * Detects when a style's envelope SL cap is below the noise floor for a given instrument,
- * making the style mathematically impossible.
- *
- * GOVERNANCE: When detected, the ONLY resolution is NO_TRADE.
- * Style upgrades are NEVER permitted.
+ * CCIP (2026-02-17): Converted from blocker to advisory.
+ * Detects when noise floor exceeds the style envelope SL cap.
+ * Returns advisory information but NEVER blocks trading.
+ * The envelope percentage bounds are the SOLE style wall authority.
+ * Alpha sees the noise advisory and decides whether to proceed.
  */
 export function detectConstraintSandwich(
   style: string,
@@ -370,12 +370,12 @@ export function detectConstraintSandwich(
 
   if (noiseFloorPips > slMax) {
     const advisory =
-      `${style} not viable on ${symbol} -- noise floor (${noiseFloorPips.toFixed(1)} pips) ` +
-      `exceeds ${style} ${assetClass} SL max (${slMax.toFixed(1)} pips). Recommend NO_TRADE.`;
+      `High noise on ${symbol}: noise (${noiseFloorPips.toFixed(1)} pips) ` +
+      `exceeds ${style} ${assetClass} SL max (${slMax.toFixed(1)} pips). Consider wide stops.`;
 
-    console.warn(`[CONSTRAINT_SANDWICH] ${advisory}`);
+    console.log(`[NOISE_ADVISORY] ${advisory}`);
 
-    return { sandwiched: true, advisory, slMax, noiseFloor: noiseFloorPips };
+    return { sandwiched: false, advisory, slMax, noiseFloor: noiseFloorPips };
   }
 
   return { sandwiched: false, advisory: null };
@@ -418,14 +418,15 @@ export function getStyleATRTimeframe(style: string): string {
 
 const ALL_TRADEABLE_STYLES = ['SCALP', 'MICRO_INTRADAY', 'INTRADAY'] as const;
 
+/**
+ * CCIP (2026-02-17): All styles are always viable. Envelope bounds define style identity.
+ * Noise floor is advisory intelligence, not a style viability filter.
+ */
 export function getViableStyles(
-  symbol: string,
-  assetClass: EnvelopeAssetClass,
-  noiseFloorPips: number,
-  currentPrice?: number
+  _symbol: string,
+  _assetClass: EnvelopeAssetClass,
+  _noiseFloorPips: number,
+  _currentPrice?: number
 ): string[] {
-  return ALL_TRADEABLE_STYLES.filter(style => {
-    const result = detectConstraintSandwich(style, assetClass, noiseFloorPips, symbol, currentPrice);
-    return !result.sandwiched;
-  });
+  return [...ALL_TRADEABLE_STYLES];
 }

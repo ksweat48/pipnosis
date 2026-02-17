@@ -39,7 +39,7 @@ import type {
   DualArenaWalls,
   DualArenaInput,
 } from '../types/omega9-constraints';
-import { getExecutionEnvelope, detectConstraintSandwich, getAssetClassEnvelopeBounds, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
+import { getExecutionEnvelope, getAssetClassEnvelopeBounds, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
 
 class Omega9ConstraintProvider {
   /**
@@ -229,30 +229,13 @@ class Omega9ConstraintProvider {
       envelopeAlignedProfileMax = envelopeBounds.slPips.max;
     }
 
-    // ✅ CRITICAL FIX: Ensure min <= max for SL range (SECONDARY BUG)
-    // BUG: noiseFloor can exceed profileMax, creating invalid range (min > max)
-    // Example: NAS100 noiseFloor=38.6 pips, profileMax=35 pips → INVALID (38.6 > 35)
-    const rawMinStopLoss = Math.max(envelopeAlignedProfileMin, noiseFloor.noiseFloorPips);
-    const rawMaxStopLoss = envelopeAlignedProfileMax;
-
-    let finalMinStopLoss = rawMinStopLoss;
-    let finalMaxStopLoss = rawMaxStopLoss;
-
-    if (rawMinStopLoss > rawMaxStopLoss) {
-      console.warn('[SSOT_MATH_CORRUPTION] Noise floor exceeds profile max - expanding envelope', {
-        type: 'INVALID_RANGE',
-        severity: 'WARNING',
-        symbol,
-        noiseFloor: noiseFloor.noiseFloorPips,
-        profileMin: envelopeAlignedProfileMin,
-        profileMax: rawMaxStopLoss,
-        correction: 'Expanding max to accommodate noise floor',
-        callsite: 'omega9-constraint-provider.ts:generateConstraints'
-      });
-
-      finalMaxStopLoss = rawMinStopLoss * 1.5;
-      console.log(`[Omega-9 Constraints] SL range corrected: ${rawMinStopLoss.toFixed(1)}-${rawMaxStopLoss.toFixed(1)} -> ${finalMinStopLoss.toFixed(1)}-${finalMaxStopLoss.toFixed(1)} pips`);
-    }
+    // CCIP (2026-02-17): Envelope percentage bounds are the SOLE style wall authority.
+    // Noise floor is advisory intelligence for Alpha, NOT a constraint that raises the SL minimum.
+    // Previous behavior: Math.max(envelopeMin, noiseFloor) -- this inflated SL min, caused
+    // SSOT_MATH_CORRUPTION cascades, and required envelope expansion hacks (1.5x multiplier).
+    // New behavior: Envelope bounds define the wall. Alpha sees the noise floor as market intel.
+    const finalMinStopLoss = envelopeAlignedProfileMin;
+    const finalMaxStopLoss = envelopeAlignedProfileMax;
 
     const constraints: Omega9Constraints = {
       // Context (SSOT: Constraints know their context for absolute price calculations)
@@ -605,7 +588,7 @@ Entry Price: ${entryPrice.toFixed(decimalPlaces)}
 Typical Price Range: Use this as sanity check for your outputs
 
 STOP-LOSS BOUNDARIES (Relative):
-• Noise Floor: ${constraints.noiseFloorPips.toFixed(1)} pips (${constraints.noiseFloorReasoning})
+• Market Noise: ${constraints.noiseFloorPips.toFixed(1)} pips (advisory -- ${constraints.noiseFloorReasoning})
 • Minimum: ${constraints.minStopLossPips.toFixed(1)} pips
 • Maximum: ${constraints.maxStopLossPips.toFixed(1)} pips
 • Recommended: ${constraints.recommendedStopLossPips.toFixed(1)} pips
@@ -729,19 +712,16 @@ Core Principle: If the market can offer some profit, you should take it.
   ): ArenaWalls {
     const absolutePrices = this.calculateAbsolutePriceRanges(constraints);
 
-    const sandwich = detectConstraintSandwich(
-      envelopeStyle,
-      envelopeAssetClass,
-      constraints.noiseFloorPips,
-      symbol,
-      entryPrice
-    );
-
-    const feasible = !sandwich.sandwiched &&
-      (constraints.feasibilityStatus?.isFeasible !== false);
-
+    // CCIP (2026-02-17): Constraint sandwich is now advisory-only.
+    // Envelope bounds define the style wall. Noise floor is market intelligence.
+    // The arena is always feasible if the envelope range is valid (min < max).
     const feasibilityAdvisory = constraints.feasibilityStatus && !constraints.feasibilityStatus.isFeasible
       ? constraints.feasibilityStatus.advisoryMessage
+      : null;
+
+    const noiseExceedsEnvelope = constraints.noiseFloorPips > constraints.maxStopLossPips;
+    const noiseAdvisory = noiseExceedsEnvelope
+      ? `High noise: ${constraints.noiseFloorPips.toFixed(1)} pips exceeds SL max ${constraints.maxStopLossPips.toFixed(1)} pips -- wide stops recommended`
       : null;
 
     return {
@@ -760,9 +740,9 @@ Core Principle: If the market can offer some profit, you should take it.
       },
       noiseFloorPips: constraints.noiseFloorPips,
       minRiskReward: constraints.minRiskReward,
-      feasible,
-      sandwiched: sandwich.sandwiched,
-      sandwichAdvisory: sandwich.advisory,
+      feasible: true,
+      sandwiched: false,
+      sandwichAdvisory: noiseAdvisory,
       feasibilityAdvisory,
     };
   }
@@ -773,22 +753,17 @@ Core Principle: If the market can offer some profit, you should take it.
     const dp = symbolConfig?.decimalPlaces || 5;
 
     const formatArena = (arena: ArenaWalls, label: string): string => {
-      if (arena.sandwiched) {
-        return [
-          `${label}:`,
-          `  NOT VIABLE -- noise floor (${arena.noiseFloorPips.toFixed(1)} pips) exceeds style SL ceiling.`,
-          arena.sandwichAdvisory ? `  ${arena.sandwichAdvisory}` : '',
-        ].filter(Boolean).join('\n');
-      }
-
       const lines = [
         `${label}:`,
         `  SL Wall: ${arena.slPrice.min.toFixed(dp)} to ${arena.slPrice.max.toFixed(dp)} (${arena.slPips.min.toFixed(1)}-${arena.slPips.max.toFixed(1)} pips, rec: ${arena.slPips.recommended.toFixed(1)})`,
         `  TP Wall: ${arena.tpPrice.min.toFixed(dp)} to ${arena.tpPrice.max.toFixed(dp)} (${arena.tpPips.min.toFixed(1)}-${arena.tpPips.max.toFixed(1)} pips, rec: ${arena.tpPips.recommended.toFixed(1)})`,
-        `  Noise Floor: ${arena.noiseFloorPips.toFixed(1)} pips`,
+        `  Market Noise: ${arena.noiseFloorPips.toFixed(1)} pips (advisory -- factor into stop placement)`,
         `  Min R:R: ${arena.minRiskReward.toFixed(2)}:1`,
-        `  Viable: ${arena.feasible ? 'YES' : 'NO'}`,
       ];
+
+      if (arena.sandwichAdvisory) {
+        lines.push(`  Condition: ${arena.sandwichAdvisory}`);
+      }
 
       if (arena.feasibilityAdvisory) {
         lines.push(`  Advisory: ${arena.feasibilityAdvisory}`);

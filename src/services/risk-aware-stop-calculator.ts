@@ -334,7 +334,7 @@ class RiskAwareStopCalculator {
    * 1. Percentage of price (prevents microscopic stops on high-value instruments)
    * 2. ATR multiplier (prevents stops inside volatility noise)
    */
-  calculateNoiseFloor(symbol: string, entryPrice: number, atr: number | ATRValue, tradeStyle?: string): {
+  calculateNoiseFloor(symbol: string, entryPrice: number, atr: number | ATRValue, _tradeStyle?: string): {
     noiseFloorPips: number;
     reasoning: string;
   } {
@@ -366,54 +366,18 @@ class RiskAwareStopCalculator {
     const atrInPips = atrValue / pipInfo.pipValue;
     const atrFloorPips = atrInPips * minATRMultiplier;
 
-    let noiseFloorPips = Math.max(percentFloorPips, atrFloorPips);
-    let controllingMethod = percentFloorPips > atrFloorPips ? 'price-based' : 'volatility-based';
-    let styleCapApplied = false;
+    // CCIP (2026-02-17): Noise floor is now advisory-only market intelligence.
+    // Envelope percentage bounds are the sole style wall authority.
+    // Style-aware ATR caps (SCALP 3x, MICRO 4x) removed -- they were bandaids
+    // to prevent the noise floor from triggering constraint sandwiches.
+    // With noise floor no longer acting as a wall, the caps serve no purpose.
+    const noiseFloorPips = Math.max(percentFloorPips, atrFloorPips);
+    const controllingMethod = percentFloorPips > atrFloorPips ? 'price-based' : 'volatility-based';
 
-    // CCIP (2026-02-16): Style-aware noise floor cap for SCALP
-    // When the percentage-based floor is controlling and dramatically exceeds ATR,
-    // cap at 3x ATR to prevent permanent SCALP infeasibility on high-price instruments.
-    // Example: US30 @ 49557 has noise floor 74.3 pips (0.15%) vs ATR 14.9 pips.
-    // Without cap: SCALP SL max ~25 pips is always sandwich-blocked by 74 pip floor.
-    // With cap: floor = 3 * 14.9 = 44.7 pips, which envelope expansion can accommodate.
-    const SCALP_MAX_ATR_MULTIPLIER = 3.0;
-    const MICRO_MAX_ATR_MULTIPLIER = 4.0;
-    const normalizedStyle = tradeStyle?.toUpperCase();
-
-    if (normalizedStyle === 'SCALP' && controllingMethod === 'price-based') {
-      const scalpCap = atrInPips * SCALP_MAX_ATR_MULTIPLIER;
-      if (noiseFloorPips > scalpCap && scalpCap > atrFloorPips) {
-        console.log(`[Noise Floor] SCALP cap applied: ${noiseFloorPips.toFixed(1)} -> ${scalpCap.toFixed(1)} pips (${SCALP_MAX_ATR_MULTIPLIER}x ATR cap)`);
-        noiseFloorPips = scalpCap;
-        controllingMethod = 'scalp-atr-capped';
-        styleCapApplied = true;
-      }
-    }
-
-    // CCIP (2026-02-17): Style-aware noise floor cap for MICRO_INTRADAY
-    // Same principle as SCALP but with wider 4x ATR multiplier to reflect M15 timeframe.
-    // Prevents permanent constraint sandwiches on high-priced INDEX instruments
-    // where 0.15% price-based floor exceeds the envelope SL max.
-    if (normalizedStyle === 'MICRO_INTRADAY' && controllingMethod === 'price-based') {
-      const microCap = atrInPips * MICRO_MAX_ATR_MULTIPLIER;
-      if (noiseFloorPips > microCap && microCap > atrFloorPips) {
-        console.log(`[Noise Floor] MICRO_INTRADAY cap applied: ${noiseFloorPips.toFixed(1)} -> ${microCap.toFixed(1)} pips (${MICRO_MAX_ATR_MULTIPLIER}x ATR cap)`);
-        noiseFloorPips = microCap;
-        controllingMethod = 'micro-atr-capped';
-        styleCapApplied = true;
-      }
-    }
-
-    const capLabel = controllingMethod === 'scalp-atr-capped'
-      ? `, SCALP capped at ${SCALP_MAX_ATR_MULTIPLIER}x ATR`
-      : controllingMethod === 'micro-atr-capped'
-        ? `, MICRO capped at ${MICRO_MAX_ATR_MULTIPLIER}x ATR`
-        : '';
     const reasoning =
       `${assetClassName} noise floor: ${noiseFloorPips.toFixed(1)} pips ` +
       `(${controllingMethod}: ${minPercentOfPrice}% of price = ${percentFloorPips.toFixed(1)} pips OR ` +
-      `${minATRMultiplier}x ATR${atrTimeframe ? `[${atrTimeframe}]` : ''} = ${atrFloorPips.toFixed(1)} pips` +
-      `${styleCapApplied ? capLabel : ''})`;
+      `${minATRMultiplier}x ATR${atrTimeframe ? `[${atrTimeframe}]` : ''} = ${atrFloorPips.toFixed(1)} pips)`;
 
     console.log(`[Noise Floor] ${symbol} @ ${entryPrice.toFixed(pipInfo.decimalPlaces)}: ${reasoning}`);
 

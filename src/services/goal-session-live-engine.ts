@@ -24,7 +24,7 @@ import { alphaOmegaOrchestrator, type FullMarketState } from './alpha-omega-orch
 import { bestSymbolSelector } from './best-symbol-selector';
 import { getDefaultWatchlist } from '../config/watchlist';
 import { TraderScore } from './ai-identity';
-import { calculateDollarPerPip, calculatePipDistance, calculateGoalAwareLotSize, calculateLotSizeFromDollarRisk, calculateAndValidateRR, getCurrencyPipInfo, formatCurrencyPrice, isCrypto, isXAUUSD, isIndex } from '../utils/currencyHelpers';
+import { calculateDollarPerPip, calculatePipDistance, calculateGoalAwareLotSize, calculateLotSizeFromDollarRisk, calculateAndValidateRR, getCurrencyPipInfo, formatCurrencyPrice } from '../utils/currencyHelpers';
 import { createTradeContext, roundAlphaDecisionPrices } from '../utils/tradeMath';
 import { getRiskPercentage, getMinConfidenceThreshold } from '../config/risk-levels';
 import { postTradeAnalyzer } from './post-trade-analyzer';
@@ -48,7 +48,8 @@ import { MarketDataService } from './market-data-service';
 import { CCIPTradeExecutionTracker } from './ccip-trade-execution-tracker';
 import { CCIPConfidenceGateAdjustment } from './ccip-confidence-gate-adjustment';
 // goalAdvisoryCoordinator import removed - dual TP calculation removed (CCIP 2026-02-16)
-import { detectConstraintSandwich, getViableStyles, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
+// CCIP (2026-02-17): detectConstraintSandwich, getViableStyles imports removed.
+// Envelope bounds are the sole style wall authority. Noise floor is advisory only.
 import { safeExtractATRValue } from '../types/atr';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
@@ -3483,46 +3484,26 @@ This learning will carry forward to improve future sessions!
 
   private buildRejectionContext(
     omegaDecisions: Map<string, any>,
-    snapshots: SymbolSnapshot[]
+    _snapshots: SymbolSnapshot[]
   ): NoTradeRejectionContext {
     const currentStyle = this.config?.tradeStyle?.toUpperCase() || 'SCALP';
-    const constraintSandwichSymbols: { symbol: string; noiseFloor: number; slMax: number }[] = [];
     let hasWeakConsensus = false;
 
-    for (const [symbol, decision] of omegaDecisions) {
+    for (const [, decision] of omegaDecisions) {
       const reasoning = (decision?.reasoning || '').toLowerCase();
-
-      if (reasoning.includes('constraint sandwich') || reasoning.includes('noise floor') || reasoning.includes('not viable on')) {
-        const noiseMatch = reasoning.match(/noise floor.*?(\d+\.?\d*)\s*pips/);
-        const slMatch = reasoning.match(/sl max.*?(\d+\.?\d*)\s*pips/);
-        constraintSandwichSymbols.push({
-          symbol,
-          noiseFloor: noiseMatch ? parseFloat(noiseMatch[1]) : 0,
-          slMax: slMatch ? parseFloat(slMatch[1]) : 0,
-        });
-      }
 
       if (reasoning.includes('conflict') || reasoning.includes('disagree') || reasoning.includes('weak consensus')) {
         hasWeakConsensus = true;
       }
     }
 
-    let suggestedStyles: string[] = [];
-    if (constraintSandwichSymbols.length > 0) {
-      const firstSandwiched = constraintSandwichSymbols[0];
-      const assetClass: EnvelopeAssetClass = isCrypto(firstSandwiched.symbol) ? 'CRYPTO'
-        : isXAUUSD(firstSandwiched.symbol) ? 'METAL'
-        : isIndex(firstSandwiched.symbol) ? 'INDEX' : 'FOREX';
-      const noiseFloor = firstSandwiched.noiseFloor || 200;
-      const snapshotPrice = snapshots.find(s => s.symbol === firstSandwiched.symbol)?.price;
-      suggestedStyles = getViableStyles(firstSandwiched.symbol, assetClass, noiseFloor, snapshotPrice)
-        .filter(s => s !== currentStyle);
-    }
-
+    // CCIP (2026-02-17): Constraint sandwich is no longer a blocker.
+    // Envelope bounds define style walls. Noise floor is advisory intelligence.
+    // No symbols are "sandwiched" -- all styles are always viable.
     return {
       currentStyle,
-      constraintSandwichSymbols,
-      suggestedStyles,
+      constraintSandwichSymbols: [],
+      suggestedStyles: [],
       hasWeakConsensus,
     };
   }

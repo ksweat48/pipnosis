@@ -525,10 +525,10 @@ class BestSymbolSelector {
     const omegaSummary = decision.omega_summary?.toLowerCase() || '';
     const errorType = (decision as any).errorType;
 
-    if (reasoning.includes('constraint sandwich') || reasoning.includes('noise floor') || reasoning.includes('not viable on')) {
+    if (reasoning.includes('high noise') || reasoning.includes('noise floor') || reasoning.includes('not viable on')) {
       return {
-        category: 'Constraint Sandwich',
-        detail: `Style envelope SL cap exceeded by instrument noise floor [${reasoning.substring(0, 150)}]`
+        category: 'High Noise Advisory',
+        detail: `Market noise elevated for current style [${reasoning.substring(0, 150)}]`
       };
     }
 

@@ -281,10 +281,10 @@ SUGGESTED ADJUSTMENTS (High Success Path):
 ${suggestionSummary}
 
 CONSTRAINT BOUNDARIES:
-• SL Range: ${constraints.minStopLossPips.toFixed(1)} - ${constraints.maxStopLossPips.toFixed(1)} pips (ATR-based, noise floor-aware)
+• SL Range: ${constraints.minStopLossPips.toFixed(1)} - ${constraints.maxStopLossPips.toFixed(1)} pips (envelope-defined style wall)
 • TP Range: ${constraints.minTakeProfitPips.toFixed(1)} - ${constraints.maxTakeProfitPips.toFixed(1)} pips (session-feasible distance)
 • Minimum R:R: ${constraints.minRiskReward}:1 (professional standard)
-• Noise Floor: ${constraints.noiseFloorPips.toFixed(1)} pips (${constraints.noiseFloorReasoning})
+• Market Noise: ${constraints.noiseFloorPips.toFixed(1)} pips (advisory -- ${constraints.noiseFloorReasoning})
 
 THIS IS YOUR ONE REVISION OPPORTUNITY:
 
