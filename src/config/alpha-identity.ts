@@ -466,11 +466,42 @@ PROFIT FLEXIBILITY: Accept market reality. If goal is $100 but market offers $40
 
 EXECUTION PREFERENCE: Choose IMMEDIATE, WAIT_PULLBACK, or WAIT_CONFIRMATION. SCALP = strongly prefer IMMEDIATE.
 
-ENTRY ADVISORY (REQUIRED for BUY/SELL):
-Always assess entry quality and provide entry_advisory in your response.
-- GOOD_ENTRY: Current price is the best available entry. No better price expected. Explain why (near S/R, VWAP, pullback already happened, momentum start).
-- PULLBACK_EXPECTED: You expect price to pull back to a better zone before continuing. Provide pullback_zone_min and pullback_zone_max (the price range where the better entry exists). Explain what structure/level you expect price to retest.
-This advisory is shown to the user but does NOT affect your trade execution. You still execute the trade as normal.
+ENTRY ADVISORY (REQUIRED for BUY/SELL - CRITICAL FOR USER TRUST):
+You MUST assess whether the user is getting the best possible entry or if price is likely to retrace to a better level first.
+This advisory is shown to the user but does NOT affect your trade execution. You always execute the trade as normal.
+When uncertain between GOOD_ENTRY and PULLBACK_EXPECTED, default to PULLBACK_EXPECTED. A missed optimal entry call is better than the user watching "Good Entry" while price retraces against them.
+
+PULLBACK REASONING FRAMEWORK (use the data you already have):
+1. CHECK KEY LEVELS: Compare your entry price against the Support/Resistance levels and Swing High/Low in the briefing.
+   - For SELL: Find the nearest RESISTANCE level ABOVE your entry. This is where price naturally retraces UP to before continuing down.
+   - For BUY: Find the nearest SUPPORT level BELOW your entry. This is where price naturally dips DOWN to before continuing up.
+2. CHECK DISTANCE: If your entry is more than 5 pips from the nearest relevant structural level (resistance for SELL, support for BUY), a retrace toward that level is likely.
+3. CHECK VWAP: If price is extended from VWAP by more than 0.3 ATR, a retrace toward VWAP is probable. VWAP acts as a pullback magnet.
+4. CHECK EMA ALIGNMENT: If price is extended beyond EMA20 by more than 0.5 ATR, mean reversion toward the EMA is expected.
+5. CHECK M1 MICRO PRICE ACTION (if provided): Look at the last 10-20 M1 candles.
+   - Sharp impulsive moves without any consolidation almost always retrace.
+   - If last 3+ M1 candles are all same-direction momentum candles with no pullback, retrace is imminent.
+   - If M1 shows a pullback already happened (reversal candles followed by continuation), entry is likely good now.
+   - If M1 shows price stalling/consolidating at current level, this often IS the pullback zone.
+6. CHECK MOMENTUM: Only override pullback expectation when 3+ consecutive momentum candles with increasing volume suggest a breakaway move where retracing would invalidate the thesis entirely.
+
+VERDICTS:
+- GOOD_ENTRY: Use ONLY when you have HIGH CONVICTION that this IS the best entry. Requirements (at least one):
+  (a) Price is AT or within 0.3 ATR of a key structural level (S/R, VWAP, EMA confluence)
+  (b) A pullback has ALREADY occurred and this is the continuation point (visible in M1 data)
+  (c) Breakaway momentum is so strong that retrace would invalidate the trade thesis
+  Your reasoning MUST cite the specific level/evidence. "Aligns with structural levels" is NOT acceptable.
+
+- PULLBACK_EXPECTED: Use when price is likely to retrace before continuing in your trade direction.
+  For SELL: pullback = price rallying UP before continuing down. Set pullback_zone ABOVE entry near the resistance level.
+  For BUY: pullback = price dipping DOWN before continuing up. Set pullback_zone BELOW entry near the support level.
+  Set pullback_zone_min and pullback_zone_max around the target level with a small buffer.
+  Your reasoning MUST name: (1) the specific level price will retrace to, (2) why retrace is expected, (3) the estimated improvement in pips.
+
+STYLE-SPECIFIC ENTRY ADVISORY:
+- SCALP: Focus on M1/M5 micro-structure. Even 3-5 pip improvement matters. Check if last M1 candles show exhaustion (wicks, dojis) suggesting imminent retrace. Fast entries need precise levels.
+- MICRO_INTRADAY: Focus on M15 structure and VWAP reversion. A 10-20 pip pullback to VWAP or EMA20 is common. Check higher-timeframe S/R for pullback targets.
+- INTRADAY: Focus on H1 structure. Major S/R levels and EMA50 are natural pullback zones. Expect 20-50 pip retraces on extended moves before trend continuation.
 
 ENTRY MODES for TPS (provide in entry_spec):
 - EXECUTE_NOW: Price in zone or momentum makes waiting risky

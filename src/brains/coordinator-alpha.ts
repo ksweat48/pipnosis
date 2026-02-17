@@ -112,6 +112,7 @@ import { extractRegimeSignature } from '../services/regime-signature-extractor';
 import { parseStructuredAlphaResponse } from '../services/alpha-thesis-parser';
 import type { AlphaMarketThesis, RegimeSignature } from '../types/alpha-thesis';
 import { m5SwingAnalyzer, type M5SwingContext } from '../services/m5-swing-analyzer';
+import { MarketDataService } from '../services/market-data-service';
 import { alphaGeometryValidator } from '../services/alpha-geometry-validator';
 import { getExecutionEnvelope, getAssetClassEnvelopeBounds, validateTPSLAgainstEnvelope, detectConstraintSandwich, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
 import { TRADING_CONSTANTS, getMinRRForStyle } from '../config/trading-constants';
@@ -1119,10 +1120,77 @@ IMPORTANT REMINDERS:
       }
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // M1 MICRO PRICE ACTION CONTEXT (ALL STYLES - for entry advisory)
+    // SSOT: MarketDataService is the single authority for candle data
+    // CCIP: Non-blocking - Alpha proceeds without M1 if unavailable
+    // ═══════════════════════════════════════════════════════════════════
+    let m1MicroContextPrompt = '';
+    try {
+      const mds = MarketDataService.getInstance();
+      const m1Candles = await mds.getCandles(marketContext.symbol, 'M1', 20);
+
+      if (m1Candles && m1Candles.length >= 5) {
+        const recentM1 = m1Candles.slice(0, 20).reverse();
+        const pipInfo = getCurrencyPipInfo(marketContext.symbol);
+
+        const m1Lines: string[] = recentM1.map((c, i) => {
+          const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
+          const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
+          const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
+          const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
+          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
+        });
+
+        let consecutiveSameDir = 1;
+        for (let i = recentM1.length - 2; i >= 0; i--) {
+          const prevDir = recentM1[i].close > recentM1[i].open ? 'UP' : 'DN';
+          const lastDir = recentM1[recentM1.length - 1].close > recentM1[recentM1.length - 1].open ? 'UP' : 'DN';
+          if (prevDir === lastDir) consecutiveSameDir++;
+          else break;
+        }
+
+        const lastCandle = recentM1[recentM1.length - 1];
+        const lastBody = Math.abs(lastCandle.close - lastCandle.open) / pipInfo.pipValue;
+        const lastUpperWick = (lastCandle.high - Math.max(lastCandle.open, lastCandle.close)) / pipInfo.pipValue;
+        const lastLowerWick = (Math.min(lastCandle.open, lastCandle.close) - lastCandle.low) / pipInfo.pipValue;
+        const hasRejectionWick = lastUpperWick > lastBody * 1.5 || lastLowerWick > lastBody * 1.5;
+
+        const m1High = Math.max(...recentM1.map(c => c.high));
+        const m1Low = Math.min(...recentM1.map(c => c.low));
+        const m1RangePips = (m1High - m1Low) / pipInfo.pipValue;
+
+        m1MicroContextPrompt = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+M1 MICRO PRICE ACTION (${marketContext.symbol}) - SNIPER ENTRY INTELLIGENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+USE THIS DATA for your entry_advisory verdict. This shows the last ${recentM1.length} one-minute candles:
+
+${m1Lines.join('\n')}
+
+M1 MICRO SUMMARY:
+- M1 Range: ${m1RangePips.toFixed(1)} pips (High: ${m1High.toFixed(pipInfo.decimalPlaces)}, Low: ${m1Low.toFixed(pipInfo.decimalPlaces)})
+- Consecutive same-direction M1 candles: ${consecutiveSameDir}
+- Last M1 candle: ${hasRejectionWick ? 'REJECTION WICK detected (possible reversal/exhaustion)' : 'Normal candle'}
+- Momentum assessment: ${consecutiveSameDir >= 4 ? 'STRONG one-way momentum - retrace likely imminent' : consecutiveSameDir >= 3 ? 'Building momentum - watch for exhaustion' : 'Mixed/choppy - normal price action'}
+
+INTERPRETATION GUIDE:
+- ${consecutiveSameDir >= 3 ? 'WARNING: ' + consecutiveSameDir + ' consecutive same-direction M1 candles with no pullback. Price has moved impulsively and a retrace is highly probable.' : 'No impulsive run detected on M1.'}
+- ${hasRejectionWick ? 'REJECTION WICK on last M1 candle suggests sellers/buyers stepping in. This could be an exhaustion signal.' : ''}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+        console.log(`[Alpha Coordinator] M1 Micro: ${recentM1.length} candles, ${consecutiveSameDir} consecutive same-dir, range ${m1RangePips.toFixed(1)} pips`);
+      }
+    } catch (error) {
+      console.warn('[Alpha Coordinator] M1 micro context unavailable (non-blocking):', error instanceof Error ? error.message : 'Unknown');
+    }
+
     const prompt = `${getAlphaSystemPrompt()}
 ${styleIdentityPrompt}
 ${cachedThesisPrompt}
 ${m5ContextPrompt}
+${m1MicroContextPrompt}
 
 🎯 CORE MANDATE (PROFESSIONAL SNIPER MODE)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1217,7 +1285,7 @@ ${tradeStyle === 'SCALP' ? `{
   "marketThesis": "Brief market analysis (30-50 words)",
   "reasoning": "Brief execution reasoning",
   "market_narrative": "Single-sentence cause-effect thesis",
-  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "Why entry is good OR where pullback expected" },
+  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null_or_price, "pullback_zone_max": null_or_price, "reasoning": "MUST cite specific level+distance. E.g. SELL: 'Nearest resistance at 4963.28 is 10 pips above entry (0.8 ATR). M1 shows 4 consecutive bearish candles with no retrace - price likely to rally to 4960-4963 zone before continuing down. ~7 pip improvement.' BUY: 'Price at VWAP 1.0842 with support at 1.0838 just 4 pips below (0.2 ATR). M1 shows pullback already happened - good entry now.'" },
   "override": { "type": "none", "justification": "" }
 }` : `{
   "action": "BUY|SELL|NO_TRADE",
@@ -1232,7 +1300,7 @@ ${tradeStyle === 'SCALP' ? `{
   "marketThesis": "Brief market analysis (30-50 words)",
   "reasoning": "Brief execution reasoning",
   "market_narrative": "Single-sentence cause-effect thesis",
-  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "Why entry is good OR where pullback expected" },
+  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null_or_price, "pullback_zone_max": null_or_price, "reasoning": "MUST cite specific level+distance. E.g. 'Nearest resistance at 1.0870 is 15 pips above (1.2 ATR). M1 shows impulsive drop with no retrace - expect rally to 1.0865-1.0870 before continuation. ~12 pip improvement.'" },
   "override": { "type": "none", "justification": "" }
 }`}`;
 
