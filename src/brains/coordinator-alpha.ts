@@ -1021,17 +1021,40 @@ class AlphaCoordinatorBrain {
     const styleIdentityPrompt = '';
 
     if (buyStopAnchor && sellStopAnchor) {
-      const atrPips = (extractATRValue(marketContext.atr) / getCurrencyPipInfo(marketContext.symbol).pipValue).toFixed(1);
-      const wallSlMin = dualArenaWalls ? Math.min(dualArenaWalls.long.slPips.min, dualArenaWalls.short.slPips.min).toFixed(1) : buyStopAnchor.profileMinPips;
-      const wallSlMax = dualArenaWalls ? Math.max(dualArenaWalls.long.slPips.max, dualArenaWalls.short.slPips.max).toFixed(1) : buyStopAnchor.profileMaxPips;
-      const wallTpMin = dualArenaWalls ? Math.min(dualArenaWalls.long.tpPips.min, dualArenaWalls.short.tpPips.min).toFixed(1) : '0';
-      const wallTpMax = dualArenaWalls ? Math.max(dualArenaWalls.long.tpPips.max, dualArenaWalls.short.tpPips.max).toFixed(1) : '999';
+      const pipInfo = getCurrencyPipInfo(marketContext.symbol);
+      const atrPips = (extractATRValue(marketContext.atr) / pipInfo.pipValue).toFixed(1);
+      const wallSlMin = dualArenaWalls ? Math.min(dualArenaWalls.long.slPips.min, dualArenaWalls.short.slPips.min) : buyStopAnchor.profileMinPips;
+      const wallSlMax = dualArenaWalls ? Math.max(dualArenaWalls.long.slPips.max, dualArenaWalls.short.slPips.max) : buyStopAnchor.profileMaxPips;
+      const wallTpMin = dualArenaWalls ? Math.min(dualArenaWalls.long.tpPips.min, dualArenaWalls.short.tpPips.min) : 0;
+      const wallTpMax = dualArenaWalls ? Math.max(dualArenaWalls.long.tpPips.max, dualArenaWalls.short.tpPips.max) : 999;
+
+      // CCIP (2026-02-17): Lift SL anchor recommendations to wall minimum if they fall below.
+      // The Stop Calculator uses profile min/max (e.g., 10-20 pips from risk strategy) but the
+      // Omega-9 envelope alignment may raise the wall minimum higher (e.g., 12.2 pips for XAUUSD).
+      // Without this lift, Alpha receives a recommendation below the wall minimum and gets rejected.
+      let buyAnchorPips = buyStopAnchor.stopLossPips;
+      let buyAnchorPrice = buyStopAnchor.stopLossPrice;
+      let sellAnchorPips = sellStopAnchor.stopLossPips;
+      let sellAnchorPrice = sellStopAnchor.stopLossPrice;
+
+      if (dualArenaWalls) {
+        if (buyAnchorPips < dualArenaWalls.long.slPips.min) {
+          buyAnchorPips = dualArenaWalls.long.slPips.min;
+          buyAnchorPrice = marketContext.price - (buyAnchorPips * pipInfo.pipValue);
+          console.log(`[Alpha Coordinator] Lifted BUY SL anchor from ${buyStopAnchor.stopLossPips.toFixed(1)} to ${buyAnchorPips.toFixed(1)} pips (wall minimum)`);
+        }
+        if (sellAnchorPips < dualArenaWalls.short.slPips.min) {
+          sellAnchorPips = dualArenaWalls.short.slPips.min;
+          sellAnchorPrice = marketContext.price + (sellAnchorPips * pipInfo.pipValue);
+          console.log(`[Alpha Coordinator] Lifted SELL SL anchor from ${sellStopAnchor.stopLossPips.toFixed(1)} to ${sellAnchorPips.toFixed(1)} pips (wall minimum)`);
+        }
+      }
+
       stopLossDirective = `
 ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips) | Volatility: ${marketVolatilityLevel.toUpperCase()} | Risk: ${riskMode.toUpperCase()}
-IF LONG SL Anchor: ${buyStopAnchor.stopLossPrice.toFixed(5)} (${buyStopAnchor.stopLossPips.toFixed(1)}p, ${buyStopAnchor.atrMultiplier.toFixed(2)}x ATR)
-IF SHORT SL Anchor: ${sellStopAnchor.stopLossPrice.toFixed(5)} (${sellStopAnchor.stopLossPips.toFixed(1)}p, ${sellStopAnchor.atrMultiplier.toFixed(2)}x ATR)
-Profile Range: ${buyStopAnchor.profileMinPips}-${buyStopAnchor.profileMaxPips} pips
-HARD WALLS (${tradeStyle} ${promptAssetClass} @ ${marketContext.price.toFixed(2)}): SL MUST be ${wallSlMin}-${wallSlMax} pips | TP MUST be ${wallTpMin}-${wallTpMax} pips. Trades outside these walls are AUTO-REJECTED. You have FULL authority inside these bounds.
+IF LONG SL Anchor: ${buyAnchorPrice.toFixed(5)} (${buyAnchorPips.toFixed(1)}p, ${buyStopAnchor.atrMultiplier.toFixed(2)}x ATR)
+IF SHORT SL Anchor: ${sellAnchorPrice.toFixed(5)} (${sellAnchorPips.toFixed(1)}p, ${sellStopAnchor.atrMultiplier.toFixed(2)}x ATR)
+HARD WALLS (${tradeStyle} ${promptAssetClass} @ ${marketContext.price.toFixed(2)}): SL MUST be ${wallSlMin.toFixed(1)}-${wallSlMax.toFixed(1)} pips | TP MUST be ${wallTpMin.toFixed(1)}-${wallTpMax.toFixed(1)} pips. Trades outside these walls are AUTO-REJECTED. You have FULL authority inside these bounds.
 `;
     }
 
@@ -1472,13 +1495,17 @@ ${tradeStyle === 'SCALP' ? `{
           wallViolations.push(`TP ${tpPips.toFixed(1)} pips above wall max ${arena.tpPips.max.toFixed(1)}`);
         }
 
+        // CCIP (2026-02-17): TP1 is a partial-profit target — it must be positive and <= TP2.
+        // TP1 is NOT validated against arena.tpPips.min because that minimum represents the
+        // full-target R:R floor (e.g., 2.0:1 for MICRO_INTRADAY). TP1 by design sits between
+        // entry and TP2, so applying the full-target minimum would block all partial-profit strategies.
         if (decision.tp1Price != null) {
           const tp1Pips = calculatePipDistance(marketContext.symbol, decision.entry, decision.tp1Price);
-          if (tp1Pips < arena.tpPips.min) {
-            wallViolations.push(`TP1 ${tp1Pips.toFixed(1)} pips below wall min ${arena.tpPips.min.toFixed(1)}`);
+          if (tp1Pips <= 0) {
+            wallViolations.push(`TP1 ${tp1Pips.toFixed(1)} pips is non-positive`);
           }
-          if (tp1Pips > arena.tpPips.max) {
-            wallViolations.push(`TP1 ${tp1Pips.toFixed(1)} pips above wall max ${arena.tpPips.max.toFixed(1)}`);
+          if (tp1Pips > tpPips) {
+            wallViolations.push(`TP1 ${tp1Pips.toFixed(1)} pips exceeds TP2 ${tpPips.toFixed(1)} pips`);
           }
         }
 
@@ -2256,43 +2283,12 @@ ${tradeStyle === 'SCALP' ? `{
           tp1Reasoning = `Alpha conservative target at ${tp1Pips.toFixed(1)} pips (${tp1RR.toFixed(2)}:1 R:R)`;
           console.log(`[Alpha TP Authority] ${tradeStyle}: TP1=${tp1Pips.toFixed(1)} pips (${tp1RR.toFixed(2)}:1) | TP2=${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1)`);
 
+          // CCIP (2026-02-17): TP1 R:R check is DIAGNOSTIC ONLY.
+          // SSOT: Dual-arena wall check in coordinate() is the single validation authority for TP1 pip distance.
+          // The R:R hard block was removed because noise-floor-inflated SL values made the 1.5:1 minimum
+          // structurally impossible -- TP1 (a partial-profit target) was required to exceed TP2.
           if (minTP1RR != null && tp1RR < minTP1RR) {
-            console.error(`[Alpha TP1 Wall] BLOCKED: TP1 R:R ${tp1RR.toFixed(2)}:1 below ${tradeStyle} minimum ${minTP1RR.toFixed(1)}:1 (TP1=${tp1Pips.toFixed(1)} pips, SL=${slPips.toFixed(1)} pips)`);
-            logViolation({
-              violationType: 'ALPHA_TP1_RR_WALL_VIOLATION',
-              symbol,
-              attemptedOperation: 'tp1_rr_check',
-              callLocation: 'coordinator-alpha.tp1_wall_check',
-              blocked: true,
-              errorDetails: {
-                tp1Price: alphaTP1,
-                tp1Pips,
-                tp1RR,
-                minTP1RR,
-                slPips,
-                tradeStyle,
-                userId: userId || null,
-                sessionId: goalContext?.sessionId || null,
-              }
-            }).catch(error => {
-              console.error('[Alpha Coordinator] Failed to log TP1 wall violation:', error);
-            });
-            return {
-              action: 'NO_TRADE',
-              decision: 'NO_TRADE',
-              entry: currentPrice,
-              stopLoss: currentPrice,
-              takeProfit: currentPrice,
-              tp1Price: null,
-              tp1Confidence: null,
-              tp1Reasoning: null,
-              tp2Price: null,
-              tp2Reasoning: null,
-              confidence: 0,
-              reasoning: `Blocked: TP1 R:R ${tp1RR.toFixed(2)}:1 below ${tradeStyle} hard wall minimum ${minTP1RR.toFixed(1)}:1. TP1 at ${tp1Pips.toFixed(1)} pips with SL at ${slPips.toFixed(1)} pips is scalp-level targeting on a ${tradeStyle} trade.`,
-              omega_summary: '',
-              risk_pct: riskPct,
-            };
+            console.warn(`[Alpha TP1 DIAGNOSTIC] TP1 R:R ${tp1RR.toFixed(2)}:1 below ${tradeStyle} advisory ${minTP1RR.toFixed(1)}:1 (TP1=${tp1Pips.toFixed(1)} pips, SL=${slPips.toFixed(1)} pips) — NOT blocking, dual-arena wall is SSOT`);
           }
         } else {
           console.log(`[Alpha TP Authority] ${tradeStyle}: No TP1 in response, using single TP at ${tpPips.toFixed(1)} pips`);
