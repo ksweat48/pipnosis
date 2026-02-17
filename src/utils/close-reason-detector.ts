@@ -67,10 +67,7 @@ function pricesMatch(
 export function detectTrueCloseReason(tradeData: TradeCloseData): SmartCloseReasonResult {
   const { exitPrice, stopLoss, takeProfit, symbol, databaseCloseReason } = tradeData;
 
-  // SAFETY: Validate price data before analysis
-  // If exit price is 0 or invalid, we can't perform price-based detection
   if (!exitPrice || !isFinite(exitPrice) || exitPrice === 0) {
-    console.log(`[Smart Close Reason Detector] ${symbol} - Invalid exit price (${exitPrice}), using database reason`);
     const mappedReason = mapDatabaseToCloseReason(databaseCloseReason);
     return {
       displayReason: mappedReason,
@@ -80,20 +77,11 @@ export function detectTrueCloseReason(tradeData: TradeCloseData): SmartCloseReas
     };
   }
 
-  // Calculate pip distances from exit to SL and TP
   const pipInfo = getCurrencyPipInfo(symbol);
   const exitToSL = Math.abs(exitPrice - stopLoss) / pipInfo.pipValue;
   const exitToTP = Math.abs(exitPrice - takeProfit) / pipInfo.pipValue;
 
-  console.log(`[Smart Close Reason Detector] ${symbol}`);
-  console.log(`  Exit Price: ${exitPrice.toFixed(pipInfo.decimalPlaces)}`);
-  console.log(`  Stop Loss: ${stopLoss.toFixed(pipInfo.decimalPlaces)} (${exitToSL.toFixed(2)} pips away)`);
-  console.log(`  Take Profit: ${takeProfit.toFixed(pipInfo.decimalPlaces)} (${exitToTP.toFixed(2)} pips away)`);
-  console.log(`  Database Reason: ${databaseCloseReason}`);
-
-  // HIGH CONFIDENCE: Exit price matches SL exactly (within 0.5 pips)
   if (pricesMatch(exitPrice, stopLoss, symbol, 0.5)) {
-    console.log(`  ✅ OVERRIDE: Exit matches SL exactly (${exitToSL.toFixed(2)} pips) - Stop Loss Hit`);
     return {
       displayReason: 'stop_loss',
       isOverride: databaseCloseReason !== 'stop_loss',
@@ -102,9 +90,7 @@ export function detectTrueCloseReason(tradeData: TradeCloseData): SmartCloseReas
     };
   }
 
-  // HIGH CONFIDENCE: Exit price matches TP exactly (within 0.5 pips)
   if (pricesMatch(exitPrice, takeProfit, symbol, 0.5)) {
-    console.log(`  ✅ OVERRIDE: Exit matches TP exactly (${exitToTP.toFixed(2)} pips) - Take Profit Hit`);
     return {
       displayReason: 'take_profit',
       isOverride: databaseCloseReason !== 'take_profit',
@@ -113,9 +99,7 @@ export function detectTrueCloseReason(tradeData: TradeCloseData): SmartCloseReas
     };
   }
 
-  // MEDIUM CONFIDENCE: Exit very close to SL (0.5-2 pips) - likely slippage
   if (exitToSL <= 2.0 && exitToSL > 0.5) {
-    console.log(`  ⚠️ LIKELY SL: Exit very close to SL (${exitToSL.toFixed(2)} pips) - likely slippage`);
     return {
       displayReason: 'stop_loss',
       isOverride: databaseCloseReason !== 'stop_loss',
@@ -124,9 +108,7 @@ export function detectTrueCloseReason(tradeData: TradeCloseData): SmartCloseReas
     };
   }
 
-  // MEDIUM CONFIDENCE: Exit very close to TP (0.5-2 pips) - likely slippage
   if (exitToTP <= 2.0 && exitToTP > 0.5) {
-    console.log(`  ⚠️ LIKELY TP: Exit very close to TP (${exitToTP.toFixed(2)} pips) - likely slippage`);
     return {
       displayReason: 'take_profit',
       isOverride: databaseCloseReason !== 'take_profit',
@@ -134,10 +116,6 @@ export function detectTrueCloseReason(tradeData: TradeCloseData): SmartCloseReas
       details: `Exit ${exitToTP.toFixed(2)} pips from TP - likely slippage on take profit`
     };
   }
-
-  // LOW CONFIDENCE: Exit doesn't match SL or TP - trust database
-  console.log(`  ℹ️ Using database reason: ${databaseCloseReason}`);
-  console.log(`    (Exit is ${exitToSL.toFixed(1)} pips from SL, ${exitToTP.toFixed(1)} pips from TP)`);
 
   // ✅ SSOT: Use centralized mapper for database reason normalization
   const normalizedReason = mapDatabaseToCloseReason(databaseCloseReason);

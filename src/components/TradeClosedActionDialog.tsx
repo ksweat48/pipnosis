@@ -78,12 +78,6 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
 
   const displayReason = smartCloseResult.displayReason;
 
-  if (smartCloseResult.isOverride) {
-    console.log(`[TradeClosedActionDialog] Close reason override: ${closeReason} -> ${displayReason}`);
-    console.log(`  Confidence: ${smartCloseResult.confidence}`);
-    console.log(`  Details: ${smartCloseResult.details}`);
-  }
-
   // Reset timer when dialog opens
   useEffect(() => {
     if (isOpen) {

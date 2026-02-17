@@ -362,47 +362,19 @@ export const GoalSessionDashboard: React.FC = () => {
       setActiveSession(session);
 
       if (session) {
-        // GOVERNANCE: Log health check for audit trail (diagnostic only)
-        // SSOT AUTHORITY: Session validity is determined by getActiveSession() result, NOT health check
-        // Health check is informational only - used for stuck detection and UI diagnostics
         try {
-          const { data: healthCheck, error: healthError } = await supabase.rpc('check_session_timeout_health', {
+          await supabase.rpc('check_session_timeout_health', {
             p_session_id: session.sessionId
           });
-
-          if (healthError) {
-            console.warn('[GoalSessionDashboard] Health check RPC failed (diagnostic only):', healthError);
-          } else if (healthCheck?.governance_log_id) {
-            console.log('[GoalSessionDashboard] Health check logged (governance_log_id:', healthCheck.governance_log_id + ')');
-          }
-          // NOTE: We do NOT use healthCheck.success to gate session validity
-          // The session manager already provided the authority (getActiveSession result)
-        } catch (healthError) {
-          console.warn('[GoalSessionDashboard] Health check exception (diagnostic):', healthError);
+        } catch {
+          // Health check is diagnostic only - failures are non-critical
         }
 
-        // SSOT: Observe session status (database trigger enforces all timeouts)
-        // Client is purely observational - it reads status and displays UI accordingly
-        try {
-          const { data: sessionData } = await supabase
-            .from('goal_sessions')
-            .select('status, trades_in_session, current_progress, target_value, multi_trade_enabled')
-            .eq('id', session.sessionId)
-            .single();
-
-        } catch (error) {
-          console.error('[GoalSessionDashboard] Error checking session status:', error);
-        }
-
-        // Check session health for stuck detection
         try {
           const health = await checkSessionHealth(session.sessionId);
           setSessionHealth(health);
-          if (health?.is_stuck) {
-            console.log('[GoalSessionDashboard] Session stuck detected:', health.stuck_reason);
-          }
-        } catch (error) {
-          console.error('[GoalSessionDashboard] Error checking session health:', error);
+        } catch {
+          // Stuck detection failure is non-critical
         }
 
         // Load data separately with individual error handling

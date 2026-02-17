@@ -254,23 +254,9 @@ class PollingOrchestrator {
       return;
     }
 
-    // Health tracking simplified - no health monitor
     const browserStatus = browserPricePoller.getStatus();
     const globalStatus = globalPollingCoordinator.getCoordinatorStatus();
     const circuitStatus = circuitBreakerService.getStatus();
-
-    // Count symbol statuses (health monitor removed)
-    let activeCount = 0;
-    let degradedCount = 0;
-    let criticalCount = 0;
-    let stoppedCount = 0;
-
-    console.log(
-      `[PollingOrchestrator] Health Summary: ` +
-      `active=${activeCount}, degraded=${degradedCount}, ` +
-      `critical=${criticalCount}, stopped=${stoppedCount}, ` +
-      `circuit=${circuitStatus.state}`
-    );
 
     // Check if we need to failover
     if (this.activePoller === 'global') {
