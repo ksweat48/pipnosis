@@ -90,6 +90,7 @@ async function logExecutionMetrics(
   const { error } = await supabase
     .from('session_intelligence_logs')
     .insert({
+      function_name: 'populate-session-intelligence',
       status,
       symbols_attempted: symbolsAttempted,
       symbols_successful: symbolsSuccessful,
