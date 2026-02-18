@@ -49,6 +49,7 @@ import { validateStyleQualification } from './style-qualification-gate';
 // marketSnapshotCache removed (CCIP 2026-02-17): No longer needed for entry advisory
 import type { AlphaDecision } from '../brains/coordinator-alpha';
 import type { TradeContext } from '../types/trade-context';
+import { buildMidTradePlan } from './mid-trade-plan-engine';
 
 export type ExecutionMode = 'IMMEDIATE' | 'PENDING' | 'MONITORED';
 
@@ -1591,12 +1592,13 @@ class AlphaTradeExecutor {
     executionTP2?: number;
     canonicalStyle: CanonicalStyle;
     rawTradeStyle: string;
+    alphaDecisionId?: string;
   }): any {
     const {
       decision, userId, sessionId, lotSize, riskDollars, entryPrice, status, openedAt,
       inputs, expectedProfitFromCoordinator, lotSizingAuditRecord,
       executionStopLoss, executionTakeProfit, executionTP1, executionTP2,
-      canonicalStyle, rawTradeStyle
+      canonicalStyle, rawTradeStyle, alphaDecisionId
     } = params;
 
     // GOVERNANCE: Comprehensive price validation (catches NaN from previous cascading errors)
@@ -1694,6 +1696,27 @@ class AlphaTradeExecutor {
       totalPenalty = Math.max(0, Math.min(100, totalPenalty));
     }
 
+    // Build immutable mid-trade plan snapshot (SSOT for deterministic trigger evaluation)
+    const tradeDirection = decision.action === 'BUY' ? 'buy' : 'sell';
+    const patternIntelligence = (decision as any).patternIntelligence;
+    const midTradePlan = buildMidTradePlan({
+      reasoning: decision.reasoning || '',
+      entryPrice,
+      stopLoss: finalSL,
+      takeProfit: finalTP,
+      direction: tradeDirection,
+      symbol: decision.symbol || '',
+      marketRegime: (decision as any).market_regime || regimeBucket || null,
+      patternInvalidationPrice: patternIntelligence?.invalidation_price ?? null,
+      patternInvalidationReasoning: patternIntelligence?.invalidation_reasoning ?? null,
+      htfPattern: patternIntelligence?.htf_pattern ?? null,
+      mtfPattern: patternIntelligence?.mtf_pattern ?? null,
+      ltfPattern: patternIntelligence?.ltf_pattern ?? null,
+      omegaConsensus: decision.omega_summary || null,
+      confidence: decision.confidence,
+      expectedFillMinutes: decision.expectedFillTimeHours ? Math.round(decision.expectedFillTimeHours * 60) : null
+    });
+
     return {
       user_id: userId,
       goal_session_id: sessionId,
@@ -1721,6 +1744,10 @@ class AlphaTradeExecutor {
       planned_take_profit: decision.takeProfit,
       requested_style: normalizeToCanonicalStyle(rawTradeStyle),
       resolved_style: canonicalStyle,
+      alpha_decision_id: alphaDecisionId ?? null,
+      alpha_reasoning_snapshot: decision.reasoning || null,
+      market_regime_at_entry: (decision as any).market_regime || regimeBucket || null,
+      mid_trade_plan: midTradePlan
     };
   }
 

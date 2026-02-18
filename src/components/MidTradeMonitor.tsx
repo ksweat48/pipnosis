@@ -8,11 +8,188 @@ import {
   Shield,
   AlertTriangle,
   CheckCircle,
-  Target
+  Target,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Clock,
+  BookOpen
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { midTradeMonitorService, type MidTradeGuidance } from '@/services/mid-trade-monitor-service';
 import { pricePollingCoordinator } from '@/services/price-polling-coordinator';
+import type { TrailingSLOptions } from '@/services/mid-trade-plan-engine';
+
+const TrailingSLCard: React.FC<{
+  options: TrailingSLOptions;
+  symbol: string;
+}> = ({ options, symbol }) => {
+  const [copied, setCopied] = useState<string | null>(null);
+
+  const handleCopy = (price: number, key: string) => {
+    navigator.clipboard.writeText(String(price)).catch(() => {});
+    setCopied(key);
+    setTimeout(() => setCopied(null), 1500);
+  };
+
+  const optionRows = [
+    { key: 'breakeven', label: options.breakeven.label, price: options.breakeven.price, locks: options.breakeven.locksRMultiple, isRecommended: options.recommended === 'breakeven' },
+    options.atr ? { key: 'atr', label: options.atr.label, price: options.atr.price, locks: options.atr.locksRMultiple, isRecommended: options.recommended === 'atr' } : null,
+    options.swing ? { key: 'swing', label: options.swing.label, price: options.swing.price, locks: options.swing.locksRMultiple, isRecommended: options.recommended === 'swing' } : null
+  ].filter(Boolean) as Array<{ key: string; label: string; price: number; locks: number; isRecommended: boolean }>;
+
+  return (
+    <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-900/20 overflow-hidden">
+      <div className="px-3 py-2 border-b border-amber-500/20">
+        <p className="text-xs font-semibold text-amber-300 uppercase tracking-wide">Trailing SL Options</p>
+        <p className="text-xs text-amber-200/70 mt-0.5">{options.reasoning}</p>
+      </div>
+      <div className="divide-y divide-amber-500/10">
+        {optionRows.map((row) => (
+          <div
+            key={row.key}
+            className={`flex items-center justify-between px-3 py-2 ${row.isRecommended ? 'bg-emerald-900/30' : ''}`}
+          >
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                {row.isRecommended && (
+                  <span className="text-xs font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">REC</span>
+                )}
+                <span className="text-xs text-gray-300">{row.label}</span>
+              </div>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Locks +{row.locks.toFixed(2)}R profit
+              </p>
+            </div>
+            <div className="flex items-center gap-2 ml-3">
+              <span className="text-sm font-mono font-bold text-white">{row.price}</span>
+              <button
+                onClick={() => handleCopy(row.price, row.key)}
+                className="p-1 hover:bg-amber-500/20 rounded transition-colors"
+                title="Copy price"
+              >
+                {copied === row.key ? (
+                  <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5 text-gray-400" />
+                )}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const ActionPriceChip: React.FC<{
+  label: string;
+  price: number;
+}> = ({ label, price }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(String(price)).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <div className="flex items-center gap-2 bg-gray-800/80 rounded-lg px-3 py-2 border border-gray-600/50">
+      <div>
+        <p className="text-xs text-gray-400">{label}</p>
+        <p className="text-sm font-mono font-bold text-white">{price}</p>
+      </div>
+      <button
+        onClick={handleCopy}
+        className="p-1 hover:bg-gray-600/50 rounded transition-colors ml-auto"
+        title="Copy price"
+      >
+        {copied ? (
+          <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+        ) : (
+          <Copy className="w-3.5 h-3.5 text-gray-400" />
+        )}
+      </button>
+    </div>
+  );
+};
+
+const AlphaPlanSection: React.FC<{ guide: MidTradeGuidance }> = ({ guide }) => {
+  const [expanded, setExpanded] = useState(false);
+  const plan = guide.midTradePlan;
+
+  if (!plan) return null;
+
+  return (
+    <div className="mt-2">
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-gray-800/60 hover:bg-gray-800/80 transition-colors border border-gray-700/40"
+      >
+        <div className="flex items-center gap-2">
+          <BookOpen className="w-3.5 h-3.5 text-gray-400" />
+          <span className="text-xs text-gray-400">Alpha Trade Plan</span>
+        </div>
+        {expanded ? (
+          <ChevronUp className="w-3.5 h-3.5 text-gray-500" />
+        ) : (
+          <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
+        )}
+      </button>
+
+      {expanded && (
+        <div className="mt-1 rounded-lg bg-gray-800/40 border border-gray-700/30 overflow-hidden">
+          <div className="px-3 py-2 border-b border-gray-700/30">
+            <p className="text-xs text-gray-300 leading-relaxed">{plan.setup_summary}</p>
+          </div>
+
+          {plan.patterns && (Object.values(plan.patterns).some(Boolean)) && (
+            <div className="px-3 py-2 border-b border-gray-700/30">
+              <p className="text-xs text-gray-500 mb-1">Patterns</p>
+              <div className="flex flex-wrap gap-1">
+                {plan.patterns.htf && (
+                  <span className="text-xs bg-blue-900/40 text-blue-300 px-1.5 py-0.5 rounded border border-blue-700/30">HTF: {plan.patterns.htf}</span>
+                )}
+                {plan.patterns.mtf && (
+                  <span className="text-xs bg-blue-900/40 text-blue-300 px-1.5 py-0.5 rounded border border-blue-700/30">MTF: {plan.patterns.mtf}</span>
+                )}
+                {plan.patterns.ltf && (
+                  <span className="text-xs bg-blue-900/40 text-blue-300 px-1.5 py-0.5 rounded border border-blue-700/30">LTF: {plan.patterns.ltf}</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {plan.key_levels && plan.key_levels.length > 0 && (
+            <div className="px-3 py-2 border-b border-gray-700/30">
+              <p className="text-xs text-gray-500 mb-1">Key Levels</p>
+              <div className="space-y-1">
+                {plan.key_levels.map((level, i) => (
+                  <div key={i} className="flex items-center justify-between">
+                    <span className="text-xs text-gray-400">{level.label}</span>
+                    <span className={`text-xs font-mono font-semibold ${
+                      level.type === 'invalidation' ? 'text-red-400' :
+                      level.type === 'target' ? 'text-emerald-400' :
+                      'text-gray-300'
+                    }`}>{level.price}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {plan.omega_consensus && (
+            <div className="px-3 py-2">
+              <p className="text-xs text-gray-500 mb-0.5">Omega Consensus</p>
+              <p className="text-xs text-gray-300">{plan.omega_consensus}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const MidTradeMonitor: React.FC = () => {
   const { user } = useAuth();
@@ -21,18 +198,12 @@ export const MidTradeMonitor: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [lastTradeStateHash, setLastTradeStateHash] = useState<string>('');
 
-  // SSOT COMPLIANCE: Ref to latest guidance for use inside coordinator callback
-  // without creating a closure dependency that would re-subscribe on every render.
-  // GOVERNANCE: guidanceRef is the ONLY bridge between coordinator updates and component state.
   const guidanceRef = useRef<MidTradeGuidance[]>([]);
 
-  // Keep ref in sync with state
   useEffect(() => {
     guidanceRef.current = guidance;
   }, [guidance]);
 
-  // SSOT COMPLIANCE: Load guidance - extracted to component scope
-  // for proper closure access in onClick handler and useEffect
   const loadGuidance = async (fromUser: boolean = false) => {
     if (!user?.id) return;
 
@@ -54,20 +225,6 @@ export const MidTradeMonitor: React.FC = () => {
     }
   };
 
-  // CCIP COMPLIANCE: Subscribe to PricePollingCoordinator for low-latency P&L display.
-  //
-  // RESPONSIBILITY: This effect owns live-price injection into the displayed guidance.
-  // It does NOT replace getMidTradeGuidance() — that remains the authority for all
-  // non-price fields (AI recommendations, urgency scores, staleness thresholds, etc.).
-  //
-  // GOVERNANCE:
-  // - Uses midTradeMonitorService.applyLivePrices() as the SSOT for P&L recalculation
-  // - Never duplicates P&L math inside the component
-  // - Subscribes only when there are active guidance entries (trades open)
-  // - Unsubscribes cleanly on unmount — coordinator auto-stops if no other subscribers
-  // - Zero extra cost: coordinator is already polling every 2s for SL/TP monitoring
-  //
-  // SSOT: pricePollingCoordinator is the single authority for live price broadcast.
   useEffect(() => {
     if (!user?.id) return;
 
@@ -89,27 +246,18 @@ export const MidTradeMonitor: React.FC = () => {
   useEffect(() => {
     if (!user?.id) return;
 
-    let isMounted = true;
     let debounceTimer: ReturnType<typeof setTimeout>;
     let channel: ReturnType<typeof supabase.channel>;
 
     const debouncedLoad = () => {
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        // GOVERNANCE: Only reload if trade state actually changed
-        // This prevents excessive refreshes from minor updates
         loadGuidance(false);
       }, 300);
     };
 
     loadGuidance(false);
 
-    // SSOT COMPLIANCE: Subscribe to both INSERT and UPDATE events
-    // - INSERT: When Alpha executes new trades
-    // - UPDATE: When trades are modified (SL/TP hit, position adjusted)
-    // GOVERNANCE: Filter to avoid reacting to heartbeats/minor updates
-    // When user's trades change, fetch prices on-demand within getMidTradeGuidance()
-    // Do NOT subscribe to global realtime_prices (causes platform-wide event spam)
     channel = supabase
       .channel(`mid-trade-updates-${user.id}`)
       .on(
@@ -121,9 +269,6 @@ export const MidTradeMonitor: React.FC = () => {
           filter: `user_id=eq.${user.id}`,
         },
         (payload) => {
-          // GOVERNANCE: Smart filtering - only trigger on meaningful changes
-          // Check if this is a substantive trade state change vs heartbeat/status check
-          // Avoid reacting to every micro-update
           if (payload.new && typeof payload.new === 'object') {
             const newState = JSON.stringify({
               status: (payload.new as any).status,
@@ -133,9 +278,7 @@ export const MidTradeMonitor: React.FC = () => {
               take_profit_2: (payload.new as any).take_profit_2,
             });
 
-            // Only trigger refresh if trade state hash changed
             if (newState !== lastTradeStateHash) {
-              console.log('[MidTradeMonitor] Trade state changed, fetching guidance...');
               setLastTradeStateHash(newState);
               debouncedLoad();
             }
@@ -145,12 +288,10 @@ export const MidTradeMonitor: React.FC = () => {
       .subscribe();
 
     return () => {
-      isMounted = false;
       supabase.removeChannel(channel);
       clearTimeout(debounceTimer);
     };
   }, [user?.id, lastTradeStateHash]);
-
 
   const getActionIcon = (action: MidTradeGuidance['primaryAction']) => {
     switch (action) {
@@ -170,37 +311,25 @@ export const MidTradeMonitor: React.FC = () => {
   const getColorClasses = (color: MidTradeGuidance['actionColor']) => {
     switch (color) {
       case 'emerald':
-        return {
-          bg: 'bg-emerald-500/20',
-          text: 'text-emerald-400',
-          border: 'border-emerald-500/30'
-        };
+        return { bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/30' };
       case 'amber':
-        return {
-          bg: 'bg-amber-500/20',
-          text: 'text-amber-400',
-          border: 'border-amber-500/30'
-        };
+        return { bg: 'bg-amber-500/20', text: 'text-amber-400', border: 'border-amber-500/30' };
       case 'red':
-        return {
-          bg: 'bg-red-500/20',
-          text: 'text-red-400',
-          border: 'border-red-500/30'
-        };
+        return { bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/30' };
       case 'orange':
-        return {
-          bg: 'bg-orange-500/20',
-          text: 'text-orange-400',
-          border: 'border-orange-500/30'
-        };
+        return { bg: 'bg-orange-500/20', text: 'text-orange-400', border: 'border-orange-500/30' };
       case 'blue':
       default:
-        return {
-          bg: 'bg-blue-500/20',
-          text: 'text-blue-400',
-          border: 'border-blue-500/30'
-        };
+        return { bg: 'bg-blue-500/20', text: 'text-blue-400', border: 'border-blue-500/30' };
     }
+  };
+
+  const formatTime = (minutes: number) => {
+    if (minutes < 1) return '<1m';
+    if (minutes < 60) return `${Math.floor(minutes)}m`;
+    const h = Math.floor(minutes / 60);
+    const m = Math.floor(minutes % 60);
+    return m === 0 ? `${h}h` : `${h}h ${m}m`;
   };
 
   if (loading) {
@@ -226,7 +355,7 @@ export const MidTradeMonitor: React.FC = () => {
             <h3 className="text-lg font-bold text-white mb-2">Mid-Trade Intelligence</h3>
             <p className="text-sm text-gray-400">
               No active trades. Mid-trade guidance appears when Alpha executes positions, providing real-time
-              recommendations for trail stops, risk alerts, and optimal exit timing.
+              recommendations with exact prices for trail stops, risk alerts, and optimal exit timing.
             </p>
           </div>
         </div>
@@ -239,7 +368,6 @@ export const MidTradeMonitor: React.FC = () => {
       <div className="absolute -inset-0.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded-xl opacity-20 group-hover:opacity-30 transition duration-300 blur" />
 
       <div className="relative bg-gradient-to-br from-amber-900/40 to-orange-900/40 rounded-xl p-6 border border-amber-500/50">
-        {/* Header */}
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-amber-500/20 rounded-lg">
@@ -248,7 +376,7 @@ export const MidTradeMonitor: React.FC = () => {
             <div>
               <h3 className="text-lg font-bold text-white">Mid-Trade Intelligence</h3>
               <p className="text-sm text-amber-300">
-                {guidance.length} active trade{guidance.length !== 1 ? 's' : ''} monitored
+                {guidance.length} active trade{guidance.length !== 1 ? 's' : ''} — deterministic guidance
               </p>
             </div>
           </div>
@@ -263,8 +391,7 @@ export const MidTradeMonitor: React.FC = () => {
           </button>
         </div>
 
-        {/* Trade Cards */}
-        <div className="space-y-3">
+        <div className="space-y-4">
           {guidance.map((guide) => {
             const colors = getColorClasses(guide.actionColor);
             const isProfitable = guide.currentPnL >= 0;
@@ -286,7 +413,14 @@ export const MidTradeMonitor: React.FC = () => {
                     </div>
                     <div>
                       <h4 className="text-base font-bold text-white">{guide.symbol}</h4>
-                      <p className="text-xs text-gray-400 capitalize">{guide.direction}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs text-gray-400 capitalize">{guide.direction}</p>
+                        <span className="text-gray-600">·</span>
+                        <div className="flex items-center gap-1 text-xs text-gray-500">
+                          <Clock className="w-3 h-3" />
+                          <span>{formatTime(guide.timeInTrade)}</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -298,26 +432,81 @@ export const MidTradeMonitor: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Primary Guidance */}
-                <div className={`${colors.bg} rounded-lg p-3 border ${colors.border} mb-3`}>
-                  <div className="flex items-start gap-2">
-                    <div className={colors.text}>
-                      {getActionIcon(guide.primaryAction)}
-                    </div>
-                    <div className="flex-1">
-                      <p className={`text-sm font-medium ${colors.text}`}>
-                        {guide.primaryMessage}
-                      </p>
-                    </div>
+                {/* Price Context Row */}
+                <div className="grid grid-cols-3 gap-2 mb-3 text-xs">
+                  <div className="bg-gray-800/60 rounded-lg px-2 py-1.5 text-center">
+                    <p className="text-gray-500 mb-0.5">SL</p>
+                    <p className="font-mono text-red-400 font-semibold">{guide.stopLoss}</p>
+                    <p className="text-gray-600">{Math.abs(guide.distanceToSL).toFixed(1)} pips</p>
+                  </div>
+                  <div className="bg-gray-800/60 rounded-lg px-2 py-1.5 text-center">
+                    <p className="text-gray-500 mb-0.5">Entry</p>
+                    <p className="font-mono text-gray-300 font-semibold">{guide.entryPrice}</p>
+                    <p className="text-gray-600">Live: {guide.currentPrice}</p>
+                  </div>
+                  <div className="bg-gray-800/60 rounded-lg px-2 py-1.5 text-center">
+                    <p className="text-gray-500 mb-0.5">TP</p>
+                    <p className="font-mono text-emerald-400 font-semibold">{guide.takeProfit}</p>
+                    <p className="text-gray-600">{Math.abs(guide.distanceToTP).toFixed(1)} pips</p>
                   </div>
                 </div>
+
+                {/* Thesis Status */}
+                <div className={`flex items-center gap-1.5 mb-3 px-2 py-1 rounded ${guide.thesisIntact ? 'bg-emerald-900/20' : 'bg-red-900/20'}`}>
+                  <div className={`w-1.5 h-1.5 rounded-full ${guide.thesisIntact ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                  <span className={`text-xs ${guide.thesisIntact ? 'text-emerald-400' : 'text-red-400'}`}>
+                    Thesis {guide.thesisIntact ? 'intact' : 'broken'}
+                  </span>
+                </div>
+
+                {/* Primary Guidance */}
+                <div className={`${colors.bg} rounded-lg p-3 border ${colors.border}`}>
+                  <div className="flex items-start gap-2">
+                    <div className={`${colors.text} mt-0.5 flex-shrink-0`}>
+                      {getActionIcon(guide.primaryAction)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-semibold ${colors.text}`}>
+                        {guide.primaryMessage}
+                      </p>
+                      {guide.subMessage && (
+                        <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+                          {guide.subMessage}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Explicit Action Price */}
+                  {guide.actionPrice !== null && guide.actionLabel && !guide.trailingSLOptions && (
+                    <div className="mt-2">
+                      <ActionPriceChip label={guide.actionLabel} price={guide.actionPrice} />
+                    </div>
+                  )}
+                </div>
+
+                {/* Trailing SL Options */}
+                {guide.trailingSLOptions && (
+                  <TrailingSLCard options={guide.trailingSLOptions} symbol={guide.symbol} />
+                )}
+
+                {/* Alpha Plan Context */}
+                <AlphaPlanSection guide={guide} />
+
+                {/* Stale price warning */}
+                {guide.stalePriceWarning && (
+                  <div className="mt-2 flex items-center gap-2 bg-amber-900/30 rounded-lg px-3 py-2 border border-amber-600/30">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                    <p className="text-xs text-amber-300">{guide.stalePriceWarning}</p>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
 
         <div className="mt-4 text-xs text-gray-500 text-center">
-          Advisory only - All trade closures require user confirmation
+          Advisory only — All trade closures require user confirmation
         </div>
       </div>
     </div>

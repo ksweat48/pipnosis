@@ -1,21 +1,25 @@
 /**
  * Mid-Trade Monitor Service
  *
- * SSOT for mid-trade guidance data and recommendations
- * Aggregates data from multiple sources:
- * - Active trades from goal_session_trades
- * - Real-time prices from realtime_prices
- * - AI evaluations from goal_ai_conversations
- * - Trigger detection from mid-trade-trigger-detector
+ * SSOT for mid-trade guidance data and recommendations.
+ * Uses the deterministic mid-trade-plan-engine for all trigger evaluation.
+ * Zero LLM calls — all 13 triggers are evaluated purely from stored plan + live price.
  *
  * GOVERNANCE: Read-only service - does NOT execute trades
- * Trade closures MUST go through trade-closure-coordinator
+ * CCIP: All guidance derives from mid_trade_plan snapshot stored at trade entry
+ * SSOT: mid_trade_plan in goal_session_trades is the single authority for trade context
  */
 
 import { supabase } from '@/lib/supabase';
 import { calculatePnL } from '@/types/position';
 import type { GoalSessionTrade } from '@/types/position';
-import { calculatePipDistance } from '@/utils/currencyHelpers'; // TIER 7: SSOT pip calculations
+import { calculatePipDistance } from '@/utils/currencyHelpers';
+import {
+  evaluateAllTriggers,
+  type MidTradePlan,
+  type TriggerEvaluation,
+  type TrailingSLOptions
+} from './mid-trade-plan-engine';
 
 export interface MidTradeGuidance {
   tradeId: string;
@@ -28,23 +32,30 @@ export interface MidTradeGuidance {
   takeProfit1?: number | null;
   takeProfit2?: number | null;
   currentPnL: number;
-  timeInTrade: number; // minutes
+  timeInTrade: number;
 
   // Risk metrics
-  distanceToSL: number; // pips
-  distanceToTP: number; // pips
-  drawdownPercent: number; // 0-100
-  urgencyScore: number; // 0-100 (higher = more urgent)
+  distanceToSL: number;
+  distanceToTP: number;
+  drawdownPercent: number;
+  urgencyScore: number;
 
-  // Primary guidance
+  // Primary guidance (now explicit with prices)
   primaryAction: 'hold' | 'trail_sl' | 'warning' | 'tp1_timing' | 'risk_alert';
   primaryMessage: string;
+  subMessage: string;
   actionColor: 'emerald' | 'amber' | 'red' | 'blue' | 'orange';
 
-  // AI evaluation (if available)
-  aiRecommendation?: string;
-  aiConfidence?: number;
-  aiTimestamp?: string;
+  // Explicit price advice
+  actionPrice: number | null;
+  actionLabel: string | null;
+  thesisIntact: boolean;
+
+  // Trailing SL options (populated when action is trail_sl)
+  trailingSLOptions?: TrailingSLOptions;
+
+  // Alpha trade plan snapshot (read-only, immutable after entry)
+  midTradePlan?: MidTradePlan | null;
 
   // Price freshness (SSOT compliance)
   priceAgeSeconds?: number;
@@ -62,10 +73,10 @@ export interface MidTradeGuidance {
 export interface MidTradeMonitorStats {
   totalOpenTrades: number;
   tradesByUrgency: {
-    critical: number; // Near SL
-    high: number; // Drawdown or warning
-    medium: number; // Routine updates
-    low: number; // Holding well
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
   };
   totalUnrealizedPnL: number;
 }
@@ -74,6 +85,9 @@ class MidTradeMonitorService {
   private lastRequestTime = 0;
   private requestInProgress = false;
   private lastSuccessfulUserId: string | null = null;
+
+  // Per-trade fired-trigger sets: persists across calls to prevent re-firing
+  private firedTriggersPerTrade = new Map<string, Set<string>>();
 
   /**
    * Get all mid-trade guidance for user's active trades
@@ -97,20 +111,16 @@ class MidTradeMonitorService {
       }
     };
 
-    // Prevent concurrent requests to same user (re-entrancy protection)
     if (this.requestInProgress) {
-      console.debug('[MidTradeMonitor] Request already in progress, returning cached state');
       return emptyResponse;
     }
 
-    // Throttle requests: max once per 500ms, UNLESS first request for this user
     const now = Date.now();
     const isFirstRequest = this.lastSuccessfulUserId !== userId;
     const timeSinceLastRequest = now - this.lastRequestTime;
     const isThrottled = timeSinceLastRequest < 500;
 
     if (isThrottled && !isFirstRequest) {
-      console.debug(`[MidTradeMonitor] Throttled (${timeSinceLastRequest}ms since last request, min 500ms required)`);
       return emptyResponse;
     }
 
@@ -118,7 +128,6 @@ class MidTradeMonitorService {
     this.requestInProgress = true;
 
     try {
-      // Fetch all open trades
       const { data: trades, error: tradesError } = await supabase
         .from('goal_session_trades')
         .select('*')
@@ -128,6 +137,7 @@ class MidTradeMonitorService {
 
       if (tradesError) throw tradesError;
       if (!trades || trades.length === 0) {
+        this.cleanupFiredTriggers(new Set());
         return {
           guidance: [],
           stats: {
@@ -138,9 +148,12 @@ class MidTradeMonitorService {
         };
       }
 
-      // Parallelize all secondary fetches (prices, staleness, AI evaluations)
+      // Cleanup fired trigger sets for closed trades
+      const openTradeIds = new Set(trades.map(t => t.id));
+      this.cleanupFiredTriggers(openTradeIds);
+
       const symbols = Array.from(new Set(trades.map(t => t.symbol)));
-      const [pricesResult, stalenessResult, aiEvaluationsResult] = await Promise.all([
+      const [pricesResult, stalenessResult] = await Promise.all([
         supabase
           .from('realtime_prices')
           .select('symbol, bid, ask, created_at')
@@ -149,14 +162,7 @@ class MidTradeMonitorService {
         supabase
           .from('polling_price_staleness')
           .select('symbol, staleness_minutes, is_critical')
-          .in('symbol', symbols),
-        supabase
-          .from('goal_ai_conversations')
-          .select('trade_id, content, metadata, created_at')
-          .eq('user_id', userId)
-          .in('conversation_type', ['mid_trade_alert', 'periodic_wellness', 'trade_milestone'])
-          .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-          .order('created_at', { ascending: false })
+          .in('symbol', symbols)
       ]);
 
       const { data: prices, error: pricesError } = pricesResult;
@@ -164,7 +170,6 @@ class MidTradeMonitorService {
         console.error('[MidTradeMonitor] Error fetching prices:', pricesError);
       }
 
-      // Build price map (most recent price per symbol)
       const priceMap = new Map<string, { bid: number; ask: number; age: number; ageSeconds: number }>();
       if (prices) {
         for (const price of prices) {
@@ -192,35 +197,16 @@ class MidTradeMonitorService {
         });
       }
 
-      const { data: aiEvaluations } = aiEvaluationsResult;
-
-      // Build AI evaluation map (most recent per trade)
-      const aiMap = new Map<string, { content: string; confidence: number; timestamp: string }>();
-      if (aiEvaluations) {
-        for (const evaluation of aiEvaluations) {
-          if (!aiMap.has(evaluation.trade_id)) {
-            aiMap.set(evaluation.trade_id, {
-              content: evaluation.content,
-              confidence: evaluation.metadata?.confidence || 75,
-              timestamp: evaluation.created_at
-            });
-          }
-        }
-      }
-
-      // Build guidance for each trade
       const guidanceList: MidTradeGuidance[] = [];
       let totalPnL = 0;
 
       for (const trade of trades) {
         const priceData = priceMap.get(trade.symbol);
 
-        // Use current_price from trade if realtime unavailable (fallback)
         const currentPrice = priceData
           ? (trade.direction === 'buy' ? priceData.bid : priceData.ask)
           : (trade.current_price || trade.entry_price);
 
-        // Calculate P&L
         const lotSize = trade.lot_size || trade.position_size;
         const pnl = calculatePnL(
           trade.direction,
@@ -232,50 +218,55 @@ class MidTradeMonitorService {
 
         totalPnL += pnl;
 
-        // Calculate risk metrics
         const risk = Math.abs(trade.entry_price - trade.stop_loss);
         const isLong = trade.direction === 'buy';
         const priceDiff = isLong
           ? (currentPrice - trade.entry_price)
           : (trade.entry_price - currentPrice);
-        const riskRatio = priceDiff / risk;
+        const drawdownPercent = Math.max(0, (-priceDiff / risk) * 100);
 
-        const distanceToSL = Math.abs(currentPrice - trade.stop_loss);
-        const slProximity = distanceToSL / risk; // 0 = at SL, 1 = at entry
-        const drawdownPercent = Math.max(0, (-riskRatio) * 100);
-
-        const distanceToTP = Math.abs(currentPrice - trade.take_profit);
-
-        // Calculate time in trade
         const timeInTrade = trade.opened_at
           ? (Date.now() - new Date(trade.opened_at).getTime()) / 1000 / 60
           : 0;
 
-        // Generate guidance
-        const guidance = this.generateGuidance(
-          trade,
+        // Get or create fired-trigger set for this trade
+        if (!this.firedTriggersPerTrade.has(trade.id)) {
+          this.firedTriggersPerTrade.set(trade.id, new Set<string>());
+        }
+        const firedTriggers = this.firedTriggersPerTrade.get(trade.id)!;
+
+        // Parse mid_trade_plan from DB (jsonb stored as object or null)
+        const midTradePlan: MidTradePlan | null = trade.mid_trade_plan
+          ? (typeof trade.mid_trade_plan === 'string'
+            ? JSON.parse(trade.mid_trade_plan)
+            : trade.mid_trade_plan)
+          : null;
+
+        // SSOT: Deterministic trigger evaluation — zero LLM calls
+        const evaluation: TriggerEvaluation = evaluateAllTriggers(
+          trade as GoalSessionTrade,
           currentPrice,
-          pnl,
-          slProximity,
-          riskRatio,
-          drawdownPercent,
+          midTradePlan,
           timeInTrade,
-          aiMap.get(trade.id)
+          firedTriggers
         );
 
-        // Check price freshness for this symbol
+        // Record triggered type to prevent re-firing in subsequent calls
+        if (evaluation.triggered && evaluation.triggerType) {
+          firedTriggers.add(evaluation.triggerType);
+        }
+
         const staleness = stalenessMap.get(trade.symbol);
         const priceAgeSeconds = priceData?.ageSeconds || 0;
-        const isFresh = !staleness?.is_critical && priceAgeSeconds < 300; // Fresh if < 5 min and not critical
+        const isFresh = !staleness?.is_critical && priceAgeSeconds < 300;
         let stalePriceWarning: string | undefined;
 
         if (staleness?.is_critical) {
-          stalePriceWarning = `WARNING: Price data is ${Math.round(staleness.staleness_minutes)} minutes stale - guidance may be inaccurate`;
+          stalePriceWarning = `WARNING: Price data is ${Math.round(staleness.staleness_minutes)} minutes stale`;
         } else if (priceAgeSeconds > 120) {
           stalePriceWarning = `CAUTION: Price data is ${Math.round(priceAgeSeconds / 60)} minutes old`;
         }
 
-        // TIER 7: Use SSOT pip calculation
         const distanceToSLPips = calculatePipDistance(trade.symbol, currentPrice, trade.stop_loss);
         const distanceToTPPips = calculatePipDistance(trade.symbol, currentPrice, trade.take_profit);
 
@@ -291,28 +282,29 @@ class MidTradeMonitorService {
           takeProfit2: trade.take_profit_2,
           currentPnL: pnl,
           timeInTrade,
-          distanceToSL: distanceToSLPips, // TIER 7: SSOT pip distance
-          distanceToTP: distanceToTPPips, // TIER 7: SSOT pip distance
+          distanceToSL: distanceToSLPips,
+          distanceToTP: distanceToTPPips,
           drawdownPercent,
-          urgencyScore: guidance.urgencyScore,
-          primaryAction: guidance.action,
-          primaryMessage: guidance.message,
-          actionColor: guidance.color,
-          aiRecommendation: aiMap.get(trade.id)?.content,
-          aiConfidence: aiMap.get(trade.id)?.confidence,
-          aiTimestamp: aiMap.get(trade.id)?.timestamp,
+          urgencyScore: evaluation.urgencyScore,
+          primaryAction: evaluation.action,
+          primaryMessage: evaluation.primaryMessage,
+          subMessage: evaluation.subMessage,
+          actionColor: evaluation.color,
+          actionPrice: evaluation.actionPrice,
+          actionLabel: evaluation.actionLabel,
+          thesisIntact: evaluation.thesisIntact,
+          trailingSLOptions: evaluation.trailingSLOptions,
+          midTradePlan,
           priceAgeSeconds,
           isPriceFresh: isFresh,
           stalePriceWarning,
           goalSessionId: trade.goal_session_id,
-          lotSize: trade.lot_size || trade.position_size
+          lotSize
         });
       }
 
-      // Sort by urgency (highest first)
       guidanceList.sort((a, b) => b.urgencyScore - a.urgencyScore);
 
-      // Calculate stats
       const stats: MidTradeMonitorStats = {
         totalOpenTrades: guidanceList.length,
         tradesByUrgency: {
@@ -324,12 +316,10 @@ class MidTradeMonitorService {
         totalUnrealizedPnL: totalPnL
       };
 
-      // Track successful request for this user (enables first-request throttling bypass)
       this.lastSuccessfulUserId = userId;
 
       return { guidance: guidanceList, stats };
     } catch (error) {
-      // Ignore AbortError - these happen when requests are cancelled (component unmount, session close, etc.)
       const isAbortError = error instanceof Error && (
         error.name === 'AbortError' ||
         error.message?.includes('signal is aborted') ||
@@ -337,7 +327,6 @@ class MidTradeMonitorService {
       );
 
       if (isAbortError) {
-        // Silently return empty guidance - request was aborted
         return {
           guidance: [],
           stats: {
@@ -348,7 +337,6 @@ class MidTradeMonitorService {
         };
       }
 
-      // Only log non-abort errors
       console.error('[MidTradeMonitor] Error getting guidance:', error);
       return {
         guidance: [],
@@ -364,140 +352,17 @@ class MidTradeMonitorService {
   }
 
   /**
-   * Generate guidance based on trade state
-   * GOVERNANCE: This is advisory only - does NOT execute trades
-   */
-  private generateGuidance(
-    trade: GoalSessionTrade,
-    currentPrice: number,
-    pnl: number,
-    slProximity: number,
-    riskRatio: number,
-    drawdownPercent: number,
-    timeInTrade: number,
-    aiEval?: { content: string; confidence: number; timestamp: string }
-  ): {
-    action: 'hold' | 'trail_sl' | 'warning' | 'tp1_timing' | 'risk_alert';
-    message: string;
-    color: 'emerald' | 'amber' | 'red' | 'blue' | 'orange';
-    urgencyScore: number;
-  } {
-    // PRIORITY 1: Critical risk (near stop loss)
-    if (slProximity < 0.15) {
-      return {
-        action: 'risk_alert',
-        message: `CRITICAL: Price very close to stop loss (${(slProximity * 100).toFixed(1)}% away). Position may close soon.`,
-        color: 'red',
-        urgencyScore: 95
-      };
-    }
-
-    // PRIORITY 2: Severe drawdown
-    if (drawdownPercent >= 70) {
-      return {
-        action: 'warning',
-        message: `Severe drawdown at ${drawdownPercent.toFixed(0)}% of risk. Price approaching stop loss territory.`,
-        color: 'red',
-        urgencyScore: 90
-      };
-    }
-
-    // PRIORITY 3: Significant drawdown
-    if (drawdownPercent >= 50) {
-      return {
-        action: 'warning',
-        message: `Moderate drawdown at ${drawdownPercent.toFixed(0)}% of risk. Monitoring closely for reversal or stop hit.`,
-        color: 'amber',
-        urgencyScore: 75
-      };
-    }
-
-    // PRIORITY 4: Trail stop loss opportunity (profitable trade)
-    if (riskRatio >= 1.5) {
-      const profit = riskRatio.toFixed(1);
-      return {
-        action: 'trail_sl',
-        message: `Strong profit at +${profit}R. Consider trailing stop loss to lock in gains.`,
-        color: 'emerald',
-        urgencyScore: 65
-      };
-    }
-
-    // PRIORITY 5: TP1 timing (near first target)
-    if (trade.take_profit_1 && !trade.tp1_hit_at) {
-      const distanceToTP1 = Math.abs(currentPrice - trade.take_profit_1);
-      const totalTP1Distance = Math.abs(trade.take_profit_1 - trade.entry_price);
-      const tp1Progress = 1 - (distanceToTP1 / totalTP1Distance);
-
-      if (tp1Progress >= 0.80) {
-        return {
-          action: 'tp1_timing',
-          message: `Near TP1 target (${(tp1Progress * 100).toFixed(0)}% complete). Monitoring momentum for optimal exit.`,
-          color: 'blue',
-          urgencyScore: 55
-        };
-      }
-    }
-
-    // PRIORITY 6: Moderate progress (normal trading)
-    if (riskRatio >= 0.5) {
-      return {
-        action: 'hold',
-        message: `Trade progressing well at +${riskRatio.toFixed(1)}R. Continue holding as direction remains valid.`,
-        color: 'emerald',
-        urgencyScore: 30
-      };
-    }
-
-    // PRIORITY 7: Minor drawdown (acceptable)
-    if (drawdownPercent >= 20 && drawdownPercent < 50) {
-      return {
-        action: 'hold',
-        message: `Minor drawdown at ${drawdownPercent.toFixed(0)}% of risk. Normal market fluctuation, within acceptable range.`,
-        color: 'amber',
-        urgencyScore: 45
-      };
-    }
-
-    // PRIORITY 8: Early stage or breakeven
-    if (Math.abs(riskRatio) < 0.2) {
-      const timeDesc = timeInTrade < 15 ? 'Early stage' : 'Ranging near entry';
-      return {
-        action: 'hold',
-        message: `${timeDesc}. Price near breakeven. Monitoring for directional confirmation.`,
-        color: 'blue',
-        urgencyScore: 25
-      };
-    }
-
-    // DEFAULT: Normal holding
-    return {
-      action: 'hold',
-      message: `Trade active for ${this.formatTime(timeInTrade)}. Direction valid, continue monitoring.`,
-      color: 'blue',
-      urgencyScore: 20
-    };
-  }
-
-  /**
    * Apply live price updates to existing guidance entries in-memory.
+   * Also re-evaluates triggers against the latest price for real-time responsiveness.
    *
    * SSOT COMPLIANCE:
-   * - Does NOT query the database — price data is authoritative from PricePollingCoordinator
-   * - Does NOT mutate guidance state — returns a new array (immutable update pattern)
-   * - P&L is recalculated using the same calculatePnL SSOT function used by getMidTradeGuidance
-   * - Urgency and guidance messages are NOT recalculated here to avoid LLM-style logic
-   *   running at 2-second intervals; they remain stable until next full service call
+   * - Does NOT query the database
+   * - P&L recalculated using calculatePnL SSOT function
+   * - Trigger messages updated from deterministic engine (no LLM)
    *
    * GOVERNANCE:
-   * - This method is the ONLY path for live price injection into guidance state
-   * - Components MUST use this method and MUST NOT duplicate P&L math
-   * - Full getMidTradeGuidance() remains the authority for all non-price fields
-   *
-   * CCIP COMPLIANCE:
-   * - Responsibility: price-display latency reduction (read-only, no side effects)
-   * - Owner: MidTradeMonitorService (this class)
-   * - Called by: MidTradeMonitor component via pricePollingCoordinator subscription
+   * - ONLY path for live price injection into guidance state
+   * - Components MUST use this method
    */
   applyLivePrices(
     currentGuidance: MidTradeGuidance[],
@@ -529,13 +394,57 @@ class MidTradeMonitorService {
         guide.symbol
       );
 
+      // Re-evaluate triggers with the new price (deterministic, zero cost)
+      const firedTriggers = this.firedTriggersPerTrade.get(guide.tradeId) ?? new Set<string>();
+      const timeInTrade = guide.timeInTrade + (1 / 30); // ~2s elapsed per 2s polling cycle
+
+      const pseudoTrade = {
+        id: guide.tradeId,
+        direction: guide.direction,
+        entry_price: guide.entryPrice,
+        stop_loss: guide.stopLoss,
+        take_profit: guide.takeProfit,
+        symbol: guide.symbol,
+        lot_size: guide.lotSize,
+        position_size: guide.lotSize,
+        opened_at: null,
+        take_profit_1: guide.takeProfit1 ?? null,
+        take_profit_2: guide.takeProfit2 ?? null,
+        mid_trade_plan: guide.midTradePlan
+      } as unknown as import('@/types/position').GoalSessionTrade;
+
+      const evaluation = evaluateAllTriggers(
+        pseudoTrade,
+        newCurrentPrice,
+        guide.midTradePlan ?? null,
+        timeInTrade,
+        firedTriggers
+      );
+
+      // Record newly fired triggers
+      if (evaluation.triggered && evaluation.triggerType) {
+        firedTriggers.add(evaluation.triggerType);
+        if (!this.firedTriggersPerTrade.has(guide.tradeId)) {
+          this.firedTriggersPerTrade.set(guide.tradeId, firedTriggers);
+        }
+      }
+
       return {
         ...guide,
         currentPrice: newCurrentPrice,
         currentPnL: newPnL,
         priceAgeSeconds: 0,
         isPriceFresh: true,
-        stalePriceWarning: undefined
+        stalePriceWarning: undefined,
+        primaryAction: evaluation.action,
+        primaryMessage: evaluation.primaryMessage,
+        subMessage: evaluation.subMessage,
+        actionColor: evaluation.color,
+        actionPrice: evaluation.actionPrice,
+        actionLabel: evaluation.actionLabel,
+        thesisIntact: evaluation.thesisIntact,
+        urgencyScore: evaluation.urgencyScore,
+        trailingSLOptions: evaluation.trailingSLOptions
       };
     });
 
@@ -543,17 +452,14 @@ class MidTradeMonitorService {
   }
 
   /**
-   * Format time in human-readable way
+   * Remove fired trigger sets for trades that are no longer open
    */
-  private formatTime(minutes: number): string {
-    if (minutes < 1) return '<1 min';
-    if (minutes < 60) return `${Math.floor(minutes)} min`;
-
-    const hours = Math.floor(minutes / 60);
-    const mins = Math.floor(minutes % 60);
-
-    if (mins === 0) return `${hours}h`;
-    return `${hours}h ${mins}m`;
+  private cleanupFiredTriggers(openTradeIds: Set<string>): void {
+    for (const tradeId of this.firedTriggersPerTrade.keys()) {
+      if (!openTradeIds.has(tradeId)) {
+        this.firedTriggersPerTrade.delete(tradeId);
+      }
+    }
   }
 }
 
