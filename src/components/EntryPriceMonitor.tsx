@@ -4,11 +4,6 @@
  * SSOT Authority: Single UI for Alpha's entry quality assessment
  * Data Source: entry_intents.market_context.alpha_entry_advisory (SOLE authority)
  *
- * TWO VERDICTS (from Alpha's LLM):
- * 1. GOOD_ENTRY - Alpha confirms this is the best available entry
- * 2. PULLBACK_EXPECTED - Alpha expects a pullback to a better zone
- *    When price reaches the pullback zone, UI flips to GOOD_ENTRY
- *
  * CCIP COMPLIANCE (2026-02-17):
  * - Alpha's LLM is the SOLE authority for entry advisory
  * - EntryStructureAnalyzer is NOT used (deprecated as data source)
@@ -18,7 +13,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Target, CheckCircle, ArrowUp, ArrowDown, Minus,
-  Clock, TrendingUp
+  Clock, MapPin
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useActiveEntryIntent } from '@/hooks/useEntryIntent';
@@ -166,17 +161,14 @@ export const EntryPriceMonitor: React.FC = () => {
 };
 
 const EmptyState: React.FC = () => (
-  <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 rounded-xl p-6 border border-gray-700/50">
-    <div className="flex items-start gap-4">
-      <div className="p-3 bg-gray-700/50 rounded-lg">
-        <Target className="w-6 h-6 text-gray-400" />
+  <div className="bg-gradient-to-br from-gray-800/50 to-gray-900/50 rounded-xl p-5 border border-gray-700/50">
+    <div className="flex items-center gap-3">
+      <div className="p-2.5 bg-gray-700/50 rounded-lg">
+        <Target className="w-5 h-5 text-gray-400" />
       </div>
-      <div className="flex-1">
-        <h3 className="text-lg font-bold text-white mb-2">Entry Advisory</h3>
-        <p className="text-sm text-gray-400">
-          No active entry signals. Entry advisory activates when Alpha identifies a trade opportunity,
-          analyzing market structure to determine if the entry is optimal or if waiting for a pullback would give you a better price.
-        </p>
+      <div>
+        <h3 className="text-sm font-bold text-white">Entry Advisory</h3>
+        <p className="text-xs text-gray-500 mt-0.5">Activates when Alpha identifies a trade opportunity</p>
       </div>
     </div>
   </div>
@@ -212,7 +204,6 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
   const isPullbackExpected = verdict === 'PULLBACK_EXPECTED' || verdict === 'WAIT_FOR_PULLBACK';
   const pullbackZoneMin = advisory?.pullback_zone_min ?? intent.entry_zone_min ?? null;
   const pullbackZoneMax = advisory?.pullback_zone_max ?? intent.entry_zone_max ?? null;
-  const advisoryReasoning = advisory?.reasoning || null;
 
   const pullbackState = useMemo((): PullbackTrackingState | null => {
     if (!isPullbackExpected || !currentPrice || !pullbackZoneMin || !pullbackZoneMax) return null;
@@ -238,32 +229,33 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
     return formatCurrencyPrice(symbol, price);
   }, [symbol]);
 
+  const pipsAway = useMemo(() => {
+    if (!currentPrice || !pullbackZoneMin || !pullbackZoneMax || !isPullbackExpected || isGoodEntry) return null;
+    const target = direction === 'long' ? pullbackZoneMax : pullbackZoneMin;
+    return Math.abs(currentPrice - target);
+  }, [currentPrice, pullbackZoneMin, pullbackZoneMax, isPullbackExpected, isGoodEntry, direction]);
+
   return (
-    <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-xl p-4 sm:p-5 border border-gray-700/50">
+    <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-xl p-4 border border-gray-700/50">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Target className="w-5 h-5 text-cyan-400" />
-          <h3 className="text-base font-bold text-white">Entry Advisory</h3>
+          <Target className="w-4 h-4 text-cyan-400" />
+          <h3 className="text-sm font-bold text-white">Entry Advisory</h3>
           <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
             {style}
           </span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-            direction === 'long'
-              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-              : 'bg-red-500/20 text-red-400 border border-red-500/30'
-          }`}>
-            {direction === 'long' ? 'BUY' : 'SELL'} {symbol}
-          </span>
-        </div>
+        <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+          direction === 'long'
+            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+            : 'bg-red-500/20 text-red-400 border border-red-500/30'
+        }`}>
+          {direction === 'long' ? 'BUY' : 'SELL'} {symbol}
+        </span>
       </div>
 
       {isGoodEntry ? (
-        <GoodEntryBanner
-          reasoning={advisoryReasoning}
-          pullbackReached={isPullbackExpected && pullbackState === 'REACHED'}
-        />
+        <GoodEntryBanner pullbackReached={isPullbackExpected && pullbackState === 'REACHED'} />
       ) : (
         <PullbackExpectedBanner
           pullbackZoneMin={pullbackZoneMin}
@@ -272,18 +264,19 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
           direction={direction}
           alphaEntry={alphaEntry}
           currentPrice={currentPrice}
+          alphaConfidence={alphaConfidence}
+          pipsAway={pipsAway}
           formatPrice={formatPrice}
-          reasoning={advisoryReasoning}
         />
       )}
 
       <div className="grid grid-cols-3 gap-2 mt-3">
-        <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700/40">
-          <p className="text-xs text-gray-400 mb-1">Live Price</p>
+        <div className="bg-gray-900/50 rounded-lg p-2.5 border border-gray-700/40">
+          <p className="text-xs text-gray-500 mb-1">Live Price</p>
           {currentPrice ? (
             <div className="flex items-center gap-1">
               <PriceDirectionIcon current={currentPrice} previous={previousPrice} />
-              <span className="text-base font-bold font-mono text-white">
+              <span className="text-sm font-bold font-mono text-white">
                 {formatPrice(currentPrice)}
               </span>
             </div>
@@ -292,10 +285,10 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
           )}
         </div>
 
-        <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700/40">
-          <p className="text-xs text-gray-400 mb-1">Alpha Entry</p>
+        <div className="bg-gray-900/50 rounded-lg p-2.5 border border-gray-700/40">
+          <p className="text-xs text-gray-500 mb-1">Alpha Entry</p>
           {alphaEntry ? (
-            <span className="text-base font-bold font-mono text-cyan-400">
+            <span className="text-sm font-bold font-mono text-cyan-400">
               {formatPrice(alphaEntry)}
             </span>
           ) : (
@@ -303,18 +296,10 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
           )}
         </div>
 
-        <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700/40">
-          <p className="text-xs text-gray-400 mb-1">
-            {isPullbackExpected && !isGoodEntry ? 'Best Entry Zone' : 'Confidence'}
-          </p>
-          {isPullbackExpected && !isGoodEntry && pullbackZoneMin && pullbackZoneMax ? (
-            <span className={`text-sm font-bold font-mono ${
-              pullbackState === 'APPROACHING' ? 'text-blue-400' : 'text-amber-400'
-            }`}>
-              {formatPrice(pullbackZoneMin)} - {formatPrice(pullbackZoneMax)}
-            </span>
-          ) : alphaConfidence ? (
-            <span className={`text-base font-bold ${
+        <div className="bg-gray-900/50 rounded-lg p-2.5 border border-gray-700/40">
+          <p className="text-xs text-gray-500 mb-1">Confidence</p>
+          {alphaConfidence ? (
+            <span className={`text-sm font-bold ${
               alphaConfidence >= 85 ? 'text-emerald-400' : alphaConfidence >= 70 ? 'text-yellow-400' : 'text-blue-400'
             }`}>
               {alphaConfidence}%
@@ -324,54 +309,27 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
           )}
         </div>
       </div>
-
-      {alphaConfidence && (
-        <div className="mt-2 flex items-center justify-between text-xs text-gray-500 px-1">
-          <span>Alpha Confidence: {alphaConfidence}%</span>
-          {isPullbackExpected && !isGoodEntry && pullbackZoneMin && pullbackZoneMax && currentPrice && (
-            <span className={`${pullbackState === 'APPROACHING' ? 'text-blue-400' : 'text-amber-400'}`}>
-              {direction === 'long'
-                ? `${formatPrice(Math.abs(currentPrice - pullbackZoneMax))} away`
-                : `${formatPrice(Math.abs(pullbackZoneMin - currentPrice))} away`
-              }
-            </span>
-          )}
-        </div>
-      )}
     </div>
   );
 };
 
 interface GoodEntryBannerProps {
-  reasoning: string | null;
   pullbackReached: boolean;
 }
 
-const GoodEntryBanner: React.FC<GoodEntryBannerProps> = ({ reasoning, pullbackReached }) => (
-  <div className={`p-3 rounded-lg border ${
+const GoodEntryBanner: React.FC<GoodEntryBannerProps> = ({ pullbackReached }) => (
+  <div className={`px-3 py-2.5 rounded-lg border flex items-center gap-2.5 ${
     pullbackReached
-      ? 'bg-emerald-900/30 border-emerald-500/50 animate-pulse'
-      : 'bg-emerald-900/25 border-emerald-500/40'
+      ? 'bg-emerald-900/30 border-emerald-500/50'
+      : 'bg-emerald-900/20 border-emerald-500/35'
   }`}>
-    <div className="flex items-start gap-2.5">
-      <CheckCircle className="w-5 h-5 text-emerald-400 mt-0.5 flex-shrink-0" />
-      <div className="flex-1">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="font-semibold text-sm text-emerald-300">
-            {pullbackReached ? 'Pullback Zone Reached' : 'Good Entry'}
-          </span>
-          <span className="text-xs px-1.5 py-0.5 rounded border bg-emerald-500/20 text-emerald-400 border-emerald-500/30 font-bold">
-            {pullbackReached ? 'ENTER NOW' : 'CONFIRMED'}
-          </span>
-        </div>
-        <p className="text-xs text-gray-300 leading-relaxed">
-          {pullbackReached
-            ? 'Price has pulled back into Alpha\'s predicted zone. This is the better entry Alpha identified.'
-            : reasoning || 'Alpha confirms this is the best available entry. No better price expected at this time.'
-          }
-        </p>
-      </div>
-    </div>
+    <CheckCircle className={`w-4 h-4 text-emerald-400 flex-shrink-0 ${pullbackReached ? 'animate-pulse' : ''}`} />
+    <span className="text-sm font-semibold text-emerald-300">
+      {pullbackReached ? 'Pullback Zone Reached' : 'Good Entry'}
+    </span>
+    <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold ml-auto">
+      {pullbackReached ? 'ENTER NOW' : 'CONFIRMED'}
+    </span>
   </div>
 );
 
@@ -382,8 +340,9 @@ interface PullbackExpectedBannerProps {
   direction: string;
   alphaEntry: number | null;
   currentPrice: number | null;
+  alphaConfidence: number | null;
+  pipsAway: number | null;
   formatPrice: (price: number) => string;
-  reasoning: string | null;
 }
 
 const PullbackExpectedBanner: React.FC<PullbackExpectedBannerProps> = ({
@@ -393,10 +352,9 @@ const PullbackExpectedBanner: React.FC<PullbackExpectedBannerProps> = ({
   direction,
   alphaEntry,
   currentPrice,
-  formatPrice,
-  reasoning
+  pipsAway,
+  formatPrice
 }) => {
-  const actionLabel = direction === 'long' ? 'pullback' : 'rally';
   const isApproaching = pullbackState === 'APPROACHING';
 
   const progress = useMemo(() => {
@@ -408,24 +366,23 @@ const PullbackExpectedBanner: React.FC<PullbackExpectedBannerProps> = ({
     return Math.max(0, Math.min(100, ((totalDist - currentDist) / totalDist) * 100));
   }, [currentPrice, alphaEntry, pullbackZoneMin, pullbackZoneMax]);
 
+  const targetPrice = pullbackZoneMin && pullbackZoneMax
+    ? `${formatPrice(pullbackZoneMin)} – ${formatPrice(pullbackZoneMax)}`
+    : null;
+
   return (
-    <div className={`p-3 rounded-lg border ${
-      isApproaching
-        ? 'bg-blue-900/25 border-blue-500/40'
-        : 'bg-amber-900/20 border-amber-500/30'
+    <div className={`rounded-lg border ${
+      isApproaching ? 'bg-blue-900/20 border-blue-500/35' : 'bg-amber-900/15 border-amber-500/25'
     }`}>
-      <div className="flex items-start gap-2.5">
-        <Clock className={`w-5 h-5 mt-0.5 flex-shrink-0 ${
-          isApproaching ? 'text-blue-400' : 'text-amber-400'
-        }`} />
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <span className={`font-semibold text-sm ${
-              isApproaching ? 'text-blue-300' : 'text-amber-300'
-            }`}>
+      <div className="px-3 py-2.5 flex items-center gap-2.5">
+        <Clock className={`w-4 h-4 flex-shrink-0 ${isApproaching ? 'text-blue-400' : 'text-amber-400'}`} />
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className={`text-sm font-semibold ${isApproaching ? 'text-blue-300' : 'text-amber-300'}`}>
               Better Entry Expected
             </span>
-            <span className={`text-xs px-1.5 py-0.5 rounded border ${
+            <span className={`text-xs px-1.5 py-0.5 rounded border font-bold ${
               isApproaching
                 ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
                 : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
@@ -433,36 +390,37 @@ const PullbackExpectedBanner: React.FC<PullbackExpectedBannerProps> = ({
               {isApproaching ? 'APPROACHING' : 'MONITORING'}
             </span>
           </div>
-          <p className="text-xs text-gray-300 leading-relaxed">
-            {reasoning || (pullbackZoneMin && pullbackZoneMax
-              ? `Alpha expects a ${actionLabel} to ${formatPrice(pullbackZoneMin)} - ${formatPrice(pullbackZoneMax)} for a better entry.`
-              : `Alpha expects a ${actionLabel} opportunity. Monitoring price action.`
-            )}
-          </p>
         </div>
+
+        {pipsAway !== null && (
+          <span className={`text-xs font-mono font-bold flex-shrink-0 ${
+            isApproaching ? 'text-blue-300' : 'text-amber-300/70'
+          }`}>
+            {formatPrice(pipsAway)} away
+          </span>
+        )}
       </div>
 
+      {targetPrice && (
+        <div className="px-3 pb-2.5 flex items-center gap-2">
+          <MapPin className="w-3 h-3 text-gray-500 flex-shrink-0" />
+          <span className="text-xs text-gray-400">Potential better entry at</span>
+          <span className={`text-sm font-bold font-mono ml-auto ${
+            isApproaching ? 'text-blue-400' : 'text-amber-400'
+          }`}>
+            {targetPrice}
+          </span>
+        </div>
+      )}
+
       {pullbackZoneMin && pullbackZoneMax && (
-        <div className="mt-2.5 pt-2 border-t border-gray-700/40">
-          <div className="flex items-center justify-between text-xs mb-1.5">
-            <div className="flex items-center gap-1.5">
-              <TrendingUp className="w-3 h-3 text-gray-400" />
-              <span className="text-gray-400">Target zone</span>
-            </div>
-            <span className={`font-mono font-bold ${
-              isApproaching ? 'text-blue-400' : 'text-amber-400'
-            }`}>
-              {formatPrice(pullbackZoneMin)} - {formatPrice(pullbackZoneMax)}
-            </span>
-          </div>
-          <div className="w-full bg-gray-700/50 rounded-full h-1.5 overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-700 ${
-                isApproaching ? 'bg-blue-500' : 'bg-amber-500'
-              }`}
-              style={{ width: `${progress}%` }}
-            />
-          </div>
+        <div className="h-1 w-full rounded-b-lg overflow-hidden bg-gray-700/40">
+          <div
+            className={`h-full transition-all duration-700 ${
+              isApproaching ? 'bg-blue-500' : 'bg-amber-500/60'
+            }`}
+            style={{ width: `${progress}%` }}
+          />
         </div>
       )}
     </div>
