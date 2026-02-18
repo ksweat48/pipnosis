@@ -91,9 +91,11 @@ export function detectTrueCloseReason(tradeData: TradeCloseData): SmartCloseReas
   }
 
   if (pricesMatch(exitPrice, takeProfit, symbol, 0.5)) {
+    const normalizedDbReason = mapDatabaseToCloseReason(databaseCloseReason);
+    const isTpFamilyDbReason = normalizedDbReason === 'take_profit_1' || normalizedDbReason === 'take_profit_2';
     return {
-      displayReason: 'take_profit',
-      isOverride: databaseCloseReason !== 'take_profit',
+      displayReason: isTpFamilyDbReason ? normalizedDbReason : 'take_profit',
+      isOverride: !isTpFamilyDbReason && databaseCloseReason !== 'take_profit',
       confidence: 'high',
       details: `Exit at ${exitPrice.toFixed(pipInfo.decimalPlaces)} matches TP ${takeProfit.toFixed(pipInfo.decimalPlaces)} (${exitToTP.toFixed(2)} pips)`
     };
@@ -109,9 +111,11 @@ export function detectTrueCloseReason(tradeData: TradeCloseData): SmartCloseReas
   }
 
   if (exitToTP <= 2.0 && exitToTP > 0.5) {
+    const normalizedDbReason = mapDatabaseToCloseReason(databaseCloseReason);
+    const isTpFamilyDbReason = normalizedDbReason === 'take_profit_1' || normalizedDbReason === 'take_profit_2';
     return {
-      displayReason: 'take_profit',
-      isOverride: databaseCloseReason !== 'take_profit',
+      displayReason: isTpFamilyDbReason ? normalizedDbReason : 'take_profit',
+      isOverride: !isTpFamilyDbReason && databaseCloseReason !== 'take_profit',
       confidence: 'medium',
       details: `Exit ${exitToTP.toFixed(2)} pips from TP - likely slippage on take profit`
     };

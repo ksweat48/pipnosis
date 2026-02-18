@@ -27,6 +27,28 @@ export type CloseReason =
   | 'market_closed';      // System closure - NOT Alpha's fault
 
 /**
+ * Runtime array of all valid CloseReason values.
+ * SSOT: This must mirror the CloseReason union above AND the DB CHECK constraint.
+ * Used for runtime validation and mapping from external/legacy values.
+ */
+export const CLOSE_REASONS: readonly CloseReason[] = [
+  'manual',
+  'stop_loss',
+  'take_profit',
+  'take_profit_1',
+  'take_profit_2',
+  'goal_achieved',
+  'goal_expired',
+  'session_ended',
+  'risk_limit',
+  'trailing_stop',
+  'weekend_protection',
+  'holiday_closure',
+  'force_closed',
+  'market_closed'
+] as const;
+
+/**
  * System close reasons that should NOT affect Alpha's learning
  * These are external factors, not trading decisions
  */
@@ -192,7 +214,7 @@ export function dbToPosition(trade: GoalSessionTrade): Position {
     symbol: trade.symbol,
     positionType: trade.direction,
     orderType: trade.order_type,
-    lotSize: trade.lot_size || trade.position_size,
+    lotSize: trade.position_size || trade.lot_size,
     entryPrice: trade.entry_price,
     currentPrice: trade.current_price,
     stopLoss: trade.stop_loss,

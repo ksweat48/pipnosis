@@ -14,7 +14,7 @@ import type { NoTradeRejectionContext } from '../services/goal-session-live-engi
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { getRiskPercentage } from '../config/risk-levels';
-import { calculatePipDistance, calculateDollarPerPip } from '../utils/currencyHelpers';
+import { calculatePipDistance, calculateDollarPerPip, formatLotSize } from '../utils/currencyHelpers';
 import { useToast } from '../hooks/useToast';
 import { calculatePnL } from '../types/position';
 import { positionService } from '../services/position-service';
@@ -1296,7 +1296,7 @@ export const GoalSessionDashboard: React.FC = () => {
                       <div>
                         <div className="text-2xl md:text-xl font-bold text-white">{trade.symbol}</div>
                         <div className={`text-sm font-semibold ${isLong ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {trade.direction.toUpperCase()} • {(trade.lot_size || trade.position_size || 0).toFixed(2)} lots
+                          {trade.direction.toUpperCase()} • {formatLotSize(trade.position_size || trade.lot_size || 0)} lots
                         </div>
                       </div>
                       <div className="flex items-center gap-2">

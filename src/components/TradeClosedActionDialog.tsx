@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, TrendingUp, TrendingDown, Target, PlayCircle, PauseCircle, RotateCcw, Clock, X } from 'lucide-react';
+import { AlertCircle, TrendingUp, Target, PauseCircle, RotateCcw, Clock, X } from 'lucide-react';
 import {
   detectTrueCloseReason,
   getCloseReasonText,
@@ -14,7 +14,7 @@ interface TradeClosedActionDialogProps {
   entryPrice: number;
   exitPrice: number;
   profitLoss: number;
-  closeReason: 'stop_loss' | 'take_profit' | 'manual' | 'goal_met';
+  closeReason: string;
   stopLoss: number;
   takeProfit: number;
   currentProgress: number;
@@ -61,12 +61,6 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
   const safeCurrentProgress = isFinite(currentProgress) ? currentProgress : 0;
   const safeTargetValue = isFinite(targetValue) && targetValue > 0 ? targetValue : 100;
   const safeTradesInSession = isFinite(tradesInSession) && tradesInSession >= 0 ? tradesInSession : 0;
-  const isSystemClosure = ['stop_loss', 'take_profit', 'take_profit_1', 'take_profit_2'].includes(closeReason);
-  const timeoutDuration = isGoalAchieved ? GOAL_ACHIEVED_TIMEOUT
-    : isSystemClosure ? SYSTEM_CLOSE_TIMEOUT
-    : NORMAL_TIMEOUT;
-  const [timeRemaining, setTimeRemaining] = useState(timeoutDuration);
-  const isPendingModal = !!timestamp;
 
   const smartCloseResult = detectTrueCloseReason({
     exitPrice: safeExitPrice,
@@ -77,6 +71,12 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
   });
 
   const displayReason = smartCloseResult.displayReason;
+  const isSystemClosure = ['stop_loss', 'take_profit', 'take_profit_1', 'take_profit_2'].includes(displayReason);
+  const timeoutDuration = isGoalAchieved ? GOAL_ACHIEVED_TIMEOUT
+    : isSystemClosure ? SYSTEM_CLOSE_TIMEOUT
+    : NORMAL_TIMEOUT;
+  const [timeRemaining, setTimeRemaining] = useState(timeoutDuration);
+  const isPendingModal = !!timestamp;
 
   // Reset timer when dialog opens
   useEffect(() => {
@@ -208,9 +208,10 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
             <div className="relative flex items-center justify-center mb-3">
               <div className={`p-3 bg-gradient-to-r ${reasonColor} rounded-xl shadow-lg`}>
                 {displayReason === 'stop_loss' && <AlertCircle className="w-6 h-6 text-white" />}
-                {displayReason === 'take_profit' && <TrendingUp className="w-6 h-6 text-white" />}
-                {displayReason === 'goal_met' && <Target className="w-6 h-6 text-white" />}
+                {(displayReason === 'take_profit' || displayReason === 'take_profit_1' || displayReason === 'take_profit_2') && <TrendingUp className="w-6 h-6 text-white" />}
+                {(displayReason === 'goal_achieved' || displayReason === 'goal_met') && <Target className="w-6 h-6 text-white" />}
                 {displayReason === 'manual' && <PauseCircle className="w-6 h-6 text-white" />}
+                {!['stop_loss', 'take_profit', 'take_profit_1', 'take_profit_2', 'goal_achieved', 'goal_met', 'manual'].includes(displayReason) && <PauseCircle className="w-6 h-6 text-white" />}
               </div>
             </div>
 

@@ -6,6 +6,7 @@ import {
   getCloseReasonText,
   getCloseReasonBadgeColor
 } from '@/utils/close-reason-detector';
+import { formatLotSize } from '@/utils/currencyHelpers';
 
 interface Trade {
   id: string;
@@ -84,7 +85,7 @@ export function TradeHistory() {
         id: trade.id,
         symbol: trade.symbol,
         position_type: trade.direction,
-        lot_size: parseFloat(trade.position_size),
+        lot_size: parseFloat(trade.position_size || trade.lot_size || '0'),
         entry_price: parseFloat(trade.entry_price),
         exit_price: parseFloat(trade.exit_price || trade.current_price),
         profit_loss: parseFloat(trade.profit_loss),
@@ -443,7 +444,7 @@ export function TradeHistory() {
                         <span className={`px-2 py-0.5 rounded text-xs font-semibold ${getSourceLabel(trade.trade_source).color}`}>
                           {getSourceLabel(trade.trade_source).label}
                         </span>
-                        <span className="text-gray-400 text-sm">{trade.lot_size} lots</span>
+                        <span className="text-gray-400 text-sm">{formatLotSize(trade.lot_size)} lots</span>
                       </div>
                       <div className="text-xs text-gray-500 flex items-center gap-2 mt-1">
                         <Calendar className="w-3 h-3" />
