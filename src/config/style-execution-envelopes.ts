@@ -310,7 +310,14 @@ export function getEnvelopePercentBounds(
  *
  * Returns revision request if outside bounds.
  * When currentPrice is provided, uses dynamic percentage-based bounds.
+ *
+ * CCIP (2026-02-18): Floating-point tolerance applied to all boundary comparisons.
+ * computePipBounds rounds wall values to 1dp; callers pass unrounded pip distances.
+ * The epsilon of 0.05 pips absorbs the rounding gap for all styles (SCALP, MICRO_INTRADAY,
+ * INTRADAY, SWING) without meaningfully relaxing the envelope constraints.
  */
+const ENVELOPE_COMPARISON_EPSILON = 0.05; // pips — absorbs floating-point rounding only
+
 export function validateTPSLAgainstEnvelope(
   style: string,
   tpPips: number,
@@ -324,26 +331,26 @@ export function validateTPSLAgainstEnvelope(
   const violations: string[] = [];
   const boundsLabel = assetClass ? `${style} ${assetClass}` : style;
 
-  if (tpPips < bounds.tpPips.min) {
+  if (tpPips < bounds.tpPips.min - ENVELOPE_COMPARISON_EPSILON) {
     violations.push(
       `TP ${tpPips.toFixed(1)} pips below ${boundsLabel} minimum ${bounds.tpPips.min.toFixed(1)} pips`
     );
   }
 
-  if (tpPips > bounds.tpPips.max) {
+  if (tpPips > bounds.tpPips.max + ENVELOPE_COMPARISON_EPSILON) {
     violations.push(
       `TP ${tpPips.toFixed(1)} pips exceeds ${boundsLabel} maximum ${bounds.tpPips.max.toFixed(1)} pips. ` +
       `This is ${envelope.timeframe} ${style} trading, not ${tpPips > 150 ? 'SWING' : 'INTRADAY'}.`
     );
   }
 
-  if (slPips < bounds.slPips.min) {
+  if (slPips < bounds.slPips.min - ENVELOPE_COMPARISON_EPSILON) {
     violations.push(
       `SL ${slPips.toFixed(1)} pips below ${boundsLabel} minimum ${bounds.slPips.min.toFixed(1)} pips (too tight)`
     );
   }
 
-  if (slPips > bounds.slPips.max) {
+  if (slPips > bounds.slPips.max + ENVELOPE_COMPARISON_EPSILON) {
     violations.push(
       `SL ${slPips.toFixed(1)} pips exceeds ${boundsLabel} maximum ${bounds.slPips.max.toFixed(1)} pips. ` +
       `This is ${envelope.timeframe} ${style} trading, not wider timeframe.`

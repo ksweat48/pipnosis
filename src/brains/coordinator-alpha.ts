@@ -1576,6 +1576,14 @@ ${tradeStyle === 'SCALP' ? `{
       // If Alpha proposes values outside walls, the trade is blocked. Period.
       // Alpha must learn to propose correct values within the arena boundaries.
       // SSOT: Dual-arena walls are the single validation authority.
+      //
+      // CCIP (2026-02-18): Floating-point tolerance applied to all boundary comparisons.
+      // calculatePipDistance returns unrounded floats; wall bounds are rounded to 1dp.
+      // This produces false violations when values are imperceptibly below the boundary
+      // (e.g., 9.9999... < 10.0). A tolerance of 0.05 pips (half of 0.1 display precision)
+      // absorbs the rounding gap without meaningfully relaxing the wall constraints.
+      // Applies to ALL styles (SCALP, MICRO_INTRADAY, INTRADAY, SWING).
+      const WALL_COMPARISON_EPSILON = 0.05; // pips — absorbs floating-point rounding only
       if (decision.action !== 'NO_TRADE' && dualArenaWalls) {
         decision.arena_chosen = decision.action === 'BUY' ? 'LONG' : 'SHORT';
         const arena = decision.action === 'BUY' ? dualArenaWalls.long : dualArenaWalls.short;
@@ -1584,16 +1592,16 @@ ${tradeStyle === 'SCALP' ? `{
 
         const wallViolations: string[] = [];
 
-        if (slPips < arena.slPips.min) {
+        if (slPips < arena.slPips.min - WALL_COMPARISON_EPSILON) {
           wallViolations.push(`SL ${slPips.toFixed(1)} pips below wall min ${arena.slPips.min.toFixed(1)}`);
         }
-        if (slPips > arena.slPips.max) {
+        if (slPips > arena.slPips.max + WALL_COMPARISON_EPSILON) {
           wallViolations.push(`SL ${slPips.toFixed(1)} pips above wall max ${arena.slPips.max.toFixed(1)}`);
         }
-        if (tpPips < arena.tpPips.min) {
+        if (tpPips < arena.tpPips.min - WALL_COMPARISON_EPSILON) {
           wallViolations.push(`TP ${tpPips.toFixed(1)} pips below wall min ${arena.tpPips.min.toFixed(1)}`);
         }
-        if (tpPips > arena.tpPips.max) {
+        if (tpPips > arena.tpPips.max + WALL_COMPARISON_EPSILON) {
           wallViolations.push(`TP ${tpPips.toFixed(1)} pips above wall max ${arena.tpPips.max.toFixed(1)}`);
         }
 
