@@ -53,6 +53,10 @@ export interface MidTradeGuidance {
 
   // Session context
   goalSessionId: string;
+
+  // Internal field retained for in-memory P&L recalculation by applyLivePrices
+  // GOVERNANCE: Not rendered in UI — used exclusively by applyLivePrices
+  lotSize: number;
 }
 
 export interface MidTradeMonitorStats {
@@ -300,7 +304,8 @@ class MidTradeMonitorService {
           priceAgeSeconds,
           isPriceFresh: isFresh,
           stalePriceWarning,
-          goalSessionId: trade.goal_session_id
+          goalSessionId: trade.goal_session_id,
+          lotSize: trade.lot_size || trade.position_size
         });
       }
 
@@ -472,6 +477,69 @@ class MidTradeMonitorService {
       color: 'blue',
       urgencyScore: 20
     };
+  }
+
+  /**
+   * Apply live price updates to existing guidance entries in-memory.
+   *
+   * SSOT COMPLIANCE:
+   * - Does NOT query the database — price data is authoritative from PricePollingCoordinator
+   * - Does NOT mutate guidance state — returns a new array (immutable update pattern)
+   * - P&L is recalculated using the same calculatePnL SSOT function used by getMidTradeGuidance
+   * - Urgency and guidance messages are NOT recalculated here to avoid LLM-style logic
+   *   running at 2-second intervals; they remain stable until next full service call
+   *
+   * GOVERNANCE:
+   * - This method is the ONLY path for live price injection into guidance state
+   * - Components MUST use this method and MUST NOT duplicate P&L math
+   * - Full getMidTradeGuidance() remains the authority for all non-price fields
+   *
+   * CCIP COMPLIANCE:
+   * - Responsibility: price-display latency reduction (read-only, no side effects)
+   * - Owner: MidTradeMonitorService (this class)
+   * - Called by: MidTradeMonitor component via pricePollingCoordinator subscription
+   */
+  applyLivePrices(
+    currentGuidance: MidTradeGuidance[],
+    livePrices: Array<{ symbol: string; bid: number; ask: number }>
+  ): MidTradeGuidance[] {
+    if (currentGuidance.length === 0 || livePrices.length === 0) return currentGuidance;
+
+    const priceMap = new Map<string, { bid: number; ask: number }>();
+    for (const p of livePrices) {
+      priceMap.set(p.symbol, { bid: p.bid, ask: p.ask });
+    }
+
+    let changed = false;
+    const updated = currentGuidance.map((guide) => {
+      const live = priceMap.get(guide.symbol);
+      if (!live) return guide;
+
+      const newCurrentPrice = guide.direction === 'buy' ? live.bid : live.ask;
+
+      if (newCurrentPrice === guide.currentPrice) return guide;
+
+      changed = true;
+
+      const newPnL = calculatePnL(
+        guide.direction,
+        guide.entryPrice,
+        newCurrentPrice,
+        guide.lotSize,
+        guide.symbol
+      );
+
+      return {
+        ...guide,
+        currentPrice: newCurrentPrice,
+        currentPnL: newPnL,
+        priceAgeSeconds: 0,
+        isPriceFresh: true,
+        stalePriceWarning: undefined
+      };
+    });
+
+    return changed ? updated : currentGuidance;
   }
 
   /**

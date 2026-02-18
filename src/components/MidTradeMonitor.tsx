@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
   Activity,
@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { midTradeMonitorService, type MidTradeGuidance } from '@/services/mid-trade-monitor-service';
+import { pricePollingCoordinator } from '@/services/price-polling-coordinator';
 
 export const MidTradeMonitor: React.FC = () => {
   const { user } = useAuth();
@@ -19,6 +20,16 @@ export const MidTradeMonitor: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastTradeStateHash, setLastTradeStateHash] = useState<string>('');
+
+  // SSOT COMPLIANCE: Ref to latest guidance for use inside coordinator callback
+  // without creating a closure dependency that would re-subscribe on every render.
+  // GOVERNANCE: guidanceRef is the ONLY bridge between coordinator updates and component state.
+  const guidanceRef = useRef<MidTradeGuidance[]>([]);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    guidanceRef.current = guidance;
+  }, [guidance]);
 
   // SSOT COMPLIANCE: Load guidance - extracted to component scope
   // for proper closure access in onClick handler and useEffect
@@ -42,6 +53,38 @@ export const MidTradeMonitor: React.FC = () => {
       setRefreshing(false);
     }
   };
+
+  // CCIP COMPLIANCE: Subscribe to PricePollingCoordinator for low-latency P&L display.
+  //
+  // RESPONSIBILITY: This effect owns live-price injection into the displayed guidance.
+  // It does NOT replace getMidTradeGuidance() — that remains the authority for all
+  // non-price fields (AI recommendations, urgency scores, staleness thresholds, etc.).
+  //
+  // GOVERNANCE:
+  // - Uses midTradeMonitorService.applyLivePrices() as the SSOT for P&L recalculation
+  // - Never duplicates P&L math inside the component
+  // - Subscribes only when there are active guidance entries (trades open)
+  // - Unsubscribes cleanly on unmount — coordinator auto-stops if no other subscribers
+  // - Zero extra cost: coordinator is already polling every 2s for SL/TP monitoring
+  //
+  // SSOT: pricePollingCoordinator is the single authority for live price broadcast.
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const unsubscribe = pricePollingCoordinator.subscribe((update) => {
+      const current = guidanceRef.current;
+      if (current.length === 0) return;
+
+      const updated = midTradeMonitorService.applyLivePrices(current, update.prices);
+      if (updated !== current) {
+        setGuidance(updated);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     if (!user?.id) return;
