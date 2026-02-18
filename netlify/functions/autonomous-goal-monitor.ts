@@ -168,6 +168,16 @@ export const handler: Handler = async (event, context) => {
         // Process one iteration (pass supabase client for server-side execution)
         const result = await processGoalSessionIteration(state, supabase);
 
+        // GOVERNANCE (2026-02-18): If core engine says stop, mark session as stopped
+        if (!result.shouldContinue) {
+          console.log(`[Autonomous Monitor] GOVERNANCE: Session ${session.session_id} returned shouldContinue=false - ensuring session is stopped`);
+          await supabase
+            .from('goal_sessions')
+            .update({ status: 'user_stopped', completed_at: new Date().toISOString() })
+            .eq('id', session.session_id)
+            .in('status', ['scanning', 'active', 'initializing']);
+        }
+
         // Update server state in database
         await supabase
           .from('goal_session_server_state')

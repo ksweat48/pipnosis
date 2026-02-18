@@ -244,6 +244,24 @@ async function executePositionClosure(
       }
 
       console.log(`[AutonomousMonitor] Position closed: ${position.id} at ${result.currentPrice}, PnL: ${data.profit_loss}`);
+
+      // GOVERNANCE (2026-02-18): After any trade closes, check if session should stop.
+      // No auto-scanning is allowed after trade closure. User must start new session.
+      const { count: remainingOpenTrades } = await supabase
+        .from('goal_session_trades')
+        .select('id', { count: 'exact', head: true })
+        .eq('goal_session_id', position.goal_session_id)
+        .eq('status', 'open');
+
+      if (!remainingOpenTrades || remainingOpenTrades === 0) {
+        console.log(`[AutonomousMonitor] GOVERNANCE: No remaining open trades - stopping session ${position.goal_session_id}`);
+        await supabase
+          .from('goal_sessions')
+          .update({ status: 'user_stopped', completed_at: new Date().toISOString() })
+          .eq('id', position.goal_session_id)
+          .in('status', ['scanning', 'active', 'initializing', 'in_trade', 'trade_pending', 'soft_closing']);
+      }
+
       return true;
     }
   } catch (error) {
@@ -334,6 +352,22 @@ async function enforceMarketCloseClosure(
 
       console.log(`[AutonomousMonitor:${executionId}] Market-closed: ${position.symbol} PnL: ${data.profit_loss}`);
       closed++;
+
+      // GOVERNANCE (2026-02-18): Stop session after market-close trade closure
+      const { count: remainingOpen } = await supabase
+        .from('goal_session_trades')
+        .select('id', { count: 'exact', head: true })
+        .eq('goal_session_id', position.goal_session_id)
+        .eq('status', 'open');
+
+      if (!remainingOpen || remainingOpen === 0) {
+        console.log(`[AutonomousMonitor:${executionId}] GOVERNANCE: Stopping session ${position.goal_session_id} after market-close`);
+        await supabase
+          .from('goal_sessions')
+          .update({ status: 'user_stopped', completed_at: new Date().toISOString() })
+          .eq('id', position.goal_session_id)
+          .in('status', ['scanning', 'active', 'initializing', 'in_trade', 'trade_pending', 'soft_closing']);
+      }
 
       await logMonitoringCheck(executionId, position, price, [], true);
     } catch (err) {

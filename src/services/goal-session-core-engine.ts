@@ -53,15 +53,38 @@ export async function processGoalSessionIteration(
     logger.info(LogCategory.AI_TRADING, `[Core] 🚀 Starting iteration for session ${goalSessionId}`);
     logger.info(LogCategory.AI_TRADING, `[Core] Watchlist: ${watchlist.join(', ')} | Timeframe: ${timeframe}`);
 
-    // CRITICAL: Check if session is awaiting continuation response (SSOT)
-    const { data: sessionStatus, error: statusError } = await client
-      .from('goal_sessions')
-      .select('status')
-      .eq('id', goalSessionId)
-      .single();
+    // GOVERNANCE GATE (2026-02-18): If ANY trade has ever been executed in this session,
+    // do NOT scan for new trades. Scanning can only be triggered by user starting a new session.
+    const { count: totalTradesInSession } = await client
+      .from('goal_session_trades')
+      .select('id', { count: 'exact', head: true })
+      .eq('goal_session_id', goalSessionId);
 
-    // Removed awaiting_continuation check - no longer used (removed 2026-01-30)
-    // Sessions now continue automatically without modal interruptions
+    if (totalTradesInSession && totalTradesInSession > 0) {
+      logger.info(LogCategory.AI_TRADING, `[Core] GOVERNANCE: ${totalTradesInSession} trade(s) exist in session ${goalSessionId} - no scanning allowed. Session should be stopped.`);
+
+      // If all trades are closed, transition session to stopped
+      const { count: openTradeCount } = await client
+        .from('goal_session_trades')
+        .select('id', { count: 'exact', head: true })
+        .eq('goal_session_id', goalSessionId)
+        .eq('status', 'open');
+
+      if (!openTradeCount || openTradeCount === 0) {
+        logger.info(LogCategory.AI_TRADING, `[Core] GOVERNANCE: All trades closed - transitioning session to user_stopped`);
+        await client
+          .from('goal_sessions')
+          .update({ status: 'user_stopped', completed_at: new Date().toISOString() })
+          .eq('id', goalSessionId)
+          .in('status', ['scanning', 'active', 'initializing']);
+      }
+
+      return {
+        success: true,
+        message: 'Trade already executed in session - monitoring only (no new scans)',
+        shouldContinue: false
+      };
+    }
 
     if (!watchlist || watchlist.length === 0) {
       logger.error(LogCategory.AI_TRADING, '[Core] ❌ No symbols in watchlist');
@@ -240,17 +263,23 @@ export async function processGoalSessionIteration(
         .eq('id', goalSessionId)
         .single();
 
-      if (goalSession && !goalSession.multi_trade_enabled) {
+      if (goalSession) {
         const isGoalAchieved = goalSession.current_progress >= goalSession.target_value;
 
         if (!isGoalAchieved) {
-          // Removed continuation handler (2026-01-30) - sessions continue automatically
-          // Removed continuation handler calls (2026-01-30) - sessions continue automatically
-          // In single-trade mode, session will continue scanning after trade closes
-          logger.info(LogCategory.AI_TRADING, '[Core] Single-trade mode: Trade closed, continuing automatically');
+          // GOVERNANCE (2026-02-18): After any trade closes, session MUST stop.
+          // No auto-scanning. User must start a new session.
+          logger.info(LogCategory.AI_TRADING, '[Core] GOVERNANCE: Trade closed - stopping session. User must start new session to trade again.');
+
+          await client
+            .from('goal_sessions')
+            .update({ status: 'user_stopped', completed_at: new Date().toISOString() })
+            .eq('id', goalSessionId)
+            .in('status', ['scanning', 'active', 'initializing']);
+
           return {
             success: true,
-            message: 'Trade closed - awaiting user continuation decision',
+            message: 'Trade closed - session stopped per governance policy',
             tradesExecuted,
             triggersDetected,
             llmCallsMade,

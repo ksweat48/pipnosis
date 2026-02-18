@@ -133,6 +133,7 @@ class GoalSessionLiveEngine {
   private goalClassification: GoalClassification | null = null;
   private isStopping = false; // RACE CONDITION FIX: Track session shutdown state
   private scanCompleteNoTrade = false; // SSOT: Halt polling after full scan finds no executable trades
+  private tradeExecutedInSession = false; // GOVERNANCE: Once a trade executes, no more scanning allowed
 
   private readonly POLLING_INTERVAL_MS = 60000; // 60s = 75% fewer LLM calls
   private readonly MAX_DAILY_LOSS_PERCENT = 10;
@@ -267,6 +268,7 @@ class GoalSessionLiveEngine {
       this.monitoringModeMessageSent = false;
       this.isStopping = false; // RACE CONDITION FIX: Reset stopping flag for new session
       this.scanCompleteNoTrade = false; // SSOT: Reset scan-halt flag for new session
+      this.tradeExecutedInSession = false; // GOVERNANCE: Reset trade-executed flag for new session
 
       // ✅ CRITICAL: Initialize autonomous Pipnosis Alpha brain
       await eventBasedLLMEngine.initialize(config.userId, config.goalSessionId);
@@ -486,6 +488,11 @@ class GoalSessionLiveEngine {
 
     if (this.scanCompleteNoTrade) {
       logger.debug(LogCategory.AI_TRADING, 'Scan already completed with no trades - polling halted');
+      return;
+    }
+
+    if (this.tradeExecutedInSession) {
+      logger.info(LogCategory.AI_TRADING, 'GOVERNANCE: Trade already executed in session - scanning permanently halted. User must start new session to scan again.');
       return;
     }
 
@@ -1755,11 +1762,13 @@ class GoalSessionLiveEngine {
         }
 
         tradeExecuted = true;
+        this.tradeExecutedInSession = true;
         // CRITICAL: Update trade ID to match database UUID before tracking
         trade.id = executionResult.tradeId!;
         this.openTrades.push(trade);
         logger.debug(LogCategory.AI_TRADING, `Trade ${this.openTrades.length}/${config.maxConcurrentTrades} added with DB ID: ${trade.id}`);
         logger.info(LogCategory.AI_TRADING, `✅ Trade executed: ${selectedSymbol} ${trade.direction} @ ${trade.entryPrice} (confidence: ${trade.confidence}%)`);
+        logger.info(LogCategory.AI_TRADING, 'GOVERNANCE: tradeExecutedInSession=true - no further scanning allowed in this session');
 
         // Track goal feasibility decision for analytics
         if (downshiftedProposal) {
@@ -2108,11 +2117,21 @@ class GoalSessionLiveEngine {
 
       // 🔍 DEFENSIVE: Log trade array contents for desync detection
 
-      // Scan proceeds immediately - no state machine gate needed
-      // Flow: scan all pairs -> trade or show NoTradesFoundDialog -> done
+      // GOVERNANCE GATE: Check if ANY trade has been executed or closed in this session.
+      // If so, scanning is permanently halted. User must start a new session.
+      const { count: totalTradesInSession } = await supabase
+        .from('goal_session_trades')
+        .select('id', { count: 'exact', head: true })
+        .eq('goal_session_id', this.activeSession!);
 
-      // 🚨 CRITICAL: Sync with database before checking max trades
-      // Prevents memory desync from losing track of open positions
+      if (totalTradesInSession && totalTradesInSession > 0) {
+        this.tradeExecutedInSession = true;
+        logger.info(LogCategory.AI_TRADING, `GOVERNANCE: ${totalTradesInSession} trade(s) found in session - scanning permanently halted. User must start new session.`);
+        await this.monitorOpenPositionsOnly();
+        return;
+      }
+
+      // Sync with database before checking max trades
       const { data: dbPositions, error: dbSyncError } = await supabase
         .from('goal_session_trades')
         .select('id, symbol, direction, entry_price, stop_loss, take_profit, position_size, opened_at, created_at')
@@ -3011,11 +3030,9 @@ Your decision keeps you in control of your risk and prevents runaway trading.
         return;
       }
 
-      // If multi-trade mode enabled, don't show dialog
-      if (session.multi_trade_enabled) {
-        logger.info(LogCategory.AI_TRADING, '✅ Multi-trade mode enabled - continuing to scan automatically');
-        return;
-      }
+      // GOVERNANCE (2026-02-18): Even multi-trade mode stops after trade closure.
+      // No auto-scanning is permitted after any trade closes.
+      // User must explicitly start a new session to scan again.
 
       // Check if goal is met
       const currentProgress = session.current_progress || 0;
@@ -3056,22 +3073,31 @@ Your decision keeps you in control of your risk and prevents runaway trading.
         return;
       }
 
-      // Goal NOT met - show continuation dialog in single-trade mode
+      // GOVERNANCE (2026-02-18): After trade closure, session MUST stop.
+      // Scanning can only be re-initiated by user starting a new session.
+      // This prevents unauthorized auto-trading after SL/TP/manual close.
       const remainingAmount = targetValue - currentProgress;
       const isWin = trade.outcome === 'win';
       const outcome = isWin ? 'WIN' : 'LOSS';
       const emoji = isWin ? '✅' : '❌';
 
-      const continuationPrompt =
-        `${emoji} Trade #${session.trades_in_session} closed with ${outcome}\n\n` +
+      logger.info(LogCategory.AI_TRADING, `GOVERNANCE: Trade closed (${outcome}). Stopping session - user must start new session to scan again.`);
+
+      await this.sendAIMessage(
+        `${emoji} Trade closed: ${trade.symbol} ${trade.direction?.toUpperCase() || ''}\n\n` +
         `💰 P&L: ${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)}\n` +
         `📊 Progress: $${currentProgress.toFixed(2)} / $${targetValue.toFixed(2)}\n` +
         `🎯 Remaining: $${remainingAmount.toFixed(2)} to goal\n\n` +
-        `Would you like to continue scanning for another trade?`;
+        `Session complete. Start a new session when you're ready to trade again.`
+      );
 
-      // Removed continuation modal system (2026-01-30) - sessions continue automatically
-      // Single-trade mode continues scanning without user confirmation
-      logger.info(LogCategory.AI_TRADING, '✅ Single-trade mode: Trade closed, continuing to scan automatically');
+      const { goalSessionStateMachine: gsm } = await import('./coordinators/goal-session-state-machine');
+      await gsm.transition(this.activeSession!, 'stopped', {
+        reason: `Trade closed (${trade.outcome}) - session auto-stopped per governance policy`,
+        triggeredBy: 'goal-session-live-engine:checkContinuationAfterTradeClose',
+      });
+
+      this.stopSession();
 
     } catch (error) {
       console.error('[Goal Live Engine] Error checking continuation after trade close:', error);

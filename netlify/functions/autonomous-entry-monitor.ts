@@ -116,6 +116,29 @@ export const handler: Handler = async (event, context) => {
       try {
         console.log(`[Entry Monitor] Processing intent ${intent.intent_id.substring(0, 8)} for ${intent.symbol}`);
 
+        // GOVERNANCE (2026-02-18): If session already has trades, abandon this intent.
+        // No new trades can be auto-executed after a trade has already been placed in a session.
+        if (intent.session_id) {
+          const { count: existingTrades } = await supabase
+            .from('goal_session_trades')
+            .select('id', { count: 'exact', head: true })
+            .eq('goal_session_id', intent.session_id);
+
+          if (existingTrades && existingTrades > 0) {
+            console.log(`[Entry Monitor] GOVERNANCE: Session ${intent.session_id} already has ${existingTrades} trade(s) - abandoning intent ${intent.intent_id.substring(0, 8)}`);
+            await abandonIntent(intent.intent_id, 'Session already has trades - governance policy prevents auto-execution');
+            abandonedCount++;
+            successCount++;
+            results.push({
+              intentId: intent.intent_id,
+              symbol: intent.symbol,
+              success: true,
+              action: 'governance_blocked'
+            });
+            continue;
+          }
+        }
+
         // Update heartbeat at start
         await supabase.rpc('update_intent_server_heartbeat', {
           p_intent_id: intent.intent_id,
