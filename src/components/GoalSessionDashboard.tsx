@@ -14,10 +14,11 @@ import type { NoTradeRejectionContext } from '../services/goal-session-live-engi
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { getRiskPercentage } from '../config/risk-levels';
-import { calculatePipDistance, calculateDollarPerPip, getCurrencyPipInfo } from '../utils/currencyHelpers';
+import { calculatePipDistance, calculateDollarPerPip } from '../utils/currencyHelpers';
 import { useToast } from '../hooks/useToast';
 import { calculatePnL } from '../types/position';
 import { positionService } from '../services/position-service';
+import { pricePollingCoordinator } from '../services/price-polling-coordinator';
 import { getForexMarketStatus } from '../utils/marketHours';
 // GoalScanReadinessIndicator removed - using simple indicator
 
@@ -313,46 +314,33 @@ export const GoalSessionDashboard: React.FC = () => {
     };
   }, [user, activeSession?.sessionId]);
 
-  // Fetch live prices for open trades
+  // Subscribe to live prices via shared coordinator (no direct DB reads, CDN-cached)
+  const openTradesRef = useRef(openTrades);
+  openTradesRef.current = openTrades;
+
   useEffect(() => {
-    if (openTrades.length === 0) return;
+    if (!activeSession) return;
 
-    const symbols = Array.from(new Set(openTrades.map(t => t.symbol)));
+    const unsubscribe = pricePollingCoordinator.subscribe((update) => {
+      const trades = openTradesRef.current;
+      if (trades.length === 0) return;
 
-    const fetchLivePrices = async () => {
+      const symbols = new Set(trades.map((t) => t.symbol));
       const prices: Record<string, { bid: number; ask: number }> = {};
 
-      await Promise.all(
-        symbols.map(async (symbol) => {
-          try {
-            const { data, error } = await supabase
-              .from('realtime_prices')
-              .select('bid, ask')
-              .eq('symbol', symbol)
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
+      for (const priceData of update.prices) {
+        if (symbols.has(priceData.symbol)) {
+          prices[priceData.symbol] = { bid: priceData.bid, ask: priceData.ask };
+        }
+      }
 
-            if (!error && data) {
-              prices[symbol] = {
-                bid: parseFloat(String(data.bid)),
-                ask: parseFloat(String(data.ask))
-              };
-            }
-          } catch (error) {
-            console.error(`Error fetching price for ${symbol}:`, error);
-          }
-        })
-      );
+      if (Object.keys(prices).length > 0) {
+        setLivePrices((prev) => ({ ...prev, ...prices }));
+      }
+    });
 
-      setLivePrices(prices);
-    };
-
-    fetchLivePrices();
-    const interval = setInterval(fetchLivePrices, 2000); // Update every 2 seconds
-
-    return () => clearInterval(interval);
-  }, [openTrades]);
+    return () => unsubscribe();
+  }, [activeSession?.sessionId]);
 
   const loadSessionData = async () => {
     if (!user) return;
@@ -943,8 +931,19 @@ export const GoalSessionDashboard: React.FC = () => {
   };
 
   const calculateCurrentPnL = (trade: any): number => {
-    // SINGLE SOURCE OF TRUTH: Use stored P&L from database
-    // Database updates this via position monitoring system
+    const livePrice = livePrices[trade.symbol];
+    if (livePrice) {
+      const entryPrice = trade.entry_price || 0;
+      const lotSize = trade.lot_size || trade.position_size || 0.01;
+      const isLong = trade.direction === 'buy';
+      const currentPrice = isLong ? livePrice.bid : livePrice.ask;
+      if (entryPrice <= 0) return trade.current_pnl || 0;
+      const pipDist = isLong
+        ? calculatePipDistance(trade.symbol, entryPrice, currentPrice)
+        : calculatePipDistance(trade.symbol, currentPrice, entryPrice);
+      const dollarPerPip = calculateDollarPerPip(trade.symbol, lotSize);
+      return pipDist * dollarPerPip;
+    }
     return trade.current_pnl || trade.profit_loss || 0;
   };
 
@@ -972,7 +971,7 @@ export const GoalSessionDashboard: React.FC = () => {
   const calculateLiveProgressPercentage = (): number => {
     if (!progress || !activeSession) return 0;
     const closedProfit = progress.stats?.closedProfit || 0;
-    const openUnrealizedPnL = openTrades.reduce((sum, trade) => sum + (trade.current_pnl || 0), 0);
+    const openUnrealizedPnL = openTrades.reduce((sum, trade) => sum + calculateCurrentPnL(trade), 0);
     const totalProgress = closedProfit + openUnrealizedPnL;
 
     if (openTrades.length > 0) {
@@ -1284,15 +1283,9 @@ export const GoalSessionDashboard: React.FC = () => {
                   ? (isLong ? livePrice.bid : livePrice.ask)
                   : (trade.current_price || trade.entry_price);
 
-                const priceDiff = isLong
-                  ? (currentPrice - trade.entry_price)
-                  : (trade.entry_price - currentPrice);
-
-                // SSOT: Calculate pips with correct sign (negative when losing, positive when winning)
-                // For BUY: pips = (currentPrice - entryPrice) / pipValue
-                // For SELL: pips = (entryPrice - currentPrice) / pipValue
-                const pipInfo = getCurrencyPipInfo(trade.symbol);
-                const pips = priceDiff / pipInfo.pipValue;
+                const pips = isLong
+                  ? calculatePipDistance(trade.symbol, trade.entry_price, currentPrice)
+                  : calculatePipDistance(trade.symbol, currentPrice, trade.entry_price);
 
                 const currentPnL = calculateCurrentPnL(trade);
 
@@ -1424,7 +1417,7 @@ export const GoalSessionDashboard: React.FC = () => {
             <div className="relative bg-gray-800/50 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50 group-hover:border-blue-500/30 transition-all duration-300">
               <div className="text-sm text-gray-400 mb-1">Progress</div>
               <div className="text-2xl font-bold text-blue-400">
-                ${(progress?.stats?.totalProfit || 0).toFixed(2)}
+                ${((progress?.stats?.closedProfit || 0) + openTrades.reduce((sum, trade) => sum + calculateCurrentPnL(trade), 0)).toFixed(2)}
               </div>
             </div>
           </div>
@@ -1584,7 +1577,7 @@ export const GoalSessionDashboard: React.FC = () => {
               })()}
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-blue-400">${(progress.stats.totalProfit || 0).toFixed(2)}</div>
+              <div className="text-2xl font-bold text-blue-400">${((progress.stats.closedProfit || 0) + openTrades.reduce((sum, trade) => sum + calculateCurrentPnL(trade), 0)).toFixed(2)}</div>
               <div className="text-xs text-gray-400">Total Profit</div>
             </div>
           </div>
