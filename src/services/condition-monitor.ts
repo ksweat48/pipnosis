@@ -519,10 +519,14 @@ class ConditionMonitor {
         return sensors.vol_s === 1;
       }
       if (c.includes('vol_high') || c.includes('high_volume_regime')) {
-        return sensors.vol_r === 'high';
+        // SSOT FIX: For instruments with synthetic volume (indices, some forex), vol_r stays
+        // near 'mid' because synthetic ratios converge to ~1.0. Fall back to ATR-based
+        // volatility classification (state.volatility) as the authoritative source.
+        // Real-volume instruments will have vol_r='high' from actual trade flow.
+        return sensors.vol_r === 'high' || state.volatility === 'high';
       }
       if (c.includes('vol_low') || c.includes('low_volume_regime')) {
-        return sensors.vol_r === 'low';
+        return sensors.vol_r === 'low' || state.volatility === 'low';
       }
       if (c.includes('atr_expanding') || c.includes('volatility_increasing')) {
         return sensors.atr_t === 'up';

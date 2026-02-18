@@ -188,6 +188,13 @@ CRITICAL: conditions MUST use EXACT parseable codes:
 - Micro: "pullback_complete", "near_vwap", "above_resistance", "below_support"
 NO natural language. Use codes ONLY.
 
+DIRECTIONAL AWARENESS (MANDATORY — match conditions to ACTUAL market direction):
+- trend=bull in snapshot → use bull conditions: "trend=bull", "rsi>50", "p>e50", "bos_bull", "bull_engulf"
+- trend=bear in snapshot → use bear conditions: "trend=bear", "rsi<50", "p<e50", "bos_bear", "bear_engulf"
+- trend=side in snapshot → use range/neutral conditions: "near_vwap", "rsi>40", "rsi<60", "vol_high", "pullback_complete", "near_swing_low", "near_swing_high"
+- NEVER mix bull-only conditions with a bearish trend snapshot. Match direction or use neutral conditions.
+- Current trend in snapshot: "${snapshot.trend}" — generate conditions that are ACHIEVABLE in this regime.
+
 REGIME RULES (if regime provided):
 - s=ny_open: avoid reversals, prefer breakouts, quick exits
 - s=london: prefer trend continuation, pullbacks
@@ -215,7 +222,7 @@ PLAYBOOK RULES (if playbook provided):
 Return JSON:
 {
   "mode": "trend|breakout|pullback|reversal|range",
-  "conditions": ["p>e50", "rsi>50", "trend=bull"],
+  "conditions": ["<direction-appropriate codes based on snapshot trend>"],
   "entry_logic": "when X of Y conditions true",
   "sl_calculation": "atr*X",
   "tp_calculation": "atr*Y",
@@ -250,7 +257,7 @@ Max 200 tokens.`;
     );
 
     const content = response.choices[0]?.message?.content || '{}';
-    const plan = this.parseStrategyResponse(content);
+    const plan = this.parseStrategyResponse(content, snapshot.trend);
 
     this.enforceImmutableStyle(plan, tradeStyle);
 
@@ -344,8 +351,9 @@ YOU MUST generate conditions appropriate for ${config.label} duration and risk p
 
   /**
    * Parse LLM response into strategy plan
+   * SSOT FIX: Accept detected trend so fallback strategy is directionally appropriate.
    */
-  private parseStrategyResponse(response: string): StrategyPlan {
+  private parseStrategyResponse(response: string, detectedTrend?: string): StrategyPlan {
     try {
       const cleaned = response
         .replace(/```json\n?/g, '')
@@ -369,20 +377,61 @@ YOU MUST generate conditions appropriate for ${config.label} duration and risk p
     } catch (error) {
       console.error('[Strategy Brain] Failed to parse response:', error);
 
-      // Fallback strategy
+      const fallback = this.buildDirectionalFallback(detectedTrend);
+      console.warn(`[Strategy Brain] Using directional fallback for trend="${detectedTrend}": ${fallback.conditions.join(', ')}`);
+      return fallback;
+    }
+  }
+
+  /**
+   * SSOT: Build a directionally-appropriate fallback strategy when LLM parsing fails.
+   * Prevents hard-coded bull conditions from being applied to bear/sideways markets.
+   */
+  private buildDirectionalFallback(trend?: string): StrategyPlan {
+    const t = (trend || 'side').toLowerCase();
+
+    if (t === 'bullish' || t === 'bull') {
       return {
         mode: 'trend',
         conditions: ['p>e50', 'rsi>50', 'trend=bull'],
-        entry_logic: 'when all 3 conditions true',
+        entry_logic: 'when 2 of 3 conditions true',
         sl_calculation: 'atr*1.5',
         tp_calculation: 'atr*2.5',
         risk_pct: 3,
         riskLevel: 3,
-        confidence: 70,
-        rationale: 'Fallback trend-following strategy',
-        watch_indicators: ['ema20', 'ema50', 'rsi', 'vwap']
+        confidence: 65,
+        rationale: 'Fallback bull trend-following strategy',
+        watch_indicators: ['ema50', 'rsi', 'vwap']
       };
     }
+
+    if (t === 'bearish' || t === 'bear') {
+      return {
+        mode: 'trend',
+        conditions: ['p<e50', 'rsi<50', 'trend=bear'],
+        entry_logic: 'when 2 of 3 conditions true',
+        sl_calculation: 'atr*1.5',
+        tp_calculation: 'atr*2.5',
+        risk_pct: 3,
+        riskLevel: 3,
+        confidence: 65,
+        rationale: 'Fallback bear trend-following strategy',
+        watch_indicators: ['ema50', 'rsi', 'vwap']
+      };
+    }
+
+    return {
+      mode: 'range',
+      conditions: ['near_vwap', 'rsi>40', 'vol_high'],
+      entry_logic: 'when 2 of 3 conditions true',
+      sl_calculation: 'atr*1.5',
+      tp_calculation: 'atr*2.0',
+      risk_pct: 2,
+      riskLevel: 2,
+      confidence: 60,
+      rationale: 'Fallback sideways/range strategy',
+      watch_indicators: ['vwap', 'rsi', 'atr']
+    };
   }
 
   /**
