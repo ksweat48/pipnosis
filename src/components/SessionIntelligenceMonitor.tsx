@@ -442,17 +442,12 @@ export const SessionIntelligenceMonitor: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<TradeStyle | 'all'>('all');
 
-  const triggerIntelligenceUpdate = useCallback(async (): Promise<boolean> => {
-    try {
-      const response = await fetch('/.netlify/functions/populate-session-intelligence', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      return response.ok;
-    } catch {
-      return false;
-    }
-  }, []);
+  // CCIP (2026-02-18): SSOT compliance fix.
+  // The populate-session-intelligence Netlify function is a SCHEDULED data populator.
+  // It runs every 5 minutes server-side. The browser must NEVER call it directly —
+  // that route causes 500s under load (concurrent analysis of 27 symbol/style pairs
+  // can exceed the on-demand function timeout). The UI is a pure READ consumer.
+  // Data freshness is guaranteed by the scheduler; the UI subscribes to changes.
 
   const loadSessionData = useCallback(async (allowExpired = false) => {
     try {
@@ -485,13 +480,11 @@ export const SessionIntelligenceMonitor: React.FC = () => {
     if (refreshing) return;
     setRefreshing(true);
     try {
-      await triggerIntelligenceUpdate();
-      await new Promise((resolve) => setTimeout(resolve, 1500));
       await loadSessionData();
     } finally {
       setRefreshing(false);
     }
-  }, [refreshing, triggerIntelligenceUpdate, loadSessionData]);
+  }, [refreshing, loadSessionData]);
 
   useEffect(() => {
     const init = async () => {
@@ -500,19 +493,27 @@ export const SessionIntelligenceMonitor: React.FC = () => {
     };
     init();
 
-    const dataReadTimer = setInterval(() => {
-      loadSessionData();
-    }, 60000);
+    // Realtime subscription: UI updates automatically when the scheduler writes new data.
+    // This replaces the 60s poll + direct function call pattern.
+    const channel = supabase
+      .channel('session_intelligence_realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'session_intelligence_data' },
+        () => { loadSessionData(); }
+      )
+      .subscribe();
 
-    const intelligenceRefreshTimer = setInterval(() => {
-      triggerIntelligenceUpdate().catch(() => {});
+    // Fallback poll every 5 minutes (matches scheduler cadence) in case realtime lags.
+    const fallbackTimer = setInterval(() => {
+      loadSessionData();
     }, 300000);
 
     return () => {
-      clearInterval(dataReadTimer);
-      clearInterval(intelligenceRefreshTimer);
+      supabase.removeChannel(channel);
+      clearInterval(fallbackTimer);
     };
-  }, [loadSessionData, triggerIntelligenceUpdate]);
+  }, [loadSessionData]);
 
   const getSessionIcon = (sessionName: string) => {
     switch (sessionName) {
