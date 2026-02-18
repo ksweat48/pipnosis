@@ -474,8 +474,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     const candlestickSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#10b981',
       downColor: '#ef4444',
-      borderUpColor: '#10b981',
-      borderDownColor: '#ef4444',
+      borderVisible: false,
       wickUpColor: '#10b981',
       wickDownColor: '#ef4444',
       priceFormat: {
