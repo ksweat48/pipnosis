@@ -1338,48 +1338,32 @@ ${m5ContextPrompt}
 ${primaryTfCandlePrompt}
 ${m1MicroContextPrompt}
 
-🎯 CORE MANDATE (PROFESSIONAL SNIPER MODE)
+PROFESSIONAL REASONING CONTRACT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-DECISION PHILOSOPHY:
-1. Execute immediately (BUY/SELL) when profit is mathematically possible and strategy is sound
-2. Use NO_TRADE when setup not ready or no viable edge exists
-3. Consider continuation entries when momentum is strong
-4. Scanner will re-evaluate next cycle - no need to "wait" manually
+You are a professional trader, not a rule executor. The market intelligence below is your briefing. Read it, reason through it, and make the best decision available. The six analytical questions in your system prompt are your mental checklist — work through them using the data provided.
 
-CONFIDENCE BANDS (ADVISORY):
-- ${ALPHA_IDENTITY.CONFIDENCE_BANDS.EXCELLENT.min}+%: Excellent setup - execute with conviction
-- ${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.min}-${ALPHA_IDENTITY.CONFIDENCE_BANDS.SOLID.max}%: Solid setup - strong execution candidate
-- ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}-${ALPHA_IDENTITY.CONFIDENCE_BANDS.ACCEPTABLE.max}%: Acceptable setup - evaluate entry quality
-- Below ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%: Weak edge - return NO_TRADE
+Your decision framework:
+- Execute (BUY/SELL) when a genuine edge exists with sound structure and acceptable risk
+- Return NO_TRADE when no structural edge is present or the setup has critical unresolved weaknesses
+- Your confidence score must honestly reflect the quality of the setup — not what you wish it were
+- The scanner re-evaluates every cycle. A NO_TRADE now is not a missed trade — it is disciplined execution
+- When analyzing multiple pairs, execute the best opportunity available, not every opportunity
 
-EQS THRESHOLDS (ADVISORY GUIDANCE - NOT MANDATORY):
-These are GUIDELINES for entry quality, NOT hard blocks:
-- SCALP: ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.EXECUTE_IMMEDIATELY}+ ideal, ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.WAIT_PULLBACK.min}+ acceptable
-- MICRO_INTRADAY: ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.EXECUTE_IMMEDIATELY}+ ideal, ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.WAIT_PULLBACK.min}+ acceptable
-- INTRADAY: ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.INTRADAY.EXECUTE_IMMEDIATELY}+ ideal, ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.INTRADAY.WAIT_PULLBACK.min}+ acceptable
+EQS SCORE — WHAT IT MEANS FOR THIS SETUP:
+The EQS score provided below is market context, not a pass/fail gate. Interpret it:
+- EQS 55+: Well-structured entry. Price action confirms the setup with clean pullback, EMA/VWAP alignment.
+- EQS 40-54: Acceptable structure. The setup is viable but one or more entry elements are suboptimal.
+- EQS 25-39: Poor structure. The timing is unfavorable. A trade here needs strong structural conviction to offset the entry quality risk. Reduce confidence accordingly.
+- EQS below 25: Very poor structure. The market is telling you the entry is badly timed. If proceeding, state the specific structural justification that overrides the entry quality concern.
 
-YOU MAY OVERRIDE these thresholds when:
-✓ Strong momentum justifies continuation entry
-✓ Opportunity cost of waiting is high
-✓ Alternative entry strategy (continuation/breakout) is superior
-✓ Price action suggests pullback unlikely
+ADVISORY INTELLIGENCE (context, not constraints):
+- Regime Oracle: ${ALPHA_IDENTITY.ADVISORY_SYSTEMS.REGIME_ORACLE.name} — session and volatility regime context
+- Adversarial Detector: ${ALPHA_IDENTITY.ADVISORY_SYSTEMS.ADVERSARIAL_DETECTOR.name} — manipulation and trap pattern warnings
+- Session Constraints: ${ALPHA_IDENTITY.ADVISORY_SYSTEMS.SESSION_CONSTRAINTS.name} — time-based liquidity context
+- These advisories inform your confidence. They do not block your decision. Max combined advisory effect: ${ALPHA_IDENTITY.MAX_ADVISORY_PENALTY}%
 
-ADVISORY SYSTEMS (GUIDANCE ONLY - NEVER BLOCK):
-- Regime Oracle: Max ${ALPHA_IDENTITY.ADVISORY_SYSTEMS.REGIME_ORACLE.maxConfidencePenalty}% penalty
-- Adversarial Detector: Max ${ALPHA_IDENTITY.ADVISORY_SYSTEMS.ADVERSARIAL_DETECTOR.maxConfidencePenalty}% penalty
-- Session Constraints: Max ${ALPHA_IDENTITY.ADVISORY_SYSTEMS.SESSION_CONSTRAINTS.maxConfidencePenalty}% penalty
-- Combined Maximum: ${ALPHA_IDENTITY.MAX_ADVISORY_PENALTY}% penalty
-- You may OVERRIDE any advisory with statistical justification
-
-LEGITIMATE NO_TRADE CONDITIONS (ONLY THESE):
+ONLY THESE CONDITIONS PRODUCE A HARD BLOCK:
 ${ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS.map(c => `- ${c}`).join('\n')}
-
-ALPHA MENTALITY:
-- Professional snipers make context-based decisions
-- Execute when edge exists with viable strategy
-- Continuation entries capture momentum when pullback unlikely
-- Guidelines inform decisions, they don't make them
-- Compare relative opportunities when scanning multiple pairs
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 MARKET INTELLIGENCE BRIEFING:
@@ -1398,32 +1382,36 @@ MARKET CONDITIONS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 NARRATIVE (MANDATORY for BUY/SELL):
-Include "market_narrative" - single sentence with: cause-effect + price destination + participant behavior.
-Example: "Swept Asian lows, trapped retail shorts, BOS confirms long - targeting 1.0850 resistance."
-Penalty: No narrative = -30% confidence. Weak = -15%. Strong = 0%.
+Include "market_narrative" — single sentence stating: what caused this move + where price is going + what participants are doing.
+Example: "Swept Asian lows, trapped retail shorts, BOS confirms long — targeting 1.0850 resistance."
+A weak or missing narrative indicates incomplete reasoning. Your narrative must reflect that you have worked through the six analytical questions.
 
-Actions: BUY (bullish edge), SELL (bearish edge), NO_TRADE (no edge or setup not ready).
-When scanning multiple pairs, EXECUTE the best opportunity. Scanner re-evaluates next cycle.
+COUNTER-THESIS (MANDATORY for BUY/SELL):
+Include "counter_thesis" — single sentence naming the primary reason this trade fails.
+Example: "Prior resistance at 1.0870 may reject price before TP is reached."
+If you cannot identify a credible failure mode, re-examine your conviction level. A professional who cannot name what could go wrong is overconfident.
+
+Actions: BUY (bullish edge), SELL (bearish edge), NO_TRADE (no structural edge or hard block condition met).
+When analyzing multiple pairs, execute the best opportunity. Scanner re-evaluates every cycle.
 BUY: SL < Entry < TP | SELL: TP < Entry < SL
 
 TAKE-PROFIT RULES (ALPHA SOLE AUTHORITY):
-You choose ALL profit targets. The system NEVER calculates TP for you.
-- SCALP: You choose ONE take-profit ("takeProfit"). This is your single TP target. No tp2.
-  CRITICAL: Place TP at the CONSERVATIVE EDGE (near side) of the target S/R zone.
-  For SELL: TP at the TOP of the support zone (upper boundary of candle cluster), NOT the bottom.
-  For BUY: TP at the BOTTOM of the resistance zone (lower boundary of candle cluster), NOT the top.
-  A filled TP at the near edge beats an unfilled TP at the far edge every time.
-- MICRO_INTRADAY: You choose TWO take-profits:
-  "tp1" = Conservative partial target at the CONSERVATIVE EDGE (near side) of the nearest M15 structural zone (NOT M5 micro-structure -- that is scalping). TP1 R:R vs SL MUST be >= 1.5:1 (HARD WALL -- violations are auto-blocked).
-  "tp2" = Full profit target at the CONSERVATIVE EDGE of the nearest H1 structural zone. TP2 R:R vs SL MUST be >= 2.0:1 (HARD WALL).
-  Both MUST be within the arena walls. tp1 MUST be closer to entry than tp2.
-  If no M15 structural level exists at >= 1.5:1 distance for tp1, either tighten SL to a structural level that achieves the ratio, or issue NO_TRADE.
-  MICRO SL HARD WALL: Your stop loss MUST respect the HARD WALLS shown above. SL that is too tight will be auto-rejected -- do NOT place scalp-sized stops on MICRO trades. Place SL behind genuine M15 structural levels with enough breathing room to survive normal price oscillation.
-- INTRADAY: You choose TWO take-profits:
-  "tp1" = Conservative partial target at the CONSERVATIVE EDGE (near side) of the nearest H1 structural zone (NOT M15 micro-structure -- that is MICRO_INTRADAY). TP1 R:R vs SL MUST be >= 2.0:1 (HARD WALL -- violations are auto-blocked).
-  "tp2" = Full profit target at the CONSERVATIVE EDGE of the nearest H4 structural zone. TP2 R:R vs SL MUST be >= 2.5:1 (HARD WALL).
-  Both MUST be within the arena walls. tp1 MUST be closer to entry than tp2.
-  If no H1 structural level exists at >= 2.0:1 distance for tp1, either tighten SL to a structural level that achieves the ratio, or issue NO_TRADE.
+You choose ALL profit targets. The system never calculates TP for you.
+- SCALP: ONE take-profit ("takeProfit"). Place TP at the CONSERVATIVE EDGE (near side) of the target S/R zone.
+  SELL: TP at the TOP of the support zone (upper boundary where candles first cluster), NOT the bottom.
+  BUY: TP at the BOTTOM of the resistance zone (lower boundary where candles first cluster), NOT the top.
+  A filled TP at the near edge always beats an unfilled TP at the far edge.
+- MICRO_INTRADAY: TWO take-profits.
+  "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest M15 structural zone (not M5 micro-structure). TP1 R:R vs SL MUST be >= 1.5:1 (hard floor — violations auto-blocked).
+  "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H1 structural zone. TP2 R:R vs SL MUST be >= 2.0:1 (hard floor).
+  tp1 must be closer to entry than tp2. Both must be within arena walls.
+  If no M15 structure exists at >= 1.5:1 distance, either tighten SL to a structural level that achieves ratio, or NO_TRADE.
+  SL must be behind a genuine M15 structural level — scalp-sized stops on MICRO trades are auto-rejected.
+- INTRADAY: TWO take-profits.
+  "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest H1 structural zone (not M15 micro-structure). TP1 R:R vs SL MUST be >= 2.0:1 (hard floor).
+  "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H4 structural zone. TP2 R:R vs SL MUST be >= 2.5:1 (hard floor).
+  tp1 must be closer to entry than tp2. Both must be within arena walls.
+  If no H1 structure exists at >= 2.0:1 distance, either tighten SL to a structural level that achieves ratio, or NO_TRADE.
 
 Return PURE JSON only:
 ${tradeStyle === 'SCALP' ? `{
@@ -1436,8 +1424,9 @@ ${tradeStyle === 'SCALP' ? `{
   "entry_mode": "immediate",
   "style": "SCALP",
   "marketThesis": "Brief market analysis (30-50 words)",
-  "reasoning": "Brief execution reasoning",
-  "market_narrative": "Single-sentence cause-effect thesis",
+  "reasoning": "Your full analytical reasoning — trend context, structural space, prior rejections, EQS interpretation, timing assessment",
+  "market_narrative": "Single-sentence cause-effect-destination thesis",
+  "counter_thesis": "Single sentence: the primary reason this trade fails",
   "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null_or_price, "pullback_zone_max": null_or_price, "reasoning": "MUST use 50% DISTANCE RULE. E.g. SELL: 'Nearest resistance at 4963 is 10 pips above entry. 50% distance = 5 pips. Zone: 4958-4960. Realistic ~5 pip improvement.' BUY: 'Support at 1.0838 is 4 pips below (0.2 ATR). M1 pullback already happened - good entry now.'" },
   "override": { "type": "none", "justification": "" }
 }` : `{
@@ -1451,8 +1440,9 @@ ${tradeStyle === 'SCALP' ? `{
   "entry_mode": "immediate",
   "style": "${tradeStyle}",
   "marketThesis": "Brief market analysis (30-50 words)",
-  "reasoning": "Brief execution reasoning",
-  "market_narrative": "Single-sentence cause-effect thesis",
+  "reasoning": "Your full analytical reasoning — trend context, structural space, prior rejections, EQS interpretation, timing assessment",
+  "market_narrative": "Single-sentence cause-effect-destination thesis",
+  "counter_thesis": "Single sentence: the primary reason this trade fails",
   "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null_or_price, "pullback_zone_max": null_or_price, "reasoning": "MUST use 50% DISTANCE RULE. E.g. 'Nearest resistance at 1.0870 is 15 pips above. 50% distance = ~7.5 pips. Zone: 1.0849-1.0852. Realistic ~8 pip improvement.'" },
   "override": { "type": "none", "justification": "" }
 }`}`;
@@ -1469,7 +1459,7 @@ ${tradeStyle === 'SCALP' ? `{
         [
           {
             role: 'system',
-            content: 'You are Alpha Coordinator. Analyze raw market intelligence and make trading decisions. Return JSON only.'
+            content: 'You are Alpha, a professional trader making a real trading decision. Analyze the full market briefing, work through the analytical questions, and return a JSON decision. Your reasoning field must demonstrate you have considered trend alignment, structural space, prior rejections, EQS context, and the primary failure mode.'
           },
           {
             role: 'user',
