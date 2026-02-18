@@ -3584,6 +3584,18 @@ This learning will carry forward to improve future sessions!
     this.stopPolling();
     logger.info(LogCategory.AI_TRADING, 'Full scan complete - no executable trades found. Polling halted.');
 
+    if (this.activeSession) {
+      supabase
+        .from('goal_sessions')
+        .update({ no_trade_found_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq('id', this.activeSession)
+        .then(({ error }) => {
+          if (error) {
+            logger.warn(LogCategory.AI_TRADING, `[emitNoTradeEvent] Failed to persist no_trade_found_at: ${error.message}`);
+          }
+        });
+    }
+
     if (typeof window !== 'undefined' && this.activeSession) {
       window.dispatchEvent(new CustomEvent('alpha-scan-no-trade', {
         detail: {

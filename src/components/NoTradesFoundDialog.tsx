@@ -10,22 +10,19 @@ interface NoTradesFoundDialogProps {
   rejectionContext?: NoTradeRejectionContext | null;
 }
 
-const COUNTDOWN_SECONDS = 60;
-
 export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
   isOpen,
   onClose,
   isLoading = false,
   rejectionContext
 }) => {
-  const [forceClosing, setForceClosing] = useState(false);
-  const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
+  const [countdown, setCountdown] = useState(60);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasAutoClosedRef = useRef(false);
 
   useEffect(() => {
     if (!isOpen) {
-      setCountdown(COUNTDOWN_SECONDS);
+      setCountdown(60);
       hasAutoClosedRef.current = false;
       return;
     }
@@ -52,7 +49,7 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
     }
   }, [countdown, isOpen, onClose]);
 
-  if (!isOpen || forceClosing) return null;
+  if (!isOpen) return null;
 
   const hasConstraintSandwich = rejectionContext?.constraintSandwichSymbols &&
     rejectionContext.constraintSandwichSymbols.length > 0;
@@ -60,13 +57,8 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
   const suggestedStyles = rejectionContext?.suggestedStyles || [];
 
   const handleCloseClick = () => {
-    try {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      onClose();
-    } catch (error) {
-      console.error('[NoTradesFoundDialog] Error in onClose handler:', error);
-      setForceClosing(true);
-    }
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    onClose();
   };
 
   const formatStyleName = (style: string): string => {
@@ -78,7 +70,7 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
     }
   };
 
-  const progressPercent = (countdown / COUNTDOWN_SECONDS) * 100;
+  const progressPercent = (countdown / 60) * 100;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
