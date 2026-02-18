@@ -12,10 +12,13 @@ import {
   Zap,
   Timer,
   Activity,
+  MapPin,
 } from 'lucide-react';
+import { calculateSessionContext } from '@/utils/marketHours';
 
 type TradeStyle = 'scalp' | 'micro' | 'intraday';
 type TradeDirection = 'buy' | 'sell';
+type TimeQuality = 'prime' | 'good' | 'slow';
 
 interface BestPair {
   symbol: string;
@@ -59,6 +62,25 @@ interface SessionData {
   expires_at: string;
 }
 
+interface SessionTimeQualityInfo {
+  quality: TimeQuality;
+  label: string;
+  description: string;
+  windowEndUtcMinutes: number;
+  sessionLabel: string;
+  sessionIcon: 'sun' | 'sunrise' | 'moon' | 'clock';
+  sessionStartUtc: number;
+  sessionEndUtc: number;
+  currentUtcMinutes: number;
+}
+
+interface TimelineZone {
+  startUtc: number;
+  endUtc: number;
+  quality: TimeQuality;
+  label: string;
+}
+
 const STYLE_CONFIG: Record<TradeStyle, {
   label: string;
   border: string;
@@ -99,6 +121,319 @@ const STYLE_CONFIG: Record<TradeStyle, {
     glow: 'from-emerald-500 to-green-500',
     holdTime: '2-10 hr',
   },
+};
+
+/**
+ * SSOT: Session time quality windows defined in UTC hours.
+ * Authority: SessionIntelligenceMonitor is the sole owner of UI-layer session quality display.
+ * Derived from the same session boundaries used in marketHours.ts calculateSessionContext().
+ *
+ * Quality tiers:
+ *   prime (green)  - Highest volume, tightest spreads, best alpha probability
+ *   good  (yellow) - Acceptable liquidity, valid setups but wider spreads possible
+ *   slow  (red)    - Low volume, avoid manual entries, spreads are wide
+ */
+const TIMELINE_ZONES: TimelineZone[] = [
+  { startUtc: 0,  endUtc: 3,  quality: 'slow',  label: 'Asian / Dead Zone' },
+  { startUtc: 3,  endUtc: 8,  quality: 'good',  label: 'Asian' },
+  { startUtc: 8,  endUtc: 10, quality: 'good',  label: 'London Open' },
+  { startUtc: 10, endUtc: 13, quality: 'prime', label: 'London Prime' },
+  { startUtc: 13, endUtc: 17, quality: 'prime', label: 'London/NY Overlap' },
+  { startUtc: 17, endUtc: 19, quality: 'good',  label: 'NY Afternoon' },
+  { startUtc: 19, endUtc: 22, quality: 'slow',  label: 'NY Late / Pre-Asia' },
+  { startUtc: 22, endUtc: 24, quality: 'slow',  label: 'Sydney / Dead Zone' },
+];
+
+function getQualityColors(quality: TimeQuality): {
+  dot: string;
+  border: string;
+  bg: string;
+  text: string;
+  badge: string;
+  badgeText: string;
+  timelineBar: string;
+} {
+  switch (quality) {
+    case 'prime':
+      return {
+        dot: 'bg-green-400',
+        border: 'border-green-500/50',
+        bg: 'bg-green-500/10',
+        text: 'text-green-400',
+        badge: 'bg-green-500/20 border-green-500/40',
+        badgeText: 'text-green-300',
+        timelineBar: 'bg-green-500/70',
+      };
+    case 'good':
+      return {
+        dot: 'bg-yellow-400',
+        border: 'border-yellow-500/50',
+        bg: 'bg-yellow-500/10',
+        text: 'text-yellow-400',
+        badge: 'bg-yellow-500/20 border-yellow-500/40',
+        badgeText: 'text-yellow-300',
+        timelineBar: 'bg-yellow-500/70',
+      };
+    case 'slow':
+      return {
+        dot: 'bg-red-400',
+        border: 'border-red-500/40',
+        bg: 'bg-red-500/8',
+        text: 'text-red-400',
+        badge: 'bg-red-500/20 border-red-500/40',
+        badgeText: 'text-red-300',
+        timelineBar: 'bg-red-500/50',
+      };
+  }
+}
+
+/**
+ * Computes the current session quality and full context from UTC time.
+ * Delegates session boundaries to TIMELINE_ZONES (SSOT for quality windows).
+ */
+function computeSessionTimeQuality(): SessionTimeQualityInfo {
+  const now = new Date();
+  const utcHours = now.getUTCHours();
+  const utcMinutes = now.getUTCMinutes();
+  const currentUtcMinutes = utcHours * 60 + utcMinutes;
+
+  const zone = TIMELINE_ZONES.find(
+    (z) => utcHours >= z.startUtc && utcHours < z.endUtc
+  ) ?? TIMELINE_ZONES[0];
+
+  const windowEndUtcMinutes = zone.endUtc * 60;
+  const minutesRemaining = windowEndUtcMinutes - currentUtcMinutes;
+
+  let sessionLabel: string;
+  let sessionIcon: SessionTimeQualityInfo['sessionIcon'];
+  let sessionStartUtc: number;
+  let sessionEndUtc: number;
+
+  if (utcHours >= 8 && utcHours < 17) {
+    sessionLabel = 'London Session';
+    sessionIcon = 'sun';
+    sessionStartUtc = 8;
+    sessionEndUtc = 17;
+  } else if (utcHours >= 13 && utcHours < 22) {
+    sessionLabel = 'New York Session';
+    sessionIcon = 'sunrise';
+    sessionStartUtc = 13;
+    sessionEndUtc = 22;
+  } else if (utcHours >= 0 && utcHours < 8) {
+    sessionLabel = 'Asian Session';
+    sessionIcon = 'moon';
+    sessionStartUtc = 0;
+    sessionEndUtc = 8;
+  } else {
+    sessionLabel = 'Sydney / Pre-Asia';
+    sessionIcon = 'clock';
+    sessionStartUtc = 22;
+    sessionEndUtc = 24;
+  }
+
+  if (utcHours >= 13 && utcHours < 17) {
+    sessionLabel = 'London / NY Overlap';
+    sessionIcon = 'sunrise';
+    sessionStartUtc = 13;
+    sessionEndUtc = 17;
+  }
+
+  const qualityLabels: Record<TimeQuality, string> = {
+    prime: 'Prime Time',
+    good: 'Good Window',
+    slow: 'Slow Period',
+  };
+
+  const qualityDescriptions: Record<TimeQuality, string> = {
+    prime: 'Optimal trading window. Highest volume, tightest spreads, best probability.',
+    good: 'Decent liquidity. Valid setups possible — expect slightly wider spreads.',
+    slow: 'Low liquidity. Alpha continues scanning. Manual trades carry elevated risk.',
+  };
+
+  return {
+    quality: zone.quality,
+    label: qualityLabels[zone.quality],
+    description: qualityDescriptions[zone.quality],
+    windowEndUtcMinutes,
+    sessionLabel,
+    sessionIcon,
+    sessionStartUtc,
+    sessionEndUtc,
+    currentUtcMinutes,
+  };
+}
+
+function formatMinutesAsCountdown(totalMinutes: number): string {
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function utcHourToLocalDisplay(utcHour: number): string {
+  const date = new Date();
+  date.setUTCHours(utcHour, 0, 0, 0);
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+}
+
+const SessionTimeline: React.FC<{ currentUtcMinutes: number }> = ({ currentUtcMinutes }) => {
+  const totalMinutesInDay = 24 * 60;
+  const cursorPct = (currentUtcMinutes / totalMinutesInDay) * 100;
+
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">24h Trading Quality</span>
+        <span className="text-[10px] text-gray-600">UTC-based</span>
+      </div>
+      <div className="relative h-5 rounded-lg overflow-hidden bg-slate-800/60 border border-slate-700/40">
+        {TIMELINE_ZONES.map((zone, i) => {
+          const leftPct = (zone.startUtc / 24) * 100;
+          const widthPct = ((zone.endUtc - zone.startUtc) / 24) * 100;
+          const colors = getQualityColors(zone.quality);
+          return (
+            <div
+              key={i}
+              className={`absolute top-0 bottom-0 ${colors.timelineBar}`}
+              style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+              title={`${zone.label} (${zone.startUtc}:00-${zone.endUtc}:00 UTC)`}
+            />
+          );
+        })}
+
+        <div
+          className="absolute top-0 bottom-0 w-0.5 bg-white z-10 shadow-lg"
+          style={{ left: `${cursorPct}%` }}
+        >
+          <div className="absolute -top-0.5 -left-1 w-2.5 h-2.5 bg-white rounded-full shadow-md" />
+        </div>
+
+        <div className="absolute inset-0 flex">
+          {[0, 4, 8, 12, 16, 20].map((h) => (
+            <div
+              key={h}
+              className="absolute top-0 bottom-0 w-px bg-slate-700/30"
+              style={{ left: `${(h / 24) * 100}%` }}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="flex justify-between mt-1">
+        {[0, 4, 8, 12, 16, 20].map((h) => (
+          <span key={h} className="text-[9px] text-gray-600 font-mono">{String(h).padStart(2, '0')}:00</span>
+        ))}
+        <span className="text-[9px] text-gray-600 font-mono">24:00</span>
+      </div>
+
+      <div className="flex items-center gap-3 mt-1.5">
+        {(['prime', 'good', 'slow'] as TimeQuality[]).map((q) => {
+          const c = getQualityColors(q);
+          const labels: Record<TimeQuality, string> = { prime: 'Prime', good: 'Good', slow: 'Slow' };
+          return (
+            <div key={q} className="flex items-center gap-1">
+              <div className={`w-2 h-2 rounded-sm ${c.timelineBar}`} />
+              <span className={`text-[9px] ${c.text}`}>{labels[q]}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const SessionQualityBanner: React.FC = () => {
+  const [info, setInfo] = useState<SessionTimeQualityInfo>(computeSessionTimeQuality);
+  const [countdown, setCountdown] = useState<number>(0);
+
+  useEffect(() => {
+    const tick = () => {
+      const fresh = computeSessionTimeQuality();
+      setInfo(fresh);
+      const now = new Date();
+      const currentMins = now.getUTCHours() * 60 + now.getUTCMinutes();
+      setCountdown(Math.max(0, fresh.windowEndUtcMinutes - currentMins));
+    };
+    tick();
+    const interval = setInterval(tick, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const colors = getQualityColors(info.quality);
+  const sessionCtx = calculateSessionContext();
+
+  const sessionStartLocalStr = utcHourToLocalDisplay(info.sessionStartUtc);
+  const sessionEndLocalStr = utcHourToLocalDisplay(info.sessionEndUtc);
+
+  const sessionDurationMinutes = (info.sessionEndUtc - info.sessionStartUtc) * 60;
+  const elapsedMinutes = info.currentUtcMinutes - info.sessionStartUtc * 60;
+  const sessionProgressPct = Math.min(100, Math.max(0, (elapsedMinutes / sessionDurationMinutes) * 100));
+
+  const SessionIconComp = () => {
+    switch (info.sessionIcon) {
+      case 'sun': return <Sun className="w-4 h-4 text-yellow-400" />;
+      case 'sunrise': return <Sunrise className="w-4 h-4 text-orange-400" />;
+      case 'moon': return <Moon className="w-4 h-4 text-blue-400" />;
+      default: return <Clock className="w-4 h-4 text-gray-400" />;
+    }
+  };
+
+  return (
+    <div className={`rounded-xl border p-3.5 mb-4 ${colors.border} ${colors.bg}`}>
+      <div className="flex items-center justify-between mb-2.5">
+        <div className="flex items-center gap-2">
+          <SessionIconComp />
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-white">{info.sessionLabel}</span>
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold ${colors.badge} ${colors.badgeText}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${colors.dot} animate-pulse`} />
+                {info.label}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <MapPin className="w-3 h-3 text-gray-500" />
+              <span className="text-[10px] text-gray-500">
+                {sessionStartLocalStr} – {sessionEndLocalStr} local
+              </span>
+              <span className="text-[10px] text-gray-600">·</span>
+              <span className="text-[10px] text-gray-500">
+                {sessionCtx.sessionTimeRemainingMinutes > 0
+                  ? `${formatMinutesAsCountdown(sessionCtx.sessionTimeRemainingMinutes)} left in session`
+                  : 'Session ending'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="text-right flex-shrink-0 ml-3">
+          <div className={`text-xs font-semibold ${colors.text}`}>
+            {countdown > 0 ? `${formatMinutesAsCountdown(countdown)} left` : 'Window ending'}
+          </div>
+          <div className="text-[10px] text-gray-500">in this window</div>
+        </div>
+      </div>
+
+      <div className="mb-2.5">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[10px] text-gray-500">Session progress</span>
+          <span className="text-[10px] text-gray-500">{Math.round(sessionProgressPct)}%</span>
+        </div>
+        <div className="h-1.5 bg-slate-800/60 rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-1000 ${colors.dot}`}
+            style={{ width: `${sessionProgressPct}%` }}
+          />
+        </div>
+      </div>
+
+      <p className={`text-[11px] leading-relaxed ${colors.text}`}>
+        {info.description}
+      </p>
+
+      <SessionTimeline currentUtcMinutes={info.currentUtcMinutes} />
+    </div>
+  );
 };
 
 export const SessionIntelligenceMonitor: React.FC = () => {
@@ -269,6 +604,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
           </div>
           <div className="flex-1">
             <h3 className="text-lg font-bold text-white mb-2">Real-Time Intelligence</h3>
+            <SessionQualityBanner />
             <p className="text-sm text-slate-400 mb-2">
               Real-time probability analysis will appear here shortly.
             </p>
@@ -434,6 +770,8 @@ export const SessionIntelligenceMonitor: React.FC = () => {
             />
           </button>
         </div>
+
+        <SessionQualityBanner />
 
         <div className="flex items-center gap-2 mb-4 flex-wrap">
           <div
