@@ -7,6 +7,10 @@
  * - Momentum analysis
  * - Trend continuation vs reversal
  *
+ * STYLE-AWARE: SCALP focuses on micro-structure only (EMA20/EMA50 proximity).
+ * MICRO_INTRADAY requires EMA50 alignment + BOS as structural confirmation.
+ * INTRADAY requires full EMA200 stack alignment — mixed stack is a penalty.
+ *
  * FULLY DETERMINISTIC - NO LLM CALLS
  * Uses OmegaSensors and technical-math library for all calculations.
  */
@@ -21,6 +25,8 @@ import {
 import { analyzeMomentum, formatMomentumEvidence } from '../../lib/technical-math/momentum';
 import { TREND_THRESHOLDS } from '../../config/omega-thresholds';
 
+export type OmegaTradeStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+
 export interface TrendSnapshot {
   p: number;
   e20: number;
@@ -32,11 +38,12 @@ export interface TrendSnapshot {
   sensors?: OmegaSensors;
   previousEma20?: number;
   atr?: number;
+  tradeStyle?: OmegaTradeStyle;
 }
 
 class OmegaTrendBrain {
   evaluate(snapshot: TrendSnapshot): OmegaVote {
-    const { p, e20, e50, e200, mom, sensors, previousEma20, atr } = snapshot;
+    const { p, e20, e50, e200, mom, sensors, previousEma20, atr, tradeStyle = 'SCALP' } = snapshot;
 
     const emaAlignment = calculateEMAAlignment(p, e20, e50, e200);
     const emaSlope = calculateEMASlope(e20, previousEma20 || e20, atr || 1);
@@ -45,30 +52,52 @@ class OmegaTrendBrain {
     let score = 0;
     const factors: string[] = [];
 
-    if (emaAlignment.stack === 'BULL') {
-      score += emaAlignment.strength * 0.4;
-      factors.push(`EMA_BULL(${emaAlignment.strength})`);
-    } else if (emaAlignment.stack === 'BEAR') {
-      score -= emaAlignment.strength * 0.4;
-      factors.push(`EMA_BEAR(${emaAlignment.strength})`);
-    } else if (emaAlignment.strength >= 40) {
-      const partialBullish = emaAlignment.e20_above_e50 && emaAlignment.e20_above_e200;
-      if (partialBullish) {
-        score += emaAlignment.strength * 0.25;
+    factors.push(`STYLE:${tradeStyle}`);
+
+    if (tradeStyle === 'SCALP') {
+      // SCALP: EMA20/EMA50 proximity matters, EMA200 is context only
+      if (emaAlignment.e20_above_e50) {
+        score += emaAlignment.strength * 0.3;
+        factors.push(`EMA_MICRO_BULL(${emaAlignment.strength})`);
+      } else {
+        score -= emaAlignment.strength * 0.3;
+        factors.push(`EMA_MICRO_BEAR(${emaAlignment.strength})`);
+      }
+    } else if (tradeStyle === 'MICRO_INTRADAY') {
+      // MICRO_INTRADAY: EMA50 alignment required, EMA200 acts as a context modifier
+      if (emaAlignment.stack === 'BULL') {
+        score += emaAlignment.strength * 0.4;
+        factors.push(`EMA_BULL(${emaAlignment.strength})`);
+      } else if (emaAlignment.stack === 'BEAR') {
+        score -= emaAlignment.strength * 0.4;
+        factors.push(`EMA_BEAR(${emaAlignment.strength})`);
+      } else if (emaAlignment.e20_above_e50) {
+        score += emaAlignment.strength * 0.2;
         factors.push(`EMA_PARTIAL_BULL(${emaAlignment.strength})`);
       } else {
-        score -= emaAlignment.strength * 0.25;
+        score -= emaAlignment.strength * 0.2;
         factors.push(`EMA_PARTIAL_BEAR(${emaAlignment.strength})`);
       }
     } else {
-      factors.push('EMA_MIXED');
+      // INTRADAY: Full EMA200 stack alignment is required — mixed stack is a penalty
+      if (emaAlignment.stack === 'BULL') {
+        score += emaAlignment.strength * 0.5;
+        factors.push(`EMA_BULL_HTF(${emaAlignment.strength})`);
+      } else if (emaAlignment.stack === 'BEAR') {
+        score -= emaAlignment.strength * 0.5;
+        factors.push(`EMA_BEAR_HTF(${emaAlignment.strength})`);
+      } else {
+        // Mixed EMA stack on INTRADAY is a significant penalty
+        score -= 20;
+        factors.push('EMA_MIXED_INTRADAY_PENALTY');
+      }
     }
 
     if (emaSlope.direction === 'UP' && emaSlope.magnitude > TREND_THRESHOLDS.EMA_SLOPE_STRONG) {
-      score += 15;
+      score += tradeStyle === 'INTRADAY' ? 18 : 15;
       factors.push('SLOPE_STRONG_UP');
     } else if (emaSlope.direction === 'DOWN' && emaSlope.magnitude > TREND_THRESHOLDS.EMA_SLOPE_STRONG) {
-      score -= 15;
+      score -= tradeStyle === 'INTRADAY' ? 18 : 15;
       factors.push('SLOPE_STRONG_DOWN');
     } else if (emaSlope.direction === 'UP') {
       score += 8;
@@ -79,13 +108,13 @@ class OmegaTrendBrain {
     }
 
     if (momentum.direction === 'STRONG_BULL') {
-      score += 20;
+      score += tradeStyle === 'SCALP' ? 25 : 20;
       factors.push('MOM_STRONG_BULL');
     } else if (momentum.direction === 'BULL') {
       score += 10;
       factors.push('MOM_BULL');
     } else if (momentum.direction === 'STRONG_BEAR') {
-      score -= 20;
+      score -= tradeStyle === 'SCALP' ? 25 : 20;
       factors.push('MOM_STRONG_BEAR');
     } else if (momentum.direction === 'BEAR') {
       score -= 10;
@@ -93,11 +122,12 @@ class OmegaTrendBrain {
     }
 
     if (sensors) {
+      const bosWeight = tradeStyle === 'INTRADAY' ? 18 : tradeStyle === 'MICRO_INTRADAY' ? 15 : 12;
       if (sensors.bos === 'bull') {
-        score += 12;
+        score += bosWeight;
         factors.push('BOS_BULL');
       } else if (sensors.bos === 'bear') {
-        score -= 12;
+        score -= bosWeight;
         factors.push('BOS_BEAR');
       }
 
@@ -128,9 +158,9 @@ class OmegaTrendBrain {
       formatMomentumEvidence(momentum)
     ].join('|');
 
-    const reasoning = `[DET] Trend ${bias} (score: ${score.toFixed(0)}) | ${factors.slice(0, 4).join(', ')}`;
+    const reasoning = `[DET:${tradeStyle}] Trend ${bias} (score: ${score.toFixed(0)}) | ${factors.slice(0, 5).join(', ')}`;
 
-    console.log(`[Omega-1 Trend] [DET] Intelligence: ${bias} | Score: ${score.toFixed(0)} | Factors: ${factors.join(', ')}`);
+    console.log(`[Omega-1 Trend] [DET:${tradeStyle}] Intelligence: ${bias} | Score: ${score.toFixed(0)} | Factors: ${factors.join(', ')}`);
 
     return {
       reasoning,

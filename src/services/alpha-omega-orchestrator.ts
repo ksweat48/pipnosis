@@ -174,6 +174,16 @@ class AlphaOmegaOrchestrator {
     const entryTimeframe: Timeframe = mtfConfig.entryTimeframe;
     console.log(`[Alpha+Omega] Risk Mode: ${riskMode.toUpperCase()} -> Entry Timeframe: ${entryTimeframe}`);
 
+    // Resolve tradeStyle for style-aware Omega council specialists
+    const ORCHESTRATOR_STYLE_MAP: Record<string, 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'> = {
+      'scalp': 'SCALP',
+      'micro_intraday': 'MICRO_INTRADAY',
+      'intraday': 'INTRADAY'
+    };
+    const resolvedOmegaStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' =
+      (goalContext?.tradeStyle ? ORCHESTRATOR_STYLE_MAP[goalContext.tradeStyle.toLowerCase()] : undefined) || 'SCALP';
+    console.log(`[Alpha+Omega] Omega council style: ${resolvedOmegaStyle} (goalContext.tradeStyle=${goalContext?.tradeStyle || 'not set'})`);
+
     // Capture signal price and timestamp at analysis time (for drift detection)
     const signalPrice = marketState.price;
     const signalTimestamp = Date.now();
@@ -353,6 +363,7 @@ class AlphaOmegaOrchestrator {
         mom: snapshot.momentum,
         tr: snapshot.trend,
         vol: snapshot.volatility,
+        tradeStyle: resolvedOmegaStyle,
         regime: marketState.regime ? {
           trend_strength: marketState.regime.trend_strength_score,
           structure: marketState.regime.structure,
@@ -371,6 +382,7 @@ class AlphaOmegaOrchestrator {
         rsi: snapshot.rsi,
         vol: snapshot.volatility,
         c: snapshot.candles.slice(-3).map(c => [c.open, c.high, c.low, c.close]),
+        tradeStyle: resolvedOmegaStyle,
         regime: marketState.regime ? {
           session: marketState.regime.session,
           session_open: marketState.regime.session_open,
@@ -389,6 +401,7 @@ class AlphaOmegaOrchestrator {
         sw: { h: snapshot.swingHigh, l: snapshot.swingLow },
         str: this.determineStructure(snapshot),
         tr: snapshot.trend,
+        tradeStyle: resolvedOmegaStyle,
         regime: marketState.regime ? {
           structure_type: marketState.regime.structure,
           structure_quality: marketState.regime.structure_quality
@@ -407,6 +420,7 @@ class AlphaOmegaOrchestrator {
         e50: snapshot.ema50,
         tr: snapshot.trend,
         vol: snapshot.volatility,
+        tradeStyle: resolvedOmegaStyle,
         regime: marketState.regime ? {
           atr_compression: marketState.regime.atr_compression,
           wick_risk: marketState.regime.wick_risk,
@@ -424,9 +438,10 @@ class AlphaOmegaOrchestrator {
         vol: snapshot.volatility,
         c: snapshot.candles.slice(-5).map(c => [c.open, c.high, c.low, c.close]),
         wick_ratio: this.calculateWickRatio(snapshot.candles.slice(-5).map(c => [c.open, c.high, c.low, c.close])),
-        trend: snapshot.trend, // TIER 7: Pass trend for directional awareness
+        trend: snapshot.trend,
+        tradeStyle: resolvedOmegaStyle,
         regime: marketState.regime ? {
-          market_bias: marketState.regime.market_bias, // TIER 7: Pass market bias for direction
+          market_bias: marketState.regime.market_bias,
           volatility_trend: marketState.regime.volatility_trend
         } : undefined
       }), 'Omega Volatility'),

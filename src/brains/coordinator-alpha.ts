@@ -501,7 +501,12 @@ class AlphaCoordinatorBrain {
       'micro': 'MICRO_INTRADAY', 'MICRO': 'MICRO_INTRADAY', 'MICRO_INTRADAY': 'MICRO_INTRADAY',
       'intraday': 'INTRADAY', 'INTRADAY': 'INTRADAY', 'day': 'INTRADAY',
     };
-    const tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = (goalContext?.tradeStyle ? EARLY_STYLE_MAP[goalContext.tradeStyle] : undefined) || 'SCALP';
+    const resolvedTradeStyle = goalContext?.tradeStyle ? EARLY_STYLE_MAP[goalContext.tradeStyle] : undefined;
+    const tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = resolvedTradeStyle || 'SCALP';
+
+    if (!resolvedTradeStyle) {
+      console.warn(`[Alpha Coordinator] No tradeStyle provided in goalContext — defaulting to SCALP. Active style: SCALP. Symbol: ${marketContext.symbol}`);
+    }
 
     console.log(`[Alpha Coordinator] Dual-Arena mode [Style: ${tradeStyle}] - Alpha chooses direction`);
 
@@ -1101,7 +1106,7 @@ HARD WALLS (${tradeStyle} ${promptAssetClass} @ ${marketContext.price.toFixed(2)
           });
           cachedThesis = null;
         } else {
-          const omegaSummaryForVerification = this.buildOmegaVerificationSummary(votes);
+          const omegaSummaryForVerification = this.buildOmegaVerificationSummary(votes, tradeStyle);
 
           cachedThesisPrompt = `
 
@@ -1331,8 +1336,7 @@ regardless of what M1 shows — unless there is exceptional breakaway evidence.
       console.warn('[Alpha Coordinator] M1 micro context unavailable (non-blocking):', error instanceof Error ? error.message : 'Unknown');
     }
 
-    const prompt = `${getAlphaSystemPromptForStyle(styleName)}
-${styleIdentityPrompt}
+    const prompt = `${styleIdentityPrompt}
 ${cachedThesisPrompt}
 ${m5ContextPrompt}
 ${primaryTfCandlePrompt}
@@ -1459,7 +1463,7 @@ ${tradeStyle === 'SCALP' ? `{
         [
           {
             role: 'system',
-            content: 'You are Alpha, a professional trader making a real trading decision. Analyze the full market briefing, work through the analytical questions, and return a JSON decision. Your reasoning field must demonstrate you have considered trend alignment, structural space, prior rejections, EQS context, and the primary failure mode.'
+            content: getAlphaSystemPromptForStyle(styleName)
           },
           {
             role: 'user',
@@ -2105,8 +2109,16 @@ ${tradeStyle === 'SCALP' ? `{
     return { hasConflict: false, reason: '', omegaDirection: omegaConsensusDirection };
   }
 
-  private buildOmegaVerificationSummary(votes: OmegaCouncilVotes): string {
-    const lines: string[] = [];
+  private buildOmegaVerificationSummary(votes: OmegaCouncilVotes, tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = 'SCALP'): string {
+    const styleDescriptions: Record<'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY', string> = {
+      SCALP: 'SCALP (1-5min, VWAP & immediate price action primary, divergences informational, ATR compression favorable)',
+      MICRO_INTRADAY: 'MICRO_INTRADAY (M15 structure primary, EMA50 alignment required, pullback to structural level)',
+      INTRADAY: 'INTRADAY (full EMA200 stack required, HTF divergence confirmation, moderate ATR expansion needed)'
+    };
+
+    const lines: string[] = [
+      `[OMEGA COUNCIL — Style lens: ${styleDescriptions[tradeStyle]}]`
+    ];
 
     if (votes.trend?.reasoning) {
       lines.push(`  Trend: ${votes.trend.reasoning}`);
@@ -2127,7 +2139,7 @@ ${tradeStyle === 'SCALP' ? `{
       lines.push(`  OrderFlow: bias=${votes.omega8.liquidity_bias}, direction=${votes.omega8.direction_support}`);
     }
 
-    return lines.length > 0 ? lines.join('\n') : '  No Omega intelligence available';
+    return lines.length > 1 ? lines.join('\n') : '  No Omega intelligence available';
   }
 
   /**

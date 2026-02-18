@@ -38,7 +38,9 @@
   - reasoning: Must now demonstrate all six analytical questions were considered
 
   ## Governance Compliance
-  - SSOT: getAlphaSystemPrompt() in alpha-identity.ts is the single source of truth
+  - SSOT: getAlphaSystemPromptForStyle(style) in alpha-identity.ts is the single source of truth
+    (parameterless getAlphaSystemPrompt() was removed entirely — it had one call site
+    and no backward-compatibility requirement; replaced by the style-aware version)
   - CCIP: This migration records the change for audit and rollback tracking
   - Architecture: Hard blocks remain enforced in alpha-trade-executor.ts validation
     pipeline — this change only affects the LLM prompt, not post-decision validation
@@ -56,10 +58,10 @@ BEGIN
   )
   VALUES (
     'PROMPT_ARCHITECTURE',
-    'alpha-identity.ts:getAlphaSystemPrompt + coordinator-alpha.ts:prompt',
-    'Replace mechanical rule-engine prompt with Professional Analytical Briefing Framework. Hard blocks preserved for geometry/RR/noise-floor/data-integrity violations. FAILED_SETUP_PATTERNS converted from AUTO NO_TRADE to mandatory reasoning triggers. EQS converted from penalty table to market context signal. counter_thesis field added as required output for every BUY/SELL decision.',
+    'alpha-identity.ts:getAlphaSystemPromptForStyle + coordinator-alpha.ts:openAIClient.chat system role',
+    'Replace mechanical rule-engine prompt with Professional Analytical Briefing Framework. getAlphaSystemPromptForStyle(style) is now placed in the OpenAI system role (stronger instruction-following weight). Hard blocks preserved for geometry/RR/noise-floor/data-integrity violations. FAILED_SETUP_PATTERNS converted from AUTO NO_TRADE to mandatory reasoning triggers. EQS converted from penalty table to market context signal. counter_thesis field added as required output for every BUY/SELL decision.',
     'HIGH — directly affects Alpha LLM decision quality. Expected improvement: better contextual reasoning, fewer missed traps (double tops etc), more honest confidence scores, preserved execution rate for genuine setups.',
-    'Revert getAlphaSystemPrompt() in alpha-identity.ts to previous version. Post-decision validation pipeline in alpha-trade-executor.ts is unchanged and continues to enforce all hard blocks independently.',
+    'Revert getAlphaSystemPromptForStyle() placement from system role back to user role prefix in coordinator-alpha.ts. Post-decision validation pipeline in alpha-trade-executor.ts is unchanged and continues to enforce all hard blocks independently.',
     'system'
   )
   ON CONFLICT DO NOTHING;

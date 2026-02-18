@@ -8,6 +8,10 @@
  * - Quick entry/exit opportunities
  * - Wick analysis
  *
+ * STYLE-AWARE: SCALP weights VWAP proximity and chase risk heavily (primary signal).
+ * MICRO_INTRADAY treats VWAP as secondary — M15 structure drives direction.
+ * INTRADAY treats VWAP as context only — high chase risk is informational, not disqualifying.
+ *
  * FULLY DETERMINISTIC - NO LLM CALLS
  */
 
@@ -17,6 +21,7 @@ import { analyzeVWAP, formatVWAPEvidence, calculateEntryQualityFromVWAP } from '
 import { calculateChaseRiskScore } from '../../lib/technical-math/atr';
 import { detectMomentumBar } from '../../lib/technical-math/candle';
 import { SCALPER_THRESHOLDS } from '../../config/omega-thresholds';
+import type { OmegaTradeStyle } from './trend';
 
 export interface ScalperSnapshot {
   p: number;
@@ -27,17 +32,20 @@ export interface ScalperSnapshot {
   c: number[][];
   sensors?: OmegaSensors;
   momentum?: number;
+  tradeStyle?: OmegaTradeStyle;
 }
 
 class OmegaScalperBrain {
   evaluate(snapshot: ScalperSnapshot): OmegaVote {
-    const { p, vw, atr, rsi, c, sensors, momentum = 0 } = snapshot;
+    const { p, vw, atr, rsi, c, sensors, momentum = 0, tradeStyle = 'SCALP' } = snapshot;
 
     const vwapAnalysis = analyzeVWAP(p, vw, atr);
     const chaseRisk = calculateChaseRiskScore(p, vw, atr, momentum);
 
     let score = 0;
     const factors: string[] = [];
+
+    factors.push(`STYLE:${tradeStyle}`);
 
     let candidateDirection: 'BUY' | 'SELL' | null = null;
 
@@ -71,18 +79,26 @@ class OmegaScalperBrain {
 
     if (candidateDirection) {
       const entryQuality = calculateEntryQualityFromVWAP(vwapAnalysis, candidateDirection);
-      score += entryQuality - 50;
-      factors.push(`ENTRY_Q=${entryQuality}`);
+      // SCALP: VWAP entry quality is the primary signal — full weight
+      // MICRO_INTRADAY: VWAP is secondary — reduced weight (M15 structure is primary)
+      // INTRADAY: VWAP is context only — minimal weight
+      const vwapWeight = tradeStyle === 'SCALP' ? 1.0 : tradeStyle === 'MICRO_INTRADAY' ? 0.6 : 0.3;
+      score += (entryQuality - 50) * vwapWeight;
+      factors.push(`ENTRY_Q=${entryQuality}(w=${vwapWeight})`);
     }
 
+    // Chase risk — SCALP treats it as disqualifying, INTRADAY treats it as informational
     if (chaseRisk.level === 'HIGH') {
-      score -= 25;
-      factors.push('CHASE_HIGH');
+      const chasepenalty = tradeStyle === 'SCALP' ? 25 : tradeStyle === 'MICRO_INTRADAY' ? 15 : 8;
+      score -= chasepenalty;
+      factors.push(`CHASE_HIGH(-${chasepenalty})`);
     } else if (chaseRisk.level === 'MEDIUM') {
-      score -= 10;
+      const chasePenalty = tradeStyle === 'SCALP' ? 10 : 5;
+      score -= chasePenalty;
       factors.push('CHASE_MED');
     } else {
-      score += 10;
+      const chaseBonus = tradeStyle === 'SCALP' ? 10 : 6;
+      score += chaseBonus;
       factors.push('CHASE_LOW');
     }
 
@@ -113,11 +129,12 @@ class OmegaScalperBrain {
         );
         if (hasMomentum) {
           const isBullish = lastCandle[3] > lastCandle[0];
+          const momBonus = tradeStyle === 'SCALP' ? 10 : 7;
           if (isBullish && candidateDirection === 'BUY') {
-            score += 10;
+            score += momBonus;
             factors.push('MOM_BAR_BULL');
           } else if (!isBullish && candidateDirection === 'SELL') {
-            score += 10;
+            score += momBonus;
             factors.push('MOM_BAR_BEAR');
           }
         }
@@ -135,8 +152,10 @@ class OmegaScalperBrain {
         factors.push('SENSOR_MOM');
       }
 
+      // Pullback bonus — SCALP benefits most from recent pullback completion
       if (sensors.mic.pull > 0 && sensors.mic.pull <= 3) {
-        score += 8;
+        const pullBonus = tradeStyle === 'SCALP' ? 8 : tradeStyle === 'MICRO_INTRADAY' ? 6 : 4;
+        score += pullBonus;
         factors.push(`PULLBACK(${sensors.mic.pull})`);
       }
     }
@@ -161,9 +180,9 @@ class OmegaScalperBrain {
       `RSI=${rsi}`
     ].join('|');
 
-    const reasoning = `[DET] Scalper ${bias} (score: ${score.toFixed(0)}) | ${factors.slice(0, 4).join(', ')}`;
+    const reasoning = `[DET:${tradeStyle}] Scalper ${bias} (score: ${score.toFixed(0)}) | ${factors.slice(0, 5).join(', ')}`;
 
-    console.log(`[Omega-2 Scalper] [DET] Intelligence: ${bias} | Score: ${score.toFixed(0)} | Factors: ${factors.join(', ')}`);
+    console.log(`[Omega-2 Scalper] [DET:${tradeStyle}] Intelligence: ${bias} | Score: ${score.toFixed(0)} | Factors: ${factors.join(', ')}`);
 
     return {
       reasoning,
