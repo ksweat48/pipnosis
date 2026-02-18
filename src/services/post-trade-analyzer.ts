@@ -153,14 +153,39 @@ class PostTradeAnalyzer {
         updateData.exit_time = tradeData.exitTime.toISOString();
       }
 
-      const closeReasonText = tradeData.closeReason || 'unknown';
-      if (tradeData.pnl > 0) {
-        updateData.actual_outcome = `Trade closed (${closeReasonText}) with profit of $${tradeData.pnl.toFixed(2)}`;
-      } else if (tradeData.pnl < 0) {
-        updateData.actual_outcome = `Trade closed (${closeReasonText}) with loss of $${Math.abs(tradeData.pnl).toFixed(2)}`;
+      // Determine the new journal stage based on close reason and prior stage
+      const closeReason = tradeData.closeReason || 'unknown';
+      const priorStage: string = journalEntry.journal_stage || 'open';
+      const isTP1Close = closeReason === 'take_profit_1' || tradeData.tp1Hit === true;
+      const isTP2Close = closeReason === 'take_profit_2' || tradeData.tp2Hit === true;
+
+      if (isTP2Close) {
+        updateData.journal_stage = 'tp2_hit';
+        updateData.tp2_pnl = tradeData.pnl;
+        if (tradeData.exitPrice) updateData.tp2_exit_price = tradeData.exitPrice;
+      } else if (isTP1Close) {
+        updateData.journal_stage = 'tp1_hit';
+        updateData.tp1_pnl = tradeData.pnl;
+        if (tradeData.exitPrice) updateData.tp1_exit_price = tradeData.exitPrice;
       } else {
-        updateData.actual_outcome = `Trade closed (${closeReasonText}) at breakeven`;
+        updateData.journal_stage = 'final';
       }
+
+      // Build the progressive narrative.
+      // If the entry already has a goal_pnl_at_achievement the user's goal was
+      // crossed before this TP fired — include all milestones in the narrative.
+      const goalPnL: number | null = journalEntry.goal_pnl_at_achievement ?? null;
+
+      updateData.actual_outcome = this.buildProgressiveNarrative({
+        closeReason,
+        finalPnL: tradeData.pnl,
+        exitPrice: tradeData.exitPrice,
+        goalPnL,
+        priorStage,
+        isTP1Close,
+        isTP2Close,
+        tp1Pnl: journalEntry.tp1_pnl ?? null,
+      });
 
       const { error } = await supabase
         .from('ai_trade_journal')
@@ -173,6 +198,65 @@ class PostTradeAnalyzer {
     } catch (error) {
       console.error('[Post-Trade Analyzer] Error updating journal closure data:', error);
     }
+  }
+
+  /**
+   * Build the human-readable "What Actually Happened" narrative.
+   *
+   * Produces a full-journey string like:
+   *   "Goal hit at +$12.40 → continued to TP1 at +$18.60 → held to TP2 at +$24.80"
+   *
+   * Falls back to a simple one-liner for trades without a goal milestone.
+   */
+  private buildProgressiveNarrative(params: {
+    closeReason: string;
+    finalPnL: number;
+    exitPrice?: number;
+    goalPnL: number | null;
+    priorStage: string;
+    isTP1Close: boolean;
+    isTP2Close: boolean;
+    tp1Pnl: number | null;
+  }): string {
+    const { closeReason, finalPnL, goalPnL, priorStage, isTP1Close, isTP2Close, tp1Pnl } = params;
+    const pnlStr = (v: number) => `${v >= 0 ? '+' : ''}$${Math.abs(v).toFixed(2)}`;
+
+    const parts: string[] = [];
+
+    // Was the goal milestone crossed before this closure?
+    if (goalPnL !== null && (priorStage === 'goal_achieved' || priorStage === 'tp1_hit')) {
+      parts.push(`Goal hit at ${pnlStr(goalPnL)}`);
+    }
+
+    // Was TP1 already recorded (we're now at TP2)?
+    if (isTP2Close && tp1Pnl !== null) {
+      parts.push(`continued to TP1 at ${pnlStr(tp1Pnl)}`);
+      parts.push(`held to TP2 at ${pnlStr(finalPnL)}`);
+    } else if (isTP1Close) {
+      if (parts.length > 0) {
+        parts.push(`continued to TP1 at ${pnlStr(finalPnL)}`);
+      } else {
+        parts.push(`TP1 hit at ${pnlStr(finalPnL)}`);
+      }
+    } else if (isTP2Close) {
+      if (parts.length > 0) {
+        parts.push(`held to TP2 at ${pnlStr(finalPnL)}`);
+      } else {
+        parts.push(`TP2 hit at ${pnlStr(finalPnL)}`);
+      }
+    } else if (closeReason === 'goal_achieved') {
+      parts.push(`Goal achieved — closed at ${pnlStr(finalPnL)}`);
+    } else if (closeReason === 'stop_loss') {
+      parts.push(`Stop loss hit at ${pnlStr(finalPnL)}`);
+    } else if (finalPnL > 0) {
+      parts.push(`Closed manually for a profit of ${pnlStr(finalPnL)} (${closeReason})`);
+    } else if (finalPnL < 0) {
+      parts.push(`Closed with a loss of ${pnlStr(finalPnL)} (${closeReason})`);
+    } else {
+      parts.push(`Closed at breakeven (${closeReason})`);
+    }
+
+    return parts.join(' → ');
   }
 
   private async enrichTradeData(tradeData: TradeData): Promise<TradeData> {

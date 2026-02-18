@@ -62,6 +62,13 @@ export interface PostTradeAnalysis {
   lessonLearned: string; // "I learned that..."
   mistakeIdentified?: string;
   whatWorked?: string;
+
+  // Progressive milestone fields (CCIP 2026-02-18)
+  journalStage?: string;
+  tp1Pnl?: number;
+  tp1ExitPrice?: number;
+  tp2Pnl?: number;
+  tp2ExitPrice?: number;
 }
 
 export interface LLMDecisionLog {
@@ -178,24 +185,45 @@ class LLMReasoningLogger {
 
   /**
    * Update journal entry when trade closes (post-trade)
+   *
+   * CCIP 2026-02-18: Milestone fields (journal_stage, tp1_pnl, tp2_pnl, etc.)
+   * are written when present so the progressive journey is preserved in the DB.
    */
   async logPostTradeAnalysis(analysis: PostTradeAnalysis): Promise<boolean> {
     try {
+      const updatePayload: Record<string, any> = {
+        exit_time: analysis.exitTime.toISOString(),
+        exit_price: analysis.exitPrice,
+        pnl: analysis.pnl,
+        outcome: analysis.outcome,
+        actual_outcome: analysis.actualOutcome,
+        was_prediction_correct: analysis.wasPredictionCorrect,
+        accuracy_score: analysis.accuracyScore,
+        lesson_learned: analysis.lessonLearned,
+        mistake_identified: analysis.mistakeIdentified,
+        what_worked: analysis.whatWorked,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (analysis.journalStage) {
+        updatePayload.journal_stage = analysis.journalStage;
+      }
+      if (analysis.tp1Pnl !== undefined && analysis.tp1Pnl !== null) {
+        updatePayload.tp1_pnl = analysis.tp1Pnl;
+      }
+      if (analysis.tp1ExitPrice !== undefined && analysis.tp1ExitPrice !== null) {
+        updatePayload.tp1_exit_price = analysis.tp1ExitPrice;
+      }
+      if (analysis.tp2Pnl !== undefined && analysis.tp2Pnl !== null) {
+        updatePayload.tp2_pnl = analysis.tp2Pnl;
+      }
+      if (analysis.tp2ExitPrice !== undefined && analysis.tp2ExitPrice !== null) {
+        updatePayload.tp2_exit_price = analysis.tp2ExitPrice;
+      }
+
       const { error } = await supabase
         .from('ai_trade_journal')
-        .update({
-          exit_time: analysis.exitTime.toISOString(),
-          exit_price: analysis.exitPrice,
-          pnl: analysis.pnl,
-          outcome: analysis.outcome,
-          actual_outcome: analysis.actualOutcome,
-          was_prediction_correct: analysis.wasPredictionCorrect,
-          accuracy_score: analysis.accuracyScore,
-          lesson_learned: analysis.lessonLearned,
-          mistake_identified: analysis.mistakeIdentified,
-          what_worked: analysis.whatWorked,
-          updated_at: new Date().toISOString()
-        })
+        .update(updatePayload)
         .eq('id', analysis.journalEntryId);
 
       if (error) {

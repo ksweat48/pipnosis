@@ -9,6 +9,19 @@
  * - Race conditions between services
  * - Double reward application
  * - Inconsistent goal status updates
+ *
+ * CCIP 2026-02-18: Progressive journal milestone tracking added.
+ * When goal is hit the triggering trade is immediately upserted into
+ * ai_trade_journal with journal_stage = 'goal_achieved' and
+ * goal_pnl_at_achievement stamped.
+ *
+ * On "close_now" the open trade is closed via the close_goal_session_trade
+ * RPC so the standard TradeClosureEventProcessor pipeline fires and updates
+ * the journal with full closure data.
+ *
+ * On "continue_to_tp" / timeout the journal already carries the goal-hit
+ * snapshot; post-trade-analyzer updates it with TP1 / TP2 milestone data
+ * when the trade closes naturally.
  */
 
 import { supabase } from '../../lib/supabase';
@@ -148,6 +161,10 @@ class GoalAchievementCoordinator {
 
       this.recentAchievements.set(context.sessionId, Date.now());
 
+      // CCIP 2026-02-18: Stamp the triggering trade's journal entry NOW so the
+      // goal-hit moment is always recorded regardless of what the user clicks.
+      await this.stampGoalAchievementOnJournal(context.sessionId, finalPnL);
+
       // Create 1-minute countdown modal
       const modalResult = await modalQueueManager.createPendingModal(
         context.userId,
@@ -183,6 +200,100 @@ class GoalAchievementCoordinator {
       return null;
     } finally {
       this.processingLocks.delete(lockKey);
+    }
+  }
+
+  /**
+   * Stamp the open trade's journal entry with goal-achievement milestone data.
+   *
+   * SSOT: Uses upsert on trade_id so the pre-existing journal row (created at
+   * trade open) is updated — not duplicated.  If no journal row exists yet
+   * (race condition), a minimal retroactive entry is created so the goal-hit
+   * moment is never lost.
+   *
+   * journal_stage is set to 'goal_achieved' and goal_pnl_at_achievement is
+   * recorded. The entry remains 'open' outcome until the trade actually closes.
+   */
+  private async stampGoalAchievementOnJournal(sessionId: string, goalPnL: number): Promise<void> {
+    try {
+      const goalAchievedAt = new Date().toISOString();
+
+      // Find the currently open trade for this session
+      const { data: openTrade } = await supabase
+        .from('goal_session_trades')
+        .select('id, symbol, direction, entry_price, stop_loss, take_profit, created_at, user_id')
+        .eq('goal_session_id', sessionId)
+        .eq('status', 'open')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!openTrade) {
+        console.log(`[GoalAchievementCoordinator] No open trade found for session ${sessionId} - skipping journal stamp`);
+        return;
+      }
+
+      // Check if a journal entry already exists for this trade
+      const { data: existingEntry } = await supabase
+        .from('ai_trade_journal')
+        .select('id, journal_stage')
+        .eq('trade_id', openTrade.id)
+        .maybeSingle();
+
+      if (existingEntry) {
+        // Update the existing entry with goal milestone data
+        const { error } = await supabase
+          .from('ai_trade_journal')
+          .update({
+            journal_stage: 'goal_achieved',
+            goal_pnl_at_achievement: goalPnL,
+            goal_achieved_at: goalAchievedAt,
+            updated_at: goalAchievedAt,
+          })
+          .eq('id', existingEntry.id);
+
+        if (error) {
+          console.error(`[GoalAchievementCoordinator] Failed to stamp goal achievement on journal entry:`, error);
+        } else {
+          console.log(`[GoalAchievementCoordinator] ✅ Journal entry ${existingEntry.id} stamped with goal_achieved stage (P&L: $${goalPnL.toFixed(2)})`);
+        }
+      } else {
+        // No pre-existing journal entry (trade opened before journaling was wired).
+        // Create a minimal retroactive entry so the goal-hit moment is preserved.
+        const { error } = await supabase
+          .from('ai_trade_journal')
+          .insert({
+            user_id: openTrade.user_id,
+            trade_id: openTrade.id,
+            session_id: sessionId,
+            symbol: openTrade.symbol,
+            direction: openTrade.direction || 'buy',
+            entry_time: openTrade.created_at || goalAchievedAt,
+            entry_price: openTrade.entry_price || 0,
+            stop_loss: openTrade.stop_loss,
+            take_profit: openTrade.take_profit,
+            llm_reasoning: `${(openTrade.direction || 'buy').toUpperCase()} trade on ${openTrade.symbol}. Goal reached at $${goalPnL.toFixed(2)}.`,
+            market_read: `Entry price: ${openTrade.entry_price?.toFixed(5) || 'N/A'}.`,
+            expected_outcome: `Goal target reached. TP: ${openTrade.take_profit?.toFixed(5) || 'N/A'}, SL: ${openTrade.stop_loss?.toFixed(5) || 'N/A'}.`,
+            pattern_identified: 'Goal Achievement',
+            conviction_level: 70,
+            rank_at_time: 'Autonomous AI',
+            outcome: 'open',
+            journal_entry_type: 'trade',
+            journal_stage: 'goal_achieved',
+            goal_pnl_at_achievement: goalPnL,
+            goal_achieved_at: goalAchievedAt,
+            pnl: goalPnL,
+          });
+
+        if (error) {
+          console.error(`[GoalAchievementCoordinator] Failed to create retroactive journal entry for goal achievement:`, error);
+        } else {
+          console.log(`[GoalAchievementCoordinator] ✅ Retroactive journal entry created for trade ${openTrade.id} with goal_achieved stage`);
+        }
+      }
+    } catch (error) {
+      console.error(`[GoalAchievementCoordinator] Exception stamping journal:`, error);
     }
   }
 
@@ -258,6 +369,12 @@ class GoalAchievementCoordinator {
    *
    * SSOT: This is the ONLY place that processes goal countdown responses
    *
+   * CCIP 2026-02-18:
+   * - 'close_now':     closes the open trade via RPC so TradeClosureEventProcessor
+   *                    fires and updates the journal with final closure data.
+   * - 'continue_to_tp': records the action; post-trade-analyzer will update the
+   *                    journal with TP1/TP2 milestone data when the trade closes.
+   *
    * @param sessionId - Goal session ID
    * @param action - User's choice: 'continue_to_tp' or 'close_now'
    */
@@ -289,7 +406,10 @@ class GoalAchievementCoordinator {
         .eq('id', sessionId);
 
       if (action === 'continue_to_tp') {
-        // User chose to continue - trade continues unchanged to TP
+        // User chose to continue - trade continues unchanged to TP.
+        // The journal entry was already stamped with goal_achieved stage in
+        // processAchievement(). post-trade-analyzer will update it with the
+        // TP1/TP2 milestone when the trade closes naturally.
         console.log(`[GoalAchievementCoordinator] User chose to continue to TP for session ${sessionId}`);
 
         // Send confirmation notification
@@ -308,11 +428,38 @@ class GoalAchievementCoordinator {
         return { success: true };
 
       } else if (action === 'close_now') {
-        // User chose to close - finalize achievement and close trade
+        // User chose to close immediately at goal P&L.
         console.log(`[GoalAchievementCoordinator] User chose to close trade and session ${sessionId}`);
 
         const finalPnL = sessionData.current_progress || 0;
         const goalAmount = sessionData.target_value;
+
+        // Find and close the open trade via RPC so TradeClosureEventProcessor
+        // fires and updates the journal with full closure data (exit price, pnl,
+        // actual_outcome narrative, lesson_learned etc.)
+        const { data: openTrade } = await supabase
+          .from('goal_session_trades')
+          .select('id')
+          .eq('goal_session_id', sessionId)
+          .eq('status', 'open')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (openTrade) {
+          const { error: closeError } = await supabase.rpc('close_goal_session_trade', {
+            p_trade_id: openTrade.id,
+            p_close_reason: 'goal_achieved',
+            p_exit_price: null,
+          });
+
+          if (closeError) {
+            console.error(`[GoalAchievementCoordinator] Failed to close trade via RPC:`, closeError);
+            // Non-fatal: session transition still proceeds below
+          } else {
+            console.log(`[GoalAchievementCoordinator] ✅ Trade ${openTrade.id} closed via RPC with reason goal_achieved`);
+          }
+        }
 
         // Transition session to goal_achieved status
         const transitionResult = await goalSessionStateMachine.transition(

@@ -140,10 +140,45 @@ export const AITradeJournal: React.FC = () => {
                     </p>
                   </div>
                 </div>
-                <div className={`text-lg sm:text-2xl font-bold flex-shrink-0 ${entry.pnl > 0 ? 'text-green-400' : entry.pnl < 0 ? 'text-red-400' : 'text-gray-400'}`}>
-                  {entry.outcome === 'open' ? 'OPEN' : `${entry.pnl > 0 ? '+' : ''}$${entry.pnl?.toFixed(2) || '0.00'}`}
+                <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                  <div className={`text-lg sm:text-2xl font-bold ${entry.pnl > 0 ? 'text-green-400' : entry.pnl < 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                    {entry.outcome === 'open' ? 'OPEN' : `${entry.pnl > 0 ? '+' : ''}$${entry.pnl?.toFixed(2) || '0.00'}`}
+                  </div>
+                  {entry.goal_pnl_at_achievement != null && (
+                    <span className="text-xs font-medium text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-full px-2 py-0.5">
+                      Goal hit at {entry.goal_pnl_at_achievement >= 0 ? '+' : ''}${Math.abs(entry.goal_pnl_at_achievement).toFixed(2)}
+                    </span>
+                  )}
                 </div>
               </div>
+
+              {/* Milestone progression bar */}
+              {(entry.journal_stage === 'goal_achieved' || entry.journal_stage === 'tp1_hit' || entry.journal_stage === 'tp2_hit') && (
+                <div className="flex items-center gap-1.5 mb-4 text-xs font-medium overflow-x-auto pb-0.5">
+                  <span className="flex items-center gap-1 bg-amber-400/15 text-amber-400 border border-amber-400/25 rounded-full px-2.5 py-1 whitespace-nowrap">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"></span>
+                    Goal {entry.goal_pnl_at_achievement != null ? `+$${Math.abs(entry.goal_pnl_at_achievement).toFixed(2)}` : 'hit'}
+                  </span>
+                  {(entry.journal_stage === 'tp1_hit' || entry.journal_stage === 'tp2_hit') && entry.tp1_pnl != null && (
+                    <>
+                      <span className="text-gray-600 flex-shrink-0">→</span>
+                      <span className="flex items-center gap-1 bg-blue-400/15 text-blue-400 border border-blue-400/25 rounded-full px-2.5 py-1 whitespace-nowrap">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0"></span>
+                        TP1 {entry.tp1_pnl >= 0 ? '+' : ''}${entry.tp1_pnl.toFixed(2)}
+                      </span>
+                    </>
+                  )}
+                  {entry.journal_stage === 'tp2_hit' && entry.tp2_pnl != null && (
+                    <>
+                      <span className="text-gray-600 flex-shrink-0">→</span>
+                      <span className="flex items-center gap-1 bg-green-400/15 text-green-400 border border-green-400/25 rounded-full px-2.5 py-1 whitespace-nowrap">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0"></span>
+                        TP2 {entry.tp2_pnl >= 0 ? '+' : ''}${entry.tp2_pnl.toFixed(2)}
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
 
               <div className="space-y-3">
                 {entry.llm_reasoning && (
