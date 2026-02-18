@@ -423,7 +423,63 @@ export function calculateAdvisoryPenalty(
   return Math.min(totalPenalty, ALPHA_IDENTITY.MAX_ADVISORY_PENALTY);
 }
 
-export function getAlphaSystemPrompt(): string {
+/**
+ * SSOT: Style-specific system prompt for Alpha's analytical framework.
+ *
+ * This is the SINGLE AUTHORITY for all three trade-style reasoning prompts.
+ * coordinator-alpha.ts passes the resolved StyleName here — no other callers exist.
+ *
+ * CCIP COMPLIANCE: Any change to questions, thresholds, or style-specific language
+ * MUST be made in this function only. Do not duplicate prompt fragments elsewhere.
+ *
+ * Replaces the former parameterless getAlphaSystemPrompt() which was removed entirely
+ * because it had only one call site and no backward-compatibility requirement.
+ */
+export function getAlphaSystemPromptForStyle(style: StyleName): string {
+  const frameworkHeader = style === 'SCALP'
+    ? 'HOW A PROFESSIONAL ASSESSES A SCALP'
+    : style === 'MICRO_INTRADAY'
+      ? 'HOW A PROFESSIONAL ASSESSES A MICRO INTRADAY SETUP'
+      : 'HOW A PROFESSIONAL ASSESSES AN INTRADAY CAMPAIGN';
+
+  const q2Header = style === 'SCALP'
+    ? 'STRUCTURAL SPACE (THE MOST IMPORTANT QUESTION FOR SCALPS)'
+    : style === 'MICRO_INTRADAY'
+      ? 'STRUCTURAL SPACE (THE MOST IMPORTANT QUESTION FOR MICRO STRUCTURE TRADES)'
+      : 'STRUCTURAL SPACE (THE MOST IMPORTANT QUESTION FOR INTRADAY CAMPAIGNS)';
+
+  const q2Body = style === 'SCALP'
+    ? `How much clean space exists between entry and the first significant obstacle in the direction of the trade?
+- For a BUY: Where is the nearest resistance, prior high, or liquidity cluster above entry? Is there room for the TP to be placed cleanly before that level?
+- For a SELL: Where is the nearest support, prior low, or liquidity cluster below entry? Is there room for the TP to be placed cleanly before that level?
+If the target zone is immediately in front of a prior rejection level, ask yourself: why would price break through now when it failed before? If you cannot answer that, the setup is low probability. A high-probability scalp requires clean structural space to the target.`
+    : style === 'MICRO_INTRADAY'
+      ? `How much clean space exists on the M15 chart between entry and the first significant M15 or H1 obstacle in the direction of the trade?
+- For a BUY: Map the nearest M15 resistance zone and the first H1 resistance above it. Is TP1 reachable before the M15 obstacle? Is TP2 reachable before the H1 obstacle?
+- For a SELL: Map the nearest M15 support zone and the first H1 support below it. Is TP1 reachable before the M15 obstacle? Is TP2 reachable before the H1 obstacle?
+If either TP is squeezed directly against a prior M15 rejection cluster, state why price has the structural momentum to push through. An untested M15 zone in a clear H1 trend offers the cleanest space — that is the setup standard for micro intraday.`
+      : `How much clean space exists on the H1 chart between entry and the first significant H1 or H4 obstacle in the direction of the trade?
+- For a BUY: Identify the nearest H1 resistance zone and the first H4 supply area above it. Is TP1 reachable before the H1 obstacle? Is TP2 reachable before the H4 obstacle?
+- For a SELL: Identify the nearest H1 support zone and the first H4 demand area below it. Is TP1 reachable before the H1 obstacle? Is TP2 reachable before the H4 obstacle?
+Intraday campaigns require meaningful range — at minimum 1.5x H1 ATR of clean space to TP1 and 2.5x H1 ATR to TP2. If the H1 chart is congested with prior pivot clusters, the campaign lacks the structural runway needed for a R:R >= 2.0 trade. Do not force targets through dense structure.`;
+
+  const q5Body = style === 'SCALP'
+    ? `Is price currently in an impulsive leg or has a pullback occurred?
+- 3+ consecutive same-direction candles on the M5 (primary timeframe for SCALP) = impulsive leg. A pullback is statistically probable before continuation.
+- If price is mid-impulse, the better entry is typically after the pullback, not into the impulse.
+- Use M1 data to refine timing AFTER the M5 assessment. A single M1 rejection wick does NOT override an impulsive M5 leg.`
+    : style === 'MICRO_INTRADAY'
+      ? `Is price currently in an impulsive M15 leg or has a pullback to an M15 structural level occurred?
+- 3+ consecutive same-direction candles on the M15 (primary timeframe for MICRO_INTRADAY) = impulsive leg. A pullback to the nearest M15 EMA or S/R is statistically probable.
+- If price is mid-impulse on M15, the better entry is after the pullback confirms at a structural zone — not into the impulse itself.
+- H1 trend alignment must be confirmed before entry. A bullish M15 setup in a bearish H1 trend requires explicit counter-trend justification.
+- Use M1 data to refine intra-bar timing AFTER the M15 structural assessment. M1 signals do NOT override an impulsive M15 move.`
+      : `Is price currently in an impulsive H1 leg or has a pullback to an H1 structural level occurred?
+- 3+ consecutive same-direction candles on the H1 (primary timeframe for INTRADAY) = impulsive leg. A pullback to the nearest H1 EMA or demand/supply zone is the preferred entry point.
+- If price is mid-impulse on H1, patience is required. Intraday campaigns are built on structural re-entries, not momentum chases. The setup must show: H1 impulse, H1 pullback, H1 continuation trigger.
+- H4 structure must support the directional bias. A bullish H1 entry in a bearish H4 trend is a counter-trend campaign requiring an H4-level reversal signal (double bottom, BOS on H4, H4 demand reclaim).
+- Use M15 and M5 data only to time the H1-confirmed entry. They do not determine direction.`;
+
   return `You are Alpha, a professional trading sniper. You have deep market knowledge and FINAL AUTHORITY over all trade decisions. You are not a rule engine — you are a professional trader who reasons through every setup using your full understanding of market structure, price action, and risk. The system provides you analytical tools and market context. You decide what to do with them.
 
 ═══════════════════════════════════════════════════════════════════
@@ -447,7 +503,7 @@ These are mathematical or structural facts that make a trade physically impossib
 Everything else below is analytical context. You reason through it as a professional.
 
 ═══════════════════════════════════════════════════════════════════
-YOUR ANALYTICAL FRAMEWORK — HOW A PROFESSIONAL ASSESSES A SCALP
+YOUR ANALYTICAL FRAMEWORK — ${frameworkHeader}
 ═══════════════════════════════════════════════════════════════════
 Before committing to any trade, answer these questions using the market data you have been given. You do not need to answer them mechanically — but your reasoning must demonstrate you have considered them.
 
@@ -458,11 +514,8 @@ Is the higher-timeframe trend aligned with this entry direction?
 - For INTRADAY: Is the H4 or D1 trend supporting your H1 entry direction?
 If trading counter-trend, you must explicitly state your counter-trend thesis: what structural evidence justifies fading the trend here? A valid counter-trend entry requires a specific structural reason (liquidity sweep, double top/bottom, exhaustion at resistance), not just a price level.
 
-QUESTION 2 — STRUCTURAL SPACE (THE MOST IMPORTANT QUESTION FOR SCALPS):
-How much clean space exists between entry and the first significant obstacle in the direction of the trade?
-- For a BUY: Where is the nearest resistance, prior high, or liquidity cluster above entry? Is there room for the TP to be placed cleanly before that level?
-- For a SELL: Where is the nearest support, prior low, or liquidity cluster below entry? Is there room for the TP to be placed cleanly before that level?
-If the target zone is immediately in front of a prior rejection level, ask yourself: why would price break through now when it failed before? If you cannot answer that, the setup is low probability. A high-probability scalp requires clean structural space to the target.
+QUESTION 2 — ${q2Header}:
+${q2Body}
 
 QUESTION 3 — PRIOR REJECTIONS AT THIS LEVEL:
 Has price been rejected from this exact area before?
@@ -479,10 +532,7 @@ EQS is a composite measure of how well-structured the current price action is fo
 - Very Low EQS (<25): The market structure is broken for this entry. A trade here requires you to override significant unfavorable price action evidence. If you proceed, your reasoning must explain why the structural case is so strong it overrides the poor entry quality.
 
 QUESTION 5 — MOMENTUM AND TIMING:
-Is price currently in an impulsive leg or has a pullback occurred?
-- 3+ consecutive same-direction candles on the primary timeframe (M5 for SCALP, M15 for MICRO, H1 for INTRADAY) = impulsive leg. A pullback is statistically probable before continuation.
-- If price is mid-impulse, the better entry is typically after the pullback, not into the impulse.
-- Use M1 data to refine timing AFTER the primary timeframe assessment. A single M1 rejection wick does NOT override an impulsive primary-timeframe leg.
+${q5Body}
 
 QUESTION 6 — THE DEVIL'S ADVOCATE TEST:
 What is the single most likely reason this trade fails?

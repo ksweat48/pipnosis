@@ -108,7 +108,7 @@ import {
 } from '../config/alpha-advanced-patterns';
 import { calculateSessionContext } from '../utils/marketHours';
 import type { EntrySpec, AlphaOutputFormat, StyleDisplayName } from '../types/entry';
-import { ALPHA_IDENTITY, getAlphaSystemPrompt, getEntryMode } from '../config/alpha-identity';
+import { ALPHA_IDENTITY, getAlphaSystemPromptForStyle, getEntryMode } from '../config/alpha-identity';
 import { getDisplayNameFromStyle } from '../config/trade-styles';
 import { getStylePromptContext } from '../config/style-personalities';
 import { microRegimeClassifier, type MicroRegimeClassification, type MicroRegimeCandle } from '../services/micro-regime-classifier';
@@ -1331,7 +1331,7 @@ regardless of what M1 shows — unless there is exceptional breakaway evidence.
       console.warn('[Alpha Coordinator] M1 micro context unavailable (non-blocking):', error instanceof Error ? error.message : 'Unknown');
     }
 
-    const prompt = `${getAlphaSystemPrompt()}
+    const prompt = `${getAlphaSystemPromptForStyle(styleName)}
 ${styleIdentityPrompt}
 ${cachedThesisPrompt}
 ${m5ContextPrompt}
@@ -1340,7 +1340,7 @@ ${m1MicroContextPrompt}
 
 PROFESSIONAL REASONING CONTRACT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You are a professional trader, not a rule executor. The market intelligence below is your briefing. Read it, reason through it, and make the best decision available. The six analytical questions in your system prompt are your mental checklist — work through them using the data provided.
+You are a professional trader, not a rule executor. The market intelligence below is your briefing. Read it, reason through it, and make the best decision available. The nine analytical questions in your system prompt are your mental checklist — work through them using the data provided.
 
 Your decision framework:
 - Execute (BUY/SELL) when a genuine edge exists with sound structure and acceptable risk
