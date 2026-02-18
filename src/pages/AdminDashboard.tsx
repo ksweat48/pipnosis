@@ -414,161 +414,136 @@ export function AdminDashboard() {
 
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            {/* Platform Trading Control - MOBILE FRIENDLY */}
-            <div className={`border-2 rounded-xl p-4 sm:p-6 ${
-              tradingEnabled
-                ? 'bg-gradient-to-r from-green-900/30 to-emerald-900/30 border-green-500/30'
-                : 'bg-gradient-to-r from-red-900/30 to-orange-900/30 border-red-500/30'
-            }`}>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div className="flex items-center gap-3 sm:gap-4">
-                  <div className={`p-2 sm:p-3 rounded-lg ${tradingEnabled ? 'bg-green-600/20' : 'bg-red-600/20'}`}>
+            {/* Platform Controls — 3-column grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+              {/* Platform Trading */}
+              <div className={`border-2 rounded-xl p-5 flex flex-col gap-4 ${
+                tradingEnabled
+                  ? 'bg-gradient-to-br from-green-900/30 to-emerald-900/30 border-green-500/30'
+                  : 'bg-gradient-to-br from-red-900/30 to-orange-900/30 border-red-500/30'
+              }`}>
+                <div className="flex items-center gap-3">
+                  <div className={`p-2.5 rounded-lg ${tradingEnabled ? 'bg-green-600/20' : 'bg-red-600/20'}`}>
                     {tradingEnabled ? (
-                      <Play className="w-6 h-6 sm:w-8 sm:h-8 text-green-400" />
+                      <Play className="w-6 h-6 text-green-400" />
                     ) : (
-                      <Pause className="w-6 h-6 sm:w-8 sm:h-8 text-red-400" />
+                      <Pause className="w-6 h-6 text-red-400" />
                     )}
                   </div>
-                  <div className="flex-1">
-                    <h3 className="text-lg sm:text-xl font-bold text-white mb-0.5 sm:mb-1">
-                      Platform Trading: {tradingEnabled ? 'ENABLED' : 'DISABLED'}
-                    </h3>
-                    <p className={`text-sm ${tradingEnabled ? 'text-green-200' : 'text-red-200'}`}>
-                      {tradingEnabled
-                        ? 'Users can start goal sessions and trade normally'
-                        : 'All users blocked from starting sessions - Maintenance mode active'}
-                    </p>
+                  <div>
+                    <h3 className="text-sm font-bold text-white leading-tight">Platform Trading</h3>
+                    <span className={`text-xs font-semibold ${tradingEnabled ? 'text-green-400' : 'text-red-400'}`}>
+                      {tradingEnabled ? 'ENABLED' : 'DISABLED'}
+                    </span>
                   </div>
                 </div>
+                <p className={`text-xs leading-relaxed flex-1 ${tradingEnabled ? 'text-green-200/80' : 'text-red-200/80'}`}>
+                  {tradingEnabled
+                    ? 'Users can start goal sessions and trade normally'
+                    : 'All users blocked from starting sessions — Maintenance mode active'}
+                </p>
                 <button
                   onClick={toggleTrading}
                   disabled={toggleLoading}
-                  className={`w-full sm:w-auto px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                  className={`w-full px-4 py-2.5 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2 ${
                     tradingEnabled
                       ? 'bg-red-600 hover:bg-red-700 text-white'
                       : 'bg-green-600 hover:bg-green-700 text-white'
                   } disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
                   {toggleLoading ? (
-                    <>
-                      <Clock className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
-                      <span className="text-sm sm:text-base">Processing...</span>
-                    </>
+                    <><Clock className="w-4 h-4 animate-spin" /><span>Processing...</span></>
                   ) : tradingEnabled ? (
-                    <>
-                      <Pause size={16} className="sm:w-[18px] sm:h-[18px]" />
-                      <span className="text-sm sm:text-base">Disable Trading</span>
-                    </>
+                    <><Pause size={15} /><span>Disable Trading</span></>
                   ) : (
-                    <>
-                      <Play size={16} className="sm:w-[18px] sm:h-[18px]" />
-                      <span className="text-sm sm:text-base">Enable Trading</span>
-                    </>
+                    <><Play size={15} /><span>Enable Trading</span></>
                   )}
                 </button>
               </div>
-            </div>
 
-            {/* Credit System Control - MOBILE FRIENDLY */}
-            <div className={`border-2 rounded-xl p-4 sm:p-6 ${
-              creditsEnabled
-                ? 'bg-gradient-to-r from-blue-900/30 to-cyan-900/30 border-blue-500/30'
-                : 'bg-gradient-to-r from-gray-900/30 to-slate-900/30 border-gray-500/30'
-            }`}>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div className="flex items-center gap-3 sm:gap-4">
-                  <div className={`p-2 sm:p-3 rounded-lg ${creditsEnabled ? 'bg-blue-600/20' : 'bg-gray-600/20'}`}>
-                    <Wallet className={`w-6 h-6 sm:w-8 sm:h-8 ${creditsEnabled ? 'text-blue-400' : 'text-gray-400'}`} />
+              {/* Credit System */}
+              <div className={`border-2 rounded-xl p-5 flex flex-col gap-4 ${
+                creditsEnabled
+                  ? 'bg-gradient-to-br from-blue-900/30 to-cyan-900/30 border-blue-500/30'
+                  : 'bg-gradient-to-br from-gray-900/30 to-slate-900/30 border-gray-500/30'
+              }`}>
+                <div className="flex items-center gap-3">
+                  <div className={`p-2.5 rounded-lg ${creditsEnabled ? 'bg-blue-600/20' : 'bg-gray-600/20'}`}>
+                    <Wallet className={`w-6 h-6 ${creditsEnabled ? 'text-blue-400' : 'text-gray-400'}`} />
                   </div>
-                  <div className="flex-1">
-                    <h3 className="text-lg sm:text-xl font-bold text-white mb-0.5 sm:mb-1">
-                      Credit System: {creditsEnabled ? 'ENABLED' : 'DISABLED'}
-                    </h3>
-                    <p className={`text-sm ${creditsEnabled ? 'text-blue-200' : 'text-gray-400'}`}>
-                      {creditsEnabled
-                        ? 'Each signal costs 10 credits. Users need credits to trade.'
-                        : 'All signals are FREE. Users can trade without credits.'}
-                    </p>
+                  <div>
+                    <h3 className="text-sm font-bold text-white leading-tight">Credit System</h3>
+                    <span className={`text-xs font-semibold ${creditsEnabled ? 'text-blue-400' : 'text-gray-400'}`}>
+                      {creditsEnabled ? 'ENABLED' : 'DISABLED'}
+                    </span>
                   </div>
                 </div>
+                <p className={`text-xs leading-relaxed flex-1 ${creditsEnabled ? 'text-blue-200/80' : 'text-gray-400'}`}>
+                  {creditsEnabled
+                    ? 'Each signal costs 10 credits. Users need credits to trade.'
+                    : 'All signals are FREE. Users can trade without credits.'}
+                </p>
                 <button
                   onClick={toggleCredits}
                   disabled={creditToggleLoading}
-                  className={`w-full sm:w-auto px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                  className={`w-full px-4 py-2.5 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2 ${
                     creditsEnabled
                       ? 'bg-gray-600 hover:bg-gray-700 text-white'
                       : 'bg-blue-600 hover:bg-blue-700 text-white'
                   } disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
                   {creditToggleLoading ? (
-                    <>
-                      <Clock className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
-                      <span className="text-sm sm:text-base">Processing...</span>
-                    </>
+                    <><Clock className="w-4 h-4 animate-spin" /><span>Processing...</span></>
                   ) : creditsEnabled ? (
-                    <>
-                      <Pause size={16} className="sm:w-[18px] sm:h-[18px]" />
-                      <span className="text-sm sm:text-base">Disable Credits</span>
-                    </>
+                    <><Pause size={15} /><span>Disable Credits</span></>
                   ) : (
-                    <>
-                      <Play size={16} className="sm:w-[18px] sm:h-[18px]" />
-                      <span className="text-sm sm:text-base">Enable Credits</span>
-                    </>
+                    <><Play size={15} /><span>Enable Credits</span></>
                   )}
                 </button>
               </div>
-            </div>
 
-            {/* Club Token Gate Control */}
-            <div className={`border-2 rounded-xl p-4 sm:p-6 ${
-              tokenGateEnabled
-                ? 'bg-gradient-to-r from-amber-900/30 to-yellow-900/30 border-amber-500/30'
-                : 'bg-gradient-to-r from-gray-900/30 to-slate-900/30 border-gray-500/30'
-            }`}>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div className="flex items-center gap-3 sm:gap-4">
-                  <div className={`p-2 sm:p-3 rounded-lg ${tokenGateEnabled ? 'bg-amber-600/20' : 'bg-gray-600/20'}`}>
-                    <Crown className={`w-6 h-6 sm:w-8 sm:h-8 ${tokenGateEnabled ? 'text-amber-400' : 'text-gray-400'}`} />
+              {/* Club Token Gate */}
+              <div className={`border-2 rounded-xl p-5 flex flex-col gap-4 ${
+                tokenGateEnabled
+                  ? 'bg-gradient-to-br from-amber-900/30 to-yellow-900/30 border-amber-500/30'
+                  : 'bg-gradient-to-br from-gray-900/30 to-slate-900/30 border-gray-500/30'
+              }`}>
+                <div className="flex items-center gap-3">
+                  <div className={`p-2.5 rounded-lg ${tokenGateEnabled ? 'bg-amber-600/20' : 'bg-gray-600/20'}`}>
+                    <Crown className={`w-6 h-6 ${tokenGateEnabled ? 'text-amber-400' : 'text-gray-400'}`} />
                   </div>
-                  <div className="flex-1">
-                    <h3 className="text-lg sm:text-xl font-bold text-white mb-0.5 sm:mb-1">
-                      Club Token Gate: {tokenGateEnabled ? 'ENABLED' : 'DISABLED'}
-                    </h3>
-                    <p className={`text-sm ${tokenGateEnabled ? 'text-amber-200' : 'text-gray-400'}`}>
-                      {tokenGateEnabled
-                        ? 'Users must hold required tokens to enter the Club.'
-                        : 'Token gate is OFF. All users can enter the Club freely.'}
-                    </p>
+                  <div>
+                    <h3 className="text-sm font-bold text-white leading-tight">Club Token Gate</h3>
+                    <span className={`text-xs font-semibold ${tokenGateEnabled ? 'text-amber-400' : 'text-gray-400'}`}>
+                      {tokenGateEnabled ? 'ENABLED' : 'DISABLED'}
+                    </span>
                   </div>
                 </div>
+                <p className={`text-xs leading-relaxed flex-1 ${tokenGateEnabled ? 'text-amber-200/80' : 'text-gray-400'}`}>
+                  {tokenGateEnabled
+                    ? 'Users must hold required tokens to enter the Club.'
+                    : 'Token gate is OFF. All users can enter the Club freely.'}
+                </p>
                 <button
                   onClick={toggleTokenGate}
                   disabled={tokenGateToggleLoading}
-                  className={`w-full sm:w-auto px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                  className={`w-full px-4 py-2.5 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2 ${
                     tokenGateEnabled
                       ? 'bg-gray-600 hover:bg-gray-700 text-white'
                       : 'bg-amber-600 hover:bg-amber-700 text-white'
                   } disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
                   {tokenGateToggleLoading ? (
-                    <>
-                      <Clock className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
-                      <span className="text-sm sm:text-base">Processing...</span>
-                    </>
+                    <><Clock className="w-4 h-4 animate-spin" /><span>Processing...</span></>
                   ) : tokenGateEnabled ? (
-                    <>
-                      <Pause size={16} className="sm:w-[18px] sm:h-[18px]" />
-                      <span className="text-sm sm:text-base">Disable Gate</span>
-                    </>
+                    <><Pause size={15} /><span>Disable Gate</span></>
                   ) : (
-                    <>
-                      <Play size={16} className="sm:w-[18px] sm:h-[18px]" />
-                      <span className="text-sm sm:text-base">Enable Gate</span>
-                    </>
+                    <><Play size={15} /><span>Enable Gate</span></>
                   )}
                 </button>
               </div>
+
             </div>
 
             {/* Platform Profits & Statistics */}
