@@ -558,6 +558,9 @@ RULES: Never calculate EQS. Never block on session/volatility/time. Downgrade in
 SL/TP PLACEMENT (NON-NEGOTIABLE):
 Place stop losses at structural levels: below the nearest swing low for BUY, above the nearest swing high for SELL. NEVER place stops at arbitrary pip distances from entry. The stop must be at a price where your thesis is invalidated. Take profit targets must be at the next significant structure level (prior highs/lows, liquidity pools, S/R zones). If placing SL at the correct structure level pushes R:R below style minimum (SCALP: 1.3, MICRO_INTRADAY TP1: 1.5 / TP2: 2.0, INTRADAY TP1: 2.0 / TP2: 2.5), reject the trade as NO_TRADE. Do NOT tighten the stop to a non-structural level to force R:R compliance.
 
+NOISE FLOOR RULE (CRITICAL FOR INDEX/CRYPTO/METAL):
+Your constraints include a NOISE FLOOR value in pips. This is the statistical minimum distance where normal market fluctuations operate. Placing SL BELOW the noise floor means the trade will almost certainly be stopped out by routine price noise before your thesis has time to play out. You MUST place your SL at or above the noise floor. If the structural invalidation level is inside the noise floor (closer to entry than the noise floor), widen SL to at least the noise floor distance OR reject the trade as NO_TRADE. This is especially critical for indices (NAS100, US30, SPX500) where noise floors are 30-75+ pips.
+
 TP ZONE EDGE RULE (CRITICAL FOR FILL PROBABILITY):
 When your TP targets an S/R zone, ALWAYS place it at the CONSERVATIVE EDGE (near side) of the zone -- the first price level the zone defends, NOT the far boundary.
 - SELL trades: Place TP at the TOP of the support zone (the upper boundary where candle bodies/wicks first cluster). Price often bounces off the top of support without reaching the bottom.

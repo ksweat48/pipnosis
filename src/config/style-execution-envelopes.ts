@@ -21,6 +21,14 @@
  * All TP/SL bounds are now PERCENTAGE-BASED, computed dynamically from current price.
  * This eliminates static pip limits that break when asset prices change.
  * Formula: pipBound = (currentPrice * percentBound / 100) / pipValue
+ *
+ * NOISE FLOOR ALIGNMENT (CCIP-2026-02-18):
+ * All slPercent.min values MUST be >= the noise floor percentage for the asset class.
+ * Noise floor percentages (from risk-aware-stop-calculator.ts):
+ *   INDEX: 0.15%, CRYPTO: 0.20%, METAL (XAUUSD): 0.20%, FOREX: 0.05%
+ * If slPercent.min is below the noise floor, the wall allows SLs that are guaranteed
+ * to be stopped out by normal market noise. This is the SOLE style wall authority --
+ * if the wall is wrong, the noise floor advisory is meaningless.
  */
 
 import { getCurrencyPipInfo } from '../utils/currencyHelpers';
@@ -79,10 +87,10 @@ export const SCALP_ENVELOPE: StyleExecutionEnvelope = {
   slPips: { min: 8, max: 20 },
 
   assetClassPercentBounds: {
-    FOREX: { tpPercent: { min: 0.08, max: 0.60 }, slPercent: { min: 0.04, max: 0.25 } },
+    FOREX: { tpPercent: { min: 0.08, max: 0.60 }, slPercent: { min: 0.05, max: 0.25 } },
     CRYPTO: { tpPercent: { min: 0.50, max: 3.00 }, slPercent: { min: 0.30, max: 1.50 } },
-    METAL: { tpPercent: { min: 0.30, max: 2.50 }, slPercent: { min: 0.15, max: 1.00 } },
-    INDEX: { tpPercent: { min: 0.06, max: 0.50 }, slPercent: { min: 0.04, max: 0.25 } },
+    METAL: { tpPercent: { min: 0.30, max: 2.50 }, slPercent: { min: 0.20, max: 1.00 } },
+    INDEX: { tpPercent: { min: 0.20, max: 0.60 }, slPercent: { min: 0.15, max: 0.35 } },
   },
 
   atrTimeframe: 'M5',
@@ -127,7 +135,7 @@ export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
     FOREX: { tpPercent: { min: 0.12, max: 1.20 }, slPercent: { min: 0.06, max: 0.50 } },
     CRYPTO: { tpPercent: { min: 0.75, max: 5.00 }, slPercent: { min: 0.40, max: 2.50 } },
     METAL: { tpPercent: { min: 0.50, max: 5.00 }, slPercent: { min: 0.25, max: 2.00 } },
-    INDEX: { tpPercent: { min: 0.08, max: 1.00 }, slPercent: { min: 0.05, max: 0.25 } },
+    INDEX: { tpPercent: { min: 0.25, max: 1.00 }, slPercent: { min: 0.15, max: 0.35 } },
   },
 
   atrTimeframe: 'M15',
@@ -161,7 +169,7 @@ export const INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
     FOREX: { tpPercent: { min: 0.40, max: 2.00 }, slPercent: { min: 0.20, max: 0.80 } },
     CRYPTO: { tpPercent: { min: 3.00, max: 10.00 }, slPercent: { min: 1.50, max: 4.00 } },
     METAL: { tpPercent: { min: 1.60, max: 8.00 }, slPercent: { min: 0.80, max: 3.20 } },
-    INDEX: { tpPercent: { min: 0.25, max: 0.45 }, slPercent: { min: 0.10, max: 0.20 } },
+    INDEX: { tpPercent: { min: 0.35, max: 0.80 }, slPercent: { min: 0.15, max: 0.40 } },
   },
 
   atrTimeframe: 'H1',

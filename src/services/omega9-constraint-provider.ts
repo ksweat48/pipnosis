@@ -588,7 +588,7 @@ Entry Price: ${entryPrice.toFixed(decimalPlaces)}
 Typical Price Range: Use this as sanity check for your outputs
 
 STOP-LOSS BOUNDARIES (Relative):
-• Market Noise: ${constraints.noiseFloorPips.toFixed(1)} pips (advisory -- ${constraints.noiseFloorReasoning})
+• NOISE FLOOR: ${constraints.noiseFloorPips.toFixed(1)} pips -- SL below this is statistically likely to be stopped out by normal price fluctuations. Place SL at or above the noise floor unless structural invalidation specifically requires tighter placement. (${constraints.noiseFloorReasoning})
 • Minimum: ${constraints.minStopLossPips.toFixed(1)} pips
 • Maximum: ${constraints.maxStopLossPips.toFixed(1)} pips
 • Recommended: ${constraints.recommendedStopLossPips.toFixed(1)} pips
@@ -757,7 +757,7 @@ Core Principle: If the market can offer some profit, you should take it.
         `${label}:`,
         `  SL Wall: ${arena.slPrice.min.toFixed(dp)} to ${arena.slPrice.max.toFixed(dp)} (${arena.slPips.min.toFixed(1)}-${arena.slPips.max.toFixed(1)} pips, rec: ${arena.slPips.recommended.toFixed(1)})`,
         `  TP Wall: ${arena.tpPrice.min.toFixed(dp)} to ${arena.tpPrice.max.toFixed(dp)} (${arena.tpPips.min.toFixed(1)}-${arena.tpPips.max.toFixed(1)} pips, rec: ${arena.tpPips.recommended.toFixed(1)})`,
-        `  Market Noise: ${arena.noiseFloorPips.toFixed(1)} pips (advisory -- factor into stop placement)`,
+        `  NOISE FLOOR: ${arena.noiseFloorPips.toFixed(1)} pips -- SL below this has high probability of premature stop-out from normal noise. Place SL at or above noise floor.`,
         `  Min R:R: ${arena.minRiskReward.toFixed(2)}:1`,
       ];
 
