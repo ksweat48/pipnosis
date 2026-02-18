@@ -76,6 +76,10 @@ class GlobalPollingCoordinator {
   private readonly HEARTBEAT_INTERVAL_MS = 5000; // 🚨 CRITICAL: 5 seconds - DO NOT CHANGE
   private readonly MAX_MISSED_HEARTBEATS = 3; // 🚨 CRITICAL: Recovery threshold - DO NOT CHANGE
   private readonly SYMBOL_RECOVERY_THRESHOLD = 999999; // Effectively unlimited recovery attempts
+  private symbolErrorCounts: Map<string, number> = new Map();
+  private symbolBackoffUntil: Map<string, number> = new Map();
+  private readonly MAX_SYMBOL_ERRORS_BEFORE_BACKOFF = 3;
+  private readonly SYMBOL_BACKOFF_MS = 15000;
 
   private readonly FOREX_PAIRS = [
     'XAUUSD', 'US30', 'EURUSD', 'USDJPY', 'GBPUSD', 'NAS100', 'SPX500'
@@ -540,6 +544,11 @@ class GlobalPollingCoordinator {
         return;
       }
 
+      const backoffUntil = this.symbolBackoffUntil.get(symbol);
+      if (backoffUntil && Date.now() < backoffUntil) {
+        return;
+      }
+
       const status = this.pollStatus.get(symbol);
       if (!status) return;
 
@@ -569,13 +578,21 @@ class GlobalPollingCoordinator {
         if (error) {
           // Check if this is an AbortError (tab throttling) - this is EXPECTED behavior
           if (error.message?.includes('AbortError') || error.message?.includes('signal is aborted')) {
-            logger.debug(LogCategory.POLLING_COORDINATOR, `ℹ️ [${symbol}] Query cancelled (tab throttling or timeout) - this is normal`);
+            logger.debug(LogCategory.POLLING_COORDINATOR, `[${symbol}] Query cancelled (tab throttling or timeout) - expected`);
           } else {
-            // Real error - log as error
-            console.error(`❌ [${symbol}] DB Read Error:`, error);
+            const errCount = (this.symbolErrorCounts.get(symbol) ?? 0) + 1;
+            this.symbolErrorCounts.set(symbol, errCount);
+            if (errCount === 1) {
+              logger.debug(LogCategory.POLLING_COORDINATOR, `[${symbol}] DB read failed (will retry silently): ${error.message}`);
+            }
+            if (errCount >= this.MAX_SYMBOL_ERRORS_BEFORE_BACKOFF) {
+              this.symbolBackoffUntil.set(symbol, Date.now() + this.SYMBOL_BACKOFF_MS);
+              this.symbolErrorCounts.set(symbol, 0);
+            }
           }
-          // Error recording removed
         } else if (data) {
+          this.symbolErrorCounts.set(symbol, 0);
+          this.symbolBackoffUntil.delete(symbol);
           const bid = parseFloat(data.bid);
           const ask = parseFloat(data.ask);
 
@@ -588,15 +605,20 @@ class GlobalPollingCoordinator {
           this.notifyListeners();
         }
       } catch (error) {
-        // Catch-all for unexpected errors
         const errorMsg = error instanceof Error ? error.message : String(error);
 
-        // Check if this is an AbortError - downgrade to debug
         if (errorMsg.includes('AbortError') || errorMsg.includes('signal is aborted') || errorMsg.includes('aborted')) {
-          logger.debug(LogCategory.POLLING_COORDINATOR, `ℹ️ [${symbol}] Query aborted (browser throttling) - expected when tab hidden`);
+          logger.debug(LogCategory.POLLING_COORDINATOR, `[${symbol}] Query aborted (browser throttling) - expected when tab hidden`);
         } else {
-          // Real error - log as error
-          console.error(`❌ [${symbol}] Poll failed:`, errorMsg);
+          const errCount = (this.symbolErrorCounts.get(symbol) ?? 0) + 1;
+          this.symbolErrorCounts.set(symbol, errCount);
+          if (errCount === 1) {
+            logger.debug(LogCategory.POLLING_COORDINATOR, `[${symbol}] Poll exception (will retry silently): ${errorMsg}`);
+          }
+          if (errCount >= this.MAX_SYMBOL_ERRORS_BEFORE_BACKOFF) {
+            this.symbolBackoffUntil.set(symbol, Date.now() + this.SYMBOL_BACKOFF_MS);
+            this.symbolErrorCounts.set(symbol, 0);
+          }
         }
 
         this.notifyListeners();

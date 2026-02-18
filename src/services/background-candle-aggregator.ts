@@ -71,6 +71,10 @@ class BackgroundCandleAggregator {
   private candleFinalizerInterval: NodeJS.Timeout | null = null;
   private readonly CANDLE_FINALIZER_CHECK_INTERVAL_MS = 30000; // Check every 30 seconds (INCREASED from 60s for faster gap detection)
   private pollingInterval: NodeJS.Timeout | null = null;
+  private pollingErrorCount = 0;
+  private pollingBackoffUntil = 0;
+  private readonly MAX_POLLING_ERRORS_BEFORE_BACKOFF = 3;
+  private readonly POLLING_BACKOFF_MS = 20000;
 
   private initializeCandleState(symbol: string, timeframe: Timeframe, price: number, timestamp: number): CandleState {
     const candleTime = this.getCandleTime(timestamp, timeframe);
@@ -602,8 +606,11 @@ class BackgroundCandleAggregator {
     logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ' 🔄 Starting database polling (every 3 seconds)');
 
     this.pollingInterval = setInterval(async () => {
+      if (Date.now() < this.pollingBackoffUntil) {
+        return;
+      }
+
       try {
-        // Poll recent prices from database
         const { data, error } = await supabase
           .from('realtime_prices')
           .select('symbol, bid, ask, broker_time, created_at')
@@ -612,9 +619,18 @@ class BackgroundCandleAggregator {
           .limit(50);
 
         if (error) {
-          console.error('[BackgroundAggregator] Polling error:', error);
+          this.pollingErrorCount++;
+          if (this.pollingErrorCount === 1) {
+            logger.debug(LogCategory.BACKGROUND_AGGREGATOR, `[BackgroundAggregator] DB read failed (will retry silently): ${error.message}`);
+          }
+          if (this.pollingErrorCount >= this.MAX_POLLING_ERRORS_BEFORE_BACKOFF) {
+            this.pollingBackoffUntil = Date.now() + this.POLLING_BACKOFF_MS;
+            this.pollingErrorCount = 0;
+          }
           return;
         }
+
+        this.pollingErrorCount = 0;
 
         if (data && data.length > 0) {
           this.lastMessageTime = new Date();
@@ -628,7 +644,15 @@ class BackgroundCandleAggregator {
           });
         }
       } catch (error) {
-        console.error('[BackgroundAggregator] Polling error:', error);
+        this.pollingErrorCount++;
+        if (this.pollingErrorCount === 1) {
+          const msg = error instanceof Error ? error.message : String(error);
+          logger.debug(LogCategory.BACKGROUND_AGGREGATOR, `[BackgroundAggregator] Poll exception (will retry silently): ${msg}`);
+        }
+        if (this.pollingErrorCount >= this.MAX_POLLING_ERRORS_BEFORE_BACKOFF) {
+          this.pollingBackoffUntil = Date.now() + this.POLLING_BACKOFF_MS;
+          this.pollingErrorCount = 0;
+        }
       }
     }, 3000); // Poll every 3 seconds
   }
