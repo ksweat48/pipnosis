@@ -489,26 +489,45 @@ You MUST assess whether the user is getting the best possible entry or if price 
 This advisory is shown to the user but does NOT affect your trade execution. You always execute the trade as normal.
 When uncertain between GOOD_ENTRY and PULLBACK_EXPECTED, default to PULLBACK_EXPECTED. A missed optimal entry call is better than the user watching "Good Entry" while price retraces against them.
 
-PULLBACK REASONING FRAMEWORK (use the data you already have):
-1. CHECK KEY LEVELS: Compare your entry price against the Support/Resistance levels and Swing High/Low in the briefing.
+PULLBACK REASONING FRAMEWORK (TIMEFRAME-AWARE — use the data you already have):
+
+STEP 1 — CHECK PRIMARY TIMEFRAME CANDLES FIRST (this is your trade's timeframe):
+Your trade lives on a specific timeframe (SCALP=M5, MICRO_INTRADAY=M15, INTRADAY=H1).
+The PRIMARY TIMEFRAME CANDLES section above shows you the actual candle OHLC data.
+- Count consecutive same-direction candles on the PRIMARY timeframe.
+- 3+ consecutive same-direction candles on the primary TF = IMPULSIVE LEG. Pullback is highly probable.
+- Sharp impulsive moves on the primary TF without any consolidation almost always retrace.
+- If the primary TF shows a pullback already happened (reversal candles followed by continuation), entry may be good now.
+- If the primary TF shows price stalling/consolidating at current level, this often IS the pullback zone.
+
+STEP 2 — CHECK STRUCTURAL LEVELS:
+Compare your entry price against the Support/Resistance levels and Swing High/Low in the briefing.
    - For SELL: Find the nearest RESISTANCE level ABOVE your entry. This is where price naturally retraces UP to before continuing down.
    - For BUY: Find the nearest SUPPORT level BELOW your entry. This is where price naturally dips DOWN to before continuing up.
-2. CHECK DISTANCE: If your entry is more than 5 pips from the nearest relevant structural level (resistance for SELL, support for BUY), a retrace toward that level is likely.
-3. CHECK VWAP: If price is extended from VWAP by more than 0.3 ATR, a retrace toward VWAP is probable. VWAP acts as a pullback magnet.
-4. CHECK EMA ALIGNMENT: If price is extended beyond EMA20 by more than 0.5 ATR, mean reversion toward the EMA is expected.
-5. CHECK M1 MICRO PRICE ACTION (if provided): Look at the last 10-20 M1 candles.
-   - Sharp impulsive moves without any consolidation almost always retrace.
-   - If last 3+ M1 candles are all same-direction momentum candles with no pullback, retrace is imminent.
-   - If M1 shows a pullback already happened (reversal candles followed by continuation), entry is likely good now.
-   - If M1 shows price stalling/consolidating at current level, this often IS the pullback zone.
-6. CHECK MOMENTUM: Only override pullback expectation when 3+ consecutive momentum candles with increasing volume suggest a breakaway move where retracing would invalidate the thesis entirely.
+   - If your entry is more than 5 pips from the nearest relevant structural level, a retrace toward that level is likely.
+
+STEP 3 — CHECK VWAP AND EMA:
+   - If price is extended from VWAP by more than 0.3 ATR, a retrace toward VWAP is probable. VWAP acts as a pullback magnet.
+   - If price is extended beyond EMA20 by more than 0.5 ATR, mean reversion toward the EMA is expected.
+
+STEP 4 — REFINE WITH M1 MICRO DATA (SECONDARY — timing only):
+M1 data helps REFINE your entry timing but does NOT override the primary timeframe assessment.
+   - If M1 confirms the primary TF signal (e.g., primary TF impulsive + M1 still pushing), pullback is even more likely.
+   - If M1 shows a pullback already happening within a primary TF candle, timing may favor entry now.
+   - A single M1 rejection wick does NOT override an impulsive primary TF leg. The primary TF is the dominant signal.
+
+STEP 5 — OVERRIDE ONLY WITH EXCEPTIONAL EVIDENCE:
+Only override a pullback expectation when there is exceptional breakaway evidence:
+   - News-driven catalyst creating a structural break (not just a momentum candle)
+   - Price breaking through a major structural level with clear follow-through on the primary TF
+   - 3+ consecutive primary TF momentum candles with increasing body size suggest a breakaway move where retracing would invalidate the thesis entirely
 
 VERDICTS:
 - GOOD_ENTRY: Use ONLY when you have HIGH CONVICTION that this IS the best entry. Requirements (at least one):
   (a) Price is AT or within 0.3 ATR of a key structural level (S/R, VWAP, EMA confluence)
-  (b) A pullback has ALREADY occurred and this is the continuation point (visible in M1 data)
-  (c) Breakaway momentum is so strong that retrace would invalidate the trade thesis
-  Your reasoning MUST cite the specific level/evidence. "Aligns with structural levels" is NOT acceptable.
+  (b) A pullback has ALREADY occurred on the PRIMARY TIMEFRAME and this is the continuation point (visible in primary TF candles — not just M1)
+  (c) Breakaway momentum is so strong on the PRIMARY TIMEFRAME that retrace would invalidate the trade thesis
+  Your reasoning MUST cite the specific level/evidence AND reference primary TF candle data. "Aligns with structural levels" is NOT acceptable. "M1 rejection wick" alone is NOT acceptable if the primary TF shows an impulsive leg.
 
 - PULLBACK_EXPECTED: Use when price is likely to retrace before continuing in your trade direction.
   For SELL: pullback = price rallying UP before continuing down. Set pullback_zone ABOVE entry.
@@ -524,10 +543,10 @@ VERDICTS:
 
   Your reasoning MUST name: (1) the structural level identified, (2) the full distance in pips, (3) the 50% target zone calculation, (4) the estimated realistic improvement in pips.
 
-STYLE-SPECIFIC ENTRY ADVISORY:
-- SCALP: Focus on M1/M5 micro-structure. Target 50% of distance to nearest structural level. A realistic 2-4 pip improvement that fills beats a theoretical 5-10 pip zone that never reaches. Check if last M1 candles show exhaustion suggesting imminent retrace.
-- MICRO_INTRADAY: Focus on M15 structure and VWAP reversion. Target 50% of distance to VWAP/EMA20. A caught 8-12 pip improvement beats waiting for a 20 pip pullback that misses the move.
-- INTRADAY: Focus on H1 structure. Target 50% of distance to major S/R/EMA50. A filled 15-25 pip retrace beats an ambitious 40-50 pip zone that never completes.
+STYLE-SPECIFIC ENTRY ADVISORY (PRIMARY TIMEFRAME FIRST, M1 SECOND):
+- SCALP: PRIMARY = M5 candles. First assess M5 structure for impulsive legs (3+ consecutive same-direction M5 candles = strong pullback signal). Then use M1 to refine timing within an M5-confirmed zone. Target 50% of distance to nearest M5 structural level. A realistic 2-4 pip improvement that fills beats a theoretical 5-10 pip zone that never reaches. A single M1 rejection wick does NOT override an impulsive M5 drop/rally.
+- MICRO_INTRADAY: PRIMARY = M15 candles. First assess M15 structure for impulsive legs (3+ consecutive same-direction M15 candles = strong pullback signal). Check VWAP reversion potential on M15 data. Then use M1/M5 for timing refinement only. Target 50% of distance to VWAP/EMA20. A caught 8-12 pip improvement beats waiting for a 20 pip pullback that misses the move.
+- INTRADAY: PRIMARY = H1 candles. First assess H1 structure for impulsive legs (2+ consecutive same-direction H1 candles = strong pullback signal — H1 candles are larger so threshold is lower). Check major S/R/EMA50 distances. Then use M15/M5 for timing refinement only. Target 50% of distance to major S/R/EMA50. A filled 15-25 pip retrace beats an ambitious 40-50 pip zone that never completes.
 
 ENTRY MODES for TPS (provide in entry_spec):
 - EXECUTE_NOW: Price in zone or momentum makes waiting risky

@@ -1165,9 +1165,89 @@ IMPORTANT REMINDERS:
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // M1 MICRO PRICE ACTION CONTEXT (ALL STYLES - for entry advisory)
+    // PRIMARY TIMEFRAME CANDLE CONTEXT (STYLE-AWARE - for entry advisory)
     // SSOT: MarketDataService is the single authority for candle data
-    // CCIP: Non-blocking - Alpha proceeds without M1 if unavailable
+    // CCIP 2026-02-18: Entry advisory MUST analyze the trade's primary
+    // timeframe first. M1 is timing refinement only, not the primary signal.
+    // SCALP=M5, MICRO_INTRADAY=M15, INTRADAY=H1
+    // ═══════════════════════════════════════════════════════════════════
+    const PRIMARY_TF_MAP: Record<string, { timeframe: string; label: string; candleCount: number }> = {
+      'SCALP': { timeframe: 'M5', label: 'M5', candleCount: 15 },
+      'MICRO_INTRADAY': { timeframe: 'M15', label: 'M15', candleCount: 12 },
+      'INTRADAY': { timeframe: 'H1', label: 'H1', candleCount: 10 },
+    };
+    const styleName = getDisplayNameFromStyle(tradeStyle);
+    const primaryTfConfig = PRIMARY_TF_MAP[styleName] || PRIMARY_TF_MAP['SCALP'];
+
+    let primaryTfCandlePrompt = '';
+    try {
+      const mds = MarketDataService.getInstance();
+      const primaryCandles = await mds.getCandles(marketContext.symbol, primaryTfConfig.timeframe, primaryTfConfig.candleCount);
+
+      if (primaryCandles && primaryCandles.length >= 5) {
+        const recentPrimary = primaryCandles.slice(0, primaryTfConfig.candleCount).reverse();
+        const pipInfo = getCurrencyPipInfo(marketContext.symbol);
+
+        const primaryLines: string[] = recentPrimary.map((c, i) => {
+          const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
+          const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
+          const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
+          const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
+          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
+        });
+
+        let consecutiveSameDir = 1;
+        for (let i = recentPrimary.length - 2; i >= 0; i--) {
+          const prevDir = recentPrimary[i].close > recentPrimary[i].open ? 'UP' : 'DN';
+          const lastDir = recentPrimary[recentPrimary.length - 1].close > recentPrimary[recentPrimary.length - 1].open ? 'UP' : 'DN';
+          if (prevDir === lastDir) consecutiveSameDir++;
+          else break;
+        }
+
+        const tfHigh = Math.max(...recentPrimary.map(c => c.high));
+        const tfLow = Math.min(...recentPrimary.map(c => c.low));
+        const tfRangePips = (tfHigh - tfLow) / pipInfo.pipValue;
+
+        const lastCandle = recentPrimary[recentPrimary.length - 1];
+        const lastBody = Math.abs(lastCandle.close - lastCandle.open) / pipInfo.pipValue;
+        const lastUpperWick = (lastCandle.high - Math.max(lastCandle.open, lastCandle.close)) / pipInfo.pipValue;
+        const lastLowerWick = (Math.min(lastCandle.open, lastCandle.close) - lastCandle.low) / pipInfo.pipValue;
+        const hasRejectionWick = lastUpperWick > lastBody * 1.5 || lastLowerWick > lastBody * 1.5;
+
+        primaryTfCandlePrompt = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${primaryTfConfig.label} PRIMARY TIMEFRAME CANDLES (${marketContext.symbol}) — ENTRY ADVISORY PRIMARY SIGNAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+THIS IS YOUR PRIMARY DATA for the entry_advisory verdict. Your trade lives on the ${primaryTfConfig.label} timeframe.
+Analyze these ${primaryTfConfig.label} candles FIRST before considering M1 micro-data.
+
+${primaryLines.join('\n')}
+
+${primaryTfConfig.label} STRUCTURE SUMMARY:
+- ${primaryTfConfig.label} Range: ${tfRangePips.toFixed(1)} pips (High: ${tfHigh.toFixed(pipInfo.decimalPlaces)}, Low: ${tfLow.toFixed(pipInfo.decimalPlaces)})
+- Consecutive same-direction ${primaryTfConfig.label} candles: ${consecutiveSameDir}
+- Last ${primaryTfConfig.label} candle: ${hasRejectionWick ? 'REJECTION WICK detected' : 'Normal candle'} (body: ${lastBody.toFixed(1)}p)
+- ${primaryTfConfig.label} Momentum: ${consecutiveSameDir >= 3 ? 'IMPULSIVE MOVE — ' + consecutiveSameDir + ' consecutive same-direction ' + primaryTfConfig.label + ' candles. Pullback is highly probable before continuation.' : consecutiveSameDir >= 2 ? 'Developing trend — 2 consecutive candles, monitor for continuation or pullback' : 'Mixed/consolidating — no impulsive leg detected'}
+
+PULLBACK ASSESSMENT RULE (${primaryTfConfig.label} TIMEFRAME):
+${consecutiveSameDir >= 3
+  ? `STRONG GUIDELINE: ${consecutiveSameDir} consecutive same-direction ${primaryTfConfig.label} candles detected. This is an impulsive ${primaryTfConfig.label} leg without pullback. A retracement is highly probable. Your entry_advisory verdict should be PULLBACK_EXPECTED unless you have exceptional evidence (breakaway gap, news catalyst) that no pullback will occur. A single M1 rejection wick does NOT override an impulsive ${primaryTfConfig.label} move.`
+  : `No impulsive ${primaryTfConfig.label} leg detected. Assess structural levels, VWAP distance, and EMA alignment to determine entry quality.`}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+        console.log(`[Alpha Coordinator] ${primaryTfConfig.label} Primary TF: ${recentPrimary.length} candles, ${consecutiveSameDir} consecutive same-dir, range ${tfRangePips.toFixed(1)} pips`);
+      }
+    } catch (error) {
+      console.warn(`[Alpha Coordinator] ${primaryTfConfig.label} primary TF candles unavailable (non-blocking):`, error instanceof Error ? error.message : 'Unknown');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // M1 MICRO PRICE ACTION CONTEXT (ALL STYLES - timing refinement)
+    // SSOT: MarketDataService is the single authority for candle data
+    // CCIP 2026-02-18: M1 is SECONDARY to the primary timeframe.
+    // Use M1 to refine entry timing WITHIN a primary-TF-confirmed zone.
+    // M1 signals alone do NOT override primary TF structure.
     // ═══════════════════════════════════════════════════════════════════
     let m1MicroContextPrompt = '';
     try {
@@ -1207,9 +1287,10 @@ IMPORTANT REMINDERS:
         m1MicroContextPrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-M1 MICRO PRICE ACTION (${marketContext.symbol}) - SNIPER ENTRY INTELLIGENCE
+M1 MICRO PRICE ACTION (${marketContext.symbol}) — TIMING REFINEMENT (SECONDARY)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-USE THIS DATA for your entry_advisory verdict. This shows the last ${recentM1.length} one-minute candles:
+Use M1 data to REFINE entry timing AFTER you have assessed the ${primaryTfConfig.label} structure above.
+M1 signals alone do NOT determine your entry_advisory verdict. The ${primaryTfConfig.label} timeframe is primary.
 
 ${m1Lines.join('\n')}
 
@@ -1219,9 +1300,9 @@ M1 MICRO SUMMARY:
 - Last M1 candle: ${hasRejectionWick ? 'REJECTION WICK detected (possible reversal/exhaustion)' : 'Normal candle'}
 - Momentum assessment: ${consecutiveSameDir >= 4 ? 'STRONG one-way momentum - retrace likely imminent' : consecutiveSameDir >= 3 ? 'Building momentum - watch for exhaustion' : 'Mixed/choppy - normal price action'}
 
-INTERPRETATION GUIDE:
-- ${consecutiveSameDir >= 3 ? 'WARNING: ' + consecutiveSameDir + ' consecutive same-direction M1 candles with no pullback. Price has moved impulsively and a retrace is highly probable.' : 'No impulsive run detected on M1.'}
-- ${hasRejectionWick ? 'REJECTION WICK on last M1 candle suggests sellers/buyers stepping in. This could be an exhaustion signal.' : ''}
+HIERARCHY REMINDER: A single M1 rejection wick does NOT override an impulsive ${primaryTfConfig.label} leg.
+If the ${primaryTfConfig.label} shows 3+ consecutive same-direction candles, the entry_advisory should be PULLBACK_EXPECTED
+regardless of what M1 shows — unless there is exceptional breakaway evidence.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         console.log(`[Alpha Coordinator] M1 Micro: ${recentM1.length} candles, ${consecutiveSameDir} consecutive same-dir, range ${m1RangePips.toFixed(1)} pips`);
@@ -1234,6 +1315,7 @@ INTERPRETATION GUIDE:
 ${styleIdentityPrompt}
 ${cachedThesisPrompt}
 ${m5ContextPrompt}
+${primaryTfCandlePrompt}
 ${m1MicroContextPrompt}
 
 🎯 CORE MANDATE (PROFESSIONAL SNIPER MODE)
