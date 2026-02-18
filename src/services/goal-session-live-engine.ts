@@ -1219,6 +1219,25 @@ class GoalSessionLiveEngine {
           rejectionReason
         });
 
+        // 💭 THOUGHT STREAM: Emit per-symbol reasoning before final decision
+        // Each candidate's Alpha reasoning is surfaced individually for transparency
+        try {
+          for (const [sym, dec] of filteredDecisions.entries()) {
+            if (dec?.reasoning) {
+              await alphaThoughtStream.emitSymbolReasoning(
+                activeSession,
+                config.userId,
+                sym,
+                dec.action || 'WAIT',
+                dec.confidence || 0,
+                dec.reasoning
+              );
+            }
+          }
+        } catch (error) {
+          logger.error(LogCategory.AI_TRADING, '[AlphaThoughts] Failed to emit per-symbol reasoning', { error });
+        }
+
         // 💭 THOUGHT STREAM: Emit final decision
         try {
           if (bestSymbolResult.selected && bestSymbolResult.symbol && bestSymbolResult.evaluation) {
@@ -1236,13 +1255,16 @@ class GoalSessionLiveEngine {
               }
             );
           } else {
+            const perSymbolSummary = Array.from(filteredDecisions.entries())
+              .map(([sym, dec]) => `${sym}: ${dec?.action || 'WAIT'} ${dec?.confidence || 0}% - ${dec?.reasoning || 'no reasoning'}`)
+              .join(' | ');
             await alphaThoughtStream.emitFinalDecision(
               activeSession,
               config.userId,
               {
                 selected: false,
                 symbol: null,
-                reasoning: rejectionReason || 'No quality setups found'
+                reasoning: perSymbolSummary || rejectionReason || 'No quality setups found'
               }
             );
           }

@@ -357,6 +357,31 @@ class AlphaThoughtStream {
   }
 
   /**
+   * Emit per-symbol reasoning during the comparison phase.
+   * Reuses the 'comparing' step type (already in DB constraint) to surface
+   * each candidate's individual Alpha reasoning before the final decision.
+   * Called once per evaluated symbol. SSOT: uses existing comparing step type.
+   */
+  async emitSymbolReasoning(
+    sessionId: string,
+    userId: string,
+    symbol: string,
+    action: string,
+    confidence: number,
+    reasoning: string
+  ): Promise<void> {
+    const actionLabel = action === 'BUY' ? 'BUY' : action === 'SELL' ? 'SELL' : 'WAIT';
+    const message = `${symbol} [${actionLabel} ${confidence}%]: ${reasoning}`;
+    await this.emitThought(sessionId, userId, 'comparing', message, {
+      symbol,
+      action: actionLabel,
+      confidence,
+      reasoning,
+      per_symbol: true
+    });
+  }
+
+  /**
    * Emit final decision thought
    * Example: "EURUSD selected - highest confidence entry at 1.12345"
    */

@@ -938,11 +938,7 @@ export const GoalSessionDashboard: React.FC = () => {
       const isLong = trade.direction === 'buy';
       const currentPrice = isLong ? livePrice.bid : livePrice.ask;
       if (entryPrice <= 0) return trade.current_pnl || 0;
-      const pipDist = isLong
-        ? calculatePipDistance(trade.symbol, entryPrice, currentPrice)
-        : calculatePipDistance(trade.symbol, currentPrice, entryPrice);
-      const dollarPerPip = calculateDollarPerPip(trade.symbol, lotSize);
-      return pipDist * dollarPerPip;
+      return calculatePnL(trade.direction, entryPrice, currentPrice, lotSize, trade.symbol);
     }
     return trade.current_pnl || trade.profit_loss || 0;
   };
@@ -952,9 +948,7 @@ export const GoalSessionDashboard: React.FC = () => {
     const lotSize = trade.lot_size || trade.position_size || 0.01;
     const symbol = trade.symbol || '';
     if (entryPrice <= 0 || targetPrice <= 0 || !symbol) return 0;
-    const pipDist = calculatePipDistance(symbol, entryPrice, targetPrice);
-    const dollarPerPip = calculateDollarPerPip(symbol, lotSize);
-    return pipDist * dollarPerPip;
+    return calculatePnL(trade.direction, entryPrice, targetPrice, lotSize, symbol);
   };
 
   const getCurrentTradeTarget = (): number => {
@@ -1283,11 +1277,9 @@ export const GoalSessionDashboard: React.FC = () => {
                   ? (isLong ? livePrice.bid : livePrice.ask)
                   : (trade.current_price || trade.entry_price);
 
-                const pips = isLong
-                  ? calculatePipDistance(trade.symbol, trade.entry_price, currentPrice)
-                  : calculatePipDistance(trade.symbol, currentPrice, trade.entry_price);
-
                 const currentPnL = calculateCurrentPnL(trade);
+                const dollarPerPipValue = calculateDollarPerPip(trade.symbol, trade.lot_size || trade.position_size || 0.01);
+                const pips = dollarPerPipValue > 0 ? currentPnL / dollarPerPipValue : 0;
 
                 return (
                   <div key={trade.id} className="space-y-4">
