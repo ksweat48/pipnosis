@@ -214,25 +214,23 @@ async function processClosureEvent(
           .eq("goal_session_id", event.goal_session_id)
           .eq("status", "open");
 
-        // If no more open trades, consider transition
-        if (openTradeCount === 0 && session.status !== "goal_achieved") {
-          const targetStatus =
-            ["stop_loss", "take_profit", "take_profit_1", "take_profit_2"].includes(
-              event.close_reason
-            )
-              ? "scanning"
-              : "stopped";
+        // CCIP GOVERNANCE (2026-02-18): After all trades close, session MUST stop.
+        // Auto-restarting scanning after a trade closes is explicitly prohibited.
+        // Users must manually start a new session. No exceptions.
+        if (openTradeCount === 0 && session.status !== "goal_achieved" && session.status !== "user_stopped") {
+          await supabase
+            .from("goal_sessions")
+            .update({
+              status: "user_stopped",
+              completed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", event.goal_session_id)
+            .in("status", ["scanning", "active", "initializing", "in_trade", "trade_pending", "soft_closing"]);
 
-          if (session.status !== targetStatus) {
-            await supabase
-              .from("goal_sessions")
-              .update({ status: targetStatus, updated_at: new Date().toISOString() })
-              .eq("id", event.goal_session_id);
-
-            console.log(
-              `[process-trade-closures] Session transitioned: ${session.status} → ${targetStatus}`
-            );
-          }
+          console.log(
+            `[process-trade-closures] GOVERNANCE: Session ${event.goal_session_id} stopped after all trades closed (was: ${session.status})`
+          );
         }
       }
     } catch (sessionError) {

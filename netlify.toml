@@ -123,6 +123,16 @@
   timeout = 30
   schedule = "*/5 * * * *"
 
+# CCIP FIX (2026-02-18): Process Trade Closures Invoker (every minute)
+# Calls process-trade-closures Supabase Edge Function to batch-process pending
+# trade_closure_events. Guarantees post-trade processing (notifications, session
+# state, journal entries) within 60s even when browser is offline.
+# Previously: edge function was orphaned with no invoker. Now wired.
+# SSOT: process-trade-closures edge function is the sole batch processor.
+[functions."process-trade-closures-invoker"]
+  timeout = 30
+  schedule = "* * * * *"
+
 # 📊 COMPREHENSIVE BACKFILL: Backfill all timeframes for new currency pairs
 [functions."backfill-all-timeframes-new-pairs"]
   timeout = 900
