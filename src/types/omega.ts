@@ -2,7 +2,6 @@
  * Type definitions for Omega specialist modules
  */
 
-import type { SafetyZone, SafetyEvaluation } from '../config/alpha-safety-zones';
 import type { OmegaVote } from './omega-vote';
 export type { OmegaVote };
 
@@ -30,8 +29,6 @@ export interface Omega9ValidationResult {
   confidence_adjustment: number;
   corrections: Omega9Corrections;
   reasoning: string;
-  safety_zone?: SafetyZone;
-  safety_evaluation?: SafetyEvaluation;
   constraintViolations?: Omega9ConstraintViolation[];
 }
 

@@ -1819,13 +1819,11 @@ ${tradeStyle === 'SCALP' ? `{
         const finalStopQuality = this.calculateStopQualityScore(votes.omega8, validation);
         console.log(`[Alpha Coordinator] 🛡️ Final Stop Quality: ${finalStopQuality.score}/100`);
 
-        // Check for RED ZONE hard block - CANNOT BE OVERRIDDEN
-        if (validation.safety_zone === 'RED' && !validation.pass) {
+        // Omega-9 hard block - CANNOT BE OVERRIDDEN
+        if (!validation.pass) {
           console.log('[Alpha Coordinator] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          console.log('[Alpha Coordinator] 🚨 OMEGA-9 RED ZONE HARD BLOCK');
-          console.log('[Alpha Coordinator] ❌ Alpha\'s decision was BLOCKED by Omega-9');
-          console.log(`[Alpha Coordinator] ❌ Reason: ${validation.reasoning}`);
-          console.log('[Alpha Coordinator] ❌ This trade violates mathematical survival limits');
+          console.log('[Alpha Coordinator] OMEGA-9 HARD BLOCK');
+          console.log(`[Alpha Coordinator] Reason: ${validation.reasoning}`);
           console.log('[Alpha Coordinator] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
           return {
             action: 'NO_TRADE',
@@ -1834,7 +1832,7 @@ ${tradeStyle === 'SCALP' ? `{
             stopLoss: marketContext.price,
             takeProfit: marketContext.price,
             confidence: 0,
-            reasoning: `🚨 OMEGA-9 VETO (RED ZONE): ${validation.reasoning}. Alpha's decision blocked due to mathematical survival violation.`,
+            reasoning: `OMEGA-9 VETO: ${validation.reasoning}. Alpha's decision blocked due to mathematical survival violation.`,
             omega_summary: decision.omega_summary,
             omega8_liquidity_bias: decision.omega8_liquidity_bias,
             omega8_direction_support: decision.omega8_direction_support,
@@ -1842,18 +1840,6 @@ ${tradeStyle === 'SCALP' ? `{
           };
         }
 
-        // Non-RED failures: log for telemetry but do NOT block or modify
-        if (!validation.pass) {
-          console.warn(`[Alpha Coordinator] Omega-9 non-RED failure (advisory): ${validation.reasoning}`);
-        }
-
-        // Log safety zone for telemetry (no modifications to Alpha's decision)
-        if (validation.safety_zone) {
-          console.log(`[Alpha Coordinator] Omega-9 safety zone: ${validation.safety_zone} | Score: ${validation.safety_evaluation?.safety_score || 0}/100`);
-        }
-
-        // No SL/TP corrections applied - Alpha's values are final
-        // No confidence adjustments - Alpha's confidence is final
         console.log('[Alpha Coordinator] Omega-9 validation complete (catastrophic-only enforcement)');
       }
 

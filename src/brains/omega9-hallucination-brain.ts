@@ -12,7 +12,6 @@
  * - Zero distance (SL or TP at entry)
  * - Stop inside spread (impossible to survive)
  * - R:R below catastrophic threshold
- * - RED zone safety violations
  *
  * WHAT OMEGA-9 DOES NOT DO:
  * - No confidence adjustments
@@ -26,12 +25,9 @@
 
 import type { Omega9ValidationResult, OmegaVote } from '../types/omega';
 import type { AlphaDecision } from './coordinator-alpha';
-import { alphaSafetyZoneEvaluator, type TradeStyle } from '../config/alpha-safety-zones';
 import { calculatePipDistance } from '../utils/currencyHelpers';
-import { safeExtractATRValue, type ATRValue } from '../types/atr';
+import { type ATRValue } from '../types/atr';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
-import { getAssetClassEnvelopeBounds, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
-import { assetClassifier } from '../services/asset-classifier';
 
 export interface Omega9Input {
   alphaDecision: AlphaDecision;
@@ -82,9 +78,7 @@ class Omega9HallucinationBrain {
         flags: [],
         confidence_adjustment: 0,
         corrections: NO_CORRECTIONS,
-        reasoning: 'NO_TRADE requires no validation',
-        safety_zone: 'GREEN' as const,
-        safety_evaluation: undefined
+        reasoning: 'NO_TRADE requires no validation'
       };
     }
 
@@ -107,9 +101,7 @@ class Omega9HallucinationBrain {
         flags,
         confidence_adjustment: 0,
         corrections: NO_CORRECTIONS,
-        reasoning: `HARD BLOCK: Geometry error - ${flags.join(', ')}`,
-        safety_zone: 'RED' as const,
-        safety_evaluation: undefined
+        reasoning: `HARD BLOCK: Geometry error - ${flags.join(', ')}`
       };
     }
 
@@ -143,60 +135,14 @@ class Omega9HallucinationBrain {
       };
     }
 
-    const atrValue = safeExtractATRValue(marketContext.atr, 'Omega9.performLocalValidation');
-    const rawStyle = alphaDecision.resolvedStyle;
-    const safetyTradeStyle: TradeStyle = rawStyle === 'SCALP' ? 'SCALP'
-      : rawStyle === 'MICRO_INTRADAY' ? 'MICRO_INTRADAY'
-      : rawStyle === 'INTRADAY' ? 'INTRADAY'
-      : 'INTRADAY';
-
-    let envelopeMaxTP: number | undefined;
-    try {
-      const category = assetClassifier.getAssetCategory(marketContext.symbol);
-      const assetClass = category.toUpperCase() as EnvelopeAssetClass;
-      const bounds = getAssetClassEnvelopeBounds(safetyTradeStyle, assetClass, marketContext.symbol, marketContext.price);
-      envelopeMaxTP = bounds.tpPips.max;
-    } catch {
-      envelopeMaxTP = undefined;
-    }
-
-    const safetyEval = alphaSafetyZoneEvaluator.evaluateTrade({
-      rrRatio: rr,
-      tpDistancePips,
-      slDistancePips,
-      atr: atrValue,
-      symbol: marketContext.symbol,
-      estimatedDurationSeconds: 0,
-      tradeStyle: safetyTradeStyle,
-      envelopeMaxTPPips: envelopeMaxTP,
-    });
-
-    console.log(`[Omega-9] Safety Zone: ${safetyEval.zone} | Score: ${safetyEval.safety_score}/100 | R:R: ${rr.toFixed(3)}`);
-
-    if (safetyEval.zone === 'RED' && !safetyEval.can_proceed) {
-      safetyEval.violations.forEach(v => {
-        flags.push(`RED_ZONE_${v.violation_type.toUpperCase()}`);
-      });
-
-      return {
-        pass: false,
-        flags: ['SAFETY_RED_ZONE_HARD_BLOCK', ...flags],
-        confidence_adjustment: 0,
-        corrections: NO_CORRECTIONS,
-        reasoning: `RED ZONE HARD BLOCK: ${safetyEval.violations.map(v => v.message).join('; ')}`,
-        safety_zone: safetyEval.zone,
-        safety_evaluation: safetyEval
-      };
-    }
+    console.log(`[Omega-9] All catastrophic checks passed | R:R: ${rr.toFixed(3)} | SL: ${slDistancePips.toFixed(1)} pips | TP: ${tpDistancePips.toFixed(1)} pips`);
 
     return {
       pass: true,
       flags: [],
       confidence_adjustment: 0,
       corrections: NO_CORRECTIONS,
-      reasoning: safetyEval.zone === 'GREEN' ? 'All validations passed' : `${safetyEval.zone} zone (advisory only)`,
-      safety_zone: safetyEval.zone,
-      safety_evaluation: safetyEval
+      reasoning: 'All catastrophic validations passed'
     };
   }
 }

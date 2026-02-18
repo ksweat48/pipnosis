@@ -140,37 +140,6 @@ export const TRADE_CONSTRAINTS = {
     description: 'Session time management - SCALP constrained, INTRADAY advisory, SWING unconstrained. 24/7 markets (crypto) ALWAYS exempt.'
   },
 
-  safetyZones: {
-    GREEN: {
-      minRR: TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM,
-      minTpAtr: 5.0,
-      confidence: 'high',
-      description: 'Excellent setup quality'
-    },
-    YELLOW: {
-      minRR: TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM,
-      minTpAtr: 3.0,
-      confidence: 'medium',
-      description: 'Minimum acceptable setup quality'
-    },
-    ORANGE: {
-      minRR: TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM,
-      minTpAtr: 2.0,
-      requiresJustification: true,
-      confidence: 'low',
-      description: 'Marginal setup - requires explicit reasoning'
-    },
-    RED: {
-      minRR: TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM,
-      minTpAtr: 1.0,
-      requiresJustification: true,
-      confidence: 'very-low',
-      description: 'Critical quality warning - strongly requires Alpha justification'
-    },
-    authority: 'ADVISORY' as ConstraintAuthority,
-    description: 'Setup quality classification - provides context, does not block'
-  },
-
   goalFeasibility: {
     minSuccessRate: 0.15,     // 15% success rate for "realistic" (advisory)
     difficultyThresholds: {
@@ -292,30 +261,6 @@ export function getSessionConstraintMode(style: TradeStyle): 'ADVISORY' | 'NONE'
   return 'NONE';
 }
 
-/**
- * Get safety zone configuration
- */
-export function getSafetyZone(zone: 'GREEN' | 'YELLOW' | 'ORANGE' | 'RED') {
-  return TRADE_CONSTRAINTS.safetyZones[zone];
-}
-
-/**
- * Classify RR ratio into safety zone
- */
-export function classifyRRToZone(rrRatio: number, tpAtrMultiple: number): 'GREEN' | 'YELLOW' | 'ORANGE' | 'RED' {
-  const zones = TRADE_CONSTRAINTS.safetyZones;
-
-  if (rrRatio >= zones.GREEN.minRR && tpAtrMultiple >= zones.GREEN.minTpAtr) {
-    return 'GREEN';
-  }
-  if (rrRatio >= zones.YELLOW.minRR && tpAtrMultiple >= zones.YELLOW.minTpAtr) {
-    return 'YELLOW';
-  }
-  if (rrRatio >= zones.ORANGE.minRR && tpAtrMultiple >= zones.ORANGE.minTpAtr) {
-    return 'ORANGE';
-  }
-  return 'RED';
-}
 
 /**
  * Get confidence penalty cap for risk profile
