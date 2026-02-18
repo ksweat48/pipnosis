@@ -282,44 +282,50 @@ export class TradeClosureEventProcessor {
 
   /**
    * Evaluate session state after closure
-   * Checks if session should transition (e.g., from active to scanning or stopped)
+   * GOVERNANCE (2026-02-18): When last trade closes, session MUST stop immediately.
+   * No auto-scanning. User must manually start a new session.
    */
   private async evaluateSessionState(event: TradeClosureEvent): Promise<void> {
     const { data: session } = await supabase
       .from('goal_sessions')
       .select('id, status')
       .eq('id', event.goal_session_id)
-      .single();
+      .maybeSingle();
 
     if (!session) {
       logger.warn('[TradeClosureEventProcessor] Session not found', { sessionId: event.goal_session_id });
       return;
     }
 
-    // Count remaining open resources
+    if (session.status === 'goal_achieved' || session.status === 'stopped' || session.status === 'user_stopped' || session.status === 'timeout') {
+      return;
+    }
+
     const { count: openTradeCount } = await supabase
       .from('goal_session_trades')
       .select('id', { count: 'exact' })
       .eq('goal_session_id', event.goal_session_id)
       .eq('status', 'open');
 
-    // If no more open trades, consider session state transition
-    if (openTradeCount === 0) {
-      // Determine target state based on close reason
-      let targetStatus = 'stopped';
-      if (['stop_loss', 'take_profit', 'take_profit_1', 'take_profit_2'].includes(event.close_reason)) {
-        targetStatus = 'scanning'; // Resume scanning after system closure
-      }
+    const { count: activeIntentCount } = await supabase
+      .from('entry_intents')
+      .select('id', { count: 'exact' })
+      .eq('session_id', event.goal_session_id)
+      .in('status', ['monitoring', 'pending', 'active']);
 
-      // Perform transition if needed
-      if (session.status !== targetStatus && session.status !== 'goal_achieved') {
-        await goalSessionStateMachine.transition(event.goal_session_id, targetStatus);
-        logger.info('[TradeClosureEventProcessor] Session transitioned', {
-          sessionId: event.goal_session_id,
-          from: session.status,
-          to: targetStatus,
-        });
-      }
+    if (openTradeCount === 0 && activeIntentCount === 0) {
+      await supabase
+        .from('entry_intents')
+        .update({ status: 'canceled', canceled_at: new Date().toISOString(), conditions_changed_at: new Date().toISOString() })
+        .eq('session_id', event.goal_session_id)
+        .not('status', 'in', '("canceled","expired_no_entry")');
+
+      await goalSessionStateMachine.transition(event.goal_session_id, 'stopped');
+      logger.info('[TradeClosureEventProcessor] Session stopped after last trade closed', {
+        sessionId: event.goal_session_id,
+        from: session.status,
+        closeReason: event.close_reason,
+      });
     }
   }
 

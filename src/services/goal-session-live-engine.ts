@@ -3106,31 +3106,54 @@ Your decision keeps you in control of your risk and prevents runaway trading.
   }
 
   /**
-   * Close all open positions
+   * Force-close all open positions via RPC.
+   * GOVERNANCE (2026-02-18): When session stops, ALL trades must close immediately.
+   * Uses close_goal_session_trade RPC as SSOT -- does NOT depend on LLM outcome state.
    */
   private async closeAllPositions(reason: string): Promise<void> {
-    if (!this.config) {
+    if (!this.config || !this.activeSession) {
       return;
     }
 
-    // ✅ PHASE 2: Use MarketDataService as SSOT
-    const marketDataService = MarketDataService.getInstance();
-    const candles = await marketDataService.getCandles(
-      this.config.symbol,
-      this.config.timeframe.toLowerCase(),
-      1
-    );
+    const sessionId = this.activeSession;
 
-    if (!candles || candles.length === 0) {
+    const { data: dbOpenTrades } = await supabase
+      .from('goal_session_trades')
+      .select('id, symbol, current_price, entry_price')
+      .eq('goal_session_id', sessionId)
+      .eq('status', 'open');
+
+    if (!dbOpenTrades || dbOpenTrades.length === 0) {
+      this.openTrades = [];
       return;
     }
 
-    const latestCandle = candles[0];
+    for (const dbTrade of dbOpenTrades) {
+      try {
+        let closePrice = dbTrade.current_price;
 
-    for (const trade of this.openTrades) {
-      eventBasedLLMEngine.updateOpenTrades([trade], latestCandle);
-      if (trade.outcome !== 'open') {
-        await this.handleTradeClosure(trade);
+        if (!closePrice) {
+          const { data: priceData } = await supabase
+            .from('realtime_prices')
+            .select('bid')
+            .eq('symbol', dbTrade.symbol)
+            .order('timestamp', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          closePrice = priceData?.bid || dbTrade.entry_price;
+        }
+
+        await supabase.rpc('close_goal_session_trade', {
+          p_trade_id: dbTrade.id,
+          p_close_price: closePrice,
+          p_close_reason: 'session_ended',
+          p_goal_session_id: sessionId,
+          p_force_close: true,
+          p_closed_at: new Date().toISOString()
+        });
+      } catch (err) {
+        logger.error(LogCategory.AI_TRADING, `Failed to force-close trade ${dbTrade.id}`, { error: err });
       }
     }
 
