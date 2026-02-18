@@ -124,6 +124,7 @@ import { MarketDataService } from '../services/market-data-service';
 import { alphaGeometryValidator } from '../services/alpha-geometry-validator';
 import { getExecutionEnvelope, getAssetClassEnvelopeBounds, validateTPSLAgainstEnvelope, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
 import { TRADING_CONSTANTS, getMinRRForStyle, getMinTP1RRForStyle } from '../config/trading-constants';
+import { wallCalibrationEngine } from '../services/wall-calibration-engine';
 
 /**
  * Helper: Determine asset class from symbol
@@ -979,21 +980,62 @@ class AlphaCoordinatorBrain {
         'SCALP': 'scalper', 'MICRO_INTRADAY': 'micro', 'INTRADAY': 'intraday',
       };
 
-      dualArenaWalls = omega9ConstraintProvider.generateDualArenaWalls({
+      // CCIP (2026-02-18): Dynamic Wall Calibration
+      // Run BEFORE generateDualArenaWalls to adapt the ATR multiplier and TP floor
+      // to live market conditions. Walls breathe with the market instead of blocking
+      // Alpha when volatility compresses or session time shortens.
+      // SSOT: wallCalibrationEngine is the single authority for corridor adaptation.
+      const canonicalTradeStyle = STYLE_TO_TRADE_STYLE[tradeStyle] || 'scalper';
+      const wallCalibration = wallCalibrationEngine.calibrate({
         symbol: marketContext.symbol,
         entry: marketContext.price,
         atr: extractATRValue(marketContext.atr),
-        tradeStyle: STYLE_TO_TRADE_STYLE[tradeStyle] || 'scalper',
+        tradeStyle: canonicalTradeStyle,
         riskMode,
         currentSession: sessionContext.currentSession,
         sessionTimeRemainingMinutes: sessionContext.sessionTimeRemainingMinutes,
         volatilityRegime: marketContext.volatility as 'low' | 'medium' | 'high',
-        resolvedPlan: resolvedPlan ? {
-          slMinPercent: resolvedPlan.sl.minPercent,
-          tpMaxAtrMultiple: resolvedPlan.tp.maxAtrMultiple,
-          minRR: resolvedPlan.rr.min
-        } : undefined
+        userId: userId || undefined,
+        sessionId: sessionId || undefined,
       });
+
+      if (wallCalibration.wasCalibrated) {
+        console.log(`[Alpha Coordinator] [WallCalibration] ${marketContext.symbol}: ATR multiplier ${wallCalibration.originalAtrMultiple}x → ${wallCalibration.calibratedAtrMultiple}x (${wallCalibration.calibrationReason})`);
+      }
+
+      // Merge calibrated plan with any existing resolvedPlan.
+      // Precedence: resolvedPlan (from feasibility resolver) takes priority over
+      // calibration for tpMaxAtrMultiple — the feasibility resolver already did
+      // its own analysis. If no resolvedPlan exists, calibration provides the base.
+      const calibratedResolvedPlan = {
+        slMinPercent: resolvedPlan?.sl.minPercent,
+        tpMaxAtrMultiple: resolvedPlan?.tp.maxAtrMultiple ?? wallCalibration.calibratedResolvedPlan.tpMaxAtrMultiple,
+        minRR: resolvedPlan?.rr.min,
+      };
+
+      dualArenaWalls = omega9ConstraintProvider.generateDualArenaWalls({
+        symbol: marketContext.symbol,
+        entry: marketContext.price,
+        atr: extractATRValue(marketContext.atr),
+        tradeStyle: canonicalTradeStyle,
+        riskMode,
+        currentSession: sessionContext.currentSession,
+        sessionTimeRemainingMinutes: sessionContext.sessionTimeRemainingMinutes,
+        volatilityRegime: marketContext.volatility as 'low' | 'medium' | 'high',
+        resolvedPlan: calibratedResolvedPlan,
+      });
+
+      // Attach calibration metadata to the walls for downstream visibility
+      dualArenaWalls.wallCalibration = {
+        wasCalibrated: wallCalibration.wasCalibrated,
+        calibrationReason: wallCalibration.calibrationReason,
+        originalAtrMultiple: wallCalibration.originalAtrMultiple,
+        calibratedAtrMultiple: wallCalibration.calibratedAtrMultiple,
+        assetClass: wallCalibration.diagnostics.assetClass,
+        safetyCapApplied: wallCalibration.diagnostics.safetyCapApplied,
+        sessionExpansionApplied: wallCalibration.diagnostics.sessionExpansionApplied,
+        corridorWidthPips: wallCalibration.diagnostics.corridorWidthPips,
+      };
 
       if (correlationExposure) {
         dualArenaWalls.correlationExposure = correlationExposure;
@@ -1012,11 +1054,7 @@ class AlphaCoordinatorBrain {
         sessionTimeRemainingMinutes: sessionContext.sessionTimeRemainingMinutes,
         volatilityRegime: marketContext.volatility as 'low' | 'medium' | 'high',
         proposedStopLoss: buyStopAnchor?.stopLossPrice,
-        resolvedPlan: resolvedPlan ? {
-          slMinPercent: resolvedPlan.sl.minPercent,
-          tpMaxAtrMultiple: resolvedPlan.tp.maxAtrMultiple,
-          minRR: resolvedPlan.rr.min
-        } : undefined
+        resolvedPlan: calibratedResolvedPlan,
       });
     }
 

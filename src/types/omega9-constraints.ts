@@ -124,6 +124,17 @@ export interface ArenaWalls {
   feasibilityAdvisory: string | null;
 }
 
+export interface WallCalibrationMeta {
+  wasCalibrated: boolean;
+  calibrationReason: string;
+  originalAtrMultiple: number;
+  calibratedAtrMultiple: number;
+  assetClass: string;
+  safetyCapApplied: boolean;
+  sessionExpansionApplied: boolean;
+  corridorWidthPips: number;
+}
+
 export interface DualArenaWalls {
   symbol: string;
   entryPrice: number;
@@ -149,6 +160,8 @@ export interface DualArenaWalls {
   } | null;
 
   violations: ConstraintViolation[];
+
+  wallCalibration?: WallCalibrationMeta;
 }
 
 export interface DualArenaInput {

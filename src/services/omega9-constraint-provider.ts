@@ -816,6 +816,21 @@ Core Principle: If the market can offer some profit, you should take it.
       sections.push(`  (Derived from: SL wall min * ${minTP1RR.toFixed(1)} R:R. Alpha MUST place TP1 at or beyond this distance.)`);
     }
     sections.push('  Both TP1 and TP2 must be within the TP Wall range. Violations are auto-blocked.');
+    if (walls.wallCalibration?.wasCalibrated) {
+      const cal = walls.wallCalibration;
+      sections.push('');
+      sections.push('WALL CALIBRATION ACTIVE:');
+      sections.push(`  ATR multiplier: ${cal.originalAtrMultiple}x → ${cal.calibratedAtrMultiple}x (${cal.calibrationReason.replace(/_/g, ' ')})`);
+      if (cal.safetyCapApplied) {
+        sections.push(`  Safety cap applied: ${cal.assetClass} max ceiling enforced`);
+      }
+      if (cal.sessionExpansionApplied) {
+        sections.push('  Session time expansion active: corridor widened for short session window');
+      }
+      sections.push(`  Corridor width: ${cal.corridorWidthPips.toFixed(1)} pips available`);
+      sections.push('  Walls have been ADAPTED to current market conditions. Trade normally within the adjusted walls.');
+    }
+
     sections.push('');
     sections.push('WALLS ARE PHYSICS. Choose LONG, SHORT, or NO_TRADE. Place SL/TP within the chosen arena.');
 
