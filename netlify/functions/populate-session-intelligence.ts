@@ -153,6 +153,10 @@ export const handler: Handler = async (event) => {
       direction: pair.direction ?? 'buy',
       constraintFeasible: pair.constraintFeasible ?? true,
       constraintWarning: pair.constraintWarning,
+      scalpSubMode: pair.scalpSubMode,
+      scalpPattern: pair.scalpPattern,
+      momentumPhase: pair.momentumPhase,
+      atrTraveled: pair.atrTraveled,
     });
 
     const bestPairs = highConfidencePairs.map((pair) => formatPairData(pair, 'ready'));
