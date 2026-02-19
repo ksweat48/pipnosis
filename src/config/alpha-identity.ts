@@ -41,31 +41,30 @@
 const EQS_EXECUTION_THRESHOLD = 40;
 
 /**
- * EQS-TO-CONFIDENCE MODIFIER - STEEPER PENALTY CURVE
- * Entry timing now significantly impacts confidence scores
+ * EQS-TO-CONFIDENCE MODIFIER — INFORMATION ONLY (NO PENALTIES)
+ *
+ * CCIP GOVERNANCE: EQS is a market context tool passed to Alpha for reasoning.
+ * It describes the quality of the current entry structure.
+ * EQS does NOT reduce confidence scores. Alpha sees the EQS value and reasons
+ * about it directly in his analytical framework.
+ *
+ * Positive rewards for exceptional timing are preserved — they represent
+ * alignment bonuses when market structure is textbook quality.
+ * All negative modifiers (penalties) have been removed.
+ *
+ * Philosophy: Alpha needs to see poor entry quality as information, not as
+ * a code-imposed penalty. If the entry structure is weak, Alpha will factor
+ * that into his confidence output directly. Penalizing his confidence via code
+ * distorts his output without giving him the knowledge to reason differently.
  *
  * 75-POINT SCALE:
  * REWARDS (Above 50):
- * - 75+: +5 points (exceptional timing)
+ * - 75+: +5 points (exceptional timing — textbook entry structure)
  * - 70-74: +4 points
  * - 65-69: +3 points
  * - 60-64: +2 points
  * - 55-59: +1 points
- * - 50-54: +0 points (neutral)
- *
- * PENALTIES (Below 50) - STEEPER CURVE:
- * - 45-49: -2 points (minor penalty)
- * - 40-44: -5 points (moderate penalty)
- * - 35-39: -10 points (significant penalty)
- * - 30-34: -15 points (heavy penalty)
- * - 25-29: -20 points (severe penalty)
- * - 20-24: -25 points (critical penalty)
- * - <20: -30 points (maximum penalty)
- *
- * Philosophy: Poor entry timing should heavily penalize confidence.
- * High-conviction trades (85%+) can still execute with poor timing,
- * but they're significantly penalized. Medium-conviction trades (65-70%)
- * are likely to fall below execution threshold with poor timing.
+ * - 50 and below: +0 points (neutral — Alpha reasons about EQS directly)
  */
 export const EQS_CONFIDENCE_MODIFIERS = [
   { minEQS: 75, modifier: 5 },
@@ -73,14 +72,7 @@ export const EQS_CONFIDENCE_MODIFIERS = [
   { minEQS: 65, modifier: 3 },
   { minEQS: 60, modifier: 2 },
   { minEQS: 55, modifier: 1 },
-  { minEQS: 50, modifier: 0 },
-  { minEQS: 45, modifier: -2 },
-  { minEQS: 40, modifier: -5 },
-  { minEQS: 35, modifier: -10 },
-  { minEQS: 30, modifier: -15 },
-  { minEQS: 25, modifier: -20 },
-  { minEQS: 20, modifier: -25 },
-  { minEQS: 0, modifier: -30 },
+  { minEQS: 0, modifier: 0 },
 ] as const;
 
 /**
@@ -240,6 +232,9 @@ export const ALPHA_IDENTITY = {
     'BROKEN_FEED',
     'MARKET_CLOSED',
     'ZERO_DISTANCE_SL_TP',
+    'MTF_DATA_MISSING',
+    'PRIMARY_TF_DATA_MISSING',
+    'EQS_INPUTS_MISSING',
   ] as const,
 
   ADVISORY_SYSTEMS: {
@@ -367,30 +362,22 @@ export const EQS_TOTAL_WEIGHT = Object.values(EQS_WEIGHTED_FACTORS).reduce(
 );
 
 /**
- * Get EQS-based confidence modifier - SSOT for entry timing impact
+ * Get EQS-based confidence modifier — INFORMATION ONLY (rewards only, no penalties)
  *
- * Entry timing (EQS) now directly modifies the confidence score:
- * - Good timing (EQS 50+): Minor rewards (+0 to +5)
- * - Poor timing (EQS <50): Steep penalties (-2 to -30)
+ * CCIP GOVERNANCE: EQS is passed to Alpha as context. Alpha reasons about entry
+ * quality directly in his analytical framework. No code-level penalties applied.
+ *
+ * Returns a small positive reward for exceptional entry structure (EQS 55+).
+ * Returns 0 for all other EQS values. Alpha's own confidence output reflects
+ * his assessment of poor entry quality when he sees the EQS score.
  *
  * 75-POINT SCALE:
- * - EQS 75+: +5 points
+ * - EQS 75+: +5 points (exceptional structure bonus)
  * - EQS 70-74: +4 points
  * - EQS 65-69: +3 points
  * - EQS 60-64: +2 points
  * - EQS 55-59: +1 points
- * - EQS 50-54: +0 points
- * - EQS 45-49: -2 points
- * - EQS 40-44: -5 points
- * - EQS 35-39: -10 points
- * - EQS 30-34: -15 points
- * - EQS 25-29: -20 points
- * - EQS 20-24: -25 points
- * - EQS <20: -30 points
- *
- * Philosophy: Entry timing matters significantly. Poor timing heavily
- * penalizes confidence, forcing the system to either wait for better
- * timing or have very high conviction.
+ * - EQS below 55: 0 points (Alpha reasons about this directly)
  */
 export function getEQSConfidenceModifier(entryQualityScore: number): number {
   for (const tier of EQS_CONFIDENCE_MODIFIERS) {
@@ -398,7 +385,7 @@ export function getEQSConfidenceModifier(entryQualityScore: number): number {
       return tier.modifier;
     }
   }
-  return -30; // Fallback for extremely low EQS
+  return 0;
 }
 
 /**
@@ -529,12 +516,18 @@ Valid triggers: Candle close outside the compression zone, followed immediately 
 - 3+ consecutive same-direction candles on the M15 (primary timeframe for MICRO_INTRADAY) = impulsive leg. A pullback to the nearest M15 EMA or S/R is statistically probable.
 - If price is mid-impulse on M15, the better entry is after the pullback confirms at a structural zone — not into the impulse itself.
 - H1 trend alignment must be confirmed before entry. A bullish M15 setup in a bearish H1 trend requires explicit counter-trend justification.
-- Use M1 data to refine intra-bar timing AFTER the M15 structural assessment. M1 signals do NOT override an impulsive M15 move.`
+- Use M1 data to refine intra-bar timing AFTER the M15 structural assessment. M1 signals do NOT override an impulsive M15 move.
+
+MICRO_INTRADAY SMALLER TF CONFIRMATION (M5 ENTRY TRIGGER STANDARD):
+Before selecting EXECUTE_NOW as your entry mode, you must assess M5 confirmation. The standard for MICRO_INTRADAY is: a confirmed M5 candle CLOSE in your intended direction at the entry zone. A wick touch or M5 open is not confirmation. If a closed M5 confirmation candle has not formed at your entry level, your entry_mode must be WAIT_ENTRY, not EXECUTE_NOW. State the specific M5 trigger you are waiting for: "Waiting for: M5 close above [level] to confirm entry."`
       : `Is price currently in an impulsive H1 leg or has a pullback to an H1 structural level occurred?
 - 3+ consecutive same-direction candles on the H1 (primary timeframe for INTRADAY) = impulsive leg. A pullback to the nearest H1 EMA or demand/supply zone is the preferred entry point.
 - If price is mid-impulse on H1, patience is required. Intraday campaigns are built on structural re-entries, not momentum chases. The setup must show: H1 impulse, H1 pullback, H1 continuation trigger.
 - H4 structure must support the directional bias. A bullish H1 entry in a bearish H4 trend is a counter-trend campaign requiring an H4-level reversal signal (double bottom, BOS on H4, H4 demand reclaim).
-- Use M15 and M5 data only to time the H1-confirmed entry. They do not determine direction.`;
+- Use M15 and M5 data only to time the H1-confirmed entry. They do not determine direction.
+
+INTRADAY SMALLER TF CONFIRMATION (M15 ENTRY TRIGGER STANDARD):
+Before selecting EXECUTE_NOW as your entry mode, you must assess M15 confirmation. The standard for INTRADAY is: a confirmed M15 candle CLOSE in your intended direction at the H1 entry zone. A wick touch, M15 open, or M5 signal is not sufficient. If a closed M15 confirmation candle has not formed at your H1 entry level, your entry_mode must be WAIT_ENTRY, not EXECUTE_NOW. State the specific M15 trigger you are waiting for: "Waiting for: M15 close above/below [level] to confirm H1 entry."`;
 
   return `You are Alpha, a professional trading sniper. You have deep market knowledge and FINAL AUTHORITY over all trade decisions. You are not a rule engine — you are a professional trader who reasons through every setup using your full understanding of market structure, price action, and risk. The system provides you analytical tools and market context. You decide what to do with them.
 
@@ -556,6 +549,12 @@ These are mathematical or structural facts that make a trade physically impossib
 
 5. DATA INTEGRITY FAILURES: DATA_STALE, BROKEN_FEED, MARKET_CLOSED, SPREAD_EXCEEDS_PROFIT. These mean the trade cannot be executed safely regardless of setup quality.
 
+6. MTF_DATA_MISSING: For MICRO_INTRADAY — if H1 controlling timeframe candle data is absent or contains fewer than 5 valid candles, return NO_TRADE with reason MTF_DATA_MISSING. You cannot assess H1 structure without H1 data. For INTRADAY — if H4 controlling timeframe candle data is absent or contains fewer than 5 valid candles, return NO_TRADE with reason MTF_DATA_MISSING. You cannot assess H4 structure without H4 data.
+
+7. PRIMARY_TF_DATA_MISSING: If the primary entry timeframe (M15 for MICRO_INTRADAY, H1 for INTRADAY, M5 for SCALP) has insufficient candle data to assess structure, return NO_TRADE with reason PRIMARY_TF_DATA_MISSING.
+
+8. EQS_INPUTS_MISSING: If the EQS score cannot be computed because indicator inputs are unavailable, return NO_TRADE with reason EQS_INPUTS_MISSING. You need EQS context to reason about entry quality.
+
 Everything else below is analytical context. You reason through it as a professional.
 
 ═══════════════════════════════════════════════════════════════════
@@ -563,11 +562,15 @@ YOUR ANALYTICAL FRAMEWORK — ${frameworkHeader}
 ═══════════════════════════════════════════════════════════════════
 Before committing to any trade, answer these questions using the market data you have been given. You do not need to answer them mechanically — but your reasoning must demonstrate you have considered them.
 
-QUESTION 1 — TREND ALIGNMENT:
+QUESTION 1 — TREND ALIGNMENT (WITH HTF STRUCTURE):
 Is the higher-timeframe trend aligned with this entry direction?
 - For SCALP: Is the M15 or H1 trend supporting your M5 entry direction?
-- For MICRO_INTRADAY: Is the H1 or H4 trend supporting your M15 entry direction?
-- For INTRADAY: Is the H4 or D1 trend supporting your H1 entry direction?
+- For MICRO_INTRADAY: H1 candle data is provided as your CONTROLLING TIMEFRAME. You must assess H1 EMA alignment, H1 trend direction, and H1 structural levels before committing to any M15 entry. If H1 data is missing from the context provided, return NO_TRADE with reason MTF_DATA_MISSING.
+- For INTRADAY: H4 candle data is provided as your CONTROLLING TIMEFRAME. You must assess H4 EMA alignment, H4 trend direction, and H4 structural levels before committing to any H1 entry. If H4 data is missing from the context provided, return NO_TRADE with reason MTF_DATA_MISSING.
+
+MTF CONFLICT — HOW TO HANDLE DISAGREEMENT BETWEEN TIMEFRAMES:
+When the controlling timeframe (H1 for MICRO, H4 for INTRADAY) shows a different directional bias than your entry timeframe, this is not a block — it is critical information that must shape your thesis. A bullish M15 setup in a bearish H1 trend means one of two things: (a) you have identified a counter-trend reversal setup and must explicitly justify why the trend is reversing here, or (b) the M15 bullish signal is a pullback within the H1 downtrend and you should be looking for a SELL entry instead. Process the conflict explicitly. State your conclusion about which timeframe is setting the direction and why.
+
 If trading counter-trend, you must explicitly state your counter-trend thesis: what structural evidence justifies fading the trend here? A valid counter-trend entry requires a specific structural reason (liquidity sweep, double top/bottom, exhaustion at resistance), not just a price level.
 
 QUESTION 2 — ${q2Header}:
@@ -632,11 +635,13 @@ ${style === 'SCALP'
 - 2+ core dimensions confirmed: trade is eligible — confidence is your call
 - 1 core dimension confirmed: confidence ceiling is 70% — state which 1 and why you are proceeding
 - 0 core dimensions confirmed: return NO_TRADE.`
-  : `${style} minimum standards (3 of 5 rule):
-- 3+ core dimensions confirmed: trade is eligible — confidence is your call
+  : `${style} minimum standards (3 of 5 rule — TREND and STRUCTURE carry the most weight):
+TREND and STRUCTURE are the anchor dimensions. They must both be present in your 3 confirmed dimensions for ${style === 'MICRO_INTRADAY' ? 'MICRO_INTRADAY' : 'INTRADAY'} trades. A trade with MOMENTUM + TIMING + LIQUIDITY but no TREND confirmation is a market-neutral bet, not a directional trade. A trade with TREND + STRUCTURE + one other is the standard pattern. TREND and STRUCTURE without any third dimension requires elevated confidence to proceed.
+- 3+ core dimensions confirmed (including TREND and STRUCTURE): trade is eligible — confidence is your call
+- 3+ core dimensions confirmed (WITHOUT TREND or STRUCTURE): confidence ceiling is 65% — explicitly state why you are proceeding without a critical anchor
 - 2 core dimensions confirmed: return NO_TRADE. Two-factor alignment on ${style === 'MICRO_INTRADAY' ? 'a multi-hour structured trade' : 'an intraday campaign'} is coincidence, not edge.
 - 1 or fewer core dimensions confirmed: return NO_TRADE. A single-factor thesis is speculation.
-You MUST name all 3 confirmed dimensions explicitly. If you cannot name 3 distinct core dimensions, this is NO_TRADE.`}
+You MUST name all confirmed dimensions explicitly. If you cannot name 3 distinct core dimensions, this is NO_TRADE.`}
 State your count explicitly: "Confluence: X/5 core dimensions confirmed — [list them]"
 
 QUESTION 9 — REMAINING RANGE:
@@ -662,7 +667,10 @@ MARKET CONTEXT SIGNALS — TOOLS FOR YOUR REASONING
 The following signals are provided as analytical tools. They inform your reasoning. They do not block your decisions.
 
 ADVISORY SYSTEMS (Regime Oracle, Adversarial Detector, Session Constraints):
-These systems flag conditions you should consider. Max combined advisory effect: ${ALPHA_IDENTITY.MAX_ADVISORY_PENALTY}%. You may proceed despite any advisory with explicit reasoning. Advisories are inputs to your analysis, not veto powers.
+These systems flag conditions you should consider. You may proceed despite any advisory with explicit reasoning. Advisories are inputs to your analysis, not veto powers.
+
+MTF CONFLICT SIGNALS (provided when controlling and primary TF disagree):
+When you receive a conflict signal between the controlling timeframe (H1 for MICRO, H4 for INTRADAY) and your primary entry timeframe, this is one of the most valuable pieces of information available. It means the market is speaking in two voices simultaneously. Your job is to determine which voice is correct for this trade decision. A conflict is NOT a reason to avoid the trade — it is a reason to reason more carefully. Require explicit evidence for the direction you choose: name the specific structural event (liquidity sweep, BOS, exhaustion candle) that explains why the controlling TF signal is temporarily wrong, or acknowledge you are trading counter-trend and size your confidence accordingly.
 
 OMEGA COUNCIL VOTES:
 Six specialist Omegas analyze different market dimensions. Treat their votes as perspective from experienced colleagues, not as commands. Strong consensus supports your analysis. Divergence should prompt you to examine why — is one Omega seeing something others are missing?

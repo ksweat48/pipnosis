@@ -78,8 +78,11 @@ class AdvisoryPenaltyAggregator {
     const cappedPenalty = Math.min(totalPenalty, this.MAX_TOTAL_PENALTY_PERCENT);
     const wasCapped = totalPenalty > this.MAX_TOTAL_PENALTY_PERCENT;
 
-    // Calculate final confidence (never below 0)
-    const finalConfidence = Math.max(0, originalConfidence - cappedPenalty);
+    // CCIP 2026-02-19: Penalties are logged for audit and monitoring only.
+    // Alpha's confidence is NOT reduced by advisory penalties.
+    // Alpha receives all advisory signals as context and reasons about them directly.
+    // This preserves Alpha's final authority principle: advisories inform, never block.
+    const finalConfidence = originalConfidence;
 
     const result: PenaltyResult = {
       originalConfidence,
@@ -91,19 +94,15 @@ class AdvisoryPenaltyAggregator {
     };
 
     if (wasCapped) {
-      result.capReason = `Total penalty ${totalPenalty.toFixed(1)}% exceeds governance cap of ${this.MAX_TOTAL_PENALTY_PERCENT}%. Alpha authority preserved.`;
+      result.capReason = `Advisory signals total ${totalPenalty.toFixed(1)}% (capped at ${this.MAX_TOTAL_PENALTY_PERCENT}% for audit). Not applied to confidence — Alpha reasons about advisories directly.`;
     }
 
-    // Log penalty application
-    console.log(`[Advisory Penalties] Original: ${originalConfidence}%`);
+    // Log for audit/monitoring — penalties are informational only
+    console.log(`[Advisory Penalties] Audit log — Original: ${originalConfidence}% (unchanged — penalties informational only)`);
     cappedPenalties.forEach(p => {
-      console.log(`  - ${p.source}: -${p.penaltyPercent}% (${p.reason})`);
+      console.log(`  - ${p.source}: advisory signal ${p.penaltyPercent.toFixed(1)}% (${p.reason}) [not applied]`);
     });
-    if (wasCapped) {
-      console.log(`  ⚠️ CAPPED: ${totalPenalty.toFixed(1)}% → ${cappedPenalty.toFixed(1)}%`);
-      console.log(`  🛡️ Governance guardrail active: Alpha authority preserved`);
-    }
-    console.log(`[Advisory Penalties] Final: ${finalConfidence.toFixed(1)}%`);
+    console.log(`[Advisory Penalties] Final: ${finalConfidence.toFixed(1)}% (advisory signals passed to Alpha as context)`);
 
     return result;
   }

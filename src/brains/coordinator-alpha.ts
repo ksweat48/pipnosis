@@ -1306,6 +1306,104 @@ ${consecutiveSameDir >= 3
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // HTF CONTROLLING TIMEFRAME CANDLES (MICRO_INTRADAY + INTRADAY ONLY)
+    // CCIP 2026-02-19: Controlling timeframe is the structural authority.
+    // MICRO_INTRADAY: H1 is the controlling TF (validates M15 entries)
+    // INTRADAY: H4 is the controlling TF (validates H1 entries)
+    // GOVERNANCE: Missing controlling TF data = hard NO_TRADE (MTF_DATA_MISSING)
+    // Alpha cannot reason about HTF structure without HTF data.
+    // ═══════════════════════════════════════════════════════════════════
+    const HTF_VALIDATION_MAP: Record<string, { timeframe: string; label: string; candleCount: number } | null> = {
+      'SCALP': null,
+      'MICRO_INTRADAY': { timeframe: 'H1', label: 'H1', candleCount: 10 },
+      'INTRADAY': { timeframe: 'H4', label: 'H4', candleCount: 8 },
+    };
+    const htfConfig = HTF_VALIDATION_MAP[styleName] ?? null;
+
+    let htfCandlePrompt = '';
+
+    if (htfConfig !== null) {
+      try {
+        const mds = MarketDataService.getInstance();
+        const htfCandles = await mds.getCandles(marketContext.symbol, htfConfig.timeframe, htfConfig.candleCount);
+
+        if (!htfCandles || htfCandles.length < 5) {
+          console.error(`[Alpha Coordinator] HTF_DATA_MISSING: ${htfConfig.label} candles unavailable for ${styleName}. Returning NO_TRADE.`);
+          return {
+            action: 'NO_TRADE',
+            decision: 'NO_TRADE',
+            entry: marketContext.price,
+            stopLoss: marketContext.price,
+            takeProfit: marketContext.price,
+            confidence: 0,
+            reasoning: `MTF_DATA_MISSING: ${htfConfig.label} controlling timeframe candle data is required for ${styleName} analysis but is unavailable. Cannot assess structural bias without ${htfConfig.label} context.`,
+          };
+        }
+
+        const recentHtf = htfCandles.slice(0, htfConfig.candleCount).reverse();
+        const pipInfo = getCurrencyPipInfo(marketContext.symbol);
+
+        const htfLines: string[] = recentHtf.map((c, i) => {
+          const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
+          const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
+          const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
+          const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
+          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
+        });
+
+        const htfHigh = Math.max(...recentHtf.map(c => c.high));
+        const htfLow = Math.min(...recentHtf.map(c => c.low));
+        const htfRangePips = (htfHigh - htfLow) / pipInfo.pipValue;
+
+        const lastHtfCandle = recentHtf[recentHtf.length - 1];
+        const prevHtfCandle = recentHtf.length >= 2 ? recentHtf[recentHtf.length - 2] : lastHtfCandle;
+        const htfTrendDir = lastHtfCandle.close > prevHtfCandle.close ? 'BULLISH' : lastHtfCandle.close < prevHtfCandle.close ? 'BEARISH' : 'NEUTRAL';
+
+        let htfConsecutive = 1;
+        for (let i = recentHtf.length - 2; i >= 0; i--) {
+          const prevDir = recentHtf[i].close > recentHtf[i].open ? 'UP' : 'DN';
+          const lastDir = lastHtfCandle.close > lastHtfCandle.open ? 'UP' : 'DN';
+          if (prevDir === lastDir) htfConsecutive++;
+          else break;
+        }
+
+        htfCandlePrompt = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${htfConfig.label} CONTROLLING TIMEFRAME CANDLES (${marketContext.symbol}) — STRUCTURAL AUTHORITY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+THIS IS YOUR STRUCTURAL CONTEXT for ${styleName} trades. The ${htfConfig.label} sets the directional bias.
+Your ${primaryTfConfig.label} entry must align with or have a justified counter-thesis to this ${htfConfig.label} structure.
+MANDATORY: Reference this ${htfConfig.label} data in your QUESTION 1 TREND ALIGNMENT answer.
+
+${htfLines.join('\n')}
+
+${htfConfig.label} STRUCTURAL SUMMARY:
+- ${htfConfig.label} Range (last ${htfConfig.candleCount} candles): ${htfRangePips.toFixed(1)} pips (High: ${htfHigh.toFixed(pipInfo.decimalPlaces)}, Low: ${htfLow.toFixed(pipInfo.decimalPlaces)})
+- ${htfConfig.label} Directional bias: ${htfTrendDir}
+- Consecutive same-direction ${htfConfig.label} candles: ${htfConsecutive}
+- ${htfConfig.label} Key resistance: ${htfHigh.toFixed(pipInfo.decimalPlaces)} | Key support: ${htfLow.toFixed(pipInfo.decimalPlaces)}
+
+${htfConfig.label} STRUCTURAL AUTHORITY RULE:
+${htfTrendDir === 'BULLISH' ? `${htfConfig.label} trend is BULLISH. ${primaryTfConfig.label} BUY entries have structural tailwind. ${primaryTfConfig.label} SELL entries are counter-trend — require explicit H${htfConfig.label === 'H1' ? '1' : '4'}-level reversal evidence.` : htfTrendDir === 'BEARISH' ? `${htfConfig.label} trend is BEARISH. ${primaryTfConfig.label} SELL entries have structural tailwind. ${primaryTfConfig.label} BUY entries are counter-trend — require explicit ${htfConfig.label}-level reversal evidence.` : `${htfConfig.label} is NEUTRAL/RANGING. Both directions require structural confirmation at the range boundaries.`}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+        console.log(`[Alpha Coordinator] ${htfConfig.label} Controlling TF: ${recentHtf.length} candles, bias ${htfTrendDir}, range ${htfRangePips.toFixed(1)} pips`);
+      } catch (error) {
+        console.error(`[Alpha Coordinator] HTF_DATA_MISSING: ${htfConfig.label} candles fetch failed for ${styleName}:`, error instanceof Error ? error.message : 'Unknown');
+        return {
+          action: 'NO_TRADE',
+          decision: 'NO_TRADE',
+          entry: marketContext.price,
+          stopLoss: marketContext.price,
+          takeProfit: marketContext.price,
+          confidence: 0,
+          reasoning: `MTF_DATA_MISSING: ${htfConfig.label} controlling timeframe data fetch failed for ${styleName}. Cannot proceed without structural context.`,
+        };
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // M1 MICRO PRICE ACTION CONTEXT (ALL STYLES - timing refinement)
     // SSOT: MarketDataService is the single authority for candle data
     // CCIP 2026-02-18: M1 is SECONDARY to the primary timeframe.
@@ -1468,6 +1566,7 @@ These fields are required for audit and mid-trade monitoring. Missing or null va
 ${cachedThesisPrompt}
 ${m5ContextPrompt}
 ${primaryTfCandlePrompt}
+${htfCandlePrompt}
 ${m1MicroContextPrompt}
 ${scalpIntelligencePrompt}
 
