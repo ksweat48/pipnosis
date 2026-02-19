@@ -13,12 +13,29 @@ import {
   Timer,
   Activity,
   MapPin,
+  Flame,
+  ArrowRight,
+  Layers,
 } from 'lucide-react';
 import { calculateSessionContext } from '@/utils/marketHours';
 
 type TradeStyle = 'scalp' | 'micro' | 'intraday';
 type TradeDirection = 'buy' | 'sell';
 type TimeQuality = 'prime' | 'good' | 'slow';
+
+type ScalpSubMode = 'momentum_continuation' | 'pullback_entry' | 'consolidation_breakout';
+type ScalpPattern =
+  | 'momentum_breakout'
+  | 'bos_retest'
+  | 'ema_rejection'
+  | 'double_bottom'
+  | 'double_top'
+  | 'range_breakout'
+  | 'liquidity_sweep'
+  | 'engulfing_at_structure'
+  | 'trend_pullback_ema'
+  | 'none';
+type MomentumPhase = 'starting' | 'developing' | 'exhausted';
 
 interface BestPair {
   symbol: string;
@@ -44,6 +61,10 @@ interface BestPair {
   direction?: TradeDirection;
   constraintFeasible?: boolean;
   constraintWarning?: string;
+  scalpSubMode?: ScalpSubMode;
+  scalpPattern?: ScalpPattern;
+  momentumPhase?: MomentumPhase;
+  atrTraveled?: number;
 }
 
 interface SessionData {
@@ -624,6 +645,43 @@ export const SessionIntelligenceMonitor: React.FC = () => {
   const heatingCount = getHeatingCount();
   const styleCounts = getStyleCounts();
 
+  const SCALP_PATTERN_LABELS: Record<NonNullable<ScalpPattern>, string> = {
+    momentum_breakout: 'Momentum Breakout',
+    bos_retest: 'BOS Retest',
+    ema_rejection: 'EMA Rejection',
+    double_bottom: 'Double Bottom',
+    double_top: 'Double Top',
+    range_breakout: 'Range Breakout',
+    liquidity_sweep: 'Liquidity Sweep',
+    engulfing_at_structure: 'Engulfing @ Structure',
+    trend_pullback_ema: 'Trend Pullback EMA',
+    none: 'Confluence',
+  };
+
+  const SCALP_SUBMODE_CONFIG: Record<ScalpSubMode, { label: string; color: string; bg: string; border: string; desc: string }> = {
+    momentum_continuation: {
+      label: 'Momentum',
+      color: 'text-orange-400',
+      bg: 'bg-orange-500/15',
+      border: 'border-orange-500/40',
+      desc: 'Enter with conviction — momentum is running',
+    },
+    pullback_entry: {
+      label: 'Pullback',
+      color: 'text-blue-400',
+      bg: 'bg-blue-500/15',
+      border: 'border-blue-500/40',
+      desc: 'Wait for pullback confirmation before entry',
+    },
+    consolidation_breakout: {
+      label: 'Breakout',
+      color: 'text-green-400',
+      bg: 'bg-green-500/15',
+      border: 'border-green-500/40',
+      desc: 'Breakout from compression — watch for clean close',
+    },
+  };
+
   const renderPairCard = (pair: BestPair) => {
     const style = resolveStyle(pair);
     const direction = resolveDirection(pair);
@@ -632,20 +690,40 @@ export const SessionIntelligenceMonitor: React.FC = () => {
     const confidence = pair.tradeConfidence ?? pair.confidence;
     const isBuy = direction === 'buy';
 
+    const isScalp = style === 'scalp';
+    const momentumPhase = pair.momentumPhase;
+    const scalpSubMode = pair.scalpSubMode;
+    const scalpPattern = pair.scalpPattern;
+    const subModeConfig = scalpSubMode ? SCALP_SUBMODE_CONFIG[scalpSubMode] : null;
+
+    const phaseGlowClass = isScalp && momentumPhase === 'starting'
+      ? 'shadow-[0_0_12px_rgba(251,191,36,0.25)]'
+      : '';
+
+    const confidenceColor = confidence >= 85
+      ? 'text-green-400'
+      : confidence >= 70
+        ? 'text-yellow-400'
+        : 'text-blue-400';
+
+    const confidenceIconColor = confidence >= 85
+      ? 'text-green-400'
+      : confidence >= 70
+        ? 'text-yellow-400'
+        : 'text-blue-400';
+
     return (
       <div
         key={`${pair.symbol}-${style}-${timeframe}`}
-        className={`relative rounded-xl p-4 border transition-all duration-300 hover:scale-[1.01] ${config.border} ${config.bg}`}
+        className={`relative rounded-xl p-4 border transition-all duration-300 hover:scale-[1.01] ${config.border} ${config.bg} ${phaseGlowClass}`}
       >
-        <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-xl bg-gradient-to-r opacity-60" style={{
-          backgroundImage: `linear-gradient(to right, var(--tw-gradient-stops))`,
-        }}>
+        <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-xl bg-gradient-to-r opacity-60">
           <div className={`h-full rounded-t-xl bg-gradient-to-r ${config.glow}`} />
         </div>
 
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div>
+            <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <p className="text-base font-bold text-white truncate">{pair.symbol}</p>
                 <div
@@ -655,15 +733,16 @@ export const SessionIntelligenceMonitor: React.FC = () => {
                       : 'bg-red-500/15 border-red-500/40 text-red-400'
                   }`}
                 >
-                  {isBuy ? (
-                    <TrendingUp className="w-3 h-3" />
-                  ) : (
-                    <TrendingDown className="w-3 h-3" />
-                  )}
+                  {isBuy ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
                   {isBuy ? 'Buy' : 'Sell'}
                 </div>
+                {isScalp && momentumPhase === 'starting' && (
+                  <span className="inline-flex items-center gap-0.5 animate-pulse" title="Momentum starting — prime scalp window">
+                    <Flame className="w-3.5 h-3.5 text-orange-400" />
+                  </span>
+                )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span
                   className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${config.badgeBg} ${config.badgeText}`}
                 >
@@ -679,16 +758,8 @@ export const SessionIntelligenceMonitor: React.FC = () => {
 
           <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-3">
             <div className="flex items-center gap-1.5">
-              <BarChart3 className={`w-4 h-4 ${confidence >= 85 ? 'text-green-400' : confidence >= 70 ? 'text-yellow-400' : 'text-blue-400'}`} />
-              <span
-                className={`text-lg font-bold ${
-                  confidence >= 85
-                    ? 'text-green-400'
-                    : confidence >= 70
-                      ? 'text-yellow-400'
-                      : 'text-blue-400'
-                }`}
-              >
+              <BarChart3 className={`w-4 h-4 ${confidenceIconColor}`} />
+              <span className={`text-lg font-bold ${confidenceColor}`}>
                 {confidence}%
               </span>
             </div>
@@ -699,6 +770,46 @@ export const SessionIntelligenceMonitor: React.FC = () => {
             )}
           </div>
         </div>
+
+        {isScalp && (scalpSubMode || momentumPhase) && (
+          <div className="flex items-center gap-2 mb-2.5 flex-wrap">
+            {scalpSubMode && subModeConfig && (
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold ${subModeConfig.bg} ${subModeConfig.border} ${subModeConfig.color}`}>
+                {scalpSubMode === 'momentum_continuation' && <Zap className="w-2.5 h-2.5" />}
+                {scalpSubMode === 'pullback_entry' && <ArrowRight className="w-2.5 h-2.5 rotate-90" />}
+                {scalpSubMode === 'consolidation_breakout' && <Layers className="w-2.5 h-2.5" />}
+                {subModeConfig.label}
+              </span>
+            )}
+            {scalpPattern && scalpPattern !== 'none' && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium bg-slate-700/50 border-slate-600/40 text-slate-300">
+                {SCALP_PATTERN_LABELS[scalpPattern]}
+              </span>
+            )}
+            {momentumPhase && (
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium ${
+                momentumPhase === 'starting'
+                  ? 'bg-green-500/15 border-green-500/40 text-green-400'
+                  : momentumPhase === 'developing'
+                    ? 'bg-yellow-500/15 border-yellow-500/40 text-yellow-400'
+                    : 'bg-red-500/15 border-red-500/40 text-red-400'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                  momentumPhase === 'starting'
+                    ? 'bg-green-400 animate-pulse'
+                    : momentumPhase === 'developing'
+                      ? 'bg-yellow-400'
+                      : 'bg-red-400'
+                }`} />
+                {momentumPhase === 'starting' ? 'Starting' : momentumPhase === 'developing' ? 'Developing' : 'Extended'}
+              </span>
+            )}
+          </div>
+        )}
+
+        {isScalp && scalpSubMode && subModeConfig && (
+          <p className="text-[10px] text-slate-500 mb-2 leading-tight">{subModeConfig.desc}</p>
+        )}
 
         {pair.indicatorAlignment && (
           <div className="flex flex-wrap gap-1 mb-2">

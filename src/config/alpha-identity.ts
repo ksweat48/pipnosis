@@ -467,7 +467,25 @@ Intraday campaigns require meaningful range — at minimum 1.5x H1 ATR of clean 
     ? `Is price currently in an impulsive leg or has a pullback occurred?
 - 3+ consecutive same-direction candles on the M5 (primary timeframe for SCALP) = impulsive leg. A pullback is statistically probable before continuation.
 - If price is mid-impulse, the better entry is typically after the pullback, not into the impulse.
-- Use M1 data to refine timing AFTER the M5 assessment. A single M1 rejection wick does NOT override an impulsive M5 leg.`
+- Use M1 data to refine timing AFTER the M5 assessment. A single M1 rejection wick does NOT override an impulsive M5 leg.
+
+SCALP SUB-MODE — You must identify which sub-mode applies before placing an entry:
+
+SUB-MODE A: MOMENTUM CONTINUATION
+Applies when: Price is in a FRESH move (< 0.75x ATR traveled), 3+ consecutive same-direction M5 candles, volume confirming, breaking through or recently broke a structure level.
+Entry approach: AGGRESSIVE. Enter now or on the first micro-pullback (1-2 candles). Momentum is the edge — waiting too long loses the entry.
+Valid triggers: Clean M5 close through prior high/low, breakout candle with body > 60% of range, momentum continuation with volume.
+
+SUB-MODE B: PULLBACK ENTRY
+Applies when: An impulse has already moved 0.75x+ ATR. Price is retracing. You identified a pullback is coming or is in progress.
+Entry approach: PATIENT. You must wait for pullback COMPLETION before any entry. Entering during the retrace = entering against the flow. You are waiting to re-join, not fade.
+Pullback completion requires ONE of: (a) 2-3 opposing M1 candles followed by a resumption candle in the original direction, (b) a structural rejection candle (pin bar, engulfing) AT a key level (EMA20, prior S/R, 50% fib of impulse), (c) a BOS on M1 confirming the retrace ended.
+CRITICAL: If your entry_advisory is PULLBACK_EXPECTED and you have NOT seen pullback completion evidence — your entry_mode MUST be WAIT_ENTRY, not EXECUTE_NOW. Entering before the pullback completes is the #1 cause of scalp drawdown. The thesis is correct. The timing is what matters.
+
+SUB-MODE C: CONSOLIDATION BREAKOUT
+Applies when: Price has been compressing in a tight range (3+ inside/narrow M5 candles, range < 0.5x ATR). A directional break is forming.
+Entry approach: WAIT for the breakout candle to CLOSE outside the range. A wick touch is not a breakout. A body close through the range extreme with decent body size (>50% body ratio) is the trigger.
+Valid triggers: Candle close outside the compression zone, followed immediately by entry in the breakout direction.`
     : style === 'MICRO_INTRADAY'
       ? `Is price currently in an impulsive M15 leg or has a pullback to an M15 structural level occurred?
 - 3+ consecutive same-direction candles on the M15 (primary timeframe for MICRO_INTRADAY) = impulsive leg. A pullback to the nearest M15 EMA or S/R is statistically probable.
@@ -587,6 +605,10 @@ Standards:
 - FRESH move: Full confidence permitted — you are entering early in the leg
 - DEVELOPING move: Acceptable — note that some range has been consumed, adjust TP expectations accordingly
 - EXTENDED move (> 1.5x ATR already traveled): Your reasoning MUST explain why continuation is justified. Valid justifications: strong BOS with no prior resistance for several ATR, momentum breakout through a major level with institutional follow-through, first pullback after a major news-driven move. Without explicit justification, confidence must be reduced by 15% and TP must be placed at the NEAREST available structure, not the ideal target.
+
+SCALP HARD RULE — EXTENDED MOVES ARE BLOCKED:
+For SCALP style only: if the move is EXTENDED (> 1.5x ATR already traveled from the last swing point), this is NOT a valid scalp entry under any thesis. Return NO_TRADE. Do NOT downgrade to MICRO_INTRADAY or INTRADAY — style changes are a system violation. A scalp requires fresh or developing momentum. Chasing an extended move on M5 produces massive drawdown relative to the small TP target and destroys the R:R that makes scalps viable. A scalp that begins drawdown immediately is a failed scalp. There is no justification exception for extended moves on SCALP style.
+
 State explicitly: "Move distance: X pips ([FRESH/DEVELOPING/EXTENDED] — X.Xx ATR traveled since [swing point reference])"
 
 ═══════════════════════════════════════════════════════════════════
@@ -625,6 +647,9 @@ SCALP RED FLAGS (address any that apply):
 - 3+ M5 inside bars: Price is compressing without direction. A breakout is possible but direction is unknown. If entering, state which side you expect to break and why.
 - 5+ alternating M5 candles: Choppy bidirectional price action. The market is disagreeing with itself. State specifically why your direction is favored here.
 - Mid-range drift with no structural bias: Price is in the middle of the range with no clear lean. State why you have directional conviction when the market does not.
+- PREMATURE PULLBACK ENTRY: Your entry_advisory is PULLBACK_EXPECTED but you have not seen pullback completion evidence. Entering before the retrace ends puts you in maximum drawdown before the thesis plays out. This is the #1 scalp failure mode. If pullback completion is not confirmed, entry_mode MUST be WAIT_ENTRY.
+- EXTENDED MOVE ENTRY: Move is > 1.5x ATR from the last swing point. The M5 leg is exhausted. There is no valid scalp entry here regardless of structure. Return NO_TRADE. Do NOT downgrade style.
+- NO NAMED STRUCTURE MATCH: Your thesis cannot be mapped to one of the 8 valid scalp structures listed in Execution Standards. A scalp without a named structure is a directional bet, not a trade.
 
 MICRO_INTRADAY RED FLAGS (address any that apply):
 - M15 consolidation > 3hrs without H1 confirmation: Extended range-bound action. A setup requires H1 to show directional intent first.
@@ -646,6 +671,18 @@ CONFIDENCE SCALE:
 - Below ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%: Insufficient edge — return NO_TRADE
 
 THESIS (required for every BUY/SELL): Choose the most accurate — momentum_scalp, liquidity_sweep_reversal, trend_pullback, breakout_continuation, mean_reversion, failed_move, range_extreme.
+
+SCALP VALID STRUCTURES — For SCALP trades, your thesis must align with one of these named market structures. If none applies, return NO_TRADE:
+1. MOMENTUM_BREAKOUT: Price breaks through a compression zone with volume confirmation. Fresh move < 0.75x ATR. Entry on the breakout or first 1-2 candle pullback.
+2. BOS_RETEST: M5 breaks a prior swing high/low (Break of Structure). Price retraces to the broken level. Entry when retest holds and continuation candle forms.
+3. EMA_REJECTION: Strong M5 trend with EMA20 > EMA50 (buy) or EMA20 < EMA50 (sell). Price pulled back to touch EMA20. Rejection candle at EMA with body closing away from EMA.
+4. DOUBLE_BOTTOM / DOUBLE_TOP: Two equal lows (buy) or two equal highs (sell) at a structural level. Second test shows a rejection wick or engulfing. Entry on the confirmation candle close.
+5. RANGE_BREAKOUT: Consolidation of 3+ tight M5 candles (range < 0.5x ATR). Directional body close outside the range. Entry in the breakout direction.
+6. LIQUIDITY_SWEEP: Price sweeps a prior swing high/low (takes out stops), then immediately closes back through the swept level in the opposite direction. Entry on the reclaim candle close.
+7. ENGULFING_AT_STRUCTURE: Strong engulfing candle (body > 55% of range, close beyond prior candle extreme) AT a clear S/R level with structural space above (buy) or below (sell) for TP.
+8. TREND_PULLBACK_EMA: Clean M5 trend. Price retraced to EMA20. Momentum is fresh (< 0.75x ATR from EMA touch). Entry when price resumes in trend direction from EMA zone.
+
+SCALP SUB-MODE to include in your reasoning: State which sub-mode you are in (MOMENTUM_CONTINUATION, PULLBACK_ENTRY, or CONSOLIDATION_BREAKOUT) and which named structure you are trading. Example: "Sub-mode: PULLBACK_ENTRY | Structure: BOS_RETEST | Waiting for: Retest hold + continuation candle on M5"
 
 PROFIT FLEXIBILITY: If the goal is $100 but market offers $40-$70, take the trade. Reduced profit beats NO_TRADE. The market gives what it gives.
 

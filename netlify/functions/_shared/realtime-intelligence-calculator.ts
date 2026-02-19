@@ -82,6 +82,20 @@ const STYLE_TO_ENVELOPE: Record<TradeStyle, string> = {
   intraday: 'INTRADAY',
 };
 
+export type ScalpSubMode = 'momentum_continuation' | 'pullback_entry' | 'consolidation_breakout';
+export type ScalpPattern =
+  | 'momentum_breakout'
+  | 'bos_retest'
+  | 'ema_rejection'
+  | 'double_bottom'
+  | 'double_top'
+  | 'range_breakout'
+  | 'liquidity_sweep'
+  | 'engulfing_at_structure'
+  | 'trend_pullback_ema'
+  | 'none';
+export type MomentumPhase = 'starting' | 'developing' | 'exhausted';
+
 export interface IntelligencePairResult {
   symbol: string;
   confidence: number;
@@ -95,6 +109,10 @@ export interface IntelligencePairResult {
   direction: TradeDirection;
   constraintFeasible: boolean;
   constraintWarning?: string;
+  scalpSubMode?: ScalpSubMode;
+  scalpPattern?: ScalpPattern;
+  momentumPhase?: MomentumPhase;
+  atrTraveled?: number;
 }
 
 interface Candle {
@@ -296,6 +314,10 @@ export class RealTimeIntelligenceCalculator {
       reasoning.push(`Style blocked by constraint geometry at current price (confidence capped from ${Math.round(confidence)}% to ${Math.round(adjustedConfidence)}%)`);
     }
 
+    const scalpAnalysis = style === 'scalp'
+      ? this.analyzeScalpOpportunity(candles, direction, currentPrice, pipInfo.pipValue)
+      : undefined;
+
     return {
       symbol,
       confidence: Math.round(adjustedConfidence),
@@ -309,7 +331,264 @@ export class RealTimeIntelligenceCalculator {
       direction,
       constraintFeasible,
       constraintWarning: sandwichCheck.advisory || undefined,
+      ...(scalpAnalysis ?? {}),
     };
+  }
+
+  private analyzeScalpOpportunity(
+    candles: Candle[],
+    direction: 'buy' | 'sell',
+    currentPrice: number,
+    pipValue: number
+  ): { scalpSubMode: ScalpSubMode; scalpPattern: ScalpPattern; momentumPhase: MomentumPhase; atrTraveled: number } {
+    const atr = this.calculateATR(candles, 14);
+    const momentumPhase = this.detectMomentumPhase(candles, atr, direction);
+    const scalpPattern = this.detectScalpPattern(candles, direction, atr, pipValue);
+    const scalpSubMode = this.detectScalpSubMode(candles, direction, momentumPhase);
+    const atrTraveled = this.calculateATRTraveled(candles, direction, atr);
+
+    return { scalpSubMode, scalpPattern, momentumPhase, atrTraveled };
+  }
+
+  private calculateATR(candles: Candle[], period: number): number {
+    if (candles.length < period + 1) return 0;
+    const recent = candles.slice(-(period + 1));
+    let sum = 0;
+    for (let i = 1; i < recent.length; i++) {
+      const tr = Math.max(
+        recent[i].high - recent[i].low,
+        Math.abs(recent[i].high - recent[i - 1].close),
+        Math.abs(recent[i].low - recent[i - 1].close)
+      );
+      sum += tr;
+    }
+    return sum / period;
+  }
+
+  private calculateATRTraveled(candles: Candle[], direction: 'buy' | 'sell', atr: number): number {
+    if (atr === 0 || candles.length < 10) return 0;
+    const recent = candles.slice(-10);
+    const swingLow = Math.min(...recent.map(c => c.low));
+    const swingHigh = Math.max(...recent.map(c => c.high));
+    const currentClose = candles[candles.length - 1].close;
+
+    if (direction === 'buy') {
+      const moveFromLow = currentClose - swingLow;
+      return moveFromLow / atr;
+    } else {
+      const moveFromHigh = swingHigh - currentClose;
+      return moveFromHigh / atr;
+    }
+  }
+
+  private detectMomentumPhase(candles: Candle[], atr: number, direction: 'buy' | 'sell'): MomentumPhase {
+    const atrTraveled = this.calculateATRTraveled(candles, direction, atr);
+
+    if (atrTraveled > 1.5) return 'exhausted';
+    if (atrTraveled > 0.75) return 'developing';
+    return 'starting';
+  }
+
+  private detectScalpSubMode(
+    candles: Candle[],
+    direction: 'buy' | 'sell',
+    momentumPhase: MomentumPhase
+  ): ScalpSubMode {
+    if (candles.length < 10) return 'momentum_continuation';
+
+    const recent5 = candles.slice(-5);
+    const recentBodies = recent5.map(c => ({ bullish: c.close > c.open, size: Math.abs(c.close - c.open) }));
+    const allSameDir = recentBodies.every(b => direction === 'buy' ? b.bullish : !b.bullish);
+
+    if (allSameDir && momentumPhase === 'starting') return 'momentum_continuation';
+
+    const isConsolidating = this.detectConsolidation(candles.slice(-6));
+    if (isConsolidating) return 'consolidation_breakout';
+
+    return 'pullback_entry';
+  }
+
+  private detectConsolidation(candles: Candle[]): boolean {
+    if (candles.length < 4) return false;
+    const highs = candles.map(c => c.high);
+    const lows = candles.map(c => c.low);
+    const rangeHigh = Math.max(...highs);
+    const rangeLow = Math.min(...lows);
+    const totalRange = rangeHigh - rangeLow;
+    const avgBodySize = candles.reduce((sum, c) => sum + Math.abs(c.close - c.open), 0) / candles.length;
+    return avgBodySize < totalRange * 0.25;
+  }
+
+  private detectScalpPattern(
+    candles: Candle[],
+    direction: 'buy' | 'sell',
+    atr: number,
+    pipValue: number
+  ): ScalpPattern {
+    if (candles.length < 20) return 'none';
+
+    if (this.isDoubleBottom(candles, direction)) return direction === 'buy' ? 'double_bottom' : 'double_top';
+    if (this.isBOSRetest(candles, direction)) return 'bos_retest';
+    if (this.isEMARejection(candles, direction)) return 'ema_rejection';
+    if (this.isLiquiditySweep(candles, direction)) return 'liquidity_sweep';
+    if (this.isRangeBreakout(candles, direction)) return 'range_breakout';
+    if (this.isEngulfingAtStructure(candles, direction)) return 'engulfing_at_structure';
+    if (this.isMomentumBreakout(candles, direction, atr)) return 'momentum_breakout';
+    if (this.isTrendPullbackEMA(candles, direction)) return 'trend_pullback_ema';
+
+    return 'none';
+  }
+
+  private isDoubleBottom(candles: Candle[], direction: 'buy' | 'sell'): boolean {
+    if (candles.length < 20) return false;
+    const recent = candles.slice(-20);
+    const tolerance = (Math.max(...recent.map(c => c.high)) - Math.min(...recent.map(c => c.low))) * 0.015;
+
+    if (direction === 'buy') {
+      const lows = recent.map((c, i) => ({ price: c.low, i }));
+      for (let i = 3; i < lows.length - 1; i++) {
+        for (let j = 0; j < i - 2; j++) {
+          if (Math.abs(lows[i].price - lows[j].price) <= tolerance) {
+            const midHigh = Math.max(...recent.slice(j, i).map(c => c.high));
+            if (midHigh > lows[i].price + tolerance * 3) return true;
+          }
+        }
+      }
+    } else {
+      const highs = recent.map((c, i) => ({ price: c.high, i }));
+      for (let i = 3; i < highs.length - 1; i++) {
+        for (let j = 0; j < i - 2; j++) {
+          if (Math.abs(highs[i].price - highs[j].price) <= tolerance) {
+            const midLow = Math.min(...recent.slice(j, i).map(c => c.low));
+            if (midLow < highs[i].price - tolerance * 3) return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  private isBOSRetest(candles: Candle[], direction: 'buy' | 'sell'): boolean {
+    if (candles.length < 15) return false;
+    const mid = candles.slice(-15, -5);
+    const recent = candles.slice(-5);
+    const current = candles[candles.length - 1];
+
+    if (direction === 'buy') {
+      const priorHigh = Math.max(...mid.map(c => c.high));
+      const brokePriorHigh = mid.some(c => c.close > priorHigh) ||
+        recent.some((c, i) => i < recent.length - 2 && c.close > priorHigh);
+      const retestingLevel = Math.abs(current.close - priorHigh) / priorHigh < 0.003;
+      return brokePriorHigh && retestingLevel;
+    } else {
+      const priorLow = Math.min(...mid.map(c => c.low));
+      const brokePriorLow = mid.some(c => c.close < priorLow) ||
+        recent.some((c, i) => i < recent.length - 2 && c.close < priorLow);
+      const retestingLevel = Math.abs(current.close - priorLow) / priorLow < 0.003;
+      return brokePriorLow && retestingLevel;
+    }
+  }
+
+  private isEMARejection(candles: Candle[], direction: 'buy' | 'sell'): boolean {
+    if (candles.length < 21) return false;
+    const ema20 = this.calculateEMA(candles, 20);
+    const current = candles[candles.length - 1];
+    const prev = candles[candles.length - 2];
+    const touchedEMA = Math.min(current.low, prev.low) <= ema20 * 1.001 &&
+      Math.max(current.high, prev.high) >= ema20 * 0.999;
+    const rejectedFromEMA = direction === 'buy'
+      ? current.close > ema20 && current.close > current.open
+      : current.close < ema20 && current.close < current.open;
+    return touchedEMA && rejectedFromEMA;
+  }
+
+  private isLiquiditySweep(candles: Candle[], direction: 'buy' | 'sell'): boolean {
+    if (candles.length < 10) return false;
+    const lookback = candles.slice(-10, -1);
+    const current = candles[candles.length - 1];
+
+    if (direction === 'buy') {
+      const priorLow = Math.min(...lookback.map(c => c.low));
+      const sweptLow = current.low < priorLow;
+      const reclaimedAbove = current.close > priorLow;
+      const strongClose = current.close > current.open;
+      return sweptLow && reclaimedAbove && strongClose;
+    } else {
+      const priorHigh = Math.max(...lookback.map(c => c.high));
+      const sweptHigh = current.high > priorHigh;
+      const reclaimedBelow = current.close < priorHigh;
+      const strongClose = current.close < current.open;
+      return sweptHigh && reclaimedBelow && strongClose;
+    }
+  }
+
+  private isRangeBreakout(candles: Candle[], direction: 'buy' | 'sell'): boolean {
+    if (candles.length < 12) return false;
+    const consolidation = candles.slice(-12, -3);
+    const breaking = candles.slice(-3);
+    const consolidationHigh = Math.max(...consolidation.map(c => c.high));
+    const consolidationLow = Math.min(...consolidation.map(c => c.low));
+    const consolidationRange = consolidationHigh - consolidationLow;
+    const avgBodySize = consolidation.reduce((sum, c) => sum + Math.abs(c.close - c.open), 0) / consolidation.length;
+    const isTight = avgBodySize < consolidationRange * 0.3;
+
+    if (direction === 'buy') {
+      return isTight && breaking.some(c => c.close > consolidationHigh);
+    } else {
+      return isTight && breaking.some(c => c.close < consolidationLow);
+    }
+  }
+
+  private isEngulfingAtStructure(candles: Candle[], direction: 'buy' | 'sell'): boolean {
+    if (candles.length < 10) return false;
+    const current = candles[candles.length - 1];
+    const prev = candles[candles.length - 2];
+    const body = Math.abs(current.close - current.open);
+    const range = current.high - current.low;
+    if (range === 0) return false;
+    const bodyRatio = body / range;
+
+    const isEngulfing = direction === 'buy'
+      ? current.close > current.open && current.close > prev.high && bodyRatio > 0.55
+      : current.close < current.open && current.close < prev.low && bodyRatio > 0.55;
+
+    const structureLookback = candles.slice(-15, -3);
+    const nearStructure = direction === 'buy'
+      ? Math.abs(current.low - Math.min(...structureLookback.map(c => c.low))) /
+        (Math.max(...structureLookback.map(c => c.high)) - Math.min(...structureLookback.map(c => c.low)) || 1) < 0.15
+      : Math.abs(current.high - Math.max(...structureLookback.map(c => c.high))) /
+        (Math.max(...structureLookback.map(c => c.high)) - Math.min(...structureLookback.map(c => c.low)) || 1) < 0.15;
+
+    return isEngulfing && nearStructure;
+  }
+
+  private isMomentumBreakout(candles: Candle[], direction: 'buy' | 'sell', atr: number): boolean {
+    if (candles.length < 8 || atr === 0) return false;
+    const recent3 = candles.slice(-3);
+    const allSameDir = direction === 'buy'
+      ? recent3.every(c => c.close > c.open)
+      : recent3.every(c => c.close < c.open);
+    const totalMove = direction === 'buy'
+      ? recent3[2].close - recent3[0].open
+      : recent3[0].open - recent3[2].close;
+    return allSameDir && totalMove > atr * 0.4;
+  }
+
+  private isTrendPullbackEMA(candles: Candle[], direction: 'buy' | 'sell'): boolean {
+    if (candles.length < 30) return false;
+    const ema20 = this.calculateEMA(candles, 20);
+    const ema50 = this.calculateEMA(candles, 50);
+    const trendAligned = direction === 'buy' ? ema20 > ema50 : ema20 < ema50;
+    if (!trendAligned) return false;
+
+    const recent = candles.slice(-8);
+    const touchedEMA = recent.some(c =>
+      direction === 'buy' ? c.low <= ema20 * 1.002 : c.high >= ema20 * 0.998
+    );
+    const currentAboveBelow = direction === 'buy'
+      ? candles[candles.length - 1].close > ema20
+      : candles[candles.length - 1].close < ema20;
+    return trendAligned && touchedEMA && currentAboveBelow;
   }
 
   private determineDirection(candles: Candle[]): 'buy' | 'sell' {

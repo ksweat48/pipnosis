@@ -1374,11 +1374,86 @@ regardless of what M1 shows — unless there is exceptional breakaway evidence.
       console.warn('[Alpha Coordinator] M1 micro context unavailable (non-blocking):', error instanceof Error ? error.message : 'Unknown');
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // SCALP INTELLIGENCE CONTEXT — Inject pre-detected scalp signals
+    // CCIP GOVERNANCE: This is advisory context only. Alpha has FINAL
+    // AUTHORITY to confirm, reject, or override these pre-detections.
+    // The intelligence monitor detected patterns using M5 candle data.
+    // Alpha may have additional context that changes the assessment.
+    // ═══════════════════════════════════════════════════════════════════
+    let scalpIntelligencePrompt = '';
+    if (getDisplayNameFromStyle(tradeStyle) === 'SCALP' && intelligenceSnapshot) {
+      try {
+        const scalpSignal = intelligenceSnapshot.bestPairs?.find(
+          (p: { symbol: string; tradeStyle?: string; scalpSubMode?: string; scalpPattern?: string; momentumPhase?: string; atrTraveled?: number }) =>
+            p.symbol === marketContext.symbol && p.tradeStyle === 'scalp'
+        ) ?? intelligenceSnapshot.topPairs?.find(
+          (p: { symbol: string; tradeStyle?: string; scalpSubMode?: string; scalpPattern?: string; momentumPhase?: string; atrTraveled?: number }) =>
+            p.symbol === marketContext.symbol && p.tradeStyle === 'scalp'
+        );
+
+        if (scalpSignal?.scalpSubMode) {
+          const subModeLabels: Record<string, string> = {
+            momentum_continuation: 'MOMENTUM CONTINUATION — fresh directional move, enter aggressively',
+            pullback_entry: 'PULLBACK ENTRY — impulse detected, wait for pullback completion before entry',
+            consolidation_breakout: 'CONSOLIDATION BREAKOUT — compression detected, wait for clean body close outside range',
+          };
+          const patternLabels: Record<string, string> = {
+            momentum_breakout: 'Momentum Breakout',
+            bos_retest: 'Break of Structure Retest',
+            ema_rejection: 'EMA Rejection',
+            double_bottom: 'Double Bottom',
+            double_top: 'Double Top',
+            range_breakout: 'Range Breakout',
+            liquidity_sweep: 'Liquidity Sweep Reversal',
+            engulfing_at_structure: 'Engulfing at Structure',
+            trend_pullback_ema: 'Trend Pullback to EMA',
+            none: 'No specific pattern — general confluence',
+          };
+          const phaseLabels: Record<string, string> = {
+            starting: 'STARTING (< 0.75x ATR traveled — FRESH, ideal scalp window)',
+            developing: 'DEVELOPING (0.75-1.5x ATR traveled — acceptable, watch for exhaustion)',
+            exhausted: 'EXHAUSTED (> 1.5x ATR traveled — BLOCKED, return NO_TRADE for SCALP)',
+          };
+
+          scalpIntelligencePrompt = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SCALP INTELLIGENCE PRE-DETECTION (${marketContext.symbol}) — ADVISORY ONLY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+The real-time intelligence monitor analyzed ${marketContext.symbol} M5 data and detected the following.
+These are advisory signals. YOU have final authority to confirm or reject this assessment.
+
+Sub-Mode Detected: ${subModeLabels[scalpSignal.scalpSubMode] ?? scalpSignal.scalpSubMode}
+Pattern Detected: ${patternLabels[scalpSignal.scalpPattern ?? 'none'] ?? scalpSignal.scalpPattern}
+Momentum Phase: ${phaseLabels[scalpSignal.momentumPhase ?? 'developing'] ?? scalpSignal.momentumPhase}
+ATR Traveled: ~${scalpSignal.atrTraveled?.toFixed(2) ?? 'unknown'}x ATR from last swing
+
+${scalpSignal.momentumPhase === 'exhausted'
+  ? `SCALP BLOCK: ATR traveled > 1.5x. Per SCALP Hard Rule in your framework, this move is EXTENDED. Return NO_TRADE. Do NOT downgrade style.`
+  : scalpSignal.scalpSubMode === 'pullback_entry'
+    ? `ENTRY DISCIPLINE REMINDER: This is a PULLBACK ENTRY setup. Do NOT enter during the retrace. Wait for pullback completion evidence before issuing EXECUTE_NOW. If pullback is not complete, use WAIT_ENTRY.`
+    : scalpSignal.scalpSubMode === 'consolidation_breakout'
+      ? `BREAKOUT DISCIPLINE REMINDER: This is a CONSOLIDATION BREAKOUT setup. Wait for a candle BODY close outside the compression range before entering. A wick touch is NOT a breakout.`
+      : `MOMENTUM ENTRY: Fresh directional move detected. Aggressive entry is appropriate. Enter on the breakout or within the first 1-2 candle pullback.`
+}
+
+Confirm or correct this pre-assessment using the M5 candle data above. State your sub-mode and structure in your reasoning.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+          console.log(`[Alpha Coordinator] Scalp intelligence: ${scalpSignal.scalpSubMode} | ${scalpSignal.scalpPattern} | ${scalpSignal.momentumPhase}`);
+        }
+      } catch (err) {
+        console.warn('[Alpha Coordinator] Scalp intelligence context unavailable (non-blocking):', err instanceof Error ? err.message : 'Unknown');
+      }
+    }
+
     const prompt = `${styleIdentityPrompt}
 ${cachedThesisPrompt}
 ${m5ContextPrompt}
 ${primaryTfCandlePrompt}
 ${m1MicroContextPrompt}
+${scalpIntelligencePrompt}
 
 PROFESSIONAL REASONING CONTRACT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
