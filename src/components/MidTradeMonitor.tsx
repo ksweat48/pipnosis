@@ -20,6 +20,10 @@ import { midTradeMonitorService, type MidTradeGuidance } from '@/services/mid-tr
 import { pricePollingCoordinator } from '@/services/price-polling-coordinator';
 import type { TrailingSLOptions } from '@/services/mid-trade-plan-engine';
 
+const cleanPrice = (price: number): string => {
+  return parseFloat(price.toPrecision(8)).toString();
+};
+
 const TrailingSLCard: React.FC<{
   options: TrailingSLOptions;
   symbol: string;
@@ -27,7 +31,7 @@ const TrailingSLCard: React.FC<{
   const [copied, setCopied] = useState<string | null>(null);
 
   const handleCopy = (price: number, key: string) => {
-    navigator.clipboard.writeText(String(price)).catch(() => {});
+    navigator.clipboard.writeText(cleanPrice(price)).catch(() => {});
     setCopied(key);
     setTimeout(() => setCopied(null), 1500);
   };
@@ -83,7 +87,7 @@ const TrailingSLCard: React.FC<{
 };
 
 const splitPrice = (price: number): { integer: string; decimal: string } => {
-  const raw = String(price);
+  const raw = cleanPrice(price);
   const dotIdx = raw.indexOf('.');
   if (dotIdx === -1) return { integer: raw, decimal: '' };
   return { integer: raw.slice(0, dotIdx), decimal: raw.slice(dotIdx) };
@@ -106,7 +110,7 @@ const ActionPriceChip: React.FC<{
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(String(price)).catch(() => {});
+    navigator.clipboard.writeText(cleanPrice(price)).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -461,7 +465,7 @@ export const MidTradeMonitor: React.FC = () => {
                     <p className="text-[10px] text-gray-500 mb-1">Entry</p>
                     <PriceSplit price={guide.entryPrice} colorClass="text-gray-300" />
                     <p className="text-[10px] text-gray-600 mt-0.5 truncate">
-                      {guide.currentPrice}
+                      {cleanPrice(guide.currentPrice)}
                     </p>
                   </div>
                   <div className="bg-gray-800/60 rounded-lg px-2 py-2 text-right">
