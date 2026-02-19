@@ -142,6 +142,44 @@ export const EDGE_LOSS_TIME_LIMITS = {
   INTRADAY: 120,          // 120 minutes max wait
 } as const;
 
+/**
+ * CONFLUENCE_REQUIREMENTS — SSOT for minimum confluence thresholds by trade style
+ *
+ * CCIP-2026-0219B: Lowered MICRO_INTRADAY and INTRADAY from 4/5 to 3/5.
+ *
+ * The 5 core independent dimensions are:
+ *   1. TREND      — EMA stack alignment, HTF trend direction
+ *   2. STRUCTURE  — BOS/CHOCH confirmation, S/R level holding or breaking
+ *   3. MOMENTUM   — RSI position, MACD, consecutive candle direction
+ *   4. TIMING     — EQS score, pullback completion, M1 confirmation
+ *   5. LIQUIDITY  — Liquidity sweep completion, pool position, VWAP interaction
+ *
+ * PATTERN and OMEGA CONSENSUS are supplementary dimensions — they increase
+ * confidence when present but do NOT count toward the minimum floor.
+ *
+ * AUTHORITY: This constant is the ONLY place that defines minimum confluence floors.
+ * The Alpha prompt (getAlphaSystemPromptForStyle) reads from this value.
+ * No other file may hardcode a confluence floor.
+ */
+export const CONFLUENCE_REQUIREMENTS = {
+  SCALP: {
+    MIN_DIMENSIONS: 2,
+    TOTAL_CORE_DIMENSIONS: 5,
+    CONFIDENCE_CEILING_AT_MIN: 100,
+  },
+  MICRO_INTRADAY: {
+    MIN_DIMENSIONS: 3,
+    TOTAL_CORE_DIMENSIONS: 5,
+    CONFIDENCE_CEILING_AT_MIN: 100,
+  },
+  INTRADAY: {
+    MIN_DIMENSIONS: 3,
+    TOTAL_CORE_DIMENSIONS: 5,
+    CONFIDENCE_CEILING_AT_MIN: 100,
+  },
+  BELOW_MINIMUM_ACTION: 'NO_TRADE' as const,
+} as const;
+
 export const ALPHA_IDENTITY = {
   MINIMUM_TRADE_CONFIDENCE: 60,
 
@@ -578,21 +616,28 @@ Invalid triggers (these alone are NOT sufficient):
 If no specific trigger has fired, your entry mode MUST be WAIT_ENTRY, not EXECUTE_NOW. State the exact trigger in your reasoning.
 
 QUESTION 8 — CONFLUENCE COUNT:
-How many independent factors confirm this trade direction?
+How many of the 5 core independent dimensions confirm this trade direction?
 Name them explicitly. Confluence means factors from DIFFERENT analytical dimensions — trend + momentum + structure counts as 3. Trend + EMA alignment + price above EMA200 counts as 1 (they all measure the same thing).
-Independent dimensions:
+The 5 CORE dimensions (these count toward the minimum floor):
 - TREND: EMA stack alignment, HTF trend direction
 - STRUCTURE: BOS/CHOCH confirmation, S/R level holding or breaking
 - MOMENTUM: RSI position, MACD, momentum value, consecutive candle direction
 - TIMING: EQS score, pullback completion, M1 confirmation
 - LIQUIDITY: Liquidity sweep completion, pool position, VWAP interaction
+Supplementary dimensions (boost confidence when present — do NOT count toward the minimum floor):
 - PATTERN: Candle pattern at level, multi-timeframe pattern alignment
 - OMEGA CONSENSUS: Majority Omega vote alignment with your direction
-Minimum standards:
-- 3+ independent dimensions confirmed: confidence ceiling is 100% (your call)
-- 2 independent dimensions confirmed: confidence ceiling is 70% — state which 2 and why you are proceeding
-- 1 or fewer independent dimensions confirmed: return NO_TRADE. A single-factor thesis is speculation, not edge.
-State your count explicitly: "Confluence: 4/7 dimensions confirmed — [list them]"
+${style === 'SCALP'
+  ? `SCALP minimum standards:
+- 2+ core dimensions confirmed: trade is eligible — confidence is your call
+- 1 core dimension confirmed: confidence ceiling is 70% — state which 1 and why you are proceeding
+- 0 core dimensions confirmed: return NO_TRADE.`
+  : `${style} minimum standards (3 of 5 rule):
+- 3+ core dimensions confirmed: trade is eligible — confidence is your call
+- 2 core dimensions confirmed: return NO_TRADE. Two-factor alignment on ${style === 'MICRO_INTRADAY' ? 'a multi-hour structured trade' : 'an intraday campaign'} is coincidence, not edge.
+- 1 or fewer core dimensions confirmed: return NO_TRADE. A single-factor thesis is speculation.
+You MUST name all 3 confirmed dimensions explicitly. If you cannot name 3 distinct core dimensions, this is NO_TRADE.`}
+State your count explicitly: "Confluence: X/5 core dimensions confirmed — [list them]"
 
 QUESTION 9 — REMAINING RANGE:
 How far has price already moved in your intended direction, and how much range is likely left?
