@@ -290,87 +290,65 @@ export function AdminClubPanel() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-amber-500/20 rounded-xl">
-            <Crown className="w-6 h-6 text-amber-400" />
+    <div className="space-y-4">
+      {/* Header - compact on mobile */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="p-2 bg-amber-500/20 rounded-xl flex-shrink-0">
+            <Crown className="w-5 h-5 text-amber-400" />
           </div>
-          <div>
-            <h2 className="text-2xl font-bold text-white">Club Management</h2>
-            <p className="text-gray-400 text-sm">Memberships, treasury, and utility ecosystem</p>
+          <div className="min-w-0">
+            <h2 className="text-lg sm:text-2xl font-bold text-white leading-tight">Club Management</h2>
+            <p className="text-gray-400 text-xs hidden sm:block">Memberships, treasury, and utility ecosystem</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 flex-shrink-0">
           <button
             onClick={() => setShowLinkReferral(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors text-sm"
+            className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors text-xs font-medium"
           >
-            <Link2 className="w-4 h-4" />
-            Link Referral
+            <Link2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Link Referral</span>
+            <span className="sm:hidden">Link</span>
           </button>
           <button
             onClick={loadData}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm"
+            className="p-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+            title="Refresh"
           >
             <RefreshCw className="w-4 h-4" />
-            Refresh
           </button>
         </div>
       </div>
 
-      {/* Section Tabs */}
-      <div className="flex gap-2 bg-gray-800 p-1 rounded-lg border border-gray-700">
-        <button
-          onClick={() => setActiveSection('members')}
-          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-md font-medium transition-all text-sm ${
-            activeSection === 'members'
-              ? 'bg-amber-600 text-white'
-              : 'text-gray-400 hover:text-white hover:bg-gray-700'
-          }`}
-        >
-          <Users className="w-4 h-4" />
-          Members & Burn
-        </button>
-        <button
-          onClick={() => setActiveSection('treasury')}
-          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-md font-medium transition-all text-sm ${
-            activeSection === 'treasury'
-              ? 'bg-emerald-600 text-white'
-              : 'text-gray-400 hover:text-white hover:bg-gray-700'
-          }`}
-        >
-          <Package className="w-4 h-4" />
-          Token Treasury
-        </button>
-        <button
-          onClick={() => setActiveSection('pools')}
-          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-md font-medium transition-all text-sm ${
-            activeSection === 'pools'
-              ? 'bg-sky-600 text-white'
-              : 'text-gray-400 hover:text-white hover:bg-gray-700'
-          }`}
-        >
-          <Coins className="w-4 h-4" />
-          Pool Grants
-        </button>
-        <button
-          onClick={() => setActiveSection('utility')}
-          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-md font-medium transition-all text-sm ${
-            activeSection === 'utility'
-              ? 'bg-blue-600 text-white'
-              : 'text-gray-400 hover:text-white hover:bg-gray-700'
-          }`}
-        >
-          <TrendingUp className="w-4 h-4" />
-          PIP Utility Index
-        </button>
+      {/* Section Tabs — scrollable pill row on mobile */}
+      <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide">
+        {([
+          { key: 'members', label: 'Members', shortLabel: 'Members', icon: <Users className="w-3.5 h-3.5" />, active: 'bg-amber-600' },
+          { key: 'treasury', label: 'Token Treasury', shortLabel: 'Treasury', icon: <Package className="w-3.5 h-3.5" />, active: 'bg-emerald-600' },
+          { key: 'pools', label: 'Pool Grants', shortLabel: 'Pools', icon: <Coins className="w-3.5 h-3.5" />, active: 'bg-sky-600' },
+          { key: 'utility', label: 'PIP Utility Index', shortLabel: 'Utility', icon: <TrendingUp className="w-3.5 h-3.5" />, active: 'bg-blue-600' },
+        ] as const).map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveSection(tab.key)}
+            className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg font-medium transition-all text-xs whitespace-nowrap ${
+              activeSection === tab.key
+                ? `${tab.active} text-white shadow-sm`
+                : 'text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 border border-gray-700'
+            }`}
+          >
+            {tab.icon}
+            <span className="sm:hidden">{tab.shortLabel}</span>
+            <span className="hidden sm:inline">{tab.label}</span>
+          </button>
+        ))}
       </div>
 
       {/* Members & Burn Section */}
       {activeSection === 'members' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
             <StatCard label="Total Members" value={stats.totalMembers.toString()} icon={<Users className="w-4 h-4 text-blue-400" />} />
             <StatCard label="Active" value={stats.activeMembers.toString()} icon={<Users className="w-4 h-4 text-green-400" />} />
             <StatCard label="Revenue" value={`$${fmt(stats.totalRevenue)}`} icon={<TrendingUp className="w-4 h-4 text-emerald-400" />} />
@@ -405,7 +383,7 @@ export function AdminClubPanel() {
                 <h3 className="text-base font-semibold text-white">Discount & Burn Analytics</h3>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 sm:gap-3 mb-4">
                 <div className="bg-gray-700/50 rounded-lg p-3">
                   <div className="text-gray-400 text-xs mb-0.5">PIP Burned (Total)</div>
                   <div className="text-orange-400 text-lg font-bold">{fmt(burnAnalytics.totalPipBurned)}</div>
@@ -433,16 +411,18 @@ export function AdminClubPanel() {
                   <div className="text-gray-400 text-xs mb-2">Per-Tier Breakdown</div>
                   <div className="space-y-1.5">
                     {burnAnalytics.tierBreakdown.map(tier => (
-                      <div key={tier.tierLevel} className="flex items-center justify-between bg-gray-700/30 rounded-lg px-3 py-2 text-xs">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-2.5 h-2.5 rounded-full ${TIER_COLORS[tier.tierLevel] || 'bg-gray-500'}`} />
-                          <span className="text-white font-medium">{tier.tierName}</span>
+                      <div key={tier.tierLevel} className="bg-gray-700/30 rounded-lg px-3 py-2 text-xs">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-2.5 h-2.5 rounded-full ${TIER_COLORS[tier.tierLevel] || 'bg-gray-500'}`} />
+                            <span className="text-white font-medium">{tier.tierName}</span>
+                          </div>
+                          <span className="text-gray-400">{tier.tradeCount} trades</span>
                         </div>
-                        <div className="flex items-center gap-4 text-gray-300">
-                          <span>{tier.tradeCount} trades</span>
+                        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-gray-300">
                           <span className="text-orange-400">{fmt(tier.totalPipBurned)} burned</span>
                           <span className="text-emerald-400">{fmt(tier.totalCreditsSaved)} saved</span>
-                          <span className="text-cyan-400">{((tier.avgDiscountPct || 0) * 100).toFixed(0)}%</span>
+                          <span className="text-cyan-400">{((tier.avgDiscountPct || 0) * 100).toFixed(0)}% disc.</span>
                         </div>
                       </div>
                     ))}
@@ -487,9 +467,9 @@ export function AdminClubPanel() {
                             </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-3 flex-shrink-0">
-                          <div className="text-right hidden sm:block">
-                            <div className="text-sm text-amber-400 font-medium">{fmt(member.availableTokens)} PIP</div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <div className="text-right">
+                            <div className="text-xs sm:text-sm text-amber-400 font-medium">{fmt(member.availableTokens)} PIP</div>
                           </div>
                           {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
                         </div>
@@ -538,7 +518,7 @@ export function AdminClubPanel() {
                 <Activity className="w-5 h-5 text-green-400" />
                 Token Lifecycle Flows (30 Days)
               </h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-2 sm:gap-3">
                 <div className="bg-green-500/10 p-3 rounded-lg border border-green-500/30">
                   <div className="flex items-center gap-2 mb-2">
                     <TrendingUp className="w-4 h-4 text-green-400" />
@@ -599,7 +579,7 @@ export function AdminClubPanel() {
                 <Package className="w-5 h-5 text-purple-400" />
                 Token Pool Allocation
               </h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+              <div className="grid grid-cols-2 gap-2 sm:gap-3 mb-4">
                 <div className="bg-blue-500/10 p-3 rounded-lg border border-blue-500/30">
                   <p className="text-xs text-blue-400 font-medium">Total Supply</p>
                   <p className="text-xl font-bold text-white mt-1">{(poolSummary.total_supply || 0).toLocaleString()} PIP</p>
@@ -708,7 +688,7 @@ export function AdminClubPanel() {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="bg-gradient-to-br from-blue-600 to-cyan-600 p-5 rounded-xl text-white border border-blue-500/30">
                   <p className="text-sm opacity-90 mb-2">Current Utility Value</p>
                   <p className="text-3xl font-bold">
@@ -801,12 +781,12 @@ export function AdminClubPanel() {
 
 function StatCard({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
   return (
-    <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
-      <div className="flex items-center gap-1.5 text-gray-400 text-xs mb-1">
+    <div className="bg-gray-800 rounded-xl p-3 sm:p-4 border border-gray-700">
+      <div className="flex items-center gap-1 text-gray-400 text-[10px] sm:text-xs mb-1 truncate">
         {icon}
-        {label}
+        <span className="truncate">{label}</span>
       </div>
-      <div className="text-xl font-bold text-white truncate">{value}</div>
+      <div className="text-base sm:text-xl font-bold text-white truncate">{value}</div>
     </div>
   );
 }

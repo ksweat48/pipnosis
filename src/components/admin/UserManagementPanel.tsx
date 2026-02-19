@@ -399,10 +399,13 @@ export const UserManagementPanel: React.FC = () => {
                     </div>
                   </th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    Style / Risk
+                  </th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
                     Scanning
                   </th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
-                    Prompt Risk
+                    Risk Level
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                     Joined
@@ -442,22 +445,38 @@ export const UserManagementPanel: React.FC = () => {
                     </td>
                     <td className="px-4 py-3 text-sm text-center">
                       {user.total_trades > 0 ? (
-                        <div className="flex flex-col items-center gap-0.5">
-                          <div className="flex items-center gap-1.5 text-xs font-semibold">
-                            <span className="text-green-400">{user.winning_trades}W</span>
-                            <span className="text-gray-500">/</span>
-                            <span className="text-red-400">{user.losing_trades}L</span>
+                        <div className="flex flex-col items-center gap-1">
+                          <div className="flex items-center flex-wrap justify-center gap-1">
+                            {(user.tp1_wins || 0) > 0 && (
+                              <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded text-[10px] font-bold">
+                                TP1 {user.tp1_wins}
+                              </span>
+                            )}
+                            {(user.tp2_wins || 0) > 0 && (
+                              <span className="px-1.5 py-0.5 bg-green-500/20 text-green-300 border border-green-500/30 rounded text-[10px] font-bold">
+                                TP2 {user.tp2_wins}
+                              </span>
+                            )}
+                            {(user.manual_closed || 0) > 0 && (
+                              <span className="px-1.5 py-0.5 bg-sky-500/20 text-sky-300 border border-sky-500/30 rounded text-[10px] font-bold">
+                                MC {user.manual_closed}
+                              </span>
+                            )}
+                            {(() => {
+                              const slLosses = (user.losing_trades || 0) - Math.min(user.manual_closed || 0, user.losing_trades || 0);
+                              return slLosses > 0 ? (
+                                <span className="px-1.5 py-0.5 bg-red-500/20 text-red-300 border border-red-500/30 rounded text-[10px] font-bold">
+                                  L {slLosses}
+                                </span>
+                              ) : null;
+                            })()}
                           </div>
-                          <span className="text-xs text-gray-500">
-                            ({user.total_trades} total)
-                          </span>
+                          <span className="text-[10px] text-gray-500">{user.total_trades} total</span>
                         </div>
                       ) : user.active_trades > 0 ? (
                         <div className="flex flex-col items-center gap-0.5">
                           <span className="text-gray-500 text-xs">0</span>
-                          <span className="text-[10px] text-blue-400">
-                            (trade active)
-                          </span>
+                          <span className="text-[10px] text-blue-400">(trade active)</span>
                         </div>
                       ) : (
                         <span className="text-gray-500">0</span>
@@ -494,6 +513,29 @@ export const UserManagementPanel: React.FC = () => {
                         </span>
                       ) : (
                         <span className="text-gray-500 text-center block">0</span>
+                      )}
+                    </td>
+                    {/* Style / Risk column */}
+                    <td className="px-4 py-3 text-sm text-center">
+                      {user.trade_style ? (
+                        <div className="flex flex-col items-center gap-1">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${
+                            user.trade_style === 'scalper'
+                              ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
+                              : user.trade_style === 'swing'
+                              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                              : 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                          }`}>
+                            {user.trade_style}
+                          </span>
+                          {user.dollar_risk != null && user.dollar_risk > 0 && (
+                            <span className="text-[10px] text-gray-400 font-mono">
+                              ${user.dollar_risk.toFixed(0)}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-gray-600">—</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm text-center">
@@ -533,7 +575,7 @@ export const UserManagementPanel: React.FC = () => {
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm text-center">
-                      {user.prompt_risk && user.scanning_sessions > 0 ? (
+                      {user.prompt_risk ? (
                         <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
                           user.prompt_risk === 'low'
                             ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
@@ -544,7 +586,7 @@ export const UserManagementPanel: React.FC = () => {
                           {user.prompt_risk === 'low' ? 'Low' : user.prompt_risk === 'medium' ? 'Medium' : 'High'}
                         </span>
                       ) : (
-                        <span className="text-gray-500">-</span>
+                        <span className="text-gray-600">—</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-400">

@@ -10,6 +10,9 @@ export interface AdminUser {
   total_trades: number;
   winning_trades: number;
   losing_trades: number;
+  tp1_wins: number;
+  tp2_wins: number;
+  manual_closed: number;
   active_trades: number;
   active_trades_detail: Array<{
     symbol: string;
@@ -22,6 +25,8 @@ export interface AdminUser {
   scanning_duration_minutes: number | null;
   awaiting_response_sessions: number;
   prompt_risk: 'low' | 'medium' | 'high' | null;
+  trade_style: string | null;
+  dollar_risk: number | null;
   last_activity: string;
 }
 
