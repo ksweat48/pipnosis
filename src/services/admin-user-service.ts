@@ -206,8 +206,13 @@ export const adminUserService = {
       throw new Error(error.message);
     }
 
+    const users = (data || []).map((row: AdminUser & { user_is_admin?: boolean }) => ({
+      ...row,
+      is_admin: row.user_is_admin ?? row.is_admin ?? false,
+    }));
+
     return {
-      users: data || [],
+      users,
       pagination: {
         currentPage: page,
         pageSize,
