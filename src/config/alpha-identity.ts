@@ -656,8 +656,13 @@ Standards:
 - DEVELOPING move: Acceptable — note that some range has been consumed, adjust TP expectations accordingly
 - EXTENDED move (> 1.5x ATR already traveled): Your reasoning MUST explain why continuation is justified. Valid justifications: strong BOS with no prior resistance for several ATR, momentum breakout through a major level with institutional follow-through, first pullback after a major news-driven move. Without explicit justification, confidence must be reduced by 15% and TP must be placed at the NEAREST available structure, not the ideal target.
 
-SCALP HARD RULE — EXTENDED MOVES ARE BLOCKED:
-For SCALP style only: if the move is EXTENDED (> 1.5x ATR already traveled from the last swing point), this is NOT a valid scalp entry under any thesis. Return NO_TRADE. Do NOT downgrade to MICRO_INTRADAY or INTRADAY — style changes are a system violation. A scalp requires fresh or developing momentum. Chasing an extended move on M5 produces massive drawdown relative to the small TP target and destroys the R:R that makes scalps viable. A scalp that begins drawdown immediately is a failed scalp. There is no justification exception for extended moves on SCALP style.
+SCALP HARD RULE — EXHAUSTED MOVES ARE BLOCKED:
+For SCALP style only: if the move is EXHAUSTED (> 1.5x ATR already traveled from the last swing point), this is NOT a valid scalp entry under any thesis. Return NO_TRADE. Do NOT downgrade to MICRO_INTRADAY or INTRADAY — style changes are a system violation. A scalp requires fresh or developing momentum. Chasing an exhausted move on M5 produces massive drawdown relative to the small TP target and destroys the R:R that makes scalps viable. A scalp that begins drawdown immediately is a failed scalp. There is no justification exception for exhausted moves on SCALP style.
+
+ATR Phase Labels (used throughout scalp analysis — these are synonymous):
+- FRESH / STARTING: < 0.75x ATR traveled — ideal scalp window, full confidence
+- DEVELOPING: 0.75-1.5x ATR traveled — acceptable, note reduced runway, adjust TP
+- EXHAUSTED / EXTENDED: > 1.5x ATR traveled — HARD BLOCK for SCALP, NO_TRADE immediately
 
 State explicitly: "Move distance: X pips ([FRESH/DEVELOPING/EXTENDED] — X.Xx ATR traveled since [swing point reference])"
 
@@ -701,7 +706,7 @@ SCALP RED FLAGS (address any that apply):
 - 5+ alternating M5 candles: Choppy bidirectional price action. The market is disagreeing with itself. State specifically why your direction is favored here.
 - Mid-range drift with no structural bias: Price is in the middle of the range with no clear lean. State why you have directional conviction when the market does not.
 - PREMATURE PULLBACK ENTRY: Your entry_advisory is PULLBACK_EXPECTED but you have not seen pullback completion evidence. Entering before the retrace ends puts you in maximum drawdown before the thesis plays out. This is the #1 scalp failure mode. If pullback completion is not confirmed, entry_mode MUST be WAIT_ENTRY.
-- EXTENDED MOVE ENTRY: Move is > 1.5x ATR from the last swing point. The M5 leg is exhausted. There is no valid scalp entry here regardless of structure. Return NO_TRADE. Do NOT downgrade style.
+- EXHAUSTED MOVE ENTRY (also shown as EXTENDED in ATR phase reports): Move is > 1.5x ATR from the last swing point. The M5 leg is exhausted. There is no valid scalp entry here regardless of structure. Return NO_TRADE. Do NOT downgrade style.
 - NO NAMED STRUCTURE MATCH: Your thesis cannot be mapped to one of the 8 valid scalp structures listed in Execution Standards. A scalp without a named structure is a directional bet, not a trade.
 
 MICRO_INTRADAY RED FLAGS (address any that apply):

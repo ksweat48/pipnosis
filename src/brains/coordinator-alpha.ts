@@ -1548,9 +1548,48 @@ regardless of what M1 shows — unless there is exceptional breakaway evidence.
     // AUTHORITY to confirm, reject, or override these pre-detections.
     // The intelligence monitor detected patterns using M5 candle data.
     // Alpha may have additional context that changes the assessment.
+    //
+    // CCIP-2026-02-19: When no session intelligence snapshot is available,
+    // a self-assessment block is injected so Alpha applies the same
+    // momentum phase framework using the M5 data already provided above.
+    // This ensures scalp governance rules are always active regardless of
+    // whether the intelligence pipeline has pre-computed signals.
     // ═══════════════════════════════════════════════════════════════════
     let scalpIntelligencePrompt = '';
-    if (getDisplayNameFromStyle(tradeStyle) === 'SCALP' && intelligenceSnapshot) {
+    if (getDisplayNameFromStyle(tradeStyle) === 'SCALP' && !intelligenceSnapshot) {
+      scalpIntelligencePrompt = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SCALP MOMENTUM SELF-ASSESSMENT (${marketContext.symbol}) — MANDATORY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+No pre-computed intelligence snapshot is available for this scan cycle.
+You MUST self-assess the following from the M5 candle data provided above:
+
+1. ATR PHASE: Calculate how far price has moved from the last swing point.
+   - FRESH / STARTING (< 0.75x ATR): Ideal window — full confidence permitted
+   - DEVELOPING (0.75-1.5x ATR): Acceptable — reduce confidence by 10%, use nearest structure for TP
+   - EXHAUSTED / EXTENDED (> 1.5x ATR): HARD BLOCK — return NO_TRADE immediately
+
+2. SUB-MODE: Identify which of these applies to the current M5 structure:
+   - MOMENTUM_CONTINUATION: Fresh directional move, enter now or on first micro-pullback
+   - PULLBACK_ENTRY: Impulse already moved, price retracing — wait for pullback completion
+   - CONSOLIDATION_BREAKOUT: Tight compression range — wait for body close outside range
+
+3. STRUCTURE: Identify which of the 8 valid scalp structures is present (or none):
+   momentum_breakout | bos_retest | ema_rejection | double_bottom | double_top |
+   range_breakout | liquidity_sweep | engulfing_at_structure | trend_pullback_ema
+
+If the move is EXHAUSTED: return NO_TRADE. No exceptions.
+If no named structure matches: return NO_TRADE. A directional bet without structure is not a scalp.
+
+MANDATORY JSON FIELDS — Include these regardless of action:
+  "scalp_pattern": "<one of the 8 structures above, or 'none'>",
+  "scalp_sub_mode": "momentum_continuation|pullback_entry|consolidation_breakout",
+  "scalp_momentum_phase": "starting|developing|exhausted",
+  "scalp_atr_traveled": <number — your estimate of ATR multiples traveled from last swing>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+    } else if (getDisplayNameFromStyle(tradeStyle) === 'SCALP' && intelligenceSnapshot) {
       try {
         const scalpSignal = intelligenceSnapshot.bestPairs?.find(
           (p: { symbol: string; tradeStyle?: string; scalpSubMode?: string; scalpPattern?: string; momentumPhase?: string; atrTraveled?: number }) =>
@@ -1579,9 +1618,9 @@ regardless of what M1 shows — unless there is exceptional breakaway evidence.
             none: 'No specific pattern — general confluence',
           };
           const phaseLabels: Record<string, string> = {
-            starting: 'STARTING (< 0.75x ATR traveled — FRESH, ideal scalp window)',
-            developing: 'DEVELOPING (0.75-1.5x ATR traveled — acceptable, watch for exhaustion)',
-            exhausted: 'EXHAUSTED (> 1.5x ATR traveled — BLOCKED, return NO_TRADE for SCALP)',
+            starting: 'STARTING / FRESH (< 0.75x ATR traveled — ideal scalp window, full confidence)',
+            developing: 'DEVELOPING (0.75-1.5x ATR traveled — acceptable, reduce confidence by 10%, adjust TP to nearest structure)',
+            exhausted: 'EXHAUSTED / EXTENDED (> 1.5x ATR traveled — HARD BLOCK, return NO_TRADE immediately, no exceptions)',
           };
 
           scalpIntelligencePrompt = `
@@ -1776,7 +1815,7 @@ ${tradeStyle === 'SCALP' ? `{
         {
           model: 'gpt-4o-mini',
           temperature: 0.3,
-          max_tokens: 700,
+          max_tokens: 900,
           requestType: 'alpha_coordination',
           endpoint: 'alpha-coordinator'
         }
