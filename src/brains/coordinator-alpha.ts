@@ -1419,10 +1419,10 @@ regardless of what M1 shows — unless there is exceptional breakaway evidence.
           scalpIntelligencePrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SCALP INTELLIGENCE PRE-DETECTION (${marketContext.symbol}) — ADVISORY ONLY
+SCALP INTELLIGENCE — MANDATORY COMPLIANCE GATE (${marketContext.symbol})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-The real-time intelligence monitor analyzed ${marketContext.symbol} M5 data and detected the following.
-These are advisory signals. YOU have final authority to confirm or reject this assessment.
+The real-time intelligence monitor analyzed ${marketContext.symbol} M5 data and produced the following pre-detection.
+You MUST address each field in your reasoning and include all three fields in your JSON output.
 
 Sub-Mode Detected: ${subModeLabels[scalpSignal.scalpSubMode] ?? scalpSignal.scalpSubMode}
 Pattern Detected: ${patternLabels[scalpSignal.scalpPattern ?? 'none'] ?? scalpSignal.scalpPattern}
@@ -1430,15 +1430,31 @@ Momentum Phase: ${phaseLabels[scalpSignal.momentumPhase ?? 'developing'] ?? scal
 ATR Traveled: ~${scalpSignal.atrTraveled?.toFixed(2) ?? 'unknown'}x ATR from last swing
 
 ${scalpSignal.momentumPhase === 'exhausted'
-  ? `SCALP BLOCK: ATR traveled > 1.5x. Per SCALP Hard Rule in your framework, this move is EXTENDED. Return NO_TRADE. Do NOT downgrade style.`
-  : scalpSignal.scalpSubMode === 'pullback_entry'
-    ? `ENTRY DISCIPLINE REMINDER: This is a PULLBACK ENTRY setup. Do NOT enter during the retrace. Wait for pullback completion evidence before issuing EXECUTE_NOW. If pullback is not complete, use WAIT_ENTRY.`
-    : scalpSignal.scalpSubMode === 'consolidation_breakout'
-      ? `BREAKOUT DISCIPLINE REMINDER: This is a CONSOLIDATION BREAKOUT setup. Wait for a candle BODY close outside the compression range before entering. A wick touch is NOT a breakout.`
-      : `MOMENTUM ENTRY: Fresh directional move detected. Aggressive entry is appropriate. Enter on the breakout or within the first 1-2 candle pullback.`
+  ? `HARD BLOCK — EXHAUSTED MOMENTUM: ATR traveled > 1.5x. This move is EXTENDED. Return NO_TRADE immediately. Do NOT downgrade style. Do NOT justify entry. There are no exceptions.`
+  : scalpSignal.momentumPhase === 'developing'
+    ? `DEVELOPING MOMENTUM WARNING: ~${scalpSignal.atrTraveled?.toFixed(2) ?? '?'}x ATR consumed. Some range has been used. You MAY proceed but you MUST reduce your trade_confidence by at least 10% to reflect reduced upside runway. State explicitly in your reasoning: "Momentum is DEVELOPING — TP adjusted to conservative structure edge to account for reduced range."`
+    : `FRESH MOMENTUM: < 0.75x ATR consumed. Full confidence permitted. Enter early in the leg.`
 }
 
-Confirm or correct this pre-assessment using the M5 candle data above. State your sub-mode and structure in your reasoning.
+${scalpSignal.scalpSubMode === 'pullback_entry'
+  ? `PULLBACK ENTRY RULE: Do NOT enter during the retrace. If pullback completion is not confirmed by a continuation candle on M5, use WAIT_ENTRY — not EXECUTE_NOW. Entering mid-retrace is the #1 scalp failure mode.`
+  : scalpSignal.scalpSubMode === 'consolidation_breakout'
+    ? `CONSOLIDATION BREAKOUT RULE: A candle BODY close outside the compression range is required. A wick touch is NOT a breakout. If body close has not occurred, use WAIT_ENTRY.`
+    : `MOMENTUM CONTINUATION: Fresh directional move. Enter on the breakout or within the first 1-2 candle pullback.`
+}
+
+${scalpSignal.scalpPattern === 'none' || !scalpSignal.scalpPattern
+  ? `NO NAMED STRUCTURE DETECTED: The pre-detector found no match to the 8 valid scalp structures. You MUST either (a) identify which named structure applies and explain in your reasoning, or (b) return NO_TRADE. A scalp without a named structure is a directional bet, not a trade. "scalp_pattern" in your JSON output must NOT be "none" if you execute.`
+  : `PATTERN CONFIRMED: ${patternLabels[scalpSignal.scalpPattern]} was detected. Confirm this matches what you see or correct it in your reasoning. Include "scalp_pattern": "${scalpSignal.scalpPattern}" in your JSON output (or correct to a valid structure name).`
+}
+
+MANDATORY JSON FIELDS — Include these in your response regardless of action:
+  "scalp_pattern": "momentum_breakout|bos_retest|ema_rejection|double_bottom|double_top|range_breakout|liquidity_sweep|engulfing_at_structure|trend_pullback_ema|none"
+  "scalp_sub_mode": "momentum_continuation|pullback_entry|consolidation_breakout"
+  "scalp_momentum_phase": "starting|developing|exhausted"
+  "scalp_atr_traveled": (number, e.g. 0.82)
+
+These fields are required for audit and mid-trade monitoring. Missing or null values are a governance violation.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
           console.log(`[Alpha Coordinator] Scalp intelligence: ${scalpSignal.scalpSubMode} | ${scalpSignal.scalpPattern} | ${scalpSignal.momentumPhase}`);
@@ -1544,6 +1560,10 @@ ${tradeStyle === 'SCALP' ? `{
   "reasoning": "Your full analytical reasoning — trend context, structural space, prior rejections, EQS interpretation, timing assessment",
   "market_narrative": "Single-sentence cause-effect-destination thesis",
   "counter_thesis": "Single sentence: the primary reason this trade fails",
+  "scalp_pattern": "momentum_breakout|bos_retest|ema_rejection|double_bottom|double_top|range_breakout|liquidity_sweep|engulfing_at_structure|trend_pullback_ema|none",
+  "scalp_sub_mode": "momentum_continuation|pullback_entry|consolidation_breakout",
+  "scalp_momentum_phase": "starting|developing|exhausted",
+  "scalp_atr_traveled": 0.82,
   "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null_or_price, "pullback_zone_max": null_or_price, "reasoning": "MUST use 50% DISTANCE RULE. E.g. SELL: 'Nearest resistance at 4963 is 10 pips above entry. 50% distance = 5 pips. Zone: 4958-4960. Realistic ~5 pip improvement.' BUY: 'Support at 1.0838 is 4 pips below (0.2 ATR). M1 pullback already happened - good entry now.'" },
   "override": { "type": "none", "justification": "" }
 }` : `{

@@ -13,7 +13,8 @@ import {
   ChevronUp,
   Copy,
   Clock,
-  BookOpen
+  BookOpen,
+  Zap
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { midTradeMonitorService, type MidTradeGuidance } from '@/services/mid-trade-monitor-service';
@@ -208,6 +209,68 @@ const AlphaPlanSection: React.FC<{ guide: MidTradeGuidance }> = ({ guide }) => {
           )}
         </div>
       )}
+    </div>
+  );
+};
+
+const SCALP_PATTERN_LABELS: Record<string, string> = {
+  momentum_breakout: 'Momentum Breakout',
+  bos_retest: 'BOS Retest',
+  ema_rejection: 'EMA Rejection',
+  double_bottom: 'Double Bottom',
+  double_top: 'Double Top',
+  range_breakout: 'Range Breakout',
+  liquidity_sweep: 'Liquidity Sweep',
+  engulfing_at_structure: 'Engulfing @ Structure',
+  trend_pullback_ema: 'Trend Pullback EMA',
+  none: 'No Named Structure',
+};
+
+const SCALP_SUBMODE_LABELS: Record<string, string> = {
+  momentum_continuation: 'Momentum',
+  pullback_entry: 'Pullback Entry',
+  consolidation_breakout: 'Breakout',
+};
+
+const ScalpIntelligenceBar: React.FC<{ plan: import('@/services/mid-trade-plan-engine').MidTradePlan }> = ({ plan }) => {
+  if (!plan.scalp_pattern && !plan.scalp_sub_mode && !plan.scalp_momentum_phase) return null;
+
+  const phase = plan.scalp_momentum_phase;
+  const phaseColor = phase === 'exhausted'
+    ? 'text-red-400 bg-red-500/15 border-red-500/30'
+    : phase === 'developing'
+      ? 'text-amber-400 bg-amber-500/15 border-amber-500/30'
+      : 'text-emerald-400 bg-emerald-500/15 border-emerald-500/30';
+
+  const phaseLabel = phase === 'exhausted' ? 'Exhausted' : phase === 'developing' ? 'Developing' : 'Fresh';
+
+  return (
+    <div className="mt-2 rounded-lg bg-gray-800/50 border border-gray-700/40 px-3 py-2">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <Zap className="w-3 h-3 text-amber-400" />
+        <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Scalp Entry Intelligence</span>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {plan.scalp_pattern && (
+          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
+            plan.scalp_pattern === 'none'
+              ? 'text-gray-400 bg-gray-700/50 border-gray-600/40'
+              : 'text-sky-300 bg-sky-900/30 border-sky-600/30'
+          }`}>
+            {SCALP_PATTERN_LABELS[plan.scalp_pattern] ?? plan.scalp_pattern}
+          </span>
+        )}
+        {plan.scalp_sub_mode && (
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded border text-gray-300 bg-gray-700/50 border-gray-600/40">
+            {SCALP_SUBMODE_LABELS[plan.scalp_sub_mode] ?? plan.scalp_sub_mode}
+          </span>
+        )}
+        {phase && (
+          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${phaseColor}`}>
+            {phaseLabel}{plan.scalp_atr_traveled != null ? ` (${plan.scalp_atr_traveled.toFixed(2)}x ATR)` : ''}
+          </span>
+        )}
+      </div>
     </div>
   );
 };
@@ -453,6 +516,11 @@ export const MidTradeMonitor: React.FC = () => {
                     <p className="text-[10px] text-gray-500">Current P&L</p>
                   </div>
                 </div>
+
+                {/* Scalp Intelligence Bar — only for SCALP trades that have plan data */}
+                {guide.midTradePlan && (guide.midTradePlan.scalp_pattern || guide.midTradePlan.scalp_momentum_phase) && (
+                  <ScalpIntelligenceBar plan={guide.midTradePlan} />
+                )}
 
                 {/* Price Context Row */}
                 <div className="grid grid-cols-3 gap-1.5 mb-3">

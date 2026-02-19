@@ -1714,7 +1714,11 @@ class AlphaTradeExecutor {
       ltfPattern: patternIntelligence?.ltf_pattern ?? null,
       omegaConsensus: decision.omega_summary || null,
       confidence: decision.confidence,
-      expectedFillMinutes: decision.expectedFillTimeHours ? Math.round(decision.expectedFillTimeHours * 60) : null
+      expectedFillMinutes: decision.expectedFillTimeHours ? Math.round(decision.expectedFillTimeHours * 60) : null,
+      scalpPattern: (decision as any).scalp_pattern ?? null,
+      scalpSubMode: (decision as any).scalp_sub_mode ?? null,
+      scalpMomentumPhase: (decision as any).scalp_momentum_phase ?? null,
+      scalpAtrTraveled: (decision as any).scalp_atr_traveled ?? null
     });
 
     return {

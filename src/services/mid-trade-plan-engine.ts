@@ -14,6 +14,21 @@
 import { calculatePipDistance, getCurrencyPipInfo, isJPYPair, isIndex, isCrypto } from '@/utils/currencyHelpers';
 import type { GoalSessionTrade } from '@/types/position';
 
+export type ScalpPattern =
+  | 'momentum_breakout'
+  | 'bos_retest'
+  | 'ema_rejection'
+  | 'double_bottom'
+  | 'double_top'
+  | 'range_breakout'
+  | 'liquidity_sweep'
+  | 'engulfing_at_structure'
+  | 'trend_pullback_ema'
+  | 'none';
+
+export type ScalpSubMode = 'momentum_continuation' | 'pullback_entry' | 'consolidation_breakout';
+export type ScalpMomentumPhase = 'starting' | 'developing' | 'exhausted';
+
 export interface MidTradePlan {
   setup_summary: string;
   invalidation_price: number | null;
@@ -25,6 +40,10 @@ export interface MidTradePlan {
   omega_consensus?: string;
   atr_at_entry?: number;
   expected_duration_minutes?: number;
+  scalp_pattern?: ScalpPattern;
+  scalp_sub_mode?: ScalpSubMode;
+  scalp_momentum_phase?: ScalpMomentumPhase;
+  scalp_atr_traveled?: number;
 }
 
 export interface TrailingSLOptions {
@@ -72,11 +91,16 @@ export function buildMidTradePlan(params: {
   omegaConsensus: string | null;
   confidence: number;
   expectedFillMinutes?: number | null;
+  scalpPattern?: ScalpPattern | null;
+  scalpSubMode?: ScalpSubMode | null;
+  scalpMomentumPhase?: ScalpMomentumPhase | null;
+  scalpAtrTraveled?: number | null;
 }): MidTradePlan {
   const {
     reasoning, entryPrice, stopLoss, takeProfit, direction, symbol,
     marketRegime, patternInvalidationPrice, htfPattern, mtfPattern, ltfPattern,
-    omegaConsensus, expectedFillMinutes
+    omegaConsensus, expectedFillMinutes,
+    scalpPattern, scalpSubMode, scalpMomentumPhase, scalpAtrTraveled
   } = params;
 
   const risk = Math.abs(entryPrice - stopLoss);
@@ -157,7 +181,11 @@ export function buildMidTradePlan(params: {
       ltf: ltfPattern ?? undefined
     },
     omega_consensus: omegaConsensus ?? undefined,
-    expected_duration_minutes: expectedDurationMinutes
+    expected_duration_minutes: expectedDurationMinutes,
+    scalp_pattern: scalpPattern ?? undefined,
+    scalp_sub_mode: scalpSubMode ?? undefined,
+    scalp_momentum_phase: scalpMomentumPhase ?? undefined,
+    scalp_atr_traveled: scalpAtrTraveled ?? undefined
   };
 }
 
