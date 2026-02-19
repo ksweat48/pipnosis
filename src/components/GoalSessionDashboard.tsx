@@ -1507,7 +1507,7 @@ export const GoalSessionDashboard: React.FC = () => {
         </div>
 
         {progress && progress.stats && (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 gap-2">
             <div className="text-center">
               <div className="text-2xl font-bold text-white">{progress.stats.totalTrades || 0}</div>
               <div className="text-xs text-gray-400">Total Trades</div>
@@ -1522,30 +1522,16 @@ export const GoalSessionDashboard: React.FC = () => {
 
                 if (openTrades.length > 0) {
                   return (
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <span className={`text-lg font-bold ${riskColor}`}>
+                    <div className="space-y-0.5">
+                      <div className="flex items-baseline justify-center gap-1">
+                        <span className={`text-lg font-bold tabular-nums ${riskColor}`}>
                           {riskData.percentage.toFixed(1)}%
                         </span>
-                        <span className="text-xs text-gray-500">/</span>
-                        <span className="text-sm font-medium text-gray-400">
-                          {riskData.targetPercentage.toFixed(1)}%
+                        <span className="text-[10px] text-gray-500">
+                          / {riskData.targetPercentage.toFixed(1)}%
                         </span>
                       </div>
-                      <div className="text-[10px] text-gray-500 leading-tight">
-                        <span className={riskColor}>${riskData.dollarRisk.toFixed(0)}</span>
-                        <span className="text-gray-600 mx-1">of</span>
-                        <span className="text-gray-400">${riskData.targetDollarRisk.toFixed(0)} target</span>
-                      </div>
                       <div className="text-xs text-gray-400">Risk</div>
-                      {riskData.hasDiscrepancy && (
-                        <div className="flex items-center justify-center gap-1 mt-0.5" title={riskData.discrepancyReason}>
-                          <AlertTriangle className="w-3 h-3 text-amber-400" />
-                          <span className="text-[10px] text-amber-400/80 leading-tight">
-                            {riskData.discrepancyReason}
-                          </span>
-                        </div>
-                      )}
                     </div>
                   );
                 }
@@ -1555,21 +1541,23 @@ export const GoalSessionDashboard: React.FC = () => {
                     <div className={`text-2xl font-bold ${riskColor}`}>
                       {riskData.displayText}
                     </div>
-                    <div className="text-xs text-gray-400">
-                      <span title={
+                    <div className="text-xs text-gray-400"
+                      title={
                         activeSession.config.dollarRisk
                           ? `$${activeSession.config.dollarRisk} per trade${activeSession.config.tradeStyle ? ` • ${activeSession.config.tradeStyle} style` : ''}`
                           : `Max ${getRiskPercentage(activeSession.config.riskMode)}% per trade`
-                      }>
-                        Risk Per Trade
-                      </span>
+                      }
+                    >
+                      Risk
                     </div>
                   </>
                 );
               })()}
             </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-blue-400">${((progress.stats.closedProfit || 0) + openTrades.reduce((sum, trade) => sum + calculateCurrentPnL(trade), 0)).toFixed(2)}</div>
+            <div className="text-center min-w-0">
+              <div className="text-xl font-bold text-blue-400 tabular-nums truncate">
+                ${((progress.stats.closedProfit || 0) + openTrades.reduce((sum, trade) => sum + calculateCurrentPnL(trade), 0)).toFixed(2)}
+              </div>
               <div className="text-xs text-gray-400">Total Profit</div>
             </div>
           </div>

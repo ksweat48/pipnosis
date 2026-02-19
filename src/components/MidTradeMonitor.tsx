@@ -62,7 +62,7 @@ const TrailingSLCard: React.FC<{
               </p>
             </div>
             <div className="flex items-center gap-2 ml-3">
-              <span className="text-sm font-mono font-bold text-white">{row.price}</span>
+              <PriceSplit price={row.price} />
               <button
                 onClick={() => handleCopy(row.price, row.key)}
                 className="p-1 hover:bg-amber-500/20 rounded transition-colors"
@@ -82,6 +82,23 @@ const TrailingSLCard: React.FC<{
   );
 };
 
+const splitPrice = (price: number): { integer: string; decimal: string } => {
+  const raw = String(price);
+  const dotIdx = raw.indexOf('.');
+  if (dotIdx === -1) return { integer: raw, decimal: '' };
+  return { integer: raw.slice(0, dotIdx), decimal: raw.slice(dotIdx) };
+};
+
+const PriceSplit: React.FC<{ price: number; colorClass?: string }> = ({ price, colorClass = 'text-white' }) => {
+  const { integer, decimal } = splitPrice(price);
+  return (
+    <span className={`font-mono font-bold leading-none tabular-nums ${colorClass}`}>
+      <span className="text-sm">{integer}</span>
+      {decimal && <span className="text-[10px] opacity-70">{decimal}</span>}
+    </span>
+  );
+};
+
 const ActionPriceChip: React.FC<{
   label: string;
   price: number;
@@ -98,7 +115,7 @@ const ActionPriceChip: React.FC<{
     <div className="flex items-center gap-2 bg-gray-800/80 rounded-lg px-3 py-2 border border-gray-600/50">
       <div>
         <p className="text-xs text-gray-400">{label}</p>
-        <p className="text-sm font-mono font-bold text-white">{price}</p>
+        <PriceSplit price={price} />
       </div>
       <button
         onClick={handleCopy}
@@ -402,52 +419,55 @@ export const MidTradeMonitor: React.FC = () => {
                 className="bg-gray-900/50 rounded-lg p-4 border border-gray-700/50"
               >
                 {/* Trade Header */}
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className={`p-2 rounded-lg ${guide.direction === 'buy' ? 'bg-emerald-500/20' : 'bg-red-500/20'}`}>
+                <div className="flex items-center justify-between mb-3 gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className={`p-1.5 rounded-lg shrink-0 ${guide.direction === 'buy' ? 'bg-emerald-500/20' : 'bg-red-500/20'}`}>
                       {guide.direction === 'buy' ? (
-                        <TrendingUp className="w-5 h-5 text-emerald-400" />
+                        <TrendingUp className="w-4 h-4 text-emerald-400" />
                       ) : (
-                        <TrendingDown className="w-5 h-5 text-red-400" />
+                        <TrendingDown className="w-4 h-4 text-red-400" />
                       )}
                     </div>
-                    <div>
-                      <h4 className="text-base font-bold text-white">{guide.symbol}</h4>
-                      <div className="flex items-center gap-2">
-                        <p className="text-xs text-gray-400 capitalize">{guide.direction}</p>
-                        <span className="text-gray-600">·</span>
-                        <div className="flex items-center gap-1 text-xs text-gray-500">
-                          <Clock className="w-3 h-3" />
+                    <div className="min-w-0">
+                      <h4 className="text-sm font-bold text-white truncate">{guide.symbol}</h4>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${
+                          guide.direction === 'buy' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+                        }`}>{guide.direction}</span>
+                        <div className="flex items-center gap-0.5 text-[10px] text-gray-500">
+                          <Clock className="w-2.5 h-2.5" />
                           <span>{formatTime(guide.timeInTrade)}</span>
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="text-right">
-                    <p className={`text-lg font-bold font-mono ${isProfitable ? 'text-emerald-400' : 'text-red-400'}`}>
+                  <div className="text-right shrink-0">
+                    <p className={`text-base font-bold font-mono tabular-nums ${isProfitable ? 'text-emerald-400' : 'text-red-400'}`}>
                       {isProfitable ? '+' : ''}${guide.currentPnL.toFixed(2)}
                     </p>
-                    <p className="text-xs text-gray-400">Current P&L</p>
+                    <p className="text-[10px] text-gray-500">Current P&L</p>
                   </div>
                 </div>
 
                 {/* Price Context Row */}
-                <div className="grid grid-cols-3 gap-2 mb-3 text-xs">
-                  <div className="bg-gray-800/60 rounded-lg px-2 py-1.5 text-center">
-                    <p className="text-gray-500 mb-0.5">SL</p>
-                    <p className="font-mono text-red-400 font-semibold">{guide.stopLoss}</p>
-                    <p className="text-gray-600">{Math.abs(guide.distanceToSL).toFixed(1)} pips</p>
+                <div className="grid grid-cols-3 gap-1.5 mb-3">
+                  <div className="bg-gray-800/60 rounded-lg px-2 py-2 text-right">
+                    <p className="text-[10px] text-gray-500 mb-1">SL</p>
+                    <PriceSplit price={guide.stopLoss} colorClass="text-red-400" />
+                    <p className="text-[10px] text-gray-600 mt-0.5">{Math.abs(guide.distanceToSL).toFixed(1)}p</p>
                   </div>
-                  <div className="bg-gray-800/60 rounded-lg px-2 py-1.5 text-center">
-                    <p className="text-gray-500 mb-0.5">Entry</p>
-                    <p className="font-mono text-gray-300 font-semibold">{guide.entryPrice}</p>
-                    <p className="text-gray-600">Live: {guide.currentPrice}</p>
+                  <div className="bg-gray-800/60 rounded-lg px-2 py-2 text-right">
+                    <p className="text-[10px] text-gray-500 mb-1">Entry</p>
+                    <PriceSplit price={guide.entryPrice} colorClass="text-gray-300" />
+                    <p className="text-[10px] text-gray-600 mt-0.5 truncate">
+                      {guide.currentPrice}
+                    </p>
                   </div>
-                  <div className="bg-gray-800/60 rounded-lg px-2 py-1.5 text-center">
-                    <p className="text-gray-500 mb-0.5">TP</p>
-                    <p className="font-mono text-emerald-400 font-semibold">{guide.takeProfit}</p>
-                    <p className="text-gray-600">{Math.abs(guide.distanceToTP).toFixed(1)} pips</p>
+                  <div className="bg-gray-800/60 rounded-lg px-2 py-2 text-right">
+                    <p className="text-[10px] text-gray-500 mb-1">TP</p>
+                    <PriceSplit price={guide.takeProfit} colorClass="text-emerald-400" />
+                    <p className="text-[10px] text-gray-600 mt-0.5">{Math.abs(guide.distanceToTP).toFixed(1)}p</p>
                   </div>
                 </div>
 
