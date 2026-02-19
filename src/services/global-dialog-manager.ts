@@ -24,10 +24,19 @@ class GlobalDialogManager {
   private dialogQueue: DialogData[] = [];
   private currentDialog: DialogData | null = null;
   private recentDialogs = new Set<string>();
-  private readonly DEDUPE_WINDOW_MS = 10000; // 10 second deduplication window
+  private readonly DEDUPE_WINDOW_MS = 30000; // 30 second deduplication window — covers Supabase Realtime propagation delay (~3s) plus browser event queue
 
   private createDedupeKey(type: DialogType, data: any): string {
     const symbol = data.symbol || '';
+    // CCIP FIX (2026-02-19): Include tradeId/sessionId in dedup key so the same
+    // trade closure cannot show twice across different code paths (persistent modal
+    // queue path vs. trade_closure_events Realtime path). Previously keyed only on
+    // type+symbol, which allowed a second modal when the Realtime event arrived ~3s
+    // after the first modal was already dismissed.
+    const tradeId = data.tradeId || data.trade_id || '';
+    const sessionId = data.sessionId || data.goal_session_id || '';
+    if (tradeId) return `${type}-${tradeId}`;
+    if (sessionId && symbol) return `${type}-${sessionId}-${symbol}`;
     return `${type}-${symbol}`;
   }
 

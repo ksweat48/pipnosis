@@ -503,7 +503,8 @@ class TradeClosureCoordinator {
   private async createTradeClosedModal(
     sessionId: string,
     userId: string,
-    closeReason: CloseReason
+    closeReason: CloseReason,
+    tradeId?: string
   ): Promise<void> {
     try {
       // Get session and trade data for modal
@@ -555,6 +556,9 @@ class TradeClosureCoordinator {
           target_value: targetValue,
           trades_in_session: tradesCount || 0,
           isGoalAchieved,
+          // CCIP FIX (2026-02-19): Carry tradeId so GlobalDialogManager can deduplicate
+          // across the persistent-queue path and the Realtime event path
+          trade_id: tradeId,
         }
       );
 
@@ -717,6 +721,9 @@ class TradeClosureCoordinator {
           const isGoalAchieved = (session.current_progress || 0) >= (session.target_value || Infinity);
 
           const { globalDialogManager } = await import('../global-dialog-manager');
+          // CCIP FIX (2026-02-19): Include tradeId so GlobalDialogManager dedup key
+          // can match against the persistent-modal-queue path for the same trade,
+          // preventing the modal from appearing twice (~3s apart) after dismissal.
           globalDialogManager.showTradeClosed({
             symbol: tradeData.symbol,
             direction: tradeData.direction,
@@ -731,6 +738,7 @@ class TradeClosureCoordinator {
             tradesInSession: tradesCount || 0,
             isGoalAchieved,
             sessionId: event.goal_session_id,
+            tradeId: event.trade_id,
           });
         }
       } catch (dialogError) {

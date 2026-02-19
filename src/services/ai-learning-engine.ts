@@ -302,7 +302,10 @@ class AILearningEngine {
             })
             .eq('id', existing.id);
         } else {
-          await supabase.from('ai_market_scenario_performance').insert({
+          // CCIP FIX (2026-02-19): Use upsert to handle the UNIQUE(user_id,symbol,timeframe,scenario_name)
+          // constraint. Plain insert fails with 400 when a row already exists (race condition or
+          // concurrent calls). onConflict merges into the update path safely.
+          await supabase.from('ai_market_scenario_performance').upsert({
             user_id: userId,
             scenario_name: 'mixed_conditions',
             market_type: 'mixed' as any,
@@ -317,7 +320,7 @@ class AILearningEngine {
             profit_factor: profitFactor,
             optimal_confidence_threshold: this.calculateOptimalConfidence(symbolTrades),
             sample_size_sufficient: symbolTrades.length >= 10
-          });
+          }, { onConflict: 'user_id,symbol,timeframe,scenario_name', ignoreDuplicates: false });
         }
       } catch (error) {
         console.error('[AI Learning Engine] Error saving scenario performance:', error);
@@ -627,31 +630,36 @@ class AILearningEngine {
       // Analyze the individual trade
       const analysis = await this.analyzeIndividualTrade(tradeForAnalysis, allTrades);
 
-      // Store detailed trade analysis - SSOT: Correct schema field names
+      // CCIP FIX (2026-02-19): Null-guard all NOT NULL columns before insert.
+      // trade.position_type can be null on some records; confidence_score can be null.
+      // A null in any NOT NULL column produces HTTP 400.
+      const safeDirection = (trade.direction || trade.position_type || 'buy') as 'buy' | 'sell';
+      const safeConfidence = Math.min(Math.max(Math.round(tradeForAnalysis.confidence || 75), 1), 100);
+      const slDistance = Math.abs(tradeForAnalysis.stopLoss - tradeForAnalysis.entryPrice);
+      const tpDistance = Math.abs(tradeForAnalysis.takeProfit - tradeForAnalysis.entryPrice);
+      const safeRR = slDistance > 0 ? tpDistance / slDistance : 1;
+
       await supabase.from('ai_trade_analysis').insert({
         user_id: userId,
         live_trade_id: tradeId,
         symbol: trade.symbol,
-        direction: trade.position_type,
+        direction: safeDirection,
         outcome: tradeForAnalysis.outcome,
-        pnl: tradeForAnalysis.pnl,
+        pnl: tradeForAnalysis.pnl ?? 0,
         entry_time: tradeForAnalysis.entryTime.toISOString(),
         exit_time: tradeForAnalysis.exitTime.toISOString(),
-        entry_confidence: tradeForAnalysis.confidence,
-        entry_market_conditions: tradeForAnalysis.marketConditions || {},  // REQUIRED
-        entry_indicators_alignment: {},  // REQUIRED: Placeholder for now
-        decision_reasoning: analysis.reasoning || 'Trade analysis pending',  // REQUIRED: Correct field name
-        ai_conviction_level: Math.min(Math.max(Math.round(tradeForAnalysis.confidence), 1), 100),  // REQUIRED: 1-100
-        risk_reward_at_entry: Math.abs(
-          (tradeForAnalysis.takeProfit - tradeForAnalysis.entryPrice) /
-          (tradeForAnalysis.stopLoss - tradeForAnalysis.entryPrice)
-        ),  // REQUIRED: Calculate R:R
-        exit_reason: trade.close_reason || 'unknown',  // REQUIRED
-        exit_market_conditions: {},  // REQUIRED: Placeholder for now
-        was_exit_optimal: tradeForAnalysis.outcome === 'win',  // REQUIRED: Simple heuristic
+        entry_confidence: safeConfidence,
+        entry_market_conditions: tradeForAnalysis.marketConditions || {},
+        entry_indicators_alignment: {},
+        decision_reasoning: analysis.reasoning || 'Trade analysis pending',
+        ai_conviction_level: safeConfidence,
+        risk_reward_at_entry: safeRR,
+        exit_reason: trade.close_reason || 'unknown',
+        exit_market_conditions: {},
+        was_exit_optimal: tradeForAnalysis.outcome === 'win',
         matching_historical_patterns: analysis.matchingPatterns,
-        key_learnings: analysis.keyLearnings || [],  // REQUIRED: Default to empty array
-        mistakes_identified: analysis.mistakes,  // Correct field name
+        key_learnings: analysis.keyLearnings || [],
+        mistakes_identified: analysis.mistakes,
         what_worked: analysis.whatWorked,
         what_failed: analysis.whatFailed,
         contributed_to_global_learning: true
@@ -672,15 +680,17 @@ class AILearningEngine {
       // Update performance evolution with live trade data
       await this.updatePerformanceEvolutionLive(userId, tradeForAnalysis);
 
-      // Log the learning event
+      // CCIP FIX (2026-02-19): Null-guard position_type (NOT NULL with CHECK constraint).
+      // trade.position_type can be null on some records; fallback to direction column.
+      const safePositionType = (trade.position_type || trade.direction || 'buy') as 'buy' | 'sell';
       await supabase.from('trade_learning_log').insert({
         user_id: userId,
         trade_id: tradeId,
         symbol: trade.symbol,
-        position_type: trade.position_type,
+        position_type: safePositionType,
         outcome: tradeForAnalysis.outcome,
-        pnl: tradeForAnalysis.pnl,
-        confidence_at_entry: tradeForAnalysis.confidence,
+        pnl: tradeForAnalysis.pnl ?? 0,
+        confidence_at_entry: tradeForAnalysis.confidence || 75,
         patterns_identified: analysis.matchingPatterns,
         insights_created: insightsCreated,
         key_learnings: analysis.keyLearnings,
@@ -787,7 +797,9 @@ class AILearningEngine {
           })
           .eq('id', existing.id);
       } else {
-        await supabase.from('ai_market_scenario_performance').insert({
+        // CCIP FIX (2026-02-19): Use upsert — UNIQUE(user_id,symbol,timeframe,scenario_name)
+        // fires on every trade close for the same symbol, making plain insert always fail after first.
+        await supabase.from('ai_market_scenario_performance').upsert({
           user_id: userId,
           scenario_name: 'live_demo_trading',
           market_type: 'live' as any,
@@ -802,7 +814,7 @@ class AILearningEngine {
           profit_factor: 0,
           optimal_confidence_threshold: trade.confidence,
           sample_size_sufficient: false
-        });
+        }, { onConflict: 'user_id,symbol,timeframe,scenario_name', ignoreDuplicates: false });
       }
     } catch (error) {
       console.error('[AI Learning Engine] Error updating live scenario performance:', error);

@@ -19,6 +19,8 @@ export interface PendingModal {
     trades_in_session: number;
     session_status?: string;
     session_id?: string;
+    // CCIP FIX (2026-02-19): trade_id used for deduplication across modal paths
+    trade_id?: string;
     timestamp?: string;
     duration_minutes?: number;
     final_status?: string;

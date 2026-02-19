@@ -276,7 +276,10 @@ const AppRoutes: React.FC = () => {
             targetValue: modalData.target_value,
             tradesInSession: modalData.trades_in_session,
             isGoalAchieved: modalData.isGoalAchieved || false,
-            sessionId: modal.session_id,
+            sessionId: modal.goal_session_id,
+            // CCIP FIX (2026-02-19): Pass trade_id so GlobalDialogManager dedup key
+            // matches across persistent-queue and Realtime-event paths
+            tradeId: modalData.trade_id,
             timestamp: modalData.timestamp || modal.created_at,
             onStartNewSession: async () => {
               await modalQueueManager.dismissModal(modal.id, 'close');
