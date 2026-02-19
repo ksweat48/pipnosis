@@ -22,6 +22,14 @@
  * This eliminates static pip limits that break when asset prices change.
  * Formula: pipBound = (currentPrice * percentBound / 100) / pipValue
  *
+ * SCALP FOREX TP CAP (CCIP-2026-02-19):
+ * SCALP FOREX tpPips.max reduced from 60 to 25 and tpPercent.max from 0.60% to 0.21%.
+ * Rationale: One M5 swing leg over 3-5 candles at typical EURUSD ATR of 3-5 pips/candle
+ * produces 9-25 pips of realistic movement. A 60-pip SCALP TP implied INTRADAY duration
+ * (480 min observed fill time), which violates SCALP style identity.
+ * The 25-pip ceiling naturally constrains fill time to the 15-60 min SCALP contract window.
+ * SSOT pair: style-qualification-gate.ts STYLE_CONTRACTS.SCALP.maxTargetPips.FOREX = 25
+ *
  * NOISE FLOOR ALIGNMENT (CCIP-2026-02-18):
  * All slPercent.min values MUST be >= the noise floor percentage for the asset class.
  * Noise floor percentages (from risk-aware-stop-calculator.ts):
@@ -83,11 +91,11 @@ export const SCALP_ENVELOPE: StyleExecutionEnvelope = {
 
   targetCandles: { min: 3, max: 5 },
 
-  tpPips: { min: 12, max: 60 },
+  tpPips: { min: 12, max: 25 },
   slPips: { min: 8, max: 20 },
 
   assetClassPercentBounds: {
-    FOREX: { tpPercent: { min: 0.08, max: 0.60 }, slPercent: { min: 0.05, max: 0.25 } },
+    FOREX: { tpPercent: { min: 0.08, max: 0.21 }, slPercent: { min: 0.05, max: 0.25 } },
     CRYPTO: { tpPercent: { min: 0.50, max: 3.00 }, slPercent: { min: 0.30, max: 1.50 } },
     METAL: { tpPercent: { min: 0.30, max: 2.50 }, slPercent: { min: 0.20, max: 1.00 } },
     INDEX: { tpPercent: { min: 0.20, max: 0.60 }, slPercent: { min: 0.15, max: 0.35 } },

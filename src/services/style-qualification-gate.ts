@@ -82,7 +82,7 @@ const STYLE_CONTRACTS = {
     maxFillTimeMinutes: 60,
     typicalDurationMinutes: '15-60',
     minTargetPips: { FOREX: 10, CRYPTO: 30, METAL: 10, INDEX: 15 },
-    maxTargetPips: { FOREX: 60, CRYPTO: 150, METAL: 60, INDEX: 80 },
+    maxTargetPips: { FOREX: 25, CRYPTO: 150, METAL: 60, INDEX: 80 },
     minStopPips: { FOREX: 5, CRYPTO: 15, METAL: 5, INDEX: 8 },
     maxStopPips: { FOREX: 25, CRYPTO: 80, METAL: 25, INDEX: 35 },
     minOmegaConsensus: 40, // At least 40% Omega agreement for SCALP
