@@ -1404,52 +1404,133 @@ ${htfTrendDir === 'BULLISH' ? `${htfConfig.label} trend is BULLISH. ${primaryTfC
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // D1 PREVIOUS DAY CONTEXT (MICRO_INTRADAY + INTRADAY ONLY)
+    // M15 STRUCTURAL REFERENCE (SCALP ONLY — advisory, non-blocking)
+    // CCIP-2026-02-19: SCALP trades play out over 15-60 minutes — the M15
+    // timeframe governs where price stalls or reverses within that window.
+    // Alpha must know M15 trend and nearest S/R to place scalp TPs correctly.
+    // This is NOT a controlling TF gate (no MTF_DATA_MISSING block).
+    // Missing M15 data is non-blocking. Present data is advisory context.
+    // SSOT: MarketDataService is the single authority for candle data
+    // ═══════════════════════════════════════════════════════════════════
+    let m15ReferencePrompt = '';
+    if (styleName === 'SCALP') {
+      try {
+        const mds = MarketDataService.getInstance();
+        const m15Candles = await mds.getCandles(marketContext.symbol, 'M15', 8);
+
+        if (m15Candles && m15Candles.length >= 4) {
+          const recentM15 = m15Candles.slice(0, 8).reverse();
+          const pipInfo = getCurrencyPipInfo(marketContext.symbol);
+
+          const m15Lines: string[] = recentM15.map((c, i) => {
+            const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
+            const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
+            const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
+            const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
+            return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
+          });
+
+          const m15High = Math.max(...recentM15.map(c => c.high));
+          const m15Low = Math.min(...recentM15.map(c => c.low));
+          const m15RangePips = (m15High - m15Low) / pipInfo.pipValue;
+
+          const lastM15 = recentM15[recentM15.length - 1];
+          const prevM15 = recentM15.length >= 2 ? recentM15[recentM15.length - 2] : lastM15;
+          const m15TrendDir = lastM15.close > prevM15.close ? 'BULLISH' : lastM15.close < prevM15.close ? 'BEARISH' : 'NEUTRAL';
+
+          let m15Consecutive = 1;
+          for (let i = recentM15.length - 2; i >= 0; i--) {
+            const prevDir = recentM15[i].close > recentM15[i].open ? 'UP' : 'DN';
+            const lastDir = lastM15.close > lastM15.open ? 'UP' : 'DN';
+            if (prevDir === lastDir) m15Consecutive++;
+            else break;
+          }
+
+          m15ReferencePrompt = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+M15 STRUCTURAL REFERENCE (${marketContext.symbol}) — ADVISORY CONTEXT FOR SCALP TP PLACEMENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This is NOT your primary execution timeframe. M15 is advisory — it shows where price is likely to stall
+within your 15-60 min scalp window. Use it to place TP before M15 resistance (BUY) or above M15 support (SELL).
+M15 does NOT validate or block your M5 entry. M5 is your execution timeframe.
+
+${m15Lines.join('\n')}
+
+M15 STRUCTURAL SUMMARY:
+- M15 Range (last 8 candles): ${m15RangePips.toFixed(1)} pips (High: ${m15High.toFixed(pipInfo.decimalPlaces)}, Low: ${m15Low.toFixed(pipInfo.decimalPlaces)})
+- M15 Directional bias: ${m15TrendDir}
+- Consecutive same-direction M15 candles: ${m15Consecutive}
+- M15 Nearest resistance (scalp BUY ceiling): ${m15High.toFixed(pipInfo.decimalPlaces)}
+- M15 Nearest support (scalp SELL floor): ${m15Low.toFixed(pipInfo.decimalPlaces)}
+
+SCALP TP PLACEMENT USING M15:
+- Place TP at the CONSERVATIVE EDGE of the nearest M15 structural zone — where candle bodies first cluster, not the extreme.
+- If your M5 entry is bullish and M15 shows strong bearish structure (3+ consecutive DN candles), note this as potential headwind.
+- If your M5 entry is bearish and M15 shows strong bullish structure (3+ consecutive UP candles), note this as potential headwind.
+- M15 S/R within your scalp TP range (12-25 pips) = your TP target zone. M15 S/R beyond that range = context only.
+- A scalp TP placed directly INTO a M15 structural cluster has a lower fill probability. Position it at the near edge.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+          console.log(`[Alpha Coordinator] M15 Reference (SCALP): ${recentM15.length} candles, bias ${m15TrendDir}, range ${m15RangePips.toFixed(1)} pips`);
+        }
+      } catch (error) {
+        console.warn('[Alpha Coordinator] M15 reference unavailable (non-blocking):', error instanceof Error ? error.message : 'Unknown');
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // D1 PREVIOUS DAY CONTEXT (ALL STYLES)
     // CCIP 2026-02-19: Previous day high/low are institutional reference
-    // levels. MICRO_INTRADAY and INTRADAY trades must account for these
-    // levels as likely liquidity magnets and structural barriers.
+    // levels. All styles must account for PDH/PDL as liquidity magnets.
+    //
+    // SCALP framing: PDH/PDL are M5-scale TP obstacles and liquidity sweep
+    // targets. Alpha must know if the scalp TP crosses a daily level.
+    // MICRO_INTRADAY/INTRADAY framing: Full structural authority reference.
+    //
     // SSOT: MarketDataService is the single authority for candle data
     // ═══════════════════════════════════════════════════════════════════
     let d1ContextPrompt = '';
-    if (styleName === 'MICRO_INTRADAY' || styleName === 'INTRADAY') {
-      try {
-        const mds = MarketDataService.getInstance();
-        const d1Candles = await mds.getCandles(marketContext.symbol, 'D1', 3);
+    try {
+      const mds = MarketDataService.getInstance();
+      const d1Candles = await mds.getCandles(marketContext.symbol, 'D1', 3);
 
-        if (d1Candles && d1Candles.length >= 2) {
-          const pipInfo = getCurrencyPipInfo(marketContext.symbol);
-          const prevDayCandle = d1Candles[1];
-          const prevDayHigh = prevDayCandle.high;
-          const prevDayLow = prevDayCandle.low;
-          const prevDayClose = prevDayCandle.close;
-          const prevDayOpen = prevDayCandle.open;
-          const prevDayRange = (prevDayHigh - prevDayLow) / pipInfo.pipValue;
-          const prevDayDir = prevDayClose > prevDayOpen ? 'BULLISH' : 'BEARISH';
+      if (d1Candles && d1Candles.length >= 2) {
+        const pipInfo = getCurrencyPipInfo(marketContext.symbol);
+        const prevDayCandle = d1Candles[1];
+        const prevDayHigh = prevDayCandle.high;
+        const prevDayLow = prevDayCandle.low;
+        const prevDayClose = prevDayCandle.close;
+        const prevDayOpen = prevDayCandle.open;
+        const prevDayRange = (prevDayHigh - prevDayLow) / pipInfo.pipValue;
+        const prevDayDir = prevDayClose > prevDayOpen ? 'BULLISH' : 'BEARISH';
 
-          const currentPrice = marketContext.price;
-          const distToPDH = Math.abs(currentPrice - prevDayHigh) / pipInfo.pipValue;
-          const distToPDL = Math.abs(currentPrice - prevDayLow) / pipInfo.pipValue;
-          const pdRangePips = prevDayHigh - prevDayLow;
-          const pricePositionInPDRange = pdRangePips > 0
-            ? ((currentPrice - prevDayLow) / pdRangePips * 100).toFixed(0)
-            : '50';
+        const currentPrice = marketContext.price;
+        const distToPDH = Math.abs(currentPrice - prevDayHigh) / pipInfo.pipValue;
+        const distToPDL = Math.abs(currentPrice - prevDayLow) / pipInfo.pipValue;
+        const pdRangePips = prevDayHigh - prevDayLow;
+        const pricePositionInPDRange = pdRangePips > 0
+          ? ((currentPrice - prevDayLow) / pdRangePips * 100).toFixed(0)
+          : '50';
 
-          const abovePDH = currentPrice > prevDayHigh;
-          const belowPDL = currentPrice < prevDayLow;
-          const nearPDH = distToPDH < prevDayRange * 0.05;
-          const nearPDL = distToPDL < prevDayRange * 0.05;
+        const abovePDH = currentPrice > prevDayHigh;
+        const belowPDL = currentPrice < prevDayLow;
+        const nearPDH = distToPDH < prevDayRange * 0.05;
+        const nearPDL = distToPDL < prevDayRange * 0.05;
 
-          let positionContext = '';
-          if (abovePDH) positionContext = `Price is ABOVE Previous Day High by ${distToPDH.toFixed(1)} pips — potential continuation OR false breakout zone.`;
-          else if (belowPDL) positionContext = `Price is BELOW Previous Day Low by ${distToPDL.toFixed(1)} pips — potential continuation OR false breakdown zone.`;
-          else if (nearPDH) positionContext = `Price is approaching Previous Day High (${distToPDH.toFixed(1)} pips away) — strong institutional resistance. Expect rejection or breakout.`;
-          else if (nearPDL) positionContext = `Price is approaching Previous Day Low (${distToPDL.toFixed(1)} pips away) — strong institutional support. Expect bounce or breakdown.`;
-          else positionContext = `Price is in mid-range of previous day (${pricePositionInPDRange}% up from PDL). PDH and PDL are ${distToPDH.toFixed(1)}p / ${distToPDL.toFixed(1)}p away respectively.`;
+        let positionContext = '';
+        if (abovePDH) positionContext = `Price is ABOVE Previous Day High by ${distToPDH.toFixed(1)} pips — potential continuation OR false breakout zone.`;
+        else if (belowPDL) positionContext = `Price is BELOW Previous Day Low by ${distToPDL.toFixed(1)} pips — potential continuation OR false breakdown zone.`;
+        else if (nearPDH) positionContext = `Price is approaching Previous Day High (${distToPDH.toFixed(1)} pips away) — strong institutional resistance. Expect rejection or breakout.`;
+        else if (nearPDL) positionContext = `Price is approaching Previous Day Low (${distToPDL.toFixed(1)} pips away) — strong institutional support. Expect bounce or breakdown.`;
+        else positionContext = `Price is in mid-range of previous day (${pricePositionInPDRange}% up from PDL). PDH and PDL are ${distToPDH.toFixed(1)}p / ${distToPDL.toFixed(1)}p away respectively.`;
 
-          d1ContextPrompt = `
+        const isScalp = styleName === 'SCALP';
+
+        d1ContextPrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PREVIOUS DAY CONTEXT (${marketContext.symbol}) — INSTITUTIONAL REFERENCE LEVELS
+PREVIOUS DAY CONTEXT (${marketContext.symbol}) — INSTITUTIONAL REFERENCE LEVELS${isScalp ? ' [ADVISORY]' : ''}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Previous Day High (PDH): ${prevDayHigh.toFixed(pipInfo.decimalPlaces)}
 Previous Day Low (PDL): ${prevDayLow.toFixed(pipInfo.decimalPlaces)}
@@ -1458,19 +1539,23 @@ Previous Day Close: ${prevDayClose.toFixed(pipInfo.decimalPlaces)} (${prevDayDir
 Current Position: ${positionContext}
 Price vs PD Range: ${pricePositionInPDRange}% from PDL (0%=at PDL, 100%=at PDH)
 
-INSTITUTIONAL LEVEL RULES:
+${isScalp ? `SCALP PDH/PDL RULES (advisory — do not block on these alone):
+- PDH and PDL are frequent M5-scale liquidity sweep targets. Market makers hunt these levels.
+- If your scalp TP would cross PDH (for BUY) or PDL (for SELL), state whether you are targeting the level or using it as your TP ceiling.
+- If price is within 5 pips of PDH/PDL, assess whether this is a breakout setup (TP beyond the level) or a rejection setup (TP before the level). Both are valid — you must state which.
+- PDH/PDL within your scalp range (typical 12-25 pips) = the level is in play. PDH/PDL beyond your range = context only.
+- DO NOT avoid all trades near daily levels. A clean M5 liquidity sweep of PDH/PDL followed by reversal is one of the highest-probability scalp setups available.` : `INSTITUTIONAL LEVEL RULES:
 - PDH and PDL are MAJOR institutional reference levels. Market makers target these for liquidity sweeps.
 - A TP placed at or beyond PDH/PDL without accounting for its magnetic pull is structurally weak.
 - If your TP target is BEYOND PDH (for BUY) or below PDL (for SELL), acknowledge this in your reasoning.
 - If your entry is NEAR PDH/PDL (within 5% of range), explain whether this is a breakout or rejection setup.
-- PDH/PDL are NOT hard TP targets. They are context layers — use them to calibrate where liquidity pools.
+- PDH/PDL are NOT hard TP targets. They are context layers — use them to calibrate where liquidity pools.`}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
-          console.log(`[Alpha Coordinator] D1 Previous Day: H=${prevDayHigh.toFixed(pipInfo.decimalPlaces)} L=${prevDayLow.toFixed(pipInfo.decimalPlaces)} range=${prevDayRange.toFixed(1)}p, price at ${pricePositionInPDRange}% of PD range`);
-        }
-      } catch (error) {
-        console.warn('[Alpha Coordinator] D1 context unavailable (non-blocking):', error instanceof Error ? error.message : 'Unknown');
+        console.log(`[Alpha Coordinator] D1 Previous Day (${styleName}): H=${prevDayHigh.toFixed(pipInfo.decimalPlaces)} L=${prevDayLow.toFixed(pipInfo.decimalPlaces)} range=${prevDayRange.toFixed(1)}p, price at ${pricePositionInPDRange}% of PD range`);
       }
+    } catch (error) {
+      console.warn('[Alpha Coordinator] D1 context unavailable (non-blocking):', error instanceof Error ? error.message : 'Unknown');
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1567,8 +1652,8 @@ You MUST self-assess the following from the M5 candle data provided above:
 
 1. ATR PHASE: Calculate how far price has moved from the last swing point.
    - FRESH / STARTING (< 0.75x ATR): Ideal window — full confidence permitted
-   - DEVELOPING (0.75-1.5x ATR): Acceptable — reduce confidence by 10%, use nearest structure for TP
-   - EXHAUSTED / EXTENDED (> 1.5x ATR): HARD BLOCK — return NO_TRADE immediately
+   - DEVELOPING (0.75-1.5x ATR): Acceptable — assess remaining runway to TP explicitly. State: "Remaining range: ~X pips to nearest structure." If runway does not support TP, tighten TP or return NO_TRADE.
+   - EXHAUSTED / EXTENDED (> 1.5x ATR): HARD BLOCK — return NO_TRADE immediately, no exceptions
 
 2. SUB-MODE: Identify which of these applies to the current M5 structure:
    - MOMENTUM_CONTINUATION: Fresh directional move, enter now or on first micro-pullback
@@ -1619,7 +1704,7 @@ MANDATORY JSON FIELDS — Include these regardless of action:
           };
           const phaseLabels: Record<string, string> = {
             starting: 'STARTING / FRESH (< 0.75x ATR traveled — ideal scalp window, full confidence)',
-            developing: 'DEVELOPING (0.75-1.5x ATR traveled — acceptable, reduce confidence by 10%, adjust TP to nearest structure)',
+            developing: 'DEVELOPING (0.75-1.5x ATR traveled — assess remaining runway to TP explicitly; tighten TP to nearest structure if runway is insufficient)',
             exhausted: 'EXHAUSTED / EXTENDED (> 1.5x ATR traveled — HARD BLOCK, return NO_TRADE immediately, no exceptions)',
           };
 
@@ -1639,7 +1724,7 @@ ATR Traveled: ~${scalpSignal.atrTraveled?.toFixed(2) ?? 'unknown'}x ATR from las
 ${scalpSignal.momentumPhase === 'exhausted'
   ? `HARD BLOCK — EXHAUSTED MOMENTUM: ATR traveled > 1.5x. This move is EXTENDED. Return NO_TRADE immediately. Do NOT downgrade style. Do NOT justify entry. There are no exceptions.`
   : scalpSignal.momentumPhase === 'developing'
-    ? `DEVELOPING MOMENTUM WARNING: ~${scalpSignal.atrTraveled?.toFixed(2) ?? '?'}x ATR consumed. Some range has been used. You MAY proceed but you MUST reduce your trade_confidence by at least 10% to reflect reduced upside runway. State explicitly in your reasoning: "Momentum is DEVELOPING — TP adjusted to conservative structure edge to account for reduced range."`
+    ? `DEVELOPING MOMENTUM: ~${scalpSignal.atrTraveled?.toFixed(2) ?? '?'}x ATR consumed. Range is partially used. You MUST assess whether sufficient runway exists between current price and your TP. State explicitly: "Remaining runway: ~X pips to nearest structure. TP placed at [level] — the [near/far] edge of that zone." If remaining range does not support the required R:R, tighten TP to the nearest achievable structure or return NO_TRADE. Do NOT apply an arbitrary confidence penalty — reason about the runway directly.`
     : `FRESH MOMENTUM: < 0.75x ATR consumed. Full confidence permitted. Enter early in the leg.`
 }
 
@@ -1676,6 +1761,7 @@ ${cachedThesisPrompt}
 ${m5ContextPrompt}
 ${primaryTfCandlePrompt}
 ${htfCandlePrompt}
+${m15ReferencePrompt}
 ${d1ContextPrompt}
 ${m1MicroContextPrompt}
 ${scalpIntelligencePrompt}

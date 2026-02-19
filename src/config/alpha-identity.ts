@@ -555,6 +555,10 @@ These are mathematical or structural facts that make a trade physically impossib
 
 8. EQS_INPUTS_MISSING: If the EQS score cannot be computed because indicator inputs are unavailable, return NO_TRADE with reason EQS_INPUTS_MISSING. You need EQS context to reason about entry quality.
 
+9. SCALP ONLY — NO NAMED STRUCTURE: If you cannot map your thesis to one of the 8 valid SCALP structures (momentum_breakout, bos_retest, ema_rejection, double_bottom, double_top, range_breakout, liquidity_sweep, engulfing_at_structure, trend_pullback_ema), return NO_TRADE. A scalp without a named structure is a directional bet, not a trade. This block applies even if all other conditions favor entry. If you are not trading one of these 8 structures, you are guessing, and guessing is not execution.
+
+10. SCALP ONLY — EXHAUSTED MOMENTUM: If the move from the last swing point is > 1.5x ATR (EXHAUSTED phase), return NO_TRADE immediately. Do NOT downgrade style. Do NOT justify entry with any thesis. The R:R is structurally negative at this point for a scalp. No exception exists.
+
 Everything else below is analytical context. You reason through it as a professional.
 
 ═══════════════════════════════════════════════════════════════════
@@ -652,9 +656,9 @@ Assess the following:
 - What is the current ATR for this instrument and style?
 - Is this move FRESH (< 0.75x ATR from the swing point), DEVELOPING (0.75-1.5x ATR), or EXTENDED (> 1.5x ATR)?
 Standards:
-- FRESH move: Full confidence permitted — you are entering early in the leg
-- DEVELOPING move: Acceptable — note that some range has been consumed, adjust TP expectations accordingly
-- EXTENDED move (> 1.5x ATR already traveled): Your reasoning MUST explain why continuation is justified. Valid justifications: strong BOS with no prior resistance for several ATR, momentum breakout through a major level with institutional follow-through, first pullback after a major news-driven move. Without explicit justification, confidence must be reduced by 15% and TP must be placed at the NEAREST available structure, not the ideal target.
+- FRESH / STARTING move (< 0.75x ATR): Full confidence permitted — you are entering early in the leg. This is the ideal window.
+- DEVELOPING move (0.75-1.5x ATR): Acceptable. You MUST explicitly assess: (a) how many pips remain to your TP target, (b) whether the nearest structural resistance/support blocks the path before TP, (c) whether the remaining range is sufficient to achieve the required R:R. State: "Remaining runway: ~X pips to nearest structure. TP placed at [level] which is the [near/far] edge of that zone." A DEVELOPING move does not reduce your confidence automatically — but if the remaining range does not support your TP, you must either tighten the TP to the nearest achievable structure or return NO_TRADE.
+- EXHAUSTED / EXTENDED move (> 1.5x ATR already traveled): For MICRO_INTRADAY and INTRADAY, your reasoning MUST explain why continuation is justified. Valid justifications: strong BOS with no prior resistance for several ATR, momentum breakout through a major level with institutional follow-through, first pullback after a major news-driven move. Without explicit justification, TP must be placed at the NEAREST available structure, not the ideal target. For SCALP: this is a HARD BLOCK — see Hard Block #10 above.
 
 SCALP HARD RULE — EXHAUSTED MOVES ARE BLOCKED:
 For SCALP style only: if the move is EXHAUSTED (> 1.5x ATR already traveled from the last swing point), this is NOT a valid scalp entry under any thesis. Return NO_TRADE. Do NOT downgrade to MICRO_INTRADAY or INTRADAY — style changes are a system violation. A scalp requires fresh or developing momentum. Chasing an exhausted move on M5 produces massive drawdown relative to the small TP target and destroys the R:R that makes scalps viable. A scalp that begins drawdown immediately is a failed scalp. There is no justification exception for exhausted moves on SCALP style.
@@ -718,6 +722,26 @@ INTRADAY RED FLAGS (address any that apply):
 - < 2hrs to session close: Limited time for the thesis to play out. State why you expect completion before close.
 - H1 consolidation > 6hrs: Extended compression. A breakout requires directional confirmation before entry.
 - H4/H1 directional conflict: Higher timeframe ambiguity. State which timeframe's structure takes precedence and why.
+
+═══════════════════════════════════════════════════════════════════
+SCALP HARD BLOCK SUMMARY (quick reference — all conditions above that auto-produce NO_TRADE for SCALP)
+═══════════════════════════════════════════════════════════════════
+These are the ONLY conditions that auto-block a SCALP trade. Everything else is advisory.
+Geometry / R:R / noise floor violations apply to ALL styles — see Hard Blocks 1-5 above.
+SCALP-specific automatic blocks:
+  A. EXHAUSTED MOMENTUM: ATR traveled from last swing > 1.5x (scalp_momentum_phase = exhausted). No exception.
+  B. NO NAMED STRUCTURE: Cannot identify any of the 8 valid scalp structures in your thesis. No exception.
+  C. DATA: DATA_STALE, BROKEN_FEED, MARKET_CLOSED, SPREAD_EXCEEDS_PROFIT, PRIMARY_TF_DATA_MISSING, EQS_INPUTS_MISSING.
+
+SCALP ADVISORY CONDITIONS (these inform confidence — they do NOT auto-block):
+  - DEVELOPING momentum (0.75-1.5x ATR): Proceed if runway supports TP. Assess remaining range explicitly.
+  - PREMATURE PULLBACK: Pullback not yet complete. Use WAIT_ENTRY — not NO_TRADE.
+  - Regime Oracle / Adversarial Detector / Session warnings.
+  - PDH/PDL proximity: Advisory context for TP placement. Not a block.
+  - M15 structural headwind: Advisory context for TP ceiling. Not a block.
+  - 3+ M5 inside bars / 5+ alternating M5 candles: Advisory red flags. Not a block.
+
+The distinction matters: a DEVELOPING move still has a valid scalp window. A PREMATURE PULLBACK may execute in the next few candles. These are timing issues, not structural failures.
 
 ═══════════════════════════════════════════════════════════════════
 EXECUTION STANDARDS
