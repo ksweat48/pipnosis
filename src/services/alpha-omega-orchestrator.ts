@@ -50,6 +50,7 @@ import {
   type MarketSession
 } from '../config/concurrent-execution-config';
 import { marketScheduleService } from './market-schedule-service';
+import { calculateSessionContext } from '../utils/marketHours';
 
 export interface ConfidencePenalty {
   source: string;
@@ -535,7 +536,17 @@ class AlphaOmegaOrchestrator {
       atr: marketState.atr
     };
 
+    // Estimate typical spread for the symbol (in pips)
+    const TYPICAL_SPREADS_PIPS: Record<string, number> = {
+      'EURUSD': 1.0, 'GBPUSD': 1.5, 'USDJPY': 1.0, 'AUDUSD': 1.2, 'USDCAD': 1.5,
+      'NZDUSD': 1.8, 'USDCHF': 1.5, 'XAUUSD': 3.0, 'BTCUSD': 10.0, 'ETHUSD': 2.0,
+      'EURJPY': 1.5, 'GBPJPY': 2.5, 'AUDJPY': 1.8, 'EURGBP': 1.2, 'USDMXN': 3.0,
+      'SPX500': 0.5, 'US30': 2.0, 'NAS100': 1.0, 'GER40': 1.0, 'UK100': 1.0,
+    };
+    const estimatedSpreadPips = TYPICAL_SPREADS_PIPS[snapshot.symbol] ?? 2.0;
+
     // Build market briefing from raw snapshot data (replaces vote-based context)
+    const briefingSessionContext = calculateSessionContext();
     const snapshotInput: MarketSnapshotInput = {
       symbol: snapshot.symbol,
       price: snapshot.price,
@@ -556,7 +567,10 @@ class AlphaOmegaOrchestrator {
       trend: snapshot.trend,
       volatility: snapshot.volatility,
       regime: snapshot.regime?.structure || 'unknown',
-      session: 'active',
+      session: briefingSessionContext.currentSession,
+      sessionName: briefingSessionContext.sessionName,
+      sessionMinutesRemaining: briefingSessionContext.sessionTimeRemainingMinutes,
+      spreadPips: estimatedSpreadPips,
       sensors: snapshot.omegaSensors,
       candles: snapshot.candles.map(c => ({ open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume })),
     };

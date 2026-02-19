@@ -122,6 +122,12 @@ function buildIntelligence(input: MarketSnapshotInput, omega8Vote: Omega8Vote | 
     regime: input.regime || 'unknown',
     volatilityState: input.volatility,
     session: input.session || 'unknown',
+    spreadPips: input.spreadPips,
+    sessionName: input.sessionName,
+    sessionMinutesRemaining: input.sessionMinutesRemaining,
+    previousDayHigh: input.previousDayHigh,
+    previousDayLow: input.previousDayLow,
+    previousDayClose: input.previousDayClose,
   };
 }
 
@@ -137,7 +143,23 @@ function formatBriefingText(intel: MarketIntelligence): string {
   lines.push(`SYMBOL: ${intel.symbol}`);
   lines.push(`PRICE: ${formatPrice(intel.price)}`);
   lines.push(`ATR: ${formatPrice(intel.atr)} (${intel.atrPercent.toFixed(3)}%)`);
+  if (intel.spreadPips !== undefined) {
+    const spreadWarning = intel.spreadPips > intel.atr * 0.15 ? ' [HIGH - CAUTION]' : '';
+    lines.push(`SPREAD: ${intel.spreadPips.toFixed(1)} pips${spreadWarning}`);
+  }
   lines.push('');
+
+  if (intel.sessionName || intel.sessionMinutesRemaining !== undefined) {
+    lines.push('SESSION CONTEXT:');
+    if (intel.sessionName) {
+      lines.push(`  Active Session: ${intel.sessionName}`);
+    }
+    if (intel.sessionMinutesRemaining !== undefined) {
+      const urgency = intel.sessionMinutesRemaining < 30 ? ' [CLOSING SOON]' : intel.sessionMinutesRemaining < 60 ? ' [LATE SESSION]' : '';
+      lines.push(`  Minutes Remaining: ${intel.sessionMinutesRemaining}${urgency}`);
+    }
+    lines.push('');
+  }
 
   lines.push('TREND STRUCTURE:');
   lines.push(`  EMA Alignment: ${intel.trend.emaAlignment.toUpperCase()} (20>${intel.rawIndicators.ema20 > intel.rawIndicators.ema50 ? '' : '!'}50>${intel.rawIndicators.ema50 > intel.rawIndicators.ema200 ? '' : '!'}200)`);
@@ -192,6 +214,17 @@ function formatBriefingText(intel: MarketIntelligence): string {
     lines.push(`  Resistance: ${intel.resistance.slice(0, 3).map(formatPrice).join(', ')}`);
   }
   lines.push(`  Swing High: ${formatPrice(intel.swingHigh)} | Swing Low: ${formatPrice(intel.swingLow)}`);
+  if (intel.previousDayHigh !== undefined && intel.previousDayLow !== undefined) {
+    const pdRange = intel.previousDayHigh - intel.previousDayLow;
+    const pricePosition = pdRange > 0
+      ? ((intel.price - intel.previousDayLow) / pdRange * 100).toFixed(0)
+      : '50';
+    lines.push(`  Prev Day High: ${formatPrice(intel.previousDayHigh)} | Prev Day Low: ${formatPrice(intel.previousDayLow)}`);
+    if (intel.previousDayClose !== undefined) {
+      lines.push(`  Prev Day Close: ${formatPrice(intel.previousDayClose)}`);
+    }
+    lines.push(`  Price Position in PD Range: ${pricePosition}% (0%=at PDL, 100%=at PDH)`);
+  }
   lines.push('');
 
   lines.push('CANDLE PATTERNS:');

@@ -75,6 +75,12 @@ export interface MarketIntelligence {
   regime: string;
   volatilityState: string;
   session: string;
+  spreadPips?: number;
+  sessionName?: string;
+  sessionMinutesRemaining?: number;
+  previousDayHigh?: number;
+  previousDayLow?: number;
+  previousDayClose?: number;
 }
 
 export interface MarketBriefing {
@@ -104,6 +110,12 @@ export interface MarketSnapshotInput {
   volatility: string;
   regime?: string;
   session?: string;
+  spreadPips?: number;
+  sessionName?: string;
+  sessionMinutesRemaining?: number;
+  previousDayHigh?: number;
+  previousDayLow?: number;
+  previousDayClose?: number;
   sensors: OmegaSensors;
   candles: Array<{ open: number; high: number; low: number; close: number; volume?: number }>;
 }
