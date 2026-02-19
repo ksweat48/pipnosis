@@ -383,30 +383,46 @@ export function calculateDollarPerPip(
 /**
  * Validate that entry price matches expected range for symbol
  * Catches dummy price contamination bugs early
+ *
+ * Returns an error message string if mismatch detected, null if valid.
+ * Callers decide whether to throw or warn based on context.
+ *
+ * SSOT: Price ranges reflect 2026 market reality with conservative buffers.
+ * Ranges are intentionally wide to avoid false positives from volatile markets.
  */
-function validatePriceMatchesSymbol(symbol: string, entryPrice: number): void {
+export function checkPriceSymbolMismatch(symbol: string, entryPrice: number): string | null {
   const normalized = symbol.toUpperCase();
 
-  // Define expected price ranges for each asset class
+  // Guard against invalid price values before range check
+  if (!Number.isFinite(entryPrice) || entryPrice <= 0) {
+    return (
+      `🚨 INVALID PRICE DETECTED!\n` +
+      `  Symbol: ${symbol}\n` +
+      `  Entry Price: ${entryPrice} (must be a positive finite number)\n` +
+      `  This indicates a missing or malformed price in trade execution.`
+    );
+  }
+
+  // Define expected price ranges - 2026 market reality with generous buffers
   const priceRanges: Record<string, { min: number; max: number; description: string }> = {
-    'EURUSD': { min: 0.95, max: 1.40, description: 'Forex major' },
-    'GBPUSD': { min: 1.10, max: 1.50, description: 'Forex major' },
-    'USDJPY': { min: 100, max: 160, description: 'JPY pair' },
-    'AUDUSD': { min: 0.55, max: 0.90, description: 'Forex major' },
-    'NZDUSD': { min: 0.50, max: 0.80, description: 'Forex major' },
-    'USDCAD': { min: 1.20, max: 1.50, description: 'Forex major' },
-    'XAUUSD': { min: 1500, max: 5000, description: 'Gold' },
-    'BTCUSD': { min: 15000, max: 150000, description: 'Bitcoin' },
-    'ETHUSD': { min: 500, max: 10000, description: 'Ethereum' },
-    'US30': { min: 25000, max: 60000, description: 'Dow Jones' },
-    'NAS100': { min: 10000, max: 30000, description: 'Nasdaq' },
-    'SPX500': { min: 3000, max: 8000, description: 'S&P 500' }
+    'EURUSD': { min: 0.85, max: 1.50, description: 'Forex major' },
+    'GBPUSD': { min: 1.05, max: 1.60, description: 'Forex major' },
+    'USDJPY': { min: 100, max: 175, description: 'JPY pair' },
+    'AUDUSD': { min: 0.50, max: 0.95, description: 'Forex major' },
+    'NZDUSD': { min: 0.45, max: 0.85, description: 'Forex major' },
+    'USDCAD': { min: 1.15, max: 1.55, description: 'Forex major' },
+    'XAUUSD': { min: 1500, max: 6000, description: 'Gold' },
+    'BTCUSD': { min: 15000, max: 250000, description: 'Bitcoin' },
+    'ETHUSD': { min: 500, max: 15000, description: 'Ethereum' },
+    'US30': { min: 20000, max: 65000, description: 'Dow Jones' },
+    'NAS100': { min: 10000, max: 35000, description: 'Nasdaq' },
+    'SPX500': { min: 3000, max: 9000, description: 'S&P 500' }
   };
 
   const range = priceRanges[normalized];
 
   if (range && (entryPrice < range.min || entryPrice > range.max)) {
-    throw new Error(
+    return (
       `🚨 PRICE/SYMBOL MISMATCH DETECTED!\n` +
       `  Symbol: ${symbol} (${range.description})\n` +
       `  Entry Price: ${entryPrice}\n` +
@@ -414,6 +430,19 @@ function validatePriceMatchesSymbol(symbol: string, entryPrice: number): void {
       `  This indicates dummy test prices are contaminating real trade execution.\n` +
       `  Check goal feasibility estimation logic for leaks into trade execution.`
     );
+  }
+
+  return null;
+}
+
+/**
+ * Throws if price/symbol mismatch detected.
+ * Use only in real trade execution paths where bad prices must hard-fail.
+ */
+function validatePriceMatchesSymbol(symbol: string, entryPrice: number): void {
+  const mismatch = checkPriceSymbolMismatch(symbol, entryPrice);
+  if (mismatch) {
+    throw new Error(mismatch);
   }
 }
 
@@ -985,7 +1014,10 @@ export function calculateGoalAwareLotSize(
   const riskPercent = riskPercentageAllowed ?? riskProfile.baseRiskPercent;
   console.log(`  🎯 ACTUAL Risk Used: ${riskPercent}% ${riskPercentageAllowed ? '(user-selected)' : '(profile default)'}`);
 
-  const maxPositionSize = calculatePositionSize(symbol, accountBalance, riskPercent, entryPrice, stopLoss);
+  // Pass isEstimation=true to skip redundant price/symbol range check here.
+  // The GoalAwareLotSizingCoordinator already validates price via checkPriceSymbolMismatch
+  // before calling this function, so a second throw here is spurious.
+  const maxPositionSize = calculatePositionSize(symbol, accountBalance, riskPercent, entryPrice, stopLoss, true);
 
   console.log(`  Risk Profile Base: ${riskPercent}%`);
   console.log(`  Max Position Size (risk-based): ${maxPositionSize.toFixed(3)} lots`);

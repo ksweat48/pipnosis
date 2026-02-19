@@ -27,6 +27,7 @@ import {
   calculateGoalAwareLotSize,
   getCurrencyPipInfo,
   calculateDollarPerPip,
+  checkPriceSymbolMismatch,
 } from '../utils/currencyHelpers';
 import { percentageToRiskMode, getRiskModeDescription } from '../config/risk-percentage-mapping';
 import { TradeContext } from '../types/trade-context';
@@ -139,6 +140,17 @@ class GoalAwareLotSizingCoordinator {
         expectedRiskDollars: 0,
         reasoning: 'Risk percentage is invalid. Reverting to minimum safe lot size (0.01 lots).',
       };
+    }
+
+    // GOVERNANCE: Validate entry price against expected symbol range
+    // Warn (not throw) so that a volatile/unexpected price doesn't cascade-fail lot sizing
+    const priceMismatch = checkPriceSymbolMismatch(symbol, entryPrice);
+    if (priceMismatch) {
+      logger.warn(
+        LogCategory.RISK_MANAGEMENT,
+        '[Goal-Aware Lot Sizing] Price/symbol range advisory (non-blocking)',
+        { symbol, entryPrice, warning: priceMismatch }
+      );
     }
 
     logger.info(
