@@ -85,6 +85,7 @@ export interface NoTradeRejectionContext {
   constraintSandwichSymbols: { symbol: string; noiseFloor: number; slMax: number }[];
   suggestedStyles: string[];
   hasWeakConsensus: boolean;
+  symbolReasons: { symbol: string; action: string; reasoning: string; confidence: number }[];
 }
 
 export interface LiveTradeSignal {
@@ -3559,14 +3560,28 @@ This learning will carry forward to improve future sessions!
   ): NoTradeRejectionContext {
     const currentStyle = this.config?.tradeStyle?.toUpperCase() || 'SCALP';
     let hasWeakConsensus = false;
+    const symbolReasons: { symbol: string; action: string; reasoning: string; confidence: number }[] = [];
 
-    for (const [, decision] of omegaDecisions) {
+    for (const [symbol, decision] of omegaDecisions) {
       const reasoning = (decision?.reasoning || '').toLowerCase();
 
       if (reasoning.includes('conflict') || reasoning.includes('disagree') || reasoning.includes('weak consensus')) {
         hasWeakConsensus = true;
       }
+
+      if (decision) {
+        const rawReasoning: string = decision.reasoning || decision.marketThesis || 'No details available';
+        const truncated = rawReasoning.length > 200 ? rawReasoning.substring(0, 200).trim() + '...' : rawReasoning;
+        symbolReasons.push({
+          symbol,
+          action: decision.action || 'NO_TRADE',
+          reasoning: truncated,
+          confidence: decision.confidence || decision.trade_confidence || 0,
+        });
+      }
     }
+
+    symbolReasons.sort((a, b) => b.confidence - a.confidence);
 
     // CCIP (2026-02-17): Constraint sandwich is no longer a blocker.
     // Envelope bounds define style walls. Noise floor is advisory intelligence.
@@ -3576,6 +3591,7 @@ This learning will carry forward to improve future sessions!
       constraintSandwichSymbols: [],
       suggestedStyles: [],
       hasWeakConsensus,
+      symbolReasons,
     };
   }
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, XCircle, AlertTriangle, Info, ArrowRight, Clock } from 'lucide-react';
+import { Search, XCircle, AlertTriangle, Info, ArrowRight, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import type { NoTradeRejectionContext } from '../services/goal-session-live-engine';
 
 interface NoTradesFoundDialogProps {
@@ -17,12 +17,14 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
   rejectionContext
 }) => {
   const [countdown, setCountdown] = useState(60);
+  const [expandedSymbol, setExpandedSymbol] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasAutoClosedRef = useRef(false);
 
   useEffect(() => {
     if (!isOpen) {
       setCountdown(60);
+      setExpandedSymbol(null);
       hasAutoClosedRef.current = false;
       return;
     }
@@ -55,6 +57,7 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
     rejectionContext.constraintSandwichSymbols.length > 0;
   const hasWeakConsensus = rejectionContext?.hasWeakConsensus;
   const suggestedStyles = rejectionContext?.suggestedStyles || [];
+  const symbolReasons = rejectionContext?.symbolReasons || [];
 
   const handleCloseClick = () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -74,7 +77,7 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative max-w-md w-full">
+      <div className="relative max-w-lg w-full">
         <div className="absolute -inset-1 bg-gradient-to-r from-amber-500/20 to-orange-500/20 rounded-2xl blur" />
 
         <div className="relative bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl border border-gray-700 shadow-2xl overflow-hidden">
@@ -159,6 +162,51 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
                 <p className="text-amber-300/90 text-sm font-medium">
                   Try again in about 15 minutes when conditions may improve.
                 </p>
+              </div>
+            )}
+
+            {symbolReasons.length > 0 && (
+              <div className="mb-5">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                  Alpha's Decision — Per Symbol
+                </p>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1 scrollbar-thin">
+                  {symbolReasons.map(({ symbol, action, reasoning, confidence }) => {
+                    const isExpanded = expandedSymbol === symbol;
+                    const isNoTrade = action === 'NO_TRADE';
+                    return (
+                      <div
+                        key={symbol}
+                        className="bg-gray-800/60 border border-gray-700/50 rounded-lg overflow-hidden"
+                      >
+                        <button
+                          onClick={() => setExpandedSymbol(isExpanded ? null : symbol)}
+                          className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-gray-700/40 transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${isNoTrade ? 'bg-red-400' : 'bg-amber-400'}`} />
+                            <span className="text-sm font-semibold text-gray-200">{symbol}</span>
+                            <span className={`text-xs px-1.5 py-0.5 rounded font-mono ${isNoTrade ? 'bg-red-900/40 text-red-300' : 'bg-amber-900/40 text-amber-300'}`}>
+                              {action}
+                            </span>
+                            {confidence > 0 && (
+                              <span className="text-xs text-gray-500">{confidence}%</span>
+                            )}
+                          </div>
+                          {isExpanded
+                            ? <ChevronUp className="w-3.5 h-3.5 text-gray-500 shrink-0" />
+                            : <ChevronDown className="w-3.5 h-3.5 text-gray-500 shrink-0" />
+                          }
+                        </button>
+                        {isExpanded && (
+                          <div className="px-3 pb-3 pt-1 border-t border-gray-700/40">
+                            <p className="text-xs text-gray-300 leading-relaxed">{reasoning}</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
