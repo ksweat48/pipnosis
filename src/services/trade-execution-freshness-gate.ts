@@ -233,6 +233,12 @@ export class TradeExecutionFreshnessGate {
    * Checks price staleness only to fail fast before wasting money
    *
    * SSOT: Delegates to PriceFreshnessGate (governance layer)
+   *
+   * FALLBACK: If DB record appears stale but PriceCoordinator in-memory
+   * cache has a recently-fetched price, allow execution. This handles the
+   * multi-symbol concurrent scan scenario where Batch 1 LLM calls (~24s)
+   * cause DB records to appear stale for Batch 2/3 symbols even though
+   * prices are actively being polled and cached client-side.
    */
   async preCheckFreshness(symbol: string): Promise<{ shouldProceed: boolean; reason?: string }> {
     logger.info(
@@ -243,23 +249,37 @@ export class TradeExecutionFreshnessGate {
     // SSOT: Use centralized PriceFreshnessGate for all price freshness checks
     const freshnessResult = await priceFreshnessGate.checkFreshness(symbol, 'execution');
 
-    if (!freshnessResult.isFresh) {
-      const reason = freshnessResult.reason || 'Price data unavailable or critically stale';
-      logger.error(
+    if (freshnessResult.isFresh) {
+      logger.info(
         LogCategory.AI_TRADING,
-        `[Freshness Gate] 🚫 PRE-CHECK FAILED: ${reason} (age: ${freshnessResult.ageSeconds}s)`
+        `[Freshness Gate] ✅ Pre-check PASSED - price age: ${freshnessResult.ageSeconds}s`
       );
-      return {
-        shouldProceed: false,
-        reason: `Price data stale: ${reason}`
-      };
+      return { shouldProceed: true };
     }
 
-    logger.info(
+    // DB record is stale - check in-memory PriceCoordinator cache as fallback
+    // This avoids false blocks during multi-symbol concurrent scans where LLM
+    // processing time causes DB timestamps to exceed the 30s threshold
+    const cachedResult = await priceCoordinator.getPrice(symbol, { useCacheFirst: true, allowStale: false });
+
+    if (cachedResult.success && cachedResult.price && !cachedResult.price.isCriticallyStale) {
+      logger.info(
+        LogCategory.AI_TRADING,
+        `[Freshness Gate] ✅ Pre-check PASSED via cache fallback - cache age: ${cachedResult.price.ageSeconds.toFixed(1)}s (DB was ${freshnessResult.ageSeconds}s old)`
+      );
+      return { shouldProceed: true };
+    }
+
+    // Both DB and in-memory cache confirm stale - genuine block
+    const reason = freshnessResult.reason || 'Price data unavailable or critically stale';
+    logger.error(
       LogCategory.AI_TRADING,
-      `[Freshness Gate] ✅ Pre-check PASSED - price age: ${freshnessResult.ageSeconds}s`
+      `[Freshness Gate] 🚫 PRE-CHECK FAILED: ${reason} (age: ${freshnessResult.ageSeconds}s)`
     );
-    return { shouldProceed: true };
+    return {
+      shouldProceed: false,
+      reason: `Price data stale: ${reason}`
+    };
   }
 
   /**
@@ -344,17 +364,32 @@ export class TradeExecutionFreshnessGate {
       }
     }
 
-    // Layer 4: Validate Price Freshness (SSOT: PriceFreshnessGate)
+    // Layer 4: Validate Price Freshness (SSOT: PriceFreshnessGate with cache fallback)
     const freshnessResult = await priceFreshnessGate.checkFreshness(context.symbol, 'execution');
 
+    let effectiveFreshness = freshnessResult;
+
+    if (!freshnessResult.isFresh && freshnessResult.ageSeconds !== Infinity) {
+      // DB record stale - check PriceCoordinator in-memory cache as fallback
+      const cachedResult = await priceCoordinator.getPrice(context.symbol, { useCacheFirst: true, allowStale: false });
+      if (cachedResult.success && cachedResult.price && !cachedResult.price.isCriticallyStale) {
+        effectiveFreshness = {
+          isFresh: true,
+          ageSeconds: cachedResult.price.ageSeconds,
+          maxAgeSeconds: freshnessResult.maxAgeSeconds,
+          symbol: context.symbol
+        };
+      }
+    }
+
     validationResults.priceStaleness = {
-      isValid: freshnessResult.isFresh,
-      ageSeconds: freshnessResult.ageSeconds,
-      maxAgeSeconds: freshnessResult.maxAgeSeconds,
-      shouldBlockTrading: !freshnessResult.isFresh
+      isValid: effectiveFreshness.isFresh,
+      ageSeconds: effectiveFreshness.ageSeconds,
+      maxAgeSeconds: effectiveFreshness.maxAgeSeconds,
+      shouldBlockTrading: !effectiveFreshness.isFresh
     };
 
-    if (!freshnessResult.isFresh) {
+    if (!effectiveFreshness.isFresh) {
       const reason = freshnessResult.reason || 'Price data unavailable';
       blockingReasons.push(`Price Freshness: ${reason}`);
 
