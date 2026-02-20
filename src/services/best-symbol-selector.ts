@@ -380,7 +380,6 @@ class BestSymbolSelector {
    * - Entry distance (prefer closer to ideal zone)
    * - Spread risk (prefer tighter spreads)
    * - TPS score (if available, from TPS integration)
-   * - EQS score (for non-SCALP styles only)
    */
   private calculateTieBreakerFactors(
     evaluation: SymbolEvaluation,
