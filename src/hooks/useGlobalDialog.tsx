@@ -140,11 +140,20 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
         return;
       }
 
-      console.log('[useGlobalDialog] Trade voided and session stopped cleanly. User can start a new session.');
+      console.log('[useGlobalDialog] Trade voided and session stopped cleanly. Stopping live engine.');
+
+      try {
+        const { goalSessionLiveEngine } = await import('../services/goal-session-live-engine');
+        await goalSessionLiveEngine.stopSession();
+      } catch (stopErr) {
+        console.warn('[useGlobalDialog] Failed to stop live engine after decline:', stopErr);
+      }
+
+      closeDialog();
     } catch (err) {
       console.error('[useGlobalDialog] handleTradeDecline unexpected error:', err);
     }
-  }, []);
+  }, [closeDialog]);
 
   return (
     <GlobalDialogContext.Provider
