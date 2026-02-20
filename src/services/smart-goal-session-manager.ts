@@ -613,7 +613,8 @@ class SmartGoalSessionManager {
         autoExecute: config.autoExecute,
         minConfidence,
         dollarRisk: config.dollarRisk,
-        tradeStyle: config.tradeStyle
+        tradeStyle: config.tradeStyle,
+        specificSymbols: config.specificSymbols
       };
 
       const result = await goalSessionLiveEngine.startSession(liveConfig);

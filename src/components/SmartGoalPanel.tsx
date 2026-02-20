@@ -49,6 +49,7 @@ export const SmartGoalPanel: React.FC = () => {
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
   const [selectedAssetClasses, setSelectedAssetClasses] = useState<AssetClass[]>(['forex', 'crypto', 'indices', 'gold']);
   const [customInstructions, setCustomInstructions] = useState('');
+  const [pendingSymbol, setPendingSymbol] = useState<string | null>(null);
 
   useEffect(() => {
     const styleParam = searchParams.get('style') as TradeStyle | null;
@@ -58,6 +59,18 @@ export const SmartGoalPanel: React.FC = () => {
       setCurrentStep('amount');
       if (symbolParam) {
         setCustomInstructions(`Focus on ${symbolParam}`);
+        try {
+          const raw = sessionStorage.getItem('im_card_signal');
+          if (raw) {
+            const signal = JSON.parse(raw) as { symbol?: string };
+            if (signal.symbol) {
+              setPendingSymbol(signal.symbol);
+            }
+            sessionStorage.removeItem('im_card_signal');
+          }
+        } catch {
+          sessionStorage.removeItem('im_card_signal');
+        }
       }
       setSearchParams({}, { replace: true });
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -195,7 +208,7 @@ export const SmartGoalPanel: React.FC = () => {
         selectedStyle,
         dollarRisk,
         selectedAssetClasses.length < 4 ? selectedAssetClasses : undefined,
-        undefined,
+        pendingSymbol ? [pendingSymbol] : undefined,
         customInstructions || undefined
       );
 

@@ -731,6 +731,15 @@ export const SessionIntelligenceMonitor: React.FC = () => {
 
   const handleAnalyzeWithAlpha = (pair: BestPair) => {
     const style = resolveStyle(pair);
+    sessionStorage.setItem('im_card_signal', JSON.stringify({
+      symbol: pair.symbol,
+      direction: pair.direction,
+      confidence: pair.confidence,
+      momentumPhase: pair.momentumPhase,
+      scalpSubMode: pair.scalpSubMode,
+      scalpPattern: pair.scalpPattern,
+      tradeStyle: pair.tradeStyle,
+    }));
     navigate('/ai-trade', { replace: false });
     setSearchParams({ style, symbol: pair.symbol });
   };
