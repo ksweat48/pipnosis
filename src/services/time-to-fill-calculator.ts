@@ -94,9 +94,15 @@ class TimeToFillCalculator {
   private readonly SYMBOL_VELOCITY: Record<string, number> = {
     'EURUSD': 1.0,
     'GBPUSD': 1.2,
+    'GBPJPY': 1.3,
     'USDJPY': 0.9,
+    'AUDUSD': 0.9,
+    'USDCAD': 0.85,
+    'EURGBP': 0.8,
     'XAUUSD': 1.5,
+    'XAGUSD': 1.3,
     'US30': 1.3,
+    'NAS100': 1.4,
     'BTCUSD': 2.0
   };
 

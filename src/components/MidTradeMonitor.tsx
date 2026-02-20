@@ -150,6 +150,26 @@ const SCALP_PATTERN_BADGE_LABELS: Record<string, string> = {
   none: '',
 };
 
+const getDurationPillStyle = (minutes: number): { text: string; classes: string } => {
+  const hours = minutes / 60;
+  if (hours <= 2) {
+    return {
+      text: minutes < 60 ? `~${minutes}m` : `~${(hours).toFixed(1)}h`,
+      classes: 'text-emerald-400 bg-emerald-500/15 border-emerald-500/30'
+    };
+  }
+  if (hours <= 6) {
+    return {
+      text: `~${hours.toFixed(1)}h`,
+      classes: 'text-amber-400 bg-amber-500/15 border-amber-500/30'
+    };
+  }
+  return {
+    text: `~${hours.toFixed(1)}h`,
+    classes: 'text-red-400 bg-red-500/15 border-red-500/30'
+  };
+};
+
 const AlphaEntryIntelligence: React.FC<{ guide: MidTradeGuidance }> = ({ guide }) => {
   const [expanded, setExpanded] = useState(false);
   const plan = guide.midTradePlan;
@@ -159,14 +179,16 @@ const AlphaEntryIntelligence: React.FC<{ guide: MidTradeGuidance }> = ({ guide }
   const narrative = plan.entry_narrative || plan.setup_summary;
   const patternKey = plan.scalp_pattern && plan.scalp_pattern !== 'none' ? plan.scalp_pattern : null;
   const patternLabel = patternKey ? (SCALP_PATTERN_BADGE_LABELS[patternKey] ?? patternKey) : null;
-
-  const htfPattern = plan.patterns?.htf;
-  const primaryBadge = patternLabel || htfPattern || null;
+  const setupTypeLabel = patternLabel || plan.patterns?.htf || null;
 
   const directionColor = guide.direction === 'buy'
     ? 'text-emerald-400 bg-emerald-500/15 border-emerald-500/30'
     : 'text-red-400 bg-red-500/15 border-red-500/30';
   const directionLabel = guide.direction === 'buy' ? 'LONG' : 'SHORT';
+
+  const durationPill = plan.expected_duration_minutes
+    ? getDurationPillStyle(plan.expected_duration_minutes)
+    : null;
 
   return (
     <div className="mt-2">
@@ -176,17 +198,23 @@ const AlphaEntryIntelligence: React.FC<{ guide: MidTradeGuidance }> = ({ guide }
         aria-expanded={expanded}
       >
         <div className="flex items-center justify-between px-3 py-2.5">
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
             <Brain className="w-3.5 h-3.5 text-sky-400 flex-shrink-0" />
-            <span className="text-xs font-semibold text-sky-300">Why Alpha Entered</span>
-            {primaryBadge && (
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border text-sky-300 bg-sky-900/30 border-sky-600/30 truncate max-w-[120px]">
-                {primaryBadge}
-              </span>
-            )}
+            <span className="text-xs font-semibold text-sky-300 flex-shrink-0">Why Alpha Entered</span>
             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border flex-shrink-0 ${directionColor}`}>
               {directionLabel}
             </span>
+            {setupTypeLabel && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border text-amber-300 bg-amber-900/30 border-amber-600/40 truncate max-w-[130px] flex-shrink-0">
+                {setupTypeLabel}
+              </span>
+            )}
+            {durationPill && (
+              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border flex items-center gap-1 flex-shrink-0 ${durationPill.classes}`}>
+                <Clock className="w-2.5 h-2.5" />
+                {durationPill.text}
+              </span>
+            )}
           </div>
           {expanded ? (
             <ChevronUp className="w-3.5 h-3.5 text-gray-500 flex-shrink-0 ml-2" />
@@ -208,9 +236,9 @@ const AlphaEntryIntelligence: React.FC<{ guide: MidTradeGuidance }> = ({ guide }
         <div className="mt-1 rounded-lg bg-gray-800/40 border border-gray-700/30 overflow-hidden">
           <div className="px-3 py-3">
             <div className="flex flex-wrap gap-1.5 mb-2.5">
-              {primaryBadge && (
-                <span className="text-[10px] font-bold px-2 py-1 rounded border text-sky-300 bg-sky-900/30 border-sky-600/30">
-                  {primaryBadge}
+              {setupTypeLabel && (
+                <span className="text-[10px] font-bold px-2 py-1 rounded border text-amber-300 bg-amber-900/30 border-amber-600/40">
+                  {setupTypeLabel}
                 </span>
               )}
               {plan.patterns?.mtf && plan.patterns.mtf !== plan.patterns.htf && (
@@ -224,14 +252,14 @@ const AlphaEntryIntelligence: React.FC<{ guide: MidTradeGuidance }> = ({ guide }
                 </span>
               )}
               {plan.regime_at_entry && plan.regime_at_entry !== 'unknown' && (
-                <span className="text-[10px] font-semibold px-2 py-1 rounded border text-amber-300 bg-amber-900/20 border-amber-700/30">
+                <span className="text-[10px] font-semibold px-2 py-1 rounded border text-sky-300 bg-sky-900/20 border-sky-700/30">
                   {plan.regime_at_entry}
                 </span>
               )}
-              {plan.expected_duration_minutes && (
-                <span className="text-[10px] font-semibold px-2 py-1 rounded border text-gray-400 bg-gray-700/30 border-gray-600/30 flex items-center gap-1">
+              {durationPill && (
+                <span className={`text-[10px] font-semibold px-2 py-1 rounded border flex items-center gap-1 ${durationPill.classes}`}>
                   <Clock className="w-2.5 h-2.5" />
-                  ~{plan.expected_duration_minutes}m
+                  {durationPill.text}
                 </span>
               )}
             </div>
@@ -552,35 +580,6 @@ export const MidTradeMonitor: React.FC = () => {
 
                 {/* Alpha Entry Intelligence — Why Alpha took this trade */}
                 <AlphaEntryIntelligence guide={guide} />
-
-                {/* Price Context Row */}
-                <div className="grid grid-cols-3 gap-1.5 mb-3">
-                  <div className="bg-gray-800/60 rounded-lg px-2 py-2 text-right">
-                    <p className="text-[10px] text-gray-500 mb-1">SL</p>
-                    <PriceSplit price={guide.stopLoss} colorClass="text-red-400" />
-                    <p className="text-[10px] text-gray-600 mt-0.5">{Math.abs(guide.distanceToSL).toFixed(1)}p</p>
-                  </div>
-                  <div className="bg-gray-800/60 rounded-lg px-2 py-2 text-right">
-                    <p className="text-[10px] text-gray-500 mb-1">Entry</p>
-                    <PriceSplit price={guide.entryPrice} colorClass="text-gray-300" />
-                    <p className="text-[10px] text-gray-600 mt-0.5 truncate">
-                      {cleanPrice(guide.currentPrice)}
-                    </p>
-                  </div>
-                  <div className="bg-gray-800/60 rounded-lg px-2 py-2 text-right">
-                    <p className="text-[10px] text-gray-500 mb-1">TP</p>
-                    <PriceSplit price={guide.takeProfit} colorClass="text-emerald-400" />
-                    <p className="text-[10px] text-gray-600 mt-0.5">{Math.abs(guide.distanceToTP).toFixed(1)}p</p>
-                  </div>
-                </div>
-
-                {/* Thesis Status */}
-                <div className={`flex items-center gap-1.5 mb-3 px-2 py-1 rounded ${guide.thesisIntact ? 'bg-emerald-900/20' : 'bg-red-900/20'}`}>
-                  <div className={`w-1.5 h-1.5 rounded-full ${guide.thesisIntact ? 'bg-emerald-400' : 'bg-red-400'}`} />
-                  <span className={`text-xs ${guide.thesisIntact ? 'text-emerald-400' : 'text-red-400'}`}>
-                    Thesis {guide.thesisIntact ? 'intact' : 'broken'}
-                  </span>
-                </div>
 
                 {/* Primary Guidance */}
                 <div className={`${colors.bg} rounded-lg p-3 border ${colors.border}`}>

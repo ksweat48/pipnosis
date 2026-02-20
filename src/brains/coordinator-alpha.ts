@@ -2275,15 +2275,11 @@ ${tradeStyle === 'SCALP' ? `{
         console.log('[Alpha Coordinator] Omega-9 validation complete (catastrophic-only enforcement)');
       }
 
-      // Time-to-Fill validation (CRITICAL FOR INTRADAY FOCUS) - skip for WAIT
+      // Time-to-Fill: advisory duration estimate only — no penalties, no blocking
       if (decision.action !== 'NO_TRADE') {
-        console.log('[Alpha Coordinator] ⏱️  Running Time-to-Fill validation...');
-
         const tpDistancePips = calculatePipDistance(marketContext.symbol, decision.entry, decision.takeProfit);
-        // CRITICAL FIX: Convert ATR from price value to pips
         const pipInfo = getCurrencyPipInfo(marketContext.symbol);
         const atrPips = extractATRValue(marketContext.atr) / pipInfo.pipValue;
-
         const { currentSession } = calculateSessionContext();
 
         const timeToFill = timeToFillCalculator.calculate({
@@ -2293,19 +2289,8 @@ ${tradeStyle === 'SCALP' ? `{
           symbol: marketContext.symbol
         });
 
-        console.log(`[Alpha Coordinator] ⏱️  Expected fill: ${timeToFill.expectedMinutes}min (${timeToFill.viability})`);
-        console.log(`[Alpha Coordinator] ⏱️  ${timeToFill.reasoning}`);
-
         decision.expectedFillTimeHours = timeToFill.expectedMinutes / 60;
-        decision.reasoning += ` [Expected fill: ${timeToFill.expectedMinutes}min - ${timeToFill.viability}]`;
-
-        if (timeToFill.recommendedAction === 'REJECT') {
-          console.log('[Alpha Coordinator] ⚠️ TIME-TO-FILL: Execution Eligibility Gate will evaluate');
-        } else if (timeToFill.recommendedAction === 'CAUTION') {
-          console.log('[Alpha Coordinator] ⚠️ TIME-TO-FILL WARNING: Approaching extended duration');
-        } else if (timeToFill.viability === 'OPTIMAL') {
-          console.log('[Alpha Coordinator] ✅ TIME-TO-FILL OPTIMAL: Perfect for intraday');
-        }
+        decision.reasoning += ` [Expected fill: ${timeToFill.expectedMinutes}min]`;
       }
 
       console.log('[Alpha Coordinator] Decision:', decision.action);
