@@ -105,6 +105,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   }>({});
   const bidLineRef = useRef<any>(null);
   const askLineRef = useRef<any>(null);
+  const daySeparatorOverlayRef = useRef<HTMLDivElement>(null);
+  const daySeparatorRafRef = useRef<number | null>(null);
 
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [bidPrice, setBidPrice] = useState<number | null>(null);
@@ -148,6 +150,14 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     ema20: true,
     ema50: false,
     ema200: false
+  });
+  const [showDaySeparators, setShowDaySeparators] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('pipnosis_day_separators');
+      return stored !== null ? stored === 'true' : true;
+    } catch {
+      return true;
+    }
   });
 
   const currentCandleRef = useRef<CurrentCandle | null>(null);
@@ -1781,6 +1791,128 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     }
   }, [indicatorVisibility]);
 
+  const renderDaySeparators = () => {
+    if (!showDaySeparators || timeframe === 'D1' || !chartRef.current || !daySeparatorOverlayRef.current || !chartContainerRef.current) {
+      if (daySeparatorOverlayRef.current) {
+        daySeparatorOverlayRef.current.innerHTML = '';
+      }
+      return;
+    }
+
+    const chart = chartRef.current;
+    const overlay = daySeparatorOverlayRef.current;
+    const container = chartContainerRef.current;
+    const candles = historicalCandlesRef.current;
+
+    if (candles.length === 0) {
+      overlay.innerHTML = '';
+      return;
+    }
+
+    const timeScale = chart.timeScale();
+    let visibleRange: { from: number; to: number } | null = null;
+    try {
+      visibleRange = timeScale.getVisibleRange() as { from: number; to: number } | null;
+    } catch {
+      return;
+    }
+    if (!visibleRange) {
+      overlay.innerHTML = '';
+      return;
+    }
+
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+
+    const dayBoundaries: number[] = [];
+    let prevDay = -1;
+    for (const candle of candles) {
+      const day = Math.floor(candle.time / 86400);
+      if (prevDay !== -1 && day !== prevDay) {
+        const boundaryTs = day * 86400;
+        if (boundaryTs >= visibleRange.from && boundaryTs <= visibleRange.to) {
+          dayBoundaries.push(boundaryTs);
+        }
+      }
+      prevDay = day;
+    }
+
+    const fragments: string[] = [];
+    for (const ts of dayBoundaries) {
+      let xPos: number;
+      try {
+        xPos = timeScale.timeToCoordinate(ts as any) as number;
+      } catch {
+        continue;
+      }
+      if (xPos === null || xPos < 0 || xPos > containerWidth) continue;
+
+      const date = new Date(ts * 1000);
+      const label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+      fragments.push(
+        `<div style="position:absolute;left:${xPos}px;top:0;width:1px;height:${containerHeight}px;background:rgba(255,255,255,0.12);pointer-events:none;">` +
+        `<div style="position:absolute;top:6px;left:4px;font-size:10px;color:rgba(255,255,255,0.35);white-space:nowrap;font-family:monospace;letter-spacing:0.03em;">${label}</div>` +
+        `</div>`
+      );
+    }
+
+    overlay.innerHTML = fragments.join('');
+  };
+
+  useEffect(() => {
+    if (!chartRef.current) return;
+
+    const chart = chartRef.current;
+    const timeScale = chart.timeScale();
+
+    const scheduleRender = () => {
+      if (daySeparatorRafRef.current !== null) {
+        cancelAnimationFrame(daySeparatorRafRef.current);
+      }
+      daySeparatorRafRef.current = requestAnimationFrame(() => {
+        renderDaySeparators();
+        daySeparatorRafRef.current = null;
+      });
+    };
+
+    timeScale.subscribeVisibleTimeRangeChange(scheduleRender);
+
+    scheduleRender();
+
+    return () => {
+      try {
+        timeScale.unsubscribeVisibleTimeRangeChange(scheduleRender);
+      } catch {
+        // chart may be disposed
+      }
+      if (daySeparatorRafRef.current !== null) {
+        cancelAnimationFrame(daySeparatorRafRef.current);
+        daySeparatorRafRef.current = null;
+      }
+    };
+  }, [showDaySeparators, timeframe]);
+
+  useEffect(() => {
+    if (daySeparatorRafRef.current !== null) {
+      cancelAnimationFrame(daySeparatorRafRef.current);
+    }
+    daySeparatorRafRef.current = requestAnimationFrame(() => {
+      renderDaySeparators();
+      daySeparatorRafRef.current = null;
+    });
+  }, [historicalCandlesRef.current.length, showDaySeparators, timeframe]);
+
+  const handleToggleDaySeparators = () => {
+    const newValue = !showDaySeparators;
+    setShowDaySeparators(newValue);
+    try {
+      localStorage.setItem('pipnosis_day_separators', String(newValue));
+    } catch {
+      // ignore
+    }
+  };
+
   // Listen for gap detection events and trigger backfill
   // Gap detection removed - clean backfill system will handle historical data
   // Charts now rely on continuous-candle-aggregator for fresh data
@@ -2081,22 +2213,39 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
             </select>
           </div>
 
-          {/* Refresh button */}
-          <button
-            onClick={handleChartRefresh}
-            disabled={isRefreshing}
-            className={`p-1.5 sm:p-2 rounded-lg transition-all ${
-              isRefreshing
-                ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed'
-                : 'bg-gray-800 hover:bg-gray-700 text-white border border-gray-700 hover:border-gray-600'
-            }`}
-            title="Refresh chart data"
-          >
-            <RefreshCw
-              size={14}
-              className={isRefreshing ? 'animate-spin' : ''}
-            />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {/* Day separator toggle */}
+            {timeframe !== 'D1' && (
+              <button
+                onClick={handleToggleDaySeparators}
+                className={`px-2 py-1.5 rounded-lg transition-all text-[10px] font-medium border ${
+                  showDaySeparators
+                    ? 'bg-sky-500/15 text-sky-400 border-sky-500/40 hover:bg-sky-500/25'
+                    : 'bg-gray-800 text-gray-500 border-gray-700 hover:border-gray-600 hover:text-gray-400'
+                }`}
+                title="Toggle daily session separators"
+              >
+                1D
+              </button>
+            )}
+
+            {/* Refresh button */}
+            <button
+              onClick={handleChartRefresh}
+              disabled={isRefreshing}
+              className={`p-1.5 sm:p-2 rounded-lg transition-all ${
+                isRefreshing
+                  ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed'
+                  : 'bg-gray-800 hover:bg-gray-700 text-white border border-gray-700 hover:border-gray-600'
+              }`}
+              title="Refresh chart data"
+            >
+              <RefreshCw
+                size={14}
+                className={isRefreshing ? 'animate-spin' : ''}
+              />
+            </button>
+          </div>
         </div>
 
         {currentPrice && (
@@ -2195,6 +2344,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
         <div className="relative h-full">
           <div ref={chartContainerRef} className="rounded-lg overflow-hidden h-full" />
+          <div ref={daySeparatorOverlayRef} className="absolute inset-0 pointer-events-none overflow-hidden rounded-lg" />
 
           {/* Status Overlay - Bottom Left */}
           <div className="absolute bottom-2 left-2 z-20 pointer-events-none">
