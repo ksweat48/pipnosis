@@ -1,4 +1,12 @@
 import { supabase } from '../lib/supabase';
+// CCIP-STALENESS-FIX-2026-02-20: lazy imports used to avoid circular dependency
+// candle-cache-manager → shared-intelligence-coordinator → market-snapshot-cache
+// These are imported inline inside invalidateSymbolTimeframe only when needed.
+// marketSnapshotCache.invalidateSnapshot and sharedIntelligenceCoordinator.invalidateThesisForSymbol
+// are called here to propagate the candle-close event up through all cache layers.
+// Structural timeframes: H1, H4, D, W — a candle close on these changes market structure
+// and therefore invalidates the Alpha thesis. M5/M15 do NOT invalidate the thesis.
+const STRUCTURAL_TIMEFRAMES = new Set(['H1', 'H4', 'D', 'W', '4H', '1D', '1W']);
 
 const DB_NAME = 'pipnosis_candle_cache';
 const DB_VERSION = 1;
@@ -286,9 +294,32 @@ class CandleCacheManager {
   }
 
   async invalidateSymbolTimeframe(symbol: string, timeframe: string): Promise<void> {
-    // Silenced: This happens frequently during normal operation
-    // console.log(`[CandleCache] 🗑️ Invalidating cache for ${symbol} ${timeframe}`);
+    // Step 1: Clear IndexedDB candle cache for this symbol/timeframe
     await this.clearCache(symbol, timeframe);
+
+    // CCIP-STALENESS-FIX-2026-02-20:
+    // Step 2: Propagate invalidation up the cache stack.
+    // When a candle is written we MUST also clear:
+    //   a) The market snapshot (built from candles) — always
+    //   b) The Alpha thesis (built from the snapshot) — only on structural timeframes
+    // This creates the correct invalidation chain:
+    //   New candle written → candle cache cleared → snapshot cleared → thesis cleared
+    //   (thesis only on H1+ to avoid excessive LLM calls on M5 closes)
+    try {
+      const { marketSnapshotCache } = await import('./market-snapshot-cache');
+      marketSnapshotCache.invalidateSnapshot(symbol, timeframe as any);
+    } catch {
+      // Non-blocking: snapshot cache is in-memory, import failure should not prevent trading
+    }
+
+    if (STRUCTURAL_TIMEFRAMES.has(timeframe)) {
+      try {
+        const { sharedIntelligenceCoordinator } = await import('./shared-intelligence-coordinator');
+        sharedIntelligenceCoordinator.invalidateThesisForSymbol(symbol, timeframe);
+      } catch {
+        // Non-blocking: thesis cache invalidation failure degrades gracefully (TTL still applies)
+      }
+    }
   }
 
   async getCacheInfo(): Promise<{ size: number; symbols: string[] }> {

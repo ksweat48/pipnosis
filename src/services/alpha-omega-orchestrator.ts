@@ -284,6 +284,51 @@ class AlphaOmegaOrchestrator {
       };
     }
 
+    // CCIP-STALENESS-FIX-2026-02-20: Price Drift Guard
+    // If the snapshot price has drifted materially from the signal price captured at
+    // pipeline entry, the snapshot is structurally stale. We invalidate it and force a
+    // fresh fetch rather than letting Alpha reason against an already-wrong picture.
+    // Threshold: 15 pips for majors/crosses, 50 pips for indices (US30/NAS100), 20 pips for gold.
+    // This is a hard block on the SNAPSHOT — it does NOT call the LLM until data is fresh.
+    try {
+      const { calculatePipDistance } = await import('../utils/currencyHelpers');
+      const driftPips = Math.abs(calculatePipDistance(signalPrice, snapshot.price, marketState.symbol));
+      const DRIFT_THRESHOLDS: Record<string, number> = {
+        XAUUSD: 20, XAGUSD: 20,
+        US30: 50, NAS100: 50, SPX500: 30, UK100: 30, GER40: 30,
+        BTCUSD: 150, ETHUSD: 50,
+      };
+      const driftLimit = DRIFT_THRESHOLDS[marketState.symbol] ?? 15;
+
+      if (driftPips > driftLimit) {
+        console.warn(`[Alpha+Omega] DRIFT GUARD: ${driftPips.toFixed(1)} pips drift since signal (limit ${driftLimit}pips) — invalidating snapshot`);
+        sharedIntelligenceCoordinator.invalidateSnapshot(marketState.symbol, entryTimeframe);
+
+        if (userId) {
+          freshnessBlockLogger.logOmegaBlock(
+            marketState.symbol,
+            entryTimeframe,
+            FreshnessBlockCategory.BLOCK_STALE_OMEGA_INTELLIGENCE,
+            { symbol: marketState.symbol, ageSeconds: Math.round((Date.now() - signalTimestamp) / 1000), reason: `Price drifted ${driftPips.toFixed(1)} pips since signal (limit ${driftLimit}pips)`, refreshAttempted: true, wasAutoRefreshed: true, advisory: false },
+            userId
+          );
+        }
+
+        return {
+          action: 'NO_TRADE',
+          decision: 'NO_TRADE',
+          entry: marketState.price,
+          stopLoss: proposedSL,
+          takeProfit: proposedTP,
+          confidence: 0,
+          reasoning: `DRIFT GUARD: Market moved ${driftPips.toFixed(1)} pips since analysis started — snapshot invalidated, retry on next cycle`,
+          omega_summary: 'Execution blocked — price drifted too far while building snapshot'
+        };
+      }
+    } catch (driftErr) {
+      console.warn('[Alpha+Omega] Drift guard calculation failed (non-blocking):', driftErr);
+    }
+
     // Risk is now a PRE-FLIGHT GATE (not a voting Omega)
     // Determine probable direction based on SL/TP placement
     const probableDirection: 'BUY' | 'SELL' = proposedSL < snapshot.price ? 'BUY' : 'SELL';

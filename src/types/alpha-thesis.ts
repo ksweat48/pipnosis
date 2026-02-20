@@ -14,7 +14,15 @@
  * - 60-85% cost reduction through thesis reuse
  * - Institutional-grade separation (thesis vs execution)
  * - Clean audit trails
+ *
+ * CCIP-STALENESS-FIX-2026-02-20:
+ * THESIS_TTL_MS is now sourced from TIME_MS.CACHE.ALPHA_THESIS (5 minutes).
+ * This aligns the thesis TTL with the freshness gate's CRITICAL threshold (300s),
+ * ensuring Alpha never operates on structure that is older than what the gate
+ * already considers stale-enough-to-block.
  */
+
+import { TIME_MS } from '../config/time-constants';
 
 /**
  * Regime Signature - Structural fingerprint for thesis caching
@@ -127,9 +135,15 @@ export interface AlphaMarketThesis {
  * - Volatility regime changes materially
  * - Invalidation logic defined in thesis is violated
  *
- * Rule: TTL = 15 minutes OR invalidate earlier if regime signature changes
+ * Rule: TTL = 5 minutes OR invalidate earlier if:
+ *   - Regime signature changes (structure flip, volatility shift)
+ *   - Price drifts beyond pip threshold since thesis was generated
+ *   - H1+ candle closes (structural timeframe closes)
+ *
+ * CCIP-STALENESS-FIX-2026-02-20: Reduced from 15 min to 5 min.
+ * Sourced from TIME_MS.CACHE.ALPHA_THESIS for SSOT compliance.
  */
-export const THESIS_TTL_MS = 900000; // 15 minutes
+export const THESIS_TTL_MS = TIME_MS.CACHE.ALPHA_THESIS; // 5 minutes (SSOT: time-constants.ts)
 
 /**
  * Structure change thresholds for early invalidation

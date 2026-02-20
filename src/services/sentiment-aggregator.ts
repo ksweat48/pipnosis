@@ -21,6 +21,7 @@
 
 import { marketContextBrain, type MarketContextInput, type MarketContextOutput } from '@/brains/omega7-market-context';
 import type { Candle, MarketState } from '@/services/regime-oracle';
+import { TIME_MS } from '@/config/time-constants';
 
 export interface AggregatedSentiment {
   sentiment: 'risk_on' | 'risk_off' | 'mixed';
@@ -35,7 +36,13 @@ export interface AggregatedSentiment {
 }
 
 class MarketContextAggregator {
-  private readonly CACHE_DURATION_MINUTES = 15;
+  // CCIP-STALENESS-FIX-2026-02-20: Reduced from 15 min to 5 min.
+  // Sourced from TIME_MS.CACHE.MARKET_CONTEXT for SSOT compliance.
+  // Deterministic computation — zero API cost — safe to recompute every 5 min.
+  // Early invalidation also fires when candle-cache-manager detects candle close.
+  private readonly CACHE_DURATION_MS = TIME_MS.CACHE.MARKET_CONTEXT; // 5 minutes
+  /** @deprecated Use CACHE_DURATION_MS. Kept for expiry calculation below. */
+  private readonly CACHE_DURATION_MINUTES = this.CACHE_DURATION_MS / 60_000;
   private cachedContext: Map<string, { context: AggregatedSentiment; expiry: Date }> = new Map();
   private sentimentHistory: Map<string, AggregatedSentiment[]> = new Map();
   private readonly MAX_HISTORY_SIZE = 5;
@@ -86,7 +93,7 @@ class MarketContextAggregator {
     // Store in memory cache
     this.cachedContext.set(cacheKey, {
       context,
-      expiry: new Date(Date.now() + this.CACHE_DURATION_MINUTES * 60 * 1000)
+      expiry: new Date(Date.now() + this.CACHE_DURATION_MS)
     });
 
     const hitRate = this.cacheStats.hits / (this.cacheStats.hits + this.cacheStats.misses) * 100;

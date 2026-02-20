@@ -419,6 +419,36 @@ class SharedIntelligenceCoordinator {
   }
 
   /**
+   * Invalidate ALL local thesis entries for a symbol.
+   *
+   * CCIP-STALENESS-FIX-2026-02-20:
+   * Called by candle-cache-manager when an H1+ structural candle closes.
+   * We cannot know which regime hash the active thesis used without replaying
+   * the full regime extraction, so we sweep the entire local Map for the symbol.
+   * The database cache row will expire naturally within its own TTL (now 5 min).
+   * This guarantees the NEXT orchestrator cycle generates a fresh thesis against
+   * the new candle rather than re-reading a now-stale local hit.
+   *
+   * @param symbol  Trading symbol whose structural candle just closed
+   * @param timeframe  Timeframe of the closing candle (e.g. 'H1', 'H4', 'D')
+   */
+  invalidateThesisForSymbol(symbol: string, timeframe: string): void {
+    let evicted = 0;
+    for (const key of this.localThesisCache.keys()) {
+      // Cache keys are formatted as `${symbol}_${regimeHash}` by generateThesisCacheKey
+      if (key.startsWith(`${symbol}_`)) {
+        this.localThesisCache.delete(key);
+        evicted++;
+      }
+    }
+    logger.info('[SharedIntelligence] Thesis local-cache evicted on structural candle close', {
+      symbol,
+      timeframe,
+      evicted
+    });
+  }
+
+  /**
    * Clear all local caches
    */
   clearLocalCache(): void {

@@ -117,6 +117,16 @@ export const TIME_MS = {
     EXTENDED: 300_000,
     INTELLIGENCE: 7_200_000,
     DAILY: 86_400_000,
+
+    // CCIP-STALENESS-FIX-2026-02-20: Alpha intelligence cache authorities
+    // These are the canonical TTLs for Alpha thesis and deterministic sentiment.
+    // THESIS: 5 minutes aligns with SEVERITY_THRESHOLDS.ALPHA.CRITICAL (300s) in
+    //   trade-execution-freshness-gate.ts — the gate already knows 300s is the
+    //   "must regenerate" threshold, the thesis TTL now matches it exactly.
+    // SENTIMENT: 5 minutes — deterministic computation, zero API cost.
+    //   Early invalidation also fires on H1+ candle close via candle-cache-manager.
+    ALPHA_THESIS: 300_000,   // 5 minutes (was 900_000 / 15 min)
+    MARKET_CONTEXT: 300_000, // 5 minutes (was 15 min in sentiment-aggregator.ts)
   },
 
   DEBOUNCE: {

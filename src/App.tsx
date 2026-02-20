@@ -151,6 +151,24 @@ const AppRoutes: React.FC = () => {
         return;
       }
 
+      // CCIP-STALENESS-FIX-2026-02-20: Start candle realtime invalidation subscription.
+      // When a new candle is written to the database the Supabase realtime channel fires,
+      // clearning the IndexedDB candle cache, the in-memory market snapshot, and (on H1+)
+      // the Alpha thesis local cache.  This is the event-driven freshness layer that
+      // replaces the previous timer-only TTL approach.
+      // subscribeToInvalidationEvents() is idempotent — safe to call multiple times.
+      const initCandleInvalidation = async () => {
+        try {
+          const { candleCacheManager } = await import('./services/candle-cache-manager');
+          candleCacheManager.subscribeToInvalidationEvents();
+          console.log('[App] Candle realtime invalidation subscription active');
+        } catch (error) {
+          console.warn('[App] Candle invalidation subscription failed (non-blocking):', error);
+        }
+      };
+
+      initCandleInvalidation();
+
       // CACHE INTELLIGENCE: Initialize cache warming for SSOT compliance
       // Pre-populates alpha thesis cache to improve hit rates (target 60-85%)
       const initCacheWarming = async () => {
