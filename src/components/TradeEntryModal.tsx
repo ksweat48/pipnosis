@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { TrendingUp, TrendingDown, AlertTriangle, Target, Clock, Zap } from 'lucide-react';
+import { TrendingUp, TrendingDown, AlertTriangle, Target, Clock, Zap, CheckCircle, XCircle } from 'lucide-react';
 
 interface TradeEntryModalProps {
   isOpen: boolean;
@@ -16,6 +16,8 @@ interface TradeEntryModalProps {
   expectedProfit?: number;
   riskReward?: number;
   onDismiss: () => void;
+  onAccept?: () => void;
+  onDecline?: () => void;
   autoExecuted?: boolean;
   // Dual TP system
   tp1?: number;
@@ -38,6 +40,8 @@ export const TradeEntryModal: React.FC<TradeEntryModalProps> = ({
   expectedProfit,
   riskReward,
   onDismiss,
+  onAccept,
+  onDecline,
   autoExecuted = true,
   tp1,
   tp2,
@@ -51,7 +55,6 @@ export const TradeEntryModal: React.FC<TradeEntryModalProps> = ({
       return;
     }
 
-    // Reset countdown when modal opens
     setCountdown(30);
     let isMounted = true;
 
@@ -61,7 +64,6 @@ export const TradeEntryModal: React.FC<TradeEntryModalProps> = ({
       setCountdown((prev) => {
         const newCount = prev - 1;
         if (newCount <= 0) {
-          // Dismiss modal after countdown ends
           if (isMounted) {
             onDismiss();
           }
@@ -108,17 +110,27 @@ export const TradeEntryModal: React.FC<TradeEntryModalProps> = ({
     );
   };
 
+  const handleAccept = () => {
+    if (onAccept) onAccept();
+    onDismiss();
+  };
+
+  const handleDecline = () => {
+    if (onDecline) onDecline();
+    onDismiss();
+  };
+
+  const hasDeclineOption = !!onDecline;
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200 overflow-y-auto">
-      {/* Blocking overlay - prevents all interactions */}
       <div className="absolute inset-0" onClick={(e) => e.stopPropagation()} />
 
       <div className="relative w-full max-w-2xl my-8 animate-in zoom-in-95 duration-300">
-        {/* Glowing border effect */}
         <div className={`absolute -inset-1 bg-gradient-to-r ${getPriorityColor()} rounded-2xl opacity-75 blur-xl animate-pulse`} />
 
         <div className="relative bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 rounded-2xl border border-gray-700/50 shadow-2xl overflow-hidden">
-          {/* Header with status */}
+          {/* Header */}
           <div className="relative pt-8 pb-6 px-8">
             <div className={`absolute inset-0 bg-gradient-to-b ${getPriorityColor()} opacity-10`} />
 
@@ -129,11 +141,13 @@ export const TradeEntryModal: React.FC<TradeEntryModalProps> = ({
             </div>
 
             <h2 className="text-3xl font-bold text-white text-center mb-2">
-              {autoExecuted ? '✅ Trade Executed!' : '📊 Trade Signal'}
+              {autoExecuted ? 'Trade Executed!' : 'Trade Signal'}
             </h2>
             <p className="text-gray-300 text-center mb-3">
               {autoExecuted
-                ? 'Trade automatically executed and now monitoring. You have 30 seconds to mirror this trade on your own platform if desired.'
+                ? hasDeclineOption
+                  ? 'Alpha has opened this trade. Accept to let it run or decline to void it and close the session.'
+                  : 'Trade automatically executed and now monitoring. You have 30 seconds to mirror this trade on your own platform if desired.'
                 : 'Review this trade signal carefully'}
             </p>
 
@@ -279,26 +293,47 @@ export const TradeEntryModal: React.FC<TradeEntryModalProps> = ({
               </div>
             )}
 
-            {/* Auto-dismiss countdown */}
+            {/* Countdown */}
             <div className="bg-blue-900/20 rounded-xl p-4 mb-6 border border-blue-500/30">
               <div className="flex items-center justify-center gap-3 text-blue-300">
                 <Clock className="w-4 h-4" />
                 <span className="text-sm font-medium">
-                  {autoExecuted
-                    ? `Time to mirror on your platform: ${countdown} seconds remaining`
-                    : `Auto-dismiss in ${countdown} seconds`
+                  {hasDeclineOption
+                    ? `No response in ${countdown}s — trade continues running`
+                    : autoExecuted
+                      ? `Time to mirror on your platform: ${countdown} seconds remaining`
+                      : `Auto-dismiss in ${countdown} seconds`
                   }
                 </span>
               </div>
             </div>
 
-            {/* Action Button */}
-            <button
-              onClick={onDismiss}
-              className="w-full py-4 px-6 bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-500 hover:to-blue-500 rounded-xl font-bold text-lg text-white transition-all duration-300 shadow-lg hover:shadow-emerald-500/25 hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
-            >
-              Got It!
-            </button>
+            {/* Action Buttons */}
+            {hasDeclineOption ? (
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={handleDecline}
+                  className="py-4 px-6 bg-gray-800 hover:bg-red-900/40 border border-gray-600 hover:border-red-500/60 rounded-xl font-bold text-base text-gray-300 hover:text-red-400 transition-all duration-300 flex items-center justify-center gap-2 active:scale-95"
+                >
+                  <XCircle className="w-5 h-5" />
+                  Decline Trade
+                </button>
+                <button
+                  onClick={handleAccept}
+                  className="py-4 px-6 bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-500 hover:to-blue-500 rounded-xl font-bold text-base text-white transition-all duration-300 shadow-lg hover:shadow-emerald-500/25 hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <CheckCircle className="w-5 h-5" />
+                  Execute Trade
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={onDismiss}
+                className="w-full py-4 px-6 bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-500 hover:to-blue-500 rounded-xl font-bold text-lg text-white transition-all duration-300 shadow-lg hover:shadow-emerald-500/25 hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
+              >
+                Got It!
+              </button>
+            )}
           </div>
         </div>
       </div>

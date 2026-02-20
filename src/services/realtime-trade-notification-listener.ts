@@ -122,6 +122,7 @@ class RealtimeTradeNotificationListener {
           if (notification.metadata?.tradeId) {
             globalDialogManager.showTradeEntry({
               tradeId: notification.metadata.tradeId,
+              sessionId: notification.metadata.sessionId || notification.session_id,
               symbol: notification.metadata.symbol,
               direction: notification.metadata.action === 'BUY' ? 'buy' : 'sell',
               action: notification.metadata.action,

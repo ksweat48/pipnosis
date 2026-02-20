@@ -1160,7 +1160,8 @@ class AlphaTradeExecutor {
         tp1Price: decision.tp1Price,
         tp2Price: decision.tp2Price,
         tp1Confidence: decision.tp1Confidence,
-        thesis: decision.thesis
+        thesis: decision.thesis,
+        sessionId
       }
     });
 

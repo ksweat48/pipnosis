@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { globalDialogManager, DialogData } from '../services/global-dialog-manager';
 import { audioAlertService } from '../services/audio-alert-service';
+import { supabase } from '../lib/supabase';
 import { GoalAchievedDialog } from '../components/GoalAchievedDialog';
 import { TradeClosedActionDialog } from '../components/TradeClosedActionDialog';
 import { TradeSignalNotificationBar } from '../components/TradeSignalNotificationBar';
@@ -25,8 +26,6 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
 
       if (dialog) {
         // SSOT FIX (2026-02-14): Skip audio for queue-advanced dialogs
-        // When user clicks "Got It", the next dialog appears silently
-        // Audio should only play for NEW events, not automatic queue advancement
         if (dialog._fromQueue) {
           console.debug('[GlobalDialog] Skipping audio for queue-advanced dialog');
           return;
@@ -101,6 +100,50 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
 
   const closeDialog = useCallback(() => {
     globalDialogManager.closeDialog();
+  }, []);
+
+  /**
+   * CCIP FIX (2026-02-20): Trade decline void handler
+   * Calls the void_trade_on_user_decline RPC which hard-deletes the trade row,
+   * removes associated notifications/entry_intents, and stops the session cleanly.
+   * No balance, journal, AI learning, or scoring impact occurs.
+   */
+  const handleTradeDecline = useCallback(async (tradeId: string, sessionId: string) => {
+    if (!tradeId || !sessionId) {
+      console.warn('[useGlobalDialog] handleTradeDecline: missing tradeId or sessionId');
+      return;
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user?.id) {
+        console.error('[useGlobalDialog] handleTradeDecline: no authenticated user');
+        return;
+      }
+
+      console.log('[useGlobalDialog] User declined trade — voiding without record:', { tradeId, sessionId });
+
+      const { data, error } = await supabase.rpc('void_trade_on_user_decline', {
+        p_trade_id: tradeId,
+        p_session_id: sessionId,
+        p_user_id: user.id
+      });
+
+      if (error) {
+        console.error('[useGlobalDialog] void_trade_on_user_decline RPC error:', error);
+        return;
+      }
+
+      const result = data as { success: boolean; error?: string };
+      if (!result?.success) {
+        console.error('[useGlobalDialog] void_trade_on_user_decline returned failure:', result?.error);
+        return;
+      }
+
+      console.log('[useGlobalDialog] Trade voided and session stopped cleanly. User can start a new session.');
+    } catch (err) {
+      console.error('[useGlobalDialog] handleTradeDecline unexpected error:', err);
+    }
   }, []);
 
   return (
@@ -197,6 +240,15 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
           tp2={currentDialog.data.tp2}
           tp1Confidence={currentDialog.data.tp1Confidence}
           onDismiss={closeDialog}
+          onAccept={closeDialog}
+          onDecline={
+            currentDialog.data.tradeId && currentDialog.data.sessionId
+              ? () => handleTradeDecline(
+                  currentDialog.data.tradeId,
+                  currentDialog.data.sessionId
+                )
+              : undefined
+          }
         />
       )}
     </GlobalDialogContext.Provider>
