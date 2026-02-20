@@ -292,7 +292,7 @@ class AlphaOmegaOrchestrator {
     // This is a hard block on the SNAPSHOT — it does NOT call the LLM until data is fresh.
     try {
       const { calculatePipDistance } = await import('../utils/currencyHelpers');
-      const driftPips = Math.abs(calculatePipDistance(signalPrice, snapshot.price, marketState.symbol));
+      const driftPips = Math.abs(calculatePipDistance(marketState.symbol, signalPrice, snapshot.price));
       const DRIFT_THRESHOLDS: Record<string, number> = {
         XAUUSD: 20, XAGUSD: 20,
         US30: 50, NAS100: 50, SPX500: 30, UK100: 30, GER40: 30,

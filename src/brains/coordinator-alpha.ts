@@ -1504,6 +1504,9 @@ SCALP TP PLACEMENT USING M15:
         const prevDayOpen = prevDayCandle.open;
         const prevDayRange = (prevDayHigh - prevDayLow) / pipInfo.pipValue;
         const prevDayDir = prevDayClose > prevDayOpen ? 'BULLISH' : 'BEARISH';
+        const prevDayDate = prevDayCandle.time
+          ? new Date(prevDayCandle.time * 1000).toISOString().split('T')[0]
+          : 'N/A';
 
         const currentPrice = marketContext.price;
         const distToPDH = Math.abs(currentPrice - prevDayHigh) / pipInfo.pipValue;
@@ -1532,6 +1535,7 @@ SCALP TP PLACEMENT USING M15:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PREVIOUS DAY CONTEXT (${marketContext.symbol}) — INSTITUTIONAL REFERENCE LEVELS${isScalp ? ' [ADVISORY]' : ''}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Previous Day Date: ${prevDayDate}
 Previous Day High (PDH): ${prevDayHigh.toFixed(pipInfo.decimalPlaces)}
 Previous Day Low (PDL): ${prevDayLow.toFixed(pipInfo.decimalPlaces)}
 Previous Day Close: ${prevDayClose.toFixed(pipInfo.decimalPlaces)} (${prevDayDir} day, range: ${prevDayRange.toFixed(1)} pips)
