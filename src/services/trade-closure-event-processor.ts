@@ -118,11 +118,21 @@ export class TradeClosureEventProcessor {
 
       // Step 5: Run post-trade analysis (fetch full trade data for journal + learning)
       try {
-        const { data: fullTrade } = await supabase
+        const { data: fullTrade, error: fetchError } = await supabase
           .from('goal_session_trades')
           .select('direction, entry_price, exit_price, stop_loss, take_profit, created_at, closed_at, tp1_hit, tp2_hit')
           .eq('id', event.trade_id)
           .maybeSingle();
+
+        if (fetchError) {
+          logger.error('[TradeClosureEventProcessor] Failed to fetch trade data for analysis', {
+            eventId,
+            tradeId: event.trade_id,
+            symbol: event.symbol,
+            closeReason: event.close_reason,
+            error: fetchError.message,
+          });
+        }
 
         await postTradeAnalyzer.analyzeClosedTrade({
           id: event.trade_id,
@@ -141,8 +151,12 @@ export class TradeClosureEventProcessor {
           tp2Hit: fullTrade?.tp2_hit === true,
         });
       } catch (error) {
-        logger.warn('[TradeClosureEventProcessor] Analysis failed', {
+        logger.error('[TradeClosureEventProcessor] Journal/analysis step failed — trade may be missing journal entry', {
           eventId,
+          tradeId: event.trade_id,
+          symbol: event.symbol,
+          sessionId: event.goal_session_id,
+          closeReason: event.close_reason,
           error: error instanceof Error ? error.message : String(error),
         });
       }

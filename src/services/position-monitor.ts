@@ -1106,52 +1106,10 @@ class PositionMonitorService {
 
         console.log(`[PositionMonitor] Created AI conversation message for ${reason} on ${position.symbol}`);
 
-        // Create persistent modal for user (parallelize independent queries)
-        const [closedTradesResult, sessionResult, tradesCountResult] = await Promise.all([
-          supabase
-            .from('goal_session_trades')
-            .select('profit_loss')
-            .eq('goal_session_id', position.goal_session_id)
-            .eq('status', 'closed'),
-          supabase
-            .from('goal_sessions')
-            .select('target_value, status')
-            .eq('id', position.goal_session_id)
-            .maybeSingle(),
-          supabase
-            .from('goal_session_trades')
-            .select('id', { count: 'exact' })
-            .eq('goal_session_id', position.goal_session_id)
-        ]);
-
-        const { data: closedTrades } = closedTradesResult;
-        const { data: session } = sessionResult;
-        const { data: tradesCount } = tradesCountResult;
-
-        const cumulativeProfit = closedTrades?.reduce((sum, t) => sum + (t.profit_loss || 0), 0) || 0;
-
-        const { modalQueueManager } = await import('./modal-queue-manager');
-        const modalType = reason === 'goal_met' ? 'goal_achieved' : 'trade_closed';
-
-        await modalQueueManager.createPendingModal(
-          position.user_id,
-          position.goal_session_id,
-          modalType,
-          {
-            symbol: position.symbol,
-            direction: position.direction,
-            entry_price: position.entry_price,
-            exit_price: closePrice,
-            profit_loss: result.pnl,
-            close_reason: reason,
-            current_progress: cumulativeProfit,
-            target_value: session?.target_value || 0,
-            trades_in_session: tradesCount?.length || 0,
-            session_status: session?.status
-          }
-        );
-
-        console.log(`[PositionMonitor] Created persistent modal for ${reason} on ${position.symbol}`);
+        // Modal creation is handled exclusively by trade-closure-coordinator.ts via
+        // the trade_closure_events Realtime subscription (handleClosureEvent).
+        // Creating a modal here was a SSOT violation that produced duplicate modals,
+        // wrong modal titles (missing stop_loss/take_profit), and dedup failures.
 
         // Goal achievement is already handled by coordinator
         if (result.goalAchieved) {

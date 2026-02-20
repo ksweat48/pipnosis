@@ -14,6 +14,8 @@ export interface PendingModal {
     exit_price?: number;
     profit_loss?: number;
     close_reason?: string;
+    stop_loss?: number;
+    take_profit?: number;
     current_progress: number;
     target_value: number;
     trades_in_session: number;

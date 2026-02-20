@@ -697,8 +697,11 @@ class TradeClosureCoordinator {
       console.warn(`[TradeClosureCoordinator] Event processing failed for ${event.trade_id}:`, result.error);
     }
 
-    const isSystemClose = ['stop_loss', 'take_profit', 'take_profit_1', 'take_profit_2'].includes(event.close_reason);
-    if (isSystemClose && !this.closureLocks.has(event.trade_id)) {
+    // SSOT AUTHORITY (2026-02-20): This is the ONLY place that shows the trade-closed
+    // modal. The position-monitor.ts no longer creates its own modal (SSOT violation
+    // removed). ALL close reasons must show a dialog so users always see the outcome.
+    const shouldSkipDialog = this.closureLocks.has(event.trade_id);
+    if (!shouldSkipDialog) {
       try {
         const { data: tradeData } = await supabase
           .from('goal_session_trades')
@@ -720,10 +723,11 @@ class TradeClosureCoordinator {
         if (tradeData && session) {
           const isGoalAchieved = (session.current_progress || 0) >= (session.target_value || Infinity);
 
+          if (!tradeData.stop_loss || !tradeData.take_profit) {
+            console.warn(`[TradeClosureCoordinator] Trade ${event.trade_id} missing stop_loss or take_profit in DB — modal title detection may fall back to database close_reason`);
+          }
+
           const { globalDialogManager } = await import('../global-dialog-manager');
-          // CCIP FIX (2026-02-19): Include tradeId so GlobalDialogManager dedup key
-          // can match against the persistent-modal-queue path for the same trade,
-          // preventing the modal from appearing twice (~3s apart) after dismissal.
           globalDialogManager.showTradeClosed({
             symbol: tradeData.symbol,
             direction: tradeData.direction,
