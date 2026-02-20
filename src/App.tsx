@@ -280,7 +280,15 @@ const AppRoutes: React.FC = () => {
             }
           });
         } else if (modal.modal_type === 'trade_closed') {
-          // Show trade closed dialog with timestamp
+          // CCIP FIX (2026-02-20 DUAL-MODAL-FIX): skipPersist: true is MANDATORY here.
+          // This path reads from pending_user_modals (already created by tradeClosureCoordinator).
+          // Without skipPersist:true, showDialog() calls modalNotificationBridge.captureDialog()
+          // which inserts into goal_notifications, which immediately triggers
+          // realtimeTradeNotificationListener.handleNotificationInsert() → a SECOND showTradeClosed()
+          // call on the same trade, bypassing the GlobalDialogManager dedup because the dedup
+          // key was already cleared by the time the realtime event arrives (~3-5s later).
+          // Authority: pending_user_modals is the persistence SSOT. goal_notifications must NOT
+          // be written again for the same event.
           globalDialogManager.showTradeClosed({
             symbol: modalData.symbol,
             direction: modalData.direction,
@@ -295,8 +303,6 @@ const AppRoutes: React.FC = () => {
             tradesInSession: modalData.trades_in_session,
             isGoalAchieved: modalData.isGoalAchieved || false,
             sessionId: modal.goal_session_id,
-            // CCIP FIX (2026-02-19): Pass trade_id so GlobalDialogManager dedup key
-            // matches across persistent-queue and Realtime-event paths
             tradeId: modalData.trade_id,
             timestamp: modalData.timestamp || modal.created_at,
             onStartNewSession: async () => {
@@ -307,7 +313,7 @@ const AppRoutes: React.FC = () => {
               await modalQueueManager.dismissModal(modal.id, 'continue');
               checkPendingModals();
             }
-          });
+          }, { skipPersist: true });
         }
       }
     };
@@ -315,8 +321,13 @@ const AppRoutes: React.FC = () => {
     // Check immediately on mount
     checkPendingModals();
 
-    // Subscribe to modal updates
-    const { modalQueueManager } = import('./services/modal-queue-manager').then(({ modalQueueManager }) => {
+    // CCIP FIX (2026-02-20 DUAL-MODAL-FIX): Corrected broken subscription wiring.
+    // The previous code assigned the Promise to a destructured variable (a no-op),
+    // meaning subscribeToModalUpdates() was never called and checkPendingModals() never
+    // fired reactively on new pending_user_modals inserts. The modal was only shown on
+    // initial mount, not when a new one arrived mid-session.
+    // Now correctly awaited inside the async init chain.
+    import('./services/modal-queue-manager').then(({ modalQueueManager }) => {
       modalQueueManager.subscribeToModalUpdates(user.id, checkPendingModals);
     });
 
@@ -404,7 +415,8 @@ const AppRoutes: React.FC = () => {
       supabase.removeChannel(tradeSignalChannel);
       supabase.removeChannel(midTradeChannel);
 
-      // Unsubscribe from modal updates
+      // CCIP FIX (2026-02-20 DUAL-MODAL-FIX): Cleanup uses the same dynamic import
+      // pattern as setup — consistent with the non-blocking async init above.
       import('./services/modal-queue-manager').then(({ modalQueueManager }) => {
         modalQueueManager.unsubscribeFromModalUpdates();
       });

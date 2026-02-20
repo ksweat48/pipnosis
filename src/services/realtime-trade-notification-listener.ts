@@ -145,8 +145,15 @@ class RealtimeTradeNotificationListener {
         case 'trade_closed':
         case 'stop_loss_hit':
         case 'take_profit_hit':
+          // CCIP FIX (2026-02-20 DUAL-MODAL-FIX): Resolve tradeId from both camelCase
+          // and snake_case metadata keys. The modalNotificationBridge stores dialogData.data
+          // as metadata (camelCase keys: tradeId). The tradeClosureCoordinator's
+          // notificationCoordinator path writes snake_case keys (trade_id). Both must
+          // resolve to the same dedup key in GlobalDialogManager: `trade_closed-<uuid>`.
+          // Without this fallback, a metadata object with only `trade_id` would produce
+          // dedup key `trade_closed-undefined` and bypass the 30-second dedup window.
           globalDialogManager.showTradeClosed({
-            tradeId: notification.metadata?.tradeId,
+            tradeId: notification.metadata?.tradeId || notification.metadata?.trade_id,
             symbol: notification.metadata?.symbol,
             closeReason: notification.type,
             pnl: notification.metadata?.pnl,
