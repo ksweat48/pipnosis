@@ -250,28 +250,36 @@ class SmartGoalSessionManager {
     // STEP 1: Detect symbols from prompt (highest priority)
     const promptSymbols = extractSymbolsFromPrompt(prompt);
 
+    // STEP 1b: Also parse customInstructions for symbol mentions (e.g. "Focus on ETHUSD")
+    const instructionSymbols = customInstructions ? extractSymbolsFromPrompt(customInstructions) : [];
+
     // STEP 2: Determine watchlist based on priority order
     let watchlist: string[];
     let symbolSelectionSource: 'prompt' | 'ui' | 'asset_filter' | 'default';
 
     if (promptSymbols.length > 0) {
-      // Priority 1: Use symbols from prompt
+      // Priority 1: Use symbols from main prompt
       watchlist = promptSymbols;
       symbolSelectionSource = 'prompt';
       console.log(`[Smart Goal] 🎯 Detected ${promptSymbols.length} symbol(s) from prompt: ${promptSymbols.join(', ')}`);
     } else if (specificSymbols && specificSymbols.length > 0) {
-      // Priority 2: Use specific symbols from UI
+      // Priority 2: Use specific symbols passed from UI (e.g. Analyze with Alpha)
       watchlist = specificSymbols;
       symbolSelectionSource = 'ui';
       console.log(`[Smart Goal] 🎯 Using ${specificSymbols.length} symbol(s) from UI: ${specificSymbols.join(', ')}`);
+    } else if (instructionSymbols.length > 0) {
+      // Priority 3: Use symbols detected from custom instructions (e.g. "Focus on ETHUSD")
+      watchlist = instructionSymbols;
+      symbolSelectionSource = 'prompt';
+      console.log(`[Smart Goal] 🎯 Detected ${instructionSymbols.length} symbol(s) from custom instructions: ${instructionSymbols.join(', ')}`);
     } else if (assetClassFilter && assetClassFilter.length > 0) {
-      // Priority 3: Filter by asset class
+      // Priority 4: Filter by asset class
       const fullWatchlist = getDefaultWatchlist();
       watchlist = filterWatchlistByAssetClass(fullWatchlist, assetClassFilter as AssetClass[]);
       symbolSelectionSource = 'asset_filter';
       console.log(`[Smart Goal] 🎯 Filtered to ${watchlist.length} symbol(s) by asset classes: ${assetClassFilter.join(', ')}`);
     } else {
-      // Priority 4: Use full default watchlist
+      // Priority 5: Use full default watchlist
       watchlist = getDefaultWatchlist();
       symbolSelectionSource = 'default';
       console.log(`[Smart Goal] 🎯 Using default watchlist: ${watchlist.length} symbols`);

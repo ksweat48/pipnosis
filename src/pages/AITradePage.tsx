@@ -56,6 +56,20 @@ export function AITradePage() {
     };
   }, []);
 
+  // Scroll container to top when SmartGoalPanel requests it (e.g. Analyze with Alpha)
+  useEffect(() => {
+    const handleScrollToTop = () => {
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    };
+
+    window.addEventListener('smart-goal-panel-scroll-to-top', handleScrollToTop);
+    return () => {
+      window.removeEventListener('smart-goal-panel-scroll-to-top', handleScrollToTop);
+    };
+  }, []);
+
   // Governance: Check for active session and poll for changes with scroll preservation
   useEffect(() => {
     const checkActiveSession = async () => {

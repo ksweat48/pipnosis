@@ -73,7 +73,7 @@ export const SmartGoalPanel: React.FC = () => {
         }
       }
       setSearchParams({}, { replace: true });
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      window.dispatchEvent(new CustomEvent('smart-goal-panel-scroll-to-top'));
     }
   }, [searchParams]);
 
