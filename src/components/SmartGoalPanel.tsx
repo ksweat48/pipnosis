@@ -60,6 +60,7 @@ export const SmartGoalPanel: React.FC = () => {
         setCustomInstructions(`Focus on ${symbolParam}`);
       }
       setSearchParams({}, { replace: true });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }, [searchParams]);
 
