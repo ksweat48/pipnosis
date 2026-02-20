@@ -1407,9 +1407,9 @@ export function SettingsPage() {
                   <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-gray-700">
                     <div className="flex items-center gap-3">
                       <div className="flex gap-1">
-                        <div className="w-3 h-4 rounded-sm" style={{ background: 'rgba(56,189,248,0.45)' }}></div>
-                        <div className="w-3 h-4 rounded-sm" style={{ background: 'rgba(251,191,36,0.45)' }}></div>
-                        <div className="w-3 h-4 rounded-sm" style={{ background: 'rgba(248,113,113,0.45)' }}></div>
+                        <div className="w-3 h-4 rounded-sm" style={{ background: 'rgba(56,189,248,0.55)' }}></div>
+                        <div className="w-3 h-4 rounded-sm" style={{ background: 'rgba(251,191,36,0.55)' }}></div>
+                        <div className="w-3 h-4 rounded-sm" style={{ background: 'rgba(248,113,113,0.55)' }}></div>
                       </div>
                       <div>
                         <div className="text-white font-medium">Session Bands</div>
