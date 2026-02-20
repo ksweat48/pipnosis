@@ -31,6 +31,7 @@ export type ScalpMomentumPhase = 'starting' | 'developing' | 'exhausted';
 
 export interface MidTradePlan {
   setup_summary: string;
+  entry_narrative?: string;
   invalidation_price: number | null;
   key_levels: Array<{ price: number; type: 'support' | 'resistance' | 'target' | 'invalidation'; label: string }>;
   expected_direction: 'up' | 'down';
@@ -75,6 +76,184 @@ export interface TriggerEvaluation {
  * Called once at trade entry by alpha-trade-executor.
  * Result is stored in goal_session_trades.mid_trade_plan (immutable after write).
  */
+const SCALP_PATTERN_LABELS_ENGINE: Record<string, string> = {
+  momentum_breakout: 'Momentum Breakout',
+  bos_retest: 'Break of Structure Retest',
+  ema_rejection: 'EMA Rejection',
+  double_bottom: 'Double Bottom',
+  double_top: 'Double Top',
+  range_breakout: 'Range Breakout',
+  liquidity_sweep: 'Liquidity Sweep',
+  engulfing_at_structure: 'Engulfing at Structure',
+  trend_pullback_ema: 'Trend Pullback to EMA',
+  none: '',
+};
+
+const SCALP_SUBMODE_LABELS_ENGINE: Record<string, string> = {
+  momentum_continuation: 'momentum continuation',
+  pullback_entry: 'pullback entry',
+  consolidation_breakout: 'breakout from consolidation',
+};
+
+const SCALP_MOMENTUM_PHASE_LABELS: Record<string, string> = {
+  starting: 'fresh momentum starting',
+  developing: 'momentum developing',
+  exhausted: 'momentum showing exhaustion',
+};
+
+function extractKeySignalsFromReasoning(reasoning: string): {
+  momentum: string | null;
+  ema: string | null;
+  rsi: string | null;
+  structure: string | null;
+  confluence: string | null;
+} {
+  const lower = reasoning.toLowerCase();
+
+  const momentumMatch = reasoning.match(/momentum\s+is\s+([\w\s]+?)[\.,;]/i)
+    || reasoning.match(/(strong|bullish|bearish|positive|negative|increasing|decreasing)\s+momentum/i);
+  const emaMatch = reasoning.match(/ema[s]?\s+(?:is\s+)?(?:at\s+|around\s+)?([\d.]+)/i)
+    || reasoning.match(/price\s+(?:is\s+)?(?:above|below)\s+(?:the\s+)?ema/i);
+  const rsiMatch = reasoning.match(/rsi\s+(?:is\s+)?(?:at\s+)?([\d.]+)/i)
+    || reasoning.match(/(?:over|over-?sold|overbought|over-?bought)\s+(?:at\s+)?([\d.]+)?/i);
+  const structureMatch = reasoning.match(/(?:break\s+of\s+structure|bos|market\s+structure)\s+(?:on\s+the\s+)?([\w\s]+?(?:timeframe|tf|frame))/i)
+    || reasoning.match(/(htf|h4|h1|4h|1h|d1|daily)\s+(?:structure|bias|trend)/i);
+  const confluenceMatch = reasoning.match(/(\d+)\s+(?:out\s+of\s+\d+|of\s+\d+)\s+(?:confirmations?|signals?)/i)
+    || reasoning.match(/(\d+)\s+confluences?/i)
+    || reasoning.match(/(?:multiple|strong)\s+confluence/i);
+
+  return {
+    momentum: momentumMatch ? (momentumMatch[1] || momentumMatch[0]).trim() : null,
+    ema: lower.includes('ema') ? (emaMatch ? (emaMatch[1] || emaMatch[0]).trim() : 'confirming') : null,
+    rsi: lower.includes('rsi') || lower.includes('oversold') || lower.includes('overbought') ? (rsiMatch ? (rsiMatch[1] || rsiMatch[0]).trim() : 'extended') : null,
+    structure: structureMatch ? (structureMatch[1] || structureMatch[0]).trim() : null,
+    confluence: confluenceMatch ? (confluenceMatch[1] || confluenceMatch[0]).trim() : null,
+  };
+}
+
+function buildEntryNarrative(params: {
+  reasoning: string;
+  direction: 'buy' | 'sell';
+  symbol: string;
+  marketRegime: string | null;
+  htfPattern: string | null;
+  mtfPattern: string | null;
+  ltfPattern: string | null;
+  scalpPattern?: ScalpPattern | null;
+  scalpSubMode?: ScalpSubMode | null;
+  scalpMomentumPhase?: ScalpMomentumPhase | null;
+  confidence: number;
+  expectedDurationMinutes?: number;
+  omegaConsensus?: string | null;
+}): string {
+  const {
+    reasoning, direction, symbol, marketRegime, htfPattern, mtfPattern, ltfPattern,
+    scalpPattern, scalpSubMode, scalpMomentumPhase, confidence, expectedDurationMinutes, omegaConsensus
+  } = params;
+
+  const directionWord = direction === 'buy' ? 'long' : 'short';
+  const signals = extractKeySignalsFromReasoning(reasoning);
+
+  const parts: string[] = [];
+
+  // Pattern identification
+  if (scalpPattern && scalpPattern !== 'none') {
+    const patternLabel = SCALP_PATTERN_LABELS_ENGINE[scalpPattern] || scalpPattern;
+    const subLabel = scalpSubMode ? SCALP_SUBMODE_LABELS_ENGINE[scalpSubMode] : null;
+    parts.push(`I identified a ${patternLabel}${subLabel ? ` via ${subLabel}` : ''} on ${symbol}`);
+  } else if (htfPattern || mtfPattern) {
+    const primaryPattern = htfPattern || mtfPattern;
+    parts.push(`I identified a ${primaryPattern} setup on ${symbol}`);
+  } else {
+    parts.push(`I identified a technical setup on ${symbol}`);
+  }
+
+  // Multi-timeframe confirmation
+  const confirmedTimeframes: string[] = [];
+  if (htfPattern) confirmedTimeframes.push('higher timeframe');
+  if (mtfPattern) confirmedTimeframes.push('mid timeframe');
+  if (ltfPattern) confirmedTimeframes.push('execution timeframe');
+
+  if (confirmedTimeframes.length > 1) {
+    parts.push(`This setup is confirmed across ${confirmedTimeframes.join(' and ')}`);
+  } else if (confirmedTimeframes.length === 1) {
+    parts.push(`I confirmed this on the ${confirmedTimeframes[0]}`);
+  }
+
+  // Structure
+  if (signals.structure) {
+    const structureText = signals.structure.replace(/\b(htf|h4|h1|4h|1h|d1|daily)\b/i, (m) => m.toUpperCase());
+    parts.push(`Market structure on the ${structureText} supports a ${directionWord}`);
+  }
+
+  // Momentum
+  if (scalpMomentumPhase) {
+    parts.push(SCALP_MOMENTUM_PHASE_LABELS[scalpMomentumPhase] || `momentum phase: ${scalpMomentumPhase}`);
+  } else if (signals.momentum) {
+    parts.push(`momentum is ${signals.momentum}`);
+  }
+
+  // EMA
+  if (signals.ema) {
+    parts.push(`price is ${signals.ema === 'confirming' ? (direction === 'buy' ? 'above' : 'below') + ' the EMA, confirming direction' : 'interacting with the EMA at ' + signals.ema}`);
+  }
+
+  // RSI / oversold / overbought
+  if (signals.rsi) {
+    const rsiNum = parseFloat(signals.rsi);
+    if (!isNaN(rsiNum)) {
+      const condition = rsiNum < 35 ? 'oversold' : rsiNum > 65 ? 'overbought' : 'at ' + rsiNum;
+      parts.push(`RSI is ${condition}`);
+    } else {
+      const rsiLower = signals.rsi.toLowerCase();
+      if (rsiLower.includes('oversold') || rsiLower.includes('overbought')) {
+        parts.push(signals.rsi);
+      }
+    }
+  }
+
+  // Regime context
+  if (marketRegime && marketRegime !== 'unknown') {
+    const regimeLower = marketRegime.toLowerCase();
+    if (!regimeLower.includes('unknown')) {
+      parts.push(`current market regime is ${marketRegime}`);
+    }
+  }
+
+  // Omega consensus
+  if (omegaConsensus) {
+    const consensusShort = omegaConsensus.length > 80 ? omegaConsensus.substring(0, 77) + '...' : omegaConsensus;
+    parts.push(`advisory consensus: ${consensusShort}`);
+  }
+
+  // Confidence and duration
+  const confidenceLevel = confidence >= 75 ? 'high' : confidence >= 60 ? 'moderate' : 'cautious';
+  const rrMatch = reasoning.match(/(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)\s*(?:r[:\s]?r|risk.?reward)/i);
+  const rrText = rrMatch ? ` with a ${rrMatch[1]}:${rrMatch[2]} R:R` : '';
+
+  parts.push(
+    `With all of these confirmations I took a ${directionWord}${rrText}. My confidence is ${confidence}% (${confidenceLevel})${expectedDurationMinutes ? ` and this trade should last approximately ${expectedDurationMinutes} minutes` : ''}.`
+  );
+
+  // Stitch the narrative together naturally
+  const [first, ...rest] = parts;
+  if (rest.length === 0) return first + '.';
+
+  // Join into a flowing paragraph
+  const body = rest.slice(0, -1).join(', ') ;
+  const closing = rest[rest.length - 1];
+
+  if (body) {
+    return `${first}. ${capitalize(body)}. ${capitalize(closing)}`;
+  }
+  return `${first}. ${capitalize(closing)}`;
+}
+
+function capitalize(s: string): string {
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 export function buildMidTradePlan(params: {
   reasoning: string;
   entryPrice: number;
@@ -168,8 +347,25 @@ export function buildMidTradePlan(params: {
   const regimeStr = marketRegime ? ` [${marketRegime}]` : '';
   const setupSummary = `${patternStr}${regimeStr} — ${direction === 'buy' ? 'Long' : 'Short'} entry at ${entryPrice}`;
 
+  const entryNarrative = buildEntryNarrative({
+    reasoning,
+    direction,
+    symbol,
+    marketRegime,
+    htfPattern,
+    mtfPattern,
+    ltfPattern,
+    scalpPattern,
+    scalpSubMode,
+    scalpMomentumPhase,
+    confidence: params.confidence,
+    expectedDurationMinutes,
+    omegaConsensus,
+  });
+
   return {
     setup_summary: setupSummary,
+    entry_narrative: entryNarrative,
     invalidation_price: patternInvalidationPrice ?? stopLoss,
     key_levels: keyLevels.sort((a, b) => (direction === 'sell' ? b.price - a.price : a.price - b.price)),
     expected_direction: direction === 'buy' ? 'up' : 'down',

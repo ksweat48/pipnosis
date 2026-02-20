@@ -13,8 +13,8 @@ import {
   ChevronUp,
   Copy,
   Clock,
-  BookOpen,
-  Zap
+  Zap,
+  Brain
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { midTradeMonitorService, type MidTradeGuidance } from '@/services/mid-trade-monitor-service';
@@ -137,76 +137,109 @@ const ActionPriceChip: React.FC<{
   );
 };
 
-const AlphaPlanSection: React.FC<{ guide: MidTradeGuidance }> = ({ guide }) => {
+const SCALP_PATTERN_BADGE_LABELS: Record<string, string> = {
+  momentum_breakout: 'Momentum Breakout',
+  bos_retest: 'BOS Retest',
+  ema_rejection: 'EMA Rejection',
+  double_bottom: 'Double Bottom',
+  double_top: 'Double Top',
+  range_breakout: 'Range Breakout',
+  liquidity_sweep: 'Liquidity Sweep',
+  engulfing_at_structure: 'Engulfing @ Structure',
+  trend_pullback_ema: 'Trend Pullback EMA',
+  none: '',
+};
+
+const AlphaEntryIntelligence: React.FC<{ guide: MidTradeGuidance }> = ({ guide }) => {
   const [expanded, setExpanded] = useState(false);
   const plan = guide.midTradePlan;
 
   if (!plan) return null;
 
+  const narrative = plan.entry_narrative || plan.setup_summary;
+  const patternKey = plan.scalp_pattern && plan.scalp_pattern !== 'none' ? plan.scalp_pattern : null;
+  const patternLabel = patternKey ? (SCALP_PATTERN_BADGE_LABELS[patternKey] ?? patternKey) : null;
+
+  const htfPattern = plan.patterns?.htf;
+  const primaryBadge = patternLabel || htfPattern || null;
+
+  const directionColor = guide.direction === 'buy'
+    ? 'text-emerald-400 bg-emerald-500/15 border-emerald-500/30'
+    : 'text-red-400 bg-red-500/15 border-red-500/30';
+  const directionLabel = guide.direction === 'buy' ? 'LONG' : 'SHORT';
+
   return (
     <div className="mt-2">
       <button
         onClick={() => setExpanded(v => !v)}
-        className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-gray-800/60 hover:bg-gray-800/80 transition-colors border border-gray-700/40"
+        className="w-full rounded-lg bg-gray-800/60 hover:bg-gray-800/80 transition-colors border border-gray-700/40 overflow-hidden"
+        aria-expanded={expanded}
       >
-        <div className="flex items-center gap-2">
-          <BookOpen className="w-3.5 h-3.5 text-gray-400" />
-          <span className="text-xs text-gray-400">Alpha Trade Plan</span>
+        <div className="flex items-center justify-between px-3 py-2.5">
+          <div className="flex items-center gap-2 min-w-0">
+            <Brain className="w-3.5 h-3.5 text-sky-400 flex-shrink-0" />
+            <span className="text-xs font-semibold text-sky-300">Why Alpha Entered</span>
+            {primaryBadge && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border text-sky-300 bg-sky-900/30 border-sky-600/30 truncate max-w-[120px]">
+                {primaryBadge}
+              </span>
+            )}
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border flex-shrink-0 ${directionColor}`}>
+              {directionLabel}
+            </span>
+          </div>
+          {expanded ? (
+            <ChevronUp className="w-3.5 h-3.5 text-gray-500 flex-shrink-0 ml-2" />
+          ) : (
+            <ChevronDown className="w-3.5 h-3.5 text-gray-500 flex-shrink-0 ml-2" />
+          )}
         </div>
-        {expanded ? (
-          <ChevronUp className="w-3.5 h-3.5 text-gray-500" />
-        ) : (
-          <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
+
+        {!expanded && (
+          <div className="px-3 pb-2.5">
+            <p className="text-xs text-gray-400 leading-relaxed line-clamp-2 text-left">
+              {narrative}
+            </p>
+          </div>
         )}
       </button>
 
       {expanded && (
         <div className="mt-1 rounded-lg bg-gray-800/40 border border-gray-700/30 overflow-hidden">
-          <div className="px-3 py-2 border-b border-gray-700/30">
-            <p className="text-xs text-gray-300 leading-relaxed">{plan.setup_summary}</p>
+          <div className="px-3 py-3">
+            <div className="flex flex-wrap gap-1.5 mb-2.5">
+              {primaryBadge && (
+                <span className="text-[10px] font-bold px-2 py-1 rounded border text-sky-300 bg-sky-900/30 border-sky-600/30">
+                  {primaryBadge}
+                </span>
+              )}
+              {plan.patterns?.mtf && plan.patterns.mtf !== plan.patterns.htf && (
+                <span className="text-[10px] font-semibold px-2 py-1 rounded border text-blue-300 bg-blue-900/20 border-blue-700/30">
+                  {plan.patterns.mtf}
+                </span>
+              )}
+              {plan.scalp_sub_mode && (
+                <span className="text-[10px] font-semibold px-2 py-1 rounded border text-gray-300 bg-gray-700/50 border-gray-600/40">
+                  {plan.scalp_sub_mode.replace(/_/g, ' ')}
+                </span>
+              )}
+              {plan.regime_at_entry && plan.regime_at_entry !== 'unknown' && (
+                <span className="text-[10px] font-semibold px-2 py-1 rounded border text-amber-300 bg-amber-900/20 border-amber-700/30">
+                  {plan.regime_at_entry}
+                </span>
+              )}
+              {plan.expected_duration_minutes && (
+                <span className="text-[10px] font-semibold px-2 py-1 rounded border text-gray-400 bg-gray-700/30 border-gray-600/30 flex items-center gap-1">
+                  <Clock className="w-2.5 h-2.5" />
+                  ~{plan.expected_duration_minutes}m
+                </span>
+              )}
+            </div>
+
+            <p className="text-xs text-gray-200 leading-relaxed">
+              {narrative}
+            </p>
           </div>
-
-          {plan.patterns && (Object.values(plan.patterns).some(Boolean)) && (
-            <div className="px-3 py-2 border-b border-gray-700/30">
-              <p className="text-xs text-gray-500 mb-1">Patterns</p>
-              <div className="flex flex-wrap gap-1">
-                {plan.patterns.htf && (
-                  <span className="text-xs bg-blue-900/40 text-blue-300 px-1.5 py-0.5 rounded border border-blue-700/30">HTF: {plan.patterns.htf}</span>
-                )}
-                {plan.patterns.mtf && (
-                  <span className="text-xs bg-blue-900/40 text-blue-300 px-1.5 py-0.5 rounded border border-blue-700/30">MTF: {plan.patterns.mtf}</span>
-                )}
-                {plan.patterns.ltf && (
-                  <span className="text-xs bg-blue-900/40 text-blue-300 px-1.5 py-0.5 rounded border border-blue-700/30">LTF: {plan.patterns.ltf}</span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {plan.key_levels && plan.key_levels.length > 0 && (
-            <div className="px-3 py-2 border-b border-gray-700/30">
-              <p className="text-xs text-gray-500 mb-1">Key Levels</p>
-              <div className="space-y-1">
-                {plan.key_levels.map((level, i) => (
-                  <div key={i} className="flex items-center justify-between">
-                    <span className="text-xs text-gray-400">{level.label}</span>
-                    <span className={`text-xs font-mono font-semibold ${
-                      level.type === 'invalidation' ? 'text-red-400' :
-                      level.type === 'target' ? 'text-emerald-400' :
-                      'text-gray-300'
-                    }`}>{level.price}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {plan.omega_consensus && (
-            <div className="px-3 py-2">
-              <p className="text-xs text-gray-500 mb-0.5">Omega Consensus</p>
-              <p className="text-xs text-gray-300">{plan.omega_consensus}</p>
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -517,10 +550,8 @@ export const MidTradeMonitor: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Scalp Intelligence Bar — only for SCALP trades that have plan data */}
-                {guide.midTradePlan && (guide.midTradePlan.scalp_pattern || guide.midTradePlan.scalp_momentum_phase) && (
-                  <ScalpIntelligenceBar plan={guide.midTradePlan} />
-                )}
+                {/* Alpha Entry Intelligence — Why Alpha took this trade */}
+                <AlphaEntryIntelligence guide={guide} />
 
                 {/* Price Context Row */}
                 <div className="grid grid-cols-3 gap-1.5 mb-3">
@@ -582,8 +613,10 @@ export const MidTradeMonitor: React.FC = () => {
                   <TrailingSLCard options={guide.trailingSLOptions} symbol={guide.symbol} />
                 )}
 
-                {/* Alpha Plan Context */}
-                <AlphaPlanSection guide={guide} />
+                {/* Scalp Intelligence Bar — momentum phase detail for scalp trades */}
+                {guide.midTradePlan && guide.midTradePlan.scalp_momentum_phase && (
+                  <ScalpIntelligenceBar plan={guide.midTradePlan} />
+                )}
 
                 {/* Stale price warning */}
                 {guide.stalePriceWarning && (
