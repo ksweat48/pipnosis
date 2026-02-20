@@ -471,7 +471,8 @@ class AlphaCoordinatorBrain {
     goalContext?: GoalContext,
     adversarialSignal?: AdversarialSignal,
     regimeSnapshot?: RegimeSnapshot,
-    fullCandles?: any[]
+    fullCandles?: any[],
+    imSignal?: Record<string, unknown>
   ): Promise<AlphaDecision> {
     // Extract sessionId from goalContext for progress thoughts (optional)
     const sessionId = goalContext?.sessionId;
@@ -1632,6 +1633,37 @@ regardless of what M1 shows — unless there is exceptional breakaway evidence.
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // IM SIGNAL CONTEXT: Pre-computed per-symbol intelligence from the
+    // session_intelligence_data table. Applies to ALL trade styles.
+    // Advisory only — Alpha retains full decision authority.
+    // ═══════════════════════════════════════════════════════════════════
+    let imSignalContext = '';
+    if (imSignal && typeof imSignal === 'object') {
+      const direction = imSignal.direction as string | undefined;
+      const imConfidence = imSignal.confidence as number | undefined;
+      const alignment = imSignal.alignment as string | undefined;
+      const momentumPhase = imSignal.momentumPhase as string | undefined;
+      const subMode = imSignal.scalpSubMode as string | undefined;
+      const pattern = imSignal.scalpPattern as string | undefined;
+      const imScore = imSignal.score as number | undefined;
+
+      const hasUsefulData = direction || momentumPhase || subMode || pattern;
+      if (hasUsefulData) {
+        imSignalContext = `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+INTELLIGENCE MONITOR SIGNAL (${marketContext.symbol}) — ADVISORY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Pre-computed signal from the server-side intelligence monitor. This is advisory context — your analysis takes precedence, but you MUST address any contradictions explicitly in your reasoning.
+${direction ? `Directional Bias: ${direction.toUpperCase()}` : ''}${imConfidence !== undefined ? ` | Signal Confidence: ${(imConfidence * 100).toFixed(0)}%` : ''}${imScore !== undefined ? ` | Pair Score: ${imScore.toFixed(1)}` : ''}
+${alignment ? `Alignment: ${alignment}` : ''}
+${momentumPhase ? `Momentum Phase: ${momentumPhase.toUpperCase()}` : ''}${subMode ? ` | Sub-Mode: ${subMode}` : ''}
+${pattern ? `Detected Pattern: ${pattern}` : ''}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // SCALP INTELLIGENCE CONTEXT — Inject pre-detected scalp signals
     // CCIP GOVERNANCE: This is advisory context only. Alpha has FINAL
     // AUTHORITY to confirm, reject, or override these pre-detections.
@@ -1805,7 +1837,7 @@ ${briefing.briefingText}
 
 Risk Mode: ${riskMode.toUpperCase()}
 
-${conflictContext}${advisoryContext}${advancedPatternsContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${patternContext}${intelligenceContext}${goalContextText}${liquidityContext}${constraintsText}${stopLossDirective}
+${conflictContext}${advisoryContext}${advancedPatternsContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${patternContext}${intelligenceContext}${imSignalContext}${goalContextText}${liquidityContext}${constraintsText}${stopLossDirective}
 
 MARKET CONDITIONS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━

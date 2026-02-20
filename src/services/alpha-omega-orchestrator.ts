@@ -127,7 +127,8 @@ class AlphaOmegaOrchestrator {
     proposedSL: number,
     proposedTP: number,
     goalContext?: import('../brains/coordinator-alpha').GoalContext,
-    userId?: string
+    userId?: string,
+    imSignal?: Record<string, unknown>
   ): Promise<AlphaDecision> {
     console.log('[Alpha+Omega] 🎯 Starting decision pipeline...');
 
@@ -643,7 +644,8 @@ class AlphaOmegaOrchestrator {
       goalContext,
       marketState.adversarial,
       marketState.regime,
-      snapshot.candles
+      snapshot.candles,
+      imSignal
     );
 
     const alphaTime = Date.now() - alphaStart;
@@ -849,7 +851,8 @@ class AlphaOmegaOrchestrator {
     marketStates: FullMarketState[],
     traderScore: TraderScore,
     userId?: string,
-    goalContext?: import('../brains/coordinator-alpha').GoalContext
+    goalContext?: import('../brains/coordinator-alpha').GoalContext,
+    imSignalMap?: Map<string, Record<string, unknown>>
   ): Promise<Map<string, AlphaDecision>> {
     const config = getConcurrentExecutionConfig();
     const isConcurrent = isConcurrentExecutionEnabled();
@@ -868,8 +871,8 @@ class AlphaOmegaOrchestrator {
 
     // Route to appropriate evaluation strategy
     const decisionMap = isConcurrent
-      ? await this.evaluateConcurrently(marketStates, traderScore, userId, goalContext, executionId)
-      : await this.evaluateSequentially(marketStates, traderScore, userId, goalContext, executionId);
+      ? await this.evaluateConcurrently(marketStates, traderScore, userId, goalContext, executionId, imSignalMap)
+      : await this.evaluateSequentially(marketStates, traderScore, userId, goalContext, executionId, imSignalMap);
 
     const duration = Date.now() - startTime;
     const evaluatedCount = decisionMap.size;
@@ -899,7 +902,8 @@ class AlphaOmegaOrchestrator {
     goalContext?: import('../brains/coordinator-alpha').GoalContext,
     userId?: string,
     index?: number,
-    total?: number
+    total?: number,
+    imSignal?: Record<string, unknown>
   ): Promise<{ symbol: string; decision: AlphaDecision; timing: number }> {
     const symbolStartTime = Date.now();
 
@@ -951,7 +955,7 @@ class AlphaOmegaOrchestrator {
         });
 
         const decision = await Promise.race([
-          this.makeTradeDecision(marketState, traderScore, proposedSL, proposedTP, goalContext, userId),
+          this.makeTradeDecision(marketState, traderScore, proposedSL, proposedTP, goalContext, userId, imSignal),
           timeoutPromise
         ]);
 
@@ -996,7 +1000,8 @@ class AlphaOmegaOrchestrator {
     traderScore: TraderScore,
     userId?: string,
     goalContext?: import('../brains/coordinator-alpha').GoalContext,
-    executionId?: string
+    executionId?: string,
+    imSignalMap?: Map<string, Record<string, unknown>>
   ): Promise<Map<string, AlphaDecision>> {
     const config = getConcurrentExecutionConfig();
     const minConfidence = goalContext?.minConfidence || config.earlyExit.minConfidenceThreshold;
@@ -1043,7 +1048,8 @@ class AlphaOmegaOrchestrator {
           goalContext,
           userId,
           batchIdx * maxConcurrent + idx,
-          marketStates.length
+          marketStates.length,
+          imSignalMap?.get(marketState.symbol)
         )
       );
 
@@ -1101,7 +1107,8 @@ class AlphaOmegaOrchestrator {
     traderScore: TraderScore,
     userId?: string,
     goalContext?: import('../brains/coordinator-alpha').GoalContext,
-    executionId?: string
+    executionId?: string,
+    imSignalMap?: Map<string, Record<string, unknown>>
   ): Promise<Map<string, AlphaDecision>> {
     const config = getConcurrentExecutionConfig();
     const minConfidence = goalContext?.minConfidence || config.earlyExit.minConfidenceThreshold;
@@ -1152,7 +1159,8 @@ class AlphaOmegaOrchestrator {
           proposedSL,
           proposedTP,
           goalContext,
-          userId
+          userId,
+          imSignalMap?.get(marketState.symbol)
         );
 
         decisionMap.set(marketState.symbol, decision);

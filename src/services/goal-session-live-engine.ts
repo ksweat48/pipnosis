@@ -78,6 +78,7 @@ export interface GoalSessionLiveConfig {
   minConfidence?: number; // Minimum confidence threshold for trades
   dollarRisk?: number; // Fixed dollar risk for Trade Styles system
   tradeStyle?: string; // Trade style (Sniper, Scalper, Day Trader, Swing Trader)
+  specificSymbols?: string[]; // Runtime override: narrow scan to this subset of watchlist symbols
 }
 
 export interface NoTradeRejectionContext {
@@ -883,12 +884,49 @@ class GoalSessionLiveEngine {
       }
       const orchestratorStartTime = Date.now();
 
+      // ═══════════════════════════════════════════════════════════════════
+      // IM SIGNAL MAP: Query session_intelligence_data for pre-computed
+      // per-symbol signals. Keyed by symbol for O(1) lookup in orchestrator.
+      // Non-blocking: empty map on failure, scan continues normally.
+      // specificSymbols filter applied here if present.
+      // ═══════════════════════════════════════════════════════════════════
+      const imSignalMap = new Map<string, Record<string, unknown>>();
+      try {
+        const { data: intelligenceRow } = await supabase
+          .from('session_intelligence_data')
+          .select('all_pair_scores, top_pairs, heating_pairs')
+          .gt('expires_at', new Date().toISOString())
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (intelligenceRow?.all_pair_scores && Array.isArray(intelligenceRow.all_pair_scores)) {
+          const activeSymbols = config.specificSymbols && config.specificSymbols.length > 0
+            ? new Set(config.specificSymbols)
+            : null;
+
+          for (const entry of intelligenceRow.all_pair_scores as Record<string, unknown>[]) {
+            const sym = entry.symbol as string | undefined;
+            if (!sym) continue;
+            if (activeSymbols && !activeSymbols.has(sym)) continue;
+            imSignalMap.set(sym, entry);
+          }
+
+          if (import.meta.env.DEV) {
+            console.log(`[IM Signal] Loaded ${imSignalMap.size} symbol signals from session_intelligence_data`);
+          }
+        }
+      } catch (imErr) {
+        console.warn('[IM Signal] Failed to load session_intelligence_data — proceeding without IM signals:', imErr);
+      }
+
       // Run Full Omega Council (Alpha Scout system removed for simplicity)
       const councilPromise = alphaOmegaOrchestrator.evaluateMultipleSymbols(
         marketStates,
         traderScore,
         config.userId,
-        goalContext
+        goalContext,
+        imSignalMap
       );
 
       // INCREASED TIMEOUT: 180s for multi-symbol evaluation (9 symbols * ~20s average)
