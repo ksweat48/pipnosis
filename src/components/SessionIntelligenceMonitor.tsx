@@ -20,8 +20,9 @@ import {
   Target,
   Shield,
   ChevronRight,
+  Bitcoin,
 } from 'lucide-react';
-import { calculateSessionContext } from '@/utils/marketHours';
+import { calculateSessionContext, getForexMarketStatus, isSymbolMarketOpen } from '@/utils/marketHours';
 
 type TradeStyle = 'scalp' | 'micro' | 'intraday';
 type TradeDirection = 'buy' | 'sell';
@@ -492,6 +493,97 @@ const SessionQualityBanner: React.FC = () => {
   );
 };
 
+/**
+ * CCIP 2026-02-20: Market Close Awareness.
+ * Computes minutes until Sunday 5pm EST (market reopen) from current time.
+ * Used by MarketClosedBanner to show a countdown to reopen.
+ */
+function computeMinutesToForexReopen(): number {
+  const now = new Date();
+  const estTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const day = estTime.getDay();
+  const h = estTime.getHours();
+  const m = estTime.getMinutes();
+  const totalMins = h * 60 + m;
+  const sundayOpenMins = 17 * 60;
+
+  if (day === 6) {
+    const minsUntilSundayMidnight = (24 * 60) - totalMins;
+    return minsUntilSundayMidnight + sundayOpenMins;
+  }
+  if (day === 0) {
+    if (totalMins < sundayOpenMins) {
+      return sundayOpenMins - totalMins;
+    }
+    return 0;
+  }
+  if (day === 5) {
+    const fridayCloseMins = 17 * 60;
+    if (totalMins >= fridayCloseMins) {
+      const minsUntilSatMidnight = (24 * 60) - totalMins;
+      const satMins = 24 * 60;
+      return minsUntilSatMidnight + satMins + sundayOpenMins;
+    }
+  }
+  return 0;
+}
+
+/**
+ * CCIP 2026-02-20: Weekend / Market Closed Banner.
+ * Replaces SessionQualityBanner when the forex market is closed.
+ * Shows countdown to Sunday 5pm EST reopen and informs user that
+ * only crypto pairs (BTCUSD, ETHUSD) are available for scanning.
+ */
+const MarketClosedBanner: React.FC = () => {
+  const [minsToReopen, setMinsToReopen] = useState(computeMinutesToForexReopen);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setMinsToReopen(computeMinutesToForexReopen());
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const h = Math.floor(minsToReopen / 60);
+  const m = minsToReopen % 60;
+  const reopenLabel = h > 0 ? `${h}h ${m}m` : `${m}m`;
+
+  return (
+    <div className="rounded-xl border border-slate-600/40 bg-gradient-to-br from-slate-800/60 to-slate-900/40 p-3.5 mb-4">
+      <div className="flex items-center gap-3 mb-2.5">
+        <div className="p-2 bg-slate-700/50 rounded-lg flex-shrink-0">
+          <Moon className="w-4 h-4 text-slate-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-bold text-white">Forex Markets Closed</span>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold bg-slate-700/50 border-slate-600/40 text-slate-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+              Weekend
+            </span>
+          </div>
+          <p className="text-[10px] text-slate-500 mt-0.5">
+            Fri 5:00 PM – Sun 5:00 PM EST &nbsp;·&nbsp; Reopens in{' '}
+            <span className="text-slate-300 font-semibold">{reopenLabel}</span>
+          </p>
+        </div>
+        <div className="text-right flex-shrink-0">
+          <div className="text-xs font-semibold text-slate-400">{reopenLabel}</div>
+          <div className="text-[10px] text-slate-600">to reopen</div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-slate-700/30 border border-slate-600/30">
+        <Bitcoin className="w-4 h-4 text-amber-400 flex-shrink-0" />
+        <p className="text-[11px] text-slate-300 leading-snug">
+          <span className="font-semibold text-white">Crypto only</span> — BTCUSD and ETHUSD trade 24/7.
+          Forex, Gold, and Index pairs are hidden until Sunday 5:00 PM EST.
+        </p>
+      </div>
+    </div>
+  );
+};
+
 const STRUCTURE_EVENT_LABELS: Record<string, { label: string; color: string; bg: string; border: string }> = {
   BOS: { label: 'BOS', color: 'text-green-400', bg: 'bg-green-500/15', border: 'border-green-500/40' },
   ChoCh: { label: 'ChoCh', color: 'text-orange-400', bg: 'bg-orange-500/15', border: 'border-orange-500/40' },
@@ -524,6 +616,22 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
   const [scanResult, setScanResult] = useState<{ signalsFound: number; scanned: number } | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
+
+  // CCIP 2026-02-20: Market close awareness.
+  // Forex market is closed Fri 5pm – Sun 5pm EST. When closed, only crypto
+  // pairs (BTCUSD, ETHUSD) should be shown. Delegates to getForexMarketStatus
+  // (SSOT in marketHours.ts). Ticks every 60s to detect reopen automatically.
+  const [isForexMarketClosed, setIsForexMarketClosed] = useState(
+    () => !getForexMarketStatus().isOpen
+  );
+
+  useEffect(() => {
+    const checkMarket = () => {
+      setIsForexMarketClosed(!getForexMarketStatus().isOpen);
+    };
+    const interval = setInterval(checkMarket, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   // CCIP (2026-02-18): SSOT compliance fix.
   // The populate-session-intelligence Netlify function is a SCHEDULED data populator.
@@ -752,22 +860,32 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
     return { ...pair, confidence: cappedConfidence };
   };
 
+  // CCIP 2026-02-20: Market-close filter.
+  // When forex is closed, only pairs whose symbol trades 24/7 (crypto) are shown.
+  // Delegates to isSymbolMarketOpen (SSOT: marketHours.ts → symbol-registry.ts).
+  const applyMarketFilter = (pairs: BestPair[]): BestPair[] => {
+    if (!isForexMarketClosed) return pairs;
+    return pairs.filter((p) => isSymbolMarketOpen(p.symbol));
+  };
+
   const getReadyPairs = (): BestPair[] => {
     if (!sessionData) return [];
-    const ready = (sessionData.best_pairs ?? [])
-      .map(applyScanAlignedCap)
-      .filter((p) => (p.confidence ?? 0) >= 70 && p.constraintFeasible !== false);
+    const ready = applyMarketFilter(
+      (sessionData.best_pairs ?? [])
+        .map(applyScanAlignedCap)
+        .filter((p) => (p.confidence ?? 0) >= 70 && p.constraintFeasible !== false)
+    );
     if (activeFilter === 'all') return ready;
     return ready.filter((p) => resolveStyle(p) === activeFilter);
   };
 
   const getHeatingPairs = (): BestPair[] => {
     if (!sessionData) return [];
-    const allPairs = [
+    const combined = applyMarketFilter([
       ...(sessionData.best_pairs ?? []).map(applyScanAlignedCap),
       ...(sessionData.heating_pairs ?? []).map(applyScanAlignedCap),
-    ];
-    const heating = allPairs.filter(
+    ]);
+    const heating = combined.filter(
       (p) => (p.confidence ?? 0) >= 50 && (p.confidence ?? 0) < 70
     );
     if (activeFilter === 'all') return heating;
@@ -776,11 +894,11 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
 
   const getHeatingCount = (): number => {
     if (!sessionData) return 0;
-    const allPairs = [
+    const combined = applyMarketFilter([
       ...(sessionData.best_pairs ?? []).map(applyScanAlignedCap),
       ...(sessionData.heating_pairs ?? []).map(applyScanAlignedCap),
-    ];
-    const heating = allPairs.filter(
+    ]);
+    const heating = combined.filter(
       (p) => (p.confidence ?? 0) >= 50 && (p.confidence ?? 0) < 70
     );
     if (activeFilter === 'all') return heating.length;
@@ -789,9 +907,11 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
 
   const getStyleCounts = (): Record<TradeStyle, number> => {
     const counts: Record<TradeStyle, number> = { scalp: 0, micro: 0, intraday: 0 };
-    const allReady = (sessionData?.best_pairs ?? [])
-      .map(applyScanAlignedCap)
-      .filter((p) => (p.confidence ?? 0) >= 70 && p.constraintFeasible !== false);
+    const allReady = applyMarketFilter(
+      (sessionData?.best_pairs ?? [])
+        .map(applyScanAlignedCap)
+        .filter((p) => (p.confidence ?? 0) >= 70 && p.constraintFeasible !== false)
+    );
     for (const pair of allReady) {
       counts[resolveStyle(pair)]++;
     }
@@ -819,13 +939,14 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
           </div>
           <div className="flex-1">
             <h3 className="text-lg font-bold text-white mb-2">Real-Time Intelligence</h3>
-            <SessionQualityBanner />
+            {isForexMarketClosed ? <MarketClosedBanner /> : <SessionQualityBanner />}
             <p className="text-sm text-slate-400 mb-2">
               Real-time probability analysis will appear here shortly.
             </p>
             <p className="text-xs text-slate-500">
-              Scanning Scalp (M5), Micro (M15) and Intraday (H1) setups across all watchlist
-              pairs. Ready to trade pairs show 70%+ indicator alignment.
+              {isForexMarketClosed
+                ? 'Scanning BTCUSD and ETHUSD — crypto trades 24/7 even on weekends.'
+                : 'Scanning Scalp (M5), Micro (M15) and Intraday (H1) setups across all watchlist pairs. Ready to trade pairs show 70%+ indicator alignment.'}
             </p>
           </div>
         </div>
@@ -1153,7 +1274,9 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
             <div>
               <h3 className="text-lg font-bold text-white">Real-Time Intelligence</h3>
               <p className="text-sm text-blue-300">
-                Scanning Scalp / Micro / Intraday -- Last:{' '}
+                {isForexMarketClosed
+                  ? 'Crypto Only (Weekend) -- Last: '
+                  : 'Scanning Scalp / Micro / Intraday -- Last: '}
                 {new Date(sessionData.created_at).toLocaleTimeString()}
               </p>
             </div>
@@ -1217,7 +1340,7 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
           </div>
         </div>
 
-        <SessionQualityBanner />
+        {isForexMarketClosed ? <MarketClosedBanner /> : <SessionQualityBanner />}
 
         <div className="flex items-center gap-2 mb-4 flex-wrap">
           <div
@@ -1315,16 +1438,20 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
         )}
 
         {readyPairs.length === 0 && heatingCount === 0 && (
-          <div className="bg-blue-900/20 rounded-lg p-4 border border-blue-500/30 mb-4">
+          <div className={`rounded-lg p-4 border mb-4 ${isForexMarketClosed ? 'bg-slate-800/30 border-slate-600/30' : 'bg-blue-900/20 border-blue-500/30'}`}>
             <div className="flex items-start gap-3">
-              <Clock className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+              {isForexMarketClosed
+                ? <Bitcoin className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                : <Clock className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+              }
               <div>
-                <p className="text-sm font-semibold text-blue-300 mb-1">
-                  Scanning All Timeframes
+                <p className={`text-sm font-semibold mb-1 ${isForexMarketClosed ? 'text-slate-300' : 'text-blue-300'}`}>
+                  {isForexMarketClosed ? 'Scanning Crypto Only' : 'Scanning All Timeframes'}
                 </p>
-                <p className="text-sm text-blue-200/80">
-                  Analyzing Scalp (M5), Micro (M15) and Intraday (H1) for setups with 70%+
-                  indicator alignment.
+                <p className={`text-sm ${isForexMarketClosed ? 'text-slate-400' : 'text-blue-200/80'}`}>
+                  {isForexMarketClosed
+                    ? 'Forex and Index markets are closed for the weekend. Only BTCUSD and ETHUSD are available.'
+                    : 'Analyzing Scalp (M5), Micro (M15) and Intraday (H1) for setups with 70%+ indicator alignment.'}
                 </p>
               </div>
             </div>

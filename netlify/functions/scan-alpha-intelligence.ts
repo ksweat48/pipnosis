@@ -14,13 +14,41 @@
  * - Does NOT replace or duplicate session-level scanning (goal-session-scanner)
  * - Does NOT trigger LLM calls — indicator-only pipeline
  * - Results expire after 15 minutes (enforced by DB default)
+ *
+ * CCIP 2026-02-20: Market Close Awareness
+ * - Server independently checks forex market status (Fri 5pm – Sun 5pm EST)
+ * - When forex is closed, watchlist is filtered to crypto-only (BTCUSD, ETHUSD)
+ * - SSOT for crypto identification: netlify/functions/_shared/crypto-symbol-checker.ts
+ * - This enforcement is SERVER-AUTHORITATIVE regardless of client payload
  */
 
 import type { Handler } from '@netlify/functions';
 import { getSupabaseAdmin } from './_shared/supabase-admin';
 import { realTimeIntelligenceCalculator } from './_shared/realtime-intelligence-calculator';
+import { isCryptoSymbol } from './_shared/crypto-symbol-checker';
 
 const supabase = getSupabaseAdmin();
+
+/**
+ * CCIP 2026-02-20: Server-side forex market close detection.
+ * Mirrors the logic in src/utils/marketHours.ts (getForexMarketStatus).
+ * SSOT for weekend schedule: Friday 5pm – Sunday 5pm EST.
+ * XAUUSD follows this schedule (not treated as 24/7).
+ */
+function isForexMarketClosed(): boolean {
+  const now = new Date();
+  const estTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+
+  const dayOfWeek = estTime.getDay();
+  const totalMinutes = estTime.getHours() * 60 + estTime.getMinutes();
+  const fridayClose = 17 * 60;
+  const sundayOpen = 17 * 60;
+
+  if (dayOfWeek === 6) return true;
+  if (dayOfWeek === 5 && totalMinutes >= fridayClose) return true;
+  if (dayOfWeek === 0 && totalMinutes < sundayOpen) return true;
+  return false;
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -99,8 +127,20 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    const watchlist = await getActiveWatchlist();
-    console.log(`[AlphaScan] Starting manual scan across ${watchlist.length} symbols...`);
+    const fullWatchlist = await getActiveWatchlist();
+
+    // CCIP 2026-02-20: Server enforces crypto-only when forex market is closed.
+    // This is authoritative — client cannot bypass by sending a full watchlist.
+    const forexClosed = isForexMarketClosed();
+    const watchlist = forexClosed
+      ? fullWatchlist.filter(isCryptoSymbol)
+      : fullWatchlist;
+
+    if (forexClosed) {
+      console.log(`[AlphaScan] Forex market closed (weekend). Restricting scan to crypto-only: [${watchlist.join(', ')}]`);
+    } else {
+      console.log(`[AlphaScan] Starting manual scan across ${watchlist.length} symbols...`);
+    }
 
     const { allPairs } = await realTimeIntelligenceCalculator.calculateForAllPairsWithAllScores(watchlist);
 
