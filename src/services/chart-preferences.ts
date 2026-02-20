@@ -38,6 +38,8 @@ interface IndicatorPreferencesCache {
 const STORAGE_KEY = 'pipnosis_chart_preferences';
 const INDICATOR_STORAGE_KEY = 'pipnosis_indicator_preferences';
 const SELECTED_SYMBOL_KEY = 'pipnosis_selected_symbol';
+const SESSION_BANDS_KEY = 'pipnosis_session_bands';
+const DAY_SEPARATORS_KEY = 'pipnosis_day_separators';
 
 class ChartPreferencesService {
   private preferences: ChartPreferences = {};
@@ -269,6 +271,42 @@ class ChartPreferencesService {
   clearSelectedSymbol(): void {
     this.selectedSymbol = 'EURUSD';
     localStorage.removeItem(SELECTED_SYMBOL_KEY);
+  }
+
+  getShowSessionBands(): boolean {
+    try {
+      const stored = localStorage.getItem(SESSION_BANDS_KEY);
+      return stored !== null ? stored === 'true' : true;
+    } catch {
+      return true;
+    }
+  }
+
+  setShowSessionBands(value: boolean): void {
+    try {
+      localStorage.setItem(SESSION_BANDS_KEY, String(value));
+      window.dispatchEvent(new CustomEvent('session-bands-changed', { detail: value }));
+    } catch {
+      // ignore
+    }
+  }
+
+  getShowDaySeparators(): boolean {
+    try {
+      const stored = localStorage.getItem(DAY_SEPARATORS_KEY);
+      return stored !== null ? stored === 'true' : true;
+    } catch {
+      return true;
+    }
+  }
+
+  setShowDaySeparators(value: boolean): void {
+    try {
+      localStorage.setItem(DAY_SEPARATORS_KEY, String(value));
+      window.dispatchEvent(new CustomEvent('day-separators-changed', { detail: value }));
+    } catch {
+      // ignore
+    }
   }
 }
 

@@ -107,6 +107,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const askLineRef = useRef<any>(null);
   const daySeparatorOverlayRef = useRef<HTMLDivElement>(null);
   const daySeparatorRafRef = useRef<number | null>(null);
+  const sessionBandsOverlayRef = useRef<HTMLDivElement>(null);
+  const sessionBandsRafRef = useRef<number | null>(null);
 
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [bidPrice, setBidPrice] = useState<number | null>(null);
@@ -151,14 +153,12 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     ema50: false,
     ema200: false
   });
-  const [showDaySeparators, setShowDaySeparators] = useState<boolean>(() => {
-    try {
-      const stored = localStorage.getItem('pipnosis_day_separators');
-      return stored !== null ? stored === 'true' : true;
-    } catch {
-      return true;
-    }
-  });
+  const [showDaySeparators, setShowDaySeparators] = useState<boolean>(() =>
+    chartPreferencesService.getShowDaySeparators()
+  );
+  const [showSessionBands, setShowSessionBands] = useState<boolean>(() =>
+    chartPreferencesService.getShowSessionBands()
+  );
 
   const currentCandleRef = useRef<CurrentCandle | null>(null);
   const lastFetchTimeRef = useRef<string | null>(null);
@@ -1860,6 +1860,148 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
     overlay.innerHTML = fragments.join('');
   };
 
+  const SESSION_DEFINITIONS = [
+    { name: 'ASIA', startHour: 0, endHour: 8, color: 'rgba(56,189,248,0.055)' },
+    { name: 'LONDON', startHour: 8, endHour: 16, color: 'rgba(251,191,36,0.055)' },
+    { name: 'NEW YORK', startHour: 13, endHour: 21, color: 'rgba(248,113,113,0.055)' },
+  ];
+
+  const renderSessionBands = () => {
+    if (!showSessionBands || timeframe === 'D1' || !chartRef.current || !sessionBandsOverlayRef.current || !chartContainerRef.current) {
+      if (sessionBandsOverlayRef.current) {
+        sessionBandsOverlayRef.current.innerHTML = '';
+      }
+      return;
+    }
+
+    const chart = chartRef.current;
+    const overlay = sessionBandsOverlayRef.current;
+    const container = chartContainerRef.current;
+    const candles = historicalCandlesRef.current;
+
+    if (candles.length === 0) {
+      overlay.innerHTML = '';
+      return;
+    }
+
+    const timeScale = chart.timeScale();
+    let visibleRange: { from: number; to: number } | null = null;
+    try {
+      visibleRange = timeScale.getVisibleRange() as { from: number; to: number } | null;
+    } catch {
+      return;
+    }
+    if (!visibleRange) {
+      overlay.innerHTML = '';
+      return;
+    }
+
+    const containerHeight = container.clientHeight;
+    const containerWidth = container.clientWidth;
+
+    const startDay = Math.floor(visibleRange.from / 86400);
+    const endDay = Math.floor(visibleRange.to / 86400) + 1;
+
+    const fragments: string[] = [];
+
+    for (let day = startDay; day <= endDay; day++) {
+      const dayBaseUtc = day * 86400;
+
+      for (const session of SESSION_DEFINITIONS) {
+        const sessionStart = dayBaseUtc + session.startHour * 3600;
+        const sessionEnd = dayBaseUtc + session.endHour * 3600;
+
+        if (sessionEnd < visibleRange.from || sessionStart > visibleRange.to) continue;
+
+        let xStart: number;
+        let xEnd: number;
+        try {
+          xStart = timeScale.timeToCoordinate(Math.max(sessionStart, visibleRange.from) as any) as number;
+          xEnd = timeScale.timeToCoordinate(Math.min(sessionEnd, visibleRange.to) as any) as number;
+        } catch {
+          continue;
+        }
+
+        if (xStart === null || xEnd === null) continue;
+        if (xEnd <= 0 || xStart >= containerWidth) continue;
+
+        xStart = Math.max(0, xStart);
+        xEnd = Math.min(containerWidth, xEnd);
+        const width = xEnd - xStart;
+        if (width < 2) continue;
+
+        const labelColor = session.color.replace('0.055', '0.30');
+        const showLabel = width > 42;
+
+        fragments.push(
+          `<div style="position:absolute;left:${xStart}px;top:0;width:${width}px;height:${containerHeight}px;background:${session.color};pointer-events:none;">` +
+          (showLabel ? `<div style="position:absolute;top:6px;left:6px;font-size:9px;color:${labelColor};white-space:nowrap;font-family:monospace;letter-spacing:0.06em;font-weight:600;">${session.name}</div>` : '') +
+          `</div>`
+        );
+      }
+    }
+
+    overlay.innerHTML = fragments.join('');
+  };
+
+  useEffect(() => {
+    if (!chartRef.current) return;
+
+    const chart = chartRef.current;
+    const timeScale = chart.timeScale();
+
+    const scheduleRender = () => {
+      if (sessionBandsRafRef.current !== null) {
+        cancelAnimationFrame(sessionBandsRafRef.current);
+      }
+      sessionBandsRafRef.current = requestAnimationFrame(() => {
+        renderSessionBands();
+        sessionBandsRafRef.current = null;
+      });
+    };
+
+    timeScale.subscribeVisibleTimeRangeChange(scheduleRender);
+    scheduleRender();
+
+    return () => {
+      try {
+        timeScale.unsubscribeVisibleTimeRangeChange(scheduleRender);
+      } catch {
+        // chart may be disposed
+      }
+      if (sessionBandsRafRef.current !== null) {
+        cancelAnimationFrame(sessionBandsRafRef.current);
+        sessionBandsRafRef.current = null;
+      }
+    };
+  }, [showSessionBands, timeframe]);
+
+  useEffect(() => {
+    if (sessionBandsRafRef.current !== null) {
+      cancelAnimationFrame(sessionBandsRafRef.current);
+    }
+    sessionBandsRafRef.current = requestAnimationFrame(() => {
+      renderSessionBands();
+      sessionBandsRafRef.current = null;
+    });
+  }, [historicalCandlesRef.current.length, showSessionBands, timeframe]);
+
+  useEffect(() => {
+    const handleExternalChange = (e: CustomEvent) => {
+      setShowSessionBands(e.detail as boolean);
+    };
+    window.addEventListener('session-bands-changed', handleExternalChange as EventListener);
+    return () => window.removeEventListener('session-bands-changed', handleExternalChange as EventListener);
+  }, []);
+
+  useEffect(() => {
+    const handleExternalChange = (e: CustomEvent) => {
+      setShowDaySeparators(e.detail as boolean);
+    };
+    window.addEventListener('day-separators-changed', handleExternalChange as EventListener);
+    return () => window.removeEventListener('day-separators-changed', handleExternalChange as EventListener);
+  }, []);
+
   useEffect(() => {
     if (!chartRef.current) return;
 
@@ -1906,11 +2048,13 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const handleToggleDaySeparators = () => {
     const newValue = !showDaySeparators;
     setShowDaySeparators(newValue);
-    try {
-      localStorage.setItem('pipnosis_day_separators', String(newValue));
-    } catch {
-      // ignore
-    }
+    chartPreferencesService.setShowDaySeparators(newValue);
+  };
+
+  const handleToggleSessionBands = () => {
+    const newValue = !showSessionBands;
+    setShowSessionBands(newValue);
+    chartPreferencesService.setShowSessionBands(newValue);
   };
 
   // Listen for gap detection events and trigger backfill
@@ -2214,6 +2358,20 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
           </div>
 
           <div className="flex items-center gap-1.5">
+            {/* Session bands toggle */}
+            {timeframe !== 'D1' && (
+              <button
+                onClick={handleToggleSessionBands}
+                className={`px-2 py-1.5 rounded-lg transition-all text-[10px] font-medium border ${
+                  showSessionBands
+                    ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/25'
+                    : 'bg-gray-800 text-gray-500 border-gray-700 hover:border-gray-600 hover:text-gray-400'
+                }`}
+                title="Toggle trading session bands (Asia / London / New York)"
+              >
+                SES
+              </button>
+            )}
             {/* Day separator toggle */}
             {timeframe !== 'D1' && (
               <button
@@ -2344,6 +2502,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
         <div className="relative h-full">
           <div ref={chartContainerRef} className="rounded-lg overflow-hidden h-full" />
+          <div ref={sessionBandsOverlayRef} className="absolute inset-0 pointer-events-none overflow-hidden rounded-lg" />
           <div ref={daySeparatorOverlayRef} className="absolute inset-0 pointer-events-none overflow-hidden rounded-lg" />
 
           {/* Status Overlay - Bottom Left */}

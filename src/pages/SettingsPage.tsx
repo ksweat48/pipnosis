@@ -49,6 +49,12 @@ export function SettingsPage() {
   });
   const [savingIndicators, setSavingIndicators] = useState(false);
   const [indicatorMessage, setIndicatorMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [showSessionBands, setShowSessionBands] = useState<boolean>(() =>
+    chartPreferencesService.getShowSessionBands()
+  );
+  const [showDaySeparators, setShowDaySeparators] = useState<boolean>(() =>
+    chartPreferencesService.getShowDaySeparators()
+  );
 
   const [monitorPreferences, setMonitorPreferences] = useState({
     entryPriceMonitorEnabled: true,
@@ -206,6 +212,18 @@ export function SettingsPage() {
       ...prev,
       [indicator]: !prev[indicator]
     }));
+  };
+
+  const handleToggleSessionBands = () => {
+    const newValue = !showSessionBands;
+    setShowSessionBands(newValue);
+    chartPreferencesService.setShowSessionBands(newValue);
+  };
+
+  const handleToggleDaySeparators = () => {
+    const newValue = !showDaySeparators;
+    setShowDaySeparators(newValue);
+    chartPreferencesService.setShowDaySeparators(newValue);
   };
 
   const loadMonitorPreferences = async () => {
@@ -1380,6 +1398,55 @@ export function SettingsPage() {
                     />
                     <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
                   </label>
+                </div>
+              </div>
+
+              <div className="mt-6 mb-2">
+                <p className="text-sm font-medium text-gray-300 mb-3">Chart Overlays</p>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                    <div className="flex items-center gap-3">
+                      <div className="flex gap-1">
+                        <div className="w-3 h-4 rounded-sm" style={{ background: 'rgba(56,189,248,0.45)' }}></div>
+                        <div className="w-3 h-4 rounded-sm" style={{ background: 'rgba(251,191,36,0.45)' }}></div>
+                        <div className="w-3 h-4 rounded-sm" style={{ background: 'rgba(248,113,113,0.45)' }}></div>
+                      </div>
+                      <div>
+                        <div className="text-white font-medium">Session Bands</div>
+                        <div className="text-xs text-gray-400">Color-coded Asia / London / New York session backgrounds</div>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={showSessionBands}
+                        onChange={handleToggleSessionBands}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                    <div className="flex items-center gap-3">
+                      <div className="w-4 h-4 flex items-center justify-center">
+                        <div className="w-px h-full bg-white/40"></div>
+                      </div>
+                      <div>
+                        <div className="text-white font-medium">Day Separators</div>
+                        <div className="text-xs text-gray-400">Vertical line at the start of each new trading day</div>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={showDaySeparators}
+                        onChange={handleToggleDaySeparators}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
+                  </div>
                 </div>
               </div>
 
