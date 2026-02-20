@@ -502,6 +502,21 @@ const STRUCTURE_EVENT_LABELS: Record<string, { label: string; color: string; bg:
   AsiaRangeBuilding: { label: 'Asia Range', color: 'text-blue-300', bg: 'bg-blue-500/10', border: 'border-blue-500/30' },
 };
 
+interface AlphaScanSignal {
+  id: string;
+  symbol: string;
+  direction: 'buy' | 'sell';
+  trade_style: 'scalp' | 'micro_intraday' | 'intraday';
+  timeframe: string;
+  alpha_confidence: number;
+  reasoning: string | null;
+  scanned_at: string;
+  expires_at: string;
+  scan_batch_id: string;
+}
+
+type ScanState = 'idle' | 'scanning' | 'done' | 'cooldown' | 'error';
+
 interface SessionIntelligenceMonitorProps {
   sessionId?: string;
   userId?: string;
@@ -518,6 +533,11 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<TradeStyle | 'all'>('all');
   const [scanAlignedPairs, setScanAlignedPairs] = useState<BestPair[] | null>(null);
+  const [scanState, setScanState] = useState<ScanState>('idle');
+  const [scanResult, setScanResult] = useState<{ signalsFound: number; scanned: number } | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const [alphaSignals, setAlphaSignals] = useState<AlphaScanSignal[]>([]);
 
   // CCIP (2026-02-18): SSOT compliance fix.
   // The populate-session-intelligence Netlify function is a SCHEDULED data populator.
@@ -562,6 +582,90 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
       setRefreshing(false);
     }
   }, [refreshing, loadSessionData]);
+
+  const loadAlphaSignals = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.rpc('get_latest_alpha_scan_signals');
+      if (!error && Array.isArray(data)) {
+        setAlphaSignals(data as AlphaScanSignal[]);
+      }
+    } catch {
+      // silent — signals are advisory only
+    }
+  }, []);
+
+  const handleScanNow = useCallback(async () => {
+    if (scanState === 'scanning' || scanState === 'cooldown') return;
+
+    setScanState('scanning');
+    setScanResult(null);
+    setScanError(null);
+
+    try {
+      const response = await fetch('/.netlify/functions/scan-alpha-intelligence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+
+      const data = await response.json();
+
+      if (response.status === 429) {
+        setScanState('cooldown');
+        setCooldownSeconds(data.secondsRemaining ?? 60);
+        return;
+      }
+
+      if (!response.ok || !data.success) {
+        setScanState('error');
+        setScanError(data.error ?? 'Scan failed');
+        setTimeout(() => setScanState('idle'), 4000);
+        return;
+      }
+
+      setScanResult({ signalsFound: data.signalsFound ?? 0, scanned: data.scanned ?? 0 });
+      setScanState('done');
+
+      await loadAlphaSignals();
+
+      setTimeout(() => {
+        setScanState('cooldown');
+        setCooldownSeconds(60);
+      }, 2500);
+    } catch {
+      setScanState('error');
+      setScanError('Network error — try again');
+      setTimeout(() => setScanState('idle'), 4000);
+    }
+  }, [scanState, loadAlphaSignals]);
+
+  useEffect(() => {
+    if (scanState !== 'cooldown' || cooldownSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setCooldownSeconds((s) => {
+        if (s <= 1) {
+          clearInterval(timer);
+          setScanState('idle');
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [scanState, cooldownSeconds]);
+
+  useEffect(() => {
+    loadAlphaSignals();
+
+    const channel = supabase
+      .channel('alpha-scan-signals-realtime')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'alpha_scan_signals' }, () => {
+        loadAlphaSignals();
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [loadAlphaSignals]);
 
   useEffect(() => {
     const init = async () => {
@@ -1090,16 +1194,62 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
             </div>
           </div>
 
-          <button
-            onClick={handleManualRefresh}
-            disabled={refreshing}
-            className="p-2 hover:bg-blue-500/20 rounded-lg transition-colors disabled:opacity-50"
-            title="Refresh intelligence"
-          >
-            <RefreshCw
-              className={`w-4 h-4 text-blue-300 ${refreshing ? 'animate-spin' : ''}`}
-            />
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={handleScanNow}
+              disabled={scanState === 'scanning' || scanState === 'cooldown'}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all duration-200 ${
+                scanState === 'scanning'
+                  ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300 opacity-75 cursor-not-allowed'
+                  : scanState === 'done'
+                  ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                  : scanState === 'error'
+                  ? 'bg-red-500/20 border-red-500/50 text-red-300'
+                  : scanState === 'cooldown'
+                  ? 'bg-gray-700/40 border-gray-600/30 text-gray-500 cursor-not-allowed'
+                  : 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/25'
+              }`}
+              title={scanState === 'cooldown' ? `Cooldown: ${cooldownSeconds}s` : 'Run full indicator scan across all pairs'}
+            >
+              {scanState === 'scanning' ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  Scanning...
+                </>
+              ) : scanState === 'done' && scanResult ? (
+                <>
+                  <Zap className="w-3.5 h-3.5" />
+                  {scanResult.signalsFound} signal{scanResult.signalsFound !== 1 ? 's' : ''}
+                </>
+              ) : scanState === 'error' ? (
+                <>
+                  <Zap className="w-3.5 h-3.5" />
+                  {scanError ?? 'Error'}
+                </>
+              ) : scanState === 'cooldown' ? (
+                <>
+                  <Timer className="w-3.5 h-3.5" />
+                  {cooldownSeconds}s
+                </>
+              ) : (
+                <>
+                  <Zap className="w-3.5 h-3.5" />
+                  Scan Now
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={handleManualRefresh}
+              disabled={refreshing}
+              className="p-2 hover:bg-blue-500/20 rounded-lg transition-colors disabled:opacity-50"
+              title="Refresh intelligence"
+            >
+              <RefreshCw
+                className={`w-4 h-4 text-blue-300 ${refreshing ? 'animate-spin' : ''}`}
+              />
+            </button>
+          </div>
         </div>
 
         <SessionQualityBanner />
@@ -1167,6 +1317,64 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
             );
           })}
         </div>
+
+        {alphaSignals.length > 0 && (
+          <div className="mb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Zap className="w-4 h-4 text-cyan-400" />
+              <p className="text-sm font-semibold text-cyan-300">
+                Manual Scan — {alphaSignals.length} Signal{alphaSignals.length !== 1 ? 's' : ''} Found
+              </p>
+              <span className="text-xs text-gray-500 ml-auto">
+                {new Date(alphaSignals[0].scanned_at).toLocaleTimeString()}
+              </span>
+            </div>
+            <div className="space-y-2">
+              {alphaSignals.map((signal) => {
+                const isBuy = signal.direction === 'buy';
+                const styleLabel =
+                  signal.trade_style === 'scalp' ? 'Scalp' :
+                  signal.trade_style === 'micro_intraday' ? 'Micro' : 'Intraday';
+                const confColor =
+                  signal.alpha_confidence >= 80 ? 'text-emerald-400' :
+                  signal.alpha_confidence >= 70 ? 'text-cyan-400' : 'text-amber-400';
+
+                return (
+                  <div
+                    key={signal.id}
+                    className="relative rounded-lg p-3 border bg-cyan-900/15 border-cyan-500/30 flex items-start gap-3"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <p className="text-sm font-bold text-white">{signal.symbol}</p>
+                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[10px] font-semibold ${
+                          isBuy
+                            ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+                            : 'bg-red-500/15 border-red-500/40 text-red-400'
+                        }`}>
+                          {isBuy ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+                          {isBuy ? 'Buy' : 'Sell'}
+                        </span>
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[10px] font-semibold bg-cyan-500/15 border-cyan-500/30 text-cyan-300">
+                          <Zap className="w-2.5 h-2.5" />
+                          {styleLabel}
+                        </span>
+                        <span className="text-[10px] text-gray-500 font-mono">{signal.timeframe}</span>
+                      </div>
+                      {signal.reasoning && (
+                        <p className="text-xs text-gray-400 leading-relaxed line-clamp-2">{signal.reasoning}</p>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                      <span className={`text-base font-bold ${confColor}`}>{signal.alpha_confidence}%</span>
+                      <span className="text-[10px] text-gray-500">confidence</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {readyPairs.length > 0 && (
           <div className="mb-4">
