@@ -51,6 +51,7 @@ import { CCIPConfidenceGateAdjustment } from './ccip-confidence-gate-adjustment'
 // CCIP (2026-02-17): detectConstraintSandwich, getViableStyles imports removed.
 // Envelope bounds are the sole style wall authority. Noise floor is advisory only.
 import { safeExtractATRValue } from '../types/atr';
+import { alphaLearningTracker } from './alpha-learning-tracker';
 
 // 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
 logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
@@ -969,8 +970,6 @@ class GoalSessionLiveEngine {
       console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
       console.log(`[MANDATORY LOGGING] Logging ${omegaDecisions.size} Alpha decisions...`);
       console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
-
-      const { alphaLearningTracker } = await import('./alpha-learning-tracker');
 
       try {
         for (const [symbol, decision] of omegaDecisions.entries()) {

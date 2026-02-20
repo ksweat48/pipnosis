@@ -1,5 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
+import { ZoneMetaLearningService } from './zone-meta-learning-service';
+import { tpMetaLearning } from './tp-meta-learning';
 
 export interface AlphaIntelligenceSnapshot {
   platformPatterns: {
@@ -606,8 +608,6 @@ export class AlphaIntelligenceAggregator {
     };
 
     try {
-      const { ZoneMetaLearningService } = await import('./zone-meta-learning-service');
-
       const [unreachableByRegime, zoneTypeSuccessRates, reachabilityMetrics, secondaryUtil] = await Promise.all([
         ZoneMetaLearningService.getUnreachableZonesByRegime(),
         ZoneMetaLearningService.getZoneTypeSuccessRates(),
@@ -630,7 +630,6 @@ export class AlphaIntelligenceAggregator {
 
   private async getTPCalibration(userId: string): Promise<string> {
     try {
-      const { tpMetaLearning } = await import('./tp-meta-learning');
       return await tpMetaLearning.getTPCalibrationForAlpha(userId);
     } catch (error) {
       logger.warn('[AlphaIntelligence] TP calibration fetch failed (non-blocking):', error);
