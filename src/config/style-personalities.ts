@@ -7,19 +7,15 @@
  *
  * Each style has distinct personality traits that affect:
  * - Entry timing preferences
- * - EQS threshold interpretation
- * - Duration expectations
  * - Duration expectations (style is IMMUTABLE, no upgrades)
  *
  * SSOT COMPLIANCE:
  * - Style personalities: THIS FILE
- * - EQS thresholds: src/config/alpha-identity.ts
  * - Style names: src/config/trade-styles.ts
  * ═══════════════════════════════════════════════════════════════════
  */
 
 import type { StyleDisplayName } from './trade-styles';
-import { ALPHA_IDENTITY } from './alpha-identity';
 
 export interface StylePersonality {
   displayName: StyleDisplayName;
@@ -35,12 +31,6 @@ export interface StylePersonality {
     aggressionLevel: 'high' | 'medium' | 'low';
     waitTolerance: 'low' | 'medium' | 'high';
   };
-  eqsInterpretation: {
-    executeThreshold: number;
-    waitPullbackMin: number;
-    waitPullbackMax: number;
-    description: string;
-  };
   rewards: {
     withinBandBonus: number;
     belowBandBonus: number;
@@ -52,13 +42,6 @@ export interface StylePersonality {
     typicalTPPips: { low: number; mid: number; high: number };
     typicalSLPips: { low: number; mid: number; high: number };
     sessionAdjustment: boolean;
-  };
-  eqsAdjustments?: {
-    tpWithinRange: number;
-    tpExceedsTypical: number;
-    slWithinRange: number;
-    slExceedsTypical: number;
-    slTooTight: number;
   };
 }
 
@@ -77,12 +60,6 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
       aggressionLevel: 'high',
       waitTolerance: 'low',
     },
-    eqsInterpretation: {
-      executeThreshold: ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.EXECUTE_IMMEDIATELY,
-      waitPullbackMin: ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.WAIT_PULLBACK.min,
-      waitPullbackMax: ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.WAIT_PULLBACK.max,
-      description: 'Strong acceptance required, immediate execution preferred',
-    },
     rewards: {
       withinBandBonus: 5,
       belowBandBonus: 10,
@@ -94,13 +71,6 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
       typicalTPPips: { low: 10, mid: 18, high: 25 },
       typicalSLPips: { low: 10, mid: 14, high: 18 },
       sessionAdjustment: true,
-    },
-    eqsAdjustments: {
-      tpWithinRange: 3,
-      tpExceedsTypical: -5,
-      slWithinRange: 2,
-      slExceedsTypical: -3,
-      slTooTight: -4,
     },
   },
 
@@ -118,12 +88,6 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
       aggressionLevel: 'medium',
       waitTolerance: 'medium',
     },
-    eqsInterpretation: {
-      executeThreshold: ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.EXECUTE_IMMEDIATELY,
-      waitPullbackMin: ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.WAIT_PULLBACK.min,
-      waitPullbackMax: ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.WAIT_PULLBACK.max,
-      description: 'Pullback quality weighted higher, liquidity reaction important',
-    },
     rewards: {
       withinBandBonus: 5,
       belowBandBonus: 8,
@@ -135,13 +99,6 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
       typicalTPPips: { low: 50, mid: 80, high: 120 },
       typicalSLPips: { low: 20, mid: 28, high: 35 },
       sessionAdjustment: true,
-    },
-    eqsAdjustments: {
-      tpWithinRange: 3,
-      tpExceedsTypical: -4,
-      slWithinRange: 2,
-      slExceedsTypical: -3,
-      slTooTight: -3,
     },
   },
 
@@ -159,12 +116,6 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
       aggressionLevel: 'low',
       waitTolerance: 'high',
     },
-    eqsInterpretation: {
-      executeThreshold: ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.INTRADAY.EXECUTE_IMMEDIATELY,
-      waitPullbackMin: ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.INTRADAY.WAIT_PULLBACK.min,
-      waitPullbackMax: ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.INTRADAY.WAIT_PULLBACK.max,
-      description: 'Structure/location over speed, wider pullbacks acceptable',
-    },
     rewards: {
       withinBandBonus: 5,
       belowBandBonus: 5,
@@ -176,13 +127,6 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
       typicalTPPips: { low: 100, mid: 150, high: 200 },
       typicalSLPips: { low: 35, mid: 48, high: 60 },
       sessionAdjustment: false,
-    },
-    eqsAdjustments: {
-      tpWithinRange: 2,
-      tpExceedsTypical: -3,
-      slWithinRange: 2,
-      slExceedsTypical: -2,
-      slTooTight: -2,
     },
   },
 } as const;
@@ -238,24 +182,6 @@ export function calculateStyleReward(
   };
 }
 
-export function getRecommendedEntryMode(
-  style: StyleDisplayName,
-  eqs: number
-): 'immediate' | 'wait_pullback' | 'wait_confirmation' {
-  const personality = STYLE_PERSONALITIES[style];
-  const { eqsInterpretation } = personality;
-
-  if (eqs >= eqsInterpretation.executeThreshold) {
-    return 'immediate';
-  }
-
-  if (eqs >= eqsInterpretation.waitPullbackMin) {
-    return 'wait_pullback';
-  }
-
-  return 'wait_confirmation';
-}
-
 export function getStylePromptContext(style: StyleDisplayName): string {
   const personality = STYLE_PERSONALITIES[style];
 
@@ -263,7 +189,5 @@ export function getStylePromptContext(style: StyleDisplayName): string {
 Mindset: ${personality.mindset}
 Duration Target: ${personality.durationBand.targetHours}h (${personality.durationBand.minHours}-${personality.durationBand.maxHours}h band)
 Entry Bias: ${personality.entryBias.preferredEntryType} (aggression: ${personality.entryBias.aggressionLevel})
-EQS Execute: >= ${personality.eqsInterpretation.executeThreshold}
-EQS Wait Pullback: ${personality.eqsInterpretation.waitPullbackMin}-${personality.eqsInterpretation.waitPullbackMax}
 Duration Enforcement: If setup exceeds ${personality.durationBand.maxHours}h, return NO_TRADE (do NOT upgrade style)`;
 }
