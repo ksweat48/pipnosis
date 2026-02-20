@@ -752,10 +752,42 @@ class GoalSessionLiveEngine {
         console.log('%c[MULTI-SYMBOL] 🚫 No tradeable opportunities', 'color: #ff9800; font-weight: bold');
         logger.debug(LogCategory.AI_TRADING, '🚫 No tradeable opportunities - WAIT mode');
 
-        // Provide context about which markets are being scanned
         const marketCount = openMarketSymbols.length;
-        const marketList = openMarketSymbols.slice(0, 3).join(', ') + (marketCount > 3 ? `, +${marketCount - 3} more` : '');
-        await this.sendAIMessage(`Scanning ${marketCount} open markets (${marketList})... No tradeable opportunities detected. Continuing scan.`);
+        const blockedSymbols = Array.from(snapshotResult.blockedSymbols.entries());
+        const blockedCount = blockedSymbols.length;
+        const passedCount = snapshotResult.snapshots.length;
+
+        let contextMsg = `Scanned ${marketCount} open markets — all ${blockedCount > 0 ? blockedCount + ' blocked before analysis' : 'pairs screened'}.`;
+
+        if (blockedCount > 0) {
+          const topBlockReason = blockedSymbols.slice(0, 2).map(([sym, reason]) => `${sym} (${reason})`).join(', ');
+          contextMsg += ` Blocked: ${topBlockReason}.`;
+        }
+
+        if (passedCount === 0) {
+          contextMsg += ` No symbols had sufficient price data. System will retry next cycle.`;
+        } else {
+          const avgAtr = snapshotResult.snapshots.reduce((sum, s) => {
+            const atrVal = typeof s.atr === 'number' ? s.atr : (s.atr as any)?.value ?? 0;
+            return sum + atrVal;
+          }, 0) / passedCount;
+          const currentHour = new Date().getUTCHours();
+          const isAsianSession = currentHour >= 0 && currentHour < 8;
+          const isLondonOpen = currentHour >= 7 && currentHour < 9;
+          const isNYOpen = currentHour >= 13 && currentHour < 15;
+
+          if (isAsianSession) {
+            contextMsg += ` Asian session typically has lower volatility — setups emerge during London open (08:00 UTC).`;
+          } else if (avgAtr < 0.0005) {
+            contextMsg += ` ATR is low across all pairs — market is consolidating. High-probability setups require expanded ranges.`;
+          } else if (isLondonOpen || isNYOpen) {
+            contextMsg += ` Session open detected — volatility should expand shortly.`;
+          } else {
+            contextMsg += ` Monitoring for structural setups. Will scan again next cycle.`;
+          }
+        }
+
+        await this.sendAIMessage(contextMsg);
         return;
       }
 
@@ -3541,51 +3573,91 @@ This learning will carry forward to improve future sessions!
 
     let blockedCount = 0;
     let noTradeCount = 0;
+    let totalConfidence = 0;
+    let confidenceCount = 0;
+    let weakConsensusCount = 0;
+    let lowAtrCount = 0;
 
     for (const [symbol, snapshot] of snapshots) {
-      // Check if blocked by adversarial
       if (!snapshot.tradeable) {
         blockedCount++;
         const reason = snapshot.blockReason || 'Unknown';
-        parts.push(`❌ ${symbol}: BLOCKED - ${reason}`);
+        parts.push(`${symbol}: BLOCKED - ${reason}`);
 
-        // Add specific adversarial details if available
         if (snapshot.adversarial && snapshot.adversarial.stop_run_classification) {
           const stopRun = snapshot.adversarial.stop_run_classification;
           if (stopRun.type !== 'none') {
-            parts.push(`   → ${stopRun.reasoning}`);
+            parts.push(`   -> ${stopRun.reasoning}`);
           }
         }
         continue;
       }
 
-      // Check Alpha decision
       const decision = decisions.get(symbol);
       if (!decision || decision.action === 'NO_TRADE') {
         noTradeCount++;
 
-        if (decision && decision.omega_votes) {
-          const votes = decision.omega_votes;
-          const buyVotes = [votes.trend, votes.scalper, votes.reversal, votes.volatility, votes.omega8]
-            .filter(v => v?.vote === 'BUY').length;
-          const sellVotes = [votes.trend, votes.scalper, votes.reversal, votes.volatility, votes.omega8]
-            .filter(v => v?.vote === 'SELL').length;
-          parts.push(`${symbol}: Alpha declined - ${decision.reasoning}`);
-          parts.push(`   -> Omega Council: ${buyVotes} BUY, ${sellVotes} SELL`);
+        if (decision) {
+          const conf = decision.confidence || 0;
+          totalConfidence += conf;
+          confidenceCount++;
 
-          // Highlight Risk concerns if present
-          if (votes.risk && votes.risk.confidence < 30) {
-            parts.push(`   -> Risk Advisory (low conf ${votes.risk.confidence}%): ${votes.risk.reasoning}`);
+          const atrVal = typeof snapshot.atr === 'number' ? snapshot.atr : (snapshot.atr as any)?.value ?? 0;
+          if (atrVal > 0 && atrVal < 0.0004) lowAtrCount++;
+
+          if (decision.omega_votes) {
+            const votes = decision.omega_votes;
+            const buyVotes = [votes.trend, votes.scalper, votes.reversal, votes.volatility, votes.omega8]
+              .filter(v => v?.vote === 'BUY').length;
+            const sellVotes = [votes.trend, votes.scalper, votes.reversal, votes.volatility, votes.omega8]
+              .filter(v => v?.vote === 'SELL').length;
+
+            if (Math.abs(buyVotes - sellVotes) <= 1) weakConsensusCount++;
+
+            const councilSummary = buyVotes > 0 || sellVotes > 0
+              ? ` [Council: ${buyVotes}B/${sellVotes}S]`
+              : '';
+            const reasoning = decision.reasoning
+              ? ` — ${decision.reasoning.substring(0, 120)}${decision.reasoning.length > 120 ? '...' : ''}`
+              : '';
+            parts.push(`${symbol}: Alpha ${conf}%${councilSummary}${reasoning}`);
+
+            if (votes.risk && votes.risk.confidence < 30) {
+              parts.push(`   -> Risk signal weak (${votes.risk.confidence}%): ${votes.risk.reasoning}`);
+            }
+          } else {
+            const reasoning = decision.reasoning
+              ? ` — ${decision.reasoning.substring(0, 120)}${decision.reasoning.length > 120 ? '...' : ''}`
+              : '';
+            parts.push(`${symbol}: Alpha ${conf}%${reasoning}`);
           }
         } else {
-          parts.push(`⚠️ ${symbol}: No tradeable setup detected`);
+          parts.push(`${symbol}: No decision returned`);
         }
       }
     }
 
     parts.push('');
+
     if (blockedCount + noTradeCount === evaluated.length) {
-      parts.push('No high-quality setups found across all pairs. Try again in ~15 minutes when conditions may improve.');
+      const avgConf = confidenceCount > 0 ? Math.round(totalConfidence / confidenceCount) : 0;
+      const currentHour = new Date().getUTCHours();
+      const isAsianSession = currentHour >= 0 && currentHour < 8;
+      const isPreLondon = currentHour >= 6 && currentHour < 8;
+
+      if (blockedCount === evaluated.length) {
+        parts.push('All pairs blocked by data quality or adversarial checks. System will retry when clean price data is available.');
+      } else if (lowAtrCount >= Math.ceil(confidenceCount * 0.6)) {
+        parts.push(`Low volatility environment detected across ${lowAtrCount}/${confidenceCount} pairs. Alpha requires sufficient ATR to place valid SL/TP levels. Setups typically emerge during session opens or volatility spikes.`);
+      } else if (weakConsensusCount >= Math.ceil(confidenceCount * 0.5)) {
+        parts.push(`Omega Council shows divided signals on most pairs (${weakConsensusCount}/${confidenceCount} with split direction votes). Alpha declines to trade without directional clarity. Market may be in a consolidation phase.`);
+      } else if (isAsianSession && !isPreLondon) {
+        parts.push(`Asian session is typically range-bound with lower follow-through. Average confidence this cycle: ${avgConf}%. London open (08:00 UTC) often produces the clearest structural setups.`);
+      } else if (avgConf > 0 && avgConf < 50) {
+        parts.push(`Average Alpha confidence across all pairs: ${avgConf}% — below execution threshold. No single pair showed sufficient directional conviction. Continuing to monitor for setup development.`);
+      } else {
+        parts.push('No high-quality setups found across all pairs. System will scan again next cycle.');
+      }
     }
 
     return parts.join('\n');

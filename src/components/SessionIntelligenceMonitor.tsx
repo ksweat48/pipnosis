@@ -502,13 +502,22 @@ const STRUCTURE_EVENT_LABELS: Record<string, { label: string; color: string; bg:
   AsiaRangeBuilding: { label: 'Asia Range', color: 'text-blue-300', bg: 'bg-blue-500/10', border: 'border-blue-500/30' },
 };
 
-export const SessionIntelligenceMonitor: React.FC = () => {
+interface SessionIntelligenceMonitorProps {
+  sessionId?: string;
+  userId?: string;
+}
+
+export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProps> = ({
+  sessionId,
+  userId,
+}) => {
   const navigate = useNavigate();
   const [, setSearchParams] = useSearchParams();
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<TradeStyle | 'all'>('all');
+  const [scanAlignedPairs, setScanAlignedPairs] = useState<BestPair[] | null>(null);
 
   // CCIP (2026-02-18): SSOT compliance fix.
   // The populate-session-intelligence Netlify function is a SCHEDULED data populator.
@@ -583,6 +592,54 @@ export const SessionIntelligenceMonitor: React.FC = () => {
     };
   }, [loadSessionData]);
 
+  // CCIP 2026-02-20: Scan-aligned confidence overlay.
+  // When an active session exists, fetch the latest scan result's per-symbol
+  // confidence scores and use them to cap the displayed pair confidence values.
+  // This ensures the Intelligence Monitor reflects Alpha's actual current
+  // market assessment rather than historical trade averages.
+  useEffect(() => {
+    if (!sessionId || !userId) {
+      setScanAlignedPairs(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchScanAligned = async () => {
+      try {
+        const { data, error } = await supabase.rpc('get_scan_aligned_session_pairs', {
+          p_session_id: sessionId,
+          p_user_id: userId,
+        });
+        if (!cancelled && !error && Array.isArray(data) && data.length > 0) {
+          setScanAlignedPairs(data as BestPair[]);
+        } else if (!cancelled) {
+          setScanAlignedPairs(null);
+        }
+      } catch {
+        if (!cancelled) setScanAlignedPairs(null);
+      }
+    };
+
+    fetchScanAligned();
+
+    // Refresh scan-aligned data when new scan results arrive
+    const channel = supabase
+      .channel(`scan-results-${sessionId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'goal_session_scan_results',
+        filter: `session_id=eq.${sessionId}`,
+      }, () => { fetchScanAligned(); })
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [sessionId, userId]);
+
   const getSessionIcon = (sessionName: string) => {
     switch (sessionName) {
       case 'London':
@@ -613,18 +670,35 @@ export const SessionIntelligenceMonitor: React.FC = () => {
   const resolveDirection = (pair: BestPair): TradeDirection => pair.direction ?? 'buy';
   const resolveTimeframe = (pair: BestPair): string => pair.timeframe ?? 'M15';
 
+  // CCIP 2026-02-20: Apply scan-aligned confidence cap to a pair.
+  // When Alpha's latest scan returned a confidence for this symbol, that value
+  // is the SSOT for current market readiness and caps the displayed score.
+  const applyScanAlignedCap = (pair: BestPair): BestPair => {
+    if (!scanAlignedPairs) return pair;
+    const aligned = scanAlignedPairs.find(
+      (a) => a.symbol === pair.symbol
+    );
+    if (!aligned) return pair;
+    const cappedConfidence = Math.min(pair.confidence ?? 0, aligned.confidence ?? 0);
+    return { ...pair, confidence: cappedConfidence };
+  };
+
   const getReadyPairs = (): BestPair[] => {
     if (!sessionData) return [];
-    const ready = (sessionData.best_pairs ?? []).filter(
-      (p) => (p.confidence ?? 0) >= 70 && p.constraintFeasible !== false
-    );
+    const ready = (sessionData.best_pairs ?? [])
+      .map(applyScanAlignedCap)
+      .filter((p) => (p.confidence ?? 0) >= 70 && p.constraintFeasible !== false);
     if (activeFilter === 'all') return ready;
     return ready.filter((p) => resolveStyle(p) === activeFilter);
   };
 
   const getHeatingPairs = (): BestPair[] => {
     if (!sessionData) return [];
-    const heating = (sessionData.heating_pairs ?? []).filter(
+    const allPairs = [
+      ...(sessionData.best_pairs ?? []).map(applyScanAlignedCap),
+      ...(sessionData.heating_pairs ?? []).map(applyScanAlignedCap),
+    ];
+    const heating = allPairs.filter(
       (p) => (p.confidence ?? 0) >= 50 && (p.confidence ?? 0) < 70
     );
     if (activeFilter === 'all') return heating;
@@ -633,7 +707,10 @@ export const SessionIntelligenceMonitor: React.FC = () => {
 
   const getHeatingCount = (): number => {
     if (!sessionData) return 0;
-    const allPairs = [...(sessionData.best_pairs ?? []), ...(sessionData.heating_pairs ?? [])];
+    const allPairs = [
+      ...(sessionData.best_pairs ?? []).map(applyScanAlignedCap),
+      ...(sessionData.heating_pairs ?? []).map(applyScanAlignedCap),
+    ];
     const heating = allPairs.filter(
       (p) => (p.confidence ?? 0) >= 50 && (p.confidence ?? 0) < 70
     );
@@ -643,9 +720,9 @@ export const SessionIntelligenceMonitor: React.FC = () => {
 
   const getStyleCounts = (): Record<TradeStyle, number> => {
     const counts: Record<TradeStyle, number> = { scalp: 0, micro: 0, intraday: 0 };
-    const allReady = (sessionData?.best_pairs ?? []).filter(
-      (p) => (p.confidence ?? 0) >= 70 && p.constraintFeasible !== false
-    );
+    const allReady = (sessionData?.best_pairs ?? [])
+      .map(applyScanAlignedCap)
+      .filter((p) => (p.confidence ?? 0) >= 70 && p.constraintFeasible !== false);
     for (const pair of allReady) {
       counts[resolveStyle(pair)]++;
     }

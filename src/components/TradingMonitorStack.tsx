@@ -11,6 +11,11 @@ interface MonitorPreferences {
   session_intelligence_enabled: boolean;
 }
 
+interface ActiveSession {
+  sessionId: string;
+  userId: string;
+}
+
 export const TradingMonitorStack: React.FC = () => {
   const { user } = useAuth();
   const [preferences, setPreferences] = useState<MonitorPreferences>({
@@ -19,6 +24,7 @@ export const TradingMonitorStack: React.FC = () => {
     session_intelligence_enabled: true,
   });
   const [loading, setLoading] = useState(true);
+  const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
 
   const userId = user?.id;
 
@@ -47,6 +53,56 @@ export const TradingMonitorStack: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+
+    supabase
+      .from('goal_sessions')
+      .select('id')
+      .eq('user_id', userId)
+      .in('status', ['scanning', 'in_trade', 'initializing'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled && data?.id) {
+          setActiveSession({ sessionId: data.id, userId });
+        } else if (!cancelled) {
+          setActiveSession(null);
+        }
+      });
+
+    const sessionChannel = supabase
+      .channel(`active-session-${userId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'goal_sessions',
+        filter: `user_id=eq.${userId}`,
+      }, () => {
+        supabase
+          .from('goal_sessions')
+          .select('id')
+          .eq('user_id', userId)
+          .in('status', ['scanning', 'in_trade', 'initializing'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+          .then(({ data }) => {
+            if (!cancelled) {
+              setActiveSession(data?.id ? { sessionId: data.id, userId } : null);
+            }
+          });
+      })
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(sessionChannel);
+    };
   }, [userId]);
 
   useEffect(() => {
@@ -106,7 +162,12 @@ export const TradingMonitorStack: React.FC = () => {
     <div className="space-y-4">
       {preferences.entry_price_monitor_enabled && <EntryPriceMonitor />}
       {preferences.mid_trade_monitor_enabled && <MidTradeMonitor />}
-      {preferences.session_intelligence_enabled && <SessionIntelligenceMonitor />}
+      {preferences.session_intelligence_enabled && (
+        <SessionIntelligenceMonitor
+          sessionId={activeSession?.sessionId}
+          userId={activeSession?.userId}
+        />
+      )}
     </div>
   );
 };

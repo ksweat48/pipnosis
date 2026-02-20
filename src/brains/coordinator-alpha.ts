@@ -305,6 +305,8 @@ export interface AlphaDecision {
   };
   arena_chosen?: 'LONG' | 'SHORT' | 'NO_TRADE';
   wall_violations?: string[];
+  tp_nudged?: boolean;
+  tp_nudge_reason?: string;
   entry_advisory?: {
     verdict: 'GOOD_ENTRY' | 'PULLBACK_EXPECTED';
     pullback_zone_min: number | null;
@@ -2056,11 +2058,42 @@ ${tradeStyle === 'SCALP' ? `{
         if (slPips > arena.slPips.max + WALL_COMPARISON_EPSILON) {
           wallViolations.push(`SL ${slPips.toFixed(1)} pips above wall max ${arena.slPips.max.toFixed(1)}`);
         }
+
+        // CCIP (2026-02-20): TP NUDGE REPAIR — mirrors the existing SL logic.
+        // When Alpha places TP below the wall minimum, we lift it to the minimum
+        // and re-check R:R before issuing a hard NO_TRADE.
+        // This is SSOT-compliant: Alpha remains the sole TP authority; the nudge
+        // is a geometric correction, not an override of Alpha's market thesis.
+        // Only block if the nudged TP still cannot satisfy the style's minimum R:R.
+        let effectiveTpPips = tpPips;
         if (tpPips < arena.tpPips.min - WALL_COMPARISON_EPSILON) {
-          wallViolations.push(`TP ${tpPips.toFixed(1)} pips below wall min ${arena.tpPips.min.toFixed(1)}`);
+          const pipInfo = getCurrencyPipInfo(marketContext.symbol);
+          const nudgedTpPrice = decision.action === 'BUY'
+            ? decision.entry + arena.tpPips.min * pipInfo.pipValue
+            : decision.entry - arena.tpPips.min * pipInfo.pipValue;
+
+          const nudgedRR = arena.tpPips.min / Math.max(slPips, 0.1);
+          const minRR = resolvedPlan?.rr?.min ?? 1.0;
+
+          if (nudgedRR >= minRR - WALL_COMPARISON_EPSILON) {
+            console.log(
+              `[Alpha Coordinator] TP NUDGE REPAIR: ${tpPips.toFixed(1)} pips → ${arena.tpPips.min.toFixed(1)} pips (wall min). ` +
+              `Nudged R:R ${nudgedRR.toFixed(2)}:1 >= required ${minRR}:1. Applying repair.`
+            );
+            decision.takeProfit = nudgedTpPrice;
+            decision.tp_nudged = true;
+            decision.tp_nudge_reason = `TP lifted from ${tpPips.toFixed(1)} to ${arena.tpPips.min.toFixed(1)} pips to meet wall minimum. R:R ${nudgedRR.toFixed(2)}:1.`;
+            effectiveTpPips = arena.tpPips.min;
+          } else {
+            wallViolations.push(
+              `TP ${tpPips.toFixed(1)} pips below wall min ${arena.tpPips.min.toFixed(1)}. ` +
+              `Nudged R:R ${nudgedRR.toFixed(2)}:1 insufficient (need ${minRR}:1).`
+            );
+          }
         }
-        if (tpPips > arena.tpPips.max + WALL_COMPARISON_EPSILON) {
-          wallViolations.push(`TP ${tpPips.toFixed(1)} pips above wall max ${arena.tpPips.max.toFixed(1)}`);
+
+        if (effectiveTpPips > arena.tpPips.max + WALL_COMPARISON_EPSILON) {
+          wallViolations.push(`TP ${effectiveTpPips.toFixed(1)} pips above wall max ${arena.tpPips.max.toFixed(1)}`);
         }
 
         // CCIP (2026-02-17): TP1 is a partial-profit target — it must be positive and <= TP2.
@@ -2072,8 +2105,8 @@ ${tradeStyle === 'SCALP' ? `{
           if (tp1Pips <= 0) {
             wallViolations.push(`TP1 ${tp1Pips.toFixed(1)} pips is non-positive`);
           }
-          if (tp1Pips > tpPips) {
-            wallViolations.push(`TP1 ${tp1Pips.toFixed(1)} pips exceeds TP2 ${tpPips.toFixed(1)} pips`);
+          if (tp1Pips > effectiveTpPips) {
+            wallViolations.push(`TP1 ${tp1Pips.toFixed(1)} pips exceeds TP2 ${effectiveTpPips.toFixed(1)} pips`);
           }
         }
 
