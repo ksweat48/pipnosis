@@ -1861,9 +1861,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   };
 
   const SESSION_DEFINITIONS = [
-    { name: 'ASIA', startHour: 0, endHour: 8, color: 'rgba(56,189,248,0.13)' },
-    { name: 'LONDON', startHour: 8, endHour: 16, color: 'rgba(251,191,36,0.13)' },
-    { name: 'NEW YORK', startHour: 13, endHour: 21, color: 'rgba(248,113,113,0.13)' },
+    { name: 'ASIA', startHour: 0, endHour: 8, color: 'rgba(56,189,248,0.18)' },
+    { name: 'LONDON', startHour: 8, endHour: 16, color: 'rgba(251,191,36,0.18)' },
+    { name: 'NEW YORK', startHour: 13, endHour: 21, color: 'rgba(248,113,113,0.18)' },
   ];
 
   const renderSessionBands = () => {
@@ -1930,7 +1930,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         const width = xEnd - xStart;
         if (width < 2) continue;
 
-        const labelColor = session.color.replace('0.13', '0.55');
+        const labelColor = session.color.replace('0.18', '0.75');
         const showLabel = width > 42;
 
         fragments.push(
@@ -2502,7 +2502,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
         <div className="relative h-full">
           <div ref={chartContainerRef} className="rounded-lg overflow-hidden h-full" />
-          <div ref={sessionBandsOverlayRef} className="absolute inset-0 pointer-events-none overflow-hidden rounded-lg" />
+          <div ref={sessionBandsOverlayRef} className="absolute inset-0 pointer-events-none overflow-hidden rounded-lg" style={{ zIndex: 2 }} />
           <div ref={daySeparatorOverlayRef} className="absolute inset-0 pointer-events-none overflow-hidden rounded-lg" />
 
           {/* Status Overlay - Bottom Left */}
