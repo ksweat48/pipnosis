@@ -1184,22 +1184,18 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
                 {SCALP_PATTERN_LABELS[scalpPattern]}
               </span>
             )}
-            {momentumPhase && (
+            {(momentumPhase === 'starting' || momentumPhase === 'developing') && (
               <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium ${
                 momentumPhase === 'starting'
                   ? 'bg-green-500/15 border-green-500/40 text-green-400'
-                  : momentumPhase === 'developing'
-                    ? 'bg-yellow-500/15 border-yellow-500/40 text-yellow-400'
-                    : 'bg-red-500/15 border-red-500/40 text-red-400'
+                  : 'bg-yellow-500/15 border-yellow-500/40 text-yellow-400'
               }`}>
                 <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
                   momentumPhase === 'starting'
                     ? 'bg-green-400 animate-pulse'
-                    : momentumPhase === 'developing'
-                      ? 'bg-yellow-400'
-                      : 'bg-red-400'
+                    : 'bg-yellow-400'
                 }`} />
-                {momentumPhase === 'starting' ? 'Starting' : momentumPhase === 'developing' ? 'Developing' : 'Extended'}
+                {momentumPhase === 'starting' ? 'Starting' : 'Developing'}
               </span>
             )}
           </div>
@@ -1234,29 +1230,18 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
           </div>
         )}
 
-        {pair.constraintFeasible === false && (
-          <div className="mt-1.5 mb-1 px-2 py-1 rounded bg-red-500/10 border border-red-500/20 flex items-center gap-1.5">
-            <div className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
-            <p className="text-[10px] text-red-400 font-medium leading-tight">
-              Style blocked by constraint geometry at current price
-            </p>
-          </div>
-        )}
-
         {pair.reasoning && (
           <p className="text-xs text-gray-400 leading-relaxed mb-3">{pair.reasoning}</p>
         )}
 
-        {pair.constraintFeasible !== false && (
-          <button
-            onClick={() => handleAnalyzeWithAlpha(pair)}
-            className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-xs font-semibold transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] ${config.badgeBg} ${config.badgeText} hover:opacity-90`}
-          >
-            <Target className="w-3.5 h-3.5" />
-            Analyze with Alpha
-            <ChevronRight className="w-3.5 h-3.5 ml-auto" />
-          </button>
-        )}
+        <button
+          onClick={() => handleAnalyzeWithAlpha(pair)}
+          className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-xs font-semibold transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] ${config.badgeBg} ${config.badgeText} hover:opacity-90`}
+        >
+          <Target className="w-3.5 h-3.5" />
+          Analyze with Alpha
+          <ChevronRight className="w-3.5 h-3.5 ml-auto" />
+        </button>
       </div>
     );
   };
