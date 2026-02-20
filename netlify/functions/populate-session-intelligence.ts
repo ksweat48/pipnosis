@@ -29,6 +29,7 @@ import type { Handler } from '@netlify/functions';
 import { getSupabaseAdmin } from './_shared/supabase-admin';
 import { realTimeIntelligenceCalculator } from './_shared/realtime-intelligence-calculator';
 import { getCurrentSession } from '../../src/config/intelligent-indicator-weights';
+import { getKillZoneContext } from '../../src/config/kill-zone-config';
 
 const supabase = getSupabaseAdmin();
 
@@ -131,6 +132,7 @@ export const handler: Handler = async (event) => {
     }
 
     const isTradable = highConfidencePairs.length > 0;
+    const killZoneCtx = getKillZoneContext();
 
     const formatPairData = (pair: typeof allPairs[0], status: 'ready' | 'heating' | 'monitoring') => ({
       symbol: pair.symbol,
@@ -157,6 +159,22 @@ export const handler: Handler = async (event) => {
       scalpPattern: pair.scalpPattern,
       momentumPhase: pair.momentumPhase,
       atrTraveled: pair.atrTraveled,
+      structureEventType: pair.structureEventType,
+      structureEventDescription: pair.structureEventDescription,
+      structureEventRR: pair.structureEventRR,
+      structureEventConfidence: pair.structureEventConfidence,
+      killZoneActive: pair.killZoneActive,
+      killZoneName: pair.killZoneName,
+      killZoneLabel: pair.killZoneLabel,
+      killZoneQuality: pair.killZoneQuality,
+      killZoneMinutesRemaining: pair.killZoneMinutesRemaining,
+      killZoneBadgeColor: pair.killZoneBadgeColor,
+      liquidityPoolDirection: pair.liquidityPoolDirection,
+      liquidityPoolDistancePips: pair.liquidityPoolDistancePips,
+      asiaRangeHigh: pair.asiaRangeHigh,
+      asiaRangeLow: pair.asiaRangeLow,
+      asiaRangePips: pair.asiaRangePips,
+      asiaRangeLocked: pair.asiaRangeLocked,
     });
 
     const bestPairs = highConfidencePairs.map((pair) => formatPairData(pair, 'ready'));
@@ -220,6 +238,7 @@ export const handler: Handler = async (event) => {
             is_tradable: false,
             recommendation_text: `No clear setups at this moment. System continuously scanning all watchlist pairs. High probability setups appear during peak volatility and transition periods.`,
             expires_at: expiresAt.toISOString(),
+            kill_zone_context: killZoneCtx,
           },
           { onConflict: 'session_name' }
         );
@@ -260,6 +279,7 @@ export const handler: Handler = async (event) => {
           is_tradable: isTradable,
           recommendation_text: recommendationText,
           expires_at: expiresAt.toISOString(),
+          kill_zone_context: killZoneCtx,
         },
         { onConflict: 'session_name' }
       );

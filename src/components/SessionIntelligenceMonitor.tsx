@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import {
   Clock,
@@ -16,6 +17,9 @@ import {
   Flame,
   ArrowRight,
   Layers,
+  Target,
+  Shield,
+  ChevronRight,
 } from 'lucide-react';
 import { calculateSessionContext } from '@/utils/marketHours';
 
@@ -65,6 +69,36 @@ interface BestPair {
   scalpPattern?: ScalpPattern;
   momentumPhase?: MomentumPhase;
   atrTraveled?: number;
+  structureEventType?: string;
+  structureEventDescription?: string;
+  structureEventRR?: number;
+  structureEventConfidence?: number;
+  killZoneActive?: boolean;
+  killZoneName?: string;
+  killZoneLabel?: string;
+  killZoneQuality?: string;
+  killZoneMinutesRemaining?: number;
+  killZoneBadgeColor?: string;
+  liquidityPoolDirection?: 'above' | 'below' | 'both' | 'none';
+  liquidityPoolDistancePips?: number;
+  asiaRangeHigh?: number;
+  asiaRangeLow?: number;
+  asiaRangePips?: number;
+  asiaRangeLocked?: boolean;
+}
+
+interface KillZoneContextSnapshot {
+  killZoneActive: boolean;
+  killZoneName: string | null;
+  killZoneLabel: string | null;
+  killZoneQuality: string | null;
+  minutesRemaining: number;
+  minutesUntilNext: number;
+  nextKillZoneName: string | null;
+  nextKillZoneLabel: string | null;
+  cardSuppression: string;
+  confidenceBonus: number;
+  badgeColor: string;
 }
 
 interface SessionData {
@@ -81,6 +115,7 @@ interface SessionData {
   recommendation_text: string;
   created_at: string;
   expires_at: string;
+  kill_zone_context?: KillZoneContextSnapshot;
 }
 
 interface SessionTimeQualityInfo {
@@ -457,7 +492,18 @@ const SessionQualityBanner: React.FC = () => {
   );
 };
 
+const STRUCTURE_EVENT_LABELS: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  BOS: { label: 'BOS', color: 'text-green-400', bg: 'bg-green-500/15', border: 'border-green-500/40' },
+  ChoCh: { label: 'ChoCh', color: 'text-orange-400', bg: 'bg-orange-500/15', border: 'border-orange-500/40' },
+  FVG: { label: 'FVG', color: 'text-blue-400', bg: 'bg-blue-500/15', border: 'border-blue-500/40' },
+  OrderBlock: { label: 'OB', color: 'text-cyan-400', bg: 'bg-cyan-500/15', border: 'border-cyan-500/40' },
+  LiquiditySweep: { label: 'Liq Sweep', color: 'text-amber-400', bg: 'bg-amber-500/15', border: 'border-amber-500/40' },
+  AsiaRangeSweep: { label: 'Asia Sweep', color: 'text-emerald-400', bg: 'bg-emerald-500/15', border: 'border-emerald-500/40' },
+  AsiaRangeBuilding: { label: 'Asia Range', color: 'text-blue-300', bg: 'bg-blue-500/10', border: 'border-blue-500/30' },
+};
+
 export const SessionIntelligenceMonitor: React.FC = () => {
+  const navigate = useNavigate();
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -475,7 +521,7 @@ export const SessionIntelligenceMonitor: React.FC = () => {
       let query = supabase
         .from('session_intelligence_data')
         .select(
-          'id, session_name, session_start_hour, session_end_hour, best_pairs, top_pairs, all_pair_scores, heating_pairs, market_condition, is_tradable, recommendation_text, created_at, expires_at'
+          'id, session_name, session_start_hour, session_end_hour, best_pairs, top_pairs, all_pair_scores, heating_pairs, market_condition, is_tradable, recommendation_text, created_at, expires_at, kill_zone_context'
         )
         .order('created_at', { ascending: false })
         .limit(1);
@@ -682,7 +728,53 @@ export const SessionIntelligenceMonitor: React.FC = () => {
     },
   };
 
+  const handleAnalyzeWithAlpha = (pair: BestPair) => {
+    const style = resolveStyle(pair);
+    navigate(`/ai-trade?style=${style}&symbol=${pair.symbol}`);
+  };
+
+  const renderAsiaRangeCard = (pair: BestPair) => {
+    if (pair.structureEventType !== 'AsiaRangeBuilding') return null;
+    if (!pair.asiaRangeHigh || !pair.asiaRangeLow) return null;
+
+    return (
+      <div
+        key={`${pair.symbol}-asia-range`}
+        className="relative rounded-xl p-4 border border-blue-500/30 bg-gradient-to-br from-blue-950/30 to-blue-900/10"
+      >
+        <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-xl bg-gradient-to-r from-blue-500 to-cyan-500 opacity-40" />
+        <div className="flex items-start justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <Moon className="w-4 h-4 text-blue-400" />
+            <p className="text-sm font-bold text-white">{pair.symbol}</p>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold bg-blue-500/15 border-blue-500/40 text-blue-300">
+              Asia Range
+            </span>
+          </div>
+          <span className="text-[10px] text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-full">
+            Informational
+          </span>
+        </div>
+        <p className="text-xs text-blue-200/80 mb-2">
+          {pair.structureEventDescription}
+        </p>
+        <div className="flex items-center gap-3 text-[11px] text-gray-400">
+          <span>H: <span className="text-white font-mono">{pair.asiaRangeHigh.toFixed(5)}</span></span>
+          <span>L: <span className="text-white font-mono">{pair.asiaRangeLow.toFixed(5)}</span></span>
+          {pair.asiaRangePips && pair.asiaRangePips > 0 && (
+            <span>Range: <span className="text-blue-300 font-mono">{Math.round(pair.asiaRangePips)}p</span></span>
+          )}
+        </div>
+        <p className="text-[10px] text-gray-600 mt-2">London will target these levels. Card upgrades to a trade signal when London sweeps this range.</p>
+      </div>
+    );
+  };
+
   const renderPairCard = (pair: BestPair) => {
+    if (pair.structureEventType === 'AsiaRangeBuilding') {
+      return renderAsiaRangeCard(pair);
+    }
+
     const style = resolveStyle(pair);
     const direction = resolveDirection(pair);
     const timeframe = resolveTimeframe(pair);
@@ -699,6 +791,8 @@ export const SessionIntelligenceMonitor: React.FC = () => {
     const phaseGlowClass = isScalp && momentumPhase === 'starting'
       ? 'shadow-[0_0_12px_rgba(251,191,36,0.25)]'
       : '';
+
+    const structureEventCfg = pair.structureEventType ? STRUCTURE_EVENT_LABELS[pair.structureEventType] : null;
 
     const confidenceColor = confidence >= 85
       ? 'text-green-400'
@@ -721,10 +815,27 @@ export const SessionIntelligenceMonitor: React.FC = () => {
           <div className={`h-full rounded-t-xl bg-gradient-to-r ${config.glow}`} />
         </div>
 
+        {structureEventCfg && pair.structureEventDescription && (
+          <div className={`flex items-center gap-2 mb-3 px-2.5 py-1.5 rounded-lg border ${structureEventCfg.bg} ${structureEventCfg.border}`}>
+            <Shield className={`w-3 h-3 flex-shrink-0 ${structureEventCfg.color}`} />
+            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+              <span className={`text-[10px] font-bold uppercase tracking-wide ${structureEventCfg.color} flex-shrink-0`}>
+                {structureEventCfg.label}
+              </span>
+              <span className="text-[10px] text-gray-300 truncate">{pair.structureEventDescription}</span>
+            </div>
+            {pair.structureEventRR && pair.structureEventRR > 0 && (
+              <span className="text-[10px] font-bold text-white flex-shrink-0 ml-1">
+                {pair.structureEventRR.toFixed(1)}R
+              </span>
+            )}
+          </div>
+        )}
+
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <p className="text-base font-bold text-white truncate">{pair.symbol}</p>
                 <div
                   className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${
@@ -752,6 +863,15 @@ export const SessionIntelligenceMonitor: React.FC = () => {
                 <span className="text-xs text-gray-500 font-mono">{timeframe}</span>
                 <span className="text-xs text-gray-600">|</span>
                 <span className="text-xs text-gray-500">{config.holdTime}</span>
+                {pair.killZoneActive && pair.killZoneLabel && (
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold ${pair.killZoneBadgeColor ?? 'bg-green-500/20 border-green-500/40 text-green-300'}`}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse flex-shrink-0" />
+                    {pair.killZoneLabel}
+                    {pair.killZoneMinutesRemaining && pair.killZoneMinutesRemaining > 0 && (
+                      <span className="opacity-70">{pair.killZoneMinutesRemaining}m</span>
+                    )}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -846,7 +966,18 @@ export const SessionIntelligenceMonitor: React.FC = () => {
         )}
 
         {pair.reasoning && (
-          <p className="text-xs text-gray-400 leading-relaxed">{pair.reasoning}</p>
+          <p className="text-xs text-gray-400 leading-relaxed mb-3">{pair.reasoning}</p>
+        )}
+
+        {pair.constraintFeasible !== false && (
+          <button
+            onClick={() => handleAnalyzeWithAlpha(pair)}
+            className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-xs font-semibold transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] ${config.badgeBg} ${config.badgeText} hover:opacity-90`}
+          >
+            <Target className="w-3.5 h-3.5" />
+            Analyze with Alpha
+            <ChevronRight className="w-3.5 h-3.5 ml-auto" />
+          </button>
         )}
       </div>
     );

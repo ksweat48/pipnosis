@@ -17,6 +17,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Target, Clock, AlertCircle, Loader2, Zap, CheckCircle, Shield, ArrowLeft, ChevronDown, ChevronUp } from 'lucide-react';
 import { smartGoalSessionManager } from '../services/smart-goal-session-manager';
 import { useAuth } from '../hooks/useAuth';
@@ -36,6 +37,7 @@ type Step = 'style' | 'amount';
 export const SmartGoalPanel: React.FC = () => {
   const { user } = useAuth();
   const toast = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [currentStep, setCurrentStep] = useState<Step>('style');
   const [selectedStyle, setSelectedStyle] = useState<TradeStyle | null>(null);
   const [customAmount, setCustomAmount] = useState('');
@@ -47,6 +49,19 @@ export const SmartGoalPanel: React.FC = () => {
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
   const [selectedAssetClasses, setSelectedAssetClasses] = useState<AssetClass[]>(['forex', 'crypto', 'indices', 'gold']);
   const [customInstructions, setCustomInstructions] = useState('');
+
+  useEffect(() => {
+    const styleParam = searchParams.get('style') as TradeStyle | null;
+    const symbolParam = searchParams.get('symbol');
+    if (styleParam && TRADE_STYLES[styleParam]) {
+      setSelectedStyle(styleParam);
+      setCurrentStep('amount');
+      if (symbolParam) {
+        setCustomInstructions(`Focus on ${symbolParam}`);
+      }
+      setSearchParams({}, { replace: true });
+    }
+  }, []);
 
   useEffect(() => {
     const loadUserPreferences = async () => {

@@ -53,6 +53,18 @@ import {
 import { detectConstraintSandwich, type EnvelopeAssetClass } from '../../../src/config/style-execution-envelopes';
 import { getSymbolConfig } from '../../../src/config/symbol-registry';
 import { getCurrencyPipInfo } from '../../../src/utils/currencyHelpers';
+import {
+  getKillZoneContext,
+  applyKillZoneConfidenceBonus,
+  type KillZoneContext,
+} from '../../../src/config/kill-zone-config';
+import {
+  analyzeMarketStructure,
+  computeAsiaRange,
+  type StructureEvent,
+  type StructureEventType,
+  type AsiaRangeData,
+} from './market-structure-detector';
 
 const supabase = getSupabaseAdmin();
 
@@ -113,6 +125,22 @@ export interface IntelligencePairResult {
   scalpPattern?: ScalpPattern;
   momentumPhase?: MomentumPhase;
   atrTraveled?: number;
+  structureEventType?: StructureEventType;
+  structureEventDescription?: string;
+  structureEventRR?: number;
+  structureEventConfidence?: number;
+  killZoneActive: boolean;
+  killZoneName?: string;
+  killZoneLabel?: string;
+  killZoneQuality?: string;
+  killZoneMinutesRemaining?: number;
+  killZoneBadgeColor?: string;
+  liquidityPoolDirection?: 'above' | 'below' | 'both' | 'none';
+  liquidityPoolDistancePips?: number;
+  asiaRangeHigh?: number;
+  asiaRangeLow?: number;
+  asiaRangePips?: number;
+  asiaRangeLocked?: boolean;
 }
 
 interface Candle {
@@ -318,9 +346,26 @@ export class RealTimeIntelligenceCalculator {
       ? this.analyzeScalpOpportunity(candles, direction, currentPrice, pipInfo.pipValue)
       : undefined;
 
+    const killZoneCtx = getKillZoneContext();
+    const killZoneAdjustedConfidence = applyKillZoneConfidenceBonus(adjustedConfidence, killZoneCtx);
+
+    if (killZoneCtx.killZoneActive && killZoneCtx.confidenceBonus > 0) {
+      reasoning.push(`${killZoneCtx.killZoneLabel} active — session confidence +${killZoneCtx.confidenceBonus}%`);
+    } else if (killZoneCtx.confidenceBonus < 0) {
+      reasoning.push(`Outside prime session window — confidence adjusted ${killZoneCtx.confidenceBonus}%`);
+    }
+
+    const asiaRange = computeAsiaRange(candles, pipInfo.pipValue);
+    const structureAnalysis = analyzeMarketStructure(candles, pipInfo.pipValue, asiaRange);
+    const primaryEvent = structureAnalysis.primaryEvent;
+
+    if (primaryEvent) {
+      reasoning.push(primaryEvent.description);
+    }
+
     return {
       symbol,
-      confidence: Math.round(adjustedConfidence),
+      confidence: Math.round(killZoneAdjustedConfidence),
       alignedIndicators: alignedCount,
       totalIndicators: this.INDICATOR_COUNT,
       indicatorBreakdown,
@@ -332,6 +377,22 @@ export class RealTimeIntelligenceCalculator {
       constraintFeasible,
       constraintWarning: sandwichCheck.advisory || undefined,
       ...(scalpAnalysis ?? {}),
+      structureEventType: primaryEvent?.eventType,
+      structureEventDescription: primaryEvent?.description,
+      structureEventRR: primaryEvent?.estimatedRR,
+      structureEventConfidence: primaryEvent?.confidence,
+      killZoneActive: killZoneCtx.killZoneActive,
+      killZoneName: killZoneCtx.killZoneName ?? undefined,
+      killZoneLabel: killZoneCtx.killZoneLabel ?? undefined,
+      killZoneQuality: killZoneCtx.killZoneQuality ?? undefined,
+      killZoneMinutesRemaining: killZoneCtx.minutesRemaining,
+      killZoneBadgeColor: killZoneCtx.badgeColor,
+      liquidityPoolDirection: primaryEvent?.liquidityPoolDirection,
+      liquidityPoolDistancePips: primaryEvent?.liquidityPoolDistancePips,
+      asiaRangeHigh: asiaRange.asiaHigh ?? undefined,
+      asiaRangeLow: asiaRange.asiaLow ?? undefined,
+      asiaRangePips: asiaRange.rangePips,
+      asiaRangeLocked: asiaRange.isLocked,
     };
   }
 
