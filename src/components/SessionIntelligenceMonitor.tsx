@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import {
   Clock,
@@ -504,6 +504,7 @@ const STRUCTURE_EVENT_LABELS: Record<string, { label: string; color: string; bg:
 
 export const SessionIntelligenceMonitor: React.FC = () => {
   const navigate = useNavigate();
+  const [, setSearchParams] = useSearchParams();
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -730,7 +731,8 @@ export const SessionIntelligenceMonitor: React.FC = () => {
 
   const handleAnalyzeWithAlpha = (pair: BestPair) => {
     const style = resolveStyle(pair);
-    navigate(`/ai-trade?style=${style}&symbol=${pair.symbol}`);
+    navigate('/ai-trade', { replace: false });
+    setSearchParams({ style, symbol: pair.symbol });
   };
 
   const renderAsiaRangeCard = (pair: BestPair) => {

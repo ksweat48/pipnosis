@@ -61,7 +61,7 @@ export const SmartGoalPanel: React.FC = () => {
       }
       setSearchParams({}, { replace: true });
     }
-  }, []);
+  }, [searchParams]);
 
   useEffect(() => {
     const loadUserPreferences = async () => {
