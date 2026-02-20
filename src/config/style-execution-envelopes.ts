@@ -30,6 +30,15 @@
  * The 25-pip ceiling naturally constrains fill time to the 15-60 min SCALP contract window.
  * SSOT pair: style-qualification-gate.ts STYLE_CONTRACTS.SCALP.maxTargetPips.FOREX = 25
  *
+ * SCALP CRYPTO TP FLOOR FIX (CCIP-2026-02-20):
+ * SCALP CRYPTO tpPercent.min lowered from 0.50% to 0.35%.
+ * Root cause: ETHUSD at ~$2,500 with 0.50% floor produces a 12.5-pip wall minimum.
+ * ETHUSD M5 ATR in low/normal volatility sessions is 8-12 pips, so Alpha's realistic
+ * TP proposals of 9-11 pips were being blocked by the floor on every scan.
+ * At 0.35%, wall minimum at $2,500 = 8.75 pips, which aligns with M5 crypto scalp reality.
+ * BTCUSD at ~$90,000 with 0.35% floor = 315 pips minimum — appropriate for BTC scalps.
+ * The slPercent.min of 0.30% is unchanged (noise floor governance compliance maintained).
+ *
  * NOISE FLOOR ALIGNMENT (CCIP-2026-02-18):
  * All slPercent.min values MUST be >= the noise floor percentage for the asset class.
  * Noise floor percentages (from risk-aware-stop-calculator.ts):
@@ -96,7 +105,7 @@ export const SCALP_ENVELOPE: StyleExecutionEnvelope = {
 
   assetClassPercentBounds: {
     FOREX: { tpPercent: { min: 0.08, max: 0.21 }, slPercent: { min: 0.05, max: 0.25 } },
-    CRYPTO: { tpPercent: { min: 0.50, max: 3.00 }, slPercent: { min: 0.30, max: 1.50 } },
+    CRYPTO: { tpPercent: { min: 0.35, max: 3.00 }, slPercent: { min: 0.30, max: 1.50 } },
     METAL: { tpPercent: { min: 0.30, max: 2.50 }, slPercent: { min: 0.20, max: 1.00 } },
     INDEX: { tpPercent: { min: 0.20, max: 0.60 }, slPercent: { min: 0.15, max: 0.35 } },
   },

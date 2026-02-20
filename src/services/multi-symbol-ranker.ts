@@ -85,7 +85,7 @@ class MultiSymbolRanker {
 
       const dailyHigh = Math.max(...candles.map(c => c.high));
       const dailyLow = Math.min(...candles.map(c => c.low));
-      const dailyRange = (dailyHigh - dailyLow) / pipFactor;
+      const dailyRange = (dailyHigh - dailyLow) / pipInfo.pipValue;
 
       const trendStrength = this.scoreTrendStrength(candles);
       const volatilityHealth = this.scoreVolatilityHealth(atr, dailyRange);

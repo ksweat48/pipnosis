@@ -6,8 +6,8 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const supabase = getSupabaseAdmin();
 
 // Timeout configuration
-const FUNCTION_TIMEOUT_MS = 25000; // 25 seconds (Netlify has 26s timeout)
-const OPENAI_REQUEST_TIMEOUT_MS = 20000; // 20 seconds for OpenAI API
+const FUNCTION_TIMEOUT_MS = 50000; // 50 seconds (Netlify Pro supports 55s)
+const OPENAI_REQUEST_TIMEOUT_MS = 45000; // 45 seconds for OpenAI API
 const RATE_LIMIT_CHECK_TIMEOUT_MS = 2000; // 2 seconds for rate limit check
 
 const MODEL_PRICING = {

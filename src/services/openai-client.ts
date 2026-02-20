@@ -63,7 +63,7 @@ class OpenAIClient {
   private readonly functionUrl: string;
   private readonly maxRetries = 2;
   private readonly baseDelayMs = 500;
-  private readonly fetchTimeoutMs = 30000;
+  private readonly fetchTimeoutMs = 55000;
 
   constructor() {
     this.functionUrl = '/.netlify/functions/openai-chat';
