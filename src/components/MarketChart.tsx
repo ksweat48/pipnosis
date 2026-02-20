@@ -1861,9 +1861,9 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   };
 
   const SESSION_DEFINITIONS = [
-    { name: 'ASIA', startHour: 0, endHour: 8, color: 'rgba(56,189,248,0.18)' },
-    { name: 'LONDON', startHour: 8, endHour: 16, color: 'rgba(251,191,36,0.18)' },
-    { name: 'NEW YORK', startHour: 13, endHour: 21, color: 'rgba(248,113,113,0.18)' },
+    { name: 'ASIA', startHour: 0, endHour: 8, color: 'rgba(56,189,248,0.07)' },
+    { name: 'LONDON', startHour: 8, endHour: 16, color: 'rgba(251,191,36,0.07)' },
+    { name: 'NEW YORK', startHour: 13, endHour: 21, color: 'rgba(248,113,113,0.07)' },
   ];
 
   const renderSessionBands = () => {
@@ -1930,7 +1930,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         const width = xEnd - xStart;
         if (width < 2) continue;
 
-        const labelColor = session.color.replace('0.18', '0.75');
+        const labelColor = session.color.replace('0.07', '0.55');
         const showLabel = width > 42;
 
         fragments.push(
