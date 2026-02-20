@@ -502,19 +502,6 @@ const STRUCTURE_EVENT_LABELS: Record<string, { label: string; color: string; bg:
   AsiaRangeBuilding: { label: 'Asia Range', color: 'text-blue-300', bg: 'bg-blue-500/10', border: 'border-blue-500/30' },
 };
 
-interface AlphaScanSignal {
-  id: string;
-  symbol: string;
-  direction: 'buy' | 'sell';
-  trade_style: 'scalp' | 'micro_intraday' | 'intraday';
-  timeframe: string;
-  alpha_confidence: number;
-  reasoning: string | null;
-  scanned_at: string;
-  expires_at: string;
-  scan_batch_id: string;
-}
-
 type ScanState = 'idle' | 'scanning' | 'done' | 'cooldown' | 'error';
 
 interface SessionIntelligenceMonitorProps {
@@ -537,7 +524,6 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
   const [scanResult, setScanResult] = useState<{ signalsFound: number; scanned: number } | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
-  const [alphaSignals, setAlphaSignals] = useState<AlphaScanSignal[]>([]);
 
   // CCIP (2026-02-18): SSOT compliance fix.
   // The populate-session-intelligence Netlify function is a SCHEDULED data populator.
@@ -583,17 +569,6 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
     }
   }, [refreshing, loadSessionData]);
 
-  const loadAlphaSignals = useCallback(async () => {
-    try {
-      const { data, error } = await supabase.rpc('get_latest_alpha_scan_signals');
-      if (!error && Array.isArray(data)) {
-        setAlphaSignals(data as AlphaScanSignal[]);
-      }
-    } catch {
-      // silent — signals are advisory only
-    }
-  }, []);
-
   const handleScanNow = useCallback(async () => {
     if (scanState === 'scanning' || scanState === 'cooldown') return;
 
@@ -626,7 +601,10 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
       setScanResult({ signalsFound: data.signalsFound ?? 0, scanned: data.scanned ?? 0 });
       setScanState('done');
 
-      await loadAlphaSignals();
+      // CCIP 2026-02-20: Scan Now now refreshes the single authoritative pipeline
+      // (session_intelligence_data / readyPairs) instead of loading a parallel
+      // alpha_scan_signals table. SSOT: one pipeline, one card format.
+      await loadSessionData();
 
       setTimeout(() => {
         setScanState('cooldown');
@@ -637,7 +615,7 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
       setScanError('Network error — try again');
       setTimeout(() => setScanState('idle'), 4000);
     }
-  }, [scanState, loadAlphaSignals]);
+  }, [scanState, loadSessionData]);
 
   useEffect(() => {
     if (scanState !== 'cooldown' || cooldownSeconds <= 0) return;
@@ -653,19 +631,6 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
     }, 1000);
     return () => clearInterval(timer);
   }, [scanState, cooldownSeconds]);
-
-  useEffect(() => {
-    loadAlphaSignals();
-
-    const channel = supabase
-      .channel('alpha-scan-signals-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'alpha_scan_signals' }, () => {
-        loadAlphaSignals();
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, [loadAlphaSignals]);
 
   useEffect(() => {
     const init = async () => {
@@ -1317,64 +1282,6 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
             );
           })}
         </div>
-
-        {alphaSignals.length > 0 && (
-          <div className="mb-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Zap className="w-4 h-4 text-cyan-400" />
-              <p className="text-sm font-semibold text-cyan-300">
-                Manual Scan — {alphaSignals.length} Signal{alphaSignals.length !== 1 ? 's' : ''} Found
-              </p>
-              <span className="text-xs text-gray-500 ml-auto">
-                {new Date(alphaSignals[0].scanned_at).toLocaleTimeString()}
-              </span>
-            </div>
-            <div className="space-y-2">
-              {alphaSignals.map((signal) => {
-                const isBuy = signal.direction === 'buy';
-                const styleLabel =
-                  signal.trade_style === 'scalp' ? 'Scalp' :
-                  signal.trade_style === 'micro_intraday' ? 'Micro' : 'Intraday';
-                const confColor =
-                  signal.alpha_confidence >= 80 ? 'text-emerald-400' :
-                  signal.alpha_confidence >= 70 ? 'text-cyan-400' : 'text-amber-400';
-
-                return (
-                  <div
-                    key={signal.id}
-                    className="relative rounded-lg p-3 border bg-cyan-900/15 border-cyan-500/30 flex items-start gap-3"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <p className="text-sm font-bold text-white">{signal.symbol}</p>
-                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[10px] font-semibold ${
-                          isBuy
-                            ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
-                            : 'bg-red-500/15 border-red-500/40 text-red-400'
-                        }`}>
-                          {isBuy ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
-                          {isBuy ? 'Buy' : 'Sell'}
-                        </span>
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[10px] font-semibold bg-cyan-500/15 border-cyan-500/30 text-cyan-300">
-                          <Zap className="w-2.5 h-2.5" />
-                          {styleLabel}
-                        </span>
-                        <span className="text-[10px] text-gray-500 font-mono">{signal.timeframe}</span>
-                      </div>
-                      {signal.reasoning && (
-                        <p className="text-xs text-gray-400 leading-relaxed line-clamp-2">{signal.reasoning}</p>
-                      )}
-                    </div>
-                    <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
-                      <span className={`text-base font-bold ${confColor}`}>{signal.alpha_confidence}%</span>
-                      <span className="text-[10px] text-gray-500">confidence</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         {readyPairs.length > 0 && (
           <div className="mb-4">
