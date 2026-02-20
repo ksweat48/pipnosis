@@ -65,7 +65,7 @@ export interface StylePersonality {
 export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
   SCALP: {
     displayName: 'SCALP',
-    mindset: 'Precision sniper - speed and minimal heat',
+    mindset: 'Precision execution — fresh structure, defined trigger, minimal heat',
     description: 'Fast trades targeting quick profits with tight risk management',
     durationBand: {
       minHours: 0.33,
@@ -106,7 +106,7 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
 
   MICRO_INTRADAY: {
     displayName: 'MICRO_INTRADAY',
-    mindset: 'Tactical structure trader - balance of speed and patience',
+    mindset: 'Structural trade — H1-confirmed direction, M15 entry timing, measured patience',
     description: 'Medium-term trades exploiting structural moves with measured risk',
     durationBand: {
       minHours: 1.0,
@@ -147,7 +147,7 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
 
   INTRADAY: {
     displayName: 'INTRADAY',
-    mindset: 'Campaign trader - patience and position building',
+    mindset: 'Campaign positioning — H4-validated bias, H1 structural entry, patient thesis execution',
     description: 'Longer intraday trades capturing larger moves with strategic positioning',
     durationBand: {
       minHours: 2.0,
