@@ -4,9 +4,12 @@
  * Detects hostile market behavior using ONLY local computations (no LLM calls).
  * Identifies stop runs, fake breakouts, whipsaws, and news spikes.
  *
- * UPDATED ROLE: Advisory-only system that applies confidence penalties.
- * NO LONGER BLOCKS TRADES - provides risk assessment for Alpha to consider.
- * Alpha has final authority to proceed despite adverse conditions if justified.
+ * SSOT / CCIP CONTRACT (2026-02-21):
+ * This service outputs RAW OBSERVATIONS ONLY.
+ * It does NOT compute confidence_penalty multipliers.
+ * Alpha (alpha-omega-orchestrator.ts > computeRegimePenaltyFromRaw) owns all scoring.
+ * The stop_run_classification object with type, candles_ago, has_bos, and reasoning
+ * is the full raw output Alpha consumes directly.
  */
 
 import type { RegimeSnapshot } from './regime-oracle';
@@ -28,13 +31,17 @@ import { safeExtractATRValue, safeExtractATRTimeframe, type ATRValue } from '../
 const MANIPULATION_SPIKE_THRESHOLD = 2.2;
 const EXTREME_MANIPULATION_THRESHOLD = 4.0;
 
+/**
+ * Raw adversarial observation contract.
+ * All fields are direct sensor observations — no confidence_penalty multipliers.
+ * Alpha (alpha-omega-orchestrator.ts) owns all penalty/confidence computation.
+ */
 export interface AdversarialSignal {
   is_adversarial: boolean;
   level: 'none' | 'mild' | 'moderate' | 'severe';
   suspicion_score: number; // 0-100
   patterns: string[]; // ["stop_run_high", "whipsaw_cluster"]
-  recommended_action: 'normal' | 'reduce_size' | 'delay'; // REMOVED: 'avoid' - never blocks
-  confidence_penalty?: number; // Penalty multiplier (0.75 = -25% confidence, 0.80 = -20%, etc.)
+  recommended_action: 'normal' | 'reduce_size' | 'delay';
   notes: string; // short, 80 chars max
   stop_run_classification?: {
     type: 'active_stop_run' | 'historical_sweep' | 'manipulation_spike' | 'none';
@@ -180,22 +187,12 @@ class AdversarialDetector {
     const is_adversarial = level !== 'none';
     const notes = this.generateNotes(patterns, level);
 
-    // Calculate confidence penalty based on stop run classification and level
-    const confidence_penalty = this.calculateConfidencePenalty(
-      stopRunClassification,
-      level,
-      patterns
-    );
-
     console.log(`[Adversarial - ADVISORY] Score: ${suspicion_score}, Level: ${level}`);
-    if (confidence_penalty && confidence_penalty < 1.0) {
-      console.log(`[Adversarial - ADVISORY] Confidence Penalty: ${((1 - confidence_penalty) * 100).toFixed(0)}%`);
-    }
+    console.log(`[Adversarial - ADVISORY] RAW OBSERVATIONS ONLY - penalty scoring delegated to Alpha`);
     if (patterns.length > 0) {
       console.log(`[Adversarial - ADVISORY] Patterns: ${patterns.join(', ')}`);
     }
 
-    // Log stop-run classification
     if (stopRunClassification.type !== 'none') {
       console.log(`[Adversarial - ADVISORY] Stop-Run: ${stopRunClassification.type} (${stopRunClassification.candles_ago} candles ago)`);
       console.log(`[Adversarial - ADVISORY] BOS: ${stopRunClassification.has_bos}, Requires Omega-9: ${stopRunClassification.requires_omega9_validation || false}`);
@@ -208,7 +205,6 @@ class AdversarialDetector {
       suspicion_score,
       patterns,
       recommended_action,
-      confidence_penalty,
       notes,
       stop_run_classification: stopRunClassification
     };
@@ -472,61 +468,6 @@ class AdversarialDetector {
       default:
         return 'normal';
     }
-  }
-
-  /**
-   * Calculate confidence penalty based on adversarial patterns
-   *
-   * Returns a multiplier (0.65 = -35% confidence, 0.80 = -20%, 1.0 = no penalty)
-   * This replaces hard blocks with quantified risk assessment.
-   */
-  private calculateConfidencePenalty(
-    stopRunClassification: {
-      type: 'active_stop_run' | 'historical_sweep' | 'manipulation_spike' | 'none';
-      candles_ago: number;
-      has_bos: boolean;
-      should_block: boolean;
-      requires_omega9_validation?: boolean;
-      reasoning: string;
-    },
-    level: 'none' | 'mild' | 'moderate' | 'severe',
-    patterns: string[]
-  ): number {
-    let penalty = 1.0; // Start with no penalty
-
-    // Stop run classification penalties
-    if (stopRunClassification.type === 'active_stop_run') {
-      penalty = Math.min(penalty, 0.75); // -25% for active stop run
-    } else if (stopRunClassification.type === 'manipulation_spike') {
-      if (stopRunClassification.requires_omega9_validation) {
-        if (stopRunClassification.candles_ago <= 1) {
-          penalty = Math.min(penalty, 0.65); // -35% for extreme recent spike
-        } else {
-          penalty = Math.min(penalty, 0.80); // -20% for unstable spike
-        }
-      } else {
-        penalty = Math.min(penalty, 0.90); // -10% for historical spike
-      }
-    }
-
-    // General level-based penalties
-    if (level === 'severe') {
-      penalty = Math.min(penalty, 0.70); // At least -30% for severe conditions
-    } else if (level === 'moderate') {
-      penalty = Math.min(penalty, 0.85); // At least -15% for moderate conditions
-    } else if (level === 'mild') {
-      penalty = Math.min(penalty, 0.95); // At least -5% for mild conditions
-    }
-
-    // Additional pattern-based penalties
-    if (patterns.includes('extreme_spike')) {
-      penalty = Math.min(penalty, 0.75); // -25% for extreme spike
-    }
-    if (patterns.includes('whipsaw_cluster')) {
-      penalty = Math.min(penalty, 0.85); // -15% for whipsaw
-    }
-
-    return penalty;
   }
 
   /**

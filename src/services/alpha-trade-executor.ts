@@ -2170,7 +2170,7 @@ class AlphaTradeExecutor {
       volatility,
       structure: regime?.structure,
       market_bias: regime?.market_bias,
-      regime_classification: regime?.regime_classification,
+      is_high_risk_regime: regime?.is_high_risk_regime ?? false,
       confidence: decision.confidence,
       style: decision.resolvedStyle,
       alpha_entry_advisory: {

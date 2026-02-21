@@ -682,39 +682,36 @@ class AlphaOmegaOrchestrator {
       });
     }
 
-    // Regime Oracle Penalties (regime + volatility + session, max 15% total)
+    // Regime Oracle Penalties — scored from raw observations (SSOT: Alpha owns scoring)
     if (marketState.regime) {
-      const regimePenalty = marketState.regime.confidence_penalty_percent || 0;
-      if (regimePenalty > 0) {
+      const regimeScore = this.computeRegimePenaltyFromRaw(marketState.regime);
+      if (regimeScore.value > 0) {
         confidenceModifiers.push({
           domain: 'regime_oracle',
           domain_owner: 'RegimeOracle',
           penalty_type: 'additive',
-          value: Math.min(regimePenalty / 100, 0.15),
-          reason: `Market regime: ${marketState.regime.regime_classification} - ${marketState.regime.reason || ''}`,
+          value: regimeScore.value,
+          reason: regimeScore.reason,
           source_file: 'alpha-omega-orchestrator.ts',
-          severity: regimePenalty > 10 ? 'high' : 'medium'
+          severity: regimeScore.value > 0.10 ? 'high' : 'medium'
         });
       }
     }
 
-    // Adversarial Penalty (0-10%, hard cap)
+    // Adversarial Penalty — scored from raw stop_run_classification observations (SSOT: Alpha owns scoring)
     if (marketState.adversarial && marketState.adversarial.is_adversarial) {
-      let adversarialPenalty = 0.05; // Default 5%
-      if (marketState.adversarial.stop_run_classification?.should_block) {
-        adversarialPenalty = 0.1; // Max 10% for blocks
-      } else if (marketState.adversarial.stop_run_classification?.type === 'active_stop_run') {
-        adversarialPenalty = 0.08;
+      const adversarialScore = this.computeAdversarialPenaltyFromRaw(marketState.adversarial);
+      if (adversarialScore.value > 0) {
+        confidenceModifiers.push({
+          domain: 'adversarial',
+          domain_owner: 'Adversarial Detector',
+          penalty_type: 'additive',
+          value: adversarialScore.value,
+          reason: adversarialScore.reason,
+          source_file: 'alpha-omega-orchestrator.ts',
+          severity: adversarialScore.value > 0.05 ? 'high' : 'medium'
+        });
       }
-      confidenceModifiers.push({
-        domain: 'adversarial',
-        domain_owner: 'Adversarial Detector',
-        penalty_type: 'additive',
-        value: adversarialPenalty,
-        reason: `Adversarial detection: ${marketState.adversarial.stop_run_classification?.reasoning || 'manipulation risk'}`,
-        source_file: 'alpha-omega-orchestrator.ts',
-        severity: adversarialPenalty > 0.05 ? 'high' : 'medium'
-      });
     }
 
     // Session Advisory Penalty (0-15% max, advisory)
@@ -1819,28 +1816,168 @@ class AlphaOmegaOrchestrator {
       }
     }
 
-    // NEW: Use additive penalty system from Regime Oracle (0-15% max)
-    if (regimeSnapshot && regimeSnapshot.confidence_penalty_percent > 0) {
-      // ENFORCE 15% MAXIMUM PENALTY (per alpha-identity.ts config)
-      const MAX_REGIME_PENALTY = 15;
-      const cappedPenalty = Math.min(regimeSnapshot.confidence_penalty_percent, MAX_REGIME_PENALTY);
-
-      // Convert additive penalty to multiplier format for compatibility
-      // E.g., 15% penalty = 0.85 multiplier
-      const multiplier = 1 - (cappedPenalty / 100);
-
-      const penaltyNote = cappedPenalty < regimeSnapshot.confidence_penalty_percent
-        ? ` [capped from ${regimeSnapshot.confidence_penalty_percent}%]`
-        : '';
-
-      penalties.push({
-        source: 'Regime Oracle',
-        multiplier,
-        reason: `${regimeSnapshot.regime_classification} regime: ${regimeSnapshot.reason || 'Market conditions'} (-${cappedPenalty}% advisory penalty${penaltyNote})`
-      });
+    // Regime Oracle — scored from raw observations (SSOT: Alpha owns all scoring)
+    if (regimeSnapshot) {
+      const regimeScore = this.computeRegimePenaltyFromRaw(regimeSnapshot);
+      if (regimeScore.value > 0) {
+        const multiplier = 1 - regimeScore.value;
+        penalties.push({
+          source: 'Regime Oracle',
+          multiplier,
+          reason: regimeScore.reason
+        });
+      }
     }
 
     return this.calculateWorstCasePenalty(penalties);
+  }
+
+  /**
+   * SSOT: Alpha's authoritative regime penalty scorer.
+   *
+   * Consumes raw RegimeSnapshot observations and returns a weighted composite penalty.
+   * This is the ONLY place regime-derived confidence penalties are computed.
+   * Replaces the pre-computed confidence_penalty_percent that was previously produced
+   * inside regime-oracle.ts (CCIP contract change: 2026-02-21).
+   *
+   * Multiple elevated signals compound (additive) up to a hard 15% cap.
+   */
+  private computeRegimePenaltyFromRaw(
+    regime: RegimeSnapshot
+  ): { value: number; reason: string } {
+    const MAX_REGIME_PENALTY = 0.15;
+    let total = 0;
+    const reasons: string[] = [];
+
+    if (regime.volatility_score > 90) {
+      total += 0.15;
+      reasons.push(`extreme volatility (${regime.volatility_score})`);
+    } else if (regime.volatility_score > 80) {
+      total += 0.12;
+      reasons.push(`high volatility (${regime.volatility_score})`);
+    } else if (regime.volatility_score < 15) {
+      total += 0.10;
+      reasons.push(`dead market (volatility ${regime.volatility_score})`);
+    }
+
+    if (regime.wick_risk === 'high') {
+      total += 0.10;
+      reasons.push('high wick risk');
+    } else if (regime.wick_risk === 'medium') {
+      total += 0.05;
+      reasons.push('medium wick risk');
+    }
+
+    if (regime.spread_risk === 'high') {
+      total += 0.10;
+      reasons.push('high spread risk');
+    }
+
+    if (regime.atr_compression && regime.structure === 'range') {
+      total += 0.08;
+      reasons.push('ATR compression + range');
+    }
+
+    if (regime.is_dead_zone && regime.safety_flags.session_weight !== undefined && regime.safety_flags.session_weight < 1.0) {
+      const sessionPenalty = Math.min(0.05, (1 - regime.safety_flags.session_weight) * 0.10);
+      total += sessionPenalty;
+      reasons.push(`dead zone (session weight ${((regime.safety_flags.session_weight) * 100).toFixed(0)}%)`);
+    } else if (regime.is_dead_zone) {
+      total += 0.05;
+      reasons.push('dead zone');
+    }
+
+    if (regime.time_regime?.is_ny_open && regime.volatility_score > 75) {
+      total += 0.12;
+      reasons.push('NY open high volatility');
+    }
+
+    const capped = Math.min(total, MAX_REGIME_PENALTY);
+    const reason = capped > 0
+      ? `Regime: ${reasons.join(', ')} (-${Math.round(capped * 100)}% advisory)`
+      : '';
+
+    return { value: capped, reason };
+  }
+
+  /**
+   * SSOT: Alpha's authoritative adversarial penalty scorer.
+   *
+   * Consumes raw AdversarialSignal observations and returns a penalty value.
+   * This is the ONLY place adversarial-derived confidence penalties are computed.
+   * Replaces the pre-computed confidence_penalty multiplier that was previously
+   * produced inside adversarial-detector.ts (CCIP contract change: 2026-02-21).
+   *
+   * Uses the tiered stop_run_classification plus level/patterns directly.
+   * Hard cap: 15% maximum penalty (Alpha authority config).
+   */
+  private computeAdversarialPenaltyFromRaw(
+    signal: AdversarialSignal
+  ): { value: number; reason: string } {
+    const MAX_ADVERSARIAL_PENALTY = 0.15;
+    let penalty = 0;
+    let reason = '';
+
+    const classification = signal.stop_run_classification;
+
+    if (classification) {
+      if (classification.type === 'active_stop_run') {
+        penalty = Math.max(penalty, 0.08);
+        reason = `Active stop run (${classification.candles_ago} candles ago)`;
+      } else if (classification.type === 'manipulation_spike') {
+        if (classification.requires_omega9_validation && classification.candles_ago <= 1) {
+          penalty = Math.max(penalty, 0.15);
+          reason = `Extreme recent manipulation spike (${classification.candles_ago} candles ago) - Omega-9 required`;
+        } else if (classification.requires_omega9_validation) {
+          penalty = Math.max(penalty, 0.10);
+          reason = `Manipulation spike unstable (${classification.candles_ago} candles ago)`;
+        } else {
+          penalty = Math.max(penalty, 0.05);
+          reason = `Historical manipulation spike (${classification.candles_ago} candles ago)`;
+        }
+      } else if (classification.type === 'historical_sweep' && !classification.has_bos) {
+        if (classification.candles_ago <= 2) {
+          penalty = Math.max(penalty, 0.08);
+          reason = `Recent sweep without BOS (${classification.candles_ago} candles ago)`;
+        } else {
+          penalty = Math.max(penalty, 0.05);
+          reason = `Historical sweep without BOS (${classification.candles_ago} candles ago)`;
+        }
+      } else if (classification.type === 'historical_sweep' && classification.has_bos) {
+        penalty = 0;
+        reason = 'Historical sweep with BOS - valid reversal setup';
+      } else {
+        penalty = Math.max(penalty, 0.05);
+        reason = classification.reasoning || 'Adversarial pattern detected';
+      }
+    } else {
+      if (signal.level === 'severe') {
+        penalty = Math.max(penalty, 0.15);
+        reason = `Severe adversarial conditions: ${signal.notes}`;
+      } else if (signal.level === 'moderate') {
+        penalty = Math.max(penalty, 0.10);
+        reason = `Moderate adversarial conditions: ${signal.notes}`;
+      } else if (signal.level === 'mild') {
+        penalty = Math.max(penalty, 0.05);
+        reason = `Mild adversarial conditions: ${signal.notes}`;
+      }
+    }
+
+    if (signal.patterns.includes('extreme_spike')) {
+      penalty = Math.max(penalty, 0.12);
+      if (!reason.includes('extreme')) {
+        reason = `${reason}; extreme spike detected`;
+      }
+    }
+    if (signal.patterns.includes('whipsaw_cluster')) {
+      penalty = Math.max(penalty, 0.08);
+    }
+
+    const capped = Math.min(penalty, MAX_ADVERSARIAL_PENALTY);
+    return {
+      value: capped,
+      reason: capped > 0 ? `${reason} (-${Math.round(capped * 100)}% advisory)` : ''
+    };
   }
 
   private logOmegaVotes(votes: OmegaCouncilVotes): void {

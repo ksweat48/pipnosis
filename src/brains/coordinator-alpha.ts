@@ -3030,9 +3030,9 @@ ${tradeStyle === 'SCALP' ? `{
       parts.push(`  Session: ${regime.session} ${regime.session_open ? '(open)' : ''}`);
       parts.push(`  Structure: ${regime.structure} | Bias: ${regime.market_bias}`);
       parts.push(`  Volatility: ${regime.volatility_score}/100 (${regime.atr_compression ? 'compressed' : regime.atr_expansion ? 'expanding' : 'normal'})`);
-      parts.push(`  Risk Factor: ${(regime.risk_reduction_factor * 100).toFixed(0)}%`);
-      if (regime.avoid_trading) {
-        parts.push(`  ⚠️ AVOID recommended (but you can override): ${regime.reason || 'No specific reason'}`);
+      parts.push(`  High Risk: ${regime.is_high_risk_regime ? 'YES' : 'NO'}`);
+      if (regime.reason) {
+        parts.push(`  Note: ${regime.reason}`);
       }
     }
 

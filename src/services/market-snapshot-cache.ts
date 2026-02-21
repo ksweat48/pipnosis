@@ -294,26 +294,13 @@ class MarketSnapshotCache {
     if (regime.avoid_trading) {
       advisoryFlags.push(`Regime advisory: ${regime.reason || 'unfavorable conditions'}`);
     }
-    // Add regime risk reduction as penalty
-    if (regime.risk_reduction_factor < 1.0) {
-      confidencePenalties.push({
-        source: 'regime',
-        penalty: regime.risk_reduction_factor,
-        reason: regime.reason || 'risk reduction applied'
-      });
+    if (regime.is_high_risk_regime) {
+      advisoryFlags.push(`Regime advisory: ${regime.reason || 'high risk regime'}`);
     }
 
     // Advisory flag from adversarial detector
     if (adversarial.recommended_action === 'delay') {
       advisoryFlags.push(`Adversarial advisory: ${adversarial.notes}`);
-    }
-    // Add adversarial confidence penalty
-    if (adversarial.confidence_penalty && adversarial.confidence_penalty < 1.0) {
-      confidencePenalties.push({
-        source: 'adversarial',
-        penalty: adversarial.confidence_penalty,
-        reason: adversarial.notes
-      });
     }
 
     // Log advisory status

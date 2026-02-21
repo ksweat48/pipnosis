@@ -146,7 +146,6 @@ class ConditionMonitor {
       console.log(`[Condition Monitor] Session: ${regime.session} (${regime.minutes_into_session}min in)`);
       console.log(`[Condition Monitor] Volatility: ${regime.volatility_score}/100, wick_risk=${regime.wick_risk}`);
       console.log(`[Condition Monitor] Trend: ${regime.trend_strength_score}/100, structure=${regime.structure}`);
-      console.log(`[Condition Monitor] Risk factor: ${regime.risk_reduction_factor}x`);
     }
 
     // ADVERSARIAL DETECTOR: Check for manipulation patterns (zero-cost gate)
@@ -242,14 +241,7 @@ class ConditionMonitor {
       );
     }
 
-    // Apply regime risk reduction factor if available
-    const adjustedConfidence = regime
-      ? finalConfidence * regime.risk_reduction_factor
-      : finalConfidence;
-
-    if (regime && regime.risk_reduction_factor < 1.0) {
-      console.log(`[Condition Monitor] Confidence adjusted: ${finalConfidence}% → ${adjustedConfidence.toFixed(0)}% (risk_factor: ${regime.risk_reduction_factor})`);
-    }
+    const adjustedConfidence = finalConfidence;
 
     // Generate Alpha thoughts for transparency
     const alphaThoughts = this.generateAlphaThoughts(

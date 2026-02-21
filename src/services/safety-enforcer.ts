@@ -303,18 +303,14 @@ class SafetyEnforcer {
         );
       }
 
-      // ✅ GOVERNANCE FIX (2026-02-02): Risk reduction advisory only
-      // Previously: Auto-reduced risk_pct without Alpha re-approval
-      // Now: Advisory recommendation - Alpha decides
-      if (regime.is_high_risk_regime && regime.risk_reduction_factor < 1.0) {
-        const suggestedRisk = decision.risk_pct * regime.risk_reduction_factor;
-        const advisory = `High volatility regime: Consider reducing risk from ${decision.risk_pct.toFixed(2)}% to ${suggestedRisk.toFixed(2)}% (${(regime.risk_reduction_factor * 100).toFixed(0)}% factor)`;
+      if (regime.is_high_risk_regime) {
+        const advisory = `High volatility regime detected: Consider reducing position size`;
         advisories.push(advisory);
         advisoryPenalties.push(
           advisoryPenaltyAggregator.createPenalty(
             'Safety:High_Volatility_Risk',
             advisory,
-            12, // -12% confidence
+            12,
             'environment'
           )
         );
