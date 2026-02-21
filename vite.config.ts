@@ -24,12 +24,151 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom'],
-          router: ['react-router-dom'],
-          ui: ['lucide-react'],
-          supabase: ['@supabase/supabase-js'],
-          'lightweight-charts': ['lightweight-charts']
+        manualChunks(id) {
+          // Third-party vendor splits
+          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+            return 'vendor';
+          }
+          if (id.includes('node_modules/react-router-dom') || id.includes('node_modules/@remix-run')) {
+            return 'router';
+          }
+          if (id.includes('node_modules/lucide-react')) {
+            return 'ui';
+          }
+          if (id.includes('node_modules/@supabase')) {
+            return 'supabase';
+          }
+          if (id.includes('node_modules/lightweight-charts')) {
+            return 'lightweight-charts';
+          }
+
+          // AI brain / Omega council — heaviest chunk drivers
+          if (
+            id.includes('/src/brains/') ||
+            id.includes('/src/services/alpha-omega-orchestrator') ||
+            id.includes('/src/services/coordinator-alpha') ||
+            id.includes('/src/services/event-based-llm-engine') ||
+            id.includes('/src/services/llm-strategy-brain') ||
+            id.includes('/src/services/llm-execution-brain') ||
+            id.includes('/src/services/llm-mid-trade-evaluator') ||
+            id.includes('/src/services/llm-snapshot-builder') ||
+            id.includes('/src/services/llm-reasoning-logger') ||
+            id.includes('/src/services/llm-post-session-analyzer') ||
+            id.includes('/src/services/openai-client') ||
+            id.includes('/src/services/openai-proxy-client')
+          ) {
+            return 'ai-brains';
+          }
+
+          // Trade execution core
+          if (
+            id.includes('/src/services/alpha-trade-executor') ||
+            id.includes('/src/services/alpha-execution-planner') ||
+            id.includes('/src/services/alpha-execution-analyzer') ||
+            id.includes('/src/services/trade-lifecycle-manager') ||
+            id.includes('/src/services/trade-validation-service') ||
+            id.includes('/src/services/trade-feasibility-resolver') ||
+            id.includes('/src/services/trade-closure-event-processor') ||
+            id.includes('/src/services/trade-context-retriever') ||
+            id.includes('/src/services/ccip-trade-execution-tracker') ||
+            id.includes('/src/services/pcpe-execution-governor') ||
+            id.includes('/src/services/safety-enforcer') ||
+            id.includes('/src/services/mandatory-safety-validator') ||
+            id.includes('/src/services/core-validation-gate')
+          ) {
+            return 'trade-execution';
+          }
+
+          // Risk and sizing
+          if (
+            id.includes('/src/services/professional-risk-manager') ||
+            id.includes('/src/services/adaptive-risk-manager') ||
+            id.includes('/src/services/unified-risk-authority') ||
+            id.includes('/src/services/goal-aware-lot-sizing-coordinator') ||
+            id.includes('/src/services/kelly-criterion-sizer') ||
+            id.includes('/src/services/ev-calculator') ||
+            id.includes('/src/services/ev-gating-system') ||
+            id.includes('/src/services/risk-preflight-gate') ||
+            id.includes('/src/services/risk-negotiation-auditor') ||
+            id.includes('/src/services/correlation-risk-manager') ||
+            id.includes('/src/services/volatility-adjusted-risk') ||
+            id.includes('/src/services/progressive-risk-scaling')
+          ) {
+            return 'risk-engine';
+          }
+
+          // Goal session management
+          if (
+            id.includes('/src/services/goal-session-live-engine') ||
+            id.includes('/src/services/goal-session-core-engine') ||
+            id.includes('/src/services/goal-session-manager') ||
+            id.includes('/src/services/smart-goal-session-manager') ||
+            id.includes('/src/services/goal-scanner') ||
+            id.includes('/src/services/goal-feasibility-resolver') ||
+            id.includes('/src/services/goal-advisory-coordinator') ||
+            id.includes('/src/services/goal-intelligence-classifier') ||
+            id.includes('/src/services/session-constraint-coordinator') ||
+            id.includes('/src/services/scanning-state-machine') ||
+            id.includes('/src/services/multi-symbol-scanner') ||
+            id.includes('/src/services/multi-symbol-ranker') ||
+            id.includes('/src/services/multi-symbol-snapshot-builder') ||
+            id.includes('/src/services/best-symbol-selector')
+          ) {
+            return 'goal-session';
+          }
+
+          // Market data and candles
+          if (
+            id.includes('/src/services/candle-') ||
+            id.includes('/src/services/market-data-service') ||
+            id.includes('/src/services/market-briefing-builder') ||
+            id.includes('/src/services/market-condition-risk-adjuster') ||
+            id.includes('/src/services/market-snapshot-cache') ||
+            id.includes('/src/services/chart-') ||
+            id.includes('/src/services/price-') ||
+            id.includes('/src/services/tick-buffer-service') ||
+            id.includes('/src/services/background-candle-aggregator') ||
+            id.includes('/src/services/current-candle-reconstructor') ||
+            id.includes('/src/services/wick-reconstruction-service')
+          ) {
+            return 'market-data';
+          }
+
+          // Pattern and regime intelligence
+          if (
+            id.includes('/src/services/pattern-') ||
+            id.includes('/src/services/regime-') ||
+            id.includes('/src/services/micro-regime-classifier') ||
+            id.includes('/src/services/multi-timeframe-pattern-intelligence') ||
+            id.includes('/src/services/sentiment-') ||
+            id.includes('/src/services/omega-sensors') ||
+            id.includes('/src/services/omega-weight-resolver') ||
+            id.includes('/src/services/omega-consensus-advisory') ||
+            id.includes('/src/services/adaptive-entry-zone-calculator') ||
+            id.includes('/src/services/zone-')
+          ) {
+            return 'intelligence';
+          }
+
+          // Alpha learning and analytics
+          if (
+            id.includes('/src/services/alpha-learning') ||
+            id.includes('/src/services/alpha-meta-learning') ||
+            id.includes('/src/services/alpha-revision-handler') ||
+            id.includes('/src/services/alpha-thesis-parser') ||
+            id.includes('/src/services/alpha-thought-stream') ||
+            id.includes('/src/services/continuous-learning-loop') ||
+            id.includes('/src/services/counterfactual-') ||
+            id.includes('/src/services/post-trade-analyzer') ||
+            id.includes('/src/services/performance-analyzer') ||
+            id.includes('/src/services/strategy-') ||
+            id.includes('/src/services/ai-learning-engine') ||
+            id.includes('/src/services/ai-skill-tracker') ||
+            id.includes('/src/services/session-learning-generator') ||
+            id.includes('/src/services/alpha-intelligence-aggregator')
+          ) {
+            return 'learning-analytics';
+          }
         },
         // Preserve function/class names for lightweight-charts
         preserveModules: false
