@@ -1,4 +1,13 @@
 /**
+ * @deprecated CCIP 2026-02-21: This calculator powered the old dual-system IM.
+ *
+ * The 8-indicator weighted calculator here produced DIFFERENT confidence scores than
+ * Alpha's Omega Council pipeline, causing the dual-system problem where IM showed
+ * ETHUSD at 75% but Alpha gave NO_TRADE.
+ *
+ * Replaced by: src/services/alpha-preview-scanner.ts (runs the identical Alpha pipeline).
+ * This file is kept for audit trail only. No new code should import from it.
+ *
  * Real-Time Intelligence Calculator - SSOT Authority
  *
  * RESPONSIBILITY: Calculate real-time probability for all watchlist pairs

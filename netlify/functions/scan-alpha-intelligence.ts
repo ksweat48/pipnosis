@@ -1,4 +1,11 @@
 /**
+ * @deprecated CCIP 2026-02-21: This endpoint is superseded by the alpha-preview-scanner
+ * frontend service (src/services/alpha-preview-scanner.ts).
+ *
+ * The SessionIntelligenceMonitor SCAN NOW button now calls alphaPreviewScanner.scan()
+ * directly in the browser using the full Alpha Omega Council pipeline, eliminating
+ * the dual-system problem. This endpoint is no longer called.
+ *
  * Scan Alpha Intelligence — Manual Trigger Endpoint
  *
  * SSOT Authority: Runs the full real-time intelligence pipeline across all

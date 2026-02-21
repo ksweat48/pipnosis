@@ -1,4 +1,11 @@
 /**
+ * @deprecated CCIP 2026-02-21: This function is superseded by the alpha-preview-scanner
+ * frontend service (src/services/alpha-preview-scanner.ts).
+ *
+ * The SessionIntelligenceMonitor no longer reads from session_intelligence_data.
+ * SCAN NOW now runs the full Alpha Omega Council pipeline directly in the browser.
+ * This scheduler is no longer invoked and can be safely removed.
+ *
  * Real-Time Intelligence Populator - SSOT for Trading Probability Analysis
  *
  * Authority: Calculate real-time probability for all watchlist pairs based on

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { supabase } from '@/lib/supabase';
 import {
   Clock,
   TrendingUp,
@@ -13,107 +12,15 @@ import {
   Timer,
   Activity,
   MapPin,
-  Flame,
   Target,
   ChevronRight,
   Bitcoin,
 } from 'lucide-react';
 import { calculateSessionContext, getForexMarketStatus, isSymbolMarketOpen } from '@/utils/marketHours';
+import { alphaPreviewScanner, type AlphaPreviewCard, type AlphaPreviewScanResult } from '@/services/alpha-preview-scanner';
 
 type TradeStyle = 'scalper' | 'micro' | 'intraday';
-type TradeDirection = 'buy' | 'sell';
 type TimeQuality = 'prime' | 'good' | 'slow';
-
-type ScalpSubMode = 'momentum_continuation' | 'pullback_entry' | 'consolidation_breakout';
-type ScalpPattern =
-  | 'momentum_breakout'
-  | 'bos_retest'
-  | 'ema_rejection'
-  | 'double_bottom'
-  | 'double_top'
-  | 'range_breakout'
-  | 'liquidity_sweep'
-  | 'engulfing_at_structure'
-  | 'trend_pullback_ema'
-  | 'none';
-type MomentumPhase = 'starting' | 'developing' | 'exhausted';
-
-interface BestPair {
-  symbol: string;
-  confidence: number;
-  tradeConfidence?: number;
-  alignedIndicators?: number;
-  totalIndicators?: number;
-  status?: 'ready' | 'heating' | 'monitoring';
-  reasoning: string;
-  indicatorAlignment?: {
-    vwap: boolean;
-    ema20: boolean;
-    ema50: boolean;
-    rsi: boolean;
-    volumePressure: boolean;
-    candlePattern: boolean;
-    structure: boolean;
-    momentum: boolean;
-  };
-  lastCalculated?: string;
-  tradeStyle?: TradeStyle;
-  timeframe?: string;
-  direction?: TradeDirection;
-  constraintFeasible?: boolean;
-  constraintWarning?: string;
-  scalpSubMode?: ScalpSubMode;
-  scalpPattern?: ScalpPattern;
-  momentumPhase?: MomentumPhase;
-  atrTraveled?: number;
-  structureEventType?: string;
-  structureEventDescription?: string;
-  structureEventRR?: number;
-  structureEventConfidence?: number;
-  killZoneActive?: boolean;
-  killZoneName?: string;
-  killZoneLabel?: string;
-  killZoneQuality?: string;
-  killZoneMinutesRemaining?: number;
-  killZoneBadgeColor?: string;
-  liquidityPoolDirection?: 'above' | 'below' | 'both' | 'none';
-  liquidityPoolDistancePips?: number;
-  asiaRangeHigh?: number;
-  asiaRangeLow?: number;
-  asiaRangePips?: number;
-  asiaRangeLocked?: boolean;
-}
-
-interface KillZoneContextSnapshot {
-  killZoneActive: boolean;
-  killZoneName: string | null;
-  killZoneLabel: string | null;
-  killZoneQuality: string | null;
-  minutesRemaining: number;
-  minutesUntilNext: number;
-  nextKillZoneName: string | null;
-  nextKillZoneLabel: string | null;
-  cardSuppression: string;
-  confidenceBonus: number;
-  badgeColor: string;
-}
-
-interface SessionData {
-  id: string;
-  session_name: 'London' | 'New York' | 'Asian';
-  session_start_hour: number;
-  session_end_hour: number;
-  best_pairs: BestPair[];
-  top_pairs?: BestPair[];
-  all_pair_scores?: BestPair[];
-  heating_pairs?: BestPair[];
-  market_condition: string;
-  is_tradable: boolean;
-  recommendation_text: string;
-  created_at: string;
-  expires_at: string;
-  kill_zone_context?: KillZoneContextSnapshot;
-}
 
 interface SessionTimeQualityInfo {
   quality: TimeQuality;
@@ -179,12 +86,6 @@ const STYLE_CONFIG: Record<TradeStyle, {
 /**
  * SSOT: Session time quality windows defined in UTC hours.
  * Authority: SessionIntelligenceMonitor is the sole owner of UI-layer session quality display.
- * Derived from the same session boundaries used in marketHours.ts calculateSessionContext().
- *
- * Quality tiers:
- *   prime (green)  - Highest volume, tightest spreads, best alpha probability
- *   good  (yellow) - Acceptable liquidity, valid setups but wider spreads possible
- *   slow  (red)    - Low volume, avoid manual entries, spreads are wide
  */
 const TIMELINE_ZONES: TimelineZone[] = [
   { startUtc: 0,  endUtc: 3,  quality: 'slow',  label: 'Asian / Dead Zone' },
@@ -240,10 +141,6 @@ function getQualityColors(quality: TimeQuality): {
   }
 }
 
-/**
- * Computes the current session quality and full context from UTC time.
- * Delegates session boundaries to TIMELINE_ZONES (SSOT for quality windows).
- */
 function computeSessionTimeQuality(): SessionTimeQualityInfo {
   const now = new Date();
   const utcHours = now.getUTCHours();
@@ -255,7 +152,6 @@ function computeSessionTimeQuality(): SessionTimeQualityInfo {
   ) ?? TIMELINE_ZONES[0];
 
   const windowEndUtcMinutes = zone.endUtc * 60;
-  const minutesRemaining = windowEndUtcMinutes - currentUtcMinutes;
 
   let sessionLabel: string;
   let sessionIcon: SessionTimeQualityInfo['sessionIcon'];
@@ -489,11 +385,6 @@ const SessionQualityBanner: React.FC = () => {
   );
 };
 
-/**
- * CCIP 2026-02-20: Market Close Awareness.
- * Computes minutes until Sunday 5pm EST (market reopen) from current time.
- * Used by MarketClosedBanner to show a countdown to reopen.
- */
 function computeMinutesToForexReopen(): number {
   const now = new Date();
   const estTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
@@ -524,12 +415,6 @@ function computeMinutesToForexReopen(): number {
   return 0;
 }
 
-/**
- * CCIP 2026-02-20: Weekend / Market Closed Banner.
- * Replaces SessionQualityBanner when the forex market is closed.
- * Shows countdown to Sunday 5pm EST reopen and informs user that
- * only crypto pairs (BTCUSD, ETHUSD) are available for scanning.
- */
 const MarketClosedBanner: React.FC = () => {
   const [minsToReopen, setMinsToReopen] = useState(computeMinutesToForexReopen);
 
@@ -587,129 +472,66 @@ interface SessionIntelligenceMonitorProps {
   userId?: string;
 }
 
+const STYLE_NORMALISE: Record<string, TradeStyle> = {
+  scalper: 'scalper',
+  scalp: 'scalper',
+  SCALP: 'scalper',
+  micro: 'micro',
+  micro_intraday: 'micro',
+  MICRO_INTRADAY: 'micro',
+  intraday: 'intraday',
+  INTRADAY: 'intraday',
+};
+
 export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProps> = ({
   sessionId,
   userId,
 }) => {
   const navigate = useNavigate();
   const [, setSearchParams] = useSearchParams();
-  const [sessionData, setSessionData] = useState<SessionData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<TradeStyle | 'all'>('all');
-  const [scanAlignedPairs, setScanAlignedPairs] = useState<BestPair[] | null>(null);
+  const [previewResult, setPreviewResult] = useState<AlphaPreviewScanResult | null>(null);
   const [scanState, setScanState] = useState<ScanState>('idle');
-  const [scanResult, setScanResult] = useState<{ signalsFound: number; scanned: number } | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
 
-  // CCIP 2026-02-20: Market close awareness.
-  // Forex market is closed Fri 5pm – Sun 5pm EST. When closed, only crypto
-  // pairs (BTCUSD, ETHUSD) should be shown. Delegates to getForexMarketStatus
-  // (SSOT in marketHours.ts). Ticks every 60s to detect reopen automatically.
   const [isForexMarketClosed, setIsForexMarketClosed] = useState(
     () => !getForexMarketStatus().isOpen
   );
 
   useEffect(() => {
-    const checkMarket = () => {
-      setIsForexMarketClosed(!getForexMarketStatus().isOpen);
-    };
+    const checkMarket = () => setIsForexMarketClosed(!getForexMarketStatus().isOpen);
     const interval = setInterval(checkMarket, 60000);
     return () => clearInterval(interval);
   }, []);
-
-  // CCIP (2026-02-18): SSOT compliance fix.
-  // The populate-session-intelligence Netlify function is a SCHEDULED data populator.
-  // It runs every 5 minutes server-side. The browser must NEVER call it directly —
-  // that route causes 500s under load (concurrent analysis of 27 symbol/style pairs
-  // can exceed the on-demand function timeout). The UI is a pure READ consumer.
-  // Data freshness is guaranteed by the scheduler; the UI subscribes to changes.
-
-  const loadSessionData = useCallback(async (allowExpired = false) => {
-    try {
-      let query = supabase
-        .from('session_intelligence_data')
-        .select(
-          'id, session_name, session_start_hour, session_end_hour, best_pairs, top_pairs, all_pair_scores, heating_pairs, market_condition, is_tradable, recommendation_text, created_at, expires_at, kill_zone_context'
-        )
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (!allowExpired) {
-        query = query.gt('expires_at', new Date().toISOString());
-      }
-
-      const { data, error } = await query.maybeSingle();
-      if (error) return;
-
-      if (data) {
-        setSessionData(data);
-      } else if (!allowExpired) {
-        await loadSessionData(true);
-      }
-    } catch {
-      // silent
-    }
-  }, []);
-
-  const handleManualRefresh = useCallback(async () => {
-    if (refreshing) return;
-    setRefreshing(true);
-    try {
-      await loadSessionData();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [refreshing, loadSessionData]);
 
   const handleScanNow = useCallback(async () => {
     if (scanState === 'scanning' || scanState === 'cooldown') return;
 
     setScanState('scanning');
-    setScanResult(null);
     setScanError(null);
 
     try {
-      const response = await fetch('/.netlify/functions/scan-alpha-intelligence', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-
-      const data = await response.json();
-
-      if (response.status === 429) {
-        setScanState('cooldown');
-        setCooldownSeconds(data.secondsRemaining ?? 60);
-        return;
-      }
-
-      if (!response.ok || !data.success) {
-        setScanState('error');
-        setScanError(data.error ?? 'Scan failed');
-        setTimeout(() => setScanState('idle'), 4000);
-        return;
-      }
-
-      setScanResult({ signalsFound: data.signalsFound ?? 0, scanned: data.scanned ?? 0 });
+      const result = await alphaPreviewScanner.scan();
+      setPreviewResult(result);
       setScanState('done');
-
-      // CCIP 2026-02-20: Scan Now now refreshes the single authoritative pipeline
-      // (session_intelligence_data / readyPairs) instead of loading a parallel
-      // alpha_scan_signals table. SSOT: one pipeline, one card format.
-      await loadSessionData();
 
       setTimeout(() => {
         setScanState('cooldown');
         setCooldownSeconds(60);
       }, 2500);
-    } catch {
-      setScanState('error');
-      setScanError('Network error — try again');
-      setTimeout(() => setScanState('idle'), 4000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Scan failed';
+      if (msg.startsWith('Cooldown active')) {
+        setScanState('cooldown');
+        setCooldownSeconds(alphaPreviewScanner.cooldownSecondsRemaining);
+      } else {
+        setScanState('error');
+        setScanError(msg);
+        setTimeout(() => setScanState('idle'), 5000);
+      }
     }
-  }, [scanState, loadSessionData]);
+  }, [scanState]);
 
   useEffect(() => {
     if (scanState !== 'cooldown' || cooldownSeconds <= 0) return;
@@ -726,300 +548,53 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
     return () => clearInterval(timer);
   }, [scanState, cooldownSeconds]);
 
-  useEffect(() => {
-    const init = async () => {
-      await loadSessionData();
-      setLoading(false);
-    };
-    init();
-
-    // Realtime subscription: UI updates automatically when the scheduler writes new data.
-    // This replaces the 60s poll + direct function call pattern.
-    const channel = supabase
-      .channel('session_intelligence_realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'session_intelligence_data' },
-        () => { loadSessionData(); }
-      )
-      .subscribe();
-
-    // Fallback poll every 5 minutes (matches scheduler cadence) in case realtime lags.
-    const fallbackTimer = setInterval(() => {
-      loadSessionData();
-    }, 300000);
-
-    return () => {
-      supabase.removeChannel(channel);
-      clearInterval(fallbackTimer);
-    };
-  }, [loadSessionData]);
-
-  // CCIP 2026-02-20: Scan-aligned confidence overlay.
-  // When an active session exists, fetch the latest scan result's per-symbol
-  // confidence scores and use them to cap the displayed pair confidence values.
-  // This ensures the Intelligence Monitor reflects Alpha's actual current
-  // market assessment rather than historical trade averages.
-  useEffect(() => {
-    if (!sessionId || !userId) {
-      setScanAlignedPairs(null);
-      return;
-    }
-
-    let cancelled = false;
-
-    const fetchScanAligned = async () => {
-      try {
-        const { data, error } = await supabase.rpc('get_scan_aligned_session_pairs', {
-          p_session_id: sessionId,
-          p_user_id: userId,
-        });
-        if (!cancelled && !error && Array.isArray(data) && data.length > 0) {
-          setScanAlignedPairs(data as BestPair[]);
-        } else if (!cancelled) {
-          setScanAlignedPairs(null);
-        }
-      } catch {
-        if (!cancelled) setScanAlignedPairs(null);
-      }
-    };
-
-    fetchScanAligned();
-
-    // Refresh scan-aligned data when new scan results arrive
-    const channel = supabase
-      .channel(`scan-results-${sessionId}`)
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'goal_session_scan_results',
-        filter: `session_id=eq.${sessionId}`,
-      }, () => { fetchScanAligned(); })
-      .subscribe();
-
-    return () => {
-      cancelled = true;
-      supabase.removeChannel(channel);
-    };
-  }, [sessionId, userId]);
-
-  const getSessionIcon = (sessionName: string) => {
-    switch (sessionName) {
-      case 'London':
-        return <Sun className="w-6 h-6 text-yellow-400" />;
-      case 'New York':
-        return <Sunrise className="w-6 h-6 text-orange-400" />;
-      case 'Asian':
-        return <Moon className="w-6 h-6 text-blue-400" />;
-      default:
-        return <Clock className="w-6 h-6 text-gray-400" />;
-    }
+  const resolveStyle = (card: AlphaPreviewCard): TradeStyle => {
+    return STYLE_NORMALISE[card.tradeStyle] ?? 'micro';
   };
 
-  const getConditionColor = (condition: string) => {
-    switch (condition) {
-      case 'trending':
-        return 'text-emerald-400 bg-emerald-500/20 border-emerald-500/30';
-      case 'volatile':
-        return 'text-orange-400 bg-orange-500/20 border-orange-500/30';
-      case 'ranging':
-        return 'text-blue-400 bg-blue-500/20 border-blue-500/30';
-      default:
-        return 'text-gray-400 bg-gray-500/20 border-gray-500/30';
-    }
-  };
-
-  const resolveStyle = (pair: BestPair): TradeStyle => {
-    const raw = pair.tradeStyle ?? 'micro';
-    if ((raw as string) === 'scalp') return 'scalper';
-    return raw;
-  };
-  const resolveDirection = (pair: BestPair): TradeDirection => pair.direction ?? 'buy';
-  const resolveTimeframe = (pair: BestPair): string => pair.timeframe ?? 'M15';
-
-  // CCIP 2026-02-20: Apply scan-aligned confidence cap to a pair.
-  // When Alpha's latest scan returned a confidence for this symbol, that value
-  // is the SSOT for current market readiness and caps the displayed score.
-  const applyScanAlignedCap = (pair: BestPair): BestPair => {
-    if (!scanAlignedPairs) return pair;
-    const aligned = scanAlignedPairs.find(
-      (a) => a.symbol === pair.symbol
-    );
-    if (!aligned) return pair;
-    const cappedConfidence = Math.min(pair.confidence ?? 0, aligned.confidence ?? 0);
-    return { ...pair, confidence: cappedConfidence };
-  };
-
-  // CCIP 2026-02-20: Market-close filter.
-  // When forex is closed, only pairs whose symbol trades 24/7 (crypto) are shown.
-  // Delegates to isSymbolMarketOpen (SSOT: marketHours.ts → symbol-registry.ts).
-  const applyMarketFilter = (pairs: BestPair[]): BestPair[] => {
-    if (!isForexMarketClosed) return pairs;
-    return pairs.filter((p) => isSymbolMarketOpen(p.symbol));
-  };
-
-  const getReadyPairs = (): BestPair[] => {
-    if (!sessionData) return [];
-    const ready = applyMarketFilter(
-      (sessionData.best_pairs ?? [])
-        .map(applyScanAlignedCap)
-        .filter((p) => (p.confidence ?? 0) >= 70 && p.constraintFeasible !== false)
-    );
-    if (activeFilter === 'all') return ready;
-    return ready.filter((p) => resolveStyle(p) === activeFilter);
-  };
-
-  const getHeatingPairs = (): BestPair[] => {
-    if (!sessionData) return [];
-    const combined = applyMarketFilter([
-      ...(sessionData.best_pairs ?? []).map(applyScanAlignedCap),
-      ...(sessionData.heating_pairs ?? []).map(applyScanAlignedCap),
-    ]);
-    const heating = combined.filter(
-      (p) => (p.confidence ?? 0) >= 50 && (p.confidence ?? 0) < 70
-    );
-    if (activeFilter === 'all') return heating;
-    return heating.filter((p) => resolveStyle(p) === activeFilter);
+  const getReadyCards = (): AlphaPreviewCard[] => {
+    if (!previewResult) return [];
+    const filtered = isForexMarketClosed
+      ? previewResult.ready.filter((c) => isSymbolMarketOpen(c.symbol))
+      : previewResult.ready;
+    if (activeFilter === 'all') return filtered;
+    return filtered.filter((c) => resolveStyle(c) === activeFilter);
   };
 
   const getHeatingCount = (): number => {
-    if (!sessionData) return 0;
-    const combined = applyMarketFilter([
-      ...(sessionData.best_pairs ?? []).map(applyScanAlignedCap),
-      ...(sessionData.heating_pairs ?? []).map(applyScanAlignedCap),
-    ]);
-    const heating = combined.filter(
-      (p) => (p.confidence ?? 0) >= 50 && (p.confidence ?? 0) < 70
-    );
-    if (activeFilter === 'all') return heating.length;
-    return heating.filter((p) => resolveStyle(p) === activeFilter).length;
+    if (!previewResult) return 0;
+    return previewResult.heatingCount;
   };
 
   const getStyleCounts = (): Record<TradeStyle, number> => {
     const counts: Record<TradeStyle, number> = { scalper: 0, micro: 0, intraday: 0 };
-    const allReady = applyMarketFilter(
-      (sessionData?.best_pairs ?? [])
-        .map(applyScanAlignedCap)
-        .filter((p) => (p.confidence ?? 0) >= 70 && p.constraintFeasible !== false)
-    );
-    for (const pair of allReady) {
-      counts[resolveStyle(pair)]++;
+    const cards = isForexMarketClosed
+      ? (previewResult?.ready ?? []).filter((c) => isSymbolMarketOpen(c.symbol))
+      : (previewResult?.ready ?? []);
+    for (const card of cards) {
+      const style = resolveStyle(card);
+      counts[style]++;
     }
     return counts;
   };
 
-  if (loading) {
-    return (
-      <div className="bg-gradient-to-br from-blue-900/30 to-slate-900/30 rounded-xl p-6 border border-blue-500/30">
-        <div className="animate-pulse">
-          <div className="h-6 bg-blue-500/20 rounded w-1/2 mb-4" />
-          <div className="h-4 bg-blue-500/20 rounded w-3/4 mb-2" />
-          <div className="h-4 bg-blue-500/20 rounded w-2/3" />
-        </div>
-      </div>
-    );
-  }
-
-  if (!sessionData) {
-    return (
-      <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 rounded-xl p-6 border border-slate-700/50">
-        <div className="flex items-start gap-4">
-          <div className="p-3 bg-slate-700/50 rounded-lg">
-            <Clock className="w-6 h-6 text-slate-400" />
-          </div>
-          <div className="flex-1">
-            <h3 className="text-lg font-bold text-white mb-2">Real-Time Intelligence</h3>
-            {isForexMarketClosed ? <MarketClosedBanner /> : <SessionQualityBanner />}
-            <p className="text-sm text-slate-400 mb-2">
-              Real-time probability analysis will appear here shortly.
-            </p>
-            <p className="text-xs text-slate-500">
-              {isForexMarketClosed
-                ? 'Scanning BTCUSD and ETHUSD — crypto trades 24/7 even on weekends.'
-                : 'Scanning Scalp (M5), Micro (M15) and Intraday (H1) setups across all watchlist pairs. Ready to trade pairs show 70%+ indicator alignment.'}
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const readyPairs = getReadyPairs();
-  const heatingPairs = getHeatingPairs();
-  const heatingCount = getHeatingCount();
-  const styleCounts = getStyleCounts();
-
-  const handleAnalyzeWithAlpha = (pair: BestPair) => {
-    const style = resolveStyle(pair);
+  const handleAnalyzeWithAlpha = (card: AlphaPreviewCard) => {
+    const style = resolveStyle(card);
     sessionStorage.setItem('im_card_signal', JSON.stringify({
-      symbol: pair.symbol,
-      direction: pair.direction,
-      confidence: pair.confidence,
-      momentumPhase: pair.momentumPhase,
-      scalpSubMode: pair.scalpSubMode,
-      scalpPattern: pair.scalpPattern,
-      tradeStyle: pair.tradeStyle,
+      symbol: card.symbol,
+      direction: card.direction,
+      confidence: card.confidence,
+      tradeStyle: card.tradeStyle,
     }));
     navigate('/ai-trade', { replace: false });
-    setSearchParams({ style, symbol: pair.symbol });
+    setSearchParams({ style, symbol: card.symbol });
   };
 
-  const renderAsiaRangeCard = (pair: BestPair) => {
-    if (pair.structureEventType !== 'AsiaRangeBuilding') return null;
-    if (!pair.asiaRangeHigh || !pair.asiaRangeLow) return null;
-
-    return (
-      <div
-        key={`${pair.symbol}-asia-range`}
-        className="relative rounded-xl p-4 border border-blue-500/30 bg-gradient-to-br from-blue-950/30 to-blue-900/10"
-      >
-        <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-xl bg-gradient-to-r from-blue-500 to-cyan-500 opacity-40" />
-        <div className="flex items-start justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <Moon className="w-4 h-4 text-blue-400" />
-            <p className="text-sm font-bold text-white">{pair.symbol}</p>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold bg-blue-500/15 border-blue-500/40 text-blue-300">
-              Asia Range
-            </span>
-          </div>
-          <span className="text-[10px] text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-full">
-            Informational
-          </span>
-        </div>
-        <p className="text-xs text-blue-200/80 mb-2">
-          {pair.structureEventDescription}
-        </p>
-        <div className="flex items-center gap-3 text-[11px] text-gray-400">
-          <span>H: <span className="text-white font-mono">{pair.asiaRangeHigh.toFixed(5)}</span></span>
-          <span>L: <span className="text-white font-mono">{pair.asiaRangeLow.toFixed(5)}</span></span>
-          {pair.asiaRangePips && pair.asiaRangePips > 0 && (
-            <span>Range: <span className="text-blue-300 font-mono">{Math.round(pair.asiaRangePips)}p</span></span>
-          )}
-        </div>
-        <p className="text-[10px] text-gray-600 mt-2">London will target these levels. Card upgrades to a trade signal when London sweeps this range.</p>
-      </div>
-    );
-  };
-
-  const renderPairCard = (pair: BestPair) => {
-    if (pair.structureEventType === 'AsiaRangeBuilding') {
-      return renderAsiaRangeCard(pair);
-    }
-
-    const style = resolveStyle(pair);
-    const direction = resolveDirection(pair);
-    const timeframe = resolveTimeframe(pair);
+  const renderPairCard = (card: AlphaPreviewCard) => {
+    const style = resolveStyle(card);
     const config = STYLE_CONFIG[style];
-    const confidence = pair.tradeConfidence ?? pair.confidence;
-    const isBuy = direction === 'buy';
-
-    const isScalp = style === 'scalper';
-    const momentumPhase = pair.momentumPhase;
-    const phaseGlow = isScalp && momentumPhase === 'starting'
-      ? 'shadow-[0_0_14px_rgba(251,191,36,0.2)]'
-      : '';
-
-    const isReady = confidence >= 70;
+    const confidence = card.confidence;
+    const isBuy = card.direction === 'buy';
 
     const scoreColor = confidence >= 85
       ? 'text-green-400'
@@ -1031,7 +606,7 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
       ? 'Trade It'
       : confidence >= 70
         ? 'Worth a Look'
-        : 'Not Yet';
+        : 'Monitor';
 
     const tradeableBg = confidence >= 85
       ? 'bg-green-500/15 border-green-500/40 text-green-300'
@@ -1041,8 +616,8 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
 
     return (
       <div
-        key={`${pair.symbol}-${style}-${timeframe}`}
-        className={`relative rounded-xl border transition-all duration-300 hover:scale-[1.01] overflow-hidden ${config.border} ${config.bg} ${phaseGlow}`}
+        key={`${card.symbol}-${style}-${card.timeframe}`}
+        className={`relative rounded-xl border transition-all duration-300 hover:scale-[1.01] overflow-hidden ${config.border} ${config.bg}`}
       >
         <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${config.glow}`} />
 
@@ -1051,7 +626,7 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
             <div className="flex items-center gap-2.5 min-w-0">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-base font-bold text-white">{pair.symbol}</span>
+                  <span className="text-base font-bold text-white">{card.symbol}</span>
                   <span
                     className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${
                       isBuy
@@ -1062,22 +637,13 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
                     {isBuy ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
                     {isBuy ? 'Buy' : 'Sell'}
                   </span>
-                  {isScalp && momentumPhase === 'starting' && (
-                    <Flame className="w-3.5 h-3.5 text-orange-400 animate-pulse flex-shrink-0" title="Momentum starting" />
-                  )}
                 </div>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span className={`inline-flex items-center gap-1 px-1.5 py-0 rounded text-[10px] font-semibold ${config.badgeBg} ${config.badgeText}`}>
                     {config.icon}
                     {config.label}
                   </span>
-                  <span className="text-[10px] text-gray-600 font-mono">{timeframe}</span>
-                  {pair.killZoneActive && pair.killZoneLabel && (
-                    <span className={`inline-flex items-center gap-1 px-1.5 py-0 rounded text-[10px] font-semibold ${pair.killZoneBadgeColor ?? 'bg-green-500/20 border-green-500/40 text-green-300'}`}>
-                      <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                      {pair.killZoneLabel}
-                    </span>
-                  )}
+                  <span className="text-[10px] text-gray-600 font-mono">{card.timeframe}</span>
                 </div>
               </div>
             </div>
@@ -1092,20 +658,29 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
             </div>
           </div>
 
-          {isReady && (
-            <button
-              onClick={() => handleAnalyzeWithAlpha(pair)}
-              className={`mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-xs font-semibold transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] ${config.badgeBg} ${config.badgeText} hover:opacity-90`}
-            >
-              <Target className="w-3.5 h-3.5" />
-              Analyze with Alpha
-              <ChevronRight className="w-3.5 h-3.5 ml-auto" />
-            </button>
+          {card.reasoning && (
+            <p className="mt-2 text-[11px] text-gray-400 leading-relaxed line-clamp-2">
+              {card.reasoning}
+            </p>
           )}
+
+          <button
+            onClick={() => handleAnalyzeWithAlpha(card)}
+            className={`mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-xs font-semibold transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] ${config.badgeBg} ${config.badgeText} hover:opacity-90`}
+          >
+            <Target className="w-3.5 h-3.5" />
+            Analyze with Alpha
+            <ChevronRight className="w-3.5 h-3.5 ml-auto" />
+          </button>
         </div>
       </div>
     );
   };
+
+  const readyCards = getReadyCards();
+  const heatingCount = getHeatingCount();
+  const styleCounts = getStyleCounts();
+  const hasResults = previewResult !== null;
 
   return (
     <div className="relative group">
@@ -1115,15 +690,19 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-blue-500/20 rounded-lg">
-              {getSessionIcon(sessionData.session_name)}
+              <Activity className="w-6 h-6 text-blue-400" />
             </div>
             <div>
               <h3 className="text-lg font-bold text-white">Real-Time Intelligence</h3>
               <p className="text-sm text-blue-300">
                 {isForexMarketClosed
-                  ? 'Crypto Only (Weekend) -- Last: '
-                  : 'Scanning Scalp / Micro / Intraday -- Last: '}
-                {new Date(sessionData.created_at).toLocaleTimeString()}
+                  ? 'Crypto Only (Weekend)'
+                  : 'Alpha Pipeline Preview'}
+                {hasResults && previewResult && (
+                  <span className="text-blue-400/70 ml-1">
+                    · Last: {previewResult.scannedAt.toLocaleTimeString()}
+                  </span>
+                )}
               </p>
             </div>
           </div>
@@ -1143,17 +722,21 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
                   ? 'bg-gray-700/40 border-gray-600/30 text-gray-500 cursor-not-allowed'
                   : 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/25'
               }`}
-              title={scanState === 'cooldown' ? `Cooldown: ${cooldownSeconds}s` : 'Run full indicator scan across all pairs'}
+              title={
+                scanState === 'cooldown'
+                  ? `Cooldown: ${cooldownSeconds}s`
+                  : 'Run Alpha pipeline scan across all pairs'
+              }
             >
               {scanState === 'scanning' ? (
                 <>
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                   Scanning...
                 </>
-              ) : scanState === 'done' && scanResult ? (
+              ) : scanState === 'done' && previewResult ? (
                 <>
                   <Zap className="w-3.5 h-3.5" />
-                  {scanResult.signalsFound} signal{scanResult.signalsFound !== 1 ? 's' : ''}
+                  {previewResult.ready.length} ready
                 </>
               ) : scanState === 'error' ? (
                 <>
@@ -1172,145 +755,154 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
                 </>
               )}
             </button>
-
-            <button
-              onClick={handleManualRefresh}
-              disabled={refreshing}
-              className="p-2 hover:bg-blue-500/20 rounded-lg transition-colors disabled:opacity-50"
-              title="Refresh intelligence"
-            >
-              <RefreshCw
-                className={`w-4 h-4 text-blue-300 ${refreshing ? 'animate-spin' : ''}`}
-              />
-            </button>
           </div>
         </div>
 
         {isForexMarketClosed ? <MarketClosedBanner /> : <SessionQualityBanner />}
 
-        <div className="flex items-center gap-2 mb-4 flex-wrap">
-          <div
-            className={`px-3 py-1.5 rounded-lg border ${getConditionColor(sessionData.market_condition)}`}
-          >
-            <p className="text-sm font-semibold capitalize">{sessionData.market_condition}</p>
-          </div>
-
-          {readyPairs.length > 0 ? (
-            <div className="px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/20">
-              <p className="text-sm font-semibold text-emerald-400">
-                {readyPairs.length} Setup{readyPairs.length !== 1 ? 's' : ''} Ready (70%+)
-              </p>
-            </div>
-          ) : sessionData.is_tradable ? (
-            <div className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/20">
-              <p className="text-sm font-semibold text-amber-400">Building Setups</p>
-            </div>
-          ) : (
-            <div className="px-3 py-1.5 rounded-lg border border-red-500/30 bg-red-500/20">
-              <p className="text-sm font-semibold text-red-400">No Clear Setups</p>
-            </div>
-          )}
-        </div>
-
-        <div className="flex items-center gap-1.5 mb-4 overflow-x-auto pb-1">
-          <button
-            onClick={() => setActiveFilter('all')}
-            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors flex-shrink-0 ${
-              activeFilter === 'all'
-                ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
-                : 'bg-gray-800/30 border-gray-700/30 text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            All
-          </button>
-          {(['scalper', 'micro', 'intraday'] as TradeStyle[]).map((style) => {
-            const cfg = STYLE_CONFIG[style];
-            const count = styleCounts[style];
-            return (
-              <button
-                key={style}
-                onClick={() => setActiveFilter(style)}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors flex-shrink-0 ${
-                  activeFilter === style
-                    ? `${cfg.badgeBg} ${cfg.badgeText}`
-                    : 'bg-gray-800/30 border-gray-700/30 text-gray-500 hover:text-gray-300'
-                }`}
-              >
-                {cfg.icon}
-                {cfg.label}
-                {count > 0 && (
-                  <span
-                    className={`ml-0.5 px-1.5 py-0 rounded-full text-[10px] ${
-                      activeFilter === style ? cfg.badgeText : 'text-gray-500'
-                    } ${activeFilter === style ? 'bg-white/10' : 'bg-gray-700/50'}`}
-                  >
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {readyPairs.length > 0 && (
-          <div className="mb-4">
-            <p className="text-sm font-semibold text-blue-200 mb-3">
-              Ready to Trade (70%+)
-            </p>
-            <div className="space-y-3">
-              {readyPairs.map((pair) => renderPairCard(pair))}
-            </div>
-          </div>
-        )}
-
-        {heatingCount > 0 && (
-          <div className="mb-4">
-            <div className="bg-amber-900/20 rounded-lg p-4 border border-amber-500/30">
-              <div className="flex items-start gap-3">
-                <div className="p-2 bg-amber-500/20 rounded-lg flex-shrink-0">
-                  <Activity className="w-4 h-4 text-amber-400" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-amber-300 mb-1">
-                    {heatingCount} {heatingCount === 1 ? 'pair' : 'pairs'} heating up
-                  </p>
-                  <p className="text-sm text-amber-200/70">
-                    {heatingCount === 1 ? 'This setup is' : 'These setups are'} building momentum but not yet at 70%+ confidence threshold. Alpha will monitor automatically.
-                  </p>
-                </div>
+        {!hasResults && scanState === 'idle' && (
+          <div className="rounded-lg p-5 border border-blue-500/20 bg-blue-900/10 text-center mb-4">
+            <div className="flex flex-col items-center gap-3">
+              <div className="p-3 bg-blue-500/15 rounded-full">
+                <Zap className="w-6 h-6 text-blue-400" />
               </div>
-            </div>
-          </div>
-        )}
-
-        {readyPairs.length === 0 && heatingCount === 0 && (
-          <div className={`rounded-lg p-4 border mb-4 ${isForexMarketClosed ? 'bg-slate-800/30 border-slate-600/30' : 'bg-blue-900/20 border-blue-500/30'}`}>
-            <div className="flex items-start gap-3">
-              {isForexMarketClosed
-                ? <Bitcoin className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
-                : <Clock className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
-              }
               <div>
-                <p className={`text-sm font-semibold mb-1 ${isForexMarketClosed ? 'text-slate-300' : 'text-blue-300'}`}>
-                  {isForexMarketClosed ? 'Scanning Crypto Only' : 'Scanning All Timeframes'}
+                <p className="text-sm font-semibold text-blue-200 mb-1">
+                  Preview Alpha's current market assessment
                 </p>
-                <p className={`text-sm ${isForexMarketClosed ? 'text-slate-400' : 'text-blue-200/80'}`}>
-                  {isForexMarketClosed
-                    ? 'Forex and Index markets are closed for the weekend. Only BTCUSD and ETHUSD are available.'
-                    : 'Analyzing Scalp (M5), Micro (M15) and Intraday (H1) for setups with 70%+ indicator alignment.'}
+                <p className="text-xs text-blue-300/70 max-w-xs mx-auto">
+                  Tap Scan Now to run the full Alpha pipeline across all pairs and see exactly what's ready to trade — using Alpha's real confidence scores.
                 </p>
               </div>
             </div>
           </div>
         )}
 
-        <div className="bg-blue-900/20 rounded-lg p-4 border border-blue-500/20">
-          <p className="text-sm text-blue-100">{sessionData.recommendation_text}</p>
-        </div>
+        {hasResults && (
+          <>
+            <div className="flex items-center gap-2 mb-4 flex-wrap">
+              {readyCards.length > 0 ? (
+                <div className="px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/20">
+                  <p className="text-sm font-semibold text-emerald-400">
+                    {readyCards.length} Setup{readyCards.length !== 1 ? 's' : ''} Ready
+                  </p>
+                </div>
+              ) : (
+                <div className="px-3 py-1.5 rounded-lg border border-slate-600/30 bg-slate-700/20">
+                  <p className="text-sm font-semibold text-slate-400">No setups ready</p>
+                </div>
+              )}
+              {heatingCount > 0 && (
+                <div className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10">
+                  <p className="text-sm font-semibold text-amber-400">
+                    {heatingCount} heating up
+                  </p>
+                </div>
+              )}
+              {previewResult && (
+                <div className="px-3 py-1.5 rounded-lg border border-slate-700/30 bg-slate-800/20 ml-auto">
+                  <p className="text-xs text-slate-500">
+                    {previewResult.scannedCount} scanned · {Math.round(previewResult.scanDurationMs / 1000)}s
+                  </p>
+                </div>
+              )}
+            </div>
 
-        <div className="mt-4 text-xs text-gray-500 text-center">
-          Advisory only - Does not affect Alpha's autonomous trading
-        </div>
+            {readyCards.length > 0 && (
+              <div className="flex items-center gap-1.5 mb-4 overflow-x-auto pb-1">
+                <button
+                  onClick={() => setActiveFilter('all')}
+                  className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors flex-shrink-0 ${
+                    activeFilter === 'all'
+                      ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
+                      : 'bg-gray-800/30 border-gray-700/30 text-gray-500 hover:text-gray-300'
+                  }`}
+                >
+                  All
+                </button>
+                {(['scalper', 'micro', 'intraday'] as TradeStyle[]).map((style) => {
+                  const cfg = STYLE_CONFIG[style];
+                  const count = styleCounts[style];
+                  return (
+                    <button
+                      key={style}
+                      onClick={() => setActiveFilter(style)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors flex-shrink-0 ${
+                        activeFilter === style
+                          ? `${cfg.badgeBg} ${cfg.badgeText}`
+                          : 'bg-gray-800/30 border-gray-700/30 text-gray-500 hover:text-gray-300'
+                      }`}
+                    >
+                      {cfg.icon}
+                      {cfg.label}
+                      {count > 0 && (
+                        <span
+                          className={`ml-0.5 px-1.5 py-0 rounded-full text-[10px] ${
+                            activeFilter === style ? cfg.badgeText : 'text-gray-500'
+                          } ${activeFilter === style ? 'bg-white/10' : 'bg-gray-700/50'}`}
+                        >
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {readyCards.length > 0 && (
+              <div className="mb-4">
+                <p className="text-sm font-semibold text-blue-200 mb-3">
+                  Ready to Trade
+                </p>
+                <div className="space-y-3">
+                  {readyCards.map((card) => renderPairCard(card))}
+                </div>
+              </div>
+            )}
+
+            {heatingCount > 0 && (
+              <div className="mb-4">
+                <div className="bg-amber-900/20 rounded-lg p-4 border border-amber-500/30">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 bg-amber-500/20 rounded-lg flex-shrink-0">
+                      <Activity className="w-4 h-4 text-amber-400" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-amber-300 mb-1">
+                        {heatingCount} {heatingCount === 1 ? 'pair' : 'pairs'} heating up
+                      </p>
+                      <p className="text-sm text-amber-200/70">
+                        Alpha sees a directional bias but these setups didn't pass all eligibility gates yet. Conditions are developing — scan again shortly.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {readyCards.length === 0 && heatingCount === 0 && (
+              <div className={`rounded-lg p-4 border mb-4 ${isForexMarketClosed ? 'bg-slate-800/30 border-slate-600/30' : 'bg-blue-900/20 border-blue-500/30'}`}>
+                <div className="flex items-start gap-3">
+                  {isForexMarketClosed
+                    ? <Bitcoin className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                    : <Clock className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+                  }
+                  <div>
+                    <p className={`text-sm font-semibold mb-1 ${isForexMarketClosed ? 'text-slate-300' : 'text-blue-300'}`}>
+                      {isForexMarketClosed ? 'No Crypto Setups Right Now' : 'No Ready Setups Found'}
+                    </p>
+                    <p className={`text-sm ${isForexMarketClosed ? 'text-slate-400' : 'text-blue-200/80'}`}>
+                      {isForexMarketClosed
+                        ? 'Alpha scanned BTCUSD and ETHUSD. Neither pair meets the full eligibility criteria right now.'
+                        : 'Alpha completed a full scan. No pairs passed all eligibility gates at this time. Market conditions may improve — try again in a few minutes.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
