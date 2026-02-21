@@ -15,7 +15,6 @@ import {
   MapPin,
   Flame,
   Target,
-  Shield,
   ChevronRight,
   Bitcoin,
 } from 'lucide-react';
@@ -581,16 +580,6 @@ const MarketClosedBanner: React.FC = () => {
   );
 };
 
-const STRUCTURE_EVENT_LABELS: Record<string, { label: string; color: string; bg: string; border: string }> = {
-  BOS: { label: 'BOS', color: 'text-green-400', bg: 'bg-green-500/15', border: 'border-green-500/40' },
-  ChoCh: { label: 'ChoCh', color: 'text-orange-400', bg: 'bg-orange-500/15', border: 'border-orange-500/40' },
-  FVG: { label: 'FVG', color: 'text-blue-400', bg: 'bg-blue-500/15', border: 'border-blue-500/40' },
-  OrderBlock: { label: 'OB', color: 'text-cyan-400', bg: 'bg-cyan-500/15', border: 'border-cyan-500/40' },
-  LiquiditySweep: { label: 'Liq Sweep', color: 'text-amber-400', bg: 'bg-amber-500/15', border: 'border-amber-500/40' },
-  AsiaRangeSweep: { label: 'Asia Sweep', color: 'text-emerald-400', bg: 'bg-emerald-500/15', border: 'border-emerald-500/40' },
-  AsiaRangeBuilding: { label: 'Asia Range', color: 'text-blue-300', bg: 'bg-blue-500/10', border: 'border-blue-500/30' },
-};
-
 type ScanState = 'idle' | 'scanning' | 'done' | 'cooldown' | 'error';
 
 interface SessionIntelligenceMonitorProps {
@@ -960,43 +949,6 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
   const heatingCount = getHeatingCount();
   const styleCounts = getStyleCounts();
 
-  const SCALP_PATTERN_LABELS: Record<NonNullable<ScalpPattern>, string> = {
-    momentum_breakout: 'Momentum Breakout',
-    bos_retest: 'BOS Retest',
-    ema_rejection: 'EMA Rejection',
-    double_bottom: 'Double Bottom',
-    double_top: 'Double Top',
-    range_breakout: 'Range Breakout',
-    liquidity_sweep: 'Liquidity Sweep',
-    engulfing_at_structure: 'Engulfing @ Structure',
-    trend_pullback_ema: 'Trend Pullback EMA',
-    none: 'Confluence',
-  };
-
-  const SCALP_SUBMODE_CONFIG: Record<ScalpSubMode, { label: string; color: string; bg: string; border: string; desc: string }> = {
-    momentum_continuation: {
-      label: 'Momentum',
-      color: 'text-orange-400',
-      bg: 'bg-orange-500/15',
-      border: 'border-orange-500/40',
-      desc: 'Enter with conviction — momentum is running',
-    },
-    pullback_entry: {
-      label: 'Pullback',
-      color: 'text-blue-400',
-      bg: 'bg-blue-500/15',
-      border: 'border-blue-500/40',
-      desc: 'Wait for pullback confirmation before entry',
-    },
-    consolidation_breakout: {
-      label: 'Breakout',
-      color: 'text-green-400',
-      bg: 'bg-green-500/15',
-      border: 'border-green-500/40',
-      desc: 'Breakout from compression — watch for clean close',
-    },
-  };
-
   const handleAnalyzeWithAlpha = (pair: BestPair) => {
     const style = resolveStyle(pair);
     sessionStorage.setItem('im_card_signal', JSON.stringify({
@@ -1063,125 +1015,94 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
 
     const isScalp = style === 'scalper';
     const momentumPhase = pair.momentumPhase;
-
-    const phaseGlowClass = isScalp && momentumPhase === 'starting'
-      ? 'shadow-[0_0_12px_rgba(251,191,36,0.25)]'
+    const phaseGlow = isScalp && momentumPhase === 'starting'
+      ? 'shadow-[0_0_14px_rgba(251,191,36,0.2)]'
       : '';
 
-    const structureEventCfg = pair.structureEventType ? STRUCTURE_EVENT_LABELS[pair.structureEventType] : null;
+    const isReady = confidence >= 70;
 
-    const confidenceColor = confidence >= 85
+    const scoreColor = confidence >= 85
       ? 'text-green-400'
       : confidence >= 70
         ? 'text-yellow-400'
-        : 'text-gray-500';
+        : 'text-gray-400';
 
-    const confidenceVerdict = confidence >= 85
-      ? 'Strong'
+    const tradeableLabel = confidence >= 85
+      ? 'Trade It'
       : confidence >= 70
-        ? 'Watch'
-        : confidence >= 50
-          ? 'Weak'
-          : 'Skip';
+        ? 'Worth a Look'
+        : 'Not Yet';
 
-    const verdictColor = confidence >= 85
-      ? 'text-green-500'
+    const tradeableBg = confidence >= 85
+      ? 'bg-green-500/15 border-green-500/40 text-green-300'
       : confidence >= 70
-        ? 'text-yellow-500'
-        : 'text-gray-600';
+        ? 'bg-yellow-500/15 border-yellow-500/40 text-yellow-300'
+        : 'bg-gray-700/30 border-gray-600/30 text-gray-500';
 
     return (
       <div
         key={`${pair.symbol}-${style}-${timeframe}`}
-        className={`relative rounded-xl p-4 border transition-all duration-300 hover:scale-[1.01] ${config.border} ${config.bg} ${phaseGlowClass}`}
+        className={`relative rounded-xl border transition-all duration-300 hover:scale-[1.01] overflow-hidden ${config.border} ${config.bg} ${phaseGlow}`}
       >
-        <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-xl bg-gradient-to-r opacity-60">
-          <div className={`h-full rounded-t-xl bg-gradient-to-r ${config.glow}`} />
-        </div>
+        <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${config.glow}`} />
 
-        {structureEventCfg && pair.structureEventDescription && (
-          <div className={`flex items-center gap-2 mb-3 px-2.5 py-1.5 rounded-lg border ${structureEventCfg.bg} ${structureEventCfg.border}`}>
-            <Shield className={`w-3 h-3 flex-shrink-0 ${structureEventCfg.color}`} />
-            <div className="flex items-center gap-1.5 flex-1 min-w-0">
-              <span className={`text-[10px] font-bold uppercase tracking-wide ${structureEventCfg.color} flex-shrink-0`}>
-                {structureEventCfg.label}
-              </span>
-              <span className="text-[10px] text-gray-300 truncate">{pair.structureEventDescription}</span>
-            </div>
-            {pair.structureEventRR && pair.structureEventRR > 0 && (
-              <span className="text-[10px] font-bold text-white flex-shrink-0 ml-1">
-                {pair.structureEventRR.toFixed(1)}R
-              </span>
-            )}
-          </div>
-        )}
-
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1 flex-wrap">
-                <p className="text-base font-bold text-white truncate">{pair.symbol}</p>
-                <div
-                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${
-                    isBuy
-                      ? 'bg-green-500/15 border-green-500/40 text-green-400'
-                      : 'bg-red-500/15 border-red-500/40 text-red-400'
-                  }`}
-                >
-                  {isBuy ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                  {isBuy ? 'Buy' : 'Sell'}
+        <div className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-base font-bold text-white">{pair.symbol}</span>
+                  <span
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${
+                      isBuy
+                        ? 'bg-green-500/15 border-green-500/40 text-green-400'
+                        : 'bg-red-500/15 border-red-500/40 text-red-400'
+                    }`}
+                  >
+                    {isBuy ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                    {isBuy ? 'Buy' : 'Sell'}
+                  </span>
+                  {isScalp && momentumPhase === 'starting' && (
+                    <Flame className="w-3.5 h-3.5 text-orange-400 animate-pulse flex-shrink-0" title="Momentum starting" />
+                  )}
                 </div>
-                {isScalp && momentumPhase === 'starting' && (
-                  <span className="inline-flex items-center gap-0.5 animate-pulse" title="Momentum starting — prime scalp window">
-                    <Flame className="w-3.5 h-3.5 text-orange-400" />
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className={`inline-flex items-center gap-1 px-1.5 py-0 rounded text-[10px] font-semibold ${config.badgeBg} ${config.badgeText}`}>
+                    {config.icon}
+                    {config.label}
                   </span>
-                )}
+                  <span className="text-[10px] text-gray-600 font-mono">{timeframe}</span>
+                  {pair.killZoneActive && pair.killZoneLabel && (
+                    <span className={`inline-flex items-center gap-1 px-1.5 py-0 rounded text-[10px] font-semibold ${pair.killZoneBadgeColor ?? 'bg-green-500/20 border-green-500/40 text-green-300'}`}>
+                      <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                      {pair.killZoneLabel}
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span
-                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${config.badgeBg} ${config.badgeText}`}
-                >
-                  {config.icon}
-                  {config.label}
-                </span>
-                <span className="text-xs text-gray-500 font-mono">{timeframe}</span>
-                <span className="text-xs text-gray-600">|</span>
-                <span className="text-xs text-gray-500">{config.holdTime}</span>
-                {pair.killZoneActive && pair.killZoneLabel && (
-                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold ${pair.killZoneBadgeColor ?? 'bg-green-500/20 border-green-500/40 text-green-300'}`}>
-                    <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse flex-shrink-0" />
-                    {pair.killZoneLabel}
-                    {pair.killZoneMinutesRemaining && pair.killZoneMinutesRemaining > 0 && (
-                      <span className="opacity-70">{pair.killZoneMinutesRemaining}m</span>
-                    )}
-                  </span>
-                )}
-              </div>
+            </div>
+
+            <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-3">
+              <span className={`text-2xl font-bold tabular-nums leading-none ${scoreColor}`}>
+                {confidence}%
+              </span>
+              <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${tradeableBg}`}>
+                {tradeableLabel}
+              </span>
             </div>
           </div>
 
-          <div className="flex flex-col items-end gap-0.5 flex-shrink-0 ml-3">
-            <span className={`text-xl font-bold ${confidenceColor}`}>
-              {confidence}%
-            </span>
-            <span className={`text-[10px] font-semibold uppercase tracking-wide ${verdictColor}`}>
-              {confidenceVerdict}
-            </span>
-          </div>
+          {isReady && (
+            <button
+              onClick={() => handleAnalyzeWithAlpha(pair)}
+              className={`mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-xs font-semibold transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] ${config.badgeBg} ${config.badgeText} hover:opacity-90`}
+            >
+              <Target className="w-3.5 h-3.5" />
+              Analyze with Alpha
+              <ChevronRight className="w-3.5 h-3.5 ml-auto" />
+            </button>
+          )}
         </div>
-
-        {pair.reasoning && (
-          <p className="text-xs text-gray-400 leading-snug mb-3 line-clamp-2">{pair.reasoning}</p>
-        )}
-
-        <button
-          onClick={() => handleAnalyzeWithAlpha(pair)}
-          className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-xs font-semibold transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] ${config.badgeBg} ${config.badgeText} hover:opacity-90`}
-        >
-          <Target className="w-3.5 h-3.5" />
-          Analyze with Alpha
-          <ChevronRight className="w-3.5 h-3.5 ml-auto" />
-        </button>
       </div>
     );
   };
