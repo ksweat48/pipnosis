@@ -1714,12 +1714,13 @@ MANDATORY JSON FIELDS — Include these regardless of action:
 `;
     } else if (getDisplayNameFromStyle(tradeStyle) === 'SCALP' && intelligenceSnapshot) {
       try {
+        const isScalpStyle = (style: string | undefined) => style === 'scalp' || style === 'scalper' || style === 'SCALP' || style === 'SCALPER';
         const scalpSignal = intelligenceSnapshot.bestPairs?.find(
           (p: { symbol: string; tradeStyle?: string; scalpSubMode?: string; scalpPattern?: string; momentumPhase?: string; atrTraveled?: number }) =>
-            p.symbol === marketContext.symbol && p.tradeStyle === 'scalp'
+            p.symbol === marketContext.symbol && isScalpStyle(p.tradeStyle)
         ) ?? intelligenceSnapshot.topPairs?.find(
           (p: { symbol: string; tradeStyle?: string; scalpSubMode?: string; scalpPattern?: string; momentumPhase?: string; atrTraveled?: number }) =>
-            p.symbol === marketContext.symbol && p.tradeStyle === 'scalp'
+            p.symbol === marketContext.symbol && isScalpStyle(p.tradeStyle)
         );
 
         if (scalpSignal?.scalpSubMode) {

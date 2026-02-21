@@ -69,6 +69,7 @@ export interface GoalSessionLiveConfig {
   dollarRisk?: number; // Fixed dollar risk for Trade Styles system
   tradeStyle?: string; // Trade style (Sniper, Scalper, Day Trader, Swing Trader)
   specificSymbols?: string[]; // Runtime override: narrow scan to this subset of watchlist symbols
+  cardSignal?: Record<string, unknown>; // Pre-selected IM card signal to inject into Alpha reasoning
 }
 
 export interface NoTradeRejectionContext {
@@ -945,6 +946,21 @@ class GoalSessionLiveEngine {
         }
       } catch (imErr) {
         console.warn('[IM Signal] Failed to load session_intelligence_data — proceeding without IM signals:', imErr);
+      }
+
+      // CCIP GOVERNANCE: If user launched this session via "Analyze with Alpha" card button,
+      // inject the card signal directly into imSignalMap for the selected symbol.
+      // This overrides/enriches the DB entry so Alpha receives the exact pre-computed
+      // intelligence (direction, scalpSubMode, scalpPattern, momentumPhase) the user saw.
+      if (config.cardSignal && typeof config.cardSignal === 'object') {
+        const cardSymbol = config.cardSignal.symbol as string | undefined;
+        if (cardSymbol) {
+          const existing = imSignalMap.get(cardSymbol) || {};
+          imSignalMap.set(cardSymbol, { ...existing, ...config.cardSignal });
+          if (import.meta.env.DEV) {
+            console.log(`[IM Signal] Card signal injected for ${cardSymbol}:`, config.cardSignal);
+          }
+        }
       }
 
       // Run Full Omega Council (Alpha Scout system removed for simplicity)
@@ -3674,7 +3690,7 @@ This learning will carry forward to improve future sessions!
 
       if (decision) {
         const rawReasoning: string = decision.reasoning || decision.marketThesis || 'No details available';
-        const truncated = rawReasoning.length > 200 ? rawReasoning.substring(0, 200).trim() + '...' : rawReasoning;
+        const truncated = rawReasoning.length > 500 ? rawReasoning.substring(0, 500).trim() + '...' : rawReasoning;
         symbolReasons.push({
           symbol,
           action: decision.action || 'NO_TRADE',

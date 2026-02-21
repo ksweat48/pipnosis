@@ -45,6 +45,7 @@ export interface SmartGoalConfig {
   specificSymbols?: string[]; // User-selected specific symbols
   customInstructions?: string; // Custom trading instructions (max 200 chars)
   symbolSelectionSource?: 'prompt' | 'ui' | 'asset_filter' | 'default'; // How symbols were chosen
+  cardSignal?: Record<string, unknown>; // Pre-selected IM card signal (direction, scalpSubMode, etc.)
 }
 
 export interface SmartGoalSession {
@@ -94,7 +95,8 @@ class SmartGoalSessionManager {
     dollarRisk?: number,
     assetClassFilter?: string[],
     specificSymbols?: string[],
-    customInstructions?: string
+    customInstructions?: string,
+    cardSignal?: Record<string, unknown>
   ): Promise<SmartGoalSession | null> {
     // CRITICAL: Prevent multiple active sessions
     const existingSession = await this.getActiveSession(userId);
@@ -105,7 +107,7 @@ class SmartGoalSessionManager {
 
     // Use new trade styles system if provided, otherwise fall back to legacy parsing
     const config = tradeStyle && dollarRisk
-      ? this.buildConfigFromStyle(prompt, accountBalance, tradeStyle, dollarRisk, assetClassFilter, specificSymbols, customInstructions)
+      ? this.buildConfigFromStyle(prompt, accountBalance, tradeStyle, dollarRisk, assetClassFilter, specificSymbols, customInstructions, cardSignal)
       : this.parseGoalPrompt(prompt, accountBalance);
 
     const sessionId = uuidv4();
@@ -232,7 +234,8 @@ class SmartGoalSessionManager {
     dollarRisk: number,
     assetClassFilter?: string[],
     specificSymbols?: string[],
-    customInstructions?: string
+    customInstructions?: string,
+    cardSignal?: Record<string, unknown>
   ): SmartGoalConfig {
     // Extract goal amount from prompt if present, otherwise use reasonable default
     const lower = prompt.toLowerCase();
@@ -312,7 +315,8 @@ class SmartGoalSessionManager {
       assetClassFilter,
       specificSymbols,
       customInstructions,
-      symbolSelectionSource
+      symbolSelectionSource,
+      cardSignal
     };
   }
 
@@ -622,7 +626,8 @@ class SmartGoalSessionManager {
         minConfidence,
         dollarRisk: config.dollarRisk,
         tradeStyle: config.tradeStyle,
-        specificSymbols: config.specificSymbols
+        specificSymbols: config.specificSymbols,
+        cardSignal: config.cardSignal
       };
 
       const result = await goalSessionLiveEngine.startSession(liveConfig);

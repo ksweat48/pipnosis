@@ -50,6 +50,7 @@ export const SmartGoalPanel: React.FC = () => {
   const [selectedAssetClasses, setSelectedAssetClasses] = useState<AssetClass[]>(['forex', 'crypto', 'indices', 'gold']);
   const [customInstructions, setCustomInstructions] = useState('');
   const [pendingSymbol, setPendingSymbol] = useState<string | null>(null);
+  const [pendingCardSignal, setPendingCardSignal] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
     const styleParam = searchParams.get('style') as TradeStyle | null;
@@ -62,9 +63,10 @@ export const SmartGoalPanel: React.FC = () => {
         try {
           const raw = sessionStorage.getItem('im_card_signal');
           if (raw) {
-            const signal = JSON.parse(raw) as { symbol?: string };
-            if (signal.symbol) {
+            const signal = JSON.parse(raw) as Record<string, unknown>;
+            if (signal.symbol && typeof signal.symbol === 'string') {
               setPendingSymbol(signal.symbol);
+              setPendingCardSignal(signal);
             }
             sessionStorage.removeItem('im_card_signal');
           }
@@ -209,7 +211,8 @@ export const SmartGoalPanel: React.FC = () => {
         dollarRisk,
         selectedAssetClasses.length < 4 ? selectedAssetClasses : undefined,
         pendingSymbol ? [pendingSymbol] : undefined,
-        customInstructions || undefined
+        customInstructions || undefined,
+        pendingCardSignal || undefined
       );
 
       if (session) {
@@ -217,6 +220,8 @@ export const SmartGoalPanel: React.FC = () => {
         setSelectedStyle(null);
         setCustomAmount('');
         setCurrentStep('style');
+        setPendingSymbol(null);
+        setPendingCardSignal(null);
 
         const styleConfig = TRADE_STYLES[selectedStyle];
         const modeText = multiTradeEnabled ? 'Multi-Trade Mode ON' : 'Single-Trade Mode';

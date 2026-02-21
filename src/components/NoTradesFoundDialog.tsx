@@ -28,6 +28,11 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
       hasAutoClosedRef.current = false;
       return;
     }
+    // Auto-expand the single symbol when there is exactly one reason — single-pair sessions
+    const reasons = rejectionContext?.symbolReasons || [];
+    if (reasons.length === 1) {
+      setExpandedSymbol(reasons[0].symbol);
+    }
 
     intervalRef.current = setInterval(() => {
       setCountdown(prev => {
@@ -170,7 +175,7 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
                   Alpha's Decision — Per Symbol
                 </p>
-                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1 scrollbar-thin">
+                <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1 scrollbar-thin">
                   {symbolReasons.map(({ symbol, action, reasoning, confidence }) => {
                     const isExpanded = expandedSymbol === symbol;
                     const isNoTrade = action === 'NO_TRADE';
