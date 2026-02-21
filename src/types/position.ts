@@ -130,6 +130,18 @@ export interface GoalSessionTrade {
   playbook_id: string | null;
   regime_bucket: string | null;
   risk_dollars: number | null;
+
+  // TP1/TP2 split tracking fields (added 2026-02-21)
+  tp1_hit?: boolean | null;
+  tp1_hit_at?: string | null;
+  tp2_hit?: boolean | null;
+  tp1_price?: number | null;
+  tp2_price?: number | null;
+  partial_close_pct?: number | null;
+  tp1_pnl?: number | null;
+  tp2_pnl?: number | null;
+  tp1_breakeven_price?: number | null;
+  sl_moved_to_breakeven_at?: string | null;
 }
 
 /**

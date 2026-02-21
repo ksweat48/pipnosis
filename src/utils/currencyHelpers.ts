@@ -1344,6 +1344,96 @@ export function calculateGoalBasedTakeProfit(
 }
 
 /**
+ * Calculate the SL price to set after TP1 is hit (ATR-based lock-in buffer).
+ *
+ * SSOT: This is the SINGLE SOURCE OF TRUTH for the post-TP1 breakeven SL price.
+ * Only position-monitoring-authority may call this to produce the new SL value.
+ *
+ * Strategy:
+ *   BUY:  newSL = entryPrice + (atr * bufferFraction)  — locks in a small profit
+ *   SELL: newSL = entryPrice - (atr * bufferFraction)  — locks in a small profit
+ *
+ * Buffer fraction is 0.1× ATR by default.  This scales naturally per instrument:
+ *   EURUSD  ATR ~0.0010 → buffer ~0.0001  (≈1 pip)
+ *   XAUUSD  ATR ~8.00   → buffer ~0.80    (≈0.8 point)
+ *   NAS100  ATR ~50.0   → buffer ~5.0     (≈5 points)
+ *
+ * @param direction 'buy' | 'sell'
+ * @param entryPrice Trade entry price
+ * @param atr        Current ATR value for the symbol (in price units, same scale as entryPrice)
+ * @param bufferFraction Multiplier applied to ATR (default 0.10)
+ */
+export function calculateTP1BreakevenSL(
+  direction: 'buy' | 'sell',
+  entryPrice: number,
+  atr: number,
+  bufferFraction = 0.10
+): number {
+  if (!isFinite(entryPrice) || entryPrice <= 0) {
+    throw new Error(`[calculateTP1BreakevenSL] Invalid entryPrice: ${entryPrice}`);
+  }
+  if (!isFinite(atr) || atr <= 0) {
+    throw new Error(`[calculateTP1BreakevenSL] Invalid ATR: ${atr}`);
+  }
+
+  const buffer = atr * bufferFraction;
+
+  return direction === 'buy'
+    ? entryPrice + buffer
+    : entryPrice - buffer;
+}
+
+/**
+ * Calculate the split P&L for a dual-TP trade that went through TP1.
+ *
+ * SSOT: This is the SINGLE SOURCE OF TRUTH for split P&L calculation.
+ * Called by post-trade-analyzer after a trade closes to populate tp1_pnl / tp2_pnl.
+ *
+ * @param symbol      Instrument symbol (for pip calculations)
+ * @param direction   'buy' | 'sell'
+ * @param entryPrice  Trade entry price
+ * @param tp1Price    TP1 price (the first milestone that was hit)
+ * @param exitPrice   Final exit price (could be TP2, moved SL, or manual)
+ * @param lotSize     Full lot size of the position
+ * @param partialClosePct Fraction of the position attributed to the TP1 leg (e.g. 0.50)
+ * @returns { tp1Pnl, tp2Pnl, totalPnl }
+ */
+export function calculateSplitPnL(
+  symbol: string,
+  direction: 'buy' | 'sell',
+  entryPrice: number,
+  tp1Price: number,
+  exitPrice: number,
+  lotSize: number,
+  partialClosePct: number
+): { tp1Pnl: number; tp2Pnl: number; totalPnl: number } {
+  if (partialClosePct <= 0 || partialClosePct >= 1) {
+    throw new Error(`[calculateSplitPnL] partialClosePct must be between 0 and 1, got: ${partialClosePct}`);
+  }
+
+  const tp1LotSize = roundLotSize(lotSize * partialClosePct);
+  const tp2LotSize = roundLotSize(lotSize * (1 - partialClosePct));
+
+  const tp1Pnl = roundPnL(
+    calculateDollarPerPip(symbol, tp1LotSize) *
+    calculatePipDistance(symbol, entryPrice, tp1Price) *
+    (direction === 'buy' ? (tp1Price > entryPrice ? 1 : -1) : (tp1Price < entryPrice ? 1 : -1))
+  );
+
+  const tp2Pnl = roundPnL(
+    calculateDollarPerPip(symbol, tp2LotSize) *
+    calculatePipDistance(symbol, entryPrice, exitPrice) *
+    (direction === 'buy' ? (exitPrice > entryPrice ? 1 : -1) : (exitPrice < entryPrice ? 1 : -1))
+  );
+
+  return {
+    tp1Pnl,
+    tp2Pnl,
+    totalPnl: roundPnL(tp1Pnl + tp2Pnl)
+  };
+}
+
+/**
  * Calculate and validate R:R ratio with detailed logging
  * This function provides comprehensive validation to catch any discrepancies
  * between calculated RR and what's displayed to the user

@@ -25,7 +25,9 @@ interface TradeClosedActionDialogProps {
   onContinueSession?: () => void;
   onCloseForNow: () => void;
   isLoading?: boolean;
-  timestamp?: string; // If provided, shows "Trade closed X time ago" instead of countdown
+  timestamp?: string;
+  tp1Pnl?: number | null;
+  tp2Pnl?: number | null;
 }
 
 const GOAL_ACHIEVED_TIMEOUT = 60 * 1000;
@@ -49,7 +51,9 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
   onStartNewSession,
   onCloseForNow,
   isLoading = false,
-  timestamp
+  timestamp,
+  tp1Pnl,
+  tp2Pnl
 }) => {
   // Safety check: validate required props
   if (!isOpen) return null;
@@ -272,14 +276,39 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
               </div>
 
               <div className="pt-3 border-t border-gray-700">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs text-gray-400">Result</div>
-                  <div className={`text-xl font-bold ${
-                    isProfit ? 'text-emerald-400' : isLoss ? 'text-red-400' : 'text-gray-400'
-                  }`}>
-                    {isProfit ? '+' : ''}{displayProfitLoss >= 0 ? '$' : '-$'}{Math.abs(displayProfitLoss).toFixed(2)}
+                {tp1Pnl != null && tp2Pnl != null ? (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs text-gray-400">Leg 1 (TP1)</div>
+                      <div className={`text-sm font-semibold ${tp1Pnl >= 0 ? 'text-amber-400' : 'text-red-400'}`}>
+                        {tp1Pnl >= 0 ? '+' : ''}{tp1Pnl >= 0 ? '$' : '-$'}{Math.abs(tp1Pnl).toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs text-gray-400">Leg 2 (TP2)</div>
+                      <div className={`text-sm font-semibold ${tp2Pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {tp2Pnl >= 0 ? '+' : ''}{tp2Pnl >= 0 ? '$' : '-$'}{Math.abs(tp2Pnl).toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between pt-1.5 border-t border-gray-700/60">
+                      <div className="text-xs text-gray-400">Total Result</div>
+                      <div className={`text-xl font-bold ${
+                        isProfit ? 'text-emerald-400' : isLoss ? 'text-red-400' : 'text-gray-400'
+                      }`}>
+                        {isProfit ? '+' : ''}{displayProfitLoss >= 0 ? '$' : '-$'}{Math.abs(displayProfitLoss).toFixed(2)}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-gray-400">Result</div>
+                    <div className={`text-xl font-bold ${
+                      isProfit ? 'text-emerald-400' : isLoss ? 'text-red-400' : 'text-gray-400'
+                    }`}>
+                      {isProfit ? '+' : ''}{displayProfitLoss >= 0 ? '$' : '-$'}{Math.abs(displayProfitLoss).toFixed(2)}
+                    </div>
+                  </div>
+                )}
                 {showWarning && (
                   <div className="mt-2 text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 rounded px-2 py-1">
                     Value auto-corrected from display error

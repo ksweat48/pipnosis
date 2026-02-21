@@ -251,9 +251,32 @@ class RealtimeSLTPMonitor {
   }
 
   /**
-   * Handle TP1 hit: Mark TP1 as hit, keep monitoring for TP2
-   * CRITICAL: position_size/lot_size NEVER changes - only TP1 flag is set
-   * SSOT: Delegates to authority for database update
+   * Fetch ATR for a symbol from realtime_prices table.
+   * SSOT: ATR is stored server-side by the price polling infrastructure.
+   * Returns null if ATR is unavailable — caller must handle gracefully.
+   */
+  private async fetchATR(symbol: string): Promise<number | null> {
+    try {
+      const { data, error } = await supabase
+        .from('realtime_prices')
+        .select('atr')
+        .eq('symbol', symbol)
+        .maybeSingle();
+
+      if (error || !data || data.atr == null || data.atr <= 0) {
+        return null;
+      }
+
+      return parseFloat(data.atr);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Handle TP1 hit: Mark TP1 as hit, auto-move SL to breakeven+ATR buffer, keep monitoring for TP2
+   * CRITICAL: position_size/lot_size NEVER changes - only TP1 flag and SL are updated
+   * SSOT: Delegates to authority for all database updates
    */
   private async handleTP1Hit(position: MonitoredPosition, currentPrice: number): Promise<void> {
     try {
@@ -270,8 +293,34 @@ class RealtimeSLTPMonitor {
       // Update position in memory (flag only, NOT size)
       position.tp1_hit = true;
 
+      // ATR-BASED SL AUTO-MOVE: Protect profits after TP1
+      // Only move SL if position doesn't already have a breakeven SL set
+      if (!position.tp1_breakeven_price) {
+        const atr = await this.fetchATR(position.symbol);
+
+        if (atr !== null) {
+          const slResult = await positionMonitoringAuthority.autoMoveSLAfterTP1(
+            position.id,
+            position.user_id,
+            position.direction,
+            position.entry_price,
+            atr
+          );
+
+          if (slResult.success && slResult.newSL !== undefined) {
+            position.stop_loss = slResult.newSL;
+            position.tp1_breakeven_price = slResult.newSL;
+            console.log(`[RealtimeSLTPMonitor] SL auto-moved to ${slResult.newSL.toFixed(5)} after TP1 (ATR=${atr.toFixed(5)})`);
+          } else {
+            console.warn(`[RealtimeSLTPMonitor] SL auto-move failed (non-blocking):`, slResult.error);
+          }
+        } else {
+          console.warn(`[RealtimeSLTPMonitor] ATR unavailable for ${position.symbol} — SL auto-move skipped (non-blocking)`);
+        }
+      }
+
       // Keep monitoring for TP2 - don't remove from monitoring
-      console.log(`[RealtimeSLTPMonitor] TP1 marked. Full position still active. Monitoring continues for TP2...`);
+      console.log(`[RealtimeSLTPMonitor] TP1 complete. Full position still active. Monitoring continues for TP2...`);
 
     } catch (error) {
       console.error(`[RealtimeSLTPMonitor] Error handling TP1:`, error);

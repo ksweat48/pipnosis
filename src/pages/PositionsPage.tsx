@@ -53,6 +53,12 @@ interface Position {
   currentPrice: number | null;
   currentPnl: number;
   openedAt: string;
+  goal_session_id?: string;
+  tp1_hit?: boolean | null;
+  tp1_price?: number | null;
+  tp2_price?: number | null;
+  tp1_breakeven_price?: number | null;
+  partial_close_pct?: number | null;
 }
 
 interface RecentTrade {
@@ -71,6 +77,11 @@ interface RecentTrade {
   max_drawdown?: number;
   max_profit?: number;
   total_pips?: number;
+  tp1_hit?: boolean | null;
+  tp1_pnl?: number | null;
+  tp2_pnl?: number | null;
+  tp1_price?: number | null;
+  tp1_breakeven_price?: number | null;
 }
 
 export function PositionsPage() {
@@ -228,7 +239,12 @@ export function PositionsPage() {
         take_profit: trade.take_profit != null ? parseFloat(trade.take_profit) : 0,
         max_drawdown: trade.max_drawdown !== null && trade.max_drawdown !== undefined ? parseFloat(trade.max_drawdown) : undefined,
         max_profit: trade.max_profit !== null && trade.max_profit !== undefined ? parseFloat(trade.max_profit) : undefined,
-        total_pips: trade.total_pips !== null && trade.total_pips !== undefined ? parseFloat(trade.total_pips) : undefined
+        total_pips: trade.total_pips !== null && trade.total_pips !== undefined ? parseFloat(trade.total_pips) : undefined,
+        tp1_hit: trade.tp1_hit ?? null,
+        tp1_pnl: trade.tp1_pnl != null ? parseFloat(trade.tp1_pnl) : null,
+        tp2_pnl: trade.tp2_pnl != null ? parseFloat(trade.tp2_pnl) : null,
+        tp1_price: trade.tp1_price != null ? parseFloat(trade.tp1_price) : null,
+        tp1_breakeven_price: trade.tp1_breakeven_price != null ? parseFloat(trade.tp1_breakeven_price) : null
       };
     });
 
@@ -384,7 +400,9 @@ export function PositionsPage() {
               tradesInSession: tradesCount,
               isGoalAchieved,
               sessionId: closedTrade.goal_session_id,
-              sessionStatus: sessionData.status
+              sessionStatus: sessionData.status,
+              tp1Pnl: closedTrade.tp1_hit && closedTrade.tp1_pnl != null ? parseFloat(closedTrade.tp1_pnl) : null,
+              tp2Pnl: closedTrade.tp1_hit && closedTrade.tp2_pnl != null ? parseFloat(closedTrade.tp2_pnl) : null
             });
 
             // Show the dialog
@@ -742,7 +760,6 @@ export function PositionsPage() {
                             : livePrices[position.symbol].ask)
                         : position.currentPrice;
 
-                      // SSOT: Calculate P&L as % of risk (in R's)
                       const stopDistancePips = position.entryPrice && position.symbol
                         ? calculatePipDistance(position.symbol, position.entryPrice, position.stopLoss)
                         : 0;
@@ -762,10 +779,17 @@ export function PositionsPage() {
                         ? calculatePipDistance(position.symbol, currentPrice, position.takeProfit)
                         : 0;
 
+                      const isTP1Hit = position.tp1_hit === true;
+                      const hasDualTP = !!(position.tp1_price && position.tp2_price);
+
                       return (
                         <div
                           key={position.id}
-                          className="bg-gray-800 border border-gray-700 rounded-lg p-3 sm:p-5 hover:border-gray-600 transition-all"
+                          className={`rounded-lg p-3 sm:p-5 transition-all ${
+                            isTP1Hit
+                              ? 'bg-gray-800 border border-amber-500/40 shadow-[0_0_12px_rgba(245,158,11,0.15)] hover:border-amber-400/60'
+                              : 'bg-gray-800 border border-gray-700 hover:border-gray-600'
+                          }`}
                         >
                           <div className="flex items-start justify-between mb-3 sm:mb-4">
                             <div className="flex items-center gap-2 sm:gap-3">
@@ -779,7 +803,7 @@ export function PositionsPage() {
                                 </div>
                               )}
                               <div>
-                                <div className="flex items-center gap-1.5 sm:gap-2">
+                                <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                                   <span className="text-base sm:text-xl font-bold text-white">{position.symbol}</span>
                                   <span className={`px-1.5 sm:px-2 py-0.5 rounded text-xs font-semibold ${
                                     position.positionType === 'buy'
@@ -788,6 +812,12 @@ export function PositionsPage() {
                                   }`}>
                                     {(position.positionType || 'buy').toUpperCase()}
                                   </span>
+                                  {isTP1Hit && (
+                                    <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1">
+                                      <Zap className="w-3 h-3" />
+                                      TP1 HIT
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="text-xs sm:text-sm text-gray-400 mt-1">
                                   {position.lotSize} lots • {getDuration(position.openedAt)}
@@ -803,6 +833,30 @@ export function PositionsPage() {
                               </div>
                             </div>
                           </div>
+
+                          {/* TP1 Hit: Protected profit banner */}
+                          {isTP1Hit && position.tp1_breakeven_price != null && (
+                            <div className="mb-3 px-3 py-2 bg-amber-500/10 border border-amber-500/25 rounded-lg flex items-center gap-2">
+                              <CheckCircle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                              <span className="text-xs text-amber-300">
+                                Profit protected — SL moved to {formatPrice(position.tp1_breakeven_price, position.symbol)}
+                              </span>
+                            </div>
+                          )}
+
+                          {/* Dual TP progress (shown when TP1 hit and TP2 is the active target) */}
+                          {isTP1Hit && hasDualTP && (
+                            <div className="mb-3 grid grid-cols-2 gap-2">
+                              <div className="px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                                <div className="text-xs text-amber-400 font-semibold mb-0.5">TP1 Secured</div>
+                                <div className="text-xs font-mono text-amber-300">{formatPrice(position.tp1_price!, position.symbol)}</div>
+                              </div>
+                              <div className="px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                                <div className="text-xs text-emerald-400 font-semibold mb-0.5">TP2 Target</div>
+                                <div className="text-xs font-mono text-emerald-300">{formatPrice(position.tp2_price!, position.symbol)}</div>
+                              </div>
+                            </div>
+                          )}
 
                           <button
                             onClick={() => navigate(`/trade?symbol=${position.symbol}`)}
@@ -822,8 +876,15 @@ export function PositionsPage() {
                               <div className="text-white font-medium text-xs sm:text-sm truncate">{formatPrice(currentPrice, position.symbol)}</div>
                             </div>
                             <div>
-                              <div className="text-xs text-gray-500 mb-1">Stop Loss</div>
-                              <div className="text-yellow-400 font-medium text-xs sm:text-sm truncate">{formatPrice(position.stopLoss, position.symbol)}</div>
+                              <div className="text-xs text-gray-500 mb-1">
+                                Stop Loss
+                                {isTP1Hit && position.tp1_breakeven_price != null && (
+                                  <span className="ml-1 text-amber-400">(Protected)</span>
+                                )}
+                              </div>
+                              <div className={`font-medium text-xs sm:text-sm truncate ${isTP1Hit && position.tp1_breakeven_price != null ? 'text-amber-400' : 'text-yellow-400'}`}>
+                                {formatPrice(position.stopLoss, position.symbol)}
+                              </div>
                               <div className="text-xs text-gray-600">{distanceToSL.toFixed(1)}p</div>
                             </div>
                             <div>
@@ -997,12 +1058,37 @@ export function PositionsPage() {
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className={`text-lg font-bold ${trade.profit_loss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {trade.profit_loss >= 0 ? '+' : ''}${trade.profit_loss.toFixed(2)}
-                          </div>
-                          <div className="text-xs text-gray-500">
-                            Final P&L
-                          </div>
+                          {trade.tp1_hit && trade.tp1_pnl != null && trade.tp2_pnl != null ? (
+                            <div className="flex flex-col items-end gap-0.5">
+                              <div className="flex items-center gap-2 text-xs text-gray-500">
+                                <span>Leg 1</span>
+                                <span className={trade.tp1_pnl >= 0 ? 'text-amber-400 font-semibold' : 'text-red-400 font-semibold'}>
+                                  {trade.tp1_pnl >= 0 ? '+' : ''}${trade.tp1_pnl.toFixed(2)}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 text-xs text-gray-500">
+                                <span>Leg 2</span>
+                                <span className={trade.tp2_pnl >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>
+                                  {trade.tp2_pnl >= 0 ? '+' : ''}${trade.tp2_pnl.toFixed(2)}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1 mt-0.5 pt-0.5 border-t border-gray-700">
+                                <span className="text-xs text-gray-500">Total</span>
+                                <span className={`text-base font-bold ${trade.profit_loss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                  {trade.profit_loss >= 0 ? '+' : ''}${trade.profit_loss.toFixed(2)}
+                                </span>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className={`text-lg font-bold ${trade.profit_loss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {trade.profit_loss >= 0 ? '+' : ''}${trade.profit_loss.toFixed(2)}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                Final P&L
+                              </div>
+                            </>
+                          )}
                         </div>
                       </div>
 
@@ -1072,6 +1158,8 @@ export function PositionsPage() {
           onStartNewSession={handleStartNewSession}
           onContinueSession={handleContinueSession}
           onCloseForNow={handleCloseForNow}
+          tp1Pnl={tradeClosedDialogData.tp1Pnl}
+          tp2Pnl={tradeClosedDialogData.tp2Pnl}
         />
       )}
 

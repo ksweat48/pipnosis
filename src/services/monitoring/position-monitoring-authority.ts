@@ -37,6 +37,7 @@ import { supabase } from '@/lib/supabase';
 import { calculatePnL } from '@/types/position';
 import type { CloseReason } from '@/types/position';
 import { priceFreshnessGate } from '@/governance/price-freshness-gate';
+import { calculateTP1BreakevenSL } from '@/utils/currencyHelpers';
 
 /**
  * Position data structure for monitoring
@@ -52,6 +53,8 @@ export interface MonitoredPosition {
   tp2_price?: number | null;
   tp1_hit?: boolean;
   tp2_hit?: boolean;
+  tp1_breakeven_price?: number | null;
+  partial_close_pct?: number | null;
   position_size: number;
   lot_size?: number;
   user_id: string;
@@ -131,7 +134,7 @@ class PositionMonitoringAuthority {
 
       const { data: positions, error } = await supabase
         .from('goal_session_trades')
-        .select('id, symbol, direction, entry_price, stop_loss, take_profit, tp1_price, tp2_price, tp1_hit, tp2_hit, position_size, lot_size, user_id, goal_session_id, status, current_price, opened_at')
+        .select('id, symbol, direction, entry_price, stop_loss, take_profit, tp1_price, tp2_price, tp1_hit, tp2_hit, tp1_breakeven_price, partial_close_pct, position_size, lot_size, user_id, goal_session_id, status, current_price, opened_at')
         .eq('status', 'open')
         .eq('user_id', monitoringUserId);
 
@@ -385,6 +388,60 @@ class PositionMonitoringAuthority {
 
       console.log(`[PositionMonitoringAuthority] TP1 advisory milestone logged for ${positionId} at ${tp1Price.toFixed(5)} - position continues 100% open`);
       return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
+   * Auto-move SL to entry + ATR buffer after TP1 is hit.
+   *
+   * SSOT AUTHORITY: This is the ONLY place that moves the SL after a TP1 event.
+   * No other service or trigger may set stop_loss for a TP1-hit position.
+   *
+   * ATR is passed in from the caller (realtime-sltp-monitor) which already has the
+   * price context. This keeps this method synchronous-safe and testable.
+   *
+   * @param positionId  Trade record UUID
+   * @param userId      Trade owner (for RLS enforcement)
+   * @param direction   Trade direction ('buy' | 'sell')
+   * @param entryPrice  Original entry price
+   * @param atr         Current ATR for the symbol (price units)
+   */
+  async autoMoveSLAfterTP1(
+    positionId: string,
+    userId: string,
+    direction: 'buy' | 'sell',
+    entryPrice: number,
+    atr: number
+  ): Promise<{ success: boolean; newSL?: number; error?: string }> {
+    try {
+      const newSL = calculateTP1BreakevenSL(direction, entryPrice, atr);
+      const now = new Date().toISOString();
+
+      const { error: updateError } = await supabase
+        .from('goal_session_trades')
+        .update({
+          stop_loss: newSL,
+          tp1_breakeven_price: newSL,
+          sl_moved_to_breakeven_at: now,
+        })
+        .eq('id', positionId)
+        .eq('user_id', userId)
+        .eq('status', 'open');
+
+      if (updateError) {
+        return { success: false, error: updateError.message };
+      }
+
+      console.log(
+        `[PositionMonitoringAuthority] ATR SL auto-move: trade=${positionId} ` +
+        `direction=${direction} entry=${entryPrice} ATR=${atr.toFixed(5)} newSL=${newSL.toFixed(5)}`
+      );
+      return { success: true, newSL };
     } catch (error) {
       return {
         success: false,
