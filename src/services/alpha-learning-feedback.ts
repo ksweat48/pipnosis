@@ -28,7 +28,7 @@ export interface TradeOutcome {
   exitPrice: number;
   stopLoss: number;
   takeProfit: number;
-  closeReason: 'tp_hit' | 'sl_hit' | 'manual_close' | 'timeout';
+  closeReason: 'tp_hit' | 'tp1_only' | 'sl_hit' | 'near_miss' | 'manual_close' | 'timeout';
   pnl: number;
   pnlR: number;
   confidence: number;
@@ -130,9 +130,17 @@ export class AlphaLearningFeedbackService {
       // Round confidence to nearest 10 for bucketing
       const confidenceBucket = Math.round(outcome.confidence / 10) * 10;
 
-      // Determine if prediction was correct
-      const wasCorrect = outcome.closeReason === 'tp_hit' ||
-                        (outcome.closeReason === 'manual_close' && outcome.pnl > 0);
+      // Determine if prediction was correct.
+      // SSOT: near_miss and tp1_only are directional wins — Alpha called the move correctly.
+      // They are counted as successes in the confidence calibration buckets so the
+      // win-rate stat reflects Alpha's directional accuracy, not just TP-hit rate.
+      // The distinction between near_miss/tp1_only and full tp_hit is captured in
+      // avg_pnl_r (which will naturally be lower for these outcomes).
+      const wasCorrect =
+        outcome.closeReason === 'tp_hit' ||
+        outcome.closeReason === 'tp1_only' ||
+        outcome.closeReason === 'near_miss' ||
+        (outcome.closeReason === 'manual_close' && outcome.pnl > 0);
 
       // Get or create calibration record
       const { data: existing } = await supabase
@@ -216,8 +224,11 @@ export class AlphaLearningFeedbackService {
         .eq('pattern_id', outcome.aiReasoningPattern)
         .maybeSingle();
 
-      const wasSuccessful = outcome.closeReason === 'tp_hit' ||
-                           (outcome.closeReason === 'manual_close' && outcome.pnl > 0);
+      const wasSuccessful =
+        outcome.closeReason === 'tp_hit' ||
+        outcome.closeReason === 'tp1_only' ||
+        outcome.closeReason === 'near_miss' ||
+        (outcome.closeReason === 'manual_close' && outcome.pnl > 0);
 
       if (existing) {
         // Update existing pattern
@@ -289,9 +300,12 @@ export class AlphaLearningFeedbackService {
       }
 
       // Determine if override was correct
-      // Correct = achieved positive outcome despite safety recommendation
-      const wasCorrect = outcome.closeReason === 'tp_hit' ||
-                        (outcome.closeReason === 'manual_close' && outcome.pnl > 0);
+      // Correct = achieved positive directional outcome despite safety recommendation
+      const wasCorrect =
+        outcome.closeReason === 'tp_hit' ||
+        outcome.closeReason === 'tp1_only' ||
+        outcome.closeReason === 'near_miss' ||
+        (outcome.closeReason === 'manual_close' && outcome.pnl > 0);
 
       const actualOutcome = wasCorrect ? 'correct' : 'incorrect';
 

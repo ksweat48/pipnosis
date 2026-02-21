@@ -37,10 +37,18 @@ export type DatabaseCloseReason =
 
 /**
  * Analysis close reason strings (used in learning systems)
+ *
+ * CCIP NOTE: 'near_miss' and 'tp1_only' are virtual analysis reasons derived
+ * from trade data at analysis time. They do not exist in the database
+ * close_reason column — they are classification labels the learning system
+ * assigns so Alpha can distinguish directional-win-but-TP-too-far events
+ * from flat losses and full TP hits.
  */
 export type AnalysisCloseReason =
   | 'tp_hit'
+  | 'tp1_only'
   | 'sl_hit'
+  | 'near_miss'
   | 'manual_close'
   | 'timeout'
   | 'weekend_protection'
@@ -244,6 +252,72 @@ export function getCloseReasonColor(reason: CloseReason): string {
     default:
       return 'from-gray-500 to-gray-600';
   }
+}
+
+/**
+ * Derive the learning-system analysis close reason from raw trade data.
+ *
+ * This is the SSOT for converting a closed trade's database state into the
+ * AnalysisCloseReason label the learning pipeline uses. It must be called
+ * ONCE per trade at analysis time — never re-derived inside individual services.
+ *
+ * Priority order (most specific first):
+ *  1. tp1_only  — TP1 hit but TP2 not hit (partial victory, full learning)
+ *  2. tp_hit    — Any TP variant fully hit
+ *  3. sl_hit    — Stop loss hit
+ *  4. near_miss — Manual/session close, direction was correct, peak_hit_ratio >= 0.70
+ *  5. manual_close / timeout / system reasons
+ */
+export function deriveAnalysisCloseReason(params: {
+  dbCloseReason: string | null | undefined;
+  tp1Hit: boolean;
+  tp2Hit: boolean;
+  peakHitRatio?: number | null;
+  finalPnl: number;
+}): AnalysisCloseReason {
+  const { dbCloseReason, tp1Hit, tp2Hit, peakHitRatio, finalPnl } = params;
+  const normalized = (dbCloseReason || '').toLowerCase().trim();
+
+  if (normalized === 'take_profit_1' || normalized === 'tp1') {
+    return tp2Hit ? 'tp_hit' : 'tp1_only';
+  }
+
+  if (
+    normalized === 'take_profit_2' ||
+    normalized === 'tp2' ||
+    normalized === 'take_profit' ||
+    normalized === 'tp'
+  ) {
+    return 'tp_hit';
+  }
+
+  if (normalized === 'goal_achieved') {
+    return 'tp_hit';
+  }
+
+  if (normalized === 'stop_loss' || normalized === 'sl') {
+    return 'sl_hit';
+  }
+
+  if (normalized === 'weekend_protection') return 'weekend_protection';
+  if (normalized === 'holiday_closure') return 'holiday_closure';
+  if (normalized === 'force_closed') return 'force_closed';
+  if (normalized === 'market_closed') return 'market_closed';
+  if (normalized === 'session_ended' || normalized === 'goal_expired') return 'timeout';
+
+  if (normalized === 'manual' || normalized === 'trailing_stop' || normalized === 'risk_limit') {
+    const NEAR_MISS_THRESHOLD = 0.70;
+    if (
+      finalPnl <= 0 &&
+      peakHitRatio != null &&
+      peakHitRatio >= NEAR_MISS_THRESHOLD
+    ) {
+      return 'near_miss';
+    }
+    return 'manual_close';
+  }
+
+  return 'manual_close';
 }
 
 /**

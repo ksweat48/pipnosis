@@ -16,7 +16,9 @@ import { llmReasoningLogger, PostTradeAnalysis } from './llm-reasoning-logger';
 import { logger } from '../lib/logger';
 import { tpQualityTracker } from './tp-quality-tracker';
 import { shouldIncludeInLearning, getExclusionReason } from '../utils/trade-learning-filter';
-import { mapCloseReasonToAnalysis } from '../utils/close-reason-mapper';
+import { mapCloseReasonToAnalysis, deriveAnalysisCloseReason } from '../utils/close-reason-mapper';
+import { getNearMissData, isNearMissTrade, isTP1OnlyTrade } from '../utils/trade-outcome-classifier';
+import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { CloseReason } from '../types/position';
 
 interface TradeData {
@@ -38,6 +40,9 @@ interface TradeData {
   closeReason?: string;
   tp1Hit?: boolean;
   tp2Hit?: boolean;
+  peakProfit?: number | null;
+  tradeStyle?: string | null;
+  timeframe?: string | null;
 }
 
 class PostTradeAnalyzer {
@@ -75,15 +80,22 @@ class PostTradeAnalyzer {
       await this.updateJournalWithClosureData(journalEntry, tradeData, outcome);
 
       // STEP 3: Check learning eligibility - only AI learning tables are gated
+      // Compute peak_hit_ratio from peakProfit before the filter call
+      const peakHitRatio = this.computePeakHitRatio(tradeData);
+
       const learningEligible = shouldIncludeInLearning(tradeData.closeReason, {
         tp1_hit: tradeData.tp1Hit,
         tp2_hit: tradeData.tp2Hit,
+        peak_hit_ratio: peakHitRatio,
+        final_pnl: tradeData.pnl,
       });
 
       if (!learningEligible) {
         const exclusionReason = getExclusionReason(tradeData.closeReason, {
           tp1_hit: tradeData.tp1Hit,
           tp2_hit: tradeData.tp2Hit,
+          peak_hit_ratio: peakHitRatio,
+          final_pnl: tradeData.pnl,
         });
         console.log(`[Post-Trade Analyzer] Skipping AI learning - ${exclusionReason} (journal entry preserved)`);
         return;
@@ -92,18 +104,44 @@ class PostTradeAnalyzer {
       // STEP 4: Full analysis pipeline (only for learning-eligible trades)
       const fullTradeData = await this.enrichTradeData(tradeData);
 
+      // Derive the authoritative analysis close reason using the SSOT mapper.
+      // This replaces ad-hoc close reason checks scattered across learning services.
+      const analysisCloseReason = deriveAnalysisCloseReason({
+        dbCloseReason: fullTradeData.closeReason,
+        tp1Hit: fullTradeData.tp1Hit ?? false,
+        tp2Hit: fullTradeData.tp2Hit ?? false,
+        peakHitRatio: peakHitRatio,
+        finalPnl: fullTradeData.pnl,
+      });
+
+      const nearMissData = getNearMissData({
+        close_reason: fullTradeData.closeReason,
+        profit_loss: fullTradeData.pnl,
+        peak_hit_ratio: peakHitRatio,
+      });
+
+      const tp1Only = isTP1OnlyTrade({
+        close_reason: fullTradeData.closeReason,
+        tp1_hit: fullTradeData.tp1Hit,
+        tp2_hit: fullTradeData.tp2Hit,
+      });
+
       const { wasPredictionCorrect, accuracyScore, actualOutcome } = this.analyzePredictionAccuracy(
         fullTradeData,
-        journalEntry.expected_outcome
+        journalEntry.expected_outcome,
+        analysisCloseReason,
+        nearMissData
       );
 
       const lessonLearned = this.generateLessonLearned(
         fullTradeData,
         journalEntry,
-        wasPredictionCorrect
+        wasPredictionCorrect,
+        nearMissData,
+        tp1Only
       );
 
-      const mistakeIdentified = wasPredictionCorrect ? undefined : this.identifyMistake(fullTradeData, journalEntry);
+      const mistakeIdentified = wasPredictionCorrect ? undefined : this.identifyMistake(fullTradeData, journalEntry, nearMissData);
       const whatWorked = wasPredictionCorrect ? this.identifyWhatWorked(fullTradeData, journalEntry) : undefined;
 
       if (fullTradeData.exitTime && fullTradeData.exitPrice) {
@@ -125,8 +163,13 @@ class PostTradeAnalyzer {
       }
 
       await this.logAccuracyTracking(fullTradeData, journalEntry, wasPredictionCorrect);
-      await this.populateAILearningTables(fullTradeData, journalEntry, outcome, wasPredictionCorrect);
-      await this.trackTPOutcome(fullTradeData, outcome);
+      await this.populateAILearningTables(fullTradeData, journalEntry, outcome, wasPredictionCorrect, analysisCloseReason);
+      await this.trackTPOutcome(fullTradeData, outcome, peakHitRatio, nearMissData, tp1Only);
+
+      // Persist near-miss flag and peak_hit_ratio back to the trade record
+      if (peakHitRatio != null || nearMissData || tp1Only) {
+        await this.persistNearMissFlags(fullTradeData, peakHitRatio, nearMissData, tp1Only);
+      }
 
       console.log(`[Post-Trade Analyzer] Analysis complete for ${tradeData.symbol}`);
     } catch (error) {
@@ -260,14 +303,10 @@ class PostTradeAnalyzer {
   }
 
   private async enrichTradeData(tradeData: TradeData): Promise<TradeData> {
-    if (tradeData.direction && tradeData.entryPrice && tradeData.exitPrice && tradeData.stopLoss && tradeData.takeProfit) {
-      return tradeData;
-    }
-
     try {
       const { data: trade } = await supabase
         .from('goal_session_trades')
-        .select('direction, entry_price, exit_price, stop_loss, take_profit, created_at, closed_at, tp1_hit, tp2_hit')
+        .select('direction, entry_price, exit_price, stop_loss, take_profit, created_at, closed_at, tp1_hit, tp2_hit, peak_profit, trade_style, timeframe')
         .eq('id', tradeData.id)
         .maybeSingle();
 
@@ -283,6 +322,9 @@ class PostTradeAnalyzer {
           exitTime: tradeData.exitTime || (trade.closed_at ? new Date(trade.closed_at) : new Date()),
           tp1Hit: tradeData.tp1Hit ?? trade.tp1_hit,
           tp2Hit: tradeData.tp2Hit ?? trade.tp2_hit,
+          peakProfit: tradeData.peakProfit ?? trade.peak_profit ?? null,
+          tradeStyle: tradeData.tradeStyle ?? trade.trade_style ?? null,
+          timeframe: tradeData.timeframe ?? trade.timeframe ?? null,
         };
       }
     } catch (error) {
@@ -377,45 +419,126 @@ class PostTradeAnalyzer {
   }
 
   /**
+   * Compute peak_hit_ratio: how far did price travel toward TP at its best point,
+   * expressed as a fraction of the total TP distance (0.0 = no progress, 1.0 = TP hit).
+   *
+   * Uses peakProfit from the trade record when available (most accurate).
+   * Falls back to exit price distance for trades without peak tracking.
+   *
+   * SSOT: This is the single place that computes this ratio.
+   */
+  private computePeakHitRatio(tradeData: TradeData): number | null {
+    if (!tradeData.entryPrice || !tradeData.takeProfit || !tradeData.stopLoss) return null;
+
+    const tpDistance = Math.abs(tradeData.takeProfit - tradeData.entryPrice);
+    if (tpDistance === 0) return null;
+
+    if (tradeData.peakProfit != null && tradeData.peakProfit > 0) {
+      const slDistance = Math.abs(tradeData.entryPrice - tradeData.stopLoss);
+      if (slDistance === 0) return null;
+      const riskInDollars = slDistance;
+      const peakRR = tradeData.peakProfit / riskInDollars;
+      const plannedRR = tpDistance / Math.abs(tradeData.entryPrice - tradeData.stopLoss);
+      if (plannedRR === 0) return null;
+      return Math.min(1.0, peakRR / plannedRR);
+    }
+
+    if (!tradeData.exitPrice) return null;
+    const exitDistance = Math.abs(tradeData.exitPrice - tradeData.entryPrice);
+    const directionCorrect = tradeData.direction === 'buy'
+      ? tradeData.exitPrice > tradeData.entryPrice
+      : tradeData.exitPrice < tradeData.entryPrice;
+
+    if (!directionCorrect) return 0;
+    return Math.min(1.0, exitDistance / tpDistance);
+  }
+
+  /**
+   * Persist near-miss flags and peak_hit_ratio back to the trades table
+   * so future queries and admin dashboards can see the classification.
+   */
+  private async persistNearMissFlags(
+    tradeData: TradeData,
+    peakHitRatio: number | null,
+    nearMissData: ReturnType<typeof getNearMissData>,
+    tp1Only: boolean
+  ): Promise<void> {
+    try {
+      const updates: Record<string, unknown> = {};
+      if (peakHitRatio != null) updates.peak_hit_ratio = peakHitRatio;
+      if (nearMissData) updates.near_miss = true;
+      if (tp1Only) updates.tp1_only = true;
+
+      if (Object.keys(updates).length === 0) return;
+
+      await supabase
+        .from('goal_session_trades')
+        .update(updates)
+        .eq('id', tradeData.id);
+    } catch (error) {
+      logger.error('[Post-Trade Analyzer] Failed to persist near-miss flags', { error });
+    }
+  }
+
+  /**
    * Analyze how accurate the LLM's prediction was
    */
   private analyzePredictionAccuracy(
     tradeData: TradeData,
-    expectedOutcome?: string
+    expectedOutcome?: string,
+    analysisCloseReason?: string,
+    nearMissData?: ReturnType<typeof getNearMissData>
   ): { wasPredictionCorrect: boolean; accuracyScore: number; actualOutcome: string } {
-    const actualOutcome = this.describeActualOutcome(tradeData);
+    const actualOutcome = this.describeActualOutcome(tradeData, nearMissData);
+
+    // Near-miss: direction was correct, Alpha called the move right.
+    // Treat as prediction-correct with reduced accuracy score to signal TP placement fault.
+    if (nearMissData) {
+      const accuracyScore = nearMissData.severity === 'critical' ? 82
+        : nearMissData.severity === 'significant' ? 75
+        : 68;
+      return {
+        wasPredictionCorrect: true,
+        accuracyScore,
+        actualOutcome,
+      };
+    }
+
+    // TP1-only: partial victory. Direction correct, first target hit.
+    if (analysisCloseReason === 'tp1_only') {
+      return {
+        wasPredictionCorrect: true,
+        accuracyScore: 78,
+        actualOutcome,
+      };
+    }
 
     // Did price hit TP or SL?
     const hitTP = this.didHitTargetProfit(tradeData);
     const hitSL = this.didHitStopLoss(tradeData);
 
-    // Was the prediction correct?
     let wasPredictionCorrect = false;
-    let accuracyScore = 50; // Default
+    let accuracyScore = 50;
 
     if (!expectedOutcome) {
-      // No prediction logged, assume neutral
       wasPredictionCorrect = tradeData.pnl > 0;
       accuracyScore = tradeData.pnl > 0 ? 75 : 25;
     } else {
-      // Check if prediction matches outcome
       const expectedTP = expectedOutcome.toLowerCase().includes('take profit') ||
                          expectedOutcome.toLowerCase().includes('target') ||
                          expectedOutcome.toLowerCase().includes('win');
 
       wasPredictionCorrect = (expectedTP && hitTP) || (!expectedTP && hitSL);
 
-      // Calculate accuracy score based on how close we got
       if (wasPredictionCorrect) {
-        accuracyScore = 90 + (Math.random() * 10); // 90-100 for correct predictions
+        accuracyScore = 90 + (Math.random() * 10);
       } else {
-        // Partial credit if we made money despite prediction
         if (tradeData.pnl > 0 && !expectedTP) {
-          accuracyScore = 60; // Better than expected
+          accuracyScore = 60;
         } else if (tradeData.pnl < 0 && expectedTP) {
-          accuracyScore = 30; // Worse than expected
+          accuracyScore = 30;
         } else {
-          accuracyScore = 45; // Close but wrong
+          accuracyScore = 45;
         }
       }
     }
@@ -426,14 +549,28 @@ class PostTradeAnalyzer {
   /**
    * Describe what actually happened in the trade
    */
-  private describeActualOutcome(tradeData: TradeData): string {
+  private describeActualOutcome(
+    tradeData: TradeData,
+    nearMissData?: ReturnType<typeof getNearMissData>
+  ): string {
+    if (nearMissData) {
+      const pct = Math.round(nearMissData.peakHitRatio * 100);
+      return `Near-miss: Price moved ${pct}% of the way to the take profit target before reversing. `
+        + `Alpha correctly identified the direction — the TP was placed too far. `
+        + `Final P&L: $${tradeData.pnl.toFixed(2)}.`;
+    }
+
+    if (tradeData.tp1Hit && !tradeData.tp2Hit) {
+      return `TP1 hit — partial target achieved. Price did not continue to TP2. Final P&L: $${tradeData.pnl.toFixed(2)}.`;
+    }
+
     const hitTP = this.didHitTargetProfit(tradeData);
     const hitSL = this.didHitStopLoss(tradeData);
 
     if (hitTP) {
-      return `Price moved in the expected direction and hit the take profit target at ${tradeData.takeProfit.toFixed(5)}. The trade was a success.`;
+      return `Price moved in the expected direction and hit the take profit target at ${tradeData.takeProfit?.toFixed(5) ?? 'N/A'}. The trade was a success.`;
     } else if (hitSL) {
-      return `Price reversed against the position and hit the stop loss at ${tradeData.stopLoss.toFixed(5)}. The trade resulted in a loss.`;
+      return `Price reversed against the position and hit the stop loss at ${tradeData.stopLoss?.toFixed(5) ?? 'N/A'}. The trade resulted in a loss.`;
     } else if (tradeData.pnl > 0) {
       return `Trade was closed manually for a profit of $${tradeData.pnl.toFixed(2)} before hitting TP.`;
     } else if (tradeData.pnl < 0) {
@@ -466,8 +603,22 @@ class PostTradeAnalyzer {
   private generateLessonLearned(
     tradeData: TradeData,
     journalEntry: any,
-    wasPredictionCorrect: boolean
+    wasPredictionCorrect: boolean,
+    nearMissData?: ReturnType<typeof getNearMissData>,
+    tp1Only?: boolean
   ): string {
+    if (nearMissData) {
+      const pct = Math.round(nearMissData.peakHitRatio * 100);
+      return `Directional analysis was correct — price reached ${pct}% of the TP distance. `
+        + `This is a near-miss, not a loss. The TP target was placed ${100 - pct}% too far for ${tradeData.symbol}. `
+        + `Consider tightening TP placement on future scalp trades for this symbol.`;
+    }
+
+    if (tp1Only) {
+      return `TP1 was hit successfully — partial target achieved. Price did not continue to TP2. `
+        + `Review whether TP2 was too far for this market condition or if momentum data suggested holding was correct.`;
+    }
+
     if (wasPredictionCorrect && tradeData.pnl > 0) {
       return `My market analysis was accurate. The ${journalEntry.pattern_identified || 'setup'} pattern played out as expected, validating my ${journalEntry.conviction_level}% conviction. I should continue trusting similar setups with this confidence level.`;
     } else if (wasPredictionCorrect && tradeData.pnl < 0) {
@@ -482,8 +633,17 @@ class PostTradeAnalyzer {
   /**
    * Identify what mistake was made (for losses)
    */
-  private identifyMistake(tradeData: TradeData, journalEntry: any): string {
-    if (tradeData.pnl >= 0) return '';
+  private identifyMistake(
+    tradeData: TradeData,
+    journalEntry: any,
+    nearMissData?: ReturnType<typeof getNearMissData>
+  ): string {
+    if (tradeData.pnl >= 0 && !nearMissData) return '';
+
+    if (nearMissData) {
+      const pct = Math.round(nearMissData.peakHitRatio * 100);
+      return `TP placement error: price reached ${pct}% of the target distance. TP was set too far for this ${tradeData.symbol} scalp move. This is not a directional error.`;
+    }
 
     const mistakes = [];
 
@@ -567,7 +727,8 @@ class PostTradeAnalyzer {
     tradeData: TradeData,
     journalEntry: any,
     outcome: 'win' | 'loss' | 'breakeven',
-    predictionCorrect: boolean
+    predictionCorrect: boolean,
+    analysisCloseReason?: string
   ): Promise<void> {
     try {
       logger.info('[Post-Trade Analyzer] Populating AI learning tables');
@@ -831,11 +992,15 @@ class PostTradeAnalyzer {
   }
 
   /**
-   * Track TP outcome for Elite TP System learning
+   * Track TP outcome for Elite TP System learning.
+   * Also writes tp_near_miss_log and tp1_only_log records when applicable.
    */
   private async trackTPOutcome(
     tradeData: TradeData,
-    outcome: 'win' | 'loss' | 'breakeven'
+    outcome: 'win' | 'loss' | 'breakeven',
+    peakHitRatio: number | null,
+    nearMissData: ReturnType<typeof getNearMissData>,
+    tp1Only: boolean
   ): Promise<void> {
     try {
       if (!tradeData.entryPrice || !tradeData.exitPrice || !tradeData.stopLoss || !tradeData.takeProfit) {
@@ -843,14 +1008,17 @@ class PostTradeAnalyzer {
         return;
       }
 
-      let tpOutcome: 'hit' | 'stopped_out' | 'partial_hit' | 'manual_close' | 'timeout';
+      let tpOutcome: 'hit' | 'stopped_out' | 'partial_hit' | 'manual_close' | 'timeout' | 'near_miss';
       let actualRR: number | undefined;
 
       const slDistance = Math.abs(tradeData.entryPrice - tradeData.stopLoss);
       const exitDistance = Math.abs(tradeData.exitPrice - tradeData.entryPrice);
 
-      if (outcome === 'win') {
-        const tpDistance = Math.abs(tradeData.takeProfit! - tradeData.entryPrice!);
+      if (nearMissData) {
+        tpOutcome = 'near_miss';
+        actualRR = -(exitDistance / slDistance);
+      } else if (outcome === 'win') {
+        const tpDistance = Math.abs(tradeData.takeProfit - tradeData.entryPrice);
         const hitRatio = exitDistance / tpDistance;
 
         if (hitRatio >= 0.95) {
@@ -876,15 +1044,86 @@ class PostTradeAnalyzer {
 
       await tpQualityTracker.updateTPOutcome(
         tradeData.id,
-        tpOutcome,
+        tpOutcome === 'near_miss' ? 'stopped_out' : tpOutcome,
         actualRR,
         timeToFillMinutes
       );
+
+      // Write near-miss log record
+      if (nearMissData && peakHitRatio != null) {
+        const pipInfo = getCurrencyPipInfo(tradeData.symbol);
+        const tpDistancePips = Math.abs(tradeData.takeProfit - tradeData.entryPrice) / pipInfo.pipValue;
+        const slDistancePips = Math.abs(tradeData.entryPrice - tradeData.stopLoss) / pipInfo.pipValue;
+
+        const bestPrice = tradeData.direction === 'buy'
+          ? tradeData.entryPrice + (Math.abs(tradeData.takeProfit - tradeData.entryPrice) * peakHitRatio)
+          : tradeData.entryPrice - (Math.abs(tradeData.takeProfit - tradeData.entryPrice) * peakHitRatio);
+
+        await supabase.from('tp_near_miss_log').insert({
+          user_id: tradeData.userId,
+          trade_id: tradeData.id,
+          symbol: tradeData.symbol,
+          direction: tradeData.direction || 'buy',
+          style: tradeData.tradeStyle ?? null,
+          timeframe: tradeData.timeframe ?? null,
+          entry_price: tradeData.entryPrice,
+          stop_loss: tradeData.stopLoss,
+          take_profit: tradeData.takeProfit,
+          peak_price: bestPrice,
+          peak_hit_ratio: peakHitRatio,
+          tp_distance_pips: tpDistancePips,
+          sl_distance_pips: slDistancePips,
+          final_pnl: tradeData.pnl,
+          close_reason: tradeData.closeReason ?? 'manual',
+        });
+      }
+
+      // Write tp1_only log record
+      if (tp1Only && tradeData.tp1Hit) {
+        const { data: tradeRow } = await supabase
+          .from('goal_session_trades')
+          .select('tp1_price, tp2_price, tp1_pnl, max_profit_after_tp1')
+          .eq('id', tradeData.id)
+          .maybeSingle();
+
+        if (tradeRow?.tp1_price) {
+          const priceContPastTp1 = tradeRow.max_profit_after_tp1 != null && tradeRow.max_profit_after_tp1 > (tradeRow.tp1_pnl ?? 0);
+
+          let reversalPips: number | null = null;
+          if (tradeRow.max_profit_after_tp1 != null && tradeRow.tp1_pnl != null) {
+            const pipInfo = getCurrencyPipInfo(tradeData.symbol);
+            const slDist = Math.abs((tradeData.entryPrice ?? 0) - (tradeData.stopLoss ?? 0));
+            const profitDiff = tradeRow.max_profit_after_tp1 - tradeData.pnl;
+            if (slDist > 0) {
+              reversalPips = (profitDiff / slDist) * (1 / pipInfo.pipValue) * slDist;
+            }
+          }
+
+          await supabase.from('tp1_only_log').insert({
+            user_id: tradeData.userId,
+            trade_id: tradeData.id,
+            symbol: tradeData.symbol,
+            direction: tradeData.direction || 'buy',
+            style: tradeData.tradeStyle ?? null,
+            timeframe: tradeData.timeframe ?? null,
+            tp1_price: tradeRow.tp1_price,
+            tp2_price: tradeRow.tp2_price ?? null,
+            tp1_pnl: tradeData.pnl,
+            max_profit_after_tp1: tradeRow.max_profit_after_tp1 ?? null,
+            price_continued_past_tp1: priceContPastTp1,
+            reversal_after_tp1_pips: reversalPips,
+            final_close_reason: tradeData.closeReason ?? 'manual',
+          });
+        }
+      }
 
       logger.info('[Post-Trade Analyzer] TP outcome tracked', {
         tradeId: tradeData.id,
         tpOutcome,
         actualRR,
+        peakHitRatio,
+        nearMiss: !!nearMissData,
+        tp1Only,
         timeToFillMinutes
       });
     } catch (error) {
