@@ -25,6 +25,17 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          // Shared lib singletons — MUST resolve before all app chunks to prevent TDZ
+          if (
+            id.includes('/src/lib/logger') ||
+            id.includes('/src/lib/supabase') ||
+            id.includes('/src/lib/pipnosis-core-rules') ||
+            id.includes('/src/lib/environment') ||
+            id.includes('/src/lib/error-handler')
+          ) {
+            return 'shared-lib';
+          }
+
           // Third-party vendor splits
           if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
             return 'vendor';

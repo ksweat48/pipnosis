@@ -53,17 +53,6 @@ import { CCIPConfidenceGateAdjustment } from './ccip-confidence-gate-adjustment'
 import { safeExtractATRValue } from '../types/atr';
 import { alphaLearningTracker } from './alpha-learning-tracker';
 
-// 🚨 EMERGENCY: Restore full AI trading visibility for autonomous mode debugging
-logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
-console.log('%c[Goal Session Engine] 🔍 AI_TRADING logs set to INFO for autonomous debugging', 'color: #f59e0b; font-weight: bold');
-
-// 📋 CCIP: Register governance changes on module load
-CCIPTradeExecutionTracker.initialize().catch(() => {
-  // Safe-fail: CCIP tracking is non-blocking
-});
-CCIPConfidenceGateAdjustment.initialize().catch(() => {
-  // Safe-fail: CCIP tracking is non-blocking
-});
 
 export interface GoalSessionLiveConfig {
   goalSessionId: string;
@@ -272,6 +261,11 @@ class GoalSessionLiveEngine {
       this.isStopping = false; // RACE CONDITION FIX: Reset stopping flag for new session
       this.scanCompleteNoTrade = false; // SSOT: Reset scan-halt flag for new session
       this.tradeExecutedInSession = false; // GOVERNANCE: Reset trade-executed flag for new session
+
+      logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.INFO);
+
+      CCIPTradeExecutionTracker.initialize().catch(() => {});
+      CCIPConfidenceGateAdjustment.initialize().catch(() => {});
 
       // ✅ CRITICAL: Initialize autonomous Pipnosis Alpha brain
       await eventBasedLLMEngine.initialize(config.userId, config.goalSessionId);
