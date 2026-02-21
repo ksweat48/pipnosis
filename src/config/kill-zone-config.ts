@@ -33,7 +33,7 @@ export interface KillZone {
   quality: 'prime' | 'good' | 'slow' | 'informational';
   description: string;
   cardSuppression: CardSuppression;
-  allowedStyles: ('scalp' | 'micro' | 'intraday')[];
+  allowedStyles: ('scalper' | 'micro' | 'intraday')[];
   confidenceBonus: number;
   color: string;
   badgeColor: string;
@@ -53,7 +53,7 @@ export const KILL_ZONES: KillZone[] = [
     quality: 'prime',
     description: 'Highest volume window of the day. All styles welcome.',
     cardSuppression: 'none',
-    allowedStyles: ['scalp', 'micro', 'intraday'],
+    allowedStyles: ['scalper', 'micro', 'intraday'],
     confidenceBonus: 10,
     color: 'text-green-400',
     badgeColor: 'bg-green-500/20 border-green-500/40 text-green-300',
@@ -66,7 +66,7 @@ export const KILL_ZONES: KillZone[] = [
     quality: 'prime',
     description: 'NY open momentum window. Continuation and reversal plays.',
     cardSuppression: 'none',
-    allowedStyles: ['scalp', 'micro', 'intraday'],
+    allowedStyles: ['scalper', 'micro', 'intraday'],
     confidenceBonus: 8,
     color: 'text-green-400',
     badgeColor: 'bg-green-500/20 border-green-500/40 text-green-300',
@@ -79,7 +79,7 @@ export const KILL_ZONES: KillZone[] = [
     quality: 'prime',
     description: 'London open — highest probability window for Asia range sweeps and BOS.',
     cardSuppression: 'none',
-    allowedStyles: ['scalp', 'micro', 'intraday'],
+    allowedStyles: ['scalper', 'micro', 'intraday'],
     confidenceBonus: 12,
     color: 'text-green-400',
     badgeColor: 'bg-green-500/20 border-green-500/40 text-green-300',
@@ -92,7 +92,7 @@ export const KILL_ZONES: KillZone[] = [
     quality: 'good',
     description: 'Institutional flow visible. Structure trades active.',
     cardSuppression: 'none',
-    allowedStyles: ['scalp', 'micro', 'intraday'],
+    allowedStyles: ['scalper', 'micro', 'intraday'],
     confidenceBonus: 5,
     color: 'text-yellow-400',
     badgeColor: 'bg-yellow-500/20 border-yellow-500/40 text-yellow-300',
@@ -105,7 +105,7 @@ export const KILL_ZONES: KillZone[] = [
     quality: 'good',
     description: 'Reversal potential from London overextension. Scalp favored.',
     cardSuppression: 'none',
-    allowedStyles: ['scalp', 'micro'],
+    allowedStyles: ['scalper', 'micro'],
     confidenceBonus: 0,
     color: 'text-yellow-400',
     badgeColor: 'bg-yellow-500/20 border-yellow-500/40 text-yellow-300',
@@ -118,7 +118,7 @@ export const KILL_ZONES: KillZone[] = [
     quality: 'good',
     description: 'Tokyo session. JPY pairs most active. Range setups form.',
     cardSuppression: 'none',
-    allowedStyles: ['scalp', 'micro'],
+    allowedStyles: ['scalper', 'micro'],
     confidenceBonus: 0,
     color: 'text-yellow-400',
     badgeColor: 'bg-yellow-500/20 border-yellow-500/40 text-yellow-300',
@@ -161,7 +161,7 @@ export interface KillZoneContext {
   nextKillZoneName: KillZoneName | null;
   nextKillZoneLabel: string | null;
   cardSuppression: CardSuppression;
-  allowedStyles: ('scalp' | 'micro' | 'intraday')[];
+  allowedStyles: ('scalper' | 'micro' | 'intraday')[];
   confidenceBonus: number;
   badgeColor: string;
 }
@@ -242,7 +242,7 @@ export function getKillZoneContext(): KillZoneContext {
     nextKillZoneName: nextZone.name,
     nextKillZoneLabel: nextZone.label,
     cardSuppression: stateZone?.cardSuppression ?? 'none',
-    allowedStyles: stateZone?.allowedStyles ?? ['scalp', 'micro', 'intraday'],
+    allowedStyles: stateZone?.allowedStyles ?? ['scalper', 'micro', 'intraday'],
     confidenceBonus: stateZone?.confidenceBonus ?? 0,
     badgeColor: stateZone?.badgeColor ?? 'bg-gray-500/20 border-gray-500/40 text-gray-300',
   };
@@ -264,11 +264,11 @@ export function applyKillZoneConfidenceBonus(
  * Check if a given trade style is allowed to generate trade cards right now.
  */
 export function isStyleAllowedInCurrentWindow(
-  style: 'scalp' | 'micro' | 'intraday'
+  style: 'scalper' | 'micro' | 'intraday'
 ): boolean {
   const context = getKillZoneContext();
   if (context.cardSuppression === 'all') return false;
   if (context.cardSuppression === 'trade_cards') return false;
-  if (!context.killZoneActive) return style === 'scalp'; // scalp survives outside windows
+  if (!context.killZoneActive) return style === 'scalper'; // scalp survives outside windows
   return context.allowedStyles.includes(style);
 }

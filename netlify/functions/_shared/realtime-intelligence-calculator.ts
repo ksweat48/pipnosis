@@ -79,7 +79,7 @@ interface IndicatorResult {
   momentum: boolean;
 }
 
-export type TradeStyle = 'scalp' | 'micro' | 'intraday';
+export type TradeStyle = 'scalper' | 'micro' | 'intraday';
 export type TradeDirection = 'buy' | 'sell';
 
 export const STYLE_TIMEFRAME_MAP: Record<TradeStyle, string> = {
@@ -208,7 +208,7 @@ export class RealTimeIntelligenceCalculator {
       failureReasons: Record<string, string>;
     };
   }> {
-    const styles: TradeStyle[] = ['scalp', 'micro', 'intraday'];
+    const styles: TradeStyle[] = ['scalper', 'micro', 'intraday'];
     const totalAnalyses = symbols.length * styles.length;
     console.log(`[RealTimeIntelligence] Calculating ALL pair scores: ${symbols.length} symbols x ${styles.length} styles = ${totalAnalyses} analyses...`);
 
@@ -342,7 +342,7 @@ export class RealTimeIntelligenceCalculator {
       reasoning.push(`Style blocked by constraint geometry at current price (confidence capped from ${Math.round(confidence)}% to ${Math.round(adjustedConfidence)}%)`);
     }
 
-    const scalpAnalysis = style === 'scalp'
+    const scalpAnalysis = style === 'scalper'
       ? this.analyzeScalpOpportunity(candles, direction, currentPrice, pipInfo.pipValue)
       : undefined;
 

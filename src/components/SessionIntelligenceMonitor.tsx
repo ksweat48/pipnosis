@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { calculateSessionContext, getForexMarketStatus, isSymbolMarketOpen } from '@/utils/marketHours';
 
-type TradeStyle = 'scalp' | 'micro' | 'intraday';
+type TradeStyle = 'scalper' | 'micro' | 'intraday';
 type TradeDirection = 'buy' | 'sell';
 type TimeQuality = 'prime' | 'good' | 'slow';
 
@@ -148,7 +148,7 @@ const STYLE_CONFIG: Record<TradeStyle, {
   glow: string;
   holdTime: string;
 }> = {
-  scalp: {
+  scalper: {
     label: 'Scalp',
     border: 'border-amber-500/40',
     bg: 'bg-gradient-to-br from-amber-950/30 to-amber-900/10',
@@ -843,7 +843,11 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
     }
   };
 
-  const resolveStyle = (pair: BestPair): TradeStyle => pair.tradeStyle ?? 'micro';
+  const resolveStyle = (pair: BestPair): TradeStyle => {
+    const raw = pair.tradeStyle ?? 'micro';
+    if ((raw as string) === 'scalp') return 'scalper';
+    return raw;
+  };
   const resolveDirection = (pair: BestPair): TradeDirection => pair.direction ?? 'buy';
   const resolveTimeframe = (pair: BestPair): string => pair.timeframe ?? 'M15';
 
@@ -906,7 +910,7 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
   };
 
   const getStyleCounts = (): Record<TradeStyle, number> => {
-    const counts: Record<TradeStyle, number> = { scalp: 0, micro: 0, intraday: 0 };
+    const counts: Record<TradeStyle, number> = { scalper: 0, micro: 0, intraday: 0 };
     const allReady = applyMarketFilter(
       (sessionData?.best_pairs ?? [])
         .map(applyScanAlignedCap)
@@ -1060,7 +1064,7 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
     const confidence = pair.tradeConfidence ?? pair.confidence;
     const isBuy = direction === 'buy';
 
-    const isScalp = style === 'scalp';
+    const isScalp = style === 'scalper';
     const momentumPhase = pair.momentumPhase;
     const scalpSubMode = pair.scalpSubMode;
     const scalpPattern = pair.scalpPattern;
@@ -1362,7 +1366,7 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
           >
             All
           </button>
-          {(['scalp', 'micro', 'intraday'] as TradeStyle[]).map((style) => {
+          {(['scalper', 'micro', 'intraday'] as TradeStyle[]).map((style) => {
             const cfg = STYLE_CONFIG[style];
             const count = styleCounts[style];
             return (

@@ -170,6 +170,7 @@ export const handler: Handler = async (event) => {
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
     const styleMap: Record<string, string> = {
+      scalper: 'scalp',
       scalp: 'scalp',
       micro: 'micro_intraday',
       intraday: 'intraday',

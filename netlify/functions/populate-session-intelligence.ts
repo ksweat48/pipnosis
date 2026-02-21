@@ -197,7 +197,7 @@ export const handler: Handler = async (event) => {
       return formatPairData(pair, status);
     });
 
-    const styleLabel = (s: string) => s === 'scalp' ? 'Scalp' : s === 'micro' ? 'Micro' : 'Intraday';
+    const styleLabel = (s: string) => (s === 'scalper' || s === 'scalp') ? 'Scalp' : s === 'micro' ? 'Micro' : 'Intraday';
 
     let recommendationText = '';
     if (isTradable && bestPairs.length > 0) {
