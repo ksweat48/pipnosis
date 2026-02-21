@@ -13,6 +13,7 @@ interface TradeClosureEvent {
   user_id: string;
   goal_session_id: string;
   symbol: string;
+  direction?: string;
   close_price: number;
   close_reason: string;
   pnl: number;
@@ -21,24 +22,41 @@ interface TradeClosureEvent {
   created_at: string;
 }
 
+interface TradeRow {
+  direction: string;
+  entry_price: number;
+  exit_price: number | null;
+  stop_loss: number | null;
+  take_profit: number | null;
+  created_at: string;
+  closed_at: string | null;
+  tp1_hit: boolean | null;
+  tp2_hit: boolean | null;
+  peak_profit: number | null;
+  trade_style: string | null;
+  timeframe: string | null;
+  goal_session_id: string;
+}
+
 /**
  * Process Trade Closures Edge Function
  *
- * Server-side batch processor for trade closure events.
- * Runs every 10 seconds to process unprocessed events.
- * Provides 24/7 processing guarantee even when browser is offline.
+ * CCIP GOVERNANCE (2026-02-21): This is the SOLE AUTHORITATIVE server-side processor
+ * for trade closure events. It must run the COMPLETE post-processing pipeline:
+ *   1. Notification
+ *   2. Session state evaluation
+ *   3. Journal entry creation (SSOT: every trade must have a journal record)
+ *   4. Mark event as processed
  *
- * This function:
- * 1. Fetches unprocessed closure events from database
- * 2. Runs post-processing pipeline for each event
- * 3. Marks events as processed/failed
- * 4. Logs metrics for monitoring
+ * SSOT PRINCIPLE: Journal creation is decoupled from browser availability.
+ * All closed trades MUST have an ai_trade_journal entry regardless of whether
+ * the browser was open at the time of closure.
  *
- * Guarantee: Event is processed within 10 seconds of creation
- * (RPC inserts event, edge function picks it up in next cycle)
+ * The browser-side TradeClosureEventProcessor skips events already marked
+ * succeeded (idempotency guard). This means the edge function is effectively
+ * the PRIMARY processor and must be complete.
  */
 Deno.serve(async (req: Request) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, {
       status: 200,
@@ -62,7 +80,6 @@ Deno.serve(async (req: Request) => {
 
     console.log("[process-trade-closures] Starting batch processing...");
 
-    // Fetch unprocessed events with pessimistic locking
     const { data: events, error: fetchError } = await supabase
       .from("trade_closure_events")
       .select("*")
@@ -102,7 +119,6 @@ Deno.serve(async (req: Request) => {
     let processedCount = 0;
     let failedCount = 0;
 
-    // Process each event
     for (const event of events) {
       try {
         const result = await processClosureEvent(supabase, event);
@@ -116,7 +132,6 @@ Deno.serve(async (req: Request) => {
         console.error(`[process-trade-closures] Error processing event ${event.id}:`, error);
         failedCount++;
 
-        // Mark event as failed
         await supabase
           .from("trade_closure_events")
           .update({
@@ -156,8 +171,11 @@ Deno.serve(async (req: Request) => {
 });
 
 /**
- * Process a single closure event
- * Runs the post-processing pipeline and marks event as processed
+ * Process a single closure event — FULL pipeline
+ *
+ * SSOT: This function is responsible for ALL post-trade processing when running
+ * server-side. It must be functionally equivalent to the browser-side
+ * TradeClosureEventProcessor.processEvent().
  */
 async function processClosureEvent(
   supabase: ReturnType<typeof createClient>,
@@ -167,11 +185,15 @@ async function processClosureEvent(
 
   try {
     console.log(
-      `[process-trade-closures] Processing event ${event.id} for trade ${event.trade_id}`
+      `[process-trade-closures] Processing event ${event.id} for trade ${event.trade_id} (${event.symbol} ${event.close_reason})`
     );
 
-    // Step 1: Mark as being processed (prevent concurrent processing)
-    // This is a soft lock - we update immediately without waiting for full processing
+    // Step 1: Fetch full trade data (needed for journal + learning pipeline)
+    const { data: tradeRow } = await supabase
+      .from("goal_session_trades")
+      .select("direction, entry_price, exit_price, stop_loss, take_profit, created_at, closed_at, tp1_hit, tp2_hit, peak_profit, trade_style, timeframe, goal_session_id")
+      .eq("id", event.trade_id)
+      .maybeSingle() as { data: TradeRow | null };
 
     // Step 2: Send notification
     try {
@@ -195,29 +217,31 @@ async function processClosureEvent(
         `[process-trade-closures] Notification failed for event ${event.id}:`,
         notificationError
       );
-      // Continue processing even if notification fails
     }
 
     // Step 3: Evaluate session state
+    // CCIP GOVERNANCE (2026-02-18): After all trades close, session MUST stop.
     try {
       const { data: session } = await supabase
         .from("goal_sessions")
         .select("id, status")
         .eq("id", event.goal_session_id)
-        .single();
+        .maybeSingle();
 
-      if (session) {
-        // Count remaining open trades
+      if (session && session.status !== "goal_achieved" && session.status !== "user_stopped" && session.status !== "stopped" && session.status !== "timeout") {
         const { count: openTradeCount } = await supabase
           .from("goal_session_trades")
           .select("id", { count: "exact" })
           .eq("goal_session_id", event.goal_session_id)
           .eq("status", "open");
 
-        // CCIP GOVERNANCE (2026-02-18): After all trades close, session MUST stop.
-        // Auto-restarting scanning after a trade closes is explicitly prohibited.
-        // Users must manually start a new session. No exceptions.
-        if (openTradeCount === 0 && session.status !== "goal_achieved" && session.status !== "user_stopped") {
+        if (openTradeCount === 0) {
+          await supabase
+            .from("entry_intents")
+            .update({ status: "canceled", canceled_at: new Date().toISOString(), conditions_changed_at: new Date().toISOString() })
+            .eq("session_id", event.goal_session_id)
+            .not("status", "in", '("canceled","expired_no_entry")');
+
           await supabase
             .from("goal_sessions")
             .update({
@@ -229,7 +253,7 @@ async function processClosureEvent(
             .in("status", ["scanning", "active", "initializing", "in_trade", "trade_pending", "soft_closing"]);
 
           console.log(
-            `[process-trade-closures] GOVERNANCE: Session ${event.goal_session_id} stopped after all trades closed (was: ${session.status})`
+            `[process-trade-closures] GOVERNANCE: Session ${event.goal_session_id} stopped after all trades closed`
           );
         }
       }
@@ -240,7 +264,25 @@ async function processClosureEvent(
       );
     }
 
-    // Step 4: Mark event as processed
+    // Step 4: SSOT Journal Creation
+    // Every closed trade MUST have an ai_trade_journal entry.
+    // This is the authoritative server-side implementation of the journal pipeline.
+    // The browser-side TradeClosureEventProcessor.processEvent() calls postTradeAnalyzer
+    // which does the same thing — but since the edge function marks events as "succeeded"
+    // first, the browser is locked out by the idempotency guard.
+    // Resolution: The edge function OWNS journal creation for ALL server-processed trades.
+    try {
+      await ensureJournalEntry(supabase, event, tradeRow);
+    } catch (journalError) {
+      console.error(
+        `[process-trade-closures] Journal creation failed for trade ${event.trade_id}:`,
+        journalError
+      );
+      // Do NOT fail the entire event for a journal error — notification + session state
+      // already ran. Log and continue so the event can be marked succeeded.
+    }
+
+    // Step 5: Mark event as processed
     const now = new Date().toISOString();
     const { error: updateError } = await supabase
       .from("trade_closure_events")
@@ -265,7 +307,6 @@ async function processClosureEvent(
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`[process-trade-closures] Event processing failed:`, errorMessage);
 
-    // Mark event as failed
     try {
       await supabase
         .from("trade_closure_events")
@@ -283,6 +324,161 @@ async function processClosureEvent(
 
     return { success: false, error: errorMessage };
   }
+}
+
+/**
+ * Ensure a journal entry exists for the closed trade.
+ *
+ * SSOT: This mirrors the logic in PostTradeAnalyzer.createRetroactiveJournalEntry()
+ * and PostTradeAnalyzer.updateJournalWithClosureData(). It is intentionally a
+ * simplified server-side version that does not require the browser context or
+ * the full learning pipeline (AI learning tables are populated when the browser
+ * processes the event, or via backfill).
+ *
+ * Idempotent: uses upsert on trade_id conflict so double-processing is safe.
+ */
+async function ensureJournalEntry(
+  supabase: ReturnType<typeof createClient>,
+  event: TradeClosureEvent,
+  tradeRow: TradeRow | null
+): Promise<void> {
+  // Check if journal entry already exists — avoid unnecessary writes
+  const { data: existing } = await supabase
+    .from("ai_trade_journal")
+    .select("id, journal_stage")
+    .eq("trade_id", event.trade_id)
+    .maybeSingle();
+
+  const direction = tradeRow?.direction ?? event.direction ?? "buy";
+  const entryPrice = tradeRow?.entry_price ?? 0;
+  const exitPrice = tradeRow?.exit_price ?? event.close_price;
+  const stopLoss = tradeRow?.stop_loss ?? null;
+  const takeProfit = tradeRow?.take_profit ?? null;
+  const entryTime = tradeRow?.created_at ?? event.created_at;
+  const exitTime = tradeRow?.closed_at ?? new Date().toISOString();
+  const tp1Hit = tradeRow?.tp1_hit ?? false;
+  const tp2Hit = tradeRow?.tp2_hit ?? false;
+  const closeReason = event.close_reason;
+  const pnl = event.pnl;
+
+  const outcome = pnl > 0 ? "win" : pnl < 0 ? "loss" : "breakeven";
+
+  const journalStage = determineJournalStage(closeReason, tp1Hit, tp2Hit);
+  const actualOutcome = buildActualOutcomeText(closeReason, pnl, exitPrice, tp1Hit, tp2Hit);
+
+  if (!existing) {
+    // Create new journal entry
+    const insertData: Record<string, unknown> = {
+      user_id: event.user_id,
+      trade_id: event.trade_id,
+      symbol: event.symbol,
+      direction,
+      entry_time: entryTime,
+      entry_price: entryPrice,
+      stop_loss: stopLoss,
+      take_profit: takeProfit,
+      exit_time: exitTime,
+      exit_price: exitPrice,
+      llm_reasoning: `${direction.toUpperCase()} trade on ${event.symbol}. Close reason: ${closeReason}.`,
+      market_read: entryPrice > 0
+        ? `Trade opened at ${entryPrice}.`
+        : "Entry conditions were not captured at open time.",
+      expected_outcome: takeProfit && stopLoss
+        ? `Expected TP at ${takeProfit}, SL at ${stopLoss}.`
+        : "Target levels not recorded.",
+      pattern_identified: "System Trade",
+      conviction_level: 70,
+      rank_at_time: "System",
+      outcome,
+      actual_outcome: actualOutcome,
+      journal_entry_type: "trade",
+      journal_stage: journalStage,
+      pnl,
+    };
+
+    if (tp1Hit && pnl !== null) {
+      insertData.tp1_pnl = pnl;
+      insertData.tp1_exit_price = exitPrice;
+    }
+    if (tp2Hit && pnl !== null) {
+      insertData.tp2_pnl = pnl;
+      insertData.tp2_exit_price = exitPrice;
+    }
+
+    const { error } = await supabase
+      .from("ai_trade_journal")
+      .upsert(insertData, { onConflict: "trade_id" });
+
+    if (error) {
+      throw new Error(`Failed to upsert journal entry: ${error.message}`);
+    }
+
+    console.log(`[process-trade-closures] Journal entry created for trade ${event.trade_id} (${event.symbol} ${closeReason})`);
+  } else {
+    // Update existing entry with closure data if it's still in "open" stage
+    if (existing.journal_stage === "open" || existing.journal_stage === null) {
+      const updateData: Record<string, unknown> = {
+        outcome,
+        pnl,
+        exit_time: exitTime,
+        exit_price: exitPrice,
+        actual_outcome: actualOutcome,
+        journal_stage: journalStage,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (tp1Hit) {
+        updateData.tp1_pnl = pnl;
+        updateData.tp1_exit_price = exitPrice;
+      }
+      if (tp2Hit) {
+        updateData.tp2_pnl = pnl;
+        updateData.tp2_exit_price = exitPrice;
+      }
+
+      await supabase
+        .from("ai_trade_journal")
+        .update(updateData)
+        .eq("id", existing.id);
+
+      console.log(`[process-trade-closures] Journal entry updated for trade ${event.trade_id} (was: ${existing.journal_stage} -> ${journalStage})`);
+    } else {
+      console.log(`[process-trade-closures] Journal entry already in final stage (${existing.journal_stage}) for trade ${event.trade_id} — skipping`);
+    }
+  }
+}
+
+/**
+ * Determine the journal stage based on close reason and TP flags
+ */
+function determineJournalStage(closeReason: string, tp1Hit: boolean, tp2Hit: boolean): string {
+  if (tp2Hit || closeReason === "take_profit_2") return "tp2_hit";
+  if (tp1Hit || closeReason === "take_profit_1") return "tp1_hit";
+  if (closeReason === "goal_achieved") return "goal_achieved";
+  return "final";
+}
+
+/**
+ * Build a human-readable actual outcome text
+ */
+function buildActualOutcomeText(
+  closeReason: string,
+  pnl: number,
+  exitPrice: number,
+  tp1Hit: boolean,
+  tp2Hit: boolean
+): string {
+  const sign = pnl >= 0 ? "+" : "";
+  const pnlStr = `${sign}$${Math.abs(pnl).toFixed(2)}`;
+
+  if (tp2Hit || closeReason === "take_profit_2") return `TP2 hit at ${exitPrice} — ${pnlStr}`;
+  if (tp1Hit || closeReason === "take_profit_1") return `TP1 hit at ${exitPrice} — ${pnlStr}`;
+  if (closeReason === "take_profit") return `Take profit hit at ${exitPrice} — ${pnlStr}`;
+  if (closeReason === "stop_loss") return `Stop loss hit at ${exitPrice} — ${pnlStr}`;
+  if (closeReason === "goal_achieved") return `Goal achieved — closed at ${pnlStr}`;
+  if (pnl > 0) return `Closed manually for a profit of ${pnlStr} (${closeReason})`;
+  if (pnl < 0) return `Closed with a loss of ${pnlStr} (${closeReason})`;
+  return `Closed at breakeven (${closeReason})`;
 }
 
 /**

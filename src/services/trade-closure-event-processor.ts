@@ -68,18 +68,40 @@ export class TradeClosureEventProcessor {
     try {
       logger.info('[TradeClosureEventProcessor] Processing event', { eventId, tradeId: event.trade_id });
 
-      // Step 1: Check if already processed (idempotency guard)
+      // Step 1: Idempotency guard — skip ONLY if both event is marked processed
+      // AND the journal entry actually exists for the trade.
+      //
+      // CCIP FIX (2026-02-21): Previously this guard skipped all processing when
+      // last_processed_at was set, even if the server-side edge function had already
+      // marked the event "succeeded" WITHOUT creating a journal entry. This caused
+      // 78+ trades to have no journal record because the edge function won the race.
+      // Now we always verify the journal entry exists before yielding.
       if (event.last_processed_at !== null) {
-        logger.debug('[TradeClosureEventProcessor] Event already processed, skipping', {
+        const { data: existingJournal } = await supabase
+          .from('ai_trade_journal')
+          .select('id')
+          .eq('trade_id', event.trade_id)
+          .maybeSingle();
+
+        if (existingJournal) {
+          logger.debug('[TradeClosureEventProcessor] Event already processed and journal exists, skipping', {
+            eventId,
+            processedAt: event.last_processed_at,
+          });
+          return {
+            success: true,
+            eventId,
+            processedAt: event.last_processed_at,
+            processingTime: 0,
+          };
+        }
+
+        // Journal missing despite event being "succeeded" — edge function processed
+        // without creating journal. Fall through to run the full pipeline.
+        logger.warn('[TradeClosureEventProcessor] Event marked processed but journal missing — running post-trade analysis', {
           eventId,
-          processedAt: event.last_processed_at,
+          tradeId: event.trade_id,
         });
-        return {
-          success: true,
-          eventId,
-          processedAt: event.last_processed_at,
-          processingTime: 0,
-        };
       }
 
       // Step 2: Send notification
