@@ -5,7 +5,6 @@ import {
   Clock,
   TrendingUp,
   TrendingDown,
-  BarChart3,
   RefreshCw,
   Sun,
   Moon,
@@ -15,8 +14,6 @@ import {
   Activity,
   MapPin,
   Flame,
-  ArrowRight,
-  Layers,
   Target,
   Shield,
   ChevronRight,
@@ -1066,9 +1063,6 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
 
     const isScalp = style === 'scalper';
     const momentumPhase = pair.momentumPhase;
-    const scalpSubMode = pair.scalpSubMode;
-    const scalpPattern = pair.scalpPattern;
-    const subModeConfig = scalpSubMode ? SCALP_SUBMODE_CONFIG[scalpSubMode] : null;
 
     const phaseGlowClass = isScalp && momentumPhase === 'starting'
       ? 'shadow-[0_0_12px_rgba(251,191,36,0.25)]'
@@ -1080,13 +1074,21 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
       ? 'text-green-400'
       : confidence >= 70
         ? 'text-yellow-400'
-        : 'text-blue-400';
+        : 'text-gray-500';
 
-    const confidenceIconColor = confidence >= 85
-      ? 'text-green-400'
+    const confidenceVerdict = confidence >= 85
+      ? 'Strong'
       : confidence >= 70
-        ? 'text-yellow-400'
-        : 'text-blue-400';
+        ? 'Watch'
+        : confidence >= 50
+          ? 'Weak'
+          : 'Skip';
+
+    const verdictColor = confidence >= 85
+      ? 'text-green-500'
+      : confidence >= 70
+        ? 'text-yellow-500'
+        : 'text-gray-600';
 
     return (
       <div
@@ -1158,84 +1160,18 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
             </div>
           </div>
 
-          <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-3">
-            <div className="flex items-center gap-1.5">
-              <BarChart3 className={`w-4 h-4 ${confidenceIconColor}`} />
-              <span className={`text-lg font-bold ${confidenceColor}`}>
-                {confidence}%
-              </span>
-            </div>
-            {pair.alignedIndicators !== undefined && pair.totalIndicators !== undefined && (
-              <span className="text-xs text-gray-500">
-                {pair.alignedIndicators}/{pair.totalIndicators} aligned
-              </span>
-            )}
+          <div className="flex flex-col items-end gap-0.5 flex-shrink-0 ml-3">
+            <span className={`text-xl font-bold ${confidenceColor}`}>
+              {confidence}%
+            </span>
+            <span className={`text-[10px] font-semibold uppercase tracking-wide ${verdictColor}`}>
+              {confidenceVerdict}
+            </span>
           </div>
         </div>
 
-        {isScalp && (scalpSubMode || momentumPhase) && (
-          <div className="flex items-center gap-2 mb-2.5 flex-wrap">
-            {scalpSubMode && subModeConfig && (
-              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold ${subModeConfig.bg} ${subModeConfig.border} ${subModeConfig.color}`}>
-                {scalpSubMode === 'momentum_continuation' && <Zap className="w-2.5 h-2.5" />}
-                {scalpSubMode === 'pullback_entry' && <ArrowRight className="w-2.5 h-2.5 rotate-90" />}
-                {scalpSubMode === 'consolidation_breakout' && <Layers className="w-2.5 h-2.5" />}
-                {subModeConfig.label}
-              </span>
-            )}
-            {scalpPattern && scalpPattern !== 'none' && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium bg-slate-700/50 border-slate-600/40 text-slate-300">
-                {SCALP_PATTERN_LABELS[scalpPattern]}
-              </span>
-            )}
-            {(momentumPhase === 'starting' || momentumPhase === 'developing') && (
-              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium ${
-                momentumPhase === 'starting'
-                  ? 'bg-green-500/15 border-green-500/40 text-green-400'
-                  : 'bg-yellow-500/15 border-yellow-500/40 text-yellow-400'
-              }`}>
-                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                  momentumPhase === 'starting'
-                    ? 'bg-green-400 animate-pulse'
-                    : 'bg-yellow-400'
-                }`} />
-                {momentumPhase === 'starting' ? 'Starting' : 'Developing'}
-              </span>
-            )}
-          </div>
-        )}
-
-        {isScalp && scalpSubMode && subModeConfig && (
-          <p className="text-[10px] text-slate-500 mb-2 leading-tight">{subModeConfig.desc}</p>
-        )}
-
-        {pair.indicatorAlignment && (
-          <div className="flex flex-wrap gap-1 mb-2">
-            {Object.entries(pair.indicatorAlignment).map(([key, aligned]) => (
-              <span
-                key={key}
-                className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                  aligned
-                    ? 'bg-green-500/15 text-green-400 border border-green-500/20'
-                    : 'bg-gray-800/50 text-gray-600 border border-gray-700/20'
-                }`}
-              >
-                {key === 'volumePressure'
-                  ? 'Vol'
-                  : key === 'candlePattern'
-                    ? 'Pattern'
-                    : key === 'ema20'
-                      ? 'EMA20'
-                      : key === 'ema50'
-                        ? 'EMA50'
-                        : key.charAt(0).toUpperCase() + key.slice(1)}
-              </span>
-            ))}
-          </div>
-        )}
-
         {pair.reasoning && (
-          <p className="text-xs text-gray-400 leading-relaxed mb-3">{pair.reasoning}</p>
+          <p className="text-xs text-gray-400 leading-snug mb-3 line-clamp-2">{pair.reasoning}</p>
         )}
 
         <button
