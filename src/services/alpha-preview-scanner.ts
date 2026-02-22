@@ -14,7 +14,9 @@
  * Governance:
  * - Eliminates the dual-system problem: IM cards now show Alpha's real %
  * - Works standalone (no active goal session required)
- * - 60-second client-side cooldown to prevent API hammering
+ * - Cooldown is enforced platform-wide via platformScanManager (database timestamp)
+ *   NOT per-instance memory. SessionIntelligenceMonitor checks cooldown before
+ *   calling scan(). This scanner only enforces in-flight deduplication.
  * - Market hours awareness: crypto-only filter when forex closed
  */
 
@@ -51,7 +53,6 @@ export interface AlphaPreviewScanResult {
   scanDurationMs: number;
 }
 
-const COOLDOWN_MS = 60_000;
 const SCAN_TIMEOUT_MS = 180_000;
 
 const STYLE_TO_TIMEFRAME: Record<string, string> = {
@@ -79,17 +80,7 @@ const DEFAULT_TRADER_SCORE: TraderScore = {
 };
 
 class AlphaPreviewScanner {
-  private lastScanTime = 0;
   private scanning = false;
-
-  get isOnCooldown(): boolean {
-    return Date.now() - this.lastScanTime < COOLDOWN_MS;
-  }
-
-  get cooldownSecondsRemaining(): number {
-    const elapsed = Date.now() - this.lastScanTime;
-    return Math.max(0, Math.ceil((COOLDOWN_MS - elapsed) / 1000));
-  }
 
   get isScanning(): boolean {
     return this.scanning;
@@ -98,9 +89,6 @@ class AlphaPreviewScanner {
   async scan(): Promise<AlphaPreviewScanResult> {
     if (this.scanning) {
       throw new Error('Scan already in progress');
-    }
-    if (this.isOnCooldown) {
-      throw new Error(`Cooldown active — ${this.cooldownSecondsRemaining}s remaining`);
     }
 
     this.scanning = true;
@@ -112,7 +100,6 @@ class AlphaPreviewScanner {
       const uniqueSymbols = [...new Set(symbols)];
 
       if (uniqueSymbols.length === 0) {
-        this.lastScanTime = Date.now();
         return {
           ready: [],
           heatingCount: 0,
@@ -126,7 +113,6 @@ class AlphaPreviewScanner {
       const tradeableSnapshots = snapshotResult.snapshots.filter((s) => s.tradeable);
 
       if (tradeableSnapshots.length === 0) {
-        this.lastScanTime = Date.now();
         return {
           ready: [],
           heatingCount: 0,
@@ -215,8 +201,6 @@ class AlphaPreviewScanner {
       }
 
       ready.sort((a, b) => b.confidence - a.confidence);
-
-      this.lastScanTime = Date.now();
 
       return {
         ready,

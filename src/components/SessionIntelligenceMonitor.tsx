@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Clock,
@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { calculateSessionContext, getForexMarketStatus, isSymbolMarketOpen } from '@/utils/marketHours';
 import { alphaPreviewScanner, type AlphaPreviewCard, type AlphaPreviewScanResult } from '@/services/alpha-preview-scanner';
+import { platformScanManager, type PlatformScanState } from '@/services/platform-scan-manager';
 
 type TradeStyle = 'scalper' | 'micro' | 'intraday';
 type TimeQuality = 'prime' | 'good' | 'slow';
@@ -483,6 +484,16 @@ const STYLE_NORMALISE: Record<string, TradeStyle> = {
   INTRADAY: 'intraday',
 };
 
+function buildPreviewResultFromPlatformState(state: PlatformScanState): AlphaPreviewScanResult {
+  return {
+    ready: state.readyCards,
+    heatingCount: state.heatingCount,
+    scannedCount: state.scannedCount,
+    scannedAt: state.scannedAt,
+    scanDurationMs: state.scanDurationMs,
+  };
+}
+
 export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProps> = ({
   sessionId,
   userId,
@@ -494,16 +505,87 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
   const [scanState, setScanState] = useState<ScanState>('idle');
   const [scanError, setScanError] = useState<string | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const [lastScannedAt, setLastScannedAt] = useState<Date | null>(null);
+  const [relativeTime, setRelativeTime] = useState<string>('');
 
   const [isForexMarketClosed, setIsForexMarketClosed] = useState(
     () => !getForexMarketStatus().isOpen
   );
+
+  const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const relativeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const applyPlatformState = useCallback((state: PlatformScanState) => {
+    setPreviewResult(buildPreviewResultFromPlatformState(state));
+    setLastScannedAt(state.scannedAt);
+
+    if (state.isOnCooldown) {
+      setScanState('cooldown');
+      setCooldownSeconds(state.secondsUntilCooldownExpires);
+    } else {
+      if (cooldownTimerRef.current) {
+        clearInterval(cooldownTimerRef.current);
+        cooldownTimerRef.current = null;
+      }
+      setScanState((prev) => (prev === 'cooldown' ? 'idle' : prev));
+    }
+  }, []);
+
+  useEffect(() => {
+    platformScanManager.getLatestScan().then((state) => {
+      if (state) applyPlatformState(state);
+    });
+
+    const unsubscribe = platformScanManager.subscribeToUpdates((state) => {
+      applyPlatformState(state);
+    });
+
+    return unsubscribe;
+  }, [applyPlatformState]);
 
   useEffect(() => {
     const checkMarket = () => setIsForexMarketClosed(!getForexMarketStatus().isOpen);
     const interval = setInterval(checkMarket, 60000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (!lastScannedAt) return;
+
+    const updateRelative = () => {
+      setRelativeTime(platformScanManager.formatRelativeTime(lastScannedAt));
+    };
+    updateRelative();
+
+    if (relativeTimerRef.current) clearInterval(relativeTimerRef.current);
+    relativeTimerRef.current = setInterval(updateRelative, 15000);
+
+    return () => {
+      if (relativeTimerRef.current) clearInterval(relativeTimerRef.current);
+    };
+  }, [lastScannedAt]);
+
+  useEffect(() => {
+    if (scanState !== 'cooldown' || cooldownSeconds <= 0) return;
+
+    if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+
+    cooldownTimerRef.current = setInterval(() => {
+      setCooldownSeconds((s) => {
+        if (s <= 1) {
+          if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+          cooldownTimerRef.current = null;
+          setScanState('idle');
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+    };
+  }, [scanState, cooldownSeconds]);
 
   const handleScanNow = useCallback(async () => {
     if (scanState === 'scanning' || scanState === 'cooldown') return;
@@ -513,7 +595,11 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
 
     try {
       const result = await alphaPreviewScanner.scan();
+
+      await platformScanManager.storeScanResult(result);
+
       setPreviewResult(result);
+      setLastScannedAt(result.scannedAt);
       setScanState('done');
 
       setTimeout(() => {
@@ -522,31 +608,11 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
       }, 2500);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Scan failed';
-      if (msg.startsWith('Cooldown active')) {
-        setScanState('cooldown');
-        setCooldownSeconds(alphaPreviewScanner.cooldownSecondsRemaining);
-      } else {
-        setScanState('error');
-        setScanError(msg);
-        setTimeout(() => setScanState('idle'), 5000);
-      }
+      setScanState('error');
+      setScanError(msg);
+      setTimeout(() => setScanState('idle'), 5000);
     }
   }, [scanState]);
-
-  useEffect(() => {
-    if (scanState !== 'cooldown' || cooldownSeconds <= 0) return;
-    const timer = setInterval(() => {
-      setCooldownSeconds((s) => {
-        if (s <= 1) {
-          clearInterval(timer);
-          setScanState('idle');
-          return 0;
-        }
-        return s - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [scanState, cooldownSeconds]);
 
   const resolveStyle = (card: AlphaPreviewCard): TradeStyle => {
     return STYLE_NORMALISE[card.tradeStyle] ?? 'micro';
@@ -682,6 +748,9 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
   const styleCounts = getStyleCounts();
   const hasResults = previewResult !== null;
 
+  void sessionId;
+  void userId;
+
   return (
     <div className="relative group">
       <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl opacity-20 group-hover:opacity-30 transition duration-300 blur" />
@@ -694,16 +763,23 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
             </div>
             <div>
               <h3 className="text-lg font-bold text-white">Real-Time Intelligence</h3>
-              <p className="text-sm text-blue-300">
-                {isForexMarketClosed
-                  ? 'Crypto Only (Weekend)'
-                  : 'Alpha Pipeline Preview'}
-                {hasResults && previewResult && (
-                  <span className="text-blue-400/70 ml-1">
-                    · Last: {previewResult.scannedAt.toLocaleTimeString()}
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <p className="text-sm text-blue-300">
+                  {isForexMarketClosed
+                    ? 'Crypto Only (Weekend)'
+                    : 'Alpha Pipeline Preview'}
+                </p>
+                {relativeTime && (
+                  <span className="text-[11px] text-blue-400/60">
+                    · {relativeTime}
                   </span>
                 )}
-              </p>
+                {!relativeTime && (
+                  <span className="text-[11px] text-blue-400/40">
+                    · never scanned
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -724,7 +800,7 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
               }`}
               title={
                 scanState === 'cooldown'
-                  ? `Cooldown: ${cooldownSeconds}s`
+                  ? `Cooldown: ${cooldownSeconds}s remaining`
                   : 'Run Alpha pipeline scan across all pairs'
               }
             >
