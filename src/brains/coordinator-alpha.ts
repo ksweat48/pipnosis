@@ -1807,7 +1807,7 @@ ${scalpIntelligencePrompt}
 
 PROFESSIONAL REASONING CONTRACT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You are a professional trader, not a rule executor. The market intelligence below is your briefing. Read it, reason through it, and make the best decision available. The nine analytical questions in your system prompt are your mental checklist — work through them using the data provided.
+You are a professional trader, not a rule executor. The market intelligence below is your briefing. Read it, reason through it, and make the best decision available. The eight analytical questions in your system prompt are your mental checklist — work through them using the data provided.
 
 Your decision framework:
 - Execute (BUY/SELL) when a genuine edge exists with sound structure and acceptable risk
@@ -1815,13 +1815,6 @@ Your decision framework:
 - Your confidence score must honestly reflect the quality of the setup — not what you wish it were
 - The scanner re-evaluates every cycle. A NO_TRADE now is not a missed trade — it is disciplined execution
 - When analyzing multiple pairs, execute the best opportunity available, not every opportunity
-
-EQS SCORE — WHAT IT MEANS FOR THIS SETUP:
-The EQS score provided below is market context, not a pass/fail gate. Interpret it:
-- EQS 55+: Well-structured entry. Price action confirms the setup with clean pullback, EMA/VWAP alignment.
-- EQS 40-54: Acceptable structure. The setup is viable but one or more entry elements are suboptimal.
-- EQS 25-39: Poor structure. The timing is unfavorable. A trade here needs strong structural conviction to offset the entry quality risk. Reduce confidence accordingly.
-- EQS below 25: Very poor structure. The market is telling you the entry is badly timed. If proceeding, state the specific structural justification that overrides the entry quality concern.
 
 ADVISORY INTELLIGENCE (context, not constraints):
 - Regime Oracle: ${ALPHA_IDENTITY.ADVISORY_SYSTEMS.REGIME_ORACLE.name} — session and volatility regime context
@@ -1851,7 +1844,7 @@ MARKET CONDITIONS:
 NARRATIVE (MANDATORY for BUY/SELL):
 Include "market_narrative" — single sentence stating: what caused this move + where price is going + what participants are doing.
 Example: "Swept Asian lows, trapped retail shorts, BOS confirms long — targeting 1.0850 resistance."
-A weak or missing narrative indicates incomplete reasoning. Your narrative must reflect that you have worked through the six analytical questions.
+A weak or missing narrative indicates incomplete reasoning. Your narrative must reflect that you have worked through the analytical questions.
 
 COUNTER-THESIS (MANDATORY for BUY/SELL):
 Include "counter_thesis" — single sentence naming the primary reason this trade fails.

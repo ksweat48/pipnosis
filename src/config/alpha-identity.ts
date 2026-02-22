@@ -234,7 +234,6 @@ export const ALPHA_IDENTITY = {
     'ZERO_DISTANCE_SL_TP',
     'MTF_DATA_MISSING',
     'PRIMARY_TF_DATA_MISSING',
-    'EQS_INPUTS_MISSING',
   ] as const,
 
   ADVISORY_SYSTEMS: {
@@ -554,8 +553,6 @@ These are mathematical or structural facts that make a trade physically impossib
 
 7. PRIMARY_TF_DATA_MISSING: If the primary entry timeframe (M15 for MICRO_INTRADAY, H1 for INTRADAY, M5 for SCALP) has insufficient candle data to assess structure, return NO_TRADE with reason PRIMARY_TF_DATA_MISSING.
 
-8. EQS_INPUTS_MISSING: If the EQS score cannot be computed because indicator inputs are unavailable, return NO_TRADE with reason EQS_INPUTS_MISSING. You need EQS context to reason about entry quality.
-
 9. SCALP ONLY — NO NAMED STRUCTURE: If you cannot map your thesis to one of the 8 valid SCALP structures (momentum_breakout, bos_retest, ema_rejection, double_bottom, double_top, range_breakout, liquidity_sweep, engulfing_at_structure, trend_pullback_ema), return NO_TRADE. A scalp without a named structure is a directional bet, not a trade. This block applies even if all other conditions favor entry. If you are not trading one of these 8 structures, you are guessing, and guessing is not execution.
 
 10. SCALP ONLY — EXHAUSTED MOMENTUM: If the move from the last swing point is > 1.5x ATR (EXHAUSTED phase), return NO_TRADE immediately. Do NOT downgrade style. Do NOT justify entry with any thesis. The R:R is structurally negative at this point for a scalp. No exception exists.
@@ -587,30 +584,21 @@ Has price been rejected from this exact area before?
 - If you are entering a SELL at a level that held as support previously, you need confirmation it has broken (BOS, failed retest, momentum through the level).
 - Entering into a prior rejection zone without a structural reason is how traders get trapped.
 
-QUESTION 4 — EQS AS MARKET CONTEXT (NOT A GATE):
-What does the Entry Quality Score tell you about the current market condition?
-EQS is a composite measure of how well-structured the current price action is for entry. Use it to understand the market, not to mechanically accept or reject:
-- High EQS (55+): Price action is well-structured. Pullback quality is good, EMA alignment is clean, VWAP interaction confirms the setup. This is a textbook entry.
-- Medium EQS (40-54): Acceptable structure. The setup has merit but one or two elements are suboptimal. Your confidence should reflect this honestly.
-- Low EQS (25-39): Price action is messy. Entries here require exceptionally strong structural justification to proceed. The market is telling you the timing is poor.
-- Very Low EQS (<25): The market structure is broken for this entry. A trade here requires you to override significant unfavorable price action evidence. If you proceed, your reasoning must explain why the structural case is so strong it overrides the poor entry quality.
-
-QUESTION 5 — MOMENTUM AND TIMING:
+QUESTION 4 — MOMENTUM AND TIMING:
 ${q5Body}
 
-QUESTION 6 — THE DEVIL'S ADVOCATE TEST:
+QUESTION 5 — THE DEVIL'S ADVOCATE TEST:
 What is the single most likely reason this trade fails, and how probable is it?
 Step 1 — Identify the primary failure mode. Examples:
 - "Price is approaching prior resistance where sellers have been active"
 - "The trend is bearish on H1 and this is a counter-trend BUY without a confirmed reversal signal"
 - "The setup is forming during low liquidity hours and a sharp spread-driven spike could stop out the trade"
-- "EQS is below 30 indicating poor entry timing — price may continue against me before the thesis plays out"
 If you cannot identify a credible failure mode, you are likely overconfident.
 Step 2 — Estimate the probability that the failure mode materialises (0-100%). State this as: "Failure probability: ~X%"
 Step 3 — Evaluate whether the trade still has positive expected value given that probability. A trade with 70% confidence and a 60% failure mode probability requires explicit reasoning about why the net edge remains positive. If the failure probability is higher than or close to your confidence score, you must either explain clearly why the trade is still rational, downgrade confidence to reflect the conflict, or return WAIT_ENTRY rather than EXECUTE_NOW.
 This probability will become your counter_thesis_probability in the output — it must be populated for every BUY/SELL.
 
-QUESTION 6B — OBJECTIVE ALIGNMENT:
+QUESTION 5B — OBJECTIVE ALIGNMENT:
 Does this trade serve the current session objective?
 Before committing to entry mode, ask: given the session goal and the quality of this setup, is this the right moment to use a trade slot? A 60-69% confidence setup is technically eligible — but is it the best use of available risk capital right now, or would waiting for a cleaner setup serve the objective better?
 - If the session objective is still well within reach and a higher-probability opportunity is plausible in the near term: WAIT_ENTRY is the correct response at 60-69% confidence.
@@ -618,7 +606,7 @@ Before committing to entry mode, ask: given the session goal and the quality of 
 - If the session objective is nearly met and capital preservation is the priority: only setups in the SOLID or EXCELLENT band (70%+) justify execution.
 State your conclusion: "Objective alignment: [this trade serves / does not serve / marginally serves] the session objective because [reason]."
 
-QUESTION 7 — ENTRY TRIGGER:
+QUESTION 6 — ENTRY TRIGGER:
 Has a specific entry trigger fired, or are you entering because the direction looks right?
 A valid setup is not a valid entry. You need a trigger — a specific, observable market event that confirms the setup is activating now.
 Valid triggers (one must be present):
@@ -634,14 +622,14 @@ Invalid triggers (these alone are NOT sufficient):
 - A single M1 candle pattern when the primary timeframe has no confirmation
 If no specific trigger has fired, your entry mode MUST be WAIT_ENTRY, not EXECUTE_NOW. State the exact trigger in your reasoning.
 
-QUESTION 8 — CONFLUENCE COUNT:
+QUESTION 7 — CONFLUENCE COUNT:
 How many of the 5 core independent dimensions confirm this trade direction?
 Name them explicitly. Confluence means factors from DIFFERENT analytical dimensions — trend + momentum + structure counts as 3. Trend + EMA alignment + price above EMA200 counts as 1 (they all measure the same thing).
 The 5 CORE dimensions (these count toward the minimum floor):
 - TREND: EMA stack alignment, HTF trend direction
 - STRUCTURE: BOS/CHOCH confirmation, S/R level holding or breaking
 - MOMENTUM: RSI position, MACD, momentum value, consecutive candle direction
-- TIMING: EQS score, pullback completion, M1 confirmation
+- TIMING: Pullback completion, M1 confirmation, entry trigger quality
 - LIQUIDITY: Liquidity sweep completion, pool position, VWAP interaction
 Supplementary dimensions (boost confidence when present — do NOT count toward the minimum floor):
 - PATTERN: Candle pattern at level, multi-timeframe pattern alignment
@@ -660,7 +648,7 @@ TREND and STRUCTURE are the anchor dimensions. They must both be present in your
 You MUST name all confirmed dimensions explicitly. If you cannot name 3 distinct core dimensions, this is NO_TRADE.`}
 State your count explicitly: "Confluence: X/5 core dimensions confirmed — [list them]"
 
-QUESTION 9 — REMAINING RANGE:
+QUESTION 8 — REMAINING RANGE:
 How far has price already moved in your intended direction, and how much range is likely left?
 This question prevents late entries into exhausted moves. A technically valid setup appearing after a large directional move has a structurally different probability profile than the same setup appearing at the start of a move.
 Assess the following:
@@ -743,7 +731,7 @@ Geometry / R:R / noise floor violations apply to ALL styles — see Hard Blocks 
 SCALP-specific automatic blocks:
   A. EXHAUSTED MOMENTUM: ATR traveled from last swing > 1.5x (scalp_momentum_phase = exhausted). No exception.
   B. NO NAMED STRUCTURE: Cannot identify any of the 8 valid scalp structures in your thesis. No exception.
-  C. DATA: DATA_STALE, BROKEN_FEED, MARKET_CLOSED, SPREAD_EXCEEDS_PROFIT, PRIMARY_TF_DATA_MISSING, EQS_INPUTS_MISSING.
+  C. DATA: DATA_STALE, BROKEN_FEED, MARKET_CLOSED, SPREAD_EXCEEDS_PROFIT, PRIMARY_TF_DATA_MISSING.
 
 SCALP ADVISORY CONDITIONS (these inform confidence — they do NOT auto-block):
   - DEVELOPING momentum (0.75-1.5x ATR): Proceed if runway supports TP. Assess remaining range explicitly.
@@ -818,13 +806,13 @@ OUTPUT FORMAT:
   "counter_thesis": "Single sentence: the most likely reason this trade fails. Required for every BUY/SELL.",
   "counter_thesis_probability": 0-100,
   "entry": price, "stopLoss": price, "takeProfit": price,
-  "entry_spec": { "entry_mode": "...", "eqsThesis": "...", "eqsRequired": 40-70, "eqsFocus": [...], "runawayPolicy": "...", "projection": { ... } },
+  "entry_spec": { "entry_mode": "...", "runawayPolicy": "...", "projection": { ... } },
   "wait_condition": { ... }
 }
 
 counter_thesis_probability is required for every BUY/SELL. It is the probability (0-100) that the failure mode identified in counter_thesis materialises. If counter_thesis_probability >= trade_confidence, you must either provide explicit reasoning in objective_alignment explaining why the trade is still rational at that probability, or downgrade to WAIT_ENTRY.
 
-RULES: Never calculate EQS — it is provided to you as context. Never block on session/volatility/time alone — downgrade confidence and proceed or state the specific structural reason for NO_TRADE. Invalid geometry = immediate rejection.
+RULES: Never block on session/volatility/time alone — downgrade confidence and proceed or state the specific structural reason for NO_TRADE. Invalid geometry = immediate rejection.
 
 ═══════════════════════════════════════════════════════════════════`;
 }
