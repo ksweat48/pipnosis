@@ -247,8 +247,9 @@ export const ALPHA_IDENTITY = {
     ADVERSARIAL_DETECTOR: {
       name: 'Adversarial Detector',
       type: 'ADVISORY' as const,
-      maxConfidencePenalty: 15,
+      maxConfidencePenalty: 0,
       canBlock: false,
+      mode: 'INFORM_ONLY' as const,
     },
     SESSION_CONSTRAINTS: {
       name: 'Session Constraints',

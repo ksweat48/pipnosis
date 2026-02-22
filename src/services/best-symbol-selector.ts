@@ -152,25 +152,14 @@ class BestSymbolSelector {
         gate: 'SNAPSHOT_TRADEABLE',
       });
 
-      // Gate 4: Not severe adversarial activity
-      if (snapshot.adversarial.is_adversarial && snapshot.adversarial.level === 'severe') {
-        eligibilityChecks.push({
-          passed: false,
-          reason: 'Severe adversarial activity detected',
-          gate: 'ADVERSARIAL_CHECK',
-        });
-        rejectedEvaluations.push({
-          symbol: snapshot.symbol,
-          reason: 'Severe adversarial activity',
-          gate: 'ADVERSARIAL_CHECK',
-        });
-        continue;
-      }
-
+      // Gate 4: Adversarial context — INFORM ONLY (CCIP-2026-0222)
+      // Adversarial data is background intelligence for Alpha, not a gatekeeper.
+      // Alpha receives adversarial context via Omega council prompts and decides freely.
+      // No symbol is rejected on adversarial grounds alone.
       eligibilityChecks.push({
         passed: true,
         reason: snapshot.adversarial.is_adversarial
-          ? `Moderate adversarial (${snapshot.adversarial.level})`
+          ? `Adversarial context noted (${snapshot.adversarial.level}) — Alpha informed`
           : 'Clean market',
         gate: 'ADVERSARIAL_CHECK',
       });
@@ -436,9 +425,8 @@ class BestSymbolSelector {
     reasons.push(`Session: ${snapshot.regime.session}${snapshot.regime.is_session_overlap ? ' (overlap)' : ''}`);
     reasons.push(`Volatility: ${snapshot.volatility}`);
 
-    // Warnings (if any)
     if (snapshot.adversarial.is_adversarial) {
-      reasons.push(`⚠️ Adversarial: ${snapshot.adversarial.level}`);
+      reasons.push(`Adversarial context: ${snapshot.adversarial.level} (Alpha informed)`);
     }
 
     if (snapshot.regime.is_dead_zone) {
