@@ -1838,13 +1838,24 @@ class GoalSessionLiveEngine {
       // - Multi-layer validation (Core + Capacity + Risk + Price + Database)
       // - CCIP-compliant audit logging
       // - Consistent error handling across all execution modes
+      const alphaEntryMode = decision.entry_mode;
+      const requiresMonitoring =
+        alphaEntryMode === 'WAIT_ENTRY' || alphaEntryMode === 'WAIT_HIGHER_EDGE';
+      const executionMode = requiresMonitoring ? 'MONITORED' : 'IMMEDIATE';
+
+      logger.info(
+        LogCategory.AI_TRADING,
+        `[Trade Execution] Alpha entry_mode="${alphaEntryMode ?? 'unset'}" -> mode=${executionMode}`,
+        { symbol: selectedSymbol, alphaEntryMode, executionMode }
+      );
+
       const executionResult = await alphaTradeExecutor.execute({
         decision,
         tradeContext,
         userId: config.userId,
         sessionId: activeSession!,
         session: sessionRecord,
-        mode: 'IMMEDIATE', // Autonomous execution
+        mode: executionMode,
         snapshotTimestamp: new Date(),
         regimeSnapshot: snapshot.regime,
         adversarialState: snapshot.adversarial
@@ -2643,13 +2654,24 @@ class GoalSessionLiveEngine {
 
       // ✅ CCIP: SSOT - Execute through unified authority (alphaTradeExecutor)
       // All validation layers run through this single point of entry
+      const alphaEntryMode2 = alphaDecision.entry_mode;
+      const requiresMonitoring2 =
+        alphaEntryMode2 === 'WAIT_ENTRY' || alphaEntryMode2 === 'WAIT_HIGHER_EDGE';
+      const executionMode2 = requiresMonitoring2 ? 'MONITORED' : 'IMMEDIATE';
+
+      logger.info(
+        LogCategory.AI_TRADING,
+        `[Trade Execution] Alpha entry_mode="${alphaEntryMode2 ?? 'unset'}" -> mode=${executionMode2}`,
+        { symbol: trade.symbol, alphaEntryMode: alphaEntryMode2, executionMode: executionMode2 }
+      );
+
       const executionResult = await alphaTradeExecutor.execute({
         decision: alphaDecision,
         tradeContext,
         userId: this.config.userId,
         sessionId: this.activeSession,
         session: goalSession,
-        mode: 'IMMEDIATE', // Autonomous execution (no user confirmation required)
+        mode: executionMode2,
         snapshotTimestamp: new Date(),
         regimeSnapshot: trade.regimeSnapshot,
         adversarialState: trade.adversarialSignal

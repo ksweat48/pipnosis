@@ -249,6 +249,7 @@ export interface AlphaDecision {
   regime_advisory?: RegimeSnapshot;
   conflictInfo?: ConflictInfo; // CCIP 2026-02-14: Omega conflict detection data from orchestrator
   entry_spec?: EntrySpec; // NEW: Alpha's explicit entry specification
+  entry_mode?: 'EXECUTE_NOW' | 'WAIT_ENTRY' | 'WAIT_HIGHER_EDGE'; // Promoted from entry_spec for execution routing
   thesis?: string; // Trade thesis type (momentum_scalp, liquidity_sweep_reversal, etc.)
   style_intent?: string; // Style intent (SCALP, MICRO_INTRADAY, INTRADAY)
   execution_preference?: string; // Execution preference (IMMEDIATE, WAIT_PULLBACK, WAIT_CONFIRMATION)
@@ -2742,7 +2743,8 @@ ${tradeStyle === 'SCALP' ? `{
           style_intent: styleIntent || undefined,
           execution_preference: executionPreference || undefined,
           acceptable_profit_range: acceptableProfitRange || undefined,
-          entry_spec: {
+          entry_mode: entryMode as 'EXECUTE_NOW' | 'WAIT_ENTRY' | 'WAIT_HIGHER_EDGE' | undefined,
+        entry_spec: {
             entry_quality_score: entryQualityScore,
             entry_mode: entryMode,
             style: resolvedStyle,
@@ -2964,6 +2966,7 @@ ${tradeStyle === 'SCALP' ? `{
         style_intent: styleIntent || undefined,
         execution_preference: executionPreference || undefined,
         acceptable_profit_range: acceptableProfitRange || undefined,
+        entry_mode: entryMode as 'EXECUTE_NOW' | 'WAIT_ENTRY' | 'WAIT_HIGHER_EDGE' | undefined,
         entry_spec: {
           entry_quality_score: entryQualityScore,
           entry_mode: entryMode,

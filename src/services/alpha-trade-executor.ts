@@ -1506,6 +1506,8 @@ class AlphaTradeExecutor {
       '[AlphaTradeExecutor] Alpha entry advisory applied (MONITORED mode)',
       {
         symbol: decision.symbol,
+        alphaEntryMode: decision.entry_mode || 'WAIT_ENTRY',
+        runawayPolicy: decision.entry_spec?.runawayPolicy ?? 'RESCAN',
         verdict: monitorVerdict,
         alphaVerdict: monitorAdvisory?.verdict || 'GOOD_ENTRY (default)',
         pullbackZone: monitorPullbackMin && monitorPullbackMax ? `${monitorPullbackMin}-${monitorPullbackMax}` : 'none'
@@ -1529,11 +1531,12 @@ class AlphaTradeExecutor {
         alpha_reasoning: decision.reasoning,
         alpha_confidence: decision.confidence,
         market_context: this.buildAlphaAdvisoryContext(decision, decision.entry, monitorAdvisory),
-        entry_mode: 'MONITORED',
+        entry_mode: decision.entry_mode || 'WAIT_ENTRY',
         style: params.canonicalStyle,
         thesis: decision.thesis,
         style_intent: decision.style_intent,
         execution_preference: decision.execution_preference || 'WAIT_PULLBACK',
+        runaway_policy: decision.entry_spec?.runawayPolicy ?? 'RESCAN',
         structural_verdict: monitorVerdict,
         structural_level_price: null,
         structural_level_type: null,
@@ -1557,10 +1560,14 @@ class AlphaTradeExecutor {
       };
     }
 
+    const entryModeLabel = decision.entry_mode === 'WAIT_HIGHER_EDGE'
+      ? 'WAIT_HIGHER_EDGE'
+      : 'WAIT_ENTRY';
+
     return {
       success: true,
       isMonitoring: true,
-      message: `Monitoring ${decision.symbol} for entry at ${decision.entry.toFixed(5)}`
+      message: `[${entryModeLabel}] Monitoring ${decision.symbol} for entry — waiting for pullback to zone`
     };
   }
 
