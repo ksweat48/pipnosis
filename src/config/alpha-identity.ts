@@ -288,13 +288,31 @@ export type StyleIntent = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
 
 export type ExecutionPreference = 'IMMEDIATE' | 'WAIT_PULLBACK' | 'WAIT_CONFIRMATION';
 
+export interface AlphaTradeManagement {
+  tp1_close_percent: number;
+  sl_to_breakeven_after_tp1: boolean;
+  trail_method: 'structure' | 'fixed_pips' | 'none';
+  trail_notes?: string;
+}
+
 export interface AlphaOutputFormat {
   action: AlphaAction;
   trade_confidence: number;
   entry_quality_score: number;
   entry_mode: EntryMode;
   style: StyleName;
-  reasoning: string;
+  confidence_anchor?: string;
+  reasoning: string | {
+    thesis_why?: string;
+    market_behavior?: string;
+    risk_acceptance?: string;
+    objective_alignment?: string;
+    tp_path_audit?: string;
+    session_phase?: string;
+    range_position?: string;
+  };
+  counter_thesis?: string;
+  counter_thesis_probability?: number;
   entry?: number;
   stopLoss?: number;
   takeProfit?: number;
@@ -311,6 +329,7 @@ export interface AlphaOutputFormat {
     minUSD: number;
     idealUSD: number;
   };
+  trade_management?: AlphaTradeManagement | null;
 }
 
 export const EQS_WEIGHTED_FACTORS = {
@@ -477,16 +496,22 @@ export function getAlphaSystemPromptForStyle(style: StyleName): string {
     ? `How much clean space exists between entry and the first significant obstacle in the direction of the trade?
 - For a BUY: Where is the nearest resistance, prior high, or liquidity cluster above entry? Is there room for the TP to be placed cleanly before that level?
 - For a SELL: Where is the nearest support, prior low, or liquidity cluster below entry? Is there room for the TP to be placed cleanly before that level?
-If the target zone is immediately in front of a prior rejection level, ask yourself: why would price break through now when it failed before? If you cannot answer that, the setup is low probability. A high-probability scalp requires clean structural space to the target.`
+If the target zone is immediately in front of a prior rejection level, ask yourself: why would price break through now when it failed before? If you cannot answer that, the setup is low probability. A high-probability scalp requires clean structural space to the target.
+
+TP PATH AUDIT: Do not just assess whether space exists — trace the actual path price must travel from entry to TP. Name every level price will pass through: VWAP, PDH/PDL, round numbers, prior swing highs/lows, EMA clusters, or known liquidity pools. For each named obstacle between entry and TP, assess: (a) is this level likely to provide a brief pause and then give way cleanly, or (b) is this level likely to absorb the move and become a TP ceiling? If more than one meaningful obstacle sits between entry and TP, either tighten TP to the first clean structure, or explicitly reason why each obstacle will not block the projected move. State: "TP path obstacles: [list each level] — assessment for each: [clean pass / likely pause / likely ceiling]. Final TP placement rationale: [why this TP level is achievable given the path]."`
     : style === 'MICRO_INTRADAY'
       ? `How much clean space exists on the M15 chart between entry and the first significant M15 or H1 obstacle in the direction of the trade?
 - For a BUY: Map the nearest M15 resistance zone and the first H1 resistance above it. Is TP1 reachable before the M15 obstacle? Is TP2 reachable before the H1 obstacle?
 - For a SELL: Map the nearest M15 support zone and the first H1 support below it. Is TP1 reachable before the M15 obstacle? Is TP2 reachable before the H1 obstacle?
-If either TP is squeezed directly against a prior M15 rejection cluster, state why price has the structural momentum to push through. An untested M15 zone in a clear H1 trend offers the cleanest space — that is the setup standard for micro intraday.`
+If either TP is squeezed directly against a prior M15 rejection cluster, state why price has the structural momentum to push through. An untested M15 zone in a clear H1 trend offers the cleanest space — that is the setup standard for micro intraday.
+
+TP PATH AUDIT: Trace the full path from entry to TP1 and from TP1 to TP2. Name every M15 or H1 level price must cross: VWAP, PDH/PDL, round numbers, prior M15 pivots, EMA clusters, or liquidity pools. For each named obstacle, assess whether it is a brief pause point or a likely ceiling. If more than one meaningful M15-level obstacle sits between entry and TP1, either tighten TP1 to the first clean structure, or reason explicitly why each obstacle will yield. State: "TP1 path obstacles: [levels] — clean pass / pause / ceiling for each. TP2 path obstacles: [levels] — clean pass / pause / ceiling for each. TP placement rationale: [reasoning]."`
       : `How much clean space exists on the H1 chart between entry and the first significant H1 or H4 obstacle in the direction of the trade?
 - For a BUY: Identify the nearest H1 resistance zone and the first H4 supply area above it. Is TP1 reachable before the H1 obstacle? Is TP2 reachable before the H4 obstacle?
 - For a SELL: Identify the nearest H1 support zone and the first H4 demand area below it. Is TP1 reachable before the H1 obstacle? Is TP2 reachable before the H4 obstacle?
-Intraday campaigns require meaningful range — at minimum 1.5x H1 ATR of clean space to TP1 and 2.5x H1 ATR to TP2. If the H1 chart is congested with prior pivot clusters, the campaign lacks the structural runway needed for a R:R >= 2.0 trade. Do not force targets through dense structure.`;
+Intraday campaigns require meaningful range — at minimum 1.5x H1 ATR of clean space to TP1 and 2.5x H1 ATR to TP2. If the H1 chart is congested with prior pivot clusters, the campaign lacks the structural runway needed for a R:R >= 2.0 trade. Do not force targets through dense structure.
+
+TP PATH AUDIT: Trace the full path from entry to TP1 and from TP1 to TP2 on the H1 chart. Name every H1 or H4 level price must cross: VWAP, PDH/PDL, round numbers, prior H1 pivot clusters, H4 supply/demand zones, EMA confluences, or major liquidity pools. For each named obstacle, assess whether it is a brief pause point within a directional campaign or a structural ceiling that will likely absorb the move. If more than one H1-level obstacle sits between entry and TP1, either tighten TP1 to the first clean structure, or reason explicitly why the campaign has the structural momentum to pass through each. State: "TP1 path obstacles: [levels] — clean pass / pause / ceiling for each. TP2 path obstacles: [levels] — clean pass / pause / ceiling for each. Campaign path rationale: [why the TP targets are reachable given the full obstacle map]."`;
 
   const q5Body = style === 'SCALP'
     ? `Is price currently in an impulsive leg or has a pullback occurred?
@@ -585,6 +610,8 @@ These are mathematical or structural facts that make a trade physically impossib
 
 4. NOISE FLOOR VIOLATION: Your constraints include a NOISE FLOOR in pips. If your SL is closer to entry than the noise floor, the trade will be stopped out by routine market noise before the thesis can play out. Either widen SL to at least the noise floor, or reject the trade.
 
+4B. SPREAD-ADJUSTED GEOMETRY CHECK: Before finalising entry, SL, and TP, account for the current spread cost. Spread is the hidden tax that quietly degrades R:R. For a BUY, your effective entry is ask (entry + spread). For a SELL, your effective entry is bid (entry). Your SL distance must be measured from the effective entry price, not the mid price. For SCALP trades especially, a 3-pip spread against a 5-pip SL means the trade is already 60% of the way to stop-out the moment it opens. Reason explicitly: "Spread: X pips. Effective SL distance after spread: Y pips. R:R after spread adjustment: Z." If the spread-adjusted R:R falls below the style floor, reject the trade or widen the SL to a valid structural level that restores the floor. Never tighten SL to compensate for spread — always widen to structure or reject.
+
 5. DATA INTEGRITY FAILURES: DATA_STALE, BROKEN_FEED, MARKET_CLOSED, SPREAD_EXCEEDS_PROFIT. These mean the trade cannot be executed safely regardless of setup quality.
 
 6. MTF_DATA_MISSING: For MICRO_INTRADAY — if H1 controlling timeframe candle data is absent or contains fewer than 5 valid candles, return NO_TRADE with reason MTF_DATA_MISSING. You cannot assess H1 structure without H1 data. For INTRADAY — if H4 controlling timeframe candle data is absent or contains fewer than 5 valid candles, return NO_TRADE with reason MTF_DATA_MISSING. You cannot assess H4 structure without H4 data.
@@ -634,6 +661,9 @@ Step 1 — Identify the primary failure mode. Examples:
 If you cannot identify a credible failure mode, you are likely overconfident.
 Step 2 — Estimate the probability that the failure mode materialises (0-100%). State this as: "Failure probability: ~X%"
 Step 3 — Evaluate whether the trade still has positive expected value given that probability. A trade with 70% confidence and a 60% failure mode probability requires explicit reasoning about why the net edge remains positive. If the failure probability is higher than or close to your confidence score, you must either explain clearly why the trade is still rational, downgrade confidence to reflect the conflict, or return WAIT_ENTRY rather than EXECUTE_NOW.
+
+MARGIN SAFETY RULE: If counter_thesis_probability is within 10 points of trade_confidence — for example, 64% confidence vs 57% failure probability — you are operating in a razor-thin edge band. This is not automatically a rejection. It is a signal that your edge claim requires a specific structural feature that creates the advantage. In this narrow band: (a) name the single specific structural element that tilts the probability in your favor beyond the coin-flip zone (e.g., "price just completed a clean liquidity sweep with immediate reclaim, which historically resolves in the sweep direction"), (b) assess whether that structural element is strong enough to justify EXECUTE_NOW vs WAIT_ENTRY in this specific context. "The direction looks right" is not sufficient in the margin band. The closer the gap between confidence and failure probability, the higher the burden of proof for EXECUTE_NOW.
+
 This probability will become your counter_thesis_probability in the output — it must be populated for every BUY/SELL.
 
 Step 4 — TIMING VS DIRECTION DIAGNOSIS: If this trade stops out immediately without reaching TP, ask yourself: is the failure more likely because the direction was wrong, or because the entry timing was wrong?
@@ -727,6 +757,14 @@ For SCALP specifically: given the small TP targets involved, being even 50% into
 
 State explicitly: "Move distance: X pips ([FRESH/DEVELOPING/EXTENDED] — X.Xx ATR traveled since [swing point reference]). Entry position: ~Z% into the projected move from [swing origin] to [TP level]. Remaining projected range: ~R pips. Assessment: [early/middle/late — TP is/is not supported by remaining range]."
 
+QUESTION 8B — DAILY AND SESSION RANGE POSITION:
+Where does current price sit within the broader range context? Entering a BUY when price is at the upper 20% of the daily range is structurally different from entering when price is in the lower 20%. This question prevents systematically buying highs and selling lows without structural justification.
+Assess and state the following:
+- SESSION RANGE POSITION: Where is current price relative to today's session high and low? State as a percentage: 0% = at session low, 100% = at session high. For a BUY entry, price in the upper 80-100% of the session range requires a breakout or trend continuation thesis — you are not buying a discount, you are buying momentum. For a SELL entry, price in the lower 0-20% of the session range requires the same reasoning in reverse.
+- DAILY RANGE POSITION: Where is current price relative to the prior day's high and low? Price in the upper quartile of the prior day's range for a BUY means you are entering above value. This is not a block — momentum trades legitimately buy above prior highs — but it must be consciously acknowledged. Price below the prior day's midpoint for a BUY typically favors mean-reversion or demand-zone thesis rather than momentum.
+- RANGE POSITION ALIGNMENT: Does the range position support or challenge your thesis type? A TREND_PULLBACK thesis is strongest when price has pulled back toward the lower portion of the session range (for BUY) or upper portion (for SELL). A MOMENTUM_BREAKOUT thesis is strongest when price is breaking to new session extremes. A MEAN_REVERSION thesis is strongest when price is at a range extreme that has been tested and rejected.
+State: "Session range position: ~X% (current price relative to session high/low). Daily range position: ~Y% (relative to PDH/PDL). Alignment with thesis type: [aligned / adds risk — reasoning]."
+
 ═══════════════════════════════════════════════════════════════════
 MARKET CONTEXT SIGNALS — TOOLS FOR YOUR REASONING
 ═══════════════════════════════════════════════════════════════════
@@ -754,8 +792,29 @@ LIQUIDITY CONTEXT:
 - AT LEVEL: Wait for sweep + reclaim confirmation before committing
 - CLEAN ZONE: No immediate obstacle — favorable for continuation trades
 
-REGIME AND SESSION CONTEXT:
-Session volatility, spread behavior, and liquidity conditions affect probability but not possibility. A valid setup in a dead zone is still a valid setup — your confidence may be lower but it is your call. A strong setup at London open is more likely to run cleanly. Factor these into your confidence honestly.
+OMEGA COUNCIL INTERPRETATION — HOW TO READ CONSENSUS:
+Six specialist Omegas analyze different market dimensions: trend, structure, momentum, timing, liquidity, and volatility. When evaluating their votes, interpret the consensus pattern, not just the headline count:
+- 6/6 aligned: Strong institutional-grade confirmation. Cite this explicitly as a supplementary confluence bonus. It does not override structural failures, but it meaningfully supports a borderline setup.
+- 5/6 aligned: Clear majority. Name the one dissenting dimension explicitly and reason about whether it identifies a specific risk relevant to this setup. If the dissenting Omega covers a dimension you were already flagging as weak (e.g., timing dissent when you also see premature pullback), that is convergent evidence you should weight seriously.
+- 4/6 aligned: Meaningful dissent. Name both dissenting dimensions. Assess whether the two dissenters together describe a coherent failure scenario — two related dissenters (e.g., STRUCTURE + TREND) pointing the same direction is a signal, not noise. If the 4 supporting Omegas do not include TREND and STRUCTURE, treat this as weak consensus and do not count it as a supplementary boost.
+- 3/6 aligned (dead split): A dead split means the market's specialist assessment is genuinely ambiguous. State what the split reveals about this setup. If the 3 supporting Omegas are TREND + STRUCTURE + MOMENTUM, the directional case has the core three. If the 3 supporting Omegas are TIMING + LIQUIDITY + PATTERN, you have execution-quality signals but no directional confirmation — that is a weak basis for a BUY or SELL decision. Reason through which side of the split is describing the more important market reality.
+- 2/6 or fewer aligned: Do not cite Omega as a supporting factor. You are working against the specialist consensus. This does not block you but you must acknowledge the headwind explicitly in your reasoning.
+
+REGIME AND SESSION CONTEXT — SESSION PHASE AWARENESS:
+The trading session phase materially affects the probability that a clean directional move delivers from your entry to your TP. You must identify the current session phase and state what it implies for this specific setup.
+- ASIAN SESSION: Characterized by low institutional volume, range-bound price action, and higher false-breakout rates. Spreads on GBP/JPY, XAU/USD, and USD/JPY are frequently elevated. Valid setups exist but the risk of a range fake-out before the London session's real directional move is elevated. For SCALP and MICRO_INTRADAY: state whether the session range has already been established and whether your setup is at a range extreme (preferred) or range midpoint (lower probability).
+- LONDON OPEN (first 2 hours): Highest institutional volume of the session. EMA levels and structural zones are frequently respected precisely because institutional algorithms reference them. Directional setups have their highest completion rates in this window. Confluence requirements are met more reliably here — factor this positively into your confidence when present.
+- LONDON / NEW YORK OVERLAP: The highest volatility window. Breakouts through major levels have the strongest follow-through here. Momentum continuation setups (SUB-MODE A for SCALP) are most reliable. Be aware that sharp entry-zone violations (stop hunts) are also most common here — the sweep-reclaim thesis is particularly valid during this window.
+- NEW YORK ONLY (post-London close, ~13:00-16:00 UTC): Secondary moves with reduced institutional flow. Trend continuation setups with H1+ confirmation remain valid. Mean-reversion trades are more common as the primary London direction faces profit-taking. Reduce expectations for multi-ATR continuation moves.
+- DEAD ZONE (late New York through early Asian, ~20:00-07:00 UTC): Low volume, wide spreads, choppy action. SCALP setups in this window have the lowest completion rates. MICRO_INTRADAY and INTRADAY setups remain valid if the structural case is strong, but confidence should reflect the liquidity discount honestly. Do not force execution in a dead zone when waiting for the London open would offer the same setup with higher completion probability.
+State explicitly: "Session phase: [PHASE]. Implication for this setup: [specific effect on completion probability, spread risk, or entry timing]."
+
+NEWS / HIGH-IMPACT EVENT PROXIMITY:
+If market context data includes upcoming economic releases or you have awareness of scheduled high-impact events (central bank decisions, NFP, CPI, PMI), you must assess news proximity before committing to execution.
+- High-impact event within ${style === 'SCALP' ? '30 minutes' : style === 'MICRO_INTRADAY' ? '90 minutes' : '3 hours'}: The risk profile of this trade changes materially. Price may exhibit pre-announcement compression (range narrows, false signals increase) or pre-announcement runup (directional bias exaggerated before reversal). State the event, the time remaining, and reason explicitly about whether: (a) the setup should execute before the news, (b) the news makes the trade's thesis more or less likely to complete, or (c) the correct approach is to wait for the announcement to pass and assess the post-news structure.
+- No high-impact event within the session window: State this briefly and proceed normally.
+- If you lack news context data: Note the absence and apply a small confidence discount, as news proximity is a known risk factor you cannot currently assess.
+The goal is not to block trades near news — it is to ensure you have consciously priced in the announcement risk before executing. A setup that survives news analysis with explicit reasoning is a stronger conviction trade than one that ignores the macro calendar.
 
 ═══════════════════════════════════════════════════════════════════
 KNOWN RISK PATTERNS — MANDATORY CONSIDERATION
@@ -848,7 +907,13 @@ ENTRY MODES for TPS (provide in entry_spec):
 
 entry_spec fields: entryMode, runawayPolicy (RESCAN or EXECUTE_ON_FIRST_PULLBACK), projection (for WAIT_HIGHER_EDGE only: projectionConfidence, expectedMinutesToImprove).
 
-BEFORE OUTPUT: Verify geometry. BUY: SL < Entry < TP. SELL: TP < Entry < SL. Double-check every SELL trade — they are frequently inverted.
+BEFORE OUTPUT — PRE-SUBMISSION CHECKLIST (run all 6 checks before generating your response):
+1. GEOMETRY: BUY confirms SL < Entry < TP. SELL confirms TP < Entry < SL. Double-check every SELL — they are frequently inverted.
+2. R:R FLOOR (SPREAD-ADJUSTED): After applying spread adjustment per check 4B, R:R still meets the style floor (SCALP >= 1.3, MICRO_INTRADAY TP1 >= 1.5 / TP2 >= 2.0, INTRADAY TP1 >= 2.0 / TP2 >= 2.5).
+3. COUNTER_THESIS_PROBABILITY: Populated for every BUY/SELL. If within 10 points of trade_confidence, the Margin Safety Rule reasoning is included in objective_alignment.
+4. ENTRY MODE CONSISTENCY: If entry_advisory is PULLBACK_EXPECTED and pullback completion is NOT confirmed in reasoning, entry_mode is WAIT_ENTRY — not EXECUTE_NOW.
+5. ENTRY TRIGGER NAMED: If entry_mode is EXECUTE_NOW, a specific observable trigger is explicitly named in reasoning (a candle close, a BOS, a sweep-reclaim — not just "price is near the level").
+6. THESIS INTEGRITY: thesis field matches one of the 7 valid thesis types. For SCALP, the named structure in reasoning maps to one of the 8 valid scalp structures.
 
 OUTPUT FORMAT:
 {
@@ -859,15 +924,21 @@ OUTPUT FORMAT:
   "execution_preference": "IMMEDIATE|WAIT_PULLBACK|WAIT_CONFIRMATION",
   "acceptable_profit_range": { "minUSD": number, "idealUSD": number },
   "trade_confidence": 0-100,
-  "reasoning": { "thesis_why": "...", "market_behavior": "...", "risk_acceptance": "...", "objective_alignment": "..." },
+  "confidence_anchor": "This confidence is based on [X confirmed core dimensions], [advisory penalty / no advisory pressure], [clean/contested entry], [EARLY/MIDDLE/LATE move stage]. The primary uncertainty is [specific factor].",
+  "reasoning": { "thesis_why": "...", "market_behavior": "...", "risk_acceptance": "...", "objective_alignment": "...", "tp_path_audit": "...", "session_phase": "...", "range_position": "..." },
   "counter_thesis": "Single sentence: the most likely reason this trade fails. Required for every BUY/SELL.",
   "counter_thesis_probability": 0-100,
   "entry": price, "stopLoss": price, "takeProfit": price,
   "entry_spec": { "entry_mode": "...", "runawayPolicy": "...", "projection": { ... } },
+  "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "..." },
   "wait_condition": { ... }
 }
 
-counter_thesis_probability is required for every BUY/SELL. It is the probability (0-100) that the failure mode identified in counter_thesis materialises. If counter_thesis_probability >= trade_confidence, you must either provide explicit reasoning in objective_alignment explaining why the trade is still rational at that probability, or downgrade to WAIT_ENTRY.
+confidence_anchor is required for every BUY/SELL. It makes the confidence score auditable. Example: "This confidence is based on 4/5 core dimensions confirmed (TREND, STRUCTURE, MOMENTUM, TIMING), no advisory penalty, clean pullback entry, EARLY move stage. The primary uncertainty is M15 resistance cluster 8 pips above entry that may require two attempts to clear."
+
+counter_thesis_probability is required for every BUY/SELL. It is the probability (0-100) that the failure mode identified in counter_thesis materialises. If counter_thesis_probability >= trade_confidence, you must either provide explicit reasoning in objective_alignment explaining why the trade is still rational at that probability, or downgrade to WAIT_ENTRY. If counter_thesis_probability is within 10 points of trade_confidence, the Margin Safety Rule applies — name the specific structural feature that creates the edge in that narrow band.
+
+trade_management is required for MICRO_INTRADAY and INTRADAY trades. For SCALP (single TP), omit trade_management or set to null — scalp management is close-all at TP. For MICRO_INTRADAY and INTRADAY: specify what percentage to close at TP1 (default 50%), whether to move SL to breakeven after TP1 (default true), and what trailing method to apply if TP2 remains active (structure-based trailing is preferred — move SL to the last confirmed swing point as TP2 approaches).
 
 RULES: Never block on session/volatility/time alone — downgrade confidence and proceed or state the specific structural reason for NO_TRADE. Invalid geometry = immediate rejection.
 
