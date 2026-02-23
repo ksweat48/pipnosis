@@ -21,6 +21,14 @@ import { getNearMissData, isNearMissTrade, isTP1OnlyTrade } from '../utils/trade
 import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { CloseReason } from '../types/position';
 
+function formatHoldDuration(ms: number): string {
+  const totalMinutes = Math.round(ms / 60000);
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+}
+
 interface TradeData {
   id: string;
   userId: string;
@@ -228,6 +236,11 @@ class PostTradeAnalyzer {
         isTP1Close,
         isTP2Close,
         tp1Pnl: journalEntry.tp1_pnl ?? null,
+        entryPrice: journalEntry.entry_price ?? tradeData.entryPrice,
+        entryTime: journalEntry.entry_time ? new Date(journalEntry.entry_time) : tradeData.entryTime,
+        exitTime: tradeData.exitTime,
+        direction: tradeData.direction ?? journalEntry.direction,
+        symbol: tradeData.symbol,
       });
 
       const { error } = await supabase
@@ -260,9 +273,25 @@ class PostTradeAnalyzer {
     isTP1Close: boolean;
     isTP2Close: boolean;
     tp1Pnl: number | null;
+    entryPrice?: number;
+    entryTime?: Date;
+    exitTime?: Date;
+    direction?: string;
+    symbol?: string;
   }): string {
-    const { closeReason, finalPnL, goalPnL, priorStage, isTP1Close, isTP2Close, tp1Pnl } = params;
+    const { closeReason, finalPnL, exitPrice, goalPnL, priorStage, isTP1Close, isTP2Close, tp1Pnl, entryPrice, entryTime, exitTime, direction, symbol } = params;
     const pnlStr = (v: number) => `${v >= 0 ? '+' : ''}$${Math.abs(v).toFixed(2)}`;
+
+    const pipValue = symbol?.includes('JPY') ? 0.01 : 0.0001;
+    const pipsMoved = (entryPrice && exitPrice && direction)
+      ? Math.round(Math.abs(exitPrice - entryPrice) / pipValue)
+      : null;
+    const pipsDirection = (entryPrice && exitPrice && direction)
+      ? ((direction === 'buy' ? exitPrice > entryPrice : exitPrice < entryPrice) ? 'in favour' : 'against')
+      : null;
+
+    const holdMs = (entryTime && exitTime) ? (exitTime.getTime() - entryTime.getTime()) : null;
+    const holdStr = holdMs !== null ? formatHoldDuration(holdMs) : null;
 
     const parts: string[] = [];
 
@@ -292,14 +321,19 @@ class PostTradeAnalyzer {
     } else if (closeReason === 'stop_loss') {
       parts.push(`Stop loss hit at ${pnlStr(finalPnL)}`);
     } else if (finalPnL > 0) {
-      parts.push(`Closed manually for a profit of ${pnlStr(finalPnL)} (${closeReason})`);
+      parts.push(`Closed manually for a profit of ${pnlStr(finalPnL)}`);
     } else if (finalPnL < 0) {
-      parts.push(`Closed with a loss of ${pnlStr(finalPnL)} (${closeReason})`);
+      parts.push(`Closed with a loss of ${pnlStr(finalPnL)}`);
     } else {
-      parts.push(`Closed at breakeven (${closeReason})`);
+      parts.push(`Closed at breakeven`);
     }
 
-    return parts.join(' → ');
+    const suffix: string[] = [];
+    if (pipsMoved !== null && pipsDirection !== null) suffix.push(`${pipsMoved} pips ${pipsDirection}`);
+    if (holdStr) suffix.push(`held ${holdStr}`);
+    if (suffix.length > 0) parts.push(suffix.join(', '));
+
+    return parts.join(' — ');
   }
 
   private async enrichTradeData(tradeData: TradeData): Promise<TradeData> {
@@ -364,6 +398,12 @@ class PostTradeAnalyzer {
       const stopLoss = enriched.stopLoss || 0;
       const takeProfit = enriched.takeProfit || 0;
 
+      const pipValue = enriched.symbol.includes('JPY') ? 0.01 : 0.0001;
+      const pricePrecision = enriched.symbol.includes('JPY') ? 3 : 5;
+      const slPips = stopLoss > 0 && entryPrice > 0 ? Math.round(Math.abs(entryPrice - stopLoss) / pipValue) : 0;
+      const tpPips = takeProfit > 0 && entryPrice > 0 ? Math.round(Math.abs(takeProfit - entryPrice) / pipValue) : 0;
+      const rr = slPips > 0 ? (tpPips / slPips).toFixed(1) : 'N/A';
+
       const insertData: Record<string, any> = {
         user_id: enriched.userId,
         trade_id: enriched.id,
@@ -373,12 +413,14 @@ class PostTradeAnalyzer {
         entry_price: entryPrice,
         stop_loss: stopLoss,
         take_profit: takeProfit,
-        llm_reasoning: `${dir.toUpperCase()} trade on ${enriched.symbol}. Close reason: ${enriched.closeReason || 'unknown'}.`,
+        llm_reasoning: entryPrice > 0
+          ? `${dir.toUpperCase()} ${enriched.symbol} at ${entryPrice.toFixed(pricePrecision)} — ${enriched.closeReason === 'stop_loss' ? 'stopped out' : enriched.closeReason || 'closed'}.`
+          : `${dir.toUpperCase()} trade on ${enriched.symbol}. Close reason: ${enriched.closeReason || 'unknown'}.`,
         market_read: entryPrice > 0
-          ? `Trade opened at ${entryPrice.toFixed(5)}.`
+          ? `Entered ${enriched.symbol} at ${entryPrice.toFixed(pricePrecision)}. Stop: ${stopLoss.toFixed(pricePrecision)} (${slPips} pips risk). Target: ${takeProfit.toFixed(pricePrecision)} (${tpPips} pips).`
           : 'Entry conditions were not captured at open time.',
         expected_outcome: takeProfit > 0 && stopLoss > 0
-          ? `Expected TP at ${takeProfit.toFixed(5)}, SL at ${stopLoss.toFixed(5)}.`
+          ? `Target: ${tpPips} pips at ${takeProfit.toFixed(pricePrecision)}. Risk: ${slPips} pips. R:R = 1:${rr}.`
           : 'Target levels not recorded.',
         pattern_identified: enriched.patternIdentified || 'System Trade',
         conviction_level: enriched.convictionLevel || 70,
