@@ -29,7 +29,8 @@ export type NotificationType =
   | 'mid_trade_alert'
   | 'continuation_required'
   | 'system_alert'
-  | 'balance_update';
+  | 'balance_update'
+  | 'entry_monitoring_started';
 
 export type NotificationPriority = 'low' | 'medium' | 'high' | 'critical';
 

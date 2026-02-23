@@ -6,6 +6,7 @@ import { GoalAchievedDialog } from '../components/GoalAchievedDialog';
 import { TradeClosedActionDialog } from '../components/TradeClosedActionDialog';
 import { TradeSignalNotificationBar } from '../components/TradeSignalNotificationBar';
 import { TradeEntryModal } from '../components/TradeEntryModal';
+import { AlphaIntentModal, type AlphaEntryMode } from '../components/AlphaIntentModal';
 
 interface GlobalDialogContextType {
   showGoalAchieved: (data: any) => void;
@@ -64,6 +65,12 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
               await audioAlertService.playWithContext({
                 type: 'attention',
                 context: contextKey
+              });
+              break;
+            case 'alpha_intent':
+              await audioAlertService.playWithContext({
+                type: 'attention',
+                context: `alpha-intent-${symbol}`
               });
               break;
           }
@@ -226,6 +233,21 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
           signal={currentDialog.data}
           onDismiss={closeDialog}
           position="top"
+        />
+      )}
+
+      {currentDialog?.type === 'alpha_intent' && (
+        <AlphaIntentModal
+          isOpen={true}
+          symbol={currentDialog.data.symbol || ''}
+          direction={currentDialog.data.direction || 'long'}
+          entryMode={(currentDialog.data.entry_mode as AlphaEntryMode) || 'WAIT_ENTRY'}
+          pullbackZoneMin={currentDialog.data.pullback_zone_min ?? null}
+          pullbackZoneMax={currentDialog.data.pullback_zone_max ?? null}
+          confidence={currentDialog.data.confidence ?? null}
+          setupType={currentDialog.data.setupType ?? null}
+          reasoning={currentDialog.data.reasoning ?? null}
+          onDismiss={closeDialog}
         />
       )}
 

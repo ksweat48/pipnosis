@@ -173,6 +173,19 @@ class RealtimeTradeNotificationListener {
           }, 'high', { skipPersist: true }); // SSOT: Notification record already exists
           break;
 
+        case 'entry_monitoring_started':
+          globalDialogManager.showAlphaIntent({
+            symbol: notification.metadata?.symbol,
+            direction: notification.metadata?.direction === 'short' ? 'short' : 'long',
+            entry_mode: notification.metadata?.entry_mode || 'WAIT_ENTRY',
+            pullback_zone_min: notification.metadata?.pullback_zone_min ?? null,
+            pullback_zone_max: notification.metadata?.pullback_zone_max ?? null,
+            confidence: notification.metadata?.confidence ?? null,
+            setupType: notification.metadata?.setupType ?? null,
+            reasoning: notification.message || null,
+          }, { skipPersist: true });
+          break;
+
         // Add more notification types as needed
       }
 

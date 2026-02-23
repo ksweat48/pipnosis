@@ -1564,6 +1564,37 @@ class AlphaTradeExecutor {
       ? 'WAIT_HIGHER_EDGE'
       : 'WAIT_ENTRY';
 
+    const monitorTitle = decision.entry_mode === 'WAIT_HIGHER_EDGE'
+      ? `Trade Found — Wait for Edge: ${decision.symbol}`
+      : `Trade Found — Wait for Pullback: ${decision.symbol}`;
+
+    const monitorMessage = decision.entry_mode === 'WAIT_HIGHER_EDGE'
+      ? `Alpha is waiting for higher-edge conditions on ${decision.symbol} before entering.`
+      : monitorPullbackMin && monitorPullbackMax
+        ? `Alpha recommends waiting for pullback to ${monitorPullbackMin.toFixed(5)} – ${monitorPullbackMax.toFixed(5)}`
+        : `Alpha is monitoring ${decision.symbol} for a better entry.`;
+
+    await notificationCoordinator.send({
+      userId,
+      sessionId,
+      type: 'entry_monitoring_started',
+      title: monitorTitle,
+      message: monitorMessage,
+      priority: 'high',
+      metadata: {
+        symbol: decision.symbol,
+        direction: direction,
+        entry_mode: decision.entry_mode || 'WAIT_ENTRY',
+        pullback_zone_min: monitorPullbackMin,
+        pullback_zone_max: monitorPullbackMax,
+        pullback_target_price: monitorPullbackMid,
+        confidence: decision.confidence,
+        setupType: decision.thesis,
+        reasoning: decision.reasoning,
+        sessionId
+      }
+    });
+
     return {
       success: true,
       isMonitoring: true,

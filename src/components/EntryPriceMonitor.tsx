@@ -13,7 +13,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Target, CheckCircle, ArrowUp, ArrowDown, Minus,
-  Clock, MapPin
+  Clock, MapPin, AlertCircle
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useActiveEntryIntent } from '@/hooks/useEntryIntent';
@@ -200,8 +200,11 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
   const alphaConfidence = intent.alpha_confidence || intent.market_context?.confidence || null;
   const style = intent.style || intent.market_context?.style || 'SCALP';
 
+  const entryMode: string = intent.entry_mode || 'WAIT_ENTRY';
+  const isWaitHigherEdge = entryMode === 'WAIT_HIGHER_EDGE';
+
   const verdict = advisory?.verdict || 'GOOD_ENTRY';
-  const isPullbackExpected = verdict === 'PULLBACK_EXPECTED' || verdict === 'WAIT_FOR_PULLBACK';
+  const isPullbackExpected = !isWaitHigherEdge && (verdict === 'PULLBACK_EXPECTED' || verdict === 'WAIT_FOR_PULLBACK');
   const pullbackZoneMin = advisory?.pullback_zone_min ?? intent.entry_zone_min ?? null;
   const pullbackZoneMax = advisory?.pullback_zone_max ?? intent.entry_zone_max ?? null;
 
@@ -254,7 +257,9 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
         </span>
       </div>
 
-      {isGoodEntry ? (
+      {isWaitHigherEdge ? (
+        <WaitHigherEdgeBanner />
+      ) : isGoodEntry ? (
         <GoodEntryBanner pullbackReached={isPullbackExpected && pullbackState === 'REACHED'} />
       ) : (
         <PullbackExpectedBanner
@@ -329,6 +334,16 @@ const GoodEntryBanner: React.FC<GoodEntryBannerProps> = ({ pullbackReached }) =>
     </span>
     <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold ml-auto">
       {pullbackReached ? 'ENTER NOW' : 'CONFIRMED'}
+    </span>
+  </div>
+);
+
+const WaitHigherEdgeBanner: React.FC = () => (
+  <div className="px-3 py-2.5 rounded-lg border bg-amber-900/15 border-amber-500/30 flex items-center gap-2.5">
+    <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+    <span className="text-sm font-semibold text-amber-300">Waiting for Higher Edge</span>
+    <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold ml-auto">
+      WATCH
     </span>
   </div>
 );
