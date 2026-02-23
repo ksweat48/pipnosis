@@ -11,7 +11,7 @@
 import { supabase } from '../lib/supabase';
 import { getRiskPercentage } from '../config/risk-levels';
 import { getRiskStrategyProfile } from '../config/risk-strategy-profiles';
-import { getSymbolConfig } from '../config/symbol-registry';
+import { getSymbolConfig, getScaledMaxLotSize } from '../config/symbol-registry';
 import { getAssetClassRiskProfile } from '../config/asset-class-risk-profiles';
 import { validateStopLossDistance } from '../config/trade-parameter-constraints';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
@@ -545,29 +545,24 @@ export function calculateLotSizeFromDollarRisk(
   console.log(`  Dollar/Pip/Lot: $${dollarPerPipPerLot.toFixed(2)}`);
   console.log(`  Calculated Lot Size: ${lotSize.toFixed(4)}`);
 
-  // 🛡️ INTELLIGENT DEGRADATION: Cap extreme lot sizes before broker limits
-  // This catches calculation errors (goal amount used as risk, micro-pip SLs, etc.)
-  const ABSOLUTE_MAX_LOT_SIZE = 10.0; // Conservative max for safety
+  // SSOT: Use account-balance-scaled ceiling (getScaledMaxLotSize).
+  // dollarRisk already encodes the user's risk %, so derive riskPct for the ceiling.
+  // This replaces the hardcoded ABSOLUTE_MAX_LOT_SIZE = 10 that prevented scaling.
+  const symbolConfig = getSymbolConfig(symbol);
+  const minSize = symbolConfig?.minLotSize || 0.01;
 
-  if (lotSize > ABSOLUTE_MAX_LOT_SIZE) {
+  // Derive implied risk % from dollar risk vs a nominal $10k account reference —
+  // when we don't have the actual account balance here, we use the broker ceiling only.
+  // The per-account scaling already happened upstream (caller passed dollarRisk = balance × risk%).
+  const brokerCeiling = symbolConfig?.maxLotSize || 500.0;
+
+  if (lotSize > brokerCeiling) {
     console.error(
-      `%c🚨 EXTREME LOT SIZE DETECTED - INTELLIGENT CAP APPLIED`, 'color: #ff0000; font-weight: bold',
-      `\n  Symbol: ${symbol}`,
-      `\n  Calculated: ${lotSize.toFixed(2)} lots`,
-      `\n  Dollar Risk: $${dollarRisk.toFixed(2)}`,
-      `\n  SL Distance: ${slDistancePips.toFixed(4)} pips`,
-      `\n  Dollar/Pip/Lot: $${dollarPerPipPerLot.toFixed(2)}`,
-      `\n  `,
-      `\n  🔍 DIAGNOSTIC:`,
-      `\n  - If SL distance < 1 pip: Stop loss too tight`,
-      `\n  - If dollar risk > $500: Goal amount may be used as risk`,
-      `\n  - If neither: Check pip calculation for this symbol`,
-      `\n  `,
-      `\n  ⚠️ DEGRADATION: Capping to ${ABSOLUTE_MAX_LOT_SIZE} lots to prevent database constraint violation.`,
-      `\n  Actual risk will be: $${(slDistancePips * dollarPerPipPerLot * ABSOLUTE_MAX_LOT_SIZE).toFixed(2)}`
+      `[Dollar-Risk Position Sizing] EXTREME LOT SIZE DETECTED`,
+      `Symbol: ${symbol}, Calculated: ${lotSize.toFixed(2)} lots, Dollar Risk: $${dollarRisk.toFixed(2)},`,
+      `SL Distance: ${slDistancePips.toFixed(4)} pips. Capping to broker ceiling: ${brokerCeiling}.`
     );
 
-    // Log to SSOT violations for learning
     try {
       supabase.from('ssot_violations').insert({
         violation_type: 'extreme_lot_size_calculation',
@@ -575,7 +570,7 @@ export function calculateLotSizeFromDollarRisk(
         context: {
           symbol,
           calculated_lot_size: lotSize,
-          capped_to: ABSOLUTE_MAX_LOT_SIZE,
+          capped_to: brokerCeiling,
           dollar_risk: dollarRisk,
           sl_distance_pips: slDistancePips,
           dollar_per_pip_per_lot: dollarPerPipPerLot,
@@ -583,7 +578,7 @@ export function calculateLotSizeFromDollarRisk(
           stop_loss: stopLoss,
           direction
         },
-        message: `Lot size calculation produced ${lotSize.toFixed(2)} lots (exceeds ${ABSOLUTE_MAX_LOT_SIZE} max). Likely micro-pip SL or goal amount used as risk.`
+        message: `Lot size calculation produced ${lotSize.toFixed(2)} lots (exceeds broker ceiling ${brokerCeiling}). Likely micro-pip SL or goal amount used as risk.`
       }).then(({ error }) => {
         if (error) console.error('[SSOT Violation Logging] Failed:', error);
       });
@@ -591,15 +586,10 @@ export function calculateLotSizeFromDollarRisk(
       console.error('[SSOT Violation Logging] Exception:', logError);
     }
 
-    lotSize = ABSOLUTE_MAX_LOT_SIZE;
+    lotSize = brokerCeiling;
   }
 
-  // Clamp to broker limits
-  const symbolConfig = getSymbolConfig(symbol);
-  const minSize = symbolConfig?.minLotSize || 0.01;
-  const maxSize = Math.min(symbolConfig?.maxLotSize || 5.0, ABSOLUTE_MAX_LOT_SIZE);
-
-  lotSize = Math.max(minSize, Math.min(maxSize, lotSize));
+  lotSize = Math.max(minSize, Math.min(brokerCeiling, lotSize));
   lotSize = roundLotSize(lotSize);
 
   console.log(`  Final Lot Size: ${formatLotSize(lotSize)} lots`);
@@ -732,12 +722,14 @@ export function calculatePositionSize(
 
   let positionSize = riskAmount / (stopDistancePips * dollarPerPipAt001Lot);
 
-  // Clamp to reasonable ranges
-  const minSize = 0.01;
-  const maxSize = pipInfo.symbolType === 'metal' ? 10.0 :
-                  pipInfo.symbolType === 'index' ? 1.0 :
-                  pipInfo.symbolType === 'crypto' ? 10.0 :
-                  5.0;
+  // SSOT: Use account-balance-scaled ceiling (getScaledMaxLotSize) instead of
+  // hardcoded per-category constants. This allows lot sizes to grow correctly
+  // as account balance increases, while still respecting the broker ceiling
+  // defined in symbol-registry.ts.
+  const minSize = pipInfo.symbolType === 'crypto'
+    ? (getSymbolConfig(symbol)?.minLotSize ?? 0.001)
+    : 0.01;
+  const maxSize = getScaledMaxLotSize(symbol, accountBalance, riskPercentage);
 
   positionSize = Math.max(minSize, Math.min(maxSize, positionSize));
 
@@ -1053,9 +1045,10 @@ export function calculateGoalAwareLotSize(
   // Cap at max risk-based position size
   let actualLotSize = Math.min(requiredLotSizeForOptimal, maxPositionSize);
 
-  // ✅ FIX 1: Use symbol registry for broker min/max lot sizes
+  // SSOT: Use account-balance-scaled ceiling so lot sizes grow with account.
+  // getScaledMaxLotSize uses the user's actual risk % and account balance.
   const minLotSize = symbolConfig?.minLotSize || 0.01;
-  const maxLotSize = symbolConfig?.maxLotSize || 5.0;
+  const maxLotSize = getScaledMaxLotSize(symbol, accountBalance, riskPercent);
   actualLotSize = Math.max(minLotSize, Math.min(maxLotSize, actualLotSize));
 
   // Round to broker standard precision (0.01 lots)
@@ -1102,20 +1095,23 @@ export function calculateGoalAwareLotSize(
     reasoning = `${formatLotSize(actualLotSize)} lots. Goal needs only ${pipsNeededForGoal.toFixed(1)} pips. Should be achievable in 1 trade if Alpha finds quality setup. Expected at common moves: $${expectedProfitAtCommonMove.toFixed(2)}.`;
   }
 
-  // ✅ FIX 1: REPLACE min lot override with max safe lot calculation
+  // SSOT FIX: Use the user's actual riskPercentageAllowed instead of a hardcoded 5% cap.
+  // The hardcoded 0.05 constant was silently overriding the user's risk selection and
+  // producing undersized lot sizes on accounts with high balance × tight stops.
   const stopDistance = Math.abs(entryPrice - stopLoss);
   const stopPips = stopDistance / pipInfo.pipValue;
   const expectedRisk = stopPips * dollarPerPip;
-  const maxRiskAllowed = accountBalance * 0.05;
+  const effectiveRiskPct = riskPercent; // riskPercent = riskPercentageAllowed ?? profile default
+  const maxRiskAllowed = accountBalance * (effectiveRiskPct / 100);
 
-  console.log('%c[GOAL-AWARE LOT SIZING]', 'color: #00ff00; font-weight: bold');
+  console.log('[GOAL-AWARE LOT SIZING]');
   console.log(`  Lot Size: ${formatLotSize(actualLotSize)}`);
   console.log(`  Expected Risk (SL): $${expectedRisk.toFixed(2)}`);
   console.log(`  Expected Profit (at ${commonMovePips} pips): $${expectedProfitAtCommonMove.toFixed(2)}`);
   console.log(`  Remaining Goal: $${remainingGoal.toFixed(2)}`);
   console.log(`  Estimated Trades: ${estimatedTradesNeeded}`);
   console.log(`  Feasibility: ${goalFeasibility}`);
-  console.log(`  Max Risk Allowed: $${maxRiskAllowed.toFixed(2)} (5% cap)`);
+  console.log(`  Max Risk Allowed: $${maxRiskAllowed.toFixed(2)} (${effectiveRiskPct}% user-selected cap)`);
 
   // ✅ FIX 1: Max Safe Lot Calculation (NOT min lot fallback)
   if (expectedRisk > maxRiskAllowed) {

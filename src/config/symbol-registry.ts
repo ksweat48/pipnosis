@@ -62,6 +62,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     atrMultiplierForStop: 1.5,
   },
   // Indices - Forex Hours
+  // maxLotSize is a broker ceiling (not a position sizing cap).
+  // Actual lot sizes always scale with account balance and user risk %.
+  // Use getScaledMaxLotSize(symbol, accountBalance) for dynamic risk-proportionate ceilings.
   US30: {
     symbol: 'US30',
     category: 'index',
@@ -72,9 +75,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     pipMultiplier: 1,
     decimalPlaces: 2,
     contractSize: 1,
-    dollarPerPipPerLot: 100,  // FIXED: Was 1.0, should be 100 to match SSOT
+    dollarPerPipPerLot: 100,
     minLotSize: 0.01,
-    maxLotSize: 1.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 400,
     typicalSessionMovePoints: 200,
     atrMultiplierForStop: 1.5,
@@ -89,9 +92,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     pipMultiplier: 1,
     decimalPlaces: 2,
     contractSize: 1,
-    dollarPerPipPerLot: 100,  // FIXED: Was 1.0, should be 100 to match SSOT
+    dollarPerPipPerLot: 100,
     minLotSize: 0.01,
-    maxLotSize: 1.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 500,
     typicalSessionMovePoints: 250,
     atrMultiplierForStop: 1.5,
@@ -106,9 +109,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     pipMultiplier: 1,
     decimalPlaces: 2,
     contractSize: 1,
-    dollarPerPipPerLot: 100,  // FIXED: Was 1.0, should be 100 to match SSOT
+    dollarPerPipPerLot: 100,
     minLotSize: 0.01,
-    maxLotSize: 1.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 300,
     typicalSessionMovePoints: 150,
     atrMultiplierForStop: 1.5,
@@ -123,9 +126,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     pipMultiplier: 1,
     decimalPlaces: 2,
     contractSize: 1,
-    dollarPerPipPerLot: 100,  // FIXED: Was 1.0, should be 100 to match SSOT
+    dollarPerPipPerLot: 100,
     minLotSize: 0.01,
-    maxLotSize: 1.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 250,
     typicalSessionMovePoints: 125,
     atrMultiplierForStop: 1.5,
@@ -140,9 +143,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     pipMultiplier: 1,
     decimalPlaces: 2,
     contractSize: 1,
-    dollarPerPipPerLot: 100,  // FIXED: Was 1.0, should be 100 to match SSOT
+    dollarPerPipPerLot: 100,
     minLotSize: 0.01,
-    maxLotSize: 1.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 350,
     typicalSessionMovePoints: 175,
     atrMultiplierForStop: 1.5,
@@ -479,3 +482,52 @@ export const SYMBOLS_FOREX_HOURS = getSymbolsByMarketSchedule('forex');
 
 export const METAAPI_SYMBOLS = getSymbolsByDataProvider('metaapi');
 export const KRAKEN_SYMBOLS = getSymbolsByDataProvider('kraken');
+
+/**
+ * SSOT: Account-balance-scaled maximum lot size
+ *
+ * Returns the maximum lot size appropriate for the given account balance
+ * and risk percentage. This replaces ALL hardcoded maxLotSize caps
+ * in position sizing functions.
+ *
+ * GOVERNANCE: This is the single authority for dynamic lot ceilings.
+ * No function should cap lot size using a hardcoded constant — always
+ * call this function to respect account scale.
+ *
+ * Formula: maxLot = (accountBalance × riskPct / 100) / (minReasonableStop × dollarPerPipPerLot)
+ * where minReasonableStop is the smallest stop that makes sense for this instrument.
+ *
+ * The result is additionally bounded by the symbol registry's maxLotSize
+ * (which is a broker ceiling, not a position sizing constraint).
+ *
+ * @param symbol - The trading symbol
+ * @param accountBalance - Current account balance in USD
+ * @param riskPercentage - User's max risk per trade (e.g., 5 for 5%)
+ * @returns Maximum safe lot size for this account and risk setting
+ */
+export function getScaledMaxLotSize(
+  symbol: string,
+  accountBalance: number,
+  riskPercentage: number
+): number {
+  const config = getSymbolConfig(symbol);
+  if (!config) return 5.0;
+
+  const riskDollars = accountBalance * (riskPercentage / 100);
+
+  // Minimum reasonable stop per category (in pips/points):
+  // This prevents unrealistically large lot sizes from micro-pip stops.
+  const minReasonableStopByCategory: Record<SymbolCategory, number> = {
+    forex: 5,
+    index: 10,
+    metal: 10,
+    crypto: 50,
+    energy: 10,
+  };
+
+  const minStop = minReasonableStopByCategory[config.category] ?? 10;
+  const derivedMax = riskDollars / (minStop * config.dollarPerPipPerLot);
+
+  // Bound by broker ceiling from registry (not a position sizing limit)
+  return Math.min(derivedMax, config.maxLotSize);
+}

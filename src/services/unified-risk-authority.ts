@@ -23,7 +23,7 @@
 import type { TradeContext } from '../types/trade-context';
 import { validateTradeContext } from '../utils/tradeMath';
 import { getCurrencyPipInfo, calculateDollarPerPip, calculatePipDistance, roundLotSize } from '../utils/currencyHelpers';
-import { getSymbolConfig } from '../config/symbol-registry';
+import { getSymbolConfig, getScaledMaxLotSize } from '../config/symbol-registry';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
 import { kellyCriterionSizer } from './kelly-criterion-sizer';
 import { evGatingSystem } from './ev-gating-system';
@@ -333,9 +333,12 @@ class UnifiedRiskAuthority {
       recommendedLotSize = roundLotSize(recommendedLotSize);
     }
 
-    // Broker limit enforcement: cap lot size, then sync riskDollars (SSOT)
+    // SSOT: Broker limit enforcement using account-balance-scaled ceiling.
+    // getScaledMaxLotSize returns the maximum lot size appropriate for this
+    // account balance and risk %, replacing the static symbol registry cap.
     const symbolConfig = getSymbolConfig(symbol);
-    const maxBrokerLot = symbolConfig?.maxLotSize || 10.0;
+    const riskPctForCeiling = baseRiskPercent * 100; // baseRiskPercent is a decimal (0.05 = 5%)
+    const maxBrokerLot = getScaledMaxLotSize(symbol, currentBalance, riskPctForCeiling);
     const minBrokerLot = symbolConfig?.minLotSize || 0.01;
 
     if (recommendedLotSize > maxBrokerLot) {
@@ -345,9 +348,11 @@ class UnifiedRiskAuthority {
       recommendedLotSize = maxBrokerLot;
       riskDollars = recommendedLotSize * pipInfo.dollarPerPipPerLot * stopPips;
 
-      console.warn('[RISK] Lot size capped at broker maximum', {
+      console.warn('[RISK] Lot size capped at scaled maximum', {
         symbol,
         userId,
+        accountBalance: currentBalance,
+        riskPct: riskPctForCeiling.toFixed(2) + '%',
         originalLotSize: originalLot.toFixed(3),
         cappedLotSize: recommendedLotSize.toFixed(3),
         originalRiskDollars: originalRisk.toFixed(2),
@@ -356,8 +361,8 @@ class UnifiedRiskAuthority {
         actualRiskPercent: (riskDollars / currentBalance * 100).toFixed(2) + '%'
       });
 
-      criticalWarnings.push(`Risk reduced from $${originalRisk.toFixed(2)} to $${riskDollars.toFixed(2)} due to broker lot size limit (max ${maxBrokerLot} lots)`);
-      recommendations.push('Consider lowering your max risk % setting to avoid hitting broker limits');
+      criticalWarnings.push(`Risk reduced from $${originalRisk.toFixed(2)} to $${riskDollars.toFixed(2)} due to scaled lot size ceiling (max ${maxBrokerLot.toFixed(2)} lots for this account)`);
+      recommendations.push('Consider lowering your max risk % setting to avoid hitting account-scaled limits');
     }
 
     if (recommendedLotSize < minBrokerLot) {
