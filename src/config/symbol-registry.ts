@@ -44,6 +44,10 @@ export interface SymbolConfig {
 
 export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
   // Metals - Forex Hours
+  // maxLotSize is a broker ceiling (not a position sizing cap).
+  // Actual lot sizes always scale with account balance and user risk %.
+  // Use getScaledMaxLotSize(symbol, accountBalance, riskPct) for dynamic risk-proportionate ceilings.
+  // Math: derivedMax @ $500k/5% = $25,000 / (10 * 1.0) = 2,500 lots → ceiling 500.0
   XAUUSD: {
     symbol: 'XAUUSD',
     category: 'metal',
@@ -56,7 +60,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     contractSize: 100,
     dollarPerPipPerLot: 1.0,
     minLotSize: 0.01,
-    maxLotSize: 10.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 300,
     typicalSessionMovePoints: 150,
     atrMultiplierForStop: 1.5,
@@ -152,6 +156,8 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
   },
 
   // Forex - Major Pairs
+  // maxLotSize is a broker ceiling (not a position sizing cap).
+  // Math: derivedMax @ $500k/5% = $25,000 / (5 * 10) = 500 lots → ceiling 500.0
   EURUSD: {
     symbol: 'EURUSD',
     category: 'forex',
@@ -164,7 +170,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     contractSize: 100000,
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
-    maxLotSize: 5.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 80,
     typicalSessionMovePoints: 40,
     atrMultiplierForStop: 1.2,
@@ -181,7 +187,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     contractSize: 100000,
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
-    maxLotSize: 5.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 100,
     typicalSessionMovePoints: 50,
     atrMultiplierForStop: 1.2,
@@ -198,7 +204,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     contractSize: 100000,
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
-    maxLotSize: 5.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 120,
     typicalSessionMovePoints: 60,
     atrMultiplierForStop: 1.2,
@@ -215,7 +221,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     contractSize: 100000,
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
-    maxLotSize: 5.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 70,
     typicalSessionMovePoints: 35,
     atrMultiplierForStop: 1.2,
@@ -232,7 +238,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     contractSize: 100000,
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
-    maxLotSize: 5.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 70,
     typicalSessionMovePoints: 35,
     atrMultiplierForStop: 1.2,
@@ -249,7 +255,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     contractSize: 100000,
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
-    maxLotSize: 5.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 65,
     typicalSessionMovePoints: 32,
     atrMultiplierForStop: 1.2,
@@ -266,7 +272,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     contractSize: 100000,
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
-    maxLotSize: 5.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 75,
     typicalSessionMovePoints: 38,
     atrMultiplierForStop: 1.2,
@@ -285,7 +291,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     contractSize: 100000,
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
-    maxLotSize: 5.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 60,
     typicalSessionMovePoints: 30,
     atrMultiplierForStop: 1.2,
@@ -302,7 +308,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     contractSize: 100000,
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
-    maxLotSize: 5.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 140,
     typicalSessionMovePoints: 70,
     atrMultiplierForStop: 1.2,
@@ -319,7 +325,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     contractSize: 100000,
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
-    maxLotSize: 5.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 160,
     typicalSessionMovePoints: 80,
     atrMultiplierForStop: 1.2,
@@ -336,7 +342,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     contractSize: 100000,
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
-    maxLotSize: 5.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 130,
     typicalSessionMovePoints: 65,
     atrMultiplierForStop: 1.2,
@@ -353,13 +359,15 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     contractSize: 100000,
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
-    maxLotSize: 5.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 90,
     typicalSessionMovePoints: 45,
     atrMultiplierForStop: 1.2,
   },
 
   // Crypto - 24/7 Trading (via Kraken)
+  // maxLotSize is a broker ceiling (not a position sizing cap).
+  // Math: derivedMax @ $500k/5% = $25,000 / (50 * 1.0) = 500 lots → ceiling 500.0
   BTCUSD: {
     symbol: 'BTCUSD',
     category: 'crypto',
@@ -372,7 +380,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     contractSize: 1,
     dollarPerPipPerLot: 1.0,
     minLotSize: 0.001,
-    maxLotSize: 10.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 3000,
     typicalSessionMovePoints: 1000,
     atrMultiplierForStop: 1.5,
@@ -383,19 +391,21 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     displayName: 'Ethereum',
     marketSchedule: '24/7',
     dataProvider: 'kraken',
-    pipValue: 1.0,  // SSOT FIX: Changed from 0.1 to 1.0 to match currencyHelpers.ts
+    pipValue: 1.0,
     pipMultiplier: 1,
     decimalPlaces: 2,
     contractSize: 1,
-    dollarPerPipPerLot: 1.0,  // SSOT FIX: Changed from 0.1 to 1.0 to match currencyHelpers.ts
+    dollarPerPipPerLot: 1.0,
     minLotSize: 0.01,
-    maxLotSize: 100.0,
+    maxLotSize: 500.0,
     typicalDailyRangePoints: 150,
     typicalSessionMovePoints: 75,
     atrMultiplierForStop: 1.5,
   },
 
   // Energy - Forex Hours
+  // maxLotSize is a broker ceiling (not a position sizing cap).
+  // Math: derivedMax @ $500k/5% = $25,000 / (10 * 10) = 250 lots → ceiling 250.0
   USOIL: {
     symbol: 'USOIL',
     category: 'energy',
@@ -408,7 +418,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     contractSize: 1000,
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
-    maxLotSize: 10.0,
+    maxLotSize: 250.0,
     typicalDailyRangePoints: 100,
     typicalSessionMovePoints: 50,
     atrMultiplierForStop: 1.5,
@@ -425,7 +435,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
     contractSize: 1000,
     dollarPerPipPerLot: 10,
     minLotSize: 0.01,
-    maxLotSize: 10.0,
+    maxLotSize: 250.0,
     typicalDailyRangePoints: 100,
     typicalSessionMovePoints: 50,
     atrMultiplierForStop: 1.5,
@@ -505,18 +515,34 @@ export const KRAKEN_SYMBOLS = getSymbolsByDataProvider('kraken');
  * @param riskPercentage - User's max risk per trade (e.g., 5 for 5%)
  * @returns Maximum safe lot size for this account and risk setting
  */
+/**
+ * SSOT: Account-balance-proportionate lot ceiling.
+ *
+ * Returns the maximum lot size for a given symbol, account balance, and risk %.
+ * This is the sole authority for dynamic lot ceilings used across:
+ *   - calculatePositionSize() in currencyHelpers.ts
+ *   - calculateGoalAwareLotSize() in currencyHelpers.ts
+ *   - unified-risk-authority.ts broker ceiling enforcement
+ *
+ * Formula:
+ *   derivedMax = (accountBalance × riskPct / 100) / (minReasonableStop × dollarPerPipPerLot)
+ *   effectiveMax = Math.min(derivedMax, config.maxLotSize)
+ *
+ * config.maxLotSize is a BROKER CEILING ONLY — it must be set high enough to never
+ * interfere with legitimate sized accounts. See symbol-registry.ts for per-symbol values.
+ *
+ * minReasonableStop prevents astronomically large lots from micro-pip SL inputs.
+ */
 export function getScaledMaxLotSize(
   symbol: string,
   accountBalance: number,
   riskPercentage: number
 ): number {
   const config = getSymbolConfig(symbol);
-  if (!config) return 5.0;
+  if (!config) return 500.0;
 
   const riskDollars = accountBalance * (riskPercentage / 100);
 
-  // Minimum reasonable stop per category (in pips/points):
-  // This prevents unrealistically large lot sizes from micro-pip stops.
   const minReasonableStopByCategory: Record<SymbolCategory, number> = {
     forex: 5,
     index: 10,
@@ -528,6 +554,5 @@ export function getScaledMaxLotSize(
   const minStop = minReasonableStopByCategory[config.category] ?? 10;
   const derivedMax = riskDollars / (minStop * config.dollarPerPipPerLot);
 
-  // Bound by broker ceiling from registry (not a position sizing limit)
   return Math.min(derivedMax, config.maxLotSize);
 }
