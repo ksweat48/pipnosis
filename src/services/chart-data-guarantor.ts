@@ -28,9 +28,9 @@ export interface GuarantorResult {
 }
 
 export class ChartDataGuarantor {
-  private static readonly TARGET_CANDLES = 200;
-  private static readonly EMERGENCY_LIMIT = 15000; // Increased from 250 to handle historical backfill data
-  private static readonly DEV_EMERGENCY_LIMIT = 100; // Reduced limit for development environments
+  private static readonly EMERGENCY_LIMIT = 15000;
+  private static readonly DEV_EMERGENCY_LIMIT = 100;
+
   private static readonly TIMEFRAME_SECONDS: Record<string, number> = {
     'M1': 60,
     'M5': 300,
@@ -41,10 +41,53 @@ export class ChartDataGuarantor {
     'D1': 86400
   };
 
+  /**
+   * SSOT: Single authoritative candle count per timeframe.
+   * Used by both guaranteeChartData (chart display) and ensureMinimumDataset (data health checks).
+   *
+   * CCIP-FIX-M5-WEEKEND-2026-02-23:
+   * Counts are set to ensure the time window produced by calculateStartTime() always
+   * exceeds the 48-hour forex weekend gap for every timeframe. See calculateStartTime()
+   * for the minimum window enforcement logic.
+   */
+  private static readonly CANDLE_COUNTS: Record<string, number> = {
+    'M1': 500,
+    'M5': 300,
+    'M15': 672,
+    'M30': 720,
+    'H1': 720,
+    'H4': 720,
+    'D1': 365
+  };
+
+  /**
+   * SSOT: Per-timeframe minimum lookback window in hours.
+   *
+   * CCIP-FIX-M5-WEEKEND-2026-02-23 — Root cause analysis:
+   * The forex weekend gap is ~48 hours (Fri ~22:00 UTC to Sun ~22:00 UTC).
+   * With the previous flat safetyMultiplier of 2.5:
+   *   M1  window = 60s  × 500 × 2.5 = 75,000s  = 20.8h  → BELOW 48h gap → blank chart on Monday
+   *   M5  window = 300s × 200 × 2.5 = 150,000s = 41.7h  → BELOW 48h gap → blank chart on Monday
+   *   M15 window = 900s × 672 × 2.5 = 1,512,000s = 420h → above gap (safe)
+   *
+   * Fix: enforce a hard minimum window of 72 hours for all timeframes. 72h = 48h weekend
+   * gap + 24h trading buffer. Higher timeframes already exceed this naturally.
+   * The effective window = max(intervalSeconds × count × 2.5, MIN_WINDOW_HOURS × 3600).
+   */
+  private static readonly MIN_WINDOW_HOURS: Record<string, number> = {
+    'M1': 72,
+    'M5': 72,
+    'M15': 72,
+    'M30': 72,
+    'H1': 72,
+    'H4': 72,
+    'D1': 72
+  };
+
   static async guaranteeChartData(
     symbol: string,
     timeframe: string,
-    targetCount: number = this.TARGET_CANDLES
+    targetCount: number = this.CANDLE_COUNTS[timeframe] ?? 300
   ): Promise<GuarantorResult> {
     const startTimeMs = Date.now();
     const isDevEnvironment = shouldDisableMetaAPI();
@@ -76,25 +119,18 @@ export class ChartDataGuarantor {
 
       logger.info(`[ChartDataGuarantor] Query range: ${startTimeISO} to ${endTimeISO}`);
 
-      // Use reduced limits in development to speed up queries
       const queryLimit = isDevEnvironment ? this.DEV_EMERGENCY_LIMIT : this.EMERGENCY_LIMIT;
-      const cacheDuration = isDevEnvironment ? 60000 : 30000; // 60s for dev, 30s for prod
+      const cacheDuration = isDevEnvironment ? 60000 : 30000;
 
       logger.info(`[ChartDataGuarantor] Query limit: ${queryLimit}, cache: ${cacheDuration}ms`);
 
-      // Order by descending to get the NEWEST candles first (fixes issue where
-      // browser aggregator creates 500+ candles but we only fetch oldest 250)
-      // Wrapped with database resilience for retry and caching
-      //
-      // ✅ SSOT: Uses MarketDataService with quality-filtered view for automatic
-      // data source prioritization and flat candle filtering
       const candles = await databaseResilienceWrapper.query(
         () => marketDataService.getQualityCandlesInRange(
           symbol,
           timeframe,
           startTime,
           endTime,
-          false, // Get newest first (descending)
+          false,
           queryLimit
         ),
         {
@@ -115,7 +151,6 @@ export class ChartDataGuarantor {
         };
       }
 
-      // Candles are now in descending order (newest first), so reverse to ascending
       const reversedCandles = [...candles].reverse();
       const validCandles = this.validateCandles(reversedCandles);
       const gapAnalysis = this.detectGaps(validCandles, timeframe);
@@ -124,8 +159,6 @@ export class ChartDataGuarantor {
 
       logger.info(`[ChartDataGuarantor] Retrieved ${validCandles.length} valid candles, target: ${targetCount}, complete: ${isComplete}`);
 
-      // Since we ordered descending and reversed, we now have ascending order
-      // Take the last targetCount candles (most recent)
       return {
         candles: validCandles.slice(-targetCount),
         isComplete,
@@ -141,6 +174,23 @@ export class ChartDataGuarantor {
     }
   }
 
+  /**
+   * SSOT authority for chart query start time calculation.
+   *
+   * CCIP-FIX-M5-WEEKEND-2026-02-23:
+   * Uses max(rawWindow, minWindowHours) to guarantee the query always bridges
+   * the forex weekend gap for short-interval timeframes (M1, M5).
+   *
+   * Math proof for M5 fix:
+   *   Raw window:  300s × 300 × 2.5 = 225,000s = 62.5h  (now exceeds 48h gap)
+   *   Min floor:   72h = 259,200s
+   *   Effective:   max(62.5h, 72h) = 72h  ✓ always bridges the weekend
+   *
+   * Math proof for M1 fix:
+   *   Raw window:  60s × 500 × 2.5 = 75,000s = 20.8h   (BELOW 48h gap)
+   *   Min floor:   72h = 259,200s
+   *   Effective:   max(20.8h, 72h) = 72h  ✓ always bridges the weekend
+   */
   private static calculateStartTime(
     endTime: Date,
     timeframe: string,
@@ -160,12 +210,22 @@ export class ChartDataGuarantor {
     }
 
     const safetyMultiplier = 2.5;
-    const estimatedSeconds = intervalSeconds * targetCount * safetyMultiplier;
-    const startTimeMs = endTime.getTime() - estimatedSeconds * 1000;
+    const rawWindowSeconds = intervalSeconds * targetCount * safetyMultiplier;
+
+    const minWindowHours = this.MIN_WINDOW_HOURS[timeframe] ?? 72;
+    const minWindowSeconds = minWindowHours * 3600;
+
+    const effectiveWindowSeconds = Math.max(rawWindowSeconds, minWindowSeconds);
+    const startTimeMs = endTime.getTime() - effectiveWindowSeconds * 1000;
 
     if (isNaN(startTimeMs) || startTimeMs < 0) {
       throw new Error('Calculated start time is invalid');
     }
+
+    logger.info(
+      `[ChartDataGuarantor] ${timeframe} window: raw=${(rawWindowSeconds / 3600).toFixed(1)}h, ` +
+      `floor=${minWindowHours}h, effective=${(effectiveWindowSeconds / 3600).toFixed(1)}h`
+    );
 
     return new Date(startTimeMs);
   }
@@ -282,10 +342,6 @@ export class ChartDataGuarantor {
     return { hasWeekdayGaps, gaps };
   }
 
-  /**
-   * Fetch incremental data within a time range
-   * ✅ SSOT: Uses MarketDataService for candle queries
-   */
   static async fetchIncrementalData(
     symbol: string,
     timeframe: string,
@@ -301,7 +357,7 @@ export class ChartDataGuarantor {
         timeframe,
         startTime,
         endTime,
-        true // Ascending order
+        true
       );
 
       return this.validateCandles(candles);
@@ -352,25 +408,18 @@ export class ChartDataGuarantor {
   static async guaranteeChartDataWithBackfill(
     symbol: string,
     timeframe: string,
-    targetCount: number = this.TARGET_CANDLES
+    targetCount: number = this.CANDLE_COUNTS[timeframe] ?? 300
   ): Promise<GuarantorResult> {
-    // Simplified: Just load data, no gap filling logic
-    // Gap filling is now handled by automatic recent candle backfill
     return await this.guaranteeChartData(symbol, timeframe, targetCount);
   }
 
+  /**
+   * SSOT: Returns the authoritative candle count for a given timeframe.
+   * Single source of truth used by both the chart display and data health checks.
+   * Do not define candle counts anywhere else.
+   */
   static calculateSmartCandleCount(timeframe: string): number {
-    const counts: Record<string, number> = {
-      'M1': 500,    // 8 hours of M1 candles (optimized for chart display)
-      'M5': 288,    // 24 hours of M5 candles (optimized for chart display)
-      'M15': 672,   // 7 days of M15 candles (optimized for chart display)
-      'M30': 720,   // 15 days of M30 candles (optimized for chart display)
-      'H1': 720,    // 30 days of H1 candles
-      'H4': 720,    // 120 days of H4 candles
-      'D1': 365     // 1 year of daily candles
-    };
-
-    return counts[timeframe] || 500;
+    return this.CANDLE_COUNTS[timeframe] ?? 300;
   }
 
   static async ensureMinimumDataset(

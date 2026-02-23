@@ -1162,7 +1162,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
       // Optimize candle count for development environments
       const isDevEnvironment = shouldDisableMetaAPI();
-      const targetCandleCount = isDevEnvironment ? 50 : 200;
+      const targetCandleCount = isDevEnvironment ? 50 : ChartDataGuarantor.calculateSmartCandleCount(timeframe);
       console.log(`[Chart Init] Using ChartDataGuarantor - Target: ${targetCandleCount} candles (${isDevEnvironment ? 'DEV MODE' : 'PRODUCTION'})`);
 
       // Add timeout protection for development environments
