@@ -1881,7 +1881,7 @@ ${tradeStyle === 'SCALP' ? `{
   "stopLoss": 12300.00,
   "takeProfit": 12400.00,
   "trade_confidence": 75,
-  "entry_mode": "immediate",
+  "entry_mode": "execute_now",
   "style": "SCALP",
   "marketThesis": "Brief market analysis (30-50 words)",
   "reasoning": "Your full analytical reasoning — trend context, structural space, prior rejections, timing assessment",
@@ -1900,7 +1900,7 @@ ${tradeStyle === 'SCALP' ? `{
   "tp1": 12370.00,
   "tp2": 12400.00,
   "trade_confidence": 75,
-  "entry_mode": "immediate",
+  "entry_mode": "execute_now",
   "style": "${tradeStyle}",
   "marketThesis": "Brief market analysis (30-50 words)",
   "reasoning": "Your full analytical reasoning — trend context, structural space, prior rejections, timing assessment",
@@ -2667,7 +2667,7 @@ ${tradeStyle === 'SCALP' ? `{
       // Extract new Alpha output format fields
       const tradeConfidence = parsed.trade_confidence ?? parsed.confidence ?? 0;
       const entryQualityScore = parsed.entry_quality_score ?? 0;
-      const entryMode = parsed.entry_mode ?? 'wait_confirmation';
+      const entryMode = parsed.entry_mode ?? 'wait_pullback';
 
       // SSOT: User's chosen style is IMMUTABLE - LLM cannot override it
       // tradeStyle was already resolved from user's choice at function scope

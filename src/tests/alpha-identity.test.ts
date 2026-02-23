@@ -45,15 +45,15 @@ describe('Alpha Identity Configuration', () => {
   });
 
   describe('getEntryMode', () => {
-    it('should return wait_confirmation when confidence below minimum', () => {
-      expect(getEntryMode(55)).toBe('wait_confirmation');
-      expect(getEntryMode(59)).toBe('wait_confirmation');
+    it('should return wait_pullback when confidence below minimum', () => {
+      expect(getEntryMode(55)).toBe('wait_pullback');
+      expect(getEntryMode(59)).toBe('wait_pullback');
     });
 
-    it('should return immediate when confidence meets threshold', () => {
-      expect(getEntryMode(60)).toBe('immediate');
-      expect(getEntryMode(85)).toBe('immediate');
-      expect(getEntryMode(100)).toBe('immediate');
+    it('should return execute_now when confidence meets threshold', () => {
+      expect(getEntryMode(60)).toBe('execute_now');
+      expect(getEntryMode(85)).toBe('execute_now');
+      expect(getEntryMode(100)).toBe('execute_now');
     });
   });
 

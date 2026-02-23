@@ -501,17 +501,17 @@ export type EntryActionTier =
   | 'WAIT_PASSIVE';            // EQS <50: monitor for improvement
 
 /**
- * Entry mode - how Alpha wants to enter based on confidence and EQS
+ * Entry mode - how Alpha wants to enter
  *
- * Decision is based on Trade Confidence AND Entry Quality Score:
- * - immediate: TC >= 60% AND EQS >= style threshold (85 SCALP, 80 others)
- * - wait_pullback: TC >= 60% AND EQS in wait band (70-84 SCALP, 65-79 others)
- * - wait_confirmation: TC < 60% OR EQS below wait band
+ * Two values only:
+ * - execute_now: Enter immediately. Trigger has confirmed. Trade executes on receipt.
+ * - wait_pullback: Committed entry. Waiting for price to reach the named pullback zone.
+ *   The advisory monitor executes automatically when the zone is reached.
+ *   wait_condition block is REQUIRED when entry_mode is wait_pullback.
  */
 export type EntryMode =
-  | 'immediate'
-  | 'wait_pullback'
-  | 'wait_confirmation';
+  | 'execute_now'
+  | 'wait_pullback';
 
 /**
  * Style display names used in Alpha outputs and UI
@@ -521,7 +521,7 @@ export type StyleDisplayName = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
 /**
  * Alpha decision action types
  */
-export type AlphaAction = 'BUY' | 'SELL' | 'WAIT' | 'NO_TRADE';
+export type AlphaAction = 'BUY' | 'SELL' | 'NO_TRADE';
 
 /**
  * Alpha output format - standardized response structure

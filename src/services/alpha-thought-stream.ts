@@ -370,7 +370,7 @@ class AlphaThoughtStream {
     confidence: number,
     reasoning: string
   ): Promise<void> {
-    const actionLabel = action === 'BUY' ? 'BUY' : action === 'SELL' ? 'SELL' : 'WAIT';
+    const actionLabel = action === 'BUY' ? 'BUY' : action === 'SELL' ? 'SELL' : 'NO_TRADE';
     const message = `${symbol} [${actionLabel} ${confidence}%]: ${reasoning}`;
     await this.emitThought(sessionId, userId, 'comparing', message, {
       symbol,

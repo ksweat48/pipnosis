@@ -517,7 +517,7 @@ class GoalScanner {
 
       const setupType = hasValidSetup
         ? `Alpha ${alphaDecision.action} (${alphaDecision.confidence}%)`
-        : alphaDecision.action === 'WAIT' ? 'WAIT' : 'NO_TRADE';
+        : 'NO_TRADE';
 
       return {
         symbol,
