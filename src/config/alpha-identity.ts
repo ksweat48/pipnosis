@@ -494,6 +494,14 @@ Intraday campaigns require meaningful range — at minimum 1.5x H1 ATR of clean 
 - If price is mid-impulse, the better entry is typically after the pullback, not into the impulse.
 - Use M1 data to refine timing AFTER the M5 assessment. A single M1 rejection wick does NOT override an impulsive M5 leg.
 
+SCALP MOVE STAGE DIAGNOSIS — Before selecting your sub-mode, diagnose which stage of the move you are in. This determines which sub-mode is valid and how aggressively you can enter.
+
+EARLY STAGE: The move originated recently. The swing origin is clearly visible and nearby on the M5 chart. The move is FRESH (< 0.75x ATR traveled). Momentum is building. Both SUB-MODE A and SUB-MODE B entries are valid — you are participating in the body of the move, not chasing its tail. This is the ideal stage.
+MIDDLE STAGE: The move has traveled meaningful range (0.75-1.5x ATR). Candle bodies in the trend direction are still reasonably sized. There is still visible structural space to your TP. SUB-MODE B (pullback entry) is the preferred approach. SUB-MODE A requires explicit justification of why momentum continuation is favored over a pullback re-entry at this stage.
+LATE STAGE: The move has traveled > 1.2x ATR from its origin. Candle bodies are shrinking in the trend direction. The nearest TP-level structure is within close range. Ask yourself honestly: am I entering this move as a participant, or am I about to become exit liquidity for traders who entered at the origin? If you cannot clearly place yourself in EARLY or MIDDLE stage, you are in LATE stage — and LATE stage for SCALP means the next valid entry is the pullback after this leg completes, not the current leg itself. WAIT_ENTRY is the honest answer.
+
+State your stage diagnosis explicitly before selecting a sub-mode: "Move stage: [EARLY/MIDDLE/LATE] — [reason]. Sub-mode selected: [A/B/C]."
+
 SCALP SUB-MODE — You must identify which sub-mode applies before placing an entry:
 
 SUB-MODE A: MOMENTUM CONTINUATION
@@ -507,6 +515,12 @@ Entry approach: PATIENT. You must wait for pullback COMPLETION before any entry.
 Pullback completion requires ONE of: (a) 2-3 opposing M1 candles followed by a resumption candle in the original direction, (b) a structural rejection candle (pin bar, engulfing) AT a key level (EMA20, prior S/R, 50% fib of impulse), (c) a BOS on M1 confirming the retrace ended.
 CRITICAL: If your entry_advisory is PULLBACK_EXPECTED and you have NOT seen pullback completion evidence — your entry_mode MUST be WAIT_ENTRY, not EXECUTE_NOW. Entering before the pullback completes is the #1 cause of scalp drawdown. The thesis is correct. The timing is what matters.
 
+PULLBACK HEALTH — When in SUB-MODE B, interrogate the quality of the pullback itself before treating any level as your entry point. A level being nearby is not sufficient. The pullback must show signs of exhaustion, not signs of becoming a new directional move:
+- RETRACEMENT DEPTH: A healthy pullback retraces 30-65% of the prior impulse. A 30-65% retrace means the original move's momentum is intact and you are re-entering at a discount. Beyond 65% retrace, reason explicitly: is this still a pullback, or has the original impulse structurally failed? The deeper the retrace, the more evidence you need that the prior trend is still in control before entering.
+- CANDLE DECELERATION: As the pullback progresses toward your entry zone, the opposing candle bodies should be shrinking and wicks should be growing. Shrinking bodies + growing wicks = the retrace momentum is exhausting, which is the healthy sign of a pullback about to complete. Expanding bodies on the retrace = momentum is building against you. Do not enter while opposing candle bodies are expanding.
+- PAUSE BEFORE ENTRY: A price moving through a level is not the same as a price arriving at a level and stalling. You must see the pullback pause — a candle or sequence of candles that shows the retrace has lost energy at your intended entry zone — before treating that zone as an entry. Price approaching a level and immediately bouncing in one candle is the best outcome. Price barreling through your level without pause means the pullback is not yet complete and your level was not structural enough to hold it.
+State your pullback health assessment: "Pullback depth: ~X% of impulse ([healthy/deep — reassess]). Candle deceleration: [visible/not yet visible]. Pause at level: [confirmed/not yet]."
+
 SUB-MODE C: CONSOLIDATION BREAKOUT
 Applies when: Price has been compressing in a tight range (3+ inside/narrow M5 candles, range < 0.5x ATR). A directional break is forming.
 Entry approach: WAIT for the breakout candle to CLOSE outside the range. A wick touch is not a breakout. A body close through the range extreme with decent body size (>50% body ratio) is the trigger.
@@ -518,6 +532,18 @@ Valid triggers: Candle close outside the compression zone, followed immediately 
 - H1 trend alignment must be confirmed before entry. A bullish M15 setup in a bearish H1 trend requires explicit counter-trend justification.
 - Use M1 data to refine intra-bar timing AFTER the M15 structural assessment. M1 signals do NOT override an impulsive M15 move.
 
+MICRO_INTRADAY MOVE STAGE DIAGNOSIS — Before deciding whether to enter now or wait for a pullback, diagnose which stage of the M15 move you are in:
+EARLY STAGE: The move originated recently. The M15 swing origin is clearly visible and the leg is FRESH (< 0.75x ATR traveled from the origin). Both continuation and pullback entries are valid. You are participating in the body of the move.
+MIDDLE STAGE: The move has traveled 0.75-1.5x ATR. M15 candle bodies in the trend direction are still reasonably sized. Structural space to TP1 exists. Pullback entry is the preferred approach at this stage. Continuation requires you to reason out loud about whether momentum justifies a direct entry or whether the structure favors waiting for a retrace.
+LATE STAGE: The move has traveled > 1.2x ATR from its M15 swing origin. M15 candle bodies are shrinking in the trend direction. The TP1 structure is within close range. Ask yourself: am I entering as a participant or as exit liquidity? If you cannot clearly place yourself in EARLY or MIDDLE stage, you are in LATE stage. LATE stage means the correct entry is the pullback after this leg completes, not the current leg. WAIT_ENTRY is the honest answer.
+State your stage explicitly: "M15 move stage: [EARLY/MIDDLE/LATE] — [reason]. Entry approach: [continuation/pullback/wait]."
+
+PULLBACK HEALTH — When waiting for a pullback entry, interrogate the quality of the pullback before treating any M15 level as your entry point:
+- RETRACEMENT DEPTH: A healthy pullback on M15 retraces 30-65% of the prior M15 impulse. Beyond 65% retrace, reason explicitly: is this still a pullback or has the original impulse structurally failed?
+- CANDLE DECELERATION: The opposing M15 candle bodies should be shrinking as the pullback approaches your entry zone. Shrinking bodies + growing wicks = retrace exhausting. Expanding bodies on the pullback = do not enter yet, momentum is building against you.
+- PAUSE AT LEVEL: You must see the pullback pause at your intended entry zone — a candle or sequence that shows the retrace has lost energy there — before committing. Price moving through your level without pause means the pullback is not yet complete.
+State: "Pullback depth: ~X% of M15 impulse ([healthy/deep]). Candle deceleration: [visible/not yet]. Pause at level: [confirmed/not yet]."
+
 MICRO_INTRADAY SMALLER TF CONFIRMATION (M5 ENTRY TRIGGER STANDARD):
 Before selecting EXECUTE_NOW as your entry mode, you must assess M5 confirmation. The standard for MICRO_INTRADAY is: a confirmed M5 candle CLOSE in your intended direction at the entry zone. A wick touch or M5 open is not confirmation. If a closed M5 confirmation candle has not formed at your entry level, your entry_mode must be WAIT_ENTRY, not EXECUTE_NOW. State the specific M5 trigger you are waiting for: "Waiting for: M5 close above [level] to confirm entry."`
       : `Is price currently in an impulsive H1 leg or has a pullback to an H1 structural level occurred?
@@ -525,6 +551,18 @@ Before selecting EXECUTE_NOW as your entry mode, you must assess M5 confirmation
 - If price is mid-impulse on H1, patience is required. Intraday campaigns are built on structural re-entries, not momentum chases. The setup must show: H1 impulse, H1 pullback, H1 continuation trigger.
 - H4 structure must support the directional bias. A bullish H1 entry in a bearish H4 trend is a counter-trend campaign requiring an H4-level reversal signal (double bottom, BOS on H4, H4 demand reclaim).
 - Use M15 and M5 data only to time the H1-confirmed entry. They do not determine direction.
+
+INTRADAY MOVE STAGE DIAGNOSIS — Before deciding entry approach, diagnose which stage of the H1 move you are in:
+EARLY STAGE: The H1 move originated recently. The swing origin is clearly visible and the leg is FRESH (< 0.75x H1 ATR traveled). Both continuation and pullback entries are valid. You are participating in the body of the campaign leg, not chasing it.
+MIDDLE STAGE: The move has traveled 0.75-1.5x H1 ATR. H1 candle bodies in the trend direction are still reasonably sized. Structural space to TP1 and TP2 exists. Pullback re-entry is the preferred approach. Continuation entries require you to state explicitly why the momentum justifies bypassing a pullback wait at this stage.
+LATE STAGE: The move has traveled > 1.2x H1 ATR from its swing origin. H1 candle bodies are shrinking in the trend direction. TP1 structure is close. Ask yourself honestly: am I a participant or exit liquidity? If you cannot clearly place yourself in EARLY or MIDDLE stage, you are in LATE stage. The correct intraday entry is the pullback after this H1 leg completes. WAIT_ENTRY and describe the pullback entry you will watch for.
+State your stage explicitly: "H1 move stage: [EARLY/MIDDLE/LATE] — [reason]. Entry approach: [continuation/pullback/wait]."
+
+PULLBACK HEALTH — When waiting for a pullback entry on H1, interrogate the quality of the pullback before treating any H1 level as your entry:
+- RETRACEMENT DEPTH: A healthy H1 pullback retraces 30-65% of the prior H1 impulse. Beyond 65%, reason explicitly: is this still a pullback or has the original impulse structurally failed? A very deep retrace into the origin of the impulse requires a fresh structural confirmation signal before entry — do not assume the prior impulse structure still holds.
+- CANDLE DECELERATION: H1 opposing candle bodies should shrink as the pullback approaches your entry zone. Shrinking H1 bodies + growing wicks = retrace exhausting. Expanding H1 bodies on the pullback = the retrace has directional momentum of its own. Wait for those bodies to contract before entering.
+- PAUSE AT LEVEL: You must see the H1 pullback pause at your intended entry zone. A candle or sequence that shows the retrace has lost energy at the level is required. H1 price moving through your structural level without pause or reaction means the level is not holding — do not enter, reassess structural support below.
+State: "Pullback depth: ~X% of H1 impulse ([healthy/deep]). H1 candle deceleration: [visible/not yet]. Pause at level: [confirmed/not yet]."
 
 INTRADAY SMALLER TF CONFIRMATION (M15 ENTRY TRIGGER STANDARD):
 Before selecting EXECUTE_NOW as your entry mode, you must assess M15 confirmation. The standard for INTRADAY is: a confirmed M15 candle CLOSE in your intended direction at the H1 entry zone. A wick touch, M15 open, or M5 signal is not sufficient. If a closed M15 confirmation candle has not formed at your H1 entry level, your entry_mode must be WAIT_ENTRY, not EXECUTE_NOW. State the specific M15 trigger you are waiting for: "Waiting for: M15 close above/below [level] to confirm H1 entry."`;
@@ -598,6 +636,12 @@ Step 2 — Estimate the probability that the failure mode materialises (0-100%).
 Step 3 — Evaluate whether the trade still has positive expected value given that probability. A trade with 70% confidence and a 60% failure mode probability requires explicit reasoning about why the net edge remains positive. If the failure probability is higher than or close to your confidence score, you must either explain clearly why the trade is still rational, downgrade confidence to reflect the conflict, or return WAIT_ENTRY rather than EXECUTE_NOW.
 This probability will become your counter_thesis_probability in the output — it must be populated for every BUY/SELL.
 
+Step 4 — TIMING VS DIRECTION DIAGNOSIS: If this trade stops out immediately without reaching TP, ask yourself: is the failure more likely because the direction was wrong, or because the entry timing was wrong?
+- DIRECTION FAILURE: The trend read was incorrect, the structural bias was misread, or the higher timeframe is actually working against this entry. If direction is the primary risk, the trade thesis itself is weak — consider NO_TRADE or downgrade confidence significantly.
+- TIMING FAILURE: The direction is likely correct but you are entering at a point in the move where your SL sits directly in the path of normal market noise, a likely liquidity sweep, or the remaining pullback before the real continuation. The thesis will play out — but not from this specific entry point at this specific moment. If timing is the primary risk, your answer is WAIT_ENTRY, not EXECUTE_NOW. Describe what a better-timed entry looks like: what level, what confirmation signal, and what pullback depth would make the entry structurally clean.
+State explicitly: "Primary stop-out risk: [DIRECTION / TIMING]. Reason: [specific explanation]. Implication: [proceed / WAIT_ENTRY with description of better entry]."
+A timing failure diagnosis that leads to EXECUTE_NOW requires explicit reasoning about why the timing risk is acceptable at this exact entry point. "The direction is right" is not sufficient — you must explain why now is the right moment within that correct direction.
+
 QUESTION 5B — OBJECTIVE ALIGNMENT:
 Does this trade serve the current session objective?
 Before committing to entry mode, ask: given the session goal and the quality of this setup, is this the right moment to use a trade slot? A 60-69% confidence setup is technically eligible — but is it the best use of available risk capital right now, or would waiting for a cleaner setup serve the objective better?
@@ -668,7 +712,20 @@ ATR Phase Labels (used throughout scalp analysis — these are synonymous):
 - DEVELOPING: 0.75-1.5x ATR traveled — acceptable, note reduced runway, adjust TP
 - EXHAUSTED / EXTENDED: > 1.5x ATR traveled — HARD BLOCK for SCALP, NO_TRADE immediately
 
-State explicitly: "Move distance: X pips ([FRESH/DEVELOPING/EXTENDED] — X.Xx ATR traveled since [swing point reference])"
+MOVE NARRATIVE CALCULATION — After assigning the ATR phase, calculate where you are entering within the full projected move. This prevents entering at the tail of a move while believing you are entering at the start.
+From the swing origin (the last significant swing low for BUY, swing high for SELL) to your intended TP, estimate the total projected move in pips and ATR. Then calculate: at your entry point, what percentage of that total projected move has already been traveled?
+
+Example: "Swing origin at [level]. TP at [level]. Total projected move: ~X pips (~X.Xx ATR). Already traveled: ~Y pips (~Y.Yx ATR). Entry position: approximately Z% into the projected move."
+
+Interpret the result:
+- Entering at 0-40% of the projected move: You are early. Full confidence is warranted. This is the sweet spot — you are getting the bulk of the move.
+- Entering at 40-65% of the projected move: Acceptable. You are in the middle. Verify that the remaining ~35-60% is still sufficient to achieve the required R:R. If the remaining projected range cannot support your TP placement, tighten TP to the nearest available structure or return NO_TRADE.
+- Entering at 65-80% of the projected move: You are entering late. This requires explicit justification. The move has done the majority of its work. The remaining range is thin. Unless there is a compelling momentum reason (strong BOS with no prior resistance, institutional follow-through, news-driven continuation), this is WAIT_ENTRY for the next structural setup.
+- Entering at 80%+ of the projected move: You are becoming exit liquidity. Return NO_TRADE or WAIT_ENTRY. There is insufficient range remaining to justify the trade risk regardless of how clean the structure looks. A clean structure at the tail of an exhausted move is a trap, not an edge.
+
+For SCALP specifically: given the small TP targets involved, being even 50% into the projected move dramatically compresses the remaining runway. State the calculation and reason through whether the remaining projected range physically supports your TP without running into the next structural barrier.
+
+State explicitly: "Move distance: X pips ([FRESH/DEVELOPING/EXTENDED] — X.Xx ATR traveled since [swing point reference]). Entry position: ~Z% into the projected move from [swing origin] to [TP level]. Remaining projected range: ~R pips. Assessment: [early/middle/late — TP is/is not supported by remaining range]."
 
 ═══════════════════════════════════════════════════════════════════
 MARKET CONTEXT SIGNALS — TOOLS FOR YOUR REASONING
