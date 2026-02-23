@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Coins, CreditCard, History, Package, Zap, Sparkles } from 'lucide-react';
+import { Coins, CreditCard, History, Package, Zap, Sparkles, RefreshCw, AlertCircle, CheckCircle, XCircle, ExternalLink } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useCreditBalance } from '@/hooks/useCreditBalance';
 import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
@@ -9,6 +9,15 @@ import { supabase } from '@/lib/supabase';
 import { NavigationMenu } from '@/components/NavigationMenu';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { CreditUsageAnalytics } from '@/components/CreditUsageAnalytics';
+
+interface SubscriptionStatus {
+  status: 'active' | 'past_due' | 'canceled' | 'unpaid' | 'none' | 'trialing';
+  plan_name: string | null;
+  credit_amount: number;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+  stripe_customer_id: string | null;
+}
 
 interface CreditPackage {
   id: string;
@@ -29,6 +38,8 @@ export function CreditsPage() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [processingPayment, setProcessingPayment] = useState<string | null>(null);
   const [purchaseSuccess, setPurchaseSuccess] = useState(false);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
+  const [loadingPortal, setLoadingPortal] = useState(false);
 
   const pullToRefresh = usePullToRefresh({
     onRefresh: async () => {
@@ -49,6 +60,7 @@ export function CreditsPage() {
     if (user) {
       loadPackages();
       loadTransactions();
+      loadSubscriptionStatus();
     }
   }, [user]);
 
@@ -77,6 +89,43 @@ export function CreditsPage() {
     if (!user) return;
     const txns = await creditMeterService.getTransactionHistory(user.id, 50);
     setTransactions(txns);
+  };
+
+  const loadSubscriptionStatus = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('user_subscription_status')
+      .select('status, plan_name, credit_amount, current_period_end, cancel_at_period_end, stripe_customer_id')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (data) setSubscriptionStatus(data as SubscriptionStatus);
+  };
+
+  const handleManageBilling = async () => {
+    if (!user) return;
+    setLoadingPortal(true);
+    try {
+      const response = await fetch('/.netlify/functions/stripe-create-portal-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      const data = await response.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        alert(data.error || 'Could not open billing portal. Please contact support.');
+      }
+    } catch {
+      alert('Failed to open billing portal. Please try again.');
+    } finally {
+      setLoadingPortal(false);
+    }
+  };
+
+  const formatPeriodEnd = (dateStr: string | null) => {
+    if (!dateStr) return null;
+    return new Date(dateStr).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   };
 
   const handlePurchaseClick = async (pkg: CreditPackage) => {
@@ -195,6 +244,67 @@ export function CreditsPage() {
 
         {activeTab === 'purchase' && (
           <div className="space-y-8">
+
+            {subscriptionStatus && subscriptionStatus.status !== 'none' && (
+              <div className={`relative rounded-xl p-5 border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 ${
+                subscriptionStatus.status === 'active' || subscriptionStatus.status === 'trialing'
+                  ? 'bg-gradient-to-r from-blue-900/40 to-cyan-900/40 border-blue-500/40'
+                  : subscriptionStatus.status === 'past_due'
+                  ? 'bg-gradient-to-r from-yellow-900/40 to-orange-900/40 border-yellow-500/40'
+                  : 'bg-gradient-to-r from-gray-800/60 to-gray-900/60 border-gray-600/40'
+              }`}>
+                <div className="flex items-center gap-3">
+                  {(subscriptionStatus.status === 'active' || subscriptionStatus.status === 'trialing') && (
+                    <CheckCircle className="w-6 h-6 text-green-400 flex-shrink-0" />
+                  )}
+                  {subscriptionStatus.status === 'past_due' && (
+                    <AlertCircle className="w-6 h-6 text-yellow-400 flex-shrink-0" />
+                  )}
+                  {(subscriptionStatus.status === 'canceled' || subscriptionStatus.status === 'unpaid') && (
+                    <XCircle className="w-6 h-6 text-red-400 flex-shrink-0" />
+                  )}
+                  <div>
+                    <p className="text-white font-semibold text-sm">
+                      {subscriptionStatus.status === 'active' && 'Active Subscription'}
+                      {subscriptionStatus.status === 'trialing' && 'Trial Active'}
+                      {subscriptionStatus.status === 'past_due' && 'Payment Past Due'}
+                      {subscriptionStatus.status === 'canceled' && 'Subscription Canceled'}
+                      {subscriptionStatus.status === 'unpaid' && 'Subscription Unpaid'}
+                      {subscriptionStatus.plan_name && (
+                        <span className="ml-2 text-gray-300 font-normal">— {subscriptionStatus.plan_name}</span>
+                      )}
+                    </p>
+                    <p className="text-gray-400 text-xs mt-0.5">
+                      {subscriptionStatus.credit_amount > 0 && `${subscriptionStatus.credit_amount} credits/month`}
+                      {subscriptionStatus.current_period_end && subscriptionStatus.status === 'active' && !subscriptionStatus.cancel_at_period_end && (
+                        <span className="ml-2">· Renews {formatPeriodEnd(subscriptionStatus.current_period_end)}</span>
+                      )}
+                      {subscriptionStatus.cancel_at_period_end && subscriptionStatus.current_period_end && (
+                        <span className="ml-2 text-yellow-400">· Cancels {formatPeriodEnd(subscriptionStatus.current_period_end)}</span>
+                      )}
+                      {subscriptionStatus.status === 'past_due' && (
+                        <span className="ml-2 text-yellow-400">· Update payment method to avoid interruption</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                {subscriptionStatus.stripe_customer_id && (
+                  <button
+                    onClick={handleManageBilling}
+                    disabled={loadingPortal}
+                    className="flex items-center gap-2 px-4 py-2 bg-gray-700/60 hover:bg-gray-600/60 disabled:opacity-60 border border-gray-600/50 hover:border-gray-500/50 text-white text-sm font-medium rounded-lg transition-all whitespace-nowrap"
+                  >
+                    {loadingPortal ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <ExternalLink className="w-4 h-4" />
+                    )}
+                    Manage Billing
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="relative group">
               <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-green-500 rounded-xl opacity-20 group-hover:opacity-30 transition duration-300 blur" />
 
