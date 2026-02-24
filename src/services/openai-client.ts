@@ -220,10 +220,13 @@ class OpenAIClient {
 
           if (response.status === 429) {
             const errorData = await response.json().catch(() => ({}));
-            const resetIn = errorData.resetIn || 3600;
+            const resetIn = typeof errorData.resetIn === 'number' ? errorData.resetIn : 3600;
             const resetMinutes = Math.ceil(resetIn / 60);
+            const reason = errorData.reason || 'rate_limit_exceeded';
+            const isHourly = reason === 'hourly_limit_exceeded';
+            const limitType = isHourly ? 'hourly' : 'daily';
             throw new Error(
-              `Rate limit exceeded. ${errorData.message || 'Too many requests'}. Resets in ${resetMinutes} minute${resetMinutes !== 1 ? 's' : ''}.`
+              `Rate limit exceeded (${limitType}). Resets in ${resetMinutes} minute${resetMinutes !== 1 ? 's' : ''}.`
             );
           }
 

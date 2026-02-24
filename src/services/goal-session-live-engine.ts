@@ -239,10 +239,19 @@ class GoalSessionLiveEngine {
 
         logger.info(LogCategory.AI_TRADING, '✅ LLM health check passed');
       } catch (llmError) {
+        const errMsg = (llmError as Error).message || '';
+        const isRateLimit = errMsg.includes('Rate limit exceeded');
+        if (isRateLimit) {
+          logger.warn(LogCategory.AI_TRADING, '⚠️ LLM health check blocked by rate limit:', errMsg);
+          return {
+            success: false,
+            message: `LLM quota reached — ${errMsg} Please wait for the limit to reset before starting a new session.`
+          };
+        }
         logger.error(LogCategory.AI_TRADING, '❌ LLM health check failed:', llmError);
         return {
           success: false,
-          message: `5-Layer LLM Pipeline unavailable - ${(llmError as Error).message}. Cannot start session without LLM.`
+          message: `5-Layer LLM Pipeline unavailable — ${errMsg}. Check Netlify environment variables or OpenAI key.`
         };
       }
 

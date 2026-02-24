@@ -138,17 +138,22 @@ async function handleRequest(event: any, startTime: number) {
 
     if (rateLimitCheck && !rateLimitCheck.allowed) {
       console.warn(`[OpenAI Proxy] Rate limit exceeded for user ${userId}: ${rateLimitCheck.reason}`);
+      const resetAt = rateLimitCheck.reset_at ? new Date(rateLimitCheck.reset_at).getTime() : Date.now() + 3600000;
+      const resetInSeconds = Math.max(0, Math.ceil((resetAt - Date.now()) / 1000));
       return {
         statusCode: 429,
         headers: {
           'Content-Type': 'application/json',
           'X-RateLimit-Remaining-Hourly': String(rateLimitCheck.hourly_remaining || 0),
-          'X-RateLimit-Remaining-Daily': String(rateLimitCheck.daily_remaining || 0)
+          'X-RateLimit-Remaining-Daily': String(rateLimitCheck.daily_remaining || 0),
+          'X-RateLimit-Reset': String(Math.floor(resetAt / 1000))
         },
         body: JSON.stringify({
           error: 'Rate limit exceeded',
           message: rateLimitCheck.message,
-          reason: rateLimitCheck.reason
+          reason: rateLimitCheck.reason,
+          resetIn: resetInSeconds,
+          resetAt: new Date(resetAt).toISOString()
         })
       };
     }
