@@ -18,12 +18,11 @@
  * - Browser: Requires user authentication, proxies through Netlify function
  * - Server: Uses service API key, calls OpenAI directly (autonomous trading)
  *
- * Security Benefits:
- * 1. API key stored securely on server (Netlify env vars)
- * 2. No key exposure in browser/network requests
- * 3. Rate limiting and abuse prevention possible
- * 4. Usage monitoring and cost control
- * 5. Enables autonomous trading without user session
+ * Rate Limiting (Global Singleton Queue):
+ * - All LLM calls from ALL concurrent symbols pass through a single queue
+ * - Enforces minimum spacing between consecutive OpenAI API requests
+ * - Prevents thundering-herd where 3 symbols converge on the LLM at the same time
+ * - This is the SSOT for rate limit enforcement — the orchestrator stagger is redundant
  */
 
 interface ChatMessage {
@@ -58,6 +57,64 @@ interface ChatCompletionResponse {
     total_tokens: number;
   };
 }
+
+/**
+ * Global LLM Request Queue — Singleton
+ *
+ * Enforces minimum spacing between consecutive OpenAI API calls,
+ * regardless of how many concurrent symbol evaluations are in flight.
+ *
+ * Architecture: Token-bucket with minimum inter-call spacing.
+ * All calls — Alpha coordinator, Omega-8, mid-trade evaluator — share this queue.
+ *
+ * Min spacing of 4000ms means:
+ *   - Symbol 1 fires at T+0ms
+ *   - Symbol 2 fires at T+4000ms (guaranteed, even if pipeline converges)
+ *   - Symbol 3 fires at T+8000ms
+ * Total for 3 concurrent: ~8s vs old thundering-herd of ~0ms spread
+ */
+class LLMRequestQueue {
+  private lastCallTimestampMs = 0;
+  private queue: Array<() => void> = [];
+  private processing = false;
+  private readonly minInterCallMs = 4000;
+
+  async acquire(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      this.queue.push(resolve);
+      if (!this.processing) {
+        this.processQueue();
+      }
+    });
+  }
+
+  private async processQueue(): Promise<void> {
+    this.processing = true;
+    while (this.queue.length > 0) {
+      const now = Date.now();
+      const elapsed = now - this.lastCallTimestampMs;
+      const waitMs = Math.max(0, this.minInterCallMs - elapsed);
+
+      if (waitMs > 0) {
+        console.log(`[LLM Queue] Rate-limiting: waiting ${waitMs}ms before next API call (${this.queue.length} in queue)`);
+        await new Promise(r => setTimeout(r, waitMs));
+      }
+
+      const next = this.queue.shift();
+      if (next) {
+        this.lastCallTimestampMs = Date.now();
+        next();
+      }
+    }
+    this.processing = false;
+  }
+
+  getQueueDepth(): number {
+    return this.queue.length;
+  }
+}
+
+const llmRequestQueue = new LLMRequestQueue();
 
 class OpenAIClient {
   private readonly functionUrl: string;
@@ -166,19 +223,27 @@ class OpenAIClient {
 
       // CONTEXT-AWARE ROUTING: Detect server vs browser
       if (this.isServerContext()) {
-        console.log('[OpenAI Client] 🖥️  Server context detected - using direct API call');
+        console.log('[OpenAI Client] Server context detected - using direct API call');
         return await this.chatServerSide(messages, options);
       }
 
       // BROWSER MODE: Require user authentication
-      console.log('[OpenAI Client] 🌐 Browser context detected - using proxy with user auth');
+      console.log('[OpenAI Client] Browser context - acquiring LLM queue slot', {
+        endpoint: options.endpoint || 'unknown',
+        requestType: options.requestType || 'unknown',
+        queueDepth: llmRequestQueue.getQueueDepth()
+      });
 
       const authToken = await this.getAuthToken();
       if (!authToken) {
         throw new Error('Authentication required. Please log in to use AI features.');
       }
 
-      console.log('[OpenAI Client] Calling secure proxy function', {
+      // Acquire queue slot — this enforces minimum 4s spacing between ALL LLM calls
+      // This is the SSOT rate-limiter. All concurrent symbol evaluations serialise here.
+      await llmRequestQueue.acquire();
+
+      console.log('[OpenAI Client] Queue slot acquired, calling proxy', {
         endpoint: options.endpoint || 'unknown',
         requestType: options.requestType || 'unknown',
         model: options.model || 'gpt-4o-mini'
@@ -287,7 +352,7 @@ class OpenAIClient {
       });
 
       if (rateLimitHourly && parseInt(rateLimitHourly) < 10) {
-        console.warn(`[OpenAI Client] ⚠️ Low hourly quota: ${rateLimitHourly} requests remaining`);
+        console.warn(`[OpenAI Client] Low hourly quota: ${rateLimitHourly} requests remaining`);
       }
 
       return data;

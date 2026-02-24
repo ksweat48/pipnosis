@@ -81,10 +81,10 @@ export interface ConcurrentExecutionConfig {
     // Minimum delay between batches (milliseconds)
     minBatchDelayMs: number;
 
-    // Stagger delay between symbols within a batch (milliseconds)
-    // Prevents thundering-herd: all 3 symbols hitting OpenAI at the same millisecond
-    // Each symbol in a batch is offset by: symbolIndex * intraBatchStaggerMs
-    // e.g. stagger=1500ms → symbol[0] at T+0ms, symbol[1] at T+1500ms, symbol[2] at T+3000ms
+    // Stagger delay between symbols within a batch (milliseconds).
+    // DEPRECATED: Set to 0. Rate limiting is now enforced at openai-client.ts via
+    // LLMRequestQueue singleton (4000ms min inter-call spacing). The stagger here was
+    // applied at pipeline start and symbols converged at the LLM call point anyway.
     intraBatchStaggerMs: number;
   };
 
@@ -151,9 +151,15 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
 
   rateLimiting: {
     enabled: true,
-    maxLLMCallsPerSecond: 20, // Increased to support 9 concurrent symbols (2-3 calls each)
-    minBatchDelayMs: 100, // 100ms between batches
-    intraBatchStaggerMs: 1500, // 1.5s between each symbol in a batch — prevents thundering-herd 429s
+    maxLLMCallsPerSecond: 20,
+    minBatchDelayMs: 100,
+    // ARCHITECTURAL NOTE: intraBatchStaggerMs is intentionally set to 0.
+    // Rate limiting is now enforced at the correct layer: openai-client.ts LLMRequestQueue.
+    // The queue enforces 4000ms minimum spacing between ALL OpenAI calls, regardless of
+    // how many concurrent symbol evaluations are in flight. The stagger here was solving
+    // the problem at the wrong layer (pipeline start vs LLM call point), causing symbols
+    // that start 1.5s apart to still converge at the LLM call after heavy processing.
+    intraBatchStaggerMs: 0,
   },
 
   errorHandling: {
