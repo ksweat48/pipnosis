@@ -259,7 +259,7 @@ async function handleRequest(event: any, startTime: number) {
 
         if (response.status === 429) {
           const retryAfter = response.headers.get('retry-after') || response.headers.get('Retry-After');
-          const retryAfterMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 60000;
+          const retryAfterMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 3000;
           return {
             statusCode: 429,
             headers: { 'Content-Type': 'application/json' },

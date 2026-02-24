@@ -226,9 +226,11 @@ class OpenAIClient {
             const errorData = await response.json().catch(() => ({}) as Record<string, unknown>);
 
             if (this.isOpenAI429(errorData)) {
-              const retryAfterMs = typeof errorData.retryAfterMs === 'number' ? errorData.retryAfterMs : 30000;
+              const retryAfterMs = typeof errorData.retryAfterMs === 'number' ? errorData.retryAfterMs : 3000;
               if (attempt < this.maxRetries) {
-                const waitMs = Math.min(retryAfterMs, 30000);
+                const baseCap = Math.min(retryAfterMs, 5000);
+                const jitter = Math.floor(Math.random() * 2000);
+                const waitMs = baseCap + jitter;
                 console.warn(`[OpenAI Client] OpenAI transient 429 — retrying in ${waitMs}ms (attempt ${attempt + 1}/${this.maxRetries})`);
                 await this.sleep(waitMs);
                 continue;
