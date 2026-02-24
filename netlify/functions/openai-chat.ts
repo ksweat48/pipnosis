@@ -241,31 +241,83 @@ async function handleRequest(event: any, startTime: number) {
         const errorText = await response.text();
         console.error(`[OpenAI Proxy] OpenAI API error: ${response.status}`, errorText);
 
-        supabase.rpc('log_openai_usage', {
-          p_user_id: userId,
-          p_model: requestPayload.model,
-          p_prompt_tokens: 0,
-          p_completion_tokens: 0,
-          p_total_tokens: 0,
-          p_cost_usd: 0,
-          p_endpoint: body.endpoint || 'unknown',
-          p_request_type: body.requestType || 'unknown',
-          p_success: false,
-          p_error_message: errorText.substring(0, 500),
-          p_latency_ms: latency
+        // Parse the OpenAI error body to extract the error code
+        let openAiErrorCode: string | null = null;
+        let openAiErrorMessage: string | null = null;
+        try {
+          const parsed = JSON.parse(errorText);
+          openAiErrorCode = parsed?.error?.code || null;
+          openAiErrorMessage = parsed?.error?.message || null;
+        } catch {
+          // errorText is not JSON — leave codes null
+        }
+
+        const errorLogMessage = openAiErrorMessage
+          ? `${openAiErrorCode || 'unknown'}: ${openAiErrorMessage}`.substring(0, 500)
+          : errorText.substring(0, 500);
+
+        supabase.from('openai_usage_log').insert({
+          user_id: userId,
+          model: requestPayload.model,
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0,
+          cost_usd: 0,
+          endpoint: body.endpoint || 'unknown',
+          request_type: body.requestType || 'unknown',
+          success: false,
+          error_message: errorLogMessage,
+          error_code: openAiErrorCode,
+          latency_ms: latency
         }).then(result => {
-          if (result.error) console.error('[OpenAI Proxy] Logging failed:', result.error);
+          if (result.error) {
+            // Fall back to RPC if direct insert fails (schema mismatch during rollout)
+            supabase.rpc('log_openai_usage', {
+              p_user_id: userId,
+              p_model: requestPayload.model,
+              p_prompt_tokens: 0,
+              p_completion_tokens: 0,
+              p_total_tokens: 0,
+              p_cost_usd: 0,
+              p_endpoint: body.endpoint || 'unknown',
+              p_request_type: body.requestType || 'unknown',
+              p_success: false,
+              p_error_message: errorLogMessage,
+              p_latency_ms: latency
+            }).then(rpcResult => {
+              if (rpcResult.error) console.error('[OpenAI Proxy] Logging failed:', rpcResult.error);
+            });
+          }
         });
 
         if (response.status === 429) {
           const retryAfter = response.headers.get('retry-after') || response.headers.get('Retry-After');
           const retryAfterMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 3000;
+
+          const isPermanentQuotaFailure = openAiErrorCode === 'insufficient_quota';
+
+          if (isPermanentQuotaFailure) {
+            console.error('[OpenAI Proxy] BILLING QUOTA EXHAUSTED — retries will not help. Check OpenAI billing at platform.openai.com');
+            return {
+              statusCode: 429,
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                error: 'OpenAI quota exhausted',
+                source: 'openai',
+                errorCode: 'insufficient_quota',
+                retryAfterMs: 0,
+                message: 'OpenAI billing quota is exhausted. Add credits at platform.openai.com to restore service.'
+              })
+            };
+          }
+
           return {
             statusCode: 429,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               error: 'OpenAI service temporarily busy',
               source: 'openai',
+              errorCode: openAiErrorCode || 'rate_limit_exceeded',
               retryAfterMs,
               message: 'OpenAI is temporarily rate limiting requests. The system will retry automatically.'
             })
@@ -277,6 +329,7 @@ async function handleRequest(event: any, startTime: number) {
           body: JSON.stringify({
             error: 'OpenAI API error',
             source: 'openai',
+            errorCode: openAiErrorCode,
             details: errorText,
             status: response.status
           })

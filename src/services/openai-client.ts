@@ -72,12 +72,65 @@ interface ChatCompletionResponse {
  *   - Symbol 2 fires at T+4000ms (guaranteed, even if pipeline converges)
  *   - Symbol 3 fires at T+8000ms
  * Total for 3 concurrent: ~8s vs old thundering-herd of ~0ms spread
+ *
+ * Circuit Breaker: After CIRCUIT_TRIP_THRESHOLD consecutive insufficient_quota
+ * errors, all API calls are blocked for CIRCUIT_RESET_MS to prevent cascading
+ * failures from hammering the API when billing is exhausted.
  */
 class LLMRequestQueue {
   private lastCallTimestampMs = 0;
   private queue: Array<() => void> = [];
   private processing = false;
   private readonly minInterCallMs = 4000;
+
+  private consecutiveQuotaFailures = 0;
+  private readonly CIRCUIT_TRIP_THRESHOLD = 3;
+  private readonly CIRCUIT_RESET_MS = 30 * 60 * 1000; // 30 minutes
+  private circuitOpenSince: number | null = null;
+
+  isCircuitOpen(): boolean {
+    if (this.circuitOpenSince === null) return false;
+    const elapsed = Date.now() - this.circuitOpenSince;
+    if (elapsed >= this.CIRCUIT_RESET_MS) {
+      console.log('[LLM Queue] Circuit breaker auto-reset after 30 minutes.');
+      this.circuitOpenSince = null;
+      this.consecutiveQuotaFailures = 0;
+      return false;
+    }
+    return true;
+  }
+
+  recordQuotaFailure(): void {
+    this.consecutiveQuotaFailures++;
+    if (this.consecutiveQuotaFailures >= this.CIRCUIT_TRIP_THRESHOLD && this.circuitOpenSince === null) {
+      this.circuitOpenSince = Date.now();
+      console.error(
+        `[LLM Queue] Circuit breaker TRIPPED after ${this.consecutiveQuotaFailures} consecutive quota failures. ` +
+        'All LLM calls blocked for 30 minutes. Resolve billing at platform.openai.com then call resetCircuit().'
+      );
+    }
+  }
+
+  recordSuccess(): void {
+    if (this.consecutiveQuotaFailures > 0) {
+      console.log('[LLM Queue] Success recorded — resetting quota failure counter.');
+    }
+    this.consecutiveQuotaFailures = 0;
+  }
+
+  resetCircuit(): void {
+    this.circuitOpenSince = null;
+    this.consecutiveQuotaFailures = 0;
+    console.log('[LLM Queue] Circuit breaker manually reset.');
+  }
+
+  getCircuitStatus(): { open: boolean; consecutiveFailures: number; resetInMs: number | null } {
+    const open = this.isCircuitOpen();
+    const resetInMs = open && this.circuitOpenSince !== null
+      ? Math.max(0, this.CIRCUIT_RESET_MS - (Date.now() - this.circuitOpenSince))
+      : null;
+    return { open, consecutiveFailures: this.consecutiveQuotaFailures, resetInMs };
+  }
 
   async acquire(): Promise<void> {
     return new Promise<void>((resolve) => {
@@ -136,6 +189,10 @@ class OpenAIClient {
 
   private isOpenAI429(errorData: Record<string, unknown>): boolean {
     return errorData.source === 'openai';
+  }
+
+  private isPermanentQuotaFailure(errorData: Record<string, unknown>): boolean {
+    return errorData.source === 'openai' && errorData.errorCode === 'insufficient_quota';
   }
 
   /**
@@ -228,31 +285,44 @@ class OpenAIClient {
       }
 
       // BROWSER MODE: Require user authentication
-      console.log('[OpenAI Client] Browser context - acquiring LLM queue slot', {
+      console.log('[OpenAI Client] Browser context - checking circuit breaker and LLM queue', {
         endpoint: options.endpoint || 'unknown',
         requestType: options.requestType || 'unknown',
         queueDepth: llmRequestQueue.getQueueDepth()
       });
+
+      // Circuit breaker check — if billing quota was exhausted repeatedly, block fast
+      if (llmRequestQueue.isCircuitOpen()) {
+        const { resetInMs } = llmRequestQueue.getCircuitStatus();
+        const resetMinutes = resetInMs !== null ? Math.ceil(resetInMs / 60000) : 30;
+        throw new Error(
+          `OpenAI quota exhausted — all AI calls are paused for ${resetMinutes} minute(s). ` +
+          'Resolve billing at platform.openai.com. The system will resume automatically.'
+        );
+      }
 
       const authToken = await this.getAuthToken();
       if (!authToken) {
         throw new Error('Authentication required. Please log in to use AI features.');
       }
 
-      // Acquire queue slot — this enforces minimum 4s spacing between ALL LLM calls
-      // This is the SSOT rate-limiter. All concurrent symbol evaluations serialise here.
-      await llmRequestQueue.acquire();
-
-      console.log('[OpenAI Client] Queue slot acquired, calling proxy', {
-        endpoint: options.endpoint || 'unknown',
-        requestType: options.requestType || 'unknown',
-        model: options.model || 'gpt-4o-mini'
-      });
-
       let lastError: Error | null = null;
-      let response: Response | null = null;
 
       for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+        // Re-acquire a queue slot for every attempt so retries are subject to
+        // the same 4s minimum inter-call spacing as any other LLM call.
+        // This prevents a failing call from holding its slot for 14+ seconds
+        // while other concurrent symbols wait behind it.
+        await llmRequestQueue.acquire();
+
+        console.log(`[OpenAI Client] Queue slot acquired (attempt ${attempt + 1}/${this.maxRetries + 1})`, {
+          endpoint: options.endpoint || 'unknown',
+          requestType: options.requestType || 'unknown',
+          model: options.model || 'gpt-4o-mini'
+        });
+
+        let response: Response | null = null;
+
         try {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), this.fetchTimeoutMs);
@@ -277,7 +347,27 @@ class OpenAIClient {
           clearTimeout(timeoutId);
 
           if (response.ok) {
-            break;
+            llmRequestQueue.recordSuccess();
+
+            const rateLimitHourly = response.headers.get('X-RateLimit-Remaining-Hourly');
+            const rateLimitDaily = response.headers.get('X-RateLimit-Remaining-Daily');
+
+            const data: ChatCompletionResponse = await response.json();
+
+            console.log('[OpenAI Client] Success:', {
+              model: data.model,
+              tokens: data.usage?.total_tokens || 0,
+              cost: this.estimateCost(data.model, data.usage?.total_tokens || 0),
+              rateLimitHourly,
+              rateLimitDaily,
+              finishReason: data.choices[0]?.finish_reason
+            });
+
+            if (rateLimitHourly && parseInt(rateLimitHourly) < 10) {
+              console.warn(`[OpenAI Client] Low hourly quota: ${rateLimitHourly} requests remaining`);
+            }
+
+            return data;
           }
 
           if (this.isRetryableError(response.status) && attempt < this.maxRetries) {
@@ -289,6 +379,15 @@ class OpenAIClient {
 
           if (response.status === 429) {
             const errorData = await response.json().catch(() => ({}) as Record<string, unknown>);
+
+            if (this.isPermanentQuotaFailure(errorData)) {
+              llmRequestQueue.recordQuotaFailure();
+              const { open } = llmRequestQueue.getCircuitStatus();
+              const circuitMsg = open ? ' Circuit breaker now OPEN — further AI calls paused for 30 minutes.' : '';
+              throw new Error(
+                'OpenAI billing quota is exhausted. Add credits at platform.openai.com to restore AI features.' + circuitMsg
+              );
+            }
 
             if (this.isOpenAI429(errorData)) {
               const retryAfterMs = typeof errorData.retryAfterMs === 'number' ? errorData.retryAfterMs : 3000;
@@ -323,7 +422,11 @@ class OpenAIClient {
           );
         } catch (fetchError) {
           lastError = fetchError as Error;
-          if (attempt < this.maxRetries && !lastError.message.includes('Rate limit exceeded (') && !lastError.message.includes('Authentication')) {
+          const isNonRetryable = lastError.message.includes('Rate limit exceeded (')
+            || lastError.message.includes('Authentication')
+            || lastError.message.includes('quota is exhausted')
+            || lastError.message.includes('paused for');
+          if (attempt < this.maxRetries && !isNonRetryable) {
             const delay = this.baseDelayMs * Math.pow(2, attempt);
             console.warn(`[OpenAI Client] Fetch error, retrying in ${delay}ms (attempt ${attempt + 1}/${this.maxRetries}):`, lastError.message);
             await this.sleep(delay);
@@ -333,29 +436,7 @@ class OpenAIClient {
         }
       }
 
-      if (!response || !response.ok) {
-        throw lastError || new Error('Failed to get response after retries');
-      }
-
-      const rateLimitHourly = response.headers.get('X-RateLimit-Remaining-Hourly');
-      const rateLimitDaily = response.headers.get('X-RateLimit-Remaining-Daily');
-
-      const data: ChatCompletionResponse = await response.json();
-
-      console.log('[OpenAI Client] Success:', {
-        model: data.model,
-        tokens: data.usage?.total_tokens || 0,
-        cost: this.estimateCost(data.model, data.usage?.total_tokens || 0),
-        rateLimitHourly,
-        rateLimitDaily,
-        finishReason: data.choices[0]?.finish_reason
-      });
-
-      if (rateLimitHourly && parseInt(rateLimitHourly) < 10) {
-        console.warn(`[OpenAI Client] Low hourly quota: ${rateLimitHourly} requests remaining`);
-      }
-
-      return data;
+      throw lastError || new Error('Failed to get response after retries');
 
     } catch (error) {
       console.error('[OpenAI Client] Error:', error);
@@ -449,5 +530,13 @@ class OpenAIClient {
 }
 
 export const openAIClient = new OpenAIClient();
+
+export function resetLLMCircuitBreaker(): void {
+  llmRequestQueue.resetCircuit();
+}
+
+export function getLLMCircuitStatus(): { open: boolean; consecutiveFailures: number; resetInMs: number | null } {
+  return llmRequestQueue.getCircuitStatus();
+}
 
 export type { ChatMessage, ChatCompletionOptions, ChatCompletionResponse };

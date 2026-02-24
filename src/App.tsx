@@ -18,6 +18,7 @@ import MidTradeUpdateModal from './components/MidTradeUpdateModal';
 import { MidTradeAlertListener } from './components/MidTradeAlertListener';
 import { ClubAccessButton } from './components/ClubAccessButton';
 import { WeekendProtectionBanner } from './components/WeekendProtectionBanner';
+import { OpenAIQuotaBanner } from './components/OpenAIQuotaBanner';
 import { realtimeTradeNotificationListener } from './services/realtime-trade-notification-listener';
 import { GoalAchievedCountdownModal } from './components/GoalAchievedCountdownModal';
 
@@ -802,6 +803,7 @@ export default function App() {
       <ConfirmDialogProvider>
         <GlobalDialogProvider>
           {!isClubPage && <WeekendProtectionBanner />}
+          {!isClubPage && <OpenAIQuotaBanner />}
           <AppRoutes />
         </GlobalDialogProvider>
       </ConfirmDialogProvider>
