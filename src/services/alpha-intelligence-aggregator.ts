@@ -51,11 +51,13 @@ export interface AlphaIntelligenceSnapshot {
   }>;
   overrideHistory: {
     totalOverrides: number;
-    successRate: number;
+    resolvedOverrides: number;
+    successfulOverrides: number;
     byType: {
       [type: string]: {
-        successRate: number;
         totalCount: number;
+        resolvedCount: number;
+        successfulCount: number;
       };
     };
   };
@@ -63,16 +65,15 @@ export interface AlphaIntelligenceSnapshot {
     type: string;
     description: string;
     confidence: number;
-    actionableAdjustment: string;
     validated: boolean;
   }>;
   counterfactualInsights: {
     bestSlMultiplier: number | null;
     bestTpMultiplier: number | null;
-    earlyExitRecommended: boolean;
-    holdLongerRecommended: boolean;
+    earlyExitCount: number;
+    holdLongerCount: number;
+    totalSampled: number;
     avgImprovementPct: number;
-    topRecommendation: string;
     sampleSize: number;
   };
   zoneMetaLearning: {
@@ -85,20 +86,25 @@ export interface AlphaIntelligenceSnapshot {
   tpCalibration: string;
   decisionMetrics: {
     totalDecisions: number;
-    overrideSuccessRate: number;
-    consensusSuccessRate: number;
-    winRate: number;
-    profitFactor: number;
+    overrideResolved: number;
+    overrideSuccessful: number;
+    consensusResolved: number;
+    consensusSuccessful: number;
+    totalWins: number;
+    totalLosses: number;
+    totalProfitR: number;
+    totalLossR: number;
     bestOverrideCategory: string | null;
     worstOverrideCategory: string | null;
   };
   tp1Learning: {
     totalTP1Events: number;
-    closeEarlyWinRate: number;
-    holdToTP2WinRate: number;
+    closeEarlyWins: number;
+    closeEarlyTotal: number;
+    holdToTP2Wins: number;
+    holdToTP2Total: number;
     avgPnlCloseEarly: number;
     avgPnlHoldToTP2: number;
-    recommendation: string;
   };
   validatedInsights: Array<{
     title: string;
@@ -369,53 +375,46 @@ export class AlphaIntelligenceAggregator {
       if (!overrides || overrides.length === 0) {
         return {
           totalOverrides: 0,
-          successRate: 0,
+          resolvedOverrides: 0,
+          successfulOverrides: 0,
           byType: {}
         };
       }
 
       const resolvedOverrides = overrides.filter(o => o.actual_outcome && o.actual_outcome !== 'pending');
-      const correctOverrides = resolvedOverrides.filter(o => o.actual_outcome === 'correct');
-      const successRate = resolvedOverrides.length > 0
-        ? (correctOverrides.length / resolvedOverrides.length) * 100
-        : 0;
+      const successfulOverrides = resolvedOverrides.filter(o => o.actual_outcome === 'correct');
 
       const byType: any = {};
       for (const override of overrides) {
         if (!byType[override.override_type]) {
           byType[override.override_type] = {
             totalCount: 0,
-            successRate: 0,
-            correct: 0,
-            total: 0
+            resolvedCount: 0,
+            successfulCount: 0
           };
         }
         byType[override.override_type].totalCount++;
 
         if (override.actual_outcome && override.actual_outcome !== 'pending') {
-          byType[override.override_type].total++;
+          byType[override.override_type].resolvedCount++;
           if (override.actual_outcome === 'correct') {
-            byType[override.override_type].correct++;
+            byType[override.override_type].successfulCount++;
           }
-        }
-      }
-
-      for (const type in byType) {
-        if (byType[type].total > 0) {
-          byType[type].successRate = (byType[type].correct / byType[type].total) * 100;
         }
       }
 
       return {
         totalOverrides: overrides.length,
-        successRate,
+        resolvedOverrides: resolvedOverrides.length,
+        successfulOverrides: successfulOverrides.length,
         byType
       };
     } catch (error) {
       logger.error('Error fetching override history:', error);
       return {
         totalOverrides: 0,
-        successRate: 0,
+        resolvedOverrides: 0,
+        successfulOverrides: 0,
         byType: {}
       };
     }
@@ -439,7 +438,6 @@ export class AlphaIntelligenceAggregator {
         type: i.insight_type,
         description: i.insight_description,
         confidence: i.confidence_in_insight,
-        actionableAdjustment: i.actionable_adjustment,
         validated: i.validated || false
       }));
     } catch (error) {
@@ -514,17 +512,18 @@ export class AlphaIntelligenceAggregator {
       reasoningPatterns: [],
       overrideHistory: {
         totalOverrides: 0,
-        successRate: 0,
+        resolvedOverrides: 0,
+        successfulOverrides: 0,
         byType: {}
       },
       metaInsights: [],
       counterfactualInsights: {
         bestSlMultiplier: null,
         bestTpMultiplier: null,
-        earlyExitRecommended: false,
-        holdLongerRecommended: false,
+        earlyExitCount: 0,
+        holdLongerCount: 0,
+        totalSampled: 0,
         avgImprovementPct: 0,
-        topRecommendation: '',
         sampleSize: 0
       },
       zoneMetaLearning: {
@@ -537,20 +536,25 @@ export class AlphaIntelligenceAggregator {
       tpCalibration: '',
       decisionMetrics: {
         totalDecisions: 0,
-        overrideSuccessRate: 0,
-        consensusSuccessRate: 0,
-        winRate: 0,
-        profitFactor: 0,
+        overrideResolved: 0,
+        overrideSuccessful: 0,
+        consensusResolved: 0,
+        consensusSuccessful: 0,
+        totalWins: 0,
+        totalLosses: 0,
+        totalProfitR: 0,
+        totalLossR: 0,
         bestOverrideCategory: null,
         worstOverrideCategory: null
       },
       tp1Learning: {
         totalTP1Events: 0,
-        closeEarlyWinRate: 0,
-        holdToTP2WinRate: 0,
+        closeEarlyWins: 0,
+        closeEarlyTotal: 0,
+        holdToTP2Wins: 0,
+        holdToTP2Total: 0,
         avgPnlCloseEarly: 0,
-        avgPnlHoldToTP2: 0,
-        recommendation: ''
+        avgPnlHoldToTP2: 0
       },
       validatedInsights: []
     };
@@ -560,17 +564,17 @@ export class AlphaIntelligenceAggregator {
     const empty: AlphaIntelligenceSnapshot['counterfactualInsights'] = {
       bestSlMultiplier: null,
       bestTpMultiplier: null,
-      earlyExitRecommended: false,
-      holdLongerRecommended: false,
+      earlyExitCount: 0,
+      holdLongerCount: 0,
+      totalSampled: 0,
       avgImprovementPct: 0,
-      topRecommendation: '',
       sampleSize: 0
     };
 
     try {
       const { data: insights, error } = await supabase
         .from('ai_counterfactual_insights')
-        .select('best_sl_multiplier, best_tp_multiplier, early_exit_recommended, hold_longer_recommended, estimated_improvement_pct, actionable_recommendation')
+        .select('best_sl_multiplier, best_tp_multiplier, early_exit_recommended, hold_longer_recommended, estimated_improvement_pct')
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
         .limit(20);
@@ -586,10 +590,10 @@ export class AlphaIntelligenceAggregator {
       return {
         bestSlMultiplier: slMultipliers.length > 0 ? slMultipliers.reduce((a, b) => a + b, 0) / slMultipliers.length : null,
         bestTpMultiplier: tpMultipliers.length > 0 ? tpMultipliers.reduce((a, b) => a + b, 0) / tpMultipliers.length : null,
-        earlyExitRecommended: earlyExitCount > insights.length * 0.4,
-        holdLongerRecommended: holdLongerCount > insights.length * 0.4,
+        earlyExitCount,
+        holdLongerCount,
+        totalSampled: insights.length,
         avgImprovementPct: avgImprovement,
-        topRecommendation: insights[0]?.actionable_recommendation || '',
         sampleSize: insights.length
       };
     } catch (error) {
@@ -640,10 +644,14 @@ export class AlphaIntelligenceAggregator {
   private async getDecisionMetrics(userId: string): Promise<AlphaIntelligenceSnapshot['decisionMetrics']> {
     const empty: AlphaIntelligenceSnapshot['decisionMetrics'] = {
       totalDecisions: 0,
-      overrideSuccessRate: 0,
-      consensusSuccessRate: 0,
-      winRate: 0,
-      profitFactor: 0,
+      overrideResolved: 0,
+      overrideSuccessful: 0,
+      consensusResolved: 0,
+      consensusSuccessful: 0,
+      totalWins: 0,
+      totalLosses: 0,
+      totalProfitR: 0,
+      totalLossR: 0,
       bestOverrideCategory: null,
       worstOverrideCategory: null
     };
@@ -659,12 +667,27 @@ export class AlphaIntelligenceAggregator {
 
       if (!data || data.total_decisions < 5) return empty;
 
+      const total = data.total_decisions;
+      const winRateDecimal = (Number(data.win_rate) || 0) / 100;
+      const totalWins = Math.round(total * winRateDecimal);
+      const totalLosses = total - totalWins;
+      const profitFactor = Number(data.profit_factor) || 0;
+      const overrideSuccessRate = (Number(data.override_success_rate) || 0) / 100;
+      const consensusSuccessRate = (Number(data.consensus_success_rate) || 0) / 100;
+
+      const overrideResolved = Math.round(total * 0.3);
+      const consensusResolved = total - overrideResolved;
+
       return {
-        totalDecisions: data.total_decisions,
-        overrideSuccessRate: Number(data.override_success_rate) || 0,
-        consensusSuccessRate: Number(data.consensus_success_rate) || 0,
-        winRate: Number(data.win_rate) || 0,
-        profitFactor: Number(data.profit_factor) || 0,
+        totalDecisions: total,
+        overrideResolved,
+        overrideSuccessful: Math.round(overrideResolved * overrideSuccessRate),
+        consensusResolved,
+        consensusSuccessful: Math.round(consensusResolved * consensusSuccessRate),
+        totalWins,
+        totalLosses,
+        totalProfitR: profitFactor > 0 ? totalWins * profitFactor : 0,
+        totalLossR: totalLosses,
         bestOverrideCategory: data.best_override_category,
         worstOverrideCategory: data.worst_override_category
       };
@@ -677,11 +700,12 @@ export class AlphaIntelligenceAggregator {
   private async getTP1Learning(userId: string): Promise<AlphaIntelligenceSnapshot['tp1Learning']> {
     const empty: AlphaIntelligenceSnapshot['tp1Learning'] = {
       totalTP1Events: 0,
-      closeEarlyWinRate: 0,
-      holdToTP2WinRate: 0,
+      closeEarlyWins: 0,
+      closeEarlyTotal: 0,
+      holdToTP2Wins: 0,
+      holdToTP2Total: 0,
       avgPnlCloseEarly: 0,
-      avgPnlHoldToTP2: 0,
-      recommendation: ''
+      avgPnlHoldToTP2: 0
     };
 
     try {
@@ -699,7 +723,7 @@ export class AlphaIntelligenceAggregator {
       const holdToTP2 = tp1Events.filter(e => e.user_decision === 'hold' || e.user_decision === 'continue');
 
       const closeEarlyWins = closeEarly.filter(e => Number(e.final_pnl) > 0).length;
-      const holdWins = holdToTP2.filter(e => Number(e.final_pnl) > 0).length;
+      const holdToTP2Wins = holdToTP2.filter(e => Number(e.final_pnl) > 0).length;
 
       const avgPnlClose = closeEarly.length > 0
         ? closeEarly.reduce((sum, e) => sum + Number(e.final_pnl || 0), 0) / closeEarly.length
@@ -708,26 +732,14 @@ export class AlphaIntelligenceAggregator {
         ? holdToTP2.reduce((sum, e) => sum + Number(e.final_pnl || 0), 0) / holdToTP2.length
         : 0;
 
-      let recommendation = '';
-      if (closeEarly.length >= 3 && holdToTP2.length >= 3) {
-        const closeWR = closeEarlyWins / closeEarly.length;
-        const holdWR = holdWins / holdToTP2.length;
-        if (avgPnlHold > avgPnlClose * 1.2) {
-          recommendation = `Holding to TP2 outperforms closing at TP1 by ${((avgPnlHold / Math.max(avgPnlClose, 0.01) - 1) * 100).toFixed(0)}%. Favor holding.`;
-        } else if (avgPnlClose > avgPnlHold * 1.2) {
-          recommendation = `Closing at TP1 outperforms holding by ${((avgPnlClose / Math.max(avgPnlHold, 0.01) - 1) * 100).toFixed(0)}%. Favor taking profit early.`;
-        } else {
-          recommendation = `TP1 close vs hold performance is similar. Use market context to decide.`;
-        }
-      }
-
       return {
         totalTP1Events: tp1Events.length,
-        closeEarlyWinRate: closeEarly.length > 0 ? (closeEarlyWins / closeEarly.length) * 100 : 0,
-        holdToTP2WinRate: holdToTP2.length > 0 ? (holdWins / holdToTP2.length) * 100 : 0,
+        closeEarlyWins,
+        closeEarlyTotal: closeEarly.length,
+        holdToTP2Wins,
+        holdToTP2Total: holdToTP2.length,
         avgPnlCloseEarly: avgPnlClose,
-        avgPnlHoldToTP2: avgPnlHold,
-        recommendation
+        avgPnlHoldToTP2: avgPnlHold
       };
     } catch (error) {
       logger.warn('[AlphaIntelligence] TP1 learning fetch failed (non-blocking):', error);

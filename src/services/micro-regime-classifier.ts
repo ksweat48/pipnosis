@@ -2,7 +2,13 @@
  * Micro-Regime Classifier - SSOT for 8-regime market classification
  *
  * Transforms basic trend/range/volatility detection into granular behavioral patterns.
- * Provides regime-specific confidence modifiers and trading adjustments.
+ * Exposes raw sensor observations only — no confidence modifiers, trading advice,
+ * or pre-synthesized behavioral expectations.
+ *
+ * SSOT / CCIP CONTRACT (2026-02-24):
+ * This service outputs RAW OBSERVATIONS ONLY.
+ * It does NOT compute confidence modifiers, trading adjustments, or behavioral guidance.
+ * Alpha is the sole authority for interpreting raw indicators into trading decisions.
  *
  * 8 Micro-Regimes:
  * 1. Trend Acceleration - Strong momentum with expanding ATR
@@ -39,12 +45,8 @@ export interface MicroRegimeCandle {
 
 export interface MicroRegimeClassification {
   regime: MicroRegime;
-  confidence: number; // 0-100
-  confidenceModifier: number; // -20 to +20 adjustment for Alpha
+  confidence: number; // 0-100 confidence in the regime classification itself
   direction: 'bullish' | 'bearish' | 'neutral';
-  description: string;
-  tradingAdjustment: string;
-  behavioralExpectation: string;
   indicators: {
     atrExpansion: number; // ratio vs 20-period avg
     emaDisplacement: number; // % distance from EMA50
@@ -127,11 +129,7 @@ export class MicroRegimeClassifier {
       return {
         regime: 'stop_hunt_expansion',
         confidence: 85,
-        confidenceModifier: 15,
         direction,
-        description: `Post-sweep expansion ${direction === 'bullish' ? 'upward' : 'downward'}`,
-        tradingAdjustment: `High probability ${direction} continuation. Wide stops OK. Target cascade zones.`,
-        behavioralExpectation: 'Trapped traders forced to capitulate. Expect momentum cascade.',
         indicators
       };
     }
@@ -145,11 +143,7 @@ export class MicroRegimeClassifier {
         return {
           regime: 'trend_acceleration',
           confidence: 80,
-          confidenceModifier: 12,
           direction,
-          description: `Strong ${direction} momentum acceleration`,
-          tradingAdjustment: `Trade WITH trend. Use wider stops. Trail aggressively.`,
-          behavioralExpectation: 'Momentum attracts participation. Expect continuation until exhaustion.',
           indicators
         };
       }
@@ -164,11 +158,7 @@ export class MicroRegimeClassifier {
         return {
           regime: 'trend_exhaustion',
           confidence: 70,
-          confidenceModifier: -10,
           direction,
-          description: `Trend exhaustion, ${direction} reversal potential`,
-          tradingAdjustment: `Wait for reversal confirmation. Tight stops. Quick profit targets.`,
-          behavioralExpectation: 'Late entrants trapped. Early profit-taking begins. Reversal likely.',
           indicators
         };
       }
@@ -183,11 +173,7 @@ export class MicroRegimeClassifier {
         return {
           regime: 'mean_reversion_pocket',
           confidence: 75,
-          confidenceModifier: 8,
           direction,
-          description: `Mean reversion pocket - ${direction} snap expected`,
-          tradingAdjustment: `Counter-trend entries. Target EMA. Tight stops above/below extreme.`,
-          behavioralExpectation: 'Price stretched beyond sustainable. Snap-back to value imminent.',
           indicators
         };
       }
@@ -198,11 +184,7 @@ export class MicroRegimeClassifier {
       return {
         regime: 'liquidity_vacuum',
         confidence: 65,
-        confidenceModifier: -5,
         direction: 'neutral',
-        description: 'Compression zone - breakout imminent',
-        tradingAdjustment: `Wait for breakout. Trade WITH break direction. Tight stops OK.`,
-        behavioralExpectation: 'Participants waiting. First major move will attract flow. Direction unknown.',
         indicators
       };
     }
@@ -212,11 +194,7 @@ export class MicroRegimeClassifier {
       return {
         regime: 'pre_break_compression',
         confidence: 70,
-        confidenceModifier: 0,
         direction: 'neutral',
-        description: 'Coiling near structure - breakout setup forming',
-        tradingAdjustment: `Prepare for breakout. Watch for false breaks. Confirm with volume.`,
-        behavioralExpectation: 'Indecision at key level. Breakout will reveal institutional intent.',
         indicators
       };
     }
@@ -227,11 +205,7 @@ export class MicroRegimeClassifier {
       return {
         regime: 'post_break_retest',
         confidence: 80,
-        confidenceModifier: 10,
         direction: direction === 'up' ? 'bullish' : 'bearish',
-        description: `Retest of broken ${direction === 'up' ? 'resistance' : 'support'}`,
-        tradingAdjustment: `High probability continuation. Enter on bounce/rejection. Good R:R.`,
-        behavioralExpectation: 'Structure confirms new directional bias. Failed retests signal momentum.',
         indicators
       };
     }
@@ -240,11 +214,7 @@ export class MicroRegimeClassifier {
     return {
       regime: 'neutral_ranging',
       confidence: 50,
-      confidenceModifier: -15,
       direction: 'neutral',
-      description: 'Neutral conditions - no clear regime',
-      tradingAdjustment: `Avoid directional bias. Wait for clearer setup. Range-bound strategies only.`,
-      behavioralExpectation: 'Balanced two-sided action. No institutional conviction visible.',
       indicators
     };
   }
@@ -368,11 +338,7 @@ export class MicroRegimeClassifier {
     return {
       regime: 'neutral_ranging',
       confidence: 30,
-      confidenceModifier: -20,
       direction: 'neutral',
-      description: 'Insufficient data for regime classification',
-      tradingAdjustment: 'Wait for more candle data before trading.',
-      behavioralExpectation: 'Cannot determine regime behavior - avoid trading.',
       indicators: {
         atrExpansion: 1.0,
         emaDisplacement: 0,

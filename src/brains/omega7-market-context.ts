@@ -1,11 +1,16 @@
 /**
  * Omega-7: Market Context Brain (Deterministic)
  *
- * Zero-cost market regime analyzer that provides sentiment-like context
- * by analyzing price action, volatility, and session timing.
+ * Zero-cost market regime analyzer that exposes raw regime observations
+ * for downstream consumers. The raw RegimeSnapshot is the authoritative output.
  *
- * REPLACES: LLM-based sentiment analysis with external API calls
- * PROVIDES: Same AggregatedSentiment output format, but from pure price action
+ * SSOT / CCIP CONTRACT (2026-02-24):
+ * This service exposes raw regime measurements only.
+ * Derived verdict fields (sentiment, usd_strength, volatility, bias) are
+ * @deprecated — kept for backward compatibility with consumers that have not
+ * yet been migrated. New consumers must read from regime_snapshot directly.
+ * Alpha (coordinator-alpha.ts) must never inject these verdict labels into
+ * LLM prompts — use raw regime_snapshot fields instead.
  *
  * Key Principle: Market regime is observable from ANY liquid instrument's
  * price action, volatility, and session timing. No external data required.
@@ -21,10 +26,17 @@ export interface MarketContextInput {
 }
 
 export interface MarketContextOutput {
+  /** Raw regime snapshot - authoritative source. Prefer this over all derived fields. */
+  regime_snapshot: RegimeSnapshot;
+  /** @deprecated Use regime_snapshot.volatility_regime.volatility_score / session data instead */
   sentiment: 'risk_on' | 'risk_off' | 'mixed';
+  /** @deprecated Use regime_snapshot.trend_regime.market_bias and session indicators instead */
   usd_strength: 'strong' | 'weak' | 'neutral';
+  /** @deprecated Use regime_snapshot.volatility_regime.volatility_score instead */
   volatility: 'high' | 'medium' | 'low';
+  /** @deprecated Use regime_snapshot.trend_regime.market_bias instead */
   bias: 'bullish' | 'bearish' | 'neutral';
+  /** Raw warning keys from regime detection */
   warnings: string[];
   confidence: number;
   summary: string;
@@ -53,6 +65,7 @@ class MarketContextBrain {
     const summary = this.buildSummary(regime, sentiment, warnings);
 
     return {
+      regime_snapshot: regime,
       sentiment,
       usd_strength: usdStrength,
       volatility,

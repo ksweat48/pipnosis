@@ -676,22 +676,18 @@ class AlphaCoordinatorBrain {
         microRegime = await microRegimeClassifier.classify(regimeCandles);
 
         if (microRegime) {
-          console.log(`[Alpha Coordinator] 🎯 Micro-Regime: ${microRegime.regime} | Direction: ${microRegime.direction} | Confidence: ${microRegime.confidence}% | Modifier: ${microRegime.confidenceModifier > 0 ? '+' : ''}${microRegime.confidenceModifier}%`);
+          console.log(`[Alpha Coordinator] 🎯 Micro-Regime: ${microRegime.regime} | Direction: ${microRegime.direction} | Classification Confidence: ${microRegime.confidence}%`);
 
           microRegimeContext = `\n🎯 MICRO-REGIME CLASSIFICATION:\n`;
           microRegimeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-          microRegimeContext += `Regime: ${microRegime.regime.toUpperCase().replace(/_/g, ' ')} (${microRegime.confidence}% confidence)\n`;
-          microRegimeContext += `Direction: ${microRegime.direction.toUpperCase()}\n`;
-          microRegimeContext += `Confidence Modifier: ${microRegime.confidenceModifier > 0 ? '+' : ''}${microRegime.confidenceModifier}%\n\n`;
-          microRegimeContext += `📊 Behavioral Pattern:\n${microRegime.description}\n\n`;
-          microRegimeContext += `💡 Trading Adjustment:\n${microRegime.tradingAdjustment}\n\n`;
-          microRegimeContext += `🔮 Expected Behavior:\n${microRegime.behavioralExpectation}\n\n`;
-          microRegimeContext += `📈 Technical Indicators:\n`;
-          microRegimeContext += `  • ATR Expansion: ${microRegime.indicators.atrExpansion.toFixed(2)}x\n`;
-          microRegimeContext += `  • EMA Displacement: ${microRegime.indicators.emaDisplacement.toFixed(2)}%\n`;
+          microRegimeContext += `Regime: ${microRegime.regime.toUpperCase().replace(/_/g, ' ')} (${microRegime.confidence}% classification confidence)\n`;
+          microRegimeContext += `Direction: ${microRegime.direction.toUpperCase()}\n\n`;
+          microRegimeContext += `📈 Raw Sensor Readings:\n`;
+          microRegimeContext += `  • ATR Expansion: ${microRegime.indicators.atrExpansion.toFixed(2)}x vs 20-period avg\n`;
+          microRegimeContext += `  • EMA50 Displacement: ${microRegime.indicators.emaDisplacement.toFixed(2)}%\n`;
           microRegimeContext += `  • RSI: ${microRegime.indicators.rsi.toFixed(0)}\n`;
-          microRegimeContext += `  • Volume: ${microRegime.indicators.volumeProfile}\n`;
-          microRegimeContext += `  • Range Compression: ${microRegime.indicators.rangeCompression.toFixed(2)}x\n`;
+          microRegimeContext += `  • Volume Profile: ${microRegime.indicators.volumeProfile}\n`;
+          microRegimeContext += `  • Range Compression: ${microRegime.indicators.rangeCompression.toFixed(2)}x vs 20-period avg\n`;
           microRegimeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
         }
       } catch (error) {
@@ -2882,35 +2878,53 @@ ${tradeStyle === 'SCALP' ? `{
 
   /**
    * Build advisory context from Adversarial Detector and Regime Oracle
+   *
+   * CCIP CONTRACT (2026-02-24):
+   * Exposes raw sensor observations only. Alpha is the sole authority
+   * for interpreting these measurements into trading decisions.
+   * No pre-synthesized verdicts, levels, or recommended actions.
    */
   private buildAdvisoryContext(adversarial?: AdversarialSignal, regime?: RegimeSnapshot): string {
     if (!adversarial && !regime) {
       return '';
     }
 
-    const parts: string[] = ['\n📡 ADVISORY SIGNALS (Your authority to override):'];
+    const parts: string[] = ['\n📡 RAW SENSOR READINGS (Interpret and decide):'];
 
     if (adversarial) {
-      parts.push(`\nAdversarial Detector:`);
-      parts.push(`  Level: ${adversarial.level} (Score: ${adversarial.suspicion_score}/100)`);
-      parts.push(`  Recommendation: ${adversarial.recommended_action}`);
+      parts.push(`\nAdversarial Detector (raw measurements):`);
+      parts.push(`  Suspicion Score: ${adversarial.suspicion_score}/100`);
+      parts.push(`  Whipsaw Flips (last 10 candles): ${adversarial.whipsaw_flip_count}`);
+      parts.push(`  Avg Candle Range: ${adversarial.avg_candle_range.toFixed(5)}`);
       if (adversarial.patterns.length > 0) {
-        parts.push(`  Patterns: ${adversarial.patterns.join(', ')}`);
+        parts.push(`  Observed Patterns: ${adversarial.patterns.join(', ')}`);
       }
       if (adversarial.stop_run_classification && adversarial.stop_run_classification.type !== 'none') {
-        parts.push(`  Stop-Run: ${adversarial.stop_run_classification.type} (${adversarial.stop_run_classification.candles_ago} candles ago)`);
-        parts.push(`  BOS: ${adversarial.stop_run_classification.has_bos ? 'Yes ✓' : 'No'}`);
+        parts.push(`  Stop-Run Type: ${adversarial.stop_run_classification.type} (${adversarial.stop_run_classification.candles_ago} candles ago)`);
+        parts.push(`  BOS Confirmed: ${adversarial.stop_run_classification.has_bos ? 'Yes' : 'No'}`);
+        parts.push(`  Reasoning: ${adversarial.stop_run_classification.reasoning}`);
       }
     }
 
     if (regime) {
-      parts.push(`\nRegime Oracle:`);
-      parts.push(`  Session: ${regime.session} ${regime.session_open ? '(open)' : ''}`);
+      parts.push(`\nRegime Oracle (raw observations):`);
+      parts.push(`  Session: ${regime.session} | Open: ${regime.session_open} | ${regime.minutes_into_session}min in`);
       parts.push(`  Structure: ${regime.structure} | Bias: ${regime.market_bias}`);
-      parts.push(`  Volatility: ${regime.volatility_score}/100 (${regime.atr_compression ? 'compressed' : regime.atr_expansion ? 'expanding' : 'normal'})`);
-      parts.push(`  High Risk: ${regime.is_high_risk_regime ? 'YES' : 'NO'}`);
+      parts.push(`  Volatility Score: ${regime.volatility_score}/100`);
+      parts.push(`  ATR State: ${regime.atr_compression ? 'compressed' : regime.atr_expansion ? 'expanding' : 'normal'}`);
+      parts.push(`  Wick Risk: ${regime.wick_risk} | Spread Risk: ${regime.spread_risk}`);
+      parts.push(`  Is Dead Zone: ${regime.is_dead_zone} | Session Overlap: ${regime.is_session_overlap}`);
+      if (regime.trend_regime) {
+        parts.push(`  Trend Strength: ${regime.trend_regime.trend_strength_score}/100`);
+        parts.push(`  Structure Quality: ${regime.trend_regime.structure_quality}`);
+        parts.push(`  EMA Alignment: ${regime.trend_regime.ema_alignment}`);
+      }
+      if (regime.volatility_regime) {
+        parts.push(`  Avg Wick Size: ${regime.volatility_regime.avg_wick_size.toFixed(5)}`);
+        parts.push(`  Volatility Trend: ${regime.volatility_regime.volatility_trend}`);
+      }
       if (regime.reason) {
-        parts.push(`  Note: ${regime.reason}`);
+        parts.push(`  Oracle Note: ${regime.reason}`);
       }
     }
 
@@ -2919,128 +2933,99 @@ ${tradeStyle === 'SCALP' ? `{
 
   /**
    * Build intelligence context from platform-wide learning
-   * ENHANCED: Now provides ACTIONABLE behavioral guidance, not just summaries
+   *
+   * CCIP CONTRACT (2026-02-24):
+   * Exposes raw historical counts and measurements only.
+   * Alpha is the sole authority for computing rates, drawing comparisons,
+   * and deciding what these counts mean for the current trade.
+   * No pre-synthesized win rates, recommendations, or actionable adjustments.
    */
   private buildIntelligenceContext(intelligence?: AlphaIntelligenceSnapshot | null): string {
     if (!intelligence) {
       return '';
     }
 
-    const parts: string[] = ['\n🧠 ALPHA INTELLIGENCE (Learned Performance Data):'];
+    const parts: string[] = ['\n🧠 ALPHA INTELLIGENCE (Raw Historical Data — Interpret yourself):'];
 
-    // ACTIONABLE: Platform patterns with FAVOR/AVOID guidance
     if (intelligence.platformPatterns.topPerformingPatterns.length > 0 || intelligence.platformPatterns.failingPatterns.length > 0) {
-      parts.push('\n📊 PATTERN PERFORMANCE (Historical Evidence):');
+      parts.push('\n📊 PATTERN HISTORY (Raw counts):');
 
-      // Show top 3 winning patterns
       const topPatterns = intelligence.platformPatterns.topPerformingPatterns.slice(0, 3);
       if (topPatterns.length > 0) {
-        parts.push('  ✅ FAVOR (Proven Winners):');
+        parts.push('  High-performance patterns (platform-wide):');
         topPatterns.forEach(p => {
-          parts.push(`    • ${p.patternId}: ${p.winRate.toFixed(1)}% WR, ${p.avgRMultiple.toFixed(2)}R (n=${p.sampleSize})`);
+          parts.push(`    • ${p.patternId}: wins=${Math.round(p.winRate * p.sampleSize / 100)}/${p.sampleSize} trades, avg_R=${p.avgRMultiple.toFixed(2)}`);
         });
       }
 
-      // Show top 3 losing patterns
       const failingPatterns = intelligence.platformPatterns.failingPatterns.slice(0, 3);
       if (failingPatterns.length > 0) {
-        parts.push('  ❌ AVOID (Proven Losers):');
+        parts.push('  Low-performance patterns (platform-wide):');
         failingPatterns.forEach(p => {
-          parts.push(`    • ${p.patternId}: ${p.winRate.toFixed(1)}% WR, ${p.avgRMultiple.toFixed(2)}R (n=${p.sampleSize})`);
+          parts.push(`    • ${p.patternId}: wins=${Math.round(p.winRate * p.sampleSize / 100)}/${p.sampleSize} trades, avg_R=${p.avgRMultiple.toFixed(2)}`);
         });
       }
     }
 
-    // ACTIONABLE: Confidence calibration with behavioral guidance
     const calibrationKeys = Object.keys(intelligence.calibrationData);
     if (calibrationKeys.length > 0) {
-      parts.push('\n🎯 CONFIDENCE CALIBRATION (Accuracy Check):');
-
-      // Find buckets with significant miscalibration
-      const miscalibrations: Array<{bucket: number, actual: number, error: number}> = [];
+      parts.push('\n🎯 CONFIDENCE CALIBRATION (Actual vs Predicted):');
       for (const [bucketStr, data] of Object.entries(intelligence.calibrationData)) {
-        if (data.sampleSize >= 10 && data.calibrationError > 10) {
-          miscalibrations.push({
-            bucket: parseInt(bucketStr),
-            actual: data.actualWinRate,
-            error: data.calibrationError
-          });
+        if (data.sampleSize >= 10) {
+          const predicted = parseInt(bucketStr);
+          const actual = data.actualWinRate;
+          parts.push(`    • Predicted ${predicted}% confidence: actual wins=${Math.round(actual * data.sampleSize / 100)}/${data.sampleSize} (${actual.toFixed(0)}% actual)`);
         }
-      }
-
-      if (miscalibrations.length > 0) {
-        parts.push('  ⚠️ CALIBRATION WARNINGS:');
-        miscalibrations.forEach(m => {
-          if (m.actual < m.bucket) {
-            parts.push(`    • Your ${m.bucket}% confidence trades actually win ${m.actual.toFixed(0)}% (${m.error.toFixed(0)}% overconfident)`);
-          } else {
-            parts.push(`    • Your ${m.bucket}% confidence trades actually win ${m.actual.toFixed(0)}% (${m.error.toFixed(0)}% underconfident)`);
-          }
-        });
-        parts.push('    → Confidence will be auto-calibrated based on this data');
-      } else {
-        parts.push('  ✅ Confidence well-calibrated (within 10% of predicted)');
       }
     }
 
-    // ACTIONABLE: Meta insights with concrete adjustments
     if (intelligence.metaInsights.length > 0) {
-      parts.push('\n💡 KEY INSIGHTS (Actionable Adjustments):');
+      parts.push('\n💡 META INSIGHTS (Validated observations):');
       intelligence.metaInsights.slice(0, 3).forEach(insight => {
         if (insight.validated) {
-          parts.push(`  ✅ ${insight.description}`);
-          parts.push(`     → ${insight.actionableAdjustment}`);
+          parts.push(`  [${insight.confidence}% confidence] ${insight.type}: ${insight.description}`);
         }
       });
     }
 
-    // Execution quality
     if (intelligence.executionQuality.avgSlippage > 0) {
-      parts.push(`  Execution: ${intelligence.executionQuality.avgSlippage.toFixed(2)} pips avg slippage`);
-      if (intelligence.executionQuality.slHuntingSuspected) {
-        parts.push(`    ⚠️ SL hunting suspected in recent executions`);
-      }
+      parts.push(`\nExecution Quality:`);
+      parts.push(`  Avg slippage: ${intelligence.executionQuality.avgSlippage.toFixed(2)} pips`);
+      parts.push(`  SL hunting suspected: ${intelligence.executionQuality.slHuntingSuspected}`);
+      parts.push(`  Recent rejections: ${intelligence.executionQuality.recentRejections}`);
     }
 
     if (intelligence.counterfactualInsights.sampleSize >= 5) {
       const cf = intelligence.counterfactualInsights;
-      parts.push('\n🔄 COUNTERFACTUAL ANALYSIS (What-If Learning):');
+      parts.push('\n🔄 COUNTERFACTUAL DATA (What-if counts):');
       if (cf.bestSlMultiplier !== null) {
-        parts.push(`  Optimal SL multiplier: ${cf.bestSlMultiplier.toFixed(2)}x (from ${cf.sampleSize} trades)`);
+        parts.push(`  Avg optimal SL multiplier: ${cf.bestSlMultiplier.toFixed(2)}x`);
       }
       if (cf.bestTpMultiplier !== null) {
-        parts.push(`  Optimal TP multiplier: ${cf.bestTpMultiplier.toFixed(2)}x`);
+        parts.push(`  Avg optimal TP multiplier: ${cf.bestTpMultiplier.toFixed(2)}x`);
       }
-      if (cf.earlyExitRecommended) {
-        parts.push('  → Pattern: Early exits would have improved outcomes');
-      }
-      if (cf.holdLongerRecommended) {
-        parts.push('  → Pattern: Holding longer would have improved outcomes');
-      }
-      if (cf.topRecommendation) {
-        parts.push(`  Latest: ${cf.topRecommendation}`);
-      }
+      parts.push(`  Trades where earlier exit was better: ${cf.earlyExitCount}/${cf.totalSampled}`);
+      parts.push(`  Trades where holding longer was better: ${cf.holdLongerCount}/${cf.totalSampled}`);
+      parts.push(`  Avg improvement potential: ${cf.avgImprovementPct.toFixed(1)}%`);
     }
 
     const zml = intelligence.zoneMetaLearning;
     const hasZoneData = Object.keys(zml.zoneTypeSuccessRates).length > 0 || zml.reachabilityRate > 0;
     if (hasZoneData) {
-      parts.push('\n📍 ZONE PERFORMANCE (Entry Zone Learning):');
+      parts.push('\n📍 ZONE DATA (Entry zone historical execution):');
       const successRates = Object.entries(zml.zoneTypeSuccessRates);
       if (successRates.length > 0) {
-        parts.push('  Execution rates by zone type:');
         successRates.forEach(([zoneType, rate]) => {
           parts.push(`    • ${zoneType}: ${(rate * 100).toFixed(0)}% execution rate`);
         });
       }
       if (zml.reachabilityRate > 0) {
-        parts.push(`  Reachability: ${(zml.reachabilityRate * 100).toFixed(0)}% | Downgrade rate: ${(zml.downgradeRate * 100).toFixed(0)}%`);
+        parts.push(`  Zone reachability: ${(zml.reachabilityRate * 100).toFixed(0)}% | Downgrade rate: ${(zml.downgradeRate * 100).toFixed(0)}%`);
       }
       const unreachable = Object.entries(zml.unreachableByRegime).filter(([, rate]) => rate > 0.3);
       if (unreachable.length > 0) {
-        parts.push('  ⚠️ High unreachability regimes:');
         unreachable.forEach(([regime, rate]) => {
-          parts.push(`    • ${regime}: ${(rate * 100).toFixed(0)}% unreachable — prefer tighter zones`);
+          parts.push(`    • ${regime}: ${(rate * 100).toFixed(0)}% unreachable historically`);
         });
       }
     }
@@ -3051,40 +3036,38 @@ ${tradeStyle === 'SCALP' ? `{
 
     const dm = intelligence.decisionMetrics;
     if (dm.totalDecisions >= 5) {
-      parts.push('\n📈 YOUR DECISION HISTORY (Self-Learning):');
-      parts.push(`  Overall: ${dm.winRate.toFixed(1)}% WR | ${dm.profitFactor.toFixed(2)} PF (${dm.totalDecisions} decisions)`);
-      if (dm.overrideSuccessRate > 0) {
-        parts.push(`  Override success: ${dm.overrideSuccessRate.toFixed(1)}% | Consensus follow: ${dm.consensusSuccessRate.toFixed(1)}%`);
-        if (dm.overrideSuccessRate > dm.consensusSuccessRate + 5) {
-          parts.push('  -> Your overrides outperform consensus. Trust your conviction on high-confidence setups.');
-        } else if (dm.consensusSuccessRate > dm.overrideSuccessRate + 5) {
-          parts.push('  -> Consensus outperforms overrides. Be cautious when deviating from Omega agreement.');
-        }
+      parts.push('\n📈 DECISION HISTORY (Raw counts):');
+      parts.push(`  Total decisions: ${dm.totalDecisions}`);
+      parts.push(`  Wins: ${dm.totalWins} | Losses: ${dm.totalLosses}`);
+      parts.push(`  Total profit R: ${dm.totalProfitR.toFixed(2)} | Total loss R: ${dm.totalLossR.toFixed(2)}`);
+      if (dm.overrideResolved > 0) {
+        parts.push(`  Override decisions resolved: ${dm.overrideResolved} | Successful: ${dm.overrideSuccessful}`);
+      }
+      if (dm.consensusResolved > 0) {
+        parts.push(`  Consensus decisions resolved: ${dm.consensusResolved} | Successful: ${dm.consensusSuccessful}`);
       }
       if (dm.bestOverrideCategory) {
-        parts.push(`  Best override type: ${dm.bestOverrideCategory}`);
+        parts.push(`  Best override category: ${dm.bestOverrideCategory}`);
       }
       if (dm.worstOverrideCategory) {
-        parts.push(`  Worst override type: ${dm.worstOverrideCategory} — avoid overriding in this category`);
+        parts.push(`  Worst override category: ${dm.worstOverrideCategory}`);
       }
     }
 
     const tp1 = intelligence.tp1Learning;
     if (tp1.totalTP1Events >= 3) {
-      parts.push('\n🎯 TP1 HIT LEARNING (Close vs Hold):');
-      parts.push(`  Close at TP1: ${tp1.closeEarlyWinRate.toFixed(0)}% WR, avg $${tp1.avgPnlCloseEarly.toFixed(2)}`);
-      parts.push(`  Hold to TP2: ${tp1.holdToTP2WinRate.toFixed(0)}% WR, avg $${tp1.avgPnlHoldToTP2.toFixed(2)}`);
-      if (tp1.recommendation) {
-        parts.push(`  -> ${tp1.recommendation}`);
-      }
+      parts.push('\n🎯 TP1 DECISION DATA (Raw counts):');
+      parts.push(`  Total TP1 events: ${tp1.totalTP1Events}`);
+      parts.push(`  Close early: wins=${tp1.closeEarlyWins}/${tp1.closeEarlyTotal}, avg_pnl=$${tp1.avgPnlCloseEarly.toFixed(2)}`);
+      parts.push(`  Hold to TP2: wins=${tp1.holdToTP2Wins}/${tp1.holdToTP2Total}, avg_pnl=$${tp1.avgPnlHoldToTP2.toFixed(2)}`);
     }
 
     if (intelligence.validatedInsights.length > 0) {
-      parts.push('\n🔬 VALIDATED INSIGHTS (High-Confidence Learnings):');
+      parts.push('\n🔬 VALIDATED INSIGHTS:');
       intelligence.validatedInsights.slice(0, 3).forEach(insight => {
-        parts.push(`  [${insight.confidence.toFixed(0)}%] ${insight.title}: ${insight.description}`);
+        parts.push(`  [${insight.confidence.toFixed(0)}% confidence, n=${insight.sampleSize}] ${insight.title}: ${insight.description}`);
         if (insight.winRate > 0 && insight.sampleSize >= 5) {
-          parts.push(`    Evidence: ${insight.winRate.toFixed(1)}% WR over ${insight.sampleSize} trades`);
+          parts.push(`    wins=${Math.round(insight.winRate * insight.sampleSize / 100)}/${insight.sampleSize}`);
         }
       });
     }

@@ -4,12 +4,12 @@
  * Detects hostile market behavior using ONLY local computations (no LLM calls).
  * Identifies stop runs, fake breakouts, whipsaws, and news spikes.
  *
- * SSOT / CCIP CONTRACT (2026-02-21):
+ * SSOT / CCIP CONTRACT (2026-02-24):
  * This service outputs RAW OBSERVATIONS ONLY.
- * It does NOT compute confidence_penalty multipliers.
- * Alpha (alpha-omega-orchestrator.ts > computeRegimePenaltyFromRaw) owns all scoring.
- * The stop_run_classification object with type, candles_ago, has_bos, and reasoning
- * is the full raw output Alpha consumes directly.
+ * It does NOT compute level classifications, recommended actions, or advisory notes.
+ * Alpha is the sole authority for interpreting raw scores into decisions.
+ * Raw outputs: suspicion_score (0-100), patterns (string[]), stop_run_classification,
+ * avg_candle_range, and whipsaw_flip_count.
  */
 
 import type { RegimeSnapshot } from './regime-oracle';
@@ -33,16 +33,15 @@ const EXTREME_MANIPULATION_THRESHOLD = 4.0;
 
 /**
  * Raw adversarial observation contract.
- * All fields are direct sensor observations — no confidence_penalty multipliers.
- * Alpha (alpha-omega-orchestrator.ts) owns all penalty/confidence computation.
+ * All fields are direct sensor observations — no verdicts, recommendations, or level labels.
+ * Alpha is the sole authority for interpreting these raw measurements.
  */
 export interface AdversarialSignal {
   is_adversarial: boolean;
-  level: 'none' | 'mild' | 'moderate' | 'severe';
-  suspicion_score: number; // 0-100
-  patterns: string[]; // ["stop_run_high", "whipsaw_cluster"]
-  recommended_action: 'normal' | 'reduce_size' | 'delay';
-  notes: string; // short, 80 chars max
+  suspicion_score: number; // 0-100 raw accumulated score
+  patterns: string[]; // ["stop_run_high", "whipsaw_cluster"] — observed pattern names
+  avg_candle_range: number; // average candle range used for spike detection
+  whipsaw_flip_count: number; // number of direction flips in last 10 candles
   stop_run_classification?: {
     type: 'active_stop_run' | 'historical_sweep' | 'manipulation_spike' | 'none';
     candles_ago: number; // How many candles ago the stop run occurred
@@ -148,8 +147,8 @@ class AdversarialDetector {
     }
 
     // D) WHIPSAW CLUSTER DETECTION
-    const whipsawDetected = this.detectWhipsawCluster(candleAnalyses);
-    if (whipsawDetected) {
+    const whipsawFlipCount = this.countWhipsawFlips(candleAnalyses);
+    if (whipsawFlipCount >= 7) {
       patterns.push('whipsaw_cluster');
       suspicion_score += 20;
     }
@@ -181,31 +180,24 @@ class AdversarialDetector {
       avgCandleRange
     );
 
-    // Classify level and determine action
-    const level = this.classifyLevel(suspicion_score);
-    const recommended_action = this.determineAction(level);
-    const is_adversarial = level !== 'none';
-    const notes = this.generateNotes(patterns, level);
+    const is_adversarial = suspicion_score >= 20;
 
-    console.log(`[Adversarial - ADVISORY] Score: ${suspicion_score}, Level: ${level}`);
-    console.log(`[Adversarial - ADVISORY] RAW OBSERVATIONS ONLY - penalty scoring delegated to Alpha`);
+    console.log(`[Adversarial - RAW] Score: ${suspicion_score}/100 | is_adversarial: ${is_adversarial}`);
     if (patterns.length > 0) {
-      console.log(`[Adversarial - ADVISORY] Patterns: ${patterns.join(', ')}`);
+      console.log(`[Adversarial - RAW] Patterns: ${patterns.join(', ')}`);
     }
 
     if (stopRunClassification.type !== 'none') {
-      console.log(`[Adversarial - ADVISORY] Stop-Run: ${stopRunClassification.type} (${stopRunClassification.candles_ago} candles ago)`);
-      console.log(`[Adversarial - ADVISORY] BOS: ${stopRunClassification.has_bos}, Requires Omega-9: ${stopRunClassification.requires_omega9_validation || false}`);
-      console.log(`[Adversarial - ADVISORY] ${stopRunClassification.reasoning}`);
+      console.log(`[Adversarial - RAW] Stop-Run: ${stopRunClassification.type} (${stopRunClassification.candles_ago} candles ago)`);
+      console.log(`[Adversarial - RAW] BOS: ${stopRunClassification.has_bos}, Requires Omega-9: ${stopRunClassification.requires_omega9_validation || false}`);
     }
 
     return {
       is_adversarial,
-      level,
       suspicion_score,
       patterns,
-      recommended_action,
-      notes,
+      avg_candle_range: avgCandleRange,
+      whipsaw_flip_count: whipsawFlipCount,
       stop_run_classification: stopRunClassification
     };
   }
@@ -372,9 +364,9 @@ class AdversarialDetector {
   }
 
   /**
-   * Detect whipsaw cluster (excessive direction changes)
+   * Count direction flip count in last 10 candles (raw measurement)
    */
-  private detectWhipsawCluster(analyses: CandleAnalysis[]): boolean {
+  private countWhipsawFlips(analyses: CandleAnalysis[]): number {
     const recentCount = Math.min(10, analyses.length);
     const recentAnalyses = analyses.slice(-recentCount);
 
@@ -385,8 +377,7 @@ class AdversarialDetector {
       }
     }
 
-    // 7+ flips in 10 candles = whipsaw cluster
-    return flips >= 7;
+    return flips;
   }
 
   /**
@@ -436,92 +427,6 @@ class AdversarialDetector {
     return bonus;
   }
 
-  /**
-   * Classify suspicion level
-   */
-  private classifyLevel(score: number): 'none' | 'mild' | 'moderate' | 'severe' {
-    if (score >= 70) return 'severe';
-    if (score >= 40) return 'moderate';
-    if (score >= 20) return 'mild';
-    return 'none';
-  }
-
-  /**
-   * Determine recommended action based on level
-   */
-  /**
-   * Determine recommended action (ADVISORY ONLY - never blocks)
-   *
-   * UPDATED: No longer returns 'avoid'. All recommendations are advisory.
-   * Alpha has final authority to proceed despite adverse conditions.
-   */
-  private determineAction(
-    level: 'none' | 'mild' | 'moderate' | 'severe'
-  ): 'normal' | 'reduce_size' | 'delay' {
-    switch (level) {
-      case 'severe':
-        return 'delay'; // Was 'avoid' - now advisory delay with heavy penalty
-      case 'moderate':
-        return 'delay';
-      case 'mild':
-        return 'reduce_size';
-      default:
-        return 'normal';
-    }
-  }
-
-  /**
-   * Generate short diagnostic notes
-   */
-  private generateNotes(
-    patterns: string[],
-    level: 'none' | 'mild' | 'moderate' | 'severe'
-  ): string {
-    if (patterns.length === 0) {
-      return 'Clean market conditions';
-    }
-
-    // Build concise summary
-    const stopRuns = patterns.filter(p => p.includes('stop_run')).length;
-    const fakeBreakouts = patterns.filter(p => p.includes('fake_breakout')).length;
-    const hasWhipsaw = patterns.includes('whipsaw_cluster');
-    const hasSpike = patterns.some(p => p.includes('spike'));
-    const hasSpread = patterns.includes('spread_spike');
-
-    const parts: string[] = [];
-
-    if (stopRuns > 0) {
-      parts.push(`${stopRuns} stop run${stopRuns > 1 ? 's' : ''}`);
-    }
-    if (fakeBreakouts > 0) {
-      parts.push(`${fakeBreakouts} fakeout${fakeBreakouts > 1 ? 's' : ''}`);
-    }
-    if (hasWhipsaw) {
-      parts.push('whipsaw');
-    }
-    if (hasSpike) {
-      parts.push(patterns.includes('extreme_spike') ? 'extreme spike' : 'spike');
-    }
-    if (hasSpread) {
-      parts.push('wide spread');
-    }
-
-    let notes = parts.join(', ');
-
-    // Add level prefix for severe/moderate
-    if (level === 'severe') {
-      notes = 'HOSTILE: ' + notes;
-    } else if (level === 'moderate') {
-      notes = 'CAUTION: ' + notes;
-    }
-
-    // Truncate to 80 chars
-    if (notes.length > 80) {
-      notes = notes.substring(0, 77) + '...';
-    }
-
-    return notes;
-  }
 
   /**
    * Classify stop-run patterns with refined logic
@@ -777,11 +682,10 @@ class AdversarialDetector {
   private createCleanSignal(): AdversarialSignal {
     return {
       is_adversarial: false,
-      level: 'none',
       suspicion_score: 0,
       patterns: [],
-      recommended_action: 'normal',
-      notes: 'Clean market conditions',
+      avg_candle_range: 0,
+      whipsaw_flip_count: 0,
       stop_run_classification: {
         type: 'none',
         candles_ago: 0,

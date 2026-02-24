@@ -20,13 +20,19 @@
  */
 
 import { marketContextBrain, type MarketContextInput, type MarketContextOutput } from '@/brains/omega7-market-context';
-import type { Candle, MarketState } from '@/services/regime-oracle';
+import type { Candle, MarketState, RegimeSnapshot } from '@/services/regime-oracle';
 import { TIME_MS } from '@/config/time-constants';
 
 export interface AggregatedSentiment {
+  /** Raw regime snapshot - authoritative source for all downstream consumers */
+  regime_snapshot?: RegimeSnapshot;
+  /** @deprecated Use regime_snapshot.volatility_regime / time_regime instead */
   sentiment: 'risk_on' | 'risk_off' | 'mixed';
+  /** @deprecated Use regime_snapshot.trend_regime.market_bias instead */
   usd_strength: 'strong' | 'weak' | 'neutral';
+  /** @deprecated Use regime_snapshot.volatility_regime.volatility_score instead */
   volatility: 'high' | 'medium' | 'low';
+  /** @deprecated Use regime_snapshot.trend_regime.market_bias instead */
   bias: 'bullish' | 'bearish' | 'neutral';
   confidence: number;
   warnings: string[];
@@ -121,6 +127,7 @@ class MarketContextAggregator {
     const context = marketContextBrain.evaluateContext(input);
 
     return {
+      regime_snapshot: context.regime_snapshot,
       sentiment: context.sentiment,
       usd_strength: context.usd_strength,
       volatility: context.volatility,
