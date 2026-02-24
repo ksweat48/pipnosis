@@ -77,6 +77,10 @@ class OpenAIClient {
     return status === 500 || status === 502 || status === 503 || status === 504;
   }
 
+  private isOpenAI429(errorData: Record<string, unknown>): boolean {
+    return errorData.source === 'openai';
+  }
+
   /**
    * Detect if running in server context (Node.js) vs browser
    * Server: Scheduled functions, Netlify functions
@@ -219,10 +223,22 @@ class OpenAIClient {
           }
 
           if (response.status === 429) {
-            const errorData = await response.json().catch(() => ({}));
-            const resetIn = typeof errorData.resetIn === 'number' ? errorData.resetIn : 3600;
+            const errorData = await response.json().catch(() => ({}) as Record<string, unknown>);
+
+            if (this.isOpenAI429(errorData)) {
+              const retryAfterMs = typeof errorData.retryAfterMs === 'number' ? errorData.retryAfterMs : 30000;
+              if (attempt < this.maxRetries) {
+                const waitMs = Math.min(retryAfterMs, 30000);
+                console.warn(`[OpenAI Client] OpenAI transient 429 — retrying in ${waitMs}ms (attempt ${attempt + 1}/${this.maxRetries})`);
+                await this.sleep(waitMs);
+                continue;
+              }
+              throw new Error('OpenAI is temporarily busy. Please try again in a moment.');
+            }
+
+            const resetIn = typeof errorData.resetIn === 'number' ? errorData.resetIn as number : 3600;
             const resetMinutes = Math.ceil(resetIn / 60);
-            const reason = errorData.reason || 'rate_limit_exceeded';
+            const reason = (errorData.reason as string) || 'rate_limit_exceeded';
             const isHourly = reason === 'hourly_limit_exceeded';
             const limitType = isHourly ? 'hourly' : 'daily';
             throw new Error(
@@ -240,7 +256,7 @@ class OpenAIClient {
           );
         } catch (fetchError) {
           lastError = fetchError as Error;
-          if (attempt < this.maxRetries && !lastError.message.includes('Rate limit') && !lastError.message.includes('Authentication')) {
+          if (attempt < this.maxRetries && !lastError.message.includes('Rate limit exceeded (') && !lastError.message.includes('Authentication')) {
             const delay = this.baseDelayMs * Math.pow(2, attempt);
             console.warn(`[OpenAI Client] Fetch error, retrying in ${delay}ms (attempt ${attempt + 1}/${this.maxRetries}):`, lastError.message);
             await this.sleep(delay);

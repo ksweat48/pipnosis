@@ -150,6 +150,7 @@ async function handleRequest(event: any, startTime: number) {
         },
         body: JSON.stringify({
           error: 'Rate limit exceeded',
+          source: 'internal',
           message: rateLimitCheck.message,
           reason: rateLimitCheck.reason,
           resetIn: resetInSeconds,
@@ -240,7 +241,6 @@ async function handleRequest(event: any, startTime: number) {
         const errorText = await response.text();
         console.error(`[OpenAI Proxy] OpenAI API error: ${response.status}`, errorText);
 
-        // Fire and forget - log error without blocking response
         supabase.rpc('log_openai_usage', {
           p_user_id: userId,
           p_model: requestPayload.model,
@@ -257,10 +257,26 @@ async function handleRequest(event: any, startTime: number) {
           if (result.error) console.error('[OpenAI Proxy] Logging failed:', result.error);
         });
 
+        if (response.status === 429) {
+          const retryAfter = response.headers.get('retry-after') || response.headers.get('Retry-After');
+          const retryAfterMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 60000;
+          return {
+            statusCode: 429,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              error: 'OpenAI service temporarily busy',
+              source: 'openai',
+              retryAfterMs,
+              message: 'OpenAI is temporarily rate limiting requests. The system will retry automatically.'
+            })
+          };
+        }
+
         return {
           statusCode: response.status,
           body: JSON.stringify({
             error: 'OpenAI API error',
+            source: 'openai',
             details: errorText,
             status: response.status
           })

@@ -217,44 +217,6 @@ class GoalSessionLiveEngine {
         })
         .eq('id', config.goalSessionId);
 
-      // ✅ CRITICAL: Test LLM availability BEFORE starting session
-      logger.info(LogCategory.AI_TRADING, '🔍 Testing LLM availability...');
-      try {
-        const testResult = await openAIClient.chat([
-          { role: 'system', content: 'You are a test.' },
-          { role: 'user', content: 'Respond with OK if you can read this.' }
-        ], {
-          model: 'gpt-4o-mini',
-          max_tokens: 10,
-          requestType: 'llm_health_check'
-        });
-
-        if (!testResult || !testResult.choices || testResult.choices.length === 0) {
-          logger.error(LogCategory.AI_TRADING, '❌ LLM health check failed - no response');
-          return {
-            success: false,
-            message: '5-Layer LLM Pipeline unavailable - OpenAI API not responding. Check Netlify environment variables.'
-          };
-        }
-
-        logger.info(LogCategory.AI_TRADING, '✅ LLM health check passed');
-      } catch (llmError) {
-        const errMsg = (llmError as Error).message || '';
-        const isRateLimit = errMsg.includes('Rate limit exceeded');
-        if (isRateLimit) {
-          logger.warn(LogCategory.AI_TRADING, '⚠️ LLM health check blocked by rate limit:', errMsg);
-          return {
-            success: false,
-            message: `LLM quota reached — ${errMsg} Please wait for the limit to reset before starting a new session.`
-          };
-        }
-        logger.error(LogCategory.AI_TRADING, '❌ LLM health check failed:', llmError);
-        return {
-          success: false,
-          message: `5-Layer LLM Pipeline unavailable — ${errMsg}. Check Netlify environment variables or OpenAI key.`
-        };
-      }
-
       // CCIP: Validate and normalize timeframe from config using centralized authority
       const validatedTimeframe = generateTimeframe(config.timeframe, 'M15');
       this.config = {
