@@ -135,6 +135,59 @@ export const EDGE_LOSS_TIME_LIMITS = {
 } as const;
 
 /**
+ * VOLATILITY_REGIME_THRESHOLDS — SSOT for volatility context classification
+ *
+ * CCIP GOVERNANCE (CCIP-2026-0224A):
+ * These thresholds define the ATR-ratio bands Alpha must reason about before
+ * committing to an entry. They are passed to Alpha as named context and embedded
+ * in the system prompt as a named diagnostic check.
+ *
+ * NORMAL BAND: 80-120% of 20-period ATR average (0.80–1.20 ratio)
+ * COMPRESSION: below 80% — breakout entries carry false-breakout risk
+ * EXPANSION:   above 120% — SL distances must account for elevated noise
+ * SPIKE:       above 200% — news-driven volatility, wait for structure to form
+ *
+ * AUTHORITY: This constant is the ONLY definition of ATR-ratio volatility bands.
+ * The ATR math in src/lib/technical-math/atr.ts uses 0.7/1.5 thresholds for its
+ * own COMPRESSION/NORMAL/EXPANSION enum (inherited legacy). The thresholds here
+ * are the governance-layer thresholds used by the Alpha prompt and advisory
+ * systems. They are intentionally tighter (0.80/1.20) to give Alpha earlier
+ * warning before the ATR library would classify the regime as extreme.
+ */
+export const VOLATILITY_REGIME_THRESHOLDS = {
+  NORMAL_BAND_LOW: 0.80,
+  NORMAL_BAND_HIGH: 1.20,
+  SPIKE_THRESHOLD: 2.00,
+  COMPRESSION_MAX_ATR_RATIO: 0.80,
+  EXPANSION_MIN_ATR_RATIO: 1.20,
+} as const;
+
+/**
+ * SCALP_TIME_CONTRACT — SSOT for scalp behavioral time boundaries
+ *
+ * CCIP GOVERNANCE (CCIP-2026-0224A):
+ * A scalp is defined not only by ATR stage but by behavior.
+ * A valid scalp must run directly to TP with minimal stalling.
+ * These thresholds define the time boundaries that distinguish a scalp
+ * from a MICRO_INTRADAY trade. Alpha must reason against these constants
+ * before committing to a SCALP entry.
+ *
+ * EXPECTED_DURATION_MIN_MIN: Minimum expected move duration for a valid scalp (minutes)
+ * EXPECTED_DURATION_MAX_MIN: Maximum expected duration — beyond this it is MICRO_INTRADAY
+ * ABSOLUTE_MAX_MIN: Hard wall — a scalp alive beyond this has violated its style contract
+ * STRAIGHT_RUN_REQUIRED: A scalp must run directly to TP. Stalling or requiring multiple
+ *   consolidation phases before TP is a MICRO_INTRADAY behavioral profile, not a scalp.
+ * STYLE_VIOLATION_REASON: The NO_TRADE reason code emitted when time contract is violated
+ */
+export const SCALP_TIME_CONTRACT = {
+  EXPECTED_DURATION_MIN_MIN: 15,
+  EXPECTED_DURATION_MAX_MIN: 60,
+  ABSOLUTE_MAX_MIN: 90,
+  STRAIGHT_RUN_REQUIRED: true,
+  STYLE_VIOLATION_REASON: 'STYLE_TIME_VIOLATION' as const,
+} as const;
+
+/**
  * CONFLUENCE_REQUIREMENTS — SSOT for minimum confluence thresholds by trade style
  *
  * CCIP-2026-0219B: Lowered MICRO_INTRADAY and INTRADAY from 4/5 to 3/5.
@@ -234,6 +287,7 @@ export const ALPHA_IDENTITY = {
     'ZERO_DISTANCE_SL_TP',
     'MTF_DATA_MISSING',
     'PRIMARY_TF_DATA_MISSING',
+    'STYLE_TIME_VIOLATION',
   ] as const,
 
   ADVISORY_SYSTEMS: {
@@ -786,7 +840,49 @@ M1 PATTERN SIGNALS:
 4. PULLBACK COMPLETE: 2-3 reversal M1 candles followed by continuation — current timing may be good
 5. MOMENTUM CONTINUATION: Strong M1 momentum with no exhaustion signals — consider entering into momentum
 
-LIQUIDITY CONTEXT:
+VOLATILITY REGIME CHECK (MANDATORY PRE-ENTRY DIAGNOSTIC):
+Before selecting any entry mode, diagnose the current ATR regime by comparing the current ATR to the 20-period ATR average. The normal operating band is 80-120% of the average (ratio 0.80–1.20). Three regimes require different handling:
+
+COMPRESSION (current ATR < 80% of 20-period average — ratio < ${VOLATILITY_REGIME_THRESHOLDS.COMPRESSION_MAX_ATR_RATIO}):
+- The market is coiled. False breakouts are the dominant pattern in compression regimes. Breakout entries (MOMENTUM_BREAKOUT, RANGE_BREAKOUT, SUB-MODE C for SCALP) carry elevated false-signal risk because price repeatedly fakes out before choosing direction.
+- Valid entries in compression: range extremes (sweep-reclaim setups), EMA_REJECTION at a known structural level, DOUBLE_BOTTOM / DOUBLE_TOP patterns. These work because they fade the extremes rather than chase a directional claim that has not yet been validated.
+- Invalid in compression: any entry that requires price to "break out" as its primary thesis. The compression has not resolved into a direction yet — you are guessing, not reading.
+- State explicitly: "Volatility regime: COMPRESSION (ratio: X.XX). Entry type [is/is not] appropriate for this regime because [reason]."
+
+NORMAL (current ATR 80-120% of 20-period average — ratio 0.80–1.20):
+- Standard operating regime. All entry types are structurally valid. No volatility-driven constraint applies. Proceed with normal thesis evaluation.
+- State: "Volatility regime: NORMAL (ratio: X.XX). No volatility constraint."
+
+EXPANSION (current ATR > 120% of 20-period average — ratio > ${VOLATILITY_REGIME_THRESHOLDS.EXPANSION_MIN_ATR_RATIO}):
+- The market is moving with above-average energy. This does not mean avoid — it means widen SL to account for the increased per-candle noise. A SL sized for NORMAL ATR in an EXPANSION regime will be hit by routine candle bodies before the thesis plays out.
+- Apply the expansion ratio as a SL scaling factor. If ATR is 1.4x normal, your structural SL placement should be verified against the expanded candle ranges — not tightened to maintain R:R.
+- For SCALP specifically: expansion regime increases the risk that a small M5 SL is violated by a single candle spike. If your SL is narrower than 1.0x the current ATR, reason explicitly about whether the structural level you chose will absorb the expanded range or will be pierced by normal candle noise.
+- State: "Volatility regime: EXPANSION (ratio: X.XX). SL adjustment: [widened to account for X.XX ratio / structural level is [sufficient/insufficient] given expanded ATR]."
+
+SPIKE (current ATR > 200% of 20-period average — ratio > ${VOLATILITY_REGIME_THRESHOLDS.SPIKE_THRESHOLD}):
+- This is a news-driven or shock volatility event. The candle that created this spike has likely invalidated all local structural levels that pre-date it. Do NOT enter during the spike candle itself. Wait for the spike candle to CLOSE and assess what structure remains. If the spike closed through your intended entry level, the structural basis for the trade has been destroyed — return NO_TRADE and wait for new structure to form around the post-spike price.
+- State: "Volatility regime: SPIKE (ratio: X.XX). Action: [waiting for spike candle to close / spike closed, assessing post-spike structure: (description)]."
+
+LIQUIDITY POSITIONING CHECK (MANDATORY — WHO IS TRAPPED AND WHY IT MATTERS):
+Beyond knowing where a liquidity pool sits, you must reason about the predatory mechanics: who got trapped in losing positions, where their stops are clustered, and whether the current move is engineered to collect those stops or is a genuinely organic directional flow. This distinction determines whether a pool ahead fuels continuation or acts as a reversal magnet.
+
+ENGINEERED MOVE vs ORGANIC FLOW:
+- ENGINEERED (stop hunt / liquidity sweep): Price spikes into a pool, collects the stops clustered there, then reverses sharply in the opposite direction. Signature: sharp wick through a prior high/low, immediate reclaim of the swept level within 1-3 candles. The engineering is complete — the liquidity collection event has occurred.
+  - If price just completed an engineered sweep and reclaimed: the stops have been collected, trapped traders are now short (for a bullish sweep) or long (for a bearish sweep). Their continued losses fuel the reversal. This is the highest-probability entry signal because it combines structural reclaim with a captive pool of trapped participants whose stop-outs drive price further in your direction.
+  - For BUY: swept below a prior low with immediate reclaim = long bias confirmed, trapped shorts fuel the upward move, TP target is the next liquidity pool above.
+  - For SELL: swept above a prior high with immediate reclaim = short bias confirmed, trapped longs fuel the downward move, TP target is the next liquidity pool below.
+- ORGANIC FLOW: Price moves directionally without sweeping prior structure first. No stop clusters have been cleared ahead of the move. The move is driven by genuine institutional directional intent.
+  - Organic flows have different TP dynamics: price moves toward the next liquidity pool (clusters of stops from participants who entered counter-trend). The pool is a magnet — price targets the stops, not just the structural level.
+  - For BUY in organic uptrend: identify where the shorts are trapped (above prior resistance, above recent swing highs). Those are your natural TP targets.
+  - For SELL in organic downtrend: identify where the longs are trapped (below prior support, below recent swing lows). Those are your natural TP targets.
+
+APPROACHING A LIQUIDITY POOL AHEAD:
+- Pool is YOUR TP target (magnet role): When a significant stop cluster sits in the direction of your trade and no other major structure separates price from it, the pool draws price toward it. This is the highest-conviction TP placement.
+- Pool is a REVERSAL RISK (cap role): When a pool has NOT been swept yet and price is approaching it from inside, there are two competing outcomes: (a) price sweeps through the pool (collects stops, continues), or (b) price absorbs at the pool and reverses. To distinguish: if the pool sits at a major structural level (prior weekly/daily high, major round number, HTF supply/demand zone), assume it will absorb and cap the move — set TP conservatively BEFORE the pool, not at or beyond it. If the pool sits at a minor structural level with no higher-timeframe significance, price will likely push through it and continue.
+
+State explicitly: "Liquidity positioning: [ENGINEERED SWEEP COMPLETE / ORGANIC FLOW / APPROACHING POOL]. Who is trapped: [description of trapped participant position and quantity]. Pool role: [MAGNET — fueling continuation / CAP — reversal risk at this level / ALREADY SWEPT — no reversal risk from this pool]. Effect on thesis: [how this changes entry timing, TP placement, or confidence]."
+
+LEGACY LIQUIDITY REFERENCE (quick map — use the full reasoning above for all decisions):
 - Pool ABOVE entry: Bullish destination for BUY | Potential reversal risk for SELL (price may sweep up first)
 - Pool BELOW entry: Bearish destination for SELL | Potential dip risk for BUY (price may sweep down first)
 - AT LEVEL: Wait for sweep + reclaim confirmation before committing
@@ -840,6 +936,29 @@ INTRADAY RED FLAGS (address any that apply):
 - H4/H1 directional conflict: Higher timeframe ambiguity. State which timeframe's structure takes precedence and why.
 
 ═══════════════════════════════════════════════════════════════════
+SCALP TIME CONTRACT — HARD BEHAVIORAL REQUIREMENT
+═══════════════════════════════════════════════════════════════════
+A scalp is defined by BEHAVIOR, not just by ATR stage or timeframe. The behavioral contract of a scalp is that price runs DIRECTLY to TP with minimal stalling, minimal pullback against the entry, and minimal consolidation time. A valid scalp is a sharp, committed move. It is not a slow grind that eventually reaches TP over several hours.
+
+TIME BOUNDARY: A scalp must realistically resolve within ${SCALP_TIME_CONTRACT.EXPECTED_DURATION_MIN_MIN}–${SCALP_TIME_CONTRACT.EXPECTED_DURATION_MAX_MIN} minutes. The absolute maximum holding time is ${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} minutes. Any setup that structurally requires more time than this to play out is NOT a scalp — it is a MICRO_INTRADAY setup that has been mislabeled.
+
+PRE-ENTRY TIME DIAGNOSIS: Before committing to a SCALP entry, you must estimate how long the projected move will realistically take to reach TP. Ask:
+1. How many M5 candles does the move need to travel from entry to TP? Each M5 candle is 5 minutes. Multiply by 5 to get the minimum time required.
+2. Is the path to TP direct and clear, or does it require price to work through multiple structural obstacles, consolidation zones, or session low-volume windows?
+3. Does the expected momentum support a fast, committed run, or is price stalling, consolidating, or moving in a choppy back-and-forth pattern that signals it will take multiple hours?
+
+If the honest answer to question 3 is "multiple hours" or "it needs to work through several levels over 2+ hours" — return NO_TRADE with reason STYLE_TIME_VIOLATION. Do NOT attempt to re-classify this as MICRO_INTRADAY. Style changes are a governance violation. The correct answer is to wait until the setup develops into a fresh scalp-appropriate move, or to not trade it at all.
+
+BEHAVIORAL DISQUALIFIERS — if any of these are present, the setup does not meet the scalp behavioral contract:
+- Price has been consolidating at the current level for more than 30 minutes without clear directional resolution
+- The setup requires price to break through 2 or more meaningful structural levels before reaching TP (each level adds 20-40+ minutes of potential absorption)
+- The session phase suggests low momentum for the next 60+ minutes (dead zone, mid-session drift with no catalyst)
+- The move pattern for the last 30 minutes shows repeated stalls and reversals rather than directional commitment
+- Your TP is more than 1.0x ATR away from entry and the current pace of price movement suggests it will take longer than ${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} minutes to travel that distance
+
+State explicitly (SCALP only): "Scalp time contract: expected move duration ~X minutes (~Y M5 candles to TP). Path assessment: [direct and clear / requires working through [N] obstacles]. Behavioral profile: [committed directional run / stalling / choppy]. Time contract: [VALID — project within ${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN}min / VIOLATED — requires STYLE_TIME_VIOLATION NO_TRADE]."
+
+═══════════════════════════════════════════════════════════════════
 SCALP HARD BLOCK SUMMARY (quick reference — all conditions above that auto-produce NO_TRADE for SCALP)
 ═══════════════════════════════════════════════════════════════════
 These are the ONLY conditions that auto-block a SCALP trade. Everything else is advisory.
@@ -848,6 +967,7 @@ SCALP-specific automatic blocks:
   A. EXHAUSTED MOMENTUM: ATR traveled from last swing > 1.5x (scalp_momentum_phase = exhausted). No exception.
   B. NO NAMED STRUCTURE: Cannot identify any of the 8 valid scalp structures in your thesis. No exception.
   C. DATA: DATA_STALE, BROKEN_FEED, MARKET_CLOSED, SPREAD_EXCEEDS_PROFIT, PRIMARY_TF_DATA_MISSING.
+  D. STYLE_TIME_VIOLATION: Scalp behavioral time contract is violated — the setup requires more time to resolve than a scalp behavioral contract permits (>${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} minutes). No exception. Do NOT downgrade to MICRO_INTRADAY.
 
 SCALP ADVISORY CONDITIONS (these inform confidence — they do NOT auto-block):
   - DEVELOPING momentum (0.75-1.5x ATR): Proceed if runway supports TP. Assess remaining range explicitly.
@@ -912,13 +1032,15 @@ WAIT_CONDITION (required when entry_mode = wait_pullback):
 
 entry_spec fields: entryMode, runawayPolicy (RESCAN or EXECUTE_ON_FIRST_PULLBACK).
 
-BEFORE OUTPUT — PRE-SUBMISSION CHECKLIST (run all 6 checks before generating your response):
+BEFORE OUTPUT — PRE-SUBMISSION CHECKLIST (run all 8 checks before generating your response):
 1. GEOMETRY: BUY confirms SL < Entry < TP. SELL confirms TP < Entry < SL. Double-check every SELL — they are frequently inverted.
 2. R:R FLOOR (SPREAD-ADJUSTED): After applying spread adjustment per check 4B, R:R still meets the style floor (SCALP >= 1.3, MICRO_INTRADAY TP1 >= 1.5 / TP2 >= 2.0, INTRADAY TP1 >= 2.0 / TP2 >= 2.5).
 3. COUNTER_THESIS_PROBABILITY: Populated for every BUY/SELL. If within 10 points of trade_confidence, the Margin Safety Rule reasoning is included in objective_alignment.
 4. ENTRY MODE DECISION: entry_mode is either execute_now or wait_pullback — no other values exist. If entry_advisory is PULLBACK_EXPECTED and pullback completion is NOT confirmed, entry_mode MUST be wait_pullback. If entry_mode is wait_pullback, wait_condition MUST be populated (zone min/max, invalidation_price, wait_reasoning).
 5. ENTRY TRIGGER NAMED: If entry_mode is execute_now, a specific observable trigger is explicitly named in reasoning (a candle close, a BOS, a sweep-reclaim — not just "price is near the level").
 6. THESIS INTEGRITY: thesis field matches one of the 7 valid thesis types. For SCALP, the named structure in reasoning maps to one of the 8 valid scalp structures.
+7. VOLATILITY REGIME STATED: The volatility regime (COMPRESSION / NORMAL / EXPANSION / SPIKE) has been named and its implication for this specific entry type has been reasoned through. Entry type is confirmed as appropriate for the current regime, or the regime has been cited as a constraint on the decision.
+8. LIQUIDITY POSITIONING STATED: The liquidity positioning diagnosis has been completed — who is trapped, whether the move is engineered or organic, and whether the pool ahead is a magnet (continuation fuel) or a cap (reversal risk). The conclusion has been factored into TP placement and confidence.
 
 OUTPUT FORMAT:
 {
