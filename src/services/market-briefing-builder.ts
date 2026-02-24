@@ -137,12 +137,36 @@ function formatPrice(price: number): string {
   return price.toFixed(6);
 }
 
-function formatBriefingText(intel: MarketIntelligence): string {
+function computeWickRatio(candles: Array<{ open: number; high: number; low: number; close: number }>): number {
+  if (candles.length === 0) return 0;
+  let totalWick = 0;
+  let totalBody = 0;
+  for (const c of candles) {
+    const body = Math.abs(c.close - c.open);
+    const range = c.high - c.low;
+    const wick = range - body;
+    totalWick += wick;
+    totalBody += body;
+  }
+  return totalBody > 0 ? totalWick / totalBody : 0;
+}
+
+function computeAtrAvgRatio(atr: number, candles: Array<{ high: number; low: number }>): number {
+  if (candles.length < 14) return 1;
+  const ranges = candles.slice(-20).map(c => c.high - c.low);
+  const avg = ranges.reduce((s, r) => s + r, 0) / ranges.length;
+  return avg > 0 ? atr / avg : 1;
+}
+
+function formatBriefingText(intel: MarketIntelligence, snapshot?: { candles: Array<{ open: number; high: number; low: number; close: number }> }): string {
   const lines: string[] = [];
+
+  const atrAvgRatio = snapshot ? computeAtrAvgRatio(intel.atr, snapshot.candles) : 1;
+  const wickRatio = snapshot ? computeWickRatio(snapshot.candles.slice(-5)) : 0;
 
   lines.push(`SYMBOL: ${intel.symbol}`);
   lines.push(`PRICE: ${formatPrice(intel.price)}`);
-  lines.push(`ATR: ${formatPrice(intel.atr)} (${intel.atrPercent.toFixed(3)}%)`);
+  lines.push(`ATR: ${formatPrice(intel.atr)} (${intel.atrPercent.toFixed(3)}%) | vs 20-period avg: ${atrAvgRatio.toFixed(2)}x`);
   if (intel.spreadPips !== undefined) {
     const spreadWarning = intel.spreadPips > intel.atr * 0.15 ? ' [HIGH - CAUTION]' : '';
     lines.push(`SPREAD: ${intel.spreadPips.toFixed(1)} pips${spreadWarning}`);
@@ -170,9 +194,13 @@ function formatBriefingText(intel: MarketIntelligence): string {
   lines.push(`  ATR Trend: ${intel.trend.atrTrend.toUpperCase()}`);
   lines.push('');
 
+  const vwapDistanceAtr = intel.atr > 0
+    ? Math.abs(intel.price - intel.rawIndicators.vwap) / intel.atr
+    : 0;
+
   lines.push('SCALP SIGNALS:');
   lines.push(`  RSI: ${intel.scalp.rsiLevel.toFixed(1)} | Stochastic: ${intel.scalp.stochLevel.toFixed(1)}`);
-  lines.push(`  VWAP Distance: ${intel.scalp.vwapDistance.toFixed(2)}% | VWAP: ${formatPrice(intel.rawIndicators.vwap)}`);
+  lines.push(`  VWAP: ${formatPrice(intel.rawIndicators.vwap)} | Distance: ${intel.scalp.vwapDistance.toFixed(2)}% (${vwapDistanceAtr.toFixed(2)} ATR)`);
   lines.push(`  Micro S/R Position: ${intel.scalp.microSR.toUpperCase()}`);
   lines.push(`  Pullback Depth: ${intel.scalp.pullbackDepth} candles`);
   lines.push('');
@@ -197,8 +225,9 @@ function formatBriefingText(intel: MarketIntelligence): string {
   lines.push('');
 
   lines.push('VOLATILITY:');
-  lines.push(`  Regime: ${intel.volatility.regime.toUpperCase()} | ATR Trend: ${intel.volatility.atrTrend.toUpperCase()}`);
-  lines.push(`  Volume Spike: ${intel.volatility.volumeSpike ? 'YES' : 'NO'}`);
+  lines.push(`  ATR: ${formatPrice(intel.atr)} | vs 20-period avg: ${atrAvgRatio.toFixed(2)}x | Trend: ${intel.volatility.atrTrend.toUpperCase()}`);
+  lines.push(`  Vol Regime: ${intel.volatility.regime.toUpperCase()} | Volume Spike: ${intel.volatility.volumeSpike ? 'YES' : 'NO'}`);
+  lines.push(`  Wick/Body Ratio (last 5 candles): ${wickRatio.toFixed(2)} (>1.5 = wick-heavy/noisy, <0.5 = clean/directional)`);
   lines.push('');
 
   lines.push('ORDER FLOW:');
@@ -208,10 +237,18 @@ function formatBriefingText(intel: MarketIntelligence): string {
 
   lines.push('KEY LEVELS:');
   if (intel.support.length > 0) {
-    lines.push(`  Support: ${intel.support.slice(0, 3).map(formatPrice).join(', ')}`);
+    const supLevels = intel.support.slice(0, 3).map(s => {
+      const distAtr = intel.atr > 0 ? Math.abs(intel.price - s) / intel.atr : 0;
+      return `${formatPrice(s)} (${distAtr.toFixed(2)} ATR ${intel.price > s ? 'below' : 'above'})`;
+    });
+    lines.push(`  Support: ${supLevels.join(', ')}`);
   }
   if (intel.resistance.length > 0) {
-    lines.push(`  Resistance: ${intel.resistance.slice(0, 3).map(formatPrice).join(', ')}`);
+    const resLevels = intel.resistance.slice(0, 3).map(r => {
+      const distAtr = intel.atr > 0 ? Math.abs(intel.price - r) / intel.atr : 0;
+      return `${formatPrice(r)} (${distAtr.toFixed(2)} ATR ${intel.price < r ? 'above' : 'below'})`;
+    });
+    lines.push(`  Resistance: ${resLevels.join(', ')}`);
   }
   lines.push(`  Swing High: ${formatPrice(intel.swingHigh)} | Swing Low: ${formatPrice(intel.swingLow)}`);
   if (intel.previousDayHigh !== undefined && intel.previousDayLow !== undefined) {
@@ -245,7 +282,7 @@ export function buildMarketBriefing(
   omega8Vote: Omega8Vote | null
 ): MarketBriefing {
   const intelligence = buildIntelligence(snapshot, omega8Vote);
-  const briefingText = formatBriefingText(intelligence);
+  const briefingText = formatBriefingText(intelligence, snapshot);
 
   return {
     intelligence,

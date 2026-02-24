@@ -1,24 +1,25 @@
 /**
  * Alpha + Omega Orchestrator
  *
- * Central service that:
- * - Builds snapshots for each Omega specialist
- * - Calls all Omegas in parallel (with 3-tier cache integration)
- * - Passes votes to Alpha coordinator
- * - Handles errors gracefully
- * - Provides easy integration point
+ * CCIP-2026-02-24: Omega Council Refactor — Raw Data to Alpha
  *
- * NOW INTEGRATED WITH 3-TIER CACHE SYSTEM:
- * - Omega votes cached platform-wide in omega_market_intelligence table
- * - Alpha strategic decisions cached in alpha_strategic_cache table
- * - Typical savings: 50-70% LLM cost reduction
+ * Central service that:
+ * - Builds a raw market snapshot (SSOT) from shared intelligence
+ * - Calls Omega-8 (Orderflow) for genuine orderflow computation
+ * - Passes raw market briefing to Alpha coordinator
+ * - Handles errors gracefully
+ *
+ * ARCHITECTURE:
+ * Omega specialists 1-5 (Trend, Scalper, Confirmation, Reversal, Volatility)
+ * have been removed from this pipeline. They were synthesizing bias labels
+ * (BULLISH, FAVORABLE, score:45) which pre-framed Alpha's reasoning.
+ * Alpha now receives pure raw market data and reasons independently.
+ *
+ * Only Omega-8 (Orderflow) remains — it detects Equal Highs/Lows, Liquidity
+ * Sweeps, and Fair Value Gaps, which are genuine computations not present
+ * in the raw snapshot.
  */
 
-import { omegaTrend, type TrendSnapshot } from '../brains/omega/trend';
-import { omegaScalper, type ScalperSnapshot } from '../brains/omega/scalper';
-import { omegaConfirmation, type ConfirmationSnapshot } from '../brains/omega/confirmation';
-import { omegaReversal, type ReversalSnapshot } from '../brains/omega/reversal';
-import { omegaVolatility, type VolatilitySnapshot } from '../brains/omega/volatility';
 import { riskPreflightGate, type RiskPreflightInput } from './risk-preflight-gate';
 import { omega8Hybrid, type Omega8MarketSnapshot } from '../brains/omega8-hybrid-orderflow';
 import { alphaCoordinator, type OmegaCouncilVotes, type MarketContext, type AlphaDecision } from '../brains/coordinator-alpha';
@@ -387,11 +388,13 @@ class AlphaOmegaOrchestrator {
       console.warn(`[Alpha+Omega] ⚠️  Risk warnings: ${warningMessages}`);
     }
 
-    // ✅ NEW: Call Omegas directly with shared snapshot (deterministic, instant)
-    console.log('[Alpha+Omega] 🔮 Calling Omega Council (snapshot-first, deterministic)...');
+    // CCIP-2026-02-24: Omega 1-5 removed. Only Omega-8 (Orderflow) runs.
+    // Omega-8 performs genuine computation: Equal Highs/Lows detection,
+    // Liquidity Sweeps, Fair Value Gaps — not present in raw snapshot.
+    // All other intelligence reaches Alpha through the raw market briefing.
+    console.log('[Alpha+Omega] Running Omega-8 Orderflow (genuine computation)...');
     const startTime = Date.now();
 
-    // Helper to safely wrap synchronous Omega calls in Promises
     const safeEvaluate = async <T>(fn: () => T, name: string): Promise<T | null> => {
       try {
         return fn();
@@ -401,130 +404,31 @@ class AlphaOmegaOrchestrator {
       }
     };
 
-    const [trendVote, scalperVote, confirmationVote, reversalVote, volatilityVote, omega8Vote] = await Promise.all([
-      safeEvaluate(() => omegaTrend.evaluate({
-        p: snapshot.price,
-        e20: snapshot.ema20,
-        e50: snapshot.ema50,
-        e200: snapshot.ema200,
-        mom: snapshot.momentum,
-        tr: snapshot.trend,
-        vol: snapshot.volatility,
-        tradeStyle: resolvedOmegaStyle,
-        regime: marketState.regime ? {
-          trend_strength: marketState.regime.trend_strength_score,
-          structure: marketState.regime.structure,
-          bias: marketState.regime.market_bias
-        } : undefined,
-        adv: marketState.adversarial ? {
-          lvl: marketState.adversarial.level,
-          score: marketState.adversarial.suspicion_score
-        } : undefined
-      }), 'Omega Trend'),
-
-      safeEvaluate(() => omegaScalper.evaluate({
-        p: snapshot.price,
-        vw: snapshot.vwap,
-        atr: snapshot.atr,
-        rsi: snapshot.rsi,
-        vol: snapshot.volatility,
-        c: snapshot.candles.slice(-3).map(c => [c.open, c.high, c.low, c.close]),
-        tradeStyle: resolvedOmegaStyle,
-        regime: marketState.regime ? {
-          session: marketState.regime.session,
-          session_open: marketState.regime.session_open,
-          atr_expansion: marketState.regime.atr_expansion
-        } : undefined,
-        adv: marketState.adversarial ? {
-          lvl: marketState.adversarial.level,
-          pat: marketState.adversarial.patterns.slice(0, 2)
-        } : undefined
-      }), 'Omega Scalper'),
-
-      safeEvaluate(() => omegaConfirmation.evaluate({
-        p: snapshot.price,
-        sup: snapshot.support,
-        res: snapshot.resistance,
-        sw: { h: snapshot.swingHigh, l: snapshot.swingLow },
-        str: this.determineStructure(snapshot),
-        tr: snapshot.trend,
-        tradeStyle: resolvedOmegaStyle,
-        regime: marketState.regime ? {
-          structure_type: marketState.regime.structure,
-          structure_quality: marketState.regime.structure_quality
-        } : undefined,
-        adv: marketState.adversarial ? {
-          lvl: marketState.adversarial.level
-        } : undefined
-      }), 'Omega Confirmation'),
-
-      safeEvaluate(() => omegaReversal.evaluate({
-        p: snapshot.price,
-        rsi: snapshot.rsi,
-        st: snapshot.stochRsi,
-        mom: snapshot.momentum,
-        e20: snapshot.ema20,
-        e50: snapshot.ema50,
-        tr: snapshot.trend,
-        vol: snapshot.volatility,
-        tradeStyle: resolvedOmegaStyle,
-        regime: marketState.regime ? {
-          atr_compression: marketState.regime.atr_compression,
-          wick_risk: marketState.regime.wick_risk,
-          structure: marketState.regime.structure
-        } : undefined,
-        adv: marketState.adversarial ? {
-          lvl: marketState.adversarial.level,
-          pat: marketState.adversarial.patterns.slice(0, 2)
-        } : undefined
-      }), 'Omega Reversal'),
-
-      safeEvaluate(() => omegaVolatility.evaluate({
-        atr: snapshot.atr,
-        atr_avg: snapshot.atr,
-        vol: snapshot.volatility,
-        c: snapshot.candles.slice(-5).map(c => [c.open, c.high, c.low, c.close]),
-        wick_ratio: this.calculateWickRatio(snapshot.candles.slice(-5).map(c => [c.open, c.high, c.low, c.close])),
-        trend: snapshot.trend,
-        tradeStyle: resolvedOmegaStyle,
-        regime: marketState.regime ? {
-          market_bias: marketState.regime.market_bias,
-          volatility_trend: marketState.regime.volatility_trend
-        } : undefined
-      }), 'Omega Volatility'),
-
-      safeEvaluate(() => omega8Hybrid.runOmega8({
-        symbol: snapshot.symbol,
-        timeframe: entryTimeframe,
-        price: snapshot.price,
-        atr: snapshot.atr,
-        candles: snapshot.candles.slice(-30).map(c => ({
-          time: typeof c.open_time === 'string' ? new Date(c.open_time).getTime() : new Date(c.open_time).getTime(),
-          open: c.open,
-          high: c.high,
-          low: c.low,
-          close: c.close,
-          volume: c.volume || 1000
-        })),
-        trendBias: snapshot.trend === 'bull' ? 'up' : snapshot.trend === 'bear' ? 'down' : 'sideways',
-        support: snapshot.support,
-        resistance: snapshot.resistance
-      }), 'Omega-8 Hybrid')
-    ]);
+    const omega8Vote = await safeEvaluate(() => omega8Hybrid.runOmega8({
+      symbol: snapshot.symbol,
+      timeframe: entryTimeframe,
+      price: snapshot.price,
+      atr: snapshot.atr,
+      candles: snapshot.candles.slice(-30).map(c => ({
+        time: typeof c.open_time === 'string' ? new Date(c.open_time).getTime() : new Date(c.open_time).getTime(),
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: c.volume || 1000
+      })),
+      trendBias: snapshot.trend === 'bull' ? 'up' : snapshot.trend === 'bear' ? 'down' : 'sideways',
+      support: snapshot.support,
+      resistance: snapshot.resistance
+    }), 'Omega-8 Hybrid');
 
     const omegaTime = Date.now() - startTime;
-    console.log(`[Alpha+Omega] ✅ Omega Council complete (${omegaTime}ms) - All votes computed from SAME snapshot`);
+    console.log(`[Alpha+Omega] Omega-8 complete (${omegaTime}ms)`);
 
-    // Log Omega votes (Risk is now a pre-flight gate, not a voting Omega)
-    this.logOmegaVotes({
-      trend: trendVote,
-      scalper: scalperVote,
-      confirmation: confirmationVote,
-      reversal: reversalVote,
-      volatility: volatilityVote,
-      risk: null, // Risk is now a pre-flight gate
-      omega8: omega8Vote
-    });
+    if (omega8Vote) {
+      const usedLLM = (omega8Vote as any).usedLLM ? ' [LLM]' : ' [DET]';
+      console.log(`[Alpha+Omega] OrderFlow: ${omega8Vote.reasoning || 'N/A'}${usedLLM} | Liq: ${omega8Vote.liquidity_bias}`);
+    }
 
     // ✅ Snapshot freshness check (snapshot already validated by cache)
     const snapshotAge = Date.now() - snapshot.createdAt;
@@ -629,11 +533,11 @@ class AlphaOmegaOrchestrator {
     const decision = await alphaCoordinator.coordinate(
       marketBriefing,
       {
-        trend: trendVote,
-        scalper: scalperVote,
-        confirmation: confirmationVote,
-        reversal: reversalVote,
-        volatility: volatilityVote,
+        trend: null,
+        scalper: null,
+        confirmation: null,
+        reversal: null,
+        volatility: null,
         risk: null,
         omega8: omega8Vote
       },
@@ -1800,16 +1704,9 @@ class AlphaOmegaOrchestrator {
   }
 
   private logOmegaVotes(votes: OmegaCouncilVotes): void {
-    console.log('[Omega Intelligence Reports]:');
-    console.log(`  Trend:      ${votes.trend?.reasoning || 'N/A'}`);
-    console.log(`  Scalper:    ${votes.scalper?.reasoning || 'N/A'}`);
-    console.log(`  Reversal:   ${votes.reversal?.reasoning || 'N/A'}`);
-    console.log(`  Volatility: ${votes.volatility?.reasoning || 'N/A'}`);
     if (votes.omega8) {
       const usedLLM = (votes.omega8 as any).usedLLM ? ' [LLM]' : ' [DET]';
-      console.log(`  OrderFlow:  ${votes.omega8.reasoning || 'N/A'}${usedLLM} | Liq: ${votes.omega8.liquidity_bias}`);
-    } else {
-      console.log(`  OrderFlow:  N/A`);
+      console.log(`[Omega-8 OrderFlow]: ${votes.omega8.reasoning || 'N/A'}${usedLLM} | Liq: ${votes.omega8.liquidity_bias}`);
     }
   }
 

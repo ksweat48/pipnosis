@@ -3,21 +3,23 @@
  *
  * AUTHORITY: ADVISORY + SAFETY GATING
  *
+ * CCIP-2026-02-24: Omega consensus validation removed.
+ * Omegas no longer vote on direction — Alpha reasons from raw data.
+ *
  * ✅ GOVERNANCE MODEL (Updated):
  * - "Engines validate. Alpha decides. Trades degrade intelligently."
- * - Style mismatches (duration, consensus) are ADVISORY warnings
+ * - Style mismatches (duration) are ADVISORY warnings
  * - Safety violations (extreme ATR, dangerous stops) may block
  * - Alpha has FINAL AUTHORITY on trade execution
  *
  * VALIDATION TIERS:
- * 1. ADVISORY (MAJOR): Duration mismatches, consensus issues → WARN but allow
+ * 1. ADVISORY (MAJOR): Duration mismatches → WARN but allow
  * 2. SAFETY (CRITICAL): Extreme volatility, dangerous stops → May block
  *
  * VALIDATION CHECKS:
  * 1. Expected Fill Time validation (style duration appropriateness)
- * 2. Omega Consensus validation (minimum agreement threshold)
- * 3. ATR Gate validation (volatility safety check)
- * 4. Target/Stop appropriateness (style swing size validation)
+ * 2. ATR Gate validation (volatility safety check)
+ * 3. Target/Stop appropriateness (style swing size validation)
  *
  * All violations logged to `style_gate_blocks` for governance tracking.
  */
@@ -36,9 +38,8 @@ export interface StyleQualificationInput {
   // Duration validation
   expectedFillTimeHours: number;
 
-  // Consensus validation
-  omegaConsensusPercent: number; // Real Omega voting consensus
-  alphaFinalConfidence: number; // Alpha's inflated confidence
+  // Alpha confidence (for logging only)
+  alphaFinalConfidence: number;
 
   // Volatility validation
   atrPercent: number;
@@ -85,7 +86,6 @@ const STYLE_CONTRACTS = {
     maxTargetPips: { FOREX: 25, CRYPTO: 150, METAL: 60, INDEX: 80 },
     minStopPips: { FOREX: 5, CRYPTO: 15, METAL: 5, INDEX: 8 },
     maxStopPips: { FOREX: 25, CRYPTO: 80, METAL: 25, INDEX: 35 },
-    minOmegaConsensus: 40, // At least 40% Omega agreement for SCALP
     description: 'M5 chart execution, captures ONE M5 swing leg, 3-5 candles'
   },
   MICRO_INTRADAY: {
@@ -97,7 +97,6 @@ const STYLE_CONTRACTS = {
     maxTargetPips: { FOREX: 120, CRYPTO: 300, METAL: 120, INDEX: 150 },
     minStopPips: { FOREX: 15, CRYPTO: 40, METAL: 15, INDEX: 20 },
     maxStopPips: { FOREX: 50, CRYPTO: 150, METAL: 50, INDEX: 70 },
-    minOmegaConsensus: 35, // 35% for MICRO_INTRADAY
     description: 'M15/H1 structure, 2-3 M15 swings, 1-4 hours'
   },
   INTRADAY: {
@@ -109,7 +108,6 @@ const STYLE_CONTRACTS = {
     maxTargetPips: { FOREX: 200, CRYPTO: 500, METAL: 200, INDEX: 250 },
     minStopPips: { FOREX: 25, CRYPTO: 80, METAL: 25, INDEX: 30 },
     maxStopPips: { FOREX: 80, CRYPTO: 250, METAL: 80, INDEX: 100 },
-    minOmegaConsensus: 30, // 30% for longer-term INTRADAY
     description: 'H1 chart execution, full H1 swing or liquidity pool, 2-10 hours'
   }
 } as const;
@@ -150,23 +148,7 @@ export async function validateStyleQualification(
     );
   }
 
-  // VALIDATION 2: Omega Consensus (MAJOR)
-  if (input.omegaConsensusPercent < contract.minOmegaConsensus) {
-    violations.push({
-      type: 'CONSENSUS',
-      severity: 'MAJOR',
-      actual: input.omegaConsensusPercent,
-      required: contract.minOmegaConsensus,
-      detail: `Omega consensus ${input.omegaConsensusPercent.toFixed(1)}% below ${input.style} minimum ${contract.minOmegaConsensus}%. Alpha inflated to ${input.alphaFinalConfidence}% but true consensus insufficient.`
-    });
-
-    logger.warn(
-      LogCategory.AI_TRADING,
-      `[Style Gate] CONSENSUS VIOLATION: Real Omega ${input.omegaConsensusPercent.toFixed(1)}% < required ${contract.minOmegaConsensus}% for ${input.style}`
-    );
-  }
-
-  // VALIDATION 3: ATR Gate (MAJOR)
+  // VALIDATION 2: ATR Gate (MAJOR)
   const atrLookupStyle = input.style === 'MICRO_INTRADAY' ? 'INTRADAY' : input.style;
   const atrGateThreshold = getAtrGate(input.assetClass, atrLookupStyle as any);
   if (input.atrPercent < atrGateThreshold) {
@@ -290,7 +272,6 @@ async function logStyleGateBlock(
         block_reason: blockReason || 'Style qualification failed',
         violations: violations,
         expected_fill_time_hours: input.expectedFillTimeHours,
-        omega_consensus_percent: input.omegaConsensusPercent,
         alpha_final_confidence: input.alphaFinalConfidence,
         atr_percent: input.atrPercent,
         target_pips: input.targetPips,
@@ -325,14 +306,6 @@ async function logStyleGateBlock(
  */
 export function getStyleContract(style: CanonicalStyle) {
   return STYLE_CONTRACTS[style];
-}
-
-export function meetsConsensusRequirement(
-  omegaConsensusPercent: number,
-  style: CanonicalStyle
-): boolean {
-  const contract = STYLE_CONTRACTS[style];
-  return omegaConsensusPercent >= contract.minOmegaConsensus;
 }
 
 export function meetsDurationRequirement(

@@ -609,8 +609,7 @@ class AlphaTradeExecutor {
         sessionId,
         symbol: decision.symbol,
         style: canonicalStyle,
-        confidence: decision.confidence,
-        omegaConsensus: decision.omegaConsensusPercent
+        confidence: decision.confidence
       }
     );
 
@@ -637,7 +636,6 @@ class AlphaTradeExecutor {
       style: canonicalStyle,
       assetClass,
       expectedFillTimeHours,
-      omegaConsensusPercent: decision.omegaConsensusPercent || 0,
       alphaFinalConfidence: decision.confidence,
       atrPercent: decision.atrPercent || 0,
       targetPips,

@@ -5,6 +5,8 @@
  * All Omega brains must import from this file.
  *
  * CCIP-2026-02-16: INTELLIGENCE PROVIDERS (NOT VOTERS)
+ * CCIP-2026-02-24: DEPRECATED VOTE/CONFIDENCE FIELDS REMOVED
+ *
  * Omegas provide structured market intelligence reports.
  * They DO NOT vote on direction -- Alpha synthesizes raw data and decides.
  *
@@ -18,10 +20,6 @@
  */
 
 export interface OmegaVote {
-  /** @deprecated Omegas no longer vote. Field kept for backward compatibility during transition. */
-  vote?: 'BUY' | 'SELL';
-  /** @deprecated Omegas no longer provide confidence. Alpha determines its own confidence. */
-  confidence?: number;
   reasoning: string;
   evidence?: string;
   keyFactors?: string[];

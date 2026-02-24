@@ -239,7 +239,6 @@ export interface AlphaDecision {
   timestamp?: Date;
   risk_pct?: number;
   resolvedStyle?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
-  omegaConsensusPercent?: number;
   expectedFillTimeHours?: number;
   atrPercent?: number;
   goal_context?: GoalContext;
@@ -1135,22 +1134,10 @@ HARD WALLS (${tradeStyle} ${promptAssetClass} @ ${marketContext.price.toFixed(2)
       if (cachedThesis && cachedThesis.fromCache) {
         const ageMinutes = Math.round(cachedThesis.cacheAgeSeconds / 60);
 
-        const omegaConflict = this.detectOmegaThesisConflict(cachedThesis, votes);
-
-        if (omegaConflict.hasConflict) {
-          console.log(`[Alpha Coordinator] Omega-thesis conflict detected: ${omegaConflict.reason} — forcing fresh thesis`);
-          console.log('[Alpha Coordinator] Omega intelligence contradicts cached thesis', {
-            symbol: marketContext.symbol,
-            cachedDirection: cachedThesis.directionBias,
-            omegaDirection: omegaConflict.omegaDirection,
-            reason: omegaConflict.reason,
-            ageMinutes
-          });
-          cachedThesis = null;
-        } else {
-          const omegaSummaryForVerification = this.buildOmegaVerificationSummary(votes, tradeStyle);
-
-          cachedThesisPrompt = `
+        // CCIP-2026-02-24: detectOmegaThesisConflict removed (was counting Omega votes).
+        // Thesis validation now uses the raw market briefing — Alpha reads current
+        // price action data and decides if the cached thesis still holds.
+        cachedThesisPrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CACHED MARKET THESIS (Age: ${ageMinutes}min)
@@ -1164,19 +1151,15 @@ Narrative: ${cachedThesis.narrative}
 Liquidity Context: ${cachedThesis.liquidityContext || 'Not specified'}
 Confidence Band: ${cachedThesis.confidenceBand}
 
-CURRENT OMEGA SPECIALIST INTELLIGENCE:
-${omegaSummaryForVerification}
-
 INSTRUCTIONS:
-1. Compare the cached thesis against the CURRENT Omega specialist intelligence above
-2. If Omega intelligence SUPPORTS the thesis direction → Accept (say "ACCEPTED_THESIS")
-3. If Omega intelligence CONTRADICTS the thesis → Reject (say "REJECT_THESIS: [reason]")
+Compare the cached thesis against the CURRENT MARKET INTELLIGENCE BRIEFING below.
+If current price action and structure SUPPORT the thesis direction → Accept (say "ACCEPTED_THESIS")
+If current data CONTRADICTS the thesis → Reject (say "REJECT_THESIS: [reason]")
 
 Be conservative. If in doubt, reject and generate fresh analysis.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
-          console.log(`[Alpha Coordinator] Cached thesis available (${ageMinutes}min old), Omega verification summary attached`);
-        }
+        console.log(`[Alpha Coordinator] Cached thesis available (${ageMinutes}min old), raw briefing attached for validation`);
       }
     } catch (error) {
       // Cache miss or error - will generate fresh
@@ -2511,110 +2494,11 @@ ${tradeStyle === 'SCALP' ? `{
   }
 
   private generateOmegaSummary(votes: OmegaCouncilVotes): string {
-    const summary: string[] = [];
-
-    const intelligenceReports: string[] = [];
-    for (const [key, vote] of Object.entries(votes)) {
-      if (vote && vote.reasoning && key !== 'omega9') {
-        intelligenceReports.push(`${key}: ${vote.reasoning}`);
-      }
-    }
-    summary.push(`Intelligence: ${intelligenceReports.length} specialists reporting`);
-
-    if (votes.omega8) {
-      if (votes.omega8.liquidity_bias === 'stoprun_risk') {
-        summary.push(`OrderFlow: Stop-run risk detected`);
-      } else if (votes.omega8.liquidity_bias === 'clean') {
-        summary.push(`OrderFlow: Clean liquidity`);
-      } else {
-        summary.push(`OrderFlow: ${votes.omega8.liquidity_bias}`);
-      }
-    }
-
-    return summary.join(' | ');
-  }
-
-  private detectOmegaThesisConflict(
-    cachedThesis: AlphaMarketThesis,
-    votes: OmegaCouncilVotes
-  ): { hasConflict: boolean; reason: string; omegaDirection: string } {
-    const trendReasoning = votes.trend?.reasoning || '';
-    const confirmReasoning = votes.confirmation?.reasoning || '';
-
-    const trendBias = trendReasoning.includes('BULLISH') ? 'BUY' :
-                      trendReasoning.includes('BEARISH') ? 'SELL' : 'NEUTRAL';
-    const confirmBias = confirmReasoning.includes('BULLISH') ? 'BUY' :
-                        confirmReasoning.includes('BEARISH') ? 'SELL' : 'NEUTRAL';
-
-    const trendScoreMatch = trendReasoning.match(/score:\s*(-?\d+)/);
-    const trendScore = trendScoreMatch ? Math.abs(parseInt(trendScoreMatch[1], 10)) : 0;
-
-    const omega8Direction = votes.omega8?.direction_support || 'neutral';
-
-    let omegaConsensusDirection = 'NEUTRAL';
-    let directionalCount = 0;
-    let buySignals = 0;
-    let sellSignals = 0;
-
-    if (trendBias === 'BUY' && trendScore >= 20) { buySignals++; directionalCount++; }
-    if (trendBias === 'SELL' && trendScore >= 20) { sellSignals++; directionalCount++; }
-    if (confirmBias === 'BUY') { buySignals++; directionalCount++; }
-    if (confirmBias === 'SELL') { sellSignals++; directionalCount++; }
-    if (omega8Direction === 'buy') { buySignals++; directionalCount++; }
-    if (omega8Direction === 'sell') { sellSignals++; directionalCount++; }
-
-    if (buySignals >= 2) omegaConsensusDirection = 'BUY';
-    if (sellSignals >= 2) omegaConsensusDirection = 'SELL';
-
-    const cachedDirection = cachedThesis.directionBias;
-
-    if (omegaConsensusDirection !== 'NEUTRAL' && cachedDirection !== 'NEUTRAL') {
-      if (
-        (cachedDirection === 'SELL' && omegaConsensusDirection === 'BUY') ||
-        (cachedDirection === 'BUY' && omegaConsensusDirection === 'SELL')
-      ) {
-        return {
-          hasConflict: true,
-          reason: `Cached thesis says ${cachedDirection} but ${buySignals >= 2 ? buySignals : sellSignals} Omega specialists signal ${omegaConsensusDirection} (Trend: ${trendBias}, Confirmation: ${confirmBias}, OrderFlow: ${omega8Direction})`,
-          omegaDirection: omegaConsensusDirection
-        };
-      }
-    }
-
-    return { hasConflict: false, reason: '', omegaDirection: omegaConsensusDirection };
-  }
-
-  private buildOmegaVerificationSummary(votes: OmegaCouncilVotes, tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = 'SCALP'): string {
-    const styleDescriptions: Record<'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY', string> = {
-      SCALP: 'SCALP (1-5min, VWAP & immediate price action primary, divergences informational, ATR compression favorable)',
-      MICRO_INTRADAY: 'MICRO_INTRADAY (M15 structure primary, EMA50 alignment required, pullback to structural level)',
-      INTRADAY: 'INTRADAY (full EMA200 stack required, HTF divergence confirmation, moderate ATR expansion needed)'
-    };
-
-    const lines: string[] = [
-      `[OMEGA COUNCIL — Style lens: ${styleDescriptions[tradeStyle]}]`
-    ];
-
-    if (votes.trend?.reasoning) {
-      lines.push(`  Trend: ${votes.trend.reasoning}`);
-    }
-    if (votes.confirmation?.reasoning) {
-      lines.push(`  Confirmation: ${votes.confirmation.reasoning}`);
-    }
-    if (votes.reversal?.reasoning) {
-      lines.push(`  Reversal: ${votes.reversal.reasoning}`);
-    }
-    if (votes.scalper?.reasoning) {
-      lines.push(`  Scalper: ${votes.scalper.reasoning}`);
-    }
-    if (votes.volatility?.reasoning) {
-      lines.push(`  Volatility: ${votes.volatility.reasoning}`);
-    }
-    if (votes.omega8) {
-      lines.push(`  OrderFlow: bias=${votes.omega8.liquidity_bias}, direction=${votes.omega8.direction_support}`);
-    }
-
-    return lines.length > 1 ? lines.join('\n') : '  No Omega intelligence available';
+    if (!votes.omega8) return '';
+    const liquidityLabel = votes.omega8.liquidity_bias === 'stoprun_risk' ? 'Stop-run risk detected' :
+                           votes.omega8.liquidity_bias === 'clean' ? 'Clean liquidity' :
+                           votes.omega8.liquidity_bias;
+    return `OrderFlow: ${liquidityLabel}`;
   }
 
   /**
