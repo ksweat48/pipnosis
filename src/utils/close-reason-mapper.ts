@@ -68,18 +68,22 @@ export function mapDatabaseToCloseReason(dbReason: string | null | undefined): C
   switch (normalized) {
     case 'stop_loss':
     case 'sl':
+    case 'stop_loss_hit':
       return 'stop_loss';
 
     case 'take_profit_1':
     case 'tp1':
+    case 'take_profit_1_hit':
       return 'take_profit_1';
 
     case 'take_profit_2':
     case 'tp2':
+    case 'take_profit_2_hit':
       return 'take_profit_2';
 
     case 'take_profit':
     case 'tp':
+    case 'take_profit_hit':
       return 'take_profit';
 
     case 'goal_achieved':

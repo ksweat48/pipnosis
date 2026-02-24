@@ -152,10 +152,19 @@ class RealtimeTradeNotificationListener {
           // resolve to the same dedup key in GlobalDialogManager: `trade_closed-<uuid>`.
           // Without this fallback, a metadata object with only `trade_id` would produce
           // dedup key `trade_closed-undefined` and bypass the 30-second dedup window.
+          //
+          // CCIP FIX (2026-02-24 MODAL-PIPELINE-FIX): closeReason MUST come from the
+          // trade metadata (the actual database close_reason), NOT from notification.type.
+          // notification.type is the notification event category (e.g. "stop_loss_hit"),
+          // not the canonical CloseReason value. Passing notification.type as closeReason
+          // caused mapDatabaseToCloseReason() to fall through to the default 'manual' case,
+          // showing "Manually Closed" for ALL trade outcomes including SL and TP hits.
+          // Priority: metadata.closeReason (camelCase) > metadata.close_reason (snake_case)
+          // > notification.type (last-resort fallback, now also handled by mapper aliases).
           globalDialogManager.showTradeClosed({
             tradeId: notification.metadata?.tradeId || notification.metadata?.trade_id,
             symbol: notification.metadata?.symbol,
-            closeReason: notification.type,
+            closeReason: notification.metadata?.closeReason || notification.metadata?.close_reason || notification.type,
             pnl: notification.metadata?.pnl,
             title: notification.title,
             message: notification.message
