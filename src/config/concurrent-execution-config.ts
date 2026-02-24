@@ -80,6 +80,12 @@ export interface ConcurrentExecutionConfig {
 
     // Minimum delay between batches (milliseconds)
     minBatchDelayMs: number;
+
+    // Stagger delay between symbols within a batch (milliseconds)
+    // Prevents thundering-herd: all 3 symbols hitting OpenAI at the same millisecond
+    // Each symbol in a batch is offset by: symbolIndex * intraBatchStaggerMs
+    // e.g. stagger=1500ms → symbol[0] at T+0ms, symbol[1] at T+1500ms, symbol[2] at T+3000ms
+    intraBatchStaggerMs: number;
   };
 
   // Error handling
@@ -147,6 +153,7 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     enabled: true,
     maxLLMCallsPerSecond: 20, // Increased to support 9 concurrent symbols (2-3 calls each)
     minBatchDelayMs: 100, // 100ms between batches
+    intraBatchStaggerMs: 1500, // 1.5s between each symbol in a batch — prevents thundering-herd 429s
   },
 
   errorHandling: {

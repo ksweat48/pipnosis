@@ -791,12 +791,18 @@ class AlphaOmegaOrchestrator {
     userId?: string,
     index?: number,
     total?: number,
-    imSignal?: Record<string, unknown>
+    imSignal?: Record<string, unknown>,
+    staggerDelayMs?: number
   ): Promise<{ symbol: string; decision: AlphaDecision; timing: number }> {
     const symbolStartTime = Date.now();
 
     return new Promise(async (resolve) => {
       try {
+        if (staggerDelayMs && staggerDelayMs > 0) {
+          console.log(`[Alpha+Omega Batch ${(index || 0) + 1}/${total || '?'}] ${marketState.symbol} | Stagger delay: ${staggerDelayMs}ms (anti-thundering-herd)`);
+          await new Promise(r => setTimeout(r, staggerDelayMs));
+        }
+
         console.log(`[Alpha+Omega Batch ${(index || 0) + 1}/${total || '?'}] ${marketState.symbol} | Price: ${marketState.price}, ATR: ${marketState.atr}`);
 
         if (!marketState.atr || marketState.atr <= 0) {
@@ -926,6 +932,7 @@ class AlphaOmegaOrchestrator {
 
       console.log(`[Alpha+Omega] Batch ${batchIdx + 1}/${chunks.length}: [${chunk.map(s => s.symbol).join(', ')}]`);
 
+      const staggerMs = config.rateLimiting.intraBatchStaggerMs ?? 1500;
       const batchPromises = chunk.map((marketState, idx) =>
         this.createSymbolEvaluationPromise(
           marketState,
@@ -937,7 +944,8 @@ class AlphaOmegaOrchestrator {
           userId,
           batchIdx * maxConcurrent + idx,
           marketStates.length,
-          imSignalMap?.get(marketState.symbol)
+          imSignalMap?.get(marketState.symbol),
+          idx * staggerMs
         )
       );
 
