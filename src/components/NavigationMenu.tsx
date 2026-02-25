@@ -4,6 +4,8 @@ import { TrendingUp, History, BarChart3, User, Settings, LogOut, Target, Databas
 import { useAuth } from '@/hooks/useAuth';
 import { useUserBalance } from '@/hooks/useUserBalance';
 import { useCreditBalance } from '@/hooks/useCreditBalance';
+import { useClubMembership } from '@/hooks/useClubMembership';
+import { getMembershipCTA } from '@/utils/membershipCTA';
 import { supabase } from '@/lib/supabase';
 import { BetaFeedbackDialog } from './BetaFeedbackDialog';
 import { format } from '@/utils/displayFormatters';
@@ -19,6 +21,7 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
   const { user, isAdmin, adminLoading, signOut } = useAuth();
   const { balance, totalPnL, openPositionsCount } = useUserBalance(user?.id || null);
   const { balance: creditBalance } = useCreditBalance(user?.id || null);
+  const { membership } = useClubMembership(user?.id);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
 
@@ -124,22 +127,44 @@ const NavigationMenuComponent = ({ currentPrice, priceChange = 0, symbol }: Navi
                       </div>
 
                       <div className="p-2">
+                        {(() => {
+                          const cta = getMembershipCTA(membership);
+                          return (
+                            <Link
+                              to="/club"
+                              onClick={() => setShowProfileMenu(false)}
+                              className={`w-full flex items-center gap-3 px-3 py-2 rounded transition-colors ${
+                                cta.isFounder
+                                  ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-900/20'
+                                  : 'text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/20'
+                              }`}
+                            >
+                              <Crown size={18} />
+                              <span className="flex-1">Pipnosis Club</span>
+                              {cta.isFounder ? (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-400 whitespace-nowrap">
+                                  Edge 100%
+                                </span>
+                              ) : (
+                                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap ${
+                                  cta.isNonMember
+                                    ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/30'
+                                    : 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/40'
+                                }`}>
+                                  {cta.label}
+                                </span>
+                              )}
+                            </Link>
+                          );
+                        })()}
+
                         <Link
                           to="/credits"
                           onClick={() => setShowProfileMenu(false)}
-                          className="w-full flex items-center gap-3 px-3 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/20 rounded transition-colors"
+                          className="w-full flex items-center gap-3 px-3 py-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded transition-colors"
                         >
                           <Coins size={18} />
                           <span>Credits</span>
-                        </Link>
-
-                        <Link
-                          to="/club"
-                          onClick={() => setShowProfileMenu(false)}
-                          className="w-full flex items-center gap-3 px-3 py-2 text-purple-400 hover:text-purple-300 hover:bg-purple-900/20 rounded transition-colors"
-                        >
-                          <Crown size={18} />
-                          <span>Pipnosis Club</span>
                         </Link>
 
                         <Link
