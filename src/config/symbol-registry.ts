@@ -442,6 +442,46 @@ export const SYMBOL_REGISTRY: Record<string, SymbolConfig> = {
   },
 };
 
+/**
+ * Broker Lot Tier Configuration
+ *
+ * SSOT for all broker contract-size calibration logic.
+ * These are the only valid tier values across the DB constraint,
+ * the calibration service, and the Settings UI.
+ *
+ * Standard multipliers:
+ *   standard = 1.0  (full lot  — industry default, 100k units for forex)
+ *   mini     = 0.1  (mini lot  — 10k units for forex)
+ *   micro    = 0.01 (micro lot — 1k units for forex)
+ *
+ * Scope: the 9 in-scope calibratable instruments only.
+ * All other symbols always use standard (no calibration needed / not user-facing).
+ */
+export type LotTier = 'standard' | 'mini' | 'micro';
+
+export const CALIBRATABLE_SYMBOLS = [
+  'XAUUSD', 'US30', 'NAS100', 'SPX500',
+  'EURUSD', 'GBPUSD', 'USDJPY',
+  'BTCUSD', 'ETHUSD',
+] as const;
+
+export type CalibratableSymbol = typeof CALIBRATABLE_SYMBOLS[number];
+
+export const LOT_TIER_MULTIPLIERS: Record<LotTier, number> = {
+  standard: 1.0,
+  mini:     0.1,
+  micro:    0.01,
+};
+
+export function getBrokerTierMultiplier(tier: LotTier | undefined | null): number {
+  if (!tier || !(tier in LOT_TIER_MULTIPLIERS)) return 1.0;
+  return LOT_TIER_MULTIPLIERS[tier];
+}
+
+export function isCalibratableSymbol(symbol: string): symbol is CalibratableSymbol {
+  return (CALIBRATABLE_SYMBOLS as readonly string[]).includes(symbol.toUpperCase());
+}
+
 export function getSymbolConfig(symbol: string): SymbolConfig | undefined {
   return SYMBOL_REGISTRY[symbol.toUpperCase()];
 }

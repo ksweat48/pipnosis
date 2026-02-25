@@ -36,6 +36,7 @@ import {
 } from '../utils/currencyHelpers';
 import { percentageToRiskMode } from '../config/risk-percentage-mapping';
 import { getSymbolConfig } from '../config/symbol-registry';
+import { brokerLotConfigService } from './broker-lot-config-service';
 import { TradeContext } from '../types/trade-context';
 
 export interface GoalAwareLotSizingInput {
@@ -161,7 +162,10 @@ class GoalAwareLotSizingCoordinator {
 
     // STEP 1: Compute pip distances
     const pipInfo = getCurrencyPipInfo(symbol);
-    const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot;
+    // Apply broker lot calibration multiplier (SSOT: brokerLotConfigService)
+    // If the user has not calibrated, multiplier is 1.0 (no effect on sizing).
+    const calibrationMultiplier = brokerLotConfigService.getCalibrationMultiplier(userId, symbol);
+    const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot * calibrationMultiplier;
 
     const slDistancePips = Math.abs(stopLossPrice - entryPrice) / pipInfo.pipValue;
     const tpDistancePips = Math.abs(takeProfitPrice - entryPrice) / pipInfo.pipValue;
@@ -221,6 +225,7 @@ class GoalAwareLotSizingCoordinator {
         expectedProfitAtTP: expectedProfitAtTP.toFixed(2),
         requiredLotForGoal_informational: requiredLotForGoal.toFixed(3),
         remainingGoal: remainingGoal.toFixed(2),
+        brokerCalibrationMultiplier: calibrationMultiplier,
       }
     );
 

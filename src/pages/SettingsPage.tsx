@@ -6,12 +6,14 @@ import { PullToRefreshIndicator } from '@/components/PullToRefreshIndicator';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { usePWAUpdate } from '@/hooks/usePWAUpdate';
 import { supabase } from '@/lib/supabase';
-import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock, CheckCircle, AlertCircle, Activity, DollarSign, Zap, RefreshCw, Smartphone, ChevronDown, Clock, BarChart3 } from 'lucide-react';
+import { User, Mail, Calendar, Shield, Bell, TrendingUp, Save, Eye, EyeOff, Lock, CheckCircle, AlertCircle, Activity, DollarSign, Zap, RefreshCw, Smartphone, ChevronDown, Clock, BarChart3, Settings2 } from 'lucide-react';
 import { validatePassword, passwordsMatch } from '@/utils/passwordValidation';
 import { chartPreferencesService, type IndicatorVisibility } from '@/services/chart-preferences';
 import { useToast } from '@/hooks/useToast';
 import { pushSubscriptionService, type DeviceInfo } from '@/services/push-subscription-service';
 import { pushNotificationDispatcher } from '@/services/push-notification-dispatcher';
+import { brokerLotConfigService } from '@/services/broker-lot-config-service';
+import { type LotTier, CALIBRATABLE_SYMBOLS } from '@/config/symbol-registry';
 
 export function SettingsPage() {
   const { user, updatePassword } = useAuth();
@@ -82,9 +84,13 @@ export function SettingsPage() {
     tradingMonitors: true,
     notifications: true,
     chartDisplay: true,
+    brokerCalibration: true,
     security: true,
     appInfo: true,
   });
+
+  const [lotTiers, setLotTiers] = useState<Record<string, LotTier>>({});
+  const [savingTier, setSavingTier] = useState<string | null>(null);
 
   const toggleSection = (section: keyof typeof collapsedSections) => {
     setCollapsedSections(prev => ({
@@ -106,6 +112,7 @@ export function SettingsPage() {
       loadIndicatorPreferences();
       loadMonitorPreferences();
       loadPushSettings();
+      loadBrokerCalibration();
     }
   }, [user]);
 
@@ -154,6 +161,23 @@ export function SettingsPage() {
     }
   };
 
+  const loadBrokerCalibration = async () => {
+    if (!user) return;
+    const tiers = await brokerLotConfigService.loadAllTiers(user.id);
+    setLotTiers(tiers);
+  };
+
+  const handleTierChange = async (symbol: string, tier: LotTier) => {
+    if (!user) return;
+    setSavingTier(symbol);
+    setLotTiers(prev => ({ ...prev, [symbol]: tier }));
+    const ok = await brokerLotConfigService.saveCalibration(user.id, symbol, tier);
+    if (!ok) {
+      setLotTiers(prev => ({ ...prev }));
+      toast.error('Save Failed', `Could not save calibration for ${symbol}.`);
+    }
+    setSavingTier(null);
+  };
 
   const handleSavePreferences = async () => {
     try {
@@ -1528,6 +1552,92 @@ export function SettingsPage() {
                 </div>
               </div>
             )}
+
+            <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
+              <button
+                onClick={() => toggleSection('brokerCalibration')}
+                className="flex items-center gap-3 mb-6 w-full text-left group"
+              >
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
+                  <Settings2 size={20} className="text-white" />
+                </div>
+                <div className="flex-1">
+                  <h2 className="text-xl font-semibold text-white">Broker Lot Calibration</h2>
+                </div>
+                <ChevronDown
+                  size={20}
+                  className={`text-gray-400 transition-transform duration-200 ${
+                    collapsedSections.brokerCalibration ? '' : 'rotate-180'
+                  }`}
+                />
+              </button>
+
+              {!collapsedSections.brokerCalibration && (
+                <>
+                  <p className="text-sm text-gray-400 mb-6">
+                    Match your broker's contract size so position sizing is calculated correctly. If you never change this, trading uses the standard lot size by default.
+                  </p>
+
+                  <div className="space-y-4">
+                    {CALIBRATABLE_SYMBOLS.map(sym => {
+                      const currentTier: LotTier = lotTiers[sym] ?? 'standard';
+                      const isSaving = savingTier === sym;
+
+                      const tiers: { tier: LotTier; label: string; sub: string }[] = [
+                        { tier: 'standard', label: 'Standard', sub: '1.0 Lot' },
+                        { tier: 'mini',     label: 'Mini',     sub: '0.10 Lot' },
+                        { tier: 'micro',    label: 'Micro',    sub: '0.01 Lot' },
+                      ];
+
+                      return (
+                        <div key={sym} className="p-4 bg-gray-800/50 rounded-xl border border-gray-700/50">
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="text-sm font-semibold text-white">{sym}</span>
+                            {isSaving && (
+                              <div className="flex items-center gap-1.5 text-xs text-amber-400">
+                                <div className="w-3 h-3 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" />
+                                <span>Saving...</span>
+                              </div>
+                            )}
+                            {!isSaving && currentTier !== 'standard' && (
+                              <span className="text-xs text-amber-400 font-medium">Calibrated</span>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            {tiers.map(({ tier, label, sub }) => {
+                              const active = currentTier === tier;
+                              return (
+                                <button
+                                  key={tier}
+                                  disabled={isSaving}
+                                  onClick={() => handleTierChange(sym, tier)}
+                                  className={`p-3 rounded-lg border text-center transition-all disabled:opacity-60 ${
+                                    active
+                                      ? 'border-amber-500 bg-amber-500/10 text-amber-300'
+                                      : 'border-gray-700 bg-gray-800/30 text-gray-400 hover:border-gray-500 hover:text-gray-300'
+                                  }`}
+                                >
+                                  <div className={`text-xs font-semibold mb-0.5 ${active ? 'text-amber-300' : 'text-gray-300'}`}>
+                                    {label}
+                                  </div>
+                                  <div className="text-xs text-gray-500">{sub}</div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-4 p-3 bg-gray-800/30 border border-gray-700/30 rounded-lg">
+                    <p className="text-xs text-gray-500">
+                      Standard is correct for most brokers. Only change this if your broker uses mini or micro lot contracts for a specific instrument. Uncalibrated symbols always trade at standard lot sizing.
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
 
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
               <button
