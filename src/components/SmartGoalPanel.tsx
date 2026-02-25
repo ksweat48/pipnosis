@@ -439,34 +439,34 @@ export const SmartGoalPanel: React.FC = () => {
               return (
                 <div className={`relative mt-2 overflow-hidden rounded-xl border ${cta.isFounder ? 'border-amber-500/40' : 'border-emerald-500/25'}`}>
                   <div className={`absolute inset-0 ${cta.isFounder ? 'bg-gradient-to-br from-amber-900/40 via-yellow-900/30 to-gray-900/60' : 'bg-gradient-to-br from-emerald-900/40 via-teal-900/30 to-gray-900/60'}`} />
-                  <div className="relative flex items-start gap-3 p-4">
-                    <div className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center mt-0.5 ${cta.isFounder ? 'bg-amber-500/20' : 'bg-emerald-500/20'}`}>
+                  <div className="relative p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${cta.isFounder ? 'bg-amber-500/20' : 'bg-emerald-500/20'}`}>
+                        {cta.isFounder ? (
+                          <Crown className="w-4 h-4 text-amber-400" />
+                        ) : (
+                          <Sparkles className="w-4 h-4 text-emerald-400" />
+                        )}
+                      </div>
                       {cta.isFounder ? (
-                        <Crown className="w-4 h-4 text-amber-400" />
+                        <div className="px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-400 text-xs font-bold whitespace-nowrap">
+                          Edge 100%
+                        </div>
                       ) : (
-                        <Sparkles className="w-4 h-4 text-emerald-400" />
+                        <a
+                          href="/club"
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-500/90 text-white text-xs font-semibold transition-colors whitespace-nowrap"
+                        >
+                          {cta.label}
+                        </a>
                       )}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-white mb-0.5">Improve Your Edge</p>
-                      <p className="text-xs text-gray-400 leading-relaxed">
-                        {cta.isFounder
-                          ? 'You have unlocked maximum trading intelligence and the full power of the Pipnosis ecosystem.'
-                          : 'Unlock advanced trading tools, deeper AI analysis, and exclusive features as a Club Member.'}
-                      </p>
-                    </div>
-                    {cta.isFounder ? (
-                      <div className="flex-shrink-0 self-center ml-1 px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-400 text-xs font-bold whitespace-nowrap">
-                        Edge 100%
-                      </div>
-                    ) : (
-                      <a
-                        href="/club"
-                        className="flex-shrink-0 self-center ml-1 px-3 py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-500/90 text-white text-xs font-semibold transition-colors whitespace-nowrap"
-                      >
-                        {cta.label}
-                      </a>
-                    )}
+                    <p className="text-sm font-bold text-white mb-1">Improve Your Edge</p>
+                    <p className="text-xs text-gray-400 leading-relaxed">
+                      {cta.isFounder
+                        ? 'You have unlocked maximum trading intelligence and the full power of the Pipnosis ecosystem.'
+                        : 'Unlock advanced trading tools, deeper AI analysis, and exclusive features as a Club Member.'}
+                    </p>
                   </div>
                 </div>
               );
