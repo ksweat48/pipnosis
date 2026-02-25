@@ -18,7 +18,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Target, Clock, AlertCircle, Loader2, Zap, CheckCircle, Shield, ArrowLeft, ChevronDown, ChevronUp, Coins } from 'lucide-react';
+import { Target, Clock, AlertCircle, Loader2, Zap, CheckCircle, Shield, ArrowLeft, ChevronDown, ChevronUp, Coins, Crown, Lock, Sparkles } from 'lucide-react';
 import { smartGoalSessionManager } from '../services/smart-goal-session-manager';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
@@ -28,6 +28,7 @@ import { getAssetClassInfo, type AssetClass } from '../utils/asset-class-mapper'
 import { creditMeterService } from '../services/credit-meter-service';
 import { InsufficientCreditsModal } from './InsufficientCreditsModal';
 import { TOKENOMICS } from '../config/tokenomics-constants';
+import { clubMembershipService, type UserMembership } from '../services/club-membership-service';
 
 const STYLE_ICONS = {
   Zap,
@@ -57,6 +58,7 @@ export const SmartGoalPanel: React.FC = () => {
   const [creditBalance, setCreditBalance] = useState<number | null>(null);
   const [isAdminUser, setIsAdminUser] = useState(false);
   const [showInsufficientCreditsModal, setShowInsufficientCreditsModal] = useState(false);
+  const [userMembership, setUserMembership] = useState<UserMembership | null | undefined>(undefined);
 
   useEffect(() => {
     const styleParam = searchParams.get('style') as TradeStyle | null;
@@ -105,8 +107,12 @@ export const SmartGoalPanel: React.FC = () => {
           setMultiTradeEnabled(data.trading_preferences?.multiTradeMode ?? false);
           setAccountBalance(parseFloat(data.account_balance || '10000'));
         }
+
+        const membership = await clubMembershipService.getUserMembership(user.id);
+        setUserMembership(membership);
       } catch (err) {
         console.error('Error loading preferences:', err);
+        setUserMembership(null);
       } finally {
         setLoadingPreferences(false);
       }
@@ -376,6 +382,22 @@ export const SmartGoalPanel: React.FC = () => {
         {currentStep === 'style' && (
           <div className="space-y-4">
             <div className="text-center mb-6">
+              {/* Club Level Badge — SSOT: derived from clubMembershipService */}
+              {userMembership !== undefined && (
+                <div className="flex justify-center mb-3">
+                  {userMembership && userMembership.status === 'active' ? (
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-500/40">
+                      <Crown className="w-3 h-3 text-amber-400" />
+                      <span className="text-xs font-bold text-amber-300 tracking-wide">{userMembership.tierName}</span>
+                    </div>
+                  ) : (
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gray-700/50 border border-gray-600/50">
+                      <Lock className="w-3 h-3 text-gray-500" />
+                      <span className="text-xs font-medium text-gray-500">Not Yet A Club Member</span>
+                    </div>
+                  )}
+                </div>
+              )}
               <h3 className="text-lg font-bold text-white mb-2">Choose Your Trading Style</h3>
             </div>
 
@@ -408,6 +430,28 @@ export const SmartGoalPanel: React.FC = () => {
                   </button>
                 );
               })}
+            </div>
+
+            {/* Club CTA Banner — always visible on style step */}
+            <div className="relative mt-2 overflow-hidden rounded-xl border border-emerald-500/25">
+              <div className="absolute inset-0 bg-gradient-to-br from-emerald-900/40 via-teal-900/30 to-gray-900/60" />
+              <div className="relative flex items-start gap-3 p-4">
+                <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center mt-0.5">
+                  <Sparkles className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-white mb-0.5">Improve Your Edge</p>
+                  <p className="text-xs text-gray-400 leading-relaxed">
+                    Unlock advanced trading tools, deeper AI analysis, and exclusive features as a Club Member.
+                  </p>
+                </div>
+                <a
+                  href="/club"
+                  className="flex-shrink-0 self-center ml-1 px-3 py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-500/90 text-white text-xs font-semibold transition-colors whitespace-nowrap"
+                >
+                  Join Club
+                </a>
+              </div>
             </div>
           </div>
         )}
