@@ -36,27 +36,39 @@ export const LiveTradesTicker: React.FC = () => {
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchOpenTrades = async () => {
-    const { data, error } = await supabase
+    const { data: tradesData, error: tradesError } = await supabase
       .from('goal_session_trades')
-      .select('id, symbol, direction, current_pnl, user_profiles!inner(email)')
+      .select('id, symbol, direction, current_pnl, user_id')
       .eq('status', 'open')
       .order('opened_at', { ascending: false })
       .limit(50);
 
-    if (error) {
+    if (tradesError || !tradesData || tradesData.length === 0) {
+      setTrades([]);
       return;
     }
 
-    const mapped: LiveTrade[] = (data || []).map((row: Record<string, unknown>) => {
-      const profile = row['user_profiles'] as { email?: string } | null;
-      return {
-        id: row['id'] as string,
-        symbol: row['symbol'] as string,
-        direction: row['direction'] as string,
-        current_pnl: row['current_pnl'] as number | null,
-        email: abbreviateEmail(profile?.email ?? ''),
-      };
-    });
+    const userIds = [...new Set(tradesData.map((t) => t.user_id as string).filter(Boolean))];
+
+    const emailMap: Record<string, string> = {};
+    if (userIds.length > 0) {
+      const { data: profilesData } = await supabase
+        .from('user_profiles')
+        .select('id, email')
+        .in('id', userIds);
+
+      (profilesData || []).forEach((p: { id: string; email?: string }) => {
+        emailMap[p.id] = abbreviateEmail(p.email ?? '');
+      });
+    }
+
+    const mapped: LiveTrade[] = tradesData.map((row) => ({
+      id: row.id as string,
+      symbol: row.symbol as string,
+      direction: row.direction as string,
+      current_pnl: row.current_pnl as number | null,
+      email: emailMap[row.user_id as string] ?? '***',
+    }));
 
     setTrades(mapped);
   };
