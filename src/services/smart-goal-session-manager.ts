@@ -80,6 +80,7 @@ export interface SmartGoalSession {
   customInstructions?: string; // Custom trading instructions
   symbolSelectionSource?: 'prompt' | 'ui' | 'asset_filter' | 'default'; // How symbols were chosen
   lastPairsUpdate?: string; // Timestamp of last active_pairs_count update
+  noTradeFoundAt?: string; // SSOT: Set by engine when NO_TRADE is authoritative (emitNoTradeEvent)
 }
 
 class SmartGoalSessionManager {
@@ -492,7 +493,8 @@ class SmartGoalSessionManager {
         tp2_hit_at: data.tp2_hit_at,
         tp1_learning_awarded: data.tp1_learning_awarded,
         activePairsCount: data.active_pairs_count,
-        lastPairsUpdate: data.last_pairs_update
+        lastPairsUpdate: data.last_pairs_update,
+        noTradeFoundAt: data.no_trade_found_at ?? undefined
       };
 
       this.activeSessions.set(data.id, reconstructed);

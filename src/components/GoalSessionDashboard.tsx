@@ -67,6 +67,7 @@ export const GoalSessionDashboard: React.FC = () => {
     return () => window.removeEventListener('alpha-scan-no-trade', handleNoTradeFound);
   }, [activeSession?.sessionId, showNoTradesModal]);
 
+
   useEffect(() => {
     loadSessionData();
 
@@ -346,8 +347,26 @@ export const GoalSessionDashboard: React.FC = () => {
     if (!user) return;
 
     try {
+      const previousSessionId = activeSession?.sessionId ?? null;
       const session = await smartGoalSessionManager.getActiveSession(user.id);
       setActiveSession(session);
+
+      // SSOT FIX (CCIP 2026-02-25): When a session transitions from active → null (terminal),
+      // check if it was closed by a NO_TRADE event. getActiveSession excludes terminal statuses,
+      // so once the engine sets status='user_stopped' the session disappears from the query.
+      // We must check the DB directly before the session becomes unreachable.
+      if (!session && previousSessionId && !showNoTradesModal) {
+        const { data: closedSession } = await supabase
+          .from('goal_sessions')
+          .select('status, no_trade_found_at')
+          .eq('id', previousSessionId)
+          .maybeSingle();
+
+        if (closedSession?.no_trade_found_at != null) {
+          console.log('[GoalSessionDashboard] DB-detected NO_TRADE session closure - showing dialog');
+          setShowNoTradesModal(true);
+        }
+      }
 
       if (session) {
         try {

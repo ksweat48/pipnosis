@@ -3712,14 +3712,29 @@ This learning will carry forward to improve future sessions!
     this.stopPolling();
     logger.info(LogCategory.AI_TRADING, 'Full scan complete - no executable trades found. Polling halted.');
 
+    // SSOT FIX (CCIP 2026-02-25): The database is the authoritative source of truth for
+    // session state. Previously only no_trade_found_at was written and a browser event
+    // was dispatched. If the event was missed (tab backgrounded, component unmounted),
+    // the session stayed in 'scanning' status indefinitely — appearing stuck in the admin.
+    // Now we atomically set status='user_stopped' AND no_trade_found_at in a single write.
+    // The browser event remains as a UI hint but is no longer the authority on session state.
     if (this.activeSession) {
+      const now = new Date().toISOString();
       supabase
         .from('goal_sessions')
-        .update({ no_trade_found_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .update({
+          status: 'user_stopped',
+          no_trade_found_at: now,
+          completed_at: now,
+          updated_at: now
+        })
         .eq('id', this.activeSession)
+        .eq('status', 'scanning')
         .then(({ error }) => {
           if (error) {
-            logger.warn(LogCategory.AI_TRADING, `[emitNoTradeEvent] Failed to persist no_trade_found_at: ${error.message}`);
+            logger.warn(LogCategory.AI_TRADING, `[emitNoTradeEvent] Failed to close session in DB: ${error.message}`);
+          } else {
+            logger.info(LogCategory.AI_TRADING, `[emitNoTradeEvent] Session ${this.activeSession} closed in DB (status=user_stopped, no_trade_found_at set).`);
           }
         });
     }
