@@ -206,10 +206,29 @@ export const adminUserService = {
       throw new Error(error.message);
     }
 
-    const users = (data || []).map((row: AdminUser & { user_is_admin?: boolean }) => ({
-      ...row,
-      is_admin: row.user_is_admin ?? row.is_admin ?? false,
-    }));
+    const users = (data || []).map((row: Record<string, unknown>) => ({
+      user_id:                    row.user_id,
+      email:                      row.out_email ?? row.email,
+      created_at:                 row.out_created_at ?? row.created_at,
+      is_admin:                   row.user_is_admin ?? row.is_admin ?? false,
+      account_balance:            row.out_account_balance ?? row.account_balance ?? 0,
+      credit_balance:             row.out_credit_balance ?? row.credit_balance ?? 0,
+      total_trades:               row.total_trades ?? 0,
+      winning_trades:             row.winning_trades ?? 0,
+      losing_trades:              row.losing_trades ?? 0,
+      tp1_wins:                   row.tp1_wins ?? 0,
+      tp2_wins:                   row.tp2_wins ?? 0,
+      manual_closed:              row.manual_closed ?? 0,
+      active_trades:              row.active_trades ?? 0,
+      active_trades_detail:       row.active_trades_detail ?? [],
+      scanning_sessions:          row.scanning_sessions ?? 0,
+      scanning_duration_minutes:  row.scanning_duration_minutes ?? null,
+      awaiting_response_sessions: row.awaiting_response_sessions ?? 0,
+      prompt_risk:                row.prompt_risk ?? null,
+      trade_style:                row.out_trade_style ?? row.trade_style ?? null,
+      dollar_risk:                row.out_dollar_risk ?? row.dollar_risk ?? null,
+      last_activity:              row.last_activity,
+    } as AdminUser));
 
     return {
       users,
