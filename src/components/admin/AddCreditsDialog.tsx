@@ -92,8 +92,8 @@ export const AddCreditsDialog: React.FC<AddCreditsDialogProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-800 rounded-lg max-w-md w-full">
-        <div className="border-b border-gray-700 p-6 flex items-center justify-between">
+      <div className="bg-gray-800 rounded-lg max-w-md w-full max-h-[90dvh] flex flex-col">
+        <div className="flex-shrink-0 border-b border-gray-700 p-6 flex items-center justify-between">
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <DollarSign size={24} className="text-amber-400" />
             Add Credits
@@ -106,7 +106,7 @@ export const AddCreditsDialog: React.FC<AddCreditsDialogProps> = ({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form id="add-credits-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4" style={{ WebkitOverflowScrolling: 'touch', minHeight: 0 }}>
           {loadingBalance ? (
             <div className="text-center py-4 text-gray-400">Loading user balance...</div>
           ) : (
@@ -173,27 +173,32 @@ export const AddCreditsDialog: React.FC<AddCreditsDialogProps> = ({
                   </div>
                 </div>
               )}
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors"
-                  disabled={loading}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 px-4 py-2 bg-amber-500 text-black font-semibold rounded-lg hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={loading || !amount || !reason.trim()}
-                >
-                  {loading ? 'Adding...' : 'Add Credits'}
-                </button>
-              </div>
             </>
           )}
         </form>
+
+        {!loadingBalance && (
+          <div className="flex-shrink-0 border-t border-gray-700 p-4">
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors"
+                disabled={loading}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="add-credits-form"
+                className="flex-1 px-4 py-2 bg-amber-500 text-black font-semibold rounded-lg hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={loading || !amount || !reason.trim()}
+              >
+                {loading ? 'Adding...' : 'Add Credits'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

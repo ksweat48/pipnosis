@@ -104,13 +104,12 @@ export function MidTradeAlertModal({ notification, onClose, onExecuted }: MidTra
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div
-        className={`bg-gray-900 rounded-2xl shadow-2xl border ${theme.border} max-w-2xl w-full max-h-[700px] overflow-y-auto animate-pulse-border`}
+        className={`bg-gray-900 rounded-2xl shadow-2xl border ${theme.border} max-w-2xl w-full max-h-[90dvh] flex flex-col animate-pulse-border`}
         style={{
-          animation: isExitImmediately ? 'pulse-border 1s ease-in-out infinite' : 'none',
-          WebkitOverflowScrolling: 'touch',
-          scrollBehavior: 'auto'
+          animation: isExitImmediately ? 'pulse-border 1s ease-in-out infinite' : 'none'
         }}
       >
+        <div className="flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch', minHeight: 0 }}>
         {/* Header */}
         <div className={`relative bg-gradient-to-r ${theme.gradient} p-8 rounded-t-2xl`}>
           <button
@@ -241,8 +240,10 @@ export function MidTradeAlertModal({ notification, onClose, onExecuted }: MidTra
           </div>
         </div>
 
-        {/* Action Button */}
-        <div className="p-6 bg-gray-800/50 border-t border-gray-700">
+        </div>
+
+        {/* Action Button — sticky footer, always visible */}
+        <div className="flex-shrink-0 p-6 bg-gray-800/50 border-t border-gray-700">
           <button
             onClick={handleAcknowledge}
             disabled={isAcknowledged}

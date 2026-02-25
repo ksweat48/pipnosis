@@ -82,11 +82,11 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative max-w-lg w-full">
+      <div className="relative max-w-lg w-full max-h-[90dvh] flex flex-col">
         <div className="absolute -inset-1 bg-gradient-to-r from-amber-500/20 to-orange-500/20 rounded-2xl blur" />
 
-        <div className="relative bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl border border-gray-700 shadow-2xl overflow-hidden">
-          <div className="p-6">
+        <div className="relative bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl border border-gray-700 shadow-2xl overflow-hidden flex flex-col max-h-[90dvh]">
+          <div className="flex-1 overflow-y-auto p-6" style={{ WebkitOverflowScrolling: 'touch', minHeight: 0 }}>
             <div className="flex items-start gap-4 mb-5">
               <div className="p-3 rounded-xl bg-gradient-to-br from-amber-600 to-orange-600 shrink-0">
                 <Search className="w-6 h-6 text-white" />
@@ -215,6 +215,9 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
               </div>
             )}
 
+          </div>
+
+          <div className="flex-shrink-0 px-6 pb-6 pt-4 border-t border-gray-700/50">
             <div className="mb-4">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2 text-gray-400 text-xs">

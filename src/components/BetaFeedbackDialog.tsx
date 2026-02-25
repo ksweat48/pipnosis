@@ -181,7 +181,7 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
       }}
     >
       <div
-        className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-3xl max-h-[700px] flex flex-col"
+        className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-3xl max-h-[90dvh] flex flex-col"
         style={{
           WebkitOverflowScrolling: 'touch',
           touchAction: 'auto'
@@ -237,7 +237,7 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
         </div>
 
         <div
-          className="flex-1 overflow-y-auto px-6 pt-6 pb-48"
+          className="flex-1 overflow-y-auto px-6 pt-6 pb-4"
           style={{
             WebkitOverflowScrolling: 'touch',
             scrollBehavior: 'auto',
@@ -247,7 +247,7 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
           }}
         >
           {activeTab === 'submit' ? (
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form id="beta-feedback-form" onSubmit={handleSubmit} className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   Feedback Type
@@ -341,27 +341,6 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
                     <span className="ml-2">(minimum 20 characters)</span>
                   )}
                 </div>
-              </div>
-
-              <div className="pt-4 pb-8">
-                <button
-                  type="submit"
-                  disabled={isSubmitting || subject.trim().length < 5 || message.trim().length < 20}
-                  className="w-full py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 active:from-emerald-700 active:to-emerald-800 text-white font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', minHeight: '52px' }}
-                >
-                  {isSubmitting ? (
-                    <>
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      <span>Submitting...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-5 h-5" />
-                      <span>Submit Feedback</span>
-                    </>
-                  )}
-                </button>
               </div>
             </form>
           ) : (
@@ -497,6 +476,30 @@ export function BetaFeedbackDialog({ isOpen, onClose }: BetaFeedbackDialogProps)
             </div>
           )}
         </div>
+
+        {activeTab === 'submit' && (
+          <div className="flex-shrink-0 px-6 pb-6 pt-4 border-t border-gray-700 bg-gray-800">
+            <button
+              type="submit"
+              form="beta-feedback-form"
+              disabled={isSubmitting || subject.trim().length < 5 || message.trim().length < 20}
+              className="w-full py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 active:from-emerald-700 active:to-emerald-800 text-white font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', minHeight: '52px' }}
+            >
+              {isSubmitting ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Submitting...</span>
+                </>
+              ) : (
+                <>
+                  <Send className="w-5 h-5" />
+                  <span>Submit Feedback</span>
+                </>
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

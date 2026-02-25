@@ -108,14 +108,15 @@ export default function MidTradeUpdateModal({ isOpen, onClose }: MidTradeUpdateM
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
       <div
         className={`
-          relative w-full max-w-3xl rounded-2xl border-4 p-8
+          relative w-full max-w-3xl rounded-2xl border-4 p-4 sm:p-8 max-h-[90dvh] overflow-y-auto
           ${priorityColors[priority]}
           ${priorityGlow[priority]}
           animate-in zoom-in duration-300
         `}
+        style={{ WebkitOverflowScrolling: 'touch' }}
         onMouseEnter={() => setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}
       >

@@ -89,7 +89,7 @@ export const ResetSessionDialog: React.FC<ResetSessionDialogProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-800 rounded-lg max-w-2xl w-full max-h-[700px] overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto' }}>
+      <div className="bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90dvh] flex flex-col" style={{ WebkitOverflowScrolling: 'touch', scrollBehavior: 'auto' }}>
         <div className="border-b border-gray-700 p-6 flex items-center justify-between">
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <RefreshCw size={24} className="text-amber-400" />
@@ -103,23 +103,17 @@ export const ResetSessionDialog: React.FC<ResetSessionDialogProps> = ({
           </button>
         </div>
 
-        <div className="p-6 space-y-4">
+        <div className="flex-1 overflow-y-auto p-6 space-y-4" style={{ minHeight: 0 }}>
           {loadingSessions ? (
             <div className="text-center py-8 text-gray-400">Loading sessions...</div>
           ) : sessions.length === 0 ? (
             <div className="text-center py-8">
               <AlertTriangle size={48} className="mx-auto text-gray-600 mb-4" />
               <div className="text-gray-400">No stuck sessions found for this user</div>
-              <button
-                onClick={onClose}
-                className="mt-4 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors"
-              >
-                Close
-              </button>
             </div>
           ) : !showConfirm ? (
             <>
-              <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 mb-4">
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
                 <div className="flex items-start gap-3">
                   <AlertTriangle size={20} className="text-amber-400 flex-shrink-0 mt-0.5" />
                   <div className="text-sm text-gray-300">
@@ -165,26 +159,10 @@ export const ResetSessionDialog: React.FC<ResetSessionDialogProps> = ({
                   </div>
                 ))}
               </div>
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  onClick={onClose}
-                  className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => setShowConfirm(true)}
-                  className="flex-1 px-4 py-2 bg-amber-500 text-black font-semibold rounded-lg hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={!selectedSessionId}
-                >
-                  Reset Selected Session
-                </button>
-              </div>
             </>
           ) : (
             <>
-              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-4">
+              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
                 <div className="flex items-start gap-3">
                   <AlertTriangle size={20} className="text-red-400 flex-shrink-0 mt-0.5" />
                   <div>
@@ -210,24 +188,51 @@ export const ResetSessionDialog: React.FC<ResetSessionDialogProps> = ({
                   </div>
                 </div>
               )}
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  onClick={() => setShowConfirm(false)}
-                  className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors"
-                  disabled={loading}
-                >
-                  Back
-                </button>
-                <button
-                  onClick={handleReset}
-                  className="flex-1 px-4 py-2 bg-red-500 text-white font-semibold rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={loading}
-                >
-                  {loading ? 'Resetting...' : 'Confirm Reset'}
-                </button>
-              </div>
             </>
+          )}
+        </div>
+
+        <div className="flex-shrink-0 border-t border-gray-700 p-4">
+          {loadingSessions ? null : sessions.length === 0 ? (
+            <button
+              onClick={onClose}
+              className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors"
+            >
+              Close
+            </button>
+          ) : !showConfirm ? (
+            <div className="flex gap-3">
+              <button
+                onClick={onClose}
+                className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => setShowConfirm(true)}
+                className="flex-1 px-4 py-2 bg-amber-500 text-black font-semibold rounded-lg hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!selectedSessionId}
+              >
+                Reset Selected Session
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors"
+                disabled={loading}
+              >
+                Back
+              </button>
+              <button
+                onClick={handleReset}
+                className="flex-1 px-4 py-2 bg-red-500 text-white font-semibold rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={loading}
+              >
+                {loading ? 'Resetting...' : 'Confirm Reset'}
+              </button>
+            </div>
           )}
         </div>
       </div>

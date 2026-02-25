@@ -51,10 +51,10 @@ export const InsufficientCreditsModal: React.FC<InsufficientCreditsModalProps> =
         aria-hidden="true"
       />
 
-      <div className="relative w-full max-w-md bg-gray-900 border border-gray-700/80 rounded-2xl shadow-2xl overflow-hidden">
+      <div className="relative w-full max-w-md bg-gray-900 border border-gray-700/80 rounded-2xl shadow-2xl overflow-hidden max-h-[90dvh] flex flex-col">
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-red-500" />
 
-        <div className="p-6">
+        <div className="flex-1 overflow-y-auto p-6 pt-7" style={{ WebkitOverflowScrolling: 'touch', minHeight: 0 }}>
           <div className="flex items-start justify-between mb-5">
             <div className="flex items-center gap-3">
               <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center flex-shrink-0">
@@ -101,28 +101,28 @@ export const InsufficientCreditsModal: React.FC<InsufficientCreditsModalProps> =
             )}
           </div>
 
-          <p className="text-sm text-gray-400 mb-5 leading-relaxed">
+          <p className="text-sm text-gray-400 leading-relaxed">
             Each trading session requires a minimum of{' '}
             <span className="text-white font-medium">{requiredBalance} credits</span> to start.
             Credits are used to execute trade signals. Purchase more to continue trading.
           </p>
+        </div>
 
-          <div className="space-y-3">
-            <button
-              onClick={handleBuyCredits}
-              className="w-full flex items-center justify-center gap-2.5 px-4 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-sm font-semibold rounded-xl transition-all duration-200 shadow-lg shadow-emerald-900/30 hover:shadow-emerald-900/50 hover:scale-[1.02] active:scale-[0.98]"
-            >
-              <CreditCard className="w-4 h-4" />
-              Buy Credits Now
-            </button>
+        <div className="flex-shrink-0 px-6 pb-6 pt-4 space-y-3 border-t border-gray-700/50 bg-gray-900">
+          <button
+            onClick={handleBuyCredits}
+            className="w-full flex items-center justify-center gap-2.5 px-4 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-sm font-semibold rounded-xl transition-all duration-200 shadow-lg shadow-emerald-900/30 hover:shadow-emerald-900/50 hover:scale-[1.02] active:scale-[0.98]"
+          >
+            <CreditCard className="w-4 h-4" />
+            Buy Credits Now
+          </button>
 
-            <button
-              onClick={onDismiss}
-              className="w-full px-4 py-3 text-sm text-gray-400 hover:text-white hover:bg-gray-800/60 rounded-xl transition-all duration-200"
-            >
-              Dismiss
-            </button>
-          </div>
+          <button
+            onClick={onDismiss}
+            className="w-full px-4 py-3 text-sm text-gray-400 hover:text-white hover:bg-gray-800/60 rounded-xl transition-all duration-200"
+          >
+            Dismiss
+          </button>
         </div>
       </div>
     </div>
