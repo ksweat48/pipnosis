@@ -337,7 +337,7 @@ export function CreditsPage() {
                         <Sparkles className="w-4 h-4 text-emerald-400" />
                         Credit Usage
                       </div>
-                      <p className="text-gray-300 text-lg font-medium">1 credit per trade</p>
+                      <p className="text-gray-300 text-lg font-medium">10 credits per trade</p>
                     </div>
                   </div>
                 </div>
@@ -362,10 +362,6 @@ export function CreditsPage() {
             </div>
             <div>
               <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-green-400 mb-2">One-Time Packages</h2>
-              <p className="text-gray-400 mb-4 flex items-center gap-2">
-                <Package className="w-4 h-4 text-emerald-400" />
-                Starting at $0.05 per credit
-              </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {onetimePackages.map(pkg => (
                   <div key={pkg.id} className="relative group">
@@ -405,10 +401,6 @@ export function CreditsPage() {
 
             <div>
               <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-cyan-400 mb-2">Subscription Packages</h2>
-              <p className="text-gray-400 mb-4 flex items-center gap-2">
-                <Zap className="w-4 h-4 text-blue-400 animate-pulse" />
-                Best value: Starting at $0.04 per credit
-              </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {subscriptionPackages.map(pkg => (
                   <div key={pkg.id} className="relative group">
