@@ -165,16 +165,18 @@ export const VOLATILITY_REGIME_THRESHOLDS = {
 /**
  * SCALP_TIME_CONTRACT — SSOT for scalp behavioral time boundaries
  *
- * CCIP GOVERNANCE (CCIP-2026-0224A):
+ * CCIP GOVERNANCE (CCIP-2026-0224A, updated CCIP-2026-0225A):
  * A scalp is defined not only by ATR stage but by behavior.
  * A valid scalp must run directly to TP with minimal stalling.
  * These thresholds define the time boundaries that distinguish a scalp
- * from a MICRO_INTRADAY trade. Alpha must reason against these constants
- * before committing to a SCALP entry.
+ * from a MICRO_INTRADAY trade. Alpha must complete the TIME GATE
+ * before any other scalp evaluation.
  *
  * EXPECTED_DURATION_MIN_MIN: Minimum expected move duration for a valid scalp (minutes)
- * EXPECTED_DURATION_MAX_MIN: Maximum expected duration — beyond this it is MICRO_INTRADAY
- * ABSOLUTE_MAX_MIN: Hard wall — a scalp alive beyond this has violated its style contract
+ * EXPECTED_DURATION_MAX_MIN: Clean pass threshold — under this with direct path = TIME GATE PASS
+ * ABSOLUTE_MAX_MIN: Hard wall — any setup requiring more than this is an automatic NO_TRADE.
+ *   Between EXPECTED_DURATION_MAX_MIN and ABSOLUTE_MAX_MIN is a WARNING band:
+ *   Alpha may proceed only with explicit justification (strong momentum, minimal obstacles, active session).
  * STRAIGHT_RUN_REQUIRED: A scalp must run directly to TP. Stalling or requiring multiple
  *   consolidation phases before TP is a MICRO_INTRADAY behavioral profile, not a scalp.
  * STYLE_VIOLATION_REASON: The NO_TRADE reason code emitted when time contract is violated
@@ -936,30 +938,40 @@ INTRADAY RED FLAGS (address any that apply):
 - H4/H1 directional conflict: Higher timeframe ambiguity. State which timeframe's structure takes precedence and why.
 
 ═══════════════════════════════════════════════════════════════════
-SCALP TIME CONTRACT — HARD BEHAVIORAL REQUIREMENT
+SCALP TIME CONTRACT — MANDATORY PRE-ENTRY GATE (COMPLETE THIS BEFORE ANY OTHER SCALP EVALUATION)
 ═══════════════════════════════════════════════════════════════════
-A scalp is defined by BEHAVIOR, not just by ATR stage or timeframe. The behavioral contract of a scalp is that price runs DIRECTLY to TP with minimal stalling, minimal pullback against the entry, and minimal consolidation time. A valid scalp is a sharp, committed move. It is not a slow grind that eventually reaches TP over several hours.
+This gate MUST be completed before you assess structure, confidence, or entry mode. If the gate fails, output NO_TRADE immediately. Do not proceed to any further analysis.
 
-TIME BOUNDARY: A scalp must realistically resolve within ${SCALP_TIME_CONTRACT.EXPECTED_DURATION_MIN_MIN}–${SCALP_TIME_CONTRACT.EXPECTED_DURATION_MAX_MIN} minutes. The absolute maximum holding time is ${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} minutes. Any setup that structurally requires more time than this to play out is NOT a scalp — it is a MICRO_INTRADAY setup that has been mislabeled.
+A scalp is defined by BEHAVIOR. The behavioral contract: price runs DIRECTLY to TP with minimal stalling and minimal consolidation time. A valid scalp is a sharp, committed move. A slow grind that reaches TP over several hours is NOT a scalp — it is a MICRO_INTRADAY trade in a scalp session, which is a governance violation.
 
-PRE-ENTRY TIME DIAGNOSIS: Before committing to a SCALP entry, you must estimate how long the projected move will realistically take to reach TP. Ask:
-1. How many M5 candles does the move need to travel from entry to TP? Each M5 candle is 5 minutes. Multiply by 5 to get the minimum time required.
-2. Is the path to TP direct and clear, or does it require price to work through multiple structural obstacles, consolidation zones, or session low-volume windows?
-3. Does the expected momentum support a fast, committed run, or is price stalling, consolidating, or moving in a choppy back-and-forth pattern that signals it will take multiple hours?
+STEP 1 — ESTIMATE YOUR TIME TO TP (required output before any entry):
+Count the number of M5 candles price needs to travel from your intended entry to your TP. Each M5 candle = 5 minutes.
+- Also assess: does price need to pass through any structural obstacles, consolidation zones, or session dead zones before reaching TP? Each meaningful obstacle adds 20–40 minutes of absorption time.
+- Also assess: is current momentum supporting a fast directional run, or is price stalling, rotating, or drifting?
+- Produce a single honest estimate: "My estimated time to TP is approximately X minutes."
 
-If the honest answer to question 3 is "multiple hours" or "it needs to work through several levels over 2+ hours" — return NO_TRADE with reason STYLE_TIME_VIOLATION. Do NOT attempt to re-classify this as MICRO_INTRADAY. Style changes are a governance violation. The correct answer is to wait until the setup develops into a fresh scalp-appropriate move, or to not trade it at all.
+STEP 2 — APPLY THE TIME GATE (hard rule, no exceptions):
+- Estimated time to TP is under ${SCALP_TIME_CONTRACT.EXPECTED_DURATION_MAX_MIN} minutes AND path is direct → TIME GATE: PASS. Proceed with evaluation.
+- Estimated time to TP is ${SCALP_TIME_CONTRACT.EXPECTED_DURATION_MAX_MIN}–${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} minutes → TIME GATE: WARNING. You may proceed only if momentum is strong, path obstacles are minimal, and the session phase actively supports a fast move. State your justification explicitly. Any doubt = NO_TRADE.
+- Estimated time to TP exceeds ${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} minutes → TIME GATE: FAILED. Output NO_TRADE with reason STYLE_TIME_VIOLATION. Stop here. Do not evaluate structure, confidence, or entry. Do not reclassify to MICRO_INTRADAY — style is immutable.
 
-BEHAVIORAL DISQUALIFIERS — if any of these are present, the setup does not meet the scalp behavioral contract:
-- Price has been consolidating at the current level for more than 30 minutes without clear directional resolution
-- The setup requires price to break through 2 or more meaningful structural levels before reaching TP (each level adds 20-40+ minutes of potential absorption)
-- The session phase suggests low momentum for the next 60+ minutes (dead zone, mid-session drift with no catalyst)
-- The move pattern for the last 30 minutes shows repeated stalls and reversals rather than directional commitment
-- Your TP is more than 1.0x ATR away from entry and the current pace of price movement suggests it will take longer than ${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} minutes to travel that distance
+STEP 3 — STATE YOUR GATE RESULT (required output in your reasoning):
+You must output exactly one of these lines before your entry decision:
+  TIME_GATE: PASS — estimated ~X min, path is direct, momentum supports fast run.
+  TIME_GATE: WARNING — estimated ~X min, proceeding because [explicit justification].
+  TIME_GATE: FAILED — estimated ~X min, exceeds ${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN}min limit → NO_TRADE STYLE_TIME_VIOLATION.
 
-State explicitly (SCALP only): "Scalp time contract: expected move duration ~X minutes (~Y M5 candles to TP). Path assessment: [direct and clear / requires working through [N] obstacles]. Behavioral profile: [committed directional run / stalling / choppy]. Time contract: [VALID — project within ${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN}min / VIOLATED — requires STYLE_TIME_VIOLATION NO_TRADE]."
+If you do not output a TIME_GATE line, your response is incomplete.
+
+AUTOMATIC DISQUALIFIERS (TIME GATE fails immediately if any of these are true):
+- You estimate the TP will take more than ${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} minutes to hit based on current price pace
+- The setup requires price to break through 2 or more meaningful structural levels before TP (each adds 20–40 min of absorption)
+- Session phase is dead zone or late New York and momentum is absent — no fast committed run is realistic
+- Your TP is more than 1.0x ATR away and current M5 momentum does not support covering that distance within ${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} minutes
+- The last 30 minutes of M5 price action shows stalling, reversals, or consolidation rather than directional commitment
 
 ═══════════════════════════════════════════════════════════════════
-SCALP HARD BLOCK SUMMARY (quick reference — all conditions above that auto-produce NO_TRADE for SCALP)
+SCALP HARD BLOCK SUMMARY (quick reference — all conditions that auto-produce NO_TRADE for SCALP)
 ═══════════════════════════════════════════════════════════════════
 These are the ONLY conditions that auto-block a SCALP trade. Everything else is advisory.
 Geometry / R:R / noise floor violations apply to ALL styles — see Hard Blocks 1-5 above.
@@ -967,7 +979,7 @@ SCALP-specific automatic blocks:
   A. EXHAUSTED MOMENTUM: ATR traveled from last swing > 1.5x (scalp_momentum_phase = exhausted). No exception.
   B. NO NAMED STRUCTURE: Cannot identify any of the 8 valid scalp structures in your thesis. No exception.
   C. DATA: DATA_STALE, BROKEN_FEED, MARKET_CLOSED, SPREAD_EXCEEDS_PROFIT, PRIMARY_TF_DATA_MISSING.
-  D. STYLE_TIME_VIOLATION: Scalp behavioral time contract is violated — the setup requires more time to resolve than a scalp behavioral contract permits (>${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} minutes). No exception. Do NOT downgrade to MICRO_INTRADAY.
+  D. STYLE_TIME_VIOLATION: TIME GATE FAILED — estimated time to TP exceeds ${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} minutes. No exception. Do NOT downgrade to MICRO_INTRADAY. Output NO_TRADE immediately.
 
 SCALP ADVISORY CONDITIONS (these inform confidence — they do NOT auto-block):
   - DEVELOPING momentum (0.75-1.5x ATR): Proceed if runway supports TP. Assess remaining range explicitly.
