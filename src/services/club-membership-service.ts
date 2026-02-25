@@ -13,8 +13,6 @@
  */
 
 import { supabase } from '@/lib/supabase';
-import { clubTokenLedgerService } from './club-token-ledger-service';
-import { clubReferralService } from './club-referral-service';
 
 export interface MembershipPackage {
   id: string;
@@ -165,94 +163,52 @@ class ClubMembershipService {
   }
 
   /**
-   * Grant membership after successful purchase
-   * Called by Stripe webhook after payment confirmation
+   * Grant or upgrade membership after successful purchase.
+   *
+   * SSOT: Delegates entirely to the grant_club_membership RPC which is the single
+   * authoritative function for all membership grants, upgrades, cumulative token
+   * allocation, token locking, tier history, notifications, and referral commissions.
+   *
+   * This method must NOT duplicate any of that logic. Frontend and webhook handlers
+   * also call the RPC directly; this method exists so server-side code that only has
+   * access to the JS client can go through the same authority.
    */
   async grantMembership(
     userId: string,
     packageId: string,
     stripeSessionId: string,
-    stripePaymentIntentId: string,
     amountPaidUsd: number
-  ): Promise<{ success: boolean; membershipId?: string; error?: string }> {
+  ): Promise<{ success: boolean; membershipId?: string; tierName?: string; tierLevel?: number; tokensAwarded?: number; isUpgrade?: boolean; error?: string }> {
     try {
-      // Get package details
+      const { data: result, error: rpcError } = await supabase.rpc('grant_club_membership', {
+        p_user_id: userId,
+        p_package_id: packageId,
+        p_stripe_session_id: stripeSessionId,
+        p_amount_paid: amountPaidUsd,
+      });
+
+      if (rpcError) {
+        console.error('[ClubMembershipService] grant_club_membership RPC error:', rpcError);
+        return { success: false, error: rpcError.message };
+      }
+
+      const r = result as any;
+      if (!r?.success) {
+        console.error('[ClubMembershipService] grant_club_membership returned failure:', r?.error);
+        return { success: false, error: r?.error || 'Membership grant failed' };
+      }
+
       const pkg = await this.getPackageById(packageId);
-      if (!pkg) {
-        return { success: false, error: 'Package not found' };
-      }
-
-      // Check if user already has a membership
-      const existingMembership = await this.getUserMembership(userId);
-      if (existingMembership) {
-        return { success: false, error: 'User already has a membership' };
-      }
-
-      // Create membership record
-      const { data: membership, error: membershipError } = await supabase
-        .from('club_memberships')
-        .insert({
-          user_id: userId,
-          package_id: packageId,
-          tier_level: pkg.tierLevel,
-          status: 'active',
-          purchased_at: new Date().toISOString(),
-          activated_at: new Date().toISOString(),
-          stripe_session_id: stripeSessionId,
-          stripe_payment_intent_id: stripePaymentIntentId,
-          amount_paid_usd: amountPaidUsd,
-          tokens_locked: pkg.requiredTokenBalance
-        })
-        .select()
-        .single();
-
-      if (membershipError || !membership) {
-        console.error('[ClubMembershipService] Error creating membership:', membershipError);
-        return { success: false, error: 'Failed to create membership' };
-      }
-
-      // Award initial tokens
-      const tokensAwarded = await clubTokenLedgerService.addTokens(
-        userId,
-        pkg.initialTokenAllocation,
-        'membership_purchase',
-        `Initial token allocation for ${pkg.name}`,
-        membership.id,
-        'membership'
-      );
-
-      if (!tokensAwarded) {
-        // Rollback membership if token grant fails
-        await supabase
-          .from('club_memberships')
-          .delete()
-          .eq('id', membership.id);
-
-        return { success: false, error: 'Failed to allocate tokens' };
-      }
-
-      // Lock tokens for membership requirement
-      await clubTokenLedgerService.lockTokens(userId, pkg.requiredTokenBalance);
-
-      // Pay referral commission (if user was referred)
-      // Database function handles 10% PIP + 20% cash commission calculation
-      try {
-        const { error: commissionError } = await supabase.rpc('pay_referral_commission', {
-          p_referee_id: userId,
-          p_membership_price_usd: amountPaidUsd
-        });
-
-        if (commissionError) {
-          console.warn('[ClubMembershipService] Referral commission failed:', commissionError);
-          // Don't fail membership grant if commission fails
-        }
-      } catch (error) {
-        console.warn('[ClubMembershipService] Exception paying referral commission:', error);
-      }
-
-      return { success: true, membershipId: membership.id };
+      return {
+        success: true,
+        membershipId: r.membership_id,
+        tierName: pkg?.name ?? `Tier ${r.tier_level}`,
+        tierLevel: r.tier_level,
+        tokensAwarded: r.tokens_awarded,
+        isUpgrade: r.is_upgrade || false,
+      };
     } catch (error) {
-      console.error('[ClubMembershipService] Error granting membership:', error);
+      console.error('[ClubMembershipService] Error in grantMembership:', error);
       return { success: false, error: 'Internal error during membership grant' };
     }
   }

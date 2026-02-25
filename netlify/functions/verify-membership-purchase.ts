@@ -73,8 +73,22 @@ export const handler: Handler = async (event: HandlerEvent) => {
     if (purchaseType === 'membership' || purchaseType === 'membership_upgrade') {
       const amountPaid = (session.amount_total || 0) / 100;
 
-      // Use grant_club_membership for both new purchases and upgrades
-      // The function now handles upgrade detection and cumulative token allocation internally
+      // Capture previous tier name before grant (needed for upgrade success messaging)
+      let fromTierName: string | null = null;
+      if (purchaseType === 'membership_upgrade') {
+        const { data: existingMembership } = await supabase
+          .from('club_memberships')
+          .select('tier_level, club_membership_packages!inner(name)')
+          .eq('user_id', userId)
+          .eq('status', 'active')
+          .order('tier_level', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (existingMembership) {
+          fromTierName = (existingMembership as any).club_membership_packages?.name ?? null;
+        }
+      }
+
       const { data: grantResult, error: grantError } = await supabase.rpc('grant_club_membership', {
         p_user_id: userId,
         p_package_id: packageId,
@@ -93,6 +107,33 @@ export const handler: Handler = async (event: HandlerEvent) => {
 
       const result = grantResult as any;
       if (!result?.success) {
+        // Idempotency: if already processed by webhook, fetch current membership to return valid data
+        if (result?.error === 'Already at this tier or higher') {
+          const { data: currentMembership } = await supabase
+            .from('club_memberships')
+            .select('tier_level, tokens_locked, club_membership_packages!inner(name)')
+            .eq('user_id', userId)
+            .eq('status', 'active')
+            .order('tier_level', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (currentMembership) {
+            return {
+              statusCode: 200,
+              headers,
+              body: JSON.stringify({
+                success: true,
+                alreadyGranted: true,
+                isUpgrade: purchaseType === 'membership_upgrade',
+                tierName: (currentMembership as any).club_membership_packages?.name,
+                tierLevel: currentMembership.tier_level,
+                tokensAwarded: 0,
+                fromTierName: fromTierName ?? undefined,
+              }),
+            };
+          }
+        }
         console.error(`[VerifyPurchase] Membership processing returned failure:`, result?.error);
         return {
           statusCode: 500,
@@ -101,16 +142,22 @@ export const handler: Handler = async (event: HandlerEvent) => {
         };
       }
 
+      // RPC returns: success, membership_id, tier_level, tokens_awarded, is_upgrade, tier_breakdown
+      // tier_name is NOT returned by the RPC — look it up from the package
       const isUpgrade = result.is_upgrade || false;
-      const tierName = result.tier_name;
-      const tierLevel = result.tier_level;
-      const totalTokensAwarded = result.total_tokens_awarded;
-      const tokensLocked = result.tokens_locked;
-      const tokensAvailable = result.tokens_available;
-      const tiersAwardedCount = result.tiers_awarded_count;
+      const tierLevel = result.tier_level as number;
+      const tokensAwarded = result.tokens_awarded as number;
 
-      console.log(`[VerifyPurchase] ${isUpgrade ? 'Upgraded to' : 'Granted'} ${tierName} (Tier ${tierLevel}) for user ${userId}`);
-      console.log(`[VerifyPurchase] Cumulative tokens: ${totalTokensAwarded} PIP from ${tiersAwardedCount} tier(s), ${tokensAvailable} available`);
+      const { data: pkg } = await supabase
+        .from('club_membership_packages')
+        .select('name, required_token_balance')
+        .eq('tier_level', tierLevel)
+        .maybeSingle();
+
+      const tierName = pkg?.name ?? `Tier ${tierLevel}`;
+      const tokensLocked = pkg?.required_token_balance ?? 0;
+
+      console.log(`[VerifyPurchase] ${isUpgrade ? 'Upgraded to' : 'Granted'} ${tierName} (Tier ${tierLevel}) for user ${userId}. Tokens awarded: ${tokensAwarded}`);
 
       return {
         statusCode: 200,
@@ -120,12 +167,10 @@ export const handler: Handler = async (event: HandlerEvent) => {
           isUpgrade,
           tierName,
           tierLevel,
-          totalTokensAwarded,
+          tokensAwarded,
           tokensLocked,
-          tokensAvailable,
-          tiersAwardedCount,
           tierBreakdown: result.tier_breakdown,
-          previousTierLevel: result.previous_tier_level,
+          fromTierName: fromTierName ?? undefined,
         }),
       };
     }

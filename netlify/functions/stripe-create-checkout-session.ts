@@ -6,7 +6,7 @@ interface CheckoutSessionRequest {
   packageId: string;
   userId: string;
   mode: 'payment' | 'subscription';
-  purchaseType?: 'credits' | 'membership';
+  purchaseType?: 'credits' | 'membership' | 'membership_upgrade';
   priceId?: string;
 }
 
@@ -91,7 +91,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
 
     const origin = event.headers.origin || event.headers.referer?.replace(/\/$/, '') || 'https://pipnosis.com';
 
-    const isMembership = purchaseType === 'membership';
+    const isMembership = purchaseType === 'membership' || purchaseType === 'membership_upgrade';
     const successUrl = isMembership
       ? `${origin}/club?success=true&session_id={CHECKOUT_SESSION_ID}`
       : `${origin}/credits?success=true&session_id={CHECKOUT_SESSION_ID}`;
