@@ -4,11 +4,20 @@
  * SSOT: Reads open trades from goal_session_trades (read-only, no mutations).
  * CCIP: No business logic — purely a display/social proof component.
  * Governance: Uses Supabase realtime subscription + polling fallback.
+ *             Realtime UPDATE payloads are applied surgically in local state
+ *             (zero network round-trip) so P&L values update instantly for
+ *             all viewers, not just the user who owns the trade.
  *             Anonymises all user emails before display.
  *             Hides entirely when zero open trades exist — no empty UI.
+ *
+ * P&L UPDATE STRATEGY:
+ *   - INSERT  → full re-fetch (new trade needs email lookup)
+ *   - UPDATE  → surgical local state patch using Realtime payload.new
+ *               (current_pnl, status). Re-fetch only if trade closed (status != open).
+ *   - Polling → 4-second safety net in case Realtime misses an event.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { TrendingUp, TrendingDown, Activity } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
@@ -28,14 +37,17 @@ function abbreviateEmail(email: string): string {
   return `${prefix}***@${domainInitial}`;
 }
 
-const POLL_INTERVAL_MS = 15_000;
+const POLL_INTERVAL_MS = 4_000;
 
 export const LiveTradesTicker: React.FC = () => {
   const [trades, setTrades] = useState<LiveTrade[]>([]);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const tradesRef = useRef<LiveTrade[]>([]);
 
-  const fetchOpenTrades = async () => {
+  tradesRef.current = trades;
+
+  const fetchOpenTrades = useCallback(async () => {
     const { data: tradesData, error: tradesError } = await supabase
       .from('goal_session_trades')
       .select('id, symbol, direction, current_pnl, user_id')
@@ -71,7 +83,30 @@ export const LiveTradesTicker: React.FC = () => {
     }));
 
     setTrades(mapped);
-  };
+  }, []);
+
+  const handleTradeUpdate = useCallback((payload: { new: Record<string, unknown> }) => {
+    const updated = payload.new;
+    if (!updated || typeof updated.id !== 'string') return;
+
+    if (updated.status !== 'open') {
+      setTrades((prev) => prev.filter((t) => t.id !== updated.id));
+      return;
+    }
+
+    const newPnl = typeof updated.current_pnl === 'number' ? updated.current_pnl : null;
+
+    setTrades((prev) => {
+      const idx = prev.findIndex((t) => t.id === updated.id);
+      if (idx === -1) {
+        fetchOpenTrades();
+        return prev;
+      }
+      const next = [...prev];
+      next[idx] = { ...next[idx], current_pnl: newPnl };
+      return next;
+    });
+  }, [fetchOpenTrades]);
 
   useEffect(() => {
     fetchOpenTrades();
@@ -86,7 +121,7 @@ export const LiveTradesTicker: React.FC = () => {
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'goal_session_trades' },
-        () => { fetchOpenTrades(); }
+        handleTradeUpdate
       )
       .subscribe();
 
@@ -102,7 +137,7 @@ export const LiveTradesTicker: React.FC = () => {
         pollTimerRef.current = null;
       }
     };
-  }, []);
+  }, [fetchOpenTrades, handleTradeUpdate]);
 
   if (trades.length === 0) return null;
 
