@@ -2,31 +2,50 @@
  * LIVE TRADES TICKER
  *
  * SSOT: Reads open trades from goal_session_trades (read-only, no mutations).
+ *       Reads live bid/ask from realtime_prices (read-only, no mutations).
  * CCIP: No business logic — purely a display/social proof component.
- * Governance: Uses Supabase realtime subscription + polling fallback.
- *             Realtime UPDATE payloads are applied surgically in local state
- *             (zero network round-trip) so P&L values update instantly for
- *             all viewers, not just the user who owns the trade.
- *             Anonymises all user emails before display.
- *             Hides entirely when zero open trades exist — no empty UI.
+ * Governance:
+ *   P&L UPDATE STRATEGY (two-layer, defence-in-depth):
  *
- * P&L UPDATE STRATEGY:
- *   - INSERT  → full re-fetch (new trade needs email lookup)
- *   - UPDATE  → surgical local state patch using Realtime payload.new
- *               (current_pnl, status). Re-fetch only if trade closed (status != open).
- *   - Polling → 4-second safety net in case Realtime misses an event.
+ *   Layer 1 — Client-side realtime price subscription (primary, sub-second):
+ *     Subscribes to INSERT/UPDATE on realtime_prices via Supabase Realtime.
+ *     When a new price arrives for a symbol that has an open trade in the
+ *     ticker, P&L is recalculated locally using the same pip formula as
+ *     currencyHelpers.ts. This gives live, smooth movement for all viewers
+ *     regardless of whether the trade owner has their browser open.
+ *
+ *   Layer 2 — goal_session_trades UPDATE subscription + polling fallback:
+ *     The server-side pg_cron job (update-open-trade-pnl, every minute)
+ *     writes current_pnl to the DB and triggers a Realtime UPDATE event.
+ *     The ticker also polls every 30 seconds as a final safety net.
+ *
+ *   INSERT on goal_session_trades → full re-fetch (new trade needs email lookup)
+ *   UPDATE on goal_session_trades → apply only if Layer 1 price not available
+ *   realtime_prices INSERT/UPDATE → recalculate P&L locally, no DB round-trip
+ *
+ * Anonymises all user emails before display.
+ * Hides entirely when zero open trades exist — no empty UI.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { TrendingUp, TrendingDown, Activity } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 
 interface LiveTrade {
   id: string;
   symbol: string;
   direction: string;
+  entry_price: number;
+  lot_size: number;
   current_pnl: number | null;
   email: string;
+}
+
+interface LivePrice {
+  symbol: string;
+  bid: number;
+  ask: number;
 }
 
 function abbreviateEmail(email: string): string {
@@ -37,20 +56,53 @@ function abbreviateEmail(email: string): string {
   return `${prefix}***@${domainInitial}`;
 }
 
-const POLL_INTERVAL_MS = 4_000;
+/**
+ * SSOT P&L calculation — mirrors getPipInfo() + calculatePnL() in
+ * update-open-trade-pnl/index.ts and getCurrencyPipInfo() in currencyHelpers.ts.
+ *
+ * Formula: priceDiff / pipValue * (lotSize * dollarPerPipPerLot)
+ *
+ * GOVERNANCE: Any change to this formula must be replicated in:
+ *   - supabase/functions/update-open-trade-pnl/index.ts
+ *   - src/utils/currencyHelpers.ts (getCurrencyPipInfo)
+ *   - src/types/position.ts (calculatePnL)
+ */
+function computeLivePnL(
+  direction: string,
+  entryPrice: number,
+  bid: number,
+  ask: number,
+  lotSize: number,
+  symbol: string
+): number {
+  const currentPrice = direction === 'buy' ? bid : ask;
+  const { pipValue, dollarPerPipPerLot } = getCurrencyPipInfo(symbol);
+  const priceDiff = direction === 'buy'
+    ? currentPrice - entryPrice
+    : entryPrice - currentPrice;
+  const pips = priceDiff / pipValue;
+  const pnl = pips * (lotSize * dollarPerPipPerLot);
+  return Math.round(pnl * 100) / 100;
+}
+
+const POLL_INTERVAL_MS = 30_000;
 
 export const LiveTradesTicker: React.FC = () => {
   const [trades, setTrades] = useState<LiveTrade[]>([]);
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const tradesRef = useRef<LiveTrade[]>([]);
 
+  const channelTradesRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const channelPricesRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const tradesRef = useRef<LiveTrade[]>([]);
   tradesRef.current = trades;
+
+  const livePricesRef = useRef<Map<string, LivePrice>>(new Map());
 
   const fetchOpenTrades = useCallback(async () => {
     const { data: tradesData, error: tradesError } = await supabase
       .from('goal_session_trades')
-      .select('id, symbol, direction, current_pnl, user_id')
+      .select('id, symbol, direction, entry_price, lot_size, current_pnl, user_id')
       .eq('status', 'open')
       .order('opened_at', { ascending: false })
       .limit(50);
@@ -74,15 +126,55 @@ export const LiveTradesTicker: React.FC = () => {
       });
     }
 
-    const mapped: LiveTrade[] = tradesData.map((row) => ({
-      id: row.id as string,
-      symbol: row.symbol as string,
-      direction: row.direction as string,
-      current_pnl: row.current_pnl as number | null,
-      email: emailMap[row.user_id as string] ?? '***',
-    }));
+    const mapped: LiveTrade[] = tradesData.map((row) => {
+      const tradeSymbol = row.symbol as string;
+      const direction = row.direction as string;
+      const entryPrice = row.entry_price as number;
+      const lotSize = row.lot_size as number;
+
+      const livePrice = livePricesRef.current.get(tradeSymbol);
+      const pnl = livePrice && entryPrice && lotSize
+        ? computeLivePnL(direction, entryPrice, livePrice.bid, livePrice.ask, lotSize, tradeSymbol)
+        : (row.current_pnl as number | null);
+
+      return {
+        id: row.id as string,
+        symbol: tradeSymbol,
+        direction,
+        entry_price: entryPrice,
+        lot_size: lotSize,
+        current_pnl: pnl,
+        email: emailMap[row.user_id as string] ?? '***',
+      };
+    });
 
     setTrades(mapped);
+  }, []);
+
+  const applyLivePriceToTrades = useCallback((priceRow: LivePrice) => {
+    livePricesRef.current.set(priceRow.symbol, priceRow);
+
+    setTrades((prev) => {
+      let changed = false;
+      const next = prev.map((trade) => {
+        if (trade.symbol !== priceRow.symbol) return trade;
+        if (!trade.entry_price || !trade.lot_size || trade.lot_size <= 0) return trade;
+
+        const newPnl = computeLivePnL(
+          trade.direction,
+          trade.entry_price,
+          priceRow.bid,
+          priceRow.ask,
+          trade.lot_size,
+          trade.symbol
+        );
+
+        if (trade.current_pnl === newPnl) return trade;
+        changed = true;
+        return { ...trade, current_pnl: newPnl };
+      });
+      return changed ? next : prev;
+    });
   }, []);
 
   const handleTradeUpdate = useCallback((payload: { new: Record<string, unknown> }) => {
@@ -94,16 +186,23 @@ export const LiveTradesTicker: React.FC = () => {
       return;
     }
 
-    const newPnl = typeof updated.current_pnl === 'number' ? updated.current_pnl : null;
-
     setTrades((prev) => {
       const idx = prev.findIndex((t) => t.id === updated.id);
       if (idx === -1) {
         fetchOpenTrades();
         return prev;
       }
+
+      const existing = prev[idx];
+      const livePrice = livePricesRef.current.get(existing.symbol);
+
+      if (livePrice && existing.entry_price && existing.lot_size > 0) {
+        return prev;
+      }
+
+      const dbPnl = typeof updated.current_pnl === 'number' ? updated.current_pnl : null;
       const next = [...prev];
-      next[idx] = { ...next[idx], current_pnl: newPnl };
+      next[idx] = { ...existing, current_pnl: dbPnl };
       return next;
     });
   }, [fetchOpenTrades]);
@@ -111,8 +210,8 @@ export const LiveTradesTicker: React.FC = () => {
   useEffect(() => {
     fetchOpenTrades();
 
-    channelRef.current = supabase
-      .channel('live-trades-ticker')
+    channelTradesRef.current = supabase
+      .channel('live-trades-ticker-trades')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'goal_session_trades' },
@@ -125,19 +224,55 @@ export const LiveTradesTicker: React.FC = () => {
       )
       .subscribe();
 
+    channelPricesRef.current = supabase
+      .channel('live-trades-ticker-prices')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'realtime_prices' },
+        (payload: { new: Record<string, unknown> }) => {
+          const row = payload.new;
+          if (
+            typeof row.symbol === 'string' &&
+            typeof row.bid === 'number' &&
+            typeof row.ask === 'number'
+          ) {
+            applyLivePriceToTrades({ symbol: row.symbol, bid: row.bid, ask: row.ask });
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'realtime_prices' },
+        (payload: { new: Record<string, unknown> }) => {
+          const row = payload.new;
+          if (
+            typeof row.symbol === 'string' &&
+            typeof row.bid === 'number' &&
+            typeof row.ask === 'number'
+          ) {
+            applyLivePriceToTrades({ symbol: row.symbol, bid: row.bid, ask: row.ask });
+          }
+        }
+      )
+      .subscribe();
+
     pollTimerRef.current = setInterval(fetchOpenTrades, POLL_INTERVAL_MS);
 
     return () => {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
+      if (channelTradesRef.current) {
+        supabase.removeChannel(channelTradesRef.current);
+        channelTradesRef.current = null;
+      }
+      if (channelPricesRef.current) {
+        supabase.removeChannel(channelPricesRef.current);
+        channelPricesRef.current = null;
       }
       if (pollTimerRef.current) {
         clearInterval(pollTimerRef.current);
         pollTimerRef.current = null;
       }
     };
-  }, [fetchOpenTrades, handleTradeUpdate]);
+  }, [fetchOpenTrades, handleTradeUpdate, applyLivePriceToTrades]);
 
   if (trades.length === 0) return null;
 
