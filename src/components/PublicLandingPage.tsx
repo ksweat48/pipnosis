@@ -23,6 +23,9 @@ export default function PublicLandingPage() {
         <p className="text-2xl md:text-3xl text-gray-300 font-light tracking-wide mb-12">
           AI Trading Assistant
         </p>
+        <p className="text-xs text-gray-400 max-w-sm mx-auto mb-6 leading-relaxed">
+          Pipnosis provides AI-powered market analysis, trade planning tools, and educational resources for individual traders. The platform delivers data-driven insights and strategy simulations to support independent trading decisions. Pipnosis does not custody funds or provide financial advisory services.
+        </p>
         <Link
           to="/auth"
           className="px-10 py-4 bg-emerald-600 text-white text-lg font-semibold rounded-lg hover:bg-emerald-700 inline-block transition-all hover:scale-105"
