@@ -18,13 +18,16 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Target, Clock, AlertCircle, Loader2, Zap, CheckCircle, Shield, ArrowLeft, ChevronDown, ChevronUp } from 'lucide-react';
+import { Target, Clock, AlertCircle, Loader2, Zap, CheckCircle, Shield, ArrowLeft, ChevronDown, ChevronUp, Coins } from 'lucide-react';
 import { smartGoalSessionManager } from '../services/smart-goal-session-manager';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import { supabase } from '../lib/supabase';
 import { TRADE_STYLES, TradeStyle, calculateSuggestedAmounts, validateDollarAmount, MINIMUM_ACCOUNT_BALANCE } from '../config/trade-styles';
 import { getAssetClassInfo, type AssetClass } from '../utils/asset-class-mapper';
+import { creditMeterService } from '../services/credit-meter-service';
+import { InsufficientCreditsModal } from './InsufficientCreditsModal';
+import { TOKENOMICS } from '../config/tokenomics-constants';
 
 const STYLE_ICONS = {
   Zap,
@@ -51,6 +54,9 @@ export const SmartGoalPanel: React.FC = () => {
   const [customInstructions, setCustomInstructions] = useState('');
   const [pendingSymbol, setPendingSymbol] = useState<string | null>(null);
   const [pendingCardSignal, setPendingCardSignal] = useState<Record<string, unknown> | null>(null);
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
+  const [isAdminUser, setIsAdminUser] = useState(false);
+  const [showInsufficientCreditsModal, setShowInsufficientCreditsModal] = useState(false);
 
   useEffect(() => {
     const styleParam = searchParams.get('style') as TradeStyle | null;
@@ -109,6 +115,31 @@ export const SmartGoalPanel: React.FC = () => {
     loadUserPreferences();
   }, [user]);
 
+  useEffect(() => {
+    if (!user) return;
+
+    let unsubscribe: (() => void) | undefined;
+
+    const loadCreditBalance = async () => {
+      const balance = await creditMeterService.getBalance(user.id);
+      if (balance) {
+        setIsAdminUser(balance.isAdmin);
+        setCreditBalance(balance.isAdmin ? Infinity : balance.balance);
+      }
+    };
+
+    loadCreditBalance();
+
+    unsubscribe = creditMeterService.subscribeToBalance(user.id, (newBalance) => {
+      setIsAdminUser(newBalance.isAdmin);
+      setCreditBalance(newBalance.isAdmin ? Infinity : newBalance.balance);
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [user]);
+
   const suggestedAmounts = useMemo(() => {
     if (!selectedStyle) return null;
     return calculateSuggestedAmounts(accountBalance, selectedStyle);
@@ -129,6 +160,12 @@ export const SmartGoalPanel: React.FC = () => {
         8000
       );
       setError(`Minimum account balance of $${MINIMUM_ACCOUNT_BALANCE} required`);
+      return;
+    }
+
+    // SSOT Credit Gate: Block non-admin users who lack minimum credits before any session flow begins
+    if (!isAdminUser && creditBalance !== null && creditBalance < TOKENOMICS.CREDITS.MIN_BALANCE_FOR_SESSION) {
+      setShowInsufficientCreditsModal(true);
       return;
     }
 
@@ -168,6 +205,13 @@ export const SmartGoalPanel: React.FC = () => {
 
     if (!validation.valid) {
       setError(validation.error || 'Invalid dollar amount');
+      return;
+    }
+
+    // SSOT Credit Gate: Synchronous pre-flight — bail immediately if balance is known to be insufficient.
+    // This avoids the round-trip to the server and gives instant feedback via the modal.
+    if (!isAdminUser && creditBalance !== null && creditBalance < TOKENOMICS.CREDITS.MIN_BALANCE_FOR_SESSION) {
+      setShowInsufficientCreditsModal(true);
       return;
     }
 
@@ -238,12 +282,15 @@ export const SmartGoalPanel: React.FC = () => {
       console.error('Error creating session:', err);
       const errorMessage = err instanceof Error ? err.message : 'An error occurred while creating your goal session';
 
-      if (errorMessage.includes('already has an active session')) {
+      if (errorMessage.toLowerCase().includes('insufficient credits') || errorMessage.toLowerCase().includes('minimum') && errorMessage.toLowerCase().includes('credits')) {
+        setShowInsufficientCreditsModal(true);
+      } else if (errorMessage.includes('already has an active session')) {
         toast.error('Active Session Exists', errorMessage, 8000);
+        setError(errorMessage);
       } else {
         toast.error('Error', errorMessage);
+        setError(errorMessage);
       }
-      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -252,11 +299,65 @@ export const SmartGoalPanel: React.FC = () => {
   const selectedConfig = selectedStyle ? TRADE_STYLES[selectedStyle] : null;
   const IconComponent = selectedConfig ? STYLE_ICONS[selectedConfig.icon as keyof typeof STYLE_ICONS] : null;
 
+  const showLowCreditBanner = !isAdminUser && creditBalance !== null && creditBalance < TOKENOMICS.CREDITS.MIN_BALANCE_FOR_SESSION;
+  const showLowCreditWarning = !isAdminUser && creditBalance !== null && !showLowCreditBanner && creditBalance < TOKENOMICS.CREDITS.BASE_TRADE_COST * 2;
+
   return (
+    <>
+      <InsufficientCreditsModal
+        isOpen={showInsufficientCreditsModal}
+        currentBalance={creditBalance ?? 0}
+        onDismiss={() => setShowInsufficientCreditsModal(false)}
+      />
+
     <div className="relative group">
       <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-xl opacity-20 group-hover:opacity-40 transition duration-300 blur" />
 
       <div className="relative bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-xl rounded-xl p-6 border border-gray-700/50 shadow-2xl">
+        {/* No-Credits Hard Block Banner */}
+        {showLowCreditBanner && !loadingPreferences && (
+          <div className="mb-4 p-4 bg-red-500/10 border border-red-500/40 rounded-lg flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-red-300 mb-1">No Credits Available</p>
+              <p className="text-xs text-red-400 mb-2">
+                You need at least {TOKENOMICS.CREDITS.MIN_BALANCE_FOR_SESSION} credits to start a session.
+                Current balance: <span className="font-bold">{creditBalance} credits</span>.
+              </p>
+              <button
+                onClick={() => setShowInsufficientCreditsModal(true)}
+                className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 underline underline-offset-2 transition-colors"
+              >
+                Buy credits to continue
+              </button>
+            </div>
+            <div className="flex-shrink-0 flex items-center gap-1 text-xs text-gray-400 bg-gray-800/60 px-2 py-1 rounded-full">
+              <Coins className="w-3 h-3" />
+              <span>{creditBalance}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Low-Credits Advisory Banner (non-blocking) */}
+        {showLowCreditWarning && !loadingPreferences && (
+          <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center gap-3">
+            <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+            <p className="text-xs text-amber-300 flex-1">
+              Low credits — <span className="font-semibold">{creditBalance} remaining</span>. You may only have {Math.floor(creditBalance! / TOKENOMICS.CREDITS.BASE_TRADE_COST)} trade(s) left.{' '}
+              <button
+                onClick={() => setShowInsufficientCreditsModal(true)}
+                className="font-semibold text-emerald-400 hover:text-emerald-300 underline underline-offset-2 transition-colors"
+              >
+                Top up
+              </button>
+            </p>
+            <div className="flex-shrink-0 flex items-center gap-1 text-xs text-amber-400 bg-amber-900/20 px-2 py-1 rounded-full">
+              <Coins className="w-3 h-3" />
+              <span>{creditBalance}</span>
+            </div>
+          </div>
+        )}
+
         {/* Low Balance Warning Banner */}
         {accountBalance < MINIMUM_ACCOUNT_BALANCE && !loadingPreferences && (
           <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start gap-3">
@@ -557,5 +658,6 @@ export const SmartGoalPanel: React.FC = () => {
         )}
       </div>
     </div>
+    </>
   );
 };
