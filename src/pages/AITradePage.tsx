@@ -11,7 +11,7 @@ import { LiveTradesTicker } from '@/components/LiveTradesTicker';
 import { useAuth } from '@/hooks/useAuth';
 import { smartGoalSessionManager } from '@/services/smart-goal-session-manager';
 import { clubMembershipService, type UserMembership } from '@/services/club-membership-service';
-import { Target, Trophy, Crown, Lock, Sparkles } from 'lucide-react';
+import { Target, Trophy } from 'lucide-react';
 
 type TabType = 'start' | 'achievements';
 
@@ -157,39 +157,6 @@ export function AITradePage() {
         {/* Live Trades Ticker — social proof, always visible */}
         <LiveTradesTicker />
 
-        {/* Always-visible Club Level Badge + CTA */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-6">
-          {/* Club level badge */}
-          {userMembership !== undefined && (
-            <div>
-              {userMembership && userMembership.status === 'active' ? (
-                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-500/40">
-                  <Crown className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="text-xs font-bold text-amber-300 tracking-wide">{userMembership.tierName}</span>
-                </div>
-              ) : (
-                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-800/70 border border-gray-700/60">
-                  <Lock className="w-3.5 h-3.5 text-gray-500" />
-                  <span className="text-xs font-medium text-gray-500">Not Yet A Club Member</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Club CTA strip */}
-          <div className="flex-1 flex items-center gap-3 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-900/30 to-teal-900/20 border border-emerald-500/20">
-            <Sparkles className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-            <p className="flex-1 text-xs text-gray-400">
-              <span className="font-semibold text-white">Improve your edge</span> — get access to more trading tools when you become a member.
-            </p>
-            <a
-              href="/club"
-              className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-500/90 text-white text-xs font-semibold transition-colors whitespace-nowrap"
-            >
-              Join Club
-            </a>
-          </div>
-        </div>
 
         <div className="mb-8">
           <div className="flex items-center gap-3 bg-gray-800/50 rounded-xl p-1.5 border border-gray-700/50 backdrop-blur-sm max-w-md">
