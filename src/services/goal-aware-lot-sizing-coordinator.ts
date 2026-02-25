@@ -3,17 +3,23 @@
  *
  * SSOT (Single Source of Truth) for goal-aware position sizing decisions
  *
- * CRITICAL ARCHITECTURE:
+ * CRITICAL ARCHITECTURE — RISK-FIRST (INSTITUTIONAL MODEL):
  * This is the ONLY place where lot size decisions are made when a goal is active.
- * It orchestrates between:
- * 1. Goal requirements (what lot size reaches the goal?)
- * 2. Risk constraints (what's the maximum safe lot size?)
- * 3. Market reality (can the market deliver the goal?)
+ *
+ * SIZING PRINCIPLE (institutional standard):
+ * 1. riskPercentageAllowed = the maximum % of balance the user is willing to LOSE at SL
+ * 2. Lot size = (accountBalance × riskPct) / (sl_pips × $/pip_per_lot)
+ * 3. Accept whatever profit the TP distance delivers at that lot size
+ * 4. NEVER size to guarantee a profit outcome — that inflates risk variance
+ *
+ * The goal (target_value) is a soft progress target tracked across multiple trades,
+ * not a per-trade sizing driver. Alpha sets the TP based on market structure;
+ * the user accepts whatever R:R that delivers.
  *
  * CCIP COMPLIANCE:
  * - Every decision logged to audit trail
  * - Reasoning transparent and immutable
- * - Three lot sizes tracked: required_for_goal, safe_from_risk, chosen
+ * - Three lot sizes tracked: required_for_goal (informational), safe_from_risk (SSOT), chosen
  *
  * GOVERNANCE:
  * - All decisions recorded in goal_aware_lot_sizing_decisions table
@@ -24,12 +30,12 @@
 import { supabase } from '../lib/supabase';
 import { logger, LogCategory } from '../lib/logger';
 import {
-  calculateGoalAwareLotSize,
   getCurrencyPipInfo,
-  calculateDollarPerPip,
   checkPriceSymbolMismatch,
+  roundLotSize,
 } from '../utils/currencyHelpers';
-import { percentageToRiskMode, getRiskModeDescription } from '../config/risk-percentage-mapping';
+import { percentageToRiskMode } from '../config/risk-percentage-mapping';
+import { getSymbolConfig } from '../config/symbol-registry';
 import { TradeContext } from '../types/trade-context';
 
 export interface GoalAwareLotSizingInput {
@@ -49,14 +55,14 @@ export interface GoalAwareLotSizingInput {
 
 export interface GoalAwareLotSizingDecision {
   chosenLotSize: number; // The lot size to use
-  requiredLotForGoal: number; // What's needed to hit profit goal at Alpha's TP
-  safeLotFromRisk: number; // Hard safety ceiling (2x declared %)
-  hardSafetyCapApplied: boolean; // True if safety ceiling was hit
+  requiredLotForGoal: number; // Informational: lot that would hit goal at Alpha's TP in one trade
+  safeLotFromRisk: number; // SSOT: lot derived from risk tolerance applied to SL distance
+  hardSafetyCapApplied: boolean; // Always false in risk-first model (kept for audit schema compat)
   impliedRR: number; // R:R ratio of the trade (tp_pips / sl_pips)
   decisionReason:
-    | 'profit_target_lot_deployed' // Primary path: lot set to achieve profit goal
-    | 'hard_safety_cap_applied'    // Implied SL risk > 2x declared % — capped with warning
-    | 'market_cannot_deliver_goal'
+    | 'risk_first_lot_deployed'    // Primary path: lot sized from SL risk tolerance (institutional)
+    | 'hard_safety_cap_applied'    // Legacy: kept for audit schema compatibility
+    | 'market_cannot_deliver_goal' // Legacy: kept for audit schema compatibility
     | 'fallback_risk_constraint'
     | 'degraded_to_safe_lot';
   expectedProfitAtTP: number;
@@ -68,15 +74,21 @@ export interface GoalAwareLotSizingDecision {
 
 class GoalAwareLotSizingCoordinator {
   /**
-   * Calculate lot size considering both goal requirements and risk constraints
+   * RISK-FIRST Lot Sizing (Institutional Model)
    *
    * ALGORITHM:
-   * 1. Calculate required lot to reach goal
-   * 2. Calculate safe lot from risk constraints
-   * 3. Choose the maximum safe lot that doesn't violate risk
-   * 4. If required lot <= safe lot: AFFIRM (achieve goal)
-   * 5. If required lot > safe lot: DEGRADE (achieve safe lot amount instead)
-   * 6. Log decision to audit trail
+   * 1. Compute SL distance in pips from Alpha's stop loss price
+   * 2. riskDollars = accountBalance × riskPercentageAllowed / 100
+   * 3. safeLot = riskDollars / (sl_pips × $/pip_per_lot)  ← THE LOT SIZE
+   * 4. Accept whatever profit the TP delivers at that lot size
+   * 5. Separately compute requiredLotForGoal for informational audit only
+   * 6. Log full decision to audit trail (CCIP governance)
+   *
+   * WHY RISK-FIRST (not profit-first):
+   * - Institutional sizing defines risk tolerance, then accepts the R outcome
+   * - Sizing to hit a profit target inflates risk variance
+   * - When you size to hit a goal, you are borrowing from future risk budget
+   * - The goal (target_value) is a session-level progress tracker, not a per-trade driver
    *
    * RETURNS: Decision with chosen lot size and full reasoning
    */
@@ -96,24 +108,19 @@ class GoalAwareLotSizingCoordinator {
       tradeContext,
     } = input;
 
-    // GOVERNANCE: Input validation - prevent cascading errors from invalid balance
+    // GOVERNANCE: Input validation — prevent cascading errors from invalid balance
     if (!Number.isFinite(accountBalance) || accountBalance <= 0) {
       logger.error(
         LogCategory.RISK_MANAGEMENT,
         '[Goal-Aware Lot Sizing] Invalid account balance - cannot proceed',
-        {
-          userId,
-          goalSessionId,
-          symbol,
-          accountBalance,
-          type: typeof accountBalance,
-        }
+        { userId, goalSessionId, symbol, accountBalance, type: typeof accountBalance }
       );
-      // Return degraded decision with minimum safe lot size
       return {
-        chosenLotSize: 0.01, // Minimum safe lot size
+        chosenLotSize: 0.01,
         requiredLotForGoal: 0,
         safeLotFromRisk: 0.01,
+        hardSafetyCapApplied: false,
+        impliedRR: 0,
         decisionReason: 'fallback_risk_constraint',
         expectedProfitAtTP: 0,
         expectedLossAtSL: 0,
@@ -126,16 +133,14 @@ class GoalAwareLotSizingCoordinator {
       logger.error(
         LogCategory.RISK_MANAGEMENT,
         '[Goal-Aware Lot Sizing] Invalid risk percentage',
-        {
-          userId,
-          goalSessionId,
-          riskPercentageAllowed,
-        }
+        { userId, goalSessionId, riskPercentageAllowed }
       );
       return {
         chosenLotSize: 0.01,
         requiredLotForGoal: 0,
         safeLotFromRisk: 0.01,
+        hardSafetyCapApplied: false,
+        impliedRR: 0,
         decisionReason: 'fallback_risk_constraint',
         expectedProfitAtTP: 0,
         expectedLossAtSL: 0,
@@ -144,8 +149,7 @@ class GoalAwareLotSizingCoordinator {
       };
     }
 
-    // GOVERNANCE: Validate entry price against expected symbol range
-    // Warn (not throw) so that a volatile/unexpected price doesn't cascade-fail lot sizing
+    // GOVERNANCE: Validate entry price against expected symbol range (non-blocking)
     const priceMismatch = checkPriceSymbolMismatch(symbol, entryPrice);
     if (priceMismatch) {
       logger.warn(
@@ -155,58 +159,7 @@ class GoalAwareLotSizingCoordinator {
       );
     }
 
-    logger.info(
-      LogCategory.RISK_MANAGEMENT,
-      '[Goal-Aware Lot Sizing] Making lot size decision',
-      {
-        symbol,
-        accountBalance: accountBalance.toFixed(2),
-        goalAmount: goalAmount.toFixed(2),
-        currentProgress: currentProgress.toFixed(2),
-        riskPercentageAllowed,
-      }
-    );
-
-    // STEP 1: Get required lot for goal using goal-aware calculator
-    // SSOT: Use canonical percentageToRiskMode mapping (CCIP compliant)
-    const riskMode = percentageToRiskMode(riskPercentageAllowed);
-    logger.info(
-      LogCategory.RISK_MANAGEMENT,
-      '[Goal-Aware Lot Sizing] Risk Mode Mapping',
-      {
-        percentage: riskPercentageAllowed,
-        mode: riskMode,
-        description: getRiskModeDescription(riskMode),
-      }
-    );
-
-    const goalAwareResult = calculateGoalAwareLotSize(
-      symbol,
-      direction,
-      accountBalance,
-      entryPrice,
-      stopLossPrice,
-      currentProgress,
-      goalAmount,
-      riskMode,  // For strategy characteristics
-      riskPercentageAllowed,  // SSOT: Pass user's actual risk selection
-      takeProfitPrice  // FIX 2026-02-03: Use actual TP distance instead of commonMove average
-    );
-
-    const requiredLotForGoal = goalAwareResult.lotSize;
-
-    // STEP 2: Compute distances and the hard safety ceiling
-    // The safety ceiling is 2× the declared profit-target percentage applied to the SL.
-    // This prevents genuine disasters (e.g., misconfigured SL within 1 pip of entry),
-    // while never blocking a correctly-structured trade.
-    //
-    // Example: user declares 5% profit target → safety ceiling = 10% of balance at SL
-    //   Account $96,476 × 10% = $9,647 max SL risk
-    //   For US30 73pt SL: safe lot = $9,647 / (73 × $100) = 1.32 lots
-    //   Required lot for $4,823 profit at 100pt TP = 0.48 lots → safely under ceiling
-    //
-    // SSOT: riskPercentageAllowed is the PROFIT TARGET percentage (e.g. 5%).
-    //       It is NOT the per-trade SL risk budget.
+    // STEP 1: Compute pip distances
     const pipInfo = getCurrencyPipInfo(symbol);
     const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot;
 
@@ -214,88 +167,64 @@ class GoalAwareLotSizingCoordinator {
     const tpDistancePips = Math.abs(takeProfitPrice - entryPrice) / pipInfo.pipValue;
     const impliedRR = slDistancePips > 0 ? tpDistancePips / slDistancePips : 0;
 
-    // Hard safety ceiling: 2× declared % applied to SL distance
-    const hardSafetyCeilingDollars = (riskPercentageAllowed * 2 / 100) * accountBalance;
+    // STEP 2: RISK-FIRST lot sizing (institutional standard)
+    // riskPercentageAllowed = maximum % of balance the user is willing to LOSE at SL
+    // This is the authoritative sizing formula — never bypass it to chase a profit target
+    const riskDollars = (riskPercentageAllowed / 100) * accountBalance;
     const safeLotFromRisk = slDistancePips > 0
-      ? hardSafetyCeilingDollars / (slDistancePips * dollarPerPipPerLot)
-      : requiredLotForGoal; // If SL distance is zero, no ceiling needed (geometry gate will catch it)
+      ? riskDollars / (slDistancePips * dollarPerPipPerLot)
+      : 0.01; // Fallback to minimum — geometry gate will reject zero-SL trades
 
-    // STEP 3: PROFIT-FIRST decision
-    // Primary: use the lot that achieves the profit goal at Alpha's TP
-    // Safety: cap only if implied SL risk exceeds the 2× hard ceiling
-    let chosenLotSize: number;
-    let hardSafetyCapApplied = false;
-    let decisionReason: GoalAwareLotSizingDecision['decisionReason'];
-    let reasoning: string;
+    // STEP 3: Clamp to broker limits
+    const symbolConfig = getSymbolConfig(symbol);
+    const minLot = symbolConfig?.minLotSize ?? 0.01;
+    const maxLot = symbolConfig?.maxLotSize ?? 500.0;
 
-    if (requiredLotForGoal <= 0 || isNaN(requiredLotForGoal)) {
-      // Fallback: goal calculation failed, use ceiling lot as best available
-      chosenLotSize = safeLotFromRisk;
-      decisionReason = 'fallback_risk_constraint';
-      reasoning = `Goal calculation returned invalid lot (${requiredLotForGoal}). Using safety ceiling: ${chosenLotSize.toFixed(3)} lots`;
-    }
-    else if (requiredLotForGoal <= safeLotFromRisk) {
-      // PRIMARY PATH: Profit target lot is within the safety ceiling — deploy it
-      chosenLotSize = requiredLotForGoal;
-      decisionReason = 'profit_target_lot_deployed';
-      const impliedSlRisk = chosenLotSize * slDistancePips * dollarPerPipPerLot;
-      const impliedSlRiskPct = (impliedSlRisk / accountBalance) * 100;
-      reasoning = (
-        `PROFIT-FIRST: Deploying ${chosenLotSize.toFixed(3)} lots to target ` +
-        `$${(goalAmount - currentProgress).toFixed(2)} profit at TP ` +
-        `(${tpDistancePips.toFixed(1)} pts, R:R ${impliedRR.toFixed(2)}:1). ` +
-        `Implied SL risk: $${impliedSlRisk.toFixed(2)} (${impliedSlRiskPct.toFixed(1)}% of balance) — ` +
-        `within 2x safety ceiling of ${(riskPercentageAllowed * 2).toFixed(0)}%.`
-      );
-    }
-    else {
-      // SAFETY CAP: Profit lot exceeds 2× ceiling — log a visible warning and cap
-      // This should only happen if Alpha's SL is extremely tight relative to the goal
-      chosenLotSize = safeLotFromRisk;
-      hardSafetyCapApplied = true;
-      decisionReason = 'hard_safety_cap_applied';
-      const requiredImpliedRisk = ((requiredLotForGoal * slDistancePips * dollarPerPipPerLot) / accountBalance * 100).toFixed(1);
-      const ceilingPct = (riskPercentageAllowed * 2).toFixed(0);
-      reasoning = (
-        `SAFETY CAP APPLIED: Profit target requires ${requiredLotForGoal.toFixed(3)} lots ` +
-        `(implies ${requiredImpliedRisk}% SL risk), which exceeds the ${ceilingPct}% hard ceiling. ` +
-        `Capped to ${chosenLotSize.toFixed(3)} lots. ` +
-        `This trade's R:R (${impliedRR.toFixed(2)}:1) may be too unfavourable for the goal size. ` +
-        `Expected profit at capped lot: $${(chosenLotSize * tpDistancePips * dollarPerPipPerLot).toFixed(2)}.`
-      );
-      logger.warn(
-        LogCategory.RISK_MANAGEMENT,
-        '[Goal-Aware Lot Sizing] Hard safety cap applied — profit lot exceeds 2x ceiling',
-        {
-          symbol, requiredLotForGoal: requiredLotForGoal.toFixed(3),
-          safeLotFromRisk: safeLotFromRisk.toFixed(3),
-          impliedRR: impliedRR.toFixed(2),
-          requiredImpliedRisk: requiredImpliedRisk + '%',
-          ceilingPct: ceilingPct + '%',
-          riskPercentageAllowed
-        }
-      );
-    }
+    let chosenLotSize = roundLotSize(Math.max(minLot, Math.min(maxLot, safeLotFromRisk)));
 
-    // STEP 4: Calculate expected outcomes
+    // STEP 4: Compute informational requiredLotForGoal (audit/learning only — NOT used for sizing)
+    const remainingGoal = goalAmount - currentProgress;
+    const requiredLotForGoal = (tpDistancePips > 0 && dollarPerPipPerLot > 0)
+      ? remainingGoal / (tpDistancePips * dollarPerPipPerLot)
+      : 0;
+
+    const riskMode = percentageToRiskMode(riskPercentageAllowed);
+
+    // STEP 5: Build reasoning string
+    const riskDollarsActual = chosenLotSize * slDistancePips * dollarPerPipPerLot;
+    const riskPctActual = (riskDollarsActual / accountBalance) * 100;
     const expectedProfitAtTP = chosenLotSize * tpDistancePips * dollarPerPipPerLot;
-    const expectedLossAtSL = chosenLotSize * slDistancePips * dollarPerPipPerLot;
-    const expectedRiskDollars = chosenLotSize * slDistancePips * dollarPerPipPerLot;
+
+    const reasoning = (
+      `RISK-FIRST: ${chosenLotSize.toFixed(3)} lots sized so SL risk = ` +
+      `$${riskDollarsActual.toFixed(2)} (${riskPctActual.toFixed(2)}% of balance, ` +
+      `declared tolerance: ${riskPercentageAllowed}%). ` +
+      `Expected profit at Alpha TP: $${expectedProfitAtTP.toFixed(2)} ` +
+      `(R:R ${impliedRR.toFixed(2)}:1). ` +
+      `Goal progress context: $${remainingGoal.toFixed(2)} remaining toward $${goalAmount.toFixed(2)} target. ` +
+      `Goal is a session progress tracker — lot sizing is driven solely by risk tolerance.`
+    );
 
     logger.info(
       LogCategory.RISK_MANAGEMENT,
-      '[Goal-Aware Lot Sizing] Decision made',
+      '[Goal-Aware Lot Sizing] RISK-FIRST decision made',
       {
-        decisionReason,
-        requiredLotForGoal: requiredLotForGoal.toFixed(3),
+        symbol,
+        riskMode,
+        riskPercentageAllowed,
+        riskDollars: riskDollars.toFixed(2),
+        slDistancePips: slDistancePips.toFixed(2),
+        tpDistancePips: tpDistancePips.toFixed(2),
+        impliedRR: impliedRR.toFixed(2),
         safeLotFromRisk: safeLotFromRisk.toFixed(3),
         chosenLotSize: chosenLotSize.toFixed(3),
-        expectedProfit: expectedProfitAtTP.toFixed(2),
-        expectedLoss: expectedLossAtSL.toFixed(2),
+        expectedProfitAtTP: expectedProfitAtTP.toFixed(2),
+        requiredLotForGoal_informational: requiredLotForGoal.toFixed(3),
+        remainingGoal: remainingGoal.toFixed(2),
       }
     );
 
-    // STEP 5: Log to audit trail (CCIP governance)
+    // STEP 6: Log to audit trail (CCIP governance)
     const auditRecordId = await this.logDecision({
       userId,
       goalSessionId,
@@ -311,25 +240,25 @@ class GoalAwareLotSizingCoordinator {
       requiredLotForGoal,
       safeLotFromRisk,
       chosenLotSize,
-      decisionReason,
+      decisionReason: 'risk_first_lot_deployed',
       expectedProfitAtTP,
-      expectedLossAtSL,
-      expectedRiskDollars,
+      expectedLossAtSL: riskDollarsActual,
+      expectedRiskDollars: riskDollarsActual,
       impliedRRRatio: impliedRR,
-      profitTargetDollars: goalAmount - currentProgress,
-      hardSafetyCapApplied,
+      profitTargetDollars: remainingGoal,
+      hardSafetyCapApplied: false,
     });
 
     return {
       chosenLotSize,
       requiredLotForGoal,
       safeLotFromRisk,
-      hardSafetyCapApplied,
+      hardSafetyCapApplied: false,
       impliedRR,
-      decisionReason,
+      decisionReason: 'risk_first_lot_deployed',
       expectedProfitAtTP,
-      expectedLossAtSL,
-      expectedRiskDollars,
+      expectedLossAtSL: riskDollarsActual,
+      expectedRiskDollars: riskDollarsActual,
       auditRecordId,
       reasoning,
     };

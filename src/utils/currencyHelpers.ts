@@ -900,57 +900,32 @@ export function calculateAutonomousPositionSize(
 }
 
 /**
- * Calculate goal-aware position size (LOT SIZE ONLY - TP comes from Alpha)
+ * Calculate goal-aware position size — RISK-FIRST (Institutional Model)
  *
- * @deprecated **PHASE 2: Use ProfessionalRiskManager.evaluateTrade() instead**
+ * SIZING PRINCIPLE:
+ * Lot size is determined by the user's SL risk tolerance applied to the SL distance.
+ * Formula: lot = (accountBalance × riskPct / 100) / (sl_pips × $/pip_per_lot)
  *
- * This function bypasses critical risk management layers:
- * - ❌ Kelly Criterion optimization
- * - ❌ EV Gating validation
- * - ❌ Volatility adjustments
- * - ❌ Correlation risk checks
- * - ❌ Market condition risk modifiers
- * - ❌ Progressive risk scaling
- * - ❌ PCVL (Position Contract Validation Layer)
+ * Alpha determines the TP based on market structure. The profit earned is whatever
+ * that lot size delivers at Alpha's TP — we never reverse-engineer the lot from a
+ * desired profit outcome (that inflates risk variance).
  *
- * **Migration Path:**
- * ```typescript
- * // OLD (deprecated):
- * const sizing = calculateGoalAwareLotSize(symbol, direction, balance, entry, sl, progress, goal, riskMode);
- * const lotSize = sizing.lotSize;
- *
- * // NEW (correct):
- * const riskAssessment = await professionalRiskManager.evaluateTrade({
- *   userId, symbol, direction, currentBalance: balance,
- *   baseRiskPercent: getRiskPercentage(riskMode) / 100,
- *   stopLossPips, takeProfitPips, goalSessionId, riskMode
- * });
- * const lotSize = riskAssessment.recommendedLotSize;
- * ```
- *
- * Keeping for backward compatibility only. Will be removed in Phase 3.
- *
- * CRITICAL CHANGE: This function now ONLY calculates lot size.
- * TP placement is determined by Alpha based on market conditions (liquidity zones, structure, R:R)
- *
- * Strategy:
- * 1. Calculate lot size appropriate for risk mode
- * 2. Provide goal progress context for informational purposes
- * 3. Let Alpha determine realistic TP based on market conditions
- *
- * WHY THIS CHANGE:
- * - Old: Set TP to hit goal amount → trades failed when market couldn't reach goal-based TP
- * - New: Set TP where market can realistically go → take profit and run another trade if needed
+ * The goal (targetGoal) is a session-level progress tracker used for:
+ * - Estimating how many trades may be needed (informational)
+ * - Triggering session completion when accumulated P&L reaches the target
+ * It does NOT drive lot sizing.
  *
  * @param symbol Currency pair
- * @param direction Trade direction (not used for lot sizing, kept for compatibility)
+ * @param direction Trade direction (kept for compatibility)
  * @param accountBalance Current account balance
  * @param entryPrice Entry price
- * @param stopLoss Stop loss price
- * @param currentProgress Current P&L toward goal
- * @param targetGoal Total goal amount
- * @param riskMode Risk tolerance
- * @returns Lot size and goal progress information (NO TP - that comes from Alpha)
+ * @param stopLoss Stop loss price (SSOT for sizing)
+ * @param currentProgress Current P&L toward goal (informational)
+ * @param targetGoal Total goal amount (session progress tracker, not a sizing driver)
+ * @param riskMode Risk tolerance profile
+ * @param riskPercentageAllowed User's declared SL risk tolerance % (e.g. 5 = risk 5% of balance)
+ * @param takeProfitPrice Alpha's TP (used for informational feasibility output only)
+ * @returns Lot size sized to SL risk tolerance, plus goal progress context
  */
 export function calculateGoalAwareLotSize(
   symbol: string,
@@ -961,8 +936,8 @@ export function calculateGoalAwareLotSize(
   currentProgress: number,
   targetGoal: number,
   riskMode: 'low' | 'medium' | 'high' = 'medium',
-  riskPercentageAllowed?: number,  // SSOT: Accept user's actual risk selection
-  takeProfitPrice?: number  // FIX 2026-02-03: Use actual TP distance instead of commonMove average
+  riskPercentageAllowed?: number,
+  takeProfitPrice?: number
 ): {
   lotSize: number;
   expectedProfitAtCommonMove: number;
@@ -978,53 +953,28 @@ export function calculateGoalAwareLotSize(
   const remainingGoal = targetGoal - currentProgress;
   const symbolConfig = getSymbolConfig(symbol);
   const assetProfile = getAssetClassRiskProfile(symbol);
-
-  // Get risk profile for strategy-aware pip targets (NOT for risk percentage)
   const riskProfile = getRiskStrategyProfile(riskMode);
 
-  console.log(`[Goal Optimal Position] ${symbol}:`);
-  console.log(`  Balance: $${accountBalance.toFixed(2)}`);
-  console.log(`  Goal Target: $${targetGoal.toFixed(2)}`);
-  console.log(`  Current Progress: $${currentProgress.toFixed(2)}`);
-  console.log(`  Remaining: $${remainingGoal.toFixed(2)}`);
-  console.log(`  Risk Mode: ${riskMode.toUpperCase()} (${riskProfile.riskPercentRange.min}-${riskProfile.riskPercentRange.max}%)`);
-
-  // ✅ FIX 2: Asset-class-aware ranges (NOT forex assumptions for crypto/indices)
   const typicalDailyRange = symbolConfig?.typicalDailyRangePoints || 100;
-  const typicalSessionMove = symbolConfig?.typicalSessionMovePoints || 50;
 
-  // Asset-class-aware common move calculation
   const minViablePips = assetProfile.commonMove.min;
   const maxViablePips = assetProfile.commonMove.max;
   const commonMovePips = (minViablePips + maxViablePips) / 2;
 
-  console.log(`  ${riskMode.toUpperCase()} Profile: ${minViablePips}-${maxViablePips} ${assetProfile.commonMove.unit} (avg ${commonMovePips.toFixed(0)})`);
-  console.log(`  Daily Range: ${typicalDailyRange} points`);
-
-  // SSOT (2026-02-25 PROFIT-FIRST FIX): riskPercent is stored for informational/feasibility
-  // logging only. It is NOT used to cap the lot size here — that is the coordinator's job.
-  // The coordinator is the ONLY authority that may apply an SL-based safety ceiling.
+  // RISK-FIRST: riskPercent = the % of balance the user is willing to LOSE at SL
   const riskPercent = riskPercentageAllowed ?? riskProfile.baseRiskPercent;
-  console.log(`  🎯 Declared profit-target %: ${riskPercent}% ${riskPercentageAllowed ? '(user-selected)' : '(profile default)'}`);
+  const riskDollars = accountBalance * (riskPercent / 100);
 
-  // REVERSE CALCULATION: What lot size gives us goal profit at Alpha's actual TP?
-  // FIX 2026-02-03: REQUIRE actual TP distance (from Alpha) — no fallback to commonMovePips
-  if (!takeProfitPrice || takeProfitPrice === entryPrice) {
-    throw new Error(
-      `[Lot Sizing] takeProfitPrice REQUIRED for goal-aware sizing. ` +
-      `Received: ${takeProfitPrice}. Entry: ${entryPrice}. ` +
-      `Goal-aware lot sizing must use Alpha's actual TP, not estimated average moves.`
-    );
-  }
-
-  const targetPips = Math.abs(takeProfitPrice - entryPrice) / pipInfo.pipValue;
+  // SL distance in pips — this is the sizing foundation
+  const slDistancePips = Math.abs(entryPrice - stopLoss) / pipInfo.pipValue;
   const dollarPerPipAtOneLot = calculateDollarPerPip(symbol, 1.0);
-  const requiredLotSizeForOptimal = remainingGoal / (targetPips * dollarPerPipAtOneLot);
 
-  console.log(`  Target Pips (ACTUAL TP from Alpha): ${targetPips.toFixed(2)}`);
-  console.log(`  Required Lot Size for profit goal $${remainingGoal.toFixed(2)}: ${requiredLotSizeForOptimal.toFixed(3)}`);
+  console.log(`[Goal-Aware Lot Sizing — RISK-FIRST] ${symbol}:`);
+  console.log(`  Balance: $${accountBalance.toFixed(2)}`);
+  console.log(`  Risk Tolerance: ${riskPercent}% = $${riskDollars.toFixed(2)} max SL loss`);
+  console.log(`  SL Distance: ${slDistancePips.toFixed(2)} pips`);
+  console.log(`  Goal Target: $${targetGoal.toFixed(2)} | Progress: $${currentProgress.toFixed(2)} | Remaining: $${remainingGoal.toFixed(2)}`);
 
-  // 🚨 CRITICAL VALIDATION: Detect asset profile misconfiguration
   if (commonMovePips < 5) {
     throw new Error(
       `Asset profile misconfigured for ${symbol}: commonMove=${commonMovePips.toFixed(2)} ${assetProfile.commonMove.unit}. ` +
@@ -1032,86 +982,58 @@ export function calculateGoalAwareLotSize(
     );
   }
 
-  // PROFIT-FIRST: Return requiredLotSizeForOptimal directly — DO NOT cap by SL-based risk here.
-  // The GoalAwareLotSizingCoordinator is the SSOT for safety ceiling enforcement.
-  // Capping here would silently undershoot the profit target (the original bug).
+  // CORE SIZING: lot = riskDollars / (sl_pips × $/pip_per_lot)
+  // This is the institutional formula — risk is defined, profit is accepted
+  let rawLotSize = slDistancePips > 0
+    ? riskDollars / (slDistancePips * dollarPerPipAtOneLot)
+    : 0.01;
+
   const minLotSize = symbolConfig?.minLotSize || 0.01;
   const maxLotSize = getScaledMaxLotSize(symbol, accountBalance, riskPercent);
-  // Only apply broker max ceiling (never the SL-based risk cap — coordinator owns that)
-  let actualLotSize = Math.max(minLotSize, Math.min(maxLotSize, requiredLotSizeForOptimal));
+  let actualLotSize = roundLotSize(Math.max(minLotSize, Math.min(maxLotSize, rawLotSize)));
 
-  // Round to broker standard precision (0.01 lots)
-  actualLotSize = roundLotSize(actualLotSize);
+  console.log(`  Raw Lot (risk-first): ${rawLotSize.toFixed(3)} → Final: ${formatLotSize(actualLotSize)}`);
 
-  console.log(`  Final Lot Size: ${formatLotSize(actualLotSize)} lots`);
-
-  // Calculate actual pips needed with this lot size
+  // INFORMATIONAL: What profit does this lot produce at common moves and at Alpha's TP?
   const dollarPerPip = calculateDollarPerPip(symbol, actualLotSize);
-  const pipsNeededForGoal = remainingGoal / dollarPerPip;
-
-  console.log(`  Dollar/Pip: $${dollarPerPip.toFixed(2)}`);
-  console.log(`  Pips Needed for Goal: ${pipsNeededForGoal.toFixed(1)}`);
-
-  // Calculate expected profit at common market move (for informational purposes only)
   const expectedProfitAtCommonMove = commonMovePips * dollarPerPip;
 
-  // Assess goal feasibility (informational - doesn't affect TP placement)
+  const tpDistancePips = (takeProfitPrice && takeProfitPrice !== entryPrice)
+    ? Math.abs(takeProfitPrice - entryPrice) / pipInfo.pipValue
+    : commonMovePips;
+  const expectedProfitAtTP = tpDistancePips * dollarPerPip;
+  const impliedRR = slDistancePips > 0 ? tpDistancePips / slDistancePips : 0;
+
+  // Goal feasibility: informational estimate of trades needed at this lot size
+  const pipsNeededForGoal = dollarPerPip > 0 ? remainingGoal / dollarPerPip : Infinity;
+  const pipFeasibilityRatio = pipsNeededForGoal / typicalDailyRange;
+
   let goalFeasibility: 'single_trade' | 'multiple_trades' | 'unrealistic';
   let reasoning: string;
   let estimatedTradesNeeded: number;
 
-  const pipFeasibilityRatio = pipsNeededForGoal / typicalDailyRange;
-
   if (pipsNeededForGoal <= commonMovePips && pipsNeededForGoal >= minViablePips) {
-    // Goal achievable in realistic single trade
     goalFeasibility = 'single_trade';
     estimatedTradesNeeded = 1;
-    reasoning = `${formatLotSize(actualLotSize)} lots sized for ${riskMode} risk. At common ${commonMovePips}-pip moves: ~$${expectedProfitAtCommonMove.toFixed(2)} per trade. Goal achievable in 1 good trade if Alpha finds optimal TP.`;
+    reasoning = `${formatLotSize(actualLotSize)} lots (${riskPercent}% SL risk = $${riskDollars.toFixed(2)}). At common ${commonMovePips}-pip moves: ~$${expectedProfitAtCommonMove.toFixed(2)} per trade. At Alpha's TP (${tpDistancePips.toFixed(0)} pips, R:R ${impliedRR.toFixed(2)}:1): ~$${expectedProfitAtTP.toFixed(2)}. Goal reachable in 1 trade.`;
   } else if (pipsNeededForGoal > commonMovePips && pipsNeededForGoal <= typicalDailyRange) {
-    // Goal possible but may need strong trend or multiple trades
     goalFeasibility = 'single_trade';
     estimatedTradesNeeded = 1;
-    reasoning = `${formatLotSize(actualLotSize)} lots. Goal needs ${pipsNeededForGoal.toFixed(0)} pips (${pipFeasibilityRatio.toFixed(1)}x common moves). Achievable if Alpha finds strong trend opportunity. Expected at common moves: $${expectedProfitAtCommonMove.toFixed(2)}.`;
+    reasoning = `${formatLotSize(actualLotSize)} lots (${riskPercent}% SL risk = $${riskDollars.toFixed(2)}). Goal needs ${pipsNeededForGoal.toFixed(0)} pips (${pipFeasibilityRatio.toFixed(1)}x common moves). At Alpha's TP: ~$${expectedProfitAtTP.toFixed(2)} (R:R ${impliedRR.toFixed(2)}:1).`;
   } else if (pipsNeededForGoal > typicalDailyRange) {
-    // Goal requires multiple trades
     goalFeasibility = 'multiple_trades';
-    estimatedTradesNeeded = Math.ceil(remainingGoal / expectedProfitAtCommonMove);
-    reasoning = `${formatLotSize(actualLotSize)} lots. Goal needs ${pipsNeededForGoal.toFixed(0)} pips (${pipFeasibilityRatio.toFixed(1)}x daily range). Estimated ${estimatedTradesNeeded} trades needed at ~$${expectedProfitAtCommonMove.toFixed(2)} per win. Alpha will set realistic TPs based on market conditions.`;
+    estimatedTradesNeeded = expectedProfitAtCommonMove > 0
+      ? Math.ceil(remainingGoal / expectedProfitAtCommonMove)
+      : 1;
+    reasoning = `${formatLotSize(actualLotSize)} lots (${riskPercent}% SL risk = $${riskDollars.toFixed(2)}). Goal needs ~${estimatedTradesNeeded} trades at ~$${expectedProfitAtCommonMove.toFixed(2)} per win. Alpha sets realistic TPs based on market conditions.`;
   } else {
-    // Edge case: very small pip requirements
     goalFeasibility = 'single_trade';
     estimatedTradesNeeded = 1;
-    reasoning = `${formatLotSize(actualLotSize)} lots. Goal needs only ${pipsNeededForGoal.toFixed(1)} pips. Should be achievable in 1 trade if Alpha finds quality setup. Expected at common moves: $${expectedProfitAtCommonMove.toFixed(2)}.`;
+    reasoning = `${formatLotSize(actualLotSize)} lots (${riskPercent}% SL risk = $${riskDollars.toFixed(2)}). At Alpha's TP: ~$${expectedProfitAtTP.toFixed(2)}.`;
   }
 
-  // PROFIT-FIRST GOVERNANCE: Log sizing context for audit trail.
-  // SL-based risk cap enforcement is the coordinator's exclusive responsibility.
-  // This function returns the lot that ACHIEVES the profit target at Alpha's TP.
-  const stopDistance = Math.abs(entryPrice - stopLoss);
-  const stopPips = stopDistance / pipInfo.pipValue;
-  const impliedSlRisk = stopPips * dollarPerPip;
-  const impliedRR = targetPips > 0 ? targetPips / stopPips : 0;
-
-  console.log('[GOAL-AWARE LOT SIZING — PROFIT-FIRST]');
-  console.log(`  Lot Size (profit-first): ${formatLotSize(actualLotSize)}`);
-  console.log(`  Profit goal at TP: $${remainingGoal.toFixed(2)}`);
-  console.log(`  Implied SL risk at this lot: $${impliedSlRisk.toFixed(2)}`);
-  console.log(`  Implied R:R: ${impliedRR.toFixed(2)}:1`);
-  console.log(`  Expected Profit (at ${commonMovePips} pips): $${expectedProfitAtCommonMove.toFixed(2)}`);
-  console.log(`  Remaining Goal: $${remainingGoal.toFixed(2)}`);
-  console.log(`  Estimated Trades: ${estimatedTradesNeeded}`);
-  console.log(`  Feasibility: ${goalFeasibility}`);
-
-  const minGoalContribution = riskMode === 'high' ? 0.05 : riskMode === 'medium' ? 0.03 : 0.02;
-  const progressPercentage = remainingGoal > 0 ? expectedProfitAtCommonMove / remainingGoal : 1;
-
-  if (estimatedTradesNeeded > 50) {
-    console.warn(`[Goal-Aware Sizing] High trade count (${estimatedTradesNeeded}) - Execution Gate will evaluate`);
-  }
-
-  if (progressPercentage < minGoalContribution && goalFeasibility === 'multiple_trades') {
-    console.warn(`  ⚠️ Low goal contribution: ${(progressPercentage * 100).toFixed(1)}% < ${(minGoalContribution * 100)}% minimum`);
-  }
+  console.log(`[RISK-FIRST SIZING COMPLETE]`);
+  console.log(`  Lot: ${formatLotSize(actualLotSize)} | SL Risk: $${(actualLotSize * slDistancePips * dollarPerPipAtOneLot).toFixed(2)} | TP Profit: $${expectedProfitAtTP.toFixed(2)} | R:R ${impliedRR.toFixed(2)}:1`);
 
   return {
     lotSize: actualLotSize,

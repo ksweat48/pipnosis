@@ -524,14 +524,14 @@ export const KRAKEN_SYMBOLS = getSymbolsByDataProvider('kraken');
  *   - calculateGoalAwareLotSize() in currencyHelpers.ts
  *   - unified-risk-authority.ts broker ceiling enforcement
  *
- * Formula:
- *   derivedMax = (accountBalance × riskPct / 100) / (minReasonableStop × dollarPerPipPerLot)
+ * RISK-FIRST formula:
+ *   riskDollars = accountBalance × riskPct / 100
+ *   derivedMax  = riskDollars / (minReasonableSL × dollarPerPipPerLot)
  *   effectiveMax = Math.min(derivedMax, config.maxLotSize)
  *
- * config.maxLotSize is a BROKER CEILING ONLY — it must be set high enough to never
- * interfere with legitimate sized accounts. See symbol-registry.ts for per-symbol values.
- *
- * minReasonableStop prevents astronomically large lots from micro-pip SL inputs.
+ * riskPercentage = the % of balance the user is willing to LOSE at the SL (not a profit target).
+ * minReasonableSL prevents astronomically large lots from micro-pip SL inputs.
+ * config.maxLotSize is a BROKER CEILING ONLY — never a position sizing constraint.
  */
 export function getScaledMaxLotSize(
   symbol: string,
@@ -541,27 +541,22 @@ export function getScaledMaxLotSize(
   const config = getSymbolConfig(symbol);
   if (!config) return 500.0;
 
-  // PROFIT-FIRST (2026-02-25): riskPercentage is the profit-target % (e.g. 5 for "Aggressive 5%").
-  // profitTargetDollars = what the user wants to EARN on this session (not the SL risk budget).
-  const profitTargetDollars = accountBalance * (riskPercentage / 100);
+  // riskDollars = what the user is willing to lose at the SL
+  const riskDollars = accountBalance * (riskPercentage / 100);
 
-  // Ceiling formula: profitTargetDollars / (minimumReasonableTP × dollarPerPipPerLot)
-  // We use a MINIMUM TP distance so the ceiling is always >= the actual lot needed.
-  // This prevents the ceiling from ever being smaller than a correctly-structured trade.
-  // The coordinator's hard safety ceiling (2× declared %) is the real risk guard.
-  //
-  // Min TP: smallest realistic take-profit distance per asset class.
-  // For a 0.48-lot US30 trade targeting $4,823 at 100pt TP: ceiling = $4,823 / (5 × $100) = 9.6 lots > 0.48 ✓
-  const minReasonableTPByCategory: Record<SymbolCategory, number> = {
-    forex: 1,    // 1 pip minimum TP (very conservative ceiling)
-    index: 5,    // 5 points minimum TP
-    metal: 2,    // 2 points minimum TP (XAUUSD)
-    crypto: 20,  // 20 points minimum TP (BTC/ETH)
-    energy: 5,   // 5 points minimum TP
+  // Ceiling formula: riskDollars / (minimumReasonableSL × dollarPerPipPerLot)
+  // Using minimum SL distance keeps the ceiling generous — actual lot will always be
+  // smaller because the real SL distance is always >= minReasonableSL.
+  const minReasonableSLByCategory: Record<SymbolCategory, number> = {
+    forex: 1,    // 1 pip minimum SL
+    index: 5,    // 5 points minimum SL
+    metal: 2,    // 2 points minimum SL (XAUUSD)
+    crypto: 20,  // 20 points minimum SL (BTC/ETH)
+    energy: 5,   // 5 points minimum SL
   };
 
-  const minTP = minReasonableTPByCategory[config.category] ?? 5;
-  const derivedMax = profitTargetDollars / (minTP * config.dollarPerPipPerLot);
+  const minSL = minReasonableSLByCategory[config.category] ?? 5;
+  const derivedMax = riskDollars / (minSL * config.dollarPerPipPerLot);
 
   return Math.min(derivedMax, config.maxLotSize);
 }

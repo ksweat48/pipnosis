@@ -168,9 +168,11 @@ class SmartGoalSessionManager {
       min_confidence: minConfidence
     });
 
-    // SSOT (2026-02-25): Compute and store risk_percentage at creation time.
-    // This is the profit-target percentage (dollarRisk / accountBalance × 100).
-    // It never recomputes from live balance, preventing lot-sizing drift over sessions.
+    // SSOT: Compute and store risk_percentage at session creation time.
+    // This is the SL risk tolerance: % of balance the user accepts losing at the stop loss.
+    // Formula: dollarRisk / accountBalance × 100 (e.g. $4,823 / $96,476 = 5.0%)
+    // Stored once, never recomputed from live balance — prevents lot-sizing drift.
+    // Lot sizing formula downstream: lot = (balance × risk_percentage%) / (sl_pips × $/pip)
     const riskPercentageAtCreation = accountBalance > 0
       ? Math.round((config.dollarRisk / accountBalance) * 10000) / 100
       : null;
@@ -186,7 +188,7 @@ class SmartGoalSessionManager {
       risk_mode: effectiveRiskMode, // Kept for legacy compatibility
       trade_style: config.tradeStyle,
       dollar_risk: config.dollarRisk,
-      risk_percentage: riskPercentageAtCreation, // SSOT: profit-target % stored once
+      risk_percentage: riskPercentageAtCreation, // SSOT: SL risk tolerance % — stored once at creation
       min_confidence: minConfidence,
       status: 'scanning',
       starting_balance: accountBalance,

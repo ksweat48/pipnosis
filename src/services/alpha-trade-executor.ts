@@ -98,7 +98,7 @@ interface NormalizedSessionData {
   startingBalance: number;
   dollarRisk: number;
   currentProgress: number;
-  riskPercentage: number | null; // SSOT: profit-target %, e.g. 5.0 for "Aggressive 5%"
+  riskPercentage: number | null; // SSOT: SL risk tolerance %, e.g. 5.0 = risk 5% of balance at SL
   raw: any;
 }
 
@@ -254,21 +254,21 @@ class AlphaTradeExecutor {
     );
     currentBalance = tradingBalance;
 
-    // SSOT (2026-02-25): Use session.risk_percentage as the authoritative profit-target %.
-    // This was set once at session creation and never changes with balance fluctuations.
-    // Prior implementation re-computed it as dollar_risk / live_balance, which caused
-    // the lot-sizing inversion bug (treating profit goal as SL risk budget).
+    // SSOT: Use session.risk_percentage as the authoritative SL risk tolerance %.
+    // This is the % of balance the user is willing to LOSE at the stop loss.
+    // It was stored once at session creation and never drifts with live balance.
+    // Lot sizing formula: lot = (balance × riskPct%) / (sl_pips × $/pip_per_lot)
     let baseRiskPercent: number | undefined = undefined;
     if (sessionData.riskPercentage !== null && sessionData.riskPercentage > 0) {
       baseRiskPercent = sessionData.riskPercentage / 100;
       logger.info(
         LogCategory.RISK_MANAGEMENT,
-        '[AlphaTradeExecutor] PROFIT-FIRST: Using session.risk_percentage as authoritative profit-target %',
+        '[AlphaTradeExecutor] RISK-FIRST: Using session.risk_percentage as SL risk tolerance',
         {
           userId,
           sessionId,
           riskPercentage: sessionData.riskPercentage,
-          profitTargetDollars: sessionData.targetValue,
+          riskDollars: (sessionData.riskPercentage / 100 * currentBalance).toFixed(2),
           accountBalance: currentBalance,
           source: 'session.risk_percentage (SSOT — set at session creation)'
         }
@@ -2289,8 +2289,8 @@ class AlphaTradeExecutor {
     const startingBalance = parseFloat(String(session.starting_balance ?? ''));
     const dollarRisk = parseFloat(String(session.dollar_risk ?? '0'));
     const currentProgress = parseFloat(String(session.current_progress ?? '0'));
-    // SSOT (2026-02-25): risk_percentage is the authoritative profit-target percentage.
-    // It is stored at session creation and never recomputed from live balance.
+    // SSOT: risk_percentage is the authoritative SL risk tolerance (e.g. 5.0 = risk 5% at SL).
+    // Stored once at session creation. Never recomputed from live balance.
     // Fallback chain: risk_percentage column → risk_mode string mapping → null
     const riskPercentageRaw = parseFloat(String(session.risk_percentage ?? ''));
     const riskPercentageFromMode = session.risk_mode === 'high' ? 5.0
