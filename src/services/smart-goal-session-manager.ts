@@ -168,6 +168,13 @@ class SmartGoalSessionManager {
       min_confidence: minConfidence
     });
 
+    // SSOT (2026-02-25): Compute and store risk_percentage at creation time.
+    // This is the profit-target percentage (dollarRisk / accountBalance × 100).
+    // It never recomputes from live balance, preventing lot-sizing drift over sessions.
+    const riskPercentageAtCreation = accountBalance > 0
+      ? Math.round((config.dollarRisk / accountBalance) * 10000) / 100
+      : null;
+
     const { error } = await supabase.from('goal_sessions').insert({
       id: sessionId,
       user_id: userId,
@@ -176,9 +183,10 @@ class SmartGoalSessionManager {
       tp1_target: dualTargets.tp1,
       tp2_target: sessionTP2,
       timeframe: generateTimeframe(config.timeframe),
-      risk_mode: effectiveRiskMode, // Still store for legacy compatibility
-      trade_style: config.tradeStyle, // New field
-      dollar_risk: config.dollarRisk, // New field
+      risk_mode: effectiveRiskMode, // Kept for legacy compatibility
+      trade_style: config.tradeStyle,
+      dollar_risk: config.dollarRisk,
+      risk_percentage: riskPercentageAtCreation, // SSOT: profit-target % stored once
       min_confidence: minConfidence,
       status: 'scanning',
       starting_balance: accountBalance,

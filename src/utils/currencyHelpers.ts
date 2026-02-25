@@ -1001,21 +1001,14 @@ export function calculateGoalAwareLotSize(
   console.log(`  ${riskMode.toUpperCase()} Profile: ${minViablePips}-${maxViablePips} ${assetProfile.commonMove.unit} (avg ${commonMovePips.toFixed(0)})`);
   console.log(`  Daily Range: ${typicalDailyRange} points`);
 
-  // SSOT: Use actual user risk percentage if provided, otherwise fall back to profile base
-  // GOVERNANCE: User's risk selection is the single source of truth
+  // SSOT (2026-02-25 PROFIT-FIRST FIX): riskPercent is stored for informational/feasibility
+  // logging only. It is NOT used to cap the lot size here — that is the coordinator's job.
+  // The coordinator is the ONLY authority that may apply an SL-based safety ceiling.
   const riskPercent = riskPercentageAllowed ?? riskProfile.baseRiskPercent;
-  console.log(`  🎯 ACTUAL Risk Used: ${riskPercent}% ${riskPercentageAllowed ? '(user-selected)' : '(profile default)'}`);
+  console.log(`  🎯 Declared profit-target %: ${riskPercent}% ${riskPercentageAllowed ? '(user-selected)' : '(profile default)'}`);
 
-  // Pass isEstimation=true to skip redundant price/symbol range check here.
-  // The GoalAwareLotSizingCoordinator already validates price via checkPriceSymbolMismatch
-  // before calling this function, so a second throw here is spurious.
-  const maxPositionSize = calculatePositionSize(symbol, accountBalance, riskPercent, entryPrice, stopLoss, true);
-
-  console.log(`  Risk Profile Base: ${riskPercent}%`);
-  console.log(`  Max Position Size (risk-based): ${maxPositionSize.toFixed(3)} lots`);
-
-  // REVERSE CALCULATION: What lot size gives us goal profit at target pips?
-  // FIX 2026-02-03: REQUIRE actual TP distance (from Alpha) - no fallback to commonMovePips
+  // REVERSE CALCULATION: What lot size gives us goal profit at Alpha's actual TP?
+  // FIX 2026-02-03: REQUIRE actual TP distance (from Alpha) — no fallback to commonMovePips
   if (!takeProfitPrice || takeProfitPrice === entryPrice) {
     throw new Error(
       `[Lot Sizing] takeProfitPrice REQUIRED for goal-aware sizing. ` +
@@ -1029,27 +1022,23 @@ export function calculateGoalAwareLotSize(
   const requiredLotSizeForOptimal = remainingGoal / (targetPips * dollarPerPipAtOneLot);
 
   console.log(`  Target Pips (ACTUAL TP from Alpha): ${targetPips.toFixed(2)}`);
-  console.log(`  Required Lot Size for goal profit: ${requiredLotSizeForOptimal.toFixed(3)}`);
+  console.log(`  Required Lot Size for profit goal $${remainingGoal.toFixed(2)}: ${requiredLotSizeForOptimal.toFixed(3)}`);
 
-  // 🚨 CRITICAL VALIDATION: Detect position sizing disasters
-  // If commonMovePips is suspiciously low (< 5 pips), the asset profile is misconfigured
+  // 🚨 CRITICAL VALIDATION: Detect asset profile misconfiguration
   if (commonMovePips < 5) {
-    // CCIP: Throw error with detailed message (no console.error spam)
     throw new Error(
       `Asset profile misconfigured for ${symbol}: commonMove=${commonMovePips.toFixed(2)} ${assetProfile.commonMove.unit}. ` +
-      `This value is too small. Asset profiles must specify POINTS/PIPS, not ATR multipliers. ` +
       `Fix commonMove.min/max in asset-class-risk-profiles.ts to use actual pip/point values (e.g., 30-100 for indices).`
     );
   }
 
-  // Cap at max risk-based position size
-  let actualLotSize = Math.min(requiredLotSizeForOptimal, maxPositionSize);
-
-  // SSOT: Use account-balance-scaled ceiling so lot sizes grow with account.
-  // getScaledMaxLotSize uses the user's actual risk % and account balance.
+  // PROFIT-FIRST: Return requiredLotSizeForOptimal directly — DO NOT cap by SL-based risk here.
+  // The GoalAwareLotSizingCoordinator is the SSOT for safety ceiling enforcement.
+  // Capping here would silently undershoot the profit target (the original bug).
   const minLotSize = symbolConfig?.minLotSize || 0.01;
   const maxLotSize = getScaledMaxLotSize(symbol, accountBalance, riskPercent);
-  actualLotSize = Math.max(minLotSize, Math.min(maxLotSize, actualLotSize));
+  // Only apply broker max ceiling (never the SL-based risk cap — coordinator owns that)
+  let actualLotSize = Math.max(minLotSize, Math.min(maxLotSize, requiredLotSizeForOptimal));
 
   // Round to broker standard precision (0.01 lots)
   actualLotSize = roundLotSize(actualLotSize);
@@ -1095,77 +1084,23 @@ export function calculateGoalAwareLotSize(
     reasoning = `${formatLotSize(actualLotSize)} lots. Goal needs only ${pipsNeededForGoal.toFixed(1)} pips. Should be achievable in 1 trade if Alpha finds quality setup. Expected at common moves: $${expectedProfitAtCommonMove.toFixed(2)}.`;
   }
 
-  // SSOT FIX: Use the user's actual riskPercentageAllowed instead of a hardcoded 5% cap.
-  // The hardcoded 0.05 constant was silently overriding the user's risk selection and
-  // producing undersized lot sizes on accounts with high balance × tight stops.
+  // PROFIT-FIRST GOVERNANCE: Log sizing context for audit trail.
+  // SL-based risk cap enforcement is the coordinator's exclusive responsibility.
+  // This function returns the lot that ACHIEVES the profit target at Alpha's TP.
   const stopDistance = Math.abs(entryPrice - stopLoss);
   const stopPips = stopDistance / pipInfo.pipValue;
-  const expectedRisk = stopPips * dollarPerPip;
-  const effectiveRiskPct = riskPercent; // riskPercent = riskPercentageAllowed ?? profile default
-  const maxRiskAllowed = accountBalance * (effectiveRiskPct / 100);
+  const impliedSlRisk = stopPips * dollarPerPip;
+  const impliedRR = targetPips > 0 ? targetPips / stopPips : 0;
 
-  console.log('[GOAL-AWARE LOT SIZING]');
-  console.log(`  Lot Size: ${formatLotSize(actualLotSize)}`);
-  console.log(`  Expected Risk (SL): $${expectedRisk.toFixed(2)}`);
+  console.log('[GOAL-AWARE LOT SIZING — PROFIT-FIRST]');
+  console.log(`  Lot Size (profit-first): ${formatLotSize(actualLotSize)}`);
+  console.log(`  Profit goal at TP: $${remainingGoal.toFixed(2)}`);
+  console.log(`  Implied SL risk at this lot: $${impliedSlRisk.toFixed(2)}`);
+  console.log(`  Implied R:R: ${impliedRR.toFixed(2)}:1`);
   console.log(`  Expected Profit (at ${commonMovePips} pips): $${expectedProfitAtCommonMove.toFixed(2)}`);
   console.log(`  Remaining Goal: $${remainingGoal.toFixed(2)}`);
   console.log(`  Estimated Trades: ${estimatedTradesNeeded}`);
   console.log(`  Feasibility: ${goalFeasibility}`);
-  console.log(`  Max Risk Allowed: $${maxRiskAllowed.toFixed(2)} (${effectiveRiskPct}% user-selected cap)`);
-
-  // ✅ FIX 1: Max Safe Lot Calculation (NOT min lot fallback)
-  if (expectedRisk > maxRiskAllowed) {
-    const riskRatio = expectedRisk / maxRiskAllowed;
-    const riskPercentOfBalance = (expectedRisk / accountBalance) * 100;
-
-    // CCIP: Log to audit trail (in production logging, not console.error spam)
-    if (import.meta.env.DEV) {
-      console.log(
-        `[RISK EXCEEDS CAP] Symbol: ${symbol}, Risk: $${expectedRisk.toFixed(2)} (${riskPercentOfBalance.toFixed(1)}% of balance), Ratio: ${riskRatio.toFixed(2)}x`
-      );
-    }
-
-    // Calculate maximum safe lot size
-    const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot;
-    const safeLot = maxRiskAllowed / (stopPips * dollarPerPipPerLot);
-
-    // CCIP GOVERNANCE: Validate safe lot before using
-    // If calculated safe lot is below minimum, that indicates configuration error
-    const roundedSafeLot = roundLotSize(safeLot);
-    if (roundedSafeLot < minLotSize) {
-      // This should only happen if stop loss is extremely tight or risk cap is too strict
-      // GOVERNANCE: Log the decision to audit trail (no silent degradation)
-      const message = `Goal-Aware Lot Sizing: Calculated safe lot (${roundedSafeLot.toFixed(4)} lots) is below broker minimum (${minLotSize}). ` +
-        `This indicates: (1) stop loss is extremely tight (${stopPips.toFixed(2)} pips), ` +
-        `(2) risk cap (${(maxRiskAllowed / accountBalance * 100).toFixed(1)}%) is too restrictive, or ` +
-        `(3) account balance is too small for this trade. Using minimum lot (${minLotSize}), but trade may be rejected by execution gate.`;
-
-      if (import.meta.env.DEV) {
-        console.warn(`[Goal-Aware Sizing] ${message}`);
-      }
-
-      actualLotSize = minLotSize;
-    } else {
-      actualLotSize = roundedSafeLot;
-    }
-    const newDollarPerPip = calculateDollarPerPip(symbol, actualLotSize);
-    const newExpectedProfit = commonMovePips * newDollarPerPip;
-    const newEstimatedTrades = Math.ceil(remainingGoal / newExpectedProfit);
-
-    console.log(`  ✅ Using safe lot: ${formatLotSize(actualLotSize)}`);
-    console.log(`  New expected profit: $${newExpectedProfit.toFixed(2)}`);
-    console.log(`  New estimated trades: ${newEstimatedTrades}`);
-
-    return {
-      lotSize: actualLotSize,
-      expectedProfitAtCommonMove: newExpectedProfit,
-      remainingGoal,
-      estimatedTradesNeeded: newEstimatedTrades,
-      reasoning: `Position size reduced to ${formatLotSize(actualLotSize)} lots for safe risk of $${maxRiskAllowed.toFixed(2)}. Estimated ${newEstimatedTrades} trades needed at ~$${newExpectedProfit.toFixed(2)} per win.`,
-      goalFeasibility: newEstimatedTrades <= 3 ? 'multiple_trades' : 'unrealistic',
-      feasible: true
-    };
-  }
 
   const minGoalContribution = riskMode === 'high' ? 0.05 : riskMode === 'medium' ? 0.03 : 0.02;
   const progressPercentage = remainingGoal > 0 ? expectedProfitAtCommonMove / remainingGoal : 1;

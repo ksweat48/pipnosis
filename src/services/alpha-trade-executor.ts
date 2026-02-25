@@ -98,6 +98,7 @@ interface NormalizedSessionData {
   startingBalance: number;
   dollarRisk: number;
   currentProgress: number;
+  riskPercentage: number | null; // SSOT: profit-target %, e.g. 5.0 for "Aggressive 5%"
   raw: any;
 }
 
@@ -253,27 +254,45 @@ class AlphaTradeExecutor {
     );
     currentBalance = tradingBalance;
 
-    // SSOT (2026-02-09): dollar_risk comes from normalized session data (already a proper number)
+    // SSOT (2026-02-25): Use session.risk_percentage as the authoritative profit-target %.
+    // This was set once at session creation and never changes with balance fluctuations.
+    // Prior implementation re-computed it as dollar_risk / live_balance, which caused
+    // the lot-sizing inversion bug (treating profit goal as SL risk budget).
     let baseRiskPercent: number | undefined = undefined;
-    if (sessionData.dollarRisk > 0) {
-      baseRiskPercent = sessionData.dollarRisk / currentBalance;
+    if (sessionData.riskPercentage !== null && sessionData.riskPercentage > 0) {
+      baseRiskPercent = sessionData.riskPercentage / 100;
       logger.info(
         LogCategory.RISK_MANAGEMENT,
-        '[AlphaTradeExecutor] Using user-selected risk percentage',
+        '[AlphaTradeExecutor] PROFIT-FIRST: Using session.risk_percentage as authoritative profit-target %',
+        {
+          userId,
+          sessionId,
+          riskPercentage: sessionData.riskPercentage,
+          profitTargetDollars: sessionData.targetValue,
+          accountBalance: currentBalance,
+          source: 'session.risk_percentage (SSOT — set at session creation)'
+        }
+      );
+    } else if (sessionData.dollarRisk > 0) {
+      // Legacy fallback: session predates risk_percentage column (sessions before 2026-02-25)
+      baseRiskPercent = sessionData.dollarRisk / currentBalance;
+      logger.warn(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] LEGACY FALLBACK: risk_percentage not found, deriving from dollar_risk/balance',
         {
           userId,
           sessionId,
           dollarRisk: sessionData.dollarRisk,
           accountBalance: currentBalance,
-          calculatedRiskPercent: (baseRiskPercent * 100).toFixed(2) + '%',
-          source: 'session.dollar_risk (SSOT normalized)'
+          derivedRiskPercent: (baseRiskPercent * 100).toFixed(2) + '%',
+          note: 'Session predates risk_percentage column. Re-run session to get correct sizing.'
         }
       );
     } else {
       logger.info(
         LogCategory.RISK_MANAGEMENT,
-        '[AlphaTradeExecutor] No dollar_risk found, using default risk from UnifiedRiskAuthority',
-        { userId, sessionId, sessionDollarRisk: sessionData.dollarRisk, willUseDefault: true }
+        '[AlphaTradeExecutor] No risk_percentage or dollar_risk found, using default from UnifiedRiskAuthority',
+        { userId, sessionId }
       );
     }
 
@@ -2270,6 +2289,17 @@ class AlphaTradeExecutor {
     const startingBalance = parseFloat(String(session.starting_balance ?? ''));
     const dollarRisk = parseFloat(String(session.dollar_risk ?? '0'));
     const currentProgress = parseFloat(String(session.current_progress ?? '0'));
+    // SSOT (2026-02-25): risk_percentage is the authoritative profit-target percentage.
+    // It is stored at session creation and never recomputed from live balance.
+    // Fallback chain: risk_percentage column → risk_mode string mapping → null
+    const riskPercentageRaw = parseFloat(String(session.risk_percentage ?? ''));
+    const riskPercentageFromMode = session.risk_mode === 'high' ? 5.0
+      : session.risk_mode === 'medium' ? 3.0
+      : session.risk_mode === 'low' ? 1.0
+      : null;
+    const sessionRiskPercentage: number | null = Number.isFinite(riskPercentageRaw) && riskPercentageRaw > 0
+      ? riskPercentageRaw
+      : riskPercentageFromMode;
 
     if (!Number.isFinite(targetValue) || targetValue <= 0) {
       logger.error(
@@ -2339,6 +2369,7 @@ class AlphaTradeExecutor {
         startingBalance,
         dollarRisk: safeDollarRisk,
         currentProgress: safeCurrentProgress,
+        riskPercentage: sessionRiskPercentage,
         raw: session
       }
     };

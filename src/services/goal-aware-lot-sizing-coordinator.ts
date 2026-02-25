@@ -49,11 +49,13 @@ export interface GoalAwareLotSizingInput {
 
 export interface GoalAwareLotSizingDecision {
   chosenLotSize: number; // The lot size to use
-  requiredLotForGoal: number; // What's needed for goal
-  safeLotFromRisk: number; // What risk constraints allow
+  requiredLotForGoal: number; // What's needed to hit profit goal at Alpha's TP
+  safeLotFromRisk: number; // Hard safety ceiling (2x declared %)
+  hardSafetyCapApplied: boolean; // True if safety ceiling was hit
+  impliedRR: number; // R:R ratio of the trade (tp_pips / sl_pips)
   decisionReason:
-    | 'goal_achievable_within_risk'
-    | 'goal_requires_more_risk'
+    | 'profit_target_lot_deployed' // Primary path: lot set to achieve profit goal
+    | 'hard_safety_cap_applied'    // Implied SL risk > 2x declared % — capped with warning
     | 'market_cannot_deliver_goal'
     | 'fallback_risk_constraint'
     | 'degraded_to_safe_lot';
@@ -193,43 +195,86 @@ class GoalAwareLotSizingCoordinator {
 
     const requiredLotForGoal = goalAwareResult.lotSize;
 
-    // STEP 2: Calculate safe lot from risk constraints
-    // Risk formula: lotSize = riskDollars / (slPips × dollarPerPipPerLot)
+    // STEP 2: Compute distances and the hard safety ceiling
+    // The safety ceiling is 2× the declared profit-target percentage applied to the SL.
+    // This prevents genuine disasters (e.g., misconfigured SL within 1 pip of entry),
+    // while never blocking a correctly-structured trade.
+    //
+    // Example: user declares 5% profit target → safety ceiling = 10% of balance at SL
+    //   Account $96,476 × 10% = $9,647 max SL risk
+    //   For US30 73pt SL: safe lot = $9,647 / (73 × $100) = 1.32 lots
+    //   Required lot for $4,823 profit at 100pt TP = 0.48 lots → safely under ceiling
+    //
+    // SSOT: riskPercentageAllowed is the PROFIT TARGET percentage (e.g. 5%).
+    //       It is NOT the per-trade SL risk budget.
     const pipInfo = getCurrencyPipInfo(symbol);
     const dollarPerPipPerLot = pipInfo.dollarPerPipPerLot;
 
-    // Calculate SL distance in pips
     const slDistancePips = Math.abs(stopLossPrice - entryPrice) / pipInfo.pipValue;
     const tpDistancePips = Math.abs(takeProfitPrice - entryPrice) / pipInfo.pipValue;
+    const impliedRR = slDistancePips > 0 ? tpDistancePips / slDistancePips : 0;
 
-    // Risk budget from trade style
-    const riskDollars = (riskPercentageAllowed / 100) * accountBalance;
+    // Hard safety ceiling: 2× declared % applied to SL distance
+    const hardSafetyCeilingDollars = (riskPercentageAllowed * 2 / 100) * accountBalance;
+    const safeLotFromRisk = slDistancePips > 0
+      ? hardSafetyCeilingDollars / (slDistancePips * dollarPerPipPerLot)
+      : requiredLotForGoal; // If SL distance is zero, no ceiling needed (geometry gate will catch it)
 
-    // Safe lot is what risk constraints allow
-    const safeLotFromRisk = riskDollars / (slDistancePips * dollarPerPipPerLot);
-
-    // STEP 3: Determine which lot size to use
+    // STEP 3: PROFIT-FIRST decision
+    // Primary: use the lot that achieves the profit goal at Alpha's TP
+    // Safety: cap only if implied SL risk exceeds the 2× hard ceiling
     let chosenLotSize: number;
+    let hardSafetyCapApplied = false;
     let decisionReason: GoalAwareLotSizingDecision['decisionReason'];
     let reasoning: string;
 
-    // Validate required lot is positive
     if (requiredLotForGoal <= 0 || isNaN(requiredLotForGoal)) {
+      // Fallback: goal calculation failed, use ceiling lot as best available
       chosenLotSize = safeLotFromRisk;
       decisionReason = 'fallback_risk_constraint';
-      reasoning = `Goal calculation failed (invalid required lot: ${requiredLotForGoal}). Using risk constraint only: ${chosenLotSize.toFixed(3)} lots`;
+      reasoning = `Goal calculation returned invalid lot (${requiredLotForGoal}). Using safety ceiling: ${chosenLotSize.toFixed(3)} lots`;
     }
-    // Can goal be achieved within risk limits?
     else if (requiredLotForGoal <= safeLotFromRisk) {
+      // PRIMARY PATH: Profit target lot is within the safety ceiling — deploy it
       chosenLotSize = requiredLotForGoal;
-      decisionReason = 'goal_achievable_within_risk';
-      reasoning = `Goal IS achievable within ${riskPercentageAllowed}% risk. Using ${chosenLotSize.toFixed(3)} lots to target $${(goalAmount - currentProgress).toFixed(2)}`;
+      decisionReason = 'profit_target_lot_deployed';
+      const impliedSlRisk = chosenLotSize * slDistancePips * dollarPerPipPerLot;
+      const impliedSlRiskPct = (impliedSlRisk / accountBalance) * 100;
+      reasoning = (
+        `PROFIT-FIRST: Deploying ${chosenLotSize.toFixed(3)} lots to target ` +
+        `$${(goalAmount - currentProgress).toFixed(2)} profit at TP ` +
+        `(${tpDistancePips.toFixed(1)} pts, R:R ${impliedRR.toFixed(2)}:1). ` +
+        `Implied SL risk: $${impliedSlRisk.toFixed(2)} (${impliedSlRiskPct.toFixed(1)}% of balance) — ` +
+        `within 2x safety ceiling of ${(riskPercentageAllowed * 2).toFixed(0)}%.`
+      );
     }
-    // Goal requires more than safe risk allows
     else {
+      // SAFETY CAP: Profit lot exceeds 2× ceiling — log a visible warning and cap
+      // This should only happen if Alpha's SL is extremely tight relative to the goal
       chosenLotSize = safeLotFromRisk;
-      decisionReason = 'goal_requires_more_risk';
-      reasoning = `Goal requires ${requiredLotForGoal.toFixed(3)} lots (risk: ${((requiredLotForGoal * slDistancePips * dollarPerPipPerLot) / accountBalance * 100).toFixed(1)}%) but limited by ${riskPercentageAllowed}% risk. Degrading to ${chosenLotSize.toFixed(3)} lots.`;
+      hardSafetyCapApplied = true;
+      decisionReason = 'hard_safety_cap_applied';
+      const requiredImpliedRisk = ((requiredLotForGoal * slDistancePips * dollarPerPipPerLot) / accountBalance * 100).toFixed(1);
+      const ceilingPct = (riskPercentageAllowed * 2).toFixed(0);
+      reasoning = (
+        `SAFETY CAP APPLIED: Profit target requires ${requiredLotForGoal.toFixed(3)} lots ` +
+        `(implies ${requiredImpliedRisk}% SL risk), which exceeds the ${ceilingPct}% hard ceiling. ` +
+        `Capped to ${chosenLotSize.toFixed(3)} lots. ` +
+        `This trade's R:R (${impliedRR.toFixed(2)}:1) may be too unfavourable for the goal size. ` +
+        `Expected profit at capped lot: $${(chosenLotSize * tpDistancePips * dollarPerPipPerLot).toFixed(2)}.`
+      );
+      logger.warn(
+        LogCategory.RISK_MANAGEMENT,
+        '[Goal-Aware Lot Sizing] Hard safety cap applied — profit lot exceeds 2x ceiling',
+        {
+          symbol, requiredLotForGoal: requiredLotForGoal.toFixed(3),
+          safeLotFromRisk: safeLotFromRisk.toFixed(3),
+          impliedRR: impliedRR.toFixed(2),
+          requiredImpliedRisk: requiredImpliedRisk + '%',
+          ceilingPct: ceilingPct + '%',
+          riskPercentageAllowed
+        }
+      );
     }
 
     // STEP 4: Calculate expected outcomes
@@ -250,7 +295,7 @@ class GoalAwareLotSizingCoordinator {
       }
     );
 
-    // STEP 5: Log to audit trail
+    // STEP 5: Log to audit trail (CCIP governance)
     const auditRecordId = await this.logDecision({
       userId,
       goalSessionId,
@@ -270,12 +315,17 @@ class GoalAwareLotSizingCoordinator {
       expectedProfitAtTP,
       expectedLossAtSL,
       expectedRiskDollars,
+      impliedRRRatio: impliedRR,
+      profitTargetDollars: goalAmount - currentProgress,
+      hardSafetyCapApplied,
     });
 
     return {
       chosenLotSize,
       requiredLotForGoal,
       safeLotFromRisk,
+      hardSafetyCapApplied,
+      impliedRR,
       decisionReason,
       expectedProfitAtTP,
       expectedLossAtSL,
@@ -308,6 +358,9 @@ class GoalAwareLotSizingCoordinator {
     expectedProfitAtTP: number;
     expectedLossAtSL: number;
     expectedRiskDollars: number;
+    impliedRRRatio: number;
+    profitTargetDollars: number;
+    hardSafetyCapApplied: boolean;
   }): Promise<string | undefined> {
     try {
       const { data, error } = await supabase
@@ -332,6 +385,9 @@ class GoalAwareLotSizingCoordinator {
           expected_profit_at_tp: params.expectedProfitAtTP,
           expected_loss_at_sl: params.expectedLossAtSL,
           expected_risk_dollars: params.expectedRiskDollars,
+          implied_rr_ratio: params.impliedRRRatio,
+          profit_target_dollars: params.profitTargetDollars,
+          hard_safety_cap_applied: params.hardSafetyCapApplied,
         })
         .select('id')
         .single();
