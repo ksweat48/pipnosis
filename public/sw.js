@@ -116,6 +116,71 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
+// Push event - display notification when received from server (mobile/desktop background)
+self.addEventListener('push', (event) => {
+  console.log('[SW] Push event received');
+
+  let payload = {
+    title: 'Pipnosis',
+    body: 'You have a new trading alert.',
+    icon: '/icon-192.png',
+    badge: '/notification-badge.png',
+    tag: 'pipnosis-alert',
+    data: {}
+  };
+
+  if (event.data) {
+    try {
+      const parsed = event.data.json();
+      payload = {
+        title: parsed.title || payload.title,
+        body: parsed.body || payload.body,
+        icon: parsed.icon || payload.icon,
+        badge: parsed.badge || payload.badge,
+        tag: parsed.tag || payload.tag,
+        data: parsed.data || {}
+      };
+    } catch (e) {
+      const text = event.data.text();
+      if (text) payload.body = text;
+    }
+  }
+
+  const options = {
+    body: payload.body,
+    icon: payload.icon,
+    badge: payload.badge,
+    tag: payload.tag,
+    data: payload.data,
+    vibrate: [200, 100, 200],
+    requireInteraction: false
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title, options)
+  );
+});
+
+// Notification click - focus the app window when user taps notification
+self.addEventListener('notificationclick', (event) => {
+  console.log('[SW] Notification clicked:', event.notification.tag);
+  event.notification.close();
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then((clientList) => {
+        for (const client of clientList) {
+          if (client.url && 'focus' in client) {
+            return client.focus();
+          }
+        }
+        if (self.clients.openWindow) {
+          return self.clients.openWindow('/');
+        }
+      })
+  );
+});
+
 // Message event - handle SKIP_WAITING from update manager
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {

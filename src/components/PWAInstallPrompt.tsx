@@ -34,9 +34,7 @@ export function PWAInstallPrompt() {
       return;
     }
 
-    if (!isMobileDevice()) {
-      return;
-    }
+    // Show on all devices (including desktop)
 
     const dismissed = localStorage.getItem('pwa-install-dismissed');
     if (dismissed) {
@@ -80,8 +78,8 @@ export function PWAInstallPrompt() {
   if (isInstalled || !showPrompt) return null;
 
   return (
-    <div className="fixed bottom-20 left-4 right-4 z-50 animate-slide-up">
-      <div className="bg-gradient-to-r from-slate-900 to-slate-800 border border-green-500/30 rounded-xl shadow-2xl p-4">
+    <div className="fixed bottom-6 left-0 right-0 z-50 flex justify-center px-4 animate-slide-up">
+      <div className="w-full max-w-sm bg-gradient-to-r from-slate-900 to-slate-800 border border-green-500/30 rounded-xl shadow-2xl p-4">
         <button
           onClick={handleDismiss}
           className="absolute top-2 right-2 text-slate-400 hover:text-white transition-colors"
@@ -115,3 +113,4 @@ export function PWAInstallPrompt() {
     </div>
   );
 }
+

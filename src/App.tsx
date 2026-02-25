@@ -21,6 +21,7 @@ import { WeekendProtectionBanner } from './components/WeekendProtectionBanner';
 import { OpenAIQuotaBanner } from './components/OpenAIQuotaBanner';
 import { realtimeTradeNotificationListener } from './services/realtime-trade-notification-listener';
 import { GoalAchievedCountdownModal } from './components/GoalAchievedCountdownModal';
+import { useNotificationPermission } from './hooks/useNotificationPermission';
 
 // Lazy load all pages for code splitting
 const LandingPage = lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
@@ -75,6 +76,7 @@ const ReferralCodeCapture: React.FC = () => {
 const AppRoutes: React.FC = () => {
   const { user, loading } = useAuth();
   const toast = useToast();
+  useNotificationPermission(user?.id);
   const [showMidTradeModal, setShowMidTradeModal] = useState(false);
   const [loadingTimeout, setLoadingTimeout] = useState(false);
   const [countdownModalData, setCountdownModalData] = useState<{

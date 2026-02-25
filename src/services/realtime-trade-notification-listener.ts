@@ -25,6 +25,7 @@
 
 import { supabase } from '../lib/supabase';
 import { globalDialogManager } from './global-dialog-manager';
+import { audioAlertService } from './audio-alert-service';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
 interface NotificationRecord {
@@ -142,45 +143,81 @@ class RealtimeTradeNotificationListener {
           }
           break;
 
-        case 'trade_closed':
-        case 'stop_loss_hit':
-        case 'take_profit_hit':
-          // CCIP FIX (2026-02-20 DUAL-MODAL-FIX): Resolve tradeId from both camelCase
-          // and snake_case metadata keys. The modalNotificationBridge stores dialogData.data
-          // as metadata (camelCase keys: tradeId). The tradeClosureCoordinator's
-          // notificationCoordinator path writes snake_case keys (trade_id). Both must
-          // resolve to the same dedup key in GlobalDialogManager: `trade_closed-<uuid>`.
-          // Without this fallback, a metadata object with only `trade_id` would produce
-          // dedup key `trade_closed-undefined` and bypass the 30-second dedup window.
-          //
-          // CCIP FIX (2026-02-24 MODAL-PIPELINE-FIX): closeReason MUST come from the
-          // trade metadata (the actual database close_reason), NOT from notification.type.
-          // notification.type is the notification event category (e.g. "stop_loss_hit"),
-          // not the canonical CloseReason value. Passing notification.type as closeReason
-          // caused mapDatabaseToCloseReason() to fall through to the default 'manual' case,
-          // showing "Manually Closed" for ALL trade outcomes including SL and TP hits.
-          // Priority: metadata.closeReason (camelCase) > metadata.close_reason (snake_case)
-          // > notification.type (last-resort fallback, now also handled by mapper aliases).
+        case 'stop_loss_hit': {
+          const slTradeId = notification.metadata?.tradeId || notification.metadata?.trade_id;
+          if (slTradeId) {
+            audioAlertService.playTradeLoss(slTradeId);
+          }
           globalDialogManager.showTradeClosed({
-            tradeId: notification.metadata?.tradeId || notification.metadata?.trade_id,
+            tradeId: slTradeId,
             symbol: notification.metadata?.symbol,
             closeReason: notification.metadata?.closeReason || notification.metadata?.close_reason || notification.type,
             pnl: notification.metadata?.pnl,
             title: notification.title,
             message: notification.message
-          }, { skipPersist: true }); // SSOT: Notification record already exists
+          }, { skipPersist: true });
           break;
+        }
 
-        case 'tp1_hit':
-          // Show TP1 milestone notification
+        case 'take_profit_hit': {
+          const tpTradeId = notification.metadata?.tradeId || notification.metadata?.trade_id;
+          if (tpTradeId) {
+            audioAlertService.playTradeProfit(tpTradeId);
+          }
+          globalDialogManager.showTradeClosed({
+            tradeId: tpTradeId,
+            symbol: notification.metadata?.symbol,
+            closeReason: notification.metadata?.closeReason || notification.metadata?.close_reason || notification.type,
+            pnl: notification.metadata?.pnl,
+            title: notification.title,
+            message: notification.message
+          }, { skipPersist: true });
+          break;
+        }
+
+        case 'trade_closed': {
+          // CCIP FIX (2026-02-20 DUAL-MODAL-FIX): Resolve tradeId from both camelCase
+          // and snake_case metadata keys. The modalNotificationBridge stores dialogData.data
+          // as metadata (camelCase keys: tradeId). The tradeClosureCoordinator's
+          // notificationCoordinator path writes snake_case keys (trade_id). Both must
+          // resolve to the same dedup key in GlobalDialogManager: `trade_closed-<uuid>`.
+          //
+          // CCIP FIX (2026-02-24 MODAL-PIPELINE-FIX): closeReason MUST come from the
+          // trade metadata (the actual database close_reason), NOT from notification.type.
+          const tcTradeId = notification.metadata?.tradeId || notification.metadata?.trade_id;
+          const tcPnl = notification.metadata?.pnl;
+          if (tcTradeId) {
+            if (typeof tcPnl === 'number' && tcPnl >= 0) {
+              audioAlertService.playTradeProfit(tcTradeId);
+            } else if (tcTradeId) {
+              audioAlertService.playTradeLoss(tcTradeId);
+            }
+          }
+          globalDialogManager.showTradeClosed({
+            tradeId: tcTradeId,
+            symbol: notification.metadata?.symbol,
+            closeReason: notification.metadata?.closeReason || notification.metadata?.close_reason || notification.type,
+            pnl: tcPnl,
+            title: notification.title,
+            message: notification.message
+          }, { skipPersist: true });
+          break;
+        }
+
+        case 'tp1_hit': {
+          const tp1TradeId = notification.metadata?.tradeId || notification.metadata?.trade_id;
+          if (tp1TradeId) {
+            audioAlertService.playTradeProfit(tp1TradeId);
+          }
           globalDialogManager.showTradeSignal({
             type: 'tp1_milestone',
             symbol: notification.metadata?.symbol,
             title: notification.title,
             message: notification.message,
-            tradeId: notification.metadata?.tradeId
-          }, 'high', { skipPersist: true }); // SSOT: Notification record already exists
+            tradeId: tp1TradeId
+          }, 'high', { skipPersist: true });
           break;
+        }
 
         case 'entry_monitoring_started':
           globalDialogManager.showAlphaIntent({
