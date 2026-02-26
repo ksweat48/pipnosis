@@ -437,15 +437,15 @@ export const SmartGoalPanel: React.FC = () => {
             {(() => {
               const cta = getMembershipCTA(userMembership);
               return (
-                <div className={`relative mt-2 overflow-hidden rounded-xl border ${cta.isFounder ? 'border-amber-500/40' : 'border-emerald-500/25'}`}>
-                  <div className={`absolute inset-0 ${cta.isFounder ? 'bg-gradient-to-br from-amber-900/40 via-yellow-900/30 to-gray-900/60' : 'bg-gradient-to-br from-emerald-900/40 via-teal-900/30 to-gray-900/60'}`} />
+                <div className={`relative mt-2 overflow-hidden rounded-xl border ${cta.isFounder ? 'border-amber-500/40' : 'border-blue-500/40'}`}>
+                  <div className={`absolute inset-0 ${cta.isFounder ? 'bg-gradient-to-br from-amber-900/40 via-yellow-900/30 to-gray-900/60' : 'bg-gradient-to-br from-blue-900/50 via-blue-800/30 to-gray-900/60'}`} />
                   <div className="relative p-4">
                     <div className="flex items-center justify-between mb-2">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${cta.isFounder ? 'bg-amber-500/20' : 'bg-emerald-500/20'}`}>
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${cta.isFounder ? 'bg-amber-500/20' : 'bg-blue-500/20'}`}>
                         {cta.isFounder ? (
                           <Crown className="w-4 h-4 text-amber-400" />
                         ) : (
-                          <Sparkles className="w-4 h-4 text-emerald-400" />
+                          <Sparkles className="w-4 h-4 text-blue-300" />
                         )}
                       </div>
                       {cta.isFounder ? (
@@ -455,13 +455,13 @@ export const SmartGoalPanel: React.FC = () => {
                       ) : (
                         <a
                           href="/club"
-                          className="px-3 py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-500/90 text-white text-xs font-semibold transition-colors whitespace-nowrap"
+                          className="px-3 py-1.5 rounded-lg bg-blue-600/80 hover:bg-blue-500/90 text-white text-xs font-semibold transition-colors whitespace-nowrap"
                         >
                           {cta.label}
                         </a>
                       )}
                     </div>
-                    <p className="text-sm font-bold text-white mb-1">Improve Your Edge</p>
+                    <p className="text-sm font-bold text-blue-300 mb-1">Improve Your Edge</p>
                     <p className="text-xs text-gray-400 leading-relaxed">
                       {cta.isFounder
                         ? 'You have unlocked maximum trading intelligence and the full power of the Pipnosis ecosystem.'
