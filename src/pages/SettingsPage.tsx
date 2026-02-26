@@ -641,6 +641,168 @@ export function SettingsPage() {
           </div>
         ) : (
           <div className="space-y-6">
+            {/* Membership Edge Monitors — distinct amber/gold styling */}
+            <div className="bg-amber-950/20 backdrop-blur-sm border border-amber-700/40 rounded-xl p-6">
+              <button
+                onClick={() => toggleSection('tradingMonitors')}
+                className="flex items-center gap-3 mb-2 w-full text-left group"
+              >
+                <Crown size={20} className="text-amber-400" />
+                <h2 className="text-xl font-semibold text-amber-100 flex-1">Membership Edge Monitors</h2>
+                <ChevronDown
+                  size={20}
+                  className={`text-amber-500 transition-transform duration-200 ${
+                    collapsedSections.tradingMonitors ? '' : 'rotate-180'
+                  }`}
+                />
+              </button>
+
+              {!collapsedSections.tradingMonitors && (
+                <>
+                <p className="text-sm text-amber-200/60 mb-6">
+                  Live intelligence monitors displayed on the Smart Goal page. Each monitor is unlocked by a membership tier and stacks with higher tiers.
+                </p>
+
+                {(() => {
+                  const tierLevel = membership?.status === 'active' ? (membership?.tierLevel ?? 0) : 0;
+                  const tierName = membership?.status === 'active' ? (membership?.tierName ?? null) : null;
+
+                  const canAccessEntry = tierLevel >= 1;   // Member $99+
+                  const canAccessMidTrade = tierLevel >= 2; // Starter $250+
+                  const canAccessRTI = tierLevel >= 3;      // Builder $500+
+
+                  const LockedBadge = ({ requiredTier, price }: { requiredTier: string; price: string }) => (
+                    <div className="flex items-center gap-1.5 px-3 py-1 bg-gray-800/80 border border-gray-600/50 rounded-full">
+                      <LockIcon size={12} className="text-gray-400" />
+                      <span className="text-xs text-gray-400 font-medium">{requiredTier} {price}</span>
+                    </div>
+                  );
+
+                  const Toggle = ({ checked, onChange }: { checked: boolean; onChange: () => void }) => (
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" checked={checked} onChange={onChange} className="sr-only peer" />
+                      <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-amber-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                    </label>
+                  );
+
+                  return (
+                    <>
+                      {monitorMessage && (
+                        <div className={`mb-4 p-4 rounded-lg flex items-center gap-3 ${monitorMessage.type === 'success' ? 'bg-green-900/20 border border-green-700/30 text-green-400' : 'bg-red-900/20 border border-red-700/30 text-red-400'}`}>
+                          {monitorMessage.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
+                          <span>{monitorMessage.text}</span>
+                        </div>
+                      )}
+
+                      {tierName && (
+                        <div className="mb-4 flex items-center gap-2 px-3 py-2 bg-amber-900/30 border border-amber-700/40 rounded-lg w-fit">
+                          <Crown size={14} className="text-amber-400" />
+                          <span className="text-xs text-amber-300 font-semibold">Active: {tierName}</span>
+                        </div>
+                      )}
+
+                      <div className="space-y-3">
+                        {/* Entry Advisory — Member $99 */}
+                        <div className={`flex items-center justify-between p-4 rounded-lg border transition-colors ${canAccessEntry ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-900/30 border-gray-800/50 opacity-70'}`}>
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <TrendingUp size={18} className={canAccessEntry ? 'text-emerald-400 shrink-0' : 'text-gray-600 shrink-0'} />
+                            <div className="min-w-0">
+                              <div className={`font-medium text-sm flex items-center gap-2 flex-wrap ${canAccessEntry ? 'text-white' : 'text-gray-500'}`}>
+                                Entry Advisory
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-900/40 border border-emerald-700/40 text-emerald-400 font-normal">Member $99</span>
+                              </div>
+                              <div className="text-xs text-gray-500 mt-0.5">Real-time entry advisory comparing live price to Alpha's target for better timing</div>
+                            </div>
+                          </div>
+                          <div className="shrink-0 ml-3">
+                            {canAccessEntry
+                              ? <Toggle checked={monitorPreferences.entryPriceMonitorEnabled} onChange={() => handleMonitorToggle('entryPriceMonitorEnabled')} />
+                              : <LockedBadge requiredTier="Member" price="$99" />
+                            }
+                          </div>
+                        </div>
+
+                        {/* Mid-Trade Intelligence — Starter $250 */}
+                        <div className={`flex items-center justify-between p-4 rounded-lg border transition-colors ${canAccessMidTrade ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-900/30 border-gray-800/50 opacity-70'}`}>
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <Activity size={18} className={canAccessMidTrade ? 'text-amber-400 shrink-0' : 'text-gray-600 shrink-0'} />
+                            <div className="min-w-0">
+                              <div className={`font-medium text-sm flex items-center gap-2 flex-wrap ${canAccessMidTrade ? 'text-white' : 'text-gray-500'}`}>
+                                Mid-Trade Intelligence
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-900/40 border border-amber-700/40 text-amber-400 font-normal">Starter $250</span>
+                              </div>
+                              <div className="text-xs text-gray-500 mt-0.5">Real-time guidance during active trades with P&amp;L and risk alerts</div>
+                            </div>
+                          </div>
+                          <div className="shrink-0 ml-3">
+                            {canAccessMidTrade
+                              ? <Toggle checked={monitorPreferences.midTradeMonitorEnabled} onChange={() => handleMonitorToggle('midTradeMonitorEnabled')} />
+                              : <LockedBadge requiredTier="Starter" price="$250" />
+                            }
+                          </div>
+                        </div>
+
+                        {/* Real-Time Intelligence — Builder $500 */}
+                        <div className={`flex items-center justify-between p-4 rounded-lg border transition-colors ${canAccessRTI ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-900/30 border-gray-800/50 opacity-70'}`}>
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <Clock size={18} className={canAccessRTI ? 'text-blue-400 shrink-0' : 'text-gray-600 shrink-0'} />
+                            <div className="min-w-0">
+                              <div className={`font-medium text-sm flex items-center gap-2 flex-wrap ${canAccessRTI ? 'text-white' : 'text-gray-500'}`}>
+                                Real-Time Intelligence
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-900/40 border border-blue-700/40 text-blue-400 font-normal">Builder $500</span>
+                              </div>
+                              <div className="text-xs text-gray-500 mt-0.5">Best pairs for current trading session with live market conditions</div>
+                            </div>
+                          </div>
+                          <div className="shrink-0 ml-3">
+                            {canAccessRTI
+                              ? <Toggle checked={monitorPreferences.sessionIntelligenceEnabled} onChange={() => handleMonitorToggle('sessionIntelligenceEnabled')} />
+                              : <LockedBadge requiredTier="Builder" price="$500" />
+                            }
+                          </div>
+                        </div>
+                      </div>
+
+                      {!canAccessRTI && (
+                        <div className="mt-4 p-4 bg-amber-900/20 border border-amber-700/30 rounded-lg">
+                          <div className="flex items-start gap-3">
+                            <Crown size={16} className="text-amber-400 mt-0.5 shrink-0" />
+                            <div className="text-sm text-amber-200/80">
+                              <p className="font-medium mb-1 text-amber-300">Unlock More Intelligence</p>
+                              <p>Each membership tier unlocks additional monitors. Higher tiers include all lower-tier benefits. Visit the Club to upgrade your membership.</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {(canAccessEntry || canAccessMidTrade || canAccessRTI) && (
+                        <div className="mt-6 flex justify-end">
+                          <button
+                            onClick={handleSaveMonitorPreferences}
+                            disabled={savingMonitors}
+                            className="flex items-center gap-2 px-6 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-700 text-white rounded-lg transition-colors"
+                          >
+                            {savingMonitors ? (
+                              <>
+                                <div className="animate-spin h-4 w-4 border-2 border-white/30 border-t-white rounded-full"></div>
+                                <span>Saving...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Save size={18} />
+                                <span>Save Monitor Settings</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+                </>
+              )}
+            </div>
+
             <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-xl p-6">
               <button
                 onClick={() => toggleSection('accountInfo')}
@@ -894,168 +1056,6 @@ export function SettingsPage() {
                 </button>
               </div>
               </>
-              )}
-            </div>
-
-            {/* Membership Edge Monitors — distinct amber/gold styling */}
-            <div className="bg-amber-950/20 backdrop-blur-sm border border-amber-700/40 rounded-xl p-6">
-              <button
-                onClick={() => toggleSection('tradingMonitors')}
-                className="flex items-center gap-3 mb-2 w-full text-left group"
-              >
-                <Crown size={20} className="text-amber-400" />
-                <h2 className="text-xl font-semibold text-amber-100 flex-1">Membership Edge Monitors</h2>
-                <ChevronDown
-                  size={20}
-                  className={`text-amber-500 transition-transform duration-200 ${
-                    collapsedSections.tradingMonitors ? '' : 'rotate-180'
-                  }`}
-                />
-              </button>
-
-              {!collapsedSections.tradingMonitors && (
-                <>
-                <p className="text-sm text-amber-200/60 mb-6">
-                  Live intelligence monitors displayed on the Smart Goal page. Each monitor is unlocked by a membership tier and stacks with higher tiers.
-                </p>
-
-                {(() => {
-                  const tierLevel = membership?.status === 'active' ? (membership?.tierLevel ?? 0) : 0;
-                  const tierName = membership?.status === 'active' ? (membership?.tierName ?? null) : null;
-
-                  const canAccessEntry = tierLevel >= 1;   // Member $99+
-                  const canAccessMidTrade = tierLevel >= 2; // Starter $250+
-                  const canAccessRTI = tierLevel >= 3;      // Builder $500+
-
-                  const LockedBadge = ({ requiredTier, price }: { requiredTier: string; price: string }) => (
-                    <div className="flex items-center gap-1.5 px-3 py-1 bg-gray-800/80 border border-gray-600/50 rounded-full">
-                      <LockIcon size={12} className="text-gray-400" />
-                      <span className="text-xs text-gray-400 font-medium">{requiredTier} {price}</span>
-                    </div>
-                  );
-
-                  const Toggle = ({ checked, onChange }: { checked: boolean; onChange: () => void }) => (
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" checked={checked} onChange={onChange} className="sr-only peer" />
-                      <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-amber-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
-                    </label>
-                  );
-
-                  return (
-                    <>
-                      {monitorMessage && (
-                        <div className={`mb-4 p-4 rounded-lg flex items-center gap-3 ${monitorMessage.type === 'success' ? 'bg-green-900/20 border border-green-700/30 text-green-400' : 'bg-red-900/20 border border-red-700/30 text-red-400'}`}>
-                          {monitorMessage.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
-                          <span>{monitorMessage.text}</span>
-                        </div>
-                      )}
-
-                      {tierName && (
-                        <div className="mb-4 flex items-center gap-2 px-3 py-2 bg-amber-900/30 border border-amber-700/40 rounded-lg w-fit">
-                          <Crown size={14} className="text-amber-400" />
-                          <span className="text-xs text-amber-300 font-semibold">Active: {tierName}</span>
-                        </div>
-                      )}
-
-                      <div className="space-y-3">
-                        {/* Entry Advisory — Member $99 */}
-                        <div className={`flex items-center justify-between p-4 rounded-lg border transition-colors ${canAccessEntry ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-900/30 border-gray-800/50 opacity-70'}`}>
-                          <div className="flex items-center gap-3 flex-1 min-w-0">
-                            <TrendingUp size={18} className={canAccessEntry ? 'text-emerald-400 shrink-0' : 'text-gray-600 shrink-0'} />
-                            <div className="min-w-0">
-                              <div className={`font-medium text-sm flex items-center gap-2 flex-wrap ${canAccessEntry ? 'text-white' : 'text-gray-500'}`}>
-                                Entry Advisory
-                                <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-900/40 border border-emerald-700/40 text-emerald-400 font-normal">Member $99</span>
-                              </div>
-                              <div className="text-xs text-gray-500 mt-0.5">Real-time entry advisory comparing live price to Alpha's target for better timing</div>
-                            </div>
-                          </div>
-                          <div className="shrink-0 ml-3">
-                            {canAccessEntry
-                              ? <Toggle checked={monitorPreferences.entryPriceMonitorEnabled} onChange={() => handleMonitorToggle('entryPriceMonitorEnabled')} />
-                              : <LockedBadge requiredTier="Member" price="$99" />
-                            }
-                          </div>
-                        </div>
-
-                        {/* Mid-Trade Intelligence — Starter $250 */}
-                        <div className={`flex items-center justify-between p-4 rounded-lg border transition-colors ${canAccessMidTrade ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-900/30 border-gray-800/50 opacity-70'}`}>
-                          <div className="flex items-center gap-3 flex-1 min-w-0">
-                            <Activity size={18} className={canAccessMidTrade ? 'text-amber-400 shrink-0' : 'text-gray-600 shrink-0'} />
-                            <div className="min-w-0">
-                              <div className={`font-medium text-sm flex items-center gap-2 flex-wrap ${canAccessMidTrade ? 'text-white' : 'text-gray-500'}`}>
-                                Mid-Trade Intelligence
-                                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-900/40 border border-amber-700/40 text-amber-400 font-normal">Starter $250</span>
-                              </div>
-                              <div className="text-xs text-gray-500 mt-0.5">Real-time guidance during active trades with P&amp;L and risk alerts</div>
-                            </div>
-                          </div>
-                          <div className="shrink-0 ml-3">
-                            {canAccessMidTrade
-                              ? <Toggle checked={monitorPreferences.midTradeMonitorEnabled} onChange={() => handleMonitorToggle('midTradeMonitorEnabled')} />
-                              : <LockedBadge requiredTier="Starter" price="$250" />
-                            }
-                          </div>
-                        </div>
-
-                        {/* Real-Time Intelligence — Builder $500 */}
-                        <div className={`flex items-center justify-between p-4 rounded-lg border transition-colors ${canAccessRTI ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-900/30 border-gray-800/50 opacity-70'}`}>
-                          <div className="flex items-center gap-3 flex-1 min-w-0">
-                            <Clock size={18} className={canAccessRTI ? 'text-blue-400 shrink-0' : 'text-gray-600 shrink-0'} />
-                            <div className="min-w-0">
-                              <div className={`font-medium text-sm flex items-center gap-2 flex-wrap ${canAccessRTI ? 'text-white' : 'text-gray-500'}`}>
-                                Real-Time Intelligence
-                                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-900/40 border border-blue-700/40 text-blue-400 font-normal">Builder $500</span>
-                              </div>
-                              <div className="text-xs text-gray-500 mt-0.5">Best pairs for current trading session with live market conditions</div>
-                            </div>
-                          </div>
-                          <div className="shrink-0 ml-3">
-                            {canAccessRTI
-                              ? <Toggle checked={monitorPreferences.sessionIntelligenceEnabled} onChange={() => handleMonitorToggle('sessionIntelligenceEnabled')} />
-                              : <LockedBadge requiredTier="Builder" price="$500" />
-                            }
-                          </div>
-                        </div>
-                      </div>
-
-                      {!canAccessRTI && (
-                        <div className="mt-4 p-4 bg-amber-900/20 border border-amber-700/30 rounded-lg">
-                          <div className="flex items-start gap-3">
-                            <Crown size={16} className="text-amber-400 mt-0.5 shrink-0" />
-                            <div className="text-sm text-amber-200/80">
-                              <p className="font-medium mb-1 text-amber-300">Unlock More Intelligence</p>
-                              <p>Each membership tier unlocks additional monitors. Higher tiers include all lower-tier benefits. Visit the Club to upgrade your membership.</p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {(canAccessEntry || canAccessMidTrade || canAccessRTI) && (
-                        <div className="mt-6 flex justify-end">
-                          <button
-                            onClick={handleSaveMonitorPreferences}
-                            disabled={savingMonitors}
-                            className="flex items-center gap-2 px-6 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-700 text-white rounded-lg transition-colors"
-                          >
-                            {savingMonitors ? (
-                              <>
-                                <div className="animate-spin h-4 w-4 border-2 border-white/30 border-t-white rounded-full"></div>
-                                <span>Saving...</span>
-                              </>
-                            ) : (
-                              <>
-                                <Save size={18} />
-                                <span>Save Monitor Settings</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
-                </>
               )}
             </div>
 
