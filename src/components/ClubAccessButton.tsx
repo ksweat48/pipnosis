@@ -29,10 +29,14 @@ export const ClubAccessButton: React.FC<ClubAccessButtonProps> = ({ userId }) =>
       className="fixed right-4 z-50 flex items-center justify-end"
       style={{ bottom: 'calc(60px + 16px + env(safe-area-inset-bottom))' }}
     >
-      <div className="flex items-center bg-purple-600 hover:bg-purple-700 text-white rounded-full shadow-lg transition-all duration-300 overflow-hidden" style={{ maxWidth: 'calc(100vw - 2rem)' }}>
+      <div
+        className="flex items-center bg-purple-600 hover:bg-purple-700 text-white rounded-full shadow-lg transition-all duration-300 overflow-hidden cursor-pointer"
+        style={{ maxWidth: 'calc(100vw - 2rem)' }}
+        onClick={handleNavigate}
+      >
         <button
           onClick={handleToggle}
-          className="flex items-center justify-center p-3 transition-colors duration-200"
+          className="flex items-center justify-center p-3 transition-colors duration-200 shrink-0"
           aria-label={isOpen ? 'Collapse label' : 'Expand label'}
         >
           {isOpen ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
@@ -48,14 +52,9 @@ export const ClubAccessButton: React.FC<ClubAccessButtonProps> = ({ userId }) =>
           </span>
         </div>
 
-        <button
-          onClick={handleNavigate}
-          className="flex items-center justify-center p-3 transition-colors duration-200"
-          aria-label={buttonLabel}
-          title={buttonLabel}
-        >
+        <div className="flex items-center justify-center p-3 shrink-0">
           <DoorOpen size={22} />
-        </button>
+        </div>
       </div>
     </div>
   );
