@@ -386,17 +386,21 @@ export const SmartGoalPanel: React.FC = () => {
               {/* Club Level Badge — SSOT: derived from clubMembershipService */}
               {userMembership !== undefined && (
                 <div className="flex justify-center mb-3">
-                  {userMembership && userMembership.status === 'active' ? (
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-500/40">
-                      <Crown className="w-3 h-3 text-amber-400" />
-                      <span className="text-xs font-bold text-amber-300 tracking-wide">{userMembership.tierName}</span>
-                    </div>
-                  ) : (
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-400/60">
-                      <Lock className="w-3 h-3 text-blue-400" />
-                      <span className="text-xs font-bold text-blue-300">Not Yet A Club Member</span>
-                    </div>
-                  )}
+                  {(() => {
+                    const pillCta = getMembershipCTA(userMembership);
+                    const c = pillCta.color;
+                    return userMembership && userMembership.status === 'active' ? (
+                      <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full ${c.pill} border ${c.pillBorder}`}>
+                        <Crown className={`w-3 h-3 ${c.iconText}`} />
+                        <span className={`text-xs font-bold ${c.pillText} tracking-wide`}>{userMembership.tierName}</span>
+                      </div>
+                    ) : (
+                      <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full ${c.pill} border ${c.pillBorder}`}>
+                        <Lock className={`w-3 h-3 ${c.iconText}`} />
+                        <span className={`text-xs font-bold ${c.pillText}`}>Not Yet A Club Member</span>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
               <h3 className="text-lg font-bold text-white mb-2">Choose Your Trading Style</h3>
@@ -436,32 +440,33 @@ export const SmartGoalPanel: React.FC = () => {
             {/* Club CTA Banner — always visible on style step */}
             {(() => {
               const cta = getMembershipCTA(userMembership);
+              const c = cta.color;
               return (
-                <div className={`relative mt-2 overflow-hidden rounded-xl border ${cta.isFounder ? 'border-amber-500/40' : 'border-blue-500/40'}`}>
-                  <div className={`absolute inset-0 ${cta.isFounder ? 'bg-gradient-to-br from-amber-900/40 via-yellow-900/30 to-gray-900/60' : 'bg-gradient-to-br from-blue-900/50 via-blue-800/30 to-gray-900/60'}`} />
+                <div className={`relative mt-2 overflow-hidden rounded-xl border ${c.bannerBorder}`}>
+                  <div className={`absolute inset-0 ${c.bannerBg}`} />
                   <div className="relative p-4">
                     <div className="flex items-center justify-between mb-2">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${cta.isFounder ? 'bg-amber-500/20' : 'bg-blue-500/20'}`}>
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${c.iconBg}`}>
                         {cta.isFounder ? (
-                          <Crown className="w-4 h-4 text-amber-400" />
+                          <Crown className={`w-4 h-4 ${c.iconText}`} />
                         ) : (
-                          <Sparkles className="w-4 h-4 text-blue-300" />
+                          <Sparkles className={`w-4 h-4 ${c.iconText}`} />
                         )}
                       </div>
                       {cta.isFounder ? (
-                        <div className="px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-400 text-xs font-bold whitespace-nowrap">
+                        <div className={`px-3 py-1.5 rounded-lg ${c.btnBg} border ${c.bannerBorder} ${c.headingText} text-xs font-bold whitespace-nowrap`}>
                           Edge 100%
                         </div>
                       ) : (
                         <a
                           href="/club"
-                          className="px-3 py-1.5 rounded-lg bg-blue-600/80 hover:bg-blue-500/90 text-white text-xs font-semibold transition-colors whitespace-nowrap"
+                          className={`px-3 py-1.5 rounded-lg ${c.btnBg} ${c.btnHover} text-white text-xs font-semibold transition-colors whitespace-nowrap`}
                         >
                           {cta.label}
                         </a>
                       )}
                     </div>
-                    <p className="text-sm font-bold text-blue-300 mb-1">Improve Your Edge</p>
+                    <p className={`text-sm font-bold ${c.headingText} mb-1`}>Improve Your Edge</p>
                     <p className="text-xs text-gray-400 leading-relaxed">
                       {cta.isFounder
                         ? 'You have unlocked maximum trading intelligence and the full power of the Pipnosis ecosystem.'
