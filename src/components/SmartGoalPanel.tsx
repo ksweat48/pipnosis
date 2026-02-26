@@ -392,9 +392,9 @@ export const SmartGoalPanel: React.FC = () => {
                       <span className="text-xs font-bold text-amber-300 tracking-wide">{userMembership.tierName}</span>
                     </div>
                   ) : (
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gray-700/50 border border-gray-600/50">
-                      <Lock className="w-3 h-3 text-gray-500" />
-                      <span className="text-xs font-medium text-gray-500">Not Yet A Club Member</span>
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-400/60">
+                      <Lock className="w-3 h-3 text-blue-400" />
+                      <span className="text-xs font-bold text-blue-300">Not Yet A Club Member</span>
                     </div>
                   )}
                 </div>
