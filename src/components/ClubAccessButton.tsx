@@ -26,10 +26,10 @@ export const ClubAccessButton: React.FC<ClubAccessButtonProps> = ({ userId }) =>
 
   return (
     <div
-      className="fixed left-4 right-4 z-50 flex items-center justify-start"
+      className="fixed right-4 z-50 flex items-center justify-end"
       style={{ bottom: 'calc(60px + 16px + env(safe-area-inset-bottom))' }}
     >
-      <div className="flex items-center bg-purple-600 hover:bg-purple-700 text-white rounded-full shadow-lg transition-all duration-300 overflow-hidden max-w-full">
+      <div className="flex items-center bg-purple-600 hover:bg-purple-700 text-white rounded-full shadow-lg transition-all duration-300 overflow-hidden" style={{ maxWidth: 'calc(100vw - 2rem)' }}>
         <button
           onClick={handleToggle}
           className="flex items-center justify-center p-3 transition-colors duration-200"
