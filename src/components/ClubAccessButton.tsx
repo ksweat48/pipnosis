@@ -1,5 +1,5 @@
-import React from 'react';
-import { DoorOpen } from 'lucide-react';
+import React, { useState } from 'react';
+import { DoorOpen, ChevronRight, ChevronLeft } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 interface ClubAccessButtonProps {
@@ -9,37 +9,51 @@ interface ClubAccessButtonProps {
 export const ClubAccessButton: React.FC<ClubAccessButtonProps> = ({ userId }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [isOpen, setIsOpen] = useState(true);
 
   const isInClub = location.pathname.startsWith('/club');
   const targetRoute = isInClub ? '/trade' : '/club';
-  const buttonLabel = isInClub ? 'Return to AI Trading' : 'Access Pipnosis Club';
+  const buttonLabel = isInClub ? 'Return to AI Trading' : 'Enter the Club and Chat with Members';
 
-  const handleClick = () => {
+  const handleNavigate = () => {
     navigate(targetRoute);
   };
 
-  if (isInClub) {
-    return (
-      <button
-        onClick={handleClick}
-        className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-purple-600/50 hover:bg-purple-500/60 text-white rounded-full p-4 shadow-lg transition-all duration-300 hover:scale-110 backdrop-blur-sm"
-        aria-label={buttonLabel}
-        title={buttonLabel}
-      >
-        <DoorOpen size={24} />
-      </button>
-    );
-  }
+  const handleToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsOpen(prev => !prev);
+  };
 
   return (
-    <button
-      onClick={handleClick}
-      className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-purple-600/50 hover:bg-purple-500/60 text-white rounded-full px-5 py-3 shadow-lg transition-all duration-300 hover:scale-105 flex items-center gap-3 backdrop-blur-sm"
-      aria-label={buttonLabel}
-      title={buttonLabel}
-    >
-      <span className="text-sm font-semibold whitespace-nowrap">Enter the Club and Chat with Members</span>
-      <DoorOpen size={22} />
-    </button>
+    <div className="fixed bottom-28 right-4 z-50 flex items-center">
+      <div className="flex items-center bg-purple-600 hover:bg-purple-700 text-white rounded-full shadow-lg transition-all duration-300 overflow-hidden">
+        <button
+          onClick={handleToggle}
+          className="flex items-center justify-center p-3 transition-colors duration-200"
+          aria-label={isOpen ? 'Collapse label' : 'Expand label'}
+        >
+          {isOpen ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+        </button>
+
+        <div
+          className={`flex items-center overflow-hidden transition-all duration-300 ease-in-out ${
+            isOpen ? 'max-w-xs opacity-100' : 'max-w-0 opacity-0'
+          }`}
+        >
+          <span className="text-sm font-semibold whitespace-nowrap pr-1">
+            {buttonLabel}
+          </span>
+        </div>
+
+        <button
+          onClick={handleNavigate}
+          className="flex items-center justify-center p-3 transition-colors duration-200"
+          aria-label={buttonLabel}
+          title={buttonLabel}
+        >
+          <DoorOpen size={22} />
+        </button>
+      </div>
+    </div>
   );
 };
