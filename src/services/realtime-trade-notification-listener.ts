@@ -148,14 +148,11 @@ class RealtimeTradeNotificationListener {
           if (slTradeId) {
             audioAlertService.playTradeLoss(slTradeId);
           }
-          globalDialogManager.showTradeClosed({
-            tradeId: slTradeId,
-            symbol: notification.metadata?.symbol,
-            closeReason: notification.metadata?.closeReason || notification.metadata?.close_reason || notification.type,
-            pnl: notification.metadata?.pnl,
-            title: notification.title,
-            message: notification.message
-          }, { skipPersist: true });
+          await this.fetchAndShowTradeClosedModal(
+            slTradeId,
+            notification.metadata?.closeReason || notification.metadata?.close_reason || 'stop_loss',
+            notification.session_id
+          );
           break;
         }
 
@@ -164,26 +161,19 @@ class RealtimeTradeNotificationListener {
           if (tpTradeId) {
             audioAlertService.playTradeProfit(tpTradeId);
           }
-          globalDialogManager.showTradeClosed({
-            tradeId: tpTradeId,
-            symbol: notification.metadata?.symbol,
-            closeReason: notification.metadata?.closeReason || notification.metadata?.close_reason || notification.type,
-            pnl: notification.metadata?.pnl,
-            title: notification.title,
-            message: notification.message
-          }, { skipPersist: true });
+          await this.fetchAndShowTradeClosedModal(
+            tpTradeId,
+            notification.metadata?.closeReason || notification.metadata?.close_reason || 'take_profit',
+            notification.session_id
+          );
           break;
         }
 
         case 'trade_closed': {
-          // CCIP FIX (2026-02-20 DUAL-MODAL-FIX): Resolve tradeId from both camelCase
-          // and snake_case metadata keys. The modalNotificationBridge stores dialogData.data
-          // as metadata (camelCase keys: tradeId). The tradeClosureCoordinator's
-          // notificationCoordinator path writes snake_case keys (trade_id). Both must
-          // resolve to the same dedup key in GlobalDialogManager: `trade_closed-<uuid>`.
-          //
-          // CCIP FIX (2026-02-24 MODAL-PIPELINE-FIX): closeReason MUST come from the
-          // trade metadata (the actual database close_reason), NOT from notification.type.
+          // CCIP FIX (2026-02-27 MODAL-DATA-FIX): Fetch full trade record from DB so
+          // entryPrice, exitPrice, profitLoss, stopLoss, takeProfit are always populated.
+          // Previously only metadata fields (pnl, symbol) were passed — causing all price
+          // fields to display as 0 when this path won the GlobalDialogManager dedup race.
           const tcTradeId = notification.metadata?.tradeId || notification.metadata?.trade_id;
           const tcPnl = notification.metadata?.pnl;
           if (tcTradeId) {
@@ -193,14 +183,11 @@ class RealtimeTradeNotificationListener {
               audioAlertService.playTradeLoss(tcTradeId);
             }
           }
-          globalDialogManager.showTradeClosed({
-            tradeId: tcTradeId,
-            symbol: notification.metadata?.symbol,
-            closeReason: notification.metadata?.closeReason || notification.metadata?.close_reason || notification.type,
-            pnl: tcPnl,
-            title: notification.title,
-            message: notification.message
-          }, { skipPersist: true });
+          await this.fetchAndShowTradeClosedModal(
+            tcTradeId,
+            notification.metadata?.closeReason || notification.metadata?.close_reason || 'manual',
+            notification.session_id
+          );
           break;
         }
 
@@ -239,6 +226,85 @@ class RealtimeTradeNotificationListener {
       console.error('[RealtimeTradeListener] ⚠️ Failed to handle notification insert:', error);
       // Non-blocking
     }
+  }
+
+  /**
+   * CCIP FIX (2026-02-27 MODAL-DATA-FIX): Fetch full trade + session data from the
+   * database before showing the trade-closed modal.
+   *
+   * SSOT Authority: goal_session_trades and goal_sessions are the source of truth for
+   * trade prices, P&L, and session progress. The goal_notifications metadata only
+   * carries a partial snapshot (symbol, pnl) for push notifications — it is NOT
+   * sufficient to render the modal with full price details.
+   *
+   * This method is the single enrichment point for all three notification paths that
+   * can show a trade-closed modal: stop_loss_hit, take_profit_hit, trade_closed.
+   * Centralising here ensures any future path also gets correct data automatically.
+   */
+  private async fetchAndShowTradeClosedModal(
+    tradeId: string | undefined,
+    closeReason: string,
+    sessionId: string | null
+  ): Promise<void> {
+    if (!tradeId) {
+      globalDialogManager.showTradeClosed({
+        closeReason,
+        symbol: 'UNKNOWN',
+      }, { skipPersist: true });
+      return;
+    }
+
+    const { data: trade } = await supabase
+      .from('goal_session_trades')
+      .select('id, symbol, direction, entry_price, exit_price, profit_loss, stop_loss, take_profit, goal_session_id, tp1_pnl, tp2_pnl')
+      .eq('id', tradeId)
+      .maybeSingle();
+
+    const resolvedSessionId = trade?.goal_session_id || sessionId;
+    let currentProgress = 0;
+    let targetValue = 0;
+    let tradesInSession = 0;
+    let dollarRisk = 0;
+
+    if (resolvedSessionId) {
+      const { data: session } = await supabase
+        .from('goal_sessions')
+        .select('current_progress, target_value, dollar_risk')
+        .eq('id', resolvedSessionId)
+        .maybeSingle();
+
+      if (session) {
+        currentProgress = session.current_progress || 0;
+        targetValue = session.target_value || 0;
+        dollarRisk = session.dollar_risk || 0;
+      }
+
+      const { count } = await supabase
+        .from('goal_session_trades')
+        .select('*', { count: 'exact', head: true })
+        .eq('goal_session_id', resolvedSessionId);
+
+      tradesInSession = count || 0;
+    }
+
+    globalDialogManager.showTradeClosed({
+      tradeId,
+      symbol: trade?.symbol || 'UNKNOWN',
+      direction: trade?.direction || 'buy',
+      entryPrice: trade?.entry_price || 0,
+      exitPrice: trade?.exit_price || 0,
+      profitLoss: trade?.profit_loss || 0,
+      closeReason,
+      stopLoss: trade?.stop_loss || 0,
+      takeProfit: trade?.take_profit || 0,
+      currentProgress,
+      targetValue,
+      tradesInSession,
+      dollarRisk,
+      isGoalAchieved: targetValue > 0 && currentProgress >= targetValue,
+      tp1Pnl: trade?.tp1_pnl ?? null,
+      tp2Pnl: trade?.tp2_pnl ?? null,
+    }, { skipPersist: true });
   }
 
   /**

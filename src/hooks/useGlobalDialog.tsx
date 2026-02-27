@@ -203,6 +203,7 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
           targetValue={currentDialog.data.targetValue || 0}
           tradesInSession={currentDialog.data.tradesInSession || 0}
           isGoalAchieved={currentDialog.data.isGoalAchieved || false}
+          dollarRisk={currentDialog.data.dollarRisk || 0}
           timestamp={currentDialog.data.timestamp}
           onStartNewSession={currentDialog.data.onStartNewSession || (() => {})}
           onContinueSession={currentDialog.data.onContinueSession || (() => {})}

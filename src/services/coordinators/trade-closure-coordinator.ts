@@ -510,7 +510,7 @@ class TradeClosureCoordinator {
       // Get session and trade data for modal
       const { data: session } = await supabase
         .from('goal_sessions')
-        .select('target_value, current_progress')
+        .select('target_value, current_progress, dollar_risk')
         .eq('id', sessionId)
         .maybeSingle();
 
@@ -554,6 +554,7 @@ class TradeClosureCoordinator {
           take_profit: closedTrade.take_profit,
           current_progress: session.current_progress || 0,
           target_value: targetValue,
+          dollar_risk: session.dollar_risk || 0,
           trades_in_session: tradesCount || 0,
           isGoalAchieved,
           // CCIP FIX (2026-02-19): Carry tradeId so GlobalDialogManager can deduplicate

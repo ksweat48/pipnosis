@@ -20,7 +20,6 @@ import { ClubAccessButton } from './components/ClubAccessButton';
 import { WeekendProtectionBanner } from './components/WeekendProtectionBanner';
 import { OpenAIQuotaBanner } from './components/OpenAIQuotaBanner';
 import { realtimeTradeNotificationListener } from './services/realtime-trade-notification-listener';
-import { GoalAchievedCountdownModal } from './components/GoalAchievedCountdownModal';
 import { useNotificationPermission } from './hooks/useNotificationPermission';
 
 // Lazy load all pages for code splitting
@@ -79,14 +78,6 @@ const AppRoutes: React.FC = () => {
   useNotificationPermission(user?.id);
   const [showMidTradeModal, setShowMidTradeModal] = useState(false);
   const [loadingTimeout, setLoadingTimeout] = useState(false);
-  const [countdownModalData, setCountdownModalData] = useState<{
-    isOpen: boolean;
-    modalId: string;
-    sessionId: string;
-    goalAmount: number;
-    currentProfit: number;
-    symbol?: string;
-  } | null>(null);
 
   // Add loading timeout to prevent infinite loading state
   useEffect(() => {
@@ -259,17 +250,7 @@ const AppRoutes: React.FC = () => {
         const modal = pendingModals[0];
         const modalData = modal.modal_data;
 
-        if (modal.modal_type === 'goal_achieved_countdown') {
-          // Show goal achievement countdown modal (1 minute to decide)
-          setCountdownModalData({
-            isOpen: true,
-            modalId: modal.id,
-            sessionId: modal.goal_session_id || modalData.session_id,
-            goalAmount: modalData.target_value,
-            currentProfit: modalData.current_progress,
-            symbol: modalData.symbol,
-          });
-        } else if (modal.modal_type === 'goal_achieved') {
+        if (modal.modal_type === 'goal_achieved') {
           // Show goal achieved celebration
           globalDialogManager.showGoalAchieved({
             symbol: modalData.symbol,
@@ -305,6 +286,7 @@ const AppRoutes: React.FC = () => {
             targetValue: modalData.target_value,
             tradesInSession: modalData.trades_in_session,
             isGoalAchieved: modalData.isGoalAchieved || false,
+            dollarRisk: modalData.dollar_risk || 0,
             sessionId: modal.goal_session_id,
             tradeId: modalData.trade_id,
             timestamp: modalData.timestamp || modal.created_at,
@@ -672,28 +654,6 @@ const AppRoutes: React.FC = () => {
         isOpen={showMidTradeModal}
         onClose={() => setShowMidTradeModal(false)}
       />
-      {countdownModalData && (
-        <GoalAchievedCountdownModal
-          isOpen={countdownModalData.isOpen}
-          modalId={countdownModalData.modalId}
-          sessionId={countdownModalData.sessionId}
-          goalAmount={countdownModalData.goalAmount}
-          currentProfit={countdownModalData.currentProfit}
-          symbol={countdownModalData.symbol}
-          onClose={() => {
-            setCountdownModalData(null);
-            // Check for more pending modals
-            (async () => {
-              const { modalQueueManager } = await import('./services/modal-queue-manager');
-              const pendingModals = await modalQueueManager.getPendingModals(user?.id || '');
-              if (pendingModals.length > 0) {
-                // Trigger checkPendingModals again
-                window.location.reload();
-              }
-            })();
-          }}
-        />
-      )}
     </>
   );
 };

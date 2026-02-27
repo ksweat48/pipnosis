@@ -21,6 +21,7 @@ interface TradeClosedActionDialogProps {
   targetValue: number;
   tradesInSession: number;
   isGoalAchieved: boolean;
+  dollarRisk?: number;
   onStartNewSession: () => void;
   onContinueSession?: () => void;
   onCloseForNow: () => void;
@@ -69,6 +70,7 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
   targetValue = 100,
   tradesInSession = 0,
   isGoalAchieved = false,
+  dollarRisk = 0,
   onStartNewSession,
   onCloseForNow,
   isLoading = false,
@@ -166,8 +168,6 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
 
   const isProfit = displayProfitLoss > 0;
   const isLoss = displayProfitLoss < 0;
-  const progressPercent = safeTargetValue > 0 ? (safeCurrentProgress / safeTargetValue) * 100 : 0;
-  const remaining = safeTargetValue - safeCurrentProgress;
 
   const reasonText = getCloseReasonText(displayReason);
   const reasonColor = getCloseReasonColor(displayReason);
@@ -301,37 +301,26 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
                 </div>
               </div>
 
-              {/* Session Progress */}
+              {/* Session Summary */}
               <div className="bg-gray-800/30 rounded-xl p-3 border border-gray-700/30">
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="text-[10px] text-gray-400">Session Progress</div>
-                  <div className="text-[10px] font-semibold text-white">{progressPercent.toFixed(1)}%</div>
-                </div>
-
-                <div className="relative w-full bg-gray-700 rounded-full h-1.5 mb-2.5">
-                  <div
-                    className="absolute top-0 left-0 h-full bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full transition-all duration-500"
-                    style={{ width: `${Math.min(progressPercent, 100)}%` }}
-                  />
-                </div>
-
+                <div className="text-[10px] text-gray-400 mb-2">Session Summary</div>
                 <div className="grid grid-cols-3 gap-1 text-[10px]">
                   <div>
-                    <div className="text-gray-500">Current</div>
-                    <div className="font-semibold text-white">${safeCurrentProgress.toFixed(0)}</div>
+                    <div className="text-gray-500">Session P&L</div>
+                    <div className={`font-semibold ${safeCurrentProgress > 0 ? 'text-emerald-400' : safeCurrentProgress < 0 ? 'text-red-400' : 'text-white'}`}>
+                      {safeCurrentProgress >= 0 ? '+' : ''}${safeCurrentProgress.toFixed(2)}
+                    </div>
                   </div>
                   <div>
-                    <div className="text-gray-500">Remaining</div>
-                    <div className="font-semibold text-white">${remaining.toFixed(0)}</div>
+                    <div className="text-gray-500">Risk / Trade</div>
+                    <div className="font-semibold text-white">
+                      {dollarRisk > 0 ? `$${dollarRisk.toFixed(0)}` : '—'}
+                    </div>
                   </div>
                   <div>
-                    <div className="text-gray-500">Target</div>
-                    <div className="font-semibold text-white">${safeTargetValue.toFixed(0)}</div>
+                    <div className="text-gray-500">Trades</div>
+                    <div className="font-semibold text-white">{safeTradesInSession}</div>
                   </div>
-                </div>
-
-                <div className="mt-1.5 text-[10px] text-gray-500">
-                  {safeTradesInSession} trade{safeTradesInSession !== 1 ? 's' : ''} in session
                 </div>
               </div>
 

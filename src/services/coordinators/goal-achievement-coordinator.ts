@@ -143,15 +143,20 @@ class GoalAchievementCoordinator {
         return null;
       }
 
-      // Check if countdown already started (prevent duplicate modals)
+      // CCIP GOVERNANCE (2026-02-27): Goal countdown modal removed.
+      // Users no longer set profit goals — they set dollar risk per trade.
+      // The trade runs to its natural TP without user intervention.
+      // When the trade closes (TP or SL) the standard TradeClosedActionDialog fires
+      // via the trade_closure_events pipeline (SSOT: tradeClosureCoordinator).
+      //
+      // We still stamp the journal so the goal-reached milestone is recorded,
+      // and we mark goal_countdown_started_at to prevent reprocessing.
       if (sessionData.goal_countdown_started_at) {
-        console.log(`[GoalAchievementCoordinator] Goal countdown already started for session ${context.sessionId}`);
+        console.log(`[GoalAchievementCoordinator] Goal achievement already recorded for session ${context.sessionId}`);
         return null;
       }
 
-      const goalAmount = sessionData.target_value;
-
-      // Mark countdown as started in database
+      // Mark achievement as recorded (reusing goal_countdown_started_at as a guard flag)
       await supabase
         .from('goal_sessions')
         .update({
@@ -161,42 +166,13 @@ class GoalAchievementCoordinator {
 
       this.recentAchievements.set(context.sessionId, Date.now());
 
-      // CCIP 2026-02-18: Stamp the triggering trade's journal entry NOW so the
-      // goal-hit moment is always recorded regardless of what the user clicks.
+      // CCIP 2026-02-18: Stamp the triggering trade's journal entry so the
+      // goal-hit moment is always recorded for analytics.
       await this.stampGoalAchievementOnJournal(context.sessionId, finalPnL);
 
-      // Create 1-minute countdown modal
-      const modalResult = await modalQueueManager.createPendingModal(
-        context.userId,
-        context.sessionId,
-        'goal_achieved_countdown',
-        {
-          current_progress: finalPnL,
-          target_value: goalAmount,
-          trades_in_session: 1,
-          session_id: context.sessionId,
-          timeout_minutes: 1,
-          message: `You've reached your $${goalAmount.toFixed(2)} goal! Choose to continue to Take Profit or close now.`,
-        }
-      );
+      console.log(`[GoalAchievementCoordinator] ✅ Goal achievement recorded for session ${context.sessionId} — trade continues to natural TP`);
 
-      if (!modalResult.success) {
-        console.error(`[GoalAchievementCoordinator] Failed to create countdown modal:`, modalResult.error);
-        // Rollback countdown flag if modal creation failed
-        await supabase
-          .from('goal_sessions')
-          .update({ goal_countdown_started_at: null })
-          .eq('id', context.sessionId);
-        return null;
-      }
-
-      // SSOT: Notification is created by modalNotificationBridge.captureDialog() when the modal is shown.
-      // DO NOT call notificationCoordinator.send() here - it creates a duplicate goal_notifications
-      // record AND a duplicate push notification. The bridge handles both DB insert + push dispatch.
-
-      console.log(`[GoalAchievementCoordinator] ✅ Goal countdown modal created for session ${context.sessionId} - user has 1 minute to respond`);
-
-      // Return null since achievement is not finalized yet (waiting for user response)
+      // Return null — trade continues; TradeClosedActionDialog fires when it actually closes.
       return null;
     } finally {
       this.processingLocks.delete(lockKey);
@@ -365,18 +341,11 @@ class GoalAchievementCoordinator {
   }
 
   /**
-   * Handle user action from goal countdown modal
-   *
-   * SSOT: This is the ONLY place that processes goal countdown responses
-   *
-   * CCIP 2026-02-18:
-   * - 'close_now':     closes the open trade via RPC so TradeClosureEventProcessor
-   *                    fires and updates the journal with final closure data.
-   * - 'continue_to_tp': records the action; post-trade-analyzer will update the
-   *                    journal with TP1/TP2 milestone data when the trade closes.
-   *
-   * @param sessionId - Goal session ID
-   * @param action - User's choice: 'continue_to_tp' or 'close_now'
+   * @deprecated CCIP GOVERNANCE (2026-02-27): Goal countdown modal removed.
+   * Users no longer set profit targets — they set dollar risk per trade.
+   * Trades run to their natural TP/SL. This method is kept for backward
+   * compatibility with any remaining database records but should never be
+   * called from new code paths.
    */
   async handleGoalCountdownAction(
     sessionId: string,
@@ -532,13 +501,8 @@ class GoalAchievementCoordinator {
   }
 
   /**
-   * Handle goal countdown timeout (no user response after 1 minute)
-   *
-   * DEFAULT BEHAVIOR: Continue trade to TP unchanged (do NOT modify SL)
-   *
-   * GOVERNANCE: This is CCIP-compliant - timeout defaults to safe continuation
-   *
-   * @param sessionId - Goal session ID
+   * @deprecated CCIP GOVERNANCE (2026-02-27): Goal countdown modal removed.
+   * Kept for backward compatibility — should never be called from new code.
    */
   async handleGoalCountdownTimeout(sessionId: string): Promise<{ success: boolean; error?: string }> {
     try {
