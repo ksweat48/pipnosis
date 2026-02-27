@@ -528,6 +528,13 @@ class GoalSessionLiveEngine {
         logger.error(LogCategory.AI_TRADING, '[AlphaThoughts] Failed to clear old thoughts', { error });
       }
 
+      // 🧹 SCAN RESET: Clear in-memory thesis cache for this session before each scan
+      // Prevents expired thesis fingerprints from prior scans contaminating current scan
+      // DB-backed entry_thesis_memory records have TTLs and self-expire; this clears the memory layer only
+      if (activeSession) {
+        entryThesisMemoryService.clearSessionCache(activeSession);
+      }
+
       // ✅ ENTRY MONITOR: Block global rescans during ENTRY_MONITOR mode
       // Monitor state NO LONGER blocks Alpha from scanning - Alpha decides
       if (activeSession) {
@@ -1222,25 +1229,41 @@ class GoalSessionLiveEngine {
       const scanEndTime = Date.now();
       const scanDurationMs = scanEndTime - orchestratorStartTime;
       try {
-        // Build all candidates from rankings
-        // ✅ SSOT FIX: Validate rankings exists before mapping
-        const allCandidates: ScanCandidate[] = (bestSymbolResult.rankings || []).map(ranking => {
-          const symbol = ranking.symbol;
-          const decision = filteredDecisions.get(symbol);
-          const snapshot = filteredSnapshots.find(s => s.symbol === symbol);
+        // Build all candidates from allEvaluations (SSOT: BestSymbolResult.allEvaluations is the correct property)
+        // allEvaluations contains every symbol that passed eligibility gates in the best-symbol-selector
+        // When no symbol is selected, allEvaluations is empty — fall back to filteredDecisions for diagnostics
+        const eligibleEvaluations = bestSymbolResult.allEvaluations || [];
 
-          return {
-            symbol,
-            action: decision?.action === 'WAIT' ? 'WAIT' : (decision?.action || 'WAIT') as 'BUY' | 'SELL' | 'WAIT',
-            confidence: decision?.confidence || 0,
-            score: ranking.totalScore,
-            reasoning: ranking.detailedBreakdown || '',
-            trend: snapshot?.trend,
-            volatility: snapshot?.volatility,
-            session: snapshot?.session,
-            adversarialLevel: snapshot?.adversarialLevel
-          };
-        });
+        const allCandidates: ScanCandidate[] = eligibleEvaluations.length > 0
+          ? eligibleEvaluations.map(evaluation => ({
+              symbol: evaluation.symbol,
+              action: evaluation.omegaDecision?.action === 'WAIT'
+                ? 'WAIT'
+                : (evaluation.omegaDecision?.action || 'WAIT') as 'BUY' | 'SELL' | 'WAIT',
+              confidence: evaluation.primaryScore || 0,
+              score: evaluation.primaryScore || 0,
+              reasoning: evaluation.reasoning?.join('. ') || '',
+              trend: evaluation.snapshot?.trend,
+              volatility: evaluation.snapshot?.volatility,
+              adversarialLevel: evaluation.snapshot?.adversarial?.level
+            }))
+          : Array.from(filteredDecisions.entries())
+              .filter(([, dec]) => dec?.action && dec.action !== 'NO_TRADE')
+              .map(([symbol, dec]) => {
+                const snapshot = filteredSnapshots.find(s => s.symbol === symbol);
+                return {
+                  symbol,
+                  action: dec?.action === 'WAIT'
+                    ? 'WAIT'
+                    : (dec?.action || 'WAIT') as 'BUY' | 'SELL' | 'WAIT',
+                  confidence: dec?.confidence || 0,
+                  score: dec?.confidence || 0,
+                  reasoning: dec?.reasoning || '',
+                  trend: snapshot?.trend,
+                  volatility: snapshot?.volatility,
+                  adversarialLevel: snapshot?.adversarial?.level
+                };
+              });
 
         const topCandidate = allCandidates[0] || null;
         const topCandidateDecision = topCandidate ? filteredDecisions.get(topCandidate.symbol) : null;
