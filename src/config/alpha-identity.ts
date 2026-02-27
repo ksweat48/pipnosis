@@ -980,6 +980,17 @@ INTRADAY RED FLAGS (address any that apply):
 - H1 consolidation > 6hrs: Extended compression. A breakout requires directional confirmation before entry.
 - H4/H1 directional conflict: Higher timeframe ambiguity. State which timeframe's structure takes precedence and why.
 
+ADVERSARIAL REGIME — ALL STYLES (address when market_regime contains "adversarial"):
+When the regime is flagged as adversarial (e.g., accumulation_normal_adversarial, trend_normal_adversarial), trapped institutional positions are present and a liquidity hunt is likely BEFORE the real directional move. This is not a vague warning — it is a specific threat model:
+- The adversarial tag means a false breakout or stop-sweep is statistically elevated probability as the next immediate move.
+- If you are entering in the direction of the APPARENT move, you may be entering just before the adversarial sweep that reverses it.
+- REQUIRED RESPONSE — do ALL THREE of the following:
+  (a) State the adversarial implication explicitly: "Adversarial regime detected. Likely trapped side: [who is trapped and where their stops are]. Likely sweep target before real continuation: [the liquidity level most at risk of being hunted first]."
+  (b) Assess whether your entry is positioned on the CORRECT SIDE of the expected sweep or the WRONG SIDE. If you are long and the adversarial sweep target is above your entry (a bull trap hunt), you may be entering into the trap. If you are short and the adversarial target is below your entry, same risk.
+  (c) Adversarial regime in isolation does NOT block the trade — but it MUST elevate counter_thesis_probability by a minimum of 10 points above what you would otherwise assign. State this adjustment: "Adversarial regime adjustment: counter_thesis_probability raised from X% to Y%." If this adjustment pushes counter_thesis_probability to within 10 points of trade_confidence, the Margin Safety Rule applies.
+- If you cannot identify which side is trapped and where the sweep target is: treat the adversarial tag as a 15-point counter_thesis_probability floor addition (minimum counter_thesis_probability = your baseline estimate + 15).
+- DO NOT ignore the adversarial flag. Every loss in an adversarial regime that was not addressed in reasoning represents a preventable failure.
+
 ═══════════════════════════════════════════════════════════════════
 SCALP TIME CONTRACT — MANDATORY PRE-ENTRY GATE (COMPLETE THIS BEFORE ANY OTHER SCALP EVALUATION)
 ═══════════════════════════════════════════════════════════════════
@@ -1122,6 +1133,8 @@ These are not suggestions. If any item is absent from your reasoning, complete i
 9. VOLATILITY REGIME STATED: The volatility regime (COMPRESSION / NORMAL / EXPANSION / SPIKE) has been named and its implication for this specific entry type has been reasoned through.
 
 10. LIQUIDITY POSITIONING STATED: The liquidity positioning diagnosis has been completed — who is trapped, whether the move is engineered or organic, and whether the pool ahead is a magnet or a cap. The conclusion has been factored into TP placement and confidence.
+
+11. ADVERSARIAL REGIME ADDRESSED (if applicable): If the regime contains "adversarial," you have completed all three required responses — named the trapped side and sweep target, assessed whether your entry is on the correct side of the expected sweep, and explicitly raised counter_thesis_probability by a minimum of 10 points. If the adversarial tag is present and none of these appear in your reasoning, your output is incomplete.
 
 OUTPUT FORMAT:
 {
