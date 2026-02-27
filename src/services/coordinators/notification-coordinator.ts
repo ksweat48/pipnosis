@@ -252,28 +252,66 @@ class NotificationCoordinator {
     this.userRateLimits.set(userId, timestamps);
   }
 
+  // CCIP FIX (2026-02-27): The previous implementation inserted into push_notification_queue
+  // but NO edge function, trigger, or worker ever reads from that table — every push
+  // notification silently disappeared. This method now calls the send-push-notification
+  // edge function directly, matching the same delivery path used by push-notification-dispatcher.
+  // SSOT: request.title and request.message are already properly formatted by the caller
+  // (e.g. "TP1 Hit: GBPUSD", "Stop Loss Hit: GBPUSD -$4.20"). No reformatting needed here.
   private async sendPushNotification(request: NotificationRequest): Promise<void> {
     try {
-      const { data: subscription } = await supabase
-        .from('push_subscriptions')
-        .select('*')
-        .eq('user_id', request.userId)
-        .eq('is_active', true)
-        .maybeSingle();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
 
-      if (!subscription) return;
+      const edgeFunctionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-push-notification`;
 
-      await supabase.from('push_notification_queue').insert({
-        user_id: request.userId,
-        subscription_id: subscription.id,
+      const typeTagMap: Record<string, string> = {
+        trade_opened: 'trade-entries',
+        trade_closed: 'trade-closures',
+        stop_loss_hit: 'trade-closures',
+        take_profit_hit: 'trade-closures',
+        goal_achieved: 'goal-achievements',
+        goal_progress: 'goal-progress',
+        session_ended: 'session-events',
+        mid_trade_alert: `mid-trade-${request.tradeId || 'alert'}`,
+      };
+
+      const vibrateMap: Record<string, number[]> = {
+        stop_loss_hit: [300, 100, 300, 100, 300],
+        take_profit_hit: [100, 50, 150, 50, 200],
+        goal_achieved: [100, 50, 100, 50, 100, 50, 100, 50, 100],
+      };
+
+      const payload = {
         title: request.title,
         body: request.message,
-        data: request.metadata,
-        priority: request.priority,
-        created_at: new Date().toISOString(),
+        icon: '/Pipnosis icon.png',
+        badge: '/notification-badge.png',
+        tag: typeTagMap[request.type] || 'pipnosis-alert',
+        vibrate: vibrateMap[request.type] || [200, 100, 200],
+        data: {
+          type: request.type,
+          priority: request.priority,
+          ...(request.metadata || {}),
+          tradeId: request.tradeId || null,
+          sessionId: request.sessionId || null,
+        },
+      };
+
+      await fetch(edgeFunctionUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({
+          user_id: request.userId,
+          payload,
+        }),
       });
     } catch (error) {
-      console.error(`[NotificationCoordinator] Failed to queue push notification:`, error);
+      console.error(`[NotificationCoordinator] Failed to send push notification:`, error);
     }
   }
 

@@ -1454,14 +1454,31 @@ class AlphaTradeExecutor {
       triggeredBy: 'alpha-trade-executor',
     });
 
-    // Create notification (use resolved entryPrice, not decision.entry which may be null)
+    // CCIP FIX (2026-02-27): Pass full trade metadata so push notification body
+    // is populated with real values instead of 'Unknown'. The notificationCoordinator
+    // stores this under goal_notifications.metadata, and App.tsx reads it directly.
     await this.createNotification({
       userId,
       sessionId,
       type: 'signal',
       title: `Trade Signal: ${decision.symbol}`,
-      message: `${decision.action} ${lotSize.toFixed(2)} lots at ${entryPrice.toFixed(5)}`,
-      tradeId: trade.id
+      message: `${decision.action} ${lotSize.toFixed(2)} lots at ${entryPrice.toFixed(5)} | SL: ${decision.stopLoss.toFixed(5)} | TP: ${decision.takeProfit.toFixed(5)}`,
+      tradeId: trade.id,
+      metadata: {
+        symbol: decision.symbol,
+        direction: decision.action.toLowerCase(),
+        action: decision.action,
+        confidence: decision.confidence,
+        setupType: decision.setupType,
+        entryPrice,
+        stopLoss: decision.stopLoss,
+        takeProfit: decision.takeProfit,
+        tp1: decision.tp1Price,
+        tp2: decision.tp2Price,
+        tp1Confidence: decision.tp1Confidence,
+        lotSize,
+        sessionId,
+      }
     });
 
     // CCIP FIX (2026-02-06): Create entry_intents record for Entry Quality Advisor
@@ -1816,6 +1833,10 @@ class AlphaTradeExecutor {
    * DEPRECATED METHOD - Use notificationCoordinator.send() directly
    * CCIP FIX (2026-02-03): Refactored to use NotificationCoordinator
    */
+  // CCIP FIX (2026-02-27): Added metadata param — callers must pass structured trade
+  // data so the push notification body is populated with real values (symbol, direction,
+  // confidence, prices) instead of fallback 'Unknown'. SSOT: notification-coordinator
+  // stores this under goal_notifications.metadata, read by App.tsx realtime listener.
   private async createNotification(params: {
     userId: string;
     sessionId: string;
@@ -1823,6 +1844,7 @@ class AlphaTradeExecutor {
     title: string;
     message: string;
     tradeId?: string;
+    metadata?: Record<string, unknown>;
   }): Promise<void> {
     try {
       await notificationCoordinator.send({
@@ -1832,10 +1854,10 @@ class AlphaTradeExecutor {
         title: params.title,
         message: params.message,
         priority: 'critical',
-        tradeId: params.tradeId
+        tradeId: params.tradeId,
+        metadata: params.metadata,
       });
     } catch (error) {
-      // Non-blocking
       console.warn('[AlphaTradeExecutor] Failed to create notification:', error);
     }
   }

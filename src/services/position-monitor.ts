@@ -1010,7 +1010,9 @@ class PositionMonitorService {
         message: `First take profit level reached at ${tp1Price.toFixed(5)}. Trade is now risk-free and running for TP2.`,
         tradeId: position.id,
         sessionId: position.goal_session_id,
-        priority: 'medium',
+        // CCIP FIX (2026-02-27): Changed 'medium' → 'high' so notificationCoordinator
+        // triggers the push delivery path (requires 'high' or 'critical').
+        priority: 'high',
         metadata: {
           symbol: position.symbol,
           tp1_price: tp1Price,

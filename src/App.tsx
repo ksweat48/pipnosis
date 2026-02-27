@@ -350,7 +350,12 @@ const AppRoutes: React.FC = () => {
           if (notification.type === 'signal') {
             console.log('[App] Trade signal received!', notification);
 
-            const notificationData = notification.data || {};
+            // CCIP FIX (2026-02-27): Column is `metadata`, not `data`.
+            // `notification.data` was always undefined, causing all fields to fall
+            // back to 'Unknown' / 0 in the push notification body.
+            // Authority: goal-session-live-engine.logNotification() stores trade
+            // details under `metadata` (symbol, direction, confidence, entry, SL, TP).
+            const notificationData = notification.metadata || {};
             const priority = notification.priority || 'high';
 
             const executionUrgency = priority === 'high'
@@ -372,7 +377,11 @@ const AppRoutes: React.FC = () => {
               executionUrgency: executionUrgency,
               expectedProfit: notificationData.expectedProfit || notificationData.expected_profit,
               riskReward: notificationData.riskReward || notificationData.risk_reward
-            }, priority);
+            // CCIP FIX (2026-02-27): skipPersist:true is MANDATORY here.
+            // notificationCoordinator.send() already created the goal_notifications
+            // record. Without skipPersist, captureDialog() would create a second
+            // record and fire a push with stale dialog data (the 'Unknown' bug source).
+            }, priority, { skipPersist: true });
 
             globalToastManager.info(
               'Trade Signal',
