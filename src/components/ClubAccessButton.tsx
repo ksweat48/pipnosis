@@ -9,7 +9,7 @@ interface ClubAccessButtonProps {
 export const ClubAccessButton: React.FC<ClubAccessButtonProps> = ({ userId }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
 
   const isInClub = location.pathname.startsWith('/club');
   const targetRoute = isInClub ? '/trade' : '/club';
