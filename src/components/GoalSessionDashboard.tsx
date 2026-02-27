@@ -900,17 +900,20 @@ export const GoalSessionDashboard: React.FC = () => {
   };
 
   const handleNoTradesClose = async () => {
-    if (!activeSession || !user) return;
+    if (!user) return;
 
     setNoTradesLoading(true);
     try {
-      console.log('[GoalSessionDashboard] No trades found - closing session via authoritative coordinator');
       goalScannerTrigger.stopPolling();
-      await smartGoalSessionManager.stopSession(activeSession.sessionId, user.id);
+      if (activeSession) {
+        console.log('[GoalSessionDashboard] No trades found - closing session via authoritative coordinator');
+        await smartGoalSessionManager.stopSession(activeSession.sessionId, user.id);
+      }
       setShowNoTradesModal(false);
       await loadSessionData();
     } catch (error) {
       console.error('[GoalSessionDashboard] Error closing session:', error);
+      setShowNoTradesModal(false);
     } finally {
       setNoTradesLoading(false);
     }

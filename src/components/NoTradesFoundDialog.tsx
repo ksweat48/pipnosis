@@ -218,17 +218,33 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
           </div>
 
           <div className="flex-shrink-0 px-6 pb-6 pt-4 border-t border-gray-700/50">
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-2">
+            <div className="mb-4 bg-gray-800/60 rounded-xl px-4 py-3 border border-gray-700/50">
+              <div className="flex items-center justify-between mb-2.5">
                 <div className="flex items-center gap-2 text-gray-400 text-xs">
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>Session closing automatically</span>
+                  <Clock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Auto-closing session in</span>
                 </div>
-                <span className="text-gray-300 text-sm font-mono font-semibold">{countdown}s</span>
+                <span
+                  className={`font-mono font-bold tabular-nums transition-colors ${
+                    countdown <= 10
+                      ? 'text-red-400 text-lg'
+                      : countdown <= 20
+                      ? 'text-orange-400 text-base'
+                      : 'text-amber-300 text-base'
+                  }`}
+                >
+                  {countdown}s
+                </span>
               </div>
-              <div className="w-full h-1.5 bg-gray-700 rounded-full overflow-hidden">
+              <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full transition-all duration-1000 ease-linear"
+                  className={`h-full rounded-full transition-all duration-1000 ease-linear ${
+                    countdown <= 10
+                      ? 'bg-gradient-to-r from-red-500 to-red-400'
+                      : countdown <= 20
+                      ? 'bg-gradient-to-r from-orange-500 to-amber-400'
+                      : 'bg-gradient-to-r from-amber-500 to-orange-500'
+                  }`}
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
@@ -240,7 +256,7 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
               className="w-full flex items-center justify-center gap-2 px-4 py-4 bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-500 hover:to-gray-600 disabled:from-gray-800 disabled:to-gray-800 disabled:cursor-not-allowed rounded-xl text-white font-semibold transition-all duration-300 shadow-lg hover:shadow-gray-500/15 hover:scale-[1.01] active:scale-[0.99]"
             >
               <XCircle className="w-5 h-5" />
-              <span>Close Session</span>
+              <span>Close Session Now</span>
             </button>
           </div>
         </div>
