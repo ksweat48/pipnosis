@@ -139,14 +139,14 @@ export const TradeEntryModal: React.FC<TradeEntryModalProps> = ({
   const hasDualTP = !!(tp1 && tp2);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
       <div className="absolute inset-0" onClick={(e) => e.stopPropagation()} />
 
-      <div className="relative w-full sm:max-w-md animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-300">
-        <div className={`absolute -inset-px bg-gradient-to-r ${getPriorityColor()} rounded-t-2xl sm:rounded-2xl opacity-60 blur-lg animate-pulse`} />
+      <div className="relative w-full max-w-md animate-in zoom-in-95 duration-300">
+        <div className={`absolute -inset-px bg-gradient-to-r ${getPriorityColor()} rounded-2xl opacity-60 blur-lg animate-pulse`} />
 
-        <div className="relative bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 rounded-t-2xl sm:rounded-2xl border border-gray-700/50 shadow-2xl overflow-hidden max-h-[92dvh] sm:max-h-[90vh] flex flex-col">
-          <div className="overflow-y-auto flex-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <div className="relative bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 rounded-2xl border border-gray-700/50 shadow-2xl overflow-hidden max-h-[88dvh] flex flex-col">
+          <div className="overflow-y-auto flex-1 overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
 
             {/* Header */}
             <div className="relative pt-4 pb-3 px-4">
