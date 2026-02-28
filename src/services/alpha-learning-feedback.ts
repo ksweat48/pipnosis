@@ -6,9 +6,8 @@
  *
  * 1. Updates confidence calibration when trades close
  * 2. Tracks reasoning pattern effectiveness
- * 3. Resolves override outcomes (correct/incorrect)
- * 4. Generates meta-insights from performance patterns
- * 5. Updates execution quality metrics
+ * 3. Generates meta-insights from performance patterns
+ * 4. Updates execution quality metrics
  *
  * This is the heart of Alpha's continuous improvement system.
  */
@@ -35,7 +34,6 @@ export interface TradeOutcome {
   marketCondition: string;
   timeframe?: string;
   aiReasoningPattern?: string;
-  overrideId?: string;
   executionSlippage?: number;
   goalSessionId?: string;
 }
@@ -111,7 +109,6 @@ export class AlphaLearningFeedbackService {
       await Promise.all([
         this.updateConfidenceCalibration(outcome),
         this.updateReasoningPattern(outcome),
-        this.resolveOverrideOutcome(outcome),
         this.updateExecutionQuality(outcome),
         this.checkForMetaInsights(outcome)
       ]);
@@ -277,64 +274,6 @@ export class AlphaLearningFeedbackService {
       }
     } catch (error) {
       logger.error('[Alpha Feedback] Failed to update reasoning pattern:', error);
-    }
-  }
-
-  /**
-   * Resolve override outcome (was the override correct?)
-   */
-  private async resolveOverrideOutcome(outcome: TradeOutcome): Promise<void> {
-    if (!outcome.overrideId) {
-      return; // No override to resolve
-    }
-
-    try {
-      const { data: override } = await supabase
-        .from('alpha_authority_overrides')
-        .select('*')
-        .eq('decision_id', outcome.overrideId)
-        .maybeSingle();
-
-      if (!override) {
-        return; // Override not found
-      }
-
-      // Determine if override was correct
-      // Correct = achieved positive directional outcome despite safety recommendation
-      const wasCorrect =
-        outcome.closeReason === 'tp_hit' ||
-        outcome.closeReason === 'tp1_only' ||
-        outcome.closeReason === 'near_miss' ||
-        (outcome.closeReason === 'manual_close' && outcome.pnl > 0);
-
-      const actualOutcome = wasCorrect ? 'correct' : 'incorrect';
-
-      // Calculate realized edge
-      const realizedEdge = outcome.pnlR;
-
-      await supabase
-        .from('alpha_authority_overrides')
-        .update({
-          actual_outcome: actualOutcome,
-          outcome_pnl: outcome.pnl,
-          outcome_details: {
-            close_reason: outcome.closeReason,
-            pnl_r: outcome.pnlR,
-            entry_price: outcome.entryPrice,
-            exit_price: outcome.exitPrice
-          },
-          resolved_at: new Date().toISOString()
-        })
-        .eq('id', override.id);
-
-      logger.info(`[Alpha Feedback] Resolved override outcome: ${actualOutcome} (${realizedEdge.toFixed(2)}R)`);
-
-      // If this was a successful override, consider generating a meta-insight
-      if (wasCorrect && realizedEdge > 1.5) {
-        await this.generateSuccessfulOverrideInsight(outcome, override);
-      }
-    } catch (error) {
-      logger.error('[Alpha Feedback] Failed to resolve override outcome:', error);
     }
   }
 
@@ -528,42 +467,6 @@ export class AlphaLearningFeedbackService {
       }
     } catch (error) {
       logger.error('[Alpha Feedback] Failed to generate weakness insight:', error);
-    }
-  }
-
-  /**
-   * Generate insight from successful override
-   */
-  private async generateSuccessfulOverrideInsight(
-    outcome: TradeOutcome,
-    override: any
-  ): Promise<void> {
-    try {
-      const insightDescription = `Successfully overrode ${override.override_type} recommendation`;
-      const actionableAdjustment = `Trust statistical edge when ${override.override_type} flags appear but market structure supports trade`;
-
-      await supabase
-        .from('alpha_meta_insights')
-        .insert({
-          user_id: outcome.userId,
-          insight_type: 'discovery',
-          market_condition: outcome.marketCondition,
-          symbols: [outcome.symbol],
-          insight_description: insightDescription,
-          supporting_evidence: {
-            override_type: override.override_type,
-            pnl_r: outcome.pnlR,
-            justification: override.statistical_justification
-          },
-          confidence_in_insight: Math.min(85, 60 + (outcome.pnlR * 10)),
-          actionable_adjustment: actionableAdjustment,
-          validated: true,
-          last_validated: new Date().toISOString()
-        });
-
-      logger.info(`[Alpha Feedback] 💡 Generated successful override insight`);
-    } catch (error) {
-      logger.error('[Alpha Feedback] Failed to generate override insight:', error);
     }
   }
 

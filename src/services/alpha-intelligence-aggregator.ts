@@ -49,18 +49,6 @@ export interface AlphaIntelligenceSnapshot {
     usageCount: number;
     winRate: number;
   }>;
-  overrideHistory: {
-    totalOverrides: number;
-    resolvedOverrides: number;
-    successfulOverrides: number;
-    byType: {
-      [type: string]: {
-        totalCount: number;
-        resolvedCount: number;
-        successfulCount: number;
-      };
-    };
-  };
   metaInsights: Array<{
     type: string;
     description: string;
@@ -86,16 +74,12 @@ export interface AlphaIntelligenceSnapshot {
   tpCalibration: string;
   decisionMetrics: {
     totalDecisions: number;
-    overrideResolved: number;
-    overrideSuccessful: number;
     consensusResolved: number;
     consensusSuccessful: number;
     totalWins: number;
     totalLosses: number;
     totalProfitR: number;
     totalLossR: number;
-    bestOverrideCategory: string | null;
-    worstOverrideCategory: string | null;
   };
   tp1Learning: {
     totalTP1Events: number;
@@ -138,7 +122,6 @@ export class AlphaIntelligenceAggregator {
         executionQuality,
         calibrationData,
         reasoningPatterns,
-        overrideHistory,
         metaInsights,
         counterfactualInsights,
         zoneMetaLearning,
@@ -152,7 +135,6 @@ export class AlphaIntelligenceAggregator {
         this.getExecutionQuality(userId, symbol),
         this.getCalibrationData(userId),
         this.getReasoningPatterns(userId),
-        this.getOverrideHistory(userId),
         this.getMetaInsights(userId),
         this.getCounterfactualInsights(userId),
         this.getZoneMetaLearning(),
@@ -168,7 +150,6 @@ export class AlphaIntelligenceAggregator {
         executionQuality,
         calibrationData,
         reasoningPatterns,
-        overrideHistory,
         metaInsights,
         counterfactualInsights,
         zoneMetaLearning,
@@ -365,61 +346,6 @@ export class AlphaIntelligenceAggregator {
     }
   }
 
-  private async getOverrideHistory(userId: string) {
-    try {
-      const { data: overrides } = await supabase
-        .from('alpha_authority_overrides')
-        .select('*')
-        .eq('user_id', userId);
-
-      if (!overrides || overrides.length === 0) {
-        return {
-          totalOverrides: 0,
-          resolvedOverrides: 0,
-          successfulOverrides: 0,
-          byType: {}
-        };
-      }
-
-      const resolvedOverrides = overrides.filter(o => o.actual_outcome && o.actual_outcome !== 'pending');
-      const successfulOverrides = resolvedOverrides.filter(o => o.actual_outcome === 'correct');
-
-      const byType: any = {};
-      for (const override of overrides) {
-        if (!byType[override.override_type]) {
-          byType[override.override_type] = {
-            totalCount: 0,
-            resolvedCount: 0,
-            successfulCount: 0
-          };
-        }
-        byType[override.override_type].totalCount++;
-
-        if (override.actual_outcome && override.actual_outcome !== 'pending') {
-          byType[override.override_type].resolvedCount++;
-          if (override.actual_outcome === 'correct') {
-            byType[override.override_type].successfulCount++;
-          }
-        }
-      }
-
-      return {
-        totalOverrides: overrides.length,
-        resolvedOverrides: resolvedOverrides.length,
-        successfulOverrides: successfulOverrides.length,
-        byType
-      };
-    } catch (error) {
-      logger.error('Error fetching override history:', error);
-      return {
-        totalOverrides: 0,
-        resolvedOverrides: 0,
-        successfulOverrides: 0,
-        byType: {}
-      };
-    }
-  }
-
   private async getMetaInsights(userId: string) {
     try {
       const { data: insights } = await supabase
@@ -510,12 +436,6 @@ export class AlphaIntelligenceAggregator {
       },
       calibrationData: {},
       reasoningPatterns: [],
-      overrideHistory: {
-        totalOverrides: 0,
-        resolvedOverrides: 0,
-        successfulOverrides: 0,
-        byType: {}
-      },
       metaInsights: [],
       counterfactualInsights: {
         bestSlMultiplier: null,
@@ -536,16 +456,12 @@ export class AlphaIntelligenceAggregator {
       tpCalibration: '',
       decisionMetrics: {
         totalDecisions: 0,
-        overrideResolved: 0,
-        overrideSuccessful: 0,
         consensusResolved: 0,
         consensusSuccessful: 0,
         totalWins: 0,
         totalLosses: 0,
         totalProfitR: 0,
-        totalLossR: 0,
-        bestOverrideCategory: null,
-        worstOverrideCategory: null
+        totalLossR: 0
       },
       tp1Learning: {
         totalTP1Events: 0,
@@ -644,22 +560,18 @@ export class AlphaIntelligenceAggregator {
   private async getDecisionMetrics(userId: string): Promise<AlphaIntelligenceSnapshot['decisionMetrics']> {
     const empty: AlphaIntelligenceSnapshot['decisionMetrics'] = {
       totalDecisions: 0,
-      overrideResolved: 0,
-      overrideSuccessful: 0,
       consensusResolved: 0,
       consensusSuccessful: 0,
       totalWins: 0,
       totalLosses: 0,
       totalProfitR: 0,
-      totalLossR: 0,
-      bestOverrideCategory: null,
-      worstOverrideCategory: null
+      totalLossR: 0
     };
 
     try {
       const { data } = await supabase
         .from('alpha_learning_metrics')
-        .select('total_decisions, override_success_rate, consensus_success_rate, win_rate, profit_factor, best_override_category, worst_override_category')
+        .select('total_decisions, consensus_success_rate, win_rate, profit_factor')
         .eq('user_id', userId)
         .order('period_start', { ascending: false })
         .limit(1)
@@ -672,24 +584,16 @@ export class AlphaIntelligenceAggregator {
       const totalWins = Math.round(total * winRateDecimal);
       const totalLosses = total - totalWins;
       const profitFactor = Number(data.profit_factor) || 0;
-      const overrideSuccessRate = (Number(data.override_success_rate) || 0) / 100;
       const consensusSuccessRate = (Number(data.consensus_success_rate) || 0) / 100;
-
-      const overrideResolved = Math.round(total * 0.3);
-      const consensusResolved = total - overrideResolved;
 
       return {
         totalDecisions: total,
-        overrideResolved,
-        overrideSuccessful: Math.round(overrideResolved * overrideSuccessRate),
-        consensusResolved,
-        consensusSuccessful: Math.round(consensusResolved * consensusSuccessRate),
+        consensusResolved: total,
+        consensusSuccessful: Math.round(total * consensusSuccessRate),
         totalWins,
         totalLosses,
         totalProfitR: profitFactor > 0 ? totalWins * profitFactor : 0,
-        totalLossR: totalLosses,
-        bestOverrideCategory: data.best_override_category,
-        worstOverrideCategory: data.worst_override_category
+        totalLossR: totalLosses
       };
     } catch (error) {
       logger.warn('[AlphaIntelligence] Decision metrics fetch failed (non-blocking):', error);

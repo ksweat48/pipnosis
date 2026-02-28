@@ -208,14 +208,6 @@ export interface GoalContext {
   tradeStyle?: string; // User's selected trade style from goal session (scalper, micro, intraday)
 }
 
-export interface AlphaOverride {
-  override_type: 'adversarial_block' | 'regime_avoid' | 'risk_limit' | 'drawdown_stop' | 'correlation_limit' | 'manipulation_block';
-  original_recommendation: string;
-  alpha_decision: string;
-  statistical_justification: string;
-  expected_edge: number;
-}
-
 export interface AlphaDecision {
   action: 'BUY' | 'SELL' | 'NO_TRADE';
   decision: 'BUY' | 'SELL' | 'NO_TRADE';
@@ -242,7 +234,6 @@ export interface AlphaDecision {
   expectedFillTimeHours?: number;
   atrPercent?: number;
   goal_context?: GoalContext;
-  override?: AlphaOverride;
   intelligence_snapshot?: Partial<AlphaIntelligenceSnapshot>;
   adversarial_advisory?: AdversarialSignal;
   regime_advisory?: RegimeSnapshot;
@@ -612,29 +603,74 @@ class AlphaCoordinatorBrain {
     }
 
     // Build intelligence context
-    let intelligenceContext = this.buildIntelligenceContext(intelligenceSnapshot);
+    let intelligenceContext = this.buildIntelligenceContext(intelligenceSnapshot, marketContext.symbol);
 
-    // Fetch recent trades for context (NEW FEATURE)
+    // Build symbol diagnostic context from trade learning history (min 5 trades on this symbol)
     let recentTradesContext = '';
     if (userId) {
       try {
-        const { data: recentTrades } = await supabase
-          .from('goal_session_trades')
-          .select('symbol, direction, profit_loss, close_reason, created_at')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false })
-          .limit(3);
+        const symbol = marketContext.symbol;
 
-        if (recentTrades && recentTrades.length > 0) {
-          recentTradesContext = `\n📈 RECENT TRADES (Last 3):\n`;
-          recentTrades.forEach((trade, idx) => {
-            const result = trade.profit_loss > 0 ? 'WIN' : trade.profit_loss < 0 ? 'LOSS' : 'BE';
-            const emoji = result === 'WIN' ? '✅' : result === 'LOSS' ? '❌' : '⚪';
-            recentTradesContext += `${idx + 1}. ${emoji} ${trade.symbol} ${trade.direction} → ${result} ($${trade.profit_loss.toFixed(2)}) - ${trade.close_reason}\n`;
+        // Query ai_trade_analysis for learning data on this specific symbol
+        const { data: symbolTrades } = await supabase
+          .from('ai_trade_analysis')
+          .select('outcome, pnl, exit_reason, direction, key_learnings, mistakes_identified, what_worked, what_failed, entry_confidence, entry_time')
+          .eq('user_id', userId)
+          .eq('symbol', symbol)
+          .order('entry_time', { ascending: false })
+          .limit(20);
+
+        const tradeCount = symbolTrades?.length ?? 0;
+
+        if (tradeCount >= 5) {
+          const losses = symbolTrades!.filter(t => t.outcome === 'loss' || (t.pnl !== null && t.pnl < 0));
+          const wins = symbolTrades!.filter(t => t.outcome === 'win' || (t.pnl !== null && t.pnl > 0));
+          const recentLosses = losses.slice(0, 5);
+          const recentWins = wins.slice(0, 5);
+
+          recentTradesContext = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+          recentTradesContext += `YOUR TRADE HISTORY ON ${symbol} (${tradeCount} trades analyzed)\n`;
+          recentTradesContext += `Record: ${wins.length} wins / ${losses.length} losses (win rate: ${Math.round((wins.length / tradeCount) * 100)}%)\n`;
+          recentTradesContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+
+          if (recentLosses.length > 0) {
+            recentTradesContext += `\nRECENT LOSSES ON ${symbol} — KNOWN FAILURE PATTERNS:\n`;
+            recentLosses.forEach((trade, idx) => {
+              recentTradesContext += `${idx + 1}. ${trade.direction?.toUpperCase() || '?'} → LOSS ($${Number(trade.pnl || 0).toFixed(2)}) | Exit: ${trade.exit_reason || 'unknown'}\n`;
+              if (Array.isArray(trade.mistakes_identified) && trade.mistakes_identified.length > 0) {
+                recentTradesContext += `   Mistake: ${trade.mistakes_identified.slice(0, 2).join(', ')}\n`;
+              }
+              if (trade.what_failed) {
+                recentTradesContext += `   What failed: ${trade.what_failed}\n`;
+              }
+            });
+          }
+
+          if (recentWins.length > 0) {
+            recentTradesContext += `\nRECENT WINS ON ${symbol} — KNOWN SUCCESS FACTORS:\n`;
+            recentWins.forEach((trade, idx) => {
+              recentTradesContext += `${idx + 1}. ${trade.direction?.toUpperCase() || '?'} → WIN ($${Number(trade.pnl || 0).toFixed(2)}) | Exit: ${trade.exit_reason || 'unknown'}\n`;
+              if (trade.what_worked) {
+                recentTradesContext += `   What worked: ${trade.what_worked}\n`;
+              }
+              if (Array.isArray(trade.key_learnings) && trade.key_learnings.length > 0) {
+                recentTradesContext += `   Key factor: ${trade.key_learnings.slice(0, 1).join(', ')}\n`;
+              }
+            });
+          }
+
+          recentTradesContext += `\nLEARNING OBLIGATION: You must address the above history in your reasoning. If this setup matches a known failure pattern, explicitly state why it is different this time. If it matches a known winning pattern, confirm the conditions are present. Do not ignore this data.\n`;
+          recentTradesContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+        } else if (tradeCount > 0) {
+          // Under minimum sample — show basic recent summary only, no obligation
+          recentTradesContext = `\nRECENT TRADES ON ${symbol} (${tradeCount} trades — insufficient history for diagnostics):\n`;
+          symbolTrades!.slice(0, 3).forEach((trade, idx) => {
+            const result = trade.outcome === 'win' ? 'WIN' : trade.outcome === 'loss' ? 'LOSS' : (Number(trade.pnl || 0) > 0 ? 'WIN' : 'LOSS');
+            recentTradesContext += `${idx + 1}. ${trade.direction?.toUpperCase() || '?'} → ${result} ($${Number(trade.pnl || 0).toFixed(2)}) | ${trade.exit_reason || 'unknown'}\n`;
           });
         }
       } catch (error) {
-        console.error('[Alpha Coordinator] Failed to fetch recent trades:', error);
+        console.error('[Alpha Coordinator] Failed to fetch symbol diagnostic context:', error);
       }
     }
 
@@ -2201,45 +2237,10 @@ ${tradeStyle === 'SCALP' ? `{
       // Add intelligence snapshot summary
       if (intelligenceSnapshot) {
         decision.intelligence_snapshot = {
-          overrideHistory: intelligenceSnapshot.overrideHistory,
           calibrationData: intelligenceSnapshot.calibrationData,
           reasoningPatterns: intelligenceSnapshot.reasoningPatterns.slice(0, 3),
           executionQuality: intelligenceSnapshot.executionQuality
         };
-      }
-
-      // Check if Alpha overrode any recommendations
-      const parsed = response.choices[0]?.message?.content || '{}';
-      try {
-        // ✅ SSOT FIX: Use centralized sanitizer
-        const rawDecision = tryParseLLMResponse(parsed, 'alpha override decision') || {};
-        if (rawDecision.override && rawDecision.override.type && rawDecision.override.type !== 'none') {
-          const overrideInfo: AlphaOverride = {
-            override_type: rawDecision.override.type,
-            original_recommendation: adversarialSignal?.recommended_action || regimeSnapshot?.reason || 'Unknown',
-            alpha_decision: decision.action,
-            statistical_justification: rawDecision.override.justification || decision.reasoning,
-            expected_edge: 0 // Will be calculated based on outcome
-          };
-          decision.override = overrideInfo;
-
-          // Log override for learning
-          if (userId) {
-            await this.logOverride(
-              userId,
-              `decision_${Date.now()}`,
-              overrideInfo,
-              votes,
-              marketContext,
-              goalContext?.hasGoal ? 'goal_session_id' : undefined
-            );
-          }
-
-          console.log(`[Alpha Coordinator] ⚡ OVERRIDE DETECTED: ${overrideInfo.override_type}`);
-          console.log(`[Alpha Coordinator] Justification: ${overrideInfo.statistical_justification}`);
-        }
-      } catch (parseError) {
-        // Override parsing failed, continue without it
       }
 
       // Omega-10 risk horizon (ADVISORY ONLY - no confidence modification)
@@ -2940,12 +2941,31 @@ ${tradeStyle === 'SCALP' ? `{
    * and deciding what these counts mean for the current trade.
    * No pre-synthesized win rates, recommendations, or actionable adjustments.
    */
-  private buildIntelligenceContext(intelligence?: AlphaIntelligenceSnapshot | null): string {
+  private buildIntelligenceContext(intelligence?: AlphaIntelligenceSnapshot | null, symbol?: string): string {
     if (!intelligence) {
       return '';
     }
 
     const parts: string[] = ['\n🧠 ALPHA INTELLIGENCE (Raw Historical Data — Interpret yourself):'];
+
+    // Symbol-specific performance block (shown first, highest priority)
+    if (symbol && intelligence.symbolIntelligence && intelligence.symbolIntelligence[symbol]) {
+      const si = intelligence.symbolIntelligence[symbol];
+      parts.push(`\n📍 YOUR RECORD ON ${symbol}:`);
+      if (si.recentWinRate > 0) {
+        parts.push(`  Recent win rate: ${si.recentWinRate.toFixed(0)}%`);
+      }
+      if (si.bestSessions && si.bestSessions.length > 0) {
+        parts.push(`  Best sessions: ${si.bestSessions.join(', ')}`);
+      }
+      if (si.bestTimeframes && si.bestTimeframes.length > 0) {
+        parts.push(`  Best timeframes: ${si.bestTimeframes.join(', ')}`);
+      }
+      if (si.avgSlippage > 0) {
+        parts.push(`  Avg slippage on this pair: ${si.avgSlippage.toFixed(2)} pips — account for this in SL placement`);
+      }
+      parts.push(`  Volatility level: ${si.volatilityLevel}`);
+    }
 
     if (intelligence.platformPatterns.topPerformingPatterns.length > 0 || intelligence.platformPatterns.failingPatterns.length > 0) {
       parts.push('\n📊 PATTERN HISTORY (Raw counts):');
@@ -3040,17 +3060,8 @@ ${tradeStyle === 'SCALP' ? `{
       parts.push(`  Total decisions: ${dm.totalDecisions}`);
       parts.push(`  Wins: ${dm.totalWins} | Losses: ${dm.totalLosses}`);
       parts.push(`  Total profit R: ${dm.totalProfitR.toFixed(2)} | Total loss R: ${dm.totalLossR.toFixed(2)}`);
-      if (dm.overrideResolved > 0) {
-        parts.push(`  Override decisions resolved: ${dm.overrideResolved} | Successful: ${dm.overrideSuccessful}`);
-      }
       if (dm.consensusResolved > 0) {
-        parts.push(`  Consensus decisions resolved: ${dm.consensusResolved} | Successful: ${dm.consensusSuccessful}`);
-      }
-      if (dm.bestOverrideCategory) {
-        parts.push(`  Best override category: ${dm.bestOverrideCategory}`);
-      }
-      if (dm.worstOverrideCategory) {
-        parts.push(`  Worst override category: ${dm.worstOverrideCategory}`);
+        parts.push(`  Resolved decisions: ${dm.consensusResolved} | Successful: ${dm.consensusSuccessful}`);
       }
     }
 
@@ -3214,41 +3225,6 @@ ${tradeStyle === 'SCALP' ? `{
     }
   }
 
-  /**
-   * Log Alpha's override decision to database for learning
-   */
-  private async logOverride(
-    userId: string,
-    decisionId: string,
-    override: AlphaOverride,
-    votes: OmegaCouncilVotes,
-    marketContext: MarketContext,
-    goalSessionId?: string
-  ): Promise<void> {
-    try {
-      await supabase.from('alpha_authority_overrides').insert({
-        user_id: userId,
-        goal_session_id: goalSessionId,
-        decision_id: decisionId,
-        override_type: override.override_type,
-        original_recommendation: override.original_recommendation,
-        alpha_override_decision: override.alpha_decision,
-        statistical_justification: {
-          reasoning: override.statistical_justification,
-          expected_edge: override.expected_edge
-        },
-        expected_edge: override.expected_edge,
-        confidence_level: 0, // Will be updated when decision result is known
-        omega_votes: votes,
-        market_context: marketContext,
-        actual_outcome: 'pending'
-      });
-
-      console.log('[Alpha Coordinator] 📊 Logged override decision for learning');
-    } catch (error) {
-      console.error('[Alpha Coordinator] Failed to log override:', error);
-    }
-  }
 }
 
 export const alphaCoordinator = new AlphaCoordinatorBrain();

@@ -1039,6 +1039,28 @@ When the regime is flagged as adversarial (e.g., accumulation_normal_adversarial
 - DO NOT ignore the adversarial flag. Every loss in an adversarial regime that was not addressed in reasoning represents a preventable failure.
 
 ═══════════════════════════════════════════════════════════════════
+HISTORICAL PERFORMANCE CONTEXT — HOW TO USE YOUR TRADE HISTORY
+═══════════════════════════════════════════════════════════════════
+When your context includes a "SYMBOL PERFORMANCE HISTORY" or "YOUR RECORD ON THIS PAIR" block, this data is a diagnostic tool — not a confidence ceiling and not a gate on pair selection. You are not blocked from trading a pair because your past record on it is poor. You are required to think through why you lost and whether those conditions are present now.
+
+Use historical data to answer two questions before committing to a decision:
+
+QUESTION A — AM I REPEATING A MISTAKE?
+Look at the loss patterns identified for this pair. Common failure modes include: late entry after the move has already traveled, session mismatch (trading a pair in its dead window), false structure (M5 BOS that reversed when H1 rejected), entry into prior rejection zones without structural justification, overconfidence on wide-range instruments (NAS100, US30, XAU/USD).
+State explicitly: "Loss pattern check: [does the current setup share characteristics with the identified failure modes? If yes — what is specifically different this time that makes this setup valid? If no — state which failure modes are absent from this setup and why.]"
+
+QUESTION B — ARE MY WIN CONDITIONS PRESENT?
+Look at the success factors identified for this pair. Common success conditions include: session alignment, fresh momentum, confirmed entry triggers, specific structures that historically resolved cleanly.
+State explicitly: "Win condition check: [which success factors are present in this setup? Are the conditions that produced prior wins replicated here, or am I missing key elements?]"
+
+LEARNING OBLIGATION (present when 5+ trades exist on the pair):
+When the context includes a LEARNING OBLIGATION block, these two questions are not optional analysis — they are required steps before your entry decision. A decision that does not address the learning obligation is incomplete. You do not need to cite every past trade. You need to demonstrate that you have thought through the pattern and made a conscious judgment about whether this setup repeats a known failure mode or replicates a known win condition.
+
+If fewer than 5 trades are recorded on this pair, treat historical data as weak signal only — note it in passing without allowing it to materially influence your confidence score.
+
+If no historical data is provided for this pair, proceed with standard analysis.
+
+═══════════════════════════════════════════════════════════════════
 SCALP TIME CONTRACT — MANDATORY PRE-ENTRY GATE (COMPLETE THIS BEFORE ANY OTHER SCALP EVALUATION)
 ═══════════════════════════════════════════════════════════════════
 This gate MUST be completed before you assess structure, confidence, or entry mode. If the gate fails, output NO_TRADE immediately. Do not proceed to any further analysis.
