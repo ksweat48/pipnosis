@@ -99,6 +99,46 @@ export interface AlphaIntelligenceSnapshot {
     winRate: number;
     sampleSize: number;
   }>;
+  patternWeights: Array<{
+    patternId: string;
+    advisoryWeight: number;
+    winRate: number;
+    totalTrades: number;
+  }>;
+  slHuntCorrections: {
+    [symbol: string]: {
+      huntRate: number;
+      recommendedWidenPct: number;
+      confidence: number;
+      totalSlHits: number;
+    };
+  };
+  sessionStreakState: {
+    sessionTrades: number;
+    sessionWins: number;
+    sessionLosses: number;
+    currentStreak: number;
+    streakType: 'win' | 'loss' | 'neutral';
+    sessionPnlR: number;
+  } | null;
+  tpDistributionStats: {
+    [symbol: string]: {
+      [style: string]: {
+        totalTrades: number;
+        tpFullRate: number;
+        tp1OnlyRate: number;
+        slRate: number;
+      };
+    };
+  };
+  counterThesisAccuracy: {
+    [symbol: string]: {
+      avgPredictedFailureRate: number;
+      actualFailureRate: number;
+      calibrationError: number;
+      totalTrades: number;
+    };
+  };
 }
 
 export class AlphaIntelligenceAggregator {
@@ -128,7 +168,12 @@ export class AlphaIntelligenceAggregator {
         tpCalibration,
         decisionMetrics,
         tp1Learning,
-        validatedInsights
+        validatedInsights,
+        patternWeights,
+        slHuntCorrections,
+        sessionStreakState,
+        tpDistributionStats,
+        counterThesisAccuracy
       ] = await Promise.all([
         this.getPlatformPatterns(userId),
         this.getSymbolIntelligence(userId, symbol),
@@ -141,7 +186,12 @@ export class AlphaIntelligenceAggregator {
         this.getTPCalibration(userId),
         this.getDecisionMetrics(userId),
         this.getTP1Learning(userId),
-        this.getValidatedInsights(userId)
+        this.getValidatedInsights(userId),
+        this.getPatternWeights(userId),
+        this.getSlHuntCorrections(userId, symbol),
+        this.getSessionStreakState(userId),
+        this.getTpDistributionStats(userId, symbol),
+        this.getCounterThesisAccuracy(userId, symbol)
       ]);
 
       const snapshot: AlphaIntelligenceSnapshot = {
@@ -156,7 +206,12 @@ export class AlphaIntelligenceAggregator {
         tpCalibration,
         decisionMetrics,
         tp1Learning,
-        validatedInsights
+        validatedInsights,
+        patternWeights,
+        slHuntCorrections,
+        sessionStreakState,
+        tpDistributionStats,
+        counterThesisAccuracy
       };
 
       await this.cacheIntelligence(userId, cacheKey, 'platform_patterns', snapshot);
@@ -472,7 +527,12 @@ export class AlphaIntelligenceAggregator {
         avgPnlCloseEarly: 0,
         avgPnlHoldToTP2: 0
       },
-      validatedInsights: []
+      validatedInsights: [],
+      patternWeights: [],
+      slHuntCorrections: {},
+      sessionStreakState: null,
+      tpDistributionStats: {},
+      counterThesisAccuracy: {}
     };
   }
 
@@ -676,6 +736,153 @@ export class AlphaIntelligenceAggregator {
     } catch (error) {
       logger.warn('[AlphaIntelligence] Validated insights fetch failed (non-blocking):', error);
       return [];
+    }
+  }
+
+  private async getPatternWeights(userId: string): Promise<AlphaIntelligenceSnapshot['patternWeights']> {
+    try {
+      const { data: weights } = await supabase
+        .from('alpha_pattern_performance_weights')
+        .select('pattern_id, advisory_weight, win_rate, total_trades')
+        .eq('user_id', userId)
+        .gte('total_trades', 5)
+        .order('total_trades', { ascending: false })
+        .limit(20);
+
+      if (!weights || weights.length === 0) return [];
+
+      return weights.map(w => ({
+        patternId: w.pattern_id,
+        advisoryWeight: Number(w.advisory_weight),
+        winRate: Number(w.win_rate),
+        totalTrades: w.total_trades
+      }));
+    } catch (error) {
+      logger.warn('[AlphaIntelligence] Pattern weights fetch failed (non-blocking):', error);
+      return [];
+    }
+  }
+
+  private async getSlHuntCorrections(userId: string, symbol?: string): Promise<AlphaIntelligenceSnapshot['slHuntCorrections']> {
+    try {
+      let query = supabase
+        .from('alpha_sl_hunt_bias_corrections')
+        .select('symbol, hunt_rate, recommended_sl_widen_pct, confidence, total_sl_hits')
+        .eq('user_id', userId)
+        .gte('total_sl_hits', 3);
+
+      if (symbol) {
+        query = query.eq('symbol', symbol);
+      }
+
+      const { data: corrections } = await query;
+
+      if (!corrections || corrections.length === 0) return {};
+
+      const result: AlphaIntelligenceSnapshot['slHuntCorrections'] = {};
+      for (const c of corrections) {
+        result[c.symbol] = {
+          huntRate: Number(c.hunt_rate),
+          recommendedWidenPct: Number(c.recommended_sl_widen_pct),
+          confidence: Number(c.confidence),
+          totalSlHits: c.total_sl_hits
+        };
+      }
+      return result;
+    } catch (error) {
+      logger.warn('[AlphaIntelligence] SL hunt corrections fetch failed (non-blocking):', error);
+      return {};
+    }
+  }
+
+  private async getSessionStreakState(userId: string): Promise<AlphaIntelligenceSnapshot['sessionStreakState']> {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const { data } = await supabase
+        .from('alpha_session_streak_state')
+        .select('session_trades, session_wins, session_losses, current_streak, streak_type, session_pnl_r')
+        .eq('user_id', userId)
+        .eq('trade_date', today)
+        .maybeSingle();
+
+      if (!data || data.session_trades === 0) return null;
+
+      return {
+        sessionTrades: data.session_trades,
+        sessionWins: data.session_wins,
+        sessionLosses: data.session_losses,
+        currentStreak: data.current_streak,
+        streakType: data.streak_type as 'win' | 'loss' | 'neutral',
+        sessionPnlR: Number(data.session_pnl_r)
+      };
+    } catch (error) {
+      logger.warn('[AlphaIntelligence] Session streak state fetch failed (non-blocking):', error);
+      return null;
+    }
+  }
+
+  private async getTpDistributionStats(userId: string, symbol?: string): Promise<AlphaIntelligenceSnapshot['tpDistributionStats']> {
+    try {
+      let query = supabase
+        .from('alpha_tp_distribution_stats')
+        .select('symbol, style, total_trades, tp_full_rate, tp1_only_rate, sl_rate')
+        .eq('user_id', userId)
+        .gte('total_trades', 5);
+
+      if (symbol) {
+        query = query.eq('symbol', symbol);
+      }
+
+      const { data: stats } = await query;
+
+      if (!stats || stats.length === 0) return {};
+
+      const result: AlphaIntelligenceSnapshot['tpDistributionStats'] = {};
+      for (const s of stats) {
+        if (!result[s.symbol]) result[s.symbol] = {};
+        result[s.symbol][s.style] = {
+          totalTrades: s.total_trades,
+          tpFullRate: Number(s.tp_full_rate),
+          tp1OnlyRate: Number(s.tp1_only_rate),
+          slRate: Number(s.sl_rate)
+        };
+      }
+      return result;
+    } catch (error) {
+      logger.warn('[AlphaIntelligence] TP distribution stats fetch failed (non-blocking):', error);
+      return {};
+    }
+  }
+
+  private async getCounterThesisAccuracy(userId: string, symbol?: string): Promise<AlphaIntelligenceSnapshot['counterThesisAccuracy']> {
+    try {
+      let query = supabase
+        .from('alpha_counter_thesis_accuracy')
+        .select('symbol, avg_predicted_failure_rate, actual_failure_rate, calibration_error, total_trades')
+        .eq('user_id', userId)
+        .gte('total_trades', 5);
+
+      if (symbol) {
+        query = query.eq('symbol', symbol);
+      }
+
+      const { data: records } = await query;
+
+      if (!records || records.length === 0) return {};
+
+      const result: AlphaIntelligenceSnapshot['counterThesisAccuracy'] = {};
+      for (const r of records) {
+        result[r.symbol] = {
+          avgPredictedFailureRate: Number(r.avg_predicted_failure_rate),
+          actualFailureRate: Number(r.actual_failure_rate),
+          calibrationError: Number(r.calibration_error),
+          totalTrades: r.total_trades
+        };
+      }
+      return result;
+    } catch (error) {
+      logger.warn('[AlphaIntelligence] Counter-thesis accuracy fetch failed (non-blocking):', error);
+      return {};
     }
   }
 }
