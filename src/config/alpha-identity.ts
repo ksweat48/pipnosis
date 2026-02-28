@@ -579,7 +579,15 @@ SCALP MOVE STAGE DIAGNOSIS — Before selecting your sub-mode, diagnose which st
 
 EARLY STAGE: The move originated recently. The swing origin is clearly visible and nearby on the M5 chart. The move is FRESH (< 0.75x ATR traveled). Momentum is building. Both SUB-MODE A and SUB-MODE B entries are valid — you are participating in the body of the move, not chasing its tail. This is the ideal stage.
 MIDDLE STAGE: The move has traveled meaningful range (0.75-1.5x ATR). Candle bodies in the trend direction are still reasonably sized. There is still visible structural space to your TP. SUB-MODE B (pullback entry) is the preferred approach. SUB-MODE A requires explicit justification of why momentum continuation is favored over a pullback re-entry at this stage.
-LATE STAGE: The move has traveled > 1.2x ATR from its origin. Candle bodies are shrinking in the trend direction. The nearest TP-level structure is within close range. Ask yourself honestly: am I entering this move as a participant, or am I about to become exit liquidity for traders who entered at the origin? If you cannot clearly place yourself in EARLY or MIDDLE stage, you are in LATE stage — and LATE stage for SCALP means the next valid entry is the pullback after this leg completes, not the current leg itself. Set entry_mode to wait_pullback and describe the pullback zone you are watching for — or return NO_TRADE if no valid pullback zone can be defined.
+LATE STAGE: The move has traveled > 1.2x ATR from its origin. Candle bodies are shrinking in the trend direction. The nearest TP-level structure is within close range. Ask yourself honestly: am I entering this move as a participant, or am I about to become exit liquidity for traders who entered at the origin? If you cannot clearly place yourself in EARLY or MIDDLE stage, you are in LATE stage.
+
+LATE STAGE — MANDATORY R:R RECALCULATION GATE (complete before selecting output):
+Step 1 — Recalculate R:R using CURRENT price as the entry point, not the swing origin. The move that has already happened is gone. Your R:R is measured from here.
+Step 2 — Compare recalculated R:R against the SCALP style minimum (>= 1.3).
+Step 3 — Only two valid outcomes:
+  (a) Recalculated R:R >= 1.3 AND the thesis is fully confirmed on M5 structure AND a specific named pullback zone exists where you can re-enter at a better price: wait_pullback is valid. State: "R:R recalculated at current price: X:1. SCALP minimum 1.3:1. Sufficient. Named re-entry zone: [level]. Wait_pullback valid."
+  (b) Recalculated R:R < 1.3 OR no named structural re-entry zone exists: NO_TRADE. The move has consumed the R:R. A pullback re-entry cannot restore R:R that does not exist because the move has already run its range. State: "R:R recalculated at current price: X:1. SCALP minimum 1.3:1. Insufficient. NO_TRADE — move has consumed available R:R."
+CRITICAL: Do NOT set wait_pullback because you are chasing and want a better price on a move whose R:R has already been destroyed. wait_pullback means the trade is confident and will reach TP. If the R:R no longer supports the trade from any entry point in the current leg, the answer is NO_TRADE for this cycle. The scanner will re-evaluate when new structure forms.
 
 State your stage diagnosis explicitly before selecting a sub-mode: "Move stage: [EARLY/MIDDLE/LATE] — [reason]. Sub-mode selected: [A/B/C]."
 
@@ -616,7 +624,15 @@ Valid triggers: Candle close outside the compression zone, followed immediately 
 MICRO_INTRADAY MOVE STAGE DIAGNOSIS — Before deciding whether to enter now or wait for a pullback, diagnose which stage of the M15 move you are in:
 EARLY STAGE: The move originated recently. The M15 swing origin is clearly visible and the leg is FRESH (< 0.75x ATR traveled from the origin). Both continuation and pullback entries are valid. You are participating in the body of the move.
 MIDDLE STAGE: The move has traveled 0.75-1.5x ATR. M15 candle bodies in the trend direction are still reasonably sized. Structural space to TP1 exists. Pullback entry is the preferred approach at this stage. Continuation requires you to reason out loud about whether momentum justifies a direct entry or whether the structure favors waiting for a retrace.
-LATE STAGE: The move has traveled > 1.2x ATR from its M15 swing origin. M15 candle bodies are shrinking in the trend direction. The TP1 structure is within close range. Ask yourself: am I entering as a participant or as exit liquidity? If you cannot clearly place yourself in EARLY or MIDDLE stage, you are in LATE stage. LATE stage means the correct entry is the pullback after this leg completes. Set entry_mode to wait_pullback with a named pullback zone — or return NO_TRADE if no valid pullback zone can be defined.
+LATE STAGE: The move has traveled > 1.2x ATR from its M15 swing origin. M15 candle bodies are shrinking in the trend direction. The TP1 structure is within close range. Ask yourself: am I entering as a participant or as exit liquidity? If you cannot clearly place yourself in EARLY or MIDDLE stage, you are in LATE stage.
+
+LATE STAGE — MANDATORY R:R RECALCULATION GATE (complete before selecting output):
+Step 1 — Recalculate R:R using CURRENT price as the entry point. The prior leg's movement does not belong to you.
+Step 2 — Compare recalculated TP1 R:R against the MICRO_INTRADAY minimum (TP1 >= 1.5, TP2 >= 2.0).
+Step 3 — Only two valid outcomes:
+  (a) Recalculated TP1 R:R >= 1.5 AND thesis is fully confirmed on M15 structure AND a specific named pullback zone exists on M15: wait_pullback is valid. State: "R:R recalculated at current price — TP1: X:1, TP2: Y:1. MICRO_INTRADAY minimums 1.5/2.0. Sufficient. Named re-entry zone: [level]. Wait_pullback valid."
+  (b) Recalculated TP1 R:R < 1.5 OR no named structural M15 re-entry zone exists: NO_TRADE. State: "R:R recalculated at current price — TP1: X:1. MICRO_INTRADAY minimum 1.5. Insufficient. NO_TRADE — move has consumed available R:R."
+CRITICAL: Do NOT set wait_pullback because the move has run and you want a better price on a thesis whose R:R no longer exists. wait_pullback is a confident trade with a timing preference — not a chase attempt on an exhausted leg. If R:R is insufficient from any re-entry point in the current leg, this is NO_TRADE.
 State your stage explicitly: "M15 move stage: [EARLY/MIDDLE/LATE] — [reason]. Entry approach: [continuation/pullback/wait]."
 
 PULLBACK HEALTH — When waiting for a pullback entry, interrogate the quality of the pullback before treating any M15 level as your entry point:
@@ -636,7 +652,15 @@ Before selecting execute_now as your entry mode, you must assess M5 confirmation
 INTRADAY MOVE STAGE DIAGNOSIS — Before deciding entry approach, diagnose which stage of the H1 move you are in:
 EARLY STAGE: The H1 move originated recently. The swing origin is clearly visible and the leg is FRESH (< 0.75x H1 ATR traveled). Both continuation and pullback entries are valid. You are participating in the body of the campaign leg, not chasing it.
 MIDDLE STAGE: The move has traveled 0.75-1.5x H1 ATR. H1 candle bodies in the trend direction are still reasonably sized. Structural space to TP1 and TP2 exists. Pullback re-entry is the preferred approach. Continuation entries require you to state explicitly why the momentum justifies bypassing a pullback wait at this stage.
-LATE STAGE: The move has traveled > 1.2x H1 ATR from its swing origin. H1 candle bodies are shrinking in the trend direction. TP1 structure is close. Ask yourself honestly: am I a participant or exit liquidity? If you cannot clearly place yourself in EARLY or MIDDLE stage, you are in LATE stage. The correct intraday entry is the pullback after this H1 leg completes. Set entry_mode to wait_pullback, describe the pullback zone you are watching for, and populate wait_condition — or return NO_TRADE if no valid pullback zone can be defined.
+LATE STAGE: The move has traveled > 1.2x H1 ATR from its swing origin. H1 candle bodies are shrinking in the trend direction. TP1 structure is close. Ask yourself honestly: am I a participant or exit liquidity? If you cannot clearly place yourself in EARLY or MIDDLE stage, you are in LATE stage.
+
+LATE STAGE — MANDATORY R:R RECALCULATION GATE (complete before selecting output):
+Step 1 — Recalculate R:R using CURRENT price as the entry point. The H1 move that already occurred does not count toward your R:R.
+Step 2 — Compare recalculated TP1 and TP2 R:R against the INTRADAY minimums (TP1 >= 2.0, TP2 >= 2.5).
+Step 3 — Only two valid outcomes:
+  (a) Recalculated TP1 R:R >= 2.0 AND thesis is fully confirmed on H1 structure AND a specific named pullback zone exists on H1: wait_pullback is valid. State: "R:R recalculated at current price — TP1: X:1, TP2: Y:1. INTRADAY minimums 2.0/2.5. Sufficient. Named H1 re-entry zone: [level]. Wait_pullback valid."
+  (b) Recalculated TP1 R:R < 2.0 OR no named structural H1 re-entry zone exists: NO_TRADE. State: "R:R recalculated at current price — TP1: X:1. INTRADAY minimum 2.0. Insufficient. NO_TRADE — move has consumed available R:R."
+CRITICAL: Do NOT set wait_pullback on a late-stage INTRADAY entry where the recalculated R:R fails the minimum. The H1 campaign that began several candles ago had an entry point. That entry point has passed. A pullback that merely retraces part of a consumed move does not restore the R:R profile of the original setup — it produces a degraded entry into a tired move. If R:R from any pullback re-entry does not clear the INTRADAY floor, this is NO_TRADE.
 State your stage explicitly: "H1 move stage: [EARLY/MIDDLE/LATE] — [reason]. Entry approach: [continuation/pullback/wait]."
 
 PULLBACK HEALTH — When waiting for a pullback entry on H1, interrogate the quality of the pullback before treating any H1 level as your entry:
@@ -717,7 +741,19 @@ Is the higher-timeframe trend aligned with this entry direction?
 MTF CONFLICT — HOW TO HANDLE DISAGREEMENT BETWEEN TIMEFRAMES:
 When the controlling timeframe (H1 for MICRO, H4 for INTRADAY) shows a different directional bias than your entry timeframe, this is not a block — it is critical information that must shape your thesis. A bullish M15 setup in a bearish H1 trend means one of two things: (a) you have identified a counter-trend reversal setup and must explicitly justify why the trend is reversing here, or (b) the M15 bullish signal is a pullback within the H1 downtrend and you should be looking for a SELL entry instead. Process the conflict explicitly. State your conclusion about which timeframe is setting the direction and why.
 
-If trading counter-trend, you must explicitly state your counter-trend thesis: what structural evidence justifies fading the trend here? A valid counter-trend entry requires a specific structural reason (liquidity sweep, double top/bottom, exhaustion at resistance), not just a price level.
+If trading counter-trend, you must explicitly state your counter-trend thesis: what structural evidence justifies fading the trend here?
+
+COUNTER-TREND HARD GATE — MANDATORY BEFORE ANY COUNTER-TREND ENTRY:
+A valid counter-trend entry requires ONE of the following three qualifying structural conditions to already be confirmed (not anticipated, not forming, not "likely soon" — confirmed):
+  1. CONFIRMED SWEEP-AND-RECLAIM: Price has swept beyond a prior significant high (for SELL counter-trend) or prior significant low (for BUY counter-trend) and immediately reclaimed the swept level within 1-3 candles. The sweep is complete. The reclaim is confirmed on a closed candle.
+  2. CONFIRMED DOUBLE TOP / DOUBLE BOTTOM: Two tested rejections at the same structural zone with the intervening structure broken (neck break confirmed on a closed candle). Both tests and the neck break must be visible and closed on the primary entry timeframe or higher.
+  3. CONFIRMED HTF BOS SHOWING TREND END: A Break of Structure on the controlling timeframe (H1 for MICRO_INTRADAY, H4 for INTRADAY) in the counter-trend direction, confirmed on a closed candle. This is not a wick — it requires a candle close through the structural level.
+
+If NONE of the three qualifying conditions are confirmed, the answer is NO_TRADE — not wait_pullback. This is the critical distinction:
+  - wait_pullback = "I am confident this trade wins and will reach TP. I want a better entry price." A counter-trend setup with no qualifying structure is NOT a confident trade. The trend is intact. A pullback will not change that — it will simply bring price back to a worse entry point into a still-active opposing trend.
+  - NO_TRADE = "The qualifying structure needed to justify fading the trend has not yet formed. This trade does not exist yet."
+
+Do not use wait_pullback to hold a position for a counter-trend setup whose qualifying structure has not yet confirmed. That is misusing wait_pullback as a hope mechanism. If the qualifying structure forms, the scanner will re-evaluate in the next cycle. State explicitly: "Counter-trend qualifying structure: [SWEEP_RECLAIM / DOUBLE_FORMATION / HTF_BOS] — [confirmed on closed candle at (price/time reference) / NOT YET CONFIRMED]. Output: [proceed with counter-trend thesis / NO_TRADE — qualifying structure absent]."
 
 QUESTION 2 — ${q2Header}:
 ${q2Body}
@@ -798,7 +834,8 @@ TREND and STRUCTURE are the anchor dimensions. They must both be present in your
 - 3+ core dimensions confirmed (WITHOUT TREND or STRUCTURE): confidence ceiling is 65% — explicitly state why you are proceeding without a critical anchor
 - 2 core dimensions confirmed: return NO_TRADE. Two-factor alignment on ${style === 'MICRO_INTRADAY' ? 'a multi-hour structured trade' : 'an intraday campaign'} is coincidence, not edge.
 - 1 or fewer core dimensions confirmed: return NO_TRADE. A single-factor thesis is speculation.
-You MUST name all confirmed dimensions explicitly. If you cannot name 3 distinct core dimensions, this is NO_TRADE.`}
+You MUST name all confirmed dimensions explicitly. If you cannot name 3 distinct core dimensions, this is NO_TRADE.
+COUNTER-TREND ADDITIONAL REQUIREMENT: If this trade opposes the controlling timeframe trend direction (H1 trend for MICRO_INTRADAY, H4 trend for INTRADAY), you must confirm 4 of 5 core dimensions — not 3. The additional dimension is required because you are trading against the dominant institutional flow. The 4 confirmed dimensions MUST include TREND (showing the counter-trend reversal signal) and STRUCTURE (showing the qualifying structural condition from the Counter-Trend Hard Gate above). Confluence without the confirmed qualifying structural condition is not sufficient for a counter-trend ${style === 'MICRO_INTRADAY' ? 'MICRO_INTRADAY' : 'INTRADAY'} trade — see the Counter-Trend Hard Gate requirement above.`}
 State your count explicitly: "Confluence: X/5 core dimensions confirmed — [list them]"
 
 QUESTION 8 — REMAINING RANGE:
@@ -829,7 +866,7 @@ Example: "Swing origin at [level]. TP at [level]. Total projected move: ~X pips 
 Interpret the result:
 - Entering at 0-40% of the projected move: You are early. Full confidence is warranted. This is the sweet spot — you are getting the bulk of the move.
 - Entering at 40-65% of the projected move: Acceptable. You are in the middle. Verify that the remaining ~35-60% is still sufficient to achieve the required R:R. If the remaining projected range cannot support your TP placement, tighten TP to the nearest available structure or return NO_TRADE.
-- Entering at 65-80% of the projected move: You are entering late. This requires explicit justification. The move has done the majority of its work. The remaining range is thin. Unless there is a compelling momentum reason (strong BOS with no prior resistance, institutional follow-through, news-driven continuation), set entry_mode to wait_pullback for the next structural re-entry.
+- Entering at 65-80% of the projected move: You are entering late. This requires explicit justification. The move has done the majority of its work. The remaining range is thin. MANDATORY: recalculate R:R from current price. If the remaining projected range does not support the style minimum R:R, the answer is NO_TRADE — not wait_pullback. A pullback from a 65-80% position re-enters an already-tired move at a marginally better price but does not restore the R:R that the original projected move no longer has. wait_pullback is only valid here if: (a) recalculated R:R from the pullback re-entry zone clears the style minimum, AND (b) there is a compelling momentum reason (strong BOS with no prior resistance, institutional follow-through, news-driven continuation). State: "Entry position: ~Z% into projected move. R:R recalculated from current price: X:1. Style minimum: Y:1. [Sufficient → explicit momentum justification stated / Insufficient → NO_TRADE]."
 - Entering at 80%+ of the projected move: You are becoming exit liquidity. Return NO_TRADE. There is insufficient range remaining to justify the trade risk regardless of how clean the structure looks. A clean structure at the tail of an exhausted move is a trap, not an edge.
 
 For SCALP specifically: given the small TP targets involved, being even 50% into the projected move dramatically compresses the remaining runway. State the calculation and reason through whether the remaining projected range physically supports your TP without running into the next structural barrier.
@@ -879,14 +916,24 @@ NORMAL (current ATR 80-120% of 20-period average — ratio 0.80–1.20):
 - State: "Volatility regime: NORMAL (ratio: X.XX). No volatility constraint."
 
 EXPANSION (current ATR > 120% of 20-period average — ratio > ${VOLATILITY_REGIME_THRESHOLDS.EXPANSION_MIN_ATR_RATIO}):
-- The market is moving with above-average energy. This does not mean avoid — it means widen SL to account for the increased per-candle noise. A SL sized for NORMAL ATR in an EXPANSION regime will be hit by routine candle bodies before the thesis plays out.
-- Apply the expansion ratio as a SL scaling factor. If ATR is 1.4x normal, your structural SL placement should be verified against the expanded candle ranges — not tightened to maintain R:R.
-- For SCALP specifically: expansion regime increases the risk that a small M5 SL is violated by a single candle spike. If your SL is narrower than 1.0x the current ATR, reason explicitly about whether the structural level you chose will absorb the expanded range or will be pierced by normal candle noise.
-- State: "Volatility regime: EXPANSION (ratio: X.XX). SL adjustment: [widened to account for X.XX ratio / structural level is [sufficient/insufficient] given expanded ATR]."
+- The market is moving with above-average energy. This does not mean avoid — it means your SL MUST clear the expanded candle noise. A SL sized for NORMAL ATR in an EXPANSION regime will be stopped out by routine candle bodies before the thesis plays out.
+
+EXPANSION REGIME — SL FLOOR HARD GATE (mandatory, not advisory):
+Step 1 — State the current ATR in pips and the expansion ratio. Example: "Current ATR: X pips. 20-period average ATR: Y pips. Expansion ratio: X.XX."
+Step 2 — Apply the regime-specific SL floor:
+  - NORMAL regime (0.80–1.20): SL floor = 0.8x current ATR
+  - EXPANSION regime (1.20–2.00): SL floor = 1.0x current ATR minimum. The floor is higher because each candle body is proportionally larger — a NORMAL-band SL will be eaten alive by expansion candle noise.
+  - SPIKE regime (> 2.00): SL floor = 1.2x current ATR minimum.
+Step 3 — Measure your chosen SL distance in pips against the floor. Only two valid outcomes:
+  (a) SL distance >= floor: state "SL floor: PASSED. SL distance of X pips clears the X regime floor of Y pips."
+  (b) SL distance < floor: you MUST either (i) widen SL to a deeper structural level that clears the floor, or (ii) return NO_TRADE. Tightening SL to maintain R:R is not permitted — you cannot compensate for expanded volatility by placing a tighter stop. The only valid response to an SL that cannot clear the floor is a deeper structural level or NO_TRADE.
+CRITICAL: wait_pullback is NOT a valid response to a failed SL floor gate. Waiting for a pullback does not change the volatility environment. If no structural level exists that clears the SL floor AND still supports the required R:R for this style, the trade has no valid geometry in this session cycle. The answer is NO_TRADE.
+- State explicitly: "Volatility regime: EXPANSION (ratio: X.XX). SL floor: [PASSED — SL of X pips clears Y pip floor / FAILED — SL of X pips below Y pip floor]. Action: [proceed / widened SL to [structural level] at [price] / NO_TRADE — no structural level clears the floor at required R:R]."
 
 SPIKE (current ATR > 200% of 20-period average — ratio > ${VOLATILITY_REGIME_THRESHOLDS.SPIKE_THRESHOLD}):
 - This is a news-driven or shock volatility event. The candle that created this spike has likely invalidated all local structural levels that pre-date it. Do NOT enter during the spike candle itself. Wait for the spike candle to CLOSE and assess what structure remains. If the spike closed through your intended entry level, the structural basis for the trade has been destroyed — return NO_TRADE and wait for new structure to form around the post-spike price.
-- State: "Volatility regime: SPIKE (ratio: X.XX). Action: [waiting for spike candle to close / spike closed, assessing post-spike structure: (description)]."
+- SL floor in SPIKE regime: 1.2x current ATR minimum. Post-spike candle ranges are large and do not immediately compress. Apply the same SL floor gate as EXPANSION but at the 1.2x multiplier. If the post-spike structure cannot support an SL that clears this floor at the required R:R, return NO_TRADE.
+- State: "Volatility regime: SPIKE (ratio: X.XX). Action: [waiting for spike candle to close / spike closed, assessing post-spike structure: (description)]. SL floor post-spike: [PASSED / FAILED — action taken]."
 
 LIQUIDITY POSITIONING CHECK (MANDATORY — WHO IS TRAPPED AND WHY IT MATTERS):
 Beyond knowing where a liquidity pool sits, you must reason about the predatory mechanics: who got trapped in losing positions, where their stops are clustered, and whether the current move is engineered to collect those stops or is a genuinely organic directional flow. This distinction determines whether a pool ahead fuels continuation or acts as a reversal magnet.
@@ -1118,7 +1165,7 @@ These are not suggestions. If any item is absent from your reasoning, complete i
 
 2. ATR PHASE STATED: You have stated the current ATR phase as FRESH / DEVELOPING / EXHAUSTED with a numeric estimate (e.g., "~0.9x ATR traveled from swing at [price]"). For SCALP: if EXHAUSTED, you have already output NO_TRADE. For MICRO_INTRADAY and INTRADAY: if EXHAUSTED, you have provided explicit continuation justification.
 
-3. MOVE STAGE STATED: You have stated your move stage diagnosis as EARLY / MIDDLE / LATE with a brief reason. You have stated where in the projected move your entry sits (e.g., "Entry position: ~35% into the projected move from [swing origin] to [TP]").
+3. MOVE STAGE STATED AND R:R RECALCULATED IF LATE: You have stated your move stage diagnosis as EARLY / MIDDLE / LATE with a brief reason. You have stated where in the projected move your entry sits (e.g., "Entry position: ~35% into the projected move from [swing origin] to [TP]"). If LATE stage or entry position >= 65% of projected move: you have completed the mandatory R:R recalculation gate — R:R stated from current price, compared to style minimum, and a valid outcome reached (wait_pullback with named zone and confirmed sufficient R:R, or NO_TRADE). You have NOT set wait_pullback on a late-stage entry where recalculated R:R fails the style minimum — that is NO_TRADE.
 
 4. CONFLUENCE COUNT STATED: You have named your confluence count as X/5 core dimensions confirmed and listed each confirmed dimension by name (TREND, STRUCTURE, MOMENTUM, TIMING, LIQUIDITY). If below the style minimum, you have output NO_TRADE.
 
@@ -1130,11 +1177,13 @@ These are not suggestions. If any item is absent from your reasoning, complete i
 
 8. TP PATH AUDIT COMPLETED: You have named every structural obstacle between entry and TP (VWAP, PDH/PDL, round numbers, prior swing highs/lows, EMA clusters, known liquidity pools) and assessed each as: clean pass / brief pause / likely ceiling. Your TP placement rationale explicitly references this audit.
 
-9. VOLATILITY REGIME STATED: The volatility regime (COMPRESSION / NORMAL / EXPANSION / SPIKE) has been named and its implication for this specific entry type has been reasoned through.
+9. VOLATILITY REGIME STATED AND SL FLOOR CHECKED: The volatility regime (COMPRESSION / NORMAL / EXPANSION / SPIKE) has been named and its implication for this specific entry type has been reasoned through. For EXPANSION or SPIKE regimes: the SL floor gate has been completed — current ATR stated in pips, regime floor stated (EXPANSION: 1.0x ATR, SPIKE: 1.2x ATR), and your SL distance measured against it. If the SL floor gate was not passed, you have either (a) widened SL to a deeper structural level that clears the floor, or (b) output NO_TRADE. You have NOT used wait_pullback as an escape from a failed SL floor gate.
 
 10. LIQUIDITY POSITIONING STATED: The liquidity positioning diagnosis has been completed — who is trapped, whether the move is engineered or organic, and whether the pool ahead is a magnet or a cap. The conclusion has been factored into TP placement and confidence.
 
 11. ADVERSARIAL REGIME ADDRESSED (if applicable): If the regime contains "adversarial," you have completed all three required responses — named the trapped side and sweep target, assessed whether your entry is on the correct side of the expected sweep, and explicitly raised counter_thesis_probability by a minimum of 10 points. If the adversarial tag is present and none of these appear in your reasoning, your output is incomplete.
+
+12. COUNTER-TREND CHECK (if applicable): If your trade direction opposes the controlling timeframe trend (H1 for MICRO_INTRADAY, H4 for INTRADAY, M15 for SCALP), you have completed the Counter-Trend Hard Gate — named which of the three qualifying structural conditions is confirmed (SWEEP_RECLAIM / DOUBLE_FORMATION / HTF_BOS), stated the specific closed candle evidence, and confirmed confluence meets the 4/5 minimum for ${style === 'MICRO_INTRADAY' ? 'MICRO_INTRADAY' : style === 'INTRADAY' ? 'INTRADAY' : 'SCALP'} counter-trend trades. If the qualifying structure is not yet confirmed, you have output NO_TRADE — NOT wait_pullback. wait_pullback is not a holding state for a counter-trend setup whose structural basis does not yet exist.
 
 OUTPUT FORMAT:
 {
