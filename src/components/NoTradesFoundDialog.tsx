@@ -81,11 +81,20 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
   const progressPercent = (countdown / 60) * 100;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative max-w-lg w-full max-h-[90dvh] flex flex-col">
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+      style={{
+        paddingTop: 'max(5rem, env(safe-area-inset-top))',
+        paddingBottom: 'max(6rem, env(safe-area-inset-bottom))',
+        paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+        paddingRight: 'max(1rem, env(safe-area-inset-right))',
+        alignItems: 'center',
+      }}
+    >
+      <div className="relative max-w-lg w-full flex flex-col" style={{ maxHeight: 'calc(100dvh - 11rem)' }}>
         <div className="absolute -inset-1 bg-gradient-to-r from-amber-500/20 to-orange-500/20 rounded-2xl blur" />
 
-        <div className="relative bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl border border-gray-700 shadow-2xl overflow-hidden flex flex-col max-h-[90dvh]">
+        <div className="relative bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl border border-gray-700 shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: 'calc(100dvh - 11rem)' }}>
           <div className="flex-1 overflow-y-auto p-6" style={{ WebkitOverflowScrolling: 'touch', minHeight: 0 }}>
             <div className="flex items-start gap-4 mb-5">
               <div className="p-3 rounded-xl bg-gradient-to-br from-amber-600 to-orange-600 shrink-0">

@@ -181,14 +181,20 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
+      style={{
+        paddingTop: 'max(5rem, env(safe-area-inset-top))',
+        paddingBottom: 'max(6rem, env(safe-area-inset-bottom))',
+        paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+        paddingRight: 'max(1rem, env(safe-area-inset-right))',
+      }}
     >
       <div className="absolute inset-0" onClick={(e) => e.stopPropagation()} />
 
       <div className="relative w-full max-w-md animate-in zoom-in-95 duration-300">
         <div className="absolute -inset-px bg-gradient-to-r from-blue-500 to-cyan-500 rounded-2xl opacity-40 blur-lg" />
 
-        <div className="relative bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 rounded-2xl border border-gray-700/50 shadow-2xl overflow-hidden max-h-[88dvh] flex flex-col">
+        <div className="relative bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 rounded-2xl border border-gray-700/50 shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: 'calc(100dvh - 11rem)' }}>
           <div className="overflow-y-auto flex-1 overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
 
             {/* Header */}

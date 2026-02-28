@@ -37,7 +37,7 @@ export const GoalAchievedDialog: React.FC<GoalAchievedDialogProps> = ({
   const overPerformance = ((displayProfit - goalAmount) / goalAmount) * 100;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200" style={{ paddingTop: 'max(5rem, env(safe-area-inset-top))', paddingBottom: 'max(6rem, env(safe-area-inset-bottom))', paddingLeft: 'max(1rem, env(safe-area-inset-left))', paddingRight: 'max(1rem, env(safe-area-inset-right))' }}>
       <div className="relative w-full max-w-lg animate-in zoom-in-95 duration-300 max-h-[90vh] flex flex-col">
         {/* Glow effect */}
         <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 via-blue-500 to-emerald-500 rounded-2xl opacity-75 blur-xl animate-pulse" />

@@ -6,9 +6,10 @@ import { useAuth } from '../hooks/useAuth';
 import { AlphaScanningFeed } from './AlphaScanningFeed';
 import { TradingMonitorStack } from './TradingMonitorStack';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
-import { GoalAchievedDialog } from './GoalAchievedDialog';
 import { TradeClosedActionDialog } from './TradeClosedActionDialog';
 import { NoTradesFoundDialog } from './NoTradesFoundDialog';
+import { TP1DecisionModal } from './TP1DecisionModal';
+import type { TP1DecisionData } from './TP1DecisionModal';
 import { goalSessionLiveEngine } from '../services/goal-session-live-engine';
 import type { NoTradeRejectionContext } from '../services/goal-session-live-engine';
 import { supabase } from '../lib/supabase';
@@ -33,15 +34,13 @@ export const GoalSessionDashboard: React.FC = () => {
   const [scanStatus, setScanStatus] = useState<ScanStatus>(goalScannerTrigger.getStatus());
   const [openTrades, setOpenTrades] = useState<any[]>([]);
   const [livePrices, setLivePrices] = useState<Record<string, { bid: number; ask: number }>>({});
-  const [showGoalAchieved, setShowGoalAchieved] = useState(false);
-  const showGoalAchievedRef = useRef(showGoalAchieved);
-  showGoalAchievedRef.current = showGoalAchieved;
+  const showGoalAchievedRef = useRef(false);
   const [showTradeClosedAction, setShowTradeClosedAction] = useState(false);
-  const [goalAchievementData, setGoalAchievementData] = useState<any>(null);
   const [tradeClosedData, setTradeClosedData] = useState<any>(null);
   const [showNoTradesModal, setShowNoTradesModal] = useState(false);
   const [noTradesLoading, setNoTradesLoading] = useState(false);
   const [noTradeRejectionContext, setNoTradeRejectionContext] = useState<NoTradeRejectionContext | null>(null);
+  const noTradesSessionIdRef = useRef<string | null>(null);
   const [forceCloseAttempted, setForceCloseAttempted] = useState<string | null>(null);
   const [sessionHealth, setSessionHealth] = useState<any>(null);
   const [unstickLoading, setUnstickLoading] = useState(false);
@@ -49,6 +48,9 @@ export const GoalSessionDashboard: React.FC = () => {
   const [isClosingSession, setIsClosingSession] = useState(false);
   const [closureTimeoutId, setClosureTimeoutId] = useState<NodeJS.Timeout | null>(null);
   const [processedTradeClosures, setProcessedTradeClosures] = useState<Set<string>>(new Set());
+  const [showTP1Modal, setShowTP1Modal] = useState(false);
+  const [tp1DecisionData, setTP1DecisionData] = useState<TP1DecisionData | null>(null);
+  const processedTP1Hits = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!activeSession) return;
@@ -60,6 +62,7 @@ export const GoalSessionDashboard: React.FC = () => {
 
       console.log('[GoalSessionDashboard] Scan completed with no qualifying trade - showing dialog');
       setNoTradeRejectionContext(detail?.rejectionContext || null);
+      noTradesSessionIdRef.current = activeSession.sessionId;
       setShowNoTradesModal(true);
     };
 
@@ -119,15 +122,6 @@ export const GoalSessionDashboard: React.FC = () => {
           }).catch(err => console.error('[GoalSessionDashboard] Failed to play sound:', err));
 
           loadSessionData();
-          // Show goal achieved dialog
-          setGoalAchievementData({
-            goalAmount: activeSession.config.goalAmount,
-            achievedProfit: payload.new.achieved_pnl,
-            symbol: payload.new.symbol,
-            timeElapsed: calculateTimeElapsed(activeSession.startTime),
-            tradesExecuted: 1
-          });
-          setShowGoalAchieved(true);
         }
       )
       .subscribe();
@@ -247,6 +241,56 @@ export const GoalSessionDashboard: React.FC = () => {
     return () => {
       console.log('[GoalSessionDashboard] 🔌 Cleaning up realtime subscription');
       supabase.removeChannel(channel);
+    };
+  }, [user, activeSession]);
+
+  useEffect(() => {
+    if (!user || !activeSession) return;
+
+    const tp1Channel = supabase
+      .channel(`tp1-hits-${activeSession.sessionId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'goal_session_trades',
+          filter: `goal_session_id=eq.${activeSession.sessionId}`
+        },
+        (payload) => {
+          const tp1JustHit =
+            payload.new?.tp1_hit === true &&
+            payload.old?.tp1_hit === false &&
+            payload.new?.status === 'open';
+
+          if (!tp1JustHit) return;
+
+          const tradeId = payload.new.id as string;
+          if (processedTP1Hits.current.has(tradeId)) return;
+          processedTP1Hits.current.add(tradeId);
+
+          console.log('[GoalSessionDashboard] TP1 hit detected for trade', tradeId);
+
+          const currentProfit = parseFloat(payload.new.unrealized_pnl ?? '0') ||
+            parseFloat(payload.new.profit_loss ?? '0') || 0;
+
+          setTP1DecisionData({
+            tradeId,
+            sessionId: activeSession.sessionId,
+            symbol: payload.new.symbol,
+            direction: payload.new.direction,
+            tp1Price: parseFloat(payload.new.take_profit ?? '0'),
+            tp2Price: payload.new.take_profit_2 != null ? parseFloat(payload.new.take_profit_2) : null,
+            currentProfit,
+            goalAmount: activeSession.config.goalAmount,
+          });
+          setShowTP1Modal(true);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(tp1Channel);
     };
   }, [user, activeSession]);
 
@@ -487,7 +531,6 @@ export const GoalSessionDashboard: React.FC = () => {
       await smartGoalSessionManager.stopSession(activeSession.sessionId, user.id);
     }
 
-    setShowGoalAchieved(false);
     setShowTradeClosedAction(false);
 
     // Navigate to start new session (user will use the SmartGoalPanel)
@@ -577,15 +620,44 @@ export const GoalSessionDashboard: React.FC = () => {
   };
 
   const handleViewAchievements = () => {
-    console.log('[GoalSessionDashboard] 🏆 View All Achievements clicked - navigating...');
-    setShowGoalAchieved(false);
-
-    // Navigate to achievements tab by dispatching a custom event
-    // This will be picked up by AITradePage which manages the tabs
+    console.log('[GoalSessionDashboard] View All Achievements clicked - navigating...');
     window.dispatchEvent(new CustomEvent('switch-to-achievements-tab'));
-
-    // Also try direct navigation as fallback
     navigate('/ai-trade?tab=achievements');
+  };
+
+  const handleTP1ContinueToTP2 = async () => {
+    console.log('[GoalSessionDashboard] TP1 decision: continue to TP2');
+    if (tp1DecisionData && user) {
+      await supabase.from('tp1_decision_log').insert({
+        user_id: user.id,
+        trade_id: tp1DecisionData.tradeId,
+        session_id: tp1DecisionData.sessionId,
+        decision: 'continue_to_tp2',
+        auto_decided: false,
+      }).then(({ error }) => {
+        if (error) console.warn('[GoalSessionDashboard] tp1_decision_log insert failed (non-critical):', error.message);
+      });
+    }
+    setShowTP1Modal(false);
+    setTP1DecisionData(null);
+  };
+
+  const handleTP1CloseSession = async () => {
+    console.log('[GoalSessionDashboard] TP1 decision: close session now');
+    if (tp1DecisionData && user) {
+      await supabase.from('tp1_decision_log').insert({
+        user_id: user.id,
+        trade_id: tp1DecisionData.tradeId,
+        session_id: tp1DecisionData.sessionId,
+        decision: 'close_session',
+        auto_decided: false,
+      }).then(({ error }) => {
+        if (error) console.warn('[GoalSessionDashboard] tp1_decision_log insert failed (non-critical):', error.message);
+      });
+    }
+    setShowTP1Modal(false);
+    setTP1DecisionData(null);
+    await handleCloseForNow();
   };
 
 
@@ -1645,29 +1717,13 @@ export const GoalSessionDashboard: React.FC = () => {
         <TradingMonitorStack />
       )}
 
-      {activeSession && (
-        <NoTradesFoundDialog
-          isOpen={showNoTradesModal}
-          onClose={handleNoTradesClose}
-          sessionId={activeSession.sessionId}
-          isLoading={noTradesLoading}
-          rejectionContext={noTradeRejectionContext}
-        />
-      )}
-
-      {goalAchievementData && (
-        <GoalAchievedDialog
-          isOpen={showGoalAchieved}
-          goalAmount={goalAchievementData.goalAmount}
-          achievedProfit={goalAchievementData.achievedProfit}
-          symbol={goalAchievementData.symbol}
-          timeElapsed={goalAchievementData.timeElapsed}
-          tradesExecuted={goalAchievementData.tradesExecuted}
-          onStartNewSession={handleStartNewSession}
-          onViewAchievements={handleViewAchievements}
-          onClose={() => setShowGoalAchieved(false)}
-        />
-      )}
+      <NoTradesFoundDialog
+        isOpen={showNoTradesModal}
+        onClose={handleNoTradesClose}
+        sessionId={noTradesSessionIdRef.current || activeSession?.sessionId || ''}
+        isLoading={noTradesLoading}
+        rejectionContext={noTradeRejectionContext}
+      />
 
       {tradeClosedData && activeSession && progress && (
         <TradeClosedActionDialog
@@ -1689,6 +1745,13 @@ export const GoalSessionDashboard: React.FC = () => {
           onCloseForNow={handleCloseForNow}
         />
       )}
+
+      <TP1DecisionModal
+        isOpen={showTP1Modal}
+        data={tp1DecisionData}
+        onContinueToTP2={handleTP1ContinueToTP2}
+        onCloseSession={handleTP1CloseSession}
+      />
     </div>
   );
 };
