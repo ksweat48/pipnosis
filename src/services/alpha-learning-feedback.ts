@@ -36,6 +36,9 @@ export interface TradeOutcome {
   aiReasoningPattern?: string;
   executionSlippage?: number;
   goalSessionId?: string;
+  tradeStyle?: string;
+  patternIds?: string[];
+  counterThesisFailureProbability?: number;
 }
 
 export interface CalibrationUpdate {
@@ -62,7 +65,8 @@ export class AlphaLearningFeedbackService {
    * manual closes BEFORE reaching any milestone are excluded from learning.
    * Alpha only learns from fully executed trades.
    */
-  async processTradeOutcome(outcome: TradeOutcome): Promise<void> {
+  async processTradeOutcome(outcomeInput: TradeOutcome): Promise<void> {
+    let outcome = outcomeInput;
     logger.info(`[Alpha Feedback] Processing trade outcome for ${outcome.symbol}`, {
       tradeId: outcome.tradeId,
       closeReason: outcome.closeReason,
@@ -72,9 +76,13 @@ export class AlphaLearningFeedbackService {
     // ✅ SSOT: Fetch full trade data to check milestone status
     const { data: tradeData } = await supabase
       .from('goal_session_trades')
-      .select('tp1_hit, tp2_hit, close_reason, trailing_active, breakeven_moved')
+      .select('tp1_hit, tp2_hit, close_reason, trailing_active, breakeven_moved, trade_style')
       .eq('id', outcome.tradeId)
       .maybeSingle();
+
+    if (tradeData?.trade_style && !outcome.tradeStyle) {
+      outcome = { ...outcome, tradeStyle: tradeData.trade_style };
+    }
 
     // Map analysis close reason to CloseReason type for filtering
     const mappedCloseReason = mapAnalysisToCloseReason(outcome.closeReason);
@@ -110,7 +118,12 @@ export class AlphaLearningFeedbackService {
         this.updateConfidenceCalibration(outcome),
         this.updateReasoningPattern(outcome),
         this.updateExecutionQuality(outcome),
-        this.checkForMetaInsights(outcome)
+        this.checkForMetaInsights(outcome),
+        this.updatePatternWeights(outcome),
+        this.updateSlHuntCorrections(outcome),
+        this.updateSessionStreakState(outcome),
+        this.updateTpDistributionStats(outcome),
+        this.updateCounterThesisAccuracy(outcome)
       ]);
 
       logger.info('[Alpha Feedback] ✅ Successfully updated all learning systems');
@@ -473,6 +486,228 @@ export class AlphaLearningFeedbackService {
   /**
    * Get calibrated confidence for a given confidence level
    */
+  private async updatePatternWeights(outcome: TradeOutcome): Promise<void> {
+    if (!outcome.patternIds || outcome.patternIds.length === 0) return;
+    const wasWin = outcome.closeReason === 'tp_hit' || outcome.closeReason === 'tp1_only' ||
+      outcome.closeReason === 'near_miss' || (outcome.closeReason === 'manual_close' && outcome.pnl > 0);
+    try {
+      for (const patternId of outcome.patternIds) {
+        const { data: existing } = await supabase
+          .from('alpha_pattern_performance_weights')
+          .select('advisory_weight, win_rate, total_trades')
+          .eq('user_id', outcome.userId)
+          .eq('pattern_id', patternId)
+          .maybeSingle();
+
+        if (existing) {
+          const newTotal = existing.total_trades + 1;
+          const prevWins = Math.round(existing.win_rate * existing.total_trades);
+          const newWinRate = (prevWins + (wasWin ? 1 : 0)) / newTotal;
+          const newWeight = Math.min(1.0, Math.max(0.1, newWinRate));
+          await supabase.from('alpha_pattern_performance_weights').update({
+            advisory_weight: newWeight,
+            win_rate: newWinRate,
+            total_trades: newTotal,
+            updated_at: new Date().toISOString()
+          }).eq('user_id', outcome.userId).eq('pattern_id', patternId);
+        } else {
+          await supabase.from('alpha_pattern_performance_weights').insert({
+            user_id: outcome.userId,
+            pattern_id: patternId,
+            advisory_weight: wasWin ? 0.6 : 0.4,
+            win_rate: wasWin ? 1.0 : 0.0,
+            total_trades: 1
+          });
+        }
+      }
+    } catch (error) {
+      logger.warn('[Alpha Feedback] updatePatternWeights non-blocking error:', error);
+    }
+  }
+
+  private async updateSlHuntCorrections(outcome: TradeOutcome): Promise<void> {
+    if (outcome.closeReason !== 'sl_hit') return;
+    try {
+      const slDistance = Math.abs(outcome.stopLoss - outcome.entryPrice);
+      const exitDistance = Math.abs(outcome.exitPrice - outcome.entryPrice);
+      const isHunt = exitDistance < slDistance * 0.3;
+
+      const { data: existing } = await supabase
+        .from('alpha_sl_hunt_bias_corrections')
+        .select('hunt_rate, total_sl_hits, recommended_sl_widen_pct, confidence')
+        .eq('user_id', outcome.userId)
+        .eq('symbol', outcome.symbol)
+        .maybeSingle();
+
+      if (existing) {
+        const newTotal = existing.total_sl_hits + 1;
+        const prevHunts = Math.round(existing.hunt_rate * existing.total_sl_hits);
+        const newHuntRate = (prevHunts + (isHunt ? 1 : 0)) / newTotal;
+        const recommendedWiden = newHuntRate >= 0.4 ? Math.min(0.5, newHuntRate * 0.3) : 0.0;
+        const newConfidence = Math.min(1.0, newTotal / 20);
+        await supabase.from('alpha_sl_hunt_bias_corrections').update({
+          hunt_rate: newHuntRate,
+          recommended_sl_widen_pct: recommendedWiden,
+          confidence: newConfidence,
+          total_sl_hits: newTotal,
+          updated_at: new Date().toISOString()
+        }).eq('user_id', outcome.userId).eq('symbol', outcome.symbol);
+      } else {
+        await supabase.from('alpha_sl_hunt_bias_corrections').insert({
+          user_id: outcome.userId,
+          symbol: outcome.symbol,
+          hunt_rate: isHunt ? 1.0 : 0.0,
+          recommended_sl_widen_pct: 0.0,
+          confidence: 0.05,
+          total_sl_hits: 1
+        });
+      }
+    } catch (error) {
+      logger.warn('[Alpha Feedback] updateSlHuntCorrections non-blocking error:', error);
+    }
+  }
+
+  private async updateSessionStreakState(outcome: TradeOutcome): Promise<void> {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const isWin = outcome.closeReason === 'tp_hit' || outcome.closeReason === 'tp1_only' ||
+        outcome.closeReason === 'near_miss' || (outcome.closeReason === 'manual_close' && outcome.pnl > 0);
+
+      const { data: existing } = await supabase
+        .from('alpha_session_streak_state')
+        .select('session_trades, session_wins, session_losses, current_streak, streak_type, session_pnl_r')
+        .eq('user_id', outcome.userId)
+        .eq('trade_date', today)
+        .maybeSingle();
+
+      if (existing) {
+        const newTrades = existing.session_trades + 1;
+        const newWins = existing.session_wins + (isWin ? 1 : 0);
+        const newLosses = existing.session_losses + (isWin ? 0 : 1);
+        const newPnlR = existing.session_pnl_r + outcome.pnlR;
+
+        let newStreak = existing.current_streak;
+        let newStreakType: 'win' | 'loss' | 'neutral' = existing.streak_type as 'win' | 'loss' | 'neutral';
+        if (isWin) {
+          newStreak = existing.streak_type === 'win' ? existing.current_streak + 1 : 1;
+          newStreakType = 'win';
+        } else {
+          newStreak = existing.streak_type === 'loss' ? existing.current_streak + 1 : 1;
+          newStreakType = 'loss';
+        }
+
+        await supabase.from('alpha_session_streak_state').update({
+          session_trades: newTrades,
+          session_wins: newWins,
+          session_losses: newLosses,
+          current_streak: newStreak,
+          streak_type: newStreakType,
+          session_pnl_r: newPnlR,
+          updated_at: new Date().toISOString()
+        }).eq('user_id', outcome.userId).eq('trade_date', today);
+      } else {
+        await supabase.from('alpha_session_streak_state').insert({
+          user_id: outcome.userId,
+          trade_date: today,
+          session_trades: 1,
+          session_wins: isWin ? 1 : 0,
+          session_losses: isWin ? 0 : 1,
+          current_streak: 1,
+          streak_type: isWin ? 'win' : 'loss',
+          session_pnl_r: outcome.pnlR
+        });
+      }
+    } catch (error) {
+      logger.warn('[Alpha Feedback] updateSessionStreakState non-blocking error:', error);
+    }
+  }
+
+  private async updateTpDistributionStats(outcome: TradeOutcome): Promise<void> {
+    const style = outcome.tradeStyle;
+    if (!style) return;
+    try {
+      const { data: existing } = await supabase
+        .from('alpha_tp_distribution_stats')
+        .select('total_trades, tp_full_rate, tp1_only_rate, sl_rate')
+        .eq('user_id', outcome.userId)
+        .eq('symbol', outcome.symbol)
+        .eq('style', style)
+        .maybeSingle();
+
+      const isTpFull = outcome.closeReason === 'tp_hit';
+      const isTp1Only = outcome.closeReason === 'tp1_only';
+      const isSl = outcome.closeReason === 'sl_hit';
+
+      if (existing) {
+        const n = existing.total_trades;
+        const newTotal = n + 1;
+        const newTpFull = (existing.tp_full_rate * n + (isTpFull ? 1 : 0)) / newTotal;
+        const newTp1Only = (existing.tp1_only_rate * n + (isTp1Only ? 1 : 0)) / newTotal;
+        const newSl = (existing.sl_rate * n + (isSl ? 1 : 0)) / newTotal;
+        await supabase.from('alpha_tp_distribution_stats').update({
+          total_trades: newTotal,
+          tp_full_rate: newTpFull,
+          tp1_only_rate: newTp1Only,
+          sl_rate: newSl,
+          updated_at: new Date().toISOString()
+        }).eq('user_id', outcome.userId).eq('symbol', outcome.symbol).eq('style', style);
+      } else {
+        await supabase.from('alpha_tp_distribution_stats').insert({
+          user_id: outcome.userId,
+          symbol: outcome.symbol,
+          style,
+          total_trades: 1,
+          tp_full_rate: isTpFull ? 1.0 : 0.0,
+          tp1_only_rate: isTp1Only ? 1.0 : 0.0,
+          sl_rate: isSl ? 1.0 : 0.0
+        });
+      }
+    } catch (error) {
+      logger.warn('[Alpha Feedback] updateTpDistributionStats non-blocking error:', error);
+    }
+  }
+
+  private async updateCounterThesisAccuracy(outcome: TradeOutcome): Promise<void> {
+    if (outcome.counterThesisFailureProbability == null) return;
+    try {
+      const actualFailed = outcome.closeReason === 'sl_hit' ? 1.0 : 0.0;
+      const predicted = outcome.counterThesisFailureProbability;
+
+      const { data: existing } = await supabase
+        .from('alpha_counter_thesis_accuracy')
+        .select('avg_predicted_failure_rate, actual_failure_rate, calibration_error, total_trades')
+        .eq('user_id', outcome.userId)
+        .eq('symbol', outcome.symbol)
+        .maybeSingle();
+
+      if (existing) {
+        const n = existing.total_trades;
+        const newTotal = n + 1;
+        const newAvgPredicted = (existing.avg_predicted_failure_rate * n + predicted) / newTotal;
+        const newActualRate = (existing.actual_failure_rate * n + actualFailed) / newTotal;
+        const newCalibError = Math.abs(newAvgPredicted - newActualRate);
+        await supabase.from('alpha_counter_thesis_accuracy').update({
+          avg_predicted_failure_rate: newAvgPredicted,
+          actual_failure_rate: newActualRate,
+          calibration_error: newCalibError,
+          total_trades: newTotal,
+          updated_at: new Date().toISOString()
+        }).eq('user_id', outcome.userId).eq('symbol', outcome.symbol);
+      } else {
+        await supabase.from('alpha_counter_thesis_accuracy').insert({
+          user_id: outcome.userId,
+          symbol: outcome.symbol,
+          avg_predicted_failure_rate: predicted,
+          actual_failure_rate: actualFailed,
+          calibration_error: Math.abs(predicted - actualFailed),
+          total_trades: 1
+        });
+      }
+    } catch (error) {
+      logger.warn('[Alpha Feedback] updateCounterThesisAccuracy non-blocking error:', error);
+    }
+  }
+
   async getCalibratedConfidence(
     userId: string | undefined,
     rawConfidence: number,

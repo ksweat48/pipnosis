@@ -1730,14 +1730,14 @@ MANDATORY JSON FIELDS — Include these regardless of action:
 `;
     } else if (getDisplayNameFromStyle(tradeStyle) === 'SCALP' && intelligenceSnapshot) {
       try {
-        const isScalpStyle = (style: string | undefined) => style === 'scalp' || style === 'scalper' || style === 'SCALP' || style === 'SCALPER';
-        const scalpSignal = intelligenceSnapshot.bestPairs?.find(
-          (p: { symbol: string; tradeStyle?: string; scalpSubMode?: string; scalpPattern?: string; momentumPhase?: string; atrTraveled?: number }) =>
-            p.symbol === marketContext.symbol && isScalpStyle(p.tradeStyle)
-        ) ?? intelligenceSnapshot.topPairs?.find(
-          (p: { symbol: string; tradeStyle?: string; scalpSubMode?: string; scalpPattern?: string; momentumPhase?: string; atrTraveled?: number }) =>
-            p.symbol === marketContext.symbol && isScalpStyle(p.tradeStyle)
-        );
+        const scalpSignal = (imSignal && (imSignal.scalpSubMode || imSignal.scalpPattern || imSignal.momentumPhase))
+          ? {
+              scalpSubMode: imSignal.scalpSubMode as string | undefined,
+              scalpPattern: imSignal.scalpPattern as string | undefined,
+              momentumPhase: imSignal.momentumPhase as string | undefined,
+              atrTraveled: imSignal.atrTraveled as number | undefined
+            }
+          : null;
 
         if (scalpSignal?.scalpSubMode) {
           const subModeLabels: Record<string, string> = {
@@ -3081,6 +3081,68 @@ ${tradeStyle === 'SCALP' ? `{
           parts.push(`    wins=${Math.round(insight.winRate * insight.sampleSize / 100)}/${insight.sampleSize}`);
         }
       });
+    }
+
+    if (intelligence.patternWeights && intelligence.patternWeights.length > 0) {
+      const topPatterns = intelligence.patternWeights
+        .filter(p => p.totalTrades >= 5)
+        .sort((a, b) => b.advisoryWeight - a.advisoryWeight)
+        .slice(0, 5);
+      if (topPatterns.length > 0) {
+        parts.push('\n⚖️ PATTERN ADVISORY WEIGHTS (historical win-rate derived):');
+        topPatterns.forEach(p => {
+          parts.push(`  ${p.patternId}: weight=${p.advisoryWeight.toFixed(2)} WR=${(p.winRate * 100).toFixed(0)}% (n=${p.totalTrades})`);
+        });
+      }
+    }
+
+    if (intelligence.slHuntCorrections && symbol && intelligence.slHuntCorrections[symbol]) {
+      const hunt = intelligence.slHuntCorrections[symbol];
+      if (hunt.totalSlHits >= 3 && hunt.huntRate >= 0.3) {
+        parts.push(`\n⚠️ SL HUNT BIAS (${symbol}): Hunt rate=${(hunt.huntRate * 100).toFixed(0)}% across ${hunt.totalSlHits} SL hits.`);
+        if (hunt.recommendedWidenPct > 0) {
+          parts.push(`  RECOMMENDATION: Widen SL by ~${(hunt.recommendedWidenPct * 100).toFixed(0)}% to avoid premature stop-outs. (confidence=${(hunt.confidence * 100).toFixed(0)}%)`);
+        }
+      }
+    }
+
+    if (intelligence.sessionStreakState && intelligence.sessionStreakState.sessionTrades >= 2) {
+      const streak = intelligence.sessionStreakState;
+      parts.push(`\n📊 TODAY'S SESSION: ${streak.sessionTrades} trades | WR=${streak.sessionTrades > 0 ? ((streak.sessionWins / streak.sessionTrades) * 100).toFixed(0) : 0}% | PnL=${streak.sessionPnlR >= 0 ? '+' : ''}${streak.sessionPnlR.toFixed(2)}R`);
+      if (streak.currentStreak >= 3 && streak.streakType === 'loss') {
+        parts.push(`  ⚠️ LOSS STREAK: ${streak.currentStreak} consecutive losses today. Consider reducing size or pausing.`);
+      } else if (streak.currentStreak >= 3 && streak.streakType === 'win') {
+        parts.push(`  ✅ WIN STREAK: ${streak.currentStreak} consecutive wins today. Confidence validated.`);
+      }
+    }
+
+    if (intelligence.tpDistributionStats && symbol) {
+      const symStats = intelligence.tpDistributionStats[symbol];
+      if (symStats) {
+        const styleKeys = Object.keys(symStats).filter(k => symStats[k].totalTrades >= 5);
+        if (styleKeys.length > 0) {
+          parts.push(`\n📈 TP DISTRIBUTION (${symbol}):`);
+          styleKeys.forEach(style => {
+            const s = symStats[style];
+            parts.push(`  ${style}: TP_full=${(s.tpFullRate * 100).toFixed(0)}% | TP1_only=${(s.tp1OnlyRate * 100).toFixed(0)}% | SL=${(s.slRate * 100).toFixed(0)}% (n=${s.totalTrades})`);
+          });
+        }
+      }
+    }
+
+    if (intelligence.counterThesisAccuracy && symbol && intelligence.counterThesisAccuracy[symbol]) {
+      const ct = intelligence.counterThesisAccuracy[symbol];
+      if (ct.totalTrades >= 5) {
+        const calibErr = (ct.calibrationError * 100).toFixed(0);
+        parts.push(`\n🔍 COUNTER-THESIS CALIBRATION (${symbol}): Predicted failure=${(ct.avgPredictedFailureRate * 100).toFixed(0)}% | Actual failure=${(ct.actualFailureRate * 100).toFixed(0)}% | Error=${calibErr}% (n=${ct.totalTrades})`);
+        if (ct.calibrationError > 0.2) {
+          if (ct.avgPredictedFailureRate > ct.actualFailureRate) {
+            parts.push(`  NOTE: Alpha is being overly cautious on ${symbol} — actual failure rate is lower than predicted.`);
+          } else {
+            parts.push(`  NOTE: Alpha is underestimating failure risk on ${symbol} — actual failure rate is higher than predicted.`);
+          }
+        }
+      }
     }
 
     return parts.join('\n');
