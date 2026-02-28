@@ -34,7 +34,6 @@ export const GoalSessionDashboard: React.FC = () => {
   const [scanStatus, setScanStatus] = useState<ScanStatus>(goalScannerTrigger.getStatus());
   const [openTrades, setOpenTrades] = useState<any[]>([]);
   const [livePrices, setLivePrices] = useState<Record<string, { bid: number; ask: number }>>({});
-  const showGoalAchievedRef = useRef(false);
   const [showTradeClosedAction, setShowTradeClosedAction] = useState(false);
   const [tradeClosedData, setTradeClosedData] = useState<any>(null);
   const [showNoTradesModal, setShowNoTradesModal] = useState(false);
@@ -99,37 +98,6 @@ export const GoalSessionDashboard: React.FC = () => {
       goalScannerTrigger.stopPolling();
     };
   }, [user?.id]); // Use user.id instead of user to prevent re-runs when user object changes
-
-  // Listen for goal achievement notifications
-  useEffect(() => {
-    if (!user || !activeSession) return;
-
-    const channel = supabase
-      .channel('goal-achievements')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'goal_achievements',
-          filter: `user_id=eq.${user.id}`
-        },
-        (payload) => {
-          console.log('[GoalSessionDashboard] Goal achievement detected!', payload);
-
-          import('../services/audio-alert-service').then(({ audioAlertService }) => {
-            audioAlertService.playGoalAchieved(activeSession.sessionId);
-          }).catch(err => console.error('[GoalSessionDashboard] Failed to play sound:', err));
-
-          loadSessionData();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user, activeSession]);
 
   // Listen for trade closures
   useEffect(() => {
