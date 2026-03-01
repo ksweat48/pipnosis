@@ -15,7 +15,6 @@
 
 import type { Handler } from '@netlify/functions';
 import { getSupabaseAdmin } from './_shared/supabase-admin';
-import { processGoalSessionIteration, initializeGoalSession } from '../../src/services/goal-session-core-engine';
 
 const supabase = getSupabaseAdmin();
 
@@ -142,19 +141,22 @@ export const handler: Handler = async (event, context) => {
           continue;
         }
 
-        // Initialize session state
-        const state = await initializeGoalSession(session.session_id, supabase);
+        // Load session state from DB (replaces initializeGoalSession)
+        const { data: sessionData, error: sessionLoadError } = await supabase
+          .from('goal_sessions')
+          .select('id, user_id, status, watchlist, target_value, current_progress, trade_style')
+          .eq('id', session.session_id)
+          .maybeSingle();
 
-        if (!state) {
-          console.error(`[Autonomous Monitor] Failed to initialize session ${session.session_id}`);
+        if (sessionLoadError || !sessionData) {
+          console.error(`[Autonomous Monitor] Failed to load session ${session.session_id}:`, sessionLoadError);
 
-          // Track consecutive errors — do NOT update heartbeat on initialization failure
           await supabase
             .from('goal_session_server_state')
             .upsert({
               goal_session_id: session.session_id,
               user_id: session.user_id,
-              last_error: 'Failed to initialize session state',
+              last_error: sessionLoadError?.message ?? 'Failed to load session state',
               last_error_at: new Date().toISOString(),
               consecutive_errors: 1,
               updated_at: new Date().toISOString()
@@ -163,7 +165,6 @@ export const handler: Handler = async (event, context) => {
               ignoreDuplicates: false
             });
 
-          // Use raw update to increment consecutive_errors atomically
           await supabase.rpc('increment_session_consecutive_errors', {
             p_session_id: session.session_id
           }).maybeSingle();
@@ -172,8 +173,63 @@ export const handler: Handler = async (event, context) => {
           continue;
         }
 
-        // Process one iteration
-        const result = await processGoalSessionIteration(state, supabase);
+        const { data: openTrades } = await supabase
+          .from('goal_session_trades')
+          .select('id, symbol, current_price')
+          .eq('session_id', session.session_id)
+          .eq('status', 'open');
+
+        const state = {
+          sessionId: session.session_id,
+          userId: session.user_id,
+          openTrades: openTrades ?? [],
+          watchlist: Array.isArray(sessionData.watchlist) ? sessionData.watchlist : [],
+          currentProgress: sessionData.current_progress ?? 0,
+          targetValue: sessionData.target_value ?? 0,
+        };
+
+        // Delegate scan processing to Supabase edge function
+        const supabaseUrl = process.env.SUPABASE_URL ?? '';
+        const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+        let result: { success: boolean; message: string; shouldContinue: boolean; tradesExecuted?: number; llmCallsMade?: number; triggersDetected?: number } = {
+          success: false,
+          message: 'Scan not attempted',
+          shouldContinue: true,
+        };
+
+        if (supabaseUrl && serviceRoleKey) {
+          try {
+            const scanResponse = await fetch(`${supabaseUrl}/functions/v1/goal-session-scanner`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${serviceRoleKey}`,
+              },
+              body: JSON.stringify({ sessionId: session.session_id }),
+            });
+            const scanData = await scanResponse.json();
+            result = {
+              success: scanData.success ?? scanResponse.ok,
+              message: scanData.message ?? (scanResponse.ok ? 'Scan complete' : 'Scan failed'),
+              shouldContinue: true,
+              tradesExecuted: scanData.tradesExecuted ?? 0,
+              llmCallsMade: scanData.llmCallsMade ?? 0,
+              triggersDetected: scanData.triggersDetected ?? 0,
+            };
+          } catch (scanErr) {
+            result = {
+              success: false,
+              message: `Scan error: ${(scanErr as Error).message}`,
+              shouldContinue: true,
+            };
+          }
+        } else {
+          result = {
+            success: true,
+            message: 'Session heartbeat (scan skipped — no SUPABASE_URL)',
+            shouldContinue: true,
+          };
+        }
 
         // GOVERNANCE: shouldContinue=false means the session MUST stop.
         // This covers ALL active statuses — not just 'scanning'.
@@ -218,7 +274,7 @@ export const handler: Handler = async (event, context) => {
               goal_session_id: session.session_id,
               user_id: session.user_id,
               last_processed_at: new Date().toISOString(),
-              last_tick_price: state.openTrades.length > 0 ? state.openTrades[0].currentPrice : null,
+              last_tick_price: state.openTrades.length > 0 ? (state.openTrades[0] as any).current_price ?? null : null,
               current_symbol: state.watchlist.join(','),
               trades_executed: result.tradesExecuted || 0,
               server_decisions: result.llmCallsMade || 0,
