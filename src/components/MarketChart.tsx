@@ -481,6 +481,19 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       },
     });
 
+    // GOVERNANCE (CCIP): Mobile standard = 2 decimal places on the Y-axis ruler.
+    // Desktop retains symbol-specific precision for full technical accuracy.
+    const isMobileViewport = window.innerWidth < 640;
+    const isCryptoSymbol = ['BTCUSD', 'ETHUSD'].includes(symbol);
+    const isGoldSymbol = symbol === 'XAUUSD';
+    const isIndexSymbol = ['US30', 'NAS100', 'SPX500'].includes(symbol);
+    const chartPrecision = isMobileViewport
+      ? 2
+      : (isCryptoSymbol || isGoldSymbol || isIndexSymbol ? 2 : 5);
+    const chartMinMove = isMobileViewport
+      ? 0.01
+      : (isCryptoSymbol || isGoldSymbol || isIndexSymbol ? 0.01 : 0.00001);
+
     const candlestickSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#10b981',
       downColor: '#ef4444',
@@ -489,8 +502,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       wickDownColor: '#ef4444',
       priceFormat: {
         type: 'price',
-        precision: 5,
-        minMove: 0.00001,
+        precision: chartPrecision,
+        minMove: chartMinMove,
       },
       lastValueVisible: true,
       priceLineVisible: true,

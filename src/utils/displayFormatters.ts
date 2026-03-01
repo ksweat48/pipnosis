@@ -100,11 +100,14 @@ export function formatProfitLoss(
 }
 
 /**
- * Format position price with symbol-specific precision
- * - JPY pairs: 3 decimals (e.g., "149.234")
- * - Standard forex: 5 decimals (e.g., "1.08456")
- * - Gold (XAU): 2 decimals (e.g., "2045.67")
- * - Crypto: 2 decimals (e.g., "42345.67")
+ * Format position price with symbol-specific precision.
+ * Context-aware: mobile context enforces 2 decimal places (CCIP mobile standard).
+ * - mobile:  2 decimals for ALL symbols
+ * - desktop/admin/chart: symbol-specific precision (e.g. 5 for forex, 2 for crypto/gold)
+ * - JPY pairs: 3 decimals (desktop)
+ * - Standard forex: 5 decimals (desktop)
+ * - Gold (XAU): 2 decimals (desktop)
+ * - Crypto: 2 decimals (desktop)
  */
 export function formatPositionPrice(
   price: number | null,
@@ -115,7 +118,8 @@ export function formatPositionPrice(
     return 'N/A';
   }
 
-  return formatCurrencyPrice(symbol, price);
+  const isMobile = context === 'mobile';
+  return formatCurrencyPrice(symbol, price, isMobile);
 }
 
 /**

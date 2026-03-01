@@ -335,12 +335,17 @@ export function calculatePipDistance(
 }
 
 /**
- * Format price to correct decimal places for currency
- * DEFENSIVE: Handles invalid inputs gracefully to prevent crashes
+ * Format price to correct decimal places for currency.
+ * DEFENSIVE: Handles invalid inputs gracefully to prevent crashes.
+ *
+ * GOVERNANCE (CCIP): When isMobile=true, returns 2 decimal places for ALL
+ * symbol types — this is the enforced mobile display standard across the platform.
+ * Desktop retains full symbol-specific precision from pip config.
  */
 export function formatCurrencyPrice(
   symbol: string,
-  price: number
+  price: number,
+  isMobile: boolean = false
 ): string {
   // Defensive guard: Validate symbol parameter
   if (!symbol || typeof symbol !== 'string') {
@@ -354,12 +359,17 @@ export function formatCurrencyPrice(
     return 'N/A';
   }
 
+  // MOBILE STANDARD: 2 decimal places for all symbols on mobile
+  if (isMobile) {
+    return price.toFixed(2);
+  }
+
   try {
     const pipInfo = getCurrencyPipInfo(symbol);
     return price.toFixed(pipInfo.decimalPlaces);
   } catch (error) {
     console.error(`[formatCurrencyPrice] Error formatting price for ${symbol}:`, error);
-    return price.toFixed(2); // Fallback to 2 decimals
+    return price.toFixed(2);
   }
 }
 

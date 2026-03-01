@@ -21,7 +21,11 @@ import { midTradeMonitorService, type MidTradeGuidance } from '@/services/mid-tr
 import { pricePollingCoordinator } from '@/services/price-polling-coordinator';
 import type { TrailingSLOptions } from '@/services/mid-trade-plan-engine';
 
+// GOVERNANCE (CCIP): Mobile standard = 2 decimal places for all price displays.
+const isMobileScreen = (): boolean => window.innerWidth < 640;
+
 const cleanPrice = (price: number): string => {
+  if (isMobileScreen()) return price.toFixed(2);
   return parseFloat(price.toPrecision(8)).toString();
 };
 
@@ -91,7 +95,12 @@ const splitPrice = (price: number): { integer: string; decimal: string } => {
   const raw = cleanPrice(price);
   const dotIdx = raw.indexOf('.');
   if (dotIdx === -1) return { integer: raw, decimal: '' };
-  return { integer: raw.slice(0, dotIdx), decimal: raw.slice(dotIdx) };
+  const decimalPart = raw.slice(dotIdx);
+  // MOBILE STANDARD: cap decimal to 2 digits (.XX) on small screens
+  const cappedDecimal = isMobileScreen()
+    ? decimalPart.slice(0, 3)  // keeps the dot + 2 digits
+    : decimalPart;
+  return { integer: raw.slice(0, dotIdx), decimal: cappedDecimal };
 };
 
 const PriceSplit: React.FC<{ price: number; colorClass?: string }> = ({ price, colorClass = 'text-white' }) => {
