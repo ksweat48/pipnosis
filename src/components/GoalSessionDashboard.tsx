@@ -40,6 +40,7 @@ export const GoalSessionDashboard: React.FC = () => {
   const [noTradesLoading, setNoTradesLoading] = useState(false);
   const [noTradeRejectionContext, setNoTradeRejectionContext] = useState<NoTradeRejectionContext | null>(null);
   const noTradesSessionIdRef = useRef<string | null>(null);
+  const showNoTradesModalRef = useRef(false);
   const [forceCloseAttempted, setForceCloseAttempted] = useState<string | null>(null);
   const [sessionHealth, setSessionHealth] = useState<any>(null);
   const [unstickLoading, setUnstickLoading] = useState(false);
@@ -62,12 +63,17 @@ export const GoalSessionDashboard: React.FC = () => {
       console.log('[GoalSessionDashboard] Scan completed with no qualifying trade - showing dialog');
       setNoTradeRejectionContext(detail?.rejectionContext || null);
       noTradesSessionIdRef.current = activeSession.sessionId;
+      showNoTradesModalRef.current = true;
       setShowNoTradesModal(true);
     };
 
     window.addEventListener('alpha-scan-no-trade', handleNoTradeFound);
     return () => window.removeEventListener('alpha-scan-no-trade', handleNoTradeFound);
-  }, [activeSession?.sessionId, showNoTradesModal]);
+  // CCIP-GUARD: showNoTradesModal intentionally excluded from deps. The guard
+  // `if (showNoTradesModal) return` inside the handler is sufficient. Including it
+  // caused the listener to tear down and re-register on every modal toggle, creating
+  // a gap window during which the no-trade event could fire unheard.
+  }, [activeSession?.sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
   useEffect(() => {
@@ -408,7 +414,14 @@ export const GoalSessionDashboard: React.FC = () => {
     try {
       const previousSessionId = activeSession?.sessionId ?? null;
       const session = await smartGoalSessionManager.getActiveSession(user.id);
-      setActiveSession(session);
+      // CCIP-GUARD: Do NOT clear activeSession while the no-trade modal is visible.
+      // The engine sets status='user_stopped' (terminal) right before firing the no-trade
+      // event. The 3-second polling loop would immediately call setActiveSession(null),
+      // unmounting the modal before the 30-second countdown completes. We preserve the
+      // session object in state until the user explicitly dismisses the dialog.
+      if (session !== null || !showNoTradesModalRef.current) {
+        setActiveSession(session);
+      }
 
       // SSOT FIX (CCIP 2026-02-25): When a session transitions from active → null (terminal),
       // check if it was closed by a NO_TRADE event. getActiveSession excludes terminal statuses,
@@ -423,6 +436,7 @@ export const GoalSessionDashboard: React.FC = () => {
 
         if (closedSession?.no_trade_found_at != null) {
           console.log('[GoalSessionDashboard] DB-detected NO_TRADE session closure - showing dialog');
+          showNoTradesModalRef.current = true;
           setShowNoTradesModal(true);
         }
       }
@@ -712,6 +726,7 @@ export const GoalSessionDashboard: React.FC = () => {
             title: 'Session Stopped',
             message: 'Goal session has been stopped successfully'
           });
+          showNoTradesModalRef.current = false;
           setShowNoTradesModal(false);
                     await loadSessionData();
         } else {
@@ -965,6 +980,7 @@ export const GoalSessionDashboard: React.FC = () => {
           message: data.message || 'Your session has been successfully closed!'
         });
         setSessionHealth(null);
+        showNoTradesModalRef.current = false;
         setShowNoTradesModal(false);
                 await loadSessionData();
       } else {
@@ -996,10 +1012,12 @@ export const GoalSessionDashboard: React.FC = () => {
         console.log('[GoalSessionDashboard] No trades found - closing session via authoritative coordinator');
         await smartGoalSessionManager.stopSession(activeSession.sessionId, user.id);
       }
+      showNoTradesModalRef.current = false;
       setShowNoTradesModal(false);
       await loadSessionData();
     } catch (error) {
       console.error('[GoalSessionDashboard] Error closing session:', error);
+      showNoTradesModalRef.current = false;
       setShowNoTradesModal(false);
     } finally {
       setNoTradesLoading(false);
@@ -1735,7 +1753,7 @@ export const GoalSessionDashboard: React.FC = () => {
       <NoTradesFoundDialog
         isOpen={showNoTradesModal}
         onClose={handleNoTradesClose}
-        sessionId={noTradesSessionIdRef.current || activeSession?.sessionId || ''}
+        sessionId={noTradesSessionIdRef.current ?? ''}
         isLoading={noTradesLoading}
         rejectionContext={noTradeRejectionContext}
       />
