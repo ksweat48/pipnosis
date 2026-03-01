@@ -289,7 +289,7 @@ class LLMReasoningLogger {
         .from('ai_trade_journal')
         .select(`
           *,
-          goal_sessions!ai_trade_journal_session_id_fkey (
+          goal_sessions (
             trade_style,
             dollar_risk
           )
