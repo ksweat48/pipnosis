@@ -212,8 +212,21 @@ class PostTradeAnalyzer {
 
       if (isTP2Close) {
         updateData.journal_stage = 'tp2_hit';
-        updateData.tp2_pnl = tradeData.pnl;
         if (tradeData.exitPrice) updateData.tp2_exit_price = tradeData.exitPrice;
+
+        // CCIP FIX (2026-03-01 TP-MODAL-PNL-SSOT): Store INCREMENTAL TP2 leg P&L, not
+        // the total trade P&L. Since the full position (100%) stays open from entry through
+        // both milestones (TP1 is advisory-only, no partial close), the TP2 incremental
+        // gain = total final P&L minus the P&L that was already booked at TP1.
+        // This gives users the correct breakdown: Entry→TP1 (tp1_pnl) + TP1→TP2 (tp2_pnl).
+        // SSOT: tp1_pnl is written by the TP1 branch below and persisted in ai_trade_journal;
+        // we read it back here from journalEntry to avoid any re-calculation drift.
+        const existingTP1Pnl: number | null = journalEntry.tp1_pnl != null
+          ? parseFloat(String(journalEntry.tp1_pnl))
+          : null;
+        updateData.tp2_pnl = existingTP1Pnl != null
+          ? Math.round((tradeData.pnl - existingTP1Pnl) * 100) / 100
+          : tradeData.pnl;
       } else if (isTP1Close) {
         updateData.journal_stage = 'tp1_hit';
         updateData.tp1_pnl = tradeData.pnl;

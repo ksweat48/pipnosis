@@ -262,6 +262,53 @@ export const GoalSessionDashboard: React.FC = () => {
     };
   }, [user, activeSession]);
 
+  // CCIP FIX (2026-03-01 TP-MODAL-PNL-SSOT): Missed-event guard for TP1 modal.
+  // If the component mounts AFTER the Realtime tp1_hit event was already emitted
+  // (e.g. page reload while trade is active between TP1 and TP2), the subscription
+  // above will never fire. This effect queries on mount and whenever the session
+  // changes to catch any open trade that already has tp1_hit=true but has not yet
+  // been shown the TP1 decision modal.
+  useEffect(() => {
+    if (!user || !activeSession) return;
+
+    let cancelled = false;
+
+    const checkMissedTP1 = async () => {
+      const { data: openTP1Trade } = await supabase
+        .from('goal_session_trades')
+        .select('id, symbol, direction, take_profit, take_profit_2, unrealized_pnl, profit_loss')
+        .eq('goal_session_id', activeSession.sessionId)
+        .eq('status', 'open')
+        .eq('tp1_hit', true)
+        .maybeSingle();
+
+      if (cancelled || !openTP1Trade) return;
+      if (processedTP1Hits.current.has(openTP1Trade.id)) return;
+
+      processedTP1Hits.current.add(openTP1Trade.id);
+      console.log('[GoalSessionDashboard] Recovered missed TP1 modal for trade', openTP1Trade.id);
+
+      const currentProfit =
+        parseFloat(openTP1Trade.unrealized_pnl ?? '0') ||
+        parseFloat(openTP1Trade.profit_loss ?? '0') || 0;
+
+      setTP1DecisionData({
+        tradeId: openTP1Trade.id,
+        sessionId: activeSession.sessionId,
+        symbol: openTP1Trade.symbol,
+        direction: openTP1Trade.direction,
+        tp1Price: parseFloat(openTP1Trade.take_profit ?? '0'),
+        tp2Price: openTP1Trade.take_profit_2 != null ? parseFloat(openTP1Trade.take_profit_2) : null,
+        currentProfit,
+        goalAmount: activeSession.config.goalAmount,
+      });
+      setShowTP1Modal(true);
+    };
+
+    checkMissedTP1();
+    return () => { cancelled = true; };
+  }, [user, activeSession?.sessionId]);
+
   useEffect(() => {
     if (!activeSession) {
       // No active session - ensure polling is stopped

@@ -153,21 +153,22 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
     return 'Just now';
   };
 
-  const isUnrealisticPnL = Math.abs(safeProfitLoss) > 1000;
-  let displayProfitLoss = safeProfitLoss;
-  let showWarning = false;
-
-  if (isUnrealisticPnL) {
-    console.error('[TradeClosedActionDialog] Unrealistic P&L detected:', { profitLoss: safeProfitLoss, symbol });
-    const correctedPnL = safeProfitLoss / 100;
-    if (Math.abs(correctedPnL) >= 1 && Math.abs(correctedPnL) <= 500) {
-      displayProfitLoss = correctedPnL;
-      showWarning = true;
-    }
-  }
+  // CCIP FIX (2026-03-01 TP-MODAL-PNL-SSOT): Use trade P&L as-is — no auto-correction.
+  // Large winning trades (e.g. $1341) are legitimate; dividing by 100 was wrong.
+  // The SSOT for trade P&L is goal_session_trades.profit_loss; the modal receives it
+  // directly from the coordinator or notification listener — both now pass the raw DB value.
+  const displayProfitLoss = safeProfitLoss;
 
   const isProfit = displayProfitLoss > 0;
   const isLoss = displayProfitLoss < 0;
+
+  // For TP2 closures: the headline Result shown to the user should be the session P&L
+  // (total accumulated profit), not just this trade's P&L. The trade breakdown (Leg 1/2)
+  // provides the granular detail. This mirrors what the user sees in the positions feed.
+  const isTP2Close = ['take_profit_2'].includes(displayReason);
+  const headlinePnL = isTP2Close ? safeCurrentProgress : displayProfitLoss;
+  const isHeadlineProfit = headlinePnL > 0;
+  const isHeadlineLoss = headlinePnL < 0;
 
   const reasonText = getCloseReasonText(displayReason);
   const reasonColor = getCloseReasonColor(displayReason);
@@ -268,26 +269,44 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
                   </div>
                 </div>
 
-                {/* P&L */}
+                {/* P&L
+                  CCIP SSOT (2026-03-01 TP-MODAL-PNL-SSOT):
+                  - TP2 closure: headline = session P&L (total accumulated), trade legs shown as detail
+                  - All other closures: headline = trade P&L
+                  - tp1Pnl = incremental profit from entry→TP1 price (stored by post-trade-analyzer)
+                  - tp2Pnl = incremental profit from TP1→TP2 exit price (stored by post-trade-analyzer)
+                */}
                 <div className="pt-2.5 border-t border-gray-700/60">
-                  {tp1Pnl != null && tp2Pnl != null ? (
+                  {isTP2Close ? (
                     <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <div className="text-[10px] text-gray-400">Leg 1 (TP1)</div>
-                        <div className={`text-xs font-semibold ${tp1Pnl >= 0 ? 'text-amber-400' : 'text-red-400'}`}>
-                          {tp1Pnl >= 0 ? '+' : ''}${Math.abs(tp1Pnl).toFixed(2)}
+                      {tp1Pnl != null && (
+                        <div className="flex items-center justify-between">
+                          <div className="text-[10px] text-gray-400">Entry → TP1</div>
+                          <div className={`text-xs font-semibold ${tp1Pnl >= 0 ? 'text-amber-400' : 'text-red-400'}`}>
+                            {tp1Pnl >= 0 ? '+' : ''}${Math.abs(tp1Pnl).toFixed(2)}
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div className="text-[10px] text-gray-400">Leg 2 (TP2)</div>
-                        <div className={`text-xs font-semibold ${tp2Pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {tp2Pnl >= 0 ? '+' : ''}${Math.abs(tp2Pnl).toFixed(2)}
+                      )}
+                      {tp2Pnl != null && (
+                        <div className="flex items-center justify-between">
+                          <div className="text-[10px] text-gray-400">TP1 → TP2</div>
+                          <div className={`text-xs font-semibold ${tp2Pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {tp2Pnl >= 0 ? '+' : ''}${Math.abs(tp2Pnl).toFixed(2)}
+                          </div>
                         </div>
-                      </div>
+                      )}
+                      {tp1Pnl != null && tp2Pnl != null && (
+                        <div className="flex items-center justify-between">
+                          <div className="text-[10px] text-gray-400">Trade Total</div>
+                          <div className={`text-xs font-semibold ${isProfit ? 'text-emerald-400' : isLoss ? 'text-red-400' : 'text-gray-400'}`}>
+                            {isProfit ? '+' : ''}${Math.abs(displayProfitLoss).toFixed(2)}
+                          </div>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between pt-1.5 border-t border-gray-700/50">
-                        <div className="text-[10px] text-gray-400">Total</div>
-                        <div className={`text-lg font-bold ${isProfit ? 'text-emerald-400' : isLoss ? 'text-red-400' : 'text-gray-400'}`}>
-                          {isProfit ? '+' : ''}${Math.abs(displayProfitLoss).toFixed(2)}
+                        <div className="text-[10px] text-gray-400">Session P&L</div>
+                        <div className={`text-lg font-bold ${isHeadlineProfit ? 'text-emerald-400' : isHeadlineLoss ? 'text-red-400' : 'text-gray-400'}`}>
+                          {isHeadlineProfit ? '+' : ''}${Math.abs(headlinePnL).toFixed(2)}
                         </div>
                       </div>
                     </div>
@@ -297,11 +316,6 @@ export const TradeClosedActionDialog: React.FC<TradeClosedActionDialogProps> = (
                       <div className={`text-lg font-bold ${isProfit ? 'text-emerald-400' : isLoss ? 'text-red-400' : 'text-gray-400'}`}>
                         {isProfit ? '+' : ''}${Math.abs(displayProfitLoss).toFixed(2)}
                       </div>
-                    </div>
-                  )}
-                  {showWarning && (
-                    <div className="mt-1.5 text-[10px] text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 rounded px-2 py-1">
-                      Value auto-corrected from display error
                     </div>
                   )}
                 </div>

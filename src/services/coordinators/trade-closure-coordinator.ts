@@ -704,15 +704,18 @@ class TradeClosureCoordinator {
     const shouldSkipDialog = this.closureLocks.has(event.trade_id);
     if (!shouldSkipDialog) {
       try {
+        // CCIP FIX (2026-03-01 TP-MODAL-PNL-SSOT): Fetch tp1_pnl + tp2_pnl so the modal
+        // can display the incremental TP leg breakdown (entry→TP1, TP1→TP2).
+        // These are written by post-trade-analyzer.ts and are the SSOT for per-leg P&L.
         const { data: tradeData } = await supabase
           .from('goal_session_trades')
-          .select('symbol, direction, entry_price, exit_price, profit_loss, stop_loss, take_profit')
+          .select('symbol, direction, entry_price, exit_price, profit_loss, stop_loss, take_profit, tp1_pnl, tp2_pnl, tp1_hit')
           .eq('id', event.trade_id)
           .maybeSingle();
 
         const { data: session } = await supabase
           .from('goal_sessions')
-          .select('target_value, current_progress')
+          .select('target_value, current_progress, dollar_risk')
           .eq('id', event.goal_session_id)
           .maybeSingle();
 
@@ -741,9 +744,12 @@ class TradeClosureCoordinator {
             currentProgress: session.current_progress || 0,
             targetValue: session.target_value || 0,
             tradesInSession: tradesCount || 0,
+            dollarRisk: session.dollar_risk || 0,
             isGoalAchieved,
             sessionId: event.goal_session_id,
             tradeId: event.trade_id,
+            tp1Pnl: tradeData.tp1_hit && tradeData.tp1_pnl != null ? parseFloat(String(tradeData.tp1_pnl)) : null,
+            tp2Pnl: tradeData.tp2_pnl != null ? parseFloat(String(tradeData.tp2_pnl)) : null,
           });
         }
       } catch (dialogError) {
