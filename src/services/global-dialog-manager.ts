@@ -2,7 +2,7 @@ import TinyEmitter from 'tiny-emitter';
 import { modalNotificationBridge } from './modal-notification-bridge';
 import { supabase } from '../lib/supabase';
 
-export type DialogType = 'goal_achieved' | 'trade_closed' | 'trade_signal' | 'trade_entry' | 'tp1_hit' | 'alpha_intent';
+export type DialogType = 'goal_achieved' | 'trade_closed' | 'trade_signal' | 'trade_entry' | 'multi_trade_entry' | 'tp1_hit' | 'alpha_intent';
 
 // SSOT FIX (2026-02-04): Align with database constraint - use 'critical' not 'urgent'
 export type DialogPriority = 'low' | 'medium' | 'high' | 'critical';
@@ -25,6 +25,12 @@ class GlobalDialogManager {
   private currentDialog: DialogData | null = null;
   private recentDialogs = new Set<string>();
   private readonly DEDUPE_WINDOW_MS = 30000; // 30 second deduplication window — covers Supabase Realtime propagation delay (~3s) plus browser event queue
+
+  // CCIP (2026-03-01): Multi-trade batching — collect simultaneous trade_entry events
+  // within BATCH_WINDOW_MS and coalesce into a single multi_trade_entry dialog.
+  private pendingBatchTrades: any[] = [];
+  private batchTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly BATCH_WINDOW_MS = 2000;
 
   private createDedupeKey(type: DialogType, data: any): string {
     const symbol = data.symbol || '';
@@ -113,6 +119,33 @@ class GlobalDialogManager {
   // SSOT FIX (2026-02-04): Changed 'urgent' to 'critical' to match DB constraint
   showTradeEntry(data: any, priority: DialogPriority = 'critical', options?: ShowDialogOptions) {
     this.showDialog('trade_entry', data, priority, options);
+  }
+
+  /**
+   * CCIP (2026-03-01): Multi-trade batch entry modal.
+   * Each simultaneous trade execution calls this method.
+   * Events within BATCH_WINDOW_MS are coalesced into a single multi_trade_entry dialog.
+   * After the window elapses, if only one trade was collected it falls back to
+   * the standard trade_entry modal; two or more shows the MultiTradeExecutionModal.
+   */
+  showMultiTradeEntry(tradeData: any, priority: DialogPriority = 'critical', options?: ShowDialogOptions) {
+    this.pendingBatchTrades.push(tradeData);
+
+    if (this.batchTimer !== null) {
+      clearTimeout(this.batchTimer);
+    }
+
+    this.batchTimer = setTimeout(() => {
+      this.batchTimer = null;
+      const batch = [...this.pendingBatchTrades];
+      this.pendingBatchTrades = [];
+
+      if (batch.length === 1) {
+        this.showTradeEntry(batch[0], priority, options);
+      } else {
+        this.showDialog('multi_trade_entry', { trades: batch }, priority, options);
+      }
+    }, this.BATCH_WINDOW_MS);
   }
 
   showTP1HitDialog(data: any, priority: DialogPriority = 'critical', options?: ShowDialogOptions) {

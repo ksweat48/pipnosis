@@ -17,6 +17,8 @@ export interface GoalSessionConfig {
   riskMode: 'low' | 'medium' | 'high';
   autoExecute?: boolean;
   watchlist?: string[];
+  /** SSOT: max simultaneous trades authorised for this session (1-3). Default 1. */
+  maxConcurrentTrades?: number;
 }
 
 export interface GoalSession {
@@ -134,7 +136,9 @@ class GoalSessionManager {
   async createSession(userId: string, config: GoalSessionConfig): Promise<GoalSession | null> {
     try {
       // CRITICAL: Validate credits BEFORE creating session
-      const creditValidation = await creditValidationService.validatePreSession(userId);
+      // SSOT: pass maxConcurrentTrades so the validator scales the required balance
+      const maxConcurrentTrades = Math.max(1, Math.min(3, config.maxConcurrentTrades ?? 1));
+      const creditValidation = await creditValidationService.validatePreSession(userId, maxConcurrentTrades);
 
       if (!creditValidation.valid) {
         console.error(`[Goal Session] Credit validation failed: ${creditValidation.reason}`);
@@ -184,7 +188,8 @@ class GoalSessionManager {
           next_scan_time: nextScanTime,
           server_enabled: true,
           autonomous_enabled: true,
-          execution_mode: 'server'
+          execution_mode: 'server',
+          max_concurrent_trades: maxConcurrentTrades
         })
         .select()
         .single();

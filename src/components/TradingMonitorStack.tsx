@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { clubMembershipService, type UserMembership } from '@/services/club-membership-service';
 import { EntryPriceMonitor } from './EntryPriceMonitor';
 import { MidTradeMonitor } from './MidTradeMonitor';
 import { SessionIntelligenceMonitor } from './SessionIntelligenceMonitor';
-import { Lock, Crown, TrendingUp, Activity, Clock } from 'lucide-react';
+import { Lock, Crown, TrendingUp, Activity, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface MonitorPreferences {
   entry_price_monitor_enabled: boolean;
@@ -16,6 +16,11 @@ interface MonitorPreferences {
 interface ActiveSession {
   sessionId: string;
   userId: string;
+}
+
+interface ActiveTrade {
+  id: string;
+  symbol: string;
 }
 
 const MonitorLockedPlaceholder: React.FC<{
@@ -51,6 +56,61 @@ const MonitorLockedPlaceholder: React.FC<{
   </div>
 );
 
+/**
+ * CCIP (2026-03-01): Pair navigator for multi-trade sessions.
+ * Shown only when 2+ open trades exist.
+ */
+const PairNavigator: React.FC<{
+  trades: ActiveTrade[];
+  activeIndex: number;
+  onNavigate: (index: number) => void;
+}> = ({ trades, activeIndex, onNavigate }) => {
+  if (trades.length <= 1) return null;
+
+  const prev = () => onNavigate((activeIndex - 1 + trades.length) % trades.length);
+  const next = () => onNavigate((activeIndex + 1) % trades.length);
+  const current = trades[activeIndex];
+
+  return (
+    <div className="flex items-center justify-between bg-gray-900/70 border border-gray-700/60 rounded-xl px-3 py-2 mb-3">
+      <button
+        onClick={prev}
+        className="p-1.5 rounded-lg hover:bg-gray-700/60 transition-colors text-gray-400 hover:text-white"
+        aria-label="Previous trade"
+      >
+        <ChevronLeft className="w-4 h-4" />
+      </button>
+
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-bold text-white tracking-tight">{current?.symbol}</span>
+        <span className="text-xs text-gray-500 tabular-nums">
+          {activeIndex + 1} / {trades.length}
+        </span>
+        <div className="flex gap-1">
+          {trades.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => onNavigate(i)}
+              className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                i === activeIndex ? 'bg-amber-400' : 'bg-gray-600 hover:bg-gray-500'
+              }`}
+              aria-label={`Trade ${i + 1}: ${trades[i].symbol}`}
+            />
+          ))}
+        </div>
+      </div>
+
+      <button
+        onClick={next}
+        className="p-1.5 rounded-lg hover:bg-gray-700/60 transition-colors text-gray-400 hover:text-white"
+        aria-label="Next trade"
+      >
+        <ChevronRight className="w-4 h-4" />
+      </button>
+    </div>
+  );
+};
+
 export const TradingMonitorStack: React.FC = () => {
   const { user } = useAuth();
   const [preferences, setPreferences] = useState<MonitorPreferences>({
@@ -61,6 +121,14 @@ export const TradingMonitorStack: React.FC = () => {
   const [membership, setMembership] = useState<UserMembership | null | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
+
+  // CCIP (2026-03-01): Multi-trade navigation state — SSOT for which trade is viewed.
+  const [openTrades, setOpenTrades] = useState<ActiveTrade[]>([]);
+  const [activeTradeIndex, setActiveTradeIndex] = useState(0);
+
+  // Swipe detection refs
+  const touchStartX = useRef<number | null>(null);
+  const SWIPE_THRESHOLD = 50;
 
   const userId = user?.id;
 
@@ -86,6 +154,25 @@ export const TradingMonitorStack: React.FC = () => {
     }
   }, [userId]);
 
+  // Fetch open trades for navigation; resets index when trade count changes.
+  const fetchOpenTrades = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const { data } = await supabase
+        .from('goal_session_trades')
+        .select('id, symbol')
+        .eq('user_id', userId)
+        .eq('status', 'open')
+        .order('created_at', { ascending: true });
+
+      const trades = (data ?? []) as ActiveTrade[];
+      setOpenTrades(trades);
+      setActiveTradeIndex(prev => (prev >= trades.length ? 0 : prev));
+    } catch {
+      // silently ignore
+    }
+  }, [userId]);
+
   useEffect(() => {
     if (!userId) {
       setLoading(false);
@@ -99,6 +186,7 @@ export const TradingMonitorStack: React.FC = () => {
       const [mem] = await Promise.all([
         clubMembershipService.getUserMembership(userId).catch(() => null),
         loadPreferences(),
+        fetchOpenTrades(),
       ]);
       if (!cancelled) {
         setMembership(mem);
@@ -109,7 +197,7 @@ export const TradingMonitorStack: React.FC = () => {
     init();
 
     return () => { cancelled = true; };
-  }, [userId, loadPreferences]);
+  }, [userId, loadPreferences, fetchOpenTrades]);
 
   useEffect(() => {
     if (!userId) return;
@@ -148,6 +236,23 @@ export const TradingMonitorStack: React.FC = () => {
     };
   }, [userId]);
 
+  // Subscribe to trade changes to keep navigation in sync.
+  useEffect(() => {
+    if (!userId) return;
+
+    const channel = supabase
+      .channel(`open-trades-nav-${userId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'goal_session_trades',
+        filter: `user_id=eq.${userId}`,
+      }, fetchOpenTrades)
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [userId, fetchOpenTrades]);
+
   useEffect(() => {
     if (!userId) return;
 
@@ -176,6 +281,22 @@ export const TradingMonitorStack: React.FC = () => {
     return () => { supabase.removeChannel(channel); };
   }, [userId]);
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null || openTrades.length <= 1) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    touchStartX.current = null;
+    if (Math.abs(dx) < SWIPE_THRESHOLD) return;
+    if (dx < 0) {
+      setActiveTradeIndex(prev => (prev + 1) % openTrades.length);
+    } else {
+      setActiveTradeIndex(prev => (prev - 1 + openTrades.length) % openTrades.length);
+    }
+  };
+
   if (loading || membership === undefined) {
     return (
       <div className="space-y-4">
@@ -198,8 +319,22 @@ export const TradingMonitorStack: React.FC = () => {
   const showMidTrade = canAccessMidTrade && preferences.mid_trade_monitor_enabled;
   const showRTI = canAccessRTI && preferences.session_intelligence_enabled;
 
+  const activeTradeId = openTrades.length > 0 ? openTrades[activeTradeIndex]?.id : undefined;
+
   return (
-    <div className="space-y-4">
+    <div
+      className="space-y-4"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
+      {showMidTrade && openTrades.length > 1 && (
+        <PairNavigator
+          trades={openTrades}
+          activeIndex={activeTradeIndex}
+          onNavigate={setActiveTradeIndex}
+        />
+      )}
+
       {showEntry
         ? <EntryPriceMonitor />
         : (
@@ -214,7 +349,7 @@ export const TradingMonitorStack: React.FC = () => {
       }
 
       {showMidTrade
-        ? <MidTradeMonitor />
+        ? <MidTradeMonitor activeTradeId={activeTradeId} />
         : (
           <MonitorLockedPlaceholder
             icon={<Activity size={18} className="text-gray-600" />}

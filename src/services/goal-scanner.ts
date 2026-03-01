@@ -14,6 +14,7 @@ import type { TraderScore } from './ai-identity';
 import type { MarketSnapshotData } from './market-snapshot-cache';
 import { alphaThoughtStream } from './alpha-thought-stream';
 import { creditValidationService } from './credit-validation-service';
+import type { TradeSignal } from '../types/strategy';
 
 /**
  * Concurrent execution helper with concurrency limit
@@ -274,11 +275,25 @@ class GoalScanner {
       const validSetups = results.filter(r => r.hasValidSetup);
       let tradeExecuted = false;
 
-      // STEP 3: Execute any valid setups found
+      // STEP 3: Execute valid setups — up to max_concurrent_trades simultaneously
       if (validSetups.length > 0) {
-        console.log(`[Goal Scanner] 🎯 Found ${validSetups.length} valid setup(s), evaluating for execution...`);
+        // SSOT: max_concurrent_trades is authoritative — written at session creation
+        const maxTrades: number = session.data.max_concurrent_trades ?? 1;
 
-        // Emit comparison thought if multiple setups found
+        // Sort by confidence descending and cap at the session's authorised limit
+        const sortedSetups = [...validSetups].sort(
+          (a, b) => (b.confidence ?? 0) - (a.confidence ?? 0)
+        );
+        const selectedSetups = sortedSetups.slice(0, maxTrades);
+
+        console.log(
+          `[Goal Scanner] Found ${validSetups.length} valid setup(s). ` +
+          `Session allows max ${maxTrades} concurrent trade(s). ` +
+          `Executing top ${selectedSetups.length}: ` +
+          selectedSetups.map(s => `${s.symbol}(${s.confidence}%)`).join(', ')
+        );
+
+        // Emit comparison thought when multiple setups are available
         if (validSetups.length > 1) {
           const candidates = validSetups.map(s => ({
             symbol: s.symbol,
@@ -286,61 +301,76 @@ class GoalScanner {
             action: (s.alphaDecision?.action || 'NO_TRADE') as 'BUY' | 'SELL' | 'WAIT' | 'NO_TRADE',
             score: s.confidence || 0
           }));
-
           await alphaThoughtStream.emitComparing(sessionId, userId, candidates);
         }
 
-        // Emit analyzing entry thought for the top candidate
-        const topSetup = validSetups[0];
-        if (topSetup.alphaDecision) {
+        // Emit analyzing-entry thought for the top candidate
+        const topSetup = selectedSetups[0];
+        if (topSetup?.alphaDecision) {
           await alphaThoughtStream.emitAnalyzingEntry(
-            sessionId,
-            userId,
-            topSetup.symbol,
-            topSetup.confidence || 0
+            sessionId, userId, topSetup.symbol, topSetup.confidence || 0
           );
         }
 
-        for (const setup of validSetups) {
+        // Evaluate all selected setups (sequential — each evaluateSignal is lightweight)
+        const signalPairs: Array<{ signal: TradeSignal; alphaDecision: any; setup: ScanResult }> = [];
+        for (const setup of selectedSetups) {
           const result = await this.evaluateSignal(sessionId, setup, session.data);
-          if (result) {
-            // Emit final decision thought before execution
-            await alphaThoughtStream.emitFinalDecision(sessionId, userId, {
-              selected: true,
-              symbol: setup.symbol,
-              action: setup.alphaDecision?.action as 'BUY' | 'SELL' | 'WAIT' | 'NO_TRADE',
-              confidence: setup.confidence,
-              entry: setup.entry,
-              reasoning: `Highest confidence setup with quality entry at ${setup.entry?.toFixed(5)}`
-            });
+          if (result) signalPairs.push({ ...result, setup });
+        }
 
-            const executionResult = await alphaTradeExecutor.execute({
-              decision: result.alphaDecision,
+        // Emit final-decision thought for each selected pair
+        for (const { setup } of signalPairs) {
+          await alphaThoughtStream.emitFinalDecision(sessionId, userId, {
+            selected: true,
+            symbol: setup.symbol,
+            action: setup.alphaDecision?.action as 'BUY' | 'SELL' | 'WAIT' | 'NO_TRADE',
+            confidence: setup.confidence,
+            entry: setup.entry,
+            reasoning: `Top-${maxTrades} selection by confidence — ${setup.entry?.toFixed(5)}`
+          });
+        }
+
+        // SSOT: Fire all executions simultaneously
+        const executionResults = await Promise.all(
+          signalPairs.map(({ alphaDecision }) =>
+            alphaTradeExecutor.execute({
+              decision: alphaDecision,
               userId,
               goalSessionId: sessionId,
               autoExecute: session.data.auto_execute
-            });
+            })
+          )
+        );
 
-            if (executionResult.success) {
-              console.log(`[Goal Scanner] ✅ Trade signal executed: ${executionResult.message}`);
-
-              // Emit execution thought
-              if (setup.alphaDecision?.action && (setup.alphaDecision.action === 'BUY' || setup.alphaDecision.action === 'SELL')) {
-                await alphaThoughtStream.emitExecution(
-                  sessionId,
-                  userId,
-                  setup.symbol,
-                  setup.alphaDecision.action,
-                  setup.entry || 0
-                );
-              }
-
-              tradeExecuted = true;
-              break; // Stop after first successful trade
-            } else {
-              console.warn(`[Goal Scanner] ❌ Signal execution failed: ${executionResult.error}`);
+        // Process results and emit execution thoughts
+        const executedTrades: Array<{ symbol: string; action: string; entry: number }> = [];
+        for (let i = 0; i < executionResults.length; i++) {
+          const execResult = executionResults[i];
+          const { setup } = signalPairs[i];
+          if (execResult.success) {
+            console.log(`[Goal Scanner] Trade executed: ${setup.symbol} — ${execResult.message}`);
+            tradeExecuted = true;
+            if (setup.alphaDecision?.action === 'BUY' || setup.alphaDecision?.action === 'SELL') {
+              executedTrades.push({
+                symbol: setup.symbol,
+                action: setup.alphaDecision.action,
+                entry: setup.entry || 0
+              });
+              await alphaThoughtStream.emitExecution(
+                sessionId, userId, setup.symbol, setup.alphaDecision.action, setup.entry || 0
+              );
             }
+          } else {
+            console.warn(`[Goal Scanner] Signal execution failed for ${setup.symbol}: ${execResult.error}`);
           }
+        }
+
+        if (executedTrades.length > 0) {
+          console.log(
+            `[Goal Scanner] ${executedTrades.length} trade(s) opened simultaneously: ` +
+            executedTrades.map(t => `${t.symbol} ${t.action}`).join(', ')
+          );
         }
       } else {
         // No valid setups found - emit final decision

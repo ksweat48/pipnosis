@@ -6,6 +6,7 @@ import { GoalAchievedDialog } from '../components/GoalAchievedDialog';
 import { TradeClosedActionDialog } from '../components/TradeClosedActionDialog';
 import { TradeSignalNotificationBar } from '../components/TradeSignalNotificationBar';
 import { TradeEntryModal } from '../components/TradeEntryModal';
+import { MultiTradeExecutionModal, type MultiTradeSignal } from '../components/MultiTradeExecutionModal';
 import { AlphaIntentModal, type AlphaEntryMode } from '../components/AlphaIntentModal';
 
 interface GlobalDialogContextType {
@@ -13,6 +14,7 @@ interface GlobalDialogContextType {
   showTradeClosed: (data: any) => void;
   showTradeSignal: (data: any, priority?: 'low' | 'medium' | 'high') => void;
   showTradeEntry: (data: any, priority?: 'low' | 'medium' | 'high' | 'urgent') => void;
+  showMultiTradeEntry: (data: any, priority?: 'low' | 'medium' | 'high' | 'urgent') => void;
   closeDialog: () => void;
 }
 
@@ -50,6 +52,12 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
                 type: 'attention',
                 tradeId,
                 context: contextKey
+              });
+              break;
+            case 'multi_trade_entry':
+              await audioAlertService.playWithContext({
+                type: 'attention',
+                context: 'multi-trade-entry'
               });
               break;
             case 'trade_closed': {
@@ -103,6 +111,10 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
 
   const showTradeEntry = useCallback((data: any, priority: 'low' | 'medium' | 'high' | 'urgent' = 'urgent') => {
     globalDialogManager.showTradeEntry(data, priority);
+  }, []);
+
+  const showMultiTradeEntry = useCallback((data: any, priority: 'low' | 'medium' | 'high' | 'urgent' = 'urgent') => {
+    globalDialogManager.showMultiTradeEntry(data, priority);
   }, []);
 
   const closeDialog = useCallback(() => {
@@ -169,6 +181,7 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
         showTradeClosed,
         showTradeSignal,
         showTradeEntry,
+        showMultiTradeEntry,
         closeDialog
       }}
     >
@@ -281,6 +294,14 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
                 )
               : undefined
           }
+        />
+      )}
+
+      {currentDialog?.type === 'multi_trade_entry' && (
+        <MultiTradeExecutionModal
+          isOpen={true}
+          trades={(currentDialog.data.trades as MultiTradeSignal[]) ?? []}
+          onDismiss={closeDialog}
         />
       )}
     </GlobalDialogContext.Provider>

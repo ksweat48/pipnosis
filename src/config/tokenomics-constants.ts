@@ -43,6 +43,9 @@ export const TOKENOMICS = {
     BASE_TRADE_COST: 10,
     MIN_TRADE_COST: 8,
     MIN_BALANCE_FOR_SESSION: 10,
+    MAX_TRADES_PER_SESSION: 3,
+    minBalanceForSession: (maxConcurrentTrades: number): number =>
+      10 * Math.max(1, Math.min(3, maxConcurrentTrades)),
   },
 
   MEMBERSHIP_GRANT_RULE: {

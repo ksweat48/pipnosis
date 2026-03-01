@@ -170,8 +170,10 @@ export const SmartGoalPanel: React.FC = () => {
       return;
     }
 
-    // SSOT Credit Gate: Block non-admin users who lack minimum credits before any session flow begins
-    if (!isAdminUser && creditBalance !== null && creditBalance < TOKENOMICS.CREDITS.MIN_BALANCE_FOR_SESSION) {
+    // SSOT Credit Gate: Block non-admin users who lack minimum credits before any session flow begins.
+    // Multi-trade mode requires up to 30 credits (10 × 3 trades); single-trade requires 10.
+    const requiredForMode = TOKENOMICS.CREDITS.minBalanceForSession(multiTradeEnabled ? 3 : 1);
+    if (!isAdminUser && creditBalance !== null && creditBalance < requiredForMode) {
       setShowInsufficientCreditsModal(true);
       return;
     }
@@ -216,8 +218,9 @@ export const SmartGoalPanel: React.FC = () => {
     }
 
     // SSOT Credit Gate: Synchronous pre-flight — bail immediately if balance is known to be insufficient.
-    // This avoids the round-trip to the server and gives instant feedback via the modal.
-    if (!isAdminUser && creditBalance !== null && creditBalance < TOKENOMICS.CREDITS.MIN_BALANCE_FOR_SESSION) {
+    // Multi-trade mode requires up to 30 credits (10 × 3 trades); single-trade requires 10.
+    const requiredCredits = TOKENOMICS.CREDITS.minBalanceForSession(multiTradeEnabled ? 3 : 1);
+    if (!isAdminUser && creditBalance !== null && creditBalance < requiredCredits) {
       setShowInsufficientCreditsModal(true);
       return;
     }

@@ -345,7 +345,13 @@ const ScalpIntelligenceBar: React.FC<{ plan: import('@/services/mid-trade-plan-e
   );
 };
 
-export const MidTradeMonitor: React.FC = () => {
+interface MidTradeMonitorProps {
+  /** CCIP (2026-03-01): When provided, filters the monitor view to this trade only.
+   *  Used by TradingMonitorStack in multi-trade sessions to show one trade at a time. */
+  activeTradeId?: string;
+}
+
+export const MidTradeMonitor: React.FC<MidTradeMonitorProps> = ({ activeTradeId }) => {
   const { user } = useAuth();
   const [guidance, setGuidance] = useState<MidTradeGuidance[]>([]);
   const [loading, setLoading] = useState(true);
@@ -517,6 +523,12 @@ export const MidTradeMonitor: React.FC = () => {
     );
   }
 
+  // CCIP (2026-03-01): When activeTradeId is set (multi-trade mode), show only that trade.
+  // Falls back to full list for single-trade sessions or when no id is supplied.
+  const visibleGuidance = activeTradeId
+    ? guidance.filter(g => g.tradeId === activeTradeId)
+    : guidance;
+
   return (
     <div className="relative group">
       <div className="absolute -inset-0.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded-xl opacity-20 group-hover:opacity-30 transition duration-300 blur" />
@@ -546,7 +558,7 @@ export const MidTradeMonitor: React.FC = () => {
         </div>
 
         <div className="space-y-4">
-          {guidance.map((guide) => {
+          {visibleGuidance.map((guide) => {
             const colors = getColorClasses(guide.actionColor);
             const isProfitable = guide.currentPnL >= 0;
 

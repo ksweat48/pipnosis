@@ -198,6 +198,7 @@ class SmartGoalSessionManager {
       auto_execute: config.autoExecute,
       watchlist: config.watchlist,
       multi_trade_enabled: multiTradeEnabled,
+      max_concurrent_trades: multiTradeEnabled ? 3 : 1,
       trades_in_session: 0,
       start_time: session.startTime.toISOString(),
       next_scan_time: session.nextScanTime.toISOString(),

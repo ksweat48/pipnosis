@@ -813,17 +813,22 @@ class AlphaTradeExecutor {
     }
 
     // Trade slots check
+    // SSOT: max_concurrent_trades column is authoritative (set at session creation).
+    // Falls back to risk_mode inference only for legacy sessions missing the column.
     const { data: openTrades } = await supabase
       .from('goal_session_trades')
       .select('*')
       .eq('goal_session_id', sessionId)
       .in('status', ['open', 'pending']);
 
-    const maxConcurrentTrades = session.risk_mode === 'low' ? 1 : session.risk_mode === 'high' ? 3 : 2;
+    const maxConcurrentTrades: number =
+      session.max_concurrent_trades ??
+      (session.risk_mode === 'low' ? 1 : session.risk_mode === 'high' ? 3 : 2);
+
     if (openTrades && openTrades.length >= maxConcurrentTrades) {
       return {
         valid: false,
-        reason: `Maximum concurrent trades (${maxConcurrentTrades}) reached for ${session.risk_mode} mode`
+        reason: `Maximum concurrent trades (${maxConcurrentTrades}) reached for this session`
       };
     }
 

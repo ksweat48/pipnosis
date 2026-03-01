@@ -21,9 +21,25 @@ export interface CreditDeductionResult {
 }
 
 class CreditValidationService {
-  async validatePreSession(userId: string): Promise<CreditValidationResult> {
+  /**
+   * Pre-session validation.
+   *
+   * @param userId - the user to check
+   * @param maxConcurrentTrades - SSOT: max trades this session will run simultaneously.
+   *   Defaults to 1 (single-trade mode).  Multi-trade sessions pass 2 or 3.
+   *   The minimum required credit balance scales linearly: 10 credits × maxTrades.
+   *   Club-tier discounts are applied per-trade at execution time, not here.
+   */
+  async validatePreSession(
+    userId: string,
+    maxConcurrentTrades: number = 1
+  ): Promise<CreditValidationResult> {
     try {
-      logger.info(`[Credit Validation] Pre-session check for user ${userId}`);
+      const requiredCredits = TOKENOMICS.CREDITS.minBalanceForSession(maxConcurrentTrades);
+      logger.info(
+        `[Credit Validation] Pre-session check for user ${userId} — ` +
+        `maxConcurrentTrades=${maxConcurrentTrades}, requiredCredits=${requiredCredits}`
+      );
 
       const creditsEnabled = await this.isCreditsEnabled();
       if (!creditsEnabled) {
@@ -46,11 +62,14 @@ class CreditValidationService {
         return { valid: true, balance: balance.balance };
       }
 
-      if (balance.balance < TOKENOMICS.CREDITS.MIN_BALANCE_FOR_SESSION) {
-        logger.warn(`[Credit Validation] Insufficient balance: ${balance.balance} credits`);
+      if (balance.balance < requiredCredits) {
+        logger.warn(`[Credit Validation] Insufficient balance: ${balance.balance} < ${requiredCredits} required`);
+        const modeLabel = maxConcurrentTrades > 1
+          ? `Multi-Trade Mode (${maxConcurrentTrades} trades × 10 credits)`
+          : 'Single-Trade Mode';
         return {
           valid: false,
-          reason: `Insufficient credits. You need at least ${TOKENOMICS.CREDITS.MIN_BALANCE_FOR_SESSION} credits to start a session. Current balance: ${balance.balance} credits.`,
+          reason: `Insufficient credits for ${modeLabel}. You need at least ${requiredCredits} credits to start this session. Current balance: ${balance.balance} credits.`,
           balance: balance.balance
         };
       }
@@ -370,8 +389,8 @@ class CreditValidationService {
     return TOKENOMICS.CREDITS.BASE_TRADE_COST;
   }
 
-  getMinBalanceForSession(): number {
-    return TOKENOMICS.CREDITS.MIN_BALANCE_FOR_SESSION;
+  getMinBalanceForSession(maxConcurrentTrades: number = 1): number {
+    return TOKENOMICS.CREDITS.minBalanceForSession(maxConcurrentTrades);
   }
 
   private async isCreditsEnabled(): Promise<boolean> {
