@@ -122,6 +122,35 @@ export const SmartGoalPanel: React.FC = () => {
     loadUserPreferences();
   }, [user]);
 
+  // SSOT: Subscribe to live changes on trading_preferences so this panel reflects
+  // any toggle made in Settings without requiring a page reload
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel(`trading-prefs-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'user_profiles',
+          filter: `id=eq.${user.id}`,
+        },
+        (payload) => {
+          const newPrefs = (payload.new as Record<string, unknown>)?.trading_preferences as Record<string, unknown> | undefined;
+          if (newPrefs && typeof newPrefs.multiTradeMode === 'boolean') {
+            setMultiTradeEnabled(newPrefs.multiTradeMode);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
   useEffect(() => {
     if (!user) return;
 

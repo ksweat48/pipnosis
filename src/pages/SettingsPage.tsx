@@ -28,8 +28,11 @@ export function SettingsPage() {
     tradeNotifications: true,
     goalNotifications: true,
     weeklyReports: false,
-    multiTradeMode: false,
   });
+
+  // SSOT: multiTradeMode lives exclusively in user_profiles.trading_preferences
+  // SmartGoalPanel reads from the same column — do NOT store this in preferences
+  const [multiTradeMode, setMultiTradeMode] = useState(false);
 
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
@@ -134,15 +137,17 @@ export function SettingsPage() {
       } else if (profileData) {
         setProfile(profileData);
 
-        if (profileData.preferences) {
+        if (profileData.email_notification_preferences) {
           setPreferences({
-            emailNotifications: profileData.preferences.emailNotifications ?? true,
-            tradeNotifications: profileData.preferences.tradeNotifications ?? true,
-            goalNotifications: profileData.preferences.goalNotifications ?? true,
-            weeklyReports: profileData.preferences.weeklyReports ?? false,
-            multiTradeMode: profileData.preferences.multiTradeMode ?? false,
+            emailNotifications: profileData.email_notification_preferences.emailNotifications ?? true,
+            tradeNotifications: profileData.email_notification_preferences.tradeNotifications ?? true,
+            goalNotifications: profileData.email_notification_preferences.goalNotifications ?? true,
+            weeklyReports: profileData.email_notification_preferences.weeklyReports ?? false,
           });
         }
+
+        // SSOT: read multiTradeMode from trading_preferences (authoritative column)
+        setMultiTradeMode(profileData.trading_preferences?.multiTradeMode ?? false);
 
         if (profileData.account_balance !== null && profileData.account_balance !== undefined) {
           setAccountBalance(profileData.account_balance.toString());
@@ -186,10 +191,21 @@ export function SettingsPage() {
     try {
       setSaving(true);
 
+      // SSOT: multiTradeMode is owned by trading_preferences (read by SmartGoalPanel)
+      // Notification prefs are owned by email_notification_preferences
+      // These are two separate columns — write each to its authoritative home
       const { error } = await supabase
         .from('user_profiles')
         .update({
-          preferences: preferences,
+          email_notification_preferences: {
+            emailNotifications: preferences.emailNotifications,
+            tradeNotifications: preferences.tradeNotifications,
+            goalNotifications: preferences.goalNotifications,
+            weeklyReports: preferences.weeklyReports,
+          },
+          trading_preferences: {
+            multiTradeMode,
+          },
           updated_at: new Date().toISOString(),
         })
         .eq('id', user?.id);
@@ -977,16 +993,14 @@ export function SettingsPage() {
                 <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-3">
-                      <Zap size={18} className={preferences.multiTradeMode ? "text-emerald-400" : "text-blue-400"} />
+                      <Zap size={18} className={multiTradeMode ? "text-emerald-400" : "text-blue-400"} />
                       <div className="text-white font-medium">Execution Mode</div>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={preferences.multiTradeMode}
-                        onChange={(e) =>
-                          setPreferences({ ...preferences, multiTradeMode: e.target.checked })
-                        }
+                        checked={multiTradeMode}
+                        onChange={(e) => setMultiTradeMode(e.target.checked)}
                         className="sr-only peer"
                       />
                       <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
@@ -994,7 +1008,7 @@ export function SettingsPage() {
                   </div>
 
                   {/* Mode Explanation */}
-                  {!preferences.multiTradeMode ? (
+                  {!multiTradeMode ? (
                     <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-3">
                       <div className="flex items-start gap-2">
                         <CheckCircle size={16} className="text-blue-400 mt-0.5 flex-shrink-0" />
