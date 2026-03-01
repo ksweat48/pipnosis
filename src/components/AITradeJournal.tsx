@@ -101,11 +101,41 @@ function pnlStr(v: number): string {
   return `${v >= 0 ? '+' : '-'}$${Math.abs(v).toFixed(2)}`;
 }
 
-function cleanPattern(raw: string | null | undefined, style: 'scalp' | 'micro' | 'intraday' | null): string {
-  if (!raw || raw === 'Goal Achievement') {
-    return style ? `${styleLabel(style)} Setup` : 'AI Setup';
+function cleanPattern(
+  patternIdentified: string | null | undefined,
+  setupTypeFromRecord: string | null | undefined,
+  style: 'scalp' | 'micro' | 'intraday' | null
+): string {
+  if (setupTypeFromRecord && setupTypeFromRecord !== 'Unknown' && setupTypeFromRecord !== '') {
+    return setupTypeFromRecord;
   }
-  return raw;
+  if (!patternIdentified || patternIdentified === 'Goal Achievement' || patternIdentified === 'System Trade') {
+    return style ? `${styleLabel(style)} Trade` : 'AI Trade';
+  }
+  return patternIdentified;
+}
+
+function humanizeRegime(regime: string | null | undefined): { label: string; color: string } | null {
+  if (!regime) return null;
+  const r = regime.toLowerCase();
+  if (r === 'trend_high_vol') return { label: 'Trending market with high volatility', color: 'text-green-400 bg-green-400/10 border-green-400/25' };
+  if (r === 'trend_normal' || r === 'trend_low_vol') return { label: 'Trending market, normal conditions', color: 'text-green-300 bg-green-300/10 border-green-300/25' };
+  if (r === 'range_high_vol') return { label: 'Ranging market with elevated volatility', color: 'text-yellow-400 bg-yellow-400/10 border-yellow-400/25' };
+  if (r === 'range_normal' || r === 'range_low_vol') return { label: 'Ranging market, normal conditions', color: 'text-gray-300 bg-gray-300/10 border-gray-300/25' };
+  if (r === 'accumulation_normal') return { label: 'Accumulation phase, market building direction', color: 'text-blue-300 bg-blue-300/10 border-blue-300/25' };
+  if (r === 'accumulation_high_vol') return { label: 'Accumulation phase with high volatility', color: 'text-orange-400 bg-orange-400/10 border-orange-400/25' };
+  if (r.includes('volatile') || r.includes('high_vol')) return { label: 'High volatility conditions', color: 'text-orange-400 bg-orange-400/10 border-orange-400/25' };
+  if (r.includes('trend')) return { label: 'Trending market', color: 'text-green-400 bg-green-400/10 border-green-400/25' };
+  if (r.includes('range')) return { label: 'Ranging market', color: 'text-gray-300 bg-gray-300/10 border-gray-300/25' };
+  return { label: regime.replace(/_/g, ' '), color: 'text-gray-400 bg-gray-400/10 border-gray-400/25' };
+}
+
+function convictionLabel(confidence: number | null | undefined): string {
+  if (confidence == null) return '';
+  if (confidence >= 80) return `Alpha entered this trade with strong conviction at ${confidence}% confidence.`;
+  if (confidence >= 65) return `Alpha entered this trade with moderate conviction at ${confidence}% confidence.`;
+  if (confidence >= 50) return `Alpha entered this trade with cautious conviction at ${confidence}% confidence.`;
+  return `Alpha entered this trade with low conviction at ${confidence}% confidence, indicating a higher-risk setup.`;
 }
 
 interface JournalCardProps {
@@ -145,7 +175,9 @@ const JournalCard: React.FC<JournalCardProps> = ({ entry }) => {
   const goalPnl = entry.goal_pnl_at_achievement ?? null;
   const finalPnl = entry.pnl ?? null;
 
-  const displayedPattern = cleanPattern(entry.pattern_identified, normalizedStyle);
+  const displayedPattern = cleanPattern(entry.pattern_identified, entry.setup_type_from_record, normalizedStyle);
+  const regimeInfo = humanizeRegime(entry.market_regime_at_entry ?? entry.regime_bucket);
+  const effectiveConfidence = entry.trade_confidence_from_record ?? entry.conviction_level ?? null;
 
   return (
     <div
@@ -255,20 +287,6 @@ const JournalCard: React.FC<JournalCardProps> = ({ entry }) => {
               </>
             )}
 
-            {/* Goal milestone — secondary context pill only, not headline */}
-            {goalPnl != null && !isScalp && (
-              <>
-                {(tp1Hit || tp2Hit || tp1OnlyThenLoss) && (
-                  <span className="text-gray-600 flex-shrink-0 text-xs ml-1">Goal at {pnlStr(goalPnl)}</span>
-                )}
-                {!tp1Hit && !tp2Hit && !tp1OnlyThenLoss && (
-                  <span className="flex items-center gap-1 bg-amber-400/15 text-amber-400 border border-amber-400/25 rounded-full px-2.5 py-1 whitespace-nowrap">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-                    Goal {pnlStr(goalPnl)}
-                  </span>
-                )}
-              </>
-            )}
           </div>
         )}
 
@@ -323,30 +341,58 @@ const JournalCard: React.FC<JournalCardProps> = ({ entry }) => {
 
       {/* Narrative sections */}
       <div className="px-4 sm:px-5 pb-4 sm:pb-5 space-y-2.5">
-        {entry.llm_reasoning && (
-          <div className="bg-blue-500/5 border border-blue-500/10 rounded-xl p-3">
-            <h4 className="text-xs font-semibold text-blue-400 mb-1.5 flex items-center gap-1.5">
+        {(entry.alpha_reasoning_snapshot || entry.llm_reasoning) && (
+          <div className="bg-blue-500/5 border border-blue-500/10 rounded-xl p-3.5">
+            <h4 className="text-xs font-semibold text-blue-400 mb-2 flex items-center gap-1.5">
               <Brain className="w-3.5 h-3.5" /> Why Alpha Took This Trade
             </h4>
-            <p className="text-sm text-gray-300 leading-relaxed">{entry.llm_reasoning}</p>
+            {effectiveConfidence != null && (
+              <p className="text-xs text-gray-400 mb-2 italic leading-relaxed">
+                {convictionLabel(effectiveConfidence)}
+              </p>
+            )}
+            <p className="text-sm text-gray-300 leading-relaxed">
+              {entry.alpha_reasoning_snapshot || entry.llm_reasoning}
+            </p>
           </div>
         )}
 
-        {entry.market_read && (
-          <div className="bg-blue-500/5 border border-blue-500/10 rounded-xl p-3">
-            <h4 className="text-xs font-semibold text-blue-400 mb-1.5 flex items-center gap-1.5">
+        {(regimeInfo || entry.market_read) && (
+          <div className="bg-blue-500/5 border border-blue-500/10 rounded-xl p-3.5">
+            <h4 className="text-xs font-semibold text-blue-400 mb-2 flex items-center gap-1.5">
               <BarChart2 className="w-3.5 h-3.5" /> Market Context
             </h4>
-            <p className="text-sm text-gray-300 leading-relaxed">{entry.market_read}</p>
+            {regimeInfo && (
+              <span className={`inline-block text-xs font-medium border rounded-full px-2.5 py-1 mb-2 ${regimeInfo.color}`}>
+                {regimeInfo.label}
+              </span>
+            )}
+            {entry.market_read && (
+              <p className="text-sm text-gray-300 leading-relaxed">{entry.market_read}</p>
+            )}
           </div>
         )}
 
-        {entry.expected_outcome && (
-          <div className="bg-blue-500/5 border border-blue-500/10 rounded-xl p-3">
-            <h4 className="text-xs font-semibold text-blue-400 mb-1.5 flex items-center gap-1.5">
+        {(entry.expected_outcome || entry.tp1_reasoning_from_record || entry.tp2_reasoning_from_record) && (
+          <div className="bg-blue-500/5 border border-blue-500/10 rounded-xl p-3.5">
+            <h4 className="text-xs font-semibold text-blue-400 mb-2 flex items-center gap-1.5">
               <Target className="w-3.5 h-3.5" /> Trade Plan
             </h4>
-            <p className="text-sm text-gray-300 leading-relaxed">{entry.expected_outcome}</p>
+            {entry.expected_outcome && (
+              <p className="text-sm text-gray-300 leading-relaxed mb-2">{entry.expected_outcome}</p>
+            )}
+            {entry.tp1_reasoning_from_record && (
+              <div className="mt-2 pt-2 border-t border-blue-500/10">
+                <span className="text-xs font-medium text-blue-300 block mb-1">TP1 Target Logic</span>
+                <p className="text-xs text-gray-400 leading-relaxed">{entry.tp1_reasoning_from_record}</p>
+              </div>
+            )}
+            {entry.tp2_reasoning_from_record && (
+              <div className="mt-2 pt-2 border-t border-blue-500/10">
+                <span className="text-xs font-medium text-blue-300 block mb-1">TP2 Target Logic</span>
+                <p className="text-xs text-gray-400 leading-relaxed">{entry.tp2_reasoning_from_record}</p>
+              </div>
+            )}
           </div>
         )}
 
@@ -402,23 +448,23 @@ const JournalCard: React.FC<JournalCardProps> = ({ entry }) => {
         {/* Metadata grid */}
         <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-gray-700/40 mt-1">
           <div className="bg-gray-700/30 rounded-lg p-2">
-            <span className="text-xs text-gray-500 block mb-0.5">Pattern</span>
+            <span className="text-xs text-gray-500 block mb-0.5">Setup</span>
             <p className="text-xs text-gray-300 font-medium truncate">{displayedPattern}</p>
           </div>
           <div className="bg-gray-700/30 rounded-lg p-2">
             <span className="text-xs text-gray-500 block mb-0.5">Conviction</span>
             <p className="text-xs text-gray-300 font-medium">
-              {entry.conviction_level ? `${entry.conviction_level}%` : 'N/A'}
+              {effectiveConfidence != null ? `${effectiveConfidence}%` : 'N/A'}
             </p>
-            {entry.conviction_level != null && (
+            {effectiveConfidence != null && (
               <div className="mt-1 h-1 w-full bg-gray-600/50 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${
-                    entry.conviction_level >= 75 ? 'bg-green-400'
-                    : entry.conviction_level >= 55 ? 'bg-yellow-400'
+                    effectiveConfidence >= 75 ? 'bg-green-400'
+                    : effectiveConfidence >= 55 ? 'bg-yellow-400'
                     : 'bg-red-400'
                   }`}
-                  style={{ width: `${Math.min(100, entry.conviction_level)}%` }}
+                  style={{ width: `${Math.min(100, effectiveConfidence)}%` }}
                 />
               </div>
             )}

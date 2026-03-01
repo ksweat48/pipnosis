@@ -292,6 +292,15 @@ class LLMReasoningLogger {
           goal_sessions (
             trade_style,
             dollar_risk
+          ),
+          goal_session_trades!ai_trade_journal_trade_id_fkey (
+            alpha_reasoning_snapshot,
+            market_regime_at_entry,
+            regime_bucket,
+            trade_confidence,
+            setup_type,
+            tp1_reasoning,
+            tp2_reasoning
           )
         `)
         .eq('user_id', userId)
@@ -307,11 +316,20 @@ class LLMReasoningLogger {
 
       return rows.map((row: any) => {
         const session = row.goal_sessions;
+        const tradeRecord = row.goal_session_trades;
         return {
           ...row,
           trade_style: session?.trade_style ?? null,
           dollar_risk: session?.dollar_risk ?? null,
+          alpha_reasoning_snapshot: tradeRecord?.alpha_reasoning_snapshot ?? null,
+          market_regime_at_entry: tradeRecord?.market_regime_at_entry ?? null,
+          regime_bucket: tradeRecord?.regime_bucket ?? null,
+          trade_confidence_from_record: tradeRecord?.trade_confidence ?? null,
+          setup_type_from_record: tradeRecord?.setup_type ?? null,
+          tp1_reasoning_from_record: tradeRecord?.tp1_reasoning ?? null,
+          tp2_reasoning_from_record: tradeRecord?.tp2_reasoning ?? null,
           goal_sessions: undefined,
+          goal_session_trades: undefined,
         };
       });
     } catch (error) {
