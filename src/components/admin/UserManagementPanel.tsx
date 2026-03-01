@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { Search, MoreVertical, User, DollarSign, RefreshCw, Eye, Copy, Clock, AlertTriangle, Users as UsersIcon, Activity, TrendingUp, Target, ChevronLeft, ChevronRight, ArrowUp, ArrowDown } from 'lucide-react';
+import { Search, MoreVertical, User, DollarSign, RefreshCw, Eye, Copy, Clock, AlertTriangle, Users as UsersIcon, Activity, TrendingUp, Target, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, Award } from 'lucide-react';
 import { adminUserService } from '../../services/admin-user-service';
 import { useAdminDashboard } from '../../hooks/useAdminDashboard';
 import { useToast } from '../../hooks/useToast';
 import { UserDetailsModal } from './UserDetailsModal';
 import { AddCreditsDialog } from './AddCreditsDialog';
 import { ResetSessionDialog } from './ResetSessionDialog';
+import { GrantMembershipDialog } from './GrantMembershipDialog';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 
 export const UserManagementPanel: React.FC = () => {
@@ -31,6 +32,8 @@ export const UserManagementPanel: React.FC = () => {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showCreditsDialog, setShowCreditsDialog] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
+  const [showGrantMembershipDialog, setShowGrantMembershipDialog] = useState(false);
+  const [selectedUserEmail, setSelectedUserEmail] = useState<string>('');
   const [forceClosing, setForceClosing] = useState(false);
   const [forceClosingAll, setForceClosingAll] = useState(false);
   const [searchDebounce, setSearchDebounce] = useState<NodeJS.Timeout | null>(null);
@@ -73,6 +76,7 @@ export const UserManagementPanel: React.FC = () => {
 
   const handleAction = (action: string, userId: string, email: string) => {
     setSelectedUserId(userId);
+    setSelectedUserEmail(email);
     setOpenDropdown(null);
 
     switch (action) {
@@ -81,6 +85,9 @@ export const UserManagementPanel: React.FC = () => {
         break;
       case 'credits':
         setShowCreditsDialog(true);
+        break;
+      case 'membership':
+        setShowGrantMembershipDialog(true);
         break;
       case 'reset':
         setShowResetDialog(true);
@@ -622,6 +629,13 @@ export const UserManagementPanel: React.FC = () => {
                               Add Credits
                             </button>
                             <button
+                              onClick={() => handleAction('membership', user.user_id, user.email)}
+                              className="w-full px-4 py-2 text-left text-sm text-amber-300 hover:bg-gray-700 flex items-center gap-2"
+                            >
+                              <Award size={16} />
+                              Grant Membership
+                            </button>
+                            <button
                               onClick={() => handleAction('reset', user.user_id, user.email)}
                               className="w-full px-4 py-2 text-left text-sm text-white hover:bg-gray-700 flex items-center gap-2"
                             >
@@ -798,6 +812,21 @@ export const UserManagementPanel: React.FC = () => {
             await refresh();
             setShowResetDialog(false);
             setSelectedUserId(null);
+          }}
+        />
+      )}
+
+      {showGrantMembershipDialog && selectedUserId && (
+        <GrantMembershipDialog
+          targetUserId={selectedUserId}
+          targetEmail={selectedUserEmail}
+          onClose={() => {
+            setShowGrantMembershipDialog(false);
+            setSelectedUserId(null);
+            setSelectedUserEmail('');
+          }}
+          onSuccess={async () => {
+            await refresh();
           }}
         />
       )}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, Copy, TrendingUp, TrendingDown, Activity } from 'lucide-react';
+import { X, Copy, TrendingUp, TrendingDown, Activity, Award, ArrowUpCircle } from 'lucide-react';
 import { adminUserService, UserDetails } from '../../services/admin-user-service';
+import { clubMembershipService, AdminMembershipAction } from '../../services/club-membership-service';
 import { useToast } from '../../hooks/useToast';
 
 interface UserDetailsModalProps {
@@ -11,6 +12,8 @@ interface UserDetailsModalProps {
 export const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ userId, onClose }) => {
   const [details, setDetails] = useState<UserDetails | null>(null);
   const [loading, setLoading] = useState(true);
+  const [membershipActions, setMembershipActions] = useState<AdminMembershipAction[]>([]);
+  const [loadingActions, setLoadingActions] = useState(false);
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -30,6 +33,24 @@ export const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ userId, onCl
 
     loadDetails();
   }, [userId, showToast, onClose]);
+
+  useEffect(() => {
+    const loadMembershipActions = async () => {
+      try {
+        setLoadingActions(true);
+        const actions = await clubMembershipService.getAdminMembershipActions(userId);
+        setMembershipActions(actions);
+      } catch (err) {
+        console.error('Failed to load membership actions:', err);
+      } finally {
+        setLoadingActions(false);
+      }
+    };
+
+    if (!loading) {
+      loadMembershipActions();
+    }
+  }, [userId, loading]);
 
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
@@ -284,6 +305,51 @@ export const UserDetailsModal: React.FC<UserDetailsModalProps> = ({ userId, onCl
               </div>
             </div>
           )}
+
+          <div className="bg-gray-900 rounded-lg p-4">
+            <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+              <Award size={18} className="text-amber-400" />
+              Admin Membership Actions
+            </h3>
+            {loadingActions ? (
+              <div className="text-sm text-gray-500 py-2">Loading history...</div>
+            ) : membershipActions.length === 0 ? (
+              <div className="text-sm text-gray-500 py-2">No admin-granted memberships on record.</div>
+            ) : (
+              <div className="space-y-2">
+                {membershipActions.map((action) => (
+                  <div key={action.id} className="bg-gray-800 rounded-lg px-4 py-3 flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className={`mt-0.5 flex-shrink-0 ${action.actionType === 'upgrade' ? 'text-blue-400' : 'text-green-400'}`}>
+                        <ArrowUpCircle size={16} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded ${action.actionType === 'upgrade' ? 'bg-blue-500/20 text-blue-300' : 'bg-green-500/20 text-green-300'}`}>
+                            {action.actionType === 'upgrade' ? 'UPGRADE' : 'GRANT'}
+                          </span>
+                          <span className="text-sm font-semibold text-white">{action.packageName}</span>
+                          {action.previousTierLevel !== null && (
+                            <span className="text-xs text-gray-500">
+                              Tier {action.previousTierLevel} → {action.newTierLevel}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-400 mt-1 italic truncate">"{action.reason}"</div>
+                        <div className="text-xs text-gray-600 mt-0.5">
+                          By {action.adminEmail} · {formatDate(action.createdAt)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0 text-right">
+                      <div className="text-sm font-bold text-amber-400">+{action.tokensAwarded.toLocaleString()}</div>
+                      <div className="text-xs text-gray-500">PIP</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="sticky bottom-0 bg-gray-800 border-t border-gray-700 p-4">

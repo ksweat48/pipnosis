@@ -68,6 +68,33 @@ export interface UserCreditDiscount {
   stakingEnabled: boolean;
 }
 
+export interface AdminGrantResult {
+  success: boolean;
+  actionType?: 'grant' | 'upgrade';
+  membershipId?: string;
+  tierName?: string;
+  tierLevel?: number;
+  tokensAwarded?: number;
+  isUpgrade?: boolean;
+  previousTier?: number | null;
+  auditId?: string;
+  error?: string;
+}
+
+export interface AdminMembershipAction {
+  id: string;
+  adminUserId: string;
+  adminEmail: string;
+  actionType: 'grant' | 'upgrade';
+  previousTierLevel: number | null;
+  newTierLevel: number;
+  packageName: string;
+  reason: string;
+  tokensAwarded: number;
+  membershipId: string | null;
+  createdAt: string;
+}
+
 class ClubMembershipService {
   /**
    * Get all active membership packages for purchase
@@ -210,6 +237,91 @@ class ClubMembershipService {
     } catch (error) {
       console.error('[ClubMembershipService] Error in grantMembership:', error);
       return { success: false, error: 'Internal error during membership grant' };
+    }
+  }
+
+  /**
+   * Admin-only: grant or upgrade a user's membership without payment.
+   *
+   * SSOT: Delegates to the admin_grant_membership RPC which:
+   *  - validates admin identity server-side
+   *  - calls grant_club_membership for all token emission
+   *  - writes an immutable row to admin_membership_actions
+   *
+   * This is the ONLY JS-layer entry point for admin membership grants.
+   */
+  async adminGrantMembership(
+    adminUserId: string,
+    targetUserId: string,
+    packageId: string,
+    reason: string
+  ): Promise<AdminGrantResult> {
+    try {
+      const { data, error } = await supabase.rpc('admin_grant_membership', {
+        p_admin_id: adminUserId,
+        p_target_user_id: targetUserId,
+        p_package_id: packageId,
+        p_reason: reason,
+      });
+
+      if (error) {
+        console.error('[ClubMembershipService] admin_grant_membership RPC error:', error);
+        return { success: false, error: error.message };
+      }
+
+      const r = data as any;
+      if (!r?.success) {
+        return { success: false, error: r?.error || 'Membership grant failed' };
+      }
+
+      return {
+        success: true,
+        actionType: r.action_type,
+        membershipId: r.membership_id,
+        tierName: r.tier_name,
+        tierLevel: r.tier_level,
+        tokensAwarded: r.tokens_awarded,
+        isUpgrade: r.is_upgrade,
+        previousTier: r.previous_tier ?? null,
+        auditId: r.audit_id,
+      };
+    } catch (err) {
+      console.error('[ClubMembershipService] Error in adminGrantMembership:', err);
+      return { success: false, error: 'Internal error during admin membership grant' };
+    }
+  }
+
+  /**
+   * Admin-only: get the admin action history for a given user.
+   * Used by UserDetailsModal to display the membership audit trail.
+   */
+  async getAdminMembershipActions(targetUserId: string): Promise<AdminMembershipAction[]> {
+    try {
+      const { data, error } = await supabase.rpc('admin_get_membership_actions', {
+        p_target_user_id: targetUserId,
+      });
+
+      if (error) {
+        console.error('[ClubMembershipService] admin_get_membership_actions error:', error);
+        return [];
+      }
+
+      return (data || []).map((row: any): AdminMembershipAction => ({
+        id: row.id,
+        adminUserId: row.admin_user_id,
+        adminEmail: row.admin_email || 'Unknown',
+        actionType: row.action_type,
+        previousTierLevel: row.previous_tier_level ?? null,
+        newTierLevel: row.new_tier_level,
+        packageName: row.package_name || `Tier ${row.new_tier_level}`,
+        reason: row.reason,
+        tokensAwarded: Number(row.tokens_awarded ?? 0),
+        membershipId: row.membership_id ?? null,
+        createdAt: row.created_at,
+      }));
+    } catch (err) {
+      console.error('[ClubMembershipService] Error in getAdminMembershipActions:', err);
+      return [];
     }
   }
 
