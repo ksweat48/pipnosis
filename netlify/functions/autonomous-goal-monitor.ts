@@ -1,11 +1,16 @@
 /**
  * Autonomous Goal Session Monitor - Netlify Scheduled Function
  *
- * Runs every minute to process active goal sessions autonomously
- * Enables goal sessions to continue running even when browser is closed
- * Users can start sessions from any device and they'll keep running in the cloud
+ * Runs every minute to process active goal sessions autonomously.
+ * Sessions persist and continue scanning regardless of browser state.
  *
  * Schedule: Every 1 minute (defined in netlify.toml)
+ *
+ * CCIP GOVERNANCE:
+ * - server_heartbeat is ONLY written after real processing completes (not at start)
+ * - shouldContinue=false closes sessions in ALL active statuses (not just 'scanning')
+ * - consecutive_errors in goal_session_server_state tracks reliability
+ * - cleanup_stuck_sessions_automatic() runs FIRST to remove stuck sessions before processing
  */
 
 import type { Handler } from '@netlify/functions';
@@ -14,18 +19,20 @@ import { processGoalSessionIteration, initializeGoalSession } from '../../src/se
 
 const supabase = getSupabaseAdmin();
 
+const ACTIVE_STATUSES_ALL = ['scanning', 'active', 'initializing', 'in_trade', 'soft_closing', 'trade_pending'];
+
 export const handler: Handler = async (event, context) => {
   const startTime = Date.now();
   console.log('[Autonomous Monitor] Starting scheduled check...');
 
   try {
-    // FIRST: Auto-detect and clean up stuck sessions
+    // FIRST: Auto-detect and clean up stuck sessions (independent of processing queue)
     const { data: cleanedCount, error: cleanupError } = await supabase.rpc('cleanup_stuck_sessions_automatic');
 
     if (cleanupError) {
       console.error('[Autonomous Monitor] Cleanup error:', cleanupError);
     } else if (cleanedCount && cleanedCount > 0) {
-      console.log(`[Autonomous Monitor] 🧹 Auto-cleaned ${cleanedCount} stuck session(s)`);
+      console.log(`[Autonomous Monitor] Auto-cleaned ${cleanedCount} stuck session(s)`);
     }
 
     // Get all active goal sessions that need processing
@@ -51,14 +58,12 @@ export const handler: Handler = async (event, context) => {
       };
     }
 
-    // CCIP FIX: Limit processing to max 10 sessions per run to prevent timeout
-    // Root cause: Sequential processing of many sessions exceeded 120s limit
-    // Defense-in-depth: Next run will pick up remaining sessions
+    // Limit to max 10 sessions per run to prevent timeout
     const MAX_SESSIONS_PER_RUN = 10;
     const sessionsToProcess = activeSessions.slice(0, MAX_SESSIONS_PER_RUN);
 
     if (activeSessions.length > MAX_SESSIONS_PER_RUN) {
-      console.log(`[Autonomous Monitor] 🔄 Processing ${MAX_SESSIONS_PER_RUN} of ${activeSessions.length} active sessions (${activeSessions.length - MAX_SESSIONS_PER_RUN} queued for next run)`);
+      console.log(`[Autonomous Monitor] Processing ${MAX_SESSIONS_PER_RUN} of ${activeSessions.length} sessions (${activeSessions.length - MAX_SESSIONS_PER_RUN} queued for next run)`);
     } else {
       console.log(`[Autonomous Monitor] Processing ${activeSessions.length} active sessions`);
     }
@@ -69,7 +74,6 @@ export const handler: Handler = async (event, context) => {
     let timedOutCount = 0;
     let modalTriggeredCount = 0;
 
-    // Process each session
     for (const session of sessionsToProcess) {
       try {
         console.log(`[Autonomous Monitor] Processing session ${session.session_id} for user ${session.user_id}`);
@@ -77,27 +81,18 @@ export const handler: Handler = async (event, context) => {
         /*
          * CRITICAL 60-MINUTE TIMEOUT ENFORCEMENT
          *
-         * This section implements the 60-minute scanning limit to prevent resource waste.
-         * The flow MUST execute in this exact order:
-         *
+         * Order MUST be:
          * 1. Check for expired timeout (1-minute after modal shown) → auto-close if expired
          * 2. Check if 60 minutes elapsed without trade → show continuation modal
-         * 3. If awaiting user response → skip trading operations but KEEP in processing queue
-         *
-         * IMPORTANT: Sessions with status 'awaiting_continuation' MUST remain in the
-         * get_sessions_for_server_processing() result set. If they are excluded, the
-         * timeout check (#1) will never run and sessions will waste resources indefinitely.
-         *
-         * The database migration fix_15min_timeout_enforcement.sql ensures this.
+         * 3. If awaiting user response → skip trading but KEEP in queue for timeout checks
          */
 
-        // CRITICAL: Check for modal timeout and auto-close if expired
         const { data: hasTimedOut } = await supabase.rpc('check_continuation_modal_timeout', {
           p_session_id: session.session_id
         });
 
         if (hasTimedOut) {
-          console.log(`[Autonomous Monitor] ⏰ Session ${session.session_id} modal timeout - auto-closed`);
+          console.log(`[Autonomous Monitor] Session ${session.session_id} modal timeout - auto-closed`);
           timedOutCount++;
           successCount++;
           results.push({
@@ -109,13 +104,12 @@ export const handler: Handler = async (event, context) => {
           continue;
         }
 
-        // CRITICAL: Check if 60 minutes elapsed without trades - trigger modal
         const { data: shouldShowModal } = await supabase.rpc('should_show_continuation_modal', {
           p_session_id: session.session_id
         });
 
         if (shouldShowModal) {
-          console.log(`[Autonomous Monitor] 🕐 Session ${session.session_id} reached 60-min threshold - triggering modal`);
+          console.log(`[Autonomous Monitor] Session ${session.session_id} reached 60-min threshold - triggering modal`);
           await supabase.rpc('trigger_continuation_modal', {
             p_session_id: session.session_id
           });
@@ -130,16 +124,14 @@ export const handler: Handler = async (event, context) => {
           continue;
         }
 
-        // Skip sessions awaiting continuation response (SSOT)
-        // NOTE: These sessions remain in the processing queue for timeout checks above
         const { data: sessionStatus } = await supabase
           .from('goal_sessions')
           .select('status')
           .eq('id', session.session_id)
-          .single();
+          .maybeSingle();
 
         if (sessionStatus?.status === 'awaiting_continuation') {
-          console.log(`[Autonomous Monitor] ⏸️ Session ${session.session_id} awaiting user response - skipping`);
+          console.log(`[Autonomous Monitor] Session ${session.session_id} awaiting user response - skipping`);
           successCount++;
           results.push({
             sessionId: session.session_id,
@@ -150,60 +142,128 @@ export const handler: Handler = async (event, context) => {
           continue;
         }
 
-        // Update heartbeat at start
-        await supabase.rpc('update_server_heartbeat', {
-          p_session_id: session.session_id,
-          p_instance_id: 'netlify-autonomous-monitor'
-        });
-
-        // Initialize or load session state (pass supabase client for server-side execution)
+        // Initialize session state
         const state = await initializeGoalSession(session.session_id, supabase);
 
         if (!state) {
           console.error(`[Autonomous Monitor] Failed to initialize session ${session.session_id}`);
+
+          // Track consecutive errors — do NOT update heartbeat on initialization failure
+          await supabase
+            .from('goal_session_server_state')
+            .upsert({
+              goal_session_id: session.session_id,
+              user_id: session.user_id,
+              last_error: 'Failed to initialize session state',
+              last_error_at: new Date().toISOString(),
+              consecutive_errors: 1,
+              updated_at: new Date().toISOString()
+            }, {
+              onConflict: 'goal_session_id',
+              ignoreDuplicates: false
+            });
+
+          // Use raw update to increment consecutive_errors atomically
+          await supabase.rpc('increment_session_consecutive_errors', {
+            p_session_id: session.session_id
+          }).maybeSingle();
+
           errorCount++;
           continue;
         }
 
-        // Process one iteration (pass supabase client for server-side execution)
+        // Process one iteration
         const result = await processGoalSessionIteration(state, supabase);
 
-        // GOVERNANCE (2026-02-18): If core engine says stop, mark session as stopped
+        // GOVERNANCE: shouldContinue=false means the session MUST stop.
+        // This covers ALL active statuses — not just 'scanning'.
+        // Previous bug: only stopped 'scanning'/'active'/'initializing',
+        // leaving 'in_trade'/'soft_closing' stuck indefinitely.
         if (!result.shouldContinue) {
-          console.log(`[Autonomous Monitor] GOVERNANCE: Session ${session.session_id} returned shouldContinue=false - ensuring session is stopped`);
-          await supabase
+          console.log(`[Autonomous Monitor] GOVERNANCE: Session ${session.session_id} shouldContinue=false (${result.message}) - closing all active statuses`);
+
+          const { error: stopError } = await supabase
             .from('goal_sessions')
-            .update({ status: 'user_stopped', completed_at: new Date().toISOString() })
+            .update({
+              status: 'user_stopped',
+              completed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
             .eq('id', session.session_id)
-            .in('status', ['scanning', 'active', 'initializing']);
+            .in('status', ACTIVE_STATUSES_ALL);
+
+          if (stopError) {
+            console.error(`[Autonomous Monitor] Failed to stop session ${session.session_id}:`, stopError);
+          }
         }
 
-        // Update server state in database
-        await supabase
-          .from('goal_session_server_state')
-          .upsert({
-            goal_session_id: session.session_id,
-            user_id: session.user_id,
-            last_processed_at: new Date().toISOString(),
-            last_tick_price: state.openTrades.length > 0 ? state.openTrades[0].currentPrice : null,
-            current_symbol: state.watchlist.join(','),
-            trades_executed: (result.tradesExecuted || 0),
-            server_decisions: (result.llmCallsMade || 0),
-            consecutive_errors: result.success ? 0 : 1,
-            last_error: result.success ? null : result.message,
-            last_error_at: result.success ? null : new Date().toISOString()
-          });
+        // CRITICAL FIX: Only update server_heartbeat AFTER real processing succeeds.
+        // Previously the heartbeat was updated at the start, masking stuck sessions
+        // as "alive" in the admin panel even when processing was failing every minute.
+        if (result.success) {
+          await supabase
+            .from('goal_sessions')
+            .update({
+              server_heartbeat: new Date().toISOString(),
+              server_last_check: new Date().toISOString(),
+              server_error: null,
+              execution_mode: 'server'
+            })
+            .eq('id', session.session_id);
 
-        // Update session with final heartbeat
-        await supabase
-          .from('goal_sessions')
-          .update({
-            server_heartbeat: new Date().toISOString(),
-            server_last_check: new Date().toISOString(),
-            server_error: result.success ? null : result.message,
-            execution_mode: 'server'
-          })
-          .eq('id', session.session_id);
+          // Reset error counter on success
+          await supabase
+            .from('goal_session_server_state')
+            .upsert({
+              goal_session_id: session.session_id,
+              user_id: session.user_id,
+              last_processed_at: new Date().toISOString(),
+              last_tick_price: state.openTrades.length > 0 ? state.openTrades[0].currentPrice : null,
+              current_symbol: state.watchlist.join(','),
+              trades_executed: result.tradesExecuted || 0,
+              server_decisions: result.llmCallsMade || 0,
+              consecutive_errors: 0,
+              last_error: null,
+              last_error_at: null,
+              updated_at: new Date().toISOString()
+            }, {
+              onConflict: 'goal_session_id',
+              ignoreDuplicates: false
+            });
+
+          successCount++;
+        } else {
+          // Failure: update error state but do NOT update server_heartbeat
+          // This ensures admin panel correctly shows the session as problematic
+          await supabase
+            .from('goal_sessions')
+            .update({
+              server_last_check: new Date().toISOString(),
+              server_error: result.message,
+              execution_mode: 'server'
+            })
+            .eq('id', session.session_id);
+
+          await supabase
+            .from('goal_session_server_state')
+            .upsert({
+              goal_session_id: session.session_id,
+              user_id: session.user_id,
+              last_error: result.message,
+              last_error_at: new Date().toISOString(),
+              consecutive_errors: 1,
+              updated_at: new Date().toISOString()
+            }, {
+              onConflict: 'goal_session_id',
+              ignoreDuplicates: false
+            });
+
+          await supabase.rpc('increment_session_consecutive_errors', {
+            p_session_id: session.session_id
+          }).maybeSingle();
+
+          errorCount++;
+        }
 
         results.push({
           sessionId: session.session_id,
@@ -211,47 +271,49 @@ export const handler: Handler = async (event, context) => {
           message: result.message,
           tradesExecuted: result.tradesExecuted,
           triggersDetected: result.triggersDetected,
-          llmCallsMade: result.llmCallsMade
+          llmCallsMade: result.llmCallsMade,
+          shouldContinue: result.shouldContinue
         });
 
-        if (result.success) {
-          successCount++;
-        } else {
-          errorCount++;
-        }
+        console.log(`[Autonomous Monitor] Session ${session.session_id}: ${result.message} (shouldContinue=${result.shouldContinue})`);
 
-        console.log(`[Autonomous Monitor] Session ${session.session_id}: ${result.message}`);
       } catch (sessionError) {
+        const errMsg = (sessionError as Error).message;
         console.error(`[Autonomous Monitor] Error processing session ${session.session_id}:`, sessionError);
 
-        // Log error to database
+        // Do NOT update server_heartbeat on exception
+        await supabase
+          .from('goal_sessions')
+          .update({
+            server_last_check: new Date().toISOString(),
+            server_error: errMsg
+          })
+          .eq('id', session.session_id);
+
         await supabase
           .from('goal_session_server_state')
           .upsert({
             goal_session_id: session.session_id,
             user_id: session.user_id,
-            last_error: (sessionError as Error).message,
+            last_error: errMsg,
             last_error_at: new Date().toISOString(),
-            consecutive_errors: 1
+            consecutive_errors: 1,
+            updated_at: new Date().toISOString()
+          }, {
+            onConflict: 'goal_session_id',
+            ignoreDuplicates: false
           });
 
-        await supabase
-          .from('goal_sessions')
-          .update({
-            server_error: (sessionError as Error).message
-          })
-          .eq('id', session.session_id);
+        await supabase.rpc('increment_session_consecutive_errors', {
+          p_session_id: session.session_id
+        }).maybeSingle();
 
         errorCount++;
       }
     }
 
-    // Mark stale sessions
-    const { data: staleSessions } = await supabase.rpc('mark_stale_sessions');
-
-    if (staleSessions && staleSessions.length > 0) {
-      console.log(`[Autonomous Monitor] Marked ${staleSessions.length} stale sessions`);
-    }
+    // Mark stale sessions (existing RPC)
+    const { data: staleSessions } = await supabase.rpc('mark_stale_sessions').maybeSingle();
 
     const duration = Date.now() - startTime;
     const summary = {
@@ -267,18 +329,13 @@ export const handler: Handler = async (event, context) => {
       results
     };
 
-    console.log('[Autonomous Monitor] Completed:', summary);
-    if (modalTriggeredCount > 0) {
-      console.log(`[Autonomous Monitor] 🕐 ${modalTriggeredCount} sessions reached 60-minute threshold`);
-    }
-    if (timedOutCount > 0) {
-      console.log(`[Autonomous Monitor] ⏰ ${timedOutCount} sessions auto-closed due to timeout`);
-    }
+    console.log('[Autonomous Monitor] Completed:', JSON.stringify({ ...summary, results: undefined }));
 
     return {
       statusCode: 200,
       body: JSON.stringify(summary)
     };
+
   } catch (error) {
     console.error('[Autonomous Monitor] Fatal error:', error);
     return {
