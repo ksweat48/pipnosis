@@ -197,7 +197,7 @@ class GoalAchievementCoordinator {
       // Find the currently open trade for this session
       const { data: openTrade } = await supabase
         .from('goal_session_trades')
-        .select('id, symbol, direction, entry_price, stop_loss, take_profit, created_at, user_id')
+        .select('id, symbol, direction, entry_price, stop_loss, take_profit, created_at, user_id, trade_style, timeframe')
         .eq('goal_session_id', sessionId)
         .eq('status', 'open')
         .order('created_at', { ascending: false })
@@ -235,7 +235,12 @@ class GoalAchievementCoordinator {
         }
       } else {
         // No pre-existing journal entry (trade opened before journaling was wired).
-        // Create a minimal retroactive entry so the goal-hit moment is preserved.
+        // Create an enriched retroactive entry so the goal-hit moment is never lost.
+        //
+        // CCIP 2026-03-01: Enrich narrative with alpha scan context and session data.
+        // SSOT: goal_session_scan_results owns alpha reasoning; goal_sessions owns style.
+        const narratives = await this.buildRetroactiveNarratives(sessionId, openTrade, goalPnL, goalAchievedAt);
+
         const { error } = await supabase
           .from('ai_trade_journal')
           .insert({
@@ -248,11 +253,11 @@ class GoalAchievementCoordinator {
             entry_price: openTrade.entry_price || 0,
             stop_loss: openTrade.stop_loss,
             take_profit: openTrade.take_profit,
-            llm_reasoning: `${(openTrade.direction || 'buy').toUpperCase()} trade on ${openTrade.symbol}. Goal reached at $${goalPnL.toFixed(2)}.`,
-            market_read: `Entry price: ${openTrade.entry_price?.toFixed(5) || 'N/A'}.`,
-            expected_outcome: `Goal target reached. TP: ${openTrade.take_profit?.toFixed(5) || 'N/A'}, SL: ${openTrade.stop_loss?.toFixed(5) || 'N/A'}.`,
-            pattern_identified: 'Goal Achievement',
-            conviction_level: 70,
+            llm_reasoning: narratives.llmReasoning,
+            market_read: narratives.marketRead,
+            expected_outcome: narratives.expectedOutcome,
+            pattern_identified: narratives.patternIdentified,
+            conviction_level: narratives.convictionLevel,
             rank_at_time: 'Autonomous AI',
             outcome: 'open',
             journal_entry_type: 'trade',
@@ -271,6 +276,115 @@ class GoalAchievementCoordinator {
     } catch (error) {
       console.error(`[GoalAchievementCoordinator] Exception stamping journal:`, error);
     }
+  }
+
+  /**
+   * Build enriched narrative fields for a retroactive journal entry.
+   *
+   * CCIP 2026-03-01: Queries goal_session_scan_results and goal_sessions to
+   * produce alpha-context-aware narratives rather than bare templates.
+   * Falls back gracefully to deterministic templates if scan data is absent.
+   *
+   * SSOT:
+   *  - goal_session_scan_results is the authority for alpha scan reasoning
+   *  - goal_sessions is the authority for trade_style and dollar_risk
+   *  - This is a read-only enrichment — no writes to either table
+   */
+  private async buildRetroactiveNarratives(
+    sessionId: string,
+    openTrade: any,
+    goalPnL: number,
+    goalAchievedAt: string
+  ): Promise<{
+    llmReasoning: string;
+    marketRead: string;
+    expectedOutcome: string;
+    patternIdentified: string;
+    convictionLevel: number;
+  }> {
+    const direction = (openTrade.direction || 'buy').toUpperCase();
+    const symbol = openTrade.symbol || 'Unknown';
+    const entryPrice = openTrade.entry_price ?? 0;
+    const stopLoss = openTrade.stop_loss ?? 0;
+    const takeProfit = openTrade.take_profit ?? 0;
+
+    const entryHour = new Date(openTrade.created_at || goalAchievedAt).getUTCHours();
+    const marketSession = entryHour < 8 ? 'Tokyo' : entryHour < 16 ? 'London' : 'New York';
+
+    const isJpy = symbol.includes('JPY');
+    const pipValue = isJpy ? 0.01 : 0.0001;
+    const slPips = stopLoss > 0 ? Math.round(Math.abs(entryPrice - stopLoss) / pipValue) : 0;
+    const tpPips = takeProfit > 0 ? Math.round(Math.abs(takeProfit - entryPrice) / pipValue) : 0;
+    const rrRatio = slPips > 0 ? (tpPips / slPips).toFixed(1) : 'N/A';
+
+    const [sessionRow, latestScan] = await Promise.all([
+      supabase
+        .from('goal_sessions')
+        .select('trade_style, dollar_risk')
+        .eq('id', sessionId)
+        .maybeSingle()
+        .then(r => r.data),
+      supabase
+        .from('goal_session_scan_results')
+        .select('top_candidate_symbol, top_candidate_action, top_candidate_confidence, all_candidates')
+        .eq('session_id', sessionId)
+        .order('scan_timestamp', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+        .then(r => r.data),
+    ]);
+
+    const rawStyle: string = openTrade.trade_style || sessionRow?.trade_style || '';
+    const styleMap: Record<string, string> = {
+      scalper: 'Scalp', scalp: 'Scalp',
+      micro: 'Micro', micro_intraday: 'Micro',
+      intraday: 'Intraday', day: 'Intraday',
+    };
+    const styleLabel = styleMap[rawStyle.toLowerCase()] ?? 'Intraday';
+
+    let alphaReasoning: string | null = null;
+    let alphaConfidence: number | null = null;
+    let alphaPattern: string | null = null;
+
+    if (latestScan) {
+      alphaConfidence = latestScan.top_candidate_confidence ?? null;
+      if (latestScan.all_candidates && Array.isArray(latestScan.all_candidates)) {
+        const match = latestScan.all_candidates.find(
+          (c: any) => c.symbol === symbol || c.pair === symbol
+        );
+        if (match) {
+          alphaReasoning = match.reasoning ?? match.alpha_reasoning ?? null;
+          alphaPattern = match.pattern ?? match.pattern_identified ?? null;
+          alphaConfidence = match.confidence ?? alphaConfidence;
+        }
+      }
+      if (!alphaReasoning) {
+        alphaReasoning = null;
+      }
+    }
+
+    const convictionLevel = alphaConfidence ?? 70;
+    const patternIdentified = alphaPattern ?? `${styleLabel} Setup`;
+
+    const llmReasoning = alphaReasoning
+      ? `Alpha identified a ${direction} opportunity on ${symbol} during the ${marketSession} session using a ${styleLabel} strategy. ${alphaReasoning}`
+      : `Alpha executed a ${styleLabel} ${direction} on ${symbol} during the ${marketSession} session${alphaConfidence ? ` with ${alphaConfidence}% conviction` : ''}. The trade crossed the session goal threshold at $${goalPnL.toFixed(2)}.`;
+
+    const marketRead = [
+      `${symbol} entered at ${entryPrice.toFixed(isJpy ? 3 : 5)} during the ${marketSession} session.`,
+      slPips > 0 ? `Stop loss placed ${slPips} pips below entry at ${stopLoss.toFixed(isJpy ? 3 : 5)}.` : null,
+      tpPips > 0 ? `Target set ${tpPips} pips away at ${takeProfit.toFixed(isJpy ? 3 : 5)}.` : null,
+      rrRatio !== 'N/A' ? `Reward-to-risk: ${rrRatio}:1.` : null,
+      alphaConfidence ? `Alpha confidence: ${alphaConfidence}%.` : null,
+    ].filter(Boolean).join(' ');
+
+    const expectedOutcome = [
+      `Alpha targeted a ${rrRatio !== 'N/A' ? `${rrRatio}:1 reward-to-risk` : 'directional'} ${styleLabel} setup on ${symbol}.`,
+      slPips > 0 && tpPips > 0 ? `Entry at ${entryPrice.toFixed(isJpy ? 3 : 5)}: ${slPips}-pip stop, ${tpPips}-pip target.` : null,
+      `Trade crossed the session goal threshold at $${goalPnL.toFixed(2)}.`,
+    ].filter(Boolean).join(' ');
+
+    return { llmReasoning, marketRead, expectedOutcome, patternIdentified, convictionLevel };
   }
 
   private async applyRewards(userId: string, finalPnL: number, goalTarget: number): Promise<void> {

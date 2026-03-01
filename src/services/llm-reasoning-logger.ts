@@ -274,13 +274,26 @@ class LLMReasoningLogger {
   }
 
   /**
-   * Get all journal entries for a user
+   * Get all journal entries for a user, enriched with session context.
+   *
+   * CCIP 2026-03-01: Joins goal_sessions to surface trade_style and dollar_risk
+   * so the journal UI can display per-style TP logic and the "Risked $X → Returned $Y"
+   * line without requiring an additional round-trip.
+   *
+   * SSOT: ai_trade_journal owns journal data; goal_sessions owns trade_style and
+   * dollar_risk. This is a read-only join — no writes cross table boundaries.
    */
   async getJournalEntries(userId: string, limit: number = 50): Promise<any[]> {
     try {
       const { data, error } = await supabase
         .from('ai_trade_journal')
-        .select('*')
+        .select(`
+          *,
+          goal_sessions!ai_trade_journal_session_id_fkey (
+            trade_style,
+            dollar_risk
+          )
+        `)
         .eq('user_id', userId)
         .order('entry_time', { ascending: false })
         .limit(limit);
@@ -290,7 +303,17 @@ class LLMReasoningLogger {
         return [];
       }
 
-      return data || [];
+      const rows = data || [];
+
+      return rows.map((row: any) => {
+        const session = row.goal_sessions;
+        return {
+          ...row,
+          trade_style: session?.trade_style ?? null,
+          dollar_risk: session?.dollar_risk ?? null,
+          goal_sessions: undefined,
+        };
+      });
     } catch (error) {
       console.error('[LLM Reasoning Logger] Exception fetching journal:', error);
       return [];
