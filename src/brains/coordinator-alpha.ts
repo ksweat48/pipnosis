@@ -1451,6 +1451,82 @@ ${consecutiveSameDir >= 3
           else break;
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // HTF REGIME CONFLICT PRE-LLM GATE (CCIP 2026-03-02)
+        //
+        // GOVERNANCE: When the controlling HTF trend is confirmed bearish AND
+        // Omega-8's structural bias supports a BUY direction, Alpha has repeatedly
+        // overridden the conflict and produced a losing BUY entry without structural
+        // qualification. Same logic applies symmetrically for SELL into confirmed
+        // HTF bull trend.
+        //
+        // This gate fires BEFORE the LLM call.  It checks whether enough
+        // counter-trend qualification evidence exists in the HTF candles using
+        // three deterministic rules (no LLM required):
+        //   1. At least one bullish (bearish) BOS in the last 3 HTF candles — a
+        //      closed candle that closes ABOVE (BELOW) the prior candle's HIGH (LOW).
+        //   2. Prominent lower-wick sweep on the last 2 HTF candles — lower wick
+        //      >= 1.5× the body, indicating buy pressure after a sweep.
+        //   3. HTF consecutive count < 3 — trend not confirmed enough to block.
+        //
+        // If NONE of the three conditions are met, return NO_TRADE before calling
+        // the LLM.  If ANY condition is met, allow the call and let Alpha reason.
+        //
+        // SSOT: Omega-8 direction_support is the structural directional bias.
+        //       htfTrendDir is the computed HTF candle bias (this module).
+        // ═══════════════════════════════════════════════════════════════════
+        const omega8DirectionSupport: string | undefined = votes.omega8?.direction_support;
+        const conflictingBuy  = htfTrendDir === 'BEARISH' && omega8DirectionSupport === 'buy';
+        const conflictingSell = htfTrendDir === 'BULLISH' && omega8DirectionSupport === 'sell';
+
+        if ((conflictingBuy || conflictingSell) && htfConsecutive >= 3) {
+          // Check for counter-trend qualification evidence in HTF candle data
+          const counterDir = conflictingBuy ? 'bull' : 'bear';
+
+          // Rule 1: BOS — last closed HTF candle breaks above (bull) or below (bear) prior candle's extreme
+          const htfBOS = conflictingBuy
+            ? (recentHtf.length >= 2 && lastHtfCandle.close > recentHtf[recentHtf.length - 2].high)
+            : (recentHtf.length >= 2 && lastHtfCandle.close < recentHtf[recentHtf.length - 2].low);
+
+          // Rule 2: Sweep wick — check last 2 candles for a wick-to-body ratio >= 1.5 in the right direction
+          const htfSweepWick = recentHtf.slice(-2).some(c => {
+            const body = Math.abs(c.close - c.open);
+            const wick = conflictingBuy
+              ? (Math.min(c.open, c.close) - c.low)    // lower wick for bull reversal
+              : (c.high - Math.max(c.open, c.close));   // upper wick for bear reversal
+            return body > 0 && wick / body >= 1.5;
+          });
+
+          if (!htfBOS && !htfSweepWick) {
+            console.error(
+              `[Alpha Coordinator] HTF_CONFLICT_NO_COUNTER_TREND_QUALIFICATION: ` +
+              `${htfConfig.label} trend is ${htfTrendDir} (${htfConsecutive} consecutive candles) ` +
+              `but Omega-8 direction_support=${omega8DirectionSupport}. ` +
+              `No ${counterDir} BOS or sweep wick found in last ${htfConfig.candleCount} ${htfConfig.label} candles. ` +
+              `Returning NO_TRADE before LLM call.`
+            );
+            return {
+              action: 'NO_TRADE',
+              decision: 'NO_TRADE',
+              entry: marketContext.price,
+              stopLoss: marketContext.price,
+              takeProfit: marketContext.price,
+              confidence: 0,
+              reasoning: `HTF_CONFLICT_NO_COUNTER_TREND_QUALIFICATION: ${htfConfig.label} trend is confirmed ${htfTrendDir} ` +
+                `(${htfConsecutive} consecutive candles) while Omega-8 structural bias is ${omega8DirectionSupport?.toUpperCase()}. ` +
+                `Zero counter-trend qualification evidence found in last ${htfConfig.candleCount} ${htfConfig.label} candles ` +
+                `(no ${counterDir} BOS, no sweep-wick reversal). ` +
+                `Require at least one of: HTF BOS through prior extreme OR prominent lower/upper wick reversal before entering counter-trend.`,
+            };
+          } else {
+            console.log(
+              `[Alpha Coordinator] HTF_CONFLICT_QUALIFIED: ${htfConfig.label} ${htfTrendDir} vs ` +
+              `Omega-8 ${omega8DirectionSupport} — qualification evidence present ` +
+              `(BOS=${htfBOS} SweepWick=${htfSweepWick}). Allowing LLM call.`
+            );
+          }
+        }
+
         htfCandlePrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

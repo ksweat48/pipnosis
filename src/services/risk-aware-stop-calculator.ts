@@ -525,7 +525,28 @@ class RiskAwareStopCalculator {
       INTRADAY:       0.40
     };
     const bufferMultiplier = bufferByStyle[tradeStyle ?? 'SCALP'] ?? 0.25;
-    const bufferPips = (atrValue / pipInfo.pipValue) * bufferMultiplier;
+    let bufferPips = (atrValue / pipInfo.pipValue) * bufferMultiplier;
+
+    // SWEEP BUFFER MINIMUM PIP FLOOR (CCIP 2026-03-02)
+    // ATR-based buffers can fall below meaningful protection on certain instruments.
+    // XAUUSD M15 ATR ~8 pips × 0.30 = 2.4 pips — insufficient to clear an engineered sweep zone.
+    // JPY pairs M15 ATR ~10 pips × 0.30 = 3 pips — same issue.
+    // Minimum floors ensure the buffer actually clears the swept liquidity pool.
+    // SSOT: Symbol classification from currencyHelpers — single authority for symbol type.
+    const minimumSweepBufferPips: number = isXAUUSD(inputs.symbol)
+      ? 8
+      : isJPYPair(inputs.symbol)
+        ? 5
+        : 3;
+
+    if (bufferPips < minimumSweepBufferPips) {
+      console.log(
+        `[Sweep Buffer] Floor applied: ${inputs.symbol} ATR-buffer=${bufferPips.toFixed(1)}p ` +
+        `→ floored to ${minimumSweepBufferPips}p (min for symbol class)`
+      );
+      bufferPips = minimumSweepBufferPips;
+    }
+
     const bufferPrice = bufferPips * pipInfo.pipValue;
 
     // Compute the safe stop price — beyond the sweep extreme by one buffer

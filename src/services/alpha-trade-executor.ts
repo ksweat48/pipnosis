@@ -12,13 +12,14 @@
  * - MONITORED: Create entry intent for deferred execution
  *
  * Validation Pipeline:
- * 1. Core Validation (Omega + Geometry + Freshness)
- * 2. Risk Authority (Context + PCVL + Margin + Kelly)
- * 3. Trade Capacity (Confidence + Slots + Duplicates)
- * 4. Price Validation (Slippage + Staleness)
- * 5. Style Qualification Gate (Duration + Consensus + ATR + Targets) - HARD ENFORCEMENT
- * 6. Mandatory Safety Validator (TIER 3 FIX - ONLY allowed blocker)
- * 7. Database Boundary (Type coercion + Range check)
+ * 1.  Core Validation (Omega + Geometry + Freshness)
+ * 1b. Sweep Reclaim Gate (HARD BLOCK — BOS must be confirmed for liquidity_sweep_reversal)
+ * 2.  Trade Capacity (Confidence + Slots + Duplicates)
+ * 3.  Risk Authority (Context + PCVL + Margin + Kelly)
+ * 4.  Price Validation (Slippage + Staleness)
+ * 5.  Style Qualification Gate (Duration + Consensus + ATR + Targets) - HARD ENFORCEMENT
+ * 6.  Mandatory Safety Validator (TIER 3 FIX - ONLY allowed blocker)
+ * 7.  Database Boundary (Type coercion + Range check)
  *
  * Principles:
  * - Engines validate, Alpha decides
@@ -50,6 +51,7 @@ import { validateStyleQualification } from './style-qualification-gate';
 import type { AlphaDecision } from '../brains/coordinator-alpha';
 import type { TradeContext } from '../types/trade-context';
 import { buildMidTradePlan } from './mid-trade-plan-engine';
+import { recentTradeContext } from './recent-trade-context';
 
 export type ExecutionMode = 'IMMEDIATE' | 'PENDING' | 'MONITORED';
 
@@ -152,12 +154,51 @@ class AlphaTradeExecutor {
       };
     }
 
+    // Layer 1b: Sweep Reclaim Confirmation Gate (CCIP 2026-03-02)
+    // ═══════════════════════════════════════════════════════════════════
+    // GOVERNANCE: If Alpha's thesis is liquidity_sweep_reversal, Omega-8 MUST have
+    // confirmed a Break of Structure (BOS) on a closed candle before execution.
+    // Without BOS confirmation, the sweep may still be in progress — entering against
+    // an unconfirmed reclaim is a structural error, not a risk preference.
+    //
+    // This is a PIPELINE-LEVEL HARD BLOCK (same priority as MTF_DATA_MISSING).
+    // It operates on Alpha's decision output, not inside the LLM prompt.
+    // Advisory penalties and confidence adjustments do NOT substitute for this gate.
+    //
+    // SSOT: decision.omega_votes.omega8.sweep_details.has_bos is the authoritative
+    //       BOS signal produced by omega8-hybrid-orderflow.ts.
+    // ═══════════════════════════════════════════════════════════════════
+    if (decision.thesis === 'liquidity_sweep_reversal') {
+      const omega8Votes = decision.omega_votes?.omega8 as any;
+      const sweepDetails = omega8Votes?.sweep_details;
+      const hasBos: boolean | undefined = sweepDetails?.has_bos;
+
+      if (hasBos === false) {
+        const blockMsg =
+          `SWEEP_RECLAIM_UNCONFIRMED: Alpha thesis is liquidity_sweep_reversal but ` +
+          `Omega-8 has_bos=false — Break of Structure not confirmed on a closed candle. ` +
+          `Execution blocked until BOS confirmation is present. ` +
+          `(symbol=${decision.symbol ?? 'unknown'})`;
+        logger.warn(LogCategory.RISK_MANAGEMENT, `[AlphaTradeExecutor] ${blockMsg}`, {
+          userId, sessionId, symbol: decision.symbol, thesis: decision.thesis,
+          omega8_has_bos: hasBos, omega8_sweep_type: sweepDetails?.type
+        });
+        return {
+          success: false,
+          error: blockMsg,
+          blockReason: blockMsg
+        };
+      }
+    }
+
     // Layer 2: Trade Capacity (Confidence + Slots + Duplicates)
     const capacityCheck = await this.checkTradeCapacity(
       decision.symbol,
       decision.confidence,
       sessionId,
-      sessionData.raw
+      sessionData.raw,
+      decision.action === 'BUY' ? 'buy' : 'sell',
+      inputs.regimeSnapshot
     );
 
     if (!capacityCheck.valid) {
@@ -791,13 +832,24 @@ class AlphaTradeExecutor {
   }
 
   /**
-   * Check trade capacity (confidence, slots, duplicates)
+   * Check trade capacity (confidence, slots, duplicates, re-entry bias)
+   *
+   * CCIP 2026-03-02: Re-entry bias check added.
+   * When a same-direction trade on the same symbol was stopped out within the
+   * last 30 minutes in the current session AND the market regime has not changed,
+   * the re-entry is blocked.  This prevents compounding losses on repeated
+   * same-direction entries into a structurally unchanged market.
+   *
+   * If the regime HAS changed (different session phase, volatility tier, or HTF
+   * trend direction), the re-entry is allowed and logged for transparency.
    */
   private async checkTradeCapacity(
     symbol: string,
     confidence: number,
     sessionId: string,
-    session: any
+    session: any,
+    direction: 'buy' | 'sell',
+    currentRegimeSnapshot?: any
   ): Promise<{ valid: boolean; reason?: string }> {
     // Confidence check
     if (confidence < 50) {
@@ -839,6 +891,37 @@ class AlphaTradeExecutor {
         valid: false,
         reason: `Already have an open/pending position on ${symbol}`
       };
+    }
+
+    // RE-ENTRY BIAS CHECK (CCIP 2026-03-02)
+    // Scope: same symbol + same direction + same session + closed within 30 min
+    // SSOT: recentTradeContext is the single authority for recent-close queries.
+    const recentClose = await recentTradeContext.getRecentClose(symbol, direction, sessionId, 30);
+
+    if (recentClose.found && recentClose.closeReason === 'stop_loss') {
+      const regimeChanged = recentTradeContext.hasRegimeChanged(
+        recentClose.regimeSnapshot,
+        currentRegimeSnapshot
+      );
+
+      if (!regimeChanged) {
+        const reason =
+          `SAME_DIRECTION_REENTRY_NO_REGIME_CHANGE: ${symbol} ${direction.toUpperCase()} was stopped out ` +
+          `${recentClose.minutesAgo}m ago within this session and the market regime is unchanged ` +
+          `(session_phase, volatility_tier, and htf_trend_direction all identical). ` +
+          `Re-entry blocked until at least one regime pillar changes.`;
+        logger.warn(LogCategory.RISK_MANAGEMENT, `[AlphaTradeExecutor] ${reason}`, {
+          userId: session.user_id, sessionId, symbol, direction,
+          minutesAgo: recentClose.minutesAgo, priorTradeId: recentClose.tradeId
+        });
+        return { valid: false, reason };
+      }
+
+      // Regime changed — allow but log for transparency
+      logger.info(LogCategory.RISK_MANAGEMENT, '[AlphaTradeExecutor] RE-ENTRY_ALLOWED_REGIME_CHANGED', {
+        sessionId, symbol, direction, minutesAgo: recentClose.minutesAgo,
+        priorTradeId: recentClose.tradeId, note: 'Regime changed since prior stop-loss — re-entry permitted'
+      });
     }
 
     return { valid: true };

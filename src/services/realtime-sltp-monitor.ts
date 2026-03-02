@@ -26,6 +26,7 @@ import { positionMonitoringAuthority } from './monitoring/position-monitoring-au
 import { pricePollingCoordinator, type PriceUpdate } from './price-polling-coordinator';
 import type { MonitoredPosition, PriceData } from './monitoring/position-monitoring-authority';
 import { tradeProcessingLockService } from './trade-processing-lock-service';
+import { isXAUUSD, isJPYPair, getCurrencyPipInfo } from '../utils/currencyHelpers';
 
 class RealtimeSLTPMonitor {
   private unsubscribe: (() => void) | null = null;
@@ -274,9 +275,37 @@ class RealtimeSLTPMonitor {
   }
 
   /**
+   * Compute fallback ATR when the realtime_prices table ATR is unavailable.
+   *
+   * CCIP 2026-03-02: The original path silently skipped the SL move if ATR was null,
+   * leaving the stop at the original entry distance after TP1.  This caused both
+   * XAUUSD trades on 2026-03-02 to run all the way back through the original SL
+   * after TP1 was hit and logged.
+   *
+   * Fallback is intentionally conservative: uses a fixed pip value that is smaller
+   * than a typical live ATR so it never over-moves the SL, but still ensures the
+   * position is at minimum protected at breakeven.
+   *
+   * SSOT: Symbol classification from currencyHelpers.
+   */
+  private getFallbackATR(symbol: string): number {
+    const pipInfo = getCurrencyPipInfo(symbol);
+    if (isXAUUSD(symbol)) {
+      return 8 * pipInfo.pipValue;   // 8 pips XAUUSD = 0.08 points
+    }
+    if (isJPYPair(symbol)) {
+      return 0.08;                   // ~8 pips for JPY pairs
+    }
+    return 5 * pipInfo.pipValue;     // 5 pips standard forex
+  }
+
+  /**
    * Handle TP1 hit: Mark TP1 as hit, auto-move SL to breakeven+ATR buffer, keep monitoring for TP2
    * CRITICAL: position_size/lot_size NEVER changes - only TP1 flag and SL are updated
    * SSOT: Delegates to authority for all database updates
+   *
+   * CCIP 2026-03-02: ATR fallback added — SL move is now GUARANTEED after TP1.
+   * Previous code silently skipped when ATR was null; that left trades unprotected.
    */
   private async handleTP1Hit(position: MonitoredPosition, currentPrice: number): Promise<void> {
     try {
@@ -296,26 +325,41 @@ class RealtimeSLTPMonitor {
       // ATR-BASED SL AUTO-MOVE: Protect profits after TP1
       // Only move SL if position doesn't already have a breakeven SL set
       if (!position.tp1_breakeven_price) {
-        const atr = await this.fetchATR(position.symbol);
+        let atr = await this.fetchATR(position.symbol);
 
-        if (atr !== null) {
-          const slResult = await positionMonitoringAuthority.autoMoveSLAfterTP1(
-            position.id,
-            position.user_id,
-            position.direction,
-            position.entry_price,
-            atr
+        let isFallbackATR = false;
+        if (atr === null) {
+          // GOVERNANCE: ATR unavailable — use symbol-class fallback instead of skipping.
+          // Skipping was the root cause of XAUUSD trades running back through the original SL
+          // after TP1 was flagged. The fallback is conservative (smaller than typical live ATR)
+          // so it moves the SL just to breakeven without over-protecting.
+          atr = this.getFallbackATR(position.symbol);
+          isFallbackATR = true;
+          console.warn(
+            `[RealtimeSLTPMonitor] ATR unavailable for ${position.symbol} — ` +
+            `using fallback ATR=${atr.toFixed(5)} to ensure SL moves to breakeven after TP1. ` +
+            `tp1_action_taken will reflect fallback usage.`
           );
+        }
 
-          if (slResult.success && slResult.newSL !== undefined) {
-            position.stop_loss = slResult.newSL;
-            position.tp1_breakeven_price = slResult.newSL;
-            console.log(`[RealtimeSLTPMonitor] SL auto-moved to ${slResult.newSL.toFixed(5)} after TP1 (ATR=${atr.toFixed(5)})`);
-          } else {
-            console.warn(`[RealtimeSLTPMonitor] SL auto-move failed (non-blocking):`, slResult.error);
-          }
+        const slResult = await positionMonitoringAuthority.autoMoveSLAfterTP1(
+          position.id,
+          position.user_id,
+          position.direction,
+          position.entry_price,
+          atr,
+          isFallbackATR
+        );
+
+        if (slResult.success && slResult.newSL !== undefined) {
+          position.stop_loss = slResult.newSL;
+          position.tp1_breakeven_price = slResult.newSL;
+          console.log(`[RealtimeSLTPMonitor] SL auto-moved to ${slResult.newSL.toFixed(5)} after TP1 (ATR=${atr.toFixed(5)})`);
         } else {
-          console.warn(`[RealtimeSLTPMonitor] ATR unavailable for ${position.symbol} — SL auto-move skipped (non-blocking)`);
+          console.error(
+            `[RealtimeSLTPMonitor] CRITICAL: SL auto-move failed after TP1 for trade ${position.id}:`,
+            slResult.error
+          );
         }
       }
 

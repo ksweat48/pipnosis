@@ -405,22 +405,29 @@ class PositionMonitoringAuthority {
    * ATR is passed in from the caller (realtime-sltp-monitor) which already has the
    * price context. This keeps this method synchronous-safe and testable.
    *
-   * @param positionId  Trade record UUID
-   * @param userId      Trade owner (for RLS enforcement)
-   * @param direction   Trade direction ('buy' | 'sell')
-   * @param entryPrice  Original entry price
-   * @param atr         Current ATR for the symbol (price units)
+   * CCIP 2026-03-02: tp1_action_taken updated to 'sl_moved_to_breakeven' on success,
+   * 'sl_moved_to_breakeven_fallback' when the caller used a fallback ATR estimate.
+   * Previous value 'advisory_only' was misleading — it implied nothing happened.
+   *
+   * @param positionId    Trade record UUID
+   * @param userId        Trade owner (for RLS enforcement)
+   * @param direction     Trade direction ('buy' | 'sell')
+   * @param entryPrice    Original entry price
+   * @param atr           Current ATR for the symbol (price units)
+   * @param isFallbackATR When true, logs that a fallback ATR was used (audit trail)
    */
   async autoMoveSLAfterTP1(
     positionId: string,
     userId: string,
     direction: 'buy' | 'sell',
     entryPrice: number,
-    atr: number
+    atr: number,
+    isFallbackATR = false
   ): Promise<{ success: boolean; newSL?: number; error?: string }> {
     try {
       const newSL = calculateTP1BreakevenSL(direction, entryPrice, atr);
       const now = new Date().toISOString();
+      const actionTaken = isFallbackATR ? 'sl_moved_to_breakeven_fallback' : 'sl_moved_to_breakeven';
 
       const { error: updateError } = await supabase
         .from('goal_session_trades')
@@ -428,6 +435,7 @@ class PositionMonitoringAuthority {
           stop_loss: newSL,
           tp1_breakeven_price: newSL,
           sl_moved_to_breakeven_at: now,
+          tp1_action_taken: actionTaken,
         })
         .eq('id', positionId)
         .eq('user_id', userId)
@@ -439,7 +447,8 @@ class PositionMonitoringAuthority {
 
       console.log(
         `[PositionMonitoringAuthority] ATR SL auto-move: trade=${positionId} ` +
-        `direction=${direction} entry=${entryPrice} ATR=${atr.toFixed(5)} newSL=${newSL.toFixed(5)}`
+        `direction=${direction} entry=${entryPrice} ATR=${atr.toFixed(5)} newSL=${newSL.toFixed(5)} ` +
+        `action=${actionTaken}`
       );
       return { success: true, newSL };
     } catch (error) {
