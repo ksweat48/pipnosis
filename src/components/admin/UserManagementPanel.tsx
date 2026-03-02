@@ -429,6 +429,11 @@ export const UserManagementPanel: React.FC = () => {
                       <div className="flex items-center gap-2">
                         <User size={16} className="text-gray-400" />
                         <span className="truncate max-w-xs">{user.email}</span>
+                        {user.is_owner && (
+                          <span className="px-2 py-0.5 bg-yellow-400/20 text-yellow-300 text-xs rounded font-semibold border border-yellow-400/30">
+                            Owner
+                          </span>
+                        )}
                         {user.is_admin && (
                           <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded">
                             Admin

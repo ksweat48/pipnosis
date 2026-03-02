@@ -5,6 +5,7 @@ export interface AdminUser {
   email: string;
   created_at: string;
   is_admin: boolean;
+  is_owner: boolean;
   account_balance: number;
   credit_balance: number;
   total_trades: number;
@@ -211,6 +212,7 @@ export const adminUserService = {
       email:                      row.out_email ?? row.email,
       created_at:                 row.out_created_at ?? row.created_at,
       is_admin:                   row.user_is_admin ?? row.is_admin ?? false,
+      is_owner:                   row.is_owner ?? false,
       account_balance:            row.out_account_balance ?? row.account_balance ?? 0,
       credit_balance:             row.out_credit_balance ?? row.credit_balance ?? 0,
       total_trades:               row.total_trades ?? 0,
