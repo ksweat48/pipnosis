@@ -51,6 +51,13 @@ export const GoalSessionDashboard: React.FC = () => {
   const [showTP1Modal, setShowTP1Modal] = useState(false);
   const [tp1DecisionData, setTP1DecisionData] = useState<TP1DecisionData | null>(null);
   const processedTP1Hits = useRef<Set<string>>(new Set());
+  // CCIP-SSOT (2026-03-02 TRADE-CLOSE-MODAL-SSOT): Guard ref so the fallback
+  // condition check on line ~176 does not crash. GoalSessionDashboard no longer
+  // owns trade-close modal display — RealtimeTradeNotificationListener is the
+  // sole authority (see realtime-trade-notification-listener.ts). This ref is kept
+  // for forward-compatibility: if a GoalAchieved modal is ever shown locally, set
+  // showGoalAchievedRef.current = true to prevent downstream logic from firing.
+  const showGoalAchievedRef = useRef(false);
 
   useEffect(() => {
     if (!activeSession) return;
@@ -148,63 +155,17 @@ export const GoalSessionDashboard: React.FC = () => {
           });
 
           if (payload.new.status === 'closed' && payload.old.status === 'open') {
-            console.log('[GoalSessionDashboard] ✅ Trade closed! Preparing popup...');
-            const tradeId = payload.new.id;
-
-            // Deduplicate: Check if we already processed this closure
-            if (processedTradeClosures.has(tradeId)) {
-              console.log('[GoalSessionDashboard] ⏭️ Already processed this trade closure, skipping audio');
-              return;
-            }
-
-            // Mark as processed
-            setProcessedTradeClosures(prev => new Set(prev).add(tradeId));
-
-            const closeReason = payload.new.close_reason || 'manual';
-            const profitLoss = payload.new.profit_loss || 0;
-            const isProfit = profitLoss > 0;
-
-            import('../services/audio-alert-service').then(({ audioAlertService }) => {
-              if (isProfit) {
-                audioAlertService.playTradeProfit(tradeId);
-              } else {
-                audioAlertService.playTradeLoss(tradeId);
-              }
-            }).catch(err => console.error('[GoalSessionDashboard] Failed to play sound:', err));
-
-            // Don't show action dialog if goal was met (already showing goal achieved)
-            if (closeReason !== 'goal_met' && !showGoalAchievedRef.current) {
-              console.log('[GoalSessionDashboard] 🎯 Showing TradeClosedActionDialog');
-              loadSessionData().then(() => {
-                // Parse SL/TP with proper null handling
-                const stopLoss = payload.new.stop_loss != null ? parseFloat(payload.new.stop_loss) : 0;
-                const takeProfit = payload.new.take_profit != null ? parseFloat(payload.new.take_profit) : 0;
-
-                console.log('[GoalSessionDashboard] Trade Close Data:', {
-                  symbol: payload.new.symbol,
-                  stopLoss: stopLoss,
-                  takeProfit: takeProfit,
-                  stopLossRaw: payload.new.stop_loss,
-                  takeProfitRaw: payload.new.take_profit
-                });
-
-                setTradeClosedData({
-                  symbol: payload.new.symbol,
-                  direction: payload.new.direction,
-                  entryPrice: payload.new.entry_price,
-                  exitPrice: payload.new.exit_price,
-                  profitLoss: profitLoss,
-                  stopLoss: stopLoss,
-                  takeProfit: takeProfit,
-                  closeReason
-                });
-                setShowTradeClosedAction(true);
-                console.log('[GoalSessionDashboard] ✅ TradeClosedActionDialog state updated');
-              });
-            } else {
-              console.log('[GoalSessionDashboard] ℹ️ Skipping popup (goal_met or goal achieved dialog already shown)');
-              loadSessionData();
-            }
+            // CCIP-SSOT (2026-03-02 TRADE-CLOSE-MODAL-SSOT): GoalSessionDashboard is NOT
+            // the authority for trade-close modal display or audio. That responsibility
+            // belongs exclusively to RealtimeTradeNotificationListener (via goal_notifications
+            // INSERT path). Owning the modal here created a duplicate popup + duplicate sound
+            // because both this subscription and the notification listener fired for every
+            // trade close within seconds of each other.
+            //
+            // GoalSessionDashboard's sole responsibility here: reload session state so the
+            // UI reflects the updated progress/balance after the trade closes.
+            console.log('[GoalSessionDashboard] Trade closed — reloading session data (modal owned by RealtimeTradeNotificationListener)');
+            loadSessionData();
           }
         }
       )

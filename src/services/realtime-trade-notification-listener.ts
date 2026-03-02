@@ -144,10 +144,10 @@ class RealtimeTradeNotificationListener {
           break;
 
         case 'stop_loss_hit': {
+          // CCIP-SSOT (2026-03-02 AUDIO-SSOT): Audio is played by useGlobalDialog when the
+          // dialog renders — do NOT play here. Playing before showDialog caused duplicate sounds
+          // (this call + useGlobalDialog's playWithContext both fired within 2s).
           const slTradeId = notification.metadata?.tradeId || notification.metadata?.trade_id;
-          if (slTradeId) {
-            audioAlertService.playTradeLoss(slTradeId);
-          }
           await this.fetchAndShowTradeClosedModal(
             slTradeId,
             notification.metadata?.closeReason || notification.metadata?.close_reason || 'stop_loss',
@@ -157,10 +157,8 @@ class RealtimeTradeNotificationListener {
         }
 
         case 'take_profit_hit': {
+          // CCIP-SSOT (2026-03-02 AUDIO-SSOT): Audio owned by useGlobalDialog on dialog render.
           const tpTradeId = notification.metadata?.tradeId || notification.metadata?.trade_id;
-          if (tpTradeId) {
-            audioAlertService.playTradeProfit(tpTradeId);
-          }
           await this.fetchAndShowTradeClosedModal(
             tpTradeId,
             notification.metadata?.closeReason || notification.metadata?.close_reason || 'take_profit',
@@ -174,15 +172,10 @@ class RealtimeTradeNotificationListener {
           // entryPrice, exitPrice, profitLoss, stopLoss, takeProfit are always populated.
           // Previously only metadata fields (pnl, symbol) were passed — causing all price
           // fields to display as 0 when this path won the GlobalDialogManager dedup race.
+          //
+          // CCIP-SSOT (2026-03-02 AUDIO-SSOT): Audio owned by useGlobalDialog on dialog render.
+          // Playing sound here AND in useGlobalDialog caused a double-beep within 2 seconds.
           const tcTradeId = notification.metadata?.tradeId || notification.metadata?.trade_id;
-          const tcPnl = notification.metadata?.pnl;
-          if (tcTradeId) {
-            if (typeof tcPnl === 'number' && tcPnl >= 0) {
-              audioAlertService.playTradeProfit(tcTradeId);
-            } else if (tcTradeId) {
-              audioAlertService.playTradeLoss(tcTradeId);
-            }
-          }
           await this.fetchAndShowTradeClosedModal(
             tcTradeId,
             notification.metadata?.closeReason || notification.metadata?.close_reason || 'manual',
