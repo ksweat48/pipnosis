@@ -258,6 +258,27 @@ export const SmartGoalPanel: React.FC = () => {
     setError('');
 
     try {
+      // SSOT GOVERNANCE (CCIP-MULTI-TRADE-2026-03-02): Re-read multiTradeMode from DB at the
+      // moment the session starts.  The in-component state may be stale if the realtime
+      // subscription has not yet fired after a Settings change.  The DB is the authoritative
+      // source for this value; the subscription-loaded state is only a UI convenience.
+      let resolvedMultiTradeEnabled = multiTradeEnabled;
+      try {
+        const { data: freshPrefs } = await supabase
+          .from('user_profiles')
+          .select('trading_preferences')
+          .eq('id', user.id)
+          .maybeSingle();
+        if (freshPrefs?.trading_preferences && typeof freshPrefs.trading_preferences.multiTradeMode === 'boolean') {
+          resolvedMultiTradeEnabled = freshPrefs.trading_preferences.multiTradeMode;
+          if (resolvedMultiTradeEnabled !== multiTradeEnabled) {
+            setMultiTradeEnabled(resolvedMultiTradeEnabled);
+          }
+        }
+      } catch {
+        // Non-fatal: fall back to subscription-loaded state
+      }
+
       // Check if user already has an active session
       const existingSession = await smartGoalSessionManager.getActiveSession(user.id);
       if (existingSession) {
@@ -289,7 +310,7 @@ export const SmartGoalPanel: React.FC = () => {
         user.id,
         `Make me money using ${TRADE_STYLES[selectedStyle].displayName} style with $${dollarRisk} risk per trade`,
         accountBalance,
-        multiTradeEnabled,
+        resolvedMultiTradeEnabled,
         selectedStyle,
         dollarRisk,
         selectedAssetClasses.length < 4 ? selectedAssetClasses : undefined,
@@ -307,7 +328,7 @@ export const SmartGoalPanel: React.FC = () => {
         setPendingCardSignal(null);
 
         const styleConfig = TRADE_STYLES[selectedStyle];
-        const modeText = multiTradeEnabled ? 'Multi-Trade Mode ON' : 'Single-Trade Mode';
+        const modeText = resolvedMultiTradeEnabled ? 'Multi-Trade Mode ON' : 'Single-Trade Mode';
         toast.success(
           'Goal Session Started!',
           `Style: ${styleConfig.displayName} • Risk: $${dollarRisk}/trade • ${modeText}`,

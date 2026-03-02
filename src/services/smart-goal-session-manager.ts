@@ -618,9 +618,14 @@ class SmartGoalSessionManager {
     multiTradeEnabled: boolean = false
   ): Promise<void> {
     try {
-      // CRITICAL: In single-trade mode, maxConcurrentTrades MUST be 1
-      // Only allow 2+ concurrent trades if multi-trade is explicitly enabled
-      const maxConcurrentTrades = multiTradeEnabled ? 2 : 1;
+      // SSOT GOVERNANCE (CCIP-MULTI-TRADE-2026-03-02):
+      // maxConcurrentTrades MUST equal the value written to goal_sessions.max_concurrent_trades
+      // on session creation (see createSmartGoalSession, line ~201: multiTradeEnabled ? 3 : 1).
+      // Any divergence between the in-memory config and the DB record causes the DB-backed
+      // concurrency gate (processMultiSymbolCycle: tradeCount >= maxConcurrentTrades) to
+      // block scanning after fewer trades than the user configured.
+      // BUG FIXED: was incorrectly set to 2 while DB stored 3 — trades 3 was never reached.
+      const maxConcurrentTrades = multiTradeEnabled ? 3 : 1;
 
       // Calculate minimum confidence threshold based on risk mode
       const minConfidence = getMinConfidenceThreshold(config.riskMode);
