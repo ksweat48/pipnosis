@@ -460,8 +460,15 @@ class GoalSessionLiveEngine {
       return;
     }
 
-    if (this.tradeExecutedInSession) {
-      logger.info(LogCategory.AI_TRADING, 'GOVERNANCE: Trade already executed in session - scanning permanently halted. User must start new session to scan again.');
+    // CCIP-FIX (2026-03-02 MULTI-TRADE-GOVERNANCE-SSOT):
+    // tradeExecutedInSession must NOT permanently block scanning when the session
+    // authorises more than one concurrent trade (max_concurrent_trades > 1 or
+    // multi_trade_enabled = true).  The DB-backed guard at processMultiSymbolCycle
+    // (db trade count >= maxConcurrentTrades) is the SSOT for concurrency limits and
+    // is always evaluated regardless.  This flag is only a hard gate in single-trade
+    // mode where maxConcurrentTrades === 1.
+    if (this.tradeExecutedInSession && this.config.maxConcurrentTrades <= 1) {
+      logger.info(LogCategory.AI_TRADING, 'GOVERNANCE: Single-trade mode - trade already executed, scanning permanently halted. Start new session to scan again.');
       return;
     }
 

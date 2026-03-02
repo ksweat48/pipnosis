@@ -106,6 +106,12 @@ export const GoalSessionDashboard: React.FC = () => {
   }, [user?.id]); // Use user.id instead of user to prevent re-runs when user object changes
 
   // Listen for trade closures
+  // CCIP-FIX (2026-03-02 SUBSCRIPTION-CHURN-SSOT): deps use stable primitives (user.id,
+  // activeSession.sessionId) instead of the full activeSession object, which is a new
+  // reference on every loadSessionData() call (every 3s).  The channel filter only
+  // needs the session ID string, so rebuilding on every progress poll was causing the
+  // subscription to tear down and re-subscribe every 3 seconds — creating a window
+  // where real-time trade-close events could be missed.
   useEffect(() => {
     if (!user || !activeSession) return;
 
@@ -216,20 +222,29 @@ export const GoalSessionDashboard: React.FC = () => {
       console.log('[GoalSessionDashboard] 🔌 Cleaning up realtime subscription');
       supabase.removeChannel(channel);
     };
-  }, [user, activeSession]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, activeSession?.sessionId]);
 
+  // CCIP-FIX (2026-03-02 SUBSCRIPTION-CHURN-SSOT + TP1-COLUMN-SSOT):
+  // 1. Deps changed from [user, activeSession] to stable primitives to prevent 3-second churn.
+  // 2. Column names corrected to match DB SSOT schema:
+  //    - unrealized_pnl  -> current_pnl    (SSOT: universal PNL column for open/closed trades)
+  //    - take_profit_2   -> tp2_price       (SSOT: dual-TP system column name from migration 20260103072555)
   useEffect(() => {
     if (!user || !activeSession) return;
 
+    const sessionId = activeSession.sessionId;
+    const goalAmount = activeSession.config.goalAmount;
+
     const tp1Channel = supabase
-      .channel(`tp1-hits-${activeSession.sessionId}`)
+      .channel(`tp1-hits-${sessionId}`)
       .on(
         'postgres_changes',
         {
           event: 'UPDATE',
           schema: 'public',
           table: 'goal_session_trades',
-          filter: `goal_session_id=eq.${activeSession.sessionId}`
+          filter: `goal_session_id=eq.${sessionId}`
         },
         (payload) => {
           const tp1JustHit =
@@ -245,18 +260,18 @@ export const GoalSessionDashboard: React.FC = () => {
 
           console.log('[GoalSessionDashboard] TP1 hit detected for trade', tradeId);
 
-          const currentProfit = parseFloat(payload.new.unrealized_pnl ?? '0') ||
+          const currentProfit = parseFloat(payload.new.current_pnl ?? '0') ||
             parseFloat(payload.new.profit_loss ?? '0') || 0;
 
           setTP1DecisionData({
             tradeId,
-            sessionId: activeSession.sessionId,
+            sessionId,
             symbol: payload.new.symbol,
             direction: payload.new.direction,
             tp1Price: parseFloat(payload.new.take_profit ?? '0'),
-            tp2Price: payload.new.take_profit_2 != null ? parseFloat(payload.new.take_profit_2) : null,
+            tp2Price: payload.new.tp2_price != null ? parseFloat(payload.new.tp2_price) : null,
             currentProfit,
-            goalAmount: activeSession.config.goalAmount,
+            goalAmount,
           });
           setShowTP1Modal(true);
         }
@@ -266,7 +281,8 @@ export const GoalSessionDashboard: React.FC = () => {
     return () => {
       supabase.removeChannel(tp1Channel);
     };
-  }, [user, activeSession]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, activeSession?.sessionId]);
 
   // CCIP FIX (2026-03-01 TP-MODAL-PNL-SSOT): Missed-event guard for TP1 modal.
   // If the component mounts AFTER the Realtime tp1_hit event was already emitted
@@ -280,9 +296,12 @@ export const GoalSessionDashboard: React.FC = () => {
     let cancelled = false;
 
     const checkMissedTP1 = async () => {
+      // CCIP-FIX (2026-03-02 TP1-COLUMN-SSOT): Column names corrected to match DB SSOT schema:
+      //   take_profit_2  -> tp2_price    (dual-TP SSOT, migration 20260103072555)
+      //   unrealized_pnl -> current_pnl  (universal PNL SSOT, migration 20260114001122)
       const { data: openTP1Trade } = await supabase
         .from('goal_session_trades')
-        .select('id, symbol, direction, take_profit, take_profit_2, unrealized_pnl, profit_loss')
+        .select('id, symbol, direction, take_profit, tp2_price, current_pnl, profit_loss')
         .eq('goal_session_id', activeSession.sessionId)
         .eq('status', 'open')
         .eq('tp1_hit', true)
@@ -295,7 +314,7 @@ export const GoalSessionDashboard: React.FC = () => {
       console.log('[GoalSessionDashboard] Recovered missed TP1 modal for trade', openTP1Trade.id);
 
       const currentProfit =
-        parseFloat(openTP1Trade.unrealized_pnl ?? '0') ||
+        parseFloat(openTP1Trade.current_pnl ?? '0') ||
         parseFloat(openTP1Trade.profit_loss ?? '0') || 0;
 
       setTP1DecisionData({
@@ -304,7 +323,7 @@ export const GoalSessionDashboard: React.FC = () => {
         symbol: openTP1Trade.symbol,
         direction: openTP1Trade.direction,
         tp1Price: parseFloat(openTP1Trade.take_profit ?? '0'),
-        tp2Price: openTP1Trade.take_profit_2 != null ? parseFloat(openTP1Trade.take_profit_2) : null,
+        tp2Price: openTP1Trade.tp2_price != null ? parseFloat(openTP1Trade.tp2_price) : null,
         currentProfit,
         goalAmount: activeSession.config.goalAmount,
       });
