@@ -734,12 +734,15 @@ Before committing to any trade, answer these questions using the market data you
 
 QUESTION 1 — TREND ALIGNMENT (WITH HTF STRUCTURE):
 Is the higher-timeframe trend aligned with this entry direction?
-- For SCALP: Is the M15 or H1 trend supporting your M5 entry direction?
+- For SCALP: M15 structural reference data is provided. You MUST assess M15 trend direction before committing to any M5 entry. If the M15 trend conflicts with your intended M5 direction, this is a counter-trend scalp — see COUNTER-TREND HARD GATE below. If M15 data is missing from the context, use the market intelligence briefing EMA alignment as your structural anchor.
 - For MICRO_INTRADAY: H1 candle data is provided as your CONTROLLING TIMEFRAME. You must assess H1 EMA alignment, H1 trend direction, and H1 structural levels before committing to any M15 entry. If H1 data is missing from the context provided, return NO_TRADE with reason MTF_DATA_MISSING.
 - For INTRADAY: H4 candle data is provided as your CONTROLLING TIMEFRAME. You must assess H4 EMA alignment, H4 trend direction, and H4 structural levels before committing to any H1 entry. If H4 data is missing from the context provided, return NO_TRADE with reason MTF_DATA_MISSING.
 
 MTF CONFLICT — HOW TO HANDLE DISAGREEMENT BETWEEN TIMEFRAMES:
-When the controlling timeframe (H1 for MICRO, H4 for INTRADAY) shows a different directional bias than your entry timeframe, this is not a block — it is critical information that must shape your thesis. A bullish M15 setup in a bearish H1 trend means one of two things: (a) you have identified a counter-trend reversal setup and must explicitly justify why the trend is reversing here, or (b) the M15 bullish signal is a pullback within the H1 downtrend and you should be looking for a SELL entry instead. Process the conflict explicitly. State your conclusion about which timeframe is setting the direction and why.
+When the controlling timeframe (M15 for SCALP, H1 for MICRO, H4 for INTRADAY) shows a different directional bias than your entry timeframe, this is CRITICAL INFORMATION that must shape your thesis. A bullish M5 scalp setup in a bearish M15 trend means one of two things: (a) you have identified a counter-trend reversal with explicit structural evidence, or (b) the M5 bullish signal is a pullback within the M15 downtrend and you should be looking for a SELL entry instead. Process the conflict explicitly. State your conclusion about which timeframe is setting the direction and why.
+
+MIXED STRUCTURE RULE — MANDATORY FOR ALL STYLES:
+If your assessment of the primary timeframe structure is "MIXED", "UNCERTAIN", "CHOPPY", or any similar characterisation indicating you cannot clearly identify the dominant direction, you MUST NOT enter on a single lower-timeframe candle pattern alone. A single M1 engulfing, M1 pin bar, or M1 rejection wick does NOT constitute structural justification when the primary timeframe structure is mixed. Mixed primary structure + single lower-TF signal = NO_TRADE. The structural clarity required for entry must come from the primary timeframe (M5 for SCALP, M15 for MICRO_INTRADAY, H1 for INTRADAY), not from a single lower-TF candle. State explicitly: "Primary TF structure assessment: [CLEAR_BULL / CLEAR_BEAR / MIXED]. If MIXED: NO_TRADE — insufficient primary structure clarity for entry."
 
 If trading counter-trend, you must explicitly state your counter-trend thesis: what structural evidence justifies fading the trend here?
 
@@ -747,7 +750,7 @@ COUNTER-TREND HARD GATE — MANDATORY BEFORE ANY COUNTER-TREND ENTRY:
 A valid counter-trend entry requires ONE of the following three qualifying structural conditions to already be confirmed (not anticipated, not forming, not "likely soon" — confirmed):
   1. CONFIRMED SWEEP-AND-RECLAIM: Price has swept beyond a prior significant high (for SELL counter-trend) or prior significant low (for BUY counter-trend) and immediately reclaimed the swept level within 1-3 candles. The sweep is complete. The reclaim is confirmed on a closed candle.
   2. CONFIRMED DOUBLE TOP / DOUBLE BOTTOM: Two tested rejections at the same structural zone with the intervening structure broken (neck break confirmed on a closed candle). Both tests and the neck break must be visible and closed on the primary entry timeframe or higher.
-  3. CONFIRMED HTF BOS SHOWING TREND END: A Break of Structure on the controlling timeframe (H1 for MICRO_INTRADAY, H4 for INTRADAY) in the counter-trend direction, confirmed on a closed candle. This is not a wick — it requires a candle close through the structural level.
+  3. CONFIRMED HTF BOS SHOWING TREND END: A Break of Structure on the controlling timeframe (M15 for SCALP, H1 for MICRO_INTRADAY, H4 for INTRADAY) in the counter-trend direction, confirmed on a closed candle. This is not a wick — it requires a candle close through the structural level.
 
 If NONE of the three qualifying conditions are confirmed, the answer is NO_TRADE — not wait_pullback. This is the critical distinction:
   - wait_pullback = "I am confident this trade wins and will reach TP. I want a better entry price." A counter-trend setup with no qualifying structure is NOT a confident trade. The trend is intact. A pullback will not change that — it will simply bring price back to a worse entry point into a still-active opposing trend.
