@@ -14,6 +14,10 @@ export interface Omega8Vote extends OmegaVote {
     type: 'high' | 'low' | 'none';
     candles_ago: number;
     has_bos: boolean;
+    /** Exact wick extreme price of the sweep candle. SSOT for sweep-aware stop placement. */
+    sweep_extreme_price?: number;
+    /** Nearest equal high/low cluster price adjacent to sweep zone. */
+    nearest_cluster_price?: number;
   };
 }
 

@@ -33,6 +33,19 @@ export interface LiquidityIntentModel {
   optimalEntryWindow: 'immediate' | 'wait_confirmation' | 'missed';
   stopPlacementGuidance: string;
 
+  /**
+   * SSOT: Numeric sweep extreme price for sweep-aware stop placement.
+   * When set, the stop calculator uses this to relocate the stop beyond
+   * the sweep zone rather than relying solely on ATR distance.
+   */
+  sweepExtremePrice?: number;
+
+  /**
+   * Nearest equal high/low cluster price adjacent to the sweep extreme.
+   * Provides additional context for the stop buffer calculation.
+   */
+  nearestClusterPrice?: number;
+
   // Conviction
   overallConviction: number; // 0-100
   reasoning: string;
@@ -51,6 +64,8 @@ export class LiquidityIntentAnalyzer {
       type: 'high' | 'low' | 'none';
       candles_ago: number;
       has_bos: boolean;
+      sweep_extreme_price?: number;
+      nearest_cluster_price?: number;
     }
   ): LiquidityIntentModel {
     // No clear sweep pattern - no liquidity intent
@@ -61,6 +76,8 @@ export class LiquidityIntentAnalyzer {
     const sweepType = sweepDetails.type;
     const candlesAgo = sweepDetails.candles_ago;
     const hasBOS = sweepDetails.has_bos;
+    const sweepExtremePrice = sweepDetails.sweep_extreme_price;
+    const nearestClusterPrice = sweepDetails.nearest_cluster_price;
 
     // Identify trapped participants
     const trapped = this.identifyTrappedParticipants(sweepType, hasBOS, patterns);
@@ -119,6 +136,8 @@ export class LiquidityIntentAnalyzer {
       sweepRecency: candlesAgo,
       optimalEntryWindow,
       stopPlacementGuidance,
+      sweepExtremePrice,
+      nearestClusterPrice,
       overallConviction,
       reasoning
     };

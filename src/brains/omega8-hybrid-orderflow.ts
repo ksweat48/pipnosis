@@ -100,6 +100,10 @@ export interface Omega8HybridResult {
     type: 'high' | 'low' | 'none';
     candles_ago: number;
     has_bos: boolean;
+    /** Exact price of the sweep wick extreme — low of sweep candle for low sweeps, high for high sweeps */
+    sweep_extreme_price?: number;
+    /** Equal low/high cluster price nearest to the sweep extreme */
+    nearest_cluster_price?: number;
   };
 }
 
@@ -673,7 +677,7 @@ Return JSON:
     candles?: Omega8Candle[]
   ): {
     bias: 'clean' | 'stoprun_risk' | 'stoprun_entry' | 'reaccumulation' | 'distribution';
-    sweep_details?: { type: 'high' | 'low' | 'none'; candles_ago: number; has_bos: boolean };
+    sweep_details?: { type: 'high' | 'low' | 'none'; candles_ago: number; has_bos: boolean; sweep_extreme_price?: number; nearest_cluster_price?: number };
   } {
     const hasSweeps = patterns.sweptHighs > 0 || patterns.sweptLows > 0;
 
@@ -681,7 +685,7 @@ Return JSON:
       const sweepAnalysis = this.analyzeSweepWithBOS(candles, patterns);
 
       if (sweepAnalysis.has_bos) {
-        console.log(`[Omega-8] Stop-run ${sweepAnalysis.type} detected ${sweepAnalysis.candles_ago} candles ago WITH BOS confirmation - GOOD ENTRY`);
+        console.log(`[Omega-8] Stop-run ${sweepAnalysis.type} detected ${sweepAnalysis.candles_ago} candles ago WITH BOS confirmation - GOOD ENTRY. Sweep extreme: ${sweepAnalysis.sweep_extreme_price?.toFixed(5) ?? 'N/A'}`);
         return {
           bias: 'stoprun_entry',
           sweep_details: sweepAnalysis
@@ -689,7 +693,7 @@ Return JSON:
       }
 
       if (sweepAnalysis.candles_ago <= 3 && !sweepAnalysis.has_bos) {
-        console.log(`[Omega-8] Recent stop-run ${sweepAnalysis.type} (${sweepAnalysis.candles_ago} candles ago) WITHOUT BOS - RISKY`);
+        console.log(`[Omega-8] Recent stop-run ${sweepAnalysis.type} (${sweepAnalysis.candles_ago} candles ago) WITHOUT BOS - RISKY. Sweep extreme: ${sweepAnalysis.sweep_extreme_price?.toFixed(5) ?? 'N/A'}`);
         return {
           bias: 'stoprun_risk',
           sweep_details: sweepAnalysis
@@ -716,7 +720,7 @@ Return JSON:
   private analyzeSweepWithBOS(
     candles: Omega8Candle[],
     patterns: Omega8Patterns
-  ): { type: 'high' | 'low' | 'none'; candles_ago: number; has_bos: boolean } {
+  ): { type: 'high' | 'low' | 'none'; candles_ago: number; has_bos: boolean; sweep_extreme_price?: number; nearest_cluster_price?: number } {
     if (candles.length < 5) {
       return { type: 'none', candles_ago: 0, has_bos: false };
     }
@@ -753,12 +757,36 @@ Return JSON:
       return { type: isHighSweep ? 'high' : 'low', candles_ago: 10, has_bos: false };
     }
 
+    const sweepCandle = recentCandles[sweepCandleIdx];
     const candles_ago = recentCandles.length - 1 - sweepCandleIdx;
+
+    // SSOT: Capture the exact price of the sweep wick extreme.
+    // For low sweeps: the wick low is the liquidity pool price — SL must clear below it.
+    // For high sweeps: the wick high is the liquidity pool price — SL must clear above it.
+    const sweep_extreme_price = isLowSweep ? sweepCandle.low : sweepCandle.high;
+
+    // Find nearest equal high/low cluster price for additional context
+    const tolerance = (recentCandles[recentCandles.length - 1].high - recentCandles[recentCandles.length - 1].low) * 2;
+    let nearest_cluster_price: number | undefined;
+    if (isLowSweep) {
+      const nearLows = recentCandles
+        .filter(c => Math.abs(c.low - sweep_extreme_price) <= tolerance && c !== sweepCandle)
+        .map(c => c.low);
+      if (nearLows.length > 0) {
+        nearest_cluster_price = Math.min(...nearLows);
+      }
+    } else {
+      const nearHighs = recentCandles
+        .filter(c => Math.abs(c.high - sweep_extreme_price) <= tolerance && c !== sweepCandle)
+        .map(c => c.high);
+      if (nearHighs.length > 0) {
+        nearest_cluster_price = Math.max(...nearHighs);
+      }
+    }
+
     let has_bos = false;
 
     if (sweepCandleIdx < recentCandles.length - 1) {
-      const sweepCandle = recentCandles[sweepCandleIdx];
-
       for (let i = sweepCandleIdx + 1; i < recentCandles.length; i++) {
         const afterCandle = recentCandles[i];
 
@@ -781,7 +809,9 @@ Return JSON:
     return {
       type: isHighSweep ? 'high' : 'low',
       candles_ago,
-      has_bos
+      has_bos,
+      sweep_extreme_price,
+      nearest_cluster_price
     };
   }
 

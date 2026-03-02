@@ -82,7 +82,7 @@ import type { MarketBriefing } from '../types/market-briefing';
 import { timeToFillCalculator, type TimeToFillInput } from '../services/time-to-fill-calculator';
 import { dailyNarrativeBuilder, type DailyNarrative } from '../services/daily-narrative-builder';
 import { multiSymbolRanker, type SymbolScore } from '../services/multi-symbol-ranker';
-import { riskAwareStopCalculator, type StopLossCalculation } from '../services/risk-aware-stop-calculator';
+import { riskAwareStopCalculator, type StopLossCalculation, type SweepContext } from '../services/risk-aware-stop-calculator';
 import { multiTimeframePatternIntelligence, type PatternIntelligenceResult } from '../services/multi-timeframe-pattern-intelligence';
 import { patternLiquidityAdapter } from '../services/pattern-liquidity-adapter';
 import { eliteProfitTargetCalculator, type LiquidityZone, type TPCalculationResult } from '../services/profit-target-calculator';
@@ -777,8 +777,14 @@ class AlphaCoordinatorBrain {
           liquidityIntentContext += `Sweep Recency: ${liquidityIntent.sweepRecency} candles ago\n`;
           liquidityIntentContext += `Entry Window: ${liquidityIntent.optimalEntryWindow.toUpperCase().replace(/_/g, ' ')}\n`;
           liquidityIntentContext += `Overall Conviction: ${liquidityIntent.overallConviction}%\n\n`;
-          liquidityIntentContext += `💡 Stop Placement Guidance:\n${liquidityIntent.stopPlacementGuidance}\n\n`;
-          liquidityIntentContext += `🔮 Reasoning:\n${liquidityIntent.reasoning}\n`;
+          liquidityIntentContext += `💡 Stop Placement Guidance:\n${liquidityIntent.stopPlacementGuidance}\n`;
+          if (liquidityIntent.sweepExtremePrice) {
+            liquidityIntentContext += `Sweep Extreme Price: ${liquidityIntent.sweepExtremePrice.toFixed(5)} (stop calculator has been repositioned beyond this level)\n`;
+          }
+          if (liquidityIntent.nearestClusterPrice) {
+            liquidityIntentContext += `Nearest Liquidity Cluster: ${liquidityIntent.nearestClusterPrice.toFixed(5)}\n`;
+          }
+          liquidityIntentContext += `\n🔮 Reasoning:\n${liquidityIntent.reasoning}\n`;
           liquidityIntentContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
         }
       } catch (error) {
@@ -892,16 +898,51 @@ class AlphaCoordinatorBrain {
       const atrForStopLoss = extractATRValue(marketContext.atr);
       logATRUsage('Stop-Loss calculation', marketContext.atr);
 
+      // Build sweep context from Omega-8 for sweep-aware stop placement (SSOT)
+      // Applies to all 3 trade styles: SCALP, MICRO_INTRADAY, INTRADAY
+      let sweepContextForStop: SweepContext | undefined;
+      if (
+        votes.omega8?.sweep_details &&
+        votes.omega8.sweep_details.type !== 'none' &&
+        votes.omega8.sweep_details.sweep_extreme_price
+      ) {
+        sweepContextForStop = {
+          type: votes.omega8.sweep_details.type,
+          has_bos: votes.omega8.sweep_details.has_bos,
+          sweep_extreme_price: votes.omega8.sweep_details.sweep_extreme_price,
+          nearest_cluster_price: votes.omega8.sweep_details.nearest_cluster_price,
+          candles_ago: votes.omega8.sweep_details.candles_ago,
+          liquidity_bias: votes.omega8.liquidity_bias as SweepContext['liquidity_bias']
+        };
+        console.log(`[Alpha Coordinator] Sweep context wired: ${sweepContextForStop.type} sweep extreme @ ${sweepContextForStop.sweep_extreme_price.toFixed(5)}, BOS:${sweepContextForStop.has_bos}`);
+      }
+
+      // Resolve trade style for stop calculator buffer calibration
+      const STYLE_FOR_STOP: Record<string, 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'> = {
+        'SCALP': 'SCALP', 'MICRO_INTRADAY': 'MICRO_INTRADAY', 'INTRADAY': 'INTRADAY'
+      };
+      const stopCalcStyle = STYLE_FOR_STOP[tradeStyle] ?? 'SCALP';
+
       buyStopAnchor = riskAwareStopCalculator.calculateStopLoss({
         symbol: marketContext.symbol, entryPrice, direction: 'buy',
-        riskMode, atr: atrForStopLoss, marketVolatility: marketVolatilityLevel
+        riskMode, atr: atrForStopLoss, marketVolatility: marketVolatilityLevel,
+        sweepContext: sweepContextForStop,
+        tradeStyle: stopCalcStyle
       });
       sellStopAnchor = riskAwareStopCalculator.calculateStopLoss({
         symbol: marketContext.symbol, entryPrice, direction: 'sell',
-        riskMode, atr: atrForStopLoss, marketVolatility: marketVolatilityLevel
+        riskMode, atr: atrForStopLoss, marketVolatility: marketVolatilityLevel,
+        sweepContext: sweepContextForStop,
+        tradeStyle: stopCalcStyle
       });
       stopLossAnchor = buyStopAnchor;
 
+      if (buyStopAnchor.sweepAwareAdjustment?.applied) {
+        console.log(`[Alpha Coordinator] SWEEP-AWARE SL: BUY ${buyStopAnchor.sweepAwareAdjustment.originalStopPips.toFixed(1)}p → ${buyStopAnchor.stopLossPips.toFixed(1)}p (beyond sweep extreme ${buyStopAnchor.sweepAwareAdjustment.sweepExtremePrice.toFixed(5)})`);
+      }
+      if (sellStopAnchor.sweepAwareAdjustment?.applied) {
+        console.log(`[Alpha Coordinator] SWEEP-AWARE SL: SELL ${sellStopAnchor.sweepAwareAdjustment.originalStopPips.toFixed(1)}p → ${sellStopAnchor.stopLossPips.toFixed(1)}p (beyond sweep extreme ${sellStopAnchor.sweepAwareAdjustment.sweepExtremePrice.toFixed(5)})`);
+      }
       console.log(`[Alpha Coordinator] Stop Anchors: BUY SL=${buyStopAnchor.stopLossPrice.toFixed(5)} (${buyStopAnchor.stopLossPips.toFixed(1)}p) | SELL SL=${sellStopAnchor.stopLossPrice.toFixed(5)} (${sellStopAnchor.stopLossPips.toFixed(1)}p)`);
     }
 
@@ -1128,11 +1169,35 @@ class AlphaCoordinatorBrain {
         }
       }
 
+      const sweepZoneDirective = (() => {
+        const buyAdj = buyStopAnchor.sweepAwareAdjustment;
+        const sellAdj = sellStopAnchor.sweepAwareAdjustment;
+        const adj = buyAdj?.applied ? buyAdj : (sellAdj?.applied ? sellAdj : null);
+        if (!adj || !sweepContextForStop) return '';
+
+        const sweepTypeLabel = sweepContextForStop.type === 'low' ? 'LOW SWEEP' : 'HIGH SWEEP';
+        const candlesLabel = sweepContextForStop.candles_ago === 0 ? 'just now' : `${sweepContextForStop.candles_ago} candle(s) ago`;
+        const bosLabel = sweepContextForStop.has_bos ? 'BOS CONFIRMED' : 'awaiting BOS';
+        const pipInfo = getCurrencyPipInfo(marketContext.symbol);
+        const bufferPips = adj.bufferPips;
+        const sweepPrice = adj.sweepExtremePrice;
+        const forbiddenZoneBuy = (sweepPrice + bufferPips * pipInfo.pipValue).toFixed(5);
+        const forbiddenZoneSell = (sweepPrice - bufferPips * pipInfo.pipValue).toFixed(5);
+
+        return `
+SWEEP ZONE DETECTED (${tradeStyle}): ${sweepTypeLabel} confirmed ${candlesLabel} [${bosLabel}]. Sweep extreme: ${sweepPrice.toFixed(5)}.
+The SL anchors above have been MATHEMATICALLY REPOSITIONED beyond the swept zone (buffer: ${bufferPips.toFixed(1)} pips).
+BINDING RULE: You MUST NOT place your stop inside the swept zone.
+  - If LONG: SL must be BELOW ${forbiddenZoneBuy} (below sweep extreme + buffer). Any stop above ${sweepPrice.toFixed(5)} is a liquidity target.
+  - If SHORT: SL must be ABOVE ${forbiddenZoneSell} (above sweep extreme - buffer). Any stop below ${sweepPrice.toFixed(5)} is a liquidity target.
+Stops placed inside the swept zone will be auto-rejected by Omega-9. Use the anchors provided — they already clear the sweep zone.`;
+      })();
+
       stopLossDirective = `
 ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips) | Volatility: ${marketVolatilityLevel.toUpperCase()} | Risk: ${riskMode.toUpperCase()}
 IF LONG SL Anchor: ${buyAnchorPrice.toFixed(5)} (${buyAnchorPips.toFixed(1)}p, ${buyStopAnchor.atrMultiplier.toFixed(2)}x ATR)
 IF SHORT SL Anchor: ${sellAnchorPrice.toFixed(5)} (${sellAnchorPips.toFixed(1)}p, ${sellStopAnchor.atrMultiplier.toFixed(2)}x ATR)
-HARD WALLS (${tradeStyle} ${promptAssetClass} @ ${marketContext.price.toFixed(2)}): SL MUST be ${wallSlMin.toFixed(1)}-${wallSlMax.toFixed(1)} pips | TP MUST be ${wallTpMin.toFixed(1)}-${wallTpMax.toFixed(1)} pips. Trades outside these walls are AUTO-REJECTED. You have FULL authority inside these bounds.
+HARD WALLS (${tradeStyle} ${promptAssetClass} @ ${marketContext.price.toFixed(2)}): SL MUST be ${wallSlMin.toFixed(1)}-${wallSlMax.toFixed(1)} pips | TP MUST be ${wallTpMin.toFixed(1)}-${wallTpMax.toFixed(1)} pips. Trades outside these walls are AUTO-REJECTED. You have FULL authority inside these bounds.${sweepZoneDirective}
 `;
     }
 

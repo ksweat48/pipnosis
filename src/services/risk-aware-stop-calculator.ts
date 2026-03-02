@@ -30,6 +30,28 @@ export interface StopLossCalculation {
   atrTimeframe?: ATRTimeframe; // Track which timeframe ATR was from
   noiseFloorPips?: number;      // Statistical minimum for survival
   noiseFloorReasoning?: string; // Explanation of noise floor
+  /** Set when stop was adjusted to clear a detected liquidity sweep zone */
+  sweepAwareAdjustment?: {
+    applied: boolean;
+    originalStopPrice: number;
+    originalStopPips: number;
+    sweepExtremePrice: number;
+    bufferPips: number;
+    reason: string;
+  };
+}
+
+/**
+ * Liquidity sweep context passed by Omega-8 for sweep-aware stop placement.
+ * SSOT: This is the only path through which sweep price data enters stop calculations.
+ */
+export interface SweepContext {
+  type: 'high' | 'low' | 'none';
+  has_bos: boolean;
+  sweep_extreme_price: number;
+  nearest_cluster_price?: number;
+  candles_ago: number;
+  liquidity_bias: 'stoprun_risk' | 'stoprun_entry' | 'clean' | 'reaccumulation' | 'distribution';
 }
 
 export interface StopCalculatorInputs {
@@ -39,6 +61,10 @@ export interface StopCalculatorInputs {
   riskMode: 'low' | 'medium' | 'high';
   atr: number | ATRValue; // Accepts both for backward compatibility during migration
   marketVolatility?: 'low' | 'normal' | 'high';
+  /** Optional: Liquidity sweep context from Omega-8. When present, enables sweep-aware stop placement. */
+  sweepContext?: SweepContext;
+  /** Trade style — used to calibrate sweep buffer depth per style */
+  tradeStyle?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
 }
 
 class RiskAwareStopCalculator {
@@ -133,15 +159,34 @@ class RiskAwareStopCalculator {
     console.log(`  Final Stop: ${stopPips.toFixed(1)} pips at ${stopLossPrice.toFixed(pipInfo.decimalPlaces)}`);
     console.log(`  Reasoning: ${reasoning}`);
 
+    // SWEEP-AWARE STOP PLACEMENT
+    // When Omega-8 detects a liquidity sweep and provides the sweep extreme price,
+    // the stop must be placed BEYOND that extreme — not inside the sweep zone.
+    // This prevents stops being placed inside the liquidity pool where they become
+    // targets for the next sweep. Applies to all 3 trade styles.
+    const sweepResult = this.applySweepAwareAdjustment({
+      symbol,
+      direction,
+      entryPrice,
+      calculatedStopPrice: stopLossPrice,
+      calculatedStopPips: stopPips,
+      pipInfo,
+      sweepContext: inputs.sweepContext,
+      tradeStyle: inputs.tradeStyle,
+      atrValue,
+      profileMaxPips: maxPips
+    });
+
     return {
-      stopLossPips: stopPips,
-      stopLossPrice,
+      stopLossPips: sweepResult.stopPips,
+      stopLossPrice: sweepResult.stopPrice,
       atrMultiplier,
-      reasoning,
+      reasoning: sweepResult.reasoning,
       withinProfileRange,
       profileMinPips: minPips,
       profileMaxPips: maxPips,
-      atrTimeframe
+      atrTimeframe,
+      sweepAwareAdjustment: sweepResult.adjustment
     };
   }
 
@@ -245,15 +290,32 @@ class RiskAwareStopCalculator {
     console.log(`  Reasoning: ${reasoning}`);
     console.log(`  ✅ MUCH BETTER than old 20 pip = $20 = 0.022% stop!`);
 
+    const profileMaxPipsCrypto = (entryPrice * maxPercent / 100) / pipInfo.pipValue;
+
+    // Apply sweep-aware adjustment for crypto as well
+    const sweepResultCrypto = this.applySweepAwareAdjustment({
+      symbol,
+      direction,
+      entryPrice,
+      calculatedStopPrice: stopLossPrice,
+      calculatedStopPips: stopLossPips,
+      pipInfo,
+      sweepContext: inputs.sweepContext,
+      tradeStyle: inputs.tradeStyle,
+      atrValue,
+      profileMaxPips: profileMaxPipsCrypto
+    });
+
     return {
-      stopLossPips,
-      stopLossPrice,
-      atrMultiplier: atrValue > 0 ? stopPercent / ((atrValue / entryPrice) * 100) : 1.5, // Back-calculate for compatibility
-      reasoning,
+      stopLossPips: sweepResultCrypto.stopPips,
+      stopLossPrice: sweepResultCrypto.stopPrice,
+      atrMultiplier: atrValue > 0 ? stopPercent / ((atrValue / entryPrice) * 100) : 1.5,
+      reasoning: sweepResultCrypto.reasoning,
       withinProfileRange,
       profileMinPips: (entryPrice * minPercent / 100) / pipInfo.pipValue,
-      profileMaxPips: (entryPrice * maxPercent / 100) / pipInfo.pipValue,
-      atrTimeframe
+      profileMaxPips: profileMaxPipsCrypto,
+      atrTimeframe,
+      sweepAwareAdjustment: sweepResultCrypto.adjustment
     };
   }
 
@@ -384,6 +446,141 @@ class RiskAwareStopCalculator {
     return {
       noiseFloorPips,
       reasoning
+    };
+  }
+
+  /**
+   * SWEEP-AWARE STOP PLACEMENT — SSOT for all 3 trade styles
+   *
+   * When a liquidity sweep is detected, the ATR-calculated stop may land INSIDE
+   * the swept zone — exactly where smart money targets retail stops for the next run.
+   * This method computes whether the calculated stop is inside the sweep zone and,
+   * if so, relocates it beyond the sweep extreme with a style-calibrated buffer.
+   *
+   * Buffer depth by trade style:
+   *   SCALP:          0.2 ATR — tight buffer, M5 precision
+   *   MICRO_INTRADAY: 0.3 ATR — moderate buffer, M15 structure awareness
+   *   INTRADAY:       0.4 ATR — wider buffer, H1 structure tolerance
+   *
+   * The stop is only adjusted when:
+   *   1. A sweep context is provided with a valid sweep extreme price
+   *   2. The trade direction aligns with the post-sweep bias (buy after low sweep, sell after high sweep)
+   *   3. The calculated stop is INSIDE the sweep zone (between entry and sweep extreme + buffer)
+   *   4. The adjusted stop does not exceed the profile maximum
+   *
+   * CCIP compliance: This is a QUANTITATIVE adjustment, not advisory text. The result is
+   * logged via sweepAwareAdjustment for governance audit.
+   */
+  private applySweepAwareAdjustment(inputs: {
+    symbol: string;
+    direction: 'buy' | 'sell';
+    entryPrice: number;
+    calculatedStopPrice: number;
+    calculatedStopPips: number;
+    pipInfo: { pipValue: number; decimalPlaces: number };
+    sweepContext?: SweepContext;
+    tradeStyle?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+    atrValue: number;
+    profileMaxPips: number;
+  }): {
+    stopPrice: number;
+    stopPips: number;
+    reasoning: string;
+    adjustment?: StopLossCalculation['sweepAwareAdjustment'];
+  } {
+    const {
+      direction, entryPrice, calculatedStopPrice, calculatedStopPips,
+      pipInfo, sweepContext, tradeStyle, atrValue, profileMaxPips
+    } = inputs;
+
+    // No sweep context — return original stop unchanged
+    if (!sweepContext || sweepContext.type === 'none' || !sweepContext.sweep_extreme_price) {
+      return {
+        stopPrice: calculatedStopPrice,
+        stopPips: calculatedStopPips,
+        reasoning: inputs.calculatedStopPips > 0
+          ? `ATR-based stop (no sweep context)`
+          : 'ATR-based stop'
+      };
+    }
+
+    // Only adjust when direction aligns with the post-sweep intent:
+    // Low sweep → predator direction is long → only adjust BUY stops
+    // High sweep → predator direction is short → only adjust SELL stops
+    const sweepAlignsBuy = sweepContext.type === 'low' && direction === 'buy';
+    const sweepAlignsSell = sweepContext.type === 'high' && direction === 'sell';
+
+    if (!sweepAlignsBuy && !sweepAlignsSell) {
+      return {
+        stopPrice: calculatedStopPrice,
+        stopPips: calculatedStopPips,
+        reasoning: `ATR-based stop (sweep type ${sweepContext.type} does not align with ${direction} direction)`
+      };
+    }
+
+    // Style-calibrated buffer depth in ATR units
+    const bufferByStyle: Record<string, number> = {
+      SCALP:          0.20,
+      MICRO_INTRADAY: 0.30,
+      INTRADAY:       0.40
+    };
+    const bufferMultiplier = bufferByStyle[tradeStyle ?? 'SCALP'] ?? 0.25;
+    const bufferPips = (atrValue / pipInfo.pipValue) * bufferMultiplier;
+    const bufferPrice = bufferPips * pipInfo.pipValue;
+
+    // Compute the safe stop price — beyond the sweep extreme by one buffer
+    let sweepAwareStopPrice: number;
+    if (direction === 'buy') {
+      // For a BUY, SL goes BELOW entry. Safe stop = sweep low - buffer
+      sweepAwareStopPrice = sweepContext.sweep_extreme_price - bufferPrice;
+    } else {
+      // For a SELL, SL goes ABOVE entry. Safe stop = sweep high + buffer
+      sweepAwareStopPrice = sweepContext.sweep_extreme_price + bufferPrice;
+    }
+
+    const sweepAwareStopPips = Math.abs(entryPrice - sweepAwareStopPrice) / pipInfo.pipValue;
+
+    // Only apply if the sweep-aware stop is WIDER than the calculated stop
+    // (it should always be, but guard against edge cases)
+    const sweepStopIsWider = direction === 'buy'
+      ? sweepAwareStopPrice < calculatedStopPrice  // lower price = wider stop for longs
+      : sweepAwareStopPrice > calculatedStopPrice; // higher price = wider stop for shorts
+
+    if (!sweepStopIsWider) {
+      console.log(`[Sweep-Aware Stop] ${inputs.symbol}: Calculated stop already clears sweep extreme. No adjustment needed.`);
+      return {
+        stopPrice: calculatedStopPrice,
+        stopPips: calculatedStopPips,
+        reasoning: `ATR-based stop already clears sweep extreme @ ${sweepContext.sweep_extreme_price.toFixed(pipInfo.decimalPlaces)}`
+      };
+    }
+
+    // Cap to profile maximum to prevent runaway stops
+    const cappedStopPips = Math.min(sweepAwareStopPips, profileMaxPips);
+    const cappedStopPrice = direction === 'buy'
+      ? entryPrice - (cappedStopPips * pipInfo.pipValue)
+      : entryPrice + (cappedStopPips * pipInfo.pipValue);
+
+    const wasCapped = cappedStopPips < sweepAwareStopPips;
+
+    const reason = wasCapped
+      ? `Sweep-aware stop capped at profile max (${profileMaxPips.toFixed(1)}p). Sweep extreme @ ${sweepContext.sweep_extreme_price.toFixed(pipInfo.decimalPlaces)} + ${bufferPips.toFixed(1)}p buffer [${tradeStyle ?? 'SCALP'}]`
+      : `Stop relocated beyond sweep ${sweepContext.type} extreme @ ${sweepContext.sweep_extreme_price.toFixed(pipInfo.decimalPlaces)} + ${bufferPips.toFixed(1)}p buffer [${tradeStyle ?? 'SCALP'}, BOS:${sweepContext.has_bos}]`;
+
+    console.log(`[Sweep-Aware Stop] ${inputs.symbol} ${direction.toUpperCase()}: ATR stop ${calculatedStopPips.toFixed(1)}p → Sweep-aware ${cappedStopPips.toFixed(1)}p (extreme: ${sweepContext.sweep_extreme_price.toFixed(pipInfo.decimalPlaces)}, buffer: ${bufferPips.toFixed(1)}p)`);
+
+    return {
+      stopPrice: cappedStopPrice,
+      stopPips: cappedStopPips,
+      reasoning: reason,
+      adjustment: {
+        applied: true,
+        originalStopPrice: calculatedStopPrice,
+        originalStopPips: calculatedStopPips,
+        sweepExtremePrice: sweepContext.sweep_extreme_price,
+        bufferPips,
+        reason
+      }
     };
   }
 }
