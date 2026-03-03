@@ -19,7 +19,6 @@ import {
   ShieldAlert,
   AlertTriangle,
   CheckCircle2,
-  XCircle,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
@@ -40,6 +39,14 @@ interface PreScreenRow {
   rule1_detail: string;
   rule2_detail: string;
   last_checked_at: string;
+  signals_firing: string[];
+  bull_signals: string[];
+  bear_signals: string[];
+  readiness_score: number;
+  readiness_tier: 'GREEN' | 'YELLOW' | 'RED';
+  signal_count: number;
+  dominant_signal: string;
+  signal_summary: string;
 }
 
 interface StructuralAlertRow {
@@ -494,6 +501,214 @@ const MarketClosedBanner: React.FC = () => {
           Forex, Gold, and Index pairs are hidden until Sunday 5:00 PM EST.
         </p>
       </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PreScreenSignalPanel — 10-signal readiness display
+//
+// SSOT: reads from pre_screen_results (global, written by pre-screen-structure-monitor.ts)
+// Authority: sole UI owner of the 5-minute readiness display
+// Governance: purely informational — tells users WHEN to scan Alpha, not WHAT to trade
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SIGNAL_LABEL_MAP: Record<string, string> = {
+  BOS: 'BOS',
+  LIQUIDITY_SWEEP: 'Sweep',
+  CHOCH: 'ChoCH',
+  FVG: 'FVG',
+  PIN_BAR: 'Pin Bar',
+  ENGULFING: 'Engulf',
+  EMA_STACK: 'EMA Stack',
+  MOMENTUM_DIV: 'Mom. Div',
+  ATR_EXPANSION: 'ATR Exp',
+  ORDER_BLOCK: 'OB',
+};
+
+function getTierConfig(tier: 'GREEN' | 'YELLOW' | 'RED') {
+  switch (tier) {
+    case 'GREEN':
+      return {
+        dot: 'bg-green-400',
+        dotGlow: 'shadow-green-400/60',
+        rowBg: 'bg-green-500/8 border-green-500/20',
+        scoreBg: 'bg-green-500/20 border-green-500/40',
+        scoreText: 'text-green-300',
+        pillBg: 'bg-green-500/15 border-green-500/30 text-green-300',
+        label: 'READY',
+        labelColor: 'text-green-400',
+        summaryText: 'text-green-300',
+      };
+    case 'YELLOW':
+      return {
+        dot: 'bg-yellow-400',
+        dotGlow: 'shadow-yellow-400/60',
+        rowBg: 'bg-yellow-500/6 border-yellow-500/15',
+        scoreBg: 'bg-yellow-500/20 border-yellow-500/40',
+        scoreText: 'text-yellow-300',
+        pillBg: 'bg-yellow-500/15 border-yellow-500/30 text-yellow-300',
+        label: 'DEVELOPING',
+        labelColor: 'text-yellow-400',
+        summaryText: 'text-yellow-300/80',
+      };
+    case 'RED':
+    default:
+      return {
+        dot: 'bg-slate-600',
+        dotGlow: '',
+        rowBg: 'bg-slate-800/20 border-slate-700/20',
+        scoreBg: 'bg-slate-700/30 border-slate-600/30',
+        scoreText: 'text-slate-500',
+        pillBg: 'bg-slate-700/30 border-slate-600/20 text-slate-500',
+        label: 'WEAK',
+        labelColor: 'text-slate-500',
+        summaryText: 'text-slate-500',
+      };
+  }
+}
+
+interface PreScreenSignalPanelProps {
+  rows: PreScreenRow[];
+  lastChecked: string;
+  expanded: boolean;
+  onToggle: () => void;
+}
+
+const PreScreenSignalPanel: React.FC<PreScreenSignalPanelProps> = ({ rows, lastChecked, expanded, onToggle }) => {
+  const greenCount = rows.filter((r) => r.readiness_tier === 'GREEN').length;
+  const yellowCount = rows.filter((r) => r.readiness_tier === 'YELLOW').length;
+
+  const STYLE_GROUPS: { key: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'; label: string; tf: string; color: string }[] = [
+    { key: 'SCALP',          label: 'Scalp',     tf: 'M15', color: 'text-amber-400' },
+    { key: 'MICRO_INTRADAY', label: 'Micro',     tf: 'H1',  color: 'text-cyan-400' },
+    { key: 'INTRADAY',       label: 'Intraday',  tf: 'H4',  color: 'text-emerald-400' },
+  ];
+
+  return (
+    <div className="mt-4 rounded-xl border border-slate-700/40 bg-slate-900/40 overflow-hidden">
+      <button
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-800/40 transition-colors"
+        onClick={onToggle}
+        aria-expanded={expanded}
+      >
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-blue-400 flex-shrink-0" />
+          <span className="text-sm font-semibold text-white">Signal Readiness</span>
+          <span className="text-[10px] text-slate-500 font-mono">10 signals · 5-min refresh</span>
+          {lastChecked && (
+            <span className="text-[10px] text-slate-600 hidden sm:inline">· {lastChecked}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {greenCount > 0 && (
+            <span className="text-[10px] font-bold text-green-400 bg-green-500/15 border border-green-500/30 px-2 py-0.5 rounded-full">
+              {greenCount} ready
+            </span>
+          )}
+          {yellowCount > 0 && (
+            <span className="text-[10px] font-bold text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 px-2 py-0.5 rounded-full">
+              {yellowCount} developing
+            </span>
+          )}
+          {expanded ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="px-4 pb-4 space-y-4">
+          {STYLE_GROUPS.map(({ key, label, tf, color }) => {
+            const styleRows = rows
+              .filter((r) => r.style === key)
+              .sort((a, b) => (b.readiness_score ?? 0) - (a.readiness_score ?? 0));
+            if (styleRows.length === 0) return null;
+
+            const bestScore = styleRows[0]?.readiness_score ?? 0;
+
+            return (
+              <div key={key}>
+                <div className="flex items-center gap-2 mb-2 mt-1">
+                  <span className={`text-[10px] font-bold uppercase tracking-wider ${color}`}>{label}</span>
+                  <span className="text-[10px] text-slate-600 font-mono">{tf}</span>
+                  {bestScore >= 65 && (
+                    <span className="text-[9px] font-bold text-green-400 bg-green-500/15 border border-green-500/25 px-1.5 py-px rounded-full ml-auto">
+                      Scan Now
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  {styleRows.map((row) => {
+                    const tier = (row.readiness_tier ?? 'RED') as 'GREEN' | 'YELLOW' | 'RED';
+                    const cfg = getTierConfig(tier);
+                    const signals = Array.isArray(row.signals_firing) ? row.signals_firing : [];
+                    const isBuy = row.direction_bias === 'BUY';
+                    const isSell = row.direction_bias === 'SELL';
+                    const score = row.readiness_score ?? 0;
+                    const isWeak = tier === 'RED';
+
+                    return (
+                      <div
+                        key={row.id}
+                        className={`rounded-lg border transition-all duration-200 ${cfg.rowBg} ${isWeak ? 'opacity-50' : ''}`}
+                      >
+                        <div className="flex items-center gap-2.5 px-3 py-2">
+                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg.dot} ${tier !== 'RED' ? `shadow-sm ${cfg.dotGlow}` : ''}`} />
+
+                          <span className="text-[12px] font-bold text-white w-16 flex-shrink-0">{row.symbol}</span>
+
+                          <div className={`flex-shrink-0 flex items-center justify-center w-9 h-6 rounded border text-[11px] font-bold tabular-nums ${cfg.scoreBg} ${cfg.scoreText}`}>
+                            {score}
+                          </div>
+
+                          {(isBuy || isSell) ? (
+                            <span className={`flex items-center gap-0.5 text-[10px] font-bold flex-shrink-0 ${isBuy ? 'text-green-400' : 'text-red-400'}`}>
+                              {isBuy ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                              {row.direction_bias}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-600 flex-shrink-0">—</span>
+                          )}
+
+                          <span className={`text-[9px] font-bold ml-auto flex-shrink-0 ${cfg.labelColor}`}>{cfg.label}</span>
+                        </div>
+
+                        {signals.length > 0 && (
+                          <div className="flex flex-wrap gap-1 px-3 pb-2">
+                            {signals.slice(0, 6).map((sig) => (
+                              <span
+                                key={sig}
+                                className={`inline-block px-1.5 py-px rounded text-[9px] font-semibold border ${cfg.pillBg}`}
+                              >
+                                {SIGNAL_LABEL_MAP[sig] ?? sig}
+                              </span>
+                            ))}
+                            {signals.length > 6 && (
+                              <span className="inline-block px-1.5 py-px rounded text-[9px] text-slate-500 border border-slate-700/30">
+                                +{signals.length - 6}
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {row.signal_summary && !isWeak && (
+                          <p className={`px-3 pb-2 text-[10px] leading-snug ${cfg.summaryText}`}>
+                            {row.signal_summary}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+
+          <p className="text-[10px] text-slate-600 pt-1 border-t border-slate-700/30">
+            Score = weighted confluence of 10 signals. Green &ge;65 · Yellow &ge;35 · Red &lt;35. Updated globally every 5 min.
+          </p>
+        </div>
+      )}
     </div>
   );
 };
@@ -1087,83 +1302,12 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
         )}
 
         {preScreenRows.length > 0 && (
-          <div className="mt-4 rounded-xl border border-slate-700/40 bg-slate-900/40 overflow-hidden">
-            <button
-              className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-800/40 transition-colors"
-              onClick={() => setPreScreenExpanded((v) => !v)}
-            >
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-blue-400" />
-                <span className="text-sm font-semibold text-white">Structure Pre-Screen</span>
-                <span className="text-[10px] text-slate-500 font-mono ml-1">5-min background</span>
-                {preScreenLastChecked && (
-                  <span className="text-[10px] text-slate-600">· {preScreenLastChecked}</span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                {(() => {
-                  const aligned = preScreenRows.filter((r) => r.alignment_status === 'ALIGNED' || r.alignment_status === 'BOTH_RULES_MET').length;
-                  const blocked = preScreenRows.filter((r) => r.alignment_status === 'BLOCKED').length;
-                  return (
-                    <>
-                      {aligned > 0 && <span className="text-[10px] font-bold text-green-400 bg-green-500/15 border border-green-500/30 px-2 py-0.5 rounded-full">{aligned} aligned</span>}
-                      {blocked > 0 && <span className="text-[10px] font-bold text-red-400 bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded-full">{blocked} blocked</span>}
-                    </>
-                  );
-                })()}
-                {preScreenExpanded ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
-              </div>
-            </button>
-
-            {preScreenExpanded && (
-              <div className="px-4 pb-4">
-                {(['SCALP', 'MICRO_INTRADAY', 'INTRADAY'] as const).map((style) => {
-                  const styleRows = preScreenRows.filter((r) => r.style === style);
-                  if (styleRows.length === 0) return null;
-                  const styleLabel = style === 'SCALP' ? 'Scalp (M15)' : style === 'MICRO_INTRADAY' ? 'Micro Intraday (H1)' : 'Intraday (H4)';
-                  const styleBorder = style === 'SCALP' ? 'border-amber-500/20' : style === 'MICRO_INTRADAY' ? 'border-cyan-500/20' : 'border-emerald-500/20';
-                  const styleText = style === 'SCALP' ? 'text-amber-400' : style === 'MICRO_INTRADAY' ? 'text-cyan-400' : 'text-emerald-400';
-                  return (
-                    <div key={style} className="mb-3">
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5 mt-2">{styleLabel}</div>
-                      <div className="space-y-1.5">
-                        {styleRows.map((row) => {
-                          const isAligned = row.alignment_status === 'ALIGNED' || row.alignment_status === 'BOTH_RULES_MET';
-                          const isBlocked = row.alignment_status === 'BLOCKED';
-                          const statusColor = isAligned ? 'text-green-400' : isBlocked ? 'text-red-400' : 'text-yellow-400';
-                          const statusBg = isAligned ? 'bg-green-500/10 border-green-500/20' : isBlocked ? 'bg-red-500/8 border-red-500/15' : 'bg-yellow-500/8 border-yellow-500/15';
-                          const directionIcon = row.direction_bias === 'BUY'
-                            ? <TrendingUp className="w-3 h-3 text-green-400" />
-                            : row.direction_bias === 'SELL'
-                              ? <TrendingDown className="w-3 h-3 text-red-400" />
-                              : null;
-                          return (
-                            <div key={row.id} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border ${statusBg} ${styleBorder}`}>
-                              <span className="text-[11px] font-bold text-white w-14 flex-shrink-0">{row.symbol}</span>
-                              <div className="flex items-center gap-1 flex-shrink-0">
-                                {row.rule1_met
-                                  ? <CheckCircle2 className="w-3 h-3 text-green-500" title="BOS confirmed" />
-                                  : <XCircle className="w-3 h-3 text-slate-600" title="No BOS" />}
-                                {row.rule2_met
-                                  ? <CheckCircle2 className="w-3 h-3 text-green-500" title="Sweep wick confirmed" />
-                                  : <XCircle className="w-3 h-3 text-slate-600" title="No sweep wick" />}
-                              </div>
-                              <span className={`text-[10px] font-semibold flex-shrink-0 ${statusColor}`}>
-                                {isAligned ? 'ALIGNED' : isBlocked ? 'BLOCKED' : row.alignment_status.replace('_', ' ')}
-                              </span>
-                              {directionIcon && <span className="flex items-center gap-0.5 flex-shrink-0">{directionIcon}</span>}
-                              <span className={`text-[9px] ${styleText} flex-shrink-0 ml-auto`}>{row.controlling_timeframe}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-                <p className="text-[10px] text-slate-600 mt-2">R1 = BOS &nbsp;·&nbsp; R2 = Sweep Wick &ge;1.5x body &nbsp;·&nbsp; Both = Aligned</p>
-              </div>
-            )}
-          </div>
+          <PreScreenSignalPanel
+            rows={preScreenRows}
+            lastChecked={preScreenLastChecked}
+            expanded={preScreenExpanded}
+            onToggle={() => setPreScreenExpanded((v) => !v)}
+          />
         )}
 
         {sessionId && structuralAlerts.length > 0 && (
