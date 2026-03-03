@@ -55,6 +55,10 @@ export interface TimeToFillResult {
   shouldApplyPenalty: boolean;
   confidencePenalty: number; // ✅ NEW: Explicit penalty amount (0 = no penalty)
   durationDeviation: 'WITHIN_BAND' | 'SLIGHTLY_OVER' | 'SIGNIFICANTLY_OVER' | 'VERY_EXTENDED';
+  // CCIP 2026-03: Pullback wait breakdown — honest total when entry_mode is wait_pullback
+  pullbackWaitMinutes: number; // 0 for execute_now, style-specific for wait_pullback
+  tpFillMinutes: number;       // TP fill time only (without wait)
+  totalExpectedMinutes: number; // pullbackWaitMinutes + tpFillMinutes
 }
 
 /**
@@ -67,6 +71,9 @@ export interface TimeToFillInput {
   currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed';
   symbol: string;
   volatilityMultiplier?: number;
+  // CCIP 2026-03: Entry mode context for honest fill time reporting
+  entryMode?: 'execute_now' | 'wait_pullback';
+  tradeStyle?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
 }
 
 /**
@@ -79,6 +86,9 @@ export interface TimeToFillPriceInput {
   currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed';
   symbol: string;
   volatilityMultiplier?: number;
+  // CCIP 2026-03: Entry mode context for honest fill time reporting
+  entryMode?: 'execute_now' | 'wait_pullback';
+  tradeStyle?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
 }
 
 class TimeToFillCalculator {
@@ -148,13 +158,22 @@ class TimeToFillCalculator {
    * ⚠️ WARNING: Ensure atrPips is actually in pips, not price units
    * Consider using calculateFromPrice() instead to avoid conversion errors
    */
+  // CCIP 2026-03: Pullback wait windows per style (mirrors EDGE_LOSS_TIME_LIMITS in alpha-identity)
+  private readonly PULLBACK_WAIT_MINUTES: Record<string, number> = {
+    SCALP: 10,
+    MICRO_INTRADAY: 45,
+    INTRADAY: 120,
+  };
+
   calculate(input: TimeToFillInput): TimeToFillResult {
     const {
       tpDistancePips,
       atrPips,
       currentSession,
       symbol,
-      volatilityMultiplier = 1.0
+      volatilityMultiplier = 1.0,
+      entryMode,
+      tradeStyle,
     } = input;
 
     const safeTpPips = Math.max(0.01, Math.abs(tpDistancePips));
@@ -274,6 +293,19 @@ class TimeToFillCalculator {
 
     confidence = Math.min(100, Math.max(0, Math.round(confidence)));
 
+    // CCIP 2026-03: Pullback wait transparency.
+    // When Alpha chooses wait_pullback, there is a style-specific waiting period before
+    // the TP fill clock even starts. The "Expected fill: Xmin" label must reflect this.
+    const tpFillMinutes = expectedMinutes;
+    const pullbackWaitMinutes = (entryMode === 'wait_pullback' && tradeStyle)
+      ? (this.PULLBACK_WAIT_MINUTES[tradeStyle] ?? 0)
+      : 0;
+    const totalExpectedMinutes = tpFillMinutes + pullbackWaitMinutes;
+
+    if (pullbackWaitMinutes > 0) {
+      reasoning += ` (wait_pullback: +${pullbackWaitMinutes}min wait + ${tpFillMinutes}min to TP = ${totalExpectedMinutes}min total)`;
+    }
+
     return {
       expectedHours,
       expectedMinutes,
@@ -284,8 +316,11 @@ class TimeToFillCalculator {
       durationBand,
       shouldApplyReward,
       shouldApplyPenalty,
-      confidencePenalty, // ✅ Explicit penalty for duration deviation
-      durationDeviation // ✅ Classification of how far off expected duration is
+      confidencePenalty,
+      durationDeviation,
+      pullbackWaitMinutes,
+      tpFillMinutes,
+      totalExpectedMinutes,
     };
   }
 

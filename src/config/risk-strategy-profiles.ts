@@ -309,9 +309,52 @@ export function getExpectedDuration(riskMode: 'low' | 'medium' | 'high'): { min:
 }
 
 /**
- * Get stop loss width range in ATR multiples
+ * STYLE-DIFFERENTIATED ATR TIMEFRAME MAP (CCIP 2026-03)
+ *
+ * The SL calculator uses ATR to determine stop width. ATR must come from the
+ * SAME timeframe the trade is managed on — not always H1.
+ *
+ * SCALP trades managed on M5 → use M5 ATR (short, tight — matches M5 structure)
+ * MICRO_INTRADAY trades managed on M15 → use M15 ATR (medium — matches M15 structure)
+ * INTRADAY trades managed on H1 → use H1 ATR (wide — matches H1 structure)
+ *
+ * The corresponding ATR multiplier ranges are calibrated for each timeframe's
+ * typical pip range so that SL distances remain structurally appropriate.
  */
-export function getStopLossMultiplierRange(riskMode: 'low' | 'medium' | 'high'): { min: number; max: number } {
+export const STYLE_ATR_TIMEFRAME_MAP: Record<'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY', {
+  preferredTimeframe: string;
+  atrField: 'atr20' | 'atr' | 'atr100';
+  multiplierRange: { min: number; max: number };
+}> = {
+  SCALP: {
+    preferredTimeframe: 'M5',
+    atrField: 'atr20',
+    multiplierRange: { min: 0.5, max: 1.0 },
+  },
+  MICRO_INTRADAY: {
+    preferredTimeframe: 'M15',
+    atrField: 'atr',
+    multiplierRange: { min: 0.8, max: 1.3 },
+  },
+  INTRADAY: {
+    preferredTimeframe: 'H1',
+    atrField: 'atr100',
+    multiplierRange: { min: 1.0, max: 1.5 },
+  },
+};
+
+/**
+ * Get stop loss width range in ATR multiples.
+ * When tradeStyle is provided, returns style-calibrated multipliers instead of risk-mode defaults.
+ * This ensures SL width is appropriate for the ATR timeframe of the active style.
+ */
+export function getStopLossMultiplierRange(
+  riskMode: 'low' | 'medium' | 'high',
+  tradeStyle?: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'
+): { min: number; max: number } {
+  if (tradeStyle && STYLE_ATR_TIMEFRAME_MAP[tradeStyle]) {
+    return STYLE_ATR_TIMEFRAME_MAP[tradeStyle].multiplierRange;
+  }
   const profile = getRiskStrategyProfile(riskMode);
   return profile.stopLossMultiplier;
 }

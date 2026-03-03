@@ -1226,7 +1226,8 @@ OUTPUT FORMAT:
   "entry": price, "stopLoss": price, "takeProfit": price,
   "entry_spec": { "entry_mode": "...", "runawayPolicy": "...", "projection": { ... } },
   "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "..." },
-  "wait_condition": { ... },
+  "wait_condition": { ... },${style === 'MICRO_INTRADAY' ? `
+  "m15_structural_confirmation": "REQUIRED for MICRO_INTRADAY — name the specific M15 structural element this trade is anchored to (e.g. 'M15 swing low at 1.0823', 'M15 FVG 1.0840-1.0852', 'M15 BOS above 1.0865'). A vague description or null value = NO_TRADE.",` : ''}
   "answer_sheet": {
     "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND",
     "Q2_structure_level": "description of the key structural level this trade is anchored to",
@@ -1250,7 +1251,9 @@ counter_thesis_probability is required for every BUY/SELL. It is the probability
 
 trade_management is required for MICRO_INTRADAY and INTRADAY trades. For SCALP (single TP), omit trade_management or set to null — scalp management is close-all at TP. For MICRO_INTRADAY and INTRADAY: specify what percentage to close at TP1 (default 50%), whether to move SL to breakeven after TP1 (default true), and what trailing method to apply if TP2 remains active (structure-based trailing is preferred — move SL to the last confirmed swing point as TP2 approaches).
 
-RULES: Session phase alone does not block MICRO_INTRADAY or INTRADAY trades — discount confidence and state the implication. For SCALP, the DEAD ZONE rule above is enforced: a SCALP without exceptional dead zone justification is NO_TRADE, not a confidence discount. Invalid geometry = immediate rejection regardless of style.
+${style === 'MICRO_INTRADAY' ? `m15_structural_confirmation is REQUIRED for every MICRO_INTRADAY BUY/SELL. You MUST name the specific M15 structural level this trade is anchored to — a named swing point, FVG range, BOS candle close price, or M15 support/resistance level with a price. A vague description ("price near support"), a reference to M1 or M5 data only, or a null value means the trade has no M15 structural anchor and MUST be output as NO_TRADE. If you cannot name the M15 level, you do not have a MICRO_INTRADAY trade.
+
+` : ''}RULES: Session phase alone does not block MICRO_INTRADAY or INTRADAY trades — discount confidence and state the implication. For SCALP, the DEAD ZONE rule above is enforced: a SCALP without exceptional dead zone justification is NO_TRADE, not a confidence discount. Invalid geometry = immediate rejection regardless of style.
 
 ═══════════════════════════════════════════════════════════════════`;
 }

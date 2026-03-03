@@ -23,6 +23,18 @@ export interface PatternIntelligenceInput {
   liquidityIntentConfirms?: boolean;
 }
 
+export interface MTFDataCompleteness {
+  htfComplete: boolean;
+  mtfComplete: boolean;
+  ltfComplete: boolean;
+  htfCandles: number;
+  mtfCandles: number;
+  ltfCandles: number;
+  htfTimeframe: string;
+  mtfTimeframe: string;
+  ltfTimeframe: string;
+}
+
 export interface PatternIntelligenceResult {
   // Pattern scans
   htfScan: TimeframePatternScan;
@@ -41,6 +53,9 @@ export interface PatternIntelligenceResult {
   patternsOpposeTrade: boolean;
   liquidityTargets: number[];
   invalidationPoint: { price: number; reasoning: string } | null;
+
+  // CCIP 2026-03: Data completeness tracking — allows coordinator to gate on missing data
+  dataCompleteness: MTFDataCompleteness;
 
   // Metadata
   timestamp: number;
@@ -77,12 +92,36 @@ class MultiTimeframePatternIntelligence {
     // Get timeframes for risk mode
     const config = getMTFConfig(input.riskMode);
 
-    // Fetch candles for all three layers
+    // Fetch candles for all three layers with retry logic
     const [htfCandles, mtfCandles, ltfCandles] = await Promise.all([
       this.fetchTimeframeCandles(input.symbol, config.contextTimeframe, 'HTF'),
       this.fetchTimeframeCandles(input.symbol, config.trendTimeframe, 'MTF'),
       this.fetchTimeframeCandles(input.symbol, config.entryTimeframe, 'LTF'),
     ]);
+
+    // CCIP 2026-03: Compute data completeness — minimum viable candle counts per layer
+    const MTF_MIN_CANDLES = { HTF: 10, MTF: 8, LTF: 6 };
+    const dataCompleteness: MTFDataCompleteness = {
+      htfComplete: htfCandles.length >= MTF_MIN_CANDLES.HTF,
+      mtfComplete: mtfCandles.length >= MTF_MIN_CANDLES.MTF,
+      ltfComplete: ltfCandles.length >= MTF_MIN_CANDLES.LTF,
+      htfCandles: htfCandles.length,
+      mtfCandles: mtfCandles.length,
+      ltfCandles: ltfCandles.length,
+      htfTimeframe: config.contextTimeframe,
+      mtfTimeframe: config.trendTimeframe,
+      ltfTimeframe: config.entryTimeframe,
+    };
+
+    if (!dataCompleteness.htfComplete || !dataCompleteness.mtfComplete || !dataCompleteness.ltfComplete) {
+      logger.warn('[MTF Pattern Intelligence] Incomplete candle data for one or more layers', {
+        symbol: input.symbol,
+        riskMode: input.riskMode,
+        htf: `${htfCandles.length}/${MTF_MIN_CANDLES.HTF} (${config.contextTimeframe})`,
+        mtf: `${mtfCandles.length}/${MTF_MIN_CANDLES.MTF} (${config.trendTimeframe})`,
+        ltf: `${ltfCandles.length}/${MTF_MIN_CANDLES.LTF} (${config.entryTimeframe})`,
+      });
+    }
 
     // Scan for patterns at each layer
     const htfScan = patternDetectionService.scanForPatterns(htfCandles, config.contextTimeframe, 'HTF');
@@ -148,6 +187,7 @@ class MultiTimeframePatternIntelligence {
       patternsOpposeTrade,
       liquidityTargets,
       invalidationPoint,
+      dataCompleteness,
       timestamp: Date.now(),
       cacheHit: false,
     };
@@ -352,25 +392,58 @@ class MultiTimeframePatternIntelligence {
     timeframe: string,
     layer: string
   ): Promise<CandleData[]> {
-    try {
-      const limit = layer === 'HTF' ? 100 : layer === 'MTF' ? 80 : 60;
-      const candles = await fetchPreAggregatedCandles(symbol, timeframe, limit);
+    const limit = layer === 'HTF' ? 100 : layer === 'MTF' ? 80 : 60;
+    const minRequired = layer === 'HTF' ? 10 : layer === 'MTF' ? 8 : 6;
+    const retryDelaysMs = [250, 500];
 
-      logger.info(`[MTF Pattern Intelligence] Fetched ${layer} candles`, {
-        symbol,
-        timeframe,
-        count: candles.length,
-      });
+    for (let attempt = 0; attempt <= retryDelaysMs.length; attempt++) {
+      try {
+        const candles = await fetchPreAggregatedCandles(symbol, timeframe, limit);
 
-      return candles;
-    } catch (error) {
-      logger.error(`[MTF Pattern Intelligence] Failed to fetch ${layer} candles`, {
-        symbol,
-        timeframe,
-        error,
-      });
-      return [];
+        if (candles.length >= minRequired) {
+          logger.info(`[MTF Pattern Intelligence] Fetched ${layer} candles`, {
+            symbol,
+            timeframe,
+            count: candles.length,
+            attempt: attempt + 1,
+          });
+          return candles;
+        }
+
+        if (attempt < retryDelaysMs.length) {
+          logger.warn(`[MTF Pattern Intelligence] ${layer} returned ${candles.length}/${minRequired} candles — retrying (attempt ${attempt + 1})`, {
+            symbol,
+            timeframe,
+          });
+          await new Promise(resolve => setTimeout(resolve, retryDelaysMs[attempt]));
+          continue;
+        }
+
+        logger.warn(`[MTF Pattern Intelligence] ${layer} insufficient after all retries: ${candles.length}/${minRequired}`, {
+          symbol,
+          timeframe,
+        });
+        return candles;
+      } catch (error) {
+        if (attempt < retryDelaysMs.length) {
+          logger.warn(`[MTF Pattern Intelligence] ${layer} fetch error — retrying (attempt ${attempt + 1})`, {
+            symbol,
+            timeframe,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          await new Promise(resolve => setTimeout(resolve, retryDelaysMs[attempt]));
+          continue;
+        }
+        logger.error(`[MTF Pattern Intelligence] Failed to fetch ${layer} candles after all retries`, {
+          symbol,
+          timeframe,
+          error,
+        });
+        return [];
+      }
     }
+
+    return [];
   }
 
   private getCacheKey(input: PatternIntelligenceInput): string {

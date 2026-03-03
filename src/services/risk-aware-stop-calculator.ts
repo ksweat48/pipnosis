@@ -15,7 +15,7 @@
  * - Logs ATR source for transparency
  */
 
-import { getRiskStrategyProfile, getStopLossMultiplierRange, getTypicalStopPipsRange } from '../config/risk-strategy-profiles';
+import { getRiskStrategyProfile, getStopLossMultiplierRange, getTypicalStopPipsRange, STYLE_ATR_TIMEFRAME_MAP } from '../config/risk-strategy-profiles';
 import { getCurrencyPipInfo, isXAUUSD, isJPYPair, isIndex, isCrypto } from '../utils/currencyHelpers';
 import { type ATRValue, type ATRTimeframe } from '../types/atr';
 
@@ -97,12 +97,16 @@ class RiskAwareStopCalculator {
 
     const profile = getRiskStrategyProfile(riskMode);
     const pipInfo = getCurrencyPipInfo(symbol);
-    const atrMultiplierRange = getStopLossMultiplierRange(riskMode);
+    // CCIP 2026-03: Use style-calibrated ATR multiplier when tradeStyle is available.
+    // SCALP uses M5 ATR (tight), MICRO_INTRADAY uses M15 ATR (medium), INTRADAY uses H1 ATR (wide).
+    // Each style has multiplier ranges pre-calibrated for its ATR timeframe.
+    const atrMultiplierRange = getStopLossMultiplierRange(riskMode, inputs.tradeStyle);
     const typicalPipsRange = getTypicalStopPipsRange(riskMode);
 
-    console.log(`[Stop Calculator] ${symbol} ${riskMode.toUpperCase()} mode:`);
+    const styleLabel = inputs.tradeStyle ? ` [${inputs.tradeStyle}]` : '';
+    console.log(`[Stop Calculator] ${symbol} ${riskMode.toUpperCase()} mode${styleLabel}:`);
     console.log(`  ATR: ${atrValue.toFixed(5)}${atrTimeframe ? ` (${atrTimeframe})` : ''} | Risk: ${profile.riskPercentRange.min}-${profile.riskPercentRange.max}%`);
-    console.log(`  ATR Multiplier Range: ${atrMultiplierRange.min}x - ${atrMultiplierRange.max}x`);
+    console.log(`  ATR Multiplier Range: ${atrMultiplierRange.min}x - ${atrMultiplierRange.max}x${inputs.tradeStyle ? ` (style-calibrated for ${inputs.tradeStyle})` : ''}`);
     console.log(`  Typical Pips Range: ${typicalPipsRange.min} - ${typicalPipsRange.max}`);
 
     // Calculate ATR in pips

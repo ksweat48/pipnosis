@@ -874,8 +874,50 @@ class AlphaCoordinatorBrain {
         // Format for LLM prompt
         patternContext = '\n' + multiTimeframePatternIntelligence.formatForAlphaPrompt(patternIntelligence);
 
+        // CCIP 2026-03: Hard gate — Alpha requires all three MTF layers to reason correctly.
+        // If any layer is below minimum, log the gap. The gate below enforces this.
+        const dc = patternIntelligence.dataCompleteness;
+        if (!dc.htfComplete || !dc.mtfComplete || !dc.ltfComplete) {
+          const missingLayers: string[] = [];
+          if (!dc.htfComplete) missingLayers.push(`HTF ${dc.htfTimeframe} (${dc.htfCandles} candles)`);
+          if (!dc.mtfComplete) missingLayers.push(`MTF ${dc.mtfTimeframe} (${dc.mtfCandles} candles)`);
+          if (!dc.ltfComplete) missingLayers.push(`LTF ${dc.ltfTimeframe} (${dc.ltfCandles} candles)`);
+          console.error(`[Alpha Coordinator] MTF_PATTERN_DATA_INCOMPLETE: ${missingLayers.join(', ')}`);
+        }
+
       } catch (error) {
         console.error('[Alpha Coordinator] Failed to analyze patterns:', error);
+      }
+    }
+
+    // CCIP 2026-03: MTF data gate — Alpha cannot reason about structure without candle data.
+    // patternIntelligence === null means the entire PHASE 5 threw (e.g., DB outage).
+    // Incomplete layers in dataCompleteness mean retries failed to fill the required minimum.
+    if (patternIntelligence === null) {
+      console.error('[Alpha Coordinator] MTF_PATTERN_FETCH_FAILED: Pattern analysis returned null — NO_TRADE');
+      return {
+        action: 'NO_TRADE',
+        decision: 'NO_TRADE',
+        entry: marketContext.price,
+        stopLoss: marketContext.price,
+        takeProfit: marketContext.price,
+        confidence: 0,
+        reasoning: 'MTF_PATTERN_FETCH_FAILED: Multi-timeframe pattern analysis could not complete. Cannot assess structural alignment without HTF/MTF/LTF candle data.',
+      };
+    }
+    {
+      const dc = patternIntelligence.dataCompleteness;
+      if (!dc.htfComplete && !dc.mtfComplete) {
+        console.error('[Alpha Coordinator] MTF_PATTERN_DATA_ABSENT: Both HTF and MTF layers have insufficient data — NO_TRADE');
+        return {
+          action: 'NO_TRADE',
+          decision: 'NO_TRADE',
+          entry: marketContext.price,
+          stopLoss: marketContext.price,
+          takeProfit: marketContext.price,
+          confidence: 0,
+          reasoning: `MTF_PATTERN_DATA_ABSENT: HTF (${dc.htfTimeframe}: ${dc.htfCandles} candles) and MTF (${dc.mtfTimeframe}: ${dc.mtfCandles} candles) data insufficient. Alpha requires structural context to assess trade validity.`,
+        };
       }
     }
 
@@ -944,7 +986,28 @@ class AlphaCoordinatorBrain {
         });
       }
       const entryPrice = marketContext.price;
-      const atrForStopLoss = extractATRValue(marketContext.atr);
+
+      // CCIP 2026-03: Style-differentiated ATR timeframe for SL width.
+      // SCALP → M5 ATR (atr20), MICRO_INTRADAY → M15 ATR (atr), INTRADAY → H1 ATR (atr100).
+      // This ensures stop widths are structurally appropriate for the trade's managed timeframe.
+      let atrForStopLoss: number;
+      const styleAtrMap: Record<string, 'atr20' | 'atr' | 'atr100'> = {
+        SCALP: 'atr20',
+        MICRO_INTRADAY: 'atr',
+        INTRADAY: 'atr100',
+      };
+      const preferredAtrField = styleAtrMap[tradeStyle] ?? 'atr';
+      const preferredAtrRaw = marketContext[preferredAtrField as keyof typeof marketContext] as number | import('../types/atr').ATRValue | undefined;
+      const preferredAtrValue = extractATRValue(preferredAtrRaw);
+
+      if (preferredAtrValue > 0) {
+        atrForStopLoss = preferredAtrValue;
+        const preferredTf = extractATRTimeframe(preferredAtrRaw);
+        console.log(`[Alpha Coordinator] [Stop ATR Selection] ${tradeStyle}: using ${preferredAtrField} ATR=${atrForStopLoss.toFixed(5)}${preferredTf ? ` (${preferredTf})` : ''}`);
+      } else {
+        atrForStopLoss = extractATRValue(marketContext.atr);
+        console.warn(`[Alpha Coordinator] [Stop ATR Selection] ${tradeStyle}: preferred ATR field ${preferredAtrField} unavailable — falling back to marketContext.atr`);
+      }
       logATRUsage('Stop-Loss calculation', marketContext.atr);
 
       // Build sweep context from Omega-8 for sweep-aware stop placement (SSOT)
@@ -2541,15 +2604,26 @@ ${tradeStyle === 'SCALP' ? `{
         const atrPips = extractATRValue(marketContext.atr) / pipInfo.pipValue;
         const { currentSession } = calculateSessionContext();
 
+        const rawEntryMode = decision.entry_spec?.entry_mode;
+        const fillEntryMode: 'execute_now' | 'wait_pullback' | undefined =
+          rawEntryMode === 'EXECUTE_NOW' ? 'execute_now' :
+          rawEntryMode === 'WAIT_PULLBACK' ? 'wait_pullback' : undefined;
+
         const timeToFill = timeToFillCalculator.calculate({
           tpDistancePips,
           atrPips,
           currentSession,
-          symbol: marketContext.symbol
+          symbol: marketContext.symbol,
+          entryMode: fillEntryMode,
+          tradeStyle: tradeStyle as 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | undefined,
         });
 
-        decision.expectedFillTimeHours = timeToFill.expectedMinutes / 60;
-        decision.reasoning += ` [Expected fill: ${timeToFill.expectedMinutes}min]`;
+        decision.expectedFillTimeHours = timeToFill.totalExpectedMinutes / 60;
+        if (timeToFill.pullbackWaitMinutes > 0) {
+          decision.reasoning += ` [Expected fill: ${timeToFill.totalExpectedMinutes}min (${timeToFill.pullbackWaitMinutes}min pullback wait + ${timeToFill.tpFillMinutes}min to TP)]`;
+        } else {
+          decision.reasoning += ` [Expected fill: ${timeToFill.tpFillMinutes}min]`;
+        }
       }
 
       console.log('[Alpha Coordinator] Decision:', decision.action);
@@ -2766,6 +2840,27 @@ ${tradeStyle === 'SCALP' ? `{
       const tradeConfidence = parsed.trade_confidence ?? parsed.confidence ?? 0;
       const entryQualityScore = parsed.entry_quality_score ?? 0;
       const entryMode = parsed.entry_mode ?? 'wait_pullback';
+
+      // CCIP 2026-03: MICRO_INTRADAY requires a named M15 structural anchor.
+      // If Alpha outputs a MICRO_INTRADAY BUY/SELL without populating m15_structural_confirmation,
+      // the trade is rejected. Alpha must name the exact M15 level or it has no structural basis.
+      if (action !== 'NO_TRADE' && tradeStyle === 'MICRO_INTRADAY') {
+        const m15Anchor = typeof parsed.m15_structural_confirmation === 'string'
+          ? parsed.m15_structural_confirmation.trim()
+          : null;
+        const anchorIsVague = !m15Anchor ||
+          m15Anchor.length < 10 ||
+          m15Anchor.toLowerCase().includes('null') ||
+          m15Anchor.toLowerCase().includes('n/a');
+
+        if (anchorIsVague) {
+          console.error('[Alpha Coordinator] MICRO_INTRADAY_NO_M15_ANCHOR: Alpha output missing m15_structural_confirmation — overriding to NO_TRADE');
+          action = 'NO_TRADE';
+          decision = 'NO_TRADE';
+        } else {
+          console.log(`[Alpha Coordinator] MICRO_INTRADAY M15 anchor confirmed: "${m15Anchor}"`);
+        }
+      }
 
       // SSOT: User's chosen style is IMMUTABLE - LLM cannot override it
       // tradeStyle was already resolved from user's choice at function scope
