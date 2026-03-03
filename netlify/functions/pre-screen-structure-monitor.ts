@@ -60,16 +60,16 @@ interface CandleRow {
   high: number;
   low: number;
   close: number;
-  time: string;
+  close_time: string;
 }
 
 async function getCandlesForSymbol(symbol: string, timeframe: string): Promise<CandleRow[]> {
   const { data, error } = await supabase
     .from('forex_candles')
-    .select('open, high, low, close, time')
+    .select('open, high, low, close, close_time')
     .eq('symbol', symbol)
     .eq('timeframe', timeframe)
-    .order('time', { ascending: false })
+    .order('close_time', { ascending: false })
     .limit(CANDLE_COUNT);
 
   if (error || !data) return [];
