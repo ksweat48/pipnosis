@@ -26,7 +26,7 @@
  *  4. MEDIUM    - Magic number 60 (fresh-cache skip threshold) → TIME_MS.CACHE.FRESH_SKIP_HASH_SECONDS
  *  5. MEDIUM    - 7 raw console.log/error calls replaced with structured logger.*
  *  6. MEDIUM    - Hardcoded default fallback strings → THESIS_DEFAULTS (alpha-thesis.ts)
- *  7. LOW       - @deprecated JSDoc added to AlphaStrategicInsight
+ *  7. LOW       - Dead AlphaStrategicInsight export removed (CCIP-POST-AUDIT-2026-03-03)
  *  8. LOW       - Magic number 255 (error message truncation) → TIME_MS.CACHE.AUDIT_ERROR_MESSAGE_MAX_LENGTH
  */
 
@@ -56,24 +56,6 @@ import {
 } from './thesis-immutability-guard';
 import { logThesisRejection } from './thesis-rejection-logger';
 import { logger } from '../lib/logger';
-
-/**
- * @deprecated Use AlphaMarketThesis instead.
- * Legacy interface kept for backward compatibility with trade-execution-freshness-gate.ts.
- * CCIP-COORDINATOR-AUDIT-2026-03-03: Marked deprecated — migrate consumers to AlphaMarketThesis.
- */
-export interface AlphaStrategicInsight {
-  marketBias: 'bullish' | 'bearish' | 'neutral' | 'mixed';
-  conviction: number;
-  suggestedDirection: 'buy' | 'sell' | 'wait' | 'no_trade';
-  rrRangeMin: number;
-  rrRangeMax: number;
-  waitRecommended: boolean;
-  keyReasoning: string;
-  omegaSummary: Record<string, unknown>;
-  cacheAgeSeconds: number;
-  fromCache: boolean;
-}
 
 
 /**

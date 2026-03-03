@@ -10,6 +10,8 @@ import { RegimeSignature, RegimeSignatureHash } from '../types/alpha-thesis';
  *
  * Rationale for each value:
  *   PRICE_BUCKET_ATR_FRACTION  0.25  — bucket width = 1/4 ATR; balances granularity vs hit-rate
+ *   PRICE_BUCKET_FALLBACK_MUL  100   — fallback multiplier (2 decimal places) when ATR is unavailable
+ *   RSI_BUCKET_DIVISOR         10    — divides 0–100 RSI into 10 equal bins (each bin spans 10 units)
  *   TREND_STRONG_THRESHOLD     0.30  — 0.3% EMA spread distinguishes "strong" from "weak" trend
  *   VOLATILITY_LOW_PCT         0.30  — ATR/price < 0.3% → low volatility regime
  *   VOLATILITY_MEDIUM_PCT      0.80  — ATR/price < 0.8% → medium volatility regime
@@ -20,6 +22,8 @@ import { RegimeSignature, RegimeSignatureHash } from '../types/alpha-thesis';
  */
 const CACHE_KEY_THRESHOLDS = {
   PRICE_BUCKET_ATR_FRACTION: 0.25,
+  PRICE_BUCKET_FALLBACK_MUL: 100,
+  RSI_BUCKET_DIVISOR: 10,
   TREND_STRONG_THRESHOLD: 0.30,
   VOLATILITY_LOW_PCT: 0.30,
   VOLATILITY_MEDIUM_PCT: 0.80,
@@ -176,13 +180,13 @@ export function buildMarketStateSnapshot(
 
 export function calculatePriceBucket(price: number, atr: number): number {
   if (atr <= 0) {
-    return Math.floor(price * 100);
+    return Math.floor(price * CACHE_KEY_THRESHOLDS.PRICE_BUCKET_FALLBACK_MUL);
   }
   return Math.floor(price / (CACHE_KEY_THRESHOLDS.PRICE_BUCKET_ATR_FRACTION * atr));
 }
 
 export function calculateRsiBucket(rsi: number): number {
-  return Math.floor(rsi / 10);
+  return Math.floor(rsi / CACHE_KEY_THRESHOLDS.RSI_BUCKET_DIVISOR);
 }
 
 export function calculateTrendBucket(

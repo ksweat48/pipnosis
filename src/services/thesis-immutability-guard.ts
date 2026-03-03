@@ -256,12 +256,15 @@ export function createImmutableThesis(
  *
  * SSOT COMPLIANCE: Uses thesis.regimeSignature directly (already properly structured from DB storage)
  * No reconstruction needed - hash validation against stored representation
+ *
+ * CCIP-POST-AUDIT-2026-03-03: Delegates freeze check to detectThesisMutation() so that
+ * function is the single authority for freeze-state detection + error logging.
  */
 export function verifyCachedThesisIntegrity(
   thesis: AlphaMarketThesis
 ): { valid: boolean; reason?: string } {
-  // Check if frozen
-  if (!Object.isFrozen(thesis)) {
+  // Delegate to detectThesisMutation — single authority for frozen-state check + logging
+  if (detectThesisMutation(thesis)) {
     return {
       valid: false,
       reason: 'Thesis not frozen (SSOT violation)'
