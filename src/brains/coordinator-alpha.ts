@@ -239,6 +239,10 @@ export interface GoalContext {
   riskPercent?: number; // Actual risk percentage (3%, 5%, 10%)
   sessionId?: string; // Goal session ID for progress thought emissions (optional)
   tradeStyle?: string; // User's selected trade style from goal session (scalper, micro, intraday)
+  // CCIP-MULTI-TRADE-TOP-N: When true, the orchestrator must evaluate ALL symbols
+  // (no early-exit) so the best-symbol-selector can rank and return top N.
+  // SSOT: driven by goal_sessions.max_concurrent_trades > 1.
+  multiTradeMode?: boolean;
 }
 
 export interface AlphaDecision {

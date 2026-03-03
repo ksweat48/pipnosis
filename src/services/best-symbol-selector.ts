@@ -62,6 +62,24 @@ export interface BestSymbolResult {
   };
 }
 
+// CCIP-MULTI-TRADE-TOP-N: Result type for selecting multiple ranked symbols
+export interface TopNSymbolsResult {
+  selected: boolean;
+  winners: Array<{
+    symbol: string;
+    evaluation: SymbolEvaluation;
+    rank: number; // 1 = best
+  }>;
+  allEvaluations: SymbolEvaluation[];
+  reasoning: string;
+  selectionMetadata: {
+    requestedN: number;
+    actualN: number; // May be < requestedN when fewer eligible symbols exist
+    confidenceRange: string;
+    forensics: string;
+  };
+}
+
 class BestSymbolSelector {
   /**
    * Select the best symbol using confidence-dominant architecture
@@ -501,6 +519,167 @@ class BestSymbolSelector {
     }
 
     console.log('\n========================================\n');
+  }
+
+  /**
+   * CCIP-MULTI-TRADE-TOP-N: Select the top N eligible symbols by confidence.
+   *
+   * Uses the same eligibility pipeline as selectBestSymbol but returns up to N
+   * ranked winners instead of a single winner.  Tie-breaker logic is applied
+   * between consecutive pairs whose confidence differs by ≤ CONFIDENCE_TIE_THRESHOLD.
+   *
+   * Governance contract:
+   *  - n must be between 1 and 3 (mirrors max_concurrent_trades CHECK constraint).
+   *  - If fewer than n eligible symbols exist, returns only what is available.
+   *  - excludedSymbols prevents re-selecting a pair already open in this session.
+   */
+  selectTopNSymbols(
+    snapshots: SymbolSnapshot[],
+    omegaDecisions: Map<string, AlphaDecision>,
+    n: number,
+    tpsScores?: Map<string, number>,
+    excludedSymbols?: Set<string>
+  ): TopNSymbolsResult {
+    const clampedN = Math.max(1, Math.min(3, n));
+
+    console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    console.log(`[Best Symbol Selector] TOP-${clampedN} SELECTION (multi-trade mode)`);
+    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    console.log(`Evaluating ${snapshots.length} symbols | Excluded: ${excludedSymbols ? Array.from(excludedSymbols).join(', ') || 'none' : 'none'}`);
+
+    const eligibleEvaluations: SymbolEvaluation[] = [];
+    const rejectedEvaluations: { symbol: string; reason: string; gate: string }[] = [];
+
+    for (const snapshot of snapshots) {
+      if (excludedSymbols?.has(snapshot.symbol)) {
+        rejectedEvaluations.push({ symbol: snapshot.symbol, reason: 'Already open in session', gate: 'EXCLUDED_OPEN' });
+        continue;
+      }
+
+      const decision = omegaDecisions.get(snapshot.symbol);
+      const eligibilityChecks: EligibilityCheck[] = [];
+
+      if (!decision) {
+        rejectedEvaluations.push({ symbol: snapshot.symbol, reason: 'No Omega decision found', gate: 'DECISION_EXISTS' });
+        continue;
+      }
+      eligibilityChecks.push({ passed: true, reason: 'Omega decision exists', gate: 'DECISION_EXISTS' });
+
+      if (decision.action === 'NO_TRADE') {
+        const noTradeClassification = this.classifyNoTrade(decision);
+        eligibilityChecks.push({ passed: false, reason: `NO_TRADE: ${noTradeClassification.category}`, gate: 'TRADEABLE_ACTION' });
+        rejectedEvaluations.push({ symbol: snapshot.symbol, reason: `NO_TRADE: ${noTradeClassification.detail}`, gate: 'TRADEABLE_ACTION' });
+        continue;
+      }
+      eligibilityChecks.push({ passed: true, reason: `${decision.action} action`, gate: 'TRADEABLE_ACTION' });
+
+      if (!snapshot.tradeable) {
+        eligibilityChecks.push({ passed: false, reason: snapshot.blockReason || 'Snapshot not tradeable', gate: 'SNAPSHOT_TRADEABLE' });
+        rejectedEvaluations.push({ symbol: snapshot.symbol, reason: `Blocked: ${snapshot.blockReason}`, gate: 'SNAPSHOT_TRADEABLE' });
+        continue;
+      }
+      eligibilityChecks.push({ passed: true, reason: 'Snapshot tradeable', gate: 'SNAPSHOT_TRADEABLE' });
+
+      eligibilityChecks.push({
+        passed: true,
+        reason: snapshot.adversarial.is_adversarial ? `Adversarial context noted (${snapshot.adversarial.level}) — Alpha informed` : 'Clean market',
+        gate: 'ADVERSARIAL_CHECK',
+      });
+
+      if (decision.confidence < ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE) {
+        eligibilityChecks.push({ passed: false, reason: `Confidence ${decision.confidence}% below threshold ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%`, gate: 'CONFIDENCE_THRESHOLD' });
+        rejectedEvaluations.push({ symbol: snapshot.symbol, reason: `Confidence ${decision.confidence}% < ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%`, gate: 'CONFIDENCE_THRESHOLD' });
+        continue;
+      }
+      eligibilityChecks.push({ passed: true, reason: `Confidence ${decision.confidence}% >= ${ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE}%`, gate: 'CONFIDENCE_THRESHOLD' });
+
+      const geometryCheck = this.validateTradeGeometry(decision);
+      if (!geometryCheck.valid) {
+        eligibilityChecks.push({ passed: false, reason: geometryCheck.reason, gate: 'TRADE_GEOMETRY' });
+        rejectedEvaluations.push({ symbol: snapshot.symbol, reason: geometryCheck.reason, gate: 'TRADE_GEOMETRY' });
+        continue;
+      }
+      eligibilityChecks.push({ passed: true, reason: 'Trade geometry valid', gate: 'TRADE_GEOMETRY' });
+
+      const reasoning = this.buildReasoning(snapshot, decision);
+      eligibleEvaluations.push({
+        symbol: snapshot.symbol,
+        snapshot,
+        omegaDecision: decision,
+        primaryScore: decision.confidence,
+        eligibility: eligibilityChecks,
+        reasoning,
+      });
+
+      console.log(`[Top-N Selector] ✅ ${snapshot.symbol}: ${decision.confidence}% | ${decision.action} | All gates passed`);
+    }
+
+    if (rejectedEvaluations.length > 0) {
+      console.log(`\n❌ Rejected (${rejectedEvaluations.length}):`);
+      for (const r of rejectedEvaluations) {
+        console.log(`   ${r.symbol}: ${r.reason} [${r.gate}]`);
+      }
+    }
+
+    if (eligibleEvaluations.length === 0) {
+      console.log(`\n[Top-N Selector] No eligible symbols found\n`);
+      return {
+        selected: false,
+        winners: [],
+        allEvaluations: [],
+        reasoning: 'No tradeable opportunities passed eligibility filters',
+        selectionMetadata: {
+          requestedN: clampedN,
+          actualN: 0,
+          confidenceRange: 'N/A',
+          forensics: `Evaluated: ${snapshots.length} | Rejected: ${rejectedEvaluations.length} | Eligible: 0`,
+        },
+      };
+    }
+
+    // Primary sort by confidence descending
+    eligibleEvaluations.sort((a, b) => b.primaryScore - a.primaryScore);
+
+    // Apply tie-breaker between consecutive pairs within threshold
+    for (let i = 0; i < Math.min(eligibleEvaluations.length - 1, clampedN); i++) {
+      const current = eligibleEvaluations[i];
+      const next = eligibleEvaluations[i + 1];
+      const diff = current.primaryScore - next.primaryScore;
+      if (diff <= CONFIDENCE_TIE_THRESHOLD) {
+        current.tieBreakerFactors = this.calculateTieBreakerFactors(current, tpsScores);
+        next.tieBreakerFactors = this.calculateTieBreakerFactors(next, tpsScores);
+        if (next.tieBreakerFactors.combinedScore > current.tieBreakerFactors.combinedScore) {
+          [eligibleEvaluations[i], eligibleEvaluations[i + 1]] = [eligibleEvaluations[i + 1], eligibleEvaluations[i]];
+        }
+      }
+    }
+
+    const winners = eligibleEvaluations.slice(0, clampedN).map((ev, idx) => ({
+      symbol: ev.symbol,
+      evaluation: ev,
+      rank: idx + 1,
+    }));
+
+    const confidenceRange = `${Math.min(...eligibleEvaluations.map(e => e.primaryScore))}%-${Math.max(...eligibleEvaluations.map(e => e.primaryScore))}%`;
+    const forensics = `Evaluated: ${snapshots.length} | Rejected: ${rejectedEvaluations.length} | Eligible: ${eligibleEvaluations.length} | Selected top ${winners.length}: ${winners.map(w => `${w.symbol}@${w.evaluation.primaryScore}%`).join(', ')}`;
+
+    console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    console.log(`[Top-N Selector] SELECTED ${winners.length}/${clampedN} requested`);
+    winners.forEach(w => console.log(`  ${w.rank}. ${w.symbol} — ${w.evaluation.primaryScore}% | ${w.evaluation.omegaDecision.action}`));
+    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+
+    return {
+      selected: winners.length > 0,
+      winners,
+      allEvaluations: eligibleEvaluations,
+      reasoning: `Selected ${winners.length} symbol(s): ${winners.map(w => `${w.symbol} @ ${w.evaluation.primaryScore}%`).join(', ')}`,
+      selectionMetadata: {
+        requestedN: clampedN,
+        actualN: winners.length,
+        confidenceRange,
+        forensics,
+      },
+    };
   }
 
   /**

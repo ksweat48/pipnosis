@@ -639,6 +639,7 @@ class SmartGoalSessionManager {
         useLLM: true,
         riskMode: config.riskMode || 'medium',
         maxConcurrentTrades,
+        multiTradeMode: multiTradeEnabled,
         initialBalance: accountBalance,
         autoExecute: config.autoExecute,
         minConfidence,

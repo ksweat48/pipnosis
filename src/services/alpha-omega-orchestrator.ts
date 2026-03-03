@@ -901,13 +901,18 @@ class AlphaOmegaOrchestrator {
     const minConfidence = goalContext?.minConfidence || config.earlyExit.minConfidenceThreshold;
     const maxConcurrent = config.concurrency.maxConcurrentSymbols || marketStates.length;
 
+    // CCIP-MULTI-TRADE-TOP-N: In multi-trade mode ALL symbols must be evaluated so
+    // the best-symbol-selector can rank and return the top N eligible pairs.
+    // Early-exit saves LLM cost in single-trade mode but defeats multi-trade intent.
+    const earlyExitAllowed = config.earlyExit.enabled && !goalContext?.multiTradeMode;
+
     const currentSession = marketScheduleService.getCurrentMarketSession();
     const sessionTimeout = getSessionTimeout(currentSession);
     const sessionDescription = marketScheduleService.getSessionDescription(currentSession);
 
     console.log(`[Alpha+Omega] CONCURRENT MODE: ${marketStates.length} symbols, ${maxConcurrent} at a time`);
     console.log(`[Alpha+Omega] Session: ${sessionDescription} | Timeout: ${sessionTimeout}ms/symbol`);
-    console.log(`[Alpha+Omega] Early-exit: ${config.earlyExit.enabled ? `YES (${minConfidence}%+)` : 'NO'}`);
+    console.log(`[Alpha+Omega] Early-exit: ${earlyExitAllowed ? `YES (${minConfidence}%+)` : `NO${goalContext?.multiTradeMode ? ' (multi-trade mode — full evaluation required)' : ''}`}`);
 
     const decisionMap = new Map<string, AlphaDecision>();
     const symbolTimings = new Map<string, number>();
@@ -925,7 +930,7 @@ class AlphaOmegaOrchestrator {
     for (let batchIdx = 0; batchIdx < chunks.length; batchIdx++) {
       const chunk = chunks[batchIdx];
 
-      if (foundViableTrade && config.earlyExit.enabled) {
+      if (foundViableTrade && earlyExitAllowed) {
         console.log(`[Alpha+Omega] Skipping batch ${batchIdx + 1}/${chunks.length} - viable trade already found (${viableTradeSymbol})`);
         break;
       }
@@ -1009,8 +1014,12 @@ class AlphaOmegaOrchestrator {
     const config = getConcurrentExecutionConfig();
     const minConfidence = goalContext?.minConfidence || config.earlyExit.minConfidenceThreshold;
 
+    // CCIP-MULTI-TRADE-TOP-N: Same guard as concurrent path — suppress early-exit
+    // when multi-trade mode is active so all symbols get evaluated for top-N ranking.
+    const earlyExitAllowed = config.earlyExit.enabled && !goalContext?.multiTradeMode;
+
     console.log(`[Alpha+Omega] 🔄 SEQUENTIAL MODE: Analyzing symbols one by one`);
-    console.log(`[Alpha+Omega] 🎯 Early-exit threshold: ${minConfidence}% confidence`);
+    console.log(`[Alpha+Omega] 🎯 Early-exit threshold: ${minConfidence}% confidence | Suppressed: ${goalContext?.multiTradeMode ? 'YES (multi-trade)' : 'NO'}`);
 
     const decisionMap = new Map<string, AlphaDecision>();
 
@@ -1061,8 +1070,9 @@ class AlphaOmegaOrchestrator {
 
         decisionMap.set(marketState.symbol, decision);
 
-        // EARLY EXIT: Stop scanning if viable trade found
-        if (config.earlyExit.enabled) {
+        // EARLY EXIT: Stop scanning if viable trade found (single-trade mode only)
+        // CCIP-MULTI-TRADE-TOP-N: earlyExitAllowed is false when multiTradeMode=true
+        if (earlyExitAllowed) {
           const isViableTrade = decision.action !== 'NO_TRADE' && decision.confidence >= minConfidence;
 
           if (isViableTrade) {

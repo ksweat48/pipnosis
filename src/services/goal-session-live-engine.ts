@@ -70,6 +70,10 @@ export interface GoalSessionLiveConfig {
   tradeStyle?: string; // Trade style (Sniper, Scalper, Day Trader, Swing Trader)
   specificSymbols?: string[]; // Runtime override: narrow scan to this subset of watchlist symbols
   cardSignal?: Record<string, unknown>; // Pre-selected IM card signal to inject into Alpha reasoning
+  // CCIP-MULTI-TRADE-TOP-N: mirrors goal_sessions.max_concurrent_trades > 1.
+  // When true: early-exit is suppressed in orchestrator, top N pairs are executed
+  // in a single cycle instead of one-per-cycle. SSOT: set from maxConcurrentTrades.
+  multiTradeMode?: boolean;
 }
 
 export interface NoTradeRejectionContext {
@@ -884,7 +888,10 @@ class GoalSessionLiveEngine {
         riskMode: config.riskMode,
         riskPercent: getRiskPercentage(config.riskMode),
         sessionId: this.activeSession ?? undefined,
-        tradeStyle: config.tradeStyle
+        tradeStyle: config.tradeStyle,
+        // CCIP-MULTI-TRADE-TOP-N: propagate multi-trade intent to orchestrator so
+        // the early-exit optimisation is suppressed and all symbols are evaluated.
+        multiTradeMode: config.multiTradeMode ?? (config.maxConcurrentTrades > 1),
       };
 
       if (import.meta.env.DEV) {
@@ -1223,23 +1230,52 @@ class GoalSessionLiveEngine {
         // Non-critical: Continue with confidence-only selection
       }
 
-      // Use filtered snapshots and decisions for selection (with TPS scores for tie-breaking)
-      const bestSymbolResult = bestSymbolSelector.selectBestSymbol(
-        filteredSnapshots,
-        filteredDecisions,
-        tpsScores // ✅ NEW: Pass TPS scores for intelligent tie-breaking
-      );
+      // ═══════════════════════════════════════════════════════════════════
+      // CCIP-MULTI-TRADE-TOP-N: Symbol selection
+      // Single-trade mode → selectBestSymbol (single winner, unchanged)
+      // Multi-trade mode  → selectTopNSymbols (up to N winners, same cycle)
+      //
+      // SSOT: config.multiTradeMode drives the branching.
+      // Excluded symbols = symbols already open so we never double-trade a pair.
+      // ═══════════════════════════════════════════════════════════════════
+      const isMultiTradeMode = config.multiTradeMode ?? (config.maxConcurrentTrades > 1);
+      const slotsAvailable = config.maxConcurrentTrades - tradeCount;
 
-      bestSymbolSelector.logEvaluationDetails(bestSymbolResult);
+      let selectedWinners: Array<{ symbol: string; evaluation: import('./best-symbol-selector').SymbolEvaluation; rank: number }> = [];
+      let allEvaluations: import('./best-symbol-selector').SymbolEvaluation[] = [];
+
+      if (isMultiTradeMode && slotsAvailable > 1) {
+        const openSymbolsInSession = new Set(this.openTrades.map(t => t.symbol));
+        const topNResult = bestSymbolSelector.selectTopNSymbols(
+          filteredSnapshots,
+          filteredDecisions,
+          slotsAvailable,
+          tpsScores,
+          openSymbolsInSession
+        );
+        selectedWinners = topNResult.winners;
+        allEvaluations = topNResult.allEvaluations;
+
+        console.log(`[MULTI-TRADE TOP-N] Slots available: ${slotsAvailable} | Winners selected: ${topNResult.selectionMetadata.actualN}`);
+        console.log(`[MULTI-TRADE TOP-N] ${topNResult.selectionMetadata.forensics}`);
+      } else {
+        const bestSymbolResult = bestSymbolSelector.selectBestSymbol(
+          filteredSnapshots,
+          filteredDecisions,
+          tpsScores
+        );
+        bestSymbolSelector.logEvaluationDetails(bestSymbolResult);
+        allEvaluations = bestSymbolResult.allEvaluations;
+        if (bestSymbolResult.selected && bestSymbolResult.symbol && bestSymbolResult.evaluation) {
+          selectedWinners = [{ symbol: bestSymbolResult.symbol, evaluation: bestSymbolResult.evaluation, rank: 1 }];
+        }
+      }
 
       // 📊 SCAN RESULTS: Store scan outcome for user visibility
       const scanEndTime = Date.now();
       const scanDurationMs = scanEndTime - orchestratorStartTime;
       try {
-        // Build all candidates from allEvaluations (SSOT: BestSymbolResult.allEvaluations is the correct property)
-        // allEvaluations contains every symbol that passed eligibility gates in the best-symbol-selector
-        // When no symbol is selected, allEvaluations is empty — fall back to filteredDecisions for diagnostics
-        const eligibleEvaluations = bestSymbolResult.allEvaluations || [];
+        const eligibleEvaluations = allEvaluations;
 
         const allCandidates: ScanCandidate[] = eligibleEvaluations.length > 0
           ? eligibleEvaluations.map(evaluation => ({
@@ -1274,13 +1310,11 @@ class GoalSessionLiveEngine {
 
         const topCandidate = allCandidates[0] || null;
         const topCandidateDecision = topCandidate ? filteredDecisions.get(topCandidate.symbol) : null;
-        const rejectionReason = !bestSymbolResult.selected
+        const rejectionReason = selectedWinners.length === 0
           ? 'No symbols passed selection criteria'
-          : (bestSymbolResult.evaluation?.omegaDecision?.action === 'WAIT'
-            ? `Best candidate ${topCandidate?.symbol} returned WAIT decision`
-            : (topCandidateDecision && topCandidateDecision.confidence < (config.minConfidence || 70)
-              ? `Confidence ${topCandidateDecision.confidence}% below threshold ${config.minConfidence || 70}%`
-              : null));
+          : (topCandidateDecision && topCandidateDecision.confidence < (config.minConfidence || 70)
+            ? `Confidence ${topCandidateDecision.confidence}% below threshold ${config.minConfidence || 70}%`
+            : null);
 
         await scanResultsManager.storeScanResult({
           sessionId: activeSession!,
@@ -1301,7 +1335,6 @@ class GoalSessionLiveEngine {
         });
 
         // 💭 THOUGHT STREAM: Emit per-symbol reasoning before final decision
-        // Each candidate's Alpha reasoning is surfaced individually for transparency
         try {
           for (const [sym, dec] of filteredDecisions.entries()) {
             if (dec?.reasoning) {
@@ -1319,20 +1352,21 @@ class GoalSessionLiveEngine {
           logger.error(LogCategory.AI_TRADING, '[AlphaThoughts] Failed to emit per-symbol reasoning', { error });
         }
 
-        // 💭 THOUGHT STREAM: Emit final decision
+        // 💭 THOUGHT STREAM: Emit final decision (use top winner or no-trade)
         try {
-          if (bestSymbolResult.selected && bestSymbolResult.symbol && bestSymbolResult.evaluation) {
-            const decision = bestSymbolResult.evaluation.omegaDecision;
+          if (selectedWinners.length > 0) {
+            const topWinner = selectedWinners[0];
+            const topDecision = topWinner.evaluation.omegaDecision;
             await alphaThoughtStream.emitFinalDecision(
               activeSession,
               config.userId,
               {
                 selected: true,
-                symbol: bestSymbolResult.symbol,
-                action: decision.action as 'BUY' | 'SELL' | 'WAIT' | 'NO_TRADE',
-                confidence: decision.confidence,
-                entry: decision.entry,
-                reasoning: rejectionReason || `${bestSymbolResult.symbol} selected with ${decision.confidence}% confidence`
+                symbol: topWinner.symbol,
+                action: topDecision.action as 'BUY' | 'SELL' | 'WAIT' | 'NO_TRADE',
+                confidence: topDecision.confidence,
+                entry: topDecision.entry,
+                reasoning: `${selectedWinners.length > 1 ? `Top-${selectedWinners.length} multi-trade: ` : ''}${topWinner.symbol} selected with ${topDecision.confidence}% confidence`
               }
             );
           } else {
@@ -1345,7 +1379,7 @@ class GoalSessionLiveEngine {
               {
                 selected: false,
                 symbol: null,
-                reasoning: perSymbolSummary || rejectionReason || 'No quality setups found'
+                reasoning: perSymbolSummary || 'No quality setups found'
               }
             );
           }
@@ -1356,16 +1390,14 @@ class GoalSessionLiveEngine {
         logger.error(LogCategory.AI_TRADING, '[SCAN RESULTS] Failed to store scan result', { error });
       }
 
-      if (!bestSymbolResult.selected || !bestSymbolResult.symbol || !bestSymbolResult.evaluation) {
+      if (selectedWinners.length === 0) {
         logger.debug(LogCategory.AI_TRADING, '🚫 No symbols passed selection criteria');
 
-        // Convert snapshots array to Map for detailed message generation
         const snapshotsBySymbol = new Map<string, SymbolSnapshot>();
         snapshotResult.snapshots.forEach(snapshot => {
           snapshotsBySymbol.set(snapshot.symbol, snapshot);
         });
 
-        // Build detailed explanation of why no symbols were selected
         const detailedMessage = this.buildDetailedEvaluationMessage(
           snapshotsBySymbol,
           omegaDecisions
@@ -1377,8 +1409,60 @@ class GoalSessionLiveEngine {
         return;
       }
 
-      const selectedSymbol = bestSymbolResult.symbol;
-      let decision = bestSymbolResult.evaluation.omegaDecision;
+      // ═══════════════════════════════════════════════════════════════════
+      // CCIP-MULTI-TRADE-TOP-N: Audit log — record which pairs were selected
+      // and how many slots were available. Non-blocking (never stops execution).
+      // ═══════════════════════════════════════════════════════════════════
+      try {
+        await supabase.from('multi_trade_execution_audit').insert({
+          session_id: activeSession!,
+          user_id: config.userId,
+          slots_available: slotsAvailable,
+          eligible_count: allEvaluations.length,
+          selected_symbols: selectedWinners.map(w => w.symbol),
+          selected_confidences: selectedWinners.map(w => w.evaluation.primaryScore),
+          trades_executed: 0,
+          early_exit_suppressed: isMultiTradeMode,
+          notes: `Top-${selectedWinners.length} of ${allEvaluations.length} eligible`
+        });
+      } catch (auditError) {
+        logger.warn(LogCategory.AI_TRADING, '[Multi-Trade Audit] Failed to insert audit row (non-blocking)', { error: auditError });
+      }
+
+      // ITERATE over selected winners — in multi-trade mode execute all of them,
+      // in single-trade mode the array has exactly one element (no behaviour change).
+      const sessionRecord = await (async () => {
+        const { data, error } = await supabase
+          .from('goal_sessions')
+          .select('*')
+          .eq('id', activeSession!)
+          .single();
+        if (error || !data) {
+          logger.error(LogCategory.AI_TRADING, '[Trade Execution] Failed to fetch goal_session record', { error, sessionId: activeSession });
+          await this.sendAIMessage('⚠️ System error: Could not load session data. Trade execution blocked to protect account.');
+          return null;
+        }
+        return data;
+      })();
+
+      if (!sessionRecord) return;
+
+      for (const winner of selectedWinners) {
+        // Re-verify DB trade count before each execution in the loop (prevents
+        // race condition if a prior iteration in this same cycle already wrote).
+        const { count: currentDbCount } = await supabase
+          .from('goal_session_trades')
+          .select('*', { count: 'exact', head: true })
+          .eq('goal_session_id', activeSession!)
+          .eq('status', 'open');
+
+        if ((currentDbCount || 0) >= config.maxConcurrentTrades) {
+          logger.debug(LogCategory.AI_TRADING, `[TOP-N LOOP] Max trades (${config.maxConcurrentTrades}) reached mid-loop — stopping`);
+          break;
+        }
+
+        const selectedSymbol = winner.symbol;
+        let decision = winner.evaluation.omegaDecision;
 
       // ✅ SSOT PRECISION FIX: Round all prices to correct decimal places
       // This prevents "SL/TP precision exceeds X decimal places" validation errors
@@ -1393,37 +1477,21 @@ class GoalSessionLiveEngine {
       logger.debug(LogCategory.AI_TRADING, `🎯 SELECTED: ${selectedSymbol} | ${decision.action} @ ${decision.confidence}%`);
 
       if (decision.action === 'NO_TRADE') {
-        await this.sendAIMessage(`Best symbol: ${selectedSymbol}. Setup detected but confidence threshold not met. Waiting for stronger signals.`);
-        const rejectionContext = this.buildRejectionContext(omegaDecisions, snapshotResult.snapshots);
-        this.emitNoTradeEvent(rejectionContext);
-        return;
-      }
-
-      // 🔥 SSOT FIX: WAIT action REMOVED - Alpha decides: EXECUTE NOW or KEEP SCANNING
-      // Entry Monitor and EQS no longer block execution
-      // Alpha returns: BUY, SELL, or NO_TRADE
-      // - BUY/SELL = execute immediately at market price
-      // - NO_TRADE = not ready yet, keep scanning for better opportunities
-
-      // REMOVED: WAIT action handling
-      // Alpha no longer returns WAIT - only BUY, SELL, or NO_TRADE
-      if (decision.action === 'NO_TRADE') {
         logger.debug(
           LogCategory.AI_TRADING,
-          `Alpha returned NO_TRADE for ${selectedSymbol}. Setup not ready - continuing scan.`
+          `Alpha returned NO_TRADE for ${selectedSymbol}. Setup not ready — skipping to next winner.`
         );
-        // Continue scanning - no user message needed
-        return;
+        continue;
       }
 
       if (this.openTrades.length >= config.maxConcurrentTrades) {
         logger.debug(LogCategory.AI_TRADING, 'Max concurrent trades reached');
-        return;
+        break;
       }
 
       if (!this.allowNewTrades) {
         logger.debug(LogCategory.AI_TRADING, '⏸️ Timeframe expired - not opening new trades');
-        return;
+        break;
       }
 
       const minConfidence = config.minConfidence || 70;
@@ -1437,16 +1505,16 @@ class GoalSessionLiveEngine {
 
         await this.sendAIMessage(rejectionMessage);
         logger.info(LogCategory.AI_TRADING, `Trade rejected: ${selectedSymbol} ${decision.action} @ ${decision.confidence}% < ${minConfidence}%`);
-        return;
+        continue;
       }
 
-      const snapshot = bestSymbolResult.evaluation.snapshot;
+      const snapshot = winner.evaluation.snapshot;
 
       // DEFENSIVE: Validate snapshot has candle data
       if (!snapshot.recentCandles || snapshot.recentCandles.length === 0) {
         logger.error(LogCategory.AI_TRADING, `❌ Snapshot missing candle data for ${selectedSymbol}`);
         console.error('[MULTI-SYMBOL] Invalid snapshot - missing recentCandles:', snapshot);
-        return;
+        continue;
       }
 
       const latestCandle = snapshot.recentCandles[snapshot.recentCandles.length - 1];
@@ -1455,7 +1523,7 @@ class GoalSessionLiveEngine {
       if (this.openTrades.length >= config.maxConcurrentTrades) {
         logger.debug(LogCategory.AI_TRADING, `BLOCKED: Already at max trades (${config.maxConcurrentTrades})`);
         await this.sendAIMessage(`Max trades (${config.maxConcurrentTrades}) limit reached. Pausing new trade scans to preserve credits. Monitoring open positions only.`);
-        return;
+        break;
       }
 
       // ✅ PHASE 2 REFACTOR: Use ProfessionalRiskManager (SSOT for position sizing)
@@ -1501,7 +1569,7 @@ class GoalSessionLiveEngine {
           `Recommendations:\n` + riskAssessment.recommendations.join('\n')
         );
         logger.info(LogCategory.AI_TRADING, `Trade rejected by ProfessionalRiskManager: ${selectedSymbol}`);
-        return;
+        continue;
       }
 
       // Extract approved position size from ProfessionalRiskManager
@@ -1630,14 +1698,14 @@ class GoalSessionLiveEngine {
           `${feasibilityResult.blockReason}\n\n` +
           `💡 Suggestions:\n${feasibilityResult.alternativeSuggestions?.map(s => `  • ${s}`).join('\n') || ''}`
         );
-        return;
+        continue;
       }
 
       // Handle WAIT tier - Market too quiet or opportunity not meaningful
       if (!feasibilityResult.feasible && feasibilityResult.tier === 'WAIT_FOR_VOLATILITY') {
         console.log('%c[Goal Feasibility] ⏸️ WAITING - Conditions not optimal', 'color: #f59e0b; font-weight: bold');
         await this.sendAIMessage(`⏸️ ${feasibilityResult.waitReason}`);
-        return;
+        continue;
       }
 
       // ✅ ARCHITECTURAL FIX: Feasibility is ADVISORY ONLY - Alpha has final authority
@@ -1818,22 +1886,6 @@ class GoalSessionLiveEngine {
       const tradeContext = tradeContextResult.context;
       logger.info(LogCategory.AI_TRADING, `[SSOT] TradeContext created for ${selectedSymbol} (hash: ${tradeContext.profileHash})`);
 
-      // ✅ SSOT FIX: Fetch goal_session record for alphaTradeExecutor
-      const { data: sessionRecord, error: sessionFetchError } = await supabase
-        .from('goal_sessions')
-        .select('*')
-        .eq('id', activeSession!)
-        .single();
-
-      if (sessionFetchError || !sessionRecord) {
-        logger.error(LogCategory.AI_TRADING, '[Trade Execution] Failed to fetch goal_session record', {
-          error: sessionFetchError,
-          sessionId: activeSession
-        });
-        await this.sendAIMessage('⚠️ System error: Could not load session data. Trade execution blocked to protect account.');
-        return;
-      }
-
       // ✅ SSOT: Execute trade using alphaTradeExecutor (unified execution authority)
       // alphaTradeExecutor provides:
       // - Multi-layer validation (Core + Capacity + Risk + Price + Database)
@@ -1872,7 +1924,7 @@ class GoalSessionLiveEngine {
             `I'll keep scanning for other opportunities while monitoring this setup.`
           );
 
-          return;
+          continue;
         }
 
         tradeExecuted = true;
@@ -2014,7 +2066,7 @@ class GoalSessionLiveEngine {
                 }
               );
 
-              return; // Exit early to prevent the summary message below
+              continue; // Skip summary message for single-trade mode max-reached path
             }
           }
         } catch (error) {
@@ -2039,11 +2091,11 @@ class GoalSessionLiveEngine {
           logger.warn(LogCategory.AI_TRADING, 'Failed to send execution block notification', { error: e });
         });
 
-        // Exit early on execution failure - continue scanning
-        return;
+        // Continue to next winner on execution failure
+        continue;
       }
 
-      const selectionSummary = (bestSymbolResult.allEvaluations || [])
+      const selectionSummary = (allEvaluations || [])
         .slice(0, 3)
         .map((e, i) => {
           const score = e.overallScore ?? 0;
@@ -2088,6 +2140,8 @@ class GoalSessionLiveEngine {
           expected_profit: expectedProfit
         }
       );
+
+      } // end for (const winner of selectedWinners)
 
     } catch (error) {
       console.log('%c[MULTI-SYMBOL] ❌ ERROR CAUGHT', 'color: #f44336; font-weight: bold; font-size: 18px');
