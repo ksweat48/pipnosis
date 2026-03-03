@@ -187,6 +187,25 @@ export interface AlphaMarketThesis {
 export const THESIS_TTL_MS = TIME_MS.CACHE.ALPHA_THESIS; // 15 minutes (SSOT: time-constants.ts)
 
 /**
+ * Estimated cost per Alpha thesis LLM call.
+ * SSOT: All log messages and cost-saving calculations must reference this constant.
+ * CCIP-COORDINATOR-AUDIT-2026-03-03: Extracted from hardcoded '$0.20' strings in
+ * shared-intelligence-coordinator.ts to prevent silent cost-figure drift on API re-pricing.
+ */
+export const ALPHA_THESIS_LLM_COST_PER_CALL = '$0.20';
+
+/**
+ * Default fallback strings used when optional thesis fields are absent.
+ * SSOT: Centralised here so schema defaults and RPC call defaults stay in sync.
+ * CCIP-COORDINATOR-AUDIT-2026-03-03: Extracted from hardcoded strings in
+ * shared-intelligence-coordinator.ts cache_alpha_thesis RPC call.
+ */
+export const THESIS_DEFAULTS = {
+  LIQUIDITY_CONTEXT: 'Standard liquidity conditions',
+  INVALIDATION_LOGIC: 'Standard invalidation rules',
+} as const;
+
+/**
  * Structure change thresholds for early invalidation
  */
 export const STRUCTURE_INVALIDATION_THRESHOLDS = {

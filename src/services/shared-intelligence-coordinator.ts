@@ -15,6 +15,19 @@
  *
  * COST SAVINGS: 60-85% reduction through thesis reuse
  * USER AUTHORITY: Preserved - each user gets personalized execution
+ *
+ * CCIP-COORDINATOR-AUDIT-2026-03-03:
+ * Resolved 8 SSOT / governance violations found in post-improvement audit:
+ *  1. CRITICAL  - Cache key prefix mismatch in invalidateThesisForSymbol():
+ *                 was searching `${symbol}_` but actual key format is `thesis:${symbol}:`
+ *  2. HIGH      - Missing try-catch around logThesisRejection / invalidateThesisByRegime
+ *                 inside fetchPromise IIFE (amplification risk via thundering herd)
+ *  3. HIGH      - Hardcoded '$0.20' cost strings → ALPHA_THESIS_LLM_COST_PER_CALL (alpha-thesis.ts)
+ *  4. MEDIUM    - Magic number 60 (fresh-cache skip threshold) → TIME_MS.CACHE.FRESH_SKIP_HASH_SECONDS
+ *  5. MEDIUM    - 7 raw console.log/error calls replaced with structured logger.*
+ *  6. MEDIUM    - Hardcoded default fallback strings → THESIS_DEFAULTS (alpha-thesis.ts)
+ *  7. LOW       - @deprecated JSDoc added to AlphaStrategicInsight
+ *  8. LOW       - Magic number 255 (error message truncation) → TIME_MS.CACHE.AUDIT_ERROR_MESSAGE_MAX_LENGTH
  */
 
 import { supabase } from '../lib/supabase';
@@ -30,7 +43,12 @@ import type {
   AlphaMarketThesis,
   RegimeSignature
 } from '../types/alpha-thesis';
-import { THESIS_TTL_MS } from '../types/alpha-thesis';
+import {
+  THESIS_TTL_MS,
+  ALPHA_THESIS_LLM_COST_PER_CALL,
+  THESIS_DEFAULTS
+} from '../types/alpha-thesis';
+import { TIME_MS } from '../config/time-constants';
 import {
   createImmutableThesis,
   verifyCachedThesisIntegrity,
@@ -39,7 +57,11 @@ import {
 import { logThesisRejection } from './thesis-rejection-logger';
 import { logger } from '../lib/logger';
 
-// Legacy interface - kept for backward compatibility during migration
+/**
+ * @deprecated Use AlphaMarketThesis instead.
+ * Legacy interface kept for backward compatibility with trade-execution-freshness-gate.ts.
+ * CCIP-COORDINATOR-AUDIT-2026-03-03: Marked deprecated — migrate consumers to AlphaMarketThesis.
+ */
 export interface AlphaStrategicInsight {
   marketBias: 'bullish' | 'bearish' | 'neutral' | 'mixed';
   conviction: number;
@@ -106,7 +128,7 @@ class SharedIntelligenceCoordinator {
    */
   invalidateSnapshot(symbol: string, timeframe: Timeframe): void {
     marketSnapshotCache.invalidateSnapshot(symbol, timeframe);
-    console.log(`[SharedIntelligence] 🔄 Snapshot invalidated: ${symbol}@${timeframe}`);
+    logger.info('[SharedIntelligence] Snapshot invalidated', { symbol, timeframe });
   }
 
   /**
@@ -212,10 +234,12 @@ class SharedIntelligenceCoordinator {
         // Freeze thesis BEFORE integrity check (SSOT requirement)
         const frozenThesis = freezeThesis(result);
 
-        // SSOT GOVERNANCE: Skip hash validation for fresh cache (< 60s)
-        // Reason: Just-created theses are already validated at creation time
-        // Hash mismatch on fresh cache indicates JSON serialization artifact, not corruption
-        const skipHashCheck = ageSeconds < 60;
+        // SSOT GOVERNANCE: Skip hash validation for fresh cache
+        // CCIP-COORDINATOR-AUDIT-2026-03-03: threshold now sourced from
+        // TIME_MS.CACHE.FRESH_SKIP_HASH_SECONDS (time-constants.ts) — was magic literal 60.
+        // Reason: Just-created theses are already validated at creation time;
+        // hash mismatch this soon indicates a JSON serialisation artifact, not corruption.
+        const skipHashCheck = ageSeconds < TIME_MS.CACHE.FRESH_SKIP_HASH_SECONDS;
 
         // Verify integrity after freezing (skip hash for fresh cache)
         const integrityCheck = skipHashCheck
@@ -246,7 +270,7 @@ class SharedIntelligenceCoordinator {
             symbol,
             ageSeconds,
             regimeHash,
-            costSaved: '$0.20'
+            costSaved: ALPHA_THESIS_LLM_COST_PER_CALL
           });
 
           return frozenThesis;
@@ -277,7 +301,7 @@ class SharedIntelligenceCoordinator {
       symbol,
       regimeHash,
       hasCachedThesis: !!cachedThesis,
-      cost: '$0.20'
+      cost: ALPHA_THESIS_LLM_COST_PER_CALL
     });
     await this.logCacheStat('alpha_thesis', symbol, regimeSignature.symbol, 'lookup', 'miss', 0);
 
@@ -294,19 +318,42 @@ class SharedIntelligenceCoordinator {
           reason: freshResult.rejectionReason
         });
 
-        // Log rejection as learning signal
-        await logThesisRejection(
-          cachedThesis.thesisHash,
-          symbol,
-          freshResult.rejectionReason || 'Market conditions changed',
-          regimeSignature,
-          now - cachedThesis.createdAt.getTime(),
-          'unknown',
-          'unknown'
-        );
+        // CCIP-COORDINATOR-AUDIT-2026-03-03: Both calls below are wrapped in
+        // independent try-catch blocks so that a transient failure in either
+        // does NOT poison the shared in-flight Promise (which would propagate
+        // the error to all concurrent callers sharing the thundering-herd guard).
+        // logThesisRejection already swallows its own errors, but
+        // invalidateThesisByRegime re-throws on Supabase RPC failure — making
+        // the try-catch here mandatory for correct degradation behaviour.
 
-        // Invalidate old thesis
-        await this.invalidateThesisByRegime(symbol, regimeHash);
+        // Log rejection as learning signal (non-blocking)
+        try {
+          await logThesisRejection(
+            cachedThesis.thesisHash,
+            symbol,
+            freshResult.rejectionReason || 'Market conditions changed',
+            regimeSignature,
+            now - cachedThesis.createdAt.getTime(),
+            'unknown',
+            'unknown'
+          );
+        } catch (rejectionLogErr) {
+          logger.warn('[SharedIntelligence] Failed to log thesis rejection signal', {
+            error: rejectionLogErr instanceof Error ? rejectionLogErr.message : 'Unknown error',
+            symbol
+          });
+        }
+
+        // Invalidate old thesis (non-blocking)
+        try {
+          await this.invalidateThesisByRegime(symbol, regimeHash);
+        } catch (invalidationErr) {
+          logger.warn('[SharedIntelligence] Failed to invalidate rejected thesis — will expire via TTL', {
+            error: invalidationErr instanceof Error ? invalidationErr.message : 'Unknown error',
+            symbol,
+            regimeHash
+          });
+        }
       }
 
       // Create immutable thesis
@@ -329,8 +376,8 @@ class SharedIntelligenceCoordinator {
           p_direction_bias: freshResult.thesis.directionBias,
           p_narrative: freshResult.thesis.narrative,
           p_regime: freshResult.thesis.regime,
-          p_liquidity_context: freshResult.thesis.liquidityContext || 'Standard liquidity conditions',
-          p_invalidation_logic: freshResult.thesis.invalidationLogic || 'Standard invalidation rules',
+          p_liquidity_context: freshResult.thesis.liquidityContext || THESIS_DEFAULTS.LIQUIDITY_CONTEXT,
+          p_invalidation_logic: freshResult.thesis.invalidationLogic || THESIS_DEFAULTS.INVALIDATION_LOGIC,
           p_confidence_band: freshResult.thesis.confidenceBand,
           p_thesis_summary: freshResult.thesis.thesisSummary,
           p_regime_signature_hash: regimeHash,
@@ -379,7 +426,7 @@ class SharedIntelligenceCoordinator {
             p_symbol: symbol,
             p_regime_signature_hash: regimeHash,
             p_write_status: 'failed',
-            p_error_message: errorMsg.substring(0, 255),
+            p_error_message: errorMsg.substring(0, TIME_MS.CACHE.AUDIT_ERROR_MESSAGE_MAX_LENGTH),
             p_cache_tier: 'alpha_thesis'
           });
         } catch (auditErr) {
@@ -482,9 +529,14 @@ class SharedIntelligenceCoordinator {
    */
   invalidateThesisForSymbol(symbol: string, timeframe: string): void {
     let evicted = 0;
+    // CCIP-COORDINATOR-AUDIT-2026-03-03 CRITICAL FIX:
+    // generateThesisCacheKey() produces keys in the format `thesis:${symbol}:${regimeHash}`.
+    // The previous code searched for `${symbol}_` (underscore separator) which NEVER matched
+    // any key, silently making this entire eviction loop a no-op. The correct prefix is
+    // `thesis:${symbol}:` (colon separators, as defined in cache-key-generator.ts line 330).
+    const keyPrefix = `thesis:${symbol}:`;
     for (const key of this.localThesisCache.keys()) {
-      // Cache keys are formatted as `${symbol}_${regimeHash}` by generateThesisCacheKey
-      if (key.startsWith(`${symbol}_`)) {
+      if (key.startsWith(keyPrefix)) {
         this.localThesisCache.delete(key);
         evicted++;
       }
@@ -503,7 +555,7 @@ class SharedIntelligenceCoordinator {
     this.localThesisCache.clear();
     this.inFlightThesisRequests.clear();
     marketSnapshotCache.clearAll();
-    console.log('[SharedIntelligence] All local caches cleared');
+    logger.info('[SharedIntelligence] All local caches cleared');
   }
 
 
@@ -518,7 +570,9 @@ class SharedIntelligenceCoordinator {
         alphaThesis: data?.[0]?.alpha_thesis_deleted || 0
       };
     } catch (err) {
-      console.error('[SharedIntelligence] Failed to cleanup cache:', err);
+      logger.error('[SharedIntelligence] Failed to cleanup cache', {
+        error: err instanceof Error ? err.message : 'Unknown error'
+      });
       return { alphaThesis: 0 };
     }
   }
@@ -567,11 +621,11 @@ class SharedIntelligenceCoordinator {
    * Log all cache statistics
    */
   logAllStats(): void {
-    console.log('[SharedIntelligence] 📊 Cache Statistics:');
-    console.log('  === Snapshot Cache (Input SSOT) ===');
-    marketSnapshotCache.logStats();
-    console.log('  === Alpha Thesis Cache (Market Analysis) ===');
-    console.log(`    Local cache size: ${this.localThesisCache.size} entries`);
+    logger.info('[SharedIntelligence] Cache Statistics', {
+      snapshotCache: marketSnapshotCache.getStats(),
+      alphaThesisLocalSize: this.localThesisCache.size,
+      inFlightRequests: this.inFlightThesisRequests.size
+    });
   }
 }
 

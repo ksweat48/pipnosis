@@ -143,6 +143,15 @@ export const TIME_MS = {
     // no LLM regeneration risk.
     ALPHA_THESIS: 900_000,   // 15 minutes (restored from 5 min — see CCIP-STABILITY-FIX-2026-03-03)
     MARKET_CONTEXT: 300_000, // 5 minutes (deterministic, zero API cost)
+
+    // CCIP-COORDINATOR-AUDIT-2026-03-03: Fresh cache threshold below which hash
+    // validation is skipped. Just-created theses are validated at creation time;
+    // a mismatch this early indicates a JSON serialisation artifact, not corruption.
+    FRESH_SKIP_HASH_SECONDS: 60,
+
+    // Maximum character length for error messages stored in the audit trail.
+    // Matches the column definition in cache_write_events (VARCHAR 255).
+    AUDIT_ERROR_MESSAGE_MAX_LENGTH: 255,
   },
 
   DEBOUNCE: {
