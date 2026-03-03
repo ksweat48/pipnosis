@@ -15,10 +15,42 @@ import {
   Target,
   ChevronRight,
   Bitcoin,
+  ShieldCheck,
+  ShieldAlert,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { calculateSessionContext, getForexMarketStatus, isSymbolMarketOpen } from '@/utils/marketHours';
 import { alphaPreviewScanner, type AlphaPreviewCard, type AlphaPreviewScanResult } from '@/services/alpha-preview-scanner';
 import { platformScanManager, type PlatformScanState } from '@/services/platform-scan-manager';
+import { supabase } from '@/lib/supabase';
+
+interface PreScreenRow {
+  id: string;
+  symbol: string;
+  style: string;
+  controlling_timeframe: string;
+  alignment_status: 'ALIGNED' | 'RULE1_ONLY' | 'RULE2_ONLY' | 'BOTH_RULES_MET' | 'BLOCKED';
+  direction_bias: 'BUY' | 'SELL' | 'NEUTRAL';
+  rule1_met: boolean;
+  rule2_met: boolean;
+  rule1_detail: string;
+  rule2_detail: string;
+  last_checked_at: string;
+}
+
+interface StructuralAlertRow {
+  id: string;
+  symbol: string;
+  style: string;
+  rule_type: string;
+  direction: string;
+  details_text: string;
+  created_at: string;
+}
 
 type TradeStyle = 'scalper' | 'micro' | 'intraday';
 type TimeQuality = 'prime' | 'good' | 'slow';
@@ -507,6 +539,11 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const [lastScannedAt, setLastScannedAt] = useState<Date | null>(null);
   const [relativeTime, setRelativeTime] = useState<string>('');
+  const [preScreenRows, setPreScreenRows] = useState<PreScreenRow[]>([]);
+  const [structuralAlerts, setStructuralAlerts] = useState<StructuralAlertRow[]>([]);
+  const [preScreenExpanded, setPreScreenExpanded] = useState(false);
+  const [alertsExpanded, setAlertsExpanded] = useState(false);
+  const [preScreenLastChecked, setPreScreenLastChecked] = useState<string>('');
 
   const [isForexMarketClosed, setIsForexMarketClosed] = useState(
     () => !getForexMarketStatus().isOpen
@@ -586,6 +623,75 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
       if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
     };
   }, [scanState, cooldownSeconds]);
+
+  useEffect(() => {
+    supabase
+      .from('pre_screen_results')
+      .select('*')
+      .order('last_checked_at', { ascending: false })
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          setPreScreenRows(data as PreScreenRow[]);
+          const latest = data[0].last_checked_at;
+          const mins = Math.round((Date.now() - new Date(latest).getTime()) / 60000);
+          setPreScreenLastChecked(mins <= 1 ? 'just now' : `${mins}m ago`);
+        }
+      });
+
+    const channel = supabase
+      .channel('pre_screen_results_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pre_screen_results' }, (payload) => {
+        if (payload.new) {
+          setPreScreenRows((prev) => {
+            const updated = payload.new as PreScreenRow;
+            const idx = prev.findIndex(
+              (r) => r.symbol === updated.symbol && r.style === updated.style && r.controlling_timeframe === updated.controlling_timeframe
+            );
+            if (idx >= 0) {
+              const next = [...prev];
+              next[idx] = updated;
+              return next;
+            }
+            return [updated, ...prev];
+          });
+          const mins = Math.round((Date.now() - new Date((payload.new as PreScreenRow).last_checked_at).getTime()) / 60000);
+          setPreScreenLastChecked(mins <= 1 ? 'just now' : `${mins}m ago`);
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  useEffect(() => {
+    if (!sessionId) return;
+
+    supabase
+      .from('structural_alerts')
+      .select('*')
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: false })
+      .limit(20)
+      .then(({ data }) => {
+        if (data) setStructuralAlerts(data as StructuralAlertRow[]);
+      });
+
+    const channel = supabase
+      .channel(`structural_alerts_${sessionId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'structural_alerts',
+        filter: `session_id=eq.${sessionId}`,
+      }, (payload) => {
+        if (payload.new) {
+          setStructuralAlerts((prev) => [payload.new as StructuralAlertRow, ...prev].slice(0, 20));
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [sessionId]);
 
   const handleScanNow = useCallback(async () => {
     if (scanState === 'scanning' || scanState === 'cooldown') return;
@@ -978,6 +1084,142 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
               </div>
             )}
           </>
+        )}
+
+        {preScreenRows.length > 0 && (
+          <div className="mt-4 rounded-xl border border-slate-700/40 bg-slate-900/40 overflow-hidden">
+            <button
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-800/40 transition-colors"
+              onClick={() => setPreScreenExpanded((v) => !v)}
+            >
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-blue-400" />
+                <span className="text-sm font-semibold text-white">Structure Pre-Screen</span>
+                <span className="text-[10px] text-slate-500 font-mono ml-1">5-min background</span>
+                {preScreenLastChecked && (
+                  <span className="text-[10px] text-slate-600">· {preScreenLastChecked}</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const aligned = preScreenRows.filter((r) => r.alignment_status === 'ALIGNED' || r.alignment_status === 'BOTH_RULES_MET').length;
+                  const blocked = preScreenRows.filter((r) => r.alignment_status === 'BLOCKED').length;
+                  return (
+                    <>
+                      {aligned > 0 && <span className="text-[10px] font-bold text-green-400 bg-green-500/15 border border-green-500/30 px-2 py-0.5 rounded-full">{aligned} aligned</span>}
+                      {blocked > 0 && <span className="text-[10px] font-bold text-red-400 bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded-full">{blocked} blocked</span>}
+                    </>
+                  );
+                })()}
+                {preScreenExpanded ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+              </div>
+            </button>
+
+            {preScreenExpanded && (
+              <div className="px-4 pb-4">
+                {(['SCALP', 'MICRO_INTRADAY', 'INTRADAY'] as const).map((style) => {
+                  const styleRows = preScreenRows.filter((r) => r.style === style);
+                  if (styleRows.length === 0) return null;
+                  const styleLabel = style === 'SCALP' ? 'Scalp (M15)' : style === 'MICRO_INTRADAY' ? 'Micro Intraday (H1)' : 'Intraday (H4)';
+                  const styleBorder = style === 'SCALP' ? 'border-amber-500/20' : style === 'MICRO_INTRADAY' ? 'border-cyan-500/20' : 'border-emerald-500/20';
+                  const styleText = style === 'SCALP' ? 'text-amber-400' : style === 'MICRO_INTRADAY' ? 'text-cyan-400' : 'text-emerald-400';
+                  return (
+                    <div key={style} className="mb-3">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5 mt-2">{styleLabel}</div>
+                      <div className="space-y-1.5">
+                        {styleRows.map((row) => {
+                          const isAligned = row.alignment_status === 'ALIGNED' || row.alignment_status === 'BOTH_RULES_MET';
+                          const isBlocked = row.alignment_status === 'BLOCKED';
+                          const statusColor = isAligned ? 'text-green-400' : isBlocked ? 'text-red-400' : 'text-yellow-400';
+                          const statusBg = isAligned ? 'bg-green-500/10 border-green-500/20' : isBlocked ? 'bg-red-500/8 border-red-500/15' : 'bg-yellow-500/8 border-yellow-500/15';
+                          const directionIcon = row.direction_bias === 'BUY'
+                            ? <TrendingUp className="w-3 h-3 text-green-400" />
+                            : row.direction_bias === 'SELL'
+                              ? <TrendingDown className="w-3 h-3 text-red-400" />
+                              : null;
+                          return (
+                            <div key={row.id} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border ${statusBg} ${styleBorder}`}>
+                              <span className="text-[11px] font-bold text-white w-14 flex-shrink-0">{row.symbol}</span>
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                {row.rule1_met
+                                  ? <CheckCircle2 className="w-3 h-3 text-green-500" title="BOS confirmed" />
+                                  : <XCircle className="w-3 h-3 text-slate-600" title="No BOS" />}
+                                {row.rule2_met
+                                  ? <CheckCircle2 className="w-3 h-3 text-green-500" title="Sweep wick confirmed" />
+                                  : <XCircle className="w-3 h-3 text-slate-600" title="No sweep wick" />}
+                              </div>
+                              <span className={`text-[10px] font-semibold flex-shrink-0 ${statusColor}`}>
+                                {isAligned ? 'ALIGNED' : isBlocked ? 'BLOCKED' : row.alignment_status.replace('_', ' ')}
+                              </span>
+                              {directionIcon && <span className="flex items-center gap-0.5 flex-shrink-0">{directionIcon}</span>}
+                              <span className={`text-[9px] ${styleText} flex-shrink-0 ml-auto`}>{row.controlling_timeframe}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+                <p className="text-[10px] text-slate-600 mt-2">R1 = BOS &nbsp;·&nbsp; R2 = Sweep Wick &ge;1.5x body &nbsp;·&nbsp; Both = Aligned</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {sessionId && structuralAlerts.length > 0 && (
+          <div className="mt-3 rounded-xl border border-slate-700/40 bg-slate-900/40 overflow-hidden">
+            <button
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-800/40 transition-colors"
+              onClick={() => setAlertsExpanded((v) => !v)}
+            >
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-orange-400" />
+                <span className="text-sm font-semibold text-white">Session Structural Alerts</span>
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-orange-500/20 border border-orange-500/30 text-[10px] font-bold text-orange-400 ml-1">
+                  {structuralAlerts.length}
+                </span>
+              </div>
+              {alertsExpanded ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+            </button>
+
+            {alertsExpanded && (
+              <div className="px-4 pb-4 space-y-2">
+                {structuralAlerts.map((alert) => {
+                  const isBlocked = alert.rule_type.includes('BLOCKED') || alert.rule_type.includes('MISSING');
+                  const isQualified = alert.rule_type.includes('BOS') || alert.rule_type.includes('SWEEP');
+                  const alertBg = isBlocked ? 'bg-red-500/8 border-red-500/15' : isQualified ? 'bg-green-500/8 border-green-500/15' : 'bg-slate-700/30 border-slate-600/20';
+                  const alertIcon = isBlocked
+                    ? <AlertTriangle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+                    : isQualified
+                      ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400 flex-shrink-0" />
+                      : <Activity className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />;
+                  const mins = Math.round((Date.now() - new Date(alert.created_at).getTime()) / 60000);
+                  const timeLabel = mins <= 1 ? 'just now' : mins < 60 ? `${mins}m ago` : `${Math.floor(mins / 60)}h ago`;
+                  return (
+                    <div key={alert.id} className={`flex items-start gap-2.5 px-2.5 py-2 rounded-lg border ${alertBg}`}>
+                      {alertIcon}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[11px] font-bold text-white">{alert.symbol}</span>
+                          <span className="text-[10px] text-slate-500 font-mono">{alert.style}</span>
+                          <span className={`text-[10px] font-semibold ${isBlocked ? 'text-red-400' : isQualified ? 'text-green-400' : 'text-slate-400'}`}>
+                            {alert.rule_type.replace(/_/g, ' ')}
+                          </span>
+                          {alert.direction && alert.direction !== 'NEUTRAL' && (
+                            <span className={`text-[10px] font-bold ${alert.direction === 'BUY' ? 'text-green-400' : 'text-red-400'}`}>
+                              {alert.direction}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-slate-500 mt-0.5 leading-snug line-clamp-2">{alert.details_text}</p>
+                      </div>
+                      <span className="text-[9px] text-slate-600 flex-shrink-0 mt-0.5">{timeLabel}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

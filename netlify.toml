@@ -137,6 +137,14 @@
 [functions."backfill-all-timeframes-new-pairs"]
   timeout = 900
 
+# Pre-Screen Structure Monitor (every 5 minutes)
+# Evaluates BOS and sweep-wick structural gates for 9 symbols × 3 styles
+# Zero external API calls — pure forex_candles database reads
+# Writes 27 rows to pre_screen_results for always-on intelligence monitor
+[functions."pre-screen-structure-monitor"]
+  timeout = 60
+  schedule = "*/5 * * * *"
+
 # Session Intelligence Populator (every 5 minutes)
 # ADVISORY ONLY: Analyzes current session and recommends optimal pairs
 # Uses real indicator alignment (VWAP, EMA20, EMA50, RSI, Volume, Pattern, Structure, Momentum)

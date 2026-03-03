@@ -1918,7 +1918,9 @@ class AlphaTradeExecutor {
       requested_style: normalizeToCanonicalStyle(rawTradeStyle),
       resolved_style: canonicalStyle,
       alpha_decision_id: alphaDecisionId ?? null,
-      alpha_reasoning_snapshot: decision.reasoning || null,
+      alpha_reasoning_snapshot: decision.answer_sheet
+        ? JSON.stringify({ answer_sheet: decision.answer_sheet, narrative: decision.reasoning || null })
+        : (decision.reasoning || null),
       market_regime_at_entry: (decision as any).market_regime || regimeBucket || null,
       mid_trade_plan: midTradePlan
     };

@@ -137,6 +137,39 @@ function getAssetClass(symbol: string): AssetClass {
 }
 
 /**
+ * CCIP Governance: Write a structural alert row to the structural_alerts table.
+ *
+ * Called at each deterministic gate decision point (BOS check, sweep wick, conflict blocked).
+ * Fire-and-forget — failures are logged but never block the trade decision.
+ *
+ * SSOT: structural_alerts is the single audit trail for structural gate decisions.
+ * RLS: authenticated users can INSERT their own rows.
+ */
+async function writeStructuralAlert(params: {
+  userId: string;
+  sessionId: string;
+  symbol: string;
+  style: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+  ruleType: string;
+  direction: string;
+  detailsText: string;
+}): Promise<void> {
+  try {
+    await supabase.from('structural_alerts').insert({
+      user_id: params.userId,
+      session_id: params.sessionId,
+      symbol: params.symbol,
+      style: params.style,
+      rule_type: params.ruleType,
+      direction: params.direction,
+      details_text: params.detailsText,
+    });
+  } catch (err) {
+    console.warn('[Alpha Coordinator] writeStructuralAlert failed (non-blocking):', err instanceof Error ? err.message : String(err));
+  }
+}
+
+/**
  * ═══════════════════════════════════════════════════════════════════
  * DECOUPLED RISK AND STYLE
  * ═══════════════════════════════════════════════════════════════════
@@ -303,6 +336,19 @@ export interface AlphaDecision {
     pullback_zone_min: number | null;
     pullback_zone_max: number | null;
     reasoning: string;
+  };
+  answer_sheet?: {
+    Q1_trend_alignment: string;
+    Q2_structure_level: string;
+    Q3_prior_rejections: string;
+    Q4_momentum_stage: string;
+    Q5_failure_mode: string;
+    Q5_failure_probability: number;
+    Q5B_objective_alignment: string;
+    Q6_entry_trigger: string;
+    Q7_confluence_count: string;
+    Q8_move_position_pct: number;
+    Q8B_session_range_pct: number;
   };
 }
 
@@ -1413,6 +1459,17 @@ ${consecutiveSameDir >= 3
 
         if (!htfCandles || htfCandles.length < 5) {
           console.error(`[Alpha Coordinator] HTF_DATA_MISSING: ${htfConfig.label} candles unavailable for ${styleName}. Returning NO_TRADE.`);
+          if (userId && sessionId) {
+            writeStructuralAlert({
+              userId,
+              sessionId,
+              symbol: marketContext.symbol,
+              style: tradeStyle,
+              ruleType: 'HTF_DATA_MISSING',
+              direction: '',
+              detailsText: `${htfConfig.label} controlling timeframe candle data unavailable for ${styleName}. Found ${htfCandles?.length ?? 0} candles (need ≥5). Cannot assess structural bias.`,
+            });
+          }
           return {
             action: 'NO_TRADE',
             decision: 'NO_TRADE',
@@ -1510,6 +1567,20 @@ ${consecutiveSameDir >= 3
               `No ${counterDir} BOS or sweep wick found in last ${htfConfig.candleCount} ${htfConfig.label} candles. ` +
               `Returning NO_TRADE before LLM call.`
             );
+            const blockedDir = omega8DirectionSupport?.toLowerCase() === 'buy' ? 'BUY' : 'SELL';
+            const blockedRuleType = `${htfConfig.label}_CONFLICT_BLOCKED` as
+              'H1_CONFLICT_BLOCKED' | 'H4_CONFLICT_BLOCKED' | 'M15_CONFLICT_BLOCKED';
+            if (userId && sessionId) {
+              writeStructuralAlert({
+                userId,
+                sessionId,
+                symbol: marketContext.symbol,
+                style: tradeStyle,
+                ruleType: blockedRuleType,
+                direction: blockedDir,
+                detailsText: `${htfConfig.label} trend ${htfTrendDir} (${htfConsecutive} consecutive candles) conflicts with Omega-8 direction ${omega8DirectionSupport?.toUpperCase()}. No ${counterDir} BOS or sweep-wick reversal found in last ${htfConfig.candleCount} candles. NO_TRADE.`,
+              });
+            }
             return {
               action: 'NO_TRADE',
               decision: 'NO_TRADE',
@@ -1529,6 +1600,33 @@ ${consecutiveSameDir >= 3
               `Omega-8 ${omega8DirectionSupport} — qualification evidence present ` +
               `(BOS=${htfBOS} SweepWick=${htfSweepWick}). Allowing LLM call.`
             );
+            const qualifiedDir = omega8DirectionSupport?.toLowerCase() === 'buy' ? 'BUY' : 'SELL';
+            const bosRuleType = `${htfConfig.label}_BOS` as 'H1_BOS' | 'H4_BOS' | 'M15_BOS';
+            const wickRuleType = `${htfConfig.label}_SWEEP_WICK` as 'H1_SWEEP_WICK' | 'H4_SWEEP_WICK' | 'M15_SWEEP_WICK';
+            if (userId && sessionId) {
+              if (htfBOS) {
+                writeStructuralAlert({
+                  userId,
+                  sessionId,
+                  symbol: marketContext.symbol,
+                  style: tradeStyle,
+                  ruleType: bosRuleType,
+                  direction: qualifiedDir,
+                  detailsText: `${htfConfig.label} BOS confirmed: last close breaks ${counterDir === 'bull' ? 'above prior high' : 'below prior low'}. Counter-trend entry qualified for ${qualifiedDir}. ${htfConfig.label} trend was ${htfTrendDir} (${htfConsecutive} consecutive candles).`,
+                });
+              }
+              if (htfSweepWick) {
+                writeStructuralAlert({
+                  userId,
+                  sessionId,
+                  symbol: marketContext.symbol,
+                  style: tradeStyle,
+                  ruleType: wickRuleType,
+                  direction: qualifiedDir,
+                  detailsText: `${htfConfig.label} sweep wick confirmed: wick-to-body ratio ≥1.5 in ${counterDir} direction. Counter-trend entry qualified for ${qualifiedDir}. ${htfConfig.label} trend was ${htfTrendDir}.`,
+                });
+              }
+            }
           }
         }
 
@@ -1556,6 +1654,17 @@ ${htfTrendDir === 'BULLISH' ? `${htfConfig.label} trend is BULLISH. ${primaryTfC
         console.log(`[Alpha Coordinator] ${htfConfig.label} Controlling TF: ${recentHtf.length} candles, bias ${htfTrendDir}, range ${htfRangePips.toFixed(1)} pips`);
       } catch (error) {
         console.error(`[Alpha Coordinator] HTF_DATA_MISSING: ${htfConfig.label} candles fetch failed for ${styleName}:`, error instanceof Error ? error.message : 'Unknown');
+        if (userId && sessionId) {
+          writeStructuralAlert({
+            userId,
+            sessionId,
+            symbol: marketContext.symbol,
+            style: tradeStyle,
+            ruleType: 'HTF_DATA_MISSING',
+            direction: '',
+            detailsText: `${htfConfig.label} candle fetch failed: ${error instanceof Error ? error.message : 'Unknown error'}. Cannot assess structural context for ${styleName}.`,
+          });
+        }
         return {
           action: 'NO_TRADE',
           decision: 'NO_TRADE',

@@ -583,10 +583,10 @@ LATE STAGE: The move has traveled > 1.2x ATR from its origin. Candle bodies are 
 
 LATE STAGE — MANDATORY R:R RECALCULATION GATE (complete before selecting output):
 Step 1 — Recalculate R:R using CURRENT price as the entry point, not the swing origin. The move that has already happened is gone. Your R:R is measured from here.
-Step 2 — Compare recalculated R:R against the SCALP style minimum (>= 1.3).
+Step 2 — Compare recalculated R:R against the SCALP style minimum (>= 1.5).
 Step 3 — Only two valid outcomes:
-  (a) Recalculated R:R >= 1.3 AND the thesis is fully confirmed on M5 structure AND a specific named pullback zone exists where you can re-enter at a better price: wait_pullback is valid. State: "R:R recalculated at current price: X:1. SCALP minimum 1.3:1. Sufficient. Named re-entry zone: [level]. Wait_pullback valid."
-  (b) Recalculated R:R < 1.3 OR no named structural re-entry zone exists: NO_TRADE. The move has consumed the R:R. A pullback re-entry cannot restore R:R that does not exist because the move has already run its range. State: "R:R recalculated at current price: X:1. SCALP minimum 1.3:1. Insufficient. NO_TRADE — move has consumed available R:R."
+  (a) Recalculated R:R >= 1.5 AND the thesis is fully confirmed on M5 structure AND a specific named pullback zone exists where you can re-enter at a better price: wait_pullback is valid. State: "R:R recalculated at current price: X:1. SCALP minimum 1.5:1. Sufficient. Named re-entry zone: [level]. Wait_pullback valid."
+  (b) Recalculated R:R < 1.5 OR no named structural re-entry zone exists: NO_TRADE. The move has consumed the R:R. A pullback re-entry cannot restore R:R that does not exist because the move has already run its range. State: "R:R recalculated at current price: X:1. SCALP minimum 1.5:1. Insufficient. NO_TRADE — move has consumed available R:R."
 CRITICAL: Do NOT set wait_pullback because you are chasing and want a better price on a move whose R:R has already been destroyed. wait_pullback means the trade is confident and will reach TP. If the R:R no longer supports the trade from any entry point in the current leg, the answer is NO_TRADE for this cycle. The scanner will re-evaluate when new structure forms.
 
 State your stage diagnosis explicitly before selecting a sub-mode: "Move stage: [EARLY/MIDDLE/LATE] — [reason]. Sub-mode selected: [A/B/C]."
@@ -707,7 +707,7 @@ These are mathematical or structural facts that make a trade physically impossib
 2. ZERO DISTANCE: SL or TP at the same price as entry = reject.
 
 3. R:R FLOOR VIOLATION: After placing SL at the correct structural level, if R:R falls below the style minimum, reject the trade. Do NOT tighten SL to a non-structural level to force compliance. The hard floors exist because trades below them have negative expectancy by design.
-   - SCALP: R:R >= 1.3 (single TP)
+   - SCALP: R:R >= 1.5 (single TP)
    - MICRO_INTRADAY: TP1 R:R >= 1.5, TP2 R:R >= 2.0
    - INTRADAY: TP1 R:R >= 2.0, TP2 R:R >= 2.5
 
@@ -1226,8 +1226,23 @@ OUTPUT FORMAT:
   "entry": price, "stopLoss": price, "takeProfit": price,
   "entry_spec": { "entry_mode": "...", "runawayPolicy": "...", "projection": { ... } },
   "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "..." },
-  "wait_condition": { ... }
+  "wait_condition": { ... },
+  "answer_sheet": {
+    "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND",
+    "Q2_structure_level": "description of the key structural level this trade is anchored to",
+    "Q3_prior_rejections": "YES — [count] rejections at [level] | NO",
+    "Q4_momentum_stage": "EARLY|MIDDLE|LATE — [sub-mode: MOMENTUM_CONTINUATION|PULLBACK_ENTRY|CONSOLIDATION_BREAKOUT]",
+    "Q5_failure_mode": "single sentence: the most likely structural reason this trade fails",
+    "Q5_failure_probability": 0-100,
+    "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE",
+    "Q6_entry_trigger": "named trigger: [BOS candle close / sweep reclaim / EMA rejection / etc.] OR NONE_YET",
+    "Q7_confluence_count": "X/5 — [list confirmed dimensions: TREND, STRUCTURE, MOMENTUM, TIMING, LIQUIDITY]",
+    "Q8_move_position_pct": 0-100,
+    "Q8B_session_range_pct": 0-100
+  }
 }
+
+answer_sheet is REQUIRED for every BUY/SELL. Omit for NO_TRADE. Each key must be present with a concrete answer — not empty strings or null values. This block is parsed and stored as a structured audit record. Q7_confluence_count must list the confirmed dimensions by name. Q8_move_position_pct is the percentage of the projected move already traveled from swing origin. Q8B_session_range_pct is your estimated position within the current session's high-to-low range (0 = session low, 100 = session high for a buy; inverted for sell).
 
 confidence_anchor is required for every BUY/SELL. It makes the confidence score auditable. Example: "This confidence is based on 4/5 core dimensions confirmed (TREND, STRUCTURE, MOMENTUM, TIMING), no advisory penalty, clean pullback entry, EARLY move stage. The primary uncertainty is M15 resistance cluster 8 pips above entry that may require two attempts to clear."
 

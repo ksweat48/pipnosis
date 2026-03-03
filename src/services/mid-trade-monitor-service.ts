@@ -65,6 +65,21 @@ export interface MidTradeGuidance {
   // Session context
   goalSessionId: string;
 
+  // Alpha pre-trade answer sheet (read-only, parsed from alpha_reasoning_snapshot)
+  answerSheet?: {
+    Q1_trend_alignment: string;
+    Q2_structure_level: string;
+    Q3_prior_rejections: string;
+    Q4_momentum_stage: string;
+    Q5_failure_mode: string;
+    Q5_failure_probability: number;
+    Q5B_objective_alignment: string;
+    Q6_entry_trigger: string;
+    Q7_confluence_count: string;
+    Q8_move_position_pct: number;
+    Q8B_session_range_pct: number;
+  } | null;
+
   // Internal field retained for in-memory P&L recalculation by applyLivePrices
   // GOVERNANCE: Not rendered in UI — used exclusively by applyLivePrices
   lotSize: number;
@@ -242,6 +257,21 @@ class MidTradeMonitorService {
             : trade.mid_trade_plan)
           : null;
 
+        // Parse answer_sheet from alpha_reasoning_snapshot (composite JSON or plain string)
+        let answerSheet: MidTradeGuidance['answerSheet'] = null;
+        if (trade.alpha_reasoning_snapshot) {
+          try {
+            const raw = typeof trade.alpha_reasoning_snapshot === 'string'
+              ? JSON.parse(trade.alpha_reasoning_snapshot)
+              : trade.alpha_reasoning_snapshot;
+            if (raw && typeof raw === 'object' && raw.answer_sheet) {
+              answerSheet = raw.answer_sheet;
+            }
+          } catch {
+            // Non-JSON (legacy plain string) — no answer_sheet available
+          }
+        }
+
         // SSOT: Deterministic trigger evaluation — zero LLM calls
         const evaluation: TriggerEvaluation = evaluateAllTriggers(
           trade as GoalSessionTrade,
@@ -295,6 +325,7 @@ class MidTradeMonitorService {
           thesisIntact: evaluation.thesisIntact,
           trailingSLOptions: evaluation.trailingSLOptions,
           midTradePlan,
+          answerSheet,
           priceAgeSeconds,
           isPriceFresh: isFresh,
           stalePriceWarning,
