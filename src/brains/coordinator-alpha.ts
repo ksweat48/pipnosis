@@ -3049,7 +3049,6 @@ ${tradeStyle === 'SCALP' ? `{
         if (anchorIsVague) {
           console.error('[Alpha Coordinator] MICRO_INTRADAY_NO_M15_ANCHOR: Alpha output missing m15_structural_confirmation — overriding to NO_TRADE');
           action = 'NO_TRADE';
-          decision = 'NO_TRADE';
         } else {
           console.log(`[Alpha Coordinator] MICRO_INTRADAY M15 anchor confirmed: "${m15Anchor}"`);
         }
