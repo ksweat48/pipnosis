@@ -1779,6 +1779,71 @@ ${m15StructuralEvidenceBlock}
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // H1 CAMPAIGN CONTEXT (SCALP ONLY — advisory, non-blocking)
+    // CCIP 2026-03: SCALP trades play out within the M15 swing, but that
+    // swing exists inside an H1 campaign. Alpha needs to know whether the
+    // H1 bias supports or opposes the M5 scalp direction, and where the
+    // H1 EMA stack and swing structure sit relative to current price.
+    //
+    // This is advisory — NOT a controlling timeframe gate. Missing H1 data
+    // does not block a scalp. Present data enriches Alpha's Q1 reasoning.
+    // SSOT: MarketDataService is the single authority for candle data
+    // ═══════════════════════════════════════════════════════════════════
+    let h1CampaignPrompt = '';
+    if (styleName === 'SCALP') {
+      try {
+        const mds = MarketDataService.getInstance();
+        const h1Candles = await mds.getCandles(marketContext.symbol, 'H1', 6);
+
+        if (h1Candles && h1Candles.length >= 3) {
+          const recentH1 = h1Candles.slice(0, 6).reverse();
+          const pipInfo = getCurrencyPipInfo(marketContext.symbol);
+
+          const h1Lines: string[] = recentH1.map((c, i) => {
+            const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
+            const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
+            const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
+            const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
+            return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
+          });
+
+          const h1High = Math.max(...recentH1.map(c => c.high));
+          const h1Low = Math.min(...recentH1.map(c => c.low));
+          const h1RangePips = (h1High - h1Low) / pipInfo.pipValue;
+          const lastH1 = recentH1[recentH1.length - 1];
+          const prevH1 = recentH1.length >= 2 ? recentH1[recentH1.length - 2] : lastH1;
+          const h1TrendDir = lastH1.close > prevH1.close ? 'BULLISH' : lastH1.close < prevH1.close ? 'BEARISH' : 'NEUTRAL';
+
+          h1CampaignPrompt = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+H1 CAMPAIGN CONTEXT (${marketContext.symbol}) — ADVISORY CONTEXT FOR SCALP DIRECTION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This is NOT your primary execution timeframe. H1 is advisory — it shows the larger campaign bias your M5 scalp is operating within. Use it in your QUESTION 1 TREND ALIGNMENT assessment.
+
+${h1Lines.join('\n')}
+
+H1 CAMPAIGN SUMMARY:
+- H1 Range (last ${recentH1.length} candles): ${h1RangePips.toFixed(1)} pips (High: ${h1High.toFixed(pipInfo.decimalPlaces)}, Low: ${h1Low.toFixed(pipInfo.decimalPlaces)})
+- H1 Directional bias: ${h1TrendDir}
+- H1 Key resistance (campaign ceiling): ${h1High.toFixed(pipInfo.decimalPlaces)}
+- H1 Key support (campaign floor): ${h1Low.toFixed(pipInfo.decimalPlaces)}
+
+SCALP DIRECTION ALIGNMENT USING H1:
+- H1 bias ${h1TrendDir} SUPPORTS ${h1TrendDir === 'BULLISH' ? 'BUY' : h1TrendDir === 'BEARISH' ? 'SELL' : 'range extremes for'} scalp entries.
+- If your M5 scalp direction OPPOSES the H1 bias, this is a counter-campaign scalp — state your structural justification in Q1.
+- H1 swing high/low within your scalp TP range (12-25 pips) = the level may act as TP ceiling. Position TP at the near edge.
+- This context is ADVISORY. M5 structure is your execution authority. H1 does not block your scalp decision.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+          console.log(`[Alpha Coordinator] H1 Campaign Context (SCALP): ${recentH1.length} candles, bias ${h1TrendDir}, range ${h1RangePips.toFixed(1)} pips`);
+        }
+      } catch (error) {
+        console.warn('[Alpha Coordinator] H1 campaign context unavailable (non-blocking):', error instanceof Error ? error.message : 'Unknown');
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // D1 PREVIOUS DAY CONTEXT (ALL STYLES)
     // CCIP 2026-02-19: Previous day high/low are institutional reference
     // levels. All styles must account for PDH/PDL as liquidity magnets.
@@ -1792,7 +1857,10 @@ ${m15StructuralEvidenceBlock}
     let d1ContextPrompt = '';
     try {
       const mds = MarketDataService.getInstance();
-      const d1Candles = await mds.getCandles(marketContext.symbol, 'D1', 3);
+      // CCIP 2026-03-03: INTRADAY fetches 5 D1 candles for structural campaign context.
+      // SCALP/MICRO_INTRADAY only need PDH/PDL reference (3 candles sufficient).
+      const d1FetchCount = styleName === 'INTRADAY' ? 5 : 3;
+      const d1Candles = await mds.getCandles(marketContext.symbol, 'D1', d1FetchCount);
 
       if (d1Candles && d1Candles.length >= 2) {
         const pipInfo = getCurrencyPipInfo(marketContext.symbol);
@@ -1829,6 +1897,65 @@ ${m15StructuralEvidenceBlock}
 
         const isScalp = styleName === 'SCALP';
 
+        // CCIP 2026-03-03: INTRADAY D1 structural campaign block — shows multi-day trend
+        // direction, swing highs/lows, and daily candle sequence for Alpha to assess
+        // whether the H4 campaign aligns with the daily structural narrative.
+        // This replaces the PDH/PDL-only view that was insufficient for INTRADAY.
+        let intradayD1StructureBlock = '';
+        if (styleName === 'INTRADAY' && d1Candles.length >= 3) {
+          const structuralCandles = d1Candles.slice(1).reverse(); // oldest-to-newest, skip today's forming candle
+          const d1Lines = structuralCandles.map((c, i) => {
+            const dir = c.close > c.open ? 'BULL' : 'BEAR';
+            const rangePips = (c.high - c.low) / pipInfo.pipValue;
+            const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
+            const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
+            const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
+            const dateStr = c.time ? new Date(c.time * 1000).toISOString().split('T')[0] : `D-${structuralCandles.length - i}`;
+            const label = i === structuralCandles.length - 1 ? ' ← PREVIOUS DAY' : '';
+            return `  ${dateStr}${label}: ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} range:${rangePips.toFixed(0)}p body:${bodyPips.toFixed(0)}p wicks:↑${upperWick.toFixed(0)}p↓${lowerWick.toFixed(0)}p`;
+          });
+
+          // Determine D1 trend bias from the structural candles
+          const bullDays = structuralCandles.filter(c => c.close > c.open).length;
+          const bearDays = structuralCandles.length - bullDays;
+          const d1SwingHigh = Math.max(...structuralCandles.map(c => c.high));
+          const d1SwingLow = Math.min(...structuralCandles.map(c => c.low));
+          const d1SwingHighPips = Math.abs(currentPrice - d1SwingHigh) / pipInfo.pipValue;
+          const d1SwingLowPips = Math.abs(currentPrice - d1SwingLow) / pipInfo.pipValue;
+
+          let d1Bias = 'NEUTRAL';
+          if (bullDays >= Math.ceil(structuralCandles.length * 0.67)) d1Bias = 'BULLISH';
+          else if (bearDays >= Math.ceil(structuralCandles.length * 0.67)) d1Bias = 'BEARISH';
+
+          // Detect consecutive directional sequence (momentum)
+          let consecutiveD1 = 1;
+          let d1MomentumDir = structuralCandles[structuralCandles.length - 1].close > structuralCandles[structuralCandles.length - 1].open ? 'BULLISH' : 'BEARISH';
+          for (let i = structuralCandles.length - 2; i >= 0; i--) {
+            const dir = structuralCandles[i].close > structuralCandles[i].open ? 'BULLISH' : 'BEARISH';
+            if (dir === d1MomentumDir) consecutiveD1++;
+            else break;
+          }
+          const momentumNote = consecutiveD1 >= 2 ? `${consecutiveD1} consecutive ${d1MomentumDir} daily candles — strong daily momentum present.` : 'Mixed daily directional sequence — no clear daily momentum streak.';
+
+          intradayD1StructureBlock = `
+D1 DAILY STRUCTURAL CAMPAIGN (${structuralCandles.length}-day view — oldest to newest):
+${d1Lines.join('\n')}
+
+Daily Campaign Summary:
+  Bullish days: ${bullDays} / Bearish days: ${bearDays} → D1 Structural Bias: ${d1Bias}
+  ${momentumNote}
+  D1 Swing High (${structuralCandles.length}d): ${d1SwingHigh.toFixed(pipInfo.decimalPlaces)} — ${d1SwingHighPips.toFixed(0)} pips ${currentPrice > d1SwingHigh ? 'BELOW (price above)' : 'above current price'}
+  D1 Swing Low (${structuralCandles.length}d): ${d1SwingLow.toFixed(pipInfo.decimalPlaces)} — ${d1SwingLowPips.toFixed(0)} pips ${currentPrice < d1SwingLow ? 'ABOVE (price below)' : 'below current price'}
+
+INTRADAY D1 STRUCTURAL RULES:
+- Your INTRADAY trade must be ALIGNED with the D1 structural bias above. Counter-trend INTRADAY trades require an explicit structural reason (e.g., daily exhaustion, major reversal zone, or D1 swing high/low rejection).
+- The D1 swing high and low define the CAMPAIGN BOUNDARIES for INTRADAY. TP targets that breach a D1 swing high (for BUY) or swing low (for SELL) without justification signal overreach.
+- If D1 bias is BULLISH, prefer BUY setups on H4 pullbacks. SELL setups require D1-level rejection confirmation.
+- If D1 bias is BEARISH, prefer SELL setups on H4 retracements. BUY setups require D1-level support confirmation.
+- If D1 bias is NEUTRAL, both directions are valid but your H4 structure becomes the primary campaign authority.
+- ALWAYS state how the D1 structural bias supports or challenges your intended direction in your reasoning.`;
+        }
+
         d1ContextPrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1853,6 +1980,7 @@ ${isScalp ? `SCALP PDH/PDL RULES (advisory — do not block on these alone):
 - If your TP target is BEYOND PDH (for BUY) or below PDL (for SELL), acknowledge this in your reasoning.
 - If your entry is NEAR PDH/PDL (within 5% of range), explain whether this is a breakout or rejection setup.
 - PDH/PDL are NOT hard TP targets. They are context layers — use them to calibrate where liquidity pools.`}
+${intradayD1StructureBlock}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         console.log(`[Alpha Coordinator] D1 Previous Day (${styleName}): H=${prevDayHigh.toFixed(pipInfo.decimalPlaces)} L=${prevDayLow.toFixed(pipInfo.decimalPlaces)} range=${prevDayRange.toFixed(1)}p, price at ${pricePositionInPDRange}% of PD range`);
@@ -2091,12 +2219,50 @@ These fields are required for audit and mid-trade monitoring. Missing or null va
       }
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // ATR FIELD LEGEND — Transparency block for Alpha
+    // Alpha uses ATR-based move stage diagnosis and SL sizing throughout.
+    // This block makes the ATR field mapping explicit so Alpha knows
+    // WHICH timeframe's ATR is being referenced in each calculation.
+    // SSOT: styleAtrMap (line ~994) is the authoritative field mapping.
+    // ═══════════════════════════════════════════════════════════════════
+    const pipInfoForLegend = getCurrencyPipInfo(marketContext.symbol);
+    const atr20Value = extractATRValue(marketContext.atr20 as unknown as number | import('../types/atr').ATRValue | undefined);
+    const atrValue = extractATRValue(marketContext.atr);
+    const atr100Value = extractATRValue(marketContext.atr100 as unknown as number | import('../types/atr').ATRValue | undefined);
+    const atr20Pips = atr20Value > 0 ? (atr20Value / pipInfoForLegend.pipValue).toFixed(1) : 'N/A';
+    const atrPips = atrValue > 0 ? (atrValue / pipInfoForLegend.pipValue).toFixed(1) : 'N/A';
+    const atr100Pips = atr100Value > 0 ? (atr100Value / pipInfoForLegend.pipValue).toFixed(1) : 'N/A';
+    const activeAtrPips = atrForStopLoss > 0 ? (atrForStopLoss / pipInfoForLegend.pipValue).toFixed(1) : 'N/A';
+
+    const atrLegendPrompt = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MARKET DATA LEGEND — ATR FIELD REFERENCE (${marketContext.symbol})
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ATR values in market context map to specific timeframes. When you reference "ATR" in move stage diagnosis, structural space requirements, and SL sizing, you are referring to the ACTIVE ATR for this session style.
+
+  marketContext.atr20  = M5 ATR (20-period)  — SCALP stop sizing reference        | Current: ${atr20Pips} pips
+  marketContext.atr    = M15 ATR (14-period)  — MICRO_INTRADAY stop sizing reference | Current: ${atrPips} pips
+  marketContext.atr100 = H1 ATR (100-period) — INTRADAY stop sizing reference      | Current: ${atr100Pips} pips
+
+ACTIVE ATR for this session (${tradeStyle}): ${activeAtrPips} pips (using ${preferredAtrField} field)
+
+Use the ACTIVE ATR value above for all move stage calculations in this scan cycle:
+  - FRESH / STARTING:  price has traveled < 0.75 × ${activeAtrPips} pips = < ${atrForStopLoss > 0 ? ((atrForStopLoss * 0.75) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin
+  - DEVELOPING:        0.75–1.5 × ${activeAtrPips} pips = ${atrForStopLoss > 0 ? ((atrForStopLoss * 0.75) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'}–${atrForStopLoss > 0 ? ((atrForStopLoss * 1.5) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin
+  - EXHAUSTED:         > 1.5 × ${activeAtrPips} pips = > ${atrForStopLoss > 0 ? ((atrForStopLoss * 1.5) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin${tradeStyle === 'SCALP' ? ' → HARD BLOCK, NO_TRADE immediately' : ' → requires explicit continuation justification'}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+
     const prompt = `${styleIdentityPrompt}
 ${cachedThesisPrompt}
+${atrLegendPrompt}
 ${m5ContextPrompt}
 ${primaryTfCandlePrompt}
 ${htfCandlePrompt}
 ${m15ReferencePrompt}
+${h1CampaignPrompt}
 ${d1ContextPrompt}
 ${m1MicroContextPrompt}
 ${scalpIntelligencePrompt}
@@ -2165,7 +2331,7 @@ You choose ALL profit targets. The system never calculates TP for you.
   SL must be behind a genuine M15 structural level — scalp-sized stops on MICRO trades are auto-rejected.
 - INTRADAY: TWO take-profits.
   "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest H1 structural zone (not M15 micro-structure). TP1 R:R vs SL MUST be >= 2.0:1 (hard floor).
-  "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H4 structural zone. TP2 R:R vs SL MUST be >= 2.5:1 (hard floor).
+  "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H4 structural zone. TP2 R:R vs SL MUST be >= 3.0:1 (hard floor).
   tp1 must be closer to entry than tp2. Both must be within arena walls.
   If no H1 structure exists at >= 2.0:1 distance, either tighten SL to a structural level that achieves ratio, or NO_TRADE.
 
@@ -2624,6 +2790,30 @@ ${tradeStyle === 'SCALP' ? `{
         } else {
           decision.reasoning += ` [Expected fill: ${timeToFill.tpFillMinutes}min]`;
         }
+
+        // CCIP 2026-03-03: SCALP TIME CONTRACT — hard code-side gate
+        // SSOT: SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN = 90 (alpha-identity.ts)
+        // Alpha's prompt already contains the time contract rules. This code gate
+        // enforces the same limit deterministically, ensuring no scalp trade is
+        // issued that would require >90 minutes to complete. Alpha is always informed
+        // about this gate via its prompt system (SCALP TIME CONTRACT section).
+        // The gate fires AFTER Alpha's decision so Alpha retains full reasoning authority —
+        // the gate is a safety rail, not a pre-filter.
+        if (tradeStyle === 'SCALP' && decision.action !== 'NO_TRADE') {
+          const scalp_absolute_max = 90; // SSOT: SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN
+          if (timeToFill.totalExpectedMinutes > scalp_absolute_max) {
+            console.error(`[Alpha Coordinator] SCALP_TIME_CONTRACT_VIOLATION: Expected fill ${timeToFill.totalExpectedMinutes}min exceeds SCALP absolute max ${scalp_absolute_max}min. Overriding to NO_TRADE.`);
+            decision.action = 'NO_TRADE';
+            decision.decision = 'NO_TRADE';
+            decision.reasoning = `BLOCKED (SCALP_TIME_CONTRACT): Trade would take ~${timeToFill.totalExpectedMinutes}min to complete — exceeds SCALP maximum of ${scalp_absolute_max}min. A scalp must complete within the session window. Original reasoning: ${decision.reasoning}`;
+            decision.stopLoss = undefined;
+            decision.takeProfit = undefined;
+          } else if (timeToFill.totalExpectedMinutes > 60) {
+            // Warning zone (60–90min) — Alpha was already informed via prompt, append advisory
+            decision.reasoning += ` [WARNING: Fill time ${timeToFill.totalExpectedMinutes}min is in SCALP warning zone (60–90min). Monitor closely.]`;
+            console.warn(`[Alpha Coordinator] SCALP_TIME_CONTRACT_WARNING: Fill time ${timeToFill.totalExpectedMinutes}min in warning zone (60-90min).`);
+          }
+        }
       }
 
       console.log('[Alpha Coordinator] Decision:', decision.action);
@@ -2859,6 +3049,44 @@ ${tradeStyle === 'SCALP' ? `{
           decision = 'NO_TRADE';
         } else {
           console.log(`[Alpha Coordinator] MICRO_INTRADAY M15 anchor confirmed: "${m15Anchor}"`);
+        }
+      }
+
+      // CCIP 2026-03-03: INTRADAY requires trade_management field when BUY/SELL is issued.
+      // INTRADAY trades have TP1 + TP2 structure — Alpha must state its management plan
+      // (hold-to-TP2 vs close-at-TP1, breakeven timing, etc.). Without this, the
+      // trade is executed with no defined management intent, which is architecturally unsafe.
+      if (action !== 'NO_TRADE' && tradeStyle === 'INTRADAY') {
+        const tradeManagement = typeof parsed.trade_management === 'string'
+          ? parsed.trade_management.trim()
+          : null;
+        const managementIsVague = !tradeManagement ||
+          tradeManagement.length < 15 ||
+          tradeManagement.toLowerCase().includes('null') ||
+          tradeManagement.toLowerCase().includes('n/a');
+
+        if (managementIsVague) {
+          console.warn('[Alpha Coordinator] INTRADAY_NO_TRADE_MANAGEMENT: Alpha did not provide trade_management plan. Trade proceeds but monitoring is unguided.');
+          // Advisory warning only — INTRADAY trades without management guidance are risky
+          // but not blocked (Alpha may still have valid geometry). Log and continue.
+        } else {
+          console.log(`[Alpha Coordinator] INTRADAY trade_management confirmed: "${tradeManagement.substring(0, 80)}..."`);
+        }
+      }
+
+      // CCIP 2026-03-03: Validate move_stage keyword appears in reasoning for all trade decisions.
+      // Alpha must explicitly diagnose the move stage (FRESH/DEVELOPING/EXHAUSTED) as part of
+      // its reasoning. If it's missing, the position sizing and R:R decisions lack structural basis.
+      // This is a WARNING check — does not block the trade but flags shallow reasoning.
+      if (action !== 'NO_TRADE') {
+        const reasoning = typeof parsed.reasoning === 'string' ? parsed.reasoning.toLowerCase() : '';
+        const marketNarrative = typeof parsed.market_narrative === 'string' ? parsed.market_narrative.toLowerCase() : '';
+        const combinedText = reasoning + ' ' + marketNarrative;
+        const hasMoveStage = combinedText.includes('fresh') || combinedText.includes('developing') ||
+          combinedText.includes('exhausted') || combinedText.includes('move stage') ||
+          combinedText.includes('stage:') || combinedText.includes('starting');
+        if (!hasMoveStage) {
+          console.warn(`[Alpha Coordinator] MOVE_STAGE_ABSENT: Alpha issued ${action} without diagnosing move stage (FRESH/DEVELOPING/EXHAUSTED) in reasoning. This indicates shallow move analysis.`);
         }
       }
 

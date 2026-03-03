@@ -124,7 +124,9 @@ export const AGGRESSIVE_PROFILE: RiskStrategyProfile = {
   analysisDepth: 'quick',
 
   stopLossMultiplier: { min: 0.5, max: 1.0 },
-  typicalStopPips: { min: 10, max: 20 },
+  // CCIP 2026-03-03: min adjusted from 10 to 8 to match SCALP_ENVELOPE.slPips.min = 8 (style-execution-envelopes.ts).
+  // The style envelope is the geometric authority. This advisory range must not contradict it.
+  typicalStopPips: { min: 8, max: 20 },
 
   riskRewardRange: { min: 1.5, max: 2.5 },
   targetSpeed: 'fast',
@@ -182,7 +184,9 @@ export const MODERATE_PROFILE: RiskStrategyProfile = {
   analysisDepth: 'moderate',
 
   stopLossMultiplier: { min: 1.0, max: 1.5 },
-  typicalStopPips: { min: 20, max: 35 },
+  // CCIP 2026-03-03: min adjusted from 20 to 15, max from 35 to 50 to match
+  // MICRO_INTRADAY_ENVELOPE.slPips = {min:15, max:50} (style-execution-envelopes.ts).
+  typicalStopPips: { min: 15, max: 50 },
 
   riskRewardRange: { min: 1.8, max: 3.0 },
   targetSpeed: 'moderate',
@@ -240,7 +244,8 @@ export const CONSERVATIVE_PROFILE: RiskStrategyProfile = {
   analysisDepth: 'deep',
 
   stopLossMultiplier: { min: 1.5, max: 2.5 },
-  typicalStopPips: { min: 30, max: 50 },
+  // CCIP 2026-03-03: max adjusted from 50 to 60 to match INTRADAY_ENVELOPE.slPips.max = 60 (style-execution-envelopes.ts).
+  typicalStopPips: { min: 30, max: 60 },
 
   riskRewardRange: { min: 2.0, max: 4.0 },
   targetSpeed: 'patient',

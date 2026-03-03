@@ -579,7 +579,7 @@ SCALP MOVE STAGE DIAGNOSIS — Before selecting your sub-mode, diagnose which st
 
 EARLY STAGE: The move originated recently. The swing origin is clearly visible and nearby on the M5 chart. The move is FRESH (< 0.75x ATR traveled). Momentum is building. Both SUB-MODE A and SUB-MODE B entries are valid — you are participating in the body of the move, not chasing its tail. This is the ideal stage.
 MIDDLE STAGE: The move has traveled meaningful range (0.75-1.5x ATR). Candle bodies in the trend direction are still reasonably sized. There is still visible structural space to your TP. SUB-MODE B (pullback entry) is the preferred approach. SUB-MODE A requires explicit justification of why momentum continuation is favored over a pullback re-entry at this stage.
-LATE STAGE: The move has traveled > 1.2x ATR from its origin. Candle bodies are shrinking in the trend direction. The nearest TP-level structure is within close range. Ask yourself honestly: am I entering this move as a participant, or am I about to become exit liquidity for traders who entered at the origin? If you cannot clearly place yourself in EARLY or MIDDLE stage, you are in LATE stage.
+LATE STAGE: The move has traveled > 1.5x ATR from its origin. Candle bodies are shrinking in the trend direction. The nearest TP-level structure is within close range. Ask yourself honestly: am I entering this move as a participant, or am I about to become exit liquidity for traders who entered at the origin? If you cannot clearly place yourself in EARLY or MIDDLE stage, you are in LATE stage.
 
 LATE STAGE — MANDATORY R:R RECALCULATION GATE (complete before selecting output):
 Step 1 — Recalculate R:R using CURRENT price as the entry point, not the swing origin. The move that has already happened is gone. Your R:R is measured from here.
@@ -624,7 +624,7 @@ Valid triggers: Candle close outside the compression zone, followed immediately 
 MICRO_INTRADAY MOVE STAGE DIAGNOSIS — Before deciding whether to enter now or wait for a pullback, diagnose which stage of the M15 move you are in:
 EARLY STAGE: The move originated recently. The M15 swing origin is clearly visible and the leg is FRESH (< 0.75x ATR traveled from the origin). Both continuation and pullback entries are valid. You are participating in the body of the move.
 MIDDLE STAGE: The move has traveled 0.75-1.5x ATR. M15 candle bodies in the trend direction are still reasonably sized. Structural space to TP1 exists. Pullback entry is the preferred approach at this stage. Continuation requires you to reason out loud about whether momentum justifies a direct entry or whether the structure favors waiting for a retrace.
-LATE STAGE: The move has traveled > 1.2x ATR from its M15 swing origin. M15 candle bodies are shrinking in the trend direction. The TP1 structure is within close range. Ask yourself: am I entering as a participant or as exit liquidity? If you cannot clearly place yourself in EARLY or MIDDLE stage, you are in LATE stage.
+LATE STAGE: The move has traveled > 1.5x ATR from its M15 swing origin. M15 candle bodies are shrinking in the trend direction. The TP1 structure is within close range. Ask yourself: am I entering as a participant or as exit liquidity? If you cannot clearly place yourself in EARLY or MIDDLE stage, you are in LATE stage.
 
 LATE STAGE — MANDATORY R:R RECALCULATION GATE (complete before selecting output):
 Step 1 — Recalculate R:R using CURRENT price as the entry point. The prior leg's movement does not belong to you.
@@ -652,13 +652,13 @@ Before selecting execute_now as your entry mode, you must assess M5 confirmation
 INTRADAY MOVE STAGE DIAGNOSIS — Before deciding entry approach, diagnose which stage of the H1 move you are in:
 EARLY STAGE: The H1 move originated recently. The swing origin is clearly visible and the leg is FRESH (< 0.75x H1 ATR traveled). Both continuation and pullback entries are valid. You are participating in the body of the campaign leg, not chasing it.
 MIDDLE STAGE: The move has traveled 0.75-1.5x H1 ATR. H1 candle bodies in the trend direction are still reasonably sized. Structural space to TP1 and TP2 exists. Pullback re-entry is the preferred approach. Continuation entries require you to state explicitly why the momentum justifies bypassing a pullback wait at this stage.
-LATE STAGE: The move has traveled > 1.2x H1 ATR from its swing origin. H1 candle bodies are shrinking in the trend direction. TP1 structure is close. Ask yourself honestly: am I a participant or exit liquidity? If you cannot clearly place yourself in EARLY or MIDDLE stage, you are in LATE stage.
+LATE STAGE: The move has traveled > 1.5x H1 ATR from its swing origin. H1 candle bodies are shrinking in the trend direction. TP1 structure is close. Ask yourself honestly: am I a participant or exit liquidity? If you cannot clearly place yourself in EARLY or MIDDLE stage, you are in LATE stage.
 
 LATE STAGE — MANDATORY R:R RECALCULATION GATE (complete before selecting output):
 Step 1 — Recalculate R:R using CURRENT price as the entry point. The H1 move that already occurred does not count toward your R:R.
-Step 2 — Compare recalculated TP1 and TP2 R:R against the INTRADAY minimums (TP1 >= 2.0, TP2 >= 2.5).
+Step 2 — Compare recalculated TP1 and TP2 R:R against the INTRADAY minimums (TP1 >= 2.0, TP2 >= 3.0).
 Step 3 — Only two valid outcomes:
-  (a) Recalculated TP1 R:R >= 2.0 AND thesis is fully confirmed on H1 structure AND a specific named pullback zone exists on H1: wait_pullback is valid. State: "R:R recalculated at current price — TP1: X:1, TP2: Y:1. INTRADAY minimums 2.0/2.5. Sufficient. Named H1 re-entry zone: [level]. Wait_pullback valid."
+  (a) Recalculated TP1 R:R >= 2.0 AND thesis is fully confirmed on H1 structure AND a specific named pullback zone exists on H1: wait_pullback is valid. State: "R:R recalculated at current price — TP1: X:1, TP2: Y:1. INTRADAY minimums 2.0/3.0. Sufficient. Named H1 re-entry zone: [level]. Wait_pullback valid."
   (b) Recalculated TP1 R:R < 2.0 OR no named structural H1 re-entry zone exists: NO_TRADE. State: "R:R recalculated at current price — TP1: X:1. INTRADAY minimum 2.0. Insufficient. NO_TRADE — move has consumed available R:R."
 CRITICAL: Do NOT set wait_pullback on a late-stage INTRADAY entry where the recalculated R:R fails the minimum. The H1 campaign that began several candles ago had an entry point. That entry point has passed. A pullback that merely retraces part of a consumed move does not restore the R:R profile of the original setup — it produces a degraded entry into a tired move. If R:R from any pullback re-entry does not clear the INTRADAY floor, this is NO_TRADE.
 State your stage explicitly: "H1 move stage: [EARLY/MIDDLE/LATE] — [reason]. Entry approach: [continuation/pullback/wait]."
@@ -709,7 +709,7 @@ These are mathematical or structural facts that make a trade physically impossib
 3. R:R FLOOR VIOLATION: After placing SL at the correct structural level, if R:R falls below the style minimum, reject the trade. Do NOT tighten SL to a non-structural level to force compliance. The hard floors exist because trades below them have negative expectancy by design.
    - SCALP: R:R >= 1.5 (single TP)
    - MICRO_INTRADAY: TP1 R:R >= 1.5, TP2 R:R >= 2.0
-   - INTRADAY: TP1 R:R >= 2.0, TP2 R:R >= 2.5
+   - INTRADAY: TP1 R:R >= 2.0, TP2 R:R >= 3.0
 
 4. NOISE FLOOR VIOLATION: Your constraints include a NOISE FLOOR in pips. If your SL is closer to entry than the noise floor, the trade will be stopped out by routine market noise before the thesis can play out. Either widen SL to at least the noise floor, or reject the trade.
 
