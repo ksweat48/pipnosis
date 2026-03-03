@@ -436,9 +436,10 @@ export const SmartGoalPanel: React.FC = () => {
         {currentStep === 'style' && (
           <div className="space-y-4">
             <div className="text-center mb-6">
-              {/* Club Level Badge — SSOT: derived from clubMembershipService */}
+              {/* Club Level Badge + Execution Mode Indicator — SSOT: derived from clubMembershipService + trading_preferences */}
               {userMembership !== undefined && (
-                <div className="flex justify-center mb-3">
+                <div className="flex items-center justify-center gap-2 mb-3">
+                  {/* Membership tier pill */}
                   {(() => {
                     const pillCta = getMembershipCTA(userMembership);
                     const c = pillCta.color;
@@ -454,6 +455,19 @@ export const SmartGoalPanel: React.FC = () => {
                       </div>
                     );
                   })()}
+
+                  {/* Execution mode indicator pill — reflects current trading_preferences.multi_trade_enabled */}
+                  {multiTradeEnabled ? (
+                    <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/40 transition-all duration-300">
+                      <Zap className="w-3 h-3 text-emerald-400" />
+                      <span className="text-xs font-bold text-emerald-400 tracking-wide">Multi</span>
+                    </div>
+                  ) : (
+                    <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-500/15 border border-blue-500/40 transition-all duration-300">
+                      <CheckCircle className="w-3 h-3 text-blue-400" />
+                      <span className="text-xs font-bold text-blue-400 tracking-wide">Single</span>
+                    </div>
+                  )}
                 </div>
               )}
               <h3 className="text-lg font-bold text-white mb-2">Choose Your Trading Style</h3>
