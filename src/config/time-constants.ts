@@ -120,13 +120,29 @@ export const TIME_MS = {
 
     // CCIP-STALENESS-FIX-2026-02-20: Alpha intelligence cache authorities
     // These are the canonical TTLs for Alpha thesis and deterministic sentiment.
-    // THESIS: 5 minutes aligns with SEVERITY_THRESHOLDS.ALPHA.CRITICAL (300s) in
-    //   trade-execution-freshness-gate.ts — the gate already knows 300s is the
-    //   "must regenerate" threshold, the thesis TTL now matches it exactly.
-    // SENTIMENT: 5 minutes — deterministic computation, zero API cost.
-    //   Early invalidation also fires on H1+ candle close via candle-cache-manager.
-    ALPHA_THESIS: 300_000,   // 5 minutes (was 900_000 / 15 min)
-    MARKET_CONTEXT: 300_000, // 5 minutes (was 15 min in sentiment-aggregator.ts)
+    //
+    // CCIP-STABILITY-FIX-2026-03-03: ALPHA_THESIS restored to 15 minutes.
+    // REASON: The 5-minute TTL (set 2026-02-20) was too aggressive. In low-volatility
+    // sideways markets it forced full LLM thesis regeneration for all 9 symbols every
+    // scan cycle, driving scan times to 126s (>120s governance alert threshold) and
+    // a 66.7% symbol error rate (NAS100/EURUSD timing out at 40s per symbol).
+    //
+    // CORRECTNESS: The thesis TTL is NOT the freshness guard. Two independent mechanisms
+    // already ensure stale theses are never served:
+    //   1. Structural early-invalidation: H1+ candle close evicts local cache immediately
+    //      via SharedIntelligenceCoordinator.invalidateThesisForSymbol() (candle-cache-manager)
+    //   2. Regime signature change: detectRegimeChange() invalidates cache on any material
+    //      htfBias / microRegime / volatilityRegime / structureState shift
+    //
+    // The 5-minute floor in trade-execution-freshness-gate.ts (SEVERITY_THRESHOLDS.ALPHA.CRITICAL)
+    // controls execution staleness rejection, not how long a structurally valid thesis lives.
+    // These are orthogonal concerns. A 15-minute thesis is valid as long as its regime
+    // signature matches — the freshness gate remains the executor's independent guard.
+    //
+    // MARKET_CONTEXT unchanged at 5 minutes: deterministic computation, zero API cost,
+    // no LLM regeneration risk.
+    ALPHA_THESIS: 900_000,   // 15 minutes (restored from 5 min — see CCIP-STABILITY-FIX-2026-03-03)
+    MARKET_CONTEXT: 300_000, // 5 minutes (deterministic, zero API cost)
   },
 
   DEBOUNCE: {

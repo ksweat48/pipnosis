@@ -56,11 +56,12 @@ export interface AlphaStrategicInsight {
 
 /**
  * Get TTL for Alpha thesis cache
- * Fixed baseline: 15 minutes (global)
- * Early invalidation handled by structure-aware triggers
+ * Baseline: 15 minutes (SSOT: TIME_MS.CACHE.ALPHA_THESIS in time-constants.ts)
+ * Early invalidation: H1+ candle close OR material regime signature change
+ * See CCIP-STABILITY-FIX-2026-03-03 in time-constants.ts for rationale.
  */
 function getTTLForAlphaThesis(): number {
-  return THESIS_TTL_MS; // 15 minutes fixed
+  return THESIS_TTL_MS; // 15 minutes (SSOT: time-constants.ts TIME_MS.CACHE.ALPHA_THESIS)
 }
 
 class SharedIntelligenceCoordinator {
