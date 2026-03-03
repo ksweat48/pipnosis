@@ -2,7 +2,7 @@
  * Pre-Screen Structure Monitor — Scheduled Netlify Function
  *
  * Responsibility:
- * - Runs every 5 minutes (schedule: */5 * * * *)
+ * - Runs every 5 minutes (schedule: every-5-min cron)
  * - Evaluates 10+ technical signals for 9 symbols × 3 styles = 27 rows
  * - Uses ONLY pre-aggregated forex_candles (zero external API calls)
  * - Writes full signal confluence data to pre_screen_results via upsert
