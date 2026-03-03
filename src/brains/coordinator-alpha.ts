@@ -224,7 +224,7 @@ export interface MarketContext {
    */
   atr: number | ATRValue; // Accept both during migration period
   atr20?: number | ATRValue;  // Short-term ATR (typically M5 or M15) for volatility regime detection
-  atr100?: number | ATRValue; // Long-term ATR (typically H1 or H4) for volatility regime detection
+  atr100?: number | ATRValue; // Long-period ATR for volatility regime detection (H4-scale reference, currently not populated)
 }
 
 export interface GoalContext {
@@ -988,7 +988,7 @@ class AlphaCoordinatorBrain {
       const entryPrice = marketContext.price;
 
       // CCIP 2026-03: Style-differentiated ATR timeframe for SL width.
-      // SCALP → M5 ATR (atr20), MICRO_INTRADAY → M15 ATR (atr), INTRADAY → H1 ATR (atr100).
+      // SCALP → M5 ATR (atr20), MICRO_INTRADAY → M15 ATR (atr), INTRADAY → H1 primary ATR (atr field, same as MICRO_INTRADAY source but H1 candles). atr100 is a long-period regime reference that is currently not populated.
       // This ensures stop widths are structurally appropriate for the trade's managed timeframe.
       let atrForStopLoss: number;
       const styleAtrMap: Record<string, 'atr20' | 'atr' | 'atr100'> = {
@@ -2244,7 +2244,7 @@ ATR values in market context map to specific timeframes. When you reference "ATR
 
   marketContext.atr20  = M5 ATR (20-period)  — SCALP stop sizing reference        | Current: ${atr20Pips} pips
   marketContext.atr    = M15 ATR (14-period)  — MICRO_INTRADAY stop sizing reference | Current: ${atrPips} pips
-  marketContext.atr100 = H1 ATR (100-period) — INTRADAY stop sizing reference      | Current: ${atr100Pips} pips
+  marketContext.atr100 = H4 ATR (long-period) — INTRADAY volatility regime reference | Current: ${atr100Pips !== 'N/A' ? atr100Pips + ' pips' : 'NOT POPULATED — not used for stop sizing, INTRADAY uses H1 primary ATR for SL'}
 
 ACTIVE ATR for this session (${tradeStyle}): ${activeAtrPips} pips (using ${preferredAtrField} field)
 
@@ -3056,6 +3056,8 @@ ${tradeStyle === 'SCALP' ? `{
       // INTRADAY trades have TP1 + TP2 structure — Alpha must state its management plan
       // (hold-to-TP2 vs close-at-TP1, breakeven timing, etc.). Without this, the
       // trade is executed with no defined management intent, which is architecturally unsafe.
+      // HARDENED 2026-03-03: Elevated to hard NO_TRADE block (parity with MICRO_INTRADAY
+      // m15_structural_confirmation gate). A missing plan is a governance failure, not a warning.
       if (action !== 'NO_TRADE' && tradeStyle === 'INTRADAY') {
         const tradeManagement = typeof parsed.trade_management === 'string'
           ? parsed.trade_management.trim()
@@ -3066,9 +3068,10 @@ ${tradeStyle === 'SCALP' ? `{
           tradeManagement.toLowerCase().includes('n/a');
 
         if (managementIsVague) {
-          console.warn('[Alpha Coordinator] INTRADAY_NO_TRADE_MANAGEMENT: Alpha did not provide trade_management plan. Trade proceeds but monitoring is unguided.');
-          // Advisory warning only — INTRADAY trades without management guidance are risky
-          // but not blocked (Alpha may still have valid geometry). Log and continue.
+          console.warn('[Alpha Coordinator] INTRADAY_NO_TRADE_MANAGEMENT: Alpha did not provide trade_management plan. Overriding to NO_TRADE — unguided INTRADAY execution is architecturally unsafe.');
+          action = 'NO_TRADE';
+          parsed.action = 'NO_TRADE';
+          parsed.reasoning = (parsed.reasoning || '') + ' [GOVERNANCE BLOCK: INTRADAY requires trade_management field. Missing or vague plan triggers NO_TRADE override.]';
         } else {
           console.log(`[Alpha Coordinator] INTRADAY trade_management confirmed: "${tradeManagement.substring(0, 80)}..."`);
         }
