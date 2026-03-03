@@ -68,6 +68,27 @@ class SharedIntelligenceCoordinator {
   private localThesisCache = new Map<string, { data: AlphaMarketThesis; expiresAt: number }>();
 
   /**
+   * In-flight deduplication guard (Thundering Herd prevention).
+   *
+   * CCIP-THUNDERING-HERD-FIX-2026-03-03:
+   * When N concurrent scans hit a cache miss for the same symbol + regimeHash,
+   * all N would call the LLM and attempt a DB write simultaneously. This guard
+   * stores the first in-flight Promise under the same localKey so subsequent
+   * callers await the same result instead of launching duplicate LLM requests.
+   *
+   * Lifecycle:
+   *  - Entry inserted: immediately before fetchFreshFn() is called
+   *  - Entry deleted: in finally{} after the promise resolves or rejects
+   *  - Key space: identical to localThesisCache (symbol + regimeHash) so the
+   *    deduplication boundary is the correct grain — same symbol, different
+   *    regimes still produce independent concurrent fetches.
+   *
+   * SSOT: This Map lives alongside localThesisCache. Both are cleared together
+   * in clearLocalCache() so the guard never holds stale references.
+   */
+  private inFlightThesisRequests = new Map<string, Promise<AlphaMarketThesis>>();
+
+  /**
    * Get market snapshot (SSOT for inputs)
    * All Omegas will receive the SAME snapshot
    */
@@ -238,6 +259,19 @@ class SharedIntelligenceCoordinator {
       });
     }
 
+    // Cache miss — check for an in-flight request for the same key (thundering herd guard).
+    // CCIP-THUNDERING-HERD-FIX-2026-03-03: If a concurrent caller is already fetching
+    // a fresh thesis for this symbol + regimeHash, short-circuit to their Promise.
+    const existingFlight = this.inFlightThesisRequests.get(localKey);
+    if (existingFlight) {
+      logger.info('[SharedIntelligence] Thesis IN-FLIGHT HIT - awaiting concurrent fetch', {
+        symbol,
+        regimeHash,
+        note: 'thundering_herd_guard_active'
+      });
+      return existingFlight;
+    }
+
     // Cache miss - call LLM (with cached thesis for Alpha to review)
     logger.info('[SharedIntelligence] Thesis MISS - Calling LLM', {
       symbol,
@@ -247,122 +281,135 @@ class SharedIntelligenceCoordinator {
     });
     await this.logCacheStat('alpha_thesis', symbol, regimeSignature.symbol, 'lookup', 'miss', 0);
 
-    const freshResult = await fetchFreshFn(cachedThesis);
+    // Register the fetch promise under the in-flight guard before awaiting.
+    // The finally{} block always removes it so no stale entries accumulate.
+    // CCIP-THUNDERING-HERD-FIX-2026-03-03: Single LLM call per symbol+regimeHash.
+    const fetchPromise = (async (): Promise<AlphaMarketThesis> => {
+      const freshResult = await fetchFreshFn(cachedThesis);
 
-    // Check if Alpha rejected the cached thesis
-    if (freshResult.thesisRejected && cachedThesis) {
-      logger.info('[SharedIntelligence] Alpha rejected cached thesis', {
-        symbol,
-        reason: freshResult.rejectionReason
-      });
+      // Check if Alpha rejected the cached thesis
+      if (freshResult.thesisRejected && cachedThesis) {
+        logger.info('[SharedIntelligence] Alpha rejected cached thesis', {
+          symbol,
+          reason: freshResult.rejectionReason
+        });
 
-      // Log rejection as learning signal
-      await logThesisRejection(
-        cachedThesis.thesisHash,
+        // Log rejection as learning signal
+        await logThesisRejection(
+          cachedThesis.thesisHash,
+          symbol,
+          freshResult.rejectionReason || 'Market conditions changed',
+          regimeSignature,
+          now - cachedThesis.createdAt.getTime(),
+          'unknown',
+          'unknown'
+        );
+
+        // Invalidate old thesis
+        await this.invalidateThesisByRegime(symbol, regimeHash);
+      }
+
+      // Create immutable thesis
+      const immutableThesis = createImmutableThesis({
+        ...freshResult.thesis,
         symbol,
-        freshResult.rejectionReason || 'Market conditions changed',
         regimeSignature,
-        now - cachedThesis.createdAt.getTime(),
-        'unknown', // Execution style (filled by caller if available)
-        'unknown'  // Session context (filled by caller if available)
-      );
+        createdAt: new Date(),
+        cacheAgeSeconds: 0,
+        fromCache: false
+      });
 
-      // Invalidate old thesis
-      await this.invalidateThesisByRegime(symbol, regimeHash);
-    }
+      // Cache new thesis in database
+      try {
+        const regimeSignatureJson = JSON.stringify(regimeSignature);
 
-    // Create immutable thesis
-    const immutableThesis = createImmutableThesis({
-      ...freshResult.thesis,
-      symbol,
-      regimeSignature,
-      createdAt: new Date(),
-      cacheAgeSeconds: 0,
-      fromCache: false
-    });
+        const cacheResult = await supabase.rpc('cache_alpha_thesis', {
+          p_symbol: symbol,
+          p_timeframe: regimeSignature.timeframeRelevance || 'H1',
+          p_direction_bias: freshResult.thesis.directionBias,
+          p_narrative: freshResult.thesis.narrative,
+          p_regime: freshResult.thesis.regime,
+          p_liquidity_context: freshResult.thesis.liquidityContext || 'Standard liquidity conditions',
+          p_invalidation_logic: freshResult.thesis.invalidationLogic || 'Standard invalidation rules',
+          p_confidence_band: freshResult.thesis.confidenceBand,
+          p_thesis_summary: freshResult.thesis.thesisSummary,
+          p_regime_signature_hash: regimeHash,
+          p_thesis_hash: immutableThesis.thesisHash,
+          p_regime_signature_json: regimeSignatureJson,
+          p_htf_bias: regimeSignature.htfBias,
+          p_micro_regime: regimeSignature.microRegime,
+          p_volatility_regime: regimeSignature.volatilityRegime,
+          p_structure_state: regimeSignature.structureState,
+          p_timeframe_relevance: regimeSignature.timeframeRelevance || 'H1'
+        });
 
-    // Cache new thesis in database
+        // Log cache write success for governance audit trail (non-blocking)
+        try {
+          await supabase.rpc('log_cache_write_event', {
+            p_symbol: symbol,
+            p_regime_signature_hash: regimeHash,
+            p_write_status: 'success',
+            p_error_message: null,
+            p_cache_tier: 'alpha_thesis'
+          });
+        } catch (auditErr) {
+          logger.warn('[SharedIntelligence] Failed to log cache write success to audit trail', {
+            error: auditErr instanceof Error ? auditErr.message : 'Unknown error'
+          });
+        }
+
+        logger.info('[SharedIntelligence] Thesis cached successfully', {
+          symbol,
+          regimeHash,
+          ttl: `${Math.round(THESIS_TTL_MS / 60000)}min`,
+          thesisId: cacheResult
+        });
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+
+        logger.error('[SharedIntelligence] Thesis cache write failed', {
+          error: errorMsg,
+          symbol,
+          regimeHash
+        });
+
+        // Log cache write failure for governance audit trail (non-blocking)
+        try {
+          await supabase.rpc('log_cache_write_event', {
+            p_symbol: symbol,
+            p_regime_signature_hash: regimeHash,
+            p_write_status: 'failed',
+            p_error_message: errorMsg.substring(0, 255),
+            p_cache_tier: 'alpha_thesis'
+          });
+        } catch (auditErr) {
+          logger.warn('[SharedIntelligence] Failed to log cache write failure to audit trail', {
+            error: auditErr instanceof Error ? auditErr.message : 'Unknown error'
+          });
+        }
+
+        // Cache write failure does NOT block execution — intelligent degradation.
+      }
+
+      // Store in local cache
+      const ttl = getTTLForAlphaThesis();
+      this.localThesisCache.set(localKey, {
+        data: immutableThesis,
+        expiresAt: now + ttl
+      });
+
+      return immutableThesis;
+    })();
+
+    // Register in-flight promise so concurrent callers share this fetch.
+    this.inFlightThesisRequests.set(localKey, fetchPromise);
+
     try {
-      // Convert regime signature to JSON string for RPC
-      const regimeSignatureJson = JSON.stringify(regimeSignature);
-
-      const cacheResult = await supabase.rpc('cache_alpha_thesis', {
-        p_symbol: symbol,
-        p_timeframe: regimeSignature.timeframeRelevance || 'H1',
-        p_direction_bias: freshResult.thesis.directionBias,
-        p_narrative: freshResult.thesis.narrative,
-        p_regime: freshResult.thesis.regime,
-        p_liquidity_context: freshResult.thesis.liquidityContext || 'Standard liquidity conditions',
-        p_invalidation_logic: freshResult.thesis.invalidationLogic || 'Standard invalidation rules',
-        p_confidence_band: freshResult.thesis.confidenceBand,
-        p_thesis_summary: freshResult.thesis.thesisSummary,
-        p_regime_signature_hash: regimeHash,
-        p_thesis_hash: immutableThesis.thesisHash,
-        p_regime_signature_json: regimeSignatureJson,
-        p_htf_bias: regimeSignature.htfBias,
-        p_micro_regime: regimeSignature.microRegime,
-        p_volatility_regime: regimeSignature.volatilityRegime,
-        p_structure_state: regimeSignature.structureState,
-        p_timeframe_relevance: regimeSignature.timeframeRelevance || 'H1'
-      });
-
-      // Log cache write success for governance audit trail (non-blocking)
-      try {
-        await supabase.rpc('log_cache_write_event', {
-          p_symbol: symbol,
-          p_regime_signature_hash: regimeHash,
-          p_write_status: 'success',
-          p_error_message: null,
-          p_cache_tier: 'alpha_thesis'
-        });
-      } catch (auditErr) {
-        logger.warn('[SharedIntelligence] Failed to log cache write success to audit trail', {
-          error: auditErr instanceof Error ? auditErr.message : 'Unknown error'
-        });
-      }
-
-      logger.info('[SharedIntelligence] Thesis cached successfully', {
-        symbol,
-        regimeHash,
-        ttl: '15min',
-        thesisId: cacheResult
-      });
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-
-      logger.error('[SharedIntelligence] Thesis cache write failed', {
-        error: errorMsg,
-        symbol,
-        regimeHash
-      });
-
-      // Log cache write failure for governance audit trail (non-blocking)
-      try {
-        await supabase.rpc('log_cache_write_event', {
-          p_symbol: symbol,
-          p_regime_signature_hash: regimeHash,
-          p_write_status: 'failed',
-          p_error_message: errorMsg.substring(0, 255),
-          p_cache_tier: 'alpha_thesis'
-        });
-      } catch (auditErr) {
-        logger.warn('[SharedIntelligence] Failed to log cache write failure to audit trail', {
-          error: auditErr instanceof Error ? auditErr.message : 'Unknown error'
-        });
-      }
-
-      // Important: Do NOT rethrow error - cache write failure should NOT block execution
-      // This is "intelligent degradation": thesis is still valid even if caching failed
+      return await fetchPromise;
+    } finally {
+      // Always remove the in-flight entry regardless of success or failure.
+      this.inFlightThesisRequests.delete(localKey);
     }
-
-    // Store in local cache
-    const ttl = getTTLForAlphaThesis();
-    this.localThesisCache.set(localKey, {
-      data: immutableThesis,
-      expiresAt: now + ttl
-    });
-
-    return immutableThesis;
   }
 
   /**
@@ -454,8 +501,9 @@ class SharedIntelligenceCoordinator {
    */
   clearLocalCache(): void {
     this.localThesisCache.clear();
+    this.inFlightThesisRequests.clear();
     marketSnapshotCache.clearAll();
-    console.log('[SharedIntelligence] 🗑️ All local caches cleared');
+    console.log('[SharedIntelligence] All local caches cleared');
   }
 
 
