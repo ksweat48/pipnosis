@@ -28,7 +28,7 @@
  *   BLOCKED        = neither rule met (matches coordinator-alpha NO_TRADE gate)
  */
 
-import { Handler, schedule } from '@netlify/functions';
+import type { Handler } from '@netlify/functions';
 import { getSupabaseAdmin } from './_shared/supabase-admin';
 
 const supabase = getSupabaseAdmin();
@@ -215,4 +215,3 @@ const handler: Handler = async () => {
 };
 
 export { handler };
-export default schedule('*/5 * * * *', handler);
