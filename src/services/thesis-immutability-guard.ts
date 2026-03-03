@@ -10,7 +10,7 @@
  * - Ensure thesis remains pure market truth (no execution data)
  */
 
-import { AlphaMarketThesis } from '../types/alpha-thesis';
+import { AlphaMarketThesis, THESIS_TTL_MS } from '../types/alpha-thesis';
 import { logger } from '../lib/logger';
 import { generateThesisHash } from './alpha-thesis-parser';
 
@@ -294,8 +294,8 @@ export function verifyCachedThesisIntegrity(
     };
   }
 
-  // Check age (shouldn't be too old based on TTL)
-  const MAX_AGE_SECONDS = 900; // 15 minutes
+  // Check age against canonical TTL (SSOT: THESIS_TTL_MS from alpha-thesis.ts -> time-constants.ts)
+  const MAX_AGE_SECONDS = THESIS_TTL_MS / 1000;
   if (thesis.cacheAgeSeconds > MAX_AGE_SECONDS) {
     return {
       valid: false,

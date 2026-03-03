@@ -7,6 +7,7 @@
  * - Price freshness checks delegated to PriceFreshnessGate (governance layer)
  * - This service handles trade-specific validation (intelligence + drift)
  * - No duplicate price checking logic
+ * - Severity thresholds sourced from TIME_MS (SSOT: time-constants.ts)
  *
  * Validation Layers:
  * 1. Omega Intelligence Freshness (max age by timeframe)
@@ -15,9 +16,28 @@
  * 4. Realtime Price Staleness Check (delegated to PriceFreshnessGate)
  *
  * ALL validations must pass for trade execution to proceed.
+ *
+ * CCIP-THRESHOLD-FIX-2026-03-03:
+ * Alpha intelligence severity thresholds raised to align with the 15-minute thesis TTL.
+ * Previous values (60s info / 120s warning / 300s critical) blocked execution for the
+ * entire 5-15 minute window of a structurally valid cached thesis, making 67% of the
+ * 15-minute TTL window permanently inaccessible.
+ *
+ * New thresholds scale proportionally with the 15-minute (900s) TTL:
+ *   info:     0-33% of TTL  (0-300s)  — fully fresh, no advisory
+ *   warning:  33-67% of TTL (300-600s) — Alpha factors into confidence, not blocked
+ *   critical: >67% of TTL  (>600s)    — strong advisory NO_TRADE (but not hard block)
+ *
+ * NOTE: The CRITICAL severity generates a strong advisory but does NOT produce a hard
+ * canExecute: false at the gate level for alpha age alone. The generateAdvisory() method
+ * (used by Alpha's prompt context) communicates staleness as a penalty signal. The hard
+ * block path (validateExecution -> blockingReasons) is driven by intelligenceFreshnessValidator
+ * which uses TIME_CONSTANTS.SECONDS.PRICE_STALENESS_WARNING. This separation is intentional:
+ * thesis structural validity (regime match) is the primary guard, not wall-clock age.
  */
 
 import { logger, LogCategory } from '../lib/logger';
+import { TIME_MS } from '../config/time-constants';
 import { intelligenceFreshnessValidator, type IntelligenceData } from './intelligence-freshness-validator';
 import { priceDriftDetector } from './price-drift-detector';
 import { priceFreshnessGate } from '../governance/price-freshness-gate';
@@ -80,6 +100,11 @@ export interface ExecutionContext {
 
 export type RefreshCallback = () => Promise<void>;
 
+// SSOT: Derive alpha thresholds from canonical TTL (TIME_MS.CACHE.ALPHA_THESIS)
+// Bands are 33% / 67% / 100% of the thesis TTL in seconds.
+// This ensures the severity scale always maps proportionally to the actual cache lifetime.
+const ALPHA_TTL_SECONDS = TIME_MS.CACHE.ALPHA_THESIS / 1000; // 900s (15 min)
+
 const SEVERITY_THRESHOLDS = {
   omega: {
     infoMaxAge: 30,
@@ -87,9 +112,9 @@ const SEVERITY_THRESHOLDS = {
     criticalMaxAge: 180
   },
   alpha: {
-    infoMaxAge: 60,
-    warningMaxAge: 120,
-    criticalMaxAge: 300
+    infoMaxAge: Math.round(ALPHA_TTL_SECONDS * 0.33),   // ~300s (5 min) — fully fresh
+    warningMaxAge: Math.round(ALPHA_TTL_SECONDS * 0.67), // ~600s (10 min) — moderate advisory
+    criticalMaxAge: ALPHA_TTL_SECONDS                    // 900s (15 min) — strong advisory
   },
   price: {
     infoMaxAge: 15,

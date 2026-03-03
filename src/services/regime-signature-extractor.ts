@@ -181,6 +181,20 @@ function extractVolatilityRegime(
     const hasHighVol = hasAnyKeyFactor(volatilityVote.keyFactors, ['ATR_EXPANDING', 'VOL_SPIKE']);
     const hasLowVol = hasKeyFactor(volatilityVote.keyFactors, 'ATR_CONTRACTING');
 
+    // CCIP-TYPE-CONTRACT-FIX-2026-03-03: Explicit conflict detection for contradictory ATR signals.
+    // If both ATR_EXPANDING and ATR_CONTRACTING appear simultaneously (e.g. during a volatility
+    // squeeze-then-expansion transition), ATR_EXPANDING takes explicit precedence because an
+    // expanding volatility environment carries greater execution risk than a contracting one.
+    // This was previously silent first-match logic. Now logged for governance observability.
+    if (hasHighVol && hasLowVol) {
+      logger.warn('[RegimeExtractor] Contradictory ATR signals detected: ATR_EXPANDING and ATR_CONTRACTING both present. Resolving to high_volatility (expansion takes precedence by governance policy).', {
+        keyFactors: volatilityVote.keyFactors,
+        score,
+        bias
+      });
+      return 'high_volatility';
+    }
+
     if (hasHighVol || (bias !== 'NEUTRAL' && score > 35)) {
       return 'high_volatility';
     }

@@ -15,11 +15,22 @@
  * - Institutional-grade separation (thesis vs execution)
  * - Clean audit trails
  *
- * CCIP-STALENESS-FIX-2026-02-20:
- * THESIS_TTL_MS is now sourced from TIME_MS.CACHE.ALPHA_THESIS (5 minutes).
- * This aligns the thesis TTL with the freshness gate's CRITICAL threshold (300s),
- * ensuring Alpha never operates on structure that is older than what the gate
- * already considers stale-enough-to-block.
+ * CCIP-STABILITY-FIX-2026-03-03:
+ * THESIS_TTL_MS restored to 15 minutes (from 5 minutes set 2026-02-20).
+ * The 5-minute TTL caused LLM thesis regeneration for all 9 symbols on every
+ * scan cycle, driving scan times to 126s and a 66.7% symbol error rate.
+ * Two independent mechanisms ensure stale theses are never executed:
+ *   1. Regime signature change detection: detectRegimeChange() invalidates on any
+ *      htfBias / microRegime / volatilityRegime / structureState shift
+ *   2. H1+ candle close: evicts local cache immediately via candle-cache-manager
+ * The freshness gate (SEVERITY_THRESHOLDS.alpha) provides an independent execution
+ * guard and is intentionally separate from the cache TTL — see time-constants.ts.
+ *
+ * CCIP-TYPE-CONTRACT-FIX-2026-03-03:
+ * RegimeSignature enum values corrected to match regime-signature-extractor.ts output.
+ * Previous interface declared abstract taxonomy (accumulation/distribution/etc.) that
+ * was never produced by the extractor, causing silent type-system bypass via `as` casts.
+ * All values now reflect what the extractor actually returns at runtime.
  */
 
 import { TIME_MS } from '../config/time-constants';
@@ -37,17 +48,45 @@ export interface RegimeSignature {
   /** Trading symbol */
   symbol: string;
 
-  /** HTF directional bias (H1/H4 timeframe) */
-  htfBias: 'bullish' | 'bearish' | 'neutral';
+  /**
+   * HTF directional bias (H1/H4 timeframe)
+   * SSOT: Values produced by regime-signature-extractor.ts extractHTFBias()
+   * - strongly_bullish: absScore >= 35, BULLISH bias
+   * - bullish: absScore 15-34, BULLISH bias
+   * - strongly_bearish: absScore >= 35, BEARISH bias
+   * - bearish: absScore 15-34, BEARISH bias
+   * - ranging: absScore < 15 or NEUTRAL bias (default)
+   */
+  htfBias: 'strongly_bullish' | 'bullish' | 'strongly_bearish' | 'bearish' | 'ranging';
 
-  /** Micro regime classification */
-  microRegime: 'accumulation' | 'distribution' | 'expansion' | 'rotation';
+  /**
+   * Micro regime classification
+   * SSOT: Values produced by regime-signature-extractor.ts extractMicroRegime()
+   * - reversal_setup: Strong reversal signals + high score (>40) + directional bias
+   * - range_bound: Range signals present + scalper score > 35
+   * - trending: Both reversal and scalper scores very low (<10) — momentum continuation
+   * - consolidation: Default when no dominant micro signal (catch-all)
+   */
+  microRegime: 'reversal_setup' | 'range_bound' | 'trending' | 'consolidation';
 
-  /** Volatility regime */
-  volatilityRegime: 'compressed' | 'normal' | 'expanding';
+  /**
+   * Volatility regime
+   * SSOT: Values produced by regime-signature-extractor.ts extractVolatilityRegime()
+   * - high_volatility: ATR_EXPANDING or VOL_SPIKE present, or high bias score (>35)
+   * - low_volatility: ATR_CONTRACTING present, or very low score (<10)
+   * - normal_volatility: Default when no dominant volatility signal (catch-all)
+   */
+  volatilityRegime: 'high_volatility' | 'low_volatility' | 'normal_volatility';
 
-  /** Structure state */
-  structureState: 'trending' | 'ranging' | 'transition';
+  /**
+   * Structure state
+   * SSOT: Values produced by regime-signature-extractor.ts extractStructureState()
+   * - strong_trend: BOS confirmed + directional bias + high confirmation score (>40)
+   * - weak_trend: Moderate confirmation signals, no dominant structural state
+   * - consolidating: Low confirmation score (<15), no BOS — sideways accumulation
+   * - choppy: Very low confirmation score (<7) — no tradeable structure
+   */
+  structureState: 'strong_trend' | 'weak_trend' | 'consolidating' | 'choppy';
 
   /** Timeframe relevance for thesis */
   timeframeRelevance?: string;
@@ -127,23 +166,25 @@ export interface AlphaMarketThesis {
 /**
  * Thesis TTL Strategy
  *
- * Fixed baseline: 15 minutes (global)
- * This is long enough to capture reuse across users while staying fresh.
+ * Fixed baseline: 15 minutes (SSOT: TIME_MS.CACHE.ALPHA_THESIS in time-constants.ts)
  *
- * Early invalidation triggers (more important than TTL):
- * - Structure state flips (BOS against thesis)
- * - Volatility regime changes materially
- * - Invalidation logic defined in thesis is violated
+ * CCIP-STABILITY-FIX-2026-03-03: Restored from 5 min back to 15 min.
+ * The 5-minute TTL (set 2026-02-20 to align with freshness gate CRITICAL threshold)
+ * was architecturally flawed: it caused full LLM regeneration for all 9 symbols on
+ * every 15-minute scan cycle, making the cache effectively useless.
  *
- * Rule: TTL = 5 minutes OR invalidate earlier if:
- *   - Regime signature changes (structure flip, volatility shift)
- *   - Price drifts beyond pip threshold since thesis was generated
- *   - H1+ candle closes (structural timeframe closes)
+ * The TTL and the freshness gate threshold are ORTHOGONAL concerns:
+ * - TTL governs structural cache lifetime (when to evict regardless of regime match)
+ * - Freshness gate governs execution safety (when to block a trade, independent of cache)
+ * A thesis can be structurally valid (regime unchanged) but still require the freshness
+ * gate to impose a WARNING or INFO advisory. Alpha factors this into its confidence.
  *
- * CCIP-STALENESS-FIX-2026-02-20: Reduced from 15 min to 5 min.
- * Sourced from TIME_MS.CACHE.ALPHA_THESIS for SSOT compliance.
+ * Early invalidation triggers (take precedence over TTL):
+ * - Regime signature change: any htfBias / microRegime / volatilityRegime / structureState shift
+ * - H1+ candle close: structural timeframe close evicts local cache immediately
+ * - Price drift beyond pip threshold since thesis was generated
  */
-export const THESIS_TTL_MS = TIME_MS.CACHE.ALPHA_THESIS; // 5 minutes (SSOT: time-constants.ts)
+export const THESIS_TTL_MS = TIME_MS.CACHE.ALPHA_THESIS; // 15 minutes (SSOT: time-constants.ts)
 
 /**
  * Structure change thresholds for early invalidation
@@ -152,10 +193,10 @@ export const STRUCTURE_INVALIDATION_THRESHOLDS = {
   /** BOS against thesis direction */
   breakOfStructure: true,
 
-  /** Volatility regime shift (compressed → expanding or vice versa) */
+  /** Volatility regime shift (e.g. normal_volatility → high_volatility) */
   volatilityRegimeChange: true,
 
-  /** Micro regime change (accumulation → distribution) */
+  /** Micro regime change (e.g. trending → reversal_setup) */
   microRegimeChange: true,
 } as const;
 
