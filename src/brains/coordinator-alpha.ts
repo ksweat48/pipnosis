@@ -934,6 +934,9 @@ class AlphaCoordinatorBrain {
     let buyStopAnchor: StopLossCalculation | null = null;
     let sellStopAnchor: StopLossCalculation | null = null;
     let stopLossDirective = '';
+    // CCIP-FIX: sweepContextForStop declared at function scope so it is accessible
+    // inside the sweepZoneDirective closure at line ~1222, outside the stop-calc block.
+    let sweepContextForStop: SweepContext | undefined;
     {
       if (sessionId && userId) {
         alphaThoughtStream.emitAlphaStopCalculation(sessionId, userId, marketContext.symbol).catch(err => {
@@ -946,7 +949,6 @@ class AlphaCoordinatorBrain {
 
       // Build sweep context from Omega-8 for sweep-aware stop placement (SSOT)
       // Applies to all 3 trade styles: SCALP, MICRO_INTRADAY, INTRADAY
-      let sweepContextForStop: SweepContext | undefined;
       if (
         votes.omega8?.sweep_details &&
         votes.omega8.sweep_details.type !== 'none' &&
@@ -2775,6 +2777,31 @@ ${tradeStyle === 'SCALP' ? `{
       const executionPreference = parsed.execution_preference || null;
       const acceptableProfitRange = parsed.acceptable_profit_range || null;
 
+      // CCIP-FIX: Extract Alpha's answer_sheet (Q1-Q8 checklist) from LLM response.
+      // Previously parsed but never extracted — answerSheet was always undefined,
+      // causing alpha_reasoning_snapshot to store only narrative text, and the
+      // Mid-Trade Monitor checklist to render nothing (AlphaAnswerSheet returns null
+      // when sheet is undefined). SSOT owner: coordinator-alpha (parse point).
+      const rawAnswerSheet = parsed.answer_sheet;
+      const answerSheet: AlphaDecision['answer_sheet'] = (
+        rawAnswerSheet &&
+        typeof rawAnswerSheet === 'object' &&
+        typeof rawAnswerSheet.Q1_trend_alignment === 'string' &&
+        typeof rawAnswerSheet.Q6_entry_trigger === 'string'
+      ) ? {
+        Q1_trend_alignment: rawAnswerSheet.Q1_trend_alignment,
+        Q2_structure_level: rawAnswerSheet.Q2_structure_level || '',
+        Q3_prior_rejections: rawAnswerSheet.Q3_prior_rejections || '',
+        Q4_momentum_stage: rawAnswerSheet.Q4_momentum_stage || '',
+        Q5_failure_mode: rawAnswerSheet.Q5_failure_mode || '',
+        Q5_failure_probability: typeof rawAnswerSheet.Q5_failure_probability === 'number' ? rawAnswerSheet.Q5_failure_probability : 0,
+        Q5B_objective_alignment: rawAnswerSheet.Q5B_objective_alignment || '',
+        Q6_entry_trigger: rawAnswerSheet.Q6_entry_trigger,
+        Q7_confluence_count: rawAnswerSheet.Q7_confluence_count || '',
+        Q8_move_position_pct: typeof rawAnswerSheet.Q8_move_position_pct === 'number' ? rawAnswerSheet.Q8_move_position_pct : 0,
+        Q8B_session_range_pct: typeof rawAnswerSheet.Q8B_session_range_pct === 'number' ? rawAnswerSheet.Q8B_session_range_pct : 0,
+      } : undefined;
+
       // CCIP 2026-02-17: Extract Alpha's entry advisory (SSOT for Entry Monitor)
       const rawAdvisory = parsed.entry_advisory;
       const entryAdvisory = rawAdvisory && typeof rawAdvisory === 'object' ? {
@@ -3069,7 +3096,8 @@ ${tradeStyle === 'SCALP' ? `{
           style: resolvedStyle,
         },
         narrativeValidation: narrativeValidation || undefined,
-        entry_advisory: entryAdvisory || undefined
+        entry_advisory: entryAdvisory || undefined,
+        answer_sheet: answerSheet
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
