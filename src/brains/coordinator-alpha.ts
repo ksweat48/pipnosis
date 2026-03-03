@@ -979,6 +979,10 @@ class AlphaCoordinatorBrain {
     // CCIP-FIX: sweepContextForStop declared at function scope so it is accessible
     // inside the sweepZoneDirective closure at line ~1222, outside the stop-calc block.
     let sweepContextForStop: SweepContext | undefined;
+    // CCIP-FIX: Hoisted to function scope — referenced in ATR legend at line ~2236/2249/2252-2254,
+    // which is outside the stop-calc block { } that closes at line ~1058.
+    let atrForStopLoss: number = 0;
+    let preferredAtrField: string = 'atr';
     {
       if (sessionId && userId) {
         alphaThoughtStream.emitAlphaStopCalculation(sessionId, userId, marketContext.symbol).catch(err => {
@@ -990,13 +994,12 @@ class AlphaCoordinatorBrain {
       // CCIP 2026-03: Style-differentiated ATR timeframe for SL width.
       // SCALP → M5 ATR (atr20), MICRO_INTRADAY → M15 ATR (atr), INTRADAY → H1 primary ATR (atr field, same as MICRO_INTRADAY source but H1 candles). atr100 is a long-period regime reference that is currently not populated.
       // This ensures stop widths are structurally appropriate for the trade's managed timeframe.
-      let atrForStopLoss: number;
       const styleAtrMap: Record<string, 'atr20' | 'atr' | 'atr100'> = {
         SCALP: 'atr20',
         MICRO_INTRADAY: 'atr',
         INTRADAY: 'atr100',
       };
-      const preferredAtrField = styleAtrMap[tradeStyle] ?? 'atr';
+      preferredAtrField = styleAtrMap[tradeStyle] ?? 'atr';
       const preferredAtrRaw = marketContext[preferredAtrField as keyof typeof marketContext] as number | import('../types/atr').ATRValue | undefined;
       const preferredAtrValue = extractATRValue(preferredAtrRaw);
 
