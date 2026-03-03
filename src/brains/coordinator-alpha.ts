@@ -1509,126 +1509,46 @@ ${consecutiveSameDir >= 3
         }
 
         // ═══════════════════════════════════════════════════════════════════
-        // HTF REGIME CONFLICT PRE-LLM GATE (CCIP 2026-03-02, v2 2026-03-02)
+        // HTF STRUCTURAL EVIDENCE COMPUTATION (CCIP 2026-03-03, Alpha Authority)
         //
-        // GOVERNANCE: When the controlling HTF trend conflicts with Omega-8's
-        // structural direction bias, Alpha has repeatedly overridden the conflict
-        // and produced losing entries without structural qualification.
+        // GOVERNANCE: Alpha is the sole trading decision authority (coordinator-alpha.ts
+        // header, lines 36-39). No deterministic engine may block the LLM call based
+        // on a direction proxy. The previous pre-LLM conflict gate violated this by
+        // comparing Omega-8's pattern score (a pattern interpretation engine) against
+        // HTF candle trend direction and returning NO_TRADE before Alpha could speak.
         //
-        // CCIP FIX (2026-03-02): The original gate only triggered when
-        // htfConsecutive >= 3.  This meant that ALL counter-trend trades against
-        // a 1-2 candle developing trend bypassed the gate entirely — exactly the
-        // case most likely to produce a wrong-direction loss.  A 1-2 candle
-        // trend is not too weak to block; it is too weak to trade against safely.
+        // FIX (CCIP-2026-03-03): BOS and sweep-wick evidence is computed here and
+        // embedded directly into the Alpha prompt as pre-labeled structural facts.
+        // Alpha reads this evidence and makes the counter-trend qualification decision.
+        // The deterministic engines compute the facts. Alpha reasons about them.
         //
-        // This gate now fires for ALL directional conflicts, regardless of how
-        // many consecutive candles confirm the HTF trend.  The qualification
-        // evidence requirements (BOS or sweep wick) are unchanged.
-        //
-        // Deterministic rules checked BEFORE LLM call (no LLM required):
-        //   1. HTF BOS: last closed HTF candle closes ABOVE (bull) or BELOW
-        //      (bear) the prior candle's HIGH / LOW — a confirmed structural break.
-        //   2. Sweep wick: last 2 HTF candles contain a wick-to-body ratio
-        //      >= 1.5 in the counter-trend direction (institutional reversal signal).
-        //
-        // If NEITHER rule is met → NO_TRADE before the LLM call.
-        // If EITHER rule is met → allow the call and let Alpha reason through it.
-        //
-        // SSOT: Omega-8 direction_support is the structural directional bias.
-        //       htfTrendDir is the computed HTF candle bias (this module).
+        // SSOT: This module owns HTF candle computation. Alpha owns the decision.
         // ═══════════════════════════════════════════════════════════════════
-        const omega8DirectionSupport: string | undefined = votes.omega8?.direction_support;
-        const conflictingBuy  = htfTrendDir === 'BEARISH' && omega8DirectionSupport === 'buy';
-        const conflictingSell = htfTrendDir === 'BULLISH' && omega8DirectionSupport === 'sell';
+        const htfBOSBull = recentHtf.length >= 2 && lastHtfCandle.close > recentHtf[recentHtf.length - 2].high;
+        const htfBOSBear = recentHtf.length >= 2 && lastHtfCandle.close < recentHtf[recentHtf.length - 2].low;
+        const htfSweepWickBull = recentHtf.slice(-2).some(c => {
+          const body = Math.abs(c.close - c.open);
+          const wick = Math.min(c.open, c.close) - c.low;
+          return body > 0 && wick / body >= 1.5;
+        });
+        const htfSweepWickBear = recentHtf.slice(-2).some(c => {
+          const body = Math.abs(c.close - c.open);
+          const wick = c.high - Math.max(c.open, c.close);
+          return body > 0 && wick / body >= 1.5;
+        });
 
-        if (conflictingBuy || conflictingSell) {
-          // Check for counter-trend qualification evidence in HTF candle data
-          const counterDir = conflictingBuy ? 'bull' : 'bear';
+        const htfStructuralEvidenceBlock = `
+${htfConfig.label} STRUCTURAL EVIDENCE (pre-computed for Alpha):
+- BOS BULL (last close > prior high): ${htfBOSBull ? 'YES — bullish break of structure confirmed' : 'NO'}
+- BOS BEAR (last close < prior low): ${htfBOSBear ? 'YES — bearish break of structure confirmed' : 'NO'}
+- SWEEP WICK BULL (lower wick ≥1.5x body in last 2 candles): ${htfSweepWickBull ? 'YES — institutional bullish reversal signal' : 'NO'}
+- SWEEP WICK BEAR (upper wick ≥1.5x body in last 2 candles): ${htfSweepWickBear ? 'YES — institutional bearish reversal signal' : 'NO'}
 
-          // Rule 1: BOS — last closed HTF candle breaks above (bull) or below (bear) prior candle's extreme
-          const htfBOS = conflictingBuy
-            ? (recentHtf.length >= 2 && lastHtfCandle.close > recentHtf[recentHtf.length - 2].high)
-            : (recentHtf.length >= 2 && lastHtfCandle.close < recentHtf[recentHtf.length - 2].low);
+COUNTER-TREND ENTRY REQUIREMENT: If your intended direction opposes the ${htfConfig.label} structural bias above,
+you MUST cite at least one qualifying piece of evidence from the above (BOS or sweep wick in your direction).
+If zero evidence exists for your counter-trend direction, return NO_TRADE with reason HTF_NO_COUNTER_TREND_QUALIFICATION.`;
 
-          // Rule 2: Sweep wick — check last 2 candles for a wick-to-body ratio >= 1.5 in the right direction
-          const htfSweepWick = recentHtf.slice(-2).some(c => {
-            const body = Math.abs(c.close - c.open);
-            const wick = conflictingBuy
-              ? (Math.min(c.open, c.close) - c.low)    // lower wick for bull reversal
-              : (c.high - Math.max(c.open, c.close));   // upper wick for bear reversal
-            return body > 0 && wick / body >= 1.5;
-          });
-
-          if (!htfBOS && !htfSweepWick) {
-            console.error(
-              `[Alpha Coordinator] HTF_CONFLICT_NO_COUNTER_TREND_QUALIFICATION: ` +
-              `${htfConfig.label} trend is ${htfTrendDir} (${htfConsecutive} consecutive candles) ` +
-              `but Omega-8 direction_support=${omega8DirectionSupport}. ` +
-              `No ${counterDir} BOS or sweep wick found in last ${htfConfig.candleCount} ${htfConfig.label} candles. ` +
-              `Returning NO_TRADE before LLM call.`
-            );
-            const blockedDir = omega8DirectionSupport?.toLowerCase() === 'buy' ? 'BUY' : 'SELL';
-            const blockedRuleType = `${htfConfig.label}_CONFLICT_BLOCKED` as
-              'H1_CONFLICT_BLOCKED' | 'H4_CONFLICT_BLOCKED' | 'M15_CONFLICT_BLOCKED';
-            if (userId && sessionId) {
-              writeStructuralAlert({
-                userId,
-                sessionId,
-                symbol: marketContext.symbol,
-                style: tradeStyle,
-                ruleType: blockedRuleType,
-                direction: blockedDir,
-                detailsText: `${htfConfig.label} trend ${htfTrendDir} (${htfConsecutive} consecutive candles) conflicts with Omega-8 direction ${omega8DirectionSupport?.toUpperCase()}. No ${counterDir} BOS or sweep-wick reversal found in last ${htfConfig.candleCount} candles. NO_TRADE.`,
-              });
-            }
-            return {
-              action: 'NO_TRADE',
-              decision: 'NO_TRADE',
-              entry: marketContext.price,
-              stopLoss: marketContext.price,
-              takeProfit: marketContext.price,
-              confidence: 0,
-              reasoning: `HTF_CONFLICT_NO_COUNTER_TREND_QUALIFICATION: ${htfConfig.label} trend is ${htfTrendDir} ` +
-                `(${htfConsecutive} consecutive candles) while Omega-8 structural bias is ${omega8DirectionSupport?.toUpperCase()}. ` +
-                `Zero counter-trend qualification evidence found in last ${htfConfig.candleCount} ${htfConfig.label} candles ` +
-                `(no ${counterDir} BOS, no sweep-wick reversal). ` +
-                `Require at least one of: HTF BOS through prior extreme OR prominent lower/upper wick reversal before entering counter-trend.`,
-            };
-          } else {
-            console.log(
-              `[Alpha Coordinator] HTF_CONFLICT_QUALIFIED: ${htfConfig.label} ${htfTrendDir} (${htfConsecutive} consecutive) vs ` +
-              `Omega-8 ${omega8DirectionSupport} — qualification evidence present ` +
-              `(BOS=${htfBOS} SweepWick=${htfSweepWick}). Allowing LLM call.`
-            );
-            const qualifiedDir = omega8DirectionSupport?.toLowerCase() === 'buy' ? 'BUY' : 'SELL';
-            const bosRuleType = `${htfConfig.label}_BOS` as 'H1_BOS' | 'H4_BOS' | 'M15_BOS';
-            const wickRuleType = `${htfConfig.label}_SWEEP_WICK` as 'H1_SWEEP_WICK' | 'H4_SWEEP_WICK' | 'M15_SWEEP_WICK';
-            if (userId && sessionId) {
-              if (htfBOS) {
-                writeStructuralAlert({
-                  userId,
-                  sessionId,
-                  symbol: marketContext.symbol,
-                  style: tradeStyle,
-                  ruleType: bosRuleType,
-                  direction: qualifiedDir,
-                  detailsText: `${htfConfig.label} BOS confirmed: last close breaks ${counterDir === 'bull' ? 'above prior high' : 'below prior low'}. Counter-trend entry qualified for ${qualifiedDir}. ${htfConfig.label} trend was ${htfTrendDir} (${htfConsecutive} consecutive candles).`,
-                });
-              }
-              if (htfSweepWick) {
-                writeStructuralAlert({
-                  userId,
-                  sessionId,
-                  symbol: marketContext.symbol,
-                  style: tradeStyle,
-                  ruleType: wickRuleType,
-                  direction: qualifiedDir,
-                  detailsText: `${htfConfig.label} sweep wick confirmed: wick-to-body ratio ≥1.5 in ${counterDir} direction. Counter-trend entry qualified for ${qualifiedDir}. ${htfConfig.label} trend was ${htfTrendDir}.`,
-                });
-              }
-            }
-          }
-        }
+        console.log(`[Alpha Coordinator] ${htfConfig.label} structural evidence: BOS_BULL=${htfBOSBull} BOS_BEAR=${htfBOSBear} WICK_BULL=${htfSweepWickBull} WICK_BEAR=${htfSweepWickBear}`);
 
         htfCandlePrompt = `
 
@@ -1649,6 +1569,8 @@ ${htfConfig.label} STRUCTURAL SUMMARY:
 
 ${htfConfig.label} STRUCTURAL AUTHORITY RULE:
 ${htfTrendDir === 'BULLISH' ? `${htfConfig.label} trend is BULLISH. ${primaryTfConfig.label} BUY entries have structural tailwind. ${primaryTfConfig.label} SELL entries are counter-trend — require explicit H${htfConfig.label === 'H1' ? '1' : '4'}-level reversal evidence.` : htfTrendDir === 'BEARISH' ? `${htfConfig.label} trend is BEARISH. ${primaryTfConfig.label} SELL entries have structural tailwind. ${primaryTfConfig.label} BUY entries are counter-trend — require explicit ${htfConfig.label}-level reversal evidence.` : `${htfConfig.label} is NEUTRAL/RANGING. Both directions require structural confirmation at the range boundaries.`}
+
+${htfStructuralEvidenceBlock}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         console.log(`[Alpha Coordinator] ${htfConfig.label} Controlling TF: ${recentHtf.length} candles, bias ${htfTrendDir}, range ${htfRangePips.toFixed(1)} pips`);
@@ -1721,74 +1643,40 @@ ${htfTrendDir === 'BULLISH' ? `${htfConfig.label} trend is BULLISH. ${primaryTfC
           }
 
           // ═══════════════════════════════════════════════════════════════════
-          // M15 CONFLICT GATE FOR SCALP (CCIP 2026-03-02)
+          // M15 STRUCTURAL EVIDENCE COMPUTATION (CCIP 2026-03-03, Alpha Authority)
           //
-          // GOVERNANCE: SCALP trades play out over 15-60 minutes. M15 is the
-          // de-facto structural authority for that window. A SCALP entry that
-          // conflicts with M15 trend direction requires the same counter-trend
-          // qualification evidence that MICRO_INTRADAY requires against H1.
+          // GOVERNANCE: Mirrors HTF evidence computation above. BOS and sweep-wick
+          // facts are computed and embedded into the Alpha prompt. Alpha is the sole
+          // authority on whether these facts justify a counter-trend SCALP entry.
+          // No blocking occurs here — Alpha reasons about the evidence.
           //
-          // Qualification rules mirror the HTF conflict gate above:
-          //   1. M15 BOS: last M15 candle closes above (bull) or below (bear)
-          //      the prior candle's HIGH / LOW.
-          //   2. M15 sweep wick: last 2 M15 candles contain a wick >= 1.5x body
-          //      in the counter-trend direction.
-          //
-          // If neither rule is met → NO_TRADE before the LLM call.
-          // SSOT: Omega-8 direction_support is the structural directional bias.
+          // SSOT: This module computes M15 facts. Alpha owns the trade decision.
           // ═══════════════════════════════════════════════════════════════════
-          const m15TrendDirForGate = m15TrendDir;
-          const m15Omega8DirectionSupport: string | undefined = votes.omega8?.direction_support;
-          const m15ConflictingBuy  = m15TrendDirForGate === 'BEARISH' && m15Omega8DirectionSupport === 'buy';
-          const m15ConflictingSell = m15TrendDirForGate === 'BULLISH' && m15Omega8DirectionSupport === 'sell';
+          const m15BOSBull = recentM15.length >= 2 && recentM15[recentM15.length - 1].close > recentM15[recentM15.length - 2].high;
+          const m15BOSBear = recentM15.length >= 2 && recentM15[recentM15.length - 1].close < recentM15[recentM15.length - 2].low;
+          const m15SweepWickBull = recentM15.slice(-2).some(c => {
+            const body = Math.abs(c.close - c.open);
+            const wick = Math.min(c.open, c.close) - c.low;
+            return body > 0 && wick / body >= 1.5;
+          });
+          const m15SweepWickBear = recentM15.slice(-2).some(c => {
+            const body = Math.abs(c.close - c.open);
+            const wick = c.high - Math.max(c.open, c.close);
+            return body > 0 && wick / body >= 1.5;
+          });
 
-          if (m15ConflictingBuy || m15ConflictingSell) {
-            const m15CounterDir = m15ConflictingBuy ? 'bull' : 'bear';
-            const lastM15ForGate = recentM15[recentM15.length - 1];
+          const m15StructuralEvidenceBlock = `
+M15 STRUCTURAL EVIDENCE (pre-computed for Alpha):
+- M15 BOS BULL (last close > prior high): ${m15BOSBull ? 'YES — bullish M15 break of structure confirmed' : 'NO'}
+- M15 BOS BEAR (last close < prior low): ${m15BOSBear ? 'YES — bearish M15 break of structure confirmed' : 'NO'}
+- M15 SWEEP WICK BULL (lower wick ≥1.5x body in last 2 M15 candles): ${m15SweepWickBull ? 'YES — bullish reversal signal on M15' : 'NO'}
+- M15 SWEEP WICK BEAR (upper wick ≥1.5x body in last 2 M15 candles): ${m15SweepWickBear ? 'YES — bearish reversal signal on M15' : 'NO'}
 
-            // Rule 1: M15 BOS
-            const m15BOS = m15ConflictingBuy
-              ? (recentM15.length >= 2 && lastM15ForGate.close > recentM15[recentM15.length - 2].high)
-              : (recentM15.length >= 2 && lastM15ForGate.close < recentM15[recentM15.length - 2].low);
+M15 COUNTER-TREND SCALP REQUIREMENT: If your M5 entry direction opposes the M15 bias above,
+cite at least one qualifying fact (M15 BOS or sweep wick in your direction) in your reasoning.
+If zero evidence exists for your counter-trend M15 direction, return NO_TRADE with reason M15_NO_COUNTER_TREND_QUALIFICATION.`;
 
-            // Rule 2: M15 sweep wick
-            const m15SweepWick = recentM15.slice(-2).some(c => {
-              const body = Math.abs(c.close - c.open);
-              const wick = m15ConflictingBuy
-                ? (Math.min(c.open, c.close) - c.low)
-                : (c.high - Math.max(c.open, c.close));
-              return body > 0 && wick / body >= 1.5;
-            });
-
-            if (!m15BOS && !m15SweepWick) {
-              console.error(
-                `[Alpha Coordinator] SCALP_M15_CONFLICT_NO_QUALIFICATION: ` +
-                `M15 trend is ${m15TrendDirForGate} (${m15Consecutive} consecutive candles) ` +
-                `but Omega-8 direction_support=${m15Omega8DirectionSupport}. ` +
-                `No ${m15CounterDir} BOS or sweep wick found in last 8 M15 candles. ` +
-                `Returning NO_TRADE before LLM call.`
-              );
-              return {
-                action: 'NO_TRADE',
-                decision: 'NO_TRADE',
-                entry: marketContext.price,
-                stopLoss: marketContext.price,
-                takeProfit: marketContext.price,
-                confidence: 0,
-                reasoning: `SCALP_M15_CONFLICT_NO_QUALIFICATION: M15 trend is ${m15TrendDirForGate} ` +
-                  `(${m15Consecutive} consecutive candles) while Omega-8 structural bias is ${m15Omega8DirectionSupport?.toUpperCase()}. ` +
-                  `Zero counter-trend qualification evidence found in last 8 M15 candles ` +
-                  `(no ${m15CounterDir} BOS, no sweep-wick reversal). ` +
-                  `SCALP counter-trend entries require: M15 BOS through prior extreme OR prominent M15 sweep wick reversal.`,
-              };
-            } else {
-              console.log(
-                `[Alpha Coordinator] SCALP_M15_CONFLICT_QUALIFIED: M15 ${m15TrendDirForGate} (${m15Consecutive} consecutive) vs ` +
-                `Omega-8 ${m15Omega8DirectionSupport} — qualification evidence present ` +
-                `(BOS=${m15BOS} SweepWick=${m15SweepWick}). Allowing LLM call.`
-              );
-            }
-          }
+          console.log(`[Alpha Coordinator] M15 structural evidence: BOS_BULL=${m15BOSBull} BOS_BEAR=${m15BOSBear} WICK_BULL=${m15SweepWickBull} WICK_BEAR=${m15SweepWickBear}`);
 
           m15ReferencePrompt = `
 
@@ -1814,6 +1702,8 @@ SCALP TP PLACEMENT USING M15:
 - If your M5 entry is bearish and M15 shows strong bullish structure (3+ consecutive UP candles), note this as potential headwind.
 - M15 S/R within your scalp TP range (12-25 pips) = your TP target zone. M15 S/R beyond that range = context only.
 - A scalp TP placed directly INTO a M15 structural cluster has a lower fill probability. Position it at the near edge.
+
+${m15StructuralEvidenceBlock}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
           console.log(`[Alpha Coordinator] M15 Reference (SCALP): ${recentM15.length} candles, bias ${m15TrendDir}, range ${m15RangePips.toFixed(1)} pips`);
