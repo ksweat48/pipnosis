@@ -172,7 +172,7 @@ class SharedIntelligenceCoordinator {
       const integrityCheck = verifyCachedThesisIntegrity(localCached.data);
       if (integrityCheck.valid) {
         const ageSeconds = Math.round((now - localCached.data.createdAt.getTime()) / 1000);
-        await this.logCacheStat('alpha_thesis', symbol, regimeSignature.symbol, 'lookup', 'hit', ageSeconds);
+        await this.logCacheStat('alpha_thesis', symbol, regimeSignature.timeframeRelevance ?? 'H1', 'lookup', 'hit', ageSeconds);
         logger.info('[SharedIntelligence] Thesis LOCAL HIT', {
           symbol,
           ageSeconds,
@@ -265,7 +265,7 @@ class SharedIntelligenceCoordinator {
             expiresAt: now + ttl
           });
 
-          await this.logCacheStat('alpha_thesis', symbol, regimeSignature.symbol, 'lookup', 'hit', ageSeconds, 1);
+          await this.logCacheStat('alpha_thesis', symbol, regimeSignature.timeframeRelevance ?? 'H1', 'lookup', 'hit', ageSeconds, 1);
           logger.info('[SharedIntelligence] Thesis DB HIT', {
             symbol,
             ageSeconds,
@@ -303,7 +303,7 @@ class SharedIntelligenceCoordinator {
       hasCachedThesis: !!cachedThesis,
       cost: ALPHA_THESIS_LLM_COST_PER_CALL
     });
-    await this.logCacheStat('alpha_thesis', symbol, regimeSignature.symbol, 'lookup', 'miss', 0);
+    await this.logCacheStat('alpha_thesis', symbol, regimeSignature.timeframeRelevance ?? 'H1', 'lookup', 'miss', 0);
 
     // Register the fetch promise under the in-flight guard before awaiting.
     // The finally{} block always removes it so no stale entries accumulate.
@@ -600,7 +600,13 @@ class SharedIntelligenceCoordinator {
         llm_calls_saved: llmCallsSaved
       });
     } catch (err) {
-      // Silently fail - logging shouldn't break the system
+      logger.warn('[SharedIntelligence] logCacheStat write failed (non-blocking)', {
+        error: err instanceof Error ? err.message : 'Unknown error',
+        tier,
+        symbol,
+        timeframe,
+        eventType
+      });
     }
   }
 

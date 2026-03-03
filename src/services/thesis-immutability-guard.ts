@@ -139,40 +139,33 @@ export function validateThesisHash(
 }
 
 /**
- * Detect thesis mutation attempts
- * Checks if thesis object has been modified after freezing
+ * Detect thesis mutation (frozen-state violation)
+ *
+ * CCIP-IMMUTABILITY-FIX: Previously used a runtime write-and-read-back test to detect
+ * mutation. That approach has a critical false-negative in non-strict (sloppy) mode:
+ * Object.freeze() silently ignores assignments there, so the write silently fails,
+ * wasModified stays false, and the function incorrectly reports "no mutation" for every
+ * frozen object. The catch block also masked any unrelated exceptions as "freeze working".
+ *
+ * Correct approach: use Object.isFrozen() directly — returns false if the object was
+ * never frozen (mutation is possible) or if freeze was bypassed (e.g. via Proxy).
+ * Returns true when the object is properly immutable.
+ *
+ * Semantics: returns true if a mutation violation is detected (object NOT frozen).
  */
 export function detectThesisMutation(thesis: AlphaMarketThesis): boolean {
-  try {
-    // Attempt to mutate a property
-    // If frozen, this will throw in strict mode or fail silently
-    const testMutation = () => {
-      const mutableThesis = thesis as { narrative: string };
-      const originalValue = mutableThesis.narrative;
-      mutableThesis.narrative = 'MUTATION_TEST';
-      const wasModified = mutableThesis.narrative !== originalValue;
-      // Restore original value
-      mutableThesis.narrative = originalValue;
-      return wasModified;
-    };
+  const isFrozen = Object.isFrozen(thesis);
 
-    const wasMutated = testMutation();
-
-    if (wasMutated) {
-      logger.error('[ThesisImmutabilityGuard] SSOT VIOLATION: Thesis mutation detected', {
-        symbol: thesis.symbol,
-        thesisHash: thesis.thesisHash,
-        fromCache: thesis.fromCache
-      });
-
-      return true;
-    }
-
-    return false;
-  } catch (error) {
-    // Freeze is working correctly (mutation threw error)
-    return false;
+  if (!isFrozen) {
+    logger.error('[ThesisImmutabilityGuard] SSOT VIOLATION: Thesis is not frozen — mutation possible', {
+      symbol: thesis.symbol,
+      thesisHash: thesis.thesisHash,
+      fromCache: thesis.fromCache
+    });
+    return true;
   }
+
+  return false;
 }
 
 /**

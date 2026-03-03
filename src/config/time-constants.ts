@@ -152,6 +152,30 @@ export const TIME_MS = {
     // Maximum character length for error messages stored in the audit trail.
     // Matches the column definition in cache_write_events (VARCHAR 255).
     AUDIT_ERROR_MESSAGE_MAX_LENGTH: 255,
+
+    // CCIP-SNAPSHOT-TTL-SSOT-2026-03-03: Market snapshot cache TTLs per timeframe.
+    // These were previously hardcoded inline in market-snapshot-cache.ts (SSOT violation).
+    // Centralised here alongside ALPHA_THESIS so all cache lifetimes are governed in one place.
+    //
+    // Rationale for each TTL:
+    //   M5:  10 s — rapid scalp setups; stale after one candle
+    //   M15: 60 s — intraday context; acceptable within candle
+    //   H1:  300 s (5 min) — structural context; valid across most of a candle
+    //   H4:  600 s (10 min) — session-level context; very slow-moving
+    //   D:   900 s (15 min) — daily bias; effectively static intraday
+    //   DEFAULT: 60 s — safe fallback for unlisted timeframes
+    SNAPSHOT_TTL_M5: 10_000,
+    SNAPSHOT_TTL_M15: 60_000,
+    SNAPSHOT_TTL_H1: 300_000,
+    SNAPSHOT_TTL_H4: 600_000,
+    SNAPSHOT_TTL_D: 900_000,
+    SNAPSHOT_TTL_DEFAULT: 60_000,
+
+    // CCIP-SNAPSHOT-TTL-SSOT-2026-03-03: Minimum candle counts required in snapshot building.
+    // Previously magic numbers inside market-snapshot-cache.ts.
+    SNAPSHOT_MIN_CANDLES_REQUIRED: 50,  // Hard minimum to build any snapshot
+    SNAPSHOT_MIN_CANDLES_ATR: 10,       // Minimum non-zero ranges for valid ATR
+    SNAPSHOT_CANDLE_FETCH_LIMIT: 300,   // How many candles to request from DB
   },
 
   DEBOUNCE: {

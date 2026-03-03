@@ -89,6 +89,10 @@ export async function logThesisRejection(
 /**
  * Get rejection analytics for a symbol
  * Used for offline analysis and thesis quality improvement
+ *
+ * CCIP-REJECTION-LOGGER-FIX: Added queryFailed flag so callers can distinguish
+ * a genuine "no rejections in window" (queryFailed: false, totalRejections: 0)
+ * from a DB error that returned zeroed defaults (queryFailed: true).
  */
 export async function getRejectionAnalytics(
   symbol: string,
@@ -98,6 +102,7 @@ export async function getRejectionAnalytics(
   avgTimeSinceThesisMs: number;
   topRejectionReasons: Array<{ reason: string; count: number }>;
   rejectionRate: number;
+  queryFailed: boolean;
 }> {
   try {
     const since = new Date();
@@ -119,7 +124,8 @@ export async function getRejectionAnalytics(
         totalRejections: 0,
         avgTimeSinceThesisMs: 0,
         topRejectionReasons: [],
-        rejectionRate: 0
+        rejectionRate: 0,
+        queryFailed: false
       };
     }
 
@@ -154,7 +160,8 @@ export async function getRejectionAnalytics(
       totalRejections: rejections.length,
       avgTimeSinceThesisMs,
       topRejectionReasons,
-      rejectionRate
+      rejectionRate,
+      queryFailed: false
     };
   } catch (error) {
     logger.error('[ThesisRejectionLogger] Failed to get analytics', {
@@ -166,7 +173,8 @@ export async function getRejectionAnalytics(
       totalRejections: 0,
       avgTimeSinceThesisMs: 0,
       topRejectionReasons: [],
-      rejectionRate: 0
+      rejectionRate: 0,
+      queryFailed: true
     };
   }
 }
@@ -174,17 +182,23 @@ export async function getRejectionAnalytics(
 /**
  * Get regime-specific rejection patterns
  * Identifies which regime signatures produce the most rejections
+ *
+ * CCIP-REJECTION-LOGGER-FIX: Returns { data, queryFailed } so callers distinguish
+ * genuine empty results from DB errors.
  */
 export async function getRegimeRejectionPatterns(
   days: number = 30
-): Promise<Array<{
-  htfBias: string;
-  microRegime: string;
-  volatilityRegime: string;
-  structureState: string;
-  rejectionCount: number;
-  avgTimeSinceThesisMs: number;
-}>> {
+): Promise<{
+  data: Array<{
+    htfBias: string;
+    microRegime: string;
+    volatilityRegime: string;
+    structureState: string;
+    rejectionCount: number;
+    avgTimeSinceThesisMs: number;
+  }>;
+  queryFailed: boolean;
+}> {
   try {
     const since = new Date();
     since.setDate(since.getDate() - days);
@@ -199,7 +213,7 @@ export async function getRegimeRejectionPatterns(
     }
 
     if (!rejections || rejections.length === 0) {
-      return [];
+      return { data: [], queryFailed: false };
     }
 
     // Group by regime signature
@@ -229,7 +243,7 @@ export async function getRegimeRejectionPatterns(
     }
 
     // Convert to array and sort by rejection count
-    return Array.from(regimeGroups.values())
+    const data = Array.from(regimeGroups.values())
       .map(group => ({
         htfBias: group.signature.htfBias,
         microRegime: group.signature.microRegime,
@@ -240,12 +254,14 @@ export async function getRegimeRejectionPatterns(
       }))
       .sort((a, b) => b.rejectionCount - a.rejectionCount)
       .slice(0, 10);
+
+    return { data, queryFailed: false };
   } catch (error) {
     logger.error('[ThesisRejectionLogger] Failed to get regime patterns', {
       error: error instanceof Error ? error.message : 'Unknown error'
     });
 
-    return [];
+    return { data: [], queryFailed: true };
   }
 }
 
@@ -253,15 +269,21 @@ export async function getRegimeRejectionPatterns(
  * Get execution-style rejection patterns
  * Identifies if certain execution styles trigger more rejections
  * (Note: This is for analysis only - execution style should NOT influence caching)
+ *
+ * CCIP-REJECTION-LOGGER-FIX: Returns { data, queryFailed } so callers distinguish
+ * genuine empty results from DB errors.
  */
 export async function getExecutionStyleRejectionPatterns(
   days: number = 30
-): Promise<Array<{
-  executionStyle: string;
-  sessionContext: string;
-  rejectionCount: number;
-  avgTimeSinceThesisMs: number;
-}>> {
+): Promise<{
+  data: Array<{
+    executionStyle: string;
+    sessionContext: string;
+    rejectionCount: number;
+    avgTimeSinceThesisMs: number;
+  }>;
+  queryFailed: boolean;
+}> {
   try {
     const since = new Date();
     since.setDate(since.getDate() - days);
@@ -276,7 +298,7 @@ export async function getExecutionStyleRejectionPatterns(
     }
 
     if (!rejections || rejections.length === 0) {
-      return [];
+      return { data: [], queryFailed: false };
     }
 
     // Group by execution style and session
@@ -301,7 +323,7 @@ export async function getExecutionStyleRejectionPatterns(
     }
 
     // Convert to array and sort by rejection count
-    return Array.from(styleGroups.entries())
+    const data = Array.from(styleGroups.entries())
       .map(([key, group]) => {
         const [executionStyle, sessionContext] = key.split('|');
         return {
@@ -313,11 +335,13 @@ export async function getExecutionStyleRejectionPatterns(
       })
       .sort((a, b) => b.rejectionCount - a.rejectionCount)
       .slice(0, 10);
+
+    return { data, queryFailed: false };
   } catch (error) {
     logger.error('[ThesisRejectionLogger] Failed to get style patterns', {
       error: error instanceof Error ? error.message : 'Unknown error'
     });
 
-    return [];
+    return { data: [], queryFailed: true };
   }
 }

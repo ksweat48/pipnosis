@@ -42,7 +42,8 @@ import { intelligenceFreshnessValidator, type IntelligenceData } from './intelli
 import { priceDriftDetector } from './price-drift-detector';
 import { priceFreshnessGate } from '../governance/price-freshness-gate';
 import { priceCoordinator } from './coordinators/price-coordinator';
-import type { CachedOmegaIntelligence, AlphaStrategicInsight } from './shared-intelligence-coordinator';
+import type { CachedOmegaIntelligence } from './shared-intelligence-coordinator';
+import type { AlphaMarketThesis } from '../types/alpha-thesis';
 import { FreshnessBlockCategory, type BlockMetadata } from '../types/freshness-block';
 import { freshnessBlockLogger } from './freshness-block-logger';
 
@@ -95,7 +96,7 @@ export interface ExecutionContext {
   signalTimestamp?: number; // Unix timestamp when signal was generated
   currentTimestamp?: number; // Unix timestamp when current price was fetched
   omegaVotes?: Map<string, CachedOmegaIntelligence>;
-  alphaInsight?: AlphaStrategicInsight;
+  alphaInsight?: AlphaMarketThesis;
 }
 
 export type RefreshCallback = () => Promise<void>;

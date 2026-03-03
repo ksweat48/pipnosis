@@ -13,6 +13,9 @@
  * - Prevents repeated indicator computation
  *
  * ✅ SSOT COMPLIANT: Uses MarketDataService for all candle queries
+ * ✅ CCIP-SNAPSHOT-TTL-SSOT-2026-03-03: All TTLs and candle minimums sourced
+ *    from TIME_MS.CACHE in time-constants.ts (no hardcoded magic values).
+ * ✅ CCIP-LOGGING-SSOT-2026-03-03: All logging routes through centralized logger.
  */
 
 import { computeOmegaSensors, type OmegaSensors, type Candle } from './omega-sensors';
@@ -23,6 +26,8 @@ import { createATRValue, type ATRValue, type ATRTimeframe } from '../types/atr';
 import type { AggregatedSentiment } from './sentiment-aggregator';
 import { TRADING_CONSTANTS } from '../config/trading-constants';
 import { marketDataService } from './market-data-service';
+import { TIME_MS } from '../config/time-constants';
+import { logger } from '../lib/logger';
 
 export interface MarketSnapshotData {
   // Core Price Data
@@ -77,24 +82,20 @@ interface CachedSnapshot {
 }
 
 /**
- * TTL Configuration based on timeframe
- * ISSUE #4 FIX: Increased TTLs for better cache hit rates
- * - M5: 5s → 10s (2x)
- * - M15: 30s → 60s (2x)
- * - H1: 2min → 5min (2.5x)
- * - H4: 5min → 10min (2x)
- * - D: 10min → 15min (1.5x)
+ * TTL Configuration based on timeframe.
+ * CCIP-SNAPSHOT-TTL-SSOT-2026-03-03: All values sourced from TIME_MS.CACHE (time-constants.ts).
+ * No magic numbers — the SSOT for all cache lifetimes is time-constants.ts.
  */
 function getTTLForTimeframe(timeframe: Timeframe): number {
   const ttls: Record<Timeframe, number> = {
-    'M5': 10000,     // 10 seconds (was 5s)
-    'M15': 60000,    // 1 minute (was 30s)
-    'H1': 300000,    // 5 minutes (was 2min)
-    'H4': 600000,    // 10 minutes (was 5min)
-    'D': 900000      // 15 minutes (was 10min)
+    'M5': TIME_MS.CACHE.SNAPSHOT_TTL_M5,
+    'M15': TIME_MS.CACHE.SNAPSHOT_TTL_M15,
+    'H1': TIME_MS.CACHE.SNAPSHOT_TTL_H1,
+    'H4': TIME_MS.CACHE.SNAPSHOT_TTL_H4,
+    'D': TIME_MS.CACHE.SNAPSHOT_TTL_D,
   };
 
-  return ttls[timeframe] || 60000; // Default: 1 minute (was 30s)
+  return ttls[timeframe] ?? TIME_MS.CACHE.SNAPSHOT_TTL_DEFAULT;
 }
 
 /**
@@ -135,7 +136,6 @@ class MarketSnapshotCache {
     timeframe: Timeframe,
     riskMode?: RiskMode
   ): Promise<MarketSnapshotData> {
-    // Use dynamic timeframe based on risk mode if provided
     const effectiveTimeframe = riskMode
       ? getMTFConfig(riskMode).entryTimeframe
       : timeframe;
@@ -143,29 +143,30 @@ class MarketSnapshotCache {
     const cacheKey = generateCacheKey(symbol, effectiveTimeframe);
     const now = Date.now();
 
-    // Check cache first
     const cached = this.cache.get(cacheKey);
     if (cached && cached.expiresAt > now) {
       this.stats.hits++;
       const ageSeconds = Math.round((now - cached.data.createdAt) / 1000);
-      console.log(`[SnapshotCache] ⚡ HIT: ${symbol}@${effectiveTimeframe} (age: ${ageSeconds}s) | Saved DB read`);
+      logger.debug('[SnapshotCache] HIT', { symbol, timeframe: effectiveTimeframe, ageSeconds });
       return cached.data;
     }
 
-    // Cache miss - build fresh snapshot
     this.stats.misses++;
-    console.log(`[SnapshotCache] 🔄 MISS: ${symbol}@${effectiveTimeframe} - Building fresh snapshot`);
+    logger.debug('[SnapshotCache] MISS - building fresh snapshot', { symbol, timeframe: effectiveTimeframe });
 
     const snapshot = await this.buildFreshSnapshot(symbol, effectiveTimeframe);
 
-    // Cache the snapshot
     const ttl = getTTLForTimeframe(effectiveTimeframe);
     this.cache.set(cacheKey, {
       data: snapshot,
       expiresAt: now + ttl
     });
 
-    console.log(`[SnapshotCache] ✅ Snapshot cached: ${symbol}@${effectiveTimeframe} (TTL: ${ttl / 1000}s)`);
+    logger.debug('[SnapshotCache] Snapshot cached', {
+      symbol,
+      timeframe: effectiveTimeframe,
+      ttlSeconds: ttl / 1000
+    });
 
     return snapshot;
   }
@@ -174,49 +175,45 @@ class MarketSnapshotCache {
    * Build a fresh snapshot from scratch
    * This is the EXPENSIVE operation we want to do ONCE per cycle
    *
-   * CCIP COMPLIANCE: Comprehensive diagnostic logging for governance tracking
+   * CCIP COMPLIANCE: Structured logging via logger.* for governance tracking
    * SSOT COMPLIANCE: Single authority for market snapshot construction
    */
   private async buildFreshSnapshot(
     symbol: string,
     timeframe: Timeframe
   ): Promise<MarketSnapshotData> {
-    console.log(`[SnapshotCache] 📊 Building snapshot: ${symbol}@${timeframe}`);
+    logger.info('[SnapshotCache] Building snapshot', { symbol, timeframe });
 
-    // Step 1: Fetch candles (ONE DB QUERY)
     const candles = await this.fetchCandles(symbol, timeframe);
 
-    // GOVERNANCE: Comprehensive logging of candle fetch results
-    console.log(`[SnapshotCache] Candle fetch result:`, {
+    logger.debug('[SnapshotCache] Candle fetch result', {
       symbol,
       timeframe,
       candlesReturned: candles.length,
-      requiredMinimum: 50,
-      hasData: candles.length > 0,
+      requiredMinimum: TIME_MS.CACHE.SNAPSHOT_MIN_CANDLES_REQUIRED,
       oldestCandle: candles.length > 0 ? candles[0].open_time : null,
       newestCandle: candles.length > 0 ? candles[candles.length - 1].open_time : null
     });
 
-    if (candles.length < 50) {
-      const errorMsg = `Insufficient candle data for ${symbol}@${timeframe}: Found ${candles.length} candles, need at least 50. Database may need backfill for this symbol/timeframe.`;
-      console.error(`[SnapshotCache] ❌ ${errorMsg}`);
+    if (candles.length < TIME_MS.CACHE.SNAPSHOT_MIN_CANDLES_REQUIRED) {
+      const errorMsg = `Insufficient candle data for ${symbol}@${timeframe}: Found ${candles.length} candles, need at least ${TIME_MS.CACHE.SNAPSHOT_MIN_CANDLES_REQUIRED}.`;
+      logger.error('[SnapshotCache] Insufficient candles', { symbol, timeframe, found: candles.length, required: TIME_MS.CACHE.SNAPSHOT_MIN_CANDLES_REQUIRED });
       throw new Error(errorMsg);
     }
 
-    // Step 2: Compute technical indicators (ONCE)
     let indicators;
     try {
       indicators = this.computeIndicators(candles, timeframe, symbol);
 
-      // GOVERNANCE: Validate ATR calculation succeeded
       if (!indicators.atr || indicators.atr.value <= 0) {
-        console.error(`[SnapshotCache] ❌ ATR calculation failed for ${symbol}@${timeframe}`, {
-          atrValue: indicators.atr?.value || 'undefined',
-          candleCount: candles.length,
-          note: 'ATR must be positive for structural analysis'
+        logger.error('[SnapshotCache] ATR calculation failed', {
+          symbol,
+          timeframe,
+          atrValue: indicators.atr?.value ?? 'undefined',
+          candleCount: candles.length
         });
       } else {
-        console.log(`[SnapshotCache] ✅ ATR calculated:`, {
+        logger.debug('[SnapshotCache] ATR calculated', {
           symbol,
           timeframe,
           atrValue: indicators.atr.value.toFixed(5),
@@ -224,15 +221,15 @@ class MarketSnapshotCache {
         });
       }
     } catch (error: any) {
-      console.error(`[SnapshotCache] ❌ Indicator computation failed for ${symbol}@${timeframe}:`, {
+      logger.error('[SnapshotCache] Indicator computation failed', {
+        symbol,
+        timeframe,
         error: error.message,
-        stack: error.stack,
         candleCount: candles.length
       });
       throw new Error(`Indicator computation failed for ${symbol}@${timeframe}: ${error.message}`);
     }
 
-    // Step 3: Compute OmegaSensors (ONCE)
     const omegaSensors = computeOmegaSensors(
       candles,
       indicators.rsi,
@@ -242,19 +239,13 @@ class MarketSnapshotCache {
       indicators.vwap
     );
 
-    // Step 4: Analyze structure
     const structure = this.analyzeStructure(candles);
-
-    // Step 5: Detect support/resistance
     const { support, resistance } = this.detectSupportResistance(candles);
-
-    // Step 6: Swing points
     const { swingHigh, swingLow } = this.detectSwingPoints(candles);
 
     const currentPrice = candles[candles.length - 1].close;
     const snapshotHash = generateSnapshotHash(candles);
 
-    // Step 7: Evaluate regime (time-of-day, session, volatility, structure)
     const latestCandle = candles[candles.length - 1];
     const timestamp = latestCandle.open_time || new Date();
     const marketState = {
@@ -270,7 +261,6 @@ class MarketSnapshotCache {
 
     const regime = regimeOracle.evaluate(marketState, timestamp, candles, symbol);
 
-    // Step 8: Evaluate adversarial patterns (stop runs, manipulation)
     const adversarial = adversarialDetector.evaluate(
       {
         ...marketState,
@@ -282,37 +272,26 @@ class MarketSnapshotCache {
       regime
     );
 
-    // Step 9: ADVISORY-ONLY MODEL - No hard blocks, only warnings and penalties
-    // ALWAYS tradeable - Alpha has final authority
-    const tradeable = true; // ALWAYS true - advisory system only
+    const tradeable = true;
 
-    // Collect advisory warnings for Alpha to consider
     const advisoryFlags: string[] = [];
     const confidencePenalties: Array<{ source: string; penalty: number; reason: string }> = [];
 
-    // Advisory flag from regime (DEPRECATED: avoid_trading always false now)
     if (regime.avoid_trading) {
       advisoryFlags.push(`Regime advisory: ${regime.reason || 'unfavorable conditions'}`);
     }
     if (regime.is_high_risk_regime) {
       advisoryFlags.push(`Regime advisory: ${regime.reason || 'high risk regime'}`);
     }
-
-    // Advisory flag from adversarial detector
     if (adversarial.recommended_action === 'delay') {
       advisoryFlags.push(`Adversarial advisory: ${adversarial.notes}`);
     }
 
-    // Log advisory status
     if (advisoryFlags.length > 0) {
-      console.log(`[Market Snapshot - ADVISORY] Warnings for ${symbol}:`);
-      advisoryFlags.forEach(flag => console.log(`  ⚠️ ${flag}`));
+      logger.info('[SnapshotCache] Advisory warnings', { symbol, advisoryFlags });
     }
     if (confidencePenalties.length > 0) {
-      console.log(`[Market Snapshot - ADVISORY] Confidence Penalties for ${symbol}:`);
-      confidencePenalties.forEach(p =>
-        console.log(`  📉 ${p.source}: ${((1 - p.penalty) * 100).toFixed(0)}% (${p.reason})`)
-      );
+      logger.info('[SnapshotCache] Confidence penalties', { symbol, confidencePenalties });
     }
 
     const snapshot: MarketSnapshotData = {
@@ -330,26 +309,24 @@ class MarketSnapshotCache {
       resistance,
       swingHigh,
       swingLow,
-      tradeable, // ALWAYS true now
-      blockReason: undefined, // DEPRECATED - kept for backward compatibility
-      advisoryFlags, // NEW: Array of advisory warnings
-      confidencePenalties, // NEW: Array of confidence penalty objects
+      tradeable,
+      blockReason: undefined,
+      advisoryFlags,
+      confidencePenalties,
       snapshotHash,
       createdAt: Date.now()
-    };
+    } as MarketSnapshotData & { advisoryFlags: string[]; confidencePenalties: Array<{ source: string; penalty: number; reason: string }> };
 
-    console.log(`[SnapshotCache] ✅ Snapshot built: ${symbol}@${timeframe}`);
-    console.log(`  Price: ${currentPrice.toFixed(5)} | ATR: ${indicators.atr.value.toFixed(5)}`);
-    console.log(`  Trend: ${indicators.trend} | Volatility: ${indicators.volatility}`);
-    console.log(`  Tradeable: ✅ ALWAYS (advisory-only system)`);
-    if (advisoryFlags.length > 0) {
-      console.log(`  Advisory Warnings: ${advisoryFlags.length}`);
-    }
-    if (confidencePenalties.length > 0) {
-      const totalPenalty = confidencePenalties.reduce((min, p) => Math.min(min, p.penalty), 1.0);
-      console.log(`  Total Confidence Penalty: ${((1 - totalPenalty) * 100).toFixed(0)}%`);
-    }
-    console.log(`  Hash: ${snapshotHash}`);
+    logger.info('[SnapshotCache] Snapshot built', {
+      symbol,
+      timeframe,
+      price: currentPrice.toFixed(5),
+      atr: indicators.atr.value.toFixed(5),
+      trend: indicators.trend,
+      volatility: indicators.volatility,
+      advisoryCount: advisoryFlags.length,
+      hash: snapshotHash
+    });
 
     return snapshot;
   }
@@ -357,35 +334,31 @@ class MarketSnapshotCache {
   /**
    * Fetch candles from database
    * ✅ SSOT: Uses MarketDataService
-   * CCIP COMPLIANCE: Comprehensive diagnostic logging
+   * CCIP COMPLIANCE: Structured logging for governance
    */
   private async fetchCandles(symbol: string, timeframe: Timeframe): Promise<Candle[]> {
-    console.log(`[SnapshotCache] Fetching candles:`, {
+    logger.debug('[SnapshotCache] Fetching candles', {
       symbol,
       timeframe,
-      requestedLimit: 300,
+      requestedLimit: TIME_MS.CACHE.SNAPSHOT_CANDLE_FETCH_LIMIT,
       source: 'marketDataService.getCandles'
     });
 
-    const candles = await marketDataService.getCandles(symbol, timeframe, 300);
+    const candles = await marketDataService.getCandles(symbol, timeframe, TIME_MS.CACHE.SNAPSHOT_CANDLE_FETCH_LIMIT);
 
-    // GOVERNANCE: Log fetch result details
-    console.log(`[SnapshotCache] MarketDataService returned:`, {
+    logger.debug('[SnapshotCache] MarketDataService returned', {
       symbol,
       timeframe,
       candleCount: candles?.length || 0,
-      isEmptyArray: Array.isArray(candles) && candles.length === 0,
-      isNull: candles === null,
-      isUndefined: candles === undefined
+      isEmptyArray: Array.isArray(candles) && candles.length === 0
     });
 
     if (!candles || candles.length === 0) {
-      const errorMsg = `No candle data found for ${symbol}@${timeframe}. Database query returned empty. Check forex_candles table for this symbol/timeframe combination.`;
-      console.error(`[SnapshotCache] ❌ ${errorMsg}`);
+      const errorMsg = `No candle data found for ${symbol}@${timeframe}. Database query returned empty.`;
+      logger.error('[SnapshotCache] No candles returned', { symbol, timeframe });
       throw new Error(errorMsg);
     }
 
-    // Reverse to chronological order (MarketDataService returns newest first)
     const reversedCandles = candles.reverse().map(c => ({
       open_time: c.open_time,
       open: c.open,
@@ -395,7 +368,7 @@ class MarketSnapshotCache {
       volume: c.volume || undefined
     }));
 
-    console.log(`[SnapshotCache] ✅ Candles processed:`, {
+    logger.debug('[SnapshotCache] Candles processed', {
       symbol,
       timeframe,
       totalCandles: reversedCandles.length,
@@ -494,19 +467,18 @@ class MarketSnapshotCache {
   }
 
   private calculateStochRSI(prices: number[], period: number = 14): number {
-    // Simplified Stoch RSI calculation
     const rsi = this.calculateRSI(prices, period);
-    return rsi; // Return RSI as approximation
+    return rsi;
   }
 
   /**
    * Calculate ATR with comprehensive error handling
-   * CCIP COMPLIANCE: Full diagnostic logging for governance
+   * CCIP COMPLIANCE: Structured logging via logger.* for governance
    * SSOT COMPLIANCE: Single authority for ATR calculation in snapshot cache
    */
   private calculateATR(candles: Candle[]): number {
     if (candles.length < 14) {
-      console.warn(`[SnapshotCache] ATR calculation: Insufficient candles`, {
+      logger.warn('[SnapshotCache] ATR: Insufficient candles', {
         candleCount: candles.length,
         requiredMinimum: 14,
         returnedFallback: 0.001
@@ -528,8 +500,6 @@ class MarketSnapshotCache {
         Math.abs(low - prevClose)
       );
 
-      // CRITICAL FIX: Filter out zero-range candles (flat MetaAPI placeholders)
-      // These pollute the ATR with artificial zeros
       if (tr > 0) {
         trs.push(tr);
       } else {
@@ -537,31 +507,27 @@ class MarketSnapshotCache {
       }
     }
 
-    // GOVERNANCE: Log ATR calculation details
-    console.log(`[SnapshotCache] ATR calculation details:`, {
+    logger.debug('[SnapshotCache] ATR calculation details', {
       totalCandles: candles.length,
       validRanges: trs.length,
       zeroRangeCandles: zeroRangeCount,
       percentValid: ((trs.length / (candles.length - 1)) * 100).toFixed(1) + '%'
     });
 
-    // Need at least 10 non-zero ranges for valid ATR
-    if (trs.length < 10) {
-      console.warn(`[SnapshotCache] ⚠️ Insufficient valid candles for ATR`, {
+    if (trs.length < TIME_MS.CACHE.SNAPSHOT_MIN_CANDLES_ATR) {
+      logger.warn('[SnapshotCache] ATR: Insufficient valid ranges', {
         validRanges: trs.length,
-        requiredMinimum: 10,
+        requiredMinimum: TIME_MS.CACHE.SNAPSHOT_MIN_CANDLES_ATR,
         zeroRangeCandles: zeroRangeCount,
-        note: 'This may indicate data quality issues or low-liquidity symbol',
         returnedFallback: 0.001
       });
       return 0.001;
     }
 
-    // Use last 14 valid (non-zero) ranges
     const validTRs = trs.slice(-14);
     const atr = validTRs.reduce((sum, tr) => sum + tr, 0) / validTRs.length;
 
-    console.log(`[SnapshotCache] ATR calculated:`, {
+    logger.debug('[SnapshotCache] ATR calculated', {
       rawATR: atr.toFixed(6),
       rangesUsed: validTRs.length,
       minRange: Math.min(...validTRs).toFixed(6),
@@ -573,28 +539,22 @@ class MarketSnapshotCache {
 
   /**
    * Enforce instrument-specific ATR minimums
-   * Prevents impossibly low ATR values caused by bad data
-   * CCIP COMPLIANCE: Comprehensive logging for governance audit trail
+   * CCIP COMPLIANCE: Structured logging for governance audit trail
    * SSOT COMPLIANCE: Uses TRADING_CONSTANTS as single source for ATR minimums
    */
   private enforceATRMinimum(atr: number, symbol: string, currentPrice: number): number {
-    console.log(`[SnapshotCache] ATR minimum enforcement check:`, {
+    logger.debug('[SnapshotCache] ATR minimum enforcement check', {
       symbol,
       rawATR: atr.toFixed(6),
       currentPrice: currentPrice.toFixed(5),
       hasSpecificMinimum: !!TRADING_CONSTANTS.ATR_MINIMUMS[symbol as keyof typeof TRADING_CONSTANTS.ATR_MINIMUMS]
     });
 
-    // Check if we have a specific minimum for this symbol
     const specificMin = TRADING_CONSTANTS.ATR_MINIMUMS[symbol as keyof typeof TRADING_CONSTANTS.ATR_MINIMUMS];
 
     if (specificMin && typeof specificMin === 'number') {
       if (atr < specificMin) {
-        console.warn(
-          `[SnapshotCache] ⚠️ ATR too low for ${symbol}: ${atr.toFixed(6)} < ${specificMin}. ` +
-          `Enforcing symbol-specific minimum. Likely caused by flat placeholder candles or low liquidity.`
-        );
-        console.log(`[SnapshotCache] ATR enforcement applied:`, {
+        logger.warn('[SnapshotCache] ATR below symbol-specific minimum - enforcing', {
           symbol,
           originalATR: atr.toFixed(6),
           enforcedATR: specificMin.toFixed(6),
@@ -602,7 +562,7 @@ class MarketSnapshotCache {
         });
         return specificMin;
       }
-      console.log(`[SnapshotCache] ✅ ATR above symbol-specific minimum`, {
+      logger.debug('[SnapshotCache] ATR above symbol-specific minimum', {
         symbol,
         atr: atr.toFixed(6),
         minimum: specificMin.toFixed(6)
@@ -610,14 +570,9 @@ class MarketSnapshotCache {
       return atr;
     }
 
-    // Fallback: use percentage-based minimum (0.02% of price)
     const percentMin = currentPrice * TRADING_CONSTANTS.ATR_MINIMUMS.DEFAULT_PERCENT;
     if (atr < percentMin) {
-      console.warn(
-        `[SnapshotCache] ⚠️ ATR too low for ${symbol}: ${atr.toFixed(6)} < ${percentMin.toFixed(6)} (0.02% of price). ` +
-        `Enforcing percentage-based minimum.`
-      );
-      console.log(`[SnapshotCache] ATR enforcement applied:`, {
+      logger.warn('[SnapshotCache] ATR below percentage-based minimum - enforcing', {
         symbol,
         originalATR: atr.toFixed(6),
         enforcedATR: percentMin.toFixed(6),
@@ -627,7 +582,7 @@ class MarketSnapshotCache {
       return percentMin;
     }
 
-    console.log(`[SnapshotCache] ✅ ATR above all minimum thresholds`, {
+    logger.debug('[SnapshotCache] ATR above all minimum thresholds', {
       symbol,
       atr: atr.toFixed(6),
       percentageMin: percentMin.toFixed(6)
@@ -653,9 +608,6 @@ class MarketSnapshotCache {
     const ema12 = this.calculateEMA(prices, 12);
     const ema26 = this.calculateEMA(prices, 26);
     const macd = ema12 - ema26;
-
-    // Signal line (9-period EMA of MACD)
-    const macdLine = [macd]; // Simplified: use current MACD as signal
     const signal = macd;
 
     return { macd, signal };
@@ -680,15 +632,11 @@ class MarketSnapshotCache {
   ): number {
     let score = 0;
 
-    // EMA alignment (base score: -60 to +60)
     if (price > ema20 && ema20 > ema50 && ema50 > ema200) {
-      // Perfect bullish stack
       score = 60;
     } else if (price < ema20 && ema20 < ema50 && ema50 < ema200) {
-      // Perfect bearish stack
       score = -60;
     } else {
-      // Partial alignment or mixed
       let partialScore = 0;
       if (price > ema20) partialScore += 15;
       else if (price < ema20) partialScore -= 15;
@@ -702,12 +650,9 @@ class MarketSnapshotCache {
       score = partialScore;
     }
 
-    // Add momentum component (-40 to +40)
-    // momentum is already in percentage form from calculateMomentum
     const momentumScore = Math.max(-40, Math.min(40, momentum * 4));
     score += momentumScore;
 
-    // Clamp final score to [-100, 100]
     return Math.max(-100, Math.min(100, Math.round(score)));
   }
 
@@ -792,7 +737,7 @@ class MarketSnapshotCache {
     const deleted = this.cache.delete(cacheKey);
 
     if (deleted) {
-      console.log(`[SnapshotCache] 🗑️ Invalidated: ${symbol}@${timeframe}`);
+      logger.info('[SnapshotCache] Invalidated', { symbol, timeframe });
     }
   }
 
@@ -802,7 +747,7 @@ class MarketSnapshotCache {
   clearAll(): void {
     const size = this.cache.size;
     this.cache.clear();
-    console.log(`[SnapshotCache] 🗑️ Cleared ${size} cached snapshots`);
+    logger.info('[SnapshotCache] Cleared all snapshots', { count: size });
   }
 
   /**
@@ -826,14 +771,17 @@ class MarketSnapshotCache {
   }
 
   /**
-   * Log statistics
+   * Log statistics via centralized logger (SSOT: no direct console.* calls)
    */
   logStats(): void {
     const stats = this.getStats();
-    console.log(`[SnapshotCache] 📊 Stats:`);
-    console.log(`  Hits: ${stats.hits} | Misses: ${stats.misses} | Hit Rate: ${stats.hitRate.toFixed(1)}%`);
-    console.log(`  Cache Size: ${stats.cacheSize} snapshots`);
-    console.log(`  DB Reads Avoided: ${stats.dbReadsAvoided}`);
+    logger.info('[SnapshotCache] Stats', {
+      hits: stats.hits,
+      misses: stats.misses,
+      hitRate: `${stats.hitRate.toFixed(1)}%`,
+      cacheSize: stats.cacheSize,
+      dbReadsAvoided: stats.dbReadsAvoided
+    });
   }
 }
 

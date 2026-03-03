@@ -1,6 +1,34 @@
 import { CandleData } from '../types';
 import { RegimeSignature, RegimeSignatureHash } from '../types/alpha-thesis';
 
+/**
+ * Cache key bucketing thresholds — SSOT for all regime classification boundaries.
+ *
+ * CCIP-CACHE-KEY-CONSTANTS-FIX: Previously these values were magic literals scattered
+ * inside exported functions. Centralised here so governance changes (e.g. tightening
+ * the price bucket granularity) propagate automatically to all bucket calculations.
+ *
+ * Rationale for each value:
+ *   PRICE_BUCKET_ATR_FRACTION  0.25  — bucket width = 1/4 ATR; balances granularity vs hit-rate
+ *   TREND_STRONG_THRESHOLD     0.30  — 0.3% EMA spread distinguishes "strong" from "weak" trend
+ *   VOLATILITY_LOW_PCT         0.30  — ATR/price < 0.3% → low volatility regime
+ *   VOLATILITY_MEDIUM_PCT      0.80  — ATR/price < 0.8% → medium volatility regime
+ *   VOLATILITY_HIGH_PCT        1.50  — ATR/price < 1.5% → high volatility regime (else extreme)
+ *   VOLUME_LOW_RATIO           0.50  — current/avg < 0.5 → below-average volume
+ *   VOLUME_HIGH_RATIO          1.50  — current/avg < 1.5 → normal volume (else high)
+ *   VOLUME_EXTREME_RATIO       3.00  — current/avg ≥ 3.0 → extreme volume spike
+ */
+const CACHE_KEY_THRESHOLDS = {
+  PRICE_BUCKET_ATR_FRACTION: 0.25,
+  TREND_STRONG_THRESHOLD: 0.30,
+  VOLATILITY_LOW_PCT: 0.30,
+  VOLATILITY_MEDIUM_PCT: 0.80,
+  VOLATILITY_HIGH_PCT: 1.50,
+  VOLUME_LOW_RATIO: 0.50,
+  VOLUME_HIGH_RATIO: 1.50,
+  VOLUME_EXTREME_RATIO: 3.00,
+} as const;
+
 export interface MarketStateSnapshot {
   symbol: string;
   timeframe: string;
@@ -150,7 +178,7 @@ export function calculatePriceBucket(price: number, atr: number): number {
   if (atr <= 0) {
     return Math.floor(price * 100);
   }
-  return Math.floor(price / (0.25 * atr));
+  return Math.floor(price / (CACHE_KEY_THRESHOLDS.PRICE_BUCKET_ATR_FRACTION * atr));
 }
 
 export function calculateRsiBucket(rsi: number): number {
@@ -167,7 +195,7 @@ export function calculateTrendBucket(
   const priceAboveSlow = price > emaSlow;
 
   const fastSlowDiff = Math.abs(emaFast - emaSlow) / emaSlow * 100;
-  const isStrong = fastSlowDiff > 0.3;
+  const isStrong = fastSlowDiff > CACHE_KEY_THRESHOLDS.TREND_STRONG_THRESHOLD;
 
   if (fastAboveSlow && priceAboveFast && priceAboveSlow) {
     return isStrong ? 'strong_bull' : 'bull';
@@ -186,9 +214,9 @@ export function calculateVolatilityBucket(
 ): string {
   const atrPercent = (atr / price) * 100;
 
-  if (atrPercent < 0.3) return 'low';
-  if (atrPercent < 0.8) return 'medium';
-  if (atrPercent < 1.5) return 'high';
+  if (atrPercent < CACHE_KEY_THRESHOLDS.VOLATILITY_LOW_PCT) return 'low';
+  if (atrPercent < CACHE_KEY_THRESHOLDS.VOLATILITY_MEDIUM_PCT) return 'medium';
+  if (atrPercent < CACHE_KEY_THRESHOLDS.VOLATILITY_HIGH_PCT) return 'high';
   return 'extreme';
 }
 
@@ -202,9 +230,9 @@ export function calculateVolumeBucket(
 
   const volumeRatio = currentVolume / avgVolume;
 
-  if (volumeRatio < 0.5) return 'low';
-  if (volumeRatio < 1.5) return 'normal';
-  if (volumeRatio < 3.0) return 'high';
+  if (volumeRatio < CACHE_KEY_THRESHOLDS.VOLUME_LOW_RATIO) return 'low';
+  if (volumeRatio < CACHE_KEY_THRESHOLDS.VOLUME_HIGH_RATIO) return 'normal';
+  if (volumeRatio < CACHE_KEY_THRESHOLDS.VOLUME_EXTREME_RATIO) return 'high';
   return 'extreme';
 }
 
