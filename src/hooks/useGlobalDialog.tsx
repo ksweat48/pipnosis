@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { globalDialogManager, DialogData } from '../services/global-dialog-manager';
 import { audioAlertService } from '../services/audio-alert-service';
 import { supabase } from '../lib/supabase';
-import { GoalAchievedDialog } from '../components/GoalAchievedDialog';
 import { TradeClosedActionDialog } from '../components/TradeClosedActionDialog';
 import { TradeSignalNotificationBar } from '../components/TradeSignalNotificationBar';
 import { TradeEntryModal } from '../components/TradeEntryModal';
@@ -10,7 +9,6 @@ import { MultiTradeExecutionModal, type MultiTradeSignal } from '../components/M
 import { AlphaIntentModal, type AlphaEntryMode } from '../components/AlphaIntentModal';
 
 interface GlobalDialogContextType {
-  showGoalAchieved: (data: any) => void;
   showTradeClosed: (data: any) => void;
   showTradeSignal: (data: any, priority?: 'low' | 'medium' | 'high') => void;
   showTradeEntry: (data: any, priority?: 'low' | 'medium' | 'high' | 'urgent') => void;
@@ -40,13 +38,6 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
           const contextKey = `dialog-${symbol}`;
 
           switch (dialog.type) {
-            case 'goal_achieved':
-              await audioAlertService.playWithContext({
-                type: 'critical',
-                sessionId: dialog.data?.sessionId || '',
-                context: 'goal_achieved'
-              });
-              break;
             case 'trade_entry':
               await audioAlertService.playWithContext({
                 type: 'attention',
@@ -95,10 +86,6 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
     return () => {
       globalDialogManager.offDialog(handleDialog);
     };
-  }, []);
-
-  const showGoalAchieved = useCallback((data: any) => {
-    globalDialogManager.showGoalAchieved(data);
   }, []);
 
   const showTradeClosed = useCallback((data: any) => {
@@ -177,7 +164,6 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
   return (
     <GlobalDialogContext.Provider
       value={{
-        showGoalAchieved,
         showTradeClosed,
         showTradeSignal,
         showTradeEntry,
@@ -186,20 +172,6 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
       }}
     >
       {children}
-
-      {currentDialog?.type === 'goal_achieved' && (
-        <GoalAchievedDialog
-          isOpen={true}
-          goalAmount={currentDialog.data.goalAmount}
-          achievedProfit={currentDialog.data.achievedProfit}
-          symbol={currentDialog.data.symbol}
-          timeElapsed={currentDialog.data.timeElapsed}
-          tradesExecuted={currentDialog.data.tradesExecuted}
-          onStartNewSession={currentDialog.data.onStartNewSession || (() => {})}
-          onViewAchievements={currentDialog.data.onViewAchievements || (() => {})}
-          onClose={closeDialog}
-        />
-      )}
 
       {currentDialog?.type === 'trade_closed' && (
         <TradeClosedActionDialog

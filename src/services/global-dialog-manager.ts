@@ -2,7 +2,7 @@ import TinyEmitter from 'tiny-emitter';
 import { modalNotificationBridge } from './modal-notification-bridge';
 import { supabase } from '../lib/supabase';
 
-export type DialogType = 'goal_achieved' | 'trade_closed' | 'trade_signal' | 'trade_entry' | 'multi_trade_entry' | 'tp1_hit' | 'alpha_intent';
+export type DialogType = 'trade_closed' | 'trade_signal' | 'trade_entry' | 'multi_trade_entry' | 'tp1_hit' | 'alpha_intent';
 
 // SSOT FIX (2026-02-04): Align with database constraint - use 'critical' not 'urgent'
 export type DialogPriority = 'low' | 'medium' | 'high' | 'critical';
@@ -102,10 +102,6 @@ class GlobalDialogManager {
       this.currentDialog = dialogData;
       this.emitter.emit('dialog', dialogData);
     }
-  }
-
-  showGoalAchieved(data: any, options?: ShowDialogOptions) {
-    this.showDialog('goal_achieved', data, 'high', options);
   }
 
   showTradeClosed(data: any, options?: ShowDialogOptions) {

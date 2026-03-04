@@ -250,20 +250,7 @@ const AppRoutes: React.FC = () => {
         const modal = pendingModals[0];
         const modalData = modal.modal_data;
 
-        if (modal.modal_type === 'goal_achieved') {
-          // Show goal achieved celebration
-          globalDialogManager.showGoalAchieved({
-            symbol: modalData.symbol,
-            profitLoss: modalData.profit_loss,
-            targetValue: modalData.target_value,
-            tradesInSession: modalData.trades_in_session,
-            onClose: async () => {
-              await modalQueueManager.dismissModal(modal.id, 'acknowledged');
-              // Check for more pending modals
-              checkPendingModals();
-            }
-          });
-        } else if (modal.modal_type === 'trade_closed') {
+        if (modal.modal_type === 'trade_closed') {
           // CCIP FIX (2026-02-20 DUAL-MODAL-FIX): skipPersist: true is MANDATORY here.
           // This path reads from pending_user_modals (already created by tradeClosureCoordinator).
           // Without skipPersist:true, showDialog() calls modalNotificationBridge.captureDialog()
