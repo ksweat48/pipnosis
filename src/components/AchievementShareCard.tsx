@@ -1,5 +1,4 @@
 import React from 'react';
-import { TrendingUp, TrendingDown, Star, Target, BarChart2, Zap } from 'lucide-react';
 
 interface ShareSummaryData {
   current_rank: string;
@@ -68,104 +67,135 @@ export const SummaryShareCard = React.forwardRef<HTMLDivElement, SummaryShareCar
         ref={ref}
         style={{
           width: '600px',
-          height: '600px',
-          background: 'linear-gradient(135deg, #0d1117 0%, #111827 50%, #0d1117 100%)',
+          height: '750px',
+          background: 'linear-gradient(160deg, #0a0e17 0%, #0d1421 40%, #080c14 100%)',
           position: 'relative',
           overflow: 'hidden',
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
           flexShrink: 0,
         }}
       >
-        {/* Background mesh */}
+        {/* Background dot grid */}
         <div style={{
           position: 'absolute', inset: 0,
-          background: `radial-gradient(ellipse 60% 50% at 50% 0%, ${rankColor}18 0%, transparent 70%)`,
+          backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.025) 1px, transparent 1px)',
+          backgroundSize: '28px 28px',
         }} />
+
+        {/* Top bloom */}
         <div style={{
-          position: 'absolute', inset: 0,
-          backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px)',
-          backgroundSize: '24px 24px',
+          position: 'absolute', top: '-80px', left: '50%', transform: 'translateX(-50%)',
+          width: '500px', height: '400px', borderRadius: '50%',
+          background: `radial-gradient(ellipse, ${rankColor}22 0%, transparent 65%)`,
+          filter: 'blur(10px)',
+        }} />
+
+        {/* Bottom bloom */}
+        <div style={{
+          position: 'absolute', bottom: '-60px', left: '50%', transform: 'translateX(-50%)',
+          width: '400px', height: '250px', borderRadius: '50%',
+          background: `radial-gradient(ellipse, ${rankColor}10 0%, transparent 70%)`,
+          filter: 'blur(8px)',
         }} />
 
         {/* Top border glow */}
         <div style={{
           position: 'absolute', top: 0, left: 0, right: 0, height: '3px',
-          background: `linear-gradient(90deg, transparent, ${rankColor}, transparent)`,
+          background: `linear-gradient(90deg, transparent 5%, ${rankColor} 50%, transparent 95%)`,
+        }} />
+
+        {/* Bottom border glow */}
+        <div style={{
+          position: 'absolute', bottom: 0, left: 0, right: 0, height: '2px',
+          background: `linear-gradient(90deg, transparent 20%, ${rankColor}60 50%, transparent 80%)`,
+        }} />
+
+        {/* Left / right vignette */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          background: 'linear-gradient(90deg, rgba(0,0,0,0.3) 0%, transparent 15%, transparent 85%, rgba(0,0,0,0.3) 100%)',
         }} />
 
         {/* Content */}
-        <div style={{ position: 'relative', zIndex: 1, padding: '40px', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ position: 'relative', zIndex: 1, padding: '44px 44px 36px', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
 
-          {/* Header — Logo + branding */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '32px' }}>
+          {/* Header */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '44px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <img
                 src="/Pipnosis icon.png"
                 alt="Pipnosis"
-                style={{ width: '32px', height: '32px', objectFit: 'contain' }}
+                style={{ width: '30px', height: '30px', objectFit: 'contain' }}
               />
-              <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '15px', fontWeight: '600', letterSpacing: '0.05em' }}>
+              <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: '14px', fontWeight: '700', letterSpacing: '0.1em' }}>
                 PIPNOSIS AI
               </span>
             </div>
             <span style={{
-              color: 'rgba(255,255,255,0.35)',
-              fontSize: '13px',
+              color: 'rgba(255,255,255,0.3)',
+              fontSize: '12px',
               background: 'rgba(255,255,255,0.05)',
-              padding: '4px 10px',
+              padding: '5px 12px',
               borderRadius: '999px',
               border: '1px solid rgba(255,255,255,0.08)',
+              letterSpacing: '0.04em',
             }}>
               pipnosis.ai
             </span>
           </div>
 
-          {/* Rank hero */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '28px' }}>
+          {/* Medal hero — centered */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '36px' }}>
             <div style={{
-              width: '80px', height: '80px', borderRadius: '50%',
-              background: `linear-gradient(135deg, ${rankColor}20, ${rankColor}50)`,
-              border: `2.5px solid ${rankColor}`,
+              width: '120px', height: '120px', borderRadius: '50%',
+              background: `radial-gradient(circle, ${rankColor}30 0%, ${rankColor}10 60%, transparent 100%)`,
+              border: `2px solid ${rankColor}80`,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '36px',
-              boxShadow: `0 0 32px ${rankColor}40`,
-              flexShrink: 0,
+              fontSize: '56px',
+              boxShadow: `0 0 60px ${rankColor}50, 0 0 100px ${rankColor}20`,
+              marginBottom: '20px',
             }}>
               {medal}
             </div>
-            <div>
-              <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', fontWeight: '500', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '4px' }}>
-                Rank Achieved
-              </div>
-              <div style={{ fontSize: '34px', fontWeight: '800', color: '#fff', lineHeight: 1.1, letterSpacing: '-0.02em' }}>
-                {summary.current_rank} Trader
-              </div>
-              <div style={{ fontSize: '15px', color: 'rgba(255,255,255,0.5)', marginTop: '4px' }}>
-                {displayName}
-              </div>
+            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.35)', fontWeight: '600', letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: '8px' }}>
+              Rank Achieved
+            </div>
+            <div style={{ fontSize: '40px', fontWeight: '800', color: '#fff', lineHeight: 1, letterSpacing: '-0.03em', textAlign: 'center' }}>
+              {summary.current_rank} Trader
+            </div>
+            <div style={{ fontSize: '16px', color: 'rgba(255,255,255,0.45)', marginTop: '8px', letterSpacing: '0.02em' }}>
+              {displayName}
             </div>
           </div>
 
-          {/* Total wins hero */}
+          {/* Wins + Profit hero panel */}
           <div style={{
-            background: `linear-gradient(135deg, ${rankColor}12, ${rankColor}06)`,
-            border: `1px solid ${rankColor}30`,
-            borderRadius: '16px',
-            padding: '20px 24px',
+            background: `linear-gradient(135deg, ${rankColor}14 0%, ${rankColor}06 100%)`,
+            border: `1px solid ${rankColor}35`,
+            borderRadius: '20px',
+            padding: '28px 32px',
             marginBottom: '20px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
           }}>
             <div>
-              <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>Winning Trades</div>
-              <div style={{ fontSize: '48px', fontWeight: '800', color: rankColor, lineHeight: 1 }}>
+              <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.38)', marginBottom: '6px', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                Winning Trades
+              </div>
+              <div style={{ fontSize: '64px', fontWeight: '900', color: rankColor, lineHeight: 1, letterSpacing: '-0.04em' }}>
                 {summary.total_wins}
               </div>
             </div>
+            <div style={{
+              width: '1px', height: '70px',
+              background: `linear-gradient(180deg, transparent, ${rankColor}40, transparent)`,
+            }} />
             <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>Total Profit</div>
-              <div style={{ fontSize: '32px', fontWeight: '700', color: '#34d399', lineHeight: 1 }}>
+              <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.38)', marginBottom: '6px', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                Total Profit
+              </div>
+              <div style={{ fontSize: '44px', fontWeight: '800', color: '#34d399', lineHeight: 1, letterSpacing: '-0.03em' }}>
                 ${summary.total_pnl.toFixed(2)}
               </div>
             </div>
@@ -180,14 +210,14 @@ export const SummaryShareCard = React.forwardRef<HTMLDivElement, SummaryShareCar
             ].map(({ label, value, color }) => (
               <div key={label} style={{
                 background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '12px',
-                padding: '14px 16px',
+                border: '1px solid rgba(255,255,255,0.07)',
+                borderRadius: '14px',
+                padding: '16px 18px',
               }}>
-                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                   {label}
                 </div>
-                <div style={{ fontSize: '18px', fontWeight: '700', color }}>
+                <div style={{ fontSize: '20px', fontWeight: '700', color }}>
                   {value}
                 </div>
               </div>
@@ -196,19 +226,19 @@ export const SummaryShareCard = React.forwardRef<HTMLDivElement, SummaryShareCar
 
           {/* Footer */}
           <div style={{
-            marginTop: '24px',
-            paddingTop: '16px',
-            borderTop: '1px solid rgba(255,255,255,0.07)',
+            marginTop: '28px',
+            paddingTop: '18px',
+            borderTop: '1px solid rgba(255,255,255,0.06)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
           }}>
-            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>
+            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.25)', letterSpacing: '0.04em' }}>
               AI-Powered Trading Intelligence
             </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#34d399' }} />
-              <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>Live Results</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#34d399', boxShadow: '0 0 6px #34d399' }} />
+              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.25)' }}>Live Results</span>
             </div>
           </div>
         </div>
@@ -231,159 +261,211 @@ export const WinShareCard = React.forwardRef<HTMLDivElement, WinShareCardProps>(
         ref={ref}
         style={{
           width: '600px',
-          height: '400px',
-          background: 'linear-gradient(135deg, #0d1117 0%, #111827 60%, #0d1117 100%)',
+          height: '750px',
+          background: 'linear-gradient(160deg, #0a0e17 0%, #0d1421 50%, #080c14 100%)',
           position: 'relative',
           overflow: 'hidden',
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
           flexShrink: 0,
         }}
       >
-        {/* Background glow */}
-        <div style={{
-          position: 'absolute', inset: 0,
-          background: `radial-gradient(ellipse 80% 60% at 50% 0%, ${rankColor}15 0%, transparent 60%)`,
-        }} />
+        {/* Dot grid */}
         <div style={{
           position: 'absolute', inset: 0,
           backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.025) 1px, transparent 1px)',
-          backgroundSize: '20px 20px',
+          backgroundSize: '24px 24px',
         }} />
+
+        {/* Top bloom */}
+        <div style={{
+          position: 'absolute', top: '-100px', left: '50%', transform: 'translateX(-50%)',
+          width: '480px', height: '380px', borderRadius: '50%',
+          background: `radial-gradient(ellipse, ${rankColor}25 0%, transparent 60%)`,
+          filter: 'blur(12px)',
+        }} />
+
+        {/* Center profit bloom */}
+        <div style={{
+          position: 'absolute', top: '55%', left: '50%', transform: 'translate(-50%, -50%)',
+          width: '500px', height: '300px', borderRadius: '50%',
+          background: 'radial-gradient(ellipse, rgba(52,211,153,0.08) 0%, transparent 65%)',
+          filter: 'blur(8px)',
+        }} />
+
+        {/* Ghosted symbol watermark */}
+        <div style={{
+          position: 'absolute', bottom: '120px', left: '50%', transform: 'translateX(-50%)',
+          fontSize: '140px', fontWeight: '900', color: 'rgba(255,255,255,0.025)',
+          letterSpacing: '-0.04em', whiteSpace: 'nowrap', userSelect: 'none',
+          lineHeight: 1,
+        }}>
+          {a.symbol}
+        </div>
 
         {/* Top border glow */}
         <div style={{
           position: 'absolute', top: 0, left: 0, right: 0, height: '3px',
-          background: `linear-gradient(90deg, transparent, ${rankColor}, transparent)`,
+          background: `linear-gradient(90deg, transparent 5%, ${rankColor} 50%, transparent 95%)`,
         }} />
 
-        {/* Diagonal accent */}
+        {/* Bottom border glow */}
         <div style={{
-          position: 'absolute', top: '-60px', right: '-60px',
-          width: '220px', height: '220px', borderRadius: '50%',
-          background: `radial-gradient(circle, ${rankColor}20 0%, transparent 70%)`,
-          filter: 'blur(20px)',
+          position: 'absolute', bottom: 0, left: 0, right: 0, height: '2px',
+          background: `linear-gradient(90deg, transparent 20%, ${rankColor}60 50%, transparent 80%)`,
+        }} />
+
+        {/* Left / right vignette */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          background: 'linear-gradient(90deg, rgba(0,0,0,0.3) 0%, transparent 12%, transparent 88%, rgba(0,0,0,0.3) 100%)',
         }} />
 
         {/* Content */}
-        <div style={{ position: 'relative', zIndex: 1, padding: '32px', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ position: 'relative', zIndex: 1, padding: '36px 40px 30px', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
 
           {/* Header */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '32px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <img
                 src="/Pipnosis icon.png"
                 alt="Pipnosis"
-                style={{ width: '24px', height: '24px', objectFit: 'contain' }}
+                style={{ width: '26px', height: '26px', objectFit: 'contain' }}
               />
-              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', fontWeight: '600', letterSpacing: '0.06em' }}>
+              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', fontWeight: '700', letterSpacing: '0.1em' }}>
                 PIPNOSIS AI
               </span>
             </div>
+            {/* Medal + rank badge */}
             <div style={{
               display: 'flex', alignItems: 'center', gap: '6px',
-              background: `${rankColor}15`,
-              border: `1px solid ${rankColor}40`,
+              background: `${rankColor}14`,
+              border: `1px solid ${rankColor}45`,
               borderRadius: '999px',
-              padding: '4px 12px',
+              padding: '5px 14px',
             }}>
               <span style={{ fontSize: '14px' }}>{medal}</span>
-              <span style={{ fontSize: '13px', fontWeight: '700', color: rankColor }}>
+              <span style={{ fontSize: '13px', fontWeight: '700', color: rankColor, letterSpacing: '0.02em' }}>
                 {a.medal_rank} · Win #{a.trade_number}
               </span>
             </div>
           </div>
 
-          {/* Main content */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '24px', flex: 1 }}>
-
-            {/* Left: Symbol + Direction */}
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                {displayName}
-              </div>
-              <div style={{ fontSize: '36px', fontWeight: '800', color: '#fff', letterSpacing: '-0.02em', marginBottom: '8px' }}>
-                {a.symbol}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                <span style={{
-                  fontSize: '13px', fontWeight: '700',
-                  padding: '4px 10px', borderRadius: '6px',
-                  background: isBuy ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)',
-                  color: isBuy ? '#34d399' : '#f87171',
-                  display: 'flex', alignItems: 'center', gap: '4px',
-                }}>
-                  {isBuy ? '↑' : '↓'} {a.direction}
-                </span>
-                {a.trade_style && (
-                  <span style={{
-                    fontSize: '12px', color: 'rgba(255,255,255,0.4)',
-                    background: 'rgba(255,255,255,0.06)',
-                    padding: '4px 8px', borderRadius: '6px',
-                  }}>
-                    {formatStyle(a.trade_style)}
-                  </span>
-                )}
-              </div>
-
-              {/* Stats mini-grid */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                <div style={{
-                  background: 'rgba(255,255,255,0.04)',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '10px', padding: '10px 12px',
-                }}>
-                  <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Close</div>
-                  <div style={{ fontSize: '13px', fontWeight: '600', color: 'rgba(255,255,255,0.85)' }}>{formatCloseReason(a.close_reason)}</div>
-                </div>
-                <div style={{
-                  background: 'rgba(255,255,255,0.04)',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '10px', padding: '10px 12px',
-                }}>
-                  <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Lot Size</div>
-                  <div style={{ fontSize: '13px', fontWeight: '600', color: 'rgba(255,255,255,0.85)' }}>{a.lot_size > 0 ? a.lot_size.toFixed(2) : '—'}</div>
-                </div>
-              </div>
+          {/* Symbol hero — centered */}
+          <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+            <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.35)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              {displayName}
             </div>
+            <div style={{ fontSize: '72px', fontWeight: '900', color: '#fff', letterSpacing: '-0.04em', lineHeight: 1 }}>
+              {a.symbol}
+            </div>
+          </div>
 
-            {/* Right: Profit hero */}
-            <div style={{
-              textAlign: 'right',
-              background: 'rgba(52,211,153,0.06)',
-              border: '1px solid rgba(52,211,153,0.2)',
-              borderRadius: '16px',
-              padding: '20px 24px',
-              flexShrink: 0,
+          {/* Direction + style — centered */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '28px' }}>
+            <span style={{
+              fontSize: '14px', fontWeight: '800',
+              padding: '6px 16px', borderRadius: '8px',
+              background: isBuy ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)',
+              color: isBuy ? '#34d399' : '#f87171',
+              border: `1px solid ${isBuy ? 'rgba(52,211,153,0.3)' : 'rgba(248,113,113,0.3)'}`,
+              letterSpacing: '0.06em',
             }}>
-              <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Profit</div>
-              <div style={{ fontSize: '38px', fontWeight: '800', color: '#34d399', lineHeight: 1, letterSpacing: '-0.02em' }}>
+              {isBuy ? '↑' : '↓'} {a.direction}
+            </span>
+            {a.trade_style && (
+              <span style={{
+                fontSize: '13px', color: 'rgba(255,255,255,0.45)',
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                padding: '6px 14px', borderRadius: '8px',
+                letterSpacing: '0.04em',
+              }}>
+                {formatStyle(a.trade_style)}
+              </span>
+            )}
+          </div>
+
+          {/* Profit hero block — full width, dominant */}
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(52,211,153,0.12) 0%, rgba(52,211,153,0.05) 100%)',
+            border: '1px solid rgba(52,211,153,0.3)',
+            borderRadius: '20px',
+            padding: '28px 32px',
+            marginBottom: '16px',
+            textAlign: 'center',
+            position: 'relative',
+            overflow: 'hidden',
+          }}>
+            {/* Inner glow */}
+            <div style={{
+              position: 'absolute', top: '-20px', left: '50%', transform: 'translateX(-50%)',
+              width: '300px', height: '100px',
+              background: 'radial-gradient(ellipse, rgba(52,211,153,0.15) 0%, transparent 70%)',
+              filter: 'blur(6px)',
+            }} />
+            <div style={{ position: 'relative', zIndex: 1 }}>
+              <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
+                Profit Earned
+              </div>
+              <div style={{ fontSize: '72px', fontWeight: '900', color: '#34d399', lineHeight: 1, letterSpacing: '-0.04em' }}>
                 +${a.pnl.toFixed(2)}
               </div>
               {isTP2 && (
                 <div style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px',
-                  marginTop: '6px',
-                  fontSize: '12px', fontWeight: '700', color: '#facc15',
+                  display: 'inline-flex', alignItems: 'center', gap: '5px',
+                  marginTop: '10px',
+                  fontSize: '13px', fontWeight: '700', color: '#facc15',
+                  background: 'rgba(250,204,21,0.1)',
+                  border: '1px solid rgba(250,204,21,0.25)',
+                  padding: '4px 12px', borderRadius: '999px',
                 }}>
-                  ⚡ Full TP
+                  ⚡ Full Take Profit
                 </div>
               )}
             </div>
           </div>
 
+          {/* Stats row */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: 'auto' }}>
+            <div style={{
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.07)',
+              borderRadius: '14px', padding: '14px 18px',
+            }}>
+              <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.32)', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Close Type
+              </div>
+              <div style={{ fontSize: '15px', fontWeight: '700', color: 'rgba(255,255,255,0.88)' }}>
+                {formatCloseReason(a.close_reason)}
+              </div>
+            </div>
+            <div style={{
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.07)',
+              borderRadius: '14px', padding: '14px 18px',
+            }}>
+              <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.32)', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Lot Size
+              </div>
+              <div style={{ fontSize: '15px', fontWeight: '700', color: 'rgba(255,255,255,0.88)' }}>
+                {a.lot_size > 0 ? a.lot_size.toFixed(2) : '—'}
+              </div>
+            </div>
+          </div>
+
           {/* Footer */}
           <div style={{
-            marginTop: '16px',
-            paddingTop: '14px',
+            marginTop: '20px',
+            paddingTop: '16px',
             borderTop: '1px solid rgba(255,255,255,0.06)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
           }}>
-            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.25)' }}>
+            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.22)' }}>
               {new Date(a.achieved_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
             </span>
-            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.25)' }}>pipnosis.ai</span>
+            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.22)', letterSpacing: '0.04em' }}>pipnosis.ai</span>
           </div>
         </div>
       </div>
