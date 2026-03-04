@@ -690,12 +690,12 @@ class AISkillTracker {
     try {
       const { data: sessions, error } = await supabase
         .from('goal_sessions')
-        .select('win_rate, profit_factor, total_trades')
+        .select('session_win_rate, session_profit_factor, session_total_trades')
         .eq('user_id', userId)
-        .eq('status', 'completed')
-        .not('win_rate', 'is', null)
-        .not('profit_factor', 'is', null)
-        .gt('total_trades', 0)
+        .in('status', ['goal_achieved', 'user_stopped', 'timeout'])
+        .not('session_win_rate', 'is', null)
+        .not('session_profit_factor', 'is', null)
+        .gt('session_total_trades', 0)
         .order('completed_at', { ascending: false })
         .limit(10);
 
@@ -705,8 +705,8 @@ class AISkillTracker {
       }
 
       const validSessions = sessions.filter(s => {
-        const winRate = parseFloat(s.win_rate?.toString() || '0');
-        const profitFactor = parseFloat(s.profit_factor?.toString() || '0');
+        const winRate = parseFloat(s.session_win_rate?.toString() || '0');
+        const profitFactor = parseFloat(s.session_profit_factor?.toString() || '0');
         return winRate > 0 && profitFactor > 0;
       });
 
@@ -714,15 +714,15 @@ class AISkillTracker {
         return { avgWinRate: 0, avgProfitFactor: 0, consistencyPct: 0, sessionCount: 0 };
       }
 
-      const totalWinRate = validSessions.reduce((sum, s) => sum + parseFloat(s.win_rate?.toString() || '0'), 0);
-      const totalProfitFactor = validSessions.reduce((sum, s) => sum + parseFloat(s.profit_factor?.toString() || '0'), 0);
+      const totalWinRate = validSessions.reduce((sum, s) => sum + parseFloat(s.session_win_rate?.toString() || '0'), 0);
+      const totalProfitFactor = validSessions.reduce((sum, s) => sum + parseFloat(s.session_profit_factor?.toString() || '0'), 0);
 
       const avgWinRate = totalWinRate / validSessions.length;
       const avgProfitFactor = totalProfitFactor / validSessions.length;
 
       const consistentSessions = validSessions.filter(s => {
-        const wr = parseFloat(s.win_rate?.toString() || '0');
-        const pf = parseFloat(s.profit_factor?.toString() || '0');
+        const wr = parseFloat(s.session_win_rate?.toString() || '0');
+        const pf = parseFloat(s.session_profit_factor?.toString() || '0');
         return wr >= 35 && pf >= 1.0;
       });
 

@@ -155,6 +155,12 @@ class GoalSessionStateMachine {
 
       if (TERMINAL_STATES.includes(newStatus)) {
         updateData.completed_at = new Date().toISOString();
+        const stats = await this.computeSessionStats(sessionId);
+        if (stats) {
+          updateData.session_win_rate = stats.winRate;
+          updateData.session_profit_factor = stats.profitFactor;
+          updateData.session_total_trades = stats.totalTrades;
+        }
       }
 
       const { error: updateError } = await supabase
@@ -230,6 +236,12 @@ class GoalSessionStateMachine {
 
     if (TERMINAL_STATES.includes(newStatus)) {
       updateData.completed_at = new Date().toISOString();
+      const stats = await this.computeSessionStats(sessionId);
+      if (stats) {
+        updateData.session_win_rate = stats.winRate;
+        updateData.session_profit_factor = stats.profitFactor;
+        updateData.session_total_trades = stats.totalTrades;
+      }
     }
 
     const { error: updateError } = await supabase
@@ -268,6 +280,36 @@ class GoalSessionStateMachine {
     const currentStatus = await this.getCurrentStatus(sessionId);
     if (!currentStatus) return false;
     return this.isValidTransition(currentStatus, targetStatus);
+  }
+
+  private async computeSessionStats(sessionId: string): Promise<{
+    winRate: number;
+    profitFactor: number;
+    totalTrades: number;
+  } | null> {
+    try {
+      const { data: trades, error } = await supabase
+        .from('goal_session_trades')
+        .select('profit_loss, status')
+        .eq('goal_session_id', sessionId)
+        .eq('status', 'closed');
+
+      if (error || !trades || trades.length === 0) return null;
+
+      const totalTrades = trades.length;
+      const wins = trades.filter(t => (t.profit_loss ?? 0) > 0);
+      const losses = trades.filter(t => (t.profit_loss ?? 0) < 0);
+
+      const winRate = totalTrades > 0 ? (wins.length / totalTrades) * 100 : 0;
+
+      const grossProfit = wins.reduce((sum, t) => sum + (t.profit_loss ?? 0), 0);
+      const grossLoss = Math.abs(losses.reduce((sum, t) => sum + (t.profit_loss ?? 0), 0));
+      const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? 999 : 0;
+
+      return { winRate, profitFactor, totalTrades };
+    } catch {
+      return null;
+    }
   }
 }
 

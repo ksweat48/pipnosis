@@ -802,7 +802,7 @@ class AILearningEngine {
         await supabase.from('ai_market_scenario_performance').upsert({
           user_id: userId,
           scenario_name: 'live_demo_trading',
-          market_type: 'live' as any,
+          market_type: 'mixed',
           symbol: trade.symbol,
           timeframe: 'H1',
           total_occurrences: 1,
