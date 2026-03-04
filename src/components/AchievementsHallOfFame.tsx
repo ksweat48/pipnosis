@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { Trophy, Award, Medal, Gem, Shield, TrendingUp, TrendingDown, Star, Zap, Target, BarChart2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Trophy, Award, Medal, Gem, Shield, TrendingUp, TrendingDown, Star, Zap, Target, BarChart2, Share2, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import { useAchievementShare } from '../hooks/useAchievementShare';
+import { SummaryShareCard, WinShareCard } from './AchievementShareCard';
 
 interface TradeAchievement {
   achievement_id: string;
@@ -64,12 +66,179 @@ const RANK_THRESHOLDS = [
   { rank: 'Platinum', min: 500, max: Infinity, color: '#E5E4E2' },
 ];
 
+const getDisplayName = (user: any): string => {
+  return (
+    user?.user_metadata?.display_name ||
+    user?.user_metadata?.full_name ||
+    user?.email?.split('@')[0] ||
+    'Trader'
+  );
+};
+
+interface WinCardWithShareProps {
+  a: TradeAchievement;
+  idx: number;
+  displayName: string;
+  isSharingId: string | null;
+  onShare: (ref: React.RefObject<HTMLDivElement>, symbol: string, pnl: number, winNumber: number) => void;
+}
+
+const WinCardWithShare: React.FC<WinCardWithShareProps> = ({ a, idx, displayName, isSharingId, onShare }) => {
+  const Icon = getMedalIcon(a.medal_rank);
+  const isTP2 = a.close_reason === 'take_profit_2';
+  const shareCardRef = useRef<HTMLDivElement>(null);
+  const shareId = `win-${a.trade_number}`;
+  const isThisSharing = isSharingId === shareId;
+
+  const handleShare = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onShare(shareCardRef, a.symbol, a.pnl, a.trade_number);
+  };
+
+  return (
+    <div
+      className="group relative animate-in fade-in slide-in-from-bottom-4 duration-500"
+      style={{ animationDelay: `${Math.min(idx * 30, 300)}ms` }}
+    >
+      {/* Glow */}
+      <div
+        className="absolute -inset-0.5 rounded-2xl blur-sm opacity-0 group-hover:opacity-40 transition-all duration-300"
+        style={{ background: `linear-gradient(135deg, ${a.medal_color}, transparent)` }}
+      />
+
+      <div className="relative bg-gray-800/80 rounded-2xl border border-gray-700/60 hover:border-gray-600/80 p-5 transition-all duration-200 hover:scale-[1.01]">
+
+        {/* Header row */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+              style={{
+                background: `linear-gradient(135deg, ${a.medal_color}20, ${a.medal_color}40)`,
+                border: `1.5px solid ${a.medal_color}60`,
+              }}
+            >
+              <Icon className="w-5 h-5" style={{ color: a.medal_color }} />
+            </div>
+            <div>
+              <div className="text-xs text-gray-500">Win #{a.trade_number}</div>
+              <div
+                className="text-xs font-semibold px-1.5 py-0.5 rounded inline-block"
+                style={{ background: `${a.medal_color}15`, color: a.medal_color }}
+              >
+                {a.medal_rank}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-2">
+            <div className="text-right">
+              <div className="text-lg font-bold text-emerald-400">
+                +${(a.pnl ?? 0).toFixed(2)}
+              </div>
+              {isTP2 && (
+                <div className="flex items-center justify-end gap-0.5">
+                  <Zap className="w-3 h-3 text-yellow-400" />
+                  <span className="text-xs text-yellow-400 font-medium">Full TP</span>
+                </div>
+              )}
+            </div>
+
+            {/* Per-card share button */}
+            <button
+              onClick={handleShare}
+              disabled={isSharingId !== null}
+              title="Share this win"
+              className={`
+                flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-200 flex-shrink-0
+                opacity-0 group-hover:opacity-100 focus:opacity-100
+                sm:opacity-100
+                ${isThisSharing
+                  ? 'bg-emerald-500/20 text-emerald-400 cursor-wait'
+                  : 'bg-gray-700/50 text-gray-400 hover:bg-emerald-500/20 hover:text-emerald-400 active:scale-95'
+                }
+                ${isSharingId !== null && !isThisSharing ? 'cursor-not-allowed opacity-40' : ''}
+              `}
+            >
+              {isThisSharing
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <Share2 className="w-3.5 h-3.5" />
+              }
+            </button>
+          </div>
+        </div>
+
+        {/* Symbol + direction */}
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-white font-bold text-base">{a.symbol}</span>
+          <span className={`flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded ${
+            a.direction === 'BUY'
+              ? 'bg-emerald-500/15 text-emerald-400'
+              : 'bg-red-500/15 text-red-400'
+          }`}>
+            {a.direction === 'BUY'
+              ? <TrendingUp className="w-3 h-3" />
+              : <TrendingDown className="w-3 h-3" />
+            }
+            {a.direction}
+          </span>
+          {a.trade_style && (
+            <span className="text-xs text-gray-500 bg-gray-700/50 px-1.5 py-0.5 rounded">
+              {formatStyle(a.trade_style)}
+            </span>
+          )}
+        </div>
+
+        {/* Stats row */}
+        <div className="grid grid-cols-2 gap-2 text-xs mb-3">
+          <div className="bg-gray-700/30 rounded-lg p-2">
+            <div className="text-gray-500">Close</div>
+            <div className="text-gray-200 font-medium truncate">{formatCloseReason(a.close_reason)}</div>
+          </div>
+          <div className="bg-gray-700/30 rounded-lg p-2">
+            <div className="text-gray-500">Lot Size</div>
+            <div className="text-gray-200 font-medium">{a.lot_size > 0 ? a.lot_size.toFixed(2) : '—'}</div>
+          </div>
+        </div>
+
+        {/* Date */}
+        <div className="text-xs text-gray-600">
+          {new Date(a.achieved_at).toLocaleDateString('en-US', {
+            month: 'short', day: 'numeric', year: 'numeric',
+            hour: '2-digit', minute: '2-digit',
+          })}
+        </div>
+      </div>
+
+      {/* Off-screen win share card for html2canvas */}
+      <div
+        style={{
+          position: 'fixed',
+          left: '-9999px',
+          top: '-9999px',
+          pointerEvents: 'none',
+          zIndex: -1,
+        }}
+        aria-hidden="true"
+      >
+        <WinShareCard ref={shareCardRef} achievement={a} displayName={displayName} />
+      </div>
+    </div>
+  );
+};
+
 export const AchievementsHallOfFame: React.FC = () => {
   const { user } = useAuth();
   const [achievements, setAchievements] = useState<TradeAchievement[]>([]);
   const [summary, setSummary] = useState<AchievementSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'tp1' | 'tp2' | 'manual'>('all');
+
+  const { isSharingId, shareSummary, shareWin } = useAchievementShare();
+  const summaryCardRef = useRef<HTMLDivElement>(null);
+
+  const displayName = getDisplayName(user);
+  const isSharingSummary = isSharingId === 'summary';
 
   useEffect(() => {
     if (user) loadAchievements();
@@ -90,6 +259,20 @@ export const AchievementsHallOfFame: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleShareSummary = () => {
+    if (!summary) return;
+    shareSummary(summaryCardRef, `${summary.current_rank} Trader`, summary.total_wins);
+  };
+
+  const handleShareWin = (
+    ref: React.RefObject<HTMLDivElement>,
+    symbol: string,
+    pnl: number,
+    winNumber: number
+  ) => {
+    shareWin(ref, symbol, pnl, winNumber);
   };
 
   const filtered = achievements.filter(a => {
@@ -163,7 +346,7 @@ export const AchievementsHallOfFame: React.FC = () => {
                   </div>
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h2 className="text-2xl font-bold text-white">{summary.current_rank} Trader</h2>
                     {summary.wins_to_next_rank > 0 && (
                       <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/30">
@@ -176,6 +359,27 @@ export const AchievementsHallOfFame: React.FC = () => {
                   </p>
                 </div>
               </div>
+
+              {/* Share My Stats button */}
+              <button
+                onClick={handleShareSummary}
+                disabled={isSharingId !== null}
+                className={`
+                  flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all duration-200
+                  border shadow-lg active:scale-95
+                  ${isSharingSummary
+                    ? 'bg-emerald-600/30 text-emerald-300 border-emerald-500/30 cursor-wait'
+                    : 'bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white border-emerald-500/50 shadow-emerald-500/20 hover:shadow-emerald-500/30'
+                  }
+                  ${isSharingId !== null && !isSharingSummary ? 'opacity-50 cursor-not-allowed' : ''}
+                `}
+              >
+                {isSharingSummary
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <Share2 className="w-4 h-4" />
+                }
+                {isSharingSummary ? 'Preparing...' : 'Share My Stats'}
+              </button>
             </div>
           </div>
 
@@ -217,108 +421,41 @@ export const AchievementsHallOfFame: React.FC = () => {
 
       {/* Achievement Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {filtered.map((a, idx) => {
-          const Icon = getMedalIcon(a.medal_rank);
-          const isTP2 = a.close_reason === 'take_profit_2';
-          return (
-            <div
-              key={a.achievement_id}
-              className="group relative animate-in fade-in slide-in-from-bottom-4 duration-500"
-              style={{ animationDelay: `${Math.min(idx * 30, 300)}ms` }}
-            >
-              {/* Glow */}
-              <div
-                className="absolute -inset-0.5 rounded-2xl blur-sm opacity-0 group-hover:opacity-40 transition-all duration-300"
-                style={{ background: `linear-gradient(135deg, ${a.medal_color}, transparent)` }}
-              />
-
-              <div className="relative bg-gray-800/80 rounded-2xl border border-gray-700/60 hover:border-gray-600/80 p-5 transition-all duration-200 hover:scale-[1.01]">
-
-                {/* Header row */}
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
-                      style={{
-                        background: `linear-gradient(135deg, ${a.medal_color}20, ${a.medal_color}40)`,
-                        border: `1.5px solid ${a.medal_color}60`,
-                      }}
-                    >
-                      <Icon className="w-5 h-5" style={{ color: a.medal_color }} />
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-500">Win #{a.trade_number}</div>
-                      <div
-                        className="text-xs font-semibold px-1.5 py-0.5 rounded inline-block"
-                        style={{ background: `${a.medal_color}15`, color: a.medal_color }}
-                      >
-                        {a.medal_rank}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="text-right">
-                    <div className="text-lg font-bold text-emerald-400">
-                      +${(a.pnl ?? 0).toFixed(2)}
-                    </div>
-                    {isTP2 && (
-                      <div className="flex items-center justify-end gap-0.5">
-                        <Zap className="w-3 h-3 text-yellow-400" />
-                        <span className="text-xs text-yellow-400 font-medium">Full TP</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Symbol + direction */}
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-white font-bold text-base">{a.symbol}</span>
-                  <span className={`flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded ${
-                    a.direction === 'BUY'
-                      ? 'bg-emerald-500/15 text-emerald-400'
-                      : 'bg-red-500/15 text-red-400'
-                  }`}>
-                    {a.direction === 'BUY'
-                      ? <TrendingUp className="w-3 h-3" />
-                      : <TrendingDown className="w-3 h-3" />
-                    }
-                    {a.direction}
-                  </span>
-                  {a.trade_style && (
-                    <span className="text-xs text-gray-500 bg-gray-700/50 px-1.5 py-0.5 rounded">
-                      {formatStyle(a.trade_style)}
-                    </span>
-                  )}
-                </div>
-
-                {/* Stats row */}
-                <div className="grid grid-cols-2 gap-2 text-xs mb-3">
-                  <div className="bg-gray-700/30 rounded-lg p-2">
-                    <div className="text-gray-500">Close</div>
-                    <div className="text-gray-200 font-medium truncate">{formatCloseReason(a.close_reason)}</div>
-                  </div>
-                  <div className="bg-gray-700/30 rounded-lg p-2">
-                    <div className="text-gray-500">Lot Size</div>
-                    <div className="text-gray-200 font-medium">{a.lot_size > 0 ? a.lot_size.toFixed(2) : '—'}</div>
-                  </div>
-                </div>
-
-                {/* Date */}
-                <div className="text-xs text-gray-600">
-                  {new Date(a.achieved_at).toLocaleDateString('en-US', {
-                    month: 'short', day: 'numeric', year: 'numeric',
-                    hour: '2-digit', minute: '2-digit',
-                  })}
-                </div>
-              </div>
-            </div>
-          );
-        })}
+        {filtered.map((a, idx) => (
+          <WinCardWithShare
+            key={a.achievement_id}
+            a={a}
+            idx={idx}
+            displayName={displayName}
+            isSharingId={isSharingId}
+            onShare={handleShareWin}
+          />
+        ))}
       </div>
 
       {filtered.length === 0 && achievements.length > 0 && (
         <div className="text-center py-12 text-gray-500">
           No wins matching this filter yet.
+        </div>
+      )}
+
+      {/* Off-screen summary share card for html2canvas */}
+      {summary && (
+        <div
+          style={{
+            position: 'fixed',
+            left: '-9999px',
+            top: '-9999px',
+            pointerEvents: 'none',
+            zIndex: -1,
+          }}
+          aria-hidden="true"
+        >
+          <SummaryShareCard
+            ref={summaryCardRef}
+            summary={summary}
+            displayName={displayName}
+          />
         </div>
       )}
     </div>
