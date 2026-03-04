@@ -67,11 +67,15 @@ interface ChatCompletionResponse {
  * Architecture: Token-bucket with minimum inter-call spacing.
  * All calls — Alpha coordinator, Omega-8, mid-trade evaluator — share this queue.
  *
- * Min spacing of 4000ms means:
- *   - Symbol 1 fires at T+0ms
- *   - Symbol 2 fires at T+4000ms (guaranteed, even if pipeline converges)
- *   - Symbol 3 fires at T+8000ms
- * Total for 3 concurrent: ~8s vs old thundering-herd of ~0ms spread
+ * CCIP-2026-03-04: Reduced minInterCallMs from 4000ms to 1500ms.
+ * Rationale: At 4000ms, 9 symbols across 2 concurrent slots require
+ * 4-5 sequential LLM slots = 16-20s of pure queue wait BEFORE network
+ * latency is added. This caused all London session symbols (70s timeout)
+ * to time out before the Alpha LLM call completed, returning confidence=0.
+ * 1500ms still prevents back-to-back 429 thundering-herd errors while
+ * allowing queue to clear within session timeout budgets.
+ * Queue math at 1500ms: Symbol 1 fires at T+0, Symbol 2 at T+1500,
+ * Symbol 3 at T+3000 — 5s total spread vs 8s at 4000ms.
  *
  * Circuit Breaker: After CIRCUIT_TRIP_THRESHOLD consecutive insufficient_quota
  * errors, all API calls are blocked for CIRCUIT_RESET_MS to prevent cascading
@@ -81,7 +85,7 @@ class LLMRequestQueue {
   private lastCallTimestampMs = 0;
   private queue: Array<() => void> = [];
   private processing = false;
-  private readonly minInterCallMs = 4000;
+  private readonly minInterCallMs = 1500;
 
   private consecutiveQuotaFailures = 0;
   private readonly CIRCUIT_TRIP_THRESHOLD = 3;

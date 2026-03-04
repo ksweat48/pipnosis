@@ -125,28 +125,49 @@ export interface ConcurrentExecutionConfig {
   };
 }
 
+// CCIP-2026-03-04: Concurrent execution config updated to fix Alpha NO_TRADE cascade.
+//
+// ROOT CAUSE: The LLM queue (openai-client.ts) enforces a minimum inter-call spacing.
+// With maxConcurrentSymbols=3, up to 6 LLM calls (Omega-8 + Alpha per symbol) queue
+// sequentially. At 4000ms spacing, 6 calls take 20s of queue wait alone, pushing most
+// London session evaluations (70s timeout) past their limit before the Alpha LLM fires.
+// Timeout returns confidence=0, which fails Gate #5 (CONFIDENCE_THRESHOLD) in
+// best-symbol-selector.ts, so ALL symbols get rejected and NO_TRADE is returned.
+//
+// FIX PART 1: openai-client.ts minInterCallMs reduced 4000ms → 1500ms (anti-thundering-herd
+// still maintained, but queue clears within session timeout budgets).
+//
+// FIX PART 2 (this file): maxConcurrentSymbols 3 → 2 reduces peak queue pressure.
+// Session timeouts extended to account for realistic pipeline budget:
+//   Budget = (queue_wait) + (API_latency) + (snapshot_build)
+//          = (2 symbols × 2 LLM calls × 1500ms) + (10s API) + (5s build)
+//          = 6s queue + 15s processing = ~21s actual + 2× safety margin = ~45s minimum
+// New timeouts provide comfortable headroom above that budget per session complexity.
 export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
-  enabled: true, // Master switch - enable concurrent processing
+  enabled: true,
 
   concurrency: {
-    maxConcurrentSymbols: 3, // Process 3 symbols at a time to prevent LLM proxy overload
-    symbolTimeoutMs: 60000, // 60 seconds per symbol (realistic for LLM + DB round-trips)
-    batchTimeoutMs: 180000, // 180 seconds total batch timeout (3 batches of 3 symbols)
+    maxConcurrentSymbols: 2, // CCIP-2026-03-04: Reduced 3→2. At 1500ms queue spacing,
+    // 2 concurrent symbols = 4 peak LLM slots = 6s queue wait. Adding 10s API latency
+    // + 5s snapshot build = ~21s realistic pipeline. Gives session timeouts comfortable
+    // headroom. 3 concurrent was creating 20s+ queue wait that blew London's 70s budget.
+    symbolTimeoutMs: 90000,  // 90s base (up from 60s) — realistic for 1500ms queue + API
+    batchTimeoutMs: 360000,  // 360s total — 5 batches of 2 symbols at 90s each + buffer
 
     useSessionTimeouts: true,
     sessionTimeouts: {
-      asian: 60000,     // 60s - Realistic for LLM call + retries through proxy
-      london: 70000,    // 70s - Moderate complexity with LLM calls
-      nyse: 80000,      // 80s - High volatility + complex thesis generation
-      overlap: 90000,   // 90s - Highest complexity (London+NYSE concurrent)
-      off_hours: 50000, // 50s - Limited market activity
+      asian: 90000,      // 90s — was 60s. Queue wait 6s + API 10s + build 5s = 21s actual; 90s gives 4× headroom
+      london: 100000,    // 100s — was 70s. Prevents NAS100/US30 timeout that was logged in prod
+      nyse: 110000,      // 110s — was 80s. High volatility requires complex thesis generation
+      overlap: 120000,   // 120s — was 90s. London+NYSE overlap: highest complexity allowed
+      off_hours: 75000,  // 75s — was 50s. Limited activity but queue wait unchanged
     },
   },
 
   earlyExit: {
-    enabled: true, // Enable early-exit optimization
-    minConfidenceThreshold: 60, // Exit when confidence >= 60% (matches Alpha base threshold)
-    gracePeriodSymbols: 0, // Exit immediately on first viable trade
+    enabled: true,
+    minConfidenceThreshold: 60,
+    gracePeriodSymbols: 0,
   },
 
   rateLimiting: {
@@ -154,11 +175,11 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     maxLLMCallsPerSecond: 20,
     minBatchDelayMs: 100,
     // ARCHITECTURAL NOTE: intraBatchStaggerMs is intentionally set to 0.
-    // Rate limiting is now enforced at the correct layer: openai-client.ts LLMRequestQueue.
-    // The queue enforces 4000ms minimum spacing between ALL OpenAI calls, regardless of
-    // how many concurrent symbol evaluations are in flight. The stagger here was solving
-    // the problem at the wrong layer (pipeline start vs LLM call point), causing symbols
-    // that start 1.5s apart to still converge at the LLM call after heavy processing.
+    // Rate limiting is enforced at the correct layer: openai-client.ts LLMRequestQueue.
+    // The queue enforces minimum inter-call spacing between ALL OpenAI calls, regardless
+    // of how many concurrent symbol evaluations are in flight. The stagger here was
+    // solving the problem at the wrong layer (pipeline start vs LLM call point), causing
+    // symbols that start together to still converge at the LLM call after processing.
     intraBatchStaggerMs: 0,
   },
 
