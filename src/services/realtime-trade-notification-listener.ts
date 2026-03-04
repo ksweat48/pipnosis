@@ -157,13 +157,42 @@ class RealtimeTradeNotificationListener {
         }
 
         case 'take_profit_hit': {
-          // CCIP-SSOT (2026-03-02 AUDIO-SSOT): Audio owned by useGlobalDialog on dialog render.
+          // CCIP FIX (2026-03-04 TP1-ONCE-PER-TRADE): Guard against TP1 milestone misrouting.
+          // 'take_profit_hit' was previously also sent for TP1 advisory hits (trade still open),
+          // which caused fetchAndShowTradeClosedModal() to show a blank/manual-close modal because
+          // the trade has no exit_price or profit_loss yet. Now: check trade status first.
+          // If the trade is still open, this is a legacy TP1 path — play audio only, no modal.
+          // realtime-sltp-monitor now sends 'tp1_milestone' instead (handled below), so this
+          // guard is a safety net for any legacy take_profit_hit notifications still in flight.
           const tpTradeId = notification.metadata?.tradeId || notification.metadata?.trade_id;
+          if (tpTradeId) {
+            const { data: tradeStatus } = await supabase
+              .from('goal_session_trades')
+              .select('status')
+              .eq('id', tpTradeId)
+              .maybeSingle();
+            if (tradeStatus?.status === 'open') {
+              audioAlertService.playTradeProfit(tpTradeId);
+              break;
+            }
+          }
           await this.fetchAndShowTradeClosedModal(
             tpTradeId,
             notification.metadata?.closeReason || notification.metadata?.close_reason || 'take_profit',
             notification.session_id
           );
+          break;
+        }
+
+        case 'tp1_milestone': {
+          // CCIP FIX (2026-03-04 TP1-ONCE-PER-TRADE): New dedicated notification type for TP1
+          // advisory milestone (trade is NOT closed). Audio only — no modal.
+          // The TP1 Decision Modal is owned by GoalSessionDashboard's Realtime subscription
+          // on the tp1_hit column of goal_session_trades.
+          const tp1mTradeId = notification.metadata?.tradeId || notification.metadata?.trade_id;
+          if (tp1mTradeId) {
+            audioAlertService.playTradeProfit(tp1mTradeId);
+          }
           break;
         }
 
@@ -185,17 +214,11 @@ class RealtimeTradeNotificationListener {
         }
 
         case 'tp1_hit': {
+          // Legacy: some older notifications may use 'tp1_hit'. Audio only — no modal.
           const tp1TradeId = notification.metadata?.tradeId || notification.metadata?.trade_id;
           if (tp1TradeId) {
             audioAlertService.playTradeProfit(tp1TradeId);
           }
-          globalDialogManager.showTradeSignal({
-            type: 'tp1_milestone',
-            symbol: notification.metadata?.symbol,
-            title: notification.title,
-            message: notification.message,
-            tradeId: tp1TradeId
-          }, 'high', { skipPersist: true });
           break;
         }
 

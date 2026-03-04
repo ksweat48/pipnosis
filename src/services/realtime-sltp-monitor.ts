@@ -27,6 +27,8 @@ import { pricePollingCoordinator, type PriceUpdate } from './price-polling-coord
 import type { MonitoredPosition, PriceData } from './monitoring/position-monitoring-authority';
 import { tradeProcessingLockService } from './trade-processing-lock-service';
 import { isXAUUSD, isJPYPair, getCurrencyPipInfo } from '../utils/currencyHelpers';
+import { notificationCoordinator } from './coordinators/notification-coordinator';
+import { audioAlertService } from './audio-alert-service';
 
 class RealtimeSLTPMonitor {
   private unsubscribe: (() => void) | null = null;
@@ -306,13 +308,24 @@ class RealtimeSLTPMonitor {
    *
    * CCIP 2026-03-02: ATR fallback added — SL move is now GUARANTEED after TP1.
    * Previous code silently skipped when ATR was null; that left trades unprotected.
+   *
+   * CCIP 2026-03-04 TP1-ONCE-PER-TRADE: markTP1Hit() uses an optimistic DB lock
+   * (.eq('tp1_hit', false)) so only one monitor wins the write race. When
+   * already_processed=true, all downstream logic (SL move, notification) is skipped.
+   * A 'tp1_milestone' notification (not 'take_profit_hit') is sent so the
+   * realtime-trade-notification-listener does NOT misroute it as a trade closure modal.
    */
   private async handleTP1Hit(position: MonitoredPosition, currentPrice: number): Promise<void> {
     try {
       console.log(`[RealtimeSLTPMonitor] TP1 HIT @ ${currentPrice.toFixed(5)} - marking flag, lot size unchanged`);
 
-      // SSOT: Use authority to mark TP1
+      // SSOT: Use authority to mark TP1 — optimistic lock ensures only one monitor wins
       const result = await positionMonitoringAuthority.markTP1Hit(position.id, position.user_id, currentPrice);
+
+      if (result.already_processed) {
+        console.log(`[RealtimeSLTPMonitor] TP1 already processed for ${position.id} — skipping duplicate`);
+        return;
+      }
 
       if (!result.success) {
         console.error(`[RealtimeSLTPMonitor] Failed to mark TP1:`, result.error);
@@ -362,6 +375,29 @@ class RealtimeSLTPMonitor {
           );
         }
       }
+
+      // CCIP FIX (2026-03-04 TP1-ONCE-PER-TRADE): Send 'tp1_milestone' notification.
+      // Previously 'take_profit_hit' was sent here, which the realtime-trade-notification-listener
+      // routed to fetchAndShowTradeClosedModal() for a still-open trade — producing a blank modal.
+      // 'tp1_milestone' is handled by the listener as audio-only (no modal).
+      // The TP1 Decision Modal is owned by GoalSessionDashboard's Realtime subscription on tp1_hit.
+      await notificationCoordinator.send({
+        userId: position.user_id,
+        type: 'tp1_milestone',
+        title: `TP1 Hit: ${position.symbol}`,
+        message: `First take profit level reached at ${currentPrice.toFixed(5)}. Trade is now protected and running for TP2.`,
+        tradeId: position.id,
+        sessionId: position.goal_session_id,
+        priority: 'high',
+        metadata: {
+          symbol: position.symbol,
+          tp1_price: currentPrice,
+          tp_level: 'tp1',
+          milestone_only: true,
+        },
+      }).catch(err => {
+        console.warn(`[RealtimeSLTPMonitor] TP1 milestone notification failed (non-blocking):`, err);
+      });
 
       // Keep monitoring for TP2 - don't remove from monitoring
       console.log(`[RealtimeSLTPMonitor] TP1 complete. Full position still active. Monitoring continues for TP2...`);

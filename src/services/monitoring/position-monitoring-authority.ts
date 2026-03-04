@@ -366,24 +366,37 @@ class PositionMonitoringAuthority {
    * CRITICAL: Position size NEVER changes - only flag is set for Alpha learning
    * TP1 is NOT a closure event - it's a progress tracking milestone
    * Position continues 100% open to TP2
+   *
+   * CCIP FIX (2026-03-04 TP1-ONCE-PER-TRADE): Optimistic lock via .eq('tp1_hit', false).
+   * Both position-monitor and realtime-sltp-monitor call this method. Without the lock,
+   * both could read tp1_hit=false from their in-memory copy simultaneously and both
+   * proceed. The WHERE tp1_hit=false ensures only the first writer wins; subsequent
+   * callers get already_processed=true and must skip their downstream logic.
    */
-  async markTP1Hit(positionId: string, userId: string, tp1Price: number): Promise<{ success: boolean; error?: string }> {
+  async markTP1Hit(positionId: string, userId: string, tp1Price: number): Promise<{ success: boolean; already_processed?: boolean; error?: string }> {
     try {
-      const { error: updateError } = await supabase
+      const { data: updatedRows, error: updateError } = await supabase
         .from('goal_session_trades')
         .update({
           tp1_hit: true,
           tp1_hit_at: new Date().toISOString(),
-          tp1_action_taken: 'advisory_only', // Advisory milestone only - no position change
+          tp1_action_taken: 'advisory_only',
         })
         .eq('id', positionId)
-        .eq('user_id', userId); // Security: User can only update own trades
+        .eq('user_id', userId)
+        .eq('tp1_hit', false)
+        .select('id');
 
       if (updateError) {
         return {
           success: false,
           error: updateError.message,
         };
+      }
+
+      if (!updatedRows || updatedRows.length === 0) {
+        console.log(`[PositionMonitoringAuthority] TP1 already processed for ${positionId} — skipping (optimistic lock)`);
+        return { success: false, already_processed: true };
       }
 
       console.log(`[PositionMonitoringAuthority] TP1 advisory milestone logged for ${positionId} at ${tp1Price.toFixed(5)} - position continues 100% open`);

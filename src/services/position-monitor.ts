@@ -682,10 +682,14 @@ class PositionMonitorService {
       return;
     }
 
-    // Handle TP1 milestone (continue monitoring)
+    // CCIP FIX (2026-03-04 TP1-ONCE-PER-TRADE): TP1 milestone is handled exclusively by
+    // realtime-sltp-monitor.ts which uses positionMonitoringAuthority.markTP1Hit() with an
+    // optimistic DB lock. position-monitor must NOT fire its own TP1 logic — doing so caused
+    // a race condition where both monitors detected TP1 simultaneously and sent duplicate
+    // take_profit_hit notifications, producing a blank "manual close" modal alongside the
+    // correct TP1 Decision Modal.
     if ('milestone' in decision && decision.milestone === 'tp1') {
-      console.log(`[PositionMonitor] 🎯 TP1 TRIGGERED for ${position.symbol} at ${decision.price.toFixed(5)}`);
-      await this.handleTP1Hit(position, decision.price);
+      console.log(`[PositionMonitor] TP1 milestone detected for ${position.symbol} — delegated to realtime-sltp-monitor (SSOT)`);
       return;
     }
 
@@ -982,64 +986,12 @@ class PositionMonitorService {
     }
   }
 
-  private async handleTP1Hit(
-    position: MonitoredPosition,
-    tp1Price: number
-  ): Promise<void> {
-    try {
-      console.log(`[PositionMonitor] 🎯 TP1 Hit for ${position.symbol} at ${tp1Price.toFixed(5)}`);
-
-      const { error: updateError } = await supabase
-        .from('goal_session_trades')
-        .update({
-          tp1_hit_at: new Date().toISOString(),
-          tp1_price: tp1Price,
-        })
-        .eq('id', position.id)
-        .eq('user_id', position.user_id);
-
-      if (updateError) {
-        console.error('[PositionMonitor] Failed to mark TP1 hit:', updateError);
-        return;
-      }
-
-      await notificationCoordinator.send({
-        userId: position.user_id,
-        type: 'take_profit_hit',
-        title: `TP1 Hit: ${position.symbol}`,
-        message: `First take profit level reached at ${tp1Price.toFixed(5)}. Trade is now risk-free and running for TP2.`,
-        tradeId: position.id,
-        sessionId: position.goal_session_id,
-        // CCIP FIX (2026-02-27): Changed 'medium' → 'high' so notificationCoordinator
-        // triggers the push delivery path (requires 'high' or 'critical').
-        priority: 'high',
-        metadata: {
-          symbol: position.symbol,
-          tp1_price: tp1Price,
-          tp_level: 'tp1',
-        },
-      });
-
-      await SystemTableRPCWrapper.createGoalAIConversation(
-        position.user_id,
-        position.goal_session_id,
-        'ai',
-        `Excellent progress! ${position.symbol} reached TP1 at ${tp1Price.toFixed(5)}. The trade is now protected and running towards TP2 for maximum profit.`,
-        0,
-        'gpt-4',
-        {
-          conversation_type: 'trade_milestone',
-          trade_id: position.id,
-          milestone_type: 'tp1_hit',
-          tp1_price: tp1Price
-        }
-      );
-
-      console.log(`[PositionMonitor] TP1 hit processed successfully for ${position.symbol}`);
-    } catch (error) {
-      console.error('[PositionMonitor] Error handling TP1 hit:', error);
-    }
-  }
+  // CCIP FIX (2026-03-04 TP1-ONCE-PER-TRADE): handleTP1Hit RETIRED.
+  // TP1 detection and processing is owned exclusively by realtime-sltp-monitor.ts.
+  // This method previously sent a 'take_profit_hit' notification for an open (non-closed)
+  // trade, which the realtime-trade-notification-listener misrouted as a trade closure modal,
+  // producing a blank "manual close" dialog alongside the correct TP1 Decision Modal.
+  // The TP1 call site above now returns early with a delegation log instead.
 
   private async autoClosePosition(
     position: MonitoredPosition,

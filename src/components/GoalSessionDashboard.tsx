@@ -221,6 +221,20 @@ export const GoalSessionDashboard: React.FC = () => {
 
           console.log('[GoalSessionDashboard] TP1 hit detected for trade', tradeId);
 
+          // CCIP FIX (2026-03-04 TP1-ONCE-PER-TRADE): Mark modal as shown in DB immediately.
+          // This prevents checkMissedTP1 from re-showing the modal after a page reload.
+          supabase.rpc('mark_tp1_modal_shown', {
+            p_trade_id: tradeId,
+            p_user_id: user!.id,
+          }).then(({ data: wasFirstShow, error }) => {
+            if (error) console.warn('[GoalSessionDashboard] mark_tp1_modal_shown failed (non-critical):', error.message);
+            else if (!wasFirstShow) {
+              console.log('[GoalSessionDashboard] TP1 modal already shown for trade', tradeId, '— suppressing duplicate');
+              processedTP1Hits.current.add(tradeId);
+              return;
+            }
+          });
+
           const currentProfit = parseFloat(payload.new.current_pnl ?? '0') ||
             parseFloat(payload.new.profit_loss ?? '0') || 0;
 
@@ -260,12 +274,19 @@ export const GoalSessionDashboard: React.FC = () => {
       // CCIP-FIX (2026-03-02 TP1-COLUMN-SSOT): Column names corrected to match DB SSOT schema:
       //   take_profit_2  -> tp2_price    (dual-TP SSOT, migration 20260103072555)
       //   unrealized_pnl -> current_pnl  (universal PNL SSOT, migration 20260114001122)
+      //
+      // CCIP FIX (2026-03-04 TP1-ONCE-PER-TRADE): Added .eq('tp1_modal_shown', false).
+      // Previously the query returned any tp1_hit=true open trade — including ones where the
+      // modal was already shown and dismissed. After a page reload the modal would re-appear.
+      // tp1_modal_shown is set to true by mark_tp1_modal_shown() the moment the modal opens,
+      // so this query only returns trades that genuinely missed the modal event.
       const { data: openTP1Trade } = await supabase
         .from('goal_session_trades')
         .select('id, symbol, direction, take_profit, tp2_price, current_pnl, profit_loss')
         .eq('goal_session_id', activeSession.sessionId)
         .eq('status', 'open')
         .eq('tp1_hit', true)
+        .eq('tp1_modal_shown', false)
         .maybeSingle();
 
       if (cancelled || !openTP1Trade) return;
@@ -273,6 +294,14 @@ export const GoalSessionDashboard: React.FC = () => {
 
       processedTP1Hits.current.add(openTP1Trade.id);
       console.log('[GoalSessionDashboard] Recovered missed TP1 modal for trade', openTP1Trade.id);
+
+      // CCIP FIX (2026-03-04 TP1-ONCE-PER-TRADE): Mark modal as shown in DB before displaying.
+      supabase.rpc('mark_tp1_modal_shown', {
+        p_trade_id: openTP1Trade.id,
+        p_user_id: user!.id,
+      }).then(({ error }) => {
+        if (error) console.warn('[GoalSessionDashboard] mark_tp1_modal_shown (recovery) failed (non-critical):', error.message);
+      });
 
       const currentProfit =
         parseFloat(openTP1Trade.current_pnl ?? '0') ||

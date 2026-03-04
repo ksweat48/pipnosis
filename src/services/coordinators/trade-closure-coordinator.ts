@@ -83,6 +83,20 @@ class TradeClosureCoordinator {
   private closureLocks = new Map<string, boolean>();
   private static isInCoordinatorContext = false;
 
+  // CCIP FIX (2026-03-04 TP1-ONCE-PER-TRADE): Tracks trade IDs for which a closure dialog
+  // has already been shown. closureLocks was previously (incorrectly) used for this purpose
+  // but is always deleted in the finally block before handleClosureEvent fires — making the
+  // dedup check permanently false. This Set is populated when showTradeClosed() is called
+  // from closeTrade() or handleClosureEvent(), whichever runs first. The Realtime event
+  // path checks this Set before calling showTradeClosed() a second time.
+  // Entries expire after 60 seconds to avoid memory growth across many trades.
+  private shownDialogForTrade = new Set<string>();
+
+  private markDialogShown(tradeId: string): void {
+    this.shownDialogForTrade.add(tradeId);
+    setTimeout(() => this.shownDialogForTrade.delete(tradeId), 60000);
+  }
+
   static assertCoordinatorContext(operation: string): void {
     if (!TradeClosureCoordinator.isInCoordinatorContext) {
       console.error(`[AUTHORITY VIOLATION] ${operation} called outside coordinator context`);
@@ -701,60 +715,72 @@ class TradeClosureCoordinator {
     // SSOT AUTHORITY (2026-02-20): This is the ONLY place that shows the trade-closed
     // modal. The position-monitor.ts no longer creates its own modal (SSOT violation
     // removed). ALL close reasons must show a dialog so users always see the outcome.
-    const shouldSkipDialog = this.closureLocks.has(event.trade_id);
-    if (!shouldSkipDialog) {
-      try {
-        // CCIP FIX (2026-03-01 TP-MODAL-PNL-SSOT): Fetch tp1_pnl + tp2_pnl so the modal
-        // can display the incremental TP leg breakdown (entry→TP1, TP1→TP2).
-        // These are written by post-trade-analyzer.ts and are the SSOT for per-leg P&L.
-        const { data: tradeData } = await supabase
-          .from('goal_session_trades')
-          .select('symbol, direction, entry_price, exit_price, profit_loss, stop_loss, take_profit, tp1_pnl, tp2_pnl, tp1_hit')
-          .eq('id', event.trade_id)
-          .maybeSingle();
+    //
+    // CCIP FIX (2026-03-04 TP1-ONCE-PER-TRADE): Replace broken closureLocks dedup.
+    // closureLocks was always deleted in the closeTrade() finally block before this
+    // Realtime event ever fires — making the check permanently false. shownDialogForTrade
+    // is the correct Set for cross-path dedup: the realtime-trade-notification-listener
+    // also calls globalDialogManager.showTradeClosed() via fetchAndShowTradeClosedModal(),
+    // but GlobalDialogManager's own 30-second dedup keyed on tradeId is the final safety net.
+    // Both paths call globalDialogManager.showTradeClosed(); GDM deduplicates on tradeId.
+    if (this.shownDialogForTrade.has(event.trade_id)) {
+      console.debug(`[TradeClosureCoordinator] Closure dialog already shown for trade ${event.trade_id} — skipping`);
+      return;
+    }
 
-        const { data: session } = await supabase
-          .from('goal_sessions')
-          .select('target_value, current_progress, dollar_risk')
-          .eq('id', event.goal_session_id)
-          .maybeSingle();
+    try {
+      // CCIP FIX (2026-03-01 TP-MODAL-PNL-SSOT): Fetch tp1_pnl + tp2_pnl so the modal
+      // can display the incremental TP leg breakdown (entry→TP1, TP1→TP2).
+      // These are written by post-trade-analyzer.ts and are the SSOT for per-leg P&L.
+      const { data: tradeData } = await supabase
+        .from('goal_session_trades')
+        .select('symbol, direction, entry_price, exit_price, profit_loss, stop_loss, take_profit, tp1_pnl, tp2_pnl, tp1_hit')
+        .eq('id', event.trade_id)
+        .maybeSingle();
 
-        const { count: tradesCount } = await supabase
-          .from('goal_session_trades')
-          .select('*', { count: 'exact', head: true })
-          .eq('goal_session_id', event.goal_session_id);
+      const { data: session } = await supabase
+        .from('goal_sessions')
+        .select('target_value, current_progress, dollar_risk')
+        .eq('id', event.goal_session_id)
+        .maybeSingle();
 
-        if (tradeData && session) {
-          const isGoalAchieved = (session.current_progress || 0) >= (session.target_value || Infinity);
+      const { count: tradesCount } = await supabase
+        .from('goal_session_trades')
+        .select('*', { count: 'exact', head: true })
+        .eq('goal_session_id', event.goal_session_id);
 
-          if (!tradeData.stop_loss || !tradeData.take_profit) {
-            console.warn(`[TradeClosureCoordinator] Trade ${event.trade_id} missing stop_loss or take_profit in DB — modal title detection may fall back to database close_reason`);
-          }
+      if (tradeData && session) {
+        const isGoalAchieved = (session.current_progress || 0) >= (session.target_value || Infinity);
 
-          const { globalDialogManager } = await import('../global-dialog-manager');
-          globalDialogManager.showTradeClosed({
-            symbol: tradeData.symbol,
-            direction: tradeData.direction,
-            entryPrice: tradeData.entry_price,
-            exitPrice: tradeData.exit_price,
-            profitLoss: tradeData.profit_loss,
-            closeReason: event.close_reason,
-            stopLoss: tradeData.stop_loss,
-            takeProfit: tradeData.take_profit,
-            currentProgress: session.current_progress || 0,
-            targetValue: session.target_value || 0,
-            tradesInSession: tradesCount || 0,
-            dollarRisk: session.dollar_risk || 0,
-            isGoalAchieved,
-            sessionId: event.goal_session_id,
-            tradeId: event.trade_id,
-            tp1Pnl: tradeData.tp1_hit && tradeData.tp1_pnl != null ? parseFloat(String(tradeData.tp1_pnl)) : null,
-            tp2Pnl: tradeData.tp2_pnl != null ? parseFloat(String(tradeData.tp2_pnl)) : null,
-          });
+        if (!tradeData.stop_loss || !tradeData.take_profit) {
+          console.warn(`[TradeClosureCoordinator] Trade ${event.trade_id} missing stop_loss or take_profit in DB — modal title detection may fall back to database close_reason`);
         }
-      } catch (dialogError) {
-        console.error(`[TradeClosureCoordinator] Failed to show closure dialog:`, dialogError);
+
+        this.markDialogShown(event.trade_id);
+
+        const { globalDialogManager } = await import('../global-dialog-manager');
+        globalDialogManager.showTradeClosed({
+          symbol: tradeData.symbol,
+          direction: tradeData.direction,
+          entryPrice: tradeData.entry_price,
+          exitPrice: tradeData.exit_price,
+          profitLoss: tradeData.profit_loss,
+          closeReason: event.close_reason,
+          stopLoss: tradeData.stop_loss,
+          takeProfit: tradeData.take_profit,
+          currentProgress: session.current_progress || 0,
+          targetValue: session.target_value || 0,
+          tradesInSession: tradesCount || 0,
+          dollarRisk: session.dollar_risk || 0,
+          isGoalAchieved,
+          sessionId: event.goal_session_id,
+          tradeId: event.trade_id,
+          tp1Pnl: tradeData.tp1_hit && tradeData.tp1_pnl != null ? parseFloat(String(tradeData.tp1_pnl)) : null,
+          tp2Pnl: tradeData.tp2_pnl != null ? parseFloat(String(tradeData.tp2_pnl)) : null,
+        });
       }
+    } catch (dialogError) {
+      console.error(`[TradeClosureCoordinator] Failed to show closure dialog:`, dialogError);
     }
   }
 }
