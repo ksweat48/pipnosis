@@ -66,9 +66,15 @@ class WeekendProtectionService {
       return;
     }
 
-    logger.info(LogCategory.POSITION_MONITOR, '🛡️ Starting weekend protection service');
+    logger.info(LogCategory.POSITION_MONITOR, 'Starting weekend protection service');
 
-    // Run immediately and then every minute
+    // CCIP-2026-03-04-B: Eagerly clear stale shutdown flags on startup.
+    // If the service restarts during market hours (e.g. Monday AM after a
+    // Friday shutdown), the module-level SCANNING_DISABLED flag defaults
+    // to false already (module re-imported = fresh state). This explicit
+    // call ensures the periodic check also runs immediately so any stale
+    // flags inherited from a hot-reload / non-full-reload scenario are
+    // cleared before the first scan begins.
     this.checkWeekendProtection();
     this.checkInterval = setInterval(() => {
       this.checkWeekendProtection();
@@ -236,12 +242,12 @@ class WeekendProtectionService {
     try {
       const status = await this.getWeekendStatus();
 
-      // Reset flags on market reopen (Sunday evening 5 PM EST)
+      // Resolve current EST day/hour for gate logic
       const now = new Date();
       const utcHours = now.getUTCHours();
       const utcDay = now.getUTCDay();
 
-      // Convert to EST
+      // Convert UTC → EST (UTC-5; DST not material for shutdown/open logic)
       const EST_OFFSET = 5;
       let estHours = utcHours - EST_OFFSET;
       let estDay = utcDay;
@@ -250,22 +256,44 @@ class WeekendProtectionService {
         estDay = (utcDay - 1 + 7) % 7;
       }
 
-      // Market reopens Sunday at 5 PM EST (22:00 UTC Sunday)
-      if (estDay === 0 && estHours >= 17) {
-        // Market reopened - re-enable systems
-        if (SCANNING_DISABLED || LLM_API_DISABLED) {
-          this.enableSystems();
-          this.hasShutdownToday = false;
-          this.warningsSent.clear();
+      // --- MARKET RE-OPEN DETECTION ---
+      // A market is open for Forex/Indices when:
+      //   (a) Sunday 5 PM EST or later (estDay=0, estHours>=17), OR
+      //   (b) Monday through Thursday any hour (estDay 1-4), OR
+      //   (c) Friday before 4:55 PM EST (estDay=5, estHours < 17)
+      //
+      // SSOT: marketScheduleService is the definitive authority. We delegate
+      // to it here to decide whether forex flags should be cleared, rather than
+      // relying solely on the static day/hour arithmetic which missed the Mon-Thu
+      // window entirely — causing SCANNING_DISABLED to stay true all week after
+      // a Friday shutdown if the app was never restarted through Sunday 5 PM.
+      const marketStatus = await marketScheduleService.getMarketStatus(now);
+      const isForexMarketOpen = marketStatus.isOpen;
 
-          globalToastManager.showToast(
-            '✅ Market reopened - All systems active',
-            'success'
-          );
-        }
+      // Sunday 5 PM EST re-open path (explicit toast)
+      if (estDay === 0 && estHours >= 17 && (SCANNING_DISABLED || LLM_API_DISABLED)) {
+        this.enableSystems();
+        this.hasShutdownToday = false;
+        this.warningsSent.clear();
+        globalToastManager.showToast('Market reopened - All systems active', 'success');
       }
 
-      // Reset flags on new week
+      // CRITICAL FIX (CCIP-2026-03-04-B): Clear stale flags whenever the
+      // market schedule reports forex as open (Mon–Fri during market hours).
+      // Previously only the Sunday 5PM branch cleared the flags, so any app
+      // restart after Friday shutdown left SCANNING_DISABLED=true all week,
+      // filtering every non-crypto symbol and causing Alpha to find only ETHUSD.
+      if (isForexMarketOpen && (SCANNING_DISABLED || LLM_API_DISABLED)) {
+        this.enableSystems();
+        this.hasShutdownToday = false;
+        this.warningsSent.clear();
+        logger.info(
+          LogCategory.POSITION_MONITOR,
+          'Market schedule reports forex open — clearing stale weekend protection flags'
+        );
+      }
+
+      // Reset bookkeeping flags on any non-Friday, non-weekend day
       if (!status.isFriday && !status.isWeekend) {
         this.hasShutdownToday = false;
         this.warningsSent.clear();
