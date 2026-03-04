@@ -136,45 +136,6 @@ class Omega9ConstraintProvider {
     let sessionConstraintMode: 'ADVISORY' | 'NONE';
     let tpReasoningSuffix = '';
 
-    if (is24HourMarket) {
-      // 24/7 markets: No session constraints at all
-      sessionConstraintMode = 'NONE';
-      tpReasoningSuffix = ' | 24/7 market - no session constraints';
-      console.log(`[Omega-9] ${symbol} is 24/7 market - session constraints disabled`);
-    } else {
-      // Forex/indices with session-based trading hours
-      switch (sessionConstraintPolicy) {
-        case 'ENFORCED':
-          // CHANGED: Even ENFORCED is now ADVISORY - no TP ceiling
-          sessionConstraintMode = 'ADVISORY';
-
-          if (feasibleTravelPips < atrBasedMaxTP_PIPS) {
-            tpReasoningSuffix = ` | ADVISORY: ${tradeStyle} may extend beyond session (${feasibleTravelPips.toFixed(1)} pips in ${sessionTimeRemainingMinutes}min remaining). Consider NO_TRADE if not viable within style band.`;
-          }
-          break;
-
-        case 'ADVISORY':
-          // INTRADAY: Session-time ADVISORY - no TP ceiling
-          sessionConstraintMode = 'ADVISORY';
-
-        if (atrBasedMaxTP_PIPS > feasibleTravelPips) {
-          tpReasoningSuffix = ` | ℹ️ ADVISORY: ${tradeStyle} trade may extend beyond current session (${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min, target ${atrBasedMaxTP_PIPS.toFixed(1)} pips)`;
-        }
-        break;
-
-      case 'NONE':
-        // SWING or 24/7 market: Session-time NONE - no session constraints
-        sessionConstraintMode = 'NONE';
-
-        if (assetClassifier.is24HourMarket(symbol)) {
-          tpReasoningSuffix = ` | 24/7 market - no session constraints`;
-        } else {
-          tpReasoningSuffix = ` | ${tradeStyle} trade - session timing not applicable`;
-        }
-        break;
-    }
-    }
-
     // Determine the SL we'll use for R:R calculations
     // If Alpha already proposed an SL, use that; otherwise use recommended
     const referenceSLPips = proposedStopLoss
@@ -185,7 +146,49 @@ class Omega9ConstraintProvider {
     const minRiskReward = resolvedPlan?.minRR ?? TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM;
 
     // Calculate MINIMUM TP for the resolved minimum R:R
+    // SSOT: Must be computed before the session constraint switch so advisory messages
+    // compare feasible travel against the MINIMUM viable TP, not the theoretical maximum.
     const idealMinTakeProfitPips = referenceSLPips * minRiskReward;
+
+    if (is24HourMarket) {
+      // 24/7 markets: No session constraints at all
+      sessionConstraintMode = 'NONE';
+      tpReasoningSuffix = ' | 24/7 market - no session constraints';
+      console.log(`[Omega-9] ${symbol} is 24/7 market - session constraints disabled`);
+    } else {
+      // Forex/indices with session-based trading hours
+      switch (sessionConstraintPolicy) {
+        case 'ENFORCED':
+          // Even ENFORCED is now ADVISORY - no TP ceiling
+          sessionConstraintMode = 'ADVISORY';
+
+          if (feasibleTravelPips < idealMinTakeProfitPips) {
+            tpReasoningSuffix = ` | ADVISORY: ${tradeStyle} minimum TP requires ${idealMinTakeProfitPips.toFixed(1)} pips but only ${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min remaining. Consider NO_TRADE if minimum R:R not achievable within session.`;
+          }
+          break;
+
+        case 'ADVISORY':
+          // INTRADAY: Session-time ADVISORY - no TP ceiling
+          sessionConstraintMode = 'ADVISORY';
+
+          if (idealMinTakeProfitPips > feasibleTravelPips) {
+            tpReasoningSuffix = ` | ADVISORY: ${tradeStyle} trade minimum TP requires ${idealMinTakeProfitPips.toFixed(1)} pips, ${feasibleTravelPips.toFixed(1)} pips feasible in ${sessionTimeRemainingMinutes}min remaining. Trade may extend into next session.`;
+          }
+          break;
+
+        case 'NONE':
+          // SWING or 24/7 market: Session-time NONE - no session constraints
+          sessionConstraintMode = 'NONE';
+
+          if (assetClassifier.is24HourMarket(symbol)) {
+            tpReasoningSuffix = ` | 24/7 market - no session constraints`;
+          } else {
+            tpReasoningSuffix = ` | ${tradeStyle} trade - session timing not applicable`;
+          }
+          break;
+      }
+    }
+
     const targetTakeProfitPips = referenceSLPips * TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM;
     const optimalTakeProfitPips = Math.min(referenceSLPips * 2.0, maxTakeProfitPips); // Elite target, capped by maximum
 
