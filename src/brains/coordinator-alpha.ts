@@ -2360,7 +2360,50 @@ ${tradeStyle === 'SCALP' ? `{
   "scalp_momentum_phase": "starting|developing|exhausted",
   "scalp_atr_traveled": 0.82,
   "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null_or_price, "pullback_zone_max": null_or_price, "reasoning": "MUST use 50% DISTANCE RULE. E.g. SELL: 'Nearest resistance at 4963 is 10 pips above entry. 50% distance = 5 pips. Zone: 4958-4960. Realistic ~5 pip improvement.' BUY: 'Support at 1.0838 is 4 pips below (0.2 ATR). M1 pullback already happened - good entry now.'" },
-  "override": { "type": "none", "justification": "" }
+  "override": { "type": "none", "justification": "" },
+  "answer_sheet": {
+    "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND",
+    "Q2_structure_level": "description of the key structural level this trade is anchored to",
+    "Q3_prior_rejections": "YES — [count] rejections at [level] | NO",
+    "Q4_momentum_stage": "EARLY|MIDDLE|LATE — [sub-mode]",
+    "Q5_failure_mode": "single sentence: the most likely structural reason this trade fails",
+    "Q5_failure_probability": 0,
+    "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE",
+    "Q6_entry_trigger": "named trigger: [BOS candle close / sweep reclaim / EMA rejection / etc.] OR NONE_YET",
+    "Q7_confluence_count": "X/5 — [list confirmed dimensions: TREND, STRUCTURE, MOMENTUM, TIMING, LIQUIDITY]",
+    "Q8_move_position_pct": 0,
+    "Q8B_session_range_pct": 0
+  }
+}` : tradeStyle === 'MICRO_INTRADAY' ? `{
+  "action": "BUY|SELL|NO_TRADE",
+  "entry": 12345.67,
+  "stopLoss": 12300.00,
+  "tp1": 12370.00,
+  "tp2": 12400.00,
+  "trade_confidence": 75,
+  "entry_mode": "execute_now",
+  "style": "MICRO_INTRADAY",
+  "marketThesis": "Brief market analysis (30-50 words)",
+  "reasoning": "Your full analytical reasoning — trend context, structural space, prior rejections, timing assessment",
+  "market_narrative": "Single-sentence cause-effect-destination thesis",
+  "counter_thesis": "Single sentence: the primary reason this trade fails",
+  "m15_structural_confirmation": "REQUIRED — name the specific M15 level: e.g. 'M15 swing low at 1.0823', 'M15 FVG 1.0840-1.0852', 'M15 BOS above 1.0865'. Vague or null = NO_TRADE.",
+  "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "brief note on trailing plan" },
+  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null_or_price, "pullback_zone_max": null_or_price, "reasoning": "MUST use 50% DISTANCE RULE. E.g. 'Nearest resistance at 1.0870 is 15 pips above. 50% distance = ~7.5 pips. Zone: 1.0849-1.0852. Realistic ~8 pip improvement.'" },
+  "override": { "type": "none", "justification": "" },
+  "answer_sheet": {
+    "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND",
+    "Q2_structure_level": "description of the key M15 structural level this trade is anchored to",
+    "Q3_prior_rejections": "YES — [count] rejections at [level] | NO",
+    "Q4_momentum_stage": "EARLY|MIDDLE|LATE — [sub-mode]",
+    "Q5_failure_mode": "single sentence: the most likely structural reason this trade fails",
+    "Q5_failure_probability": 0,
+    "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE",
+    "Q6_entry_trigger": "named trigger: [BOS candle close / sweep reclaim / EMA rejection / etc.] OR NONE_YET",
+    "Q7_confluence_count": "X/5 — [list confirmed dimensions: TREND, STRUCTURE, MOMENTUM, TIMING, LIQUIDITY]",
+    "Q8_move_position_pct": 0,
+    "Q8B_session_range_pct": 0
+  }
 }` : `{
   "action": "BUY|SELL|NO_TRADE",
   "entry": 12345.67,
@@ -2369,13 +2412,27 @@ ${tradeStyle === 'SCALP' ? `{
   "tp2": 12400.00,
   "trade_confidence": 75,
   "entry_mode": "execute_now",
-  "style": "${tradeStyle}",
+  "style": "INTRADAY",
   "marketThesis": "Brief market analysis (30-50 words)",
   "reasoning": "Your full analytical reasoning — trend context, structural space, prior rejections, timing assessment",
   "market_narrative": "Single-sentence cause-effect-destination thesis",
   "counter_thesis": "Single sentence: the primary reason this trade fails",
+  "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "brief note on trailing plan after TP1 hit" },
   "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null_or_price, "pullback_zone_max": null_or_price, "reasoning": "MUST use 50% DISTANCE RULE. E.g. 'Nearest resistance at 1.0870 is 15 pips above. 50% distance = ~7.5 pips. Zone: 1.0849-1.0852. Realistic ~8 pip improvement.'" },
-  "override": { "type": "none", "justification": "" }
+  "override": { "type": "none", "justification": "" },
+  "answer_sheet": {
+    "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND",
+    "Q2_structure_level": "description of the key H1 structural level this trade is anchored to",
+    "Q3_prior_rejections": "YES — [count] rejections at [level] | NO",
+    "Q4_momentum_stage": "EARLY|MIDDLE|LATE — [sub-mode]",
+    "Q5_failure_mode": "single sentence: the most likely structural reason this trade fails",
+    "Q5_failure_probability": 0,
+    "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE",
+    "Q6_entry_trigger": "named trigger: [BOS candle close / sweep reclaim / EMA rejection / etc.] OR NONE_YET",
+    "Q7_confluence_count": "X/5 — [list confirmed dimensions: TREND, STRUCTURE, MOMENTUM, TIMING, LIQUIDITY]",
+    "Q8_move_position_pct": 0,
+    "Q8B_session_range_pct": 0
+  }
 }`}`;
 
     // Emit final progress thought before LLM call (this is the 6.3s phase)
@@ -2400,7 +2457,7 @@ ${tradeStyle === 'SCALP' ? `{
         {
           model: 'gpt-4o-mini',
           temperature: 0.3,
-          max_tokens: 900,
+          max_tokens: 1400,
           requestType: 'alpha_coordination',
           endpoint: 'alpha-coordinator'
         }
@@ -3053,6 +3110,8 @@ ${tradeStyle === 'SCALP' ? `{
         if (anchorIsVague) {
           console.error('[Alpha Coordinator] MICRO_INTRADAY_NO_M15_ANCHOR: Alpha output missing m15_structural_confirmation — overriding to NO_TRADE');
           action = 'NO_TRADE';
+          parsed.action = 'NO_TRADE';
+          parsed.reasoning = (parsed.reasoning || '') + ' [GOVERNANCE BLOCK: MICRO_INTRADAY requires m15_structural_confirmation field naming a specific M15 structural level with price. Missing or vague anchor triggers NO_TRADE override.]';
         } else {
           console.log(`[Alpha Coordinator] MICRO_INTRADAY M15 anchor confirmed: "${m15Anchor}"`);
         }
