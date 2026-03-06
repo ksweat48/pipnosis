@@ -143,16 +143,23 @@ export interface ConcurrentExecutionConfig {
 //          = (2 symbols × 2 LLM calls × 1500ms) + (10s API) + (5s build)
 //          = 6s queue + 15s processing = ~21s actual + 2× safety margin = ~45s minimum
 // New timeouts provide comfortable headroom above that budget per session complexity.
+//
+// CCIP-2026-03-06: Scan speed improvement — maxConcurrentSymbols 2 → 3.
+// Enabled by reducing openai-client.ts minInterCallMs 1500ms → 1000ms.
+// Queue budget stays identical:
+//   Old: (2 symbols × 2 calls) × 1500ms = 6s queue wait
+//   New: (3 symbols × 2 calls) × 1000ms = 6s queue wait
+// Result: 9 symbols processed in 3 batches of 3 vs 5 batches of 2 = ~40% faster total scan.
+// Session timeouts unchanged — same safety margins apply.
 export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
   enabled: true,
 
   concurrency: {
-    maxConcurrentSymbols: 2, // CCIP-2026-03-04: Reduced 3→2. At 1500ms queue spacing,
-    // 2 concurrent symbols = 4 peak LLM slots = 6s queue wait. Adding 10s API latency
-    // + 5s snapshot build = ~21s realistic pipeline. Gives session timeouts comfortable
-    // headroom. 3 concurrent was creating 20s+ queue wait that blew London's 70s budget.
-    symbolTimeoutMs: 90000,  // 90s base (up from 60s) — realistic for 1500ms queue + API
-    batchTimeoutMs: 360000,  // 360s total — 5 batches of 2 symbols at 90s each + buffer
+    maxConcurrentSymbols: 3, // CCIP-2026-03-06: Increased 2→3. minInterCallMs reduced 1500→1000ms
+    // to keep queue budget identical: (3 × 2 calls × 1000ms) = 6s queue wait (same as before).
+    // 9 symbols now process in 3 batches of 3 instead of 5 batches of 2 (~40% faster).
+    symbolTimeoutMs: 90000,  // 90s base — unchanged, still provides 4× headroom over ~21s pipeline
+    batchTimeoutMs: 360000,  // 360s total — 3 batches of 3 symbols at 90s each + buffer
 
     useSessionTimeouts: true,
     sessionTimeouts: {

@@ -68,14 +68,16 @@ interface ChatCompletionResponse {
  * All calls — Alpha coordinator, Omega-8, mid-trade evaluator — share this queue.
  *
  * CCIP-2026-03-04: Reduced minInterCallMs from 4000ms to 1500ms.
- * Rationale: At 4000ms, 9 symbols across 2 concurrent slots require
- * 4-5 sequential LLM slots = 16-20s of pure queue wait BEFORE network
- * latency is added. This caused all London session symbols (70s timeout)
- * to time out before the Alpha LLM call completed, returning confidence=0.
- * 1500ms still prevents back-to-back 429 thundering-herd errors while
- * allowing queue to clear within session timeout budgets.
- * Queue math at 1500ms: Symbol 1 fires at T+0, Symbol 2 at T+1500,
- * Symbol 3 at T+3000 — 5s total spread vs 8s at 4000ms.
+ * CCIP-2026-03-06: Reduced minInterCallMs from 1500ms to 1000ms.
+ * Rationale: maxConcurrentSymbols increased 2→3. At 1500ms with 3 concurrent
+ * symbols and 2 LLM calls per symbol, peak queue is 6 slots = 9s queue wait.
+ * At 1000ms, same 6 slots = 6s queue wait — identical to 2-symbol budget at 1500ms.
+ * Formula: (maxConcurrentSymbols × 2 LLM calls) × minInterCallMs ≤ available budget
+ *   Old: (2 × 2) × 1500ms = 6s ✓
+ *   New: (3 × 2) × 1000ms = 6s ✓
+ * 1000ms still maintains anti-thundering-herd protection (OpenAI rate limit is 20 req/s,
+ * we are sending max 1 req/s — well within limit).
+ * Scan time improvement: 9 symbols in 3 batches of 3 vs 5 batches of 2 = ~40% faster.
  *
  * Circuit Breaker: After CIRCUIT_TRIP_THRESHOLD consecutive insufficient_quota
  * errors, all API calls are blocked for CIRCUIT_RESET_MS to prevent cascading
@@ -85,7 +87,7 @@ class LLMRequestQueue {
   private lastCallTimestampMs = 0;
   private queue: Array<() => void> = [];
   private processing = false;
-  private readonly minInterCallMs = 1500;
+  private readonly minInterCallMs = 1000; // CCIP-2026-03-06: 1500ms → 1000ms (supports 3 concurrent symbols)
 
   private consecutiveQuotaFailures = 0;
   private readonly CIRCUIT_TRIP_THRESHOLD = 3;
