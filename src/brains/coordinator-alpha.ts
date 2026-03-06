@@ -2678,6 +2678,7 @@ ${tradeStyle === 'SCALP' ? `{
               wallViolations,
               slPips,
               tpPips,
+              epsilon_pips: WALL_COMPARISON_EPSILON,
               arenaMin: { sl: arena.slPips.min, tp: arena.tpPips.min },
               arenaMax: { sl: arena.slPips.max, tp: arena.tpPips.max },
               userId: userId || null,

@@ -330,10 +330,18 @@ export function getEnvelopePercentBounds(
  *
  * CCIP (2026-02-18): Floating-point tolerance applied to all boundary comparisons.
  * computePipBounds rounds wall values to 1dp; callers pass unrounded pip distances.
- * The epsilon of 0.05 pips absorbs the rounding gap for all styles (SCALP, MICRO_INTRADAY,
- * INTRADAY, SWING) without meaningfully relaxing the envelope constraints.
+ *
+ * CCIP (2026-03-06): Tolerance raised from 0.05 to 0.15 pips (in sync with
+ * WALL_COMPARISON_EPSILON in coordinator-alpha.ts). The envelope bounds are computed
+ * via the same Math.round(...* 10) / 10 formula as the arena walls, introducing up
+ * to 0.05 pip of rounding on the bound side. The caller-supplied pip distance also
+ * carries floating-point error. Combined two-sided rounding can reach 0.1 pips,
+ * producing false advisory violations (e.g., "SL 10.3 below minimum 10.4") that
+ * mislead Alpha on the next iteration. A tolerance of 0.15 pips absorbs both
+ * rounding sources without meaningfully relaxing the envelope constraints.
+ * Applies to ALL styles: SCALP, MICRO_INTRADAY, INTRADAY, SWING.
  */
-const ENVELOPE_COMPARISON_EPSILON = 0.05; // pips — absorbs floating-point rounding only
+const ENVELOPE_COMPARISON_EPSILON = 0.15; // pips — absorbs two-sided floating-point rounding
 
 export function validateTPSLAgainstEnvelope(
   style: string,
