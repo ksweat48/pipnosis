@@ -2457,7 +2457,7 @@ ${tradeStyle === 'SCALP' ? `{
         {
           model: 'gpt-4o-mini',
           temperature: 0.3,
-          max_tokens: 1400,
+          max_tokens: 2500,
           requestType: 'alpha_coordination',
           endpoint: 'alpha-coordinator'
         }
@@ -2476,6 +2476,27 @@ ${tradeStyle === 'SCALP' ? `{
       });
 
       const content = response.choices[0]?.message?.content || '{}';
+
+      // CCIP (2026-03-06): Detect response truncation — if finish_reason is 'length',
+      // the LLM was cut off before completing its JSON. stopLoss and takeProfit appear
+      // at the END of the response schema and are the first fields lost to truncation.
+      // This is a prompt-compliance failure, not a market decision. Log it loudly and
+      // abort rather than silently processing a structurally incomplete response.
+      const finishReason = response.choices[0]?.finish_reason;
+      if (finishReason === 'length') {
+        console.error(`[Alpha Coordinator] CRITICAL PROMPT COMPLIANCE FAILURE: Response truncated (finish_reason=length) for ${marketContext.symbol}. stopLoss/takeProfit are MISSING due to token ceiling. Increase max_tokens or shorten prompt. Symbol: ${marketContext.symbol}, Style: ${styleName}`);
+        return {
+          action: 'NO_TRADE',
+          decision: 'NO_TRADE',
+          entry: marketContext.price,
+          stopLoss: marketContext.price,
+          takeProfit: marketContext.price,
+          confidence: 0,
+          reasoning: `BLOCKED: Alpha response truncated before stopLoss/takeProfit could be written. This is a system configuration error, not a market decision.`,
+          omega_summary: '',
+          risk_pct: 0
+        };
+      }
 
       // ═══════════════════════════════════════════════════════════════════
       // EXTRACT AND CACHE MARKET THESIS
@@ -3289,9 +3310,44 @@ ${tradeStyle === 'SCALP' ? `{
         takeProfit = parsed.tp2 || parsed.takeProfit;
       }
 
+      // CCIP (2026-03-06): PROMPT COMPLIANCE ENFORCEMENT
+      // stopLoss and takeProfit are NON-NEGOTIABLE for every BUY/SELL response.
+      // If Alpha omits them, it is a prompt compliance failure — not a market condition.
+      // Do NOT silently fall back. Log the violation loudly so it is visible in governance.
+      if (typeof stopLoss !== 'number' || isNaN(stopLoss) || stopLoss <= 0) {
+        console.error(`[Alpha Coordinator] CRITICAL PROMPT COMPLIANCE FAILURE: Alpha returned ${action} for ${symbol} WITHOUT a valid stopLoss. stopLoss=${stopLoss} (type: ${typeof stopLoss}). This violates the output contract. Trade BLOCKED.`);
+        console.error(`[Alpha Coordinator] Parsed response fields: action=${parsed.action}, entry=${parsed.entry}, stopLoss=${parsed.stopLoss}, takeProfit=${parsed.takeProfit}`);
+        return {
+          action: 'NO_TRADE',
+          decision: 'NO_TRADE',
+          entry: currentPrice,
+          stopLoss: currentPrice,
+          takeProfit: currentPrice,
+          confidence: 0,
+          reasoning: `BLOCKED: Alpha returned ${action} without a valid stopLoss. Prompt compliance failure — Alpha must always provide stopLoss for BUY/SELL.`,
+          omega_summary: '',
+          risk_pct: 0
+        };
+      }
+      if (typeof takeProfit !== 'number' || isNaN(takeProfit) || takeProfit <= 0) {
+        console.error(`[Alpha Coordinator] CRITICAL PROMPT COMPLIANCE FAILURE: Alpha returned ${action} for ${symbol} WITHOUT a valid takeProfit. takeProfit=${takeProfit} (type: ${typeof takeProfit}). This violates the output contract. Trade BLOCKED.`);
+        console.error(`[Alpha Coordinator] Parsed response fields: action=${parsed.action}, entry=${parsed.entry}, stopLoss=${parsed.stopLoss}, takeProfit=${parsed.takeProfit}, tp2=${parsed.tp2}`);
+        return {
+          action: 'NO_TRADE',
+          decision: 'NO_TRADE',
+          entry: currentPrice,
+          stopLoss: currentPrice,
+          takeProfit: currentPrice,
+          confidence: 0,
+          reasoning: `BLOCKED: Alpha returned ${action} without a valid takeProfit. Prompt compliance failure — Alpha must always provide takeProfit for BUY/SELL.`,
+          omega_summary: '',
+          risk_pct: 0
+        };
+      }
+
       // Additional safety check: ensure entry is a valid number
       if (typeof entry !== 'number' || isNaN(entry) || entry <= 0) {
-        console.error(`[Alpha Coordinator] 🚨 INVALID ENTRY PRICE: ${entry} (type: ${typeof entry})`);
+        console.error(`[Alpha Coordinator] INVALID ENTRY PRICE: ${entry} (type: ${typeof entry})`);
         console.error(`[Alpha Coordinator] Falling back to currentPrice: ${currentPrice}`);
         entry = currentPrice;
       }

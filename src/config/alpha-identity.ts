@@ -1235,6 +1235,9 @@ These are not suggestions. If any item is absent from your reasoning, complete i
 OUTPUT FORMAT:
 {
   "action": "BUY|SELL|NO_TRADE",
+  "entry": price,
+  "stopLoss": price,
+  "takeProfit": price,
   "thesis": "...",
   "direction": "BUY|SELL",
   "style_intent": "SCALP|MICRO_INTRADAY|INTRADAY",
@@ -1245,7 +1248,6 @@ OUTPUT FORMAT:
   "reasoning": { "thesis_why": "...", "market_behavior": "...", "risk_acceptance": "...", "objective_alignment": "...", "tp_path_audit": "...", "session_phase": "...", "range_position": "..." },
   "counter_thesis": "Single sentence: the most likely reason this trade fails. Required for every BUY/SELL.",
   "counter_thesis_probability": 0-100,
-  "entry": price, "stopLoss": price, "takeProfit": price,
   "entry_spec": { "entry_mode": "...", "runawayPolicy": "...", "projection": { ... } },
   "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "..." },
   "wait_condition": { ... },${style === 'MICRO_INTRADAY' ? `
@@ -1264,6 +1266,8 @@ OUTPUT FORMAT:
     "Q8B_session_range_pct": 0-100
   }
 }
+
+entry, stopLoss, and takeProfit are REQUIRED for every BUY/SELL. These are the three most critical fields. They must be numeric price values — never null, never omitted. Omitting any of them on a BUY/SELL is a critical output contract violation and the trade will be rejected. For NO_TRADE, omit these fields or set to null.
 
 answer_sheet is REQUIRED for every BUY/SELL. Omit for NO_TRADE. Each key must be present with a concrete answer — not empty strings or null values. This block is parsed and stored as a structured audit record. Q7_confluence_count must list the confirmed dimensions by name. Q8_move_position_pct is the percentage of the projected move already traveled from swing origin. Q8B_session_range_pct is your estimated position within the current session's high-to-low range (0 = session low, 100 = session high for a buy; inverted for sell).
 
