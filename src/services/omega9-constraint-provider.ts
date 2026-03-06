@@ -127,18 +127,6 @@ class Omega9ConstraintProvider {
       ? 'NONE'
       : sessionConstraintCoordinator.getSessionConstraintPolicy(symbol, tradeStyle);
 
-    // ARCHITECTURAL CHANGE (v2.0): Session time is ADVISORY ONLY
-    // Session time NEVER limits TP - it only provides information for:
-    // - Confidence scoring adjustments
-    // - Learning/tracking purposes
-    // - NO_TRADE decisions when style band is exceeded (style is IMMUTABLE)
-    //
-    // CCIP-2026-03-06: TP maximum is the LESSER of ATR-based max and R:R ceiling.
-    // This enforces the per-style R:R band: Scalp 1:1, Micro 1-2:1, Intraday 1-3:1.
-    let maxTakeProfitPips: number = Math.min(atrBasedMaxTP_PIPS, rrCeilingMaxTakeProfitPips);
-    let sessionConstraintMode: 'ADVISORY' | 'NONE';
-    let tpReasoningSuffix = '';
-
     // Determine the SL we'll use for R:R calculations
     // If Alpha already proposed an SL, use that; otherwise use recommended
     const referenceSLPips = proposedStopLoss
@@ -154,13 +142,23 @@ class Omega9ConstraintProvider {
     const maxRiskReward = getMaxRRForStyle(styleForMaxRR);
 
     // Calculate MINIMUM TP for the resolved minimum R:R
-    // SSOT: Must be computed before the session constraint switch so advisory messages
-    // compare feasible travel against the MINIMUM viable TP, not the theoretical maximum.
     const idealMinTakeProfitPips = referenceSLPips * minRiskReward;
 
     // CCIP-2026-03-06: Calculate MAXIMUM TP from style R:R ceiling
     // This caps Alpha's TP so it stays within the style band.
     const rrCeilingMaxTakeProfitPips = referenceSLPips * maxRiskReward;
+
+    // ARCHITECTURAL CHANGE (v2.0): Session time is ADVISORY ONLY
+    // Session time NEVER limits TP - it only provides information for:
+    // - Confidence scoring adjustments
+    // - Learning/tracking purposes
+    // - NO_TRADE decisions when style band is exceeded (style is IMMUTABLE)
+    //
+    // CCIP-2026-03-06: TP maximum is the LESSER of ATR-based max and R:R ceiling.
+    // This enforces the per-style R:R band: Scalp 1:1, Micro 1-2:1, Intraday 1-3:1.
+    let maxTakeProfitPips: number = Math.min(atrBasedMaxTP_PIPS, rrCeilingMaxTakeProfitPips);
+    let sessionConstraintMode: 'ADVISORY' | 'NONE';
+    let tpReasoningSuffix = '';
 
     if (is24HourMarket) {
       // 24/7 markets: No session constraints at all
