@@ -45,32 +45,35 @@ function stableStringify(obj: any): string {
 
 /**
  * Normalize thesis content for hash comparison
- * TIER7 FIX: Ensures regime signature is serialized consistently
  *
- * Problem: Database reconstructs regime signature from separate columns,
- * causing different property ordering than original object
+ * SSOT CRITICAL FIX: Must use IDENTICAL fields as createImmutableThesis.
  *
- * Solution: Re-serialize with stable ordering before hash comparison
+ * Root cause of cache miss bug: this function previously omitted `timeframe`
+ * at the top level and excluded `symbol` from within `regimeSignature`.
+ * createImmutableThesis includes both, so the stored hash and the validation
+ * hash never matched — permanently defeating the thesis cache.
+ *
+ * Fix: mirror the exact field set used in createImmutableThesis:
+ *   - symbol, timeframe, directionBias, narrative, regime
+ *   - liquidityContext, invalidationLogic, confidenceBand, thesisSummary
+ *   - regimeSignature (full object, passed through stableStringify for key-order safety)
+ *
+ * Note: liquidityContext and invalidationLogic are normalised to undefined
+ * (not empty string '') to match how createImmutableThesis stores them — the
+ * thesis object at creation time may hold undefined for these optional fields.
  */
 export function normalizeThesisForHashing(thesis: AlphaMarketThesis): string {
-  // Create stable representation of thesis content for hashing
   const stableThesis = {
     symbol: thesis.symbol,
+    timeframe: thesis.timeframe,
     directionBias: thesis.directionBias,
     narrative: thesis.narrative,
     regime: thesis.regime,
-    liquidityContext: thesis.liquidityContext || '',
-    invalidationLogic: thesis.invalidationLogic || '',
+    liquidityContext: thesis.liquidityContext,
+    invalidationLogic: thesis.invalidationLogic,
     confidenceBand: thesis.confidenceBand,
     thesisSummary: thesis.thesisSummary,
-    // Normalize regime signature with stable ordering
-    regimeSignature: thesis.regimeSignature ? {
-      symbol: thesis.regimeSignature.symbol,
-      htfBias: thesis.regimeSignature.htfBias,
-      microRegime: thesis.regimeSignature.microRegime,
-      volatilityRegime: thesis.regimeSignature.volatilityRegime,
-      structureState: thesis.regimeSignature.structureState
-    } : null
+    regimeSignature: thesis.regimeSignature ?? null
   };
 
   return stableStringify(stableThesis);
