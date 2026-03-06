@@ -30,7 +30,7 @@ import { riskAwareStopCalculator } from './risk-aware-stop-calculator';
 import { sessionConstraintCoordinator } from './session-constraint-coordinator';
 import { assetClassifier } from './asset-classifier';
 import { constraintFeasibilityValidator } from './constraint-feasibility-validator';
-import { TRADING_CONSTANTS, getMinTP1RRForStyle } from '../config/trading-constants';
+import { TRADING_CONSTANTS, getMinTP1RRForStyle, getMaxRRForStyle } from '../config/trading-constants';
 import type {
   Omega9Constraints,
   Omega9ConstraintInput,
@@ -132,7 +132,10 @@ class Omega9ConstraintProvider {
     // - Confidence scoring adjustments
     // - Learning/tracking purposes
     // - NO_TRADE decisions when style band is exceeded (style is IMMUTABLE)
-    let maxTakeProfitPips: number = atrBasedMaxTP_PIPS; // ALWAYS use ATR-based max (NOW IN PIPS), no session cap
+    //
+    // CCIP-2026-03-06: TP maximum is the LESSER of ATR-based max and R:R ceiling.
+    // This enforces the per-style R:R band: Scalp 1:1, Micro 1-2:1, Intraday 1-3:1.
+    let maxTakeProfitPips: number = Math.min(atrBasedMaxTP_PIPS, rrCeilingMaxTakeProfitPips);
     let sessionConstraintMode: 'ADVISORY' | 'NONE';
     let tpReasoningSuffix = '';
 
@@ -142,13 +145,22 @@ class Omega9ConstraintProvider {
       ? calculatePipDistance(symbol, entry, proposedStopLoss)
       : stopLossCalc.stopLossPips;
 
-    // Use resolved minimum R:R if provided, otherwise default to 1.5
+    // Use resolved minimum R:R if provided, otherwise derive from style (SSOT: trading-constants.ts)
     const minRiskReward = resolvedPlan?.minRR ?? TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM;
+
+    // CCIP-2026-03-06: Maximum R:R per style. Alpha's TP cannot exceed this ceiling.
+    // Scalp=1.0, Micro=2.0, Intraday=3.0. Derives from style via SSOT.
+    const styleForMaxRR = STYLE_MAP[tradeStyle] || tradeStyle;
+    const maxRiskReward = getMaxRRForStyle(styleForMaxRR);
 
     // Calculate MINIMUM TP for the resolved minimum R:R
     // SSOT: Must be computed before the session constraint switch so advisory messages
     // compare feasible travel against the MINIMUM viable TP, not the theoretical maximum.
     const idealMinTakeProfitPips = referenceSLPips * minRiskReward;
+
+    // CCIP-2026-03-06: Calculate MAXIMUM TP from style R:R ceiling
+    // This caps Alpha's TP so it stays within the style band.
+    const rrCeilingMaxTakeProfitPips = referenceSLPips * maxRiskReward;
 
     if (is24HourMarket) {
       // 24/7 markets: No session constraints at all
@@ -190,7 +202,7 @@ class Omega9ConstraintProvider {
     }
 
     const targetTakeProfitPips = referenceSLPips * TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM;
-    const optimalTakeProfitPips = Math.min(referenceSLPips * 2.0, maxTakeProfitPips); // Elite target, capped by maximum
+    const optimalTakeProfitPips = Math.min(referenceSLPips * maxRiskReward, maxTakeProfitPips);
 
     // Build constraint violations (empty initially, used for validation later)
     const violations: ConstraintViolation[] = [];
@@ -216,7 +228,7 @@ class Omega9ConstraintProvider {
       : '';
 
     // Build take-profit reasoning with style-aware session context
-    const baseTpReasoning = `Minimum: ${minTakeProfitPips.toFixed(1)} pips (R:R ≥ ${minRiskReward.toFixed(1)}:1). Target: ${targetTakeProfitPips.toFixed(1)} pips (R:R ≥ ${TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM}:1). Maximum: ${maxTakeProfitPips.toFixed(1)} pips (12x ATR)`;
+    const baseTpReasoning = `Minimum: ${minTakeProfitPips.toFixed(1)} pips (R:R ≥ ${minRiskReward.toFixed(1)}:1). Maximum: ${maxTakeProfitPips.toFixed(1)} pips (R:R ≤ ${maxRiskReward.toFixed(1)}:1 — style ceiling). Alpha scales TP freely within this band.`;
     const fullTpReasoning = constraintFeasibilityWarning || (baseTpReasoning + tpReasoningSuffix);
 
     let envelopeAlignedProfileMin = stopLossCalc.profileMinPips;
@@ -262,10 +274,10 @@ class Omega9ConstraintProvider {
       recommendedTakeProfitPips: Math.min(targetTakeProfitPips, maxTakeProfitPips),
       takeProfitReasoning: fullTpReasoning,
 
-      // Risk:Reward Constraints
+      // Risk:Reward Constraints (CCIP-2026-03-06: band enforced via min+max)
       minRiskReward,
-      targetRiskReward: 1.5,
-      optimalRiskReward: 2.0,
+      targetRiskReward: Math.min(1.5, maxRiskReward),
+      optimalRiskReward: maxRiskReward,
 
       // Session Constraints
       sessionTimeRemaining: sessionTimeRemainingMinutes,

@@ -15,13 +15,18 @@
 export const TRADING_CONSTANTS = {
   RISK_REWARD_RATIOS: {
     CATASTROPHIC_THRESHOLD: 0.5,
-    MINIMUM: 1.5,
-    MINIMUM_SCALP: 1.5,
-    MINIMUM_MICRO_INTRADAY: 2.0,
-    MINIMUM_INTRADAY: 3.0,
-    MINIMUM_TP1_MICRO_INTRADAY: 1.5,
-    MINIMUM_TP1_INTRADAY: 2.0,
-    TARGET: 2.0,
+    // CCIP-2026-03-06: Unified floor — all styles share 1.0:1 minimum.
+    // Alpha scales freely within the style band up to the style maximum.
+    MINIMUM: 1.0,
+    // Per-style floors
+    MINIMUM_SCALP: 1.0,
+    MINIMUM_MICRO_INTRADAY: 1.0,
+    MINIMUM_INTRADAY: 1.0,
+    // Per-style ceilings — Alpha cannot set TP beyond these R:R multiples
+    MAXIMUM_SCALP: 1.0,         // Scalp is exactly 1:1 — no stretch
+    MAXIMUM_MICRO_INTRADAY: 2.0,
+    MAXIMUM_INTRADAY: 3.0,
+    TARGET: 1.5,
     GOOD: 2.0,
     EXCELLENT: 2.5,
     EXCEPTIONAL: 3.0,
@@ -211,12 +216,25 @@ export function getMinRRForStyle(style?: string): number {
   }
 }
 
+export function getMaxRRForStyle(style?: string): number {
+  switch (style) {
+    case 'SCALP':
+      return TRADING_CONSTANTS.RISK_REWARD_RATIOS.MAXIMUM_SCALP;
+    case 'MICRO_INTRADAY':
+      return TRADING_CONSTANTS.RISK_REWARD_RATIOS.MAXIMUM_MICRO_INTRADAY;
+    case 'INTRADAY':
+      return TRADING_CONSTANTS.RISK_REWARD_RATIOS.MAXIMUM_INTRADAY;
+    default:
+      return TRADING_CONSTANTS.RISK_REWARD_RATIOS.MAXIMUM_INTRADAY;
+  }
+}
+
 export function getMinTP1RRForStyle(style?: string): number | null {
   switch (style) {
     case 'MICRO_INTRADAY':
-      return TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM_TP1_MICRO_INTRADAY;
+      return TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM_MICRO_INTRADAY;
     case 'INTRADAY':
-      return TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM_TP1_INTRADAY;
+      return TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM_INTRADAY;
     default:
       return null;
   }

@@ -583,10 +583,10 @@ LATE STAGE: The move has traveled > 1.5x ATR from its origin. Candle bodies are 
 
 LATE STAGE — MANDATORY R:R RECALCULATION GATE (complete before selecting output):
 Step 1 — Recalculate R:R using CURRENT price as the entry point, not the swing origin. The move that has already happened is gone. Your R:R is measured from here.
-Step 2 — Compare recalculated R:R against the SCALP style minimum (>= 1.5).
+Step 2 — Compare recalculated R:R against the SCALP band: must be exactly 1.0:1 (minimum = 1.0, maximum = 1.0). Account for spread — post-spread net R:R must still reach 1.0:1.
 Step 3 — Only two valid outcomes:
-  (a) Recalculated R:R >= 1.5 AND the thesis is fully confirmed on M5 structure AND a specific named pullback zone exists where you can re-enter at a better price: wait_pullback is valid. State: "R:R recalculated at current price: X:1. SCALP minimum 1.5:1. Sufficient. Named re-entry zone: [level]. Wait_pullback valid."
-  (b) Recalculated R:R < 1.5 OR no named structural re-entry zone exists: NO_TRADE. The move has consumed the R:R. A pullback re-entry cannot restore R:R that does not exist because the move has already run its range. State: "R:R recalculated at current price: X:1. SCALP minimum 1.5:1. Insufficient. NO_TRADE — move has consumed available R:R."
+  (a) Recalculated R:R is achievable at 1.0:1 after spread AND the thesis is fully confirmed on M5 structure AND a specific named pullback zone exists where you can re-enter at a better price: wait_pullback is valid. State: "R:R recalculated at current price: X:1 (post-spread). SCALP band 1.0:1. Achievable. Named re-entry zone: [level]. Wait_pullback valid."
+  (b) Recalculated R:R cannot reach 1.0:1 after spread OR no named structural re-entry zone exists: NO_TRADE. State: "R:R recalculated at current price: X:1 (post-spread). SCALP band 1.0:1. Insufficient. NO_TRADE — move has consumed available R:R."
 CRITICAL: Do NOT set wait_pullback because you are chasing and want a better price on a move whose R:R has already been destroyed. wait_pullback means the trade is confident and will reach TP. If the R:R no longer supports the trade from any entry point in the current leg, the answer is NO_TRADE for this cycle. The scanner will re-evaluate when new structure forms.
 
 State your stage diagnosis explicitly before selecting a sub-mode: "Move stage: [EARLY/MIDDLE/LATE] — [reason]. Sub-mode selected: [A/B/C]."
@@ -628,10 +628,10 @@ LATE STAGE: The move has traveled > 1.5x ATR from its M15 swing origin. M15 cand
 
 LATE STAGE — MANDATORY R:R RECALCULATION GATE (complete before selecting output):
 Step 1 — Recalculate R:R using CURRENT price as the entry point. The prior leg's movement does not belong to you.
-Step 2 — Compare recalculated TP1 R:R against the MICRO_INTRADAY minimum (TP1 >= 1.5, TP2 >= 2.0).
+Step 2 — Compare recalculated TP R:R against the MICRO_INTRADAY band: must be between 1.0:1 and 2.0:1. Place TP at whichever structural level within the band the market is offering.
 Step 3 — Only two valid outcomes:
-  (a) Recalculated TP1 R:R >= 1.5 AND thesis is fully confirmed on M15 structure AND a specific named pullback zone exists on M15: wait_pullback is valid. State: "R:R recalculated at current price — TP1: X:1, TP2: Y:1. MICRO_INTRADAY minimums 1.5/2.0. Sufficient. Named re-entry zone: [level]. Wait_pullback valid."
-  (b) Recalculated TP1 R:R < 1.5 OR no named structural M15 re-entry zone exists: NO_TRADE. State: "R:R recalculated at current price — TP1: X:1. MICRO_INTRADAY minimum 1.5. Insufficient. NO_TRADE — move has consumed available R:R."
+  (a) Recalculated R:R is achievable between 1.0:1 and 2.0:1 AND thesis is fully confirmed on M15 structure AND a specific named pullback zone exists on M15: wait_pullback is valid. State: "R:R recalculated at current price — TP: X:1. MICRO_INTRADAY band 1.0–2.0:1. Within band. Named re-entry zone: [level]. Wait_pullback valid."
+  (b) Recalculated R:R cannot reach 1.0:1 (no room for even the minimum) OR no named structural M15 re-entry zone exists: NO_TRADE. State: "R:R recalculated at current price — TP: X:1. MICRO_INTRADAY band 1.0–2.0:1. Insufficient. NO_TRADE — move has consumed available R:R."
 CRITICAL: Do NOT set wait_pullback because the move has run and you want a better price on a thesis whose R:R no longer exists. wait_pullback is a confident trade with a timing preference — not a chase attempt on an exhausted leg. If R:R is insufficient from any re-entry point in the current leg, this is NO_TRADE.
 State your stage explicitly: "M15 move stage: [EARLY/MIDDLE/LATE] — [reason]. Entry approach: [continuation/pullback/wait]."
 
@@ -656,10 +656,10 @@ LATE STAGE: The move has traveled > 1.5x H1 ATR from its swing origin. H1 candle
 
 LATE STAGE — MANDATORY R:R RECALCULATION GATE (complete before selecting output):
 Step 1 — Recalculate R:R using CURRENT price as the entry point. The H1 move that already occurred does not count toward your R:R.
-Step 2 — Compare recalculated TP1 and TP2 R:R against the INTRADAY minimums (TP1 >= 2.0, TP2 >= 3.0).
+Step 2 — Compare recalculated TP R:R against the INTRADAY band: must be between 1.0:1 and 3.0:1. Place TP at whichever structural level within the band the market is offering — you are not required to aim for 3.0:1, but you may if structure supports it.
 Step 3 — Only two valid outcomes:
-  (a) Recalculated TP1 R:R >= 2.0 AND thesis is fully confirmed on H1 structure AND a specific named pullback zone exists on H1: wait_pullback is valid. State: "R:R recalculated at current price — TP1: X:1, TP2: Y:1. INTRADAY minimums 2.0/3.0. Sufficient. Named H1 re-entry zone: [level]. Wait_pullback valid."
-  (b) Recalculated TP1 R:R < 2.0 OR no named structural H1 re-entry zone exists: NO_TRADE. State: "R:R recalculated at current price — TP1: X:1. INTRADAY minimum 2.0. Insufficient. NO_TRADE — move has consumed available R:R."
+  (a) Recalculated R:R is achievable between 1.0:1 and 3.0:1 AND thesis is fully confirmed on H1 structure AND a specific named pullback zone exists on H1: wait_pullback is valid. State: "R:R recalculated at current price — TP: X:1. INTRADAY band 1.0–3.0:1. Within band. Named H1 re-entry zone: [level]. Wait_pullback valid."
+  (b) Recalculated R:R cannot reach 1.0:1 OR no named structural H1 re-entry zone exists: NO_TRADE. State: "R:R recalculated at current price — TP: X:1. INTRADAY band 1.0–3.0:1. Insufficient. NO_TRADE — move has consumed available R:R."
 CRITICAL: Do NOT set wait_pullback on a late-stage INTRADAY entry where the recalculated R:R fails the minimum. The H1 campaign that began several candles ago had an entry point. That entry point has passed. A pullback that merely retraces part of a consumed move does not restore the R:R profile of the original setup — it produces a degraded entry into a tired move. If R:R from any pullback re-entry does not clear the INTRADAY floor, this is NO_TRADE.
 State your stage explicitly: "H1 move stage: [EARLY/MIDDLE/LATE] — [reason]. Entry approach: [continuation/pullback/wait]."
 
@@ -706,10 +706,10 @@ These are mathematical or structural facts that make a trade physically impossib
 
 2. ZERO DISTANCE: SL or TP at the same price as entry = reject.
 
-3. R:R FLOOR VIOLATION: After placing SL at the correct structural level, if R:R falls below the style minimum, reject the trade. Do NOT tighten SL to a non-structural level to force compliance. The hard floors exist because trades below them have negative expectancy by design.
-   - SCALP: R:R >= 1.5 (single TP)
-   - MICRO_INTRADAY: TP1 R:R >= 1.5, TP2 R:R >= 2.0
-   - INTRADAY: TP1 R:R >= 2.0, TP2 R:R >= 3.0
+3. R:R BAND VIOLATION: After placing SL at the correct structural level, the TP must land within the style band. Reject if below the floor (negative expectancy) or above the ceiling (over-stretched, reduces probability). Do NOT tighten SL to force compliance — always widen to structure or reject.
+   - SCALP: TP R:R must be exactly 1.0:1 (floor = 1.0, ceiling = 1.0). A single tight TP at 1:1. Spread must be accounted for — net R:R after spread must still reach 1.0:1.
+   - MICRO_INTRADAY: TP R:R must be between 1.0:1 and 2.0:1. Alpha has full authority to place TP anywhere within this band based on what the market structure offers.
+   - INTRADAY: TP R:R must be between 1.0:1 and 3.0:1. Alpha has full authority to place TP anywhere within this band based on what the market structure offers.
 
 4. NOISE FLOOR VIOLATION: Your constraints include a NOISE FLOOR in pips. If your SL is closer to entry than the noise floor, the trade will be stopped out by routine market noise before the thesis can play out. Either widen SL to at least the noise floor, or reject the trade.
 

@@ -2326,21 +2326,23 @@ BUY: SL < Entry < TP | SELL: TP < Entry < SL
 
 TAKE-PROFIT RULES (ALPHA SOLE AUTHORITY):
 You choose ALL profit targets. The system never calculates TP for you.
-- SCALP: ONE take-profit ("takeProfit"). Place TP at the CONSERVATIVE EDGE (near side) of the target S/R zone.
+- SCALP: ONE take-profit ("takeProfit"). R:R must be exactly 1.0:1 (floor = 1.0, ceiling = 1.0). Post-spread net R:R must still be >= 1.0:1 — account for spread cost explicitly.
+  Place TP at the CONSERVATIVE EDGE (near side) of the target S/R zone at 1:1 distance from your SL.
   SELL: TP at the TOP of the support zone (upper boundary where candles first cluster), NOT the bottom.
   BUY: TP at the BOTTOM of the resistance zone (lower boundary where candles first cluster), NOT the top.
   A filled TP at the near edge always beats an unfilled TP at the far edge.
-- MICRO_INTRADAY: TWO take-profits.
-  "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest M15 structural zone (not M5 micro-structure). TP1 R:R vs SL MUST be >= 1.5:1 (hard floor — violations auto-blocked).
-  "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H1 structural zone. TP2 R:R vs SL MUST be >= 2.0:1 (hard floor).
+- MICRO_INTRADAY: TWO take-profits. Both must fall within the MICRO_INTRADAY R:R band (1.0:1 minimum, 2.0:1 maximum).
+  "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest M15 structural zone (not M5 micro-structure). TP1 R:R vs SL must be >= 1.0:1 and <= 2.0:1.
+  "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H1 structural zone. TP2 R:R vs SL must be >= TP1 R:R and <= 2.0:1.
   tp1 must be closer to entry than tp2. Both must be within arena walls.
-  If no M15 structure exists at >= 1.5:1 distance, either tighten SL to a structural level that achieves ratio, or NO_TRADE.
-  SL must be behind a genuine M15 structural level — scalp-sized stops on MICRO trades are auto-rejected.
-- INTRADAY: TWO take-profits.
-  "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest H1 structural zone (not M15 micro-structure). TP1 R:R vs SL MUST be >= 2.0:1 (hard floor).
-  "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H4 structural zone. TP2 R:R vs SL MUST be >= 3.0:1 (hard floor).
+  Alpha has full authority to scale TP1 and TP2 anywhere within the 1.0–2.0:1 band based on what the market structure is offering. Aim for the best structural level — not a fixed target.
+  If no M15 structure exists at >= 1.0:1 distance, NO_TRADE. SL must be behind a genuine M15 structural level — scalp-sized stops on MICRO trades are auto-rejected.
+- INTRADAY: TWO take-profits. Both must fall within the INTRADAY R:R band (1.0:1 minimum, 3.0:1 maximum).
+  "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest H1 structural zone (not M15 micro-structure). TP1 R:R vs SL must be >= 1.0:1 and <= 3.0:1.
+  "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H4 structural zone. TP2 R:R vs SL must be >= TP1 R:R and <= 3.0:1.
   tp1 must be closer to entry than tp2. Both must be within arena walls.
-  If no H1 structure exists at >= 2.0:1 distance, either tighten SL to a structural level that achieves ratio, or NO_TRADE.
+  Alpha has full authority to scale TP1 and TP2 anywhere within the 1.0–3.0:1 band based on what the market structure is offering. A 1.5:1 TP1 and 2.5:1 TP2 is perfectly valid if that is what structure supports.
+  If no H1 structure exists at >= 1.0:1 distance, NO_TRADE.
 
 Return PURE JSON only:
 ${tradeStyle === 'SCALP' ? `{
