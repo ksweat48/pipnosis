@@ -2581,10 +2581,18 @@ ${tradeStyle === 'SCALP' ? `{
       // CCIP (2026-02-18): Floating-point tolerance applied to all boundary comparisons.
       // calculatePipDistance returns unrounded floats; wall bounds are rounded to 1dp.
       // This produces false violations when values are imperceptibly below the boundary
-      // (e.g., 9.9999... < 10.0). A tolerance of 0.05 pips (half of 0.1 display precision)
-      // absorbs the rounding gap without meaningfully relaxing the wall constraints.
+      // (e.g., 9.9999... < 10.0).
+      //
+      // CCIP (2026-03-06): Tolerance raised from 0.05 to 0.15 pips.
+      // Wall bounds are computed via Math.round(price * slPercent / pipValue * 10) / 10,
+      // which introduces up to 0.05 pip of rounding on the wall side. The pip distance
+      // calculation on the proposal side also carries floating-point error. Combined, the
+      // two-sided rounding error can reach 0.1 pips, causing valid trades at 10.3 pips to
+      // be blocked by a wall min of 10.4 pips even though they are effectively the same
+      // to 1 decimal place. A tolerance of 0.15 pips absorbs this combined rounding gap
+      // without meaningfully relaxing the wall constraints for any asset class.
       // Applies to ALL styles (SCALP, MICRO_INTRADAY, INTRADAY, SWING).
-      const WALL_COMPARISON_EPSILON = 0.05; // pips — absorbs floating-point rounding only
+      const WALL_COMPARISON_EPSILON = 0.15; // pips — absorbs two-sided floating-point rounding
       if (decision.action !== 'NO_TRADE' && dualArenaWalls) {
         decision.arena_chosen = decision.action === 'BUY' ? 'LONG' : 'SHORT';
         const arena = decision.action === 'BUY' ? dualArenaWalls.long : dualArenaWalls.short;
