@@ -661,7 +661,7 @@ class AlphaOmegaOrchestrator {
     console.log(`[Alpha+Omega] Alpha decision complete (${alphaTime}ms)`);
     console.log(`[Alpha+Omega] Total pipeline: ${totalTime}ms`);
     console.log(`[Alpha+Omega] Alpha decided: ${decision.action} @ ${originalConfidence}%`);
-    console.log(`[Alpha+Omega] Execution confidence: ${finalConfidence}% | Advisory-adjusted: ${advisoryConfidence}% (audit: ${confidenceResult.audit_id?.substring(0, 8)})`);
+    console.log(`[Alpha+Omega] Execution confidence: ${finalConfidence}% (Alpha's genuine opinion) | Advisory-adjusted: ${advisoryConfidence}% (display-only, not applied) (audit: ${confidenceResult.audit_id?.substring(0, 8)})`);
 
     if (confidenceResult.is_degraded) {
       console.log(`[Alpha+Omega] Advisory penalties would degrade to ${advisoryConfidence}% (logged, not enforced): ${confidenceResult.degradation_reason}`);
@@ -1494,13 +1494,13 @@ class AlphaOmegaOrchestrator {
       current.multiplier < worst.multiplier ? current : worst
     );
 
-    console.log(`[Alpha+Omega] 📊 CONFIDENCE PENALTIES (worst-case wins):`);
+    console.log(`[Alpha+Omega] 📊 CONFIDENCE PENALTIES (advisory-only, do NOT affect execution):`);
     penalties.forEach(p => {
-      const marker = p === worstPenalty ? '→ APPLIED' : '  (not applied)';
+      const marker = p === worstPenalty ? '→ ADVISORY WORST-CASE' : '  (advisory, not worst-case)';
       const pctReduction = ((1 - p.multiplier) * 100).toFixed(1);
       console.log(`  ${marker} ${p.source}: ${p.multiplier.toFixed(2)}x (-${pctReduction}%) - ${p.reason}`);
     });
-    console.log(`[Alpha+Omega] 🎯 Final multiplier: ${worstPenalty.multiplier.toFixed(2)}x from ${worstPenalty.source}`);
+    console.log(`[Alpha+Omega] 🎯 Advisory multiplier: ${worstPenalty.multiplier.toFixed(2)}x from ${worstPenalty.source} (dashboard display only - execution uses Alpha's raw confidence)`);
 
     return {
       appliedPenalty: worstPenalty,
