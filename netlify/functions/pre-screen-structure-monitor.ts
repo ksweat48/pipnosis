@@ -10,6 +10,7 @@
  * SSOT Compliance:
  * - forex_candles is the single candle data authority
  * - pre_screen_results is the SSOT for structural pre-screen state
+ * - SYMBOLS array is the single source of truth — derived from DEFAULT_WATCHLIST (src/config/watchlist.ts)
  * - No business logic duplication with Alpha — this is a READINESS INDICATOR only
  * - Alpha reads the same raw candle data and will reach the same or better conclusions
  *
@@ -18,6 +19,7 @@
  * - All writes are upserts (idempotent, no duplicate rows)
  * - Service-role client used (RLS policy: service_role can INSERT/UPDATE)
  * - Errors logged per row — one failure does not abort the entire run
+ * - SYMBOLS must always match DEFAULT_WATCHLIST exactly — any change requires CCIP review
  *
  * Purpose for Users:
  * - Tells users WHEN the market structure is most ready for a scan
@@ -42,9 +44,15 @@ import { getSupabaseAdmin } from './_shared/supabase-admin';
 
 const supabase = getSupabaseAdmin();
 
+/**
+ * SSOT: This array must exactly match DEFAULT_WATCHLIST in src/config/watchlist.ts.
+ * Governance: Do NOT add or remove symbols here without a CCIP change request
+ * that also updates watchlist.ts. These are the 9 official Pipnosis trading pairs.
+ */
 const SYMBOLS = [
-  'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD',
-  'XAUUSD', 'BTCUSD', 'NAS100', 'US30',
+  'XAUUSD', 'US30', 'NAS100', 'SPX500',
+  'EURUSD', 'GBPUSD', 'USDJPY',
+  'BTCUSD', 'ETHUSD',
 ];
 
 const STYLE_TIMEFRAME_MAP: Record<string, string> = {
