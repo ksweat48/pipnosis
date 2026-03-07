@@ -20,6 +20,8 @@ import { mapCloseReasonToAnalysis, deriveAnalysisCloseReason } from '../utils/cl
 import { getNearMissData, isNearMissTrade, isTP1OnlyTrade } from '../utils/trade-outcome-classifier';
 import { getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { CloseReason } from '../types/position';
+import { strategyPlaybookManager } from './strategy-playbook-manager';
+import { getRegimeBucket } from './regime-bucketing';
 
 function formatHoldDuration(ms: number): string {
   const totalMinutes = Math.round(ms / 60000);
@@ -51,6 +53,12 @@ interface TradeData {
   peakProfit?: number | null;
   tradeStyle?: string | null;
   timeframe?: string | null;
+  /**
+   * SSOT: The goal session scan session_id (text UUID stored in alpha_strategy_memory.session_id).
+   * Required to resolve which strategy record to update after trade closure.
+   * Passed through from TradeClosureEventProcessor via the closure event.
+   */
+  sessionId?: string | null;
 }
 
 class PostTradeAnalyzer {
@@ -178,6 +186,13 @@ class PostTradeAnalyzer {
       if (peakHitRatio != null || nearMissData || tp1Only) {
         await this.persistNearMissFlags(fullTradeData, peakHitRatio, nearMissData, tp1Only);
       }
+
+      // SSOT: Update strategy memory with this trade outcome.
+      // This is the single authoritative place in the live pipeline that feeds
+      // trade results back to alpha_strategy_memory, closing the learning loop.
+      // The RPC resolves the active strategy by session_id + symbol and updates
+      // performance counters atomically.
+      await this.updateStrategyMemory(fullTradeData, outcome, lessonLearned, whatWorked, mistakeIdentified);
 
       console.log(`[Post-Trade Analyzer] Analysis complete for ${tradeData.symbol}`);
     } catch (error) {
@@ -1033,6 +1048,101 @@ class PostTradeAnalyzer {
     if (confidence >= 80) return 80;
     if (confidence >= 75) return 75;
     return 70;
+  }
+
+  /**
+   * Update alpha_strategy_memory after a live trade closes.
+   *
+   * SSOT: This is the single authoritative update path for strategy performance
+   * ratings in live trading. The RPC resolve_strategy_for_trade finds the active
+   * strategy by session_id + symbol and atomically increments all counters.
+   *
+   * Called only for learning-eligible trades (system closures excluded upstream).
+   */
+  private async updateStrategyMemory(
+    tradeData: TradeData,
+    outcome: 'win' | 'loss' | 'breakeven',
+    lessonLearned?: string,
+    whatWorked?: string,
+    mistakeIdentified?: string
+  ): Promise<void> {
+    if (!tradeData.sessionId) {
+      logger.debug('[Post-Trade Analyzer] Skipping strategy memory update — no sessionId', { tradeId: tradeData.id });
+      return;
+    }
+
+    try {
+      const holdMinutes = tradeData.entryTime && tradeData.exitTime
+        ? Math.round((tradeData.exitTime.getTime() - tradeData.entryTime.getTime()) / 60000)
+        : 0;
+
+      const { data: strategyId, error } = await supabase.rpc('resolve_strategy_for_trade', {
+        p_user_id:      tradeData.userId,
+        p_session_id:   tradeData.sessionId,
+        p_symbol:       tradeData.symbol,
+        p_outcome:      outcome,
+        p_pnl:          tradeData.pnl,
+        p_hold_minutes: holdMinutes,
+        p_what_worked:  outcome === 'win' ? (whatWorked ?? null) : null,
+        p_what_failed:  outcome !== 'win' ? (mistakeIdentified ?? null) : null,
+        p_key_lesson:   lessonLearned ?? null,
+      });
+
+      if (error) {
+        logger.error('[Post-Trade Analyzer] Strategy memory update RPC failed', { error, tradeId: tradeData.id });
+        return;
+      }
+
+      if (strategyId) {
+        logger.info('[Post-Trade Analyzer] Strategy memory updated', {
+          strategyId,
+          outcome,
+          symbol: tradeData.symbol,
+          pnl: tradeData.pnl,
+        });
+
+        // After updating strategy memory, check if any playbook variants should be promoted.
+        // This is intentionally fire-and-forget — a promotion failure must not block trade closure.
+        this.triggerPlaybookPromotion(tradeData, strategyId).catch((err) => {
+          logger.warn('[Post-Trade Analyzer] Playbook promotion check failed (non-blocking)', { err });
+        });
+      } else {
+        logger.debug('[Post-Trade Analyzer] No active strategy found for session — memory update skipped', {
+          sessionId: tradeData.sessionId,
+          symbol: tradeData.symbol,
+        });
+      }
+    } catch (error) {
+      logger.error('[Post-Trade Analyzer] Exception updating strategy memory', { error });
+    }
+  }
+
+  /**
+   * Trigger playbook promotion evaluation after a strategy has been updated.
+   *
+   * Looks up the updated strategy's regime bucket and mode, then asks the
+   * StrategyPlaybookManager to evaluate whether a better variant should be promoted.
+   * This is the SSOT for playbook promotion — previously it was only called in
+   * backtesting (event-based-llm-engine.ts) but never in the live pipeline.
+   */
+  private async triggerPlaybookPromotion(tradeData: TradeData, strategyId: string): Promise<void> {
+    const { data: strategy } = await supabase
+      .from('alpha_strategy_memory')
+      .select('strategy_mode, timeframe, market_regime')
+      .eq('id', strategyId)
+      .maybeSingle();
+
+    if (!strategy || !strategy.strategy_mode || !strategy.timeframe) return;
+
+    const regimeBucket = getRegimeBucket({ structure: strategy.market_regime } as any, undefined);
+
+    await strategyPlaybookManager.evaluateAndPromotePlaybooks(
+      tradeData.userId,
+      tradeData.symbol,
+      strategy.timeframe,
+      strategy.strategy_mode,
+      regimeBucket
+    );
   }
 
   /**
