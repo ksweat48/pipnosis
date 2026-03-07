@@ -1445,6 +1445,7 @@ IMPORTANT REMINDERS:
     const primaryTfConfig = PRIMARY_TF_MAP[styleName] || PRIMARY_TF_MAP['SCALP'];
 
     let primaryTfCandlePrompt = '';
+    let intradayMovePhaseContext = '';
     try {
       const mds = MarketDataService.getInstance();
       const primaryCandles = await mds.getCandles(marketContext.symbol, primaryTfConfig.timeframe, primaryTfConfig.candleCount);
@@ -1478,6 +1479,109 @@ IMPORTANT REMINDERS:
         const lastUpperWick = (lastCandle.high - Math.max(lastCandle.open, lastCandle.close)) / pipInfo.pipValue;
         const lastLowerWick = (Math.min(lastCandle.open, lastCandle.close) - lastCandle.low) / pipInfo.pipValue;
         const hasRejectionWick = lastUpperWick > lastBody * 1.5 || lastLowerWick > lastBody * 1.5;
+
+        // ═══════════════════════════════════════════════════════════════════
+        // INTRADAY H1 MOVE PHASE & FAKEOUT ADVISORY
+        // Mirrors the SCALP scalpIntelligencePrompt pattern.
+        // Advisory only — Alpha retains full decision authority.
+        // Computes ATR phase thresholds with real pip values so Alpha
+        // knows exactly how many pips constitute each phase boundary.
+        // ═══════════════════════════════════════════════════════════════════
+        if (styleName === 'INTRADAY' && atrForStopLoss > 0) {
+          const h1AtrPips = (atrForStopLoss / pipInfo.pipValue);
+          const freshCeiling = (atrForStopLoss * 0.75 / pipInfo.pipValue).toFixed(1);
+          const developingCeiling = (atrForStopLoss * 1.5 / pipInfo.pipValue).toFixed(1);
+
+          // Estimate ATR traveled from H1 swing origin:
+          // Find most recent directional swing origin (last candle that reversed direction)
+          let swingOriginPrice = recentPrimary[0].close;
+          const currentDir = lastCandle.close > lastCandle.open ? 'UP' : 'DN';
+          for (let i = recentPrimary.length - 2; i >= 0; i--) {
+            const cDir = recentPrimary[i].close > recentPrimary[i].open ? 'UP' : 'DN';
+            if (cDir !== currentDir) {
+              swingOriginPrice = currentDir === 'UP' ? recentPrimary[i].low : recentPrimary[i].high;
+              break;
+            }
+          }
+          const distFromSwingPips = Math.abs(marketContext.price - swingOriginPrice) / pipInfo.pipValue;
+          const atrTraveled = h1AtrPips > 0 ? distFromSwingPips / h1AtrPips : 0;
+
+          const h1MovePhase = atrTraveled < 0.75 ? 'FRESH' : atrTraveled < 1.5 ? 'DEVELOPING' : 'EXHAUSTED';
+
+          // H1 fakeout detection: look for a candle that swept a recent extreme
+          // then closed back inside the prior range (fakeout candle)
+          let fakeoutType: string | null = null;
+          let fakeoutCandlesAgo = 0;
+          let fakeoutReversalConfirmed = false;
+          if (recentPrimary.length >= 4) {
+            const lookback = recentPrimary.slice(0, -1); // exclude current/last forming candle
+            const windowHigh = Math.max(...lookback.slice(0, -1).map(c => c.high));
+            const windowLow = Math.min(...lookback.slice(0, -1).map(c => c.low));
+            const recentFew = lookback.slice(-3);
+            for (let i = recentFew.length - 1; i >= 0; i--) {
+              const c = recentFew[i];
+              const bodyTop = Math.max(c.open, c.close);
+              const bodyBot = Math.min(c.open, c.close);
+              const sweptHigh = c.high > windowHigh && bodyTop < windowHigh;
+              const sweptLow = c.low < windowLow && bodyBot > windowLow;
+              if (sweptHigh) {
+                fakeoutType = 'BEARISH_FAKEOUT';
+                fakeoutCandlesAgo = recentFew.length - i;
+                const nextCandles = recentPrimary.slice(recentPrimary.indexOf(c) + 1);
+                fakeoutReversalConfirmed = nextCandles.some(nc => nc.close < nc.open);
+                break;
+              } else if (sweptLow) {
+                fakeoutType = 'BULLISH_FAKEOUT';
+                fakeoutCandlesAgo = recentFew.length - i;
+                const nextCandles = recentPrimary.slice(recentPrimary.indexOf(c) + 1);
+                fakeoutReversalConfirmed = nextCandles.some(nc => nc.close > nc.open);
+                break;
+              }
+            }
+          }
+
+          const phaseLabel = h1MovePhase === 'FRESH'
+            ? `FRESH — < 0.75x H1 ATR traveled (< ${freshCeiling} pips from swing origin). Full confidence range. Both continuation and pullback entries are valid.`
+            : h1MovePhase === 'DEVELOPING'
+              ? `DEVELOPING — 0.75–1.5x H1 ATR traveled (${freshCeiling}–${developingCeiling} pips from swing origin). Structural space to TP1 may be limited. Pullback re-entry is preferred. Continuation requires explicit justification that TP1 and TP2 remain achievable.`
+              : `EXHAUSTED — > 1.5x H1 ATR traveled (> ${developingCeiling} pips from swing origin). The H1 campaign leg is extended. TP1 structural space is likely tight or consumed. Recalculate R:R from CURRENT price. If recalculated R:R cannot reach 1.0:1, return NO_TRADE — do not enter an exhausted H1 leg.`;
+
+          const fakeoutBlock = fakeoutType
+            ? `
+H1 FAKEOUT DETECTION:
+A ${fakeoutType} was detected ${fakeoutCandlesAgo} H1 candle(s) ago. A candle swept a recent H1 extreme but closed back inside the prior range. Reversal confirmed: ${fakeoutReversalConfirmed ? 'YES — subsequent H1 candles have printed in the reversal direction' : 'NOT YET — watch for reversal confirmation before entering in the faked direction'}.
+${fakeoutType === 'BEARISH_FAKEOUT'
+  ? 'BEARISH FAKEOUT: Price swept above a prior H1 high and rejected. This is a classic bull trap on the H1 chart. Entering LONG at current price carries fakeout-reversal risk — explicit structural justification required. A BUY entry must explain why the fakeout has been absorbed and the prior high has now become support.'
+  : 'BULLISH FAKEOUT: Price swept below a prior H1 low and rejected. This is a classic bear trap on the H1 chart. Entering SHORT at current price carries fakeout-reversal risk — explicit structural justification required. A SELL entry must explain why the fakeout has been absorbed and the prior low has now become resistance.'}
+`
+            : '';
+
+          intradayMovePhaseContext = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+INTRADAY H1 MOVE STAGE ADVISORY (${marketContext.symbol})
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Pre-computed from H1 candle data. Advisory context — your analysis takes precedence.
+ACTIVE H1 ATR: ${h1AtrPips.toFixed(1)} pips | Phase thresholds: Fresh < ${freshCeiling}p | Developing ${freshCeiling}–${developingCeiling}p | Exhausted > ${developingCeiling}p
+
+Estimated ATR Traveled: ~${distFromSwingPips.toFixed(1)} pips from H1 swing origin (~${atrTraveled.toFixed(2)}x H1 ATR)
+H1 Move Phase: ${h1MovePhase}
+Assessment: ${phaseLabel}
+
+${h1MovePhase === 'DEVELOPING'
+  ? `DEVELOPING STAGE — MANDATORY RUNWAY CHECK: R:R must remain achievable from current price for both TP1 (H1 structural level) and TP2 (H4 structural level). State explicitly: "Remaining runway to TP1: ~X pips. Remaining runway to TP2: ~X pips. R:R from current price: TP1=X:1, TP2=X:1." If TP1 R:R falls below 1.0:1, tighten TP1 to the next achievable H1 structure or return NO_TRADE.`
+  : h1MovePhase === 'EXHAUSTED'
+    ? `EXHAUSTED STAGE — MANDATORY R:R RECALCULATION: The H1 leg has traveled > 1.5x ATR. Recalculate R:R from CURRENT price before selecting any action. If recalculated TP1 R:R cannot reach 1.0:1 from a pullback re-entry zone, this is NO_TRADE. Do NOT enter an exhausted H1 leg without a specific named H1 re-entry zone and confirmed recalculated R:R >= 1.0:1.`
+    : `FRESH STAGE — Full confidence window. Structural space to TP1 and TP2 is available. Both continuation and pullback entries are valid.`
+}
+${fakeoutBlock}
+MANDATORY JSON FIELD — Include in your response regardless of action:
+  "h1_move_phase": "fresh|developing|exhausted"
+  "h1_atr_traveled": ${atrTraveled.toFixed(2)}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+          console.log(`[Alpha Coordinator] INTRADAY H1 Move Phase: ${h1MovePhase} (~${atrTraveled.toFixed(2)}x ATR, ${distFromSwingPips.toFixed(1)} pips)${fakeoutType ? ` | Fakeout: ${fakeoutType}` : ''}`);
+        }
 
         primaryTfCandlePrompt = `
 
@@ -2258,7 +2362,7 @@ ACTIVE ATR for this session (${tradeStyle}): ${activeAtrPips} pips (using ${pref
 Use the ACTIVE ATR value above for all move stage calculations in this scan cycle:
   - FRESH / STARTING:  price has traveled < 0.75 × ${activeAtrPips} pips = < ${atrForStopLoss > 0 ? ((atrForStopLoss * 0.75) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin
   - DEVELOPING:        0.75–1.5 × ${activeAtrPips} pips = ${atrForStopLoss > 0 ? ((atrForStopLoss * 0.75) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'}–${atrForStopLoss > 0 ? ((atrForStopLoss * 1.5) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin
-  - EXHAUSTED:         > 1.5 × ${activeAtrPips} pips = > ${atrForStopLoss > 0 ? ((atrForStopLoss * 1.5) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin${tradeStyle === 'SCALP' ? ' → HARD BLOCK, NO_TRADE immediately' : ' → requires explicit continuation justification'}
+  - EXHAUSTED:         > 1.5 × ${activeAtrPips} pips = > ${atrForStopLoss > 0 ? ((atrForStopLoss * 1.5) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin${tradeStyle === 'SCALP' ? ' → HARD BLOCK, NO_TRADE immediately' : tradeStyle === 'INTRADAY' ? ' → MANDATORY R:R recalculation required. If recalculated TP1 R:R < 1.0:1, NO_TRADE' : ' → requires explicit continuation justification with R:R recalculation'}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
 
@@ -2273,7 +2377,7 @@ ${h1CampaignPrompt}
 ${d1ContextPrompt}
 ${m1MicroContextPrompt}
 ${scalpIntelligencePrompt}
-
+${intradayMovePhaseContext}
 PROFESSIONAL REASONING CONTRACT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 You are a professional trader, not a rule executor. The market intelligence below is your briefing. Read it, reason through it, and make the best decision available. The eight analytical questions in your system prompt are your mental checklist — work through them using the data provided.
@@ -2421,6 +2525,8 @@ ${tradeStyle === 'SCALP' ? `{
   "counter_thesis": "Single sentence: the primary reason this trade fails",
   "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "brief note on trailing plan after TP1 hit" },
   "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null_or_price, "pullback_zone_max": null_or_price, "reasoning": "MUST use 50% DISTANCE RULE. E.g. 'Nearest resistance at 1.0870 is 15 pips above. 50% distance = ~7.5 pips. Zone: 1.0849-1.0852. Realistic ~8 pip improvement.'" },
+  "h1_move_phase": "fresh|developing|exhausted",
+  "h1_atr_traveled": 0.82,
   "override": { "type": "none", "justification": "" },
   "answer_sheet": {
     "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND",
