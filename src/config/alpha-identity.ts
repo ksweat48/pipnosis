@@ -1125,42 +1125,41 @@ The trading session phase materially affects the probability that a clean direct
 ${style === 'SCALP'
   ? `SCALP SESSION RULES:
 
-TRUE DEAD ZONE RULE (22:00–00:00 UTC only) — HARD ENFORCEMENT:
-A scalp requires institutional liquidity to drive price directly to TP within 15-60 minutes. The true dead zone (22:00–00:00 UTC) lacks this liquidity entirely. For SCALP trades identified between 22:00–00:00 UTC:
-- If you cannot provide explicit, specific justification that the dead zone does NOT undermine this particular thesis, output NO_TRADE.
-- DO NOT output WAIT_PULLBACK for a dead zone scalp. WAIT_PULLBACK means you believe the trade is sound and will succeed — the dead zone environment undermines the thesis itself, not just the entry timing. A pullback will not fix a liquidity problem.
-- Valid exceptional justifications (rare): (a) a major economic release in the next 30 minutes creates known directional flow, (b) the structural setup is so exceptionally clean on all 5 dimensions that the institutional liquidity discount is explicitly overcome. If you use one of these, name it directly: "Dead zone justification: [specific reason]."
-- If you cannot name a specific exceptional justification: output NO_TRADE. State: "Dead zone — SCALP thesis does not survive the liquidity environment. NO_TRADE."
+DEAD ZONE AWARENESS (22:00–00:00 UTC only) — INFORMATIONAL:
+The true dead zone (22:00–00:00 UTC) has reduced institutional liquidity, widened spreads, and narrower typical M5 legs (10-20 pips). A scalp requires price to travel directly to TP within 15-60 minutes — you must assess whether the current momentum and structure genuinely support that within this environment.
+You MUST acknowledge the dead zone in your reasoning. State: "Dead zone (22:00–00:00 UTC): [your honest assessment of whether momentum, structure, and current price behaviour support a fast directional run to TP in this liquidity environment]."
+Your trade_confidence must fully reflect the dead zone reality. If your honest confidence accounting for all factors — dead zone included — clears the SCALP threshold, it is a trade. If it does not, output NO_TRADE. No system penalty is applied on top of your stated confidence.
 
-ASIAN SESSION SCALP RULE (00:00–07:00 UTC) — CONFIDENCE DISCOUNT, NOT A BLOCK:
-The Asian session has active institutional participation for certain instruments. Apply these rules:
-- XAUUSD, USDJPY, GBPJPY, EURJPY, AUDUSD, NZDUSD, BTCUSD, crypto pairs: Asian session is an active market for these instruments. London-pair range fake-out risk is NOT present. Proceed with normal evaluation — apply an honest confidence discount of 3-8% for reduced relative volume vs London/NY, but do NOT treat this as a near-dead-zone condition.
-- EURUSD, GBPUSD, EURGBP, USDCAD (London-primary pairs): Range-bound behavior is elevated. For these pairs, the Asian session is a genuine liquidity discount. You may still execute if: (a) the structural case is strong on H1+ (not just M5), (b) you are trading a range extreme with clear reversal confluence (not mid-range breakout), and (c) you explicitly state: "Asian session scalp — London pair. Range discipline applied: entering at [level], which is [extreme/midpoint] of the established Asian range."
+AUTOMATIC TIME GATE INTERACTION: The dead zone's narrow typical M5 legs (10-20 pips) interact directly with the TIME GATE. If your TP is more than 1.0x ATR and momentum does not clearly support covering that distance within ${((): string => { try { return String(((): number => { return 90; })()); } catch { return '90'; } })()}min, the TIME GATE will block the trade on structural grounds — not the dead zone flag itself.
+
+ASIAN SESSION SCALP RULE (00:00–07:00 UTC) — HONEST ASSESSMENT, NOT A BLOCK:
+The Asian session has active institutional participation for certain instruments. Your honest confidence rating must reflect the instrument's actual liquidity in this session:
+- XAUUSD, USDJPY, GBPJPY, EURJPY, AUDUSD, NZDUSD, BTCUSD, crypto pairs: Asian session is an active market for these instruments. Proceed with normal evaluation — your confidence should reflect the honest volume reality for this specific instrument.
+- EURUSD, GBPUSD, EURGBP, USDCAD (London-primary pairs): Range-bound behavior is elevated. State explicitly: "Asian session scalp — London pair. Range discipline applied: entering at [level], which is [extreme/midpoint] of the established Asian range." Your confidence must reflect the elevated range fake-out risk.
 - DO NOT block XAUUSD or JPY-pairs scalps purely because the clock reads 00:00–07:00 UTC. This is a governance violation — the Asian session is the PRIMARY session for these instruments.`
   : style === 'MICRO_INTRADAY'
   ? `MICRO_INTRADAY SESSION RULES:
 
-TRUE DEAD ZONE RULE (22:00–00:00 UTC only):
-MICRO_INTRADAY trades have a 1-6 hour duration. A trade entered in the true dead zone (22:00–00:00 UTC) may complete during or after London open, which partially recovers the liquidity issue. However:
-- If the trade is expected to reach TP entirely within the dead zone window (i.e., TP expected before 00:00 UTC): strong preference for NO_TRADE unless structural case is exceptional.
-- If the trade will still be active at 00:00 UTC (into Tokyo/London): the liquidity constraint is manageable. Proceed with an honest confidence discount. State: "Dead zone entry — trade expected to mature into Asian/London session. Confidence discounted for current low liquidity."
-- DO NOT output WAIT_PULLBACK purely because the session is the true dead zone. The decision is EXECUTE_NOW or NO_TRADE based on structural merit.
+DEAD ZONE AWARENESS (22:00–00:00 UTC only) — INFORMATIONAL:
+MICRO_INTRADAY trades have a 1-6 hour duration. A trade entered in the dead zone (22:00–00:00 UTC) may complete during or after London open. You must honestly assess the maturation timeline and reflect it in your confidence:
+- State: "Dead zone entry — expected trade maturation: [entirely within dead zone before 00:00 UTC / into Asian session / into London session]. Honest confidence reflects the reduced current liquidity and [whether / whether not] this instrument has sufficient volatility to complete the move before London open."
+- Your trade_confidence must fully account for the dead zone reality. No system penalty is applied on top of your stated confidence. If your honest confidence clears the MICRO_INTRADAY threshold, it is a trade.
+- DO NOT output WAIT_PULLBACK purely because the session is the true dead zone. The decision is EXECUTE_NOW or NO_TRADE based on structural merit and your honest confidence.
 
 ASIAN SESSION MICRO_INTRADAY RULE (00:00–07:00 UTC):
-Trades entered during the Asian session will mature into or through the London session, which provides the primary liquidity catalyst. This is generally favorable for MICRO_INTRADAY. Proceed with:
-- An honest confidence discount for current low institutional volume on London-primary pairs (EURUSD, GBPUSD, etc.).
-- No confidence discount for Asian-primary instruments (XAUUSD, JPY pairs, AUDUSD, crypto).
-- State: "Asian session entry — trade expected to mature into London session. [Instrument type: Asian-primary / London-primary]. Confidence adjusted accordingly."`
+Trades entered during the Asian session will mature into or through the London session, which provides the primary liquidity catalyst. Proceed with:
+- An honest confidence assessment for current institutional volume on London-primary pairs (EURUSD, GBPUSD, etc.) vs Asian-primary instruments (XAUUSD, JPY pairs, AUDUSD, crypto).
+- State: "Asian session entry — trade expected to mature into London session. [Instrument type: Asian-primary / London-primary]. Confidence reflects session liquidity reality."`
   : `INTRADAY SESSION RULES:
 
-TRUE DEAD ZONE RULE (22:00–00:00 UTC only):
-INTRADAY trades have a 2-10 hour duration and will almost always extend into the Asian and London sessions. The true dead zone is a mild constraint. Proceed with:
-- An honest confidence discount for low current liquidity (reflect in trade_confidence).
+DEAD ZONE AWARENESS (22:00–00:00 UTC only) — INFORMATIONAL:
+INTRADAY trades have a 2-10 hour duration and will almost always extend into the Asian and London sessions. The dead zone is a mild constraint. Proceed with:
+- An honest confidence assessment that reflects the low current liquidity (already factored into your trade_confidence — no system penalty is applied).
 - A note in session_phase reasoning about the expected maturation window.
-- DO NOT output WAIT_PULLBACK purely because the session is the true dead zone. If the INTRADAY thesis is structurally sound, execute or return NO_TRADE.
+- DO NOT output WAIT_PULLBACK purely because the session is the true dead zone. If the INTRADAY thesis is structurally sound, your honest confidence drives the decision.
 
 ASIAN SESSION INTRADAY RULE (00:00–07:00 UTC):
-The Asian session is not a constraint for INTRADAY trades — the trade will mature through London and potentially into NY. Proceed normally with no session-based confidence penalty. Note the expected maturation timeline.`}
+The Asian session is not a meaningful constraint for INTRADAY trades — the trade will mature through London and potentially into NY. Proceed normally. Your honest confidence should reflect the full maturation picture including which sessions the trade will be active through.`}
 
 State explicitly: "Session phase: [PHASE]. Implication for this setup: [specific effect on completion probability, spread risk, or entry timing — including dead zone ruling if applicable]."
 
@@ -1290,7 +1289,7 @@ If you do not output a TIME_GATE line, your response is incomplete.
 AUTOMATIC DISQUALIFIERS (TIME GATE fails immediately if any of these are true):
 - You estimate the TP will take more than ${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} minutes to hit based on current price pace
 - The setup requires price to break through 2 or more meaningful structural levels before TP (each adds 20–40 min of absorption)
-- Session phase is the TRUE DEAD ZONE (22:00–00:00 UTC) and momentum is absent — no fast committed run is realistic. Note: the Asian session (00:00–07:00 UTC) is NOT a dead zone disqualifier for SCALP — evaluate on instrument type and structure
+- Session phase is the TRUE DEAD ZONE (22:00–00:00 UTC) and momentum is absent — no fast committed run is realistic given the narrow typical M5 legs (10-20 pips) in this window. Note: the Asian session (00:00–07:00 UTC) is NOT a dead zone disqualifier for SCALP — evaluate on instrument type and structure. Note: if dead zone momentum IS present (e.g. strong trend continuation, post-news flow), this disqualifier does not apply — assess honestly.
 - Your TP is more than 1.0x ATR away and current M5 momentum does not support covering that distance within ${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} minutes
 - The last 30 minutes of M5 price action shows stalling, reversals, or consolidation rather than directional commitment
 
@@ -1407,7 +1406,7 @@ State: "Best setup check: [Only one setup evaluated this cycle — confirming it
 BEFORE OUTPUT — MANDATORY PRE-SUBMISSION CHECKLIST (complete all checks before generating your response)
 These are not suggestions. If any item is absent from your reasoning, complete it before outputting. Submitting without these is a governance violation — it means you made a decision without completing the analysis.
 
-1. SESSION PHASE STATED: You have named the current session phase (ASIAN / LONDON OPEN / OVERLAP / NEW YORK / DEAD ZONE) and stated its specific implication for this setup's completion probability. If DEAD ZONE: you have applied the style-specific dead zone rule above — either providing named exceptional justification to proceed, or outputting NO_TRADE.
+1. SESSION PHASE STATED: You have named the current session phase (ASIAN / LONDON OPEN / OVERLAP / NEW YORK / DEAD ZONE) and stated its specific implication for this setup's completion probability. If DEAD ZONE: you have acknowledged the session conditions (reduced liquidity, wider spreads, typical M5 legs 10-20 pips) and incorporated them into your honest trade_confidence rating. Your stated confidence is the sole decision authority — no system penalty is applied on top of it.
 
 2. ATR PHASE STATED: You have stated the current ATR phase as FRESH / DEVELOPING / EXHAUSTED with a numeric estimate (e.g., "~0.9x ATR traveled from swing at [price]"). For SCALP: if EXHAUSTED, you have already output NO_TRADE. For MICRO_INTRADAY and INTRADAY: if EXHAUSTED, you have provided explicit continuation justification.
 
@@ -1505,7 +1504,7 @@ ${style === 'MICRO_INTRADAY' ? `m15_structural_confirmation is REQUIRED for ever
 
 ` : ''}${style === 'INTRADAY' ? `h1_structural_confirmation is REQUIRED for every INTRADAY BUY/SELL. You MUST name the specific H1 structural level this trade is anchored to AND the named structure type from the INTRADAY VALID STRUCTURES list — a named H1 OB zone with price range, H1 FVG with price range, H1 BOS level, H4 zone, or PWH/PWL level. A vague description ("H1 support area"), a reference to M15 or M5 data only, or a null value means the trade has no H1 structural anchor and MUST be output as NO_TRADE. If you cannot name the H1 structural level and its structure type, you do not have an INTRADAY trade.
 
-` : ''}RULES: Session phase alone does not block MICRO_INTRADAY or INTRADAY trades — discount confidence and state the implication. For SCALP, the DEAD ZONE rule above is enforced: a SCALP without exceptional dead zone justification is NO_TRADE, not a confidence discount. Invalid geometry = immediate rejection regardless of style.
+` : ''}RULES: Session phase alone does not block any trade style. Dead zone and session conditions are informational inputs — Alpha incorporates them into an honest trade_confidence rating. If that genuine confidence clears the style threshold, it is a trade. No system arithmetic is applied to Alpha's stated confidence after the fact. Invalid geometry = immediate rejection regardless of style.
 
 ═══════════════════════════════════════════════════════════════════`;
 }

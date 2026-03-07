@@ -473,8 +473,8 @@ export const SESSION_PROFILES = {
       characteristics: 'Low volume, tight ranges, whipsaw risk',
       typical_m5_leg: '10-20 pips',
       strategy: 'Tighten TP targets to 15-25 pips, avoid holding',
-      confidence_adjustment: -10,
-      notes: 'Reduced profit potential - scale expectations',
+      confidence_adjustment: 0,
+      notes: 'Reduced liquidity and narrower M5 legs — Alpha incorporates this into honest confidence rating. No system penalty applied.',
     },
   },
 
@@ -500,8 +500,8 @@ export const SESSION_PROFILES = {
       time_utc: '17:00-19:00',
       characteristics: 'Consolidation bias, reduced momentum',
       strategy: 'Wait for NY afternoon session, avoid mid-lunch entries',
-      confidence_adjustment: -10,
-      notes: 'Often dead zone for M15 structure trades',
+      confidence_adjustment: 0,
+      notes: 'Reduced momentum and consolidation tendency — Alpha incorporates this into honest confidence rating. No system penalty applied.',
     },
   },
 

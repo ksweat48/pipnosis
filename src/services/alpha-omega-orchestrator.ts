@@ -1702,15 +1702,6 @@ class AlphaOmegaOrchestrator {
       reasons.push('ATR compression + range');
     }
 
-    if (regime.is_dead_zone && regime.safety_flags.session_weight !== undefined && regime.safety_flags.session_weight < 1.0) {
-      const sessionPenalty = Math.min(0.05, (1 - regime.safety_flags.session_weight) * 0.10);
-      total += sessionPenalty;
-      reasons.push(`dead zone (session weight ${((regime.safety_flags.session_weight) * 100).toFixed(0)}%)`);
-    } else if (regime.is_dead_zone) {
-      total += 0.05;
-      reasons.push('dead zone');
-    }
-
     if (regime.time_regime?.is_ny_open && regime.volatility_score > 75) {
       total += 0.12;
       reasons.push('NY open high volatility');
@@ -1756,13 +1747,6 @@ class AlphaOmegaOrchestrator {
     const expectedFillMin = (expectedFillTimeHours || 0) * 60;
 
     if (expectedFillMin <= 0) {
-      if (session === 'dead' || session === 'dead_zone') {
-        return {
-          value: 0.05,
-          reason: `Dead zone trading - reduced liquidity (${session} session, ${minutesIntoSession}min in)`,
-          severity: 'low'
-        };
-      }
       return { value: 0, reason: '', severity: 'low' };
     }
 
@@ -1792,10 +1776,6 @@ class AlphaOmegaOrchestrator {
       penalty = 0.15;
       severity = 'high';
       label = 'critically insufficient';
-    }
-
-    if (session === 'dead' || session === 'dead_zone') {
-      penalty = Math.max(penalty, 0.05);
     }
 
     return {
