@@ -2222,10 +2222,11 @@ ${intradayD1StructureBlock}
     let m1MicroContextPrompt = '';
     try {
       const mds = MarketDataService.getInstance();
-      const m1Candles = await mds.getCandles(marketContext.symbol, 'M1', 20);
+      const m1CandleCount = tradeStyle === 'SCALP' ? 20 : tradeStyle === 'MICRO_INTRADAY' ? 12 : 8;
+      const m1Candles = await mds.getCandles(marketContext.symbol, 'M1', m1CandleCount);
 
       if (m1Candles && m1Candles.length >= 5) {
-        const recentM1 = m1Candles.slice(0, 20).reverse();
+        const recentM1 = m1Candles.slice(0, m1CandleCount).reverse();
         const pipInfo = getCurrencyPipInfo(marketContext.symbol);
 
         const m1Lines: string[] = recentM1.map((c, i) => {
@@ -2572,29 +2573,17 @@ ${tradeStyle === 'SCALP' ? `{
   "trade_confidence": 75,
   "entry_mode": "execute_now",
   "style": "SCALP",
-  "marketThesis": "Brief market analysis (30-50 words)",
-  "reasoning": "Your full analytical reasoning — trend context, structural space, prior rejections, timing assessment",
-  "market_narrative": "Single-sentence cause-effect-destination thesis",
-  "counter_thesis": "Single sentence: the primary reason this trade fails",
+  "marketThesis": "30-50 word market analysis",
+  "reasoning": "Full analytical reasoning: trend, structure, rejections, timing",
+  "market_narrative": "Single sentence: cause + destination + participants",
+  "counter_thesis": "Single sentence: primary reason trade fails",
   "scalp_pattern": "momentum_breakout|bos_retest|ema_rejection|double_bottom|double_top|range_breakout|liquidity_sweep|engulfing_at_structure|trend_pullback_ema|none",
   "scalp_sub_mode": "momentum_continuation|pullback_entry|consolidation_breakout",
   "scalp_momentum_phase": "starting|developing|exhausted",
   "scalp_atr_traveled": 0.82,
-  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null_or_price, "pullback_zone_max": null_or_price, "reasoning": "MUST use 50% DISTANCE RULE. E.g. SELL: 'Nearest resistance at 4963 is 10 pips above entry. 50% distance = 5 pips. Zone: 4958-4960. Realistic ~5 pip improvement.' BUY: 'Support at 1.0838 is 4 pips below (0.2 ATR). M1 pullback already happened - good entry now.'" },
+  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "50% DISTANCE RULE: state nearest S/R distance, halve it, define zone." },
   "override": { "type": "none", "justification": "" },
-  "answer_sheet": {
-    "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND",
-    "Q2_structure_level": "description of the key structural level this trade is anchored to",
-    "Q3_prior_rejections": "YES — [count] rejections at [level] | NO",
-    "Q4_momentum_stage": "EARLY|MIDDLE|LATE — [sub-mode]",
-    "Q5_failure_mode": "single sentence: the most likely structural reason this trade fails",
-    "Q5_failure_probability": 0,
-    "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE",
-    "Q6_entry_trigger": "named trigger: [BOS candle close / sweep reclaim / EMA rejection / etc.] OR NONE_YET",
-    "Q7_confluence_count": "X/5 — [list confirmed dimensions: TREND, STRUCTURE, MOMENTUM, TIMING, LIQUIDITY]",
-    "Q8_move_position_pct": 0,
-    "Q8B_session_range_pct": 0
-  }
+  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "key level", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named trigger or NONE_YET", "Q7_confluence_count": "X/5 — list dimensions", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0 }
 }` : tradeStyle === 'MICRO_INTRADAY' ? `{
   "action": "BUY|SELL|NO_TRADE",
   "entry": 12345.67,
@@ -2604,28 +2593,16 @@ ${tradeStyle === 'SCALP' ? `{
   "trade_confidence": 75,
   "entry_mode": "execute_now",
   "style": "MICRO_INTRADAY",
-  "marketThesis": "Brief market analysis (30-50 words)",
-  "reasoning": "Your full analytical reasoning — trend context, structural space, prior rejections, timing assessment",
-  "market_narrative": "Single-sentence cause-effect-destination thesis",
-  "counter_thesis": "Single sentence: the primary reason this trade fails",
-  "mi_structure": "Named structure from MICRO_INTRADAY valid structures list: OB_RETEST|FVG_ENTRY|BOS_CONTINUATION|EMA_PULLBACK|SWEEP_REVERSAL|D1_LEVEL_REACTION|H1_RANGE_EXTREME. Required for BUY/SELL — null or missing = NO_TRADE.",
-  "m15_structural_confirmation": "REQUIRED — name the specific M15 level and mi_structure type: e.g. 'M15 OB zone 1.0823–1.0831 [OB_RETEST]', 'M15 FVG 1.0840-1.0852 [FVG_ENTRY]', 'M15 BOS above 1.0865 [BOS_CONTINUATION]'. Vague or null = NO_TRADE.",
-  "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "brief note on trailing plan" },
-  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null_or_price, "pullback_zone_max": null_or_price, "reasoning": "MUST use 50% DISTANCE RULE. E.g. 'Nearest resistance at 1.0870 is 15 pips above. 50% distance = ~7.5 pips. Zone: 1.0849-1.0852. Realistic ~8 pip improvement.'" },
+  "marketThesis": "30-50 word market analysis",
+  "reasoning": "Full analytical reasoning: trend, structure, rejections, timing",
+  "market_narrative": "Single sentence: cause + destination + participants",
+  "counter_thesis": "Single sentence: primary reason trade fails",
+  "mi_structure": "OB_RETEST|FVG_ENTRY|BOS_CONTINUATION|EMA_PULLBACK|SWEEP_REVERSAL|D1_LEVEL_REACTION|H1_RANGE_EXTREME — required for BUY/SELL",
+  "m15_structural_confirmation": "REQUIRED: name the M15 level and structure type. Vague = NO_TRADE.",
+  "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "trailing plan" },
+  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "50% DISTANCE RULE: state nearest S/R distance, halve it, define zone." },
   "override": { "type": "none", "justification": "" },
-  "answer_sheet": {
-    "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND",
-    "Q2_structure_level": "description of the key M15 structural level this trade is anchored to",
-    "Q3_prior_rejections": "YES — [count] rejections at [level] | NO",
-    "Q4_momentum_stage": "EARLY|MIDDLE|LATE — [sub-mode]",
-    "Q5_failure_mode": "single sentence: the most likely structural reason this trade fails",
-    "Q5_failure_probability": 0,
-    "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE",
-    "Q6_entry_trigger": "named trigger: [BOS candle close / sweep reclaim / EMA rejection / etc.] OR NONE_YET",
-    "Q7_confluence_count": "X/5 — [list confirmed dimensions: TREND, STRUCTURE, MOMENTUM, TIMING, LIQUIDITY]",
-    "Q8_move_position_pct": 0,
-    "Q8B_session_range_pct": 0
-  }
+  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "key M15 level", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named trigger or NONE_YET", "Q7_confluence_count": "X/5 — list dimensions", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0 }
 }` : `{
   "action": "BUY|SELL|NO_TRADE",
   "entry": 12345.67,
@@ -2635,30 +2612,18 @@ ${tradeStyle === 'SCALP' ? `{
   "trade_confidence": 75,
   "entry_mode": "execute_now",
   "style": "INTRADAY",
-  "marketThesis": "Brief market analysis (30-50 words)",
-  "reasoning": "Your full analytical reasoning — trend context, structural space, prior rejections, timing assessment",
-  "market_narrative": "Single-sentence cause-effect-destination thesis",
-  "counter_thesis": "Single sentence: the primary reason this trade fails",
-  "intraday_structure": "Named structure from INTRADAY valid structures list: H1_OB_RETEST|H1_FVG_FILL|H1_BOS_CONTINUATION|H1_CAMPAIGN_PULLBACK|H4_LEVEL_REACTION|WEEKLY_LEVEL_REVERSAL. Required for BUY/SELL — null or missing = NO_TRADE.",
-  "h1_structural_confirmation": "REQUIRED — name the specific H1 structural level and structure type: e.g. 'H1 OB zone 1.0840–1.0855 [H1_OB_RETEST]', 'H1 FVG 1.0820–1.0838 [H1_FVG_FILL]', 'H1 BOS above 1.0872 [H1_BOS_CONTINUATION]'. Vague or null = NO_TRADE.",
-  "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "brief note on trailing plan after TP1 hit" },
-  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null_or_price, "pullback_zone_max": null_or_price, "reasoning": "MUST use 50% DISTANCE RULE. E.g. 'Nearest resistance at 1.0870 is 15 pips above. 50% distance = ~7.5 pips. Zone: 1.0849-1.0852. Realistic ~8 pip improvement.'" },
+  "marketThesis": "30-50 word market analysis",
+  "reasoning": "Full analytical reasoning: trend, structure, rejections, timing",
+  "market_narrative": "Single sentence: cause + destination + participants",
+  "counter_thesis": "Single sentence: primary reason trade fails",
+  "intraday_structure": "H1_OB_RETEST|H1_FVG_FILL|H1_BOS_CONTINUATION|H1_CAMPAIGN_PULLBACK|H4_LEVEL_REACTION|WEEKLY_LEVEL_REVERSAL — required for BUY/SELL",
+  "h1_structural_confirmation": "REQUIRED: name the H1 level and structure type. Vague = NO_TRADE.",
+  "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "trailing plan" },
+  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "50% DISTANCE RULE: state nearest S/R distance, halve it, define zone." },
   "h1_move_phase": "fresh|developing|exhausted",
   "h1_atr_traveled": 0.82,
   "override": { "type": "none", "justification": "" },
-  "answer_sheet": {
-    "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND",
-    "Q2_structure_level": "description of the key H1 structural level this trade is anchored to",
-    "Q3_prior_rejections": "YES — [count] rejections at [level] | NO",
-    "Q4_momentum_stage": "EARLY|MIDDLE|LATE — [sub-mode]",
-    "Q5_failure_mode": "single sentence: the most likely structural reason this trade fails",
-    "Q5_failure_probability": 0,
-    "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE",
-    "Q6_entry_trigger": "named trigger: [BOS candle close / sweep reclaim / EMA rejection / etc.] OR NONE_YET",
-    "Q7_confluence_count": "X/5 — [list confirmed dimensions: TREND, STRUCTURE, MOMENTUM, TIMING, LIQUIDITY]",
-    "Q8_move_position_pct": 0,
-    "Q8B_session_range_pct": 0
-  }
+  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "key H1 level", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named trigger or NONE_YET", "Q7_confluence_count": "X/5 — list dimensions", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0 }
 }`}`;
 
     // Emit final progress thought before LLM call (this is the 6.3s phase)
@@ -3837,7 +3802,7 @@ ${tradeStyle === 'SCALP' ? `{
       return '';
     }
 
-    const parts: string[] = ['\n📡 RAW SENSOR READINGS (Interpret and decide):'];
+    const parts: string[] = ['\nSENSOR READINGS:'];
 
     if (adversarial) {
       parts.push(`\nAdversarial Detector (raw measurements):`);
@@ -3893,140 +3858,91 @@ ${tradeStyle === 'SCALP' ? `{
       return '';
     }
 
-    const parts: string[] = ['\n🧠 ALPHA INTELLIGENCE (Raw Historical Data — Interpret yourself):'];
+    const parts: string[] = ['\nALPHA INTELLIGENCE (raw historical data):'];
 
-    // Symbol-specific performance block (shown first, highest priority)
     if (symbol && intelligence.symbolIntelligence && intelligence.symbolIntelligence[symbol]) {
       const si = intelligence.symbolIntelligence[symbol];
-      parts.push(`\n📍 YOUR RECORD ON ${symbol}:`);
-      if (si.recentWinRate > 0) {
-        parts.push(`  Recent win rate: ${si.recentWinRate.toFixed(0)}%`);
-      }
-      if (si.bestSessions && si.bestSessions.length > 0) {
-        parts.push(`  Best sessions: ${si.bestSessions.join(', ')}`);
-      }
-      if (si.bestTimeframes && si.bestTimeframes.length > 0) {
-        parts.push(`  Best timeframes: ${si.bestTimeframes.join(', ')}`);
-      }
-      if (si.avgSlippage > 0) {
-        parts.push(`  Avg slippage on this pair: ${si.avgSlippage.toFixed(2)} pips — account for this in SL placement`);
-      }
-      parts.push(`  Volatility level: ${si.volatilityLevel}`);
+      const siParts: string[] = [];
+      if (si.recentWinRate > 0) siParts.push(`WR=${si.recentWinRate.toFixed(0)}%`);
+      if (si.bestSessions?.length > 0) siParts.push(`best_sessions=${si.bestSessions.join('/')}`);
+      if (si.avgSlippage > 0) siParts.push(`slippage=${si.avgSlippage.toFixed(1)}p`);
+      siParts.push(`vol=${si.volatilityLevel}`);
+      parts.push(`${symbol}: ${siParts.join(' | ')}`);
     }
 
     if (intelligence.platformPatterns.topPerformingPatterns.length > 0 || intelligence.platformPatterns.failingPatterns.length > 0) {
-      parts.push('\n📊 PATTERN HISTORY (Raw counts):');
-
       const topPatterns = intelligence.platformPatterns.topPerformingPatterns.slice(0, 3);
       if (topPatterns.length > 0) {
-        parts.push('  High-performance patterns (platform-wide):');
-        topPatterns.forEach(p => {
-          parts.push(`    • ${p.patternId}: wins=${Math.round(p.winRate * p.sampleSize / 100)}/${p.sampleSize} trades, avg_R=${p.avgRMultiple.toFixed(2)}`);
-        });
+        parts.push(`top_patterns: ${topPatterns.map(p => `${p.patternId}(w=${Math.round(p.winRate * p.sampleSize / 100)}/${p.sampleSize} R=${p.avgRMultiple.toFixed(1)})`).join(', ')}`);
       }
-
       const failingPatterns = intelligence.platformPatterns.failingPatterns.slice(0, 3);
       if (failingPatterns.length > 0) {
-        parts.push('  Low-performance patterns (platform-wide):');
-        failingPatterns.forEach(p => {
-          parts.push(`    • ${p.patternId}: wins=${Math.round(p.winRate * p.sampleSize / 100)}/${p.sampleSize} trades, avg_R=${p.avgRMultiple.toFixed(2)}`);
-        });
+        parts.push(`weak_patterns: ${failingPatterns.map(p => `${p.patternId}(w=${Math.round(p.winRate * p.sampleSize / 100)}/${p.sampleSize})`).join(', ')}`);
       }
     }
 
     const calibrationKeys = Object.keys(intelligence.calibrationData);
     if (calibrationKeys.length > 0) {
-      parts.push('\n🎯 CONFIDENCE CALIBRATION (Actual vs Predicted):');
+      const calibLines: string[] = [];
       for (const [bucketStr, data] of Object.entries(intelligence.calibrationData)) {
         if (data.sampleSize >= 10) {
-          const predicted = parseInt(bucketStr);
-          const actual = data.actualWinRate;
-          parts.push(`    • Predicted ${predicted}% confidence: actual wins=${Math.round(actual * data.sampleSize / 100)}/${data.sampleSize} (${actual.toFixed(0)}% actual)`);
+          calibLines.push(`${bucketStr}%pred=${data.actualWinRate.toFixed(0)}%actual(n=${data.sampleSize})`);
         }
       }
+      if (calibLines.length > 0) parts.push(`confidence_cal: ${calibLines.join(', ')}`);
     }
 
     if (intelligence.metaInsights.length > 0) {
-      parts.push('\n💡 META INSIGHTS (Validated observations):');
-      intelligence.metaInsights.slice(0, 3).forEach(insight => {
-        if (insight.validated) {
-          parts.push(`  [${insight.confidence}% confidence] ${insight.type}: ${insight.description}`);
-        }
-      });
+      const validated = intelligence.metaInsights.slice(0, 3).filter(i => i.validated);
+      if (validated.length > 0) {
+        parts.push('meta_insights:');
+        validated.forEach(insight => parts.push(`  [${insight.confidence}%] ${insight.type}: ${insight.description}`));
+      }
     }
 
     if (intelligence.executionQuality.avgSlippage > 0) {
-      parts.push(`\nExecution Quality:`);
-      parts.push(`  Avg slippage: ${intelligence.executionQuality.avgSlippage.toFixed(2)} pips`);
-      parts.push(`  SL hunting suspected: ${intelligence.executionQuality.slHuntingSuspected}`);
-      parts.push(`  Recent rejections: ${intelligence.executionQuality.recentRejections}`);
+      parts.push(`exec: slippage=${intelligence.executionQuality.avgSlippage.toFixed(1)}p sl_hunt=${intelligence.executionQuality.slHuntingSuspected} rejections=${intelligence.executionQuality.recentRejections}`);
     }
 
     if (intelligence.counterfactualInsights.sampleSize >= 5) {
       const cf = intelligence.counterfactualInsights;
-      parts.push('\n🔄 COUNTERFACTUAL DATA (What-if counts):');
-      if (cf.bestSlMultiplier !== null) {
-        parts.push(`  Avg optimal SL multiplier: ${cf.bestSlMultiplier.toFixed(2)}x`);
-      }
-      if (cf.bestTpMultiplier !== null) {
-        parts.push(`  Avg optimal TP multiplier: ${cf.bestTpMultiplier.toFixed(2)}x`);
-      }
-      parts.push(`  Trades where earlier exit was better: ${cf.earlyExitCount}/${cf.totalSampled}`);
-      parts.push(`  Trades where holding longer was better: ${cf.holdLongerCount}/${cf.totalSampled}`);
-      parts.push(`  Avg improvement potential: ${cf.avgImprovementPct.toFixed(1)}%`);
+      const cfParts: string[] = [];
+      if (cf.bestSlMultiplier !== null) cfParts.push(`opt_SL=${cf.bestSlMultiplier.toFixed(2)}x`);
+      if (cf.bestTpMultiplier !== null) cfParts.push(`opt_TP=${cf.bestTpMultiplier.toFixed(2)}x`);
+      cfParts.push(`early_exit=${cf.earlyExitCount}/${cf.totalSampled} hold_longer=${cf.holdLongerCount}/${cf.totalSampled}`);
+      parts.push(`counterfactual: ${cfParts.join(' ')}`);
     }
 
     const zml = intelligence.zoneMetaLearning;
     const hasZoneData = Object.keys(zml.zoneTypeSuccessRates).length > 0 || zml.reachabilityRate > 0;
     if (hasZoneData) {
-      parts.push('\n📍 ZONE DATA (Entry zone historical execution):');
-      const successRates = Object.entries(zml.zoneTypeSuccessRates);
-      if (successRates.length > 0) {
-        successRates.forEach(([zoneType, rate]) => {
-          parts.push(`    • ${zoneType}: ${(rate * 100).toFixed(0)}% execution rate`);
-        });
-      }
-      if (zml.reachabilityRate > 0) {
-        parts.push(`  Zone reachability: ${(zml.reachabilityRate * 100).toFixed(0)}% | Downgrade rate: ${(zml.downgradeRate * 100).toFixed(0)}%`);
-      }
+      const zParts: string[] = [];
+      Object.entries(zml.zoneTypeSuccessRates).forEach(([zoneType, rate]) => zParts.push(`${zoneType}=${(rate * 100).toFixed(0)}%`));
+      if (zml.reachabilityRate > 0) zParts.push(`reach=${(zml.reachabilityRate * 100).toFixed(0)}%`);
       const unreachable = Object.entries(zml.unreachableByRegime).filter(([, rate]) => rate > 0.3);
-      if (unreachable.length > 0) {
-        unreachable.forEach(([regime, rate]) => {
-          parts.push(`    • ${regime}: ${(rate * 100).toFixed(0)}% unreachable historically`);
-        });
-      }
+      unreachable.forEach(([regime, rate]) => zParts.push(`${regime}_unreachable=${(rate * 100).toFixed(0)}%`));
+      parts.push(`zones: ${zParts.join(' | ')}`);
     }
 
     if (intelligence.tpCalibration) {
-      parts.push('\n' + intelligence.tpCalibration);
+      parts.push(intelligence.tpCalibration);
     }
 
     const dm = intelligence.decisionMetrics;
     if (dm.totalDecisions >= 5) {
-      parts.push('\n📈 DECISION HISTORY (Raw counts):');
-      parts.push(`  Total decisions: ${dm.totalDecisions}`);
-      parts.push(`  Wins: ${dm.totalWins} | Losses: ${dm.totalLosses}`);
-      parts.push(`  Total profit R: ${dm.totalProfitR.toFixed(2)} | Total loss R: ${dm.totalLossR.toFixed(2)}`);
-      if (dm.consensusResolved > 0) {
-        parts.push(`  Resolved decisions: ${dm.consensusResolved} | Successful: ${dm.consensusSuccessful}`);
-      }
+      parts.push(`decisions: total=${dm.totalDecisions} W=${dm.totalWins} L=${dm.totalLosses} profitR=${dm.totalProfitR.toFixed(1)} lossR=${dm.totalLossR.toFixed(1)}`);
     }
 
     const tp1 = intelligence.tp1Learning;
     if (tp1.totalTP1Events >= 3) {
-      parts.push('\n🎯 TP1 DECISION DATA (Raw counts):');
-      parts.push(`  Total TP1 events: ${tp1.totalTP1Events}`);
-      parts.push(`  Close early: wins=${tp1.closeEarlyWins}/${tp1.closeEarlyTotal}, avg_pnl=$${tp1.avgPnlCloseEarly.toFixed(2)}`);
-      parts.push(`  Hold to TP2: wins=${tp1.holdToTP2Wins}/${tp1.holdToTP2Total}, avg_pnl=$${tp1.avgPnlHoldToTP2.toFixed(2)}`);
+      parts.push(`tp1_data: events=${tp1.totalTP1Events} early(${tp1.closeEarlyWins}/${tp1.closeEarlyTotal} $${tp1.avgPnlCloseEarly.toFixed(0)}) hold(${tp1.holdToTP2Wins}/${tp1.holdToTP2Total} $${tp1.avgPnlHoldToTP2.toFixed(0)})`);
     }
 
     if (intelligence.validatedInsights.length > 0) {
-      parts.push('\n🔬 VALIDATED INSIGHTS:');
+      parts.push('validated_insights:');
       intelligence.validatedInsights.slice(0, 3).forEach(insight => {
-        parts.push(`  [${insight.confidence.toFixed(0)}% confidence, n=${insight.sampleSize}] ${insight.title}: ${insight.description}`);
-        if (insight.winRate > 0 && insight.sampleSize >= 5) {
-          parts.push(`    wins=${Math.round(insight.winRate * insight.sampleSize / 100)}/${insight.sampleSize}`);
-        }
+        const winStr = insight.winRate > 0 && insight.sampleSize >= 5 ? ` w=${Math.round(insight.winRate * insight.sampleSize / 100)}/${insight.sampleSize}` : '';
+        parts.push(`  [${insight.confidence.toFixed(0)}%,n=${insight.sampleSize}${winStr}] ${insight.title}: ${insight.description}`);
       });
     }
 
@@ -4036,31 +3952,21 @@ ${tradeStyle === 'SCALP' ? `{
         .sort((a, b) => b.advisoryWeight - a.advisoryWeight)
         .slice(0, 5);
       if (topPatterns.length > 0) {
-        parts.push('\n⚖️ PATTERN ADVISORY WEIGHTS (historical win-rate derived):');
-        topPatterns.forEach(p => {
-          parts.push(`  ${p.patternId}: weight=${p.advisoryWeight.toFixed(2)} WR=${(p.winRate * 100).toFixed(0)}% (n=${p.totalTrades})`);
-        });
+        parts.push(`pattern_weights: ${topPatterns.map(p => `${p.patternId}(w=${p.advisoryWeight.toFixed(1)} WR=${(p.winRate * 100).toFixed(0)}%)`).join(' ')}`);
       }
     }
 
     if (intelligence.slHuntCorrections && symbol && intelligence.slHuntCorrections[symbol]) {
       const hunt = intelligence.slHuntCorrections[symbol];
       if (hunt.totalSlHits >= 3 && hunt.huntRate >= 0.3) {
-        parts.push(`\n⚠️ SL HUNT BIAS (${symbol}): Hunt rate=${(hunt.huntRate * 100).toFixed(0)}% across ${hunt.totalSlHits} SL hits.`);
-        if (hunt.recommendedWidenPct > 0) {
-          parts.push(`  RECOMMENDATION: Widen SL by ~${(hunt.recommendedWidenPct * 100).toFixed(0)}% to avoid premature stop-outs. (confidence=${(hunt.confidence * 100).toFixed(0)}%)`);
-        }
+        parts.push(`SL_HUNT (${symbol}): rate=${(hunt.huntRate * 100).toFixed(0)}% n=${hunt.totalSlHits}${hunt.recommendedWidenPct > 0 ? ` — widen SL ~${(hunt.recommendedWidenPct * 100).toFixed(0)}%` : ''}`);
       }
     }
 
     if (intelligence.sessionStreakState && intelligence.sessionStreakState.sessionTrades >= 2) {
       const streak = intelligence.sessionStreakState;
-      parts.push(`\n📊 TODAY'S SESSION: ${streak.sessionTrades} trades | WR=${streak.sessionTrades > 0 ? ((streak.sessionWins / streak.sessionTrades) * 100).toFixed(0) : 0}% | PnL=${streak.sessionPnlR >= 0 ? '+' : ''}${streak.sessionPnlR.toFixed(2)}R`);
-      if (streak.currentStreak >= 3 && streak.streakType === 'loss') {
-        parts.push(`  ⚠️ LOSS STREAK: ${streak.currentStreak} consecutive losses today. Consider reducing size or pausing.`);
-      } else if (streak.currentStreak >= 3 && streak.streakType === 'win') {
-        parts.push(`  ✅ WIN STREAK: ${streak.currentStreak} consecutive wins today. Confidence validated.`);
-      }
+      const wr = streak.sessionTrades > 0 ? ((streak.sessionWins / streak.sessionTrades) * 100).toFixed(0) : '0';
+      parts.push(`today: ${streak.sessionTrades}trades WR=${wr}% PnL=${streak.sessionPnlR >= 0 ? '+' : ''}${streak.sessionPnlR.toFixed(2)}R${streak.currentStreak >= 3 ? ` [${streak.streakType.toUpperCase()} STREAK x${streak.currentStreak}]` : ''}`);
     }
 
     if (intelligence.tpDistributionStats && symbol) {
@@ -4068,11 +3974,7 @@ ${tradeStyle === 'SCALP' ? `{
       if (symStats) {
         const styleKeys = Object.keys(symStats).filter(k => symStats[k].totalTrades >= 5);
         if (styleKeys.length > 0) {
-          parts.push(`\n📈 TP DISTRIBUTION (${symbol}):`);
-          styleKeys.forEach(style => {
-            const s = symStats[style];
-            parts.push(`  ${style}: TP_full=${(s.tpFullRate * 100).toFixed(0)}% | TP1_only=${(s.tp1OnlyRate * 100).toFixed(0)}% | SL=${(s.slRate * 100).toFixed(0)}% (n=${s.totalTrades})`);
-          });
+          parts.push(`tp_dist(${symbol}): ${styleKeys.map(s => { const d = symStats[s]; return `${s}:full=${(d.tpFullRate * 100).toFixed(0)}% tp1=${(d.tp1OnlyRate * 100).toFixed(0)}% sl=${(d.slRate * 100).toFixed(0)}%(n=${d.totalTrades})`; }).join(' | ')}`);
         }
       }
     }
@@ -4081,14 +3983,8 @@ ${tradeStyle === 'SCALP' ? `{
       const ct = intelligence.counterThesisAccuracy[symbol];
       if (ct.totalTrades >= 5) {
         const calibErr = (ct.calibrationError * 100).toFixed(0);
-        parts.push(`\n🔍 COUNTER-THESIS CALIBRATION (${symbol}): Predicted failure=${(ct.avgPredictedFailureRate * 100).toFixed(0)}% | Actual failure=${(ct.actualFailureRate * 100).toFixed(0)}% | Error=${calibErr}% (n=${ct.totalTrades})`);
-        if (ct.calibrationError > 0.2) {
-          if (ct.avgPredictedFailureRate > ct.actualFailureRate) {
-            parts.push(`  NOTE: Alpha is being overly cautious on ${symbol} — actual failure rate is lower than predicted.`);
-          } else {
-            parts.push(`  NOTE: Alpha is underestimating failure risk on ${symbol} — actual failure rate is higher than predicted.`);
-          }
-        }
+        const note = ct.calibrationError > 0.2 ? (ct.avgPredictedFailureRate > ct.actualFailureRate ? ' [over-cautious]' : ' [under-estimating risk]') : '';
+        parts.push(`counter_thesis_cal(${symbol}): pred=${(ct.avgPredictedFailureRate * 100).toFixed(0)}% actual=${(ct.actualFailureRate * 100).toFixed(0)}% err=${calibErr}%(n=${ct.totalTrades})${note}`);
       }
     }
 
@@ -4112,9 +4008,7 @@ ${tradeStyle === 'SCALP' ? `{
     dailyNarrative?: DailyNarrative | null,
     omega8Vote?: Omega8Vote
   ): string {
-    const parts: string[] = ['\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'];
-    parts.push('🎯 ADVANCED CONTEXT-AWARE INTELLIGENCE');
-    parts.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    const parts: string[] = ['\nADVANCED CONTEXT:'];
 
     try {
       // Regime Adaptation Context
@@ -4178,8 +4072,6 @@ ${tradeStyle === 'SCALP' ? `{
       // Non-blocking: advanced context is advisory only, Alpha must never be blocked
       console.warn('[Alpha] Advanced patterns context build failed (non-blocking):', err instanceof Error ? err.message : err);
     }
-
-    parts.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     return parts.join('\n');
   }
