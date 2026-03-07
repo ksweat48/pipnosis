@@ -104,7 +104,9 @@ class AdversarialDetector {
     }
 
     // SSOT: Extract ATR value and validate timeframe if available
-    const atrValue = safeExtractATRValue(marketState.atr, 'AdversarialDetector.evaluate');
+    // CCIP-2026-03-07: atrRaw (plain number) is the intentional input from market-snapshot-cache.
+    // suppressRawNumberWarning=true because this is a documented path, not a migration gap.
+    const atrValue = safeExtractATRValue(marketState.atr, 'AdversarialDetector.evaluate', 0, true);
     const atrTimeframe = safeExtractATRTimeframe(marketState.atr, 'AdversarialDetector.evaluate');
 
     if (atrTimeframe) {

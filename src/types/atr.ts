@@ -334,11 +334,16 @@ function handleATRValidationIssue(
 /**
  * Safely extract ATR value from mixed input (number | ATRValue | undefined)
  * SSOT-compliant: warns about legacy usage, returns safe default
+ *
+ * @param suppressRawNumberWarning - Set true when a plain number is an INTENTIONAL,
+ *   CCIP-documented input (not a migration gap). Example: AdversarialDetector receives
+ *   atrRaw (un-enforced plain number) by design per CCIP-2026-03-07.
  */
 export function safeExtractATRValue(
   atr: number | ATRValue | undefined,
   context: string,
-  fallbackValue: number = 0
+  fallbackValue: number = 0,
+  suppressRawNumberWarning: boolean = false
 ): number {
   if (atr === undefined) {
     handleATRValidationIssue(context, 'ATR is undefined, using fallback', 'warning');
@@ -346,11 +351,13 @@ export function safeExtractATRValue(
   }
 
   if (typeof atr === 'number') {
-    handleATRValidationIssue(
-      context,
-      `Legacy raw number ATR (${atr}) - migrate to typed ATRValue`,
-      'warning'
-    );
+    if (!suppressRawNumberWarning) {
+      handleATRValidationIssue(
+        context,
+        `Legacy raw number ATR (${atr}) - migrate to typed ATRValue`,
+        'warning'
+      );
+    }
     return atr;
   }
 
