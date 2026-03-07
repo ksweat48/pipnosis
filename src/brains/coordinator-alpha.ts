@@ -3485,13 +3485,20 @@ ${tradeStyle === 'SCALP' ? `{
 
       // If NO_TRADE, return simple response
       if (action === 'NO_TRADE') {
+        // CCIP (2026-03-07): Reasoned NO_TRADE (LLM completed successfully) must carry confidence >= 10
+        // so governance can distinguish it from a system-failure NO_TRADE (confidence === 0).
+        // A system failure is: data missing, parse error, wall violation, hard block before LLM.
+        // A reasoned rejection is: LLM evaluated the market and found no edge.
+        // The governance alert fires on NO_TRADE && confidence === 0 — that must remain reserved
+        // for genuine infrastructure failures only.
+        const reasonedConfidence = Math.max(10, Math.min(100, tradeConfidence));
         return {
           action,
           decision: action,
           entry: currentPrice,
           stopLoss: currentPrice,
           takeProfit: currentPrice,
-          confidence: Math.min(100, Math.max(0, tradeConfidence)),
+          confidence: reasonedConfidence,
           reasoning: parsed.reasoning || 'No reasoning provided',
           omega_summary: '',
           resolvedStyle,

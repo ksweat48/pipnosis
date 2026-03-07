@@ -980,11 +980,14 @@ class AlphaOmegaOrchestrator {
     }
 
     if (config.governance.enabled) {
+      // CCIP (2026-03-07): confidence === 0 on NO_TRADE is reserved exclusively for system failures
+      // (data missing, parse error, wall violation, hard block). Reasoned rejections carry confidence >= 10.
       const errorCount = Array.from(decisionMap.values()).filter(d => d.action === 'NO_TRADE' && d.confidence === 0).length;
+      const reasonedNoTradeCount = Array.from(decisionMap.values()).filter(d => d.action === 'NO_TRADE' && d.confidence > 0).length;
       const errorRate = (errorCount / marketStates.length) * 100;
 
       if (errorRate > config.governance.alertErrorRatePercent) {
-        console.warn(`[Alpha+Omega] GOVERNANCE ALERT: Error rate ${errorRate.toFixed(1)}% exceeds ${config.governance.alertErrorRatePercent}%`);
+        console.warn(`[Alpha+Omega] GOVERNANCE ALERT: Infrastructure error rate ${errorRate.toFixed(1)}% exceeds ${config.governance.alertErrorRatePercent}% (${errorCount} system failures, ${reasonedNoTradeCount} reasoned rejections)`);
       }
     }
 
