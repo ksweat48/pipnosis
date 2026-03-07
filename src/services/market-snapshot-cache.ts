@@ -261,10 +261,24 @@ class MarketSnapshotCache {
 
     const regime = regimeOracle.evaluate(marketState, timestamp, candles, symbol);
 
+    // CCIP-2026-03-07: Pass the RAW (un-enforced) ATR to the adversarial detector.
+    // The enforced ATR minimum exists to protect trade sizing from genuine
+    // low-volatility edge cases. Feeding the enforced value into the adversarial
+    // detector inflates wick-to-ATR ratios during calm markets, producing false
+    // stop-run positives. Alpha must see real volatility context, not an
+    // artificial floor. The enforced ATR continues to flow through indicators.atr
+    // for all sizing/stop calculations downstream.
+    logger.debug('[SnapshotCache] ATR split — adversarial uses raw', {
+      symbol,
+      rawATR: indicators.atrRaw.toFixed(6),
+      enforcedATR: indicators.atr.value.toFixed(6),
+      enforced: indicators.atrRaw !== indicators.atr.value
+    });
+
     const adversarial = adversarialDetector.evaluate(
       {
         ...marketState,
-        atr: indicators.atr,
+        atr: indicators.atrRaw,
         swingHigh,
         swingLow
       },
@@ -321,7 +335,9 @@ class MarketSnapshotCache {
       symbol,
       timeframe,
       price: currentPrice.toFixed(5),
-      atr: indicators.atr.value.toFixed(5),
+      atrRaw: indicators.atrRaw.toFixed(5),
+      atrEnforced: indicators.atr.value.toFixed(5),
+      atrEnforcementActive: indicators.atrRaw !== indicators.atr.value,
       trend: indicators.trend,
       volatility: indicators.volatility,
       advisoryCount: advisoryFlags.length,
@@ -389,6 +405,7 @@ class MarketSnapshotCache {
     rsi: number;
     stochRsi: number;
     atr: ATRValue;
+    atrRaw: number; // CCIP-2026-03-07: un-enforced ATR for adversarial detector
     vwap: number;
     macd: number;
     macdSignal: number;
@@ -406,6 +423,9 @@ class MarketSnapshotCache {
     const stochRsi = this.calculateStochRSI(closes, 14);
     const atrRaw = this.calculateATR(candles);
     const atrEnforced = this.enforceATRMinimum(atrRaw, symbol, closes[closes.length - 1]);
+    // CCIP-2026-03-07: atr (ATRValue) uses the enforced floor for trade sizing/stops.
+    // atrRaw is preserved separately so the adversarial detector receives the true
+    // market ATR — not an inflated minimum — for accurate wick-to-ATR comparisons.
     const atr = createATRValue(atrEnforced, timeframe as ATRTimeframe, 14);
     const vwap = this.calculateVWAP(candles.slice(-20));
     const { macd, signal } = this.calculateMACD(closes);
@@ -423,6 +443,7 @@ class MarketSnapshotCache {
       rsi,
       stochRsi,
       atr,
+      atrRaw,
       vwap,
       macd,
       macdSignal: signal,

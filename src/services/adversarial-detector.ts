@@ -27,9 +27,15 @@ import { safeExtractATRValue, safeExtractATRTimeframe, type ATRValue } from '../
  * RATIONALE:
  * - 2.2x catches most stop hunts and fake breakouts
  * - 4.0x reserved for truly extreme events (flash crashes, major news)
+ *
+ * CCIP-2026-03-07: STOP_RUN_ACTIVE_WINDOW — candles within this window are
+ * classified as active_stop_run; beyond this window → historical_sweep.
+ * This prevents a single historical wick from being indefinitely mis-labelled
+ * as an active threat, giving Alpha accurate recency context.
  */
 const MANIPULATION_SPIKE_THRESHOLD = 2.2;
 const EXTREME_MANIPULATION_THRESHOLD = 4.0;
+const STOP_RUN_ACTIVE_WINDOW = 5; // candles — beyond this → historical_sweep
 
 /**
  * Raw adversarial observation contract.
@@ -226,65 +232,77 @@ class AdversarialDetector {
 
   /**
    * Detect stop runs (long wicks rejecting back into range)
+   *
+   * CCIP-2026-03-07: Deduplication fix.
+   * Previously this loop pushed stop_run_high once PER qualifying candle across
+   * all 20 candles, causing suspicion_score to accumulate 20x for a single event.
+   * Fix: scan newest-to-oldest, record the SINGLE most-recent qualifying event per
+   * direction, then return at most one pattern per direction (two total maximum).
+   * classifyStopRuns() continues to own recency/time-decay classification.
    */
   private detectStopRuns(
     candles: Candle[],
     analyses: CandleAnalysis[],
     marketState: MarketState
   ): string[] {
-    const patterns: string[] = [];
     const recentCount = Math.min(20, candles.length);
     const recentCandles = candles.slice(-recentCount);
     const recentAnalyses = analyses.slice(-recentCount);
 
-    for (let i = 1; i < recentCandles.length; i++) {
+    let foundHigh = false;
+    let foundLow = false;
+
+    // Scan newest-to-oldest so the first match is the most recent event
+    for (let i = recentCandles.length - 1; i >= 1; i--) {
+      if (foundHigh && foundLow) break; // both directions captured
+
       const candle = recentCandles[i];
       const analysis = recentAnalyses[i];
       const prevCandle = recentCandles[i - 1];
 
-      // Long upper wick (potential stop run high)
-      const longUpperWick =
-        analysis.wick_high > analysis.body * 2 &&
-        analysis.wick_high > marketState.atr * 0.5;
+      if (!foundHigh) {
+        const longUpperWick =
+          analysis.wick_high > analysis.body * 2 &&
+          analysis.wick_high > marketState.atr * 0.5;
 
-      if (longUpperWick) {
-        // Check if it rejected near resistance (swing high or recent high)
-        const nearResistance = marketState.swingHigh
-          ? Math.abs(candle.high - marketState.swingHigh) < marketState.atr * 0.3
-          : false;
+        if (longUpperWick) {
+          const nearResistance = marketState.swingHigh
+            ? Math.abs(candle.high - marketState.swingHigh) < marketState.atr * 0.3
+            : false;
 
-        // Check if closed back inside previous range
-        const closedInsideRange =
-          candle.close < Math.max(prevCandle.open, prevCandle.close);
+          const closedInsideRange =
+            candle.close < Math.max(prevCandle.open, prevCandle.close);
 
-        if (nearResistance || closedInsideRange) {
-          patterns.push('stop_run_high');
+          if (nearResistance || closedInsideRange) {
+            foundHigh = true;
+          }
         }
       }
 
-      // Long lower wick (potential stop run low)
-      const longLowerWick =
-        analysis.wick_low > analysis.body * 2 &&
-        analysis.wick_low > marketState.atr * 0.5;
+      if (!foundLow) {
+        const longLowerWick =
+          analysis.wick_low > analysis.body * 2 &&
+          analysis.wick_low > marketState.atr * 0.5;
 
-      if (longLowerWick) {
-        // Check if it rejected near support (swing low or recent low)
-        const nearSupport = marketState.swingLow
-          ? Math.abs(candle.low - marketState.swingLow) < marketState.atr * 0.3
-          : false;
+        if (longLowerWick) {
+          const nearSupport = marketState.swingLow
+            ? Math.abs(candle.low - marketState.swingLow) < marketState.atr * 0.3
+            : false;
 
-        // Check if closed back inside previous range
-        const closedInsideRange =
-          candle.close > Math.min(prevCandle.open, prevCandle.close);
+          const closedInsideRange =
+            candle.close > Math.min(prevCandle.open, prevCandle.close);
 
-        if (nearSupport || closedInsideRange) {
-          patterns.push('stop_run_low');
+          if (nearSupport || closedInsideRange) {
+            foundLow = true;
+          }
         }
       }
     }
 
-    // Remove duplicates
-    return Array.from(new Set(patterns));
+    const patterns: string[] = [];
+    if (foundHigh) patterns.push('stop_run_high');
+    if (foundLow) patterns.push('stop_run_low');
+    return patterns;
   }
 
   /**
@@ -505,16 +523,16 @@ class AdversarialDetector {
       const isVeryRecentSpike = candlesAgo <= 1; // Very recent = within 1 candle (current candle only)
       const isAgedSpike = candlesAgo >= 5; // Aged = 5+ candles old (reduced from 10)
 
-      // CONVERTED TO ADVISORY: Extreme spike = -35% confidence penalty + Omega-9 validation
+      // ADVISORY SIGNAL: Very recent extreme spike — surface for Alpha awareness
       if (isVeryRecentSpike && isExtremeSpike) {
-        console.warn(`[Adversarial] Extreme Manipulation Spike Detected (${spikeMultiplier.toFixed(1)}x, ${candlesAgo} candles ago) → -35% CONFIDENCE PENALTY + Omega-9 Validation Required`);
+        console.log(`[Adversarial - ADVISORY] Extreme volatility spike observed (${spikeMultiplier.toFixed(1)}x ATR, ${candlesAgo} candles ago) — Omega-9 validation flagged`);
         return {
           type: 'manipulation_spike',
           candles_ago: candlesAgo,
           has_bos: false,
           should_block: false, // ADVISORY ONLY - Alpha has final authority
-          requires_omega9_validation: true, // Require additional validation
-          reasoning: `Extreme volatility spike (${spikeMultiplier.toFixed(1)}x ATR, ${candlesAgo} candles ago) - confidence reduced, requires Omega-9 validation`
+          requires_omega9_validation: true,
+          reasoning: `Extreme volatility spike (${spikeMultiplier.toFixed(1)}x ATR, ${candlesAgo} candles ago) — advisory signal for Alpha, Omega-9 validation recommended`
         };
       }
 
@@ -545,27 +563,31 @@ class AdversarialDetector {
         };
       }
 
-      console.warn(`[Adversarial] Manipulation spike still unstable → -20% CONFIDENCE PENALTY`);
+      console.log(`[Adversarial - ADVISORY] Manipulation spike still unstabilised (${spikeMultiplier.toFixed(1)}x ATR, ${candlesAgo} candles ago) — surfaced for Alpha awareness`);
       return {
         type: 'manipulation_spike',
         candles_ago: candlesAgo,
         has_bos: false,
         should_block: false, // ADVISORY ONLY - Alpha has final authority
-        requires_omega9_validation: true, // Require stabilization check
-        reasoning: `Manipulation spike (${spikeMultiplier.toFixed(1)}x ATR, ${candlesAgo} candles ago) - waiting for stabilization, confidence reduced`
+        requires_omega9_validation: true,
+        reasoning: `Manipulation spike (${spikeMultiplier.toFixed(1)}x ATR, ${candlesAgo} candles ago) — market still stabilising, advisory signal for Alpha`
       };
     }
 
-    // B) CONVERTED TO ADVISORY: Active stop run = -25% confidence penalty (not block)
-    if (candlesAgo <= 0) {
-      console.warn('[Adversarial] Active Stop Run Detected → -25% CONFIDENCE PENALTY');
+    // B) ADVISORY SIGNAL: Active stop run within STOP_RUN_ACTIVE_WINDOW candles
+    // CCIP-2026-03-07: Time-decay boundary — if the most recent stop run wick is
+    // within STOP_RUN_ACTIVE_WINDOW candles it is labelled active_stop_run so Alpha
+    // has accurate recency context. Beyond the window it falls through to
+    // historical_sweep (section C/D below).
+    if (candlesAgo <= STOP_RUN_ACTIVE_WINDOW) {
+      console.log(`[Adversarial - ADVISORY] Stop run wick observed (${candlesAgo} candles ago, within active window of ${STOP_RUN_ACTIVE_WINDOW}) — surfaced for Alpha awareness`);
       return {
         type: 'active_stop_run',
         candles_ago: candlesAgo,
         has_bos: false,
         should_block: false, // ADVISORY ONLY - Alpha has final authority
-        requires_omega9_validation: false, // Current candle, Alpha can decide
-        reasoning: `Stop run occurring in current candle - confidence reduced but Alpha may proceed if setup justifies`
+        requires_omega9_validation: false,
+        reasoning: `Stop run wick (${candlesAgo} candles ago) — within active window, advisory signal for Alpha`
       };
     }
 
