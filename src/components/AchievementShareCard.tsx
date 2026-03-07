@@ -254,7 +254,7 @@ export const WinShareCard = React.forwardRef<HTMLDivElement, WinShareCardProps>(
     const rankColor = a.medal_color || '#FFD700';
     const medal = MEDAL_EMOJI[a.medal_rank] || '🏆';
     const isTP2 = a.close_reason === 'take_profit_2';
-    const isBuy = a.direction === 'BUY';
+    const isBuy = a.direction?.toLowerCase() === 'buy';
 
     return (
       <div

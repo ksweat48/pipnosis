@@ -151,8 +151,6 @@ const WinCardWithShare: React.FC<WinCardWithShareProps> = ({ a, idx, displayName
               title="Share this win"
               className={`
                 flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-200 flex-shrink-0
-                opacity-0 group-hover:opacity-100 focus:opacity-100
-                sm:opacity-100
                 ${isThisSharing
                   ? 'bg-emerald-500/20 text-emerald-400 cursor-wait'
                   : 'bg-gray-700/50 text-gray-400 hover:bg-emerald-500/20 hover:text-emerald-400 active:scale-95'
@@ -172,15 +170,15 @@ const WinCardWithShare: React.FC<WinCardWithShareProps> = ({ a, idx, displayName
         <div className="flex items-center gap-2 mb-3">
           <span className="text-white font-bold text-base">{a.symbol}</span>
           <span className={`flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded ${
-            a.direction === 'BUY'
+            a.direction?.toLowerCase() === 'buy'
               ? 'bg-emerald-500/15 text-emerald-400'
               : 'bg-red-500/15 text-red-400'
           }`}>
-            {a.direction === 'BUY'
+            {a.direction?.toLowerCase() === 'buy'
               ? <TrendingUp className="w-3 h-3" />
               : <TrendingDown className="w-3 h-3" />
             }
-            {a.direction}
+            {a.direction?.toUpperCase()}
           </span>
           {a.trade_style && (
             <span className="text-xs text-gray-500 bg-gray-700/50 px-1.5 py-0.5 rounded">
