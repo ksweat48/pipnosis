@@ -89,6 +89,7 @@ import { eliteProfitTargetCalculator, type LiquidityZone, type TPCalculationResu
 // tp1ProbabilityCalculator REMOVED (CCIP 2026-02-16): Alpha is sole TP authority
 // System never computes TP values. All TP decisions come from Alpha's LLM response.
 import { calculatePipDistance, getCurrencyPipInfo } from '../utils/currencyHelpers';
+import { calculateEMA } from '../strategies/indicators';
 import { EntryIntentClassifier } from '../services/entry-intent-classifier';
 import { omega9ConstraintProvider } from '../services/omega9-constraint-provider';
 // alphaRevisionHandler removed - dual-arena wall check replaces revision loop
@@ -1459,8 +1460,36 @@ IMPORTANT REMINDERS:
           const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
           const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
           const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
-          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
+          const totalRange = (c.high - c.low) / pipInfo.pipValue;
+          const bodyRatio = totalRange > 0 ? Math.round((bodyPips / totalRange) * 100) : 0;
+          const wickBias = upperWick > lowerWick * 1.5 ? 'upper' : lowerWick > upperWick * 1.5 ? 'lower' : 'balanced';
+          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p ratio:${bodyRatio}% wick_bias:${wickBias}`;
         });
+
+        // ═══════════════════════════════════════════════════════════════════
+        // EMA CONTEXT: Compute EMA20, EMA50, EMA200 on primary TF closes.
+        // Uses the same calculateEMA used throughout the codebase (SSOT).
+        // Provides direct pip-distance values so Alpha has concrete numbers.
+        // ═══════════════════════════════════════════════════════════════════
+        const primaryCloses = recentPrimary.map(c => c.close);
+        const ema20Val = primaryCloses.length >= 20 ? calculateEMA(primaryCloses, 20) : (primaryCloses.length >= 5 ? calculateEMA(primaryCloses, primaryCloses.length) : 0);
+        const ema50Val = primaryCloses.length >= 50 ? calculateEMA(primaryCloses, 50) : (primaryCloses.length >= 5 ? calculateEMA(primaryCloses, Math.min(50, primaryCloses.length)) : 0);
+        const ema200Val = primaryCloses.length >= 200 ? calculateEMA(primaryCloses, 200) : (primaryCloses.length >= 5 ? calculateEMA(primaryCloses, Math.min(200, primaryCloses.length)) : 0);
+        const currentPx = recentPrimary[recentPrimary.length - 1].close;
+        const ema20Pips = ema20Val > 0 ? Math.abs(currentPx - ema20Val) / pipInfo.pipValue : null;
+        const ema50Pips = ema50Val > 0 ? Math.abs(currentPx - ema50Val) / pipInfo.pipValue : null;
+        const ema200Pips = ema200Val > 0 ? Math.abs(currentPx - ema200Val) / pipInfo.pipValue : null;
+        const priceAboveEma20 = ema20Val > 0 && currentPx > ema20Val;
+        const priceAboveEma50 = ema50Val > 0 && currentPx > ema50Val;
+        const priceAboveEma200 = ema200Val > 0 && currentPx > ema200Val;
+        const ema20AboveEma50 = ema20Val > 0 && ema50Val > 0 && ema20Val > ema50Val;
+        const emaStack = (ema20Val > 0 && ema50Val > 0)
+          ? (ema20AboveEma50 && priceAboveEma20 ? 'BULL' : !ema20AboveEma50 && !priceAboveEma20 ? 'BEAR' : 'MIXED')
+          : 'UNKNOWN';
+        // EMA convergence/divergence (last 3 closes vs EMA20 distance trend)
+        const prevEma20 = primaryCloses.length >= 21 ? calculateEMA(primaryCloses.slice(0, -1), 20) : ema20Val;
+        const ema20Slope = ema20Val > 0 && prevEma20 > 0 ? (ema20Val - prevEma20) / pipInfo.pipValue : 0;
+        const ema20SlopeDir = Math.abs(ema20Slope) < 0.1 ? 'FLAT' : ema20Slope > 0 ? 'RISING' : 'FALLING';
 
         let consecutiveSameDir = 1;
         for (let i = recentPrimary.length - 2; i >= 0; i--) {
@@ -1583,6 +1612,14 @@ MANDATORY JSON FIELD — Include in your response regardless of action:
           console.log(`[Alpha Coordinator] INTRADAY H1 Move Phase: ${h1MovePhase} (~${atrTraveled.toFixed(2)}x ATR, ${distFromSwingPips.toFixed(1)} pips)${fakeoutType ? ` | Fakeout: ${fakeoutType}` : ''}`);
         }
 
+        const emaContextBlock = (ema20Val > 0 || ema50Val > 0) ? `
+${primaryTfConfig.label} EMA CONTEXT (computed from candle closes):
+- EMA20: ${ema20Val > 0 ? ema20Val.toFixed(pipInfo.decimalPlaces) : 'N/A'} | Price is ${ema20Val > 0 ? (priceAboveEma20 ? 'ABOVE' : 'BELOW') : '?'} EMA20${ema20Pips !== null ? ` by ${ema20Pips.toFixed(1)} pips` : ''}
+- EMA50: ${ema50Val > 0 ? ema50Val.toFixed(pipInfo.decimalPlaces) : 'N/A'} | Price is ${ema50Val > 0 ? (priceAboveEma50 ? 'ABOVE' : 'BELOW') : '?'} EMA50${ema50Pips !== null ? ` by ${ema50Pips.toFixed(1)} pips` : ''}${ema200Val > 0 ? `
+- EMA200: ${ema200Val.toFixed(pipInfo.decimalPlaces)} | Price is ${priceAboveEma200 ? 'ABOVE' : 'BELOW'} EMA200${ema200Pips !== null ? ` by ${ema200Pips.toFixed(1)} pips` : ''}` : ''}
+- EMA Stack: ${emaStack}${ema20Val > 0 ? ` | EMA20 is ${ema20AboveEma50 ? 'ABOVE' : 'BELOW'} EMA50` : ''} | EMA20 Slope: ${ema20SlopeDir} (${ema20Slope.toFixed(2)} pips/candle)
+EMA INTERPRETATION: body ratio >60% = directional conviction candle | body ratio <30% = indecision (inside bar / doji). Use EMA20 as the closest dynamic support/resistance. If price is within 3 pips of EMA20, this is an EMA rejection zone.` : '';
+
         primaryTfCandlePrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1590,19 +1627,21 @@ ${primaryTfConfig.label} PRIMARY TIMEFRAME CANDLES (${marketContext.symbol}) —
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 THIS IS YOUR PRIMARY DATA for the entry_advisory verdict. Your trade lives on the ${primaryTfConfig.label} timeframe.
 Analyze these ${primaryTfConfig.label} candles FIRST before considering M1 micro-data.
+CANDLE FORMAT: direction | OHLC | body pips | upper/lower wick pips | body% of range | wick_bias
+body ratio >60% = conviction candle | <30% = indecision | wick_bias = which side dominates (institutional rejection signal)
 
 ${primaryLines.join('\n')}
 
 ${primaryTfConfig.label} STRUCTURE SUMMARY:
 - ${primaryTfConfig.label} Range: ${tfRangePips.toFixed(1)} pips (High: ${tfHigh.toFixed(pipInfo.decimalPlaces)}, Low: ${tfLow.toFixed(pipInfo.decimalPlaces)})
 - Consecutive same-direction ${primaryTfConfig.label} candles: ${consecutiveSameDir}
-- Last ${primaryTfConfig.label} candle: ${hasRejectionWick ? 'REJECTION WICK detected' : 'Normal candle'} (body: ${lastBody.toFixed(1)}p)
+- Last ${primaryTfConfig.label} candle: ${hasRejectionWick ? 'REJECTION WICK detected' : 'Normal candle'} (body: ${lastBody.toFixed(1)}p, upper wick: ${lastUpperWick.toFixed(1)}p, lower wick: ${lastLowerWick.toFixed(1)}p)
 - ${primaryTfConfig.label} Momentum: ${consecutiveSameDir >= 3 ? 'IMPULSIVE MOVE — ' + consecutiveSameDir + ' consecutive same-direction ' + primaryTfConfig.label + ' candles. Pullback is highly probable before continuation.' : consecutiveSameDir >= 2 ? 'Developing trend — 2 consecutive candles, monitor for continuation or pullback' : 'Mixed/consolidating — no impulsive leg detected'}
-
+${emaContextBlock}
 PULLBACK ASSESSMENT RULE (${primaryTfConfig.label} TIMEFRAME):
 ${consecutiveSameDir >= 3
   ? `STRONG GUIDELINE: ${consecutiveSameDir} consecutive same-direction ${primaryTfConfig.label} candles detected. This is an impulsive ${primaryTfConfig.label} leg without pullback. A retracement is highly probable. Your entry_advisory verdict should be PULLBACK_EXPECTED unless you have exceptional evidence (breakaway gap, news catalyst) that no pullback will occur. A single M1 rejection wick does NOT override an impulsive ${primaryTfConfig.label} move.`
-  : `No impulsive ${primaryTfConfig.label} leg detected. Assess structural levels, VWAP distance, and EMA alignment to determine entry quality.`}
+  : `No impulsive ${primaryTfConfig.label} leg detected. Assess structural levels, EMA proximity, and wick bias to determine entry quality.`}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         console.log(`[Alpha Coordinator] ${primaryTfConfig.label} Primary TF: ${recentPrimary.length} candles, ${consecutiveSameDir} consecutive same-dir, range ${tfRangePips.toFixed(1)} pips`);
@@ -1665,7 +1704,10 @@ ${consecutiveSameDir >= 3
           const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
           const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
           const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
-          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
+          const totalRange = (c.high - c.low) / pipInfo.pipValue;
+          const bodyRatio = totalRange > 0 ? Math.round((bodyPips / totalRange) * 100) : 0;
+          const wickBias = upperWick > lowerWick * 1.5 ? 'upper' : lowerWick > upperWick * 1.5 ? 'lower' : 'balanced';
+          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p ratio:${bodyRatio}% wick_bias:${wickBias}`;
         });
 
         const htfHigh = Math.max(...recentHtf.map(c => c.high));
@@ -1799,7 +1841,10 @@ ${htfStructuralEvidenceBlock}
             const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
             const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
             const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
-            return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
+            const totalRange = (c.high - c.low) / pipInfo.pipValue;
+            const bodyRatio = totalRange > 0 ? Math.round((bodyPips / totalRange) * 100) : 0;
+            const wickBias = upperWick > lowerWick * 1.5 ? 'upper' : lowerWick > upperWick * 1.5 ? 'lower' : 'balanced';
+            return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p ratio:${bodyRatio}% wick_bias:${wickBias}`;
           });
 
           const m15High = Math.max(...recentM15.map(c => c.high));
@@ -1915,7 +1960,10 @@ ${m15StructuralEvidenceBlock}
             const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
             const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
             const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
-            return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
+            const totalRange = (c.high - c.low) / pipInfo.pipValue;
+            const bodyRatio = totalRange > 0 ? Math.round((bodyPips / totalRange) * 100) : 0;
+            const wickBias = upperWick > lowerWick * 1.5 ? 'upper' : lowerWick > upperWick * 1.5 ? 'lower' : 'balanced';
+            return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p ratio:${bodyRatio}% wick_bias:${wickBias}`;
           });
 
           const h1High = Math.max(...recentH1.map(c => c.high));
@@ -1989,6 +2037,68 @@ SCALP DIRECTION ALIGNMENT USING H1:
         const currentPrice = marketContext.price;
         const distToPDH = Math.abs(currentPrice - prevDayHigh) / pipInfo.pipValue;
         const distToPDL = Math.abs(currentPrice - prevDayLow) / pipInfo.pipValue;
+
+        // ═══════════════════════════════════════════════════════════════════
+        // WEEKLY HIGH/LOW: Derive PWH/PWL from D1 candles (Mon-Fri of prev week).
+        // PWH/PWL are the most significant weekly liquidity reference levels.
+        // SSOT: Computed inline here since W1 candle fetch is not always available.
+        // ═══════════════════════════════════════════════════════════════════
+        let pwhValue: number | null = null;
+        let pwlValue: number | null = null;
+        try {
+          const mds = MarketDataService.getInstance();
+          const w1Candles = await mds.getCandles(marketContext.symbol, 'W1', 3);
+          if (w1Candles && w1Candles.length >= 2) {
+            const prevWeekCandle = w1Candles[1];
+            pwhValue = prevWeekCandle.high;
+            pwlValue = prevWeekCandle.low;
+          }
+        } catch {
+          // Weekly candles are optional — fall back to null (non-blocking)
+        }
+        const distToPWH = pwhValue !== null ? Math.abs(currentPrice - pwhValue) / pipInfo.pipValue : null;
+        const distToPWL = pwlValue !== null ? Math.abs(currentPrice - pwlValue) / pipInfo.pipValue : null;
+        const weeklyRefBlock = (pwhValue !== null && pwlValue !== null)
+          ? `Previous Week High (PWH): ${pwhValue.toFixed(pipInfo.decimalPlaces)} — ${distToPWH !== null ? distToPWH.toFixed(1) : '?'} pips away | Price is ${currentPrice > pwhValue ? 'ABOVE' : 'below'} PWH
+Previous Week Low (PWL): ${pwlValue.toFixed(pipInfo.decimalPlaces)} — ${distToPWL !== null ? distToPWL.toFixed(1) : '?'} pips away | Price is ${currentPrice < pwlValue ? 'BELOW' : 'above'} PWL`
+          : '';
+        // ROUND NUMBERS: Compute nearest round price levels for TP path audit.
+        // For FX pairs: major round = 00-pip (X.XX00), minor round = 50-pip (X.XX50).
+        // For indices/metals: nearest 100 and 50 levels.
+        // For crypto: nearest 100 and 50 levels (prices >> 1000).
+        const isIndexOrMetal = ['US30', 'NAS100', 'SP500', 'XAUUSD', 'XAGUSD'].includes(marketContext.symbol);
+        const isCrypto = ['BTCUSD', 'ETHUSD'].includes(marketContext.symbol);
+        let roundStep: number;
+        let minorStep: number;
+        if (isCrypto) {
+          roundStep = 1000;
+          minorStep = 500;
+        } else if (isIndexOrMetal) {
+          roundStep = marketContext.symbol === 'XAUUSD' || marketContext.symbol === 'XAGUSD' ? 50 : 100;
+          minorStep = roundStep / 2;
+        } else {
+          const priceScale = Math.pow(10, pipInfo.decimalPlaces);
+          roundStep = 100 / priceScale;
+          minorStep = 50 / priceScale;
+        }
+        const nearestMajorAbove = Math.ceil(currentPrice / roundStep) * roundStep;
+        const nearestMajorBelow = Math.floor(currentPrice / roundStep) * roundStep;
+        const nearestMinorAbove = Math.ceil(currentPrice / minorStep) * minorStep === nearestMajorAbove
+          ? nearestMajorAbove + minorStep
+          : Math.ceil(currentPrice / minorStep) * minorStep;
+        const nearestMinorBelow = Math.floor(currentPrice / minorStep) * minorStep === nearestMajorBelow
+          ? nearestMajorBelow - minorStep
+          : Math.floor(currentPrice / minorStep) * minorStep;
+        const distToMajorAbove = Math.abs(currentPrice - nearestMajorAbove) / pipInfo.pipValue;
+        const distToMajorBelow = Math.abs(currentPrice - nearestMajorBelow) / pipInfo.pipValue;
+        const distToMinorAbove = Math.abs(currentPrice - nearestMinorAbove) / pipInfo.pipValue;
+        const distToMinorBelow = Math.abs(currentPrice - nearestMinorBelow) / pipInfo.pipValue;
+        const roundNumbersBlock = `ROUND NUMBERS (institutional reference — include in TP path audit):
+  Major above: ${nearestMajorAbove.toFixed(pipInfo.decimalPlaces)} — ${distToMajorAbove.toFixed(1)} pips away
+  Minor above: ${nearestMinorAbove.toFixed(pipInfo.decimalPlaces)} — ${distToMinorAbove.toFixed(1)} pips away
+  Minor below: ${nearestMinorBelow.toFixed(pipInfo.decimalPlaces)} — ${distToMinorBelow.toFixed(1)} pips away
+  Major below: ${nearestMajorBelow.toFixed(pipInfo.decimalPlaces)} — ${distToMajorBelow.toFixed(1)} pips away`;
+
         const pdRangePips = prevDayHigh - prevDayLow;
         const pricePositionInPDRange = pdRangePips > 0
           ? ((currentPrice - prevDayLow) / pdRangePips * 100).toFixed(0)
@@ -2021,9 +2131,10 @@ SCALP DIRECTION ALIGNMENT USING H1:
             const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
             const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
             const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
+            const bodyRatio = rangePips > 0 ? Math.round((bodyPips / rangePips) * 100) : 0;
             const dateStr = c.time ? new Date(c.time * 1000).toISOString().split('T')[0] : `D-${structuralCandles.length - i}`;
             const label = i === structuralCandles.length - 1 ? ' ← PREVIOUS DAY' : '';
-            return `  ${dateStr}${label}: ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} range:${rangePips.toFixed(0)}p body:${bodyPips.toFixed(0)}p wicks:↑${upperWick.toFixed(0)}p↓${lowerWick.toFixed(0)}p`;
+            return `  ${dateStr}${label}: ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} range:${rangePips.toFixed(0)}p body:${bodyPips.toFixed(0)}p(${bodyRatio}%) wicks:↑${upperWick.toFixed(0)}p↓${lowerWick.toFixed(0)}p`;
           });
 
           // Determine D1 trend bias from the structural candles
@@ -2070,15 +2181,16 @@ INTRADAY D1 STRUCTURAL RULES:
         d1ContextPrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PREVIOUS DAY CONTEXT (${marketContext.symbol}) — INSTITUTIONAL REFERENCE LEVELS${isScalp ? ' [ADVISORY]' : ''}
+INSTITUTIONAL REFERENCE LEVELS (${marketContext.symbol})${isScalp ? ' [ADVISORY]' : ''}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Previous Day Date: ${prevDayDate}
-Previous Day High (PDH): ${prevDayHigh.toFixed(pipInfo.decimalPlaces)}
-Previous Day Low (PDL): ${prevDayLow.toFixed(pipInfo.decimalPlaces)}
+Previous Day High (PDH): ${prevDayHigh.toFixed(pipInfo.decimalPlaces)} — ${distToPDH.toFixed(1)} pips away
+Previous Day Low (PDL): ${prevDayLow.toFixed(pipInfo.decimalPlaces)} — ${distToPDL.toFixed(1)} pips away
 Previous Day Close: ${prevDayClose.toFixed(pipInfo.decimalPlaces)} (${prevDayDir} day, range: ${prevDayRange.toFixed(1)} pips)
-
+${weeklyRefBlock ? weeklyRefBlock + '\n' : ''}${roundNumbersBlock}
 Current Position: ${positionContext}
-Price vs PD Range: ${pricePositionInPDRange}% from PDL (0%=at PDL, 100%=at PDH)
+Price vs PD Range: ${pricePositionInPDRange}% from PDL (0%=at PDL, 100%=at PDH)${pwhValue !== null && pwlValue !== null ? `
+WEEKLY LEVELS RULE: PWH and PWL are the MOST SIGNIFICANT weekly liquidity reference levels. Market makers run stops above PWH and below PWL. When price is within 10 pips of PWH or PWL, include these in your TP path audit as named obstacles or potential targets. A break above PWH or below PWL with a strong body close signals institutional commitment to the weekly direction.` : ''}
 
 ${isScalp ? `SCALP PDH/PDL RULES (advisory — do not block on these alone):
 - PDH and PDL are frequent M5-scale liquidity sweep targets. Market makers hunt these levels.
@@ -2121,7 +2233,10 @@ ${intradayD1StructureBlock}
           const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
           const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
           const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
-          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
+          const totalRange = (c.high - c.low) / pipInfo.pipValue;
+          const bodyRatio = totalRange > 0 ? Math.round((bodyPips / totalRange) * 100) : 0;
+          const wickBias = upperWick > lowerWick * 1.5 ? 'upper' : lowerWick > upperWick * 1.5 ? 'lower' : 'balanced';
+          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p ratio:${bodyRatio}% wick_bias:${wickBias}`;
         });
 
         let consecutiveSameDir = 1;
@@ -2493,7 +2608,8 @@ ${tradeStyle === 'SCALP' ? `{
   "reasoning": "Your full analytical reasoning — trend context, structural space, prior rejections, timing assessment",
   "market_narrative": "Single-sentence cause-effect-destination thesis",
   "counter_thesis": "Single sentence: the primary reason this trade fails",
-  "m15_structural_confirmation": "REQUIRED — name the specific M15 level: e.g. 'M15 swing low at 1.0823', 'M15 FVG 1.0840-1.0852', 'M15 BOS above 1.0865'. Vague or null = NO_TRADE.",
+  "mi_structure": "Named structure from MICRO_INTRADAY valid structures list: OB_RETEST|FVG_ENTRY|BOS_CONTINUATION|EMA_PULLBACK|SWEEP_REVERSAL|D1_LEVEL_REACTION|H1_RANGE_EXTREME. Required for BUY/SELL — null or missing = NO_TRADE.",
+  "m15_structural_confirmation": "REQUIRED — name the specific M15 level and mi_structure type: e.g. 'M15 OB zone 1.0823–1.0831 [OB_RETEST]', 'M15 FVG 1.0840-1.0852 [FVG_ENTRY]', 'M15 BOS above 1.0865 [BOS_CONTINUATION]'. Vague or null = NO_TRADE.",
   "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "brief note on trailing plan" },
   "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null_or_price, "pullback_zone_max": null_or_price, "reasoning": "MUST use 50% DISTANCE RULE. E.g. 'Nearest resistance at 1.0870 is 15 pips above. 50% distance = ~7.5 pips. Zone: 1.0849-1.0852. Realistic ~8 pip improvement.'" },
   "override": { "type": "none", "justification": "" },
@@ -2523,6 +2639,8 @@ ${tradeStyle === 'SCALP' ? `{
   "reasoning": "Your full analytical reasoning — trend context, structural space, prior rejections, timing assessment",
   "market_narrative": "Single-sentence cause-effect-destination thesis",
   "counter_thesis": "Single sentence: the primary reason this trade fails",
+  "intraday_structure": "Named structure from INTRADAY valid structures list: H1_OB_RETEST|H1_FVG_FILL|H1_BOS_CONTINUATION|H1_CAMPAIGN_PULLBACK|H4_LEVEL_REACTION|WEEKLY_LEVEL_REVERSAL. Required for BUY/SELL — null or missing = NO_TRADE.",
+  "h1_structural_confirmation": "REQUIRED — name the specific H1 structural level and structure type: e.g. 'H1 OB zone 1.0840–1.0855 [H1_OB_RETEST]', 'H1 FVG 1.0820–1.0838 [H1_FVG_FILL]', 'H1 BOS above 1.0872 [H1_BOS_CONTINUATION]'. Vague or null = NO_TRADE.",
   "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "brief note on trailing plan after TP1 hit" },
   "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null_or_price, "pullback_zone_max": null_or_price, "reasoning": "MUST use 50% DISTANCE RULE. E.g. 'Nearest resistance at 1.0870 is 15 pips above. 50% distance = ~7.5 pips. Zone: 1.0849-1.0852. Realistic ~8 pip improvement.'" },
   "h1_move_phase": "fresh|developing|exhausted",
@@ -3252,6 +3370,28 @@ ${tradeStyle === 'SCALP' ? `{
           parsed.reasoning = (parsed.reasoning || '') + ' [GOVERNANCE BLOCK: MICRO_INTRADAY requires m15_structural_confirmation field naming a specific M15 structural level with price. Missing or vague anchor triggers NO_TRADE override.]';
         } else {
           console.log(`[Alpha Coordinator] MICRO_INTRADAY M15 anchor confirmed: "${m15Anchor}"`);
+        }
+      }
+
+      // CCIP 2026-03-07: INTRADAY requires a named H1 structural anchor.
+      // If Alpha outputs an INTRADAY BUY/SELL without populating h1_structural_confirmation,
+      // the trade is rejected. Alpha must name the exact H1 level and named structure type.
+      if (action !== 'NO_TRADE' && tradeStyle === 'INTRADAY') {
+        const h1Anchor = typeof parsed.h1_structural_confirmation === 'string'
+          ? parsed.h1_structural_confirmation.trim()
+          : null;
+        const h1AnchorIsVague = !h1Anchor ||
+          h1Anchor.length < 10 ||
+          h1Anchor.toLowerCase().includes('null') ||
+          h1Anchor.toLowerCase().includes('n/a');
+
+        if (h1AnchorIsVague) {
+          console.error('[Alpha Coordinator] INTRADAY_NO_H1_ANCHOR: Alpha output missing h1_structural_confirmation — overriding to NO_TRADE');
+          action = 'NO_TRADE';
+          parsed.action = 'NO_TRADE';
+          parsed.reasoning = (parsed.reasoning || '') + ' [GOVERNANCE BLOCK: INTRADAY requires h1_structural_confirmation field naming a specific H1 structural level with price and named structure type. Missing or vague anchor triggers NO_TRADE override.]';
+        } else {
+          console.log(`[Alpha Coordinator] INTRADAY H1 anchor confirmed: "${h1Anchor}"`);
         }
       }
 
