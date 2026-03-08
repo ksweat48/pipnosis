@@ -1642,7 +1642,7 @@ ${primaryTfConfig.label} STRUCTURE SUMMARY:
 - ${primaryTfConfig.label} Range: ${tfRangePips.toFixed(1)} pips (High: ${tfHigh.toFixed(pipInfo.decimalPlaces)}, Low: ${tfLow.toFixed(pipInfo.decimalPlaces)})
 - Consecutive same-direction ${primaryTfConfig.label} candles: ${consecutiveSameDir}
 - Last ${primaryTfConfig.label} candle: ${hasRejectionWick ? 'REJECTION WICK detected' : 'Normal candle'} (body: ${lastBody.toFixed(1)}p, upper wick: ${lastUpperWick.toFixed(1)}p, lower wick: ${lastLowerWick.toFixed(1)}p)
-- ${primaryTfConfig.label} Momentum: ${consecutiveSameDir >= 3 ? 'IMPULSIVE MOVE — ' + consecutiveSameDir + ' consecutive same-direction ' + primaryTfConfig.label + ' candles. Pullback is highly probable before continuation.' : consecutiveSameDir >= 2 ? 'Developing trend — 2 consecutive candles, monitor for continuation or pullback' : 'Mixed/consolidating — no impulsive leg detected'}
+- ${primaryTfConfig.label} Momentum: ${consecutiveSameDir >= 3 ? 'IMPULSIVE MOVE — ' + consecutiveSameDir + ' consecutive same-direction ' + primaryTfConfig.label + ' candles. Pullback is highly probable before continuation.' : consecutiveSameDir >= 2 ? 'Developing trend — 2 consecutive ' + primaryTfConfig.label + ' candles, monitor for continuation or pullback' : 'Mixed/consolidating — no impulsive leg detected on ' + primaryTfConfig.label}
 ${emaContextBlock}
 PULLBACK ASSESSMENT RULE (${primaryTfConfig.label} TIMEFRAME):
 ${consecutiveSameDir >= 3
@@ -2475,11 +2475,11 @@ MARKET DATA LEGEND — ATR FIELD REFERENCE (${marketContext.symbol})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ATR values in market context map to specific timeframes. When you reference "ATR" in move stage diagnosis, structural space requirements, and SL sizing, you are referring to the ACTIVE ATR for this session style.
 
-  marketContext.atr20  = M5 ATR (20-period)  — SCALP stop sizing reference        | Current: ${atr20Pips} pips
-  marketContext.atr    = M15 ATR (14-period)  — MICRO_INTRADAY stop sizing reference | Current: ${atrPips} pips
-  marketContext.atr100 = H4 ATR (long-period) — INTRADAY volatility regime reference | Current: ${atr100Pips !== 'N/A' ? atr100Pips + ' pips' : 'NOT POPULATED — not used for stop sizing, INTRADAY uses H1 primary ATR for SL'}
+  marketContext.atr20  = SCALP primary ATR (20-period, M5-based)    — SCALP stop sizing reference        | Current: ${atr20Pips} pips
+  marketContext.atr    = MICRO_INTRADAY primary ATR (14-period, M15-based) — MICRO_INTRADAY stop sizing reference | Current: ${atrPips} pips
+  marketContext.atr100 = INTRADAY volatility ATR (long-period, H4-based)  — INTRADAY volatility regime reference | Current: ${atr100Pips !== 'N/A' ? atr100Pips + ' pips' : 'NOT POPULATED — not used for stop sizing, INTRADAY uses H1 primary ATR for SL'}
 
-ACTIVE ATR for this session (${tradeStyle}): ${activeAtrPips} pips (using ${preferredAtrField} field)
+ACTIVE ATR for this session (${tradeStyle}): ${activeAtrPips} pips — this is your ${primaryTfConfig.label}-based ATR (using ${preferredAtrField} field)
 
 Use the ACTIVE ATR value above for all move stage calculations in this scan cycle:
   - FRESH / STARTING:  price has traveled < 0.75 × ${activeAtrPips} pips = < ${atrForStopLoss > 0 ? ((atrForStopLoss * 0.75) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin
