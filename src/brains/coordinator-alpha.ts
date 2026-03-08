@@ -1909,9 +1909,10 @@ M5 SUB-CONFIRMATION EVIDENCE (pre-computed for Alpha):
 - M5 SWEEP WICK BULL (lower wick ≥1.5x body in last 2 M5 candles): ${m5SubSweepWickBull ? 'YES — bullish absorption signal on M5' : 'NO'}
 - M5 SWEEP WICK BEAR (upper wick ≥1.5x body in last 2 M5 candles): ${m5SubSweepWickBear ? 'YES — bearish absorption signal on M5' : 'NO'}
 
-EXECUTE_NOW GATE: If a confirmed M5 candle close in your intended direction has NOT formed at the entry zone,
-your entry_mode MUST be wait_pullback. State: "Waiting for: M5 close [above/below] [level] to confirm entry."
-This requirement applies regardless of M15 structure — M5 confirmation is the MICRO_INTRADAY entry trigger standard.`;
+M5 CLOSE RULE: A confirmed M5 candle CLOSE in your intended direction at the entry zone is the MICRO_INTRADAY entry trigger standard.
+A wick, an open, or a partial move does not constitute confirmation — only a closed M5 body in your direction counts.
+Assess the pre-computed signals above: if M5 BOS or sweep wick confirmation has NOT formed, state what trigger you are waiting for and select wait_pullback.
+If M5 confirmation IS present, you may select execute_now — back your reasoning with the specific M5 signal that confirms it.`;
 
           m5SubConfirmationPrompt = `
 
@@ -1941,9 +1942,9 @@ ${m5SubEvidenceBlock}
 M5 SUB-CONFIRMATION (${marketContext.symbol}) — DATA UNAVAILABLE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 WARNING: M5 candle data could not be retrieved (${m5SubCandles?.length ?? 0} candles found, need ≥5).
-GOVERNANCE CONSEQUENCE: Without M5 confirmation data, you CANNOT select execute_now.
-Your entry_mode must be wait_pullback. State the specific M5 trigger you are waiting for.
-If you cannot define a specific M5 trigger level, return NO_TRADE.
+M5 data unavailable. State your M5 confirmation assessment and reasoning before selecting execute_now.
+If you cannot identify a specific M5 trigger level from available context, select wait_pullback and state what you are waiting for.
+If no meaningful entry case can be constructed without M5 data, return NO_TRADE.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
           console.warn(`[Alpha Coordinator] M5 sub-confirmation data insufficient for MICRO_INTRADAY (${m5SubCandles?.length ?? 0} candles)`);
@@ -1954,8 +1955,9 @@ If you cannot define a specific M5 trigger level, return NO_TRADE.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 M5 SUB-CONFIRMATION (${marketContext.symbol}) — FETCH ERROR
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-WARNING: M5 candle fetch failed. Without M5 data you CANNOT select execute_now.
-entry_mode must be wait_pullback with a specific M5 trigger level stated.
+WARNING: M5 candle fetch failed. M5 confirmation data is unavailable for this cycle.
+State your M5 confirmation assessment and reasoning. If you cannot identify a specific M5 trigger level, select wait_pullback and state what you are waiting for.
+If no meaningful entry case can be constructed without M5 data, return NO_TRADE.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         console.warn('[Alpha Coordinator] M5 sub-confirmation fetch failed (non-blocking):', error instanceof Error ? error.message : 'Unknown');
@@ -2487,7 +2489,7 @@ You MUST self-assess the following from the M5 candle data provided above:
 1. ATR PHASE: Calculate how far price has moved from the last swing point.
    - FRESH / STARTING (< 0.75x ATR): Ideal window — full confidence permitted
    - DEVELOPING (0.75-1.5x ATR): Acceptable — assess remaining runway to TP explicitly. State: "Remaining range: ~X pips to nearest structure." If runway does not support TP, tighten TP or return NO_TRADE.
-   - EXHAUSTED / EXTENDED (> 1.5x ATR): HARD BLOCK — return NO_TRADE immediately, no exceptions
+   - EXHAUSTED / EXTENDED (> 1.5x ATR): Move is extended. Assess whether a structural reversal or retest justifies entry. If no structural reason exists, NO_TRADE is the correct output.
 
 2. SUB-MODE: Identify which of these applies to the current M5 structure:
    - MOMENTUM_CONTINUATION: Fresh directional move, enter now or on first micro-pullback
@@ -2498,7 +2500,7 @@ You MUST self-assess the following from the M5 candle data provided above:
    momentum_breakout | bos_retest | ema_rejection | double_bottom | double_top |
    range_breakout | liquidity_sweep | engulfing_at_structure | trend_pullback_ema
 
-If the move is EXHAUSTED: return NO_TRADE. No exceptions.
+If the move is EXHAUSTED: reason through whether a structural setup (reversal, retest, sweep) justifies entry. State your assessment. If no structural justification exists, return NO_TRADE.
 If no named structure matches: return NO_TRADE. A directional bet without structure is not a scalp.
 
 MANDATORY JSON FIELDS — Include these regardless of action:
@@ -2540,7 +2542,7 @@ MANDATORY JSON FIELDS — Include these regardless of action:
           const phaseLabels: Record<string, string> = {
             starting: 'STARTING / FRESH (< 0.75x ATR traveled — ideal scalp window, full confidence)',
             developing: 'DEVELOPING (0.75-1.5x ATR traveled — assess remaining runway to TP explicitly; tighten TP to nearest structure if runway is insufficient)',
-            exhausted: 'EXHAUSTED / EXTENDED (> 1.5x ATR traveled — HARD BLOCK, return NO_TRADE immediately, no exceptions)',
+            exhausted: 'EXHAUSTED / EXTENDED (> 1.5x ATR traveled — move is extended beyond the scalp window. Assess: is there a structural reason to enter here? If not, NO_TRADE is the correct output)',
           };
 
           scalpIntelligencePrompt = `
@@ -2557,7 +2559,7 @@ Momentum Phase: ${phaseLabels[scalpSignal.momentumPhase ?? 'developing'] ?? scal
 ATR Traveled: ~${scalpSignal.atrTraveled?.toFixed(2) ?? 'unknown'}x ATR from last swing
 
 ${scalpSignal.momentumPhase === 'exhausted'
-  ? `HARD BLOCK — EXHAUSTED MOMENTUM: ATR traveled > 1.5x. This move is EXTENDED. Return NO_TRADE immediately. Do NOT downgrade style. Do NOT justify entry. There are no exceptions.`
+  ? `EXHAUSTED MOMENTUM: ATR traveled > 1.5x — this move is extended beyond the typical scalp window. Reason through whether a structural reversal or retest setup justifies entry at this stage. If no structural reason exists (no BOS, no sweep, no level reaction), NO_TRADE is the correct output. State your exhaustion assessment explicitly in your reasoning. Do NOT change the trade style.`
   : scalpSignal.momentumPhase === 'developing'
     ? `DEVELOPING MOMENTUM: ~${scalpSignal.atrTraveled?.toFixed(2) ?? '?'}x ATR consumed. Range is partially used. You MUST assess whether sufficient runway exists between current price and your TP. State explicitly: "Remaining runway: ~X pips to nearest structure. TP placed at [level] — the [near/far] edge of that zone." If remaining range does not support the required R:R, tighten TP to the nearest achievable structure or return NO_TRADE. Do NOT apply an arbitrary confidence penalty — reason about the runway directly.`
     : `FRESH MOMENTUM: < 0.75x ATR consumed. Full confidence permitted. Enter early in the leg.`
@@ -2623,7 +2625,7 @@ ACTIVE ATR for this session (${tradeStyle}): ${activeAtrPips} pips — this is y
 Use the ACTIVE ATR value above for all move stage calculations in this scan cycle:
   - FRESH / STARTING:  price has traveled < 0.75 × ${activeAtrPips} pips = < ${atrForStopLoss > 0 ? ((atrForStopLoss * 0.75) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin
   - DEVELOPING:        0.75–1.5 × ${activeAtrPips} pips = ${atrForStopLoss > 0 ? ((atrForStopLoss * 0.75) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'}–${atrForStopLoss > 0 ? ((atrForStopLoss * 1.5) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin
-  - EXHAUSTED:         > 1.5 × ${activeAtrPips} pips = > ${atrForStopLoss > 0 ? ((atrForStopLoss * 1.5) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin${tradeStyle === 'SCALP' ? ' → HARD BLOCK, NO_TRADE immediately' : tradeStyle === 'INTRADAY' ? ' → MANDATORY R:R recalculation required. If recalculated TP1 R:R < 1.0:1, NO_TRADE' : ' → requires explicit continuation justification with R:R recalculation'}
+  - EXHAUSTED:         > 1.5 × ${activeAtrPips} pips = > ${atrForStopLoss > 0 ? ((atrForStopLoss * 1.5) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin${tradeStyle === 'SCALP' ? ' → move is extended. Assess structural justification. If none exists, NO_TRADE' : tradeStyle === 'INTRADAY' ? ' → MANDATORY R:R recalculation required. If recalculated TP1 R:R < 1.0:1, NO_TRADE' : ' → requires explicit continuation justification with R:R recalculation'}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
 
