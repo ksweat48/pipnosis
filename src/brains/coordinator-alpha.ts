@@ -2648,7 +2648,7 @@ ${tradeStyle === 'SCALP' ? `{
         {
           model: 'gpt-4o-mini',
           temperature: 0.3,
-          max_tokens: 2500,
+          max_tokens: 4000,
           requestType: 'alpha_coordination',
           endpoint: 'alpha-coordinator'
         }
