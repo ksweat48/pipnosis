@@ -6,8 +6,18 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const supabase = getSupabaseAdmin();
 
 // Timeout configuration
+// CCIP-TIMEOUT-FIX-2026-03-08:
+// Pre-call overhead (Supabase auth + rate-limit check) consumes ~3-8 seconds.
+// With OPENAI_REQUEST_TIMEOUT_MS at 45 s, the total wall-clock budget was
+// 45 s + 8 s overhead = 53 s — exceeding the 50 s FUNCTION_TIMEOUT_MS and
+// letting Netlify's infrastructure kill the connection mid-response (hard 504).
+//
+// Fix: lower OPENAI_REQUEST_TIMEOUT_MS to 38 s so the OpenAI AbortController
+// fires before FUNCTION_TIMEOUT_MS. The function then returns a clean 504 JSON
+// body that the client can retry, rather than an infrastructure-level TCP drop.
+// Net budget: 38 s OpenAI + 8 s overhead = 46 s — 4 s clear of the 50 s limit.
 const FUNCTION_TIMEOUT_MS = 50000; // 50 seconds (Netlify Pro supports 55s)
-const OPENAI_REQUEST_TIMEOUT_MS = 45000; // 45 seconds for OpenAI API
+const OPENAI_REQUEST_TIMEOUT_MS = 38000; // 38 seconds — must fire before FUNCTION_TIMEOUT_MS minus overhead
 const RATE_LIMIT_CHECK_TIMEOUT_MS = 2000; // 2 seconds for rate limit check
 
 const MODEL_PRICING = {

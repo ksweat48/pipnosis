@@ -147,7 +147,14 @@ export const TIME_MS = {
     // CCIP-COORDINATOR-AUDIT-2026-03-03: Fresh cache threshold below which hash
     // validation is skipped. Just-created theses are validated at creation time;
     // a mismatch this early indicates a JSON serialisation artifact, not corruption.
-    FRESH_SKIP_HASH_SECONDS: 60,
+    //
+    // CCIP-CACHE-HASH-FIX-2026-03-08: Extended from 60 → 120 seconds.
+    // In multi-symbol sessions the same thesis may be retrieved 65-110 seconds
+    // after creation (second scan cycle). The 60 s window was too narrow, causing
+    // legitimate fresh theses to fail the hash check on their first retrieval.
+    // Root cause hash mismatch is also fixed separately (regimeSignature coercion),
+    // but the wider window provides an additional safety margin while DB caches warm.
+    FRESH_SKIP_HASH_SECONDS: 120,
 
     // Maximum character length for error messages stored in the audit trail.
     // Matches the column definition in cache_write_events (VARCHAR 255).

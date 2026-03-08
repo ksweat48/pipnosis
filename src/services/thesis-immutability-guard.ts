@@ -46,21 +46,29 @@ function stableStringify(obj: any): string {
 /**
  * Normalize thesis content for hash comparison
  *
- * SSOT CRITICAL FIX: Must use IDENTICAL fields as createImmutableThesis.
+ * SSOT CRITICAL FIX: Must use IDENTICAL fields AND identical value treatment as
+ * createImmutableThesis. Every field must be passed through without coercion so
+ * that the serialised string is byte-for-byte identical to the one used at
+ * creation time.
  *
- * Root cause of cache miss bug: this function previously omitted `timeframe`
- * at the top level and excluded `symbol` from within `regimeSignature`.
- * createImmutableThesis includes both, so the stored hash and the validation
- * hash never matched — permanently defeating the thesis cache.
+ * CCIP-CACHE-HASH-FIX-2026-03-08:
+ * Root cause of persistent "DB cache integrity failed" errors:
+ *   normalizeThesisForHashing coerced `regimeSignature` with `?? null`, producing
+ *   `"regimeSignature":null` in the serialised string.
+ *   createImmutableThesis passes the raw value — when it is `undefined`,
+ *   stableStringify calls JSON.stringify(undefined) which returns JS `undefined`
+ *   (not the string), causing the key to be DROPPED from the serialised object.
+ *   The two hash inputs were therefore structurally different for every thesis
+ *   whose regimeSignature was undefined, guaranteeing a permanent mismatch.
  *
- * Fix: mirror the exact field set used in createImmutableThesis:
+ * Fix: remove the `?? null` coercion so both creation and validation use the
+ * same raw value. stableStringify drops undefined-valued keys in both paths,
+ * producing identical serialisation.
+ *
+ * Mirror the exact field set used in createImmutableThesis:
  *   - symbol, timeframe, directionBias, narrative, regime
  *   - liquidityContext, invalidationLogic, confidenceBand, thesisSummary
- *   - regimeSignature (full object, passed through stableStringify for key-order safety)
- *
- * Note: liquidityContext and invalidationLogic are normalised to undefined
- * (not empty string '') to match how createImmutableThesis stores them — the
- * thesis object at creation time may hold undefined for these optional fields.
+ *   - regimeSignature (raw, no coercion — undefined keys are dropped by stableStringify)
  */
 export function normalizeThesisForHashing(thesis: AlphaMarketThesis): string {
   const stableThesis = {
@@ -73,7 +81,7 @@ export function normalizeThesisForHashing(thesis: AlphaMarketThesis): string {
     invalidationLogic: thesis.invalidationLogic,
     confidenceBand: thesis.confidenceBand,
     thesisSummary: thesis.thesisSummary,
-    regimeSignature: thesis.regimeSignature ?? null
+    regimeSignature: thesis.regimeSignature
   };
 
   return stableStringify(stableThesis);
