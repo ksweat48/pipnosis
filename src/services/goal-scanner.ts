@@ -14,6 +14,7 @@ import type { TraderScore } from './ai-identity';
 import type { MarketSnapshotData } from './market-snapshot-cache';
 import { alphaThoughtStream } from './alpha-thought-stream';
 import { creditValidationService } from './credit-validation-service';
+import { pricePollingCoordinator } from './price-polling-coordinator';
 import type { TradeSignal } from '../types/strategy';
 
 /**
@@ -83,12 +84,41 @@ export interface ScanResult {
 // Trade execution delegated to alphaTradeExecutor (SSOT)
 
 class GoalScanner {
+  /**
+   * Wait for the price polling coordinator to have at least one update.
+   * Solves the session-start race condition where the scanner fires before
+   * the first 2-second poll cycle completes and the DB has no fresh data yet.
+   * Times out after 5 seconds to avoid blocking scans indefinitely.
+   */
+  private async waitForInitialPriceData(): Promise<void> {
+    if (pricePollingCoordinator.getLatest()) return;
+
+    const MAX_WAIT_MS = 5000;
+    const CHECK_INTERVAL_MS = 200;
+    const start = Date.now();
+
+    while (Date.now() - start < MAX_WAIT_MS) {
+      await new Promise(resolve => setTimeout(resolve, CHECK_INTERVAL_MS));
+      if (pricePollingCoordinator.getLatest()) {
+        console.log(`[Goal Scanner] Price polling coordinator ready after ${Date.now() - start}ms`);
+        return;
+      }
+    }
+
+    console.warn(`[Goal Scanner] Price polling coordinator not ready after ${MAX_WAIT_MS}ms - proceeding anyway`);
+  }
+
   async scanMarket(sessionId: string, userId: string): Promise<ScanResult[]> {
     const scanStartTime = Date.now();
 
     try {
       // STEP 0: Clear old thoughts and prepare for new scan
       await alphaThoughtStream.clearScanThoughts(sessionId);
+
+      // STEP 0.5: Ensure price polling coordinator has initial data before scanning.
+      // This prevents the session-start race where preCheckFreshness runs before
+      // the first poll cycle completes (resulting in ageSeconds: Infinity blocks).
+      await this.waitForInitialPriceData();
 
       // STEP 1: Check scanning timing permissions
       const scanPermission = await scanningStateMachine.canScanNow(sessionId);

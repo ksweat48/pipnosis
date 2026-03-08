@@ -42,6 +42,7 @@ import { intelligenceFreshnessValidator, type IntelligenceData } from './intelli
 import { priceDriftDetector } from './price-drift-detector';
 import { priceFreshnessGate } from '../governance/price-freshness-gate';
 import { priceCoordinator } from './coordinators/price-coordinator';
+import { pricePollingCoordinator } from './price-polling-coordinator';
 import type { CachedOmegaIntelligence } from './shared-intelligence-coordinator';
 import type { AlphaMarketThesis } from '../types/alpha-thesis';
 import { FreshnessBlockCategory, type BlockMetadata } from '../types/freshness-block';
@@ -296,7 +297,26 @@ export class TradeExecutionFreshnessGate {
       return { shouldProceed: true };
     }
 
-    // Both DB and in-memory cache confirm stale - genuine block
+    // Tier-3 fallback: check pricePollingCoordinator in-memory store
+    // This handles the session-start race condition where DB has no data yet
+    // but the polling coordinator has already fetched prices client-side.
+    // The polling coordinator updates every 2 seconds — any price under 60s is valid.
+    const polledPrice = pricePollingCoordinator.getSymbolPrice(symbol.toUpperCase());
+    if (polledPrice) {
+      const polledAgeMs = Date.now() - new Date(polledPrice.timestamp).getTime();
+      const polledAgeSeconds = polledAgeMs / 1000;
+      const MAX_POLLED_AGE_SECONDS = 60;
+
+      if (polledAgeSeconds <= MAX_POLLED_AGE_SECONDS) {
+        logger.info(
+          LogCategory.AI_TRADING,
+          `[Freshness Gate] ✅ Pre-check PASSED via polling coordinator - polled age: ${polledAgeSeconds.toFixed(1)}s (DB was ${freshnessResult.ageSeconds}s old)`
+        );
+        return { shouldProceed: true };
+      }
+    }
+
+    // All three layers confirm stale/absent - genuine block
     const reason = freshnessResult.reason || 'Price data unavailable or critically stale';
     logger.error(
       LogCategory.AI_TRADING,
