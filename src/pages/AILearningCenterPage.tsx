@@ -89,7 +89,7 @@ function AILearningCenterPage() {
             </div>
           </div>
 
-          <div className="space-y-4 md:space-y-6">
+          <div className="space-y-4 md:space-y-6 pb-24">
             {activeTab === 'alpha-brain' && (
               <AlphaBrainDashboard userId={user.id} />
             )}

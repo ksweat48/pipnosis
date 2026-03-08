@@ -142,7 +142,7 @@ export class TradeClosureEventProcessor {
       try {
         const { data: fullTrade, error: fetchError } = await supabase
           .from('goal_session_trades')
-          .select('direction, entry_price, exit_price, stop_loss, take_profit, created_at, closed_at, tp1_hit, tp2_hit, trade_style, timeframe')
+          .select('direction, entry_price, exit_price, stop_loss, take_profit, created_at, closed_at, tp1_hit, tp2_hit, trade_style, timeframe, planned_entry_price')
           .eq('id', event.trade_id)
           .maybeSingle();
 
@@ -173,6 +173,7 @@ export class TradeClosureEventProcessor {
           tp2Hit: fullTrade?.tp2_hit === true,
           tradeStyle: fullTrade?.trade_style ?? null,
           timeframe: fullTrade?.timeframe ?? null,
+          plannedEntryPrice: fullTrade?.planned_entry_price ?? null,
           // SSOT: alpha_strategy_memory.session_id stores the goal_session_id UUID as text.
           // Passing it here lets the post-trade analyzer call resolve_strategy_for_trade
           // to atomically update the correct strategy record with this trade outcome.

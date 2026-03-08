@@ -53,6 +53,7 @@ interface TradeData {
   peakProfit?: number | null;
   tradeStyle?: string | null;
   timeframe?: string | null;
+  plannedEntryPrice?: number | null;
   /**
    * SSOT: The goal session scan session_id (text UUID stored in alpha_strategy_memory.session_id).
    * Required to resolve which strategy record to update after trade closure.
@@ -984,24 +985,58 @@ class PostTradeAnalyzer {
    */
   private async logExecutionQuality(tradeData: TradeData, journalEntry: any): Promise<void> {
     try {
-      // Detect SL hunting
+      const actualEntry = tradeData.entryPrice ?? 0;
+      const plannedEntry = tradeData.plannedEntryPrice ?? actualEntry;
+
+      const slippagePips = this.calculateSlippagePips(
+        tradeData.symbol,
+        tradeData.direction ?? 'buy',
+        plannedEntry,
+        actualEntry
+      );
+
       const slHunting = this.didHitStopLoss(tradeData) && tradeData.pnl < 0;
 
       await supabase.from('execution_quality_log').insert({
         user_id: tradeData.userId,
         symbol: tradeData.symbol,
         trade_id: tradeData.id,
-        entry_time: tradeData.entryTime ? tradeData.entryTime.toISOString() : new Date().toISOString(),
-        slippage_pips: 0, // Would need real-time tracking
+        goal_session_id: tradeData.sessionId ?? null,
+        session: this.determineSession(tradeData.entryTime || new Date()),
+        expected_entry: plannedEntry,
+        actual_entry: actualEntry,
+        slippage_pips: slippagePips,
+        expected_sl: tradeData.stopLoss ?? null,
+        actual_sl_hit: this.didHitStopLoss(tradeData) ? tradeData.stopLoss ?? null : null,
         sl_hunting_suspected: slHunting,
         spread_at_entry: 0,
         spread_at_exit: 0,
-        rejection_occurred: false,
-        session: this.determineSession(tradeData.entryTime || new Date())
+        rejection_occurred: false
       });
     } catch (error) {
       logger.error('[Post-Trade Analyzer] Error logging execution quality:', error);
     }
+  }
+
+  private calculateSlippagePips(
+    symbol: string,
+    direction: 'buy' | 'sell',
+    plannedEntry: number,
+    actualEntry: number
+  ): number {
+    if (plannedEntry === 0 || actualEntry === 0) return 0;
+
+    const rawDiff = actualEntry - plannedEntry;
+
+    let pipSize = 0.0001;
+    if (symbol.includes('JPY')) pipSize = 0.01;
+    else if (symbol === 'XAUUSD') pipSize = 0.1;
+    else if (symbol === 'XAGUSD') pipSize = 0.001;
+    else if (symbol === 'US30' || symbol === 'NAS100' || symbol === 'SPX500') pipSize = 1;
+    else if (symbol === 'BTCUSD' || symbol === 'ETHUSD') pipSize = 1;
+
+    const slippage = direction === 'buy' ? rawDiff / pipSize : -rawDiff / pipSize;
+    return Math.abs(parseFloat(slippage.toFixed(2)));
   }
 
   /**
