@@ -1942,9 +1942,9 @@ ${m5SubEvidenceBlock}
 M5 SUB-CONFIRMATION (${marketContext.symbol}) — DATA UNAVAILABLE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 WARNING: M5 candle data could not be retrieved (${m5SubCandles?.length ?? 0} candles found, need ≥5).
-M5 data unavailable. State your M5 confirmation assessment and reasoning before selecting execute_now.
-If you cannot identify a specific M5 trigger level from available context, select wait_pullback and state what you are waiting for.
-If no meaningful entry case can be constructed without M5 data, return NO_TRADE.
+GOVERNANCE CONSEQUENCE: Without M5 confirmation data, you CANNOT select execute_now.
+Your entry_mode must be wait_pullback. State the specific M5 trigger you are waiting for.
+If you cannot define a specific M5 trigger level, return NO_TRADE.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
           console.warn(`[Alpha Coordinator] M5 sub-confirmation data insufficient for MICRO_INTRADAY (${m5SubCandles?.length ?? 0} candles)`);
@@ -1955,9 +1955,9 @@ If no meaningful entry case can be constructed without M5 data, return NO_TRADE.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 M5 SUB-CONFIRMATION (${marketContext.symbol}) — FETCH ERROR
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-WARNING: M5 candle fetch failed. M5 confirmation data is unavailable for this cycle.
-State your M5 confirmation assessment and reasoning. If you cannot identify a specific M5 trigger level, select wait_pullback and state what you are waiting for.
-If no meaningful entry case can be constructed without M5 data, return NO_TRADE.
+WARNING: M5 candle fetch failed. Without M5 data you CANNOT select execute_now.
+entry_mode must be wait_pullback with a specific M5 trigger level stated.
+If you cannot define a specific M5 trigger level, return NO_TRADE.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         console.warn('[Alpha Coordinator] M5 sub-confirmation fetch failed (non-blocking):', error instanceof Error ? error.message : 'Unknown');
