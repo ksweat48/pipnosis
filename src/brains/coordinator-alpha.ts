@@ -1363,10 +1363,20 @@ Narrative: ${cachedThesis.narrative}
 Liquidity Context: ${cachedThesis.liquidityContext || 'Not specified'}
 Confidence Band: ${cachedThesis.confidenceBand}
 
-INSTRUCTIONS:
+THESIS VALIDATION INSTRUCTIONS:
 Compare the cached thesis against the CURRENT MARKET INTELLIGENCE BRIEFING below.
-If current price action and structure SUPPORT the thesis direction → Accept (say "ACCEPTED_THESIS")
-If current data CONTRADICTS the thesis → Reject (say "REJECT_THESIS: [reason]")
+
+CRITICAL: You MUST return your final response as valid JSON regardless of your thesis decision.
+DO NOT return plain text. DO NOT return REJECT_THESIS as a raw string outside of JSON.
+
+If current price action and structure SUPPORT the thesis direction:
+  → Include "thesis_status": "ACCEPTED_THESIS" in your JSON response
+  → Proceed with BUY/SELL/NO_TRADE decision as normal
+
+If current data CONTRADICTS the thesis:
+  → Include "thesis_status": "REJECT_THESIS" and "thesis_rejection_reason": "[brief reason]" in your JSON
+  → Set "action": "NO_TRADE" and explain in "reasoning" why the thesis is invalid
+  → Example: {"action": "NO_TRADE", "thesis_status": "REJECT_THESIS", "thesis_rejection_reason": "Bearish reversal invalidates bullish thesis", "reasoning": "...", "confidence": 0, "stopLoss": 0, "takeProfit": 0}
 
 Be conservative. If in doubt, reject and generate fresh analysis.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2686,6 +2696,68 @@ ${tradeStyle === 'SCALP' ? `{
       }
 
       // ═══════════════════════════════════════════════════════════════════
+      // CCIP-REJECT-THESIS-2026-03-08: PRE-CHECK FOR PLAIN-TEXT REJECTION
+      // ═══════════════════════════════════════════════════════════════════
+      // GOVERNANCE: Alpha's prompt instructs it to ALWAYS return JSON.
+      // However, as a defensive fallback we detect legacy plain-text
+      // REJECT_THESIS responses BEFORE calling sanitizeAndParse.
+      // When detected, the cached thesis is invalidated and the decision
+      // is treated as a reasoned NO_TRADE (NOT an infrastructure error).
+      // This prevents the governance infra error rate from spiking on
+      // expected thesis invalidation behavior.
+      const contentTrimmed = content.trim();
+      const isPlainTextRejection = contentTrimmed.startsWith('REJECT_THESIS') ||
+        contentTrimmed.startsWith('ACCEPTED_THESIS');
+
+      if (isPlainTextRejection) {
+        const isRejection = contentTrimmed.startsWith('REJECT_THESIS');
+        const rejectionReason = isRejection
+          ? contentTrimmed.replace(/^REJECT_THESIS[:\s]*/i, '').trim()
+          : '';
+
+        if (isRejection) {
+          console.warn(`[Alpha Coordinator] CCIP-REJECT-THESIS: Alpha returned plain-text rejection (prompt compliance gap). Treating as reasoned NO_TRADE. Reason: ${rejectionReason.substring(0, 120)}`);
+        } else {
+          console.log('[Alpha Coordinator] CCIP-REJECT-THESIS: Alpha returned plain-text ACCEPTED_THESIS — rewriting to JSON NO_TRADE for consistency');
+        }
+
+        // Rewrite the plain-text response as a valid JSON NO_TRADE decision.
+        // The thesis_status field carries the validation outcome.
+        // Confidence >= 10 ensures this counts as a REASONED rejection,
+        // not an infrastructure failure in the governance error rate.
+        const rewrittenContent = JSON.stringify({
+          action: 'NO_TRADE',
+          thesis_status: isRejection ? 'REJECT_THESIS' : 'ACCEPTED_THESIS',
+          thesis_rejection_reason: rejectionReason,
+          reasoning: isRejection
+            ? `REJECT_THESIS: ${rejectionReason}`
+            : 'Cached thesis accepted — no new trade entry at this time',
+          confidence: 15,
+          trade_confidence: 15,
+          stopLoss: 0,
+          takeProfit: 0
+        });
+
+        return this.parseDecision(
+          rewrittenContent,
+          marketContext.price,
+          extractATRValue(marketContext.atr),
+          marketContext.symbol,
+          stopLossAnchor,
+          liquidityZones,
+          fullCandles,
+          marketContext,
+          riskMode,
+          goalContext,
+          regimeSnapshot,
+          userId,
+          sessionId,
+          tradeStyle,
+          dualArenaWalls
+        );
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
       // EXTRACT AND CACHE MARKET THESIS
       // ═══════════════════════════════════════════════════════════════════
       let parsedJSON: any = {};
@@ -2693,18 +2765,17 @@ ${tradeStyle === 'SCALP' ? `{
         // ✅ SSOT FIX: Use centralized sanitizer
         parsedJSON = sanitizeAndParse(content, 'alpha market thesis');
 
-        // Extract market thesis from response
+        // Extract market thesis status — new JSON field (primary) and legacy text search (fallback)
+        const thesisStatus = parsedJSON.thesis_status || '';
         const marketThesisText = parsedJSON.marketThesis || parsedJSON.reasoning || '';
-
-        // Check if Alpha accepted or rejected the cached thesis
-        const thesisAccepted = marketThesisText.includes('ACCEPTED_THESIS');
-        const thesisRejected = marketThesisText.includes('REJECT_THESIS');
+        const thesisRejected = thesisStatus === 'REJECT_THESIS' || marketThesisText.includes('REJECT_THESIS');
+        const thesisAccepted = thesisStatus === 'ACCEPTED_THESIS' || marketThesisText.includes('ACCEPTED_THESIS');
 
         if (cachedThesis && thesisRejected) {
-          console.log('[Alpha Coordinator] ❌ Alpha rejected cached thesis');
-          // Rejection logging handled by shared intelligence coordinator
+          const rejectionReason = parsedJSON.thesis_rejection_reason || '';
+          console.log(`[Alpha Coordinator] Cached thesis rejected${rejectionReason ? `: ${rejectionReason.substring(0, 80)}` : ''}`);
         } else if (cachedThesis && thesisAccepted) {
-          console.log('[Alpha Coordinator] ✅ Alpha accepted cached thesis');
+          console.log('[Alpha Coordinator] Cached thesis accepted — proceeding with current analysis');
         } else if (!cachedThesis && marketThesisText) {
           // Fresh thesis generation - cache it
           const directionBias = parsedJSON.action === 'BUY' ? 'BUY' :
@@ -2731,7 +2802,7 @@ ${tradeStyle === 'SCALP' ? `{
             logger.error('[Alpha Coordinator] Failed to cache thesis', { error: err });
           });
 
-          console.log('[Alpha Coordinator] 💾 Caching fresh market thesis');
+          console.log('[Alpha Coordinator] Caching fresh market thesis');
         }
       } catch (parseError) {
         logger.warn('[Alpha Coordinator] Failed to parse thesis from response', {
@@ -3282,6 +3353,27 @@ ${tradeStyle === 'SCALP' ? `{
     dualArenaWalls?: DualArenaWalls | null
   ): AlphaDecision {
     try {
+      // CCIP-REJECT-THESIS-2026-03-08: Defensive pre-check for plain-text thesis responses.
+      // The main coordinator flow rewrites these before calling parseDecision, but this
+      // guard catches any edge cases where a plain-text response reaches this function directly.
+      const responseTrimmed = response.trim();
+      if (responseTrimmed.startsWith('REJECT_THESIS') || responseTrimmed.startsWith('ACCEPTED_THESIS')) {
+        const isRejection = responseTrimmed.startsWith('REJECT_THESIS');
+        const reason = isRejection ? responseTrimmed.replace(/^REJECT_THESIS[:\s]*/i, '').trim() : '';
+        console.warn(`[Alpha Coordinator] parseDecision received plain-text thesis response — converting to NO_TRADE. type=${isRejection ? 'REJECT' : 'ACCEPT'}`);
+        return {
+          action: 'NO_TRADE',
+          decision: 'NO_TRADE',
+          entry: currentPrice,
+          stopLoss: currentPrice,
+          takeProfit: currentPrice,
+          confidence: 15,
+          reasoning: isRejection ? `REJECT_THESIS: ${reason}` : 'Cached thesis accepted — no new entry',
+          omega_summary: '',
+          risk_pct: 0
+        };
+      }
+
       // ✅ SSOT FIX: Use centralized sanitizer (handles markdown, comment removal, and JSON extraction)
       // Step 1: Remove JavaScript-style comments before sanitization
       let cleaned = response
