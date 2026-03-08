@@ -690,10 +690,9 @@ class GoalSessionLiveEngine {
         // Non-fatal: Continue with snapshot building
       }
 
-      // Use risk mode directly from config (SSOT: 'low' | 'medium' | 'high')
-      const riskMode = config?.riskMode || 'medium';
-
-      const snapshotResult = await multiSymbolSnapshotBuilder.buildSnapshots(openMarketSymbols, riskMode);
+      // CCIP-STYLE-TF-2026: Pass tradeStyle as the SSOT for timeframe selection.
+      // riskMode controls financial exposure only — snapshot builder derives timeframe from style.
+      const snapshotResult = await multiSymbolSnapshotBuilder.buildSnapshots(openMarketSymbols, config?.tradeStyle);
       console.log('%c[MULTI-SYMBOL] ✅ Snapshots built in ' + (Date.now() - snapshotStartTime) + 'ms', 'color: #4caf50; font-weight: bold');
       console.log('[MULTI-SYMBOL] Snapshot result:', {
         totalSnapshots: snapshotResult.snapshots.length,

@@ -18,6 +18,7 @@ import type { RegimeSnapshot } from './regime-oracle';
 import type { AdversarialSignal } from './adversarial-detector';
 import { logger } from '../lib/logger';
 import type { ATRValue } from '../types/atr';
+import { resolveCanonicalStyle, getStyleMTFConfig } from '../config/timeframe-hierarchy';
 
 /**
  * Market snapshot for a single symbol
@@ -74,10 +75,11 @@ export interface MultiSymbolSnapshotResult {
 }
 
 class MultiSymbolSnapshotBuilder {
-  private readonly TIMEFRAME = 'H1'; // Goal-mode default timeframe
-
   /**
    * ✅ SSOT COMPLIANT: Build snapshots using MarketSnapshotCache
+   *
+   * CCIP-STYLE-TF-2026: tradeStyle is the authoritative source for entry timeframe.
+   * riskMode parameter has been removed — it only controls financial exposure.
    *
    * Benefits:
    * - Shares cache with goal-scanner and alpha-omega-orchestrator
@@ -87,14 +89,17 @@ class MultiSymbolSnapshotBuilder {
    */
   async buildSnapshots(
     symbols: string[],
-    riskMode: 'low' | 'medium' | 'high' = 'medium'
+    tradeStyle?: string
   ): Promise<MultiSymbolSnapshotResult> {
-    console.log(`[Multi-Symbol] Building snapshots for ${symbols.length} symbols using cache...`);
+    const canonicalStyle = resolveCanonicalStyle(tradeStyle, 'MICRO_INTRADAY');
+    const timeframe = getStyleMTFConfig(canonicalStyle).entryTimeframe;
+
+    console.log(`[Multi-Symbol] Building snapshots for ${symbols.length} symbols using cache... Style: ${canonicalStyle} -> TF: ${timeframe}`);
     const startTime = Date.now();
 
     // ✅ Use MarketSnapshotCache for all symbols (parallel)
     const snapshotPromises = symbols.map(symbol =>
-      sharedIntelligenceCoordinator.getMarketSnapshot(symbol, this.TIMEFRAME, riskMode)
+      sharedIntelligenceCoordinator.getMarketSnapshot(symbol, timeframe)
         .then(snapshot => snapshot ? this.convertToSymbolSnapshot(snapshot) : null)
         .catch(error => {
           console.error(`[Multi-Symbol] Failed to build snapshot for ${symbol}:`, error.message);

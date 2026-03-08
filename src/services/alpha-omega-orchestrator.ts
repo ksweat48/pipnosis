@@ -36,7 +36,7 @@ import type { AggregatedSentiment } from './sentiment-aggregator';
 import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator';
 import type { MarketSnapshotData } from './market-snapshot-cache';
 import { tradeExecutionFreshnessGate, type ExecutionContext } from './trade-execution-freshness-gate';
-import { getMTFConfig, type Timeframe, type RiskMode } from '../config/timeframe-hierarchy';
+import { getMTFConfig, getStyleMTFConfig, resolveCanonicalStyle, type Timeframe, type RiskMode } from '../config/timeframe-hierarchy';
 import { getConfidencePenaltyCap } from '../config/trade-constraints';
 import { createTradeContext, type TradeContext } from '../utils/tradeMath';
 import { validatePreFlight, createBlockedDecision } from './ssot-preflight-guard';
@@ -171,21 +171,14 @@ class AlphaOmegaOrchestrator {
 
     console.log('[Alpha+Omega] ✅ SSOT pre-flight passed - TradeContext validated');
 
-    // SSOT: Get dynamic timeframe based on risk mode BEFORE any usage
+    // CCIP-STYLE-TF-2026: Style is the SSOT for entry timeframe.
+    // Risk mode controls financial exposure only — never timeframe or style selection.
     const riskMode: RiskMode = goalContext?.riskMode || 'medium';
-    const mtfConfig = getMTFConfig(riskMode);
-    const entryTimeframe: Timeframe = mtfConfig.entryTimeframe;
-    console.log(`[Alpha+Omega] Risk Mode: ${riskMode.toUpperCase()} -> Entry Timeframe: ${entryTimeframe}`);
-
-    // Resolve tradeStyle for style-aware Omega council specialists
-    const ORCHESTRATOR_STYLE_MAP: Record<string, 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'> = {
-      'scalp': 'SCALP',
-      'micro_intraday': 'MICRO_INTRADAY',
-      'intraday': 'INTRADAY'
-    };
-    const resolvedOmegaStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' =
-      (goalContext?.tradeStyle ? ORCHESTRATOR_STYLE_MAP[goalContext.tradeStyle.toLowerCase()] : undefined) || 'SCALP';
-    console.log(`[Alpha+Omega] Omega council style: ${resolvedOmegaStyle} (goalContext.tradeStyle=${goalContext?.tradeStyle || 'not set'})`);
+    const resolvedOmegaStyle = resolveCanonicalStyle(goalContext?.tradeStyle, 'SCALP');
+    const styleMTFConfig = getStyleMTFConfig(resolvedOmegaStyle);
+    const entryTimeframe: Timeframe = styleMTFConfig.entryTimeframe;
+    console.log(`[Alpha+Omega] Trade Style: ${resolvedOmegaStyle} (raw: ${goalContext?.tradeStyle || 'not set'}) -> Entry Timeframe: ${entryTimeframe}`);
+    console.log(`[Alpha+Omega] Risk Mode: ${riskMode.toUpperCase()} (financial exposure only — does not affect timeframe)`);
 
     // Capture signal price and timestamp at analysis time (for drift detection)
     const signalPrice = marketState.price;
@@ -266,8 +259,7 @@ class AlphaOmegaOrchestrator {
     try {
       snapshot = await sharedIntelligenceCoordinator.getMarketSnapshot(
         marketState.symbol,
-        entryTimeframe,
-        riskMode
+        entryTimeframe
       );
       console.log(`[Alpha+Omega] 📊 Snapshot SSOT: ${snapshot.snapshotHash}`);
       console.log(`  Price: ${snapshot.price.toFixed(5)} | ATR: ${snapshot.atr.value.toFixed(5)} | Trend: ${snapshot.trend}`);

@@ -19,7 +19,7 @@
  */
 
 import { computeOmegaSensors, type OmegaSensors, type Candle } from './omega-sensors';
-import { getMTFConfig, type Timeframe, type RiskMode } from '../config/timeframe-hierarchy';
+import { type Timeframe } from '../config/timeframe-hierarchy';
 import { regimeOracle, type RegimeSnapshot } from './regime-oracle';
 import { adversarialDetector, type AdversarialSignal } from './adversarial-detector';
 import { createATRValue, type ATRValue, type ATRTimeframe } from '../types/atr';
@@ -129,16 +129,16 @@ class MarketSnapshotCache {
 
   /**
    * Get or build market snapshot (SSOT)
-   * All Omegas for this symbol/timeframe will receive the SAME snapshot
+   * All Omegas for this symbol/timeframe will receive the SAME snapshot.
+   *
+   * CCIP-STYLE-TF-2026: The caller MUST pass the style-derived timeframe.
+   * riskMode no longer overrides timeframe — risk controls financial exposure only.
    */
   async getSnapshot(
     symbol: string,
-    timeframe: Timeframe,
-    riskMode?: RiskMode
+    timeframe: Timeframe
   ): Promise<MarketSnapshotData> {
-    const effectiveTimeframe = riskMode
-      ? getMTFConfig(riskMode).entryTimeframe
-      : timeframe;
+    const effectiveTimeframe = timeframe;
 
     const cacheKey = generateCacheKey(symbol, effectiveTimeframe);
     const now = Date.now();

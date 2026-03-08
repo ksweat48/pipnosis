@@ -38,7 +38,7 @@ import {
   detectRegimeChange
 } from './cache-key-generator';
 import { marketSnapshotCache, type MarketSnapshotData } from './market-snapshot-cache';
-import type { Timeframe, RiskMode } from '../config/timeframe-hierarchy';
+import type { Timeframe } from '../config/timeframe-hierarchy';
 import type {
   AlphaMarketThesis,
   RegimeSignature
@@ -94,14 +94,16 @@ class SharedIntelligenceCoordinator {
 
   /**
    * Get market snapshot (SSOT for inputs)
-   * All Omegas will receive the SAME snapshot
+   * All Omegas will receive the SAME snapshot.
+   *
+   * CCIP-STYLE-TF-2026: Caller must pass the style-derived timeframe.
+   * riskMode has been removed — it no longer overrides timeframe selection.
    */
   async getMarketSnapshot(
     symbol: string,
-    timeframe: Timeframe,
-    riskMode?: RiskMode
+    timeframe: Timeframe
   ): Promise<MarketSnapshotData> {
-    return marketSnapshotCache.getSnapshot(symbol, timeframe, riskMode);
+    return marketSnapshotCache.getSnapshot(symbol, timeframe);
   }
 
   /**

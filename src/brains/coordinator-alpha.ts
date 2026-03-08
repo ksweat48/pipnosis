@@ -126,6 +126,7 @@ import { alphaGeometryValidator } from '../services/alpha-geometry-validator';
 import { getExecutionEnvelope, getAssetClassEnvelopeBounds, validateTPSLAgainstEnvelope, type EnvelopeAssetClass } from '../config/style-execution-envelopes';
 import { TRADING_CONSTANTS, getMinRRForStyle, getMinTP1RRForStyle } from '../config/trading-constants';
 import { wallCalibrationEngine } from '../services/wall-calibration-engine';
+import { resolveCanonicalStyle } from '../config/timeframe-hierarchy';
 
 /**
  * Helper: Determine asset class from symbol
@@ -542,15 +543,10 @@ class AlphaCoordinatorBrain {
     // Declare risk mode at function scope (used throughout function)
     const riskMode = goalContext?.riskMode || 'medium';
 
-    const EARLY_STYLE_MAP: Record<string, 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'> = {
-      'scalper': 'SCALP', 'SCALPER': 'SCALP', 'scalp': 'SCALP', 'SCALP': 'SCALP',
-      'micro': 'MICRO_INTRADAY', 'MICRO': 'MICRO_INTRADAY', 'MICRO_INTRADAY': 'MICRO_INTRADAY',
-      'intraday': 'INTRADAY', 'INTRADAY': 'INTRADAY', 'day': 'INTRADAY',
-    };
-    const resolvedTradeStyle = goalContext?.tradeStyle ? EARLY_STYLE_MAP[goalContext.tradeStyle] : undefined;
-    const tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = resolvedTradeStyle || 'SCALP';
+    // CCIP-STYLE-TF-2026: Use SSOT resolver from timeframe-hierarchy.ts (single alias map for entire system)
+    const tradeStyle = resolveCanonicalStyle(goalContext?.tradeStyle, 'SCALP');
 
-    if (!resolvedTradeStyle) {
+    if (!goalContext?.tradeStyle) {
       console.warn(`[Alpha Coordinator] No tradeStyle provided in goalContext — defaulting to SCALP. Active style: SCALP. Symbol: ${marketContext.symbol}`);
     }
 
@@ -861,7 +857,7 @@ class AlphaCoordinatorBrain {
 
         patternIntelligence = await multiTimeframePatternIntelligence.analyzePatterns({
           symbol: marketContext.symbol,
-          riskMode,
+          tradeStyle,
           baseConfidence: 55,
           tradeDirection,
           liquidityIntentConfirms: liquidityIntent ? liquidityIntent.overallConviction >= 70 : false,

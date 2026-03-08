@@ -12,12 +12,15 @@ import { patternIntentClassifier, type MultiTimeframeIntentAnalysis } from './pa
 import { patternConfidenceAdjuster, type ConfidenceAdjustment, type PatternConfidenceInput } from './pattern-confidence-adjuster';
 import { fetchPreAggregatedCandles, type CandleData } from './candle-data-service';
 import { logger } from '../lib/logger';
-import type { RiskMode } from '../config/timeframe-hierarchy';
-import { getMTFConfig } from '../config/timeframe-hierarchy';
+import { getStyleMTFConfig, resolveCanonicalStyle } from '../config/timeframe-hierarchy';
 
 export interface PatternIntelligenceInput {
   symbol: string;
-  riskMode: RiskMode;
+  /**
+   * CCIP-STYLE-TF-2026: tradeStyle is the authoritative source for timeframe selection.
+   * riskMode has been removed — it only controls financial exposure, not analysis timeframes.
+   */
+  tradeStyle: string;
   baseConfidence: number;
   tradeDirection: 'long' | 'short';
   liquidityIntentConfirms?: boolean;
@@ -85,12 +88,13 @@ class MultiTimeframePatternIntelligence {
 
     logger.info('[MTF Pattern Intelligence] Starting fresh analysis', {
       symbol: input.symbol,
-      riskMode: input.riskMode,
+      tradeStyle: input.tradeStyle,
       direction: input.tradeDirection,
     });
 
-    // Get timeframes for risk mode
-    const config = getMTFConfig(input.riskMode);
+    // CCIP-STYLE-TF-2026: Derive timeframes from trade style, not risk mode
+    const canonicalStyle = resolveCanonicalStyle(input.tradeStyle, 'SCALP');
+    const config = getStyleMTFConfig(canonicalStyle);
 
     // Fetch candles for all three layers with retry logic
     const [htfCandles, mtfCandles, ltfCandles] = await Promise.all([
@@ -116,7 +120,7 @@ class MultiTimeframePatternIntelligence {
     if (!dataCompleteness.htfComplete || !dataCompleteness.mtfComplete || !dataCompleteness.ltfComplete) {
       logger.warn('[MTF Pattern Intelligence] Incomplete candle data for one or more layers', {
         symbol: input.symbol,
-        riskMode: input.riskMode,
+        tradeStyle: input.tradeStyle,
         htf: `${htfCandles.length}/${MTF_MIN_CANDLES.HTF} (${config.contextTimeframe})`,
         mtf: `${mtfCandles.length}/${MTF_MIN_CANDLES.MTF} (${config.trendTimeframe})`,
         ltf: `${ltfCandles.length}/${MTF_MIN_CANDLES.LTF} (${config.entryTimeframe})`,
@@ -447,7 +451,7 @@ class MultiTimeframePatternIntelligence {
   }
 
   private getCacheKey(input: PatternIntelligenceInput): string {
-    return `${input.symbol}_${input.riskMode}_${input.tradeDirection}_${input.baseConfidence}`;
+    return `${input.symbol}_${input.tradeStyle}_${input.tradeDirection}_${input.baseConfidence}`;
   }
 
   private getFromCache(key: string): PatternIntelligenceResult | null {

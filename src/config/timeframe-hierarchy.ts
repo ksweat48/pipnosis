@@ -18,6 +18,13 @@ export type RiskMode = 'low' | 'medium' | 'high';
 
 export type AnalysisDepth = 'quick' | 'moderate' | 'deep';
 
+/**
+ * CCIP-STYLE-TF-2026: Canonical trade style type.
+ * Style is the SSOT for entry timeframe selection.
+ * Risk mode controls financial exposure ONLY — never timeframe or style selection.
+ */
+export type CanonicalTradeStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+
 export const ALL_TIMEFRAMES: readonly Timeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'] as const;
 
 export const TIMEFRAME_MINUTES: Record<Timeframe, number> = {
@@ -219,6 +226,55 @@ export function getTimeframeHierarchy(riskMode: RiskMode): TimeframeHierarchy {
 
 export function getMTFConfig(riskMode: RiskMode): MultiTimeframeConfig {
   return MTF_ANALYSIS_CONFIGS[riskMode];
+}
+
+/**
+ * CCIP-STYLE-TF-2026: Style-driven MTF configuration (SSOT).
+ *
+ * Trade style is the authoritative source for which timeframes to analyze.
+ * Risk mode MUST NOT influence timeframe selection — it only controls financial exposure.
+ *
+ * SCALP:          Entry M5  | Trend M15 | Context H1
+ * MICRO_INTRADAY: Entry M15 | Trend H1  | Context H4
+ * INTRADAY:       Entry H1  | Trend H4  | Context D1
+ */
+export const STYLE_MTF_CONFIGS: Record<CanonicalTradeStyle, MultiTimeframeConfig> = {
+  SCALP:          { entryTimeframe: 'M5',  trendTimeframe: 'M15', contextTimeframe: 'H1'  },
+  MICRO_INTRADAY: { entryTimeframe: 'M15', trendTimeframe: 'H1',  contextTimeframe: 'H4'  },
+  INTRADAY:       { entryTimeframe: 'H1',  trendTimeframe: 'H4',  contextTimeframe: 'D1'  },
+} as const;
+
+export function getStyleMTFConfig(tradeStyle: CanonicalTradeStyle): MultiTimeframeConfig {
+  return STYLE_MTF_CONFIGS[tradeStyle];
+}
+
+/**
+ * CCIP-STYLE-ALIAS-2026: Resolves any user-facing or legacy style string to CanonicalTradeStyle.
+ * This is the SSOT style resolver — all components must use this instead of local maps.
+ *
+ * Aliases covered:
+ *   SCALP:          'scalp', 'scalper', 'SCALP', 'SCALPER'
+ *   MICRO_INTRADAY: 'micro', 'micro_intraday', 'MICRO', 'MICRO_INTRADAY'
+ *   INTRADAY:       'intraday', 'day', 'INTRADAY', 'DAY'
+ */
+const CANONICAL_STYLE_ALIAS_MAP: Record<string, CanonicalTradeStyle> = {
+  'scalp': 'SCALP',
+  'scalper': 'SCALP',
+  'SCALP': 'SCALP',
+  'SCALPER': 'SCALP',
+  'micro': 'MICRO_INTRADAY',
+  'micro_intraday': 'MICRO_INTRADAY',
+  'MICRO': 'MICRO_INTRADAY',
+  'MICRO_INTRADAY': 'MICRO_INTRADAY',
+  'intraday': 'INTRADAY',
+  'day': 'INTRADAY',
+  'INTRADAY': 'INTRADAY',
+  'DAY': 'INTRADAY',
+};
+
+export function resolveCanonicalStyle(tradeStyle?: string | null, defaultStyle: CanonicalTradeStyle = 'SCALP'): CanonicalTradeStyle {
+  if (!tradeStyle) return defaultStyle;
+  return CANONICAL_STYLE_ALIAS_MAP[tradeStyle] ?? CANONICAL_STYLE_ALIAS_MAP[tradeStyle.toLowerCase()] ?? defaultStyle;
 }
 
 export function getPrimaryTimeframe(riskMode: RiskMode): Timeframe {
