@@ -41,7 +41,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { calculateSessionContext, getForexMarketStatus } from '@/utils/marketHours';
+import { calculateSessionContext, getForexMarketStatus, isCryptoSymbol } from '@/utils/marketHours';
 import { supabase } from '@/lib/supabase';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -733,9 +733,13 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
   }, [sessionId]);
 
   // Derive per-style counts for tab badges
+  const visibleRows = isForexMarketClosed
+    ? preScreenRows.filter((r) => isCryptoSymbol(r.symbol))
+    : preScreenRows;
+
   const getTabCounts = () => {
     const counts: Record<string, number> = { SCALP: 0, MICRO_INTRADAY: 0, INTRADAY: 0 };
-    for (const row of preScreenRows) {
+    for (const row of visibleRows) {
       if (row.readiness_tier === 'GREEN' || row.readiness_tier === 'YELLOW') {
         if (counts[row.style] !== undefined) counts[row.style]++;
       }
@@ -744,9 +748,9 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
   };
 
   const tabCounts = getTabCounts();
-  const totalGreen = preScreenRows.filter((r) => r.readiness_tier === 'GREEN').length;
-  const totalYellow = preScreenRows.filter((r) => r.readiness_tier === 'YELLOW').length;
-  const totalSignals = preScreenRows.reduce((sum, r) => sum + (r.signal_count ?? 0), 0);
+  const totalGreen = visibleRows.filter((r) => r.readiness_tier === 'GREEN').length;
+  const totalYellow = visibleRows.filter((r) => r.readiness_tier === 'YELLOW').length;
+  const totalSignals = visibleRows.reduce((sum, r) => sum + (r.signal_count ?? 0), 0);
 
   // Rows to display based on active tab
   const getVisibleStyleGroups = (): StyleTabConfig[] => {
@@ -800,7 +804,7 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
         {isForexMarketClosed ? <MarketClosedBanner /> : <SessionQualityBanner />}
 
         {/* Style tabs — Scalp / Micro / Intraday */}
-        {preScreenRows.length > 0 && (
+        {visibleRows.length > 0 && (
           <div className="flex items-center gap-1.5 mb-4 overflow-x-auto pb-0.5">
             <button
               onClick={() => setActiveTab('all')}
@@ -844,10 +848,10 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
         )}
 
         {/* Signal Readiness content */}
-        {preScreenRows.length > 0 ? (
+        {visibleRows.length > 0 ? (
           <div className="space-y-4">
             {visibleGroups.map(({ key, label, tf, headerColor }) => {
-              const styleRows = preScreenRows
+              const styleRows = visibleRows
                 .filter((r) => r.style === key)
                 .sort((a, b) => (b.readiness_score ?? 0) - (a.readiness_score ?? 0));
 
