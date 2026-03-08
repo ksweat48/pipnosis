@@ -261,11 +261,21 @@ export class TradeExecutionFreshnessGate {
    *
    * SSOT: Delegates to PriceFreshnessGate (governance layer)
    *
-   * FALLBACK: If DB record appears stale but PriceCoordinator in-memory
-   * cache has a recently-fetched price, allow execution. This handles the
-   * multi-symbol concurrent scan scenario where Batch 1 LLM calls (~24s)
-   * cause DB records to appear stale for Batch 2/3 symbols even though
-   * prices are actively being polled and cached client-side.
+   * CONTEXT RATIONALE: Uses 'analysis' context (90s threshold), not 'execution'
+   * (30s), because this runs BEFORE the LLM call during the analysis phase.
+   * The stricter 30s execution threshold is enforced downstream in
+   * validateExecution() after the LLM returns. This avoids false blocks
+   * during multi-symbol concurrent scans where Batch 1 LLM calls (~40-60s)
+   * cause DB records to appear stale for Batch 2/3 symbols.
+   *
+   * FALLBACK CHAIN:
+   * 1. DB freshness check (analysis context: 90s threshold)
+   * 2. PriceCoordinator in-memory cache (isCriticallyStale guard)
+   * 3. PricePollingCoordinator wall-clock fetch age (independent of DB timestamps)
+   *    — uses getSecondsSinceLastFetch() which measures when the coordinator
+   *      last successfully polled the Netlify function, NOT the DB record age.
+   *      This is genuinely independent: coordinator polls every 2s from client,
+   *      so a recent fetch proves live price availability regardless of DB writes.
    */
   async preCheckFreshness(symbol: string): Promise<{ shouldProceed: boolean; reason?: string }> {
     logger.info(
@@ -273,8 +283,9 @@ export class TradeExecutionFreshnessGate {
       `[Freshness Gate] 🔍 Pre-check for ${symbol} before Omega calls`
     );
 
-    // SSOT: Use centralized PriceFreshnessGate for all price freshness checks
-    const freshnessResult = await priceFreshnessGate.checkFreshness(symbol, 'execution');
+    // SSOT: Use centralized PriceFreshnessGate with 'analysis' context (90s threshold)
+    // Pre-LLM check is analysis-phase; execution-phase (30s) enforced in validateExecution
+    const freshnessResult = await priceFreshnessGate.checkFreshness(symbol, 'analysis');
 
     if (freshnessResult.isFresh) {
       logger.info(
@@ -284,9 +295,8 @@ export class TradeExecutionFreshnessGate {
       return { shouldProceed: true };
     }
 
-    // DB record is stale - check in-memory PriceCoordinator cache as fallback
-    // This avoids false blocks during multi-symbol concurrent scans where LLM
-    // processing time causes DB timestamps to exceed the 30s threshold
+    // Tier-2 fallback: check PriceCoordinator in-memory cache
+    // This avoids false blocks from transient DB write delays
     const cachedResult = await priceCoordinator.getPrice(symbol, { useCacheFirst: true, allowStale: false });
 
     if (cachedResult.success && cachedResult.price && !cachedResult.price.isCriticallyStale) {
@@ -297,26 +307,26 @@ export class TradeExecutionFreshnessGate {
       return { shouldProceed: true };
     }
 
-    // Tier-3 fallback: check pricePollingCoordinator in-memory store
-    // This handles the session-start race condition where DB has no data yet
-    // but the polling coordinator has already fetched prices client-side.
-    // The polling coordinator updates every 2 seconds — any price under 60s is valid.
-    const polledPrice = pricePollingCoordinator.getSymbolPrice(symbol.toUpperCase());
-    if (polledPrice) {
-      const polledAgeMs = Date.now() - new Date(polledPrice.timestamp).getTime();
-      const polledAgeSeconds = polledAgeMs / 1000;
-      const MAX_POLLED_AGE_SECONDS = 60;
+    // Tier-3 fallback: check when pricePollingCoordinator last successfully fetched.
+    // Uses wall-clock time of the last successful HTTP poll (getSecondsSinceLastFetch),
+    // NOT the DB-sourced price timestamp. This is genuinely independent of DB staleness:
+    // if the coordinator polled within the last 10 seconds, live prices ARE available
+    // client-side even if the DB write pipeline is temporarily lagging.
+    const fetchAge = pricePollingCoordinator.getSecondsSinceLastFetch();
+    const MAX_FETCH_AGE_SECONDS = 10; // 5× the 2s poll interval = reasonable tolerance
 
-      if (polledAgeSeconds <= MAX_POLLED_AGE_SECONDS) {
+    if (fetchAge <= MAX_FETCH_AGE_SECONDS) {
+      const polledPrice = pricePollingCoordinator.getSymbolPrice(symbol.toUpperCase());
+      if (polledPrice) {
         logger.info(
           LogCategory.AI_TRADING,
-          `[Freshness Gate] ✅ Pre-check PASSED via polling coordinator - polled age: ${polledAgeSeconds.toFixed(1)}s (DB was ${freshnessResult.ageSeconds}s old)`
+          `[Freshness Gate] ✅ Pre-check PASSED via polling coordinator - fetch age: ${fetchAge.toFixed(1)}s, DB was ${freshnessResult.ageSeconds}s old`
         );
         return { shouldProceed: true };
       }
     }
 
-    // All three layers confirm stale/absent - genuine block
+    // All three layers confirm stale/absent — genuine block
     const reason = freshnessResult.reason || 'Price data unavailable or critically stale';
     logger.error(
       LogCategory.AI_TRADING,

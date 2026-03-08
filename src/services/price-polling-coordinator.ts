@@ -46,6 +46,7 @@ class PricePollingCoordinator extends TinyEmitter {
   private pollingInterval: NodeJS.Timeout | null = null;
   private latestUpdate: PriceUpdate | null = null;
   private consecutiveErrors = 0;
+  private lastSuccessfulFetchAt: number | null = null;
 
   // Configuration
   private readonly POLL_INTERVAL_MS = 2000; // 2 seconds = excellent UX
@@ -132,7 +133,8 @@ class PricePollingCoordinator extends TinyEmitter {
       // Reset error counter on success
       this.consecutiveErrors = 0;
 
-      // Store latest update
+      // Store latest update and record wall-clock time of this fetch
+      this.lastSuccessfulFetchAt = Date.now();
       this.latestUpdate = update;
 
       // Emit to all subscribers
@@ -218,6 +220,16 @@ class PricePollingCoordinator extends TinyEmitter {
   getSymbolPrice(symbol: string): PriceData | null {
     if (!this.latestUpdate) return null;
     return this.latestUpdate.prices.find(p => p.symbol === symbol) || null;
+  }
+
+  /**
+   * Get seconds since the last successful fetch from the Netlify function.
+   * This measures the coordinator's own freshness, independent of the DB
+   * timestamps embedded in the price data. Returns Infinity if never fetched.
+   */
+  getSecondsSinceLastFetch(): number {
+    if (this.lastSuccessfulFetchAt === null) return Infinity;
+    return (Date.now() - this.lastSuccessfulFetchAt) / 1000;
   }
 
   /**
