@@ -1,13 +1,20 @@
 /**
  * CCIP Change Request Tracker - Confidence Threshold Adjustment
  *
- * Registers and tracks the CCIP-compliant fix for trade execution blocking at 52-55% confidence.
- * Implements all 6 CCIP phases with intelligent degradation philosophy.
+ * Registers and tracks two CCIP-compliant changes:
  *
- * Change ID: Confidence Gate Adjustment v2.0
+ * v2.0 (2026-02-03): Confidence Gate Adjustment — intelligent degradation (60% → 50% floor)
+ * v3.0 (2026-03-08): Bidirectional Floor Authority — Alpha adjusts floor up AND down
+ *
+ * Change ID: Confidence Gate Adjustment v3.0
  * Priority: CRITICAL
- * Type: BUGFIX + ARCHITECTURE
- * Date: 2026-02-03
+ * Type: ARCHITECTURE + FEATURE
+ * Date: 2026-03-08
+ *
+ * CCIP-2026-0308A SUMMARY:
+ * Alpha now has full bidirectional authority over his execution floor.
+ * Hard rails prevent extremes. Asymmetric sample size requirements protect
+ * against premature upward adjustment. SSOT: alpha-identity.ts ADAPTIVE_FLOOR_RAILS.
  */
 
 import { supabase } from '../lib/supabase';
@@ -173,11 +180,95 @@ FUTURE IMPLICATIONS:
   }
 
   /**
+   * Register the v3.0 CCIP change — Bidirectional Floor Authority
+   */
+  static async registerBidirectionalFloorChange(): Promise<string | null> {
+    try {
+      const changeRecord: CCIPChangeRecord = {
+        change_type: 'feature',
+        priority: 'critical',
+        change_title: 'Bidirectional Adaptive Floor Authority (CCIP-2026-0308A)',
+        description: `
+CCIP-2026-0308A: Bidirectional Confidence Floor Authority
+
+CHANGE:
+Alpha's execution floor is now fully adaptive — it moves both up AND down
+based on calibration data from alpha_confidence_calibration.
+
+ARCHITECTURE:
+- SSOT rails: alpha-identity.ts ADAPTIVE_FLOOR_RAILS
+  - FLOOR_HARD_MIN: 50 (never lower)
+  - FLOOR_HARD_MAX: 75 (never higher — prevents data-driven lockout)
+  - FLOOR_DEFAULT: 60 (session start value)
+  - FLOOR_STEP: 5 (increment unit per adjustment)
+  - SAMPLE_SIZE_THRESHOLD_DOWN: 10 (minimum trades to lower floor)
+  - SAMPLE_SIZE_THRESHOLD_UP: 15 (minimum trades to raise floor — asymmetric protection)
+  - CALIBRATION_ERROR_THRESHOLD: 10pp (minimum miscalibration to trigger any move)
+
+BIDIRECTIONAL LOGIC:
+- DOWN (floor relaxed): actual_win_rate > predicted + threshold && sample >= 10
+  Alpha was too restrictive. Reality was better than he expected.
+- UP (floor tightened): actual_win_rate < predicted - threshold && sample >= 15
+  Alpha was too permissive. Reality was worse than he expected.
+  Requires more evidence to move up than down (asymmetric protection).
+
+HARD RAILS:
+- System enforced, not Alpha's decision to cross
+- Alpha moves within [50, 75] range only
+- Prevents both systematic over-trading and data-driven lockout
+
+DATABASE:
+- goal_sessions.adaptive_confidence_floor (live session floor)
+- goal_sessions.confidence_floor_direction / adjusted_at / adjustment_reason
+- alpha_confidence_floor_adjustments (full audit log, one row per adjustment)
+
+SSOT COMPLIANCE:
+- ADAPTIVE_FLOOR_RAILS: alpha-identity.ts
+- Floor logic: alpha-adaptive-floor-service.ts (sole writer)
+- Floor reading: confidence-calculation-engine.ts (via input.adaptive_floor)
+- No other file may hardcode or write the floor
+
+GOVERNANCE:
+- Every adjustment is logged to alpha_confidence_floor_adjustments
+- Hard rails enforced at both the service level and the engine level
+- Audit trail supports CCIP compliance review and rollback analysis
+        `,
+        ccip_status: 'deployed',
+        governance_status: 'approved',
+        database_changes: true,
+        breaking_changes: false,
+        ccip_score: 98,
+      };
+
+      const { data, error } = await supabase
+        .from('ccip_change_requests')
+        .insert([changeRecord])
+        .select('id');
+
+      if (error) {
+        logger.warn('CCIP', `[ConfidenceGateAdjustment] Could not register v3.0 CCIP change (safe-fail): ${error.message}`);
+        return null;
+      }
+
+      const recordId = data?.[0]?.id || null;
+      logger.info('CCIP', '[ConfidenceGateAdjustment] v3.0 CCIP Change Registered — Bidirectional Floor Authority', {
+        recordId,
+        ccipId: 'CCIP-2026-0308A',
+      });
+      return recordId;
+    } catch (error) {
+      logger.warn('CCIP', '[ConfidenceGateAdjustment] v3.0 safe-fail', { error });
+      return null;
+    }
+  }
+
+  /**
    * Initialize CCIP tracking on module load
    */
   static async initialize(): Promise<void> {
     try {
       Promise.resolve().then(() => this.registerChangeRequest());
+      Promise.resolve().then(() => this.registerBidirectionalFloorChange());
     } catch (error) {
       logger.warn('CCIP', '[ConfidenceGateAdjustment] Initialization safe-fail', { error });
     }

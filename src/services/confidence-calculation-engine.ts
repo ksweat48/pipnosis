@@ -29,6 +29,7 @@
 
 import { supabase } from '../lib/supabase';
 import type { RiskMode } from '../config/timeframe-hierarchy';
+import { ADAPTIVE_FLOOR_RAILS } from '../config/alpha-identity';
 
 export interface ConfidenceModifier {
   domain: string;
@@ -47,6 +48,15 @@ export interface ConfidenceCalculationInput {
   session_id?: string;
   trade_id?: string;
   user_id?: string;
+
+  /**
+   * Alpha's adaptive execution floor for this session.
+   * Provided by alpha-adaptive-floor-service.ts after reading
+   * goal_sessions.adaptive_confidence_floor.
+   * Falls back to ADAPTIVE_FLOOR_RAILS.FLOOR_DEFAULT (60) when absent.
+   * SSOT: alpha-identity.ts ADAPTIVE_FLOOR_RAILS defines the valid range.
+   */
+  adaptive_floor?: number;
 
   // Modifiers from each domain authority
   rewards?: {
@@ -104,7 +114,7 @@ const RISK_MODE_FLOORS: RiskModeFloor = {
   LOW: 0.7      // -30% penalty cap for conservative traders
 };
 
-const EXECUTION_THRESHOLD = 60;
+const EXECUTION_THRESHOLD_DEFAULT = ADAPTIVE_FLOOR_RAILS.FLOOR_DEFAULT;
 
 const DOMAIN_AUTHORITIES = {
   REGIME_ORACLE: { name: 'RegimeOracle', max_penalty: 0.15 },
@@ -127,6 +137,14 @@ class ConfidenceCalculationEngine {
   ): Promise<ConfidenceCalculationResult> {
     const startTime = Date.now();
     const auditId = crypto.randomUUID();
+
+    // Resolve adaptive floor: caller passes the session's current adaptive_confidence_floor.
+    // Hard rails are enforced here as a final safeguard against misconfigured callers.
+    const rawFloor = input.adaptive_floor ?? EXECUTION_THRESHOLD_DEFAULT;
+    const executionThreshold = Math.max(
+      ADAPTIVE_FLOOR_RAILS.FLOOR_HARD_MIN,
+      Math.min(ADAPTIVE_FLOOR_RAILS.FLOOR_HARD_MAX, rawFloor)
+    );
 
     try {
       // PHASE 1: Validate inputs
@@ -200,8 +218,8 @@ class ConfidenceCalculationEngine {
         risk_mode_floor: riskModeFloor,
         advisory_adjusted_confidence: advisoryAdjustedConfidence,
         final_confidence: finalConfidence,
-        execution_threshold: EXECUTION_THRESHOLD,
-        passes_threshold: finalConfidence >= EXECUTION_THRESHOLD,
+        execution_threshold: executionThreshold,
+        passes_threshold: finalConfidence >= executionThreshold,
 
         degradation_reason: isDegraded ? penaltyResult.degradation_reason : undefined,
         is_degraded: isDegraded,
@@ -436,7 +454,7 @@ class ConfidenceCalculationEngine {
       risk_mode_floor: 0.5,
       advisory_adjusted_confidence: degradedConfidence,
       final_confidence: degradedConfidence,
-      execution_threshold: EXECUTION_THRESHOLD,
+      execution_threshold: EXECUTION_THRESHOLD_DEFAULT,
       passes_threshold: false,
       degradation_reason: reason,
       is_degraded: true,
@@ -481,7 +499,9 @@ class ConfidenceCalculationEngine {
         execution_decision: result.passes_threshold ? 'EXECUTE' : 'WAIT',
         governance_compliant: result.domain_violations.length === 0,
         ccip_phase: 'staged_deployment',
-        audit_notes: result.degradation_reason || 'No degradation',
+        audit_notes: input.adaptive_floor !== undefined
+          ? `adaptive_floor=${input.adaptive_floor} | ${result.degradation_reason || 'No degradation'}`
+          : result.degradation_reason || 'No degradation',
         user_id: input.user_id
       });
     } catch (error) {

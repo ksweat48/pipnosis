@@ -227,6 +227,47 @@ export const CONFLUENCE_REQUIREMENTS = {
   BELOW_MINIMUM_ACTION: 'NO_TRADE' as const,
 } as const;
 
+/**
+ * ADAPTIVE CONFIDENCE FLOOR RAILS — SSOT
+ *
+ * CCIP-2026-0308A: Bidirectional Floor Authority
+ *
+ * Alpha's execution floor is adaptive — it moves both up AND down based on
+ * calibration data from alpha_confidence_calibration. Hard system rails prevent
+ * extremes that would either expose capital (too low) or lock Alpha out of
+ * all valid setups (too high).
+ *
+ * FLOOR_DEFAULT: Where every session starts. Matches MINIMUM_TRADE_CONFIDENCE.
+ * FLOOR_HARD_MIN: Absolute lower bound. Alpha cannot lower below this regardless
+ *   of data. Protects against systematic over-acceptance of low-conviction trades.
+ * FLOOR_HARD_MAX: Absolute upper bound. Alpha cannot raise above this regardless
+ *   of data. Protects against data-driven lockout where no trade ever qualifies.
+ * FLOOR_STEP: Increment/decrement unit. One bucket width (5 points) per adjustment.
+ *   Prevents erratic jumps from a single calibration event.
+ *
+ * SAMPLE_SIZE_THRESHOLD_DOWN: Minimum trades in a bucket to allow floor lowering.
+ *   Lower bar — relaxing the floor is less risky, needs less evidence.
+ * SAMPLE_SIZE_THRESHOLD_UP: Minimum trades in a bucket to allow floor raising.
+ *   Higher bar — raising the floor restricts trading and punishes future sessions.
+ *   Requires stronger evidence before becoming more selective.
+ *
+ * CALIBRATION_ERROR_THRESHOLD: Minimum miscalibration magnitude to trigger any
+ *   adjustment. Prevents noise from bouncing the floor on small deviations.
+ *   A bucket must be wrong by this many percentage points before Alpha acts.
+ *
+ * AUTHORITY: This object is the ONLY place these rails are defined.
+ * alpha-adaptive-floor-service.ts reads these values. No other file hardcodes them.
+ */
+export const ADAPTIVE_FLOOR_RAILS = {
+  FLOOR_DEFAULT: 60,
+  FLOOR_HARD_MIN: 50,
+  FLOOR_HARD_MAX: 75,
+  FLOOR_STEP: 5,
+  SAMPLE_SIZE_THRESHOLD_DOWN: 10,
+  SAMPLE_SIZE_THRESHOLD_UP: 15,
+  CALIBRATION_ERROR_THRESHOLD: 10,
+} as const;
+
 export const ALPHA_IDENTITY = {
   MINIMUM_TRADE_CONFIDENCE: 60,
 
