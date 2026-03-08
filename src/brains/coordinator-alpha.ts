@@ -1824,6 +1824,145 @@ ${htfStructuralEvidenceBlock}
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // M5 SUB-CONFIRMATION CANDLES (MICRO_INTRADAY ONLY — advisory, non-blocking)
+    //
+    // SSOT: coordinator-alpha.ts is the single authority for LLM prompt assembly.
+    // CCIP 2026-03-08: Closes the three-tier confluence gap identified in
+    // architectural audit. MICRO_INTRADAY system prompt (alpha-identity.ts line 685)
+    // requires M5 close confirmation before execute_now is valid. Without real
+    // M5 candle data the LLM confabulates M5 structure using M15 primary candles.
+    //
+    // THREE-TIER ARCHITECTURE (now complete):
+    //   SCALP:          M5 (primary) + M1 (sub-confirmation) + M15/H1 (advisory)
+    //   MICRO_INTRADAY: M15 (primary) + M5 (sub-confirmation) + H1 (controlling)
+    //   INTRADAY:       H1 (primary) + M15 (sub-confirmation) + H4 (controlling)
+    //
+    // GOVERNANCE: Missing M5 data is NON-BLOCKING. If M5 candles are unavailable,
+    // the LLM is informed via a warning block and must treat any execute_now
+    // decision as requiring explicit wait_pullback until M5 confirms. Alpha
+    // retains full decision authority — this block is advisory, not a gate.
+    // SSOT: MarketDataService is the single authority for candle data
+    // ═══════════════════════════════════════════════════════════════════
+    let m5SubConfirmationPrompt = '';
+    if (styleName === 'MICRO_INTRADAY') {
+      try {
+        const mds = MarketDataService.getInstance();
+        const m5SubCandles = await mds.getCandles(marketContext.symbol, 'M5', 10);
+
+        if (m5SubCandles && m5SubCandles.length >= 5) {
+          const recentM5Sub = m5SubCandles.slice(0, 10).reverse();
+          const pipInfo = getCurrencyPipInfo(marketContext.symbol);
+
+          const m5SubLines: string[] = recentM5Sub.map((c, i) => {
+            const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
+            const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
+            const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
+            const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
+            const totalRange = (c.high - c.low) / pipInfo.pipValue;
+            const bodyRatio = totalRange > 0 ? Math.round((bodyPips / totalRange) * 100) : 0;
+            const wickBias = upperWick > lowerWick * 1.5 ? 'upper' : lowerWick > upperWick * 1.5 ? 'lower' : 'balanced';
+            return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p ratio:${bodyRatio}% wick_bias:${wickBias}`;
+          });
+
+          const lastM5Sub = recentM5Sub[recentM5Sub.length - 1];
+          const prevM5Sub = recentM5Sub.length >= 2 ? recentM5Sub[recentM5Sub.length - 2] : lastM5Sub;
+          const m5SubTrendDir = lastM5Sub.close > prevM5Sub.close ? 'BULLISH' : lastM5Sub.close < prevM5Sub.close ? 'BEARISH' : 'NEUTRAL';
+          const lastM5Body = Math.abs(lastM5Sub.close - lastM5Sub.open) / pipInfo.pipValue;
+          const lastM5UpperWick = (lastM5Sub.high - Math.max(lastM5Sub.open, lastM5Sub.close)) / pipInfo.pipValue;
+          const lastM5LowerWick = (Math.min(lastM5Sub.open, lastM5Sub.close) - lastM5Sub.low) / pipInfo.pipValue;
+          const m5HasRejectionWick = lastM5UpperWick > lastM5Body * 1.5 || lastM5LowerWick > lastM5Body * 1.5;
+
+          const m5SubHigh = Math.max(...recentM5Sub.map(c => c.high));
+          const m5SubLow = Math.min(...recentM5Sub.map(c => c.low));
+          const m5SubRangePips = (m5SubHigh - m5SubLow) / pipInfo.pipValue;
+
+          let m5SubConsecutive = 1;
+          for (let i = recentM5Sub.length - 2; i >= 0; i--) {
+            const prevDir = recentM5Sub[i].close > recentM5Sub[i].open ? 'UP' : 'DN';
+            const lastDir = lastM5Sub.close > lastM5Sub.open ? 'UP' : 'DN';
+            if (prevDir === lastDir) m5SubConsecutive++;
+            else break;
+          }
+
+          // ═══════════════════════════════════════════════════════════════════
+          // M5 BOS and sweep-wick evidence: pre-computed facts for Alpha.
+          // Mirrors the HTF structural evidence pattern (lines 1751-1773).
+          // Alpha is sole authority on whether these justify execute_now.
+          // ═══════════════════════════════════════════════════════════════════
+          const m5SubBOSBull = recentM5Sub.length >= 2 && lastM5Sub.close > recentM5Sub[recentM5Sub.length - 2].high;
+          const m5SubBOSBear = recentM5Sub.length >= 2 && lastM5Sub.close < recentM5Sub[recentM5Sub.length - 2].low;
+          const m5SubSweepWickBull = recentM5Sub.slice(-2).some(c => {
+            const body = Math.abs(c.close - c.open);
+            const wick = Math.min(c.open, c.close) - c.low;
+            return body > 0 && wick / body >= 1.5;
+          });
+          const m5SubSweepWickBear = recentM5Sub.slice(-2).some(c => {
+            const body = Math.abs(c.close - c.open);
+            const wick = c.high - Math.max(c.open, c.close);
+            return body > 0 && wick / body >= 1.5;
+          });
+
+          const m5SubEvidenceBlock = `
+M5 SUB-CONFIRMATION EVIDENCE (pre-computed for Alpha):
+- M5 BOS BULL (last M5 close > prior M5 high): ${m5SubBOSBull ? 'YES — bullish M5 break of structure confirmed' : 'NO'}
+- M5 BOS BEAR (last M5 close < prior M5 low): ${m5SubBOSBear ? 'YES — bearish M5 break of structure confirmed' : 'NO'}
+- M5 SWEEP WICK BULL (lower wick ≥1.5x body in last 2 M5 candles): ${m5SubSweepWickBull ? 'YES — bullish absorption signal on M5' : 'NO'}
+- M5 SWEEP WICK BEAR (upper wick ≥1.5x body in last 2 M5 candles): ${m5SubSweepWickBear ? 'YES — bearish absorption signal on M5' : 'NO'}
+
+EXECUTE_NOW GATE: If a confirmed M5 candle close in your intended direction has NOT formed at the entry zone,
+your entry_mode MUST be wait_pullback. State: "Waiting for: M5 close [above/below] [level] to confirm entry."
+This requirement applies regardless of M15 structure — M5 confirmation is the MICRO_INTRADAY entry trigger standard.`;
+
+          m5SubConfirmationPrompt = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+M5 SUB-CONFIRMATION (${marketContext.symbol}) — MICRO_INTRADAY ENTRY TRIGGER TIMEFRAME
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This is your ENTRY TRIGGER timeframe. M15 defines the structure and setup. M5 is where you pull the trigger.
+A confirmed M5 candle CLOSE in your intended direction at the entry zone is required before execute_now.
+A wick touch, M5 open, or partial move is NOT confirmation — only a CLOSED M5 body in your direction counts.
+
+${m5SubLines.join('\n')}
+
+M5 SUB-CONFIRMATION SUMMARY:
+- M5 Range (last ${recentM5Sub.length} candles): ${m5SubRangePips.toFixed(1)} pips (High: ${m5SubHigh.toFixed(pipInfo.decimalPlaces)}, Low: ${m5SubLow.toFixed(pipInfo.decimalPlaces)})
+- M5 Current directional bias: ${m5SubTrendDir}
+- Consecutive same-direction M5 candles: ${m5SubConsecutive}
+- Last M5 candle: ${m5HasRejectionWick ? 'REJECTION WICK detected (possible exhaustion or reversal at level)' : 'Normal candle — no strong wick signal'}
+
+${m5SubEvidenceBlock}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+          console.log(`[Alpha Coordinator] M5 Sub-Confirmation (MICRO_INTRADAY): ${recentM5Sub.length} candles, bias ${m5SubTrendDir}, BOS_BULL=${m5SubBOSBull} BOS_BEAR=${m5SubBOSBear}`);
+        } else {
+          m5SubConfirmationPrompt = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+M5 SUB-CONFIRMATION (${marketContext.symbol}) — DATA UNAVAILABLE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WARNING: M5 candle data could not be retrieved (${m5SubCandles?.length ?? 0} candles found, need ≥5).
+GOVERNANCE CONSEQUENCE: Without M5 confirmation data, you CANNOT select execute_now.
+Your entry_mode must be wait_pullback. State the specific M5 trigger you are waiting for.
+If you cannot define a specific M5 trigger level, return NO_TRADE.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+          console.warn(`[Alpha Coordinator] M5 sub-confirmation data insufficient for MICRO_INTRADAY (${m5SubCandles?.length ?? 0} candles)`);
+        }
+      } catch (error) {
+        m5SubConfirmationPrompt = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+M5 SUB-CONFIRMATION (${marketContext.symbol}) — FETCH ERROR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WARNING: M5 candle fetch failed. Without M5 data you CANNOT select execute_now.
+entry_mode must be wait_pullback with a specific M5 trigger level stated.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+        console.warn('[Alpha Coordinator] M5 sub-confirmation fetch failed (non-blocking):', error instanceof Error ? error.message : 'Unknown');
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // M15 STRUCTURAL REFERENCE (SCALP ONLY — advisory, non-blocking)
     // CCIP-2026-02-19: SCALP trades play out over 15-60 minutes — the M15
     // timeframe governs where price stalls or reverses within that window.
@@ -2494,6 +2633,7 @@ ${atrLegendPrompt}
 ${m5ContextPrompt}
 ${primaryTfCandlePrompt}
 ${htfCandlePrompt}
+${m5SubConfirmationPrompt}
 ${m15ReferencePrompt}
 ${h1CampaignPrompt}
 ${d1ContextPrompt}
