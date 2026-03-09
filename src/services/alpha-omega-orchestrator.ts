@@ -472,12 +472,25 @@ class AlphaOmegaOrchestrator {
     );
 
     // Build market context for Alpha
+    // CCIP-2026-03-09: atr20 is now populated from the snapshot ATR when the entry
+    // timeframe is M5 (SCALP). The snapshot is always built for the style-derived
+    // entryTimeframe — so snapshot.atr IS the M5 ATR for SCALP scans.
+    // This resolves the persistent "atr20: N/A" in Alpha's ATR legend which caused
+    // Alpha to fall back to the coarser marketState.atr for SCALP stop sizing and
+    // ATR-phase calculations, producing unreliable FRESH/DEVELOPING/EXHAUSTED readings.
+    // SSOT: styleAtrMap in coordinator-alpha.ts maps SCALP → atr20 field.
     const marketContext: MarketContext = {
       symbol: marketState.symbol,
       regime: marketState.trend,
       volatility: marketState.volatility,
       price: marketState.price,
-      atr: marketState.atr
+      atr: marketState.atr,
+      // Populate atr20 from the snapshot ATR (style-timeframe-aligned):
+      // - SCALP uses M5 snapshot → atr20 is the M5 20-period ATR
+      // - MICRO_INTRADAY uses M15 snapshot → atr20 carries the M15 ATR (bonus: regime cross-check)
+      // - INTRADAY uses H1 snapshot → atr20 carries H1 ATR
+      // When snapshot.atr is an ATRValue object it retains timeframe metadata for traceability.
+      atr20: snapshot.atr
     };
 
     // Estimate typical spread for the symbol (in pips)

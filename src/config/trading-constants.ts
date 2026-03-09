@@ -23,7 +23,15 @@ export const TRADING_CONSTANTS = {
     MINIMUM_MICRO_INTRADAY: 1.0,
     MINIMUM_INTRADAY: 1.0,
     // Per-style ceilings — Alpha cannot set TP beyond these R:R multiples
-    MAXIMUM_SCALP: 1.0,         // Scalp is exactly 1:1 — no stretch
+    // CCIP-2026-03-09: MAXIMUM_SCALP raised from 1.0 to 1.5.
+    // Root cause: SCALP INDEX (NAS100/US30 at 19,000-44,000 points) has a noise-floor
+    // SL minimum of 0.15% (~28-66 pips). With MAXIMUM_SCALP=1.0, TP=SL exactly, but the
+    // SCALP envelope tpPips.max=25 was below that SL minimum — a mathematical impossibility
+    // that hard-blocked every INDEX SCALP scan regardless of market conditions.
+    // At 1.5, TP=1.5×SL, which remains tight (one M5 swing leg), preserves SCALP identity,
+    // and is achievable: SL=30p → TP=45p, well within the revised INDEX envelope.
+    // SSOT: omega9-constraint-provider.ts uses getMaxRRForStyle() from this file.
+    MAXIMUM_SCALP: 1.5,
     MAXIMUM_MICRO_INTRADAY: 2.0,
     MAXIMUM_INTRADAY: 3.0,
     TARGET: 1.5,

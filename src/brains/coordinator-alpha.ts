@@ -2498,33 +2498,42 @@ ${pattern ? `Detected Pattern: ${pattern}` : ''}
     // ═══════════════════════════════════════════════════════════════════
     let scalpIntelligencePrompt = '';
     if (getDisplayNameFromStyle(tradeStyle) === 'SCALP' && !intelligenceSnapshot) {
+      // CCIP-2026-03-09: Prompt reframed from blocker-first to trade-finder.
+      // Previously: "no named structure = NO_TRADE" and "exhausted = NO_TRADE" were hard rules.
+      // Now: structure identification is guidance, exhausted momentum triggers confidence
+      // reduction not automatic refusal. Alpha's objective is to find the best trade
+      // available, not to refuse when conditions are less than textbook.
       scalpIntelligencePrompt = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SCALP MOMENTUM SELF-ASSESSMENT (${marketContext.symbol}) — MANDATORY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 No pre-computed intelligence snapshot is available for this scan cycle.
-You MUST self-assess the following from the M5 candle data provided above:
+Your PRIMARY OBJECTIVE is to find the best executable trade. Self-assess from the M5 candle data:
 
 1. ATR PHASE: Calculate how far price has moved from the last swing point.
    - FRESH / STARTING (< 0.75x ATR): Ideal window — full confidence permitted
-   - DEVELOPING (0.75-1.5x ATR): Acceptable — assess remaining runway to TP explicitly. State: "Remaining range: ~X pips to nearest structure." If runway does not support TP, tighten TP or return NO_TRADE.
-   - EXHAUSTED / EXTENDED (> 1.5x ATR): Move is extended. Assess whether a structural reversal or retest justifies entry. If no structural reason exists, NO_TRADE is the correct output.
+   - DEVELOPING (0.75-1.5x ATR): Acceptable — assess remaining runway to TP. State: "Remaining range: ~X pips to nearest structure." Tighten TP to nearest achievable structure if needed.
+   - EXHAUSTED / EXTENDED (> 1.5x ATR): Move is extended. ADVISORY: reduce confidence by 15-25 points and reason about whether a structural reversal, retest, or sweep setup justifies entry. This is NOT an automatic NO_TRADE — exhausted moves often produce the highest-quality reversal entries. State your exhaustion assessment explicitly.
 
 2. SUB-MODE: Identify which of these applies to the current M5 structure:
    - MOMENTUM_CONTINUATION: Fresh directional move, enter now or on first micro-pullback
    - PULLBACK_ENTRY: Impulse already moved, price retracing — wait for pullback completion
    - CONSOLIDATION_BREAKOUT: Tight compression range — wait for body close outside range
 
-3. STRUCTURE: Identify which of the 8 valid scalp structures is present (or none):
+3. STRUCTURE: Identify which of the 8 named scalp structures is present (or closest match):
    momentum_breakout | bos_retest | ema_rejection | double_bottom | double_top |
    range_breakout | liquidity_sweep | engulfing_at_structure | trend_pullback_ema
 
-If the move is EXHAUSTED: reason through whether a structural setup (reversal, retest, sweep) justifies entry. State your assessment. If no structural justification exists, return NO_TRADE.
-If no named structure matches: return NO_TRADE. A directional bet without structure is not a scalp.
+   GUIDANCE (not a hard block): Identify which named structure best matches what you see,
+   or describe the structure in plain terms if none of the 8 names apply. A valid scalp
+   requires directional intent supported by price structure — it does not require a
+   textbook named pattern. If 2+ dimensions align (ATR phase, structure, direction),
+   that is a tradeable setup. Return NO_TRADE only when you cannot identify any
+   directional reason with supporting structure.
 
 MANDATORY JSON FIELDS — Include these regardless of action:
-  "scalp_pattern": "<one of the 8 structures above, or 'none'>",
+  "scalp_pattern": "<one of the 8 structures above, or describe the structure>",
   "scalp_sub_mode": "momentum_continuation|pullback_entry|consolidation_breakout",
   "scalp_momentum_phase": "starting|developing|exhausted",
   "scalp_atr_traveled": <number — your estimate of ATR multiples traveled from last swing>
@@ -2559,10 +2568,11 @@ MANDATORY JSON FIELDS — Include these regardless of action:
             trend_pullback_ema: 'Trend Pullback to EMA',
             none: 'No specific pattern — general confluence',
           };
+          // CCIP-2026-03-09: Phase labels reframed — exhausted is now advisory, not a hard block.
           const phaseLabels: Record<string, string> = {
             starting: 'STARTING / FRESH (< 0.75x ATR traveled — ideal scalp window, full confidence)',
             developing: 'DEVELOPING (0.75-1.5x ATR traveled — assess remaining runway to TP explicitly; tighten TP to nearest structure if runway is insufficient)',
-            exhausted: 'EXHAUSTED / EXTENDED (> 1.5x ATR traveled — move is extended beyond the scalp window. Assess: is there a structural reason to enter here? If not, NO_TRADE is the correct output)',
+            exhausted: 'EXHAUSTED / EXTENDED (> 1.5x ATR traveled — move is extended. ADVISORY: reduce confidence by 15-25 points. Reason about whether a reversal, retest, or sweep setup justifies entry — exhausted moves often produce the best reversal entries. State your assessment. Only return NO_TRADE if no directional case exists at all)',
           };
 
           scalpIntelligencePrompt = `
@@ -2578,10 +2588,11 @@ Pattern Detected: ${patternLabels[scalpSignal.scalpPattern ?? 'none'] ?? scalpSi
 Momentum Phase: ${phaseLabels[scalpSignal.momentumPhase ?? 'developing'] ?? scalpSignal.momentumPhase}
 ATR Traveled: ~${scalpSignal.atrTraveled?.toFixed(2) ?? 'unknown'}x ATR from last swing
 
+
 ${scalpSignal.momentumPhase === 'exhausted'
-  ? `EXHAUSTED MOMENTUM: ATR traveled > 1.5x — this move is extended beyond the typical scalp window. Reason through whether a structural reversal or retest setup justifies entry at this stage. If no structural reason exists (no BOS, no sweep, no level reaction), NO_TRADE is the correct output. State your exhaustion assessment explicitly in your reasoning. Do NOT change the trade style.`
+  ? `EXHAUSTED MOMENTUM: ATR traveled > 1.5x — this move is extended. ADVISORY: reduce confidence by 15-25 points and reason about whether a structural reversal, retest, or sweep setup justifies entry. Exhausted moves often produce the best reversal entries when structure supports them. If a BOS, sweep extreme, EMA rejection, or level reaction is present, the trade is valid with reduced confidence. State your exhaustion assessment explicitly. Only return NO_TRADE if there is genuinely no directional case — not merely because conditions are imperfect. Do NOT change the trade style.`
   : scalpSignal.momentumPhase === 'developing'
-    ? `DEVELOPING MOMENTUM: ~${scalpSignal.atrTraveled?.toFixed(2) ?? '?'}x ATR consumed. Range is partially used. You MUST assess whether sufficient runway exists between current price and your TP. State explicitly: "Remaining runway: ~X pips to nearest structure. TP placed at [level] — the [near/far] edge of that zone." If remaining range does not support the required R:R, tighten TP to the nearest achievable structure or return NO_TRADE. Do NOT apply an arbitrary confidence penalty — reason about the runway directly.`
+    ? `DEVELOPING MOMENTUM: ~${scalpSignal.atrTraveled?.toFixed(2) ?? '?'}x ATR consumed. Range is partially used. You MUST assess whether sufficient runway exists between current price and your TP. State explicitly: "Remaining runway: ~X pips to nearest structure. TP placed at [level] — the [near/far] edge of that zone." Tighten TP to the nearest achievable structure rather than returning NO_TRADE unless the runway is genuinely insufficient for any viable R:R. Do NOT apply an arbitrary confidence penalty — reason about the runway directly.`
     : `FRESH MOMENTUM: < 0.75x ATR consumed. Full confidence permitted. Enter early in the leg.`
 }
 
@@ -2592,8 +2603,9 @@ ${scalpSignal.scalpSubMode === 'pullback_entry'
     : `MOMENTUM CONTINUATION: Fresh directional move. Enter on the breakout or within the first 1-2 candle pullback.`
 }
 
+
 ${scalpSignal.scalpPattern === 'none' || !scalpSignal.scalpPattern
-  ? `NO NAMED STRUCTURE DETECTED: The pre-detector found no match to the 8 valid scalp structures. You MUST either (a) identify which named structure applies and explain in your reasoning, or (b) return NO_TRADE. A scalp without a named structure is a directional bet, not a trade. "scalp_pattern" in your JSON output must NOT be "none" if you execute.`
+  ? `NO NAMED STRUCTURE PRE-DETECTED: The intelligence monitor found no textbook match. GUIDANCE: Identify which of the 8 named structures best fits what you observe in the M5 data, or describe the structure you see. Valid scalps do not require textbook patterns — they require directional intent supported by price structure. If 2+ factors align (phase, direction, nearby level), that is a tradeable setup. If you find a structure, name it in "scalp_pattern". If you genuinely cannot identify any structural reason for a trade, set "scalp_pattern": "none" and return NO_TRADE.`
   : `PATTERN CONFIRMED: ${patternLabels[scalpSignal.scalpPattern]} was detected. Confirm this matches what you see or correct it in your reasoning. Include "scalp_pattern": "${scalpSignal.scalpPattern}" in your JSON output (or correct to a valid structure name).`
 }
 
@@ -2645,7 +2657,7 @@ ACTIVE ATR for this session (${tradeStyle}): ${activeAtrPips} pips — this is y
 Use the ACTIVE ATR value above for all move stage calculations in this scan cycle:
   - FRESH / STARTING:  price has traveled < 0.75 × ${activeAtrPips} pips = < ${atrForStopLoss > 0 ? ((atrForStopLoss * 0.75) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin
   - DEVELOPING:        0.75–1.5 × ${activeAtrPips} pips = ${atrForStopLoss > 0 ? ((atrForStopLoss * 0.75) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'}–${atrForStopLoss > 0 ? ((atrForStopLoss * 1.5) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin
-  - EXHAUSTED:         > 1.5 × ${activeAtrPips} pips = > ${atrForStopLoss > 0 ? ((atrForStopLoss * 1.5) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin${tradeStyle === 'SCALP' ? ' → move is extended. Assess structural justification. If none exists, NO_TRADE' : tradeStyle === 'INTRADAY' ? ' → MANDATORY R:R recalculation required. If recalculated TP1 R:R < 1.0:1, NO_TRADE' : ' → requires explicit continuation justification with R:R recalculation'}
+  - EXHAUSTED:         > 1.5 × ${activeAtrPips} pips = > ${atrForStopLoss > 0 ? ((atrForStopLoss * 1.5) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin${tradeStyle === 'SCALP' ? ' → ADVISORY: reduce confidence 15-25pts. Assess structural justification (reversal/retest/sweep). Exhausted moves can produce strong reversals. Only NO_TRADE if no directional case exists' : tradeStyle === 'INTRADAY' ? ' → MANDATORY R:R recalculation required. If recalculated TP1 R:R < 1.0:1, NO_TRADE' : ' → requires explicit continuation justification with R:R recalculation'}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
 
@@ -2666,11 +2678,14 @@ PROFESSIONAL REASONING CONTRACT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 You are a professional trader, not a rule executor. The market intelligence below is your briefing. Read it, reason through it, and make the best decision available. The eight analytical questions in your system prompt are your mental checklist — work through them using the data provided.
 
+Your PRIMARY OBJECTIVE is to find executable trades. Different market conditions require different approaches — a scalper does not wait for perfect textbook setups before every trade. Momentum, structure, and price levels are your tools regardless of whether conditions are ideal.
+
 Your decision framework:
 - ${streakContextLine}
-- Execute (BUY/SELL) when a genuine edge exists with sound structure and acceptable risk
-- Return NO_TRADE when no structural edge is present or the setup has critical unresolved weaknesses
-- Your confidence score must honestly reflect the quality of the setup — not what you wish it were
+- Execute (BUY/SELL) when a directional edge exists — 2-3 supporting factors is sufficient. Perfection is not required.
+- Return NO_TRADE only when you cannot identify a directional reason with supporting structure, not merely because conditions fall short of ideal
+- NO_TRADE requires a POSITIVE reason (e.g., "price is mid-range with no level nearby, no structural trigger") — the absence of perfection is not a reason
+- Your confidence score must honestly reflect setup quality — imperfect setups trade at 60-70%, not zero
 - The scanner re-evaluates every cycle. A NO_TRADE now is not a missed trade — it is disciplined execution
 - When analyzing multiple pairs, execute the best opportunity available, not every opportunity
 
