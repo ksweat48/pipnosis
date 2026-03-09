@@ -52,6 +52,8 @@ import { CCIPConfidenceGateAdjustment } from './ccip-confidence-gate-adjustment'
 // Envelope bounds are the sole style wall authority. Noise floor is advisory only.
 import { safeExtractATRValue } from '../types/atr';
 import { alphaLearningTracker } from './alpha-learning-tracker';
+import { computeTPS } from './trade-priority-score';
+import type { TPSCandidate } from '../types/tps';
 
 
 export interface GoalSessionLiveConfig {
@@ -1191,9 +1193,6 @@ class GoalSessionLiveEngine {
       const tpsScores = new Map<string, number>();
 
       try {
-        const { computeTPS } = await import('./trade-priority-score');
-        const { TPSCandidate } = await import('../types/tps');
-
         for (const snapshot of filteredSnapshots) {
           const decision = filteredDecisions.get(snapshot.symbol);
           if (!decision || decision.action === 'NO_TRADE') {
@@ -1201,15 +1200,15 @@ class GoalSessionLiveEngine {
           }
 
           // Build TPS candidate from Alpha decision
-          const candidate = {
+          const candidate: TPSCandidate = {
             symbol: snapshot.symbol,
             direction: decision.action === 'SELL' ? 'SELL' : 'BUY',
             style: decision.style || 'INTRADAY',
             tradeConfidence: decision.confidence || 0,
             eqsNow: decision.entryQualityScore || 40,
-            eqsRequired: 40, // Baseline threshold
+            eqsRequired: 40,
             entryMode: decision.entryMode === 'immediate' ? 'EXECUTE_NOW' : 'WAIT_ENTRY',
-            minutesSinceSignal: 0, // Fresh scan, no age
+            minutesSinceSignal: 0,
             momentumState: 'NEUTRAL' as const,
             eqsProjected: undefined,
             projectionConfidence: undefined,
