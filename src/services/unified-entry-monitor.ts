@@ -14,7 +14,6 @@ class UnifiedEntryMonitor {
    * Stop all monitoring (stub - actual monitoring handled by entry-monitor-coordinator)
    */
   stopAllMonitoring(): void {
-    console.log('[UnifiedEntryMonitor] STUB: stopAllMonitoring called (entry-monitor-coordinator handles this)');
     // No-op: Monitoring is now handled by entry-monitor-coordinator
     // which is managed by goal-session-live-engine
   }
@@ -22,8 +21,7 @@ class UnifiedEntryMonitor {
   /**
    * Resume all active intents (stub - actual resumption handled by entry-monitor-coordinator)
    */
-  async resumeAllActiveIntents(userId: string): Promise<void> {
-    console.log('[UnifiedEntryMonitor] STUB: resumeAllActiveIntents called for user:', userId, '(entry-monitor-coordinator handles this)');
+  async resumeAllActiveIntents(_userId: string): Promise<void> {
     // No-op: Resumption is now handled by entry-monitor-coordinator.resumeMonitoringIfNeeded()
     // which is called by goal-session-live-engine when session starts
   }

@@ -206,58 +206,21 @@ class PushSubscriptionService {
 
       console.log('[Push] Device name:', finalDeviceName);
 
-      const { data: existing, error: fetchError } = await supabase
+      const { error: upsertError } = await supabase
         .from('push_subscriptions')
-        .select('id')
-        .eq('endpoint', endpoint)
-        .maybeSingle();
+        .upsert({
+          user_id: user.id,
+          endpoint,
+          p256dh_key: p256dhKey,
+          auth_key: authKey,
+          device_name: finalDeviceName,
+          user_agent: userAgent,
+          is_active: true,
+          last_used_at: new Date().toISOString()
+        }, { onConflict: 'endpoint' });
 
-      if (fetchError) {
-        console.error('[Push] Error checking existing subscription:', fetchError);
-        return;
-      }
-
-      if (existing) {
-        console.log('[Push] Updating existing subscription:', existing.id);
-        const { data: updateData, error: updateError } = await supabase
-          .from('push_subscriptions')
-          .update({
-            p256dh_key: p256dhKey,
-            auth_key: authKey,
-            device_name: finalDeviceName,
-            user_agent: userAgent,
-            is_active: true,
-            last_used_at: new Date().toISOString()
-          })
-          .eq('id', existing.id)
-          .select();
-
-        if (updateError) {
-          console.error('[Push] Error updating subscription:', updateError);
-        } else {
-          console.log('[Push] Subscription updated successfully:', updateData);
-        }
-      } else {
-        console.log('[Push] Creating new subscription');
-        const { data: insertData, error: insertError } = await supabase
-          .from('push_subscriptions')
-          .insert({
-            user_id: user.id,
-            endpoint,
-            p256dh_key: p256dhKey,
-            auth_key: authKey,
-            device_name: finalDeviceName,
-            user_agent: userAgent,
-            is_active: true
-          })
-          .select();
-
-        if (insertError) {
-          console.error('[Push] Error saving subscription:', insertError);
-          console.error('[Push] Insert error details:', JSON.stringify(insertError, null, 2));
-        } else {
-          console.log('[Push] Subscription saved successfully:', insertData);
-        }
+      if (upsertError) {
+        console.error('[Push] Error saving subscription:', upsertError);
       }
 
       // Verify the subscription was saved

@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import SystemTableRPCWrapper from './system-table-rpc-wrapper';
 import { globalPollingCoordinator } from './global-polling-coordinator';
-import { logger, LogCategory, LogLevel } from '@/lib/logger';
+import { logger, LogCategory } from '@/lib/logger';
 import type { GoalSessionTrade } from '@/types/position';
 import { calculatePnL } from '@/types/position';
 import { prodLogger } from '@/lib/production-logger';
@@ -16,8 +16,6 @@ import { marketDataService } from './market-data-service';
 import { tradeProcessingLockService } from './trade-processing-lock-service';
 import { positionMonitoringAuthority } from './monitoring/position-monitoring-authority';
 import type { MonitoredPosition, PriceData } from './monitoring/position-monitoring-authority';
-
-logger.setCategoryLevel(LogCategory.POSITION_MONITOR, LogLevel.ERROR);
 
 class PositionMonitorService {
   private intervalId: NodeJS.Timeout | null = null;

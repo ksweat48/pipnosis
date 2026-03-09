@@ -10,9 +10,7 @@
  */
 
 import { supabase } from '../lib/supabase';
-import { logger, LogCategory, LogLevel } from '@/lib/logger';
-
-logger.setCategoryLevel(LogCategory.AI_TRADING, LogLevel.ERROR);
+import { logger, LogCategory } from '@/lib/logger';
 
 type BrainName =
   | 'Alpha'
