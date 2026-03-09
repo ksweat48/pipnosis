@@ -1,12 +1,31 @@
 /**
- * Reward Engine - Score-Based Performance Tracking
+ * Reward Engine - Platform Score & Per-User History Tracking
  *
- * Calculates rewards for winning trades and penalties for losses
- * Updates trader score and manages personality state transitions
+ * CCIP-2026-0309: Platform-wide trade score refactor.
+ *
+ * RESPONSIBILITIES:
+ * 1. loadPlatformScore() — reads alpha_platform_score (single global row)
+ * 2. recordTradeOutcome() — updates alpha_platform_score on every trade close
+ *    - Updates consecutive streak counters
+ *    - Recalculates confidence_modifier (-5 to +5 via streak scaling)
+ * 3. loadTraderScore(userId) — still available for per-user history / admin dashboards
+ *    - The ai_trader_score table is NOT removed, NOT changed
+ *    - It is just no longer used to inject personality states into Alpha's prompts
+ * 4. Goal achievement rewards still update per-user ai_trader_score for history
+ *
+ * WHAT IS REMOVED:
+ * - getPersonalityState() calls — personality labels are gone
+ * - confidence_level / trading_style / risk_appetite writes from win/loss events
+ * - Per-user score updates on trade win/loss (platform score is now the only live signal)
+ *
+ * SSOT:
+ * - Global platform streak: alpha_platform_score (single row)
+ * - Confidence modifier computation: getPlatformStreakModifier() in ai-identity.ts
+ * - Confidence modifier application: confidence-calculation-engine.ts
  */
 
 import { supabase } from '../lib/supabase';
-import { getPersonalityState, type TraderScore } from './ai-identity';
+import { getPlatformStreakModifier, type PlatformScore, type TraderScore } from './ai-identity';
 import SystemTableRPCWrapper from './system-table-rpc-wrapper';
 
 export interface TradeContext {
@@ -42,7 +61,116 @@ export interface GoalAchievementContext {
 
 class RewardEngine {
   /**
-   * Load trader score for user
+   * Load the PLATFORM score (single global row, no user_id).
+   * Used at execution time to read the current streak modifier.
+   */
+  async loadPlatformScore(supabaseClient?: any): Promise<PlatformScore> {
+    const client = supabaseClient || supabase;
+    const { data, error } = await client
+      .from('alpha_platform_score')
+      .select('*')
+      .eq('id', 'singleton')
+      .maybeSingle();
+
+    if (error) {
+      console.error('[RewardEngine] Failed to load platform score:', error);
+      return this.defaultPlatformScore();
+    }
+
+    if (!data) {
+      console.warn('[RewardEngine] Platform score singleton row missing — returning default');
+      return this.defaultPlatformScore();
+    }
+
+    return data as PlatformScore;
+  }
+
+  private defaultPlatformScore(): PlatformScore {
+    return {
+      consecutive_wins: 0,
+      consecutive_losses: 0,
+      total_trades: 0,
+      total_wins: 0,
+      total_losses: 0,
+      confidence_modifier: 0,
+      last_outcome: null,
+      last_updated: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Record a trade outcome to the PLATFORM score table.
+   *
+   * Called on every trade close. Updates:
+   * - consecutive_wins / consecutive_losses (streak counters)
+   * - confidence_modifier (-5 to +5) derived from current streak
+   * - total_trades / total_wins / total_losses
+   */
+  async recordTradeOutcome(outcome: 'win' | 'loss' | 'breakeven'): Promise<PlatformScore> {
+    const current = await this.loadPlatformScore();
+
+    let consecutive_wins = current.consecutive_wins;
+    let consecutive_losses = current.consecutive_losses;
+    let total_wins = current.total_wins;
+    let total_losses = current.total_losses;
+
+    if (outcome === 'win') {
+      consecutive_wins += 1;
+      consecutive_losses = 0;
+      total_wins += 1;
+    } else if (outcome === 'loss') {
+      consecutive_losses += 1;
+      consecutive_wins = 0;
+      total_losses += 1;
+    } else {
+      consecutive_wins = 0;
+      consecutive_losses = 0;
+    }
+
+    const total_trades = current.total_trades + 1;
+
+    const updatedScore: PlatformScore = {
+      consecutive_wins,
+      consecutive_losses,
+      total_trades,
+      total_wins,
+      total_losses,
+      confidence_modifier: getPlatformStreakModifier({
+        consecutive_wins,
+        consecutive_losses,
+        total_trades,
+        total_wins,
+        total_losses,
+        confidence_modifier: 0,
+        last_outcome: outcome,
+        last_updated: new Date().toISOString()
+      }),
+      last_outcome: outcome,
+      last_updated: new Date().toISOString()
+    };
+
+    const { error } = await supabase
+      .from('alpha_platform_score')
+      .update(updatedScore)
+      .eq('id', 'singleton');
+
+    if (error) {
+      console.error('[RewardEngine] Failed to update platform score:', error);
+    } else {
+      const streakInfo = consecutive_wins > 0
+        ? `${consecutive_wins} consecutive wins (+${updatedScore.confidence_modifier}%)`
+        : consecutive_losses > 0
+          ? `${consecutive_losses} consecutive losses (${updatedScore.confidence_modifier}%)`
+          : 'no streak (0%)';
+      console.log(`[RewardEngine] Platform score updated: ${outcome} | ${streakInfo}`);
+    }
+
+    return updatedScore;
+  }
+
+  /**
+   * Load per-user trader score (for admin dashboards, history, analytics).
+   * NOT used for Alpha personality injection or confidence modifiers.
    */
   async loadTraderScore(userId: string, supabaseClient?: any): Promise<TraderScore> {
     const client = supabaseClient || supabase;
@@ -55,20 +183,15 @@ class RewardEngine {
     if (error) throw error;
 
     if (!data) {
-      // Initialize new trader score via RPC
-      // SSOT: ai_trader_score table does NOT have session_id column (removed)
       const result = await SystemTableRPCWrapper.createAITraderScore(
         userId,
-        0, // trade_count
-        50, // win_rate (initial)
-        0, // avg_rr
-        50 // consistency_score (initial)
+        0,
+        50,
+        0,
+        50
       );
 
-      // Handle duplicate key error (record was created by another process/RLS blocked initial SELECT)
       if (result.error && result.error.includes('duplicate key')) {
-        console.warn('[RewardEngine] Duplicate key on create - record exists, retrying SELECT...');
-        // Retry SELECT - record must exist
         const { data: retryData, error: retryError } = await client
           .from('ai_trader_score')
           .select('*')
@@ -77,33 +200,21 @@ class RewardEngine {
 
         if (retryError) throw retryError;
         if (retryData) return retryData as TraderScore;
-
-        // If still no data, return default (shouldn't happen but be safe)
-        console.error('[RewardEngine] CRITICAL: Record exists (duplicate key) but SELECT still returns null. Possible RLS issue.');
-        return {
-          id: '',
-          user_id: userId,
-          current_score: 50,
-          trade_count: 0,
-          win_rate: 50,
-          avg_rr: 0,
-          consistency_score: 50,
-          created_at: new Date().toISOString(),
-        } as TraderScore;
       }
 
       if (result.error) throw new Error(result.error);
 
-      // Return default trader score structure
       return {
-        id: result.id,
-        user_id: userId,
         current_score: 50,
-        trade_count: 0,
-        win_rate: 50,
-        avg_rr: 0,
-        consistency_score: 50,
-        created_at: new Date().toISOString(),
+        lifetime_profit: 0,
+        lifetime_loss: 0,
+        streak_wins: 0,
+        streak_losses: 0,
+        confidence_level: 'balanced',
+        risk_appetite: 3.0,
+        trading_style: 'steady',
+        total_trades: 0,
+        win_rate: 0.5
       } as TraderScore;
     }
 
@@ -111,231 +222,123 @@ class RewardEngine {
   }
 
   /**
-   * Calculate win reward
-   */
-  calculateWinReward(trade: TradeContext, traderScore: TraderScore): RewardResult {
-    let scoreIncrease = 0;
-    const factors: string[] = [];
-
-    // Base reward for any profitable trade
-    scoreIncrease += 3;
-    factors.push('+3 profitable');
-
-    // R:R bonus
-    const riskReward = Math.abs(trade.pnl) / Math.abs(trade.risk_amount);
-    if (riskReward >= 3.0) {
-      scoreIncrease += 7;
-      factors.push('+7 excellent R:R');
-    } else if (riskReward >= 2.0) {
-      scoreIncrease += 5;
-      factors.push('+5 good R:R');
-    }
-
-    // Streak bonus
-    if (traderScore.streak_wins >= 3) {
-      scoreIncrease += 10;
-      factors.push('+10 hot streak');
-    } else if (traderScore.streak_wins >= 1) {
-      scoreIncrease += 7;
-      factors.push('+7 win streak');
-    }
-
-    // Perfect execution (minimal drawdown)
-    if (trade.max_drawdown && trade.atr) {
-      if (trade.max_drawdown < trade.atr * 0.5) {
-        scoreIncrease += 10;
-        factors.push('+10 perfect entry');
-      }
-    }
-
-    // Quick win bonus
-    if (trade.duration_minutes < 30) {
-      scoreIncrease += 3;
-      factors.push('+3 quick win');
-    }
-
-    // Large win bonus
-    if (riskReward >= 4.0) {
-      scoreIncrease += 5;
-      factors.push('+5 exceptional trade');
-    }
-
-    const oldScore = traderScore.current_score;
-    const newScore = Math.min(100, oldScore + scoreIncrease);
-    const oldPersonality = getPersonalityState(oldScore);
-    const newPersonality = getPersonalityState(newScore);
-
-    return {
-      scoreChange: scoreIncrease,
-      factors,
-      newScore,
-      oldScore,
-      personalityChange: oldPersonality.confidence_level !== newPersonality.confidence_level
-    };
-  }
-
-  /**
-   * Calculate loss penalty
-   */
-  calculateLossPenalty(trade: TradeContext, traderScore: TraderScore): RewardResult {
-    let scoreDecrease = 0;
-    const factors: string[] = [];
-
-    // Base penalty
-    scoreDecrease += 2;
-    factors.push('-2 loss');
-
-    // Quick loss penalty (poor entry)
-    if (trade.duration_minutes < 5) {
-      scoreDecrease += 4;
-      factors.push('-4 poor entry');
-    }
-
-    // Streak penalty
-    if (traderScore.streak_losses >= 3) {
-      scoreDecrease += 10;
-      factors.push('-10 critical streak');
-    } else if (traderScore.streak_losses >= 1) {
-      scoreDecrease += 7;
-      factors.push('-7 loss streak');
-    }
-
-    // High drawdown penalty
-    if (trade.max_drawdown && trade.atr) {
-      if (trade.max_drawdown > trade.atr * 2.0) {
-        scoreDecrease += 10;
-        factors.push('-10 high drawdown');
-      }
-    }
-
-    // Large loss penalty (exceeded risk)
-    const lossPercent = Math.abs(trade.pnl) / Math.abs(trade.risk_amount);
-    if (lossPercent > 1.5) {
-      scoreDecrease += 5;
-      factors.push('-5 exceeded risk');
-    }
-
-    const oldScore = traderScore.current_score;
-    const newScore = Math.max(0, oldScore - scoreDecrease);
-    const oldPersonality = getPersonalityState(oldScore);
-    const newPersonality = getPersonalityState(newScore);
-
-    return {
-      scoreChange: -scoreDecrease,
-      factors,
-      newScore,
-      oldScore,
-      personalityChange: oldPersonality.confidence_level !== newPersonality.confidence_level
-    };
-  }
-
-  /**
-   * Apply win reward to database
+   * Apply win reward — updates PLATFORM score only.
+   * Per-user ai_trader_score is updated for history tracking.
    */
   async applyWinReward(
     userId: string,
     trade: TradeContext,
     traderScore: TraderScore
   ): Promise<RewardResult> {
-    const reward = this.calculateWinReward(trade, traderScore);
+    const platformScore = await this.recordTradeOutcome('win');
 
-    const newPersonality = getPersonalityState(reward.newScore);
+    const oldScore = traderScore.current_score;
+    const newScore = Math.min(100, oldScore + 3);
 
-    // Update trader score
     const { error } = await supabase
       .from('ai_trader_score')
       .update({
-        current_score: reward.newScore,
+        current_score: newScore,
         streak_wins: traderScore.streak_wins + 1,
         streak_losses: 0,
-        best_win_streak: Math.max(traderScore.best_win_streak, traderScore.streak_wins + 1),
-        lifetime_profit: traderScore.lifetime_profit + trade.pnl,
-        total_wins: traderScore.total_wins + 1,
-        total_trades: traderScore.total_trades + 1,
-        win_rate: (traderScore.total_wins + 1) / (traderScore.total_trades + 1),
-        confidence_level: newPersonality.confidence_level,
-        risk_appetite: newPersonality.risk_appetite,
-        trading_style: newPersonality.trading_style,
+        best_win_streak: Math.max(traderScore.best_win_streak || 0, traderScore.streak_wins + 1),
+        lifetime_profit: (traderScore.lifetime_profit || 0) + trade.pnl,
+        total_wins: (traderScore.total_wins || 0) + 1,
+        total_trades: (traderScore.total_trades || 0) + 1,
+        win_rate: ((traderScore.total_wins || 0) + 1) / ((traderScore.total_trades || 0) + 1),
         last_update_at: new Date().toISOString()
       })
       .eq('user_id', userId);
 
-    if (error) throw error;
-
-    console.log(`[Reward Engine] ✅ Win: ${reward.factors.join(', ')}`);
-    console.log(`[Reward Engine] Score: ${reward.oldScore} → ${reward.newScore} (+${reward.scoreChange})`);
-    if (reward.personalityChange) {
-      console.log(`[Reward Engine] 🎭 Personality: ${getPersonalityState(reward.oldScore).confidence_level} → ${newPersonality.confidence_level}`);
+    if (error) {
+      console.error('[RewardEngine] Failed to update per-user score on win:', error);
     }
 
-    return reward;
+    const modifier = platformScore.confidence_modifier;
+    const streakInfo = platformScore.consecutive_wins > 0
+      ? `${platformScore.consecutive_wins} win streak, modifier: +${modifier}%`
+      : `modifier: ${modifier}%`;
+
+    console.log(`[RewardEngine] Win recorded. Platform: ${streakInfo}`);
+
+    return {
+      scoreChange: 3,
+      factors: [`+3 profitable`, streakInfo],
+      newScore,
+      oldScore,
+      personalityChange: false
+    };
   }
 
   /**
-   * Apply loss penalty to database
+   * Apply loss penalty — updates PLATFORM score only.
+   * Per-user ai_trader_score is updated for history tracking.
    */
   async applyLossPenalty(
     userId: string,
     trade: TradeContext,
     traderScore: TraderScore
   ): Promise<RewardResult> {
-    const penalty = this.calculateLossPenalty(trade, traderScore);
+    const platformScore = await this.recordTradeOutcome('loss');
 
-    const newPersonality = getPersonalityState(penalty.newScore);
+    const oldScore = traderScore.current_score;
+    const newScore = Math.max(0, oldScore - 2);
 
-    // Update trader score
     const { error } = await supabase
       .from('ai_trader_score')
       .update({
-        current_score: penalty.newScore,
+        current_score: newScore,
         streak_wins: 0,
         streak_losses: traderScore.streak_losses + 1,
-        worst_loss_streak: Math.max(traderScore.worst_loss_streak, traderScore.streak_losses + 1),
-        lifetime_loss: traderScore.lifetime_loss + Math.abs(trade.pnl),
-        total_losses: traderScore.total_losses + 1,
-        total_trades: traderScore.total_trades + 1,
-        win_rate: traderScore.total_wins / (traderScore.total_trades + 1),
-        confidence_level: newPersonality.confidence_level,
-        risk_appetite: newPersonality.risk_appetite,
-        trading_style: newPersonality.trading_style,
+        worst_loss_streak: Math.max(traderScore.worst_loss_streak || 0, traderScore.streak_losses + 1),
+        lifetime_loss: (traderScore.lifetime_loss || 0) + Math.abs(trade.pnl),
+        total_losses: (traderScore.total_losses || 0) + 1,
+        total_trades: (traderScore.total_trades || 0) + 1,
+        win_rate: (traderScore.total_wins || 0) / ((traderScore.total_trades || 0) + 1),
         last_update_at: new Date().toISOString()
       })
       .eq('user_id', userId);
 
-    if (error) throw error;
-
-    console.log(`[Reward Engine] ❌ Loss: ${penalty.factors.join(', ')}`);
-    console.log(`[Reward Engine] Score: ${penalty.oldScore} → ${penalty.newScore} (${penalty.scoreChange})`);
-    if (penalty.personalityChange) {
-      console.log(`[Reward Engine] 🎭 Personality: ${getPersonalityState(penalty.oldScore).confidence_level} → ${newPersonality.confidence_level}`);
+    if (error) {
+      console.error('[RewardEngine] Failed to update per-user score on loss:', error);
     }
 
-    return penalty;
+    const modifier = platformScore.confidence_modifier;
+    const streakInfo = platformScore.consecutive_losses > 0
+      ? `${platformScore.consecutive_losses} loss streak, modifier: ${modifier}%`
+      : `modifier: ${modifier}%`;
+
+    console.log(`[RewardEngine] Loss recorded. Platform: ${streakInfo}`);
+
+    return {
+      scoreChange: -2,
+      factors: [`-2 loss`, streakInfo],
+      newScore,
+      oldScore,
+      personalityChange: false
+    };
   }
 
   /**
-   * Update score for breakeven trade
+   * Apply breakeven — updates PLATFORM score (resets streak).
    */
   async applyBreakevenResult(
     userId: string,
     trade: TradeContext,
     traderScore: TraderScore
   ): Promise<RewardResult> {
-    // Breakeven = neutral, just reset streaks
-    const { error } = await supabase
+    await this.recordTradeOutcome('breakeven');
+
+    await supabase
       .from('ai_trader_score')
       .update({
         streak_wins: 0,
         streak_losses: 0,
-        total_trades: traderScore.total_trades + 1,
-        win_rate: traderScore.total_wins / (traderScore.total_trades + 1),
+        total_trades: (traderScore.total_trades || 0) + 1,
+        win_rate: (traderScore.total_wins || 0) / ((traderScore.total_trades || 0) + 1),
         last_update_at: new Date().toISOString()
       })
       .eq('user_id', userId);
-
-    if (error) throw error;
-
-    console.log(`[Reward Engine] ⚖️ Breakeven: No score change`);
 
     return {
       scoreChange: 0,
@@ -347,139 +350,34 @@ class RewardEngine {
   }
 
   /**
-   * Analyze score impact for a trade
+   * Analyze score impact (utility for performance analyzer).
    */
   async analyzeScoreImpact(
     userId: string,
     trade: TradeContext
   ): Promise<RewardResult> {
     const traderScore = await this.loadTraderScore(userId);
+    const platformScore = await this.loadPlatformScore();
 
-    if (trade.outcome === 'win') {
-      return this.calculateWinReward(trade, traderScore);
-    } else if (trade.outcome === 'loss') {
-      return this.calculateLossPenalty(trade, traderScore);
-    } else {
-      return {
-        scoreChange: 0,
-        factors: ['breakeven'],
-        newScore: traderScore.current_score,
-        oldScore: traderScore.current_score,
-        personalityChange: false
-      };
-    }
-  }
-
-  /**
-   * Calculate goal achievement reward
-   */
-  calculateGoalAchievementReward(
-    context: GoalAchievementContext,
-    traderScore: TraderScore
-  ): RewardResult {
-    let scoreIncrease = 0;
-    const factors: string[] = [];
-
-    // 1. Base bonus from goal difficulty
-    const accountPercent = (context.goalAmount / context.accountBalance) * 100;
-    let baseBonus = 0;
-    let goalTier = '';
-
-    if (context.goalAmount >= 500 || accountPercent >= 50) {
-      baseBonus = 75;
-      goalTier = 'massive';
-      factors.push('+75 legendary goal');
-    } else if (context.goalAmount >= 200 || accountPercent >= 20) {
-      baseBonus = 50;
-      goalTier = 'large';
-      factors.push('+50 major achievement');
-    } else if (context.goalAmount >= 50 || accountPercent >= 5) {
-      baseBonus = 35;
-      goalTier = 'medium';
-      factors.push('+35 significant milestone');
-    } else {
-      baseBonus = 25;
-      goalTier = 'small';
-      factors.push('+25 goal achieved');
-    }
-
-    scoreIncrease += baseBonus;
-
-    // 2. Speed bonus
-    const timePercent = (context.timeToAchieveHours / context.timeLimitHours) * 100;
-    if (timePercent <= 25) {
-      scoreIncrease += 15;
-      factors.push('+15 lightning speed');
-    } else if (timePercent <= 50) {
-      scoreIncrease += 10;
-      factors.push('+10 efficient execution');
-    }
-
-    // 3. User choice bonus (if applicable)
-    if (context.userChoice === 'close_now') {
-      scoreIncrease += 5;
-      factors.push('+5 disciplined exit');
-    } else if (context.userChoice === 'continue_breakeven') {
-      scoreIncrease += 10;
-      factors.push('+10 strategic risk-free play');
-    } else if (context.userChoice === 'continue_safety') {
-      scoreIncrease += 8;
-      factors.push('+8 balanced risk management');
-    }
-
-    // 4. Final outcome bonus (if trade completed)
-    if (context.finalOutcome) {
-      if (context.finalOutcome === 'hit_tp') {
-        if (context.userChoice === 'continue_breakeven') {
-          scoreIncrease += 15;
-          factors.push('+15 maximized opportunity');
-        } else if (context.userChoice === 'continue_safety') {
-          scoreIncrease += 12;
-          factors.push('+12 smart partial protection');
-        }
-      } else if (context.finalOutcome === 'hit_sl_breakeven') {
-        scoreIncrease += 5;
-        factors.push('+5 protected profits');
-      } else if (context.finalOutcome === 'hit_sl_safety') {
-        scoreIncrease += 7;
-        factors.push('+7 minimized losses');
-      }
-    }
-
-    // 5. Apply streak multiplier
-    let streakMultiplier = 1.0;
-    const goalStreak = (traderScore as any).goal_streak || 0;
-
-    if (goalStreak >= 5) {
-      streakMultiplier = 2.0;
-      factors.push('x2.0 goal master streak');
-    } else if (goalStreak >= 3) {
-      streakMultiplier = 1.5;
-      factors.push('x1.5 hot goal streak');
-    } else if (goalStreak >= 2) {
-      streakMultiplier = 1.2;
-      factors.push('x1.2 goal momentum');
-    }
-
-    // Apply multiplier to total
-    scoreIncrease = Math.round(scoreIncrease * streakMultiplier);
-
-    const oldScore = traderScore.current_score;
-    const newScore = Math.min(100, oldScore + scoreIncrease);
-    const oldPersonality = getPersonalityState(oldScore);
-    const newPersonality = getPersonalityState(newScore);
+    const modifier = platformScore.confidence_modifier;
+    const streakInfo = platformScore.consecutive_wins > 0
+      ? `${platformScore.consecutive_wins} win streak (+${modifier}%)`
+      : platformScore.consecutive_losses > 0
+        ? `${platformScore.consecutive_losses} loss streak (${modifier}%)`
+        : 'no streak (0%)';
 
     return {
-      scoreChange: scoreIncrease,
-      factors,
-      newScore,
-      oldScore,
-      personalityChange: oldPersonality.confidence_level !== newPersonality.confidence_level
+      scoreChange: 0,
+      factors: [streakInfo],
+      newScore: traderScore.current_score,
+      oldScore: traderScore.current_score,
+      personalityChange: false
     };
   }
 
   /**
-   * Apply goal achievement reward to database
+   * Apply goal achievement reward — per-user history only.
+   * Platform score is not affected by goals (only by trade outcomes).
    */
   async applyGoalReward(
     userId: string,
@@ -487,208 +385,80 @@ class RewardEngine {
     context: GoalAchievementContext,
     traderScore: TraderScore
   ): Promise<RewardResult> {
-    const reward = this.calculateGoalAchievementReward(context, traderScore);
-    const oldPersonality = getPersonalityState(reward.oldScore);
-    const newPersonality = getPersonalityState(reward.newScore);
-
-    // Calculate goal tier for history
     const accountPercent = (context.goalAmount / context.accountBalance) * 100;
+    let baseBonus = 0;
     let goalTier = 'small';
+    const factors: string[] = [];
+
     if (context.goalAmount >= 500 || accountPercent >= 50) {
-      goalTier = 'massive';
+      baseBonus = 75; goalTier = 'massive'; factors.push('+75 legendary goal');
     } else if (context.goalAmount >= 200 || accountPercent >= 20) {
-      goalTier = 'large';
+      baseBonus = 50; goalTier = 'large'; factors.push('+50 major achievement');
     } else if (context.goalAmount >= 50 || accountPercent >= 5) {
-      goalTier = 'medium';
+      baseBonus = 35; goalTier = 'medium'; factors.push('+35 significant milestone');
+    } else {
+      baseBonus = 25; factors.push('+25 goal achieved');
     }
 
-    // Update trader score with goal statistics
+    const oldScore = traderScore.current_score;
+    const newScore = Math.min(100, oldScore + baseBonus);
+
     const currentGoalStreak = (traderScore as any).goal_streak || 0;
     const newGoalStreak = currentGoalStreak + 1;
-    const bestGoalStreak = Math.max(
-      newGoalStreak,
-      (traderScore as any).best_goal_streak || 0
-    );
-    const largestGoal = Math.max(
-      context.goalAmount,
-      (traderScore as any).largest_goal_achieved || 0
-    );
 
-    const { error: updateError } = await supabase
+    await supabase
       .from('ai_trader_score')
       .update({
-        current_score: reward.newScore,
+        current_score: newScore,
         total_goals_achieved: ((traderScore as any).total_goals_achieved || 0) + 1,
         goal_streak: newGoalStreak,
-        best_goal_streak: bestGoalStreak,
+        best_goal_streak: Math.max(newGoalStreak, (traderScore as any).best_goal_streak || 0),
         goals_this_month: ((traderScore as any).goals_this_month || 0) + 1,
-        largest_goal_achieved: largestGoal,
-        last_goal_date: new Date().toISOString(),
-        confidence_level: newPersonality.confidence_level,
-        trading_style: newPersonality.trading_style
+        largest_goal_achieved: Math.max(context.goalAmount, (traderScore as any).largest_goal_achieved || 0),
+        last_goal_date: new Date().toISOString()
       })
       .eq('user_id', userId);
 
-    if (updateError) {
-      console.error('[Reward Engine] Failed to update trader score:', updateError);
-      throw updateError;
-    }
-
-    // Calculate streak multiplier for history
-    let streakMultiplier = 1.0;
-    if (currentGoalStreak >= 5) streakMultiplier = 2.0;
-    else if (currentGoalStreak >= 3) streakMultiplier = 1.5;
-    else if (currentGoalStreak >= 2) streakMultiplier = 1.2;
-
-    // Log reward in history
-    const { error: historyError } = await supabase
+    await supabase
       .from('goal_reward_history')
       .insert({
         user_id: userId,
         goal_achievement_id: goalAchievementId,
         reward_type: 'goal_achieved',
-        score_change: reward.scoreChange,
-        old_score: reward.oldScore,
-        new_score: reward.newScore,
+        score_change: baseBonus,
+        old_score: oldScore,
+        new_score: newScore,
         goal_size_tier: goalTier,
         goal_amount: context.goalAmount,
         time_to_achieve_hours: context.timeToAchieveHours,
-        streak_multiplier: streakMultiplier,
-        reward_factors: reward.factors,
-        old_personality: oldPersonality.confidence_level,
-        new_personality: newPersonality.confidence_level,
-        personality_changed: reward.personalityChange
+        streak_multiplier: 1.0,
+        reward_factors: factors,
+        old_personality: 'N/A',
+        new_personality: 'N/A',
+        personality_changed: false
+      }).then(({ error }) => {
+        if (error) console.error('[RewardEngine] Failed to log goal reward history:', error);
       });
 
-    if (historyError) {
-      console.error('[Reward Engine] Failed to log goal reward history:', historyError);
-    }
+    console.log(`[RewardEngine] Goal achievement reward: +${baseBonus} points (${goalTier})`);
 
-    console.log(`[Reward Engine] 🎯 Goal achievement reward: +${reward.scoreChange} points`);
-    console.log(`[Reward Engine] Score: ${reward.oldScore} → ${reward.newScore}`);
-    console.log(`[Reward Engine] Factors: ${reward.factors.join(', ')}`);
-
-    if (reward.personalityChange) {
-      console.log(`[Reward Engine] 🎭 Personality upgraded: ${oldPersonality.confidence_level} → ${newPersonality.confidence_level}`);
-    }
-
-    return reward;
+    return {
+      scoreChange: baseBonus,
+      factors,
+      newScore,
+      oldScore,
+      personalityChange: false
+    };
   }
 
-  /**
-   * Apply bonus for user choice after goal achievement
-   */
-  async applyGoalChoiceBonus(
-    userId: string,
-    goalAchievementId: string,
-    userChoice: 'close_now' | 'continue_breakeven' | 'continue_safety'
-  ): Promise<void> {
-    // This is already included in the main goal reward calculation
-    // But we log it separately for analytics
-    console.log(`[Reward Engine] User choice logged: ${userChoice}`);
-  }
-
-  /**
-   * Apply bonus for final outcome after goal achievement
-   */
-  async applyGoalFinalOutcome(
-    userId: string,
-    goalAchievementId: string,
-    finalOutcome: string,
-    finalPnL: number
-  ): Promise<void> {
-    try {
-      const traderScore = await this.loadTraderScore(userId);
-
-      // Get the original goal achievement context
-      const { data: achievement } = await supabase
-        .from('goal_achievements')
-        .select('*, goal_sessions!inner(*)')
-        .eq('id', goalAchievementId)
-        .single();
-
-      if (!achievement) {
-        console.warn('[Reward Engine] Goal achievement not found');
-        return;
-      }
-
-      // Calculate additional bonus based on outcome
-      let bonusPoints = 0;
-      const factors: string[] = [];
-
-      if (finalOutcome === 'hit_tp') {
-        if (achievement.user_choice === 'continue_breakeven') {
-          bonusPoints = 15;
-          factors.push('+15 maximized opportunity');
-        } else if (achievement.user_choice === 'continue_safety') {
-          bonusPoints = 12;
-          factors.push('+12 smart partial protection');
-        }
-      } else if (finalOutcome === 'hit_sl_breakeven') {
-        bonusPoints = 5;
-        factors.push('+5 protected profits');
-      } else if (finalOutcome === 'hit_sl_safety') {
-        bonusPoints = 7;
-        factors.push('+7 minimized losses');
-      }
-
-      if (bonusPoints > 0) {
-        const oldScore = traderScore.current_score;
-        const newScore = Math.min(100, oldScore + bonusPoints);
-        const oldPersonality = getPersonalityState(oldScore);
-        const newPersonality = getPersonalityState(newScore);
-
-        // Update score
-        await supabase
-          .from('ai_trader_score')
-          .update({
-            current_score: newScore,
-            confidence_level: newPersonality.confidence_level,
-            trading_style: newPersonality.trading_style
-          })
-          .eq('user_id', userId);
-
-        // Log in history
-        await supabase
-          .from('goal_reward_history')
-          .insert({
-            user_id: userId,
-            goal_achievement_id: goalAchievementId,
-            reward_type: 'final_outcome',
-            score_change: bonusPoints,
-            old_score: oldScore,
-            new_score: newScore,
-            outcome_bonus: bonusPoints,
-            final_outcome: finalOutcome,
-            reward_factors: factors,
-            old_personality: oldPersonality.confidence_level,
-            new_personality: newPersonality.confidence_level,
-            personality_changed: oldPersonality.confidence_level !== newPersonality.confidence_level
-          });
-
-        console.log(`[Reward Engine] 🎁 Final outcome bonus: +${bonusPoints} points`);
-        console.log(`[Reward Engine] Outcome: ${finalOutcome}, Final P&L: $${finalPnL.toFixed(2)}`);
-      }
-    } catch (error) {
-      console.error('[Reward Engine] Error applying final outcome bonus:', error);
-    }
-  }
-
-  /**
-   * Reset goal streak (called when user fails to achieve a goal)
-   */
   async resetGoalStreak(userId: string): Promise<void> {
     try {
       await supabase
         .from('ai_trader_score')
-        .update({
-          goal_streak: 0
-        })
+        .update({ goal_streak: 0 })
         .eq('user_id', userId);
-
-      console.log('[Reward Engine] ⚠️  Goal streak reset');
     } catch (error) {
-      console.error('[Reward Engine] Error resetting goal streak:', error);
+      console.error('[RewardEngine] Error resetting goal streak:', error);
     }
   }
 }

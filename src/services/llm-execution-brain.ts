@@ -7,7 +7,7 @@
  */
 
 import { openAIClient } from './openai-client';
-import { getExecutionIdentity, type TraderScore } from './ai-identity';
+import { PIPNOSIS_IDENTITY, type TraderScore } from './ai-identity';
 import { sanitizeAndParse } from './llm-response-sanitizer';
 
 export interface MicroSnapshot {
@@ -53,7 +53,7 @@ class LLMExecutionBrain {
     strategyMode: string,
     conditionsMet: string[]
   ): Promise<TradeDecision> {
-    const identity = getExecutionIdentity(traderScore);
+    const identity = `You are ${PIPNOSIS_IDENTITY.name}, ${PIPNOSIS_IDENTITY.role}. ${PIPNOSIS_IDENTITY.primeDirect}`;
 
     // Ultra-compressed prompt (< 300 tokens)
     const prompt = `${identity}

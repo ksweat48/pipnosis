@@ -77,6 +77,8 @@ import { supabase } from '../lib/supabase';
 import type { AdversarialSignal } from '../services/adversarial-detector';
 import type { RegimeSnapshot } from '../services/regime-oracle';
 import { rrSuccessTracker } from '../services/rr-success-tracker';
+import { rewardEngine } from '../services/reward-engine';
+import { buildStreakContext } from '../services/ai-identity';
 import { formatRiskProfileForLLM } from '../config/risk-strategy-profiles';
 import type { MarketBriefing } from '../types/market-briefing';
 import { timeToFillCalculator, type TimeToFillInput } from '../services/time-to-fill-calculator';
@@ -559,6 +561,15 @@ class AlphaCoordinatorBrain {
       if (goalContext) {
         alphaThoughtStream.emitAlphaRiskCheck(sessionId, userId, marketContext.symbol).catch(() => {});
       }
+    }
+
+    // Load platform streak context (advisory — non-blocking)
+    let streakContextLine = 'Platform streak context: no active streak. Confidence adjustment: 0%.';
+    try {
+      const platformScore = await rewardEngine.loadPlatformScore();
+      streakContextLine = buildStreakContext(platformScore);
+    } catch {
+      // Non-blocking — default to neutral
     }
 
     // Parallelize all independent data fetches (bidirectional for dual-arena)
@@ -2658,6 +2669,7 @@ ADVISORY INTELLIGENCE (context, not constraints):
 - Adversarial Detector: ${ALPHA_IDENTITY.ADVISORY_SYSTEMS.ADVERSARIAL_DETECTOR.name} — manipulation and trap pattern warnings
 - Session Constraints: ${ALPHA_IDENTITY.ADVISORY_SYSTEMS.SESSION_CONSTRAINTS.name} — time-based liquidity context
 - These advisories inform your confidence. They do not block your decision. Max combined advisory effect: ${ALPHA_IDENTITY.MAX_ADVISORY_PENALTY}%
+- ${streakContextLine}
 
 ONLY THESE CONDITIONS PRODUCE A HARD BLOCK:
 ${ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS.map(c => `- ${c}`).join('\n')}

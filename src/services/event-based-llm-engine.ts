@@ -11,7 +11,21 @@ import SystemTableRPCWrapper from './system-table-rpc-wrapper';
 import { PIPNOSIS_CORE_RULES } from '../lib/pipnosis-core-rules';
 import { triggerDetectionRules, TriggerEvent, MarketSnapshot } from './trigger-detection-rules';
 import { llmSnapshotBuilder, LLMTradeDecision } from './llm-snapshot-builder';
-import { rewardEngine, TraderScore } from './reward-engine';
+import { rewardEngine } from './reward-engine';
+import { type PlatformScore, type TraderScore } from './ai-identity';
+
+const NEUTRAL_TRADER_SCORE: TraderScore = {
+  current_score: 50,
+  lifetime_profit: 0,
+  lifetime_loss: 0,
+  streak_wins: 0,
+  streak_losses: 0,
+  confidence_level: 'balanced',
+  risk_appetite: 3.0,
+  trading_style: 'steady',
+  total_trades: 0,
+  win_rate: 0.5
+};
 import { llmStrategyBrain, StrategyPlan } from './llm-strategy-brain';
 import { strategyMemoryService } from './strategy-memory-service';
 import { conditionMonitor } from './condition-monitor';
@@ -94,7 +108,7 @@ class EventBasedLLMEngine {
   private tokenWindowStart: number = Date.now();
 
   // Autonomous brain state
-  private traderScore: TraderScore | null = null;
+  private platformScore: PlatformScore | null = null;
   private currentStrategy: StrategyPlan | null = null;
   private currentStrategyId: string | null = null; // Track active strategy in memory
   private strategyPlanCount: number = 0;
@@ -116,11 +130,10 @@ class EventBasedLLMEngine {
     this.tokenWindowStart = Date.now();
     await developerModeLogger.initialize(userId);
 
-    // Load trader score (use provided client for server-side execution)
-    this.traderScore = await rewardEngine.loadTraderScore(userId, supabaseClient);
-    console.log(`[Event Engine] 🧠 Autonomous Pipnosis Alpha initialized`);
-    console.log(`[Event Engine] 📊 Trader Score: ${this.traderScore.current_score}/100`);
-    console.log(`[Event Engine] 🎭 Personality: ${this.traderScore.confidence_level}`);
+    // Load platform score (global streak-based modifier — no user ID)
+    this.platformScore = await rewardEngine.loadPlatformScore(supabaseClient);
+    console.log(`[Event Engine] Autonomous Pipnosis Alpha initialized`);
+    console.log(`[Event Engine] Platform streak modifier: ${this.platformScore.confidence_modifier >= 0 ? '+' : ''}${this.platformScore.confidence_modifier}%`);
   }
 
   /**
@@ -241,7 +254,7 @@ class EventBasedLLMEngine {
 
       this.currentStrategy = await llmStrategyBrain.planStrategy(
         strategySnapshot,
-        this.traderScore!,
+        NEUTRAL_TRADER_SCORE,
         this.userId || undefined,
         prelimCheck.regime,
         prelimCheck.adversarial,
@@ -373,7 +386,7 @@ class EventBasedLLMEngine {
     // PRIORITY 3 FIX: Pass userId to makeTradeDecision for proper tracking
     const decision = await alphaOmegaOrchestrator.makeTradeDecision(
       fullMarketState,
-      this.traderScore!,
+      NEUTRAL_TRADER_SCORE,
       proposedSL,
       proposedTP,
       undefined, // No goal context in backtest mode
@@ -594,7 +607,7 @@ class EventBasedLLMEngine {
       }
 
       // MID-TRADE MONITORING (if not hitting SL/TP)
-      if (this.traderScore && candles.length >= 50) {
+      if (this.platformScore && candles.length >= 50) {
         try {
           const marketState = llmSnapshotBuilder.buildMarketState(candles);
 
@@ -631,7 +644,7 @@ class EventBasedLLMEngine {
               riskPct: 3
             },
             fullMarketState,
-            this.traderScore,
+            NEUTRAL_TRADER_SCORE,
             currentPrice,
             currentTime
           );
@@ -961,7 +974,7 @@ class EventBasedLLMEngine {
    * Handle trade close and update trader score
    */
   async onTradeClose(trade: SimulatedTrade): Promise<void> {
-    if (!this.userId || !this.traderScore) {
+    if (!this.userId) {
       return;
     }
 
@@ -981,25 +994,27 @@ class EventBasedLLMEngine {
     };
 
     try {
-      // Apply reward/penalty
+      const traderScore = await rewardEngine.loadTraderScore(this.userId);
+
+      // Apply reward/penalty (updates platform score + per-user history)
       if (outcome === 'win') {
         const reward = await rewardEngine.applyWinReward(
           this.userId,
           tradeContext,
-          this.traderScore
+          traderScore
         );
-        console.log(`[Autonomous] 📈 Score: ${reward.oldScore} → ${reward.newScore}`);
+        console.log(`[Autonomous] Score: ${reward.oldScore} -> ${reward.newScore}`);
       } else if (outcome === 'loss') {
         const penalty = await rewardEngine.applyLossPenalty(
           this.userId,
           tradeContext,
-          this.traderScore
+          traderScore
         );
         console.log(`[Autonomous] 📉 Score: ${penalty.oldScore} → ${penalty.newScore}`);
       }
 
-      // Reload score
-      this.traderScore = await rewardEngine.loadTraderScore(this.userId);
+      // Reload platform score after trade outcome
+      this.platformScore = await rewardEngine.loadPlatformScore();
 
       // Analyze performance
       const scoreImpact = await rewardEngine.analyzeScoreImpact(this.userId, tradeContext);
@@ -1009,8 +1024,6 @@ class EventBasedLLMEngine {
         scoreImpact,
         trade.id
       );
-
-      console.log(`[Autonomous] 🎯 New personality: ${this.traderScore.confidence_level}`);
 
       // Trigger playbook evaluation (check if better variant should be promoted)
       if (trade.playbook_id && this.currentConfig?.symbol && this.currentConfig?.timeframe) {

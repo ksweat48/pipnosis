@@ -6,7 +6,7 @@
  */
 
 import { openAIClient } from './openai-client';
-import { getStrategyPlanningIdentity, type TraderScore } from './ai-identity';
+import { PIPNOSIS_IDENTITY, type TraderScore } from './ai-identity';
 import { strategyMemoryService } from './strategy-memory-service';
 import type { RegimeSnapshot } from './regime-oracle';
 import type { AdversarialSignal } from './adversarial-detector';
@@ -84,7 +84,7 @@ class LLMStrategyBrain {
     adversarial?: AdversarialSignal,
     tradeStyle?: string
   ): Promise<StrategyPlan> {
-    const identity = getStrategyPlanningIdentity(traderScore);
+    const identity = `You are ${PIPNOSIS_IDENTITY.name}, ${PIPNOSIS_IDENTITY.role}. ${PIPNOSIS_IDENTITY.primeDirect}`;
 
     // Build regime context (compressed)
     let regimeSection = '';

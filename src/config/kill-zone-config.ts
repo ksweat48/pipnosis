@@ -145,7 +145,7 @@ export const KILL_ZONES: KillZone[] = [
     description: 'Low volume. High spread risk. No trade cards generated.',
     cardSuppression: 'all',
     allowedStyles: [],
-    confidenceBonus: -15,
+    confidenceBonus: 0,
     color: 'text-red-400',
     badgeColor: 'bg-red-500/20 border-red-500/40 text-red-300',
   },

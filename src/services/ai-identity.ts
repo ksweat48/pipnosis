@@ -1,22 +1,42 @@
 /**
- * AI Identity System - Pipnosis Alpha Personality & Mission
+ * AI Identity System - Pipnosis Alpha Mission & Platform Streak Modifier
  *
- * CCIP-2026-0220: Reasoning language overhaul.
- * Alpha's identity is now framed around objective-driven decision-making:
- * the question is not "can I trade?" but "should I trade, and does this
- * trade serve the current session objective?"
+ * CCIP-2026-0309: Platform-wide trade score refactor.
  *
- * SSOT: This file owns Alpha's identity, mission, core values, and
- * score-based behavioral states. Confidence thresholds are owned by
- * src/config/alpha-identity.ts and must not be duplicated here.
+ * WHAT THIS FILE IS NOW:
+ * - PIPNOSIS_IDENTITY: Alpha's immutable mission, values, and thinking style
+ * - getPlatformStreakModifier(): streak-to-confidence-modifier lookup (-5 to +5)
+ * - buildStreakContext(): neutral context string passed to Alpha's prompt
+ *
+ * WHAT HAS BEEN REMOVED:
+ * - PersonalityState interface (defensive/cautious/balanced/aggressive)
+ * - getPersonalityState() — personality labels are gone entirely
+ * - All risk_appetite, trading_style, prompt_modifier personality fields
+ * - buildMotivationalContext() — replaced by buildStreakContext()
+ * - getStrategyPlanningIdentity() / getExecutionIdentity() — per-user score injection
+ *
+ * REASON:
+ * Personality labels ("DEFENSIVE", "ultra-selective") introduced score-chasing
+ * behaviour and risk-appetite overrides that bypassed user-controlled risk sizing.
+ * The score system now does ONE thing only: apply a small confidence adjustment
+ * at execution time based on Alpha's consecutive win or loss streak as a platform.
+ *
+ * SSOT:
+ * - Personality labels: REMOVED (no file owns them)
+ * - Platform streak + modifier: alpha_platform_score table (single row)
+ * - Platform score reads: reward-engine.ts loadPlatformScore()
+ * - Confidence modifier application: confidence-calculation-engine.ts
  */
 
-export interface PersonalityState {
-  confidence_level: 'defensive' | 'cautious' | 'balanced' | 'aggressive';
-  risk_appetite: number; // 1-5% per trade
-  trading_style: 'ultra-selective' | 'selective' | 'steady' | 'assertive';
-  prompt_modifier: string;
-  behavior_notes: string;
+export interface PlatformScore {
+  consecutive_wins: number;
+  consecutive_losses: number;
+  total_trades: number;
+  total_wins: number;
+  total_losses: number;
+  confidence_modifier: number;
+  last_outcome: 'win' | 'loss' | 'breakeven' | null;
+  last_updated: string;
 }
 
 export interface TraderScore {
@@ -62,161 +82,68 @@ export const PIPNOSIS_IDENTITY = {
 };
 
 /**
- * Get personality state based on current score.
+ * STREAK MODIFIER CONSTANTS — SSOT
  *
- * CCIP-2026-0220: Prompt modifiers reframed around decision calibration.
- * The modifiers describe how risk sizing should adjust relative to recent
- * performance — they do not instruct Alpha to trade more or less
- * aggressively as a blanket directive. That framing created score-chasing
- * behaviour at high scores and paralysis at low scores, both of which
- * degrade decision quality.
+ * These values define the scaling rule for the platform streak confidence modifier.
+ * 1 consecutive win/loss = +/-1, up to a hard cap of +/-5.
+ * A score of 0 means no streak is active — no adjustment.
  */
-export function getPersonalityState(score: number): PersonalityState {
-  if (score >= 80) {
-    return {
-      confidence_level: 'aggressive',
-      risk_appetite: 5.0,
-      trading_style: 'assertive',
-      prompt_modifier: 'CALIBRATED STATE — STRONG: Recent performance is solid. Your edge has been confirmed by outcomes. Apply standard risk sizing. The goal is to continue making well-reasoned decisions — not to increase activity. A well-reasoned WAIT is as valid as a trade.',
-      behavior_notes: 'Strong recent record. Standard-to-elevated risk sizing. Decision quality is the priority.'
-    };
-  } else if (score >= 60) {
-    return {
-      confidence_level: 'balanced',
-      risk_appetite: 3.0,
-      trading_style: 'steady',
-      prompt_modifier: 'CALIBRATED STATE — STEADY: Performance is acceptable. Apply standard risk sizing. Evaluate each setup on its own merits. Ask whether each trade genuinely serves the session objective before committing.',
-      behavior_notes: 'Steady record. Standard risk sizing. Evaluate each setup independently.'
-    };
-  } else if (score >= 40) {
-    return {
-      confidence_level: 'cautious',
-      risk_appetite: 2.0,
-      trading_style: 'selective',
-      prompt_modifier: 'CALIBRATED STATE — SELECTIVE: Recent outcomes suggest either market conditions have been unfavourable or reasoning quality has slipped. Reduce risk sizing. Require clearer structural evidence before entry. Prefer WAIT over marginal setups.',
-      behavior_notes: 'Below-average recent record. Reduced risk sizing. Require clear structural evidence.'
-    };
-  } else {
-    return {
-      confidence_level: 'defensive',
-      risk_appetite: 1.0,
-      trading_style: 'ultra-selective',
-      prompt_modifier: 'CALIBRATED STATE — DEFENSIVE: Recent performance indicates a significant run of unfavourable outcomes. Minimum risk sizing only. Only setups that satisfy all confluence requirements with high structural clarity. The primary objective right now is capital preservation, not recovery through activity.',
-      behavior_notes: 'Poor recent record. Minimum risk sizing. Only clear, high-confluence setups.'
-    };
+export const PLATFORM_STREAK_MODIFIER = {
+  MAX_BONUS: 5,
+  MAX_PENALTY: -5,
+  POINTS_PER_CONSECUTIVE: 1,
+} as const;
+
+/**
+ * getPlatformStreakModifier
+ *
+ * Returns the confidence modifier (-5 to +5) based on consecutive win/loss streak.
+ * This is the ONLY effect of the platform score on Alpha's behavior.
+ *
+ * Rules:
+ * - 1 consecutive win  → +1 | 2 → +2 | 3 → +3 | 4 → +4 | 5+ → +5 (hard cap)
+ * - 1 consecutive loss → -1 | 2 → -2 | 3 → -3 | 4 → -4 | 5+ → -5 (hard cap)
+ * - Zero streak → 0 (no adjustment — Alpha is always analytically confident)
+ */
+export function getPlatformStreakModifier(score: PlatformScore): number {
+  if (score.consecutive_wins > 0) {
+    return Math.min(
+      PLATFORM_STREAK_MODIFIER.MAX_BONUS,
+      score.consecutive_wins * PLATFORM_STREAK_MODIFIER.POINTS_PER_CONSECUTIVE
+    );
   }
-}
-
-/**
- * Build performance context for LLM prompts.
- *
- * CCIP-2026-0220: Renamed from buildMotivationalContext. Motivational
- * framing (score pressure, momentum language) has been removed. The context
- * now provides calibration data — recent performance indicators that inform
- * risk sizing and decision posture, not pressure to trade.
- */
-export function buildMotivationalContext(traderScore: TraderScore): string {
-  const personality = getPersonalityState(traderScore.current_score);
-
-  const streakText = traderScore.streak_wins > 0
-    ? `${traderScore.streak_wins} consecutive wins`
-    : traderScore.streak_losses > 0
-      ? `${traderScore.streak_losses} consecutive losses`
-      : 'no active streak';
-
-  const winRateText = traderScore.total_trades > 0
-    ? `${(traderScore.win_rate * 100).toFixed(1)}% win rate across ${traderScore.total_trades} trades`
-    : 'no trade history yet';
-
-  return `
-Identity: ${PIPNOSIS_IDENTITY.name}
-Mission: ${PIPNOSIS_IDENTITY.mission}
-
-Performance State: ${personality.confidence_level.toUpperCase()}
-Score: ${traderScore.current_score}/100
-Recent Streak: ${streakText}
-Historical: ${winRateText}
-Risk Sizing: ${personality.risk_appetite}% per trade
-
-${personality.prompt_modifier}
-`.trim();
-}
-
-/**
- * Get post-trade analysis message.
- *
- * CCIP-2026-0220: Messages reframed around reasoning quality and calibration
- * rather than motivational pressure. The focus is on what the outcome tells
- * Alpha about the reasoning process, not on score recovery or momentum.
- */
-export function getPostTradeMessage(
-  outcome: 'win' | 'loss' | 'breakeven',
-  scoreChange: number,
-  newScore: number,
-  factors: string[]
-): string {
-  const personality = getPersonalityState(newScore);
-
-  if (outcome === 'win') {
-    const messages = [
-      `Trade closed profitably. Score: ${newScore}/100 (+${scoreChange}). Factors: ${factors.join(', ')}. ${personality.behavior_notes}`,
-      `Positive outcome. +${scoreChange} points. ${factors.join(', ')}. Evaluate whether the reasoning matched the result.`,
-      `Win recorded. Score now ${newScore}. ${factors.join(', ')}. Continue applying the same reasoning standards.`
-    ];
-    return messages[Math.floor(Math.random() * messages.length)];
-  } else if (outcome === 'loss') {
-    const messages = [
-      `Trade closed at a loss. Score: ${newScore}/100 (${scoreChange}). Factors: ${factors.join(', ')}. ${personality.behavior_notes}`,
-      `Loss recorded. Score now ${newScore}. ${factors.join(', ')}. Review whether the failure mode was identified before entry.`,
-      `Negative outcome. ${factors.join(', ')}. Assess whether the reasoning was sound regardless of the result.`
-    ];
-    return messages[Math.floor(Math.random() * messages.length)];
-  } else {
-    return `Breakeven trade. Score unchanged at ${newScore}. No capital lost. Evaluate entry timing quality.`;
+  if (score.consecutive_losses > 0) {
+    return Math.max(
+      PLATFORM_STREAK_MODIFIER.MAX_PENALTY,
+      -(score.consecutive_losses * PLATFORM_STREAK_MODIFIER.POINTS_PER_CONSECUTIVE)
+    );
   }
+  return 0;
 }
 
 /**
- * Get strategy planning identity injection.
+ * buildStreakContext
  *
- * CCIP-2026-0220: Reframed around session objective and expected value.
- * "Define a winning strategy that will grow your score" replaced with
- * a directive to evaluate whether the current conditions support a trade
- * that genuinely serves the session objective.
- */
-export function getStrategyPlanningIdentity(traderScore: TraderScore): string {
-  const personality = getPersonalityState(traderScore.current_score);
-
-  return `
-You are ${PIPNOSIS_IDENTITY.name}, ${PIPNOSIS_IDENTITY.role}.
-
-Mission: ${PIPNOSIS_IDENTITY.mission}
-Current Score: ${traderScore.current_score}/100
-Performance State: ${personality.confidence_level.toUpperCase()}
-Risk Sizing: ${personality.risk_appetite}%
-
-${personality.prompt_modifier}
-
-Evaluate whether current market conditions present a setup that genuinely serves the session objective. A well-reasoned decision to wait is as valid as a trade.
-`.trim();
-}
-
-/**
- * Get execution decision identity injection.
+ * Returns a neutral, single-line context string passed to Alpha's prompt.
+ * This is advisory data — Alpha sees the streak context and can factor it
+ * into his reasoning. The mechanical modifier is applied separately at
+ * the confidence calculation layer.
  *
- * CCIP-2026-0220: "Every trade affects your score. Trade wisely." replaced.
- * The former framing created score-preservation pressure at the moment of
- * execution. The correct framing asks Alpha to evaluate whether this specific
- * setup earns its place in the session before committing.
+ * Format: "Platform streak context: N consecutive wins/losses. Confidence adjustment: +/-Y%."
+ * or "Platform streak context: no active streak. Confidence adjustment: 0%."
  */
-export function getExecutionIdentity(traderScore: TraderScore): string {
-  const personality = getPersonalityState(traderScore.current_score);
+export function buildStreakContext(score: PlatformScore): string {
+  const modifier = getPlatformStreakModifier(score);
 
-  return `
-${PIPNOSIS_IDENTITY.name} | Score: ${traderScore.current_score}/100 | ${personality.confidence_level.toUpperCase()}
+  if (score.consecutive_wins > 0) {
+    const streakLabel = score.consecutive_wins === 1 ? '1 consecutive win' : `${score.consecutive_wins} consecutive wins`;
+    return `Platform streak context: ${streakLabel}. Confidence adjustment: +${modifier}%. Apply this to your final confidence score.`;
+  }
 
-${personality.prompt_modifier}
+  if (score.consecutive_losses > 0) {
+    const streakLabel = score.consecutive_losses === 1 ? '1 consecutive loss' : `${score.consecutive_losses} consecutive losses`;
+    return `Platform streak context: ${streakLabel}. Confidence adjustment: ${modifier}%. Apply this to your final confidence score.`;
+  }
 
-Before executing: does this setup serve the session objective? Does the expected value of this trade justify using a trade slot here?
-`.trim();
+  return `Platform streak context: no active streak. Confidence adjustment: 0%. Apply this to your final confidence score.`;
 }

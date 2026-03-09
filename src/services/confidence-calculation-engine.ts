@@ -58,6 +58,14 @@ export interface ConfidenceCalculationInput {
    */
   adaptive_floor?: number;
 
+  /**
+   * Platform streak confidence modifier (-5 to +5).
+   * Source: alpha_platform_score singleton row via rewardEngine.loadPlatformScore().
+   * Applied additively after rewards: afterRewards + platform_streak_modifier.
+   * SSOT: ai-identity.ts getPlatformStreakModifier() owns the lookup table.
+   */
+  platform_streak_modifier?: number;
+
   // Modifiers from each domain authority
   rewards?: {
     consensus_bonus?: number;
@@ -160,8 +168,11 @@ class ConfidenceCalculationEngine {
       }
 
       // PHASE 2: Apply rewards (additive, clamped to 100)
-      const totalRewards = this.calculateTotalRewards(input.rewards || {});
-      const afterRewards = Math.min(100, input.base_confidence + totalRewards);
+      // Include platform streak modifier (-5 to +5) as an additive reward.
+      // This is the ONE mechanical effect of the platform score on execution confidence.
+      const platformStreakModifier = input.platform_streak_modifier ?? 0;
+      const totalRewards = this.calculateTotalRewards(input.rewards || {}) + platformStreakModifier;
+      const afterRewards = Math.min(100, Math.max(0, input.base_confidence + totalRewards));
 
       // PHASE 3: Apply penalties with domain isolation
       const penaltyResult = this.applyDomainPenalties(
@@ -235,6 +246,7 @@ class ConfidenceCalculationEngine {
         `[ConfidenceEngine] Confidence Calculation Complete (${Date.now() - startTime}ms)`,
         {
           base: input.base_confidence,
+          platform_streak_modifier: platformStreakModifier !== 0 ? platformStreakModifier : undefined,
           rewards: totalRewards,
           after_rewards: afterRewards,
           advisory_penalties: {

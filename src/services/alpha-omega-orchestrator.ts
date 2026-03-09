@@ -52,6 +52,8 @@ import {
 } from '../config/concurrent-execution-config';
 import { marketScheduleService } from './market-schedule-service';
 import { calculateSessionContext } from '../utils/marketHours';
+import { rewardEngine } from './reward-engine';
+import { getPlatformStreakModifier } from './ai-identity';
 
 export interface ConfidencePenalty {
   source: string;
@@ -633,7 +635,15 @@ class AlphaOmegaOrchestrator {
     }
 
     // ✅ USE NEW SSOT ENGINE TO CALCULATE FINAL CONFIDENCE
-    // Rewards are optional - confidence engine will use defaults if not provided
+    // Platform streak modifier (-5 to +5) is loaded here and passed as an additive bonus.
+    let platformStreakModifier = 0;
+    try {
+      const platformScore = await rewardEngine.loadPlatformScore();
+      platformStreakModifier = getPlatformStreakModifier(platformScore);
+    } catch {
+      // Non-blocking — default to 0 if unavailable
+    }
+
     const confidenceResult = await confidenceCalculationEngine.calculateFinalConfidence({
       base_confidence: originalConfidence,
       symbol: marketState.symbol,
@@ -641,7 +651,8 @@ class AlphaOmegaOrchestrator {
       session_id: undefined,
       trade_id: undefined,
       user_id: userId,
-      rewards: undefined, // Rewards will be calculated by the engine if needed
+      platform_streak_modifier: platformStreakModifier,
+      rewards: undefined,
       modifiers: confidenceModifiers
     });
 
@@ -1276,10 +1287,8 @@ class AlphaOmegaOrchestrator {
   } {
     const HIGH_CONFIDENCE = 70;
 
-    // Personality settings influence conflict resolution
-    const isAggressive = traderScore.personality === 'AGGRESSIVE';
-    const isHighScore = traderScore.score >= 80;
-    const isAggressiveMode = isAggressive && isHighScore;
+    // Personality settings removed — platform streak is the only signal
+    const isAggressiveMode = false;
 
     // Define conflicting domain pairs (Swing Omega removed)
     const conflictingDomains: Record<string, string[]> = {
@@ -1408,7 +1417,7 @@ class AlphaOmegaOrchestrator {
       const minorityCount = Math.min(buyVotes.length, sellVotes.length);
 
       console.log(`[Omega Conflict] 🔥 AGGRESSIVE MODE OVERRIDE: ${majorityCount} vs ${minorityCount} - Taking ${majorityDirection} with minimal penalty`);
-      console.log('[Omega Conflict] Personality: AGGRESSIVE | Score: ' + traderScore.score + ' | Respecting overwhelming majority');
+      console.log('[Omega Conflict] Following overwhelming majority');
 
       return {
         hasConflict: true,
