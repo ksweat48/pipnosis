@@ -1,20 +1,25 @@
 /**
  * GOAL INTELLIGENCE CLASSIFIER
  *
- * Elite trading psychology system that classifies goals into operational modes
- * BEFORE any trade planning begins. Transforms Alpha from "risk-aware bot"
- * into an intelligent capital manager that thinks like a professional trader.
+ * CCIP-2026-03-09: GOVERNANCE REFACTOR
+ * - Growth mode removed entirely. Alpha executes for ALL goal sizes.
+ * - shouldBlockExecution removed from contract — Alpha is never blocked by goal ratio.
+ * - minConfidenceThreshold normalized to ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE (60)
+ *   for all modes. best-symbol-selector.ts is the single confidence gate authority.
+ * - alternativeApproach removed — Alpha does not refuse to trade.
+ * - Modes remain as psychological execution frameworks only (no blocking power).
  *
  * Philosophy:
  * - Capital survival and efficiency always override goal urgency
  * - Alpha does not chase goals — Alpha engineers outcomes
  * - Confidence affects whether to trade, not how tight the stops are
- * - Goal classification determines execution psychology, not just risk %
+ * - Goal classification determines execution psychology, not execution permission
  */
 
 import { logger, LogCategory } from '@/lib/logger';
+import { ALPHA_IDENTITY } from '../config/alpha-identity';
 
-export type GoalMode = 'precision' | 'execution' | 'campaign' | 'growth';
+export type GoalMode = 'precision' | 'execution' | 'campaign';
 
 export interface GoalClassification {
   mode: GoalMode;
@@ -26,19 +31,14 @@ export interface GoalClassification {
   maxRiskPerTradePct: number;
   expectedTradeCount: number;
   targetRiskRewardRange: [number, number];
+
+  // CCIP-2026-03-09: minConfidenceThreshold is always MINIMUM_TRADE_CONFIDENCE (60).
+  // best-symbol-selector.ts is the single confidence gate authority.
   minConfidenceThreshold: number;
 
   // Execution guidance
   executionPsychology: string;
   userMessage: string;
-  shouldBlockExecution: boolean;
-
-  // Alternative recommendations (for blocked goals)
-  alternativeApproach?: {
-    stagedTargets: number[];
-    timeframe: string;
-    reasoning: string;
-  };
 }
 
 export interface GoalContext {
@@ -52,10 +52,9 @@ export interface GoalContext {
 // ============================================================
 
 const MODE_THRESHOLDS = {
-  PRECISION_MAX: 2.0,      // ≤ 2%: Precision Mode
-  EXECUTION_MAX: 10.0,     // 2-10%: Execution Mode
-  CAMPAIGN_MAX: 30.0,      // 10-30%: Campaign Mode
-  // > 30%: Growth Mode (blocked)
+  PRECISION_MAX: 2.0,   // ≤ 2%: Precision Mode
+  EXECUTION_MAX: 10.0,  // 2-10%: Execution Mode
+  // > 10%: Campaign Mode (no upper limit — Alpha always executes)
 } as const;
 
 // ============================================================
@@ -67,7 +66,6 @@ const MODE_CONFIGS = {
     maxRiskPerTradePct: 0.8,
     expectedTradeCount: 1,
     targetRiskRewardRange: [1.5, 2.0] as [number, number],
-    minConfidenceThreshold: 80,
     executionPsychology: 'surgical',
     description: 'One clean trade. No ego. Precision beats power.'
   },
@@ -76,7 +74,6 @@ const MODE_CONFIGS = {
     maxRiskPerTradePct: 1.5,
     expectedTradeCount: 3,
     targetRiskRewardRange: [2.0, 2.5] as [number, number],
-    minConfidenceThreshold: 75,
     executionPsychology: 'disciplined',
     description: 'Professional execution through sequenced wins. 2-4 quality trades.'
   },
@@ -85,19 +82,9 @@ const MODE_CONFIGS = {
     maxRiskPerTradePct: 1.0,
     expectedTradeCount: 8,
     targetRiskRewardRange: [2.0, 3.0] as [number, number],
-    minConfidenceThreshold: 80,
     executionPsychology: 'patient',
     description: 'Multi-session campaign. Consistency over speed.'
   },
-
-  growth: {
-    maxRiskPerTradePct: 0,
-    expectedTradeCount: 0,
-    targetRiskRewardRange: [0, 0] as [number, number],
-    minConfidenceThreshold: 100,
-    executionPsychology: 'blocked',
-    description: 'Capital growth problem, not a trading problem.'
-  }
 } as const;
 
 // ============================================================
@@ -107,44 +94,33 @@ const MODE_CONFIGS = {
 class GoalIntelligenceClassifier {
 
   /**
-   * Main classification function - evaluates goal BEFORE any trade planning
+   * Main classification function - evaluates goal BEFORE any trade planning.
+   * CCIP-2026-03-09: Never blocks execution. Returns execution psychology only.
    */
   classify(context: GoalContext): GoalClassification {
     const { goalAmount, accountBalance } = context;
 
-    // Calculate goal ratio
     const goalRatioPercent = (goalAmount / accountBalance) * 100;
-
-    // Determine mode based on thresholds
     const mode = this.determineMode(goalRatioPercent);
-
-    // Get mode configuration
     const config = MODE_CONFIGS[mode];
 
-    // Build classification
     const classification: GoalClassification = {
       mode,
       goalRatioPercent,
-      isFeasible: mode !== 'growth',
+      isFeasible: true, // CCIP-2026-03-09: All goals are feasible — Alpha always executes
       reasoning: this.buildReasoning(mode, goalRatioPercent, goalAmount, accountBalance),
 
       maxRiskPerTradePct: config.maxRiskPerTradePct,
       expectedTradeCount: config.expectedTradeCount,
       targetRiskRewardRange: config.targetRiskRewardRange,
-      minConfidenceThreshold: config.minConfidenceThreshold,
+
+      // SSOT: Confidence gate lives in best-symbol-selector.ts via ALPHA_IDENTITY.
+      // This value is informational for planning prompts only — never enforced here.
+      minConfidenceThreshold: ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE,
 
       executionPsychology: config.executionPsychology,
       userMessage: this.buildUserMessage(mode, goalAmount, accountBalance, goalRatioPercent),
-      shouldBlockExecution: mode === 'growth'
     };
-
-    // Add alternative approach for blocked goals
-    if (mode === 'growth') {
-      classification.alternativeApproach = this.buildAlternativeApproach(
-        goalAmount,
-        accountBalance
-      );
-    }
 
     logger.info(LogCategory.AI_TRADING,
       `[Goal Intelligence] Classified $${goalAmount} goal on $${accountBalance} balance as ${mode.toUpperCase()} (${goalRatioPercent.toFixed(1)}%)`
@@ -154,7 +130,8 @@ class GoalIntelligenceClassifier {
   }
 
   /**
-   * Determine goal mode based on goal ratio
+   * Determine goal mode based on goal ratio.
+   * CCIP-2026-03-09: Campaign mode has no upper cap — replaces removed growth mode.
    */
   private determineMode(goalRatioPercent: number): GoalMode {
     if (goalRatioPercent <= MODE_THRESHOLDS.PRECISION_MAX) {
@@ -165,11 +142,7 @@ class GoalIntelligenceClassifier {
       return 'execution';
     }
 
-    if (goalRatioPercent <= MODE_THRESHOLDS.CAMPAIGN_MAX) {
-      return 'campaign';
-    }
-
-    return 'growth';
+    return 'campaign';
   }
 
   /**
@@ -193,11 +166,6 @@ class GoalIntelligenceClassifier {
       case 'campaign':
         return `Goal is ${goalRatioPercent.toFixed(1)}% of balance. This requires a multi-session campaign. ` +
                `Large goals need time and consistency, not aggression. Expect staged progress over multiple sessions.`;
-
-      case 'growth':
-        return `Goal is ${goalRatioPercent.toFixed(1)}% of balance. This exceeds safe execution limits. ` +
-               `This is not a trading problem — it's a capital growth problem. ` +
-               `Attempting this goal would require excessive risk that violates professional trading standards.`;
     }
   }
 
@@ -225,48 +193,7 @@ class GoalIntelligenceClassifier {
       case 'campaign':
         return `Your ${formattedGoal} goal is ${goalRatioPercent.toFixed(1)}% of your ${formattedBalance} balance. ` +
                `This requires a multi-session campaign. Alpha will take a patient, consistent approach over time.`;
-
-      case 'growth':
-        return `Your ${formattedGoal} goal is ${goalRatioPercent.toFixed(1)}% of your ${formattedBalance} balance. ` +
-               `This goal exceeds safe execution limits and cannot be attempted in a single session. ` +
-               `See the recommended growth path below.`;
     }
-  }
-
-  /**
-   * Build alternative approach for unrealistic goals
-   */
-  private buildAlternativeApproach(
-    goalAmount: number,
-    accountBalance: number
-  ): {
-    stagedTargets: number[];
-    timeframe: string;
-    reasoning: string;
-  } {
-    // Calculate realistic daily targets (2-5% growth per day)
-    const conservativeDailyTarget = accountBalance * 0.02;
-    const aggressiveDailyTarget = accountBalance * 0.05;
-
-    // Calculate number of days needed
-    const daysNeeded = Math.ceil(goalAmount / aggressiveDailyTarget);
-
-    // Build staged targets
-    const stagedTargets: number[] = [];
-    let currentTarget = conservativeDailyTarget;
-
-    while (stagedTargets.reduce((sum, t) => sum + t, 0) < goalAmount) {
-      stagedTargets.push(Math.min(currentTarget, goalAmount - stagedTargets.reduce((sum, t) => sum + t, 0)));
-      currentTarget = Math.min(currentTarget * 1.1, aggressiveDailyTarget); // Progressive scaling
-    }
-
-    return {
-      stagedTargets: stagedTargets.map(t => parseFloat(t.toFixed(2))),
-      timeframe: `${daysNeeded} sessions`,
-      reasoning: `To reach $${goalAmount.toFixed(2)}, start with $${conservativeDailyTarget.toFixed(2)}/session ` +
-                 `and progressively scale to $${aggressiveDailyTarget.toFixed(2)}/session. ` +
-                 `This allows capital to compound safely while maintaining professional risk standards.`
-    };
   }
 
   /**
@@ -284,9 +211,8 @@ class GoalIntelligenceClassifier {
   } {
     const goalRatioPercent = (goalAmount / accountBalance) * 100;
 
-    // For very small goals, cap risk to goal × efficiency multiplier
     if (goalRatioPercent <= MODE_THRESHOLDS.PRECISION_MAX) {
-      const efficiencyMultiplier = 1.5; // Risk no more than 1.5x the goal
+      const efficiencyMultiplier = 1.5;
       const goalEfficientRiskDollars = goalAmount * efficiencyMultiplier;
       const goalEfficientRiskPercent = (goalEfficientRiskDollars / accountBalance) * 100;
 
@@ -298,8 +224,6 @@ class GoalIntelligenceClassifier {
       };
     }
 
-    // For execution and campaign modes, use standard risk calculation
-    // Risk needed to achieve goal = goal / risk-reward ratio
     const standardRiskDollars = goalAmount / targetRiskReward;
     const standardRiskPercent = (standardRiskDollars / accountBalance) * 100;
 
@@ -311,7 +235,9 @@ class GoalIntelligenceClassifier {
   }
 
   /**
-   * Validate if a proposed trade respects goal classification
+   * Validate if a proposed trade respects goal classification.
+   * CCIP-2026-03-09: Confidence threshold check removed — not enforced here.
+   * Confidence gate is solely the responsibility of best-symbol-selector.ts.
    */
   validateTradeAgainstGoalMode(
     classification: GoalClassification,
@@ -328,7 +254,6 @@ class GoalIntelligenceClassifier {
     const violations: string[] = [];
     const warnings: string[] = [];
 
-    // Check risk limits
     if (proposedTrade.riskPercent > classification.maxRiskPerTradePct) {
       violations.push(
         `Risk ${proposedTrade.riskPercent.toFixed(1)}% exceeds ${classification.mode} mode maximum ` +
@@ -336,7 +261,6 @@ class GoalIntelligenceClassifier {
       );
     }
 
-    // Check R:R range
     const [minRR, maxRR] = classification.targetRiskRewardRange;
     if (proposedTrade.riskReward < minRR) {
       violations.push(
@@ -348,14 +272,6 @@ class GoalIntelligenceClassifier {
       warnings.push(
         `R:R ${proposedTrade.riskReward.toFixed(1)} exceeds typical range for ${classification.mode} mode. ` +
         `Verify setup quality.`
-      );
-    }
-
-    // Check confidence threshold
-    if (proposedTrade.confidence < classification.minConfidenceThreshold) {
-      violations.push(
-        `Confidence ${proposedTrade.confidence}% below ${classification.mode} mode threshold ` +
-        `(${classification.minConfidenceThreshold}%)`
       );
     }
 

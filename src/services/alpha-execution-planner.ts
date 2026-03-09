@@ -67,14 +67,7 @@ class AlphaExecutionPlanner {
         timeframe: context.timeframe
       });
 
-      // Block execution if goal is in Growth Mode
-      if (goalClassification.shouldBlockExecution) {
-        logger.warn(LogCategory.AI_TRADING, `[Alpha Planner] Goal blocked: ${goalClassification.reasoning}`);
-        throw new Error(
-          `Goal exceeds safe execution limits (${goalClassification.goalRatioPercent.toFixed(1)}% of balance). ` +
-          `${goalClassification.alternativeApproach ? goalClassification.alternativeApproach.reasoning : 'Please reduce goal amount.'}`
-        );
-      }
+      // CCIP-2026-03-09: Growth mode block removed. Alpha executes for all goal sizes.
 
       logger.info(
         LogCategory.AI_TRADING,
@@ -250,7 +243,6 @@ ${modeGuidance}
 Max Risk Per Trade: ${maxRiskPercent}% ($${maxRiskDollars.toFixed(2)})
 Expected Trade Count: ${goalClassification.expectedTradeCount}
 Target R:R Range: ${goalClassification.targetRiskRewardRange[0]}-${goalClassification.targetRiskRewardRange[1]}
-Min Confidence: ${goalClassification.minConfidenceThreshold}%
 
 Available Symbols: ${context.watchlist.join(', ')}
 
@@ -324,14 +316,6 @@ Return ONLY this JSON format (no markdown, no explanations):
 - Target R:R: ${classification.targetRiskRewardRange[0]}-${classification.targetRiskRewardRange[1]}
 - Consistency over speed
 - "Large goals require time, not aggression."`;
-
-      case 'growth':
-        return `
-�� GROWTH MODE - EXECUTION BLOCKED
-- This is a capital problem, not a trading problem
-- Goal exceeds safe execution limits
-- Alternative approach required
-- See staged growth plan`;
 
       default:
         return '';

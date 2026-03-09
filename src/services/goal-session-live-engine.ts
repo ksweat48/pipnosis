@@ -196,22 +196,7 @@ class GoalSessionLiveEngine {
       logger.info(LogCategory.AI_TRADING, `🎯 Psychology: ${this.goalClassification.executionPsychology}`);
       logger.info(LogCategory.AI_TRADING, `🎯 Expected trades: ${this.goalClassification.expectedTradeCount}`);
 
-      // Block execution if goal is in Growth Mode
-      if (this.goalClassification.shouldBlockExecution) {
-        logger.warn(LogCategory.AI_TRADING, `🚫 Goal blocked: ${this.goalClassification.reasoning}`);
-
-        const { goalSessionStateMachine } = await import('./coordinators/goal-session-state-machine');
-        await goalSessionStateMachine.forceTransition(config.goalSessionId, 'stopped', {
-          reason: `Goal blocked: ${this.goalClassification.reasoning}`,
-          triggeredBy: 'goal-session-live-engine',
-        });
-
-        return {
-          success: false,
-          message: `Goal exceeds safe execution limits (${this.goalClassification.goalRatioPercent.toFixed(1)}% of balance). ${this.goalClassification.alternativeApproach ? this.goalClassification.alternativeApproach.reasoning : 'Please reduce goal amount.'}`
-        };
-      }
-
+      // CCIP-2026-03-09: Growth mode block removed. Alpha executes for all goal sizes.
       // Update goal session with classification
       await supabase
         .from('goal_sessions')
@@ -1889,14 +1874,15 @@ class GoalSessionLiveEngine {
       // - Multi-layer validation (Core + Capacity + Risk + Price + Database)
       // - CCIP-compliant audit logging
       // - Consistent error handling across all execution modes
+      // CCIP-2026-03-09: Deferred modes (WAIT_ENTRY, WAIT_HIGHER_EDGE) removed.
+      // Alpha has three valid outputs only: EXECUTE_NOW, EXECUTE_NOW_WITH_PULLBACK, NO_TRADE.
+      // Execution mode is always IMMEDIATE — no monitored/deferred entry queue.
       const alphaEntryMode = decision.entry_mode;
-      const requiresMonitoring =
-        alphaEntryMode === 'WAIT_ENTRY' || alphaEntryMode === 'WAIT_HIGHER_EDGE';
-      const executionMode = requiresMonitoring ? 'MONITORED' : 'IMMEDIATE';
+      const executionMode = 'IMMEDIATE';
 
       logger.info(
         LogCategory.AI_TRADING,
-        `[Trade Execution] Alpha entry_mode="${alphaEntryMode ?? 'unset'}" -> mode=${executionMode}`,
+        `[Trade Execution] Alpha entry_mode="${alphaEntryMode ?? 'unset'}" -> mode=IMMEDIATE (deferred modes disabled)`,
         { symbol: selectedSymbol, alphaEntryMode, executionMode }
       );
 
@@ -1913,17 +1899,7 @@ class GoalSessionLiveEngine {
       });
 
       if (executionResult.success) {
-        if (executionResult.isMonitoring) {
-          logger.info(LogCategory.AI_TRADING, `🎯 Entry monitoring started for ${selectedSymbol}. Waiting for optimal entry conditions.`);
-
-          await this.sendAIMessage(
-            `🎯 Setup confirmed! Monitoring ${selectedSymbol} for optimal entry.\n\n` +
-            `Entry will execute automatically when conditions align perfectly. ` +
-            `I'll keep scanning for other opportunities while monitoring this setup.`
-          );
-
-          continue;
-        }
+        // CCIP-2026-03-09: isMonitoring path removed — execution is always IMMEDIATE.
 
         tradeExecuted = true;
         this.tradeExecutedInSession = true;

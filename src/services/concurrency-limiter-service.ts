@@ -152,19 +152,17 @@ class ConcurrencyLimiterService {
   ): Promise<ConcurrencyResult<T>> {
     const executionStartTime = performance.now();
 
-    // CRITICAL: Check circuit breaker FIRST
+    // CCIP-2026-03-09: Circuit breaker silent drop removed.
+    // High lock-failure rates are logged loudly for diagnostics but NEVER block trade execution.
+    // Alpha must always get an attempt — silent drops are a governance violation.
     if (this.isCircuitBroken) {
+      console.error(
+        `[ConcurrencyLimiter] CIRCUIT BREAKER ACTIVE (diagnostics only — execution continues): ${this.circuitBreakReason}. ` +
+        `Trade ${tradeId} will attempt execution. Monitor lock-failure rate.`
+      );
+      // Attempt recovery in background but do not gate on it
       if (this.shouldRecoverCircuit()) {
-        console.log('[ConcurrencyLimiter] 🔄 Attempting circuit recovery...');
-        await this.attemptCircuitRecovery();
-      } else {
-        console.log('[ConcurrencyLimiter] ⚠️ Circuit broken - using sequential fallback');
-        return {
-          success: false,
-          skipped: true,
-          reason: `Circuit breaker active: ${this.circuitBreakReason}`,
-          data: undefined
-        };
+        this.attemptCircuitRecovery().catch(() => {});
       }
     }
 
