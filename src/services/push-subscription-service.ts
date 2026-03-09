@@ -206,38 +206,26 @@ class PushSubscriptionService {
 
       console.log('[Push] Device name:', finalDeviceName);
 
-      const { error: upsertError } = await supabase
-        .from('push_subscriptions')
-        .upsert({
-          user_id: user.id,
-          endpoint,
-          p256dh_key: p256dhKey,
-          auth_key: authKey,
-          device_name: finalDeviceName,
-          user_agent: userAgent,
-          is_active: true,
-          last_used_at: new Date().toISOString()
-        }, { onConflict: 'endpoint' });
+      // Use SECURITY DEFINER RPC to atomically claim the endpoint for this user.
+      // This handles cross-user device sharing: if another user previously registered
+      // this same push endpoint (same browser), the RPC deletes the stale row and
+      // inserts fresh for the current user — avoiding RLS USING violations on upsert.
+      const { data: claimResult, error: claimError } = await supabase
+        .rpc('claim_push_subscription_endpoint', {
+          p_user_id: user.id,
+          p_endpoint: endpoint,
+          p_p256dh_key: p256dhKey,
+          p_auth_key: authKey,
+          p_device_name: finalDeviceName,
+          p_user_agent: userAgent
+        });
 
-      if (upsertError) {
-        console.error('[Push] Error saving subscription:', upsertError);
+      if (claimError) {
+        console.error('[Push] Error claiming subscription endpoint:', claimError);
+      } else if (claimResult && !claimResult.success) {
+        console.error('[Push] Claim rejected:', claimResult.error);
       }
 
-      // Verify the subscription was saved
-      const { data: verify, error: verifyError } = await supabase
-        .from('push_subscriptions')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('is_active', true);
-
-      if (verifyError) {
-        console.error('[Push] Error verifying subscription:', verifyError);
-      } else {
-        console.log('[Push] Verified active subscriptions:', verify?.length || 0);
-        if (verify && verify.length > 0) {
-          console.log('[Push] Active subscription details:', verify);
-        }
-      }
     } catch (error) {
       console.error('[Push] Error in saveSubscription:', error);
     }
