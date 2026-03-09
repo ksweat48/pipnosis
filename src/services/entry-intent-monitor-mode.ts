@@ -8,7 +8,8 @@
  */
 
 import { unifiedEntryMonitor } from './unified-entry-monitor';
-import { tradeStyleRegistry, type CanonicalStyle } from './trade-style-registry';
+import { tradeStyleRegistry } from './trade-style-registry';
+import { type CanonicalTradeStyle as CanonicalStyle } from '../config/timeframe-hierarchy';
 import { logger } from '../lib/logger';
 
 export type EntryMonitorState =

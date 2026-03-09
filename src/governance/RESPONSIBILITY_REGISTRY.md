@@ -114,6 +114,59 @@
 - ❌ Duplicate freshness checks in `goal-session-live-engine.ts`
 - ❌ Duplicate freshness checks in `entry-execution-coordinator.ts`
 
+### 🎨 Trade Style & Timeframe
+
+| Responsibility | Authority Service | Location |
+|---|---|---|
+| **CanonicalTradeStyle type** | `timeframe-hierarchy.ts` | `src/config/timeframe-hierarchy.ts` |
+| **Style alias resolution** | `resolveCanonicalStyle()` | `src/config/timeframe-hierarchy.ts` |
+| **Style → MTF config mapping** | `STYLE_MTF_CONFIGS` + `getStyleMTFConfig()` | `src/config/timeframe-hierarchy.ts` |
+| **Timeframe type + constants** | `timeframe-hierarchy.ts` | `src/config/timeframe-hierarchy.ts` |
+| **Style operational config** | `TradeStyleRegistry` | `src/services/trade-style-registry.ts` |
+
+**CCIP COMPLIANCE (CCIP-STYLE-TF-2026 + CCIP-2026-0308B):**
+- ✅ `CanonicalTradeStyle` type defined ONCE in `timeframe-hierarchy.ts`
+- ✅ `resolveCanonicalStyle()` is the ONLY alias-to-canonical resolver
+- ✅ `trade-style-registry.ts` re-exports `CanonicalStyle` from `timeframe-hierarchy.ts`
+- ✅ `alpha-trade-executor.ts` delegates `normalizeToCanonicalStyle()` to `resolveCanonicalStyle()`
+- ✅ `style-qualification-gate.ts` imports `CanonicalTradeStyle` from `timeframe-hierarchy.ts`
+- ✅ `entry-intent-monitor-mode.ts` imports `CanonicalStyle` from `timeframe-hierarchy.ts`
+
+**VIOLATIONS FIXED (CCIP-2026-0308B):**
+- ✅ Removed duplicate `CanonicalStyle` type in `alpha-trade-executor.ts`
+- ✅ Removed duplicate `CanonicalStyle` type in `style-qualification-gate.ts`
+- ✅ Removed competing alias map in `trade-style-registry.ts`
+- ✅ `normalizeToCanonicalStyle()` now delegates to SSOT resolver
+
+**VIOLATIONS TO PREVENT:**
+- ❌ NEVER define `CanonicalStyle` / `CanonicalTradeStyle` outside `timeframe-hierarchy.ts`
+- ❌ NEVER duplicate the style alias map — call `resolveCanonicalStyle()` instead
+- ❌ NEVER use `riskMode` to determine analysis timeframe — style is the authority
+
+---
+
+### 📊 Adaptive Confidence Floor
+
+| Responsibility | Authority Service | Location |
+|---|---|---|
+| **Floor read/write/adjust** | `alphaAdaptiveFloorService` | `src/services/alpha-adaptive-floor-service.ts` |
+| **Floor hard rails (min/max/step)** | `ADAPTIVE_FLOOR_RAILS` | `src/config/alpha-identity.ts` |
+| **Floor audit trail** | `alpha_confidence_floor_adjustments` | Database table |
+
+**CCIP COMPLIANCE (CCIP-2026-0308A):**
+- ✅ SSOT for all floor reads: `alphaAdaptiveFloorService.getSessionFloor()`
+- ✅ SSOT for floor adjustments: `alphaAdaptiveFloorService.applyAdjustment()`
+- ✅ Hard rails enforced on every read and write via `clampToRails()`
+- ✅ Every adjustment logged to `alpha_confidence_floor_adjustments` (full audit trail)
+- ✅ Rails (min 50%, max 75%, step 5) live in `alpha-identity.ts` — not hardcoded
+
+**VIOLATIONS TO PREVENT:**
+- ❌ NEVER write `adaptive_confidence_floor` to `goal_sessions` directly — use `applyAdjustment()`
+- ❌ NEVER hardcode floor values — import from `ADAPTIVE_FLOOR_RAILS`
+- ❌ NEVER skip the audit log — all adjustments must be persisted
+
+---
+
 ### 🧠 AI & Intelligence
 
 | Responsibility | Authority Service | Location |
@@ -124,9 +177,12 @@
 | **Omega voting** | `OmegaCouncilValidationGate` | `src/services/omega-council-validation-gate.ts` |
 | **Market regime detection** | `RegimeOracle` | `src/services/regime-oracle.ts` |
 
+**VIOLATIONS FIXED:**
+- ✅ Thesis cache hash algorithm stabilised (CCIP-2026-0308): purged corrupted rows, `regimeSignature` normalization corrected
+- ✅ `FRESH_SKIP_HASH_SECONDS` raised to 120 for additional safety margin
+
 **VIOLATIONS TO FIX:**
-- ❌ Unstable hash generation in cache key generator
-- ❌ Duplicate regime detection logic
+- ❌ Duplicate regime detection logic (low priority)
 
 ### 📊 Real-Time Intelligence & Probability
 
@@ -337,6 +393,6 @@ If unsure which service is the authority for a responsibility:
 
 ---
 
-**Last Updated:** 2026-01-29
+**Last Updated:** 2026-03-09 (CCIP-2026-0308B: CanonicalStyle SSOT consolidation + Adaptive Floor registration)
 **Maintained By:** Architecture Team
 **Review Frequency:** Weekly during governance implementation

@@ -52,17 +52,14 @@ import type { AlphaDecision } from '../brains/coordinator-alpha';
 import type { TradeContext } from '../types/trade-context';
 import { buildMidTradePlan } from './mid-trade-plan-engine';
 import { recentTradeContext } from './recent-trade-context';
+import { resolveCanonicalStyle, type CanonicalTradeStyle } from '../config/timeframe-hierarchy';
 
 export type ExecutionMode = 'IMMEDIATE' | 'PENDING' | 'MONITORED';
 
-type CanonicalStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+type CanonicalStyle = CanonicalTradeStyle;
 
 function normalizeToCanonicalStyle(input: string): CanonicalStyle {
-  const normalized = (input || '').toLowerCase().trim();
-  if (normalized === 'scalp' || normalized === 'scalper') return 'SCALP';
-  if (normalized === 'micro' || normalized === 'micro_intraday') return 'MICRO_INTRADAY';
-  if (normalized === 'day' || normalized === 'intraday') return 'INTRADAY';
-  return 'SCALP';
+  return resolveCanonicalStyle(input, 'SCALP');
 }
 
 export interface TradeExecutionInputs {

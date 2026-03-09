@@ -1,17 +1,23 @@
 /**
- * Trade Style Registry - SINGLE SOURCE OF TRUTH
+ * Trade Style Registry - STYLE CONFIG AUTHORITY
  *
- * Central authority for:
- * - Style normalization (scalper -> SCALP, etc.)
- * - Style-specific configurations
- * - Timeouts, poll intervals, EQS thresholds
+ * SSOT COMPLIANCE (CCIP-2026-0308B):
+ * - CanonicalStyle TYPE is re-exported from timeframe-hierarchy.ts (SSOT)
+ * - Style alias resolution delegates to resolveCanonicalStyle() (SSOT)
+ * - This file's UNIQUE responsibility: StyleConfig (poll intervals, timeouts, EQS thresholds)
  *
- * All style handling MUST go through this registry.
+ * Authority Boundary:
+ * - TYPE + ALIASES: timeframe-hierarchy.ts owns these
+ * - STYLE CONFIGS (operational parameters): THIS FILE owns these
+ *
+ * All style normalization calls go through timeframe-hierarchy.resolveCanonicalStyle().
+ * Duplication of the alias map has been removed.
  */
 
 import { ALPHA_IDENTITY } from '../config/alpha-identity';
+import { resolveCanonicalStyle, type CanonicalTradeStyle } from '../config/timeframe-hierarchy';
 
-export type CanonicalStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+export type CanonicalStyle = CanonicalTradeStyle;
 
 export interface StyleConfig {
   canonical: CanonicalStyle;
@@ -22,39 +28,13 @@ export interface StyleConfig {
   maxChaseDistance: number;
 }
 
-const STYLE_ALIASES: Record<string, CanonicalStyle> = {
-  // SCALP variants
-  'SCALP': 'SCALP',
-  'scalp': 'SCALP',
-  'Scalp': 'SCALP',
-  'scalper': 'SCALP',
-  'SCALPER': 'SCALP',
-  'Scalper': 'SCALP',
-
-  // MICRO_INTRADAY variants
-  'MICRO_INTRADAY': 'MICRO_INTRADAY',
-  'micro_intraday': 'MICRO_INTRADAY',
-  'MicroIntraday': 'MICRO_INTRADAY',
-  'micro': 'MICRO_INTRADAY',
-  'MICRO': 'MICRO_INTRADAY',
-  'Micro': 'MICRO_INTRADAY',
-
-  // INTRADAY variants
-  'INTRADAY': 'INTRADAY',
-  'intraday': 'INTRADAY',
-  'Intraday': 'INTRADAY',
-  'day': 'INTRADAY',
-  'DAY': 'INTRADAY',
-  'Day': 'INTRADAY'
-};
-
 const STYLE_CONFIGS: Record<CanonicalStyle, StyleConfig> = {
   SCALP: {
     canonical: 'SCALP',
     displayName: 'Scalp',
     pollIntervalMs: 2000,
     timeoutMinutes: 3,
-    eqsThreshold: ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD,  // Unified 80%
+    eqsThreshold: ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD,
     maxChaseDistance: 5
   },
   MICRO_INTRADAY: {
@@ -62,7 +42,7 @@ const STYLE_CONFIGS: Record<CanonicalStyle, StyleConfig> = {
     displayName: 'Micro Intraday',
     pollIntervalMs: 3000,
     timeoutMinutes: 5,
-    eqsThreshold: ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD,  // Unified 80%
+    eqsThreshold: ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD,
     maxChaseDistance: 10
   },
   INTRADAY: {
@@ -70,7 +50,7 @@ const STYLE_CONFIGS: Record<CanonicalStyle, StyleConfig> = {
     displayName: 'Intraday',
     pollIntervalMs: 5000,
     timeoutMinutes: 15,
-    eqsThreshold: ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD,  // Unified 80%
+    eqsThreshold: ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD,
     maxChaseDistance: 15
   }
 };
@@ -87,40 +67,22 @@ export class TradeStyleRegistry {
     return TradeStyleRegistry.instance;
   }
 
-  /**
-   * Normalize any style variant to canonical form
-   */
   normalize(style: string): CanonicalStyle {
-    const canonical = STYLE_ALIASES[style];
-
-    if (!canonical) {
-      console.warn(`[StyleRegistry] Unknown style '${style}', defaulting to MICRO_INTRADAY`);
-      return 'MICRO_INTRADAY';
-    }
-
-    return canonical;
+    return resolveCanonicalStyle(style, 'MICRO_INTRADAY');
   }
 
-  /**
-   * Get configuration for a style
-   */
   getConfig(style: string): StyleConfig {
     const canonical = this.normalize(style);
     return STYLE_CONFIGS[canonical];
   }
 
-  /**
-   * Get all supported canonical styles
-   */
   getAllCanonicalStyles(): CanonicalStyle[] {
     return ['SCALP', 'MICRO_INTRADAY', 'INTRADAY'];
   }
 
-  /**
-   * Check if a style is valid
-   */
   isValid(style: string): boolean {
-    return style in STYLE_ALIASES;
+    const result = resolveCanonicalStyle(style);
+    return result !== undefined;
   }
 }
 

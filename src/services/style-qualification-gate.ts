@@ -27,8 +27,9 @@
 import { logger, LogCategory } from '../lib/logger';
 import { supabaseAdmin } from '../lib/supabase-admin';
 import { getAtrGate } from '../config/trade-constraints';
+import { type CanonicalTradeStyle } from '../config/timeframe-hierarchy';
 
-type CanonicalStyle = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+type CanonicalStyle = CanonicalTradeStyle;
 
 export interface StyleQualificationInput {
   symbol: string;
