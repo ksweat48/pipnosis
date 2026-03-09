@@ -1,9 +1,15 @@
 /**
  * LIVE TRADES TICKER
  *
- * SSOT: Reads open trades from goal_session_trades (read-only, no mutations).
+ * SSOT: Reads all open trades via get_all_open_trades_for_ticker() RPC (read-only).
+ *       RPC is the sole authority for cross-user ticker data — existing RLS on
+ *       goal_session_trades is unchanged and unweakened.
  *       Reads live bid/ask from realtime_prices (read-only, no mutations).
+ *
  * CCIP: No business logic — purely a display/social proof component.
+ *       All users (not just admins) see the full platform-wide ticker.
+ *       Displayed on AITradePage only (not globally mounted).
+ *
  * Governance:
  *   P&L UPDATE STRATEGY (two-layer, defence-in-depth):
  *
@@ -19,12 +25,13 @@
  *     writes current_pnl to the DB and triggers a Realtime UPDATE event.
  *     The ticker also polls every 30 seconds as a final safety net.
  *
- *   INSERT on goal_session_trades → full re-fetch (new trade needs email lookup)
+ *   INSERT on goal_session_trades → full re-fetch via RPC
  *   UPDATE on goal_session_trades → apply only if Layer 1 price not available
  *   realtime_prices INSERT/UPDATE → recalculate P&L locally, no DB round-trip
  *
- * Anonymises all user emails before display.
+ * Emails are anonymised server-side inside the RPC — raw emails never leave DB.
  * Hides entirely when zero open trades exist — no empty UI.
+ * Scroll animation: unique trades scroll once per loop (no phantom duplicates).
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -46,14 +53,6 @@ interface LivePrice {
   symbol: string;
   bid: number;
   ask: number;
-}
-
-function abbreviateEmail(email: string): string {
-  if (!email || !email.includes('@')) return '***';
-  const [local, domain] = email.split('@');
-  const prefix = local.length >= 2 ? local.slice(0, 2) : local;
-  const domainInitial = domain.length > 0 ? domain[0] : '?';
-  return `${prefix}***@${domainInitial}`;
 }
 
 /**
@@ -87,6 +86,21 @@ function computeLivePnL(
 
 const POLL_INTERVAL_MS = 30_000;
 
+/**
+ * Build the display list for the scroll animation.
+ *
+ * The CSS animation translates -50% to loop seamlessly, so the rendered list
+ * must be exactly 2× the unique trade count. This means:
+ *   - 1 unique trade  → renders [trade, trade]   (scrolls as 1 trade per loop)
+ *   - 10 unique trades → renders [t1..t10, t1..t10] (scrolls as 10 per loop)
+ *
+ * Users see each unique trade exactly once per scroll cycle — no phantom repeats.
+ */
+function buildDisplayList(trades: LiveTrade[]): LiveTrade[] {
+  if (trades.length === 0) return [];
+  return [...trades, ...trades];
+}
+
 export const LiveTradesTicker: React.FC = () => {
   const [trades, setTrades] = useState<LiveTrade[]>([]);
 
@@ -99,52 +113,41 @@ export const LiveTradesTicker: React.FC = () => {
 
   const livePricesRef = useRef<Map<string, LivePrice>>(new Map());
 
+  /**
+   * Primary data fetch — calls the SECURITY DEFINER RPC which bypasses RLS
+   * to return all open trades platform-wide with server-side anonymised emails.
+   * SSOT: this is the only place ticker trade data is fetched.
+   */
   const fetchOpenTrades = useCallback(async () => {
-    const { data: tradesData, error: tradesError } = await supabase
-      .from('goal_session_trades')
-      .select('id, symbol, direction, entry_price, lot_size, current_pnl, user_id')
-      .eq('status', 'open')
-      .order('opened_at', { ascending: false })
-      .limit(50);
+    const { data, error } = await supabase.rpc('get_all_open_trades_for_ticker');
 
-    if (tradesError || !tradesData || tradesData.length === 0) {
+    if (error || !data || data.length === 0) {
       setTrades([]);
       return;
     }
 
-    const userIds = [...new Set(tradesData.map((t) => t.user_id as string).filter(Boolean))];
-
-    const emailMap: Record<string, string> = {};
-    if (userIds.length > 0) {
-      const { data: profilesData } = await supabase
-        .from('user_profiles')
-        .select('id, email')
-        .in('id', userIds);
-
-      (profilesData || []).forEach((p: { id: string; email?: string }) => {
-        emailMap[p.id] = abbreviateEmail(p.email ?? '');
-      });
-    }
-
-    const mapped: LiveTrade[] = tradesData.map((row) => {
-      const tradeSymbol = row.symbol as string;
-      const direction = row.direction as string;
-      const entryPrice = row.entry_price as number;
-      const lotSize = row.lot_size as number;
-
-      const livePrice = livePricesRef.current.get(tradeSymbol);
-      const pnl = livePrice && entryPrice && lotSize
-        ? computeLivePnL(direction, entryPrice, livePrice.bid, livePrice.ask, lotSize, tradeSymbol)
-        : (row.current_pnl as number | null);
+    const mapped: LiveTrade[] = (data as Array<{
+      id: string;
+      symbol: string;
+      direction: string;
+      entry_price: number;
+      lot_size: number;
+      current_pnl: number | null;
+      anon_email: string;
+    }>).map((row) => {
+      const livePrice = livePricesRef.current.get(row.symbol);
+      const pnl = livePrice && row.entry_price && row.lot_size
+        ? computeLivePnL(row.direction, row.entry_price, livePrice.bid, livePrice.ask, row.lot_size, row.symbol)
+        : row.current_pnl;
 
       return {
-        id: row.id as string,
-        symbol: tradeSymbol,
-        direction,
-        entry_price: entryPrice,
-        lot_size: lotSize,
+        id: row.id,
+        symbol: row.symbol,
+        direction: row.direction,
+        entry_price: row.entry_price,
+        lot_size: row.lot_size,
         current_pnl: pnl,
-        email: emailMap[row.user_id as string] ?? '***',
+        email: row.anon_email ?? '***',
       };
     });
 
@@ -276,7 +279,8 @@ export const LiveTradesTicker: React.FC = () => {
 
   if (trades.length === 0) return null;
 
-  const displayList = trades.length < 4 ? [...trades, ...trades, ...trades] : [...trades, ...trades];
+  const displayList = buildDisplayList(trades);
+  const animationDuration = Math.max(18, trades.length * 4);
 
   return (
     <div className="w-full overflow-hidden bg-gray-900/80 border border-gray-700/60 rounded-xl mb-6 backdrop-blur-sm">
@@ -290,11 +294,11 @@ export const LiveTradesTicker: React.FC = () => {
 
         <div className="flex-1 overflow-hidden py-2">
           <div
-            className="flex items-center gap-6 ticker-scroll"
+            className="flex items-center gap-6"
             style={{
               display: 'flex',
               whiteSpace: 'nowrap',
-              animation: `ticker-scroll ${Math.max(18, displayList.length * 4)}s linear infinite`,
+              animation: `ticker-scroll ${animationDuration}s linear infinite`,
               willChange: 'transform',
             }}
           >
