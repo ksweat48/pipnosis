@@ -5,7 +5,7 @@
  *
  * WHAT THIS FILE IS NOW:
  * - PIPNOSIS_IDENTITY: Alpha's immutable mission, values, and thinking style
- * - getPlatformStreakModifier(): streak-to-confidence-modifier lookup (-5 to +5)
+ * - getPlatformStreakModifier(): streak-to-confidence-modifier lookup (-5 to +5, every 5 trades = 1 point)
  * - buildStreakContext(): neutral context string passed to Alpha's prompt
  *
  * WHAT HAS BEEN REMOVED:
@@ -85,13 +85,13 @@ export const PIPNOSIS_IDENTITY = {
  * STREAK MODIFIER CONSTANTS — SSOT
  *
  * These values define the scaling rule for the platform streak confidence modifier.
- * 1 consecutive win/loss = +/-1, up to a hard cap of +/-5.
- * A score of 0 means no streak is active — no adjustment.
+ * Every 5 consecutive wins/losses = +/-1, up to a hard cap of +/-5.
+ * Fewer than 5 consecutive results in the same direction = no adjustment.
  */
 export const PLATFORM_STREAK_MODIFIER = {
   MAX_BONUS: 5,
   MAX_PENALTY: -5,
-  POINTS_PER_CONSECUTIVE: 1,
+  TRADES_PER_POINT: 5,
 } as const;
 
 /**
@@ -101,21 +101,21 @@ export const PLATFORM_STREAK_MODIFIER = {
  * This is the ONLY effect of the platform score on Alpha's behavior.
  *
  * Rules:
- * - 1 consecutive win  → +1 | 2 → +2 | 3 → +3 | 4 → +4 | 5+ → +5 (hard cap)
- * - 1 consecutive loss → -1 | 2 → -2 | 3 → -3 | 4 → -4 | 5+ → -5 (hard cap)
- * - Zero streak → 0 (no adjustment — Alpha is always analytically confident)
+ * - 5 consecutive wins  → +1 | 10 → +2 | 15 → +3 | 20 → +4 | 25+ → +5 (hard cap)
+ * - 5 consecutive losses → -1 | 10 → -2 | 15 → -3 | 20 → -4 | 25+ → -5 (hard cap)
+ * - Fewer than 5 in a row → 0 (no adjustment — Alpha is always analytically confident)
  */
 export function getPlatformStreakModifier(score: PlatformScore): number {
-  if (score.consecutive_wins > 0) {
+  if (score.consecutive_wins >= PLATFORM_STREAK_MODIFIER.TRADES_PER_POINT) {
     return Math.min(
       PLATFORM_STREAK_MODIFIER.MAX_BONUS,
-      score.consecutive_wins * PLATFORM_STREAK_MODIFIER.POINTS_PER_CONSECUTIVE
+      Math.floor(score.consecutive_wins / PLATFORM_STREAK_MODIFIER.TRADES_PER_POINT)
     );
   }
-  if (score.consecutive_losses > 0) {
+  if (score.consecutive_losses >= PLATFORM_STREAK_MODIFIER.TRADES_PER_POINT) {
     return Math.max(
       PLATFORM_STREAK_MODIFIER.MAX_PENALTY,
-      -(score.consecutive_losses * PLATFORM_STREAK_MODIFIER.POINTS_PER_CONSECUTIVE)
+      -Math.floor(score.consecutive_losses / PLATFORM_STREAK_MODIFIER.TRADES_PER_POINT)
     );
   }
   return 0;
@@ -131,17 +131,18 @@ export function getPlatformStreakModifier(score: PlatformScore): number {
  *
  * Format: "Platform streak context: N consecutive wins/losses. Confidence adjustment: +/-Y%."
  * or "Platform streak context: no active streak. Confidence adjustment: 0%."
+ * Note: adjustment is only non-zero at multiples of 5 consecutive results.
  */
 export function buildStreakContext(score: PlatformScore): string {
   const modifier = getPlatformStreakModifier(score);
 
-  if (score.consecutive_wins > 0) {
-    const streakLabel = score.consecutive_wins === 1 ? '1 consecutive win' : `${score.consecutive_wins} consecutive wins`;
+  if (score.consecutive_wins >= PLATFORM_STREAK_MODIFIER.TRADES_PER_POINT) {
+    const streakLabel = `${score.consecutive_wins} consecutive wins`;
     return `Platform streak context: ${streakLabel}. Confidence adjustment: +${modifier}%. Apply this to your final confidence score.`;
   }
 
-  if (score.consecutive_losses > 0) {
-    const streakLabel = score.consecutive_losses === 1 ? '1 consecutive loss' : `${score.consecutive_losses} consecutive losses`;
+  if (score.consecutive_losses >= PLATFORM_STREAK_MODIFIER.TRADES_PER_POINT) {
+    const streakLabel = `${score.consecutive_losses} consecutive losses`;
     return `Platform streak context: ${streakLabel}. Confidence adjustment: ${modifier}%. Apply this to your final confidence score.`;
   }
 
