@@ -64,6 +64,8 @@ import { sanitizeAndParse, tryParseLLMResponse } from '../services/llm-response-
 import type { OmegaVote } from './omega/trend';
 import type { Omega8Vote, Omega9ValidationResult } from '../types/omega';
 import type { TraderScore } from '../services/ai-identity';
+import { buildStreakContext } from '../services/ai-identity';
+import { rewardEngine } from '../services/reward-engine';
 import { omega9Hallucination, type Omega9Input } from './omega9-hallucination-brain';
 import { omega10Scheduler } from '../services/omega10-scheduler';
 import { llmTokenTracker } from '../services/llm-token-tracker';
@@ -561,6 +563,13 @@ class AlphaCoordinatorBrain {
       if (goalContext) {
         alphaThoughtStream.emitAlphaRiskCheck(sessionId, userId, marketContext.symbol).catch(() => {});
       }
+    // Load platform streak context (non-blocking, advisory only)
+    let streakContextLine = 'Platform streak context: no active streak. Confidence adjustment: 0%.';
+    try {
+      const platformScore = await rewardEngine.loadPlatformScore();
+      streakContextLine = buildStreakContext(platformScore);
+    } catch { /* Non-blocking — streak context is advisory only */ }
+
     }
 
     // Load platform streak context (advisory — non-blocking)
@@ -2658,6 +2667,7 @@ PROFESSIONAL REASONING CONTRACT
 You are a professional trader, not a rule executor. The market intelligence below is your briefing. Read it, reason through it, and make the best decision available. The eight analytical questions in your system prompt are your mental checklist — work through them using the data provided.
 
 Your decision framework:
+- ${streakContextLine}
 - Execute (BUY/SELL) when a genuine edge exists with sound structure and acceptable risk
 - Return NO_TRADE when no structural edge is present or the setup has critical unresolved weaknesses
 - Your confidence score must honestly reflect the quality of the setup — not what you wish it were
