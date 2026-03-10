@@ -1473,6 +1473,7 @@ IMPORTANT REMINDERS:
 
     let primaryTfCandlePrompt = '';
     let intradayMovePhaseContext = '';
+    let microIntradayMovePhaseContext = '';
     try {
       const mds = MarketDataService.getInstance();
       const primaryCandles = await mds.getCandles(marketContext.symbol, primaryTfConfig.timeframe, primaryTfConfig.candleCount);
@@ -1599,7 +1600,7 @@ IMPORTANT REMINDERS:
             ? `FRESH — < 0.75x H1 ATR traveled (< ${freshCeiling} pips from swing origin). Full confidence range. Both continuation and pullback entries are valid.`
             : h1MovePhase === 'DEVELOPING'
               ? `DEVELOPING — 0.75–1.5x H1 ATR traveled (${freshCeiling}–${developingCeiling} pips from swing origin). Structural space to TP1 may be limited. Pullback re-entry is preferred. Continuation requires explicit justification that TP1 and TP2 remain achievable.`
-              : `EXHAUSTED — > 1.5x H1 ATR traveled (> ${developingCeiling} pips from swing origin). The H1 campaign leg is extended. TP1 structural space is likely tight or consumed. Recalculate R:R from CURRENT price. If recalculated R:R cannot reach 1.0:1, return NO_TRADE — do not enter an exhausted H1 leg.`;
+              : `EXHAUSTED — > 1.5x H1 ATR traveled (> ${developingCeiling} pips from swing origin). The H1 leg is extended. ADVISORY: reduce confidence by 15-25 points. Reason about whether a structural reversal, retest, or sweep setup justifies entry — exhausted H1 moves often produce the best reversal entries. Recalculate R:R from CURRENT price. Only NO_TRADE if recalculated TP1 R:R cannot reach 1.0:1 from a named re-entry zone.`;
 
           const fakeoutBlock = fakeoutType
             ? `
@@ -1626,7 +1627,7 @@ Assessment: ${phaseLabel}
 ${h1MovePhase === 'DEVELOPING'
   ? `DEVELOPING STAGE — MANDATORY RUNWAY CHECK: R:R must remain achievable from current price for both TP1 (H1 structural level) and TP2 (H4 structural level). State explicitly: "Remaining runway to TP1: ~X pips. Remaining runway to TP2: ~X pips. R:R from current price: TP1=X:1, TP2=X:1." If TP1 R:R falls below 1.0:1, tighten TP1 to the next achievable H1 structure or return NO_TRADE.`
   : h1MovePhase === 'EXHAUSTED'
-    ? `EXHAUSTED STAGE — MANDATORY R:R RECALCULATION: The H1 leg has traveled > 1.5x ATR. Recalculate R:R from CURRENT price before selecting any action. If recalculated TP1 R:R cannot reach 1.0:1 from a pullback re-entry zone, this is NO_TRADE. Do NOT enter an exhausted H1 leg without a specific named H1 re-entry zone and confirmed recalculated R:R >= 1.0:1.`
+    ? `EXHAUSTED STAGE — ADVISORY: The H1 leg has traveled > 1.5x ATR. Reduce confidence by 15-25 points. Reason explicitly about whether a structural reversal, retest, or sweep setup justifies entry from current levels — exhausted H1 moves often produce the best reversal entries. Recalculate R:R from CURRENT price. If recalculated TP1 R:R cannot reach 1.0:1 from a named H1 re-entry zone, return NO_TRADE. State your structural assessment regardless of decision.`
     : `FRESH STAGE — Full confidence window. Structural space to TP1 and TP2 is available. Both continuation and pullback entries are valid.`
 }
 ${fakeoutBlock}
@@ -1636,6 +1637,105 @@ MANDATORY JSON FIELD — Include in your response regardless of action:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
           console.log(`[Alpha Coordinator] INTRADAY H1 Move Phase: ${h1MovePhase} (~${atrTraveled.toFixed(2)}x ATR, ${distFromSwingPips.toFixed(1)} pips)${fakeoutType ? ` | Fakeout: ${fakeoutType}` : ''}`);
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // MICRO_INTRADAY M15 MOVE PHASE & FAKEOUT ADVISORY
+        // Mirrors the INTRADAY intradayMovePhaseContext pattern on M15.
+        // Advisory only — EXHAUSTED phase reduces confidence 15-25 points,
+        // does NOT produce a hard NO_TRADE block. Alpha retains full authority.
+        // SSOT: atrForStopLoss resolves to marketContext.atr (M15 14-period)
+        // for MICRO_INTRADAY via styleAtrMap.
+        // ═══════════════════════════════════════════════════════════════════
+        if (styleName === 'MICRO_INTRADAY' && atrForStopLoss > 0) {
+          const m15AtrPips = (atrForStopLoss / pipInfo.pipValue);
+          const freshCeilingM15 = (atrForStopLoss * 0.75 / pipInfo.pipValue).toFixed(1);
+          const developingCeilingM15 = (atrForStopLoss * 1.5 / pipInfo.pipValue).toFixed(1);
+
+          let swingOriginPriceM15 = recentPrimary[0].close;
+          const currentDirM15 = lastCandle.close > lastCandle.open ? 'UP' : 'DN';
+          for (let i = recentPrimary.length - 2; i >= 0; i--) {
+            const cDir = recentPrimary[i].close > recentPrimary[i].open ? 'UP' : 'DN';
+            if (cDir !== currentDirM15) {
+              swingOriginPriceM15 = currentDirM15 === 'UP' ? recentPrimary[i].low : recentPrimary[i].high;
+              break;
+            }
+          }
+          const distFromSwingPipsM15 = Math.abs(marketContext.price - swingOriginPriceM15) / pipInfo.pipValue;
+          const atrTraveledM15 = m15AtrPips > 0 ? distFromSwingPipsM15 / m15AtrPips : 0;
+
+          const m15MovePhase = atrTraveledM15 < 0.75 ? 'FRESH' : atrTraveledM15 < 1.5 ? 'DEVELOPING' : 'EXHAUSTED';
+
+          let fakeoutTypeM15: string | null = null;
+          let fakeoutCandlesAgoM15 = 0;
+          let fakeoutReversalConfirmedM15 = false;
+          if (recentPrimary.length >= 4) {
+            const lookbackM15 = recentPrimary.slice(0, -1);
+            const windowHighM15 = Math.max(...lookbackM15.slice(0, -1).map(c => c.high));
+            const windowLowM15 = Math.min(...lookbackM15.slice(0, -1).map(c => c.low));
+            const recentFewM15 = lookbackM15.slice(-3);
+            for (let i = recentFewM15.length - 1; i >= 0; i--) {
+              const c = recentFewM15[i];
+              const bodyTop = Math.max(c.open, c.close);
+              const bodyBot = Math.min(c.open, c.close);
+              const sweptHighM15 = c.high > windowHighM15 && bodyTop < windowHighM15;
+              const sweptLowM15 = c.low < windowLowM15 && bodyBot > windowLowM15;
+              if (sweptHighM15) {
+                fakeoutTypeM15 = 'BEARISH_FAKEOUT';
+                fakeoutCandlesAgoM15 = recentFewM15.length - i;
+                const nextCandles = recentPrimary.slice(recentPrimary.indexOf(c) + 1);
+                fakeoutReversalConfirmedM15 = nextCandles.some(nc => nc.close < nc.open);
+                break;
+              } else if (sweptLowM15) {
+                fakeoutTypeM15 = 'BULLISH_FAKEOUT';
+                fakeoutCandlesAgoM15 = recentFewM15.length - i;
+                const nextCandles = recentPrimary.slice(recentPrimary.indexOf(c) + 1);
+                fakeoutReversalConfirmedM15 = nextCandles.some(nc => nc.close > nc.open);
+                break;
+              }
+            }
+          }
+
+          const phaseLabelM15 = m15MovePhase === 'FRESH'
+            ? `FRESH — < 0.75x M15 ATR traveled (< ${freshCeilingM15} pips from swing origin). Full confidence range. Both continuation and pullback entries are valid.`
+            : m15MovePhase === 'DEVELOPING'
+              ? `DEVELOPING — 0.75–1.5x M15 ATR traveled (${freshCeilingM15}–${developingCeilingM15} pips from swing origin). Structural space to TP1 may be narrowing. Pullback re-entry preferred. Continuation requires explicit justification that TP1 and TP2 remain achievable.`
+              : `EXHAUSTED — > 1.5x M15 ATR traveled (> ${developingCeilingM15} pips from swing origin). The M15 leg is extended. ADVISORY: reduce confidence by 15-25 points. Reason about whether a structural reversal, retest, or sweep setup justifies entry — exhausted M15 moves often produce the best reversal entries. State your structural assessment. Only return NO_TRADE if no directional case exists at all.`;
+
+          const fakeoutBlockM15 = fakeoutTypeM15
+            ? `
+M15 FAKEOUT DETECTION:
+A ${fakeoutTypeM15} was detected ${fakeoutCandlesAgoM15} M15 candle(s) ago. A candle swept a recent M15 extreme but closed back inside the prior range. Reversal confirmed: ${fakeoutReversalConfirmedM15 ? 'YES — subsequent M15 candles have printed in the reversal direction' : 'NOT YET — watch for reversal confirmation before entering in the faked direction'}.
+${fakeoutTypeM15 === 'BEARISH_FAKEOUT'
+  ? 'BEARISH FAKEOUT: Price swept above a prior M15 high and rejected. This is a classic bull trap on the M15 chart. Entering LONG at current price carries fakeout-reversal risk — explicit structural justification required. A BUY entry must explain why the fakeout has been absorbed and the prior high has now become support.'
+  : 'BULLISH FAKEOUT: Price swept below a prior M15 low and rejected. This is a classic bear trap on the M15 chart. Entering SHORT at current price carries fakeout-reversal risk — explicit structural justification required. A SELL entry must explain why the fakeout has been absorbed and the prior low has now become resistance.'}
+`
+            : '';
+
+          microIntradayMovePhaseContext = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MICRO_INTRADAY M15 MOVE STAGE ADVISORY (${marketContext.symbol})
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Pre-computed from M15 candle data. Advisory context — your analysis takes precedence.
+ACTIVE M15 ATR: ${m15AtrPips.toFixed(1)} pips | Phase thresholds: Fresh < ${freshCeilingM15}p | Developing ${freshCeilingM15}–${developingCeilingM15}p | Exhausted > ${developingCeilingM15}p
+
+Estimated ATR Traveled: ~${distFromSwingPipsM15.toFixed(1)} pips from M15 swing origin (~${atrTraveledM15.toFixed(2)}x M15 ATR)
+M15 Move Phase: ${m15MovePhase}
+Assessment: ${phaseLabelM15}
+
+${m15MovePhase === 'DEVELOPING'
+  ? `DEVELOPING STAGE — RUNWAY CHECK: R:R must remain achievable from current price for both TP1 (M15 structural level) and TP2 (H1 structural level). State explicitly: "Remaining runway to TP1: ~X pips. Remaining runway to TP2: ~X pips. R:R from current price: TP1=X:1, TP2=X:1." If TP1 R:R falls below 1.0:1, tighten TP1 to the next achievable M15 structure or return NO_TRADE.`
+  : m15MovePhase === 'EXHAUSTED'
+    ? `EXHAUSTED STAGE — ADVISORY: The M15 leg has traveled > 1.5x ATR. Reduce confidence by 15-25 points. Reason explicitly about whether a reversal, retest, or sweep setup justifies entry from current levels. If a valid structural re-entry zone exists and recalculated R:R reaches 1.0:1, the trade is valid at reduced confidence. Only NO_TRADE if no directional structural case exists.`
+    : `FRESH STAGE — Full confidence window. Structural space to TP1 and TP2 is available. Both continuation and pullback entries are valid.`
+}
+${fakeoutBlockM15}MANDATORY JSON FIELD — Include in your response regardless of action:
+  "m15_move_phase": "fresh|developing|exhausted"
+  "m15_atr_traveled": ${atrTraveledM15.toFixed(2)}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+          console.log(`[Alpha Coordinator] MICRO_INTRADAY M15 Move Phase: ${m15MovePhase} (~${atrTraveledM15.toFixed(2)}x ATR, ${distFromSwingPipsM15.toFixed(1)} pips)${fakeoutTypeM15 ? ` | Fakeout: ${fakeoutTypeM15}` : ''}`);
         }
 
         const emaContextBlock = (ema20Val > 0 || ema50Val > 0) ? `
@@ -2657,7 +2757,7 @@ ACTIVE ATR for this session (${tradeStyle}): ${activeAtrPips} pips — this is y
 Use the ACTIVE ATR value above for all move stage calculations in this scan cycle:
   - FRESH / STARTING:  price has traveled < 0.75 × ${activeAtrPips} pips = < ${atrForStopLoss > 0 ? ((atrForStopLoss * 0.75) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin
   - DEVELOPING:        0.75–1.5 × ${activeAtrPips} pips = ${atrForStopLoss > 0 ? ((atrForStopLoss * 0.75) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'}–${atrForStopLoss > 0 ? ((atrForStopLoss * 1.5) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin
-  - EXHAUSTED:         > 1.5 × ${activeAtrPips} pips = > ${atrForStopLoss > 0 ? ((atrForStopLoss * 1.5) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin${tradeStyle === 'SCALP' ? ' → ADVISORY: reduce confidence 15-25pts. Assess structural justification (reversal/retest/sweep). Exhausted moves can produce strong reversals. Only NO_TRADE if no directional case exists' : tradeStyle === 'INTRADAY' ? ' → MANDATORY R:R recalculation required. If recalculated TP1 R:R < 1.0:1, NO_TRADE' : ' → requires explicit continuation justification with R:R recalculation'}
+  - EXHAUSTED:         > 1.5 × ${activeAtrPips} pips = > ${atrForStopLoss > 0 ? ((atrForStopLoss * 1.5) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin${tradeStyle === 'SCALP' ? ' → ADVISORY: reduce confidence 15-25pts. Assess structural justification (reversal/retest/sweep). Exhausted moves can produce strong reversals. Only NO_TRADE if no directional case exists' : tradeStyle === 'INTRADAY' ? ' → ADVISORY: reduce confidence 15-25pts. Reason about reversal/retest/sweep. Recalculate R:R from current price. Only NO_TRADE if recalculated TP1 R:R < 1.0:1' : tradeStyle === 'MICRO_INTRADAY' ? ' → ADVISORY: reduce confidence 15-25pts. Reason about structural reversal/retest/sweep setup. Exhausted M15 moves can produce strong reversals. Only NO_TRADE if no directional structural case exists' : ' → requires explicit continuation justification with R:R recalculation'}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
 
@@ -2674,6 +2774,7 @@ ${d1ContextPrompt}
 ${m1MicroContextPrompt}
 ${scalpIntelligencePrompt}
 ${intradayMovePhaseContext}
+${microIntradayMovePhaseContext}
 PROFESSIONAL REASONING CONTRACT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 You are a professional trader, not a rule executor. The market intelligence below is your briefing. Read it, reason through it, and make the best decision available. The eight analytical questions in your system prompt are your mental checklist — work through them using the data provided.
