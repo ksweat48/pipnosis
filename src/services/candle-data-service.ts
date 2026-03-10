@@ -409,6 +409,11 @@ export async function fetchPreAggregatedCandles(
             return;
           }
 
+          // Reject flat/ghost candles (open=high=low=close with zero range)
+          if (candleData.open === candleData.high && candleData.high === candleData.low && candleData.low === candleData.close) {
+            return;
+          }
+
           // CRITICAL FIX: Validate OHLC relationships
           if (candleData.high < candleData.low) {
             console.warn(`[fetchPreAggregatedCandles] ❌ REJECTED candle ${index}: high ${candleData.high} < low ${candleData.low}`);
