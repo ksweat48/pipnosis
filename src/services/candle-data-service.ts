@@ -337,7 +337,7 @@ export async function fetchPreAggregatedCandles(
         timeframe.replace(/^M/, '').replace(/^H/, '') + (timeframe.startsWith('M') ? 'm' : 'h');
 
       const { data, error } = await supabase
-        .from('forex_candles')
+        .from('forex_candles_best')
         .select('open_time, open, high, low, close, volume')
         .eq('symbol', symbol)
         .in('timeframe', [dbTimeframe, lowercaseTimeframe])
@@ -355,7 +355,7 @@ export async function fetchPreAggregatedCandles(
         timeframe.replace(/^M/, '').replace(/^H/, '') + (timeframe.startsWith('M') ? 'm' : 'h');
 
       const { data, error } = await supabase
-        .from('forex_candles')
+        .from('forex_candles_best')
         .select('open_time, open, high, low, close, volume')
         .eq('symbol', symbol)
         .in('timeframe', [dbTimeframe, lowercaseTimeframe])
@@ -693,7 +693,7 @@ export async function fetchCandlesByTimeRange(
       timeframe.replace(/^M/, '').replace(/^H/, '') + (timeframe.startsWith('M') ? 'm' : 'h');
 
     const { data: forexCandles, error: forexError } = await supabase
-      .from('forex_candles')
+      .from('forex_candles_best')
       .select('open_time, open, high, low, close, volume, data_source')
       .eq('symbol', symbol)
       .in('timeframe', [dbTimeframe, lowercaseTimeframe])

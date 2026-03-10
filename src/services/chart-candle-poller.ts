@@ -147,7 +147,7 @@ class ChartCandlePoller {
       // Wrapped with database resilience for retry and caching
       const { data, error } = await databaseResilienceWrapper.query(
         () => supabase
-          .from('forex_candles')
+          .from('forex_candles_best')
           .select('open_time, close_time, open, high, low, close, volume')
           .eq('symbol', symbol)
           .eq('timeframe', dbTimeframe)
