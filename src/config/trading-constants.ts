@@ -23,15 +23,19 @@ export const TRADING_CONSTANTS = {
     MINIMUM_MICRO_INTRADAY: 1.0,
     MINIMUM_INTRADAY: 1.0,
     // Per-style ceilings — Alpha cannot set TP beyond these R:R multiples
-    // CCIP-2026-03-09: MAXIMUM_SCALP raised from 1.0 to 1.5.
-    // Root cause: SCALP INDEX (NAS100/US30 at 19,000-44,000 points) has a noise-floor
-    // SL minimum of 0.15% (~28-66 pips). With MAXIMUM_SCALP=1.0, TP=SL exactly, but the
-    // SCALP envelope tpPips.max=25 was below that SL minimum — a mathematical impossibility
-    // that hard-blocked every INDEX SCALP scan regardless of market conditions.
-    // At 1.5, TP=1.5×SL, which remains tight (one M5 swing leg), preserves SCALP identity,
-    // and is achievable: SL=30p → TP=45p, well within the revised INDEX envelope.
+    // CCIP-2026-03-10: MAXIMUM_SCALP raised from 1.5 to 2.0.
+    // Root cause: During Asian session low-volatility, ATR-derived SL is small
+    // (~8-10 pips for NAS100/US30 at those ATR levels). With MAXIMUM_SCALP=1.5,
+    // the TP ceiling = SL × 1.5 = ~12-15 pips. The TP_FLOOR_RATIO calibration
+    // (Option A) reduces the envelope floor but the ceiling also needs more
+    // headroom so Alpha can place a structural TP at a real swing level (20+ pips).
+    // At 2.0, TP = 2× SL, which is still a tight scalp (one M5 swing with
+    // full ATR extension), preserves SCALP identity, and unlocks structural
+    // targets Alpha correctly identifies (e.g., 20.8 pips above entry for NAS100).
+    // Combined with TP_FLOOR_RATIO calibration this ensures the corridor is non-zero
+    // AND the ceiling is wide enough for Alpha's structural analysis.
     // SSOT: omega9-constraint-provider.ts uses getMaxRRForStyle() from this file.
-    MAXIMUM_SCALP: 1.5,
+    MAXIMUM_SCALP: 2.0,
     MAXIMUM_MICRO_INTRADAY: 2.0,
     MAXIMUM_INTRADAY: 3.0,
     TARGET: 1.5,

@@ -1218,10 +1218,15 @@ class AlphaCoordinatorBrain {
       // Precedence: resolvedPlan (from feasibility resolver) takes priority over
       // calibration for tpMaxAtrMultiple — the feasibility resolver already did
       // its own analysis. If no resolvedPlan exists, calibration provides the base.
+      //
+      // CCIP-2026-03-10: Pass calibratedEnvelopeTpMinPips from WallCalibrationEngine
+      // so omega9ConstraintProvider uses the regime-adjusted floor instead of the
+      // raw envelope minimum. This prevents zero-width corridors during low-vol sessions.
       const calibratedResolvedPlan = {
         slMinPercent: resolvedPlan?.sl.minPercent,
         tpMaxAtrMultiple: resolvedPlan?.tp.maxAtrMultiple ?? wallCalibration.calibratedResolvedPlan.tpMaxAtrMultiple,
         minRR: resolvedPlan?.rr.min,
+        calibratedEnvelopeTpMinPips: wallCalibration.calibratedResolvedPlan.calibratedEnvelopeTpMinPips,
       };
 
       dualArenaWalls = omega9ConstraintProvider.generateDualArenaWalls({

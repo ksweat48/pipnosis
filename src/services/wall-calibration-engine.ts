@@ -48,6 +48,7 @@ import {
   type WallCalibrationReason,
   type AssetCalibrationClass,
 } from '../config/wall-calibration-config';
+
 import { getAssetClassEnvelopeBounds } from '../config/style-execution-envelopes';
 import type { TradeStyle, LegacyRiskMode } from '../types/omega9-constraints';
 
@@ -69,6 +70,14 @@ export interface WallCalibrationResult {
     tpMaxAtrMultiple: number;
     slMinPercent?: number;
     minRR?: number;
+    /**
+     * SSOT: calibrated TP floor in pips, reduced from envelope minimum via
+     * TP_FLOOR_RATIO_BY_REGIME in low/medium volatility. Passed into
+     * omega9ConstraintProvider so the constraint generator uses the adjusted
+     * floor instead of the raw envelope floor — preventing zero-width corridors
+     * when ATR-derived SL is small during Asian/low-volatility sessions.
+     */
+    calibratedEnvelopeTpMinPips?: number;
   };
   wasCalibrated: boolean;
   calibrationReason: WallCalibrationReason;
@@ -83,6 +92,8 @@ export interface WallCalibrationResult {
     corridorWidthPips: number;
     envelopeTpMinPips: number;
     envelopeTpMaxPips: number;
+    calibratedEnvelopeTpMinPips: number;
+    tpFloorRatioApplied: number;
     calibrationLog: string[];
   };
 }
@@ -154,11 +165,43 @@ class WallCalibrationEngine {
       safetyCap
     );
 
+    // CCIP-2026-03-10: Wire TP_FLOOR_RATIO_BY_REGIME (was defined in config but unused — dead code).
+    // The envelope TP minimum is calibrated for active/volatile sessions. During low/medium
+    // volatility the ATR-derived R:R ceiling (SL × maxRR) often equals or falls below the
+    // raw envelope floor, producing a zero-width corridor (tpMax = tpMin). Alpha then
+    // correctly identifies a structural TP beyond the ceiling → wall violation → NO_TRADE.
+    //
+    // Fix: Apply the regime ratio to compress the EFFECTIVE floor toward market reality.
+    // The raw envelope floor is still visible to Alpha in the prompt as the style identity
+    // reference; this calibrated floor is what determines wall feasibility in the constraint
+    // generator (passed via calibratedEnvelopeTpMinPips in resolvedPlan).
+    //
+    // Governance guardrails:
+    //   - Minimum ratio is MIN_TP_FLOOR_RATIO (0.35) — never compress below 35% of floor
+    //   - Floor can only be REDUCED, never raised by this path (ceiling expansion handles that)
+    //   - All adjustments are logged with the ratio applied for full audit traceability
+    const rawTpFloorRatio = TP_FLOOR_RATIO_BY_REGIME[input.volatilityRegime];
+    const tpFloorRatio = Math.max(rawTpFloorRatio, MIN_TP_FLOOR_RATIO);
+    const calibratedEnvelopeTpMinPips = Math.round(envelopeTpMinPips * tpFloorRatio * 10) / 10;
+
+    if (tpFloorRatio < 1.0) {
+      calibrationLog.push(
+        `[WallCalibration] TP floor ratio: ${tpFloorRatio}x (${input.volatilityRegime} vol) | ` +
+        `Envelope floor: ${envelopeTpMinPips.toFixed(1)} pips → Calibrated floor: ${calibratedEnvelopeTpMinPips.toFixed(1)} pips`
+      );
+    }
+
     const rawCeilingPips = (input.atr * combinedMultiplier) / pipInfo.pipValue;
     const minCorridorWidth = MIN_CORRIDOR_WIDTH_PIPS[assetClass];
-    const corridorWidth = rawCeilingPips - envelopeTpMinPips;
 
-    calibrationLog.push(`[WallCalibration] Envelope TP floor: ${envelopeTpMinPips.toFixed(1)} pips | ATR ceiling at ${combinedMultiplier}x: ${rawCeilingPips.toFixed(1)} pips | Corridor: ${corridorWidth.toFixed(1)} pips`);
+    // Use the calibrated (adjusted) floor for corridor width calculation
+    const corridorWidth = rawCeilingPips - calibratedEnvelopeTpMinPips;
+
+    calibrationLog.push(
+      `[WallCalibration] Calibrated floor: ${calibratedEnvelopeTpMinPips.toFixed(1)} pips | ` +
+      `ATR ceiling at ${combinedMultiplier}x: ${rawCeilingPips.toFixed(1)} pips | ` +
+      `Corridor: ${corridorWidth.toFixed(1)} pips`
+    );
 
     let finalMultiplier = combinedMultiplier;
     let safetyCapApplied = false;
@@ -166,9 +209,10 @@ class WallCalibrationEngine {
     let wasCalibrated = false;
 
     if (corridorWidth < minCorridorWidth) {
-      calibrationLog.push(`[WallCalibration] CORRIDOR INFEASIBLE: width ${corridorWidth.toFixed(1)} pips < minimum ${minCorridorWidth} pips — expanding`);
+      calibrationLog.push(`[WallCalibration] CORRIDOR INFEASIBLE: width ${corridorWidth.toFixed(1)} pips < minimum ${minCorridorWidth} pips — expanding ceiling`);
 
-      const requiredCeilingPips = envelopeTpMinPips + minCorridorWidth;
+      // Expand ceiling until corridor reaches minimum width above the calibrated floor
+      const requiredCeilingPips = calibratedEnvelopeTpMinPips + minCorridorWidth;
       const requiredMultiplier = (requiredCeilingPips * pipInfo.pipValue) / input.atr;
       finalMultiplier = Math.min(
         Math.max(requiredMultiplier, combinedMultiplier),
@@ -190,37 +234,44 @@ class WallCalibrationEngine {
     } else {
       if (input.volatilityRegime === 'low') {
         calibrationReason = 'LOW_VOLATILITY_EXPANSION';
-        wasCalibrated = baseMultiplier !== 12;
+        wasCalibrated = baseMultiplier !== 12 || tpFloorRatio < 1.0;
       } else if (input.volatilityRegime === 'high') {
         calibrationReason = 'HIGH_VOLATILITY_STANDARD';
         wasCalibrated = false;
       } else {
         calibrationReason = 'NORMAL_VOLATILITY';
-        wasCalibrated = baseMultiplier !== 12;
+        wasCalibrated = baseMultiplier !== 12 || tpFloorRatio < 1.0;
       }
     }
 
     const originalAtrMultiple = 12;
     const calibratedAtrMultiple = Math.round(finalMultiplier * 100) / 100;
 
-    if (calibratedAtrMultiple !== originalAtrMultiple) {
+    if (calibratedAtrMultiple !== originalAtrMultiple || tpFloorRatio < 1.0) {
       wasCalibrated = true;
     }
 
     const finalCeilingPips = (input.atr * calibratedAtrMultiple) / pipInfo.pipValue;
-    const finalCorridorWidth = finalCeilingPips - envelopeTpMinPips;
+    const finalCorridorWidth = finalCeilingPips - calibratedEnvelopeTpMinPips;
 
     calibrationLog.push(
-      `[WallCalibration] Final: ${originalAtrMultiple}x → ${calibratedAtrMultiple}x | Ceiling: ${finalCeilingPips.toFixed(1)} pips | Final corridor: ${finalCorridorWidth.toFixed(1)} pips | Cap: ${safetyCapApplied ? 'YES' : 'NO'}`
+      `[WallCalibration] Final: ${originalAtrMultiple}x → ${calibratedAtrMultiple}x | ` +
+      `Ceiling: ${finalCeilingPips.toFixed(1)} pips | ` +
+      `Floor (calibrated): ${calibratedEnvelopeTpMinPips.toFixed(1)} pips | ` +
+      `Final corridor: ${finalCorridorWidth.toFixed(1)} pips | Cap: ${safetyCapApplied ? 'YES' : 'NO'}`
     );
 
     if (wasCalibrated) {
-      console.log(`[WallCalibration] CALIBRATED ${input.symbol}: ATR multiplier ${originalAtrMultiple}x → ${calibratedAtrMultiple}x (${calibrationReason})`);
+      console.log(
+        `[WallCalibration] CALIBRATED ${input.symbol}: ATR multiplier ${originalAtrMultiple}x → ${calibratedAtrMultiple}x, ` +
+        `TP floor ${envelopeTpMinPips.toFixed(1)} → ${calibratedEnvelopeTpMinPips.toFixed(1)} pips (${calibrationReason})`
+      );
     }
 
     const result: WallCalibrationResult = {
       calibratedResolvedPlan: {
         tpMaxAtrMultiple: calibratedAtrMultiple,
+        calibratedEnvelopeTpMinPips,
       },
       wasCalibrated,
       calibrationReason,
@@ -235,6 +286,8 @@ class WallCalibrationEngine {
         corridorWidthPips: finalCorridorWidth,
         envelopeTpMinPips,
         envelopeTpMaxPips,
+        calibratedEnvelopeTpMinPips,
+        tpFloorRatioApplied: tpFloorRatio,
         calibrationLog,
       },
     };
@@ -270,6 +323,8 @@ class WallCalibrationEngine {
         corridor_width_pips: result.diagnostics.corridorWidthPips,
         envelope_tp_min_pips: result.diagnostics.envelopeTpMinPips,
         envelope_tp_max_pips: result.diagnostics.envelopeTpMaxPips,
+        calibrated_envelope_tp_min_pips: result.diagnostics.calibratedEnvelopeTpMinPips,
+        tp_floor_ratio_applied: result.diagnostics.tpFloorRatioApplied,
         safety_cap_applied: result.diagnostics.safetyCapApplied,
         session_expansion_applied: result.diagnostics.sessionExpansionApplied,
         regime_multiplier_used: result.diagnostics.regimeMultiplierUsed,

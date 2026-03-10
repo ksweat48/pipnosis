@@ -103,6 +103,14 @@ export interface Omega9ConstraintInput {
     slMinPercent?: number;
     tpMaxAtrMultiple?: number;
     minRR?: number;
+    /**
+     * CCIP-2026-03-10: Calibrated envelope TP floor in pips.
+     * Set by WallCalibrationEngine after applying TP_FLOOR_RATIO_BY_REGIME.
+     * When present, omega9ConstraintProvider uses this instead of the raw
+     * envelope minimum, preventing zero-width corridors during low-volatility
+     * sessions where ATR-derived SL is smaller than the normal envelope floor.
+     */
+    calibratedEnvelopeTpMinPips?: number;
   };
 }
 
@@ -177,6 +185,7 @@ export interface DualArenaInput {
     slMinPercent?: number;
     tpMaxAtrMultiple?: number;
     minRR?: number;
+    calibratedEnvelopeTpMinPips?: number;
   };
 }
 

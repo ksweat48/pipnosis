@@ -100,21 +100,27 @@ export const SCALP_ENVELOPE: StyleExecutionEnvelope = {
 
   targetCandles: { min: 3, max: 5 },
 
-  tpPips: { min: 12, max: 25 },
+  // CCIP-2026-03-10: tpPips.max raised from 25 to 50 (fallback only — price-derived bounds are
+  // the authoritative source when currentPrice is supplied). The base tpPips envelope is used
+  // as a fallback when no price is available. With MAXIMUM_SCALP=2.0 and SL up to 20 pips,
+  // TP can reach 40 pips — the old 25-pip max would incorrectly cap it in fallback mode.
+  tpPips: { min: 12, max: 50 },
   slPips: { min: 8, max: 20 },
 
   assetClassPercentBounds: {
-    FOREX: { tpPercent: { min: 0.08, max: 0.21 }, slPercent: { min: 0.05, max: 0.25 } },
+    // CCIP-2026-03-10: FOREX tpPercent.max raised from 0.21% to 0.50%.
+    // With MAXIMUM_SCALP=2.0, TP=2×SL. At SL=0.25% (max), TP=0.50%. The old 0.21%
+    // ceiling would block TP at the upper SL range. At SL=0.05% (min), TP=0.10% — fits.
+    FOREX: { tpPercent: { min: 0.08, max: 0.50 }, slPercent: { min: 0.05, max: 0.25 } },
     CRYPTO: { tpPercent: { min: 0.35, max: 3.00 }, slPercent: { min: 0.30, max: 1.50 } },
     METAL: { tpPercent: { min: 0.30, max: 2.50 }, slPercent: { min: 0.20, max: 1.00 } },
-    // CCIP-2026-03-09: INDEX tpPercent.max raised from 0.60% to 0.80%.
-    // Root cause: MAXIMUM_SCALP was raised to 1.5 (from 1.0) to fix the mathematical
-    // impossibility where INDEX SL min (0.15%=~28-66p) exceeded the old tpPips.max=25.
-    // With MAXIMUM_SCALP=1.5, TP can be up to 1.5×SL. At SL=0.35%, TP=0.525% < 0.80%
-    // so this ceiling never constrains the 1.5:1 ceiling in practice.
-    // At SL=0.20%, TP=0.30% — tight scalp scenario fully covered.
+    // CCIP-2026-03-10: INDEX tpPercent.max raised from 0.80% to 1.00%.
+    // With MAXIMUM_SCALP=2.0, TP = 2×SL. At SL=0.35% (max), TP=0.70% < 1.00% — fits.
+    // At SL=0.15% (min), TP=0.30% — tight but valid. Ceiling raised to 1.00% to ensure
+    // the ATR ceiling (tpMaxAtrMultiple path) can never be blocked by the percentage cap
+    // in volatile conditions where SL touches its max bound.
     // Noise floor compliance: SL min 0.15% unchanged (governance maintained).
-    INDEX: { tpPercent: { min: 0.20, max: 0.80 }, slPercent: { min: 0.15, max: 0.35 } },
+    INDEX: { tpPercent: { min: 0.20, max: 1.00 }, slPercent: { min: 0.15, max: 0.35 } },
   },
 
   atrTimeframe: 'M5',

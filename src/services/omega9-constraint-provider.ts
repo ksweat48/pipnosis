@@ -213,17 +213,34 @@ class Omega9ConstraintProvider {
     const envelopeAssetClass = this.mapAssetCategoryToEnvelope(assetCategory);
     const envelopeBounds = getAssetClassEnvelopeBounds(mappedStyle, envelopeAssetClass, symbol, entry);
 
-    // Set minimum TP, ensuring it respects the envelope TP floor
+    // Set minimum TP, ensuring it respects the envelope TP floor.
     // CCIP (2026-02-17): Use envelope TP min as floor to prevent Alpha from proposing
-    // TP values that satisfy R:R but violate the style envelope wall
-    const envelopeTpMin = envelopeBounds.tpPips.min;
+    // TP values that satisfy R:R but violate the style envelope wall.
+    //
+    // CCIP-2026-03-10: When WallCalibrationEngine has run, it provides a
+    // calibratedEnvelopeTpMinPips that compresses the floor for low/medium volatility
+    // via TP_FLOOR_RATIO_BY_REGIME. Use that calibrated floor when available —
+    // it prevents the zero-width corridor where envelopeTpMin >= maxTakeProfitPips
+    // causes every structural TP to be wall-violated and forced to NO_TRADE.
+    // The raw envelope floor (envelopeBounds.tpPips.min) remains the style IDENTITY
+    // reference in the prompt; only the wall boundary here uses the calibrated value.
+    const rawEnvelopeTpMin = envelopeBounds.tpPips.min;
+    const envelopeTpMin = resolvedPlan?.calibratedEnvelopeTpMinPips != null
+      ? resolvedPlan.calibratedEnvelopeTpMinPips
+      : rawEnvelopeTpMin;
+
+    if (resolvedPlan?.calibratedEnvelopeTpMinPips != null && resolvedPlan.calibratedEnvelopeTpMinPips < rawEnvelopeTpMin) {
+      console.log(
+        `[Omega-9 TP Floor] ${symbol}: Using calibrated TP floor ${envelopeTpMin.toFixed(1)} pips ` +
+        `(vs raw envelope floor ${rawEnvelopeTpMin.toFixed(1)} pips) — low-vol corridor adjustment`
+      );
+    }
+
     const minTakeProfitPips = Math.min(
       Math.max(idealMinTakeProfitPips, envelopeTpMin),
       maxTakeProfitPips
     );
-    const constraintFeasibilityWarning = resolvedPlan
-      ? '✅ Constraints validated by feasibility resolver'
-      : '';
+    const constraintFeasibilityWarning = '';
 
     // Build take-profit reasoning with style-aware session context
     const baseTpReasoning = `Minimum: ${minTakeProfitPips.toFixed(1)} pips (R:R ≥ ${minRiskReward.toFixed(1)}:1). Maximum: ${maxTakeProfitPips.toFixed(1)} pips (R:R ≤ ${maxRiskReward.toFixed(1)}:1 — style ceiling). Alpha scales TP freely within this band.`;
