@@ -30,6 +30,23 @@ export interface StopLossCalculation {
   atrTimeframe?: ATRTimeframe; // Track which timeframe ATR was from
   noiseFloorPips?: number;      // Statistical minimum for survival
   noiseFloorReasoning?: string; // Explanation of noise floor
+  /**
+   * Set when a sweep in the OPPOSITE direction has a liquidity cluster near
+   * the calculated stop. This does not adjust the stop — it surfaces the
+   * proximity as advisory data for Alpha to reason about.
+   *
+   * Example: A HIGH sweep (price spiked up and rejected) with a BUY entry.
+   * The sweep-aware system does not move the SL for this case. But if the
+   * nearest_cluster_price from that high sweep sits within 2 pips of the
+   * BUY's SL, Alpha should know — his SL may be sitting inside a liquidity
+   * magnet zone from the opposite side of the market.
+   */
+  crossDirectionClusterWarning?: {
+    clusterPrice: number;
+    clusterPipsFromStop: number;
+    sweepType: 'high' | 'low';
+    direction: 'buy' | 'sell';
+  };
   /** Set when stop was adjusted to clear a detected liquidity sweep zone */
   sweepAwareAdjustment?: {
     applied: boolean;
@@ -190,7 +207,8 @@ class RiskAwareStopCalculator {
       profileMinPips: minPips,
       profileMaxPips: maxPips,
       atrTimeframe,
-      sweepAwareAdjustment: sweepResult.adjustment
+      sweepAwareAdjustment: sweepResult.adjustment,
+      crossDirectionClusterWarning: sweepResult.crossDirectionClusterWarning,
     };
   }
 
@@ -319,7 +337,8 @@ class RiskAwareStopCalculator {
       profileMinPips: (entryPrice * minPercent / 100) / pipInfo.pipValue,
       profileMaxPips: profileMaxPipsCrypto,
       atrTimeframe,
-      sweepAwareAdjustment: sweepResultCrypto.adjustment
+      sweepAwareAdjustment: sweepResultCrypto.adjustment,
+      crossDirectionClusterWarning: sweepResultCrypto.crossDirectionClusterWarning,
     };
   }
 
@@ -491,6 +510,7 @@ class RiskAwareStopCalculator {
     stopPips: number;
     reasoning: string;
     adjustment?: StopLossCalculation['sweepAwareAdjustment'];
+    crossDirectionClusterWarning?: StopLossCalculation['crossDirectionClusterWarning'];
   } {
     const {
       direction, entryPrice, calculatedStopPrice, calculatedStopPips,
@@ -515,10 +535,43 @@ class RiskAwareStopCalculator {
     const sweepAlignsSell = sweepContext.type === 'high' && direction === 'sell';
 
     if (!sweepAlignsBuy && !sweepAlignsSell) {
+      // CCIP-2026-0310-OMEGA8-BIDIRECTIONAL:
+      // Sweep is cross-directional — we do NOT move the stop. However, if the
+      // sweep's nearest_cluster_price is within a proximity threshold of the
+      // calculated stop, surface it as advisory data. Alpha can see the cluster
+      // is near his SL and factor it into his reasoning.
+      // Proximity threshold: 2x pip floor for the instrument class.
+      const proximityThresholdPips = isXAUUSD(inputs.symbol) ? 4 : isJPYPair(inputs.symbol) ? 3 : 2;
+
+      const clusterPrice = sweepContext.nearest_cluster_price ?? sweepContext.sweep_extreme_price;
+      const clusterPipsFromStop = Math.abs(clusterPrice - calculatedStopPrice) / pipInfo.pipValue;
+
+      const crossDirectionClusterWarning: StopLossCalculation['crossDirectionClusterWarning'] =
+        clusterPipsFromStop <= proximityThresholdPips
+          ? {
+              clusterPrice,
+              clusterPipsFromStop,
+              sweepType: sweepContext.type as 'high' | 'low',
+              direction,
+            }
+          : undefined;
+
+      if (crossDirectionClusterWarning) {
+        console.log(
+          `[Sweep-Cluster Advisory] ${inputs.symbol} ${direction.toUpperCase()}: ` +
+          `Cross-direction ${sweepContext.type} sweep cluster @ ${clusterPrice.toFixed(pipInfo.decimalPlaces)} ` +
+          `is ${clusterPipsFromStop.toFixed(1)}p from calculated SL @ ${calculatedStopPrice.toFixed(pipInfo.decimalPlaces)} ` +
+          `(threshold: ${proximityThresholdPips}p) — surfaced as advisory for Alpha`
+        );
+      }
+
       return {
         stopPrice: calculatedStopPrice,
         stopPips: calculatedStopPips,
-        reasoning: `ATR-based stop (sweep type ${sweepContext.type} does not align with ${direction} direction)`
+        reasoning: crossDirectionClusterWarning
+          ? `ATR-based stop — cross-direction ${sweepContext.type} sweep cluster @ ${clusterPrice.toFixed(pipInfo.decimalPlaces)} is ${clusterPipsFromStop.toFixed(1)}p from SL (advisory)`
+          : `ATR-based stop (sweep type ${sweepContext.type} does not align with ${direction} direction)`,
+        crossDirectionClusterWarning,
       };
     }
 

@@ -359,6 +359,15 @@ export interface AlphaDecision {
     Q7_confluence_count: string;
     Q8_move_position_pct: number;
     Q8B_session_range_pct: number;
+    /**
+     * Q9: SL wick proximity self-check.
+     * Alpha scans recent primary-timeframe wick extremes and states whether
+     * his SL price is within 1 pip of any wick. This is advisory — Alpha
+     * reasons about proximity risk and explains his placement.
+     * Format: "CLEAR — nearest wick extreme at [price] is [X] pips from SL"
+     *      or "PROXIMITY_RISK — SL at [price] is [X] pips from wick at [price]. [reasoning]"
+     */
+    Q9_sl_wick_proximity?: string;
   };
 }
 
@@ -1310,27 +1319,48 @@ class AlphaCoordinatorBrain {
       }
 
       const sweepZoneDirective = (() => {
+        const pipInfo = getCurrencyPipInfo(marketContext.symbol);
         const buyAdj = buyStopAnchor.sweepAwareAdjustment;
         const sellAdj = sellStopAnchor.sweepAwareAdjustment;
         const adj = buyAdj?.applied ? buyAdj : (sellAdj?.applied ? sellAdj : null);
-        if (!adj || !sweepContextForStop) return '';
 
-        const sweepTypeLabel = sweepContextForStop.type === 'low' ? 'LOW SWEEP' : 'HIGH SWEEP';
-        const candlesLabel = sweepContextForStop.candles_ago === 0 ? 'just now' : `${sweepContextForStop.candles_ago} candle(s) ago`;
-        const bosLabel = sweepContextForStop.has_bos ? 'BOS CONFIRMED' : 'awaiting BOS';
-        const pipInfo = getCurrencyPipInfo(marketContext.symbol);
-        const bufferPips = adj.bufferPips;
-        const sweepPrice = adj.sweepExtremePrice;
-        const forbiddenZoneBuy = (sweepPrice + bufferPips * pipInfo.pipValue).toFixed(5);
-        const forbiddenZoneSell = (sweepPrice - bufferPips * pipInfo.pipValue).toFixed(5);
-
-        return `
+        // Aligned sweep adjustment (stop was repositioned)
+        let alignedSweepText = '';
+        if (adj && sweepContextForStop) {
+          const sweepTypeLabel = sweepContextForStop.type === 'low' ? 'LOW SWEEP' : 'HIGH SWEEP';
+          const candlesLabel = sweepContextForStop.candles_ago === 0 ? 'just now' : `${sweepContextForStop.candles_ago} candle(s) ago`;
+          const bosLabel = sweepContextForStop.has_bos ? 'BOS CONFIRMED' : 'awaiting BOS';
+          const bufferPips = adj.bufferPips;
+          const sweepPrice = adj.sweepExtremePrice;
+          const forbiddenZoneBuy = (sweepPrice + bufferPips * pipInfo.pipValue).toFixed(5);
+          const forbiddenZoneSell = (sweepPrice - bufferPips * pipInfo.pipValue).toFixed(5);
+          alignedSweepText = `
 SWEEP ZONE DETECTED (${tradeStyle}): ${sweepTypeLabel} confirmed ${candlesLabel} [${bosLabel}]. Sweep extreme: ${sweepPrice.toFixed(5)}.
 The SL anchors above have been MATHEMATICALLY REPOSITIONED beyond the swept zone (buffer: ${bufferPips.toFixed(1)} pips).
 BINDING RULE: You MUST NOT place your stop inside the swept zone.
   - If LONG: SL must be BELOW ${forbiddenZoneBuy} (below sweep extreme + buffer). Any stop above ${sweepPrice.toFixed(5)} is a liquidity target.
   - If SHORT: SL must be ABOVE ${forbiddenZoneSell} (above sweep extreme - buffer). Any stop below ${sweepPrice.toFixed(5)} is a liquidity target.
 Stops placed inside the swept zone will be auto-rejected by Omega-9. Use the anchors provided — they already clear the sweep zone.`;
+        }
+
+        // Cross-direction cluster proximity advisory (stop NOT adjusted — data for Alpha's reasoning)
+        // CCIP-2026-0310-OMEGA8-BIDIRECTIONAL: Omega-8 saw a sweep in the opposite direction
+        // and its cluster price is within proximity of the calculated SL anchor. This is advisory
+        // data only — Alpha must reason about whether his SL sits in a liquidity magnet zone.
+        const buyCross = buyStopAnchor.crossDirectionClusterWarning;
+        const sellCross = sellStopAnchor.crossDirectionClusterWarning;
+        const cross = buyCross ?? sellCross;
+        let crossDirectionText = '';
+        if (cross) {
+          const sweepLabel = cross.sweepType === 'high' ? 'HIGH SWEEP' : 'LOW SWEEP';
+          const dirLabel = cross.direction === 'buy' ? 'LONG' : 'SHORT';
+          crossDirectionText = `
+OMEGA-8 CLUSTER PROXIMITY ADVISORY (${dirLabel} SL): A ${sweepLabel} was detected. Its liquidity cluster at ${cross.clusterPrice.toFixed(pipInfo.decimalPlaces)} is only ${cross.clusterPipsFromStop.toFixed(1)} pips from your ${dirLabel} SL anchor.
+This cluster was swept in the OPPOSITE direction — it is residual liquidity sitting near your stop zone. Your SL may be inside a magnet zone. This is advisory data, not a hard rule.
+Consider in Q9: Is this cluster a risk to your SL? Should you widen to clear it, or does structure justify the current placement?`;
+        }
+
+        return alignedSweepText + crossDirectionText;
       })();
 
       stopLossDirective = `
@@ -1479,6 +1509,10 @@ IMPORTANT REMINDERS:
     let primaryTfCandlePrompt = '';
     let intradayMovePhaseContext = '';
     let microIntradayMovePhaseContext = '';
+    // CCIP-2026-0310-SL-STRUCTURAL-DISTANCE: Computed inside the primary candle block
+    // once recentPrimary is available. Appended to stopLossDirective after candles load.
+    // Advisory data only — no mandate, no enforcement.
+    let slStructuralDistanceNote = '';
     try {
       const mds = MarketDataService.getInstance();
       const primaryCandles = await mds.getCandles(marketContext.symbol, primaryTfConfig.timeframe, primaryTfConfig.candleCount);
@@ -1540,6 +1574,68 @@ IMPORTANT REMINDERS:
         const lastUpperWick = (lastCandle.high - Math.max(lastCandle.open, lastCandle.close)) / pipInfo.pipValue;
         const lastLowerWick = (Math.min(lastCandle.open, lastCandle.close) - lastCandle.low) / pipInfo.pipValue;
         const hasRejectionWick = lastUpperWick > lastBody * 1.5 || lastLowerWick > lastBody * 1.5;
+
+        // ═══════════════════════════════════════════════════════════════════
+        // SL STRUCTURAL DISTANCE NOTE (CCIP-2026-0310-SL-STRUCTURAL-DISTANCE)
+        // Advisory data only — gives Alpha the measured distance between each
+        // SL anchor and the nearest primary-TF wick extreme (swing low for BUY,
+        // swing high for SELL). No enforcement, no mandate. Alpha self-assesses
+        // using Q9 and sl_structural_reference.
+        // ═══════════════════════════════════════════════════════════════════
+        if (buyStopAnchor && sellStopAnchor) {
+          // Find the N nearest distinct wick lows/highs within the last 6 primary candles
+          const scanCandles = recentPrimary.slice(-6);
+
+          // Nearest swing LOW: the lowest low-wick extreme in the scan window
+          // (relevant for BUY SL, which sits below entry)
+          let nearestSwingLow = scanCandles[0].low;
+          let nearestSwingLowIdx = 0;
+          for (let i = 1; i < scanCandles.length; i++) {
+            if (scanCandles[i].low < nearestSwingLow) {
+              nearestSwingLow = scanCandles[i].low;
+              nearestSwingLowIdx = i;
+            }
+          }
+
+          // Nearest swing HIGH: the highest high-wick extreme in the scan window
+          // (relevant for SELL SL, which sits above entry)
+          let nearestSwingHigh = scanCandles[0].high;
+          let nearestSwingHighIdx = 0;
+          for (let i = 1; i < scanCandles.length; i++) {
+            if (scanCandles[i].high > nearestSwingHigh) {
+              nearestSwingHigh = scanCandles[i].high;
+              nearestSwingHighIdx = i;
+            }
+          }
+
+          const buySLPrice = buyStopAnchor.stopLossPrice;
+          const sellSLPrice = sellStopAnchor.stopLossPrice;
+
+          const buySlToSwingLowPips = Math.abs(buySLPrice - nearestSwingLow) / pipInfo.pipValue;
+          const sellSlToSwingHighPips = Math.abs(sellSLPrice - nearestSwingHigh) / pipInfo.pipValue;
+
+          const buySLAboveSwingLow = buySLPrice > nearestSwingLow;
+          const sellSLBelowSwingHigh = sellSLPrice < nearestSwingHigh;
+
+          const buySLStatus = buySLAboveSwingLow
+            ? `INSIDE the wick range (SL ${buySLPrice.toFixed(pipInfo.decimalPlaces)} > swing low ${nearestSwingLow.toFixed(pipInfo.decimalPlaces)} by ${buySlToSwingLowPips.toFixed(1)}p — SL may be swept)`
+            : `BELOW the wick range (SL ${buySLPrice.toFixed(pipInfo.decimalPlaces)} < swing low ${nearestSwingLow.toFixed(pipInfo.decimalPlaces)} by ${buySlToSwingLowPips.toFixed(1)}p — SL clears the wick extreme)`;
+
+          const sellSLStatus = sellSLBelowSwingHigh
+            ? `INSIDE the wick range (SL ${sellSLPrice.toFixed(pipInfo.decimalPlaces)} < swing high ${nearestSwingHigh.toFixed(pipInfo.decimalPlaces)} by ${sellSlToSwingHighPips.toFixed(1)}p — SL may be swept)`
+            : `ABOVE the wick range (SL ${sellSLPrice.toFixed(pipInfo.decimalPlaces)} > swing high ${nearestSwingHigh.toFixed(pipInfo.decimalPlaces)} by ${sellSlToSwingHighPips.toFixed(1)}p — SL clears the wick extreme)`;
+
+          slStructuralDistanceNote = `
+SL STRUCTURAL DISTANCE (${primaryTfConfig.label} — last 6 candles, advisory data):
+- Nearest ${primaryTfConfig.label} swing low: ${nearestSwingLow.toFixed(pipInfo.decimalPlaces)} (candle ${nearestSwingLowIdx + 1} of 6)
+- Nearest ${primaryTfConfig.label} swing high: ${nearestSwingHigh.toFixed(pipInfo.decimalPlaces)} (candle ${nearestSwingHighIdx + 1} of 6)
+- IF LONG SL (${buySLPrice.toFixed(pipInfo.decimalPlaces)}): ${buySLStatus}
+- IF SHORT SL (${sellSLPrice.toFixed(pipInfo.decimalPlaces)}): ${sellSLStatus}
+Reason in Q9 and sl_structural_reference: does your chosen SL clear the nearest ${primaryTfConfig.label} wick extreme, or does it sit inside a zone that has already been probed? This data is for your self-assessment — not a system rule.
+`;
+          // Append to stopLossDirective so it appears next to the SL anchor context
+          stopLossDirective += slStructuralDistanceNote;
+        }
 
         // ═══════════════════════════════════════════════════════════════════
         // INTRADAY H1 MOVE PHASE & FAKEOUT ADVISORY
@@ -2800,6 +2896,7 @@ ADVISORY INTELLIGENCE (context, not constraints):
 - Adversarial Detector: ${ALPHA_IDENTITY.ADVISORY_SYSTEMS.ADVERSARIAL_DETECTOR.name} — manipulation and trap pattern warnings
 - Session Constraints: ${ALPHA_IDENTITY.ADVISORY_SYSTEMS.SESSION_CONSTRAINTS.name} — time-based liquidity context
 - These advisories inform your confidence. They do not block your decision. Max combined advisory effect: ${ALPHA_IDENTITY.MAX_ADVISORY_PENALTY}%
+- Omega Council (Omega-7 through Omega-10): RAW SENSOR DATA — carry zero confidence penalty. Omega observations are inputs you reason about, not arithmetic deductions from your stated confidence. Omega disagreement is data, not a veto.
 - ${streakContextLine}
 
 ONLY THESE CONDITIONS PRODUCE A HARD BLOCK:
@@ -2879,7 +2976,7 @@ ${tradeStyle === 'SCALP' ? `{
   "scalp_atr_traveled": 0.82,
   "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "50% DISTANCE RULE: state nearest S/R distance, halve it, define zone." },
   "override": { "type": "none", "justification": "" },
-  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "key level", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named trigger or NONE_YET", "Q7_confluence_count": "X/5 — list dimensions", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0 }
+  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "key level", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named trigger or NONE_YET", "Q7_confluence_count": "X/5 — list dimensions", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0, "Q9_sl_wick_proximity": "CLEAR — nearest M5 wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from M5 wick at [price]. [reason why placement is still valid or adjust]" }
 }` : tradeStyle === 'MICRO_INTRADAY' ? `{
   "action": "BUY|SELL|NO_TRADE",
   "entry": 12345.67,
@@ -2903,7 +3000,7 @@ ${tradeStyle === 'SCALP' ? `{
   "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "trailing plan" },
   "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "50% DISTANCE RULE: state nearest S/R distance, halve it, define zone." },
   "override": { "type": "none", "justification": "" },
-  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "key M15 level", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named trigger or NONE_YET", "Q7_confluence_count": "X/5 — list dimensions", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0 }
+  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "key M15 level", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named trigger or NONE_YET", "Q7_confluence_count": "X/5 — list dimensions", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0, "Q9_sl_wick_proximity": "CLEAR — nearest M15 wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from M15 wick at [price]. [reason why placement is still valid or adjust]" }
 }` : `{
   "action": "BUY|SELL|NO_TRADE",
   "entry": 12345.67,
@@ -2929,7 +3026,7 @@ ${tradeStyle === 'SCALP' ? `{
   "h1_move_phase": "fresh|developing|exhausted",
   "h1_atr_traveled": 0.82,
   "override": { "type": "none", "justification": "" },
-  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "key H1 level", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named trigger or NONE_YET", "Q7_confluence_count": "X/5 — list dimensions", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0 }
+  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "key H1 level", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named trigger or NONE_YET", "Q7_confluence_count": "X/5 — list dimensions", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0, "Q9_sl_wick_proximity": "CLEAR — nearest H1 wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from H1 wick at [price]. [reason why placement is still valid or adjust]" }
 }`}`;
 
     // Emit final progress thought before LLM call (this is the 6.3s phase)
@@ -3822,6 +3919,7 @@ ${tradeStyle === 'SCALP' ? `{
         Q7_confluence_count: rawAnswerSheet.Q7_confluence_count || '',
         Q8_move_position_pct: typeof rawAnswerSheet.Q8_move_position_pct === 'number' ? rawAnswerSheet.Q8_move_position_pct : 0,
         Q8B_session_range_pct: typeof rawAnswerSheet.Q8B_session_range_pct === 'number' ? rawAnswerSheet.Q8B_session_range_pct : 0,
+        Q9_sl_wick_proximity: typeof rawAnswerSheet.Q9_sl_wick_proximity === 'string' ? rawAnswerSheet.Q9_sl_wick_proximity : undefined,
       } : undefined;
 
       // CCIP 2026-02-17: Extract Alpha's entry advisory (SSOT for Entry Monitor)

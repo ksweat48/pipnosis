@@ -381,12 +381,30 @@ export const ALPHA_IDENTITY = {
     OMEGA_CONSENSUS: {
       name: 'Omega Consensus',
       type: 'ADVISORY' as const,
-      maxConfidencePenalty: 20,
+      maxConfidencePenalty: 0,
       canBlock: false,
     },
   },
 
-  MAX_ADVISORY_PENALTY: 30,
+  /**
+   * CCIP-2026-0310-OMEGA: Omega consensus carries ZERO advisory penalty.
+   *
+   * Omega brains provide raw sensor observations to Alpha. Alpha's confidence
+   * output already incorporates everything he has reasoned about — including
+   * the Omega briefing. Applying a code-level penalty on top of Alpha's stated
+   * confidence is double-counting: it distorts his output without giving him
+   * any new information to reason differently.
+   *
+   * The MAX_ADVISORY_PENALTY (10) applies only to Regime Oracle and Adversarial
+   * Detector — systems that detect environmental conditions outside Alpha's
+   * direct candle-reading (session phase, manipulation patterns). Omega is a
+   * price-structure reader like Alpha — his disagreement is data for Alpha's
+   * reasoning, not a post-hoc penalty on Alpha's conclusion.
+   *
+   * SSOT: This value is the single authority for all advisory penalty caps.
+   * coordinator-alpha.ts and pipnosis-core-rules.ts both reference this constant.
+   */
+  MAX_ADVISORY_PENALTY: 10,
 } as const;
 
 export type LegitimateBlockCondition = typeof ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS[number];
@@ -1551,13 +1569,14 @@ OUTPUT FORMAT:
     "equal_highs_lows": "description of any unswept equal highs/lows within 2x ATR, or NONE",
     "trap_signature": "NONE | detected trap type and position assessment",
     "failed_auction": "NONE | detected pattern and trading implication",
-    "intermarket_correlation": "CONFLUENT | DIVERGENT | UNKNOWN"
+    "intermarket_correlation": "CONFLUENT | DIVERGENT | UNKNOWN",
+    "Q9_sl_wick_proximity": "CLEAR — nearest primary-TF wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from [primary TF] wick at [price]. [Your assessment: is this placement still valid given structure, or should SL be adjusted?]"
   }
 }
 
 entry, stopLoss, and takeProfit are REQUIRED for every BUY/SELL. These are the three most critical fields. They must be numeric price values — never null, never omitted. Omitting any of them on a BUY/SELL is a critical output contract violation and the trade will be rejected. For NO_TRADE, omit these fields or set to null.
 
-answer_sheet is REQUIRED for every BUY/SELL. Omit for NO_TRADE. Each key must be present with a concrete answer — not empty strings or null values. This block is parsed and stored as a structured audit record. Q7_confluence_count must list the confirmed dimensions by name. Q8_move_position_pct is the percentage of the projected move already traveled from swing origin. Q8B_session_range_pct is your estimated position within the current session's high-to-low range (0 = session low, 100 = session high for a buy; inverted for sell).
+answer_sheet is REQUIRED for every BUY/SELL. Omit for NO_TRADE. Each key must be present with a concrete answer — not empty strings or null values. This block is parsed and stored as a structured audit record. Q7_confluence_count must list the confirmed dimensions by name. Q8_move_position_pct is the percentage of the projected move already traveled from swing origin. Q8B_session_range_pct is your estimated position within the current session's high-to-low range (0 = session low, 100 = session high for a buy; inverted for sell). Q9_sl_wick_proximity is your SL wick safety check: scan the last 6 candles on your primary timeframe (M5 for SCALP, M15 for MICRO_INTRADAY, H1 for INTRADAY) and identify the nearest wick extreme (high or low tip) to your SL price. State whether your SL is CLEAR (nearest wick is more than 1 pip away) or PROXIMITY_RISK (nearest wick is within 1 pip of your SL). For PROXIMITY_RISK, reason about whether the proximity is acceptable given the structural anchor, or whether the SL should be adjusted. This is your own price-level self-check — no system enforces it, but it must be answered honestly.
 
 confidence_anchor is required for every BUY/SELL. It makes the confidence score auditable. Example: "This confidence is based on 4/5 core dimensions confirmed (TREND, STRUCTURE, MOMENTUM, TIMING), no advisory penalty, clean pullback entry, EARLY move stage. The primary uncertainty is M15 resistance cluster 8 pips above entry that may require two attempts to clear."
 
