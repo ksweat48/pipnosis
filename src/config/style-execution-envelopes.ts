@@ -39,6 +39,26 @@
  * BTCUSD at ~$90,000 with 0.35% floor = 315 pips minimum — appropriate for BTC scalps.
  * The slPercent.min of 0.30% is unchanged (noise floor governance compliance maintained).
  *
+ * CEILING ALIGNMENT — MICRO_INTRADAY & INTRADAY (CCIP-2026-03-10):
+ * tpPercent.max must be >= slPercent.max × maxRR for the style, otherwise the envelope
+ * ceiling itself clips the ATR-derived TP maximum before the wall comparison runs,
+ * compressing the valid corridor from above and blocking structural targets.
+ *
+ * MICRO_INTRADAY (MAXIMUM_MICRO_INTRADAY = 2.0):
+ *   CRYPTO: slPercent.max 2.50% × 2.0 = 5.00% — was exactly equal to old tpPercent.max,
+ *   leaving zero headroom for ATR-ceiling calculations. Raised to 6.00%.
+ *   FOREX, METAL, INDEX: slPercent.max × 2.0 already fits inside existing tpPercent.max.
+ *
+ * INTRADAY (MAXIMUM_INTRADAY = 3.0):
+ *   ALL 4 asset classes: slPercent.max × 3.0 exceeded old tpPercent.max:
+ *   FOREX:  0.80% × 3.0 = 2.40% > 2.00% → raised to 2.50%
+ *   CRYPTO: 4.00% × 3.0 = 12.00% > 10.00% → raised to 13.00%
+ *   METAL:  3.20% × 3.0 = 9.60% > 8.00% → raised to 10.00%
+ *   INDEX:  0.40% × 3.0 = 1.20% > 0.80% → raised to 1.30%
+ *
+ * The ceiling is not a preferred target — it is the hard upper bound so Alpha is never
+ * blocked from placing a TP that is fully supported by the ATR and R:R band.
+ *
  * NOISE FLOOR ALIGNMENT (CCIP-2026-02-18):
  * All slPercent.min values MUST be >= the noise floor percentage for the asset class.
  * Noise floor percentages (from risk-aware-stop-calculator.ts):
@@ -150,6 +170,11 @@ export const SCALP_ENVELOPE: StyleExecutionEnvelope = {
  *
  * New bounds maintain style hierarchy (wider than SCALP, tighter than INTRADAY)
  * while being achievable in normal market conditions.
+ *
+ * CCIP (2026-03-10): CRYPTO tpPercent.max raised from 5.00% to 6.00%.
+ * slPercent.max 2.50% × MAXIMUM_MICRO_INTRADAY 2.0 = 5.00%, which was exactly equal to
+ * the old ceiling — zero headroom for the ATR ceiling path. 6.00% provides the required
+ * clearance (actual R:R ceiling 5.00% sits safely inside 6.00%).
  */
 export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
   style: 'MICRO_INTRADAY',
@@ -162,10 +187,11 @@ export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
   slPips: { min: 15, max: 50 },
 
   assetClassPercentBounds: {
-    FOREX: { tpPercent: { min: 0.12, max: 1.20 }, slPercent: { min: 0.06, max: 0.50 } },
-    CRYPTO: { tpPercent: { min: 0.75, max: 5.00 }, slPercent: { min: 0.40, max: 2.50 } },
-    METAL: { tpPercent: { min: 0.50, max: 5.00 }, slPercent: { min: 0.25, max: 2.00 } },
-    INDEX: { tpPercent: { min: 0.25, max: 1.00 }, slPercent: { min: 0.15, max: 0.35 } },
+    FOREX:   { tpPercent: { min: 0.12, max: 1.20 }, slPercent: { min: 0.06, max: 0.50 } },
+    // CCIP-2026-03-10: tpPercent.max raised 5.00% → 6.00% (slMax 2.50% × 2.0 = 5.00% headroom fix)
+    CRYPTO:  { tpPercent: { min: 0.75, max: 6.00 }, slPercent: { min: 0.40, max: 2.50 } },
+    METAL:   { tpPercent: { min: 0.50, max: 5.00 }, slPercent: { min: 0.25, max: 2.00 } },
+    INDEX:   { tpPercent: { min: 0.25, max: 1.00 }, slPercent: { min: 0.15, max: 0.35 } },
   },
 
   atrTimeframe: 'M15',
@@ -184,6 +210,17 @@ export const MICRO_INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
  * - Typically 6-12 H1 candles
  * - H1 structure primary
  * - Can wait for optimal entry
+ *
+ * CCIP (2026-03-10): tpPercent.max raised for all four asset classes.
+ * With MAXIMUM_INTRADAY = 3.0, a trade at maximum SL must be able to reach
+ * TP = slPercent.max × 3.0 before the envelope ceiling clips the ATR path:
+ *   FOREX:  0.80% × 3.0 = 2.40% > old 2.00% → raised to 2.50%
+ *   CRYPTO: 4.00% × 3.0 = 12.00% > old 10.00% → raised to 13.00%
+ *   METAL:  3.20% × 3.0 = 9.60% > old 8.00% → raised to 10.00%
+ *   INDEX:  0.40% × 3.0 = 1.20% > old 0.80% → raised to 1.30%
+ * The ceiling is not a preferred target — it is the hard upper bound so the
+ * ATR-derived TP maximum is never clipped below the structural R:R range.
+ * tpPercent.min values, slPercent bounds, and noise floor compliance are unchanged.
  */
 export const INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
   style: 'INTRADAY',
@@ -196,10 +233,14 @@ export const INTRADAY_ENVELOPE: StyleExecutionEnvelope = {
   slPips: { min: 30, max: 60 },
 
   assetClassPercentBounds: {
-    FOREX: { tpPercent: { min: 0.40, max: 2.00 }, slPercent: { min: 0.20, max: 0.80 } },
-    CRYPTO: { tpPercent: { min: 3.00, max: 10.00 }, slPercent: { min: 1.50, max: 4.00 } },
-    METAL: { tpPercent: { min: 1.60, max: 8.00 }, slPercent: { min: 0.80, max: 3.20 } },
-    INDEX: { tpPercent: { min: 0.35, max: 0.80 }, slPercent: { min: 0.15, max: 0.40 } },
+    // CCIP-2026-03-10: tpPercent.max raised 2.00% → 2.50% (slMax 0.80% × 3.0 = 2.40% headroom fix)
+    FOREX:   { tpPercent: { min: 0.40, max: 2.50 }, slPercent: { min: 0.20, max: 0.80 } },
+    // CCIP-2026-03-10: tpPercent.max raised 10.00% → 13.00% (slMax 4.00% × 3.0 = 12.00% headroom fix)
+    CRYPTO:  { tpPercent: { min: 3.00, max: 13.00 }, slPercent: { min: 1.50, max: 4.00 } },
+    // CCIP-2026-03-10: tpPercent.max raised 8.00% → 10.00% (slMax 3.20% × 3.0 = 9.60% headroom fix)
+    METAL:   { tpPercent: { min: 1.60, max: 10.00 }, slPercent: { min: 0.80, max: 3.20 } },
+    // CCIP-2026-03-10: tpPercent.max raised 0.80% → 1.30% (slMax 0.40% × 3.0 = 1.20% headroom fix)
+    INDEX:   { tpPercent: { min: 0.35, max: 1.30 }, slPercent: { min: 0.15, max: 0.40 } },
   },
 
   atrTimeframe: 'H1',
