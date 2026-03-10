@@ -237,6 +237,13 @@ function calculateCandleFromPrices(
 ): CandleData | null {
   if (prices.length === 0) return null;
 
+  // CCIP GOVERNANCE (2026-03-10): Require at least 2 ticks to form a valid candle.
+  // A single tick would produce a flat candle (open=high=low=close) with no price movement.
+  if (prices.length < 2) {
+    console.log(`[CandleAggregator] Skipping ${symbol} ${timeframe} candle — only ${prices.length} tick (need 2+)`);
+    return null;
+  }
+
   const timeframeMinutes = TIMEFRAME_MINUTES[timeframe];
   const candleEndTime = new Date(candleStartTime.getTime() + timeframeMinutes * 60 * 1000);
 
@@ -341,15 +348,24 @@ async function saveCandleToDatabase(candle: CandleData): Promise<boolean> {
 async function saveCandlesBatch(candles: CandleData[]): Promise<number> {
   if (candles.length === 0) return 0;
 
+  // CCIP GOVERNANCE (2026-03-10): Drop flat candles before any DB write.
+  // A flat candle (open=high=low=close) from a single tick or stale price must never
+  // overwrite a good candle that already exists in the database.
+  const nonFlatCandles = candles.filter(c => !(c.open === c.high && c.high === c.low && c.low === c.close));
+  if (nonFlatCandles.length !== candles.length) {
+    console.log(`[CandleAggregator] Dropped ${candles.length - nonFlatCandles.length} flat candles before batch save`);
+  }
+  if (nonFlatCandles.length === 0) return 0;
+
   try {
     // Apply wick reconstruction to all candles
     const reconstructedCandles = await Promise.all(
-      candles.map(candle => reconstructCandleWicks(candle))
+      nonFlatCandles.map(candle => reconstructCandleWicks(candle))
     );
 
     let reconstructedCount = 0;
     const candleRecords = reconstructedCandles.map((candle, index) => {
-      const original = candles[index];
+      const original = nonFlatCandles[index];
       const wasReconstructed = candle.high !== original.high || candle.low !== original.low;
       if (wasReconstructed) reconstructedCount++;
 
@@ -384,10 +400,10 @@ async function saveCandlesBatch(candles: CandleData[]): Promise<number> {
     }
 
     if (reconstructedCount > 0) {
-      console.log(`[CandleAggregator] 🔧 Reconstructed wicks for ${reconstructedCount}/${candles.length} candles`);
+      console.log(`[CandleAggregator] Reconstructed wicks for ${reconstructedCount}/${nonFlatCandles.length} candles`);
     }
 
-    return candles.length;
+    return nonFlatCandles.length;
   } catch (error) {
     console.error(`[CandleAggregator] Unexpected batch save error:`, error);
     return 0;
@@ -526,6 +542,17 @@ async function aggregateFromLowerTimeframe(
       return null;
     }
 
+    // CCIP GOVERNANCE (2026-03-10): Filter out flat ghost candles before aggregation.
+    // Flat candles (open=high=low=close) are artifacts from stale-price gap-fillers and must
+    // not propagate upward through the timeframe hierarchy. Only candles with real price movement
+    // are used as aggregation inputs.
+    const validData = data.filter(c => !(c.open === c.high && c.high === c.low && c.low === c.close));
+
+    if (validData.length === 0) {
+      console.log(`[CandleAggregator] All ${sourceTimeframe} candles for ${symbol} ${targetTimeframe} are flat — skipping aggregation`);
+      return null;
+    }
+
     // Calculate expected source candles for this target timeframe
     const targetMinutes = TIMEFRAME_MINUTES[targetTimeframe];
     const sourceMinutes = TIMEFRAME_MINUTES[sourceTimeframe];
@@ -535,21 +562,22 @@ async function aggregateFromLowerTimeframe(
     const qualityThreshold = QUALITY_THRESHOLDS[targetTimeframe] || 0.5;
     const minimumCandles = Math.ceil(expectedCandles * qualityThreshold);
 
-    // Only create target candle if we have enough source candles
-    if (data.length < minimumCandles) {
-      console.log(`[CandleAggregator] Insufficient ${sourceTimeframe} candles for ${symbol} ${targetTimeframe}: ${data.length}/${expectedCandles} (need ${minimumCandles}+)`);
+    // Only create target candle if we have enough valid (non-flat) source candles
+    if (validData.length < minimumCandles) {
+      console.log(`[CandleAggregator] Insufficient valid ${sourceTimeframe} candles for ${symbol} ${targetTimeframe}: ${validData.length}/${expectedCandles} (need ${minimumCandles}+, ${data.length - validData.length} flat filtered)`);
       return null;
     }
 
-    // Aggregate source candles into target timeframe
+    // Aggregate valid source candles into target timeframe
     // Take first open, last close, highest high, lowest low
-    const open = data[0].open;
-    const close = data[data.length - 1].close;
-    const high = Math.max(...data.map(c => c.high));
-    const low = Math.min(...data.map(c => c.low));
-    const totalVolume = data.reduce((sum, c) => sum + (c.volume || 0), 0);
+    const open = validData[0].open;
+    const close = validData[validData.length - 1].close;
+    const high = Math.max(...validData.map(c => c.high));
+    const low = Math.min(...validData.map(c => c.low));
+    const totalVolume = validData.reduce((sum, c) => sum + (c.volume || 0), 0);
 
-    console.log(`[CandleAggregator]   🔧 Aggregated ${data.length} ${sourceTimeframe} candles into ${targetTimeframe} for ${symbol}`);
+    const filteredMsg = data.length !== validData.length ? ` (${data.length - validData.length} flat filtered)` : '';
+    console.log(`[CandleAggregator]   Aggregated ${validData.length} ${sourceTimeframe} candles into ${targetTimeframe} for ${symbol}${filteredMsg}`);
 
     return {
       symbol,

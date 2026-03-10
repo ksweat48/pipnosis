@@ -1,10 +1,9 @@
 import { supabase } from '@/lib/supabase';
-import { Timeframe, appTimeframeToDb } from '@/services/chart-preferences';
+import { Timeframe } from '@/services/chart-preferences';
 import { getTimeframeMinutes, CandleData } from '@/services/candle-data-service';
 import { emergencyPricePoller } from '@/services/emergency-price-poller';
 import { logger, LogCategory } from '@/lib/logger';
-import { getForexMarketStatus, isMarketOpenAt } from '@/utils/marketHours';
-import { candleConflictHandler } from '@/services/candle-conflict-handler';
+import { getForexMarketStatus } from '@/utils/marketHours';
 import { TIME_CONSTANTS } from '@/config/time-constants';
 
 interface CandleState {
@@ -45,8 +44,6 @@ const ALL_TRADING_PAIRS = [
 class BackgroundCandleAggregator {
   private candleStates: CandleStateMap = new Map();
   private isRunning = false;
-  private saveQueue: Array<{ symbol: string; timeframe: Timeframe; candle: CandleData }> = [];
-  private saveInProgress = false;
   private listeners: Set<(symbol: string, timeframe: Timeframe, candle: CandleData) => void> = new Set();
   // CRITICAL FIX: Store tick listeners per-symbol to prevent cross-contamination
   private tickListeners: Map<string, Set<(tick: { symbol: string; bid: number; ask: number; timestamp: string; midPrice: number }) => void>> = new Map();
@@ -97,121 +94,10 @@ class BackgroundCandleAggregator {
     state.tickCount++;
   }
 
-  private async saveCompletedCandle(symbol: string, timeframe: Timeframe, candle: CandleState): Promise<void> {
-    // CRITICAL FIX: ALWAYS save candles to maintain historical continuity
-    // Weekend candles are essential for chart history - they must be persisted!
-    // The market hours filter was causing M1/M5 candles to disappear every weekend
-    // We save ALL candles but can filter during display if needed
-
-    const wasMarketOpen = isMarketOpenAt(candle.time);
-    if (!wasMarketOpen) {
-      const dateStr = new Date(candle.time * 1000).toISOString();
-      logger.debug(
-        LogCategory.BACKGROUND_AGGREGATOR,
-        `💾 Saving weekend/closed candle for ${symbol} ${timeframe} at ${dateStr} (preserves history)`
-      );
-    }
-
-    const openTime = new Date(candle.startTime);
-    const timeframeMinutes = getTimeframeMinutes(timeframe);
-    const closeTime = new Date(candle.startTime + timeframeMinutes * 60 * 1000);
-
-    const candleRecord = {
-      symbol,
-      timeframe,
-      open_time: openTime.toISOString(),
-      close_time: closeTime.toISOString(),
-      open: candle.open,
-      high: candle.high,
-      low: candle.low,
-      close: candle.close,
-      volume: candle.volume
-    };
-
-    try {
-      const dbTimeframe = appTimeframeToDb(timeframe);
-      const dbCandleRecord = { ...candleRecord, timeframe: dbTimeframe };
-
-      // CCIP GOVERNANCE: Use conflict handler for resilient upserts
-      // This implements exponential backoff, retry logic, and conflict tracking
-      const result = await candleConflictHandler.upsertCandleWithRetry(
-        dbCandleRecord,
-        {
-          authority: 'background-aggregator',
-          maxRetries: 3,
-          initialBackoffMs: 100,
-          maxBackoffMs: 2000,
-        }
-      );
-
-      if (!result.success) {
-        logger.error(
-          LogCategory.BACKGROUND_AGGREGATOR,
-          `[BackgroundAggregator] Failed to save ${symbol} ${timeframe} after ${result.retryCount} retries - dropping candle to prevent retry flood`,
-          { error: result.error, wasConflict: result.wasConflict }
-        );
-        return;
-      }
-
-      logger.debug(
-        LogCategory.BACKGROUND_AGGREGATOR,
-        `✓ Saved ${symbol} ${timeframe} candle at ${openTime.toISOString()} (${candle.tickCount} ticks, retries: ${result.retryCount})`
-      );
-    } catch (error) {
-      logger.error(
-        LogCategory.BACKGROUND_AGGREGATOR,
-        `[BackgroundAggregator] Exception saving ${symbol} ${timeframe} - dropping candle to prevent retry flood`,
-        error
-      );
-    }
-  }
-
-  private async processSaveQueue(): Promise<void> {
-    if (this.saveInProgress || this.saveQueue.length === 0) {
-      return;
-    }
-
-    this.saveInProgress = true;
-
-    const batch = this.saveQueue.splice(0, 10);
-
-    await Promise.all(
-      batch.map(({ symbol, timeframe, candle }) => {
-        // Convert CandleData (with 'time' field in Unix seconds) to CandleState (with 'startTime' in ms)
-        const candleState: CandleState = {
-          time: candle.time, // Unix seconds
-          startTime: candle.time * 1000, // Convert to milliseconds
-          open: candle.open,
-          high: candle.high,
-          low: candle.low,
-          close: candle.close,
-          volume: candle.volume || 0,
-          tickCount: 1
-        };
-        return this.saveCompletedCandle(symbol, timeframe, candleState);
-      })
-    );
-
-    this.saveInProgress = false;
-
-    if (this.saveQueue.length > 0) {
-      setTimeout(() => this.processSaveQueue(), 100);
-    }
-  }
-
-  private queueCandleForSave(symbol: string, timeframe: Timeframe, candle: CandleState): void {
-    const candleData: CandleData = {
-      time: candle.time,
-      open: candle.open,
-      high: candle.high,
-      low: candle.low,
-      close: candle.close,
-      volume: candle.volume
-    };
-
-    this.saveQueue.push({ symbol, timeframe, candle: candleData });
-    this.processSaveQueue();
-  }
+  // CCIP GOVERNANCE (2026-03-10): Browser aggregator is READ-ONLY with respect to forex_candles.
+  // The netlify_aggregator Netlify function is the SOLE persistence authority for candle data.
+  // This service maintains in-memory forming-candle state for live chart display ONLY.
+  // Persistence methods are intentionally removed to prevent ghost candle pollution.
 
   private notifyListeners(symbol: string, timeframe: Timeframe, candle: CandleData): void {
     this.listeners.forEach(listener => {
@@ -291,8 +177,7 @@ class BackgroundCandleAggregator {
 
       if (!existingState || existingState.startTime !== candleTime) {
         if (existingState && existingState.startTime < candleTime) {
-          logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` ${symbol} ${timeframe} - Candle period completed, saving and starting new`);
-          this.queueCandleForSave(symbol, timeframe, existingState);
+          logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` ${symbol} ${timeframe} - Candle period completed, advancing to new period`);
         } else if (existingState && existingState.startTime > candleTime) {
           logger.debug(LogCategory.BACKGROUND_AGGREGATOR, `${symbol} ${timeframe} - Received old price, ignoring`);
           continue;
@@ -405,47 +290,19 @@ class BackgroundCandleAggregator {
     const now = Date.now();
 
     for (const symbol of ALL_TRADING_PAIRS) {
-      const lastPrice = this.lastPriceCache.get(symbol);
-      if (!lastPrice) continue;
-
       for (const timeframe of ALL_TIMEFRAMES) {
         const key = this.getCacheKey(symbol, timeframe);
         const existingState = this.candleStates.get(key);
         const intervalMs = getTimeframeMinutes(timeframe) * 60 * 1000;
         const currentCandleTime = Math.floor(now / intervalMs) * intervalMs;
 
-        // Check if we're in a new candle period without a forming candle
-        if (!existingState || existingState.startTime < currentCandleTime - intervalMs) {
-          // There's a gap - we should have a candle but don't
-          const missingCandleTime = currentCandleTime - intervalMs;
+        // CCIP GOVERNANCE (2026-03-10): Ghost candle creation removed.
+        // The browser aggregator must NOT write flat/stale-price candles to forex_candles.
+        // netlify_aggregator is the sole persistence authority — it fills gaps from real tick data.
+        // This method now only cleans up expired in-memory candle state so memory does not grow.
 
-          // Only fill if the missing candle time is within the last 2 hours (INCREASED from 1 hour for better coverage)
-          if (now - missingCandleTime < 7200000) {
-            logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` 🔧 Detected missing candle for ${symbol} ${timeframe} at ${new Date(missingCandleTime).toISOString()}`);
-
-            // Create a flat candle using the last known price
-            const flatCandle: CandleState = {
-              time: Math.floor(missingCandleTime / 1000),
-              open: lastPrice,
-              high: lastPrice,
-              low: lastPrice,
-              close: lastPrice,
-              volume: 0,
-              startTime: missingCandleTime,
-              tickCount: 0
-            };
-
-            // Save this flat candle
-            this.queueCandleForSave(symbol, timeframe, flatCandle);
-
-            logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` ✓ Created flat candle for ${symbol} ${timeframe} using price ${lastPrice}`);
-          }
-        }
-
-        // Check if current forming candle should be finalized (30 second grace period for faster completion)
-        if (existingState && existingState.startTime < currentCandleTime - 30000) {
-          logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` ⏰ Auto-finalizing ${symbol} ${timeframe} candle (grace period expired)`);
-          this.queueCandleForSave(symbol, timeframe, existingState);
+        if (existingState && existingState.startTime < currentCandleTime - intervalMs) {
+          logger.debug(LogCategory.BACKGROUND_AGGREGATOR, ` ⏰ Expiring stale in-memory candle state for ${symbol} ${timeframe}`);
           this.candleStates.delete(key);
         }
       }
@@ -790,16 +647,8 @@ class BackgroundCandleAggregator {
 
     this.stopPricePolling();
 
-    for (const [key, state] of this.candleStates.entries()) {
-      const [symbol, timeframe] = key.split('_');
-      await this.saveCompletedCandle(symbol, timeframe as Timeframe, state);
-    }
-
-    while (this.saveQueue.length > 0) {
-      await this.processSaveQueue();
-      await new Promise(resolve => setTimeout(resolve, 200));
-    }
-
+    // CCIP GOVERNANCE (2026-03-10): No DB writes on stop — browser is READ-ONLY.
+    // In-memory candle states are simply discarded; netlify_aggregator owns persistence.
     this.candleStates.clear();
     this.isRunning = false;
     this.lastMessageTime = null;
@@ -899,7 +748,6 @@ class BackgroundCandleAggregator {
       isRunning: this.isRunning,
       connectionState: this.connectionState,
       activeCandleStates: this.candleStates.size,
-      saveQueueLength: this.saveQueue.length,
       listenerCount: this.listeners.size,
       tickListenerCount: totalTickListeners,
       tickListenersBySymbol: Array.from(this.tickListeners.entries()).map(([symbol, listeners]) => ({
