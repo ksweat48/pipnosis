@@ -2831,23 +2831,23 @@ When analyzing multiple pairs, execute the best opportunity. Scanner re-evaluate
 BUY: SL < Entry < TP | SELL: TP < Entry < SL
 
 TAKE-PROFIT RULES (ALPHA SOLE AUTHORITY):
-You choose ALL profit targets. The system never calculates TP for you.
-- SCALP: ONE take-profit ("takeProfit"). R:R must be exactly 1.0:1 (floor = 1.0, ceiling = 1.0). Post-spread net R:R must still be >= 1.0:1 — account for spread cost explicitly.
-  Place TP at the CONSERVATIVE EDGE (near side) of the target S/R zone at 1:1 distance from your SL.
+You choose ALL profit targets. The system never calculates TP for you. TP placement is driven by market structure — not by formula. The minimum is always 1.0:1 (negative expectancy is never acceptable). Above that, you place TP where structure supports.
+- SCALP: ONE take-profit ("takeProfit"). Minimum R:R 1.0:1. Reference range: ~1.0–1.5:1. Post-spread net R:R must still be >= 1.0:1 — account for spread cost explicitly.
+  Place TP at the CONSERVATIVE EDGE (near side) of the target S/R zone. If structure offers a clean 1.3:1, take it. If the nearest structure level is at 1.1:1, that is your TP.
   SELL: TP at the TOP of the support zone (upper boundary where candles first cluster), NOT the bottom.
   BUY: TP at the BOTTOM of the resistance zone (lower boundary where candles first cluster), NOT the top.
-  A filled TP at the near edge always beats an unfilled TP at the far edge.
-- MICRO_INTRADAY: TWO take-profits. Both must fall within the MICRO_INTRADAY R:R band (1.0:1 minimum, 2.0:1 maximum).
-  "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest M15 structural zone (not M5 micro-structure). TP1 R:R vs SL must be >= 1.0:1 and <= 2.0:1.
-  "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H1 structural zone. TP2 R:R vs SL must be >= TP1 R:R and <= 2.0:1.
+  A filled TP at the near edge always beats an unfilled TP at the far edge. Name the structural level in tp_structural_reference.
+- MICRO_INTRADAY: TWO take-profits. Minimum R:R 1.0:1. Reference range: ~1.0–2.0:1.
+  "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest M15 structural zone (not M5 micro-structure). TP1 R:R vs SL must be >= 1.0:1.
+  "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H1 structural zone. TP2 R:R must be >= TP1 R:R.
   tp1 must be closer to entry than tp2. Both must be within arena walls.
-  Alpha has full authority to scale TP1 and TP2 anywhere within the 1.0–2.0:1 band based on what the market structure is offering. Aim for the best structural level — not a fixed target.
+  Alpha has full authority to place TP1 and TP2 based on what market structure is offering. Aim for the best structural level — not a fixed target.
   If no M15 structure exists at >= 1.0:1 distance, NO_TRADE. SL must be behind a genuine M15 structural level — scalp-sized stops on MICRO trades are auto-rejected.
-- INTRADAY: TWO take-profits. Both must fall within the INTRADAY R:R band (1.0:1 minimum, 3.0:1 maximum).
-  "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest H1 structural zone (not M15 micro-structure). TP1 R:R vs SL must be >= 1.0:1 and <= 3.0:1.
-  "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H4 structural zone. TP2 R:R vs SL must be >= TP1 R:R and <= 3.0:1.
+- INTRADAY: TWO take-profits. Minimum R:R 1.0:1. Reference range: ~1.0–3.0:1.
+  "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest H1 structural zone (not M15 micro-structure). TP1 R:R vs SL must be >= 1.0:1.
+  "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H4 structural zone. TP2 R:R must be >= TP1 R:R.
   tp1 must be closer to entry than tp2. Both must be within arena walls.
-  Alpha has full authority to scale TP1 and TP2 anywhere within the 1.0–3.0:1 band based on what the market structure is offering. A 1.5:1 TP1 and 2.5:1 TP2 is perfectly valid if that is what structure supports.
+  Alpha has full authority to place TP1 and TP2 based on what market structure is offering. A 1.5:1 TP1 and 2.5:1 TP2 is perfectly valid if that is what structure supports.
   If no H1 structure exists at >= 1.0:1 distance, NO_TRADE.
 
 Return PURE JSON only:
@@ -2863,6 +2863,11 @@ ${tradeStyle === 'SCALP' ? `{
   "reasoning": "Full analytical reasoning: trend, structure, rejections, timing",
   "market_narrative": "Single sentence: cause + destination + participants",
   "counter_thesis": "Single sentence: primary reason trade fails",
+  "trader_statement": "Full reasoning in trader voice — min 80 words for BUY/SELL. Cover: what you see, your thesis and edge, why SL is valid, what structure is at TP, pip distances to SL and TP, why this is the best trade this cycle, expected duration, and primary risk.",
+  "sl_structural_reference": "SL at [price] — behind the [M5] [swing high/low] at [ref price]. Invalidates thesis because [reason]. SL distance: ~[X] pips.",
+  "tp_structural_reference": "TP at [price] — conservative edge of [M5] [resistance/support zone] at [ref range]. Rationale: [reason]. TP distance: ~[X] pips. Expected R:R: [X]:1.",
+  "estimated_duration_minutes": "Alpha's estimate — e.g. '20-35 minutes based on M5 ATR of [X] pips and current momentum phase'. Must fit SCALP behavioral identity (15-90 min).",
+  "edge_summary": "1-2 sentences: why this specific entry has structural probability advantage right now.",
   "scalp_pattern": "momentum_breakout|bos_retest|ema_rejection|double_bottom|double_top|range_breakout|liquidity_sweep|engulfing_at_structure|trend_pullback_ema|none",
   "scalp_sub_mode": "momentum_continuation|pullback_entry|consolidation_breakout",
   "scalp_momentum_phase": "starting|developing|exhausted",
@@ -2883,6 +2888,11 @@ ${tradeStyle === 'SCALP' ? `{
   "reasoning": "Full analytical reasoning: trend, structure, rejections, timing",
   "market_narrative": "Single sentence: cause + destination + participants",
   "counter_thesis": "Single sentence: primary reason trade fails",
+  "trader_statement": "Full reasoning in trader voice — min 80 words for BUY/SELL. Cover: what you see, your thesis and edge, why SL is valid, what structure is at TP1 and TP2, pip distances to SL and TPs, why this is the best trade this cycle, expected duration, and primary risk.",
+  "sl_structural_reference": "SL at [price] — behind the [M15] [swing high/low/OB/FVG] at [ref price]. Invalidates thesis because [reason]. SL distance: ~[X] pips.",
+  "tp_structural_reference": "TP1 at [price] — conservative edge of [M15] [zone description] (~[X] pips, [X]:1 R:R). TP2 at [price] — conservative edge of [H1] [zone description] (~[X] pips, [X]:1 R:R).",
+  "estimated_duration_minutes": "Alpha's estimate — e.g. '90-180 minutes based on M15 ATR and H1 structural distance'. Must fit MICRO_INTRADAY behavioral identity (60-360 min).",
+  "edge_summary": "1-2 sentences: why this specific entry has structural probability advantage right now.",
   "mi_structure": "OB_RETEST|FVG_ENTRY|BOS_CONTINUATION|EMA_PULLBACK|SWEEP_REVERSAL|D1_LEVEL_REACTION|H1_RANGE_EXTREME — required for BUY/SELL",
   "m15_structural_confirmation": "REQUIRED: name the M15 level and structure type. Vague = NO_TRADE.",
   "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "trailing plan" },
@@ -2902,6 +2912,11 @@ ${tradeStyle === 'SCALP' ? `{
   "reasoning": "Full analytical reasoning: trend, structure, rejections, timing",
   "market_narrative": "Single sentence: cause + destination + participants",
   "counter_thesis": "Single sentence: primary reason trade fails",
+  "trader_statement": "Full reasoning in trader voice — min 80 words for BUY/SELL. Cover: what you see, your thesis and edge, why SL is valid, what structure is at TP1 and TP2, pip distances to SL and TPs, why this is the best trade this cycle, expected duration, and primary risk.",
+  "sl_structural_reference": "SL at [price] — behind the [H1] [swing high/low/OB/FVG] at [ref price]. Invalidates thesis because [reason]. SL distance: ~[X] pips.",
+  "tp_structural_reference": "TP1 at [price] — conservative edge of [H1] [zone description] (~[X] pips, [X]:1 R:R). TP2 at [price] — conservative edge of [H4] [zone description] (~[X] pips, [X]:1 R:R).",
+  "estimated_duration_minutes": "Alpha's estimate — e.g. '180-360 minutes based on H1 ATR and H4 structural distance'. Must fit INTRADAY behavioral identity (120-600 min).",
+  "edge_summary": "1-2 sentences: why this specific entry has structural probability advantage right now.",
   "intraday_structure": "H1_OB_RETEST|H1_FVG_FILL|H1_BOS_CONTINUATION|H1_CAMPAIGN_PULLBACK|H4_LEVEL_REACTION|WEEKLY_LEVEL_REVERSAL — required for BUY/SELL",
   "h1_structural_confirmation": "REQUIRED: name the H1 level and structure type. Vague = NO_TRADE.",
   "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "trailing plan" },
