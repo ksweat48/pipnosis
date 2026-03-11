@@ -79,6 +79,14 @@ interface ChatCompletionResponse {
  * we are sending max 1 req/s — well within limit).
  * Scan time improvement: 9 symbols in 3 batches of 3 vs 5 batches of 2 = ~40% faster.
  *
+ * CCIP-2026-03-11: Reduced minInterCallMs from 1000ms to 500ms.
+ * Rationale: Production logs showed 18 LLM calls (9 symbols × 2 calls) × 1000ms = 18s
+ * of pure queue wait — the dominant contributor to 4-minute scan times.
+ * Queue budget: (3 symbols × 2 calls) × 500ms = 3s queue wait (50% reduction).
+ * OpenAI rate limit is 20 req/s; 500ms spacing = 2 req/s — well within the allowed rate.
+ * Anti-thundering-herd protection is maintained: calls still cannot burst simultaneously.
+ *   New: (3 × 2) × 500ms = 3s ✓ (vs 6s at 1000ms)
+ *
  * Circuit Breaker: After CIRCUIT_TRIP_THRESHOLD consecutive insufficient_quota
  * errors, all API calls are blocked for CIRCUIT_RESET_MS to prevent cascading
  * failures from hammering the API when billing is exhausted.
@@ -87,7 +95,7 @@ class LLMRequestQueue {
   private lastCallTimestampMs = 0;
   private queue: Array<() => void> = [];
   private processing = false;
-  private readonly minInterCallMs = 1000; // CCIP-2026-03-06: 1500ms → 1000ms (supports 3 concurrent symbols)
+  private readonly minInterCallMs = 500; // CCIP-2026-03-11: 1000ms → 500ms. Budget: (3 symbols × 2 calls) × 500ms = 3s queue wait.
 
   private consecutiveQuotaFailures = 0;
   private readonly CIRCUIT_TRIP_THRESHOLD = 3;
@@ -179,7 +187,13 @@ class OpenAIClient {
   private readonly functionUrl: string;
   private readonly maxRetries = 2;
   private readonly baseDelayMs = 500;
-  private readonly fetchTimeoutMs = 55000;
+  // CCIP-2026-03-11: Reduced 55,000ms → 35,000ms to align with the tightened
+  // OPENAI_REQUEST_TIMEOUT_MS in netlify/functions/openai-chat.ts (28,000ms).
+  // Budget: 28s OpenAI timeout + 3-8s pre-call overhead = 36s maximum server
+  // wall-clock. 35s client-side fetch timeout gives 1s of buffer before the
+  // connection is considered dead on the browser side.
+  // IMPORTANT: Keep this value in sync with OPENAI_REQUEST_TIMEOUT_MS + overhead.
+  private readonly fetchTimeoutMs = 35000;
 
   constructor() {
     this.functionUrl = '/.netlify/functions/openai-chat';

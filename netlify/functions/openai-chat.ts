@@ -16,8 +16,22 @@ const supabase = getSupabaseAdmin();
 // fires before FUNCTION_TIMEOUT_MS. The function then returns a clean 504 JSON
 // body that the client can retry, rather than an infrastructure-level TCP drop.
 // Net budget: 38 s OpenAI + 8 s overhead = 46 s — 4 s clear of the 50 s limit.
-const FUNCTION_TIMEOUT_MS = 50000; // 50 seconds (Netlify Pro supports 55s)
-const OPENAI_REQUEST_TIMEOUT_MS = 38000; // 38 seconds — must fire before FUNCTION_TIMEOUT_MS minus overhead
+//
+// CCIP-TIMEOUT-FIX-2026-03-11:
+// Production logs showed persistent 504 Gateway Timeout errors under load.
+// Root cause: at 38 s OpenAI timeout, calls that started just under the limit were
+// completing at 38 s + 8 s overhead = 46 s — inside the 50 s limit technically, but
+// with zero margin for any additional Netlify infrastructure latency (TLS, cold start).
+// Any transient overhead spike caused the Netlify platform to kill the connection mid-stream.
+//
+// Fix: reduce OPENAI_REQUEST_TIMEOUT_MS to 28 s.
+// New budget: 28 s OpenAI + 8 s overhead = 36 s — 14 s clear of the 50 s limit.
+// This gives the AbortController ample time to fire, return a clean 504 JSON body,
+// and let openai-client.ts fetchTimeoutMs (35 s) align correctly on the browser side.
+// IMPORTANT: openai-client.ts fetchTimeoutMs MUST be kept > OPENAI_REQUEST_TIMEOUT_MS
+// so the server-side abort fires before the browser-side fetch timeout cancels the request.
+const FUNCTION_TIMEOUT_MS = 50000; // 50 seconds (Netlify Pro supports 55s) — infrastructure constraint, do not change
+const OPENAI_REQUEST_TIMEOUT_MS = 28000; // CCIP-2026-03-11: 38,000ms → 28,000ms. Budget: 28s + 8s overhead = 36s, 14s clear of 50s limit.
 const RATE_LIMIT_CHECK_TIMEOUT_MS = 2000; // 2 seconds for rate limit check
 
 const MODEL_PRICING = {

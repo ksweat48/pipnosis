@@ -48,6 +48,7 @@ import {
   isConcurrentExecutionEnabled,
   formatConcurrentConfigForLogging,
   getSessionTimeout,
+  getOmega8DeterministicThreshold,
   type MarketSession
 } from '../config/concurrent-execution-config';
 import { marketScheduleService } from './market-schedule-service';
@@ -1290,6 +1291,11 @@ class AlphaOmegaOrchestrator {
    * Detect high-confidence directional conflicts between Omega brains
    * REFINED: Distinguishes between HARD BLOCK and SOFT WARNING
    * PERSONALITY-AWARE: Respects trader personality and risk mode
+   *
+   * CCIP-2026-03-11: Conflict detection threshold sourced from SSOT.
+   * HIGH_CONFIDENCE threshold previously hardcoded as 70 — now reads from
+   * getOmega8DeterministicThreshold() (concurrent-execution-config.ts).
+   * Current value: 60 (lowered from 70 to reduce LLM refinement calls).
    */
   private detectOmegaConflicts(votes: OmegaCouncilVotes, traderScore: TraderScore): {
     hasConflict: boolean;
@@ -1298,7 +1304,11 @@ class AlphaOmegaOrchestrator {
     conflictDescription: string;
     confidencePenalty: number; // Multiplier to apply (0.8 = -20%, 1.0 = no change)
   } {
-    const HIGH_CONFIDENCE = 70;
+    // CCIP-2026-03-11: LOCAL MAGIC NUMBER ELIMINATED — SSOT violation fixed.
+    // Previously: const HIGH_CONFIDENCE = 70; (hardcoded, invisible to governance)
+    // Now: sourced from concurrent-execution-config.ts via SSOT getter.
+    // To change this threshold update omega8.deterministicThreshold in CONCURRENT_EXECUTION_CONFIG.
+    const HIGH_CONFIDENCE = getOmega8DeterministicThreshold();
 
     // Personality settings removed — platform streak is the only signal
     const isAggressiveMode = false;

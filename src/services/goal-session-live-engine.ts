@@ -54,6 +54,7 @@ import { safeExtractATRValue } from '../types/atr';
 import { alphaLearningTracker } from './alpha-learning-tracker';
 import { computeTPS } from './trade-priority-score';
 import type { TPSCandidate } from '../types/tps';
+import { getCouncilTimeoutMs } from '../config/concurrent-execution-config';
 
 
 export interface GoalSessionLiveConfig {
@@ -950,10 +951,13 @@ class GoalSessionLiveEngine {
         imSignalMap
       );
 
-      // INCREASED TIMEOUT: 180s for multi-symbol evaluation (9 symbols * ~20s average)
-      // Previous 60s timeout was too aggressive and caused premature failures
+      // CCIP-2026-03-11: Council timeout now sourced from SSOT (concurrent-execution-config.ts).
+      // Previous hardcoded 180s violated SSOT and was too short: worst case is 3 batches ×
+      // overlap session timeout (120s) = 360s. getCouncilTimeoutMs() returns 420s (360s + buffer).
+      // Do NOT re-hardcode this value — change it in concurrent-execution-config.ts only.
+      const councilTimeoutMs = getCouncilTimeoutMs();
       const timeoutPromise = new Promise<any>((_, reject) => {
-        setTimeout(() => reject(new Error('Council timeout after 180s')), 180000);
+        setTimeout(() => reject(new Error(`Council timeout after ${councilTimeoutMs / 1000}s`)), councilTimeoutMs);
       });
 
       let omegaDecisions: Map<string, any>;
@@ -968,8 +972,9 @@ class GoalSessionLiveEngine {
         });
 
         // Send user notification about timeout
+        const timeoutMinutes = Math.round(getCouncilTimeoutMs() / 60000);
         await this.sendAIMessage(
-          `⚠️ Market analysis timed out after 3 minutes while evaluating ${marketStates.length} symbols. ` +
+          `Market analysis timed out after ${timeoutMinutes} minutes while evaluating ${marketStates.length} symbols. ` +
           `This may indicate LLM rate limiting or network issues. Skipping this scan cycle.`
         );
 
