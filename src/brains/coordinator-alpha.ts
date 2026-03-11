@@ -3540,29 +3540,11 @@ ${tradeStyle === 'SCALP' ? `{
           decision.reasoning += ` [Expected fill: ${timeToFill.tpFillMinutes}min]`;
         }
 
-        // CCIP 2026-03-03: SCALP TIME CONTRACT — hard code-side gate
-        // SSOT: SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN = 90 (alpha-identity.ts)
-        // Alpha's prompt already contains the time contract rules. This code gate
-        // enforces the same limit deterministically, ensuring no scalp trade is
-        // issued that would require >90 minutes to complete. Alpha is always informed
-        // about this gate via its prompt system (SCALP TIME CONTRACT section).
-        // The gate fires AFTER Alpha's decision so Alpha retains full reasoning authority —
-        // the gate is a safety rail, not a pre-filter.
-        if (tradeStyle === 'SCALP' && decision.action !== 'NO_TRADE') {
-          const scalp_absolute_max = 90; // SSOT: SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN
-          if (timeToFill.totalExpectedMinutes > scalp_absolute_max) {
-            console.error(`[Alpha Coordinator] SCALP_TIME_CONTRACT_VIOLATION: Expected fill ${timeToFill.totalExpectedMinutes}min exceeds SCALP absolute max ${scalp_absolute_max}min. Overriding to NO_TRADE.`);
-            decision.action = 'NO_TRADE';
-            decision.decision = 'NO_TRADE';
-            decision.reasoning = `BLOCKED (SCALP_TIME_CONTRACT): Trade would take ~${timeToFill.totalExpectedMinutes}min to complete — exceeds SCALP maximum of ${scalp_absolute_max}min. A scalp must complete within the session window. Original reasoning: ${decision.reasoning}`;
-            decision.stopLoss = undefined;
-            decision.takeProfit = undefined;
-          } else if (timeToFill.totalExpectedMinutes > 60) {
-            // Warning zone (60–90min) — Alpha was already informed via prompt, append advisory
-            decision.reasoning += ` [WARNING: Fill time ${timeToFill.totalExpectedMinutes}min is in SCALP warning zone (60–90min). Monitor closely.]`;
-            console.warn(`[Alpha Coordinator] SCALP_TIME_CONTRACT_WARNING: Fill time ${timeToFill.totalExpectedMinutes}min in warning zone (60-90min).`);
-          }
-        }
+        // CCIP-2026-03-11: SCALP_TIME_CONTRACT code-side gate removed.
+        // Alpha is solely responsible for behavioral time assessment via prompt.
+        // The SCALP_TIME_CONTRACT thresholds in alpha-identity.ts remain as prompt
+        // reference values — Alpha uses them for self-determination, not enforcement.
+        // Fill time is retained below for learning/logging only.
       }
 
       console.log('[Alpha Coordinator] Decision:', decision.action);
