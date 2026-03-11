@@ -56,6 +56,9 @@ interface IntentForMonitoring {
   edge_loss_modal_triggered_at: string | null;
   edge_loss_modal_response: string | null;
   edge_loss_modal_response_at: string | null;
+  intent_mode: 'pullback_to_zone' | 'push_confirmation_zone' | null;
+  requires_m5_candle_close: boolean;
+  m5_candle_close_confirmed: boolean;
 }
 
 export const handler: Handler = async (event, context) => {
@@ -279,18 +282,23 @@ export const handler: Handler = async (event, context) => {
               }
             }
 
-            // Step 3: Create notification for user
+            const abandonMsg = intent.intent_mode === 'push_confirmation_zone'
+              ? `${intent.symbol} zone confirmation timed out after ${minutesElapsed.toFixed(0)}min — price never closed an M5 candle inside the zone. Rescanning automatically.`
+              : `${intent.symbol} entry timed out after ${minutesElapsed.toFixed(0)}min — price never reached the entry zone. Rescanning automatically.`;
+
+            // Step 3a: In-app notification
             await supabase.from('goal_notifications').insert({
               user_id: intent.user_id,
               session_id: intent.session_id,
               type: 'entry_abandoned',
-              title: `Entry Abandoned: ${intent.symbol}`,
-              message: `${intent.symbol} entry abandoned after ${minutesElapsed.toFixed(0)} minutes - price never reached zone. You can rescan for new opportunities.`,
+              title: `Entry Cancelled: ${intent.symbol}`,
+              message: abandonMsg,
               priority: 'medium',
               metadata: {
                 symbol: intent.symbol,
                 direction: intent.direction,
                 reason: 'timeout_no_entry',
+                intent_mode: intent.intent_mode ?? 'pullback_to_zone',
                 minutes_elapsed: Math.round(minutesElapsed),
                 max_wait_minutes: thresholds.max_wait_min,
                 phase: urgencyPhase,
@@ -299,6 +307,9 @@ export const handler: Handler = async (event, context) => {
                 zone_max: intent.entry_zone_max
               }
             });
+
+            // Step 3b: Push notification to mobile
+            await sendAbandonmentPushNotification(intent, abandonMsg);
 
             abandonedCount++;
             console.log(`[Entry Monitor] ✅ Abandoned ${intent.symbol} and reset state - ready for new scan`);
@@ -386,7 +397,31 @@ export const handler: Handler = async (event, context) => {
         console.log(`  - EQS check: ${eqsScore.toFixed(1)} >= ${timeAdjustedThreshold} = ${eqsScore >= timeAdjustedThreshold}`);
         console.log(`  - Phase: ${urgencyPhase}, Edge decay: ${edgeDecayPercent.toFixed(0)}%`);
 
-        if (isInZoneWithPhase && eqsScore >= timeAdjustedThreshold) {
+        // For push_confirmation_zone: additionally require a closed M5 candle inside the zone
+        let m5ConfirmationMet = true;
+        if (isInZoneWithPhase && intent.intent_mode === 'push_confirmation_zone' && intent.requires_m5_candle_close) {
+          if (intent.m5_candle_close_confirmed) {
+            m5ConfirmationMet = true;
+            console.log(`[Entry Monitor] ${intent.symbol} M5 close already confirmed ✅`);
+          } else {
+            m5ConfirmationMet = await checkM5CandleCloseInZone(intent);
+            if (m5ConfirmationMet) {
+              await supabase
+                .from('entry_intents')
+                .update({ m5_candle_close_confirmed: true, last_m5_candle_checked_at: new Date().toISOString() })
+                .eq('id', intent.intent_id);
+              console.log(`[Entry Monitor] ${intent.symbol} M5 candle close CONFIRMED inside zone ✅`);
+            } else {
+              await supabase
+                .from('entry_intents')
+                .update({ last_m5_candle_checked_at: new Date().toISOString() })
+                .eq('id', intent.intent_id);
+              console.log(`[Entry Monitor] ${intent.symbol} M5 candle close NOT yet confirmed — continuing to wait`);
+            }
+          }
+        }
+
+        if (isInZoneWithPhase && eqsScore >= timeAdjustedThreshold && m5ConfirmationMet) {
           console.log(`[Entry Monitor] ✅✅✅ EXECUTING TRADE NOW for ${intent.symbol} @ ${intent.current_price}`);
           console.log(`  EQS: ${eqsScore.toFixed(1)} >= ${timeAdjustedThreshold} | Phase ${urgencyPhase} | Edge decay: ${edgeDecayPercent.toFixed(0)}%`);
 
@@ -422,7 +457,9 @@ export const handler: Handler = async (event, context) => {
           // Still waiting - update server state
           const reason = !isInZoneWithPhase
             ? `Price ${intent.current_price} outside zone (${intent.entry_zone_min}-${intent.entry_zone_max}) +${zoneTolerancePips}p tolerance`
-            : `EQS ${eqsScore.toFixed(1)} below threshold ${timeAdjustedThreshold}`;
+            : !m5ConfirmationMet
+              ? `Waiting for M5 candle close inside zone (push_confirmation_zone)`
+              : `EQS ${eqsScore.toFixed(1)} below threshold ${timeAdjustedThreshold}`;
 
           await updateServerState(intent.intent_id, intent.user_id, intent.current_price, eqsScore, 'monitoring', reason);
           waitingCount++;
@@ -566,6 +603,56 @@ function checkPriceInZone(intent: IntentForMonitoring, price: number, toleranceP
   console.log(`[Entry Monitor] Zone check ${intent.symbol}: price=${price}, zone=${intent.entry_zone_min}-${intent.entry_zone_max}, tolerance=${tolerancePips}p (${tolerance} price units), effective=${effectiveMin}-${effectiveMax}, pipValue=${pipInfo.pipValue}`);
 
   return price >= effectiveMin && price <= effectiveMax;
+}
+
+// Helper: Check if the latest CLOSED M5 candle's close price is inside the zone
+// Used for push_confirmation_zone intents — a wick touch is NOT enough, body close required
+async function checkM5CandleCloseInZone(intent: IntentForMonitoring): Promise<boolean> {
+  try {
+    const { data: candles, error } = await supabase
+      .from('forex_candles')
+      .select('open, high, low, close, timestamp')
+      .eq('symbol', intent.symbol)
+      .eq('timeframe', 'M5')
+      .order('timestamp', { ascending: false })
+      .limit(3);
+
+    if (error || !candles || candles.length < 2) {
+      console.warn(`[Entry Monitor] M5 candle check: insufficient data for ${intent.symbol}`);
+      return false;
+    }
+
+    // The most recent candle may still be forming — use the second-to-last (last CLOSED candle)
+    const lastClosed = candles[1];
+    const closePrice = Number(lastClosed.close);
+    const isInsideZone = closePrice >= intent.entry_zone_min && closePrice <= intent.entry_zone_max;
+
+    console.log(`[Entry Monitor] M5 close check ${intent.symbol}: close=${closePrice}, zone=${intent.entry_zone_min}-${intent.entry_zone_max}, inZone=${isInsideZone}`);
+
+    return isInsideZone;
+  } catch (err) {
+    console.error(`[Entry Monitor] M5 candle close check error for ${intent.symbol}:`, err);
+    return false;
+  }
+}
+
+// Helper: Send push notification on entry intent abandonment
+async function sendAbandonmentPushNotification(intent: IntentForMonitoring, reason: string): Promise<void> {
+  try {
+    await supabase.from('push_notification_queue').insert({
+      user_id: intent.user_id,
+      title: `Entry Cancelled: ${intent.symbol}`,
+      body: reason,
+      data: {
+        type: 'entry_abandoned',
+        symbol: intent.symbol,
+        direction: intent.direction,
+        session_id: intent.session_id
+      }
+    });
+  } catch (err) {
+    console.warn(`[Entry Monitor] Failed to queue push notification for ${intent.intent_id}:`, err);
+  }
 }
 
 // Helper: Execute intent - FULLY SERVER-SIDE using SERVICE_ROLE client

@@ -13,7 +13,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Target, CheckCircle, ArrowUp, ArrowDown, Minus,
-  Clock, MapPin, AlertCircle
+  Clock, MapPin, AlertCircle, TrendingUp, TrendingDown, Loader2
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useActiveEntryIntent } from '@/hooks/useEntryIntent';
@@ -167,8 +167,10 @@ const EmptyState: React.FC = () => (
         <Target className="w-5 h-5 text-gray-400" />
       </div>
       <div>
-        <h3 className="text-sm font-bold text-white">Entry Advisory</h3>
-        <p className="text-xs text-gray-500 mt-0.5">Activates when Alpha identifies a trade opportunity</p>
+        <h3 className="text-sm font-bold text-white">Entry Monitor</h3>
+        <p className="text-xs text-gray-500 mt-0.5">
+          When active, Alpha will wait for the ideal zone before entering instead of executing immediately
+        </p>
       </div>
     </div>
   </div>
@@ -201,10 +203,13 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
   const style = intent.style || intent.market_context?.style || 'SCALP';
 
   const entryMode: string = intent.entry_mode || 'WAIT_ENTRY';
+  const intentMode: string = intent.intent_mode || 'pullback_to_zone';
+  const isPushConfirmMode = intentMode === 'push_confirmation_zone';
   const isWaitHigherEdge = entryMode === 'WAIT_HIGHER_EDGE';
+  const m5Confirmed: boolean = intent.m5_candle_close_confirmed ?? false;
 
   const verdict = advisory?.verdict || 'GOOD_ENTRY';
-  const isPullbackExpected = !isWaitHigherEdge && (verdict === 'PULLBACK_EXPECTED' || verdict === 'WAIT_FOR_PULLBACK');
+  const isPullbackExpected = !isWaitHigherEdge && !isPushConfirmMode && (verdict === 'PULLBACK_EXPECTED' || verdict === 'WAIT_FOR_PULLBACK');
   const pullbackZoneMin = advisory?.pullback_zone_min ?? intent.entry_zone_min ?? null;
   const pullbackZoneMax = advisory?.pullback_zone_max ?? intent.entry_zone_max ?? null;
 
@@ -242,9 +247,15 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
     <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-xl p-4 border border-gray-700/50">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Target className="w-4 h-4 text-cyan-400" />
-          <h3 className="text-sm font-bold text-white">Entry Advisory</h3>
-          <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+          <Target className={`w-4 h-4 ${isPushConfirmMode ? 'text-violet-400' : 'text-cyan-400'}`} />
+          <h3 className="text-sm font-bold text-white">
+            {isPushConfirmMode ? 'Trade Found — Waiting Valid Entry' : 'Entry Advisory'}
+          </h3>
+          <span className={`text-xs px-2 py-0.5 rounded-full border ${
+            isPushConfirmMode
+              ? 'bg-violet-500/15 text-violet-400 border-violet-500/30'
+              : 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
+          }`}>
             {style}
           </span>
         </div>
@@ -257,7 +268,16 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
         </span>
       </div>
 
-      {isWaitHigherEdge ? (
+      {isPushConfirmMode ? (
+        <PushConfirmationBanner
+          zoneMin={pullbackZoneMin}
+          zoneMax={pullbackZoneMax}
+          currentPrice={currentPrice}
+          direction={direction}
+          m5Confirmed={m5Confirmed}
+          formatPrice={formatPrice}
+        />
+      ) : isWaitHigherEdge ? (
         <WaitHigherEdgeBanner />
       ) : isGoodEntry ? (
         <GoodEntryBanner pullbackReached={isPullbackExpected && pullbackState === 'REACHED'} />
@@ -436,6 +456,117 @@ const PullbackExpectedBanner: React.FC<PullbackExpectedBannerProps> = ({
             }`}
             style={{ width: `${progress}%` }}
           />
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface PushConfirmationBannerProps {
+  zoneMin: number | null;
+  zoneMax: number | null;
+  currentPrice: number | null;
+  direction: string;
+  m5Confirmed: boolean;
+  formatPrice: (price: number) => string;
+}
+
+const PushConfirmationBanner: React.FC<PushConfirmationBannerProps> = ({
+  zoneMin,
+  zoneMax,
+  currentPrice,
+  direction,
+  m5Confirmed,
+  formatPrice
+}) => {
+  const isPriceInZone = currentPrice && zoneMin && zoneMax
+    ? currentPrice >= zoneMin && currentPrice <= zoneMax
+    : false;
+
+  const distanceToZone = useMemo(() => {
+    if (!currentPrice || !zoneMin || !zoneMax) return null;
+    if (isPriceInZone) return 0;
+    const target = direction === 'long' ? zoneMin : zoneMax;
+    return Math.abs(currentPrice - target);
+  }, [currentPrice, zoneMin, zoneMax, isPriceInZone, direction]);
+
+  const zoneLabel = zoneMin && zoneMax
+    ? `${formatPrice(zoneMin)} – ${formatPrice(zoneMax)}`
+    : null;
+
+  const DirectionIcon = direction === 'long' ? TrendingUp : TrendingDown;
+  const directionColor = direction === 'long' ? 'text-emerald-400' : 'text-red-400';
+
+  if (m5Confirmed) {
+    return (
+      <div className="rounded-lg border bg-emerald-900/25 border-emerald-500/50 px-3 py-2.5 flex items-center gap-2.5">
+        <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0 animate-pulse" />
+        <div className="flex-1">
+          <span className="text-sm font-semibold text-emerald-300">M5 Candle Confirmed in Zone</span>
+          <p className="text-xs text-emerald-400/70 mt-0.5">Entry executing now</p>
+        </div>
+        <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold">
+          EXECUTE
+        </span>
+      </div>
+    );
+  }
+
+  if (isPriceInZone) {
+    return (
+      <div className="rounded-lg border bg-blue-900/25 border-blue-500/45">
+        <div className="px-3 py-2.5 flex items-center gap-2.5">
+          <Loader2 className="w-4 h-4 text-blue-400 flex-shrink-0 animate-spin" />
+          <div className="flex-1">
+            <span className="text-sm font-semibold text-blue-300">Price Inside Zone</span>
+            <p className="text-xs text-blue-400/70 mt-0.5">Waiting for M5 candle to close inside zone</p>
+          </div>
+          <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 font-bold">
+            CONFIRMING
+          </span>
+        </div>
+        {zoneLabel && (
+          <div className="px-3 pb-2.5 flex items-center gap-2">
+            <MapPin className="w-3 h-3 text-blue-500/60 flex-shrink-0" />
+            <span className="text-xs text-gray-400">Confirmation zone</span>
+            <span className="text-sm font-bold font-mono text-blue-400 ml-auto">{zoneLabel}</span>
+          </div>
+        )}
+        <div className="h-1 w-full rounded-b-lg overflow-hidden bg-gray-700/40">
+          <div className="h-full bg-blue-500 animate-pulse" style={{ width: '65%' }} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border bg-slate-800/40 border-slate-600/40">
+      <div className="px-3 py-2.5 flex items-center gap-2.5">
+        <DirectionIcon className={`w-4 h-4 flex-shrink-0 ${directionColor}`} />
+        <div className="flex-1">
+          <span className="text-sm font-semibold text-white">Waiting for Zone Push</span>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Price must push into zone and close an M5 candle inside it
+          </p>
+        </div>
+        <span className="text-xs px-1.5 py-0.5 rounded bg-slate-700/60 text-gray-300 border border-slate-600/50 font-bold">
+          PENDING
+        </span>
+      </div>
+      {zoneLabel && (
+        <div className="px-3 pb-2.5 flex items-center gap-2">
+          <MapPin className="w-3 h-3 text-gray-500 flex-shrink-0" />
+          <span className="text-xs text-gray-400">Target confirmation zone</span>
+          <span className={`text-sm font-bold font-mono ml-auto ${directionColor}`}>{zoneLabel}</span>
+        </div>
+      )}
+      {distanceToZone !== null && distanceToZone > 0 && (
+        <div className="px-3 pb-2.5 flex items-center gap-2">
+          <Clock className="w-3 h-3 text-gray-500 flex-shrink-0" />
+          <span className="text-xs text-gray-500">Distance to zone</span>
+          <span className="text-xs font-mono font-bold text-gray-300 ml-auto">
+            {formatPrice(distanceToZone)} away
+          </span>
         </div>
       )}
     </div>

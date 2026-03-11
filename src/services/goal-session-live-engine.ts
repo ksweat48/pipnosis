@@ -1874,16 +1874,54 @@ class GoalSessionLiveEngine {
       // - Multi-layer validation (Core + Capacity + Risk + Price + Database)
       // - CCIP-compliant audit logging
       // - Consistent error handling across all execution modes
-      // CCIP-2026-03-09: Deferred modes (WAIT_ENTRY, WAIT_HIGHER_EDGE) removed.
-      // Alpha has three valid outputs only: EXECUTE_NOW, EXECUTE_NOW_WITH_PULLBACK, NO_TRADE.
-      // Execution mode is always IMMEDIATE — no monitored/deferred entry queue.
+
+      // ENTRY MONITOR GATE: If the user has entry_price_monitor_enabled AND Alpha
+      // provided a wait_condition, route to MONITORED instead of IMMEDIATE.
+      // Alpha's entry_mode drives which wait type is used (pullback vs push confirm).
       const alphaEntryMode = decision.entry_mode;
-      const executionMode = 'IMMEDIATE';
+      let executionMode: 'IMMEDIATE' | 'MONITORED' = 'IMMEDIATE';
+      let entryMonitorGateActive = false;
+
+      const alphaWantsToWait = decision.wait_condition != null
+        || alphaEntryMode === 'WAIT_ENTRY'
+        || alphaEntryMode === 'WAIT_HIGHER_EDGE'
+        || alphaEntryMode === 'PUSH_CONFIRM';
+
+      if (alphaWantsToWait) {
+        try {
+          const { data: monitorPref } = await supabase
+            .from('user_monitor_preferences')
+            .select('entry_price_monitor_enabled, tier_level')
+            .eq('user_id', config.userId)
+            .maybeSingle();
+
+          const toggleIsOn = monitorPref?.entry_price_monitor_enabled === true;
+          const hasTierAccess = (monitorPref?.tier_level ?? 0) >= 1;
+
+          if (toggleIsOn && hasTierAccess) {
+            executionMode = 'MONITORED';
+            entryMonitorGateActive = true;
+          }
+        } catch (prefErr) {
+          logger.warn(LogCategory.AI_TRADING, '[Entry Monitor Gate] Failed to read monitor preference — defaulting to IMMEDIATE', { error: prefErr });
+        }
+      }
+
+      if (entryMonitorGateActive) {
+        try {
+          await supabase
+            .from('goal_sessions')
+            .update({ alpha_entry_monitor_gate_active: true })
+            .eq('id', activeSession!);
+        } catch {
+          // non-blocking audit update
+        }
+      }
 
       logger.info(
         LogCategory.AI_TRADING,
-        `[Trade Execution] Alpha entry_mode="${alphaEntryMode ?? 'unset'}" -> mode=IMMEDIATE (deferred modes disabled)`,
-        { symbol: selectedSymbol, alphaEntryMode, executionMode }
+        `[Trade Execution] Alpha entry_mode="${alphaEntryMode ?? 'unset'}" -> mode=${executionMode} (gate=${entryMonitorGateActive})`,
+        { symbol: selectedSymbol, alphaEntryMode, executionMode, entryMonitorGateActive }
       );
 
       const executionResult = await alphaTradeExecutor.execute({
@@ -1899,7 +1937,17 @@ class GoalSessionLiveEngine {
       });
 
       if (executionResult.success) {
-        // CCIP-2026-03-09: isMonitoring path removed — execution is always IMMEDIATE.
+        if (executionResult.isMonitoring) {
+          // Entry intent created — trade is pending zone confirmation.
+          // The autonomous-entry-monitor will execute when conditions are met.
+          // Mark session as having an active intent (but NOT as trade-executed yet).
+          logger.info(
+            LogCategory.AI_TRADING,
+            `[Entry Monitor] Intent created for ${selectedSymbol} — waiting for zone entry (mode=${alphaEntryMode})`,
+            { symbol: selectedSymbol, entryMonitorGateActive }
+          );
+          return; // Exit this scan cycle — monitor will handle execution
+        }
 
         tradeExecuted = true;
         this.tradeExecutedInSession = true;

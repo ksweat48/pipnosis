@@ -282,7 +282,7 @@ export interface AlphaDecision {
   regime_advisory?: RegimeSnapshot;
   conflictInfo?: ConflictInfo; // CCIP 2026-02-14: Omega conflict detection data from orchestrator
   entry_spec?: EntrySpec; // NEW: Alpha's explicit entry specification
-  entry_mode?: 'EXECUTE_NOW' | 'WAIT_ENTRY' | 'WAIT_HIGHER_EDGE'; // Promoted from entry_spec for execution routing
+  entry_mode?: 'EXECUTE_NOW' | 'WAIT_ENTRY' | 'WAIT_HIGHER_EDGE' | 'PUSH_CONFIRM'; // Promoted from entry_spec for execution routing
   thesis?: string; // Trade thesis type (momentum_scalp, liquidity_sweep_reversal, etc.)
   style_intent?: string; // Style intent (SCALP, MICRO_INTRADAY, INTRADAY)
   execution_preference?: string; // Execution preference (IMMEDIATE, WAIT_PULLBACK, WAIT_CONFIRMATION)
@@ -300,6 +300,7 @@ export interface AlphaDecision {
     invalidation_price: number;
     wait_reasoning: string;
     expected_wait_minutes?: number;
+    intent_mode?: 'pullback_to_zone' | 'push_confirmation_zone';
   };
   confidenceAdjustments?: Array<{
     source: string;
@@ -2952,6 +2953,46 @@ You choose ALL profit targets. The system never calculates TP for you. TP placem
   Alpha has full authority to place TP1 and TP2 based on what market structure is offering. A 1.5:1 TP1 and 2.5:1 TP2 is perfectly valid if that is what structure supports.
   If no H1 structure exists at >= 1.0:1 distance, NO_TRADE.
 
+ENTRY MODE — SMART WAITING SYSTEM:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+The entry_mode field controls when the trade executes. You have full authority to choose the right mode based on market conditions.
+
+  "execute_now"     → Entry trigger is confirmed. Price is at your structural level. Execute immediately.
+                      Use when: pullback has completed, structure is clear, timing is good.
+
+  "wait_pullback"   → Thesis is valid but price has not yet reached your entry zone. Wait for retracement.
+                      REQUIRES: "wait_condition" block with intent_mode: "pullback_to_zone".
+                      Use when: price is extended from structure, pullback to zone expected before continuation.
+                      The system will monitor price and execute automatically when price enters the zone.
+
+  "push_confirmation" → Thesis requires price to PUSH INTO a zone AND close an M5 candle body INSIDE it.
+                        A wick touch or brief spike is NOT sufficient — only a closed candle body counts.
+                        REQUIRES: "wait_condition" block with intent_mode: "push_confirmation_zone".
+                        Use when: breakout thesis needs candle body confirmation (not just a wick breach),
+                        price is approaching a key level but hasn't committed with a close yet,
+                        consolidation breakout where body close outside range confirms the move,
+                        or re-entry after a sweep where you need proof of directional commitment.
+                        The system will monitor M5 candles and execute only after a closed candle body confirms.
+
+  "wait_for_edge"   → Conditions exist but structural trigger not yet formed. Continue scanning.
+                      Use when: setup is developing but no executable trigger exists yet.
+
+When using wait_pullback or push_confirmation, include a wait_condition block:
+{
+  "wait_condition": {
+    "target_entry_zone_min": <lower bound of the wait zone>,
+    "target_entry_zone_max": <upper bound of the wait zone>,
+    "invalidation_price": <price that invalidates the thesis entirely>,
+    "wait_reasoning": "Why you are waiting — what must happen for entry to be valid",
+    "intent_mode": "pullback_to_zone" | "push_confirmation_zone",
+    "expected_wait_minutes": <your estimate of how long to wait, e.g. 15>
+  }
+}
+
+IMPORTANT: For push_confirmation, the zone defines where the M5 candle must CLOSE — not just touch.
+Set the zone tightly around your structural level (1-3 pip width is appropriate for confirmation).
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 Return PURE JSON only:
 ${tradeStyle === 'SCALP' ? `{
   "action": "BUY|SELL|NO_TRADE",
@@ -2959,7 +3000,8 @@ ${tradeStyle === 'SCALP' ? `{
   "stopLoss": 12300.00,
   "takeProfit": 12400.00,
   "trade_confidence": 75,
-  "entry_mode": "execute_now",
+  "entry_mode": "execute_now|wait_pullback|push_confirmation|wait_for_edge",
+  "wait_condition": null,
   "style": "SCALP",
   "marketThesis": "30-50 word market analysis",
   "reasoning": "Full analytical reasoning: trend, structure, rejections, timing",
@@ -2984,7 +3026,8 @@ ${tradeStyle === 'SCALP' ? `{
   "tp1": 12370.00,
   "tp2": 12400.00,
   "trade_confidence": 75,
-  "entry_mode": "execute_now",
+  "entry_mode": "execute_now|wait_pullback|push_confirmation|wait_for_edge",
+  "wait_condition": null,
   "style": "MICRO_INTRADAY",
   "marketThesis": "30-50 word market analysis",
   "reasoning": "Full analytical reasoning: trend, structure, rejections, timing",
@@ -3008,7 +3051,8 @@ ${tradeStyle === 'SCALP' ? `{
   "tp1": 12370.00,
   "tp2": 12400.00,
   "trade_confidence": 75,
-  "entry_mode": "execute_now",
+  "entry_mode": "execute_now|wait_pullback|push_confirmation|wait_for_edge",
+  "wait_condition": null,
   "style": "INTRADAY",
   "marketThesis": "30-50 word market analysis",
   "reasoning": "Full analytical reasoning: trend, structure, rejections, timing",

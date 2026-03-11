@@ -503,15 +503,18 @@ export type EntryActionTier =
 /**
  * Entry mode - how Alpha wants to enter
  *
- * Two values only:
+ * Three values:
  * - execute_now: Enter immediately. Trigger has confirmed. Trade executes on receipt.
- * - wait_pullback: Committed entry. Waiting for price to reach the named pullback zone.
- *   The advisory monitor executes automatically when the zone is reached.
+ * - wait_pullback: Price must retrace back into Alpha's target zone before execution.
  *   wait_condition block is REQUIRED when entry_mode is wait_pullback.
+ * - push_confirmation: Price must push forward INTO the zone AND an M5 candle must
+ *   close inside the zone to confirm the thesis before execution.
+ *   wait_condition block is REQUIRED. Only active when entry monitor toggle is ON.
  */
 export type EntryMode =
   | 'execute_now'
-  | 'wait_pullback';
+  | 'wait_pullback'
+  | 'push_confirmation';
 
 /**
  * Style display names used in Alpha outputs and UI
@@ -544,6 +547,8 @@ export interface AlphaOutputFormat {
     target_entry_zone_max: number;
     invalidation_price: number;
     wait_reasoning: string;
+    intent_mode?: 'pullback_to_zone' | 'push_confirmation_zone';
+    expected_wait_minutes?: number;
   };
   override?: {
     type: 'adversarial_block' | 'regime_avoid' | 'risk_limit' | 'none';

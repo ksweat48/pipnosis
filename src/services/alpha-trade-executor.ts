@@ -1641,6 +1641,18 @@ class AlphaTradeExecutor {
       }
     );
 
+    const isPushConfirmMode = decision.entry_mode === 'PUSH_CONFIRM';
+    const resolvedIntentMode: 'pullback_to_zone' | 'push_confirmation_zone' = isPushConfirmMode
+      ? 'push_confirmation_zone'
+      : 'pullback_to_zone';
+
+    const zoneMin = decision.wait_condition?.target_entry_zone_min
+      ?? monitorPullbackMin
+      ?? (decision.entry_intent?.entry_zone_min || decision.entry);
+    const zoneMax = decision.wait_condition?.target_entry_zone_max
+      ?? monitorPullbackMax
+      ?? (decision.entry_intent?.entry_zone_max || decision.entry);
+
     const { data: intent, error } = await supabase
       .from('entry_intents')
       .insert({
@@ -1650,8 +1662,8 @@ class AlphaTradeExecutor {
         direction,
         intent_type: decision.entry_intent?.intent_type || 'pullback_to_support',
         urgency: decision.entry_intent?.urgency || 'MEDIUM',
-        entry_zone_min: monitorPullbackMin ?? (decision.entry_intent?.entry_zone_min || decision.entry),
-        entry_zone_max: monitorPullbackMax ?? (decision.entry_intent?.entry_zone_max || decision.entry),
+        entry_zone_min: zoneMin,
+        entry_zone_max: zoneMax,
         timeout_at: timeoutAt,
         timeout_minutes: timeoutMinutes,
         status: 'monitoring',
@@ -1670,7 +1682,10 @@ class AlphaTradeExecutor {
         structural_level_strength: null,
         structural_level_touches: null,
         pullback_target_price: monitorPullbackMid,
-        pullback_improvement_pips: null
+        pullback_improvement_pips: null,
+        intent_mode: resolvedIntentMode,
+        requires_m5_candle_close: isPushConfirmMode,
+        m5_candle_close_confirmed: false
       })
       .select()
       .single();
@@ -1687,19 +1702,25 @@ class AlphaTradeExecutor {
       };
     }
 
-    const entryModeLabel = decision.entry_mode === 'WAIT_HIGHER_EDGE'
-      ? 'WAIT_HIGHER_EDGE'
-      : 'WAIT_ENTRY';
+    const entryModeLabel = isPushConfirmMode
+      ? 'PUSH_CONFIRM'
+      : decision.entry_mode === 'WAIT_HIGHER_EDGE'
+        ? 'WAIT_HIGHER_EDGE'
+        : 'WAIT_ENTRY';
 
-    const monitorTitle = decision.entry_mode === 'WAIT_HIGHER_EDGE'
-      ? `Trade Found — Wait for Edge: ${decision.symbol}`
-      : `Trade Found — Wait for Pullback: ${decision.symbol}`;
+    const monitorTitle = isPushConfirmMode
+      ? `Trade Found — Waiting Zone Confirmation: ${decision.symbol}`
+      : decision.entry_mode === 'WAIT_HIGHER_EDGE'
+        ? `Trade Found — Wait for Edge: ${decision.symbol}`
+        : `Trade Found — Wait for Pullback: ${decision.symbol}`;
 
-    const monitorMessage = decision.entry_mode === 'WAIT_HIGHER_EDGE'
-      ? `Alpha is waiting for higher-edge conditions on ${decision.symbol} before entering.`
-      : monitorPullbackMin && monitorPullbackMax
-        ? `Alpha recommends waiting for pullback to ${monitorPullbackMin.toFixed(5)} – ${monitorPullbackMax.toFixed(5)}`
-        : `Alpha is monitoring ${decision.symbol} for a better entry.`;
+    const monitorMessage = isPushConfirmMode
+      ? `Alpha requires an M5 candle close inside ${zoneMin.toFixed(5)} – ${zoneMax.toFixed(5)} to confirm entry on ${decision.symbol}.`
+      : decision.entry_mode === 'WAIT_HIGHER_EDGE'
+        ? `Alpha is waiting for higher-edge conditions on ${decision.symbol} before entering.`
+        : monitorPullbackMin && monitorPullbackMax
+          ? `Alpha recommends waiting for pullback to ${monitorPullbackMin.toFixed(5)} – ${monitorPullbackMax.toFixed(5)}`
+          : `Alpha is monitoring ${decision.symbol} for a better entry.`;
 
     await notificationCoordinator.send({
       userId,
@@ -1725,7 +1746,7 @@ class AlphaTradeExecutor {
     return {
       success: true,
       isMonitoring: true,
-      message: `[${entryModeLabel}] Monitoring ${decision.symbol} for entry — waiting for pullback to zone`
+      message: `[${entryModeLabel}] Monitoring ${decision.symbol} for entry — ${isPushConfirmMode ? 'waiting for M5 candle close in zone' : 'waiting for pullback to zone'}`
     };
   }
 
