@@ -158,3 +158,89 @@ export const MIN_CORRIDOR_WIDTH_PIPS: Record<AssetCalibrationClass, number> = {
  * Set to false only during testing. Always true in production.
  */
 export const CALIBRATION_AUDIT_ENABLED = true;
+
+/**
+ * INDEX PRICE-TIER SCALING CONFIG — SSOT (CCIP-2026-03-11)
+ *
+ * Problem: INDEX envelope percentages (e.g. SCALP SL floor 0.15%) are calibrated
+ * for mid-range index prices (~5,000-15,000). At US30 ($47,000+), 0.15% = 70 pips —
+ * far too wide for a SCALP style trade. At NAS100 ($25,000), 0.15% = 37 pips —
+ * still excessive for M5 SCALP execution. The percentage itself must scale INVERSELY
+ * with nominal price magnitude so that pip walls remain structurally meaningful
+ * regardless of what price level the index trades at in the future.
+ *
+ * Design principle:
+ * - Target SCALP SL floor: 15–30 pips (appropriate for M5 index scalp)
+ * - Target SCALP SL ceiling: 35–70 pips (style identity preserved)
+ * - At each price tier, percentages are chosen so these targets hold
+ * - TP bounds scale proportionally to maintain valid R:R windows
+ *
+ * Tiers are price-agnostic — they will automatically accommodate any future
+ * index price level without code changes.
+ *
+ * SSOT: This config is the ONLY place index price-tier percentages are defined.
+ * style-execution-envelopes.ts reads this for all INDEX envelope computations.
+ */
+export interface IndexPriceTierBounds {
+  slPercent: { min: number; max: number };
+  tpPercent: { min: number; max: number };
+}
+
+export interface IndexPriceTier {
+  maxPrice: number;
+  scalp: IndexPriceTierBounds;
+  microIntraday: IndexPriceTierBounds;
+  intraday: IndexPriceTierBounds;
+}
+
+export const INDEX_PRICE_TIERS: IndexPriceTier[] = [
+  {
+    maxPrice: 5_000,
+    scalp:         { slPercent: { min: 0.15, max: 0.35 }, tpPercent: { min: 0.20, max: 1.00 } },
+    microIntraday: { slPercent: { min: 0.15, max: 0.35 }, tpPercent: { min: 0.25, max: 1.00 } },
+    intraday:      { slPercent: { min: 0.15, max: 0.40 }, tpPercent: { min: 0.35, max: 1.30 } },
+  },
+  {
+    maxPrice: 15_000,
+    scalp:         { slPercent: { min: 0.10, max: 0.25 }, tpPercent: { min: 0.12, max: 0.70 } },
+    microIntraday: { slPercent: { min: 0.10, max: 0.25 }, tpPercent: { min: 0.15, max: 0.75 } },
+    intraday:      { slPercent: { min: 0.10, max: 0.30 }, tpPercent: { min: 0.25, max: 1.00 } },
+  },
+  {
+    maxPrice: 30_000,
+    scalp:         { slPercent: { min: 0.07, max: 0.18 }, tpPercent: { min: 0.08, max: 0.50 } },
+    microIntraday: { slPercent: { min: 0.07, max: 0.18 }, tpPercent: { min: 0.10, max: 0.55 } },
+    intraday:      { slPercent: { min: 0.07, max: 0.22 }, tpPercent: { min: 0.18, max: 0.80 } },
+  },
+  {
+    maxPrice: 60_000,
+    scalp:         { slPercent: { min: 0.05, max: 0.13 }, tpPercent: { min: 0.06, max: 0.35 } },
+    microIntraday: { slPercent: { min: 0.05, max: 0.13 }, tpPercent: { min: 0.07, max: 0.40 } },
+    intraday:      { slPercent: { min: 0.05, max: 0.16 }, tpPercent: { min: 0.12, max: 0.60 } },
+  },
+  {
+    maxPrice: Infinity,
+    scalp:         { slPercent: { min: 0.03, max: 0.09 }, tpPercent: { min: 0.04, max: 0.25 } },
+    microIntraday: { slPercent: { min: 0.03, max: 0.09 }, tpPercent: { min: 0.05, max: 0.28 } },
+    intraday:      { slPercent: { min: 0.03, max: 0.11 }, tpPercent: { min: 0.08, max: 0.40 } },
+  },
+];
+
+/**
+ * Get the price-tier-scaled INDEX percent bounds for a given style and price.
+ * Returns null if the price is not positive (falls back to static envelope).
+ */
+export function getIndexPriceTierBounds(
+  style: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'SWING',
+  currentPrice: number
+): IndexPriceTierBounds | null {
+  if (!currentPrice || currentPrice <= 0) return null;
+  const tier = INDEX_PRICE_TIERS.find(t => currentPrice <= t.maxPrice);
+  if (!tier) return null;
+  switch (style) {
+    case 'SCALP': return tier.scalp;
+    case 'MICRO_INTRADAY': return tier.microIntraday;
+    case 'INTRADAY': return tier.intraday;
+    default: return tier.intraday;
+  }
+}

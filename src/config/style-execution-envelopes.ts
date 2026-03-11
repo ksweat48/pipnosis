@@ -22,6 +22,15 @@
  * This eliminates static pip limits that break when asset prices change.
  * Formula: pipBound = (currentPrice * percentBound / 100) / pipValue
  *
+ * INDEX PRICE-TIER SCALING (CCIP-2026-03-11):
+ * INDEX envelopes now use price-tier-scaled percentages so walls remain structurally
+ * meaningful regardless of nominal index price level. At US30 $47,000 the old 0.15%
+ * floor produced 70 pips — far too wide for SCALP. At NAS100 $25,000 it was 37 pips.
+ * The new tiered percentages target 15-30 pips SL floor across ALL index price levels.
+ * SSOT authority: wall-calibration-config.ts INDEX_PRICE_TIERS constant.
+ * The static INDEX assetClassPercentBounds inside each envelope remain as the
+ * base/fallback only (used when currentPrice is not supplied).
+ *
  * SCALP FOREX TP CAP (CCIP-2026-02-19):
  * SCALP FOREX tpPips.max reduced from 60 to 25 and tpPercent.max from 0.60% to 0.21%.
  * Rationale: One M5 swing leg over 3-5 candles at typical EURUSD ATR of 3-5 pips/candle
@@ -69,6 +78,7 @@
  */
 
 import { getCurrencyPipInfo } from '../utils/currencyHelpers';
+import { getIndexPriceTierBounds } from './wall-calibration-config';
 
 export type EnvelopeAssetClass = 'FOREX' | 'CRYPTO' | 'METAL' | 'INDEX';
 
@@ -326,6 +336,11 @@ function computePipBounds(
  *
  * When currentPrice is provided: computes dynamic pip bounds from percentages.
  * When currentPrice is NOT provided: returns base envelope defaults (fallback).
+ *
+ * INDEX SPECIAL CASE (CCIP-2026-03-11):
+ * For INDEX assets with a currentPrice, uses price-tier-scaled percentages from
+ * wall-calibration-config.ts to ensure walls are structurally sensible at any
+ * nominal price level (US30 $47k, NAS100 $25k, SPX $6k, etc.).
  */
 export function getAssetClassEnvelopeBounds(
   style: string,
@@ -334,9 +349,27 @@ export function getAssetClassEnvelopeBounds(
   currentPrice?: number
 ): AssetClassBounds {
   const envelope = getExecutionEnvelope(style);
+  const canonicalStyle = style.toUpperCase() as 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | 'SWING';
 
   if (currentPrice && currentPrice > 0 && assetClass) {
     const pipValue = symbol ? getCurrencyPipInfo(symbol).pipValue : 1.0;
+
+    // CCIP-2026-03-11: INDEX uses price-tier-scaled percentages (dynamic scaling SSOT)
+    if (assetClass === 'INDEX') {
+      const tierBounds = getIndexPriceTierBounds(canonicalStyle, currentPrice);
+      if (tierBounds) {
+        const result = computePipBounds(tierBounds, currentPrice, pipValue);
+        console.log(
+          `[Index Price-Tier Scaling] ${symbol || 'INDEX'} @ ${currentPrice.toFixed(2)}: ` +
+          `SL ${tierBounds.slPercent.min}%-${tierBounds.slPercent.max}% = ` +
+          `${result.slPips.min.toFixed(1)}-${result.slPips.max.toFixed(1)} pips | ` +
+          `TP ${tierBounds.tpPercent.min}%-${tierBounds.tpPercent.max}% = ` +
+          `${result.tpPips.min.toFixed(1)}-${result.tpPips.max.toFixed(1)} pips (${canonicalStyle})`
+        );
+        return result;
+      }
+    }
+
     const percentBounds = envelope.assetClassPercentBounds[assetClass];
     if (percentBounds) {
       return computePipBounds(percentBounds, currentPrice, pipValue);

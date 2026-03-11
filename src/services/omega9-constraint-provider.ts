@@ -670,10 +670,14 @@ YOUR AUTHORITY:
 ✅ You may tighten or widen based on structure
 ✅ You may accept lower R:R if setup quality justifies (reduced profit > NO_TRADE)
 
-WHAT HAPPENS IF YOU VIOLATE:
-• R:R < ${constraints.minRiskReward.toFixed(2)}:1 → Auto-corrected to minimum (confidence penalty)
-• TP > maximum → Auto-corrected to maximum (moderate confidence penalty)
-• SL outside range → Warning only (no correction, your choice)
+R:R ACCOUNTABILITY:
+• R:R < ${constraints.minRiskReward.toFixed(2)}:1 → Advisory warning + confidence reduction. Trade is NOT blocked. You retain full authority.
+• Sub-1.0:1 R:R requires explicit justification in your reasoning (e.g., "R:R is 0.7:1 because structure demands SL above X level, TP is hard resistance").
+• At 0.75:1 R:R you need 57% win rate to be profitable. At 0.5:1 R:R you need 67%. State your R:R explicitly if below 1.0:1.
+
+HARD WALL ENFORCEMENT:
+• TP > maximum → Auto-corrected to maximum (wall is physics, not advisory)
+• SL outside wall range → Warning + confidence penalty (wall defines the corridor)
 
 Core Principle: If the market can offer some profit, you should take it.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -781,6 +785,57 @@ Core Principle: If the market can offer some profit, you should take it.
     const { symbol, entryPrice, style } = walls;
     const symbolConfig = getSymbolConfig(symbol);
     const dp = symbolConfig?.decimalPlaces || 5;
+    const assetCategory = assetClassifier.getAssetCategory(symbol);
+
+    const buildArenaIntelligence = (): string[] => {
+      const lines: string[] = [
+        'ARENA INTELLIGENCE (why these walls exist):',
+      ];
+      const slMinPips = walls.long.slPips.min;
+      const tpMinPips = walls.long.tpPips.min;
+      const slMinPct = entryPrice > 0 ? ((slMinPips * (symbolConfig?.pipValue || 0.0001)) / entryPrice * 100).toFixed(3) : '?';
+      const tpMinPct = entryPrice > 0 ? ((tpMinPips * (symbolConfig?.pipValue || 0.0001)) / entryPrice * 100).toFixed(3) : '?';
+
+      if (assetCategory === 'index') {
+        const tierLabel =
+          entryPrice > 60_000 ? '>$60,000 (ultra-high index)' :
+          entryPrice > 30_000 ? '$30,001–$60,000 (US30 range)' :
+          entryPrice > 15_000 ? '$15,001–$30,000 (NAS100 mid-range)' :
+          entryPrice > 5_000  ? '$5,001–$15,000 (NAS100 low-range)' :
+                                '≤$5,000 (SPX/DE40 range)';
+        lines.push(`  Asset: INDEX | Price tier: ${tierLabel} | Current price: ${entryPrice.toFixed(2)}`);
+        lines.push(`  SL survival floor: ${slMinPips.toFixed(1)} pips = ~${slMinPct}% of price (price-tier scaled)`);
+        lines.push(`  TP minimum: ${tpMinPips.toFixed(1)} pips = ~${tpMinPct}% of price`);
+        lines.push(`  WHY: Index pip walls are derived from price-tier percentages. At this price level (${entryPrice.toFixed(0)}), 1 pip = ${((symbolConfig?.pipValue || 1) / entryPrice * 100).toFixed(4)}% of price.`);
+        lines.push(`  A SL below ${slMinPips.toFixed(1)} pips at this index level has a HIGH probability of intraday noise stop-out.`);
+        lines.push(`  DO NOT: Place SL below the survival floor — normal intraday volatility will stop you out repeatedly.`);
+      } else if (assetCategory === 'crypto') {
+        lines.push(`  Asset: CRYPTO | Current price: ${entryPrice.toFixed(2)}`);
+        lines.push(`  SL survival floor: ${slMinPips.toFixed(1)} pips = ~${slMinPct}% of price`);
+        lines.push(`  TP minimum: ${tpMinPips.toFixed(1)} pips = ~${tpMinPct}% of price`);
+        lines.push(`  WHY: Crypto operates with extreme volatility. Walls are calibrated as % of price (min 0.30–0.50% of nominal price for SL).`);
+        lines.push(`  A SL below ${slMinPips.toFixed(1)} pips on this crypto instrument means it is inside the normal ATR noise band — guaranteed stop-out territory.`);
+        lines.push(`  DO NOT: Place SL tighter than the survival floor — crypto moves ${slMinPips.toFixed(0)}+ pips in seconds during normal volatility spikes.`);
+      } else if (assetCategory === 'metal') {
+        lines.push(`  Asset: METAL | Current price: ${entryPrice.toFixed(2)}`);
+        lines.push(`  SL survival floor: ${slMinPips.toFixed(1)} pips = ~${slMinPct}% of price`);
+        lines.push(`  TP minimum: ${tpMinPips.toFixed(1)} pips = ~${tpMinPct}% of price`);
+        lines.push(`  WHY: Metals (XAUUSD, XAGUSD) have high nominal prices. Walls are calibrated as % of metal price (min 0.20% of nominal for SL).`);
+        lines.push(`  A SL below ${slMinPips.toFixed(1)} pips places it within the normal session noise floor for metals — structural stop-out risk.`);
+        lines.push(`  DO NOT: Place SL below metal survival floor — gold/silver move aggressively and absorb tight stops before resuming direction.`);
+      } else {
+        lines.push(`  Asset: FOREX | Current price: ${entryPrice.toFixed(5)}`);
+        lines.push(`  SL survival floor: ${slMinPips.toFixed(1)} pips = ~${slMinPct}% of price`);
+        lines.push(`  TP minimum: ${tpMinPips.toFixed(1)} pips = ~${tpMinPct}% of price`);
+        lines.push(`  WHY: Forex walls are calibrated to the session spread and ATR noise band. SL below the floor is inside the bid/ask spread noise zone.`);
+        lines.push(`  DO NOT: Place SL below ${slMinPips.toFixed(1)} pips — spread alone can be 1–3 pips; sub-floor SLs are consumed by normal tick noise.`);
+      }
+
+      lines.push(`  R:R ACCOUNTABILITY: Sub-1.0:1 R:R means you need >50% win rate to profit. At 0.75:1 R:R you need 57% wins. At 0.5:1 R:R you need 67% wins.`);
+      lines.push(`  You have FULL FREEDOM to place SL and TP where structure demands — but if R:R is below 1.0:1, you MUST state the R:R in your reasoning and justify it.`);
+
+      return lines;
+    };
 
     const formatArena = (arena: ArenaWalls, label: string): string => {
       const lines = [
@@ -805,6 +860,8 @@ Core Principle: If the market can offer some profit, you should take it.
     const sections = [
       'DUAL-ARENA CONSTRAINT WALLS',
       `Symbol: ${symbolConfig?.displayName || symbol} | Entry: ${entryPrice.toFixed(dp)} | Style: ${style} (${walls.timeframe}) | Risk: ${walls.riskMode.toUpperCase()}`,
+      '',
+      ...buildArenaIntelligence(),
       '',
       formatArena(walls.long, 'IF LONG (BUY)'),
       '',

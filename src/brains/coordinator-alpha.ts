@@ -1364,11 +1364,27 @@ Consider in Q9: Is this cluster a risk to your SL? Should you widen to clear it,
         return alignedSweepText + crossDirectionText;
       })();
 
+      const slMinPct = marketContext.price > 0
+        ? ((wallSlMin * pipInfo.pipValue) / marketContext.price * 100).toFixed(3)
+        : null;
+      const slMaxPct = marketContext.price > 0
+        ? ((wallSlMax * pipInfo.pipValue) / marketContext.price * 100).toFixed(3)
+        : null;
+      const tpMinPct = marketContext.price > 0
+        ? ((wallTpMin * pipInfo.pipValue) / marketContext.price * 100).toFixed(3)
+        : null;
+      const tpMaxPct = marketContext.price > 0
+        ? ((wallTpMax * pipInfo.pipValue) / marketContext.price * 100).toFixed(3)
+        : null;
+      const wallPctContext = (slMinPct && slMaxPct && tpMinPct && tpMaxPct)
+        ? ` [SL: ${slMinPct}%-${slMaxPct}% of price | TP: ${tpMinPct}%-${tpMaxPct}% of price]`
+        : '';
+
       stopLossDirective = `
 ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips) | Volatility: ${marketVolatilityLevel.toUpperCase()} | Risk: ${riskMode.toUpperCase()}
 IF LONG SL Anchor: ${buyAnchorPrice.toFixed(5)} (${buyAnchorPips.toFixed(1)}p, ${buyStopAnchor.atrMultiplier.toFixed(2)}x ATR)
 IF SHORT SL Anchor: ${sellAnchorPrice.toFixed(5)} (${sellAnchorPips.toFixed(1)}p, ${sellStopAnchor.atrMultiplier.toFixed(2)}x ATR)
-HARD WALLS (${tradeStyle} ${promptAssetClass} @ ${marketContext.price.toFixed(2)}): SL MUST be ${wallSlMin.toFixed(1)}-${wallSlMax.toFixed(1)} pips | TP MUST be ${wallTpMin.toFixed(1)}-${wallTpMax.toFixed(1)} pips. Trades outside these walls are AUTO-REJECTED. You have FULL authority inside these bounds.${sweepZoneDirective}
+HARD WALLS (${tradeStyle} ${promptAssetClass} @ ${marketContext.price.toFixed(2)}): SL MUST be ${wallSlMin.toFixed(1)}-${wallSlMax.toFixed(1)} pips | TP MUST be ${wallTpMin.toFixed(1)}-${wallTpMax.toFixed(1)} pips${wallPctContext}. Trades outside these walls are AUTO-REJECTED. You have FULL authority inside these bounds.${sweepZoneDirective}
 `;
     }
 
