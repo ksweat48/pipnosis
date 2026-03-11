@@ -148,6 +148,16 @@ export const EntryPriceMonitor: React.FC = () => {
     return <EmptyState />;
   }
 
+  if (activeIntent.status === 'executed') {
+    return (
+      <EntryExecutedState
+        intent={activeIntent}
+        currentPrice={currentPrice}
+        previousPrice={previousPrice}
+      />
+    );
+  }
+
   const alphaAdvisory = activeIntent.market_context?.alpha_entry_advisory || null;
 
   return (
@@ -175,6 +185,97 @@ const EmptyState: React.FC = () => (
     </div>
   </div>
 );
+
+interface EntryExecutedStateProps {
+  intent: any;
+  currentPrice: number | null;
+  previousPrice: number | null;
+}
+
+const EntryExecutedState: React.FC<EntryExecutedStateProps> = ({ intent, currentPrice, previousPrice }) => {
+  const direction = intent.direction === 'long' ? 'long' : 'short';
+  const symbol = intent.symbol || '';
+  const executionPrice = intent.actual_entry_price || intent.execution_price || intent.entry_zone_min || null;
+  const alphaConfidence = intent.alpha_confidence || intent.market_context?.confidence || null;
+  const style = intent.style || intent.market_context?.style || 'SCALP';
+
+  const formatPrice = useCallback((price: number): string => {
+    return formatCurrencyPrice(symbol, price);
+  }, [symbol]);
+
+  return (
+    <div className="bg-gradient-to-br from-emerald-900/20 to-gray-900/60 rounded-xl p-4 border border-emerald-700/40">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-emerald-400" />
+          <h3 className="text-sm font-bold text-white">Entry Executed</h3>
+          <span className="text-xs px-2 py-0.5 rounded-full border bg-emerald-500/15 text-emerald-400 border-emerald-500/30">
+            {style}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="px-2 py-0.5 rounded text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+            TRADE ON
+          </span>
+          <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+            direction === 'long'
+              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+              : 'bg-red-500/20 text-red-400 border border-red-500/30'
+          }`}>
+            {direction === 'long' ? 'BUY' : 'SELL'} {symbol}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 mb-3 p-2.5 bg-emerald-900/20 rounded-lg border border-emerald-700/30">
+        <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+        <p className="text-xs text-emerald-300">
+          Alpha entered this trade. Monitor the active position above for live P&amp;L.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2">
+        <div className="bg-gray-900/50 rounded-lg p-2.5 border border-gray-700/40">
+          <p className="text-xs text-gray-500 mb-1">Live Price</p>
+          {currentPrice ? (
+            <div className="flex items-center gap-1">
+              <PriceDirectionIcon current={currentPrice} previous={previousPrice} />
+              <span className="text-sm font-bold font-mono text-white">
+                {formatPrice(currentPrice)}
+              </span>
+            </div>
+          ) : (
+            <span className="text-sm text-gray-500">--</span>
+          )}
+        </div>
+
+        <div className="bg-gray-900/50 rounded-lg p-2.5 border border-gray-700/40">
+          <p className="text-xs text-gray-500 mb-1">Execution Price</p>
+          {executionPrice ? (
+            <span className="text-sm font-bold font-mono text-emerald-400">
+              {formatPrice(executionPrice)}
+            </span>
+          ) : (
+            <span className="text-sm text-gray-500">--</span>
+          )}
+        </div>
+
+        <div className="bg-gray-900/50 rounded-lg p-2.5 border border-gray-700/40">
+          <p className="text-xs text-gray-500 mb-1">Confidence</p>
+          {alphaConfidence ? (
+            <span className={`text-sm font-bold ${
+              alphaConfidence >= 85 ? 'text-emerald-400' : alphaConfidence >= 70 ? 'text-yellow-400' : 'text-blue-400'
+            }`}>
+              {alphaConfidence}%
+            </span>
+          ) : (
+            <span className="text-sm text-gray-500">--</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 interface AlphaAdvisory {
   verdict: string;
