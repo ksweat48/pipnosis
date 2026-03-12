@@ -81,6 +81,8 @@ const supabase = getSupabaseAdmin();
 // INVARIANT: OPENAI_REQUEST_TIMEOUT_MS (45s) + max overhead (8s) = 53s < FUNCTION_TIMEOUT_MS (85s).
 // INVARIANT: fetchTimeoutMs in openai-client.ts MUST remain >= OPENAI_REQUEST_TIMEOUT_MS + 8s.
 //            fetchTimeoutMs is set to 55s (= 45s + 10s overhead margin). See openai-client.ts.
+// CCIP-2026-03-12-REDEPLOY-v2: Force function bundle recompile to ensure new timeout values are active.
+// If production still shows 504 at ~37s, the old compiled bundle (OPENAI_REQUEST_TIMEOUT_MS=28s) is cached.
 const FUNCTION_TIMEOUT_MS = 85000; // CCIP-2026-03-12-TIMEOUT-FIX: 58s → 85s. Budget: 90s Netlify limit - 5s exit margin.
 const OPENAI_REQUEST_TIMEOUT_MS = 45000; // CCIP-2026-03-12-TIMEOUT-FIX: 25s → 45s. Allows full Alpha pipeline (48-52s) to complete.
 const RATE_LIMIT_CHECK_TIMEOUT_MS = 2000; // 2 seconds for rate limit check
