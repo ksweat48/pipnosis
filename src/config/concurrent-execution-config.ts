@@ -428,10 +428,16 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     intraBatchStaggerMs: 0,
   },
 
+  // CCIP-TIMEOUT-FIX-2026-03-12: errorHandling.maxRetries set to 0.
+  // This field is DEPRECATED as the authoritative retry policy — use resilience.maxRetries (above).
+  // Root cause: this field sat at 2 while resilience.maxRetries = 0, creating a governance drift
+  // risk. Any consumer reading this field instead of getMaxRetries() would silently double retry
+  // every LLM call and blow through the Netlify 60s kill wall. Field is zeroed and kept only
+  // for schema compatibility. No consumer may increase this without a CCIP change record.
   errorHandling: {
-    continueOnError: true, // Don't let one symbol failure crash the batch
-    maxRetries: 2, // Retry failed symbols up to 2 times
-    retryDelayMs: 500, // Wait 500ms between retries
+    continueOnError: true,
+    maxRetries: 0,
+    retryDelayMs: 500,
   },
 
   tracking: {

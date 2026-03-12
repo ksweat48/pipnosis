@@ -591,7 +591,10 @@ class AlphaCoordinatorBrain {
     }
 
     // Parallelize all independent data fetches (bidirectional for dual-arena)
-    const [, dailyNarrative, riskResultLong, riskResultShort, rrResult] = await Promise.all([
+    // CCIP-TIMEOUT-FIX-2026-03-12: Symbol trade history query moved INTO this Promise.all
+    // to eliminate a sequential Supabase round-trip that previously blocked pre-LLM setup.
+    // All 6 fetches are independent — they share no data dependencies with each other.
+    const [, dailyNarrative, riskResultLong, riskResultShort, rrResult, symbolTradesRaw] = await Promise.all([
       this.fetchPlatformIntelligence(marketContext.symbol),
       dailyNarrativeBuilder.build(marketContext.symbol, marketContext.price),
       (userId && goalContext) ? professionalRiskManager.evaluateTrade({
@@ -613,7 +616,16 @@ class AlphaCoordinatorBrain {
         goalSessionId: undefined
       }).catch(err => { console.error('[Alpha Coordinator] Failed to get short risk assessment:', err); return null; }) : Promise.resolve(null),
       userId ? rrSuccessTracker.getRecentPerformanceSummary(userId, marketContext.symbol)
-        .catch(err => { console.error('[Alpha Coordinator] Failed to fetch R:R performance:', err); return null; }) : Promise.resolve(null)
+        .catch(err => { console.error('[Alpha Coordinator] Failed to fetch R:R performance:', err); return null; }) : Promise.resolve(null),
+      userId ? supabase
+        .from('ai_trade_analysis')
+        .select('outcome, pnl, exit_reason, direction, key_learnings, mistakes_identified, what_worked, what_failed, entry_confidence, entry_time')
+        .eq('user_id', userId)
+        .eq('symbol', marketContext.symbol)
+        .order('entry_time', { ascending: false })
+        .limit(20)
+        .then(({ data }) => data)
+        .catch(err => { console.error('[Alpha Coordinator] Failed to fetch symbol diagnostic context:', err); return null; }) : Promise.resolve(null)
     ]);
 
     let riskContext = '';
@@ -682,19 +694,12 @@ class AlphaCoordinatorBrain {
     let intelligenceContext = this.buildIntelligenceContext(intelligenceSnapshot, marketContext.symbol);
 
     // Build symbol diagnostic context from trade learning history (min 5 trades on this symbol)
+    // CCIP-TIMEOUT-FIX-2026-03-12: symbolTradesRaw was fetched in parallel above — no await needed here.
     let recentTradesContext = '';
     if (userId) {
       try {
         const symbol = marketContext.symbol;
-
-        // Query ai_trade_analysis for learning data on this specific symbol
-        const { data: symbolTrades } = await supabase
-          .from('ai_trade_analysis')
-          .select('outcome, pnl, exit_reason, direction, key_learnings, mistakes_identified, what_worked, what_failed, entry_confidence, entry_time')
-          .eq('user_id', userId)
-          .eq('symbol', symbol)
-          .order('entry_time', { ascending: false })
-          .limit(20);
+        const symbolTrades = symbolTradesRaw;
 
         const tradeCount = symbolTrades?.length ?? 0;
 
@@ -3116,8 +3121,10 @@ ${tradeStyle === 'SCALP' ? `{
         }
       );
 
-      // Log token usage
-      await llmTokenTracker.logUsage({
+      // CCIP-TIMEOUT-FIX-2026-03-12: Token usage logging is audit-only — converted to
+      // fire-and-forget. A slow Supabase INSERT here should never block trade decision
+      // delivery. The OpenAI call already returned; any post-LLM latency is pure overhead.
+      llmTokenTracker.logUsage({
         brainName: 'Alpha',
         model: 'gpt-4o-mini',
         promptTokens: response.usage?.prompt_tokens || 0,
@@ -3126,6 +3133,8 @@ ${tradeStyle === 'SCALP' ? `{
         contextType: 'alpha_coordination',
         userId: userId,
         sessionId: undefined
+      }).catch(err => {
+        console.warn('[Alpha Coordinator] Token usage logging failed (non-fatal):', err);
       });
 
       const content = response.choices[0]?.message?.content || '{}';

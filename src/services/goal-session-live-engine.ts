@@ -652,26 +652,45 @@ class GoalSessionLiveEngine {
       // SSOT PRICE FRESHNESS: Invoke autonomous price poller to ensure realtime_prices table is fresh
       // Server polling keeps data fresh independently of client polling cycle
       // This ensures execution freshness gate (30s) is always satisfied
+      // CCIP-TIMEOUT-FIX-2026-03-12: Hard 4s timeout prevents poller cold-start from blocking
+      // the entire scan cycle. The poller is advisory — if it cannot respond in 4s, we continue
+      // with whatever prices are already in realtime_prices. The freshness gate downstream
+      // will reject stale prices independently. This timeout is owned here; do not increase it.
       try {
         const pollerUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/autonomous-price-poller`;
-        const pollerResponse = await fetch(pollerUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
-          },
-          body: JSON.stringify({ symbols: openMarketSymbols })
-        });
+        const pollerAbortController = new AbortController();
+        const pollerTimeoutId = setTimeout(() => pollerAbortController.abort(), 4000);
 
-        if (!pollerResponse.ok) {
-          logger.warn(LogCategory.AI_TRADING, '[Price Poller] Polling failed', {
-            status: pollerResponse.status
+        try {
+          const pollerResponse = await fetch(pollerUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+            },
+            body: JSON.stringify({ symbols: openMarketSymbols }),
+            signal: pollerAbortController.signal
           });
-        } else {
-          const pollerResult = await pollerResponse.json();
-          logger.debug(LogCategory.AI_TRADING, '[Price Poller] ✅ Price freshness updated', {
-            polledCount: pollerResult.polledCount
-          });
+
+          clearTimeout(pollerTimeoutId);
+
+          if (!pollerResponse.ok) {
+            logger.warn(LogCategory.AI_TRADING, '[Price Poller] Polling failed', {
+              status: pollerResponse.status
+            });
+          } else {
+            const pollerResult = await pollerResponse.json();
+            logger.debug(LogCategory.AI_TRADING, '[Price Poller] ✅ Price freshness updated', {
+              polledCount: pollerResult.polledCount
+            });
+          }
+        } catch (fetchError: any) {
+          clearTimeout(pollerTimeoutId);
+          if (fetchError?.name === 'AbortError') {
+            logger.warn(LogCategory.AI_TRADING, '[Price Poller] Timed out after 4s — continuing with cached prices');
+          } else {
+            throw fetchError;
+          }
         }
       } catch (pollerError) {
         logger.warn(LogCategory.AI_TRADING, '[Price Poller] Failed to invoke', { error: pollerError });
