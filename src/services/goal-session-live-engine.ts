@@ -56,7 +56,6 @@ import { computeTPS } from './trade-priority-score';
 import type { TPSCandidate } from '../types/tps';
 import { getCouncilTimeoutMs } from '../config/concurrent-execution-config';
 
-
 export interface GoalSessionLiveConfig {
   goalSessionId: string;
   userId: string;
@@ -499,11 +498,6 @@ class GoalSessionLiveEngine {
     try {
       // 🔍 RACE CONDITION FIX: Early exit if session is stopping or config is null
       if (this.isStopping || !this.config || !this.activeSession) {
-        console.log('%c[PROCESS_MULTI_SYMBOL] ⏹️ ABORT: Session stopping or config null', 'color: #ff9800; font-weight: bold', {
-          isStopping: this.isStopping,
-          hasConfig: !!this.config,
-          hasSession: !!this.activeSession
-        });
         return;
       }
 
@@ -514,11 +508,6 @@ class GoalSessionLiveEngine {
       activeSession = this.activeSession;
 
       // 🔍 CRITICAL: Log entry to processMultiSymbolCycle for debugging
-      console.log('%c[PROCESS_MULTI_SYMBOL] 🚀 Entered processMultiSymbolCycle', 'color: #9c27b0; font-weight: bold', {
-        activeSession: activeSession,
-        watchlistLength: watchlist.length,
-        openTradesCount: this.openTrades.length
-      });
 
       // 💭 THOUGHT STREAM: Clear old thoughts
       try {
@@ -537,7 +526,6 @@ class GoalSessionLiveEngine {
       // ✅ ENTRY MONITOR: Block global rescans during ENTRY_MONITOR mode
       // Monitor state NO LONGER blocks Alpha from scanning - Alpha decides
       if (activeSession) {
-        console.log('%c[PROCESS_MULTI_SYMBOL] ✅ activeSession exists:', 'color: #4caf50; font-weight: bold', activeSession);
 
         if (false) {  // This condition is always false - monitor state doesn't block scanning
           // This should never happen now, but log if it does
@@ -549,20 +537,16 @@ class GoalSessionLiveEngine {
 
         // 🔥 SSOT FIX: Active intents are visual/advisory only - NEVER block Alpha from scanning
         // Alpha decides: execute now OR keep scanning. Entry Monitor does not control this.
-        console.log('%c[AUTONOMOUS ENGINE] ✅ Alpha always scans - monitor state is advisory only', 'color: #10b981; font-weight: bold');
       } else {
-        console.log('%c[PROCESS_MULTI_SYMBOL] ⚠️ activeSession is NULL/UNDEFINED - skipping intent check', 'color: #ff0000; font-weight: bold');
       }
 
       // 🔍 AGGRESSIVE LOGGING: Entry point
       if (import.meta.env.DEV) {
-        console.log('[MULTI-SYMBOL] Watchlist:', watchlist, 'Open:', this.openTrades.length);
       }
 
       // CRYPTO FIX: Check if ANY market is open BEFORE any LLM calls (crypto trades 24/7)
       const anyMarketOpen = hasAnyOpenMarket(watchlist);
       if (!anyMarketOpen) {
-        console.log('%c[MULTI-SYMBOL] 🛑 ALL MARKETS CLOSED - Aborting scan to preserve LLM credits', 'color: #ff0000; font-weight: bold; font-size: 14px');
         logger.info(LogCategory.AI_TRADING, '🛑 All markets closed - skipping scan to preserve LLM credits');
         await this.sendAIMessage('Markets closed - Scanning paused until reopen');
         return;
@@ -574,7 +558,6 @@ class GoalSessionLiveEngine {
 
       if (openMarketSymbols.length < watchlist.length) {
         if (import.meta.env.DEV) {
-          console.log(`[MULTI-SYMBOL] Markets open: ${openMarketSymbols.length}/${watchlist.length}`);
         }
 
         const cryptoOnly = openMarketSymbols.every(s => ['BTCUSD', 'ETHUSD'].includes(s));
@@ -597,7 +580,6 @@ class GoalSessionLiveEngine {
 
         if (marketMessage) {
           if (import.meta.env.DEV) {
-            console.log(`[MULTI-SYMBOL] Market status: ${marketMessage}`);
           }
           await this.sendAIMessage(marketMessage);
         }
@@ -610,12 +592,10 @@ class GoalSessionLiveEngine {
         : weekendProtectionService.canOpenNewTrade());
 
       if (!canTrade.allowed) {
-        console.log('%c[MULTI-SYMBOL] 🛑 Trading DISABLED - ' + canTrade.reason, 'color: #ff0000; font-weight: bold');
         logger.info(LogCategory.AI_TRADING, `🛑 Trading disabled: ${canTrade.reason}`);
         await this.sendAIMessage(`⏸️ ${canTrade.reason}`);
         return;
       }
-
 
       // CRITICAL: Verify with DB before expensive operations (prevents memory desync bugs)
       const { count: dbCount, error: countError } = await supabase
@@ -630,23 +610,14 @@ class GoalSessionLiveEngine {
 
       const tradeCount = dbCount || 0;
 
-      console.log('%c[MULTI-SYMBOL] 🔐 Trade count verification:', 'color: #ff9800; font-weight: bold', {
-        memory: this.openTrades.length,
-        database: tradeCount,
-        maxAllowed: config.maxConcurrentTrades
-      });
-
       // Use DB as source of truth
       if (tradeCount >= config.maxConcurrentTrades) {
-        console.log('%c[MULTI-SYMBOL] ⏸️ BLOCKED: Max trades reached (DB verified)', 'color: #ff9800; font-weight: bold');
         logger.debug(LogCategory.AI_TRADING, `⏸️ Max trades (${config.maxConcurrentTrades}) reached - skipping expensive scan`);
         return;
       }
 
-      console.log('%c[MULTI-SYMBOL] ✅ Lock already held by parent - proceeding', 'color: #00ff00; font-weight: bold');
       logger.debug(LogCategory.AI_TRADING, `📊 Building snapshots for ${openMarketSymbols.length} symbols with open markets...`);
 
-      console.log('%c[MULTI-SYMBOL] 📊 Building market snapshots for open markets...', 'color: #2196f3; font-weight: bold');
       const snapshotStartTime = Date.now();
 
       // SSOT PRICE FRESHNESS: Invoke autonomous price poller to ensure realtime_prices table is fresh
@@ -700,15 +671,8 @@ class GoalSessionLiveEngine {
       // CCIP-STYLE-TF-2026: Pass tradeStyle as the SSOT for timeframe selection.
       // riskMode controls financial exposure only — snapshot builder derives timeframe from style.
       const snapshotResult = await multiSymbolSnapshotBuilder.buildSnapshots(openMarketSymbols, config?.tradeStyle);
-      console.log('%c[MULTI-SYMBOL] ✅ Snapshots built in ' + (Date.now() - snapshotStartTime) + 'ms', 'color: #4caf50; font-weight: bold');
-      console.log('[MULTI-SYMBOL] Snapshot result:', {
-        totalSnapshots: snapshotResult.snapshots.length,
-        tradeableCount: snapshotResult.tradeableSymbols.length,
-        blockedCount: snapshotResult.blockedSymbols.size
-      });
 
       if (snapshotResult.snapshots.length === 0) {
-        console.log('%c[MULTI-SYMBOL] ❌ FAILED: No snapshot data', 'color: #f44336; font-weight: bold');
         logger.debug(LogCategory.AI_TRADING, '⚠️ No symbol data available');
         return;
       }
@@ -739,7 +703,6 @@ class GoalSessionLiveEngine {
       }
 
       if (tradeableSnapshots.length === 0) {
-        console.log('%c[MULTI-SYMBOL] 🚫 No tradeable opportunities', 'color: #ff9800; font-weight: bold');
         logger.debug(LogCategory.AI_TRADING, '🚫 No tradeable opportunities - WAIT mode');
 
         const marketCount = openMarketSymbols.length;
@@ -782,7 +745,6 @@ class GoalSessionLiveEngine {
       }
 
       if (import.meta.env.DEV) {
-        console.log(`[MULTI-SYMBOL] Tradeable: ${tradeableSnapshots.length}`);
       }
 
       const marketStates: FullMarketState[] = tradeableSnapshots.map(snapshot => ({
@@ -863,7 +825,6 @@ class GoalSessionLiveEngine {
       const ESTIMATION_REFERENCE_STOP = ESTIMATION_REFERENCE_ENTRY - (estimationRef.referenceStopPips * refPipInfo.pipValue);
 
       if (import.meta.env.DEV) {
-        console.log(`[Goal Estimation] Using ${estimationRef.symbol} - ${estimationRef.reason}`);
       }
 
       // ✅ PHASE 3.1 SECTION 3: Use EstimationRiskCalculator (SSOT for estimations)
@@ -901,12 +862,10 @@ class GoalSessionLiveEngine {
       };
 
       if (import.meta.env.DEV) {
-        console.log(`[GOAL] Balance: $${goalContext.currentBalance.toFixed(2)}, Remaining: $${goalContext.remainingGoal.toFixed(2)} (${goalContext.goalPercentage.toFixed(1)}%)`);
       }
 
       logger.debug(LogCategory.AI_TRADING, `🧠 Running Omega Council for ${marketStates.length} symbols...`);
       if (import.meta.env.DEV) {
-        console.log(`[MULTI-SYMBOL] AI Orchestrator: ${marketStates.length} markets`);
       }
       const orchestratorStartTime = Date.now();
 
@@ -939,7 +898,6 @@ class GoalSessionLiveEngine {
           }
 
           if (import.meta.env.DEV) {
-            console.log(`[IM Signal] Loaded ${imSignalMap.size} symbol signals from session_intelligence_data`);
           }
         }
       } catch (imErr) {
@@ -956,7 +914,6 @@ class GoalSessionLiveEngine {
           const existing = imSignalMap.get(cardSymbol) || {};
           imSignalMap.set(cardSymbol, { ...existing, ...config.cardSignal });
           if (import.meta.env.DEV) {
-            console.log(`[IM Signal] Card signal injected for ${cardSymbol}:`, config.cardSignal);
           }
         }
       }
@@ -1002,7 +959,6 @@ class GoalSessionLiveEngine {
 
       const orchestratorDuration = Date.now() - orchestratorStartTime;
       if (import.meta.env.DEV) {
-        console.log(`[MULTI-SYMBOL] Full Council: ${omegaDecisions.size} decisions in ${orchestratorDuration}ms`);
       }
 
       // ═══════════════════════════════════════════════════════════════════
@@ -1011,16 +967,12 @@ class GoalSessionLiveEngine {
       // ALL decisions must be logged to alpha_decisions table IMMEDIATELY
       // If logging fails, the scan must STOP (not continue silently)
       // This is critical for forensic analysis and Alpha learning
-      console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-      console.log(`[MANDATORY LOGGING] Logging ${omegaDecisions.size} Alpha decisions...`);
-      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
 
       try {
         for (const [symbol, decision] of omegaDecisions.entries()) {
           // Log every decision (BUY, SELL, WAIT, NO_TRADE)
           const marketState = marketStates.find(ms => ms.symbol === symbol);
           if (!marketState) {
-            console.warn(`[MANDATORY LOGGING] ⚠️ No market state found for ${symbol} - skipping log`);
             continue;
           }
 
@@ -1038,9 +990,7 @@ class GoalSessionLiveEngine {
             type: 'NONE' as const
           };
 
-          console.log(`[CONFLICT TRACKING] ${symbol}: Logging decision with conflict_detected=${conflictInfo.detected}, type=${conflictInfo.type}`);
           if (conflictInfo.detected) {
-            console.log(`[CONFLICT TRACKING] ${symbol}: Conflict severity=${conflictInfo.severity}, penalty=${conflictInfo.penalty}`);
           }
 
           const decisionId = await alphaLearningTracker.logDecision(
@@ -1066,13 +1016,10 @@ class GoalSessionLiveEngine {
           );
 
           if (decisionId) {
-            console.log(`[MANDATORY LOGGING] ✅ ${symbol}: Logged decision ${decisionId} (${decision.action} @ ${decision.confidence}%)`);
           } else {
-            console.error(`[MANDATORY LOGGING] ❌ ${symbol}: Failed to get decision ID from logger`);
           }
         }
 
-        console.log(`\n[MANDATORY LOGGING] ✅ All ${omegaDecisions.size} decisions logged successfully\n`);
       } catch (loggingError) {
         // CRITICAL: If logging fails, stop the scan cycle
         console.error(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
@@ -1131,18 +1078,6 @@ class GoalSessionLiveEngine {
               fingerprint: thesisCheck.fingerprint,
             });
 
-            console.log(
-              '%c[THESIS_FILTER] ❌ FILTERED SYMBOL',
-              'color: #ff9800; font-weight: bold',
-              {
-                symbol: snapshot.symbol,
-                direction,
-                action: decision.action,
-                reason: thesisCheck.reason,
-                fingerprint: thesisCheck.fingerprint,
-              }
-            );
-
             expiredThesisCount++;
             continue;
           }
@@ -1154,16 +1089,6 @@ class GoalSessionLiveEngine {
       }
 
       logger.info(LogCategory.AI_TRADING, `[THESIS_FILTER] Filtered ${expiredThesisCount} expired theses. ${filteredSnapshots.length}/${tradeableSnapshots.length} symbols remain.`);
-
-      console.log(
-        '%c[THESIS_FILTER] ✅ Filter complete',
-        'color: #4caf50; font-weight: bold',
-        {
-          totalSymbols: tradeableSnapshots.length,
-          expiredFiltered: expiredThesisCount,
-          remainingSymbols: filteredSnapshots.length,
-        }
-      );
 
       // If all symbols were filtered, return early
       if (filteredSnapshots.length === 0) {
@@ -1227,11 +1152,9 @@ class GoalSessionLiveEngine {
           tpsScores.set(snapshot.symbol, evaluation.scores.total);
 
           if (import.meta.env.DEV) {
-            console.log(`[TPS] ${snapshot.symbol}: ${evaluation.scores.total.toFixed(1)} (Conf: ${evaluation.scores.confidence.toFixed(1)}, Ready: ${evaluation.scores.readiness.toFixed(1)}, Urgency: ${evaluation.scores.urgency.toFixed(1)})`);
           }
         }
 
-        console.log(`[TPS] Calculated scores for ${tpsScores.size} candidates`);
       } catch (tpsError) {
         logger.warn(LogCategory.AI_TRADING, 'Failed to calculate TPS scores, proceeding without tie-breaker enhancement', { error: tpsError });
         // Non-critical: Continue with confidence-only selection
@@ -1263,8 +1186,6 @@ class GoalSessionLiveEngine {
         selectedWinners = topNResult.winners;
         allEvaluations = topNResult.allEvaluations;
 
-        console.log(`[MULTI-TRADE TOP-N] Slots available: ${slotsAvailable} | Winners selected: ${topNResult.selectionMetadata.actualN}`);
-        console.log(`[MULTI-TRADE TOP-N] ${topNResult.selectionMetadata.forensics}`);
       } else {
         const bestSymbolResult = bestSymbolSelector.selectBestSymbol(
           filteredSnapshots,
@@ -1332,13 +1253,6 @@ class GoalSessionLiveEngine {
           rejectionReason,
           allCandidates,
           userId: config.userId
-        });
-
-        console.log('[SCAN RESULTS] ✅ Scan result stored', {
-          topCandidate: topCandidate?.symbol,
-          action: topCandidate?.action,
-          confidence: topCandidate?.confidence,
-          rejectionReason
         });
 
         // 💭 THOUGHT STREAM: Emit per-symbol reasoning before final decision
@@ -1520,7 +1434,6 @@ class GoalSessionLiveEngine {
       // DEFENSIVE: Validate snapshot has candle data
       if (!snapshot.recentCandles || snapshot.recentCandles.length === 0) {
         logger.error(LogCategory.AI_TRADING, `❌ Snapshot missing candle data for ${selectedSymbol}`);
-        console.error('[MULTI-SYMBOL] Invalid snapshot - missing recentCandles:', snapshot);
         continue;
       }
 
@@ -1537,7 +1450,6 @@ class GoalSessionLiveEngine {
       // Replaces direct calculateLotSizeFromDollarRisk() and calculateGoalAwareLotSize() calls
       // This ensures Kelly Criterion, EV Gating, volatility adjustments, correlation checks,
       // market condition risk, and progressive risk scaling are ALL applied consistently
-      console.log(`%c[Phase 2] Using ProfessionalRiskManager for comprehensive risk evaluation...`, 'color: #00ff00; font-weight: bold');
 
       const { professionalRiskManager } = await import('./professional-risk-manager');
       const pipInfo = getCurrencyPipInfo(selectedSymbol);
@@ -1549,10 +1461,8 @@ class GoalSessionLiveEngine {
       if (config.dollarRisk) {
         // Convert dollar risk to percentage of account
         baseRiskPercent = (config.dollarRisk / config.initialBalance) * 100;
-        console.log(`[ProfessionalRiskManager] Dollar risk: $${config.dollarRisk} = ${baseRiskPercent.toFixed(2)}% of $${config.initialBalance}`);
       } else {
         baseRiskPercent = getRiskPercentage(config.riskMode);
-        console.log(`[ProfessionalRiskManager] Risk mode: ${config.riskMode} = ${baseRiskPercent}%`);
       }
 
       const riskAssessment = await professionalRiskManager.evaluateTrade({
@@ -1569,7 +1479,6 @@ class GoalSessionLiveEngine {
       });
 
       if (!riskAssessment.approved) {
-        console.warn(`[ProfessionalRiskManager] Trade REJECTED:`, riskAssessment.criticalWarnings);
         await this.sendAIMessage(
           `⚠️ Trade opportunity on ${selectedSymbol} rejected by risk management:\n\n` +
           riskAssessment.criticalWarnings.join('\n') + '\n\n' +
@@ -1582,14 +1491,6 @@ class GoalSessionLiveEngine {
       // Extract approved position size from ProfessionalRiskManager
       const lotSize = riskAssessment.recommendedLotSize;
       const adjustedRiskPercent = riskAssessment.adjustedRiskPercent * 100; // Convert back to percentage
-
-      console.log(`%c[ProfessionalRiskManager] ✅ APPROVED`, 'color: #00ff00; font-weight: bold');
-      console.log(`  Lot Size: ${(lotSize ?? 0).toFixed(2)} lots`);
-      console.log(`  Adjusted Risk: ${(adjustedRiskPercent ?? 0).toFixed(2)}% (from ${(baseRiskPercent ?? 0).toFixed(2)}%)`);
-      console.log(`  Risk Score: ${riskAssessment.riskScore ?? 0}/100`);
-      console.log(`  Confidence Score: ${riskAssessment.confidenceScore ?? 0}/100`);
-      console.log(`  Kelly Edge: ${riskAssessment.detailedBreakdown?.kelly?.edgeStrength ?? 'N/A'}`);
-      console.log(`  EV: ${(riskAssessment.detailedBreakdown?.evGate?.expectedValue ?? 0).toFixed(1)} pips/trade`);
 
       // Calculate expected profit at Alpha's TP
       const alphaTPPips = takeProfitPips;
@@ -1607,7 +1508,6 @@ class GoalSessionLiveEngine {
 
       // Log if any warnings were issued (but not blocking)
       if (riskAssessment.criticalWarnings.length > 0) {
-        console.warn(`[ProfessionalRiskManager] Warnings (non-blocking):`, riskAssessment.criticalWarnings);
       }
 
       // ✅ SSOT FIX: Add defensive null checks before toFixed() calls
@@ -1621,7 +1521,6 @@ class GoalSessionLiveEngine {
         const safeLotSize = lotSize ?? 0;
         const safeTakeProfitPips = takeProfitPips ?? 0;
         const safeExpectedProfit = expectedProfitAtAlphaTP ?? 0;
-        console.log(`[Trade] ${decision.symbol} ${safeLotSize.toFixed(3)} lots, TP: ${safeTakeProfitPips.toFixed(1)}p ($${safeExpectedProfit.toFixed(2)})`);
       }
 
       const { currentSession } = calculateSessionContext();
@@ -1634,12 +1533,6 @@ class GoalSessionLiveEngine {
       const spreadPips = (snapshot.spread || 0) / pipInfo.pipValue;
 
       // DEBUG: Log ATR conversion
-      console.log(`[ATR DEBUG] ${selectedSymbol}:`, {
-        snapshotAtr: snapshot.atr.value,
-        pipValue: pipInfo.pipValue,
-        atrPips,
-        reconvertedATR: atrPips * pipInfo.pipValue
-      });
 
       const timeToFillResult = timeToFillCalculator.calculate({
         tpDistancePips: alphaTPPips,
@@ -1669,11 +1562,8 @@ class GoalSessionLiveEngine {
       const tradingMode: TradingMode = styleResolution.executionMode;
 
       // ✅ ALPHA AUTHORITY MODEL: Log the immutable style
-      console.log(`[Style Resolution] ✅ Alpha Style: ${styleResolution.immutableStyle} (IMMUTABLE) | Execution Mode: ${styleResolution.executionMode}${styleResolution.advisory ? ' | ' + styleResolution.advisory : ''}`);
-
 
       // 🎯 GOAL FEASIBILITY CHECK - Prevents forcing trades in low volatility / unrealistic goals
-      console.log('%c[Goal Feasibility] 🔍 Analyzing goal feasibility before execution...', 'color: #3b82f6; font-weight: bold');
 
       const { typicalATR, dailyATR } = await this.calculateHistoricalATR(selectedSymbol);
       const currentATRValue = snapshot.atr.value;
@@ -1699,7 +1589,6 @@ class GoalSessionLiveEngine {
 
       // Handle BLOCK tier - Goal exceeds safe limits
       if (!feasibilityResult.feasible && feasibilityResult.tier === 'BLOCK_WITH_ALTERNATIVES') {
-        console.log('%c[Goal Feasibility] 🚫 BLOCKED - Goal not feasible', 'color: #ef4444; font-weight: bold');
         await this.sendAIMessage(
           `🚫 Goal Not Feasible\n\n` +
           `${feasibilityResult.blockReason}\n\n` +
@@ -1710,7 +1599,6 @@ class GoalSessionLiveEngine {
 
       // Handle WAIT tier - Market too quiet or opportunity not meaningful
       if (!feasibilityResult.feasible && feasibilityResult.tier === 'WAIT_FOR_VOLATILITY') {
-        console.log('%c[Goal Feasibility] ⏸️ WAITING - Conditions not optimal', 'color: #f59e0b; font-weight: bold');
         await this.sendAIMessage(`⏸️ ${feasibilityResult.waitReason}`);
         continue;
       }
@@ -1724,7 +1612,6 @@ class GoalSessionLiveEngine {
 
       if (feasibilityResult.feasible && feasibilityResult.tier === 'EXECUTE_REDUCED' && feasibilityResult.proposal) {
         // CHANGED: Log advisory but DO NOT auto-reduce
-        console.log('%c[Goal Feasibility] ℹ️ EXECUTE_REDUCED advisory (NOT applied)', 'color: #3b82f6; font-weight: bold');
 
         const reducedProposal = feasibilityResult.proposal as any;
 
@@ -1738,12 +1625,10 @@ class GoalSessionLiveEngine {
           `🎯 Alpha's Decision: Proceeding with original TP (Alpha has FINAL AUTHORITY)`
         );
 
-        console.log('%c[Goal Feasibility] ✅ Advisory logged - Alpha TP preserved', 'color: #10b981; font-weight: bold');
       }
       // ✅ ARCHITECTURAL FIX: DOWNSHIFT tier is now ADVISORY ONLY
       // Alpha already chose the TP - downshift suggestions are informational
       else if (feasibilityResult.feasible && feasibilityResult.proposal) {
-        console.log('%c[Goal Feasibility] ℹ️ Downshift advisory detected (INFORMATIONAL)', 'color: #8b5cf6; font-weight: bold');
 
         downshiftedProposal = feasibilityResult.proposal;
 
@@ -1755,9 +1640,7 @@ class GoalSessionLiveEngine {
           `🎯 Alpha's Decision: Proceeding with original TP (Alpha sovereignty preserved)`
         );
 
-        console.log('%c[Goal Feasibility] ✅ Advisory logged - Alpha TP preserved (no downshift applied)', 'color: #10b981; font-weight: bold');
       } else if (feasibilityResult.feasible) {
-        console.log('%c[Goal Feasibility] ✅ Goal is feasible without adjustments', 'color: #10b981; font-weight: bold');
       }
 
       const gateInput: ExecutionEligibilityInput = {
@@ -1800,19 +1683,14 @@ class GoalSessionLiveEngine {
       const maxSafeRisk = config.initialBalance * TRADING_CONSTANTS.RISK_PERCENTAGES.MAX_PER_TRADE; // 0.10 (10%)
 
       if (import.meta.env.DEV) {
-        console.log(`[Validation] Risk: $${calculatedRisk.toFixed(2)}/$${maxSafeRisk.toFixed(2)}, ${stopPips.toFixed(1)}p`);
       }
 
       if (calculatedRisk > maxSafeRisk) {
-        console.error('%c🚨 EXECUTION BLOCKED: RISK TOO HIGH!', 'color: #ff0000; font-weight: bold; font-size: 16px');
-        console.error(`  Risk: $${calculatedRisk.toFixed(2)} > Max: $${maxSafeRisk.toFixed(2)}`);
 
         // ✅ FIX: Use asset-specific dollarPerPipPerLot (NOT hardcoded * 10)
         const pipInfo = getCurrencyPipInfo(selectedSymbol);
         const safeLotSize = maxSafeRisk / (stopPips * pipInfo.dollarPerPipPerLot);
         calculatedLotSize = Math.max(0.01, Math.round(safeLotSize * 100) / 100);
-
-        console.error(`  🛡️ SAFETY OVERRIDE: Reducing to ${calculatedLotSize.toFixed(2)} lots`);
 
         await this.sendAIMessage(
           `⚠️ Position size safety override activated!\n\n` +
@@ -2190,7 +2068,6 @@ class GoalSessionLiveEngine {
       } // end for (const winner of selectedWinners)
 
     } catch (error) {
-      console.log('%c[MULTI-SYMBOL] ❌ ERROR CAUGHT', 'color: #f44336; font-weight: bold; font-size: 18px');
       console.error('[MULTI-SYMBOL] Error details:', error);
       console.error('[MULTI-SYMBOL] Error stack:', error instanceof Error ? error.stack : 'No stack');
 
@@ -2268,7 +2145,6 @@ class GoalSessionLiveEngine {
       const activeIntent = await getActiveEntryIntent(this.activeSession);
 
       if (!activeIntent) {
-        console.log('%c[ENTRY_MONITOR] ✅ No active entry intent found', 'color: #10b981; font-weight: bold');
         return null;
       }
 
@@ -2279,28 +2155,9 @@ class GoalSessionLiveEngine {
       const createdAt = new Date((activeIntent as any).created_at || now);
       const secondsElapsed = Math.floor((now.getTime() - createdAt.getTime()) / 1000);
 
-      console.log('%c[ENTRY_MONITOR] 👁️ Active intent detected - monitoring in progress', 'color: #2196f3; font-weight: bold; font-size: 14px');
-      console.log('%c[ENTRY_MONITOR] 📊 Intent details:', 'color: #2196f3; font-weight: bold', {
-        intentId: activeIntent.id,
-        symbol: activeIntent.symbol,
-        direction: activeIntent.direction,
-        status: (activeIntent as any).status,
-        entryZone: `${activeIntent.entry_zone_min.toFixed(5)} - ${activeIntent.entry_zone_max.toFixed(5)}`,
-        style: activeIntent.style,
-        maxWaitSeconds: activeIntent.max_wait_seconds,
-        secondsElapsed,
-        secondsRemaining,
-        percentComplete: Math.round((secondsElapsed / activeIntent.max_wait_seconds) * 100)
-      });
-
       // Log EQS information if available
       const marketContext = activeIntent.market_context as any;
       if (marketContext?.current_eqs !== undefined) {
-        console.log('%c[ENTRY_MONITOR] 📈 EQS tracking:', 'color: #9c27b0; font-weight: bold', {
-          currentEQS: marketContext.current_eqs,
-          requiredEQS: marketContext.required_eqs || 'N/A',
-          confidence: marketContext.confidence || 'N/A'
-        });
       }
 
       logger.info(
@@ -2326,7 +2183,6 @@ class GoalSessionLiveEngine {
     try {
       // 🚨 EMERGENCY DIAGNOSTICS
       if (import.meta.env.DEV) {
-        console.log(`[AUTONOMOUS] Cycle: ${this.openTrades.length}/${this.config.maxConcurrentTrades} trades`);
       }
 
       // 🔍 DEFENSIVE: Log trade array contents for desync detection
@@ -2356,16 +2212,8 @@ class GoalSessionLiveEngine {
         const dbCount = dbPositions.length;
         const memoryCount = this.openTrades.length;
 
-        console.log('%c[AUTONOMOUS ENGINE] 📊 Position counts:', 'color: #9c27b0; font-weight: bold', {
-          database: dbCount,
-          memory: memoryCount,
-          match: dbCount === memoryCount
-        });
-
         // If database has more positions than memory, we have desync!
         if (dbCount > memoryCount) {
-          console.error('%c[AUTONOMOUS ENGINE] 🚨 MEMORY DESYNC!', 'color: #f44336; font-weight: bold; font-size: 16px');
-          console.error(`[AUTONOMOUS ENGINE] Database has ${dbCount} positions but memory has ${memoryCount}. Resyncing...`);
 
           // Reconstruct missing trades
           const memoryTradeIds = new Set(this.openTrades.map(t => t.id));
@@ -2390,8 +2238,6 @@ class GoalSessionLiveEngine {
             });
           }
 
-          console.log('%c[AUTONOMOUS ENGINE] ✅ Resynced ' + missingPositions.length + ' missing positions',
-            'color: #4caf50; font-weight: bold');
         }
       }
 
@@ -2405,14 +2251,6 @@ class GoalSessionLiveEngine {
       const memoryOpenTradeCount = this.openTrades.length;
 
       // 🔍 AUDIT: Log user_id for verification that sessions are isolated
-      console.log('%c[AUTONOMOUS ENGINE] 🔐 Scan authorization check:', 'color: #ff9800; font-weight: bold', {
-        userId: this.config.userId,
-        sessionId: this.activeSession,
-        memoryTrades: memoryOpenTradeCount,
-        dbTrades: dbOpenTradeCount,
-        maxAllowed: this.config.maxConcurrentTrades,
-        scanAllowed: dbOpenTradeCount < this.config.maxConcurrentTrades
-      });
 
       // Use DB count as source of truth (memory can desync)
       if (dbOpenTradeCount >= this.config.maxConcurrentTrades) {
@@ -2427,15 +2265,9 @@ class GoalSessionLiveEngine {
         const validOpenCount = validOpenPositions.length;
 
         if (validOpenCount === 0 && dbOpenTradeCount > 0) {
-          console.error('%c[AUTONOMOUS ENGINE] 🚨 STALE DATABASE RECORDS DETECTED!', 'color: #f44336; font-weight: bold; font-size: 16px');
-          console.error(`[AUTONOMOUS ENGINE] Database shows ${dbOpenTradeCount} "open" trades but 0 are valid. This is a data integrity issue!`);
-          console.log('%c[AUTONOMOUS ENGINE] ✅ Allowing scan to continue (no valid open positions)', 'color: #4caf50; font-weight: bold');
         } else if (validOpenCount < this.config.maxConcurrentTrades) {
-          console.warn('%c[AUTONOMOUS ENGINE] ⚠️ Some database records are invalid', 'color: #ff9800; font-weight: bold');
-          console.log(`[AUTONOMOUS ENGINE] ${validOpenCount} valid positions out of ${dbOpenTradeCount} total - allowing scan`);
         } else {
           logger.debug(LogCategory.AI_TRADING, `⏸️ Max trades (${this.config.maxConcurrentTrades}) reached - PAUSING scanning to save credits`);
-          console.log('%c[AUTONOMOUS ENGINE] ⏸️ SCAN BLOCKED: DB confirms max trades reached', 'color: #f44336; font-weight: bold');
           // Still monitor open positions but don't scan for new trades
           await this.monitorOpenPositionsOnly();
           return;
@@ -2445,18 +2277,14 @@ class GoalSessionLiveEngine {
       const watchlist = this.config.watchlist || getDefaultWatchlist();
       const useMultiSymbolMode = watchlist.length > 1;
 
-
       if (useMultiSymbolMode) {
         // Double-check before expensive multi-symbol scan (use DB count as already verified above)
         if (dbOpenTradeCount >= this.config.maxConcurrentTrades) {
           logger.debug(LogCategory.AI_TRADING, 'Max trades reached, monitoring only');
-          console.log('%c[AUTONOMOUS ENGINE] ⏸️ BLOCKED: Max trades reached', 'color: #f59e0b; font-weight: bold');
           return;
         }
-        console.log('%c[AUTONOMOUS ENGINE] 🔮 Starting multi-symbol scan...', 'color: #10b981; font-weight: bold');
         logger.debug(LogCategory.AI_TRADING, `🔍 Evaluating ${watchlist.length} symbols...`);
         await this.processMultiSymbolCycle(watchlist);
-        console.log('%c[AUTONOMOUS ENGINE] ✅ Multi-symbol scan complete', 'color: #10b981; font-weight: bold');
         return;
       }
 
@@ -2468,7 +2296,6 @@ class GoalSessionLiveEngine {
       // Uses same DB count as multi-symbol mode for consistency
       if (dbOpenTradeCount >= this.config.maxConcurrentTrades) {
         logger.debug(LogCategory.AI_TRADING, `⏸️ Max trades (${this.config.maxConcurrentTrades}) reached - PAUSING scanning to save credits`);
-        console.log('%c[AUTONOMOUS ENGINE] ⏸️ SCAN BLOCKED: Max trades reached (single-symbol mode)', 'color: #f44336; font-weight: bold');
         // Still monitor open positions but don't scan for new trades
         await this.monitorOpenPositionsOnly();
         return;
@@ -2479,7 +2306,6 @@ class GoalSessionLiveEngine {
       const candles = await marketDataService.getCandles(symbol, dbTimeframe, 300);
 
       if (!candles || candles.length < 50) {
-        console.warn('[Goal Live Engine] Insufficient candle data');
         return;
       }
 
@@ -2502,21 +2328,13 @@ class GoalSessionLiveEngine {
           const currentPrice = latestCandle.close;
           const isBuy = trade.direction === 'buy';
 
-          console.log(`[SL/TP CHECK] ${trade.symbol} ${trade.direction.toUpperCase()}:`);
-          console.log(`  Current: ${currentPrice.toFixed(5)}`);
-          console.log(`  Entry: ${trade.entryPrice.toFixed(5)}`);
-          console.log(`  SL: ${trade.stopLoss.toFixed(5)}`);
-          console.log(`  TP: ${trade.takeProfit.toFixed(5)}`);
-
           // Check if SL or TP hit
           const slHit = isBuy ? currentPrice <= trade.stopLoss : currentPrice >= trade.stopLoss;
           const tpHit = isBuy ? currentPrice >= trade.takeProfit : currentPrice <= trade.takeProfit;
 
           if (slHit) {
-            console.warn(`%c⚠️ STOP LOSS HIT! Price: ${currentPrice.toFixed(5)} vs SL: ${trade.stopLoss.toFixed(5)}`, 'color: #ff9800; font-weight: bold');
           }
           if (tpHit) {
-            console.log(`%c✅ TAKE PROFIT HIT! Price: ${currentPrice.toFixed(5)} vs TP: ${trade.takeProfit.toFixed(5)}`, 'color: #4caf50; font-weight: bold');
           }
         }
       }
@@ -2545,7 +2363,6 @@ class GoalSessionLiveEngine {
       const currentBalance = this.calculateCurrentBalance();
       const maxLossAmount = -(this.config.initialBalance * (this.MAX_DAILY_LOSS_PERCENT / 100));
       if (currentBalance <= this.config.initialBalance + maxLossAmount) {
-        console.error(`[Goal Live Engine] Daily loss limit reached (${this.MAX_DAILY_LOSS_PERCENT}%), stopping session`);
         await this.stopSession();
         return;
       }
@@ -2629,9 +2446,7 @@ class GoalSessionLiveEngine {
         tradeExecuted = await this.handleNewTradeSignal(result.trade, goalSession, sortedCandles);
 
         if (tradeExecuted) {
-          console.log(`[AUTONOMOUS ENGINE] ✅ Trade successfully executed - system will manage appropriately`);
         } else {
-          console.log(`[AUTONOMOUS ENGINE] ⚠️ Trade rejected by validation - continuing to scan for next opportunity`);
         }
       }
 
@@ -2655,14 +2470,12 @@ class GoalSessionLiveEngine {
         })
         .eq('id', this.activeSession);
 
-
     } catch (error) {
       console.error('[Goal Live Engine] Autonomous processing error:', error);
       logger.error(LogCategory.AI_TRADING, 'Autonomous processing error', { error });
       throw error; // Re-throw to be caught by outer handler
     }
   }
-
 
   /**
    * Handle new trade signal - SSOT-compliant execution via alphaTradeExecutor
@@ -2845,12 +2658,10 @@ class GoalSessionLiveEngine {
    */
   private async checkAndPauseForReview(tradeId: string, trade: SimulatedTrade): Promise<void> {
     if (!this.activeSession || !this.config) {
-      console.log('[Goal Live Engine] checkAndPauseForReview: No active session or config');
       return;
     }
 
     try {
-      console.log('[Goal Live Engine] 🔍 Checking if should pause for review after trade:', tradeId);
 
       // Get current session settings
       const { data: session, error } = await supabase
@@ -2860,30 +2671,20 @@ class GoalSessionLiveEngine {
         .single();
 
       if (error) {
-        console.error('[Goal Live Engine] ❌ Error fetching session for pause check:', error);
         return;
       }
 
       if (!session) {
-        console.log('[Goal Live Engine] ⚠️ Session not found for pause check');
         return;
       }
 
-      console.log('[Goal Live Engine] Session pause check data:', {
-        multi_trade_enabled: session.multi_trade_enabled,
-        trades_in_session: session.trades_in_session,
-        session_id: this.activeSession
-      });
-
       // If multi-trade mode enabled, don't pause
       if (session.multi_trade_enabled) {
-        console.log('[Goal Live Engine] ✅ Multi-trade mode enabled - continuing to scan');
         logger.info(LogCategory.AI_TRADING, 'Multi-trade mode enabled - continuing to scan');
         return;
       }
 
       // PAUSE SCANNING - User must review and approve continuation
-      console.log('[Goal Live Engine] 🛑 Single-trade mode detected - pausing for user review');
       logger.info(LogCategory.AI_TRADING, '🛑 Single-trade mode: Pausing for user review');
 
       // Generate AI continuation prompt
@@ -2896,8 +2697,6 @@ class GoalSessionLiveEngine {
           trades_in_session: (session.trades_in_session || 0) + 1
         })
         .eq('id', this.activeSession);
-
-      console.log('[Goal Live Engine] 🛑 Scanning paused - awaiting user continuation decision');
 
     } catch (error) {
       console.error('[Goal Live Engine] Error checking pause for review:', error);
@@ -3070,14 +2869,12 @@ Your decision keeps you in control of your risk and prevents runaway trading.
     });
 
     if (error) {
-      console.error('[Goal Live Engine] ❌ Error closing trade via RPC:', error);
       logger.error(LogCategory.AI_TRADING, 'Trade closure RPC failed', {
         tradeId: trade.id,
         error: error.message
       });
 
       // Log governance violation
-      console.error('[Goal Live Engine] 🚨 SSOT VIOLATION: RPC closure failed, trade may be in inconsistent state');
     } else {
       logger.info(LogCategory.AI_TRADING,
         `✅ Trade closed via SSOT RPC | PNL: $${closureResult.profit_loss} | Balance: $${closureResult.balance_after}`
@@ -3912,7 +3709,6 @@ This learning will carry forward to improve future sessions!
     data?: any
   ): Promise<void> {
     if (!this.activeSession || !this.config) {
-      console.warn('[Goal Live Engine] Cannot log notification - missing session or config');
       return;
     }
 
@@ -3922,42 +3718,22 @@ This learning will carry forward to improve future sessions!
 
       // Validate required fields before attempting insert
       if (!this.activeSession || typeof this.activeSession !== 'string') {
-        console.error('[Goal Live Engine] Notification validation: Invalid goal_session_id', {
-          value: this.activeSession,
-          type: typeof this.activeSession
-        });
         return;
       }
 
       if (!this.config.userId || typeof this.config.userId !== 'string') {
-        console.error('[Goal Live Engine] Notification validation: Invalid user_id', {
-          value: this.config.userId,
-          type: typeof this.config.userId
-        });
         return;
       }
 
       if (!validatedType || typeof validatedType !== 'string') {
-        console.error('[Goal Live Engine] Notification validation: Invalid notification type', {
-          value: type,
-          validated: validatedType
-        });
         return;
       }
 
       if (!title || typeof title !== 'string') {
-        console.error('[Goal Live Engine] Notification validation: Invalid title', {
-          value: title,
-          type: typeof title
-        });
         return;
       }
 
       if (!message || typeof message !== 'string') {
-        console.error('[Goal Live Engine] Notification validation: Invalid message', {
-          value: message,
-          type: typeof message
-        });
         return;
       }
 
@@ -3977,20 +3753,8 @@ This learning will carry forward to improve future sessions!
       });
 
       if (error) {
-        console.error('[Goal Live Engine] CRITICAL: Notification insert failed', {
-          errorMessage: error.message,
-          errorCode: (error as any).code,
-          errorDetails: (error as any).details,
-          failedRecord: {
-            type: validatedType,
-            priority: validatedPriority,
-            title,
-            goal_session_id: this.activeSession
-          }
-        });
         logger.error(LogCategory.AI_TRADING, 'Failed to insert notification', { error, title, type: validatedType, priority: validatedPriority });
       } else {
-        console.log(`[Notification Logged] ✅ ${validatedType.toUpperCase()}: ${title}`);
       }
     } catch (error) {
       console.error('[Goal Live Engine] Failed to log notification (exception)', {
@@ -4014,7 +3778,6 @@ This learning will carry forward to improve future sessions!
     if (priority === 'urgent') {
       return 'critical';
     }
-    console.warn(`[Priority Validation] Invalid priority "${priority}", defaulting to "medium"`);
     return 'medium';
   }
 
@@ -4049,11 +3812,9 @@ This learning will carry forward to improve future sessions!
     };
 
     if (typeMap[type]) {
-      console.warn(`[Notification Type Validation] Mapped "${type}" to "${typeMap[type]}"`);
       return typeMap[type];
     }
 
-    console.error(`[Notification Type Validation] Invalid notification type "${type}", will be rejected by database`);
     return null;
   }
 
@@ -4507,8 +4268,6 @@ This learning will carry forward to improve future sessions!
     try {
       const { data, error } = await supabase.from('goal_notifications').insert(notification).select().single();
       if (error) {
-        console.error(`[Goal Live Engine] Failed to insert ${type} notification:`, error);
-        console.error('[Goal Live Engine] Notification data:', notification);
       } else {
         logger.debug(LogCategory.AI_TRADING, `✓ Inserted ${type} notification for trade ${trade.id}`, data);
       }
@@ -4721,7 +4480,6 @@ Keep response under 100 words, educational tone.`;
       const candles = await marketDataService.getCandles(symbol, '15m', 20);
 
       if (!candles || candles.length < 10) {
-        console.warn(`[Historical ATR] Insufficient data for ${symbol}, using fallback`);
         const pipInfo = getCurrencyPipInfo(symbol);
         const fallbackATR = pipInfo.pipValue * 10;
         return { typicalATR: fallbackATR, dailyATR: fallbackATR * 24 };
@@ -4754,11 +4512,6 @@ Keep response under 100 words, educational tone.`;
    */
   private async monitorOpenPositionsOnly(): Promise<void> {
     // 🔍 DEFENSIVE: Log memory state for diagnostics
-    console.log('%c[MONITORING MODE] 🔍 Memory state:', 'color: #9c27b0; font-weight: bold', {
-      openTradesInMemory: this.openTrades.length,
-      tradeSymbols: this.openTrades.map(t => `${t.symbol}:${t.id.substring(0, 8)}`),
-      sessionId: this.activeSession
-    });
 
     // 🚨 CRITICAL: Sync with database to prevent memory loss
     const { data: dbPositions, error: dbError } = await supabase
@@ -4768,18 +4521,13 @@ Keep response under 100 words, educational tone.`;
       .eq('status', 'open');
 
     if (dbError) {
-      console.error('[MONITORING MODE] ❌ Database sync failed:', dbError);
       return;
     }
 
     const dbOpenCount = dbPositions?.length || 0;
-    console.log('%c[MONITORING MODE] 📊 Database shows ' + dbOpenCount + ' open positions',
-      'color: #2196f3; font-weight: bold');
 
     // 🚨 CRITICAL: If database has positions but memory doesn't, resync!
     if (dbOpenCount > 0 && this.openTrades.length === 0) {
-      console.error('%c[MONITORING MODE] 🚨 MEMORY DESYNC DETECTED!', 'color: #f44336; font-weight: bold; font-size: 16px');
-      console.error('[MONITORING MODE] Database has positions but memory array is empty. Resyncing...');
 
       // Reconstruct openTrades from database
       this.openTrades = dbPositions.map(pos => ({
@@ -4799,15 +4547,10 @@ Keep response under 100 words, educational tone.`;
         pnl: 0
       }));
 
-      console.log('%c[MONITORING MODE] ✅ Resynced ' + this.openTrades.length + ' positions from database',
-        'color: #4caf50; font-weight: bold');
     }
 
     // CRITICAL: If no open positions after resync, exit immediately (don't block scanning)
     if (this.openTrades.length === 0) {
-      console.warn('%c[MONITORING MODE] ⚠️ No open positions after resync!', 'color: #ff9800; font-weight: bold; font-size: 14px');
-      console.warn('[MONITORING MODE] Database had "open" records but they were stale/invalid.');
-      console.log('%c[MONITORING MODE] ✅ Exiting monitoring mode - scan can proceed', 'color: #4caf50; font-weight: bold');
       this.monitoringModeMessageSent = false; // Reset flag to allow normal operation
       return;
     }
@@ -4815,7 +4558,6 @@ Keep response under 100 words, educational tone.`;
     // Send status update to UI on first call to monitoring mode
     // CRITICAL: Only send message if there are ACTUALLY open positions after resync
     if (!this.monitoringModeMessageSent && this.openTrades.length > 0) {
-      console.log('%c[MONITORING MODE] 👁️ Switched to position monitoring only', 'color: #2196f3; font-weight: bold; font-size: 16px');
       await this.sendAIMessage(
         `👁️ Position Monitoring Active\n\n` +
         `Max trades (${this.config.maxConcurrentTrades}) reached - scanning paused to preserve credits.\n\n` +
@@ -4826,10 +4568,8 @@ Keep response under 100 words, educational tone.`;
 
     // 🚨 CRITICAL FIX: Get unique symbols from ACTUAL open trades, not config
     const tradeSymbols = [...new Set(this.openTrades.map(t => t.symbol))];
-    console.log('%c[MONITORING MODE] 📡 Fetching candles for symbols:', 'color: #ff9800; font-weight: bold', tradeSymbols);
 
     if (tradeSymbols.length === 0) {
-      console.log('%c[MONITORING MODE] ⚠️ No symbols to monitor (empty array)', 'color: #ff9800; font-weight: bold');
       this.monitoringModeMessageSent = false;
       return;
     }
@@ -4844,12 +4584,10 @@ Keep response under 100 words, educational tone.`;
       const candles = await marketDataService.getCandles(symbol, dbTimeframe, 10);
 
       if (!candles || candles.length === 0) {
-        console.warn(`[MONITORING MODE] ⚠️ No candles for ${symbol} - skipping`);
         continue;
       }
 
       const latestCandle = candles[0];
-      console.log(`[MONITORING MODE] 🕯️ ${symbol} latest: ${latestCandle.close} @ ${latestCandle.open_time}`);
 
       // Update trades for this symbol only
       const tradesForSymbol = this.openTrades.filter(t => t.symbol === symbol);
@@ -4858,18 +4596,15 @@ Keep response under 100 words, educational tone.`;
 
         // 🚨 DEFENSIVE: Check for undefined before accessing properties
         if (!updatedTrades || updatedTrades.length === 0) {
-          console.error(`[MONITORING MODE] ❌ updateOpenTrades returned empty for ${symbol} trade ${trade.id.substring(0, 8)}`);
           continue;
         }
 
         const updatedTrade = updatedTrades[0];
         if (!updatedTrade) {
-          console.error(`[MONITORING MODE] ❌ updatedTrade is undefined for ${symbol} trade ${trade.id.substring(0, 8)}`);
           continue;
         }
 
         if (updatedTrade.outcome !== 'open') {
-          console.log(`[MONITORING MODE] 🎯 ${symbol} trade ${trade.id.substring(0, 8)} closed: ${updatedTrade.outcome}`);
 
           // Update in main array
           const idx = this.openTrades.findIndex(t => t.id === trade.id);
@@ -4899,11 +4634,7 @@ Keep response under 100 words, educational tone.`;
       const dbStillHasPositions = (finalCheck as any)?.count > 0;
 
       if (dbStillHasPositions) {
-        console.error('%c[MONITORING MODE] 🚨 BLOCKED RESET: Database still has open positions!',
-          'color: #f44336; font-weight: bold; font-size: 16px');
       } else {
-        console.log('%c[MONITORING MODE] ✅ All positions closed (verified with DB) - will resume scanning',
-          'color: #4caf50; font-weight: bold');
         this.monitoringModeMessageSent = false;
       }
     }

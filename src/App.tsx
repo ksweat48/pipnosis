@@ -233,18 +233,13 @@ const AppRoutes: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
-    // Only log in development to reduce console noise
-    if (import.meta.env.DEV) {
-      console.log('[App] Setting up global event listeners for user:', user.id);
-    }
-
     // Check for pending modals on app load
+    let _modalDebounceTimer: ReturnType<typeof setTimeout> | null = null;
     const checkPendingModals = async () => {
       const { modalQueueManager } = await import('./services/modal-queue-manager');
       const pendingModals = await modalQueueManager.getPendingModals(user.id);
 
       if (pendingModals.length > 0) {
-        console.log('[App] Found pending modals:', pendingModals.length);
 
         // Show the oldest modal first
         const modal = pendingModals[0];
@@ -299,8 +294,13 @@ const AppRoutes: React.FC = () => {
     // fired reactively on new pending_user_modals inserts. The modal was only shown on
     // initial mount, not when a new one arrived mid-session.
     // Now correctly awaited inside the async init chain.
+    const debouncedModalCheck = () => {
+      if (_modalDebounceTimer) clearTimeout(_modalDebounceTimer);
+      _modalDebounceTimer = setTimeout(checkPendingModals, 200);
+    };
+
     import('./services/modal-queue-manager').then(({ modalQueueManager }) => {
-      modalQueueManager.subscribeToModalUpdates(user.id, checkPendingModals);
+      modalQueueManager.subscribeToModalUpdates(user.id, debouncedModalCheck);
     });
 
     const tradeSignalChannel = supabase
@@ -317,7 +317,6 @@ const AppRoutes: React.FC = () => {
           const notification = payload.new;
 
           if (notification.type === 'signal') {
-            console.log('[App] Trade signal received!', notification);
 
             // CCIP FIX (2026-02-27): Column is `metadata`, not `data`.
             // `notification.data` was always undefined, causing all fields to fall
@@ -376,29 +375,19 @@ const AppRoutes: React.FC = () => {
         },
         (payload) => {
           const notification = payload.new;
-          console.log('[App] Notification received:', { type: notification.type, id: notification.id });
 
-          // SSOT: Route notifications to appropriate handlers
           if (['mid_trade_trigger', 'mid_trade_evaluation', 'mid_trade_action'].includes(notification.type)) {
-            console.log('[App] Mid-trade notification added to queue!');
             midTradeNotificationQueue.addNotification(notification as any);
-          } else if (['trade_closed', 'goal_achieved', 'session_ended', 'session_timeout', 'entry_edge_loss'].includes(notification.type)) {
-            // These notifications trigger modals via pending_user_modals (handled by modalQueueManager)
-            console.log('[App] Modal notification (handled by modal queue manager):', notification.type);
-          } else {
-            // Other notifications handled by NotificationCenter or specific listeners
-            console.log('[App] Standard notification:', notification.type);
           }
         }
       )
       .subscribe();
 
     return () => {
+      if (_modalDebounceTimer) clearTimeout(_modalDebounceTimer);
       supabase.removeChannel(tradeSignalChannel);
       supabase.removeChannel(midTradeChannel);
 
-      // CCIP FIX (2026-02-20 DUAL-MODAL-FIX): Cleanup uses the same dynamic import
-      // pattern as setup — consistent with the non-blocking async init above.
       import('./services/modal-queue-manager').then(({ modalQueueManager }) => {
         modalQueueManager.unsubscribeFromModalUpdates();
       });

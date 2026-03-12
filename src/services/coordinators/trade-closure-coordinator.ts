@@ -141,7 +141,6 @@ class TradeClosureCoordinator {
       const tradeData = trade as TradeData;
 
       if (tradeData.status === 'closed') {
-        console.log(`[TradeClosureCoordinator] Trade ${request.tradeId} already closed, skipping`);
         return {
           success: false,
           tradeId: request.tradeId,
@@ -213,8 +212,6 @@ class TradeClosureCoordinator {
 
       await this.updateSessionAfterClose(request.goalSessionId, request.userId, request.closeReason);
 
-      console.log(`[TradeClosureCoordinator] Trade ${request.tradeId} closed successfully. P&L: $${pnl.toFixed(2)}`);
-
       return {
         success: true,
         tradeId: request.tradeId,
@@ -234,8 +231,6 @@ class TradeClosureCoordinator {
     trade: TradeData,
     pnl: number
   ): Promise<CloseTradeResult> {
-    console.error(`[TradeClosureCoordinator] ⚠️ EMERGENCY DIRECT CLOSE for trade ${request.tradeId}`);
-    console.error(`[TradeClosureCoordinator] This bypasses RPC - manual reconciliation may be needed`);
 
     await this.logToAudit(request, trade, pnl, 'emergency');
 
@@ -276,7 +271,6 @@ class TradeClosureCoordinator {
         })
         .eq('id', request.userId);
 
-      console.log(`[TradeClosureCoordinator] Emergency balance update: ${profile.account_balance} + ${pnl} = ${newBalance}`);
     }
 
     await notificationCoordinator.sendSystemNotification({
@@ -357,68 +351,53 @@ class TradeClosureCoordinator {
     userId: string,
     closeReason?: CloseReason
   ): Promise<void> {
-    // GOVERNANCE: Clean up stale intents BEFORE checking execution channels
-    // This prevents orphaned "monitoring" intents from blocking session transitions
-    try {
-      const { data: cleanupResult, error: cleanupError } = await supabase
-        .rpc('cleanup_orphaned_intents', { p_session_id: sessionId });
+    // Determine close reason classification first — needed for Phase 3 intent cancel
+    const isManualClose = closeReason === 'manual' || closeReason === 'force_closed';
+    const isSystemClose = closeReason === 'stop_loss' || closeReason === 'take_profit' || closeReason === 'take_profit_1' || closeReason === 'take_profit_2';
+    const isWeekendShutdown = closeReason === 'weekend_protection';
+    const isTimeout = closeReason === 'timeout';
 
-      if (cleanupError) {
-        console.error(`[TradeClosureCoordinator] Intent cleanup error:`, cleanupError);
-      } else if (cleanupResult && cleanupResult.length > 0) {
-        console.log(`[TradeClosureCoordinator] Cleaned up orphaned intents:`, cleanupResult);
+    // PHASE 3 FIX: For manual/force_closed trades, explicitly cancel all monitoring intents
+    // so they don't block the allChannelsEmpty check below.
+    // cleanup_orphaned_intents only removes intents for deleted sessions; it does NOT
+    // cancel active 'monitoring' intents that are still attached to a live session.
+    if (isManualClose) {
+      try {
+        await supabase.rpc('cancel_session_intents', { p_session_id: sessionId });
+      } catch {
+        // Non-fatal — the channel check below handles the fallback
       }
-    } catch (error) {
-      console.error(`[TradeClosureCoordinator] Failed to cleanup intents:`, error);
+    }
+
+    // Orphan cleanup for all paths
+    try {
+      await supabase.rpc('cleanup_orphaned_intents', { p_session_id: sessionId });
+    } catch {
+      // Non-fatal
     }
 
     // Check ALL execution channels before deciding session fate
-    const { data: openTrades } = await supabase
-      .from('goal_session_trades')
-      .select('id')
-      .eq('goal_session_id', sessionId)
-      .eq('status', 'open');
+    const [
+      { data: openTrades },
+      { data: pendingOrders },
+      { data: activeIntents },
+    ] = await Promise.all([
+      supabase.from('goal_session_trades').select('id').eq('goal_session_id', sessionId).eq('status', 'open'),
+      supabase.from('goal_session_trades').select('id').eq('goal_session_id', sessionId).eq('status', 'pending'),
+      supabase.from('entry_intents').select('id').eq('session_id', sessionId).eq('status', 'monitoring'),
+    ]);
 
-    const { data: pendingOrders } = await supabase
-      .from('goal_session_trades')
-      .select('id')
-      .eq('goal_session_id', sessionId)
-      .eq('status', 'pending');
+    const allChannelsEmpty =
+      (openTrades?.length || 0) === 0 &&
+      (pendingOrders?.length || 0) === 0 &&
+      (activeIntents?.length || 0) === 0;
 
-    // ✅ SSOT: Use 'monitoring' status as authoritative state for active intents
-    // After cleanup, only legitimate monitoring intents should remain
-    const { data: activeIntents } = await supabase
-      .from('entry_intents')
-      .select('id')
-      .eq('session_id', sessionId)
-      .eq('status', 'monitoring');
-
-    const openTradesCount = openTrades?.length || 0;
-    const pendingOrdersCount = pendingOrders?.length || 0;
-    const activeIntentsCount = activeIntents?.length || 0;
-
-    const allChannelsEmpty = openTradesCount === 0 && pendingOrdersCount === 0 && activeIntentsCount === 0;
-
-    console.log(`[TradeClosureCoordinator] Session ${sessionId} execution status:`, {
-      openTrades: openTradesCount,
-      pendingOrders: pendingOrdersCount,
-      activeIntents: activeIntentsCount,
-      allChannelsEmpty,
-      closeReason,
-    });
-
-    if (!allChannelsEmpty) {
-      console.log(`[TradeClosureCoordinator] Session still has active execution channels, no transition needed`);
-      return;
-    }
+    if (!allChannelsEmpty) return;
 
     // All execution channels are empty - determine next state
     const currentStatus = await goalSessionStateMachine.getCurrentStatus(sessionId);
 
-    if (currentStatus !== 'active' && currentStatus !== 'scanning') {
-      console.log(`[TradeClosureCoordinator] Session status is ${currentStatus}, no transition needed`);
-      return;
-    }
+    if (currentStatus !== 'active' && currentStatus !== 'scanning') return;
 
     // Check if goal was already achieved
     const { data: session } = await supabase
@@ -427,55 +406,27 @@ class TradeClosureCoordinator {
       .eq('id', sessionId)
       .maybeSingle();
 
-    if (session?.status === 'goal_achieved') {
-      console.log(`[TradeClosureCoordinator] Goal already achieved, no further transition needed`);
-      return;
-    }
-
-    // Determine transition based on close reason
-    // ✅ SSOT COMPLIANCE: Use database constraint values
-    const isManualClose = closeReason === 'manual' || closeReason === 'force_closed';
-    const isSystemClose = closeReason === 'stop_loss' || closeReason === 'take_profit' || closeReason === 'take_profit_1' || closeReason === 'take_profit_2';
-    const isWeekendShutdown = closeReason === 'weekend_protection';
-    const isTimeout = closeReason === 'timeout';
-
-    console.log(`[TradeClosureCoordinator] Close reason classification:`, {
-      closeReason,
-      isManualClose,
-      isSystemClose,
-      isWeekendShutdown,
-      isTimeout,
-    });
+    if (session?.status === 'goal_achieved') return;
 
     let targetStatus: 'stopped' | 'weekend_shutdown' | 'timeout' = 'stopped';
     let transitionReason = 'All execution channels empty';
 
     if (isManualClose) {
-      // Manual closure → stop the session
       targetStatus = 'stopped';
       transitionReason = 'User manually closed all trades';
-      console.log(`[TradeClosureCoordinator] Manual close detected → will stop session`);
     } else if (isSystemClose) {
       targetStatus = 'stopped';
       transitionReason = `Trade closed by ${closeReason} - session ended`;
-      console.log(`[TradeClosureCoordinator] System close (${closeReason}) detected → will stop session`);
     } else if (isWeekendShutdown) {
       targetStatus = 'weekend_shutdown';
       transitionReason = 'Weekend protection activated';
-      console.log(`[TradeClosureCoordinator] Weekend shutdown detected`);
     } else if (isTimeout) {
       targetStatus = 'timeout';
       transitionReason = 'Session timeout';
-      console.log(`[TradeClosureCoordinator] Timeout detected`);
     } else {
-      // Default: stop the session
       targetStatus = 'stopped';
       transitionReason = `All trades closed (reason: ${closeReason || 'unknown'})`;
-      console.log(`[TradeClosureCoordinator] Default behavior → stopping session`);
     }
-
-    console.log(`[TradeClosureCoordinator] 🔄 Attempting transition: ${currentStatus} → ${targetStatus}`);
-    console.log(`[TradeClosureCoordinator] Transition reason: ${transitionReason}`);
 
     const transitionResult = await goalSessionStateMachine.transition(sessionId, targetStatus, {
       reason: transitionReason,
@@ -487,30 +438,20 @@ class TradeClosureCoordinator {
       },
     });
 
-    if (transitionResult.success) {
-      // Send notification for session closure
-      if (targetStatus === 'stopped') {
-        await notificationCoordinator.send({
-          userId,
-          type: 'session_ended',
-          title: 'Session Ended',
-          message: isManualClose
-            ? 'Your trading session has ended because you closed all trades.'
-            : isSystemClose
-            ? `Your trading session has ended. Trade closed by ${closeReason === 'stop_loss' ? 'Stop Loss' : 'Take Profit'}.`
-            : 'Your trading session has ended.',
-          sessionId,
-          priority: 'medium',
-          metadata: {
-            reason: transitionReason,
-            closeReason,
-          },
-        });
-      }
-    } else {
-      console.error(
-        `[TradeClosureCoordinator] Failed to transition session: ${transitionResult.error}`
-      );
+    if (transitionResult.success && targetStatus === 'stopped') {
+      await notificationCoordinator.send({
+        userId,
+        type: 'session_ended',
+        title: 'Session Ended',
+        message: isManualClose
+          ? 'Your trading session has ended because you closed all trades.'
+          : isSystemClose
+          ? `Your trading session has ended. Trade closed by ${closeReason === 'stop_loss' ? 'Stop Loss' : 'Take Profit'}.`
+          : 'Your trading session has ended.',
+        sessionId,
+        priority: 'medium',
+        metadata: { reason: transitionReason, closeReason },
+      });
     }
   }
 
@@ -521,31 +462,17 @@ class TradeClosureCoordinator {
     tradeId?: string
   ): Promise<void> {
     try {
-      // Get session and trade data for modal
-      const { data: session } = await supabase
-        .from('goal_sessions')
-        .select('target_value, current_progress, dollar_risk')
-        .eq('id', sessionId)
-        .maybeSingle();
+      const [
+        { data: session },
+        { data: closedTrade },
+        { count: tradesCount },
+      ] = await Promise.all([
+        supabase.from('goal_sessions').select('target_value, current_progress, dollar_risk').eq('id', sessionId).maybeSingle(),
+        supabase.from('goal_session_trades').select('symbol, direction, entry_price, exit_price, profit_loss, stop_loss, take_profit').eq('goal_session_id', sessionId).eq('close_reason', closeReason).order('closed_at', { ascending: false }).limit(1).maybeSingle(),
+        supabase.from('goal_session_trades').select('*', { count: 'exact', head: true }).eq('goal_session_id', sessionId),
+      ]);
 
-      const { data: closedTrade } = await supabase
-        .from('goal_session_trades')
-        .select('symbol, direction, entry_price, exit_price, profit_loss, stop_loss, take_profit')
-        .eq('goal_session_id', sessionId)
-        .eq('close_reason', closeReason)
-        .order('closed_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      const { count: tradesCount } = await supabase
-        .from('goal_session_trades')
-        .select('*', { count: 'exact', head: true })
-        .eq('goal_session_id', sessionId);
-
-      if (!session || !closedTrade) {
-        console.error('[TradeClosureCoordinator] Missing session or trade data for modal');
-        return;
-      }
+      if (!session || !closedTrade) return;
 
       const targetValue = session.target_value;
 
@@ -577,9 +504,8 @@ class TradeClosureCoordinator {
         }
       );
 
-      console.log('[TradeClosureCoordinator] ✅ Trade closed modal created for user decision');
-    } catch (error) {
-      console.error('[TradeClosureCoordinator] Error creating trade closed modal:', error);
+    } catch {
+      // Non-fatal — modal will surface via pending_user_modals subscription
     }
   }
 
@@ -675,7 +601,6 @@ class TradeClosureCoordinator {
         )
         .subscribe();
 
-      console.log(`[TradeClosureCoordinator] Subscribed to closure events for user ${userId}`);
     } catch (error) {
       console.error('[TradeClosureCoordinator] Failed to subscribe to closure events:', error);
       // Don't fail - server-side processing will catch up
@@ -688,8 +613,6 @@ class TradeClosureCoordinator {
    */
   private async handleClosureEvent(event: any): Promise<void> {
     const { tradeClosureEventProcessor } = await import('../trade-closure-event-processor');
-
-    console.log(`[TradeClosureCoordinator] Handling closure event for trade ${event.trade_id}`);
 
     const result = await tradeClosureEventProcessor.processEvent({
       id: event.id,
@@ -708,9 +631,6 @@ class TradeClosureCoordinator {
       event_triggered_by: event.event_triggered_by,
     });
 
-    if (!result.success) {
-      console.warn(`[TradeClosureCoordinator] Event processing failed for ${event.trade_id}:`, result.error);
-    }
 
     // SSOT AUTHORITY (2026-02-20): This is the ONLY place that shows the trade-closed
     // modal. The position-monitor.ts no longer creates its own modal (SSOT violation
@@ -723,38 +643,33 @@ class TradeClosureCoordinator {
     // also calls globalDialogManager.showTradeClosed() via fetchAndShowTradeClosedModal(),
     // but GlobalDialogManager's own 30-second dedup keyed on tradeId is the final safety net.
     // Both paths call globalDialogManager.showTradeClosed(); GDM deduplicates on tradeId.
-    if (this.shownDialogForTrade.has(event.trade_id)) {
-      console.debug(`[TradeClosureCoordinator] Closure dialog already shown for trade ${event.trade_id} — skipping`);
-      return;
-    }
+    if (this.shownDialogForTrade.has(event.trade_id)) return;
 
     try {
-      // CCIP FIX (2026-03-01 TP-MODAL-PNL-SSOT): Fetch tp1_pnl + tp2_pnl so the modal
-      // can display the incremental TP leg breakdown (entry→TP1, TP1→TP2).
-      // These are written by post-trade-analyzer.ts and are the SSOT for per-leg P&L.
-      const { data: tradeData } = await supabase
-        .from('goal_session_trades')
-        .select('symbol, direction, entry_price, exit_price, profit_loss, stop_loss, take_profit, tp1_pnl, tp2_pnl, tp1_hit')
-        .eq('id', event.trade_id)
-        .maybeSingle();
-
-      const { data: session } = await supabase
-        .from('goal_sessions')
-        .select('target_value, current_progress, dollar_risk')
-        .eq('id', event.goal_session_id)
-        .maybeSingle();
-
-      const { count: tradesCount } = await supabase
-        .from('goal_session_trades')
-        .select('*', { count: 'exact', head: true })
-        .eq('goal_session_id', event.goal_session_id);
+      // Run all 3 queries in parallel to minimize modal latency (Phase 2)
+      const [
+        { data: tradeData },
+        { data: session },
+        { count: tradesCount },
+      ] = await Promise.all([
+        supabase
+          .from('goal_session_trades')
+          .select('symbol, direction, entry_price, exit_price, profit_loss, stop_loss, take_profit, tp1_pnl, tp2_pnl, tp1_hit')
+          .eq('id', event.trade_id)
+          .maybeSingle(),
+        supabase
+          .from('goal_sessions')
+          .select('target_value, current_progress, dollar_risk')
+          .eq('id', event.goal_session_id)
+          .maybeSingle(),
+        supabase
+          .from('goal_session_trades')
+          .select('*', { count: 'exact', head: true })
+          .eq('goal_session_id', event.goal_session_id),
+      ]);
 
       if (tradeData && session) {
         const isGoalAchieved = (session.current_progress || 0) >= (session.target_value || Infinity);
-
-        if (!tradeData.stop_loss || !tradeData.take_profit) {
-          console.warn(`[TradeClosureCoordinator] Trade ${event.trade_id} missing stop_loss or take_profit in DB — modal title detection may fall back to database close_reason`);
-        }
 
         this.markDialogShown(event.trade_id);
 
@@ -779,8 +694,8 @@ class TradeClosureCoordinator {
           tp2Pnl: tradeData.tp2_pnl != null ? parseFloat(String(tradeData.tp2_pnl)) : null,
         });
       }
-    } catch (dialogError) {
-      console.error(`[TradeClosureCoordinator] Failed to show closure dialog:`, dialogError);
+    } catch {
+      // Non-fatal — pending_user_modals subscription is the fallback path
     }
   }
 }

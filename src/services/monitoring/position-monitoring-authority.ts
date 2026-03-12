@@ -395,11 +395,9 @@ class PositionMonitoringAuthority {
       }
 
       if (!updatedRows || updatedRows.length === 0) {
-        console.log(`[PositionMonitoringAuthority] TP1 already processed for ${positionId} — skipping (optimistic lock)`);
-        return { success: false, already_processed: true };
+          return { success: false, already_processed: true };
       }
 
-      console.log(`[PositionMonitoringAuthority] TP1 advisory milestone logged for ${positionId} at ${tp1Price.toFixed(5)} - position continues 100% open`);
       return { success: true };
     } catch (error) {
       return {
@@ -458,11 +456,6 @@ class PositionMonitoringAuthority {
         return { success: false, error: updateError.message };
       }
 
-      console.log(
-        `[PositionMonitoringAuthority] ATR SL auto-move: trade=${positionId} ` +
-        `direction=${direction} entry=${entryPrice} ATR=${atr.toFixed(5)} newSL=${newSL.toFixed(5)} ` +
-        `action=${actionTaken}`
-      );
       return { success: true, newSL };
     } catch (error) {
       return {
@@ -489,7 +482,6 @@ class PositionMonitoringAuthority {
         };
       }
 
-      console.log(`[PositionMonitoringAuthority] TP2 marked for ${positionId}`);
       return { success: true };
     } catch (error) {
       return {

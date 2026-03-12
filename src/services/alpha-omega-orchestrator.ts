@@ -134,10 +134,8 @@ class AlphaOmegaOrchestrator {
     userId?: string,
     imSignal?: Record<string, unknown>
   ): Promise<AlphaDecision> {
-    console.log('[Alpha+Omega] 🎯 Starting decision pipeline...');
 
     // ✅ SSOT GUARDRAIL #1: Create TradeContext (MANDATORY for all math operations)
-    console.log(`[Alpha+Omega] 🔒 Creating TradeContext for ${marketState.symbol}...`);
     const contextResult = createTradeContext(marketState.symbol);
 
     if (!contextResult.success || !contextResult.context) {
@@ -155,7 +153,6 @@ class AlphaOmegaOrchestrator {
     }
 
     const tradeContext = contextResult.context;
-    console.log(`[Alpha+Omega] ✅ TradeContext created: hash=${tradeContext.profileHash}, pip=${tradeContext.pipValue}, decimals=${tradeContext.decimalPlaces}`);
 
     // ✅ SSOT GUARDRAIL #2: Validate TradeContext integrity (pre-flight check)
     const preFlightValidation = await validatePreFlight(tradeContext, marketState.symbol, 'alpha-omega-orchestrator');
@@ -172,7 +169,6 @@ class AlphaOmegaOrchestrator {
       };
     }
 
-    console.log('[Alpha+Omega] ✅ SSOT pre-flight passed - TradeContext validated');
 
     // CCIP-STYLE-TF-2026: Style is the SSOT for entry timeframe.
     // Risk mode controls financial exposure only — never timeframe or style selection.
@@ -180,13 +176,10 @@ class AlphaOmegaOrchestrator {
     const resolvedOmegaStyle = resolveCanonicalStyle(goalContext?.tradeStyle, 'SCALP');
     const styleMTFConfig = getStyleMTFConfig(resolvedOmegaStyle);
     const entryTimeframe: Timeframe = styleMTFConfig.entryTimeframe;
-    console.log(`[Alpha+Omega] Trade Style: ${resolvedOmegaStyle} (raw: ${goalContext?.tradeStyle || 'not set'}) -> Entry Timeframe: ${entryTimeframe}`);
-    console.log(`[Alpha+Omega] Risk Mode: ${riskMode.toUpperCase()} (financial exposure only — does not affect timeframe)`);
 
     // Capture signal price and timestamp at analysis time (for drift detection)
     const signalPrice = marketState.price;
     const signalTimestamp = Date.now();
-    console.log(`[Alpha+Omega] Signal captured: ${signalPrice} at ${new Date(signalTimestamp).toISOString()}`);
 
     // FRESHNESS ADVISORY: Check data quality but don't block (except for critical staleness)
     const preCheck = await tradeExecutionFreshnessGate.preCheckFreshness(marketState.symbol);
@@ -219,8 +212,6 @@ class AlphaOmegaOrchestrator {
     }
 
     if (!preCheck.shouldProceed) {
-      console.warn(`[Alpha+Omega] PRE-CHECK ADVISORY: ${preCheck.reason}`);
-      console.warn(`[Alpha+Omega] Proceeding with Alpha's authority - advisory will be included in confidence penalties`);
 
       if (userId) {
         freshnessBlockLogger.logOmegaBlock(
@@ -237,7 +228,6 @@ class AlphaOmegaOrchestrator {
     let sentiment = marketState.sentiment;
     if (!sentiment) {
       try {
-        console.log('[Alpha+Omega] 🔮 Analyzing market context...');
         sentiment = await sentimentCoordinator.getCurrentSentiment(
           marketState.symbol,
           marketState.recentCandles,
@@ -245,14 +235,10 @@ class AlphaOmegaOrchestrator {
           new Date(signalTimestamp)
         );
         if (sentiment) {
-          console.log(`[Alpha+Omega] ✅ Market Context: ${sentiment.sentiment.toUpperCase()} | USD: ${sentiment.usd_strength} | Vol: ${sentiment.volatility} | Confidence: ${sentiment.confidence}%`);
-          console.log(`[Alpha+Omega] 📊 Context: ${sentiment.summary}`);
           marketState.sentiment = sentiment; // Add to market state for Omegas
         } else {
-          console.warn('[Alpha+Omega] ⚠️ Market context unavailable - proceeding without');
         }
       } catch (error) {
-        console.warn('[Alpha+Omega] ⚠️ Market context analysis failed:', error);
       }
     }
 
@@ -264,9 +250,6 @@ class AlphaOmegaOrchestrator {
         marketState.symbol,
         entryTimeframe
       );
-      console.log(`[Alpha+Omega] 📊 Snapshot SSOT: ${snapshot.snapshotHash}`);
-      console.log(`  Price: ${snapshot.price.toFixed(5)} | ATR: ${snapshot.atr.value.toFixed(5)} | Trend: ${snapshot.trend}`);
-      console.log(`  ✅ All Omegas will see THIS EXACT DATA (no drift)`);
     } catch (error) {
       console.error(`[Alpha+Omega] ❌ Failed to build snapshot:`, error);
       return {
@@ -298,7 +281,6 @@ class AlphaOmegaOrchestrator {
       const driftLimit = DRIFT_THRESHOLDS[marketState.symbol] ?? 15;
 
       if (driftPips > driftLimit) {
-        console.warn(`[Alpha+Omega] DRIFT GUARD: ${driftPips.toFixed(1)} pips drift since signal (limit ${driftLimit}pips) — invalidating snapshot`);
         sharedIntelligenceCoordinator.invalidateSnapshot(marketState.symbol, entryTimeframe);
 
         if (userId) {
@@ -323,7 +305,6 @@ class AlphaOmegaOrchestrator {
         };
       }
     } catch (driftErr) {
-      console.warn('[Alpha+Omega] Drift guard calculation failed (non-blocking):', driftErr);
     }
 
     // Risk is now a PRE-FLIGHT GATE (not a voting Omega)
@@ -370,31 +351,25 @@ class AlphaOmegaOrchestrator {
     }
 
     // Log risk score and warnings (all advisory now)
-    console.log(`[Alpha+Omega] ✅ Risk pre-flight passed hard constraints (Score: ${riskCheck.riskScore}/100)`);
 
     if (advisoryViolations.length > 0) {
       const advisoryMessages = advisoryViolations.map(v => v.message).join('; ');
-      console.warn(`[Alpha+Omega] ⚠️  Risk advisory violations: ${advisoryMessages}`);
-      console.warn(`[Alpha+Omega] Alpha has authority to proceed - violations will affect confidence`);
     }
 
     if (riskCheck.warnings.length > 0) {
       const warningMessages = riskCheck.warnings.map(w => w.message).join('; ');
-      console.warn(`[Alpha+Omega] ⚠️  Risk warnings: ${warningMessages}`);
     }
 
     // CCIP-2026-02-24: Omega 1-5 removed. Only Omega-8 (Orderflow) runs.
     // Omega-8 performs genuine computation: Equal Highs/Lows detection,
     // Liquidity Sweeps, Fair Value Gaps — not present in raw snapshot.
     // All other intelligence reaches Alpha through the raw market briefing.
-    console.log('[Alpha+Omega] Running Omega-8 Orderflow (genuine computation)...');
     const startTime = Date.now();
 
     const safeEvaluate = async <T>(fn: () => T, name: string): Promise<T | null> => {
       try {
         return fn();
       } catch (err) {
-        console.warn(`[${name}] Failed:`, err instanceof Error ? err.message : String(err));
         return null;
       }
     };
@@ -418,11 +393,9 @@ class AlphaOmegaOrchestrator {
     }), 'Omega-8 Hybrid');
 
     const omegaTime = Date.now() - startTime;
-    console.log(`[Alpha+Omega] Omega-8 complete (${omegaTime}ms)`);
 
     if (omega8Vote) {
       const usedLLM = (omega8Vote as any).usedLLM ? ' [LLM]' : ' [DET]';
-      console.log(`[Alpha+Omega] OrderFlow: ${omega8Vote.reasoning || 'N/A'}${usedLLM} | Liq: ${omega8Vote.liquidity_bias}`);
     }
 
     // ✅ Snapshot freshness check (snapshot already validated by cache)
@@ -435,11 +408,9 @@ class AlphaOmegaOrchestrator {
       const confidenceReduction = Math.min(50, Math.round((snapshotAgeSeconds - 30) * 1.5));
       const overallSeverity = snapshotAgeSeconds > 60 ? 'high' : snapshotAgeSeconds > 45 ? 'medium' : 'low';
       freshnessAdvisory = { confidenceReduction, overallSeverity };
-      console.warn(`[Alpha+Omega] ⚠️ Snapshot staleness: ${snapshotAgeSeconds}s old (${overallSeverity} severity, -${confidenceReduction}% confidence)`);
     }
 
     if (snapshotAgeSeconds > 60) {
-      console.warn(`[Alpha+Omega] Snapshot is ${snapshotAgeSeconds}s old - may need refresh`);
       sharedIntelligenceCoordinator.invalidateSnapshot(marketState.symbol, entryTimeframe);
 
       if (userId) {
@@ -535,7 +506,6 @@ class AlphaOmegaOrchestrator {
     const marketBriefing = buildMarketBriefing(snapshotInput, omega8Vote as any);
 
     // Alpha coordinates the decision (with full authority)
-    console.log('[Alpha+Omega] 🧠 Alpha making final decision...');
     const alphaStart = Date.now();
 
     const decision = await alphaCoordinator.coordinate(
@@ -675,13 +645,8 @@ class AlphaOmegaOrchestrator {
     const preCapConfidence = confidenceResult.pre_cap_confidence;
     const advisoryConfidence = confidenceResult.advisory_adjusted_confidence;
 
-    console.log(`[Alpha+Omega] Alpha decision complete (${alphaTime}ms)`);
-    console.log(`[Alpha+Omega] Total pipeline: ${totalTime}ms`);
-    console.log(`[Alpha+Omega] Alpha decided: ${decision.action} @ ${originalConfidence}%`);
-    console.log(`[Alpha+Omega] Execution confidence: ${finalConfidence}% (Alpha's genuine opinion) | Advisory-adjusted: ${advisoryConfidence}% (display-only, not applied) (audit: ${confidenceResult.audit_id?.substring(0, 8)})`);
 
     if (confidenceResult.is_degraded) {
-      console.log(`[Alpha+Omega] Advisory penalties would degrade to ${advisoryConfidence}% (logged, not enforced): ${confidenceResult.degradation_reason}`);
     }
 
     // ✅ CRITICAL SAFETY CHECK: Ensure entry price is never null/undefined
@@ -712,7 +677,6 @@ class AlphaOmegaOrchestrator {
       penalty: conflictCheck.confidencePenalty
     };
 
-    console.log(`[Alpha+Omega] 📝 Conflict Info: detected=${conflictInfo.detected}, type=${conflictInfo.type}, severity=${conflictInfo.severity}`);
 
     return {
       ...decision,
@@ -763,15 +727,12 @@ class AlphaOmegaOrchestrator {
     const isConcurrent = isConcurrentExecutionEnabled();
     const mode = isConcurrent ? 'CONCURRENT' : 'SEQUENTIAL';
 
-    console.log(`[Alpha+Omega] 🔍 Evaluating ${marketStates.length} symbols in ${mode} mode...`);
-    console.log(formatConcurrentConfigForLogging());
 
     const startTime = Date.now();
 
     // GOVERNANCE: Track execution start
     const executionId = `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     if (config.governance.enabled) {
-      console.log(`[Alpha+Omega] 📊 Governance Tracking ID: ${executionId}`);
     }
 
     // Route to appropriate evaluation strategy
@@ -782,12 +743,9 @@ class AlphaOmegaOrchestrator {
     const duration = Date.now() - startTime;
     const evaluatedCount = decisionMap.size;
 
-    console.log(`[Alpha+Omega] ✅ Multi-symbol evaluation complete in ${duration}ms (${mode})`);
-    console.log(`[Alpha+Omega] 📊 Evaluated ${evaluatedCount}/${marketStates.length} symbols`);
 
     // GOVERNANCE: Alert if execution exceeded threshold
     if (config.governance.enabled && duration > config.governance.alertThresholdMs) {
-      console.warn(`[Alpha+Omega] ⚠️ GOVERNANCE ALERT: Execution took ${duration}ms (threshold: ${config.governance.alertThresholdMs}ms)`);
     }
 
     return decisionMap;
@@ -816,11 +774,9 @@ class AlphaOmegaOrchestrator {
     return new Promise(async (resolve) => {
       try {
         if (staggerDelayMs && staggerDelayMs > 0) {
-          console.log(`[Alpha+Omega Batch ${(index || 0) + 1}/${total || '?'}] ${marketState.symbol} | Stagger delay: ${staggerDelayMs}ms (anti-thundering-herd)`);
           await new Promise(r => setTimeout(r, staggerDelayMs));
         }
 
-        console.log(`[Alpha+Omega Batch ${(index || 0) + 1}/${total || '?'}] ${marketState.symbol} | Price: ${marketState.price}, ATR: ${marketState.atr}`);
 
         if (!marketState.atr || marketState.atr <= 0) {
           const noTradeDecision: AlphaDecision = {
@@ -853,11 +809,9 @@ class AlphaOmegaOrchestrator {
 
         const timeoutPromise = new Promise<AlphaDecision>((_, reject) => {
           warn50Id = setTimeout(() => {
-            console.warn(`[Alpha+Omega] ${marketState.symbol}: 50% timeout (${Math.round(sessionTimeout * 0.5)}ms)`);
           }, sessionTimeout * 0.5);
 
           warn75Id = setTimeout(() => {
-            console.warn(`[Alpha+Omega] ${marketState.symbol}: 75% timeout (${Math.round(sessionTimeout * 0.75)}ms) - approaching limit`);
           }, sessionTimeout * 0.75);
 
           timeoutId = setTimeout(() => {
@@ -872,7 +826,6 @@ class AlphaOmegaOrchestrator {
 
         clearTimers();
         const timing = Date.now() - symbolStartTime;
-        console.log(`[Alpha+Omega] ${marketState.symbol}: ${decision.action} @ ${decision.confidence}% (${timing}ms)`);
         resolve({ symbol: marketState.symbol, decision, timing });
 
       } catch (error) {
@@ -945,9 +898,6 @@ class AlphaOmegaOrchestrator {
     const sessionTimeout = getSessionTimeout(currentSession);
     const sessionDescription = marketScheduleService.getSessionDescription(currentSession);
 
-    console.log(`[Alpha+Omega] ROLLING POOL MODE: ${marketStates.length} symbols, ${maxConcurrent} concurrent slots`);
-    console.log(`[Alpha+Omega] Session: ${sessionDescription} | Timeout: ${sessionTimeout}ms/symbol`);
-    console.log(`[Alpha+Omega] Early-exit: ${earlyExitAllowed ? `YES (${minConfidence}%+)` : `NO${goalContext?.multiTradeMode ? ' (multi-trade mode — full evaluation required)' : ''}`}`);
 
     const decisionMap = new Map<string, AlphaDecision>();
     const symbolTimings = new Map<string, number>();
@@ -989,7 +939,6 @@ class AlphaOmegaOrchestrator {
       submitNext();
     }
 
-    console.log(`[Alpha+Omega] Pool seeded with ${inFlight.size} symbol(s)`);
 
     // Drain the pool: each iteration waits for the fastest in-flight slot to finish,
     // records the result, then immediately submits the next queued symbol.
@@ -1012,7 +961,6 @@ class AlphaOmegaOrchestrator {
         foundViableTrade = true;
         viableTradeSymbol = symbol;
         const remaining = queue.length + inFlight.size;
-        console.log(`[Alpha+Omega] VIABLE TRADE: ${symbol} @ ${decision.confidence}% confidence | ${remaining} remaining symbol(s) skipped`);
       }
 
       // Submit next symbol into the freed slot (respects early-exit flag)
@@ -1022,7 +970,6 @@ class AlphaOmegaOrchestrator {
     }
 
     if (foundViableTrade) {
-      console.log(`[Alpha+Omega] Best trade: ${viableTradeSymbol} | Evaluated: ${decisionMap.size}/${marketStates.length}`);
     }
 
     if (config.governance.enabled) {
@@ -1033,15 +980,12 @@ class AlphaOmegaOrchestrator {
       const errorRate = (errorCount / marketStates.length) * 100;
 
       if (errorRate > config.governance.alertErrorRatePercent) {
-        console.warn(`[Alpha+Omega] GOVERNANCE ALERT: Infrastructure error rate ${errorRate.toFixed(1)}% exceeds ${config.governance.alertErrorRatePercent}% (${errorCount} system failures, ${reasonedNoTradeCount} reasoned rejections)`);
       }
     }
 
     if (config.tracking.logDetailedTimings) {
-      console.log(`[Alpha+Omega] Symbol Timings:`);
       symbolTimings.forEach((timing, symbol) => {
         const decision = decisionMap.get(symbol);
-        console.log(`  ${symbol}: ${timing}ms (${decision?.action || 'UNKNOWN'})`);
       });
     }
 
@@ -1067,8 +1011,6 @@ class AlphaOmegaOrchestrator {
     // when multi-trade mode is active so all symbols get evaluated for top-N ranking.
     const earlyExitAllowed = config.earlyExit.enabled && !goalContext?.multiTradeMode;
 
-    console.log(`[Alpha+Omega] 🔄 SEQUENTIAL MODE: Analyzing symbols one by one`);
-    console.log(`[Alpha+Omega] 🎯 Early-exit threshold: ${minConfidence}% confidence | Suppressed: ${goalContext?.multiTradeMode ? 'YES (multi-trade)' : 'NO'}`);
 
     const decisionMap = new Map<string, AlphaDecision>();
 
@@ -1077,8 +1019,6 @@ class AlphaOmegaOrchestrator {
       const marketState = marketStates[i];
 
       try {
-        console.log(`%c[Alpha+Omega Pre-Check ${i + 1}/${marketStates.length}] ${marketState.symbol}`, 'color: #00aaff; font-weight: bold');
-        console.log(`  Price: ${marketState.price}, ATR: ${marketState.atr}`);
 
         if (!marketState.atr || marketState.atr <= 0) {
           console.error(`%c INVALID ATR for ${marketState.symbol}`, 'color: #ff0000; font-weight: bold');
@@ -1103,9 +1043,6 @@ class AlphaOmegaOrchestrator {
         const { calculatePipDistance } = await import('../utils/currencyHelpers');
         const slDistancePips = calculatePipDistance(marketState.symbol, marketState.price, proposedSL);
 
-        console.log(`[Alpha+Omega] Dynamic SL/TP for ${marketState.symbol}:`);
-        console.log(`  Multipliers: ${stopLossMultiplier.toFixed(2)}x SL / ${takeProfitMultiplier.toFixed(2)}x TP`);
-        console.log(`  Proposed SL: ${proposedSL.toFixed(5)} (${slDistancePips.toFixed(1)} pips from entry)`);
 
         const decision = await this.makeTradeDecision(
           marketState,
@@ -1126,12 +1063,8 @@ class AlphaOmegaOrchestrator {
 
           if (isViableTrade) {
             const remainingSymbols = marketStates.length - (i + 1);
-            console.log(`[Alpha+Omega] ✅ EARLY EXIT: Found viable trade on ${marketState.symbol} (${decision.confidence}% confidence)`);
-            console.log(`[Alpha+Omega] 🚀 Stopped scanning - skipped ${remainingSymbols} remaining symbols`);
-            console.log(`[Alpha+Omega] 💰 Savings: ~${remainingSymbols} LLM calls avoided`);
             break;
           } else {
-            console.log(`[Alpha+Omega] ⏭️  ${marketState.symbol}: ${decision.action} @ ${decision.confidence}% - continuing scan...`);
           }
         }
 
@@ -1206,13 +1139,10 @@ class AlphaOmegaOrchestrator {
 
     // Determine check level
     if (drawdownPct >= EMERGENCY_TRIGGER) {
-      console.log(`[MidTrade] 🚨 EMERGENCY check @ ${(drawdownPct * 100).toFixed(0)}% drawdown`);
       return await midTradeMonitor.evaluateEmergency(snapshot, traderScore, userId, sessionId);
     } else if (drawdownPct >= HARD_TRIGGER) {
-      console.log(`[MidTrade] ⚠️ HARD check @ ${(drawdownPct * 100).toFixed(0)}% drawdown`);
       return await midTradeMonitor.evaluateHard(snapshot, traderScore, userId, sessionId);
     } else {
-      console.log(`[MidTrade] ℹ️ SOFT check @ ${(drawdownPct * 100).toFixed(0)}% drawdown`);
       return await midTradeMonitor.evaluateSoft(snapshot, traderScore, userId, sessionId);
     }
   }
@@ -1436,22 +1366,16 @@ class AlphaOmegaOrchestrator {
       // Equal split (2v2 or 3v3) - signals Alpha's arbitration is needed, but not fatal
       if (majorityCount === minorityCount) {
         penalty = 0.90; // 10% penalty for equal split - let Alpha decide
-        console.log(`[Omega Conflict] HARD conflict - EQUAL SPLIT (${majorityCount}v${minorityCount}) - Alpha arbitration needed (${((1 - penalty) * 100).toFixed(0)}% penalty)`);
       }
       // Clear majority (3+ vs 1-2) - minimal penalty
       else if (majorityCount >= 3 && minorityCount <= 2) {
         penalty = 0.90; // 10% penalty when clear majority exists
-        console.log(`[Omega Conflict] HARD conflict with ${majorityCount}v${minorityCount} majority - applying minimal penalty (${((1 - penalty) * 100).toFixed(0)}% penalty)`);
       }
       // Slight majority (3v2, 2v1) - moderate penalty
       else {
         penalty = 0.75; // 25% penalty for slight majority
-        console.log(`[Omega Conflict] HARD conflict (${majorityCount}v${minorityCount}) - applying moderate penalty (${((1 - penalty) * 100).toFixed(0)}% penalty)`);
       }
 
-      console.log(`[Omega Conflict] ⚠️ HIGH SEVERITY: Conflicting high-confidence signals from opposing domains`);
-      console.log(`[Omega Conflict] ${description}`);
-      console.log(`[Omega Conflict] Recommended: Follow ${majorityDirection} majority with ${penalty}x confidence (${(penalty * 100).toFixed(0)}%)`);
 
       return {
         hasConflict: true,
@@ -1468,8 +1392,6 @@ class AlphaOmegaOrchestrator {
       const majorityCount = Math.max(buyVotes.length, sellVotes.length);
       const minorityCount = Math.min(buyVotes.length, sellVotes.length);
 
-      console.log(`[Omega Conflict] 🔥 AGGRESSIVE MODE OVERRIDE: ${majorityCount} vs ${minorityCount} - Taking ${majorityDirection} with minimal penalty`);
-      console.log('[Omega Conflict] Following overwhelming majority');
 
       return {
         hasConflict: true,
@@ -1503,7 +1425,6 @@ class AlphaOmegaOrchestrator {
       }
 
       const modeLabel = isAggressiveMode ? 'AGGRESSIVE' : 'STANDARD';
-      console.warn(`[Omega Conflict] SOFT conflict (${modeLabel}), applying ${penalty}x confidence penalty`);
       return {
         hasConflict: true,
         conflictType: 'SOFT',
@@ -1547,13 +1468,10 @@ class AlphaOmegaOrchestrator {
       current.multiplier < worst.multiplier ? current : worst
     );
 
-    console.log(`[Alpha+Omega] 📊 CONFIDENCE PENALTIES (advisory-only, do NOT affect execution):`);
     penalties.forEach(p => {
       const marker = p === worstPenalty ? '→ ADVISORY WORST-CASE' : '  (advisory, not worst-case)';
       const pctReduction = ((1 - p.multiplier) * 100).toFixed(1);
-      console.log(`  ${marker} ${p.source}: ${p.multiplier.toFixed(2)}x (-${pctReduction}%) - ${p.reason}`);
     });
-    console.log(`[Alpha+Omega] 🎯 Advisory multiplier: ${worstPenalty.multiplier.toFixed(2)}x from ${worstPenalty.source} (dashboard display only - execution uses Alpha's raw confidence)`);
 
     return {
       appliedPenalty: worstPenalty,
@@ -1771,7 +1689,6 @@ class AlphaOmegaOrchestrator {
   private logOmegaVotes(votes: OmegaCouncilVotes): void {
     if (votes.omega8) {
       const usedLLM = (votes.omega8 as any).usedLLM ? ' [LLM]' : ' [DET]';
-      console.log(`[Omega-8 OrderFlow]: ${votes.omega8.reasoning || 'N/A'}${usedLLM} | Liq: ${votes.omega8.liquidity_bias}`);
     }
   }
 
