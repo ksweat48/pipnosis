@@ -305,10 +305,39 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     //   - orchestrator confidence modifier assembly
     // Measured post-LLM overhead: 4-9s. Full pipeline worst-case: 31s observed.
     // 40s = 31s observed worst-case + 9s safety margin. Clean headroom for all sessions.
+    //
+    // CCIP-2026-03-13c (SECOND-LLM-ABORT-FIX): symbolTimeoutMs remains at 40s (unchanged).
+    // The root cause of the ongoing AbortErrors was NOT the session timeout — it was the
+    // client-side fetchTimeoutMs (22s) in openai-client.ts racing the second LLM call.
+    // Each symbol makes TWO sequential LLM calls. The first (Omega-8) completes at ~15-18s.
+    // The second (Alpha) starts at ~15-18s and has its own 22s client-side abort.
+    // Combined: 15-18s + 22s = 37-40s — exactly at the 40s session boundary.
+    // The client AbortController fired at ~37s before the 40s session Promise.race() could
+    // resolve, producing "AbortError: signal is aborted without reason".
+    // FIX: fetchTimeoutMs raised 22s → 33s and OPENAI_REQUEST_TIMEOUT_MS raised 18s → 25s.
+    // These are the sole corrections. symbolTimeoutMs (40s) remains the SSOT outer boundary.
+    //
+    // TIMEOUT BUDGET HIERARCHY (SSOT — all consumers must honour these invariants):
+    //   OPENAI_REQUEST_TIMEOUT_MS (server)  = 25s  — netlify/functions/openai-chat.ts
+    //   fetchTimeoutMs (client)             = 33s  — src/services/openai-client.ts
+    //   symbolTimeoutMs / sessionTimeouts   = 40s  — this file (SSOT)
+    //   batchTimeoutMs / councilTimeoutMs   = 160s — this file (SSOT)
+    //   FUNCTION_TIMEOUT_MS (Netlify fn)    = 58s  — netlify/functions/openai-chat.ts
+    //   Netlify platform hard limit         = 60s  — netlify.toml
+    //
+    // INVARIANTS (must never be violated):
+    //   1. fetchTimeoutMs >= OPENAI_REQUEST_TIMEOUT_MS + 8s overhead
+    //      (33s >= 25s + 8s = 33s ✓)
+    //   2. OPENAI_REQUEST_TIMEOUT_MS + max overhead < FUNCTION_TIMEOUT_MS
+    //      (25s + 8s = 33s < 58s ✓)
+    //   3. FUNCTION_TIMEOUT_MS < Netlify platform hard limit
+    //      (58s < 60s ✓)
+    //   4. symbolTimeoutMs > fetchTimeoutMs
+    //      (40s > 33s ✓ — ensures session timeout is the outer boundary, not fetch abort)
     symbolTimeoutMs: 40000,
     batchTimeoutMs: 160000,  // CCIP-2026-03-13a: raised 120s → 160s to match new councilTimeoutMs
     // CCIP-2026-03-13a: Raised 120s → 160s.
-    // Per-symbol budget: 40s max (LLM 22s + post-LLM 9s + margin).
+    // Per-symbol budget: 40s max (LLM 33s + post-LLM 9s + margin).
     // 9 symbols, 5-wide rolling pool = ceil(9/5) = 2 waves × 40s = 80s.
     // 160s = 80s actual + 80s safety buffer.
     councilTimeoutMs: 160000,
@@ -325,6 +354,7 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     // first-wave symbols (XAUUSD, US30, NAS100, SPX500, EURUSD) to return NO_TRADE@0%
     // via the timeout branch instead of Alpha's real decision.
     // 40s = 31s worst-case observed + 9s safety margin.
+    // CCIP-2026-03-13c: These values remain at 40s. See symbolTimeoutMs note above.
     sessionTimeouts: {
       asian: 40000,
       london: 40000,

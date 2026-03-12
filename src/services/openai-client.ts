@@ -208,7 +208,28 @@ class OpenAIClient {
   // fires first (at 18s) and returns a clean 504 JSON before the browser cancels the fetch.
   // INVARIANT: fetchTimeoutMs MUST always be >= OPENAI_REQUEST_TIMEOUT_MS + overhead.
   // If OPENAI_REQUEST_TIMEOUT_MS changes, update this value accordingly.
-  private readonly fetchTimeoutMs = 22000;
+  //
+  // CCIP-2026-03-13c (SECOND-LLM-ABORT-FIX): Raised 22,000ms → 33,000ms.
+  // ROOT CAUSE: Each symbol makes TWO sequential LLM calls (Omega-8 → Alpha). The first call
+  // (Omega-8) completes at ~15-18s elapsed. The second call (Alpha) then starts its own 22s
+  // fetch timer. Combined wall-clock: 15-18s + 22s = 37-40s, which races against the 40s
+  // session timeout. The client-side AbortController was firing at ~37s — just BEFORE the
+  // 40s session Promise.race() could resolve cleanly — producing:
+  //   "AbortError: signal is aborted without reason"
+  // The session timeout (40s) could not catch this because the fetchTimeoutMs AbortError was
+  // NOT recognised as a "timeout" string, so the orchestrator logged it as a general failure.
+  //
+  // FIX: Raise fetchTimeoutMs to 33s (= OPENAI_REQUEST_TIMEOUT_MS 25s + 8s overhead margin).
+  // The server-side OpenAI abort fires at 25s and returns a clean 504 JSON to the client.
+  // The client's 33s timer is always >= server budget, so the server fires first.
+  // If Alpha starts at 18s elapsed, it now completes or times out at 18s + 25s = 43s server-side,
+  // which the 40s session-level Promise.race() catches cleanly — returning a session timeout
+  // NO_TRADE instead of an opaque AbortError crash.
+  //
+  // INVARIANT: fetchTimeoutMs (33s) >= OPENAI_REQUEST_TIMEOUT_MS (25s) + max overhead (8s) = 33s.
+  // SSOT: OPENAI_REQUEST_TIMEOUT_MS is owned by netlify/functions/openai-chat.ts.
+  //       If OPENAI_REQUEST_TIMEOUT_MS changes, this value MUST be updated to remain >= server + 8s.
+  private readonly fetchTimeoutMs = 33000;
 
   constructor() {
     this.functionUrl = '/.netlify/functions/openai-chat';

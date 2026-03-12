@@ -63,8 +63,26 @@ const supabase = getSupabaseAdmin();
 // The OpenAI call (18s) + maximum realistic overhead (8s pre + 3s post = 11s) = 29s total.
 // 58s gives 29s of headroom even under worst-case cold start. The self-imposed timer fires
 // before Netlify's platform kill, returning a clean 504 JSON instead of a TCP drop.
+//
+// CCIP-2026-03-13c (SECOND-LLM-ABORT-FIX): Raised OPENAI_REQUEST_TIMEOUT_MS 18s → 25s.
+// ROOT CAUSE (identified from production console logs):
+//   Each symbol evaluation makes TWO sequential LLM calls: Omega-8 first, then Alpha.
+//   The first call (Omega-8) was completing at ~15-18s elapsed since symbol start.
+//   The second call (Alpha) then starts its own 22s client-side fetch timer at ~15-18s.
+//   Combined: first call finishes at 15-18s + second call aborts at 15-18s + 22s = 37-40s.
+//   This fires the second call's AbortController just before the 40s session timeout,
+//   producing "AbortError: signal is aborted without reason" for the Alpha LLM call.
+//   The server-side OPENAI_REQUEST_TIMEOUT_MS (18s) was the root constraint: the server
+//   aborts its OpenAI fetch at 18s and returns a 504, which the client's 22s timer
+//   catches. By raising the server limit to 25s, the Alpha call (starting at ~15-18s)
+//   completes at 15-18s + 25s = 40-43s, outside the 40s session boundary but within
+//   the batchTimeoutMs (160s) — the session timeout's Promise.race() fires first at 40s,
+//   cleanly returning NO_TRADE rather than crashing with an AbortError.
+// INVARIANT: OPENAI_REQUEST_TIMEOUT_MS (25s) + max overhead (8s) = 33s < FUNCTION_TIMEOUT_MS (58s).
+// INVARIANT: fetchTimeoutMs in openai-client.ts MUST remain >= OPENAI_REQUEST_TIMEOUT_MS + 8s.
+//            fetchTimeoutMs is set to 33s (= 25s + 8s overhead margin). See openai-client.ts.
 const FUNCTION_TIMEOUT_MS = 58000; // CCIP-2026-03-13b: 50s → 58s. Budget: 60s Netlify limit - 2s exit margin.
-const OPENAI_REQUEST_TIMEOUT_MS = 18000; // CCIP-2026-03-12b: unchanged. 18s + max 11s overhead = 29s, 29s clear of 58s limit.
+const OPENAI_REQUEST_TIMEOUT_MS = 25000; // CCIP-2026-03-13c: 18s → 25s. Allows Alpha (2nd LLM call) to complete before client AbortController fires.
 const RATE_LIMIT_CHECK_TIMEOUT_MS = 2000; // 2 seconds for rate limit check
 
 const MODEL_PRICING = {
