@@ -296,8 +296,9 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     // in parallel at all times. As soon as any slot frees the next symbol starts.
     // Queue budget: 5 symbols × 2 LLM calls × 100ms = 1s — well within OpenAI 20 req/s.
     maxConcurrentSymbols: 5,
-    // CCIP-2026-03-12b: reduced 90s → 45s. Per-symbol budget is now 22s max (no retry).
-    symbolTimeoutMs: 45000,
+    // CCIP-2026-03-12c: reduced 45s → 25s. Per-symbol budget is 22s max (no retry).
+    // 25s = 22s actual + 3s jitter margin. Eliminates AbortError noise on completed symbols.
+    symbolTimeoutMs: 25000,
     batchTimeoutMs: 120000,  // CCIP-2026-03-12b: reduced 360s → 120s, matches councilTimeoutMs
     // CCIP-2026-03-12b (TIMEOUT-CASCADE-FIX): Reduced 300s → 120s.
     // New per-symbol budget = 22s max (18s OpenAI + 4s overhead), no retries.
@@ -306,16 +307,18 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     councilTimeoutMs: 120000,
 
     useSessionTimeouts: true,
-    // CCIP-2026-03-12b (TIMEOUT-CASCADE-FIX): All session timeouts reduced to 45s.
-    // New per-symbol budget: 18s OpenAI + 4s overhead = 22s max. 45s = 2× headroom.
-    // Session differentiation is no longer meaningful at this resolution — the bottleneck
-    // is the Netlify 50s hard limit, not session complexity. All sessions use 45s.
+    // CCIP-2026-03-12c (ABORT-NOISE-FIX): All session timeouts reduced from 45s → 25s.
+    // Per-symbol budget: 18s OpenAI + 4s overhead = 22s max (no retries).
+    // 45s was 2× the actual budget — the unused 23s caused every symbol's AbortController
+    // to fire after the LLM had already returned, producing "AbortError: signal is aborted
+    // without reason" noise in the console on every completed symbol.
+    // 25s = 22s actual + 3s jitter margin. Clean abort if OpenAI genuinely stalls.
     sessionTimeouts: {
-      asian: 45000,
-      london: 45000,
-      nyse: 45000,
-      overlap: 45000,
-      off_hours: 45000,
+      asian: 25000,
+      london: 25000,
+      nyse: 25000,
+      overlap: 25000,
+      off_hours: 25000,
     },
   },
 
