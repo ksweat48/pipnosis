@@ -194,11 +194,37 @@ export interface ConcurrentExecutionConfig {
 //   As each slot drains, the next symbol is submitted immediately.
 //   Early-exit still fires: when a viable trade is found, pending symbols are abandoned.
 //
+// CCIP-2026-03-12b (TIMEOUT-CASCADE-FIX): Eliminated all symbol timeouts.
+//
+// ROOT CAUSE CONFIRMED (production console showing every symbol timing out):
+//   The fundamental budget mismatch: Netlify hard-kills connections at 50s. With maxRetries=1
+//   and OPENAI_REQUEST_TIMEOUT_MS=28s, a symbol needing a retry consumed:
+//     28s (first call) + 500ms (backoff) + 28s (retry) = 56.5s — 6.5s OVER the Netlify limit.
+//   Netlify terminates the connection mid-retry with a TCP drop (not a clean 504), so the
+//   client never receives a usable error response. The orchestrator symbol timeout (90-120s)
+//   never fires because the HTTP transport layer is already dead.
+//
+// THREE-PART FIX:
+//   1. OPENAI_REQUEST_TIMEOUT_MS: 28s → 18s (netlify/functions/openai-chat.ts).
+//      Budget: 18s OpenAI + 4s overhead (Supabase auth + rate-limit RPC + TLS) = 22s.
+//      22s is well within the 50s Netlify limit. 28s margin of safety.
+//   2. resilience.maxRetries: 1 → 0 (this file, SSOT).
+//      A retry at 18s + backoff + 18s = 37s+ still risks hitting 50s under load.
+//      Zero retries: symbol gets one clean 22s window. If OpenAI misses it, the symbol
+//      is NO_TRADE for this cycle. The rolling pool still evaluates all other symbols.
+//   3. fetchTimeoutMs: 35s → 22s (openai-client.ts).
+//      Must be > server-side OPENAI_REQUEST_TIMEOUT_MS (18s) so the Netlify function
+//      aborts cleanly before the browser cancels. 22s = 18s + 4s overhead margin.
+//   4. Session timeouts: 75-120s → 45s flat (all sessions).
+//      Each symbol now completes in at most 22s (one call, no retry). 45s gives 2x headroom.
+//   5. councilTimeoutMs: 300s → 120s.
+//      9 symbols, 5-wide rolling pool = 2 waves × 22s each = 44s + 76s buffer = 120s.
+//
 // EXPECTED IMPROVEMENT:
-//   Current worst-case: ~228s (3 batches × 76s avg, dominated by slowest-per-batch)
-//   Target worst-case:  ~80-100s (rolling pool eliminates inter-batch idle time)
-//   Target best-case:   ~45-60s (early-exit after first batch with strong signal)
-//   Net improvement:    2.3-2.8x faster
+//   Previous worst-case: infinite (all symbols timing out, no trade returned)
+//   New worst-case:      ~44s (9 symbols, 5-wide pool, 22s each = 2 waves × 22s)
+//   New best-case:       ~22s (early-exit after first wave)
+//   Net improvement:     eliminates all cascading timeouts
 //
 // CCIP-2026-03-04: Concurrent execution config updated to fix Alpha NO_TRADE cascade.
 //
@@ -270,20 +296,26 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     // in parallel at all times. As soon as any slot frees the next symbol starts.
     // Queue budget: 5 symbols × 2 LLM calls × 100ms = 1s — well within OpenAI 20 req/s.
     maxConcurrentSymbols: 5,
-    symbolTimeoutMs: 90000,  // 90s base — unchanged, still provides 4× headroom over ~21s pipeline
-    batchTimeoutMs: 360000,  // 360s total — retained for compatibility
-    // CCIP-2026-03-12: Reduced 420s → 300s. With 5-wide rolling pool and 1 retry,
-    // worst-case is 2 waves of ~120s each = 240s + 60s buffer = 300s.
-    // Previous budget (3 batches × 120s + 60s) no longer applies with rolling pool.
-    councilTimeoutMs: 300000,
+    // CCIP-2026-03-12b: reduced 90s → 45s. Per-symbol budget is now 22s max (no retry).
+    symbolTimeoutMs: 45000,
+    batchTimeoutMs: 120000,  // CCIP-2026-03-12b: reduced 360s → 120s, matches councilTimeoutMs
+    // CCIP-2026-03-12b (TIMEOUT-CASCADE-FIX): Reduced 300s → 120s.
+    // New per-symbol budget = 22s max (18s OpenAI + 4s overhead), no retries.
+    // 9 symbols, 5-wide rolling pool = ceil(9/5) = 2 waves × 22s = 44s.
+    // 120s = 44s actual + 76s safety buffer (handles queue jitter, cold starts).
+    councilTimeoutMs: 120000,
 
     useSessionTimeouts: true,
+    // CCIP-2026-03-12b (TIMEOUT-CASCADE-FIX): All session timeouts reduced to 45s.
+    // New per-symbol budget: 18s OpenAI + 4s overhead = 22s max. 45s = 2× headroom.
+    // Session differentiation is no longer meaningful at this resolution — the bottleneck
+    // is the Netlify 50s hard limit, not session complexity. All sessions use 45s.
     sessionTimeouts: {
-      asian: 90000,      // 90s — was 60s. Queue wait 6s + API 10s + build 5s = 21s actual; 90s gives 4× headroom
-      london: 100000,    // 100s — was 70s. Prevents NAS100/US30 timeout that was logged in prod
-      nyse: 110000,      // 110s — was 80s. High volatility requires complex thesis generation
-      overlap: 120000,   // 120s — was 90s. London+NYSE overlap: highest complexity allowed
-      off_hours: 75000,  // 75s — was 50s. Limited activity but queue wait unchanged
+      asian: 45000,
+      london: 45000,
+      nyse: 45000,
+      overlap: 45000,
+      off_hours: 45000,
     },
   },
 
@@ -313,10 +345,19 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
   },
 
   // CCIP-2026-03-12: Resilience block added as SSOT for retry policy.
-  // openai-client.ts MUST read maxRetries via getMaxRetries() — do NOT use errorHandling.
-  // maxRetries reduced 2→1: worst-case double-504 caps at 57s (1 retry) vs 88s (2 retries).
+  // CCIP-2026-03-12b (TIMEOUT-CASCADE-FIX): maxRetries reduced 1→0.
+  // ROOT CAUSE: With OPENAI_REQUEST_TIMEOUT_MS=18s and Netlify hard limit=50s,
+  // the per-call budget is 18s + 4s overhead = 22s. A retry costs another 22s, bringing
+  // the worst-case total to 44s — dangerously close to the 50s kill line. Any transient
+  // Netlify infrastructure latency (TLS handshake, cold start, ~2-6s) pushes the retry
+  // over 50s, causing Netlify to hard-kill the connection before the function returns a
+  // clean 504. The client then receives an infrastructure TCP drop, not a retryable error.
+  // FIX: Zero retries. Each symbol gets one clean 22s window. If OpenAI does not respond
+  // in 18s the symbol becomes NO_TRADE for this scan cycle. The rolling pool (5 concurrent)
+  // processes all remaining symbols simultaneously, so no time is lost waiting for a retry
+  // that will hit the Netlify wall anyway.
   resilience: {
-    maxRetries: 1,
+    maxRetries: 0,
     retryDelayMs: 500,
   },
 

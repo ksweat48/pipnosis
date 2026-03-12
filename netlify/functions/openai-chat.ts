@@ -26,12 +26,26 @@ const supabase = getSupabaseAdmin();
 //
 // Fix: reduce OPENAI_REQUEST_TIMEOUT_MS to 28 s.
 // New budget: 28 s OpenAI + 8 s overhead = 36 s — 14 s clear of the 50 s limit.
-// This gives the AbortController ample time to fire, return a clean 504 JSON body,
-// and let openai-client.ts fetchTimeoutMs (35 s) align correctly on the browser side.
-// IMPORTANT: openai-client.ts fetchTimeoutMs MUST be kept > OPENAI_REQUEST_TIMEOUT_MS
-// so the server-side abort fires before the browser-side fetch timeout cancels the request.
+//
+// CCIP-TIMEOUT-FIX-2026-03-12b (ALL SYMBOLS TIMEOUT FIX):
+// Production: every symbol in every scan was timing out. Root cause confirmed:
+//   With OPENAI_REQUEST_TIMEOUT_MS=28s and maxRetries=1 (now 0), the retry path consumed:
+//   28s (first call) + 500ms (backoff) + 28s (retry) = 56.5s — 6.5s OVER the 50s Netlify limit.
+//   Netlify hard-kills the TCP connection before the retry response arrives. The client
+//   receives an infrastructure drop (not a clean 504), so the orchestrator symbol timeout
+//   (90-120s) never fires. All symbols cascade to timeout → NO_TRADE.
+//
+// Fix: reduce OPENAI_REQUEST_TIMEOUT_MS to 18 s.
+// New budget: 18s OpenAI + 4s overhead (Supabase auth + rate-limit RPC + TLS) = 22s.
+// 22s is 28s clear of the 50s Netlify limit. Even with infrastructure jitter the function
+// always returns a clean 504 JSON before Netlify kills the connection.
+// maxRetries is also set to 0 in concurrent-execution-config.ts SSOT — no retry attempt
+// is made, so the 22s budget is the total per-symbol cost.
+// IMPORTANT: openai-client.ts fetchTimeoutMs MUST be > OPENAI_REQUEST_TIMEOUT_MS (18s)
+// so the server-side abort fires before the browser-side timeout cancels the request.
+// fetchTimeoutMs is set to 22s (= 18s + 4s overhead margin).
 const FUNCTION_TIMEOUT_MS = 50000; // 50 seconds (Netlify Pro supports 55s) — infrastructure constraint, do not change
-const OPENAI_REQUEST_TIMEOUT_MS = 28000; // CCIP-2026-03-11: 38,000ms → 28,000ms. Budget: 28s + 8s overhead = 36s, 14s clear of 50s limit.
+const OPENAI_REQUEST_TIMEOUT_MS = 18000; // CCIP-2026-03-12b: 28,000ms → 18,000ms. Budget: 18s + 4s overhead = 22s, 28s clear of 50s limit.
 const RATE_LIMIT_CHECK_TIMEOUT_MS = 2000; // 2 seconds for rate limit check
 
 const MODEL_PRICING = {

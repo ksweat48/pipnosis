@@ -201,13 +201,14 @@ class OpenAIClient {
   // Reduced from 2: worst-case double-504 caps at 57s (1 retry) vs 88s (2 retries).
   private readonly maxRetries = getMaxRetries();
   private readonly baseDelayMs = getRetryDelayMs();
-  // CCIP-2026-03-11: Reduced 55,000ms → 35,000ms to align with the tightened
-  // OPENAI_REQUEST_TIMEOUT_MS in netlify/functions/openai-chat.ts (28,000ms).
-  // Budget: 28s OpenAI timeout + 3-8s pre-call overhead = 36s maximum server
-  // wall-clock. 35s client-side fetch timeout gives 1s of buffer before the
-  // connection is considered dead on the browser side.
-  // IMPORTANT: Keep this value in sync with OPENAI_REQUEST_TIMEOUT_MS + overhead.
-  private readonly fetchTimeoutMs = 35000;
+  // CCIP-2026-03-12b (TIMEOUT-CASCADE-FIX): Reduced 35,000ms → 22,000ms.
+  // Aligned with the updated OPENAI_REQUEST_TIMEOUT_MS in netlify/functions/openai-chat.ts (18,000ms).
+  // Budget: 18s OpenAI abort + 4s overhead (Supabase auth + rate-limit RPC + TLS) = 22s server wall-clock.
+  // 22s client-side timeout = exactly the server budget, ensuring the server-side AbortController
+  // fires first (at 18s) and returns a clean 504 JSON before the browser cancels the fetch.
+  // INVARIANT: fetchTimeoutMs MUST always be >= OPENAI_REQUEST_TIMEOUT_MS + overhead.
+  // If OPENAI_REQUEST_TIMEOUT_MS changes, update this value accordingly.
+  private readonly fetchTimeoutMs = 22000;
 
   constructor() {
     this.functionUrl = '/.netlify/functions/openai-chat';
