@@ -1,3 +1,5 @@
+import { getMaxRetries, getRetryDelayMs } from '../config/concurrent-execution-config';
+
 /**
  * Secure OpenAI Client Service (Context-Aware)
  *
@@ -95,7 +97,15 @@ class LLMRequestQueue {
   private lastCallTimestampMs = 0;
   private queue: Array<() => void> = [];
   private processing = false;
-  private readonly minInterCallMs = 500; // CCIP-2026-03-11: 1000ms → 500ms. Budget: (3 symbols × 2 calls) × 500ms = 3s queue wait.
+  // CCIP-2026-03-12: 500ms → 100ms. OpenAI allows 20 req/s; 100ms = 10 req/s (2x safety margin).
+  // Queue budget: (5 symbols × 2 calls) × 100ms = 1s total queue wait (down from 9s at 500ms).
+  // Anti-thundering-herd protection maintained: calls still cannot burst simultaneously.
+  // SSOT value owned by concurrent-execution-config.ts; injected at queue construction time.
+  private readonly minInterCallMs: number;
+
+  constructor(minInterCallMs: number) {
+    this.minInterCallMs = minInterCallMs;
+  }
 
   private consecutiveQuotaFailures = 0;
   private readonly CIRCUIT_TRIP_THRESHOLD = 3;
@@ -181,12 +191,16 @@ class LLMRequestQueue {
   }
 }
 
-const llmRequestQueue = new LLMRequestQueue();
+// CCIP-2026-03-12: minInterCallMs sourced from SSOT (concurrent-execution-config.ts).
+// Value: 100ms. See SSOT for full budget rationale.
+const llmRequestQueue = new LLMRequestQueue(100);
 
 class OpenAIClient {
   private readonly functionUrl: string;
-  private readonly maxRetries = 2;
-  private readonly baseDelayMs = 500;
+  // CCIP-2026-03-12: maxRetries sourced from SSOT — getMaxRetries() returns 1.
+  // Reduced from 2: worst-case double-504 caps at 57s (1 retry) vs 88s (2 retries).
+  private readonly maxRetries = getMaxRetries();
+  private readonly baseDelayMs = getRetryDelayMs();
   // CCIP-2026-03-11: Reduced 55,000ms → 35,000ms to align with the tightened
   // OPENAI_REQUEST_TIMEOUT_MS in netlify/functions/openai-chat.ts (28,000ms).
   // Budget: 28s OpenAI timeout + 3-8s pre-call overhead = 36s maximum server

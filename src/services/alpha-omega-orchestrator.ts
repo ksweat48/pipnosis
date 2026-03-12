@@ -906,6 +906,22 @@ class AlphaOmegaOrchestrator {
     });
   }
 
+  /**
+   * ROLLING CONCURRENCY POOL: Evaluate symbols with a fixed-width concurrent slot pool.
+   *
+   * CCIP-2026-03-12: Replaces the batch-sequential loop (3 batches of 3, wait for all 3,
+   * then start next 3). The new model keeps exactly maxConcurrentSymbols slots active at
+   * all times. As soon as any slot completes, the next symbol is submitted immediately.
+   *
+   * Why this is faster:
+   *   Old: [S1,S2,S3] → wait for all 3 → [S4,S5,S6] → wait → [S7,S8,S9]
+   *        If S3 takes 88s while S1,S2 finish in 25s, 63s of idle time before S4 starts.
+   *   New: [S1,S2,S3,S4,S5] running; S1 finishes at 25s → S6 starts at 25s.
+   *        No idle time. Pool always drains into the next available symbol.
+   *
+   * Early-exit still works: when a viable trade is found, remaining queued symbols are
+   * skipped (the queue drains naturally; no in-flight work is aborted).
+   */
   private async evaluateConcurrently(
     marketStates: FullMarketState[],
     traderScore: TraderScore,
@@ -927,68 +943,79 @@ class AlphaOmegaOrchestrator {
     const sessionTimeout = getSessionTimeout(currentSession);
     const sessionDescription = marketScheduleService.getSessionDescription(currentSession);
 
-    console.log(`[Alpha+Omega] CONCURRENT MODE: ${marketStates.length} symbols, ${maxConcurrent} at a time`);
+    console.log(`[Alpha+Omega] ROLLING POOL MODE: ${marketStates.length} symbols, ${maxConcurrent} concurrent slots`);
     console.log(`[Alpha+Omega] Session: ${sessionDescription} | Timeout: ${sessionTimeout}ms/symbol`);
     console.log(`[Alpha+Omega] Early-exit: ${earlyExitAllowed ? `YES (${minConfidence}%+)` : `NO${goalContext?.multiTradeMode ? ' (multi-trade mode — full evaluation required)' : ''}`}`);
 
     const decisionMap = new Map<string, AlphaDecision>();
     const symbolTimings = new Map<string, number>();
 
-    const chunks: FullMarketState[][] = [];
-    for (let i = 0; i < marketStates.length; i += maxConcurrent) {
-      chunks.push(marketStates.slice(i, i + maxConcurrent));
-    }
-
-    console.log(`[Alpha+Omega] Processing ${chunks.length} batch(es) of up to ${maxConcurrent} symbols`);
-
     let foundViableTrade = false;
     let viableTradeSymbol = '';
 
-    for (let batchIdx = 0; batchIdx < chunks.length; batchIdx++) {
-      const chunk = chunks[batchIdx];
+    // Rolling pool: maintain a set of in-flight promises. As each completes, process its
+    // result and — if no early-exit and symbols remain — submit the next symbol immediately.
+    const queue = [...marketStates];
+    let symbolsSubmitted = 0;
+    const inFlight = new Map<string, Promise<{ symbol: string; decision: AlphaDecision; timing: number }>>();
 
-      if (foundViableTrade && earlyExitAllowed) {
-        console.log(`[Alpha+Omega] Skipping batch ${batchIdx + 1}/${chunks.length} - viable trade already found (${viableTradeSymbol})`);
-        break;
-      }
+    const submitNext = (): boolean => {
+      if (queue.length === 0) return false;
+      if (foundViableTrade && earlyExitAllowed) return false;
+      const marketState = queue.shift()!;
+      const globalIdx = symbolsSubmitted++;
+      const promise = this.createSymbolEvaluationPromise(
+        marketState,
+        traderScore,
+        sessionTimeout,
+        currentSession,
+        sessionDescription,
+        goalContext,
+        userId,
+        globalIdx,
+        marketStates.length,
+        imSignalMap?.get(marketState.symbol),
+        0
+      );
+      inFlight.set(marketState.symbol, promise);
+      return true;
+    };
 
-      console.log(`[Alpha+Omega] Batch ${batchIdx + 1}/${chunks.length}: [${chunk.map(s => s.symbol).join(', ')}]`);
+    // Seed the pool to maxConcurrent slots
+    const initialCount = Math.min(maxConcurrent, marketStates.length);
+    for (let i = 0; i < initialCount; i++) {
+      submitNext();
+    }
 
-      const staggerMs = config.rateLimiting.intraBatchStaggerMs ?? 1500;
-      const batchPromises = chunk.map((marketState, idx) =>
-        this.createSymbolEvaluationPromise(
-          marketState,
-          traderScore,
-          sessionTimeout,
-          currentSession,
-          sessionDescription,
-          goalContext,
-          userId,
-          batchIdx * maxConcurrent + idx,
-          marketStates.length,
-          imSignalMap?.get(marketState.symbol),
-          idx * staggerMs
+    console.log(`[Alpha+Omega] Pool seeded with ${inFlight.size} symbol(s)`);
+
+    // Drain the pool: each iteration waits for the fastest in-flight slot to finish,
+    // records the result, then immediately submits the next queued symbol.
+    while (inFlight.size > 0) {
+      const raceResult = await Promise.race(
+        Array.from(inFlight.values()).map(p =>
+          p.then(result => ({ resolved: result, symbol: result.symbol }))
         )
       );
 
-      const results = await Promise.allSettled(batchPromises);
+      const { resolved } = raceResult;
+      inFlight.delete(resolved.symbol);
 
-      for (const result of results) {
-        if (result.status === 'fulfilled') {
-          const { symbol, decision, timing } = result.value;
-          decisionMap.set(symbol, decision);
-          symbolTimings.set(symbol, timing);
+      const { symbol, decision, timing } = resolved;
+      decisionMap.set(symbol, decision);
+      symbolTimings.set(symbol, timing);
 
-          const isViableTrade = decision.action !== 'NO_TRADE' && decision.confidence >= minConfidence;
+      const isViableTrade = decision.action !== 'NO_TRADE' && decision.confidence >= minConfidence;
+      if (isViableTrade && !foundViableTrade) {
+        foundViableTrade = true;
+        viableTradeSymbol = symbol;
+        const remaining = queue.length + inFlight.size;
+        console.log(`[Alpha+Omega] VIABLE TRADE: ${symbol} @ ${decision.confidence}% confidence | ${remaining} remaining symbol(s) skipped`);
+      }
 
-          if (isViableTrade && !foundViableTrade) {
-            foundViableTrade = true;
-            viableTradeSymbol = symbol;
-            console.log(`[Alpha+Omega] VIABLE TRADE: ${symbol} @ ${decision.confidence}% confidence`);
-          }
-        } else {
-          console.error(`[Alpha+Omega] Symbol evaluation rejected:`, result.reason);
-        }
+      // Submit next symbol into the freed slot (respects early-exit flag)
+      if (!foundViableTrade || !earlyExitAllowed) {
+        submitNext();
       }
     }
 

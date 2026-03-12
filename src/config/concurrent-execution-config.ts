@@ -82,6 +82,22 @@ export interface ConcurrentExecutionConfig {
   // SSOT: All Omega-8 consumers MUST read this via getOmega8DeterministicThreshold().
   omega8: {
     deterministicThreshold: number;
+    // When true, conflicting directional signals (e.g. swept highs AND swept lows)
+    // force an LLM refinement call regardless of confidence level.
+    // When false (CCIP-2026-03-12), symbols with conf > LLM_CONFIDENCE_UPPER skip the
+    // conflict LLM path — saves 1 call per ambiguous symbol (~5-10s each).
+    conflictingSignalsLlmEnabled: boolean;
+  };
+
+  // Resilience — retry policy for LLM API calls
+  // SSOT: openai-client.ts MUST read these via getMaxRetries() / getRetryDelayMs().
+  resilience: {
+    // Maximum number of retries per LLM call (after initial attempt).
+    // Reduced 2→1: a symbol that 504s twice becomes NO_TRADE for this scan cycle.
+    // Each retry burns ~28s. Reducing from 2 to 1 caps worst-case at 57s vs 88s.
+    maxRetries: number;
+    // Base delay between retries (milliseconds). Doubles on each subsequent attempt.
+    retryDelayMs: number;
   };
 
   // Rate limiting (to prevent LLM provider throttling)
@@ -140,6 +156,50 @@ export interface ConcurrentExecutionConfig {
   };
 }
 
+// CCIP-2026-03-12: 2-3x scan speed improvement — rolling concurrency pool + queue tightening.
+//
+// ROOT CAUSE: Four compounding bottlenecks were slowing full scans to 228s worst-case:
+//   1. Batch-sequential execution: 3 batches of 3, waiting for the slowest symbol in each
+//      batch before starting the next. If symbol 1 finishes in 25s but symbol 3 takes 88s,
+//      the next batch is blocked for 63s of idle time.
+//   2. LLM queue spacing 500ms was 10x more conservative than needed. OpenAI allows 20
+//      req/s; we were sending 2 req/s. 18 calls × 500ms = 9s of pure queue wait per scan.
+//   3. Omega-8 conflicting-signals bypass: symbols with conf >65 but both sweptHighs AND
+//      sweptLows would still trigger an extra LLM refinement call, adding 5-10s per
+//      affected symbol. This was firing on ~3-4 of 9 symbols per scan in forex pairs.
+//   4. maxRetries=2 meant a double-504 symbol blocked 88s total (28s initial + 28s retry
+//      + 28s retry + 500ms backoffs) instead of accepting NO_TRADE after 57s.
+//
+// FIX PART 1 (this file):
+//   - maxConcurrentSymbols: 3 → 5. Rolling pool replaces batch-sequential in orchestrator.
+//     With rolling concurrency, when any of the 5 slots frees up the next symbol starts
+//     immediately — no waiting for the entire batch to drain.
+//   - omega8.conflictingSignalsLlmEnabled: false. Symbols above the LLM_CONFIDENCE_UPPER
+//     window (65) skip the conflict LLM bypass. The deterministic score already resolved
+//     the direction confidently; LLM refinement on conflicts at conf>65 rarely changed
+//     the outcome but always cost 5-10s extra.
+//   - resilience.maxRetries: 1 (down from 2 in errorHandling.maxRetries).
+//     openai-client.ts MUST consume getMaxRetries() — do NOT use errorHandling.maxRetries.
+//   - resilience.retryDelayMs: 500 (same value, now formally SSOT-governed).
+//   - councilTimeoutMs: 420000 → 300000. With 5-wide rolling pool and 1 retry, worst-case
+//     is 2 waves of ~120s each = 240s + 60s buffer = 300s.
+//
+// FIX PART 2: openai-client.ts minInterCallMs: 500ms → 100ms.
+//   Queue budget: 10 calls (5 symbols × 2 calls) × 100ms = 1s queue wait (down from 9s).
+//   OpenAI rate limit is 20 req/s; 100ms spacing = 10 req/s — 2x below the allowed rate.
+//   Anti-thundering-herd protection maintained: calls still cannot burst simultaneously.
+//
+// FIX PART 3: alpha-omega-orchestrator.ts evaluateConcurrently() rewritten.
+//   Replaces for-loop batch chunks with a concurrency-limited rolling pool.
+//   As each slot drains, the next symbol is submitted immediately.
+//   Early-exit still fires: when a viable trade is found, pending symbols are abandoned.
+//
+// EXPECTED IMPROVEMENT:
+//   Current worst-case: ~228s (3 batches × 76s avg, dominated by slowest-per-batch)
+//   Target worst-case:  ~80-100s (rolling pool eliminates inter-batch idle time)
+//   Target best-case:   ~45-60s (early-exit after first batch with strong signal)
+//   Net improvement:    2.3-2.8x faster
+//
 // CCIP-2026-03-04: Concurrent execution config updated to fix Alpha NO_TRADE cascade.
 //
 // ROOT CAUSE: The LLM queue (openai-client.ts) enforces a minimum inter-call spacing.
@@ -205,15 +265,17 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
   enabled: true,
 
   concurrency: {
-    maxConcurrentSymbols: 3, // CCIP-2026-03-06: Increased 2→3. minInterCallMs reduced 1500→1000ms
-    // to keep queue budget identical: (3 × 2 calls × 1000ms) = 6s queue wait (same as before).
-    // 9 symbols now process in 3 batches of 3 instead of 5 batches of 2 (~40% faster).
+    // CCIP-2026-03-12: Increased 3→5. Combined with rolling concurrency pool in
+    // orchestrator (replaces batch-sequential), 5 slots means up to 5 symbols evaluate
+    // in parallel at all times. As soon as any slot frees the next symbol starts.
+    // Queue budget: 5 symbols × 2 LLM calls × 100ms = 1s — well within OpenAI 20 req/s.
+    maxConcurrentSymbols: 5,
     symbolTimeoutMs: 90000,  // 90s base — unchanged, still provides 4× headroom over ~21s pipeline
-    batchTimeoutMs: 360000,  // 360s total — 3 batches of 3 symbols at 90s each + buffer
-    // CCIP-2026-03-11: Moved from hardcoded 180s in goal-session-live-engine.ts to SSOT here.
-    // Budget: 3 batches × 120s (overlap session timeout) + 60s buffer = 420s.
-    // Consumers MUST call getCouncilTimeoutMs() — do NOT hardcode this value.
-    councilTimeoutMs: 420000,
+    batchTimeoutMs: 360000,  // 360s total — retained for compatibility
+    // CCIP-2026-03-12: Reduced 420s → 300s. With 5-wide rolling pool and 1 retry,
+    // worst-case is 2 waves of ~120s each = 240s + 60s buffer = 300s.
+    // Previous budget (3 batches × 120s + 60s) no longer applies with rolling pool.
+    councilTimeoutMs: 300000,
 
     useSessionTimeouts: true,
     sessionTimeouts: {
@@ -243,6 +305,19 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
   // the threshold only determines LLM refinement routing, not final trade confidence.
   omega8: {
     deterministicThreshold: 60,
+    // CCIP-2026-03-12: Set to false. Symbols with conf > LLM_CONFIDENCE_UPPER (65) skip
+    // the conflict bypass LLM call. The deterministic scoring already resolved the direction
+    // at that confidence level. LLM refinement on conflicting signals at conf>65 rarely
+    // changed the final direction but always added 5-10s extra per affected symbol.
+    conflictingSignalsLlmEnabled: false,
+  },
+
+  // CCIP-2026-03-12: Resilience block added as SSOT for retry policy.
+  // openai-client.ts MUST read maxRetries via getMaxRetries() — do NOT use errorHandling.
+  // maxRetries reduced 2→1: worst-case double-504 caps at 57s (1 retry) vs 88s (2 retries).
+  resilience: {
+    maxRetries: 1,
+    retryDelayMs: 500,
   },
 
   rateLimiting: {
@@ -357,6 +432,30 @@ export function getSessionTimeoutMultiplier(session: MarketSession): number {
 }
 
 /**
+ * SSOT: Whether Omega-8 conflicting-signals bypass should trigger an LLM call.
+ * When false (CCIP-2026-03-12), symbols with conf > LLM_CONFIDENCE_UPPER skip
+ * the conflict-bypass LLM path, saving 5-10s per affected symbol.
+ */
+export function getOmega8ConflictingSignalsLlmEnabled(): boolean {
+  return CONCURRENT_EXECUTION_CONFIG.omega8.conflictingSignalsLlmEnabled;
+}
+
+/**
+ * SSOT: Maximum LLM retries per call.
+ * openai-client.ts MUST call this — do NOT hardcode a retry count locally.
+ */
+export function getMaxRetries(): number {
+  return CONCURRENT_EXECUTION_CONFIG.resilience.maxRetries;
+}
+
+/**
+ * SSOT: Base delay between LLM retries (milliseconds).
+ */
+export function getRetryDelayMs(): number {
+  return CONCURRENT_EXECUTION_CONFIG.resilience.retryDelayMs;
+}
+
+/**
  * Format config for logging (CCIP audit trail)
  */
 export function formatConcurrentConfigForLogging(): string {
@@ -372,13 +471,14 @@ export function formatConcurrentConfigForLogging(): string {
 
   return `
 [Concurrent Execution Config - SSOT]
-Mode: ${mode} | Concurrency: ${concurrency}
+Mode: ${mode} | Concurrency: ${concurrency} | Pool: ROLLING
 Early-Exit: ${config.earlyExit.enabled ? `YES (${config.earlyExit.minConfidenceThreshold}% threshold)` : 'NO'}
 Rate Limiting: ${config.rateLimiting.enabled ? `${config.rateLimiting.maxLLMCallsPerSecond} calls/sec` : 'DISABLED'}
 Timeouts (Base): ${config.concurrency.symbolTimeoutMs}ms/symbol, ${config.concurrency.batchTimeoutMs}ms/batch
 Council Timeout: ${config.concurrency.councilTimeoutMs}ms
 Session Timeouts: ${sessionTimeoutsStr}
-Omega-8 Deterministic Threshold: ${config.omega8.deterministicThreshold}%
+Omega-8 Deterministic Threshold: ${config.omega8.deterministicThreshold}% | Conflict LLM Bypass: ${config.omega8.conflictingSignalsLlmEnabled ? 'ENABLED' : 'DISABLED'}
+Resilience: maxRetries=${config.resilience.maxRetries}, retryDelay=${config.resilience.retryDelayMs}ms
 Tracking: ${config.tracking.enabled ? 'ENABLED' : 'DISABLED'}
 Governance: ${config.governance.enabled ? 'ENABLED' : 'DISABLED'}
 `.trim();

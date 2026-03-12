@@ -27,6 +27,7 @@ import {
   LIQUIDITY_ZONES,
   SMART_MONEY
 } from '../config/orderflow-thresholds';
+import { getOmega8ConflictingSignalsLlmEnabled } from '../config/concurrent-execution-config';
 
 export interface Omega8Candle {
   time: number;
@@ -523,6 +524,14 @@ export class Omega8HybridBrain {
     if (deterministic.confidence >= this.LLM_CONFIDENCE_LOWER &&
         deterministic.confidence <= this.LLM_CONFIDENCE_UPPER) {
       return true;
+    }
+
+    // CCIP-2026-03-12: Conflicting-signals bypass now gated by SSOT flag.
+    // When conflictingSignalsLlmEnabled=false, symbols with conf > LLM_CONFIDENCE_UPPER (65)
+    // skip this branch. The deterministic scorer already resolved a direction confidently;
+    // LLM refinement on conflicts at conf>65 rarely changed the outcome but added 5-10s.
+    if (!getOmega8ConflictingSignalsLlmEnabled()) {
+      return false;
     }
 
     const conflicting = (patterns.sweptHighs > 0 && patterns.sweptLows > 0) ||
