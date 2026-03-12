@@ -296,29 +296,41 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     // in parallel at all times. As soon as any slot frees the next symbol starts.
     // Queue budget: 5 symbols × 2 LLM calls × 100ms = 1s — well within OpenAI 20 req/s.
     maxConcurrentSymbols: 5,
-    // CCIP-2026-03-12c: reduced 45s → 25s. Per-symbol budget is 22s max (no retry).
-    // 25s = 22s actual + 3s jitter margin. Eliminates AbortError noise on completed symbols.
-    symbolTimeoutMs: 25000,
-    batchTimeoutMs: 120000,  // CCIP-2026-03-12b: reduced 360s → 120s, matches councilTimeoutMs
-    // CCIP-2026-03-12b (TIMEOUT-CASCADE-FIX): Reduced 300s → 120s.
-    // New per-symbol budget = 22s max (18s OpenAI + 4s overhead), no retries.
-    // 9 symbols, 5-wide rolling pool = ceil(9/5) = 2 waves × 22s = 44s.
-    // 120s = 44s actual + 76s safety buffer (handles queue jitter, cold starts).
-    councilTimeoutMs: 120000,
+    // CCIP-2026-03-13a (POST-LLM-PIPELINE-FIX): Raised 25s → 40s.
+    // ROOT CAUSE: Production console showed Alpha LLM completing at 26-31s, AFTER the 25s
+    // abort fires. The 25s budget was derived from the OpenAI call alone (18s + 4s overhead
+    // = 22s), but the full symbol pipeline also includes post-LLM work:
+    //   - confidenceCalculationEngine.calculateFinalConfidence() → Supabase audit insert
+    //   - rewardEngine.loadPlatformScore() → Supabase RPC
+    //   - orchestrator confidence modifier assembly
+    // Measured post-LLM overhead: 4-9s. Full pipeline worst-case: 31s observed.
+    // 40s = 31s observed worst-case + 9s safety margin. Clean headroom for all sessions.
+    symbolTimeoutMs: 40000,
+    batchTimeoutMs: 160000,  // CCIP-2026-03-13a: raised 120s → 160s to match new councilTimeoutMs
+    // CCIP-2026-03-13a: Raised 120s → 160s.
+    // Per-symbol budget: 40s max (LLM 22s + post-LLM 9s + margin).
+    // 9 symbols, 5-wide rolling pool = ceil(9/5) = 2 waves × 40s = 80s.
+    // 160s = 80s actual + 80s safety buffer.
+    councilTimeoutMs: 160000,
 
     useSessionTimeouts: true,
-    // CCIP-2026-03-12c (ABORT-NOISE-FIX): All session timeouts reduced from 45s → 25s.
-    // Per-symbol budget: 18s OpenAI + 4s overhead = 22s max (no retries).
-    // 45s was 2× the actual budget — the unused 23s caused every symbol's AbortController
-    // to fire after the LLM had already returned, producing "AbortError: signal is aborted
-    // without reason" noise in the console on every completed symbol.
-    // 25s = 22s actual + 3s jitter margin. Clean abort if OpenAI genuinely stalls.
+    // CCIP-2026-03-13a (POST-LLM-PIPELINE-FIX): All session timeouts raised 25s → 40s.
+    // ROOT CAUSE: The 25s per-symbol timeout was based only on the OpenAI LLM call
+    // (18s + 4s overhead = 22s). The FULL symbol pipeline includes post-LLM steps
+    // that run AFTER alphaCoordinator.coordinate() returns:
+    //   - confidenceCalculationEngine.calculateFinalConfidence() [Supabase audit insert]
+    //   - rewardEngine.loadPlatformScore() [Supabase RPC]
+    // These add 4-9s, pushing measured total pipeline to 26-31s in production.
+    // The 25s AbortController was firing before these steps completed, causing ALL
+    // first-wave symbols (XAUUSD, US30, NAS100, SPX500, EURUSD) to return NO_TRADE@0%
+    // via the timeout branch instead of Alpha's real decision.
+    // 40s = 31s worst-case observed + 9s safety margin.
     sessionTimeouts: {
-      asian: 25000,
-      london: 25000,
-      nyse: 25000,
-      overlap: 25000,
-      off_hours: 25000,
+      asian: 40000,
+      london: 40000,
+      nyse: 40000,
+      overlap: 40000,
+      off_hours: 40000,
     },
   },
 
@@ -391,7 +403,9 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
 
   governance: {
     enabled: true,
-    alertThresholdMs: 120000, // Alert if batch takes > 120 seconds
+    // CCIP-2026-03-13a: Raised 120s → 160s to match new councilTimeoutMs.
+    // Formula: ceil(9/5) waves × 40s/symbol = 80s actual + 80s buffer = 160s.
+    alertThresholdMs: 160000,
     alertErrorRatePercent: 30, // Alert if > 30% of symbols fail
   },
 };

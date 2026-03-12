@@ -44,8 +44,27 @@ const supabase = getSupabaseAdmin();
 // IMPORTANT: openai-client.ts fetchTimeoutMs MUST be > OPENAI_REQUEST_TIMEOUT_MS (18s)
 // so the server-side abort fires before the browser-side timeout cancels the request.
 // fetchTimeoutMs is set to 22s (= 18s + 4s overhead margin).
-const FUNCTION_TIMEOUT_MS = 50000; // 50 seconds (Netlify Pro supports 55s) — infrastructure constraint, do not change
-const OPENAI_REQUEST_TIMEOUT_MS = 18000; // CCIP-2026-03-12b: 28,000ms → 18,000ms. Budget: 18s + 4s overhead = 22s, 28s clear of 50s limit.
+// CCIP-2026-03-13b (FUNCTION-TIMEOUT-RACE-FIX): Raised 50s → 58s.
+// ROOT CAUSE: netlify.toml sets the Netlify platform timeout to 60s (updated CCIP-2026-03-12c).
+// The function's self-imposed FUNCTION_TIMEOUT_MS at 50s was set when the platform limit was 50s.
+// Now the function's own kill fires at 50s while Netlify allows 60s, creating a race condition:
+//   Pre-call overhead (Supabase auth + rate-limit RPC): 1-8s (up to 8s under cold start)
+//   OPENAI_REQUEST_TIMEOUT_MS: 18s
+//   Post-call fire-and-forget logging RPCs: 1-3s
+//   Total under cold start: 8s + 18s + 3s = 29s — well within 50s in theory.
+// BUT: The 50s self-imposed timer runs from function start, not from when the OpenAI call begins.
+// Under sustained load with a cold-start pre-call overhead of 5-8s, the OpenAI call starts at 8s
+// and the timer fires at 50s — leaving only 42s for OpenAI. The OpenAI AbortController fires
+// cleanly at 18s, but the post-call Supabase logging can stall under DB congestion, and the
+// response serialization + Netlify infrastructure adds another 1-3s. On back-to-back scans
+// with 5 concurrent slots, function cold starts compound. Some second-wave symbols (GBPUSD,
+// USDJPY) were hitting the 50s wall mid-response and receiving hard 504s.
+// FIX: Raise to 58s. Budget: 60s Netlify platform limit - 2s clean exit margin = 58s.
+// The OpenAI call (18s) + maximum realistic overhead (8s pre + 3s post = 11s) = 29s total.
+// 58s gives 29s of headroom even under worst-case cold start. The self-imposed timer fires
+// before Netlify's platform kill, returning a clean 504 JSON instead of a TCP drop.
+const FUNCTION_TIMEOUT_MS = 58000; // CCIP-2026-03-13b: 50s → 58s. Budget: 60s Netlify limit - 2s exit margin.
+const OPENAI_REQUEST_TIMEOUT_MS = 18000; // CCIP-2026-03-12b: unchanged. 18s + max 11s overhead = 29s, 29s clear of 58s limit.
 const RATE_LIMIT_CHECK_TIMEOUT_MS = 2000; // 2 seconds for rate limit check
 
 const MODEL_PRICING = {
