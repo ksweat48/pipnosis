@@ -291,11 +291,15 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
   enabled: true,
 
   concurrency: {
-    // CCIP-2026-03-12: Increased 3→5. Combined with rolling concurrency pool in
-    // orchestrator (replaces batch-sequential), 5 slots means up to 5 symbols evaluate
-    // in parallel at all times. As soon as any slot frees the next symbol starts.
-    // Queue budget: 5 symbols × 2 LLM calls × 100ms = 1s — well within OpenAI 20 req/s.
-    maxConcurrentSymbols: 5,
+    // CCIP-2026-03-12-REVERT: Reduced 5→3. Each symbol makes 2 LLM calls, so 5 concurrent
+    // symbols = 10 concurrent Netlify function invocations at peak. This cold-start cascade
+    // caused some invocations to take 8+ extra seconds of cold-start overhead, pushing the
+    // total invocation time over the Netlify platform cap and producing empty-body 504s.
+    // With 3 concurrent symbols = 6 peak function invocations, cold-start pressure is halved.
+    // Queue budget: 3 symbols × 2 LLM calls × 100ms = 0.6s — well within OpenAI 20 req/s.
+    // Scan speed impact: 9 symbols @ 3-wide → ceil(9/3) = 3 waves vs 2 waves at 5-wide.
+    // Extra time: ~60s per extra wave, but scan now completes reliably rather than failing.
+    maxConcurrentSymbols: 3,
     // CCIP-2026-03-13a (POST-LLM-PIPELINE-FIX): Raised 25s → 40s.
     // ROOT CAUSE: Production console showed Alpha LLM completing at 26-31s, AFTER the 25s
     // abort fires. The 25s budget was derived from the OpenAI call alone (18s + 4s overhead
@@ -318,32 +322,33 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     // These are the sole corrections. symbolTimeoutMs (40s) remains the SSOT outer boundary.
     //
     // TIMEOUT BUDGET HIERARCHY (SSOT — all consumers must honour these invariants):
-    //   OPENAI_REQUEST_TIMEOUT_MS (server)  = 45s  — netlify/functions/openai-chat.ts
-    //   fetchTimeoutMs (client)             = 55s  — src/services/openai-client.ts
+    //   OPENAI_REQUEST_TIMEOUT_MS (server)  = 25s  — netlify/functions/openai-chat.ts
+    //   fetchTimeoutMs (client)             = 35s  — src/services/openai-client.ts
     //   symbolTimeoutMs / sessionTimeouts   = 60s  — this file (SSOT)
     //   batchTimeoutMs / councilTimeoutMs   = 220s — this file (SSOT)
-    //   FUNCTION_TIMEOUT_MS (Netlify fn)    = 85s  — netlify/functions/openai-chat.ts
-    //   Netlify platform hard limit         = 90s  — netlify.toml
+    //   FUNCTION_TIMEOUT_MS (Netlify fn)    = 58s  — netlify/functions/openai-chat.ts
+    //   Netlify platform hard limit         = 60s  — netlify.toml (plan max)
     //
     // INVARIANTS (must never be violated):
     //   1. fetchTimeoutMs >= OPENAI_REQUEST_TIMEOUT_MS + 8s overhead
-    //      (55s >= 45s + 8s = 53s ✓)
+    //      (35s >= 25s + 8s = 33s ✓)
     //   2. OPENAI_REQUEST_TIMEOUT_MS + max overhead < FUNCTION_TIMEOUT_MS
-    //      (45s + 8s = 53s < 85s ✓)
+    //      (25s + 8s = 33s < 58s ✓)
     //   3. FUNCTION_TIMEOUT_MS < Netlify platform hard limit
-    //      (85s < 90s ✓)
+    //      (58s < 60s ✓)
     //   4. symbolTimeoutMs > fetchTimeoutMs
-    //      (60s > 55s ✓ — ensures session timeout is the outer boundary, not fetch abort)
+    //      (60s > 35s ✓ — ensures session timeout is the outer boundary, not fetch abort)
     //
-    // CCIP-2026-03-12-TIMEOUT-FIX: All timeouts raised to accommodate real Alpha LLM pipeline
-    // duration of 48-52s measured in production. symbolTimeoutMs was 40s — too short by 8-12s,
-    // causing every symbol to timeout before LLM completion. Orphaned calls then caused 504s.
+    // CCIP-2026-03-12-REVERT: Reverted OPENAI_REQUEST_TIMEOUT_MS 45s→25s, FUNCTION_TIMEOUT_MS 85s→58s.
+    // Root cause of persistent 504s: 45s OPENAI_REQUEST_TIMEOUT_MS caused Netlify platform hard-kill.
+    // The platform enforces its own cap independently; empty-body 504s (not function's own return)
+    // confirm the function was killed by infrastructure, not by its own timeouts.
+    // 25s OPENAI_REQUEST_TIMEOUT_MS was proven working in production (CCIP-2026-03-13c history).
+    // maxConcurrentSymbols also reduced 5→3 to halve cold-start cascade pressure.
     symbolTimeoutMs: 60000,
-    batchTimeoutMs: 220000,  // CCIP-2026-03-12-TIMEOUT-FIX: raised 160s → 220s
-    // CCIP-2026-03-12-TIMEOUT-FIX: Raised 160s → 220s.
-    // Per-symbol budget: 60s max (LLM 55s + post-LLM 7s + margin).
-    // 9 symbols, 5-wide rolling pool = ceil(9/5) = 2 waves × 60s = 120s.
-    // 220s = 120s actual + 100s safety buffer.
+    batchTimeoutMs: 220000,
+    // 9 symbols, 3-wide rolling pool = ceil(9/3) = 3 waves × 60s = 180s.
+    // 220s = 180s actual + 40s safety buffer.
     councilTimeoutMs: 220000,
 
     useSessionTimeouts: true,

@@ -81,10 +81,18 @@ const supabase = getSupabaseAdmin();
 // INVARIANT: OPENAI_REQUEST_TIMEOUT_MS (45s) + max overhead (8s) = 53s < FUNCTION_TIMEOUT_MS (85s).
 // INVARIANT: fetchTimeoutMs in openai-client.ts MUST remain >= OPENAI_REQUEST_TIMEOUT_MS + 8s.
 //            fetchTimeoutMs is set to 55s (= 45s + 10s overhead margin). See openai-client.ts.
-// CCIP-2026-03-12-REDEPLOY-v2: Force function bundle recompile to ensure new timeout values are active.
-// If production still shows 504 at ~37s, the old compiled bundle (OPENAI_REQUEST_TIMEOUT_MS=28s) is cached.
-const FUNCTION_TIMEOUT_MS = 85000; // CCIP-2026-03-12-TIMEOUT-FIX: 58s → 85s. Budget: 90s Netlify limit - 5s exit margin.
-const OPENAI_REQUEST_TIMEOUT_MS = 45000; // CCIP-2026-03-12-TIMEOUT-FIX: 25s → 45s. Allows full Alpha pipeline (48-52s) to complete.
+// CCIP-2026-03-12-REVERT: Reverted 85s/45s → 58s/25s.
+// DIAGNOSIS: 45s OPENAI_REQUEST_TIMEOUT_MS caused Netlify platform hard-kill (empty 504 body).
+// The Netlify platform enforces its own timeout cap independently of netlify.toml settings.
+// When 5 concurrent symbols each make 2 LLM calls (=10 concurrent function invocations),
+// cold-start cascades push total per-invocation time over the platform cap, causing empty-body 504s.
+// 25s OPENAI_REQUEST_TIMEOUT_MS was PROVEN WORKING in production (CCIP-2026-03-13c history).
+// Budget: 25s OpenAI + 8s overhead (Supabase auth + rate-limit RPC + TLS + cold start) = 33s.
+// 33s is well under the 60s Netlify plan limit. Even with cold start spikes there is margin.
+// The concurrent pool is also reduced to 3 symbols (was 5) to halve cold-start cascade pressure.
+// See concurrent-execution-config.ts for maxConcurrentSymbols change.
+const FUNCTION_TIMEOUT_MS = 58000; // CCIP-2026-03-12-REVERT: 85s → 58s. Budget: 60s Netlify limit - 2s exit margin.
+const OPENAI_REQUEST_TIMEOUT_MS = 25000; // CCIP-2026-03-12-REVERT: 45s → 25s. Proven working in production.
 const RATE_LIMIT_CHECK_TIMEOUT_MS = 2000; // 2 seconds for rate limit check
 
 const MODEL_PRICING = {

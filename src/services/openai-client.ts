@@ -226,11 +226,11 @@ class OpenAIClient {
   // which the 40s session-level Promise.race() catches cleanly — returning a session timeout
   // NO_TRADE instead of an opaque AbortError crash.
   //
-  // INVARIANT: fetchTimeoutMs (55s) >= OPENAI_REQUEST_TIMEOUT_MS (45s) + max overhead (8s) = 53s.
+  // INVARIANT: fetchTimeoutMs (35s) >= OPENAI_REQUEST_TIMEOUT_MS (25s) + max overhead (8s) = 33s.
   // SSOT: OPENAI_REQUEST_TIMEOUT_MS is owned by netlify/functions/openai-chat.ts.
   //       If OPENAI_REQUEST_TIMEOUT_MS changes, this value MUST be updated to remain >= server + 8s.
-  // CCIP-2026-03-12-TIMEOUT-FIX: 33s → 55s to match new OPENAI_REQUEST_TIMEOUT_MS (45s) + 10s margin.
-  private readonly fetchTimeoutMs = 55000;
+  // CCIP-2026-03-12-REVERT: 55s → 35s to match reverted OPENAI_REQUEST_TIMEOUT_MS (25s) + 10s margin.
+  private readonly fetchTimeoutMs = 35000;
 
   constructor() {
     this.functionUrl = '/.netlify/functions/openai-chat';
