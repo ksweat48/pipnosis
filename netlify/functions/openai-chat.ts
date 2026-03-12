@@ -78,9 +78,10 @@ const supabase = getSupabaseAdmin();
 //   completes at 15-18s + 25s = 40-43s, outside the 40s session boundary but within
 //   the batchTimeoutMs (160s) — the session timeout's Promise.race() fires first at 40s,
 //   cleanly returning NO_TRADE rather than crashing with an AbortError.
-// INVARIANT: OPENAI_REQUEST_TIMEOUT_MS (45s) + max overhead (8s) = 53s < FUNCTION_TIMEOUT_MS (85s).
+// INVARIANT: OPENAI_REQUEST_TIMEOUT_MS (25s) + max overhead (8s) = 33s < FUNCTION_TIMEOUT_MS (58s).
 // INVARIANT: fetchTimeoutMs in openai-client.ts MUST remain >= OPENAI_REQUEST_TIMEOUT_MS + 8s.
-//            fetchTimeoutMs is set to 55s (= 45s + 10s overhead margin). See openai-client.ts.
+//            fetchTimeoutMs is set to 35s (= 25s + 10s overhead margin). See openai-client.ts.
+// NOTE: Values above reflect CCIP-2026-03-12-REVERT. Pre-REVERT values (45s/85s/55s) are obsolete.
 // CCIP-2026-03-12-REVERT: Reverted 85s/45s → 58s/25s.
 // DIAGNOSIS: 45s OPENAI_REQUEST_TIMEOUT_MS caused Netlify platform hard-kill (empty 504 body).
 // The Netlify platform enforces its own timeout cap independently of netlify.toml settings.

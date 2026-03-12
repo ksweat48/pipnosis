@@ -1,4 +1,4 @@
-import { getMaxRetries, getRetryDelayMs } from '../config/concurrent-execution-config';
+import { getMaxRetries, getRetryDelayMs, getMinInterCallMs } from '../config/concurrent-execution-config';
 
 /**
  * Secure OpenAI Client Service (Context-Aware)
@@ -191,9 +191,10 @@ class LLMRequestQueue {
   }
 }
 
-// CCIP-2026-03-12: minInterCallMs sourced from SSOT (concurrent-execution-config.ts).
-// Value: 100ms. See SSOT for full budget rationale.
-const llmRequestQueue = new LLMRequestQueue(100);
+// CCIP-2026-03-12: minInterCallMs sourced from SSOT via getMinInterCallMs().
+// Value defined in concurrent-execution-config.ts rateLimiting.minInterCallMs (100ms).
+// Do NOT hardcode this value here — changes to the SSOT propagate automatically.
+const llmRequestQueue = new LLMRequestQueue(getMinInterCallMs());
 
 class OpenAIClient {
   private readonly functionUrl: string;
