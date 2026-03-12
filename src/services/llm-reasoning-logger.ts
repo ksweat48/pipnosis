@@ -30,15 +30,9 @@ export interface JournalEntry {
   convictionLevel: number;
   rankAtTime: string;
 
-  // Omega Council votes (MANDATORY - cannot be null)
+  // Omega-8 raw pattern sensor data (CCIP-2026-03-12: pure facts, no bias scores)
   omega8_liquidity_bias?: string;
-  omega8_direction_support?: string;
-  omega8_confidence?: number;
   omega8_reasoning?: string;
-  omega8_used_llm?: boolean;
-  omega8_deterministic_bias?: string;
-  omega8_deterministic_confidence?: number;
-  omega8_llm_reason?: string;
   omega8_patterns?: any;
 
   omega9_pass?: boolean;
@@ -97,23 +91,13 @@ class LLMReasoningLogger {
    */
   async logTradeEntry(entry: JournalEntry): Promise<string | null> {
     try {
-      // GOVERNANCE: SOFT VALIDATION - Omega8 data SHOULD be present
-      if (!entry.omega8_liquidity_bias && !entry.omega8_direction_support) {
-        const warningMsg = '[LLM Reasoning Logger] ⚠️ GOVERNANCE WARNING: Omega8 data MISSING! ' +
-          'Omega Council (liquidity bias or direction support) was not consulted. ' +
-          'This is logged for governance audit but will not block journal entry.';
-        console.warn(warningMsg);
-        console.warn('[LLM Reasoning Logger] Trade details:', {
+      // GOVERNANCE: SOFT VALIDATION - Omega8 liquidity context SHOULD be present
+      if (!entry.omega8_liquidity_bias) {
+        console.warn('[LLM Reasoning Logger] GOVERNANCE WARNING: Omega8 liquidity_bias MISSING — pattern sensor was not consulted. Trade logged for audit trail.', {
           symbol: entry.symbol,
           direction: entry.direction,
-          tradeId: entry.tradeId,
-          hasOmega9: entry.omega9_pass !== undefined,
-          omega8_liquidity_bias: entry.omega8_liquidity_bias,
-          omega8_direction_support: entry.omega8_direction_support
+          tradeId: entry.tradeId
         });
-
-        // Continue with journal entry - Omega9 validation is the hard safety gate
-        // Omega8 is important for audit but not critical for trade safety
       }
 
       // CRITICAL: HARD VALIDATION - Omega9 data MUST be present
@@ -145,15 +129,9 @@ class LLMReasoningLogger {
           outcome: 'open',
           journal_entry_type: 'trade',
 
-          // 🛡️  CRITICAL FIX: Persist Omega Council votes
+          // CCIP-2026-03-12: Omega8 raw pattern sensor data (no bias scores)
           omega8_liquidity_bias: entry.omega8_liquidity_bias || null,
-          omega8_direction_support: entry.omega8_direction_support || null,
-          omega8_confidence: entry.omega8_confidence || null,
           omega8_reasoning: entry.omega8_reasoning || null,
-          omega8_used_llm: entry.omega8_used_llm || false,
-          omega8_deterministic_bias: entry.omega8_deterministic_bias || null,
-          omega8_deterministic_confidence: entry.omega8_deterministic_confidence || null,
-          omega8_llm_reason: entry.omega8_llm_reason || null,
           omega8_patterns: entry.omega8_patterns || null,
 
           omega9_pass: entry.omega9_pass !== undefined ? entry.omega9_pass : null,
@@ -170,11 +148,7 @@ class LLMReasoningLogger {
         return null;
       }
 
-      // Log success with Omega coverage stats
-      const omega8Present = !!entry.omega8_liquidity_bias;
-      const omega9Present = entry.omega9_pass !== undefined;
-      console.log(`[LLM Reasoning Logger] ✅ Trade journal entry created: ${data.id}`);
-      console.log(`[LLM Reasoning Logger] 🛡️  Omega Coverage: Omega8=${omega8Present}, Omega9=${omega9Present}`);
+      console.log(`[LLM Reasoning Logger] Trade journal entry created: ${data.id} | Omega8=${!!entry.omega8_liquidity_bias}, Omega9=${entry.omega9_pass !== undefined}`);
 
       return data.id;
     } catch (error) {

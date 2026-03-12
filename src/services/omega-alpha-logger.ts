@@ -131,7 +131,7 @@ class OmegaAlphaLogger {
       reversal: votes.reversal ? { reasoning: votes.reversal.reasoning, keyFactors: votes.reversal.keyFactors } : null,
       volatility: votes.volatility ? { reasoning: votes.volatility.reasoning, keyFactors: votes.volatility.keyFactors } : null,
       risk: votes.risk ? { reasoning: votes.risk.reasoning, keyFactors: votes.risk.keyFactors } : null,
-      omega8: votes.omega8 ? { reasoning: votes.omega8.reasoning, liquidity_bias: votes.omega8.liquidity_bias, direction_support: votes.omega8.direction_support } : null
+      omega8: votes.omega8 ? { reasoning: votes.omega8.reasoning, liquidity_bias: votes.omega8.liquidity_bias, patterns: votes.omega8.patterns, signals: votes.omega8.signals } : null
     };
 
     // Prepare Phase 1-4 upgrade fields

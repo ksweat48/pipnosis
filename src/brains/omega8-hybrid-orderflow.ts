@@ -1,33 +1,39 @@
 /**
- * Omega-8 HYBRID: Order Flow & Liquidity Specialist
+ * Omega-8: Order Flow & Liquidity Pattern Sensor
  *
- * Architecture:
- * - Layer 1: Deterministic pattern detection (pure math, no LLM)
- * - Layer 2: Deterministic scoring & bias calculation
- * - Layer 3: OPTIONAL LLM refinement (only when ambiguous 35-65 confidence)
+ * CCIP-2026-03-12: PURE PATTERN SENSOR REFACTOR
  *
- * Patterns detected:
- * - Equal highs/lows (ATR-relative tolerance)
- * - Liquidity sweeps & stop-runs
- * - Fair Value Gaps (FVG)
- * - Volume anomalies (directional)
- * - Accumulation/Distribution zones
+ * Omega-8 is a RAW DATA PROVIDER, not a decision-maker.
+ * It detects and computes orderflow patterns that cannot be derived
+ * from raw candle data alone, and returns them as structured facts
+ * for Alpha to reason about independently.
  *
- * LLM usage: ~20-30% of cases (when truly ambiguous)
- * Cost reduction: ~70-80% vs full LLM
- * Speed improvement: ~10x on deterministic cases
+ * WHAT THIS MODULE DOES:
+ * - Detects equal highs / equal lows (cluster prices)
+ * - Detects liquidity sweeps (wick-dominant reversal candles)
+ * - Detects Fair Value Gaps (unmitigated price imbalance zones)
+ * - Detects volume anomalies (spikes, absorption)
+ * - Detects accumulation / distribution zones
+ * - Classifies liquidity context (sweep type + BOS confirmation)
+ * - Computes exact sweep wick extreme price (SSOT for stop placement)
+ *
+ * WHAT THIS MODULE DOES NOT DO:
+ * - Score patterns (no point-based scoring)
+ * - Calculate bias (no buy/sell/neutral decision)
+ * - Calculate confidence (no 0-100% score)
+ * - Call any LLM (no OpenAI calls)
+ * - Vote on direction (no direction_support field)
+ *
+ * Alpha receives the raw computed facts and reasons about them.
+ * Architecture owner: CCIP-2026-03-12
  */
 
-import { openAIClient } from '../services/openai-client';
-import type { Omega8Vote } from '../types/omega';
 import { supabase } from '../lib/supabase';
-import { llmTokenTracker } from '../services/llm-token-tracker';
 import {
   VOLUME_THRESHOLDS,
   LIQUIDITY_ZONES,
-  SMART_MONEY
 } from '../config/orderflow-thresholds';
-import { getOmega8ConflictingSignalsLlmEnabled } from '../config/concurrent-execution-config';
+import type { Omega8Vote } from '../types/omega';
 
 export interface Omega8Candle {
   time: number;
@@ -65,108 +71,33 @@ export interface Omega8Patterns {
   confluenceScore: number;
 }
 
-export interface DeterministicOmega8Decision {
-  baseBias: 'buy' | 'sell' | 'neutral';
-  confidence: number;
-  scoreDetails: string[];
-  rawScore: number;
-}
-
-export interface Omega8LLMRefinement {
-  llmBias: 'buy' | 'sell' | 'neutral';
-  llmConfidence: number;
-  llmReason: string;
-  tokensUsed: number;
-}
-
-export interface Omega8HybridResult {
-  omega: 'orderflow';
-  bias: 'buy' | 'sell' | 'neutral';
-  confidence: number;
-  deterministicBias: 'buy' | 'sell' | 'neutral';
-  deterministicConfidence: number;
-  usedLLM: boolean;
-  llmBias?: 'buy' | 'sell' | 'neutral';
-  llmConfidence?: number;
-  llmReason?: string;
-  patterns: Omega8Patterns;
-  signals: string[];
-  reason: string;
-  /** @deprecated Omegas no longer vote. Use bias + direction_support instead. */
-  vote?: 'BUY' | 'SELL';
-  reasoning: string;
-  liquidity_bias: 'clean' | 'stoprun_risk' | 'stoprun_entry' | 'reaccumulation' | 'distribution';
-  direction_support: 'buy' | 'sell' | 'neutral';
-  sweep_details?: {
-    type: 'high' | 'low' | 'none';
-    candles_ago: number;
-    has_bos: boolean;
-    /** Exact price of the sweep wick extreme — low of sweep candle for low sweeps, high for high sweeps */
-    sweep_extreme_price?: number;
-    /** Equal low/high cluster price nearest to the sweep extreme */
-    nearest_cluster_price?: number;
-  };
-}
-
 export class Omega8HybridBrain {
-  private readonly LLM_CONFIDENCE_LOWER = 35;
-  private readonly LLM_CONFIDENCE_UPPER = 65;
-  // Using SSOT config constants for volume analysis
-  private readonly VOL_SPIKE_THRESHOLD = VOLUME_THRESHOLDS.MODERATE_SPIKE_MULTIPLIER; // 1.5x
-  private readonly ABSORPTION_VOL_THRESHOLD = LIQUIDITY_ZONES.MIN_VOLUME_CLUSTER_MULTIPLIER; // 1.8x
+  private readonly VOL_SPIKE_THRESHOLD = VOLUME_THRESHOLDS.MODERATE_SPIKE_MULTIPLIER;
+  private readonly ABSORPTION_VOL_THRESHOLD = LIQUIDITY_ZONES.MIN_VOLUME_CLUSTER_MULTIPLIER;
 
   /**
-   * Main entry point - runs hybrid analysis
+   * Main entry point — pure pattern scan, no scoring, no LLM, no bias.
+   * Returns Omega8Vote: raw computed facts for Alpha to reason about.
    */
-  async runOmega8(snapshot: Omega8MarketSnapshot): Promise<Omega8HybridResult> {
+  async runOmega8(snapshot: Omega8MarketSnapshot): Promise<Omega8Vote> {
     const patterns = this.detectPatterns(snapshot);
-
-    const deterministic = this.scoreOmega8(patterns, snapshot.trendBias, snapshot.atr);
-
-    let llmRefinement: Omega8LLMRefinement | null = null;
-    let finalBias = deterministic.baseBias;
-    let finalConfidence = deterministic.confidence;
-
-    if (this.shouldUseLLM(deterministic, patterns)) {
-      console.log(`[Omega-8 Hybrid] 🤔 Ambiguous case (conf=${deterministic.confidence}) - requesting LLM refinement`);
-      llmRefinement = await this.refineWithLLM(deterministic, snapshot, patterns);
-
-      if (llmRefinement) {
-        finalBias = this.combineBiases(deterministic.baseBias, llmRefinement.llmBias, deterministic.confidence, llmRefinement.llmConfidence);
-        finalConfidence = this.combineConfidences(deterministic.confidence, llmRefinement.llmConfidence);
-      }
-    } else {
-      console.log(`[Omega-8 Hybrid] ✅ Deterministic decision (conf=${deterministic.confidence}) - skipping LLM`);
-    }
-
-    const liquidityAnalysis = this.determineLiquidityBias(patterns, deterministic, snapshot.candles);
+    const liquidityAnalysis = this.determineLiquidityBias(patterns, snapshot.candles);
     const signals = this.generateSignals(patterns);
-    const reason = this.buildReason(deterministic, llmRefinement, patterns);
+    const reasoning = this.buildRawReasoning(patterns, liquidityAnalysis);
 
-    await this.logUsage(snapshot.symbol, deterministic.confidence, llmRefinement !== null, llmRefinement?.tokensUsed || 0);
+    await this.logUsage(snapshot.symbol);
 
     return {
-      omega: 'orderflow',
-      bias: finalBias,
-      confidence: finalConfidence,
-      deterministicBias: deterministic.baseBias,
-      deterministicConfidence: deterministic.confidence,
-      usedLLM: llmRefinement !== null,
-      llmBias: llmRefinement?.llmBias,
-      llmConfidence: llmRefinement?.llmConfidence,
-      llmReason: llmRefinement?.llmReason,
       patterns,
       signals,
-      reason,
-      reasoning: reason,
+      reasoning,
       liquidity_bias: liquidityAnalysis.bias,
-      direction_support: finalBias,
-      sweep_details: liquidityAnalysis.sweep_details
+      sweep_details: liquidityAnalysis.sweep_details,
     };
   }
 
   /**
-   * LAYER 1: DETERMINISTIC PATTERN DETECTION (NO LLM)
+   * LAYER 1: DETERMINISTIC PATTERN DETECTION (NO LLM, NO SCORING)
    */
   private detectPatterns(snapshot: Omega8MarketSnapshot): Omega8Patterns {
     const { candles, atr, price } = snapshot;
@@ -291,7 +222,6 @@ export class Omega8HybridBrain {
 
     for (let i = 0; i < candles.length - 2; i++) {
       const c1 = candles[i];
-      const c2 = candles[i + 1];
       const c3 = candles[i + 2];
 
       const gapUp = c3.low - c1.high;
@@ -406,283 +336,18 @@ export class Omega8HybridBrain {
   }
 
   /**
-   * LAYER 2: DETERMINISTIC SCORING & BIAS
+   * LIQUIDITY BIAS CLASSIFICATION
+   * Classifies the structural context of detected sweeps.
+   * This is a FACTUAL classification (what happened), not a directional opinion.
+   *
+   * stoprun_entry  = Sweep detected WITH Break of Structure — liquidity taken, direction confirmed
+   * stoprun_risk   = Recent sweep (<3 candles) WITHOUT BOS — manipulation risk still active
+   * clean          = No recent sweeps, normal orderflow
+   * reaccumulation = Accumulation zone detected
+   * distribution   = Distribution zone detected
    */
-  private scoreOmega8(patterns: Omega8Patterns, trendBias: 'up' | 'down' | 'sideways', atr: number): DeterministicOmega8Decision {
-    let score = 0;
-    const scoreDetails: string[] = [];
-
-    const sweepRatio = patterns.sweptHighs / Math.max(patterns.sweptLows, 1);
-    const inverseSweepRatio = patterns.sweptLows / Math.max(patterns.sweptHighs, 1);
-
-    if (patterns.sweptLows > 0) {
-      if (inverseSweepRatio >= 3) {
-        const points = 20 * patterns.sweptLows;
-        score -= points;
-        scoreDetails.push(`-${points} (bearish momentum: ${patterns.sweptLows}L/${patterns.sweptHighs}H ratio)`);
-      } else if (trendBias === 'up') {
-        const points = 15 * patterns.sweptLows;
-        score += points;
-        scoreDetails.push(`+${points} (bullish liq sweep in uptrend)`);
-      }
-    }
-
-    if (patterns.sweptHighs > 0) {
-      if (sweepRatio >= 3) {
-        const points = 15 * patterns.sweptHighs;
-        score += points;
-        scoreDetails.push(`+${points} (bullish momentum: ${patterns.sweptHighs}H/${patterns.sweptLows}L ratio)`);
-      } else if (trendBias === 'down') {
-        const points = 20 * patterns.sweptHighs;
-        score -= points;
-        scoreDetails.push(`-${points} (bearish liq sweep in downtrend)`);
-      } else if (trendBias === 'sideways' && sweepRatio >= 2) {
-        const points = 10 * patterns.sweptHighs;
-        score += points;
-        scoreDetails.push(`+${points} (upward breakout momentum in range)`);
-      }
-    }
-
-    if (patterns.fvgBullish > 0) {
-      const points = 10 * patterns.fvgBullish;
-      score += points;
-      scoreDetails.push(`+${points} (bullish FVG)`);
-    }
-
-    if (patterns.fvgBearish > 0) {
-      const points = 10 * patterns.fvgBearish;
-      score -= points;
-      scoreDetails.push(`-${points} (bearish FVG)`);
-    }
-
-    if (patterns.volSpikeBullish) {
-      score += 10;
-      scoreDetails.push('+10 (bullish vol spike)');
-    }
-
-    if (patterns.volSpikeBearish) {
-      score -= 10;
-      scoreDetails.push('-10 (bearish vol spike)');
-    }
-
-    if (patterns.absorptionBullish) {
-      score += 10;
-      scoreDetails.push('+10 (bullish absorption)');
-    }
-
-    if (patterns.absorptionBearish) {
-      score -= 10;
-      scoreDetails.push('-10 (bearish absorption)');
-    }
-
-    if (patterns.confluenceScore >= 3) {
-      const bonus = 15;
-      score += score > 0 ? bonus : -bonus;
-      scoreDetails.push(`${score > 0 ? '+' : '-'}${bonus} (confluence bonus)`);
-    }
-
-    if (patterns.accumulationZone && trendBias !== 'down') {
-      score += 8;
-      scoreDetails.push('+8 (accumulation zone)');
-    }
-
-    if (patterns.distributionZone && trendBias !== 'up') {
-      score -= 8;
-      scoreDetails.push('-8 (distribution zone)');
-    }
-
-    let baseBias: 'buy' | 'sell' | 'neutral';
-    let confidence: number;
-
-    if (score >= 20) {
-      baseBias = 'buy';
-      confidence = Math.min(90, 50 + score);
-    } else if (score <= -20) {
-      baseBias = 'sell';
-      confidence = Math.min(90, 50 + Math.abs(score));
-    } else if (score > 0) {
-      baseBias = 'buy';
-      confidence = Math.max(1, Math.min(25, 10 + score * 0.5));
-    } else if (score < 0) {
-      baseBias = 'sell';
-      confidence = Math.max(1, Math.min(25, 10 + Math.abs(score) * 0.5));
-    } else {
-      baseBias = 'neutral';
-      confidence = 5;
-    }
-
-    return { baseBias, confidence, scoreDetails, rawScore: score };
-  }
-
-  /**
-   * LAYER 3: LLM REFINEMENT (CONDITIONAL)
-   */
-  private shouldUseLLM(deterministic: DeterministicOmega8Decision, patterns: Omega8Patterns): boolean {
-    if (deterministic.confidence >= 75) return false;
-    if (deterministic.confidence <= 25) return false;
-
-    if (deterministic.confidence >= this.LLM_CONFIDENCE_LOWER &&
-        deterministic.confidence <= this.LLM_CONFIDENCE_UPPER) {
-      return true;
-    }
-
-    // CCIP-2026-03-12: Conflicting-signals bypass now gated by SSOT flag.
-    // When conflictingSignalsLlmEnabled=false, symbols with conf > LLM_CONFIDENCE_UPPER (65)
-    // skip this branch. The deterministic scorer already resolved a direction confidently;
-    // LLM refinement on conflicts at conf>65 rarely changed the outcome but added 5-10s.
-    if (!getOmega8ConflictingSignalsLlmEnabled()) {
-      return false;
-    }
-
-    const conflicting = (patterns.sweptHighs > 0 && patterns.sweptLows > 0) ||
-                       (patterns.fvgBullish > 0 && patterns.fvgBearish > 0) ||
-                       (patterns.volSpikeBullish && patterns.volSpikeBearish);
-
-    return conflicting;
-  }
-
-  private async refineWithLLM(
-    deterministic: DeterministicOmega8Decision,
-    snapshot: Omega8MarketSnapshot,
-    patterns: Omega8Patterns
-  ): Promise<Omega8LLMRefinement | null> {
-    const recentCandles = snapshot.candles.slice(-3).map(c => ({
-      o: c.open.toFixed(2),
-      h: c.high.toFixed(2),
-      l: c.low.toFixed(2),
-      c: c.close.toFixed(2),
-      v: c.volume
-    }));
-
-    const sweepRatio = patterns.sweptHighs / Math.max(patterns.sweptLows, 1);
-    const sweepContext = sweepRatio >= 3
-      ? `sweepRatio:${patterns.sweptHighs}H/${patterns.sweptLows}L=BULLISH_MOMENTUM`
-      : sweepRatio <= 0.33 && patterns.sweptLows > 0
-        ? `sweepRatio:${patterns.sweptHighs}H/${patterns.sweptLows}L=BEARISH_MOMENTUM`
-        : `sweepRatio:${patterns.sweptHighs}H/${patterns.sweptLows}L=BALANCED`;
-
-    const prompt = `sym:${snapshot.symbol} tf:${snapshot.timeframe}
-trend:${snapshot.trendBias}
-patterns:{eh:${patterns.equalHighs},el:${patterns.equalLows},sh:${patterns.sweptHighs}(=price pushed UP to grab liquidity above highs),sl:${patterns.sweptLows}(=price pushed DOWN to grab liquidity below lows),fvgB:${patterns.fvgBullish},fvgBr:${patterns.fvgBearish},volB:${patterns.volSpikeBullish},volBr:${patterns.volSpikeBearish},acc:${patterns.accumulationZone},dist:${patterns.distributionZone}}
-${sweepContext}
-detBias:${deterministic.baseBias} detConf:${deterministic.confidence}
-candles:${JSON.stringify(recentCandles)}
-
-IMPORTANT: sweptHighs=price going UP to sweep above previous highs. High ratio of sweptHighs:sweptLows indicates bullish momentum, not bearish reversal, unless BOS (break of structure below) is confirmed.
-
-Task: interpret orderflow patterns, decide: buy/sell/neutral. Be decisive if clear.
-
-Return JSON:
-{"bias":"buy|sell|neutral","conf":0-100,"why":"short"}`;
-
-    try {
-      const response = await openAIClient.chat(
-        [
-          {
-            role: 'system',
-            content: 'You are Omega-8, orderflow/liquidity specialist. Return JSON only. No prose.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        {
-          model: 'gpt-4o-mini',
-          temperature: 0.3,
-          max_tokens: 80,
-          requestType: 'omega8_hybrid_refinement',
-          endpoint: 'omega8-hybrid'
-        }
-      );
-
-      // Log token usage
-      await llmTokenTracker.logUsage({
-        brainName: 'Omega-8',
-        model: 'gpt-4o-mini',
-        promptTokens: response.usage?.prompt_tokens || 0,
-        completionTokens: response.usage?.completion_tokens || 0,
-        totalTokens: response.usage?.total_tokens || 0,
-        contextType: 'omega8_hybrid_refinement',
-        userId: undefined,
-        sessionId: undefined
-      });
-
-      const content = response.choices[0]?.message?.content || '{}';
-      const tokensUsed = response.usage?.total_tokens || 0;
-
-      const parsed = this.parseLLMRefinement(content);
-
-      if (parsed) {
-        return { ...parsed, tokensUsed };
-      }
-
-      return null;
-    } catch (error) {
-      console.error('[Omega-8 Hybrid] LLM refinement error:', error);
-      return null;
-    }
-  }
-
-  private parseLLMRefinement(response: string): Omit<Omega8LLMRefinement, 'tokensUsed'> | null {
-    try {
-      const cleaned = response
-        .replace(/```json\n?/g, '')
-        .replace(/```\n?/g, '')
-        .trim();
-
-      const parsed = JSON.parse(cleaned);
-
-      const bias = parsed.bias as 'buy' | 'sell' | 'neutral';
-      if (!['buy', 'sell', 'neutral'].includes(bias)) {
-        return null;
-      }
-
-      return {
-        llmBias: bias,
-        llmConfidence: Math.min(100, Math.max(0, parsed.conf || 50)),
-        llmReason: parsed.why || 'No reason provided'
-      };
-    } catch (error) {
-      console.error('[Omega-8 Hybrid] LLM parse error:', error);
-      return null;
-    }
-  }
-
-  private combineBiases(
-    detBias: 'buy' | 'sell' | 'neutral',
-    llmBias: 'buy' | 'sell' | 'neutral',
-    detConf: number,
-    llmConf: number
-  ): 'buy' | 'sell' | 'neutral' {
-    if (detBias === llmBias) return detBias;
-
-    if (Math.abs(detConf - llmConf) > 40) {
-      return detConf > llmConf ? detBias : llmBias;
-    }
-
-    const avgConf = (detConf + llmConf) / 2;
-    if (avgConf < 50) return 'neutral';
-
-    return detConf > llmConf ? detBias : llmBias;
-  }
-
-  private combineConfidences(detConf: number, llmConf: number): number {
-    return Math.round((detConf + llmConf) / 2);
-  }
-
-  /**
-   * HELPER METHODS
-   */
-  private biasToVote(bias: 'buy' | 'sell' | 'neutral', snapshot: Omega8MarketSnapshot): 'BUY' | 'SELL' {
-    if (bias === 'buy') return 'BUY';
-    if (bias === 'sell') return 'SELL';
-    return snapshot.trendBias === 'down' ? 'SELL' : 'BUY';
-  }
-
   private determineLiquidityBias(
     patterns: Omega8Patterns,
-    deterministic: DeterministicOmega8Decision,
     candles?: Omega8Candle[]
   ): {
     bias: 'clean' | 'stoprun_risk' | 'stoprun_entry' | 'reaccumulation' | 'distribution';
@@ -694,7 +359,7 @@ Return JSON:
       const sweepAnalysis = this.analyzeSweepWithBOS(candles, patterns);
 
       if (sweepAnalysis.has_bos) {
-        console.log(`[Omega-8] Stop-run ${sweepAnalysis.type} detected ${sweepAnalysis.candles_ago} candles ago WITH BOS confirmation - GOOD ENTRY. Sweep extreme: ${sweepAnalysis.sweep_extreme_price?.toFixed(5) ?? 'N/A'}`);
+        console.log(`[Omega-8] Stop-run ${sweepAnalysis.type} detected ${sweepAnalysis.candles_ago} candles ago WITH BOS. Sweep extreme: ${sweepAnalysis.sweep_extreme_price?.toFixed(5) ?? 'N/A'}`);
         return {
           bias: 'stoprun_entry',
           sweep_details: sweepAnalysis
@@ -702,7 +367,7 @@ Return JSON:
       }
 
       if (sweepAnalysis.candles_ago <= 3 && !sweepAnalysis.has_bos) {
-        console.log(`[Omega-8] Recent stop-run ${sweepAnalysis.type} (${sweepAnalysis.candles_ago} candles ago) WITHOUT BOS - RISKY. Sweep extreme: ${sweepAnalysis.sweep_extreme_price?.toFixed(5) ?? 'N/A'}`);
+        console.log(`[Omega-8] Recent stop-run ${sweepAnalysis.type} (${sweepAnalysis.candles_ago} candles ago) WITHOUT BOS. Sweep extreme: ${sweepAnalysis.sweep_extreme_price?.toFixed(5) ?? 'N/A'}`);
         return {
           bias: 'stoprun_risk',
           sweep_details: sweepAnalysis
@@ -710,7 +375,6 @@ Return JSON:
       }
 
       if (sweepAnalysis.candles_ago > 5) {
-        console.log(`[Omega-8] Old stop-run ${sweepAnalysis.type} (${sweepAnalysis.candles_ago} candles ago) - treating as clean`);
         return { bias: 'clean', sweep_details: sweepAnalysis };
       }
     }
@@ -769,12 +433,11 @@ Return JSON:
     const sweepCandle = recentCandles[sweepCandleIdx];
     const candles_ago = recentCandles.length - 1 - sweepCandleIdx;
 
-    // SSOT: Capture the exact price of the sweep wick extreme.
-    // For low sweeps: the wick low is the liquidity pool price — SL must clear below it.
-    // For high sweeps: the wick high is the liquidity pool price — SL must clear above it.
+    // SSOT: Exact price of the sweep wick extreme.
+    // For low sweeps: wick low = liquidity pool price — SL must clear below it.
+    // For high sweeps: wick high = liquidity pool price — SL must clear above it.
     const sweep_extreme_price = isLowSweep ? sweepCandle.low : sweepCandle.high;
 
-    // Find nearest equal high/low cluster price for additional context
     const tolerance = (recentCandles[recentCandles.length - 1].high - recentCandles[recentCandles.length - 1].low) * 2;
     let nearest_cluster_price: number | undefined;
     if (isLowSweep) {
@@ -842,52 +505,54 @@ Return JSON:
     return signals;
   }
 
-  private buildReason(
-    deterministic: DeterministicOmega8Decision,
-    llmRefinement: Omega8LLMRefinement | null,
-    patterns: Omega8Patterns
+  /**
+   * Builds a raw factual reasoning string — no bias labels, no confidence scores.
+   * States what was detected and what it structurally means.
+   */
+  private buildRawReasoning(
+    patterns: Omega8Patterns,
+    liquidityAnalysis: ReturnType<Omega8HybridBrain['determineLiquidityBias']>
   ): string {
     const parts: string[] = [];
 
-    if (deterministic.baseBias !== 'neutral') {
-      parts.push(`Orderflow: ${deterministic.baseBias.toUpperCase()} (${deterministic.confidence}%)`);
-    } else {
-      parts.push(`Orderflow: NEUTRAL (${deterministic.confidence}%)`);
-    }
+    parts.push(`Swept highs: ${patterns.sweptHighs}, swept lows: ${patterns.sweptLows}`);
+    parts.push(`FVG bullish: ${patterns.fvgBullish}, FVG bearish: ${patterns.fvgBearish}`);
+    parts.push(`Equal highs: ${patterns.equalHighs}, equal lows: ${patterns.equalLows}`);
 
-    if (deterministic.scoreDetails.length > 0) {
-      parts.push(deterministic.scoreDetails.slice(0, 2).join(', '));
-    }
+    if (patterns.accumulationZone) parts.push('Accumulation zone detected');
+    if (patterns.distributionZone) parts.push('Distribution zone detected');
+    if (patterns.volSpikeBullish) parts.push('Bullish volume spike on last candle');
+    if (patterns.volSpikeBearish) parts.push('Bearish volume spike on last candle');
+    if (patterns.absorptionBullish) parts.push('Bullish absorption (high vol, body not closing at high)');
+    if (patterns.absorptionBearish) parts.push('Bearish absorption (high vol, body not closing at low)');
 
-    if (llmRefinement) {
-      parts.push(`LLM: ${llmRefinement.llmReason}`);
+    parts.push(`Liquidity context: ${liquidityAnalysis.bias}`);
+
+    if (liquidityAnalysis.sweep_details && liquidityAnalysis.sweep_details.type !== 'none') {
+      const sd = liquidityAnalysis.sweep_details;
+      parts.push(`Sweep: ${sd.type} sweep ${sd.candles_ago} candles ago, BOS=${sd.has_bos}${sd.sweep_extreme_price ? `, extreme=${sd.sweep_extreme_price.toFixed(5)}` : ''}`);
     }
 
     return parts.join(' | ');
   }
 
-  private async logUsage(symbol: string, confidence: number, usedLLM: boolean, tokensUsed: number): Promise<void> {
+  private async logUsage(symbol: string): Promise<void> {
     try {
-      // Get current user ID
       const { data: { user } } = await supabase.auth.getUser();
       const userId = user?.id;
 
-      // Skip logging if no user context available
-      if (!userId) {
-        console.warn('[Omega-8 Hybrid] No user context available, skipping usage log');
-        return;
-      }
+      if (!userId) return;
 
       await supabase.from('omega8_hybrid_usage').insert({
         user_id: userId,
         symbol,
-        confidence,
-        used_llm: usedLLM,
-        tokens_used: tokensUsed,
+        confidence: 0,
+        used_llm: false,
+        tokens_used: 0,
         created_at: new Date().toISOString()
       });
-    } catch (error) {
-      console.error('[Omega-8 Hybrid] Failed to log usage:', error);
+    } catch {
+      // Non-critical logging — fail silently
     }
   }
 }

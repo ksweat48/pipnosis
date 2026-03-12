@@ -267,7 +267,6 @@ export interface AlphaDecision {
   omega_summary: string;
   omega_votes?: OmegaCouncilVotes;
   omega8_liquidity_bias?: string;
-  omega8_direction_support?: string;
   omega9_validation?: Omega9ValidationResult;
   omega10_applied?: boolean;
   symbol?: string;
@@ -3509,8 +3508,7 @@ ${tradeStyle === 'SCALP' ? `{
 
       if (votes.omega8) {
         decision.omega8_liquidity_bias = votes.omega8.liquidity_bias;
-        decision.omega8_direction_support = votes.omega8.direction_support;
-        // Omega-8 data attached for telemetry only - no confidence manipulation
+        // Omega-8 raw pattern data attached for telemetry only - no confidence manipulation
       }
 
       // Omega-9 validation (final safety check) - skip for WAIT since we're not executing yet
@@ -3564,7 +3562,6 @@ ${tradeStyle === 'SCALP' ? `{
             reasoning: `OMEGA-9 VETO: ${validation.reasoning}. Alpha's decision blocked due to mathematical survival violation.`,
             omega_summary: decision.omega_summary,
             omega8_liquidity_bias: decision.omega8_liquidity_bias,
-            omega8_direction_support: decision.omega8_direction_support,
             omega9_validation: validation
           };
         }

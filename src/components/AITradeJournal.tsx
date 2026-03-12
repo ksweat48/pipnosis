@@ -147,7 +147,7 @@ const JournalCard: React.FC<JournalCardProps> = ({ entry }) => {
   const rr = calcRR(entry);
   const holdTime = formatHoldTime(entry);
   const session = deriveSession(entry.entry_time);
-  const hasOmega = entry.omega8_confidence != null || entry.omega8_direction_support;
+  const hasOmega = !!(entry.omega8_liquidity_bias || entry.omega8_patterns);
   const hasPriceLevels = entry.entry_price && entry.stop_loss && entry.take_profit;
   const hasExitData = entry.exit_time && entry.exit_price;
 
@@ -497,30 +497,16 @@ const JournalCard: React.FC<JournalCardProps> = ({ entry }) => {
 
             {omegaExpanded && (
               <div className="px-3 pb-3 pt-1 space-y-2 bg-gray-900/30">
-                {(entry.omega8_direction_support || entry.omega8_liquidity_bias) && (
+                {entry.omega8_liquidity_bias && (
                   <div className="grid grid-cols-2 gap-2 text-xs">
-                    {entry.omega8_direction_support && (
+                    <div>
+                      <span className="text-gray-500 block mb-0.5">Liquidity Context</span>
+                      <span className="text-gray-300 font-medium capitalize">{entry.omega8_liquidity_bias.replace(/_/g, ' ')}</span>
+                    </div>
+                    {entry.omega8_patterns && (
                       <div>
-                        <span className="text-gray-500 block mb-0.5">Direction Bias</span>
-                        <span className={`font-medium capitalize ${
-                          entry.omega8_direction_support === 'bullish' ? 'text-green-400'
-                          : entry.omega8_direction_support === 'bearish' ? 'text-red-400'
-                          : 'text-gray-300'
-                        }`}>
-                          {entry.omega8_direction_support}
-                        </span>
-                      </div>
-                    )}
-                    {entry.omega8_liquidity_bias && (
-                      <div>
-                        <span className="text-gray-500 block mb-0.5">Liquidity Bias</span>
-                        <span className="text-gray-300 font-medium capitalize">{entry.omega8_liquidity_bias}</span>
-                      </div>
-                    )}
-                    {entry.omega8_confidence != null && (
-                      <div>
-                        <span className="text-gray-500 block mb-0.5">Omega8 Confidence</span>
-                        <span className="text-blue-300 font-medium">{entry.omega8_confidence}%</span>
+                        <span className="text-gray-500 block mb-0.5">Confluence</span>
+                        <span className="text-gray-300 font-medium">{entry.omega8_patterns.confluenceScore ?? '—'} signals</span>
                       </div>
                     )}
                     {entry.omega9_pass != null && (

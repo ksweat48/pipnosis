@@ -7,13 +7,9 @@ import type {
   ConfirmationIntelligence,
   ReversalIntelligence,
   VolatilityIntelligence,
-  OrderFlowIntelligence,
+  Omega8PatternIntelligence,
 } from '../types/market-briefing';
-import type { OmegaVote } from '../types/omega-vote';
-
-interface Omega8Vote extends OmegaVote {
-  liquidity_bias: string;
-}
+import type { Omega8Vote } from '../types/omega';
 
 function extractTrend(input: MarketSnapshotInput): TrendIntelligence {
   const { ema20, ema50, ema200, momentum, sensors } = input;
@@ -76,16 +72,50 @@ function extractVolatility(input: MarketSnapshotInput): VolatilityIntelligence {
   };
 }
 
-function extractOrderFlow(input: MarketSnapshotInput, omega8Vote: Omega8Vote | null): OrderFlowIntelligence {
-  if (!omega8Vote) {
-    return { bias: 'neutral', liquidityBias: 'unknown', confidence: 0 };
+/**
+ * CCIP-2026-03-12: Omega-8 is a PURE PATTERN SENSOR.
+ * Extracts raw computed pattern facts — no bias, no confidence, no pre-scored direction.
+ * Alpha reasons about these facts independently.
+ */
+function extractOrderFlow(input: MarketSnapshotInput, omega8Vote: Omega8Vote | null): Omega8PatternIntelligence {
+  if (!omega8Vote || !omega8Vote.patterns) {
+    return {
+      sweptHighs: 0, sweptLows: 0,
+      fvgBullish: 0, fvgBearish: 0,
+      equalHighs: 0, equalLows: 0,
+      volSpikeBullish: false, volSpikeBearish: false,
+      absorptionBullish: false, absorptionBearish: false,
+      accumulationZone: false, distributionZone: false,
+      confluenceScore: 0,
+      liquidityBias: 'unknown',
+      signals: [],
+    };
   }
 
-  const bias = omega8Vote.vote === 'BUY' ? 'buy' : omega8Vote.vote === 'SELL' ? 'sell' : 'neutral';
+  const p = omega8Vote.patterns;
+  const sd = omega8Vote.sweep_details;
+
   return {
-    bias,
+    sweptHighs: p.sweptHighs,
+    sweptLows: p.sweptLows,
+    fvgBullish: p.fvgBullish,
+    fvgBearish: p.fvgBearish,
+    equalHighs: p.equalHighs,
+    equalLows: p.equalLows,
+    volSpikeBullish: p.volSpikeBullish,
+    volSpikeBearish: p.volSpikeBearish,
+    absorptionBullish: p.absorptionBullish,
+    absorptionBearish: p.absorptionBearish,
+    accumulationZone: p.accumulationZone,
+    distributionZone: p.distributionZone,
+    confluenceScore: p.confluenceScore,
     liquidityBias: omega8Vote.liquidity_bias || 'unknown',
-    confidence: omega8Vote.confidence,
+    sweepType: sd?.type,
+    sweepCandlesAgo: sd?.candles_ago,
+    sweepHasBOS: sd?.has_bos,
+    sweepExtremePrice: sd?.sweep_extreme_price,
+    nearestClusterPrice: sd?.nearest_cluster_price,
+    signals: omega8Vote.signals || [],
   };
 }
 
@@ -230,9 +260,26 @@ function formatBriefingText(intel: MarketIntelligence, snapshot?: { candles: Arr
   lines.push(`  Wick/Body Ratio (last 5 candles): ${wickRatio.toFixed(2)} (>1.5 = wick-heavy/noisy, <0.5 = clean/directional)`);
   lines.push('');
 
-  lines.push('ORDER FLOW:');
-  lines.push(`  Bias: ${intel.orderFlow.bias.toUpperCase()} (${intel.orderFlow.confidence}% confidence)`);
-  lines.push(`  Liquidity: ${intel.orderFlow.liquidityBias}`);
+  lines.push('ORDER FLOW (RAW SENSOR DATA — reason about these facts independently):');
+  lines.push(`  Swept Highs: ${intel.orderFlow.sweptHighs} | Swept Lows: ${intel.orderFlow.sweptLows}`);
+  lines.push(`  FVG Bullish: ${intel.orderFlow.fvgBullish} | FVG Bearish: ${intel.orderFlow.fvgBearish}`);
+  lines.push(`  Equal Highs: ${intel.orderFlow.equalHighs} | Equal Lows: ${intel.orderFlow.equalLows}`);
+  lines.push(`  Vol Spike: ${intel.orderFlow.volSpikeBullish ? 'BULLISH' : intel.orderFlow.volSpikeBearish ? 'BEARISH' : 'NONE'} | Absorption: ${intel.orderFlow.absorptionBullish ? 'BULLISH' : intel.orderFlow.absorptionBearish ? 'BEARISH' : 'NONE'}`);
+  lines.push(`  Accumulation Zone: ${intel.orderFlow.accumulationZone ? 'YES' : 'NO'} | Distribution Zone: ${intel.orderFlow.distributionZone ? 'YES' : 'NO'}`);
+  lines.push(`  Confluence Score: ${intel.orderFlow.confluenceScore} signals aligned`);
+  lines.push(`  Liquidity Context: ${intel.orderFlow.liquidityBias.toUpperCase()}`);
+  if (intel.orderFlow.sweepType && intel.orderFlow.sweepType !== 'none') {
+    lines.push(`  Sweep: ${intel.orderFlow.sweepType.toUpperCase()} sweep ${intel.orderFlow.sweepCandlesAgo ?? '?'} candles ago | BOS Confirmed: ${intel.orderFlow.sweepHasBOS ? 'YES' : 'NO'}`);
+    if (intel.orderFlow.sweepExtremePrice) {
+      lines.push(`  Sweep Extreme Price: ${intel.orderFlow.sweepExtremePrice.toFixed(5)} (stop calculator uses this as placement anchor)`);
+    }
+    if (intel.orderFlow.nearestClusterPrice) {
+      lines.push(`  Nearest Liquidity Cluster: ${intel.orderFlow.nearestClusterPrice.toFixed(5)}`);
+    }
+  }
+  if (intel.orderFlow.signals.length > 0) {
+    lines.push(`  Signals: ${intel.orderFlow.signals.join(', ')}`);
+  }
   lines.push('');
 
   lines.push('KEY LEVELS:');

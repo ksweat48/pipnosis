@@ -106,11 +106,8 @@ class CoreValidationGate {
   ): Promise<CoreValidationResult> {
     const missingComponents: string[] = [];
 
-    // Check Omega8 (OrderFlow Analysis)
-    const omega8Present = !!(
-      decision.omega8_liquidity_bias ||
-      decision.omega8_direction_support
-    );
+    // Check Omega8 (Pattern Sensor)
+    const omega8Present = !!(decision.omega8_liquidity_bias);
 
     if (!omega8Present) {
       missingComponents.push('Omega8 OrderFlow');
@@ -376,16 +373,15 @@ class CoreValidationGate {
     try {
       // Try top-level fields first (coordinator-alpha structure)
       const liquidityBias = decision.omega8_liquidity_bias;
-      const directionSupport = decision.omega8_direction_support;
 
       // Then try nested omega_votes.omega8 (council votes structure)
       const nestedOmega8 = decision.omega_votes?.omega8;
 
-      if (liquidityBias || directionSupport) {
+      if (liquidityBias) {
         return {
           liquidity_bias: liquidityBias,
-          direction_support: directionSupport,
-          confidence: nestedOmega8?.confidence
+          patterns: nestedOmega8?.patterns,
+          signals: nestedOmega8?.signals
         };
       }
 

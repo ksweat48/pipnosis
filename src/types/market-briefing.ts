@@ -39,10 +39,32 @@ export interface VolatilityIntelligence {
   volumeSpike: boolean;
 }
 
-export interface OrderFlowIntelligence {
-  bias: 'buy' | 'sell' | 'neutral';
+/**
+ * CCIP-2026-03-12: OrderFlowIntelligence replaced with Omega8PatternIntelligence.
+ * No pre-scored bias or confidence — raw computed pattern facts only.
+ * Alpha reasons about these facts independently.
+ */
+export interface Omega8PatternIntelligence {
+  sweptHighs: number;
+  sweptLows: number;
+  fvgBullish: number;
+  fvgBearish: number;
+  equalHighs: number;
+  equalLows: number;
+  volSpikeBullish: boolean;
+  volSpikeBearish: boolean;
+  absorptionBullish: boolean;
+  absorptionBearish: boolean;
+  accumulationZone: boolean;
+  distributionZone: boolean;
+  confluenceScore: number;
   liquidityBias: string;
-  confidence: number;
+  sweepType?: 'high' | 'low' | 'none';
+  sweepCandlesAgo?: number;
+  sweepHasBOS?: boolean;
+  sweepExtremePrice?: number;
+  nearestClusterPrice?: number;
+  signals: string[];
 }
 
 export interface MarketIntelligence {
@@ -55,7 +77,7 @@ export interface MarketIntelligence {
   confirmation: ConfirmationIntelligence;
   reversal: ReversalIntelligence;
   volatility: VolatilityIntelligence;
-  orderFlow: OrderFlowIntelligence;
+  orderFlow: Omega8PatternIntelligence;
   sensors: OmegaSensors;
   rawIndicators: {
     ema20: number;
