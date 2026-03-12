@@ -207,22 +207,44 @@ class OpenAIClient {
   // Omega-8 was refactored to a pure pattern sensor with zero LLM calls. Only Alpha calls the LLM.
   //
   // fetchTimeoutMs is the client-side AbortController deadline for a single Alpha LLM fetch.
-  // INVARIANT: fetchTimeoutMs MUST be >= OPENAI_REQUEST_TIMEOUT_MS + overhead so the server-side
-  //            AbortController always fires before the client cancels the fetch. This ensures the
-  //            function returns a clean 504 JSON rather than the client receiving an opaque AbortError.
   //
-  // OPENAI_REQUEST_TIMEOUT_MS (server, SSOT: netlify/functions/openai-chat.ts) = 25s
-  // fetchTimeoutMs (client) = 30s  (= 25s server + 5s overhead margin)
+  // CCIP-2026-03-12-FETCHFIX: Raised 30s → 45s.
+  // ROOT CAUSE of "AbortError: signal is aborted without reason":
+  //   The client fetch() timer starts at t=0 (when the browser calls the Netlify function).
+  //   However, the server does NOT start the OpenAI call immediately. Pre-work on the server
+  //   (Supabase auth verification + rate-limit RPC + TLS handshake) consumes 5-12s BEFORE
+  //   the OPENAI_REQUEST_TIMEOUT_MS (25s) AbortController starts.
+  //   Total server wall-clock worst case: 12s pre-work + 25s OpenAI = 37s.
+  //   Old fetchTimeoutMs (30s) fired at t=30s — 7 seconds BEFORE the server could finish.
+  //   The client cancelled the in-flight fetch, Netlify received a mid-stream abort, and
+  //   the browser logged "AbortError: signal is aborted without reason" instead of a clean 504.
   //
-  // Single-call timeline per symbol:
-  //   Pre-work: ~5-12s (data fetch, Omega-8 deterministic, snapshot build)
-  //   Alpha LLM fetch: starts at ~12s, server aborts at 25s → client sees response by ~37s
-  //   fetchTimeoutMs (30s from fetch start) fires at ~42s if server never responds — safely after server abort.
-  //   symbolTimeoutMs (90s) is the outer boundary, well beyond this.
+  // INVARIANT: fetchTimeoutMs MUST be >= OPENAI_REQUEST_TIMEOUT_MS + max_pre_work_overhead
+  //   Formula: 25s (OPENAI_REQUEST_TIMEOUT_MS) + 12s (max pre-work) = 37s minimum
+  //   fetchTimeoutMs = 45s = 37s minimum + 8s safety buffer
+  //
+  // TIMEOUT BUDGET HIERARCHY (SSOT — all values must satisfy all three invariants):
+  //   OPENAI_REQUEST_TIMEOUT_MS (server)  = 25s  — netlify/functions/openai-chat.ts
+  //   fetchTimeoutMs (client)             = 45s  — this file (SSOT for client-side timeout)
+  //   symbolTimeoutMs / sessionTimeouts   = 90s  — concurrent-execution-config.ts
+  //   councilTimeoutMs                    = 300s — concurrent-execution-config.ts
+  //   FUNCTION_TIMEOUT_MS (Netlify fn)    = 58s  — netlify/functions/openai-chat.ts
+  //   Netlify platform hard limit         = 60s  — netlify.toml
+  //
+  // INVARIANTS (must never be violated):
+  //   1. fetchTimeoutMs >= OPENAI_REQUEST_TIMEOUT_MS + max_pre_work_overhead
+  //      (45s >= 25s + 12s = 37s ✓  — 8s safety buffer)
+  //   2. OPENAI_REQUEST_TIMEOUT_MS + max_overhead < FUNCTION_TIMEOUT_MS
+  //      (25s + 8s = 33s < 58s ✓)
+  //   3. FUNCTION_TIMEOUT_MS < Netlify platform hard limit
+  //      (58s < 60s ✓)
+  //   4. symbolTimeoutMs > pre-work_max + fetchTimeoutMs
+  //      (90s > 12s + 45s = 57s ✓ — 33s safety margin)
   //
   // SSOT: OPENAI_REQUEST_TIMEOUT_MS is owned by netlify/functions/openai-chat.ts.
-  //       If OPENAI_REQUEST_TIMEOUT_MS changes, update fetchTimeoutMs to remain >= server + 5s.
-  private readonly fetchTimeoutMs = 30000;
+  //       If OPENAI_REQUEST_TIMEOUT_MS changes, update fetchTimeoutMs to remain
+  //       >= OPENAI_REQUEST_TIMEOUT_MS + 12s (max pre-work).
+  private readonly fetchTimeoutMs = 45000;
 
   constructor() {
     this.functionUrl = '/.netlify/functions/openai-chat';

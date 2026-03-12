@@ -3115,7 +3115,21 @@ ${tradeStyle === 'SCALP' ? `{
         {
           model: 'gpt-4o-mini',
           temperature: 0.3,
-          max_tokens: 4000,
+          // CCIP-2026-03-12-FETCHFIX: Reduced 4000 → 1500.
+          // ROOT CAUSE of 504 Gateway Timeout errors:
+          //   gpt-4o-mini generating 4000 tokens takes 20-30s under load, which exceeds the
+          //   server-side OPENAI_REQUEST_TIMEOUT_MS (25s) AbortController, producing a 504.
+          //   The Alpha response is a structured JSON decision object. In practice the schema
+          //   requires ~300-800 tokens for a complete decision (action, entry, stopLoss,
+          //   takeProfit, confidence, reasoning, omega_summary, risk_pct). Even verbose
+          //   reasoning rarely exceeds 1200 tokens. 4000 was never necessary.
+          //   At 1500 tokens gpt-4o-mini completes in 5-10s under load, well within the 25s limit.
+          //
+          // INVARIANT: max_tokens must be large enough that finish_reason !== 'length'.
+          //   The error handler at line ~3149 detects truncation and returns NO_TRADE with
+          //   a CRITICAL log if finish_reason === 'length'. If that fires, raise max_tokens.
+          //   1500 provides ~2x headroom above the ~800-token observed worst-case response.
+          max_tokens: 1500,
           requestType: 'alpha_coordination',
           endpoint: 'alpha-coordinator'
         }
