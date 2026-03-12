@@ -114,9 +114,14 @@ export interface ConcurrentExecutionConfig {
 
     // Stagger delay between symbols within a batch (milliseconds).
     // DEPRECATED: Set to 0. Rate limiting is now enforced at openai-client.ts via
-    // LLMRequestQueue singleton (4000ms min inter-call spacing). The stagger here was
-    // applied at pipeline start and symbols converged at the LLM call point anyway.
+    // LLMRequestQueue singleton. The stagger here was applied at pipeline start and
+    // symbols converged at the LLM call point anyway.
     intraBatchStaggerMs: number;
+
+    // SSOT: Minimum milliseconds between successive LLM calls inside the LLMRequestQueue.
+    // Consumers MUST call getMinInterCallMs() — do NOT hardcode this value locally.
+    // Owned here so any future tuning propagates to openai-client.ts automatically.
+    minInterCallMs: number;
   };
 
   // Error handling
@@ -426,6 +431,10 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     // solving the problem at the wrong layer (pipeline start vs LLM call point), causing
     // symbols that start together to still converge at the LLM call after processing.
     intraBatchStaggerMs: 0,
+    // SSOT: Minimum spacing between successive LLM calls inside the LLMRequestQueue.
+    // openai-client.ts MUST read this via getMinInterCallMs() — never hardcode.
+    // 100ms = sufficient inter-call jitter to avoid burst-rate 429s at 20 calls/sec limit.
+    minInterCallMs: 100,
   },
 
   // CCIP-TIMEOUT-FIX-2026-03-12: errorHandling.maxRetries set to 0.
@@ -556,6 +565,15 @@ export function getMaxRetries(): number {
  */
 export function getRetryDelayMs(): number {
   return CONCURRENT_EXECUTION_CONFIG.resilience.retryDelayMs;
+}
+
+/**
+ * SSOT: Minimum milliseconds between successive LLM calls in the LLMRequestQueue.
+ * openai-client.ts MUST call this — do NOT hardcode the value locally.
+ * Any future tuning propagates automatically to all queue instances.
+ */
+export function getMinInterCallMs(): number {
+  return CONCURRENT_EXECUTION_CONFIG.rateLimiting.minInterCallMs;
 }
 
 /**
