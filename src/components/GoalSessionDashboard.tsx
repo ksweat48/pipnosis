@@ -215,11 +215,21 @@ export const GoalSessionDashboard: React.FC = () => {
 
           if (!tp1JustHit) return;
 
+          // CCIP GOVERNANCE (2026-03-12 SCALP-TP-FIX): Scalp trades have tp2_price = NULL.
+          // The TP1 modal must only fire for dual-TP trades (MICRO_INTRADAY / INTRADAY).
+          // For scalp trades the position is already closing via the legacy single-TP path;
+          // showing a TP1 modal with TP2 language would be incorrect and confusing.
+          const tp2Price = payload.new.tp2_price != null ? parseFloat(payload.new.tp2_price) : null;
+          if (tp2Price === null) {
+            console.log('[GoalSessionDashboard] TP1 hit on single-TP trade (scalp) — suppressing TP1 modal, trade is closing normally');
+            return;
+          }
+
           const tradeId = payload.new.id as string;
           if (processedTP1Hits.current.has(tradeId)) return;
           processedTP1Hits.current.add(tradeId);
 
-          console.log('[GoalSessionDashboard] TP1 hit detected for trade', tradeId);
+          console.log('[GoalSessionDashboard] TP1 hit detected for dual-TP trade', tradeId);
 
           // CCIP FIX (2026-03-04 TP1-ONCE-PER-TRADE): Mark modal as shown in DB immediately.
           // This prevents checkMissedTP1 from re-showing the modal after a page reload.
@@ -244,7 +254,7 @@ export const GoalSessionDashboard: React.FC = () => {
             symbol: payload.new.symbol,
             direction: payload.new.direction,
             tp1Price: parseFloat(payload.new.take_profit ?? '0'),
-            tp2Price: payload.new.tp2_price != null ? parseFloat(payload.new.tp2_price) : null,
+            tp2Price,
             currentProfit,
             goalAmount,
           });
@@ -292,8 +302,15 @@ export const GoalSessionDashboard: React.FC = () => {
       if (cancelled || !openTP1Trade) return;
       if (processedTP1Hits.current.has(openTP1Trade.id)) return;
 
+      // CCIP GOVERNANCE (2026-03-12 SCALP-TP-FIX): Suppress TP1 modal for single-TP (scalp) trades.
+      const recoveredTP2Price = openTP1Trade.tp2_price != null ? parseFloat(openTP1Trade.tp2_price) : null;
+      if (recoveredTP2Price === null) {
+        console.log('[GoalSessionDashboard] Recovered TP1 event is for single-TP trade — suppressing modal');
+        return;
+      }
+
       processedTP1Hits.current.add(openTP1Trade.id);
-      console.log('[GoalSessionDashboard] Recovered missed TP1 modal for trade', openTP1Trade.id);
+      console.log('[GoalSessionDashboard] Recovered missed TP1 modal for dual-TP trade', openTP1Trade.id);
 
       // CCIP FIX (2026-03-04 TP1-ONCE-PER-TRADE): Mark modal as shown in DB before displaying.
       supabase.rpc('mark_tp1_modal_shown', {
@@ -313,7 +330,7 @@ export const GoalSessionDashboard: React.FC = () => {
         symbol: openTP1Trade.symbol,
         direction: openTP1Trade.direction,
         tp1Price: parseFloat(openTP1Trade.take_profit ?? '0'),
-        tp2Price: openTP1Trade.tp2_price != null ? parseFloat(openTP1Trade.tp2_price) : null,
+        tp2Price: recoveredTP2Price,
         currentProfit,
         goalAmount: activeSession.config.goalAmount,
       });
