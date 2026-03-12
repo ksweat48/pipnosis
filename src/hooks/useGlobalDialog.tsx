@@ -63,6 +63,7 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
             case 'trade_signal':
               await audioAlertService.playWithContext({
                 type: 'attention',
+                tradeId,
                 context: contextKey
               });
               break;

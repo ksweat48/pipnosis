@@ -345,7 +345,8 @@ const AppRoutes: React.FC = () => {
               priority: priority,
               executionUrgency: executionUrgency,
               expectedProfit: notificationData.expectedProfit || notificationData.expected_profit,
-              riskReward: notificationData.riskReward || notificationData.risk_reward
+              riskReward: notificationData.riskReward || notificationData.risk_reward,
+              tradeId: notificationData.tradeId || notificationData.trade_id || ''
             // CCIP FIX (2026-02-27): skipPersist:true is MANDATORY here.
             // notificationCoordinator.send() already created the goal_notifications
             // record. Without skipPersist, captureDialog() would create a second
