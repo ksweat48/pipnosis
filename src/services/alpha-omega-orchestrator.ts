@@ -878,7 +878,9 @@ class AlphaOmegaOrchestrator {
       } catch (error) {
         const timing = Date.now() - symbolStartTime;
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        const isTimeout = errorMessage.includes('timeout');
+        const isTimeout = errorMessage.includes('timeout')
+          || (error instanceof Error && error.name === 'AbortError')
+          || errorMessage.includes('signal is aborted');
 
         if (isTimeout) {
           console.error(`[Alpha+Omega Timeout] ${marketState.symbol}: ${timing}ms (limit: ${sessionTimeout}ms, session: ${currentSession})`);

@@ -78,11 +78,11 @@ const supabase = getSupabaseAdmin();
 //   completes at 15-18s + 25s = 40-43s, outside the 40s session boundary but within
 //   the batchTimeoutMs (160s) — the session timeout's Promise.race() fires first at 40s,
 //   cleanly returning NO_TRADE rather than crashing with an AbortError.
-// INVARIANT: OPENAI_REQUEST_TIMEOUT_MS (25s) + max overhead (8s) = 33s < FUNCTION_TIMEOUT_MS (58s).
+// INVARIANT: OPENAI_REQUEST_TIMEOUT_MS (45s) + max overhead (8s) = 53s < FUNCTION_TIMEOUT_MS (85s).
 // INVARIANT: fetchTimeoutMs in openai-client.ts MUST remain >= OPENAI_REQUEST_TIMEOUT_MS + 8s.
-//            fetchTimeoutMs is set to 33s (= 25s + 8s overhead margin). See openai-client.ts.
-const FUNCTION_TIMEOUT_MS = 58000; // CCIP-2026-03-13b: 50s → 58s. Budget: 60s Netlify limit - 2s exit margin.
-const OPENAI_REQUEST_TIMEOUT_MS = 25000; // CCIP-2026-03-13c: 18s → 25s. Allows Alpha (2nd LLM call) to complete before client AbortController fires.
+//            fetchTimeoutMs is set to 55s (= 45s + 10s overhead margin). See openai-client.ts.
+const FUNCTION_TIMEOUT_MS = 85000; // CCIP-2026-03-12-TIMEOUT-FIX: 58s → 85s. Budget: 90s Netlify limit - 5s exit margin.
+const OPENAI_REQUEST_TIMEOUT_MS = 45000; // CCIP-2026-03-12-TIMEOUT-FIX: 25s → 45s. Allows full Alpha pipeline (48-52s) to complete.
 const RATE_LIMIT_CHECK_TIMEOUT_MS = 2000; // 2 seconds for rate limit check
 
 const MODEL_PRICING = {

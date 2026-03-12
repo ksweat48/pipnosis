@@ -318,29 +318,33 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     // These are the sole corrections. symbolTimeoutMs (40s) remains the SSOT outer boundary.
     //
     // TIMEOUT BUDGET HIERARCHY (SSOT — all consumers must honour these invariants):
-    //   OPENAI_REQUEST_TIMEOUT_MS (server)  = 25s  — netlify/functions/openai-chat.ts
-    //   fetchTimeoutMs (client)             = 33s  — src/services/openai-client.ts
-    //   symbolTimeoutMs / sessionTimeouts   = 40s  — this file (SSOT)
-    //   batchTimeoutMs / councilTimeoutMs   = 160s — this file (SSOT)
-    //   FUNCTION_TIMEOUT_MS (Netlify fn)    = 58s  — netlify/functions/openai-chat.ts
-    //   Netlify platform hard limit         = 60s  — netlify.toml
+    //   OPENAI_REQUEST_TIMEOUT_MS (server)  = 45s  — netlify/functions/openai-chat.ts
+    //   fetchTimeoutMs (client)             = 55s  — src/services/openai-client.ts
+    //   symbolTimeoutMs / sessionTimeouts   = 60s  — this file (SSOT)
+    //   batchTimeoutMs / councilTimeoutMs   = 220s — this file (SSOT)
+    //   FUNCTION_TIMEOUT_MS (Netlify fn)    = 85s  — netlify/functions/openai-chat.ts
+    //   Netlify platform hard limit         = 90s  — netlify.toml
     //
     // INVARIANTS (must never be violated):
     //   1. fetchTimeoutMs >= OPENAI_REQUEST_TIMEOUT_MS + 8s overhead
-    //      (33s >= 25s + 8s = 33s ✓)
+    //      (55s >= 45s + 8s = 53s ✓)
     //   2. OPENAI_REQUEST_TIMEOUT_MS + max overhead < FUNCTION_TIMEOUT_MS
-    //      (25s + 8s = 33s < 58s ✓)
+    //      (45s + 8s = 53s < 85s ✓)
     //   3. FUNCTION_TIMEOUT_MS < Netlify platform hard limit
-    //      (58s < 60s ✓)
+    //      (85s < 90s ✓)
     //   4. symbolTimeoutMs > fetchTimeoutMs
-    //      (40s > 33s ✓ — ensures session timeout is the outer boundary, not fetch abort)
-    symbolTimeoutMs: 40000,
-    batchTimeoutMs: 160000,  // CCIP-2026-03-13a: raised 120s → 160s to match new councilTimeoutMs
-    // CCIP-2026-03-13a: Raised 120s → 160s.
-    // Per-symbol budget: 40s max (LLM 33s + post-LLM 9s + margin).
-    // 9 symbols, 5-wide rolling pool = ceil(9/5) = 2 waves × 40s = 80s.
-    // 160s = 80s actual + 80s safety buffer.
-    councilTimeoutMs: 160000,
+    //      (60s > 55s ✓ — ensures session timeout is the outer boundary, not fetch abort)
+    //
+    // CCIP-2026-03-12-TIMEOUT-FIX: All timeouts raised to accommodate real Alpha LLM pipeline
+    // duration of 48-52s measured in production. symbolTimeoutMs was 40s — too short by 8-12s,
+    // causing every symbol to timeout before LLM completion. Orphaned calls then caused 504s.
+    symbolTimeoutMs: 60000,
+    batchTimeoutMs: 220000,  // CCIP-2026-03-12-TIMEOUT-FIX: raised 160s → 220s
+    // CCIP-2026-03-12-TIMEOUT-FIX: Raised 160s → 220s.
+    // Per-symbol budget: 60s max (LLM 55s + post-LLM 7s + margin).
+    // 9 symbols, 5-wide rolling pool = ceil(9/5) = 2 waves × 60s = 120s.
+    // 220s = 120s actual + 100s safety buffer.
+    councilTimeoutMs: 220000,
 
     useSessionTimeouts: true,
     // CCIP-2026-03-13a (POST-LLM-PIPELINE-FIX): All session timeouts raised 25s → 40s.
@@ -356,11 +360,11 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     // 40s = 31s worst-case observed + 9s safety margin.
     // CCIP-2026-03-13c: These values remain at 40s. See symbolTimeoutMs note above.
     sessionTimeouts: {
-      asian: 40000,
-      london: 40000,
-      nyse: 40000,
-      overlap: 40000,
-      off_hours: 40000,
+      asian: 60000,
+      london: 60000,
+      nyse: 60000,
+      overlap: 60000,
+      off_hours: 60000,
     },
   },
 
@@ -435,7 +439,7 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     enabled: true,
     // CCIP-2026-03-13a: Raised 120s → 160s to match new councilTimeoutMs.
     // Formula: ceil(9/5) waves × 40s/symbol = 80s actual + 80s buffer = 160s.
-    alertThresholdMs: 160000,
+    alertThresholdMs: 220000,
     alertErrorRatePercent: 30, // Alert if > 30% of symbols fail
   },
 };
