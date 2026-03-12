@@ -1128,7 +1128,7 @@ class AlphaOmegaOrchestrator {
             const remainingSymbols = marketStates.length - (i + 1);
             console.log(`[Alpha+Omega] ✅ EARLY EXIT: Found viable trade on ${marketState.symbol} (${decision.confidence}% confidence)`);
             console.log(`[Alpha+Omega] 🚀 Stopped scanning - skipped ${remainingSymbols} remaining symbols`);
-            console.log(`[Alpha+Omega] 💰 Savings: ~${remainingSymbols * 3} LLM calls avoided`);
+            console.log(`[Alpha+Omega] 💰 Savings: ~${remainingSymbols} LLM calls avoided`);
             break;
           } else {
             console.log(`[Alpha+Omega] ⏭️  ${marketState.symbol}: ${decision.action} @ ${decision.confidence}% - continuing scan...`);

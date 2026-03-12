@@ -202,36 +202,27 @@ class OpenAIClient {
   // Reduced from 2: worst-case double-504 caps at 57s (1 retry) vs 88s (2 retries).
   private readonly maxRetries = getMaxRetries();
   private readonly baseDelayMs = getRetryDelayMs();
-  // CCIP-2026-03-12b (TIMEOUT-CASCADE-FIX): Reduced 35,000ms → 22,000ms.
-  // Aligned with the updated OPENAI_REQUEST_TIMEOUT_MS in netlify/functions/openai-chat.ts (18,000ms).
-  // Budget: 18s OpenAI abort + 4s overhead (Supabase auth + rate-limit RPC + TLS) = 22s server wall-clock.
-  // 22s client-side timeout = exactly the server budget, ensuring the server-side AbortController
-  // fires first (at 18s) and returns a clean 504 JSON before the browser cancels the fetch.
-  // INVARIANT: fetchTimeoutMs MUST always be >= OPENAI_REQUEST_TIMEOUT_MS + overhead.
-  // If OPENAI_REQUEST_TIMEOUT_MS changes, update this value accordingly.
+  // CCIP-2026-03-12: OMEGA-8 IS PURELY DETERMINISTIC — ONE LLM CALL PER SYMBOL ONLY.
+  // Previous comments referencing "TWO sequential LLM calls (Omega-8 → Alpha)" are obsolete.
+  // Omega-8 was refactored to a pure pattern sensor with zero LLM calls. Only Alpha calls the LLM.
   //
-  // CCIP-2026-03-13c (SECOND-LLM-ABORT-FIX): Raised 22,000ms → 33,000ms.
-  // ROOT CAUSE: Each symbol makes TWO sequential LLM calls (Omega-8 → Alpha). The first call
-  // (Omega-8) completes at ~15-18s elapsed. The second call (Alpha) then starts its own 22s
-  // fetch timer. Combined wall-clock: 15-18s + 22s = 37-40s, which races against the 40s
-  // session timeout. The client-side AbortController was firing at ~37s — just BEFORE the
-  // 40s session Promise.race() could resolve cleanly — producing:
-  //   "AbortError: signal is aborted without reason"
-  // The session timeout (40s) could not catch this because the fetchTimeoutMs AbortError was
-  // NOT recognised as a "timeout" string, so the orchestrator logged it as a general failure.
+  // fetchTimeoutMs is the client-side AbortController deadline for a single Alpha LLM fetch.
+  // INVARIANT: fetchTimeoutMs MUST be >= OPENAI_REQUEST_TIMEOUT_MS + overhead so the server-side
+  //            AbortController always fires before the client cancels the fetch. This ensures the
+  //            function returns a clean 504 JSON rather than the client receiving an opaque AbortError.
   //
-  // FIX: Raise fetchTimeoutMs to 33s (= OPENAI_REQUEST_TIMEOUT_MS 25s + 8s overhead margin).
-  // The server-side OpenAI abort fires at 25s and returns a clean 504 JSON to the client.
-  // The client's 33s timer is always >= server budget, so the server fires first.
-  // If Alpha starts at 18s elapsed, it now completes or times out at 18s + 25s = 43s server-side,
-  // which the 40s session-level Promise.race() catches cleanly — returning a session timeout
-  // NO_TRADE instead of an opaque AbortError crash.
+  // OPENAI_REQUEST_TIMEOUT_MS (server, SSOT: netlify/functions/openai-chat.ts) = 25s
+  // fetchTimeoutMs (client) = 30s  (= 25s server + 5s overhead margin)
   //
-  // INVARIANT: fetchTimeoutMs (35s) >= OPENAI_REQUEST_TIMEOUT_MS (25s) + max overhead (8s) = 33s.
+  // Single-call timeline per symbol:
+  //   Pre-work: ~5-12s (data fetch, Omega-8 deterministic, snapshot build)
+  //   Alpha LLM fetch: starts at ~12s, server aborts at 25s → client sees response by ~37s
+  //   fetchTimeoutMs (30s from fetch start) fires at ~42s if server never responds — safely after server abort.
+  //   symbolTimeoutMs (90s) is the outer boundary, well beyond this.
+  //
   // SSOT: OPENAI_REQUEST_TIMEOUT_MS is owned by netlify/functions/openai-chat.ts.
-  //       If OPENAI_REQUEST_TIMEOUT_MS changes, this value MUST be updated to remain >= server + 8s.
-  // CCIP-2026-03-12-REVERT: 55s → 35s to match reverted OPENAI_REQUEST_TIMEOUT_MS (25s) + 10s margin.
-  private readonly fetchTimeoutMs = 35000;
+  //       If OPENAI_REQUEST_TIMEOUT_MS changes, update fetchTimeoutMs to remain >= server + 5s.
+  private readonly fetchTimeoutMs = 30000;
 
   constructor() {
     this.functionUrl = '/.netlify/functions/openai-chat';

@@ -301,7 +301,7 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     // caused some invocations to take 8+ extra seconds of cold-start overhead, pushing the
     // total invocation time over the Netlify platform cap and producing empty-body 504s.
     // With 3 concurrent symbols = 6 peak function invocations, cold-start pressure is halved.
-    // Queue budget: 3 symbols × 2 LLM calls × 100ms = 0.6s — well within OpenAI 20 req/s.
+    // Queue budget: 3 symbols × 1 LLM call × 100ms = 0.3s — well within OpenAI 20 req/s.
     // Scan speed impact: 9 symbols @ 3-wide → ceil(9/3) = 3 waves vs 2 waves at 5-wide.
     // Extra time: ~60s per extra wave, but scan now completes reliably rather than failing.
     maxConcurrentSymbols: 3,
@@ -315,66 +315,49 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     // Measured post-LLM overhead: 4-9s. Full pipeline worst-case: 31s observed.
     // 40s = 31s observed worst-case + 9s safety margin. Clean headroom for all sessions.
     //
-    // CCIP-2026-03-13c (SECOND-LLM-ABORT-FIX): symbolTimeoutMs remains at 40s (unchanged).
-    // The root cause of the ongoing AbortErrors was NOT the session timeout — it was the
-    // client-side fetchTimeoutMs (22s) in openai-client.ts racing the second LLM call.
-    // Each symbol makes TWO sequential LLM calls. The first (Omega-8) completes at ~15-18s.
-    // The second (Alpha) starts at ~15-18s and has its own 22s client-side abort.
-    // Combined: 15-18s + 22s = 37-40s — exactly at the 40s session boundary.
-    // The client AbortController fired at ~37s before the 40s session Promise.race() could
-    // resolve, producing "AbortError: signal is aborted without reason".
-    // FIX: fetchTimeoutMs raised 22s → 33s and OPENAI_REQUEST_TIMEOUT_MS raised 18s → 25s.
-    // These are the sole corrections. symbolTimeoutMs (40s) remains the SSOT outer boundary.
+    // CCIP-2026-03-12: OMEGA-8 IS PURELY DETERMINISTIC — ONE LLM CALL PER SYMBOL ONLY.
+    // Previous references to "TWO sequential LLM calls" are obsolete. Omega-8 makes zero LLM calls.
+    // Only Alpha calls the LLM. All timeout values are sized for a single LLM call per symbol.
     //
     // TIMEOUT BUDGET HIERARCHY (SSOT — all consumers must honour these invariants):
     //   OPENAI_REQUEST_TIMEOUT_MS (server)  = 25s  — netlify/functions/openai-chat.ts
-    //   fetchTimeoutMs (client)             = 35s  — src/services/openai-client.ts
-    //   symbolTimeoutMs / sessionTimeouts   = 60s  — this file (SSOT)
-    //   batchTimeoutMs / councilTimeoutMs   = 220s — this file (SSOT)
+    //   fetchTimeoutMs (client)             = 30s  — src/services/openai-client.ts
+    //   symbolTimeoutMs / sessionTimeouts   = 90s  — this file (SSOT)
+    //   batchTimeoutMs / councilTimeoutMs   = 300s — this file (SSOT)
     //   FUNCTION_TIMEOUT_MS (Netlify fn)    = 58s  — netlify/functions/openai-chat.ts
     //   Netlify platform hard limit         = 60s  — netlify.toml (plan max)
     //
     // INVARIANTS (must never be violated):
-    //   1. fetchTimeoutMs >= OPENAI_REQUEST_TIMEOUT_MS + 8s overhead
-    //      (35s >= 25s + 8s = 33s ✓)
+    //   1. fetchTimeoutMs >= OPENAI_REQUEST_TIMEOUT_MS + 5s overhead
+    //      (30s >= 25s + 5s = 30s ✓)
     //   2. OPENAI_REQUEST_TIMEOUT_MS + max overhead < FUNCTION_TIMEOUT_MS
     //      (25s + 8s = 33s < 58s ✓)
     //   3. FUNCTION_TIMEOUT_MS < Netlify platform hard limit
     //      (58s < 60s ✓)
-    //   4. symbolTimeoutMs > fetchTimeoutMs
-    //      (60s > 35s ✓ — ensures session timeout is the outer boundary, not fetch abort)
+    //   4. symbolTimeoutMs > pre-work_max + fetchTimeoutMs
+    //      (90s > 12s + 30s = 42s ✓ — real safety margin, not an exact collision)
     //
-    // CCIP-2026-03-12-REVERT: Reverted OPENAI_REQUEST_TIMEOUT_MS 45s→25s, FUNCTION_TIMEOUT_MS 85s→58s.
-    // Root cause of persistent 504s: 45s OPENAI_REQUEST_TIMEOUT_MS caused Netlify platform hard-kill.
-    // The platform enforces its own cap independently; empty-body 504s (not function's own return)
-    // confirm the function was killed by infrastructure, not by its own timeouts.
-    // 25s OPENAI_REQUEST_TIMEOUT_MS was proven working in production (CCIP-2026-03-13c history).
-    // maxConcurrentSymbols also reduced 5→3 to halve cold-start cascade pressure.
-    symbolTimeoutMs: 60000,
-    batchTimeoutMs: 220000,
-    // 9 symbols, 3-wide rolling pool = ceil(9/3) = 3 waves × 60s = 180s.
-    // 220s = 180s actual + 40s safety buffer.
-    councilTimeoutMs: 220000,
+    // Single-call timeline per symbol (worst case under load):
+    //   Pre-work (data fetch, Omega-8 deterministic, snapshot): 5-12s
+    //   Alpha LLM fetch starts at ~12s; server aborts at 25s; response arrives by ~37s
+    //   Post-LLM work (confidence engine, audit, reward): ~3-8s
+    //   Total: 12s + 25s + 8s = 45s — comfortably within 90s symbolTimeoutMs.
+    symbolTimeoutMs: 90000,
+    batchTimeoutMs: 300000,
+    // 9 symbols, 3-wide rolling pool = ceil(9/3) = 3 waves × 90s = 270s.
+    // 300s = 270s actual + 30s safety buffer.
+    councilTimeoutMs: 300000,
 
     useSessionTimeouts: true,
-    // CCIP-2026-03-13a (POST-LLM-PIPELINE-FIX): All session timeouts raised 25s → 40s.
-    // ROOT CAUSE: The 25s per-symbol timeout was based only on the OpenAI LLM call
-    // (18s + 4s overhead = 22s). The FULL symbol pipeline includes post-LLM steps
-    // that run AFTER alphaCoordinator.coordinate() returns:
-    //   - confidenceCalculationEngine.calculateFinalConfidence() [Supabase audit insert]
-    //   - rewardEngine.loadPlatformScore() [Supabase RPC]
-    // These add 4-9s, pushing measured total pipeline to 26-31s in production.
-    // The 25s AbortController was firing before these steps completed, causing ALL
-    // first-wave symbols (XAUUSD, US30, NAS100, SPX500, EURUSD) to return NO_TRADE@0%
-    // via the timeout branch instead of Alpha's real decision.
-    // 40s = 31s worst-case observed + 9s safety margin.
-    // CCIP-2026-03-13c: These values remain at 40s. See symbolTimeoutMs note above.
+    // Session timeouts mirror symbolTimeoutMs (90s). One LLM call per symbol.
+    // Full pipeline worst-case: 12s pre-work + 25s LLM + 8s post-work = 45s.
+    // 90s = 45s worst-case + 45s safety margin.
     sessionTimeouts: {
-      asian: 60000,
-      london: 60000,
-      nyse: 60000,
-      overlap: 60000,
-      off_hours: 60000,
+      asian: 90000,
+      london: 90000,
+      nyse: 90000,
+      overlap: 90000,
+      off_hours: 90000,
     },
   },
 

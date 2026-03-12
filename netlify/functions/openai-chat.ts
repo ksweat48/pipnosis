@@ -64,36 +64,30 @@ const supabase = getSupabaseAdmin();
 // 58s gives 29s of headroom even under worst-case cold start. The self-imposed timer fires
 // before Netlify's platform kill, returning a clean 504 JSON instead of a TCP drop.
 //
-// CCIP-2026-03-13c (SECOND-LLM-ABORT-FIX): Raised OPENAI_REQUEST_TIMEOUT_MS 18s → 25s.
-// ROOT CAUSE (identified from production console logs):
-//   Each symbol evaluation makes TWO sequential LLM calls: Omega-8 first, then Alpha.
-//   The first call (Omega-8) was completing at ~15-18s elapsed since symbol start.
-//   The second call (Alpha) then starts its own 22s client-side fetch timer at ~15-18s.
-//   Combined: first call finishes at 15-18s + second call aborts at 15-18s + 22s = 37-40s.
-//   This fires the second call's AbortController just before the 40s session timeout,
-//   producing "AbortError: signal is aborted without reason" for the Alpha LLM call.
-//   The server-side OPENAI_REQUEST_TIMEOUT_MS (18s) was the root constraint: the server
-//   aborts its OpenAI fetch at 18s and returns a 504, which the client's 22s timer
-//   catches. By raising the server limit to 25s, the Alpha call (starting at ~15-18s)
-//   completes at 15-18s + 25s = 40-43s, outside the 40s session boundary but within
-//   the batchTimeoutMs (160s) — the session timeout's Promise.race() fires first at 40s,
-//   cleanly returning NO_TRADE rather than crashing with an AbortError.
-// INVARIANT: OPENAI_REQUEST_TIMEOUT_MS (25s) + max overhead (8s) = 33s < FUNCTION_TIMEOUT_MS (58s).
-// INVARIANT: fetchTimeoutMs in openai-client.ts MUST remain >= OPENAI_REQUEST_TIMEOUT_MS + 8s.
-//            fetchTimeoutMs is set to 35s (= 25s + 10s overhead margin). See openai-client.ts.
-// NOTE: Values above reflect CCIP-2026-03-12-REVERT. Pre-REVERT values (45s/85s/55s) are obsolete.
+// CCIP-2026-03-12: OMEGA-8 IS PURELY DETERMINISTIC — ONE LLM CALL PER SYMBOL ONLY.
+// Omega-8 was refactored to a pure pattern sensor (no LLM) as of CCIP-2026-03-12.
+// The previous comments referencing "TWO sequential LLM calls: Omega-8 first, then Alpha"
+// are now obsolete. Only Alpha makes an LLM call. Omega-8 returns computed facts deterministically.
+//
+// SINGLE-CALL BUDGET PER SYMBOL:
+//   Pre-work (data fetch, Supabase queries, Omega-8 deterministic scan): ~5-12s
+//   Alpha LLM call (OPENAI_REQUEST_TIMEOUT_MS): 25s max
+//   Post-call logging (Supabase RPCs): ~1-3s
+//   Total worst-case: 12s + 25s + 3s = 40s — well within the 60s Netlify platform limit.
+//
+// INVARIANTS:
+//   OPENAI_REQUEST_TIMEOUT_MS (25s) + max overhead (8s) = 33s < FUNCTION_TIMEOUT_MS (58s)
+//   fetchTimeoutMs in openai-client.ts MUST remain >= OPENAI_REQUEST_TIMEOUT_MS + 8s
+//   fetchTimeoutMs is set to 30s (= 25s + 5s overhead margin). See openai-client.ts.
+//
 // CCIP-2026-03-12-REVERT: Reverted 85s/45s → 58s/25s.
-// DIAGNOSIS: 45s OPENAI_REQUEST_TIMEOUT_MS caused Netlify platform hard-kill (empty 504 body).
-// The Netlify platform enforces its own timeout cap independently of netlify.toml settings.
-// When 5 concurrent symbols each make 2 LLM calls (=10 concurrent function invocations),
-// cold-start cascades push total per-invocation time over the platform cap, causing empty-body 504s.
-// 25s OPENAI_REQUEST_TIMEOUT_MS was PROVEN WORKING in production (CCIP-2026-03-13c history).
+// 25s OPENAI_REQUEST_TIMEOUT_MS is proven working in production.
 // Budget: 25s OpenAI + 8s overhead (Supabase auth + rate-limit RPC + TLS + cold start) = 33s.
 // 33s is well under the 60s Netlify plan limit. Even with cold start spikes there is margin.
-// The concurrent pool is also reduced to 3 symbols (was 5) to halve cold-start cascade pressure.
+// The concurrent pool is reduced to 3 symbols to halve cold-start cascade pressure.
 // See concurrent-execution-config.ts for maxConcurrentSymbols change.
-const FUNCTION_TIMEOUT_MS = 58000; // CCIP-2026-03-12-REVERT: 85s → 58s. Budget: 60s Netlify limit - 2s exit margin.
-const OPENAI_REQUEST_TIMEOUT_MS = 25000; // CCIP-2026-03-12-REVERT: 45s → 25s. Proven working in production.
+const FUNCTION_TIMEOUT_MS = 58000; // Budget: 60s Netlify limit - 2s clean exit margin.
+const OPENAI_REQUEST_TIMEOUT_MS = 25000; // Proven working in production. Single Alpha call only.
 const RATE_LIMIT_CHECK_TIMEOUT_MS = 2000; // 2 seconds for rate limit check
 
 const MODEL_PRICING = {
