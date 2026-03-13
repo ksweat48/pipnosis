@@ -86,8 +86,38 @@ const supabase = getSupabaseAdmin();
 // 33s is well under the 60s Netlify plan limit. Even with cold start spikes there is margin.
 // The concurrent pool is reduced to 3 symbols to halve cold-start cascade pressure.
 // See concurrent-execution-config.ts for maxConcurrentSymbols change.
+//
+// CCIP-2026-03-13c (THIRD-CONCURRENT-SYMBOL-TIMEOUT-FIX):
+// ROOT CAUSE: When 3 symbols are evaluated concurrently, all 3 Alpha LLM calls are
+// dispatched within 200ms of each other (100ms LLM queue spacing). OpenAI processes
+// requests serially on their end during the Asian session low-traffic window. However,
+// under moderate model load the third queued request can take longer to begin execution.
+// With OPENAI_REQUEST_TIMEOUT_MS=25s, the third symbol's request would time out at 25s
+// before OpenAI returned a response — producing a clean 504 and degrading that symbol to
+// NO_TRADE. The trade still executes (the selector picks from the two successful symbols),
+// but the 504 console error is unnecessary noise and reduces scan coverage.
+//
+// FIX: Raise OPENAI_REQUEST_TIMEOUT_MS from 25s → 35s.
+// The additional 10s headroom allows the third concurrent request to complete under load
+// without reaching the server-side abort. Budget analysis (all invariants verified):
+//   Pre-work overhead (Supabase auth + rate-limit RPC + TLS + cold start): max 8s
+//   OPENAI_REQUEST_TIMEOUT_MS (new):                                        35s
+//   Post-call logging (Supabase RPCs):                                      max 3s
+//   Total worst-case:                                            8s+35s+3s = 46s
+//   Headroom before FUNCTION_TIMEOUT_MS (58s):                              12s ✓
+//   Headroom before Netlify platform limit (60s):                           14s ✓
+//
+// INVARIANTS (verified, must never be violated):
+//   1. OPENAI_REQUEST_TIMEOUT_MS (35s) + max overhead (8s) = 43s < FUNCTION_TIMEOUT_MS (58s) ✓
+//   2. FUNCTION_TIMEOUT_MS (58s) < Netlify platform hard limit (60s) ✓
+//   3. fetchTimeoutMs in openai-client.ts MUST be >= OPENAI_REQUEST_TIMEOUT_MS + 12s
+//      = 35s + 12s = 47s minimum → set to 50s. See openai-client.ts.
+//   4. symbolTimeoutMs (90s) > pre-work_max (12s) + fetchTimeoutMs (50s) = 62s ✓
+//
+// ROLLBACK PLAN: If 35s causes Netlify infrastructure 504s (TCP drops instead of clean JSON),
+// reduce OPENAI_REQUEST_TIMEOUT_MS back to 25s and update fetchTimeoutMs to 45s accordingly.
 const FUNCTION_TIMEOUT_MS = 58000; // Budget: 60s Netlify limit - 2s clean exit margin.
-const OPENAI_REQUEST_TIMEOUT_MS = 25000; // Proven working in production. Single Alpha call only.
+const OPENAI_REQUEST_TIMEOUT_MS = 35000; // CCIP-2026-03-13c: Raised 25s→35s for third concurrent symbol.
 const RATE_LIMIT_CHECK_TIMEOUT_MS = 2000; // 2 seconds for rate limit check
 
 const MODEL_PRICING = {

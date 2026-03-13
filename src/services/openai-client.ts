@@ -219,13 +219,14 @@ class OpenAIClient {
   //   The client cancelled the in-flight fetch, Netlify received a mid-stream abort, and
   //   the browser logged "AbortError: signal is aborted without reason" instead of a clean 504.
   //
+  // CCIP-2026-03-13c: Raised 45s → 50s to match OPENAI_REQUEST_TIMEOUT_MS increase (25s → 35s).
   // INVARIANT: fetchTimeoutMs MUST be >= OPENAI_REQUEST_TIMEOUT_MS + max_pre_work_overhead
-  //   Formula: 25s (OPENAI_REQUEST_TIMEOUT_MS) + 12s (max pre-work) = 37s minimum
-  //   fetchTimeoutMs = 45s = 37s minimum + 8s safety buffer
+  //   Formula: 35s (OPENAI_REQUEST_TIMEOUT_MS) + 12s (max pre-work) = 47s minimum
+  //   fetchTimeoutMs = 50s = 47s minimum + 3s safety buffer
   //
   // TIMEOUT BUDGET HIERARCHY (SSOT — all values must satisfy all three invariants):
-  //   OPENAI_REQUEST_TIMEOUT_MS (server)  = 25s  — netlify/functions/openai-chat.ts
-  //   fetchTimeoutMs (client)             = 45s  — this file (SSOT for client-side timeout)
+  //   OPENAI_REQUEST_TIMEOUT_MS (server)  = 35s  — netlify/functions/openai-chat.ts
+  //   fetchTimeoutMs (client)             = 50s  — this file (SSOT for client-side timeout)
   //   symbolTimeoutMs / sessionTimeouts   = 90s  — concurrent-execution-config.ts
   //   councilTimeoutMs                    = 300s — concurrent-execution-config.ts
   //   FUNCTION_TIMEOUT_MS (Netlify fn)    = 58s  — netlify/functions/openai-chat.ts
@@ -233,18 +234,18 @@ class OpenAIClient {
   //
   // INVARIANTS (must never be violated):
   //   1. fetchTimeoutMs >= OPENAI_REQUEST_TIMEOUT_MS + max_pre_work_overhead
-  //      (45s >= 25s + 12s = 37s ✓  — 8s safety buffer)
+  //      (50s >= 35s + 12s = 47s ✓  — 3s safety buffer)
   //   2. OPENAI_REQUEST_TIMEOUT_MS + max_overhead < FUNCTION_TIMEOUT_MS
-  //      (25s + 8s = 33s < 58s ✓)
+  //      (35s + 8s = 43s < 58s ✓)
   //   3. FUNCTION_TIMEOUT_MS < Netlify platform hard limit
   //      (58s < 60s ✓)
   //   4. symbolTimeoutMs > pre-work_max + fetchTimeoutMs
-  //      (90s > 12s + 45s = 57s ✓ — 33s safety margin)
+  //      (90s > 12s + 50s = 62s ✓ — 28s safety margin)
   //
   // SSOT: OPENAI_REQUEST_TIMEOUT_MS is owned by netlify/functions/openai-chat.ts.
   //       If OPENAI_REQUEST_TIMEOUT_MS changes, update fetchTimeoutMs to remain
   //       >= OPENAI_REQUEST_TIMEOUT_MS + 12s (max pre-work).
-  private readonly fetchTimeoutMs = 45000;
+  private readonly fetchTimeoutMs = 50000;
 
   constructor() {
     this.functionUrl = '/.netlify/functions/openai-chat';
