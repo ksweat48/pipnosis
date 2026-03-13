@@ -49,6 +49,7 @@ import {
   formatConcurrentConfigForLogging,
   getSessionTimeout,
   getOmega8DeterministicThreshold,
+  getIntraBatchStaggerMs,
   type MarketSession
 } from '../config/concurrent-execution-config';
 import { marketScheduleService } from './market-schedule-service';
@@ -916,6 +917,11 @@ class AlphaOmegaOrchestrator {
       if (foundViableTrade && earlyExitAllowed) return false;
       const marketState = queue.shift()!;
       const globalIdx = symbolsSubmitted++;
+      // CCIP-2026-03-13d: Apply intra-batch stagger to all symbols after the first.
+      // Spreads Netlify function invocations across time to avoid simultaneous cold-start
+      // overhead that pushes total wall-clock past the Netlify CDN 26s synchronous kill wall.
+      // SSOT: stagger value sourced from getIntraBatchStaggerMs() in concurrent-execution-config.ts.
+      const staggerMs = globalIdx > 0 ? getIntraBatchStaggerMs() : 0;
       const promise = this.createSymbolEvaluationPromise(
         marketState,
         traderScore,
@@ -927,7 +933,7 @@ class AlphaOmegaOrchestrator {
         globalIdx,
         marketStates.length,
         imSignalMap?.get(marketState.symbol),
-        0
+        staggerMs
       );
       inFlight.set(marketState.symbol, promise);
       return true;

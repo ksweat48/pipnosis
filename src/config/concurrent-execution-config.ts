@@ -296,15 +296,20 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
   enabled: true,
 
   concurrency: {
-    // CCIP-2026-03-12-REVERT: Reduced 5→3. Each symbol makes 2 LLM calls, so 5 concurrent
-    // symbols = 10 concurrent Netlify function invocations at peak. This cold-start cascade
-    // caused some invocations to take 8+ extra seconds of cold-start overhead, pushing the
-    // total invocation time over the Netlify platform cap and producing empty-body 504s.
-    // With 3 concurrent symbols = 6 peak function invocations, cold-start pressure is halved.
-    // Queue budget: 3 symbols × 1 LLM call × 100ms = 0.3s — well within OpenAI 20 req/s.
-    // Scan speed impact: 9 symbols @ 3-wide → ceil(9/3) = 3 waves vs 2 waves at 5-wide.
-    // Extra time: ~60s per extra wave, but scan now completes reliably rather than failing.
-    maxConcurrentSymbols: 3,
+    // CCIP-2026-03-13d: Reduced 3→2. Root cause fix for 504 Gateway Timeouts.
+    // Netlify CDN hard-kills synchronous functions at 26s wall-clock (NOT the 60s from netlify.toml
+    // which only applies to background functions). With OPENAI_REQUEST_TIMEOUT_MS=20s and 4s
+    // pre-work, each invocation takes up to 24s. At 3 concurrent symbols, the third function
+    // invocation arrives at Netlify cold with zero warm workers, adding 2-4s of cold-start overhead
+    // and pushing total to 26-28s — right at or past the CDN kill threshold.
+    // At 2 concurrent symbols: Netlify can service both with the existing warm worker pool,
+    // cold-start overhead drops to 0-1s, and total stays at 24-25s (under the 26s CDN limit).
+    // Scan speed impact: 9 symbols @ 2-wide → ceil(9/2) = 5 waves vs 5 waves at 3-wide with
+    // early-exit. In practice early-exit (72% threshold) terminates after wave 1 or 2, so
+    // real scan time is identical. Full no-early-exit scan: 5 waves × 24s = 120s (vs 4 waves
+    // × 45s = 180s before CCIP-2026-03-13d), faster because each wave is now 24s not 45s.
+    // Queue budget: 2 symbols × 1 LLM call × 100ms = 0.2s — well within OpenAI 20 req/s.
+    maxConcurrentSymbols: 2,
     // CCIP-2026-03-13a (POST-LLM-PIPELINE-FIX): Raised 25s → 40s.
     // ROOT CAUSE: Production console showed Alpha LLM completing at 26-31s, AFTER the 25s
     // abort fires. The 25s budget was derived from the OpenAI call alone (18s + 4s overhead
@@ -319,29 +324,30 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     // Previous references to "TWO sequential LLM calls" are obsolete. Omega-8 makes zero LLM calls.
     // Only Alpha calls the LLM. All timeout values are sized for a single LLM call per symbol.
     //
-    // TIMEOUT BUDGET HIERARCHY (SSOT — all consumers must honour these invariants):
-    //   OPENAI_REQUEST_TIMEOUT_MS (server)  = 25s  — netlify/functions/openai-chat.ts
-    //   fetchTimeoutMs (client)             = 30s  — src/services/openai-client.ts
+    // CCIP-2026-03-13d TIMEOUT BUDGET HIERARCHY (SSOT — all consumers must honour these invariants):
+    //   OPENAI_REQUEST_TIMEOUT_MS (server)  = 20s  — netlify/functions/openai-chat.ts (SSOT)
+    //   FUNCTION_TIMEOUT_MS (Netlify fn)    = 24s  — netlify/functions/openai-chat.ts (SSOT)
+    //   Netlify CDN synchronous kill wall   = 26s  — Netlify infrastructure (hard, immutable limit)
+    //   fetchTimeoutMs (client)             = 35s  — src/services/openai-client.ts
     //   symbolTimeoutMs / sessionTimeouts   = 90s  — this file (SSOT)
     //   batchTimeoutMs / councilTimeoutMs   = 300s — this file (SSOT)
-    //   FUNCTION_TIMEOUT_MS (Netlify fn)    = 58s  — netlify/functions/openai-chat.ts
-    //   Netlify platform hard limit         = 60s  — netlify.toml (plan max)
+    //   Netlify platform hard limit (bg fn) = 60s  — netlify.toml (background functions only)
     //
     // INVARIANTS (must never be violated):
-    //   1. fetchTimeoutMs >= OPENAI_REQUEST_TIMEOUT_MS + 5s overhead
-    //      (30s >= 25s + 5s = 30s ✓)
-    //   2. OPENAI_REQUEST_TIMEOUT_MS + max overhead < FUNCTION_TIMEOUT_MS
-    //      (25s + 8s = 33s < 58s ✓)
-    //   3. FUNCTION_TIMEOUT_MS < Netlify platform hard limit
-    //      (58s < 60s ✓)
+    //   1. OPENAI_REQUEST_TIMEOUT_MS + max_pre_work <= Netlify CDN kill wall
+    //      (20s + 4s = 24s <= 26s ✓  — 2s safety margin)
+    //   2. FUNCTION_TIMEOUT_MS = OPENAI_REQUEST_TIMEOUT_MS + max_pre_work
+    //      (24s = 20s + 4s ✓ — self-kill before CDN kill)
+    //   3. fetchTimeoutMs >= FUNCTION_TIMEOUT_MS
+    //      (35s >= 24s ✓  — 11s client-side safety buffer)
     //   4. symbolTimeoutMs > pre-work_max + fetchTimeoutMs
-    //      (90s > 12s + 30s = 42s ✓ — real safety margin, not an exact collision)
+    //      (90s > 12s + 35s = 47s ✓  — 43s safety margin)
     //
-    // Single-call timeline per symbol (worst case under load):
+    // Single-call timeline per symbol (CCIP-2026-03-13d, worst case under load):
     //   Pre-work (data fetch, Omega-8 deterministic, snapshot): 5-12s
-    //   Alpha LLM fetch starts at ~12s; server aborts at 25s; response arrives by ~37s
+    //   Alpha LLM fetch starts at ~4s; server aborts at 20s; clean JSON 504 returns by ~24s
     //   Post-LLM work (confidence engine, audit, reward): ~3-8s
-    //   Total: 12s + 25s + 8s = 45s — comfortably within 90s symbolTimeoutMs.
+    //   Total: 12s + 20s + 8s = 40s — comfortably within 90s symbolTimeoutMs.
     symbolTimeoutMs: 90000,
     batchTimeoutMs: 300000,
     // 9 symbols, 3-wide rolling pool = ceil(9/3) = 3 waves × 90s = 270s.
@@ -350,8 +356,8 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
 
     useSessionTimeouts: true,
     // Session timeouts mirror symbolTimeoutMs (90s). One LLM call per symbol.
-    // Full pipeline worst-case: 12s pre-work + 25s LLM + 8s post-work = 45s.
-    // 90s = 45s worst-case + 45s safety margin.
+    // CCIP-2026-03-13d: Full pipeline worst-case: 12s pre-work + 20s LLM + 8s post-work = 40s.
+    // 90s = 40s worst-case + 50s safety margin.
     sessionTimeouts: {
       asian: 90000,
       london: 90000,
@@ -407,13 +413,25 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     enabled: true,
     maxLLMCallsPerSecond: 20,
     minBatchDelayMs: 100,
-    // ARCHITECTURAL NOTE: intraBatchStaggerMs is intentionally set to 0.
-    // Rate limiting is enforced at the correct layer: openai-client.ts LLMRequestQueue.
-    // The queue enforces minimum inter-call spacing between ALL OpenAI calls, regardless
-    // of how many concurrent symbol evaluations are in flight. The stagger here was
-    // solving the problem at the wrong layer (pipeline start vs LLM call point), causing
-    // symbols that start together to still converge at the LLM call after processing.
-    intraBatchStaggerMs: 0,
+    // CCIP-2026-03-13d: intraBatchStaggerMs restored to 1500ms.
+    // PURPOSE: Spread the wall-clock arrival of concurrent Netlify function invocations
+    // so they do NOT hit Netlify's CDN at the same millisecond.
+    // ROOT CAUSE OF PREVIOUS 0ms SETTING: The stagger was eliminated when the LLMRequestQueue
+    // was introduced, reasoning that the queue handles inter-call spacing. That reasoning is
+    // correct for RATE LIMITING (preventing burst-429s), but wrong for INFRASTRUCTURE LOAD.
+    // With 0ms stagger, 2 symbols start simultaneously. Both make their first Supabase auth RPC
+    // at t=0, both call the Netlify openai-chat function at ~t=4s. Netlify receives two
+    // simultaneous cold HTTP requests; one warm worker handles the first, the second waits
+    // in the Netlify queue. The queued request eats 2-3s of Netlify overhead BEFORE its own
+    // 4s pre-work starts, pushing total to 4s+3s+20s = 27s — 1 second past the CDN kill wall.
+    // With 1500ms stagger, the second symbol starts 1.5s after the first. Its Netlify function
+    // call arrives at ~t=5.5s, by which time the first call has warmed the worker. The second
+    // call gets a warm worker, incurs 0s cold-start overhead, and completes in 24s safely.
+    // RELATIONSHIP TO LLMRequestQueue: This stagger is at the pipeline ENTRY level (symbol
+    // evaluation start). The LLMRequestQueue enforces minimum spacing at the LLM CALL level.
+    // Both layers are correct and non-overlapping; they solve different problems.
+    // SSOT: alpha-omega-orchestrator.ts MUST read this via getIntraBatchStaggerMs().
+    intraBatchStaggerMs: 1500,
     // SSOT: Minimum spacing between successive LLM calls inside the LLMRequestQueue.
     // openai-client.ts MUST read this via getMinInterCallMs() — never hardcode.
     // 100ms = sufficient inter-call jitter to avoid burst-rate 429s at 20 calls/sec limit.
@@ -557,6 +575,17 @@ export function getRetryDelayMs(): number {
  */
 export function getMinInterCallMs(): number {
   return CONCURRENT_EXECUTION_CONFIG.rateLimiting.minInterCallMs;
+}
+
+/**
+ * SSOT: Stagger delay (ms) between consecutive symbol submissions in the rolling pool.
+ * alpha-omega-orchestrator.ts MUST call this when submitting the 2nd+ symbol.
+ * Purpose: spread wall-clock arrival of Netlify function invocations to avoid simultaneous
+ * cold-start overhead that pushes total invocation time past the Netlify CDN 26s kill wall.
+ * See CCIP-2026-03-13d rationale in intraBatchStaggerMs config comment above.
+ */
+export function getIntraBatchStaggerMs(): number {
+  return CONCURRENT_EXECUTION_CONFIG.rateLimiting.intraBatchStaggerMs;
 }
 
 /**

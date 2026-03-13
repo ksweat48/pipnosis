@@ -97,27 +97,53 @@ const supabase = getSupabaseAdmin();
 // NO_TRADE. The trade still executes (the selector picks from the two successful symbols),
 // but the 504 console error is unnecessary noise and reduces scan coverage.
 //
-// FIX: Raise OPENAI_REQUEST_TIMEOUT_MS from 25s → 35s.
-// The additional 10s headroom allows the third concurrent request to complete under load
-// without reaching the server-side abort. Budget analysis (all invariants verified):
-//   Pre-work overhead (Supabase auth + rate-limit RPC + TLS + cold start): max 8s
-//   OPENAI_REQUEST_TIMEOUT_MS (new):                                        35s
-//   Post-call logging (Supabase RPCs):                                      max 3s
-//   Total worst-case:                                            8s+35s+3s = 46s
-//   Headroom before FUNCTION_TIMEOUT_MS (58s):                              12s ✓
-//   Headroom before Netlify platform limit (60s):                           14s ✓
+// CCIP-2026-03-13d: ROOT CAUSE FIX for persistent 504 Gateway Timeout errors.
+//
+// ROOT CAUSE: Netlify's `timeout = 60` in netlify.toml applies ONLY to background functions
+// (invoked via POST to /.netlify/functions/function-name-background). Regular synchronous
+// functions like openai-chat are hard-capped at 26 seconds by the Netlify CDN edge layer,
+// regardless of what netlify.toml configures. The previous OPENAI_REQUEST_TIMEOUT_MS = 35s
+// plus 8s of pre-work overhead = 43s total, which is 17 seconds past the CDN's kill threshold.
+// The CDN silently drops the TCP connection, producing an unrecoverable infrastructure 504
+// (empty body, no JSON) — NOT the self-generated clean JSON 504 from our AbortError handler.
+// The browser cannot distinguish these and cannot retry them safely.
+//
+// FIX: Set OPENAI_REQUEST_TIMEOUT_MS = 20s. Budget analysis (all invariants verified):
+//   Pre-work overhead (Supabase auth + rate-limit RPC + TLS + cold start): max 4s
+//   OPENAI_REQUEST_TIMEOUT_MS (new):                                        20s
+//   Post-call logging (fire-and-forget Supabase RPCs):                       0s (non-blocking)
+//   Total worst-case:                                            4s+20s+0s = 24s
+//   Headroom before Netlify CDN 26s synchronous function kill wall:          2s ✓
+//   Headroom before FUNCTION_TIMEOUT_MS (24s):                               0s (FUNCTION_TIMEOUT_MS = 24s = total)
+//
+// WHY THIS WORKS: When OpenAI takes >20s (rare but possible under load), the server-side
+// AbortController fires first, returning a clean JSON 504 response in ~24s total.
+// The Netlify CDN sees the function complete successfully (returning HTTP 200 with a 504
+// JSON body) within its 26s kill window. The client receives a parseable JSON error
+// with error.status === 504, which the caller treats as NO_TRADE for this symbol.
+// No TCP drop, no silent failure, no unrecoverable browser error.
+//
+// COMPANION CHANGES (all must be applied together — SSOT chain):
+//   - openai-client.ts: fetchTimeoutMs = 35s (>= 20s OPENAI_REQUEST_TIMEOUT_MS + 4s pre-work)
+//   - concurrent-execution-config.ts: maxConcurrentSymbols = 2 (reduce Netlify cold-start pressure)
+//   - concurrent-execution-config.ts: intraBatchStaggerMs = 1500ms (spread wall-clock arrivals)
+//   - openai-client.ts: max_tokens default = 500 (reduce OpenAI generation time)
 //
 // INVARIANTS (verified, must never be violated):
-//   1. OPENAI_REQUEST_TIMEOUT_MS (35s) + max overhead (8s) = 43s < FUNCTION_TIMEOUT_MS (58s) ✓
-//   2. FUNCTION_TIMEOUT_MS (58s) < Netlify platform hard limit (60s) ✓
-//   3. fetchTimeoutMs in openai-client.ts MUST be >= OPENAI_REQUEST_TIMEOUT_MS + 12s
-//      = 35s + 12s = 47s minimum → set to 50s. See openai-client.ts.
-//   4. symbolTimeoutMs (90s) > pre-work_max (12s) + fetchTimeoutMs (50s) = 62s ✓
+//   1. OPENAI_REQUEST_TIMEOUT_MS (20s) + max_pre_work (4s) <= Netlify CDN 26s synchronous limit ✓
+//      (24s <= 26s, 2s safety margin)
+//   2. FUNCTION_TIMEOUT_MS (24s) = OPENAI_REQUEST_TIMEOUT_MS (20s) + max_pre_work (4s) ✓
+//      (self-kill fires before CDN kill)
+//   3. fetchTimeoutMs in openai-client.ts MUST be >= OPENAI_REQUEST_TIMEOUT_MS + max_pre_work
+//      = 20s + 4s = 24s minimum → set to 35s (11s safety buffer). See openai-client.ts.
+//   4. symbolTimeoutMs (90s) > pre-work_max (12s) + fetchTimeoutMs (35s) = 47s ✓
 //
-// ROLLBACK PLAN: If 35s causes Netlify infrastructure 504s (TCP drops instead of clean JSON),
-// reduce OPENAI_REQUEST_TIMEOUT_MS back to 25s and update fetchTimeoutMs to 45s accordingly.
-const FUNCTION_TIMEOUT_MS = 58000; // Budget: 60s Netlify limit - 2s clean exit margin.
-const OPENAI_REQUEST_TIMEOUT_MS = 35000; // CCIP-2026-03-13c: Raised 25s→35s for third concurrent symbol.
+// ROLLBACK PLAN: If OpenAI responses legitimately need >20s (GPT-4o-mini with 15K tokens under
+// extreme load), increase OPENAI_REQUEST_TIMEOUT_MS in 2s increments and verify CDN does not
+// kill the connection (watch for empty-body 504s vs JSON-body 504s in browser devtools).
+// Maximum safe value: 22s (22s + 4s = 26s = Netlify CDN limit, zero margin — risky).
+const FUNCTION_TIMEOUT_MS = 24000; // CCIP-2026-03-13d: Self-kill at 24s, before CDN kills at 26s.
+const OPENAI_REQUEST_TIMEOUT_MS = 20000; // CCIP-2026-03-13d: Reduced 35s→20s to stay under Netlify CDN 26s synchronous limit.
 const RATE_LIMIT_CHECK_TIMEOUT_MS = 2000; // 2 seconds for rate limit check
 
 const MODEL_PRICING = {

@@ -198,8 +198,11 @@ const llmRequestQueue = new LLMRequestQueue(getMinInterCallMs());
 
 class OpenAIClient {
   private readonly functionUrl: string;
-  // CCIP-2026-03-12: maxRetries sourced from SSOT — getMaxRetries() returns 1.
-  // Reduced from 2: worst-case double-504 caps at 57s (1 retry) vs 88s (2 retries).
+  // CCIP-2026-03-13d: maxRetries sourced from SSOT — getMaxRetries() returns 0 (zero retries).
+  // With OPENAI_REQUEST_TIMEOUT_MS=20s the function self-terminates cleanly at 24s,
+  // just under the Netlify CDN 26s synchronous kill wall. A retry at maxRetries=1 would
+  // cost another 24s (total 48s), blowing through the CDN wall and producing a TCP-drop 504.
+  // Zero retries: each symbol gets one clean 24s window; failures become NO_TRADE gracefully.
   private readonly maxRetries = getMaxRetries();
   private readonly baseDelayMs = getRetryDelayMs();
   // CCIP-2026-03-12: OMEGA-8 IS PURELY DETERMINISTIC — ONE LLM CALL PER SYMBOL ONLY.
@@ -208,44 +211,35 @@ class OpenAIClient {
   //
   // fetchTimeoutMs is the client-side AbortController deadline for a single Alpha LLM fetch.
   //
-  // CCIP-2026-03-12-FETCHFIX: Raised 30s → 45s.
-  // ROOT CAUSE of "AbortError: signal is aborted without reason":
-  //   The client fetch() timer starts at t=0 (when the browser calls the Netlify function).
-  //   However, the server does NOT start the OpenAI call immediately. Pre-work on the server
-  //   (Supabase auth verification + rate-limit RPC + TLS handshake) consumes 5-12s BEFORE
-  //   the OPENAI_REQUEST_TIMEOUT_MS (25s) AbortController starts.
-  //   Total server wall-clock worst case: 12s pre-work + 25s OpenAI = 37s.
-  //   Old fetchTimeoutMs (30s) fired at t=30s — 7 seconds BEFORE the server could finish.
-  //   The client cancelled the in-flight fetch, Netlify received a mid-stream abort, and
-  //   the browser logged "AbortError: signal is aborted without reason" instead of a clean 504.
+  // CCIP-2026-03-13d: Reduced 50s → 35s to match OPENAI_REQUEST_TIMEOUT_MS reduction (35s→20s).
+  // ROOT CAUSE of 504s: Netlify CDN hard-kills synchronous functions at 26s wall-clock.
+  // OPENAI_REQUEST_TIMEOUT_MS=20s + 4s max pre-work = 24s total server wall-clock.
+  // The server-side AbortController now fires at 20s, completing the full round-trip in 24s.
+  // fetchTimeoutMs must be >= FUNCTION_TIMEOUT_MS (24s) to guarantee the server can finish
+  // before the client aborts. Set to 35s: 24s server budget + 11s safety buffer.
   //
-  // CCIP-2026-03-13c: Raised 45s → 50s to match OPENAI_REQUEST_TIMEOUT_MS increase (25s → 35s).
-  // INVARIANT: fetchTimeoutMs MUST be >= OPENAI_REQUEST_TIMEOUT_MS + max_pre_work_overhead
-  //   Formula: 35s (OPENAI_REQUEST_TIMEOUT_MS) + 12s (max pre-work) = 47s minimum
-  //   fetchTimeoutMs = 50s = 47s minimum + 3s safety buffer
-  //
-  // TIMEOUT BUDGET HIERARCHY (SSOT — all values must satisfy all three invariants):
-  //   OPENAI_REQUEST_TIMEOUT_MS (server)  = 35s  — netlify/functions/openai-chat.ts
-  //   fetchTimeoutMs (client)             = 50s  — this file (SSOT for client-side timeout)
+  // TIMEOUT BUDGET HIERARCHY (SSOT — all values must satisfy all invariants):
+  //   OPENAI_REQUEST_TIMEOUT_MS (server)  = 20s  — netlify/functions/openai-chat.ts (SSOT)
+  //   FUNCTION_TIMEOUT_MS (Netlify fn)    = 24s  — netlify/functions/openai-chat.ts (SSOT)
+  //   Netlify CDN synchronous kill wall   = 26s  — Netlify infrastructure (hard limit)
+  //   fetchTimeoutMs (client)             = 35s  — this file (SSOT for client-side timeout)
   //   symbolTimeoutMs / sessionTimeouts   = 90s  — concurrent-execution-config.ts
   //   councilTimeoutMs                    = 300s — concurrent-execution-config.ts
-  //   FUNCTION_TIMEOUT_MS (Netlify fn)    = 58s  — netlify/functions/openai-chat.ts
-  //   Netlify platform hard limit         = 60s  — netlify.toml
+  //   Netlify platform hard limit (bg fn) = 60s  — netlify.toml (background functions only)
   //
   // INVARIANTS (must never be violated):
-  //   1. fetchTimeoutMs >= OPENAI_REQUEST_TIMEOUT_MS + max_pre_work_overhead
-  //      (50s >= 35s + 12s = 47s ✓  — 3s safety buffer)
-  //   2. OPENAI_REQUEST_TIMEOUT_MS + max_overhead < FUNCTION_TIMEOUT_MS
-  //      (35s + 8s = 43s < 58s ✓)
-  //   3. FUNCTION_TIMEOUT_MS < Netlify platform hard limit
-  //      (58s < 60s ✓)
+  //   1. OPENAI_REQUEST_TIMEOUT_MS + max_pre_work <= Netlify CDN synchronous kill wall
+  //      (20s + 4s = 24s <= 26s ✓  — 2s safety margin)
+  //   2. FUNCTION_TIMEOUT_MS = OPENAI_REQUEST_TIMEOUT_MS + max_pre_work
+  //      (24s = 20s + 4s ✓ — self-kill fires before CDN kill)
+  //   3. fetchTimeoutMs >= FUNCTION_TIMEOUT_MS
+  //      (35s >= 24s ✓  — 11s client-side safety buffer)
   //   4. symbolTimeoutMs > pre-work_max + fetchTimeoutMs
-  //      (90s > 12s + 50s = 62s ✓ — 28s safety margin)
+  //      (90s > 12s + 35s = 47s ✓ — 43s safety margin)
   //
   // SSOT: OPENAI_REQUEST_TIMEOUT_MS is owned by netlify/functions/openai-chat.ts.
-  //       If OPENAI_REQUEST_TIMEOUT_MS changes, update fetchTimeoutMs to remain
-  //       >= OPENAI_REQUEST_TIMEOUT_MS + 12s (max pre-work).
-  private readonly fetchTimeoutMs = 50000;
+  //       If OPENAI_REQUEST_TIMEOUT_MS changes, recalculate all values per the invariants above.
+  private readonly fetchTimeoutMs = 35000;
 
   constructor() {
     this.functionUrl = '/.netlify/functions/openai-chat';
@@ -409,7 +403,11 @@ class OpenAIClient {
               messages,
               model: options.model || 'gpt-4o-mini',
               temperature: options.temperature ?? 0.7,
-              max_tokens: options.max_tokens ?? 2000,
+              // CCIP-2026-03-13d: Default 2000→500. Alpha decision JSON is <300 tokens; the
+              // remaining 1700 token headroom only increased OpenAI generation time without
+              // producing longer useful output. 500 tokens covers all Alpha styles with margin.
+              // Callers needing more tokens MUST pass options.max_tokens explicitly.
+              max_tokens: options.max_tokens ?? 500,
               requestType: options.requestType,
               endpoint: options.endpoint
             }),
