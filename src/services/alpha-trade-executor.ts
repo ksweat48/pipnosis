@@ -1885,7 +1885,13 @@ class AlphaTradeExecutor {
 
     // Build immutable mid-trade plan snapshot (SSOT for deterministic trigger evaluation)
     const tradeDirection = decision.action === 'BUY' ? 'buy' : 'sell';
-    const patternIntelligence = (decision as any).patternIntelligence;
+    // CCIP-FIX: coordinator-alpha attaches patternIntelligence using camelCase keys
+    // (htfPattern, mtfPattern, ltfPattern, invalidationPoint) per the AlphaDecision interface.
+    // Previously the executor read snake_case keys (htf_pattern, mtf_pattern, ltf_pattern,
+    // invalidation_price) which silently resolved to undefined, causing patterns: {} in every
+    // stored mid_trade_plan and generic fallback entry_narrative text.
+    // SSOT: AlphaDecision.patternIntelligence shape defined in coordinator-alpha.ts (interface).
+    const patternIntelligence = decision.patternIntelligence;
     const midTradePlan = buildMidTradePlan({
       reasoning: decision.reasoning || '',
       entryPrice,
@@ -1894,11 +1900,11 @@ class AlphaTradeExecutor {
       direction: tradeDirection,
       symbol: decision.symbol || '',
       marketRegime: (decision as any).market_regime || regimeBucket || null,
-      patternInvalidationPrice: patternIntelligence?.invalidation_price ?? null,
-      patternInvalidationReasoning: patternIntelligence?.invalidation_reasoning ?? null,
-      htfPattern: patternIntelligence?.htf_pattern ?? null,
-      mtfPattern: patternIntelligence?.mtf_pattern ?? null,
-      ltfPattern: patternIntelligence?.ltf_pattern ?? null,
+      patternInvalidationPrice: patternIntelligence?.invalidationPoint?.price ?? null,
+      patternInvalidationReasoning: patternIntelligence?.invalidationPoint?.reasoning ?? null,
+      htfPattern: patternIntelligence?.htfPattern ?? null,
+      mtfPattern: patternIntelligence?.mtfPattern ?? null,
+      ltfPattern: patternIntelligence?.ltfPattern ?? null,
       omegaConsensus: decision.omega_summary || null,
       confidence: decision.confidence,
       expectedFillMinutes: decision.expectedFillTimeHours ? Math.round(decision.expectedFillTimeHours * 60) : null,
@@ -1940,6 +1946,18 @@ class AlphaTradeExecutor {
         ? JSON.stringify({ answer_sheet: decision.answer_sheet, narrative: decision.reasoning || null })
         : (decision.reasoning || null),
       market_regime_at_entry: (decision as any).market_regime || regimeBucket || null,
+      // CCIP-FIX: Persist the full regime and adversarial snapshots Alpha received at
+      // decision time. Previously only the string bucket (regime_bucket) was saved.
+      // The full objects are required for post-trade audit, learning loop closure,
+      // and Mid-Trade Monitor context. SSOT: decision.regime_advisory /
+      // decision.adversarial_advisory set by coordinator-alpha after Omega council.
+      regime_snapshot: decision.regime_advisory ? JSON.stringify(decision.regime_advisory) : null,
+      adversarial_snapshot: decision.adversarial_advisory ? JSON.stringify(decision.adversarial_advisory) : null,
+      // CCIP-FIX: Write resolved trade style to alpha_style column. Previously only
+      // requested_style / resolved_style were written — alpha_style was always null,
+      // breaking style-based filtering in admin dashboards and learning queries.
+      // SSOT: canonicalStyle is the governance-resolved style (coordinator authority).
+      alpha_style: canonicalStyle ?? null,
       mid_trade_plan: midTradePlan
     };
   }

@@ -360,6 +360,28 @@ export interface AlphaDecision {
     Q8_move_position_pct: number;
     Q8B_session_range_pct: number;
     /**
+     * Q8C: Price location zone within control TF range.
+     * DISCOUNT (<38%) / EQUILIBRIUM (38-62%) / PREMIUM (>62%)
+     */
+    Q8C_price_location_zone?: string;
+    /**
+     * Q8D: Weekly narrative context.
+     * DELIVERY_BULLISH / DELIVERY_BEARISH / REBALANCING / UNCERTAIN
+     */
+    Q8D_weekly_narrative?: string;
+    /** Kill zone alignment at entry time */
+    kill_zone?: string;
+    /** News event status at entry time */
+    news_status?: string;
+    /** Equal highs/lows within 2x ATR — unswept liquidity pools */
+    equal_highs_lows?: string;
+    /** Trap signature assessment */
+    trap_signature?: string;
+    /** Failed auction assessment */
+    failed_auction?: string;
+    /** Intermarket correlation: CONFLUENT / DIVERGENT / UNKNOWN */
+    intermarket_correlation?: string;
+    /**
      * Q9: SL wick proximity self-check.
      * Alpha scans recent primary-timeframe wick extremes and states whether
      * his SL price is within 1 pip of any wick. This is advisory — Alpha
@@ -3958,11 +3980,14 @@ ${tradeStyle === 'SCALP' ? `{
       const executionPreference = parsed.execution_preference || null;
       const acceptableProfitRange = parsed.acceptable_profit_range || null;
 
-      // CCIP-FIX: Extract Alpha's answer_sheet (Q1-Q8 checklist) from LLM response.
-      // Previously parsed but never extracted — answerSheet was always undefined,
-      // causing alpha_reasoning_snapshot to store only narrative text, and the
-      // Mid-Trade Monitor checklist to render nothing (AlphaAnswerSheet returns null
-      // when sheet is undefined). SSOT owner: coordinator-alpha (parse point).
+      // CCIP-FIX: Extract Alpha's answer_sheet (full checklist Q1-Q9 + extended fields)
+      // from LLM response. Previously only Q1-Q9 were extracted — the extended fields
+      // (Q8C, Q8D, kill_zone, news_status, equal_highs_lows, trap_signature,
+      // failed_auction, intermarket_correlation) were being silently discarded after
+      // Alpha computed them. These fields carry Alpha's assessment of price location,
+      // weekly narrative, intermarket correlation, trap signatures, and liquidity
+      // context — critical inputs for the Mid-Trade Monitor and learning loops.
+      // SSOT owner: coordinator-alpha (sole parse point for LLM response).
       const rawAnswerSheet = parsed.answer_sheet;
       const answerSheet: AlphaDecision['answer_sheet'] = (
         rawAnswerSheet &&
@@ -3981,6 +4006,14 @@ ${tradeStyle === 'SCALP' ? `{
         Q7_confluence_count: rawAnswerSheet.Q7_confluence_count || '',
         Q8_move_position_pct: typeof rawAnswerSheet.Q8_move_position_pct === 'number' ? rawAnswerSheet.Q8_move_position_pct : 0,
         Q8B_session_range_pct: typeof rawAnswerSheet.Q8B_session_range_pct === 'number' ? rawAnswerSheet.Q8B_session_range_pct : 0,
+        Q8C_price_location_zone: typeof rawAnswerSheet.Q8C_price_location_zone === 'string' ? rawAnswerSheet.Q8C_price_location_zone : undefined,
+        Q8D_weekly_narrative: typeof rawAnswerSheet.Q8D_weekly_narrative === 'string' ? rawAnswerSheet.Q8D_weekly_narrative : undefined,
+        kill_zone: typeof rawAnswerSheet.kill_zone === 'string' ? rawAnswerSheet.kill_zone : undefined,
+        news_status: typeof rawAnswerSheet.news_status === 'string' ? rawAnswerSheet.news_status : undefined,
+        equal_highs_lows: typeof rawAnswerSheet.equal_highs_lows === 'string' ? rawAnswerSheet.equal_highs_lows : undefined,
+        trap_signature: typeof rawAnswerSheet.trap_signature === 'string' ? rawAnswerSheet.trap_signature : undefined,
+        failed_auction: typeof rawAnswerSheet.failed_auction === 'string' ? rawAnswerSheet.failed_auction : undefined,
+        intermarket_correlation: typeof rawAnswerSheet.intermarket_correlation === 'string' ? rawAnswerSheet.intermarket_correlation : undefined,
         Q9_sl_wick_proximity: typeof rawAnswerSheet.Q9_sl_wick_proximity === 'string' ? rawAnswerSheet.Q9_sl_wick_proximity : undefined,
       } : undefined;
 
