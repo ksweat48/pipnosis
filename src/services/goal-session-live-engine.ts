@@ -1777,47 +1777,14 @@ class GoalSessionLiveEngine {
       // - CCIP-compliant audit logging
       // - Consistent error handling across all execution modes
 
-      // ENTRY MONITOR GATE: If the user has entry_price_monitor_enabled AND Alpha
-      // provided a wait_condition, route to MONITORED instead of IMMEDIATE.
-      // Alpha's entry_mode drives which wait type is used (pullback vs push confirm).
+      // ENTRY MONITOR GATE: Delegate to resolveExecutionMode() — the SSOT gate authority.
+      // resolveExecutionMode checks all four wait variants and the user toggle in one place.
       const alphaEntryMode = decision.entry_mode;
-      let executionMode: 'IMMEDIATE' | 'MONITORED' = 'IMMEDIATE';
-      let entryMonitorGateActive = false;
-
-      const alphaWantsToWait = decision.wait_condition != null
-        || alphaEntryMode === 'WAIT_ENTRY'
-        || alphaEntryMode === 'WAIT_HIGHER_EDGE'
-        || alphaEntryMode === 'PUSH_CONFIRM';
-
-      if (alphaWantsToWait) {
-        try {
-          const { data: monitorPref } = await supabase
-            .from('user_monitor_preferences')
-            .select('entry_price_monitor_enabled')
-            .eq('user_id', config.userId)
-            .maybeSingle();
-
-          const toggleIsOn = monitorPref?.entry_price_monitor_enabled === true;
-
-          if (toggleIsOn) {
-            executionMode = 'MONITORED';
-            entryMonitorGateActive = true;
-          }
-        } catch (prefErr) {
-          logger.warn(LogCategory.AI_TRADING, '[Entry Monitor Gate] Failed to read monitor preference — defaulting to IMMEDIATE', { error: prefErr });
-        }
-      }
-
-      if (entryMonitorGateActive) {
-        try {
-          await supabase
-            .from('goal_sessions')
-            .update({ alpha_entry_monitor_gate_active: true })
-            .eq('id', activeSession!);
-        } catch {
-          // non-blocking audit update
-        }
-      }
+      const { executionMode, entryMonitorGateActive } = await this.resolveExecutionMode(
+        decision,
+        config.userId,
+        activeSession!
+      );
 
       logger.info(
         LogCategory.AI_TRADING,
@@ -1851,13 +1818,13 @@ class GoalSessionLiveEngine {
         }
 
         tradeExecuted = true;
-        this.tradeExecutedInSession = true;
-        // CRITICAL: Update trade ID to match database UUID before tracking
+        // CRITICAL: Update trade ID to match database UUID before registration
         trade.id = executionResult.tradeId!;
-        this.openTrades.push(trade);
+        // SSOT: registerExecutedTrade() is the single authority for setting
+        // tradeExecutedInSession=true and pushing to openTrades. Both paths use this.
+        this.registerExecutedTrade(trade);
         logger.debug(LogCategory.AI_TRADING, `Trade ${this.openTrades.length}/${config.maxConcurrentTrades} added with DB ID: ${trade.id}`);
         logger.info(LogCategory.AI_TRADING, `✅ Trade executed: ${selectedSymbol} ${trade.direction} @ ${trade.entryPrice} (confidence: ${trade.confidence}%)`);
-        logger.info(LogCategory.AI_TRADING, 'GOVERNANCE: tradeExecutedInSession=true - no further scanning allowed in this session');
 
         // Track goal feasibility decision for analytics
         if (downshiftedProposal) {
@@ -2477,19 +2444,28 @@ class GoalSessionLiveEngine {
   }
 
   /**
-   * Handle new trade signal - SSOT-compliant execution via alphaTradeExecutor
+   * Handle new trade signal — single-symbol execution path (eventBasedLLMEngine).
    *
-   * Routes SimulatedTrade (from eventBasedLLMEngine) through the unified trade execution authority.
-   * Maps autonomous engine trade to AlphaDecision contract and executes through validation pipeline.
+   * ARCHITECTURE NOTE — TWO EXECUTION PATHS:
+   *   Path 1 (multi-symbol, watchlist.length > 1):
+   *     processMultiSymbolCycle() → alphaOmegaOrchestrator → AlphaDecision → alphaTradeExecutor
+   *   Path 2 (single-symbol, watchlist.length === 1) — THIS METHOD:
+   *     processCandleAutonomous() → eventBasedLLMEngine → SimulatedTrade → alphaTradeExecutor
    *
-   * SSOT Authority: alphaTradeExecutor is the sole entry point for all trade creation
-   * CCIP Compliance: Registered as trade execution refactor (20260203)
-   * Governance: All validation layers maintained (Core + Risk + Capacity + Price)
+   *   The two paths are MUTUALLY EXCLUSIVE. Both converge at alphaTradeExecutor.execute().
+   *   Shared behaviour (entry monitor gate, post-execution registration) is handled by
+   *   resolveExecutionMode() and registerExecutedTrade() to ensure identical governance
+   *   in both paths. Neither path may implement its own independent gate logic.
    *
-   * @param trade - SimulatedTrade from eventBasedLLMEngine analysis
+   * SSOT Authorities:
+   *   - resolveExecutionMode() — sole authority for IMMEDIATE vs MONITORED decision
+   *   - registerExecutedTrade() — sole authority for setting tradeExecutedInSession
+   *   - alphaTradeExecutor.execute() — sole authority for trade creation
+   *
+   * @param trade       - SimulatedTrade from eventBasedLLMEngine
    * @param goalSession - goal_sessions record for context
-   * @param candles - Historical candles for market context
-   * @returns true if trade was successfully executed, false if rejected by validation
+   * @param candles     - Historical candles (reserved for future enrichment)
+   * @returns true if an immediate trade was executed, false otherwise
    */
   private async handleNewTradeSignal(
     trade: SimulatedTrade,
@@ -2499,19 +2475,34 @@ class GoalSessionLiveEngine {
     try {
       logger.info(
         LogCategory.AI_TRADING,
-        '[Trade Execution] SSOT: Routing through alphaTradeExecutor',
+        '[Trade Execution] Path 2 (single-symbol): routing through alphaTradeExecutor',
         {
           symbol: trade.symbol,
           direction: trade.direction,
           confidence: trade.confidence,
           entryPrice: trade.entryPrice,
-          source: 'eventBasedLLMEngine (autonomous)',
+          source: 'eventBasedLLMEngine',
           executionAuthority: 'alphaTradeExecutor'
         }
       );
 
-      // ✅ SSOT: Build AlphaDecision from SimulatedTrade
-      // This adapts autonomous engine's trade signal to unified execution contract
+      // ✅ GOVERNANCE: Ensure we have valid session record before any work
+      if (!goalSession || !this.activeSession || !this.config) {
+        logger.error(
+          LogCategory.AI_TRADING,
+          '[Trade Execution] BLOCKED: Invalid session context',
+          {
+            symbol: trade.symbol,
+            hasGoalSession: !!goalSession,
+            hasActiveSession: !!this.activeSession,
+            severity: 'CRITICAL'
+          }
+        );
+        return false;
+      }
+
+      // ✅ SSOT: Build AlphaDecision from SimulatedTrade.
+      // Adapts autonomous engine output to the unified execution contract.
       const alphaDecision = {
         action: (trade.direction === 'buy' ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
         decision: (trade.direction === 'buy' ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
@@ -2528,54 +2519,29 @@ class GoalSessionLiveEngine {
         adversarial_advisory: trade.adversarialSignal
       };
 
-      // ✅ SSOT: Build TradeContext from market data
-      const tradeContext = createTradeContext(
-        trade.symbol,
-        trade.direction === 'buy' ? 'buy' : 'sell',
-        trade.entryPrice,
-        trade.stopLoss,
-        trade.takeProfit,
-        {
-          pipValue: calculateDollarPerPip(trade.symbol),
-          slDistance: calculatePipDistance(
-            trade.symbol,
-            trade.entryPrice,
-            trade.stopLoss
-          ),
-          tpDistance: calculatePipDistance(
-            trade.symbol,
-            trade.entryPrice,
-            trade.takeProfit
-          )
-        }
-      );
-
-      // ✅ GOVERNANCE: Ensure we have valid session record
-      if (!goalSession || !this.activeSession) {
+      // ✅ SSOT: createTradeContext accepts only symbol — no extra args
+      const tradeContextResult = createTradeContext(trade.symbol);
+      if (!tradeContextResult.success || !tradeContextResult.context) {
         logger.error(
           LogCategory.AI_TRADING,
-          '[Trade Execution] BLOCKED: Invalid session context',
-          {
-            symbol: trade.symbol,
-            hasGoalSession: !!goalSession,
-            hasActiveSession: !!this.activeSession,
-            severity: 'CRITICAL'
-          }
+          `[SSOT] Failed to create TradeContext for ${trade.symbol}: ${tradeContextResult.error}`
         );
         return false;
       }
+      const tradeContext = tradeContextResult.context;
 
-      // ✅ CCIP: SSOT - Execute through unified authority (alphaTradeExecutor)
-      // All validation layers run through this single point of entry
-      const alphaEntryMode2 = alphaDecision.entry_mode;
-      const requiresMonitoring2 =
-        alphaEntryMode2 === 'WAIT_ENTRY' || alphaEntryMode2 === 'WAIT_HIGHER_EDGE';
-      const executionMode2 = requiresMonitoring2 ? 'MONITORED' : 'IMMEDIATE';
+      // ✅ ENTRY MONITOR GATE: Delegate to resolveExecutionMode() — the SSOT gate authority.
+      // Checks all four wait variants and the user toggle. Identical to Path 1.
+      const { executionMode, entryMonitorGateActive } = await this.resolveExecutionMode(
+        alphaDecision,
+        this.config.userId,
+        this.activeSession
+      );
 
       logger.info(
         LogCategory.AI_TRADING,
-        `[Trade Execution] Alpha entry_mode="${alphaEntryMode2 ?? 'unset'}" -> mode=${executionMode2}`,
-        { symbol: trade.symbol, alphaEntryMode: alphaEntryMode2, executionMode: executionMode2 }
+        `[Trade Execution] Alpha entry_mode="${alphaDecision.entry_mode ?? 'unset'}" -> mode=${executionMode} (gate=${entryMonitorGateActive})`,
+        { symbol: trade.symbol, alphaEntryMode: alphaDecision.entry_mode, executionMode, entryMonitorGateActive }
       );
 
       const executionResult = await alphaTradeExecutor.execute({
@@ -2584,16 +2550,27 @@ class GoalSessionLiveEngine {
         userId: this.config.userId,
         sessionId: this.activeSession,
         session: goalSession,
-        mode: executionMode2,
+        mode: executionMode,
         snapshotTimestamp: new Date(),
         regimeSnapshot: trade.regimeSnapshot,
         adversarialState: trade.adversarialSignal
       });
 
       if (executionResult.success) {
+        if (executionResult.isMonitoring) {
+          // Entry intent created — trade is pending zone confirmation.
+          // The autonomous-entry-monitor will execute when conditions are met.
+          logger.info(
+            LogCategory.AI_TRADING,
+            `[Entry Monitor] Intent created for ${trade.symbol} — waiting for zone entry (mode=${alphaDecision.entry_mode})`,
+            { symbol: trade.symbol, entryMonitorGateActive }
+          );
+          return false; // No immediate trade executed
+        }
+
         logger.info(
           LogCategory.AI_TRADING,
-          '[Trade Execution] ✅ SUCCESS - Trade created via alphaTradeExecutor',
+          '[Trade Execution] ✅ SUCCESS — Trade created via alphaTradeExecutor',
           {
             tradeId: executionResult.tradeId,
             symbol: trade.symbol,
@@ -2601,24 +2578,26 @@ class GoalSessionLiveEngine {
             entryPrice: trade.entryPrice,
             stopLoss: trade.stopLoss,
             takeProfit: trade.takeProfit,
-            confidence: trade.confidence,
-            isMonitoring: executionResult.isMonitoring
+            confidence: trade.confidence
           }
         );
 
-        // Add to memory state for immediate access
+        // ✅ SSOT: registerExecutedTrade() sets tradeExecutedInSession=true and
+        // pushes to openTrades. Using the shared helper ensures identical governance
+        // to Path 1. The old code omitted tradeExecutedInSession, breaking single-trade
+        // mode governance in single-symbol sessions.
         const dbTradeRecord: SimulatedTrade = {
           ...trade,
           id: executionResult.tradeId || trade.id,
           outcome: 'open'
         };
-        this.openTrades.push(dbTradeRecord);
+        this.registerExecutedTrade(dbTradeRecord);
 
         return true;
       } else {
         logger.warn(
           LogCategory.AI_TRADING,
-          '[Trade Execution] ❌ REJECTED - Validation failed',
+          '[Trade Execution] ❌ REJECTED — Validation failed',
           {
             symbol: trade.symbol,
             direction: trade.direction,
@@ -2636,7 +2615,7 @@ class GoalSessionLiveEngine {
     } catch (error) {
       logger.error(
         LogCategory.AI_TRADING,
-        '[Trade Execution] 🔥 CRITICAL ERROR - Execution fault',
+        '[Trade Execution] CRITICAL ERROR — Execution fault',
         {
           symbol: trade.symbol,
           direction: trade.direction,
@@ -2646,9 +2625,117 @@ class GoalSessionLiveEngine {
         }
       );
 
-      // Safety: Never silently fail - log and return false to allow continued scanning
       return false;
     }
+  }
+
+  // ============================================================================
+  // SSOT SHARED HELPERS — consumed by BOTH execution paths
+  //
+  // ARCHITECTURE:
+  //   Path 1 (multi-symbol)  → processMultiSymbolCycle() → alphaTradeExecutor
+  //   Path 2 (single-symbol) → handleNewTradeSignal()    → alphaTradeExecutor
+  //
+  //   Both paths are mutually exclusive (watchlist.length > 1 vs === 1).
+  //   Both converge at alphaTradeExecutor.execute().
+  //   The helpers below are the SINGLE authoritative implementation of the
+  //   logic that must behave identically across both paths.
+  // ============================================================================
+
+  /**
+   * Shared Entry Monitor Gate — SSOT for execution mode resolution.
+   *
+   * Determines whether Alpha's trade should execute IMMEDIATELY or be routed
+   * to MONITORED (entry intent) mode.  Reads the user's
+   * entry_price_monitor_enabled toggle once and checks all four wait variants
+   * that Alpha may signal:
+   *   - wait_condition present
+   *   - entry_mode === 'WAIT_ENTRY'
+   *   - entry_mode === 'WAIT_HIGHER_EDGE'
+   *   - entry_mode === 'PUSH_CONFIRM'
+   *
+   * CCIP: This function is the ONLY place that reads user_monitor_preferences.
+   * Neither processMultiSymbolCycle nor handleNewTradeSignal may perform their
+   * own independent gate checks.
+   *
+   * @param alphaDecision - AlphaDecision returned by any execution path
+   * @param userId        - User to query preferences for
+   * @param sessionId     - Active goal session (for audit logging)
+   * @returns object with executionMode and entryMonitorGateActive flag
+   */
+  private async resolveExecutionMode(
+    alphaDecision: { entry_mode?: string; wait_condition?: unknown },
+    userId: string,
+    sessionId: string
+  ): Promise<{ executionMode: 'IMMEDIATE' | 'MONITORED'; entryMonitorGateActive: boolean }> {
+    const alphaWantsToWait =
+      alphaDecision.wait_condition != null
+      || alphaDecision.entry_mode === 'WAIT_ENTRY'
+      || alphaDecision.entry_mode === 'WAIT_HIGHER_EDGE'
+      || alphaDecision.entry_mode === 'PUSH_CONFIRM';
+
+    if (!alphaWantsToWait) {
+      return { executionMode: 'IMMEDIATE', entryMonitorGateActive: false };
+    }
+
+    let executionMode: 'IMMEDIATE' | 'MONITORED' = 'IMMEDIATE';
+    let entryMonitorGateActive = false;
+
+    try {
+      const { data: monitorPref } = await supabase
+        .from('user_monitor_preferences')
+        .select('entry_price_monitor_enabled')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (monitorPref?.entry_price_monitor_enabled === true) {
+        executionMode = 'MONITORED';
+        entryMonitorGateActive = true;
+      }
+    } catch (prefErr) {
+      logger.warn(
+        LogCategory.AI_TRADING,
+        '[Entry Monitor Gate] Failed to read monitor preference — defaulting to IMMEDIATE',
+        { error: prefErr }
+      );
+    }
+
+    if (entryMonitorGateActive) {
+      try {
+        await supabase
+          .from('goal_sessions')
+          .update({ alpha_entry_monitor_gate_active: true })
+          .eq('id', sessionId);
+      } catch {
+        // non-blocking audit update
+      }
+    }
+
+    return { executionMode, entryMonitorGateActive };
+  }
+
+  /**
+   * Shared Post-Execution Trade Registration — SSOT for recording a successfully
+   * executed (IMMEDIATE) trade in engine memory and session governance flags.
+   *
+   * GOVERNANCE:
+   *   - this.tradeExecutedInSession MUST be set true after every immediate execution.
+   *     In single-trade mode this halts further scanning. Omitting this flag (as
+   *     the old Path 2 did) silently bypasses the session governance contract.
+   *   - this.openTrades.push() records the trade for in-memory position monitoring.
+   *
+   * Called by both processMultiSymbolCycle and handleNewTradeSignal after a
+   * successful IMMEDIATE alphaTradeExecutor.execute() result.
+   *
+   * @param tradeRecord - SimulatedTrade to register (with DB-assigned id applied)
+   */
+  private registerExecutedTrade(tradeRecord: SimulatedTrade): void {
+    this.tradeExecutedInSession = true;
+    this.openTrades.push(tradeRecord);
+    logger.info(
+      LogCategory.AI_TRADING,
+      `GOVERNANCE: tradeExecutedInSession=true — trade ${tradeRecord.id} registered (open: ${this.openTrades.length})`
+    );
   }
 
   /**
