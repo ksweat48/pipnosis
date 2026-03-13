@@ -1091,24 +1091,40 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
         // CRITICAL FIX: Merge database candle with live tick data
         // This prevents database updates from overwriting real-time DirectPoller ticks
+        // CCIP-2026-03-13d: After merge, guard the result with the same 5% range contract
+        // as candle-data-service.ts:438, chart-candle-poller.ts, and
+        // current-candle-reconstructor.ts. Prevents a corrupted currentCandleRef from
+        // amplifying into the merged output via Math.max/min.
         let finalCandle = safeCandle;
         if (currentCandleRef.current && currentCandleRef.current.time === safeCandle.time) {
-          // Database candle has aggregated historical ticks
-          // currentCandleRef has the latest live tick updates from DirectPoller
-          // Merge them: use database open, but combine high/low and use most recent close
-          finalCandle = {
-            ...safeCandle,
-            high: Math.max(safeCandle.high, currentCandleRef.current.high),
-            low: Math.min(safeCandle.low, currentCandleRef.current.low),
-            close: currentCandleRef.current.close // Most recent tick
-          };
+          const mergedHigh = Math.max(safeCandle.high, currentCandleRef.current.high);
+          const mergedLow = Math.min(safeCandle.low, currentCandleRef.current.low);
+          const mergedClose = currentCandleRef.current.close;
 
-          console.log(`[Chart] 🔄 Merged DB candle with live tick: close ${safeCandle.close.toFixed(2)} → ${finalCandle.close.toFixed(2)}`);
+          const mergedRange = mergedHigh - mergedLow;
+          const mergedAvg = (safeCandle.open + mergedClose) / 2;
+          const mergedRangePct = mergedAvg > 0 ? (mergedRange / mergedAvg) * 100 : 0;
 
-          // Update currentCandleRef with merged values so next tick has accurate baseline
-          currentCandleRef.current.high = finalCandle.high;
-          currentCandleRef.current.low = finalCandle.low;
-          currentCandleRef.current.close = finalCandle.close;
+          if (mergedRangePct > 5) {
+            console.warn(
+              `[Chart] CCIP-2026-03-13d: Merged candle range ${mergedRangePct.toFixed(2)}% > 5% — ` +
+              `discarding live tick high/low, keeping database candle to prevent corrupted wick`
+            );
+            finalCandle = safeCandle;
+          } else {
+            finalCandle = {
+              ...safeCandle,
+              high: mergedHigh,
+              low: mergedLow,
+              close: mergedClose
+            };
+
+            currentCandleRef.current.high = finalCandle.high;
+            currentCandleRef.current.low = finalCandle.low;
+            currentCandleRef.current.close = finalCandle.close;
+          }
+
+          console.log(`[Chart] Merged DB candle with live tick: close ${safeCandle.close.toFixed(5)} → ${finalCandle.close.toFixed(5)}`);
         }
 
         candlestickSeriesRef.current.update(finalCandle);

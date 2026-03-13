@@ -636,30 +636,97 @@ class ChartCandlePoller {
 
       console.log(`[ChartPoller] ✅ Found ${prices.length} ticks for forming candle between ${prices[0].created_at} and ${prices[prices.length - 1].created_at}`);
 
-      // Aggregate ticks into forming candle
-      // CRITICAL: Convert strings to numbers to prevent calculation errors
-      const midPrices = prices.map(p => (parseFloat(p.bid) + parseFloat(p.ask)) / 2);
+      // CCIP-2026-03-13d (FORMING-CANDLE-VALIDATION-GAP):
+      // ROOT CAUSE: pollFormingCandle() aggregated raw realtime_prices ticks directly using
+      // Math.max/Math.min with no per-tick outlier filter and no candle-level range guard.
+      // A single corrupted bid/ask row in realtime_prices (stale price, decimal shift, feed
+      // glitch) inflated the forming candle's high or low by hundreds of pips, rendering as
+      // visually massive wicks on ALL pairs and ALL timeframes simultaneously.
+      //
+      // SSOT ALIGNMENT: Three services share the same 5% extreme-range contract:
+      //   1. candle-data-service.ts:438 (historical candle loading)
+      //   2. current-candle-reconstructor.ts:224 (tick-based reconstruction)
+      //   3. THIS FILE — now added to close the validation bypass (Layer 2+3)
+      //
+      // FIX LAYERS:
+      //   Layer 1 — Per-tick outlier filter: reject individual ticks whose mid-price
+      //             deviates > 2% from the median of all ticks in this poll batch.
+      //             This prevents a single corrupted row from skewing high/low before
+      //             the candle-level check even runs.
+      //   Layer 2 — Candle-level 5% range guard: after aggregation, if the resulting
+      //             high-low range exceeds 5% of the mid-price, reject the entire forming
+      //             candle and return null. Same threshold as candle-data-service.ts:438.
+      //
+      // INVARIANTS (must never be violated):
+      //   I1. Every candle reaching the chart via this path must pass the 5% range check.
+      //   I2. Per-tick median filter threshold (2%) < candle range threshold (5%).
+      //       This ensures a heavily-filtered batch still cannot produce a 5%-range candle
+      //       from legitimate tick variance alone under normal market conditions.
+      //   I3. If ALL ticks are filtered out, return null (no forming candle) rather than
+      //       invent a value. Silence is preferable to a corrupt rendering.
+      //
+      // ROLLBACK: If this rejects valid high-volatility candles (news events >5% move),
+      //   raise FORMING_CANDLE_MAX_RANGE_PCT in lockstep with the thresholds in
+      //   candle-data-service.ts and current-candle-reconstructor.ts (all three must agree).
+
+      const FORMING_CANDLE_MAX_RANGE_PCT = 5;
+      const TICK_OUTLIER_MAX_DEVIATION_PCT = 2;
+
+      // Layer 1: per-tick outlier filter — compute median and reject outlier ticks
+      const rawMidPrices = prices.map(p => (parseFloat(p.bid) + parseFloat(p.ask)) / 2);
+      const sorted = [...rawMidPrices].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      const cleanMidPrices = rawMidPrices.filter(mid => {
+        const deviationPct = Math.abs(mid - median) / median * 100;
+        return deviationPct <= TICK_OUTLIER_MAX_DEVIATION_PCT;
+      });
+
+      const rejectedCount = rawMidPrices.length - cleanMidPrices.length;
+      if (rejectedCount > 0) {
+        console.warn(`[ChartPoller] CCIP-2026-03-13d: Filtered ${rejectedCount}/${rawMidPrices.length} outlier ticks for ${symbol} ${timeframe} (median=${median.toFixed(5)}, threshold=${TICK_OUTLIER_MAX_DEVIATION_PCT}%)`);
+      }
+
+      if (cleanMidPrices.length === 0) {
+        console.warn(`[ChartPoller] CCIP-2026-03-13d: All ticks rejected as outliers for ${symbol} ${timeframe} — returning null (I3)`);
+        return null;
+      }
+
+      // Aggregate clean ticks into forming candle
       const formingCandle = {
         time: Math.floor(currentCandleStartMs / 1000),
-        open: parseFloat(midPrices[0].toString()),
-        high: parseFloat(Math.max(...midPrices).toString()),
-        low: parseFloat(Math.min(...midPrices).toString()),
-        close: parseFloat(midPrices[midPrices.length - 1].toString()),
+        open: cleanMidPrices[0],
+        high: Math.max(...cleanMidPrices),
+        low: Math.min(...cleanMidPrices),
+        close: cleanMidPrices[cleanMidPrices.length - 1],
         volume: prices.length,
         symbol
       };
 
-      console.log(`[ChartPoller] 🔥 Forming candle for ${symbol} ${timeframe}:`, {
-        ticks: prices.length,
-        open: formingCandle.open.toFixed(2),
-        high: formingCandle.high.toFixed(2),
-        low: formingCandle.low.toFixed(2),
-        close: formingCandle.close.toFixed(2),
-        range: (formingCandle.high - formingCandle.low).toFixed(2)
+      // Layer 2: candle-level 5% extreme range guard — same contract as candle-data-service.ts:438
+      const candleRange = formingCandle.high - formingCandle.low;
+      const avgPrice = (formingCandle.open + formingCandle.close) / 2;
+      const rangePercent = avgPrice > 0 ? (candleRange / avgPrice) * 100 : 0;
+
+      if (rangePercent > FORMING_CANDLE_MAX_RANGE_PCT) {
+        console.warn(
+          `[ChartPoller] CCIP-2026-03-13d: REJECTED forming candle for ${symbol} ${timeframe}: ` +
+          `extreme range ${rangePercent.toFixed(2)}% > ${FORMING_CANDLE_MAX_RANGE_PCT}% ` +
+          `(O:${formingCandle.open.toFixed(5)} H:${formingCandle.high.toFixed(5)} L:${formingCandle.low.toFixed(5)} C:${formingCandle.close.toFixed(5)})`
+        );
+        return null;
+      }
+
+      console.log(`[ChartPoller] Forming candle for ${symbol} ${timeframe}:`, {
+        ticks: cleanMidPrices.length,
+        open: formingCandle.open.toFixed(5),
+        high: formingCandle.high.toFixed(5),
+        low: formingCandle.low.toFixed(5),
+        close: formingCandle.close.toFixed(5),
+        rangePct: rangePercent.toFixed(3)
       });
 
       // Return sanitized forming candle with null safety
-      if (!formingCandle || typeof formingCandle.time === 'undefined') {
+      if (typeof formingCandle.time === 'undefined') {
         console.warn(`[ChartPoller] ⚠️ Forming candle missing time property, skipping`);
         return null;
       }
