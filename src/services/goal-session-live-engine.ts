@@ -1793,14 +1793,13 @@ class GoalSessionLiveEngine {
         try {
           const { data: monitorPref } = await supabase
             .from('user_monitor_preferences')
-            .select('entry_price_monitor_enabled, tier_level')
+            .select('entry_price_monitor_enabled')
             .eq('user_id', config.userId)
             .maybeSingle();
 
           const toggleIsOn = monitorPref?.entry_price_monitor_enabled === true;
-          const hasTierAccess = (monitorPref?.tier_level ?? 0) >= 1;
 
-          if (toggleIsOn && hasTierAccess) {
+          if (toggleIsOn) {
             executionMode = 'MONITORED';
             entryMonitorGateActive = true;
           }

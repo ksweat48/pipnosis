@@ -548,6 +548,20 @@ class AlphaTradeExecutor {
       }
     }
 
+    // SSOT: Recalculate riskDollars from finalLotSize so the stored value always
+    // matches the actual exposure. The URA progressive-risk-scaling path may reduce
+    // riskDollars while the goal-aware coordinator independently overrides lotSize,
+    // leaving the two values inconsistent. The lot size is the ground truth — derive
+    // riskDollars from it here, after all lot-size decisions are complete.
+    const slPips = calculatePipDistance(decision.symbol, decision.entry, decision.stopLoss);
+    const pipInfoForRisk = calculateDollarPerPip(decision.symbol, finalLotSize);
+    const recalculatedRiskDollars = slPips > 0 && pipInfoForRisk > 0
+      ? finalLotSize * slPips * pipInfoForRisk
+      : (riskAssessment.trueRiskDollars || riskAssessment.adjustedRiskDollars);
+    const finalRiskDollars = Number.isFinite(recalculatedRiskDollars) && recalculatedRiskDollars > 0
+      ? recalculatedRiskDollars
+      : (riskAssessment.trueRiskDollars || riskAssessment.adjustedRiskDollars);
+
     // LAYER 6: ENTRY OVEREXTENSION VALIDATOR (CCIP 2026-02-11 - HARD INVALIDATION)
     // Validates if current price is overextended beyond optimal zone
     // PRINCIPLE: Overextension is a precision violation, not a risk parameter
@@ -794,7 +808,7 @@ class AlphaTradeExecutor {
         sessionId,
         session: sessionData.raw,
         lotSize: finalLotSize,
-        riskDollars: riskAssessment.trueRiskDollars || riskAssessment.adjustedRiskDollars,
+        riskDollars: finalRiskDollars,
         riskWarnings: riskWarningsWithGoalContext,
         inputs,
         lotSizingDecisionId: lotSizingDecision?.auditRecordId,
@@ -811,7 +825,7 @@ class AlphaTradeExecutor {
         sessionId,
         session: sessionData.raw,
         lotSize: finalLotSize,
-        riskDollars: riskAssessment.trueRiskDollars || riskAssessment.adjustedRiskDollars,
+        riskDollars: finalRiskDollars,
         riskWarnings: riskWarningsWithGoalContext,
         inputs,
         lotSizingDecisionId: lotSizingDecision?.auditRecordId,
@@ -827,7 +841,7 @@ class AlphaTradeExecutor {
         userId,
         sessionId,
         lotSize: finalLotSize,
-        riskDollars: riskAssessment.trueRiskDollars || riskAssessment.adjustedRiskDollars,
+        riskDollars: finalRiskDollars,
         lotSizingDecisionId: lotSizingDecision?.auditRecordId,
         overextensionEventId,
         canonicalStyle,
