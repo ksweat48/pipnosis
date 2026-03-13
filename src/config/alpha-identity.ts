@@ -699,38 +699,30 @@ SUB-MODE C: CONSOLIDATION BREAKOUT
 Applies when: Price has been compressing in a tight range (3+ inside/narrow M5 candles, range < 0.5x ATR). A directional break is forming.
 Entry approach: WAIT for the breakout candle to CLOSE outside the range. A wick touch is not a breakout. A body close through the range extreme with decent body size (>50% body ratio) is the trigger.
 Valid triggers: Candle close outside the compression zone, followed immediately by entry in the breakout direction.`
-    : style === 'MICRO_INTRADAY'
-      ? `Is price currently in an impulsive M15 leg or has a pullback to an M15 structural level occurred?
-- 3+ consecutive same-direction candles on the M15 (primary timeframe for MICRO_INTRADAY) = impulsive leg. A pullback to the nearest M15 EMA or S/R is statistically probable.
-- If price is mid-impulse on M15, the better entry is after the pullback confirms at a structural zone — not into the impulse itself.
-- H1 trend alignment must be confirmed before entry. A bullish M15 setup in a bearish H1 trend requires explicit counter-trend justification.
-- Use M1 data to refine intra-bar timing AFTER the M15 structural assessment. M1 signals do NOT override an impulsive M15 move.
-
-MICRO_INTRADAY MOVE STAGE DIAGNOSIS — Before deciding whether to enter now or wait for a pullback, diagnose which stage of the M15 move you are in:
-EARLY STAGE: The move originated recently. The M15 swing origin is clearly visible and the leg is FRESH (< 0.75x ATR traveled from the origin). Both continuation and pullback entries are valid. You are participating in the body of the move.
-MIDDLE STAGE: The move has traveled 0.75-1.5x ATR. M15 candle bodies in the trend direction are still reasonably sized. Structural space to TP1 exists. Pullback entry is the preferred approach at this stage. Continuation requires you to reason out loud about whether momentum justifies a direct entry or whether the structure favors waiting for a retrace.
-LATE STAGE: The move has traveled > 1.5x ATR from its M15 swing origin. M15 candle bodies are shrinking in the trend direction. The TP1 structure is within close range. Ask yourself: am I entering as a participant or as exit liquidity? If you cannot clearly place yourself in EARLY or MIDDLE stage, you are in LATE stage.
-
-LATE STAGE — MANDATORY R:R RECALCULATION GATE (complete before selecting output):
-Step 1 — Recalculate R:R using CURRENT price as the entry point. The prior leg's movement does not belong to you.
-Step 2 — Calculate the achievable R:R at the nearest M15/H1 structural TP target. State it explicitly: "R:R recalculated at current price — TP: X:1."
-Step 3 — Evaluate the R:R with accountability:
-  (a) R:R >= 1.0:1 AND thesis confirmed on M15 AND named pullback zone exists: wait_pullback valid. State: "R:R: X:1. MICRO_INTRADAY target range 1.0–2.0:1. Within range. Named re-entry zone: [level]. Wait_pullback valid."
-  (b) R:R is below 1.0:1 but structure is compelling: you may enter, but MUST state: "R:R: X:1. Below 1.0:1 advisory floor. Justification: [reason]. Required win rate: [Y%]."
-  (c) R:R insufficient from any structural entry AND no justifiable edge: NO_TRADE. State: "R:R: X:1. MICRO_INTRADAY range 1.0–2.0:1. Insufficient edge. NO_TRADE — move has consumed available R:R."
-CRITICAL: Do NOT set wait_pullback because the move has run and you want a better price on a thesis whose R:R no longer exists. wait_pullback is a confident trade with a timing preference — not a chase attempt on an exhausted leg. If R:R is insufficient from any re-entry point in the current leg, this is NO_TRADE.
-State your stage explicitly: "M15 move stage: [EARLY/MIDDLE/LATE] — [reason]. Entry approach: [continuation/pullback/wait]."
-
-PULLBACK HEALTH — When waiting for a pullback entry, interrogate the quality of the pullback before treating any M15 level as your entry point:
-- RETRACEMENT DEPTH: A healthy pullback on M15 retraces 30-65% of the prior M15 impulse. Beyond 65% retrace, reason explicitly: is this still a pullback or has the original impulse structurally failed?
-- CANDLE DECELERATION: The opposing M15 candle bodies should be shrinking as the pullback approaches your entry zone. Shrinking bodies + growing wicks = retrace exhausting. Expanding bodies on the pullback = do not enter yet, momentum is building against you.
-- PAUSE AT LEVEL: You must see the pullback pause at your intended entry zone — a candle or sequence that shows the retrace has lost energy there — before committing. Price moving through your level without pause means the pullback is not yet complete.
-State: "Pullback depth: ~X% of M15 impulse ([healthy/deep]). Candle deceleration: [visible/not yet]. Pause at level: [confirmed/not yet]."
-
-MICRO_INTRADAY SMALLER TF CONFIRMATION (M5 ENTRY TRIGGER STANDARD):
-Before selecting execute_now as your entry mode, you must assess M5 confirmation. The standard for MICRO_INTRADAY is: a confirmed M5 candle CLOSE in your intended direction at the entry zone. A wick touch or M5 open is not confirmation. If a closed M5 confirmation candle has not formed at your entry level, your entry_mode must be wait_pullback, not execute_now. Populate wait_condition with the zone and state the specific M5 trigger: "Waiting for: M5 close above [level] to confirm entry."
-
-MICRO_INTRADAY VALID STRUCTURES — For MICRO_INTRADAY trades, your thesis must align with one of these named market structures. If none applies, return NO_TRADE with reason NO_NAMED_STRUCTURE:
+    : (() => {
+  const isMicro = style === 'MICRO_INTRADAY';
+  const primaryTF   = isMicro ? 'M15' : 'H1';
+  const controlTF   = isMicro ? 'H1'  : 'H4';
+  const lowerTF     = isMicro ? 'M5'  : 'M15';
+  const styleLabel  = isMicro ? 'MICRO_INTRADAY' : 'INTRADAY';
+  const rrRange     = isMicro ? '1.0–2.0' : '1.0–3.0';
+  const moveSuffix  = isMicro
+    ? 'M15 candle bodies are shrinking in the trend direction. The TP1 structure is within close range.'
+    : 'H1 candle bodies are shrinking in the trend direction. TP1 structure is close.';
+  const pullbackDepth = isMicro
+    ? `A healthy pullback on ${primaryTF} retraces 30-65% of the prior ${primaryTF} impulse. Beyond 65% retrace, reason explicitly: is this still a pullback or has the original impulse structurally failed?`
+    : `A healthy ${primaryTF} pullback retraces 30-65% of the prior ${primaryTF} impulse. Beyond 65%, reason explicitly: is this still a pullback or has the original impulse structurally failed? A very deep retrace into the origin of the impulse requires a fresh structural confirmation signal before entry — do not assume the prior impulse structure still holds.`;
+  const pullbackStateLabel = isMicro
+    ? `"Pullback depth: ~X% of ${primaryTF} impulse ([healthy/deep]). Candle deceleration: [visible/not yet]. Pause at level: [confirmed/not yet]."`
+    : `"Pullback depth: ~X% of ${primaryTF} impulse ([healthy/deep]). ${primaryTF} candle deceleration: [visible/not yet]. Pause at level: [confirmed/not yet]."`;
+  const confirmStd = isMicro
+    ? `a confirmed M5 candle CLOSE in your intended direction at the entry zone. A wick touch or M5 open is not confirmation. If a closed M5 confirmation candle has not formed at your entry level, your entry_mode must be wait_pullback, not execute_now. Populate wait_condition with the zone and state the specific M5 trigger: "Waiting for: M5 close above [level] to confirm entry."`
+    : `a confirmed M15 candle CLOSE in your intended direction at the ${primaryTF} entry zone. A wick touch, M15 open, or M5 signal is not sufficient. If a closed M15 confirmation candle has not formed at your ${primaryTF} entry level, your entry_mode must be wait_pullback, not execute_now. Populate wait_condition with the zone and state the specific M15 trigger: "Waiting for: M15 close above/below [level] to confirm ${primaryTF} entry."`;
+  const controlAlign = isMicro
+    ? `${controlTF} trend alignment must be confirmed before entry. A bullish ${primaryTF} setup in a bearish ${controlTF} trend requires explicit counter-trend justification.\n- Use M1 data to refine intra-bar timing AFTER the ${primaryTF} structural assessment. M1 signals do NOT override an impulsive ${primaryTF} move.`
+    : `${controlTF} structure must support the directional bias. A bullish ${primaryTF} entry in a bearish ${controlTF} trend is a counter-trend campaign requiring an ${controlTF}-level reversal signal (double bottom, BOS on ${controlTF}, ${controlTF} demand reclaim).\n- Use M15 and M5 data only to time the ${primaryTF}-confirmed entry. They do not determine direction.`;
+  const validStructures = isMicro
+    ? `MICRO_INTRADAY VALID STRUCTURES — For MICRO_INTRADAY trades, your thesis must align with one of these named market structures. If none applies, return NO_TRADE with reason NO_NAMED_STRUCTURE:
 1. OB_RETEST: Price returns to a valid M15 Order Block (last opposing candle before a displacement BOS). The OB zone is intact (not mitigated through). Entry on M5 confirmation at the OB zone. Body ratio of the return candle shrinking = signs of absorption.
 2. FVG_ENTRY: Price retraces into a M15 Fair Value Gap (three-candle imbalance). Entry targets the 50% equilibrium of the FVG gap. Requires H1 structure alignment in the same direction.
 3. BOS_CONTINUATION: M15 broke a prior swing high (for BUY) or low (for SELL) — BOS confirmed on a closed M15 candle. Price has pulled back toward the broken structure level and is showing continuation signs. Entry at the BOS level or the OB that created it.
@@ -739,38 +731,8 @@ MICRO_INTRADAY VALID STRUCTURES — For MICRO_INTRADAY trades, your thesis must 
 6. D1_LEVEL_REACTION: Price has reached a D1 support or resistance level (PDH/PDL or D1 OB/FVG). M15 is showing a rejection reaction at that level with at least one M15 confirmation candle closing away from it. The D1 level is the structural anchor; the M15 signal is the entry trigger.
 7. H1_RANGE_EXTREME: H1 chart has been ranging (< 1.5x H1 ATR range for 4+ H1 candles). Price is testing the extreme (high or low) of the H1 range. M15 showing rejection at the range extreme. Entry fades the range extreme, TP at the midpoint or opposite range extreme.
 
-MICRO_INTRADAY structure to include in reasoning: State which named structure you are trading. Example: "Structure: OB_RETEST | M15 OB zone: 1.0823–1.0830 | Waiting for: M5 close confirmation at zone lower bound"`
-      : `Is price currently in an impulsive H1 leg or has a pullback to an H1 structural level occurred?
-- 3+ consecutive same-direction candles on the H1 (primary timeframe for INTRADAY) = impulsive leg. A pullback to the nearest H1 EMA or demand/supply zone is the preferred entry point.
-- If price is mid-impulse on H1, patience is required. Intraday campaigns are built on structural re-entries, not momentum chases. The setup must show: H1 impulse, H1 pullback, H1 continuation trigger.
-- H4 structure must support the directional bias. A bullish H1 entry in a bearish H4 trend is a counter-trend campaign requiring an H4-level reversal signal (double bottom, BOS on H4, H4 demand reclaim).
-- Use M15 and M5 data only to time the H1-confirmed entry. They do not determine direction.
-
-INTRADAY MOVE STAGE DIAGNOSIS — Before deciding entry approach, diagnose which stage of the H1 move you are in:
-EARLY STAGE: The H1 move originated recently. The swing origin is clearly visible and the leg is FRESH (< 0.75x H1 ATR traveled). Both continuation and pullback entries are valid. You are participating in the body of the campaign leg, not chasing it.
-MIDDLE STAGE: The move has traveled 0.75-1.5x H1 ATR. H1 candle bodies in the trend direction are still reasonably sized. Structural space to TP1 and TP2 exists. Pullback re-entry is the preferred approach. Continuation entries require you to state explicitly why the momentum justifies bypassing a pullback wait at this stage.
-LATE STAGE: The move has traveled > 1.5x H1 ATR from its swing origin. H1 candle bodies are shrinking in the trend direction. TP1 structure is close. Ask yourself honestly: am I a participant or exit liquidity? If you cannot clearly place yourself in EARLY or MIDDLE stage, you are in LATE stage.
-
-LATE STAGE — MANDATORY R:R RECALCULATION GATE (complete before selecting output):
-Step 1 — Recalculate R:R using CURRENT price as the entry point. The H1 move that already occurred does not count toward your R:R.
-Step 2 — Calculate the achievable R:R at the nearest H1/H4 structural TP target. State it explicitly: "R:R recalculated at current price — TP: X:1."
-Step 3 — Evaluate the R:R with accountability:
-  (a) R:R >= 1.0:1 AND thesis confirmed on H1 AND named pullback zone exists on H1: wait_pullback valid. State: "R:R: X:1. INTRADAY target range 1.0–3.0:1. Within range. Named H1 re-entry zone: [level]. Wait_pullback valid."
-  (b) R:R is below 1.0:1 but H1 structural case is strong: you may enter, but MUST state: "R:R: X:1. Below 1.0:1 advisory floor. Justification: [reason — e.g., tight SL demanded by structure, strong trend continuation probability]. Required win rate: [Y%]."
-  (c) R:R insufficient from any structural entry AND no justifiable edge: NO_TRADE. State: "R:R: X:1. INTRADAY range 1.0–3.0:1. Insufficient edge. NO_TRADE — move has consumed available R:R."
-CRITICAL: Do NOT set wait_pullback on a late-stage INTRADAY entry where the recalculated R:R fails the minimum. The H1 campaign that began several candles ago had an entry point. That entry point has passed. A pullback that merely retraces part of a consumed move does not restore the R:R profile of the original setup — it produces a degraded entry into a tired move. If R:R from any pullback re-entry does not clear the INTRADAY floor, this is NO_TRADE.
-State your stage explicitly: "H1 move stage: [EARLY/MIDDLE/LATE] — [reason]. Entry approach: [continuation/pullback/wait]."
-
-PULLBACK HEALTH — When waiting for a pullback entry on H1, interrogate the quality of the pullback before treating any H1 level as your entry:
-- RETRACEMENT DEPTH: A healthy H1 pullback retraces 30-65% of the prior H1 impulse. Beyond 65%, reason explicitly: is this still a pullback or has the original impulse structurally failed? A very deep retrace into the origin of the impulse requires a fresh structural confirmation signal before entry — do not assume the prior impulse structure still holds.
-- CANDLE DECELERATION: H1 opposing candle bodies should shrink as the pullback approaches your entry zone. Shrinking H1 bodies + growing wicks = retrace exhausting. Expanding H1 bodies on the pullback = the retrace has directional momentum of its own. Wait for those bodies to contract before entering.
-- PAUSE AT LEVEL: You must see the H1 pullback pause at your intended entry zone. A candle or sequence that shows the retrace has lost energy at the level is required. H1 price moving through your structural level without pause or reaction means the level is not holding — do not enter, reassess structural support below.
-State: "Pullback depth: ~X% of H1 impulse ([healthy/deep]). H1 candle deceleration: [visible/not yet]. Pause at level: [confirmed/not yet]."
-
-INTRADAY SMALLER TF CONFIRMATION (M15 ENTRY TRIGGER STANDARD):
-Before selecting execute_now as your entry mode, you must assess M15 confirmation. The standard for INTRADAY is: a confirmed M15 candle CLOSE in your intended direction at the H1 entry zone. A wick touch, M15 open, or M5 signal is not sufficient. If a closed M15 confirmation candle has not formed at your H1 entry level, your entry_mode must be wait_pullback, not execute_now. Populate wait_condition with the zone and state the specific M15 trigger: "Waiting for: M15 close above/below [level] to confirm H1 entry."
-
-INTRADAY VALID STRUCTURES — For INTRADAY trades, your thesis must align with one of these named market structures. If none applies, return NO_TRADE with reason NO_NAMED_STRUCTURE:
+${styleLabel} structure to include in reasoning: State which named structure you are trading. Example: "Structure: OB_RETEST | M15 OB zone: 1.0823–1.0830 | Waiting for: M5 close confirmation at zone lower bound"`
+    : `INTRADAY VALID STRUCTURES — For INTRADAY trades, your thesis must align with one of these named market structures. If none applies, return NO_TRADE with reason NO_NAMED_STRUCTURE:
 1. H1_OB_RETEST: Price returns to a valid H1 Order Block (last opposing H1 candle before a displacement BOS on H1). The OB zone is intact (not closed through). M15 confirmation candle at the OB zone required before execute_now. H4 structure must align with the OB retest direction.
 2. H1_FVG_FILL: Price retraces into an H1 Fair Value Gap (three-candle H1 imbalance). Entry targets the 50% equilibrium of the H1 FVG gap. H4 structure must confirm the same directional bias. M15 confirmation candle required.
 3. H1_BOS_CONTINUATION: H1 broke a prior swing high (BUY) or low (SELL) — BOS confirmed on a closed H1 candle. Price pulled back to the broken H1 structure level and is showing H1 continuation (body deceleration on pullback, OB or FVG at the BOS level). M15 confirmation required. H4 must not show opposing structure that would cap the move before TP.
@@ -778,7 +740,39 @@ INTRADAY VALID STRUCTURES — For INTRADAY trades, your thesis must align with o
 5. H4_LEVEL_REACTION: Price has reached a significant H4 supply or demand zone. H1 showing a first-reaction rejection candle AT the H4 zone with body ratio >50% closing away from the zone. M15 confirmation close in the rejection direction required. TP at the nearest H1 structure level before the next H4 zone.
 6. WEEKLY_LEVEL_REVERSAL: Price has reached PWH (Previous Week High) or PWL (Previous Week Low) — provided in your weekly levels context. H1 showing a clear rejection reaction (engulfing, sweep-and-reclaim, or double test) at the weekly level. M15 confirmation required. Counter-trend Hard Gate must be passed. TP at the midpoint between entry and the opposing weekly level.
 
-INTRADAY structure to include in reasoning: State which named structure you are trading. Example: Structure: H1_OB_RETEST | H1 OB zone: 1.0840-1.0855 | H4 alignment: bullish demand | Waiting for: M15 close confirmation at OB lower bound`;
+${styleLabel} structure to include in reasoning: State which named structure you are trading. Example: Structure: H1_OB_RETEST | H1 OB zone: 1.0840-1.0855 | H4 alignment: bullish demand | Waiting for: M15 close confirmation at OB lower bound`;
+
+  return `Is price currently in an impulsive ${primaryTF} leg or has a pullback to a ${primaryTF} structural level occurred?
+- 3+ consecutive same-direction candles on the ${primaryTF} (primary timeframe for ${styleLabel}) = impulsive leg. A pullback to the nearest ${primaryTF} EMA or S/R is statistically probable.
+- If price is mid-impulse on ${primaryTF}, the better entry is after the pullback confirms at a structural zone — not into the impulse itself.
+- ${controlAlign}
+
+${styleLabel} MOVE STAGE DIAGNOSIS — Before deciding whether to enter now or wait for a pullback, diagnose which stage of the ${primaryTF} move you are in:
+EARLY STAGE: The move originated recently. The ${primaryTF} swing origin is clearly visible and the leg is FRESH (< 0.75x ATR traveled from the origin). Both continuation and pullback entries are valid. You are participating in the body of the move.
+MIDDLE STAGE: The move has traveled 0.75-1.5x ATR. ${primaryTF} candle bodies in the trend direction are still reasonably sized. Structural space to TP1 exists. Pullback entry is the preferred approach at this stage. Continuation requires you to reason out loud about whether momentum justifies a direct entry or whether the structure favors waiting for a retrace.
+LATE STAGE: The move has traveled > 1.5x ATR from its ${primaryTF} swing origin. ${moveSuffix} Ask yourself: am I entering as a participant or as exit liquidity? If you cannot clearly place yourself in EARLY or MIDDLE stage, you are in LATE stage.
+
+LATE STAGE — MANDATORY R:R RECALCULATION GATE (complete before selecting output):
+Step 1 — Recalculate R:R using CURRENT price as the entry point. The prior leg's movement does not belong to you.
+Step 2 — Calculate the achievable R:R at the nearest ${primaryTF}/${controlTF} structural TP target. State it explicitly: "R:R recalculated at current price — TP: X:1."
+Step 3 — Evaluate the R:R with accountability:
+  (a) R:R >= 1.0:1 AND thesis confirmed on ${primaryTF} AND named pullback zone exists: wait_pullback valid. State: "R:R: X:1. ${styleLabel} target range ${rrRange}:1. Within range. Named re-entry zone: [level]. Wait_pullback valid."
+  (b) R:R is below 1.0:1 but structure is compelling: you may enter, but MUST state: "R:R: X:1. Below 1.0:1 advisory floor. Justification: [reason]. Required win rate: [Y%]."
+  (c) R:R insufficient from any structural entry AND no justifiable edge: NO_TRADE. State: "R:R: X:1. ${styleLabel} range ${rrRange}:1. Insufficient edge. NO_TRADE — move has consumed available R:R."
+CRITICAL: Do NOT set wait_pullback because the move has run and you want a better price on a thesis whose R:R no longer exists. wait_pullback is a confident trade with a timing preference — not a chase attempt on an exhausted leg. If R:R is insufficient from any re-entry point in the current leg, this is NO_TRADE.
+State your stage explicitly: "${primaryTF} move stage: [EARLY/MIDDLE/LATE] — [reason]. Entry approach: [continuation/pullback/wait]."
+
+PULLBACK HEALTH — When waiting for a pullback entry, interrogate the quality of the pullback before treating any ${primaryTF} level as your entry point:
+- RETRACEMENT DEPTH: ${pullbackDepth}
+- CANDLE DECELERATION: The opposing ${primaryTF} candle bodies should be shrinking as the pullback approaches your entry zone. Shrinking bodies + growing wicks = retrace exhausting. Expanding bodies on the pullback = do not enter yet, momentum is building against you.
+- PAUSE AT LEVEL: You must see the pullback pause at your intended entry zone — a candle or sequence that shows the retrace has lost energy there — before committing. Price moving through your level without pause means the pullback is not yet complete.
+State: ${pullbackStateLabel}
+
+${styleLabel} SMALLER TF CONFIRMATION (${lowerTF.toUpperCase()} ENTRY TRIGGER STANDARD):
+Before selecting execute_now as your entry mode, you must assess ${lowerTF} confirmation. The standard for ${styleLabel} is: ${confirmStd}
+
+${validStructures}`;
+})();
 
   return `You are Alpha, a professional intraday trader. You have deep market knowledge and FINAL AUTHORITY over all trade decisions. You are not a rule engine — you are a trader who reasons through every setup using your full understanding of market structure, price action, risk, and session objective. The central question you answer on every scan is: should I take this trade given what I am trying to achieve? The system provides analytical tools and market context. You decide what to do with them.
 
