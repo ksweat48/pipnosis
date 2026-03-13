@@ -165,17 +165,25 @@ export const VOLATILITY_REGIME_THRESHOLDS = {
 /**
  * SCALP_TIME_CONTRACT — SSOT for scalp behavioral time reference thresholds
  *
- * CCIP GOVERNANCE (CCIP-2026-0224A, updated CCIP-2026-0225A, revised CCIP-2026-0310A):
- * A scalp is defined by behavior: a sharp, direct move to TP with minimal stalling.
- * These thresholds are provided to Alpha as context for his own time estimation reasoning.
- * Alpha MUST estimate the time to TP and reason about whether the setup qualifies as a scalp.
- * Alpha self-governs on time — if he estimates a slow grind, he must reason that this is not
- * a scalp setup and output NO_TRADE with STYLE_TIME_VIOLATION of his own accord.
+ * CCIP GOVERNANCE (CCIP-2026-0224A, updated CCIP-2026-0225A, revised CCIP-2026-0310A,
+ * revised CCIP-2026-0313A):
  *
- * EXPECTED_DURATION_MAX_MIN: Clean pass reference — under this with direct path is clearly scalp
- * ABSOLUTE_MAX_MIN: Reference upper bound — above this, Alpha should recognize this is not a scalp
+ * A scalp is defined by behavior: a sharp, direct move to TP with minimal stalling.
+ * These thresholds are ADVISORY REFERENCES passed to Alpha as reasoning context.
+ * They are NOT hard blocks. Alpha has final authority.
+ *
+ * Alpha MUST estimate velocity arithmetic and state it. If the estimated time exceeds
+ * ABSOLUTE_MAX_MIN, Alpha must acknowledge the style mismatch and either:
+ *   (a) provide explicit reasoning why the trade still qualifies for this style, or
+ *   (b) output NO_TRADE as his own reasoned conclusion.
+ *
+ * The system does NOT block on time estimates. Alpha self-governs.
+ *
+ * EXPECTED_DURATION_MAX_MIN: Clean scalp reference ceiling — under this is clearly scalp
+ * ABSOLUTE_MAX_MIN: Reference upper bound — above this is MICRO_INTRADAY profile
  * STRAIGHT_RUN_REQUIRED: A scalp must run directly to TP. Stalling = MICRO_INTRADAY profile.
- * STYLE_VIOLATION_REASON: The NO_TRADE reason code Alpha uses when he determines this fails
+ * STYLE_VIOLATION_REASON: Kept for backward compatibility — no longer a legitimate block condition.
+ *   Alpha uses this as an advisory label in his reasoning only.
  */
 export const SCALP_TIME_CONTRACT = {
   EXPECTED_DURATION_MIN_MIN: 15,
@@ -354,7 +362,6 @@ export const ALPHA_IDENTITY = {
     'ZERO_DISTANCE_SL_TP',
     'MTF_DATA_MISSING',
     'PRIMARY_TF_DATA_MISSING',
-    'STYLE_TIME_VIOLATION',
     'NO_NAMED_STRUCTURE',
   ] as const,
 
@@ -642,7 +649,7 @@ H1_OB_RETEST | H1_FVG_FILL | H1_BOS_CONTINUATION | H1_CAMPAIGN_PULLBACK | H4_LEV
 
   const confluenceRule = isScalp
     ? `CONFLUENCE — 5 core dimensions: TREND, STRUCTURE, MOMENTUM, TIMING, LIQUIDITY. Min 2 confirmed. 0 confirmed = NO_TRADE. PATTERN and OMEGA are supplementary only.`
-    : `CONFLUENCE — 5 core dimensions: TREND, STRUCTURE, MOMENTUM, TIMING, LIQUIDITY. Min 3 confirmed including TREND and STRUCTURE. Without TREND or STRUCTURE: confidence ceiling 65%. Below 3 = NO_TRADE. Counter-trend requires 4/5 including TREND and STRUCTURE. PATTERN and OMEGA are supplementary only.`;
+    : `CONFLUENCE — 5 core dimensions: TREND, STRUCTURE, MOMENTUM, TIMING, LIQUIDITY. Min 3 confirmed including TREND and STRUCTURE. Without TREND or STRUCTURE: confidence ceiling 65%. Below 3 = NO_TRADE. Counter-trend: reference floor 4/5 recommended — Alpha reasons on this, it is not a hard gate. PATTERN and OMEGA are supplementary only.`;
 
   const sessionRules = isScalp
     ? `DEAD ZONE (22:00–00:00 UTC): Acknowledge. Honest confidence must reflect reduced liquidity and narrow M5 legs (10-20 pips). Your stated confidence is the decision — no system penalty added.
@@ -654,33 +661,34 @@ ASIAN SESSION: State instrument type (Asian-primary vs London-primary). Confiden
 ASIAN SESSION: Not a meaningful constraint. Trade will mature through London/NY.`;
 
   const styleTimeContract = isScalp
-    ? `VELOCITY CHECK (before structural analysis):
+    ? `VELOCITY ASSESSMENT (mandatory — complete before structural analysis):
 Arithmetic: TP distance ÷ M5 ATR = estimated candles × 5 = estimated minutes.
-SUFFICIENT: ≤ ${SCALP_TIME_CONTRACT.EXPECTED_DURATION_MAX_MIN} min, direct path likely.
-BORDERLINE: ${SCALP_TIME_CONTRACT.EXPECTED_DURATION_MAX_MIN}–${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} min — only if: (a) active momentum not consolidation, (b) M5 ATR at/above session avg, (c) no structural obstacles to TP. All 3 required.
-INSUFFICIENT: > ${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} min → NO_TRADE with STYLE_TIME_VIOLATION. Style is immutable.
-State: "M5 ATR: X pips. TP distance: Y pips. Estimated candles: Z. Estimated minutes: T. Velocity: SUFFICIENT/BORDERLINE/INSUFFICIENT."`
+SUFFICIENT: ≤ ${SCALP_TIME_CONTRACT.EXPECTED_DURATION_MAX_MIN} min, direct path — clearly a scalp profile.
+BORDERLINE: ${SCALP_TIME_CONTRACT.EXPECTED_DURATION_MAX_MIN}–${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} min — valid if: (a) active momentum not consolidation, (b) M5 ATR at/above session avg, (c) no structural obstacles to TP.
+EXTENDED: > ${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} min — this is a MICRO_INTRADAY profile, not a scalp. You must address this directly: state the estimated time, acknowledge the style mismatch, and explain why you believe this trade still qualifies for this session's style. If your reasoning does not hold up, NO_TRADE is the correct conclusion — this is your judgment, not a system block.
+State always: "M5 ATR: X pips. TP distance: Y pips. Estimated candles: Z. Estimated minutes: T. Velocity: SUFFICIENT/BORDERLINE/EXTENDED. [If EXTENDED: style reasoning below.]"`
     : isMicro
     ? `TIME CONTRACT: 1–6 hours. ${primaryTF} primary. ${controlTF} validation required.`
     : `TIME CONTRACT: 2–10 hours. ${primaryTF} primary. ${controlTF} validation required.`;
 
   const moveStageRule = isScalp
-    ? `MOVE STAGE: FRESH (<0.75x ATR) = full confidence. DEVELOPING (0.75–1.5x ATR) = pullback entry preferred. EXHAUSTED (>1.5x ATR) = NO_TRADE immediately. No exceptions, no style downgrade.
+    ? `MOVE STAGE: FRESH (<0.75x ATR) = full confidence. DEVELOPING (0.75–1.5x ATR) = pullback entry preferred. EXHAUSTED (>1.5x ATR) = state it explicitly and justify continuation or output NO_TRADE as your own conclusion.
 SUB-MODE: MOMENTUM_CONTINUATION (fresh move) | PULLBACK_ENTRY (retrace in progress — wait_pullback until completion) | CONSOLIDATION_BREAKOUT (wait for body close outside range). State sub-mode in reasoning.
-COUNTER-TREND GATE: Requires ONE confirmed: (1) sweep-and-reclaim on closed candle, (2) double top/bottom with neck break confirmed, (3) full MSS (CHOCH + displacement BOS both confirmed on closed candles). Not yet confirmed = NO_TRADE (not wait_pullback).`
-    : `MOVE STAGE: FRESH (<0.75x ATR) = full confidence. DEVELOPING (0.75–1.5x) = pullback preferred. EXHAUSTED (>1.5x) = require explicit continuation justification.
-LATE STAGE GATE: Recalculate R:R from current price. If insufficient: NO_TRADE (not wait_pullback). wait_pullback is a confident trade with timing preference — not a chase on an exhausted leg.
-COUNTER-TREND GATE: Requires ONE confirmed: (1) sweep-and-reclaim, (2) double formation with neck break, (3) full MSS (CHOCH + BOS both confirmed). Counter-trend requires 4/5 confluence. Not yet confirmed = NO_TRADE.`;
+COUNTER-TREND ADVISORY: Counter-trend trades are valid setups. State your counter-trend basis: sweep-and-reclaim / double formation with neck break / full MSS (CHOCH + BOS both confirmed on closed candles). Reference floor: 4/5 confluence recommended for counter-trend. If basis is not yet confirmed, state that clearly — wait_pullback or NO_TRADE is your own reasoned decision, not a system gate.`
+    : `MOVE STAGE: FRESH (<0.75x ATR) = full confidence. DEVELOPING (0.75–1.5x) = pullback preferred. EXHAUSTED (>1.5x) = state explicitly, recalculate R:R from current price, justify continuation or NO_TRADE.
+LATE STAGE: Recalculate R:R from current price. If insufficient, NO_TRADE is the correct conclusion — not wait_pullback. wait_pullback is a confident trade with timing preference, not a chase on an exhausted leg.
+COUNTER-TREND ADVISORY: Counter-trend trades are valid setups. State your counter-trend basis: sweep-and-reclaim / double formation with neck break / full MSS (CHOCH + BOS both confirmed). Reference floor: 4/5 confluence recommended for counter-trend. Alpha reasons and decides — no system gate blocks counter-trend entries.`;
 
   const hardBlocks = `HARD BLOCKS — immediate NO_TRADE regardless of reasoning:
 A. GEOMETRY: BUY requires SL < Entry < TP. SELL requires TP < Entry < SL. Any inversion = reject.
 B. ZERO DISTANCE: SL or TP at entry price.
 C. DATA: DATA_STALE | BROKEN_FEED | MARKET_CLOSED | SPREAD_EXCEEDS_PROFIT | PRIMARY_TF_DATA_MISSING.
 D. MTF_DATA_MISSING: ${controlTF} candle data absent or <5 candles.
-E. EXHAUSTED MOVE:${isScalp ? ' >1.5x ATR from last swing = NO_TRADE. Hard block, no exceptions.' : ' >1.5x ATR requires explicit continuation justification.'}
-F. NOISE FLOOR: SL closer to entry than the constraint noise floor = widen SL to structure or NO_TRADE.
-G. SPREAD: Account for spread on SL distance. State: "Effective SL distance after spread: Y pips. R:R after spread: Z."
-H. NEWS BLACKOUT (TIER-1 within ${newsBlackoutPre} min pre or ${newsBlackoutPost} min post): NO_TRADE with NEWS_BLACKOUT or POST_NEWS_VOLATILITY.`;
+E. NOISE FLOOR: SL closer to entry than the constraint noise floor = widen SL to structure or NO_TRADE.
+F. SPREAD: Account for spread on SL distance. State: "Effective SL distance after spread: Y pips. R:R after spread: Z."
+G. NEWS BLACKOUT (TIER-1 within ${newsBlackoutPre} min pre or ${newsBlackoutPost} min post): NO_TRADE with NEWS_BLACKOUT or POST_NEWS_VOLATILITY.
+
+EXHAUSTED MOVE ADVISORY (not a hard block): If price has moved >1.5x ATR from last swing, state this explicitly. A professional trader recognizes exhausted momentum. If entering against exhaustion, you must justify: explicit continuation catalyst, fresh liquidity sweep, or structural reset. If you cannot justify continuation, NO_TRADE is your own reasoned conclusion — not a system block.`;
 
   const arenaWalls = `ARENA WALLS — your constraint block defines the structural survival floor for this instrument at this price:
 FOREX: SL floor ~0.05% of price. Below this, spread consumes SL before price moves.
@@ -709,7 +717,7 @@ SPIKE (ratio >${VOLATILITY_REGIME_THRESHOLDS.SPIKE_THRESHOLD}): Wait for spike c
 9. Volatility regime stated. EXPANSION/SPIKE: SL floor gate completed.
 10. Liquidity positioning stated: engineered vs organic, trapped participants, pool role (magnet/cap).
 11. Adversarial regime (if present): named trapped side, sweep target, counter_thesis_probability +10 min.
-12. Counter-trend check (if applicable): qualifying structure confirmed on closed candle or NO_TRADE.
+12. Counter-trend check (if applicable): state counter-trend basis — sweep-reclaim / double formation / MSS. Reference floor 4/5 confluence. Alpha decides — no system gate.
 13. Price location stated: DISCOUNT / EQUILIBRIUM / PREMIUM. BUY in PREMIUM requires momentum/breakout justification.
 14. Weekly narrative stated: DELIVERY_BULLISH / DELIVERY_BEARISH / REBALANCING / UNCERTAIN.
 15. News status confirmed: HARD_BLACKOUT → NO_TRADE. TIER2 → confidence discounted. CLEAR stated.
@@ -735,7 +743,7 @@ SPIKE (ratio >${VOLATILITY_REGIME_THRESHOLDS.SPIKE_THRESHOLD}): Wait for spike c
   "trader_statement": "Full reasoning in trader voice — min 80 words for BUY/SELL. Cover: what you see, thesis edge, SL validity, TP structure, pip distances, best-trade justification, expected timeframe, primary risk.",
   "sl_structural_reference": "SL at [price] — behind [TF] [swing high/low/OB] at [price]. Invalidates thesis because [reason]. Distance: ~X pips.",
   "tp_structural_reference": "TP at [price] — conservative edge of [TF] [zone/OB/pool] at [range]. Rationale: [why]. Distance: ~X pips. R:R: X:1.",
-  "estimated_duration_minutes": "${isScalp ? `'M5 ATR: X pips. TP distance: Y pips. Candles: Z. Minutes: T. Velocity: SUFFICIENT/BORDERLINE/INSUFFICIENT.' Range: 15–${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} min. Outside range = NO_TRADE with STYLE_TIME_VIOLATION.` : isMicro ? '60–360 min.' : '120–600 min.'}",
+  "estimated_duration_minutes": "${isScalp ? `'M5 ATR: X pips. TP distance: Y pips. Candles: Z. Minutes: T. Velocity: SUFFICIENT/BORDERLINE/EXTENDED. Reference range: 15–${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} min. If EXTENDED: include style_reasoning field explaining why this trade still qualifies.'` : isMicro ? '60–360 min.' : '120–600 min.'}",
   "edge_summary": "1-2 sentences: why this specific entry has structural probability advantage over a generic directional bet.",
   "reasoning": { "thesis_why": "...", "market_behavior": "...", "risk_acceptance": "...", "objective_alignment": "...", "tp_path_audit": "...", "session_phase": "...", "range_position": "..." },
   "counter_thesis": "Single sentence: most likely structural reason this trade fails.",
@@ -810,7 +818,7 @@ KNOWN RED FLAGS — address any that apply:${isScalp ? `
 - 5+ alternating M5 candles (choppy)
 - Mid-range drift with no structural bias
 - SUB-MODE B with unconfirmed pullback completion → entry_mode MUST be wait_pullback
-- EXHAUSTED MOVE (>1.5x ATR) → NO_TRADE, hard block` : isMicro ? `
+- EXHAUSTED MOVE (>1.5x ATR) → state explicitly, justify continuation or NO_TRADE is your conclusion` : isMicro ? `
 - M15 consolidation >3hrs without H1 confirmation
 - Low body ratios (<30%) on primary TF candles
 - H1 near S/R without M15 confirmation` : `
