@@ -198,11 +198,9 @@ const llmRequestQueue = new LLMRequestQueue(getMinInterCallMs());
 
 class OpenAIClient {
   private readonly functionUrl: string;
-  // CCIP-2026-03-13d: maxRetries sourced from SSOT — getMaxRetries() returns 0 (zero retries).
-  // With OPENAI_REQUEST_TIMEOUT_MS=20s the function self-terminates cleanly at 24s,
-  // just under the Netlify CDN 26s synchronous kill wall. A retry at maxRetries=1 would
-  // cost another 24s (total 48s), blowing through the CDN wall and producing a TCP-drop 504.
-  // Zero retries: each symbol gets one clean 24s window; failures become NO_TRADE gracefully.
+  // CCIP-2026-03-13e: maxRetries sourced from SSOT — getMaxRetries() returns 0 (zero retries).
+  // With OPENAI_REQUEST_TIMEOUT_MS=45s a retry would push total to ~90s+overhead > 60s Netlify limit.
+  // Zero retries: one clean 55s window per symbol; 504s become graceful NO_TRADE.
   private readonly maxRetries = getMaxRetries();
   private readonly baseDelayMs = getRetryDelayMs();
   // CCIP-2026-03-12: OMEGA-8 IS PURELY DETERMINISTIC — ONE LLM CALL PER SYMBOL ONLY.
@@ -211,35 +209,37 @@ class OpenAIClient {
   //
   // fetchTimeoutMs is the client-side AbortController deadline for a single Alpha LLM fetch.
   //
-  // CCIP-2026-03-13d: Reduced 50s → 35s to match OPENAI_REQUEST_TIMEOUT_MS reduction (35s→20s).
-  // ROOT CAUSE of 504s: Netlify CDN hard-kills synchronous functions at 26s wall-clock.
-  // OPENAI_REQUEST_TIMEOUT_MS=20s + 4s max pre-work = 24s total server wall-clock.
-  // The server-side AbortController now fires at 20s, completing the full round-trip in 24s.
-  // fetchTimeoutMs must be >= FUNCTION_TIMEOUT_MS (24s) to guarantee the server can finish
-  // before the client aborts. Set to 35s: 24s server budget + 11s safety buffer.
+  // CCIP-2026-03-13e: Restored to 65s. CCIP-2026-03-13d incorrectly set this to 35s based on
+  // false assumption about a "26s Netlify CDN wall". netlify.toml has:
+  //   [functions."openai-chat"]
+  //     timeout = 60
+  // This 60s limit IS applied to this named function. The correct budget:
+  //   OPENAI_REQUEST_TIMEOUT_MS = 45s
+  //   max pre-work overhead     = 8s
+  //   server wall-clock worst   = 53s
+  // fetchTimeoutMs must be > 53s. Set to 65s: 12s safety buffer beyond server worst-case.
   //
   // TIMEOUT BUDGET HIERARCHY (SSOT — all values must satisfy all invariants):
-  //   OPENAI_REQUEST_TIMEOUT_MS (server)  = 20s  — netlify/functions/openai-chat.ts (SSOT)
-  //   FUNCTION_TIMEOUT_MS (Netlify fn)    = 24s  — netlify/functions/openai-chat.ts (SSOT)
-  //   Netlify CDN synchronous kill wall   = 26s  — Netlify infrastructure (hard limit)
-  //   fetchTimeoutMs (client)             = 35s  — this file (SSOT for client-side timeout)
+  //   OPENAI_REQUEST_TIMEOUT_MS (server)  = 45s  — netlify/functions/openai-chat.ts (SSOT)
+  //   FUNCTION_TIMEOUT_MS (Netlify fn)    = 55s  — netlify/functions/openai-chat.ts (SSOT)
+  //   netlify.toml openai-chat timeout    = 60s  — netlify.toml [functions."openai-chat"]
+  //   fetchTimeoutMs (client)             = 65s  — this file (SSOT for client-side timeout)
   //   symbolTimeoutMs / sessionTimeouts   = 90s  — concurrent-execution-config.ts
   //   councilTimeoutMs                    = 300s — concurrent-execution-config.ts
-  //   Netlify platform hard limit (bg fn) = 60s  — netlify.toml (background functions only)
   //
   // INVARIANTS (must never be violated):
-  //   1. OPENAI_REQUEST_TIMEOUT_MS + max_pre_work <= Netlify CDN synchronous kill wall
-  //      (20s + 4s = 24s <= 26s ✓  — 2s safety margin)
-  //   2. FUNCTION_TIMEOUT_MS = OPENAI_REQUEST_TIMEOUT_MS + max_pre_work
-  //      (24s = 20s + 4s ✓ — self-kill fires before CDN kill)
-  //   3. fetchTimeoutMs >= FUNCTION_TIMEOUT_MS
-  //      (35s >= 24s ✓  — 11s client-side safety buffer)
+  //   1. OPENAI_REQUEST_TIMEOUT_MS + max_pre_work < FUNCTION_TIMEOUT_MS
+  //      (45s + 8s = 53s < 55s ✓  — 2s safety margin)
+  //   2. FUNCTION_TIMEOUT_MS < netlify.toml openai-chat timeout
+  //      (55s < 60s ✓  — 5s safety margin)
+  //   3. fetchTimeoutMs >= OPENAI_REQUEST_TIMEOUT_MS + max_pre_work
+  //      (65s >= 45s + 8s = 53s ✓  — 12s safety buffer)
   //   4. symbolTimeoutMs > pre-work_max + fetchTimeoutMs
-  //      (90s > 12s + 35s = 47s ✓ — 43s safety margin)
+  //      (90s > 12s + 65s = 77s ✓  — 13s safety margin)
   //
   // SSOT: OPENAI_REQUEST_TIMEOUT_MS is owned by netlify/functions/openai-chat.ts.
   //       If OPENAI_REQUEST_TIMEOUT_MS changes, recalculate all values per the invariants above.
-  private readonly fetchTimeoutMs = 35000;
+  private readonly fetchTimeoutMs = 65000;
 
   constructor() {
     this.functionUrl = '/.netlify/functions/openai-chat';

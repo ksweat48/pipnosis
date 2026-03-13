@@ -296,20 +296,15 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
   enabled: true,
 
   concurrency: {
-    // CCIP-2026-03-13d: Reduced 3→2. Root cause fix for 504 Gateway Timeouts.
-    // Netlify CDN hard-kills synchronous functions at 26s wall-clock (NOT the 60s from netlify.toml
-    // which only applies to background functions). With OPENAI_REQUEST_TIMEOUT_MS=20s and 4s
-    // pre-work, each invocation takes up to 24s. At 3 concurrent symbols, the third function
-    // invocation arrives at Netlify cold with zero warm workers, adding 2-4s of cold-start overhead
-    // and pushing total to 26-28s — right at or past the CDN kill threshold.
-    // At 2 concurrent symbols: Netlify can service both with the existing warm worker pool,
-    // cold-start overhead drops to 0-1s, and total stays at 24-25s (under the 26s CDN limit).
-    // Scan speed impact: 9 symbols @ 2-wide → ceil(9/2) = 5 waves vs 5 waves at 3-wide with
-    // early-exit. In practice early-exit (72% threshold) terminates after wave 1 or 2, so
-    // real scan time is identical. Full no-early-exit scan: 5 waves × 24s = 120s (vs 4 waves
-    // × 45s = 180s before CCIP-2026-03-13d), faster because each wave is now 24s not 45s.
-    // Queue budget: 2 symbols × 1 LLM call × 100ms = 0.2s — well within OpenAI 20 req/s.
-    maxConcurrentSymbols: 2,
+    // CCIP-2026-03-13e: Restored 2→3 (rollback of CCIP-2026-03-13d which set this to 2).
+    // CCIP-2026-03-13d reduced this based on a false "26s Netlify CDN wall" assumption.
+    // netlify.toml explicitly configures [functions."openai-chat"] timeout = 60, which applies
+    // to this named synchronous function. Each invocation has a 60s budget, not 26s.
+    // With OPENAI_REQUEST_TIMEOUT_MS=45s and 8s pre-work = 53s total, well within 60s.
+    // 3 concurrent symbols = 3 parallel Netlify invocations; all complete within 53s safely.
+    // Queue budget: 3 symbols × 1 LLM call × 100ms = 0.3s — well within OpenAI 20 req/s.
+    // Scan speed: 9 symbols @ 3-wide → ceil(9/3) = 3 waves; early-exit often terminates in wave 1.
+    maxConcurrentSymbols: 3,
     // CCIP-2026-03-13a (POST-LLM-PIPELINE-FIX): Raised 25s → 40s.
     // ROOT CAUSE: Production console showed Alpha LLM completing at 26-31s, AFTER the 25s
     // abort fires. The 25s budget was derived from the OpenAI call alone (18s + 4s overhead
@@ -324,30 +319,30 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
     // Previous references to "TWO sequential LLM calls" are obsolete. Omega-8 makes zero LLM calls.
     // Only Alpha calls the LLM. All timeout values are sized for a single LLM call per symbol.
     //
-    // CCIP-2026-03-13d TIMEOUT BUDGET HIERARCHY (SSOT — all consumers must honour these invariants):
-    //   OPENAI_REQUEST_TIMEOUT_MS (server)  = 20s  — netlify/functions/openai-chat.ts (SSOT)
-    //   FUNCTION_TIMEOUT_MS (Netlify fn)    = 24s  — netlify/functions/openai-chat.ts (SSOT)
-    //   Netlify CDN synchronous kill wall   = 26s  — Netlify infrastructure (hard, immutable limit)
-    //   fetchTimeoutMs (client)             = 35s  — src/services/openai-client.ts
+    // CCIP-2026-03-13e TIMEOUT BUDGET HIERARCHY (SSOT — all consumers must honour these invariants):
+    //   OPENAI_REQUEST_TIMEOUT_MS (server)  = 45s  — netlify/functions/openai-chat.ts (SSOT)
+    //   FUNCTION_TIMEOUT_MS (Netlify fn)    = 55s  — netlify/functions/openai-chat.ts (SSOT)
+    //   netlify.toml openai-chat timeout    = 60s  — netlify.toml [functions."openai-chat"] (named override)
+    //   fetchTimeoutMs (client)             = 65s  — src/services/openai-client.ts
     //   symbolTimeoutMs / sessionTimeouts   = 90s  — this file (SSOT)
     //   batchTimeoutMs / councilTimeoutMs   = 300s — this file (SSOT)
-    //   Netlify platform hard limit (bg fn) = 60s  — netlify.toml (background functions only)
     //
     // INVARIANTS (must never be violated):
-    //   1. OPENAI_REQUEST_TIMEOUT_MS + max_pre_work <= Netlify CDN kill wall
-    //      (20s + 4s = 24s <= 26s ✓  — 2s safety margin)
-    //   2. FUNCTION_TIMEOUT_MS = OPENAI_REQUEST_TIMEOUT_MS + max_pre_work
-    //      (24s = 20s + 4s ✓ — self-kill before CDN kill)
-    //   3. fetchTimeoutMs >= FUNCTION_TIMEOUT_MS
-    //      (35s >= 24s ✓  — 11s client-side safety buffer)
+    //   1. OPENAI_REQUEST_TIMEOUT_MS + max_pre_work < FUNCTION_TIMEOUT_MS
+    //      (45s + 8s = 53s < 55s ✓  — 2s safety margin)
+    //   2. FUNCTION_TIMEOUT_MS < netlify.toml openai-chat timeout
+    //      (55s < 60s ✓  — 5s safety margin)
+    //   3. fetchTimeoutMs >= OPENAI_REQUEST_TIMEOUT_MS + max_pre_work
+    //      (65s >= 45s + 8s = 53s ✓  — 12s safety buffer)
     //   4. symbolTimeoutMs > pre-work_max + fetchTimeoutMs
-    //      (90s > 12s + 35s = 47s ✓  — 43s safety margin)
+    //      (90s > 12s + 65s = 77s ✓  — 13s safety margin)
     //
-    // Single-call timeline per symbol (CCIP-2026-03-13d, worst case under load):
+    // Single-call timeline per symbol (worst case under load):
     //   Pre-work (data fetch, Omega-8 deterministic, snapshot): 5-12s
-    //   Alpha LLM fetch starts at ~4s; server aborts at 20s; clean JSON 504 returns by ~24s
+    //   Alpha LLM fetch (gpt-4o-mini, 1500 tokens @ ~60 tok/s): 17-25s
+    //   Server aborts at 45s if OpenAI slow; clean JSON 504 returns by ~53s
     //   Post-LLM work (confidence engine, audit, reward): ~3-8s
-    //   Total: 12s + 20s + 8s = 40s — comfortably within 90s symbolTimeoutMs.
+    //   Total normal: 12s + 25s + 8s = 45s — well within 90s symbolTimeoutMs.
     symbolTimeoutMs: 90000,
     batchTimeoutMs: 300000,
     // 9 symbols, 3-wide rolling pool = ceil(9/3) = 3 waves × 90s = 270s.
@@ -356,8 +351,8 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
 
     useSessionTimeouts: true,
     // Session timeouts mirror symbolTimeoutMs (90s). One LLM call per symbol.
-    // CCIP-2026-03-13d: Full pipeline worst-case: 12s pre-work + 20s LLM + 8s post-work = 40s.
-    // 90s = 40s worst-case + 50s safety margin.
+    // CCIP-2026-03-13e: Full pipeline worst-case: 12s pre-work + 45s LLM + 8s post-work = 65s.
+    // 90s = 65s worst-case + 25s safety margin.
     sessionTimeouts: {
       asian: 90000,
       london: 90000,
