@@ -685,7 +685,16 @@ export const MidTradeMonitor: React.FC<MidTradeMonitorProps> = ({ activeTradeId 
                     <p className={`text-base font-bold font-mono tabular-nums ${isProfitable ? 'text-emerald-400' : 'text-red-400'}`}>
                       {isProfitable ? '+' : ''}${guide.currentPnL.toFixed(2)}
                     </p>
-                    <p className="text-[10px] text-gray-500">Current P&L</p>
+                    <div className="flex items-center justify-end gap-1.5 mt-0.5">
+                      <p className="text-[10px] text-gray-500">P&L</p>
+                      <span className={`text-[10px] font-semibold font-mono px-1.5 py-0.5 rounded ${
+                        guide.rMultiple >= 0
+                          ? 'bg-emerald-500/20 text-emerald-400'
+                          : 'bg-red-500/20 text-red-400'
+                      }`}>
+                        {guide.rMultiple >= 0 ? '+' : ''}{guide.rMultiple.toFixed(2)}R
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -710,6 +719,35 @@ export const MidTradeMonitor: React.FC<MidTradeMonitorProps> = ({ activeTradeId 
                           {guide.subMessage}
                         </p>
                       )}
+                    </div>
+                  </div>
+
+                  {/* RR Intelligence Row */}
+                  <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-1">
+                      <span className="text-[9px] uppercase tracking-wider text-gray-500 font-medium">Initial RR</span>
+                      <span className={`text-[10px] font-bold font-mono px-1.5 py-0.5 rounded ${
+                        guide.initialRR >= 1.5
+                          ? 'bg-emerald-500/20 text-emerald-300'
+                          : guide.initialRR >= 1.0
+                          ? 'bg-blue-500/20 text-blue-300'
+                          : 'bg-amber-500/20 text-amber-300'
+                      }`}>
+                        1:{guide.initialRR.toFixed(2)}
+                      </span>
+                    </div>
+                    <span className="text-gray-600 text-[10px]">|</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[9px] uppercase tracking-wider text-gray-500 font-medium">Live RR</span>
+                      <span className={`text-[10px] font-bold font-mono px-1.5 py-0.5 rounded ${
+                        guide.liveRR >= 1.0
+                          ? 'bg-emerald-500/20 text-emerald-300'
+                          : guide.liveRR >= 0.5
+                          ? 'bg-amber-500/20 text-amber-300'
+                          : 'bg-red-500/20 text-red-300'
+                      }`}>
+                        1:{guide.liveRR.toFixed(2)}
+                      </span>
                     </div>
                   </div>
 

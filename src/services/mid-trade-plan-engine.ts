@@ -69,6 +69,12 @@ export interface TriggerEvaluation {
   color: 'emerald' | 'amber' | 'red' | 'blue' | 'orange';
   action: 'hold' | 'trail_sl' | 'warning' | 'tp1_timing' | 'risk_alert';
   trailingSLOptions?: TrailingSLOptions;
+  /**
+   * SSOT: Current R-multiple derived from entry, SL, and live price.
+   * Computed once in evaluateAllTriggers and propagated to MidTradeGuidance.
+   * NEVER re-derived downstream — always read from this field.
+   */
+  rMultiple: number;
 }
 
 /**
@@ -555,7 +561,8 @@ export function evaluateAllTriggers(
       thesisIntact: !isThesisBroken,
       urgencyScore: 95,
       color: 'red',
-      action: 'risk_alert'
+      action: 'risk_alert',
+      rMultiple
     };
   }
 
@@ -573,7 +580,8 @@ export function evaluateAllTriggers(
       thesisIntact: drawdownPercent < 90,
       urgencyScore: 90,
       color: 'red',
-      action: 'warning'
+      action: 'warning',
+      rMultiple
     };
   }
 
@@ -591,7 +599,8 @@ export function evaluateAllTriggers(
       thesisIntact: true,
       urgencyScore: 75,
       color: 'amber',
-      action: 'warning'
+      action: 'warning',
+      rMultiple
     };
   }
 
@@ -609,7 +618,8 @@ export function evaluateAllTriggers(
       thesisIntact: true,
       urgencyScore: 60,
       color: 'emerald',
-      action: 'tp1_timing'
+      action: 'tp1_timing',
+      rMultiple
     };
   }
 
@@ -628,7 +638,8 @@ export function evaluateAllTriggers(
       urgencyScore: 70,
       color: 'emerald',
       action: 'trail_sl',
-      trailingSLOptions: trailOptions
+      trailingSLOptions: trailOptions,
+      rMultiple
     };
   }
 
@@ -647,7 +658,8 @@ export function evaluateAllTriggers(
       urgencyScore: 65,
       color: 'emerald',
       action: 'trail_sl',
-      trailingSLOptions: trailOptions
+      trailingSLOptions: trailOptions,
+      rMultiple
     };
   }
 
@@ -667,7 +679,8 @@ export function evaluateAllTriggers(
       urgencyScore: 55,
       color: 'blue',
       action: 'tp1_timing',
-      trailingSLOptions: trailOptions
+      trailingSLOptions: trailOptions,
+      rMultiple
     };
   }
 
@@ -685,7 +698,8 @@ export function evaluateAllTriggers(
       thesisIntact: true,
       urgencyScore: 45,
       color: 'blue',
-      action: 'tp1_timing'
+      action: 'tp1_timing',
+      rMultiple
     };
   }
 
@@ -704,7 +718,8 @@ export function evaluateAllTriggers(
       urgencyScore: 50,
       color: 'emerald',
       action: 'trail_sl',
-      trailingSLOptions: trailOptions
+      trailingSLOptions: trailOptions,
+      rMultiple
     };
   }
 
@@ -721,7 +736,8 @@ export function evaluateAllTriggers(
       thesisIntact: true,
       urgencyScore: 60,
       color: 'amber',
-      action: 'warning'
+      action: 'warning',
+      rMultiple
     };
   }
 
@@ -738,7 +754,8 @@ export function evaluateAllTriggers(
       thesisIntact: true,
       urgencyScore: 40,
       color: 'amber',
-      action: 'hold'
+      action: 'hold',
+      rMultiple
     };
   }
 
@@ -757,7 +774,8 @@ export function evaluateAllTriggers(
       thesisIntact: rMultiple > -0.5,
       urgencyScore: 50,
       color: 'amber',
-      action: rMultiple > 0 ? 'trail_sl' : 'warning'
+      action: rMultiple > 0 ? 'trail_sl' : 'warning',
+      rMultiple
     };
   }
 
@@ -775,7 +793,8 @@ export function evaluateAllTriggers(
       thesisIntact: true,
       urgencyScore: 25,
       color: 'blue',
-      action: 'hold'
+      action: 'hold',
+      rMultiple
     };
   }
 
@@ -810,7 +829,8 @@ function buildDefaultEvaluation(
       thesisIntact: true,
       urgencyScore: 30,
       color: 'emerald',
-      action: 'hold'
+      action: 'hold',
+      rMultiple
     };
   }
 
@@ -826,7 +846,8 @@ function buildDefaultEvaluation(
       thesisIntact: true,
       urgencyScore: 20,
       color: 'emerald',
-      action: 'hold'
+      action: 'hold',
+      rMultiple
     };
   }
 
@@ -843,7 +864,8 @@ function buildDefaultEvaluation(
       thesisIntact: true,
       urgencyScore: 20,
       color: 'blue',
-      action: 'hold'
+      action: 'hold',
+      rMultiple
     };
   }
 
@@ -859,7 +881,8 @@ function buildDefaultEvaluation(
     thesisIntact: true,
     urgencyScore: 25,
     color: 'amber',
-    action: 'hold'
+    action: 'hold',
+    rMultiple
   };
 }
 

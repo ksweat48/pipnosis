@@ -80,6 +80,18 @@ export interface MidTradeGuidance {
     Q8B_session_range_pct: number;
   } | null;
 
+  /**
+   * SSOT: R-multiple fields computed once in service layer from engine output.
+   * NEVER re-derived in UI — always read from these fields.
+   *
+   * rMultiple:  current live R-multiple (negative = drawdown, positive = profit)
+   * initialRR:  planned risk-reward ratio at entry  |TP - entry| / |SL - entry|
+   * liveRR:     real-time remaining reward-to-risk   |TP - currentPrice| / |SL - currentPrice|
+   */
+  rMultiple: number;
+  initialRR: number;
+  liveRR: number;
+
   // Internal field retained for in-memory P&L recalculation by applyLivePrices
   // GOVERNANCE: Not rendered in UI — used exclusively by applyLivePrices
   lotSize: number;
@@ -300,6 +312,17 @@ class MidTradeMonitorService {
         const distanceToSLPips = calculatePipDistance(trade.symbol, currentPrice, trade.stop_loss);
         const distanceToTPPips = calculatePipDistance(trade.symbol, currentPrice, trade.take_profit);
 
+        // ─── RR calculations — computed once here, never re-derived in UI ──────
+        // initialRR: planned reward-to-risk at entry (immutable after entry)
+        const initialRisk = Math.abs(trade.entry_price - trade.stop_loss);
+        const initialReward = Math.abs(trade.take_profit - trade.entry_price);
+        const initialRR = initialRisk > 0 ? initialReward / initialRisk : 0;
+
+        // liveRR: remaining reward vs remaining risk from current price
+        const remainingReward = Math.abs(trade.take_profit - currentPrice);
+        const remainingRisk = Math.abs(currentPrice - trade.stop_loss);
+        const liveRR = remainingRisk > 0 ? remainingReward / remainingRisk : 0;
+
         guidanceList.push({
           tradeId: trade.id,
           symbol: trade.symbol,
@@ -330,6 +353,9 @@ class MidTradeMonitorService {
           isPriceFresh: isFresh,
           stalePriceWarning,
           goalSessionId: trade.goal_session_id,
+          rMultiple: evaluation.rMultiple,
+          initialRR,
+          liveRR,
           lotSize
         });
       }
@@ -460,6 +486,11 @@ class MidTradeMonitorService {
         }
       }
 
+      // liveRR updates with every tick — remaining reward / remaining risk
+      const updatedRemainingReward = Math.abs(guide.takeProfit - newCurrentPrice);
+      const updatedRemainingRisk = Math.abs(newCurrentPrice - guide.stopLoss);
+      const updatedLiveRR = updatedRemainingRisk > 0 ? updatedRemainingReward / updatedRemainingRisk : 0;
+
       return {
         ...guide,
         currentPrice: newCurrentPrice,
@@ -475,7 +506,9 @@ class MidTradeMonitorService {
         actionLabel: evaluation.actionLabel,
         thesisIntact: evaluation.thesisIntact,
         urgencyScore: evaluation.urgencyScore,
-        trailingSLOptions: evaluation.trailingSLOptions
+        trailingSLOptions: evaluation.trailingSLOptions,
+        rMultiple: evaluation.rMultiple,
+        liveRR: updatedLiveRR
       };
     });
 
