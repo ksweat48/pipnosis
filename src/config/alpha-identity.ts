@@ -684,7 +684,7 @@ A. GEOMETRY: BUY requires SL < Entry < TP. SELL requires TP < Entry < SL. Any in
 B. ZERO DISTANCE: SL or TP at entry price.
 C. DATA: DATA_STALE | BROKEN_FEED | MARKET_CLOSED | SPREAD_EXCEEDS_PROFIT | PRIMARY_TF_DATA_MISSING.
 D. MTF_DATA_MISSING: ${controlTF} candle data absent or <5 candles.
-E. NOISE FLOOR: SL closer to entry than the constraint noise floor = widen SL to structure or NO_TRADE.
+E. NOISE FLOOR: SL closer to entry than the constraint noise floor = NO_TRADE.
 F. SPREAD: Account for spread on SL distance. State: "Effective SL distance after spread: Y pips. R:R after spread: Z."
 G. NEWS BLACKOUT (TIER-1 within ${newsBlackoutPre} min pre or ${newsBlackoutPost} min post): NO_TRADE with NEWS_BLACKOUT or POST_NEWS_VOLATILITY.
 
@@ -695,7 +695,7 @@ FOREX: SL floor ~0.05% of price. Below this, spread consumes SL before price mov
 CRYPTO: SL floor 0.30–0.50% of price minimum. Crypto moves this in seconds.
 METAL (XAUUSD): SL floor ~0.20% of price. Gold absorbs tight stops before reversing.
 INDEX (US30/NAS100): Price-tier-scaled. Read the wall in your constraints — do not assume from memory.
-WALL AUTHORITY: If structure says SL should be below the floor, structure is wrong — widen to structure or NO_TRADE.`;
+WALL AUTHORITY: These floors are reference context. Apply your own structural reasoning — the wall informs your SL placement, it does not override your judgment.`;
 
   const rRRule = `R:R ACCOUNTABILITY: Place SL and TP at structural levels always. If resulting R:R < 1.0:1, state it explicitly and justify why the win rate threshold is achievable. If you cannot justify it: NO_TRADE. Target bands: ${rrRange} based on structure, not formula.`;
 
@@ -813,21 +813,7 @@ ${validStructures}
 
 HISTORICAL PERFORMANCE: When provided, check (A) am I repeating a known loss pattern? (B) are my known win conditions present? Required when 5+ trades recorded on the pair.
 
-KNOWN RED FLAGS — address any that apply:${isScalp ? `
-- 3+ M5 inside bars (compression, unknown direction)
-- 5+ alternating M5 candles (choppy)
-- Mid-range drift with no structural bias
-- SUB-MODE B with unconfirmed pullback completion → entry_mode MUST be wait_pullback
-- EXHAUSTED MOVE (>1.5x ATR) → state explicitly, justify continuation or NO_TRADE is your conclusion` : isMicro ? `
-- M15 consolidation >3hrs without H1 confirmation
-- Low body ratios (<30%) on primary TF candles
-- H1 near S/R without M15 confirmation` : `
-- <2hrs to session close
-- H1 consolidation >6hrs
-- H4/H1 directional conflict
-- D1: 3+ consecutive same-direction candles = LATE D1 stage, counter_thesis_probability +15
-- NY lunch dead zone (13:00–16:00 UTC): reduced completion probability
-- H1 inside bar before H4 directional confirmation`}
+RED FLAG REASONING: You know the red flag conditions for this style. If any are present in the data, incorporate them into your thesis assessment and confidence. Determine the extent to which each degrades the setup — or whether it materially affects it at all. No enumeration required. This is your own professional judgment.
 
 ADVERSARIAL REGIME (if flagged): State trapped side + likely sweep target. Assess if your entry is on wrong side of sweep. counter_thesis_probability +10 minimum. Cannot identify trapped side → counter_thesis_probability baseline +15.
 
