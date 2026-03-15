@@ -239,7 +239,8 @@ Write naturally like you're texting an update to a friend.`
           temperature: 0.3,
           max_tokens: 150,
           requestType: 'periodic_wellness',
-          endpoint: 'periodic-wellness'
+          endpoint: 'periodic-wellness',
+          symbol: snapshot.sym
         }
       );
 
@@ -378,7 +379,8 @@ Return JSON:
           temperature: 0.3,
           max_tokens: 100,
           requestType: 'midtrade_soft',
-          endpoint: 'midtrade-soft'
+          endpoint: 'midtrade-soft',
+          symbol: snapshot.sym
         }
       );
 
@@ -467,7 +469,8 @@ Return JSON:
           temperature: 0.3,
           max_tokens: 150,
           requestType: 'midtrade_hard',
-          endpoint: 'midtrade-hard'
+          endpoint: 'midtrade-hard',
+          symbol: snapshot.sym
         }
       );
 
@@ -596,7 +599,8 @@ Return JSON:
           temperature: 0.2, // Lower temp for emergency
           max_tokens: 150,
           requestType: 'midtrade_emergency',
-          endpoint: 'midtrade-emergency'
+          endpoint: 'midtrade-emergency',
+          symbol: snapshot.sym
         }
       );
 

@@ -67,8 +67,9 @@ class LLMMidTradeEvaluator {
         }
       ], {
         model: 'gpt-4o-mini',
-        temperature: 0.3, // Lower temperature for consistent recommendations
-        max_tokens: 400 // Keep response short
+        temperature: 0.3,
+        max_tokens: 400,
+        symbol: request.trade.symbol
       });
 
       const processingTimeMs = Date.now() - startTime;

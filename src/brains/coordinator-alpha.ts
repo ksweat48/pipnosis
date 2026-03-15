@@ -3153,7 +3153,8 @@ ${tradeStyle === 'SCALP' ? `{
           //   1500 provides ~2x headroom above the ~800-token observed worst-case response.
           max_tokens: 1500,
           requestType: 'alpha_coordination',
-          endpoint: 'alpha-coordinator'
+          endpoint: 'alpha-coordinator',
+          symbol: marketContext.symbol
         }
       );
 

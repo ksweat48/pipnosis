@@ -252,7 +252,8 @@ Max 200 tokens.`;
         temperature: 0.4, // Some creativity for strategy
         max_tokens: 300,
         requestType: 'strategy_planning',
-        endpoint: 'llm-strategy-brain'
+        endpoint: 'llm-strategy-brain',
+        symbol: snapshot.sym
       }
     );
 

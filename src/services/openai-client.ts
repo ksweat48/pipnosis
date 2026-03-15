@@ -38,6 +38,7 @@ interface ChatCompletionOptions {
   max_tokens?: number;
   requestType?: string;
   endpoint?: string;
+  symbol?: string;
 }
 
 interface ChatCompletionResponse {
@@ -338,10 +339,14 @@ class OpenAIClient {
     options: ChatCompletionOptions = {}
   ): Promise<ChatCompletionResponse> {
     try {
-      // Check weekend shutdown
+      // Check weekend shutdown — crypto symbols (24/7 markets) are exempt
       const { weekendProtectionService } = await import('./weekend-protection-service');
       if (weekendProtectionService.isLLMDisabled()) {
-        throw new Error('LLM APIs are disabled for weekend shutdown. Market reopens Sunday 5 PM EST.');
+        const { is24HourSymbol } = await import('../utils/marketHours');
+        const isCrypto = options.symbol ? is24HourSymbol(options.symbol) : false;
+        if (!isCrypto) {
+          throw new Error('LLM APIs are disabled for weekend shutdown. Market reopens Sunday 5 PM EST.');
+        }
       }
 
       // CONTEXT-AWARE ROUTING: Detect server vs browser
