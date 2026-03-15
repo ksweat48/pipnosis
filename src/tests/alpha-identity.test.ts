@@ -3,7 +3,6 @@ import {
   shouldExecute,
   getEntryMode,
   isLegitimateBlockCondition,
-  calculateAdvisoryPenalty,
 } from '../config/alpha-identity';
 
 describe('Alpha Identity Configuration', () => {
@@ -19,8 +18,8 @@ describe('Alpha Identity Configuration', () => {
       expect(ALPHA_IDENTITY.CONFIDENCE_BANDS.INSUFFICIENT.max).toBe(59);
     });
 
-    it('should have max advisory penalty of 30', () => {
-      expect(ALPHA_IDENTITY.MAX_ADVISORY_PENALTY).toBe(30);
+    it('should have max advisory guidance ceiling of 10', () => {
+      expect(ALPHA_IDENTITY.MAX_ADVISORY_PENALTY).toBe(10);
     });
 
     it('should define all advisory systems as non-blocking', () => {
@@ -73,25 +72,5 @@ describe('Alpha Identity Configuration', () => {
     });
   });
 
-  describe('calculateAdvisoryPenalty', () => {
-    it('should return 0 for empty penalties', () => {
-      expect(calculateAdvisoryPenalty([])).toBe(0);
-    });
 
-    it('should sum penalties correctly', () => {
-      const penalties = [
-        { source: 'Regime', penalty: 10 },
-        { source: 'Adversarial', penalty: 5 },
-      ];
-      expect(calculateAdvisoryPenalty(penalties)).toBe(15);
-    });
-
-    it('should cap total penalty at MAX_ADVISORY_PENALTY', () => {
-      const penalties = [
-        { source: 'Regime', penalty: 20 },
-        { source: 'Adversarial', penalty: 20 },
-      ];
-      expect(calculateAdvisoryPenalty(penalties)).toBe(30);
-    });
-  });
 });

@@ -35,8 +35,8 @@
  * Patterns are enhancers, not gatekeepers.
  * 40/75 EQS (53%) is sufficient for execution when price is in entry zone.
  *
- * NOTE: This is the BASELINE threshold. High confidence can relax this further.
- * See getConfidenceAdjustedEQSThreshold() for dynamic adjustment logic.
+ * NOTE: This is the BASELINE threshold. Alpha self-adjusts his assessment based
+ * on entry quality context passed in the briefing.
  */
 const EQS_EXECUTION_THRESHOLD = 40;
 
@@ -75,15 +75,6 @@ export const EQS_CONFIDENCE_MODIFIERS = [
   { minEQS: 0, modifier: 0 },
 ] as const;
 
-/**
- * DEPRECATED: Old confidence-based EQS threshold adjustment
- * Kept for backward compatibility during migration
- */
-export const EQS_CONFIDENCE_TIERS = {
-  EXCELLENT: { minConfidence: 85, eqsAdjustment: -10 },  // 85%+ confidence: EQS 30
-  SOLID: { minConfidence: 70, eqsAdjustment: -5 },       // 70%+ confidence: EQS 35
-  ACCEPTABLE: { minConfidence: 60, eqsAdjustment: 0 },   // 60%+ confidence: EQS 40
-} as const;
 
 /**
  * EQS COMPONENT MAXIMUMS - 75-POINT SCALE SSOT
@@ -369,47 +360,46 @@ export const ALPHA_IDENTITY = {
     REGIME_ORACLE: {
       name: 'Regime Oracle',
       type: 'ADVISORY' as const,
-      maxConfidencePenalty: 15,
       canBlock: false,
     },
     ADVERSARIAL_DETECTOR: {
       name: 'Adversarial Detector',
       type: 'ADVISORY' as const,
-      maxConfidencePenalty: 0,
       canBlock: false,
       mode: 'INFORM_ONLY' as const,
     },
     SESSION_CONSTRAINTS: {
       name: 'Session Constraints',
       type: 'ADVISORY' as const,
-      maxConfidencePenalty: 10,
       canBlock: false,
     },
     OMEGA_CONSENSUS: {
       name: 'Omega Consensus',
       type: 'ADVISORY' as const,
-      maxConfidencePenalty: 0,
       canBlock: false,
     },
   },
 
   /**
-   * CCIP-2026-0310-OMEGA: Omega consensus carries ZERO advisory penalty.
+   * MAX_ADVISORY_PENALTY — prompt-level advisory guidance ceiling
    *
-   * Omega brains provide raw sensor observations to Alpha. Alpha's confidence
-   * output already incorporates everything he has reasoned about — including
-   * the Omega briefing. Applying a code-level penalty on top of Alpha's stated
-   * confidence is double-counting: it distorts his output without giving him
-   * any new information to reason differently.
+   * CCIP-2026-0310-OMEGA / CCIP-2026-02-19:
    *
-   * The MAX_ADVISORY_PENALTY (10) applies only to Regime Oracle and Adversarial
-   * Detector — systems that detect environmental conditions outside Alpha's
-   * direct candle-reading (session phase, manipulation patterns). Omega is a
-   * price-structure reader like Alpha — his disagreement is data for Alpha's
-   * reasoning, not a post-hoc penalty on Alpha's conclusion.
+   * Advisory systems (Regime Oracle, Adversarial Detector, Session Constraints)
+   * pass their signals to Alpha as text in the briefing. Alpha self-prices those
+   * signals into his stated trade_confidence. No code arithmetic is applied to
+   * Alpha's confidence after he outputs it.
    *
-   * SSOT: This value is the single authority for all advisory penalty caps.
-   * coordinator-alpha.ts and pipnosis-core-rules.ts both reference this constant.
+   * This value is passed into the Alpha prompt to set Alpha's expectation: the
+   * combined effect of all advisory signals on his reasoning should not exceed
+   * this ceiling. It is a reasoning guideline, not a code-enforced cap.
+   *
+   * Omega Council carries zero advisory weight — Omega is a price-structure sensor
+   * whose observations are inputs to Alpha's reasoning, not post-hoc deductions
+   * from his stated confidence.
+   *
+   * SSOT: This constant is the single authority referenced by coordinator-alpha.ts
+   * and pipnosis-core-rules.ts for the advisory guidance ceiling in the prompt.
    */
   MAX_ADVISORY_PENALTY: 10,
 } as const;
@@ -556,22 +546,6 @@ export function getEQSConfidenceModifier(entryQualityScore: number): number {
   return 0;
 }
 
-/**
- * DEPRECATED: Get confidence-adjusted EQS threshold
- * Old approach: Adjusted EQS threshold based on confidence
- * New approach: Adjust confidence based on EQS, then compare to fixed threshold
- *
- * Kept for backward compatibility during migration.
- */
-export function getConfidenceAdjustedEQSThreshold(tradeConfidence: number): number {
-  if (tradeConfidence >= EQS_CONFIDENCE_TIERS.EXCELLENT.minConfidence) {
-    return ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD + EQS_CONFIDENCE_TIERS.EXCELLENT.eqsAdjustment;
-  }
-  if (tradeConfidence >= EQS_CONFIDENCE_TIERS.SOLID.minConfidence) {
-    return ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD + EQS_CONFIDENCE_TIERS.SOLID.eqsAdjustment;
-  }
-  return ALPHA_IDENTITY.EQS_EXECUTION_THRESHOLD;
-}
 
 export function shouldExecute(
   tradeConfidence: number,
@@ -609,12 +583,6 @@ export function isLegitimateBlockCondition(condition: string): boolean {
   );
 }
 
-export function calculateAdvisoryPenalty(
-  advisoryPenalties: { source: string; penalty: number }[]
-): number {
-  const totalPenalty = advisoryPenalties.reduce((sum, a) => sum + a.penalty, 0);
-  return Math.min(totalPenalty, ALPHA_IDENTITY.MAX_ADVISORY_PENALTY);
-}
 
 /**
  * SSOT: Style-specific system prompt for Alpha's analytical framework.

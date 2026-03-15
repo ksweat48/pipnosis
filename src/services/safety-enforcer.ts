@@ -8,7 +8,7 @@
  * ALPHA SOVEREIGNTY ENFORCEMENT (SSOT + CCIP Compliance):
  * ✅ Safety Enforcer serves Alpha, NEVER mutates Alpha's decisions
  * ✅ Only system errors block execution
- * ✅ Risk advisories penalize confidence within governance cap (30% max per ALPHA_IDENTITY.MAX_ADVISORY_PENALTY)
+ * ✅ Risk advisories are logged as audit signals — not applied to Alpha's confidence (CCIP-2026-02-19)
  * ✅ NO AUTO-ADJUSTMENTS - All recommendations returned to Alpha for re-evaluation
  *
  * PHASE 1 FIXES (2026-02-02):
@@ -39,7 +39,7 @@ export interface SafetyContext {
 export interface ValidationResult {
   passed: boolean;              // Only false for HARD BLOCKS (system errors)
   hardBlocks: string[];         // System integrity violations (blocks execution)
-  advisories: string[];         // Risk warnings (doesn't block, penalizes confidence)
+  advisories: string[];         // Risk warnings (doesn't block — informational only)
   action: 'ALLOW' | 'BLOCK';    // BLOCK only on hard blocks
   advisoryPenalties: AdvisoryPenalty[]; // Structured penalties for aggregator
 
@@ -67,7 +67,7 @@ class SafetyEnforcer {
    * GOVERNANCE COMPLIANT (PHASE 1 FIX - 2026-02-02):
    * - Returns HARD BLOCKS for system integrity violations
    * - Returns ADVISORIES for risk concerns (doesn't block)
-   * - Advisory penalties capped at 30% per ALPHA_IDENTITY.MAX_ADVISORY_PENALTY
+   * - Advisory signals logged for audit only — not applied to confidence (CCIP-2026-02-19)
    * - NO MUTATIONS: Alpha's decision is NEVER modified
    */
   validateTrade(
