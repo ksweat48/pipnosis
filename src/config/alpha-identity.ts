@@ -676,7 +676,7 @@ EXPANSION (ratio >${VOLATILITY_REGIME_THRESHOLDS.EXPANSION_MIN_ATR_RATIO}): SL f
 SPIKE (ratio >${VOLATILITY_REGIME_THRESHOLDS.SPIKE_THRESHOLD}): Wait for spike candle to close. SL floor = 1.2x ATR. Structure formed pre-spike is invalid.`;
 
   const preSubmitChecklist = `PRE-SUBMISSION (all required for BUY/SELL, confirm each before output):
-1. Session phase named and implication stated.
+1. Session phase and market phase confirmed from system data (SESSION & MARKET PHASE block). State: session name, minutes remaining, next session, market phase label.
 2. ${isScalp ? 'Velocity arithmetic complete (ATR, TP distance, estimated minutes, verdict).' : 'ATR phase stated (FRESH/DEVELOPING/EXHAUSTED).'}
 3. Move stage stated (EARLY/MIDDLE/LATE). Late stage: R:R recalculated from current price.
 4. Confluence count stated as X/5 with named dimensions.

@@ -54,6 +54,7 @@ import {
 } from '../config/concurrent-execution-config';
 import { marketScheduleService } from './market-schedule-service';
 import { calculateSessionContext } from '../utils/marketHours';
+import { deriveMarketPhase } from '../utils/market-phase-deriver';
 import { rewardEngine } from './reward-engine';
 import { getPlatformStreakModifier } from './ai-identity';
 
@@ -477,6 +478,20 @@ class AlphaOmegaOrchestrator {
 
     // Build market briefing from raw snapshot data (replaces vote-based context)
     const briefingSessionContext = calculateSessionContext();
+
+    // CCIP-2026-03-15: Derive unified market phase from existing regime oracle signals.
+    // This is a pure mapping from already-computed data — no new calculations.
+    // Phase is delivered as a verified fact so Alpha reads it as data, not a task.
+    const marketPhaseResult = deriveMarketPhase({
+      regimeStructure: snapshot.regime?.structure,
+      atrCompression: snapshot.regime?.atr_compression,
+      atrExpansion: typeof snapshot.regime?.atr_expansion === 'boolean'
+        ? snapshot.regime.atr_expansion
+        : typeof snapshot.regime?.atr_expansion === 'number'
+          ? snapshot.regime.atr_expansion > 1.2
+          : undefined,
+    });
+
     const snapshotInput: MarketSnapshotInput = {
       symbol: snapshot.symbol,
       price: snapshot.price,
@@ -500,6 +515,10 @@ class AlphaOmegaOrchestrator {
       session: briefingSessionContext.currentSession,
       sessionName: briefingSessionContext.sessionName,
       sessionMinutesRemaining: briefingSessionContext.sessionTimeRemainingMinutes,
+      nextSessionName: briefingSessionContext.nextSessionName,
+      minutesUntilNextSession: briefingSessionContext.minutesUntilNextSession,
+      marketPhase: marketPhaseResult.phase,
+      marketPhaseConfidence: marketPhaseResult.confidence,
       spreadPips: estimatedSpreadPips,
       sensors: snapshot.omegaSensors,
       candles: snapshot.candles.map(c => ({ open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume })),

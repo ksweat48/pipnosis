@@ -492,11 +492,18 @@ export function getSessionAdjustedTimeout(baseTimeoutMinutes: number, symbol?: s
 /**
  * Calculate actual current trading session and time remaining
  * Returns session context for constraint generation (SSOT for session-time logic)
+ *
+ * CCIP-2026-03-15: Extended to expose next session name and minutes-until-transition.
+ * This is a pure data extension — all session boundary logic already existed.
+ * nextSession and minutesUntilNextSession give Alpha a pre-computed phase transition
+ * fact instead of requiring him to infer it from raw UTC times.
  */
 export interface SessionContext {
   currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed';
   sessionTimeRemainingMinutes: number;
   sessionName: string;
+  nextSessionName: string;
+  minutesUntilNextSession: number;
 }
 
 export function calculateSessionContext(): SessionContext {
@@ -505,65 +512,76 @@ export function calculateSessionContext(): SessionContext {
   const utcMinutes = now.getUTCMinutes();
   const totalUtcMinutes = utcHours * 60 + utcMinutes;
 
-  // London/NY Overlap: 13:00-17:00 UTC (8am-12pm EST)
+  // London/NY Overlap: 13:00-17:00 UTC
   if (utcHours >= 13 && utcHours < 17) {
-    const endMinutes = 17 * 60; // 17:00 UTC
+    const endMinutes = 17 * 60;
     const remaining = endMinutes - totalUtcMinutes;
     return {
       currentSession: 'overlap',
       sessionTimeRemainingMinutes: remaining,
-      sessionName: 'London/NY Overlap'
+      sessionName: 'London/NY Overlap',
+      nextSessionName: 'NY Session',
+      minutesUntilNextSession: remaining,
     };
   }
 
-  // London Session (before overlap): 08:00-13:00 UTC (3am-8am EST)
+  // London Session (before overlap): 08:00-13:00 UTC
   if (utcHours >= 8 && utcHours < 13) {
-    const endMinutes = 17 * 60; // London closes at 17:00 UTC
+    const endMinutes = 13 * 60;
     const remaining = endMinutes - totalUtcMinutes;
     return {
       currentSession: 'london',
-      sessionTimeRemainingMinutes: remaining,
-      sessionName: 'London Session'
+      sessionTimeRemainingMinutes: 17 * 60 - totalUtcMinutes,
+      sessionName: 'London Session',
+      nextSessionName: 'London/NY Overlap',
+      minutesUntilNextSession: remaining,
     };
   }
 
-  // NY Session (after overlap): 17:00-22:00 UTC (12pm-5pm EST)
+  // NY Session (after overlap): 17:00-22:00 UTC
   if (utcHours >= 17 && utcHours < 22) {
-    const endMinutes = 22 * 60; // 22:00 UTC
+    const endMinutes = 22 * 60;
     const remaining = endMinutes - totalUtcMinutes;
     return {
       currentSession: 'ny',
       sessionTimeRemainingMinutes: remaining,
-      sessionName: 'NY Session'
+      sessionName: 'NY Session',
+      nextSessionName: 'Dead Zone / Sydney',
+      minutesUntilNextSession: remaining,
     };
   }
 
-  // Asian Session: 00:00-08:00 UTC (7pm-3am EST)
+  // Asian Session: 00:00-08:00 UTC
   if (utcHours >= 0 && utcHours < 8) {
-    const endMinutes = 8 * 60; // 08:00 UTC
+    const endMinutes = 8 * 60;
     const remaining = endMinutes - totalUtcMinutes;
     return {
       currentSession: 'asian',
       sessionTimeRemainingMinutes: remaining,
-      sessionName: 'Asian Session'
+      sessionName: 'Asian Session',
+      nextSessionName: 'London Session',
+      minutesUntilNextSession: remaining,
     };
   }
 
-  // Sydney/Late Asian: 22:00-24:00 UTC (5pm-7pm EST)
+  // Sydney/Dead Zone: 22:00-24:00 UTC
   if (utcHours >= 22) {
-    const endMinutes = 24 * 60; // Midnight UTC
+    const endMinutes = 24 * 60;
     const remaining = endMinutes - totalUtcMinutes;
     return {
       currentSession: 'sydney',
       sessionTimeRemainingMinutes: remaining,
-      sessionName: 'Sydney/Late Asian'
+      sessionName: 'Dead Zone / Sydney',
+      nextSessionName: 'Asian Session',
+      minutesUntilNextSession: remaining,
     };
   }
 
-  // Fallback (shouldn't happen, but defensive)
   return {
     currentSession: 'closed',
     sessionTimeRemainingMinutes: 0,
-    sessionName: 'Market Closed'
+    sessionName: 'Market Closed',
+    nextSessionName: 'Asian Session',
+    minutesUntilNextSession: 0,
   };
 }

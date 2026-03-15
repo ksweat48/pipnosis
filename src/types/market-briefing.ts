@@ -100,6 +100,10 @@ export interface MarketIntelligence {
   spreadPips?: number;
   sessionName?: string;
   sessionMinutesRemaining?: number;
+  nextSessionName?: string;
+  minutesUntilNextSession?: number;
+  marketPhase?: string;
+  marketPhaseConfidence?: number;
   previousDayHigh?: number;
   previousDayLow?: number;
   previousDayClose?: number;
@@ -135,6 +139,10 @@ export interface MarketSnapshotInput {
   spreadPips?: number;
   sessionName?: string;
   sessionMinutesRemaining?: number;
+  nextSessionName?: string;
+  minutesUntilNextSession?: number;
+  marketPhase?: string;
+  marketPhaseConfidence?: number;
   previousDayHigh?: number;
   previousDayLow?: number;
   previousDayClose?: number;

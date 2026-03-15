@@ -155,6 +155,10 @@ function buildIntelligence(input: MarketSnapshotInput, omega8Vote: Omega8Vote | 
     spreadPips: input.spreadPips,
     sessionName: input.sessionName,
     sessionMinutesRemaining: input.sessionMinutesRemaining,
+    nextSessionName: input.nextSessionName,
+    minutesUntilNextSession: input.minutesUntilNextSession,
+    marketPhase: input.marketPhase,
+    marketPhaseConfidence: input.marketPhaseConfidence,
     previousDayHigh: input.previousDayHigh,
     previousDayLow: input.previousDayLow,
     previousDayClose: input.previousDayClose,
@@ -203,14 +207,21 @@ function formatBriefingText(intel: MarketIntelligence, snapshot?: { candles: Arr
   }
   lines.push('');
 
-  if (intel.sessionName || intel.sessionMinutesRemaining !== undefined) {
-    lines.push('SESSION CONTEXT:');
+  if (intel.sessionName || intel.sessionMinutesRemaining !== undefined || intel.marketPhase) {
+    lines.push('SESSION & MARKET PHASE:');
     if (intel.sessionName) {
       lines.push(`  Active Session: ${intel.sessionName}`);
     }
     if (intel.sessionMinutesRemaining !== undefined) {
       const urgency = intel.sessionMinutesRemaining < 30 ? ' [CLOSING SOON]' : intel.sessionMinutesRemaining < 60 ? ' [LATE SESSION]' : '';
       lines.push(`  Minutes Remaining: ${intel.sessionMinutesRemaining}${urgency}`);
+    }
+    if (intel.nextSessionName && intel.minutesUntilNextSession !== undefined && intel.minutesUntilNextSession > 0) {
+      lines.push(`  Next Session: ${intel.nextSessionName} in ${intel.minutesUntilNextSession} min`);
+    }
+    if (intel.marketPhase && intel.marketPhase !== 'UNKNOWN') {
+      const phaseConf = intel.marketPhaseConfidence !== undefined ? ` (${intel.marketPhaseConfidence}% signal agreement)` : '';
+      lines.push(`  Market Phase: ${intel.marketPhase}${phaseConf}`);
     }
     lines.push('');
   }
