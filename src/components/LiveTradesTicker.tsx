@@ -31,7 +31,23 @@
  *
  * Emails are anonymised server-side inside the RPC — raw emails never leave DB.
  * Hides entirely when zero open trades exist — no empty UI.
- * Scroll animation: unique trades scroll once per loop (no phantom duplicates).
+ *
+ * SCROLL ANIMATION — RESPONSIVE SPEED GOVERNANCE:
+ *   Duration is computed from actual rendered pixel width of the scroll track,
+ *   not from trade count. This guarantees all trades are visible on every
+ *   viewport width (mobile, tablet, desktop).
+ *
+ *   Formula: duration = scrollTrackWidth / TICKER_PIXELS_PER_SECOND
+ *   TICKER_PIXELS_PER_SECOND is the single source of scroll speed — any change
+ *   to scroll feel must be made here and only here.
+ *
+ *   A ResizeObserver on the scroll track recalculates duration when the
+ *   container resizes (orientation change, split-screen, etc). A unique
+ *   animation key forces the browser to restart the animation cleanly after
+ *   each duration change, preventing mid-scroll jumps.
+ *
+ *   translateX(-50%) loop: the rendered list is 2× unique trades so the
+ *   half-way point is identical to the start — seamless infinite loop.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -87,6 +103,18 @@ function computeLivePnL(
 const POLL_INTERVAL_MS = 30_000;
 
 /**
+ * SSOT scroll speed constant.
+ * Governs how fast the ticker travels across any viewport width.
+ * Unit: CSS pixels per second. Changing this value is the ONLY
+ * permitted way to adjust perceived scroll speed — do not introduce
+ * a second speed constant or per-breakpoint overrides.
+ */
+const TICKER_PIXELS_PER_SECOND = 80;
+
+/** Minimum animation duration guard — prevents imperceptibly fast loops on tiny trade lists. */
+const TICKER_MIN_DURATION_S = 8;
+
+/**
  * Build the display list for the scroll animation.
  *
  * The CSS animation translates -50% to loop seamlessly, so the rendered list
@@ -103,6 +131,24 @@ function buildDisplayList(trades: LiveTrade[]): LiveTrade[] {
 
 export const LiveTradesTicker: React.FC = () => {
   const [trades, setTrades] = useState<LiveTrade[]>([]);
+
+  /**
+   * SCROLL ANIMATION STATE — SSOT for duration.
+   * Derived exclusively from the measured scrollTrackRef width.
+   * Never set this directly — only the ResizeObserver callback
+   * (recalcuateAnimationDuration) is permitted to update it.
+   */
+  const [animationDuration, setAnimationDuration] = useState<number>(TICKER_MIN_DURATION_S);
+  /**
+   * animationKey increments whenever duration changes so React replaces
+   * the animated element, forcing the browser to restart the animation
+   * from position 0. Without this, a mid-scroll duration change causes
+   * an abrupt jump.
+   */
+  const [animationKey, setAnimationKey] = useState<number>(0);
+
+  /** Ref to the inner scroll track div whose scrollWidth drives duration. */
+  const scrollTrackRef = useRef<HTMLDivElement>(null);
 
   const channelTradesRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const channelPricesRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -277,10 +323,54 @@ export const LiveTradesTicker: React.FC = () => {
     };
   }, [fetchOpenTrades, handleTradeUpdate, applyLivePriceToTrades]);
 
+  /**
+   * RESPONSIVE ANIMATION DURATION — SSOT width measurement.
+   *
+   * Observes the scroll track's rendered scrollWidth and derives the
+   * animation duration from TICKER_PIXELS_PER_SECOND. This is the only
+   * place animation duration is computed — the static formula
+   * `trades.length * 4` has been removed because it produces a duration
+   * independent of container width, causing the ticker to appear frozen
+   * on narrow viewports (mobile) where the same pixel distance takes far
+   * longer relative to what is visible.
+   *
+   * The ResizeObserver fires on:
+   *   - Initial mount (after the DOM paints the full trade list)
+   *   - Trade list changes (trade count changes → content width changes)
+   *   - Viewport resize / orientation change
+   *
+   * CCIP: This effect is read-only with respect to all data. It only
+   * touches React display state (animationDuration, animationKey).
+   */
+  useEffect(() => {
+    const node = scrollTrackRef.current;
+    if (!node) return;
+
+    const recalculateAnimationDuration = () => {
+      const trackWidth = node.scrollWidth;
+      if (trackWidth <= 0) return;
+      const rawDuration = trackWidth / 2 / TICKER_PIXELS_PER_SECOND;
+      const newDuration = Math.max(TICKER_MIN_DURATION_S, rawDuration);
+      setAnimationDuration((prev) => {
+        if (Math.abs(prev - newDuration) < 0.5) return prev;
+        setAnimationKey((k) => k + 1);
+        return newDuration;
+      });
+    };
+
+    recalculateAnimationDuration();
+
+    const observer = new ResizeObserver(recalculateAnimationDuration);
+    observer.observe(node);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [trades]);
+
   if (trades.length === 0) return null;
 
   const displayList = buildDisplayList(trades);
-  const animationDuration = Math.max(18, trades.length * 4);
 
   return (
     <div className="w-full overflow-hidden bg-gray-900/80 border border-gray-700/60 rounded-xl mb-6 backdrop-blur-sm">
@@ -294,6 +384,8 @@ export const LiveTradesTicker: React.FC = () => {
 
         <div className="flex-1 overflow-hidden py-2">
           <div
+            key={animationKey}
+            ref={scrollTrackRef}
             className="flex items-center gap-6"
             style={{
               display: 'flex',
