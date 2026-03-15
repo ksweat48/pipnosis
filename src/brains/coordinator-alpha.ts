@@ -83,7 +83,6 @@ import { rewardEngine } from '../services/reward-engine';
 import { buildStreakContext } from '../services/ai-identity';
 import { formatRiskProfileForLLM } from '../config/risk-strategy-profiles';
 import type { MarketBriefing } from '../types/market-briefing';
-import { timeToFillCalculator, type TimeToFillInput } from '../services/time-to-fill-calculator';
 import { dailyNarrativeBuilder, type DailyNarrative } from '../services/daily-narrative-builder';
 import { multiSymbolRanker, type SymbolScore } from '../services/multi-symbol-ranker';
 import { riskAwareStopCalculator, type StopLossCalculation, type SweepContext } from '../services/risk-aware-stop-calculator';
@@ -337,6 +336,8 @@ export interface AlphaDecision {
     threshold: number;
     style: string;
   };
+  estimated_duration_minutes?: string | number;
+  thesis_coherence_statement?: string;
   arena_chosen?: 'LONG' | 'SHORT' | 'NO_TRADE';
   wall_violations?: string[];
   tp_nudged?: boolean;
@@ -421,6 +422,19 @@ function logATRUsage(context: string, atr: number | ATRValue | undefined): void 
   } else {
     console.warn(`[Alpha Coordinator] ${context}: ${value.toFixed(5)} (legacy raw ATR - update to typed ATRValue)`);
   }
+}
+
+/**
+ * CCIP-2026-03-15: Parse Alpha's own estimated_duration_minutes output.
+ * Alpha's field may be a number (e.g. 35) or a descriptive string (e.g. "20-35 minutes based on M5 ATR...").
+ * Extract the first numeric value found. Alpha is SSOT for duration — no system calculation.
+ */
+function parseAlphaDurationMinutes(raw: string | number | undefined): number {
+  if (!raw) return 0;
+  if (typeof raw === 'number') return raw > 0 ? raw : 0;
+  const match = String(raw).match(/(\d+(?:\.\d+)?)/);
+  if (match) return parseFloat(match[1]);
+  return 0;
 }
 
 class AlphaCoordinatorBrain {
@@ -2999,25 +3013,25 @@ ENTRY MODE — SMART WAITING SYSTEM:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 The entry_mode field controls when the trade executes. You have full authority to choose the right mode based on market conditions.
 
-  "execute_now"     → Entry trigger is confirmed. Price is at your structural level. Execute immediately.
-                      Use when: pullback has completed, structure is clear, timing is good.
+  "execute_now"       → The full picture aligns NOW. Trend, structure, momentum, timing, and entry trigger
+                        are all confirmed. Execute at current market price.
+                        REQUIRES: A named trigger that has already fired (candle close, BOS, sweep-reclaim,
+                        structural rejection). Proximity alone is not a trigger.
 
-  "wait_pullback"   → Thesis is valid but price has not yet reached your entry zone. Wait for retracement.
-                      REQUIRES: "wait_condition" block with intent_mode: "pullback_to_zone".
-                      Use when: price is extended from structure, pullback to zone expected before continuation.
-                      The system will monitor price and execute automatically when price enters the zone.
+  "wait_pullback"     → The full picture aligns EXCEPT the current entry price. Thesis is valid and you
+                        are confident this trade wins. You are managing timing, not conviction.
+                        REQUIRES: "wait_condition" block with intent_mode: "pullback_to_zone".
+                        State the exact pullback target zone (min/max price) and the condition that must
+                        be met. The system will monitor price and execute when price enters the zone.
 
-  "push_confirmation" → Thesis requires price to PUSH INTO a zone AND close an M5 candle body INSIDE it.
-                        A wick touch or brief spike is NOT sufficient — only a closed candle body counts.
+  "push_confirmation" → The full picture will align IF price pushes into a specific zone AND closes
+                        an M5 candle body INSIDE it. A wick touch or brief spike is NOT sufficient.
                         REQUIRES: "wait_condition" block with intent_mode: "push_confirmation_zone".
-                        Use when: breakout thesis needs candle body confirmation (not just a wick breach),
-                        price is approaching a key level but hasn't committed with a close yet,
-                        consolidation breakout where body close outside range confirms the move,
-                        or re-entry after a sweep where you need proof of directional commitment.
-                        The system will monitor M5 candles and execute only after a closed candle body confirms.
+                        Set the zone tightly around the structural level (1-3 pip width).
+                        The system will monitor M5 candles and execute only after a closed candle body
+                        confirms commitment.
 
-  "wait_for_edge"   → Conditions exist but structural trigger not yet formed. Continue scanning.
-                      Use when: setup is developing but no executable trigger exists yet.
+If none of these three apply: output NO_TRADE. There is no fourth option.
 
 When using wait_pullback or push_confirmation, include a wait_condition block:
 {
@@ -3042,7 +3056,7 @@ ${tradeStyle === 'SCALP' ? `{
   "stopLoss": 12300.00,
   "takeProfit": 12400.00,
   "trade_confidence": 75,
-  "entry_mode": "execute_now|wait_pullback|push_confirmation|wait_for_edge",
+  "entry_mode": "execute_now|wait_pullback|push_confirmation",
   "wait_condition": null,
   "style": "SCALP",
   "marketThesis": "30-50 word market analysis",
@@ -3052,7 +3066,8 @@ ${tradeStyle === 'SCALP' ? `{
   "trader_statement": "Full reasoning in trader voice — min 80 words for BUY/SELL. Cover: what you see, your thesis and edge, why SL is valid, what structure is at TP, pip distances to SL and TP, why this is the best trade this cycle, expected duration, and primary risk.",
   "sl_structural_reference": "SL at [price] — behind the [M5] [swing high/low] at [ref price]. Invalidates thesis because [reason]. SL distance: ~[X] pips.",
   "tp_structural_reference": "TP at [price] — conservative edge of [M5] [resistance/support zone] at [ref range]. Rationale: [reason]. TP distance: ~[X] pips. Expected R:R: [X]:1.",
-  "estimated_duration_minutes": "Alpha's estimate — e.g. '20-35 minutes based on M5 ATR of [X] pips and current momentum phase'. Must fit SCALP behavioral identity (15-90 min).",
+  "estimated_duration_minutes": "Your own calculation. State: M5 ATR=[X]pips, TP distance=[Y]pips, estimated candles=[Z]x5min=[T]min. Verdict: WITHIN SCALP BAND (15-90min) or EXTENDED with reconciliation. Example: '28 — M5 ATR 8.2pips, TP 23pips, ~3 candles x5=28min. Within band.'",
+  "thesis_coherence_statement": "Single paragraph in trader voice: state direction + why bias is correct now + entry timing + move stage + remaining range + expected duration vs style + primary risk. All must point the same direction. If any contradict: resolve here or output NO_TRADE.",
   "edge_summary": "1-2 sentences: why this specific entry has structural probability advantage right now.",
   "scalp_pattern": "momentum_breakout|bos_retest|ema_rejection|double_bottom|double_top|range_breakout|liquidity_sweep|engulfing_at_structure|trend_pullback_ema|none",
   "scalp_sub_mode": "momentum_continuation|pullback_entry|consolidation_breakout",
@@ -3068,7 +3083,7 @@ ${tradeStyle === 'SCALP' ? `{
   "tp1": 12370.00,
   "tp2": 12400.00,
   "trade_confidence": 75,
-  "entry_mode": "execute_now|wait_pullback|push_confirmation|wait_for_edge",
+  "entry_mode": "execute_now|wait_pullback|push_confirmation",
   "wait_condition": null,
   "style": "MICRO_INTRADAY",
   "marketThesis": "30-50 word market analysis",
@@ -3078,7 +3093,8 @@ ${tradeStyle === 'SCALP' ? `{
   "trader_statement": "Full reasoning in trader voice — min 80 words for BUY/SELL. Cover: what you see, your thesis and edge, why SL is valid, what structure is at TP1 and TP2, pip distances to SL and TPs, why this is the best trade this cycle, expected duration, and primary risk.",
   "sl_structural_reference": "SL at [price] — behind the [M15] [swing high/low/OB/FVG] at [ref price]. Invalidates thesis because [reason]. SL distance: ~[X] pips.",
   "tp_structural_reference": "TP1 at [price] — conservative edge of [M15] [zone description] (~[X] pips, [X]:1 R:R). TP2 at [price] — conservative edge of [H1] [zone description] (~[X] pips, [X]:1 R:R).",
-  "estimated_duration_minutes": "Alpha's estimate — e.g. '90-180 minutes based on M15 ATR and H1 structural distance'. Must fit MICRO_INTRADAY behavioral identity (60-360 min).",
+  "estimated_duration_minutes": "Your own calculation. State: M15 ATR=[X]pips, TP distance=[Y]pips, estimated M15 candles=[Z]x15min=[T]min. Verdict: WITHIN MICRO BAND (60-360min) or OUTSIDE with reconciliation. Example: '135 — M15 ATR 12pips, TP 45pips, ~9 candles x15=135min. Within band.'",
+  "thesis_coherence_statement": "Single paragraph in trader voice: state direction + why bias is correct now + entry timing + move stage + remaining range + expected duration vs MICRO_INTRADAY band + primary risk. All must point the same direction. If any contradict: resolve here or output NO_TRADE.",
   "edge_summary": "1-2 sentences: why this specific entry has structural probability advantage right now.",
   "mi_structure": "OB_RETEST|FVG_ENTRY|BOS_CONTINUATION|EMA_PULLBACK|SWEEP_REVERSAL|D1_LEVEL_REACTION|H1_RANGE_EXTREME — required for BUY/SELL",
   "m15_structural_confirmation": "REQUIRED: name the M15 level and structure type. Vague = NO_TRADE.",
@@ -3093,7 +3109,7 @@ ${tradeStyle === 'SCALP' ? `{
   "tp1": 12370.00,
   "tp2": 12400.00,
   "trade_confidence": 75,
-  "entry_mode": "execute_now|wait_pullback|push_confirmation|wait_for_edge",
+  "entry_mode": "execute_now|wait_pullback|push_confirmation",
   "wait_condition": null,
   "style": "INTRADAY",
   "marketThesis": "30-50 word market analysis",
@@ -3103,7 +3119,8 @@ ${tradeStyle === 'SCALP' ? `{
   "trader_statement": "Full reasoning in trader voice — min 80 words for BUY/SELL. Cover: what you see, your thesis and edge, why SL is valid, what structure is at TP1 and TP2, pip distances to SL and TPs, why this is the best trade this cycle, expected duration, and primary risk.",
   "sl_structural_reference": "SL at [price] — behind the [H1] [swing high/low/OB/FVG] at [ref price]. Invalidates thesis because [reason]. SL distance: ~[X] pips.",
   "tp_structural_reference": "TP1 at [price] — conservative edge of [H1] [zone description] (~[X] pips, [X]:1 R:R). TP2 at [price] — conservative edge of [H4] [zone description] (~[X] pips, [X]:1 R:R).",
-  "estimated_duration_minutes": "Alpha's estimate — e.g. '180-360 minutes based on H1 ATR and H4 structural distance'. Must fit INTRADAY behavioral identity (120-600 min).",
+  "estimated_duration_minutes": "Your own calculation. State: H1 ATR=[X]pips, TP distance=[Y]pips, estimated H1 candles=[Z]x60min=[T]min. Verdict: WITHIN INTRADAY BAND (120-600min) or OUTSIDE with reconciliation. Example: '240 — H1 ATR 18pips, TP 72pips, ~4 candles x60=240min. Within band.'",
+  "thesis_coherence_statement": "Single paragraph in trader voice: state direction + why bias is correct now + entry timing + move stage + remaining range + expected duration vs INTRADAY band + primary risk. All must point the same direction. If any contradict: resolve here or output NO_TRADE.",
   "edge_summary": "1-2 sentences: why this specific entry has structural probability advantage right now.",
   "intraday_structure": "H1_OB_RETEST|H1_FVG_FILL|H1_BOS_CONTINUATION|H1_CAMPAIGN_PULLBACK|H4_LEVEL_REACTION|WEEKLY_LEVEL_REVERSAL — required for BUY/SELL",
   "h1_structural_confirmation": "REQUIRED: name the H1 level and structure type. Vague = NO_TRADE.",
@@ -3615,39 +3632,14 @@ ${tradeStyle === 'SCALP' ? `{
         console.log('[Alpha Coordinator] Omega-9 validation complete (catastrophic-only enforcement)');
       }
 
-      // Time-to-Fill: advisory duration estimate only — no penalties, no blocking
-      if (decision.action !== 'NO_TRADE') {
-        const tpDistancePips = calculatePipDistance(marketContext.symbol, decision.entry, decision.takeProfit);
-        const pipInfo = getCurrencyPipInfo(marketContext.symbol);
-        const atrPips = extractATRValue(marketContext.atr) / pipInfo.pipValue;
-        const { currentSession } = calculateSessionContext();
-
-        const rawEntryMode = decision.entry_spec?.entry_mode;
-        const fillEntryMode: 'execute_now' | 'wait_pullback' | undefined =
-          rawEntryMode === 'EXECUTE_NOW' ? 'execute_now' :
-          rawEntryMode === 'WAIT_PULLBACK' ? 'wait_pullback' : undefined;
-
-        const timeToFill = timeToFillCalculator.calculate({
-          tpDistancePips,
-          atrPips,
-          currentSession,
-          symbol: marketContext.symbol,
-          entryMode: fillEntryMode,
-          tradeStyle: tradeStyle as 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | undefined,
-        });
-
-        decision.expectedFillTimeHours = timeToFill.totalExpectedMinutes / 60;
-        if (timeToFill.pullbackWaitMinutes > 0) {
-          decision.reasoning += ` [Expected fill: ${timeToFill.totalExpectedMinutes}min (${timeToFill.pullbackWaitMinutes}min pullback wait + ${timeToFill.tpFillMinutes}min to TP)]`;
-        } else {
-          decision.reasoning += ` [Expected fill: ${timeToFill.tpFillMinutes}min]`;
+      // CCIP-2026-03-15: Alpha owns duration. No system calculation of fill time.
+      // Alpha's estimated_duration_minutes output field is the sole source of truth.
+      // Parse it from Alpha's JSON response and convert to hours for downstream consumers.
+      if (decision.action !== 'NO_TRADE' && decision.estimated_duration_minutes) {
+        const parsedDuration = parseAlphaDurationMinutes(decision.estimated_duration_minutes);
+        if (parsedDuration > 0) {
+          decision.expectedFillTimeHours = parsedDuration / 60;
         }
-
-        // CCIP-2026-03-11: SCALP_TIME_CONTRACT code-side gate removed.
-        // Alpha is solely responsible for behavioral time assessment via prompt.
-        // The SCALP_TIME_CONTRACT thresholds in alpha-identity.ts remain as prompt
-        // reference values — Alpha uses them for self-determination, not enforcement.
-        // Fill time is retained below for learning/logging only.
       }
 
       console.log('[Alpha Coordinator] Decision:', decision.action);

@@ -363,7 +363,8 @@ export class GoalFeasibilityResolver {
       targetProfit: adjustedGoal,
       stopLoss: this.calculateStopLoss(currentATR, currentPrice),
       riskReward: this.calculateRiskReward(adjustedGoal, currentATR),
-      timeToFillMinutes: this.estimateTimeToFill(currentATR, currentATR),
+      // CCIP-2026-03-15: Alpha owns duration. Placeholder 120 min for downshift display only.
+      timeToFillMinutes: 120,
       positionSize: this.calculatePositionSize(
         adjustedGoal,
         currentATR,
@@ -611,24 +612,6 @@ export class GoalFeasibilityResolver {
   ): number {
     const risk = adjustedATR * 2;
     return targetProfit / risk;
-  }
-
-  private static estimateTimeToFill(
-    adjustedATR: number,
-    currentATR: number
-  ): number {
-    const volatilityRatio = currentATR > 0 ? adjustedATR / currentATR : 1;
-
-    const baseTime = GOAL_FEASIBILITY_CONFIG.calculation.minTimeToFillMinutes;
-    const estimatedTime = baseTime * (1 / volatilityRatio);
-
-    return Math.min(
-      Math.max(
-        estimatedTime,
-        GOAL_FEASIBILITY_CONFIG.calculation.minTimeToFillMinutes
-      ),
-      GOAL_FEASIBILITY_CONFIG.calculation.maxTimeToFillMinutes
-    );
   }
 
   // ✅ PHASE 3.1 SECTION 3: Use EstimationRiskCalculator (SSOT for estimations)

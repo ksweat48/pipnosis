@@ -420,7 +420,7 @@ export type StyleName = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
 
 export type AlphaAction = 'BUY' | 'SELL' | 'NO_TRADE';
 
-export type EntryMode = 'execute_now' | 'wait_pullback';
+export type EntryMode = 'execute_now' | 'wait_pullback' | 'push_confirmation';
 
 export type ThesisType =
   | 'momentum_scalp'
@@ -477,6 +477,8 @@ export interface AlphaOutputFormat {
     idealUSD: number;
   };
   trade_management?: AlphaTradeManagement | null;
+  estimated_duration_minutes?: string | number;
+  thesis_coherence_statement?: string;
 }
 
 export const EQS_WEIGHTED_FACTORS = {
@@ -743,12 +745,13 @@ SPIKE (ratio >${VOLATILITY_REGIME_THRESHOLDS.SPIKE_THRESHOLD}): Wait for spike c
   "trader_statement": "Full reasoning in trader voice — min 80 words for BUY/SELL. Cover: what you see, thesis edge, SL validity, TP structure, pip distances, best-trade justification, expected timeframe, primary risk.",
   "sl_structural_reference": "SL at [price] — behind [TF] [swing high/low/OB] at [price]. Invalidates thesis because [reason]. Distance: ~X pips.",
   "tp_structural_reference": "TP at [price] — conservative edge of [TF] [zone/OB/pool] at [range]. Rationale: [why]. Distance: ~X pips. R:R: X:1.",
-  "estimated_duration_minutes": "${isScalp ? `'M5 ATR: X pips. TP distance: Y pips. Candles: Z. Minutes: T. Velocity: SUFFICIENT/BORDERLINE/EXTENDED. Reference range: 15–${SCALP_TIME_CONTRACT.ABSOLUTE_MAX_MIN} min. If EXTENDED: include style_reasoning field explaining why this trade still qualifies.'` : isMicro ? '60–360 min.' : '120–600 min.'}",
+  "estimated_duration_minutes": "${isScalp ? `'Your own calculation. State: M5 ATR=[X]pips, TP distance=[Y]pips, estimated candles=[Z]x5min=[T]min. Verdict: WITHIN SCALP BAND (15-90min) or EXTENDED with reconciliation. Example: 28 — M5 ATR 8.2pips, TP 23pips, ~3 candles x5=28min. Within band.'` : isMicro ? `'Your own calculation. State: M15 ATR=[X]pips, TP distance=[Y]pips, estimated M15 candles=[Z]x15min=[T]min. Verdict: WITHIN MICRO BAND (60-360min) or OUTSIDE with reconciliation.'` : `'Your own calculation. State: H1 ATR=[X]pips, TP distance=[Y]pips, estimated H1 candles=[Z]x60min=[T]min. Verdict: WITHIN INTRADAY BAND (120-600min) or OUTSIDE with reconciliation.'`}",
   "edge_summary": "1-2 sentences: why this specific entry has structural probability advantage over a generic directional bet.",
   "reasoning": { "thesis_why": "...", "market_behavior": "...", "risk_acceptance": "...", "objective_alignment": "...", "tp_path_audit": "...", "session_phase": "...", "range_position": "..." },
   "counter_thesis": "Single sentence: most likely structural reason this trade fails.",
   "counter_thesis_probability": 0-100,
-  "entry_spec": { "entry_mode": "execute_now|wait_pullback", "runawayPolicy": "RESCAN|EXECUTE_ON_FIRST_PULLBACK", "projection": { ... } },
+  "entry_spec": { "entry_mode": "execute_now|wait_pullback|push_confirmation", "runawayPolicy": "RESCAN|EXECUTE_ON_FIRST_PULLBACK", "projection": { ... } },
+  "thesis_coherence_statement": "Single paragraph in trader voice: state direction + why bias is correct now + entry timing + move stage + remaining range + expected duration vs style band + primary risk. All must point the same direction. If any contradict: resolve here or output NO_TRADE.",
   "trade_management": ${isScalp ? 'null (scalp: close all at TP),' : '{ "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "..." },'}
   "wait_condition": { "target_entry_zone_min": price, "target_entry_zone_max": price, "invalidation_price": price, "wait_reasoning": "..." },${isMicro ? `
   "m15_structural_confirmation": "REQUIRED — specific M15 structural level (named swing/FVG/BOS with price). Null or vague = NO_TRADE.",` : ''}${isIntraday ? `
@@ -788,7 +791,7 @@ PROFIT FLEXIBILITY: If goal is $100 but market offers $40–70, take the trade. 
 SL PLACEMENT: Always at structural invalidation level. Name the candle/level and state why a close beyond it invalidates the thesis.
 TP PLACEMENT: Conservative edge of next structural zone — near side, not far boundary.
 ENTRY ADVISORY: GOOD_ENTRY requires price AT a structural level (within 0.3 ATR), or completed pullback, or breakaway momentum. Default to PULLBACK_EXPECTED when uncertain.
-THREE DECISIONS: EXECUTE_NOW = trigger fired, enter now. WAIT_PULLBACK = confident trade, waiting for better timing only — must believe trade wins without the pullback. NO_TRADE = no genuine edge exists. WAIT_PULLBACK is not diplomatic middle ground — it is a confident trade with a timing preference.
+THREE DECISIONS: EXECUTE_NOW = trigger fired, full picture aligned, enter now. WAIT_PULLBACK = confident trade, waiting for better entry timing only — you believe this trade wins regardless. PUSH_CONFIRMATION = full picture aligns only if price pushes into a specific zone and closes an M5 candle body inside it — wick touch is not enough. NO_TRADE = no genuine edge exists. There is no fourth option. WAIT_PULLBACK is not diplomatic middle ground — it is a confident trade with a timing preference only.
 SESSION RULE: Session phase alone does not block any style. Incorporate session conditions into honest trade_confidence. No system arithmetic applied after.`;
 
   return `You are Alpha, a professional intraday trader. You have deep market knowledge and FINAL AUTHORITY over all trade decisions. The system provides data and context. You reason and decide.

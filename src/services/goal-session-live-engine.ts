@@ -33,7 +33,6 @@ import { scanResultsManager, type ScanCandidate } from './scan-results-manager';
 import { weekendProtectionService } from './weekend-protection-service';
 import { marketScheduleService } from './market-schedule-service';
 import { goalIntelligenceClassifier, GoalClassification } from './goal-intelligence-classifier';
-import { timeToFillCalculator } from './time-to-fill-calculator';
 import type { TradingMode } from '../config/execution-eligibility';
 import { executionStyleResolver } from './execution-style-resolver';
 import { GoalFeasibilityResolver } from './goal-feasibility-resolver';
@@ -1523,23 +1522,11 @@ class GoalSessionLiveEngine {
         const safeExpectedProfit = expectedProfitAtAlphaTP ?? 0;
       }
 
+      // CCIP-2026-03-15: TTF calculator removed. Alpha owns duration via estimated_duration_minutes.
+      // ATR in pips and session context still needed for style resolver.
       const { currentSession } = calculateSessionContext();
-
-      // ✅ CRITICAL FIX: Convert ATR from price units to pips
-      // snapshot.atr is ATRValue type with .value property in price units (e.g., 0.04370 for USDJPY)
-      // Must convert to pips before passing to timeToFillCalculator
-      // pipInfo already declared above in refactoring code
       const atrPips = (snapshot.atr.value || (10 * pipInfo.pipValue)) / pipInfo.pipValue;
       const spreadPips = (snapshot.spread || 0) / pipInfo.pipValue;
-
-      // DEBUG: Log ATR conversion
-
-      const timeToFillResult = timeToFillCalculator.calculate({
-        tpDistancePips: alphaTPPips,
-        atrPips,
-        currentSession,
-        symbol: selectedSymbol
-      });
 
       // Resolve Alpha's style intent to executable trading mode
       const atrPercent = snapshot.atr.value / snapshot.price;
@@ -1642,23 +1629,6 @@ class GoalSessionLiveEngine {
 
       } else if (feasibilityResult.feasible) {
       }
-
-      const gateInput: ExecutionEligibilityInput = {
-        symbol: selectedSymbol,
-        direction: decision.action.toLowerCase() as 'buy' | 'sell',
-        entryPrice: decision.entry,
-        stopLoss: decision.stopLoss,
-        takeProfit: adjustedTakeProfit,
-        lotSize: lotSize,
-        expectedProfitUSD: adjustedExpectedProfit,
-        estimatedTradesRequired: estimatedTradesNeeded,
-        remainingGoal: goalContext.remainingGoal,
-        accountBalance: config.initialBalance,
-        currentATR: atrPips * pipInfo.pipValue,
-        spreadPips,
-        timeToFillResult,
-        tradingMode
-      };
 
       // Eligibility checking is now handled by alpha-trade-executor (unified-risk-authority)
 

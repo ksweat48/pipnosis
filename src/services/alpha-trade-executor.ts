@@ -692,6 +692,8 @@ class AlphaTradeExecutor {
       }
     );
 
+    // CCIP-2026-03-15: Alpha owns duration. expectedFillTimeHours is parsed from
+    // Alpha's estimated_duration_minutes output in coordinator-alpha.ts.
     const expectedFillTimeHours = decision.expectedFillTimeHours || 0;
 
     const targetPips = calculatePipDistance(

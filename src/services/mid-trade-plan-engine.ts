@@ -337,16 +337,10 @@ export function buildMidTradePlan(params: {
     label: '+2R Milestone'
   });
 
-  // Determine expected duration from reasoning text
-  let expectedDurationMinutes: number | undefined;
-  if (expectedFillMinutes && expectedFillMinutes > 0) {
-    expectedDurationMinutes = expectedFillMinutes;
-  } else {
-    const durationMatch = reasoning.match(/Expected fill:\s*(\d+)\s*min/i);
-    if (durationMatch) {
-      expectedDurationMinutes = parseInt(durationMatch[1]);
-    }
-  }
+  // CCIP-2026-03-15: Alpha owns duration. expectedFillMinutes comes from Alpha's
+  // estimated_duration_minutes output field — no regex fallback needed.
+  const expectedDurationMinutes: number | undefined =
+    expectedFillMinutes && expectedFillMinutes > 0 ? expectedFillMinutes : undefined;
 
   // Build 1-line setup summary
   const patternStr = [htfPattern, mtfPattern].filter(Boolean).join(' + ') || 'Technical Setup';
