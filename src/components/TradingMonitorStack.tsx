@@ -30,27 +30,18 @@ const MonitorLockedPlaceholder: React.FC<{
   requiredTier: string;
   price: string;
 }> = ({ icon, title, description, requiredTier, price }) => (
-  <div className="bg-gray-900/40 rounded-xl border border-gray-800/60 p-5 relative overflow-hidden">
-    <div className="absolute inset-0 bg-gray-950/30 backdrop-blur-[1px] z-10 flex items-center justify-center rounded-xl">
-      <div className="flex flex-col items-center gap-2 text-center px-6">
-        <div className="flex items-center justify-center w-10 h-10 rounded-full bg-amber-900/40 border border-amber-700/40">
-          <Lock size={18} className="text-amber-400" />
-        </div>
-        <p className="text-sm font-semibold text-amber-300">
-          Upgrade to {requiredTier} ({price}) to unlock
-        </p>
-        <p className="text-xs text-gray-400">
-          Visit the Club to upgrade your membership
-        </p>
-      </div>
+  <div className="bg-gray-900/40 rounded-xl border border-gray-800/60 p-5 relative">
+    <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 px-2 py-1 bg-gray-900/90 border border-gray-700/60 rounded-full z-10">
+      <Lock size={10} className="text-amber-400 shrink-0" />
+      <span className="text-[10px] font-semibold text-amber-300 whitespace-nowrap">{requiredTier} {price}</span>
     </div>
-    <div className="flex items-center gap-3 opacity-20 select-none pointer-events-none">
+    <div className="flex items-center gap-3">
       <div className="w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center shrink-0">
         {icon}
       </div>
       <div>
-        <div className="text-white font-semibold text-sm">{title}</div>
-        <div className="text-xs text-gray-400 mt-0.5">{description}</div>
+        <div className="text-gray-400 font-semibold text-sm">{title}</div>
+        <div className="text-xs text-gray-500 mt-0.5">{description}</div>
       </div>
     </div>
   </div>

@@ -18,7 +18,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Target, Clock, AlertCircle, Loader2, Zap, CheckCircle, Shield, ArrowLeft, ChevronDown, ChevronUp, Coins, Crown, Lock, Sparkles } from 'lucide-react';
+import { Target, Clock, AlertCircle, Loader2, Zap, CheckCircle, Shield, ArrowLeft, Coins, Crown, Lock, Sparkles } from 'lucide-react';
 import { smartGoalSessionManager } from '../services/smart-goal-session-manager';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
@@ -51,7 +51,6 @@ export const SmartGoalPanel: React.FC = () => {
   const [accountBalance, setAccountBalance] = useState(10000);
   const [loadingPreferences, setLoadingPreferences] = useState(true);
   const [multiTradeEnabled, setMultiTradeEnabled] = useState(false);
-  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
   const [selectedAssetClasses, setSelectedAssetClasses] = useState<AssetClass[]>(['forex', 'crypto', 'indices', 'gold']);
   const [customInstructions, setCustomInstructions] = useState('');
   const [pendingSymbol, setPendingSymbol] = useState<string | null>(null);
@@ -107,6 +106,10 @@ export const SmartGoalPanel: React.FC = () => {
         } else if (data) {
           setMultiTradeEnabled(data.trading_preferences?.multiTradeMode ?? false);
           setAccountBalance(parseFloat(data.account_balance || '10000'));
+          const savedAssetClasses = data.trading_preferences?.assetClassFilter;
+          if (Array.isArray(savedAssetClasses) && savedAssetClasses.length > 0) {
+            setSelectedAssetClasses(savedAssetClasses as AssetClass[]);
+          }
         }
 
         const membership = await clubMembershipService.getUserMembership(user.id);
@@ -142,6 +145,9 @@ export const SmartGoalPanel: React.FC = () => {
           if (newPrefs && typeof newPrefs.multiTradeMode === 'boolean') {
             setMultiTradeEnabled(newPrefs.multiTradeMode);
           }
+          if (newPrefs && Array.isArray(newPrefs.assetClassFilter) && (newPrefs.assetClassFilter as unknown[]).length > 0) {
+            setSelectedAssetClasses(newPrefs.assetClassFilter as AssetClass[]);
+          }
         }
       )
       .subscribe();
@@ -175,6 +181,24 @@ export const SmartGoalPanel: React.FC = () => {
       if (unsubscribe) unsubscribe();
     };
   }, [user]);
+
+  const persistAssetClassPreference = async (assetClasses: AssetClass[]) => {
+    if (!user) return;
+    try {
+      const { data: current } = await supabase
+        .from('user_profiles')
+        .select('trading_preferences')
+        .eq('id', user.id)
+        .maybeSingle();
+      const merged = { ...(current?.trading_preferences ?? {}), assetClassFilter: assetClasses };
+      await supabase
+        .from('user_profiles')
+        .update({ trading_preferences: merged })
+        .eq('id', user.id);
+    } catch (err) {
+      console.error('Failed to persist asset class preference:', err);
+    }
+  };
 
   const suggestedAmounts = useMemo(() => {
     if (!selectedStyle) return null;
@@ -570,7 +594,7 @@ export const SmartGoalPanel: React.FC = () => {
                 <strong>Account Balance:</strong> ${accountBalance.toLocaleString()}
               </div>
               <div className="text-xs text-gray-400">
-                Choose how much to risk per trade (up to 10% of balance)
+                Choose your risk (up to 10% of balance)
               </div>
             </div>
 
@@ -656,76 +680,64 @@ export const SmartGoalPanel: React.FC = () => {
               />
             </div>
 
-            {/* Advanced Options */}
-            <div className="border border-gray-700/50 rounded-xl bg-gray-800/30 backdrop-blur-sm overflow-hidden">
-              <button
-                onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
-                className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-700/30 transition-colors"
-              >
-                <span className="text-sm font-medium text-gray-300">Advanced Options (Optional)</span>
-                {showAdvancedOptions ? (
-                  <ChevronUp className="w-4 h-4 text-gray-400" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-gray-400" />
-                )}
-              </button>
-
-              {showAdvancedOptions && (
-                <div className="px-4 pb-4 space-y-4 border-t border-gray-700/50 pt-4">
-                  {/* Asset Class Filter */}
-                  <div>
-                    <label className="text-sm font-medium text-gray-300 mb-2 block">
-                      Asset Classes
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {getAssetClassInfo().map((info) => (
-                        <button
-                          key={info.assetClass}
-                          onClick={() => {
-                            setSelectedAssetClasses(prev =>
-                              prev.includes(info.assetClass)
-                                ? prev.filter(c => c !== info.assetClass)
-                                : [...prev, info.assetClass]
-                            );
-                          }}
-                          className={`px-3 py-2 rounded-lg text-sm transition-all border ${
-                            selectedAssetClasses.includes(info.assetClass)
-                              ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
-                              : 'bg-gray-700/30 border-gray-600/50 text-gray-400 hover:border-gray-500/50'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span>{info.emoji}</span>
-                            <span className="font-medium">{info.displayName}</span>
-                            <span className="text-xs opacity-70">({info.symbols.length})</span>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-2">
-                      {selectedAssetClasses.length === 4 ? 'All markets selected' : `${selectedAssetClasses.length} asset class(es) selected`}
-                    </div>
-                  </div>
-
-                  {/* Custom Instructions */}
-                  <div>
-                    <label className="text-sm font-medium text-gray-300 mb-2 block">
-                      Custom Instructions
-                    </label>
-                    <textarea
-                      value={customInstructions}
-                      onChange={(e) => setCustomInstructions(e.target.value.slice(0, 200))}
-                      placeholder="e.g., 'Focus on high-probability setups only' or 'Be aggressive with entries'"
-                      maxLength={200}
-                      rows={3}
-                      className="w-full px-3 py-2 bg-gray-800/50 border border-gray-600/50 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all resize-none"
-                    />
-                    <div className="text-xs text-gray-500 mt-1">
-                      {customInstructions.length}/200 characters
-                    </div>
-                  </div>
+            {/* Asset Classes + Custom Instructions — always visible */}
+            <div className="border border-gray-700/50 rounded-xl bg-gray-800/30 backdrop-blur-sm px-4 py-4 space-y-4">
+              {/* Asset Class Filter */}
+              <div>
+                <label className="text-sm font-medium text-gray-300 mb-2 block">
+                  Asset Classes
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {getAssetClassInfo().map((info) => (
+                    <button
+                      key={info.assetClass}
+                      onClick={() => {
+                        setSelectedAssetClasses(prev => {
+                          const next = prev.includes(info.assetClass)
+                            ? prev.filter(c => c !== info.assetClass)
+                            : [...prev, info.assetClass];
+                          if (user) {
+                            persistAssetClassPreference(next);
+                          }
+                          return next;
+                        });
+                      }}
+                      className={`px-3 py-2 rounded-lg text-sm transition-all border ${
+                        selectedAssetClasses.includes(info.assetClass)
+                          ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                          : 'bg-gray-700/30 border-gray-600/50 text-gray-400 hover:border-gray-500/50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span>{info.emoji}</span>
+                        <span className="font-medium">{info.displayName}</span>
+                        <span className="text-xs opacity-70">({info.symbols.length})</span>
+                      </div>
+                    </button>
+                  ))}
                 </div>
-              )}
+                <div className="text-xs text-gray-500 mt-2">
+                  {selectedAssetClasses.length === 4 ? 'All markets selected' : `${selectedAssetClasses.length} asset class(es) selected`}
+                </div>
+              </div>
+
+              {/* Custom Instructions */}
+              <div>
+                <label className="text-sm font-medium text-gray-300 mb-2 block">
+                  Custom Instructions
+                </label>
+                <textarea
+                  value={customInstructions}
+                  onChange={(e) => setCustomInstructions(e.target.value.slice(0, 200))}
+                  placeholder="e.g., 'Focus on high-probability setups only' or 'Be aggressive with entries'"
+                  maxLength={200}
+                  rows={3}
+                  className="w-full px-3 py-2 bg-gray-800/50 border border-gray-600/50 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all resize-none"
+                />
+                <div className="text-xs text-gray-500 mt-1">
+                  {customInstructions.length}/200 characters
+                </div>
+              </div>
             </div>
 
             {customAmount && amountValidation && !amountValidation.valid && (
