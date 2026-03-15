@@ -619,14 +619,34 @@ class AlphaOmegaOrchestrator {
       }
     }
 
-    // ✅ USE NEW SSOT ENGINE TO CALCULATE FINAL CONFIDENCE
-    // Platform streak modifier (-5 to +5) is loaded here and passed as an additive bonus.
+    // CCIP-2026-03-15: Alpha Sovereignty Completion
+    // Alpha's stated confidence is the execution-gating value. No additive bonuses or
+    // platform streak modifiers are applied to it. All domain modifiers (session, pattern,
+    // platform streak) are advisory-only signals logged for analytics and dashboards.
+    //
+    // The confidenceCalculationEngine is called solely to produce the audit trail and
+    // compute advisory_adjusted_confidence for monitoring. finalConfidence is set to
+    // originalConfidence below, bypassing any reward arithmetic.
+
     let platformStreakModifier = 0;
     try {
       const platformScore = await rewardEngine.loadPlatformScore();
       platformStreakModifier = getPlatformStreakModifier(platformScore);
     } catch {
       // Non-blocking — default to 0 if unavailable
+    }
+
+    // Add platform streak as an advisory modifier (audit trail only — not applied to execution confidence)
+    if (platformStreakModifier !== 0) {
+      confidenceModifiers.push({
+        domain: 'platform_streak',
+        domain_owner: 'Platform Score',
+        penalty_type: 'additive',
+        value: platformStreakModifier / 100, // normalise to 0-1 scale for engine
+        reason: `Platform streak modifier: ${platformStreakModifier > 0 ? '+' : ''}${platformStreakModifier} (advisory only)`,
+        source_file: 'alpha-omega-orchestrator.ts',
+        severity: 'low'
+      });
     }
 
     const confidenceResult = await confidenceCalculationEngine.calculateFinalConfidence({
@@ -636,19 +656,17 @@ class AlphaOmegaOrchestrator {
       session_id: undefined,
       trade_id: undefined,
       user_id: userId,
-      platform_streak_modifier: platformStreakModifier,
+      platform_streak_modifier: 0, // CCIP-2026-03-15: Not applied to execution confidence
       rewards: undefined,
       modifiers: confidenceModifiers
     });
 
-    const finalConfidence = confidenceResult.final_confidence;
+    // CCIP-2026-03-15: Alpha's raw confidence is the execution value — no arithmetic applied.
+    // The engine result is retained for the full advisory audit trail only.
+    const finalConfidence = originalConfidence;
     const rewardedConfidence = confidenceResult.after_rewards;
     const preCapConfidence = confidenceResult.pre_cap_confidence;
     const advisoryConfidence = confidenceResult.advisory_adjusted_confidence;
-
-
-    if (confidenceResult.is_degraded) {
-    }
 
     // ✅ CRITICAL SAFETY CHECK: Ensure entry price is never null/undefined
     // This prevents database insertion errors in goal_session_trades
@@ -694,7 +712,7 @@ class AlphaOmegaOrchestrator {
         base: originalConfidence,
         afterRewards: rewardedConfidence,
         preCapConfidence,
-        finalConfidence,
+        finalConfidence: confidenceResult.final_confidence, // advisory-computed value for dashboards
         isDegraded: confidenceResult.is_degraded,
         degradationReason: confidenceResult.degradation_reason,
         auditId: confidenceResult.audit_id,

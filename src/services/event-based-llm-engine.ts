@@ -427,28 +427,23 @@ class EventBasedLLMEngine {
       return { trade: null, trigger: null, llmCalled: true };
     }
 
-    // GOVERNANCE: Apply advisory penalties with 25% cap
+    // CCIP-2026-03-15: Alpha Sovereignty — advisory signals are audit-logged as context only.
+    // Alpha self-prices all risk signals into his stated confidence during LLM reasoning.
+    // No code arithmetic is applied to Alpha's confidence after he outputs it.
+    // safetyCheck.advisoryPenalties are passed as briefing context to Alpha, not applied here.
     const { advisoryPenaltyAggregator } = await import('./advisory-penalty-aggregator');
-    const penaltyResult = advisoryPenaltyAggregator.applyPenalties(
+    advisoryPenaltyAggregator.applyPenalties(
       decision.confidence,
       safetyCheck.advisoryPenalties
-    );
+    ); // Audit log only — finalConfidence === decision.confidence (see advisory-penalty-aggregator.ts)
 
-    // Update decision confidence with capped penalties
-    const finalDecision = {
-      ...(safetyCheck.adjustedDecision || decision),
-      confidence: penaltyResult.finalConfidence,
-    };
+    // Alpha's confidence is final. Use the decision as-is (hard-block fallback preserves
+    // safetyCheck.adjustedDecision which only activates on system integrity failures, not risk advisories).
+    const finalDecision = safetyCheck.adjustedDecision || decision;
 
-    // TRANSPARENCY: Show Alpha's decision with full context
     if (safetyCheck.advisories.length > 0) {
-      console.log(`[Alpha Authority] ⚠️ Advisory Warnings:`);
+      console.log(`[Alpha Authority] Advisory signals logged (informational — Alpha's confidence ${decision.confidence}% unchanged):`);
       safetyCheck.advisories.forEach(a => console.log(`  • ${a}`));
-      console.log(`[Alpha Authority] Confidence: ${decision.confidence}% → ${penaltyResult.finalConfidence.toFixed(1)}%`);
-      if (penaltyResult.wasCapped) {
-        console.log(`[Alpha Authority] 🛡️ Governance cap active: Alpha authority preserved`);
-      }
-      console.log(`[Alpha Authority] ✅ Alpha proceeding with ${penaltyResult.finalConfidence.toFixed(1)}% confidence`);
     }
 
     // STEP 5: Calculate proper position size and create trade
