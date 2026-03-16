@@ -75,7 +75,12 @@ export interface MidTradeGuidance {
     Q5_failure_probability: number;
     Q5B_objective_alignment: string;
     Q6_entry_trigger: string;
-    Q7_confluence_count: string;
+    /** @deprecated Retained for backward-compat with pre-CCIP-2026-0316A stored records */
+    Q7_confluence_count?: string;
+    /** X/7 — each confirmed dimension with the specific data point that confirms it */
+    Q7_confluence_confirmed?: string;
+    /** Alpha's self-determined threshold, confirmed count, and PROCEED/NO_TRADE decision */
+    Q7_confluence_judgment?: string;
     Q8_move_position_pct: number;
     Q8B_session_range_pct: number;
   } | null;

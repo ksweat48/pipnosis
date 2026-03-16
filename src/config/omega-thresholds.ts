@@ -79,6 +79,11 @@ export const CONFLUENCE_THRESHOLDS = {
   WEIGHT_VOLATILITY: 0.8,
   MIN_DOMINANCE_RATIO: 0.2,
   MIN_CONSENSUS_CONFIDENCE: 45,
+  /**
+   * @deprecated CCIP-2026-0316A: Hard minimum dimension floors have been removed.
+   * Alpha self-determines required confluence count via Q7 judgment in the system prompt.
+   * These values are no longer read or enforced anywhere. Retained as a historical record only.
+   */
   MIN_CORE_DIMENSIONS_SCALP: 2,
   MIN_CORE_DIMENSIONS_MICRO_INTRADAY: 3,
   MIN_CORE_DIMENSIONS_INTRADAY: 3,

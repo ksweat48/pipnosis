@@ -277,7 +277,7 @@ function formatBriefingText(intel: MarketIntelligence, snapshot?: { candles: Arr
   lines.push(`  Equal Highs: ${intel.orderFlow.equalHighs} | Equal Lows: ${intel.orderFlow.equalLows}`);
   lines.push(`  Vol Spike: ${intel.orderFlow.volSpikeBullish ? 'BULLISH' : intel.orderFlow.volSpikeBearish ? 'BEARISH' : 'NONE'} | Absorption: ${intel.orderFlow.absorptionBullish ? 'BULLISH' : intel.orderFlow.absorptionBearish ? 'BEARISH' : 'NONE'}`);
   lines.push(`  Accumulation Zone: ${intel.orderFlow.accumulationZone ? 'YES' : 'NO'} | Distribution Zone: ${intel.orderFlow.distributionZone ? 'YES' : 'NO'}`);
-  lines.push(`  Confluence Score: ${intel.orderFlow.confluenceScore} signals aligned`);
+  lines.push(`  Orderflow Pattern Signals: ${intel.orderFlow.confluenceScore} patterns aligned (sweeps + FVGs + vol + absorption — separate from your 7-dimension Q7 confluence)`);
   lines.push(`  Liquidity Context: ${intel.orderFlow.liquidityBias.toUpperCase()}`);
   if (intel.orderFlow.sweepType && intel.orderFlow.sweepType !== 'none') {
     lines.push(`  Sweep: ${intel.orderFlow.sweepType.toUpperCase()} sweep ${intel.orderFlow.sweepCandlesAgo ?? '?'} candles ago | BOS Confirmed: ${intel.orderFlow.sweepHasBOS ? 'YES' : 'NO'}`);

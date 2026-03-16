@@ -357,7 +357,15 @@ export interface AlphaDecision {
     Q5_failure_probability: number;
     Q5B_objective_alignment: string;
     Q6_entry_trigger: string;
-    Q7_confluence_count: string;
+    /**
+     * @deprecated Use Q7_confluence_confirmed + Q7_confluence_judgment instead.
+     * Retained for backward-compatibility with stored records from before CCIP-2026-0316A.
+     */
+    Q7_confluence_count?: string;
+    /** X/7 — each confirmed dimension with the specific data point that confirms it */
+    Q7_confluence_confirmed?: string;
+    /** Alpha's self-determined threshold, confirmed count, and PROCEED/NO_TRADE decision */
+    Q7_confluence_judgment?: string;
     Q8_move_position_pct: number;
     Q8B_session_range_pct: number;
     /**
@@ -3075,7 +3083,7 @@ ${tradeStyle === 'SCALP' ? `{
   "scalp_atr_traveled": 0.82,
   "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "50% DISTANCE RULE: state nearest S/R distance, halve it, define zone." },
   "override": { "type": "none", "justification": "" },
-  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "key level", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named trigger or NONE_YET", "Q7_confluence_count": "X/5 — list dimensions", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0, "Q9_sl_wick_proximity": "CLEAR — nearest M5 wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from M5 wick at [price]. [reason why placement is still valid or adjust]" }
+  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "key level", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named trigger or NONE_YET", "Q7_confluence_confirmed": "X/7 — [list each confirmed dimension with the specific data point that confirms it, e.g. TREND: M5 EMA stack bullish]", "Q7_confluence_judgment": "I judged this trade required [N] confirmed dimensions. I confirmed [X]. [Confirmed count meets / does not meet] that threshold because [brief reason]. Decision: [PROCEED / NO_TRADE].", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0, "Q9_sl_wick_proximity": "CLEAR — nearest M5 wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from M5 wick at [price]. [reason why placement is still valid or adjust]" }
 }` : tradeStyle === 'MICRO_INTRADAY' ? `{
   "action": "BUY|SELL|NO_TRADE",
   "entry": 12345.67,
@@ -3101,7 +3109,7 @@ ${tradeStyle === 'SCALP' ? `{
   "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "trailing plan" },
   "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "50% DISTANCE RULE: state nearest S/R distance, halve it, define zone." },
   "override": { "type": "none", "justification": "" },
-  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "key M15 level", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named trigger or NONE_YET", "Q7_confluence_count": "X/5 — list dimensions", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0, "Q9_sl_wick_proximity": "CLEAR — nearest M15 wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from M15 wick at [price]. [reason why placement is still valid or adjust]" }
+  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "key M15 level", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named trigger or NONE_YET", "Q7_confluence_confirmed": "X/7 — [list each confirmed dimension with the specific data point that confirms it, e.g. STRUCTURE: M15 OB at 1.0850 holding]", "Q7_confluence_judgment": "I judged this trade required [N] confirmed dimensions. I confirmed [X]. [Confirmed count meets / does not meet] that threshold because [brief reason]. Decision: [PROCEED / NO_TRADE].", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0, "Q9_sl_wick_proximity": "CLEAR — nearest M15 wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from M15 wick at [price]. [reason why placement is still valid or adjust]" }
 }` : `{
   "action": "BUY|SELL|NO_TRADE",
   "entry": 12345.67,
@@ -3129,7 +3137,7 @@ ${tradeStyle === 'SCALP' ? `{
   "h1_move_phase": "fresh|developing|exhausted",
   "h1_atr_traveled": 0.82,
   "override": { "type": "none", "justification": "" },
-  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "key H1 level", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named trigger or NONE_YET", "Q7_confluence_count": "X/5 — list dimensions", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0, "Q9_sl_wick_proximity": "CLEAR — nearest H1 wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from H1 wick at [price]. [reason why placement is still valid or adjust]" }
+  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "key H1 level", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named trigger or NONE_YET", "Q7_confluence_confirmed": "X/7 — [list each confirmed dimension with the specific data point that confirms it, e.g. MOMENTUM: H1 stoch turning from OS with bullish histogram]", "Q7_confluence_judgment": "I judged this trade required [N] confirmed dimensions. I confirmed [X]. [Confirmed count meets / does not meet] that threshold because [brief reason]. Decision: [PROCEED / NO_TRADE].", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0, "Q9_sl_wick_proximity": "CLEAR — nearest H1 wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from H1 wick at [price]. [reason why placement is still valid or adjust]" }
 }`}`;
 
     // Emit final progress thought before LLM call (this is the 6.3s phase)
@@ -3996,7 +4004,9 @@ ${tradeStyle === 'SCALP' ? `{
         Q5_failure_probability: typeof rawAnswerSheet.Q5_failure_probability === 'number' ? rawAnswerSheet.Q5_failure_probability : 0,
         Q5B_objective_alignment: rawAnswerSheet.Q5B_objective_alignment || '',
         Q6_entry_trigger: rawAnswerSheet.Q6_entry_trigger,
-        Q7_confluence_count: rawAnswerSheet.Q7_confluence_count || '',
+        Q7_confluence_count: typeof rawAnswerSheet.Q7_confluence_count === 'string' ? rawAnswerSheet.Q7_confluence_count : undefined,
+        Q7_confluence_confirmed: typeof rawAnswerSheet.Q7_confluence_confirmed === 'string' ? rawAnswerSheet.Q7_confluence_confirmed : undefined,
+        Q7_confluence_judgment: typeof rawAnswerSheet.Q7_confluence_judgment === 'string' ? rawAnswerSheet.Q7_confluence_judgment : undefined,
         Q8_move_position_pct: typeof rawAnswerSheet.Q8_move_position_pct === 'number' ? rawAnswerSheet.Q8_move_position_pct : 0,
         Q8B_session_range_pct: typeof rawAnswerSheet.Q8B_session_range_pct === 'number' ? rawAnswerSheet.Q8B_session_range_pct : 0,
         Q8C_price_location_zone: typeof rawAnswerSheet.Q8C_price_location_zone === 'string' ? rawAnswerSheet.Q8C_price_location_zone : undefined,

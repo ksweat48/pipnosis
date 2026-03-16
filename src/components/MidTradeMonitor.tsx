@@ -361,10 +361,18 @@ const AlphaAnswerSheet: React.FC<{ guide: MidTradeGuidance }> = ({ guide }) => {
               <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Entry Trigger</p>
               <p className="text-[11px] text-gray-300 leading-snug">{sheet.Q6_entry_trigger}</p>
             </div>
-            <div>
-              <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Confluence</p>
-              <p className="text-[11px] text-gray-300 leading-snug">{sheet.Q7_confluence_count}</p>
+            <div className="col-span-2">
+              <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Confluence Confirmed</p>
+              <p className="text-[11px] text-gray-300 leading-snug">
+                {sheet.Q7_confluence_confirmed || sheet.Q7_confluence_count || '—'}
+              </p>
             </div>
+            {sheet.Q7_confluence_judgment && (
+              <div className="col-span-2">
+                <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Confluence Judgment</p>
+                <p className="text-[11px] text-gray-300 leading-snug">{sheet.Q7_confluence_judgment}</p>
+              </div>
+            )}
             <div>
               <p className="text-[9px] font-bold uppercase tracking-wider text-sky-600 mb-0.5">Objective Fit</p>
               <p className={`text-[11px] font-semibold leading-snug ${objColor}`}>{sheet.Q5B_objective_alignment}</p>
