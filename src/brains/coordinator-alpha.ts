@@ -1326,13 +1326,10 @@ class AlphaCoordinatorBrain {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STYLE IDENTITY: SCALP
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You are operating as a M5 SCALP trader. Your job is to find ONE high-probability M5 leg and capture it efficiently.
+You are operating as a M5 SCALP trader.
 Timeframe stack: M5 (primary) | M1 (timing refinement) | M15/H1 (advisory context only).
-Entry trigger: M5 structural level, EMA reaction, or BOS pattern.
-Duration target: 15-90 minutes. TP is a single target at the next M5 structural boundary.
 You MUST name the specific M5 structural level you are trading from in scalp_structural_confirmation.
 You MUST output scalp_momentum_phase (starting|developing|exhausted) and scalp_atr_traveled in your JSON response.
-Think fast, think M5. Avoid over-extending into H1 territory — that is a different style.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `
       : tradeStyle === 'MICRO_INTRADAY'
@@ -1340,9 +1337,8 @@ Think fast, think M5. Avoid over-extending into H1 territory — that is a diffe
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STYLE IDENTITY: MICRO_INTRADAY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You are operating as a M15 MICRO_INTRADAY trader. Your job is to capture a structured M15 leg with a TP1 (conservative M15 target) and TP2 (H1 structural target).
+You are operating as a M15 MICRO_INTRADAY trader. TP1 targets a conservative M15 structural level. TP2 targets an H1 structural level.
 Timeframe stack: M15 (primary) | M5 (entry trigger confirmation) | H1 (campaign bias) | D1 (macro direction).
-Duration target: 1-6 hours. Manage the trade: close 50% at TP1, trail the remainder.
 You MUST name the specific M15 structural level you are trading from in m15_structural_confirmation.
 You MUST output m15_move_phase (fresh|developing|exhausted) and m15_atr_traveled in your JSON response.
 The M5 sub-confirmation block below shows whether a closed M5 body in your direction has formed — use it to determine execute_now vs wait_pullback.
@@ -1353,9 +1349,8 @@ The M5 sub-confirmation block below shows whether a closed M5 body in your direc
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STYLE IDENTITY: INTRADAY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You are operating as an H1 INTRADAY trader. Your job is to identify a high-conviction H1 campaign leg, enter with precision, and hold through intraday noise to capture structural targets.
-Timeframe stack: H1 (primary) | M15 (precision entry layer — pull the trigger here) | H4 (campaign bias) | D1 (macro direction).
-Duration target: 2-10 hours. Manage the trade: close 50% at TP1 (H1 structural), trail remainder to TP2 (H4 level).
+You are operating as an H1 INTRADAY trader. TP1 targets a conservative H1 structural level. TP2 targets an H4 structural level.
+Timeframe stack: H1 (primary) | M15 (precision entry layer) | H4 (campaign bias) | D1 (macro direction).
 You MUST name the specific H1 structural level you are trading from in h1_structural_confirmation.
 You MUST output h1_move_phase (fresh|developing|exhausted) and h1_atr_traveled in your JSON response.
 You MUST provide a trade_management object defining your TP1/TP2 handling and trailing method.
@@ -3295,22 +3290,22 @@ BUY: SL < Entry < TP | SELL: TP < Entry < SL
 
 TAKE-PROFIT RULES (ALPHA SOLE AUTHORITY):
 You choose ALL profit targets. The system never calculates TP for you. TP placement is driven by market structure — not by formula. The minimum is always 1.0:1 (negative expectancy is never acceptable). Above that, you place TP where structure supports.
-- SCALP: ONE take-profit ("takeProfit"). Minimum R:R 1.0:1. Reference range: ~1.0–1.5:1. Post-spread net R:R must still be >= 1.0:1 — account for spread cost explicitly.
-  Place TP at the CONSERVATIVE EDGE (near side) of the target S/R zone. If structure offers a clean 1.3:1, take it. If the nearest structure level is at 1.1:1, that is your TP.
+- SCALP: ONE take-profit ("takeProfit"). Minimum R:R 1.0:1. Post-spread net R:R must still be >= 1.0:1 — account for spread cost explicitly.
+  Place TP at the CONSERVATIVE EDGE (near side) of the target S/R zone.
   SELL: TP at the TOP of the support zone (upper boundary where candles first cluster), NOT the bottom.
   BUY: TP at the BOTTOM of the resistance zone (lower boundary where candles first cluster), NOT the top.
   A filled TP at the near edge always beats an unfilled TP at the far edge. Name the structural level in tp_structural_reference.
-- MICRO_INTRADAY: TWO take-profits. Minimum R:R 1.0:1. Reference range: ~1.0–2.0:1.
+- MICRO_INTRADAY: TWO take-profits. Minimum R:R 1.0:1.
   "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest M15 structural zone (not M5 micro-structure). TP1 R:R vs SL must be >= 1.0:1.
   "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H1 structural zone. TP2 R:R must be >= TP1 R:R.
   tp1 must be closer to entry than tp2. Both must be within arena walls.
-  Alpha has full authority to place TP1 and TP2 based on what market structure is offering. Aim for the best structural level — not a fixed target.
+  Alpha has full authority to place TP1 and TP2 based on what market structure is offering.
   If no M15 structure exists at >= 1.0:1 distance, NO_TRADE. SL must be behind a genuine M15 structural level — scalp-sized stops on MICRO trades are auto-rejected.
-- INTRADAY: TWO take-profits. Minimum R:R 1.0:1. Reference range: ~1.0–3.0:1.
+- INTRADAY: TWO take-profits. Minimum R:R 1.0:1.
   "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest H1 structural zone (not M15 micro-structure). TP1 R:R vs SL must be >= 1.0:1.
   "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H4 structural zone. TP2 R:R must be >= TP1 R:R.
   tp1 must be closer to entry than tp2. Both must be within arena walls.
-  Alpha has full authority to place TP1 and TP2 based on what market structure is offering. A 1.5:1 TP1 and 2.5:1 TP2 is perfectly valid if that is what structure supports.
+  Alpha has full authority to place TP1 and TP2 based on what market structure is offering.
   If no H1 structure exists at >= 1.0:1 distance, NO_TRADE.
 
 ENTRY MODE — SMART WAITING SYSTEM:
