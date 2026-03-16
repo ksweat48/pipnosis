@@ -7,14 +7,6 @@ import { errorHandler } from '@/lib/error-handler';
 import App from './App.tsx';
 import './index.css';
 
-// STARTUP DIAGNOSTICS
-console.log('🚀 [STARTUP] Pipnosis AI Trading Platform');
-console.log('🔍 [STARTUP] Environment:', import.meta.env.MODE);
-console.log('🔍 [STARTUP] Host:', window.location.hostname);
-console.log('🔍 [STARTUP] Supabase URL:', import.meta.env.VITE_SUPABASE_URL ? '✅ Set' : '❌ Missing');
-console.log('🔍 [STARTUP] Supabase Key:', import.meta.env.VITE_SUPABASE_ANON_KEY ? '✅ Set' : '❌ Missing');
-
-// Application startup (debug info available via logger if needed)
 
 // Silence verbose logs in production
 import('./lib/silence-verbose-logs');
@@ -73,65 +65,31 @@ if (typeof window !== 'undefined') {
 
   const isDevelopment = !import.meta.env.PROD;
 
-  // CRITICAL: Aggressively unregister service worker in dev/Bolt to fix preview
-  // NON-BLOCKING: All cleanup happens in background without blocking render
   if ('serviceWorker' in navigator && (isDevelopment || isBoltEnvironment)) {
-    console.log('🔧 Development/Bolt environment detected - unregistering all service workers');
-
-    // Unregister immediately with proper error handling (non-blocking)
     navigator.serviceWorker.getRegistrations()
       .then(registrations => {
-        if (registrations.length > 0) {
-          console.log(`🔧 Found ${registrations.length} service worker(s) - unregistering...`);
-          registrations.forEach(registration => {
-            registration.unregister()
-              .then(success => {
-                if (success) {
-                  console.log('✅ Service Worker unregistered successfully');
-                }
-              })
-              .catch(err => console.warn('⚠️ Service worker unregister failed:', err));
-          });
-        } else {
-          console.log('✅ No service workers found - preview should work correctly');
-        }
+        registrations.forEach(registration => {
+          registration.unregister().catch(() => {});
+        });
       })
-      .catch(err => console.warn('⚠️ Could not get service worker registrations:', err));
+      .catch(() => {});
 
-    // Clear all caches to ensure clean state (non-blocking)
     if ('caches' in window) {
       caches.keys()
-        .then(cacheNames => {
-          if (cacheNames.length > 0) {
-            console.log(`🔧 Clearing ${cacheNames.length} cache(s)...`);
-            return Promise.all(
-              cacheNames.map(cacheName => caches.delete(cacheName))
-            );
-          }
-        })
-        .then(() => {
-          console.log('✅ All caches cleared');
-        })
-        .catch(err => console.warn('⚠️ Cache cleanup failed:', err));
+        .then(cacheNames => Promise.all(cacheNames.map(name => caches.delete(name))))
+        .catch(() => {});
     }
   }
 
-  // Only register service worker in production AND non-Bolt environments
   if ('serviceWorker' in navigator && import.meta.env.PROD && !isBoltEnvironment) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js', {
-          updateViaCache: 'none'
-        });
-        console.log('PWA: Service Worker registered successfully');
-
+        const registration = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
         await registration.update();
-        console.log('PWA: Forced service worker update check');
-
         const { pwaUpdateManager } = await import('./services/pwa-update-manager');
         await pwaUpdateManager.initialize(registration);
-      } catch (error) {
-        console.log('PWA: Service Worker registration failed:', error);
+      } catch {
+        // SW registration failed silently — app continues normally
       }
     });
   }
@@ -170,67 +128,39 @@ if (typeof window !== 'undefined') {
       ]);
       positionMonitorService.start();
       tradeLifecycleManager.startMonitoring(5000);
-
-      // CRITICAL: Start event-driven SL/TP monitor for immediate closure detection
       realtimeSLTPMonitor.start();
-      console.log('[Init] ⚡ Dual SL/TP monitoring enabled: Polling (250ms-1s) + Event-driven (real-time)');
 
-      // Start SL/TP diagnostic monitoring
       const { sltpDiagnosticService } = await import('@/services/sltp-diagnostic-service');
       sltpDiagnosticService.startDiagnostics();
-    } catch (error) {
-      console.log('[Init] Deferred monitoring services:', error);
+    } catch {
+      // Deferred monitoring services failed — non-critical, app continues
     }
   }, 5000);
 
-  // Debug utilities only in dev mode
   if (!import.meta.env.PROD) {
     (window as any).refreshSymbols = async () => {
       const { symbolValidator } = await import('@/services/symbol-validator');
       symbolValidator.clearCache();
-      console.log('✅ Symbol refresh complete. Reload the page to apply changes.');
     };
-    console.log('💡 Debug utility available: Run refreshSymbols() in console');
   }
 
-  // Circuit breaker reset utility (available in all modes for emergency fixes)
   (window as any).resetCircuitBreaker = async () => {
     const { circuitBreakerService } = await import('@/services/circuit-breaker-service');
     await circuitBreakerService.reset();
-    console.log('✅ Circuit breaker reset. Chart polling should resume immediately.');
   };
-  console.log('💡 Emergency utility: Run resetCircuitBreaker() if chart stops updating');
 
-  // Modal cleanup utility (available in all modes for clearing stuck modals)
   (window as any).clearAllModals = async () => {
     const { modalQueueManager } = await import('@/services/modal-queue-manager');
     const { supabase } = await import('@/lib/supabase');
-
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        console.error('❌ Must be logged in to clear modals');
-        return;
-      }
-
-      const result = await modalQueueManager.deleteAllModalsForUser(user.id);
-      if (result.success) {
-        console.log(`✅ Deleted ${result.deletedCount} pending modal(s). Refresh the page.`);
-      } else {
-        console.error('❌ Failed to clear modals:', result.error);
-      }
-    } catch (error) {
-      console.error('❌ Error clearing modals:', error);
-    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    await modalQueueManager.deleteAllModalsForUser(user.id);
   };
-  console.log('💡 Modal stuck? Run clearAllModals() to clear all notifications');
 
-  // SL/TP health check utility
   (window as any).checkSLTPHealth = async () => {
     const { sltpDiagnosticService } = await import('@/services/sltp-diagnostic-service');
     return await sltpDiagnosticService.runManualCheck();
   };
-  console.log('💡 Check SL/TP monitoring: Run checkSLTPHealth() for health report');
 }
 
 window.addEventListener('unhandledrejection', (event) => {

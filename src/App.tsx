@@ -79,20 +79,11 @@ const AppRoutes: React.FC = () => {
   const [showMidTradeModal, setShowMidTradeModal] = useState(false);
   const [loadingTimeout, setLoadingTimeout] = useState(false);
 
-  // Add loading timeout to prevent infinite loading state
   useEffect(() => {
     if (loading) {
-      console.log('⏱️ [App] Starting loading timeout (10 seconds)');
-      const timer = setTimeout(() => {
-        console.warn('⚠️ [App] Loading timeout reached! Forcing render...');
-        setLoadingTimeout(true);
-      }, 10000); // 10 second timeout
-
-      return () => {
-        clearTimeout(timer);
-      };
+      const timer = setTimeout(() => setLoadingTimeout(true), 10000);
+      return () => clearTimeout(timer);
     } else {
-      // Clear timeout flag when loading completes
       setLoadingTimeout(false);
     }
   }, [loading]);
@@ -139,11 +130,7 @@ const AppRoutes: React.FC = () => {
 
     // Wait for auth to be ready before starting database-dependent services
     const initDatabaseServices = async () => {
-      // Don't start services until loading is false (auth initialized)
-      if (loading) {
-        console.log('[App] Waiting for auth to initialize before starting services...');
-        return;
-      }
+      if (loading) return;
 
       // CCIP-STALENESS-FIX-2026-02-20: Start candle realtime invalidation subscription.
       // When a new candle is written to the database the Supabase realtime channel fires,
@@ -155,39 +142,31 @@ const AppRoutes: React.FC = () => {
         try {
           const { candleCacheManager } = await import('./services/candle-cache-manager');
           candleCacheManager.subscribeToInvalidationEvents();
-          console.log('[App] Candle realtime invalidation subscription active');
-        } catch (error) {
-          console.warn('[App] Candle invalidation subscription failed (non-blocking):', error);
+        } catch {
+          // Non-blocking
         }
       };
 
       initCandleInvalidation();
 
-      // CACHE INTELLIGENCE: Initialize cache warming for SSOT compliance
-      // Pre-populates alpha thesis cache to improve hit rates (target 60-85%)
       const initCacheWarming = async () => {
         try {
           const { thesisCacheWarmer } = await import('./services/thesis-cache-warmer');
-          console.log('[App] Starting cache warming for alpha thesis optimization...');
-
           await thesisCacheWarmer.warmCache();
-
-          console.log('[App] ✅ Cache warming complete - SSOT-compliant cache ready');
-        } catch (error) {
-          console.warn('[App] Cache warming failed (non-blocking):', error);
+        } catch {
+          // Non-blocking
         }
       };
 
       // Run warming async - don't block app startup
       initCacheWarming();
 
-      // Initialize CCIP change tracking for entry intent cleanup fix
       const initCCIPTracking = async () => {
         try {
           const { ccipEntryIntentCleanupTracker } = await import('./services/ccip-entry-intent-cleanup-tracker');
           await ccipEntryIntentCleanupTracker.initializeTracking();
-        } catch (error) {
-          console.warn('[[CCIP] Governance tables unavailable during init (will continue without tracking)]', { errorMessage: error instanceof Error ? error.message : 'Unknown error' });
+        } catch {
+          // Non-blocking
         }
       };
 
@@ -209,23 +188,10 @@ const AppRoutes: React.FC = () => {
     }
   }, [loading]);
 
-  // CCIP FIX (2026-02-03): Initialize realtime trade notification listener
-  // Triggers modal popups for server-side trade executions
   useEffect(() => {
     if (user?.id) {
-      console.log('[App] 🎯 Initializing realtime trade notification listener for user:', user.id);
-
-      realtimeTradeNotificationListener.initialize(user.id).catch(error => {
-        console.error('[App] ⚠️ Failed to initialize realtime trade listener:', error);
-        // Non-blocking - app continues without realtime modals
-      });
-
-      // Cleanup on unmount or user change
-      return () => {
-        realtimeTradeNotificationListener.cleanup().catch(error => {
-          console.warn('[App] Cleanup warning:', error);
-        });
-      };
+      realtimeTradeNotificationListener.initialize(user.id).catch(() => {});
+      return () => { realtimeTradeNotificationListener.cleanup().catch(() => {}); };
     }
   }, [user?.id]);
 
