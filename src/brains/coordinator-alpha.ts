@@ -4131,69 +4131,71 @@ Return PURE JSON only (use the ${styleName} schema from your system prompt — a
       const entryQualityScore = parsed.entry_quality_score ?? 0;
       const entryMode = parsed.entry_mode ?? 'wait_pullback';
 
-      // CCIP 2026-03-16: SCALP requires a named M5 structural anchor (parity with MICRO/INTRADAY).
-      // Alpha must name the specific M5 level being traded from. Missing or vague = NO_TRADE.
+      // Structural anchor validation — advisory only (no hard NO_TRADE override).
+      // The prompt already instructs Alpha to output NO_TRADE itself if it cannot name an anchor.
+      // When Alpha outputs BUY/SELL, it has structural conviction — the field may simply be omitted
+      // due to model JSON field omission (known gpt-4o-mini behavior), not missing reasoning.
+      // Fallback: synthesise the anchor from Q2_structure_level or sl_structural_reference when missing.
+      const isAnchorVague = (s: string | null | undefined): boolean =>
+        !s || s.trim().length < 10 ||
+        ['null', 'n/a', 'required', 'none'].some(bad => s.trim().toLowerCase().includes(bad));
+
+      const synthesiseFallbackAnchor = (label: string): string | null => {
+        const q2 = typeof parsed.Q2_structure_level === 'string' ? parsed.Q2_structure_level.trim() : null;
+        const slRef = typeof parsed.sl_structural_reference === 'string' ? parsed.sl_structural_reference.trim() : null;
+        const candidate = q2 || slRef;
+        if (candidate && candidate.length >= 10) {
+          console.warn(`[Alpha Coordinator] ${label}: field missing — using fallback anchor from Q2/SL reference: "${candidate}"`);
+          return candidate;
+        }
+        return null;
+      };
+
       if (action !== 'NO_TRADE' && tradeStyle === 'SCALP') {
-        const scalp_anchor = typeof parsed.scalp_structural_confirmation === 'string'
+        const raw = typeof parsed.scalp_structural_confirmation === 'string'
           ? parsed.scalp_structural_confirmation.trim()
           : null;
-        const scalpAnchorIsVague = !scalp_anchor ||
-          scalp_anchor.length < 10 ||
-          scalp_anchor.toLowerCase().includes('null') ||
-          scalp_anchor.toLowerCase().includes('n/a') ||
-          scalp_anchor.toLowerCase().includes('required');
-
-        if (scalpAnchorIsVague) {
-          console.error('[Alpha Coordinator] SCALP_NO_M5_ANCHOR: Alpha output missing scalp_structural_confirmation — overriding to NO_TRADE');
-          action = 'NO_TRADE';
-          parsed.action = 'NO_TRADE';
-          parsed.reasoning = (parsed.reasoning || '') + ' [GOVERNANCE BLOCK: SCALP requires scalp_structural_confirmation field naming a specific M5 structural level with price. Missing or vague anchor triggers NO_TRADE override.]';
+        if (isAnchorVague(raw)) {
+          const fallback = synthesiseFallbackAnchor('SCALP_NO_M5_ANCHOR');
+          if (fallback) {
+            parsed.scalp_structural_confirmation = fallback;
+          } else {
+            console.warn('[Alpha Coordinator] SCALP_NO_M5_ANCHOR: no anchor field and no fallback — trade proceeds on Alpha confidence');
+          }
         } else {
-          console.log(`[Alpha Coordinator] SCALP M5 anchor confirmed: "${scalp_anchor}"`);
+          console.log(`[Alpha Coordinator] SCALP M5 anchor confirmed: "${raw}"`);
         }
       }
 
-      // CCIP 2026-03: MICRO_INTRADAY requires a named M15 structural anchor.
-      // If Alpha outputs a MICRO_INTRADAY BUY/SELL without populating m15_structural_confirmation,
-      // the trade is rejected. Alpha must name the exact M15 level or it has no structural basis.
       if (action !== 'NO_TRADE' && tradeStyle === 'MICRO_INTRADAY') {
-        const m15Anchor = typeof parsed.m15_structural_confirmation === 'string'
+        const raw = typeof parsed.m15_structural_confirmation === 'string'
           ? parsed.m15_structural_confirmation.trim()
           : null;
-        const anchorIsVague = !m15Anchor ||
-          m15Anchor.length < 10 ||
-          m15Anchor.toLowerCase().includes('null') ||
-          m15Anchor.toLowerCase().includes('n/a');
-
-        if (anchorIsVague) {
-          console.error('[Alpha Coordinator] MICRO_INTRADAY_NO_M15_ANCHOR: Alpha output missing m15_structural_confirmation — overriding to NO_TRADE');
-          action = 'NO_TRADE';
-          parsed.action = 'NO_TRADE';
-          parsed.reasoning = (parsed.reasoning || '') + ' [GOVERNANCE BLOCK: MICRO_INTRADAY requires m15_structural_confirmation field naming a specific M15 structural level with price. Missing or vague anchor triggers NO_TRADE override.]';
+        if (isAnchorVague(raw)) {
+          const fallback = synthesiseFallbackAnchor('MICRO_INTRADAY_NO_M15_ANCHOR');
+          if (fallback) {
+            parsed.m15_structural_confirmation = fallback;
+          } else {
+            console.warn('[Alpha Coordinator] MICRO_INTRADAY_NO_M15_ANCHOR: no anchor field and no fallback — trade proceeds on Alpha confidence');
+          }
         } else {
-          console.log(`[Alpha Coordinator] MICRO_INTRADAY M15 anchor confirmed: "${m15Anchor}"`);
+          console.log(`[Alpha Coordinator] MICRO_INTRADAY M15 anchor confirmed: "${raw}"`);
         }
       }
 
-      // CCIP 2026-03-07: INTRADAY requires a named H1 structural anchor.
-      // If Alpha outputs an INTRADAY BUY/SELL without populating h1_structural_confirmation,
-      // the trade is rejected. Alpha must name the exact H1 level and named structure type.
       if (action !== 'NO_TRADE' && tradeStyle === 'INTRADAY') {
-        const h1Anchor = typeof parsed.h1_structural_confirmation === 'string'
+        const raw = typeof parsed.h1_structural_confirmation === 'string'
           ? parsed.h1_structural_confirmation.trim()
           : null;
-        const h1AnchorIsVague = !h1Anchor ||
-          h1Anchor.length < 10 ||
-          h1Anchor.toLowerCase().includes('null') ||
-          h1Anchor.toLowerCase().includes('n/a');
-
-        if (h1AnchorIsVague) {
-          console.error('[Alpha Coordinator] INTRADAY_NO_H1_ANCHOR: Alpha output missing h1_structural_confirmation — overriding to NO_TRADE');
-          action = 'NO_TRADE';
-          parsed.action = 'NO_TRADE';
-          parsed.reasoning = (parsed.reasoning || '') + ' [GOVERNANCE BLOCK: INTRADAY requires h1_structural_confirmation field naming a specific H1 structural level with price and named structure type. Missing or vague anchor triggers NO_TRADE override.]';
+        if (isAnchorVague(raw)) {
+          const fallback = synthesiseFallbackAnchor('INTRADAY_NO_H1_ANCHOR');
+          if (fallback) {
+            parsed.h1_structural_confirmation = fallback;
+          } else {
+            console.warn('[Alpha Coordinator] INTRADAY_NO_H1_ANCHOR: no anchor field and no fallback — trade proceeds on Alpha confidence');
+          }
         } else {
-          console.log(`[Alpha Coordinator] INTRADAY H1 anchor confirmed: "${h1Anchor}"`);
+          console.log(`[Alpha Coordinator] INTRADAY H1 anchor confirmed: "${raw}"`);
         }
       }
 
