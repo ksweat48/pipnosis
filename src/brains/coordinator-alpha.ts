@@ -3405,21 +3405,19 @@ Return PURE JSON only (use the ${styleName} schema from your system prompt — a
         {
           model: 'gpt-4o-mini',
           temperature: 0.3,
-          // CCIP-2026-03-12-FETCHFIX: Reduced 4000 → 1500.
-          // ROOT CAUSE of 504 Gateway Timeout errors:
-          //   gpt-4o-mini generating 4000 tokens takes 20-30s under load, which exceeds the
-          //   server-side OPENAI_REQUEST_TIMEOUT_MS (25s) AbortController, producing a 504.
-          //   The Alpha response is a structured JSON decision object. In practice the schema
-          //   requires ~300-800 tokens for a complete decision (action, entry, stopLoss,
-          //   takeProfit, confidence, reasoning, omega_summary, risk_pct). Even verbose
-          //   reasoning rarely exceeds 1200 tokens. 4000 was never necessary.
-          //   At 1500 tokens gpt-4o-mini completes in 5-10s under load, well within the 25s limit.
+          // CCIP-2026-03-16-504FIX: Reduced 1500 → 1200.
+          // ROOT CAUSE of intermittent 504 Gateway Timeout errors:
+          //   gpt-4o-mini at 1500 max_tokens can take 20-25s under OpenAI load, occasionally
+          //   exceeding the server-side OPENAI_REQUEST_TIMEOUT_MS (45s AbortController) under
+          //   compounded infrastructure latency (cold starts + concurrent scans).
+          //   Observed worst-case Alpha response is ~800 tokens. 1200 provides 50% headroom
+          //   above the ~800-token worst-case while reducing tail generation latency by ~20%.
           //
           // INVARIANT: max_tokens must be large enough that finish_reason !== 'length'.
-          //   The error handler at line ~3149 detects truncation and returns NO_TRADE with
-          //   a CRITICAL log if finish_reason === 'length'. If that fires, raise max_tokens.
-          //   1500 provides ~2x headroom above the ~800-token observed worst-case response.
-          max_tokens: 1500,
+          //   The error handler detects truncation and returns NO_TRADE with a CRITICAL log
+          //   if finish_reason === 'length'. If that fires, raise this value.
+          //   1200 provides 50% headroom above the ~800-token observed worst-case response.
+          max_tokens: 1200,
           requestType: 'alpha_coordination',
           endpoint: 'alpha-coordinator',
           symbol: marketContext.symbol
@@ -3537,7 +3535,8 @@ Return PURE JSON only (use the ${styleName} schema from your system prompt — a
 
         // Extract market thesis status — new JSON field (primary) and legacy text search (fallback)
         const thesisStatus = parsedJSON.thesis_status || '';
-        const marketThesisText = parsedJSON.marketThesis || parsedJSON.reasoning || '';
+        const rawThesisText = parsedJSON.marketThesis || parsedJSON.reasoning;
+        const marketThesisText = typeof rawThesisText === 'string' ? rawThesisText : '';
         const thesisRejected = thesisStatus === 'REJECT_THESIS' || marketThesisText.includes('REJECT_THESIS');
         const thesisAccepted = thesisStatus === 'ACCEPTED_THESIS' || marketThesisText.includes('ACCEPTED_THESIS');
 

@@ -570,7 +570,8 @@ BUY or SELL:
     "entry_mode": "execute_now|wait_pullback|push_confirmation",
     "runawayPolicy": "RESCAN|EXECUTE_ON_FIRST_PULLBACK"
   },
-  "thesis_coherence_statement": "Your complete read synthesized — all layers pointing the same direction, the specific trigger, what stage the move is in, how long you expect it to run, and what breaks it. If any element contradicts another, resolve it here or output NO_TRADE.",${isMicro ? `
+  "thesis_coherence_statement": "Your complete read synthesized — all layers pointing the same direction, the specific trigger, what stage the move is in, how long you expect it to run, and what breaks it. If any element contradicts another, resolve it here or output NO_TRADE.",${isScalp ? `
+  "scalp_structural_confirmation": "Named M5 level this trade anchors to — swing high/low, FVG, BOS, or EMA with specific price. E.g. 'M5 BOS at 1.08230 confirmed long bias'.",` : ''}${isMicro ? `
   "m15_structural_confirmation": "Named M15 level this trade anchors to — swing, FVG, or BOS with specific price.",` : ''}${isIntraday ? `
   "h1_structural_confirmation": "Named H1 level and structure type this trade anchors to.",` : ''}
   "trade_management": ${isScalp ? 'null,' : '{ "tp1_close_percent": <number>, "sl_to_breakeven_after_tp1": <bool>, "trail_method": "structure|fixed_pips|none", "trail_notes": "Specific structural level you trail the runner behind." },'}
