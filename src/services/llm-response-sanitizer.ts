@@ -37,7 +37,12 @@ export function sanitizeLLMResponse(response: string): string {
       cleaned = cleaned.slice(1, -1);
     }
 
-    // Step 3: Ensure we have valid JSON start/end characters
+    // Step 3: Remove trailing commas before closing braces/brackets (invalid JSON per spec,
+    // but commonly emitted by gpt-4o-mini when the last property has a trailing comma)
+    // e.g. { "foo": "bar", } -> { "foo": "bar" }
+    cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
+
+    // Step 4: Ensure we have valid JSON start/end characters
     if (!cleaned.startsWith('{') && !cleaned.startsWith('[')) {
       // Try to find JSON object/array in the response
       const jsonMatch = cleaned.match(/[\{\[][\s\S]*[\}\]]/);

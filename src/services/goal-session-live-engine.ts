@@ -136,6 +136,16 @@ class GoalSessionLiveEngine {
   private readonly POLLING_INTERVAL_MS = 60000; // 60s = 75% fewer LLM calls
   private readonly MAX_DAILY_LOSS_PERCENT = 10;
 
+  private reasoningToString(reasoning: unknown): string {
+    if (typeof reasoning === 'string') return reasoning;
+    if (reasoning && typeof reasoning === 'object') {
+      const r = reasoning as Record<string, unknown>;
+      if (typeof r.thesis_why === 'string') return r.thesis_why;
+      return JSON.stringify(reasoning);
+    }
+    return '';
+  }
+
   /**
    * Start live trading engine for a goal session
    */
@@ -1642,7 +1652,7 @@ class GoalSessionLiveEngine {
         `${estimatedTradesNeeded > 1 ?
           `Multi-Trade Strategy: Estimated ${estimatedTradesNeeded} trades needed at realistic market-based TPs` :
           `Single-Trade Strategy: Goal achievable in this trade if TP is reached`}\n` +
-        `\nTP Strategy: ${decision.reasoning.includes('liquidity') ? 'Liquidity-based placement' : 'Market structure-based placement'}`;
+        `\nTP Strategy: ${this.reasoningToString(decision.reasoning).includes('liquidity') ? 'Liquidity-based placement' : 'Market structure-based placement'}`;
 
       // 🚨 CRITICAL PRE-EXECUTION SAFETY CHECK
       // stopPips already declared above in refactoring code
@@ -1696,7 +1706,7 @@ class GoalSessionLiveEngine {
         takeProfit: adjustedTakeProfit, // ✅ Uses adjusted TP if goal was downshifted
         positionSize: calculatedLotSize,
         confidence: decision.confidence,
-        reasoning: decision.reasoning + tradeReasoningAddendum, // Include goal progress context
+        reasoning: this.reasoningToString(decision.reasoning) + tradeReasoningAddendum, // Include goal progress context
         triggerType: 'multi_symbol_best_opportunity',
         maxHoldMinutes: 240,
         pnl: 0,
@@ -3603,8 +3613,9 @@ This learning will carry forward to improve future sessions!
             const councilSummary = buyVotes > 0 || sellVotes > 0
               ? ` [Council: ${buyVotes}B/${sellVotes}S]`
               : '';
-            const reasoning = decision.reasoning
-              ? ` — ${decision.reasoning.substring(0, 120)}${decision.reasoning.length > 120 ? '...' : ''}`
+            const reasoningStr = this.reasoningToString(decision.reasoning);
+            const reasoning = reasoningStr
+              ? ` — ${reasoningStr.substring(0, 120)}${reasoningStr.length > 120 ? '...' : ''}`
               : '';
             parts.push(`${symbol}: Alpha ${conf}%${councilSummary}${reasoning}`);
 
@@ -3612,8 +3623,9 @@ This learning will carry forward to improve future sessions!
               parts.push(`   -> Risk signal weak (${votes.risk.confidence}%): ${votes.risk.reasoning}`);
             }
           } else {
-            const reasoning = decision.reasoning
-              ? ` — ${decision.reasoning.substring(0, 120)}${decision.reasoning.length > 120 ? '...' : ''}`
+            const reasoningStr2 = this.reasoningToString(decision.reasoning);
+            const reasoning = reasoningStr2
+              ? ` — ${reasoningStr2.substring(0, 120)}${reasoningStr2.length > 120 ? '...' : ''}`
               : '';
             parts.push(`${symbol}: Alpha ${conf}%${reasoning}`);
           }
@@ -3658,14 +3670,14 @@ This learning will carry forward to improve future sessions!
     const symbolReasons: { symbol: string; action: string; reasoning: string; confidence: number }[] = [];
 
     for (const [symbol, decision] of omegaDecisions) {
-      const reasoning = (decision?.reasoning || '').toLowerCase();
+      const reasoning = this.reasoningToString(decision?.reasoning).toLowerCase();
 
       if (reasoning.includes('conflict') || reasoning.includes('disagree') || reasoning.includes('weak consensus')) {
         hasWeakConsensus = true;
       }
 
       if (decision) {
-        const rawReasoning: string = decision.reasoning || decision.marketThesis || 'No details available';
+        const rawReasoning: string = this.reasoningToString(decision.reasoning) || decision.marketThesis || 'No details available';
         const truncated = rawReasoning.length > 500 ? rawReasoning.substring(0, 500).trim() + '...' : rawReasoning;
         symbolReasons.push({
           symbol,

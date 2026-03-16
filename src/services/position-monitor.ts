@@ -861,7 +861,8 @@ class PositionMonitorService {
 
       console.log(`[PositionMonitor] ✅ Comprehensive wellness check completed: ${position.symbol}`);
       console.log(`[PositionMonitor] Decision: ${decision.action} (${decision.confidence}% confidence)`);
-      console.log(`[PositionMonitor] Message: ${decision.reasoning.substring(0, 100)}...`);
+      const _reasoningStr = typeof decision.reasoning === 'string' ? decision.reasoning : (decision.reasoning && typeof (decision.reasoning as any).thesis_why === 'string' ? (decision.reasoning as any).thesis_why : JSON.stringify(decision.reasoning) || '');
+      console.log(`[PositionMonitor] Message: ${_reasoningStr.substring(0, 100)}...`);
     } catch (error) {
       console.error('[PositionMonitor] Error checking periodic wellness:', error);
     }

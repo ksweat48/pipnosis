@@ -265,7 +265,7 @@ export class EntryIntentClassifier {
       return 'immediate_momentum';
     }
 
-    const reasoning = decision.reasoning.toLowerCase();
+    const reasoning = (typeof decision.reasoning === 'string' ? decision.reasoning : (decision.reasoning && typeof (decision.reasoning as any).thesis_why === 'string' ? (decision.reasoning as any).thesis_why : '')).toLowerCase();
 
     if (reasoning.includes('breakout') && (reasoning.includes('retest') || reasoning.includes('pullback'))) {
       return 'break_and_retest';
