@@ -1071,12 +1071,15 @@ class AlphaCoordinatorBrain {
       const entryPrice = marketContext.price;
 
       // CCIP 2026-03: Style-differentiated ATR timeframe for SL width.
-      // SCALP → M5 ATR (atr20), MICRO_INTRADAY → M15 ATR (atr), INTRADAY → H1 primary ATR (atr field, same as MICRO_INTRADAY source but H1 candles). atr100 is a long-period regime reference that is currently not populated.
-      // This ensures stop widths are structurally appropriate for the trade's managed timeframe.
-      const styleAtrMap: Record<string, 'atr20' | 'atr' | 'atr100'> = {
+      // SCALP → M5 ATR (atr20), MICRO_INTRADAY → M15 ATR (atr), INTRADAY → M15 ATR (atr).
+      // Note: atr100 (long-period H4-based) is not populated in marketContext and is therefore
+      // not usable for stop sizing. INTRADAY uses the same M15 ATR field as MICRO_INTRADAY as
+      // the baseline stop reference. The intradayMovePhaseContext block further refines move stage
+      // diagnosis using H1 candle-derived ATR (atrForStopLoss recalculated from H1 OHLC data).
+      const styleAtrMap: Record<string, 'atr20' | 'atr'> = {
         SCALP: 'atr20',
         MICRO_INTRADAY: 'atr',
-        INTRADAY: 'atr100',
+        INTRADAY: 'atr',
       };
       preferredAtrField = styleAtrMap[tradeStyle] ?? 'atr';
       const preferredAtrRaw = marketContext[preferredAtrField as keyof typeof marketContext] as number | import('../types/atr').ATRValue | undefined;
@@ -1335,7 +1338,44 @@ class AlphaCoordinatorBrain {
     const styleEnvelope = getExecutionEnvelope(tradeStyle);
     const promptAssetClass = getAssetClass(marketContext.symbol) as EnvelopeAssetClass;
 
-    const styleIdentityPrompt = '';
+    const styleIdentityPrompt = tradeStyle === 'SCALP'
+      ? `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STYLE IDENTITY: SCALP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+You are operating as a M5 SCALP trader. Your job is to find ONE high-probability M5 leg and capture it efficiently.
+Primary timeframe: M5 candles. Entry trigger: M5 structural level, EMA reaction, or BOS pattern.
+Duration target: 15-90 minutes. TP is a single target at the next M5 structural boundary.
+You MUST name the specific M5 structural level you are trading from in scalp_structural_confirmation.
+Think fast, think M5. Avoid over-extending into H1 territory — that is a different style.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`
+      : tradeStyle === 'MICRO_INTRADAY'
+      ? `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STYLE IDENTITY: MICRO_INTRADAY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+You are operating as a M15 MICRO_INTRADAY trader. Your job is to capture a structured M15 leg with a TP1 (conservative M15 target) and TP2 (H1 structural target).
+Primary timeframe: M15 candles. HTF context: H1 and D1 define the campaign direction.
+Duration target: 1-6 hours. Manage the trade: close 50% at TP1, trail the remainder.
+You MUST name the specific M15 structural level you are trading from in m15_structural_confirmation.
+You MUST output m15_move_phase and m15_atr_traveled in your JSON response.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`
+      : tradeStyle === 'INTRADAY'
+      ? `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STYLE IDENTITY: INTRADAY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+You are operating as an H1 INTRADAY trader. Your job is to identify a high-conviction H1 campaign leg, enter with precision, and hold through intraday noise to capture structural targets.
+Primary timeframe: H1 candles. HTF context: H4 and D1 define the campaign direction.
+Duration target: 2-10 hours. Manage the trade: close 50% at TP1 (H1 structural), trail remainder to TP2 (H4 level).
+You MUST name the specific H1 structural level you are trading from in h1_structural_confirmation.
+You MUST output h1_move_phase and h1_atr_traveled in your JSON response.
+You MUST provide a trade_management object defining your TP1/TP2 handling and trailing method.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`
+      : '';
 
     if (buyStopAnchor && sellStopAnchor) {
       const pipInfo = getCurrencyPipInfo(marketContext.symbol);
@@ -2914,11 +2954,12 @@ MARKET DATA LEGEND — ATR FIELD REFERENCE (${marketContext.symbol})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ATR values in market context map to specific timeframes. When you reference "ATR" in move stage diagnosis, structural space requirements, and SL sizing, you are referring to the ACTIVE ATR for this session style.
 
-  marketContext.atr20  = SCALP primary ATR (20-period, M5-based)    — SCALP stop sizing reference        | Current: ${atr20Pips} pips
-  marketContext.atr    = MICRO_INTRADAY primary ATR (14-period, M15-based) — MICRO_INTRADAY stop sizing reference | Current: ${atrPips} pips
-  marketContext.atr100 = INTRADAY volatility ATR (long-period, H4-based)  — INTRADAY volatility regime reference | Current: ${atr100Pips !== 'N/A' ? atr100Pips + ' pips' : 'NOT POPULATED — not used for stop sizing, INTRADAY uses H1 primary ATR for SL'}
+  marketContext.atr20  = SCALP primary ATR (20-period, M5-based)         — SCALP stop sizing reference              | Current: ${atr20Pips} pips
+  marketContext.atr    = MICRO/INTRADAY ATR (14-period, M15-based)        — MICRO_INTRADAY & INTRADAY stop reference | Current: ${atrPips} pips
+  (atr100 is a long-period H4 regime reference field — NOT populated, NOT used for stop sizing in any style)
 
-ACTIVE ATR for this session (${tradeStyle}): ${activeAtrPips} pips — this is your ${primaryTfConfig.label}-based ATR (using ${preferredAtrField} field)
+ACTIVE ATR for this session (${tradeStyle}): ${activeAtrPips} pips — this is your baseline ATR (using ${preferredAtrField} field)
+For INTRADAY: move stage thresholds below are computed from the same baseline. The H1 MOVE STAGE ADVISORY block (if present above) uses H1 candle-derived ATR for finer phase accuracy.
 
 Use the ACTIVE ATR value above for all move stage calculations in this scan cycle:
   - FRESH / STARTING:  price has traveled < 0.75 × ${activeAtrPips} pips = < ${atrForStopLoss > 0 ? ((atrForStopLoss * 0.75) / pipInfoForLegend.pipValue).toFixed(1) : 'N/A'} pips from swing origin
@@ -3171,6 +3212,7 @@ ${tradeStyle === 'SCALP' ? `{
   "scalp_sub_mode": "momentum_continuation|pullback_entry|consolidation_breakout",
   "scalp_momentum_phase": "starting|developing|exhausted",
   "scalp_atr_traveled": 0.82,
+  "scalp_structural_confirmation": "REQUIRED for BUY/SELL: name the M5 level and structure type. E.g. 'M5 EMA20 rejection at 1.08423 — price compressed below with 2 bearish wicks'. Vague or missing = NO_TRADE.",
   "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "50% DISTANCE RULE: state nearest S/R distance, halve it, define zone." },
   "override": { "type": "none", "justification": "" },
   "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "key level", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named trigger or NONE_YET", "Q7_confluence_confirmed": "X/7 — [list each confirmed dimension with the specific data point that confirms it, e.g. TREND: M5 EMA stack bullish]", "Q7_confluence_judgment": "I judged this trade required [N] confirmed dimensions. I confirmed [X]. [Confirmed count meets / does not meet] that threshold because [brief reason]. Decision: [PROCEED / NO_TRADE].", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0, "Q9_sl_wick_proximity": "CLEAR — nearest M5 wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from M5 wick at [price]. [reason why placement is still valid or adjust]" }
@@ -3196,6 +3238,8 @@ ${tradeStyle === 'SCALP' ? `{
   "edge_summary": "1-2 sentences: why this specific entry has structural probability advantage right now.",
   "mi_structure": "OB_RETEST|FVG_ENTRY|BOS_CONTINUATION|EMA_PULLBACK|SWEEP_REVERSAL|D1_LEVEL_REACTION|H1_RANGE_EXTREME — required for BUY/SELL",
   "m15_structural_confirmation": "REQUIRED: name the M15 level and structure type. Vague = NO_TRADE.",
+  "m15_move_phase": "fresh|developing|exhausted",
+  "m15_atr_traveled": 0.82,
   "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "trailing plan" },
   "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "50% DISTANCE RULE: state nearest S/R distance, halve it, define zone." },
   "override": { "type": "none", "justification": "" },
@@ -3976,6 +4020,28 @@ ${tradeStyle === 'SCALP' ? `{
       const entryQualityScore = parsed.entry_quality_score ?? 0;
       const entryMode = parsed.entry_mode ?? 'wait_pullback';
 
+      // CCIP 2026-03-16: SCALP requires a named M5 structural anchor (parity with MICRO/INTRADAY).
+      // Alpha must name the specific M5 level being traded from. Missing or vague = NO_TRADE.
+      if (action !== 'NO_TRADE' && tradeStyle === 'SCALP') {
+        const scalp_anchor = typeof parsed.scalp_structural_confirmation === 'string'
+          ? parsed.scalp_structural_confirmation.trim()
+          : null;
+        const scalpAnchorIsVague = !scalp_anchor ||
+          scalp_anchor.length < 10 ||
+          scalp_anchor.toLowerCase().includes('null') ||
+          scalp_anchor.toLowerCase().includes('n/a') ||
+          scalp_anchor.toLowerCase().includes('required');
+
+        if (scalpAnchorIsVague) {
+          console.error('[Alpha Coordinator] SCALP_NO_M5_ANCHOR: Alpha output missing scalp_structural_confirmation — overriding to NO_TRADE');
+          action = 'NO_TRADE';
+          parsed.action = 'NO_TRADE';
+          parsed.reasoning = (parsed.reasoning || '') + ' [GOVERNANCE BLOCK: SCALP requires scalp_structural_confirmation field naming a specific M5 structural level with price. Missing or vague anchor triggers NO_TRADE override.]';
+        } else {
+          console.log(`[Alpha Coordinator] SCALP M5 anchor confirmed: "${scalp_anchor}"`);
+        }
+      }
+
       // CCIP 2026-03: MICRO_INTRADAY requires a named M15 structural anchor.
       // If Alpha outputs a MICRO_INTRADAY BUY/SELL without populating m15_structural_confirmation,
       // the trade is rejected. Alpha must name the exact M15 level or it has no structural basis.
@@ -4020,28 +4086,24 @@ ${tradeStyle === 'SCALP' ? `{
         }
       }
 
-      // CCIP 2026-03-03: INTRADAY requires trade_management field when BUY/SELL is issued.
-      // INTRADAY trades have TP1 + TP2 structure — Alpha must state its management plan
-      // (hold-to-TP2 vs close-at-TP1, breakeven timing, etc.). Without this, the
-      // trade is executed with no defined management intent, which is architecturally unsafe.
-      // HARDENED 2026-03-03: Elevated to hard NO_TRADE block (parity with MICRO_INTRADAY
-      // m15_structural_confirmation gate). A missing plan is a governance failure, not a warning.
-      if (action !== 'NO_TRADE' && tradeStyle === 'INTRADAY') {
-        const tradeManagement = typeof parsed.trade_management === 'string'
-          ? parsed.trade_management.trim()
-          : null;
-        const managementIsVague = !tradeManagement ||
-          tradeManagement.length < 15 ||
-          tradeManagement.toLowerCase().includes('null') ||
-          tradeManagement.toLowerCase().includes('n/a');
+      // CCIP 2026-03-03 / 2026-03-16: INTRADAY and MICRO_INTRADAY require trade_management when
+      // BUY/SELL is issued. Both styles use TP1 + TP2 structure — Alpha must state its management
+      // plan. trade_management is an object with at least trail_method and tp1_close_percent.
+      // A missing or degenerate plan is a governance failure, not a warning.
+      const isMultiTpStyle = tradeStyle === 'INTRADAY' || tradeStyle === 'MICRO_INTRADAY';
+      if (action !== 'NO_TRADE' && isMultiTpStyle) {
+        const tm = parsed.trade_management;
+        const managementIsVague = !tm ||
+          typeof tm !== 'object' ||
+          (tm.trail_method === undefined && tm.tp1_close_percent === undefined);
 
         if (managementIsVague) {
-          console.warn('[Alpha Coordinator] INTRADAY_NO_TRADE_MANAGEMENT: Alpha did not provide trade_management plan. Overriding to NO_TRADE — unguided INTRADAY execution is architecturally unsafe.');
+          console.warn(`[Alpha Coordinator] ${tradeStyle}_NO_TRADE_MANAGEMENT: Alpha did not provide trade_management plan. Overriding to NO_TRADE — unguided ${tradeStyle} execution is architecturally unsafe.`);
           action = 'NO_TRADE';
           parsed.action = 'NO_TRADE';
-          parsed.reasoning = (parsed.reasoning || '') + ' [GOVERNANCE BLOCK: INTRADAY requires trade_management field. Missing or vague plan triggers NO_TRADE override.]';
+          parsed.reasoning = (parsed.reasoning || '') + ` [GOVERNANCE BLOCK: ${tradeStyle} requires trade_management object. Missing plan triggers NO_TRADE override.]`;
         } else {
-          console.log(`[Alpha Coordinator] INTRADAY trade_management confirmed: "${tradeManagement.substring(0, 80)}..."`);
+          console.log(`[Alpha Coordinator] ${tradeStyle} trade_management confirmed: tp1_close=${tm.tp1_close_percent}% trail=${tm.trail_method}`);
         }
       }
 
