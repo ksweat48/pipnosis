@@ -185,46 +185,63 @@ export const SCALP_TIME_CONTRACT = {
 } as const;
 
 /**
- * CONFLUENCE_REQUIREMENTS — SSOT for reference confluence thresholds by trade style
+ * CONFLUENCE_DIMENSIONS — SSOT dimension catalogue for Alpha's confluence reasoning
  *
- * CCIP-2026-0219B: Lowered MICRO_INTRADAY and INTRADAY from 4/5 to 3/5.
+ * CCIP-2026-0219B: Lowered MICRO_INTRADAY and INTRADAY from 4/5 to 3/5 (historical).
  * CCIP-2026-0310A: Converted from hard auto-block to Alpha reasoning reference.
- *   Alpha receives these thresholds as context and must reason about confluence.
- *   Alpha self-governs: if he cannot construct an edge argument with the confluence
- *   available, he outputs NO_TRADE of his own reasoned judgment.
+ * CCIP-2026-0316A: Restructured from a threshold rulebook into a dimension catalogue.
+ *   - MIN_DIMENSIONS and BELOW_MINIMUM_ACTION removed. Alpha self-determines what count
+ *     constitutes edge for a given trade in a given context.
+ *   - PATTERN and OMEGA_CONSENSUS promoted from supplementary to first-class dimensions.
+ *     All 7 dimensions are genuine confluence contributors. Alpha weighs each one
+ *     according to what the trade context supports — no system enforces which ones count.
+ *   - NO_TRADE is Alpha's reasoned conclusion when he cannot construct an edge argument,
+ *     not a code-imposed outcome when a number falls below a hardcoded floor.
+ *   - The style context fields (STRUCTURAL_ANCHOR_DIMENSIONS) communicate to Alpha
+ *     which dimensions carry the most structural weight at each style horizon, as
+ *     professional guidance — not as a gate on which dimensions may count.
  *
- * The 5 core independent dimensions are:
- *   1. TREND      — EMA stack alignment, HTF trend direction
- *   2. STRUCTURE  — BOS/CHOCH confirmation, S/R level holding or breaking
- *   3. MOMENTUM   — RSI position, MACD, consecutive candle direction
- *   4. TIMING     — EQS score, pullback completion, M1 confirmation
- *   5. LIQUIDITY  — Liquidity sweep completion, pool position, VWAP interaction
+ * The 7 independent dimensions Alpha evaluates:
+ *   1. TREND          — EMA stack alignment, HTF trend direction
+ *   2. STRUCTURE      — BOS/CHOCH confirmation, S/R level holding or breaking
+ *   3. MOMENTUM       — RSI position, MACD, consecutive candle direction
+ *   4. TIMING         — EQS score, pullback completion, lower-TF confirmation
+ *   5. LIQUIDITY      — Liquidity sweep completion, pool position, VWAP interaction
+ *   6. PATTERN        — Named chart pattern or order-flow pattern with confirmation
+ *   7. OMEGA_CONSENSUS — Multi-brain structural agreement on direction and entry zone
  *
- * PATTERN and OMEGA CONSENSUS are supplementary dimensions — they increase
- * confidence when present but do NOT count toward the minimum floor.
- *
- * AUTHORITY: This constant is the ONLY place that defines reference confluence floors.
- * The Alpha prompt (getAlphaSystemPromptForStyle) reads from this value.
- * No other file may hardcode a confluence floor.
+ * AUTHORITY: This constant is the ONLY place that defines what the confluence dimensions
+ * are. The Alpha prompt (getAlphaSystemPromptForStyle) reads from this value.
+ * No other file may define or hardcode confluence dimensions or floors.
  */
-export const CONFLUENCE_REQUIREMENTS = {
+export const CONFLUENCE_DIMENSIONS = {
+  ALL_DIMENSIONS: [
+    'TREND',
+    'STRUCTURE',
+    'MOMENTUM',
+    'TIMING',
+    'LIQUIDITY',
+    'PATTERN',
+    'OMEGA_CONSENSUS',
+  ] as const,
+  TOTAL_DIMENSIONS: 7,
   SCALP: {
-    MIN_DIMENSIONS: 2,
-    TOTAL_CORE_DIMENSIONS: 5,
-    CONFIDENCE_CEILING_AT_MIN: 100,
+    STRUCTURAL_ANCHOR_DIMENSIONS: ['TREND', 'STRUCTURE'] as const,
   },
   MICRO_INTRADAY: {
-    MIN_DIMENSIONS: 3,
-    TOTAL_CORE_DIMENSIONS: 5,
-    CONFIDENCE_CEILING_AT_MIN: 100,
+    STRUCTURAL_ANCHOR_DIMENSIONS: ['TREND', 'STRUCTURE'] as const,
   },
   INTRADAY: {
-    MIN_DIMENSIONS: 3,
-    TOTAL_CORE_DIMENSIONS: 5,
-    CONFIDENCE_CEILING_AT_MIN: 100,
+    STRUCTURAL_ANCHOR_DIMENSIONS: ['TREND', 'STRUCTURE'] as const,
   },
-  BELOW_MINIMUM_ACTION: 'NO_TRADE' as const,
 } as const;
+
+/**
+ * @deprecated Use CONFLUENCE_DIMENSIONS instead.
+ * Kept as a re-export alias for any legacy reference during migration.
+ * Will be removed in a future CCIP pass.
+ */
+export const CONFLUENCE_REQUIREMENTS = CONFLUENCE_DIMENSIONS;
 
 /**
  * ALPHA_TRADER_STATEMENT_FIELDS — SSOT for required audit output fields
@@ -624,9 +641,25 @@ H1_OB_RETEST | H1_FVG_FILL | H1_BOS_CONTINUATION | H1_CAMPAIGN_PULLBACK | H4_LEV
 PATTERN FRESHNESS — what staleness tells you:
 H1_FVG_FILL: A H1 FVG that has been fully entered by later price is no longer a clean fill. How the FVG formed, what session it belongs to, and whether subsequent price has tested it already is part of your read on whether the thesis is still live. This is a professional judgment call — you are reading whether the imbalance is still unresolved, not checking a staleness clock.`;
 
-  const confluenceRule = isScalp
-    ? `CONFLUENCE — 5 core dimensions: TREND, STRUCTURE, MOMENTUM, TIMING, LIQUIDITY. A scalp needs at least 2 of these working together. Zero confirmed = no edge = NO_TRADE. PATTERN and OMEGA add weight but do not substitute for core dimensions.`
-    : `CONFLUENCE — 5 core dimensions: TREND, STRUCTURE, MOMENTUM, TIMING, LIQUIDITY. A ${style} trade needs at least 3 of these working together. Without TREND or STRUCTURE in the confirmed set, the ceiling on your confidence should reflect that — these are the two dimensions that define whether the trade has structural reason to work. Counter-trend trades lean on a higher bar naturally. PATTERN and OMEGA add weight but do not substitute for core dimensions.`;
+  const confluenceRule = `CONFLUENCE — 7 dimensions you draw from: TREND, STRUCTURE, MOMENTUM, TIMING, LIQUIDITY, PATTERN, OMEGA_CONSENSUS.
+
+All 7 are genuine confluence contributors. PATTERN and OMEGA_CONSENSUS are not supplementary — if they are genuinely confirmed in this trade context, they count alongside the others.
+
+Your process for Q7:
+1. Work through all 7 dimensions. For each one, ask: is this actually confirmed right now, or am I stretching?
+2. Ask yourself: given this instrument, this session, this structure, and this style — how many confirmed dimensions do I need to have a defensible edge here? That is your judgment. Name the number you determined.
+3. Compare the confirmed count to the count you judged was needed. If it falls short, you do not have the edge you required — NO_TRADE is your conclusion, not a system gate.
+
+QUALITY OVER QUANTITY: A high count built on weak or speculative readings is worse than a lower count built on genuinely confirmed dimensions. Confirmation means you can name the specific data point — a closed candle, a swept pool, a named EMA stack alignment. If you cannot name it, it is not confirmed.
+
+STRUCTURAL ANCHORS — professional guidance for this style:
+${isScalp
+  ? `SCALP: TREND and STRUCTURE carry the most structural weight. When neither is confirmed, you are entering without a structural anchor — factor that honestly into how many other dimensions you believe must compensate for the absence.`
+  : `${style}: TREND and STRUCTURE are the structural anchors at this horizon. When both are absent from your confirmed set, the trade is fighting without a structural foundation — that should raise the count you judge as necessary, not lower it.`}
+
+Counter-trend trades are valid. They carry elevated failure probability by nature. A professional countering the trend leans on a higher confirmed count as a natural consequence of the increased risk — four or five of seven is a natural reference point when going against the prevailing structure. Your read governs.
+
+If you work through all 7 dimensions and cannot confirm a single one honestly, the conclusion is NO_TRADE. There is no edge argument to make.`;
 
   const sessionRules = isScalp
     ? `DEAD ZONE (22:00–00:00 UTC): Liquidity thins, M5 legs shrink. Your confidence should reflect what the market is realistically capable of delivering in that window.
@@ -738,7 +771,7 @@ SPIKE (ratio >${VOLATILITY_REGIME_THRESHOLDS.SPIKE_THRESHOLD}): News-driven vola
   "execution_preference": "IMMEDIATE|WAIT_PULLBACK|WAIT_CONFIRMATION",
   "acceptable_profit_range": { "minUSD": number, "idealUSD": number },
   "trade_confidence": 0-100,
-  "confidence_anchor": "X/5 core dimensions confirmed. Named dimensions. Move stage. Primary uncertainty factor.",
+  "confidence_anchor": "X/7 dimensions confirmed. Named dimensions. Move stage. Primary uncertainty factor.",
   "trader_statement": "Your read on this trade in your own voice — what you see, why the edge exists, where the SL lives and what breaks the thesis, where TP sits and why that level, pip distances, how long you expect it to run, and the primary risk. At least 80 words for BUY/SELL.",
   "sl_structural_reference": "SL at [price] — behind [TF] [swing/OB/level] at [price]. Thesis breaks because [reason]. Distance: ~X pips.",
   "tp_structural_reference": "TP at [price] — near edge of [TF] [zone/pool/level] at [range]. Why here: [reason]. Distance: ~X pips. R:R: X:1.",
@@ -772,7 +805,8 @@ SPIKE (ratio >${VOLATILITY_REGIME_THRESHOLDS.SPIKE_THRESHOLD}): News-driven vola
     "Q5_failure_probability": 0-100,
     "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE",
     "Q6_entry_trigger": "named trigger | NONE_YET",
-    "Q7_confluence_count": "X/5 — [TREND, STRUCTURE, MOMENTUM, TIMING, LIQUIDITY — list confirmed]",
+    "Q7_confluence_confirmed": "X/7 — [list confirmed dimensions: e.g., TREND, STRUCTURE, MOMENTUM, TIMING, PATTERN — each with the specific data point that confirms it]",
+    "Q7_confluence_judgment": "I judged this trade required [N] confirmed dimensions to have a defensible edge. I confirmed [X]. [The confirmed count meets / does not meet] that threshold because [brief reason]. Decision: [PROCEED / NO_TRADE].",
     "Q8_move_position_pct": 0-100,
     "Q8B_session_range_pct": 0-100,
     "Q8C_price_location_zone": "DISCOUNT|EQUILIBRIUM|PREMIUM",
@@ -845,7 +879,7 @@ Q4 MOMENTUM AND TIMING: Where is the move in its stage? What does ${lowerTF} tel
 Q5 DEVIL'S ADVOCATE: What is the most credible structural reason this trade fails? What is the probability? When that probability is within 10 points of your confidence, name the specific feature that keeps the edge alive in that margin. If the failure probability equals or exceeds your confidence, the trade has no probability advantage.
 Q5B OBJECTIVE ALIGNMENT: Does this trade serve the session goal? When you are close to the goal, the bar for execution rises — a marginal trade that risks profit already earned is not a good trade.
 Q6 ENTRY TRIGGER: Name the observable event that confirms the entry. Proximity to a level is not a trigger. A closed candle, a BOS, a sweep-reclaim — these are triggers.
-Q7 CONFLUENCE: State the confirmed dimensions and the count.
+Q7 CONFLUENCE: Work through all 7 dimensions — TREND, STRUCTURE, MOMENTUM, TIMING, LIQUIDITY, PATTERN, OMEGA_CONSENSUS. For each, state whether it is genuinely confirmed and name the specific data point that confirms it. Then state the count you determined this specific trade in this specific context needed in order to have a defensible edge. Then state whether your confirmed count meets that judgment. If it does not, that is your answer — NO_TRADE. If it does, state clearly why the confirmed set is sufficient for this setup.
 Q8 REMAINING RANGE: How far into the projected move are you? When the move is already 65–80% complete, the R:R from current price is your R:R — not from the swing origin.
 Q8B SESSION RANGE POSITION: Where in the session range is price? Does it align with the direction of the thesis?
 Q8C PRICE LOCATION: DISCOUNT / EQUILIBRIUM / PREMIUM within the ${controlTF} range. A buy in premium or a sell in discount needs momentum or breakout context to have structural sense.
