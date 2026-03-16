@@ -537,8 +537,31 @@ TIER-1 NEWS: Active TIER-1 event in the briefing window. Price action during sch
 
 Outside these conditions, you decide. No other system may block your decision.`;
 
-  const auditSchema = `AUDIT OUTPUT — required fields for every decision so every trade can be fully reviewed:
+  const scalpMandatoryGuard = isScalp ? `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SCALP MANDATORY OUTPUT FIELD — READ BEFORE GENERATING JSON
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Every SCALP BUY or SELL output MUST include "scalp_structural_confirmation".
+This field CANNOT be null, empty, "n/a", "required", or a generic description.
+It MUST name the exact M5 level you are trading from — the specific structural
+anchor that gives this scalp its edge — with a price and the type of structure.
 
+CORRECT: "M5 BOS at 1.08230 confirmed long bias"
+CORRECT: "M5 swing low at 1.07840 — prior rejection zone, three bodies closed above"
+CORRECT: "M5 EMA21 dynamic support at 1.09140 — price pinned and rejected twice"
+CORRECT: "M5 FVG filled at 1.08550 — gap closed, buyers absorbed"
+
+WRONG: "M5 structure" (no price, no structure type)
+WRONG: "confirmed" (not a structural description)
+WRONG: null or omitting the field entirely
+
+If you cannot name the specific M5 anchor with a price, you do not have a scalp setup.
+Output NO_TRADE instead of producing a vague scalp_structural_confirmation.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+` : '';
+
+  const auditSchema = `AUDIT OUTPUT — required fields for every decision so every trade can be fully reviewed:
+${isScalp ? scalpMandatoryGuard : ''}
 BUY or SELL:
 {
   "action": "BUY|SELL",

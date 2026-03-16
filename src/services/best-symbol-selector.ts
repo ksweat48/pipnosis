@@ -687,8 +687,14 @@ class BestSymbolSelector {
    * Distinguishes between timeout failures, market rejections, and low confidence
    */
   private classifyNoTrade(decision: AlphaDecision): { category: string; detail: string } {
-    const reasoning = decision.reasoning?.toLowerCase() || '';
-    const omegaSummary = decision.omega_summary?.toLowerCase() || '';
+    const reasoningRaw = typeof decision.reasoning === 'string'
+      ? decision.reasoning
+      : decision.reasoning != null ? JSON.stringify(decision.reasoning) : '';
+    const reasoning = reasoningRaw.toLowerCase();
+    const omegaSummaryRaw = typeof decision.omega_summary === 'string'
+      ? decision.omega_summary
+      : decision.omega_summary != null ? JSON.stringify(decision.omega_summary) : '';
+    const omegaSummary = omegaSummaryRaw.toLowerCase();
     const errorType = (decision as any).errorType;
 
     if (reasoning.includes('high noise') || reasoning.includes('noise floor') || reasoning.includes('not viable on')) {
@@ -742,7 +748,7 @@ class BestSymbolSelector {
 
     return {
       category: 'General Rejection',
-      detail: decision.reasoning || 'No trade opportunity identified'
+      detail: reasoningRaw || 'No trade opportunity identified'
     };
   }
 }

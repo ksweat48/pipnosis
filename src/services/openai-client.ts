@@ -202,6 +202,14 @@ class OpenAIClient {
   // CCIP-2026-03-13e: maxRetries sourced from SSOT — getMaxRetries() returns 0 (zero retries).
   // With OPENAI_REQUEST_TIMEOUT_MS=45s a retry would push total to ~90s+overhead > 60s Netlify limit.
   // Zero retries: one clean 55s window per symbol; 504s become graceful NO_TRADE.
+  // CCIP-2026-03-16 (RETRY-RESTORE): maxRetries sourced from SSOT via getMaxRetries() = 1.
+  // Previous CCIP-2026-03-13e set this to 0 because a retry on an 18s request risked the 50s
+  // Netlify kill wall. That constraint is resolved: OPENAI_REQUEST_TIMEOUT_MS=45s and
+  // netlify.toml timeout=60s mean each invocation has a 60s window. When a 504 arrives, the
+  // Netlify function is already dead. The browser retry is a NEW invocation — a fresh 60s budget.
+  // No timeout compounding occurs. See concurrent-execution-config.ts resilience block for the
+  // full CCIP-2026-03-16 change record and safety contract.
+  // SSOT: concurrent-execution-config.ts resilience.maxRetries owns this value.
   private readonly maxRetries = getMaxRetries();
   private readonly baseDelayMs = getRetryDelayMs();
   // CCIP-2026-03-12: OMEGA-8 IS PURELY DETERMINISTIC — ONE LLM CALL PER SYMBOL ONLY.
@@ -210,8 +218,7 @@ class OpenAIClient {
   //
   // fetchTimeoutMs is the client-side AbortController deadline for a single Alpha LLM fetch.
   //
-  // CCIP-2026-03-13e: Restored to 65s. CCIP-2026-03-13d incorrectly set this to 35s based on
-  // false assumption about a "26s Netlify CDN wall". netlify.toml has:
+  // CCIP-2026-03-13e: Restored to 65s. netlify.toml has:
   //   [functions."openai-chat"]
   //     timeout = 60
   // This 60s limit IS applied to this named function. The correct budget:

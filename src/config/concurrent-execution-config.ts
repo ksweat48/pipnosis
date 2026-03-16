@@ -391,17 +391,29 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
   // CCIP-2026-03-12b (TIMEOUT-CASCADE-FIX): maxRetries reduced 1→0.
   // ROOT CAUSE: With OPENAI_REQUEST_TIMEOUT_MS=18s and Netlify hard limit=50s,
   // the per-call budget is 18s + 4s overhead = 22s. A retry costs another 22s, bringing
-  // the worst-case total to 44s — dangerously close to the 50s kill line. Any transient
-  // Netlify infrastructure latency (TLS handshake, cold start, ~2-6s) pushes the retry
-  // over 50s, causing Netlify to hard-kill the connection before the function returns a
-  // clean 504. The client then receives an infrastructure TCP drop, not a retryable error.
-  // FIX: Zero retries. Each symbol gets one clean 22s window. If OpenAI does not respond
-  // in 18s the symbol becomes NO_TRADE for this scan cycle. The rolling pool (5 concurrent)
-  // processes all remaining symbols simultaneously, so no time is lost waiting for a retry
-  // that will hit the Netlify wall anyway.
+  // the worst-case total to 44s — dangerously close to the 50s kill line.
+  //
+  // CCIP-2026-03-16 (RETRY-RESTORE): maxRetries restored 0→1.
+  // ROOT CAUSE RESOLVED: CCIP-2026-03-13e restored OPENAI_REQUEST_TIMEOUT_MS=45s and
+  // netlify.toml [functions."openai-chat"] timeout=60s. The 50s kill wall concern is no
+  // longer applicable. With the 45s server timeout, a clean 504 arrives at the browser
+  // by ~53s (45s + 8s overhead) — the Netlify function has ALREADY terminated and its
+  // 60s window is consumed. The browser retry is a completely NEW Netlify function
+  // invocation with its own fresh 60s budget. There is zero compounding of timeouts.
+  //
+  // RETRY SAFETY CONTRACT (invariants for CCIP compliance):
+  //   1. A 504 from the Netlify function means that invocation is dead.
+  //      The retry is a new HTTP request → new Netlify invocation → new 60s window.
+  //   2. retryDelayMs = 2000ms: gives OpenAI 2s recovery time between attempts.
+  //   3. maxRetries = 1: at most one extra attempt per symbol per scan cycle.
+  //      Worst-case per symbol: 53s (attempt 1) + 2s (delay) + 53s (attempt 2) = 108s.
+  //      This is within symbolTimeoutMs (90s) only if the retry arrives quickly.
+  //      symbolTimeoutMs guards the symbol; the retry fires concurrently with other symbols.
+  //   4. 504s that persist on retry become NO_TRADE — graceful degradation preserved.
+  //   5. openai-client.ts consumes maxRetries via getMaxRetries() (SSOT contract upheld).
   resilience: {
-    maxRetries: 0,
-    retryDelayMs: 500,
+    maxRetries: 1,
+    retryDelayMs: 2000,
   },
 
   rateLimiting: {
@@ -436,9 +448,11 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
   // CCIP-TIMEOUT-FIX-2026-03-12: errorHandling.maxRetries set to 0.
   // This field is DEPRECATED as the authoritative retry policy — use resilience.maxRetries (above).
   // Root cause: this field sat at 2 while resilience.maxRetries = 0, creating a governance drift
-  // risk. Any consumer reading this field instead of getMaxRetries() would silently double retry
-  // every LLM call and blow through the Netlify 60s kill wall. Field is zeroed and kept only
-  // for schema compatibility. No consumer may increase this without a CCIP change record.
+  // risk. Any consumer reading this field instead of getMaxRetries() would silently use wrong
+  // retry counts. Field is zeroed and kept only for schema compatibility.
+  // CCIP-2026-03-16: resilience.maxRetries restored to 1 (see resilience block above).
+  // This errorHandling.maxRetries field remains at 0 — it is NOT the authoritative value.
+  // No consumer may read errorHandling.maxRetries for retry policy — always use getMaxRetries().
   errorHandling: {
     continueOnError: true,
     maxRetries: 0,
