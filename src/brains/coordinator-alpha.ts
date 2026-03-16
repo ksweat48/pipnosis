@@ -3408,19 +3408,16 @@ Return PURE JSON only (use the ${styleName} schema from your system prompt — a
         {
           model: 'gpt-4o-mini',
           temperature: 0.3,
-          // CCIP-2026-03-16-504FIX: Reduced 1500 → 1200.
-          // ROOT CAUSE of intermittent 504 Gateway Timeout errors:
-          //   gpt-4o-mini at 1500 max_tokens can take 20-25s under OpenAI load, occasionally
-          //   exceeding the server-side OPENAI_REQUEST_TIMEOUT_MS (45s AbortController) under
-          //   compounded infrastructure latency (cold starts + concurrent scans).
-          //   Observed worst-case Alpha response is ~800 tokens. 1200 provides 50% headroom
-          //   above the ~800-token worst-case while reducing tail generation latency by ~20%.
+          // CCIP-2026-03-16-504FIX → CCIP-2026-03-16-TOKEN-BUDGET:
+          // SCALP: 1200 tokens — no trade_management, no Q10. ~800 token worst-case + 50% headroom.
+          // MICRO_INTRADAY / INTRADAY: 1800 tokens — trade_management object + Q10 adds ~300-400 tokens
+          //   over SCALP worst-case. 1800 gives a safe margin above 1200 (worst-case ~1400 tokens).
+          //   GPT-4o-mini latency at 1800 output tokens is ~3-5s extra vs 1200 — well within the 45s
+          //   server-side OPENAI_REQUEST_TIMEOUT_MS budget.
           //
-          // INVARIANT: max_tokens must be large enough that finish_reason !== 'length'.
-          //   The error handler detects truncation and returns NO_TRADE with a CRITICAL log
-          //   if finish_reason === 'length'. If that fires, raise this value.
-          //   1200 provides 50% headroom above the ~800-token observed worst-case response.
-          max_tokens: 1200,
+          // INVARIANT: If finish_reason === 'length' fires, the block_reason TOKEN_BUDGET_EXCEEDED
+          //   will surface in the trade log. That is the signal to raise this value.
+          max_tokens: style === 'SCALP' ? 1200 : 1800,
           requestType: 'alpha_coordination',
           endpoint: 'alpha-coordinator',
           symbol: marketContext.symbol
@@ -3452,15 +3449,16 @@ Return PURE JSON only (use the ${styleName} schema from your system prompt — a
       // abort rather than silently processing a structurally incomplete response.
       const finishReason = response.choices[0]?.finish_reason;
       if (finishReason === 'length') {
-        console.error(`[Alpha Coordinator] CRITICAL PROMPT COMPLIANCE FAILURE: Response truncated (finish_reason=length) for ${marketContext.symbol}. stopLoss/takeProfit are MISSING due to token ceiling. Increase max_tokens or shorten prompt. Symbol: ${marketContext.symbol}, Style: ${styleName}`);
+        console.error(`[Alpha Coordinator] TOKEN_BUDGET_EXCEEDED: Response truncated (finish_reason=length) for ${marketContext.symbol}/${styleName}. stopLoss/takeProfit are MISSING. Current max_tokens=${style === 'SCALP' ? 1200 : 1800}. Raise budget or shorten prompt.`);
         return {
           action: 'NO_TRADE',
           decision: 'NO_TRADE',
+          block_reason: 'TOKEN_BUDGET_EXCEEDED',
           entry: marketContext.price,
           stopLoss: marketContext.price,
           takeProfit: marketContext.price,
           confidence: 0,
-          reasoning: `BLOCKED: Alpha response truncated before stopLoss/takeProfit could be written. This is a system configuration error, not a market decision.`,
+          reasoning: `NOT ENOUGH TOKENS — Alpha's response was cut off before the trade structure could be written. This is a system configuration issue, not a market decision. The token budget needs to be raised.`,
           omega_summary: '',
           risk_pct: 0
         };
