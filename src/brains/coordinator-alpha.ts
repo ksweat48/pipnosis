@@ -2927,23 +2927,47 @@ Use the ACTIVE ATR value above for all move stage calculations in this scan cycl
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
 
+    // ═══════════════════════════════════════════════════════════════════
+    // CCIP-2026-03-16A: REASONING ORDER GOVERNANCE
+    // ═══════════════════════════════════════════════════════════════════
+    // The prompt is assembled in a deliberate cognitive sequence:
+    //
+    // LAYER 1 — IDENTITY & FRAMEWORK: Who Alpha is and how to decide.
+    //   styleIdentityPrompt, atrLegendPrompt, PROFESSIONAL REASONING CONTRACT
+    //
+    // LAYER 2 — MACRO INTELLIGENCE: Market state BEFORE raw candles.
+    //   Market Intelligence Briefing (Omega votes), advisory context,
+    //   daily narrative, micro-regime, liquidity intent, pattern intelligence,
+    //   conflict context, risk context, advanced patterns.
+    //   Rationale: Alpha must form the macro context BEFORE interpreting
+    //   individual candles — this mirrors how professional analysts work
+    //   (top-down: macro → structure → entry).
+    //
+    // LAYER 3 — Q7 CONFLUENCE SCORING RUBRIC: Scoring instructions BEFORE
+    //   the evidence that must be scored. Alpha knows what to look for before
+    //   reading the data, not after.
+    //
+    // LAYER 4 — RAW CANDLE EVIDENCE: Candle data interpreted through the
+    //   macro lens and Q7 rubric already established above.
+    //   Includes SL directive immediately after candle data (SL placement
+    //   requires structural context, not pre-knowledge of the anchor).
+    //
+    // LAYER 5 — OUTPUT SYNTHESIS GATE: Explicit reconciliation step
+    //   BEFORE the JSON schema forces early commitment. Alpha must
+    //   resolve contradictions before producing output.
+    //
+    // LAYER 6 — OUTPUT SCHEMA: JSON template.
+    //
+    // SSOT: This ordering is the ONLY authoritative reasoning sequence.
+    //       Any change to this order is a CCIP governance event.
+    // ═══════════════════════════════════════════════════════════════════
+
     const prompt = `${styleIdentityPrompt}
 ${cachedThesisPrompt}
 ${atrLegendPrompt}
-${m5ContextPrompt}
-${primaryTfCandlePrompt}
-${htfCandlePrompt}
-${m5SubConfirmationPrompt}
-${m15ReferencePrompt}
-${h1CampaignPrompt}
-${d1ContextPrompt}
-${m1MicroContextPrompt}
-${scalpIntelligencePrompt}
-${intradayMovePhaseContext}
-${microIntradayMovePhaseContext}
 PROFESSIONAL REASONING CONTRACT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You are a professional trader, not a rule executor. The market intelligence below is your briefing. Read it, reason through it, and make the best decision available. The eight analytical questions in your system prompt are your mental checklist — work through them using the data provided.
+You are a professional trader, not a rule executor. Read the macro intelligence below FIRST, then interpret the raw candle evidence through that lens. The eight analytical questions in your system prompt are your mental checklist.
 
 Your PRIMARY OBJECTIVE is to find executable trades. Different market conditions require different approaches — a scalper does not wait for perfect textbook setups before every trade. Momentum, structure, and price levels are your tools regardless of whether conditions are ideal.
 
@@ -2968,6 +2992,10 @@ ONLY THESE CONDITIONS PRODUCE A HARD BLOCK:
 ${ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS.map(c => `- ${c}`).join('\n')}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LAYER 2 — MACRO INTELLIGENCE (Read before candles)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 MARKET INTELLIGENCE BRIEFING:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${briefing.briefingText}
@@ -2975,7 +3003,7 @@ ${briefing.briefingText}
 
 Risk Mode: ${riskMode.toUpperCase()}
 
-${conflictContext}${advisoryContext}${advancedPatternsContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${patternContext}${intelligenceContext}${imSignalContext}${goalContextText}${liquidityContext}${constraintsText}${stopLossDirective}
+${conflictContext}${advisoryContext}${advancedPatternsContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${patternContext}${intelligenceContext}${imSignalContext}${goalContextText}${liquidityContext}${constraintsText}
 
 MARKET CONDITIONS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2983,15 +3011,44 @@ MARKET CONDITIONS:
   Stop Quality: ${stopQuality.score}/100 | ${stopQuality.recommendation}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-NARRATIVE (MANDATORY for BUY/SELL):
-Include "market_narrative" — single sentence stating: what caused this move + where price is going + what participants are doing.
-Example: "Swept Asian lows, trapped retail shorts, BOS confirms long — targeting 1.0850 resistance."
-A weak or missing narrative indicates incomplete reasoning. Your narrative must reflect that you have worked through the analytical questions.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LAYER 3 — Q7 CONFLUENCE SCORING RUBRIC (Apply to candle data below)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Q7 measures how many of the 7 confluence dimensions below are confirmed by the market data. Score EACH dimension against the evidence in Layers 2 and 4 before committing to an action.
 
-COUNTER-THESIS (MANDATORY for BUY/SELL):
-Include "counter_thesis" — single sentence naming the primary reason this trade fails.
-Example: "Prior resistance at 1.0870 may reject price before TP is reached."
-If you cannot identify a credible failure mode, re-examine your conviction level. A professional who cannot name what could go wrong is overconfident.
+  1. TREND: Is the primary-timeframe trend direction aligned with your trade direction?
+     Evidence to check: EMA stack, macro regime, HTF structural campaign.
+  2. STRUCTURE: Is price at a named structural level (OB, FVG, BOS level, S/R zone)?
+     Evidence to check: primaryTF candle highs/lows, HTF structural evidence, liquidity zones.
+  3. MOMENTUM: Is momentum confirming the direction (not exhausted, stoch, RSI aligned)?
+     Evidence to check: Move phase (FRESH/DEVELOPING/EXHAUSTED), ATR traveled, RSI from micro-regime.
+  4. LIQUIDITY: Has a liquidity event occurred (sweep, BOS, trap) supporting the direction?
+     Evidence to check: Omega-8 sweep details, liquidity intent model, predator direction.
+  5. TIMING: Is this a valid session window (kill zone, institutional activity period)?
+     Evidence to check: Daily narrative session, advanced patterns session profile.
+  6. ENTRY TRIGGER: Has a named trigger already fired (candle close, BOS, sweep-reclaim)?
+     Evidence to check: M5 sub-confirmation, HTF BOS evidence, primary TF candle pattern.
+  7. HTF ALIGNMENT: Does the higher-timeframe controlling candle support or at least not contradict the trade?
+     Evidence to check: HTF campaign direction, D1 narrative bias, H4/H1 structural campaign.
+
+Self-determined threshold: Based on setup conditions, state how many dimensions you require before proceeding (minimum 3, typically 4-5 for quality setups). Confirm your count in Q7_confluence_confirmed and Q7_confluence_judgment.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LAYER 4 — RAW CANDLE EVIDENCE (Interpret through macro lens above)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${m5ContextPrompt}
+${primaryTfCandlePrompt}
+${htfCandlePrompt}
+${m5SubConfirmationPrompt}
+${m15ReferencePrompt}
+${h1CampaignPrompt}
+${d1ContextPrompt}
+${m1MicroContextPrompt}
+${scalpIntelligencePrompt}
+${intradayMovePhaseContext}
+${microIntradayMovePhaseContext}
+${stopLossDirective}
 
 Actions: BUY (bullish edge), SELL (bearish edge), NO_TRADE (no structural edge or hard block condition met).
 When analyzing multiple pairs, execute the best opportunity. Scanner re-evaluates every cycle.
@@ -3055,6 +3112,39 @@ When using wait_pullback or push_confirmation, include a wait_condition block:
 
 IMPORTANT: For push_confirmation, the zone defines where the M5 candle must CLOSE — not just touch.
 Set the zone tightly around your structural level (1-3 pip width is appropriate for confirmation).
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+NARRATIVE (MANDATORY for BUY/SELL):
+Include "market_narrative" — single sentence stating: what caused this move + where price is going + what participants are doing.
+Example: "Swept Asian lows, trapped retail shorts, BOS confirms long — targeting 1.0850 resistance."
+A weak or missing narrative indicates incomplete reasoning. Your narrative must reflect that you have worked through the analytical questions.
+
+COUNTER-THESIS (MANDATORY for BUY/SELL):
+Include "counter_thesis" — single sentence naming the primary reason this trade fails.
+Example: "Prior resistance at 1.0870 may reject price before TP is reached."
+If you cannot identify a credible failure mode, re-examine your conviction level. A professional who cannot name what could go wrong is overconfident.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LAYER 5 — SYNTHESIS GATE (Complete before producing JSON)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Before you output any JSON, complete this structured reconciliation. If any item reveals a contradiction, resolve it here — or output NO_TRADE.
+
+STEP 1 — DIRECTION LOCK: State the one direction you are considering (BUY / SELL / NO_TRADE). One direction only.
+
+STEP 2 — MACRO ALIGNMENT CHECK: Does the macro briefing (Omega votes, daily narrative, regime, liquidity intent) support that direction? YES / NO / MIXED — if MIXED, state which factors align and which oppose, and your net judgment.
+
+STEP 3 — STRUCTURAL EVIDENCE CHECK: Name the ONE primary structural level that justifies this trade. If you cannot name a specific level with a price, output NO_TRADE.
+
+STEP 4 — Q7 CONFLUENCE SCORE: Apply the Q7 rubric from Layer 3. State your confirmed count (X/7) and your self-determined threshold. If confirmed count < threshold, output NO_TRADE.
+
+STEP 5 — MOVE PHASE CHECK: Is the move FRESH, DEVELOPING, or EXHAUSTED? If EXHAUSTED, state why entry is still valid (reversal/retest/sweep justification) or output NO_TRADE.
+
+STEP 6 — SL VALIDATION: Is your SL behind a structural level AND within the hard walls? If SL violates either condition, output NO_TRADE.
+
+STEP 7 — THESIS_COHERENCE_STATEMENT COMMITMENT: Your thesis_coherence_statement in the JSON output must reflect this synthesis. It must close with your Q7 threshold commitment (how many dimensions required, how many confirmed, PROCEED or NO_TRADE).
+
+If you completed Steps 1-7 and all checks pass: output the JSON decision below.
+If any step failed or revealed an unresolvable contradiction: output NO_TRADE with reasoning.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Return PURE JSON only:
@@ -4019,6 +4109,45 @@ ${tradeStyle === 'SCALP' ? `{
         intermarket_correlation: typeof rawAnswerSheet.intermarket_correlation === 'string' ? rawAnswerSheet.intermarket_correlation : undefined,
         Q9_sl_wick_proximity: typeof rawAnswerSheet.Q9_sl_wick_proximity === 'string' ? rawAnswerSheet.Q9_sl_wick_proximity : undefined,
       } : undefined;
+
+      // ═══════════════════════════════════════════════════════════════════
+      // CCIP-2026-03-16A: Q7 COHERENCE CROSS-CHECK (SSOT)
+      // ═══════════════════════════════════════════════════════════════════
+      // Validate that Q7_confluence_judgment and thesis_coherence_statement
+      // agree on the Q7 outcome. A BUY/SELL with Q7_confluence_judgment
+      // containing "does not meet" or "NO_TRADE" is an internal contradiction
+      // — Alpha completed the synthesis gate but then output a trade anyway.
+      // This is treated as a reasoning failure and downgraded to NO_TRADE.
+      //
+      // SSOT: This check is the only place Q7 coherence is enforced post-parse.
+      //       Do not duplicate in any other service.
+      // ═══════════════════════════════════════════════════════════════════
+      if ((action === 'BUY' || action === 'SELL') && answerSheet?.Q7_confluence_judgment) {
+        const q7judgment = answerSheet.Q7_confluence_judgment.toLowerCase();
+        const q7DeclaresNoTrade = q7judgment.includes('does not meet') || q7judgment.includes('no_trade') || q7judgment.includes('decision: no_trade');
+        if (q7DeclaresNoTrade) {
+          console.warn(`[Alpha Coordinator] Q7 COHERENCE VIOLATION: Alpha output ${action} but Q7_confluence_judgment declares NO_TRADE. Downgrading to NO_TRADE. Q7: "${answerSheet.Q7_confluence_judgment}"`);
+          logViolation({
+            violationType: 'Q7_COHERENCE_CONTRADICTION',
+            severity: 'medium',
+            details: `Alpha output ${action} with Q7 judgment declaring insufficient confluence. Q7: ${answerSheet.Q7_confluence_judgment}`,
+            source: 'coordinator-alpha.parseDecision',
+            symbol: marketContext?.symbol,
+          }).catch(() => {});
+          return {
+            action: 'NO_TRADE',
+            decision: 'NO_TRADE',
+            entry: currentPrice,
+            stopLoss: currentPrice,
+            takeProfit: currentPrice,
+            confidence: 10,
+            reasoning: `Q7_COHERENCE_VIOLATION: Alpha's Q7 confluence judgment declared insufficient confluence (${answerSheet.Q7_confluence_judgment}) but action was ${action}. Forced NO_TRADE by governance cross-check.`,
+            omega_summary: '',
+            resolvedStyle,
+            risk_pct: 0,
+          };
+        }
+      }
 
       // CCIP 2026-02-17: Extract Alpha's entry advisory (SSOT for Entry Monitor)
       const rawAdvisory = parsed.entry_advisory;
