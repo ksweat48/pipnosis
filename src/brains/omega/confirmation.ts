@@ -8,9 +8,11 @@
  * - Pullback structure validation
  * - Trade setup confirmation for 20min-2hr durations
  *
- * STYLE-AWARE: SCALP needs 1-2 confluences (S/R proximity + BOS).
- * MICRO_INTRADAY requires MTF alignment and a pullback to an M15 structural level.
- * INTRADAY requires strong multi-timeframe alignment — MTF conflict is a hard penalty.
+ * STYLE-AWARE score thresholds: SCALP confirms at score >= 30 (low proximity + structure floor).
+ * MICRO_INTRADAY confirms at score >= 35 — MTF alignment and pullback bonuses apply.
+ * INTRADAY confirms at score >= 40 — MTF conflict carries the largest penalty of any style.
+ * NOTE: These thresholds are internal scoring boundaries. They are not dimension counts and are
+ * independent of the Q7 framework Alpha uses for pre-trade entry analysis.
  *
  * FULLY DETERMINISTIC - NO LLM CALLS
  */
