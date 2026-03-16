@@ -79,8 +79,6 @@ import { supabase } from '../lib/supabase';
 import type { AdversarialSignal } from '../services/adversarial-detector';
 import type { RegimeSnapshot } from '../services/regime-oracle';
 import { rrSuccessTracker } from '../services/rr-success-tracker';
-import { rewardEngine } from '../services/reward-engine';
-import { buildStreakContext } from '../services/ai-identity';
 import { formatRiskProfileForLLM } from '../config/risk-strategy-profiles';
 import type { MarketBriefing } from '../types/market-briefing';
 import { dailyNarrativeBuilder, type DailyNarrative } from '../services/daily-narrative-builder';
@@ -1344,9 +1342,11 @@ class AlphaCoordinatorBrain {
 STYLE IDENTITY: SCALP
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 You are operating as a M5 SCALP trader. Your job is to find ONE high-probability M5 leg and capture it efficiently.
-Primary timeframe: M5 candles. Entry trigger: M5 structural level, EMA reaction, or BOS pattern.
+Timeframe stack: M5 (primary) | M1 (timing refinement) | M15/H1 (advisory context only).
+Entry trigger: M5 structural level, EMA reaction, or BOS pattern.
 Duration target: 15-90 minutes. TP is a single target at the next M5 structural boundary.
 You MUST name the specific M5 structural level you are trading from in scalp_structural_confirmation.
+You MUST output scalp_momentum_phase (starting|developing|exhausted) and scalp_atr_traveled in your JSON response.
 Think fast, think M5. Avoid over-extending into H1 territory — that is a different style.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `
@@ -1356,10 +1356,11 @@ Think fast, think M5. Avoid over-extending into H1 territory — that is a diffe
 STYLE IDENTITY: MICRO_INTRADAY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 You are operating as a M15 MICRO_INTRADAY trader. Your job is to capture a structured M15 leg with a TP1 (conservative M15 target) and TP2 (H1 structural target).
-Primary timeframe: M15 candles. HTF context: H1 and D1 define the campaign direction.
+Timeframe stack: M15 (primary) | M5 (entry trigger confirmation) | H1 (campaign bias) | D1 (macro direction).
 Duration target: 1-6 hours. Manage the trade: close 50% at TP1, trail the remainder.
 You MUST name the specific M15 structural level you are trading from in m15_structural_confirmation.
-You MUST output m15_move_phase and m15_atr_traveled in your JSON response.
+You MUST output m15_move_phase (fresh|developing|exhausted) and m15_atr_traveled in your JSON response.
+The M5 sub-confirmation block below shows whether a closed M5 body in your direction has formed — use it to determine execute_now vs wait_pullback.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `
       : tradeStyle === 'INTRADAY'
@@ -1368,11 +1369,12 @@ You MUST output m15_move_phase and m15_atr_traveled in your JSON response.
 STYLE IDENTITY: INTRADAY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 You are operating as an H1 INTRADAY trader. Your job is to identify a high-conviction H1 campaign leg, enter with precision, and hold through intraday noise to capture structural targets.
-Primary timeframe: H1 candles. HTF context: H4 and D1 define the campaign direction.
+Timeframe stack: H1 (primary) | M15 (precision entry layer — pull the trigger here) | H4 (campaign bias) | D1 (macro direction).
 Duration target: 2-10 hours. Manage the trade: close 50% at TP1 (H1 structural), trail remainder to TP2 (H4 level).
 You MUST name the specific H1 structural level you are trading from in h1_structural_confirmation.
-You MUST output h1_move_phase and h1_atr_traveled in your JSON response.
+You MUST output h1_move_phase (fresh|developing|exhausted) and h1_atr_traveled in your JSON response.
 You MUST provide a trade_management object defining your TP1/TP2 handling and trailing method.
+The M15 precision entry block below shows whether a closed M15 body in your direction has formed at the H1 entry zone — use it to determine execute_now vs wait_pullback.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `
       : '';
@@ -1614,6 +1616,7 @@ IMPORTANT REMINDERS:
     let primaryTfCandlePrompt = '';
     let intradayMovePhaseContext = '';
     let microIntradayMovePhaseContext = '';
+    let scalpMovePhaseContext = '';
     // CCIP-2026-0310-SL-STRUCTURAL-DISTANCE: Computed inside the primary candle block
     // once recentPrimary is available. Appended to stopLossDirective after candles load.
     // Advisory data only — no mandate, no enforcement.
@@ -1942,6 +1945,105 @@ ${fakeoutBlockM15}MANDATORY JSON FIELD — Include in your response regardless o
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
           console.log(`[Alpha Coordinator] MICRO_INTRADAY M15 Move Phase: ${m15MovePhase} (~${atrTraveledM15.toFixed(2)}x ATR, ${distFromSwingPipsM15.toFixed(1)} pips)${fakeoutTypeM15 ? ` | Fakeout: ${fakeoutTypeM15}` : ''}`);
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // SCALP M5 MOVE PHASE ADVISORY
+        // Mirrors the INTRADAY intradayMovePhaseContext and MICRO_INTRADAY
+        // microIntradayMovePhaseContext patterns on M5 primary candles.
+        // Advisory only — Alpha retains full decision authority.
+        // SSOT: atrForStopLoss resolves to marketContext.atr (M5 14-period)
+        // for SCALP via styleAtrMap. recentPrimary is already loaded above.
+        // ═══════════════════════════════════════════════════════════════════
+        if (styleName === 'SCALP' && atrForStopLoss > 0) {
+          const m5AtrPips = (atrForStopLoss / pipInfo.pipValue);
+          const freshCeilingM5 = (atrForStopLoss * 0.75 / pipInfo.pipValue).toFixed(1);
+          const developingCeilingM5 = (atrForStopLoss * 1.5 / pipInfo.pipValue).toFixed(1);
+
+          let swingOriginPriceM5 = recentPrimary[0].close;
+          const currentDirM5 = lastCandle.close > lastCandle.open ? 'UP' : 'DN';
+          for (let i = recentPrimary.length - 2; i >= 0; i--) {
+            const cDir = recentPrimary[i].close > recentPrimary[i].open ? 'UP' : 'DN';
+            if (cDir !== currentDirM5) {
+              swingOriginPriceM5 = currentDirM5 === 'UP' ? recentPrimary[i].low : recentPrimary[i].high;
+              break;
+            }
+          }
+          const distFromSwingPipsM5 = Math.abs(marketContext.price - swingOriginPriceM5) / pipInfo.pipValue;
+          const atrTraveledM5 = m5AtrPips > 0 ? distFromSwingPipsM5 / m5AtrPips : 0;
+
+          const m5MovePhase = atrTraveledM5 < 0.75 ? 'FRESH' : atrTraveledM5 < 1.5 ? 'DEVELOPING' : 'EXHAUSTED';
+
+          let fakeoutTypeM5: string | null = null;
+          let fakeoutCandlesAgoM5 = 0;
+          let fakeoutReversalConfirmedM5 = false;
+          if (recentPrimary.length >= 4) {
+            const lookbackM5 = recentPrimary.slice(0, -1);
+            const windowHighM5 = Math.max(...lookbackM5.slice(0, -1).map(c => c.high));
+            const windowLowM5 = Math.min(...lookbackM5.slice(0, -1).map(c => c.low));
+            const recentFewM5 = lookbackM5.slice(-3);
+            for (let i = recentFewM5.length - 1; i >= 0; i--) {
+              const c = recentFewM5[i];
+              const bodyTop = Math.max(c.open, c.close);
+              const bodyBot = Math.min(c.open, c.close);
+              const sweptHighM5 = c.high > windowHighM5 && bodyTop < windowHighM5;
+              const sweptLowM5 = c.low < windowLowM5 && bodyBot > windowLowM5;
+              if (sweptHighM5) {
+                fakeoutTypeM5 = 'BEARISH_FAKEOUT';
+                fakeoutCandlesAgoM5 = recentFewM5.length - i;
+                const nextCandles = recentPrimary.slice(recentPrimary.indexOf(c) + 1);
+                fakeoutReversalConfirmedM5 = nextCandles.some(nc => nc.close < nc.open);
+                break;
+              } else if (sweptLowM5) {
+                fakeoutTypeM5 = 'BULLISH_FAKEOUT';
+                fakeoutCandlesAgoM5 = recentFewM5.length - i;
+                const nextCandles = recentPrimary.slice(recentPrimary.indexOf(c) + 1);
+                fakeoutReversalConfirmedM5 = nextCandles.some(nc => nc.close > nc.open);
+                break;
+              }
+            }
+          }
+
+          const phaseLabelM5 = m5MovePhase === 'FRESH'
+            ? `FRESH — < 0.75x M5 ATR traveled (< ${freshCeilingM5} pips from M5 swing origin). Full confidence range. Both continuation and pullback scalp entries are valid.`
+            : m5MovePhase === 'DEVELOPING'
+              ? `DEVELOPING — 0.75–1.5x M5 ATR traveled (${freshCeilingM5}–${developingCeilingM5} pips from M5 swing origin). Structural space to your single SCALP TP may be narrowing. Pullback scalp entry preferred. Continuation requires explicit justification that the single TP remains achievable.`
+              : `EXHAUSTED — > 1.5x M5 ATR traveled (> ${developingCeilingM5} pips from M5 swing origin). The M5 leg is extended. ADVISORY: reduce confidence by 15-25 points. Consider whether a reversal scalp or structural retest on M5 justifies entry — exhausted M5 moves often produce clean reversal scalps. State your structural assessment. Only return NO_TRADE if no M5 structural edge exists at all.`;
+
+          const fakeoutBlockM5 = fakeoutTypeM5
+            ? `
+M5 FAKEOUT DETECTION:
+A ${fakeoutTypeM5} was detected ${fakeoutCandlesAgoM5} M5 candle(s) ago. A candle swept a recent M5 extreme but closed back inside the prior range. Reversal confirmed: ${fakeoutReversalConfirmedM5 ? 'YES — subsequent M5 candles have printed in the reversal direction' : 'NOT YET — watch for reversal confirmation before entering in the faked direction'}.
+${fakeoutTypeM5 === 'BEARISH_FAKEOUT'
+  ? 'BEARISH FAKEOUT: Price swept above a prior M5 high and rejected. This is a classic bull trap on the M5 chart. Entering LONG at current price carries fakeout-reversal risk — explicit M5 structural justification required.'
+  : 'BULLISH FAKEOUT: Price swept below a prior M5 low and rejected. This is a classic bear trap on the M5 chart. Entering SHORT at current price carries fakeout-reversal risk — explicit M5 structural justification required.'}
+`
+            : '';
+
+          scalpMovePhaseContext = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SCALP M5 MOVE STAGE ADVISORY (${marketContext.symbol})
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Pre-computed from M5 candle data. Advisory context — your analysis takes precedence.
+ACTIVE M5 ATR: ${m5AtrPips.toFixed(1)} pips | Phase thresholds: Fresh < ${freshCeilingM5}p | Developing ${freshCeilingM5}–${developingCeilingM5}p | Exhausted > ${developingCeilingM5}p
+
+Estimated ATR Traveled: ~${distFromSwingPipsM5.toFixed(1)} pips from M5 swing origin (~${atrTraveledM5.toFixed(2)}x M5 ATR)
+M5 Move Phase: ${m5MovePhase}
+Assessment: ${phaseLabelM5}
+
+${m5MovePhase === 'DEVELOPING'
+  ? `DEVELOPING STAGE — RUNWAY CHECK: Confirm your single SCALP TP remains achievable from current price. State: "Remaining runway to TP: ~X pips. R:R from current price: X:1." If TP R:R falls below 1.0:1, tighten TP to the next achievable M5 structure or return NO_TRADE.`
+  : m5MovePhase === 'EXHAUSTED'
+    ? `EXHAUSTED STAGE — ADVISORY: The M5 leg has traveled > 1.5x ATR. Reduce confidence by 15-25 points. Reason about whether a reversal scalp or M5 structural retest justifies entry. If a valid M5 structural re-entry zone exists and recalculated R:R reaches 1.0:1, the scalp is valid at reduced confidence. Only NO_TRADE if no M5 structural case exists.`
+    : `FRESH STAGE — Full confidence window. Structural space to your SCALP TP is available. Both continuation and pullback scalp entries are valid.`
+}
+${fakeoutBlockM5}MANDATORY JSON FIELDS — Include in your response regardless of action:
+  "scalp_momentum_phase": "${m5MovePhase.toLowerCase()}"
+  "scalp_atr_traveled": ${atrTraveledM5.toFixed(2)}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+          console.log(`[Alpha Coordinator] SCALP M5 Move Phase: ${m5MovePhase} (~${atrTraveledM5.toFixed(2)}x ATR, ${distFromSwingPipsM5.toFixed(1)} pips)${fakeoutTypeM5 ? ` | Fakeout: ${fakeoutTypeM5}` : ''}`);
         }
 
         const emaContextBlock = (ema20Val > 0 || ema50Val > 0) ? `
@@ -2287,6 +2389,131 @@ If you cannot define a specific M5 trigger level, return NO_TRADE.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         console.warn('[Alpha Coordinator] M5 sub-confirmation fetch failed (non-blocking):', error instanceof Error ? error.message : 'Unknown');
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // M15 SUB-CONFIRMATION (INTRADAY ONLY — precision entry layer)
+    // Mirrors the M5 sub-confirmation pattern for MICRO_INTRADAY.
+    // INTRADAY: H1 is the primary TF. M15 is the precision entry layer —
+    // it defines WHEN to pull the trigger on an H1-level setup.
+    // Missing M15 data is NON-BLOCKING (advisory, not a gate).
+    // Alpha retains full decision authority. If data is unavailable,
+    // Alpha is informed and must use wait_pullback until M15 confirms.
+    // SSOT: MarketDataService is the single authority for candle data
+    // ═══════════════════════════════════════════════════════════════════
+    if (styleName === 'INTRADAY') {
+      try {
+        const mds = MarketDataService.getInstance();
+        const m15IntradayCandles = await mds.getCandles(marketContext.symbol, 'M15', 10);
+
+        if (m15IntradayCandles && m15IntradayCandles.length >= 5) {
+          const recentM15Intraday = m15IntradayCandles.slice(0, 10).reverse();
+          const pipInfo = getCurrencyPipInfo(marketContext.symbol);
+
+          const m15IntradayLines: string[] = recentM15Intraday.map((c, i) => {
+            const dir = c.close > c.open ? 'UP' : c.close < c.open ? 'DN' : 'FLAT';
+            const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
+            const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
+            const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
+            const totalRange = (c.high - c.low) / pipInfo.pipValue;
+            const bodyRatio = totalRange > 0 ? Math.round((bodyPips / totalRange) * 100) : 0;
+            const wickBias = upperWick > lowerWick * 1.5 ? 'upper' : lowerWick > upperWick * 1.5 ? 'lower' : 'balanced';
+            return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p ratio:${bodyRatio}% wick_bias:${wickBias}`;
+          });
+
+          const lastM15I = recentM15Intraday[recentM15Intraday.length - 1];
+          const prevM15I = recentM15Intraday.length >= 2 ? recentM15Intraday[recentM15Intraday.length - 2] : lastM15I;
+          const m15IntradayTrendDir = lastM15I.close > prevM15I.close ? 'BULLISH' : lastM15I.close < prevM15I.close ? 'BEARISH' : 'NEUTRAL';
+          const lastM15IBody = Math.abs(lastM15I.close - lastM15I.open) / pipInfo.pipValue;
+          const lastM15IUpperWick = (lastM15I.high - Math.max(lastM15I.open, lastM15I.close)) / pipInfo.pipValue;
+          const lastM15ILowerWick = (Math.min(lastM15I.open, lastM15I.close) - lastM15I.low) / pipInfo.pipValue;
+          const m15IHasRejectionWick = lastM15IUpperWick > lastM15IBody * 1.5 || lastM15ILowerWick > lastM15IBody * 1.5;
+
+          const m15IHigh = Math.max(...recentM15Intraday.map(c => c.high));
+          const m15ILow = Math.min(...recentM15Intraday.map(c => c.low));
+          const m15IRangePips = (m15IHigh - m15ILow) / pipInfo.pipValue;
+
+          let m15IConsecutive = 1;
+          for (let i = recentM15Intraday.length - 2; i >= 0; i--) {
+            const prevDir = recentM15Intraday[i].close > recentM15Intraday[i].open ? 'UP' : 'DN';
+            const lastDir = lastM15I.close > lastM15I.open ? 'UP' : 'DN';
+            if (prevDir === lastDir) m15IConsecutive++;
+            else break;
+          }
+
+          const m15IBOSBull = recentM15Intraday.length >= 2 && lastM15I.close > recentM15Intraday[recentM15Intraday.length - 2].high;
+          const m15IBOSBear = recentM15Intraday.length >= 2 && lastM15I.close < recentM15Intraday[recentM15Intraday.length - 2].low;
+          const m15ISweepWickBull = recentM15Intraday.slice(-2).some(c => {
+            const body = Math.abs(c.close - c.open);
+            const wick = Math.min(c.open, c.close) - c.low;
+            return body > 0 && wick / body >= 1.5;
+          });
+          const m15ISweepWickBear = recentM15Intraday.slice(-2).some(c => {
+            const body = Math.abs(c.close - c.open);
+            const wick = c.high - Math.max(c.open, c.close);
+            return body > 0 && wick / body >= 1.5;
+          });
+
+          const m15IEvidenceBlock = `
+M15 PRECISION ENTRY EVIDENCE (pre-computed for Alpha):
+- M15 BOS BULL (last M15 close > prior M15 high): ${m15IBOSBull ? 'YES — bullish M15 break of structure confirmed' : 'NO'}
+- M15 BOS BEAR (last M15 close < prior M15 low): ${m15IBOSBear ? 'YES — bearish M15 break of structure confirmed' : 'NO'}
+- M15 SWEEP WICK BULL (lower wick ≥1.5x body in last 2 M15 candles): ${m15ISweepWickBull ? 'YES — bullish absorption signal on M15' : 'NO'}
+- M15 SWEEP WICK BEAR (upper wick ≥1.5x body in last 2 M15 candles): ${m15ISweepWickBear ? 'YES — bearish absorption signal on M15' : 'NO'}
+
+M15 CLOSE RULE: A confirmed M15 candle CLOSE in your intended direction at the H1 entry zone is the INTRADAY entry trigger standard.
+A wick, an open, or a partial move does not constitute confirmation — only a closed M15 body in your direction counts.
+Assess the pre-computed signals above: if M15 BOS or sweep wick confirmation has NOT formed, state what trigger you are waiting for and select wait_pullback.
+If M15 confirmation IS present, you may select execute_now — back your reasoning with the specific M15 signal that confirms it.`;
+
+          m5SubConfirmationPrompt += `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+M15 PRECISION ENTRY (${marketContext.symbol}) — INTRADAY ENTRY TRIGGER TIMEFRAME
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This is your ENTRY TRIGGER timeframe. H1 defines the structure and setup. M15 is where you pull the trigger.
+A confirmed M15 candle CLOSE in your intended direction at the H1 entry zone is required before execute_now.
+A wick touch, M15 open, or partial move is NOT confirmation — only a CLOSED M15 body in your direction counts.
+
+${m15IntradayLines.join('\n')}
+
+M15 PRECISION ENTRY SUMMARY:
+- M15 Range (last ${recentM15Intraday.length} candles): ${m15IRangePips.toFixed(1)} pips (High: ${m15IHigh.toFixed(pipInfo.decimalPlaces)}, Low: ${m15ILow.toFixed(pipInfo.decimalPlaces)})
+- M15 Current directional bias: ${m15IntradayTrendDir}
+- Consecutive same-direction M15 candles: ${m15IConsecutive}
+- Last M15 candle: ${m15IHasRejectionWick ? 'REJECTION WICK detected (possible exhaustion or reversal at level)' : 'Normal candle — no strong wick signal'}
+
+${m15IEvidenceBlock}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+          console.log(`[Alpha Coordinator] M15 Precision Entry (INTRADAY): ${recentM15Intraday.length} candles, bias ${m15IntradayTrendDir}, BOS_BULL=${m15IBOSBull} BOS_BEAR=${m15IBOSBear}`);
+        } else {
+          m5SubConfirmationPrompt += `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+M15 PRECISION ENTRY (${marketContext.symbol}) — DATA UNAVAILABLE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WARNING: M15 candle data could not be retrieved (${m15IntradayCandles?.length ?? 0} candles found, need ≥5).
+GOVERNANCE CONSEQUENCE: Without M15 precision entry data, you CANNOT select execute_now.
+Your entry_mode must be wait_pullback. State the specific M15 trigger you are waiting for.
+If you cannot define a specific M15 trigger level on the H1 entry zone, return NO_TRADE.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+          console.warn(`[Alpha Coordinator] M15 precision entry data insufficient for INTRADAY (${m15IntradayCandles?.length ?? 0} candles)`);
+        }
+      } catch (error) {
+        m5SubConfirmationPrompt += `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+M15 PRECISION ENTRY (${marketContext.symbol}) — FETCH ERROR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WARNING: M15 precision entry fetch failed. Without M15 data you CANNOT select execute_now.
+entry_mode must be wait_pullback with a specific M15 trigger level stated.
+If you cannot define a specific M15 trigger level, return NO_TRADE.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+        console.warn('[Alpha Coordinator] M15 precision entry fetch failed (non-blocking):', error instanceof Error ? error.message : 'Unknown');
       }
     }
 
@@ -3060,17 +3287,36 @@ Q7 measures how many of the 7 confluence dimensions below are confirmed by the m
   1. TREND: Is the primary-timeframe trend direction aligned with your trade direction?
      Evidence to check: EMA stack, macro regime, HTF structural campaign.
   2. STRUCTURE: Is price at a named structural level (OB, FVG, BOS level, S/R zone)?
-     Evidence to check: primaryTF candle highs/lows, HTF structural evidence, liquidity zones.
+${styleName === 'SCALP'
+  ? `     Style-specific: Confirm a named M5 structural level — report it in "scalp_structural_confirmation". A vague level ("near resistance") does NOT count.
+     Evidence to check: M5 candle highs/lows, M15/H1 advisory structural zones.`
+  : styleName === 'MICRO_INTRADAY'
+  ? `     Style-specific: Confirm a named M15 structural level — report it in "m15_structural_confirmation". M5 micro-structure alone does NOT count.
+     Evidence to check: M15 OB/FVG/BOS levels, H1 campaign structural boundaries.`
+  : `     Style-specific: Confirm a named H1 structural level — report it in "h1_structural_confirmation". M15 alone does NOT count.
+     Evidence to check: H1 candle OB/FVG/BOS levels, H4/D1 macro structural campaign.`}
   3. MOMENTUM: Is momentum confirming the direction (not exhausted, stoch, RSI aligned)?
-     Evidence to check: Move phase (FRESH/DEVELOPING/EXHAUSTED), ATR traveled, RSI from micro-regime.
+${styleName === 'SCALP'
+  ? `     Evidence to check: scalp_momentum_phase (FRESH/DEVELOPING preferred; EXHAUSTED is a veto unless reversing). M5 ATR traveled < 1.5x ATR for continuation.`
+  : styleName === 'MICRO_INTRADAY'
+  ? `     Evidence to check: Move phase from H1 move phase advisory (FRESH/DEVELOPING preferred). M15 ATR traveled, RSI from micro-regime.`
+  : `     Evidence to check: Move phase from H4 campaign advisory (FRESH/DEVELOPING preferred). H1 ATR traveled, m15_move_phase confirms entry not exhausted.`}
   4. LIQUIDITY: Has a liquidity event occurred (sweep, BOS, trap) supporting the direction?
      Evidence to check: Omega-8 sweep details, liquidity intent model, predator direction.
   5. TIMING: Is this a valid session window (kill zone, institutional activity period)?
      Evidence to check: Daily narrative session, advanced patterns session profile.
   6. ENTRY TRIGGER: Has a named trigger already fired (candle close, BOS, sweep-reclaim)?
-     Evidence to check: M5 sub-confirmation, HTF BOS evidence, primary TF candle pattern.
+${styleName === 'SCALP'
+  ? `     Evidence to check: M5 candle close in direction (CLOSE rule), M1 timing refinement. Report trigger in "scalp_structural_confirmation".`
+  : styleName === 'MICRO_INTRADAY'
+  ? `     Evidence to check: M5 sub-confirmation block (BOS/sweep-wick evidence). A trigger has fired only if a confirmed M5 close in direction has occurred at the M15 zone.`
+  : `     Evidence to check: M15 precision entry block (BOS/sweep-wick evidence). A trigger has fired only if a confirmed M15 CLOSE in direction has occurred at the H1 zone.`}
   7. HTF ALIGNMENT: Does the higher-timeframe controlling candle support or at least not contradict the trade?
-     Evidence to check: HTF campaign direction, D1 narrative bias, H4/H1 structural campaign.
+${styleName === 'SCALP'
+  ? `     Evidence to check: M15/H1 advisory context (not your primary TF — advisory only). D1 macro narrative should not be opposing direction.`
+  : styleName === 'MICRO_INTRADAY'
+  ? `     Evidence to check: H1 campaign direction, D1 narrative bias. The H1 leg move phase (h1_move_phase) should be FRESH or DEVELOPING.`
+  : `     Evidence to check: H4 campaign direction, D1 macro bias. The H4 campaign should be aligned — h4 not in EXHAUSTED phase opposing the trade.`}
 
 Self-determined threshold: Based on setup conditions, state how many dimensions you require before proceeding (minimum 3, typically 4-5 for quality setups). Confirm your count in Q7_confluence_confirmed and Q7_confluence_judgment.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -3089,6 +3335,7 @@ ${m1MicroContextPrompt}
 ${scalpIntelligencePrompt}
 ${intradayMovePhaseContext}
 ${microIntradayMovePhaseContext}
+${scalpMovePhaseContext}
 ${stopLossDirective}
 
 Actions: BUY (bullish edge), SELL (bearish edge), NO_TRADE (no structural edge or hard block condition met).
@@ -3206,16 +3453,16 @@ ${tradeStyle === 'SCALP' ? `{
   "sl_structural_reference": "SL at [price] — behind the [M5] [swing high/low] at [ref price]. Invalidates thesis because [reason]. SL distance: ~[X] pips.",
   "tp_structural_reference": "TP at [price] — conservative edge of [M5] [resistance/support zone] at [ref range]. Rationale: [reason]. TP distance: ~[X] pips. Expected R:R: [X]:1.",
   "estimated_duration_minutes": "Your own calculation. State: M5 ATR=[X]pips, TP distance=[Y]pips, estimated candles=[Z]x5min=[T]min. Verdict: WITHIN SCALP BAND (15-90min) or EXTENDED with reconciliation. Example: '28 — M5 ATR 8.2pips, TP 23pips, ~3 candles x5=28min. Within band.'",
-  "thesis_coherence_statement": "Single paragraph in trader voice: state direction + why bias is correct now + entry timing + move stage + remaining range + expected duration vs style + primary risk. All must point the same direction. If any contradict: resolve here or output NO_TRADE. Close with one sentence committing your Q7 threshold judgment: state how many dimensions you determined were required and whether your confirmed count meets that threshold.",
-  "edge_summary": "1-2 sentences: why this specific entry has structural probability advantage right now.",
+  "thesis_coherence_statement": "Single paragraph in trader voice: state direction + why bias is correct now + entry timing + M5 move stage + remaining range + expected duration vs SCALP band + primary risk. All must point the same direction. If any contradict: resolve here or output NO_TRADE. Close with one sentence committing your Q7 threshold judgment: state how many dimensions you determined were required and whether your confirmed count meets that threshold.",
+  "edge_summary": "1-2 sentences: why this specific M5 entry has structural probability advantage right now.",
   "scalp_pattern": "momentum_breakout|bos_retest|ema_rejection|double_bottom|double_top|range_breakout|liquidity_sweep|engulfing_at_structure|trend_pullback_ema|none",
   "scalp_sub_mode": "momentum_continuation|pullback_entry|consolidation_breakout",
   "scalp_momentum_phase": "starting|developing|exhausted",
   "scalp_atr_traveled": 0.82,
-  "scalp_structural_confirmation": "REQUIRED for BUY/SELL: name the M5 level and structure type. E.g. 'M5 EMA20 rejection at 1.08423 — price compressed below with 2 bearish wicks'. Vague or missing = NO_TRADE.",
+  "scalp_structural_confirmation": "REQUIRED for BUY/SELL: name the specific M5 structural level you are trading from. E.g. 'M5 EMA20 rejection at 1.08423 — price compressed below with 2 bearish wicks'. Vague or missing = NO_TRADE.",
   "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "50% DISTANCE RULE: state nearest S/R distance, halve it, define zone." },
   "override": { "type": "none", "justification": "" },
-  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "key level", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named trigger or NONE_YET", "Q7_confluence_confirmed": "X/7 — [list each confirmed dimension with the specific data point that confirms it, e.g. TREND: M5 EMA stack bullish]", "Q7_confluence_judgment": "I judged this trade required [N] confirmed dimensions. I confirmed [X]. [Confirmed count meets / does not meet] that threshold because [brief reason]. Decision: [PROCEED / NO_TRADE].", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0, "Q9_sl_wick_proximity": "CLEAR — nearest M5 wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from M5 wick at [price]. [reason why placement is still valid or adjust]" }
+  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "named M5 structural level at [price] (OB/FVG/BOS/EMA/S&R)", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named M5 trigger that has fired or NONE_YET", "Q7_confluence_confirmed": "X/7 — [list each confirmed dimension with the specific data point, e.g. STRUCTURE: M5 EMA20 rejection at 1.08423 confirmed]", "Q7_confluence_judgment": "I judged this trade required [N] confirmed dimensions. I confirmed [X]. [Confirmed count meets / does not meet] that threshold because [brief reason]. Decision: [PROCEED / NO_TRADE].", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0, "Q9_sl_wick_proximity": "CLEAR — nearest M5 wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from M5 wick at [price]. [reason why placement is still valid or adjust]" }
 }` : tradeStyle === 'MICRO_INTRADAY' ? `{
   "action": "BUY|SELL|NO_TRADE",
   "entry": 12345.67,
@@ -3234,16 +3481,18 @@ ${tradeStyle === 'SCALP' ? `{
   "sl_structural_reference": "SL at [price] — behind the [M15] [swing high/low/OB/FVG] at [ref price]. Invalidates thesis because [reason]. SL distance: ~[X] pips.",
   "tp_structural_reference": "TP1 at [price] — conservative edge of [M15] [zone description] (~[X] pips, [X]:1 R:R). TP2 at [price] — conservative edge of [H1] [zone description] (~[X] pips, [X]:1 R:R).",
   "estimated_duration_minutes": "Your own calculation. State: M15 ATR=[X]pips, TP distance=[Y]pips, estimated M15 candles=[Z]x15min=[T]min. Verdict: WITHIN MICRO BAND (60-360min) or OUTSIDE with reconciliation. Example: '135 — M15 ATR 12pips, TP 45pips, ~9 candles x15=135min. Within band.'",
-  "thesis_coherence_statement": "Single paragraph in trader voice: state direction + why bias is correct now + entry timing + move stage + remaining range + expected duration vs MICRO_INTRADAY band + primary risk. All must point the same direction. If any contradict: resolve here or output NO_TRADE. Close with one sentence committing your Q7 threshold judgment: state how many dimensions you determined were required and whether your confirmed count meets that threshold.",
-  "edge_summary": "1-2 sentences: why this specific entry has structural probability advantage right now.",
+  "thesis_coherence_statement": "Single paragraph in trader voice: state direction + why M15 structure and H1 bias both confirm + M5 entry trigger status + M15 move stage + remaining range + expected duration vs MICRO_INTRADAY band + primary risk. All must point the same direction. If any contradict: resolve here or output NO_TRADE. Close with one sentence committing your Q7 threshold judgment.",
+  "edge_summary": "1-2 sentences: why this specific M15 entry has structural probability advantage right now.",
   "mi_structure": "OB_RETEST|FVG_ENTRY|BOS_CONTINUATION|EMA_PULLBACK|SWEEP_REVERSAL|D1_LEVEL_REACTION|H1_RANGE_EXTREME — required for BUY/SELL",
-  "m15_structural_confirmation": "REQUIRED: name the M15 level and structure type. Vague = NO_TRADE.",
+  "m15_structural_confirmation": "REQUIRED: name the specific M15 structural level you are trading from. Vague = NO_TRADE.",
   "m15_move_phase": "fresh|developing|exhausted",
   "m15_atr_traveled": 0.82,
-  "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "trailing plan" },
+  "h1_move_phase": "fresh|developing|exhausted",
+  "h1_atr_traveled": 0.65,
+  "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "trailing plan within H1 campaign context" },
   "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "50% DISTANCE RULE: state nearest S/R distance, halve it, define zone." },
   "override": { "type": "none", "justification": "" },
-  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "key M15 level", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named trigger or NONE_YET", "Q7_confluence_confirmed": "X/7 — [list each confirmed dimension with the specific data point that confirms it, e.g. STRUCTURE: M15 OB at 1.0850 holding]", "Q7_confluence_judgment": "I judged this trade required [N] confirmed dimensions. I confirmed [X]. [Confirmed count meets / does not meet] that threshold because [brief reason]. Decision: [PROCEED / NO_TRADE].", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0, "Q9_sl_wick_proximity": "CLEAR — nearest M15 wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from M15 wick at [price]. [reason why placement is still valid or adjust]" }
+  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "named M15 structural level at [price] (OB/FVG/BOS/EMA) AND H1 bias direction", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named M5 trigger or NONE_YET (M5 candle close required)", "Q7_confluence_confirmed": "X/7 — [list each confirmed dimension, e.g. STRUCTURE: M15 OB at 1.0850 holding | ENTRY TRIGGER: M5 BOS bull confirmed]", "Q7_confluence_judgment": "I judged this trade required [N] confirmed dimensions. I confirmed [X]. [Confirmed count meets / does not meet] that threshold because [brief reason]. Decision: [PROCEED / NO_TRADE].", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0, "Q9_sl_wick_proximity": "CLEAR — nearest M15 wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from M15 wick at [price]. [reason why placement is still valid or adjust]", "Q10_trade_management": "State your TP1/TP2 exit plan: at TP1 close [X]%, SL to breakeven, then trail remainder to TP2 using [method]. Reference the H1 campaign context: is the H1 leg FRESH/DEVELOPING/EXHAUSTED, and does that support holding to TP2?" }
 }` : `{
   "action": "BUY|SELL|NO_TRADE",
   "entry": 12345.67,
@@ -3262,16 +3511,18 @@ ${tradeStyle === 'SCALP' ? `{
   "sl_structural_reference": "SL at [price] — behind the [H1] [swing high/low/OB/FVG] at [ref price]. Invalidates thesis because [reason]. SL distance: ~[X] pips.",
   "tp_structural_reference": "TP1 at [price] — conservative edge of [H1] [zone description] (~[X] pips, [X]:1 R:R). TP2 at [price] — conservative edge of [H4] [zone description] (~[X] pips, [X]:1 R:R).",
   "estimated_duration_minutes": "Your own calculation. State: H1 ATR=[X]pips, TP distance=[Y]pips, estimated H1 candles=[Z]x60min=[T]min. Verdict: WITHIN INTRADAY BAND (120-600min) or OUTSIDE with reconciliation. Example: '240 — H1 ATR 18pips, TP 72pips, ~4 candles x60=240min. Within band.'",
-  "thesis_coherence_statement": "Single paragraph in trader voice: state direction + why bias is correct now + entry timing + move stage + remaining range + expected duration vs INTRADAY band + primary risk. All must point the same direction. If any contradict: resolve here or output NO_TRADE. Close with one sentence committing your Q7 threshold judgment: state how many dimensions you determined were required and whether your confirmed count meets that threshold.",
-  "edge_summary": "1-2 sentences: why this specific entry has structural probability advantage right now.",
+  "thesis_coherence_statement": "Single paragraph in trader voice: state direction + why H1 structure and H4/D1 bias confirm + M15 precision entry trigger status + H1 move stage + remaining range + expected duration vs INTRADAY band + primary risk. All must point the same direction. If any contradict: resolve here or output NO_TRADE. Close with one sentence committing your Q7 threshold judgment.",
+  "edge_summary": "1-2 sentences: why this specific H1 entry has structural probability advantage right now.",
   "intraday_structure": "H1_OB_RETEST|H1_FVG_FILL|H1_BOS_CONTINUATION|H1_CAMPAIGN_PULLBACK|H4_LEVEL_REACTION|WEEKLY_LEVEL_REVERSAL — required for BUY/SELL",
-  "h1_structural_confirmation": "REQUIRED: name the H1 level and structure type. Vague = NO_TRADE.",
-  "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "trailing plan" },
-  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "50% DISTANCE RULE: state nearest S/R distance, halve it, define zone." },
+  "h1_structural_confirmation": "REQUIRED: name the specific H1 structural level you are trading from. Vague = NO_TRADE.",
   "h1_move_phase": "fresh|developing|exhausted",
   "h1_atr_traveled": 0.82,
+  "m15_move_phase": "fresh|developing|exhausted",
+  "m15_atr_traveled": 0.45,
+  "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "trailing plan within H4 campaign context" },
+  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "50% DISTANCE RULE: state nearest S/R distance, halve it, define zone." },
   "override": { "type": "none", "justification": "" },
-  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "key H1 level", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named trigger or NONE_YET", "Q7_confluence_confirmed": "X/7 — [list each confirmed dimension with the specific data point that confirms it, e.g. MOMENTUM: H1 stoch turning from OS with bullish histogram]", "Q7_confluence_judgment": "I judged this trade required [N] confirmed dimensions. I confirmed [X]. [Confirmed count meets / does not meet] that threshold because [brief reason]. Decision: [PROCEED / NO_TRADE].", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0, "Q9_sl_wick_proximity": "CLEAR — nearest H1 wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from H1 wick at [price]. [reason why placement is still valid or adjust]" }
+  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "named H1 structural level at [price] (OB/FVG/BOS/campaign level) AND H4 bias direction", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named M15 precision entry trigger or NONE_YET (M15 candle close required)", "Q7_confluence_confirmed": "X/7 — [list each confirmed dimension, e.g. STRUCTURE: H1 OB at 1.0850 holding | ENTRY TRIGGER: M15 BOS bull confirmed]", "Q7_confluence_judgment": "I judged this trade required [N] confirmed dimensions. I confirmed [X]. [Confirmed count meets / does not meet] that threshold because [brief reason]. Decision: [PROCEED / NO_TRADE].", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0, "Q9_sl_wick_proximity": "CLEAR — nearest H1 wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from H1 wick at [price]. [reason why placement is still valid or adjust]", "Q10_trade_management": "State your TP1/TP2 exit plan: at TP1 close [X]%, SL to breakeven, then trail remainder to TP2 using [method]. Reference the H4 campaign context: is the H4 campaign FRESH/DEVELOPING/EXHAUSTED, and does it support holding to TP2?" }
 }`}`;
 
     // Emit final progress thought before LLM call (this is the 6.3s phase)
