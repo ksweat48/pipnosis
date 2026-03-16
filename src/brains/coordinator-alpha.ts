@@ -3417,7 +3417,7 @@ Return PURE JSON only (use the ${styleName} schema from your system prompt — a
           //
           // INVARIANT: If finish_reason === 'length' fires, the block_reason TOKEN_BUDGET_EXCEEDED
           //   will surface in the trade log. That is the signal to raise this value.
-          max_tokens: style === 'SCALP' ? 1200 : 1800,
+          max_tokens: styleName === 'SCALP' ? 1200 : 1800,
           requestType: 'alpha_coordination',
           endpoint: 'alpha-coordinator',
           symbol: marketContext.symbol
@@ -3449,7 +3449,7 @@ Return PURE JSON only (use the ${styleName} schema from your system prompt — a
       // abort rather than silently processing a structurally incomplete response.
       const finishReason = response.choices[0]?.finish_reason;
       if (finishReason === 'length') {
-        console.error(`[Alpha Coordinator] TOKEN_BUDGET_EXCEEDED: Response truncated (finish_reason=length) for ${marketContext.symbol}/${styleName}. stopLoss/takeProfit are MISSING. Current max_tokens=${style === 'SCALP' ? 1200 : 1800}. Raise budget or shorten prompt.`);
+        console.error(`[Alpha Coordinator] TOKEN_BUDGET_EXCEEDED: Response truncated (finish_reason=length) for ${marketContext.symbol}/${styleName}. stopLoss/takeProfit are MISSING. Current max_tokens=${styleName === 'SCALP' ? 1200 : 1800}. Raise budget or shorten prompt.`);
         return {
           action: 'NO_TRADE',
           decision: 'NO_TRADE',
