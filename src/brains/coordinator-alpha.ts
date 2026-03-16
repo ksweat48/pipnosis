@@ -1634,10 +1634,7 @@ IMPORTANT REMINDERS:
           const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
           const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
           const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
-          const totalRange = (c.high - c.low) / pipInfo.pipValue;
-          const bodyRatio = totalRange > 0 ? Math.round((bodyPips / totalRange) * 100) : 0;
-          const wickBias = upperWick > lowerWick * 1.5 ? 'upper' : lowerWick > upperWick * 1.5 ? 'lower' : 'balanced';
-          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p ratio:${bodyRatio}% wick_bias:${wickBias}`;
+          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
         });
 
         // ═══════════════════════════════════════════════════════════════════
@@ -2138,10 +2135,7 @@ ${consecutiveSameDir >= 3
           const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
           const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
           const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
-          const totalRange = (c.high - c.low) / pipInfo.pipValue;
-          const bodyRatio = totalRange > 0 ? Math.round((bodyPips / totalRange) * 100) : 0;
-          const wickBias = upperWick > lowerWick * 1.5 ? 'upper' : lowerWick > upperWick * 1.5 ? 'lower' : 'balanced';
-          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p ratio:${bodyRatio}% wick_bias:${wickBias}`;
+          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
         });
 
         const htfHigh = Math.max(...recentHtf.map(c => c.high));
@@ -2934,10 +2928,7 @@ ${intradayD1StructureBlock}
           const bodyPips = Math.abs(c.close - c.open) / pipInfo.pipValue;
           const upperWick = (c.high - Math.max(c.open, c.close)) / pipInfo.pipValue;
           const lowerWick = (Math.min(c.open, c.close) - c.low) / pipInfo.pipValue;
-          const totalRange = (c.high - c.low) / pipInfo.pipValue;
-          const bodyRatio = totalRange > 0 ? Math.round((bodyPips / totalRange) * 100) : 0;
-          const wickBias = upperWick > lowerWick * 1.5 ? 'upper' : lowerWick > upperWick * 1.5 ? 'lower' : 'balanced';
-          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p ratio:${bodyRatio}% wick_bias:${wickBias}`;
+          return `  ${i + 1}. ${dir} O:${c.open.toFixed(pipInfo.decimalPlaces)} H:${c.high.toFixed(pipInfo.decimalPlaces)} L:${c.low.toFixed(pipInfo.decimalPlaces)} C:${c.close.toFixed(pipInfo.decimalPlaces)} body:${bodyPips.toFixed(1)}p wicks:${upperWick.toFixed(1)}/${lowerWick.toFixed(1)}p`;
         });
 
         let consecutiveSameDir = 1;
@@ -3228,6 +3219,23 @@ Use the ACTIVE ATR value above for all move stage calculations in this scan cycl
     //
     // SSOT: This ordering is the ONLY authoritative reasoning sequence.
     //       Any change to this order is a CCIP governance event.
+    //
+    // CCIP-2026-03-16-PROMPT-COMPRESSION:
+    //   Root cause fix for 504 Gateway Timeout on /.netlify/functions/openai-chat.
+    //   The prompt was ~18,000 tokens causing LLM latency to exceed the 45s abort
+    //   window under infrastructure load. This compression targets ~8,000-10,000 tokens.
+    //   Changes made (SSOT-compliant, zero performance degradation):
+    //   1. REMOVED duplicate Layer 3 Q7 rubric from user prompt — already in system prompt
+    //      (getAlphaSystemPromptForStyle in alpha-identity.ts). Zero data loss.
+    //   2. REMOVED duplicate output schema from user prompt — already in system prompt.
+    //      User prompt now contains a single-line schema reference only.
+    //   3. REMOVED ratio:% and wick_bias: from all 7 candle line builders — these are
+    //      derivable by Alpha from the OHLC and body/wicks values already present.
+    //      Candle counts are UNCHANGED (SCALP=15 M5 + 20 M1, etc.).
+    //   4. COMPRESSED Market Intelligence Briefing from ~12 verbose multi-line sections
+    //      to ~7 compact single-line sections. All data fields preserved.
+    //   The system prompt (cached by OpenAI) holds all static instructional content.
+    //   The user prompt holds only dynamic per-symbol market data.
     // ═══════════════════════════════════════════════════════════════════
 
     const prompt = `${styleIdentityPrompt}
@@ -3278,48 +3286,6 @@ MARKET CONDITIONS:
   Volatility: ${volatilityRegime.regime.toUpperCase()} ${volatilityRegime.ratio !== 1.0 ? `(${volatilityRegime.ratio.toFixed(2)}x)` : ''} | ${volatilityRegime.recommendation}
   Stop Quality: ${stopQuality.score}/100 | ${stopQuality.recommendation}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-LAYER 3 — Q7 CONFLUENCE SCORING RUBRIC (Apply to candle data below)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Q7 measures how many of the 7 confluence dimensions below are confirmed by the market data. Score EACH dimension against the evidence in Layers 2 and 4 before committing to an action.
-
-  1. TREND: Is the primary-timeframe trend direction aligned with your trade direction?
-     Evidence to check: EMA stack, macro regime, HTF structural campaign.
-  2. STRUCTURE: Is price at a named structural level (OB, FVG, BOS level, S/R zone)?
-${styleName === 'SCALP'
-  ? `     Style-specific: Confirm a named M5 structural level — report it in "scalp_structural_confirmation". A vague level ("near resistance") does NOT count.
-     Evidence to check: M5 candle highs/lows, M15/H1 advisory structural zones.`
-  : styleName === 'MICRO_INTRADAY'
-  ? `     Style-specific: Confirm a named M15 structural level — report it in "m15_structural_confirmation". M5 micro-structure alone does NOT count.
-     Evidence to check: M15 OB/FVG/BOS levels, H1 campaign structural boundaries.`
-  : `     Style-specific: Confirm a named H1 structural level — report it in "h1_structural_confirmation". M15 alone does NOT count.
-     Evidence to check: H1 candle OB/FVG/BOS levels, H4/D1 macro structural campaign.`}
-  3. MOMENTUM: Is momentum confirming the direction (not exhausted, stoch, RSI aligned)?
-${styleName === 'SCALP'
-  ? `     Evidence to check: scalp_momentum_phase (FRESH/DEVELOPING preferred; EXHAUSTED is a veto unless reversing). M5 ATR traveled < 1.5x ATR for continuation.`
-  : styleName === 'MICRO_INTRADAY'
-  ? `     Evidence to check: Move phase from H1 move phase advisory (FRESH/DEVELOPING preferred). M15 ATR traveled, RSI from micro-regime.`
-  : `     Evidence to check: Move phase from H4 campaign advisory (FRESH/DEVELOPING preferred). H1 ATR traveled, m15_move_phase confirms entry not exhausted.`}
-  4. LIQUIDITY: Has a liquidity event occurred (sweep, BOS, trap) supporting the direction?
-     Evidence to check: Omega-8 sweep details, liquidity intent model, predator direction.
-  5. TIMING: Is this a valid session window (kill zone, institutional activity period)?
-     Evidence to check: Daily narrative session, advanced patterns session profile.
-  6. ENTRY TRIGGER: Has a named trigger already fired (candle close, BOS, sweep-reclaim)?
-${styleName === 'SCALP'
-  ? `     Evidence to check: M5 candle close in direction (CLOSE rule), M1 timing refinement. Report trigger in "scalp_structural_confirmation".`
-  : styleName === 'MICRO_INTRADAY'
-  ? `     Evidence to check: M5 sub-confirmation block (BOS/sweep-wick evidence). A trigger has fired only if a confirmed M5 close in direction has occurred at the M15 zone.`
-  : `     Evidence to check: M15 precision entry block (BOS/sweep-wick evidence). A trigger has fired only if a confirmed M15 CLOSE in direction has occurred at the H1 zone.`}
-  7. HTF ALIGNMENT: Does the higher-timeframe controlling candle support or at least not contradict the trade?
-${styleName === 'SCALP'
-  ? `     Evidence to check: M15/H1 advisory context (not your primary TF — advisory only). D1 macro narrative should not be opposing direction.`
-  : styleName === 'MICRO_INTRADAY'
-  ? `     Evidence to check: H1 campaign direction, D1 narrative bias. The H1 leg move phase (h1_move_phase) should be FRESH or DEVELOPING.`
-  : `     Evidence to check: H4 campaign direction, D1 macro bias. The H4 campaign should be aligned — h4 not in EXHAUSTED phase opposing the trade.`}
-
-Self-determined threshold: Based on setup conditions, state how many dimensions you require before proceeding (minimum 3, typically 4-5 for quality setups). Confirm your count in Q7_confluence_confirmed and Q7_confluence_judgment.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 LAYER 4 — RAW CANDLE EVIDENCE (Interpret through macro lens above)
@@ -3435,95 +3401,7 @@ If you completed Steps 1-7 and all checks pass: output the JSON decision below.
 If any step failed or revealed an unresolvable contradiction: output NO_TRADE with reasoning.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Return PURE JSON only:
-${tradeStyle === 'SCALP' ? `{
-  "action": "BUY|SELL|NO_TRADE",
-  "entry": 12345.67,
-  "stopLoss": 12300.00,
-  "takeProfit": 12400.00,
-  "trade_confidence": 75,
-  "entry_mode": "execute_now|wait_pullback|push_confirmation",
-  "wait_condition": null,
-  "style": "SCALP",
-  "marketThesis": "30-50 word market analysis",
-  "reasoning": "Full analytical reasoning: trend, structure, rejections, timing",
-  "market_narrative": "Single sentence: cause + destination + participants",
-  "counter_thesis": "Single sentence: primary reason trade fails",
-  "trader_statement": "Full reasoning in trader voice — min 80 words for BUY/SELL. Cover: what you see, your thesis and edge, why SL is valid, what structure is at TP, pip distances to SL and TP, why this is the best trade this cycle, expected duration, and primary risk.",
-  "sl_structural_reference": "SL at [price] — behind the [M5] [swing high/low] at [ref price]. Invalidates thesis because [reason]. SL distance: ~[X] pips.",
-  "tp_structural_reference": "TP at [price] — conservative edge of [M5] [resistance/support zone] at [ref range]. Rationale: [reason]. TP distance: ~[X] pips. Expected R:R: [X]:1.",
-  "estimated_duration_minutes": "Your own calculation. State: M5 ATR=[X]pips, TP distance=[Y]pips, estimated candles=[Z]x5min=[T]min. Verdict: WITHIN SCALP BAND (15-90min) or EXTENDED with reconciliation. Example: '28 — M5 ATR 8.2pips, TP 23pips, ~3 candles x5=28min. Within band.'",
-  "thesis_coherence_statement": "Single paragraph in trader voice: state direction + why bias is correct now + entry timing + M5 move stage + remaining range + expected duration vs SCALP band + primary risk. All must point the same direction. If any contradict: resolve here or output NO_TRADE. Close with one sentence committing your Q7 threshold judgment: state how many dimensions you determined were required and whether your confirmed count meets that threshold.",
-  "edge_summary": "1-2 sentences: why this specific M5 entry has structural probability advantage right now.",
-  "scalp_pattern": "momentum_breakout|bos_retest|ema_rejection|double_bottom|double_top|range_breakout|liquidity_sweep|engulfing_at_structure|trend_pullback_ema|none",
-  "scalp_sub_mode": "momentum_continuation|pullback_entry|consolidation_breakout",
-  "scalp_momentum_phase": "starting|developing|exhausted",
-  "scalp_atr_traveled": 0.82,
-  "scalp_structural_confirmation": "REQUIRED for BUY/SELL: name the specific M5 structural level you are trading from. E.g. 'M5 EMA20 rejection at 1.08423 — price compressed below with 2 bearish wicks'. Vague or missing = NO_TRADE.",
-  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "50% DISTANCE RULE: state nearest S/R distance, halve it, define zone." },
-  "override": { "type": "none", "justification": "" },
-  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "named M5 structural level at [price] (OB/FVG/BOS/EMA/S&R)", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named M5 trigger that has fired or NONE_YET", "Q7_confluence_confirmed": "X/7 — [list each confirmed dimension with the specific data point, e.g. STRUCTURE: M5 EMA20 rejection at 1.08423 confirmed]", "Q7_confluence_judgment": "I judged this trade required [N] confirmed dimensions. I confirmed [X]. [Confirmed count meets / does not meet] that threshold because [brief reason]. Decision: [PROCEED / NO_TRADE].", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0, "Q9_sl_wick_proximity": "CLEAR — nearest M5 wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from M5 wick at [price]. [reason why placement is still valid or adjust]" }
-}` : tradeStyle === 'MICRO_INTRADAY' ? `{
-  "action": "BUY|SELL|NO_TRADE",
-  "entry": 12345.67,
-  "stopLoss": 12300.00,
-  "tp1": 12370.00,
-  "tp2": 12400.00,
-  "trade_confidence": 75,
-  "entry_mode": "execute_now|wait_pullback|push_confirmation",
-  "wait_condition": null,
-  "style": "MICRO_INTRADAY",
-  "marketThesis": "30-50 word market analysis",
-  "reasoning": "Full analytical reasoning: trend, structure, rejections, timing",
-  "market_narrative": "Single sentence: cause + destination + participants",
-  "counter_thesis": "Single sentence: primary reason trade fails",
-  "trader_statement": "Full reasoning in trader voice — min 80 words for BUY/SELL. Cover: what you see, your thesis and edge, why SL is valid, what structure is at TP1 and TP2, pip distances to SL and TPs, why this is the best trade this cycle, expected duration, and primary risk.",
-  "sl_structural_reference": "SL at [price] — behind the [M15] [swing high/low/OB/FVG] at [ref price]. Invalidates thesis because [reason]. SL distance: ~[X] pips.",
-  "tp_structural_reference": "TP1 at [price] — conservative edge of [M15] [zone description] (~[X] pips, [X]:1 R:R). TP2 at [price] — conservative edge of [H1] [zone description] (~[X] pips, [X]:1 R:R).",
-  "estimated_duration_minutes": "Your own calculation. State: M15 ATR=[X]pips, TP distance=[Y]pips, estimated M15 candles=[Z]x15min=[T]min. Verdict: WITHIN MICRO BAND (60-360min) or OUTSIDE with reconciliation. Example: '135 — M15 ATR 12pips, TP 45pips, ~9 candles x15=135min. Within band.'",
-  "thesis_coherence_statement": "Single paragraph in trader voice: state direction + why M15 structure and H1 bias both confirm + M5 entry trigger status + M15 move stage + remaining range + expected duration vs MICRO_INTRADAY band + primary risk. All must point the same direction. If any contradict: resolve here or output NO_TRADE. Close with one sentence committing your Q7 threshold judgment.",
-  "edge_summary": "1-2 sentences: why this specific M15 entry has structural probability advantage right now.",
-  "mi_structure": "OB_RETEST|FVG_ENTRY|BOS_CONTINUATION|EMA_PULLBACK|SWEEP_REVERSAL|D1_LEVEL_REACTION|H1_RANGE_EXTREME — required for BUY/SELL",
-  "m15_structural_confirmation": "REQUIRED: name the specific M15 structural level you are trading from. Vague = NO_TRADE.",
-  "m15_move_phase": "fresh|developing|exhausted",
-  "m15_atr_traveled": 0.82,
-  "h1_move_phase": "fresh|developing|exhausted",
-  "h1_atr_traveled": 0.65,
-  "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "trailing plan within H1 campaign context" },
-  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "50% DISTANCE RULE: state nearest S/R distance, halve it, define zone." },
-  "override": { "type": "none", "justification": "" },
-  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "named M15 structural level at [price] (OB/FVG/BOS/EMA) AND H1 bias direction", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named M5 trigger or NONE_YET (M5 candle close required)", "Q7_confluence_confirmed": "X/7 — [list each confirmed dimension, e.g. STRUCTURE: M15 OB at 1.0850 holding | ENTRY TRIGGER: M5 BOS bull confirmed]", "Q7_confluence_judgment": "I judged this trade required [N] confirmed dimensions. I confirmed [X]. [Confirmed count meets / does not meet] that threshold because [brief reason]. Decision: [PROCEED / NO_TRADE].", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0, "Q9_sl_wick_proximity": "CLEAR — nearest M15 wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from M15 wick at [price]. [reason why placement is still valid or adjust]", "Q10_trade_management": "State your TP1/TP2 exit plan: at TP1 close [X]%, SL to breakeven, then trail remainder to TP2 using [method]. Reference the H1 campaign context: is the H1 leg FRESH/DEVELOPING/EXHAUSTED, and does that support holding to TP2?" }
-}` : `{
-  "action": "BUY|SELL|NO_TRADE",
-  "entry": 12345.67,
-  "stopLoss": 12300.00,
-  "tp1": 12370.00,
-  "tp2": 12400.00,
-  "trade_confidence": 75,
-  "entry_mode": "execute_now|wait_pullback|push_confirmation",
-  "wait_condition": null,
-  "style": "INTRADAY",
-  "marketThesis": "30-50 word market analysis",
-  "reasoning": "Full analytical reasoning: trend, structure, rejections, timing",
-  "market_narrative": "Single sentence: cause + destination + participants",
-  "counter_thesis": "Single sentence: primary reason trade fails",
-  "trader_statement": "Full reasoning in trader voice — min 80 words for BUY/SELL. Cover: what you see, your thesis and edge, why SL is valid, what structure is at TP1 and TP2, pip distances to SL and TPs, why this is the best trade this cycle, expected duration, and primary risk.",
-  "sl_structural_reference": "SL at [price] — behind the [H1] [swing high/low/OB/FVG] at [ref price]. Invalidates thesis because [reason]. SL distance: ~[X] pips.",
-  "tp_structural_reference": "TP1 at [price] — conservative edge of [H1] [zone description] (~[X] pips, [X]:1 R:R). TP2 at [price] — conservative edge of [H4] [zone description] (~[X] pips, [X]:1 R:R).",
-  "estimated_duration_minutes": "Your own calculation. State: H1 ATR=[X]pips, TP distance=[Y]pips, estimated H1 candles=[Z]x60min=[T]min. Verdict: WITHIN INTRADAY BAND (120-600min) or OUTSIDE with reconciliation. Example: '240 — H1 ATR 18pips, TP 72pips, ~4 candles x60=240min. Within band.'",
-  "thesis_coherence_statement": "Single paragraph in trader voice: state direction + why H1 structure and H4/D1 bias confirm + M15 precision entry trigger status + H1 move stage + remaining range + expected duration vs INTRADAY band + primary risk. All must point the same direction. If any contradict: resolve here or output NO_TRADE. Close with one sentence committing your Q7 threshold judgment.",
-  "edge_summary": "1-2 sentences: why this specific H1 entry has structural probability advantage right now.",
-  "intraday_structure": "H1_OB_RETEST|H1_FVG_FILL|H1_BOS_CONTINUATION|H1_CAMPAIGN_PULLBACK|H4_LEVEL_REACTION|WEEKLY_LEVEL_REVERSAL — required for BUY/SELL",
-  "h1_structural_confirmation": "REQUIRED: name the specific H1 structural level you are trading from. Vague = NO_TRADE.",
-  "h1_move_phase": "fresh|developing|exhausted",
-  "h1_atr_traveled": 0.82,
-  "m15_move_phase": "fresh|developing|exhausted",
-  "m15_atr_traveled": 0.45,
-  "trade_management": { "tp1_close_percent": 50, "sl_to_breakeven_after_tp1": true, "trail_method": "structure|fixed_pips|none", "trail_notes": "trailing plan within H4 campaign context" },
-  "entry_advisory": { "verdict": "GOOD_ENTRY|PULLBACK_EXPECTED", "pullback_zone_min": null, "pullback_zone_max": null, "reasoning": "50% DISTANCE RULE: state nearest S/R distance, halve it, define zone." },
-  "override": { "type": "none", "justification": "" },
-  "answer_sheet": { "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND", "Q2_structure_level": "named H1 structural level at [price] (OB/FVG/BOS/campaign level) AND H4 bias direction", "Q3_prior_rejections": "YES/NO + count", "Q4_momentum_stage": "EARLY|MIDDLE|LATE", "Q5_failure_mode": "primary failure reason", "Q5_failure_probability": 0, "Q5B_objective_alignment": "SERVES|MARGINAL|DOES_NOT_SERVE", "Q6_entry_trigger": "named M15 precision entry trigger or NONE_YET (M15 candle close required)", "Q7_confluence_confirmed": "X/7 — [list each confirmed dimension, e.g. STRUCTURE: H1 OB at 1.0850 holding | ENTRY TRIGGER: M15 BOS bull confirmed]", "Q7_confluence_judgment": "I judged this trade required [N] confirmed dimensions. I confirmed [X]. [Confirmed count meets / does not meet] that threshold because [brief reason]. Decision: [PROCEED / NO_TRADE].", "Q8_move_position_pct": 0, "Q8B_session_range_pct": 0, "Q9_sl_wick_proximity": "CLEAR — nearest H1 wick extreme at [price] is [X] pips from SL | PROXIMITY_RISK — SL at [price] is [X] pips from H1 wick at [price]. [reason why placement is still valid or adjust]", "Q10_trade_management": "State your TP1/TP2 exit plan: at TP1 close [X]%, SL to breakeven, then trail remainder to TP2 using [method]. Reference the H4 campaign context: is the H4 campaign FRESH/DEVELOPING/EXHAUSTED, and does it support holding to TP2?" }
-}`}`;
+Return PURE JSON only (use the ${styleName} schema from your system prompt — all required fields must be present).`;
 
     // Emit final progress thought before LLM call (this is the 6.3s phase)
     if (sessionId && userId) {
