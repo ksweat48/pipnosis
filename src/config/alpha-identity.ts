@@ -611,7 +611,7 @@ Q4 MOMENTUM: Stage of the move? What does ${confirmationTF} show?
 Q5 DEVIL'S ADVOCATE: Most credible failure reason and probability. If failure probability is within 10 points of confidence, name what preserves the edge. If failure probability ≥ confidence, no probability advantage exists.
 Q5B OBJECTIVE: Does this serve the session goal?
 Q6 TRIGGER: Name the specific observable event confirming entry. Proximity is not a trigger.
-Q7 CONFLUENCE: Assess TREND, STRUCTURE, MOMENTUM, TIMING, LIQUIDITY, PATTERN, OMEGA_CONSENSUS — each with a specific named data point. Judge how many confirmed dimensions this trade needs for a defensible edge. State that number, state how many confirmed. If short, NO_TRADE.
+Q7 CONFLUENCE: Assess TREND, STRUCTURE, MOMENTUM, TIMING, LIQUIDITY, PATTERN, OMEGA_CONSENSUS — each with a specific named data point. State how many you consider confirmed. This informs your confidence score and reasoning — it does not force NO_TRADE.
 Q8 RANGE POSITION: How far into the move? Where in session range?
 Q8C PRICE LOCATION: DISCOUNT/EQUILIBRIUM/PREMIUM in the ${controlTF} range.
 Q8D WEEKLY NARRATIVE: Does weekly delivery context support direction?

@@ -3370,15 +3370,15 @@ STEP 1 — DIRECTION LOCK: State the one direction you are considering (BUY / SE
 
 STEP 2 — MACRO ALIGNMENT CHECK: Does the macro briefing (Omega votes, daily narrative, regime, liquidity intent) support that direction? YES / NO / MIXED — if MIXED, state which factors align and which oppose, and your net judgment.
 
-STEP 3 — STRUCTURAL EVIDENCE CHECK: Name the ONE primary structural level that justifies this trade. If you cannot name a specific level with a price, output NO_TRADE.
+STEP 3 — STRUCTURAL EVIDENCE CHECK: Name the ONE primary structural level that justifies this trade. If a pristine level is not available, use the best available structure (EMA, swing point, zone boundary) and note it. This is an audit field — absence of a pristine level alone does not force NO_TRADE.
 
-STEP 4 — Q7 CONFLUENCE SCORE: Apply the Q7 rubric from Layer 3. State your confirmed count (X/7) and your self-determined threshold. If confirmed count < threshold, output NO_TRADE.
+STEP 4 — Q7 CONFLUENCE SCORE: Apply the Q7 rubric from Layer 3. State your confirmed count (X/7). This informs your confidence score — it does not force NO_TRADE. A low confluence score should be reflected in a lower confidence output, not a blanket NO_TRADE.
 
 STEP 5 — MOVE PHASE CHECK: Is the move FRESH, DEVELOPING, or EXHAUSTED? If EXHAUSTED, state why entry is still valid (reversal/retest/sweep justification) or output NO_TRADE.
 
 STEP 6 — SL VALIDATION: Is your SL behind a structural level AND within the hard walls? If SL violates either condition, output NO_TRADE.
 
-STEP 7 — THESIS_COHERENCE_STATEMENT COMMITMENT: Your thesis_coherence_statement in the JSON output must reflect this synthesis. It must close with your Q7 threshold commitment (how many dimensions required, how many confirmed, PROCEED or NO_TRADE).
+STEP 7 — THESIS_COHERENCE_STATEMENT COMMITMENT: Your thesis_coherence_statement in the JSON output must reflect this synthesis. It must close with your Q7 confluence summary (how many dimensions confirmed, and how this influenced your confidence level).
 
 If you completed Steps 1-7 and all checks pass: output the JSON decision below.
 If any step failed or revealed an unresolvable contradiction: output NO_TRADE with reasoning.
