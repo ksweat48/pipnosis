@@ -3220,33 +3220,28 @@ Use the ACTIVE ATR value above for all move stage calculations in this scan cycl
     //   The user prompt holds only dynamic per-symbol market data.
     // ═══════════════════════════════════════════════════════════════════
 
+    // CCIP-2026-0317A: Professional Reasoning Contract — user prompt context section.
+    // SSOT: System prompt (alpha-identity.ts) carries Alpha's identity and reasoning framework.
+    // This section provides per-scan context: streak, advisory designations, hard block list.
+    // The "find a trade" bias has been removed. Alpha's standard is capital preservation
+    // through high-probability execution — not scan utilization.
     const prompt = `${styleIdentityPrompt}
 ${cachedThesisPrompt}
 ${atrLegendPrompt}
-PROFESSIONAL REASONING CONTRACT
+SCAN CONTEXT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You are a professional trader, not a rule executor. Read the macro intelligence below FIRST, then interpret the raw candle evidence through that lens. The eight analytical questions in your system prompt are your mental checklist.
+${streakContextLine}
 
-Your PRIMARY OBJECTIVE is to find executable trades. Different market conditions require different approaches — a scalper does not wait for perfect textbook setups before every trade. Momentum, structure, and price levels are your tools regardless of whether conditions are ideal.
+I read macro intelligence first, then interpret candle evidence through that lens. My system prompt defines how I think. What follows is the market data for this scan.
 
-Your decision framework:
-- ${streakContextLine}
-- Execute (BUY/SELL) when a directional edge exists — 2-3 supporting factors is sufficient. Perfection is not required.
-- Return NO_TRADE only when you cannot identify a directional reason with supporting structure, not merely because conditions fall short of ideal
-- NO_TRADE requires a POSITIVE reason (e.g., "price is mid-range with no level nearby, no structural trigger") — the absence of perfection is not a reason
-- Your confidence score must honestly reflect setup quality — imperfect setups trade at 60-70%, not zero
-- The scanner re-evaluates every cycle. A NO_TRADE now is not a missed trade — it is disciplined execution
-- When analyzing multiple pairs, execute the best opportunity available, not every opportunity
+ADVISORY SOURCES (context inputs — not decision gates):
+- Regime Oracle: session and volatility regime context
+- Adversarial Detector: manipulation and trap pattern warnings
+- Session Constraints: time-based liquidity context
+- Advisory signals inform my reasoning. Combined effect ceiling: ${ALPHA_IDENTITY.MAX_ADVISORY_PENALTY} points.
+- Omega Council (Omega-7 through Omega-10): raw price-structure sensor data. Omega observations are inputs I reason about — not post-hoc deductions from my confidence. Omega disagreement is data, not a veto.
 
-ADVISORY INTELLIGENCE (context, not constraints):
-- Regime Oracle: ${ALPHA_IDENTITY.ADVISORY_SYSTEMS.REGIME_ORACLE.name} — session and volatility regime context
-- Adversarial Detector: ${ALPHA_IDENTITY.ADVISORY_SYSTEMS.ADVERSARIAL_DETECTOR.name} — manipulation and trap pattern warnings
-- Session Constraints: ${ALPHA_IDENTITY.ADVISORY_SYSTEMS.SESSION_CONSTRAINTS.name} — time-based liquidity context
-- These advisories inform your confidence. They do not block your decision. Max combined advisory effect: ${ALPHA_IDENTITY.MAX_ADVISORY_PENALTY}%
-- Omega Council (Omega-7 through Omega-10): RAW SENSOR DATA — carry zero confidence penalty. Omega observations are inputs you reason about, not arithmetic deductions from your stated confidence. Omega disagreement is data, not a veto.
-- ${streakContextLine}
-
-ONLY THESE CONDITIONS PRODUCE A HARD BLOCK:
+HARD BLOCK CONDITIONS (the only conditions that produce NO_TRADE automatically):
 ${ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS.map(c => `- ${c}`).join('\n')}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -3350,40 +3345,24 @@ IMPORTANT: For push_confirmation, the zone defines where the M5 candle must CLOS
 Set the zone tightly around your structural level (1-3 pip width is appropriate for confirmation).
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-NARRATIVE (MANDATORY for BUY/SELL):
-Include "market_narrative" — single sentence stating: what caused this move + where price is going + what participants are doing.
-Example: "Swept Asian lows, trapped retail shorts, BOS confirms long — targeting 1.0850 resistance."
-A weak or missing narrative indicates incomplete reasoning. Your narrative must reflect that you have worked through the analytical questions.
-
-COUNTER-THESIS (MANDATORY for BUY/SELL):
-Include "counter_thesis" — single sentence naming the primary reason this trade fails.
-Example: "Prior resistance at 1.0870 may reject price before TP is reached."
-If you cannot identify a credible failure mode, re-examine your conviction level. A professional who cannot name what could go wrong is overconfident.
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-LAYER 5 — SYNTHESIS GATE (Complete before producing JSON)
+COHERENCE OBLIGATION — before producing JSON
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Before you output any JSON, complete this structured reconciliation. If any item reveals a contradiction, resolve it here — or output NO_TRADE.
+My answer_sheet is an audit trail, not a scorecard. Before I write any JSON, I check every answer I gave against the action I am about to take.
 
-STEP 1 — DIRECTION LOCK: State the one direction you are considering (BUY / SELL / NO_TRADE). One direction only.
+The following contradictions require explicit resolution in thesis_coherence_statement — or NO_TRADE:
+- Q8C = PREMIUM on a BUY action: I must name the specific catalyst (sweep, structural break, liquidity grab) that overrides premium-zone logic.
+- Q8C = DISCOUNT on a SELL action: I must name the specific catalyst that overrides discount-zone logic.
+- Q3 = prior rejections at my entry level: I must name what is different this time — what cleared those rejections.
+- Q4 = EXHAUSTED momentum: I must explain whether this is a reversal or continuation thesis and why the exhaustion does not invalidate it.
+- Q5_failure_probability within 15 points of trade_confidence: I must name the specific edge preserver — or I pass.
+- Q1 = CONFLICT or COUNTER_TREND: I must explain why I am trading against the control timeframe structure.
+- intermarket_correlation = DIVERGENT: I must acknowledge the divergence and name why the primary instrument's structure overrides it — or I reduce confidence accordingly.
 
-STEP 2 — MACRO ALIGNMENT CHECK: Does the macro briefing (Omega votes, daily narrative, regime, liquidity intent) support that direction? YES / NO / MIXED — if MIXED, state which factors align and which oppose, and your net judgment.
+If I cannot resolve a contradiction with a specific named reason, I output NO_TRADE.
+If I can resolve it, I write the resolution in thesis_coherence_statement — not a generic acknowledgment, a specific named reason.
 
-STEP 3 — STRUCTURAL EVIDENCE CHECK: Name the ONE primary structural level that justifies this trade. If a pristine level is not available, use the best available structure (EMA, swing point, zone boundary) and note it. This is an audit field — absence of a pristine level alone does not force NO_TRADE.
-
-STEP 4 — Q7 CONFLUENCE SCORE: Apply the Q7 rubric from Layer 3. State your confirmed count (X/7). This informs your confidence score — it does not force NO_TRADE. A low confluence score should be reflected in a lower confidence output, not a blanket NO_TRADE.
-
-STEP 5 — MOVE PHASE CHECK: Is the move FRESH, DEVELOPING, or EXHAUSTED? If EXHAUSTED, state why entry is still valid (reversal/retest/sweep justification) or output NO_TRADE.
-
-STEP 6 — SL VALIDATION: Is your SL behind a structural level AND within the hard walls? If SL violates either condition, output NO_TRADE.
-
-STEP 7 — THESIS_COHERENCE_STATEMENT COMMITMENT: Your thesis_coherence_statement in the JSON output must reflect this synthesis. It must close with your Q7 confluence summary (how many dimensions confirmed, and how this influenced your confidence level).
-
-If you completed Steps 1-7 and all checks pass: output the JSON decision below.
-If any step failed or revealed an unresolvable contradiction: output NO_TRADE with reasoning.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Return PURE JSON only (use the ${styleName} schema from your system prompt — all required fields must be present).`;
+Return PURE JSON only — all required fields from the schema in my system prompt must be present.`;
 
     // Emit final progress thought before LLM call (this is the 6.3s phase)
     if (sessionId && userId) {
@@ -3405,18 +3384,31 @@ Return PURE JSON only (use the ${styleName} schema from your system prompt — a
           }
         ],
         {
-          model: 'gpt-4o-mini',
-          temperature: 0.3,
-          // CCIP-2026-03-16-504FIX → CCIP-2026-03-16-TOKEN-BUDGET:
-          // SCALP: 1200 tokens — no trade_management, no Q10. ~800 token worst-case + 50% headroom.
-          // MICRO_INTRADAY / INTRADAY: 1800 tokens — trade_management object + Q10 adds ~300-400 tokens
-          //   over SCALP worst-case. 1800 gives a safe margin above 1200 (worst-case ~1400 tokens).
-          //   GPT-4o-mini latency at 1800 output tokens is ~3-5s extra vs 1200 — well within the 45s
-          //   server-side OPENAI_REQUEST_TIMEOUT_MS budget.
+          // CCIP-2026-0317A: Upgraded from gpt-4o-mini to gpt-4o.
+          // GPT-4o provides the genuine reasoning depth required for professional-quality
+          // trade decisions. gpt-4o-mini was filling the answer_sheet mechanically without
+          // the judgment capacity to self-detect contradictions (e.g. buying PREMIUM zones,
+          // selling into bullish EMA alignment). gpt-4o embodies the internalized professional
+          // reasoning that Alpha's identity demands.
           //
-          // INVARIANT: If finish_reason === 'length' fires, the block_reason TOKEN_BUDGET_EXCEEDED
-          //   will surface in the trade log. That is the signal to raise this value.
-          max_tokens: styleName === 'SCALP' ? 1200 : 1800,
+          // COST AWARENESS (SSOT: llm-token-tracker.ts PRICING):
+          // gpt-4o-mini: $0.15/1M input, $0.60/1M output → ~$0.0036/scan at 21k avg input tokens
+          // gpt-4o:      $2.50/1M input, $10.00/1M output → ~$0.055/scan at 21k avg input tokens
+          // Prompt compression target (CCIP-2026-0317A): reduce input to ~10k-12k tokens via
+          // the professional reasoning contract rewrite, bringing effective cost to ~$0.03/scan.
+          //
+          // TOKEN BUDGET — CCIP-2026-0317A:
+          // SCALP: 1400 tokens — GPT-4o produces more thorough trader_statement and
+          //   thesis_coherence_statement. 200 extra tokens vs prior budget for full resolution.
+          // MICRO_INTRADAY / INTRADAY: 2000 tokens — trade_management + Q10 + richer
+          //   professional reasoning fields. GPT-4o inference is fast enough at 2000 tokens
+          //   to remain well within the 45s OPENAI_REQUEST_TIMEOUT_MS budget.
+          //
+          // INVARIANT: If finish_reason === 'length' fires, block_reason TOKEN_BUDGET_EXCEEDED
+          //   surfaces in the trade log. Raise max_tokens if that fires repeatedly.
+          model: 'gpt-4o',
+          temperature: 0.3,
+          max_tokens: styleName === 'SCALP' ? 1400 : 2000,
           requestType: 'alpha_coordination',
           endpoint: 'alpha-coordinator',
           symbol: marketContext.symbol
@@ -3426,9 +3418,10 @@ Return PURE JSON only (use the ${styleName} schema from your system prompt — a
       // CCIP-TIMEOUT-FIX-2026-03-12: Token usage logging is audit-only — converted to
       // fire-and-forget. A slow Supabase INSERT here should never block trade decision
       // delivery. The OpenAI call already returned; any post-LLM latency is pure overhead.
+      // CCIP-2026-0317A: model updated to gpt-4o — logging must match SSOT in llm-token-tracker.ts
       llmTokenTracker.logUsage({
         brainName: 'Alpha',
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o',
         promptTokens: response.usage?.prompt_tokens || 0,
         completionTokens: response.usage?.completion_tokens || 0,
         totalTokens: response.usage?.total_tokens || 0,
@@ -3448,7 +3441,7 @@ Return PURE JSON only (use the ${styleName} schema from your system prompt — a
       // abort rather than silently processing a structurally incomplete response.
       const finishReason = response.choices[0]?.finish_reason;
       if (finishReason === 'length') {
-        console.error(`[Alpha Coordinator] TOKEN_BUDGET_EXCEEDED: Response truncated (finish_reason=length) for ${marketContext.symbol}/${styleName}. stopLoss/takeProfit are MISSING. Current max_tokens=${styleName === 'SCALP' ? 1200 : 1800}. Raise budget or shorten prompt.`);
+        console.error(`[Alpha Coordinator] TOKEN_BUDGET_EXCEEDED: Response truncated (finish_reason=length) for ${marketContext.symbol}/${styleName}. stopLoss/takeProfit are MISSING. Current max_tokens=${styleName === 'SCALP' ? 1400 : 2000} (gpt-4o, CCIP-2026-0317A). Raise budget or shorten prompt.`);
         return {
           action: 'NO_TRADE',
           decision: 'NO_TRADE',
