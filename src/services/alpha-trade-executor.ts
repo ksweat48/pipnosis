@@ -1649,7 +1649,7 @@ class AlphaTradeExecutor {
       '[AlphaTradeExecutor] Alpha entry advisory applied (MONITORED mode)',
       {
         symbol: decision.symbol,
-        alphaEntryMode: decision.entry_mode || 'WAIT_ENTRY',
+        alphaEntryMode: decision.entry_mode || 'wait_pullback',
         runawayPolicy: decision.entry_spec?.runawayPolicy ?? 'RESCAN',
         verdict: monitorVerdict,
         alphaVerdict: monitorAdvisory?.verdict || 'GOOD_ENTRY (default)',
@@ -1657,7 +1657,7 @@ class AlphaTradeExecutor {
       }
     );
 
-    const isPushConfirmMode = decision.entry_mode === 'PUSH_CONFIRM';
+    const isPushConfirmMode = decision.entry_mode === 'push_confirmation';
     const resolvedIntentMode: 'pullback_to_zone' | 'push_confirmation_zone' = isPushConfirmMode
       ? 'push_confirmation_zone'
       : 'pullback_to_zone';
@@ -1686,7 +1686,7 @@ class AlphaTradeExecutor {
         alpha_reasoning: decision.reasoning,
         alpha_confidence: decision.confidence,
         market_context: this.buildAlphaAdvisoryContext(decision, decision.entry, monitorAdvisory),
-        entry_mode: decision.entry_mode || 'WAIT_ENTRY',
+        entry_mode: decision.entry_mode || 'wait_pullback',
         style: params.canonicalStyle,
         thesis: decision.thesis,
         style_intent: decision.style_intent,
@@ -1719,24 +1719,18 @@ class AlphaTradeExecutor {
     }
 
     const entryModeLabel = isPushConfirmMode
-      ? 'PUSH_CONFIRM'
-      : decision.entry_mode === 'WAIT_HIGHER_EDGE'
-        ? 'WAIT_HIGHER_EDGE'
-        : 'WAIT_ENTRY';
+      ? 'push_confirmation'
+      : 'wait_pullback';
 
     const monitorTitle = isPushConfirmMode
       ? `Trade Found — Waiting Zone Confirmation: ${decision.symbol}`
-      : decision.entry_mode === 'WAIT_HIGHER_EDGE'
-        ? `Trade Found — Wait for Edge: ${decision.symbol}`
-        : `Trade Found — Wait for Pullback: ${decision.symbol}`;
+      : `Trade Found — Wait for Pullback: ${decision.symbol}`;
 
     const monitorMessage = isPushConfirmMode
       ? `Alpha requires an M5 candle close inside ${zoneMin.toFixed(5)} – ${zoneMax.toFixed(5)} to confirm entry on ${decision.symbol}.`
-      : decision.entry_mode === 'WAIT_HIGHER_EDGE'
-        ? `Alpha is waiting for higher-edge conditions on ${decision.symbol} before entering.`
-        : monitorPullbackMin && monitorPullbackMax
-          ? `Alpha recommends waiting for pullback to ${monitorPullbackMin.toFixed(5)} – ${monitorPullbackMax.toFixed(5)}`
-          : `Alpha is monitoring ${decision.symbol} for a better entry.`;
+      : monitorPullbackMin && monitorPullbackMax
+        ? `Alpha recommends waiting for pullback to ${monitorPullbackMin.toFixed(5)} – ${monitorPullbackMax.toFixed(5)}`
+        : `Alpha is monitoring ${decision.symbol} for a better entry.`;
 
     await notificationCoordinator.send({
       userId,
@@ -1748,7 +1742,7 @@ class AlphaTradeExecutor {
       metadata: {
         symbol: decision.symbol,
         direction: direction,
-        entry_mode: decision.entry_mode || 'WAIT_ENTRY',
+        entry_mode: decision.entry_mode || 'wait_pullback',
         pullback_zone_min: monitorPullbackMin,
         pullback_zone_max: monitorPullbackMax,
         pullback_target_price: monitorPullbackMid,

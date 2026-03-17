@@ -270,7 +270,7 @@ export interface AlphaDecision {
   regime_advisory?: RegimeSnapshot;
   conflictInfo?: ConflictInfo; // CCIP 2026-02-14: Omega conflict detection data from orchestrator
   entry_spec?: EntrySpec; // NEW: Alpha's explicit entry specification
-  entry_mode?: 'EXECUTE_NOW' | 'WAIT_ENTRY' | 'WAIT_HIGHER_EDGE' | 'PUSH_CONFIRM'; // Promoted from entry_spec for execution routing
+  entry_mode?: 'execute_now' | 'wait_pullback' | 'push_confirmation'; // Promoted from entry_spec for execution routing — SSOT: EntryMode from alpha-identity.ts
   thesis?: string; // Trade thesis type (momentum_scalp, liquidity_sweep_reversal, etc.)
   style_intent?: string; // Style intent (SCALP, MICRO_INTRADAY, INTRADAY)
   execution_preference?: string; // Execution preference (IMMEDIATE, WAIT_PULLBACK, WAIT_CONFIRMATION)
@@ -3103,9 +3103,9 @@ ${scalpSignal.momentumPhase === 'exhausted'
 }
 
 ${scalpSignal.scalpSubMode === 'pullback_entry'
-  ? `PULLBACK ENTRY RULE: Do NOT enter during the retrace. If pullback completion is not confirmed by a continuation candle on M5, use WAIT_ENTRY — not EXECUTE_NOW. Entering mid-retrace is the #1 scalp failure mode.`
+  ? `PULLBACK ENTRY RULE: Do NOT enter during the retrace. If pullback completion is not confirmed by a continuation candle on M5, use wait_pullback — not execute_now. Entering mid-retrace is the #1 scalp failure mode.`
   : scalpSignal.scalpSubMode === 'consolidation_breakout'
-    ? `CONSOLIDATION BREAKOUT RULE: A candle BODY close outside the compression range is required. A wick touch is NOT a breakout. If body close has not occurred, use WAIT_ENTRY.`
+    ? `CONSOLIDATION BREAKOUT RULE: A candle BODY close outside the compression range is required. A wick touch is NOT a breakout. If body close has not occurred, use wait_pullback.`
     : `MOMENTUM CONTINUATION: Fresh directional move. Enter on the breakout or within the first 1-2 candle pullback.`
 }
 
@@ -4354,7 +4354,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
           style_intent: styleIntent || undefined,
           execution_preference: executionPreference || undefined,
           acceptable_profit_range: acceptableProfitRange || undefined,
-          entry_mode: entryMode as 'EXECUTE_NOW' | 'WAIT_ENTRY' | 'WAIT_HIGHER_EDGE' | undefined,
+          entry_mode: entryMode as 'execute_now' | 'wait_pullback' | 'push_confirmation' | undefined,
         entry_spec: {
             entry_quality_score: entryQualityScore,
             entry_mode: entryMode,
@@ -4612,7 +4612,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
         style_intent: styleIntent || undefined,
         execution_preference: executionPreference || undefined,
         acceptable_profit_range: acceptableProfitRange || undefined,
-        entry_mode: entryMode as 'EXECUTE_NOW' | 'WAIT_ENTRY' | 'WAIT_HIGHER_EDGE' | undefined,
+        entry_mode: entryMode as 'execute_now' | 'wait_pullback' | 'push_confirmation' | undefined,
         entry_spec: {
           entry_quality_score: entryQualityScore,
           entry_mode: entryMode,

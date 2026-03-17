@@ -228,7 +228,7 @@ export function GlobalDialogProvider({ children }: { children: React.ReactNode }
           isOpen={true}
           symbol={currentDialog.data.symbol || ''}
           direction={currentDialog.data.direction || 'long'}
-          entryMode={(currentDialog.data.entry_mode as AlphaEntryMode) || 'WAIT_ENTRY'}
+          entryMode={(currentDialog.data.entry_mode as AlphaEntryMode) || 'wait_pullback'}
           pullbackZoneMin={currentDialog.data.pullback_zone_min ?? null}
           pullbackZoneMax={currentDialog.data.pullback_zone_max ?? null}
           confidence={currentDialog.data.confidence ?? null}

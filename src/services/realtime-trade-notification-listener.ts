@@ -226,7 +226,7 @@ class RealtimeTradeNotificationListener {
           globalDialogManager.showAlphaIntent({
             symbol: notification.metadata?.symbol,
             direction: notification.metadata?.direction === 'short' ? 'short' : 'long',
-            entry_mode: notification.metadata?.entry_mode || 'WAIT_ENTRY',
+            entry_mode: notification.metadata?.entry_mode || 'wait_pullback',
             pullback_zone_min: notification.metadata?.pullback_zone_min ?? null,
             pullback_zone_max: notification.metadata?.pullback_zone_max ?? null,
             confidence: notification.metadata?.confidence ?? null,

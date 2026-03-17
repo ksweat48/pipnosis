@@ -6,13 +6,13 @@
  *
  * CCIP COMPLIANCE (2026-02-22):
  * - Advisory only — never blocks or executes trades
- * - Three modes mirror the entry_mode field in entry_intents (SSOT)
+ * - Three entry modes mirror the entry_mode field in entry_intents (SSOT: alpha-identity.ts EntryMode)
  * - Execution continues autonomously; this is purely informational
  *
- * Three display modes:
- *   EXECUTE_NOW       — Trade executing immediately (entry_mode = 'immediate')
- *   WAIT_ENTRY        — Alpha waiting for pullback to zone
- *   WAIT_HIGHER_EDGE  — Alpha waiting for higher-edge conditions
+ * Three entry modes (canonical values from EntryMode type):
+ *   execute_now       — Trigger confirmed; trade executes immediately
+ *   wait_pullback     — Alpha waiting for price to retrace into zone
+ *   push_confirmation — Alpha waiting for M5 candle close inside zone
  */
 
 import React from 'react';
@@ -21,7 +21,7 @@ import {
   Target, CheckCircle, AlertCircle, X
 } from 'lucide-react';
 
-export type AlphaEntryMode = 'EXECUTE_NOW' | 'WAIT_ENTRY' | 'WAIT_HIGHER_EDGE';
+export type AlphaEntryMode = 'execute_now' | 'wait_pullback' | 'push_confirmation';
 
 export interface AlphaIntentModalProps {
   isOpen: boolean;
@@ -60,7 +60,7 @@ interface ModeConfig {
 
 function getModeConfig(entryMode: AlphaEntryMode): ModeConfig {
   switch (entryMode) {
-    case 'EXECUTE_NOW':
+    case 'execute_now':
       return {
         badge: 'EXECUTING NOW',
         badgeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
@@ -70,9 +70,9 @@ function getModeConfig(entryMode: AlphaEntryMode): ModeConfig {
         title: 'Trade Found',
         borderClass: 'border-emerald-500/30',
       };
-    case 'WAIT_HIGHER_EDGE':
+    case 'push_confirmation':
       return {
-        badge: 'WAIT — HIGHER EDGE',
+        badge: 'WAIT — ZONE CONFIRMATION',
         badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
         headerClass: 'from-amber-900/30 to-gray-900/60',
         iconBgClass: 'bg-amber-500/15',
@@ -80,7 +80,7 @@ function getModeConfig(entryMode: AlphaEntryMode): ModeConfig {
         title: 'Trade Found',
         borderClass: 'border-amber-500/30',
       };
-    case 'WAIT_ENTRY':
+    case 'wait_pullback':
     default:
       return {
         badge: 'WAIT — PULLBACK',
@@ -110,7 +110,7 @@ export const AlphaIntentModal: React.FC<AlphaIntentModalProps> = ({
 
   const config = getModeConfig(entryMode);
   const dirLabel = DIRECTION_LABELS[direction] || direction.toUpperCase();
-  const hasPullbackZone = entryMode === 'WAIT_ENTRY' && pullbackZoneMin != null && pullbackZoneMax != null;
+  const hasPullbackZone = entryMode === 'wait_pullback' && pullbackZoneMin != null && pullbackZoneMax != null;
 
   return (
     <div
@@ -176,7 +176,7 @@ export const AlphaIntentModal: React.FC<AlphaIntentModalProps> = ({
             )}
           </div>
 
-          {entryMode === 'EXECUTE_NOW' && (
+          {entryMode === 'execute_now' && (
             <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-emerald-900/20 border border-emerald-500/25">
               <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
               <p className="text-sm text-emerald-200 leading-snug">
@@ -185,7 +185,7 @@ export const AlphaIntentModal: React.FC<AlphaIntentModalProps> = ({
             </div>
           )}
 
-          {entryMode === 'WAIT_ENTRY' && (
+          {entryMode === 'wait_pullback' && (
             <div className="space-y-2.5">
               <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg bg-blue-900/15 border border-blue-500/25">
                 <Clock className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
@@ -208,11 +208,11 @@ export const AlphaIntentModal: React.FC<AlphaIntentModalProps> = ({
             </div>
           )}
 
-          {entryMode === 'WAIT_HIGHER_EDGE' && (
+          {entryMode === 'push_confirmation' && (
             <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg bg-amber-900/15 border border-amber-500/25">
               <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
               <p className="text-sm text-amber-200 leading-snug">
-                Alpha identified a setup but is waiting for higher-edge conditions before committing.
+                Alpha requires price to push into the zone and an M5 candle close inside it to confirm.
               </p>
             </div>
           )}

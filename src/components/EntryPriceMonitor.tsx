@@ -303,14 +303,13 @@ const AlphaEntryAdvisoryView: React.FC<AlphaEntryAdvisoryViewProps> = ({
   const alphaConfidence = intent.alpha_confidence || intent.market_context?.confidence || null;
   const style = intent.style || intent.market_context?.style || 'SCALP';
 
-  const entryMode: string = intent.entry_mode || 'WAIT_ENTRY';
+  const entryMode: string = intent.entry_mode || 'wait_pullback';
   const intentMode: string = intent.intent_mode || 'pullback_to_zone';
-  const isPushConfirmMode = intentMode === 'push_confirmation_zone';
-  const isWaitHigherEdge = entryMode === 'WAIT_HIGHER_EDGE';
+  const isPushConfirmMode = intentMode === 'push_confirmation_zone' || entryMode === 'push_confirmation';
   const m5Confirmed: boolean = intent.m5_candle_close_confirmed ?? false;
 
   const verdict = advisory?.verdict || 'GOOD_ENTRY';
-  const isPullbackExpected = !isWaitHigherEdge && !isPushConfirmMode && (verdict === 'PULLBACK_EXPECTED' || verdict === 'WAIT_FOR_PULLBACK');
+  const isPullbackExpected = !isPushConfirmMode && (verdict === 'PULLBACK_EXPECTED' || verdict === 'WAIT_FOR_PULLBACK');
   const pullbackZoneMin = advisory?.pullback_zone_min ?? intent.entry_zone_min ?? null;
   const pullbackZoneMax = advisory?.pullback_zone_max ?? intent.entry_zone_max ?? null;
 

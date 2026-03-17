@@ -1150,7 +1150,7 @@ class GoalSessionLiveEngine {
             tradeConfidence: decision.confidence || 0,
             eqsNow: decision.entryQualityScore || 40,
             eqsRequired: 40,
-            entryMode: decision.entryMode === 'immediate' ? 'EXECUTE_NOW' : 'WAIT_ENTRY',
+            entryMode: decision.entryMode === 'immediate' ? 'EXECUTE_NOW' : 'WAIT_ENTRY', // TPS internal classification (separate from AlphaEntryMode)
             minutesSinceSignal: 0,
             momentumState: 'NEUTRAL' as const,
             eqsProjected: undefined,
@@ -2627,12 +2627,11 @@ class GoalSessionLiveEngine {
    *
    * Determines whether Alpha's trade should execute IMMEDIATELY or be routed
    * to MONITORED (entry intent) mode.  Reads the user's
-   * entry_price_monitor_enabled toggle once and checks all four wait variants
-   * that Alpha may signal:
+   * entry_price_monitor_enabled toggle once and checks all three wait variants
+   * that Alpha may signal (canonical EntryMode values from alpha-identity.ts):
    *   - wait_condition present
-   *   - entry_mode === 'WAIT_ENTRY'
-   *   - entry_mode === 'WAIT_HIGHER_EDGE'
-   *   - entry_mode === 'PUSH_CONFIRM'
+   *   - entry_mode === 'wait_pullback'
+   *   - entry_mode === 'push_confirmation'
    *
    * CCIP: This function is the ONLY place that reads user_monitor_preferences.
    * Neither processMultiSymbolCycle nor handleNewTradeSignal may perform their
@@ -2650,9 +2649,8 @@ class GoalSessionLiveEngine {
   ): Promise<{ executionMode: 'IMMEDIATE' | 'MONITORED'; entryMonitorGateActive: boolean }> {
     const alphaWantsToWait =
       alphaDecision.wait_condition != null
-      || alphaDecision.entry_mode === 'WAIT_ENTRY'
-      || alphaDecision.entry_mode === 'WAIT_HIGHER_EDGE'
-      || alphaDecision.entry_mode === 'PUSH_CONFIRM';
+      || alphaDecision.entry_mode === 'wait_pullback'
+      || alphaDecision.entry_mode === 'push_confirmation';
 
     if (!alphaWantsToWait) {
       return { executionMode: 'IMMEDIATE', entryMonitorGateActive: false };
