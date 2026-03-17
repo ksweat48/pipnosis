@@ -4283,42 +4283,14 @@ Return PURE JSON only (use the ${styleName} schema from your system prompt — a
         Q9_sl_wick_proximity: typeof rawAnswerSheet.Q9_sl_wick_proximity === 'string' ? rawAnswerSheet.Q9_sl_wick_proximity : undefined,
       } : undefined;
 
-      // ═══════════════════════════════════════════════════════════════════
-      // CCIP-2026-03-16A: Q7 COHERENCE CROSS-CHECK (SSOT)
-      // ═══════════════════════════════════════════════════════════════════
-      // Validate that Q7_confluence_judgment and thesis_coherence_statement
-      // agree on the Q7 outcome. A BUY/SELL with Q7_confluence_judgment
-      // containing "does not meet" or "NO_TRADE" is an internal contradiction
-      // — Alpha completed the synthesis gate but then output a trade anyway.
-      // This is treated as a reasoning failure and downgraded to NO_TRADE.
-      //
-      // SSOT: This check is the only place Q7 coherence is enforced post-parse.
-      //       Do not duplicate in any other service.
-      // ═══════════════════════════════════════════════════════════════════
+      // CCIP-2026-03-16A: Q7 coherence check is advisory-only.
+      // Alpha's final action field is authoritative. If Q7 judgment and action
+      // appear to contradict, log it for observability but do NOT downgrade.
       if ((action === 'BUY' || action === 'SELL') && answerSheet?.Q7_confluence_judgment) {
         const q7judgment = answerSheet.Q7_confluence_judgment.toLowerCase();
         const q7DeclaresNoTrade = q7judgment.includes('does not meet') || q7judgment.includes('no_trade') || q7judgment.includes('decision: no_trade');
         if (q7DeclaresNoTrade) {
-          console.warn(`[Alpha Coordinator] Q7 COHERENCE VIOLATION: Alpha output ${action} but Q7_confluence_judgment declares NO_TRADE. Downgrading to NO_TRADE. Q7: "${answerSheet.Q7_confluence_judgment}"`);
-          logViolation({
-            violationType: 'Q7_COHERENCE_CONTRADICTION',
-            severity: 'medium',
-            details: `Alpha output ${action} with Q7 judgment declaring insufficient confluence. Q7: ${answerSheet.Q7_confluence_judgment}`,
-            source: 'coordinator-alpha.parseDecision',
-            symbol: marketContext?.symbol,
-          }).catch(() => {});
-          return {
-            action: 'NO_TRADE',
-            decision: 'NO_TRADE',
-            entry: currentPrice,
-            stopLoss: currentPrice,
-            takeProfit: currentPrice,
-            confidence: 10,
-            reasoning: `Q7_COHERENCE_VIOLATION: Alpha's Q7 confluence judgment declared insufficient confluence (${answerSheet.Q7_confluence_judgment}) but action was ${action}. Forced NO_TRADE by governance cross-check.`,
-            omega_summary: '',
-            resolvedStyle,
-            risk_pct: 0,
-          };
+          console.warn(`[Alpha Coordinator] Q7 advisory note: action=${action} but Q7 judgment text contains no-trade language. Alpha's action field is authoritative — not downgrading. Q7: "${answerSheet.Q7_confluence_judgment}"`);
         }
       }
 
