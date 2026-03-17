@@ -1909,7 +1909,11 @@ class AlphaTradeExecutor {
     // SSOT: AlphaDecision.patternIntelligence shape defined in coordinator-alpha.ts (interface).
     const patternIntelligence = decision.patternIntelligence;
     const midTradePlan = buildMidTradePlan({
-      reasoning: decision.reasoning || '',
+      reasoning: typeof decision.reasoning === 'string'
+        ? decision.reasoning
+        : (decision.reasoning && typeof (decision.reasoning as any).thesis_why === 'string'
+            ? (decision.reasoning as any).thesis_why
+            : JSON.stringify(decision.reasoning) || ''),
       entryPrice,
       stopLoss: finalSL,
       takeProfit: finalTP,

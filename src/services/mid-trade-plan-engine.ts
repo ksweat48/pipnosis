@@ -114,19 +114,24 @@ function extractKeySignalsFromReasoning(reasoning: string): {
   structure: string | null;
   confluence: string | null;
 } {
-  const lower = reasoning.toLowerCase();
+  const reasoningStr = typeof reasoning === 'string'
+    ? reasoning
+    : (reasoning && typeof (reasoning as any).thesis_why === 'string'
+        ? (reasoning as any).thesis_why
+        : JSON.stringify(reasoning) || '');
+  const lower = reasoningStr.toLowerCase();
 
-  const momentumMatch = reasoning.match(/momentum\s+is\s+([\w\s]+?)[\.,;]/i)
-    || reasoning.match(/(strong|bullish|bearish|positive|negative|increasing|decreasing)\s+momentum/i);
-  const emaMatch = reasoning.match(/ema[s]?\s+(?:is\s+)?(?:at\s+|around\s+)?([\d.]+)/i)
-    || reasoning.match(/price\s+(?:is\s+)?(?:above|below)\s+(?:the\s+)?ema/i);
-  const rsiMatch = reasoning.match(/rsi\s+(?:is\s+)?(?:at\s+)?([\d.]+)/i)
-    || reasoning.match(/(?:over|over-?sold|overbought|over-?bought)\s+(?:at\s+)?([\d.]+)?/i);
-  const structureMatch = reasoning.match(/(?:break\s+of\s+structure|bos|market\s+structure)\s+(?:on\s+the\s+)?([\w\s]+?(?:timeframe|tf|frame))/i)
-    || reasoning.match(/(htf|h4|h1|4h|1h|d1|daily)\s+(?:structure|bias|trend)/i);
-  const confluenceMatch = reasoning.match(/(\d+)\s+(?:out\s+of\s+\d+|of\s+\d+)\s+(?:confirmations?|signals?)/i)
-    || reasoning.match(/(\d+)\s+confluences?/i)
-    || reasoning.match(/(?:multiple|strong)\s+confluence/i);
+  const momentumMatch = reasoningStr.match(/momentum\s+is\s+([\w\s]+?)[\.,;]/i)
+    || reasoningStr.match(/(strong|bullish|bearish|positive|negative|increasing|decreasing)\s+momentum/i);
+  const emaMatch = reasoningStr.match(/ema[s]?\s+(?:is\s+)?(?:at\s+|around\s+)?([\d.]+)/i)
+    || reasoningStr.match(/price\s+(?:is\s+)?(?:above|below)\s+(?:the\s+)?ema/i);
+  const rsiMatch = reasoningStr.match(/rsi\s+(?:is\s+)?(?:at\s+)?([\d.]+)/i)
+    || reasoningStr.match(/(?:over|over-?sold|overbought|over-?bought)\s+(?:at\s+)?([\d.]+)?/i);
+  const structureMatch = reasoningStr.match(/(?:break\s+of\s+structure|bos|market\s+structure)\s+(?:on\s+the\s+)?([\w\s]+?(?:timeframe|tf|frame))/i)
+    || reasoningStr.match(/(htf|h4|h1|4h|1h|d1|daily)\s+(?:structure|bias|trend)/i);
+  const confluenceMatch = reasoningStr.match(/(\d+)\s+(?:out\s+of\s+\d+|of\s+\d+)\s+(?:confirmations?|signals?)/i)
+    || reasoningStr.match(/(\d+)\s+confluences?/i)
+    || reasoningStr.match(/(?:multiple|strong)\s+confluence/i);
 
   return {
     momentum: momentumMatch ? (momentumMatch[1] || momentumMatch[0]).trim() : null,
