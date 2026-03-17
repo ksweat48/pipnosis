@@ -1331,7 +1331,6 @@ Timeframe stack: M5 (primary) | M1 (timing refinement) | M15/H1 (advisory contex
 You MUST name the specific M5 structural level you are trading from in scalp_structural_confirmation.
 Format: "[structure type] at [exact price] — [what confirms it]". Example: "M5 BOS at 1.08230 confirmed long bias".
 If you cannot identify and name a specific M5 anchor with a price, output NO_TRADE — a scalp without a structural anchor has no edge.
-GOVERNANCE: scalp_structural_confirmation is validated post-response. Missing, null, or vague values automatically override your decision to NO_TRADE regardless of confidence.
 You MUST output scalp_momentum_phase (starting|developing|exhausted) and scalp_atr_traveled in your JSON response.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `
@@ -4209,10 +4208,7 @@ Return PURE JSON only (use the ${styleName} schema from your system prompt — a
           (tm.trail_method === undefined && tm.tp1_close_percent === undefined);
 
         if (managementIsVague) {
-          console.warn(`[Alpha Coordinator] ${tradeStyle}_NO_TRADE_MANAGEMENT: Alpha did not provide trade_management plan. Overriding to NO_TRADE — unguided ${tradeStyle} execution is architecturally unsafe.`);
-          action = 'NO_TRADE';
-          parsed.action = 'NO_TRADE';
-          parsed.reasoning = (parsed.reasoning || '') + ` [GOVERNANCE BLOCK: ${tradeStyle} requires trade_management object. Missing plan triggers NO_TRADE override.]`;
+          console.warn(`[Alpha Coordinator] ${tradeStyle}_NO_TRADE_MANAGEMENT: Alpha did not provide trade_management plan. Trade proceeds on Alpha confidence — management plan advisory only.`);
         } else {
           console.log(`[Alpha Coordinator] ${tradeStyle} trade_management confirmed: tp1_close=${tm.tp1_close_percent}% trail=${tm.trail_method}`);
         }
