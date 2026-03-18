@@ -1513,7 +1513,7 @@ export const GoalSessionDashboard: React.FC = () => {
                       )}
                     </div>
 
-                    {/* Current P&L */}
+                    {/* Current P&L + Alpha Target row */}
                     <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -1532,6 +1532,39 @@ export const GoalSessionDashboard: React.FC = () => {
                         </div>
                       </div>
                     </div>
+
+                    {/* Alpha Target — expected profit at TP from lot sizing coordinator (SSOT: expected_profit_for_session) */}
+                    {(() => {
+                      const expectedProfit = trade.expected_profit_for_session;
+                      const riskDollars = trade.risk_dollars;
+                      const impliedRR = trade.implied_rr_ratio;
+                      if (!expectedProfit || expectedProfit <= 0) return null;
+                      const rrLabel = impliedRR != null && impliedRR > 0
+                        ? `${Number(impliedRR).toFixed(1)}:1 R:R`
+                        : null;
+                      return (
+                        <div className="bg-gradient-to-br from-amber-900/20 to-yellow-900/20 rounded-lg p-3 border border-amber-500/30">
+                          <div className="flex items-center justify-between">
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-xs font-semibold text-amber-300">Alpha Target</span>
+                              {rrLabel && (
+                                <span className="text-[10px] text-amber-400/70">{rrLabel}</span>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <div className="text-lg font-bold text-amber-300">
+                                +${expectedProfit.toFixed(0)}
+                              </div>
+                              {riskDollars != null && riskDollars > 0 && (
+                                <div className="text-[10px] text-amber-400/60">
+                                  risking ${riskDollars.toFixed(0)}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}

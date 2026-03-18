@@ -711,6 +711,7 @@ class AlphaTradeExecutor {
         inputs,
         lotSizingDecisionId: lotSizingDecision?.auditRecordId,
         expectedProfitAtTP: lotSizingDecision?.expectedProfitAtTP,
+        impliedRRRatio: lotSizingDecision?.impliedRR,
         lotSizingAuditRecord,
         overextensionEventId,
         canonicalStyle,
@@ -728,6 +729,7 @@ class AlphaTradeExecutor {
         inputs,
         lotSizingDecisionId: lotSizingDecision?.auditRecordId,
         expectedProfitAtTP: lotSizingDecision?.expectedProfitAtTP,
+        impliedRRRatio: lotSizingDecision?.impliedRR,
         lotSizingAuditRecord,
         overextensionEventId,
         canonicalStyle,
@@ -830,6 +832,7 @@ class AlphaTradeExecutor {
     inputs: TradeExecutionInputs;
     lotSizingDecisionId?: string;
     expectedProfitAtTP?: number;
+    impliedRRRatio?: number;
     lotSizingAuditRecord?: any;
     overextensionEventId?: string | null;
     canonicalStyle: CanonicalStyle;
@@ -956,6 +959,7 @@ class AlphaTradeExecutor {
         openedAt: new Date().toISOString(),
         inputs,
         expectedProfitFromCoordinator: params.expectedProfitAtTP,
+        impliedRRRatio: params.impliedRRRatio,
         lotSizingAuditRecord: params.lotSizingAuditRecord,
         executionStopLoss: slTpRecalculated ? executionSL : undefined,
         executionTakeProfit: slTpRecalculated ? executionTP : undefined,
@@ -1198,6 +1202,7 @@ class AlphaTradeExecutor {
     inputs: TradeExecutionInputs;
     lotSizingDecisionId?: string;
     expectedProfitAtTP?: number;
+    impliedRRRatio?: number;
     lotSizingAuditRecord?: any;
     overextensionEventId?: string | null;
     canonicalStyle: CanonicalStyle;
@@ -1271,6 +1276,7 @@ class AlphaTradeExecutor {
         openedAt: null,
         inputs,
         expectedProfitFromCoordinator: params.expectedProfitAtTP,
+        impliedRRRatio: params.impliedRRRatio,
         lotSizingAuditRecord: params.lotSizingAuditRecord,
         canonicalStyle: params.canonicalStyle,
         rawTradeStyle: params.rawTradeStyle,
@@ -1684,6 +1690,7 @@ class AlphaTradeExecutor {
     openedAt: string | null;
     inputs: TradeExecutionInputs;
     expectedProfitFromCoordinator?: number;
+    impliedRRRatio?: number;
     lotSizingAuditRecord?: any;
     executionStopLoss?: number;
     executionTakeProfit?: number;
@@ -1695,7 +1702,7 @@ class AlphaTradeExecutor {
   }): any {
     const {
       decision, userId, sessionId, lotSize, riskDollars, entryPrice, status, openedAt,
-      inputs, expectedProfitFromCoordinator, lotSizingAuditRecord,
+      inputs, expectedProfitFromCoordinator, impliedRRRatio, lotSizingAuditRecord,
       executionStopLoss, executionTakeProfit, executionTP1, executionTP2,
       canonicalStyle, rawTradeStyle, alphaDecisionId
     } = params;
@@ -1844,6 +1851,9 @@ class AlphaTradeExecutor {
       position_size: lotSize,
       risk_dollars: riskDollars,
       expected_profit_for_session: expectedProfit,
+      implied_rr_ratio: (impliedRRRatio !== undefined && Number.isFinite(impliedRRRatio))
+        ? impliedRRRatio
+        : null,
       status,
       order_type: status === 'open' ? 'market' : 'limit',
       opened_at: openedAt,
