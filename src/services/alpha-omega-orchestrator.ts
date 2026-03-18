@@ -52,6 +52,7 @@ import {
   getIntraBatchStaggerMs,
   type MarketSession
 } from '../config/concurrent-execution-config';
+import { ALPHA_IDENTITY } from '../config/alpha-identity';
 import { marketScheduleService } from './market-schedule-service';
 import { calculateSessionContext } from '../utils/marketHours';
 import { deriveMarketPhase } from '../utils/market-phase-deriver';
@@ -924,7 +925,10 @@ class AlphaOmegaOrchestrator {
     imSignalMap?: Map<string, Record<string, unknown>>
   ): Promise<Map<string, AlphaDecision>> {
     const config = getConcurrentExecutionConfig();
-    const minConfidence = goalContext?.minConfidence || config.earlyExit.minConfidenceThreshold;
+    // CCIP-2026-0318A-ADVISORY: minConfidence falls back to ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE (50).
+    // The previous fallback to config.earlyExit.minConfidenceThreshold (was 72) blocked
+    // valid ACCEPTABLE-band (50-69%) trades. SSOT for the structural floor is alpha-identity.ts.
+    const minConfidence = goalContext?.minConfidence ?? ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE;
     const maxConcurrent = config.concurrency.maxConcurrentSymbols || marketStates.length;
 
     // CCIP-MULTI-TRADE-TOP-N: In multi-trade mode ALL symbols must be evaluated so
@@ -1048,7 +1052,8 @@ class AlphaOmegaOrchestrator {
     imSignalMap?: Map<string, Record<string, unknown>>
   ): Promise<Map<string, AlphaDecision>> {
     const config = getConcurrentExecutionConfig();
-    const minConfidence = goalContext?.minConfidence || config.earlyExit.minConfidenceThreshold;
+    // CCIP-2026-0318A-ADVISORY: minConfidence falls back to ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE (50).
+    const minConfidence = goalContext?.minConfidence ?? ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE;
 
     // CCIP-MULTI-TRADE-TOP-N: Same guard as concurrent path — suppress early-exit
     // when multi-trade mode is active so all symbols get evaluated for top-N ranking.

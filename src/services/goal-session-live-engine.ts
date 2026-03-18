@@ -27,6 +27,7 @@ import { TraderScore } from './ai-identity';
 import { calculateDollarPerPip, calculatePipDistance, calculateGoalAwareLotSize, calculateLotSizeFromDollarRisk, calculateAndValidateRR, getCurrencyPipInfo, formatCurrencyPrice } from '../utils/currencyHelpers';
 import { createTradeContext, roundAlphaDecisionPrices } from '../utils/tradeMath';
 import { getRiskPercentage, getMinConfidenceThreshold } from '../config/risk-levels';
+import { ALPHA_IDENTITY } from '../config/alpha-identity';
 import { postTradeAnalyzer } from './post-trade-analyzer';
 import { hasAnyOpenMarket, isSymbolMarketOpen, getEstimationReferenceSymbol, calculateSessionContext } from '../utils/marketHours';
 import { scanResultsManager, type ScanCandidate } from './scan-results-manager';
@@ -1248,10 +1249,11 @@ class GoalSessionLiveEngine {
 
         const topCandidate = allCandidates[0] || null;
         const topCandidateDecision = topCandidate ? filteredDecisions.get(topCandidate.symbol) : null;
+        const minConfidenceGate = config.minConfidence ?? ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE;
         const rejectionReason = selectedWinners.length === 0
           ? 'No symbols passed selection criteria'
-          : (topCandidateDecision && topCandidateDecision.confidence < (config.minConfidence || 70)
-            ? `Confidence ${topCandidateDecision.confidence}% below threshold ${config.minConfidence || 70}%`
+          : (topCandidateDecision && topCandidateDecision.confidence < minConfidenceGate
+            ? `Confidence ${topCandidateDecision.confidence}% below threshold ${minConfidenceGate}%`
             : null);
 
         await scanResultsManager.storeScanResult({
@@ -1425,14 +1427,13 @@ class GoalSessionLiveEngine {
         break;
       }
 
-      const minConfidence = config.minConfidence || 70;
+      // CCIP-2026-0318A-ADVISORY: Gate uses ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE (50) as
+      // the absolute structural floor. The || 70 fallback has been removed — it was above
+      // Alpha's own stated minimum and blocked valid ACCEPTABLE-band (50-69%) trades.
+      // config.minConfidence from the session is preserved; MINIMUM_TRADE_CONFIDENCE is the fallback.
+      const minConfidence = config.minConfidence ?? ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE;
       if (decision.confidence < minConfidence) {
-        const rejectionMessage = `⚠️ Trade opportunity found but rejected:\n\n` +
-          `🎯 Symbol: ${selectedSymbol}\n` +
-          `📊 Direction: ${decision.action}\n` +
-          `🔍 Confidence: ${decision.confidence}%\n` +
-          `⛔ Required: ${minConfidence}%\n\n` +
-          `Waiting for stronger signals (${config.riskMode.toUpperCase()} risk mode).`;
+        const rejectionMessage = `Trade reviewed — confidence ${decision.confidence}% below structural minimum ${minConfidence}% for ${selectedSymbol} ${decision.action}. No structural basis — scanning next cycle.`;
 
         await this.sendAIMessage(rejectionMessage);
         logger.info(LogCategory.AI_TRADING, `Trade rejected: ${selectedSymbol} ${decision.action} @ ${decision.confidence}% < ${minConfidence}%`);

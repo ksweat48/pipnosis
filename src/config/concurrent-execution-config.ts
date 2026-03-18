@@ -364,11 +364,18 @@ export const CONCURRENT_EXECUTION_CONFIG: ConcurrentExecutionConfig = {
 
   earlyExit: {
     enabled: true,
-    // CCIP-2026-03-11: Raised 60→72. At 60% the threshold was rarely met cleanly, causing
-    // all 9 symbols to be evaluated even when a strong signal existed in batch 1.
-    // At 72% a clear high-confidence signal terminates the batch immediately, cutting
-    // scan time from 3 full batches to 1 batch when a strong trade is present.
-    minConfidenceThreshold: 72,
+    // CCIP-2026-0318A-ADVISORY: Lowered 72→50 to align with ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE.
+    // CCIP-2026-03-11 raised this to 72 to optimize scan speed by early-exiting after
+    // a high-confidence signal. However at 72% the early-exit rarely triggered on ACCEPTABLE
+    // (50-69%) trades, causing all 9 symbols to always be evaluated even when a valid trade
+    // existed in batch 1. This is correct behavior for opportunity-seeking — all 9 symbols
+    // should be evaluated so the best available opportunity is found, not just the first
+    // one that clears a high threshold. Setting to 50 means: any structurally valid trade
+    // (50%+) triggers early exit. We want the BEST trade, not just the first acceptable one,
+    // so in multi-trade mode early-exit is already disabled (earlyExitAllowed = false when
+    // multiTradeMode=true). In single-trade mode, early-exit at 50 is correct — we stop
+    // scanning once we have confirmed the best available signal.
+    minConfidenceThreshold: 50,
     gracePeriodSymbols: 0,
   },
 

@@ -3212,17 +3212,27 @@ Use the ACTIVE ATR value above for all move stage calculations in this scan cycl
     //   The user prompt holds only dynamic per-symbol market data.
     // ═══════════════════════════════════════════════════════════════════
 
-    // CCIP-2026-0317A: Professional Reasoning Contract — user prompt context section.
+    // CCIP-2026-0318A-ADVISORY: Opportunity-Seeker Mandate — replaces CCIP-2026-0317A "capital
+    // preservation" philosophy. Alpha's standard is finding and executing the best available
+    // opportunity every scan cycle. An ACCEPTABLE setup (50-69% confidence) with structural
+    // basis and correct RR is a valid trade. NOT executing on a valid setup is a scan failure.
     // SSOT: System prompt (alpha-identity.ts) carries Alpha's identity and reasoning framework.
-    // This section provides per-scan context: streak, advisory designations, hard block list.
-    // The "find a trade" bias has been removed. Alpha's standard is capital preservation
-    // through high-probability execution — not scan utilization.
+    // This section provides per-scan context: streak, advisory designations, hard block list,
+    // confidence bands, and the active-scan mandate.
     const prompt = `${styleIdentityPrompt}
 ${cachedThesisPrompt}
 ${atrLegendPrompt}
 SCAN CONTEXT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${streakContextLine}
+
+SCAN MANDATE: My job is to find the best available opportunity across all symbols this cycle. An ACCEPTABLE setup (50-69% confidence) with a named structural anchor and correct RR is a valid trade — it is what regular traders miss and I find. Returning NO_TRADE on every symbol when at least one shows 50%+ structural evidence is a scan failure. I look harder before I conclude there is nothing there.
+
+CONFIDENCE BANDS (for this scan):
+- EXCELLENT (85-100%): Execute with maximum conviction
+- SOLID (70-84%): Execute with standard sizing
+- ACCEPTABLE (50-69%): Execute — this is the hidden gem category
+- INSUFFICIENT (0-49%): Genuine NO_TRADE — no structural basis
 
 I read macro intelligence first, then interpret candle evidence through that lens. My system prompt defines how I think. What follows is the market data for this scan.
 

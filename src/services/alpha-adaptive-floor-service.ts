@@ -1,35 +1,37 @@
 /**
- * Alpha Adaptive Confidence Floor Service — SSOT
+ * Alpha Adaptive Confidence Floor Service — SSOT (ADVISORY ONLY)
  *
- * CCIP-2026-0308A: Bidirectional Floor Authority
+ * CCIP-2026-0318A-ADVISORY: Threshold Advisory — No Hard Gates
  *
- * This is the SINGLE authority for reading, computing, and persisting
- * adjustments to Alpha's adaptive confidence floor.
+ * This service computes Alpha's ADVISORY confidence suggestion based on
+ * historical calibration data. It is NOT an execution gate.
  *
  * ARCHITECTURE:
  * - Reads calibration data from alpha_confidence_calibration (per user, per bucket)
- * - Computes whether the floor should move up OR down based on calibration error
- * - Enforces hard rails from ADAPTIVE_FLOOR_RAILS (alpha-identity.ts SSOT)
- * - Persists every adjustment to alpha_confidence_floor_adjustments (audit trail)
- * - Updates goal_sessions.adaptive_confidence_floor (live session floor)
+ * - Computes whether the advisory suggestion should move up OR down
+ * - Enforces advisory suggestion rails from ADAPTIVE_FLOOR_RAILS (alpha-identity.ts SSOT)
+ * - Persists every suggestion update to alpha_confidence_floor_adjustments (audit trail)
+ * - Updates goal_sessions.adaptive_confidence_floor (stored for display/context only)
  *
- * BIDIRECTIONAL LOGIC:
- * - DOWN: Bucket actual_win_rate > predicted_win_rate + threshold
- *   Alpha was TOO restrictive. He was predicting worse than reality.
- *   Lower the floor to allow more trades at that level.
- *   Required sample: SAMPLE_SIZE_THRESHOLD_DOWN (10 trades)
+ * GOVERNANCE:
+ * We are in the experimentation phase. We do not know Alpha's true quality threshold
+ * yet. The advisory suggestion is passed to Alpha as self-knowledge context in the
+ * prompt: "Based on N trades, your win rate at X%+ confidence is Y%."
+ * Alpha reads this as one data point and self-calibrates. Code never enforces it.
  *
- * - UP: Bucket actual_win_rate < predicted_win_rate - threshold
- *   Alpha was TOO permissive. He was predicting better than reality.
- *   Raise the floor to stop accepting trades at that level.
- *   Required sample: SAMPLE_SIZE_THRESHOLD_UP (15 trades — asymmetric protection)
+ * BIDIRECTIONAL ADVISORY LOGIC:
+ * - DOWN suggestion: Bucket actual_win_rate > predicted → Alpha can be less selective
+ * - UP suggestion: Bucket actual_win_rate < predicted → Alpha should be more selective
+ * Both are suggestions passed as prompt context. Neither blocks trade execution.
  *
- * HARD RAILS (from alpha-identity.ts ADAPTIVE_FLOOR_RAILS):
- * - Hard min: 50% — floor can never go below this
- * - Hard max: 75% — floor can never go above this
- * - Step: 5 points per adjustment — no erratic jumps
+ * ADVISORY RAILS (from alpha-identity.ts ADAPTIVE_FLOOR_RAILS):
+ * - Advisory min: 50% — suggestion never goes below structural minimum
+ * - Advisory max: 75% — suggestion never goes above this (prevents lockout advice)
+ * - Step: 5 points per suggestion update
  *
- * NO OTHER FILE may adjust the floor. All floor writes route through here.
+ * NO CODE PATH may use the output of this service as a hard block condition.
+ * getAdvisoryContext() is the primary method for callers — it returns a prompt
+ * context string, never a numeric gate.
  */
 
 import { supabase } from '../lib/supabase';
@@ -277,15 +279,56 @@ class AlphaAdaptiveFloorService {
   }
 
   /**
-   * Get the floor for a session, trigger evaluation, and return the
-   * resolved floor ready for use in confidence gating.
+   * Get the advisory floor for a session, trigger evaluation, and return the
+   * resolved advisory suggestion.
    *
-   * This is the primary entry point for callers that need the live floor
-   * before running a scan or executing a trade.
+   * CCIP-2026-0318A-ADVISORY: This returns an advisory suggestion value only.
+   * The returned number MUST NOT be used as a hard execution gate.
+   * Callers should use getAdvisoryContext() to get the prompt context string.
+   * This method is retained for backward compatibility with display/logging callers.
    */
   async getResolvedFloor(userId: string, sessionId: string): Promise<number> {
     const currentFloor = await this.getSessionFloor(sessionId);
     return this.applyAdjustment(userId, sessionId, currentFloor);
+  }
+
+  /**
+   * PRIMARY ENTRY POINT — CCIP-2026-0318A-ADVISORY
+   *
+   * Returns a prompt context string describing Alpha's advisory confidence
+   * suggestion based on calibration data. This is passed to Alpha as
+   * self-knowledge, not as a gate.
+   *
+   * Returns null if insufficient calibration data exists (< SAMPLE_SIZE_THRESHOLD_DOWN trades).
+   * Callers should only include this in the prompt when it is non-null.
+   */
+  async getAdvisoryContext(userId: string, sessionId: string): Promise<string | null> {
+    try {
+      const buckets = await this.getCalibrationBuckets(userId);
+
+      const sufficientBuckets = buckets.filter(
+        b => b.sample_size >= ADAPTIVE_FLOOR_RAILS.SAMPLE_SIZE_THRESHOLD_DOWN
+      );
+
+      if (sufficientBuckets.length === 0) {
+        return null;
+      }
+
+      const currentFloor = await this.getSessionFloor(sessionId);
+      const evaluation = await this.evaluateFloorAdjustment(userId, currentFloor);
+
+      const totalTrades = sufficientBuckets.reduce((sum, b) => sum + b.sample_size, 0);
+      const suggestedThreshold = evaluation.new_floor;
+
+      const bestBucket = sufficientBuckets.reduce(
+        (best, b) => b.actual_win_rate > best.actual_win_rate ? b : best,
+        sufficientBuckets[0]
+      );
+
+      return `ALPHA PERFORMANCE ADVISORY (self-knowledge, not a gate): Based on ${totalTrades} completed trades, your historical win rate at ${bestBucket.confidence_bucket}%+ confidence is ${bestBucket.actual_win_rate.toFixed(1)}%. Calibration data suggests ${suggestedThreshold}% as a quality reference point for your reasoning. This is context — your minimum structural floor remains 50%. An ACCEPTABLE setup (50-69%) with named structure and correct RR is always a valid trade.`;
+    } catch {
+      return null;
+    }
   }
 
   // ─── Private helpers ────────────────────────────────────────────────────────
