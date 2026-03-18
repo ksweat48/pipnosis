@@ -65,6 +65,18 @@ export interface MidTradeGuidance {
   // Session context
   goalSessionId: string;
 
+  // Alpha mid-trade re-analysis verdict (populated from thesis_status / alpha_recheck_verdict on trade)
+  alphaRecheck?: {
+    verdict: 'HOLD' | 'CLOSE_NOW' | 'TAKE_PARTIAL' | 'TRAIL_SL';
+    thesisStatus: 'INTACT' | 'WEAKENING' | 'INVALIDATED';
+    confidence: number;
+    userMessage: string;
+    alphaReasoning: string;
+    triggerType: string;
+    checkedAt: string;
+    urgency: 'critical' | 'high' | 'medium' | 'low';
+  } | null;
+
   // Alpha pre-trade answer sheet (read-only, parsed from alpha_reasoning_snapshot)
   answerSheet?: {
     Q1_trend_alignment: string;
@@ -289,6 +301,36 @@ class MidTradeMonitorService {
           }
         }
 
+        // Parse alpha_recheck_verdict from trade (set by server-side wellness monitor)
+        let alphaRecheck: MidTradeGuidance['alphaRecheck'] = null;
+        if (trade.alpha_recheck_verdict && trade.thesis_status && trade.last_alpha_recheck_at) {
+          try {
+            const raw = typeof trade.alpha_recheck_verdict === 'string'
+              ? JSON.parse(trade.alpha_recheck_verdict)
+              : trade.alpha_recheck_verdict;
+            if (raw && raw.verdict) {
+              const urgencyMap: Record<string, 'critical' | 'high' | 'medium' | 'low'> = {
+                CLOSE_NOW: 'critical',
+                TAKE_PARTIAL: 'high',
+                TRAIL_SL: 'medium',
+                HOLD: 'low',
+              };
+              alphaRecheck = {
+                verdict: raw.verdict,
+                thesisStatus: trade.thesis_status as 'INTACT' | 'WEAKENING' | 'INVALIDATED',
+                confidence: raw.confidence ?? 70,
+                userMessage: raw.user_message || raw.userMessage || '',
+                alphaReasoning: raw.alpha_reasoning || raw.alphaReasoning || '',
+                triggerType: raw.trigger_type || raw.triggerType || '',
+                checkedAt: trade.last_alpha_recheck_at,
+                urgency: urgencyMap[raw.verdict] ?? 'low',
+              };
+            }
+          } catch {
+            // Non-parseable — skip
+          }
+        }
+
         // SSOT: Deterministic trigger evaluation — zero LLM calls
         const evaluation: TriggerEvaluation = evaluateAllTriggers(
           trade as GoalSessionTrade,
@@ -354,6 +396,7 @@ class MidTradeMonitorService {
           trailingSLOptions: evaluation.trailingSLOptions,
           midTradePlan,
           answerSheet,
+          alphaRecheck,
           priceAgeSeconds,
           isPriceFresh: isFresh,
           stalePriceWarning,

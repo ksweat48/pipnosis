@@ -14,7 +14,8 @@ import {
   Copy,
   Clock,
   Zap,
-  Brain
+  Brain,
+  XCircle
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { midTradeMonitorService, type MidTradeGuidance } from '@/services/mid-trade-monitor-service';
@@ -443,6 +444,164 @@ const ScalpIntelligenceBar: React.FC<{ plan: import('@/services/mid-trade-plan-e
   );
 };
 
+const THESIS_STATUS_CONFIG = {
+  INTACT: {
+    label: 'Thesis Intact',
+    classes: 'text-emerald-400 bg-emerald-500/15 border-emerald-500/30',
+    dot: 'bg-emerald-400',
+  },
+  WEAKENING: {
+    label: 'Weakening',
+    classes: 'text-amber-400 bg-amber-500/15 border-amber-500/30',
+    dot: 'bg-amber-400',
+  },
+  INVALIDATED: {
+    label: 'Invalidated',
+    classes: 'text-red-400 bg-red-500/15 border-red-500/30',
+    dot: 'bg-red-400',
+  },
+};
+
+const VERDICT_CONFIG = {
+  HOLD: {
+    label: 'Hold',
+    icon: <CheckCircle className="w-4 h-4" />,
+    cardClasses: 'border-emerald-500/30 bg-emerald-900/20',
+    textColor: 'text-emerald-400',
+    headerBg: 'bg-emerald-900/30',
+  },
+  CLOSE_NOW: {
+    label: 'Close Now',
+    icon: <XCircle className="w-4 h-4" />,
+    cardClasses: 'border-red-500/40 bg-red-900/25',
+    textColor: 'text-red-400',
+    headerBg: 'bg-red-900/40',
+  },
+  TAKE_PARTIAL: {
+    label: 'Take Partial',
+    icon: <Target className="w-4 h-4" />,
+    cardClasses: 'border-amber-500/40 bg-amber-900/25',
+    textColor: 'text-amber-400',
+    headerBg: 'bg-amber-900/30',
+  },
+  TRAIL_SL: {
+    label: 'Trail SL',
+    icon: <Shield className="w-4 h-4" />,
+    cardClasses: 'border-sky-500/30 bg-sky-900/20',
+    textColor: 'text-sky-400',
+    headerBg: 'bg-sky-900/30',
+  },
+};
+
+const AlphaRecheckPanel: React.FC<{ guide: MidTradeGuidance }> = ({ guide }) => {
+  const [expanded, setExpanded] = useState(false);
+  const recheck = guide.alphaRecheck;
+
+  if (!recheck) return null;
+
+  const verdictCfg = VERDICT_CONFIG[recheck.verdict] ?? VERDICT_CONFIG.HOLD;
+  const thesisCfg = THESIS_STATUS_CONFIG[recheck.thesisStatus] ?? THESIS_STATUS_CONFIG.INTACT;
+
+  const checkedAt = recheck.checkedAt
+    ? (() => {
+        const diffMs = Date.now() - new Date(recheck.checkedAt).getTime();
+        const mins = Math.floor(diffMs / 60000);
+        if (mins < 1) return 'just now';
+        if (mins < 60) return `${mins}m ago`;
+        return `${Math.floor(mins / 60)}h ${mins % 60}m ago`;
+      })()
+    : null;
+
+  const isCritical = recheck.verdict === 'CLOSE_NOW';
+  const isActionable = recheck.verdict !== 'HOLD';
+
+  return (
+    <div className={`mt-2 rounded-lg border overflow-hidden ${verdictCfg.cardClasses}`}>
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className={`w-full flex items-center justify-between px-3 py-2.5 ${verdictCfg.headerBg} transition-colors hover:brightness-110`}
+        aria-expanded={expanded}
+      >
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+          <Brain className={`w-3.5 h-3.5 flex-shrink-0 ${verdictCfg.textColor}`} />
+          <span className={`text-xs font-bold flex-shrink-0 ${verdictCfg.textColor}`}>
+            Alpha Re-Analysis
+          </span>
+
+          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 flex-shrink-0 ${verdictCfg.textColor} border-current bg-transparent`}>
+            {verdictCfg.icon}
+            {verdictCfg.label}
+          </span>
+
+          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border flex items-center gap-1 flex-shrink-0 ${thesisCfg.classes}`}>
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${thesisCfg.dot}`} />
+            {thesisCfg.label}
+          </span>
+
+          {isCritical && (
+            <span className="text-[10px] font-bold text-red-300 bg-red-900/60 border border-red-500/50 px-1.5 py-0.5 rounded animate-pulse flex-shrink-0">
+              ACTION NEEDED
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 ml-2 flex-shrink-0">
+          {checkedAt && (
+            <span className="text-[10px] text-gray-500 hidden sm:block">{checkedAt}</span>
+          )}
+          {expanded ? (
+            <ChevronUp className="w-3.5 h-3.5 text-gray-500" />
+          ) : (
+            <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
+          )}
+        </div>
+      </button>
+
+      {!expanded && isActionable && (
+        <div className="px-3 py-2">
+          <p className="text-xs text-gray-300 leading-relaxed line-clamp-2">
+            {recheck.userMessage}
+          </p>
+        </div>
+      )}
+
+      {expanded && (
+        <div className="divide-y divide-gray-700/30">
+          <div className="px-3 py-2.5">
+            <p className="text-xs text-gray-200 leading-relaxed">{recheck.userMessage}</p>
+          </div>
+
+          <div className="px-3 py-2 grid grid-cols-3 gap-2">
+            <div>
+              <p className="text-[9px] uppercase tracking-wider font-bold text-gray-500 mb-0.5">Confidence</p>
+              <p className={`text-xs font-bold font-mono ${
+                recheck.confidence >= 75 ? 'text-emerald-400' :
+                recheck.confidence >= 55 ? 'text-amber-400' :
+                'text-red-400'
+              }`}>{recheck.confidence}%</p>
+            </div>
+            <div>
+              <p className="text-[9px] uppercase tracking-wider font-bold text-gray-500 mb-0.5">Trigger</p>
+              <p className="text-xs text-gray-400 truncate">{recheck.triggerType.replace(/_/g, ' ')}</p>
+            </div>
+            <div>
+              <p className="text-[9px] uppercase tracking-wider font-bold text-gray-500 mb-0.5">Checked</p>
+              <p className="text-xs text-gray-400">{checkedAt}</p>
+            </div>
+          </div>
+
+          {recheck.alphaReasoning && (
+            <div className="px-3 py-2 bg-gray-900/30">
+              <p className="text-[9px] uppercase tracking-wider font-bold text-gray-500 mb-0.5">Alpha Internal Reasoning</p>
+              <p className="text-[11px] text-gray-400 leading-relaxed italic">{recheck.alphaReasoning}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 interface MidTradeMonitorProps {
   /** CCIP (2026-03-01): When provided, filters the monitor view to this trade only.
    *  Used by TradingMonitorStack in multi-trade sessions to show one trade at a time. */
@@ -711,6 +870,9 @@ export const MidTradeMonitor: React.FC<MidTradeMonitorProps> = ({ activeTradeId 
 
                 {/* Alpha Pre-Trade Answer Sheet — machine-readable reasoning */}
                 <AlphaAnswerSheet guide={guide} />
+
+                {/* Alpha Mid-Trade Re-Analysis — thesis verdict from event-driven recheck */}
+                <AlphaRecheckPanel guide={guide} />
 
                 {/* Primary Guidance */}
                 <div className={`${colors.bg} rounded-lg p-3 border ${colors.border}`}>

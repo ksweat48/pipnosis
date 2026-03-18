@@ -778,7 +778,34 @@ export function evaluateAllTriggers(
     };
   }
 
-  // ─── PRIORITY 13: Trade stalling (small range) ───────────────────────────────
+  // ─── PRIORITY 13: Momentum dying — price failing to progress ─────────────────
+  // Fires when the trade is in profit but failing to extend: price has stalled
+  // above 20 minutes in, R-multiple between +0.1 and +0.8, and the trade has
+  // not reached any meaningful milestone. Escalates to Alpha re-analysis.
+  if (
+    minutesInTrade > 20 &&
+    rMultiple > 0.1 &&
+    rMultiple < 0.8 &&
+    tpProgress < 0.40 &&
+    !firedTriggers.has('momentum_dying')
+  ) {
+    return {
+      triggered: true,
+      triggerType: 'momentum_dying',
+      severity: 'caution',
+      primaryMessage: `Momentum fading — stuck at +${rMultiple.toFixed(2)}R after ${formatMinutes(minutesInTrade)}`,
+      subMessage: `Price isn't extending toward TP at ${formatPrice(trade.symbol, trade.take_profit)} (${Math.abs(tpPips).toFixed(1)} pips away). Alpha is re-analyzing — consider taking profit at ${formatPrice(trade.symbol, currentPrice)} or tightening SL.`,
+      actionPrice: currentPrice,
+      actionLabel: 'Current Price (partial close)',
+      thesisIntact: true,
+      urgencyScore: 55,
+      color: 'amber',
+      action: 'tp1_timing',
+      rMultiple
+    };
+  }
+
+  // ─── PRIORITY 14: Trade stalling (small range) ───────────────────────────────
   // (No candle data available in this path, handled via 20-min time check proxy)
   if (minutesInTrade > 20 && Math.abs(rMultiple) < 0.15 && !firedTriggers.has('trade_stalling')) {
     return {
