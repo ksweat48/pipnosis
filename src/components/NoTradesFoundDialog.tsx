@@ -60,9 +60,9 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
 
   const hasConstraintSandwich = rejectionContext?.constraintSandwichSymbols &&
     rejectionContext.constraintSandwichSymbols.length > 0;
-  const hasWeakConsensus = rejectionContext?.hasWeakConsensus;
   const suggestedStyles = rejectionContext?.suggestedStyles || [];
   const symbolReasons = rejectionContext?.symbolReasons || [];
+  const summary = rejectionContext?.summary || 'Alpha scanned all pairs and found no qualifying setups this cycle.';
 
   const handleCloseClick = () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -150,32 +150,19 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
                   </div>
                 )}
               </div>
-            ) : hasWeakConsensus ? (
-              <div className="space-y-4 mb-6">
-                <div className="bg-gray-700/30 border border-gray-600/40 rounded-xl p-4">
-                  <p className="text-gray-300 text-sm mb-3">
-                    Alpha scanned all pairs and found no high-confidence setups.
-                    The Omega council had conflicting signals across the evaluated pairs.
-                  </p>
-                  {suggestedStyles.length > 0 && (
-                    <div className="flex items-start gap-3 mt-3 pt-3 border-t border-gray-600/30">
-                      <ArrowRight className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
-                      <p className="text-gray-300 text-sm">
-                        A wider timeframe style ({suggestedStyles.map(formatStyleName).join(' or ')}) may find better setups in current market conditions.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
             ) : (
               <div className="bg-gray-700/30 border border-gray-600/40 rounded-xl p-4 mb-6">
-                <p className="text-gray-300 text-sm mb-2">
-                  Alpha scanned all pairs and found no quality trade setups.
-                  Market conditions may not be favorable right now.
+                <p className="text-gray-300 text-sm leading-relaxed">
+                  {summary}
                 </p>
-                <p className="text-amber-300/90 text-sm font-medium">
-                  Try again in about 15 minutes when conditions may improve.
-                </p>
+                {suggestedStyles.length > 0 && (
+                  <div className="flex items-start gap-3 mt-3 pt-3 border-t border-gray-600/30">
+                    <ArrowRight className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+                    <p className="text-gray-300 text-sm">
+                      A wider timeframe style ({suggestedStyles.map(formatStyleName).join(' or ')}) may find better setups in current market conditions.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 

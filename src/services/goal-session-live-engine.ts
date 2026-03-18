@@ -83,6 +83,7 @@ export interface NoTradeRejectionContext {
   suggestedStyles: string[];
   hasWeakConsensus: boolean;
   symbolReasons: { symbol: string; action: string; reasoning: string; confidence: number }[];
+  summary: string;
 }
 
 export interface LiveTradeSignal {
@@ -3659,6 +3660,86 @@ This learning will carry forward to improve future sessions!
     return parts.join('\n');
   }
 
+  // CCIP-2026-03-18: SSOT for NO_TRADE summary text.
+  // Previously, NoTradesFoundDialog.tsx contained hardcoded template strings selected by
+  // a shallow keyword match on "conflict"/"disagree". That meant the UI never showed
+  // Alpha's actual contextual reasoning — only a generic placeholder. This method is the
+  // single authoritative source for the human-readable summary. It reads omega_votes and
+  // ATR data already present on each decision object and generates a context-aware string
+  // that accurately reflects why no trade was taken this cycle.
+  private buildNoTradeSummary(omegaDecisions: Map<string, any>): string {
+    const decisions = Array.from(omegaDecisions.values()).filter(Boolean);
+    if (decisions.length === 0) return 'No pairs were evaluated this cycle.';
+
+    let lowAtrCount = 0;
+    let weakConsensusCount = 0;
+    let blockedCount = 0;
+    let totalConfidence = 0;
+    let confidenceCount = 0;
+    let bestConfidence = 0;
+    let bestSymbol = '';
+
+    for (const [symbol, decision] of omegaDecisions) {
+      if (!decision) {
+        blockedCount++;
+        continue;
+      }
+
+      const conf = decision.confidence || decision.trade_confidence || 0;
+      totalConfidence += conf;
+      confidenceCount++;
+
+      if (conf > bestConfidence) {
+        bestConfidence = conf;
+        bestSymbol = symbol;
+      }
+
+      const atrRaw = decision.atr_value ?? decision.atr ?? 0;
+      const atrNum = typeof atrRaw === 'number' ? atrRaw : (atrRaw as any)?.value ?? 0;
+      if (atrNum > 0 && atrNum < 0.0004) lowAtrCount++;
+
+      if (decision.omega_votes) {
+        const v = decision.omega_votes;
+        const buyVotes = [v.trend, v.scalper, v.reversal, v.volatility, v.omega8]
+          .filter((x: any) => x?.vote === 'BUY').length;
+        const sellVotes = [v.trend, v.scalper, v.reversal, v.volatility, v.omega8]
+          .filter((x: any) => x?.vote === 'SELL').length;
+        if (Math.abs(buyVotes - sellVotes) <= 1) weakConsensusCount++;
+      }
+    }
+
+    const totalPairs = omegaDecisions.size;
+    const avgConf = confidenceCount > 0 ? Math.round(totalConfidence / confidenceCount) : 0;
+    const currentHour = new Date().getUTCHours();
+    const isAsianSession = currentHour >= 0 && currentHour < 8;
+    const isPreLondon = currentHour >= 6 && currentHour < 8;
+    const bestCandidateSuffix = bestSymbol && bestConfidence > 0
+      ? ` Best candidate: ${bestSymbol} at ${bestConfidence}% — below the ${getMinConfidenceThreshold()}% execution threshold.`
+      : '';
+
+    if (blockedCount === totalPairs) {
+      return 'All pairs were blocked by data quality or adversarial checks. Alpha will retry when clean price data is available.';
+    }
+
+    if (lowAtrCount >= Math.ceil(confidenceCount * 0.6)) {
+      return `Low volatility environment detected across ${lowAtrCount}/${totalPairs} pairs. Alpha requires sufficient ATR to place structurally valid SL/TP levels. Setups typically emerge during session opens or news-driven spikes.${bestCandidateSuffix}`;
+    }
+
+    if (weakConsensusCount >= Math.ceil(confidenceCount * 0.5)) {
+      return `Omega Council shows split signals on ${weakConsensusCount}/${totalPairs} pairs — no directional consensus. Alpha declines to act without conviction. The market may be in a consolidation or indecision phase.${bestCandidateSuffix}`;
+    }
+
+    if (isAsianSession && !isPreLondon) {
+      return `Asian session is typically range-bound with lower follow-through. Average Alpha confidence this cycle: ${avgConf}%. London open (08:00 UTC) often produces the clearest structural setups.${bestCandidateSuffix}`;
+    }
+
+    if (avgConf > 0 && avgConf < getMinConfidenceThreshold()) {
+      return `Average Alpha confidence: ${avgConf}% across ${totalPairs} pairs — below the ${getMinConfidenceThreshold()}% execution threshold. No single pair showed sufficient directional conviction this cycle.`;
+    }
+
+    return `Alpha scanned ${totalPairs} pairs and found no qualifying setups this cycle. Market structure did not meet execution criteria.${bestCandidateSuffix}`;
+  }
+
   private buildRejectionContext(
     omegaDecisions: Map<string, any>,
     _snapshots: SymbolSnapshot[]
@@ -3697,6 +3778,7 @@ This learning will carry forward to improve future sessions!
       suggestedStyles: [],
       hasWeakConsensus,
       symbolReasons,
+      summary: this.buildNoTradeSummary(omegaDecisions),
     };
   }
 
