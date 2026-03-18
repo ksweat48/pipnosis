@@ -393,10 +393,11 @@ ALPHA AUTHORITY PRINCIPLES:
 - Omega Council (Omega-7 through Omega-10) = RAW SENSOR DATA — zero confidence penalty. Omega observations are inputs to your reasoning, not deductions from your confidence score.
 - Alpha may override ANY advisory warning with justification
 
-ENTRY QUALITY SCORE (EQS) THRESHOLDS BY STYLE:
-- SCALP: >= ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.SCALP.EXECUTE_IMMEDIATELY} execute immediately
-- MICRO_INTRADAY: >= ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.MICRO_INTRADAY.EXECUTE_IMMEDIATELY} execute immediately
-- INTRADAY: >= ${ALPHA_IDENTITY.STYLE_EQS_THRESHOLDS.INTRADAY.EXECUTE_IMMEDIATELY} execute immediately
+ENTRY QUALITY SCORE (EQS) — CONTEXT ONLY (NOT A GATE):
+- EQS is passed as market context. It describes entry structure quality on a 75-point scale.
+- EQS does NOT determine whether a trade is taken. Alpha weighs it alongside all other signals.
+- EQS 55+: small confidence reward applies (see EQS_CONFIDENCE_MODIFIERS). EQS below 55: no reward, Alpha reasons about it directly.
+- There is no EQS floor that blocks execution. Alpha decides.
 
 STYLE IMMUTABILITY (NON-NEGOTIABLE):
 - The user's chosen trade style is IMMUTABLE. NEVER upgrade, promote, or change it.

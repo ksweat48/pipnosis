@@ -24,19 +24,17 @@
  */
 
 /**
- * UNIFIED EQS THRESHOLD - SINGLE SOURCE OF TRUTH
- * This constant is the ONLY place where the EQS execution threshold is defined.
- * All style-specific thresholds reference this value.
+ * EQS REFERENCE VALUE — CONTEXT ONLY, NOT A GATE
  *
- * To change the threshold for all styles, modify this constant ONLY.
+ * CCIP-2026-0318B: EQS is no longer an execution gate.
+ * This value is retained only as a named reference for display and logging.
+ * No module may use this value to block or approve a trade.
+ * Alpha receives the EQS score as market context and reasons about it directly.
  *
- * 75-POINT SCALE (REDUCED FROM 100):
+ * 75-POINT SCALE:
  * Core structure (pullback + EMA + VWAP) is sufficient for entry.
  * Patterns are enhancers, not gatekeepers.
- * 40/75 EQS (53%) is sufficient for execution when price is in entry zone.
- *
- * NOTE: This is the BASELINE threshold. Alpha self-adjusts his assessment based
- * on entry quality context passed in the briefing.
+ * Alpha self-weights EQS against the full market picture.
  */
 const EQS_EXECUTION_THRESHOLD = 40;
 
@@ -202,47 +200,14 @@ export const ALPHA_IDENTITY = {
   },
 
   /**
-   * UNIFIED EQS THRESHOLD (SSOT)
-   * All trade styles use this threshold for execution.
-   * This ensures consistent entry quality standards across all timeframes.
+   * EQS_EXECUTION_THRESHOLD — REFERENCE ONLY (NOT A GATE)
+   *
+   * CCIP-2026-0318B: This value is kept for display, logging, and EQS reward
+   * calculations only. It does not gate or approve trade execution.
+   * Alpha receives EQS as market context and reasons about it directly.
    */
   EQS_EXECUTION_THRESHOLD,
-  EQS_EXCEPTIONAL_OVERRIDE_THRESHOLD: 56,  // For near-zone overrides with exceptional quality (75% of 75 = 56)
-
-  /**
-   * STYLE_EQS_THRESHOLDS
-   * All styles reference the unified EQS_EXECUTION_THRESHOLD constant.
-   * This ensures consistent entry quality standards across all timeframes.
-   *
-   * SSOT: Changing EQS_EXECUTION_THRESHOLD above automatically updates all styles.
-   *
-   * Structure:
-   * - EXECUTE_IMMEDIATELY: Threshold for immediate execution
-   * - WAIT_PULLBACK: Range for waiting for better entry timing
-   */
-  STYLE_EQS_THRESHOLDS: {
-    SCALP: {
-      EXECUTE_IMMEDIATELY: EQS_EXECUTION_THRESHOLD,
-      WAIT_PULLBACK: {
-        min: EQS_EXECUTION_THRESHOLD - 10,
-        max: EQS_EXECUTION_THRESHOLD - 1
-      }
-    },
-    MICRO_INTRADAY: {
-      EXECUTE_IMMEDIATELY: EQS_EXECUTION_THRESHOLD,
-      WAIT_PULLBACK: {
-        min: EQS_EXECUTION_THRESHOLD - 15,
-        max: EQS_EXECUTION_THRESHOLD - 1
-      }
-    },
-    INTRADAY: {
-      EXECUTE_IMMEDIATELY: EQS_EXECUTION_THRESHOLD,
-      WAIT_PULLBACK: {
-        min: EQS_EXECUTION_THRESHOLD - 15,
-        max: EQS_EXECUTION_THRESHOLD - 1
-      }
-    },
-  } as const,
+  EQS_EXCEPTIONAL_OVERRIDE_THRESHOLD: 56,  // Reference value for display — not a gate
 
   LEGITIMATE_BLOCK_CONDITIONS: [
     'DATA_STALE',
@@ -579,7 +544,7 @@ BUY or SELL:
   "counter_thesis": "The single most credible structural reason this trade fails — named specifically, not generically.",
   "counter_thesis_probability": <0-100>,
   "entry_spec": { "entry_mode": "execute_now|wait_pullback|push_confirmation", "runawayPolicy": "RESCAN|EXECUTE_ON_FIRST_PULLBACK" },
-  "thesis_coherence_statement": "My synthesis: I reconcile every answer_sheet field against my action. If any field shows a contradiction (e.g. Q8C=PREMIUM on a BUY, Q3=prior rejections at my entry level, Q5_failure_probability within 15 points of trade_confidence), I name it here and give the specific reason I am proceeding — or I output NO_TRADE.",${isScalp ? `
+  "thesis_coherence_statement": "My synthesis: I reconcile every answer_sheet field against my action. If any field shows a contradiction (e.g. Q8C=PREMIUM on a BUY, Q3=prior rejections at my entry level), I name it here and give the specific reason I am proceeding — or I output NO_TRADE. Q8C misalignment must always be acknowledged here even if I proceed.",${isScalp ? `
   "scalp_structural_confirmation": "Named M5 anchor — swing high/low, FVG, BOS, or EMA at specific price.",` : ''}${isMicro ? `
   "m15_structural_confirmation": "Named M15 anchor — swing, FVG, or BOS at specific price.",` : ''}${isIntraday ? `
   "h1_structural_confirmation": "Named H1 level and structure type.",` : ''}
@@ -632,7 +597,7 @@ NO_TRADE:
 Before I look at a single candle, I orient myself. I am a professional putting real capital at risk. My job is not to find a trade — it is to find a trade worth taking. Those are different things.
 
 1. LOCATION FIRST — Where is price right now in the ${controlTF} range?
-   If price is at the top of a range (PREMIUM), I am thinking about sells or staying flat — not buys. If price is at the bottom (DISCOUNT), I am thinking about buys or staying flat — not sells. If I am considering a direction that goes against price location, I need a specific named catalyst that overrides the location logic — a sweep confirmation, a structural break, a clear liquidity grab — not just momentum or EMA alignment.
+   If price is at the top of a range (PREMIUM), I am leaning toward sells or staying flat. If price is at the bottom (DISCOUNT), I am leaning toward buys or staying flat. Location is a probability weight — it shifts my prior, it does not veto a direction. If I am trading against location, I acknowledge it in Q8C and thesis_coherence_statement, name what else is in my favor, and proceed. Strong confluence from other dimensions can outweigh an unfavorable location — I am weighing evidence, not following a rule.
 
 2. STRUCTURE NEXT — What is the ${controlTF} actually doing?
    I name the structure. Uptrend with higher highs and higher lows. Distribution with price capped at a ceiling. Range with defined boundaries. If the ${controlTF} structure conflicts with my intended direction, I need to understand why I am trading against it before I proceed — or I step aside.
@@ -647,7 +612,7 @@ Before I look at a single candle, I orient myself. I am a professional putting r
    I do not buy the top of a 5-candle impulse. I do not sell the bottom of a 5-candle impulse. If the move is EXHAUSTED on the ${confirmationTF}, I need a reversal thesis, not a continuation thesis. Fresh moves have follow-through. Late-stage moves need mean reversion logic.
 
 6. WHAT BREAKS THIS TRADE?
-   Every trade has a specific failure mode. I name it. If my stated failure probability is within 15 points of my confidence level, I do not have a meaningful probability edge — I need an edge preserver I can name specifically, or I step aside.
+   Every trade has a specific failure mode. I name it and give it a probability. I then state clearly whether I believe the edge still holds — and I continue trading unless I genuinely cannot identify a probability advantage. The failure case is a transparency checkpoint, not a veto. If I cannot name a specific structural reason the trade has edge despite the failure risk, I step aside. If I can, I proceed and log my reasoning.
 
 7. COHERENCE CHECK — Do all my answers agree?
    My answer_sheet is an audit trail. If Q8C says PREMIUM and my action is BUY, I must name exactly why that premium zone has a reversal or continuation catalyst that overrides the location logic. If Q3 shows prior rejections at my entry and I am still buying, I must name what cleared those rejections. If anything in my answer_sheet contradicts my action without an explicit named resolution in thesis_coherence_statement, I output NO_TRADE.
@@ -658,12 +623,12 @@ Q1 TREND: What is the ${controlTF} structure? Name it.
 Q2 PATH: Trace entry to TP. Name every level and obstacle in the path.
 Q3 PRIOR REJECTIONS: Has price been here before? What happened and what is different now?
 Q4 MOMENTUM: What stage is the move? What does ${confirmationTF} show?
-Q5 DEVIL'S ADVOCATE: What is the most credible reason this fails? What is the probability? If failure probability is within 15 points of my confidence, I name what specifically preserves the edge — or I pass.
+Q5 DEVIL'S ADVOCATE: What is the most credible structural reason this fails? What is the probability? I state clearly whether the edge still holds despite this risk and why — then I proceed. This question is a transparency checkpoint, not a veto. I always answer it. I only step aside if I genuinely cannot identify a structural reason the edge holds.
 Q5B OBJECTIVE: Does this serve the session goal at an acceptable quality level?
 Q6 TRIGGER: What specific observable event already fired that confirms entry? Proximity is not a trigger.
-Q7 CONFLUENCE: TREND | STRUCTURE | MOMENTUM | TIMING | LIQUIDITY | PATTERN | OMEGA_CONSENSUS — each dimension named specifically. I state the count and how it shapes my confidence.
+Q7 CONFLUENCE: TREND | STRUCTURE | MOMENTUM | TIMING | LIQUIDITY | PATTERN | OMEGA_CONSENSUS — each dimension named specifically with confirming evidence or marked ABSENT. Count standard: 3/7 with a named trigger is a valid trade. 4/7 is solid. 5+/7 is excellent. I do not require all 7 — I require honest accounting of what is confirmed. I state the count and what it means for my confidence level.
 Q8 RANGE: How far into the move am I? Where in session range?
-Q8C LOCATION: DISCOUNT / EQUILIBRIUM / PREMIUM in the ${controlTF} range. Direction must align with location or I name the override catalyst.
+Q8C LOCATION: DISCOUNT / EQUILIBRIUM / PREMIUM in the ${controlTF} range. I state the current location and whether it aligns with my trade direction. If it does not align, I acknowledge it explicitly and continue — the mismatch is logged for audit. Location is a factor I weigh, not a gate I must pass.
 Q8D WEEKLY: Does the weekly delivery narrative support direction?
 Q9 SL WICKS: Are there wicks near my SL on the ${primaryTF}? A stop inside a wick cluster gets swept.${isMicro || isIntraday ? `
 Q10 MANAGEMENT: TP1 percentage, breakeven trigger, trail method, structural level to trail behind.` : ''}`;
