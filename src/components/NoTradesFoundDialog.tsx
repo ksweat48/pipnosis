@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, XCircle, AlertTriangle, Info, ArrowRight, Clock, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, XCircle, AlertTriangle, Info, ArrowRight, Clock, ChevronDown, ChevronUp, TrendingDown, Brain } from 'lucide-react';
 import type { NoTradeRejectionContext } from '../services/goal-session-live-engine';
+import { ALPHA_IDENTITY } from '../config/alpha-identity';
+
+const EXECUTION_THRESHOLD = ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE;
 
 interface NoTradesFoundDialogProps {
   isOpen: boolean;
@@ -67,6 +70,25 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
   const handleCloseClick = () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
     onClose();
+  };
+
+  const getConfidenceLabel = (confidence: number, isNoTrade: boolean) => {
+    if (!isNoTrade || confidence === 0) return null;
+    const aboveThreshold = confidence >= EXECUTION_THRESHOLD;
+    return {
+      aboveThreshold,
+      text: aboveThreshold
+        ? `${confidence}% — structural rejection`
+        : `${confidence}% — below threshold`,
+      tooltip: aboveThreshold
+        ? 'Alpha had sufficient confidence but found no qualifying structural setup to act on'
+        : 'Alpha did not have enough confidence to act — no trade is the correct outcome',
+      Icon: aboveThreshold ? Brain : TrendingDown,
+      colorClass: aboveThreshold
+        ? 'text-amber-400 bg-amber-900/30 border-amber-700/40'
+        : 'text-red-400 bg-red-900/20 border-red-700/30',
+      iconClass: aboveThreshold ? 'text-amber-400' : 'text-red-400',
+    };
   };
 
   const formatStyleName = (style: string): string => {
@@ -169,12 +191,13 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
             {symbolReasons.length > 0 && (
               <div className="mb-5">
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-                  Alpha's Decision — Per Symbol
+                  Alpha's Assessment — Per Symbol
                 </p>
                 <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1 scrollbar-thin">
                   {symbolReasons.map(({ symbol, action, reasoning, confidence }) => {
                     const isExpanded = expandedSymbol === symbol;
                     const isNoTrade = action === 'NO_TRADE';
+                    const confidenceLabel = getConfidenceLabel(confidence, isNoTrade);
                     return (
                       <div
                         key={symbol}
@@ -190,15 +213,13 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
                             <span className={`text-xs px-1.5 py-0.5 rounded font-mono ${isNoTrade ? 'bg-red-900/40 text-red-300' : 'bg-amber-900/40 text-amber-300'}`}>
                               {action}
                             </span>
-                            {confidence > 0 && (
+                            {confidenceLabel && (
                               <span
-                                className="text-xs text-gray-500"
-                                title={isNoTrade ? 'Confidence in the no-trade assessment — not a trade direction signal' : 'Alpha confidence in this trade direction'}
+                                className={`inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded border ${confidenceLabel.colorClass}`}
+                                title={confidenceLabel.tooltip}
                               >
-                                {confidence}%
-                                {isNoTrade && (
-                                  <span className="ml-0.5 text-gray-600"> rejection</span>
-                                )}
+                                <confidenceLabel.Icon className={`w-3 h-3 ${confidenceLabel.iconClass}`} />
+                                {confidenceLabel.text}
                               </span>
                             )}
                           </div>
@@ -209,9 +230,11 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
                         </button>
                         {isExpanded && (
                           <div className="px-3 pb-3 pt-1 border-t border-gray-700/40">
-                            {isNoTrade && (
-                              <p className="text-xs text-gray-500 italic mb-1.5">
-                                Alpha evaluated the market and found no edge — this is not a failed trade signal.
+                            {isNoTrade && confidenceLabel && (
+                              <p className={`text-xs italic mb-1.5 ${confidenceLabel.aboveThreshold ? 'text-amber-500/80' : 'text-red-500/70'}`}>
+                                {confidenceLabel.aboveThreshold
+                                  ? 'Alpha had enough confidence to act but found no qualifying structural setup.'
+                                  : 'Alpha did not reach the confidence needed to act — no trade is the correct outcome.'}
                               </p>
                             )}
                             <p className="text-xs text-gray-300 leading-relaxed">{reasoning}</p>
