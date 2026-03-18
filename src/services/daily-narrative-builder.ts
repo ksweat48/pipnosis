@@ -359,16 +359,24 @@ class DailyNarrativeBuilder {
       parts.push('Mid-range - look for directional bias confirmation');
     }
 
-    // Session context
+    // Session identity cues — tell Alpha which professional mode it is operating in
     if (input.currentSession === 'overlap') {
-      parts.push('London-NY overlap - expect high volume and quick moves');
+      parts.push('ACTIVE SESSION: London-NY overlap — maximum liquidity window, decisive moves, trade clear structure only');
     } else if (input.currentSession === 'asian') {
-      parts.push('Asian session - expect lower volume, range-bound behavior');
+      parts.push('ACTIVE SESSION: Asian — accumulation phase, identify the range boundaries, trade extremes with precision');
+    } else if (input.currentSession === 'london') {
+      parts.push('ACTIVE SESSION: London — directional engine, read the Asian sweep reaction and trade the post-sweep impulse');
+    } else if (input.currentSession === 'ny') {
+      parts.push('ACTIVE SESSION: New York — read what London built, trade the NY continuation or the London range reversal after the sweep');
     }
 
-    // Liquidity context
-    if (input.liquiditySweeps.asianLowSwept) {
-      parts.push('Asian low liquidity swept - possible bullish continuation');
+    // Liquidity context — directional implication, not just observation
+    if (input.liquiditySweeps.asianLowSwept && input.liquiditySweeps.asianHighSwept) {
+      parts.push('Both Asian extremes swept — range cleared, watch for directional commitment');
+    } else if (input.liquiditySweeps.asianLowSwept) {
+      parts.push('Asian low swept — bearish liquidity taken, monitor for bullish reversal or continuation sell pressure');
+    } else if (input.liquiditySweeps.asianHighSwept) {
+      parts.push('Asian high swept — bullish liquidity taken, monitor for bearish reversal or continuation buy pressure');
     }
 
     return parts.join('. ') + '.';
