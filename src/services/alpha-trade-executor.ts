@@ -17,9 +17,12 @@
  * 2.  Trade Capacity (Confidence + Slots + Duplicates)
  * 3.  Risk Authority (Context + PCVL + Margin + Kelly)
  * 4.  Price Validation (Slippage + Staleness)
- * 5.  Style Qualification Gate (Duration + Consensus + ATR + Targets) - HARD ENFORCEMENT
- * 6.  Mandatory Safety Validator (TIER 3 FIX - ONLY allowed blocker)
- * 7.  Database Boundary (Type coercion + Range check)
+ * 5.  Mandatory Safety Validator (TIER 3 FIX - ONLY allowed blocker)
+ * 6.  Database Boundary (Type coercion + Range check)
+ *
+ * CCIP-2026-03-18: Style Qualification Gate removed from pipeline.
+ * Alpha is the sole authority on trade viability including volatility suitability.
+ * ATR context is delivered in Alpha's briefing via the feasibility resolver.
  *
  * Principles:
  * - Engines validate, Alpha decides
@@ -45,7 +48,8 @@ import { mandatorySafetyValidator } from './mandatory-safety-validator';
 import { creditValidationService } from './credit-validation-service';
 import { EntryOverextensionValidator } from './entry-overextension-validator';
 import { normalizeStyle } from '../utils/entry-overextension-calculator';
-import { validateStyleQualification } from './style-qualification-gate';
+// CCIP-2026-03-18: style-qualification-gate removed — Alpha is sole authority on trade viability.
+// ATR suitability context is delivered directly in Alpha's briefing via the feasibility resolver.
 // entryStructureAnalyzer removed (CCIP 2026-02-17): Alpha's LLM entry advisory is sole authority
 // marketSnapshotCache removed (CCIP 2026-02-17): No longer needed for entry advisory
 import type { AlphaDecision } from '../brains/coordinator-alpha';
@@ -689,114 +693,6 @@ class AlphaTradeExecutor {
         symbol: decision.symbol,
         style: canonicalStyle,
         confidence: decision.confidence
-      }
-    );
-
-    // CCIP-2026-03-15: Alpha owns duration. expectedFillTimeHours is parsed from
-    // Alpha's estimated_duration_minutes output in coordinator-alpha.ts.
-    const expectedFillTimeHours = decision.expectedFillTimeHours || 0;
-
-    const targetPips = calculatePipDistance(
-      tradeContext.symbol,
-      decision.entry,
-      decision.takeProfit
-    );
-    const stopPips = calculatePipDistance(
-      tradeContext.symbol,
-      decision.entry,
-      decision.stopLoss
-    );
-
-    const symbolConfig = getSymbolConfig(tradeContext.symbol);
-    const assetClass = symbolConfig?.category === 'forex' ? 'FOREX' :
-                       symbolConfig?.category === 'crypto' ? 'CRYPTO' :
-                       symbolConfig?.category === 'metal' ? 'METAL' : 'INDEX';
-
-    const styleQualification = await validateStyleQualification({
-      symbol: decision.symbol,
-      style: canonicalStyle,
-      assetClass,
-      expectedFillTimeHours,
-      alphaFinalConfidence: decision.confidence,
-      atrPercent: decision.atrPercent || 0,
-      targetPips,
-      stopPips,
-      sessionId,
-      userId,
-      goalAmount: sessionData.targetValue
-    });
-
-    // ✅ GOVERNANCE FIX: Style Gate is ADVISORY, not BLOCKING
-    // Philosophy: "Engines validate. Alpha decides. Trades degrade intelligently."
-    // Style mismatches (duration too long) are warnings, not safety violations.
-    if (!styleQualification.qualified) {
-      logger.warn(
-        LogCategory.AI_TRADING,
-        '[Style Gate] ⚠️ STYLE ADVISORY - Trade proceeds with style mismatch warning',
-        {
-          userId,
-          sessionId,
-          symbol: decision.symbol,
-          style: canonicalStyle,
-          advisory: styleQualification.blockReason,
-          violations: styleQualification.violations.map(v => ({
-            type: v.type,
-            severity: v.severity,
-            actual: v.actual,
-            required: v.required,
-            detail: v.detail
-          })),
-          decision: 'PROCEED - Alpha has final authority'
-        }
-      );
-
-      const criticalViolations = styleQualification.violations.filter(v =>
-        v.severity === 'CRITICAL'
-      );
-
-      if (criticalViolations.length > 0) {
-        logger.error(
-          LogCategory.AI_TRADING,
-          '[Style Gate] SAFETY BLOCK - Critical severity violations detected',
-          { criticalViolations }
-        );
-        return {
-          success: false,
-          error: `SAFETY VIOLATION: ${criticalViolations.map(v => v.detail).join('; ')}`,
-          blockReason: `SAFETY VIOLATION: ${criticalViolations.map(v => v.detail).join('; ')}`
-        };
-      }
-
-      const advisoryViolations = styleQualification.violations.filter(v =>
-        v.severity !== 'CRITICAL'
-      );
-      if (advisoryViolations.length > 0) {
-        logger.warn(
-          LogCategory.AI_TRADING,
-          '[Style Gate] Advisory violations logged - Alpha authority upheld, trade proceeds',
-          {
-            advisoryCount: advisoryViolations.length,
-            advisories: advisoryViolations.map(v => `${v.type}(${v.severity}): ${v.detail}`)
-          }
-        );
-      } else {
-        logger.info(
-          LogCategory.AI_TRADING,
-          '[Style Gate] Trade proceeding - Alpha authority upheld'
-        );
-      }
-    }
-
-    logger.info(
-      LogCategory.AI_TRADING,
-      '[Style Gate] Trade qualified for style execution',
-      {
-        userId,
-        sessionId,
-        symbol: decision.symbol,
-        style: canonicalStyle,
-        violations: styleQualification.violations.length,
-        advisory: styleQualification.advisory
       }
     );
 

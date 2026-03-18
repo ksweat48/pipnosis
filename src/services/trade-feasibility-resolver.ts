@@ -73,7 +73,10 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
       blockers.push(spreadCheck.blocker);
     }
 
-    // Step 3: Validate style against ATR% gates (ADVISORY ONLY)
+    // Step 3: ATR context note — ADVISORY ONLY, delivered to Alpha for awareness.
+    // CCIP-2026-03-18: Alpha is the sole authority on volatility suitability.
+    // This check produces an advisory adjustment note for Alpha's context only.
+    // It never blocks, never produces NO_TRADE, and never overrides Alpha's decision.
     let resolvedStyle = input.requestedStyle;
     let resolvedRiskMode = input.requestedRiskMode;
 
@@ -91,11 +94,11 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
         to: resolvedStyle,
         reason: 'LOW_VOLATILITY_FOR_STYLE',
         advisory: true,
-        detail: `ADVISORY: ${resolvedStyle} typically requires ATR >= ${(gate * 100).toFixed(2)}%, current: ${(input.atrPercent * 100).toFixed(2)}%. Style remains IMMUTABLE per user selection. Alpha may proceed with justification.`
+        detail: `ATR context: ${resolvedStyle} typical threshold is ${(gate * 100).toFixed(2)}%, current ATR is ${(input.atrPercent * 100).toFixed(2)}%. Alpha has full authority — style is immutable per user selection.`
       });
-      logger.warn(
+      logger.info(
         LogCategory.AI_TRADING,
-        `[Feasibility Resolver] ADVISORY: ${resolvedStyle} below optimal ATR gate (${(gate * 100).toFixed(2)}% vs ${(input.atrPercent * 100).toFixed(2)}%). Style IMMUTABLE - no promotion allowed.`
+        `[Feasibility Resolver] ATR context note: ${resolvedStyle} ATR ${(input.atrPercent * 100).toFixed(2)}% vs typical ${(gate * 100).toFixed(2)}%. Alpha retains full authority.`
       );
     }
 
@@ -181,7 +184,7 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
         userMessage: this.buildUserMessage(input, adjustments, allBlockers, 'NO_TRADE'),
         blockers: allBlockers,
         tryAlternatives: {
-          betterVolatilityNeeded: true,
+          betterVolatilityNeeded: false,
           suggestedMinAtrPercent: getAtrGate(input.assetClass, 'INTRADAY')
         },
         diagnostics: {
@@ -223,7 +226,10 @@ class TradeFeasibilityResolver implements ITradeFeasibilityResolver {
   }
 
   /**
-   * Check if requested style meets ADVISORY ATR% threshold
+   * Check if requested style meets ADVISORY ATR% threshold.
+   * Returns false when ATR is below the typical gate — this produces a context
+   * note for Alpha, not a block. Alpha decides whether to proceed.
+   * CCIP-2026-03-18: No execution path may use this to produce NO_TRADE.
    */
   private isStyleValid(
     assetClass: FeasibilityInput['assetClass'],
