@@ -1526,7 +1526,15 @@ class AlphaTradeExecutor {
     const { decision, userId, sessionId } = params;
 
     const now = new Date();
-    const timeoutMinutes = decision.entry_intent?.timeout_minutes || 60;
+
+    // CCIP-2026-0318A: Use Alpha's estimated wait time as primary timeout source.
+    // Alpha states expected_wait_minutes inside wait_condition when it defers entry.
+    // Cap at 120 minutes to prevent runaway intents. Fall back to entry_intent or 60 min default.
+    const alphaExpectedWait = decision.wait_condition?.expected_wait_minutes;
+    const timeoutMinutes = alphaExpectedWait != null
+      ? Math.min(Math.max(alphaExpectedWait, 5), 120)
+      : (decision.entry_intent?.timeout_minutes || 60);
+
     const timeoutAt = new Date(now.getTime() + timeoutMinutes * 60 * 1000).toISOString();
     const direction = toLongShort(decision.action === 'BUY' ? 'buy' : 'sell');
 
@@ -1558,12 +1566,39 @@ class AlphaTradeExecutor {
       ? 'push_confirmation_zone'
       : 'pullback_to_zone';
 
-    const zoneMin = decision.wait_condition?.target_entry_zone_min
-      ?? monitorPullbackMin
-      ?? (decision.entry_intent?.entry_zone_min || decision.entry);
-    const zoneMax = decision.wait_condition?.target_entry_zone_max
-      ?? monitorPullbackMax
-      ?? (decision.entry_intent?.entry_zone_max || decision.entry);
+    // CCIP-2026-0318A: Zone source priority — SSOT governance chain
+    // 1. wait_condition (Alpha's explicit LLM-parsed zone — PRIMARY authority)
+    // 2. entry_advisory pullback zone (secondary fallback)
+    // 3. entry_intent zone or raw entry price (last resort)
+    const hasWaitConditionZone =
+      decision.wait_condition?.target_entry_zone_min != null &&
+      decision.wait_condition?.target_entry_zone_max != null;
+
+    const zoneMin = hasWaitConditionZone
+      ? decision.wait_condition!.target_entry_zone_min
+      : monitorPullbackMin ?? (decision.entry_intent?.entry_zone_min || decision.entry);
+    const zoneMax = hasWaitConditionZone
+      ? decision.wait_condition!.target_entry_zone_max
+      : monitorPullbackMax ?? (decision.entry_intent?.entry_zone_max || decision.entry);
+
+    const zoneSource = hasWaitConditionZone
+      ? 'wait_condition'
+      : monitorPullbackMin != null
+        ? 'entry_advisory'
+        : 'entry_price_fallback';
+
+    logger.info(
+      LogCategory.GOVERNANCE,
+      '[AlphaTradeExecutor] Entry zone source resolved',
+      {
+        symbol: decision.symbol,
+        zoneSource,
+        zoneMin,
+        zoneMax,
+        timeoutMinutes,
+        timeoutSource: decision.wait_condition?.expected_wait_minutes != null ? 'wait_condition' : 'default',
+      }
+    );
 
     const { data: intent, error } = await supabase
       .from('entry_intents')
@@ -1597,7 +1632,9 @@ class AlphaTradeExecutor {
         pullback_improvement_pips: null,
         intent_mode: resolvedIntentMode,
         requires_m5_candle_close: isPushConfirmMode,
-        m5_candle_close_confirmed: false
+        m5_candle_close_confirmed: false,
+        wait_reasoning: decision.wait_condition?.wait_reasoning ?? null,
+        expected_wait_minutes: decision.wait_condition?.expected_wait_minutes ?? null
       })
       .select()
       .single();

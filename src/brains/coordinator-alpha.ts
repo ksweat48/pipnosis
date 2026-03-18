@@ -3316,16 +3316,15 @@ The entry_mode field controls when the trade executes. You have full authority t
 
   "wait_pullback"     → The full picture aligns EXCEPT the current entry price. Thesis is valid and you
                         are confident this trade wins. You are managing timing, not conviction.
-                        REQUIRES: "wait_condition" block with intent_mode: "pullback_to_zone".
-                        State the exact pullback target zone (min/max price) and the condition that must
-                        be met. The system will monitor price and execute when price enters the zone.
+                        REQUIRES: "wait_condition" block. State the exact pullback target zone (min/max
+                        price), the price that invalidates the thesis, and your reasoning. The system
+                        monitors price and executes when price enters the zone.
 
   "push_confirmation" → The full picture will align IF price pushes into a specific zone AND closes
                         an M5 candle body INSIDE it. A wick touch or brief spike is NOT sufficient.
-                        REQUIRES: "wait_condition" block with intent_mode: "push_confirmation_zone".
-                        Set the zone tightly around the structural level (1-3 pip width).
-                        The system will monitor M5 candles and execute only after a closed candle body
-                        confirms commitment.
+                        REQUIRES: "wait_condition" block. Set the zone tightly around the structural
+                        level (1-3 pip width). The system monitors M5 candles and executes only after
+                        a closed candle body confirms commitment.
 
 If none of these three apply: output NO_TRADE. There is no fourth option.
 
@@ -3336,8 +3335,7 @@ When using wait_pullback or push_confirmation, include a wait_condition block:
     "target_entry_zone_max": <upper bound of the wait zone>,
     "invalidation_price": <price that invalidates the thesis entirely>,
     "wait_reasoning": "Why you are waiting — what must happen for entry to be valid",
-    "intent_mode": "pullback_to_zone" | "push_confirmation_zone",
-    "expected_wait_minutes": <your estimate of how long to wait, e.g. 15>
+    "expected_wait_minutes": <your estimate of how long until price reaches the zone, e.g. 15>
   }
 }
 
@@ -4292,6 +4290,46 @@ Return PURE JSON only — all required fields from the schema in my system promp
         reasoning: typeof rawAdvisory.reasoning === 'string' ? rawAdvisory.reasoning : ''
       } : null;
 
+      // CCIP-2026-0318A: Extract Alpha's wait_condition block (SSOT: coordinator-alpha is sole parse point)
+      // Alpha produces this block whenever entry_mode is wait_pullback or push_confirmation.
+      // It carries the exact zone Alpha wants monitored, the invalidation price, Alpha's stated
+      // reasoning for deferring, and an estimated wait time. All four fields are passed downstream
+      // to AlphaTradeExecutor so they become the primary source for entry intent creation.
+      // intent_mode is intentionally NOT extracted here — the executor derives it from entry_mode.
+      const rawWaitCondition = parsed.wait_condition;
+      const waitCondition: AlphaDecision['wait_condition'] =
+        rawWaitCondition &&
+        typeof rawWaitCondition === 'object' &&
+        typeof rawWaitCondition.target_entry_zone_min === 'number' &&
+        typeof rawWaitCondition.target_entry_zone_max === 'number' &&
+        typeof rawWaitCondition.invalidation_price === 'number'
+          ? {
+              target_entry_zone_min: rawWaitCondition.target_entry_zone_min,
+              target_entry_zone_max: rawWaitCondition.target_entry_zone_max,
+              invalidation_price: rawWaitCondition.invalidation_price,
+              wait_reasoning: typeof rawWaitCondition.wait_reasoning === 'string'
+                ? rawWaitCondition.wait_reasoning
+                : '',
+              expected_wait_minutes: typeof rawWaitCondition.expected_wait_minutes === 'number'
+                ? Math.min(Math.max(1, Math.round(rawWaitCondition.expected_wait_minutes)), 120)
+                : undefined,
+            }
+          : undefined;
+
+      if ((entryMode === 'wait_pullback' || entryMode === 'push_confirmation') && !waitCondition) {
+        console.warn(
+          `[Alpha Coordinator] WAIT_CONDITION_ABSENT: entry_mode="${entryMode}" but wait_condition block is missing or malformed. ` +
+          `AlphaTradeExecutor will fall back to entry_advisory zone. ` +
+          `Alpha should always include wait_condition when entry_mode is not execute_now.`
+        );
+      } else if (waitCondition) {
+        console.log(
+          `[Alpha Coordinator] wait_condition parsed: zone=${waitCondition.target_entry_zone_min}–${waitCondition.target_entry_zone_max} ` +
+          `invalidation=${waitCondition.invalidation_price} ` +
+          `est_wait=${waitCondition.expected_wait_minutes ?? 'unspecified'}min`
+        );
+      }
+
       // ═══════════════════════════════════════════════════════════════════
       // CALCULATE RISK PERCENTAGE (SSOT)
       // ═══════════════════════════════════════════════════════════════════
@@ -4618,6 +4656,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
           entry_mode: entryMode,
           style: resolvedStyle,
         },
+        wait_condition: waitCondition,
         narrativeValidation: narrativeValidation || undefined,
         entry_advisory: entryAdvisory || undefined,
         answer_sheet: answerSheet
