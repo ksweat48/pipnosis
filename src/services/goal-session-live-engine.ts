@@ -2638,16 +2638,29 @@ class GoalSessionLiveEngine {
    * Neither processMultiSymbolCycle nor handleNewTradeSignal may perform their
    * own independent gate checks.
    *
+   * CCIP-2026-0319A (Fix 4): Belt-and-suspenders — NO_TRADE decisions are always
+   * returned as IMMEDIATE regardless of any wait fields that may be present.
+   * The parser (coordinator-alpha.ts) strips these fields at parse time, but this
+   * guard ensures the engine can never activate the entry monitor for a NO_TRADE
+   * even if upstream data is incorrect.
+   *
    * @param alphaDecision - AlphaDecision returned by any execution path
    * @param userId        - User to query preferences for
    * @param sessionId     - Active goal session (for audit logging)
    * @returns object with executionMode and entryMonitorGateActive flag
    */
   private async resolveExecutionMode(
-    alphaDecision: { entry_mode?: string; wait_condition?: unknown },
+    alphaDecision: { action?: string; entry_mode?: string; wait_condition?: unknown },
     userId: string,
     sessionId: string
   ): Promise<{ executionMode: 'IMMEDIATE' | 'MONITORED'; entryMonitorGateActive: boolean }> {
+    // CCIP-2026-0319A (Fix 4): NO_TRADE decisions must never activate the entry monitor.
+    // entry_mode and wait_condition are structurally invalid on NO_TRADE decisions.
+    // The parser already strips them, but we enforce this invariant here as a second layer.
+    if (alphaDecision.action === 'NO_TRADE') {
+      return { executionMode: 'IMMEDIATE', entryMonitorGateActive: false };
+    }
+
     const alphaWantsToWait =
       alphaDecision.wait_condition != null
       || alphaDecision.entry_mode === 'wait_pullback'

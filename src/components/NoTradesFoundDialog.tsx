@@ -184,14 +184,22 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
                           onClick={() => setExpandedSymbol(isExpanded ? null : symbol)}
                           className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-gray-700/40 transition-colors"
                         >
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className={`w-2 h-2 rounded-full shrink-0 ${isNoTrade ? 'bg-red-400' : 'bg-amber-400'}`} />
                             <span className="text-sm font-semibold text-gray-200">{symbol}</span>
                             <span className={`text-xs px-1.5 py-0.5 rounded font-mono ${isNoTrade ? 'bg-red-900/40 text-red-300' : 'bg-amber-900/40 text-amber-300'}`}>
                               {action}
                             </span>
                             {confidence > 0 && (
-                              <span className="text-xs text-gray-500">{confidence}%</span>
+                              <span
+                                className="text-xs text-gray-500"
+                                title={isNoTrade ? 'Confidence in the no-trade assessment — not a trade direction signal' : 'Alpha confidence in this trade direction'}
+                              >
+                                {confidence}%
+                                {isNoTrade && (
+                                  <span className="ml-0.5 text-gray-600"> rejection</span>
+                                )}
+                              </span>
                             )}
                           </div>
                           {isExpanded
@@ -201,6 +209,11 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
                         </button>
                         {isExpanded && (
                           <div className="px-3 pb-3 pt-1 border-t border-gray-700/40">
+                            {isNoTrade && (
+                              <p className="text-xs text-gray-500 italic mb-1.5">
+                                Alpha evaluated the market and found no edge — this is not a failed trade signal.
+                              </p>
+                            )}
                             <p className="text-xs text-gray-300 leading-relaxed">{reasoning}</p>
                           </div>
                         )}

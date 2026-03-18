@@ -526,6 +526,11 @@ export function isLegitimateBlockCondition(condition: string): boolean {
  * - CCIP-2026-0317A: Professional Trader Voice — replaced checklist-declaration with
  *   internalized professional reasoning. Removed "find a trade" bias. Model upgraded
  *   to GPT-4o. Answer sheet contradiction resolution made mandatory.
+ * - CCIP-2026-0319A: Mixed-Signal Gap Fix — added explicit schema rules to the prompt:
+ *   (1) wait_condition is mandatory (not optional) when entry_mode is wait_pullback or
+ *   push_confirmation; (2) NO_TRADE responses must NOT include entry_mode or wait_condition.
+ *   These rules close the LLM hallucination gap at the source. The parser and engine
+ *   layers enforce the same invariant as defensive guards (SSOT: coordinator-alpha.ts).
  */
 export function getAlphaSystemPromptForStyle(style: StyleName): string {
   const isMicro = style === 'MICRO_INTRADAY';
@@ -580,6 +585,14 @@ BUY or SELL:
   "h1_structural_confirmation": "Named H1 level and structure type.",` : ''}
   "trade_management": ${isScalp ? 'null,' : '{ "tp1_close_percent": <number>, "sl_to_breakeven_after_tp1": <bool>, "trail_method": "structure|fixed_pips|none", "trail_notes": "Named structural level I trail the runner behind." },'}
   "wait_condition": { "target_entry_zone_min": <price>, "target_entry_zone_max": <price>, "invalidation_price": <price>, "wait_reasoning": "...", "expected_wait_minutes": <your estimate, e.g. 15> },
+WAIT_CONDITION RULE — MANDATORY when entry_mode is wait_pullback or push_confirmation:
+  If entry_spec.entry_mode is "wait_pullback" or "push_confirmation", the wait_condition block is NOT optional.
+  All four fields (target_entry_zone_min, target_entry_zone_max, invalidation_price, wait_reasoning) MUST be present with numeric prices.
+  A response with entry_mode="wait_pullback" and no wait_condition block is a malformed response — output NO_TRADE instead.
+  If entry_mode is "execute_now", omit wait_condition entirely.
+ENTRY_MODE AND NO_TRADE — INCOMPATIBLE FIELDS:
+  A NO_TRADE response must NOT include entry_mode, wait_condition, entry_spec, or any BUY/SELL execution fields.
+  The NO_TRADE schema below is the only valid format when no trade is taken.
   "acceptable_profit_range": { "minUSD": <number>, "idealUSD": <number> },
   "answer_sheet": {
     "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND",

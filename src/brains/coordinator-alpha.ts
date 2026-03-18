@@ -4117,7 +4117,16 @@ Return PURE JSON only — all required fields from the schema in my system promp
       // Extract new Alpha output format fields
       const tradeConfidence = parsed.trade_confidence ?? parsed.confidence ?? 0;
       const entryQualityScore = parsed.entry_quality_score ?? 0;
-      const entryMode = parsed.entry_mode ?? 'wait_pullback';
+      // CCIP-2026-0319A (Fix 2): entry_mode is only valid for BUY/SELL decisions.
+      // For NO_TRADE, the LLM should never emit entry_mode — but if it does (hallucination),
+      // we strip it to undefined rather than defaulting to 'wait_pullback', which would
+      // wrongly route a NO_TRADE decision into the entry monitor gate downstream.
+      // For BUY/SELL: use 'execute_now' as the safe default (not 'wait_pullback') so that
+      // a missing entry_mode from the LLM results in immediate execution, not a silent
+      // monitored-wait that never resolves without a valid zone.
+      const entryMode = action === 'NO_TRADE'
+        ? undefined
+        : (parsed.entry_mode ?? 'execute_now');
 
       // Structural anchor validation — advisory only (no hard NO_TRADE override).
       // The prompt already instructs Alpha to output NO_TRADE itself if it cannot name an anchor.
@@ -4316,17 +4325,52 @@ Return PURE JSON only — all required fields from the schema in my system promp
             }
           : undefined;
 
-      if ((entryMode === 'wait_pullback' || entryMode === 'push_confirmation') && !waitCondition) {
-        console.warn(
-          `[Alpha Coordinator] WAIT_CONDITION_ABSENT: entry_mode="${entryMode}" but wait_condition block is missing or malformed. ` +
-          `AlphaTradeExecutor will fall back to entry_advisory zone. ` +
-          `Alpha should always include wait_condition when entry_mode is not execute_now.`
-        );
-      } else if (waitCondition) {
+      // CCIP-2026-0319A (Fix 3): Enforce wait_condition presence when entry_mode requires it.
+      // Previously this was a warning-only check. Now it takes corrective action:
+      //   (a) If entry_advisory has a valid zone, synthesise a wait_condition from it so the
+      //       entry intent creation path has a valid zone to work with.
+      //   (b) If entry_advisory is also absent or invalid, downgrade entry_mode to 'execute_now'
+      //       so the trade executes immediately rather than creating an intent with no zone.
+      // The corrective action is logged to support governance auditing of LLM compliance.
+      // SSOT: this is the sole place where wait_condition correction/synthesis happens.
+      let resolvedEntryMode = entryMode;
+      let resolvedWaitCondition = waitCondition;
+
+      if ((resolvedEntryMode === 'wait_pullback' || resolvedEntryMode === 'push_confirmation') && !resolvedWaitCondition) {
+        const advisoryHasZone =
+          entryAdvisory &&
+          typeof entryAdvisory.pullback_zone_min === 'number' &&
+          typeof entryAdvisory.pullback_zone_max === 'number' &&
+          entryAdvisory.pullback_zone_min > 0 &&
+          entryAdvisory.pullback_zone_max > 0;
+
+        if (advisoryHasZone) {
+          resolvedWaitCondition = {
+            target_entry_zone_min: entryAdvisory!.pullback_zone_min as number,
+            target_entry_zone_max: entryAdvisory!.pullback_zone_max as number,
+            invalidation_price: action === 'BUY'
+              ? (entryAdvisory!.pullback_zone_min as number) * 0.9985
+              : (entryAdvisory!.pullback_zone_max as number) * 1.0015,
+            wait_reasoning: `Synthesised from entry_advisory zone (original wait_condition absent). Advisory: ${entryAdvisory!.reasoning || 'no detail'}`,
+            expected_wait_minutes: undefined,
+          };
+          console.warn(
+            `[Alpha Coordinator] WAIT_CONDITION_SYNTHESISED: entry_mode="${resolvedEntryMode}" — wait_condition absent but ` +
+            `entry_advisory zone available. Synthesised zone=${resolvedWaitCondition.target_entry_zone_min}–${resolvedWaitCondition.target_entry_zone_max}. ` +
+            `Symbol=${symbol}. CCIP-2026-0319A.`
+          );
+        } else {
+          resolvedEntryMode = 'execute_now';
+          console.warn(
+            `[Alpha Coordinator] ENTRY_MODE_DOWNGRADED: entry_mode="${entryMode}"→"execute_now" — wait_condition absent and ` +
+            `no advisory fallback zone available. Trade will execute immediately. Symbol=${symbol}. CCIP-2026-0319A.`
+          );
+        }
+      } else if (resolvedWaitCondition) {
         console.log(
-          `[Alpha Coordinator] wait_condition parsed: zone=${waitCondition.target_entry_zone_min}–${waitCondition.target_entry_zone_max} ` +
-          `invalidation=${waitCondition.invalidation_price} ` +
-          `est_wait=${waitCondition.expected_wait_minutes ?? 'unspecified'}min`
+          `[Alpha Coordinator] wait_condition parsed: zone=${resolvedWaitCondition.target_entry_zone_min}–${resolvedWaitCondition.target_entry_zone_max} ` +
+          `invalidation=${resolvedWaitCondition.invalidation_price} ` +
+          `est_wait=${resolvedWaitCondition.expected_wait_minutes ?? 'unspecified'}min`
         );
       }
 
@@ -4377,6 +4421,16 @@ Return PURE JSON only — all required fields from the schema in my system promp
         // The governance alert fires on NO_TRADE && confidence === 0 — that must remain reserved
         // for genuine infrastructure failures only.
         const reasonedConfidence = Math.max(10, Math.min(100, tradeConfidence));
+        // CCIP-2026-0319A (Fix 2): entry_mode is unconditionally undefined for NO_TRADE.
+        // entryMode was already set to undefined above for NO_TRADE actions, but we log
+        // here when the LLM hallucinated entry_mode on a NO_TRADE response so governance
+        // can monitor LLM prompt compliance over time.
+        if (parsed.entry_mode !== undefined && parsed.entry_mode !== null) {
+          console.warn(
+            `[Alpha Coordinator] NO_TRADE_ENTRY_STRIPPED: LLM returned entry_mode="${parsed.entry_mode}" and/or wait_condition on a NO_TRADE decision. ` +
+            `Both fields stripped. Symbol=${symbol}. This indicates prompt non-compliance — review CCIP-2026-0319A.`
+          );
+        }
         return {
           action,
           decision: action,
@@ -4387,15 +4441,15 @@ Return PURE JSON only — all required fields from the schema in my system promp
           reasoning: parsed.reasoning || 'No reasoning provided',
           omega_summary: '',
           resolvedStyle,
-          risk_pct: riskPct, // SSOT: Always provide risk percentage
+          risk_pct: riskPct,
           thesis: thesis || undefined,
           style_intent: styleIntent || undefined,
           execution_preference: executionPreference || undefined,
           acceptable_profit_range: acceptableProfitRange || undefined,
-          entry_mode: entryMode as 'execute_now' | 'wait_pullback' | 'push_confirmation' | undefined,
-        entry_spec: {
+          // entry_mode intentionally omitted — NO_TRADE decisions have no execution mode
+          entry_spec: {
             entry_quality_score: entryQualityScore,
-            entry_mode: entryMode,
+            entry_mode: undefined,
             style: resolvedStyle,
           },
           narrativeValidation: narrativeValidation || undefined
@@ -4650,13 +4704,15 @@ Return PURE JSON only — all required fields from the schema in my system promp
         style_intent: styleIntent || undefined,
         execution_preference: executionPreference || undefined,
         acceptable_profit_range: acceptableProfitRange || undefined,
-        entry_mode: entryMode as 'execute_now' | 'wait_pullback' | 'push_confirmation' | undefined,
+        // CCIP-2026-0319A (Fix 3): Use resolved values — may differ from raw LLM output
+        // if wait_condition was synthesised from entry_advisory or entry_mode was downgraded.
+        entry_mode: resolvedEntryMode as 'execute_now' | 'wait_pullback' | 'push_confirmation' | undefined,
         entry_spec: {
           entry_quality_score: entryQualityScore,
-          entry_mode: entryMode,
+          entry_mode: resolvedEntryMode,
           style: resolvedStyle,
         },
-        wait_condition: waitCondition,
+        wait_condition: resolvedWaitCondition,
         narrativeValidation: narrativeValidation || undefined,
         entry_advisory: entryAdvisory || undefined,
         answer_sheet: answerSheet
