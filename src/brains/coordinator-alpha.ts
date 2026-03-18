@@ -1116,11 +1116,15 @@ class AlphaCoordinatorBrain {
       });
       stopLossAnchor = buyStopAnchor;
 
+      // CCIP-2026-03-18 ALPHA AUTHORITY: The sweep calculator may return a repositioned
+      // anchor (sweepAwareAdjustment.applied = true). This anchor is presented to Alpha
+      // as a RECOMMENDATION — Alpha retains full placement authority. Logged for
+      // governance diagnostics only. No coordinator-side enforcement occurs.
       if (buyStopAnchor.sweepAwareAdjustment?.applied) {
-        console.log(`[Alpha Coordinator] SWEEP-AWARE SL: BUY ${buyStopAnchor.sweepAwareAdjustment.originalStopPips.toFixed(1)}p → ${buyStopAnchor.stopLossPips.toFixed(1)}p (beyond sweep extreme ${buyStopAnchor.sweepAwareAdjustment.sweepExtremePrice.toFixed(5)})`);
+        console.log(`[Alpha Coordinator] [SL Anchor Advisory] BUY sweep-informed anchor: ATR ${buyStopAnchor.sweepAwareAdjustment.originalStopPips.toFixed(1)}p → sweep-clear ${buyStopAnchor.stopLossPips.toFixed(1)}p (extreme @ ${buyStopAnchor.sweepAwareAdjustment.sweepExtremePrice.toFixed(5)}). Presented as advisory to Alpha.`);
       }
       if (sellStopAnchor.sweepAwareAdjustment?.applied) {
-        console.log(`[Alpha Coordinator] SWEEP-AWARE SL: SELL ${sellStopAnchor.sweepAwareAdjustment.originalStopPips.toFixed(1)}p → ${sellStopAnchor.stopLossPips.toFixed(1)}p (beyond sweep extreme ${sellStopAnchor.sweepAwareAdjustment.sweepExtremePrice.toFixed(5)})`);
+        console.log(`[Alpha Coordinator] [SL Anchor Advisory] SELL sweep-informed anchor: ATR ${sellStopAnchor.sweepAwareAdjustment.originalStopPips.toFixed(1)}p → sweep-clear ${sellStopAnchor.stopLossPips.toFixed(1)}p (extreme @ ${sellStopAnchor.sweepAwareAdjustment.sweepExtremePrice.toFixed(5)}). Presented as advisory to Alpha.`);
       }
       console.log(`[Alpha Coordinator] Stop Anchors: BUY SL=${buyStopAnchor.stopLossPrice.toFixed(5)} (${buyStopAnchor.stopLossPips.toFixed(1)}p) | SELL SL=${sellStopAnchor.stopLossPrice.toFixed(5)} (${sellStopAnchor.stopLossPips.toFixed(1)}p)`);
     }
@@ -1369,27 +1373,16 @@ The M15 precision entry block below shows whether a closed M15 body in your dire
       const wallTpMin = dualArenaWalls ? Math.min(dualArenaWalls.long.tpPips.min, dualArenaWalls.short.tpPips.min) : 0;
       const wallTpMax = dualArenaWalls ? Math.max(dualArenaWalls.long.tpPips.max, dualArenaWalls.short.tpPips.max) : 999;
 
-      // CCIP (2026-02-17): Lift SL anchor recommendations to wall minimum if they fall below.
-      // The Stop Calculator uses profile min/max (e.g., 10-20 pips from risk strategy) but the
-      // Omega-9 envelope alignment may raise the wall minimum higher (e.g., 12.2 pips for XAUUSD).
-      // Without this lift, Alpha receives a recommendation below the wall minimum and gets rejected.
-      let buyAnchorPips = buyStopAnchor.stopLossPips;
-      let buyAnchorPrice = buyStopAnchor.stopLossPrice;
-      let sellAnchorPips = sellStopAnchor.stopLossPips;
-      let sellAnchorPrice = sellStopAnchor.stopLossPrice;
-
-      if (dualArenaWalls) {
-        if (buyAnchorPips < dualArenaWalls.long.slPips.min) {
-          buyAnchorPips = dualArenaWalls.long.slPips.min;
-          buyAnchorPrice = marketContext.price - (buyAnchorPips * pipInfo.pipValue);
-          console.log(`[Alpha Coordinator] Lifted BUY SL anchor from ${buyStopAnchor.stopLossPips.toFixed(1)} to ${buyAnchorPips.toFixed(1)} pips (wall minimum)`);
-        }
-        if (sellAnchorPips < dualArenaWalls.short.slPips.min) {
-          sellAnchorPips = dualArenaWalls.short.slPips.min;
-          sellAnchorPrice = marketContext.price + (sellAnchorPips * pipInfo.pipValue);
-          console.log(`[Alpha Coordinator] Lifted SELL SL anchor from ${sellStopAnchor.stopLossPips.toFixed(1)} to ${sellAnchorPips.toFixed(1)} pips (wall minimum)`);
-        }
-      }
+      // CCIP-2026-03-18 ALPHA AUTHORITY: SL anchors are presented to Alpha as-is from the
+      // stop calculator. The coordinator MUST NOT pre-modify anchor values to comply with
+      // wall minimums. If the ATR-derived anchor is below the wall minimum that is
+      // information Alpha can see and act on — not a pre-decision correction.
+      // Accountability requires Alpha's SL to be exactly what Alpha chose,
+      // not what the coordinator silently lifted it to before Alpha saw the data.
+      const buyAnchorPips = buyStopAnchor.stopLossPips;
+      const buyAnchorPrice = buyStopAnchor.stopLossPrice;
+      const sellAnchorPips = sellStopAnchor.stopLossPips;
+      const sellAnchorPrice = sellStopAnchor.stopLossPrice;
 
       const sweepZoneDirective = (() => {
         const pipInfo = getCurrencyPipInfo(marketContext.symbol);
@@ -1397,7 +1390,7 @@ The M15 precision entry block below shows whether a closed M15 body in your dire
         const sellAdj = sellStopAnchor.sweepAwareAdjustment;
         const adj = buyAdj?.applied ? buyAdj : (sellAdj?.applied ? sellAdj : null);
 
-        // Aligned sweep adjustment (stop was repositioned)
+        // Aligned sweep adjustment (anchor was computed beyond sweep extreme)
         let alignedSweepText = '';
         if (adj && sweepContextForStop) {
           const sweepTypeLabel = sweepContextForStop.type === 'low' ? 'LOW SWEEP' : 'HIGH SWEEP';
@@ -1405,15 +1398,14 @@ The M15 precision entry block below shows whether a closed M15 body in your dire
           const bosLabel = sweepContextForStop.has_bos ? 'BOS CONFIRMED' : 'awaiting BOS';
           const bufferPips = adj.bufferPips;
           const sweepPrice = adj.sweepExtremePrice;
-          const forbiddenZoneBuy = (sweepPrice + bufferPips * pipInfo.pipValue).toFixed(5);
-          const forbiddenZoneSell = (sweepPrice - bufferPips * pipInfo.pipValue).toFixed(5);
+          const clearanceBuy = (sweepPrice - bufferPips * pipInfo.pipValue).toFixed(5);
+          const clearanceSell = (sweepPrice + bufferPips * pipInfo.pipValue).toFixed(5);
           alignedSweepText = `
-SWEEP ZONE DETECTED (${tradeStyle}): ${sweepTypeLabel} confirmed ${candlesLabel} [${bosLabel}]. Sweep extreme: ${sweepPrice.toFixed(5)}.
-The SL anchors above have been MATHEMATICALLY REPOSITIONED beyond the swept zone (buffer: ${bufferPips.toFixed(1)} pips).
-BINDING RULE: You MUST NOT place your stop inside the swept zone.
-  - If LONG: SL must be BELOW ${forbiddenZoneBuy} (below sweep extreme + buffer). Any stop above ${sweepPrice.toFixed(5)} is a liquidity target.
-  - If SHORT: SL must be ABOVE ${forbiddenZoneSell} (above sweep extreme - buffer). Any stop below ${sweepPrice.toFixed(5)} is a liquidity target.
-Stops placed inside the swept zone will be auto-rejected by Omega-9. Use the anchors provided — they already clear the sweep zone.`;
+SWEEP ZONE ADVISORY (${tradeStyle}): ${sweepTypeLabel} confirmed ${candlesLabel} [${bosLabel}]. Sweep extreme: ${sweepPrice.toFixed(5)}.
+The SL anchor above was computed to clear the swept zone (buffer: ${bufferPips.toFixed(1)} pips). You retain full SL placement authority.
+  - If LONG: structural best practice places SL below ${clearanceBuy} (sweep extreme minus buffer).
+  - If SHORT: structural best practice places SL above ${clearanceSell} (sweep extreme plus buffer).
+A stop inside the swept zone risks a liquidity-driven stopout. Factor this into your structural assessment.`;
         }
 
         // Cross-direction cluster proximity advisory (stop NOT adjusted — data for Alpha's reasoning)
@@ -1456,7 +1448,7 @@ Consider in Q9: Is this cluster a risk to your SL? Should you widen to clear it,
 ATR: ${extractATRValue(marketContext.atr).toFixed(5)} (${atrPips} pips) | Volatility: ${marketVolatilityLevel.toUpperCase()} | Risk: ${riskMode.toUpperCase()}
 IF LONG SL Anchor: ${buyAnchorPrice.toFixed(5)} (${buyAnchorPips.toFixed(1)}p, ${buyStopAnchor.atrMultiplier.toFixed(2)}x ATR)
 IF SHORT SL Anchor: ${sellAnchorPrice.toFixed(5)} (${sellAnchorPips.toFixed(1)}p, ${sellStopAnchor.atrMultiplier.toFixed(2)}x ATR)
-HARD WALLS (${tradeStyle} ${promptAssetClass} @ ${marketContext.price.toFixed(2)}): SL MUST be ${wallSlMin.toFixed(1)}-${wallSlMax.toFixed(1)} pips | TP MUST be ${wallTpMin.toFixed(1)}-${wallTpMax.toFixed(1)} pips${wallPctContext}. Trades outside these walls are AUTO-REJECTED. You have FULL authority inside these bounds.${sweepZoneDirective}
+EXPECTED ENVELOPE (${tradeStyle} ${promptAssetClass} @ ${marketContext.price.toFixed(2)}): SL expected ${wallSlMin.toFixed(1)}-${wallSlMax.toFixed(1)} pips | TP expected ${wallTpMin.toFixed(1)}-${wallTpMax.toFixed(1)} pips${wallPctContext}. These are structural guidelines derived from volatility and style. You have FULL authority to place SL and TP where structure justifies it. Placements outside the envelope are logged for analysis but are not rejected. Only Omega-9 (mathematical impossibility) can veto a trade.${sweepZoneDirective}
 `;
     }
 
@@ -3615,83 +3607,56 @@ Return PURE JSON only — all required fields from the schema in my system promp
         const slPips = calculatePipDistance(marketContext.symbol, decision.entry, decision.stopLoss);
         const tpPips = calculatePipDistance(marketContext.symbol, decision.entry, decision.takeProfit);
 
-        const wallViolations: string[] = [];
+        // CCIP-2026-03-18 ALPHA AUTHORITY: Wall checks are now DIAGNOSTIC ONLY.
+        // Alpha's SL and TP values are NEVER modified after Alpha decides.
+        // The coordinator's sole remaining veto power is Omega-9 (mathematical impossibility).
+        //
+        // Rationale: If the coordinator moves Alpha's SL or TP — even to a "better" value —
+        // the post-trade accountability chain is broken. We cannot attribute a failed trade
+        // to Alpha's decision if the coordinator silently corrected it. Alpha must own every
+        // price level in the database, exactly as Alpha chose it.
+        //
+        // Wall diagnostics are logged and attached to the decision for governance analysis.
+        // They DO NOT block, modify, or veto the trade.
+        const wallAdvisories: string[] = [];
 
         if (slPips < arena.slPips.min - WALL_COMPARISON_EPSILON) {
-          wallViolations.push(`SL ${slPips.toFixed(1)} pips below wall min ${arena.slPips.min.toFixed(1)}`);
+          wallAdvisories.push(`[ADVISORY] SL ${slPips.toFixed(1)}p below wall min ${arena.slPips.min.toFixed(1)}p`);
         }
         if (slPips > arena.slPips.max + WALL_COMPARISON_EPSILON) {
-          wallViolations.push(`SL ${slPips.toFixed(1)} pips above wall max ${arena.slPips.max.toFixed(1)}`);
+          wallAdvisories.push(`[ADVISORY] SL ${slPips.toFixed(1)}p above wall max ${arena.slPips.max.toFixed(1)}p`);
         }
-
-        // CCIP (2026-02-20): TP NUDGE REPAIR — mirrors the existing SL logic.
-        // When Alpha places TP below the wall minimum, we lift it to the minimum
-        // and re-check R:R before issuing a hard NO_TRADE.
-        // This is SSOT-compliant: Alpha remains the sole TP authority; the nudge
-        // is a geometric correction, not an override of Alpha's market thesis.
-        // Only block if the nudged TP still cannot satisfy the style's minimum R:R.
-        let effectiveTpPips = tpPips;
         if (tpPips < arena.tpPips.min - WALL_COMPARISON_EPSILON) {
-          const pipInfo = getCurrencyPipInfo(marketContext.symbol);
-          const nudgedTpPrice = decision.action === 'BUY'
-            ? decision.entry + arena.tpPips.min * pipInfo.pipValue
-            : decision.entry - arena.tpPips.min * pipInfo.pipValue;
-
-          const nudgedRR = arena.tpPips.min / Math.max(slPips, 0.1);
-          const minRR = resolvedPlan?.rr?.min ?? 1.0;
-
-          if (nudgedRR >= minRR - WALL_COMPARISON_EPSILON) {
-            console.log(
-              `[Alpha Coordinator] TP NUDGE REPAIR: ${tpPips.toFixed(1)} pips → ${arena.tpPips.min.toFixed(1)} pips (wall min). ` +
-              `Nudged R:R ${nudgedRR.toFixed(2)}:1 >= required ${minRR}:1. Applying repair.`
-            );
-            decision.takeProfit = nudgedTpPrice;
-            decision.tp_nudged = true;
-            decision.tp_nudge_reason = `TP lifted from ${tpPips.toFixed(1)} to ${arena.tpPips.min.toFixed(1)} pips to meet wall minimum. R:R ${nudgedRR.toFixed(2)}:1.`;
-            effectiveTpPips = arena.tpPips.min;
-          } else {
-            wallViolations.push(
-              `TP ${tpPips.toFixed(1)} pips below wall min ${arena.tpPips.min.toFixed(1)}. ` +
-              `Nudged R:R ${nudgedRR.toFixed(2)}:1 insufficient (need ${minRR}:1).`
-            );
-          }
+          wallAdvisories.push(`[ADVISORY] TP ${tpPips.toFixed(1)}p below wall min ${arena.tpPips.min.toFixed(1)}p`);
+        }
+        if (tpPips > arena.tpPips.max + WALL_COMPARISON_EPSILON) {
+          wallAdvisories.push(`[ADVISORY] TP ${tpPips.toFixed(1)}p above wall max ${arena.tpPips.max.toFixed(1)}p`);
         }
 
-        if (effectiveTpPips > arena.tpPips.max + WALL_COMPARISON_EPSILON) {
-          wallViolations.push(`TP ${effectiveTpPips.toFixed(1)} pips above wall max ${arena.tpPips.max.toFixed(1)}`);
-        }
-
-        // CCIP (2026-02-17): TP1 is a partial-profit target — it must be positive and <= TP2.
-        // TP1 is NOT validated against arena.tpPips.min because that minimum represents the
-        // full-target R:R floor (e.g., 2.0:1 for MICRO_INTRADAY). TP1 by design sits between
-        // entry and TP2, so applying the full-target minimum would block all partial-profit strategies.
+        // TP1 geometry: must be positive and must not exceed TP2.
+        // These are physical impossibilities (not style preferences) — kept as hard checks.
         if (decision.tp1Price != null) {
           const tp1Pips = calculatePipDistance(marketContext.symbol, decision.entry, decision.tp1Price);
           if (tp1Pips <= 0) {
-            wallViolations.push(`TP1 ${tp1Pips.toFixed(1)} pips is non-positive`);
+            wallAdvisories.push(`[ADVISORY] TP1 ${tp1Pips.toFixed(1)}p is non-positive`);
           }
-          if (tp1Pips > effectiveTpPips) {
-            wallViolations.push(`TP1 ${tp1Pips.toFixed(1)} pips exceeds TP2 ${effectiveTpPips.toFixed(1)} pips`);
+          if (tp1Pips > tpPips) {
+            wallAdvisories.push(`[ADVISORY] TP1 ${tp1Pips.toFixed(1)}p exceeds TP2 ${tpPips.toFixed(1)}p`);
           }
         }
 
-        decision.wall_violations = wallViolations;
+        decision.wall_violations = wallAdvisories;
 
-        if (wallViolations.length > 0) {
-          console.warn(`[Alpha Coordinator] WALL VIOLATION: ${wallViolations.join('; ')}`);
-          decision.action = 'NO_TRADE';
-          decision.decision = 'NO_TRADE';
-          decision.confidence = 0;
-          decision.reasoning = `Blocked: Decision outside arena walls. ${wallViolations.join('; ')}`;
-
+        if (wallAdvisories.length > 0) {
+          console.log(`[Alpha Coordinator] [Wall Diagnostics] Alpha placed outside expected envelope (advisory — no veto): ${wallAdvisories.join('; ')}`);
           logViolation({
-            violationType: 'ALPHA_WALL_VIOLATION',
+            violationType: 'ALPHA_WALL_ADVISORY',
             symbol: marketContext.symbol,
             attemptedOperation: 'wall_check',
             callLocation: 'coordinator-alpha.wall_check',
-            blocked: true,
+            blocked: false,
             errorDetails: {
-              wallViolations,
+              wallAdvisories,
               slPips,
               tpPips,
               epsilon_pips: WALL_COMPARISON_EPSILON,
@@ -3701,10 +3666,10 @@ Return PURE JSON only — all required fields from the schema in my system promp
               sessionId: goalContext?.sessionId || null,
             }
           }).catch(error => {
-            console.error('[Alpha Coordinator] Failed to log wall violation:', error);
+            console.error('[Alpha Coordinator] Failed to log wall advisory:', error);
           });
         } else {
-          console.log(`[Alpha Coordinator] Decision within arena walls`);
+          console.log(`[Alpha Coordinator] [Wall Diagnostics] Alpha decision within expected envelope`);
         }
       }
 
