@@ -810,37 +810,6 @@ class AlphaTradeExecutor {
       };
     }
 
-    // RE-ENTRY BIAS CHECK (CCIP 2026-03-02)
-    // Scope: same symbol + same direction + same session + closed within 30 min
-    // SSOT: recentTradeContext is the single authority for recent-close queries.
-    const recentClose = await recentTradeContext.getRecentClose(symbol, direction, sessionId, 30);
-
-    if (recentClose.found && recentClose.closeReason === 'stop_loss') {
-      const regimeChanged = recentTradeContext.hasRegimeChanged(
-        recentClose.regimeSnapshot,
-        currentRegimeSnapshot
-      );
-
-      if (!regimeChanged) {
-        const reason =
-          `SAME_DIRECTION_REENTRY_NO_REGIME_CHANGE: ${symbol} ${direction.toUpperCase()} was stopped out ` +
-          `${recentClose.minutesAgo}m ago within this session and the market regime is unchanged ` +
-          `(session_phase, volatility_tier, and htf_trend_direction all identical). ` +
-          `Re-entry blocked until at least one regime pillar changes.`;
-        logger.warn(LogCategory.RISK_MANAGEMENT, `[AlphaTradeExecutor] ${reason}`, {
-          userId: session.user_id, sessionId, symbol, direction,
-          minutesAgo: recentClose.minutesAgo, priorTradeId: recentClose.tradeId
-        });
-        return { valid: false, reason };
-      }
-
-      // Regime changed — allow but log for transparency
-      logger.info(LogCategory.RISK_MANAGEMENT, '[AlphaTradeExecutor] RE-ENTRY_ALLOWED_REGIME_CHANGED', {
-        sessionId, symbol, direction, minutesAgo: recentClose.minutesAgo,
-        priorTradeId: recentClose.tradeId, note: 'Regime changed since prior stop-loss — re-entry permitted'
-      });
-    }
-
     return { valid: true };
   }
 
