@@ -15,6 +15,8 @@ import type { NoTradeRejectionContext } from '../services/goal-session-live-engi
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { getRiskPercentage } from '../config/risk-levels';
+import { useActiveEntryIntent } from '../hooks/useEntryIntent';
+import { EntryPriceMonitor } from './EntryPriceMonitor';
 import { calculatePipDistance, calculateDollarPerPip, formatLotSize } from '../utils/currencyHelpers';
 import { useToast } from '../hooks/useToast';
 import { calculatePnL } from '../types/position';
@@ -58,6 +60,13 @@ export const GoalSessionDashboard: React.FC = () => {
   // for forward-compatibility: if a GoalAchieved modal is ever shown locally, set
   // showGoalAchievedRef.current = true to prevent downstream logic from firing.
   const showGoalAchievedRef = useRef(false);
+
+  // CCIP-SSOT (2026-03-19 ENTRY-MONITOR-PROMOTION): Use the SSOT hook for entry intent data.
+  // When Alpha selects a wait-zone entry mode (wait_pullback / push_confirmation), an entry_intent
+  // record is created with status='monitoring'. This hook drives the UI decision to suppress
+  // AlphaScanningFeed and promote EntryPriceMonitor to the main body.
+  const { activeIntent } = useActiveEntryIntent(activeSession?.sessionId ?? null);
+  const hasActiveMonitoringIntent = activeIntent?.status === 'monitoring';
 
   useEffect(() => {
     if (!activeSession) return;
@@ -1753,8 +1762,26 @@ export const GoalSessionDashboard: React.FC = () => {
 
       {activeSession && activeSession.status === 'scanning' && openTrades.length === 0 && (
         <div>
-          {/* Show block status if system is blocked by adversarial conditions */}
-          {activeSession.block_state ? (
+          {/* CCIP-SSOT (2026-03-19 ENTRY-MONITOR-PROMOTION):
+              Priority 1: Active monitoring intent — Alpha has chosen a wait-zone entry.
+              Show the EntryPriceMonitor promoted to main body. AlphaScanningFeed is suppressed
+              because scanning is complete — a trade was found, we are waiting for zone entry.
+              Priority 2: Block state — adversarial conditions detected.
+              Priority 3: Default — show Alpha's thought stream (still scanning). */}
+          {hasActiveMonitoringIntent ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 px-1">
+                <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                <span className="text-xs font-semibold text-amber-300 uppercase tracking-wider">
+                  Waiting for Entry Zone
+                </span>
+                {activeIntent?.symbol && (
+                  <span className="text-xs text-gray-400 font-mono">{activeIntent.symbol}</span>
+                )}
+              </div>
+              <EntryPriceMonitor />
+            </div>
+          ) : activeSession.block_state ? (
             <div className="bg-yellow-900/30 border border-yellow-500/50 rounded-lg p-5">
               <div className="flex items-start gap-3">
                 <div className="flex-shrink-0">
@@ -1806,7 +1833,7 @@ export const GoalSessionDashboard: React.FC = () => {
       )}
 
       {activeSession && (
-        <TradingMonitorStack />
+        <TradingMonitorStack hideEntryMonitor={hasActiveMonitoringIntent && activeSession.status === 'scanning' && openTrades.length === 0} />
       )}
 
       <NoTradesFoundDialog

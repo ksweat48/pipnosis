@@ -102,7 +102,15 @@ const PairNavigator: React.FC<{
   );
 };
 
-export const TradingMonitorStack: React.FC = () => {
+interface TradingMonitorStackProps {
+  // CCIP-SSOT (2026-03-19 ENTRY-MONITOR-PROMOTION): When the dashboard promotes
+  // EntryPriceMonitor to the main body (during wait-zone monitoring), this flag
+  // prevents a duplicate render inside the stack. The monitor lock placeholder
+  // is also hidden to avoid confusing UX when the monitor is already visible above.
+  hideEntryMonitor?: boolean;
+}
+
+export const TradingMonitorStack: React.FC<TradingMonitorStackProps> = ({ hideEntryMonitor = false }) => {
   const { user } = useAuth();
   const [preferences, setPreferences] = useState<MonitorPreferences>({
     entry_price_monitor_enabled: false,
@@ -326,18 +334,19 @@ export const TradingMonitorStack: React.FC = () => {
         />
       )}
 
-      {showEntry
-        ? <EntryPriceMonitor />
-        : (
-          <MonitorLockedPlaceholder
-            icon={<TrendingUp size={18} className="text-gray-600" />}
-            title="Entry Advisory"
-            description="Activates when Alpha identifies a trade opportunity"
-            requiredTier="Member"
-            price="$99"
-          />
-        )
-      }
+      {!hideEntryMonitor && (
+        showEntry
+          ? <EntryPriceMonitor />
+          : (
+            <MonitorLockedPlaceholder
+              icon={<TrendingUp size={18} className="text-gray-600" />}
+              title="Entry Advisory"
+              description="Activates when Alpha identifies a trade opportunity"
+              requiredTier="Member"
+              price="$99"
+            />
+          )
+      )}
 
       {showMidTrade
         ? <MidTradeMonitor activeTradeId={activeTradeId} />
