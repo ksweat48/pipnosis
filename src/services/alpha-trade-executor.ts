@@ -1669,7 +1669,7 @@ class AlphaTradeExecutor {
         alpha_reasoning: decision.reasoning,
         alpha_confidence: decision.confidence,
         market_context: this.buildAlphaAdvisoryContext(decision, decision.entry, monitorAdvisory),
-        entry_mode: decision.entry_mode || 'wait_pullback',
+        entry_mode: this.toDbEntryMode(decision.entry_mode),
         style: params.canonicalStyle,
         thesis: decision.thesis,
         style_intent: decision.style_intent,
@@ -2381,6 +2381,30 @@ class AlphaTradeExecutor {
         '[AlphaTradeExecutor] GOVERNANCE ALERT: Post-execution entry intent pipeline threw exception',
         { error: err instanceof Error ? err.message : String(err), tradeId, sessionId }
       );
+    }
+  }
+
+  /**
+   * SSOT: Translates Alpha's internal entry_mode vocabulary to the DB-enforced vocabulary.
+   *
+   * This is the SINGLE authoritative translation point (CCIP-2026-0319-ENTRYMODE).
+   * Alpha's coordinator uses its own internal enum values; the entry_intents table
+   * enforces a separate DB check constraint. All writes to entry_intents.entry_mode
+   * MUST pass through this method to prevent constraint violations.
+   *
+   * Translation map (SSOT — do not duplicate elsewhere):
+   *   Alpha 'execute_now'       -> DB 'immediate'
+   *   Alpha 'wait_pullback'     -> DB 'wait_pullback'
+   *   Alpha 'push_confirmation' -> DB 'wait_confirmation'
+   */
+  private toDbEntryMode(
+    alphaEntryMode: string | undefined | null
+  ): 'immediate' | 'wait_pullback' | 'wait_confirmation' {
+    switch (alphaEntryMode) {
+      case 'execute_now':   return 'immediate';
+      case 'wait_pullback': return 'wait_pullback';
+      case 'push_confirmation': return 'wait_confirmation';
+      default: return 'wait_pullback';
     }
   }
 
