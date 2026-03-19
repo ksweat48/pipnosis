@@ -60,9 +60,9 @@ import { logger } from '../lib/logger';
 
 /**
  * Get TTL for Alpha thesis cache
- * Baseline: 15 minutes (SSOT: TIME_MS.CACHE.ALPHA_THESIS in time-constants.ts)
+ * Baseline: 30 minutes (SSOT: TIME_MS.CACHE.ALPHA_THESIS in time-constants.ts)
  * Early invalidation: H1+ candle close OR material regime signature change
- * See CCIP-STABILITY-FIX-2026-03-03 in time-constants.ts for rationale.
+ * See CCIP-CACHE-WRITE-FIX-2026-03-19 in time-constants.ts for rationale.
  */
 function getTTLForAlphaThesis(): number {
   return THESIS_TTL_MS; // 15 minutes (SSOT: time-constants.ts TIME_MS.CACHE.ALPHA_THESIS)
@@ -440,6 +440,132 @@ class SharedIntelligenceCoordinator {
     } finally {
       // Always remove the in-flight entry regardless of success or failure.
       this.inFlightThesisRequests.delete(localKey);
+    }
+  }
+
+  /**
+   * Cache a freshly-generated Alpha thesis directly to the database.
+   *
+   * CCIP-CACHE-WRITE-FIX-2026-03-19:
+   * This method is the SOLE entry point for writing a thesis to the DB cache.
+   * It bypasses the getAlphaThesis() lookup path entirely, which is the correct
+   * design — the caller already HAS a fresh thesis and simply needs to persist it.
+   *
+   * The previous pattern called getAlphaThesis() with the finished thesis as a
+   * parameter. Because getAlphaThesis() checks the in-memory localThesisCache
+   * first (line 154) and the thesis was already stored there during generation,
+   * it returned immediately without ever reaching the fetchPromise DB-write block.
+   * The result: zero DB writes since the GPT-4o upgrade (CCIP-2026-0317A) went
+   * live on 2026-03-17, causing 100% cache misses and full LLM cost on every scan.
+   *
+   * SSOT: SharedIntelligenceCoordinator is the sole authority for cache persistence.
+   * Callers (e.g. coordinator-alpha.ts) MUST NOT call cache_alpha_thesis RPC directly.
+   *
+   * @param symbol  Trading symbol (e.g. 'XAUUSD')
+   * @param regimeSignature  Structural market fingerprint
+   * @param thesisData  The thesis fields to persist (from Alpha's parsed response)
+   */
+  async cacheThesis(
+    symbol: string,
+    regimeSignature: RegimeSignature,
+    thesisData: {
+      directionBias: 'BUY' | 'SELL' | 'NEUTRAL';
+      narrative: string;
+      regime: string;
+      liquidityContext?: string;
+      invalidationLogic?: string;
+      confidenceBand: AlphaMarketThesis['confidenceBand'];
+      thesisSummary: string;
+    }
+  ): Promise<void> {
+    if (!validateRegimeSignature(regimeSignature)) {
+      logger.warn('[SharedIntelligence] cacheThesis: invalid regime signature — skipping write', { symbol });
+      return;
+    }
+
+    const regimeHash = generateRegimeSignatureHash(regimeSignature);
+    const localKey = generateThesisCacheKey(symbol, regimeHash);
+
+    const immutableThesis = createImmutableThesis({
+      ...thesisData,
+      symbol,
+      regimeSignature,
+      createdAt: new Date(),
+      cacheAgeSeconds: 0,
+      fromCache: false
+    });
+
+    const ttl = getTTLForAlphaThesis();
+    this.localThesisCache.set(localKey, {
+      data: immutableThesis,
+      expiresAt: Date.now() + ttl
+    });
+
+    try {
+      const regimeSignatureJson = JSON.stringify(regimeSignature);
+
+      await supabase.rpc('cache_alpha_thesis', {
+        p_symbol: symbol,
+        p_timeframe: regimeSignature.timeframeRelevance || 'H1',
+        p_direction_bias: thesisData.directionBias,
+        p_narrative: thesisData.narrative,
+        p_regime: thesisData.regime,
+        p_liquidity_context: thesisData.liquidityContext || THESIS_DEFAULTS.LIQUIDITY_CONTEXT,
+        p_invalidation_logic: thesisData.invalidationLogic || THESIS_DEFAULTS.INVALIDATION_LOGIC,
+        p_confidence_band: thesisData.confidenceBand,
+        p_thesis_summary: thesisData.thesisSummary,
+        p_regime_signature_hash: regimeHash,
+        p_thesis_hash: immutableThesis.thesisHash,
+        p_regime_signature_json: regimeSignatureJson,
+        p_htf_bias: regimeSignature.htfBias,
+        p_micro_regime: regimeSignature.microRegime,
+        p_volatility_regime: regimeSignature.volatilityRegime,
+        p_structure_state: regimeSignature.structureState,
+        p_timeframe_relevance: regimeSignature.timeframeRelevance || 'H1'
+      });
+
+      try {
+        await supabase.rpc('log_cache_write_event', {
+          p_symbol: symbol,
+          p_regime_signature_hash: regimeHash,
+          p_write_status: 'success',
+          p_error_message: null,
+          p_cache_tier: 'alpha_thesis'
+        });
+      } catch (auditErr) {
+        logger.warn('[SharedIntelligence] cacheThesis: audit log failed (non-blocking)', {
+          error: auditErr instanceof Error ? auditErr.message : 'Unknown error'
+        });
+      }
+
+      logger.info('[SharedIntelligence] cacheThesis: thesis written to DB', {
+        symbol,
+        regimeHash,
+        directionBias: thesisData.directionBias,
+        ttlMin: Math.round(ttl / 60000)
+      });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+
+      logger.error('[SharedIntelligence] cacheThesis: DB write failed', {
+        error: errorMsg,
+        symbol,
+        regimeHash
+      });
+
+      try {
+        await supabase.rpc('log_cache_write_event', {
+          p_symbol: symbol,
+          p_regime_signature_hash: regimeHash,
+          p_write_status: 'failed',
+          p_error_message: errorMsg.substring(0, TIME_MS.CACHE.AUDIT_ERROR_MESSAGE_MAX_LENGTH),
+          p_cache_tier: 'alpha_thesis'
+        });
+      } catch (auditErr) {
+        logger.warn('[SharedIntelligence] cacheThesis: failure audit log failed (non-blocking)', {
+          error: auditErr instanceof Error ? auditErr.message : 'Unknown error'
+        });
+      }
     }
   }
 

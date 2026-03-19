@@ -3592,28 +3592,29 @@ Return PURE JSON only — all required fields from the schema in my system promp
           const directionBias = parsedJSON.action === 'BUY' ? 'BUY' :
                                parsedJSON.action === 'SELL' ? 'SELL' : 'NEUTRAL';
 
-          // Store thesis in cache (fire-and-forget to avoid blocking execution)
-          sharedIntelligenceCoordinator.getAlphaThesis(
+          // CCIP-CACHE-WRITE-FIX-2026-03-19:
+          // Previously called getAlphaThesis() here (re-entrant), which hit the
+          // warm in-memory local cache immediately and returned without executing the
+          // DB write closure. Result: zero DB writes since GPT-4o upgrade (CCIP-2026-0317A).
+          // Fix: call cacheThesis() directly — the dedicated write-only path that bypasses
+          // the cache lookup and writes directly to alpha_market_thesis_cache.
+          await sharedIntelligenceCoordinator.cacheThesis(
             marketContext.symbol,
             regimeSignature,
-            cachedThesis,
-            async () => ({
-              thesis: {
-                directionBias: directionBias as 'BUY' | 'SELL' | 'NEUTRAL',
-                narrative: marketThesisText,
-                regime: regimeSnapshot?.category || 'unknown',
-                liquidityContext: parsedJSON.market_narrative || undefined,
-                confidenceBand: parsedJSON.trade_confidence > 70 ? 'strong' as const :
-                               parsedJSON.trade_confidence > 50 ? 'medium' as const : 'weak' as const,
-                thesisSummary: marketThesisText.substring(0, 100)
-              },
-              thesisRejected: false
-            })
+            {
+              directionBias: directionBias as 'BUY' | 'SELL' | 'NEUTRAL',
+              narrative: marketThesisText,
+              regime: regimeSnapshot?.category || 'unknown',
+              liquidityContext: parsedJSON.market_narrative || undefined,
+              confidenceBand: parsedJSON.trade_confidence > 70 ? 'strong' as const :
+                             parsedJSON.trade_confidence > 50 ? 'medium' as const : 'weak' as const,
+              thesisSummary: marketThesisText.substring(0, 100)
+            }
           ).catch(err => {
-            logger.error('[Alpha Coordinator] Failed to cache thesis', { error: err });
+            logger.error('[Alpha Coordinator] cacheThesis write failed', { error: err });
           });
 
-          console.log('[Alpha Coordinator] Caching fresh market thesis');
+          console.log('[Alpha Coordinator] Caching fresh market thesis via cacheThesis()');
         }
       } catch (parseError) {
         logger.warn('[Alpha Coordinator] Failed to parse thesis from response', {

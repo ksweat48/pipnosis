@@ -127,8 +127,11 @@ export const TIME_MS = {
     // scan cycle, driving scan times to 126s (>120s governance alert threshold) and
     // a 66.7% symbol error rate (NAS100/EURUSD timing out at 40s per symbol).
     //
-    // CORRECTNESS: The thesis TTL is NOT the freshness guard. Two independent mechanisms
-    // already ensure stale theses are never served:
+    // CCIP-CACHE-WRITE-FIX-2026-03-19: ALPHA_THESIS extended to 30 minutes.
+    // REASON: The platform switched from gpt-4o-mini to gpt-4o (CCIP-2026-0317A), making
+    // each scan approximately 15x more expensive ($0.004 → $0.055 per call). A longer TTL
+    // ensures more users benefit from a single shared thesis before it expires.
+    // Two independent early-invalidation mechanisms ensure freshness is never compromised:
     //   1. Structural early-invalidation: H1+ candle close evicts local cache immediately
     //      via SharedIntelligenceCoordinator.invalidateThesisForSymbol() (candle-cache-manager)
     //   2. Regime signature change: detectRegimeChange() invalidates cache on any material
@@ -136,12 +139,12 @@ export const TIME_MS = {
     //
     // The 5-minute floor in trade-execution-freshness-gate.ts (SEVERITY_THRESHOLDS.ALPHA.CRITICAL)
     // controls execution staleness rejection, not how long a structurally valid thesis lives.
-    // These are orthogonal concerns. A 15-minute thesis is valid as long as its regime
+    // These are orthogonal concerns. A 30-minute thesis is valid as long as its regime
     // signature matches — the freshness gate remains the executor's independent guard.
     //
     // MARKET_CONTEXT unchanged at 5 minutes: deterministic computation, zero API cost,
     // no LLM regeneration risk.
-    ALPHA_THESIS: 900_000,   // 15 minutes (restored from 5 min — see CCIP-STABILITY-FIX-2026-03-03)
+    ALPHA_THESIS: 1_800_000, // 30 minutes (extended from 15 min — see CCIP-CACHE-WRITE-FIX-2026-03-19)
     MARKET_CONTEXT: 300_000, // 5 minutes (deterministic, zero API cost)
 
     // CCIP-COORDINATOR-AUDIT-2026-03-03: Fresh cache threshold below which hash
