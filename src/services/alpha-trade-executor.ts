@@ -1672,7 +1672,7 @@ class AlphaTradeExecutor {
         entry_mode: this.toDbEntryMode(decision.entry_mode),
         style: params.canonicalStyle,
         thesis: decision.thesis,
-        style_intent: decision.style_intent,
+        style_intent: this.toSafeStyleIntent(decision.style_intent),
         execution_preference: decision.execution_preference || 'WAIT_PULLBACK',
         runaway_policy: decision.entry_spec?.runawayPolicy ?? 'RESCAN',
         structural_verdict: monitorVerdict,
@@ -2263,10 +2263,8 @@ class AlphaTradeExecutor {
       const direction = toLongShort(decision.action === 'BUY' ? 'buy' : 'sell');
 
       const VALID_THESIS = ['momentum_scalp', 'liquidity_sweep_reversal', 'trend_pullback', 'breakout_continuation', 'mean_reversion', 'failed_move', 'range_extreme'];
-      const VALID_STYLE_INTENT = ['SCALP', 'MICRO_INTRADAY', 'INTRADAY'];
 
       const safeThesis = decision.thesis && VALID_THESIS.includes(decision.thesis) ? decision.thesis : null;
-      const safeStyleIntent = decision.style_intent && VALID_STYLE_INTENT.includes(decision.style_intent) ? decision.style_intent : null;
 
       const classifierZoneMin = decision.entry_intent?.entry_zone_min;
       const classifierZoneMax = decision.entry_intent?.entry_zone_max;
@@ -2329,7 +2327,7 @@ class AlphaTradeExecutor {
         entry_mode: 'immediate',
         style: params.canonicalStyle,
         thesis: safeThesis,
-        style_intent: safeStyleIntent,
+        style_intent: this.toSafeStyleIntent(decision.style_intent),
         execution_preference: decision.execution_preference || 'IMMEDIATE',
         structural_verdict: structuralVerdict,
         structural_level_price: null,
@@ -2406,6 +2404,26 @@ class AlphaTradeExecutor {
       case 'push_confirmation': return 'wait_confirmation';
       default: return 'wait_pullback';
     }
+  }
+
+  /**
+   * SSOT guard for entry_intents.style_intent DB constraint.
+   * Allowed DB values: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY'
+   * Any unrecognised or missing LLM output degrades to null rather than
+   * violating the check constraint and blocking trade execution.
+   *
+   * CCIP-GOVERNANCE (CCIP-2026-0319-STYLEINTENT): This is the SINGLE
+   * authoritative sanitisation point for style_intent. Do NOT inline
+   * VALID_STYLE_INTENT checks elsewhere in this file.
+   */
+  private toSafeStyleIntent(
+    rawValue: string | undefined | null
+  ): 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' | null {
+    const VALID: ReadonlyArray<string> = ['SCALP', 'MICRO_INTRADAY', 'INTRADAY'];
+    if (rawValue && VALID.includes(rawValue)) {
+      return rawValue as 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
+    }
+    return null;
   }
 
   private buildAlphaAdvisoryContext(
