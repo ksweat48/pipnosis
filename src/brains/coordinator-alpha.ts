@@ -4474,6 +4474,32 @@ Return PURE JSON only — all required fields from the schema in my system promp
       }
 
       // ═══════════════════════════════════════════════════════════════════
+      // CCIP-2026-0319C: execute_now MUST NOT propagate wait_condition downstream.
+      // ═══════════════════════════════════════════════════════════════════
+      //
+      // INVARIANT: wait_condition is advisory context for deferred entries only.
+      // When entry_mode resolves to execute_now (immediate market order), any
+      // wait_condition present in the LLM response is meaningless for routing and
+      // MUST be stripped here at the SSOT boundary before the decision object
+      // propagates to goal-session-live-engine.ts resolveExecutionMode().
+      //
+      // WHY: An execute_now decision that also carries a wait_condition was previously
+      // misrouted to MONITORED mode by the secondary routing layer. The routing layer
+      // saw wait_condition != null and treated it as a deferral signal, creating an
+      // entry_intent that was never fulfilled — a silent trade failure.
+      //
+      // FIX: Coordinator is the SSOT authority. Strip wait_condition on execute_now
+      // so no downstream consumer can be confused by its presence.
+      if (resolvedEntryMode === 'execute_now' && resolvedWaitCondition != null) {
+        console.warn(
+          `[Alpha Coordinator] CCIP-2026-0319C: Stripping wait_condition from execute_now decision. ` +
+          `entry_mode=execute_now is the SSOT routing authority; wait_condition is advisory context only. ` +
+          `Downstream routing must not treat wait_condition as a deferral signal. Symbol=${symbol}.`
+        );
+        resolvedWaitCondition = undefined;
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
       // ENTRY MONITOR GATE — SSOT GOVERNANCE ENFORCEMENT
       // CCIP-2026-0319B: Monitor-off intent blocking
       // ═══════════════════════════════════════════════════════════════════

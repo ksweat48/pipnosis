@@ -2662,9 +2662,27 @@ class GoalSessionLiveEngine {
       return { executionMode: 'IMMEDIATE', entryMonitorGateActive: false };
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // CCIP-2026-0319C: entry_mode is the SOLE SSOT routing signal.
+    // wait_condition is ADVISORY CONTEXT for the entry monitor, not a routing trigger.
+    //
+    // BUG FIX: The previous implementation included `alphaDecision.wait_condition != null`
+    // in this predicate, causing execute_now decisions that also carried a wait_condition
+    // (advisory context the LLM commonly includes) to be misrouted to MONITORED mode.
+    // The trade was shown as "EXECUTING NOW" in the UI (correct — entry_mode=execute_now)
+    // but an entry_intent was created with status='monitoring' and never fulfilled.
+    //
+    // INVARIANT: alphaWantsToWait is TRUE only when entry_mode explicitly signals deferral:
+    //   - 'wait_pullback'      → defer until price pulls back into zone
+    //   - 'push_confirmation'  → defer until push confirms into zone
+    //   - 'execute_now'        → IMMEDIATE regardless of any wait_condition present
+    //
+    // SSOT: coordinator-alpha.ts strips wait_condition from execute_now decisions before
+    // this function is called (CCIP-2026-0319C defensive guard). This is a second-layer
+    // enforcement that respects entry_mode as the authoritative routing signal.
+    // ═══════════════════════════════════════════════════════════════════
     const alphaWantsToWait =
-      alphaDecision.wait_condition != null
-      || alphaDecision.entry_mode === 'wait_pullback'
+      alphaDecision.entry_mode === 'wait_pullback'
       || alphaDecision.entry_mode === 'push_confirmation';
 
     if (!alphaWantsToWait) {
