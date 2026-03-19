@@ -1587,6 +1587,37 @@ class AlphaTradeExecutor {
       ? 'push_confirmation_zone'
       : 'pullback_to_zone';
 
+    // CCIP-2026-0319B: Alpha SL/TP Authority Guard — SSOT enforcement
+    // Alpha is the sole authority for stopLoss and takeProfit. No other system
+    // may fabricate, derive, or substitute these values.
+    // If Alpha failed to provide them, we fail loudly — no silent fallback.
+    if (!Number.isFinite(decision.stopLoss) || decision.stopLoss <= 0) {
+      logger.error(
+        LogCategory.GOVERNANCE,
+        '[AlphaTradeExecutor] ALPHA_AUTHORITY_VIOLATION: stopLoss is missing or invalid — monitored intent BLOCKED. ' +
+        'Alpha must always provide stopLoss. No fallback is permitted. CCIP-2026-0319B.',
+        { symbol: decision.symbol, stopLoss: decision.stopLoss, action: decision.action }
+      );
+      return {
+        success: false,
+        error: 'ALPHA_AUTHORITY_VIOLATION: Alpha did not provide a valid stopLoss. Trade blocked by SSOT enforcement.'
+      };
+    }
+
+    const resolvedTakeProfit = decision.tp2Price ?? decision.takeProfit;
+    if (!Number.isFinite(resolvedTakeProfit) || resolvedTakeProfit <= 0) {
+      logger.error(
+        LogCategory.GOVERNANCE,
+        '[AlphaTradeExecutor] ALPHA_AUTHORITY_VIOLATION: takeProfit is missing or invalid — monitored intent BLOCKED. ' +
+        'Alpha must always provide takeProfit. No fallback is permitted. CCIP-2026-0319B.',
+        { symbol: decision.symbol, takeProfit: decision.takeProfit, tp2Price: decision.tp2Price, action: decision.action }
+      );
+      return {
+        success: false,
+        error: 'ALPHA_AUTHORITY_VIOLATION: Alpha did not provide a valid takeProfit. Trade blocked by SSOT enforcement.'
+      };
+    }
+
     // CCIP-2026-0318A: Zone source priority — SSOT governance chain
     // 1. wait_condition (Alpha's explicit LLM-parsed zone — PRIMARY authority)
     // 2. entry_advisory pullback zone (secondary fallback)
@@ -1655,7 +1686,15 @@ class AlphaTradeExecutor {
         requires_m5_candle_close: isPushConfirmMode,
         m5_candle_close_confirmed: false,
         wait_reasoning: decision.wait_condition?.wait_reasoning ?? null,
-        expected_wait_minutes: decision.wait_condition?.expected_wait_minutes ?? null
+        expected_wait_minutes: decision.wait_condition?.expected_wait_minutes ?? null,
+        // CCIP-2026-0319B: Alpha SL/TP authority — SSOT write point.
+        // These are Alpha's exact decided values. No system downstream may modify
+        // or substitute them. The entry monitor reads these columns directly.
+        alpha_stop_loss: decision.stopLoss,
+        alpha_take_profit: resolvedTakeProfit,
+        alpha_tp1_price: decision.tp1Price ?? null,
+        alpha_tp2_price: decision.tp2Price ?? null,
+        invalidation_price: decision.stopLoss
       })
       .select()
       .single();
@@ -1671,6 +1710,20 @@ class AlphaTradeExecutor {
         error: error?.message || 'Failed to create entry intent'
       };
     }
+
+    logger.info(
+      LogCategory.GOVERNANCE,
+      '[AlphaTradeExecutor] Alpha SL/TP persisted to entry_intents (CCIP-2026-0319B)',
+      {
+        symbol: decision.symbol,
+        intentId: intent.id,
+        alpha_stop_loss: decision.stopLoss,
+        alpha_take_profit: resolvedTakeProfit,
+        alpha_tp1_price: decision.tp1Price ?? null,
+        alpha_tp2_price: decision.tp2Price ?? null,
+        source: 'Alpha sole authority — no fallback path exists'
+      }
+    );
 
     const entryModeLabel = isPushConfirmMode
       ? 'push_confirmation'
@@ -2348,6 +2401,12 @@ class AlphaTradeExecutor {
       }
     }
 
+    // CCIP-2026-0319B: Alpha's SL/TP are written into market_context as defense-in-depth.
+    // The authoritative values are always on the dedicated columns (alpha_stop_loss,
+    // alpha_take_profit, alpha_tp1_price, alpha_tp2_price). These JSONB copies exist
+    // only for backward-compatible reads by older code paths. The entry monitor must
+    // always prefer the dedicated columns.
+    const resolvedTP = decision.tp2Price ?? decision.takeProfit;
     const context: Record<string, any> = {
       atr_value: slDistance > 0 ? slDistance : undefined,
       volatility,
@@ -2356,6 +2415,13 @@ class AlphaTradeExecutor {
       is_high_risk_regime: regime?.is_high_risk_regime ?? false,
       confidence: decision.confidence,
       style: decision.resolvedStyle,
+      stop_loss: decision.stopLoss,
+      take_profit: resolvedTP,
+      tp1_price: decision.tp1Price ?? null,
+      tp1_confidence: decision.tp1Confidence ?? null,
+      tp1_reasoning: decision.tp1Reasoning ?? null,
+      tp2_price: decision.tp2Price ?? null,
+      tp2_reasoning: decision.tp2Reasoning ?? null,
       alpha_entry_advisory: {
         verdict: alphaAdvisory?.verdict || 'GOOD_ENTRY',
         pullback_zone_min: alphaAdvisory?.pullback_zone_min || null,

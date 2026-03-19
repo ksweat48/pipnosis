@@ -752,29 +752,98 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
       zone_tolerance_pips: intent.zone_tolerance_pips
     };
 
-    // Step 6: Build enhanced market context with all required data
-    const idealEntryPrice = (fullIntent.entry_zone_min + fullIntent.entry_zone_max) / 2;
-    let adjustedStopLoss = marketContext?.stop_loss || fullIntent.invalidation_price;
+    // Step 6: Resolve Alpha's SL/TP — SSOT enforcement (CCIP-2026-0319B)
+    //
+    // Alpha is the SOLE authority for stop loss and take profit.
+    // Primary source: dedicated columns alpha_stop_loss / alpha_take_profit
+    // (written by AlphaTradeExecutor.createMonitored at intent creation time).
+    // Secondary source: market_context JSONB (defense-in-depth copy from same origin).
+    //
+    // THERE IS NO FABRICATED FALLBACK. If Alpha's values are absent, the system
+    // fails loudly and blocks execution. No coordinator, monitor, or engine may
+    // substitute or compute replacement values.
 
-    if (!adjustedStopLoss) {
-      console.error(`[Entry Monitor] ❌ Missing stop loss - cannot execute`);
+    const idealEntryPrice = (fullIntent.entry_zone_min + fullIntent.entry_zone_max) / 2;
+
+    // Primary: dedicated columns. Secondary: market_context JSONB (same Alpha origin).
+    const rawAlphaSL: number | null = fullIntent.alpha_stop_loss ?? marketContext?.stop_loss ?? null;
+    const rawAlphaTP: number | null = fullIntent.alpha_take_profit ?? marketContext?.take_profit ?? null;
+
+    // --- Hard failure: Alpha SL missing ---
+    if (!rawAlphaSL || !Number.isFinite(Number(rawAlphaSL)) || Number(rawAlphaSL) <= 0) {
+      const errorMsg =
+        '[Entry Monitor] ALPHA_AUTHORITY_VIOLATION: Alpha stop loss is missing from entry_intents. ' +
+        'alpha_stop_loss column is null/zero and market_context.stop_loss is also absent. ' +
+        'Execution BLOCKED. No fallback is permitted. CCIP-2026-0319B.';
+      console.error(errorMsg, {
+        intentId: fullIntent.id,
+        symbol: fullIntent.symbol,
+        alpha_stop_loss: fullIntent.alpha_stop_loss,
+        marketContext_stop_loss: marketContext?.stop_loss
+      });
       if (auditId) {
         await supabase.rpc('fail_execution_audit', {
           p_audit_id: auditId,
-          p_failure_step: 'VALIDATE_SL',
-          p_failure_reason: 'Missing required stop loss price',
-          p_error_details: { market_context: marketContext, invalidation_price: fullIntent.invalidation_price }
+          p_failure_step: 'ALPHA_SL_MISSING',
+          p_failure_reason: 'Alpha stop loss was not persisted to entry_intents — execution blocked by SSOT enforcement (CCIP-2026-0319B)',
+          p_error_details: {
+            alpha_stop_loss: fullIntent.alpha_stop_loss,
+            market_context_stop_loss: marketContext?.stop_loss,
+            invalidation_price: fullIntent.invalidation_price
+          }
         });
       }
       return false;
     }
 
-    // Calculate adjusted TP maintaining original R:R if entry price differs from ideal
-    let adjustedTakeProfit = marketContext?.take_profit;
-    if (adjustedStopLoss && adjustedTakeProfit && entryPrice !== idealEntryPrice) {
+    // --- Hard failure: Alpha TP missing ---
+    if (!rawAlphaTP || !Number.isFinite(Number(rawAlphaTP)) || Number(rawAlphaTP) <= 0) {
+      const errorMsg =
+        '[Entry Monitor] ALPHA_AUTHORITY_VIOLATION: Alpha take profit is missing from entry_intents. ' +
+        'alpha_take_profit column is null/zero and market_context.take_profit is also absent. ' +
+        'Execution BLOCKED. No fallback is permitted. CCIP-2026-0319B.';
+      console.error(errorMsg, {
+        intentId: fullIntent.id,
+        symbol: fullIntent.symbol,
+        alpha_take_profit: fullIntent.alpha_take_profit,
+        marketContext_take_profit: marketContext?.take_profit
+      });
+      if (auditId) {
+        await supabase.rpc('fail_execution_audit', {
+          p_audit_id: auditId,
+          p_failure_step: 'ALPHA_TP_MISSING',
+          p_failure_reason: 'Alpha take profit was not persisted to entry_intents — execution blocked by SSOT enforcement (CCIP-2026-0319B)',
+          p_error_details: {
+            alpha_take_profit: fullIntent.alpha_take_profit,
+            market_context_take_profit: marketContext?.take_profit
+          }
+        });
+      }
+      return false;
+    }
+
+    let adjustedStopLoss = Number(rawAlphaSL);
+    let adjustedTakeProfit = Number(rawAlphaTP);
+
+    // Alpha's TP1/TP2 — from dedicated columns first, then market_context JSONB
+    const rawAlphaTp1: number | null = fullIntent.alpha_tp1_price ?? marketContext?.tp1_price ?? null;
+    const rawAlphaTp2: number | null = fullIntent.alpha_tp2_price ?? marketContext?.tp2_price ?? null;
+    const adjustedTp1: number | null = rawAlphaTp1 ? Number(rawAlphaTp1) : null;
+    const adjustedTp2: number | null = rawAlphaTp2 ? Number(rawAlphaTp2) : adjustedTakeProfit;
+
+    console.log(
+      `[Entry Monitor] Alpha SL/TP confirmed from SSOT columns (CCIP-2026-0319B): ` +
+      `SL=${adjustedStopLoss.toFixed(5)}, TP=${adjustedTakeProfit.toFixed(5)}, ` +
+      `TP1=${adjustedTp1?.toFixed(5) ?? 'none'}, TP2=${adjustedTp2?.toFixed(5) ?? 'none'}`
+    );
+
+    // R:R preservation when entry price differs from the ideal zone midpoint.
+    // This adjustment is permissible because it preserves Alpha's intended R:R ratio —
+    // it does not replace Alpha's decision, it scales it to the actual fill price.
+    if (entryPrice !== idealEntryPrice) {
       const originalStopDistance = Math.abs(idealEntryPrice - adjustedStopLoss);
       const originalTPDistance = Math.abs(adjustedTakeProfit - idealEntryPrice);
-      const originalRR = originalTPDistance / originalStopDistance;
+      const originalRR = originalTPDistance / (originalStopDistance || 1);
 
       if (fullIntent.direction === 'long') {
         adjustedStopLoss = entryPrice - originalStopDistance;
@@ -783,7 +852,10 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
         adjustedStopLoss = entryPrice + originalStopDistance;
         adjustedTakeProfit = entryPrice - (originalStopDistance * originalRR);
       }
-      console.log(`[Entry Monitor] 📐 Adjusted SL/TP for entry slip: SL=${adjustedStopLoss.toFixed(5)}, TP=${adjustedTakeProfit.toFixed(5)}`);
+      console.log(
+        `[Entry Monitor] Alpha SL/TP scaled for entry slip (R:R preserved): ` +
+        `SL=${adjustedStopLoss.toFixed(5)}, TP=${adjustedTakeProfit.toFixed(5)}`
+      );
     }
 
     const riskDollars = session?.dollar_risk ?? marketContext?.risk_dollars ?? 50;
@@ -791,8 +863,8 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
     // Calculate expected profit using proper pip conversion
     const dollarPerPip = calculateDollarPerPip(intent.symbol, pipInfo);
     const slPips = Math.abs(entryPrice - adjustedStopLoss) / pipInfo.pipValue;
-    const tpPips = adjustedTakeProfit ? Math.abs(adjustedTakeProfit - entryPrice) / pipInfo.pipValue : slPips * 2;
-    const riskReward = tpPips / slPips;
+    const tpPips = Math.abs(adjustedTakeProfit - entryPrice) / pipInfo.pipValue;
+    const riskReward = tpPips / (slPips || 1);
     const expectedProfit = riskDollars * riskReward;
 
     const enhancedMarketContext = {
@@ -805,12 +877,12 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
       tp_pips: tpPips,
       risk_dollars: riskDollars,
       ideal_entry_price: idealEntryPrice,
-      tp1_price: marketContext?.tp1_price,
+      tp1_price: adjustedTp1,
       tp1_confidence: marketContext?.tp1_confidence,
       tp1_reasoning: marketContext?.tp1_reasoning,
-      tp2_price: marketContext?.tp2_price ?? adjustedTakeProfit,
+      tp2_price: adjustedTp2,
       tp2_reasoning: marketContext?.tp2_reasoning,
-      take_profit_1: marketContext?.tp1_price,
+      take_profit_1: adjustedTp1,
       reasoning: fullIntent.alpha_reasoning || marketContext?.omega_summary || 'Server-side auto-execution',
       expected_profit: expectedProfit,
       expected_profit_at_tp_dollars: expectedProfit,
@@ -818,7 +890,7 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
       regime_snapshot: marketContext?.regime_snapshot
     };
 
-    console.log(`[Entry Monitor] 💰 Position sizing: Risk=$${riskDollars}, SL=${slPips.toFixed(1)} pips, Expected=$${expectedProfit.toFixed(2)}`);
+    console.log(`[Entry Monitor] Position sizing: Risk=$${riskDollars}, SL=${slPips.toFixed(1)} pips, Expected=$${expectedProfit.toFixed(2)}`);
 
     // Step 7: SSOT - Execute via AlphaTradeExecutor (direct call)
     // CCIP FIX (2026-02-03): Removed phantom SSOTTradeExecutionAdapter
@@ -832,20 +904,22 @@ async function executeIntent(intent: IntentForMonitoring, entryPrice: number, eq
           entry_price: entryPrice,
           eqs_score: eqsScore,
           risk_dollars: riskDollars,
-          expected_profit: expectedProfit
+          expected_profit: expectedProfit,
+          sl_source: fullIntent.alpha_stop_loss ? 'alpha_stop_loss_column' : 'market_context_jsonb',
+          tp_source: fullIntent.alpha_take_profit ? 'alpha_take_profit_column' : 'market_context_jsonb'
         }
       });
     }
 
-    // Build AlphaDecision from entry intent data
+    // Build AlphaDecision from entry intent — SL/TP come from Alpha's persisted values only
     const alphaDecision = {
       action: fullIntent.direction === 'long' ? 'BUY' : 'SELL',
       symbol: fullIntent.symbol,
       entry: entryPrice,
       stopLoss: adjustedStopLoss,
-      takeProfit: adjustedTakeProfit || (entryPrice + (fullIntent.direction === 'long' ? 1 : -1) * slPips * pipInfo.pipValue * 2),
-      tp1Price: marketContext?.tp1_price,
-      tp2Price: marketContext?.tp2_price || adjustedTakeProfit,
+      takeProfit: adjustedTakeProfit,
+      tp1Price: adjustedTp1,
+      tp2Price: adjustedTp2,
       tp1Confidence: marketContext?.tp1_confidence,
       reasoning: fullIntent.alpha_reasoning || marketContext?.omega_summary || 'Server-side auto-execution',
       confidence: fullIntent.alpha_confidence ?? 75,
