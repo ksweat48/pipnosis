@@ -52,8 +52,6 @@ class GlobalDialogManager {
     priority: DialogPriority = 'medium',
     options: ShowDialogOptions = {}
   ) {
-    // SSOT FIX (2026-02-04): Deduplication safety net
-    // Prevents duplicate modals from any source
     const dedupeKey = this.createDedupeKey(type, data);
 
     if (this.recentDialogs.has(dedupeKey)) {
@@ -73,7 +71,11 @@ class GlobalDialogManager {
       return;
     }
 
-    // Add to dedupe set with auto-cleanup
+    // CCIP FIX (2026-03-19 DOUBLE-MODAL): Claim the dedup slot BEFORE any await.
+    // Two concurrent callers (trade_closure_events path + goal_notifications path) both
+    // pass the has() check simultaneously when showDialog() is async and the key is only
+    // added after an await. Adding synchronously here means whichever caller reaches this
+    // line first wins; the second caller hits the has() guard at the top on re-entry.
     this.recentDialogs.add(dedupeKey);
     setTimeout(() => this.recentDialogs.delete(dedupeKey), this.DEDUPE_WINDOW_MS);
 

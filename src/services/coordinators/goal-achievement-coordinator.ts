@@ -117,9 +117,9 @@ class GoalAchievementCoordinator {
 
     try {
       const { data: existingAchievement } = await supabase
-        .from('goal_achievements')
+        .from('trade_achievements')
         .select('id')
-        .eq('goal_session_id', context.sessionId)
+        .eq('session_id', context.sessionId)
         .maybeSingle();
 
       if (existingAchievement) {
@@ -560,27 +560,6 @@ class GoalAchievementCoordinator {
           return { success: false, error: 'Failed to transition session' };
         }
 
-        // Create achievement record
-        const achievementData = {
-          user_id: sessionData.user_id,
-          goal_session_id: sessionId,
-          achieved_at: new Date().toISOString(),
-          achieved_pnl: finalPnL,
-          target_amount: goalAmount,
-          final_pnl: finalPnL,
-        };
-
-        const { data: achievement, error: achievementError } = await supabase
-          .from('goal_achievements')
-          .insert(achievementData)
-          .select()
-          .single();
-
-        if (achievementError) {
-          console.error(`[GoalAchievementCoordinator] Failed to create achievement:`, achievementError);
-          return { success: false, error: 'Failed to create achievement' };
-        }
-
         // Apply rewards
         await this.applyRewards(sessionData.user_id, finalPnL, goalAmount);
 
@@ -592,7 +571,6 @@ class GoalAchievementCoordinator {
           message: `Congratulations! You reached your $${goalAmount.toFixed(2)} goal with $${finalPnL.toFixed(2)} profit!`,
           metadata: {
             sessionId,
-            achievementId: achievement.id,
             finalPnL,
             goalTarget: goalAmount,
           },
