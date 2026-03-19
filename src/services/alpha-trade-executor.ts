@@ -1193,10 +1193,18 @@ class AlphaTradeExecutor {
   }
 
   /**
-   * Create pending trade (awaiting user confirmation)
+   * Create pending trade (awaiting user confirmation of a trade already at the correct price).
+   *
    * SSOT: Uses priceCoordinator.extractExecutionPrice() if decision.entry is null
    * CCIP COMPLIANCE (2026-02-02): Fetch live price and extract direction-specific component
    * GOAL-AWARE: Uses expectedProfitAtTP from lot sizing coordinator (SSOT fix 2026-02-03)
+   *
+   * CCIP-2026-0319B GOVERNANCE GUARD:
+   * createPending must NEVER be reached for wait-intent decisions (wait_pullback /
+   * push_confirmation). Those paths are blocked at coordinator-alpha.ts before the decision
+   * leaves the coordinator. If a wait-intent somehow reaches this method it means the
+   * upstream SSOT gate was bypassed — this is a critical governance failure that must
+   * fail loudly rather than silently create an unmonitored entry intent.
    */
   private async createPending(params: {
     decision: AlphaDecision;
@@ -1216,6 +1224,37 @@ class AlphaTradeExecutor {
     rawTradeStyle: string;
   }): Promise<TradeExecutionResult> {
     const { decision, userId, sessionId, lotSize, riskDollars, inputs } = params;
+
+    // CCIP-2026-0319B: Guard against wait-intent leakage into createPending.
+    // coordinator-alpha.ts is the SSOT gate — wait-modes with monitor off become NO_TRADE there.
+    // resolveExecutionMode() routes wait-modes to MONITORED (createMonitored), never here.
+    // If a wait-intent reaches createPending it is a governance architecture violation.
+    if (decision.entry_mode === 'wait_pullback' || decision.entry_mode === 'push_confirmation') {
+      logger.error(
+        LogCategory.RISK_MANAGEMENT,
+        '[AlphaTradeExecutor] GOVERNANCE VIOLATION: wait-intent decision reached createPending. ' +
+        'This should never happen — coordinator-alpha.ts should have blocked this. ' +
+        'Rejecting trade to prevent an unmonitored orphaned entry intent. CCIP-2026-0319B.',
+        { userId, sessionId, entryMode: decision.entry_mode, symbol: decision.symbol }
+      );
+      await this.logCCIPChange({
+        changeType: 'WAIT_INTENT_REACHED_CREATE_PENDING',
+        tableAffected: 'goal_session_trades',
+        recordId: userId,
+        userId,
+        sessionId,
+        metadata: {
+          entryMode: decision.entry_mode,
+          symbol: decision.symbol,
+          action: decision.action,
+          violation: 'CCIP-2026-0319B: wait-intent must be blocked at coordinator-alpha or routed to createMonitored'
+        }
+      });
+      return {
+        success: false,
+        error: 'GOVERNANCE_VIOLATION: Wait-intent entry reached createPending — entry monitor gate failure. Review CCIP-2026-0319B.'
+      };
+    }
 
     // GOVERNANCE FIX: If decision.entry is null, fetch live price
     let entryPrice = decision.entry;

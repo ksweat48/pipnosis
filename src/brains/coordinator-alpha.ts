@@ -3312,21 +3312,52 @@ ENTRY MODE — SMART WAITING SYSTEM:
 The entry_mode field controls when the trade executes. You have full authority to choose the right mode based on market conditions.
 
   "execute_now"       → The full picture aligns NOW. Trend, structure, momentum, timing, and entry trigger
-                        are all confirmed. Execute at current market price.
+                        are all confirmed. Execute at current market price immediately.
                         REQUIRES: A named trigger that has already fired (candle close, BOS, sweep-reclaim,
                         structural rejection). Proximity alone is not a trigger.
 
-  "wait_pullback"     → The full picture aligns EXCEPT the current entry price. Thesis is valid and you
-                        are confident this trade wins. You are managing timing, not conviction.
+  "wait_pullback"     → Equivalent to a LIMIT ORDER. The full picture aligns EXCEPT the current entry
+                        price is overextended from the optimal zone. Thesis is valid; you are managing
+                        timing, not conviction. The system places a limit-style entry that executes the
+                        instant price touches your defined zone — no candle close required.
+                        USE WHEN: Price is extended from structure, you want to buy at support or sell
+                        at resistance, or you need a better risk/reward entry. The pullback zone must
+                        be defined around a genuine structural level (e.g. prior support, VWAP retest,
+                        50% retracement of the last impulse).
                         REQUIRES: "wait_condition" block. State the exact pullback target zone (min/max
-                        price), the price that invalidates the thesis, and your reasoning. The system
-                        monitors price and executes when price enters the zone.
+                        price), the price that invalidates the thesis, and your reasoning.
+                        COHERENCE: The pullback zone MUST be a lower price than current price for BUY
+                        (price needs to come DOWN to you) or a higher price for SELL (price needs to
+                        come UP to you). If price is already at or inside your zone, use "execute_now".
+                        If the pullback would cross a structural invalidation level, use NO_TRADE.
 
-  "push_confirmation" → The full picture will align IF price pushes into a specific zone AND closes
+  "push_confirmation" → STRONGER than a limit order — requires a candle close inside the zone.
+                        The full picture will align IF price pushes into a specific zone AND closes
                         an M5 candle body INSIDE it. A wick touch or brief spike is NOT sufficient.
+                        USE WHEN: Breakout entries, breakout retests, or when you need confirmed
+                        commitment (a candle body close) before executing. This prevents false breakouts.
                         REQUIRES: "wait_condition" block. Set the zone tightly around the structural
                         level (1-3 pip width). The system monitors M5 candles and executes only after
                         a closed candle body confirms commitment.
+                        COHERENCE: The zone must be at a price NOT YET reached — if price is already
+                        inside your zone, use "execute_now" instead.
+
+ENTRY MONITOR DEPENDENCY — CRITICAL GOVERNANCE RULE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"wait_pullback" and "push_confirmation" require the entry monitor to be active.
+If the entry monitor is disabled, the system CANNOT watch for your target zone — the trade
+will be blocked and counted as NO_TRADE regardless of your analysis.
+
+RULE: If your best entry requires waiting (wait_pullback or push_confirmation), but the
+system cannot monitor for it, you have two choices:
+  1. Use "execute_now" if the current price offers an acceptable (not ideal) entry with
+     valid geometry — accept the slightly worse entry price.
+  2. Output NO_TRADE if executing now would violate the trade's structural basis
+     (e.g. you would be entering into resistance instead of at support).
+
+NEVER output "wait_pullback" or "push_confirmation" as a fallback when you are uncertain
+about the current entry. These modes require a specific, named target zone with clear
+structural justification. Uncertainty is grounds for NO_TRADE.
 
 BREAKOUT ENTRIES — MANDATORY RULE:
 If Q6_entry_trigger is a breakout (price must trade THROUGH a level it has NOT YET reached —
@@ -3336,6 +3367,15 @@ The breakout has not fired yet. Executing now means entering BEFORE your own tri
 You MUST use "push_confirmation" with a wait_condition zone set at the breakout level.
 Failure to do so is a coherence violation — the system will flag it in governance logs.
 
+WAIT_PULLBACK COHERENCE RULES — MANDATORY:
+Before choosing "wait_pullback", verify all of the following or use NO_TRADE:
+  - The pullback zone is in the CORRECT direction: lower than current price for BUY, higher for SELL.
+  - The zone is anchored to a named structural level (support, VWAP, Fibonacci, prior swing high/low).
+  - Price reaching the zone does NOT cross the thesis invalidation level.
+  - The expected wait time is reasonable given market context (not more than 60 min for scalp/micro).
+  - You are NOT choosing wait_pullback merely because current price feels "high" or "extended" without
+    a specific structural target — vague discomfort is NOT a valid pullback thesis.
+
 If none of these three apply: output NO_TRADE. There is no fourth option.
 
 When using wait_pullback or push_confirmation, include a wait_condition block:
@@ -3344,13 +3384,14 @@ When using wait_pullback or push_confirmation, include a wait_condition block:
     "target_entry_zone_min": <lower bound of the wait zone>,
     "target_entry_zone_max": <upper bound of the wait zone>,
     "invalidation_price": <price that invalidates the thesis entirely>,
-    "wait_reasoning": "Why you are waiting — what must happen for entry to be valid",
+    "wait_reasoning": "Why you are waiting — what structural level defines the zone",
     "expected_wait_minutes": <your estimate of how long until price reaches the zone, e.g. 15>
   }
 }
 
 IMPORTANT: For push_confirmation, the zone defines where the M5 candle must CLOSE — not just touch.
 Set the zone tightly around your structural level (1-3 pip width is appropriate for confirmation).
+For wait_pullback, the zone defines the limit entry price range — execution triggers on first touch.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -3507,7 +3548,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
           takeProfit: 0
         });
 
-        return this.parseDecision(
+        return await this.parseDecision(
           rewrittenContent,
           marketContext.price,
           extractATRValue(marketContext.atr),
@@ -3580,7 +3621,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
         });
       }
 
-      let decision = this.parseDecision(
+      let decision = await this.parseDecision(
         content,
         marketContext.price,
         extractATRValue(marketContext.atr),
@@ -4033,7 +4074,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
    * Parse Alpha decision with MINIMAL corrections (only catastrophic errors)
    * Elite Trader Directive educates Alpha - we trust professional judgment
    */
-  private parseDecision(
+  private async parseDecision(
     response: string,
     currentPrice: number,
     atr: number,
@@ -4049,7 +4090,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
     sessionId?: string,
     tradeStyle: 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY' = 'SCALP',
     dualArenaWalls?: DualArenaWalls | null
-  ): AlphaDecision {
+  ): Promise<AlphaDecision> {
     try {
       // CCIP-REJECT-THESIS-2026-03-08: Defensive pre-check for plain-text thesis responses.
       // The main coordinator flow rewrites these before calling parseDecision, but this
@@ -4428,6 +4469,67 @@ Return PURE JSON only — all required fields from the schema in my system promp
               `contradicts execute_now but entry price unavailable to synthesise zone. Trade proceeds as execute_now. Symbol=${symbol}. CCIP-FIX.`
             );
           }
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // ENTRY MONITOR GATE — SSOT GOVERNANCE ENFORCEMENT
+      // CCIP-2026-0319B: Monitor-off intent blocking
+      // ═══════════════════════════════════════════════════════════════════
+      //
+      // RULE: wait_pullback and push_confirmation require the entry monitor to be ACTIVE.
+      // When the entry monitor is disabled, the system has no mechanism to watch price
+      // and trigger execution at the target zone. Allowing a wait-intent through when
+      // the monitor is off would create an entry_intent that is never fulfilled —
+      // a silent NO_TRADE masquerading as a pending trade.
+      //
+      // ENFORCEMENT: If Alpha chose a wait mode AND the entry monitor is off, this gate
+      // overrides the decision to NO_TRADE here, at the coordinator — the SSOT authority.
+      // By the time the decision reaches AlphaTradeExecutor, it is already clean.
+      //
+      // GOVERNANCE: The override is logged to governance_change_log with change type
+      // MONITOR_OFF_INTENT_BLOCKED so the audit trail records why the wait was suppressed.
+      //
+      // SSOT: coordinator-alpha.ts is the sole authority for entry_mode resolution.
+      // goal-session-live-engine.ts resolveExecutionMode() is a secondary routing layer;
+      // it must never receive a wait-mode decision when the monitor is off.
+      const alphaWantsToWait =
+        resolvedEntryMode === 'wait_pullback' || resolvedEntryMode === 'push_confirmation';
+
+      if (action !== 'NO_TRADE' && alphaWantsToWait && userId) {
+        let monitorEnabled = false;
+        try {
+          const { data: pref } = await supabase
+            .from('user_monitor_preferences')
+            .select('entry_price_monitor_enabled')
+            .eq('user_id', userId)
+            .maybeSingle();
+          monitorEnabled = pref?.entry_price_monitor_enabled === true;
+        } catch {
+          // Fail-safe: when monitor pref is unreadable, deny wait-mode (safest default).
+          monitorEnabled = false;
+        }
+
+        if (!monitorEnabled) {
+          console.warn(
+            `[Alpha Coordinator] MONITOR_OFF_INTENT_BLOCKED: Alpha chose entry_mode="${resolvedEntryMode}" ` +
+            `but entry monitor is disabled for user ${userId}. ` +
+            `Alpha cannot place deferred entries without an active monitor. ` +
+            `Decision overridden to NO_TRADE. Symbol=${symbol}. CCIP-2026-0319B.`
+          );
+          return {
+            action: 'NO_TRADE',
+            decision: 'NO_TRADE',
+            entry: currentPrice,
+            stopLoss: currentPrice,
+            takeProfit: currentPrice,
+            confidence: Math.max(10, Math.min(100, tradeConfidence)),
+            reasoning: `MONITOR_OFF_INTENT_BLOCKED: Alpha wanted ${resolvedEntryMode} but entry monitor is disabled. ` +
+              `Enable the entry monitor to allow deferred entries, or Alpha will re-evaluate for an immediate execute_now opportunity.`,
+            omega_summary: '',
+            risk_pct: 0,
+            narrativeValidation: narrativeValidation || undefined
+          };
         }
       }
 

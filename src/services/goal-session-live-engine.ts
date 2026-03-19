@@ -2671,19 +2671,27 @@ class GoalSessionLiveEngine {
       return { executionMode: 'IMMEDIATE', entryMonitorGateActive: false };
     }
 
-    // CCIP-FIX (pending entry routing):
-    // Previously this function only returned IMMEDIATE or MONITORED. When Alpha chose
-    // wait_pullback or push_confirmation and the user had entry_price_monitor_enabled=false,
-    // the trade fell back to IMMEDIATE (market order) — defeating Alpha's stated intent.
+    // CCIP-2026-0319B (Entry Monitor Governance):
+    // The coordinator-alpha.ts is the SSOT gate for monitor-off enforcement.
+    // By the time this function is called, any wait-mode decision with monitor OFF
+    // has already been converted to NO_TRADE by coordinator-alpha.ts.
     //
-    // Routing contract:
-    //   alphaWantsToWait=true + monitor_enabled=true  → MONITORED (live price watch, DB entry intent)
-    //   alphaWantsToWait=true + monitor_enabled=false → PENDING   (server-side entry intent, broker limit)
-    //   alphaWantsToWait=false                        → IMMEDIATE (market order now)
+    // Therefore: if alphaWantsToWait=true and execution reaches here, the monitor
+    // MUST be enabled (the coordinator already verified it). This function's only
+    // job is to confirm monitor state and route to MONITORED.
     //
-    // SSOT: This function is the sole authority for IMMEDIATE / PENDING / MONITORED routing.
+    // Routing contract (post-governance, SSOT compliant):
+    //   alphaWantsToWait=true  → MONITORED (monitor is guaranteed active by upstream gate)
+    //   alphaWantsToWait=false → IMMEDIATE (market order now)
+    //
+    // PENDING mode is intentionally removed. It was architecturally incorrect:
+    // it created trade records for deferred entries without an active monitor,
+    // producing entry_intents that were never fulfilled.
+    //
+    // SSOT: coordinator-alpha.ts is the primary gate. This function is a secondary
+    // routing layer that maps the already-validated decision to an execution mode.
     // AlphaTradeExecutor.execute() consumes the mode and dispatches to the correct path.
-    let executionMode: 'IMMEDIATE' | 'PENDING' | 'MONITORED' = 'PENDING';
+    let executionMode: 'IMMEDIATE' | 'PENDING' | 'MONITORED' = 'MONITORED';
     let entryMonitorGateActive = false;
 
     try {
@@ -2696,16 +2704,28 @@ class GoalSessionLiveEngine {
       if (monitorPref?.entry_price_monitor_enabled === true) {
         executionMode = 'MONITORED';
         entryMonitorGateActive = true;
+      } else {
+        // This should not occur — coordinator-alpha already blocked wait-mode when monitor is off.
+        // If it does occur (e.g. monitor pref changed mid-flight), treat as a governance anomaly:
+        // fall back to IMMEDIATE (execute at current market price) rather than creating an
+        // orphaned entry intent. Log the anomaly for audit review.
+        executionMode = 'IMMEDIATE';
+        logger.warn(
+          LogCategory.AI_TRADING,
+          '[Entry Monitor Gate] GOVERNANCE ANOMALY: alphaWantsToWait=true but monitor is off. ' +
+          'coordinator-alpha should have blocked this. Falling back to IMMEDIATE to prevent orphaned intent. ' +
+          'Review CCIP-2026-0319B.',
+          { userId, sessionId, alphaEntryMode: alphaDecision.entry_mode }
+        );
       }
-      // else: executionMode stays PENDING — Alpha wants to wait but monitor is off;
-      // the executor will create a server-side entry intent with a wait zone.
     } catch (prefErr) {
+      // Fail-safe: if pref read fails, fall back to IMMEDIATE (do not create unmonitored intent).
+      executionMode = 'IMMEDIATE';
       logger.warn(
         LogCategory.AI_TRADING,
-        '[Entry Monitor Gate] Failed to read monitor preference — defaulting to PENDING (Alpha requested wait)',
+        '[Entry Monitor Gate] Failed to read monitor preference — falling back to IMMEDIATE (cannot create unmonitored intent)',
         { error: prefErr }
       );
-      // Safe default: honour Alpha's wait intent even when prefs are unreadable.
     }
 
     if (entryMonitorGateActive) {
