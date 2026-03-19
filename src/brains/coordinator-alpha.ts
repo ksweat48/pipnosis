@@ -1822,10 +1822,12 @@ MANDATORY JSON FIELD — Include in your response regardless of action:
         // ═══════════════════════════════════════════════════════════════════
         // MICRO_INTRADAY M15 MOVE PHASE & FAKEOUT ADVISORY
         // Mirrors the INTRADAY intradayMovePhaseContext pattern on M15.
-        // Advisory only — EXHAUSTED phase reduces confidence 15-25 points,
-        // does NOT produce a hard NO_TRADE block. Alpha retains full authority.
+        // Advisory only — EXHAUSTED phase is structural context for finding
+        // a reversal or retest setup. Alpha retains full confidence authority.
+        // No code-imposed confidence reduction. Alpha self-prices all signals.
         // SSOT: atrForStopLoss resolves to marketContext.atr (M15 14-period)
         // for MICRO_INTRADAY via styleAtrMap.
+        // CCIP-2026-03-19: Stale "reduces confidence 15-25 points" language removed.
         // ═══════════════════════════════════════════════════════════════════
         if (styleName === 'MICRO_INTRADAY' && atrForStopLoss > 0) {
           const m15AtrPips = (atrForStopLoss / pipInfo.pipValue);

@@ -671,13 +671,13 @@ YOUR AUTHORITY:
 ✅ You may accept lower R:R if setup quality justifies (reduced profit > NO_TRADE)
 
 R:R ACCOUNTABILITY:
-• R:R < ${constraints.minRiskReward.toFixed(2)}:1 → Advisory warning + confidence reduction. Trade is NOT blocked. You retain full authority.
+• R:R < ${constraints.minRiskReward.toFixed(2)}:1 → Advisory notice. Trade is NOT blocked. Factor this into your confidence as you see fit — you retain full authority.
 • Sub-1.0:1 R:R requires explicit justification in your reasoning (e.g., "R:R is 0.7:1 because structure demands SL above X level, TP is hard resistance").
 • At 0.75:1 R:R you need 57% win rate to be profitable. At 0.5:1 R:R you need 67%. State your R:R explicitly if below 1.0:1.
 
 HARD WALL ENFORCEMENT:
 • TP > maximum → Auto-corrected to maximum (wall is physics, not advisory)
-• SL outside wall range → Warning + confidence penalty (wall defines the corridor)
+• SL outside wall range → Advisory warning (wall defines the corridor — factor into your structural assessment)
 
 Core Principle: If the market can offer some profit, you should take it.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
