@@ -3328,6 +3328,14 @@ The entry_mode field controls when the trade executes. You have full authority t
                         level (1-3 pip width). The system monitors M5 candles and executes only after
                         a closed candle body confirms commitment.
 
+BREAKOUT ENTRIES — MANDATORY RULE:
+If Q6_entry_trigger is a breakout (price must trade THROUGH a level it has NOT YET reached —
+e.g. "breakout above X", "break of structure above Y", "push through resistance Z") AND
+Q4_momentum_stage is DEVELOPING, then "execute_now" is STRUCTURALLY INVALID.
+The breakout has not fired yet. Executing now means entering BEFORE your own trigger.
+You MUST use "push_confirmation" with a wait_condition zone set at the breakout level.
+Failure to do so is a coherence violation — the system will flag it in governance logs.
+
 If none of these three apply: output NO_TRADE. There is no fourth option.
 
 When using wait_pullback or push_confirmation, include a wait_condition block:
@@ -4347,6 +4355,80 @@ Return PURE JSON only — all required fields from the schema in my system promp
           `invalidation=${resolvedWaitCondition.invalidation_price} ` +
           `est_wait=${resolvedWaitCondition.expected_wait_minutes ?? 'unspecified'}min`
         );
+      }
+
+      // CCIP-FIX (breakout contradiction guard):
+      // Alpha's answer_sheet is an audit trail. Q6_entry_trigger and Q4_momentum_stage
+      // carry Alpha's structural diagnosis — they must be coherent with entry_mode.
+      //
+      // INVARIANT: If Q6 names a breakout trigger (price has not yet traded through the
+      // structural level) AND Q4 is DEVELOPING, the move has not confirmed. Executing at
+      // current market price would mean entering BEFORE the breakout fires — the exact
+      // failure pattern we are preventing.
+      //
+      // ACTION: Downgrade execute_now → push_confirmation and synthesise a wait_condition
+      // zone centred on Alpha's planned entry price (tight band = ATR-approximate 0.1% width).
+      // This keeps Alpha fully in authority — we correct the mode to match what Alpha already
+      // told us in its answer_sheet. No trade parameters (SL, TP, lot size) are changed.
+      //
+      // GOVERNANCE: Logged as CCIP ENTRY_MODE_CONFLICT_CORRECTED for full audit trail.
+      // SSOT: coordinator-alpha.ts is the sole parse and correction point for entry_mode.
+      // This block runs BEFORE resolveExecutionMode() in goal-session-live-engine.ts so
+      // the engine receives a consistent, already-validated decision object.
+      if (
+        action !== 'NO_TRADE' &&
+        resolvedEntryMode === 'execute_now' &&
+        answerSheet?.Q6_entry_trigger &&
+        answerSheet?.Q4_momentum_stage
+      ) {
+        const q6Lower = answerSheet.Q6_entry_trigger.toLowerCase();
+        const q4Lower = answerSheet.Q4_momentum_stage.toLowerCase();
+
+        const isBreakoutTrigger =
+          q6Lower.includes('breakout') ||
+          q6Lower.includes('break above') ||
+          q6Lower.includes('break below') ||
+          q6Lower.includes('break of structure') ||
+          q6Lower.includes('bos above') ||
+          q6Lower.includes('bos below') ||
+          q6Lower.includes('push through') ||
+          q6Lower.includes('above resistance') ||
+          q6Lower.includes('below support');
+
+        const isDeveloping = q4Lower.includes('developing') || q4Lower.includes('dev');
+
+        if (isBreakoutTrigger && isDeveloping) {
+          const entryRef = typeof parsed.entry === 'number' && parsed.entry > 0 ? parsed.entry : 0;
+          const zoneHalfWidth = entryRef > 0 ? entryRef * 0.001 : 0.001;
+
+          const correctedZone = entryRef > 0
+            ? {
+                target_entry_zone_min: entryRef - zoneHalfWidth,
+                target_entry_zone_max: entryRef + zoneHalfWidth,
+                invalidation_price: action === 'BUY'
+                  ? entryRef - zoneHalfWidth * 4
+                  : entryRef + zoneHalfWidth * 4,
+                wait_reasoning: `Breakout contradiction guard: Q6="${answerSheet.Q6_entry_trigger}" + Q4="${answerSheet.Q4_momentum_stage}" — breakout not yet confirmed. Waiting for M5 close inside zone before executing.`,
+                expected_wait_minutes: 15,
+              }
+            : undefined;
+
+          if (correctedZone) {
+            resolvedEntryMode = 'push_confirmation';
+            resolvedWaitCondition = correctedZone;
+            console.warn(
+              `[Alpha Coordinator] ENTRY_MODE_CONFLICT_CORRECTED: execute_now→push_confirmation ` +
+              `— Q6="${answerSheet.Q6_entry_trigger}" (breakout) + Q4="${answerSheet.Q4_momentum_stage}" (developing) ` +
+              `contradicts immediate execution. Synthesised wait zone: ${correctedZone.target_entry_zone_min.toFixed(5)}–${correctedZone.target_entry_zone_max.toFixed(5)}. ` +
+              `Symbol=${symbol}. CCIP-FIX.`
+            );
+          } else {
+            console.warn(
+              `[Alpha Coordinator] ENTRY_MODE_CONFLICT_DETECTED: Q6="${answerSheet.Q6_entry_trigger}" + Q4="${answerSheet.Q4_momentum_stage}" ` +
+              `contradicts execute_now but entry price unavailable to synthesise zone. Trade proceeds as execute_now. Symbol=${symbol}. CCIP-FIX.`
+            );
+          }
+        }
       }
 
       // ═══════════════════════════════════════════════════════════════════

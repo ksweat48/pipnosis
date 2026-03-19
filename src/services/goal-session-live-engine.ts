@@ -2654,7 +2654,7 @@ class GoalSessionLiveEngine {
     alphaDecision: { action?: string; entry_mode?: string; wait_condition?: unknown },
     userId: string,
     sessionId: string
-  ): Promise<{ executionMode: 'IMMEDIATE' | 'MONITORED'; entryMonitorGateActive: boolean }> {
+  ): Promise<{ executionMode: 'IMMEDIATE' | 'PENDING' | 'MONITORED'; entryMonitorGateActive: boolean }> {
     // CCIP-2026-0319A (Fix 4): NO_TRADE decisions must never activate the entry monitor.
     // entry_mode and wait_condition are structurally invalid on NO_TRADE decisions.
     // The parser already strips them, but we enforce this invariant here as a second layer.
@@ -2671,7 +2671,19 @@ class GoalSessionLiveEngine {
       return { executionMode: 'IMMEDIATE', entryMonitorGateActive: false };
     }
 
-    let executionMode: 'IMMEDIATE' | 'MONITORED' = 'IMMEDIATE';
+    // CCIP-FIX (pending entry routing):
+    // Previously this function only returned IMMEDIATE or MONITORED. When Alpha chose
+    // wait_pullback or push_confirmation and the user had entry_price_monitor_enabled=false,
+    // the trade fell back to IMMEDIATE (market order) — defeating Alpha's stated intent.
+    //
+    // Routing contract:
+    //   alphaWantsToWait=true + monitor_enabled=true  → MONITORED (live price watch, DB entry intent)
+    //   alphaWantsToWait=true + monitor_enabled=false → PENDING   (server-side entry intent, broker limit)
+    //   alphaWantsToWait=false                        → IMMEDIATE (market order now)
+    //
+    // SSOT: This function is the sole authority for IMMEDIATE / PENDING / MONITORED routing.
+    // AlphaTradeExecutor.execute() consumes the mode and dispatches to the correct path.
+    let executionMode: 'IMMEDIATE' | 'PENDING' | 'MONITORED' = 'PENDING';
     let entryMonitorGateActive = false;
 
     try {
@@ -2685,12 +2697,15 @@ class GoalSessionLiveEngine {
         executionMode = 'MONITORED';
         entryMonitorGateActive = true;
       }
+      // else: executionMode stays PENDING — Alpha wants to wait but monitor is off;
+      // the executor will create a server-side entry intent with a wait zone.
     } catch (prefErr) {
       logger.warn(
         LogCategory.AI_TRADING,
-        '[Entry Monitor Gate] Failed to read monitor preference — defaulting to IMMEDIATE',
+        '[Entry Monitor Gate] Failed to read monitor preference — defaulting to PENDING (Alpha requested wait)',
         { error: prefErr }
       );
+      // Safe default: honour Alpha's wait intent even when prefs are unreadable.
     }
 
     if (entryMonitorGateActive) {
@@ -2703,6 +2718,19 @@ class GoalSessionLiveEngine {
         // non-blocking audit update
       }
     }
+
+    logger.info(
+      LogCategory.AI_TRADING,
+      '[Entry Monitor Gate] Execution mode resolved',
+      {
+        executionMode,
+        entryMonitorGateActive,
+        alphaEntryMode: alphaDecision.entry_mode,
+        hasWaitCondition: alphaDecision.wait_condition != null,
+        userId,
+        sessionId,
+      }
+    );
 
     return { executionMode, entryMonitorGateActive };
   }

@@ -557,10 +557,17 @@ class AlphaTradeExecutor {
     // riskDollars while the goal-aware coordinator independently overrides lotSize,
     // leaving the two values inconsistent. The lot size is the ground truth — derive
     // riskDollars from it here, after all lot-size decisions are complete.
+    //
+    // CCIP-FIX (risk_dollars double-count):
+    // calculateDollarPerPip(symbol, lotSize) already returns (lotSize × dollarPerPipPerLot),
+    // i.e. the full dollar-per-pip for the entire position. Multiplying by finalLotSize again
+    // would apply lot size twice: lotSize² × slPips × dollarPerPipPerLot.
+    // Correct formula: slPips × calculateDollarPerPip(symbol, finalLotSize).
+    // SSOT authority: currencyHelpers.calculateDollarPerPip (sole pip-value calculator).
     const slPips = calculatePipDistance(decision.symbol, decision.entry, decision.stopLoss);
     const pipInfoForRisk = calculateDollarPerPip(decision.symbol, finalLotSize);
     const recalculatedRiskDollars = slPips > 0 && pipInfoForRisk > 0
-      ? finalLotSize * slPips * pipInfoForRisk
+      ? slPips * pipInfoForRisk
       : (riskAssessment.trueRiskDollars || riskAssessment.adjustedRiskDollars);
     const finalRiskDollars = Number.isFinite(recalculatedRiskDollars) && recalculatedRiskDollars > 0
       ? recalculatedRiskDollars
