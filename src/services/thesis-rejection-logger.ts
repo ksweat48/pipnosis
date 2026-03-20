@@ -147,12 +147,13 @@ export async function getRejectionAnalytics(
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
 
-    // Get total thesis lookups to calculate rejection rate
+    // Get total thesis lookups to calculate rejection rate — only count non-expired rows
     const { count: totalLookups } = await supabase
       .from('alpha_market_thesis_cache')
       .select('*', { count: 'exact', head: true })
       .eq('symbol', symbol)
-      .gte('created_at', since.toISOString());
+      .gte('created_at', since.toISOString())
+      .gt('expires_at', new Date().toISOString());
 
     const rejectionRate = totalLookups ? rejections.length / totalLookups : 0;
 
