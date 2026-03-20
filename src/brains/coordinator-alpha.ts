@@ -782,15 +782,29 @@ class AlphaCoordinatorBrain {
       }
     }
 
-    // Build daily narrative context for institutional intelligence
+    // Build daily context — raw measurements only (CCIP-2026-03-20)
+    // No bias labels, no strategy guidance, no directional implications.
     let dailyNarrativeContext = '';
     if (dailyNarrative) {
-      dailyNarrativeContext = `\n📅 DAILY NARRATIVE (Institutional Context):\n`;
-      dailyNarrativeContext += `Range: ${dailyNarrative.dailyRange.toFixed(1)} pips | Position: ${dailyNarrative.rangePosition.toFixed(0)}% of range\n`;
-      dailyNarrativeContext += `Daily Bias: ${dailyNarrative.dailyBias.toUpperCase()} | Structure: ${dailyNarrative.structureQuality}\n`;
-      dailyNarrativeContext += `Session: ${dailyNarrative.currentSession} | ${dailyNarrative.intradayContext}\n`;
-      if (dailyNarrative.liquiditySweeps.asianLowSwept || dailyNarrative.liquiditySweeps.asianHighSwept) {
-        dailyNarrativeContext += `Liquidity: ${dailyNarrative.liquiditySweeps.asianLowSwept ? 'Asian low swept' : ''} ${dailyNarrative.liquiditySweeps.asianHighSwept ? 'Asian high swept' : ''}\n`;
+      dailyNarrativeContext = `\nDAILY CONTEXT (raw measurements):\n`;
+      dailyNarrativeContext += `Daily high: ${dailyNarrative.dailyHigh} | Daily low: ${dailyNarrative.dailyLow} | Daily open: ${dailyNarrative.dailyOpen}\n`;
+      dailyNarrativeContext += `Daily range: ${dailyNarrative.dailyRange.toFixed(1)} pips | Price position in range: ${dailyNarrative.rangePosition.toFixed(0)}% (0=low end, 100=high end)\n`;
+      dailyNarrativeContext += `Total daily displacement: ${dailyNarrative.dailyDisplacement.toFixed(1)} pips | Structure: ${dailyNarrative.structureQuality}\n`;
+      dailyNarrativeContext += `Current session: ${dailyNarrative.currentSession}\n`;
+      if (dailyNarrative.asianRange) {
+        dailyNarrativeContext += `Asian session range: high=${dailyNarrative.asianRange.high} low=${dailyNarrative.asianRange.low}\n`;
+      }
+      if (dailyNarrative.liquiditySweeps.asianLowSwept) {
+        dailyNarrativeContext += `Observation: Asian session low has been traded through\n`;
+      }
+      if (dailyNarrative.liquiditySweeps.asianHighSwept) {
+        dailyNarrativeContext += `Observation: Asian session high has been traded through\n`;
+      }
+      if (dailyNarrative.liquiditySweeps.dailyHighTested) {
+        dailyNarrativeContext += `Observation: Current daily high is being tested\n`;
+      }
+      if (dailyNarrative.liquiditySweeps.dailyLowTested) {
+        dailyNarrativeContext += `Observation: Current daily low is being tested\n`;
       }
     }
 

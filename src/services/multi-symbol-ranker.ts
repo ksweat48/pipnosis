@@ -26,17 +26,14 @@ export interface SymbolScore {
   manipulationRisk: number;  // Lower is better (inverted for total)
   intradayMomentum: number;
 
-  // Cache-aware bonus (0-15 points max)
+  // Cache-aware bonus (always 0 — feature removed)
   cacheBonus: number;
   hasCachedIntelligence: boolean;
-  cachedConsensus?: 'bullish' | 'bearish' | 'mixed' | 'none';
 
   // Supporting data
   currentPrice: number;
   atr: number;
   dailyRange: number;
-  recommendation: 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR' | 'AVOID';
-  reasoning: string;
 }
 
 class MultiSymbolRanker {
@@ -113,19 +110,6 @@ class MultiSymbolRanker {
 
       const totalScore = baseScore + (cacheResult.bonus * weights.cacheBonus * 100);
 
-      const recommendation = this.getRecommendation(totalScore);
-      const reasoning = this.generateReasoning({
-        symbol,
-        trendStrength,
-        volatilityHealth,
-        structureClarity,
-        manipulationRisk,
-        intradayMomentum,
-        totalScore,
-        cacheBonus: cacheResult.bonus,
-        cachedConsensus: cacheResult.consensus
-      });
-
       return {
         symbol,
         totalScore: Math.round(Math.min(100, totalScore)),
@@ -134,14 +118,11 @@ class MultiSymbolRanker {
         structureClarity: Math.round(structureClarity),
         manipulationRisk: Math.round(manipulationRisk),
         intradayMomentum: Math.round(intradayMomentum),
-        cacheBonus: Math.round(cacheResult.bonus),
-        hasCachedIntelligence: cacheResult.hasCachedIntelligence,
-        cachedConsensus: cacheResult.consensus,
+        cacheBonus: 0,
+        hasCachedIntelligence: false,
         currentPrice,
         atr,
-        dailyRange,
-        recommendation,
-        reasoning
+        dailyRange
       };
     } catch (error) {
       console.error(`[Multi-Symbol Ranker] Error scoring ${symbol}:`, error);
@@ -159,17 +140,11 @@ class MultiSymbolRanker {
    *
    * Returns zero bonus to maintain interface compatibility.
    */
-  private async getCacheAwareBonus(symbol: string): Promise<{
+  private async getCacheAwareBonus(_symbol: string): Promise<{
     bonus: number;
     hasCachedIntelligence: boolean;
-    consensus: 'bullish' | 'bearish' | 'mixed' | 'none';
   }> {
-    // Cache bonus feature removed - all symbols ranked purely on live metrics
-    return {
-      bonus: 0,
-      hasCachedIntelligence: false,
-      consensus: 'none'
-    };
+    return { bonus: 0, hasCachedIntelligence: false };
   }
 
   /**
@@ -311,61 +286,6 @@ class MultiSymbolRanker {
     return ema;
   }
 
-  /**
-   * Get recommendation based on total score
-   */
-  private getRecommendation(score: number): SymbolScore['recommendation'] {
-    if (score >= 80) return 'EXCELLENT';
-    if (score >= 65) return 'GOOD';
-    if (score >= 50) return 'FAIR';
-    if (score >= 35) return 'POOR';
-    return 'AVOID';
-  }
-
-  /**
-   * Generate reasoning string
-   */
-  private generateReasoning(input: {
-    symbol: string;
-    trendStrength: number;
-    volatilityHealth: number;
-    structureClarity: number;
-    manipulationRisk: number;
-    intradayMomentum: number;
-    totalScore: number;
-    cacheBonus?: number;
-    cachedConsensus?: 'bullish' | 'bearish' | 'mixed' | 'none';
-  }): string {
-    const strengths = [];
-    const weaknesses = [];
-
-    if (input.trendStrength >= 70) strengths.push('strong trend');
-    else if (input.trendStrength < 40) weaknesses.push('weak trend');
-
-    if (input.volatilityHealth >= 70) strengths.push('healthy volatility');
-    else if (input.volatilityHealth < 40) weaknesses.push('volatility concerns');
-
-    if (input.structureClarity >= 70) strengths.push('clear structure');
-    else if (input.structureClarity < 40) weaknesses.push('choppy structure');
-
-    if (input.manipulationRisk < 30) strengths.push('low manipulation');
-    else if (input.manipulationRisk > 60) weaknesses.push('high manipulation risk');
-
-    if (input.intradayMomentum >= 70) strengths.push('strong momentum');
-    else if (input.intradayMomentum < 40) weaknesses.push('weak momentum');
-
-    if (input.cacheBonus && input.cacheBonus >= 10) {
-      strengths.push(`warm cache (${input.cachedConsensus} consensus)`);
-    } else if (input.cachedConsensus === 'mixed') {
-      weaknesses.push('mixed omega signals');
-    }
-
-    const parts = [];
-    if (strengths.length > 0) parts.push(`Strengths: ${strengths.join(', ')}`);
-    if (weaknesses.length > 0) parts.push(`Weaknesses: ${weaknesses.join(', ')}`);
-
-    return parts.join('. ') || 'Mixed indicators';
-  }
 }
 
 export const multiSymbolRanker = new MultiSymbolRanker();

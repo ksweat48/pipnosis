@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 export interface MarketConditions {
   symbol: string;
   volatility: number;
-  trend: 'bullish' | 'bearish' | 'sideways';
+  trend: 'up' | 'down' | 'flat';
   volume: number;
   momentum: number;
   priceAction: string;
@@ -122,31 +122,33 @@ class ForecastEngine {
       let confidenceScore = 50;
       let reasoning = '';
 
+      // CCIP-2026-03-20: reasoning field stores raw measurements only — no conclusions,
+      // no setup labels, no probability language, no directional predictions.
       if (trendAnalysis.forming && trendAnalysis.confidence > 70) {
         forecastType = 'setup_forming';
         predictedMinutes = trendAnalysis.timeToSetup;
         confidenceScore = trendAnalysis.confidence;
-        reasoning = `Strong setup forming on ${symbol}. Price converging with EMA support/resistance. Expected entry opportunity in ${predictedMinutes} minutes based on momentum patterns.`;
+        reasoning = `${symbol}: price_to_ema20_dist=${trendAnalysis.confidence} ema_convergence detected. estimated_time_to_next_scan=${predictedMinutes}min`;
       } else if (volatilityAnalysis.increasing && volatilityAnalysis.level === 'high') {
         forecastType = 'volatility_window';
         predictedMinutes = volatilityAnalysis.nextVolatileWindow;
         confidenceScore = 70;
-        reasoning = `Volatility increasing on ${symbol}. High-probability trading window opening in ${predictedMinutes} minutes. Monitoring for breakout patterns.`;
+        reasoning = `${symbol}: volatility=high atr_trend=expanding next_window=${predictedMinutes}min`;
       } else if (trendAnalysis.forming && trendAnalysis.confidence > 50) {
         forecastType = 'setup_forming';
         predictedMinutes = trendAnalysis.timeToSetup;
         confidenceScore = trendAnalysis.confidence;
-        reasoning = `Potential setup developing on ${symbol}. Price action suggests possible entry in ${predictedMinutes} minutes. Confidence level: ${confidenceScore}%.`;
+        reasoning = `${symbol}: ema_proximity detected confidence=${confidenceScore} estimated_time=${predictedMinutes}min`;
       } else if (volatilityAnalysis.level === 'low') {
         forecastType = 'next_scan';
         predictedMinutes = volatilityAnalysis.nextVolatileWindow;
         confidenceScore = 40;
-        reasoning = `Market quiet on ${symbol}. Low volatility detected. Re-scanning in ${predictedMinutes} minutes when activity typically increases.`;
+        reasoning = `${symbol}: volatility=low atr_range=compressed next_scan=${predictedMinutes}min`;
       } else {
         forecastType = 'next_scan';
         predictedMinutes = scanInterval;
         confidenceScore = 50;
-        reasoning = `No valid setups on ${symbol} currently. Continuing systematic scan in ${predictedMinutes} minutes. Watching for VWAP and EMA convergence.`;
+        reasoning = `${symbol}: no_convergence_detected volatility=medium next_scan=${predictedMinutes}min`;
       }
 
       const predictedTime = new Date(Date.now() + predictedMinutes * 60 * 1000);

@@ -240,13 +240,9 @@ class GoalScanner {
       // Filter to only GOOD or better symbols (score ≥65)
       const qualitySymbols = rankings.filter(r => r.totalScore >= 65);
 
-      console.log(`[Goal Scanner] 📊 Symbol Rankings:`);
+      console.log(`[Goal Scanner] Symbol Rankings (raw scores):`);
       rankings.forEach((rank, idx) => {
-        const emoji = rank.recommendation === 'EXCELLENT' ? '🌟' :
-                     rank.recommendation === 'GOOD' ? '✅' :
-                     rank.recommendation === 'FAIR' ? '⚡' :
-                     rank.recommendation === 'POOR' ? '⚠️' : '❌';
-        console.log(`  ${idx + 1}. ${emoji} ${rank.symbol}: ${rank.totalScore}/100 (${rank.recommendation}) - ${rank.reasoning}`);
+        console.log(`  ${idx + 1}. ${rank.symbol}: total=${rank.totalScore}/100 trend=${rank.trendStrength} vol=${rank.volatilityHealth} structure=${rank.structureClarity} manip=${rank.manipulationRisk} momentum=${rank.intradayMomentum}`);
       });
 
       console.log(`[Goal Scanner] ✅ Filtered to ${qualitySymbols.length} quality symbols (score ≥65)`);

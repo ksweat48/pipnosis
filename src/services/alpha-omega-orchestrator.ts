@@ -37,12 +37,12 @@ import { sharedIntelligenceCoordinator } from './shared-intelligence-coordinator
 import type { MarketSnapshotData } from './market-snapshot-cache';
 import { tradeExecutionFreshnessGate, type ExecutionContext } from './trade-execution-freshness-gate';
 import { getMTFConfig, getStyleMTFConfig, resolveCanonicalStyle, type Timeframe, type RiskMode } from '../config/timeframe-hierarchy';
-import { getConfidencePenaltyCap } from '../config/trade-constraints';
+
 import { createTradeContext, type TradeContext } from '../utils/tradeMath';
 import { validatePreFlight, createBlockedDecision } from './ssot-preflight-guard';
 import { freshnessBlockLogger } from './freshness-block-logger';
 import { FreshnessBlockCategory } from '../types/freshness-block';
-import { confidenceCalculationEngine, type ConfidenceModifier } from './confidence-calculation-engine';
+import { confidenceCalculationEngine } from './confidence-calculation-engine';
 import {
   getConcurrentExecutionConfig,
   isConcurrentExecutionEnabled,
@@ -56,31 +56,7 @@ import { ALPHA_IDENTITY } from '../config/alpha-identity';
 import { marketScheduleService } from './market-schedule-service';
 import { calculateSessionContext } from '../utils/marketHours';
 import { deriveMarketPhase } from '../utils/market-phase-deriver';
-import { rewardEngine } from './reward-engine';
-import { getPlatformStreakModifier } from './ai-identity';
 
-export interface ConfidencePenalty {
-  source: string;
-  multiplier: number;
-  reason: string;
-}
-
-export interface ConfidencePenaltyResult {
-  appliedPenalty: ConfidencePenalty;
-  allProposedPenalties: ConfidencePenalty[];
-  finalMultiplier: number;
-}
-
-export interface ConfidenceReward {
-  source: string;
-  bonus: number; // Percentage points to add (e.g., 5 means +5%)
-  reason: string;
-}
-
-export interface ConfidenceRewardResult {
-  rewards: ConfidenceReward[];
-  totalBonus: number; // Total percentage points to add
-}
 
 export interface FullMarketState {
   symbol: string;
@@ -438,14 +414,6 @@ class AlphaOmegaOrchestrator {
     // Risk is now handled by pre-flight gate (already validated above)
     // Risk warnings are surfaced earlier in the pipeline
 
-    // ✅ WORST-CASE WINS: Calculate single unified confidence penalty
-    const confidencePenaltyResult = this.collectConfidencePenalties(
-      conflictCheck,
-      freshnessAdvisory || undefined,
-      marketState.adversarial,
-      marketState.regime
-    );
-
     // Build market context for Alpha
     // CCIP-2026-03-09: atr20 is now populated from the snapshot ATR when the entry
     // timeframe is M5 (SCALP). The snapshot is always built for the style-derived
@@ -556,137 +524,17 @@ class AlphaOmegaOrchestrator {
 
     const originalConfidence = decision.confidence;
 
-    // ✅ BUILD CONFIDENCE MODIFIERS FOR NEW SSOT ENGINE
-    const confidenceModifiers: ConfidenceModifier[] = [];
-
-    // EQS Penalty (0-15%, additive)
-    if (decision.eqs_penalty !== undefined && decision.eqs_penalty > 0) {
-      confidenceModifiers.push({
-        domain: 'eqs',
-        domain_owner: 'EQS Quality Gate',
-        penalty_type: 'additive',
-        value: Math.min(decision.eqs_penalty / 100, 0.15),
-        reason: decision.eqs_reason || 'Entry quality score penalty',
-        source_file: 'alpha-omega-orchestrator.ts',
-        severity: decision.eqs_penalty > 10 ? 'high' : 'medium'
-      });
-    }
-
-    // Narrative Penalty (0-12%, additive)
-    if (decision.narrative_penalty !== undefined && decision.narrative_penalty > 0) {
-      confidenceModifiers.push({
-        domain: 'narrative',
-        domain_owner: 'Narrative Validator',
-        penalty_type: 'additive',
-        value: Math.min(decision.narrative_penalty / 100, 0.12),
-        reason: decision.narrative_reason || 'Narrative coherence penalty',
-        source_file: 'alpha-omega-orchestrator.ts',
-        severity: decision.narrative_penalty > 8 ? 'high' : 'medium'
-      });
-    }
-
-    // Regime Oracle Penalties — scored from raw observations (SSOT: Alpha owns scoring)
-    if (marketState.regime) {
-      const regimeScore = this.computeRegimePenaltyFromRaw(marketState.regime);
-      if (regimeScore.value > 0) {
-        confidenceModifiers.push({
-          domain: 'regime_oracle',
-          domain_owner: 'RegimeOracle',
-          penalty_type: 'additive',
-          value: regimeScore.value,
-          reason: regimeScore.reason,
-          source_file: 'alpha-omega-orchestrator.ts',
-          severity: regimeScore.value > 0.10 ? 'high' : 'medium'
-        });
-      }
-    }
-
-    // Adversarial Detector — INFORM ONLY (CCIP-2026-0222)
-    // No confidence modifier applied. Adversarial data flows via Omega council prompts.
-
-    // Session Advisory Penalty (0-15% max, advisory)
-    // Graduated penalty based on fill-time-to-session-remaining ratio
-    // SSOT: SessionAdvisor is the sole authority for time-based confidence adjustments
-    const sessionPenalty = this.calculateSessionAdvisoryPenalty(
-      marketState.regime,
-      decision.expectedFillTimeHours
-    );
-    if (sessionPenalty.value > 0) {
-      confidenceModifiers.push({
-        domain: 'session_advisor',
-        domain_owner: 'Session Advisor',
-        penalty_type: 'additive',
-        value: sessionPenalty.value,
-        reason: sessionPenalty.reason,
-        source_file: 'alpha-omega-orchestrator.ts',
-        severity: sessionPenalty.severity
-      });
-    }
-
-    // Pattern Confidence Adjustment (±5-10%)
-    if (decision.pattern_confidence_penalty !== undefined) {
-      const patternVal = Math.abs(decision.pattern_confidence_penalty) / 100;
-      if (patternVal > 0) {
-        confidenceModifiers.push({
-          domain: 'pattern_confidence',
-          domain_owner: 'Pattern Confidence',
-          penalty_type: 'additive',
-          value: Math.min(patternVal, 0.1),
-          reason: decision.pattern_reason || 'Technical pattern quality adjustment',
-          source_file: 'alpha-omega-orchestrator.ts',
-          severity: patternVal > 0.05 ? 'medium' : 'low'
-        });
-      }
-    }
-
-    // CCIP-2026-03-15: Alpha Sovereignty Completion
-    // Alpha's stated confidence is the execution-gating value. No additive bonuses or
-    // platform streak modifiers are applied to it. All domain modifiers (session, pattern,
-    // platform streak) are advisory-only signals logged for analytics and dashboards.
-    //
-    // The confidenceCalculationEngine is called solely to produce the audit trail and
-    // compute advisory_adjusted_confidence for monitoring. finalConfidence is set to
-    // originalConfidence below, bypassing any reward arithmetic.
-
-    let platformStreakModifier = 0;
-    try {
-      const platformScore = await rewardEngine.loadPlatformScore();
-      platformStreakModifier = getPlatformStreakModifier(platformScore);
-    } catch {
-      // Non-blocking — default to 0 if unavailable
-    }
-
-    // Add platform streak as an advisory modifier (audit trail only — not applied to execution confidence)
-    if (platformStreakModifier !== 0) {
-      confidenceModifiers.push({
-        domain: 'platform_streak',
-        domain_owner: 'Platform Score',
-        penalty_type: 'additive',
-        value: platformStreakModifier / 100, // normalise to 0-1 scale for engine
-        reason: `Platform streak modifier: ${platformStreakModifier > 0 ? '+' : ''}${platformStreakModifier} (advisory only)`,
-        source_file: 'alpha-omega-orchestrator.ts',
-        severity: 'low'
-      });
-    }
-
+    // CCIP-GOVERNANCE-2026-03-20: No penalty arithmetic applied to Alpha's confidence.
+    // Alpha's stated confidence IS the execution value. Engine call is for audit trail only.
     const confidenceResult = await confidenceCalculationEngine.calculateFinalConfidence({
       base_confidence: originalConfidence,
       symbol: marketState.symbol,
       risk_mode: riskMode as RiskMode,
-      session_id: undefined,
-      trade_id: undefined,
       user_id: userId,
-      platform_streak_modifier: 0, // CCIP-2026-03-15: Not applied to execution confidence
-      rewards: undefined,
-      modifiers: confidenceModifiers
+      adaptive_floor: input.adaptive_floor
     });
 
-    // CCIP-2026-03-15: Alpha's raw confidence is the execution value — no arithmetic applied.
-    // The engine result is retained for the full advisory audit trail only.
     const finalConfidence = originalConfidence;
-    const rewardedConfidence = confidenceResult.after_rewards;
-    const preCapConfidence = confidenceResult.pre_cap_confidence;
-    const advisoryConfidence = confidenceResult.advisory_adjusted_confidence;
 
     // ✅ CRITICAL SAFETY CHECK: Ensure entry price is never null/undefined
     // This prevents database insertion errors in goal_session_trades
@@ -720,27 +568,18 @@ class AlphaOmegaOrchestrator {
     return {
       ...decision,
       confidence: finalConfidence,
-      confidenceAdjustments: confidenceResult.all_modifiers.map(m => ({
-        source: m.domain_owner,
-        penalty: m.value,
-        reason: m.reason,
-        domain: m.domain,
-        severity: m.severity
-      })),
-      confidenceRewards: [], // Rewards will be tracked in audit trail
+      confidenceAdjustments: [],
+      confidenceRewards: [],
       confidenceCalculationAudit: {
         base: originalConfidence,
-        afterRewards: rewardedConfidence,
-        preCapConfidence,
-        finalConfidence: confidenceResult.final_confidence, // advisory-computed value for dashboards
+        finalConfidence: originalConfidence,
         isDegraded: confidenceResult.is_degraded,
-        degradationReason: confidenceResult.degradation_reason,
         auditId: confidenceResult.audit_id,
         riskMode: riskMode.toUpperCase(),
         passesThreshold: confidenceResult.passes_threshold,
         executionThreshold: confidenceResult.execution_threshold
       },
-      conflictInfo // SSOT: Conflict detection flows from orchestrator → learning system
+      conflictInfo
     };
   }
 
@@ -1492,316 +1331,12 @@ class AlphaOmegaOrchestrator {
     };
   }
 
-  /**
-   * WORST-CASE WINS: Apply only the single worst confidence penalty
-   * Prevents multiplicative stacking that leads to hidden confidence drops
-   */
-  private calculateWorstCasePenalty(penalties: ConfidencePenalty[]): ConfidencePenaltyResult {
-    const validPenalties = penalties.filter(p => p.multiplier < 1.0);
-
-    if (validPenalties.length === 0) {
-      const noPenalty: ConfidencePenalty = {
-        source: 'none',
-        multiplier: 1.0,
-        reason: 'No penalties applied'
-      };
-      return {
-        appliedPenalty: noPenalty,
-        allProposedPenalties: penalties,
-        finalMultiplier: 1.0
-      };
-    }
-
-    const worstPenalty = validPenalties.reduce((worst, current) =>
-      current.multiplier < worst.multiplier ? current : worst
-    );
-
-    penalties.forEach(p => {
-      const marker = p === worstPenalty ? '→ ADVISORY WORST-CASE' : '  (advisory, not worst-case)';
-      const pctReduction = ((1 - p.multiplier) * 100).toFixed(1);
-    });
-
-    return {
-      appliedPenalty: worstPenalty,
-      allProposedPenalties: penalties,
-      finalMultiplier: worstPenalty.multiplier
-    };
-  }
-
-  /**
-   * Calculate confidence rewards for optimal conditions
-   * This creates a balanced incentive structure - not all trades get penalized!
-   */
-  private calculateConfidenceRewards(
-    votes: OmegaCouncilVotes,
-    marketState: FullMarketState,
-    regimeSnapshot?: RegimeSnapshot,
-    adversarialSignal?: AdversarialSignal
-  ): ConfidenceRewardResult {
-    const rewards: ConfidenceReward[] = [];
-
-    // ✅ REWARD 1: Strong Omega Consensus (low disagreement, high alignment)
-    const directionalVotes = [
-      votes.trend?.vote,
-      votes.scalper?.vote,
-      votes.reversal?.vote,
-      votes.omega8?.vote,
-      votes.volatility?.vote
-    ].filter(v => v === 'BUY' || v === 'SELL');
-
-    if (directionalVotes.length >= 3) {
-      const buyVotes = directionalVotes.filter(v => v === 'BUY').length;
-      const sellVotes = directionalVotes.filter(v => v === 'SELL').length;
-      const majorityCount = Math.max(buyVotes, sellVotes);
-      const totalVotes = directionalVotes.length;
-
-      // Unanimous alignment (all agree)
-      if (majorityCount === totalVotes && totalVotes >= 4) {
-        rewards.push({
-          source: 'Omega Consensus',
-          bonus: 8,
-          reason: `Unanimous ${directionalVotes[0]} alignment across ${totalVotes} Omegas - exceptional setup`
-        });
-      }
-      // Strong majority (5+ votes, 1-2 disagree)
-      else if (majorityCount >= 5 && totalVotes - majorityCount <= 2) {
-        rewards.push({
-          source: 'Omega Consensus',
-          bonus: 10,
-          reason: `Strong ${majorityCount}v${totalVotes - majorityCount} consensus - high-conviction setup`
-        });
-      }
-      // Clear majority (4v1 or 3v1)
-      else if (majorityCount >= 4 && totalVotes - majorityCount === 1) {
-        rewards.push({
-          source: 'Omega Consensus',
-          bonus: 5,
-          reason: `Clear ${majorityCount}v${totalVotes - majorityCount} majority - solid setup`
-        });
-      }
-    }
-
-    // ✅ REWARD 2: Clean Order Flow (no manipulation detected)
-    if (!adversarialSignal || !adversarialSignal.is_adversarial) {
-      rewards.push({
-        source: 'Clean Order Flow',
-        bonus: 5,
-        reason: 'No manipulation detected - healthy price action'
-      });
-    }
-
-    // ✅ REWARD 3: Optimal Session Timing (within active market session)
-    if (regimeSnapshot?.session && regimeSnapshot.session !== 'dead_zone') {
-      // Check if we're in optimal session window (not at edges)
-      const isOptimalTiming = regimeSnapshot.session_open === false; // Not just opened, stable session
-      if (isOptimalTiming) {
-        rewards.push({
-          source: 'Session Timing',
-          bonus: 5,
-          reason: `Optimal ${regimeSnapshot.session} session timing - active market conditions`
-        });
-      }
-    }
-
-    // ✅ REWARD 4: Optimal ATR for Volatility (not too high, not too low)
-    if (regimeSnapshot) {
-      const volatilityScore = regimeSnapshot.volatility_score;
-      // Goldilocks zone: 40-70 volatility score (not too hot, not too cold)
-      if (volatilityScore >= 40 && volatilityScore <= 70) {
-        rewards.push({
-          source: 'Optimal Volatility',
-          bonus: 5,
-          reason: `Volatility at ${volatilityScore}% - ideal for trading (40-70% sweet spot)`
-        });
-      }
-    }
-
-    // ✅ REWARD 5: Strong Market Structure (clear trend with good structure quality)
-    if (regimeSnapshot?.structure_quality && regimeSnapshot.structure_quality >= 70) {
-      rewards.push({
-        source: 'Market Structure',
-        bonus: 5,
-        reason: `Strong market structure (${regimeSnapshot.structure_quality}% quality) - clear directional bias`
-      });
-    }
-
-    const totalBonus = rewards.reduce((sum, r) => sum + r.bonus, 0);
-
-    return {
-      rewards,
-      totalBonus
-    };
-  }
-
-  /**
-   * Collect all confidence penalties from various sources
-   */
-  collectConfidencePenalties(
-    conflictCheck: { confidencePenalty: number; conflictDescription: string },
-    freshnessAdvisory?: { confidenceReduction: number; overallSeverity: string },
-    adversarialSignal?: AdversarialSignal,
-    regimeSnapshot?: RegimeSnapshot
-  ): ConfidencePenaltyResult {
-    const penalties: ConfidencePenalty[] = [];
-
-    // Omega conflict penalties removed - omegas are intelligence providers, not voters
-
-    if (freshnessAdvisory && freshnessAdvisory.confidenceReduction > 0) {
-      const multiplier = 1 - (freshnessAdvisory.confidenceReduction / 100);
-      penalties.push({
-        source: 'Freshness Advisory',
-        multiplier,
-        reason: `${freshnessAdvisory.overallSeverity} severity data staleness`
-      });
-    }
-
-    // Adversarial Detector — INFORM ONLY (CCIP-2026-0222)
-    // No confidence penalty applied. Adversarial data flows via Omega council prompts.
-    // Alpha receives the raw context and decides freely. No code-imposed penalties.
-
-    // Regime Oracle — scored from raw observations (SSOT: Alpha owns all scoring)
-    if (regimeSnapshot) {
-      const regimeScore = this.computeRegimePenaltyFromRaw(regimeSnapshot);
-      if (regimeScore.value > 0) {
-        const multiplier = 1 - regimeScore.value;
-        penalties.push({
-          source: 'Regime Oracle',
-          multiplier,
-          reason: regimeScore.reason
-        });
-      }
-    }
-
-    return this.calculateWorstCasePenalty(penalties);
-  }
-
-  /**
-   * SSOT: Alpha's authoritative regime penalty scorer.
-   *
-   * Consumes raw RegimeSnapshot observations and returns a weighted composite penalty.
-   * This is the ONLY place regime-derived confidence penalties are computed.
-   * Replaces the pre-computed confidence_penalty_percent that was previously produced
-   * inside regime-oracle.ts (CCIP contract change: 2026-02-21).
-   *
-   * Multiple elevated signals compound (additive) up to a hard 15% cap.
-   */
-  private computeRegimePenaltyFromRaw(
-    regime: RegimeSnapshot
-  ): { value: number; reason: string } {
-    const MAX_REGIME_PENALTY = 0.15;
-    let total = 0;
-    const reasons: string[] = [];
-
-    if (regime.volatility_score > 90) {
-      total += 0.15;
-      reasons.push(`extreme volatility (${regime.volatility_score})`);
-    } else if (regime.volatility_score > 80) {
-      total += 0.12;
-      reasons.push(`high volatility (${regime.volatility_score})`);
-    } else if (regime.volatility_score < 15) {
-      total += 0.10;
-      reasons.push(`dead market (volatility ${regime.volatility_score})`);
-    }
-
-    if (regime.wick_risk === 'high') {
-      total += 0.10;
-      reasons.push('high wick risk');
-    } else if (regime.wick_risk === 'medium') {
-      total += 0.05;
-      reasons.push('medium wick risk');
-    }
-
-    if (regime.spread_risk === 'high') {
-      total += 0.10;
-      reasons.push('high spread risk');
-    }
-
-    if (regime.atr_compression && regime.structure === 'range') {
-      total += 0.08;
-      reasons.push('ATR compression + range');
-    }
-
-    if (regime.time_regime?.is_ny_open && regime.volatility_score > 75) {
-      total += 0.12;
-      reasons.push('NY open high volatility');
-    }
-
-    const capped = Math.min(total, MAX_REGIME_PENALTY);
-    const reason = capped > 0
-      ? `Regime: ${reasons.join(', ')} (-${Math.round(capped * 100)}% advisory)`
-      : '';
-
-    return { value: capped, reason };
-  }
-
   private logOmegaVotes(votes: OmegaCouncilVotes): void {
     if (votes.omega8) {
       const usedLLM = (votes.omega8 as any).usedLLM ? ' [LLM]' : ' [DET]';
     }
   }
 
-  private readonly SESSION_DURATIONS_MIN: Record<string, number> = {
-    asian: 420,
-    london: 480,
-    ny: 480,
-    dead: 180,
-    dead_zone: 180,
-  };
-
-  private calculateSessionAdvisoryPenalty(
-    regime: RegimeSnapshot | undefined,
-    expectedFillTimeHours: number | undefined
-  ): { value: number; reason: string; severity: 'low' | 'medium' | 'high' } {
-    if (!regime) {
-      return { value: 0, reason: '', severity: 'low' };
-    }
-
-    const session = regime.session;
-    const minutesIntoSession = regime.minutes_into_session || 0;
-
-    const sessionDurationMin = this.SESSION_DURATIONS_MIN[session] || 420;
-    const sessionRemainingMin = Math.max(0, sessionDurationMin - minutesIntoSession);
-
-    const expectedFillMin = (expectedFillTimeHours || 0) * 60;
-
-    if (expectedFillMin <= 0) {
-      return { value: 0, reason: '', severity: 'low' };
-    }
-
-    const fillTimeRatio = sessionRemainingMin / expectedFillMin;
-
-    if (fillTimeRatio >= 1.0) {
-      return { value: 0, reason: '', severity: 'low' };
-    }
-
-    let penalty: number;
-    let severity: 'low' | 'medium' | 'high';
-    let label: string;
-
-    if (fillTimeRatio >= 0.75) {
-      penalty = 0.03;
-      severity = 'low';
-      label = 'tight';
-    } else if (fillTimeRatio >= 0.50) {
-      penalty = 0.07;
-      severity = 'medium';
-      label = 'constrained';
-    } else if (fillTimeRatio >= 0.25) {
-      penalty = 0.12;
-      severity = 'high';
-      label = 'severely constrained';
-    } else {
-      penalty = 0.15;
-      severity = 'high';
-      label = 'critically insufficient';
-    }
-
-    return {
-      value: penalty,
-      reason: `Session time ${label}: ${Math.round(sessionRemainingMin)}min remaining vs ${Math.round(expectedFillMin)}min expected fill (ratio: ${fillTimeRatio.toFixed(2)}, ${session} session)`,
-      severity
-    };
-  }
 }
 
 export const alphaOmegaOrchestrator = new AlphaOmegaOrchestrator();

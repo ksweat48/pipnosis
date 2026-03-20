@@ -320,8 +320,8 @@ class DailyNarrativeBuilder {
     // Position
     parts.push(`Price at ${input.rangePosition.toFixed(0)}% of daily range`);
 
-    // Bias
-    parts.push(`Daily bias: ${input.dailyBias}`);
+    // Price vs open (raw measurement, no bias label)
+    parts.push(`Daily displacement from open: ${input.dailyDisplacement.toFixed(1)} pips traveled`);
 
     // Liquidity
     const sweeps = [];
@@ -340,7 +340,12 @@ class DailyNarrativeBuilder {
   }
 
   /**
-   * Build intraday trading context
+   * Build intraday factual context — raw observations only.
+   *
+   * CCIP-GOVERNANCE-2026-03-20:
+   * This method must never inject strategy instructions, mode guidance,
+   * or directional implications. It outputs measurable facts only.
+   * Alpha is the sole authority for interpreting these facts.
    */
   private buildIntradayContext(input: {
     rangePosition: number;
@@ -350,33 +355,20 @@ class DailyNarrativeBuilder {
   }): string {
     const parts = [];
 
-    // Position-based context
-    if (input.rangePosition > 70) {
-      parts.push('Near daily highs - watch for resistance/reversal');
-    } else if (input.rangePosition < 30) {
-      parts.push('Near daily lows - watch for support/bounce');
-    } else {
-      parts.push('Mid-range - look for directional bias confirmation');
-    }
+    // Raw range position measurement — no directional interpretation
+    parts.push(`Price at ${input.rangePosition.toFixed(0)}% of daily range (0=daily low, 100=daily high)`);
 
-    // Session identity cues — tell Alpha which professional mode it is operating in
-    if (input.currentSession === 'overlap') {
-      parts.push('ACTIVE SESSION: London-NY overlap — maximum liquidity window, decisive moves, trade clear structure only');
-    } else if (input.currentSession === 'asian') {
-      parts.push('ACTIVE SESSION: Asian — accumulation phase, identify the range boundaries, trade extremes with precision');
-    } else if (input.currentSession === 'london') {
-      parts.push('ACTIVE SESSION: London — directional engine, read the Asian sweep reaction and trade the post-sweep impulse');
-    } else if (input.currentSession === 'ny') {
-      parts.push('ACTIVE SESSION: New York — read what London built, trade the NY continuation or the London range reversal after the sweep');
-    }
+    // Session identification — factual label only, no strategy guidance
+    parts.push(`Current session: ${input.currentSession}`);
 
-    // Liquidity context — directional implication, not just observation
-    if (input.liquiditySweeps.asianLowSwept && input.liquiditySweeps.asianHighSwept) {
-      parts.push('Both Asian extremes swept — range cleared, watch for directional commitment');
-    } else if (input.liquiditySweeps.asianLowSwept) {
-      parts.push('Asian low swept — bearish liquidity taken, monitor for bullish reversal or continuation sell pressure');
-    } else if (input.liquiditySweeps.asianHighSwept) {
-      parts.push('Asian high swept — bullish liquidity taken, monitor for bearish reversal or continuation buy pressure');
+    // Liquidity sweep observations — factual detections only, no implication
+    const sweepObs: string[] = [];
+    if (input.liquiditySweeps.asianLowSwept) sweepObs.push('Asian session low has been traded through');
+    if (input.liquiditySweeps.asianHighSwept) sweepObs.push('Asian session high has been traded through');
+    if (input.liquiditySweeps.dailyHighTested) sweepObs.push('Current daily high tested');
+    if (input.liquiditySweeps.dailyLowTested) sweepObs.push('Current daily low tested');
+    if (sweepObs.length > 0) {
+      parts.push(sweepObs.join('. '));
     }
 
     return parts.join('. ') + '.';

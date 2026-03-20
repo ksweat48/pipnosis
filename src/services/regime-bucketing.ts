@@ -265,9 +265,13 @@ export function isValidRegimeBucket(bucket: string): boolean {
 }
 
 /**
- * Get recommended strategies for a regime bucket
+ * Get strategy modes associated with a regime bucket.
  *
- * Returns strategy modes that typically work well in this bucket
+ * CCIP-GOVERNANCE-2026-03-20:
+ * This function is for INTERNAL PLAYBOOK MATCHING ONLY.
+ * Its output MUST NOT be injected into Alpha's LLM prompt as a recommendation.
+ * Alpha determines which style is appropriate from raw regime data.
+ * Callers: strategy-playbook-manager.ts (internal lookup), logRegimeBucket (console only).
  */
 export function getRecommendedModesForBucket(bucket: string): string[] {
   const baseStructure = bucket.split('_')[0];
