@@ -3450,18 +3450,19 @@ Return PURE JSON only — all required fields from the schema in my system promp
           // Prompt compression target (CCIP-2026-0317A): reduce input to ~10k-12k tokens via
           // the professional reasoning contract rewrite, bringing effective cost to ~$0.03/scan.
           //
-          // TOKEN BUDGET — CCIP-2026-0317A:
-          // SCALP: 1400 tokens — GPT-4o produces more thorough trader_statement and
-          //   thesis_coherence_statement. 200 extra tokens vs prior budget for full resolution.
-          // MICRO_INTRADAY / INTRADAY: 2000 tokens — trade_management + Q10 + richer
-          //   professional reasoning fields. GPT-4o inference is fast enough at 2000 tokens
-          //   to remain well within the 45s OPENAI_REQUEST_TIMEOUT_MS budget.
+          // TOKEN BUDGET — CCIP-2026-0320:
+          // ALL STYLES: 2000 tokens — SCALP was previously capped at 1400, which was
+          //   insufficient for the full output schema (trader_statement 80+ words,
+          //   reasoning 7-fields, answer_sheet 21-fields, thesis_coherence_statement).
+          //   Conservative estimate for a complete BUY/SELL response is 1,000–1,600 tokens,
+          //   putting the 1400 cap inside the failure zone. Unified at 2000 across all styles.
+          // MICRO_INTRADAY / INTRADAY: unchanged at 2000 — trade_management + richer fields.
           //
           // INVARIANT: If finish_reason === 'length' fires, block_reason TOKEN_BUDGET_EXCEEDED
           //   surfaces in the trade log. Raise max_tokens if that fires repeatedly.
           model: 'gpt-4o',
           temperature: 0.3,
-          max_tokens: styleName === 'SCALP' ? 1400 : 2000,
+          max_tokens: 2000,
           requestType: 'alpha_coordination',
           endpoint: 'alpha-coordinator',
           symbol: marketContext.symbol
@@ -3494,7 +3495,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
       // abort rather than silently processing a structurally incomplete response.
       const finishReason = response.choices[0]?.finish_reason;
       if (finishReason === 'length') {
-        console.error(`[Alpha Coordinator] TOKEN_BUDGET_EXCEEDED: Response truncated (finish_reason=length) for ${marketContext.symbol}/${styleName}. stopLoss/takeProfit are MISSING. Current max_tokens=${styleName === 'SCALP' ? 1400 : 2000} (gpt-4o, CCIP-2026-0317A). Raise budget or shorten prompt.`);
+        console.error(`[Alpha Coordinator] TOKEN_BUDGET_EXCEEDED: Response truncated (finish_reason=length) for ${marketContext.symbol}/${styleName}. stopLoss/takeProfit are MISSING. Current max_tokens=2000 (gpt-4o, CCIP-2026-0320). Raise budget or shorten prompt.`);
         return {
           action: 'NO_TRADE',
           decision: 'NO_TRADE',
