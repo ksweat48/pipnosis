@@ -531,7 +531,7 @@ class AlphaOmegaOrchestrator {
       symbol: marketState.symbol,
       risk_mode: riskMode as RiskMode,
       user_id: userId,
-      adaptive_floor: input.adaptive_floor
+      adaptive_floor: undefined
     });
 
     const finalConfidence = originalConfidence;
