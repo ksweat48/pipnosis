@@ -165,14 +165,15 @@ class OmegaAlphaLogger {
       insertData.regime_direction = decision.microRegime.direction;
     }
 
-    // Add liquidity intent fields
-    if (decision.liquidityIntent) {
-      insertData.trapped_side = decision.liquidityIntent.trapped;
-      insertData.vulnerability_type = decision.liquidityIntent.vulnerability;
-      insertData.hunt_zone_active = decision.liquidityIntent.huntZoneStatus === 'active';
-      insertData.predator_direction = decision.liquidityIntent.predatorDirection;
-      insertData.cascade_distance = decision.liquidityIntent.expectedCascadeDistance;
-      insertData.liquidity_conviction = decision.liquidityIntent.overallConviction;
+    // Add liquidity sweep fact fields (CCIP-2026-0320-LIA: raw sensor measurements only)
+    if (decision.sweepFacts && decision.sweepFacts.sweep_detected) {
+      insertData.sweep_type = decision.sweepFacts.sweep_type;
+      insertData.sweep_extreme_price = decision.sweepFacts.sweep_extreme_price;
+      insertData.sweep_has_bos = decision.sweepFacts.has_bos;
+      insertData.sweep_candles_ago = decision.sweepFacts.candles_since_sweep;
+      insertData.sweep_wick_body_ratio = decision.sweepFacts.wick_to_body_ratio;
+      insertData.sweep_volume_ratio = decision.sweepFacts.volume_ratio;
+      insertData.sweep_fvg_present = decision.sweepFacts.fvg_present_in_sweep_direction;
     }
 
     if (decision.narrativeValidation) {

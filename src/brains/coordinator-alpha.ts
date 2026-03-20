@@ -106,7 +106,7 @@ import { ALPHA_IDENTITY, getAlphaSystemPromptForStyle, getEntryMode } from '../c
 import { getDisplayNameFromStyle } from '../config/trade-styles';
 import { getStylePromptContext } from '../config/style-personalities';
 import { microRegimeClassifier, type MicroRegimeClassification, type MicroRegimeCandle } from '../services/micro-regime-classifier';
-import { liquidityIntentAnalyzer, type LiquidityIntentModel } from '../services/liquidity-intent-analyzer';
+import { liquidityIntentAnalyzer, type LiquiditySweepFacts } from '../services/liquidity-intent-analyzer';
 import { narrativeCoherenceValidator, type NarrativeValidation } from '../services/narrative-coherence-validator';
 import { logViolation } from '../services/ssot-violation-logger';
 import { sharedIntelligenceCoordinator } from '../services/shared-intelligence-coordinator';
@@ -296,9 +296,9 @@ export interface AlphaDecision {
     wasApplied: boolean;
     reason: string;
   }>;
-  // Phase 1-4 Upgrades: Micro-regime, Liquidity Intent, Narrative Coherence
+  // Phase 1-4 Upgrades: Micro-regime, Liquidity Sweep Facts, Narrative Coherence
   microRegime?: MicroRegimeClassification;
-  liquidityIntent?: LiquidityIntentModel;
+  sweepFacts?: LiquiditySweepFacts;
   narrativeValidation?: NarrativeValidation;
   // Phase 5: Multi-Timeframe Pattern Intelligence
   patternIntelligence?: {
@@ -840,12 +840,15 @@ class AlphaCoordinatorBrain {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // PHASE 2: LIQUIDITY INTENT ANALYSIS
+    // PHASE 2: LIQUIDITY SWEEP FACT EXTRACTION
+    //
+    // CCIP-2026-0320-LIA: This phase extracts raw measurable facts from
+    // Omega-8 sweep detection. No verdicts, no interpretations, no guidance.
+    // Alpha reads the sensor output and draws his own conclusions.
     // ═══════════════════════════════════════════════════════════════════
-    let liquidityIntent: LiquidityIntentModel | null = null;
+    let sweepFacts: LiquiditySweepFacts | null = null;
     let liquidityIntentContext = '';
 
-    // Analyze liquidity intent if Omega-8 detected patterns
     if (votes.omega8 && votes.omega8.patterns && fullCandles && fullCandles.length >= 10) {
       if (sessionId && userId) {
         alphaThoughtStream.emitAlphaLiquidityIntent(sessionId, userId, marketContext.symbol).catch(err => {
@@ -862,41 +865,36 @@ class AlphaCoordinatorBrain {
           volume: c.volume || 0
         }));
 
-        const atrValue = extractATRValue(marketContext.atr);
-
-        liquidityIntent = liquidityIntentAnalyzer.analyzeLiquidityIntent(
+        sweepFacts = liquidityIntentAnalyzer.extractSweepFacts(
           votes.omega8.patterns,
           omega8Candles,
-          atrValue,
           votes.omega8.sweep_details
         );
 
-        if (liquidityIntent && liquidityIntent.overallConviction > 0) {
-          console.log(`[Alpha Coordinator] 🎯 Liquidity Intent: ${liquidityIntent.trapped} | Predator: ${liquidityIntent.predatorDirection} | Conviction: ${liquidityIntent.overallConviction}%`);
+        if (sweepFacts.sweep_detected) {
+          const priceDecimals = marketContext.price > 100 ? 2 : 5;
+          console.log(`[Alpha Coordinator] Sweep facts extracted: ${sweepFacts.sweep_type.toUpperCase()} sweep | extreme @ ${sweepFacts.sweep_extreme_price.toFixed(priceDecimals)} | BOS:${sweepFacts.has_bos} | ${sweepFacts.candles_since_sweep} candles ago | wick:body ${sweepFacts.wick_to_body_ratio.toFixed(2)} | vol ratio ${sweepFacts.volume_ratio.toFixed(2)}x`);
 
-          liquidityIntentContext = `\n🎯 LIQUIDITY INTENT ANALYSIS:\n`;
+          liquidityIntentContext = `\nLIQUIDITY SWEEP SENSOR DATA (Omega-8 observation — raw measurements only):\n`;
           liquidityIntentContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-          liquidityIntentContext += `Trapped Participants: ${liquidityIntent.trapped.toUpperCase().replace(/_/g, ' ')}\n`;
-          liquidityIntentContext += `Vulnerability: ${liquidityIntent.vulnerability.toUpperCase().replace(/_/g, ' ')}\n`;
-          liquidityIntentContext += `Predator Direction: ${liquidityIntent.predatorDirection.toUpperCase()}\n`;
-          liquidityIntentContext += `Hunt Zone Status: ${liquidityIntent.huntZoneStatus.toUpperCase()}\n`;
-          liquidityIntentContext += `Cascade Distance: ${liquidityIntent.expectedCascadeDistance.toFixed(1)} ATR\n`;
-          liquidityIntentContext += `Cascade Confidence: ${liquidityIntent.cascadeConfidence}%\n`;
-          liquidityIntentContext += `Sweep Recency: ${liquidityIntent.sweepRecency} candles ago\n`;
-          liquidityIntentContext += `Entry Window: ${liquidityIntent.optimalEntryWindow.toUpperCase().replace(/_/g, ' ')}\n`;
-          liquidityIntentContext += `Overall Conviction: ${liquidityIntent.overallConviction}%\n\n`;
-          liquidityIntentContext += `💡 Stop Placement Guidance:\n${liquidityIntent.stopPlacementGuidance}\n`;
-          if (liquidityIntent.sweepExtremePrice) {
-            liquidityIntentContext += `Sweep Extreme Price: ${liquidityIntent.sweepExtremePrice.toFixed(5)} (stop calculator has been repositioned beyond this level)\n`;
+          liquidityIntentContext += `Sweep type: ${sweepFacts.sweep_type.toUpperCase()} sweep\n`;
+          liquidityIntentContext += `Candles since sweep: ${sweepFacts.candles_since_sweep}\n`;
+          liquidityIntentContext += `Sweep wick extreme: ${sweepFacts.sweep_extreme_price.toFixed(priceDecimals)}\n`;
+          if (sweepFacts.nearest_cluster_price) {
+            liquidityIntentContext += `Nearest equal-${sweepFacts.sweep_type}s cluster: ${sweepFacts.nearest_cluster_price.toFixed(priceDecimals)}\n`;
           }
-          if (liquidityIntent.nearestClusterPrice) {
-            liquidityIntentContext += `Nearest Liquidity Cluster: ${liquidityIntent.nearestClusterPrice.toFixed(5)}\n`;
-          }
-          liquidityIntentContext += `\n🔮 Reasoning:\n${liquidityIntent.reasoning}\n`;
+          liquidityIntentContext += `BOS confirmed post-sweep: ${sweepFacts.has_bos ? 'YES' : 'NO'}\n`;
+          liquidityIntentContext += `Sweep candle wick-to-body ratio: ${sweepFacts.wick_to_body_ratio.toFixed(2)}x (${sweepFacts.wick_to_body_ratio >= 2 ? 'strong wick — aggressive liquidity take' : sweepFacts.wick_to_body_ratio >= 1 ? 'moderate wick' : 'shallow wick'})\n`;
+          liquidityIntentContext += `Sweep candle volume vs average: ${sweepFacts.volume_ratio > 0 ? sweepFacts.volume_ratio.toFixed(2) + 'x average' : 'no volume data'}\n`;
+          liquidityIntentContext += `Equal-highs clusters swept: ${sweepFacts.equal_highs_count}\n`;
+          liquidityIntentContext += `Equal-lows clusters swept: ${sweepFacts.equal_lows_count}\n`;
+          liquidityIntentContext += `FVG present in sweep direction: ${sweepFacts.fvg_present_in_sweep_direction ? 'YES' : 'NO'}\n`;
+          liquidityIntentContext += `Stop anchor: repositioned beyond sweep extreme (stop calculator — see SL anchor block below)\n`;
           liquidityIntentContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+          liquidityIntentContext += `Note: The above are sensor readings. You interpret what this sweep means — direction, timing, and stop placement are your judgment.\n`;
         }
       } catch (error) {
-        console.error('[Alpha Coordinator] Failed to analyze liquidity intent:', error);
+        console.error('[Alpha Coordinator] Failed to extract sweep facts:', error);
       }
     }
 
@@ -921,7 +919,7 @@ class AlphaCoordinatorBrain {
           tradeStyle,
           baseConfidence: 55,
           tradeDirection,
-          liquidityIntentConfirms: liquidityIntent ? liquidityIntent.overallConviction >= 70 : false,
+          liquidityIntentConfirms: sweepFacts ? sweepFacts.sweep_detected && sweepFacts.has_bos : false,
         });
 
         console.log(`[Alpha Coordinator] 📊 Pattern Analysis Complete:`, {
@@ -3747,8 +3745,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
       if (microRegime) {
         decision.microRegime = microRegime;
       }
-      if (liquidityIntent && liquidityIntent.overallConviction > 0) {
-        decision.liquidityIntent = liquidityIntent;
+      if (sweepFacts && sweepFacts.sweep_detected) {
+        decision.sweepFacts = sweepFacts;
       }
       // Note: narrativeValidation is already set by parseDecision()
 

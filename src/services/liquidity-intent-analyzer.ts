@@ -1,65 +1,100 @@
 /**
- * Liquidity Intent Analyzer - SSOT for participant behavior modeling
+ * Liquidity Sweep Facts — Pure Measurement Layer
  *
- * Transforms technical sweep patterns into actionable liquidity intent:
- * - Identifies trapped participants
- * - Models vulnerability and cascade mechanics
- * - Determines institutional predator direction
- * - Calculates conviction levels for liquidity-based setups
+ * CCIP-2026-0320-LIA: Refactored from behavioral verdict engine to raw sensor.
  *
- * Uses Omega-8 sweep detection as input, adds behavioral layer.
+ * GOVERNANCE CONTRACT:
+ * This module is a DATA ENRICHMENT layer only. It receives Omega-8 sweep
+ * detection output and extracts measurable, observable facts about the sweep.
+ *
+ * WHAT THIS MODULE MUST NEVER DO:
+ * - Label trapped participants (e.g. "retail_shorts") — Alpha reasons about this
+ * - Determine predator direction — Alpha decides what the sweep means directionally
+ * - Score conviction or cascade confidence — Alpha's job, not ours
+ * - Recommend an entry window (immediate/missed) — Alpha's judgment
+ * - Generate stop placement guidance strings — stop calculator + Alpha own this
+ * - Build any reasoning narrative — Alpha constructs his own reasoning
+ *
+ * WHAT THIS MODULE PROVIDES:
+ * - sweep_type: 'high' | 'low' (observable fact — which side was swept)
+ * - sweep_extreme_price: exact wick extreme price (SSOT for stop calculator)
+ * - nearest_cluster_price: adjacent equal high/low cluster price (stop context)
+ * - candles_since_sweep: raw recency count (no status label)
+ * - has_bos: structural break-of-structure boolean (observable confirmation)
+ * - wick_to_body_ratio: wick size vs body size on sweep candle (raw ratio)
+ * - volume_ratio: sweep candle volume vs average volume (raw ratio, 0 if unavailable)
+ * - equal_highs_count / equal_lows_count: cluster depth at the swept level
+ * - fvg_present_in_sweep_direction: boolean (observable structural fact)
+ *
+ * SSOT COMPLIANCE:
+ * - sweep_extreme_price feeds risk-aware-stop-calculator.ts (unchanged wire)
+ * - nearest_cluster_price feeds cross-direction cluster advisory (unchanged)
+ * - All behavioral interpretation is deferred to Alpha's LLM reasoning
+ *
+ * CCIP CHANGE LOG:
+ * - CCIP-2026-0320-LIA: Removed TrappedParticipant, VulnerabilityType,
+ *   HuntZoneStatus, PredatorDirection, cascadeConfidence, overallConviction,
+ *   optimalEntryWindow, stopPlacementGuidance, buildReasoning(). These were
+ *   pre-answering Alpha's most important questions before he could ask them.
+ *   Replaced with LiquiditySweepFacts — measurements only, zero interpretation.
  */
 
 import type { Omega8Patterns, Omega8Candle } from '../brains/omega8-hybrid-orderflow';
 
-export type TrappedParticipant = 'retail_longs' | 'retail_shorts' | 'early_breakout_traders' | 'stop_loss_traders' | 'none';
-export type VulnerabilityType = 'stop_cascade' | 'margin_squeeze' | 'breakout_failure' | 'range_traders' | 'none';
-export type HuntZoneStatus = 'active' | 'resolving' | 'resolved' | 'inactive';
-export type PredatorDirection = 'long' | 'short' | 'neutral';
+/**
+ * Raw measurable facts about a detected liquidity sweep.
+ * SSOT: This is the only shape that flows from this module into coordinator-alpha.
+ *
+ * All fields are observable measurements — none are interpretive conclusions.
+ */
+export interface LiquiditySweepFacts {
+  sweep_detected: boolean;
+  sweep_type: 'high' | 'low';
 
-export interface LiquidityIntentModel {
-  // Core identification
-  trapped: TrappedParticipant;
-  vulnerability: VulnerabilityType;
-  predatorDirection: PredatorDirection;
+  sweep_extreme_price: number;
+  nearest_cluster_price?: number;
 
-  // Hunt zone mechanics
-  huntZoneStatus: HuntZoneStatus;
-  expectedCascadeDistance: number; // in ATR units
-  cascadeConfidence: number; // 0-100
+  candles_since_sweep: number;
+  has_bos: boolean;
 
-  // Timing and execution
-  sweepRecency: number; // candles ago
-  optimalEntryWindow: 'immediate' | 'wait_confirmation' | 'missed';
-  stopPlacementGuidance: string;
+  wick_to_body_ratio: number;
+  volume_ratio: number;
 
-  /**
-   * SSOT: Numeric sweep extreme price for sweep-aware stop placement.
-   * When set, the stop calculator uses this to relocate the stop beyond
-   * the sweep zone rather than relying solely on ATR distance.
-   */
-  sweepExtremePrice?: number;
+  equal_highs_count: number;
+  equal_lows_count: number;
 
-  /**
-   * Nearest equal high/low cluster price adjacent to the sweep extreme.
-   * Provides additional context for the stop buffer calculation.
-   */
-  nearestClusterPrice?: number;
-
-  // Conviction
-  overallConviction: number; // 0-100
-  reasoning: string;
+  fvg_present_in_sweep_direction: boolean;
 }
+
+/**
+ * Null object — returned when no sweep is detected.
+ * Callers check sweep_detected === false before using any other field.
+ */
+const NO_SWEEP_FACTS: LiquiditySweepFacts = {
+  sweep_detected: false,
+  sweep_type: 'low',
+  sweep_extreme_price: 0,
+  nearest_cluster_price: undefined,
+  candles_since_sweep: 999,
+  has_bos: false,
+  wick_to_body_ratio: 0,
+  volume_ratio: 0,
+  equal_highs_count: 0,
+  equal_lows_count: 0,
+  fvg_present_in_sweep_direction: false,
+};
 
 export class LiquidityIntentAnalyzer {
   /**
-   * Analyze liquidity intent from Omega-8 patterns
-   * SSOT for participant behavior modeling
+   * Extract measurable facts from an Omega-8 sweep detection.
+   * SSOT for sweep fact extraction — coordinator-alpha calls this once per scan.
+   *
+   * Returns NO_SWEEP_FACTS when no meaningful sweep is present.
+   * All interpretation of these facts belongs to Alpha.
    */
-  analyzeLiquidityIntent(
+  extractSweepFacts(
     patterns: Omega8Patterns,
     candles: Omega8Candle[],
-    atr: number,
     sweepDetails?: {
       type: 'high' | 'low' | 'none';
       candles_ago: number;
@@ -67,417 +102,94 @@ export class LiquidityIntentAnalyzer {
       sweep_extreme_price?: number;
       nearest_cluster_price?: number;
     }
-  ): LiquidityIntentModel {
-    // No clear sweep pattern - no liquidity intent
-    if (!sweepDetails || sweepDetails.type === 'none' || patterns.sweptHighs === 0 && patterns.sweptLows === 0) {
-      return this.noIntentModel();
+  ): LiquiditySweepFacts {
+    if (!sweepDetails || sweepDetails.type === 'none' || !sweepDetails.sweep_extreme_price) {
+      return NO_SWEEP_FACTS;
+    }
+
+    if (patterns.sweptHighs === 0 && patterns.sweptLows === 0) {
+      return NO_SWEEP_FACTS;
     }
 
     const sweepType = sweepDetails.type;
-    const candlesAgo = sweepDetails.candles_ago;
-    const hasBOS = sweepDetails.has_bos;
-    const sweepExtremePrice = sweepDetails.sweep_extreme_price;
-    const nearestClusterPrice = sweepDetails.nearest_cluster_price;
+    const sweepCandle = this.findSweepCandle(candles, sweepDetails.candles_ago, sweepType);
 
-    // Identify trapped participants
-    const trapped = this.identifyTrappedParticipants(sweepType, hasBOS, patterns);
+    const wickToBodyRatio = sweepCandle
+      ? this.calculateWickToBodyRatio(sweepCandle, sweepType)
+      : 0;
 
-    // Determine vulnerability type
-    const vulnerability = this.determineVulnerability(sweepType, hasBOS, trapped);
+    const volumeRatio = sweepCandle && candles.length >= 5
+      ? this.calculateVolumeRatio(sweepCandle, candles)
+      : 0;
 
-    // Calculate expected cascade distance
-    const cascadeDistance = this.calculateCascadeDistance(sweepType, atr, patterns, hasBOS);
-
-    // Determine predator direction
-    const predatorDirection = this.determinePredatorDirection(sweepType, hasBOS);
-
-    // Assess hunt zone status
-    const huntZoneStatus = this.assessHuntZoneStatus(candlesAgo, hasBOS);
-
-    // Calculate cascade confidence
-    const cascadeConfidence = this.calculateCascadeConfidence(
-      hasBOS,
-      patterns,
-      huntZoneStatus,
-      trapped
-    );
-
-    // Determine optimal entry window
-    const optimalEntryWindow = this.determineEntryWindow(candlesAgo, hasBOS, huntZoneStatus);
-
-    // Generate stop placement guidance
-    const stopPlacementGuidance = this.generateStopGuidance(sweepType, predatorDirection, cascadeDistance);
-
-    // Calculate overall conviction
-    const overallConviction = this.calculateOverallConviction(
-      cascadeConfidence,
-      huntZoneStatus,
-      hasBOS,
-      trapped
-    );
-
-    // Build reasoning
-    const reasoning = this.buildReasoning(
-      trapped,
-      vulnerability,
-      predatorDirection,
-      huntZoneStatus,
-      hasBOS,
-      cascadeDistance
-    );
+    const fvgPresent = sweepType === 'low'
+      ? patterns.fvgBullish > 0
+      : patterns.fvgBearish > 0;
 
     return {
-      trapped,
-      vulnerability,
-      predatorDirection,
-      huntZoneStatus,
-      expectedCascadeDistance: cascadeDistance,
-      cascadeConfidence,
-      sweepRecency: candlesAgo,
-      optimalEntryWindow,
-      stopPlacementGuidance,
-      sweepExtremePrice,
-      nearestClusterPrice,
-      overallConviction,
-      reasoning
+      sweep_detected: true,
+      sweep_type: sweepType,
+      sweep_extreme_price: sweepDetails.sweep_extreme_price,
+      nearest_cluster_price: sweepDetails.nearest_cluster_price,
+      candles_since_sweep: sweepDetails.candles_ago,
+      has_bos: sweepDetails.has_bos,
+      wick_to_body_ratio: wickToBodyRatio,
+      volume_ratio: volumeRatio,
+      equal_highs_count: patterns.sweptHighs,
+      equal_lows_count: patterns.sweptLows,
+      fvg_present_in_sweep_direction: fvgPresent,
     };
   }
 
   /**
-   * Identify which participants are trapped
+   * Locate the candle at the sweep point.
+   * Uses candles_ago offset from the most recent candle.
    */
-  private identifyTrappedParticipants(
-    sweepType: 'high' | 'low',
-    hasBOS: boolean,
-    patterns: Omega8Patterns
-  ): TrappedParticipant {
-    if (sweepType === 'low' && hasBOS) {
-      // Swept lows with BOS up = trapped shorts
-      return 'retail_shorts';
-    }
-
-    if (sweepType === 'high' && hasBOS) {
-      // Swept highs with BOS down = trapped longs
-      return 'retail_longs';
-    }
-
-    if (sweepType === 'low' && !hasBOS) {
-      // Swept lows without BOS = early breakout traders trapped
-      return 'early_breakout_traders';
-    }
-
-    if (sweepType === 'high' && !hasBOS) {
-      // Swept highs without BOS = early breakout traders trapped
-      return 'early_breakout_traders';
-    }
-
-    return 'none';
-  }
-
-  /**
-   * Determine vulnerability type
-   */
-  private determineVulnerability(
-    sweepType: 'high' | 'low',
-    hasBOS: boolean,
-    trapped: TrappedParticipant
-  ): VulnerabilityType {
-    if (hasBOS && (trapped === 'retail_longs' || trapped === 'retail_shorts')) {
-      return 'stop_cascade';
-    }
-
-    if (!hasBOS && trapped === 'early_breakout_traders') {
-      return 'breakout_failure';
-    }
-
-    if (trapped === 'stop_loss_traders') {
-      return 'margin_squeeze';
-    }
-
-    return 'none';
-  }
-
-  /**
-   * Calculate expected cascade distance in ATR units
-   */
-  private calculateCascadeDistance(
-    sweepType: 'high' | 'low',
-    atr: number,
-    patterns: Omega8Patterns,
-    hasBOS: boolean
-  ): number {
-    let baseDistance = 1.5; // Default 1.5 ATR
-
-    // BOS increases cascade potential
-    if (hasBOS) {
-      baseDistance = 2.5;
-    }
-
-    // Multiple sweeps suggest layered stops
-    const sweepCount = sweepType === 'low' ? patterns.sweptLows : patterns.sweptHighs;
-    if (sweepCount > 1) {
-      baseDistance += 0.5 * sweepCount;
-    }
-
-    // FVG presence suggests more room to run
-    const hasFVG = sweepType === 'low' ? patterns.fvgBullish > 0 : patterns.fvgBearish > 0;
-    if (hasFVG) {
-      baseDistance += 0.8;
-    }
-
-    // Volume spike suggests strong institutional participation
-    const hasVolSpike = sweepType === 'low' ? patterns.volSpikeBullish : patterns.volSpikeBearish;
-    if (hasVolSpike) {
-      baseDistance += 0.5;
-    }
-
-    return Math.min(baseDistance, 5.0); // Cap at 5 ATR
-  }
-
-  /**
-   * Determine predator (institutional) direction
-   */
-  private determinePredatorDirection(
-    sweepType: 'high' | 'low',
-    hasBOS: boolean
-  ): PredatorDirection {
-    if (!hasBOS) {
-      return 'neutral';
-    }
-
-    // Sweep low + BOS up = predators are long
-    if (sweepType === 'low') {
-      return 'long';
-    }
-
-    // Sweep high + BOS down = predators are short
-    if (sweepType === 'high') {
-      return 'short';
-    }
-
-    return 'neutral';
-  }
-
-  /**
-   * Assess current hunt zone status
-   */
-  private assessHuntZoneStatus(candlesAgo: number, hasBOS: boolean): HuntZoneStatus {
-    if (candlesAgo === 0) {
-      return 'active'; // Sweep just happened
-    }
-
-    if (candlesAgo <= 2 && hasBOS) {
-      return 'active'; // Recent sweep with confirmation
-    }
-
-    if (candlesAgo <= 3 && !hasBOS) {
-      return 'resolving'; // Recent sweep, waiting for BOS
-    }
-
-    if (candlesAgo <= 5) {
-      return 'resolved'; // Older sweep, cascade likely finished
-    }
-
-    return 'inactive'; // Too old to be relevant
-  }
-
-  /**
-   * Calculate cascade confidence
-   */
-  private calculateCascadeConfidence(
-    hasBOS: boolean,
-    patterns: Omega8Patterns,
-    huntZoneStatus: HuntZoneStatus,
-    trapped: TrappedParticipant
-  ): number {
-    let confidence = 50; // Base
-
-    // BOS is strongest confirmation
-    if (hasBOS) {
-      confidence += 30;
-    }
-
-    // Hunt zone status
-    if (huntZoneStatus === 'active') {
-      confidence += 15;
-    } else if (huntZoneStatus === 'resolving') {
-      confidence += 5;
-    } else if (huntZoneStatus === 'inactive') {
-      confidence -= 20;
-    }
-
-    // Trapped participant clarity
-    if (trapped !== 'none') {
-      confidence += 10;
-    }
-
-    // Confluence
-    if (patterns.confluenceScore >= 3) {
-      confidence += 10;
-    }
-
-    return Math.min(Math.max(confidence, 0), 100);
-  }
-
-  /**
-   * Determine optimal entry window
-   */
-  private determineEntryWindow(
+  private findSweepCandle(
+    candles: Omega8Candle[],
     candlesAgo: number,
-    hasBOS: boolean,
-    huntZoneStatus: HuntZoneStatus
-  ): 'immediate' | 'wait_confirmation' | 'missed' {
-    if (huntZoneStatus === 'inactive' || huntZoneStatus === 'resolved') {
-      return 'missed';
-    }
-
-    if (hasBOS && candlesAgo <= 2) {
-      return 'immediate';
-    }
-
-    if (!hasBOS && candlesAgo <= 1) {
-      return 'wait_confirmation';
-    }
-
-    if (candlesAgo <= 3) {
-      return 'wait_confirmation';
-    }
-
-    return 'missed';
+    _sweepType: 'high' | 'low'
+  ): Omega8Candle | null {
+    if (candles.length === 0) return null;
+    const idx = candles.length - 1 - candlesAgo;
+    if (idx < 0 || idx >= candles.length) return null;
+    return candles[idx];
   }
 
   /**
-   * Generate stop placement guidance
+   * Calculate the wick-to-body ratio on the sweep candle.
+   * For a low sweep: lower wick / body size.
+   * For a high sweep: upper wick / body size.
+   * Returns 0 if body is zero (doji — treat as 0 for safety).
    */
-  private generateStopGuidance(
-    sweepType: 'high' | 'low',
-    predatorDirection: PredatorDirection,
-    cascadeDistance: number
-  ): string {
-    if (predatorDirection === 'neutral') {
-      return 'Standard ATR-based stops. No asymmetric advantage.';
-    }
+  private calculateWickToBodyRatio(candle: Omega8Candle, sweepType: 'high' | 'low'): number {
+    const body = Math.abs(candle.close - candle.open);
+    if (body === 0) return 0;
 
-    if (sweepType === 'low' && predatorDirection === 'long') {
-      return `Place stop below sweep low minus 0.3 ATR. Expect ${cascadeDistance.toFixed(1)} ATR upside.`;
+    if (sweepType === 'low') {
+      const lowerWick = Math.min(candle.open, candle.close) - candle.low;
+      return parseFloat((lowerWick / body).toFixed(2));
+    } else {
+      const upperWick = candle.high - Math.max(candle.open, candle.close);
+      return parseFloat((upperWick / body).toFixed(2));
     }
-
-    if (sweepType === 'high' && predatorDirection === 'short') {
-      return `Place stop above sweep high plus 0.3 ATR. Expect ${cascadeDistance.toFixed(1)} ATR downside.`;
-    }
-
-    return 'Standard ATR-based stops.';
   }
 
   /**
-   * Calculate overall conviction
+   * Calculate sweep candle volume relative to the recent average.
+   * Returns ratio (e.g. 2.3 = 2.3x average). Returns 0 if no volume data.
    */
-  private calculateOverallConviction(
-    cascadeConfidence: number,
-    huntZoneStatus: HuntZoneStatus,
-    hasBOS: boolean,
-    trapped: TrappedParticipant
-  ): number {
-    let conviction = cascadeConfidence;
+  private calculateVolumeRatio(sweepCandle: Omega8Candle, allCandles: Omega8Candle[]): number {
+    if (!sweepCandle.volume || sweepCandle.volume === 0) return 0;
 
-    // Reduce conviction if hunt zone inactive
-    if (huntZoneStatus === 'inactive') {
-      conviction *= 0.5;
-    }
+    const recentCandles = allCandles.slice(-10);
+    const volumes = recentCandles.map(c => c.volume || 0).filter(v => v > 0);
+    if (volumes.length === 0) return 0;
 
-    // Boost if all elements align
-    if (hasBOS && trapped !== 'none' && huntZoneStatus === 'active') {
-      conviction = Math.min(conviction + 10, 95);
-    }
+    const avgVolume = volumes.reduce((s, v) => s + v, 0) / volumes.length;
+    if (avgVolume === 0) return 0;
 
-    return Math.round(conviction);
-  }
-
-  /**
-   * Build reasoning string
-   */
-  private buildReasoning(
-    trapped: TrappedParticipant,
-    vulnerability: VulnerabilityType,
-    predatorDirection: PredatorDirection,
-    huntZoneStatus: HuntZoneStatus,
-    hasBOS: boolean,
-    cascadeDistance: number
-  ): string {
-    const parts: string[] = [];
-
-    if (trapped !== 'none') {
-      parts.push(`${this.formatTrapped(trapped)} trapped`);
-    }
-
-    if (vulnerability !== 'none') {
-      parts.push(`${this.formatVulnerability(vulnerability)}`);
-    }
-
-    if (predatorDirection !== 'neutral' && hasBOS) {
-      parts.push(`Predators ${predatorDirection}. Expect ${cascadeDistance.toFixed(1)} ATR cascade.`);
-    }
-
-    if (huntZoneStatus === 'active') {
-      parts.push('Hunt zone ACTIVE - immediate opportunity');
-    } else if (huntZoneStatus === 'resolving') {
-      parts.push('Hunt zone resolving - await confirmation');
-    } else if (huntZoneStatus === 'resolved') {
-      parts.push('Hunt zone resolved - move complete');
-    }
-
-    if (!hasBOS) {
-      parts.push('No BOS yet - predator intent unclear');
-    }
-
-    return parts.join('. ');
-  }
-
-  /**
-   * Format trapped participant for display
-   */
-  private formatTrapped(trapped: TrappedParticipant): string {
-    const map: Record<TrappedParticipant, string> = {
-      retail_longs: 'Retail longs',
-      retail_shorts: 'Retail shorts',
-      early_breakout_traders: 'Breakout chasers',
-      stop_loss_traders: 'Stop traders',
-      none: 'None'
-    };
-    return map[trapped];
-  }
-
-  /**
-   * Format vulnerability for display
-   */
-  private formatVulnerability(vulnerability: VulnerabilityType): string {
-    const map: Record<VulnerabilityType, string> = {
-      stop_cascade: 'Stop cascade risk',
-      margin_squeeze: 'Margin squeeze',
-      breakout_failure: 'Failed breakout',
-      range_traders: 'Range traders exposed',
-      none: 'No clear vulnerability'
-    };
-    return map[vulnerability];
-  }
-
-  /**
-   * No liquidity intent detected
-   */
-  private noIntentModel(): LiquidityIntentModel {
-    return {
-      trapped: 'none',
-      vulnerability: 'none',
-      predatorDirection: 'neutral',
-      huntZoneStatus: 'inactive',
-      expectedCascadeDistance: 0,
-      cascadeConfidence: 0,
-      sweepRecency: 999,
-      optimalEntryWindow: 'missed',
-      stopPlacementGuidance: 'Standard ATR-based stops.',
-      overallConviction: 0,
-      reasoning: 'No liquidity sweep detected. No clear institutional intent.'
-    };
+    return parseFloat((sweepCandle.volume / avgVolume).toFixed(2));
   }
 }
 
