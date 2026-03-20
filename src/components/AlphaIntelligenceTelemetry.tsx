@@ -57,6 +57,7 @@ export function AlphaIntelligenceTelemetry() {
         const { data: theses } = await supabase
           .from('alpha_market_thesis_cache')
           .select('regime_signature_hash')
+          .gt('expires_at', new Date().toISOString())
           .order('created_at', { ascending: false })
           .limit(1000);
 
@@ -74,10 +75,11 @@ export function AlphaIntelligenceTelemetry() {
         });
       }
 
-      // Load regime-specific performance
+      // Load regime-specific performance — only non-expired entries
       const { data: regimeStats } = await supabase
         .from('alpha_market_thesis_cache')
         .select('htf_bias, micro_regime, created_at')
+        .gt('expires_at', new Date().toISOString())
         .order('created_at', { ascending: false })
         .limit(100);
 

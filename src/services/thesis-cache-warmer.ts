@@ -187,11 +187,12 @@ class ThesisCacheWarmer {
     const regimes: RegimeSignature[] = [];
 
     try {
-      // Query recent theses to identify active regimes
+      // Query ONLY non-expired theses to identify active regimes
       const { data: recentTheses } = await supabase
         .from('alpha_market_thesis_cache')
         .select('symbol, htf_bias, micro_regime, volatility_regime, structure_state, timeframe_relevance')
         .in('symbol', symbols)
+        .gt('expires_at', new Date().toISOString())
         .order('created_at', { ascending: false })
         .limit(20);
 
@@ -246,6 +247,7 @@ class ThesisCacheWarmer {
       const { data: cacheStats } = await supabase
         .from('alpha_market_thesis_cache')
         .select('created_at')
+        .gt('expires_at', new Date().toISOString())
         .order('created_at', { ascending: false })
         .limit(100);
 
