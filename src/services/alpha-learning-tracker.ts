@@ -133,6 +133,9 @@ class AlphaLearningTracker {
         entry_price: decision.entry,
         stop_loss: decision.stopLoss,
         take_profit: decision.takeProfit,
+        alpha_entry_mode: (decision as any).entry_mode ?? null,
+        alpha_wait_condition: (decision as any).wait_condition ?? null,
+        trade_style: (decision as any).tradeStyle ?? null,
       };
 
       if (decision.directionalStrengthResult) {

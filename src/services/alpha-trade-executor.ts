@@ -43,7 +43,7 @@ import { getRegimeBucket } from './regime-bucketing';
 import { getMinConfidenceThreshold } from '../config/risk-levels';
 import { getSymbolConfig } from '../config/symbol-registry';
 import { logger, LogCategory } from '../lib/logger';
-import { calculateDollarPerPip, calculatePipDistance } from '../utils/currencyHelpers';
+import { calculateDollarPerPip, calculatePipDistance, getCurrencyPipInfo } from '../utils/currencyHelpers';
 import { mandatorySafetyValidator } from './mandatory-safety-validator';
 import { creditValidationService } from './credit-validation-service';
 import { EntryOverextensionValidator } from './entry-overextension-validator';
@@ -912,6 +912,22 @@ class AlphaTradeExecutor {
     // Alpha's decision authority is the risk DISTANCE (pips), not absolute price levels.
     // When actual fill differs from planned entry, shift SL/TP to maintain planned distances.
     // This is NOT mutation of Alpha's decision - it preserves Alpha's intent.
+    //
+    // CCIP-2026-0320A: Max Deviation Guard
+    // When the live fill deviates beyond a style-aware threshold from Alpha's planned entry,
+    // the structural levels Alpha anchored SL/TP to are no longer valid. Shifting geometry
+    // produces a trade with no structural basis — the SL becomes arbitrary noise, not a
+    // meaningful invalidation level. In this case, abort execution and trigger a rescan.
+    //
+    // Thresholds use REASONING pips (getCurrencyPipInfo) — the same unit Alpha uses:
+    //   - XAUUSD/metals: 1 pip = 1 price point
+    //   - Forex: 1 pip = 0.0001
+    //   - Indices/crypto: 1 pip = 1 price point
+    //
+    // Max allowed deviation by style:
+    //   MICRO_INTRADAY (M15): 8 reasoning pips  — tight, structural levels must still apply
+    //   SCALP (M5):           5 reasoning pips  — very tight, scalp structure is 3-10 pip wide
+    //   INTRADAY (H1/H4):    15 reasoning pips  — wider tolerance for slower execution
     const plannedEntry = decision.entry;
     const entryDeviation = adjustedEntry - plannedEntry;
     let executionSL = decision.stopLoss;
@@ -921,6 +937,57 @@ class AlphaTradeExecutor {
     let slTpRecalculated = false;
 
     if (Number.isFinite(entryDeviation) && Math.abs(entryDeviation) > 1e-8) {
+      const pipInfo = getCurrencyPipInfo(decision.symbol);
+      const reasoningPipSize = pipInfo.pipValue;
+      const deviationReasoningPips = Math.abs(entryDeviation) / reasoningPipSize;
+
+      const styleUpper = (params.canonicalStyle || 'INTRADAY').toUpperCase();
+      const maxDeviationByStyle: Record<string, number> = {
+        SCALP: 5,
+        MICRO_INTRADAY: 8,
+        INTRADAY: 15,
+      };
+      const maxAllowedPips = maxDeviationByStyle[styleUpper] ?? 15;
+
+      if (deviationReasoningPips > maxAllowedPips) {
+        logger.warn(
+          LogCategory.TRADE_EXECUTION,
+          '[AlphaTradeExecutor] ENTRY_DEVIATION_BLOCK: fill too far from Alpha planned entry — structural levels invalid',
+          {
+            symbol: decision.symbol,
+            style: styleUpper,
+            plannedEntry,
+            actualEntry: adjustedEntry,
+            deviationReasoningPips: Math.round(deviationReasoningPips * 10) / 10,
+            maxAllowedPips,
+            userId,
+            sessionId
+          }
+        );
+
+        await supabase.from('entry_price_deviation_events').insert({
+          user_id: userId,
+          session_id: sessionId,
+          symbol: decision.symbol,
+          alpha_style: styleUpper,
+          direction: decision.action as 'BUY' | 'SELL',
+          planned_entry: plannedEntry,
+          actual_entry: adjustedEntry,
+          deviation_pips: Math.round(deviationReasoningPips * 10) / 10,
+          max_allowed_pips: maxAllowedPips,
+          action_taken: 'BLOCKED',
+          block_reason: `Fill ${Math.round(deviationReasoningPips * 10) / 10} pips from planned entry (max ${maxAllowedPips} for ${styleUpper}). Alpha SL at ${decision.stopLoss} is no longer structurally valid.`,
+          planned_sl: decision.stopLoss,
+          planned_tp: decision.takeProfit,
+        });
+
+        return {
+          success: false,
+          error: `Entry deviation too large: fill was ${Math.round(deviationReasoningPips * 10) / 10} pips from Alpha's planned entry (max ${maxAllowedPips} for ${styleUpper}). Structural levels are no longer valid. Rescan required.`,
+          blockReason: 'ENTRY_DEVIATION_EXCEEDS_STRUCTURAL_TOLERANCE'
+        };
+      }
+
       executionSL = decision.stopLoss + entryDeviation;
       executionTP = decision.takeProfit + entryDeviation;
       if (decision.tp1Price != null && Number.isFinite(decision.tp1Price)) {
@@ -931,9 +998,22 @@ class AlphaTradeExecutor {
       }
       slTpRecalculated = true;
 
-      const symbolConfig = getSymbolConfig(decision.symbol);
-      const pipSize = symbolConfig?.pipValue || 0.0001;
-      const deviationPips = entryDeviation / pipSize;
+      await supabase.from('entry_price_deviation_events').insert({
+        user_id: userId,
+        session_id: sessionId,
+        symbol: decision.symbol,
+        alpha_style: styleUpper,
+        direction: decision.action as 'BUY' | 'SELL',
+        planned_entry: plannedEntry,
+        actual_entry: adjustedEntry,
+        deviation_pips: Math.round(deviationReasoningPips * 10) / 10,
+        max_allowed_pips: maxAllowedPips,
+        action_taken: 'SHIFTED',
+        planned_sl: decision.stopLoss,
+        planned_tp: decision.takeProfit,
+        execution_sl: executionSL,
+        execution_tp: executionTP,
+      });
 
       logger.info(
         LogCategory.TRADE_EXECUTION,
@@ -942,7 +1022,7 @@ class AlphaTradeExecutor {
           symbol: decision.symbol,
           plannedEntry,
           actualEntry: adjustedEntry,
-          deviationPips: Math.round(deviationPips * 10) / 10,
+          deviationReasoningPips: Math.round(deviationReasoningPips * 10) / 10,
           originalSL: decision.stopLoss,
           executionSL,
           originalTP: decision.takeProfit,

@@ -1768,6 +1768,42 @@ class GoalSessionLiveEngine {
         activeSession!
       );
 
+      // CCIP-2026-0320A: Pre-execution price deviation guard (IMMEDIATE mode only).
+      // Alpha's planned entry is only valid while price is within structural tolerance.
+      // When >8 reasoning pips have elapsed since Alpha's scan (for MICRO_INTRADAY),
+      // the structural levels Alpha used for SL/TP no longer apply at the new price.
+      // Abort execution and allow the next scan cycle to produce a fresh signal.
+      if (executionMode === 'IMMEDIATE' && decision.action !== 'NO_TRADE' && Number.isFinite(decision.entry)) {
+        const pipInfoForCheck = getCurrencyPipInfo(selectedSymbol);
+        const scanPrice = decision.entry;
+        const currentLivePrice = snapshot.price;
+        const priceDeviation = Math.abs(currentLivePrice - scanPrice) / pipInfoForCheck.pipValue;
+
+        const canonicalStyleForCheck = (decision as any).tradeStyle ?? 'INTRADAY';
+        const styleDeviationLimits: Record<string, number> = {
+          SCALP: 5,
+          MICRO_INTRADAY: 8,
+          INTRADAY: 15,
+        };
+        const maxPipsForStyle = styleDeviationLimits[canonicalStyleForCheck.toUpperCase()] ?? 15;
+
+        if (priceDeviation > maxPipsForStyle) {
+          logger.warn(
+            LogCategory.AI_TRADING,
+            `[Trade Execution] ENTRY_DEVIATION_ABORT: price moved ${Math.round(priceDeviation * 10) / 10} pips since Alpha scan (max ${maxPipsForStyle} for ${canonicalStyleForCheck}). Rescan required.`,
+            {
+              symbol: selectedSymbol,
+              scanPrice,
+              currentLivePrice,
+              deviationPips: Math.round(priceDeviation * 10) / 10,
+              maxAllowedPips: maxPipsForStyle,
+              style: canonicalStyleForCheck,
+            }
+          );
+          return;
+        }
+      }
+
       logger.info(
         LogCategory.AI_TRADING,
         `[Trade Execution] Alpha entry_mode="${alphaEntryMode ?? 'unset'}" -> mode=${executionMode} (gate=${entryMonitorGateActive})`,
