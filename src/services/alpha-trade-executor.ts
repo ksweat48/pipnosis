@@ -2485,7 +2485,12 @@ class AlphaTradeExecutor {
         structural_level_strength: null,
         structural_level_touches: null,
         pullback_target_price: pullbackMidpoint,
-        pullback_improvement_pips: null
+        pullback_improvement_pips: null,
+        alpha_stop_loss: decision.stopLoss,
+        alpha_take_profit: decision.tp2Price ?? decision.takeProfit,
+        alpha_tp1_price: decision.tp1Price ?? null,
+        alpha_tp2_price: decision.tp2Price ?? null,
+        invalidation_price: decision.stopLoss
       };
 
       const { data: entryIntent, error: intentError } = await supabase
