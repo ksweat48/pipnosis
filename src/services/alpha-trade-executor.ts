@@ -1963,14 +1963,84 @@ class AlphaTradeExecutor {
     // SSOT: goal_session_trades schema compliance (20260202)
     // Fields omega8/omega9 removed from schema - data lives in alpha_decisions table
     // CCIP (2026-02-12): Use execution SL/TP overrides if provided (recalculated for actual fill)
-    const finalSL = executionStopLoss ?? decision.stopLoss;
+    let finalSL = executionStopLoss ?? decision.stopLoss;
     const finalTP = executionTakeProfit ?? decision.takeProfit;
-    const finalTP1 = executionTP1 !== undefined ? executionTP1 : decision.tp1Price;
+
+    // CCIP-2026-0320C: PROXIMITY_RISK SL Widening Guard
+    // Audit trace (2026-03-20): XAUUSD SELL had SL only 2.5 pips from nearest wick (Q9=PROXIMITY_RISK).
+    // Alpha flagged the risk but the SL was not widened. The wick consumed the SL.
+    // GOVERNANCE: When Alpha's own answer_sheet flags PROXIMITY_RISK on Q9, extract the
+    // wick proximity distance and add it as a structural buffer to the SL.
+    // This respects Alpha's risk geometry while acting on Alpha's own caution flag.
+    // Only applies when the Q9 text contains "PROXIMITY_RISK" and a numeric distance.
+    if (decision.answer_sheet?.Q9_sl_wick_proximity) {
+      const q9 = decision.answer_sheet.Q9_sl_wick_proximity;
+      if (q9.includes('PROXIMITY_RISK')) {
+        const distanceMatch = q9.match(/(\d+(?:\.\d+)?)\s*pips?\s*from\s*SL/i);
+        if (distanceMatch) {
+          const proximityGapPips = parseFloat(distanceMatch[1]);
+          if (proximityGapPips > 0 && proximityGapPips <= 10) {
+            const pipInfo = getCurrencyPipInfo(decision.symbol);
+            const bufferPoints = proximityGapPips * pipInfo.pipValue;
+            const direction = decision.action === 'BUY' ? 1 : -1;
+            const widenedSL = finalSL - direction * bufferPoints;
+            logger.info(
+              LogCategory.TRADE_EXECUTION,
+              '[AlphaTradeExecutor] PROXIMITY_RISK SL BUFFER: Alpha flagged wick proximity risk — widening SL by gap distance.',
+              {
+                symbol: decision.symbol,
+                originalSL: finalSL,
+                widenedSL,
+                proximityGapPips,
+                bufferPoints,
+                q9Text: q9,
+                governance: 'CCIP-2026-0320C'
+              }
+            );
+            finalSL = widenedSL;
+          }
+        }
+      }
+    }
 
     // CCIP GOVERNANCE (2026-02-16): Defensive guard — scalp trades never have TP2
     // coordinator-alpha.ts is SSOT, but executor enforces as defensive layer
     const isScalpTrade = canonicalStyle === 'SCALP';
     const finalTP2 = isScalpTrade ? null : (executionTP2 ?? decision.tp2Price);
+
+    // CCIP-2026-0320B: TP1 Midpoint Governance Safety Net
+    // Alpha is SOLE authority for TP placement (CCIP-2026-02-16).
+    // However, when Alpha provides NO tp1 for non-SCALP styles that have a full TP target,
+    // the monitoring system cannot trigger TP1 milestone → SL-to-breakeven protection.
+    // Audit trace (2026-03-20): XAUUSD SELL peaked at +$447 with tp1_price=null,
+    // no partial protection triggered, reversed to -$915 (a $1,362 swing preventable by TP1).
+    // GOVERNANCE: Compute midpoint TP1 ONLY as a last-resort fallback when:
+    //   1. Trade is NOT scalp (scalps use tp1 as sole target)
+    //   2. Alpha provided no tp1 (tp1Price is null/undefined)
+    //   3. A full TP target exists (finalTP2 is non-null)
+    // The midpoint is the standard market practice for partial profit protection.
+    // This does NOT override Alpha — it fills the gap when Alpha is silent on TP1.
+    let rawTP1 = executionTP1 !== undefined ? executionTP1 : decision.tp1Price;
+
+    if (!isScalpTrade && (rawTP1 == null || !Number.isFinite(rawTP1 as number)) && finalTP2 != null && Number.isFinite(finalTP2)) {
+      const midpointTP1 = entryPrice + (finalTP2 - entryPrice) * 0.5;
+      rawTP1 = midpointTP1;
+      logger.info(
+        LogCategory.TRADE_EXECUTION,
+        '[AlphaTradeExecutor] TP1 MIDPOINT FALLBACK: Alpha provided no TP1. Computed midpoint as governance safety net.',
+        {
+          symbol: decision.symbol,
+          style: canonicalStyle,
+          entryPrice,
+          finalTP2,
+          computedTP1: midpointTP1,
+          action: decision.action,
+          governance: 'CCIP-2026-0320B'
+        }
+      );
+    }
+
+    const finalTP1 = rawTP1;
 
     // Calculate total confidence penalty from all adjustments (0-100 range)
     let totalPenalty = 0;

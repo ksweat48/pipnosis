@@ -27,8 +27,10 @@ import { pricePollingCoordinator, type PriceUpdate } from './price-polling-coord
 import type { MonitoredPosition, PriceData } from './monitoring/position-monitoring-authority';
 import { tradeProcessingLockService } from './trade-processing-lock-service';
 import { isXAUUSD, isJPYPair, getCurrencyPipInfo } from '../utils/currencyHelpers';
+import { calculatePnL } from '@/types/position';
 import { notificationCoordinator } from './coordinators/notification-coordinator';
 import { audioAlertService } from './audio-alert-service';
+import { pushNotificationDispatcher } from './push-notification-dispatcher';
 
 class RealtimeSLTPMonitor {
   private unsubscribe: (() => void) | null = null;
@@ -397,6 +399,24 @@ class RealtimeSLTPMonitor {
         },
       }).catch(err => {
         console.warn(`[RealtimeSLTPMonitor] TP1 milestone notification failed (non-blocking):`, err);
+      });
+
+      // CCIP-2026-0320D: Push notification — user receives device alert when TP1 is hit.
+      // PnL is computed at TP1 price using the trade's lot size (SSOT: calculatePnL authority).
+      // newSL reflects the post-auto-move stop loss already written to position in memory above.
+      const lotSizeForPnL = position.lot_size ?? position.position_size;
+      const pnlAtTP1 = calculatePnL(position.direction, position.entry_price, currentPrice, lotSizeForPnL, position.symbol);
+
+      pushNotificationDispatcher.sendTP1MilestoneAlert({
+        userId: position.user_id,
+        tradeId: position.id,
+        symbol: position.symbol,
+        direction: position.direction,
+        tp1Price: currentPrice,
+        newSL: position.stop_loss,
+        pnlAtTP1,
+      }).catch(err => {
+        console.warn(`[RealtimeSLTPMonitor] TP1 push notification failed (non-blocking):`, err);
       });
 
       // Keep monitoring for TP2 - don't remove from monitoring

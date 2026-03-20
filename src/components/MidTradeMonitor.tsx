@@ -15,7 +15,8 @@ import {
   Clock,
   Zap,
   Brain,
-  XCircle
+  XCircle,
+  Star
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { midTradeMonitorService, type MidTradeGuidance } from '@/services/mid-trade-monitor-service';
@@ -178,6 +179,45 @@ const getDurationPillStyle = (minutes: number): { text: string; classes: string 
     text: `~${hours.toFixed(1)}h`,
     classes: 'text-red-400 bg-red-500/15 border-red-500/30'
   };
+};
+
+/**
+ * CCIP-2026-0320D: TP1 Milestone Alert Banner
+ * Shown prominently when tp1_hit = true on a trade.
+ * Pulsing green alert to ensure the user does not miss the breakeven protection signal.
+ */
+const TP1MilestoneBanner: React.FC<{
+  symbol: string;
+  tp1BreakevenSL: number | null;
+}> = ({ symbol, tp1BreakevenSL }) => {
+  return (
+    <div className="mb-3 rounded-lg border border-emerald-400/60 bg-emerald-900/30 overflow-hidden">
+      <div className="flex items-center gap-2.5 px-3 py-2.5">
+        <div className="shrink-0 relative">
+          <div className="absolute inset-0 rounded-full bg-emerald-400/30 animate-ping" />
+          <div className="relative p-1.5 rounded-full bg-emerald-500/20">
+            <Star className="w-4 h-4 text-emerald-300 fill-emerald-300/30" />
+          </div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-emerald-300 leading-tight">
+            TP1 Hit — SL Moved to Breakeven
+          </p>
+          <p className="text-xs text-emerald-200/70 mt-0.5 leading-snug">
+            {symbol} reached its first target. Your trade is now <span className="font-semibold text-emerald-300">fully protected</span> — monitoring continues for TP2.
+            {tp1BreakevenSL != null && (
+              <> New SL: <span className="font-mono font-semibold text-emerald-300">{cleanPrice(tp1BreakevenSL)}</span></>
+            )}
+          </p>
+        </div>
+        <div className="shrink-0">
+          <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+            Protected
+          </span>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 const AlphaEntryIntelligence: React.FC<{ guide: MidTradeGuidance }> = ({ guide }) => {
@@ -864,6 +904,14 @@ export const MidTradeMonitor: React.FC<MidTradeMonitorProps> = ({ activeTradeId 
                     </div>
                   </div>
                 </div>
+
+                {/* CCIP-2026-0320D: TP1 Milestone Alert Banner — shown when TP1 has been hit */}
+                {guide.tp1Hit && (
+                  <TP1MilestoneBanner
+                    symbol={guide.symbol}
+                    tp1BreakevenSL={guide.tp1BreakevenSL}
+                  />
+                )}
 
                 {/* Alpha Entry Intelligence — Why Alpha took this trade */}
                 <AlphaEntryIntelligence guide={guide} />

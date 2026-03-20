@@ -112,6 +112,12 @@ export interface MidTradeGuidance {
   // Internal field retained for in-memory P&L recalculation by applyLivePrices
   // GOVERNANCE: Not rendered in UI — used exclusively by applyLivePrices
   lotSize: number;
+
+  // CCIP-2026-0320D: TP1 milestone state — drives loud alert banner in MidTradeMonitor
+  // tp1Hit: true when the first take profit was reached and SL was auto-moved to breakeven
+  // tp1BreakevenSL: the exact SL price set after TP1 hit (null when TP1 not yet reached)
+  tp1Hit: boolean;
+  tp1BreakevenSL: number | null;
 }
 
 export interface MidTradeMonitorStats {
@@ -404,7 +410,9 @@ class MidTradeMonitorService {
           rMultiple: evaluation.rMultiple,
           initialRR,
           liveRR,
-          lotSize
+          lotSize,
+          tp1Hit: trade.tp1_hit === true,
+          tp1BreakevenSL: trade.tp1_breakeven_price ?? null
         });
       }
 

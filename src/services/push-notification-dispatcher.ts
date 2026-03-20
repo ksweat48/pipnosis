@@ -222,6 +222,52 @@ class PushNotificationDispatcher {
     }
   }
 
+  async sendTP1MilestoneAlert(params: {
+    userId: string;
+    notificationId?: string;
+    tradeId: string;
+    symbol: string;
+    direction: 'buy' | 'sell';
+    tp1Price: number;
+    newSL: number;
+    pnlAtTP1: number;
+  }): Promise<boolean> {
+    try {
+      const priority: NotificationPriority = 'urgent';
+      const shouldSend = await this.shouldSendPush(params.userId, priority);
+
+      if (!shouldSend) {
+        return false;
+      }
+
+      const pnlText = params.pnlAtTP1 >= 0 ? `+$${params.pnlAtTP1.toFixed(2)}` : `-$${Math.abs(params.pnlAtTP1).toFixed(2)}`;
+      const payload: PushNotificationPayload = {
+        title: `TP1 Hit — ${params.symbol} SL Moved to Breakeven`,
+        body: `First target reached at ${params.tp1Price.toFixed(2)}. P&L: ${pnlText}. SL now at ${params.newSL.toFixed(2)} — trade is protected.`,
+        icon: '/Pipnosis icon.png',
+        badge: '/notification-badge.png',
+        data: {
+          type: 'mid-trade-alert',
+          priority,
+          trade_id: params.tradeId,
+          symbol: params.symbol,
+          direction: params.direction,
+          tp1Price: params.tp1Price,
+          newSL: params.newSL,
+          pnlAtTP1: params.pnlAtTP1,
+          milestone: 'tp1'
+        },
+        tag: `tp1-milestone-${params.tradeId}`,
+        vibrate: [300, 100, 300, 100, 500]
+      };
+
+      return await this.dispatch(params.userId, payload, params.notificationId);
+    } catch (error) {
+      console.error('[Push Dispatcher] Error sending TP1 milestone alert:', error);
+      return false;
+    }
+  }
+
   async sendMidTradeAlert(params: {
     userId: string;
     notificationId?: string;
