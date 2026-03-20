@@ -3301,12 +3301,14 @@ You choose ALL profit targets. The system never calculates TP for you. TP placem
   "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H1 structural zone. TP2 R:R must be >= TP1 R:R.
   tp1 must be closer to entry than tp2. Both must be within arena walls.
   Alpha has full authority to place TP1 and TP2 based on what market structure is offering.
+  TP1 IS MANDATORY for MICRO_INTRADAY. A response without a numeric "tp1" field is a malformed response — output NO_TRADE instead. There is no valid MICRO_INTRADAY trade without TP1.
   If no M15 structure exists at >= 1.0:1 distance, NO_TRADE. SL must be behind a genuine M15 structural level — scalp-sized stops on MICRO trades are auto-rejected.
 - INTRADAY: TWO take-profits. Minimum R:R 1.0:1.
   "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest H1 structural zone (not M15 micro-structure). TP1 R:R vs SL must be >= 1.0:1.
   "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H4 structural zone. TP2 R:R must be >= TP1 R:R.
   tp1 must be closer to entry than tp2. Both must be within arena walls.
   Alpha has full authority to place TP1 and TP2 based on what market structure is offering.
+  TP1 IS MANDATORY for INTRADAY. A response without a numeric "tp1" field is a malformed response — output NO_TRADE instead. There is no valid INTRADAY trade without TP1.
   If no H1 structure exists at >= 1.0:1 distance, NO_TRADE.
 
 ENTRY MODE — SMART WAITING SYSTEM:
@@ -4866,7 +4868,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
             console.warn(`[Alpha TP1 DIAGNOSTIC] TP1 R:R ${tp1RR.toFixed(2)}:1 below ${tradeStyle} advisory ${minTP1RR.toFixed(1)}:1 (TP1=${tp1Pips.toFixed(1)} pips, SL=${slPips.toFixed(1)} pips) — NOT blocking, dual-arena wall is SSOT`);
           }
         } else {
-          console.log(`[Alpha TP Authority] ${tradeStyle}: No TP1 in response, using single TP at ${tpPips.toFixed(1)} pips`);
+          console.warn(`[Alpha TP1 GOVERNANCE VIOLATION] ${tradeStyle} response is missing mandatory "tp1" field. Alpha was instructed to always provide TP1 for this style. Falling back to midpoint safety net — this is a malformed response. Symbol: ${symbol}`);
         }
         tp2Price = takeProfit;
         tp2Reasoning = `Alpha full target at ${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1 R:R)`;

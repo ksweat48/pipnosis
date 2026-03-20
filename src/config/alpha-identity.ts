@@ -570,7 +570,7 @@ BUY or SELL:
   "scalp_structural_confirmation": "Named M5 anchor — swing high/low, FVG, BOS, or EMA at specific price.",` : ''}${isMicro ? `
   "m15_structural_confirmation": "Named M15 anchor — swing, FVG, or BOS at specific price.",` : ''}${isIntraday ? `
   "h1_structural_confirmation": "Named H1 level and structure type.",` : ''}
-  "trade_management": ${isScalp ? 'null,' : '{ "tp1_close_percent": <number>, "sl_to_breakeven_after_tp1": <bool>, "trail_method": "structure|fixed_pips|none", "trail_notes": "Named structural level I trail the runner behind." },'}
+  ${isScalp ? '' : '"tp1": <price>,  // MANDATORY — conservative partial target. A response without this field is malformed.\n  '}"trade_management": ${isScalp ? 'null,' : '{ "tp1_close_percent": <number>, "sl_to_breakeven_after_tp1": <bool>, "trail_method": "structure|fixed_pips|none", "trail_notes": "Named structural level I trail the runner behind." },'}
   "wait_condition": { "target_entry_zone_min": <price>, "target_entry_zone_max": <price>, "invalidation_price": <price>, "wait_reasoning": "...", "expected_wait_minutes": <your estimate, e.g. 15> },
 WAIT_CONDITION RULE — MANDATORY when entry_mode is wait_pullback or push_confirmation:
   If entry_spec.entry_mode is "wait_pullback" or "push_confirmation", the wait_condition block is NOT optional.
