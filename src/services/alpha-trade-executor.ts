@@ -57,6 +57,7 @@ import type { TradeContext } from '../types/trade-context';
 import { buildMidTradePlan } from './mid-trade-plan-engine';
 import { recentTradeContext } from './recent-trade-context';
 import { resolveCanonicalStyle, type CanonicalTradeStyle } from '../config/timeframe-hierarchy';
+import { llmReasoningLogger } from './llm-reasoning-logger';
 
 export type ExecutionMode = 'IMMEDIATE' | 'PENDING' | 'MONITORED';
 
@@ -64,6 +65,90 @@ type CanonicalStyle = CanonicalTradeStyle;
 
 function normalizeToCanonicalStyle(input: string): CanonicalStyle {
   return resolveCanonicalStyle(input, 'SCALP');
+}
+
+/**
+ * CCIP-2026-0321: Journal Narrative Builder
+ *
+ * SSOT for converting Alpha's structured answer_sheet into human-readable journal text.
+ * Called exclusively from createImmediate() at trade open time so the ai_trade_journal
+ * entry is created with real context rather than fallback placeholders.
+ *
+ * Responsibility: alpha-trade-executor.ts (single call site)
+ * Governance: SSOT — no other path should call this function.
+ */
+function buildMarketReadFromDecision(decision: AlphaDecision): string {
+  const as = decision.answer_sheet;
+
+  if (!as) {
+    const narrative = typeof decision.reasoning === 'string'
+      ? decision.reasoning
+      : (decision.reasoning && typeof (decision.reasoning as any).thesis_why === 'string'
+          ? (decision.reasoning as any).thesis_why
+          : null);
+    return narrative || `${decision.action} ${decision.symbol} — trend and structure aligned.`;
+  }
+
+  const parts: string[] = [];
+
+  if (as.Q1_trend_alignment) parts.push(`Trend: ${as.Q1_trend_alignment}`);
+  if (as.Q2_structure_level) parts.push(`Structure: ${as.Q2_structure_level}`);
+  if (as.Q4_momentum_stage) parts.push(`Momentum: ${as.Q4_momentum_stage}`);
+  if (as.Q6_entry_trigger) parts.push(`Entry trigger: ${as.Q6_entry_trigger}`);
+
+  const confluenceText = as.Q7_confluence_judgment || as.Q7_confluence_confirmed || as.Q7_confluence_count;
+  if (confluenceText) parts.push(`Confluence: ${confluenceText}`);
+
+  if (as.Q8C_price_location_zone) parts.push(`Price zone: ${as.Q8C_price_location_zone}`);
+  if (as.Q8D_weekly_narrative) parts.push(`Weekly context: ${as.Q8D_weekly_narrative}`);
+  if (as.kill_zone && as.kill_zone !== 'NONE') parts.push(`Kill zone: ${as.kill_zone}`);
+  if (as.intermarket_correlation && as.intermarket_correlation !== 'UNKNOWN') {
+    parts.push(`Intermarket: ${as.intermarket_correlation}`);
+  }
+
+  return parts.length > 0 ? parts.join('. ') + '.' : `${decision.action} ${decision.symbol} — market conditions favourable at entry.`;
+}
+
+function buildExpectedOutcomeFromDecision(
+  decision: AlphaDecision,
+  entryPrice: number,
+  stopLoss: number,
+  takeProfit: number,
+  symbol: string
+): string {
+  const pipInfo = symbol?.includes('JPY') ? { pipSize: 0.01, precision: 3 }
+    : symbol?.toLowerCase().includes('xau') || symbol?.toLowerCase().includes('gold') ? { pipSize: 0.1, precision: 2 }
+    : symbol?.toLowerCase().includes('xag') || symbol?.toLowerCase().includes('silver') ? { pipSize: 0.01, precision: 3 }
+    : { pipSize: 0.0001, precision: 5 };
+
+  const slPips = stopLoss > 0 && entryPrice > 0
+    ? Math.round(Math.abs(entryPrice - stopLoss) / pipInfo.pipSize)
+    : 0;
+  const tpPips = takeProfit > 0 && entryPrice > 0
+    ? Math.round(Math.abs(takeProfit - entryPrice) / pipInfo.pipSize)
+    : 0;
+  const rr = slPips > 0 ? (tpPips / slPips).toFixed(1) : 'N/A';
+
+  const tp1 = decision.tp1Price;
+  const tp2 = decision.tp2Price ?? takeProfit;
+
+  let plan = `Entry: ${entryPrice.toFixed(pipInfo.precision)} | SL: ${stopLoss.toFixed(pipInfo.precision)} (${slPips} pips risk)`;
+
+  if (tp1 && tp2 && tp1 !== tp2) {
+    const tp1Pips = Math.round(Math.abs(tp1 - entryPrice) / pipInfo.pipSize);
+    const tp2Pips = Math.round(Math.abs(tp2 - entryPrice) / pipInfo.pipSize);
+    plan += ` | TP1: ${tp1.toFixed(pipInfo.precision)} (${tp1Pips}p) → TP2: ${tp2.toFixed(pipInfo.precision)} (${tp2Pips}p) | R:R ${rr}:1`;
+  } else if (takeProfit > 0) {
+    plan += ` | TP: ${takeProfit.toFixed(pipInfo.precision)} (${tpPips} pips) | R:R ${rr}:1`;
+  }
+
+  const as = decision.answer_sheet;
+  if (as?.Q5B_objective_alignment) plan += `. Objective: ${as.Q5B_objective_alignment}`;
+  if (as?.Q5_failure_mode && as.Q5_failure_mode !== 'NONE') {
+    plan += `. Invalidated if: ${as.Q5_failure_mode}`;
+  }
+
+  return plan;
 }
 
 export interface TradeExecutionInputs {
@@ -1219,6 +1304,61 @@ class AlphaTradeExecutor {
       entryPrice: adjustedEntry,
       canonicalStyle: params.canonicalStyle
     });
+
+    // CCIP-2026-0321: Create ai_trade_journal entry at open time.
+    // SSOT: alpha-trade-executor.ts is the SINGLE authority for Alpha-executed trade journal
+    // creation. Previously no journal entry was created here, so post-trade-analyzer.ts
+    // produced retroactive fallback placeholders ("Entry conditions were not captured at
+    // open time." / "Target levels not recorded.") because Alpha's full decision context
+    // (answer_sheet, reasoning, omega9) is only available at this moment.
+    // Non-blocking: journal failure must never prevent trade execution from succeeding.
+    try {
+      const omega9 = decision.omega9_validation;
+      const finalSLForJournal = trade.stop_loss ?? decision.stopLoss;
+      const finalTPForJournal = trade.take_profit ?? decision.takeProfit;
+
+      await llmReasoningLogger.logTradeEntry({
+        userId,
+        tradeId: trade.id,
+        sessionId,
+        symbol: decision.symbol || '',
+        direction: decision.action === 'BUY' ? 'buy' : 'sell',
+        entryTime: new Date(),
+        entryPrice: adjustedEntry,
+        stopLoss: finalSLForJournal,
+        takeProfit: finalTPForJournal,
+        llmReasoning: typeof decision.reasoning === 'string'
+          ? decision.reasoning
+          : (decision.reasoning && typeof (decision.reasoning as any).thesis_why === 'string'
+              ? (decision.reasoning as any).thesis_why
+              : JSON.stringify(decision.reasoning) || ''),
+        marketRead: buildMarketReadFromDecision(decision),
+        expectedOutcome: buildExpectedOutcomeFromDecision(
+          decision,
+          adjustedEntry,
+          finalSLForJournal,
+          finalTPForJournal,
+          decision.symbol || ''
+        ),
+        patternIdentified: decision.thesis || 'AI Trade',
+        convictionLevel: decision.confidence,
+        rankAtTime: 'System',
+        omega8_liquidity_bias: decision.omega8_liquidity_bias || undefined,
+        omega8_reasoning: (decision as any).omega8_reasoning || undefined,
+        omega8_patterns: (decision as any).omega8_patterns || undefined,
+        omega9_pass: omega9?.pass ?? true,
+        omega9_flags: omega9?.flags || [],
+        omega9_confidence_adjustment: omega9?.confidence_adjustment ?? 0,
+        omega9_corrections: omega9?.corrections || null,
+        omega9_reasoning: omega9?.reasoning || undefined,
+      });
+    } catch (journalErr) {
+      logger.warn(
+        LogCategory.GOVERNANCE,
+        '[AlphaTradeExecutor] CCIP-2026-0321: Journal entry creation failed (non-blocking)',
+        { error: journalErr, tradeId: trade.id, userId }
+      );
+    }
 
     return {
       success: true,

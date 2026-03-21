@@ -36,6 +36,9 @@ interface TradeRow {
   trade_style: string | null;
   timeframe: string | null;
   goal_session_id: string;
+  alpha_reasoning_snapshot: string | null;
+  tp1_reasoning: string | null;
+  tp2_reasoning: string | null;
 }
 
 /**
@@ -191,7 +194,7 @@ async function processClosureEvent(
     // Step 1: Fetch full trade data (needed for journal + learning pipeline)
     const { data: tradeRow } = await supabase
       .from("goal_session_trades")
-      .select("direction, entry_price, exit_price, stop_loss, take_profit, created_at, closed_at, tp1_hit, tp2_hit, peak_profit, trade_style, timeframe, goal_session_id")
+      .select("direction, entry_price, exit_price, stop_loss, take_profit, created_at, closed_at, tp1_hit, tp2_hit, peak_profit, trade_style, timeframe, goal_session_id, alpha_reasoning_snapshot, tp1_reasoning, tp2_reasoning")
       .eq("id", event.trade_id)
       .maybeSingle() as { data: TradeRow | null };
 
@@ -335,6 +338,11 @@ async function processClosureEvent(
  * the full learning pipeline (AI learning tables are populated when the browser
  * processes the event, or via backfill).
  *
+ * CCIP-2026-0321: Reads alpha_reasoning_snapshot from goal_session_trades to recover
+ * Alpha's original answer_sheet context. This prevents fallback placeholder text
+ * ("Entry conditions were not captured at open time." / "Target levels not recorded.")
+ * from appearing in the journal when a journal entry was not created at open time.
+ *
  * Idempotent: uses upsert on trade_id conflict so double-processing is safe.
  */
 async function ensureJournalEntry(
@@ -360,18 +368,85 @@ async function ensureJournalEntry(
   const tp2Hit = tradeRow?.tp2_hit ?? false;
   const closeReason = event.close_reason;
   const pnl = event.pnl;
+  const sym = event.symbol || "";
 
   const outcome = pnl > 0 ? "win" : pnl < 0 ? "loss" : "breakeven";
 
   const journalStage = determineJournalStage(closeReason, tp1Hit, tp2Hit);
   const actualOutcome = buildActualOutcomeText(closeReason, pnl, exitPrice, tp1Hit, tp2Hit);
 
+  // CCIP-2026-0321: Recover Alpha's original context from alpha_reasoning_snapshot
+  const pipValue = sym.includes("JPY") ? 0.01
+    : sym.toLowerCase().includes("xau") || sym.toLowerCase().includes("gold") ? 0.1
+    : sym.toLowerCase().includes("xag") || sym.toLowerCase().includes("silver") ? 0.01
+    : 0.0001;
+  const pricePrecision = sym.includes("JPY") ? 3
+    : sym.toLowerCase().includes("xau") || sym.toLowerCase().includes("gold") ? 2
+    : sym.toLowerCase().includes("xag") || sym.toLowerCase().includes("silver") ? 3
+    : 5;
+
+  const slPips = stopLoss && entryPrice > 0 ? Math.round(Math.abs(entryPrice - stopLoss) / pipValue) : 0;
+  const tpPips = takeProfit && entryPrice > 0 ? Math.round(Math.abs(takeProfit - entryPrice) / pipValue) : 0;
+  const rr = slPips > 0 ? (tpPips / slPips).toFixed(1) : "N/A";
+
+  let recoveredNarrative: string | null = null;
+  let recoveredMarketRead: string | null = null;
+  let recoveredExpectedOutcome: string | null = null;
+
+  const snapshot = tradeRow?.alpha_reasoning_snapshot ?? null;
+  if (snapshot) {
+    try {
+      const parsed = typeof snapshot === "string" ? JSON.parse(snapshot) : snapshot;
+      const as = parsed?.answer_sheet;
+      const narrative = typeof parsed?.narrative === "string" ? parsed.narrative : null;
+      recoveredNarrative = narrative;
+
+      if (as && typeof as === "object") {
+        const parts: string[] = [];
+        if (as.Q1_trend_alignment) parts.push(`Trend: ${as.Q1_trend_alignment}`);
+        if (as.Q2_structure_level) parts.push(`Structure: ${as.Q2_structure_level}`);
+        if (as.Q4_momentum_stage) parts.push(`Momentum: ${as.Q4_momentum_stage}`);
+        if (as.Q6_entry_trigger) parts.push(`Entry trigger: ${as.Q6_entry_trigger}`);
+        const conf = as.Q7_confluence_judgment || as.Q7_confluence_confirmed || as.Q7_confluence_count;
+        if (conf) parts.push(`Confluence: ${conf}`);
+        if (as.Q8C_price_location_zone) parts.push(`Price zone: ${as.Q8C_price_location_zone}`);
+        if (as.kill_zone && as.kill_zone !== "NONE") parts.push(`Kill zone: ${as.kill_zone}`);
+        if (as.intermarket_correlation && as.intermarket_correlation !== "UNKNOWN") {
+          parts.push(`Intermarket: ${as.intermarket_correlation}`);
+        }
+        if (parts.length > 0) recoveredMarketRead = parts.join(". ") + ".";
+
+        let plan = `Entry: ${entryPrice.toFixed(pricePrecision)} | SL: ${stopLoss ? stopLoss.toFixed(pricePrecision) : "N/A"} (${slPips} pips) | TP: ${takeProfit ? takeProfit.toFixed(pricePrecision) : "N/A"} (${tpPips} pips) | R:R ${rr}:1`;
+        if (as.Q5B_objective_alignment) plan += `. Objective: ${as.Q5B_objective_alignment}`;
+        if (as.Q5_failure_mode && as.Q5_failure_mode !== "NONE") plan += `. Invalidated if: ${as.Q5_failure_mode}`;
+        recoveredExpectedOutcome = plan;
+      } else if (narrative) {
+        recoveredMarketRead = narrative;
+      }
+    } catch {
+      // Snapshot parse failed — fall through to computed fallback
+    }
+  }
+
+  const marketRead = recoveredMarketRead
+    || (entryPrice > 0
+      ? `Entered ${sym} at ${entryPrice.toFixed(pricePrecision)}. Stop: ${stopLoss ? stopLoss.toFixed(pricePrecision) : "N/A"} (${slPips} pips). Target: ${takeProfit ? takeProfit.toFixed(pricePrecision) : "N/A"} (${tpPips} pips).`
+      : "Entry conditions were not captured at open time.");
+
+  const expectedOutcome = recoveredExpectedOutcome
+    || (takeProfit && stopLoss
+      ? `Entry: ${entryPrice.toFixed(pricePrecision)} | SL: ${stopLoss.toFixed(pricePrecision)} (${slPips} pips) | TP: ${takeProfit.toFixed(pricePrecision)} (${tpPips} pips) | R:R ${rr}:1`
+      : "Target levels not recorded.");
+
+  const llmReasoning = recoveredNarrative
+    || `${direction.toUpperCase()} trade on ${sym}. Close reason: ${closeReason}.`;
+
   if (!existing) {
     // Create new journal entry
     const insertData: Record<string, unknown> = {
       user_id: event.user_id,
       trade_id: event.trade_id,
-      symbol: event.symbol,
+      symbol: sym,
       direction,
       entry_time: entryTime,
       entry_price: entryPrice,
@@ -379,13 +454,9 @@ async function ensureJournalEntry(
       take_profit: takeProfit,
       exit_time: exitTime,
       exit_price: exitPrice,
-      llm_reasoning: `${direction.toUpperCase()} trade on ${event.symbol}. Close reason: ${closeReason}.`,
-      market_read: entryPrice > 0
-        ? `Trade opened at ${entryPrice}.`
-        : "Entry conditions were not captured at open time.",
-      expected_outcome: takeProfit && stopLoss
-        ? `Expected TP at ${takeProfit}, SL at ${stopLoss}.`
-        : "Target levels not recorded.",
+      llm_reasoning: llmReasoning,
+      market_read: marketRead,
+      expected_outcome: expectedOutcome,
       pattern_identified: "System Trade",
       conviction_level: 70,
       rank_at_time: "System",

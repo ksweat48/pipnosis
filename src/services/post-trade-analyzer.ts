@@ -365,11 +365,11 @@ class PostTradeAnalyzer {
     return parts.join(' — ');
   }
 
-  private async enrichTradeData(tradeData: TradeData): Promise<TradeData> {
+  private async enrichTradeData(tradeData: TradeData): Promise<TradeData & { alphaReasoningSnapshot?: string | null; tp1ReasoningFromRecord?: string | null; tp2ReasoningFromRecord?: string | null }> {
     try {
       const { data: trade } = await supabase
         .from('goal_session_trades')
-        .select('direction, entry_price, exit_price, stop_loss, take_profit, created_at, closed_at, tp1_hit, tp2_hit, peak_profit, trade_style, timeframe')
+        .select('direction, entry_price, exit_price, stop_loss, take_profit, created_at, closed_at, tp1_hit, tp2_hit, peak_profit, trade_style, timeframe, alpha_reasoning_snapshot, tp1_reasoning, tp2_reasoning')
         .eq('id', tradeData.id)
         .maybeSingle();
 
@@ -388,6 +388,9 @@ class PostTradeAnalyzer {
           peakProfit: tradeData.peakProfit ?? trade.peak_profit ?? null,
           tradeStyle: tradeData.tradeStyle ?? trade.trade_style ?? null,
           timeframe: tradeData.timeframe ?? trade.timeframe ?? null,
+          alphaReasoningSnapshot: trade.alpha_reasoning_snapshot ?? null,
+          tp1ReasoningFromRecord: trade.tp1_reasoning ?? null,
+          tp2ReasoningFromRecord: trade.tp2_reasoning ?? null,
         };
       }
     } catch (error) {
@@ -416,8 +419,11 @@ class PostTradeAnalyzer {
   }
 
   /**
-   * Create retroactive journal entry for trades that were opened without one
-   * This is a safety net for legacy trades or system failures
+   * Create retroactive journal entry for trades that were opened without one.
+   *
+   * CCIP-2026-0321: Safety net for legacy trades or any edge-case gap.
+   * Reads alpha_reasoning_snapshot from goal_session_trades to recover Alpha's
+   * original context instead of showing placeholder text.
    */
   private async createRetroactiveJournalEntry(tradeData: TradeData): Promise<any | null> {
     try {
@@ -427,30 +433,88 @@ class PostTradeAnalyzer {
       const stopLoss = enriched.stopLoss || 0;
       const takeProfit = enriched.takeProfit || 0;
 
-      const pipValue = enriched.symbol.includes('JPY') ? 0.01 : 0.0001;
-      const pricePrecision = enriched.symbol.includes('JPY') ? 3 : 5;
+      const sym = enriched.symbol || '';
+      const pipValue = sym.includes('JPY') ? 0.01
+        : sym.toLowerCase().includes('xau') || sym.toLowerCase().includes('gold') ? 0.1
+        : sym.toLowerCase().includes('xag') || sym.toLowerCase().includes('silver') ? 0.01
+        : 0.0001;
+      const pricePrecision = sym.includes('JPY') ? 3
+        : sym.toLowerCase().includes('xau') || sym.toLowerCase().includes('gold') ? 2
+        : sym.toLowerCase().includes('xag') || sym.toLowerCase().includes('silver') ? 3
+        : 5;
       const slPips = stopLoss > 0 && entryPrice > 0 ? Math.round(Math.abs(entryPrice - stopLoss) / pipValue) : 0;
       const tpPips = takeProfit > 0 && entryPrice > 0 ? Math.round(Math.abs(takeProfit - entryPrice) / pipValue) : 0;
       const rr = slPips > 0 ? (tpPips / slPips).toFixed(1) : 'N/A';
 
+      // CCIP-2026-0321: Attempt to recover Alpha's original narrative from
+      // alpha_reasoning_snapshot stored in goal_session_trades at execution time.
+      const snapshot = (enriched as any).alphaReasoningSnapshot;
+      let recoveredNarrative: string | null = null;
+      let recoveredMarketRead: string | null = null;
+      let recoveredExpectedOutcome: string | null = null;
+
+      if (snapshot) {
+        try {
+          const parsed = typeof snapshot === 'string' ? JSON.parse(snapshot) : snapshot;
+          const as = parsed?.answer_sheet;
+          const narrative = typeof parsed?.narrative === 'string' ? parsed.narrative : null;
+
+          recoveredNarrative = narrative;
+
+          if (as && typeof as === 'object') {
+            const parts: string[] = [];
+            if (as.Q1_trend_alignment) parts.push(`Trend: ${as.Q1_trend_alignment}`);
+            if (as.Q2_structure_level) parts.push(`Structure: ${as.Q2_structure_level}`);
+            if (as.Q4_momentum_stage) parts.push(`Momentum: ${as.Q4_momentum_stage}`);
+            if (as.Q6_entry_trigger) parts.push(`Entry trigger: ${as.Q6_entry_trigger}`);
+            const conf = as.Q7_confluence_judgment || as.Q7_confluence_confirmed || as.Q7_confluence_count;
+            if (conf) parts.push(`Confluence: ${conf}`);
+            if (as.Q8C_price_location_zone) parts.push(`Price zone: ${as.Q8C_price_location_zone}`);
+            if (as.kill_zone && as.kill_zone !== 'NONE') parts.push(`Kill zone: ${as.kill_zone}`);
+            if (as.intermarket_correlation && as.intermarket_correlation !== 'UNKNOWN') {
+              parts.push(`Intermarket: ${as.intermarket_correlation}`);
+            }
+            if (parts.length > 0) recoveredMarketRead = parts.join('. ') + '.';
+
+            let plan = `Entry: ${entryPrice.toFixed(pricePrecision)} | SL: ${stopLoss.toFixed(pricePrecision)} (${slPips} pips) | TP: ${takeProfit.toFixed(pricePrecision)} (${tpPips} pips) | R:R ${rr}:1`;
+            if (as.Q5B_objective_alignment) plan += `. Objective: ${as.Q5B_objective_alignment}`;
+            if (as.Q5_failure_mode && as.Q5_failure_mode !== 'NONE') plan += `. Invalidated if: ${as.Q5_failure_mode}`;
+            recoveredExpectedOutcome = plan;
+          } else if (narrative) {
+            recoveredMarketRead = narrative;
+          }
+        } catch {
+          // Snapshot parse failed — fall through to computed fallback
+        }
+      }
+
+      const marketRead = recoveredMarketRead
+        || (entryPrice > 0
+          ? `Entered ${sym} at ${entryPrice.toFixed(pricePrecision)}. Stop: ${stopLoss.toFixed(pricePrecision)} (${slPips} pips risk). Target: ${takeProfit.toFixed(pricePrecision)} (${tpPips} pips).`
+          : 'Entry conditions were not captured at open time.');
+
+      const expectedOutcome = recoveredExpectedOutcome
+        || (takeProfit > 0 && stopLoss > 0
+          ? `Entry: ${entryPrice.toFixed(pricePrecision)} | SL: ${stopLoss.toFixed(pricePrecision)} (${slPips} pips) | TP: ${takeProfit.toFixed(pricePrecision)} (${tpPips} pips) | R:R ${rr}:1`
+          : 'Target levels not recorded.');
+
+      const llmReasoning = recoveredNarrative
+        || (entryPrice > 0
+          ? `${dir.toUpperCase()} ${sym} at ${entryPrice.toFixed(pricePrecision)} — ${enriched.closeReason === 'stop_loss' ? 'stopped out' : enriched.closeReason || 'closed'}.`
+          : `${dir.toUpperCase()} trade on ${sym}. Close reason: ${enriched.closeReason || 'unknown'}.`);
+
       const insertData: Record<string, any> = {
         user_id: enriched.userId,
         trade_id: enriched.id,
-        symbol: enriched.symbol,
+        symbol: sym,
         direction: dir,
         entry_time: enriched.entryTime ? enriched.entryTime.toISOString() : new Date().toISOString(),
         entry_price: entryPrice,
         stop_loss: stopLoss,
         take_profit: takeProfit,
-        llm_reasoning: entryPrice > 0
-          ? `${dir.toUpperCase()} ${enriched.symbol} at ${entryPrice.toFixed(pricePrecision)} — ${enriched.closeReason === 'stop_loss' ? 'stopped out' : enriched.closeReason || 'closed'}.`
-          : `${dir.toUpperCase()} trade on ${enriched.symbol}. Close reason: ${enriched.closeReason || 'unknown'}.`,
-        market_read: entryPrice > 0
-          ? `Entered ${enriched.symbol} at ${entryPrice.toFixed(pricePrecision)}. Stop: ${stopLoss.toFixed(pricePrecision)} (${slPips} pips risk). Target: ${takeProfit.toFixed(pricePrecision)} (${tpPips} pips).`
-          : 'Entry conditions were not captured at open time.',
-        expected_outcome: takeProfit > 0 && stopLoss > 0
-          ? `Target: ${tpPips} pips at ${takeProfit.toFixed(pricePrecision)}. Risk: ${slPips} pips. R:R = 1:${rr}.`
-          : 'Target levels not recorded.',
+        llm_reasoning: llmReasoning,
+        market_read: marketRead,
+        expected_outcome: expectedOutcome,
         pattern_identified: enriched.patternIdentified || 'System Trade',
         conviction_level: enriched.convictionLevel || 70,
         rank_at_time: 'System',
