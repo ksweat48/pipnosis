@@ -155,51 +155,6 @@ class AlphaTradeExecutor {
       };
     }
 
-    // Layer 1b: Sweep Reclaim Confirmation Gate (CCIP 2026-03-02, v2 2026-03-02)
-    // ═══════════════════════════════════════════════════════════════════
-    // GOVERNANCE: If Alpha's thesis is liquidity_sweep_reversal, Omega-8 MUST have
-    // confirmed a Break of Structure (BOS) on a closed candle before execution.
-    // Without BOS confirmation, the sweep may still be in progress — entering against
-    // an unconfirmed reclaim is a structural error, not a risk preference.
-    //
-    // This is a PIPELINE-LEVEL HARD BLOCK (same priority as MTF_DATA_MISSING).
-    // It operates on Alpha's decision output, not inside the LLM prompt.
-    // Advisory penalties and confidence adjustments do NOT substitute for this gate.
-    //
-    // CCIP FIX (2026-03-02): The original gate only blocked when has_bos === false.
-    // This meant that if Omega-8 timed out, errored, or returned no sweep_details,
-    // has_bos was undefined and the gate silently passed — allowing unconfirmed sweep
-    // reversals to execute with zero BOS data.
-    //
-    // The gate now requires has_bos to be EXPLICITLY true (not just non-false).
-    // Missing or undefined BOS data is treated as unconfirmed, which blocks execution.
-    //
-    // SSOT: decision.omega_votes.omega8.sweep_details.has_bos is the authoritative
-    //       BOS signal produced by omega8-hybrid-orderflow.ts.
-    // ═══════════════════════════════════════════════════════════════════
-    if (decision.thesis === 'liquidity_sweep_reversal') {
-      const omega8Votes = decision.omega_votes?.omega8 as any;
-      const sweepDetails = omega8Votes?.sweep_details;
-      const hasBos: boolean | undefined = sweepDetails?.has_bos;
-
-      if (hasBos !== true) {
-        const blockMsg =
-          `SWEEP_RECLAIM_UNCONFIRMED: Alpha thesis is liquidity_sweep_reversal but ` +
-          `Omega-8 has_bos=${hasBos ?? 'undefined'} — Break of Structure not confirmed on a closed candle. ` +
-          `Execution blocked until BOS confirmation is present. ` +
-          `(symbol=${decision.symbol ?? 'unknown'})`;
-        logger.warn(LogCategory.RISK_MANAGEMENT, `[AlphaTradeExecutor] ${blockMsg}`, {
-          userId, sessionId, symbol: decision.symbol, thesis: decision.thesis,
-          omega8_has_bos: hasBos, omega8_sweep_type: sweepDetails?.type
-        });
-        return {
-          success: false,
-          error: blockMsg,
-          blockReason: blockMsg
-        };
-      }
-    }
-
     // Layer 2: Trade Capacity (Confidence + Slots + Duplicates)
     const capacityCheck = await this.checkTradeCapacity(
       decision.symbol,

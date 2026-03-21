@@ -12,10 +12,7 @@
  * 5. Concise and actionable (under 200 chars ideal)
  *
  * Confidence Penalties:
- * - No narrative: -30% (capped at 69%)
- * - Weak narrative: -15%
- * - Acceptable narrative: -5%
- * - Strong narrative: 0%
+ * - All tiers: 0% (narrative quality informs Alpha as context only, never penalizes)
  */
 
 export interface NarrativeValidation {
@@ -35,9 +32,6 @@ export interface NarrativeValidation {
 }
 
 export class NarrativeCoherenceValidator {
-  private readonly MAX_PENALTY = -30;
-  private readonly WEAK_PENALTY = -15;
-  private readonly ACCEPTABLE_PENALTY = -5;
   private readonly NO_PENALTY = 0;
 
   /**
@@ -258,20 +252,8 @@ export class NarrativeCoherenceValidator {
   /**
    * Calculate confidence penalty based on quality tier
    */
-  private calculatePenalty(qualityTier: NarrativeValidation['qualityTier']): number {
-    switch (qualityTier) {
-      case 'excellent':
-      case 'strong':
-        return this.NO_PENALTY;
-      case 'acceptable':
-        return this.ACCEPTABLE_PENALTY;
-      case 'weak':
-        return this.WEAK_PENALTY;
-      case 'none':
-        return this.MAX_PENALTY;
-      default:
-        return this.MAX_PENALTY;
-    }
+  private calculatePenalty(_qualityTier: NarrativeValidation['qualityTier']): number {
+    return this.NO_PENALTY;
   }
 
   /**
@@ -324,7 +306,7 @@ export class NarrativeCoherenceValidator {
         hasLiquidityIntent: false,
         isConcise: false
       },
-      feedback: 'No narrative provided. Confidence capped at 69%. Must provide clear cause-effect thesis.',
+      feedback: 'No narrative provided. Provide a clear cause-effect thesis for best Alpha reasoning.',
       qualityTier: 'none'
     };
   }
