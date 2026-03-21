@@ -170,6 +170,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   const lastTickUpdateRef = useRef<number>(0);
   const renderFrameRef = useRef<number | null>(null);
   const safeguardTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isChartReadyRef = useRef<boolean>(false);
+  const isInitializingRef = useRef<boolean>(false);
 
   // Notify parent component of price updates
   useEffect(() => {
@@ -892,6 +894,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
   };
 
   const updateCurrentCandleFromPoller = (latestCandle: CandleData) => {
+    if (!isChartReadyRef.current) {
+      return;
+    }
+
     // CRITICAL TYPE GUARD: Ensure time is a primitive number, not an object
     if (typeof latestCandle.time !== 'number') {
       console.error('[Chart] ❌ CRITICAL: Candle time is not a number!', {
@@ -1174,6 +1180,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
 
   const initializeChart = async (showLoadingState = true) => {
+    isChartReadyRef.current = false;
+    isInitializingRef.current = true;
     try {
       console.log(`[Chart Init] ========================================`);
       console.log(`[Chart Init] Starting initialization for ${symbol} ${timeframe}`);
@@ -1527,6 +1535,8 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       }
 
       console.log('[Chart Init] Initialization complete, setting isLoading to false');
+      isChartReadyRef.current = true;
+      isInitializingRef.current = false;
       setIsLoading(false);
       setLoadingProgress(null);
 
@@ -1547,6 +1557,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         }
       );
     } catch (err) {
+      isInitializingRef.current = false;
       console.error('[Chart Init] Failed to initialize chart:', err);
       if (err instanceof Error) {
         console.error('[Chart Init] Error stack:', err.stack);
@@ -1605,6 +1616,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
 
     console.log(`[Chart][${symbol}] Chart series exists, CLEARING old data before loading new symbol...`);
 
+    // Mark chart as not ready while switching symbols
+    isChartReadyRef.current = false;
+    isInitializingRef.current = false;
+
     // CRITICAL FIX: Force clear ALL chart data when symbol changes to prevent contamination
     try {
       candlestickSeriesRef.current.setData([]);
@@ -1642,6 +1657,10 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
       if (!isMountedRef.current || !candlestickSeriesRef.current) {
         return;
       }
+      if (isInitializingRef.current) {
+        console.log('[Chart] 🔍 SAFEGUARD: Initialization still in progress, skipping redundant reload');
+        return;
+      }
       const chartData = candlestickSeriesRef.current.data();
       console.log(`[Chart] 🔍 SAFEGUARD CHECK: Chart has ${chartData.length} candles`);
       if (chartData.length === 0) {
@@ -1649,7 +1668,7 @@ export function MarketChart({ symbol, onSymbolChange, tradeLines, onTradeExecute
         console.error('[Chart] Attempting forced reload...');
         initializeChart(true);
       }
-    }, 2000);
+    }, 3000);
 
     // Check if we should run in database-only mode (development/WebContainer or circuit breaker open)
     const isDevEnvironment = shouldDisableMetaAPI();
