@@ -1991,11 +1991,11 @@ class GoalSessionLiveEngine {
         });
 
         // Send user notification about why trade was blocked
-        await this.sendAIMessage(
-          `⚠️ Trade opportunity on ${selectedSymbol} was blocked:\n\n` +
-          `Reason: ${blockReason}\n\n` +
-          `Continuing to scan for other opportunities...`
-        ).catch(e => {
+        const isDeviationBlock = (executionResult.blockReason || '') === 'ENTRY_DEVIATION_EXCEEDS_STRUCTURAL_TOLERANCE';
+        const blockMessage = isDeviationBlock
+          ? `Setup cancelled on ${selectedSymbol}: price moved beyond Alpha's deviation limit before the order could fill. Alpha's structural levels no longer apply at the current price. No trade placed.`
+          : `Trade opportunity on ${selectedSymbol} was blocked:\n\nReason: ${blockReason}`;
+        await this.sendAIMessage(blockMessage).catch(e => {
           logger.warn(LogCategory.AI_TRADING, 'Failed to send execution block notification', { error: e });
         });
 

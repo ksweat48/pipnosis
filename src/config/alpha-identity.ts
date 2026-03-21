@@ -544,6 +544,7 @@ BUY or SELL:
   "entry": <price>,
   "stopLoss": <price>,
   "takeProfit": <price>,
+  "max_entry_deviation_pips": <integer — max pips the live fill may drift from my entry before this setup is cancelled. Reflect pair speed and structural precision. This is law: if exceeded, NO trade is placed.>,
   "thesis": "momentum_scalp|liquidity_sweep_reversal|trend_pullback|breakout_continuation|mean_reversion|failed_move|range_extreme",
   "style_intent": "${style}",
   "execution_preference": "IMMEDIATE|WAIT_PULLBACK|WAIT_CONFIRMATION",
@@ -565,7 +566,7 @@ BUY or SELL:
   },
   "counter_thesis": "The single most credible structural reason this trade fails — named specifically, not generically.",
   "counter_thesis_probability": <0-100>,
-  "entry_spec": { "entry_mode": "execute_now|wait_pullback|push_confirmation", "runawayPolicy": "RESCAN|EXECUTE_ON_FIRST_PULLBACK" },
+  "entry_spec": { "entry_mode": "execute_now|wait_pullback|push_confirmation" },
   "thesis_coherence_statement": "My synthesis: I reconcile every answer_sheet field against my action. If any field shows a contradiction (e.g. Q8C=PREMIUM on a BUY, Q3=prior rejections at my entry level), I name it here and give the specific reason I am proceeding — or I output NO_TRADE. Q8C misalignment must always be acknowledged here even if I proceed.",${isScalp ? `
   "scalp_structural_confirmation": "Named M5 anchor — swing high/low, FVG, BOS, or EMA at specific price.",` : ''}${isMicro ? `
   "m15_structural_confirmation": "Named M15 anchor — swing, FVG, or BOS at specific price.",` : ''}${isIntraday ? `

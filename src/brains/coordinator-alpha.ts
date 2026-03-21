@@ -390,6 +390,11 @@ export interface AlphaDecision {
      */
     Q9_sl_wick_proximity?: string;
   };
+  // CCIP-2026-0321A: Alpha-owned entry deviation tolerance.
+  // Max pips the live fill may drift from Alpha's planned entry before the setup is
+  // cancelled outright (no trade placed, no rescan). Alpha states this per-trade based
+  // on pair speed and structural precision of the entry. System never computes or overrides it.
+  max_entry_deviation_pips?: number;
 }
 
 /**
@@ -4887,6 +4892,30 @@ Return PURE JSON only — all required fields from the schema in my system promp
         tp2Reasoning = `Alpha full target at ${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1 R:R)`;
       }
 
+      // CCIP-2026-0321A: Extract Alpha's per-trade deviation tolerance.
+      // Alpha states max_entry_deviation_pips as an integer in the BUY/SELL output schema.
+      // If missing or invalid, apply a per-asset-class fallback so execution never crashes.
+      // Fallbacks (reasoning pips): forex=20, crypto=200, metals=80, indices=50.
+      const rawDevPips = parsed.max_entry_deviation_pips;
+      let alphaMaxDeviationPips: number | undefined;
+      if (typeof rawDevPips === 'number' && Number.isFinite(rawDevPips) && rawDevPips > 0) {
+        alphaMaxDeviationPips = Math.round(rawDevPips);
+      } else {
+        const sym = symbol.toUpperCase();
+        if (['BTCUSD', 'ETHUSD', 'LTCUSD', 'XRPUSD', 'BCHUSD'].some(c => sym.includes(c.replace('USD', '')))) {
+          alphaMaxDeviationPips = 200;
+        } else if (['XAUUSD', 'XAGUSD', 'GOLD'].some(m => sym.includes(m.replace('USD', '')))) {
+          alphaMaxDeviationPips = 80;
+        } else if (['US30', 'NAS100', 'SPX500', 'UK100', 'DE30', 'JP225'].some(i => sym.includes(i))) {
+          alphaMaxDeviationPips = 50;
+        } else {
+          alphaMaxDeviationPips = 20;
+        }
+        if (action !== 'NO_TRADE') {
+          console.warn(`[Alpha Coordinator] max_entry_deviation_pips missing from Alpha response — applying ${alphaMaxDeviationPips} pip fallback for ${symbol}`);
+        }
+      }
+
       return {
         action,
         decision: action,
@@ -4918,7 +4947,9 @@ Return PURE JSON only — all required fields from the schema in my system promp
         wait_condition: resolvedWaitCondition,
         narrativeValidation: narrativeValidation || undefined,
         entry_advisory: entryAdvisory || undefined,
-        answer_sheet: answerSheet
+        answer_sheet: answerSheet,
+        // CCIP-2026-0321A: Alpha's stated tolerance — passed to executor for enforcement
+        max_entry_deviation_pips: action !== 'NO_TRADE' ? alphaMaxDeviationPips : undefined
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
