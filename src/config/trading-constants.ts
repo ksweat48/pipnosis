@@ -34,10 +34,20 @@ export const TRADING_CONSTANTS = {
     // targets Alpha correctly identifies (e.g., 20.8 pips above entry for NAS100).
     // Combined with TP_FLOOR_RATIO calibration this ensures the corridor is non-zero
     // AND the ceiling is wide enough for Alpha's structural analysis.
+    //
+    // CCIP-2026-03-21: All three style ceilings calibrated against actual pip ranges
+    // defined in style-personalities.ts referenceRanges:
+    //   SCALP natural band: 10-25 pips TP / 10-18 pips SL → 1.4x-2.0x natural range.
+    //     Ceiling 2.0 sits at the upper edge of natural output — correct.
+    //   MICRO_INTRADAY natural band: 50-120 pips TP / 20-35 pips SL → 2.0x-3.4x natural range.
+    //     Previous ceiling 2.0 clipped half the style's natural range. Raised to 3.0.
+    //   INTRADAY natural band: 100-200 pips TP / 35-60 pips SL → 2.0x-4.0x natural range.
+    //     Previous ceiling 3.0 clipped the upper structural targets. Raised to 4.0.
+    // These ceilings are emergency walls against style drift, not execution constraints.
     // SSOT: omega9-constraint-provider.ts uses getMaxRRForStyle() from this file.
     MAXIMUM_SCALP: 2.0,
-    MAXIMUM_MICRO_INTRADAY: 2.0,
-    MAXIMUM_INTRADAY: 3.0,
+    MAXIMUM_MICRO_INTRADAY: 3.0,
+    MAXIMUM_INTRADAY: 4.0,
     TARGET: 1.5,
     GOOD: 2.0,
     EXCELLENT: 2.5,
