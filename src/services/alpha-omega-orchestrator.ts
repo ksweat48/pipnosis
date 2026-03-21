@@ -443,7 +443,14 @@ class AlphaOmegaOrchestrator {
       'EURJPY': 1.5, 'GBPJPY': 2.5, 'AUDJPY': 1.8, 'EURGBP': 1.2, 'USDMXN': 3.0,
       'SPX500': 0.5, 'US30': 2.0, 'NAS100': 1.0, 'GER40': 1.0, 'UK100': 1.0,
     };
-    const estimatedSpreadPips = TYPICAL_SPREADS_PIPS[snapshot.symbol] ?? 2.0;
+    // CCIP-ALPHA-GOV-001: Use Alpha's spread_estimate_pips from prior thesis when available.
+    // Alpha can provide a per-trade spread estimate in his output schema. When absent,
+    // fall back to the static typical spread table with a WARN for auditability.
+    const priorSpreadEstimate: number | undefined = undefined; // TODO: wire from alpha thesis cache when available
+    if (priorSpreadEstimate == null) {
+      console.warn(`[CCIP-ALPHA-GOV-001] spread_estimate_pips not set by Alpha — falling back to static spread table for ${snapshot.symbol}`);
+    }
+    const estimatedSpreadPips = priorSpreadEstimate ?? (TYPICAL_SPREADS_PIPS[snapshot.symbol] ?? 2.0);
 
     // Build market briefing from raw snapshot data (replaces vote-based context)
     const briefingSessionContext = calculateSessionContext();
@@ -1035,14 +1042,28 @@ class AlphaOmegaOrchestrator {
   }
 
   /**
-   * Calculate dynamic stop loss and take profit multipliers based on market conditions
+   * Calculate dynamic stop loss and take profit multipliers based on market conditions.
+   *
+   * CCIP-ALPHA-GOV-001: Accepts optional tp_multiplier_override from Alpha's prior output.
+   * When provided, Alpha's override replaces the static base multiplier (3.0x).
+   * The system logs a WARN when falling back to the static default.
+   * Callers should pass Alpha's tp_multiplier_override when available.
    */
-  private calculateDynamicMultipliers(marketState: FullMarketState): {
+  private calculateDynamicMultipliers(
+    marketState: FullMarketState,
+    alphaMultiplierOverride?: number
+  ): {
     stopLossMultiplier: number;
     takeProfitMultiplier: number;
   } {
+    const STATIC_TP_BASE = 3.0;
+    if (alphaMultiplierOverride == null) {
+      console.warn(`[CCIP-ALPHA-GOV-001] tp_multiplier_override not set by Alpha — falling back to static TP base ${STATIC_TP_BASE}x ATR`);
+    }
+
     let slMultiplier = 1.8; // Base: 1.8x ATR (increased from 1.5x for more breathing room)
-    let tpMultiplier = 3.0; // Base: 3.0x ATR (increased from 2.5x for better R:R)
+    // CCIP-ALPHA-GOV-001: Use Alpha's override when provided; otherwise static base.
+    let tpMultiplier = alphaMultiplierOverride != null ? alphaMultiplierOverride : STATIC_TP_BASE;
 
     // Adjust for volatility
     if (marketState.volatility === 'low') {

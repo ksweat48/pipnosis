@@ -142,6 +142,7 @@ export const ALPHA_TRADER_STATEMENT_FIELDS = [
   'trader_statement',
   'sl_structural_reference',
   'tp_structural_reference',
+  'tp_structural_justification',
   'estimated_duration_minutes',
   'edge_summary',
 ] as const;
@@ -307,13 +308,68 @@ export type StyleIntent = 'SCALP' | 'MICRO_INTRADAY' | 'INTRADAY';
 
 export type ExecutionPreference = 'IMMEDIATE' | 'WAIT_PULLBACK' | 'WAIT_CONFIRMATION';
 
+/**
+ * TP1 Action Instruction — SSOT
+ *
+ * CCIP-ALPHA-GOV-001: Alpha owns per-trade post-TP1 SL management.
+ * Replaces the former boolean sl_to_breakeven_after_tp1.
+ *
+ * move_sl_to_breakeven: Move SL to entry after TP1 hits.
+ * move_sl_to_level:     Move SL to a specific named structural level (tp1_sl_level).
+ * hold_sl:              Do not move SL when TP1 hits; run the remainder to SL or TP2.
+ *
+ * FALLBACK: If tp1_action is absent the system takes NO SL action at TP1
+ * and logs a WARN: [CCIP-ALPHA-GOV-001] tp1_action not set by Alpha.
+ *
+ * tp1_condition: Optional named market condition Alpha attaches to this instruction
+ * (e.g. "only if candle closes above 1.0850").
+ */
+export type TP1Action = 'move_sl_to_breakeven' | 'move_sl_to_level' | 'hold_sl';
+
 export interface AlphaTradeManagement {
   tp1_close_percent: number;
-  sl_to_breakeven_after_tp1: boolean;
+  /**
+   * @deprecated Use tp1_action instead.
+   * Retained for backward compatibility with historical trade records.
+   * Code must NOT use this field for execution decisions.
+   */
+  sl_to_breakeven_after_tp1?: boolean;
+  tp1_action?: TP1Action;
+  tp1_sl_level?: number;
+  tp1_condition?: string;
   trail_method: 'structure' | 'fixed_pips' | 'none';
   trail_notes?: string;
 }
 
+/**
+ * AlphaOutputFormat — SSOT
+ *
+ * CCIP-ALPHA-GOV-001: Alpha-owned per-trade governance fields.
+ *
+ * NEW FIELDS (all optional — absence triggers WARN + static fallback):
+ *
+ * rr_ceiling_override: Alpha's per-trade R:R ceiling.
+ *   When present, replaces getMaxRRForStyle() in omega9-constraint-provider.
+ *   Clamped by TRADING_CONSTANTS.RISK_REWARD_RATIOS.MAX_RR_RATIO (hard physics cap).
+ *   FALLBACK: [CCIP-ALPHA-GOV-001] rr_ceiling_override absent — using static style ceiling.
+ *
+ * tp_multiplier_override: Alpha's per-trade ATR TP multiplier.
+ *   When present, replaces the static base (3.0x) in calculateDynamicMultipliers().
+ *   Still subject to style envelope and minimum R:R guards.
+ *   FALLBACK: [CCIP-ALPHA-GOV-001] tp_multiplier_override absent — using static base 3.0x ATR.
+ *
+ * spread_estimate_pips: Alpha's per-trade spread estimate for current pair and session.
+ *   When present, used wherever AVERAGE_SPREAD_PIPS static fallback would be used.
+ *   FALLBACK: [CCIP-ALPHA-GOV-001] spread_estimate_pips absent — using static 1.0 pip default.
+ *
+ * tp_structural_justification: Full sentence explaining TP placement vs structure.
+ *   Supplements the existing tp_structural_reference short label.
+ *   Stored on the trade record for audit. Not used in execution logic.
+ *   FALLBACK: [CCIP-ALPHA-GOV-001] tp_structural_justification absent — short label only.
+ *
+ * max_entry_deviation_pips: Max pip drift from stated entry before trade is cancelled.
+ *   Already part of the prompt schema — added here for TypeScript completeness.
+ */
 export interface AlphaOutputFormat {
   action: AlphaAction;
   trade_confidence: number;
@@ -335,11 +391,13 @@ export interface AlphaOutputFormat {
   entry?: number;
   stopLoss?: number;
   takeProfit?: number;
+  max_entry_deviation_pips?: number;
   wait_condition?: {
     target_entry_zone_min: number;
     target_entry_zone_max: number;
     invalidation_price: number;
     wait_reasoning: string;
+    expected_wait_minutes?: number;
   };
   thesis?: ThesisType;
   style_intent?: StyleIntent;
@@ -351,6 +409,10 @@ export interface AlphaOutputFormat {
   trade_management?: AlphaTradeManagement | null;
   estimated_duration_minutes?: string | number;
   thesis_coherence_statement?: string;
+  rr_ceiling_override?: number;
+  tp_multiplier_override?: number;
+  spread_estimate_pips?: number;
+  tp_structural_justification?: string;
 }
 
 export const EQS_WEIGHTED_FACTORS = {
@@ -552,6 +614,7 @@ BUY or SELL:
   "trader_statement": "My read in plain trading language: what the market is doing, why this entry has edge, what breaks the thesis, where I exit and why. Minimum 80 words — this is my professional reasoning on record.",
   "sl_structural_reference": "SL at [price] — behind [named level/structure]. Invalidated if [specific condition]. ~[X] pips.",
   "tp_structural_reference": "TP at [price] — [named zone/level and why it is the near edge]. ~[X] pips. R:R [X]:1.",
+  "tp_structural_justification": "Full sentence: why the TP is placed here relative to named structure. What I am targeting and why the near edge of this zone is the correct TP, not the far edge.",
   "estimated_duration_minutes": "ATR-based estimate with arithmetic shown.",
   "edge_summary": "One to two sentences: the specific structural reason this entry has a probability advantage right now.",
   "confidence_anchor": "What I am most certain about, what stage the move is in, and my primary uncertainty.",
@@ -571,7 +634,7 @@ BUY or SELL:
   "scalp_structural_confirmation": "Named M5 anchor — swing high/low, FVG, BOS, or EMA at specific price.",` : ''}${isMicro ? `
   "m15_structural_confirmation": "Named M15 anchor — swing, FVG, or BOS at specific price.",` : ''}${isIntraday ? `
   "h1_structural_confirmation": "Named H1 level and structure type.",` : ''}
-  ${isScalp ? '' : '"tp1": <price>,  // MANDATORY — conservative partial target. A response without this field is malformed.\n  '}"trade_management": ${isScalp ? 'null,' : '{ "tp1_close_percent": <number>, "sl_to_breakeven_after_tp1": <bool>, "trail_method": "structure|fixed_pips|none", "trail_notes": "Named structural level I trail the runner behind." },'}
+  ${isScalp ? '' : '"tp1": <price>,  // MANDATORY — conservative partial target. A response without this field is malformed.\n  '}"trade_management": ${isScalp ? 'null,' : '{ "tp1_close_percent": <number>, "tp1_action": "move_sl_to_breakeven|move_sl_to_level|hold_sl", "tp1_sl_level": <price — required only when tp1_action is move_sl_to_level>, "tp1_condition": "<optional named market condition for this instruction>", "trail_method": "structure|fixed_pips|none", "trail_notes": "Named structural level I trail the runner behind." },'}
   "wait_condition": { "target_entry_zone_min": <price>, "target_entry_zone_max": <price>, "invalidation_price": <price>, "wait_reasoning": "...", "expected_wait_minutes": <your estimate, e.g. 15> },
 WAIT_CONDITION RULE — MANDATORY when entry_mode is wait_pullback or push_confirmation:
   If entry_spec.entry_mode is "wait_pullback" or "push_confirmation", the wait_condition block is NOT optional.
@@ -582,6 +645,9 @@ ENTRY_MODE AND NO_TRADE — INCOMPATIBLE FIELDS:
   A NO_TRADE response must NOT include entry_mode, wait_condition, entry_spec, or any BUY/SELL execution fields.
   The NO_TRADE schema below is the only valid format when no trade is taken.
   "acceptable_profit_range": { "minUSD": <number>, "idealUSD": <number> },
+  "rr_ceiling_override": <optional number — my per-trade R:R ceiling. When I have a structural reason to cap TP earlier or extend it beyond the style default, I state it here. Absent = system uses the static style ceiling.>,
+  "tp_multiplier_override": <optional number — my per-trade ATR TP multiplier. When I want to expand or compress the TP ATR envelope beyond the 3.0x base, I state it here. Absent = system uses 3.0x ATR base.>,
+  "spread_estimate_pips": <optional number — my estimate of the current pair spread in pips for this session. Absent = system uses static 1.0 pip default. If I know the pair is wide right now (e.g. news proximity, low liquidity window), I state it here.>,
   "answer_sheet": {
     "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND",
     "Q2_structure_level": "Named level this trade anchors to — specific price",

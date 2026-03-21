@@ -4,11 +4,15 @@
  * SSOT: This file is the single authoritative source for all kill zone
  * definitions and card suppression rules.
  *
- * CCIP ID: 20260220_rti_professional_intelligence_fields
+ * CCIP-ALPHA-GOV-001: Kill zone confidence bonuses REMOVED.
+ * Alpha receives session name, UTC window, and quality label as live context
+ * and self-prices session quality into his stated trade_confidence.
+ * No code arithmetic may touch Alpha's confidence number after he outputs it.
  *
- * Kill zones are the institutional trading windows that professional
- * intraday traders use to time entries. Cards surface ONLY when the
- * market structure aligns with an active kill zone or the approach to one.
+ * CCIP-ALPHA-GOV-001: dead_zone and asia_range_building card suppression REMOVED.
+ * Alpha sees session context and decides participation quality himself.
+ * isStyleAllowedInCurrentWindow() is retained as advisory information only —
+ * it no longer hard-blocks card or trade generation.
  *
  * All times are UTC.
  */
@@ -54,7 +58,8 @@ export const KILL_ZONES: KillZone[] = [
     description: 'Highest volume window of the day. All styles welcome.',
     cardSuppression: 'none',
     allowedStyles: ['scalper', 'micro', 'intraday'],
-    confidenceBonus: 10,
+    // CCIP-ALPHA-GOV-001: confidenceBonus removed. Alpha self-prices session quality.
+    confidenceBonus: 0,
     color: 'text-green-400',
     badgeColor: 'bg-green-500/20 border-green-500/40 text-green-300',
   },
@@ -67,7 +72,8 @@ export const KILL_ZONES: KillZone[] = [
     description: 'NY open momentum window. Continuation and reversal plays.',
     cardSuppression: 'none',
     allowedStyles: ['scalper', 'micro', 'intraday'],
-    confidenceBonus: 8,
+    // CCIP-ALPHA-GOV-001: confidenceBonus removed. Alpha self-prices session quality.
+    confidenceBonus: 0,
     color: 'text-green-400',
     badgeColor: 'bg-green-500/20 border-green-500/40 text-green-300',
   },
@@ -80,7 +86,8 @@ export const KILL_ZONES: KillZone[] = [
     description: 'London open — highest probability window for Asia range sweeps and BOS.',
     cardSuppression: 'none',
     allowedStyles: ['scalper', 'micro', 'intraday'],
-    confidenceBonus: 12,
+    // CCIP-ALPHA-GOV-001: confidenceBonus removed. Alpha self-prices session quality.
+    confidenceBonus: 0,
     color: 'text-green-400',
     badgeColor: 'bg-green-500/20 border-green-500/40 text-green-300',
   },
@@ -93,7 +100,8 @@ export const KILL_ZONES: KillZone[] = [
     description: 'Institutional flow visible. Structure trades active.',
     cardSuppression: 'none',
     allowedStyles: ['scalper', 'micro', 'intraday'],
-    confidenceBonus: 5,
+    // CCIP-ALPHA-GOV-001: confidenceBonus removed. Alpha self-prices session quality.
+    confidenceBonus: 0,
     color: 'text-yellow-400',
     badgeColor: 'bg-yellow-500/20 border-yellow-500/40 text-yellow-300',
   },
@@ -129,9 +137,10 @@ export const KILL_ZONES: KillZone[] = [
     startUtc: 0,
     endUtc: 8,
     quality: 'informational',
-    description: 'Asia session. Range forming — London will target these levels.',
-    cardSuppression: 'trade_cards',
-    allowedStyles: [],
+    description: 'Asia session. Range forming — London will target these levels. Alpha sees session context and decides participation quality.',
+    // CCIP-ALPHA-GOV-001: cardSuppression removed. Alpha decides per-trade.
+    cardSuppression: 'none',
+    allowedStyles: ['scalper', 'micro', 'intraday'],
     confidenceBonus: 0,
     color: 'text-blue-400',
     badgeColor: 'bg-blue-500/20 border-blue-500/40 text-blue-300',
@@ -142,9 +151,10 @@ export const KILL_ZONES: KillZone[] = [
     startUtc: 20,
     endUtc: 24,
     quality: 'slow',
-    description: 'Low volume. High spread risk. No trade cards generated.',
-    cardSuppression: 'all',
-    allowedStyles: [],
+    description: 'Low volume. High spread risk. Alpha sees session context and decides participation quality.',
+    // CCIP-ALPHA-GOV-001: cardSuppression removed. Alpha decides per-trade.
+    cardSuppression: 'none',
+    allowedStyles: ['scalper', 'micro', 'intraday'],
     confidenceBonus: 0,
     color: 'text-red-400',
     badgeColor: 'bg-red-500/20 border-red-500/40 text-red-300',
@@ -249,26 +259,39 @@ export function getKillZoneContext(): KillZoneContext {
 }
 
 /**
- * Apply session-weighted confidence adjustment.
- * Pure math — no side effects.
+ * @deprecated CCIP-ALPHA-GOV-001: Do not call this function.
+ *
+ * Kill zone confidence bonuses have been removed. Alpha receives session name,
+ * UTC window, and quality label as live context and self-prices session quality
+ * into his stated trade_confidence. No code arithmetic may modify Alpha's
+ * confidence output after he produces it.
+ *
+ * This function is retained as a no-op stub to prevent import breakage in
+ * any call sites that have not yet been updated. It returns baseConfidence
+ * unchanged. All call sites must be removed.
  */
 export function applyKillZoneConfidenceBonus(
   baseConfidence: number,
-  context: KillZoneContext
+  _context: KillZoneContext
 ): number {
-  const adjusted = baseConfidence + context.confidenceBonus;
-  return Math.min(100, Math.max(0, adjusted));
+  // CCIP-ALPHA-GOV-001: NO-OP. Returns Alpha's confidence unchanged.
+  return baseConfidence;
 }
 
 /**
- * Check if a given trade style is allowed to generate trade cards right now.
+ * Advisory only — CCIP-ALPHA-GOV-001.
+ *
+ * This function previously hard-blocked trade card generation for dead_zone
+ * and asia_range_building windows. That suppression has been removed.
+ *
+ * The function is retained for informational use only (e.g., UI hints about
+ * whether we are in an institutional window). It must NOT be used to block
+ * trade generation or scanning. Alpha decides participation per-trade.
  */
 export function isStyleAllowedInCurrentWindow(
-  style: 'scalper' | 'micro' | 'intraday'
+  _style: 'scalper' | 'micro' | 'intraday'
 ): boolean {
-  const context = getKillZoneContext();
-  if (context.cardSuppression === 'all') return false;
-  if (context.cardSuppression === 'trade_cards') return false;
-  if (!context.killZoneActive) return style === 'scalper'; // scalp survives outside windows
-  return context.allowedStyles.includes(style);
+  // CCIP-ALPHA-GOV-001: Always returns true. Card suppression removed.
+  // Alpha receives session context and decides participation quality himself.
+  return true;
 }

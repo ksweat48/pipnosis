@@ -99,6 +99,14 @@ export interface Omega9ConstraintInput {
   volatilityRegime: 'low' | 'medium' | 'high';
   proposedStopLoss?: number;
 
+  /**
+   * CCIP-ALPHA-GOV-001: Alpha's per-trade R:R ceiling override.
+   * When present, this replaces the static style ceiling from getMaxRRForStyle().
+   * The system logs a WARN when falling back to the static default.
+   * Clamped to MAXIMUM_INTRADAY (3.0) as an absolute physics cap.
+   */
+  rr_ceiling_override?: number;
+
   resolvedPlan?: {
     slMinPercent?: number;
     tpMaxAtrMultiple?: number;
@@ -181,6 +189,8 @@ export interface DualArenaInput {
   currentSession: 'london' | 'ny' | 'asian' | 'sydney' | 'overlap' | 'closed';
   sessionTimeRemainingMinutes: number;
   volatilityRegime: 'low' | 'medium' | 'high';
+  /** CCIP-ALPHA-GOV-001: Alpha's per-trade R:R ceiling override. */
+  rr_ceiling_override?: number;
   resolvedPlan?: {
     slMinPercent?: number;
     tpMaxAtrMultiple?: number;

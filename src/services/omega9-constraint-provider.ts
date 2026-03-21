@@ -137,9 +137,17 @@ class Omega9ConstraintProvider {
     const minRiskReward = resolvedPlan?.minRR ?? TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM;
 
     // CCIP-2026-03-06: Maximum R:R per style. Alpha's TP cannot exceed this ceiling.
-    // Scalp=1.0, Micro=2.0, Intraday=3.0. Derives from style via SSOT.
+    // Scalp=2.0, Micro=2.0, Intraday=3.0. Derives from style via SSOT.
+    // CCIP-ALPHA-GOV-001: Use Alpha's per-trade rr_ceiling_override when provided.
+    // Fallback to static style ceiling with WARN when absent.
     const styleForMaxRR = STYLE_MAP[tradeStyle] || tradeStyle;
-    const maxRiskReward = getMaxRRForStyle(styleForMaxRR);
+    const staticRRCeiling = getMaxRRForStyle(styleForMaxRR);
+    if (input.rr_ceiling_override == null) {
+      console.warn(`[CCIP-ALPHA-GOV-001] rr_ceiling_override not set by Alpha — falling back to static style ceiling ${staticRRCeiling} for ${styleForMaxRR}`);
+    }
+    const maxRiskReward = input.rr_ceiling_override != null
+      ? Math.min(input.rr_ceiling_override, TRADING_CONSTANTS.RISK_REWARD_RATIOS.MAXIMUM_INTRADAY)
+      : staticRRCeiling;
 
     // Calculate MINIMUM TP for the resolved minimum R:R
     const idealMinTakeProfitPips = referenceSLPips * minRiskReward;
@@ -705,6 +713,8 @@ Core Principle: If the market can offer some profit, you should take it.
       sessionTimeRemainingMinutes: input.sessionTimeRemainingMinutes,
       volatilityRegime: input.volatilityRegime,
       resolvedPlan: input.resolvedPlan,
+      // CCIP-ALPHA-GOV-001: Pass Alpha's per-trade R:R ceiling override through.
+      rr_ceiling_override: input.rr_ceiling_override,
     };
 
     const buyConstraints = this.generateConstraints({ ...sharedInput, direction: 'BUY' });
