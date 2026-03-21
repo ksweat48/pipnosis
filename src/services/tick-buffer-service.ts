@@ -1,4 +1,3 @@
-import { supabase } from '@/lib/supabase';
 import { logger, LogCategory } from '@/lib/logger';
 
 interface TickData {
@@ -41,7 +40,7 @@ class TickBufferService {
     }
   }
 
-  async bufferTick(symbol: string, bid: number, ask: number, timestamp: string, broker_time?: string, writeToDatabase: boolean = true): Promise<void> {
+  async bufferTick(symbol: string, bid: number, ask: number, timestamp: string, broker_time?: string): Promise<void> {
     const tick: TickData = {
       symbol,
       bid,
@@ -62,12 +61,6 @@ class TickBufferService {
     }
 
     this.saveBuffer(bufferKey, buffer);
-
-    // SSOT FIX: Write to database immediately for ultra-critical symbols (active sessions)
-    // This ensures Alpha has fresh price data when making execution decisions
-    if (writeToDatabase && this.isOnline) {
-      await this.writeToDatabase(tick);
-    }
   }
 
   private getBuffer(key: string): TickData[] {
@@ -94,51 +87,10 @@ class TickBufferService {
     }
   }
 
-  /**
-   * SSOT FIX: Write price to database immediately
-   *
-   * WHY THIS IS NEEDED:
-   * - Browser polling runs at 250ms for ultra-critical symbols (active sessions)
-   * - Alpha needs fresh database prices for execution decisions (< 30s threshold)
-   * - Server-side cron runs less frequently, causing staleness
-   *
-   * SSOT COMPLIANCE:
-   * - Uses authenticated user context (respects RLS)
-   * - Only writes fresh data during market hours
-   * - Complements (not replaces) server-side price collection
-   * - Ensures price freshness when execution is imminent
-   */
-  private async writeToDatabase(tick: TickData): Promise<void> {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-
-      const mid = (tick.bid + tick.ask) / 2;
-
-      const { error } = await supabase
-        .from('realtime_prices')
-        .insert({
-          symbol: tick.symbol,
-          bid: tick.bid,
-          ask: tick.ask,
-          mid,
-          spread: tick.ask - tick.bid,
-          broker_time: tick.broker_time || tick.timestamp,
-          source: 'browser_poll'
-        });
-
-      if (error) {
-        logger.debug(LogCategory.TICK_BUFFER, `DB write failed for ${tick.symbol}: ${error.message}`);
-      }
-    } catch (error) {
-      logger.debug(LogCategory.TICK_BUFFER, `Error writing ${tick.symbol} to database:`, error);
-    }
-  }
-
   private async syncBuffer(bufferKey: string, symbol: string): Promise<void> {
     // Background cleanup: Remove old ticks from memory
-    // SSOT: Database writes happen immediately in bufferTick()
-    // This service maintains in-memory buffer for UI display
+    // This service maintains in-memory buffer for UI display only
+    // Database writes are handled exclusively by server-side Netlify functions (service_role)
 
     const buffer = this.getBuffer(bufferKey);
 
