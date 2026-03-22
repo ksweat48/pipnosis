@@ -195,6 +195,34 @@ const AppRoutes: React.FC = () => {
     }
   }, [user?.id]);
 
+  // CCIP-2026-0322A: Start Alpha Mid-Trade Escalation Engine
+  // This is the missing orchestrator that bridges trigger detection → Alpha re-analysis.
+  // Runs every 30s, evaluates open trades, calls Alpha when meaningful triggers fire,
+  // and persists verdicts to DB so the MidTradeMonitor panel can display them.
+  useEffect(() => {
+    if (!user?.id) return;
+
+    let engine: import('./services/mid-trade-escalation-engine').MidTradeEscalationEngine | null = null;
+
+    const startEscalationEngine = async () => {
+      try {
+        const mod = await import('./services/mid-trade-escalation-engine');
+        engine = mod.midTradeEscalationEngine as any;
+        (engine as any).start();
+      } catch {
+        // Non-blocking — monitor still shows deterministic guidance without Alpha calls
+      }
+    };
+
+    startEscalationEngine();
+
+    return () => {
+      if (engine) {
+        (engine as any).stop();
+      }
+    };
+  }, [user?.id]);
+
 
   useEffect(() => {
     if (!user) return;

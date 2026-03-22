@@ -55,6 +55,7 @@ import { normalizeStyle } from '../utils/entry-overextension-calculator';
 import type { AlphaDecision } from '../brains/coordinator-alpha';
 import type { TradeContext } from '../types/trade-context';
 import { buildMidTradePlan } from './mid-trade-plan-engine';
+import { buildAlphaWatchContract } from '../brains/alpha-midtrade-analyst';
 import { recentTradeContext } from './recent-trade-context';
 import { resolveCanonicalStyle, type CanonicalTradeStyle } from '../config/timeframe-hierarchy';
 import { llmReasoningLogger } from './llm-reasoning-logger';
@@ -2152,6 +2153,25 @@ class AlphaTradeExecutor {
     // stored mid_trade_plan and generic fallback entry_narrative text.
     // SSOT: AlphaDecision.patternIntelligence shape defined in coordinator-alpha.ts (interface).
     const patternIntelligence = decision.patternIntelligence;
+
+    // CCIP-2026-0322A: Build Alpha Watch Contract — trade-specific monitoring conditions
+    // prescribed by Alpha at entry. Stored in alpha_watch_contract (immutable post-entry).
+    // The escalation engine reads this to know which triggers Alpha cares about for THIS trade.
+    const answerSheetForContract = decision.answer_sheet as any;
+    const alphaWatchContract = buildAlphaWatchContract({
+      stopLoss: finalSL,
+      takeProfit: finalTP,
+      direction: tradeDirection,
+      expectedDurationMinutes: decision.expectedFillTimeHours
+        ? Math.round(decision.expectedFillTimeHours * 60) + 30
+        : null,
+      failureMode: answerSheetForContract?.Q5_failure_mode ?? null,
+      failureProbability: answerSheetForContract?.Q5_failure_probability ?? null,
+      invalidationPrice: patternIntelligence?.invalidationPoint?.price ?? null,
+      patternInvalidationReasoning: patternIntelligence?.invalidationPoint?.reasoning ?? null,
+      confidence: decision.confidence,
+    });
+
     const midTradePlan = buildMidTradePlan({
       reasoning: typeof decision.reasoning === 'string'
         ? decision.reasoning
@@ -2225,7 +2245,10 @@ class AlphaTradeExecutor {
       // breaking style-based filtering in admin dashboards and learning queries.
       // SSOT: canonicalStyle is the governance-resolved style (coordinator authority).
       alpha_style: canonicalStyle ?? null,
-      mid_trade_plan: midTradePlan
+      mid_trade_plan: midTradePlan,
+      alpha_watch_contract: alphaWatchContract,
+      thesis_status: 'new',
+      alpha_recheck_count: 0,
     };
   }
 

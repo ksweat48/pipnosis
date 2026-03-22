@@ -12,7 +12,10 @@
  * - Alpha re-analysis only fires when shouldEscalateToAlpha() returns true
  * - Rate limited: no more than one Alpha call per trade per 15 minutes
  *   (except near_sl / severe_drawdown which bypass the rate limit)
- * - Results written via record_alpha_midtrade_recheck RPC (SSOT)
+ * - Results written via persist_alpha_recheck_verdict RPC (SSOT, SECURITY DEFINER)
+ * - Fired triggers persisted via record_trigger_fired RPC (survives restarts)
+ *
+ * CCIP-2026-0322A: Aligned with mid-trade-escalation-engine.ts RPC signatures
  */
 
 import type { Handler } from '@netlify/functions';
@@ -455,27 +458,44 @@ export const handler: Handler = async () => {
       console.log(`[AutonomousWellness:${executionId}] ${position.symbol} verdict=${alphaResult.verdict} thesis=${alphaResult.thesisStatus}`);
 
       try {
-        await supabase.rpc('record_alpha_midtrade_recheck', {
+        await supabase.rpc('record_trigger_fired', {
+          p_trade_id: position.id,
+          p_user_id: position.user_id,
+          p_trigger_type: trigger.triggerType,
+        });
+      } catch {
+        // non-fatal — in-memory still prevents re-fire within this execution
+      }
+
+      try {
+        const urgency = trigger.urgencyScore >= 90 ? 'critical'
+          : trigger.urgencyScore >= 70 ? 'high'
+          : trigger.urgencyScore >= 50 ? 'medium'
+          : 'low';
+
+        await supabase.rpc('persist_alpha_recheck_verdict', {
           p_trade_id: position.id,
           p_user_id: position.user_id,
           p_goal_session_id: position.goal_session_id,
           p_trigger_type: trigger.triggerType,
           p_trigger_reason: trigger.triggerType,
-          p_current_price: trigger.currentPrice,
-          p_r_multiple: trigger.rMultiple,
-          p_drawdown_percent: trigger.drawdownPercent,
-          p_minutes_in_trade: Math.floor(trigger.minutesInTrade),
-          p_thesis_intact_before: trigger.thesisIntactBefore,
           p_verdict: alphaResult.verdict,
           p_thesis_status: alphaResult.thesisStatus,
           p_confidence: alphaResult.confidence,
           p_alpha_reasoning: alphaResult.alphaReasoning,
           p_user_message: alphaResult.userMessage,
+          p_urgency: urgency,
+          p_current_price: trigger.currentPrice,
+          p_r_multiple: trigger.rMultiple,
+          p_drawdown_percent: trigger.drawdownPercent,
+          p_minutes_in_trade: Math.floor(trigger.minutesInTrade),
           p_model_used: alphaResult.model,
           p_tokens_used: alphaResult.tokensUsed,
+          p_should_notify: alphaResult.verdict !== 'HOLD',
+          p_thesis_status_before: position.thesis_status ?? 'new',
         });
       } catch (rpcErr) {
-        console.error(`[AutonomousWellness:${executionId}] RPC record failed:`, rpcErr);
+        console.error(`[AutonomousWellness:${executionId}] RPC persist failed:`, rpcErr);
       }
 
       wellnessResult.alphaVerdict = alphaResult.verdict;

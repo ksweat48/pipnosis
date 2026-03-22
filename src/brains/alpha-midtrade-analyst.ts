@@ -366,6 +366,87 @@ export function shouldEscalateToAlpha(
 }
 
 /**
+ * Alpha Watch Contract
+ *
+ * Generated at trade entry based on Alpha's original reasoning.
+ * Prescribes exactly what to watch for during the trade —
+ * trade-specific conditions derived from Alpha's thesis, not generic percentages.
+ *
+ * CCIP-2026-0322A: SSOT for mid-trade watch conditions.
+ * Written once by coordinator-alpha at entry. Never mutated post-entry.
+ */
+export interface AlphaWatchContract {
+  invalidation_price: number | null;
+  expected_duration_minutes: number | null;
+  failure_mode: string | null;
+  failure_probability: number | null;
+  key_levels: Array<{ price: number; type: 'support' | 'resistance' | 'invalidation'; label: string }>;
+  escalate_on: string[];
+  created_at: string;
+}
+
+/**
+ * Build an AlphaWatchContract from Alpha's decision data.
+ * Called once at trade entry in alpha-trade-executor.
+ * Replaces generic percentage thresholds with Alpha's own prescribed conditions.
+ */
+export function buildAlphaWatchContract(params: {
+  stopLoss: number;
+  takeProfit: number;
+  direction: 'buy' | 'sell';
+  expectedDurationMinutes: number | null;
+  failureMode: string | null;
+  failureProbability: number | null;
+  invalidationPrice: number | null;
+  patternInvalidationReasoning: string | null;
+  confidence: number;
+}): AlphaWatchContract {
+  const {
+    stopLoss,
+    takeProfit,
+    direction,
+    expectedDurationMinutes,
+    failureMode,
+    failureProbability,
+    invalidationPrice,
+    confidence,
+  } = params;
+
+  const keyLevels: AlphaWatchContract['key_levels'] = [];
+  const resolvedInvalidation = invalidationPrice ?? stopLoss;
+
+  keyLevels.push({
+    price: resolvedInvalidation,
+    type: 'invalidation',
+    label: invalidationPrice ? 'Pattern invalidation' : 'Stop loss',
+  });
+
+  const escalateOn: string[] = ['near_sl', 'severe_drawdown', 'moderate_drawdown'];
+
+  if (failureProbability !== null && failureProbability >= 40) {
+    escalateOn.push('momentum_dying');
+  }
+
+  if (expectedDurationMinutes !== null) {
+    escalateOn.push('time_exceeded_2x');
+  }
+
+  if (confidence >= 70) {
+    escalateOn.push('near_tp', 'trail_sl_2r');
+  }
+
+  return {
+    invalidation_price: resolvedInvalidation,
+    expected_duration_minutes: expectedDurationMinutes,
+    failure_mode: failureMode,
+    failure_probability: failureProbability,
+    key_levels: keyLevels,
+    escalate_on: [...new Set(escalateOn)],
+    created_at: new Date().toISOString(),
+  };
+}
+
+/**
  * Rate limit check: prevent Alpha from being called more than once per 15 minutes
  * per trade, UNLESS the trigger is near_sl or severe_drawdown (bypass rate limit).
  */
