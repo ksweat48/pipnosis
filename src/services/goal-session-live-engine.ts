@@ -1768,41 +1768,14 @@ class GoalSessionLiveEngine {
         activeSession!
       );
 
-      // CCIP-2026-0320A: Pre-execution price deviation guard (IMMEDIATE mode only).
-      // Alpha's planned entry is only valid while price is within structural tolerance.
-      // When >8 reasoning pips have elapsed since Alpha's scan (for MICRO_INTRADAY),
-      // the structural levels Alpha used for SL/TP no longer apply at the new price.
-      // Abort execution and allow the next scan cycle to produce a fresh signal.
-      if (executionMode === 'IMMEDIATE' && decision.action !== 'NO_TRADE' && Number.isFinite(decision.entry)) {
-        const pipInfoForCheck = getCurrencyPipInfo(selectedSymbol);
-        const scanPrice = decision.entry;
-        const currentLivePrice = snapshot.price;
-        const priceDeviation = Math.abs(currentLivePrice - scanPrice) / pipInfoForCheck.pipValue;
-
-        const canonicalStyleForCheck = (decision as any).tradeStyle ?? 'INTRADAY';
-        const styleDeviationLimits: Record<string, number> = {
-          SCALP: 5,
-          MICRO_INTRADAY: 8,
-          INTRADAY: 15,
-        };
-        const maxPipsForStyle = styleDeviationLimits[canonicalStyleForCheck.toUpperCase()] ?? 15;
-
-        if (priceDeviation > maxPipsForStyle) {
-          logger.warn(
-            LogCategory.AI_TRADING,
-            `[Trade Execution] ENTRY_DEVIATION_ABORT: price moved ${Math.round(priceDeviation * 10) / 10} pips since Alpha scan (max ${maxPipsForStyle} for ${canonicalStyleForCheck}). Rescan required.`,
-            {
-              symbol: selectedSymbol,
-              scanPrice,
-              currentLivePrice,
-              deviationPips: Math.round(priceDeviation * 10) / 10,
-              maxAllowedPips: maxPipsForStyle,
-              style: canonicalStyleForCheck,
-            }
-          );
-          return;
-        }
-      }
+      // CCIP-2026-0321A supersedes CCIP-2026-0320A.
+      // Entry deviation enforcement is Alpha-owned and handled exclusively inside
+      // AlphaTradeExecutor.executeImmediate(). Alpha states max_entry_deviation_pips
+      // per-trade based on pair speed and structural precision. The executor respects
+      // that value (with per-asset-class fallbacks) and shifts SL/TP to preserve
+      // geometry when within tolerance, or cancels the setup when exceeded.
+      // DO NOT add a pre-executor deviation check here — it would fire before Alpha's
+      // tolerance is consulted and would use wrong thresholds for crypto/metals/indices.
 
       logger.info(
         LogCategory.AI_TRADING,

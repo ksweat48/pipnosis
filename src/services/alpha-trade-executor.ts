@@ -975,14 +975,27 @@ class AlphaTradeExecutor {
       const styleUpper = (params.canonicalStyle || 'INTRADAY').toUpperCase();
 
       // CCIP-2026-0321A: Use Alpha's stated tolerance. Log whether it came from Alpha or fallback.
+      // CCIP-2026-0322B: Last-resort fallback is asset-class-aware — mirrors coordinator-alpha.ts
+      // fallback logic so SCALP on crypto is never blocked with a forex-scale tolerance.
+      // Fallback priority: (1) Alpha's per-trade value, (2) asset-class floor (same as coordinator).
       const maxAllowedPips = typeof decision.max_entry_deviation_pips === 'number'
         && Number.isFinite(decision.max_entry_deviation_pips)
         && decision.max_entry_deviation_pips > 0
         ? decision.max_entry_deviation_pips
         : (() => {
-            logger.warn(LogCategory.TRADE_EXECUTION, '[AlphaTradeExecutor] max_entry_deviation_pips missing from decision — using style fallback', { symbol: decision.symbol, style: styleUpper });
-            const fallbacks: Record<string, number> = { SCALP: 5, MICRO_INTRADAY: 8, INTRADAY: 15 };
-            return fallbacks[styleUpper] ?? 15;
+            const sym = (decision.symbol || '').toUpperCase();
+            let assetClassFallback: number;
+            if (['BTC', 'ETH', 'LTC', 'XRP', 'BCH'].some(c => sym.includes(c))) {
+              assetClassFallback = 200;
+            } else if (['XAU', 'XAG', 'GOLD'].some(m => sym.includes(m))) {
+              assetClassFallback = 80;
+            } else if (['US30', 'NAS100', 'SPX500', 'UK100', 'DE30', 'JP225'].some(i => sym.includes(i))) {
+              assetClassFallback = 50;
+            } else {
+              assetClassFallback = 20;
+            }
+            logger.warn(LogCategory.TRADE_EXECUTION, '[AlphaTradeExecutor] max_entry_deviation_pips missing from decision — using asset-class fallback', { symbol: decision.symbol, style: styleUpper, assetClassFallback });
+            return assetClassFallback;
           })();
 
       if (deviationReasoningPips > maxAllowedPips) {
