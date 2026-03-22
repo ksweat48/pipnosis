@@ -199,6 +199,26 @@ class OmegaAlphaLogger {
       insertData.wall_violations = decision.wall_violations;
     }
 
+    // CCIP-2026-0322A: Persist TP1/TP2, entry_mode, wait_condition, and trade_style.
+    // These fields were produced by Alpha on every decision but never written to the
+    // database, creating an audit gap that prevented TP1=TP2 detection and entry mode
+    // governance review. SSOT: coordinator-alpha.ts is the sole authority for these values.
+    if (decision.tp1Price != null) {
+      insertData.tp1_price = decision.tp1Price;
+    }
+    if (decision.tp2Price != null) {
+      insertData.tp2_price = decision.tp2Price;
+    }
+    if (decision.entry_mode != null) {
+      insertData.alpha_entry_mode = decision.entry_mode;
+    }
+    if (decision.wait_condition != null) {
+      insertData.alpha_wait_condition = decision.wait_condition;
+    }
+    if (decision.resolvedStyle != null) {
+      insertData.trade_style = decision.resolvedStyle;
+    }
+
     if (decision.patternIntelligence) {
       insertData.htf_intent = decision.patternIntelligence.htfIntent;
       insertData.mtf_intent = decision.patternIntelligence.mtfIntent;

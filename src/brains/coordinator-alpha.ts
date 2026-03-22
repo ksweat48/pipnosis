@@ -633,7 +633,11 @@ class AlphaCoordinatorBrain {
     // CCIP-TIMEOUT-FIX-2026-03-12: Symbol trade history query moved INTO this Promise.all
     // to eliminate a sequential Supabase round-trip that previously blocked pre-LLM setup.
     // All 6 fetches are independent — they share no data dependencies with each other.
-    const [, dailyNarrative, riskResultLong, riskResultShort, rrResult, symbolTradesRaw] = await Promise.all([
+    // CCIP-2026-0322A: Fetch entry monitor status in parallel with other data sources.
+    // Alpha must know the live monitor state BEFORE reasoning about entry_mode so he can
+    // make a fully informed choice between execute_now, wait_pullback, and push_confirmation
+    // without conservative bias toward execute_now. SSOT: coordinator-alpha.ts owns this fetch.
+    const [, dailyNarrative, riskResultLong, riskResultShort, rrResult, symbolTradesRaw, monitorPrefRaw] = await Promise.all([
       this.fetchPlatformIntelligence(marketContext.symbol),
       dailyNarrativeBuilder.build(marketContext.symbol, marketContext.price),
       (userId && goalContext) ? professionalRiskManager.evaluateTrade({
@@ -664,8 +668,23 @@ class AlphaCoordinatorBrain {
         .order('entry_time', { ascending: false })
         .limit(20)
         .then(({ data }) => data)
-        .catch(err => { console.error('[Alpha Coordinator] Failed to fetch symbol diagnostic context:', err); return null; }) : Promise.resolve(null)
+        .catch(err => { console.error('[Alpha Coordinator] Failed to fetch symbol diagnostic context:', err); return null; }) : Promise.resolve(null),
+      userId ? supabase
+        .from('user_monitor_preferences')
+        .select('entry_price_monitor_enabled')
+        .eq('user_id', userId)
+        .maybeSingle()
+        .then(({ data }) => data)
+        .catch(() => null) : Promise.resolve(null)
     ]);
+
+    // CCIP-2026-0322A: Resolve monitor status from parallel fetch.
+    // This is injected into the prompt so Alpha knows exactly whether wait modes are available
+    // before he reasons about entry_mode. Default to false (safe: deny wait if unreadable).
+    const entryMonitorActive = monitorPrefRaw?.entry_price_monitor_enabled === true;
+    const entryMonitorStatusLine = entryMonitorActive
+      ? 'Entry monitor status: ACTIVE — "wait_pullback" and "push_confirmation" are available.'
+      : 'Entry monitor status: OFFLINE — "wait_pullback" and "push_confirmation" are UNAVAILABLE. Use "execute_now" or NO_TRADE only.';
 
     let riskContext = '';
     const riskAssessment = riskResultLong || riskResultShort;
@@ -3363,18 +3382,20 @@ The entry_mode field controls when the trade executes. You have full authority t
                         COHERENCE: The zone must be at a price NOT YET reached — if price is already
                         inside your zone, use "execute_now" instead.
 
-ENTRY MONITOR DEPENDENCY — CRITICAL GOVERNANCE RULE:
+ENTRY MONITOR DEPENDENCY — LIVE STATUS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-"wait_pullback" and "push_confirmation" require the entry monitor to be active.
-If the entry monitor is disabled, the system CANNOT watch for your target zone — the trade
-will be blocked and counted as NO_TRADE regardless of your analysis.
+${entryMonitorStatusLine}
 
-RULE: If your best entry requires waiting (wait_pullback or push_confirmation), but the
-system cannot monitor for it, you have two choices:
-  1. Use "execute_now" if the current price offers an acceptable (not ideal) entry with
-     valid geometry — accept the slightly worse entry price.
-  2. Output NO_TRADE if executing now would violate the trade's structural basis
-     (e.g. you would be entering into resistance instead of at support).
+"wait_pullback" and "push_confirmation" require the entry monitor to be active.
+If the entry monitor is OFFLINE, those modes will be blocked to NO_TRADE regardless
+of your analysis — so use "execute_now" or NO_TRADE only in that case.
+If the entry monitor is ACTIVE, all three entry modes are available and you should
+choose the one that best matches the structural setup — including "wait_pullback" when
+price is extended from your ideal entry zone, or "push_confirmation" for breakout retests.
+
+RULE: Choose "wait_pullback" or "push_confirmation" only when you have a named structural
+target zone with clear justification. Vague discomfort about current price is NOT grounds
+for waiting. If no named structural zone exists for the wait, use "execute_now" or NO_TRADE.
 
 NEVER output "wait_pullback" or "push_confirmation" as a fallback when you are uncertain
 about the current entry. These modes require a specific, named target zone with clear
@@ -4546,18 +4567,9 @@ Return PURE JSON only — all required fields from the schema in my system promp
         resolvedEntryMode === 'wait_pullback' || resolvedEntryMode === 'push_confirmation';
 
       if (action !== 'NO_TRADE' && alphaWantsToWait && userId) {
-        let monitorEnabled = false;
-        try {
-          const { data: pref } = await supabase
-            .from('user_monitor_preferences')
-            .select('entry_price_monitor_enabled')
-            .eq('user_id', userId)
-            .maybeSingle();
-          monitorEnabled = pref?.entry_price_monitor_enabled === true;
-        } catch {
-          // Fail-safe: when monitor pref is unreadable, deny wait-mode (safest default).
-          monitorEnabled = false;
-        }
+        // CCIP-2026-0322A: Reuse entryMonitorActive resolved at the top of coordinate()
+        // in the parallel Promise.all fetch. No second DB round-trip needed.
+        const monitorEnabled = entryMonitorActive;
 
         if (!monitorEnabled) {
           console.warn(
@@ -4886,10 +4898,60 @@ Return PURE JSON only — all required fields from the schema in my system promp
             console.warn(`[Alpha TP1 DIAGNOSTIC] TP1 R:R ${tp1RR.toFixed(2)}:1 below ${tradeStyle} advisory ${minTP1RR.toFixed(1)}:1 (TP1=${tp1Pips.toFixed(1)} pips, SL=${slPips.toFixed(1)} pips) — NOT blocking, dual-arena wall is SSOT`);
           }
         } else {
-          console.warn(`[Alpha TP1 GOVERNANCE VIOLATION] ${tradeStyle} response is missing mandatory "tp1" field. Alpha was instructed to always provide TP1 for this style. Falling back to midpoint safety net — this is a malformed response. Symbol: ${symbol}`);
+          // CCIP-2026-0322A: Hard block — no TP1 for a dual-TP style is a malformed response.
+          // The midpoint fallback was removed because it silently created TP1 = ~50% of TP2,
+          // which could equal TP2 numerically after rounding and produced misleading audit data.
+          // SSOT: coordinator-alpha.ts is the sole rejection authority for malformed Alpha responses.
+          console.error(
+            `[Alpha TP1 HARD BLOCK] ${tradeStyle} response missing mandatory "tp1" field. ` +
+            `This is a malformed LLM response — TP1 is required for all dual-TP styles. ` +
+            `Returning NO_TRADE to prevent a structurally incomplete trade execution. ` +
+            `Symbol: ${symbol}. CCIP-2026-0322A.`
+          );
+          return {
+            action: 'NO_TRADE',
+            decision: 'NO_TRADE',
+            entry: currentPrice,
+            stopLoss: currentPrice,
+            takeProfit: currentPrice,
+            confidence: Math.max(10, Math.min(100, tradeConfidence)),
+            reasoning: `TP1_MISSING_HARD_BLOCK: ${tradeStyle} response did not include a "tp1" field. ` +
+              `A dual-TP trade cannot execute without both TP1 and TP2. Alpha will re-evaluate next scan.`,
+            block_reason: 'TP1_MISSING',
+            omega_summary: '',
+            risk_pct: 0,
+            narrativeValidation: narrativeValidation || undefined
+          };
         }
         tp2Price = takeProfit;
         tp2Reasoning = `Alpha full target at ${tpPips.toFixed(1)} pips (${rr.toFixed(2)}:1 R:R)`;
+
+        // CCIP-2026-0322A: Hard block — TP1 and TP2 must not be equal for dual-TP styles.
+        // Equal targets indicate Alpha placed both at the same structural zone, which produces
+        // a structurally meaningless partial-close and defeats the purpose of dual-TP geometry.
+        // SSOT: coordinator-alpha.ts is the sole rejection authority.
+        if (tp1Price != null && tp2Price != null && Math.abs(tp1Price - tp2Price) < 0.0001) {
+          console.error(
+            `[Alpha TP1=TP2 HARD BLOCK] ${tradeStyle} produced identical TP1 and TP2 values (${tp1Price}). ` +
+            `Dual-TP geometry requires TP1 < TP2 (TP1 at M15 structure, TP2 at H1 structure). ` +
+            `This is a malformed response. Returning NO_TRADE. Symbol: ${symbol}. CCIP-2026-0322A.`
+          );
+          return {
+            action: 'NO_TRADE',
+            decision: 'NO_TRADE',
+            entry: currentPrice,
+            stopLoss: currentPrice,
+            takeProfit: currentPrice,
+            confidence: Math.max(10, Math.min(100, tradeConfidence)),
+            reasoning: `TP1_EQUALS_TP2_HARD_BLOCK: ${tradeStyle} produced TP1 = TP2 = ${tp1Price}. ` +
+              `TP1 must be at the nearest M15 structural zone; TP2 at H1. They cannot be the same level. ` +
+              `Alpha will re-evaluate next scan.`,
+            block_reason: 'TP1_EQUALS_TP2',
+            omega_summary: '',
+            risk_pct: 0,
+            narrativeValidation: narrativeValidation || undefined
+          };
+        }
       }
 
       // CCIP-2026-0321A: Extract Alpha's per-trade deviation tolerance.
