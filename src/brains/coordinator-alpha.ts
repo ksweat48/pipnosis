@@ -737,6 +737,37 @@ class AlphaCoordinatorBrain {
       conflictContext = `\nOMEGA CONFLICT DETECTED:\nType: ${conflictInfo.conflictType} | Severity: ${conflictInfo.severity}\n${conflictInfo.conflictDescription}\n\nYou have authority to override if justified.\n`;
     }
 
+    // CCIP-2026-0324A: Regime-Location Conflict Advisory
+    // Computed deterministically from regime data before Alpha sees candles.
+    // Injected as a named advisory Alpha must address in thesis_coherence_statement.
+    // This is informational — it does not block any trade. It ensures Alpha cannot
+    // silently proceed on a location conflict without naming the override reason.
+    let regimeLocationConflictAdvisory = '';
+    {
+      const regimeCategory = marketContext.regime || regimeSnapshot?.currentRegime || regimeSnapshot?.category || '';
+      const currentPx = marketContext.price;
+      const swingHigh = briefing?.intelligence?.swingHigh;
+      const swingLow = briefing?.intelligence?.swingLow;
+      if (swingHigh && swingLow && swingHigh > swingLow) {
+        const rangeSize = swingHigh - swingLow;
+        const positionInRange = (currentPx - swingLow) / rangeSize;
+        const locationZone = positionInRange > 0.62 ? 'PREMIUM' : positionInRange < 0.38 ? 'DISCOUNT' : 'EQUILIBRIUM';
+        const positionPct = Math.round(positionInRange * 100);
+        const conflictAdvisories: string[] = [];
+        if (locationZone === 'PREMIUM') {
+          conflictAdvisories.push(`LOCATION ADVISORY: Price is at ${positionPct}% of the swing range (swing H: ${swingHigh}, swing L: ${swingLow}) — PREMIUM zone. A BUY here is trading against location. To proceed on a BUY, thesis_coherence_statement MUST name the specific structural override: sweep above swing highs, confirmed liquidity grab, or BOS in BUY direction. Restating direction without naming the override is insufficient.`);
+        } else if (locationZone === 'DISCOUNT') {
+          conflictAdvisories.push(`LOCATION ADVISORY: Price is at ${positionPct}% of the swing range (swing H: ${swingHigh}, swing L: ${swingLow}) — DISCOUNT zone. A SELL here is trading against location. To proceed on a SELL, thesis_coherence_statement MUST name the specific structural override: sweep below swing lows, confirmed liquidity grab, or BOS in SELL direction. Restating direction without naming the override is insufficient.`);
+        }
+        if (regimeCategory && (regimeCategory.toLowerCase().includes('range') || regimeCategory.toLowerCase().includes('chop') || regimeCategory.toLowerCase().includes('side'))) {
+          conflictAdvisories.push(`REGIME ADVISORY: Market regime is ${regimeCategory.toUpperCase()}. Momentum continuation trades in a ranging/choppy regime require named evidence that the range boundary is breaking with committed volume — otherwise mean-reversion thesis is structurally favoured.`);
+        }
+        if (conflictAdvisories.length > 0) {
+          regimeLocationConflictAdvisory = `\nPRE-ANALYSIS CONFLICT ADVISORIES (resolve these in thesis_coherence_statement before finalising your action):\n${conflictAdvisories.join('\n')}\n`;
+        }
+      }
+    }
+
     // Build advisory context (Adversarial Detector + Regime Oracle)
     let advisoryContext = this.buildAdvisoryContext(adversarialSignal, regimeSnapshot);
 
@@ -3289,7 +3320,7 @@ SCAN CONTEXT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${streakContextLine}
 
-SCAN MANDATE: My job is to find the best available opportunity across all symbols this cycle. An ACCEPTABLE setup (50-69% confidence) with a named structural anchor and correct RR is a valid trade — it is what regular traders miss and I find. Returning NO_TRADE on every symbol when at least one shows 50%+ structural evidence is a scan failure. I look harder before I conclude there is nothing there.
+SCAN STANDARD (CCIP-2026-0324A): I read the market first and form a view from evidence. A valid trade requires: named structure, a fired entry trigger, genuine confluence of supporting dimensions, and entry positioned correctly within the structural zone. An ACCEPTABLE setup (50-69% confidence) that satisfies these criteria is a real trade. A scan that produces NO_TRADE because no setup meets these criteria is a successful and honest scan. Outputting a trade to avoid returning NO_TRADE is a worse outcome than NO_TRADE.
 
 CONFIDENCE BANDS (for this scan):
 - EXCELLENT (85-100%): Execute with maximum conviction
@@ -3321,7 +3352,7 @@ ${briefing.briefingText}
 
 Risk Mode: ${riskMode.toUpperCase()}
 
-${conflictContext}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${patternContext}${intelligenceContext}${imSignalContext}${goalContextText}${liquidityContext}${constraintsText}
+${conflictContext}${regimeLocationConflictAdvisory}${advisoryContext}${riskContext}${rrPerformanceContext}${recentTradesContext}${dailyNarrativeContext}${microRegimeContext}${liquidityIntentContext}${patternContext}${intelligenceContext}${imSignalContext}${goalContextText}${liquidityContext}${constraintsText}
 
 MARKET CONDITIONS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━

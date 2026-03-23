@@ -87,12 +87,15 @@ const TRIGGER_DESCRIPTIONS: Record<string, string> = {
   trade_stalling: 'Trade has been consolidating near entry for an extended period',
   time_exceeded_2x: 'Trade has been running for more than 2x its expected duration',
   drawdown_0_50R: 'Trade has pulled back to -0.50R from entry',
+  drawdown_0_30R: 'Trade has pulled back to -0.30R from entry',
   tp_50_percent: 'Trade has reached 50% of the way to take profit',
   tp_70_percent: 'Trade has reached 70% of the way to take profit',
   near_tp: 'Take profit is 90%+ complete — final stretch',
   profit_1r: 'Trade has reached +1R profit milestone',
+  profit_1_5R: 'Trade has reached +1.5R — consider trailing stop or taking partial profit',
   trail_sl_1_5r: 'Trade at +1.5R — time to consider trailing the stop loss',
   trail_sl_2r: 'Trade at +2R — strong trail opportunity to lock in gains',
+  profit_giveback: 'Trade peaked in profit but has given back 50%+ of peak gains — defending profits',
 };
 
 function selectModel(triggerType: string, drawdownPercent: number): 'gpt-4o-mini' | 'gpt-4o' {
@@ -342,8 +345,8 @@ export function shouldEscalateToAlpha(
 ): boolean {
   if (!triggerType) return false;
 
-  // Always escalate on danger signals
-  if (['near_sl', 'severe_drawdown', 'moderate_drawdown', 'momentum_dying'].includes(triggerType)) {
+  // Always escalate on danger signals and profit-giveback (CCIP-2026-0324A)
+  if (['near_sl', 'severe_drawdown', 'moderate_drawdown', 'momentum_dying', 'profit_giveback'].includes(triggerType)) {
     return true;
   }
 

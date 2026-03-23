@@ -47,6 +47,10 @@ class MidTradeTriggerDetector {
   // Periodic check interval in milliseconds (15 minutes)
   private periodicCheckInterval = 15 * 60 * 1000;
 
+  // CCIP-2026-0324A: Track peak profit per trade for profit-giveback trigger
+  // Key: tradeId, Value: max price-diff in direction (raw price units, not pips)
+  private peakPriceDiff: Map<string, number> = new Map();
+
   /**
    * Check if any trigger events have occurred for an active trade
    * Returns first trigger found, or null if none
@@ -193,6 +197,43 @@ class MidTradeTriggerDetector {
     const pipDistanceProfit = calculatePipDistance(trade.symbol, trade.entryPrice, currentPrice);
     const dollarPerPipProfit = pipInfoProfit.dollarPerPipPerLot * trade.positionSize;
     const currentPnLProfit = (priceDiff >= 0 ? pipDistanceProfit : -pipDistanceProfit) * dollarPerPipProfit;
+
+    // CCIP-2026-0324A: Track peak price-diff for profit-giveback detection
+    const tradeId = trade.id;
+    const prevPeak = this.peakPriceDiff.get(tradeId) ?? 0;
+    if (priceDiff > prevPeak) {
+      this.peakPriceDiff.set(tradeId, priceDiff);
+    }
+    const currentPeak = this.peakPriceDiff.get(tradeId) ?? 0;
+
+    // CCIP-2026-0324A: Profit-giveback trigger
+    // Fires when trade was meaningfully in profit (>= 0.5R peak) and has since
+    // given back >= 50% of that peak. This is the NAS100 scenario: peaked at +$627,
+    // reversed to -$1064 without Alpha being alerted to defend profits.
+    // Threshold: peak >= 0.5R AND current giveback >= 50% of peak AND not yet in loss
+    if (
+      currentPeak >= risk * 0.5 &&
+      priceDiff < currentPeak * 0.5 &&
+      priceDiff > -risk * 0.1 &&
+      !firedSet.has('profit_giveback')
+    ) {
+      firedSet.add('profit_giveback');
+      const givebackPct = Math.round(((currentPeak - priceDiff) / currentPeak) * 100);
+      const peakRatio = (currentPeak / risk).toFixed(2);
+      return {
+        triggered: true,
+        triggerType: 'profit_giveback',
+        triggerReason: `Trade peaked at +${peakRatio}R and has given back ${givebackPct}% of peak profit — defending gains`,
+        confidence: 88,
+        shouldCallLLM: true,
+        metadata: {
+          peak_r_multiple: peakRatio,
+          current_r_multiple: riskRatio.toFixed(2),
+          giveback_percent: givebackPct,
+          current_pnl: currentPnLProfit.toFixed(2),
+        },
+      };
+    }
 
     // Profit +1.5R (consider taking profit)
     if (riskRatio >= 1.5 && !firedSet.has('profit_1.5R')) {
@@ -548,6 +589,7 @@ class MidTradeTriggerDetector {
   clearTriggers(tradeId: string): void {
     this.firedTriggers.delete(tradeId);
     this.lastPeriodicCheck.delete(tradeId);
+    this.peakPriceDiff.delete(tradeId);
   }
 
   /**
