@@ -294,7 +294,7 @@ export async function runAlphaMidTradeReanalysis(input: AlphaRecheckInput): Prom
     const totalTokens = response.usage?.total_tokens ?? 0;
 
     await llmTokenTracker.logUsage({
-      brainName: 'Alpha-MidTrade-Analyst',
+      brainName: 'MidTrade-Analyst',
       model,
       promptTokens: response.usage?.prompt_tokens ?? 0,
       completionTokens: response.usage?.completion_tokens ?? 0,
