@@ -367,8 +367,10 @@ export interface AlphaTradeManagement {
  *   Stored on the trade record for audit. Not used in execution logic.
  *   FALLBACK: [CCIP-ALPHA-GOV-001] tp_structural_justification absent — short label only.
  *
- * max_entry_deviation_pips: Max pip drift from stated entry before trade is cancelled.
- *   Already part of the prompt schema — added here for TypeScript completeness.
+ * max_entry_deviation_pips: DEPRECATED ENFORCEMENT (CCIP-2026-0323C). Alpha may still output
+ *   this field but it is NO LONGER ENFORCED as a trade cancellation gate. The field is preserved
+ *   in the interface for backward compatibility with existing Alpha outputs and audit logging only.
+ *   The executor always shifts SL/TP to preserve risk geometry — it never blocks on deviation.
  */
 export interface AlphaOutputFormat {
   action: AlphaAction;
@@ -588,6 +590,15 @@ export function isLegitimateBlockCondition(condition: string): boolean {
  *   only entry_mode is redirected. Rationale: MICRO/INTRADAY edge degrades when entering
  *   at the far edge of a structural zone vs the near edge. Q11 makes this explicit in the
  *   audit trail so Alpha's zone discipline can be tracked and learned from over time.
+ * - CCIP-2026-0323C: Entry Deviation — Advisory-Only (permanent). Removed the hard-cancel
+ *   ENTRY_DEVIATION_BLOCK from alpha-trade-executor.ts. max_entry_deviation_pips is now
+ *   advisory-only: the executor always shifts SL/TP to preserve Alpha's risk geometry at
+ *   the actual fill price. Deviation is observed and audited in entry_price_deviation_events
+ *   but NEVER cancels a trade. The field remains in the output schema for audit continuity
+ *   but the prompt language has been updated: "advisory — system will NOT cancel the trade."
+ *   Rationale: The SL/TP shift already solves structural validity. The hard cancel was
+ *   redundant and blocked valid Alpha setups. Alpha has sole execution authority — deviation
+ *   governance belongs in the answer_sheet audit trail, not as an execution gate.
  */
 export function getAlphaSystemPromptForStyle(style: StyleName): string {
   const isMicro = style === 'MICRO_INTRADAY';
@@ -614,7 +625,7 @@ BUY or SELL:
   "entry": <price>,
   "stopLoss": <price>,
   "takeProfit": <price>,
-  "max_entry_deviation_pips": <integer — max pips the live fill may drift from my entry before this setup is cancelled. Reflect pair speed and structural precision. This is law: if exceeded, NO trade is placed.>,
+  "max_entry_deviation_pips": <integer — advisory: my structural read of acceptable fill drift for this pair and session. The system records this for audit but will NEVER cancel the trade based on it. SL/TP are shifted automatically to preserve my risk geometry at the actual fill. Omit or set to 0 if not relevant.>,
   "thesis": "momentum_scalp|liquidity_sweep_reversal|trend_pullback|breakout_continuation|mean_reversion|failed_move|range_extreme",
   "style_intent": "${style}",
   "execution_preference": "IMMEDIATE|WAIT_PULLBACK|WAIT_CONFIRMATION",

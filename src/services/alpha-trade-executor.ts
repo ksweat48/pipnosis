@@ -949,17 +949,16 @@ class AlphaTradeExecutor {
       };
     }
 
-    // CCIP (2026-02-12): Preserve Alpha's intended risk geometry at actual fill price
+    // CCIP-2026-0323C: Entry Deviation — Advisory-Only, Never Block
     // Alpha's decision authority is the risk DISTANCE (pips), not absolute price levels.
-    // When actual fill differs from planned entry, shift SL/TP to maintain planned distances.
-    // This is NOT mutation of Alpha's decision - it preserves Alpha's intent.
+    // When actual fill differs from planned entry, shift SL/TP to preserve Alpha's intended
+    // risk geometry. This is NOT mutation of Alpha's decision — it is faithful execution of it.
     //
-    // CCIP-2026-0321A: Alpha-Owned Deviation Guard (replaces CCIP-2026-0320A)
-    // Alpha states max_entry_deviation_pips per-trade in his output schema. This reflects his
-    // structural read: tight for precise scalp entries, wider for slower intraday setups.
-    // If live fill exceeds Alpha's stated tolerance, the setup is CANCELLED — no trade is placed,
-    // no rescan is triggered. Alpha's structural levels no longer apply at the deviated price.
-    // Thresholds use REASONING pips (getCurrencyPipInfo) — the same unit Alpha uses.
+    // REMOVED (CCIP-2026-0323C): The hard-cancel ENTRY_DEVIATION_BLOCK that previously
+    // cancelled trades when fill exceeded max_entry_deviation_pips. The SL/TP shift already
+    // solves the structural validity concern correctly. The hard cancel was redundant and
+    // prevented Alpha from executing valid setups. Deviation is now always advisory-only:
+    // observed, logged, and audited — but NEVER a trade cancellation gate.
     const plannedEntry = decision.entry;
     const entryDeviation = adjustedEntry - plannedEntry;
     let executionSL = decision.stopLoss;
@@ -973,70 +972,6 @@ class AlphaTradeExecutor {
       const reasoningPipSize = pipInfo.pipValue;
       const deviationReasoningPips = Math.abs(entryDeviation) / reasoningPipSize;
       const styleUpper = (params.canonicalStyle || 'INTRADAY').toUpperCase();
-
-      // CCIP-2026-0321A: Use Alpha's stated tolerance. Log whether it came from Alpha or fallback.
-      // CCIP-2026-0322B: Last-resort fallback is asset-class-aware — mirrors coordinator-alpha.ts
-      // fallback logic so SCALP on crypto is never blocked with a forex-scale tolerance.
-      // Fallback priority: (1) Alpha's per-trade value, (2) asset-class floor (same as coordinator).
-      const maxAllowedPips = typeof decision.max_entry_deviation_pips === 'number'
-        && Number.isFinite(decision.max_entry_deviation_pips)
-        && decision.max_entry_deviation_pips > 0
-        ? decision.max_entry_deviation_pips
-        : (() => {
-            const sym = (decision.symbol || '').toUpperCase();
-            let assetClassFallback: number;
-            if (['BTC', 'ETH', 'LTC', 'XRP', 'BCH'].some(c => sym.includes(c))) {
-              assetClassFallback = 200;
-            } else if (['XAU', 'XAG', 'GOLD'].some(m => sym.includes(m))) {
-              assetClassFallback = 80;
-            } else if (['US30', 'NAS100', 'SPX500', 'UK100', 'DE30', 'JP225'].some(i => sym.includes(i))) {
-              assetClassFallback = 50;
-            } else {
-              assetClassFallback = 20;
-            }
-            logger.warn(LogCategory.TRADE_EXECUTION, '[AlphaTradeExecutor] max_entry_deviation_pips missing from decision — using asset-class fallback', { symbol: decision.symbol, style: styleUpper, assetClassFallback });
-            return assetClassFallback;
-          })();
-
-      if (deviationReasoningPips > maxAllowedPips) {
-        logger.warn(
-          LogCategory.TRADE_EXECUTION,
-          '[AlphaTradeExecutor] ENTRY_DEVIATION_BLOCK: fill exceeded Alpha\'s stated tolerance — setup cancelled',
-          {
-            symbol: decision.symbol,
-            style: styleUpper,
-            plannedEntry,
-            actualEntry: adjustedEntry,
-            deviationReasoningPips: Math.round(deviationReasoningPips * 10) / 10,
-            alphaMaxAllowedPips: maxAllowedPips,
-            userId,
-            sessionId
-          }
-        );
-
-        await supabase.from('entry_price_deviation_events').insert({
-          user_id: userId,
-          session_id: sessionId,
-          symbol: decision.symbol,
-          alpha_style: styleUpper,
-          direction: decision.action as 'BUY' | 'SELL',
-          planned_entry: plannedEntry,
-          actual_entry: adjustedEntry,
-          deviation_pips: Math.round(deviationReasoningPips * 10) / 10,
-          max_allowed_pips: maxAllowedPips,
-          alpha_max_deviation_pips: decision.max_entry_deviation_pips ?? null,
-          action_taken: 'BLOCKED',
-          block_reason: `Fill ${Math.round(deviationReasoningPips * 10) / 10} pips from planned entry. Alpha's limit: ${maxAllowedPips} pips. SL at ${decision.stopLoss} no longer structurally valid. Setup cancelled.`,
-          planned_sl: decision.stopLoss,
-          planned_tp: decision.takeProfit,
-        });
-
-        return {
-          success: false,
-          error: `Entry deviation cancelled: fill was ${Math.round(deviationReasoningPips * 10) / 10} pips from Alpha's planned entry (Alpha's limit: ${maxAllowedPips} pips). Structural levels no longer valid. Setup cancelled — no trade placed.`,
-          blockReason: 'ENTRY_DEVIATION_EXCEEDS_STRUCTURAL_TOLERANCE'
-        };
-      }
 
       executionSL = decision.stopLoss + entryDeviation;
       executionTP = decision.takeProfit + entryDeviation;
@@ -1057,7 +992,7 @@ class AlphaTradeExecutor {
         planned_entry: plannedEntry,
         actual_entry: adjustedEntry,
         deviation_pips: Math.round(deviationReasoningPips * 10) / 10,
-        max_allowed_pips: maxAllowedPips,
+        max_allowed_pips: null,
         alpha_max_deviation_pips: decision.max_entry_deviation_pips ?? null,
         action_taken: 'SHIFTED',
         planned_sl: decision.stopLoss,
@@ -1068,7 +1003,7 @@ class AlphaTradeExecutor {
 
       logger.info(
         LogCategory.TRADE_EXECUTION,
-        '[AlphaTradeExecutor] SL/TP recalculated to preserve Alpha risk geometry',
+        '[AlphaTradeExecutor] SL/TP shifted to preserve Alpha risk geometry at actual fill',
         {
           symbol: decision.symbol,
           plannedEntry,
@@ -1078,7 +1013,7 @@ class AlphaTradeExecutor {
           executionSL,
           originalTP: decision.takeProfit,
           executionTP,
-          recalculationReason: 'Actual fill price differs from Alpha planned entry'
+          ccip: 'CCIP-2026-0323C — advisory-only, no block'
         }
       );
     }
