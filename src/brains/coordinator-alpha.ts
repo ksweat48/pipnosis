@@ -389,6 +389,18 @@ export interface AlphaDecision {
      *      or "PROXIMITY_RISK — SL at [price] is [X] pips from wick at [price]. [reasoning]"
      */
     Q9_sl_wick_proximity?: string;
+    /**
+     * Q10: Entry conviction self-rating — SCALP ONLY.
+     *
+     * CCIP-2026-0323A: Independent of trade_confidence. Assesses whether THIS SPECIFIC
+     * ENTRY MOMENT is well-timed within the identified structure.
+     * SNIPER = exact anchor + trigger fired.
+     * ACCEPTABLE = valid but not ideal — justification required in trader_statement.
+     * FORCED = timing wrong — execute_now PROHIBITED, must use wait_pullback/push_confirmation.
+     *
+     * SSOT: alpha-identity.ts is the authoritative definition. This interface mirrors it.
+     */
+    Q10_entry_conviction?: 'SNIPER' | 'ACCEPTABLE' | 'FORCED';
   };
   // CCIP-2026-0321A: Alpha-owned entry deviation tolerance.
   // Max pips the live fill may drift from Alpha's planned entry before the setup is
@@ -4192,7 +4204,8 @@ Return PURE JSON only — all required fields from the schema in my system promp
       // For BUY/SELL: use 'execute_now' as the safe default (not 'wait_pullback') so that
       // a missing entry_mode from the LLM results in immediate execution, not a silent
       // monitored-wait that never resolves without a valid zone.
-      const entryMode = action === 'NO_TRADE'
+      // CCIP-2026-0323A: let (not const) — Q10 FORCED guard may correct execute_now → wait_pullback
+      let entryMode = action === 'NO_TRADE'
         ? undefined
         : (parsed.entry_mode ?? 'execute_now');
 
@@ -4345,7 +4358,38 @@ Return PURE JSON only — all required fields from the schema in my system promp
         failed_auction: typeof rawAnswerSheet.failed_auction === 'string' ? rawAnswerSheet.failed_auction : undefined,
         intermarket_correlation: typeof rawAnswerSheet.intermarket_correlation === 'string' ? rawAnswerSheet.intermarket_correlation : undefined,
         Q9_sl_wick_proximity: typeof rawAnswerSheet.Q9_sl_wick_proximity === 'string' ? rawAnswerSheet.Q9_sl_wick_proximity : undefined,
+        // CCIP-2026-0323A: Q10 entry conviction — SCALP ONLY. Parsed but never used as a hard block.
+        // The prompt instructs Alpha to self-enforce: FORCED → cannot use execute_now.
+        // We extract it here for audit/logging. Enforcement is prompt-level, not code-level.
+        Q10_entry_conviction: (['SNIPER', 'ACCEPTABLE', 'FORCED'].includes(rawAnswerSheet.Q10_entry_conviction as string))
+          ? (rawAnswerSheet.Q10_entry_conviction as 'SNIPER' | 'ACCEPTABLE' | 'FORCED')
+          : undefined,
       } : undefined;
+
+      // CCIP-2026-0323A: Q10 entry conviction enforcement — SCALP ONLY.
+      // Alpha is instructed via the prompt to self-enforce: FORCED → no execute_now.
+      // This guard is the code-layer backstop. If Alpha rated FORCED but still chose
+      // execute_now (hallucination or prompt non-compliance), we correct the entry_mode
+      // to wait_pullback and log a governance violation for observability.
+      // SSOT: alpha-identity.ts defines the Q10 values. We never block the trade — only
+      // redirect the entry mode to one that is compatible with a FORCED conviction.
+      if (
+        tradeStyle === 'SCALP' &&
+        (action === 'BUY' || action === 'SELL') &&
+        answerSheet?.Q10_entry_conviction === 'FORCED' &&
+        entryMode === 'execute_now'
+      ) {
+        console.warn('[Alpha Coordinator] CCIP-2026-0323A: Q10=FORCED but entry_mode=execute_now — correcting to wait_pullback. Alpha must not force-enter immediately when conviction is FORCED.');
+        logViolation({
+          violationType: 'Q10_FORCED_EXECUTE_NOW',
+          severity: 'medium',
+          source: 'coordinator-alpha',
+          description: `Q10_entry_conviction=FORCED but entry_mode=execute_now on SCALP. Corrected to wait_pullback.`,
+          symbol: marketContext.symbol,
+          userId: userId || 'unknown',
+        }).catch(() => {});
+        entryMode = 'wait_pullback';
+      }
 
       // CCIP-2026-03-16A: Q7 coherence check is advisory-only.
       // Alpha's final action field is authoritative. If Q7 judgment and action

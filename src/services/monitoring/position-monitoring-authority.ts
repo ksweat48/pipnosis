@@ -38,6 +38,34 @@ import { calculatePnL } from '@/types/position';
 import type { CloseReason } from '@/types/position';
 import { priceFreshnessGate } from '@/governance/price-freshness-gate';
 import { calculateTP1BreakevenSL } from '@/utils/currencyHelpers';
+import { isIndex } from '@/utils/currencyHelpers';
+
+/**
+ * MAX LOSS OVERRUN MULTIPLIERS — SSOT
+ *
+ * CCIP-2026-0323B: Prevent catastrophic loss overruns when SL is gapped through.
+ *
+ * When price has traveled beyond the SL by a factor of MAX_LOSS_MULTIPLIER, the
+ * position is force-closed with reason 'risk_limit' regardless of SL price.
+ * This is a catastrophic loss prevention backstop — it activates only when the
+ * normal SL check has already failed (price gapped past SL without triggering closure).
+ *
+ * RATIONALE: SL checks run every 500ms for critical positions. In extreme volatility
+ * (news spikes, gap opens), price can skip through the SL level entirely. Without this
+ * guard, the position bleeds indefinitely. The multiplier gives breathing room for normal
+ * SL hit scenarios while catching runaway losses.
+ *
+ * INDEX instruments (US30, NAS100) get a tighter ceiling (1.5x) because index moves
+ * are faster and index pip values are larger — the same overrun in price units represents
+ * a proportionally larger monetary loss.
+ *
+ * GOVERNANCE: This constant is the ONLY place overrun multipliers are defined.
+ * position-monitoring-authority.ts is the sole authority for overrun closure decisions.
+ */
+export const MAX_LOSS_OVERRUN = {
+  DEFAULT: 1.75,  // 1.75x intended risk — applies to FOREX, CRYPTO, METAL
+  INDEX: 1.5,     // 1.5x intended risk — applies to US30, NAS100, SPX500 (faster moves, larger pip value)
+} as const;
 
 /**
  * Position data structure for monitoring
@@ -179,6 +207,37 @@ class PositionMonitoringAuthority {
   checkSLTP(position: MonitoredPosition, currentPrice: PriceData): ClosureDecision | TPMilestoneResult | null {
     // Use correct price based on direction
     const price = position.direction === 'buy' ? currentPrice.bid : currentPrice.ask;
+
+    // PRIORITY 0: Max Loss Overrun Guard (CCIP-2026-0323B)
+    // Catastrophic backstop — fires when price has gapped past SL by more than the
+    // overrun multiplier. Catches runaway losses that slip through normal SL polling.
+    // Uses 'risk_limit' close reason (already in DB constraint — no migration needed).
+    const intendedRisk = Math.abs(position.entry_price - position.stop_loss);
+    if (intendedRisk > 0) {
+      const overrunMultiplier = isIndex(position.symbol) ? MAX_LOSS_OVERRUN.INDEX : MAX_LOSS_OVERRUN.DEFAULT;
+      const overrunThreshold = intendedRisk * overrunMultiplier;
+      const isLong = position.direction === 'buy';
+      // How far has price moved AGAINST us?
+      const adverseMove = isLong
+        ? position.entry_price - price           // long position: price fell below entry
+        : price - position.entry_price;          // short position: price rose above entry
+
+      if (adverseMove >= overrunThreshold) {
+        console.warn(
+          `[PositionMonitoringAuthority] CCIP-2026-0323B: MAX LOSS OVERRUN on ${position.symbol} ${position.direction.toUpperCase()} ` +
+          `id=${position.id}. AdverseMove=${adverseMove.toFixed(5)} >= Threshold=${overrunThreshold.toFixed(5)} ` +
+          `(${overrunMultiplier}x intended risk of ${intendedRisk.toFixed(5)}). Force-closing at risk_limit.`
+        );
+        return {
+          shouldClose: true,
+          reason: 'risk_limit' as CloseReason,
+          price,
+          metadata: {
+            slProximity: 0,
+          },
+        };
+      }
+    }
 
     // PRIORITY 1: Check Stop Loss (ALWAYS HIGHEST PRIORITY)
     const shouldCloseAtStopLoss = position.direction === 'buy'

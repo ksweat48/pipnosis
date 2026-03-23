@@ -669,7 +669,8 @@ ENTRY_MODE AND NO_TRADE — INCOMPATIBLE FIELDS:
     "trap_signature": "NONE | trap type and which side is trapped",
     "failed_auction": "NONE | type and confirmation candle status",
     "intermarket_correlation": "CONFLUENT|DIVERGENT|UNKNOWN",
-    "Q9_sl_wick_proximity": "CLEAR — nearest wick at [price] is [X] pips from SL | PROXIMITY_RISK — [assessment]",
+    "Q9_sl_wick_proximity": "CLEAR — nearest wick at [price] is [X] pips from SL | PROXIMITY_RISK — [assessment]",${isScalp ? `
+    "Q10_entry_conviction": "SNIPER|ACCEPTABLE|FORCED — [one sentence on entry timing quality. SNIPER: exact structural anchor + trigger fired. ACCEPTABLE: valid but not ideal — justify in trader_statement. FORCED: timing is wrong — entry_mode MUST be wait_pullback or push_confirmation, execute_now is PROHIBITED]",` : ''}
     "liquidity_sweep_read": "MANDATORY when sweep sensor data is present. My read: (1) wick quality assessment from wick-to-body ratio; (2) BOS impact on thesis; (3) recency judgment at my timeframe; (4) volume ratio interpretation; (5) net judgment — does this sweep create an edge or not and why. If no sweep data was provided: NONE"
   }
 }
@@ -721,7 +722,12 @@ Q8 RANGE: How far into the move am I? Where in session range?
 Q8C LOCATION: DISCOUNT / EQUILIBRIUM / PREMIUM in the ${controlTF} range. I state the current location and whether it aligns with my trade direction. If it does not align, I acknowledge it explicitly and continue — the mismatch is logged for audit. Location is a factor I weigh, not a gate I must pass.
 Q8D WEEKLY: Does the weekly delivery narrative support direction?
 Q9 SL WICKS: Are there wicks near my SL on the ${primaryTF}? A stop inside a wick cluster gets swept.${isMicro || isIntraday ? `
-Q10 MANAGEMENT: TP1 percentage, breakeven trigger, trail method, structural level to trail behind.` : ''}`;
+Q10 MANAGEMENT: TP1 percentage, breakeven trigger, trail method, structural level to trail behind.` : ''}${isScalp ? `
+Q10 ENTRY CONVICTION (SCALP ONLY): Am I entering at the RIGHT MOMENT within the structure I identified?
+   - SNIPER: Price is at the exact structural anchor and the trigger has already fired. I am entering at the precise moment the edge is highest.
+   - ACCEPTABLE: Entry is valid but timing is not ideal — slightly early, slightly late, or mid-zone. I name the specific compromise in trader_statement.
+   - FORCED: The timing is wrong. I am chasing, entering without a trigger, or entering mid-range. When FORCED, I MUST use wait_pullback or push_confirmation. execute_now is PROHIBITED with FORCED conviction.
+   Q10 does not assess whether the trade is good (that is trade_confidence). Q10 assesses whether the ENTRY MOMENT is right.` : ''}`;
 
   const sessionIdentity = `SESSION IDENTITY — I identify the active session from the context I receive and I become that session's professional trader. I do not need to be told how to trade it. I already know.
 
