@@ -401,6 +401,19 @@ export interface AlphaDecision {
      * SSOT: alpha-identity.ts is the authoritative definition. This interface mirrors it.
      */
     Q10_entry_conviction?: 'SNIPER' | 'ACCEPTABLE' | 'FORCED';
+    /**
+     * Q11: Zone entry quality self-rating — MICRO_INTRADAY and INTRADAY ONLY.
+     *
+     * CCIP-2026-0323B: Independent of trade_confidence. Assesses whether Alpha is entering
+     * at the STRUCTURALLY OPTIMAL POSITION within the M15/H1 structural zone.
+     * PRECISE = near edge of zone — best RR preservation, highest structural clarity.
+     * MID_ZONE = mid-zone — valid but SL/RR must reflect the consumed structural buffer.
+     * DEEP_ZONE = far edge of zone, near invalidation — execute_now PROHIBITED, must use
+     *   wait_pullback or push_confirmation targeting the near zone edge.
+     *
+     * SSOT: alpha-identity.ts is the authoritative definition. This interface mirrors it.
+     */
+    Q11_zone_entry_quality?: 'PRECISE' | 'MID_ZONE' | 'DEEP_ZONE';
   };
   // CCIP-2026-0321A: Alpha-owned entry deviation tolerance.
   // Max pips the live fill may drift from Alpha's planned entry before the setup is
@@ -4364,6 +4377,13 @@ Return PURE JSON only — all required fields from the schema in my system promp
         Q10_entry_conviction: (['SNIPER', 'ACCEPTABLE', 'FORCED'].includes(rawAnswerSheet.Q10_entry_conviction as string))
           ? (rawAnswerSheet.Q10_entry_conviction as 'SNIPER' | 'ACCEPTABLE' | 'FORCED')
           : undefined,
+        // CCIP-2026-0323B: Q11 zone entry quality — MICRO_INTRADAY and INTRADAY ONLY.
+        // Captures Alpha's zone-precision self-assessment: PRECISE (near edge), MID_ZONE,
+        // or DEEP_ZONE (far edge, near invalidation). Parsed for audit/logging.
+        // Code-layer backstop below corrects DEEP_ZONE + execute_now to wait_pullback.
+        Q11_zone_entry_quality: (['PRECISE', 'MID_ZONE', 'DEEP_ZONE'].includes(rawAnswerSheet.Q11_zone_entry_quality as string))
+          ? (rawAnswerSheet.Q11_zone_entry_quality as 'PRECISE' | 'MID_ZONE' | 'DEEP_ZONE')
+          : undefined,
       } : undefined;
 
       // CCIP-2026-0323A: Q10 entry conviction enforcement — SCALP ONLY.
@@ -4385,6 +4405,31 @@ Return PURE JSON only — all required fields from the schema in my system promp
           severity: 'medium',
           source: 'coordinator-alpha',
           description: `Q10_entry_conviction=FORCED but entry_mode=execute_now on SCALP. Corrected to wait_pullback.`,
+          symbol: marketContext.symbol,
+          userId: userId || 'unknown',
+        }).catch(() => {});
+        entryMode = 'wait_pullback';
+      }
+
+      // CCIP-2026-0323B: Q11 zone entry quality enforcement — MICRO_INTRADAY and INTRADAY ONLY.
+      // Alpha is instructed via the prompt to self-enforce: DEEP_ZONE → no execute_now.
+      // This guard is the code-layer backstop. If Alpha rated DEEP_ZONE but still chose
+      // execute_now (hallucination or prompt non-compliance), we correct the entry_mode
+      // to wait_pullback and log a governance violation for observability.
+      // SSOT: alpha-identity.ts defines the Q11 values. We never block the trade — only
+      // redirect the entry mode to one that is compatible with a DEEP_ZONE assessment.
+      if (
+        (tradeStyle === 'MICRO_INTRADAY' || tradeStyle === 'INTRADAY') &&
+        (action === 'BUY' || action === 'SELL') &&
+        answerSheet?.Q11_zone_entry_quality === 'DEEP_ZONE' &&
+        entryMode === 'execute_now'
+      ) {
+        console.warn(`[Alpha Coordinator] CCIP-2026-0323B: Q11=DEEP_ZONE but entry_mode=execute_now on ${tradeStyle} — correcting to wait_pullback. Alpha must not force-enter at the far edge of a structural zone.`);
+        logViolation({
+          violationType: 'Q11_DEEP_ZONE_EXECUTE_NOW',
+          severity: 'medium',
+          source: 'coordinator-alpha',
+          description: `Q11_zone_entry_quality=DEEP_ZONE but entry_mode=execute_now on ${tradeStyle}. Corrected to wait_pullback.`,
           symbol: marketContext.symbol,
           userId: userId || 'unknown',
         }).catch(() => {});
