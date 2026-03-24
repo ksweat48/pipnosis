@@ -414,12 +414,30 @@ export interface AlphaDecision {
      * SSOT: alpha-identity.ts is the authoritative definition. This interface mirrors it.
      */
     Q11_zone_entry_quality?: 'PRECISE' | 'MID_ZONE' | 'DEEP_ZONE';
+    /**
+     * liquidity_sweep_read: Alpha's structured sweep analysis.
+     * MANDATORY when sweep sensor data was present in the briefing (sweepFacts.sweep_detected).
+     * Contains: wick quality, BOS impact, recency judgment, volume ratio interpretation,
+     * and net edge judgment. Value "NONE" means no sweep data was provided.
+     *
+     * CCIP-2026-0324C: Missing when sweep data was present is a governance violation.
+     * SSOT: alpha-identity.ts defines the mandatory format. coordinator-alpha.ts enforces presence.
+     */
+    liquidity_sweep_read?: string;
   };
   // CCIP-2026-0321A: Alpha-owned entry deviation tolerance.
   // Max pips the live fill may drift from Alpha's planned entry before the setup is
   // cancelled outright (no trade placed, no rescan). Alpha states this per-trade based
   // on pair speed and structural precision of the entry. System never computes or overrides it.
   max_entry_deviation_pips?: number;
+  /**
+   * trader_statement: Alpha's 80+ word human-readable trade narrative.
+   * MANDATORY in the output schema. Extracted for audit trail and UI display.
+   * Validated post-LLM: short or missing statements are flagged as governance violations.
+   *
+   * CCIP-2026-0324G: coordinator-alpha.ts is the SSOT for extraction and enforcement.
+   */
+  trader_statement?: string;
 }
 
 /**
@@ -765,6 +783,17 @@ class AlphaCoordinatorBrain {
         if (conflictAdvisories.length > 0) {
           regimeLocationConflictAdvisory = `\nPRE-ANALYSIS CONFLICT ADVISORIES (resolve these in thesis_coherence_statement before finalising your action):\n${conflictAdvisories.join('\n')}\n`;
         }
+      } else {
+        // CCIP-2026-0324F: Swing data unavailable — inject fallback location advisory.
+        // When swingHigh/swingLow are absent (data gap or intelligence miss), the regime-location
+        // conflict advisory is silently skipped. Alpha receives no location context and Q8C
+        // is computed entirely from its own candle read with no external anchor.
+        // This fallback note ensures Alpha is aware of the data gap and uses EMA structure
+        // or recent pivot extremes as a substitute location reference. It does not block execution.
+        regimeLocationConflictAdvisory = `\nLOCATION CONTEXT NOTE: Swing high/low data is unavailable for this scan cycle — no external range anchor can be computed. ` +
+          `Derive Q8C (DISCOUNT/EQUILIBRIUM/PREMIUM) from the recent pivot structure visible in the candle data: ` +
+          `identify the most recent confirmed swing high and swing low manually, compute price position, and state your boundaries explicitly. ` +
+          `Do not leave Q8C as UNCERTAIN when candle data is present — a structural read from candles is sufficient.\n`;
       }
     }
 
@@ -3505,6 +3534,8 @@ The following contradictions require explicit resolution in thesis_coherence_sta
 - Q5_failure_probability within 15 points of trade_confidence: I must name the specific edge preserver — or I pass.
 - Q1 = CONFLICT or COUNTER_TREND: I must explain why I am trading against the control timeframe structure.
 - intermarket_correlation = DIVERGENT: I must acknowledge the divergence and name why the primary instrument's structure overrides it — or I reduce confidence accordingly.
+- Q8D = DELIVERY_BEARISH on a BUY action: I must name the specific intraday or session-level structural reason that justifies trading against the weekly delivery narrative — or I reduce confidence by at least 10 points.
+- Q8D = DELIVERY_BULLISH on a SELL action: I must name the specific intraday or session-level structural reason that justifies trading against the weekly delivery narrative — or I reduce confidence by at least 10 points.
 
 If I cannot resolve a contradiction with a specific named reason, I output NO_TRADE.
 If I can resolve it, I write the resolution in thesis_coherence_statement — not a generic acknowledgment, a specific named reason.
@@ -4415,6 +4446,11 @@ Return PURE JSON only — all required fields from the schema in my system promp
         Q11_zone_entry_quality: (['PRECISE', 'MID_ZONE', 'DEEP_ZONE'].includes(rawAnswerSheet.Q11_zone_entry_quality as string))
           ? (rawAnswerSheet.Q11_zone_entry_quality as 'PRECISE' | 'MID_ZONE' | 'DEEP_ZONE')
           : undefined,
+        // CCIP-2026-0324C: liquidity_sweep_read extraction.
+        // MANDATORY when sweepFacts.sweep_detected was true. Validated below.
+        liquidity_sweep_read: typeof rawAnswerSheet.liquidity_sweep_read === 'string'
+          ? rawAnswerSheet.liquidity_sweep_read
+          : undefined,
       } : undefined;
 
       // CCIP-2026-0323A: Q10 entry conviction enforcement — SCALP ONLY.
@@ -4465,6 +4501,106 @@ Return PURE JSON only — all required fields from the schema in my system promp
           userId: userId || 'unknown',
         }).catch(() => {});
         entryMode = 'wait_pullback';
+      }
+
+      // CCIP-2026-0324D: Q8D weekly narrative vs action conflict advisory check.
+      // alpha-identity.ts instructs Alpha to resolve DELIVERY_BEARISH+BUY and
+      // DELIVERY_BULLISH+SELL in thesis_coherence_statement. This guard detects the
+      // conflict post-LLM for governance observability. Action: advisory log only.
+      // Trade is NOT blocked — Alpha has authority to trade against weekly narrative
+      // with named structural justification. We surface the conflict for audit.
+      // SSOT: This is the only place Q8D conflict logging occurs.
+      if (action === 'BUY' || action === 'SELL') {
+        const q8d = answerSheet?.Q8D_weekly_narrative?.toUpperCase();
+        const q8dConflict =
+          (action === 'BUY' && q8d === 'DELIVERY_BEARISH') ||
+          (action === 'SELL' && q8d === 'DELIVERY_BULLISH');
+        if (q8dConflict) {
+          const hasCoherence = typeof parsed.thesis_coherence_statement === 'string' &&
+            parsed.thesis_coherence_statement.length > 20;
+          if (!hasCoherence) {
+            logViolation({
+              violationType: 'Q8D_WEEKLY_NARRATIVE_CONFLICT_UNRESOLVED',
+              severity: 'medium',
+              source: 'coordinator-alpha',
+              description: `Q8D=${q8d} conflicts with action=${action} and thesis_coherence_statement is absent or too short. Alpha was required to name the override reason or reduce confidence.`,
+              symbol: marketContext.symbol,
+              userId: userId || 'unknown',
+            }).catch(() => {});
+            console.warn(
+              `[Alpha Coordinator] CCIP-2026-0324D: Q8D=${q8d} conflicts with action=${action} but no coherence resolution found. ` +
+              `Alpha should have named a session-level override or reduced confidence. Symbol=${symbol}.`
+            );
+          } else {
+            console.log(
+              `[Alpha Coordinator] CCIP-2026-0324D: Q8D=${q8d} vs action=${action} conflict — thesis_coherence_statement present, assuming override named. Symbol=${symbol}.`
+            );
+          }
+        }
+      }
+
+      // CCIP-2026-0324C: liquidity_sweep_read omission detector.
+      // alpha-identity.ts declares liquidity_sweep_read as MANDATORY whenever sweep sensor
+      // data was injected into the prompt (sweepFacts.sweep_detected === true).
+      // This guard detects silent omission — Alpha received sweep facts but produced no read.
+      // Action: advisory violation only. Trade is NOT blocked. The omission is logged so it
+      // can be tracked for prompt compliance over time.
+      // SSOT: sweepFacts is the authoritative signal for whether sweep data was present.
+      if (
+        sweepFacts?.sweep_detected &&
+        answerSheet &&
+        (!answerSheet.liquidity_sweep_read || answerSheet.liquidity_sweep_read.trim() === '' || answerSheet.liquidity_sweep_read.toUpperCase() === 'NONE')
+      ) {
+        logViolation({
+          violationType: 'LIQUIDITY_SWEEP_READ_OMITTED',
+          severity: 'medium',
+          source: 'coordinator-alpha',
+          description: `Sweep sensor data was present (sweep_type=${sweepFacts.sweep_type}, BOS=${sweepFacts.has_bos}) but Alpha omitted liquidity_sweep_read from answer_sheet. This is a MANDATORY field when sweep data is injected.`,
+          symbol: marketContext.symbol,
+          userId: userId || 'unknown',
+        }).catch(() => {});
+        console.warn(
+          `[Alpha Coordinator] CCIP-2026-0324C: LIQUIDITY_SWEEP_READ_OMITTED — sweep data was present ` +
+          `(type=${sweepFacts.sweep_type}, BOS=${sweepFacts.has_bos}) but liquidity_sweep_read is absent. ` +
+          `Symbol=${symbol}.`
+        );
+      }
+
+      // CCIP-2026-0324E: Q5 failure_probability vs trade_confidence numeric consistency.
+      // The coherence obligation (prompt-level) requires Alpha to name an edge preserver when
+      // Q5_failure_probability is within 15 points of trade_confidence. However, the prompt
+      // rule is self-enforced and cannot catch all hallucinations. This post-LLM check
+      // verifies the numeric relationship directly and logs when the gap is dangerously narrow
+      // (≤ 10 points) without a coherence statement — suggesting Alpha may have failed to
+      // price the failure risk into its stated confidence.
+      //
+      // Action: advisory violation log only. Trade is NOT blocked or modified.
+      // SSOT: alpha-identity.ts defines the 15-point rule. This guard enforces observability.
+      if ((action === 'BUY' || action === 'SELL') && answerSheet) {
+        const q5Prob = typeof answerSheet.Q5_failure_probability === 'number' ? answerSheet.Q5_failure_probability : null;
+        const rawConf = parsed.trade_confidence ?? parsed.confidence;
+        const confVal = typeof rawConf === 'number' ? rawConf : null;
+        if (q5Prob !== null && confVal !== null) {
+          const gap = confVal - q5Prob;
+          if (gap <= 10 && gap >= -20) {
+            const hasCoherence = typeof parsed.thesis_coherence_statement === 'string' &&
+              parsed.thesis_coherence_statement.length > 20;
+            if (!hasCoherence) {
+              logViolation({
+                violationType: 'Q5_CONFIDENCE_GAP_NARROW_NO_COHERENCE',
+                severity: 'medium',
+                source: 'coordinator-alpha',
+                description: `Q5_failure_probability=${q5Prob} and trade_confidence=${confVal} — gap=${gap} points. Prompt requires named edge preserver when gap ≤ 15 points, but thesis_coherence_statement is absent or too short.`,
+                symbol: marketContext.symbol,
+                userId: userId || 'unknown',
+              }).catch(() => {});
+              console.warn(
+                `[Alpha Coordinator] CCIP-2026-0324E: Q5 failure gap=${gap}pts (prob=${q5Prob}, conf=${confVal}) without coherence statement. ` +
+                `Alpha may not have priced failure risk into confidence. Symbol=${symbol}.`
+              );
+            }
+          }
+        }
       }
 
       // CCIP-2026-03-16A: Q7 coherence check is advisory-only.
@@ -4560,6 +4696,68 @@ Return PURE JSON only — all required fields from the schema in my system promp
           `invalidation=${resolvedWaitCondition.invalidation_price} ` +
           `est_wait=${resolvedWaitCondition.expected_wait_minutes ?? 'unspecified'}min`
         );
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // CCIP-2026-0324B: wait_pullback zone direction coherence backstop.
+      // ═══════════════════════════════════════════════════════════════════
+      //
+      // INVARIANT: For a BUY with wait_pullback, price must come DOWN to the zone
+      // (zone_max < current_price). For a SELL with wait_pullback, price must come
+      // UP to the zone (zone_min > current_price). If Alpha sets a wait_pullback
+      // zone on the wrong side of current price, the intent will never trigger —
+      // a silent trade failure with no error surfaced to the user.
+      //
+      // This backstop detects the inversion and either:
+      //   (a) Converts to execute_now if price is already inside the stated zone.
+      //   (b) Logs a governance violation and downgrade to execute_now if the zone
+      //       is entirely on the wrong side (Alpha specified a zone that price is
+      //       moving away from, not toward).
+      //
+      // SSOT: coordinator-alpha.ts is the sole authority for wait_condition validation.
+      // Alpha's SL and TP are never modified — only entry_mode and wait_condition.
+      if (
+        (resolvedEntryMode === 'wait_pullback') &&
+        resolvedWaitCondition &&
+        (action === 'BUY' || action === 'SELL')
+      ) {
+        const currentPx = marketContext.price;
+        const zoneMin = resolvedWaitCondition.target_entry_zone_min;
+        const zoneMax = resolvedWaitCondition.target_entry_zone_max;
+
+        const priceAlreadyInZone =
+          action === 'BUY'
+            ? currentPx <= zoneMax && currentPx >= zoneMin
+            : currentPx >= zoneMin && currentPx <= zoneMax;
+
+        const zoneInWrongDirection =
+          action === 'BUY'
+            ? zoneMin > currentPx
+            : zoneMax < currentPx;
+
+        if (priceAlreadyInZone) {
+          resolvedEntryMode = 'execute_now';
+          resolvedWaitCondition = undefined;
+          console.warn(
+            `[Alpha Coordinator] CCIP-2026-0324B: wait_pullback zone contains current price — converting to execute_now. ` +
+            `action=${action} currentPx=${currentPx} zone=${zoneMin}–${zoneMax}. Symbol=${symbol}.`
+          );
+        } else if (zoneInWrongDirection) {
+          logViolation({
+            violationType: 'WAIT_PULLBACK_ZONE_DIRECTION_INVERTED',
+            severity: 'high',
+            source: 'coordinator-alpha',
+            description: `wait_pullback zone is on wrong side of current price for ${action}. currentPx=${currentPx} zone=${zoneMin}–${zoneMax}. Price is moving away from zone — silent intent failure prevented. Downgraded to execute_now.`,
+            symbol: marketContext.symbol,
+            userId: userId || 'unknown',
+          }).catch(() => {});
+          resolvedEntryMode = 'execute_now';
+          resolvedWaitCondition = undefined;
+          console.warn(
+            `[Alpha Coordinator] CCIP-2026-0324B: WAIT_PULLBACK_ZONE_DIRECTION_INVERTED — zone is on wrong side of current price for ${action}. ` +
+            `currentPx=${currentPx} zone=${zoneMin}–${zoneMax}. Downgraded to execute_now. Symbol=${symbol}.`
+          );
+        }
       }
 
       // CCIP-FIX (breakout contradiction guard):
@@ -5074,6 +5272,34 @@ Return PURE JSON only — all required fields from the schema in my system promp
         }
       }
 
+      // CCIP-2026-0324G: trader_statement extraction and word count enforcement.
+      // The output schema requires 80+ words. This post-LLM check extracts the field,
+      // logs a governance violation when it is absent or too short, and passes it downstream
+      // for audit trail and UI display. Trade is NOT blocked — the statement is advisory
+      // audit infrastructure. Under token pressure (long answer_sheet), the statement may
+      // degrade silently; this guard makes the degradation observable.
+      // SSOT: coordinator-alpha.ts is the sole extraction and enforcement point.
+      const rawTraderStatement = typeof parsed.trader_statement === 'string' ? parsed.trader_statement : undefined;
+      const traderStatementWordCount = rawTraderStatement
+        ? rawTraderStatement.trim().split(/\s+/).filter(Boolean).length
+        : 0;
+      if (action === 'BUY' || action === 'SELL') {
+        if (!rawTraderStatement || traderStatementWordCount < 30) {
+          logViolation({
+            violationType: 'TRADER_STATEMENT_ABSENT_OR_TOO_SHORT',
+            severity: 'low',
+            source: 'coordinator-alpha',
+            description: `trader_statement ${rawTraderStatement ? `has only ${traderStatementWordCount} words` : 'is absent'}. Schema requires 80+ words. Token budget pressure likely.`,
+            symbol: marketContext.symbol,
+            userId: userId || 'unknown',
+          }).catch(() => {});
+          console.warn(
+            `[Alpha Coordinator] CCIP-2026-0324G: trader_statement ${rawTraderStatement ? `too short (${traderStatementWordCount} words)` : 'absent'}. ` +
+            `Schema requires 80+ words. Symbol=${symbol}.`
+          );
+        }
+      }
+
       // CCIP-2026-0321A: Extract Alpha's per-trade deviation tolerance.
       // Alpha states max_entry_deviation_pips as an integer in the BUY/SELL output schema.
       // If missing or invalid, apply a per-asset-class fallback so execution never crashes.
@@ -5131,7 +5357,9 @@ Return PURE JSON only — all required fields from the schema in my system promp
         entry_advisory: entryAdvisory || undefined,
         answer_sheet: answerSheet,
         // CCIP-2026-0321A: Alpha's stated tolerance — passed to executor for enforcement
-        max_entry_deviation_pips: action !== 'NO_TRADE' ? alphaMaxDeviationPips : undefined
+        max_entry_deviation_pips: action !== 'NO_TRADE' ? alphaMaxDeviationPips : undefined,
+        // CCIP-2026-0324G: Pass trader_statement through for audit trail and UI display
+        trader_statement: rawTraderStatement
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
