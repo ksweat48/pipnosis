@@ -4546,8 +4546,12 @@ Return PURE JSON only — all required fields from the schema in my system promp
       // Action: advisory violation only. Trade is NOT blocked. The omission is logged so it
       // can be tracked for prompt compliance over time.
       // SSOT: sweepFacts is the authoritative signal for whether sweep data was present.
+      // NOTE: capturedSweepFacts captures the outer-scope variable into the post-LLM block
+      // to avoid any bundle-scope closure issues with the minifier.
+      const capturedSweepFacts = sweepFacts;
       if (
-        sweepFacts?.sweep_detected &&
+        capturedSweepFacts != null &&
+        capturedSweepFacts.sweep_detected &&
         answerSheet &&
         (!answerSheet.liquidity_sweep_read || answerSheet.liquidity_sweep_read.trim() === '' || answerSheet.liquidity_sweep_read.toUpperCase() === 'NONE')
       ) {
@@ -4555,13 +4559,13 @@ Return PURE JSON only — all required fields from the schema in my system promp
           violationType: 'LIQUIDITY_SWEEP_READ_OMITTED',
           severity: 'medium',
           source: 'coordinator-alpha',
-          description: `Sweep sensor data was present (sweep_type=${sweepFacts.sweep_type}, BOS=${sweepFacts.has_bos}) but Alpha omitted liquidity_sweep_read from answer_sheet. This is a MANDATORY field when sweep data is injected.`,
+          description: `Sweep sensor data was present (sweep_type=${capturedSweepFacts.sweep_type}, BOS=${capturedSweepFacts.has_bos}) but Alpha omitted liquidity_sweep_read from answer_sheet. This is a MANDATORY field when sweep data is injected.`,
           symbol: marketContext.symbol,
           userId: userId || 'unknown',
         }).catch(() => {});
         console.warn(
           `[Alpha Coordinator] CCIP-2026-0324C: LIQUIDITY_SWEEP_READ_OMITTED — sweep data was present ` +
-          `(type=${sweepFacts.sweep_type}, BOS=${sweepFacts.has_bos}) but liquidity_sweep_read is absent. ` +
+          `(type=${capturedSweepFacts.sweep_type}, BOS=${capturedSweepFacts.has_bos}) but liquidity_sweep_read is absent. ` +
           `Symbol=${symbol}.`
         );
       }
