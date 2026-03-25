@@ -424,6 +424,34 @@ export interface AlphaDecision {
      * SSOT: alpha-identity.ts defines the mandatory format. coordinator-alpha.ts enforces presence.
      */
     liquidity_sweep_read?: string;
+    /**
+     * Q12: Market phase classification on the control TF.
+     * ACCUMULATION | EXPANSION | DISTRIBUTION | RETRACEMENT | REVERSAL
+     * Named candle evidence FIRST, phase label as conclusion.
+     * Must be consistent with Q4_momentum_stage — conflicts require thesis_coherence_statement resolution.
+     *
+     * CCIP-2026-0325A: Mandatory field. Missing or blank = governance violation.
+     * SSOT: alpha-identity.ts defines the format. coordinator-alpha.ts extracts and audits.
+     */
+    Q12_market_phase?: string;
+    /**
+     * Session boundary prices — named prices Alpha is reasoning from.
+     * CCIP-2026-0325A: Forces Alpha to surface the actual session levels, not reason from
+     * implicit assumptions. UNKNOWN is acceptable when data is unavailable. Blank is a violation.
+     */
+    session_high?: number | null | string;
+    session_low?: number | null | string;
+    prior_session_high?: number | null | string;
+    prior_session_low?: number | null | string;
+    /**
+     * session_sweep_status: Which session boundaries have been swept and which remain as draw.
+     * MANDATORY for London and NY sessions on forex instruments.
+     * Format: "ASIAN_LOW_SWEPT at [price] | ASIAN_HIGH_INTACT at [price]" etc.
+     *
+     * CCIP-2026-0325A: Mandatory field for London and NY sessions.
+     * SSOT: alpha-identity.ts defines the format. coordinator-alpha.ts extracts for audit/learning.
+     */
+    session_sweep_status?: string;
   };
   // CCIP-2026-0321A: Alpha-owned entry deviation tolerance.
   // Max pips the live fill may drift from Alpha's planned entry before the setup is
@@ -3537,6 +3565,11 @@ The following contradictions require explicit resolution in thesis_coherence_sta
 - intermarket_correlation = DIVERGENT: I must acknowledge the divergence and name why the primary instrument's structure overrides it — or I reduce confidence accordingly.
 - Q8D = DELIVERY_BEARISH on a BUY action: I must name the specific intraday or session-level structural reason that justifies trading against the weekly delivery narrative — or I reduce confidence by at least 10 points.
 - Q8D = DELIVERY_BULLISH on a SELL action: I must name the specific intraday or session-level structural reason that justifies trading against the weekly delivery narrative — or I reduce confidence by at least 10 points.
+- Q12 = DISTRIBUTION on a BUY action (continuation): I must name the specific structural reason the distribution is a false signal or has resolved — or output NO_TRADE. DISTRIBUTION + BUY continuation without a named structural change is a contradiction.
+- Q12 = ACCUMULATION + entry_mode = execute_now: I must confirm a specific named trigger has fired (Q6 must name the event). ACCUMULATION phase with no fired trigger and execute_now is a coherence violation — the move has not started yet.
+- Q12 conflicts with Q4_momentum_stage: If Q12=EXPANSION but Q4=EXHAUSTED, or Q12=ACCUMULATION but Q4=FRESH with strong bodies — I must resolve this contradiction explicitly. Q12 (control TF) and Q4 (confirmation TF) operating on different timeframes is valid but must be named and explained.
+- session_sweep_status = NEITHER_SWEPT on a LONDON or NY directional trade: If both Asian/London boundaries are intact and I am taking a direction trade with execute_now, I must name the specific structural reason I am not waiting for the sweep to define direction. Entering before the session sweep fires without a named structural basis reduces confluence by definition.
+- kill_zone = OUTSIDE_KILL_ZONE on a forex execute_now trade: I must name the specific structural reason a trade outside a kill zone has genuine institutional follow-through probability. "Structure is clear" is not sufficient — I must name the active draw and why it does not require kill zone timing.
 
 If I cannot resolve a contradiction with a specific named reason, I output NO_TRADE.
 If I can resolve it, I write the resolution in thesis_coherence_statement — not a generic acknowledgment, a specific named reason.
@@ -3907,6 +3940,27 @@ Return PURE JSON only — all required fields from the schema in my system promp
       }
 
       // Note: narrativeValidation is already set by parseDecision()
+
+      // CCIP-2026-0325A: Q12 market phase omission audit.
+      // Advisory violation only — trade is NOT blocked. Logged for governance audit trail.
+      if (
+        decision.answer_sheet &&
+        (!decision.answer_sheet.Q12_market_phase ||
+          decision.answer_sheet.Q12_market_phase.trim() === '')
+      ) {
+        logViolation({
+          violationType: 'Q12_MARKET_PHASE_OMITTED',
+          severity: 'low',
+          source: 'coordinator-alpha',
+          description: `Alpha omitted Q12_market_phase from answer_sheet. This is a mandatory field per CCIP-2026-0325A. Phase classification on the control TF is required for session-phase audit trail.`,
+          symbol: marketContext.symbol,
+          userId: userId || 'unknown',
+        }).catch(() => {});
+        console.warn(
+          `[Alpha Coordinator] CCIP-2026-0325A: Q12_MARKET_PHASE_OMITTED — ` +
+          `Symbol=${marketContext.symbol}, Action=${decision.action}.`
+        );
+      }
 
       // Add Phase 5: Pattern Intelligence
       if (patternIntelligence) {
@@ -4481,6 +4535,30 @@ Return PURE JSON only — all required fields from the schema in my system promp
         // MANDATORY when sweepFacts.sweep_detected was true. Validated below.
         liquidity_sweep_read: typeof rawAnswerSheet.liquidity_sweep_read === 'string'
           ? rawAnswerSheet.liquidity_sweep_read
+          : undefined,
+        // CCIP-2026-0325A: Q12 market phase — mandatory field. Extracted for audit and learning.
+        // Missing = governance violation (logged below, not a trade block).
+        Q12_market_phase: typeof rawAnswerSheet.Q12_market_phase === 'string'
+          ? rawAnswerSheet.Q12_market_phase
+          : undefined,
+        // CCIP-2026-0325A: Session boundary prices — named prices Alpha reasoned from.
+        // Accept number, null, or string "UNKNOWN". Silently drop if not present.
+        session_high: (rawAnswerSheet.session_high !== undefined && rawAnswerSheet.session_high !== '')
+          ? rawAnswerSheet.session_high
+          : undefined,
+        session_low: (rawAnswerSheet.session_low !== undefined && rawAnswerSheet.session_low !== '')
+          ? rawAnswerSheet.session_low
+          : undefined,
+        prior_session_high: (rawAnswerSheet.prior_session_high !== undefined && rawAnswerSheet.prior_session_high !== '')
+          ? rawAnswerSheet.prior_session_high
+          : undefined,
+        prior_session_low: (rawAnswerSheet.prior_session_low !== undefined && rawAnswerSheet.prior_session_low !== '')
+          ? rawAnswerSheet.prior_session_low
+          : undefined,
+        // CCIP-2026-0325A: session_sweep_status — mandatory for London/NY forex sessions.
+        // Extracted for audit trail. No code-layer hard gate — prompt-level enforcement.
+        session_sweep_status: typeof rawAnswerSheet.session_sweep_status === 'string'
+          ? rawAnswerSheet.session_sweep_status
           : undefined,
       } : undefined;
 
