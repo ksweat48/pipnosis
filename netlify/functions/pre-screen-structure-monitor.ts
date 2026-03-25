@@ -1,42 +1,36 @@
 /**
  * Pre-Screen Structure Monitor — Scheduled Netlify Function
  *
+ * CCIP-2026-0325C: Phase-Aware Confluence Calibration
+ *
  * Responsibility:
  * - Runs every 5 minutes (schedule: every-5-min cron)
  * - Evaluates 10+ technical signals for 9 symbols × 3 styles = 27 rows
  * - Uses ONLY pre-aggregated forex_candles (zero external API calls)
- * - Writes full signal confluence data to pre_screen_results via upsert
+ * - Detects current market phase (ACCUMULATION/EXPANSION/DISTRIBUTION/RETRACEMENT/REVERSAL)
+ * - Applies phase-specific signal weight multipliers from alpha_phase_confluence_calibration
+ * - Writes phase-contextual signal confluence data to pre_screen_results via upsert
  *
  * SSOT Compliance:
  * - forex_candles is the single candle data authority
  * - pre_screen_results is the SSOT for structural pre-screen state
- * - SYMBOLS array is the single source of truth — derived from DEFAULT_WATCHLIST (src/config/watchlist.ts)
+ * - alpha_phase_confluence_calibration is the SSOT for phase-specific weight multipliers
+ * - SYMBOLS array is the single source of truth — derived from DEFAULT_WATCHLIST
  * - No business logic duplication with Alpha — this is a READINESS INDICATOR only
- * - Alpha reads the same raw candle data and will reach the same or better conclusions
  *
- * CCIP Governance:
- * - Additive extension: all existing columns (rule1_met, rule2_met, alignment_status) preserved
- * - All writes are upserts (idempotent, no duplicate rows)
- * - Service-role client used (RLS policy: service_role can INSERT/UPDATE)
- * - Errors logged per row — one failure does not abort the entire run
- * - SYMBOLS must always match DEFAULT_WATCHLIST exactly — any change requires CCIP review
+ * Phase-Aware Scoring:
+ * - Market phase is detected from candle evidence (same evidence Alpha reads)
+ * - Signal weights are multiplied by phase-specific calibration multipliers
+ * - readiness_score reflects context-relative quality, not flat signal accumulation
+ * - A 3/7 confluence in ACCUMULATION at a boundary scores higher than 3/7 mid-trend
+ * - The 50% Alpha confidence threshold is unchanged — the score reflects what Alpha sees
  *
- * Purpose for Users:
- * - Tells users WHEN the market structure is most ready for a scan
- * - Higher readiness_score = more technical signals aligning = better moment to run Alpha
- * - Does NOT replace Alpha — gives users the timing signal to launch Alpha at the right moment
- *
- * Signals Evaluated (10 total):
- *  1. BOS (Break of Structure) — last close beyond prior candle's extreme
- *  2. Liquidity Sweep — wick >= 1.5x body in counter-trend direction (existing Rule 2)
- *  3. ChoCH (Change of Character) — two consecutive closes that flip structure
- *  4. Fair Value Gap (FVG) — a 3-candle imbalance gap between candle 1 high and candle 3 low
- *  5. Pin Bar / Long Wick Rejection — wick >= 2x body with small opposite wick
- *  6. Engulfing Candle — body fully engulfs prior candle's body
- *  7. EMA Stack — 9/21/50 EMAs all aligned (9 > 21 > 50 for bull, inverse for bear)
- *  8. Momentum Divergence — price making lower low but RSI making higher low (or inverse)
- *  9. ATR Expansion — last candle's range >= 1.3x ATR(14) — market is moving, not compressed
- * 10. Order Block Proximity — price near a prior bearish or bullish order block candle
+ * Key change from flat scoring:
+ * - ACCUMULATION: STRUCTURE, LIQUIDITY, TIMING signals carry 1.8x weight
+ * - EXPANSION: TREND (BOS+EMA_STACK), MOMENTUM carry 1.8x weight
+ * - DISTRIBUTION: CHOCH carries 2x weight; EMA_STACK reduced to 0.7x
+ * - RETRACEMENT: FVG and ORDER_BLOCK (zone proximity) elevated to 1.5x
+ * - REVERSAL: CHOCH elevated to 1.8–1.9x; existing 4/7 minimum governance preserved
  */
 
 import type { Handler } from '@netlify/functions';
@@ -45,9 +39,7 @@ import { getSupabaseAdmin } from './_shared/supabase-admin';
 const supabase = getSupabaseAdmin();
 
 /**
- * SSOT: This array must exactly match DEFAULT_WATCHLIST in src/config/watchlist.ts.
- * Governance: Do NOT add or remove symbols here without a CCIP change request
- * that also updates watchlist.ts. These are the 9 official Pipnosis trading pairs.
+ * SSOT: Must match DEFAULT_WATCHLIST in src/config/watchlist.ts.
  */
 const SYMBOLS = [
   'XAUUSD', 'US30', 'NAS100', 'SPX500',
@@ -61,7 +53,17 @@ const STYLE_TIMEFRAME_MAP: Record<string, string> = {
   INTRADAY: 'H4',
 };
 
+/**
+ * Maps MICRO_INTRADAY and INTRADAY to 'SWING' for calibration lookup.
+ * SCALP has its own calibration row. SWING covers both longer styles.
+ */
+function styleToCalibrationKey(style: string): 'SCALP' | 'SWING' {
+  return style === 'SCALP' ? 'SCALP' : 'SWING';
+}
+
 const CANDLE_COUNT = 60;
+
+type MarketPhase = 'ACCUMULATION' | 'EXPANSION' | 'DISTRIBUTION' | 'RETRACEMENT' | 'REVERSAL' | 'UNKNOWN';
 
 interface CandleRow {
   open: number;
@@ -70,6 +72,21 @@ interface CandleRow {
   close: number;
   close_time: string;
 }
+
+interface PhaseCalibrationRow {
+  market_phase: string;
+  trade_style: string;
+  min_signals_required: number;
+  load_bearing_dimensions: string[];
+  signal_weight_multipliers: Record<string, number>;
+  expected_confidence_band_min: number;
+  expected_confidence_band_max: number;
+  historical_win_rate: number | null;
+  sample_size: number;
+  rationale: string;
+}
+
+type CalibrationMatrix = Record<string, Record<string, PhaseCalibrationRow>>;
 
 async function getCandlesForSymbol(symbol: string, timeframe: string): Promise<CandleRow[]> {
   const { data, error } = await supabase
@@ -84,7 +101,21 @@ async function getCandlesForSymbol(symbol: string, timeframe: string): Promise<C
   return (data as CandleRow[]).reverse();
 }
 
-// ─── EMA calculation ─────────────────────────────────────────────────────────
+async function loadCalibrationMatrix(): Promise<CalibrationMatrix> {
+  const { data, error } = await supabase.rpc('get_phase_calibration_matrix');
+  if (error || !data) {
+    console.warn('[PreScreenMonitor] Could not load calibration matrix — using flat weights');
+    return {};
+  }
+  const matrix: CalibrationMatrix = {};
+  for (const row of data as PhaseCalibrationRow[]) {
+    if (!matrix[row.market_phase]) matrix[row.market_phase] = {};
+    matrix[row.market_phase][row.trade_style] = row;
+  }
+  return matrix;
+}
+
+// ─── EMA calculation ──────────────────────────────────────────────────────────
 
 function calcEMA(closes: number[], period: number): number[] {
   if (closes.length < period) return [];
@@ -99,7 +130,7 @@ function calcEMA(closes: number[], period: number): number[] {
   return result;
 }
 
-// ─── ATR calculation ─────────────────────────────────────────────────────────
+// ─── ATR calculation ──────────────────────────────────────────────────────────
 
 function calcATR(candles: CandleRow[], period = 14): number {
   if (candles.length < period + 1) return 0;
@@ -117,7 +148,7 @@ function calcATR(candles: CandleRow[], period = 14): number {
   return trs.slice(-period).reduce((a, b) => a + b, 0) / period;
 }
 
-// ─── RSI calculation ─────────────────────────────────────────────────────────
+// ─── RSI calculation ──────────────────────────────────────────────────────────
 
 function calcRSI(closes: number[], period = 14): number[] {
   if (closes.length < period + 1) return [];
@@ -148,9 +179,91 @@ function calcRSI(closes: number[], period = 14): number[] {
   return rsi;
 }
 
-// ─── Signal weights ───────────────────────────────────────────────────────────
+// ─── Market phase detection ───────────────────────────────────────────────────
+/**
+ * Detects market phase from the last 20 candles using the same evidence
+ * Alpha reads in Q12. This keeps the pre-screen and Alpha in alignment.
+ *
+ * Detection logic:
+ * - REVERSAL: A BOS (close beyond prior swing) has fired against the recent trend
+ * - DISTRIBUTION: Bodies shrinking + wicks growing + failed new high/low
+ * - EXPANSION: Consecutive new highs/lows + growing bodies + ATR expansion
+ * - RETRACEMENT: Counter-direction move of 2-5 candles against established trend
+ * - ACCUMULATION: Equal highs and lows, small bodies, no clear direction
+ */
+function detectMarketPhase(candles: CandleRow[], atr: number): MarketPhase {
+  if (candles.length < 20) return 'UNKNOWN';
 
-const SIGNAL_WEIGHTS: Record<string, number> = {
+  const recent = candles.slice(-20);
+  const last = recent[recent.length - 1];
+  const closes = recent.map(c => c.close);
+  const bodies = recent.map(c => Math.abs(c.close - c.open));
+  const avgBody = bodies.reduce((a, b) => a + b, 0) / bodies.length;
+  const recentBodies = bodies.slice(-5);
+  const avgRecentBody = recentBodies.reduce((a, b) => a + b, 0) / recentBodies.length;
+
+  // Swing high/low over lookback
+  const highs = recent.map(c => c.high);
+  const lows = recent.map(c => c.low);
+  const priorHigh = Math.max(...highs.slice(0, 10));
+  const priorLow = Math.min(...lows.slice(0, 10));
+  const recentHigh = Math.max(...highs.slice(10));
+  const recentLow = Math.min(...lows.slice(10));
+
+  // Determine prior direction from first half of lookback
+  const firstClose = closes[0];
+  const midClose = closes[9];
+  const priorBullish = midClose > firstClose;
+
+  // REVERSAL: Last close has crossed the prior swing opposite to direction
+  const bullReversal = priorBullish && last.close < priorLow;
+  const bearReversal = !priorBullish && last.close > priorHigh;
+  if (bullReversal || bearReversal) return 'REVERSAL';
+
+  // EXPANSION: Sequential new highs (bull) or new lows (bear) with body growth
+  const makingNewHighs = recentHigh > priorHigh && avgRecentBody >= avgBody * 0.9;
+  const makingNewLows = recentLow < priorLow && avgRecentBody >= avgBody * 0.9;
+  if (makingNewHighs || makingNewLows) {
+    // Check for DISTRIBUTION: bodies shrinking despite new high/low
+    const firstHalfBody = bodies.slice(-10, -5).reduce((a, b) => a + b, 0) / 5;
+    const secondHalfBody = bodies.slice(-5).reduce((a, b) => a + b, 0) / 5;
+    const upperWickRatio = recent.slice(-5).reduce((acc, c) => {
+      const body = Math.abs(c.close - c.open);
+      const upperWick = c.high - Math.max(c.open, c.close);
+      return acc + (body > 0 ? upperWick / body : 0);
+    }, 0) / 5;
+
+    if (secondHalfBody < firstHalfBody * 0.7 && upperWickRatio > 0.6 && makingNewHighs) {
+      return 'DISTRIBUTION';
+    }
+    if (secondHalfBody < firstHalfBody * 0.7 && makingNewLows) {
+      return 'DISTRIBUTION';
+    }
+    return 'EXPANSION';
+  }
+
+  // RETRACEMENT: Counter-trend move against established direction, 3-8 candles
+  const last5Closes = closes.slice(-5);
+  const last5Bullish = last5Closes[4] > last5Closes[0];
+  const establishedBullish = closes[14] > closes[5];
+  const retracing = (establishedBullish && !last5Bullish) || (!establishedBullish && last5Bullish);
+  const retracementDepth = Math.abs(last.close - closes[14]);
+  if (retracing && retracementDepth < atr * 3 && retracementDepth > atr * 0.5) {
+    return 'RETRACEMENT';
+  }
+
+  // ACCUMULATION: Low range, small bodies, no sustained direction
+  const rangeSize = recentHigh - recentLow;
+  const isCompressed = rangeSize < atr * 2.5 && avgRecentBody < avgBody * 0.8;
+  if (isCompressed) return 'ACCUMULATION';
+
+  // Default: if expanding but not cleanly directional
+  return 'EXPANSION';
+}
+
+// ─── Baseline signal weights (flat, before phase multipliers) ─────────────────
+
+const BASE_SIGNAL_WEIGHTS: Record<string, number> = {
   BOS: 20,
   LIQUIDITY_SWEEP: 15,
   CHOCH: 18,
@@ -162,6 +275,67 @@ const SIGNAL_WEIGHTS: Record<string, number> = {
   ATR_EXPANSION: 10,
   ORDER_BLOCK: 12,
 };
+
+/**
+ * Maps Q7 dimension names to pre-screen signal names for load-bearing display.
+ * Allows the UI to highlight which signals are load-bearing in the current phase.
+ */
+const DIMENSION_TO_SIGNAL_MAP: Record<string, string[]> = {
+  STRUCTURE: ['BOS', 'CHOCH', 'ORDER_BLOCK'],
+  LIQUIDITY: ['LIQUIDITY_SWEEP', 'FVG'],
+  TIMING: ['ATR_EXPANSION'],
+  TREND: ['BOS', 'EMA_STACK'],
+  MOMENTUM: ['MOMENTUM_DIV', 'ATR_EXPANSION', 'ENGULFING'],
+  PATTERN: ['PIN_BAR', 'ENGULFING'],
+  CHOCH: ['CHOCH'],
+  EMA_STACK: ['EMA_STACK'],
+  BOS: ['BOS'],
+};
+
+function getPhaseWeights(
+  calibrationMatrix: CalibrationMatrix,
+  phase: MarketPhase,
+  styleKey: 'SCALP' | 'SWING',
+): { weights: Record<string, number>; calibration: PhaseCalibrationRow | null } {
+  if (phase === 'UNKNOWN' || !calibrationMatrix[phase]) {
+    return { weights: { ...BASE_SIGNAL_WEIGHTS }, calibration: null };
+  }
+
+  const cal = calibrationMatrix[phase][styleKey];
+  if (!cal || !cal.signal_weight_multipliers) {
+    return { weights: { ...BASE_SIGNAL_WEIGHTS }, calibration: null };
+  }
+
+  const adjusted: Record<string, number> = {};
+  for (const [signal, baseWeight] of Object.entries(BASE_SIGNAL_WEIGHTS)) {
+    const multiplier = cal.signal_weight_multipliers[signal] ?? 1.0;
+    adjusted[signal] = Math.round(baseWeight * multiplier * 10) / 10;
+  }
+
+  return { weights: adjusted, calibration: cal };
+}
+
+/**
+ * Determines which firing signals are load-bearing for the current phase.
+ * Used by the UI to highlight the key signals.
+ */
+function identifyLoadBearingSignals(
+  firingSignals: string[],
+  calibration: PhaseCalibrationRow | null,
+): string[] {
+  if (!calibration || !calibration.load_bearing_dimensions) return [];
+
+  const loadBearingSignals: string[] = [];
+  for (const dimension of calibration.load_bearing_dimensions) {
+    const signals = DIMENSION_TO_SIGNAL_MAP[dimension] ?? [];
+    for (const sig of signals) {
+      if (firingSignals.includes(sig) && !loadBearingSignals.includes(sig)) {
+        loadBearingSignals.push(sig);
+      }
+    }
+  }
+  return loadBearingSignals;
+}
 
 // ─── Full signal evaluation ───────────────────────────────────────────────────
 
@@ -180,9 +354,18 @@ interface SignalResult {
   signal_count: number;
   dominant_signal: string;
   signal_summary: string;
+  market_phase: MarketPhase;
+  load_bearing_signals: string[];
+  phase_min_signals: number;
+  phase_confidence_band_min: number;
+  phase_confidence_band_max: number;
 }
 
-function evaluateAllSignals(candles: CandleRow[]): SignalResult {
+function evaluateAllSignals(
+  candles: CandleRow[],
+  calibrationMatrix: CalibrationMatrix,
+  styleKey: 'SCALP' | 'SWING',
+): SignalResult {
   const fallback: SignalResult = {
     rule1_met: false,
     rule2_met: false,
@@ -198,6 +381,11 @@ function evaluateAllSignals(candles: CandleRow[]): SignalResult {
     signal_count: 0,
     dominant_signal: '',
     signal_summary: 'Insufficient data',
+    market_phase: 'UNKNOWN',
+    load_bearing_signals: [],
+    phase_min_signals: 3,
+    phase_confidence_band_min: 50,
+    phase_confidence_band_max: 65,
   };
 
   if (candles.length < 10) return fallback;
@@ -210,7 +398,11 @@ function evaluateAllSignals(candles: CandleRow[]): SignalResult {
   const bullSignals: string[] = [];
   const bearSignals: string[] = [];
 
-  // ── Signal 1: BOS (Break of Structure) ──────────────────────────────────
+  const atr = calcATR(candles, 14);
+  const phase = detectMarketPhase(candles, atr);
+  const { weights: phaseWeights, calibration } = getPhaseWeights(calibrationMatrix, phase, styleKey);
+
+  // ── Signal 1: BOS (Break of Structure) ───────────────────────────────────
   const bullBOS = last.close > prev.high;
   const bearBOS = last.close < prev.low;
   const rule1_met = bullBOS || bearBOS;
@@ -222,7 +414,7 @@ function evaluateAllSignals(candles: CandleRow[]): SignalResult {
   if (bullBOS) bullSignals.push('BOS');
   if (bearBOS) bearSignals.push('BOS');
 
-  // ── Signal 2: Liquidity Sweep (existing Rule 2) ──────────────────────────
+  // ── Signal 2: Liquidity Sweep ─────────────────────────────────────────────
   const recent3 = candles.slice(-3);
   let rule2_met = false;
   let rule2_detail = '';
@@ -251,12 +443,9 @@ function evaluateAllSignals(candles: CandleRow[]): SignalResult {
       break;
     }
   }
-  if (!rule2_met) {
-    rule2_detail = 'No sweep wick >= 1.5x body in last 3 candles';
-  }
+  if (!rule2_met) rule2_detail = 'No sweep wick >= 1.5x body in last 3 candles';
 
   // ── Signal 3: ChoCH (Change of Character) ────────────────────────────────
-  // Two consecutive closes flipping structure direction
   const prev3 = candles[candles.length - 4];
   if (prev3) {
     const priorWasBearish = prev2.close < prev3.close;
@@ -264,23 +453,17 @@ function evaluateAllSignals(candles: CandleRow[]): SignalResult {
     const priorWasBullish = prev2.close > prev3.close;
     const nowBearish = prev.close < prev2.close && last.close < prev.close;
 
-    if (priorWasBearish && nowBullish) {
-      bullSignals.push('CHOCH');
-    } else if (priorWasBullish && nowBearish) {
-      bearSignals.push('CHOCH');
-    }
+    if (priorWasBearish && nowBullish) bullSignals.push('CHOCH');
+    else if (priorWasBullish && nowBearish) bearSignals.push('CHOCH');
   }
 
   // ── Signal 4: Fair Value Gap (FVG) ────────────────────────────────────────
-  // Bullish FVG: candle[i-2].high < candle[i].low (gap between them)
-  // Bearish FVG: candle[i-2].low > candle[i].high (gap between them)
   const fvgBull = prev2.high < last.low;
   const fvgBear = prev2.low > last.high;
   if (fvgBull) bullSignals.push('FVG');
   if (fvgBear) bearSignals.push('FVG');
 
   // ── Signal 5: Pin Bar / Long Wick Rejection ───────────────────────────────
-  // Wick >= 2x body, opposite wick <= 0.3x body
   const checkPinBar = (c: CandleRow): 'BUY' | 'SELL' | null => {
     const body = Math.abs(c.close - c.open);
     if (body === 0) return null;
@@ -319,8 +502,6 @@ function evaluateAllSignals(candles: CandleRow[]): SignalResult {
   }
 
   // ── Signal 8: Momentum Divergence (RSI) ──────────────────────────────────
-  // Bullish: price makes lower low but RSI makes higher low over last 10 candles
-  // Bearish: price makes higher high but RSI makes lower high
   const rsiValues = calcRSI(closes, 14);
   if (rsiValues.length >= 10) {
     const recentCloses = closes.slice(-10);
@@ -333,13 +514,11 @@ function evaluateAllSignals(candles: CandleRow[]): SignalResult {
     const rsiMin = Math.min(...recentRSI);
     const rsiMax = Math.max(...recentRSI);
 
-    // Bullish div: price near its low but RSI not at its low
     const priceLowPct = (last.close - priceMin) / (priceMax - priceMin + 0.0001);
     const rsiLowPct = (recentRSI[recentRSI.length - 1] - rsiMin) / (rsiMax - rsiMin + 0.0001);
     if (priceLowPct < 0.2 && rsiLowPct > 0.3 && rsiAtPriceMin < recentRSI[recentRSI.length - 1]) {
       bullSignals.push('MOMENTUM_DIV');
     }
-    // Bearish div: price near its high but RSI not at its high
     const priceHighPct = (last.close - priceMin) / (priceMax - priceMin + 0.0001);
     if (priceHighPct > 0.8 && rsiLowPct < 0.7 && rsiAtPriceMax > recentRSI[recentRSI.length - 1]) {
       bearSignals.push('MOMENTUM_DIV');
@@ -347,11 +526,9 @@ function evaluateAllSignals(candles: CandleRow[]): SignalResult {
   }
 
   // ── Signal 9: ATR Expansion ───────────────────────────────────────────────
-  const atr = calcATR(candles, 14);
   if (atr > 0) {
     const lastRange = last.high - last.low;
     if (lastRange >= atr * 1.3) {
-      // ATR expansion is directionally neutral — assign to whichever direction we have more signals
       const lastIsBull = last.close > last.open;
       if (lastIsBull) bullSignals.push('ATR_EXPANSION');
       else bearSignals.push('ATR_EXPANSION');
@@ -359,8 +536,6 @@ function evaluateAllSignals(candles: CandleRow[]): SignalResult {
   }
 
   // ── Signal 10: Order Block Proximity ─────────────────────────────────────
-  // Look in last 20 candles for a strong move candle (body >= 1.8x ATR)
-  // Price returning to test that candle's body zone
   if (atr > 0 && candles.length >= 20) {
     const lookback = candles.slice(-20, -3);
     for (const ob of lookback) {
@@ -369,7 +544,6 @@ function evaluateAllSignals(candles: CandleRow[]): SignalResult {
       const obIsBull = ob.close > ob.open;
       const obHigh = Math.max(ob.open, ob.close);
       const obLow = Math.min(ob.open, ob.close);
-      // Price returning to test the order block zone
       const isRetestingOB = last.low <= obHigh && last.high >= obLow;
       if (isRetestingOB) {
         if (obIsBull) bullSignals.push('ORDER_BLOCK');
@@ -380,7 +554,6 @@ function evaluateAllSignals(candles: CandleRow[]): SignalResult {
   }
 
   // ── Direction resolution ──────────────────────────────────────────────────
-  // Deduplicate signals (in case multiple candles fire same signal)
   const uniqueBull = [...new Set(bullSignals)];
   const uniqueBear = [...new Set(bearSignals)];
 
@@ -393,7 +566,6 @@ function evaluateAllSignals(candles: CandleRow[]): SignalResult {
     direction_bias = sweepDir;
   }
 
-  // Further refine direction from overall signal count
   if (direction_bias === 'NEUTRAL') {
     if (uniqueBull.length > uniqueBear.length) direction_bias = 'BUY';
     else if (uniqueBear.length > uniqueBull.length) direction_bias = 'SELL';
@@ -402,21 +574,29 @@ function evaluateAllSignals(candles: CandleRow[]): SignalResult {
   const dominantSignals = direction_bias === 'BUY' ? uniqueBull : direction_bias === 'SELL' ? uniqueBear : [];
   const signals_firing = direction_bias === 'BUY' ? uniqueBull : direction_bias === 'SELL' ? uniqueBear : [...uniqueBull, ...uniqueBear];
 
-  // ── Compute readiness score ───────────────────────────────────────────────
+  // ── Phase-aware readiness score ───────────────────────────────────────────
   let rawScore = 0;
   for (const sig of signals_firing) {
-    rawScore += SIGNAL_WEIGHTS[sig] ?? 10;
+    rawScore += phaseWeights[sig] ?? BASE_SIGNAL_WEIGHTS[sig] ?? 10;
   }
 
-  // Max possible score ≈ sum of all weights ≈ 141
-  // Normalise to 0-100
-  const maxScore = Object.values(SIGNAL_WEIGHTS).reduce((a, b) => a + b, 0);
+  // Max possible score uses phase-adjusted weights
+  const maxScore = Object.values(phaseWeights).reduce((a, b) => a + b, 0);
   const readiness_score = Math.min(100, Math.round((rawScore / maxScore) * 100));
 
-  const readiness_tier: 'GREEN' | 'YELLOW' | 'RED' =
-    readiness_score >= 65 ? 'GREEN' : readiness_score >= 35 ? 'YELLOW' : 'RED';
+  // Phase-relative tier thresholds
+  // In phases with fewer required signals (ACCUMULATION, RETRACEMENT), 3 load-bearing
+  // signals should still reach YELLOW. We use calibration band to inform tier.
+  const phaseMinSignals = calibration?.min_signals_required ?? 3;
+  const phaseBandMin = calibration?.expected_confidence_band_min ?? 50;
 
-  // ── Alignment status (preserve existing logic) ────────────────────────────
+  const greenThreshold = phaseBandMin >= 60 ? 60 : 65;
+  const yellowThreshold = phaseMinSignals <= 3 ? 30 : 35;
+
+  const readiness_tier: 'GREEN' | 'YELLOW' | 'RED' =
+    readiness_score >= greenThreshold ? 'GREEN' : readiness_score >= yellowThreshold ? 'YELLOW' : 'RED';
+
+  // ── Alignment status ──────────────────────────────────────────────────────
   let alignment_status: SignalResult['alignment_status'] = 'BLOCKED';
   if (rule1_met && rule2_met) {
     alignment_status = direction_bias !== 'NEUTRAL' ? 'ALIGNED' : 'BOTH_RULES_MET';
@@ -426,10 +606,13 @@ function evaluateAllSignals(candles: CandleRow[]): SignalResult {
     alignment_status = 'RULE2_ONLY';
   }
 
-  // ── Dominant signal ───────────────────────────────────────────────────────
+  // ── Dominant signal (by phase weight) ────────────────────────────────────
   const dominant_signal = dominantSignals.length > 0
-    ? dominantSignals.reduce((best, sig) => (SIGNAL_WEIGHTS[sig] ?? 0) > (SIGNAL_WEIGHTS[best] ?? 0) ? sig : best, dominantSignals[0])
+    ? dominantSignals.reduce((best, sig) => (phaseWeights[sig] ?? 0) > (phaseWeights[best] ?? 0) ? sig : best, dominantSignals[0])
     : '';
+
+  // ── Load-bearing signals for this phase ───────────────────────────────────
+  const load_bearing_signals = identifyLoadBearingSignals(signals_firing, calibration);
 
   // ── Signal summary ────────────────────────────────────────────────────────
   const sigCount = signals_firing.length;
@@ -459,6 +642,11 @@ function evaluateAllSignals(candles: CandleRow[]): SignalResult {
     signal_count: sigCount,
     dominant_signal,
     signal_summary,
+    market_phase: phase,
+    load_bearing_signals,
+    phase_min_signals: phaseMinSignals,
+    phase_confidence_band_min: calibration?.expected_confidence_band_min ?? 50,
+    phase_confidence_band_max: calibration?.expected_confidence_band_max ?? 65,
   };
 }
 
@@ -467,11 +655,18 @@ const handler: Handler = async () => {
   let processed = 0;
   let failed = 0;
 
+  const calibrationMatrix = await loadCalibrationMatrix();
+  const hasCalibration = Object.keys(calibrationMatrix).length > 0;
+  if (!hasCalibration) {
+    console.warn('[PreScreenMonitor] Running with flat weights — no calibration data available');
+  }
+
   for (const symbol of SYMBOLS) {
     for (const [style, timeframe] of Object.entries(STYLE_TIMEFRAME_MAP)) {
       try {
         const candles = await getCandlesForSymbol(symbol, timeframe);
-        const result = evaluateAllSignals(candles);
+        const styleKey = styleToCalibrationKey(style);
+        const result = evaluateAllSignals(candles, calibrationMatrix, styleKey);
 
         const { error } = await supabase
           .from('pre_screen_results')
@@ -494,6 +689,11 @@ const handler: Handler = async () => {
               signal_count: result.signal_count,
               dominant_signal: result.dominant_signal,
               signal_summary: result.signal_summary,
+              market_phase: result.market_phase,
+              load_bearing_signals: result.load_bearing_signals,
+              phase_min_signals: result.phase_min_signals,
+              phase_confidence_band_min: result.phase_confidence_band_min,
+              phase_confidence_band_max: result.phase_confidence_band_max,
               last_checked_at: new Date().toISOString(),
             },
             { onConflict: 'symbol,style,controlling_timeframe' },
@@ -516,11 +716,11 @@ const handler: Handler = async () => {
   }
 
   const durationMs = Date.now() - startedAt;
-  console.log(`[PreScreenMonitor] Complete: ${processed} processed, ${failed} failed in ${durationMs}ms`);
+  console.log(`[PreScreenMonitor] Complete: ${processed} processed, ${failed} failed in ${durationMs}ms (phase-calibrated: ${hasCalibration})`);
 
   return {
     statusCode: 200,
-    body: JSON.stringify({ processed, failed, durationMs }),
+    body: JSON.stringify({ processed, failed, durationMs, phaseCalibrated: hasCalibration }),
   };
 };
 

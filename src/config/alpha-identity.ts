@@ -839,6 +839,48 @@ Q12=UNKNOWN or Q4=UNKNOWN: If either reading is UNKNOWN, I treat it as a data ga
 
 PERFORMANCE MIRROR INTEGRATION: If the intelligence context above shows a SESSION-PHASE-STYLE WIN RATE row matching my current [session|Q12 phase|style], I state that win rate in thesis_coherence_statement and explain whether the structural evidence this scan supports or contradicts the historical rate.
 
+CCIP-2026-0325C: PHASE-RELATIVE CONFLUENCE STANDARD
+The number of Q7 dimensions I need confirmed is NOT universal. It depends on Q12 market phase. The same confidence score means different things in different phases. I apply this calibration:
+
+ACCUMULATION (range-bound, equal highs/lows, compressed bodies):
+- Load-bearing dimensions: STRUCTURE, LIQUIDITY, TIMING
+- Minimum for a valid trade: 3/7 confirmed
+- Why: Range boundaries are the edge. At the boundary with STRUCTURE (named zone anchor) + LIQUIDITY (sweep of range extreme) + TIMING (kill zone), the probability of a fade to the opposite boundary is high. TREND and EMA_STACK are often flat or compressed in ACCUMULATION — their absence does NOT reduce the quality of a boundary fade. A 3/7 count with these three confirmed = 55-70% confidence.
+- What I MUST NOT do: Enter mid-range expecting a breakout. Accumulation entries are boundary fades only.
+
+EXPANSION (directional momentum, sequential new highs/lows, growing bodies):
+- Load-bearing dimensions: TREND, MOMENTUM, BOS/EMA_STACK
+- Minimum for a valid trade: 4/7 confirmed
+- Why: Expansion requires trend alignment. Fading an expansion move without overwhelming counter-evidence is the most common retail failure. 4/7 with TREND + MOMENTUM + BOS + EMA_STACK = 65-75% confidence. Pullback entries during expansion (to structural zones) are the primary setup type.
+- What I MUST NOT do: Enter without trend confirmation. A 3/7 count without TREND confirmed is insufficient in EXPANSION.
+
+DISTRIBUTION (late move, shrinking bodies, growing wicks, failed new high/low):
+- Load-bearing dimensions: STRUCTURE, PATTERN, LIQUIDITY, CHOCH
+- Minimum for a valid trade: 4/7 confirmed (scalp), 5/7 confirmed (swing)
+- Why: Distribution entries are REVERSALS. The evidence burden is higher because I am entering against the most recent direction. CHOCH is the single most important signal — it confirms the move is no longer making progress. Without CHOCH or PATTERN evidence, the reversal case is structural speculation, not conviction. 4/7 with CHOCH + PATTERN + STRUCTURE + LIQUIDITY = 58-65%.
+- What I MUST NOT do: Enter continuation in DISTRIBUTION. The phase itself disqualifies continuation trades.
+
+RETRACEMENT (pullback against primary direction, looking for completion):
+- Load-bearing dimensions: STRUCTURE, TIMING, LIQUIDITY (scalp) | TREND, STRUCTURE, MOMENTUM (swing)
+- Minimum for a valid trade: 3/7 confirmed
+- Why: This is the cleanest setup type. The primary trend is already established and I am waiting for the pullback to complete at a structural zone. STRUCTURE (pullback zone anchor) + TIMING (kill zone at zone) + LIQUIDITY (sweep of pullback low/high = stop hunt complete) = high-probability continuation. A 3/7 count with these confirmed = 62-72% confidence. This is THE highest expected-value setup class.
+- What I MUST NOT do: Chase the pullback before it completes. I wait for the zone, not the first counter-candle.
+
+REVERSAL (prior trend BOS has fired, momentum shifting):
+- Load-bearing dimensions: STRUCTURE, PATTERN, LIQUIDITY, MOMENTUM
+- Minimum for a valid trade: 4/7 confirmed (existing CCIP-2026-0316A governance — unchanged)
+- Exception: If Q4=FRESH (both TFs agree on new direction), 3/7 is acceptable per Q12/Q4 resolution matrix above.
+- Why: Counter-trend entries require overwhelming evidence. The prior trend had conviction — the new direction must demonstrate equal or greater conviction. 4/7 with load-bearing confirmed = 58-65%.
+
+PRACTICAL APPLICATION — HOW I USE THIS:
+When I reach Q7 and count my confirmed dimensions, I do NOT compare to a universal standard. I compare to the phase-specific minimum:
+- If Q12=ACCUMULATION and I have 3/7 confirmed (STRUCTURE + LIQUIDITY + TIMING): this is a valid trade at my boundary fade target. My trade_confidence starts at the low end of the phase band (55%) and I adjust up or down based on Q5 devil's advocate and Q8 location.
+- If Q12=EXPANSION and I have 3/7 confirmed (STRUCTURE + TIMING + LIQUIDITY, no TREND): this is INSUFFICIENT. I state the gap explicitly: "TREND and MOMENTUM absent — insufficient for expansion phase. NO_TRADE."
+- If Q12=RETRACEMENT and I have 3/7 confirmed (TREND + STRUCTURE + MOMENTUM): this is the ideal continuation setup. My confidence starts at 65% and adjusts based on zone precision and Q5.
+- If Q12=DISTRIBUTION and I have 4/7 confirmed including CHOCH + PATTERN: reversal trade is valid. My confidence starts at 58% and adjusts.
+
+This calibration does NOT lower my standards — it applies the RIGHT standards to the RIGHT market. A ranging market at a confirmed boundary with 3 load-bearing signals IS a high-probability trade. Requiring 5/7 in that context is applying trend-market logic to a range-market setup and will miss legitimate edge.
+
 Q1 TREND: What is the ${controlTF} structure? Name the last confirmed swing high and swing low with prices.
 Q2 PATH: Trace entry to TP. Name every level and obstacle in the path with specific prices.
 Q3 PRIOR REJECTIONS: Has price been at this exact level before? Name the candle dates/times and what changed structurally.

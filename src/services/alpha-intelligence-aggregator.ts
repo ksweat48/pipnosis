@@ -142,6 +142,19 @@ export interface AlphaIntelligenceSnapshot {
   };
   sessionPhasePerformance: SessionPhasePerformanceRow[];
   setupTypeContextPerformance: SetupTypeContextPerformanceRow[];
+  phaseConfluenceCalibration: PhaseConfluenceCalibrationRow[];
+}
+
+export interface PhaseConfluenceCalibrationRow {
+  market_phase: string;
+  trade_style: string;
+  min_signals_required: number;
+  load_bearing_dimensions: string[];
+  expected_confidence_band_min: number;
+  expected_confidence_band_max: number;
+  historical_win_rate: number | null;
+  sample_size: number;
+  rationale: string;
 }
 
 export class AlphaIntelligenceAggregator {
@@ -178,7 +191,8 @@ export class AlphaIntelligenceAggregator {
         tpDistributionStats,
         counterThesisAccuracy,
         sessionPhasePerformance,
-        setupTypeContextPerformance
+        setupTypeContextPerformance,
+        phaseConfluenceCalibration
       ] = await Promise.all([
         this.getPlatformPatterns(userId),
         this.getSymbolIntelligence(userId, symbol),
@@ -198,7 +212,8 @@ export class AlphaIntelligenceAggregator {
         this.getTpDistributionStats(userId, symbol),
         this.getCounterThesisAccuracy(userId, symbol),
         sessionPhasePerformanceService.getSessionPhasePerformance(userId),
-        sessionPhasePerformanceService.getSetupTypePerformance(userId)
+        sessionPhasePerformanceService.getSetupTypePerformance(userId),
+        this.getPhaseConfluenceCalibration()
       ]);
 
       const snapshot: AlphaIntelligenceSnapshot = {
@@ -220,7 +235,8 @@ export class AlphaIntelligenceAggregator {
         tpDistributionStats,
         counterThesisAccuracy,
         sessionPhasePerformance,
-        setupTypeContextPerformance
+        setupTypeContextPerformance,
+        phaseConfluenceCalibration
       };
 
       await this.cacheIntelligence(userId, cacheKey, 'platform_patterns', snapshot);
@@ -543,8 +559,29 @@ export class AlphaIntelligenceAggregator {
       tpDistributionStats: {},
       counterThesisAccuracy: {},
       sessionPhasePerformance: [],
-      setupTypeContextPerformance: []
+      setupTypeContextPerformance: [],
+      phaseConfluenceCalibration: []
     };
+  }
+
+  private async getPhaseConfluenceCalibration(): Promise<PhaseConfluenceCalibrationRow[]> {
+    try {
+      const { data, error } = await supabase.rpc('get_phase_calibration_matrix');
+      if (error || !data) return [];
+      return (data as PhaseConfluenceCalibrationRow[]).map(row => ({
+        market_phase: row.market_phase,
+        trade_style: row.trade_style,
+        min_signals_required: row.min_signals_required,
+        load_bearing_dimensions: row.load_bearing_dimensions,
+        expected_confidence_band_min: row.expected_confidence_band_min,
+        expected_confidence_band_max: row.expected_confidence_band_max,
+        historical_win_rate: row.historical_win_rate,
+        sample_size: row.sample_size,
+        rationale: row.rationale
+      }));
+    } catch {
+      return [];
+    }
   }
 
   private async getCounterfactualInsights(userId: string): Promise<AlphaIntelligenceSnapshot['counterfactualInsights']> {

@@ -66,6 +66,11 @@ interface PreScreenRow {
   signal_count: number;
   dominant_signal: string;
   signal_summary: string;
+  market_phase?: string;
+  load_bearing_signals?: string[];
+  phase_min_signals?: number;
+  phase_confidence_band_min?: number;
+  phase_confidence_band_max?: number;
 }
 
 interface StructuralAlertRow {
@@ -573,16 +578,35 @@ const MarketClosedBanner: React.FC = () => {
   );
 };
 
+// ─── Phase badge config ───────────────────────────────────────────────────────
+
+const PHASE_BADGE_CONFIG: Record<string, { bg: string; text: string; border: string; label: string }> = {
+  ACCUMULATION:  { bg: 'bg-sky-500/15',    text: 'text-sky-300',    border: 'border-sky-500/30',    label: 'ACCUM' },
+  EXPANSION:     { bg: 'bg-emerald-500/15', text: 'text-emerald-300', border: 'border-emerald-500/30', label: 'EXPAN' },
+  DISTRIBUTION:  { bg: 'bg-orange-500/15', text: 'text-orange-300', border: 'border-orange-500/30', label: 'DIST' },
+  RETRACEMENT:   { bg: 'bg-amber-500/15',  text: 'text-amber-300',  border: 'border-amber-500/30',  label: 'RETRACE' },
+  REVERSAL:      { bg: 'bg-rose-500/15',   text: 'text-rose-300',   border: 'border-rose-500/30',   label: 'REVERSAL' },
+  UNKNOWN:       { bg: 'bg-slate-700/30',  text: 'text-slate-500',  border: 'border-slate-600/30',  label: '?' },
+};
+
+function getPhaseBadge(phase: string | undefined) {
+  if (!phase || phase === 'UNKNOWN' || !PHASE_BADGE_CONFIG[phase]) return null;
+  return PHASE_BADGE_CONFIG[phase];
+}
+
 // ─── Signal Readiness rows renderer ─────────────────────────────────────────
 
 function renderSignalRow(row: PreScreenRow) {
   const tier = (row.readiness_tier ?? 'RED') as 'GREEN' | 'YELLOW' | 'RED';
   const cfg = getTierConfig(tier);
   const signals = Array.isArray(row.signals_firing) ? row.signals_firing : [];
+  const loadBearing = Array.isArray(row.load_bearing_signals) ? row.load_bearing_signals : [];
   const isBuy = row.direction_bias === 'BUY';
   const isSell = row.direction_bias === 'SELL';
   const score = row.readiness_score ?? 0;
   const isWeak = tier === 'RED';
+  const phaseBadge = getPhaseBadge(row.market_phase);
+  const hasPhaseContext = phaseBadge !== null && row.phase_confidence_band_min !== undefined;
 
   return (
     <div
@@ -603,22 +627,49 @@ function renderSignalRow(row: PreScreenRow) {
         ) : (
           <span className="text-[10px] text-slate-600 flex-shrink-0">—</span>
         )}
+        {phaseBadge && (
+          <span
+            className={`inline-block px-1.5 py-px rounded text-[9px] font-bold border flex-shrink-0 ${phaseBadge.bg} ${phaseBadge.text} ${phaseBadge.border}`}
+            title={`Phase: ${row.market_phase} | Needs ${row.phase_min_signals ?? 3}/7 | Band: ${row.phase_confidence_band_min ?? 50}-${row.phase_confidence_band_max ?? 65}%`}
+          >
+            {phaseBadge.label}
+          </span>
+        )}
+        {hasPhaseContext && !isWeak && (
+          <span className="text-[9px] text-slate-500 flex-shrink-0 tabular-nums">
+            {row.phase_confidence_band_min}-{row.phase_confidence_band_max}%
+          </span>
+        )}
         <span className={`text-[9px] font-bold ml-auto flex-shrink-0 ${cfg.labelColor}`}>{cfg.label}</span>
       </div>
 
       {signals.length > 0 && (
         <div className="flex flex-wrap gap-1 px-3 pb-2">
-          {signals.slice(0, 6).map((sig) => (
-            <span
-              key={sig}
-              className={`inline-block px-1.5 py-px rounded text-[9px] font-semibold border ${cfg.pillBg}`}
-            >
-              {SIGNAL_LABEL_MAP[sig] ?? sig}
-            </span>
-          ))}
+          {signals.slice(0, 6).map((sig) => {
+            const isLB = loadBearing.includes(sig);
+            return (
+              <span
+                key={sig}
+                className={`inline-block px-1.5 py-px rounded text-[9px] font-semibold border transition-all ${
+                  isLB
+                    ? 'bg-amber-500/20 border-amber-400/50 text-amber-300 shadow-sm shadow-amber-500/20'
+                    : cfg.pillBg
+                }`}
+                title={isLB ? 'Load-bearing signal for this phase' : undefined}
+              >
+                {SIGNAL_LABEL_MAP[sig] ?? sig}
+                {isLB && <span className="ml-0.5 opacity-70">*</span>}
+              </span>
+            );
+          })}
           {signals.length > 6 && (
             <span className="inline-block px-1.5 py-px rounded text-[9px] text-slate-500 border border-slate-700/30">
               +{signals.length - 6}
+            </span>
+          )}
+          {loadBearing.length > 0 && (
+            <span className="inline-block px-1.5 py-px text-[9px] text-amber-500/60 ml-0.5">
+              * key signal
             </span>
           )}
         </div>
@@ -881,9 +932,14 @@ export const SessionIntelligenceMonitor: React.FC<SessionIntelligenceMonitorProp
               );
             })}
 
-            <p className="text-[10px] text-slate-600 pt-1 border-t border-slate-700/30">
-              Score = weighted confluence of 10 signals. Green &ge;65 · Yellow &ge;35 · Red &lt;35. Updated globally every 5 min.
-            </p>
+            <div className="pt-2 border-t border-slate-700/30 space-y-1">
+              <p className="text-[10px] text-slate-600">
+                Score = phase-weighted confluence of 10 signals. Thresholds adjust by market phase (CCIP-2026-0325C).
+              </p>
+              <p className="text-[10px] text-slate-600">
+                Green &ge;60-65 · Yellow &ge;30-35 · Red below threshold. Phase badge = market context. * = load-bearing signal.
+              </p>
+            </div>
           </div>
         ) : (
           <div className="rounded-lg p-5 border border-blue-500/20 bg-blue-900/10 text-center">

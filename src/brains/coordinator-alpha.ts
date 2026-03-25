@@ -5700,6 +5700,23 @@ Return PURE JSON only — all required fields from the schema in my system promp
       });
     }
 
+    if (intelligence.phaseConfluenceCalibration && intelligence.phaseConfluenceCalibration.length > 0) {
+      parts.push('\nCCIP-2026-0325C: PHASE-RELATIVE CONFLUENCE CALIBRATION (live standards):');
+      parts.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      parts.push('Format: phase|style → min/7 | load-bearing signals | confidence band | win rate');
+      intelligence.phaseConfluenceCalibration.forEach(row => {
+        const wr = row.historical_win_rate !== null && row.sample_size >= 5
+          ? `${row.historical_win_rate.toFixed(0)}%(n=${row.sample_size})`
+          : 'no data yet';
+        const lb = row.load_bearing_dimensions.join('+');
+        const edge = row.historical_win_rate !== null && row.historical_win_rate >= 60 ? ' [CALIBRATED EDGE]' : '';
+        parts.push(`  ${row.market_phase}|${row.trade_style} → ${row.min_signals_required}/7 | ${lb} | ${row.expected_confidence_band_min}-${row.expected_confidence_band_max}% | ${wr}${edge}`);
+      });
+      parts.push('INSTRUCTION: When Q12 phase matches a row above, apply that row\'s min_signals and band to my Q7 evaluation.');
+      parts.push('A setup meeting min_signals with ALL load-bearing dimensions firing = TRADEABLE regardless of universal count.');
+      parts.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    }
+
     return parts.join('\n');
   }
 
