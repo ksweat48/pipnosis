@@ -3875,6 +3875,36 @@ Return PURE JSON only — all required fields from the schema in my system promp
       if (sweepFacts && sweepFacts.sweep_detected) {
         decision.sweepFacts = sweepFacts;
       }
+
+      // CCIP-2026-0324C: liquidity_sweep_read omission detector.
+      // Placed here (in coordinate) because sweepFacts is only in scope in this method.
+      // parseDecision() previously referenced sweepFacts as an undefined variable, causing
+      // a ReferenceError caught by its outer try/catch and surfaced as a misleading
+      // "Parse error: sweepFacts is not defined" console error on every scan.
+      // Action: advisory violation only. Trade is NOT blocked.
+      if (
+        sweepFacts != null &&
+        sweepFacts.sweep_detected &&
+        decision.answer_sheet &&
+        (!decision.answer_sheet.liquidity_sweep_read ||
+          decision.answer_sheet.liquidity_sweep_read.trim() === '' ||
+          decision.answer_sheet.liquidity_sweep_read.toUpperCase() === 'NONE')
+      ) {
+        logViolation({
+          violationType: 'LIQUIDITY_SWEEP_READ_OMITTED',
+          severity: 'medium',
+          source: 'coordinator-alpha',
+          description: `Sweep sensor data was present (sweep_type=${sweepFacts.sweep_type}, BOS=${sweepFacts.has_bos}) but Alpha omitted liquidity_sweep_read from answer_sheet. This is a MANDATORY field when sweep data is injected.`,
+          symbol: marketContext.symbol,
+          userId: userId || 'unknown',
+        }).catch(() => {});
+        console.warn(
+          `[Alpha Coordinator] CCIP-2026-0324C: LIQUIDITY_SWEEP_READ_OMITTED — sweep data was present ` +
+          `(type=${sweepFacts.sweep_type}, BOS=${sweepFacts.has_bos}) but liquidity_sweep_read is absent. ` +
+          `Symbol=${marketContext.symbol}.`
+        );
+      }
+
       // Note: narrativeValidation is already set by parseDecision()
 
       // Add Phase 5: Pattern Intelligence
@@ -4539,36 +4569,9 @@ Return PURE JSON only — all required fields from the schema in my system promp
         }
       }
 
-      // CCIP-2026-0324C: liquidity_sweep_read omission detector.
-      // alpha-identity.ts declares liquidity_sweep_read as MANDATORY whenever sweep sensor
-      // data was injected into the prompt (sweepFacts.sweep_detected === true).
-      // This guard detects silent omission — Alpha received sweep facts but produced no read.
-      // Action: advisory violation only. Trade is NOT blocked. The omission is logged so it
-      // can be tracked for prompt compliance over time.
-      // SSOT: sweepFacts is the authoritative signal for whether sweep data was present.
-      // NOTE: capturedSweepFacts captures the outer-scope variable into the post-LLM block
-      // to avoid any bundle-scope closure issues with the minifier.
-      const capturedSweepFacts = sweepFacts;
-      if (
-        capturedSweepFacts != null &&
-        capturedSweepFacts.sweep_detected &&
-        answerSheet &&
-        (!answerSheet.liquidity_sweep_read || answerSheet.liquidity_sweep_read.trim() === '' || answerSheet.liquidity_sweep_read.toUpperCase() === 'NONE')
-      ) {
-        logViolation({
-          violationType: 'LIQUIDITY_SWEEP_READ_OMITTED',
-          severity: 'medium',
-          source: 'coordinator-alpha',
-          description: `Sweep sensor data was present (sweep_type=${capturedSweepFacts.sweep_type}, BOS=${capturedSweepFacts.has_bos}) but Alpha omitted liquidity_sweep_read from answer_sheet. This is a MANDATORY field when sweep data is injected.`,
-          symbol: marketContext.symbol,
-          userId: userId || 'unknown',
-        }).catch(() => {});
-        console.warn(
-          `[Alpha Coordinator] CCIP-2026-0324C: LIQUIDITY_SWEEP_READ_OMITTED — sweep data was present ` +
-          `(type=${capturedSweepFacts.sweep_type}, BOS=${capturedSweepFacts.has_bos}) but liquidity_sweep_read is absent. ` +
-          `Symbol=${symbol}.`
-        );
-      }
+      // CCIP-2026-0324C: Moved to coordinate() after parseDecision() returns,
+      // where sweepFacts is in scope. See the check immediately after the
+      // parseDecision() call in coordinate().
 
       // CCIP-2026-0324E: Q5 failure_probability vs trade_confidence numeric consistency.
       // The coherence obligation (prompt-level) requires Alpha to name an edge preserver when
