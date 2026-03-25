@@ -12,7 +12,7 @@ import { patternIntentClassifier, type MultiTimeframeIntentAnalysis } from './pa
 import { patternConfidenceAdjuster, type ConfidenceAdjustment, type PatternConfidenceInput } from './pattern-confidence-adjuster';
 import { fetchPreAggregatedCandles, type CandleData } from './candle-data-service';
 import { logger } from '../lib/logger';
-import { getStyleMTFConfig, resolveCanonicalStyle } from '../config/timeframe-hierarchy';
+import { getStyleMTFConfig, resolveCanonicalStyle, getMTFMinCandles } from '../config/timeframe-hierarchy';
 
 export interface PatternIntelligenceInput {
   symbol: string;
@@ -24,6 +24,12 @@ export interface PatternIntelligenceInput {
   baseConfidence: number;
   tradeDirection: 'long' | 'short';
   liquidityIntentConfirms?: boolean;
+  /**
+   * CCIP-2026-ASIAN-SESSION: UTC hour at scan time.
+   * Used to resolve session-aware MTF minimum candle thresholds (SSOT: timeframe-hierarchy.ts).
+   * If omitted, defaults to current UTC hour at analysis time.
+   */
+  utcHour?: number;
 }
 
 export interface MTFDataCompleteness {
@@ -103,12 +109,14 @@ class MultiTimeframePatternIntelligence {
       this.fetchTimeframeCandles(input.symbol, config.entryTimeframe, 'LTF'),
     ]);
 
-    // CCIP 2026-03: Compute data completeness — minimum viable candle counts per layer
-    const MTF_MIN_CANDLES = { HTF: 10, MTF: 8, LTF: 6 };
+    // CCIP-2026-ASIAN-SESSION: Resolve session-aware minimum candle thresholds from SSOT.
+    // Asian hours (23:00–08:00 UTC) use reduced thresholds so Alpha can reason with
+    // the naturally smaller candle count produced by low-volatility accumulation.
+    const minCandles = getMTFMinCandles(input.utcHour);
     const dataCompleteness: MTFDataCompleteness = {
-      htfComplete: htfCandles.length >= MTF_MIN_CANDLES.HTF,
-      mtfComplete: mtfCandles.length >= MTF_MIN_CANDLES.MTF,
-      ltfComplete: ltfCandles.length >= MTF_MIN_CANDLES.LTF,
+      htfComplete: htfCandles.length >= minCandles.HTF,
+      mtfComplete: mtfCandles.length >= minCandles.MTF,
+      ltfComplete: ltfCandles.length >= minCandles.LTF,
       htfCandles: htfCandles.length,
       mtfCandles: mtfCandles.length,
       ltfCandles: ltfCandles.length,
@@ -121,9 +129,10 @@ class MultiTimeframePatternIntelligence {
       logger.warn('[MTF Pattern Intelligence] Incomplete candle data for one or more layers', {
         symbol: input.symbol,
         tradeStyle: input.tradeStyle,
-        htf: `${htfCandles.length}/${MTF_MIN_CANDLES.HTF} (${config.contextTimeframe})`,
-        mtf: `${mtfCandles.length}/${MTF_MIN_CANDLES.MTF} (${config.trendTimeframe})`,
-        ltf: `${ltfCandles.length}/${MTF_MIN_CANDLES.LTF} (${config.entryTimeframe})`,
+        htf: `${htfCandles.length}/${minCandles.HTF} (${config.contextTimeframe})`,
+        mtf: `${mtfCandles.length}/${minCandles.MTF} (${config.trendTimeframe})`,
+        ltf: `${ltfCandles.length}/${minCandles.LTF} (${config.entryTimeframe})`,
+        sessionThresholds: minCandles,
       });
     }
 

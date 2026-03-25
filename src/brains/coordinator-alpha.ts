@@ -1043,6 +1043,7 @@ class AlphaCoordinatorBrain {
           baseConfidence: 55,
           tradeDirection,
           liquidityIntentConfirms: sweepFacts ? sweepFacts.sweep_detected && sweepFacts.has_bos : false,
+          utcHour: new Date().getUTCHours(),
         });
 
         console.log(`[Alpha Coordinator] 📊 Pattern Analysis Complete:`, {

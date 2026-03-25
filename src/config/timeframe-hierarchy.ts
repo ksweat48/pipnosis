@@ -249,6 +249,53 @@ export function getStyleMTFConfig(tradeStyle: CanonicalTradeStyle): MultiTimefra
 }
 
 /**
+ * MTF MINIMUM CANDLE COUNTS — SSOT
+ *
+ * CCIP-2026-ASIAN-SESSION: These are the AUTHORITATIVE minimum candle thresholds
+ * for multi-timeframe pattern intelligence. All code that gates on candle count
+ * MUST import from here. No inline magic numbers are permitted.
+ *
+ * STANDARD: Full-liquidity sessions (London, NY, London-NY overlap).
+ * REDUCED: Asian session (00:00–08:00 UTC) where candles form slowly.
+ *   - Asian FOREX consolidation produces valid structural context with fewer candles.
+ *   - Lowering thresholds allows Alpha to reason with available Asian structure
+ *     rather than silently returning NO_TRADE before he is even consulted.
+ *   - The hard gate (NULL result) is preserved — only the minimum count is relaxed.
+ *
+ * GOVERNANCE: Only the STANDARD threshold may be tightened by future migrations.
+ * The REDUCED threshold must never fall below 1 (ensures at least one candle per layer).
+ */
+export interface MTFMinCandles {
+  HTF: number;
+  MTF: number;
+  LTF: number;
+}
+
+export const MTF_MIN_CANDLES_STANDARD: MTFMinCandles = {
+  HTF: 10,
+  MTF: 8,
+  LTF: 6,
+} as const;
+
+export const MTF_MIN_CANDLES_ASIAN_SESSION: MTFMinCandles = {
+  HTF: 4,
+  MTF: 3,
+  LTF: 3,
+} as const;
+
+/**
+ * Resolve the correct MTF minimum candle set based on UTC hour.
+ * Asian session = 23:00–08:00 UTC (hours 23, 0–7 inclusive).
+ */
+export function getMTFMinCandles(utcHour?: number): MTFMinCandles {
+  if (utcHour === undefined) {
+    utcHour = new Date().getUTCHours();
+  }
+  const isAsian = utcHour >= 23 || utcHour < 8;
+  return isAsian ? MTF_MIN_CANDLES_ASIAN_SESSION : MTF_MIN_CANDLES_STANDARD;
+}
+
+/**
  * CCIP-STYLE-ALIAS-2026: Resolves any user-facing or legacy style string to CanonicalTradeStyle.
  * This is the SSOT style resolver — all components must use this instead of local maps.
  *
