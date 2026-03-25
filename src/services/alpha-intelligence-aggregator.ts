@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
 import { ZoneMetaLearningService } from './zone-meta-learning-service';
 import { tpMetaLearning } from './tp-meta-learning';
+import { sessionPhasePerformanceService, SessionPhasePerformanceRow, SetupTypeContextPerformanceRow } from './session-phase-performance-service';
 
 export interface AlphaIntelligenceSnapshot {
   platformPatterns: {
@@ -139,6 +140,8 @@ export interface AlphaIntelligenceSnapshot {
       totalTrades: number;
     };
   };
+  sessionPhasePerformance: SessionPhasePerformanceRow[];
+  setupTypeContextPerformance: SetupTypeContextPerformanceRow[];
 }
 
 export class AlphaIntelligenceAggregator {
@@ -173,7 +176,9 @@ export class AlphaIntelligenceAggregator {
         slHuntCorrections,
         sessionStreakState,
         tpDistributionStats,
-        counterThesisAccuracy
+        counterThesisAccuracy,
+        sessionPhasePerformance,
+        setupTypeContextPerformance
       ] = await Promise.all([
         this.getPlatformPatterns(userId),
         this.getSymbolIntelligence(userId, symbol),
@@ -191,7 +196,9 @@ export class AlphaIntelligenceAggregator {
         this.getSlHuntCorrections(userId, symbol),
         this.getSessionStreakState(userId),
         this.getTpDistributionStats(userId, symbol),
-        this.getCounterThesisAccuracy(userId, symbol)
+        this.getCounterThesisAccuracy(userId, symbol),
+        sessionPhasePerformanceService.getSessionPhasePerformance(userId),
+        sessionPhasePerformanceService.getSetupTypePerformance(userId)
       ]);
 
       const snapshot: AlphaIntelligenceSnapshot = {
@@ -211,7 +218,9 @@ export class AlphaIntelligenceAggregator {
         slHuntCorrections,
         sessionStreakState,
         tpDistributionStats,
-        counterThesisAccuracy
+        counterThesisAccuracy,
+        sessionPhasePerformance,
+        setupTypeContextPerformance
       };
 
       await this.cacheIntelligence(userId, cacheKey, 'platform_patterns', snapshot);
@@ -532,7 +541,9 @@ export class AlphaIntelligenceAggregator {
       slHuntCorrections: {},
       sessionStreakState: null,
       tpDistributionStats: {},
-      counterThesisAccuracy: {}
+      counterThesisAccuracy: {},
+      sessionPhasePerformance: [],
+      setupTypeContextPerformance: []
     };
   }
 

@@ -815,6 +815,30 @@ Q12 MARKET PHASE: Read the ${controlTF} candles. Describe what you see (body siz
 - REVERSAL: Prior trend structure has been broken. ${controlTF} BOS against the trend direction has fired. Momentum is shifting. Setup type = counter-trend with strong confluence requirement (minimum 4/7 confluence).
 Phase label is the CONCLUSION of candle evidence, not the opening declaration. Q12 must be consistent with Q4 (momentum stage) — if Q4=FRESH but Q12=DISTRIBUTION, resolve in thesis_coherence_statement.
 
+CCIP-2026-0325B: Q12/Q4 PHASE-CONFLICT RESOLUTION PROTOCOL
+When Q12 (${controlTF} market phase) and Q4 (${confirmationTF} momentum stage) produce conflicting readings, I apply this resolution tree — not generic acknowledgment. This protocol is mandatory in thesis_coherence_statement whenever a conflict exists.
+
+RESOLUTION AUTHORITY BY TIMEFRAME ROLE:
+- ${controlTF} (control TF / Q12) governs: trade direction, target selection, hold duration expectation, session phase interpretation.
+- ${confirmationTF} (confirmation TF / Q4) governs: entry timing, entry mode choice, trigger validity.
+
+CONFLICT RESOLUTION MATRIX:
+Q12=ACCUMULATION + Q4=FRESH: Control TF says range — confirmation TF sees early momentum. Resolution: Q12 wins for direction and target. I am NOT chasing the early move. Entry is at range extreme only. Target is the opposite range boundary, not beyond. entry_mode = push_confirmation until price reaches the range extreme structural anchor.
+
+Q12=EXPANSION + Q4=EXHAUSTED: Control TF says directional — confirmation TF says move is spent. Resolution: Q4 wins for entry timing. I do NOT enter now. I wait for the confirmation TF to show a fresh leg (new FRESH candle sequence after a structural pullback). entry_mode = wait_pullback. Target selection uses the Q12 expansion structure.
+
+Q12=DISTRIBUTION + Q4=FRESH: Control TF says late move, reversal risk — confirmation TF sees fresh momentum in the direction of the late move. Resolution: Q12 wins. The fresh momentum is a trap. I do NOT trade continuation. Setup type = reversal or NO_TRADE. If I take the trade, it is counter to the Q4 direction, with confirmation TF trigger in the reversal direction.
+
+Q12=DISTRIBUTION + Q4=DEVELOPING: Highest-risk combination. Distribution with developing continuation momentum. Resolution: Q12 wins. High failure probability for continuation. NO continuation trades. Reversal entries require 4/7 confluence minimum. State this explicitly in Q5.
+
+Q12=RETRACEMENT + Q4=EXHAUSTED: Control TF pulling back, confirmation TF exhausted in the pullback direction. Resolution: This is the IDEAL continuation setup if Q12 structure supports it. The exhausted pullback = pullback is complete. entry_mode may be execute_now IF a trigger has fired at the structural anchor where the pullback should end.
+
+Q12=REVERSAL + Q4=FRESH: Both timeframes agree on a new move beginning. Resolution: Highest-quality setup type available. Minimum 3/7 confluence required (reduced from standard because both TFs agree). State this alignment explicitly.
+
+Q12=UNKNOWN or Q4=UNKNOWN: If either reading is UNKNOWN, I treat it as a data gap and set confluence score accordingly. UNKNOWN Q12 = −1 from confluence. UNKNOWN Q4 = execute_now is PROHIBITED.
+
+PERFORMANCE MIRROR INTEGRATION: If the intelligence context above shows a SESSION-PHASE-STYLE WIN RATE row matching my current [session|Q12 phase|style], I state that win rate in thesis_coherence_statement and explain whether the structural evidence this scan supports or contradicts the historical rate.
+
 Q1 TREND: What is the ${controlTF} structure? Name the last confirmed swing high and swing low with prices.
 Q2 PATH: Trace entry to TP. Name every level and obstacle in the path with specific prices.
 Q3 PRIOR REJECTIONS: Has price been at this exact level before? Name the candle dates/times and what changed structurally.

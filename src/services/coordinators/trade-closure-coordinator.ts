@@ -20,6 +20,7 @@ import { goalSessionStateMachine } from './goal-session-state-machine';
 import { notificationCoordinator } from './notification-coordinator';
 import { MarketDataService } from '../market-data-service';
 import { modalQueueManager } from '../modal-queue-manager';
+import { sessionPhasePerformanceService, SessionPhasePerformanceService } from '../session-phase-performance-service';
 
 /**
  * SSOT Close Reason Types - MUST match database constraint
@@ -208,6 +209,10 @@ class TradeClosureCoordinator {
 
       await this.logToAudit(request, tradeData, pnl, 'coordinator');
 
+      // CCIP-2026-0325B: Session-phase-style performance mirror
+      // Non-blocking. Fires after confirmed RPC success. Authority: sessionPhasePerformanceService.
+      this.recordPerformanceOutcome(request, trade, pnl).catch(() => {});
+
       const goalResult = await this.checkGoalAfterClose(request.userId, request.goalSessionId);
 
       await this.updateSessionAfterClose(request.goalSessionId, request.userId, request.closeReason);
@@ -324,6 +329,46 @@ class TradeClosureCoordinator {
       });
     } catch (error) {
       console.error(`[TradeClosureCoordinator] Failed to log audit:`, error);
+    }
+  }
+
+  private async recordPerformanceOutcome(
+    request: CloseTradeRequest,
+    trade: Record<string, unknown>,
+    pnl: number
+  ): Promise<void> {
+    try {
+      const openedAt = trade['opened_at'] as string | undefined;
+      const sessionName = openedAt
+        ? SessionPhasePerformanceService.deriveSessionName(openedAt)
+        : 'unknown';
+
+      const regimeSnapshot = trade['regime_snapshot'] as Record<string, unknown> | null;
+      const marketPhase = SessionPhasePerformanceService.extractMarketPhase(regimeSnapshot);
+
+      const tradeStyle = (trade['alpha_style'] as string | null) ||
+                         (trade['resolved_style'] as string | null) ||
+                         'unknown';
+
+      const setupType = (trade['setup_type'] as string | null) ||
+                        (trade['ai_strategy_used'] as string | null) ||
+                        null;
+
+      const confidence = Number(trade['trade_confidence'] || trade['ai_confidence'] || 0);
+      const isWin = pnl > 0;
+
+      await sessionPhasePerformanceService.recordTradeOutcome({
+        userId:      request.userId,
+        sessionName,
+        marketPhase,
+        tradeStyle,
+        setupType,
+        isWin,
+        pnl,
+        confidence,
+      });
+    } catch {
+      // Non-blocking — closure result is already committed
     }
   }
 

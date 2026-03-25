@@ -5667,6 +5667,39 @@ Return PURE JSON only — all required fields from the schema in my system promp
       }
     }
 
+    // CCIP-2026-0325B: Session-phase-style performance mirror
+    // Highest-leverage learning signal: empirical win rate at the exact intersection
+    // Alpha reasons about — session × phase × style and session × phase × setup_type.
+    if (intelligence.sessionPhasePerformance && intelligence.sessionPhasePerformance.length > 0) {
+      parts.push('\nSESSION-PHASE-STYLE WIN RATES (your empirical edge by context):');
+      parts.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      parts.push('Format: session|phase|style → WR%(W/L) avg_pnl avg_conf');
+
+      const rows = intelligence.sessionPhasePerformance
+        .slice(0, 20)
+        .map(r => {
+          const wr = (r.win_rate * 100).toFixed(0);
+          const wrFlag = r.win_rate >= 0.60 ? ' [EDGE]' : r.win_rate <= 0.35 ? ' [AVOID]' : '';
+          return `  ${r.session_name}|${r.market_phase}|${r.trade_style} → ${wr}%(${r.wins}W/${r.losses}L) $${Number(r.avg_pnl).toFixed(2)}/trade conf=${r.avg_confidence.toFixed(0)}${wrFlag}`;
+        });
+
+      parts.push(...rows);
+      parts.push('INSTRUCTION: When my active session + current Q12 phase + active style matches a row above,');
+      parts.push('I MUST reference that win rate in my thesis_coherence_statement. A row marked [AVOID]');
+      parts.push('requires an explicit structural reason to proceed — it is not a block, but it MUST be named.');
+      parts.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    }
+
+    if (intelligence.setupTypeContextPerformance && intelligence.setupTypeContextPerformance.length > 0) {
+      const setupRows = intelligence.setupTypeContextPerformance.slice(0, 15);
+      parts.push('\nSETUP-TYPE WIN RATES BY CONTEXT (empirical):');
+      setupRows.forEach(r => {
+        const wr = (r.win_rate * 100).toFixed(0);
+        const flag = r.win_rate >= 0.60 ? ' [STRONG]' : r.win_rate <= 0.35 ? ' [WEAK]' : '';
+        parts.push(`  ${r.session_name}|${r.market_phase}|${r.setup_type} → ${wr}%(${r.wins}W/${r.losses}L) $${Number(r.avg_pnl).toFixed(2)}/trade${flag}`);
+      });
+    }
+
     return parts.join('\n');
   }
 
