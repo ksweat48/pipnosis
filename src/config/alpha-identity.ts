@@ -780,7 +780,9 @@ ENTRY_MODE AND NO_TRADE — INCOMPATIBLE FIELDS:
 NO_TRADE:
 {
   "action": "NO_TRADE",
-  "trade_confidence": <0-100>,
+  "trade_confidence": <0-100 — PATIENCE CONVICTION: how strongly do I believe waiting is the correct professional decision RIGHT NOW? 90 = I am certain no qualifying setup exists. 50 = the market is clearly not offering an edge. 20 = I am uncertain — I sense something developing but it has not confirmed. This is NOT trade-outcome confidence. It is my conviction that sitting out is correct.>,
+  "directional_lean": "BUY_LEAN | SELL_LEAN | NEUTRAL — If I had a directional opinion that did not reach execution threshold, I name it here. NEUTRAL means I genuinely saw no directional conviction in the structure. BUY_LEAN/SELL_LEAN means I was leaning that way but the setup was insufficient.",
+  "lean_confidence": <0-100 — Only populate when directional_lean is BUY_LEAN or SELL_LEAN. My honest estimate of how strong the lean was — how close was I to having an executable thesis? 0 when directional_lean is NEUTRAL.>,
   "reasoning": { "thesis_why": "Specific reason no trade exists — structural, not absence of perfection" },
   "block_reason": "One of: ${ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS.join(' | ')} | NO_EDGE"
 }`;

@@ -329,6 +329,23 @@ export interface AlphaDecision {
   estimated_duration_minutes?: string | number;
   thesis_coherence_statement?: string;
   arena_chosen?: 'LONG' | 'SHORT' | 'NO_TRADE';
+  /**
+   * CCIP-2026-0327C: NO_TRADE transparency fields.
+   *
+   * execution_status: What category of outcome this decision represents.
+   *   EXECUTED — trade was taken (BUY/SELL with confidence >= 50)
+   *   BLOCKED_BY_FLOOR — Alpha said BUY/SELL but confidence < 50 (below MINIMUM_TRADE_CONFIDENCE)
+   *   NO_TRADE_GENUINE — Alpha said NO_TRADE with patience conviction >= 50 (clearly saw no edge)
+   *   NO_TRADE_LEAN — Alpha said NO_TRADE but had a directional lean < 50 patience conviction
+   *
+   * directional_lean: Alpha's directional opinion when no trade was taken.
+   *   Only meaningful when action=NO_TRADE. Tells us if Alpha was leaning a direction.
+   *
+   * lean_confidence: How strong was the lean (0-100). 0 when NEUTRAL.
+   */
+  execution_status?: 'EXECUTED' | 'BLOCKED_BY_FLOOR' | 'NO_TRADE_GENUINE' | 'NO_TRADE_LEAN';
+  directional_lean?: 'BUY_LEAN' | 'SELL_LEAN' | 'NEUTRAL';
+  lean_confidence?: number;
   wall_violations?: string[];
   tp_nudged?: boolean;
   tp_nudge_reason?: string;
@@ -5046,15 +5063,25 @@ Return PURE JSON only — all required fields from the schema in my system promp
         // for genuine infrastructure failures only.
         const reasonedConfidence = Math.max(10, Math.min(100, tradeConfidence));
         // CCIP-2026-0319A (Fix 2): entry_mode is unconditionally undefined for NO_TRADE.
-        // entryMode was already set to undefined above for NO_TRADE actions, but we log
-        // here when the LLM hallucinated entry_mode on a NO_TRADE response so governance
-        // can monitor LLM prompt compliance over time.
         if (parsed.entry_mode !== undefined && parsed.entry_mode !== null) {
           console.warn(
             `[Alpha Coordinator] NO_TRADE_ENTRY_STRIPPED: LLM returned entry_mode="${parsed.entry_mode}" and/or wait_condition on a NO_TRADE decision. ` +
             `Both fields stripped. Symbol=${symbol}. This indicates prompt non-compliance — review CCIP-2026-0319A.`
           );
         }
+        // CCIP-2026-0327C: Extract directional lean fields from Alpha's NO_TRADE response.
+        // These are purely diagnostic — never used for execution routing.
+        const rawLean = parsed.directional_lean as string | undefined;
+        const directionalLean: 'BUY_LEAN' | 'SELL_LEAN' | 'NEUTRAL' =
+          rawLean === 'BUY_LEAN' || rawLean === 'SELL_LEAN' ? rawLean : 'NEUTRAL';
+        const leanConfidence: number = directionalLean !== 'NEUTRAL'
+          ? Math.min(100, Math.max(0, Number(parsed.lean_confidence) || 0))
+          : 0;
+        // execution_status: patience conviction >= 50 = Alpha clearly saw no edge (GENUINE)
+        //                   patience conviction < 50 = Alpha was somewhat uncertain (LEAN)
+        const executionStatus: 'NO_TRADE_GENUINE' | 'NO_TRADE_LEAN' =
+          reasonedConfidence >= 50 ? 'NO_TRADE_GENUINE' : 'NO_TRADE_LEAN';
+
         return {
           action,
           decision: action,
@@ -5076,7 +5103,10 @@ Return PURE JSON only — all required fields from the schema in my system promp
             entry_mode: undefined,
             style: resolvedStyle,
           },
-          narrativeValidation: narrativeValidation || undefined
+          narrativeValidation: narrativeValidation || undefined,
+          execution_status: executionStatus,
+          directional_lean: directionalLean,
+          lean_confidence: leanConfidence,
         };
       }
 

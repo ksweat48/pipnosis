@@ -83,7 +83,15 @@ export interface NoTradeRejectionContext {
   constraintSandwichSymbols: { symbol: string; noiseFloor: number; slMax: number }[];
   suggestedStyles: string[];
   hasWeakConsensus: boolean;
-  symbolReasons: { symbol: string; action: string; reasoning: string; confidence: number }[];
+  symbolReasons: {
+    symbol: string;
+    action: string;
+    reasoning: string;
+    confidence: number;
+    execution_status?: 'EXECUTED' | 'BLOCKED_BY_FLOOR' | 'NO_TRADE_GENUINE' | 'NO_TRADE_LEAN';
+    directional_lean?: 'BUY_LEAN' | 'SELL_LEAN' | 'NEUTRAL';
+    lean_confidence?: number;
+  }[];
   summary: string;
 }
 
@@ -1216,6 +1224,11 @@ class GoalSessionLiveEngine {
       try {
         const eligibleEvaluations = allEvaluations;
 
+        // CCIP-2026-0327C: Include ALL decisions (including NO_TRADE) in allCandidates so
+        // users can see what Alpha was thinking for every symbol. execution_status provides
+        // the three-state breakdown: EXECUTED, BLOCKED_BY_FLOOR, NO_TRADE_GENUINE, NO_TRADE_LEAN.
+        // The .filter() that previously stripped NO_TRADE has been removed — silence is gone.
+        const minConfGate = config.minConfidence ?? ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE;
         const allCandidates: ScanCandidate[] = eligibleEvaluations.length > 0
           ? eligibleEvaluations.map(evaluation => ({
               symbol: evaluation.symbol,
@@ -1230,30 +1243,38 @@ class GoalSessionLiveEngine {
               adversarialLevel: evaluation.snapshot?.adversarial?.level
             }))
           : Array.from(filteredDecisions.entries())
-              .filter(([, dec]) => dec?.action && dec.action !== 'NO_TRADE')
+              .filter(([, dec]) => dec?.action != null)
               .map(([symbol, dec]) => {
                 const snapshot = filteredSnapshots.find(s => s.symbol === symbol);
+                const action = dec!.action;
+                const confidence = dec?.confidence || 0;
+                let executionStatus: ScanCandidate['execution_status'];
+                if (action === 'BUY' || action === 'SELL') {
+                  executionStatus = confidence >= minConfGate ? 'EXECUTED' : 'BLOCKED_BY_FLOOR';
+                } else {
+                  executionStatus = dec?.execution_status ?? (confidence >= 50 ? 'NO_TRADE_GENUINE' : 'NO_TRADE_LEAN');
+                }
                 return {
                   symbol,
-                  action: dec?.action === 'WAIT'
-                    ? 'WAIT'
-                    : (dec?.action || 'WAIT') as 'BUY' | 'SELL' | 'WAIT',
-                  confidence: dec?.confidence || 0,
-                  score: dec?.confidence || 0,
+                  action: (action === 'WAIT' ? 'WAIT' : action) as ScanCandidate['action'],
+                  confidence,
+                  score: confidence,
                   reasoning: dec?.reasoning || '',
                   trend: snapshot?.trend,
                   volatility: snapshot?.volatility,
-                  adversarialLevel: snapshot?.adversarial?.level
+                  adversarialLevel: snapshot?.adversarial?.level,
+                  execution_status: executionStatus,
+                  directional_lean: dec?.directional_lean,
+                  lean_confidence: dec?.lean_confidence,
                 };
               });
 
-        const topCandidate = allCandidates[0] || null;
+        const topCandidate = allCandidates.find(c => c.execution_status === 'EXECUTED') || allCandidates[0] || null;
         const topCandidateDecision = topCandidate ? filteredDecisions.get(topCandidate.symbol) : null;
-        const minConfidenceGate = config.minConfidence ?? ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE;
         const rejectionReason = selectedWinners.length === 0
           ? 'No symbols passed selection criteria'
-          : (topCandidateDecision && topCandidateDecision.confidence < minConfidenceGate
-            ? `Confidence ${topCandidateDecision.confidence}% below threshold ${minConfidenceGate}%`
+          : (topCandidateDecision && topCandidateDecision.confidence < minConfGate
+            ? `Confidence ${topCandidateDecision.confidence}% below threshold ${minConfGate}%`
             : null);
 
         await scanResultsManager.storeScanResult({
@@ -3852,6 +3873,9 @@ This learning will carry forward to improve future sessions!
           action: decision.action || 'NO_TRADE',
           reasoning: truncated,
           confidence: decision.confidence || decision.trade_confidence || 0,
+          execution_status: decision.execution_status,
+          directional_lean: decision.directional_lean,
+          lean_confidence: decision.lean_confidence,
         });
       }
     }

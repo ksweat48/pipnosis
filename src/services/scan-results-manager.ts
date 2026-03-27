@@ -4,7 +4,7 @@ import { logger, LogCategory } from '@/lib/logger';
 
 export interface ScanCandidate {
   symbol: string;
-  action: 'BUY' | 'SELL' | 'WAIT';
+  action: 'BUY' | 'SELL' | 'WAIT' | 'NO_TRADE';
   confidence: number;
   score: number;
   reasoning: string;
@@ -12,6 +12,16 @@ export interface ScanCandidate {
   volatility?: string;
   session?: string;
   adversarialLevel?: string;
+  /**
+   * CCIP-2026-0327C: Execution status for full transparency.
+   * EXECUTED — trade taken (BUY/SELL, confidence >= 50)
+   * BLOCKED_BY_FLOOR — Alpha wanted BUY/SELL but confidence < 50
+   * NO_TRADE_GENUINE — Alpha clearly saw no edge (patience conviction >= 50)
+   * NO_TRADE_LEAN — Alpha uncertain, had directional lean but below threshold
+   */
+  execution_status?: 'EXECUTED' | 'BLOCKED_BY_FLOOR' | 'NO_TRADE_GENUINE' | 'NO_TRADE_LEAN';
+  directional_lean?: 'BUY_LEAN' | 'SELL_LEAN' | 'NEUTRAL';
+  lean_confidence?: number;
 }
 
 export interface ScanResult {
