@@ -3381,10 +3381,10 @@ ${streakContextLine}
 SCAN STANDARD (CCIP-2026-0324A): I read the market first and form a view from evidence. A valid trade requires: named structure, a fired entry trigger, genuine confluence of supporting dimensions, and entry positioned correctly within the structural zone. An ACCEPTABLE setup (50-69% confidence) that satisfies these criteria is a real trade. A scan that produces NO_TRADE because no setup meets these criteria is a successful and honest scan. Outputting a trade to avoid returning NO_TRADE is a worse outcome than NO_TRADE.
 
 CONFIDENCE BANDS (for this scan):
-- EXCELLENT (85-100%): Execute with maximum conviction
-- SOLID (70-84%): Execute with standard sizing
-- ACCEPTABLE (50-69%): Execute — this is the hidden gem category
-- INSUFFICIENT (0-49%): Genuine NO_TRADE — no structural basis
+- EXCELLENT: Execute with maximum conviction — textbook setup, overwhelming structural alignment
+- SOLID: Execute with standard sizing — strong structural case, clear confluence
+- ACCEPTABLE: Execute — valid professional trade with genuine structural basis. This is the hidden gem category.
+- INSUFFICIENT: Genuine NO_TRADE — no structural basis exists
 
 I read macro intelligence first, then interpret candle evidence through that lens. My system prompt defines how I think. What follows is the market data for this scan.
 
@@ -3562,9 +3562,9 @@ The following contradictions require explicit resolution in thesis_coherence_sta
 - Q4 = EXHAUSTED momentum: I must explain whether this is a reversal or continuation thesis and why the exhaustion does not invalidate it.
 - Q5_failure_probability within 15 points of trade_confidence: I must name the specific edge preserver — or I pass.
 - Q1 = CONFLICT or COUNTER_TREND: I must explain why I am trading against the control timeframe structure.
-- intermarket_correlation = DIVERGENT: I must acknowledge the divergence and name why the primary instrument's structure overrides it — or I reduce confidence accordingly.
-- Q8D = DELIVERY_BEARISH on a BUY action: I must name the specific intraday or session-level structural reason that justifies trading against the weekly delivery narrative — or I reduce confidence by at least 10 points.
-- Q8D = DELIVERY_BULLISH on a SELL action: I must name the specific intraday or session-level structural reason that justifies trading against the weekly delivery narrative — or I reduce confidence by at least 10 points.
+- intermarket_correlation = DIVERGENT: I must acknowledge the divergence and name why the primary instrument's structural case is strong enough to warrant the trade despite the correlated market moving against. If I cannot name a specific structural reason, I reason honestly about what the divergence means for my conviction.
+- Q8D = DELIVERY_BEARISH on a BUY action: I must evaluate whether a strong intraday or session-level structural case exists that justifies this trade despite the counter-delivery context. I name that reason explicitly in thesis_coherence_statement — or I reason honestly about whether the counter-delivery context reduces my genuine conviction and score accordingly. No formula. My confidence reflects my honest assessment of whether this trade wins.
+- Q8D = DELIVERY_BULLISH on a SELL action: I must evaluate whether a strong intraday or session-level structural case exists that justifies this trade despite the counter-delivery context. I name that reason explicitly in thesis_coherence_statement — or I reason honestly about whether the counter-delivery context reduces my genuine conviction and score accordingly. No formula. My confidence reflects my honest assessment of whether this trade wins.
 - Q12 = DISTRIBUTION on a BUY action (continuation): I must name the specific structural reason the distribution is a false signal or has resolved — or output NO_TRADE. DISTRIBUTION + BUY continuation without a named structural change is a contradiction.
 - Q12 = ACCUMULATION + entry_mode = execute_now: I must confirm a specific named trigger has fired (Q6 must name the event). ACCUMULATION phase with no fired trigger and execute_now is a coherence violation — the move has not started yet.
 - Q12 conflicts with Q4_momentum_stage: If Q12=EXPANSION but Q4=EXHAUSTED, or Q12=ACCUMULATION but Q4=FRESH with strong bodies — I must resolve this contradiction explicitly. Q12 (control TF) and Q4 (confirmation TF) operating on different timeframes is valid but must be named and explained.
