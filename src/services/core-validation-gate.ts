@@ -7,16 +7,20 @@
  * CCIP Compliant: Part of trade execution simplification (20260202)
  *
  * Validation Layers:
- * 1. Omega Council (Omega8 + Omega9 presence)
- * 2. TP/SL Geometry (correct side of entry)
- * 3. Snapshot Freshness (< 30 seconds)
+ * 1. Omega Council (Omega8 + Omega9 presence) — ADVISORY, never blocks
+ * 2. TP/SL Geometry (correct side of entry) — HARD BLOCK (mathematical impossibility)
+ * 3. Snapshot Freshness (< 30 seconds) — HARD BLOCK (stale data)
  * 4. Duplicate Trade Detection
  *
  * Principles:
  * - Engines validate, Alpha decides
- * - Fail closed (block on missing data)
+ * - Only mathematical/data-integrity failures block execution
  * - Degrade intelligently (no silent mutations)
- * - Log all violations for governance
+ * - Log all advisories for governance
+ *
+ * CCIP-2026-0328A-SOVEREIGNTY: Omega council validation is advisory-only.
+ * Missing Omega sensors produce WARNING results (passed:true). Alpha received
+ * available sensor data in his briefing and reasoned accordingly.
  */
 
 import type { AlphaDecision } from '../brains/coordinator-alpha';
@@ -162,29 +166,39 @@ class CoreValidationGate {
         }
       };
     } else {
-      // Both missing - HARD BLOCK
-      const error = `Omega Council not consulted - Missing ${missingComponents.join(' and ')}`;
+      // Both missing — ADVISORY WARNING, execution proceeds.
+      //
+      // CCIP-2026-0328A-SOVEREIGNTY: Dual-missing Omega FATAL block downgraded.
+      //
+      // RATIONALE: Alpha received whatever Omega data existed at briefing time.
+      // The briefing is the authoritative intelligence delivery — if Omega8 and
+      // Omega9 were unavailable when the briefing was built, Alpha already knows
+      // that and reasoned without them. A post-briefing check that kills the trade
+      // because sensors are still unavailable at execution time is a redundant gate
+      // that punishes Alpha for data availability issues outside his control.
+      //
+      // Omega sensors are advisory context providers, not veto authorities.
+      // Alpha is the decision authority. A missing sensor is an informational gap,
+      // not a mathematical impossibility that warrants blocking execution.
+      //
+      // SSOT: alpha-identity.ts LEGITIMATE_BLOCK_CONDITIONS defines valid hard blocks.
+      // Omega sensor absence is not on that list. This is the SSOT enforcement.
+      // Governance log is preserved for full audit trail of dual-missing events.
+      const warning = `Omega Council both unavailable — Missing ${missingComponents.join(' and ')}. Alpha proceeds with available briefing data.`;
 
       if (userId) {
-        await logViolation({
-          violationType: 'OMEGA_COUNCIL_BYPASS',
-          symbol: decision.symbol,
-          attemptedOperation: 'trade_execution',
-          callLocation: 'core-validation-gate',
-          blocked: true,
-          errorDetails: {
-            missingComponents,
-            action: decision.action,
-            confidence: decision.confidence,
-            timestamp: new Date().toISOString()
-          }
-        });
+        await logWarning(
+          decision.symbol,
+          'omega_council_validation',
+          warning,
+          'core-validation-gate'
+        );
       }
 
       return {
-        passed: false,
-        severity: 'FATAL',
-        reason: error,
+        passed: true,
+        severity: 'WARNING',
+        reason: warning,
         errorType: 'OMEGA_MISSING',
         missingComponents,
         diagnostics: {

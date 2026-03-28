@@ -40,7 +40,6 @@ import { notificationCoordinator } from './coordinators/notification-coordinator
 import { getOrInitializeUserBalance, validateBalanceIsReasonable } from './balance-initialization-authority';
 import { toDirectionDB, toLongShort } from '../utils/direction-converter';
 import { getRegimeBucket } from './regime-bucketing';
-import { getMinConfidenceThreshold } from '../config/risk-levels';
 import { getSymbolConfig } from '../config/symbol-registry';
 import { logger, LogCategory } from '../lib/logger';
 import { calculateDollarPerPip, calculatePipDistance, getCurrencyPipInfo } from '../utils/currencyHelpers';
@@ -614,39 +613,44 @@ class AlphaTradeExecutor {
       ? recalculatedRiskDollars
       : (riskAssessment.trueRiskDollars || riskAssessment.adjustedRiskDollars);
 
-    // LAYER 6: ENTRY OVEREXTENSION VALIDATOR (CCIP 2026-02-11 - HARD INVALIDATION)
-    // Validates if current price is overextended beyond optimal zone
-    // PRINCIPLE: Overextension is a precision violation, not a risk parameter
-    // Alpha must either enter correctly or not enter. No "enter badly but smaller."
-    // Governance: Logs all events for audit trail
-    let overextensionEventId: string | null = null;
+    // LAYER 6: ENTRY OVEREXTENSION ADVISORY (CCIP-2026-0328A-SOVEREIGNTY)
+    //
+    // GOVERNANCE: Hard block removed per Alpha Sovereignty Completion.
+    // Entry overextension is a trading judgment — Alpha priced the entry location
+    // into his reasoning. Code must not binary-cancel based on distance from an
+    // optimal zone computed post-hoc by the executor.
+    //
+    // The overextension validator is retained for AUDIT LOGGING ONLY.
+    // No execution path may return blocked:true based on overextension.
+    // Alpha's SL/TP deviation adjustment (applied elsewhere) already preserves
+    // risk geometry for any price deviation — binary cancellation is redundant.
+    //
+    // SSOT: alpha-identity.ts LEGITIMATE_BLOCK_CONDITIONS is the exhaustive list
+    // of valid block conditions. Entry overextension is not on that list.
 
-    // Calculate optimal zone using ATR if available, otherwise use percentage-based
+    // Get trade style for audit logging (SSOT normalizeStyle)
+    const tradeStyle = normalizeStyle(sessionData.raw.trade_style);
+
+    // Calculate optimal zone for audit log context only (no execution gating)
     let optimalZoneMin: number;
     let optimalZoneMax: number;
 
     if (tradeContext.atr && tradeContext.atr.value) {
-      // ATR-based zone (optimal entry is ±0.3 ATR from decision entry price)
       const atrBuffer = tradeContext.atr.value * 0.3;
       optimalZoneMin = decision.entry - atrBuffer;
       optimalZoneMax = decision.entry + atrBuffer;
     } else {
-      // Percentage-based fallback (±0.15% for forex, ±0.25% for indices/commodities)
       const percentBuffer = decision.symbol.includes('USD') || decision.symbol.includes('EUR') || decision.symbol.includes('GBP') || decision.symbol.includes('JPY')
-        ? 0.0015 // 0.15% for forex pairs
-        : 0.0025; // 0.25% for indices/commodities/metals
+        ? 0.0015
+        : 0.0025;
       optimalZoneMin = decision.entry * (1 - percentBuffer);
       optimalZoneMax = decision.entry * (1 + percentBuffer);
     }
 
-    // Get trade style for threshold determination (TIER 3 FIX: Uses SSOT normalizeStyle)
-    const tradeStyle = normalizeStyle(sessionData.raw.trade_style);
-
-    // HARD INVALIDATION: Binary VALID/INVALID decision
     const overextensionValidation = EntryOverextensionValidator.validateEntry({
       symbol: decision.symbol,
       direction: decision.action === 'BUY' ? 'buy' : 'sell',
-      currentPrice: decision.entry, // Current market price at decision time
+      currentPrice: decision.entry,
       optimalZoneMin,
       optimalZoneMax,
       style: tradeStyle,
@@ -654,8 +658,8 @@ class AlphaTradeExecutor {
       omegaConsensusCount: decision.omegaConsensusCount
     });
 
-    // Log overextension event for governance (always log, even if valid)
-    overextensionEventId = await EntryOverextensionValidator.logOverextensionEvent(
+    // Log for governance audit trail — never blocks execution
+    const overextensionEventId = await EntryOverextensionValidator.logOverextensionEvent(
       sessionId,
       overextensionValidation,
       {
@@ -670,11 +674,10 @@ class AlphaTradeExecutor {
       }
     );
 
-    // BLOCK TRADE if invalid (no position size mutation)
     if (!overextensionValidation.isValid) {
-      logger.error(
+      logger.warn(
         LogCategory.RISK_MANAGEMENT,
-        '[AlphaTradeExecutor] ENTRY INVALID - Overextension exceeds threshold',
+        '[AlphaTradeExecutor] Entry overextension advisory — proceeding per Alpha sovereignty',
         {
           userId,
           sessionId,
@@ -683,34 +686,10 @@ class AlphaTradeExecutor {
           overextensionType: overextensionValidation.overextensionType,
           overextensionPct: overextensionValidation.overextensionPercentage.toFixed(1),
           threshold: overextensionValidation.maxAllowedOverextension,
-          severity: overextensionValidation.severity,
-          reasoning: overextensionValidation.reasoning
+          overextensionEventId
         }
       );
-
-      // HARD BLOCK - No execution, Alpha must re-evaluate
-      return {
-        success: false,
-        error: overextensionValidation.blockReason || 'Entry overextension exceeds threshold',
-        blockReason: overextensionValidation.blockReason || 'PRECISION VIOLATION: Entry outside acceptable zone'
-      };
     }
-
-    // Entry is VALID - proceed with execution
-    logger.info(
-      LogCategory.RISK_MANAGEMENT,
-      '[AlphaTradeExecutor] Entry validation passed',
-      {
-        userId,
-        sessionId,
-        symbol: decision.symbol,
-        style: tradeStyle,
-        overextensionType: overextensionValidation.overextensionType,
-        overextensionPct: overextensionValidation.overextensionPercentage.toFixed(1),
-        threshold: overextensionValidation.maxAllowedOverextension,
-        optimalZone: `[${optimalZoneMin.toFixed(5)}, ${optimalZoneMax.toFixed(5)}]`
-      }
-    );
 
     // ============================================================================
     // Layer 6: Style Qualification Gate (HARD ENFORCEMENT)
@@ -799,16 +778,19 @@ class AlphaTradeExecutor {
   }
 
   /**
-   * Check trade capacity (confidence, slots, duplicates, re-entry bias)
+   * Check trade capacity (confidence floor, slots, duplicates)
    *
-   * CCIP 2026-03-02: Re-entry bias check added.
-   * When a same-direction trade on the same symbol was stopped out within the
-   * last 30 minutes in the current session AND the market regime has not changed,
-   * the re-entry is blocked.  This prevents compounding losses on repeated
-   * same-direction entries into a structurally unchanged market.
+   * CCIP-2026-0328A-SOVEREIGNTY: Session-level min_confidence gate removed.
+   * The only hard confidence gate is the 50% structural floor defined in
+   * ALPHA_IDENTITY.MINIMUM_TRADE_CONFIDENCE. Session config may not impose
+   * a higher threshold — that is a trading judgment that belongs to Alpha.
+   * Alpha receives his calibration advisory in the briefing and self-calibrates.
    *
-   * If the regime HAS changed (different session phase, volatility tier, or HTF
-   * trend direction), the re-entry is allowed and logged for transparency.
+   * Re-entry bias block: Documented in prior CCIP but intentionally not implemented.
+   * Alpha has full authority to re-enter a symbol — the re-entry judgment is his.
+   *
+   * Max concurrent trades: Retained — this is an account management constraint
+   * set explicitly by the user's risk mode preference, not a trading judgment.
    */
   private async checkTradeCapacity(
     symbol: string,
@@ -818,22 +800,16 @@ class AlphaTradeExecutor {
     direction: 'buy' | 'sell',
     currentRegimeSnapshot?: any
   ): Promise<{ valid: boolean; reason?: string }> {
-    // Confidence check
+    // Hard confidence floor — the only confidence gate (SSOT: alpha-identity.ts)
+    // A trade below 50 has less than coin-flip structural edge. This is physics, not judgment.
     if (confidence < 50) {
       return { valid: false, reason: 'Confidence too low (< 50%)' };
-    }
-
-    const threshold = session.min_confidence || getMinConfidenceThreshold(session.risk_mode);
-    if (confidence < threshold) {
-      return {
-        valid: false,
-        reason: `Confidence ${confidence}% below ${session.risk_mode} mode threshold (${threshold}%)`
-      };
     }
 
     // Trade slots check
     // SSOT: max_concurrent_trades column is authoritative (set at session creation).
     // Falls back to risk_mode inference only for legacy sessions missing the column.
+    // This is a user-set account management preference, not a trading judgment gate.
     const { data: openTrades } = await supabase
       .from('goal_session_trades')
       .select('*')

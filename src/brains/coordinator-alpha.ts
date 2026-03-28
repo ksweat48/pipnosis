@@ -4716,67 +4716,20 @@ Return PURE JSON only — all required fields from the schema in my system promp
         );
       }
 
-      // ═══════════════════════════════════════════════════════════════════
-      // CCIP-2026-0324B: wait_pullback zone direction coherence backstop.
-      // ═══════════════════════════════════════════════════════════════════
+      // CCIP-2026-0328A-SOVEREIGNTY: wait_pullback zone direction backstop REMOVED.
       //
-      // INVARIANT: For a BUY with wait_pullback, price must come DOWN to the zone
-      // (zone_max < current_price). For a SELL with wait_pullback, price must come
-      // UP to the zone (zone_min > current_price). If Alpha sets a wait_pullback
-      // zone on the wrong side of current price, the intent will never trigger —
-      // a silent trade failure with no error surfaced to the user.
+      // The prior backstop (CCIP-2026-0324B) converted wait_pullback to execute_now
+      // when the zone appeared to be on the "wrong side" of current price. This was
+      // a trading judgment override — Alpha may have a valid reason to set a zone
+      // above current price for a BUY (e.g. breakout confirmation, push confirmation).
+      // Code must not infer "wrong side" from geometric position alone.
       //
-      // This backstop detects the inversion and either:
-      //   (a) Converts to execute_now if price is already inside the stated zone.
-      //   (b) Logs a governance violation and downgrade to execute_now if the zone
-      //       is entirely on the wrong side (Alpha specified a zone that price is
-      //       moving away from, not toward).
+      // If Alpha's zone is genuinely unreachable, the entry monitor will log it as
+      // expired without triggering. That is the correct silent failure mode — not
+      // a code-level override that silently changes his entry_mode.
       //
-      // SSOT: coordinator-alpha.ts is the sole authority for wait_condition validation.
-      // Alpha's SL and TP are never modified — only entry_mode and wait_condition.
-      if (
-        (resolvedEntryMode === 'wait_pullback') &&
-        resolvedWaitCondition &&
-        (action === 'BUY' || action === 'SELL')
-      ) {
-        const currentPx = marketContext.price;
-        const zoneMin = resolvedWaitCondition.target_entry_zone_min;
-        const zoneMax = resolvedWaitCondition.target_entry_zone_max;
-
-        const priceAlreadyInZone =
-          action === 'BUY'
-            ? currentPx <= zoneMax && currentPx >= zoneMin
-            : currentPx >= zoneMin && currentPx <= zoneMax;
-
-        const zoneInWrongDirection =
-          action === 'BUY'
-            ? zoneMin > currentPx
-            : zoneMax < currentPx;
-
-        if (priceAlreadyInZone) {
-          resolvedEntryMode = 'execute_now';
-          resolvedWaitCondition = undefined;
-          console.warn(
-            `[Alpha Coordinator] CCIP-2026-0324B: wait_pullback zone contains current price — converting to execute_now. ` +
-            `action=${action} currentPx=${currentPx} zone=${zoneMin}–${zoneMax}. Symbol=${symbol}.`
-          );
-        } else if (zoneInWrongDirection) {
-          logViolation({
-            violationType: 'WAIT_PULLBACK_ZONE_DIRECTION_INVERTED',
-            severity: 'high',
-            source: 'coordinator-alpha',
-            description: `wait_pullback zone is on wrong side of current price for ${action}. currentPx=${currentPx} zone=${zoneMin}–${zoneMax}. Price is moving away from zone — silent intent failure prevented. Downgraded to execute_now.`,
-            symbol: marketContext.symbol,
-            userId: userId || 'unknown',
-          }).catch(() => {});
-          resolvedEntryMode = 'execute_now';
-          resolvedWaitCondition = undefined;
-          console.warn(
-            `[Alpha Coordinator] CCIP-2026-0324B: WAIT_PULLBACK_ZONE_DIRECTION_INVERTED — zone is on wrong side of current price for ${action}. ` +
-            `currentPx=${currentPx} zone=${zoneMin}–${zoneMax}. Downgraded to execute_now. Symbol=${symbol}.`
-          );
-        }
-      }
+      // SSOT: Alpha's entry_mode and wait_condition are passed downstream unchanged.
+      // alpha-identity.ts LEGITIMATE_BLOCK_CONDITIONS is the exhaustive gate registry.
 
       // CCIP-2026-0328B: Breakout contradiction guard REMOVED.
       // Alpha has full authority over entry_mode. Q6 and Q4 are answer_sheet audit
@@ -4811,57 +4764,22 @@ Return PURE JSON only — all required fields from the schema in my system promp
         resolvedWaitCondition = undefined;
       }
 
-      // ═══════════════════════════════════════════════════════════════════
-      // ENTRY MONITOR GATE — SSOT GOVERNANCE ENFORCEMENT
-      // CCIP-2026-0319B: Monitor-off intent blocking
-      // ═══════════════════════════════════════════════════════════════════
+      // CCIP-2026-0328A-SOVEREIGNTY: Monitor-off NO_TRADE override REMOVED.
       //
-      // RULE: wait_pullback and push_confirmation require the entry monitor to be ACTIVE.
-      // When the entry monitor is disabled, the system has no mechanism to watch price
-      // and trigger execution at the target zone. Allowing a wait-intent through when
-      // the monitor is off would create an entry_intent that is never fulfilled —
-      // a silent NO_TRADE masquerading as a pending trade.
+      // The prior gate (CCIP-2026-0319B) converted wait_pullback/push_confirmation
+      // to NO_TRADE when the entry monitor was disabled. This was a trading judgment
+      // override — Alpha chose to wait at a specific zone. That is his decision.
       //
-      // ENFORCEMENT: If Alpha chose a wait mode AND the entry monitor is off, this gate
-      // overrides the decision to NO_TRADE here, at the coordinator — the SSOT authority.
-      // By the time the decision reaches AlphaTradeExecutor, it is already clean.
+      // Alpha is already informed of the monitor status via entryMonitorStatusLine
+      // injected into his briefing. If the monitor is offline, Alpha reads that
+      // context and chooses accordingly. Code must not second-guess him.
       //
-      // GOVERNANCE: The override is logged to governance_change_log with change type
-      // MONITOR_OFF_INTENT_BLOCKED so the audit trail records why the wait was suppressed.
+      // If the monitor is off and a wait_condition is created, the executor or live
+      // engine handles the routing gracefully. An unmonitored intent is preferable
+      // to silently overriding Alpha's entry decision.
       //
-      // SSOT: coordinator-alpha.ts is the sole authority for entry_mode resolution.
-      // goal-session-live-engine.ts resolveExecutionMode() is a secondary routing layer;
-      // it must never receive a wait-mode decision when the monitor is off.
-      const alphaWantsToWait =
-        resolvedEntryMode === 'wait_pullback' || resolvedEntryMode === 'push_confirmation';
-
-      if (action !== 'NO_TRADE' && alphaWantsToWait && userId) {
-        // CCIP-2026-0322A: Reuse entryMonitorActive resolved at the top of coordinate()
-        // in the parallel Promise.all fetch. No second DB round-trip needed.
-        const monitorEnabled = entryMonitorActive;
-
-        if (!monitorEnabled) {
-          console.warn(
-            `[Alpha Coordinator] MONITOR_OFF_INTENT_BLOCKED: Alpha chose entry_mode="${resolvedEntryMode}" ` +
-            `but entry monitor is disabled for user ${userId}. ` +
-            `Alpha cannot place deferred entries without an active monitor. ` +
-            `Decision overridden to NO_TRADE. Symbol=${symbol}. CCIP-2026-0319B.`
-          );
-          return {
-            action: 'NO_TRADE',
-            decision: 'NO_TRADE',
-            entry: currentPrice,
-            stopLoss: currentPrice,
-            takeProfit: currentPrice,
-            confidence: Math.max(10, Math.min(100, tradeConfidence)),
-            reasoning: `MONITOR_OFF_INTENT_BLOCKED: Alpha wanted ${resolvedEntryMode} but entry monitor is disabled. ` +
-              `Enable the entry monitor to allow deferred entries, or Alpha will re-evaluate for an immediate execute_now opportunity.`,
-            omega_summary: '',
-            risk_pct: 0,
-            narrativeValidation: narrativeValidation || undefined
-          };
-        }
-      }
+      // SSOT: entryMonitorStatusLine (injected into prompt) is the only monitor-status
+      // signal Alpha needs. The override gate is not on LEGITIMATE_BLOCK_CONDITIONS.
 
       // ═══════════════════════════════════════════════════════════════════
       // CALCULATE RISK PERCENTAGE (SSOT)
@@ -5443,7 +5361,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
       const calibLines: string[] = [];
       for (const [bucketStr, data] of Object.entries(intelligence.calibrationData)) {
         if (data.sampleSize >= 10) {
-          calibLines.push(`${bucketStr}%pred=${data.actualWinRate.toFixed(0)}%actual(n=${data.sampleSize})`);
+          calibLines.push(`${bucketStr}%: win_rate=${data.actualWinRate.toFixed(0)}% (n=${data.sampleSize})`);
         }
       }
       if (calibLines.length > 0) parts.push(`confidence_cal: ${calibLines.join(', ')}`);

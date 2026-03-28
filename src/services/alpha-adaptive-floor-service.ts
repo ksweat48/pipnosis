@@ -306,9 +306,8 @@ class AlphaAdaptiveFloorService {
     try {
       const buckets = await this.getCalibrationBuckets(userId);
 
-      const sufficientBuckets = buckets.filter(
-        b => b.sample_size >= ADAPTIVE_FLOOR_RAILS.SAMPLE_SIZE_THRESHOLD_DOWN
-      );
+      // Include buckets with at least 5 trades for early-stage awareness
+      const sufficientBuckets = buckets.filter(b => b.sample_size >= 5);
 
       if (sufficientBuckets.length === 0) {
         return null;
@@ -320,12 +319,33 @@ class AlphaAdaptiveFloorService {
       const totalTrades = sufficientBuckets.reduce((sum, b) => sum + b.sample_size, 0);
       const suggestedThreshold = evaluation.new_floor;
 
-      const bestBucket = sufficientBuckets.reduce(
-        (best, b) => b.actual_win_rate > best.actual_win_rate ? b : best,
-        sufficientBuckets[0]
-      );
+      // Build per-bucket breakdown — each line shows actual WR, expected WR, and calibration error
+      const bucketLines = sufficientBuckets
+        .sort((a, b) => a.confidence_bucket - b.confidence_bucket)
+        .map(b => {
+          const errorSign = b.calibration_error >= 0 ? '+' : '';
+          const calibNote = Math.abs(b.calibration_error) >= ADAPTIVE_FLOOR_RAILS.CALIBRATION_ERROR_THRESHOLD
+            ? ` [${errorSign}${b.calibration_error.toFixed(1)}pp vs predicted]`
+            : '';
+          return `  ${b.confidence_bucket}%: ${b.actual_win_rate.toFixed(1)}% WR (n=${b.sample_size})${calibNote}`;
+        })
+        .join('\n');
 
-      return `ALPHA PERFORMANCE ADVISORY (self-knowledge, not a gate): Based on ${totalTrades} completed trades, your historical win rate at ${bestBucket.confidence_bucket}%+ confidence is ${bestBucket.actual_win_rate.toFixed(1)}%. Calibration data suggests ${suggestedThreshold}% as a quality reference point for your reasoning. This is context — your minimum structural floor remains 50%. An ACCEPTABLE setup (50-69%) with named structure and correct RR is always a valid trade.`;
+      // Describe floor movement direction and trigger
+      let floorNote = `Suggested quality reference: ${suggestedThreshold}% (advisory, never a gate).`;
+      if (evaluation.direction !== 'none' && evaluation.trigger_bucket != null) {
+        const dirWord = evaluation.direction === 'up' ? 'raised' : 'relaxed';
+        floorNote = `Suggested quality reference: ${suggestedThreshold}% (${dirWord} — ${evaluation.reason}).`;
+      }
+
+      return [
+        `ALPHA SELF-CALIBRATION (advisory only — your minimum structural floor remains 50%):`,
+        `Total completed trades: ${totalTrades}`,
+        `Win rate by confidence band:`,
+        bucketLines,
+        floorNote,
+        `An ACCEPTABLE setup (50-69%) with named structure and correct RR is always a valid trade.`
+      ].join('\n');
     } catch {
       return null;
     }
