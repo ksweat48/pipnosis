@@ -1499,10 +1499,10 @@ STYLE IDENTITY: SCALP
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 You are operating as a M5 SCALP trader.
 Timeframe stack: M5 (primary) | M1 (timing refinement) | M15/H1 (advisory context only).
-You MUST name the specific M5 structural level you are trading from in scalp_structural_confirmation.
+Name the specific M5 structural level you are trading from in scalp_structural_confirmation.
 Format: "[structure type] at [exact price] — [what confirms it]". Example: "M5 BOS at 1.08230 confirmed long bias".
-If you cannot identify and name a specific M5 anchor with a price, output NO_TRADE — a scalp without a structural anchor has no edge.
-You MUST output scalp_momentum_phase (starting|developing|exhausted) and scalp_atr_traveled in your JSON response.
+Valid anchors include: named M5 S/R levels, range boundaries (range top/bottom), session highs/lows, equal highs/lows, VWAP, EMA rejections, and prior swing points. Document which anchor you are using and what confirms it. If no structural anchor is identifiable, document that assessment and state your conviction score honestly.
+Include scalp_momentum_phase (starting|developing|exhausted) and scalp_atr_traveled in your JSON response — these are audit fields required regardless of action.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `
       : tradeStyle === 'MICRO_INTRADAY'
@@ -1514,7 +1514,7 @@ You are operating as a M15 MICRO_INTRADAY trader. TP1 targets a conservative M15
 Timeframe stack: M15 (primary) | M5 (entry trigger confirmation) | H1 (campaign bias) | D1 (macro direction).
 You MUST name the specific M15 structural level you are trading from in m15_structural_confirmation.
 You MUST output m15_move_phase (fresh|developing|exhausted) and m15_atr_traveled in your JSON response.
-The M5 sub-confirmation block below shows whether a closed M5 body in your direction has formed — use it to determine execute_now vs wait_pullback.
+The M5 sub-confirmation block below shows whether a closed M5 body in your direction has formed — document the current M5 confirmation state and your entry_mode choice with the structural reasoning behind it.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `
       : tradeStyle === 'INTRADAY'
@@ -1527,7 +1527,7 @@ Timeframe stack: H1 (primary) | M15 (precision entry layer) | H4 (campaign bias)
 You MUST name the specific H1 structural level you are trading from in h1_structural_confirmation.
 You MUST output h1_move_phase (fresh|developing|exhausted) and h1_atr_traveled in your JSON response.
 You MUST provide a trade_management object defining your TP1/TP2 handling and trailing method.
-The M15 precision entry block below shows whether a closed M15 body in your direction has formed at the H1 entry zone — use it to determine execute_now vs wait_pullback.
+The M15 precision entry block below shows whether a closed M15 body in your direction has formed at the H1 entry zone — document the current M15 confirmation state and your entry_mode choice with the structural reasoning behind it.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `
       : '';
@@ -2214,7 +2214,7 @@ ${primaryTfConfig.label} STRUCTURE SUMMARY:
 ${emaContextBlock}
 PULLBACK ASSESSMENT RULE (${primaryTfConfig.label} TIMEFRAME):
 ${consecutiveSameDir >= 3
-  ? `STRONG GUIDELINE: ${consecutiveSameDir} consecutive same-direction ${primaryTfConfig.label} candles detected. This is an impulsive ${primaryTfConfig.label} leg without pullback. A retracement is highly probable. Your entry_advisory verdict should be PULLBACK_EXPECTED unless you have exceptional evidence (breakaway gap, news catalyst) that no pullback will occur. A single M1 rejection wick does NOT override an impulsive ${primaryTfConfig.label} move.`
+  ? `IMPULSIVE LEG OBSERVATION: ${consecutiveSameDir} consecutive same-direction ${primaryTfConfig.label} candles detected. This is an extended ${primaryTfConfig.label} move without a structural pullback. Document your entry_advisory verdict and the structural reasoning behind it — whether continuation, pullback probability, or other. State your assessment of what the consecutive candle count means for this specific setup and let your conviction score reflect it.`
   : `No impulsive ${primaryTfConfig.label} leg detected. Assess structural levels, EMA proximity, and wick bias to determine entry quality.`}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
@@ -2333,9 +2333,10 @@ ${htfConfig.label} STRUCTURAL EVIDENCE (pre-computed for Alpha):
 - SWEEP WICK BULL (lower wick ≥1.5x body in last 2 candles): ${htfSweepWickBull ? 'YES — institutional bullish reversal signal' : 'NO'}
 - SWEEP WICK BEAR (upper wick ≥1.5x body in last 2 candles): ${htfSweepWickBear ? 'YES — institutional bearish reversal signal' : 'NO'}
 
-COUNTER-TREND ENTRY REQUIREMENT: If your intended direction opposes the ${htfConfig.label} structural bias above,
-you MUST cite at least one qualifying piece of evidence from the above (BOS or sweep wick in your direction).
-If zero evidence exists for your counter-trend direction, return NO_TRADE with reason HTF_NO_COUNTER_TREND_QUALIFICATION.`;
+COUNTER-TREND ENTRY AUDIT: If your intended direction opposes the ${htfConfig.label} structural bias above,
+document in your reasoning what counter-trend structural evidence you observed (BOS, sweep wick, or other).
+If no counter-trend structural evidence exists in the pre-computed signals above, state that clearly and reflect it in your conviction score.
+Alpha decides the action — the audit trail records the evidence.`;
 
         console.log(`[Alpha Coordinator] ${htfConfig.label} structural evidence: BOS_BULL=${htfBOSBull} BOS_BEAR=${htfBOSBear} WICK_BULL=${htfSweepWickBull} WICK_BEAR=${htfSweepWickBear}`);
 
@@ -2474,10 +2475,9 @@ M5 SUB-CONFIRMATION EVIDENCE (pre-computed for Alpha):
 - M5 SWEEP WICK BULL (lower wick ≥1.5x body in last 2 M5 candles): ${m5SubSweepWickBull ? 'YES — bullish absorption signal on M5' : 'NO'}
 - M5 SWEEP WICK BEAR (upper wick ≥1.5x body in last 2 M5 candles): ${m5SubSweepWickBear ? 'YES — bearish absorption signal on M5' : 'NO'}
 
-M5 CLOSE RULE: A confirmed M5 candle CLOSE in your intended direction at the entry zone is the MICRO_INTRADAY entry trigger standard.
-A wick, an open, or a partial move does not constitute confirmation — only a closed M5 body in your direction counts.
-Assess the pre-computed signals above: if M5 BOS or sweep wick confirmation has NOT formed, state what trigger you are waiting for and select wait_pullback.
-If M5 confirmation IS present, you may select execute_now — back your reasoning with the specific M5 signal that confirms it.`;
+M5 CONFIRMATION STANDARD: A confirmed M5 candle CLOSE in your intended direction at the entry zone is the MICRO_INTRADAY entry trigger standard.
+A wick, an open, or a partial move does not constitute a closed body confirmation — only a closed M5 body in your direction counts as a fired trigger.
+Document the current state of M5 confirmation from the pre-computed signals above: whether BOS or sweep wick has formed, which entry_mode you selected, and your structural reasoning for that choice.`;
 
           m5SubConfirmationPrompt = `
 
@@ -2485,8 +2485,9 @@ If M5 confirmation IS present, you may select execute_now — back your reasonin
 M5 SUB-CONFIRMATION (${marketContext.symbol}) — MICRO_INTRADAY ENTRY TRIGGER TIMEFRAME
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 This is your ENTRY TRIGGER timeframe. M15 defines the structure and setup. M5 is where you pull the trigger.
-A confirmed M5 candle CLOSE in your intended direction at the entry zone is required before execute_now.
-A wick touch, M5 open, or partial move is NOT confirmation — only a CLOSED M5 body in your direction counts.
+A confirmed M5 candle CLOSE in your intended direction at the entry zone is the MICRO_INTRADAY entry trigger standard.
+A wick touch, M5 open, or partial move does not constitute a closed body trigger — only a CLOSED M5 body in your direction counts.
+Document which entry_mode you selected and your structural reasoning for that choice given the current M5 state.
 
 ${m5SubLines.join('\n')}
 
@@ -2507,9 +2508,8 @@ ${m5SubEvidenceBlock}
 M5 SUB-CONFIRMATION (${marketContext.symbol}) — DATA UNAVAILABLE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 WARNING: M5 candle data could not be retrieved (${m5SubCandles?.length ?? 0} candles found, need ≥5).
-GOVERNANCE CONSEQUENCE: Without M5 confirmation data, you CANNOT select execute_now.
-Your entry_mode must be wait_pullback. State the specific M5 trigger you are waiting for.
-If you cannot define a specific M5 trigger level, return NO_TRADE.
+DATA GAP: Without M5 confirmation data, the sub-confirmation trigger state is unknown.
+Document your entry_mode choice and reasoning given this data gap. State what trigger you are waiting for or why current structural context is sufficient. Your conviction score should reflect this uncertainty.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
           console.warn(`[Alpha Coordinator] M5 sub-confirmation data insufficient for MICRO_INTRADAY (${m5SubCandles?.length ?? 0} candles)`);
@@ -2520,9 +2520,8 @@ If you cannot define a specific M5 trigger level, return NO_TRADE.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 M5 SUB-CONFIRMATION (${marketContext.symbol}) — FETCH ERROR
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-WARNING: M5 candle fetch failed. Without M5 data you CANNOT select execute_now.
-entry_mode must be wait_pullback with a specific M5 trigger level stated.
-If you cannot define a specific M5 trigger level, return NO_TRADE.
+WARNING: M5 candle fetch failed. The sub-confirmation trigger state is unknown due to a data fetch error.
+Document your entry_mode choice and reasoning given this data gap. Your conviction score should reflect the absence of sub-confirmation data.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         console.warn('[Alpha Coordinator] M5 sub-confirmation fetch failed (non-blocking):', error instanceof Error ? error.message : 'Unknown');
@@ -2599,10 +2598,9 @@ M15 PRECISION ENTRY EVIDENCE (pre-computed for Alpha):
 - M15 SWEEP WICK BULL (lower wick ≥1.5x body in last 2 M15 candles): ${m15ISweepWickBull ? 'YES — bullish absorption signal on M15' : 'NO'}
 - M15 SWEEP WICK BEAR (upper wick ≥1.5x body in last 2 M15 candles): ${m15ISweepWickBear ? 'YES — bearish absorption signal on M15' : 'NO'}
 
-M15 CLOSE RULE: A confirmed M15 candle CLOSE in your intended direction at the H1 entry zone is the INTRADAY entry trigger standard.
-A wick, an open, or a partial move does not constitute confirmation — only a closed M15 body in your direction counts.
-Assess the pre-computed signals above: if M15 BOS or sweep wick confirmation has NOT formed, state what trigger you are waiting for and select wait_pullback.
-If M15 confirmation IS present, you may select execute_now — back your reasoning with the specific M15 signal that confirms it.`;
+M15 CONFIRMATION STANDARD: A confirmed M15 candle CLOSE in your intended direction at the H1 entry zone is the INTRADAY entry trigger standard.
+A wick, an open, or a partial move does not constitute a closed body confirmation — only a closed M15 body in your direction counts as a fired trigger.
+Document the current state of M15 confirmation from the pre-computed signals above: whether BOS or sweep wick has formed, which entry_mode you selected, and your structural reasoning for that choice.`;
 
           m5SubConfirmationPrompt += `
 
@@ -2610,8 +2608,9 @@ If M15 confirmation IS present, you may select execute_now — back your reasoni
 M15 PRECISION ENTRY (${marketContext.symbol}) — INTRADAY ENTRY TRIGGER TIMEFRAME
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 This is your ENTRY TRIGGER timeframe. H1 defines the structure and setup. M15 is where you pull the trigger.
-A confirmed M15 candle CLOSE in your intended direction at the H1 entry zone is required before execute_now.
-A wick touch, M15 open, or partial move is NOT confirmation — only a CLOSED M15 body in your direction counts.
+A confirmed M15 candle CLOSE in your intended direction at the H1 entry zone is the INTRADAY entry trigger standard.
+A wick touch, M15 open, or partial move does not constitute a closed body trigger — only a CLOSED M15 body in your direction counts.
+Document which entry_mode you selected and your structural reasoning for that choice given the current M15 state.
 
 ${m15IntradayLines.join('\n')}
 
@@ -2632,9 +2631,8 @@ ${m15IEvidenceBlock}
 M15 PRECISION ENTRY (${marketContext.symbol}) — DATA UNAVAILABLE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 WARNING: M15 candle data could not be retrieved (${m15IntradayCandles?.length ?? 0} candles found, need ≥5).
-GOVERNANCE CONSEQUENCE: Without M15 precision entry data, you CANNOT select execute_now.
-Your entry_mode must be wait_pullback. State the specific M15 trigger you are waiting for.
-If you cannot define a specific M15 trigger level on the H1 entry zone, return NO_TRADE.
+DATA GAP: Without M15 precision entry data, the sub-confirmation trigger state is unknown.
+Document your entry_mode choice and reasoning given this data gap. State what trigger you are waiting for or why current H1 structural context is sufficient. Your conviction score should reflect this uncertainty.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
           console.warn(`[Alpha Coordinator] M15 precision entry data insufficient for INTRADAY (${m15IntradayCandles?.length ?? 0} candles)`);
@@ -2645,9 +2643,8 @@ If you cannot define a specific M15 trigger level on the H1 entry zone, return N
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 M15 PRECISION ENTRY (${marketContext.symbol}) — FETCH ERROR
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-WARNING: M15 precision entry fetch failed. Without M15 data you CANNOT select execute_now.
-entry_mode must be wait_pullback with a specific M15 trigger level stated.
-If you cannot define a specific M15 trigger level, return NO_TRADE.
+WARNING: M15 precision entry fetch failed. The sub-confirmation trigger state is unknown due to a data fetch error.
+Document your entry_mode choice and reasoning given this data gap. Your conviction score should reflect the absence of M15 confirmation data.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         console.warn('[Alpha Coordinator] M15 precision entry fetch failed (non-blocking):', error instanceof Error ? error.message : 'Unknown');
@@ -2730,9 +2727,10 @@ M15 STRUCTURAL EVIDENCE (pre-computed for Alpha):
 - M15 SWEEP WICK BULL (lower wick ≥1.5x body in last 2 M15 candles): ${m15SweepWickBull ? 'YES — bullish reversal signal on M15' : 'NO'}
 - M15 SWEEP WICK BEAR (upper wick ≥1.5x body in last 2 M15 candles): ${m15SweepWickBear ? 'YES — bearish reversal signal on M15' : 'NO'}
 
-M15 COUNTER-TREND SCALP REQUIREMENT: If your M5 entry direction opposes the M15 bias above,
-cite at least one qualifying fact (M15 BOS or sweep wick in your direction) in your reasoning.
-If zero evidence exists for your counter-trend M15 direction, return NO_TRADE with reason M15_NO_COUNTER_TREND_QUALIFICATION.`;
+M15 COUNTER-TREND SCALP AUDIT: If your M5 entry direction opposes the M15 bias above,
+document in your reasoning what counter-trend structural evidence you observed (M15 BOS, sweep wick, or other).
+If no counter-trend structural evidence exists in the pre-computed signals above, state that clearly and reflect it in your conviction score.
+Alpha decides the action — the audit trail records the evidence.`;
 
           console.log(`[Alpha Coordinator] M15 structural evidence: BOS_BULL=${m15BOSBull} BOS_BEAR=${m15BOSBear} WICK_BULL=${m15SweepWickBull} WICK_BEAR=${m15SweepWickBear}`);
 
@@ -3006,13 +3004,13 @@ Daily Campaign Summary:
   D1 Swing High (${structuralCandles.length}d): ${d1SwingHigh.toFixed(pipInfo.decimalPlaces)} — ${d1SwingHighPips.toFixed(0)} pips ${currentPrice > d1SwingHigh ? 'BELOW (price above)' : 'above current price'}
   D1 Swing Low (${structuralCandles.length}d): ${d1SwingLow.toFixed(pipInfo.decimalPlaces)} — ${d1SwingLowPips.toFixed(0)} pips ${currentPrice < d1SwingLow ? 'ABOVE (price below)' : 'below current price'}
 
-INTRADAY D1 STRUCTURAL RULES:
-- Your INTRADAY trade must be ALIGNED with the D1 structural bias above. Counter-trend INTRADAY trades require an explicit structural reason (e.g., daily exhaustion, major reversal zone, or D1 swing high/low rejection).
-- The D1 swing high and low define the CAMPAIGN BOUNDARIES for INTRADAY. TP targets that breach a D1 swing high (for BUY) or swing low (for SELL) without justification signal overreach.
-- If D1 bias is BULLISH, prefer BUY setups on H4 pullbacks. SELL setups require D1-level rejection confirmation.
-- If D1 bias is BEARISH, prefer SELL setups on H4 retracements. BUY setups require D1-level support confirmation.
-- If D1 bias is NEUTRAL, both directions are valid but your H4 structure becomes the primary campaign authority.
-- ALWAYS state how the D1 structural bias supports or challenges your intended direction in your reasoning.`;
+INTRADAY D1 STRUCTURAL CONTEXT:
+- The D1 structural bias is the macro campaign frame for INTRADAY trades. Document how it aligns with or challenges your intended direction.
+- The D1 swing high and low define the CAMPAIGN BOUNDARIES for INTRADAY. Document whether your TP target is inside or outside those boundaries and what that means for your conviction.
+- If D1 bias is BULLISH, document how that affects your assessment of BUY vs SELL setups.
+- If D1 bias is BEARISH, document how that affects your assessment of SELL vs BUY setups.
+- If D1 bias is NEUTRAL, both directions are available — document which H4 structural evidence drives your direction choice.
+- State how the D1 structural bias supports or challenges your intended direction in your reasoning.`;
         }
 
         d1ContextPrompt = `
@@ -3140,7 +3138,7 @@ regardless of what M1 shows — unless there is exceptional breakaway evidence.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 INTELLIGENCE MONITOR SIGNAL (${marketContext.symbol}) — ADVISORY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Pre-computed signal from the server-side intelligence monitor. This is advisory context — your analysis takes precedence, but you MUST address any contradictions explicitly in your reasoning.
+Pre-computed signal from the server-side intelligence monitor. This is advisory context — your analysis takes precedence. Document any contradictions between this signal and your own reading in your reasoning.
 ${direction ? `Directional Bias: ${direction.toUpperCase()}` : ''}${imConfidence !== undefined ? ` | Signal Confidence: ${(imConfidence * 100).toFixed(0)}%` : ''}${imScore !== undefined ? ` | Pair Score: ${imScore.toFixed(1)}` : ''}
 ${alignment ? `Alignment: ${alignment}` : ''}
 ${momentumPhase ? `Momentum Phase: ${momentumPhase.toUpperCase()}` : ''}${subMode ? ` | Sub-Mode: ${subMode}` : ''}
@@ -3181,7 +3179,7 @@ Your PRIMARY OBJECTIVE is to find the best executable trade. Self-assess from th
 1. ATR PHASE: Calculate how far price has moved from the last swing point.
    - FRESH / STARTING (< 0.75x ATR): Ideal window — full confidence permitted
    - DEVELOPING (0.75-1.5x ATR): Acceptable — assess remaining runway to TP. State: "Remaining range: ~X pips to nearest structure." Tighten TP to nearest achievable structure if needed.
-   - EXHAUSTED / EXTENDED (> 1.5x ATR): Move is extended — look for a structural reversal, retest, or sweep setup rather than a continuation entry. This is NOT an automatic NO_TRADE — exhausted moves often produce the highest-quality reversal entries. State your exhaustion assessment explicitly.
+   - EXHAUSTED / EXTENDED (> 1.5x ATR): Move is extended. Document what you observe: available reversal setups, retest opportunities, sweep structures, or the absence of a clear directional case. State your exhaustion assessment explicitly and let your conviction score reflect it.
 
 2. SUB-MODE: Identify which of these applies to the current M5 structure:
    - MOMENTUM_CONTINUATION: Fresh directional move, enter now or on first micro-pullback
@@ -3192,12 +3190,7 @@ Your PRIMARY OBJECTIVE is to find the best executable trade. Self-assess from th
    momentum_breakout | bos_retest | ema_rejection | double_bottom | double_top |
    range_breakout | liquidity_sweep | engulfing_at_structure | trend_pullback_ema
 
-   GUIDANCE (not a hard block): Identify which named structure best matches what you see,
-   or describe the structure in plain terms if none of the 8 names apply. A valid scalp
-   requires directional intent supported by price structure — it does not require a
-   textbook named pattern. If 2+ dimensions align (ATR phase, structure, direction),
-   that is a tradeable setup. Return NO_TRADE only when you cannot identify any
-   directional reason with supporting structure.
+   Identify which named structure best matches what you observe, or describe the structure in plain terms if none of the 8 names apply. Valid scalps include range boundaries (range top/bottom fades), session highs/lows, and any named price structure — textbook pattern names are not required. Document the structural basis you identified or the absence of one, and let your conviction score reflect that assessment.
 
 MANDATORY JSON FIELDS — Include these regardless of action:
   "scalp_pattern": "<one of the 8 structures above, or describe the structure>",
@@ -3239,7 +3232,7 @@ MANDATORY JSON FIELDS — Include these regardless of action:
           const phaseLabels: Record<string, string> = {
             starting: 'STARTING / FRESH (< 0.75x ATR traveled — ideal scalp window, full confidence)',
             developing: 'DEVELOPING (0.75-1.5x ATR traveled — assess remaining runway to TP explicitly; tighten TP to nearest structure if runway is insufficient)',
-            exhausted: 'EXHAUSTED / EXTENDED (> 1.5x ATR traveled — move is extended. Look for a reversal, retest, or sweep setup rather than a continuation entry — exhausted moves often produce the best reversal entries. State your assessment. Only return NO_TRADE if no directional case exists at all)',
+            exhausted: 'EXHAUSTED / EXTENDED (> 1.5x ATR traveled — move is extended. Document what you observe: reversal setups, retests, sweep structures, or the absence of a directional case. State your exhaustion assessment explicitly and let your conviction score reflect it.)',
           };
 
           scalpIntelligencePrompt = `
@@ -3257,23 +3250,23 @@ ATR Traveled: ~${scalpSignal.atrTraveled?.toFixed(2) ?? 'unknown'}x ATR from las
 
 
 ${scalpSignal.momentumPhase === 'exhausted'
-  ? `EXHAUSTED MOMENTUM: ATR traveled > 1.5x — this move is extended. Look for a structural reversal, retest, or sweep setup rather than a continuation entry. If a BOS, sweep extreme, EMA rejection, or level reaction is present, set your confidence based on the structural merit of that reversal setup. State your exhaustion assessment explicitly. Only return NO_TRADE if there is genuinely no directional case — not merely because conditions are imperfect. Do NOT change the trade style.`
+  ? `EXHAUSTED MOMENTUM: ATR traveled > 1.5x — this move is extended. Document what you observe: reversal setups, retests, sweep structures, or the absence of a directional case. Name any available structural signals (BOS, sweep extreme, EMA rejection, level reaction) and state your honest conviction about whether a directional case exists.`
   : scalpSignal.momentumPhase === 'developing'
-    ? `DEVELOPING MOMENTUM: ~${scalpSignal.atrTraveled?.toFixed(2) ?? '?'}x ATR consumed. Range is partially used. You MUST assess whether sufficient runway exists between current price and your TP. State explicitly: "Remaining runway: ~X pips to nearest structure. TP placed at [level] — the [near/far] edge of that zone." Tighten TP to the nearest achievable structure rather than returning NO_TRADE unless the runway is genuinely insufficient for any viable R:R. Do NOT apply an arbitrary confidence penalty — reason about the runway directly.`
-    : `FRESH MOMENTUM: < 0.75x ATR consumed. Full confidence permitted. Enter early in the leg.`
+    ? `DEVELOPING MOMENTUM: ~${scalpSignal.atrTraveled?.toFixed(2) ?? '?'}x ATR consumed. Range is partially used. Document remaining runway: state "Remaining runway: ~X pips to nearest structure. TP placed at [level] — the [near/far] edge of that zone." Document your entry_mode choice and the structural basis for it. Your conviction score reflects your honest assessment of whether runway is sufficient.`
+    : `FRESH MOMENTUM: < 0.75x ATR consumed. Full confidence is available if structure supports it.`
 }
 
 ${scalpSignal.scalpSubMode === 'pullback_entry'
-  ? `PULLBACK ENTRY RULE: Do NOT enter during the retrace. If pullback completion is not confirmed by a continuation candle on M5, use wait_pullback — not execute_now. Entering mid-retrace is the #1 scalp failure mode.`
+  ? `PULLBACK ENTRY CONTEXT: The intelligence monitor identified a pullback phase. The sub-mode tool wait_condition block is available to define a limit entry zone. Document the current state of the retrace, your entry_mode choice, and the structural zone you are targeting or why current price is already at a valid entry.`
   : scalpSignal.scalpSubMode === 'consolidation_breakout'
-    ? `CONSOLIDATION BREAKOUT RULE: A candle BODY close outside the compression range is required. A wick touch is NOT a breakout. If body close has not occurred, use wait_pullback.`
+    ? `CONSOLIDATION BREAKOUT CONTEXT: The intelligence monitor identified a compression range. A candle BODY close outside the range is the standard breakout trigger. Document whether the body close has or has not occurred, which entry_mode you selected, and your structural reasoning for that choice.`
     : `MOMENTUM CONTINUATION: Fresh directional move. Enter on the breakout or within the first 1-2 candle pullback.`
 }
 
 
 ${scalpSignal.scalpPattern === 'none' || !scalpSignal.scalpPattern
-  ? `NO NAMED STRUCTURE PRE-DETECTED: The intelligence monitor found no textbook match. GUIDANCE: Identify which of the 8 named structures best fits what you observe in the M5 data, or describe the structure you see. Valid scalps do not require textbook patterns — they require directional intent supported by price structure. If 2+ factors align (phase, direction, nearby level), that is a tradeable setup. If you find a structure, name it in "scalp_pattern". If you genuinely cannot identify any structural reason for a trade, set "scalp_pattern": "none" and return NO_TRADE.`
-  : `PATTERN CONFIRMED: ${patternLabels[scalpSignal.scalpPattern]} was detected. Confirm this matches what you see or correct it in your reasoning. Include "scalp_pattern": "${scalpSignal.scalpPattern}" in your JSON output (or correct to a valid structure name).`
+  ? `NO NAMED STRUCTURE PRE-DETECTED: The intelligence monitor found no textbook match. Identify which of the 8 named structures best fits what you observe in the M5 data, or describe the structure you see in plain terms. Valid scalps include range boundary fades, session high/low reactions, and any named price structure — textbook pattern names are not required. Document the structural basis you identified or the absence of one. Set "scalp_pattern" to the closest match or your own description.`
+  : `PATTERN DETECTED: ${patternLabels[scalpSignal.scalpPattern]} was pre-computed. Confirm this matches what you see or correct it in your reasoning. Include "scalp_pattern": "${scalpSignal.scalpPattern}" in your JSON output (or correct to a valid structure name).`
 }
 
 MANDATORY JSON FIELDS — Include these in your response regardless of action:
@@ -3469,14 +3462,14 @@ You choose ALL profit targets. The system never calculates TP for you. TP placem
   tp1 must be closer to entry than tp2. Both must be within arena walls.
   Alpha has full authority to place TP1 and TP2 based on what market structure is offering.
   TP1 IS MANDATORY for MICRO_INTRADAY. A response without a numeric "tp1" field is a malformed response — output NO_TRADE instead. There is no valid MICRO_INTRADAY trade without TP1.
-  If no M15 structure exists at >= 1.0:1 distance, NO_TRADE. SL must be behind a genuine M15 structural level — scalp-sized stops on MICRO trades are auto-rejected.
+  Document the nearest M15 structural level and the R:R achievable from it. If R:R falls below 1.0:1 at the nearest structure, state that and document your action with reasoning. Your conviction score reflects your honest assessment of whether the structural space supports the trade.
 - INTRADAY: TWO take-profits. Minimum R:R 1.0:1.
   "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest H1 structural zone (not M15 micro-structure). TP1 R:R vs SL must be >= 1.0:1.
   "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H4 structural zone. TP2 R:R must be >= TP1 R:R.
   tp1 must be closer to entry than tp2. Both must be within arena walls.
   Alpha has full authority to place TP1 and TP2 based on what market structure is offering.
   TP1 IS MANDATORY for INTRADAY. A response without a numeric "tp1" field is a malformed response — output NO_TRADE instead. There is no valid INTRADAY trade without TP1.
-  If no H1 structure exists at >= 1.0:1 distance, NO_TRADE.
+  Document the nearest H1 structural level and the R:R achievable from it. If R:R falls below 1.0:1 at the nearest structure, state that and document your action with reasoning. Your conviction score reflects your honest assessment of whether the structural space supports the trade.
 
 ENTRY MODE — SMART WAITING SYSTEM:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -3524,32 +3517,18 @@ If the entry monitor is ACTIVE, all three entry modes are available and you shou
 choose the one that best matches the structural setup — including "wait_pullback" when
 price is extended from your ideal entry zone, or "push_confirmation" for breakout retests.
 
-RULE: Choose "wait_pullback" or "push_confirmation" only when you have a named structural
-target zone with clear justification. Vague discomfort about current price is NOT grounds
-for waiting. If no named structural zone exists for the wait, use "execute_now" or NO_TRADE.
+AUDIT: When using "wait_pullback" or "push_confirmation", document in your wait_condition block and thesis_coherence_statement the named structural level defining your zone, the zone direction relative to current price, and whether reaching the zone would cross any invalidation level. The audit trail records your reasoning — Alpha decides the action.
 
-NEVER output "wait_pullback" or "push_confirmation" as a fallback when you are uncertain
-about the current entry. These modes require a specific, named target zone with clear
-structural justification. Uncertainty is grounds for NO_TRADE.
+BREAKOUT ENTRY AUDIT:
+If your entry trigger is a breakout that has not yet fired at the time of this analysis (price has not yet traded through the named level), document: whether the breakout has fired, which entry_mode you selected, and your structural reasoning for that choice. Log whether the trigger was fired or pending in thesis_coherence_statement.
 
-BREAKOUT ENTRIES — MANDATORY RULE:
-If Q6_entry_trigger is a breakout (price must trade THROUGH a level it has NOT YET reached —
-e.g. "breakout above X", "break of structure above Y", "push through resistance Z") AND
-Q4_momentum_stage is DEVELOPING, then "execute_now" is STRUCTURALLY INVALID.
-The breakout has not fired yet. Executing now means entering BEFORE your own trigger.
-You MUST use "push_confirmation" with a wait_condition zone set at the breakout level.
-Failure to do so is a coherence violation — the system will flag it in governance logs.
-
-WAIT_PULLBACK COHERENCE RULES — MANDATORY:
-Before choosing "wait_pullback", verify all of the following or use NO_TRADE:
-  - The pullback zone is in the CORRECT direction: lower than current price for BUY, higher for SELL.
-  - The zone is anchored to a named structural level (support, VWAP, Fibonacci, prior swing high/low).
-  - Price reaching the zone does NOT cross the thesis invalidation level.
-  - The expected wait time is reasonable given market context (not more than 60 min for scalp/micro).
-  - You are NOT choosing wait_pullback merely because current price feels "high" or "extended" without
-    a specific structural target — vague discomfort is NOT a valid pullback thesis.
-
-If none of these three apply: output NO_TRADE. There is no fourth option.
+WAIT_PULLBACK AUDIT OBLIGATIONS:
+When using wait_pullback, document in your wait_condition block:
+  - The named structural level anchoring the wait zone (support, VWAP, Fibonacci, prior swing high/low).
+  - The zone direction relative to current price (lower for BUY wait, higher for SELL wait) — or explain the exception.
+  - Whether reaching the zone would cross any thesis invalidation level.
+  - Your reasoning for why waiting for this zone is the correct action given the structural picture.
+Weak or absent zone reasoning reduces conviction — document it honestly and let your confidence score reflect it.
 
 When using wait_pullback or push_confirmation, include a wait_condition block:
 {
@@ -3572,24 +3551,23 @@ COHERENCE OBLIGATION — before producing JSON
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 My answer_sheet is an audit trail, not a scorecard. Before I write any JSON, I check every answer I gave against the action I am about to take.
 
-The following contradictions require explicit resolution in thesis_coherence_statement — or NO_TRADE:
-- Q8C = PREMIUM on a BUY action: I must name the specific catalyst (sweep, structural break, liquidity grab) that overrides premium-zone logic.
-- Q8C = DISCOUNT on a SELL action: I must name the specific catalyst that overrides discount-zone logic.
-- Q3 = prior rejections at my entry level: I must name what is different this time — what cleared those rejections.
-- Q4 = EXHAUSTED momentum: I must explain whether this is a reversal or continuation thesis and why the exhaustion does not invalidate it.
-- Q5_failure_probability within 15 points of trade_confidence: I must name the specific edge preserver — or I pass.
-- Q1 = CONFLICT or COUNTER_TREND: I must explain why I am trading against the control timeframe structure.
-- intermarket_correlation = DIVERGENT: I must acknowledge the divergence and name why the primary instrument's structural case is strong enough to warrant the trade despite the correlated market moving against. If I cannot name a specific structural reason, I reason honestly about what the divergence means for my conviction.
-- Q8D = DELIVERY_BEARISH on a BUY action: I must evaluate whether a strong intraday or session-level structural case exists that justifies this trade despite the counter-delivery context. I name that reason explicitly in thesis_coherence_statement — or I reason honestly about whether the counter-delivery context reduces my genuine conviction and score accordingly. No formula. My confidence reflects my honest assessment of whether this trade wins.
-- Q8D = DELIVERY_BULLISH on a SELL action: I must evaluate whether a strong intraday or session-level structural case exists that justifies this trade despite the counter-delivery context. I name that reason explicitly in thesis_coherence_statement — or I reason honestly about whether the counter-delivery context reduces my genuine conviction and score accordingly. No formula. My confidence reflects my honest assessment of whether this trade wins.
-- Q12 = DISTRIBUTION on a BUY action (continuation): I must name the specific structural reason the distribution is a false signal or has resolved — or output NO_TRADE. DISTRIBUTION + BUY continuation without a named structural change is a contradiction.
-- Q12 = ACCUMULATION + entry_mode = execute_now: I must confirm a specific named trigger has fired (Q6 must name the event). ACCUMULATION phase with no fired trigger and execute_now is a coherence violation — the move has not started yet.
-- Q12 conflicts with Q4_momentum_stage: If Q12=EXPANSION but Q4=EXHAUSTED, or Q12=ACCUMULATION but Q4=FRESH with strong bodies — I must resolve this contradiction explicitly. Q12 (control TF) and Q4 (confirmation TF) operating on different timeframes is valid but must be named and explained.
-- session_sweep_status = NEITHER_SWEPT on a LONDON or NY directional trade: If both Asian/London boundaries are intact and I am taking a direction trade with execute_now, I must name the specific structural reason I am not waiting for the sweep to define direction. Entering before the session sweep fires without a named structural basis reduces confluence by definition.
-- kill_zone = OUTSIDE_KILL_ZONE on a forex execute_now trade: I must name the specific structural reason a trade outside a kill zone has genuine institutional follow-through probability. "Structure is clear" is not sufficient — I must name the active draw and why it does not require kill zone timing.
+The following conditions require explicit documentation in thesis_coherence_statement — these are audit obligations, not decision gates. Alpha decides the action. The audit trail records the reasoning:
+- Q8C = PREMIUM on a BUY action: Document what catalyst (sweep, structural break, liquidity grab, or other) informs your view on the premium zone. State your honest conviction about whether the premium context is relevant to this specific setup.
+- Q8C = DISCOUNT on a SELL action: Document what catalyst informs your view on the discount zone. State your honest conviction about whether the discount context is relevant.
+- Q3 = prior rejections at my entry level: Document what you observe as structurally different at this level compared to prior rejections, or acknowledge the absence of a difference and reflect it in your conviction.
+- Q4 = EXHAUSTED momentum: Document whether this is a reversal or continuation thesis and how the exhaustion reading affects your conviction. State your honest assessment.
+- Q5_failure_probability within 15 points of trade_confidence: Document the specific edge you are relying on that justifies the spread between failure probability and confidence, or acknowledge the gap and let your confidence score reflect it.
+- Q1 = CONFLICT or COUNTER_TREND: Document your structural reasoning for the direction you selected relative to the control timeframe. State your honest conviction about the counter-trend case.
+- intermarket_correlation = DIVERGENT: Document your assessment of the divergence and how it affects your conviction about this instrument. State whether the primary instrument's structural case is sufficient to trade despite the correlated market moving against.
+- Q8D = DELIVERY_BEARISH on a BUY action: Document whether a strong intraday or session-level structural case exists that informs your view despite the counter-delivery context. State your honest conviction — no formula, no penalty arithmetic.
+- Q8D = DELIVERY_BULLISH on a SELL action: Document whether a strong intraday or session-level structural case exists that informs your view despite the counter-delivery context. State your honest conviction — no formula, no penalty arithmetic.
+- Q12 = DISTRIBUTION on a BUY action (continuation): Document what you observe about the distribution signal — whether it appears to be a false signal, a resolved condition, or a genuine contradiction with your thesis. State your honest conviction about the structural basis for the BUY.
+- Q12 = ACCUMULATION + entry_mode = execute_now: Document whether a specific named trigger has fired (what Q6 names as the event). State your honest assessment of why execute_now is appropriate in an accumulation phase given the current structural evidence.
+- Q12 conflicts with Q4_momentum_stage: If Q12=EXPANSION but Q4=EXHAUSTED, or Q12=ACCUMULATION but Q4=FRESH with strong bodies — document your interpretation of the conflict. Q12 (control TF) and Q4 (confirmation TF) operating on different timeframes is valid but must be named and explained.
+- session_sweep_status = NEITHER_SWEPT on a LONDON or NY directional trade: If both session boundaries are intact and you are taking a direction trade with execute_now, document the structural basis for this entry timing and how the absence of a session sweep affects your conviction.
+- kill_zone = OUTSIDE_KILL_ZONE on a forex execute_now trade: Document the structural reason you assess a trade outside a kill zone as having genuine institutional follow-through probability. Name the active draw and why the setup is valid outside kill zone timing.
 
-If I cannot resolve a contradiction with a specific named reason, I output NO_TRADE.
-If I can resolve it, I write the resolution in thesis_coherence_statement — not a generic acknowledgment, a specific named reason.
+If a contradiction cannot be resolved with a specific named reason, document the unresolved gap in thesis_coherence_statement, reduce conviction accordingly, and let the confidence score reflect that honest assessment. Alpha decides the action.
 
 Return PURE JSON only — all required fields from the schema in my system prompt must be present.`;
 
