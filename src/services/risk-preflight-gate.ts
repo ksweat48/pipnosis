@@ -1,16 +1,23 @@
 /**
  * Risk Pre-Flight Gate - DETERMINISTIC Risk Validation System
  *
- * This is NOT an Omega voter - it's a PRE-FLIGHT GATE that validates
- * trade proposals BEFORE they execute.
+ * CCIP-2026-0328B: ALPHA SOVEREIGNTY ENFORCEMENT
  *
- * RESPONSIBILITY:
- * - Validate R:R ratio meets minimum requirements
- * - Check SL placement against ATR
- * - Validate position sizing
- * - Ensure exposure limits
- * - Return GO/NO_GO with reasons
+ * This gate validates trade GEOMETRY and DATA INTEGRITY only.
+ * It does NOT block Alpha's trading decisions based on R:R ratios,
+ * SL placement, or exposure levels — those are Alpha's professional judgments.
  *
+ * HARD BLOCKS (geometry / data integrity only):
+ * - SL on wrong side of entry (mathematical impossibility)
+ * - TP on wrong side of entry (mathematical impossibility)
+ *
+ * ADVISORY ONLY (logged, not blocking):
+ * - R:R below style minimum — Alpha's structural choice
+ * - SL too tight / too wide vs ATR — Alpha's structural choice
+ * - Risk % policy violation — advisory warning
+ * - Total exposure exceeded — advisory warning
+ *
+ * SSOT: alpha-identity.ts LEGITIMATE_BLOCK_CONDITIONS governs all hard stops.
  * FULLY DETERMINISTIC - NO LLM CALLS
  */
 
@@ -110,16 +117,19 @@ class RiskPreflightGate {
       riskScore = 0;
     }
 
+    // CCIP-2026-0328B: R:R, SL placement, risk %, and exposure are Alpha's structural
+    // decisions. They are observed and logged as advisory warnings — never BLOCKING.
+    // Only geometry inversions (wrong side of entry) are hard violations.
     const styleMinRR = getMinRRForStyle(input.style);
     if (rrRatio < styleMinRR) {
-      violations.push({
-        type: 'BLOCKING',
-        code: 'RR_TOO_LOW',
-        message: `R:R ratio ${rrRatio.toFixed(2)} below minimum ${styleMinRR} for ${input.style || 'default'}`,
+      warnings.push({
+        type: 'ADVISORY',
+        code: 'RR_BELOW_STYLE_MINIMUM',
+        message: `R:R ratio ${rrRatio.toFixed(2)} below style minimum ${styleMinRR} for ${input.style || 'default'} — advisory only per CCIP-2026-0328B`,
         value: rrRatio,
         threshold: styleMinRR
       });
-      riskScore -= 40;
+      riskScore -= 10;
     } else if (rrRatio < TRADING_CONSTANTS.RISK_REWARD_RATIOS.TARGET) {
       warnings.push({
         type: 'CAUTION',
@@ -128,70 +138,71 @@ class RiskPreflightGate {
         value: rrRatio,
         threshold: TRADING_CONSTANTS.RISK_REWARD_RATIOS.TARGET
       });
-      riskScore -= 10;
+      riskScore -= 5;
     } else if (rrRatio >= TRADING_CONSTANTS.RISK_REWARD_RATIOS.EXCELLENT) {
       riskScore += 10;
     }
 
     if (slInATR < RISK_GATE_THRESHOLDS.MIN_SL_ATR) {
       warnings.push({
-        type: 'CAUTION',
+        type: 'ADVISORY',
         code: 'SL_TOO_TIGHT',
-        message: `SL distance ${slInATR.toFixed(2)} ATR below minimum ${RISK_GATE_THRESHOLDS.MIN_SL_ATR}`,
+        message: `SL distance ${slInATR.toFixed(2)} ATR below minimum ${RISK_GATE_THRESHOLDS.MIN_SL_ATR} — advisory only`,
         value: slInATR,
         threshold: RISK_GATE_THRESHOLDS.MIN_SL_ATR
       });
-      riskScore -= 15;
+      riskScore -= 5;
     }
 
     if (slInATR > RISK_GATE_THRESHOLDS.MAX_SL_ATR) {
       warnings.push({
-        type: 'CAUTION',
+        type: 'ADVISORY',
         code: 'SL_TOO_WIDE',
-        message: `SL distance ${slInATR.toFixed(2)} ATR exceeds maximum ${RISK_GATE_THRESHOLDS.MAX_SL_ATR}`,
+        message: `SL distance ${slInATR.toFixed(2)} ATR exceeds maximum ${RISK_GATE_THRESHOLDS.MAX_SL_ATR} — advisory only`,
         value: slInATR,
         threshold: RISK_GATE_THRESHOLDS.MAX_SL_ATR
       });
-      riskScore -= 15;
+      riskScore -= 5;
     }
 
     if (input.riskMode) {
       const riskValidation = validateRiskPercentForMode(input.riskPercent, input.riskMode);
       if (!riskValidation.valid) {
-        violations.push({
-          type: 'BLOCKING',
-          code: 'RISK_PCT_POLICY_VIOLATION',
-          message: riskValidation.reason!,
+        warnings.push({
+          type: 'ADVISORY',
+          code: 'RISK_PCT_POLICY_ADVISORY',
+          message: `${riskValidation.reason} — advisory only per CCIP-2026-0328B`,
           value: input.riskPercent
         });
-        riskScore -= 30;
+        riskScore -= 10;
       }
     } else if (input.riskPercent > PLATFORM_ABSOLUTE_RISK_CAP) {
-      violations.push({
-        type: 'BLOCKING',
-        code: 'RISK_PCT_TOO_HIGH',
-        message: `Risk ${input.riskPercent}% exceeds platform cap ${PLATFORM_ABSOLUTE_RISK_CAP}%`,
+      warnings.push({
+        type: 'ADVISORY',
+        code: 'RISK_PCT_HIGH',
+        message: `Risk ${input.riskPercent}% above platform cap ${PLATFORM_ABSOLUTE_RISK_CAP}% — advisory only`,
         value: input.riskPercent,
         threshold: PLATFORM_ABSOLUTE_RISK_CAP
       });
-      riskScore -= 30;
+      riskScore -= 10;
     }
 
     const totalExposure = (input.existingExposure || 0) + input.riskPercent;
     if (totalExposure > RISK_GATE_THRESHOLDS.MAX_TOTAL_EXPOSURE) {
-      violations.push({
-        type: 'BLOCKING',
-        code: 'EXPOSURE_EXCEEDED',
-        message: `Total exposure ${totalExposure}% exceeds maximum ${RISK_GATE_THRESHOLDS.MAX_TOTAL_EXPOSURE}%`,
+      warnings.push({
+        type: 'ADVISORY',
+        code: 'EXPOSURE_HIGH',
+        message: `Total exposure ${totalExposure}% above maximum ${RISK_GATE_THRESHOLDS.MAX_TOTAL_EXPOSURE}% — advisory only`,
         value: totalExposure,
         threshold: RISK_GATE_THRESHOLDS.MAX_TOTAL_EXPOSURE
       });
-      riskScore -= 25;
+      riskScore -= 10;
     }
 
+    // CCIP-2026-0328B: Only CRITICAL geometry violations block execution.
+    // BLOCKING type no longer exists — all non-critical checks are advisory.
     const hasCritical = violations.some(v => v.type === 'CRITICAL');
-    const hasBlocking = violations.some(v => v.type === 'BLOCKING');
-    const canProceed = !hasCritical && !hasBlocking;
+    const canProceed = !hasCritical;
 
     riskScore = Math.max(0, Math.min(100, riskScore));
 

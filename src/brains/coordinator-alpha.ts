@@ -4557,54 +4557,18 @@ Return PURE JSON only — all required fields from the schema in my system promp
           : undefined,
       } : undefined;
 
-      // CCIP-2026-0323A: Q10 entry conviction enforcement — SCALP ONLY.
-      // Alpha is instructed via the prompt to self-enforce: FORCED → no execute_now.
-      // This guard is the code-layer backstop. If Alpha rated FORCED but still chose
-      // execute_now (hallucination or prompt non-compliance), we correct the entry_mode
-      // to wait_pullback and log a governance violation for observability.
-      // SSOT: alpha-identity.ts defines the Q10 values. We never block the trade — only
-      // redirect the entry mode to one that is compatible with a FORCED conviction.
-      if (
-        tradeStyle === 'SCALP' &&
-        (action === 'BUY' || action === 'SELL') &&
-        answerSheet?.Q10_entry_conviction === 'FORCED' &&
-        entryMode === 'execute_now'
-      ) {
-        console.warn('[Alpha Coordinator] CCIP-2026-0323A: Q10=FORCED but entry_mode=execute_now — correcting to wait_pullback. Alpha must not force-enter immediately when conviction is FORCED.');
-        logViolation({
-          violationType: 'Q10_FORCED_EXECUTE_NOW',
-          severity: 'medium',
-          source: 'coordinator-alpha',
-          description: `Q10_entry_conviction=FORCED but entry_mode=execute_now on SCALP. Corrected to wait_pullback.`,
-          symbol: marketContext.symbol,
-          userId: userId || 'unknown',
-        }).catch(() => {});
-        entryMode = 'wait_pullback';
+      // CCIP-2026-0328B: Q10 and Q11 entry mode corrections REMOVED.
+      // Alpha has full authority over entry_mode. Q10_entry_conviction=FORCED and
+      // Q11_zone_entry_quality=DEEP_ZONE are audit observations that Alpha already
+      // prices into his reasoning — code must not override his output.
+      // If Alpha self-assessed FORCED or DEEP_ZONE and still chose execute_now,
+      // that is his professional judgment and must stand as issued.
+      // LEGITIMATE_BLOCK_CONDITIONS in alpha-identity.ts governs all hard stops.
+      if ((action === 'BUY' || action === 'SELL') && answerSheet?.Q10_entry_conviction === 'FORCED' && entryMode === 'execute_now') {
+        console.log(`[Alpha Coordinator] CCIP-2026-0328B: Q10=FORCED + execute_now — advisory observation logged. Alpha's entry_mode stands as issued. Symbol=${symbol}.`);
       }
-
-      // CCIP-2026-0323B: Q11 zone entry quality enforcement — MICRO_INTRADAY and INTRADAY ONLY.
-      // Alpha is instructed via the prompt to self-enforce: DEEP_ZONE → no execute_now.
-      // This guard is the code-layer backstop. If Alpha rated DEEP_ZONE but still chose
-      // execute_now (hallucination or prompt non-compliance), we correct the entry_mode
-      // to wait_pullback and log a governance violation for observability.
-      // SSOT: alpha-identity.ts defines the Q11 values. We never block the trade — only
-      // redirect the entry mode to one that is compatible with a DEEP_ZONE assessment.
-      if (
-        (tradeStyle === 'MICRO_INTRADAY' || tradeStyle === 'INTRADAY') &&
-        (action === 'BUY' || action === 'SELL') &&
-        answerSheet?.Q11_zone_entry_quality === 'DEEP_ZONE' &&
-        entryMode === 'execute_now'
-      ) {
-        console.warn(`[Alpha Coordinator] CCIP-2026-0323B: Q11=DEEP_ZONE but entry_mode=execute_now on ${tradeStyle} — correcting to wait_pullback. Alpha must not force-enter at the far edge of a structural zone.`);
-        logViolation({
-          violationType: 'Q11_DEEP_ZONE_EXECUTE_NOW',
-          severity: 'medium',
-          source: 'coordinator-alpha',
-          description: `Q11_zone_entry_quality=DEEP_ZONE but entry_mode=execute_now on ${tradeStyle}. Corrected to wait_pullback.`,
-          symbol: marketContext.symbol,
-          userId: userId || 'unknown',
-        }).catch(() => {});
-        entryMode = 'wait_pullback';
+      if ((action === 'BUY' || action === 'SELL') && answerSheet?.Q11_zone_entry_quality === 'DEEP_ZONE' && entryMode === 'execute_now') {
+        console.log(`[Alpha Coordinator] CCIP-2026-0328B: Q11=DEEP_ZONE + execute_now — advisory observation logged. Alpha's entry_mode stands as issued. Symbol=${symbol}.`);
       }
 
       // CCIP-2026-0324D: Q8D weekly narrative vs action conflict advisory check.
@@ -4730,52 +4694,25 @@ Return PURE JSON only — all required fields from the schema in my system promp
             }
           : undefined;
 
-      // CCIP-2026-0319A (Fix 3): Enforce wait_condition presence when entry_mode requires it.
-      // Previously this was a warning-only check. Now it takes corrective action:
-      //   (a) If entry_advisory has a valid zone, synthesise a wait_condition from it so the
-      //       entry intent creation path has a valid zone to work with.
-      //   (b) If entry_advisory is also absent or invalid, downgrade entry_mode to 'execute_now'
-      //       so the trade executes immediately rather than creating an intent with no zone.
-      // The corrective action is logged to support governance auditing of LLM compliance.
-      // SSOT: this is the sole place where wait_condition correction/synthesis happens.
+      // CCIP-2026-0328B: Wait condition synthesis and entry mode downgrade REMOVED.
+      // Alpha has full authority over entry_mode and wait_condition. If Alpha chose
+      // wait_pullback or push_confirmation without supplying a wait_condition zone,
+      // that is his decision — he may have intend a market-order at the zone level
+      // using his structural reference. Code must not synthesise zones or downgrade
+      // his mode. The executor will handle a missing wait_condition gracefully.
+      // SSOT: coordinator-alpha.ts passes Alpha's output as-is. No synthesis.
       let resolvedEntryMode = entryMode;
       let resolvedWaitCondition = waitCondition;
 
-      if ((resolvedEntryMode === 'wait_pullback' || resolvedEntryMode === 'push_confirmation') && !resolvedWaitCondition) {
-        const advisoryHasZone =
-          entryAdvisory &&
-          typeof entryAdvisory.pullback_zone_min === 'number' &&
-          typeof entryAdvisory.pullback_zone_max === 'number' &&
-          entryAdvisory.pullback_zone_min > 0 &&
-          entryAdvisory.pullback_zone_max > 0;
-
-        if (advisoryHasZone) {
-          resolvedWaitCondition = {
-            target_entry_zone_min: entryAdvisory!.pullback_zone_min as number,
-            target_entry_zone_max: entryAdvisory!.pullback_zone_max as number,
-            invalidation_price: action === 'BUY'
-              ? (entryAdvisory!.pullback_zone_min as number) * 0.9985
-              : (entryAdvisory!.pullback_zone_max as number) * 1.0015,
-            wait_reasoning: `Synthesised from entry_advisory zone (original wait_condition absent). Advisory: ${entryAdvisory!.reasoning || 'no detail'}`,
-            expected_wait_minutes: undefined,
-          };
-          console.warn(
-            `[Alpha Coordinator] WAIT_CONDITION_SYNTHESISED: entry_mode="${resolvedEntryMode}" — wait_condition absent but ` +
-            `entry_advisory zone available. Synthesised zone=${resolvedWaitCondition.target_entry_zone_min}–${resolvedWaitCondition.target_entry_zone_max}. ` +
-            `Symbol=${symbol}. CCIP-2026-0319A.`
-          );
-        } else {
-          resolvedEntryMode = 'execute_now';
-          console.warn(
-            `[Alpha Coordinator] ENTRY_MODE_DOWNGRADED: entry_mode="${entryMode}"→"execute_now" — wait_condition absent and ` +
-            `no advisory fallback zone available. Trade will execute immediately. Symbol=${symbol}. CCIP-2026-0319A.`
-          );
-        }
-      } else if (resolvedWaitCondition) {
+      if (resolvedWaitCondition) {
         console.log(
           `[Alpha Coordinator] wait_condition parsed: zone=${resolvedWaitCondition.target_entry_zone_min}–${resolvedWaitCondition.target_entry_zone_max} ` +
           `invalidation=${resolvedWaitCondition.invalidation_price} ` +
           `est_wait=${resolvedWaitCondition.expected_wait_minutes ?? 'unspecified'}min`
+        );
+      } else if (resolvedEntryMode === 'wait_pullback' || resolvedEntryMode === 'push_confirmation') {
+        console.log(
+          `[Alpha Coordinator] CCIP-2026-0328B: entry_mode="${resolvedEntryMode}" without wait_condition — Alpha's decision stands. Executor will handle gracefully. Symbol=${symbol}.`
         );
       }
 
@@ -4841,79 +4778,12 @@ Return PURE JSON only — all required fields from the schema in my system promp
         }
       }
 
-      // CCIP-FIX (breakout contradiction guard):
-      // Alpha's answer_sheet is an audit trail. Q6_entry_trigger and Q4_momentum_stage
-      // carry Alpha's structural diagnosis — they must be coherent with entry_mode.
-      //
-      // INVARIANT: If Q6 names a breakout trigger (price has not yet traded through the
-      // structural level) AND Q4 is DEVELOPING, the move has not confirmed. Executing at
-      // current market price would mean entering BEFORE the breakout fires — the exact
-      // failure pattern we are preventing.
-      //
-      // ACTION: Downgrade execute_now → push_confirmation and synthesise a wait_condition
-      // zone centred on Alpha's planned entry price (tight band = ATR-approximate 0.1% width).
-      // This keeps Alpha fully in authority — we correct the mode to match what Alpha already
-      // told us in its answer_sheet. No trade parameters (SL, TP, lot size) are changed.
-      //
-      // GOVERNANCE: Logged as CCIP ENTRY_MODE_CONFLICT_CORRECTED for full audit trail.
-      // SSOT: coordinator-alpha.ts is the sole parse and correction point for entry_mode.
-      // This block runs BEFORE resolveExecutionMode() in goal-session-live-engine.ts so
-      // the engine receives a consistent, already-validated decision object.
-      if (
-        action !== 'NO_TRADE' &&
-        resolvedEntryMode === 'execute_now' &&
-        answerSheet?.Q6_entry_trigger &&
-        answerSheet?.Q4_momentum_stage
-      ) {
-        const q6Lower = answerSheet.Q6_entry_trigger.toLowerCase();
-        const q4Lower = answerSheet.Q4_momentum_stage.toLowerCase();
-
-        const isBreakoutTrigger =
-          q6Lower.includes('breakout') ||
-          q6Lower.includes('break above') ||
-          q6Lower.includes('break below') ||
-          q6Lower.includes('break of structure') ||
-          q6Lower.includes('bos above') ||
-          q6Lower.includes('bos below') ||
-          q6Lower.includes('push through') ||
-          q6Lower.includes('above resistance') ||
-          q6Lower.includes('below support');
-
-        const isDeveloping = q4Lower.includes('developing') || q4Lower.includes('dev');
-
-        if (isBreakoutTrigger && isDeveloping) {
-          const entryRef = typeof parsed.entry === 'number' && parsed.entry > 0 ? parsed.entry : 0;
-          const zoneHalfWidth = entryRef > 0 ? entryRef * 0.001 : 0.001;
-
-          const correctedZone = entryRef > 0
-            ? {
-                target_entry_zone_min: entryRef - zoneHalfWidth,
-                target_entry_zone_max: entryRef + zoneHalfWidth,
-                invalidation_price: action === 'BUY'
-                  ? entryRef - zoneHalfWidth * 4
-                  : entryRef + zoneHalfWidth * 4,
-                wait_reasoning: `Breakout contradiction guard: Q6="${answerSheet.Q6_entry_trigger}" + Q4="${answerSheet.Q4_momentum_stage}" — breakout not yet confirmed. Waiting for M5 close inside zone before executing.`,
-                expected_wait_minutes: 15,
-              }
-            : undefined;
-
-          if (correctedZone) {
-            resolvedEntryMode = 'push_confirmation';
-            resolvedWaitCondition = correctedZone;
-            console.warn(
-              `[Alpha Coordinator] ENTRY_MODE_CONFLICT_CORRECTED: execute_now→push_confirmation ` +
-              `— Q6="${answerSheet.Q6_entry_trigger}" (breakout) + Q4="${answerSheet.Q4_momentum_stage}" (developing) ` +
-              `contradicts immediate execution. Synthesised wait zone: ${correctedZone.target_entry_zone_min.toFixed(5)}–${correctedZone.target_entry_zone_max.toFixed(5)}. ` +
-              `Symbol=${symbol}. CCIP-FIX.`
-            );
-          } else {
-            console.warn(
-              `[Alpha Coordinator] ENTRY_MODE_CONFLICT_DETECTED: Q6="${answerSheet.Q6_entry_trigger}" + Q4="${answerSheet.Q4_momentum_stage}" ` +
-              `contradicts execute_now but entry price unavailable to synthesise zone. Trade proceeds as execute_now. Symbol=${symbol}. CCIP-FIX.`
-            );
-          }
-        }
-      }
+      // CCIP-2026-0328B: Breakout contradiction guard REMOVED.
+      // Alpha has full authority over entry_mode. Q6 and Q4 are answer_sheet audit
+      // fields that Alpha already accounts for in his reasoning. Code must not
+      // second-guess Alpha's entry_mode by inferring a contradiction from two text
+      // fields. If Alpha says execute_now on a breakout setup, that is his judgment.
+      // Advisory observation only — no modification to entry_mode or wait_condition.
 
       // ═══════════════════════════════════════════════════════════════════
       // CCIP-2026-0319C: execute_now MUST NOT propagate wait_condition downstream.

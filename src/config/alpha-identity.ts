@@ -229,27 +229,30 @@ export const ALPHA_IDENTITY = {
   /**
    * LEGITIMATE_BLOCK_CONDITIONS — Data integrity and mathematical validity gates only.
    *
-   * CCIP-2026-0328A: Governance compliance audit. NO_NAMED_STRUCTURE removed from
-   * this list. Identifying whether a named structural anchor exists is Alpha's
-   * analytical responsibility — it is a market reading, not a data integrity failure.
-   * Alpha documents the absence of named structure in its reasoning and reflects that
-   * in its conviction score. Only the system (code-layer pre-Alpha gates) may produce
-   * a block on the conditions below — all of which are data integrity or mathematical
-   * validity failures, not trading judgments.
+   * CCIP-2026-0328A: Governance compliance audit. NO_NAMED_STRUCTURE removed.
+   * CCIP-2026-0328B: Alpha Sovereignty Completion. This registry is the COMPLETE and
+   * EXHAUSTIVE list of conditions under which code may prevent execution. Nothing
+   * outside this list may block, modify, or override Alpha's trade decision.
+   *
+   * ALL conditions here are data integrity failures or mathematical impossibilities —
+   * not trading judgments. Alpha's confidence, R:R, entry mode, zone quality, and
+   * all other trading parameters are exclusively Alpha's domain.
    *
    * SSOT: This is the single authority for block condition classification.
-   * coordinator-alpha.ts and alpha-identity.ts are the only consumers.
+   * Only coordinator-alpha.ts and mandatory-safety-validator.ts may use these.
+   * Any code referencing a different block condition is an SSOT violation.
    */
   LEGITIMATE_BLOCK_CONDITIONS: [
-    'DATA_STALE',
-    'INVALID_STOP_LOSS',
-    'SPREAD_EXCEEDS_PROFIT',
-    'BROKEN_FEED',
-    'MARKET_CLOSED',
-    'ZERO_DISTANCE_SL_TP',
-    'MTF_DATA_MISSING',
-    'PRIMARY_TF_DATA_MISSING',
-    'TOKEN_BUDGET_EXCEEDED',
+    'DATA_STALE',            // Price or intelligence data older than max allowable age
+    'INVALID_STOP_LOSS',     // SL on wrong side of entry (geometric impossibility)
+    'SPREAD_EXCEEDS_PROFIT', // Spread > TP distance — trade cannot be profitable
+    'BROKEN_FEED',           // Data source not responding
+    'MARKET_CLOSED',         // Market not open for trading (weekend Forex, etc.)
+    'ZERO_DISTANCE_SL_TP',   // SL or TP at entry price — no risk structure
+    'MTF_DATA_MISSING',      // Multi-timeframe data insufficient for analysis
+    'PRIMARY_TF_DATA_MISSING', // Primary timeframe has insufficient candle history
+    'TOKEN_BUDGET_EXCEEDED', // LLM response was truncated — incomplete decision
+    'TIER_1_NEWS_ACTIVE',    // Tier-1 scheduled news event in active window
   ] as const,
 
   ADVISORY_SYSTEMS: {
