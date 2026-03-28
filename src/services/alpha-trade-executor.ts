@@ -13,7 +13,6 @@
  *
  * Validation Pipeline:
  * 1.  Core Validation (Omega + Geometry + Freshness)
- * 1b. Sweep Reclaim Gate (HARD BLOCK — BOS must be confirmed for liquidity_sweep_reversal)
  * 2.  Trade Capacity (Confidence + Slots + Duplicates)
  * 3.  Risk Authority (Context + PCVL + Margin + Kelly)
  * 4.  Price Validation (Slippage + Staleness)
@@ -827,12 +826,19 @@ class AlphaTradeExecutor {
       };
     }
 
-    // Duplicate symbol check
+    // Duplicate symbol check — per user session (goal_session_id is already user-scoped).
+    // Blocks same symbol regardless of direction: a user may not hold a BUY and a SELL
+    // on the same symbol concurrently in one session, and may not duplicate the same direction.
+    // Different users in their own sessions are unaffected — this is intentionally session-scoped.
+    // CCIP-2026-0328-GOV: direction parity does not matter — any open position on the symbol
+    // for this user's session constitutes a duplicate and is blocked.
     const existingSymbolTrade = openTrades?.find(trade => trade.symbol === symbol);
     if (existingSymbolTrade) {
+      const existingDirection = existingSymbolTrade.direction ?? existingSymbolTrade.action;
+      const conflictType = existingDirection === direction ? 'duplicate direction' : 'opposite direction';
       return {
         valid: false,
-        reason: `Already have an open/pending position on ${symbol}`
+        reason: `Already have an open/pending ${existingDirection?.toUpperCase()} position on ${symbol} (${conflictType} conflict)`
       };
     }
 
