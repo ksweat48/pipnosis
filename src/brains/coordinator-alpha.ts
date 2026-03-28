@@ -770,9 +770,85 @@ class AlphaCoordinatorBrain {
     // This is injected into the prompt so Alpha knows exactly whether wait modes are available
     // before he reasons about entry_mode. Default to false (safe: deny wait if unreadable).
     const entryMonitorActive = monitorPrefRaw?.entry_price_monitor_enabled === true;
-    const entryMonitorStatusLine = entryMonitorActive
-      ? 'Entry monitor status: ACTIVE — "wait_pullback" and "push_confirmation" are available.'
-      : 'Entry monitor status: OFFLINE — "wait_pullback" and "push_confirmation" are UNAVAILABLE. Use "execute_now" or NO_TRADE only.';
+
+    const entryModePromptSection = entryMonitorActive
+      ? `ENTRY MODE — SMART WAITING SYSTEM:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+The entry_mode field controls when the trade executes. You have full authority to choose the right mode based on market conditions.
+
+  "execute_now"       → The full picture aligns NOW. Trend, structure, momentum, timing, and entry trigger
+                        are all confirmed. Execute at current market price immediately.
+                        REQUIRES: A named trigger that has already fired (candle close, BOS, sweep-reclaim,
+                        structural rejection). Proximity alone is not a trigger.
+
+  "wait_pullback"     → Equivalent to a LIMIT ORDER. The full picture aligns EXCEPT the current entry
+                        price is overextended from the optimal zone. Thesis is valid; you are managing
+                        timing, not conviction. The system places a limit-style entry that executes the
+                        instant price touches your defined zone — no candle close required.
+                        USE WHEN: Price is extended from structure, you want to buy at support or sell
+                        at resistance, or you need a better risk/reward entry. The pullback zone must
+                        be defined around a genuine structural level (e.g. prior support, VWAP retest,
+                        50% retracement of the last impulse).
+                        REQUIRES: "wait_condition" block. State the exact pullback target zone (min/max
+                        price), the price that invalidates the thesis, and your reasoning.
+                        COHERENCE: The pullback zone MUST be a lower price than current price for BUY
+                        (price needs to come DOWN to you) or a higher price for SELL (price needs to
+                        come UP to you). If price is already at or inside your zone, use "execute_now".
+                        If the pullback would cross a structural invalidation level, use NO_TRADE.
+
+  "push_confirmation" → STRONGER than a limit order — requires a candle close inside the zone.
+                        The full picture will align IF price pushes into a specific zone AND closes
+                        an M5 candle body INSIDE it. A wick touch or brief spike is NOT sufficient.
+                        USE WHEN: Breakout entries, breakout retests, or when you need confirmed
+                        commitment (a candle body close) before executing. This prevents false breakouts.
+                        REQUIRES: "wait_condition" block. Set the zone tightly around the structural
+                        level (1-3 pip width). The system monitors M5 candles and executes only after
+                        a closed candle body confirms commitment.
+                        COHERENCE: The zone must be at a price NOT YET reached — if price is already
+                        inside your zone, use "execute_now" instead.
+
+AUDIT: When using "wait_pullback" or "push_confirmation", document in your wait_condition block and thesis_coherence_statement the named structural level defining your zone, the zone direction relative to current price, and whether reaching the zone would cross any invalidation level. The audit trail records your reasoning — Alpha decides the action.
+
+BREAKOUT ENTRY AUDIT:
+If your entry trigger is a breakout that has not yet fired at the time of this analysis (price has not yet traded through the named level), document: whether the breakout has fired, which entry_mode you selected, and your structural reasoning for that choice. Log whether the trigger was fired or pending in thesis_coherence_statement.
+
+WAIT_PULLBACK AUDIT OBLIGATIONS:
+When using wait_pullback, document in your wait_condition block:
+  - The named structural level anchoring the wait zone (support, VWAP, Fibonacci, prior swing high/low).
+  - The zone direction relative to current price (lower for BUY wait, higher for SELL wait) — or explain the exception.
+  - Whether reaching the zone would cross any thesis invalidation level.
+  - Your reasoning for why waiting for this zone is the correct action given the structural picture.
+Weak or absent zone reasoning reduces conviction — document it honestly and let your confidence score reflect it.
+
+When using wait_pullback or push_confirmation, include a wait_condition block:
+{
+  "wait_condition": {
+    "target_entry_zone_min": <lower bound of the wait zone>,
+    "target_entry_zone_max": <upper bound of the wait zone>,
+    "invalidation_price": <price that invalidates the thesis entirely>,
+    "wait_reasoning": "Why you are waiting — what structural level defines the zone",
+    "expected_wait_minutes": <your estimate of how long until price reaches the zone, e.g. 15>
+  }
+}
+
+IMPORTANT: For push_confirmation, the zone defines where the M5 candle must CLOSE — not just touch.
+Set the zone tightly around your structural level (1-3 pip width is appropriate for confirmation).
+For wait_pullback, the zone defines the limit entry price range — execution triggers on first touch.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+      : `ENTRY MODE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+The entry monitor is OFFLINE. Only two choices are available:
+
+  "execute_now" → The full picture aligns NOW. Trend, structure, momentum, timing, and entry trigger
+                  are all confirmed. Execute at current market price immediately.
+                  REQUIRES: A named trigger that has already fired (candle close, BOS, sweep-reclaim,
+                  structural rejection). Proximity alone is not a trigger.
+
+  NO_TRADE      → Conditions do not support an immediate entry. Pass on this scan.
+
+"wait_pullback" and "push_confirmation" are not available — they require the entry monitor to be active.
+If there is no clean execute_now setup, the correct answer is NO_TRADE.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
     let riskContext = '';
     const riskAssessment = riskResultLong || riskResultShort;
@@ -3471,80 +3547,7 @@ You choose ALL profit targets. The system never calculates TP for you. TP placem
   TP1 IS MANDATORY for INTRADAY. A response without a numeric "tp1" field is a malformed response — output NO_TRADE instead. There is no valid INTRADAY trade without TP1.
   Document the nearest H1 structural level and the R:R achievable from it. If R:R falls below 1.0:1 at the nearest structure, state that and document your action with reasoning. Your conviction score reflects your honest assessment of whether the structural space supports the trade.
 
-ENTRY MODE — SMART WAITING SYSTEM:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-The entry_mode field controls when the trade executes. You have full authority to choose the right mode based on market conditions.
-
-  "execute_now"       → The full picture aligns NOW. Trend, structure, momentum, timing, and entry trigger
-                        are all confirmed. Execute at current market price immediately.
-                        REQUIRES: A named trigger that has already fired (candle close, BOS, sweep-reclaim,
-                        structural rejection). Proximity alone is not a trigger.
-
-  "wait_pullback"     → Equivalent to a LIMIT ORDER. The full picture aligns EXCEPT the current entry
-                        price is overextended from the optimal zone. Thesis is valid; you are managing
-                        timing, not conviction. The system places a limit-style entry that executes the
-                        instant price touches your defined zone — no candle close required.
-                        USE WHEN: Price is extended from structure, you want to buy at support or sell
-                        at resistance, or you need a better risk/reward entry. The pullback zone must
-                        be defined around a genuine structural level (e.g. prior support, VWAP retest,
-                        50% retracement of the last impulse).
-                        REQUIRES: "wait_condition" block. State the exact pullback target zone (min/max
-                        price), the price that invalidates the thesis, and your reasoning.
-                        COHERENCE: The pullback zone MUST be a lower price than current price for BUY
-                        (price needs to come DOWN to you) or a higher price for SELL (price needs to
-                        come UP to you). If price is already at or inside your zone, use "execute_now".
-                        If the pullback would cross a structural invalidation level, use NO_TRADE.
-
-  "push_confirmation" → STRONGER than a limit order — requires a candle close inside the zone.
-                        The full picture will align IF price pushes into a specific zone AND closes
-                        an M5 candle body INSIDE it. A wick touch or brief spike is NOT sufficient.
-                        USE WHEN: Breakout entries, breakout retests, or when you need confirmed
-                        commitment (a candle body close) before executing. This prevents false breakouts.
-                        REQUIRES: "wait_condition" block. Set the zone tightly around the structural
-                        level (1-3 pip width). The system monitors M5 candles and executes only after
-                        a closed candle body confirms commitment.
-                        COHERENCE: The zone must be at a price NOT YET reached — if price is already
-                        inside your zone, use "execute_now" instead.
-
-ENTRY MONITOR DEPENDENCY — LIVE STATUS:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${entryMonitorStatusLine}
-
-"wait_pullback" and "push_confirmation" require the entry monitor to be active.
-If the entry monitor is OFFLINE, those modes will be blocked to NO_TRADE regardless
-of your analysis — so use "execute_now" or NO_TRADE only in that case.
-If the entry monitor is ACTIVE, all three entry modes are available and you should
-choose the one that best matches the structural setup — including "wait_pullback" when
-price is extended from your ideal entry zone, or "push_confirmation" for breakout retests.
-
-AUDIT: When using "wait_pullback" or "push_confirmation", document in your wait_condition block and thesis_coherence_statement the named structural level defining your zone, the zone direction relative to current price, and whether reaching the zone would cross any invalidation level. The audit trail records your reasoning — Alpha decides the action.
-
-BREAKOUT ENTRY AUDIT:
-If your entry trigger is a breakout that has not yet fired at the time of this analysis (price has not yet traded through the named level), document: whether the breakout has fired, which entry_mode you selected, and your structural reasoning for that choice. Log whether the trigger was fired or pending in thesis_coherence_statement.
-
-WAIT_PULLBACK AUDIT OBLIGATIONS:
-When using wait_pullback, document in your wait_condition block:
-  - The named structural level anchoring the wait zone (support, VWAP, Fibonacci, prior swing high/low).
-  - The zone direction relative to current price (lower for BUY wait, higher for SELL wait) — or explain the exception.
-  - Whether reaching the zone would cross any thesis invalidation level.
-  - Your reasoning for why waiting for this zone is the correct action given the structural picture.
-Weak or absent zone reasoning reduces conviction — document it honestly and let your confidence score reflect it.
-
-When using wait_pullback or push_confirmation, include a wait_condition block:
-{
-  "wait_condition": {
-    "target_entry_zone_min": <lower bound of the wait zone>,
-    "target_entry_zone_max": <upper bound of the wait zone>,
-    "invalidation_price": <price that invalidates the thesis entirely>,
-    "wait_reasoning": "Why you are waiting — what structural level defines the zone",
-    "expected_wait_minutes": <your estimate of how long until price reaches the zone, e.g. 15>
-  }
-}
-
-IMPORTANT: For push_confirmation, the zone defines where the M5 candle must CLOSE — not just touch.
-Set the zone tightly around your structural level (1-3 pip width is appropriate for confirmation).
-For wait_pullback, the zone defines the limit entry price range — execution triggers on first touch.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${entryModePromptSection}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 COHERENCE OBLIGATION — before producing JSON
