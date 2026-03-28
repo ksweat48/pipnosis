@@ -361,6 +361,11 @@ class AlphaThoughtStream {
    * Reuses the 'comparing' step type (already in DB constraint) to surface
    * each candidate's individual Alpha reasoning before the final decision.
    * Called once per evaluated symbol. SSOT: uses existing comparing step type.
+   *
+   * LANGUAGE RULE (CCIP-2026-0328B):
+   * - confidence < 50 (MINIMUM_TRADE_CONFIDENCE): "I am only X% confident" — signals low conviction.
+   * - confidence >= 50 on NO_TRADE: "I am X% confident this is not the right trade."
+   * - confidence >= 50 on BUY/SELL (BLOCKED_BY_FLOOR): "I am X% confident in this [BUY/SELL]."
    */
   async emitSymbolReasoning(
     sessionId: string,
@@ -371,7 +376,25 @@ class AlphaThoughtStream {
     reasoning: string
   ): Promise<void> {
     const actionLabel = action === 'BUY' ? 'BUY' : action === 'SELL' ? 'SELL' : 'NO_TRADE';
-    const message = `${symbol} [${actionLabel} ${confidence}%]: ${reasoning}`;
+    const MINIMUM_TRADE_CONFIDENCE = 50;
+    const isLowConviction = confidence < MINIMUM_TRADE_CONFIDENCE;
+
+    let message: string;
+    if (actionLabel === 'NO_TRADE') {
+      if (isLowConviction) {
+        message = `${symbol}: I am only ${confidence}% confident there is anything here. I choose no trade.`;
+      } else {
+        message = `${symbol}: I am ${confidence}% confident this is not the right trade. I choose to wait.`;
+      }
+    } else {
+      // BUY or SELL — Alpha called a direction
+      if (isLowConviction) {
+        message = `${symbol}: I am only ${confidence}% confident in this ${actionLabel}. I choose no trade.`;
+      } else {
+        message = `${symbol}: I am ${confidence}% confident in this ${actionLabel}.`;
+      }
+    }
+
     await this.emitThought(sessionId, userId, 'comparing', message, {
       symbol,
       action: actionLabel,
@@ -382,8 +405,13 @@ class AlphaThoughtStream {
   }
 
   /**
-   * Emit final decision thought
-   * Example: "EURUSD selected - highest confidence entry at 1.12345"
+   * Emit final decision thought.
+   *
+   * LANGUAGE RULE (CCIP-2026-0328B):
+   * - No trade: "I scanned all pairs. I did not find a trade I was confident enough to take. Waiting for the next cycle."
+   * - Trade found (confidence >= 50): "I am X% confident in [SYMBOL] [BUY/SELL]. Executing now."
+   * - Trade found (confidence < 50): "I am only X% confident in [SYMBOL] [BUY/SELL]. Executing now."
+   *   (below-50 execution is unusual but valid in advisory-only mode — language rule still applies)
    */
   async emitFinalDecision(
     sessionId: string,
@@ -397,13 +425,17 @@ class AlphaThoughtStream {
       reasoning: string;
     }
   ): Promise<void> {
+    const MINIMUM_TRADE_CONFIDENCE = 50;
     let message: string;
 
     if (!result.selected || !result.symbol) {
-      message = `No quality setups found - ${result.reasoning}`;
+      message = `I scanned all pairs. I did not find a trade I was confident enough to take. Waiting for the next cycle.`;
     } else {
-      const actionIcon = result.action === 'BUY' ? '📈' : result.action === 'SELL' ? '📉' : '';
-      message = `${actionIcon} ${result.symbol} selected - ${result.reasoning}`;
+      const conf = result.confidence ?? 0;
+      const isLowConviction = conf < MINIMUM_TRADE_CONFIDENCE;
+      const onlyStr = isLowConviction ? 'only ' : '';
+      const actionStr = result.action === 'BUY' || result.action === 'SELL' ? result.action : 'trade';
+      message = `I am ${onlyStr}${conf}% confident in ${result.symbol} ${actionStr}. Executing now.`;
     }
 
     await this.emitThought(sessionId, userId, 'final_decision', message, {

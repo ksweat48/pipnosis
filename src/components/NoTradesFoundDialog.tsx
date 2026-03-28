@@ -73,11 +73,23 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
   };
 
   /**
-   * CCIP-2026-0327C: Three-state confidence label for Alpha's scan decisions.
+   * CCIP-2026-0327C / CCIP-2026-0328B: Three-state confidence label for Alpha's scan decisions.
    *
-   * State A — BLOCKED_BY_FLOOR: Alpha wanted BUY/SELL but confidence < 50
-   * State B — NO_TRADE_LEAN: Alpha said NO_TRADE but had directional lean (uncertain)
-   * State C — NO_TRADE_GENUINE: Alpha clearly saw no edge (patience conviction >= 50)
+   * LANGUAGE RULE (SSOT — this comment is the authority):
+   * - confidence < 50: Alpha says "I am only X% confident" — "only" signals low conviction.
+   * - confidence >= 50: Alpha says "I am X% confident" — positive framing, no qualifier.
+   *
+   * State A — BLOCKED_BY_FLOOR: Alpha wanted BUY/SELL (action !== NO_TRADE).
+   *   Confidence is always >= 50 here because Alpha called a direction.
+   *   Alpha speaks positively: "I am X% confident in this [BUY/SELL]."
+   *
+   * State B — NO_TRADE_LEAN: Alpha said NO_TRADE with a directional lean.
+   *   Confidence is below 50 (lean didn't reach conviction).
+   *   Alpha says "only": "I am only X% confident."
+   *
+   * State C — NO_TRADE_GENUINE: Alpha saw no edge.
+   *   Below 50: "I am only X% confident there is anything here."
+   *   At/above 50: "I am X% confident this is not the right trade."
    *
    * SSOT: execution_status is the authoritative field. Falls back to legacy
    * confidence-vs-threshold logic for records that pre-date CCIP-2026-0327C.
@@ -91,13 +103,17 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
   ) => {
     if (confidence === 0) return null;
 
-    // BLOCKED_BY_FLOOR: Alpha wanted to trade but confidence was below the execution gate
+    const isLowConviction = confidence < EXECUTION_THRESHOLD;
+    const onlyStr = isLowConviction ? 'only ' : '';
+
+    // BLOCKED_BY_FLOOR: Alpha wanted to trade but confidence was below the execution gate.
+    // Alpha called a direction (BUY/SELL) so confidence is always >= 50 — positive voice.
     if (executionStatus === 'BLOCKED_BY_FLOOR' || (action !== 'NO_TRADE' && confidence < EXECUTION_THRESHOLD)) {
       const leanIcon = action === 'BUY' ? TrendingUp : TrendingDown;
       return {
         state: 'BLOCKED_BY_FLOOR' as const,
-        text: `Alpha ${action} @ ${confidence}% — below ${EXECUTION_THRESHOLD}% floor`,
-        expandedText: `Alpha identified a ${action} setup at ${confidence}% conviction. This is below the ${EXECUTION_THRESHOLD}% execution floor — Alpha did not take the trade. The setup was real but insufficient.`,
+        text: `I am ${onlyStr}${confidence}% confident in this ${action}. Below execution floor.`,
+        expandedText: `I am ${onlyStr}${confidence}% confident in this ${action} setup. I wanted to execute but my confidence did not clear my execution floor. I did not take the trade.`,
         dotClass: 'bg-orange-400',
         badgeClass: 'bg-orange-900/40 text-orange-300',
         chipClass: 'text-orange-400 bg-orange-900/30 border-orange-700/40',
@@ -106,15 +122,16 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
       };
     }
 
-    // NO_TRADE_LEAN: Alpha had a directional lean but did not reach conviction
+    // NO_TRADE_LEAN: Alpha had a directional lean but did not reach conviction.
+    // Lean confidence is always below 50 — "only" applies.
     if (executionStatus === 'NO_TRADE_LEAN' || (action === 'NO_TRADE' && confidence < 50 && directionalLean && directionalLean !== 'NEUTRAL')) {
       const lean = directionalLean || 'NEUTRAL';
-      const leanStr = lean === 'BUY_LEAN' ? 'BUY lean' : lean === 'SELL_LEAN' ? 'SELL lean' : 'uncertain';
+      const leanStr = lean === 'BUY_LEAN' ? 'bullish' : lean === 'SELL_LEAN' ? 'bearish' : 'uncertain';
       const leanIcon = lean === 'BUY_LEAN' ? TrendingUp : lean === 'SELL_LEAN' ? TrendingDown : Minus;
       return {
         state: 'NO_TRADE_LEAN' as const,
-        text: `${confidence}% patience — ${leanStr}${leanConfidence ? ` (${leanConfidence}% lean)` : ''}`,
-        expandedText: `Alpha leaned ${leanStr} but was only ${confidence}% certain that waiting was correct. The directional lean reached ${leanConfidence || 0}% conviction — not enough structure to act. Alpha stepped aside.`,
+        text: `I am only ${confidence}% confident. ${leanStr} lean. I choose no trade.`,
+        expandedText: `I am only ${confidence}% confident in this market. I have a ${leanStr} lean${leanConfidence ? ` at ${leanConfidence}% conviction` : ''} but not enough structure to act on it. I choose to wait.`,
         dotClass: 'bg-yellow-400',
         badgeClass: 'bg-yellow-900/40 text-yellow-300',
         chipClass: 'text-yellow-400 bg-yellow-900/30 border-yellow-700/40',
@@ -123,12 +140,19 @@ export const NoTradesFoundDialog: React.FC<NoTradesFoundDialogProps> = ({
       };
     }
 
-    // NO_TRADE_GENUINE: Alpha clearly saw no edge (patience conviction >= 50) or legacy NO_TRADE
+    // NO_TRADE_GENUINE: Alpha clearly saw no edge.
+    // Below 50: "only" qualifier. At/above 50: positive framing.
     if (action === 'NO_TRADE') {
+      const chipText = isLowConviction
+        ? `I am only ${confidence}% confident there is anything here. I choose no trade.`
+        : `I am ${confidence}% confident this is not the right trade. I choose to wait.`;
+      const expandedText = isLowConviction
+        ? `I am only ${confidence}% confident there is any setup here. No qualifying structure or directional edge exists in the current market. I choose no trade.`
+        : `I am ${confidence}% confident that waiting is the correct professional decision right now. No qualifying setup exists — no directional lean, no structural edge. I choose to wait.`;
       return {
         state: 'NO_TRADE_GENUINE' as const,
-        text: `${confidence}% patience — no structure`,
-        expandedText: `Alpha was ${confidence}% confident that waiting is correct. No qualifying setup existed in the current market structure — no directional lean, no edge.`,
+        text: chipText,
+        expandedText,
         dotClass: 'bg-gray-400',
         badgeClass: 'bg-gray-700/60 text-gray-300',
         chipClass: 'text-gray-400 bg-gray-800/60 border-gray-600/40',
