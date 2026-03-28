@@ -1972,9 +1972,9 @@ H1 Move Phase: ${h1MovePhase}
 Assessment: ${phaseLabel}
 
 ${h1MovePhase === 'DEVELOPING'
-  ? `DEVELOPING STAGE — MANDATORY RUNWAY CHECK: R:R must remain achievable from current price for both TP1 (H1 structural level) and TP2 (H4 structural level). State explicitly: "Remaining runway to TP1: ~X pips. Remaining runway to TP2: ~X pips. R:R from current price: TP1=X:1, TP2=X:1." If TP1 R:R falls below 1.0:1, tighten TP1 to the next achievable H1 structure or return NO_TRADE.`
+  ? `DEVELOPING STAGE — RUNWAY AUDIT: Document the remaining structural space from current price to your intended TP1 (H1 structural level) and TP2 (H4 structural level). State: "Remaining runway to TP1: ~X pips. Remaining runway to TP2: ~X pips. R:R from current price: TP1=X:1, TP2=X:1." If the R:R to your named TP1 is below 1.0:1, document whether you can tighten to the next achievable H1 structure — and reflect your honest R:R assessment in your conviction score. Alpha decides the action.`
   : h1MovePhase === 'EXHAUSTED'
-    ? `EXHAUSTED STAGE — The H1 leg has traveled > 1.5x ATR. Look for a structural reversal, retest, or sweep setup rather than a continuation entry — exhausted H1 moves often produce the best reversal entries. Recalculate R:R from CURRENT price. If recalculated TP1 R:R cannot reach 1.0:1 from a named H1 re-entry zone, return NO_TRADE. State your structural assessment regardless of decision.`
+    ? `EXHAUSTED STAGE — The H1 leg has traveled > 1.5x ATR. Look for a structural reversal, retest, or sweep setup rather than a continuation entry — exhausted H1 moves often produce the best reversal entries. Recalculate R:R from CURRENT price and document the nearest structural re-entry zone and achievable R:R. If R:R is insufficient from the nearest named H1 re-entry zone, document that assessment and reflect it in your conviction score. Alpha decides the action.`
     : `FRESH STAGE — Full confidence window. Structural space to TP1 and TP2 is available. Both continuation and pullback entries are valid.`
 }
 ${fakeoutBlock}
@@ -2049,7 +2049,7 @@ MANDATORY JSON FIELD — Include in your response regardless of action:
             ? `FRESH — < 0.75x M15 ATR traveled (< ${freshCeilingM15} pips from swing origin). Full confidence range. Both continuation and pullback entries are valid.`
             : m15MovePhase === 'DEVELOPING'
               ? `DEVELOPING — 0.75–1.5x M15 ATR traveled (${freshCeilingM15}–${developingCeilingM15} pips from swing origin). Structural space to TP1 may be narrowing. Pullback re-entry preferred. Continuation requires explicit justification that TP1 and TP2 remain achievable.`
-              : `EXHAUSTED — > 1.5x M15 ATR traveled (> ${developingCeilingM15} pips from swing origin). The M15 leg is extended — look for a structural reversal, retest, or sweep setup rather than a continuation entry. Exhausted M15 moves often produce the best reversal entries. State your structural assessment. Only return NO_TRADE if no directional case exists at all.`;
+              : `EXHAUSTED — > 1.5x M15 ATR traveled (> ${developingCeilingM15} pips from swing origin). The M15 leg is extended — look for a structural reversal, retest, or sweep setup rather than a continuation entry. Exhausted M15 moves often produce the best reversal entries. Document your structural assessment and reflect your conviction score honestly.`;
 
           const fakeoutBlockM15 = fakeoutTypeM15
             ? `
@@ -2074,9 +2074,9 @@ M15 Move Phase: ${m15MovePhase}
 Assessment: ${phaseLabelM15}
 
 ${m15MovePhase === 'DEVELOPING'
-  ? `DEVELOPING STAGE — RUNWAY CHECK: R:R must remain achievable from current price for both TP1 (M15 structural level) and TP2 (H1 structural level). State explicitly: "Remaining runway to TP1: ~X pips. Remaining runway to TP2: ~X pips. R:R from current price: TP1=X:1, TP2=X:1." If TP1 R:R falls below 1.0:1, tighten TP1 to the next achievable M15 structure or return NO_TRADE.`
+  ? `DEVELOPING STAGE — RUNWAY AUDIT: Document the remaining structural space from current price to your intended TP1 (M15 structural level) and TP2 (H1 structural level). State: "Remaining runway to TP1: ~X pips. Remaining runway to TP2: ~X pips. R:R from current price: TP1=X:1, TP2=X:1." If the R:R to your named TP1 is below 1.0:1, document whether you can tighten to the next achievable M15 structure — and reflect your honest R:R assessment in your conviction score. Alpha decides the action.`
   : m15MovePhase === 'EXHAUSTED'
-    ? `EXHAUSTED STAGE — The M15 leg has traveled > 1.5x ATR. Look for a reversal, retest, or sweep setup rather than a continuation entry. If a valid structural re-entry zone exists and R:R reaches 1.0:1, the trade is valid. Only NO_TRADE if no directional structural case exists.`
+    ? `EXHAUSTED STAGE — The M15 leg has traveled > 1.5x ATR. Look for a reversal, retest, or sweep setup rather than a continuation entry. Document the nearest structural re-entry zone and achievable R:R from current price. Reflect your honest assessment of the R:R and structural quality in your conviction score. Alpha decides the action.`
     : `FRESH STAGE — Full confidence window. Structural space to TP1 and TP2 is available. Both continuation and pullback entries are valid.`
 }
 ${fakeoutBlockM15}MANDATORY JSON FIELD — Include in your response regardless of action:
@@ -2148,7 +2148,7 @@ ${fakeoutBlockM15}MANDATORY JSON FIELD — Include in your response regardless o
             ? `FRESH — < 0.75x M5 ATR traveled (< ${freshCeilingM5} pips from M5 swing origin). Full confidence range. Both continuation and pullback scalp entries are valid.`
             : m5MovePhase === 'DEVELOPING'
               ? `DEVELOPING — 0.75–1.5x M5 ATR traveled (${freshCeilingM5}–${developingCeilingM5} pips from M5 swing origin). Structural space to your single SCALP TP may be narrowing. Pullback scalp entry preferred. Continuation requires explicit justification that the single TP remains achievable.`
-              : `EXHAUSTED — > 1.5x M5 ATR traveled (> ${developingCeilingM5} pips from M5 swing origin). The M5 leg is extended — look for a reversal scalp or M5 structural retest entry rather than a continuation. Exhausted M5 moves often produce the cleanest reversal scalps. Set your confidence based on the structural merit of the reversal or retest setup you find. Only return NO_TRADE if no M5 structural edge exists at all.`;
+              : `EXHAUSTED — > 1.5x M5 ATR traveled (> ${developingCeilingM5} pips from M5 swing origin). The M5 leg is extended — look for a reversal scalp or M5 structural retest entry rather than a continuation. Exhausted M5 moves often produce the cleanest reversal scalps. Document the structural basis you find and set your conviction score based on the quality of the reversal or retest setup.`;
 
           const fakeoutBlockM5 = fakeoutTypeM5
             ? `
@@ -2173,9 +2173,9 @@ M5 Move Phase: ${m5MovePhase}
 Assessment: ${phaseLabelM5}
 
 ${m5MovePhase === 'DEVELOPING'
-  ? `DEVELOPING STAGE — RUNWAY CHECK: Confirm your single SCALP TP remains achievable from current price. State: "Remaining runway to TP: ~X pips. R:R from current price: X:1." If TP R:R falls below 1.0:1, tighten TP to the next achievable M5 structure or return NO_TRADE.`
+  ? `DEVELOPING STAGE — RUNWAY AUDIT: Document the remaining structural space from current price to your single SCALP TP. State: "Remaining runway to TP: ~X pips. R:R from current price: X:1." If R:R to your named TP is below 1.0:1, document whether you can tighten to the next achievable M5 structure — and reflect your honest R:R assessment in your conviction score. Alpha decides the action.`
   : m5MovePhase === 'EXHAUSTED'
-    ? `EXHAUSTED STAGE — The M5 leg has traveled > 1.5x ATR. Look for a reversal scalp or M5 structural retest setup rather than a continuation entry. If a valid M5 structural re-entry zone exists and R:R reaches 1.0:1, the scalp is valid — set confidence based on how strong the reversal structure is. Only NO_TRADE if no M5 structural case exists.`
+    ? `EXHAUSTED STAGE — The M5 leg has traveled > 1.5x ATR. Look for a reversal scalp or M5 structural retest setup rather than a continuation entry. Document the nearest M5 structural re-entry zone and achievable R:R from current price. Reflect your honest assessment of structural quality and R:R in your conviction score. Alpha decides the action.`
     : `FRESH STAGE — Full confidence window. Structural space to your SCALP TP is available. Both continuation and pullback scalp entries are valid.`
 }
 ${fakeoutBlockM5}MANDATORY JSON FIELDS — Include in your response regardless of action:

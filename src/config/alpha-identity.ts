@@ -226,6 +226,20 @@ export const ALPHA_IDENTITY = {
   EQS_EXECUTION_THRESHOLD,
   EQS_EXCEPTIONAL_OVERRIDE_THRESHOLD: 56,  // Reference value for display — not a gate
 
+  /**
+   * LEGITIMATE_BLOCK_CONDITIONS — Data integrity and mathematical validity gates only.
+   *
+   * CCIP-2026-0328A: Governance compliance audit. NO_NAMED_STRUCTURE removed from
+   * this list. Identifying whether a named structural anchor exists is Alpha's
+   * analytical responsibility — it is a market reading, not a data integrity failure.
+   * Alpha documents the absence of named structure in its reasoning and reflects that
+   * in its conviction score. Only the system (code-layer pre-Alpha gates) may produce
+   * a block on the conditions below — all of which are data integrity or mathematical
+   * validity failures, not trading judgments.
+   *
+   * SSOT: This is the single authority for block condition classification.
+   * coordinator-alpha.ts and alpha-identity.ts are the only consumers.
+   */
   LEGITIMATE_BLOCK_CONDITIONS: [
     'DATA_STALE',
     'INVALID_STOP_LOSS',
@@ -235,7 +249,6 @@ export const ALPHA_IDENTITY = {
     'ZERO_DISTANCE_SL_TP',
     'MTF_DATA_MISSING',
     'PRIMARY_TF_DATA_MISSING',
-    'NO_NAMED_STRUCTURE',
     'TOKEN_BUDGET_EXCEEDED',
   ] as const,
 
