@@ -271,25 +271,16 @@ class MultiTimeframePatternIntelligence {
     lines.push(`  Direction Aligned: ${result.intentAnalysis.directionAlignment ? 'YES' : 'NO'}`);
     lines.push('');
 
-    // Confidence Impact
-    lines.push('CONFIDENCE ADJUSTMENTS:');
-    if (result.confidenceAdjustment.boosts.length > 0) {
-      lines.push('  Boosts:');
-      result.confidenceAdjustment.boosts.forEach(b => {
-        lines.push(`    +${b.amount}% - ${b.reason}`);
-      });
+    // Pattern Signals (raw observations — Alpha prices these into his own confidence)
+    const allSignals = [
+      ...result.confidenceAdjustment.boosts.map(b => `SUPPORTS: ${b.reason}`),
+      ...result.confidenceAdjustment.penalties.map(p => `CONFLICTS: ${p.reason}`)
+    ];
+    if (allSignals.length > 0) {
+      lines.push('PATTERN SIGNALS:');
+      allSignals.forEach(s => lines.push(`  ${s}`));
+      lines.push('');
     }
-    if (result.confidenceAdjustment.penalties.length > 0) {
-      lines.push('  Penalties:');
-      result.confidenceAdjustment.penalties.forEach(p => {
-        lines.push(`    -${p.amount}% - ${p.reason}`);
-      });
-    }
-    lines.push(`  Total Adjustment: ${result.confidenceAdjustment.totalAdjustment > 0 ? '+' : ''}${result.confidenceAdjustment.totalAdjustment}%`);
-    if (result.confidenceAdjustment.capApplied) {
-      lines.push(`  ⚠️ ${result.confidenceAdjustment.capReason}`);
-    }
-    lines.push('');
 
     // Liquidity Targets
     if (result.liquidityTargets.length > 0) {

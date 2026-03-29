@@ -28,7 +28,6 @@ import { assetClassifier } from './asset-classifier';
 import {
   VOLATILITY_REGIME,
   TREND_REGIME,
-  REGIME_PENALTIES,
   WICK_RISK,
   SPREAD_RISK,
   ATR_PERIODS,
@@ -161,7 +160,7 @@ class RegimeOracle {
       avoid_trading: safetyFlags.avoid_trading,
       is_high_risk_regime: safetyFlags.is_high_risk_regime,
       reason: safetyFlags.dead_zone_active
-        ? `Dead zone active (session weight ${((safetyFlags.session_weight ?? 1) * 100).toFixed(0)}%)`
+        ? 'low_liquidity_window'
         : undefined,
       timestamp: ts,
       time_regime: timeRegime,
