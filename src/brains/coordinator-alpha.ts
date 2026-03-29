@@ -701,8 +701,8 @@ class AlphaCoordinatorBrain {
       if (goalContext) {
         alphaThoughtStream.emitAlphaRiskCheck(sessionId, userId, marketContext.symbol).catch(() => {});
       }
-    // Load platform streak context (non-blocking, advisory only)
-    let streakContextLine = 'Platform streak context: no active streak. Confidence adjustment: 0%.';
+    // Load platform streak context (non-blocking, observation only — CCIP-2026-0329A)
+    let streakContextLine = 'Platform streak context: no significant streak — platform is in a neutral execution phase.';
     try {
       const platformScore = await rewardEngine.loadPlatformScore();
       streakContextLine = buildStreakContext(platformScore);
@@ -710,13 +710,13 @@ class AlphaCoordinatorBrain {
 
     }
 
-    // Load platform streak context (advisory — non-blocking)
-    let streakContextLine = 'Platform streak context: no active streak. Confidence adjustment: 0%.';
+    // Load platform streak context (observation only, non-blocking — CCIP-2026-0329A)
+    let streakContextLine = 'Platform streak context: no significant streak — platform is in a neutral execution phase.';
     try {
       const platformScore = await rewardEngine.loadPlatformScore();
       streakContextLine = buildStreakContext(platformScore);
     } catch {
-      // Non-blocking — default to neutral
+      // Non-blocking — default to neutral observation
     }
 
     // Parallelize all independent data fetches (bidirectional for dual-arena)

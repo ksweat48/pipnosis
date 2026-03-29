@@ -6,7 +6,7 @@
  * WHAT THIS FILE IS NOW:
  * - PIPNOSIS_IDENTITY: Alpha's immutable mission, values, and thinking style
  * - getPlatformStreakModifier(): streak-to-confidence-modifier lookup (-5 to +5, every 5 trades = 1 point)
- * - buildStreakContext(): neutral context string passed to Alpha's prompt
+ * - buildStreakContext(): factual observation-only string passed to Alpha's prompt (no numeric steering)
  *
  * WHAT HAS BEEN REMOVED:
  * - PersonalityState interface (defensive/cautious/balanced/aggressive)
@@ -124,27 +124,31 @@ export function getPlatformStreakModifier(score: PlatformScore): number {
 /**
  * buildStreakContext
  *
- * Returns a neutral, single-line context string passed to Alpha's prompt.
- * This is advisory data — Alpha sees the streak context and can factor it
- * into his reasoning. The mechanical modifier is applied separately at
- * the confidence calculation layer.
+ * CCIP-2026-0329A GOVERNANCE COMPLIANCE:
+ * Returns a factual, observation-only context string passed to Alpha's prompt.
  *
- * Format: "Platform streak context: N consecutive wins/losses. Confidence adjustment: +/-Y%."
- * or "Platform streak context: no active streak. Confidence adjustment: 0%."
- * Note: adjustment is only non-zero at multiples of 5 consecutive results.
+ * WHAT THIS MUST NOT DO (per confidence-calculation-engine.ts SSOT):
+ * - Must NOT inject a numeric confidence adjustment (+X% / -X%)
+ * - Must NOT instruct Alpha to "Apply this to your final confidence score"
+ * - Must NOT pre-score or arithmetically steer Alpha's reasoning
+ *
+ * WHAT THIS DOES:
+ * - Reports the streak as a raw factual observation
+ * - Alpha reads it as context and prices it into his own reasoning freely
+ * - The mechanical modifier from getPlatformStreakModifier() is ONLY used by
+ *   confidence-calculation-engine.ts at the post-LLM calculation layer (SSOT)
+ *
+ * Authority: confidence-calculation-engine.ts owns all confidence arithmetic.
+ * This function owns only the factual observation string.
  */
 export function buildStreakContext(score: PlatformScore): string {
-  const modifier = getPlatformStreakModifier(score);
-
   if (score.consecutive_wins >= PLATFORM_STREAK_MODIFIER.TRADES_PER_POINT) {
-    const streakLabel = `${score.consecutive_wins} consecutive wins`;
-    return `Platform streak context: ${streakLabel}. Confidence adjustment: +${modifier}%. Apply this to your final confidence score.`;
+    return `Platform streak context: ${score.consecutive_wins} consecutive platform wins — recent execution has been well-aligned with market conditions.`;
   }
 
   if (score.consecutive_losses >= PLATFORM_STREAK_MODIFIER.TRADES_PER_POINT) {
-    const streakLabel = `${score.consecutive_losses} consecutive losses`;
-    return `Platform streak context: ${streakLabel}. Confidence adjustment: ${modifier}%. Apply this to your final confidence score.`;
+    return `Platform streak context: ${score.consecutive_losses} consecutive platform losses — recent execution has faced adverse conditions. Prioritise setup quality over trade frequency.`;
   }
 
-  return `Platform streak context: no active streak. Confidence adjustment: 0%. Apply this to your final confidence score.`;
+  return `Platform streak context: no significant streak — platform is in a neutral execution phase.`;
 }
