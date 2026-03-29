@@ -58,6 +58,11 @@ interface ChatCompletionResponse {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
+    // CCIP-2026-0329A: OpenAI prompt caching — present when store:true is sent in request
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+      audio_tokens?: number;
+    };
   };
 }
 
@@ -436,9 +441,15 @@ class OpenAIClient {
 
             const data: ChatCompletionResponse = await response.json();
 
+            // CCIP-2026-0329A: Log cached_tokens for cache hit rate monitoring
+            const cachedTokens = data.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+            const totalPrompt = data.usage?.prompt_tokens ?? 0;
+            const cacheHitPct = totalPrompt > 0 ? Math.round((cachedTokens / totalPrompt) * 100) : 0;
             console.log('[OpenAI Client] Success:', {
               model: data.model,
               tokens: data.usage?.total_tokens || 0,
+              cachedTokens,
+              cacheHitPct: `${cacheHitPct}%`,
               cost: this.estimateCost(data.model, data.usage?.total_tokens || 0),
               rateLimitHourly,
               rateLimitDaily,
