@@ -1319,7 +1319,7 @@ If there is no clean execute_now setup, the correct answer is NO_TRADE.
         atrForStopLoss = extractATRValue(marketContext.atr);
         console.warn(`[Alpha Coordinator] [Stop ATR Selection] ${tradeStyle}: preferred ATR field ${preferredAtrField} unavailable — falling back to marketContext.atr`);
       }
-      logATRUsage('Stop-Loss calculation', marketContext.atr);
+      logATRUsage('Stop-Loss calculation', preferredAtrRaw ?? marketContext.atr);
 
       // Build sweep context from Omega-8 for sweep-aware stop placement (SSOT)
       // Applies to all 3 trade styles: SCALP, MICRO_INTRADAY, INTRADAY
@@ -1394,7 +1394,7 @@ If there is no clean execute_now setup, the correct answer is NO_TRADE.
       const atrValue = extractATRValue(marketContext.atr);
       const atrPercent = (atrValue / marketContext.price) * 100;
       computedAtrPercent = atrPercent;
-      logATRUsage('Feasibility check', marketContext.atr);
+      logATRUsage('Feasibility check', marketContext.atr20 ?? marketContext.atr);
 
       if (sessionId && userId) {
         alphaThoughtStream.emitAlphaFeasibility(sessionId, userId, marketContext.symbol).catch(err => {

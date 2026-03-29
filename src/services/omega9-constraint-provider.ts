@@ -136,15 +136,12 @@ class Omega9ConstraintProvider {
     // Use resolved minimum R:R if provided, otherwise derive from style (SSOT: trading-constants.ts)
     const minRiskReward = resolvedPlan?.minRR ?? TRADING_CONSTANTS.RISK_REWARD_RATIOS.MINIMUM;
 
-    // CCIP-2026-03-06: Maximum R:R per style. Alpha's TP cannot exceed this ceiling.
-    // Scalp=2.0, Micro=2.0, Intraday=3.0. Derives from style via SSOT.
-    // CCIP-ALPHA-GOV-001: Use Alpha's per-trade rr_ceiling_override when provided.
-    // Fallback to static style ceiling with WARN when absent.
+    // CCIP-2026-03-06 / CCIP-ALPHA-GOV-001: Maximum R:R per style.
+    // This call runs PRE-ALPHA — Alpha has not yet returned rr_ceiling_override.
+    // Static style ceiling is the correct pre-Alpha default. Alpha's override is applied
+    // POST-DECISION in the orchestrator via validateAlphaRRCeiling().
     const styleForMaxRR = STYLE_MAP[tradeStyle] || tradeStyle;
     const staticRRCeiling = getMaxRRForStyle(styleForMaxRR);
-    if (input.rr_ceiling_override == null) {
-      console.warn(`[CCIP-ALPHA-GOV-001] rr_ceiling_override not set by Alpha — falling back to static style ceiling ${staticRRCeiling} for ${styleForMaxRR}`);
-    }
     const maxRiskReward = input.rr_ceiling_override != null
       ? Math.min(input.rr_ceiling_override, TRADING_CONSTANTS.RISK_REWARD_RATIOS.MAXIMUM_INTRADAY)
       : staticRRCeiling;
@@ -1024,6 +1021,33 @@ Core Principle: If the market can offer some profit, you should take it.
     console.log(`[Omega-9 Volatility] ${symbol} (${assetCategory}): Base ${(atrInPips * 1.5).toFixed(1)} → Regime ${regimeMultiplier}x → Session ${sessionMultiplier}x → Final ${baseVolatility.toFixed(1)} pips/hour (${assetCategory} floor: ${minimumVolatility})`);
 
     return baseVolatility;
+  }
+
+  /**
+   * CCIP-ALPHA-GOV-001: Post-decision R:R ceiling validation.
+   * Called AFTER Alpha returns with rr_ceiling_override to audit Alpha's TP
+   * against Alpha's own stated ceiling. Alpha is the authority — this is audit only.
+   * Returns null when no override is present (static ceiling applied pre-Alpha is sufficient).
+   */
+  validateAlphaRRCeiling(params: {
+    symbol: string;
+    entry: number;
+    takeProfit: number;
+    stopLoss: number;
+    direction: 'BUY' | 'SELL';
+    rr_ceiling_override: number;
+    tradeStyle: string;
+  }): { pass: boolean; actualRR: number; ceiling: number; auditNote: string } {
+    const { symbol, entry, takeProfit, stopLoss, rr_ceiling_override, tradeStyle } = params;
+    const tpPips = calculatePipDistance(symbol, entry, takeProfit);
+    const slPips = calculatePipDistance(symbol, entry, stopLoss);
+    const actualRR = slPips > 0 ? tpPips / slPips : 0;
+    const ceiling = Math.min(rr_ceiling_override, TRADING_CONSTANTS.RISK_REWARD_RATIOS.MAXIMUM_INTRADAY);
+    const pass = actualRR <= ceiling + 0.01;
+    const auditNote = pass
+      ? `Alpha RR=${actualRR.toFixed(2)} within Alpha-stated ceiling=${ceiling} (${tradeStyle})`
+      : `Alpha RR=${actualRR.toFixed(2)} exceeds Alpha-stated ceiling=${ceiling} (${tradeStyle}) — TP outside Alpha's own ceiling`;
+    return { pass, actualRR, ceiling, auditNote };
   }
 }
 

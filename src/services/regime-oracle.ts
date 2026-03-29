@@ -34,6 +34,7 @@ import {
   ATR_PERIODS,
   STRUCTURE_QUALITY
 } from '../config/regime-scoring-constants';
+import type { ATRValue } from '../types/atr';
 
 export interface Candle {
   open: number;
@@ -51,7 +52,7 @@ export interface MarketState {
   ema50: number;
   ema200: number;
   rsi: number;
-  atr: number;
+  atr: number | ATRValue;
   vwap?: number;
   volume?: number;
   recentCandles?: Candle[];

@@ -770,9 +770,9 @@ BUY or SELL:
   ${isScalp ? '' : '"tp1": <price>,  // MANDATORY — conservative partial target. A response without this field is malformed.\n  '}"trade_management": ${isScalp ? 'null,' : '{ "tp1_close_percent": <number>, "tp1_action": "move_sl_to_breakeven|move_sl_to_level|hold_sl", "tp1_sl_level": <price — required only when tp1_action is move_sl_to_level>, "tp1_condition": "<optional named market condition for this instruction>", "trail_method": "structure|fixed_pips|none", "trail_notes": "Named structural level I trail the runner behind." },'}
   "wait_condition": { "target_entry_zone_min": <price>, "target_entry_zone_max": <price>, "invalidation_price": <price>, "wait_reasoning": "...", "expected_wait_minutes": <your estimate, e.g. 15> },
   "acceptable_profit_range": { "minUSD": <number>, "idealUSD": <number> },
-  "rr_ceiling_override": <optional number>,
+  "rr_ceiling_override": <number — set when TP exceeds style default ceiling (Scalp=2.0, Micro=3.0, Intraday=4.0). Omitting surrenders R:R authority to the static default.>,
   "tp_multiplier_override": <optional number>,
-  "spread_estimate_pips": <optional number>,
+  "spread_estimate_pips": <number — set when spread materially differs from typical (news proximity, low-liquidity session, crypto weekend). Omitting surrenders spread authority to the static table.>,
   "answer_sheet": {
     "Q1_trend_alignment": "ALIGNED|CONFLICT|COUNTER_TREND",
     "Q2_structure_level": "Named level with specific price",

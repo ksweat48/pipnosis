@@ -56,6 +56,7 @@ import { ALPHA_IDENTITY } from '../config/alpha-identity';
 import { marketScheduleService } from './market-schedule-service';
 import { calculateSessionContext } from '../utils/marketHours';
 import { deriveMarketPhase } from '../utils/market-phase-deriver';
+import { omega9ConstraintProvider } from './omega9-constraint-provider';
 
 
 export interface FullMarketState {
@@ -436,21 +437,16 @@ class AlphaOmegaOrchestrator {
       atr20: snapshot.atr
     };
 
-    // Estimate typical spread for the symbol (in pips)
+    // CCIP-ALPHA-GOV-001: SSOT spread table — used pre-Alpha (Alpha hasn't run yet).
+    // After Alpha returns, decision.spread_estimate_pips is the authoritative override
+    // and is logged post-decision for audit. Static table is the correct pre-Alpha fallback.
     const TYPICAL_SPREADS_PIPS: Record<string, number> = {
       'EURUSD': 1.0, 'GBPUSD': 1.5, 'USDJPY': 1.0, 'AUDUSD': 1.2, 'USDCAD': 1.5,
       'NZDUSD': 1.8, 'USDCHF': 1.5, 'XAUUSD': 3.0, 'BTCUSD': 10.0, 'ETHUSD': 2.0,
       'EURJPY': 1.5, 'GBPJPY': 2.5, 'AUDJPY': 1.8, 'EURGBP': 1.2, 'USDMXN': 3.0,
       'SPX500': 0.5, 'US30': 2.0, 'NAS100': 1.0, 'GER40': 1.0, 'UK100': 1.0,
     };
-    // CCIP-ALPHA-GOV-001: Use Alpha's spread_estimate_pips from prior thesis when available.
-    // Alpha can provide a per-trade spread estimate in his output schema. When absent,
-    // fall back to the static typical spread table with a WARN for auditability.
-    const priorSpreadEstimate: number | undefined = undefined; // TODO: wire from alpha thesis cache when available
-    if (priorSpreadEstimate == null) {
-      console.warn(`[CCIP-ALPHA-GOV-001] spread_estimate_pips not set by Alpha — falling back to static spread table for ${snapshot.symbol}`);
-    }
-    const estimatedSpreadPips = priorSpreadEstimate ?? (TYPICAL_SPREADS_PIPS[snapshot.symbol] ?? 2.0);
+    const estimatedSpreadPips = TYPICAL_SPREADS_PIPS[snapshot.symbol] ?? 2.0;
 
     // Build market briefing from raw snapshot data (replaces vote-based context)
     const briefingSessionContext = calculateSessionContext();
@@ -528,6 +524,33 @@ class AlphaOmegaOrchestrator {
 
     const alphaTime = Date.now() - alphaStart;
     const totalTime = Date.now() - startTime;
+
+    // CCIP-ALPHA-GOV-001: Post-decision audit — spread and R:R ceiling.
+    // Alpha's spread_estimate_pips and rr_ceiling_override are assertions of Alpha's authority.
+    // They cannot be applied pre-Alpha (Alpha hasn't run yet). Post-decision: log for audit trail.
+
+    if (decision.spread_estimate_pips != null) {
+      console.log(`[CCIP-ALPHA-GOV-001] Alpha asserted spread_estimate_pips=${decision.spread_estimate_pips} for ${snapshot.symbol} (briefing used static=${estimatedSpreadPips})`);
+    }
+
+    if (
+      decision.rr_ceiling_override != null &&
+      decision.action !== 'NO_TRADE' &&
+      decision.entry != null &&
+      decision.takeProfit != null &&
+      decision.stopLoss != null
+    ) {
+      const rrAudit = omega9ConstraintProvider.validateAlphaRRCeiling({
+        symbol: snapshot.symbol,
+        entry: decision.entry,
+        takeProfit: decision.takeProfit,
+        stopLoss: decision.stopLoss,
+        direction: decision.action as 'BUY' | 'SELL',
+        rr_ceiling_override: decision.rr_ceiling_override,
+        tradeStyle: decision.resolvedStyle ?? 'SCALP',
+      });
+      console.log(`[CCIP-ALPHA-GOV-001] ${rrAudit.auditNote}`);
+    }
 
     const originalConfidence = decision.confidence;
 
