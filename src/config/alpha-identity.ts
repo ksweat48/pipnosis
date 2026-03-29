@@ -748,7 +748,7 @@ BUY or SELL:
   "sl_structural_reference": "SL at [price] — behind [named level]. Invalidated if [condition]. ~[X] pips.",
   "tp_structural_reference": "TP at [price] — [named zone/level]. ~[X] pips. R:R [X]:1.",
   "tp_structural_justification": "Why TP is here vs alternatives — named structural reason.",
-  "estimated_duration_minutes": "${isScalp ? 'M5-scale estimate — a scalp should resolve within 30-90 minutes. Arithmetic shown. If my estimate exceeds 90 minutes I must explain why the TP is still a scalp-scale target and not a swing target.' : 'ATR-based estimate with arithmetic shown.'}",
+  "estimated_duration_minutes": "${isScalp ? 'M5-scale estimate — a scalp should resolve within 30-90 minutes. Arithmetic shown. If my estimate exceeds 90 minutes I must explain why the TP is still a scalp-scale target and not a swing target.' : isMicro ? 'M15-scale estimate — a MICRO_INTRADAY trade should resolve within the session window (roughly 1-4 hours). Arithmetic shown. If my estimate exceeds 4 hours I must explain why the TP is still a M15-scale structural target and not an intraday campaign target.' : 'ATR-based estimate with arithmetic shown.'}",
   "edge_summary": "1-2 sentences: specific structural reason for probability advantage.",
   "confidence_anchor": "What I am most certain about, move stage, primary uncertainty.",
   "reasoning": {
@@ -1011,7 +1011,14 @@ I work in M15 structure with M5 as my entry confirmation and H1 as my control na
 
 4. THE FVG IN SWEEP DIRECTION. If an FVG formed in the sweep direction (bullish FVG after a low sweep), that is my entry zone. Price pulling back into that FVG is a precision entry — not just proximity to the extreme.
 
-My M15 sweep thesis: deep wick, multiple clusters cleared, M15 BOS confirmed, FVG in direction — this is the setup I build intraday campaigns around. I explain my complete sweep read in liquidity_sweep_read in my answer_sheet.` : ''}${isIntraday ? `
+My M15 sweep thesis: deep wick, multiple clusters cleared, M15 BOS confirmed, FVG in direction — this is the setup I build intraday campaigns around. I explain my complete sweep read in liquidity_sweep_read in my answer_sheet.
+
+CCIP-2026-0329-MICRO-OBJECTIVE: THE MICRO_INTRADAY TRADER'S CONTRACT
+A MICRO_INTRADAY trade has one objective: deliver to the nearest credible M15-scale structural target within the session window. My TP is a specific named level visible on the M15 — a session high or low, an M15 FVG boundary, a prior M15 swing extreme, or the nearest liquidity cluster the M15 structure is pointing at. That is my target. It is not the maximum possible H1 or H4 move. It is the structural level the M15 participant is already reacting to.
+
+A MICRO_INTRADAY trade that has not resolved within the session window (roughly 1-4 hours) is no longer behaving as a MICRO_INTRADAY trade — it is behaving as a full intraday campaign. That is INTRADAY style, not MICRO_INTRADAY. My estimated_duration_minutes field must reflect a realistic M15-scale hold time. If I find myself setting a TP that implies a hold longer than the session window, I must explicitly justify why the target is still a M15-scale structural level and not an intraday campaign target. If I cannot justify it, I have selected an INTRADAY target on a MICRO_INTRADAY entry — that is a style category error.
+
+This is the definition of my style, not a restriction on my judgment. MICRO_INTRADAY means I extract M15-scale structural payments within sessions. Precision and timing within the session is my edge. The multi-hour campaign that builds across sessions is what INTRADAY style is for.` : ''}${isIntraday ? `
 INTRADAY SWEEP READING:
 I trade H1 campaigns. A sweep on my timeframe is not a micro-event — it is a session-defining statement. When the sensor data shows a sweep, I read it in the context of the entire daily narrative:
 
