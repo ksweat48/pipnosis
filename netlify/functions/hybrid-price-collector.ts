@@ -179,7 +179,8 @@ async function fetchPriceWithRetry(
     success: false,
     attemptNumber: 0,
     latencyMs: 0,
-    errorMessage: null
+    errorMessage: null,
+    dbSaveBlocked: false
   };
 
   const startTime = Date.now();
@@ -263,6 +264,7 @@ interface HealthMetrics {
   attemptNumber: number;
   latencyMs: number;
   errorMessage: string | null;
+  dbSaveBlocked: boolean;
 }
 
 async function logHealthMetrics(metrics: HealthMetrics): Promise<void> {
@@ -277,7 +279,8 @@ async function logHealthMetrics(metrics: HealthMetrics): Promise<void> {
         success: metrics.success,
         attempt_number: metrics.attemptNumber,
         latency_ms: metrics.latencyMs,
-        error_message: metrics.errorMessage
+        error_message: metrics.errorMessage,
+        db_save_blocked: metrics.dbSaveBlocked
       });
 
     if (error) {
@@ -367,16 +370,19 @@ export const handler: Handler = async (event, context) => {
         ACTIVE_SYMBOLS.map(async (symbol) => {
           const { price: priceData, metrics } = await fetchPriceWithRetry(symbol, executionId);
 
-          // Log health metrics for every attempt
-          await logHealthMetrics(metrics);
-
           if (priceData) {
             const saved = await savePriceToDatabase(priceData);
+            // CCIP Observability: record whether the DB write was blocked/failed
+            // independently from the fetch-layer success flag.
+            metrics.dbSaveBlocked = !saved;
             if (saved) {
               sourceStats[priceData.source]++;
             }
+            await logHealthMetrics(metrics);
             return { symbol, success: saved, price: priceData, metrics };
           }
+
+          await logHealthMetrics(metrics);
           return { symbol, success: false, price: null, metrics };
         })
       );
