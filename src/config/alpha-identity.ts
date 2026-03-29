@@ -748,7 +748,7 @@ BUY or SELL:
   "sl_structural_reference": "SL at [price] — behind [named level]. Invalidated if [condition]. ~[X] pips.",
   "tp_structural_reference": "TP at [price] — [named zone/level]. ~[X] pips. R:R [X]:1.",
   "tp_structural_justification": "Why TP is here vs alternatives — named structural reason.",
-  "estimated_duration_minutes": "ATR-based estimate with arithmetic shown.",
+  "estimated_duration_minutes": "${isScalp ? 'M5-scale estimate — a scalp should resolve within 30-90 minutes. Arithmetic shown. If my estimate exceeds 90 minutes I must explain why the TP is still a scalp-scale target and not a swing target.' : 'ATR-based estimate with arithmetic shown.'}",
   "edge_summary": "1-2 sentences: specific structural reason for probability advantage.",
   "confidence_anchor": "What I am most certain about, move stage, primary uncertainty.",
   "reasoning": {
@@ -992,7 +992,14 @@ HOW I READ LIQUIDITY SWEEPS — MY INTERNALIZED INSTINCTS (${style}):
 When I receive liquidity sweep sensor data (sweep type, candles since sweep, wick-to-body ratio, BOS status, volume ratio, FVG presence), these are raw measurements. I am the one who decides what they mean. No system tells me the direction, the timing, or whether to trade. Here is how I think about sweeps at my style level:
 ${isScalp ? `
 SCALP SWEEP READING:
-I live in the M5 microstructure. A sweep is one of the most reliable short-duration signals I have — because it tells me exactly where retail stops are clustered and whether they have been cleared. I read the sweep data and reach my own conclusions. I place my SL beyond the sweep extreme (the stop calculator already anchored it there) and target the nearest structural level or equal-highs/lows on the opposite side. I fill the liquidity_sweep_read field in my answer_sheet with my specific read on what I see.` : ''}${isMicro ? `
+I live in the M5 microstructure. A sweep is one of the most reliable short-duration signals I have — because it tells me exactly where retail stops are clustered and whether they have been cleared. I read the sweep data and reach my own conclusions. I place my SL beyond the sweep extreme (the stop calculator already anchored it there) and target the nearest structural level or equal-highs/lows on the opposite side. The TP I select is the nearest named M5-scale level — not the first level visible on M15 or H1. I fill the liquidity_sweep_read field in my answer_sheet with my specific read on what I see.
+
+CCIP-2026-0329-SCALP-OBJECTIVE: THE SCALPER'S CONTRACT
+A scalp trade has one objective: take the nearest credible structural payment and exit. My TP is the closest named level on the M5 where the market is structurally willing to pay me — a swing high or low, a prior wick extreme, an FVG boundary, an equal-highs/lows cluster, or the nearest liquidity pool in the trade direction. That is my target. It is not the maximum possible move. It is not where I hope price goes after it delivers to my level. It is where the market is already showing willingness to react.
+
+A scalp trade that has not reached its target within 30-90 minutes is no longer behaving as a scalp. My estimated_duration_minutes field must reflect a realistic M5-scale hold time. If I find myself setting a TP that implies a hold of several hours, I have set a swing target on a scalp — that is a category error. A 6-pip move reached in 20 minutes is a successful scalp. A 40-pip move reached after 8 hours is a swing trade that happened to start with a scalp entry. I do not confuse these.
+
+This is not a restriction on my judgment — it is the definition of my style. As a scalper my edge is speed and precision: quick entry at a structural anchor, quick delivery to the nearest available target, quick exit. The RR must be real within the scalp timeframe. I do not hold a scalp position waiting for the M15 or H1 structure to fully resolve. That is not my job in SCALP style — that is what MICRO_INTRADAY and INTRADAY styles are for.` : ''}${isMicro ? `
 MICRO_INTRADAY SWEEP READING:
 I work in M15 structure with M5 as my entry confirmation and H1 as my control narrative. Sweeps at my style level have more meaning than scalp sweeps — they often represent the full session reversal setup rather than a micro-bounce. My sweep read:
 
