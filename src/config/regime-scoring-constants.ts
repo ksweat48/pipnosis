@@ -95,69 +95,18 @@ export const TREND_REGIME = {
 /**
  * REGIME CLASSIFICATION THRESHOLDS
  *
- * Maps total penalty percentage to regime severity.
- * Used to classify overall market conditions.
+ * Maps observable regime measurements to descriptive labels.
+ * These labels are informational — they carry no penalty weight.
+ * Alpha is the sole authority for interpreting regime conditions
+ * into trade decisions.
+ *
+ * CCIP-2026-0329A: Removed penalty-framed classification bands.
+ * Replaced with neutral descriptive thresholds.
  */
 export const REGIME_CLASSIFICATION = {
-  /**
-   * Penalty bands (additive percentage points)
-   * - NORMAL: 0-4% penalty (safe conditions)
-   * - ELEVATED: 5-9% penalty (caution warranted)
-   * - HIGH_RISK: 10-14% penalty (significant risk)
-   * - CHAOTIC: 15% penalty (maximum advisory concern)
-   */
-  NORMAL_MAX: 5,        // Below 5% = NORMAL
-  ELEVATED_MAX: 10,     // 5-9% = ELEVATED
-  HIGH_RISK_MAX: 15,    // 10-14% = HIGH_RISK
-  // 15% = CHAOTIC (hard cap, see REGIME_MAX_PENALTY_PERCENT)
-} as const;
-
-/**
- * PENALTY COMPONENTS
- *
- * Individual penalty contributions from different risk factors.
- * All penalties are additive percentage points (not multipliers).
- */
-export const REGIME_PENALTIES = {
-  /**
-   * Dead zone penalties (session-based, 0-5% max)
-   * Applied during low-liquidity periods
-   */
-  DEAD_ZONE: {
-    LIGHT: 2,    // -2% confidence (minor dead zone)
-    MODERATE: 3, // -3% confidence (typical dead zone)
-    HEAVY: 5,    // -5% confidence (severe dead zone)
-  },
-
-  /**
-   * Volatility-based penalties (0-8% max)
-   * - Very low volatility: -5% (compression trap risk)
-   * - Extreme volatility: -8% (unpredictable conditions)
-   */
-  VOLATILITY: {
-    VERY_LOW: 5,   // < 15 score
-    EXTREME: 8,    // > 90 score
-  },
-
-  /**
-   * Structure penalties (0-5% max)
-   * - Chaotic structure: -5% (no clear pattern)
-   * - Range + compression: -3% (breakout trap risk)
-   */
-  STRUCTURE: {
-    CHAOTIC: 5,
-    RANGE_COMPRESSION: 3,
-  },
-
-  /**
-   * Session-specific penalties (0-7% max)
-   * - NY Open high volatility: -5% (first-hour chaos)
-   * - High volatility + extreme: -7% (dangerous combination)
-   */
-  SESSION: {
-    NY_OPEN_HIGH: 5,
-    HIGH_VOLATILITY_EXTREME: 7,
-  },
+  NORMAL_MAX: 5,
+  ELEVATED_MAX: 10,
+  HIGH_RISK_MAX: 15,
 } as const;
 
 /**
@@ -252,7 +201,7 @@ export const STRUCTURE_QUALITY = {
 export const REGIME_DEFAULTS = {
   VOLATILITY_SCORE: 50,        // Neutral volatility
   TREND_STRENGTH_SCORE: 0,     // No trend
-  CONFIDENCE_PENALTY: 0,       // No penalty
+  CONFIDENCE_PENALTY: 0,       // Always zero — no penalties applied
   RISK_REDUCTION_FACTOR: 1.0,  // No reduction (DEPRECATED)
 } as const;
 
@@ -295,9 +244,14 @@ export function classifyRegimeByPenalty(penalty: number): RegimeClassification {
  * USAGE GUIDELINES
  * ═══════════════════════════════════════════════════════════════════
  *
+ * CCIP-2026-0329A: REGIME_PENALTIES has been removed. No module may
+ * apply numeric penalties to Alpha's confidence based on session, dead
+ * zone, ATR level, or structure type. These are raw observations that
+ * Alpha receives as market data and interprets himself.
+ *
  * IMPORTING:
  * ```typescript
- * import { VOLATILITY_REGIME, TREND_REGIME, REGIME_PENALTIES } from '@/config/regime-scoring-constants';
+ * import { VOLATILITY_REGIME, TREND_REGIME } from '@/config/regime-scoring-constants';
  * ```
  *
  * VOLATILITY DETECTION:
@@ -305,13 +259,6 @@ export function classifyRegimeByPenalty(penalty: number): RegimeClassification {
  * const isCompressed = currentATR < atr20Avg * VOLATILITY_REGIME.ATR_COMPRESSION_THRESHOLD;
  * const score = Math.min(VOLATILITY_REGIME.VOLATILITY_SCORE_MAX,
  *   Math.round((currentATR / atr20Avg) * VOLATILITY_REGIME.VOLATILITY_SCORE_MULTIPLIER));
- * ```
- *
- * PENALTY APPLICATION:
- * ```typescript
- * if (volatilityScore < VOLATILITY_REGIME.SCORE_VERY_LOW) {
- *   penalties.push({ penalty: REGIME_PENALTIES.VOLATILITY.VERY_LOW, reason: 'Very low volatility' });
- * }
  * ```
  *
  * CLASSIFICATION:

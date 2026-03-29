@@ -18,10 +18,6 @@ describe('Alpha Identity Configuration', () => {
       expect(ALPHA_IDENTITY.CONFIDENCE_BANDS.INSUFFICIENT.max).toBe(59);
     });
 
-    it('should have max advisory guidance ceiling of 10', () => {
-      expect(ALPHA_IDENTITY.MAX_ADVISORY_PENALTY).toBe(10);
-    });
-
     it('should define all advisory systems as non-blocking', () => {
       expect(ALPHA_IDENTITY.ADVISORY_SYSTEMS.REGIME_ORACLE.canBlock).toBe(false);
       expect(ALPHA_IDENTITY.ADVISORY_SYSTEMS.ADVERSARIAL_DETECTOR.canBlock).toBe(false);

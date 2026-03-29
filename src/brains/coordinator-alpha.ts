@@ -44,17 +44,19 @@
  *    - Blocks only catastrophic errors
  *    - Ensures R:R ratios, position sizing
  *
- * Dead Zone Example:
- * - EURUSD at 22:00 UTC (dead zone):
- *   - Regime Oracle: "55% confidence multiplier (low liquidity)"
- *   - Omega Risk: "NO_TRADE - spread risk high"
- *   - Alpha: Sees full context, decides trade is still valid
- *   - Result: Trade executes with reduced position size
+ * Session Example:
+ * - EURUSD at 22:00 UTC (Asian session, low liquidity):
+ *   - Regime Oracle: session=DEAD, volatility_score=30, structure=range
+ *   - Alpha: Reads full raw data, evaluates sweep structure and clean air
+ *   - Result: Alpha decides based on his edge — no code pre-scores the session
  *
  * - USDJPY at 23:00 UTC (Tokyo active):
- *   - Regime Oracle: "100% confidence (Tokyo session active)"
- *   - No dead zone penalty applied
- *   - Alpha proceeds normally
+ *   - Regime Oracle: session=ASIAN, Tokyo active, full liquidity
+ *   - Alpha proceeds with full market picture
+ *
+ * CCIP-2026-0329A: All session weight multipliers, dead zone penalties,
+ * and confidence deductions have been removed. Alpha receives raw regime
+ * measurements and makes his own decision. No system pre-scores sessions.
  *
  * ═══════════════════════════════════════════════════════════════════
  */
@@ -5301,7 +5303,7 @@ Return PURE JSON only — all required fields from the schema in my system promp
       parts.push(`  Volatility Score: ${regime.volatility_score}/100`);
       parts.push(`  ATR State: ${regime.atr_compression ? 'compressed' : regime.atr_expansion ? 'expanding' : 'normal'}`);
       parts.push(`  Wick Risk: ${regime.wick_risk} | Spread Risk: ${regime.spread_risk}`);
-      parts.push(`  Is Dead Zone: ${regime.is_dead_zone} | Session Overlap: ${regime.is_session_overlap}`);
+      parts.push(`  Session Overlap: ${regime.is_session_overlap}`);
       if (regime.trend_regime) {
         parts.push(`  Trend Strength: ${regime.trend_regime.trend_strength_score}/100`);
         parts.push(`  Structure Quality: ${regime.trend_regime.structure_quality}`);

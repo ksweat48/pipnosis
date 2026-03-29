@@ -14,6 +14,12 @@
  *
  * Key Principle: Market regime is observable from ANY liquid instrument's
  * price action, volatility, and session timing. No external data required.
+ *
+ * CCIP-2026-0329A: Removed all numeric confidence penalties and biasing
+ * summary language (dead zone, low confidence conditions, etc.).
+ * Omega-7 reports raw regime observations only. Alpha is the sole authority
+ * for interpreting these measurements into a trade decision. No pre-verdict,
+ * no penalty arithmetic, no nudging language is permitted in this module.
  */
 
 import { regimeOracle, type RegimeSnapshot, type Candle, type MarketState } from '@/services/regime-oracle';
@@ -36,7 +42,7 @@ export interface MarketContextOutput {
   volatility: 'high' | 'medium' | 'low';
   /** @deprecated Use regime_snapshot.trend_regime.market_bias instead */
   bias: 'bullish' | 'bearish' | 'neutral';
-  /** Raw warning keys from regime detection */
+  /** Raw observation keys from regime detection — neutral labels only, no trade recommendations */
   warnings: string[];
   confidence: number;
   summary: string;
@@ -60,9 +66,9 @@ class MarketContextBrain {
     const usdStrength = this.deriveUSDStrength(regime, input.marketState);
     const volatility = this.deriveVolatility(regime);
     const bias = this.deriveBias(regime);
-    const warnings = this.collectWarnings(regime);
+    const warnings = this.collectObservations(regime);
     const confidence = this.calculateConfidence(regime);
-    const summary = this.buildSummary(regime, sentiment, warnings);
+    const summary = this.buildSummary(regime, sentiment);
 
     return {
       regime_snapshot: regime,
@@ -79,19 +85,10 @@ class MarketContextBrain {
   }
 
   /**
-   * Derive risk-on/risk-off sentiment from regime
+   * Derive risk-on/risk-off sentiment from regime.
    *
-   * RISK-ON conditions:
-   * - London/NY sessions (high liquidity)
-   * - Clean trending structure
-   * - Normal volatility (not extreme)
-   * - Low wick risk
-   *
-   * RISK-OFF conditions:
-   * - Dead zone (21:00-00:00 UTC)
-   * - High wick risk (stop hunting)
-   * - Extreme volatility
-   * - Choppy structure
+   * Reports the balance of observable conditions. No condition is treated
+   * as a trade recommendation or penalty. Alpha reads this as one data point.
    */
   private deriveSentiment(regime: RegimeSnapshot): 'risk_on' | 'risk_off' | 'mixed' {
     let riskOnScore = 0;
@@ -99,10 +96,6 @@ class MarketContextBrain {
 
     if (regime.time_regime.is_london_session || regime.time_regime.is_ny_session) {
       riskOnScore += 2;
-    }
-
-    if (regime.time_regime.is_dead_zone) {
-      riskOffScore += 3;
     }
 
     if (regime.trend_regime.structure_quality === 'clean') {
@@ -114,7 +107,7 @@ class MarketContextBrain {
     if (regime.volatility_regime.volatility_score >= 15 && regime.volatility_regime.volatility_score <= 75) {
       riskOnScore += 1;
     } else if (regime.volatility_regime.volatility_score < 15 || regime.volatility_regime.volatility_score > 90) {
-      riskOffScore += 2;
+      riskOffScore += 1;
     }
 
     if (regime.volatility_regime.wick_risk_level === 'high') {
@@ -125,10 +118,6 @@ class MarketContextBrain {
 
     if (regime.trend_regime.trend_strength_score >= 50) {
       riskOnScore += 1;
-    }
-
-    if (regime.volatility_regime.atr_compression && regime.trend_regime.structure_type === 'range') {
-      riskOffScore += 2;
     }
 
     if (riskOnScore > riskOffScore + 1) {
@@ -142,21 +131,12 @@ class MarketContextBrain {
 
   /**
    * Derive USD strength from momentum and session context
-   *
-   * Strong USD indicators:
-   * - Negative momentum in risk-on environments (flight to safety)
-   * - London session with downward bias
-   * - Risk-off conditions
-   *
-   * Weak USD indicators:
-   * - Positive momentum in risk-on environments
-   * - Upward bias across sessions
    */
   private deriveUSDStrength(regime: RegimeSnapshot, marketState: MarketState): 'strong' | 'weak' | 'neutral' {
     const momentum = marketState.momentum;
-    const isRiskOff = regime.time_regime.is_dead_zone || regime.volatility_regime.wick_risk_level === 'high';
+    const isHighWickRisk = regime.volatility_regime.wick_risk_level === 'high';
 
-    if (isRiskOff && momentum < 0) {
+    if (isHighWickRisk && momentum < 0) {
       return 'strong';
     }
 
@@ -164,7 +144,7 @@ class MarketContextBrain {
       return 'strong';
     }
 
-    if (regime.trend_regime.market_bias === 'bull' && !isRiskOff) {
+    if (regime.trend_regime.market_bias === 'bull' && !isHighWickRisk) {
       return 'weak';
     }
 
@@ -206,131 +186,105 @@ class MarketContextBrain {
   }
 
   /**
-   * Collect warnings from regime analysis
+   * Collect raw regime observation keys.
+   *
+   * CCIP-2026-0329A: Keys are neutral descriptors of what the regime
+   * detector observed. They carry no trade recommendation or penalty weight.
+   * Alpha receives these as factual measurements to reason from.
    */
-  private collectWarnings(regime: RegimeSnapshot): string[] {
-    const warnings: string[] = [];
+  private collectObservations(regime: RegimeSnapshot): string[] {
+    const observations: string[] = [];
 
     if (regime.time_regime.is_dead_zone) {
-      warnings.push('dead_zone');
+      observations.push('low_liquidity_window');
     }
 
     if (regime.volatility_regime.wick_risk_level === 'high') {
-      warnings.push('high_wick_risk');
+      observations.push('high_wick_activity');
     }
 
     if (regime.volatility_regime.volatility_score > 90) {
-      warnings.push('extreme_volatility');
+      observations.push('elevated_volatility');
     }
 
     if (regime.volatility_regime.volatility_score < 15) {
-      warnings.push('dead_market');
+      observations.push('compressed_volatility');
     }
 
     if (regime.volatility_regime.atr_compression && regime.trend_regime.structure_type === 'range') {
-      warnings.push('atr_compression_range');
+      observations.push('atr_compression_range');
     }
 
     if (regime.trend_regime.structure_quality === 'choppy') {
-      warnings.push('choppy_structure');
+      observations.push('choppy_structure');
     }
 
     if (regime.volatility_regime.spread_risk === 'high') {
-      warnings.push('high_spread_risk');
+      observations.push('elevated_spread_risk');
     }
 
     if (regime.time_regime.is_session_overlap) {
-      warnings.push('session_overlap');
+      observations.push('session_overlap');
     }
 
-    return warnings;
+    return observations;
   }
 
   /**
-   * Calculate confidence based on regime quality
+   * Calculate a neutral regime quality score.
    *
-   * High confidence:
-   * - Clean structure
-   * - Normal volatility
-   * - Strong trend
-   * - Active session
-   *
-   * Low confidence:
-   * - Choppy structure
-   * - Extreme volatility
-   * - Ranging market
-   * - Dead zone
+   * CCIP-2026-0329A: This value reflects market structure quality as a
+   * raw measurement. It is NOT applied to Alpha's confidence. Alpha's
+   * confidence is set solely by Alpha himself from the full market picture.
+   * This score is surfaced as an informational field only.
    */
   private calculateConfidence(regime: RegimeSnapshot): number {
-    let confidence = 50;
+    let score = 50;
 
     if (regime.trend_regime.structure_quality === 'clean') {
-      confidence += 15;
+      score += 10;
     } else if (regime.trend_regime.structure_quality === 'choppy') {
-      confidence -= 15;
+      score -= 10;
     }
 
     if (regime.trend_regime.trend_strength_score >= 60) {
-      confidence += 10;
+      score += 10;
     } else if (regime.trend_regime.trend_strength_score <= 30) {
-      confidence -= 10;
+      score -= 5;
     }
 
     if (regime.volatility_regime.volatility_score >= 30 && regime.volatility_regime.volatility_score <= 70) {
-      confidence += 10;
-    } else if (regime.volatility_regime.volatility_score < 15 || regime.volatility_regime.volatility_score > 90) {
-      confidence -= 20;
+      score += 5;
     }
 
     if (regime.time_regime.is_london_session || regime.time_regime.is_ny_session) {
-      confidence += 10;
-    } else if (regime.time_regime.is_dead_zone) {
-      confidence -= 15;
+      score += 5;
     }
 
     if (regime.volatility_regime.wick_risk_level === 'low') {
-      confidence += 5;
+      score += 5;
     } else if (regime.volatility_regime.wick_risk_level === 'high') {
-      confidence -= 15;
+      score -= 5;
     }
 
-    if (regime.trend_regime.structure_type === 'range' && regime.volatility_regime.atr_compression) {
-      confidence -= 10;
-    }
-
-    return Math.max(1, Math.min(100, confidence));
+    return Math.max(1, Math.min(100, score));
   }
 
   /**
-   * Build human-readable summary
+   * Build neutral, factual summary.
+   *
+   * CCIP-2026-0329A: No trade-steering language. No "dead zone", "low confidence
+   * conditions", "avoid", or "caution" labels. Alpha knows what session he is in
+   * and what the structure looks like. Summary describes what the regime detector
+   * measured — nothing more.
    */
-  private buildSummary(regime: RegimeSnapshot, sentiment: string, warnings: string[]): string {
+  private buildSummary(regime: RegimeSnapshot, sentiment: string): string {
     const session = regime.time_regime.session.toUpperCase();
     const structure = regime.trend_regime.structure_type;
     const volatility = regime.volatility_regime.volatility_score;
     const trendStrength = regime.trend_regime.trend_strength_score;
 
-    if (warnings.includes('dead_zone')) {
-      return `${session} dead zone with ${structure} structure - low confidence conditions`;
-    }
-
-    if (warnings.includes('extreme_volatility')) {
-      return `Extreme volatility (${volatility}%) during ${session} - high risk environment`;
-    }
-
-    if (warnings.includes('high_wick_risk')) {
-      return `High wick risk detected in ${session} - stop hunting probable`;
-    }
-
-    if (sentiment === 'risk_on') {
-      return `${session} session with clean ${structure} structure - optimal trading conditions`;
-    }
-
-    if (sentiment === 'risk_off') {
-      return `${session} session with ${warnings[0] || 'suboptimal'} conditions - reduced confidence`;
-    }
-
-    return `${session} session with ${structure} structure (trend: ${trendStrength}%, vol: ${volatility}%)`;
+    return `${session} session | ${structure} structure | trend: ${trendStrength}% | vol: ${volatility}% | sentiment: ${sentiment}`;
   }
 }
 

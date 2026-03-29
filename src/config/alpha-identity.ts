@@ -279,28 +279,6 @@ export const ALPHA_IDENTITY = {
     },
   },
 
-  /**
-   * MAX_ADVISORY_PENALTY — prompt-level advisory guidance ceiling
-   *
-   * CCIP-2026-0310-OMEGA / CCIP-2026-02-19:
-   *
-   * Advisory systems (Regime Oracle, Adversarial Detector, Session Constraints)
-   * pass their signals to Alpha as text in the briefing. Alpha self-prices those
-   * signals into his stated trade_confidence. No code arithmetic is applied to
-   * Alpha's confidence after he outputs it.
-   *
-   * This value is passed into the Alpha prompt to set Alpha's expectation: the
-   * combined effect of all advisory signals on his reasoning should not exceed
-   * this ceiling. It is a reasoning guideline, not a code-enforced cap.
-   *
-   * Omega Council carries zero advisory weight — Omega is a price-structure sensor
-   * whose observations are inputs to Alpha's reasoning, not post-hoc deductions
-   * from his stated confidence.
-   *
-   * SSOT: This constant is the single authority referenced by coordinator-alpha.ts
-   * and pipnosis-core-rules.ts for the advisory guidance ceiling in the prompt.
-   */
-  MAX_ADVISORY_PENALTY: 10,
 } as const;
 
 export type LegitimateBlockCondition = typeof ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS[number];
@@ -658,8 +636,8 @@ export function isLegitimateBlockCondition(condition: string): boolean {
  *       EXPANSION, DISTRIBUTION, RETRACEMENT, REVERSAL descriptions — these ranges were
  *       functioning as expected outputs that Alpha anchored to rather than genuinely scoring.
  *   SSOT: all changes in this function. coordinator-alpha.ts prompt line updated in same
- *   CCIP cycle. ALPHA_IDENTITY.MAX_ADVISORY_PENALTY retained in the config constant for
- *   internal code use only — it is no longer written into the LLM prompt.
+ *   CCIP cycle. ALPHA_IDENTITY.MAX_ADVISORY_PENALTY has been fully removed in CCIP-2026-0329A
+ *   — the concept of an advisory penalty ceiling is deprecated. Advisory signals are context.
  * - CCIP-2026-0325A: Session-Phase Awareness Governance — closed the gap between Alpha
  *   knowing about sessions and Alpha being required to analyze them.
  *   Root cause: Alpha had session identity text (what each session is) but no mandatory
