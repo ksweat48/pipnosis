@@ -485,6 +485,36 @@ export interface AlphaDecision {
    * CCIP-2026-0324G: coordinator-alpha.ts is the SSOT for extraction and enforcement.
    */
   trader_statement?: string;
+  /**
+   * tp_multiplier_override: Alpha's per-trade ATR TP multiplier.
+   *
+   * CCIP-ALPHA-GOV-001: When present, this value replaces the static 3.0x ATR base
+   * in calculateDynamicMultipliers(). Alpha measures the structural distance to his
+   * chosen TP level and expresses it as an ATR multiple — this is Alpha's structural
+   * judgment, not a formula. Required on every BUY/SELL response.
+   *
+   * SSOT: AlphaOutputFormat.tp_multiplier_override in alpha-identity.ts.
+   * This interface field mirrors it so the value survives the LLM parse boundary
+   * and reaches calculateDynamicMultipliers() in alpha-omega-orchestrator.ts.
+   *
+   * FALLBACK: [CCIP-ALPHA-GOV-001] absent → static 3.0x ATR base (WARN logged).
+   */
+  tp_multiplier_override?: number;
+  /**
+   * rr_ceiling_override: Alpha's per-trade R:R ceiling.
+   *
+   * CCIP-ALPHA-GOV-001: When present, replaces getMaxRRForStyle() in omega9-constraint-provider.
+   * Clamped by TRADING_CONSTANTS.RISK_REWARD_RATIOS.MAX_RR_RATIO (hard physics cap).
+   * SSOT: AlphaOutputFormat.rr_ceiling_override in alpha-identity.ts.
+   */
+  rr_ceiling_override?: number;
+  /**
+   * spread_estimate_pips: Alpha's per-trade spread estimate for current pair and session.
+   *
+   * CCIP-ALPHA-GOV-001: When present, used wherever AVERAGE_SPREAD_PIPS static fallback
+   * would be used. SSOT: AlphaOutputFormat.spread_estimate_pips in alpha-identity.ts.
+   */
+  spread_estimate_pips?: number;
 }
 
 /**

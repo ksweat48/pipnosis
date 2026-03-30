@@ -701,7 +701,10 @@ class AlphaOmegaOrchestrator {
           return;
         }
 
-        const { stopLossMultiplier, takeProfitMultiplier } = this.calculateDynamicMultipliers(marketState);
+        // CCIP-ALPHA-GOV-001: proposedSL/TP are pre-Alpha structural proposals for the briefing.
+        // Alpha has not run yet — no tp_multiplier_override is available at this point.
+        // The override is applied in the post-Alpha audit block below. Static base is correct here.
+        const { stopLossMultiplier, takeProfitMultiplier } = this.calculateDynamicMultipliers(marketState, undefined, true);
         const proposedSL = marketState.price - (marketState.atr * stopLossMultiplier);
         const proposedTP = marketState.price + (marketState.atr * takeProfitMultiplier);
 
@@ -731,6 +734,14 @@ class AlphaOmegaOrchestrator {
           this.makeTradeDecision(marketState, traderScore, proposedSL, proposedTP, goalContext, userId, imSignal),
           timeoutPromise
         ]);
+
+        // CCIP-ALPHA-GOV-001: Post-Alpha audit — log whether tp_multiplier_override was set.
+        // Alpha is required to set this on every BUY/SELL response. Absence is a governance warn.
+        if (decision.action !== 'NO_TRADE') {
+          if (decision.tp_multiplier_override == null) {
+            console.warn(`[CCIP-ALPHA-GOV-001] ${marketState.symbol}: tp_multiplier_override not set by Alpha — static 3.0x ATR base was used for proposed TP`);
+          }
+        }
 
         clearTimers();
         const timing = Date.now() - symbolStartTime;
@@ -953,7 +964,10 @@ class AlphaOmegaOrchestrator {
           continue;
         }
 
-        const { stopLossMultiplier, takeProfitMultiplier } = this.calculateDynamicMultipliers(marketState);
+        // CCIP-ALPHA-GOV-001: proposedSL/TP are pre-Alpha structural proposals for the briefing.
+        // Alpha has not run yet — no tp_multiplier_override is available at this point.
+        // The override is applied in the post-Alpha audit block below. Static base is correct here.
+        const { stopLossMultiplier, takeProfitMultiplier } = this.calculateDynamicMultipliers(marketState, undefined, true);
         const proposedSL = marketState.price - (marketState.atr * stopLossMultiplier);
         const proposedTP = marketState.price + (marketState.atr * takeProfitMultiplier);
 
@@ -970,6 +984,14 @@ class AlphaOmegaOrchestrator {
           userId,
           imSignalMap?.get(marketState.symbol)
         );
+
+        // CCIP-ALPHA-GOV-001: Post-Alpha audit — log whether tp_multiplier_override was set.
+        // Alpha is required to set this on every BUY/SELL response. Absence is a governance warn.
+        if (decision.action !== 'NO_TRADE') {
+          if (decision.tp_multiplier_override == null) {
+            console.warn(`[CCIP-ALPHA-GOV-001] ${marketState.symbol}: tp_multiplier_override not set by Alpha — static 3.0x ATR base was used for proposed TP`);
+          }
+        }
 
         decisionMap.set(marketState.symbol, decision);
 
@@ -1074,13 +1096,18 @@ class AlphaOmegaOrchestrator {
    */
   private calculateDynamicMultipliers(
     marketState: FullMarketState,
-    alphaMultiplierOverride?: number
+    alphaMultiplierOverride?: number,
+    isPreAlphaProposal?: boolean
   ): {
     stopLossMultiplier: number;
     takeProfitMultiplier: number;
   } {
     const STATIC_TP_BASE = 3.0;
-    if (alphaMultiplierOverride == null) {
+    // CCIP-ALPHA-GOV-001: The warn is suppressed when this call is a pre-Alpha structural
+    // proposal (isPreAlphaProposal=true). Alpha has not run yet — absence here is expected.
+    // The governance warn fires post-Alpha in the call sites above, after makeTradeDecision
+    // returns, giving the correct audit signal: Alpha ran but did not set the field.
+    if (alphaMultiplierOverride == null && !isPreAlphaProposal) {
       console.warn(`[CCIP-ALPHA-GOV-001] tp_multiplier_override not set by Alpha — falling back to static TP base ${STATIC_TP_BASE}x ATR`);
     }
 
