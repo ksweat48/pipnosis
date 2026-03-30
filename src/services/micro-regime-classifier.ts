@@ -90,17 +90,79 @@ export interface MicroRegimeClassification {
   thresholds: RegimeThresholds;
 }
 
-/** Static fallback thresholds — used when <20 samples exist for this symbol+session */
-const STATIC_FALLBACK_THRESHOLDS: Omit<RegimeThresholds, 'thresholdSource' | 'sampleCount'> = {
-  atrExpansionP70: 1.2,
-  atrExpansionP85: 1.4,
-  atrExpansionP30: 0.85,
-  emaDisplacementP80: 1.5,
-  emaDisplacementP90: 2.0,
-  emaDisplacementP95: 2.5,
-  rangeCompressionP20: 0.6,
-  rangeCompressionP35: 0.75,
+/**
+ * Instrument-class static fallback thresholds — CCIP-2026-0330-RC2
+ *
+ * Used during cold-start (<20 samples) for each symbol+session pair.
+ * Different asset classes have fundamentally different ATR expansion and
+ * EMA displacement profiles. Using forex-calibrated defaults for indices
+ * and commodities produces near-universal neutral_ranging classification
+ * because the static thresholds are never exceeded (indices) or always
+ * exceeded (crypto), causing the entire regime system to fail.
+ *
+ * Long-term: dynamic baselines self-calibrate from real readings.
+ * Short-term: instrument-class defaults allow correct cold-start classification.
+ */
+type InstrumentClass = 'forex' | 'commodity' | 'index' | 'crypto';
+
+function getInstrumentClass(symbol: string): InstrumentClass {
+  const s = symbol.toUpperCase();
+  if (s.includes('BTC') || s.includes('ETH') || s.includes('XRP') || s.includes('LTC')) return 'crypto';
+  if (s.includes('XAU') || s.includes('XAG') || s.includes('OIL') || s.includes('WTI')) return 'commodity';
+  if (s.includes('US30') || s.includes('NAS') || s.includes('SPX') || s.includes('UK100') ||
+      s.includes('DAX') || s.includes('FTSE') || s.includes('JP225') || s.includes('AUS200')) return 'index';
+  return 'forex';
+}
+
+type StaticThresholdSet = Omit<RegimeThresholds, 'thresholdSource' | 'sampleCount'>;
+
+const STATIC_FALLBACK_BY_CLASS: Record<InstrumentClass, StaticThresholdSet> = {
+  forex: {
+    atrExpansionP70: 1.15,
+    atrExpansionP85: 1.30,
+    atrExpansionP30: 0.85,
+    emaDisplacementP80: 0.12,
+    emaDisplacementP90: 0.18,
+    emaDisplacementP95: 0.25,
+    rangeCompressionP20: 0.60,
+    rangeCompressionP35: 0.78,
+  },
+  commodity: {
+    atrExpansionP70: 1.10,
+    atrExpansionP85: 1.25,
+    atrExpansionP30: 0.82,
+    emaDisplacementP80: 0.30,
+    emaDisplacementP90: 0.45,
+    emaDisplacementP95: 0.60,
+    rangeCompressionP20: 0.60,
+    rangeCompressionP35: 0.78,
+  },
+  index: {
+    atrExpansionP70: 1.12,
+    atrExpansionP85: 1.28,
+    atrExpansionP30: 0.80,
+    emaDisplacementP80: 0.20,
+    emaDisplacementP90: 0.30,
+    emaDisplacementP95: 0.45,
+    rangeCompressionP20: 0.60,
+    rangeCompressionP35: 0.78,
+  },
+  crypto: {
+    atrExpansionP70: 1.10,
+    atrExpansionP85: 1.22,
+    atrExpansionP30: 0.78,
+    emaDisplacementP80: 0.50,
+    emaDisplacementP90: 0.80,
+    emaDisplacementP95: 1.20,
+    rangeCompressionP20: 0.60,
+    rangeCompressionP35: 0.78,
+  },
 };
+
+function getStaticFallback(symbol?: string): StaticThresholdSet {
+  const cls = getInstrumentClass(symbol ?? '');
+  return STATIC_FALLBACK_BY_CLASS[cls];
+}
 
 export class MicroRegimeClassifier {
   private readonly EMA_PERIOD = 50;
@@ -185,7 +247,7 @@ export class MicroRegimeClassifier {
     volumeRatio?: number
   ): Promise<RegimeThresholds> {
     if (!symbol || !session) {
-      return { ...STATIC_FALLBACK_THRESHOLDS, sampleCount: 0, thresholdSource: 'static_fallback' };
+      return { ...getStaticFallback(symbol), sampleCount: 0, thresholdSource: 'static_fallback' };
     }
 
     try {
@@ -211,26 +273,28 @@ export class MicroRegimeClassifier {
         p_session_name: session,
       });
 
+      const staticFallback = getStaticFallback(symbol);
+
       if (error || !data) {
-        return { ...STATIC_FALLBACK_THRESHOLDS, sampleCount: 0, thresholdSource: 'static_fallback' };
+        return { ...staticFallback, sampleCount: 0, thresholdSource: 'static_fallback' };
       }
 
       const isDynamic = (data.is_dynamic === true) && (data.sample_count >= 20);
 
       return {
-        atrExpansionP70: Number(data.atr_expansion_p70) || STATIC_FALLBACK_THRESHOLDS.atrExpansionP70,
-        atrExpansionP85: Number(data.atr_expansion_p85) || STATIC_FALLBACK_THRESHOLDS.atrExpansionP85,
-        atrExpansionP30: Number(data.atr_expansion_p30) || STATIC_FALLBACK_THRESHOLDS.atrExpansionP30,
-        emaDisplacementP80: Number(data.ema_displacement_p80) || STATIC_FALLBACK_THRESHOLDS.emaDisplacementP80,
-        emaDisplacementP90: Number(data.ema_displacement_p90) || STATIC_FALLBACK_THRESHOLDS.emaDisplacementP90,
-        emaDisplacementP95: Number(data.ema_displacement_p95) || STATIC_FALLBACK_THRESHOLDS.emaDisplacementP95,
-        rangeCompressionP20: Number(data.range_compression_p20) || STATIC_FALLBACK_THRESHOLDS.rangeCompressionP20,
-        rangeCompressionP35: Number(data.range_compression_p35) || STATIC_FALLBACK_THRESHOLDS.rangeCompressionP35,
+        atrExpansionP70: Number(data.atr_expansion_p70) || staticFallback.atrExpansionP70,
+        atrExpansionP85: Number(data.atr_expansion_p85) || staticFallback.atrExpansionP85,
+        atrExpansionP30: Number(data.atr_expansion_p30) || staticFallback.atrExpansionP30,
+        emaDisplacementP80: Number(data.ema_displacement_p80) || staticFallback.emaDisplacementP80,
+        emaDisplacementP90: Number(data.ema_displacement_p90) || staticFallback.emaDisplacementP90,
+        emaDisplacementP95: Number(data.ema_displacement_p95) || staticFallback.emaDisplacementP95,
+        rangeCompressionP20: Number(data.range_compression_p20) || staticFallback.rangeCompressionP20,
+        rangeCompressionP35: Number(data.range_compression_p35) || staticFallback.rangeCompressionP35,
         sampleCount: Number(data.sample_count) || 0,
         thresholdSource: isDynamic ? 'dynamic' : 'static_fallback',
       };
     } catch {
-      return { ...STATIC_FALLBACK_THRESHOLDS, sampleCount: 0, thresholdSource: 'static_fallback' };
+      return { ...getStaticFallback(symbol), sampleCount: 0, thresholdSource: 'static_fallback' };
     }
   }
 
@@ -406,7 +470,7 @@ export class MicroRegimeClassifier {
         volumeProfile: 'stable',
         rangeCompression: 1.0,
       },
-      thresholds: { ...STATIC_FALLBACK_THRESHOLDS, sampleCount: 0, thresholdSource: 'static_fallback' },
+      thresholds: { ...getStaticFallback(), sampleCount: 0, thresholdSource: 'static_fallback' },
     };
   }
 }

@@ -241,11 +241,15 @@ class PatternConfidenceAdjuster {
     intentAnalysis: MultiTimeframeIntentAnalysis,
     direction: 'long' | 'short'
   ): boolean {
+    // CCIP-2026-0330-RC3: Opposition requires an active INTENT signal (reversal or trap).
+    // Direction bias conflict alone (e.g. bearish bias in a neutral market) is NOT
+    // sufficient to flag opposition — in neutral/chop regimes one of the two directions
+    // will always have a conflicting bias, causing universal "Opposes Trade: YES" verdicts
+    // that bias Alpha toward NO_TRADE on every scan.
+    // A genuine opposing signal requires the pattern intent system to have classified
+    // the market as actively setting up against the proposed direction.
     const dangerousIntents: MarketIntent[] = ['reversal_likely', 'trap_likely'];
-    const intentOpposes = dangerousIntents.includes(intentAnalysis.overallIntent);
-    const directionOpposes = (direction === 'long' && intentAnalysis.directionBias === 'bearish') ||
-                             (direction === 'short' && intentAnalysis.directionBias === 'bullish');
-    return intentOpposes || directionOpposes;
+    return dangerousIntents.includes(intentAnalysis.overallIntent);
   }
 }
 

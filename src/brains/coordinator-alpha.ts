@@ -3555,15 +3555,15 @@ You choose ALL profit targets. The system never calculates TP for you. TP placem
   "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H1 structural zone. TP2 R:R must be >= TP1 R:R.
   tp1 must be closer to entry than tp2. Both must be within arena walls.
   Alpha has full authority to place TP1 and TP2 based on what market structure is offering.
-  TP1 IS MANDATORY for MICRO_INTRADAY. A response without a numeric "tp1" field is a malformed response — output NO_TRADE instead. There is no valid MICRO_INTRADAY trade without TP1.
-  Document the nearest M15 structural level and the R:R achievable from it. If R:R falls below 1.0:1 at the nearest structure, state that and document your action with reasoning. Your conviction score reflects your honest assessment of whether the structural space supports the trade.
+  TP1 is required for MICRO_INTRADAY. Place it at the nearest identifiable M15 structural level. If no M15 level is clearly visible, use the next closest named structure (session high/low, VWAP, range boundary). There is always a nearest structural level — name it and place TP1 there even if it is conservative. If the resulting R:R is below 1.0:1, state this in reasoning and reduce your conviction score accordingly — but do NOT default to NO_TRADE solely because TP1 placement is uncertain. A well-reasoned TP1 at an imperfect level is better than no trade. Only output NO_TRADE if the directional edge itself is absent.
+  Document the nearest M15 structural level and the R:R achievable from it.
 - INTRADAY: TWO take-profits. Minimum R:R 1.0:1.
   "tp1" = Conservative partial target at the CONSERVATIVE EDGE of the nearest H1 structural zone (not M15 micro-structure). TP1 R:R vs SL must be >= 1.0:1.
   "tp2" = Full target at the CONSERVATIVE EDGE of the nearest H4 structural zone. TP2 R:R must be >= TP1 R:R.
   tp1 must be closer to entry than tp2. Both must be within arena walls.
   Alpha has full authority to place TP1 and TP2 based on what market structure is offering.
-  TP1 IS MANDATORY for INTRADAY. A response without a numeric "tp1" field is a malformed response — output NO_TRADE instead. There is no valid INTRADAY trade without TP1.
-  Document the nearest H1 structural level and the R:R achievable from it. If R:R falls below 1.0:1 at the nearest structure, state that and document your action with reasoning. Your conviction score reflects your honest assessment of whether the structural space supports the trade.
+  TP1 is required for INTRADAY. Place it at the nearest identifiable H1 structural level. If no H1 level is clearly visible, use the next closest named structure (session high/low, daily pivot, weekly level). There is always a nearest structural level — name it and place TP1 there even if it is conservative. If the resulting R:R is below 1.0:1, state this in reasoning and reduce your conviction score accordingly — but do NOT default to NO_TRADE solely because TP1 placement is uncertain. A well-reasoned TP1 at an imperfect level is better than no trade. Only output NO_TRADE if the directional edge itself is absent.
+  Document the nearest H1 structural level and the R:R achievable from it.
 
 ${entryModePromptSection}
 
