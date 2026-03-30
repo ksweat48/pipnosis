@@ -362,10 +362,11 @@ class AlphaThoughtStream {
    * each candidate's individual Alpha reasoning before the final decision.
    * Called once per evaluated symbol. SSOT: uses existing comparing step type.
    *
-   * LANGUAGE RULE (CCIP-2026-0328B):
-   * - confidence < 50 (MINIMUM_TRADE_CONFIDENCE): "I am only X% confident" — signals low conviction.
-   * - confidence >= 50 on NO_TRADE: "I am X% confident this is not the right trade."
-   * - confidence >= 50 on BUY/SELL (BLOCKED_BY_FLOOR): "I am X% confident in this [BUY/SELL]."
+   * LANGUAGE RULE (CCIP-2026-CONFIDENCE-SSOT):
+   * trade_confidence always means "confidence this trade reaches its target".
+   * - NO_TRADE always has confidence < 50 (Alpha cannot reach the floor, so chooses no trade).
+   * - BUY/SELL has confidence >= 50 (Alpha is confident enough to execute).
+   * - The message always reflects confidence IN the trade, not confidence in waiting.
    */
   async emitSymbolReasoning(
     sessionId: string,
@@ -377,19 +378,14 @@ class AlphaThoughtStream {
   ): Promise<void> {
     const actionLabel = action === 'BUY' ? 'BUY' : action === 'SELL' ? 'SELL' : 'NO_TRADE';
     const MINIMUM_TRADE_CONFIDENCE = 50;
-    const isLowConviction = confidence < MINIMUM_TRADE_CONFIDENCE;
 
     let message: string;
     if (actionLabel === 'NO_TRADE') {
-      if (isLowConviction) {
-        message = `${symbol}: I am only ${confidence}% confident there is anything here. I choose no trade.`;
-      } else {
-        message = `${symbol}: I am ${confidence}% confident this is not the right trade. I choose to wait.`;
-      }
+      message = `${symbol}: I am only ${confidence}% confident in a trade here. Not enough to execute.`;
     } else {
-      // BUY or SELL — Alpha called a direction
-      if (isLowConviction) {
-        message = `${symbol}: I am only ${confidence}% confident in this ${actionLabel}. I choose no trade.`;
+      // BUY or SELL — Alpha called a direction with sufficient confidence
+      if (confidence < MINIMUM_TRADE_CONFIDENCE) {
+        message = `${symbol}: I am only ${confidence}% confident in this ${actionLabel}. Below execution floor.`;
       } else {
         message = `${symbol}: I am ${confidence}% confident in this ${actionLabel}.`;
       }

@@ -3824,7 +3824,7 @@ This learning will carry forward to improve future sessions!
     const isAsianSession = currentHour >= 0 && currentHour < 8;
     const isPreLondon = currentHour >= 6 && currentHour < 8;
     const bestCandidateSuffix = bestSymbol && bestConfidence > 0
-      ? ` Best candidate: ${bestSymbol} at ${bestConfidence}% — below the ${getMinConfidenceThreshold()}% execution threshold.`
+      ? ` Alpha was most confident in ${bestSymbol} at ${bestConfidence}% — not enough to execute (floor: ${getMinConfidenceThreshold()}%).`
       : '';
 
     if (blockedCount === totalPairs) {
@@ -3844,7 +3844,7 @@ This learning will carry forward to improve future sessions!
     }
 
     if (avgConf > 0 && avgConf < getMinConfidenceThreshold()) {
-      return `Average Alpha confidence: ${avgConf}% across ${totalPairs} pairs — below the ${getMinConfidenceThreshold()}% execution threshold. No single pair showed sufficient directional conviction this cycle.`;
+      return `Alpha's average trade confidence was ${avgConf}% across ${totalPairs} pairs — below the ${getMinConfidenceThreshold()}% execution floor. No pair produced a setup Alpha was confident enough to take this cycle.`;
     }
 
     return `Alpha scanned ${totalPairs} pairs and found no qualifying setups this cycle. Market structure did not meet execution criteria.${bestCandidateSuffix}`;
