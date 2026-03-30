@@ -1765,7 +1765,7 @@ If current data CONTRADICTS the thesis:
   → Set "action": "NO_TRADE" and explain in "reasoning" why the thesis is invalid
   → Example: {"action": "NO_TRADE", "thesis_status": "REJECT_THESIS", "thesis_rejection_reason": "Bearish reversal invalidates bullish thesis", "reasoning": "...", "confidence": 0, "stopLoss": 0, "takeProfit": 0}
 
-Be conservative. If in doubt, reject and generate fresh analysis.
+If the structure has materially changed — direction broken, key level invalidated, or momentum reversed — reject and analyze fresh. If structure is intact and the thesis direction remains supported by current candle evidence, proceed with your own judgment on the current opportunity. The decision is yours.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
         console.log(`[Alpha Coordinator] Cached thesis available (${ageMinutes}min old), raw briefing attached for validation`);

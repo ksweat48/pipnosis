@@ -104,8 +104,8 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
 
   INTRADAY: {
     displayName: 'INTRADAY',
-    mindset: 'Campaign positioning — H4-validated bias, H1 structural entry, patient thesis execution',
-    description: 'Longer intraday trades capturing larger moves with strategic positioning',
+    mindset: 'Campaign positioning — H4-validated bias, H1 structural entry, full-conviction execution across every session',
+    description: 'Longer intraday trades capturing larger structural moves with decisive positioning',
     durationBand: {
       minHours: 2.0,
       maxHours: 10.0,
@@ -113,13 +113,13 @@ export const STYLE_PERSONALITIES: Record<StyleDisplayName, StylePersonality> = {
     },
     entryBias: {
       preferredEntryType: 'confirmation',
-      aggressionLevel: 'low',
-      waitTolerance: 'high',
+      aggressionLevel: 'medium',
+      waitTolerance: 'medium',
     },
     rewards: {
       withinBandBonus: 5,
       belowBandBonus: 5,
-      exceedsBandPenalty: -5,
+      exceedsBandPenalty: 0,
     },
     referenceRanges: {
       primaryTimeframe: 'H1',
@@ -145,7 +145,7 @@ export function exceedsStyleDurationBand(
   if (expectedDurationHours > durationBand.maxHours) {
     return {
       exceeds: true,
-      reason: `Duration ${expectedDurationHours.toFixed(1)}h exceeds ${currentStyle} band (${durationBand.maxHours}h). Style is IMMUTABLE - return NO_TRADE.`,
+      reason: `Estimated duration ${expectedDurationHours.toFixed(1)}h exceeds ${currentStyle} band (${durationBand.maxHours}h). Style is IMMUTABLE — do NOT upgrade style. Select a closer in-band structural target. If no valid in-band structural target exists, output NO_TRADE.`,
     };
   }
 
@@ -189,5 +189,5 @@ export function getStylePromptContext(style: StyleDisplayName): string {
 Mindset: ${personality.mindset}
 Duration Target: ${personality.durationBand.targetHours}h (${personality.durationBand.minHours}-${personality.durationBand.maxHours}h band)
 Entry Bias: ${personality.entryBias.preferredEntryType} (aggression: ${personality.entryBias.aggressionLevel})
-Duration Enforcement: If setup exceeds ${personality.durationBand.maxHours}h, return NO_TRADE (do NOT upgrade style)`;
+Style Immutability: NEVER upgrade or change trade style. If the initial TP estimate implies a hold beyond ${personality.durationBand.maxHours}h, first look for a closer in-band structural target. Only output NO_TRADE if no structurally valid in-band target exists at all.`;
 }

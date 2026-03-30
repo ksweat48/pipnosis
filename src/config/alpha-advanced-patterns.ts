@@ -143,8 +143,19 @@ export const M1_ENTRY_PATTERNS = {
  * PRIORITY 1B: REGIME-STYLE ADAPTATION MATRIX
  * ═══════════════════════════════════════════════════════════════════
  *
- * Different market regimes require different trading approaches.
- * This matrix tells Alpha how to adapt each style based on regime.
+ * CCIP-2026-0330B — GOVERNANCE REFORM:
+ * This matrix provides Alpha with market context by regime and style.
+ * confidence_adjustment values are ADVISORY CONTEXT ONLY — they are passed
+ * as raw information for Alpha to reason about. No code path may apply
+ * these as arithmetic deductions to Alpha's output confidence score.
+ *
+ * Positive adjustments reflect historically stronger alignment between
+ * regime and style — Alpha considers this one data point among many.
+ * There are NO negative confidence deductions in this matrix.
+ * Alpha reads regime context and self-weights his conviction honestly.
+ *
+ * SSOT: CCIP-2026-0329A removed all advisory deductions. This reform
+ * extends that governance principle to regime-based adjustments.
  */
 export const REGIME_STYLE_ADAPTATIONS = {
   SCALP: {
@@ -154,31 +165,31 @@ export const REGIME_STYLE_ADAPTATIONS = {
       entry_bias: 'Continuation entries preferred',
       confidence_adjustment: 0,
       stop_adjustment: 'Standard',
-      notes: 'Target extended moves, don\'t fade the trend',
+      notes: 'Target extended moves on the trend direction — momentum continuation at M5 scale.',
     },
     RANGING: {
       tp_target_range: '0.8-1.2 ATR',
       strategy: 'Fade extremes toward mean',
       entry_bias: 'Counter-trend at boundaries',
-      confidence_adjustment: -5,
+      confidence_adjustment: 0,
       stop_adjustment: 'Tight (range breakdown risk)',
-      notes: 'Scalp the oscillation, quick in and out',
+      notes: 'Ranging regime: boundary fades have edge. Mid-range entries have lower structural basis. Alpha reads the specific boundary quality and decides.',
     },
     VOLATILE_EXPANSION: {
       tp_target_range: '1.8-2.5 ATR',
       strategy: 'Capture volatility expansion',
-      entry_bias: 'Wait for pullbacks',
-      confidence_adjustment: -10,
-      stop_adjustment: 'Widen by 20%',
-      notes: 'Whipsaw risk high - demand better entries',
+      entry_bias: 'Structural anchors after initial expansion candle',
+      confidence_adjustment: 0,
+      stop_adjustment: 'Widen by 20% to clear expanded ATR range',
+      notes: 'Volatile expansion: larger M5 legs available. SL must clear the expanded ATR. Alpha reads structure and selects TP at nearest M5 structural level.',
     },
     COMPRESSED: {
       tp_target_range: '0.5-1.0 ATR',
-      strategy: 'Mean reversion scalps',
-      entry_bias: 'Fade micro deviations',
-      confidence_adjustment: -5,
-      stop_adjustment: 'Very tight',
-      notes: 'Reduced profit expectation, higher win rate target',
+      strategy: 'Mean reversion scalps at compression extremes',
+      entry_bias: 'Fade micro deviations at structural edges',
+      confidence_adjustment: 0,
+      stop_adjustment: 'Very tight — compression means small range',
+      notes: 'Compression: reduced pip range per leg. Alpha selects TP at nearest reachable M5 structural level — not maximum possible extension.',
     },
   },
 
@@ -189,7 +200,7 @@ export const REGIME_STYLE_ADAPTATIONS = {
       entry_bias: 'Pullback to M15 support/resistance',
       confidence_adjustment: +5,
       stop_adjustment: 'Standard to slightly wide',
-      notes: 'Trend alignment = higher confidence, wider TP2',
+      notes: 'Trend regime alignment with MICRO_INTRADAY: H1 trend + M15 entry is the highest-probability structural combination for this style.',
     },
     RANGING: {
       tp_target_range: 'TP1: Mid-range, TP2: Opposite boundary',
@@ -197,23 +208,23 @@ export const REGIME_STYLE_ADAPTATIONS = {
       entry_bias: 'Counter-trend at range edges',
       confidence_adjustment: 0,
       stop_adjustment: 'Just outside range boundary',
-      notes: 'Range-bound M15 = oscillation trading',
+      notes: 'Ranging M15: oscillation trades at boundaries have structural basis. Alpha selects the range boundary as the structural anchor.',
     },
     VOLATILE_EXPANSION: {
       tp_target_range: 'TP1: Standard M15, TP2: H1 with caution',
-      strategy: 'Demand H1 confirmation before entry',
-      entry_bias: 'Wait for M15 structure to settle',
-      confidence_adjustment: -10,
-      stop_adjustment: 'Widen by 25%',
-      notes: 'False breakout risk - require multi-timeframe alignment',
+      strategy: 'Trade structural levels — volatility creates larger legs',
+      entry_bias: 'Structural anchor required — momentum alone is insufficient',
+      confidence_adjustment: 0,
+      stop_adjustment: 'Widen by 25% to clear expanded ATR',
+      notes: 'Volatile expansion at M15 scale: larger moves are available but SL must clear the expanded range. Alpha reads whether structure is present before entering.',
     },
     COMPRESSED: {
       tp_target_range: 'TP1: 1.5-2.0 R:R, TP2: 2.0-2.5 R:R',
-      strategy: 'Tight TP targets, avoid ambitious projections',
-      entry_bias: 'Structural levels only',
-      confidence_adjustment: -5,
+      strategy: 'Conservative TP selection — take what the compressed range offers',
+      entry_bias: 'Structural levels only — avoid ambiguous mid-range entries',
+      confidence_adjustment: 0,
       stop_adjustment: 'Slightly tighter',
-      notes: 'Reduced profit potential - take what market offers',
+      notes: 'Compression reduces M15 leg size. Alpha selects TP at the nearest credible M15 structural level rather than projecting a full-range target.',
     },
   },
 
@@ -224,7 +235,7 @@ export const REGIME_STYLE_ADAPTATIONS = {
       entry_bias: 'H1 pullbacks with H4 confirmation',
       confidence_adjustment: +10,
       stop_adjustment: 'Standard',
-      notes: 'Strong trends = hold for campaign target',
+      notes: 'Trending regime with INTRADAY style: highest structural alignment. H4 and H1 moving in the same direction — campaign targets are structurally supported.',
     },
     RANGING: {
       tp_target_range: 'TP1: Mid-range, TP2: Opposite H1 boundary',
@@ -232,42 +243,49 @@ export const REGIME_STYLE_ADAPTATIONS = {
       entry_bias: 'Range extremes with H4 validation',
       confidence_adjustment: 0,
       stop_adjustment: 'Just outside H1 range',
-      notes: 'H1 ranging = defined risk/reward',
+      notes: 'H1 ranging: boundary trades at H1 extremes have the clearest structural basis. Alpha identifies the range high and low and selects entry near boundary.',
     },
     VOLATILE_EXPANSION: {
       tp_target_range: 'TP1: Conservative H1, TP2: Standard H4',
-      strategy: 'Wait for H1 confirmation, avoid premature entries',
-      entry_bias: 'Multi-candle H1 confirmation required',
-      confidence_adjustment: -10,
-      stop_adjustment: 'Widen by 30%',
-      notes: 'Volatility expansion = wait for structure clarity',
+      strategy: 'Trade structural levels — volatile expansion creates H1-scale legs',
+      entry_bias: 'Structural anchor + directional commitment required',
+      confidence_adjustment: 0,
+      stop_adjustment: 'Widen by 30% to clear expanded ATR',
+      notes: 'Volatile expansion creates larger H1 moves. SL must reflect the expanded ATR. Alpha reads whether the H1 structure is directionally committed before entering.',
     },
     COMPRESSED: {
       tp_target_range: 'TP1: 2.0-2.5 R:R, TP2: 2.5-3.0 R:R',
-      strategy: 'Reduced profit targets, focus on high probability',
+      strategy: 'Conservative TP targets — compressed range reduces move expectations',
       entry_bias: 'Major H1 structural levels only',
-      confidence_adjustment: -5,
+      confidence_adjustment: 0,
       stop_adjustment: 'Slightly tighter',
-      notes: 'Compression = smaller moves, adjust expectations',
+      notes: 'H1 compression means smaller delivered moves. Alpha selects TP at the nearest H1 structural level the compressed range is willing to deliver to.',
     },
   },
 } as const;
 
 /**
  * ═══════════════════════════════════════════════════════════════════
- * PRIORITY 1C: FAILED SETUP RECOGNITION PATTERNS
+ * PRIORITY 1C: MARKET CONDITION ADVISORY PATTERNS
  * ═══════════════════════════════════════════════════════════════════
  *
- * Pattern recognition for common failure modes.
- * These patterns trigger automatic NO_TRADE to avoid low-probability setups.
+ * CCIP-2026-0330B — GOVERNANCE REFORM:
+ * These patterns are ADVISORY CONTEXT passed to Alpha for his reasoning.
+ * They describe market conditions that historically carry lower follow-through.
+ * Alpha reads this context and decides. No pattern here produces an automatic
+ * NO_TRADE. Alpha is the ONLY authority that may output NO_TRADE.
+ *
+ * SSOT: LEGITIMATE_BLOCK_CONDITIONS in alpha-identity.ts defines the exhaustive
+ * list of conditions that can prevent trade execution. Pattern matching is not
+ * on that list and never will be.
  */
-export const FAILED_SETUP_PATTERNS = {
+export const MARKET_CONDITION_ADVISORY = {
   SCALP: {
     CHOP_DETECTED: {
       name: 'M5 Inside Bar Sequence',
       description: '3+ consecutive M5 inside bars',
-      action: 'NO_TRADE',
-      reasoning: 'Indecision pattern - no directional edge',
+      advisory_signal: 'COMPRESSION_OBSERVED',
+      reasoning: 'Inside bar sequence indicates price compression — breakout direction is unresolved. Alpha reads this as a coiling setup or a low-conviction environment and decides accordingly.',
       detection_rules: [
         '3+ consecutive M5 inside bars',
         'Each candle range smaller than previous',
@@ -277,8 +295,8 @@ export const FAILED_SETUP_PATTERNS = {
     WHIPSAW: {
       name: 'M5 Whipsaw Pattern',
       description: 'Alternating UP/DOWN M5 candles for 5+ periods',
-      action: 'NO_TRADE',
-      reasoning: 'Erratic price action - no trend or structure',
+      advisory_signal: 'ERRATIC_PRICE_ACTION',
+      reasoning: 'Alternating candles indicate noise without structure. Alpha weighs this as a low-structure environment and adjusts his conviction accordingly — ranging setups at boundaries may still have edge.',
       detection_rules: [
         '5+ alternating direction M5 candles',
         'No consecutive same-direction moves',
@@ -288,8 +306,8 @@ export const FAILED_SETUP_PATTERNS = {
     MID_RANGE_DRIFT: {
       name: 'M5 Mid-Range No Bias',
       description: 'Price at mid-range between S/R with no clear bias',
-      action: 'NO_TRADE',
-      reasoning: 'No structural edge - equal probability both directions',
+      advisory_signal: 'MIDRANGE_LOCATION',
+      reasoning: 'Mid-range location reduces structural edge. Alpha reads this as a location problem — boundary setups on this same structure may have higher probability than mid-range entries.',
       detection_rules: [
         'Price equidistant from support and resistance',
         'No momentum in either direction',
@@ -302,8 +320,8 @@ export const FAILED_SETUP_PATTERNS = {
     EXTENDED_CONSOLIDATION: {
       name: 'M15 Consolidation > 3 Hours',
       description: 'M15 consolidation exceeding 3 hours without H1 confirmation',
-      action: 'NO_TRADE',
-      reasoning: 'Fakeout risk high - wait for H1 directional commitment',
+      advisory_signal: 'EXTENDED_RANGE_BOUND',
+      reasoning: 'Prolonged M15 consolidation increases fakeout risk on breakout entries. Alpha reads this as a context signal — coil breakout setups or range extremes may still present edge; this observation informs his confidence, not his decision.',
       detection_rules: [
         'M15 range-bound for 3+ hours',
         'H1 candle not showing directional bias',
@@ -313,8 +331,8 @@ export const FAILED_SETUP_PATTERNS = {
     VOLUME_DIVERGENCE: {
       name: 'M15 Momentum Divergence',
       description: 'Price makes new high/low but volume declining',
-      action: 'NO_TRADE',
-      reasoning: 'Exhaustion signal - momentum not supporting price',
+      advisory_signal: 'MOMENTUM_DIVERGENCE_OBSERVED',
+      reasoning: 'Declining volume on price extension is an exhaustion signal. Alpha reads this as reduced follow-through probability — it informs his TP selection and confidence, not his entry decision.',
       detection_rules: [
         'Price extending to new high/low',
         'Volume declining on each successive M15 candle',
@@ -324,8 +342,8 @@ export const FAILED_SETUP_PATTERNS = {
     STRUCTURE_CONFLICT: {
       name: 'H1 Near Major S/R Without M15 Confirmation',
       description: 'H1 approaching major level but M15 showing no reaction',
-      action: 'NO_TRADE',
-      reasoning: 'Rejection risk - no M15 confirmation of direction',
+      advisory_signal: 'CONFIRMATION_LAG',
+      reasoning: 'H1 approaching major level without M15 reaction indicates the level has not yet been tested at the entry timeframe. Alpha reads this as a timing observation — he may choose wait_pullback or push_confirmation entry_mode.',
       detection_rules: [
         'H1 within 0.3 ATR of major S/R level',
         'M15 candles showing indecision or opposing direction',
@@ -338,8 +356,8 @@ export const FAILED_SETUP_PATTERNS = {
     SESSION_END_PROXIMITY: {
       name: 'H1 Near Session Close',
       description: 'Less than 2 hours to major session end',
-      action: 'NO_TRADE',
-      reasoning: 'Insufficient time for thesis to develop',
+      advisory_signal: 'SESSION_TIME_COMPRESSED',
+      reasoning: 'Limited session time compresses the available hold window. Alpha reads this as a TP selection constraint — he may select a closer structural target that fits the remaining window rather than passing on the trade.',
       detection_rules: [
         'Less than 2 hours until London/NY close',
         'H1 thesis requires 3+ hours to reach TP',
@@ -349,8 +367,8 @@ export const FAILED_SETUP_PATTERNS = {
     EXTENDED_RANGE: {
       name: 'H1 Consolidation > 6 Hours',
       description: 'H1 consolidation exceeding 6 hours',
-      action: 'NO_TRADE',
-      reasoning: 'Range-bound market - wait for H4 structural shift',
+      advisory_signal: 'PROLONGED_RANGE_BOUND',
+      reasoning: 'Extended H1 consolidation indicates institutional indecision. Alpha reads this as context for his phase read — range boundary setups or pre-breakout positioning may still present structural edge.',
       detection_rules: [
         'H1 trading in tight range for 6+ hours',
         'H4 candle showing no directional commitment',
@@ -360,8 +378,8 @@ export const FAILED_SETUP_PATTERNS = {
     TIMEFRAME_CONFLICT: {
       name: 'H4 Conflicting With H1',
       description: 'H1 and H4 showing opposing directional bias',
-      action: 'NO_TRADE',
-      reasoning: 'Thesis broken - multi-timeframe alignment required',
+      advisory_signal: 'MTF_CONFLICT_OBSERVED',
+      reasoning: 'H1 and H4 conflict is a Q12/Q4 type disagreement — it reduces structural alignment but does not eliminate edge. Alpha records both readings and resolves in thesis_coherence_statement per CCIP-2026-0327D.',
       detection_rules: [
         'H1 showing bullish structure',
         'H4 showing bearish structure (or vice versa)',
@@ -370,6 +388,14 @@ export const FAILED_SETUP_PATTERNS = {
     },
   },
 } as const;
+
+/**
+ * @deprecated Use MARKET_CONDITION_ADVISORY instead.
+ * CCIP-2026-0330B: FAILED_SETUP_PATTERNS renamed and reframed as advisory context.
+ * This alias is preserved for any existing import references. All consumers
+ * must treat these entries as advisory context — not as NO_TRADE triggers.
+ */
+export const FAILED_SETUP_PATTERNS = MARKET_CONDITION_ADVISORY;
 
 /**
  * ═══════════════════════════════════════════════════════════════════
@@ -510,9 +536,9 @@ export const SESSION_PROFILES = {
       session: 'ASIA_CONSOLIDATION' as SessionName,
       time_utc: '00:00-07:00',
       characteristics: 'Range-bound H1, consolidation before London',
-      strategy: 'Identify range, prepare for London breakout',
-      confidence_adjustment: -5,
-      notes: 'Asia range sets boundaries for London open',
+      strategy: 'Identify range boundaries — range extremes and boundary fades carry structural edge',
+      confidence_adjustment: 0,
+      notes: 'Asia range sets boundaries for London open — INTRADAY trades at Asia range extremes have defined structural anchors. Alpha reads the H1 phase honestly and trades what is present. No system penalty applied.',
     },
     LONDON_BREAKOUT: {
       session: 'LONDON_OPEN' as SessionName,
