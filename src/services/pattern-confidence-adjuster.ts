@@ -1,21 +1,23 @@
 /**
- * PATTERN CONFIDENCE ADJUSTER - SSOT FOR PATTERN-BASED CONFIDENCE MODIFICATIONS
+ * PATTERN CONFIDENCE ADJUSTER — SSOT FOR PATTERN OBSERVATION LABELS
  *
- * Implements strict rules for how patterns affect Alpha's confidence:
+ * CCIP-2026-0330-PATTERN-SOVEREIGNTY:
+ * This module is a PURE OBSERVATION LAYER. It detects pattern conditions and
+ * returns structured observation labels for Alpha to reason about directly.
  *
- * BOOSTS:
- * +5% if HTF intent aligns with trade direction AND MTF shows loading
- * +5% if MTF shows break→retest confirmation in trade direction
- * +3% if LTF shows clean timing pattern
+ * GOVERNANCE LAW:
+ * - NO arithmetic confidence adjustments are applied (no boosts, no penalties)
+ * - ALL pattern observations are passed as labeled context strings
+ * - Alpha reads pattern observations and self-weights conviction
+ * - The coordinator attaches these labels to the briefing — they are inputs, not deductions
  *
- * PENALTIES:
- * −7% if HTF intent conflicts with trade direction
- * −5% if MTF shows distribution/accumulation opposing direction
- * −5% if LTF shows trap signatures
- * −10% cap if market state is "Chop Likely" across ≥2 timeframes
- *
- * HARD CONSTRAINT:
- * Patterns may not raise confidence above 90% unless liquidity intent also confirms
+ * Prior behaviour (REMOVED):
+ * +5% HTF alignment boost, +5% break→retest boost, +3% LTF clean timing boost
+ * −7% HTF conflict penalty, −5% MTF opposing penalty, −5% LTF trap penalty, −10% chop penalty
+ * These were suppressing genuine 55% reads to 45% — directly causing the 24hr NO_TRADE failure mode.
+ * All numeric amounts are now 0. The boosts and penalties arrays remain structurally intact
+ * for downstream consumers (coordinator-alpha, omega-alpha-logger) that read the labels as
+ * governance audit strings. The amounts are always 0 — they produce zero arithmetic effect.
  */
 
 import type { MultiTimeframeIntentAnalysis, MarketIntent } from './pattern-intent-classifier';
@@ -50,19 +52,19 @@ export interface PatternConfidenceInput {
   htfScan: TimeframePatternScan;
   mtfScan: TimeframePatternScan;
   ltfScan: TimeframePatternScan;
-  liquidityIntentConfirms?: boolean; // From liquidity analysis
+  liquidityIntentConfirms?: boolean;
 }
 
 class PatternConfidenceAdjuster {
-  private readonly MAX_CONFIDENCE_WITHOUT_LIQUIDITY = 90;
-  private readonly ABSOLUTE_MAX_CONFIDENCE = 95;
-  private readonly MIN_CONFIDENCE = 20;
 
   /**
-   * Calculate confidence adjustments based on pattern analysis
+   * CCIP-2026-0330-PATTERN-SOVEREIGNTY:
+   * Produces structured pattern observation labels only.
+   * totalAdjustment is always 0. adjustedConfidence === baseConfidence.
+   * All boosts and penalties carry amount: 0 — they are audit labels, not arithmetic.
    */
   calculateAdjustment(input: PatternConfidenceInput): ConfidenceAdjustment {
-    logger.info('[Pattern Confidence] Calculating adjustments', {
+    logger.info('[Pattern Confidence] Collecting pattern observations (labels-only, zero arithmetic)', {
       base: input.baseConfidence,
       direction: input.tradeDirection,
       htfIntent: input.intentAnalysis.htf.intent,
@@ -73,135 +75,106 @@ class PatternConfidenceAdjuster {
     const boosts: Array<{ reason: string; amount: number }> = [];
     const penalties: Array<{ reason: string; amount: number }> = [];
 
-    // Apply boost rules
-    this.applyBoosts(input, boosts);
+    this.collectSupportingObservations(input, boosts);
+    this.collectConflictingObservations(input, penalties);
 
-    // Apply penalty rules
-    this.applyPenalties(input, penalties);
-
-    // Calculate totals
-    const totalBoosts = boosts.reduce((sum, b) => sum + b.amount, 0);
-    const totalPenalties = penalties.reduce((sum, p) => sum + p.amount, 0);
-    const totalAdjustment = totalBoosts - totalPenalties;
-
-    const adjustedConfidence = input.baseConfidence + totalAdjustment;
-
-    logger.info('[Pattern Confidence] Adjustment complete', {
-      base: input.baseConfidence,
-      boosts: totalBoosts,
-      penalties: totalPenalties,
-      totalAdjustment,
+    logger.info('[Pattern Confidence] Observations collected', {
+      supportCount: boosts.length,
+      conflictCount: penalties.length,
+      arithmeticEffect: 0,
     });
 
     return {
       baseConfidence: input.baseConfidence,
-      adjustedConfidence,
-      totalAdjustment,
+      adjustedConfidence: input.baseConfidence,
+      totalAdjustment: 0,
       boosts,
       penalties,
       capApplied: false,
       capReason: undefined,
-      finalConfidence: adjustedConfidence,
+      finalConfidence: input.baseConfidence,
     };
   }
 
   /**
-   * Apply confidence boosts based on positive pattern signals
+   * Collect supporting pattern observations as labels (amount always 0)
    */
-  private applyBoosts(
+  private collectSupportingObservations(
     input: PatternConfidenceInput,
     boosts: Array<{ reason: string; amount: number }>
   ): void {
     const { intentAnalysis, htfScan, mtfScan, ltfScan, tradeDirection } = input;
 
-    // BOOST 1: HTF intent aligns with trade direction AND MTF shows loading
     const htfAligns = this.intentAlignsWithDirection(intentAnalysis.htf.intent, tradeDirection);
     const mtfLoading = this.isMTFShowingLoading(intentAnalysis.mtf.intent);
-
     if (htfAligns && mtfLoading) {
       boosts.push({
-        reason: 'HTF intent aligns with direction AND MTF shows loading',
-        amount: 5,
+        reason: 'SUPPORTS: HTF intent aligns with direction AND MTF shows loading',
+        amount: 0,
       });
     }
 
-    // BOOST 2: MTF shows break→retest confirmation in trade direction
     const mtfBreakRetest = this.hasBreakRetestPattern(mtfScan, tradeDirection);
     if (mtfBreakRetest) {
       boosts.push({
-        reason: 'MTF break→retest confirmation in trade direction',
-        amount: 5,
+        reason: 'SUPPORTS: MTF break→retest confirmation in trade direction',
+        amount: 0,
       });
     }
 
-    // BOOST 3: LTF shows clean timing pattern
     const ltfCleanTiming = this.hasCleanTimingPattern(ltfScan, tradeDirection);
     if (ltfCleanTiming) {
       boosts.push({
-        reason: 'LTF shows clean timing pattern',
-        amount: 3,
+        reason: 'SUPPORTS: LTF shows clean timing pattern',
+        amount: 0,
       });
     }
   }
 
   /**
-   * Apply confidence penalties based on negative pattern signals
+   * Collect conflicting pattern observations as labels (amount always 0)
    */
-  private applyPenalties(
+  private collectConflictingObservations(
     input: PatternConfidenceInput,
     penalties: Array<{ reason: string; amount: number }>
   ): void {
     const { intentAnalysis, mtfScan, ltfScan, tradeDirection } = input;
 
-    // PENALTY 1: HTF intent conflicts with trade direction
     const htfConflicts = this.intentConflictsWithDirection(intentAnalysis.htf.intent, tradeDirection);
     if (htfConflicts) {
       penalties.push({
-        reason: 'HTF intent conflicts with trade direction',
-        amount: 7,
+        reason: 'CONFLICTS: HTF intent conflicts with trade direction',
+        amount: 0,
       });
     }
 
-    // PENALTY 2: MTF shows distribution/accumulation opposing direction
     const mtfOpposing = this.hasMTFOpposingAccumulation(mtfScan, tradeDirection);
     if (mtfOpposing) {
       penalties.push({
-        reason: 'MTF shows distribution/accumulation opposing trade direction',
-        amount: 5,
+        reason: 'CONFLICTS: MTF shows distribution/accumulation opposing trade direction',
+        amount: 0,
       });
     }
 
-    // PENALTY 3: LTF shows trap signatures
     const ltfTrap = this.hasLTFTrapSignature(ltfScan, tradeDirection);
     if (ltfTrap) {
       penalties.push({
-        reason: 'LTF shows trap signature against entry direction',
-        amount: 5,
+        reason: 'CONFLICTS: LTF shows trap signature against entry direction',
+        amount: 0,
       });
     }
 
-    // PENALTY 4: Chop across multiple timeframes (severe penalty)
     const chopCount = this.countChopTimeframes(intentAnalysis);
     if (chopCount >= 2) {
       penalties.push({
-        reason: `Chop detected across ${chopCount} timeframes - low conviction`,
-        amount: 10,
+        reason: `CONFLICTS: Chop detected across ${chopCount} timeframes — Alpha weighs conviction directly`,
+        amount: 0,
       });
     }
   }
 
-  // ============================================================================
-  // BOOST DETECTION HELPERS
-  // ============================================================================
-
   private intentAlignsWithDirection(intent: MarketIntent, direction: 'long' | 'short'): boolean {
-    if (direction === 'long') {
-      return intent === 'continuation_likely' || intent === 'expansion_likely';
-    } else {
-      return intent === 'continuation_likely' || intent === 'expansion_likely';
-    }
-    // Note: Intent is direction-agnostic; we need to check pattern direction in actual implementation
-    // For now, we're being conservative
+    return intent === 'continuation_likely' || intent === 'expansion_likely';
   }
 
   private isMTFShowingLoading(intent: MarketIntent): boolean {
@@ -210,70 +183,38 @@ class PatternConfidenceAdjuster {
 
   private hasBreakRetestPattern(scan: TimeframePatternScan, direction: 'long' | 'short'): boolean {
     if (!scan.primaryPattern) return false;
-
     const isBreakRetest = scan.primaryPattern.patternType === 'break_retest';
     const directionMatches = (direction === 'long' && scan.primaryPattern.direction === 'bullish') ||
                              (direction === 'short' && scan.primaryPattern.direction === 'bearish');
-
     return isBreakRetest && directionMatches;
   }
 
   private hasCleanTimingPattern(scan: TimeframePatternScan, direction: 'long' | 'short'): boolean {
     if (!scan.primaryPattern) return false;
-
-    // Clean timing patterns: compression before break, or successful retest
     const cleanPatterns = ['pre_break_compression', 'break_retest', 'stop_hunt_expansion'];
     const isCleanPattern = cleanPatterns.includes(scan.primaryPattern.patternType);
-
     if (!isCleanPattern) return false;
-
-    // Check direction alignment if pattern has direction
     if (scan.primaryPattern.direction === 'neutral') return true;
-
-    const directionMatches = (direction === 'long' && scan.primaryPattern.direction === 'bullish') ||
-                             (direction === 'short' && scan.primaryPattern.direction === 'bearish');
-
-    return directionMatches;
+    return (direction === 'long' && scan.primaryPattern.direction === 'bullish') ||
+           (direction === 'short' && scan.primaryPattern.direction === 'bearish');
   }
 
-  // ============================================================================
-  // PENALTY DETECTION HELPERS
-  // ============================================================================
-
   private intentConflictsWithDirection(intent: MarketIntent, direction: 'long' | 'short'): boolean {
-    // Reversal or trap intents conflict with continuation trades
     return intent === 'reversal_likely' || intent === 'trap_likely';
   }
 
   private hasMTFOpposingAccumulation(scan: TimeframePatternScan, direction: 'long' | 'short'): boolean {
     if (!scan.primaryPattern) return false;
-
-    // Look for accumulation/distribution patterns opposing trade direction
     const distributionPatterns = ['head_shoulders', 'exhaustion_wedge', 'range_liquidity_box'];
-    const isDistribution = distributionPatterns.includes(scan.primaryPattern.patternType);
-
-    if (!isDistribution) return false;
-
-    // Check if direction opposes trade
-    const opposes = (direction === 'long' && scan.primaryPattern.direction === 'bearish') ||
-                    (direction === 'short' && scan.primaryPattern.direction === 'bullish');
-
-    return opposes;
+    if (!distributionPatterns.includes(scan.primaryPattern.patternType)) return false;
+    return (direction === 'long' && scan.primaryPattern.direction === 'bearish') ||
+           (direction === 'short' && scan.primaryPattern.direction === 'bullish');
   }
 
   private hasLTFTrapSignature(scan: TimeframePatternScan, direction: 'long' | 'short'): boolean {
     if (!scan.primaryPattern) return false;
-
-    // Trap patterns on LTF
     const trapPatterns = ['equal_highs_lows', 'sfp_sweep'];
-    const isTrapPattern = trapPatterns.includes(scan.primaryPattern.patternType);
-
-    if (!isTrapPattern) return false;
-
-    // Check if trap direction opposes trade
-    // Equal highs/lows are traps when swept against direction
-    // SFP is a trap when it fails to reject
-    return true; // Conservative: any trap pattern on LTF is a warning
+    return trapPatterns.includes(scan.primaryPattern.patternType);
   }
 
   private countChopTimeframes(analysis: MultiTimeframeIntentAnalysis): number {
@@ -284,41 +225,26 @@ class PatternConfidenceAdjuster {
     return count;
   }
 
-  /**
-   * Quick check if patterns support a trade direction
-   */
   patternsSupportDirection(
     intentAnalysis: MultiTimeframeIntentAnalysis,
     direction: 'long' | 'short'
   ): boolean {
-    // Check if overall intent supports the direction
     const supportiveIntents: MarketIntent[] = ['continuation_likely', 'expansion_likely'];
     const intentSupports = supportiveIntents.includes(intentAnalysis.overallIntent);
-
-    // Check direction alignment
     const directionSupports = (direction === 'long' && intentAnalysis.directionBias === 'bullish') ||
                               (direction === 'short' && intentAnalysis.directionBias === 'bearish') ||
                               intentAnalysis.directionBias === 'neutral';
-
-    // Must have intent support AND direction support (or neutral)
     return intentSupports && directionSupports;
   }
 
-  /**
-   * Check if patterns strongly oppose a trade direction
-   */
   patternsOpposeDirection(
     intentAnalysis: MultiTimeframeIntentAnalysis,
     direction: 'long' | 'short'
   ): boolean {
-    // Reversal or trap intent
     const dangerousIntents: MarketIntent[] = ['reversal_likely', 'trap_likely'];
     const intentOpposes = dangerousIntents.includes(intentAnalysis.overallIntent);
-
-    // Direction conflicts
     const directionOpposes = (direction === 'long' && intentAnalysis.directionBias === 'bearish') ||
                              (direction === 'short' && intentAnalysis.directionBias === 'bullish');
-
     return intentOpposes || directionOpposes;
   }
 }

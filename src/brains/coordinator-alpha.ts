@@ -3509,7 +3509,7 @@ Q_DIR: Which direction does momentum and structure favour right now — BUY, SEL
 Q_RANGE: How many pips can price realistically travel in that direction before hitting a structural wall? Name the wall.
 Q_EDGE: Does that distance support a valid R:R trade (≥1:1 net of spread) with a structurally anchored stop? YES or NO.
 If Q_EDGE = YES → proceed to full analysis and execute with honest confidence.
-If Q_EDGE = NO → state why in thesis_coherence_statement and output NO_TRADE.
+If Q_EDGE = NO → look harder before declining. Consider: a tighter TP at a closer named level, a different entry point (pullback, push confirmation), or a shorter-duration target within the style band. If after a genuine structural search a valid R:R geometry still cannot be constructed, state the specific structural reason in thesis_coherence_statement and output NO_TRADE. A NO answer to Q_EDGE is a prompt to search harder — not an automatic exit.
 These three questions replace the need for a "perfect setup". Structure + range + R:R = edge. If the edge exists, I trade it.
 
 Risk Mode: ${riskMode.toUpperCase()}
@@ -3743,10 +3743,13 @@ Return PURE JSON only — all required fields from the schema in my system promp
           console.log(`[Alpha Coordinator] Cached thesis rejected${rejectionReason ? `: ${rejectionReason.substring(0, 80)}` : ''}`);
         } else if (cachedThesis && thesisAccepted) {
           console.log('[Alpha Coordinator] Cached thesis accepted — proceeding with current analysis');
-        } else if (!cachedThesis && marketThesisText) {
-          // Fresh thesis generation - cache it
-          const directionBias = parsedJSON.action === 'BUY' ? 'BUY' :
-                               parsedJSON.action === 'SELL' ? 'SELL' : 'NEUTRAL';
+        } else if (!cachedThesis && marketThesisText && (parsedJSON.action === 'BUY' || parsedJSON.action === 'SELL')) {
+          // CCIP-2026-0330-CACHE-SOVEREIGNTY: Only cache directional theses.
+          // NO_TRADE decisions (action = 'NO_TRADE' or NEUTRAL directionBias) must NOT be cached.
+          // A cached NEUTRAL thesis creates a self-reinforcing NO_TRADE cycle: on the next scan
+          // Alpha sees the cached NEUTRAL thesis, validates against it, outputs NO_TRADE again.
+          // Only BUY and SELL decisions carry a directional thesis worth caching for regime continuity.
+          const directionBias = parsedJSON.action === 'BUY' ? 'BUY' : 'SELL';
 
           // CCIP-CACHE-WRITE-FIX-2026-03-19:
           // Previously called getAlphaThesis() here (re-entrant), which hit the
@@ -4119,6 +4122,40 @@ Return PURE JSON only — all required fields from the schema in my system promp
       console.log('[Alpha Coordinator] Confidence:', decision.confidence);
       console.log('[Alpha Coordinator] Reasoning:', decision.reasoning);
       console.log('[Alpha Coordinator] Omega Summary:', decision.omega_summary);
+
+      // CCIP-2026-0330-NO_TRADE-GOVERNANCE: Enforce meaningful no_trade_statement.
+      // A NO_TRADE without a substantive structural explanation is a governance violation.
+      // This is a SOFT check — it does NOT block or alter the decision. It logs an auditable
+      // violation so governance can track Alpha's reasoning quality on NO_TRADE outputs.
+      if (decision.action === 'NO_TRADE') {
+        const noTradeStatement: string = (decision as any).no_trade_statement || '';
+        const isGenericPhrase = !noTradeStatement ||
+          noTradeStatement.trim().length < 60 ||
+          /^(ranging|no clear|low volatility|uncertain|choppy|unclear|sideways|no edge|insufficient)/i.test(noTradeStatement.trim());
+
+        if (isGenericPhrase) {
+          logViolation({
+            violationType: 'NO_TRADE_STATEMENT_MISSING_OR_GENERIC',
+            symbol: marketContext.symbol,
+            attemptedOperation: 'no_trade_governance_check',
+            callLocation: 'coordinator-alpha.no_trade_governance',
+            blocked: false,
+            errorDetails: {
+              no_trade_statement: noTradeStatement || null,
+              confidence: decision.confidence,
+              block_reason: (decision as any).block_reason || null,
+              sessionId: goalContext?.sessionId || null,
+              userId: userId || null,
+            }
+          }).catch(() => {});
+          console.warn(
+            `[Alpha Coordinator] CCIP-2026-0330: NO_TRADE_STATEMENT_MISSING_OR_GENERIC — ` +
+            `Alpha produced NO_TRADE without a substantive structural explanation. ` +
+            `Symbol=${marketContext.symbol}, confidence=${decision.confidence}. ` +
+            `Governance violation logged (advisory — decision stands).`
+          );
+        }
+      }
 
       if (decision.action !== 'NO_TRADE') {
         try {

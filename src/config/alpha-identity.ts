@@ -799,6 +799,7 @@ NO_TRADE:
     "Q_RANGE": "How many pips can price realistically travel in that direction before a structural wall? Name the wall.",
     "Q_EDGE": "YES or NO — is the structural distance from entry to the named target greater than the structural distance from entry to the SL level? YES means the market geometry produces a positive R:R — not that I engineered my levels to satisfy a ratio. If NO, state the structural reason the path to target is shorter than the SL distance."
   },
+  "no_trade_statement": "MANDATORY. Minimum 60 words. State: (1) what I looked for and did not find — name the specific structural element absent; (2) what I found instead — what the market is actually showing; (3) what would change my decision — the specific condition or level that, if triggered, would restore edge. Generic phrases ('ranging market', 'no clear direction', 'low volatility') without named price levels and structural evidence are a governance violation. I must name prices, levels, and candle evidence.",
   "reasoning": { "thesis_why": "Specific structural reason the edge is absent — not absence of a perfect setup" },
   "block_reason": "One of: ${ALPHA_IDENTITY.LEGITIMATE_BLOCK_CONDITIONS.join(' | ')} | NO_EDGE"
 }`;
