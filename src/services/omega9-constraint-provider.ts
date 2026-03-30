@@ -970,21 +970,26 @@ Core Principle: If the market can offer some profit, you should take it.
 
     console.log(`[Omega-9 Volatility] ${symbol}: ATR ${atr.toFixed(6)} (${atrInPips.toFixed(2)} pips)`);
 
-    // Base: ATR * 1.5 (assuming ATR is 24hr, we want hourly rate)
+    // CCIP-2026-03-30 / SSOT-ALPHA-GOV-001: Regime multipliers REMOVED.
+    //
+    // Previous behaviour applied 0.7x for 'low' and 1.3x for 'high' regime.
+    // Problem: Both multipliers distort the raw ATR signal that Alpha uses for
+    // trade reasoning:
+    //   - 0.7x during low-volatility (Asian session) stacks with the session
+    //     multiplier, producing an artificially small feasibleTravelPips that
+    //     nudges Alpha toward NO_TRADE on structurally valid setups.
+    //   - 1.3x during high-volatility inflates feasibleTravelPips beyond what
+    //     raw ATR justifies, misrepresenting risk capacity to Alpha.
+    //
+    // The regime label is kept in the contract so Alpha receives it as
+    // informational context in the prompt — it just no longer warps the math.
+    // Base: ATR * 1.5 (ATR is a 24-hr average; scale to per-hour rate)
     let baseVolatility = atrInPips * 1.5;
 
-    // Adjust for volatility regime
-    let regimeMultiplier = 1.0;
-    if (volatilityRegime === 'high') {
-      regimeMultiplier = 1.3;
-      baseVolatility *= 1.3;
-    } else if (volatilityRegime === 'low') {
-      regimeMultiplier = 0.7;
-      baseVolatility *= 0.7;
-    }
-
-    // SSOT: Get session volatility multiplier from coordinator
-    // This automatically handles 24/7 markets vs forex-hours markets
+    // SSOT: Get session volatility multiplier from coordinator.
+    // This handles 24/7 markets vs forex-hours markets.
+    // Session is the ONLY structural modifier applied here — it reflects
+    // real differences in market participation, not a regime opinion.
     const sessionMultiplier = sessionConstraintCoordinator.getSessionVolatilityMultiplier(
       symbol,
       currentSession as 'asian' | 'london' | 'ny' | 'overlap' | 'sydney' | 'dead'
@@ -992,25 +997,25 @@ Core Principle: If the market can offer some profit, you should take it.
 
     baseVolatility *= sessionMultiplier;
 
-    // ✅ ASSET-CLASS-AWARE VOLATILITY FLOORS (ADVISORY)
-    // These are safety floors, not hard constraints - Alpha can still decide
+    // ASSET-CLASS-AWARE VOLATILITY FLOORS (ADVISORY)
+    // Safety floors only — Alpha retains full authority over trade decisions.
     let minimumVolatility: number;
     const assetCategory = assetClassifier.getAssetCategory(symbol);
 
     switch (assetCategory) {
       case 'crypto':
-        minimumVolatility = 100.0;  // 100 pips/hour = $100/hour for BTC scale
+        minimumVolatility = 100.0;
         break;
       case 'index':
-        minimumVolatility = 20.0;   // 20 points/hour for indices
+        minimumVolatility = 20.0;
         break;
       case 'metal':
-        minimumVolatility = 10.0;   // 10 points/hour for gold/silver
+        minimumVolatility = 10.0;
         break;
       case 'forex':
       case 'energy':
       default:
-        minimumVolatility = 5.0;    // 5 pips/hour for forex (existing)
+        minimumVolatility = 5.0;
     }
 
     if (baseVolatility < minimumVolatility) {
@@ -1018,7 +1023,7 @@ Core Principle: If the market can offer some profit, you should take it.
       baseVolatility = minimumVolatility;
     }
 
-    console.log(`[Omega-9 Volatility] ${symbol} (${assetCategory}): Base ${(atrInPips * 1.5).toFixed(1)} → Regime ${regimeMultiplier}x → Session ${sessionMultiplier}x → Final ${baseVolatility.toFixed(1)} pips/hour (${assetCategory} floor: ${minimumVolatility})`);
+    console.log(`[Omega-9 Volatility] ${symbol} (${assetCategory}): Base ${(atrInPips * 1.5).toFixed(1)} → Regime: ${volatilityRegime} (no multiplier) → Session ${sessionMultiplier}x → Final ${baseVolatility.toFixed(1)} pips/hour (${assetCategory} floor: ${minimumVolatility})`);
 
     return baseVolatility;
   }
