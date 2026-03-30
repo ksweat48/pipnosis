@@ -776,80 +776,37 @@ class AlphaCoordinatorBrain {
     const entryModePromptSection = entryMonitorActive
       ? `ENTRY MODE — SMART WAITING SYSTEM:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-The entry_mode field controls when the trade executes. You have full authority to choose the right mode based on market conditions.
+The entry_mode field controls when the trade executes. Choose based on your read of current conditions.
 
-  "execute_now"       → The full picture aligns NOW. Trend, structure, momentum, timing, and entry trigger
-                        are all confirmed. Execute at current market price immediately.
-                        REQUIRES: A named trigger that has already fired (candle close, BOS, sweep-reclaim,
-                        structural rejection). Proximity alone is not a trigger.
+  "execute_now"       → Structure and momentum support an immediate entry at current price.
 
-  "wait_pullback"     → Equivalent to a LIMIT ORDER. The full picture aligns EXCEPT the current entry
-                        price is overextended from the optimal zone. Thesis is valid; you are managing
-                        timing, not conviction. The system places a limit-style entry that executes the
-                        instant price touches your defined zone — no candle close required.
-                        USE WHEN: Price is extended from structure, you want to buy at support or sell
-                        at resistance, or you need a better risk/reward entry. The pullback zone must
-                        be defined around a genuine structural level (e.g. prior support, VWAP retest,
-                        50% retracement of the last impulse).
-                        REQUIRES: "wait_condition" block. State the exact pullback target zone (min/max
-                        price), the price that invalidates the thesis, and your reasoning.
-                        COHERENCE: The pullback zone MUST be a lower price than current price for BUY
-                        (price needs to come DOWN to you) or a higher price for SELL (price needs to
-                        come UP to you). If price is already at or inside your zone, use "execute_now".
-                        If the pullback would cross a structural invalidation level, use NO_TRADE.
+  "wait_pullback"     → Thesis is valid but price is extended. You want a better entry at a structural level.
+                        The system places a limit-style entry that triggers on first touch — no candle close needed.
+                        Include a wait_condition block with the zone, invalidation price, and reasoning.
 
-  "push_confirmation" → STRONGER than a limit order — requires a candle close inside the zone.
-                        The full picture will align IF price pushes into a specific zone AND closes
-                        an M5 candle body INSIDE it. A wick touch or brief spike is NOT sufficient.
-                        USE WHEN: Breakout entries, breakout retests, or when you need confirmed
-                        commitment (a candle body close) before executing. This prevents false breakouts.
-                        REQUIRES: "wait_condition" block. Set the zone tightly around the structural
-                        level (1-3 pip width). The system monitors M5 candles and executes only after
-                        a closed candle body confirms commitment.
-                        COHERENCE: The zone must be at a price NOT YET reached — if price is already
-                        inside your zone, use "execute_now" instead.
+  "push_confirmation" → You want a candle close inside a specific zone before entering.
+                        Use for breakout entries or when you need confirmed commitment before executing.
+                        Include a wait_condition block. Zone should be tight (1-3 pip width).
 
-AUDIT: When using "wait_pullback" or "push_confirmation", document in your wait_condition block and thesis_coherence_statement the named structural level defining your zone, the zone direction relative to current price, and whether reaching the zone would cross any invalidation level. The audit trail records your reasoning — Alpha decides the action.
-
-BREAKOUT ENTRY AUDIT:
-If your entry trigger is a breakout that has not yet fired at the time of this analysis (price has not yet traded through the named level), document: whether the breakout has fired, which entry_mode you selected, and your structural reasoning for that choice. Log whether the trigger was fired or pending in thesis_coherence_statement.
-
-WAIT_PULLBACK AUDIT OBLIGATIONS:
-When using wait_pullback, document in your wait_condition block:
-  - The named structural level anchoring the wait zone (support, VWAP, Fibonacci, prior swing high/low).
-  - The zone direction relative to current price (lower for BUY wait, higher for SELL wait) — or explain the exception.
-  - Whether reaching the zone would cross any thesis invalidation level.
-  - Your reasoning for why waiting for this zone is the correct action given the structural picture.
-Weak or absent zone reasoning reduces conviction — document it honestly and let your confidence score reflect it.
-
-When using wait_pullback or push_confirmation, include a wait_condition block:
+For wait_pullback or push_confirmation, include:
 {
   "wait_condition": {
-    "target_entry_zone_min": <lower bound of the wait zone>,
-    "target_entry_zone_max": <upper bound of the wait zone>,
-    "invalidation_price": <price that invalidates the thesis entirely>,
-    "wait_reasoning": "Why you are waiting — what structural level defines the zone",
-    "expected_wait_minutes": <your estimate of how long until price reaches the zone, e.g. 15>
+    "target_entry_zone_min": <lower bound>,
+    "target_entry_zone_max": <upper bound>,
+    "invalidation_price": <price that invalidates the thesis>,
+    "wait_reasoning": "Named structural level and why you are waiting",
+    "expected_wait_minutes": <your estimate>
   }
 }
-
-IMPORTANT: For push_confirmation, the zone defines where the M5 candle must CLOSE — not just touch.
-Set the zone tightly around your structural level (1-3 pip width is appropriate for confirmation).
-For wait_pullback, the zone defines the limit entry price range — execution triggers on first touch.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
       : `ENTRY MODE:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-The entry monitor is OFFLINE. Only two choices are available:
+The entry monitor is OFFLINE. Two choices are available:
 
-  "execute_now" → The full picture aligns NOW. Trend, structure, momentum, timing, and entry trigger
-                  are all confirmed. Execute at current market price immediately.
-                  REQUIRES: A named trigger that has already fired (candle close, BOS, sweep-reclaim,
-                  structural rejection). Proximity alone is not a trigger.
+  "execute_now" → Structure and momentum support an immediate entry at current price.
+  NO_TRADE      → No structural edge at current price.
 
-  NO_TRADE      → Conditions do not support an immediate entry. Pass on this scan.
-
-"wait_pullback" and "push_confirmation" are not available — they require the entry monitor to be active.
-If there is no clean execute_now setup, the correct answer is NO_TRADE.
+"wait_pullback" and "push_confirmation" require the entry monitor to be active and are not available.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
     let riskContext = '';
@@ -896,15 +853,15 @@ If there is no clean execute_now setup, the correct answer is NO_TRADE.
         const positionPct = Math.round(positionInRange * 100);
         const conflictAdvisories: string[] = [];
         if (locationZone === 'PREMIUM') {
-          conflictAdvisories.push(`LOCATION ADVISORY: Price is at ${positionPct}% of the swing range (swing H: ${swingHigh}, swing L: ${swingLow}) — PREMIUM zone. A BUY here is trading against location. To proceed on a BUY, thesis_coherence_statement MUST name the specific structural override: sweep above swing highs, confirmed liquidity grab, or BOS in BUY direction. Restating direction without naming the override is insufficient.`);
+          conflictAdvisories.push(`LOCATION CONTEXT: Price is at ${positionPct}% of the swing range (swing H: ${swingHigh}, swing L: ${swingLow}) — PREMIUM zone. Record in Q8C. Factor into your conviction.`);
         } else if (locationZone === 'DISCOUNT') {
-          conflictAdvisories.push(`LOCATION ADVISORY: Price is at ${positionPct}% of the swing range (swing H: ${swingHigh}, swing L: ${swingLow}) — DISCOUNT zone. A SELL here is trading against location. To proceed on a SELL, thesis_coherence_statement MUST name the specific structural override: sweep below swing lows, confirmed liquidity grab, or BOS in SELL direction. Restating direction without naming the override is insufficient.`);
+          conflictAdvisories.push(`LOCATION CONTEXT: Price is at ${positionPct}% of the swing range (swing H: ${swingHigh}, swing L: ${swingLow}) — DISCOUNT zone. Record in Q8C. Factor into your conviction.`);
         }
         if (regimeCategory && (regimeCategory.toLowerCase().includes('range') || regimeCategory.toLowerCase().includes('chop') || regimeCategory.toLowerCase().includes('side'))) {
-          conflictAdvisories.push(`REGIME ADVISORY: Market regime is ${regimeCategory.toUpperCase()}. Momentum continuation trades in a ranging/choppy regime require named evidence that the range boundary is breaking with committed volume — otherwise mean-reversion thesis is structurally favoured.`);
+          conflictAdvisories.push(`REGIME CONTEXT: Market regime is ${regimeCategory.toUpperCase()}. Record this in your analysis. Factor into your conviction.`);
         }
         if (conflictAdvisories.length > 0) {
-          regimeLocationConflictAdvisory = `\nPRE-ANALYSIS CONFLICT ADVISORIES (resolve these in thesis_coherence_statement before finalising your action):\n${conflictAdvisories.join('\n')}\n`;
+          regimeLocationConflictAdvisory = `\nMARKET CONTEXT:\n${conflictAdvisories.join('\n')}\n`;
         }
       } else {
         // CCIP-2026-0324F: Swing data unavailable — inject fallback location advisory.
@@ -3551,28 +3508,7 @@ You choose ALL profit targets. The system never calculates TP for you. TP placem
 
 ${entryModePromptSection}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-COHERENCE OBLIGATION — before producing JSON
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-My answer_sheet is an audit trail, not a scorecard. Before I write any JSON, I check every answer I gave against the action I am about to take.
-
-The following conditions require explicit documentation in thesis_coherence_statement — these are audit obligations, not decision gates. Alpha decides the action. The audit trail records the reasoning:
-- Q8C = PREMIUM on a BUY action: Document what catalyst (sweep, structural break, liquidity grab, or other) informs your view on the premium zone. State your honest conviction about whether the premium context is relevant to this specific setup.
-- Q8C = DISCOUNT on a SELL action: Document what catalyst informs your view on the discount zone. State your honest conviction about whether the discount context is relevant.
-- Q3 = prior rejections at my entry level: Document what you observe as structurally different at this level compared to prior rejections, or acknowledge the absence of a difference and reflect it in your conviction.
-- Q4 = EXHAUSTED momentum: Document whether this is a reversal or continuation thesis and how the exhaustion reading affects your conviction. State your honest assessment.
-- Q5_failure_probability within 15 points of trade_confidence: Document the specific edge you are relying on that justifies the spread between failure probability and confidence, or acknowledge the gap and let your confidence score reflect it.
-- Q1 = CONFLICT or COUNTER_TREND: Document your structural reasoning for the direction you selected relative to the control timeframe. State your honest conviction about the counter-trend case.
-- intermarket_correlation = DIVERGENT: Document your assessment of the divergence and how it affects your conviction about this instrument. State whether the primary instrument's structural case is sufficient to trade despite the correlated market moving against.
-- Q8D = DELIVERY_BEARISH on a BUY action: Document whether a strong intraday or session-level structural case exists that informs your view despite the counter-delivery context. State your honest conviction — no formula, no penalty arithmetic.
-- Q8D = DELIVERY_BULLISH on a SELL action: Document whether a strong intraday or session-level structural case exists that informs your view despite the counter-delivery context. State your honest conviction — no formula, no penalty arithmetic.
-- Q12 = DISTRIBUTION on a BUY action (continuation): Document what you observe about the distribution signal — whether it appears to be a false signal, a resolved condition, or a genuine contradiction with your thesis. State your honest conviction about the structural basis for the BUY.
-- Q12 = ACCUMULATION + entry_mode = execute_now: Document whether a specific named trigger has fired (what Q6 names as the event). State your honest assessment of why execute_now is appropriate in an accumulation phase given the current structural evidence.
-- Q12 conflicts with Q4_momentum_stage: If Q12=EXPANSION but Q4=EXHAUSTED, or Q12=ACCUMULATION but Q4=FRESH with strong bodies — document your interpretation of the conflict. Q12 (control TF) and Q4 (confirmation TF) operating on different timeframes is valid but must be named and explained.
-- session_sweep_status = NEITHER_SWEPT on a LONDON or NY directional trade: If both session boundaries are intact and you are taking a direction trade with execute_now, document the structural basis for this entry timing and how the absence of a session sweep affects your conviction.
-- kill_zone = OUTSIDE_KILL_ZONE on a forex execute_now trade: Document the structural reason you assess a trade outside a kill zone as having genuine institutional follow-through probability. Name the active draw and why the setup is valid outside kill zone timing.
-
-If a contradiction cannot be resolved with a specific named reason, document the unresolved gap in thesis_coherence_statement, reduce conviction accordingly, and let the confidence score reflect that honest assessment. Alpha decides the action.
+My answer_sheet is an audit trail. I fill every field honestly — what I see informs my confidence. My action and trade_confidence are always my own judgment.
 
 Return PURE JSON only — all required fields from the schema in my system prompt must be present.`;
 

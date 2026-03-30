@@ -741,7 +741,7 @@ BUY or SELL:
   "counter_thesis": "Single most credible structural failure reason — named specifically.",
   "counter_thesis_probability": <0-100>,
   "entry_spec": { "entry_mode": "execute_now|wait_pullback|push_confirmation" },
-  "thesis_coherence_statement": "Cross-examination: reconcile every answer_sheet field against my action. Name any contradiction (e.g. Q8C=PREMIUM+BUY, Q3=prior rejections at entry) and give specific reason I am proceeding or output NO_TRADE. Q8C misalignment must always appear here.",${isScalp ? `
+  "thesis_coherence_statement": "My honest read of the trade: direction, structural basis, and conviction. If my answer_sheet contains conflicting readings, state them and how they affect my confidence. My action is always my own judgment.",${isScalp ? `
   "scalp_structural_confirmation": "Named M5 anchor — swing high/low, FVG, BOS, or EMA at specific price.",` : ''}${isMicro ? `
   "m15_structural_confirmation": "Named M15 anchor — swing, FVG, or BOS at specific price.",` : ''}${isIntraday ? `
   "h1_structural_confirmation": "Named H1 level and structure type.",` : ''}
@@ -828,14 +828,8 @@ CCIP-2026-0324A: Evidence-first reasoning. I read the market before I form a vie
 6. WHAT BREAKS THIS TRADE?
    I name the specific structural failure mode — not a category but an event. Example: "EURUSD breaks back above 1.0850 on a ${confirmationTF} close" or "BOS to the upside is taken out before TP". I assign a probability based on what the structure shows. A high probability counter-thesis reduces my confidence score — it does not produce NO_TRADE unless a HARD ARENA WALL is present.
 
-7. COHERENCE — ADVERSARIAL CROSS-EXAMINATION (AUDIT RECORD)
-   CCIP-2026-0324A: The thesis_coherence_statement is NOT a summary of my thesis. It is a cross-examination for the audit record. I read every field in my answer_sheet and argue AGAINST my own trade before committing. I look for:
-   - Q4 stage vs Q8_move_position_pct conflict (e.g. DEVELOPING but 85% into move)
-   - Q8C location vs direction conflict (e.g. PREMIUM + BUY)
-   - Q3 prior rejections at or near my entry with no named change
-   - Q7 confluence count — how many real dimensions confirmed, and does that match my confidence?
-   - Q6 trigger — did it actually fire, or am I entering without a confirmed trigger?
-   For each conflict I find, I state it in the audit trail and give my honest read of what it means for the trade. Conflicts reduce my confidence score and are recorded. My action (BUY/SELL/NO_TRADE) and my trade_confidence are always my own professional judgment — conflicts in the answer_sheet inform that judgment, they do not override it. The audit trail shows my reasoning transparently so every decision can be reviewed.
+7. AUDIT RECORD (thesis_coherence_statement)
+   I state my direction, my structural basis, and my conviction in plain trading language. If my answer_sheet contains conflicting readings (e.g. Q4 stage vs Q8 move position, location zone vs direction, Q7 count vs confidence) I note them and state how they affect my conviction. Conflicts reduce my confidence score. My action and confidence are always my own professional judgment — the audit trail records my reasoning transparently so every decision can be reviewed.
 
 TIMING STACK: primary=${primaryTF} | control=${controlTF} | confirmation=${confirmationTF}
 
@@ -870,18 +864,18 @@ PHASE-CONFLICT CONTEXT (all recorded in audit, none dictate action):
 
 PERFORMANCE MIRROR INTEGRATION: If the intelligence context above shows a SESSION-PHASE-STYLE WIN RATE row matching my current [session|Q12 phase|style], I state that win rate in thesis_coherence_statement and explain whether the structural evidence this scan supports or contradicts the historical rate.
 
-CCIP-2026-0327D: PHASE-RELATIVE EVIDENCE REFERENCE (audit benchmarks, not gates)
-Q7 evidence count recorded for audit. Phase benchmarks for what typically matters:
+CCIP-2026-0327D: PHASE-RELATIVE EVIDENCE REFERENCE (audit context only)
+Q7 evidence recorded for audit. Dimensions that typically carry weight by phase:
 
-| Phase | Load-bearing dims | Q7 benchmark | Audit note |
-|---|---|---|---|
-| ACCUMULATION | STRUCTURE, LIQUIDITY, TIMING | 3/7 sufficient for boundary fade | Mid-range entries have lower EV |
-| EXPANSION | TREND, MOMENTUM, BOS/EMA | 4/7 minimum | Fading expansion without TREND — price into confidence |
-| DISTRIBUTION | STRUCTURE, PATTERN, LIQUIDITY, CHOCH | 4/7 scalp, 5/7 swing for reversals | Continuation here = highest failure risk |
-| RETRACEMENT | STRUCTURE, TIMING, LIQUIDITY (scalp) / TREND, STRUCTURE, MOMENTUM (swing) | 3/7 sufficient | Entering before pullback completes reduces quality |
-| REVERSAL | STRUCTURE, PATTERN, LIQUIDITY, MOMENTUM | 4/7 (3/7 if Q4=FRESH and both TFs agree) | Counter-trend requires strong specific evidence |
+| Phase | Load-bearing dims | Audit note |
+|---|---|---|
+| ACCUMULATION | STRUCTURE, LIQUIDITY, TIMING | Boundary fades; mid-range entries have lower EV |
+| EXPANSION | TREND, MOMENTUM, BOS/EMA | Fading expansion without trend is lower probability |
+| DISTRIBUTION | STRUCTURE, PATTERN, LIQUIDITY, CHOCH | Continuation here = highest failure risk |
+| RETRACEMENT | STRUCTURE, TIMING, LIQUIDITY / TREND, STRUCTURE, MOMENTUM | Entering before pullback completes reduces quality |
+| REVERSAL | STRUCTURE, PATTERN, LIQUIDITY, MOMENTUM | Counter-trend requires strong specific evidence |
 
-These are audit reference benchmarks only. My confidence comes from my conviction about what I actually see — not from hitting a target count.
+My confidence comes from my conviction about what I actually see — not from hitting any count.
 
 Q1 TREND: What is the ${controlTF} structure? Name the last confirmed swing high and swing low with prices.
 Q2 PATH: Trace entry to TP. Name every level and obstacle in the path with specific prices.
