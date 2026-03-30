@@ -57,15 +57,15 @@ const PAIR_PERSONALITIES: PairPersonality[] = [
   {
     group: 'GOLD',
     symbols: ['XAUUSD'],
-    characterContext: `I am trading Gold (XAUUSD). Gold is a macro-reactive, high-volatility instrument. Its character: sharp, explosive wick movements that frequently pierce structural levels before reversing — this is normal Gold behavior, not invalidation. In the NY session Gold reaches peak volatility, often printing wicks of 50–150 points through obvious S/R before snapping back. London open can produce strong directional moves driven by macro sentiment and geopolitical flow. Asian session ranges are narrower but can set the day's high or low without warning.
+    characterContext: `I am trading Gold (XAUUSD). Gold is a macro-reactive, high-volatility instrument. Its character: sharp, explosive wick movements that frequently pierce structural levels before reversing — this is normal Gold behavior, not invalidation.
 
-SL awareness: Gold requires breathing room. Stops placed at obvious structural levels (equal highs/lows, session pivots) are routinely swept before the real move begins. A tight stop on Gold is a gift to the market. Give SL 1.5–2x normal pip distance to account for wick noise. When the regime is volatile, extend further.
+SL awareness: Gold requires breathing room. Stops placed at obvious structural levels (equal highs/lows, session pivots) are routinely swept before the real move begins. A tight stop on Gold is a gift to the market.
 
-TP awareness: Gold can run hard once a level clears — targets should respect the explosive nature of confirmed breakouts. Named structural levels (NY high/low, London high/low, daily high/low) are reliable targets. Partial liquidity sweeps are common — a confirmed close beyond a level carries more weight than a wick through it.`,
+TP awareness: Gold can run hard once a level clears. Named structural levels (prior session highs/lows, daily high/low) are observed reference points. Partial liquidity sweeps are common — a confirmed close beyond a level carries more weight than a wick through it. Do not tell Alpha where to place his TP.`,
     styleNotes: {
-      SCALP: `On a SCALP timeframe, Gold's M5 wicks are aggressive. Expect M5 candles with long wicks relative to body. Prefer entries that have already seen the wick-hunt complete (a wick through a level followed by a close back inside) rather than entering mid-wick. A tight scalp stop on Gold will be swept — build your SL from the wick extreme, not the body boundary.`,
-      MICRO_INTRADAY: `On MICRO_INTRADAY, Gold's M15 structure is more reliable than M5. Wait for M15 body confirmation — wicks alone are noise on this instrument. TP1 should target the near structural zone; Gold often reaches TP1 cleanly before reversing.`,
-      INTRADAY: `On INTRADAY, Gold's H1 structural moves are driven by macro sentiment sessions. NY session often sees the largest H1 directional commitment. Give SL extra room — H1 moves frequently wick through prior H1 levels before continuing.`,
+      SCALP: `On a SCALP timeframe, Gold's M5 wicks are aggressive. M5 candles with long wicks relative to body are routine on this instrument. Wick-hunt completions — a wick through a level followed by a close back inside — frequently precede the directional move. Stops placed at body boundaries rather than wick extremes are commonly swept on Gold.`,
+      MICRO_INTRADAY: `On MICRO_INTRADAY, Gold's M15 structure is more reliable than M5. M15 body closes carry more informational weight than wicks on this instrument. Gold frequently reaches the near structural zone before reversing.`,
+      INTRADAY: `On INTRADAY, Gold's H1 structural moves are driven by macro sentiment. H1 moves on Gold frequently wick through prior H1 levels before continuing — wick penetration of structure is not itself a signal of invalidation on this timeframe.`,
     },
   },
 
@@ -73,36 +73,36 @@ TP awareness: Gold can run hard once a level clears — targets should respect t
   {
     group: 'EURUSD',
     symbols: ['EURUSD'],
-    characterContext: `I am trading EUR/USD (EURUSD). This is the world's most liquid Forex pair. Its character: clean, structured price action with well-defined S/R levels. London session drives the majority of the daily range — the strongest moves typically occur 08:00–12:00 UTC. NY session continuation or reversal of the London move is common at the London/NY overlap. Asian session is slow and often consolidates in a tight range (30–50 pips).
+    characterContext: `I am trading EUR/USD (EURUSD). This is the world's most liquid Forex pair. Its character: clean, structured price action with well-defined S/R levels. EURUSD respects structural levels more consistently than Gold or Yen pairs — wick penetration of structure is less common here than on high-volatility instruments.
 
-SL awareness: EURUSD respects structural levels more consistently than Gold or Yen pairs. Stops 10–15 pips beyond a clear structural level are usually sufficient. Spread is tight, so entry precision matters. Avoid stops inside consolidation zones — place beyond the swing point.
+SL awareness: Structural levels on EURUSD are more often respected than swept. Tight spreads on this pair mean entry precision has a direct impact on the realized R:R of any given setup.
 
-TP awareness: EURUSD moves in clean measured waves. Named daily/session highs and lows are reliable targets. Avoid overstretching TP in slow Asian sessions — the range is naturally compressed.`,
+TP awareness: EURUSD moves in clean measured waves. Named daily and session highs/lows are observed structural reference points. The range during low-volume periods is naturally compressed compared to London and NY sessions.`,
   },
 
   // ── GBP/USD (GBPUSD) ───────────────────────────────────────────────────────
   {
     group: 'GBPUSD',
     symbols: ['GBPUSD'],
-    characterContext: `I am trading GBP/USD (GBPUSD). Cable is a London-dominant pair with higher volatility than EURUSD. Its character: strong directional impulses during London open and London/NY overlap, with frequent liquidity sweeps at obvious highs/lows before the true direction resolves. GBP reacts sharply to UK economic data and BOE sentiment shifts.
+    characterContext: `I am trading GBP/USD (GBPUSD). Cable is a London-dominant pair with higher volatility than EURUSD. Its character: strong directional impulses with frequent liquidity sweeps at obvious highs/lows before the true direction resolves. GBP reacts sharply to UK economic data and BOE sentiment shifts.
 
-SL awareness: GBP/USD is prone to sharp wicks at session opens — especially London open 08:00 UTC. Stops should account for a 5–10 pip sweep beyond structural levels during high-impact news windows. In clean trend conditions, structural stops are reliable. In choppy conditions, give extra breathing room.
+SL awareness: GBP/USD is prone to sharp wicks at session opens. Stops placed at structural levels during high-impact news windows are frequently swept. In clean trend conditions, structural levels hold more often. In choppy conditions, wick behavior is more erratic.
 
-TP awareness: Cable can produce strong impulsive legs of 50–100 pips from London open. Named prior session highs/lows and key 00/50 psychological levels are reliable targets. Post-NY open reversals of the London move are common — factor direction accordingly.`,
+TP awareness: Cable is capable of strong impulsive legs from session open. Named prior session highs/lows and key psychological levels (round numbers ending in 00 and 50) are observed structural reference points. Post-London-move reversals during the NY session are a recognized behavioral pattern on this pair.`,
   },
 
   // ── YEN PAIRS ──────────────────────────────────────────────────────────────
   {
     group: 'YEN_PAIRS',
     symbols: ['USDJPY', 'GBPJPY', 'EURJPY', 'AUDJPY'],
-    characterContext: `I am trading a Yen pair. Yen crosses share a distinctive behavioral character: fast, momentum-driven moves with sharp reversals. These pairs react strongly to risk sentiment — in risk-off environments they appreciate rapidly; in risk-on they sell off sharply. Asian session (Tokyo) produces genuine directional movement on Yen pairs, unlike most Forex crosses. London open often generates a liquidity sweep of the Asian session range before establishing the London direction.
+    characterContext: `I am trading a Yen pair. Yen crosses share a distinctive behavioral character: fast, momentum-driven moves with sharp reversals. These pairs react strongly to risk sentiment — risk-off and risk-on flows move Yen crosses aggressively. Tokyo session produces genuine directional movement on Yen pairs. London open frequently generates a liquidity sweep of the Asian session range before the London direction is established.
 
-SL awareness: Yen pairs can spike aggressively — especially GBPJPY which has the widest typical range. Stops placed too close to recent S/R will be swept. GBP/JPY in particular can wick 20–30 pips through a structural level before reversing. Give SL 1.25–1.5x the pip distance you would use on EURUSD. USDJPY is tighter behaving than the crosses.
+SL awareness: Yen pairs spike aggressively at structural levels. GBPJPY has the widest typical daily range of the group — structural levels on this pair are pierced more deeply and more frequently than on USDJPY. USDJPY is tighter-behaving than the crosses.
 
-TP awareness: When Yen pairs move, they move hard. Confirmed momentum in one direction often extends further than structure suggests. Named session levels (Tokyo high/low, London high/low) and key psychological round numbers (150.00, 155.00 on USDJPY) are powerful targets.`,
+TP awareness: When Yen pairs move, they extend further than structure alone suggests. Named session levels (Tokyo high/low, London high/low) and key psychological round numbers are observed reference points.`,
     styleNotes: {
-      SCALP: `On SCALP, Yen pairs have fast M5 candles with real pip velocity. A confirmed M5 close in direction is a strong signal. Wicks on M5 are common but usually smaller than on Gold. Entry precision matters — a few pips of slippage on Yen pairs changes the R:R meaningfully.`,
-      MICRO_INTRADAY: `On MICRO_INTRADAY, use the Tokyo session range as a reference frame. A London break of the Asian range (with M15 body confirmation) is a high-probability setup on Yen pairs. TP at the Asian range extension or prior session high/low.`,
+      SCALP: `On SCALP, Yen pairs have fast M5 candles with real pip velocity. A confirmed M5 body close in direction carries weight on this instrument. A few pips of difference in entry changes the R:R meaningfully on Yen pairs given their pip velocity.`,
+      MICRO_INTRADAY: `On MICRO_INTRADAY, the Tokyo session range is an observable reference frame for Yen pairs. A London break of the Asian range accompanied by an M15 body confirmation is a recognized behavioral pattern on these instruments.`,
     },
   },
 
@@ -110,15 +110,15 @@ TP awareness: When Yen pairs move, they move hard. Confirmed momentum in one dir
   {
     group: 'US_INDICES',
     symbols: ['US30', 'NAS100', 'SPX500'],
-    characterContext: `I am trading a US equity index. US indices (Dow Jones, NASDAQ, S&P 500) are session-gated instruments — they reach peak volatility at the NY open (13:30 UTC) and NY close (20:00 UTC). Pre-market (08:00–13:30 UTC) can show directional intent through futures pricing but with lower volume. The indices follow a common macro bias driven by US economic data, Fed sentiment, and broader risk appetite.
+    characterContext: `I am trading a US equity index. US indices (Dow Jones, NASDAQ, S&P 500) are session-gated instruments. They follow a common macro bias driven by US economic data, Fed sentiment, and broader risk appetite. Pre-market pricing can show directional intent but with lower volume than the active session.
 
-SL awareness: US indices print wide-ranging gap candles at NY open and can spike aggressively through obvious structural levels (previous day high/low, psychological round numbers like 40,000 on US30 or 20,000 on NAS100) before reversing. Stops placed at these obvious levels are frequently swept during the opening 15 minutes. Give SL adequate room beyond the nearest structural extreme. NAS100 has the highest intraday volatility of the three — it needs more SL room than SPX500 or US30 in equivalent setups.
+SL awareness: US indices print wide-ranging candles at the NY open and frequently spike through obvious structural levels (previous day high/low, psychological round numbers) before the session direction is established. Stops placed at these obvious levels are commonly swept in the early session minutes. NAS100 carries the highest intraday volatility of the three — structural sweeps on NAS100 are deeper than equivalent moves on SPX500 or US30. Major economic data releases (CPI, NFP) produce aggressive spike candles that frequently exceed intraday structural anchors.
 
-TP awareness: When these indices trend, they trend cleanly. Pre-NY consolidation followed by a clean NY break is a reliable setup. Named prior session highs/lows, yesterday's close, and round psychological numbers are the most reliable TP targets. Avoid holding through major US economic releases (CPI, NFP) without accounting for spike risk.`,
+TP awareness: When these indices trend from the NY session, they trend cleanly. Named prior session highs/lows, the prior day's close, and round psychological numbers are observed structural reference points.`,
     styleNotes: {
-      SCALP: `On SCALP, trade the first 30 minutes after NY open cautiously — the opening spike frequently sweeps both sides before direction is established. After the initial 15-minute range is set, scalp breaks of that range with tight SL just inside it.`,
-      MICRO_INTRADAY: `On MICRO_INTRADAY, the NY session opening move is your primary setup. An M15 confirmation close in the direction of pre-market bias after the initial spike is absorbed gives a cleaner entry. TP1 at the prior session high/low.`,
-      INTRADAY: `On INTRADAY, the daily trend is driven by the NY session. H1 candles from the NY session carry the most weight. Pre-market direction often reverses at NY open before the true daily direction emerges — read H1 structure from NY open forward.`,
+      SCALP: `On SCALP, the NY open on US indices frequently sweeps both the prior high and prior low before direction is established. The initial opening range, once set, tends to act as a boundary — breaks of that range after the initial volatility has resolved carry more directional weight.`,
+      MICRO_INTRADAY: `On MICRO_INTRADAY, the NY session opening move is the dominant event. M15 body confirmation after the initial spike has resolved tends to produce cleaner reads on these instruments than attempting to read direction during the opening spike itself.`,
+      INTRADAY: `On INTRADAY, H1 candles from the NY session carry the dominant directional information on US indices. Pre-market directional bias often reverses at NY open before the true daily direction emerges — H1 structure built after the NY open is more reliable than pre-market positioning.`,
     },
   },
 
@@ -126,14 +126,14 @@ TP awareness: When these indices trend, they trend cleanly. Pre-NY consolidation
   {
     group: 'EUROPEAN_INDICES',
     symbols: ['UK100', 'GER40'],
-    characterContext: `I am trading a European equity index (FTSE or DAX). European indices are London-session dominant — their peak activity and directional moves occur between 07:00–12:00 UTC. They often extend or reverse at the London/NY overlap (13:00–17:00 UTC) when US futures begin active trading. Post-NY open, European indices frequently fade their morning move or consolidate.
+    characterContext: `I am trading a European equity index (FTSE or DAX). European indices are London-session dominant. The London/NY overlap is a recognized inflection zone where European indices frequently extend or reverse their morning moves as US futures become active. Post-NY open, European indices commonly fade their morning move or consolidate.
 
-SL awareness: European indices have wide daily ranges driven by London open momentum. GER40 (DAX) is typically more volatile than UK100 (FTSE). Stops at obvious day-high or day-low will be swept during London open momentum. Give SL adequate room, especially for GER40 which can spike 50–80 points through structure.
+SL awareness: European indices have wide daily ranges during London session momentum. GER40 (DAX) is typically more volatile than UK100 (FTSE) — structural levels on GER40 are pierced more aggressively. Stops at obvious day-high or day-low during London open momentum are frequently swept. London open is a known high-wick-activity window on both instruments.
 
-TP awareness: London open breakouts are the primary setup. Prior day close, prior session high/low, and round numbers (e.g., 22,000 on GER40, 8,500 on UK100) are reliable targets. Fade trades at the London/NY overlap (NY open often reverses the London morning move) can produce clean setups.`,
+TP awareness: Prior day close, prior session high/low, and round numbers are observed structural reference points on these instruments. The London/NY overlap is a recognized reversal zone where the morning London move is commonly challenged.`,
     styleNotes: {
-      SCALP: `On SCALP, the first 30 minutes of London open (07:00–07:30 UTC) are aggressive — wicks are wide. Cleaner scalp setups emerge after the initial spike has been absorbed (07:30–09:00 UTC).`,
-      MICRO_INTRADAY: `On MICRO_INTRADAY, the best setups are London open breaks of the Asian session range confirmed on M15. TP1 at the prior session high/low is typically reached within the London morning.`,
+      SCALP: `On SCALP, the London open window on European indices is characterized by wide, aggressive wicks. The M5 wick behavior during the initial opening minutes is more erratic than after the opening momentum has been absorbed.`,
+      MICRO_INTRADAY: `On MICRO_INTRADAY, a London break of the prior Asian range confirmed on M15 is a recognized behavioral pattern on European indices. Prior session high/low is an observed structural reference for the London morning move.`,
     },
   },
 
@@ -141,15 +141,15 @@ TP awareness: London open breakouts are the primary setup. Prior day close, prio
   {
     group: 'CRYPTO',
     symbols: ['BTCUSD', 'ETHUSD'],
-    characterContext: `I am trading a cryptocurrency (Bitcoin or Ethereum). Crypto markets operate 24/7 with no session gaps — there is no session anchor like London open or NY open. However, US trading hours (13:00–22:00 UTC) typically produce the highest volume and most directional moves, as institutional crypto trading concentrates here. Weekend sessions are lower volume and prone to thin-liquidity sweeps.
+    characterContext: `I am trading a cryptocurrency (Bitcoin or Ethereum). Crypto markets operate 24/7 with no session gaps. US trading hours typically produce the highest volume and most directional moves on these instruments. Weekend and Asian sessions are characterized by lower volume — thin-liquidity sweeps of structural levels and round numbers are more common during these windows.
 
-SL awareness: Crypto has wide ATR and aggressive wick behavior at round-number levels (e.g., $100,000 on BTC, $3,000 on ETH) and obvious structural levels. False breaks through key levels followed by sharp reversals are common — especially in thin Asian/weekend sessions. Give SL 1.5–2x the pip distance of equivalent Forex stops. The spread on crypto is wider than Forex, which must be factored into net R:R calculation.
+SL awareness: Crypto carries wide ATR and aggressive wick behavior at round-number levels and obvious structural zones. False breaks through key levels followed by sharp reversals are a recognized pattern — particularly in low-volume windows. The spread on crypto is wider than on Forex pairs, which affects realized R:R directly.
 
-TP awareness: Crypto can trend persistently in one direction for hours once momentum is established. Momentum-continuation setups work well — look for pullbacks to broken structure (BOS retest) as entry, with TP at the next major round number or prior swing. Volume-confirmed breaks of psychological levels are powerful directional signals.`,
+TP awareness: Crypto is capable of extended trending moves once momentum is established. Volume-confirmed breaks of psychological levels carry directional weight. Prior day and prior week high/low are observed structural reference points.`,
     styleNotes: {
-      SCALP: `On SCALP, crypto M5 wicks at round numbers are extreme — do not place SL at the obvious level. After a wick-hunt sweep (a wick through a level followed by a close back above/below), this is often the cleanest scalp entry. Wait for the body confirmation, not the wick extreme.`,
-      MICRO_INTRADAY: `On MICRO_INTRADAY, the US session (13:00–22:00 UTC) is where the cleanest M15 structural moves occur. Asian session M15 moves are less reliable due to lower volume and wider spreads.`,
-      INTRADAY: `On INTRADAY, use the prior day's high/low and weekly levels as H1 structural targets. Crypto trends can extend 3–5 H1 ATRs in a single session — give campaigns room to run if the H1 trend is clear.`,
+      SCALP: `On SCALP, crypto M5 wicks at round numbers and structural levels are extreme relative to the candle body. Wick-hunt completions — a wick through a level followed by a body close back on the other side — are a recognized pre-move pattern on this instrument. M5 body closes carry more directional weight than wick extremes.`,
+      MICRO_INTRADAY: `On MICRO_INTRADAY, US session hours produce the cleanest M15 structural moves on crypto. Asian session M15 moves carry less structural weight due to lower volume and wider spreads during that window.`,
+      INTRADAY: `On INTRADAY, prior day and weekly high/low are the dominant H1 structural reference points on crypto. Crypto H1 trends are capable of extending multiple ATR units within a single session once momentum is confirmed.`,
     },
   },
 
@@ -157,33 +157,33 @@ TP awareness: Crypto can trend persistently in one direction for hours once mome
   {
     group: 'COMMODITY_FX',
     symbols: ['AUDUSD', 'NZDUSD', 'USDCAD'],
-    characterContext: `I am trading a commodity-linked currency pair. AUD/USD, NZD/USD, and USD/CAD are influenced by commodity prices (iron ore, agriculture, oil) and have a strong correlation to global risk sentiment. Asian session (Sydney/Tokyo) produces the most activity on AUD and NZD pairs. USD/CAD is US-session dominant due to its North American nature and correlation to oil prices.
+    characterContext: `I am trading a commodity-linked currency pair. AUD/USD, NZD/USD, and USD/CAD are influenced by commodity prices (iron ore, agriculture, oil) and carry a correlation to global risk sentiment. AUD and NZD pairs see their highest activity during Sydney/Tokyo session hours. USD/CAD is US-session dominant and carries a recognized correlation to oil prices — sharp oil price moves frequently transmit into USD/CAD intraday.
 
-SL awareness: These pairs generally have clean, well-structured price action with tighter wick behavior than Gold or Yen crosses. Standard structural stops (8–15 pips beyond the structural level) are usually sufficient. USD/CAD can spike aggressively during CAD economic data releases and oil price shocks.
+SL awareness: These pairs generally exhibit cleaner, less wick-aggressive price action than Gold or Yen crosses. USD/CAD is an exception during CAD data releases and oil price shocks — spike behavior on USDCAD during these events can exceed typical structural anchors.
 
-TP awareness: Session highs/lows are reliable targets. AUDUSD and NZDUSD tend to reverse strongly at multi-month range boundaries. USDCAD correlation with oil: when oil drops sharply, USD/CAD rises — factor macro context.`,
+TP awareness: Session highs/lows are observed structural reference points. AUDUSD and NZDUSD have a history of strong reversals at multi-month range boundaries. USDCAD's commodity correlation means its directional moves are sometimes driven by oil rather than pure technical structure.`,
   },
 
   // ── CHF PAIRS ──────────────────────────────────────────────────────────────
   {
     group: 'CHF_PAIRS',
     symbols: ['USDCHF', 'EURCHF'],
-    characterContext: `I am trading a Swiss Franc pair. CHF is a safe-haven currency that can move sharply and erratically during risk-off events (financial stress, geopolitical tension). In normal conditions, CHF pairs are slower-moving with moderate daily ranges. However, they are prone to violent, unexpected spikes during macro events — historical SNB interventions have moved these pairs 300–1000+ pips in minutes.
+    characterContext: `I am trading a Swiss Franc pair. CHF is a safe-haven currency. In normal market conditions, CHF pairs move at a moderate pace with defined daily ranges. During risk-off events (financial stress, geopolitical tension) and SNB intervention windows, CHF pairs are capable of violent, sudden moves that exceed any structural anchor — historical SNB events have produced moves of 300–1000+ pips in minutes with no warning.
 
-SL awareness: In normal conditions, standard structural stops are sufficient. In volatile macro environments (risk-off sentiment, SNB news), give extra SL room — CHF pairs can gap through structural levels without warning.
+SL awareness: In normal conditions, structural levels on CHF pairs are respected with reasonable consistency. During volatile macro environments or SNB event risk, gap behavior through structural levels is a recognized feature of this pair — structural stops do not provide guaranteed containment when SNB-style events occur.
 
-TP awareness: CHF pairs trend cleanly during sustained risk-off or risk-on periods. Named structural levels and psychological round numbers are reliable in trending conditions. Avoid tight TP targets during choppy, range-bound conditions.`,
+TP awareness: CHF pairs trend cleanly during sustained risk-on or risk-off periods. Named structural levels and psychological round numbers are reliable references in trending conditions. During choppy, range-bound conditions the pair lacks sustained follow-through.`,
   },
 
   // ── EUR CROSSES ────────────────────────────────────────────────────────────
   {
     group: 'EUR_CROSSES',
     symbols: ['EURGBP', 'EURAUD', 'EURNZD', 'EURCAD'],
-    characterContext: `I am trading a EUR cross pair. EUR crosses (EURGBP, EURAUD, EURNZD, EURCAD) are driven by the relative strength of the EUR against the counter currency. These pairs often move more slowly and in a more range-bound fashion than majors, with breakouts that can produce extended directional moves when they occur. Spread on cross pairs is typically wider than majors — factor this into R:R calculations explicitly.
+    characterContext: `I am trading a EUR cross pair. EUR crosses (EURGBP, EURAUD, EURNZD, EURCAD) are driven by the relative strength of EUR against the counter currency — moves on these pairs reflect dual-currency flows rather than a single macro driver. These pairs tend to move more slowly and spend more time in range-bound conditions than the majors, with breakouts that extend when they occur. Spread on cross pairs is typically wider than on majors, which has a direct effect on realized R:R.
 
-SL awareness: EUR crosses are generally less wick-aggressive than Yen crosses or Gold. Standard structural stops are usually sufficient, but give 2–3 pips extra to account for the wider spread. EURAUD and EURNZD can have sharp moves driven by commodity sentiment alongside EUR weakness/strength.
+SL awareness: EUR crosses are generally less wick-aggressive than Yen crosses or Gold. EURAUD and EURNZD are exceptions — commodity sentiment on the counter currency can produce sharper-than-expected moves on these two pairs when commodity flows are strong.
 
-TP awareness: Range boundaries are powerful levels on these pairs. A confirmed break of a multi-day range boundary (with a closed body beyond it) can produce a measured move equal to the prior range. Named structural levels from H4 and D1 are most reliable.`,
+TP awareness: Range boundaries are powerful reference points on these pairs. A confirmed body close beyond a multi-day range boundary on EUR crosses has historically been followed by a measured move. H4 and D1 structural levels carry more observable weight on these instruments than shorter-timeframe anchors.`,
   },
 ];
 
@@ -193,15 +193,15 @@ TP awareness: Range boundaries are powerful levels on these pairs. A confirmed b
 // ─────────────────────────────────────────────────────────────────────────────
 
 const CATEGORY_FALLBACK: Record<SymbolCategory, string> = {
-  forex: `I am trading a Forex pair. Forex markets are session-driven — London and NY sessions carry the highest volume and most reliable directional moves. Structural price action with well-defined S/R levels governs my read. Give SL adequate room beyond the structural anchor, accounting for session-specific volatility.`,
+  forex: `I am trading a Forex pair. Forex markets are session-driven — London and NY sessions carry the highest volume and most observable directional structure. Structural price action with well-defined S/R levels is the primary read on Forex instruments. Session-specific volatility affects how reliably structural levels are respected versus swept.`,
 
-  metal: `I am trading a precious metal. Metals are macro-reactive with aggressive wick behavior, especially during NY session. Structural levels are frequently swept before the real move begins — give SL extra room beyond the obvious structural point.`,
+  metal: `I am trading a precious metal. Metals are macro-reactive with aggressive wick behavior. Structural levels are frequently swept before the real move begins — wick penetration of obvious structural anchors is a recognized behavioral pattern on this instrument class, not necessarily an invalidation signal.`,
 
-  index: `I am trading an equity index. Indices are session-gated with peak volatility at market open. Opening spikes frequently sweep obvious structural levels — give SL room beyond the session open range. Named prior session highs/lows and psychological round numbers are reliable targets.`,
+  index: `I am trading an equity index. Indices are session-gated with peak volatility at market open. Opening spikes on indices frequently sweep obvious structural levels. Named prior session highs/lows and psychological round numbers are observed structural reference points.`,
 
-  crypto: `I am trading a cryptocurrency. Crypto operates 24/7 with no session anchor. Aggressive wick behavior at round-number and structural levels is the norm — give SL 1.5x the room you would give a Forex pair. US trading hours (13:00–22:00 UTC) produce the most reliable directional moves.`,
+  crypto: `I am trading a cryptocurrency. Crypto operates 24/7 with no session anchor. Aggressive wick behavior at round-number and structural levels is the norm on this instrument class. US trading hours (13:00–22:00 UTC) produce the most observable directional structure. Stops placed at obvious round-number and structural levels are routinely swept on crypto.`,
 
-  energy: `I am trading an energy instrument. Energy markets react sharply to supply/demand news, OPEC decisions, and geopolitical events. Volatility can spike without warning — give SL extra room and be aware that intraday moves may not reflect the longer-term structural trend.`,
+  energy: `I am trading an energy instrument. Energy markets react sharply to supply/demand news, OPEC decisions, and geopolitical events. Volatility spikes on energy instruments frequently exceed structural anchors without prior warning. Intraday moves do not always reflect the longer-term structural trend on this instrument class.`,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
